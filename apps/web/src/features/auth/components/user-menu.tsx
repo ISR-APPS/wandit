@@ -1,62 +1,98 @@
+import {
+	Avatar,
+	AvatarFallback,
+	AvatarImage,
+} from "@my-better-t-app/ui/components/avatar";
 import { Button } from "@my-better-t-app/ui/components/button";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuLabel,
+	DropdownMenuSeparator,
+	DropdownMenuTrigger,
 } from "@my-better-t-app/ui/components/dropdown-menu";
 import { Skeleton } from "@my-better-t-app/ui/components/skeleton";
-import { Link, useNavigate } from "@tanstack/react-router";
+import { useNavigate } from "@tanstack/react-router";
+import { LogOut } from "lucide-react";
 
-import { authClient } from "@/lib/auth-client";
+import { LedgerList } from "@/features/credits";
+import { AUTH_COPY } from "../lib/constants";
+import { signOut, useSession } from "../lib/session";
+import { useAuthModal } from "./auth-modal";
 
-export default function UserMenu() {
-  const navigate = useNavigate();
-  const { data: session, isPending } = authClient.useSession();
+function initials(name: string): string {
+	return (
+		name
+			.split(/\s+/)
+			.filter(Boolean)
+			.slice(0, 2)
+			.map((part) => part[0])
+			.join("")
+			.toUpperCase() || "?"
+	);
+}
 
-  if (isPending) {
-    return <Skeleton className="h-9 w-24" />;
-  }
+export function UserMenu() {
+	const navigate = useNavigate();
+	const { data: session, isPending } = useSession();
+	const { open } = useAuthModal();
 
-  if (!session) {
-    return (
-      <Link to="/login">
-        <Button variant="outline">Sign In</Button>
-      </Link>
-    );
-  }
+	if (isPending) {
+		return <Skeleton className="size-8 rounded-full" />;
+	}
 
-  return (
-    <DropdownMenu>
-      <DropdownMenuTrigger render={<Button variant="outline" />}>
-        {session.user.name}
-      </DropdownMenuTrigger>
-      <DropdownMenuContent className="bg-card">
-        <DropdownMenuGroup>
-          <DropdownMenuLabel>My Account</DropdownMenuLabel>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem>{session.user.email}</DropdownMenuItem>
-          <DropdownMenuItem
-            variant="destructive"
-            onClick={() => {
-              authClient.signOut({
-                fetchOptions: {
-                  onSuccess: () => {
-                    navigate({
-                      to: "/",
-                    });
-                  },
-                },
-              });
-            }}
-          >
-            Sign Out
-          </DropdownMenuItem>
-        </DropdownMenuGroup>
-      </DropdownMenuContent>
-    </DropdownMenu>
-  );
+	if (!session) {
+		return (
+			<Button type="button" variant="outline" size="sm" onClick={open}>
+				{AUTH_COPY.signIn}
+			</Button>
+		);
+	}
+
+	const { user } = session;
+
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger asChild>
+				<button
+					type="button"
+					aria-label={user.name}
+					className="rounded-full transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+				>
+					<Avatar className="size-8 border border-border">
+						{user.image ? (
+							<AvatarImage src={user.image} alt={user.name} />
+						) : null}
+						<AvatarFallback className="bg-gradient-ember font-display font-semibold text-[oklch(0.17_0.02_55)] text-xs">
+							{initials(user.name)}
+						</AvatarFallback>
+					</Avatar>
+				</button>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent align="end" className="w-64">
+				<DropdownMenuLabel className="flex flex-col gap-0.5 font-normal">
+					<span className="font-medium text-sm">{user.name}</span>
+					<span className="font-mono text-muted-foreground text-xs">
+						{user.email}
+					</span>
+				</DropdownMenuLabel>
+				<DropdownMenuSeparator />
+				<DropdownMenuLabel className="pb-0 text-[10px] text-muted-foreground uppercase tracking-widest">
+					{AUTH_COPY.creditsLabel}
+				</DropdownMenuLabel>
+				<LedgerList limit={3} className="px-1 pb-1" />
+				<DropdownMenuSeparator />
+				<DropdownMenuItem
+					variant="destructive"
+					onClick={() => {
+						void signOut().then(() => navigate({ to: "/" }));
+					}}
+				>
+					<LogOut className="size-4" />
+					{AUTH_COPY.signOut}
+				</DropdownMenuItem>
+			</DropdownMenuContent>
+		</DropdownMenu>
+	);
 }

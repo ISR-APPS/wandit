@@ -1,16 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 
+import DashboardPage from "@/features/projects/pages/dashboard-page";
+
 export const Route = createFileRoute("/_auth/dashboard")({
-  component: RouteComponent,
+	head: () => ({
+		meta: [{ title: "Projects — Wandit" }],
+	}),
+	component: DashboardPage,
 });
-
-function RouteComponent() {
-  const { session } = Route.useRouteContext();
-
-  return (
-    <div>
-      <h1>Dashboard</h1>
-      <p>Welcome {session.data?.user.name}</p>
-    </div>
-  );
-}
