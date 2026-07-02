@@ -69,21 +69,31 @@ export function hashString(value: string): number {
 }
 
 /** Which mock page family a project's next generation renders. */
-const PAGE_FAMILIES: Record<string, { prefix: string; count: number }> = {
-	p_montre: { prefix: "watch", count: 3 },
-	p_miel: { prefix: "honey", count: 2 },
-	p_serum: { prefix: "serum", count: 1 },
-	p_sneakers: { prefix: "sneakers", count: 2 },
-	p_ramadan: { prefix: "dates", count: 1 },
-	p_dentaire: { prefix: "dental", count: 1 },
-	p_formation: { prefix: "formation", count: 1 },
-	p_gaming: { prefix: "gaming", count: 1 },
+const PAGE_FAMILIES: Record<
+	string,
+	{ prefix: string; count: number; lang: "fr" | "ar" | "en" }
+> = {
+	p_montre: { prefix: "watch", count: 3, lang: "fr" },
+	p_miel: { prefix: "honey", count: 2, lang: "ar" },
+	p_serum: { prefix: "serum", count: 1, lang: "fr" },
+	p_sneakers: { prefix: "sneakers", count: 2, lang: "en" },
+	p_ramadan: { prefix: "dates", count: 1, lang: "fr" },
+	p_dentaire: { prefix: "dental", count: 1, lang: "fr" },
+	p_formation: { prefix: "formation", count: 1, lang: "fr" },
+	p_gaming: { prefix: "gaming", count: 1, lang: "en" },
 };
 
 export function pickPageKey(projectId: string, versionCount: number): string {
 	const family = PAGE_FAMILIES[projectId];
-	if (family && versionCount < family.count) {
-		return `${family.prefix}-${versionCount + 1}`;
+	if (family) {
+		if (versionCount < family.count) {
+			return `${family.prefix}-${versionCount + 1}`;
+		}
+		// The generic fallback family is French-only; keep AR/EN threads in
+		// their own language by cycling their family instead.
+		if (family.lang !== "fr") {
+			return `${family.prefix}-${(versionCount % family.count) + 1}`;
+		}
 	}
 	return `generic-${(versionCount % 3) + 1}`;
 }
@@ -128,4 +138,14 @@ export function downloadTextFile(
 	anchor.download = filename;
 	anchor.click();
 	URL.revokeObjectURL(url);
+}
+
+/**
+ * Opens page HTML in a new tab via a blob URL; the delayed revoke lets the
+ * tab finish loading without leaking the blob for the whole session.
+ */
+export function openHtmlInNewTab(html: string): void {
+	const url = URL.createObjectURL(new Blob([html], { type: "text/html" }));
+	window.open(url, "_blank", "noopener");
+	window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }

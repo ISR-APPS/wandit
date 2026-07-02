@@ -178,3 +178,29 @@ export function renameMockProject(id: string, name: string): Project {
 export function deleteMockProject(id: string): void {
 	persist(load().filter((p) => p.id !== id));
 }
+
+/**
+ * Mirror a deployment change onto the project record so the dashboard card
+ * badge and switcher dot agree with the workspace's publish state. In
+ * production this is one row the API keeps consistent; the mock keeps the
+ * two stores reconciled here.
+ */
+export function setMockProjectStatus(
+	id: string,
+	patch: { status: Project["status"]; publishedSlug?: string | null },
+): Project | undefined {
+	const projects = load();
+	const target = projects.find((p) => p.id === id);
+	if (!target) return undefined;
+	const updated: Project = {
+		...target,
+		status: patch.status,
+		publishedSlug:
+			patch.publishedSlug === undefined
+				? target.publishedSlug
+				: (patch.publishedSlug ?? undefined),
+		updatedAt: new Date().toISOString(),
+	};
+	persist(projects.map((p) => (p.id === id ? updated : p)));
+	return updated;
+}

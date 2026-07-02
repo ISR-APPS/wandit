@@ -20,7 +20,13 @@ import {
 import { toast } from "sonner";
 
 import { CREDIT_COSTS, useCredits } from "@/features/credits";
-import { type Project, useProjectQuery } from "@/features/projects";
+import {
+	type Project,
+	type ProjectStatus,
+	projectKeys,
+	setMockProjectStatus,
+	useProjectQuery,
+} from "@/features/projects";
 import type {
 	ChatMessage,
 	PageLang,
@@ -76,7 +82,8 @@ type WorkspaceContextValue = {
 	isGenerating: boolean;
 	pendingVersionNumber: number;
 	streamingMessage: ChatMessage | null;
-	sendPrompt: (prompt: string) => void;
+	/** Returns false when the run was refused (busy or insufficient credits). */
+	sendPrompt: (prompt: string) => boolean;
 	generationCost: number;
 	insufficientOpen: boolean;
 	setInsufficientOpen: (open: boolean) => void;
@@ -161,6 +168,18 @@ export function WorkspaceProvider({
 			getWorkspaceSnapshot(projectId),
 		);
 	}, [queryClient, projectId]);
+
+	// Keep the projects store/cache coherent with deployment transitions so
+	// the switcher dot and the dashboard cards tell the same story.
+	const syncProjectStatus = useCallback(
+		(patch: { status: ProjectStatus; publishedSlug?: string | null }) => {
+			const updated = setMockProjectStatus(projectId, patch);
+			if (!updated) return;
+			queryClient.setQueryData(projectKeys.detail(projectId), updated);
+			void queryClient.invalidateQueries({ queryKey: projectKeys.lists() });
+		},
+		[projectId, queryClient],
+	);
 
 	const generationCost = CREDIT_COSTS.generation;
 
@@ -257,21 +276,27 @@ export function WorkspaceProvider({
 	);
 
 	const runGeneration = useCallback(
-		(prompt: string, charge: boolean) => {
-			if (phaseRef.current !== "idle") return;
+		(
+			prompt: string,
+			charge: boolean,
+			opts?: { skipUserMessage?: boolean },
+		): boolean => {
+			if (phaseRef.current !== "idle") return false;
 			if (charge && !canAfford(generationCost)) {
 				setInsufficientOpen(true);
-				return;
+				return false;
 			}
 			const before = getWorkspaceSnapshot(projectId);
 			const isFirst = before.versions.length === 0;
 			const versionNumber =
 				before.versions.reduce((max, v) => Math.max(max, v.number), 0) + 1;
-			appendMockMessage(projectId, {
-				role: "user",
-				parts: [{ type: "text", text: prompt }],
-			});
-			refreshState();
+			if (!opts?.skipUserMessage) {
+				appendMockMessage(projectId, {
+					role: "user",
+					parts: [{ type: "text", text: prompt }],
+				});
+				refreshState();
+			}
 
 			// Resolve the upcoming version's page (and language) up front so the
 			// streamed assistant reply matches the thread's language.
@@ -343,6 +368,7 @@ export function WorkspaceProvider({
 					}
 				}, STREAM_WORD_INTERVAL_MS);
 			}, THINKING_DELAY_MS);
+			return true;
 		},
 		[projectId, canAfford, schedule, setPhase, refreshState, finishGeneration],
 	);
@@ -366,6 +392,26 @@ export function WorkspaceProvider({
 		runGeneration(project.prompt, false);
 	}, [projectQuery.data, stateQuery.data, runGeneration]);
 
+	// Resume a generation interrupted by reload/navigation — the mock store
+	// then holds a trailing unanswered user message. First generations were
+	// already charged at project creation; interrupted iterations never
+	// charged (charging happens on completion), so re-running charges once.
+	const recoveredRef = useRef(false);
+	useEffect(() => {
+		if (recoveredRef.current) return;
+		const state = stateQuery.data;
+		if (!state || phaseRef.current !== "idle") return;
+		const last = state.messages.at(-1);
+		if (last?.role !== "user") return;
+		const text = last.parts
+			.map((part) => (part.type === "text" ? part.text : ""))
+			.join("")
+			.trim();
+		if (!text) return;
+		recoveredRef.current = true;
+		runGeneration(text, state.versions.length > 0, { skipUserMessage: true });
+	}, [stateQuery.data, runGeneration]);
+
 	// --- publish simulation --------------------------------------------------
 
 	const runPublish = useCallback(
@@ -376,7 +422,12 @@ export function WorkspaceProvider({
 			const slug =
 				snapshot.deployment.slug ??
 				slugify(projectRef.current?.name ?? "", fallbackSlug);
-			patchMockDeployment(projectId, { state: "publishing", slug });
+			patchMockDeployment(projectId, {
+				state: "publishing",
+				slug,
+				pendingVersionId: versionId,
+			});
+			syncProjectStatus({ status: "publishing" });
 			refreshState();
 			publishTimerActiveRef.current = true;
 			schedule(() => {
@@ -384,13 +435,18 @@ export function WorkspaceProvider({
 				const deployment = patchMockDeployment(projectId, {
 					state: "published",
 					publishedVersionId: versionId,
+					pendingVersionId: null,
 					publishedAt: new Date().toISOString(),
+				});
+				syncProjectStatus({
+					status: "published",
+					publishedSlug: deployment.slug,
 				});
 				refreshState();
 				toast.success(successToast(`${deployment.slug}${PUBLISHED_DOMAIN}`));
 			}, PUBLISH_DURATION_MS);
 		},
-		[projectId, schedule, refreshState],
+		[projectId, schedule, refreshState, syncProjectStatus],
 	);
 
 	const publish = useCallback(() => {
@@ -426,11 +482,13 @@ export function WorkspaceProvider({
 		patchMockDeployment(projectId, {
 			state: "draft",
 			publishedVersionId: null,
+			pendingVersionId: null,
 			publishedAt: null,
 		});
+		syncProjectStatus({ status: "draft", publishedSlug: null });
 		refreshState();
 		toast.success(WORKSPACE_COPY.publish.unpublishedToast);
-	}, [projectId, refreshState]);
+	}, [projectId, refreshState, syncProjectStatus]);
 
 	// Recover deployments stuck in "publishing" (seeded that way, or a publish
 	// interrupted by navigation) by completing them shortly after mount.
@@ -448,8 +506,16 @@ export function WorkspaceProvider({
 			const deployment = patchMockDeployment(projectId, {
 				state: "published",
 				publishedVersionId:
-					snapshot.deployment.publishedVersionId ?? latest?.id ?? null,
+					snapshot.deployment.pendingVersionId ??
+					snapshot.deployment.publishedVersionId ??
+					latest?.id ??
+					null,
+				pendingVersionId: null,
 				publishedAt: new Date().toISOString(),
+			});
+			syncProjectStatus({
+				status: "published",
+				publishedSlug: deployment.slug,
 			});
 			refreshState();
 			toast.success(
@@ -458,7 +524,13 @@ export function WorkspaceProvider({
 				),
 			);
 		}, PUBLISH_DURATION_MS);
-	}, [stateQuery.data?.deployment.state, projectId, schedule, refreshState]);
+	}, [
+		stateQuery.data?.deployment.state,
+		projectId,
+		schedule,
+		refreshState,
+		syncProjectStatus,
+	]);
 
 	// --- settings ------------------------------------------------------------
 

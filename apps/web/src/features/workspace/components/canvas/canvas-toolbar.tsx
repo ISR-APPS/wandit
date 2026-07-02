@@ -19,8 +19,9 @@ import {
 } from "lucide-react";
 import type * as React from "react";
 
+import { getVersionPage } from "../../api/workspace.services";
 import { WORKSPACE_COPY } from "../../lib/constants";
-import { getMockPage } from "../../lib/mock-pages";
+import { openHtmlInNewTab } from "../../lib/helpers";
 import { useWorkspace, type Viewport } from "../../lib/store";
 import { VersionSwitcher } from "./version-switcher";
 
@@ -69,11 +70,8 @@ export function CanvasToolbar({ onReload }: { onReload: () => void }) {
 
 	const openInNewTab = () => {
 		if (!activeVersion) return;
-		const page = getMockPage(activeVersion.pageKey, { title: project?.name });
-		const url = URL.createObjectURL(
-			new Blob([page.html], { type: "text/html" }),
-		);
-		window.open(url, "_blank", "noopener");
+		const page = getVersionPage(activeVersion.pageKey, project?.name);
+		openHtmlInNewTab(page.html);
 	};
 
 	const viewportButton = (

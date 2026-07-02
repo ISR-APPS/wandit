@@ -16,8 +16,9 @@ import type * as React from "react";
 import { thumbGradient } from "@/features/projects";
 import { relativeTime } from "@/lib/relative-time";
 import type { PageVersion } from "../../api/dto";
+import { getVersionPage } from "../../api/workspace.services";
 import { WORKSPACE_COPY } from "../../lib/constants";
-import { getMockPage } from "../../lib/mock-pages";
+import { openHtmlInNewTab } from "../../lib/helpers";
 import { useWorkspace } from "../../lib/store";
 
 export function AssetCard({ version }: { version: PageVersion }) {
@@ -28,9 +29,8 @@ export function AssetCard({ version }: { version: PageVersion }) {
 
 	const handleOpenInNewTab = (event: React.MouseEvent) => {
 		event.stopPropagation();
-		const { html } = getMockPage(version.pageKey, { title: project?.name });
-		const url = URL.createObjectURL(new Blob([html], { type: "text/html" }));
-		window.open(url, "_blank", "noopener,noreferrer");
+		const { html } = getVersionPage(version.pageKey, project?.name);
+		openHtmlInNewTab(html);
 	};
 
 	return (
@@ -106,7 +106,7 @@ export function AssetCard({ version }: { version: PageVersion }) {
 						size="icon-sm"
 						aria-label={WORKSPACE_COPY.assets.openInNewTab}
 						onClick={handleOpenInNewTab}
-						className="absolute top-2 right-2 z-10 size-7 opacity-0 shadow-sm transition-opacity duration-150 focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100"
+						className="pointer-events-none absolute top-2 right-2 z-10 size-7 opacity-0 shadow-sm transition-opacity duration-150 focus-visible:pointer-events-auto focus-visible:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
 					>
 						<ExternalLink className="size-4" />
 					</Button>

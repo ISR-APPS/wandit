@@ -44,7 +44,7 @@ function WorkspaceLayout() {
 				<WorkspaceHeader />
 
 				{/* Tabs move to their own row below the header on small screens. */}
-				<div className="flex h-11 shrink-0 items-center justify-center border-b px-3 md:hidden">
+				<div className="flex h-11 shrink-0 items-center justify-center border-b px-3 lg:hidden">
 					<WorkspaceTabs />
 				</div>
 

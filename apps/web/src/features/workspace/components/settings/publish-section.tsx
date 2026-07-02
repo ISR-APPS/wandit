@@ -19,16 +19,20 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { relativeTime } from "@/lib/relative-time";
-import { PUBLISHED_DOMAIN, WORKSPACE_COPY } from "../../lib/constants";
-import { hashString, isValidSlug } from "../../lib/helpers";
+import {
+	PUBLISHED_DOMAIN,
+	SLUG_CHECK_DEBOUNCE_MS,
+	WORKSPACE_COPY,
+} from "../../lib/constants";
+import { hashString, isValidSlug, slugify } from "../../lib/helpers";
 import { useWorkspace } from "../../lib/store";
 
 const COPY = WORKSPACE_COPY.settings;
-const SLUG_CHECK_DEBOUNCE_MS = 500;
 
 export function PublishSection() {
 	const {
 		state,
+		project,
 		versions,
 		liveUrl,
 		publish,
@@ -51,8 +55,14 @@ export function PublishSection() {
 
 	const slugValid = isValidSlug(slug);
 	const slugUnchanged = slug === savedSlug;
+	// The publish flow auto-assigns slugify(project.name) without a check,
+	// so the mock availability rule must never contradict it.
+	const autoSlug = project ? slugify(project.name, "") : "";
 	const slugTaken =
-		slugValid && hashString(slug) % 5 === 0 && slug !== deployment?.slug;
+		slugValid &&
+		hashString(slug) % 5 === 0 &&
+		slug !== deployment?.slug &&
+		slug !== autoSlug;
 
 	// Mock availability check — debounced so the verdict lands after typing.
 	useEffect(() => {
@@ -131,7 +141,14 @@ export function PublishSection() {
 								{COPY.notPublished}
 							</p>
 							<Button
-								onClick={() => publish()}
+								onClick={() => {
+									// Carry a valid unsaved slug edit into the publish so the
+									// site doesn't go live on a stale name-derived slug.
+									if (slugDirty && slugValid && !slugTaken && !slugUnchanged) {
+										updateSlug(slug);
+									}
+									publish();
+								}}
 								disabled={versions.length === 0 || publishing}
 							>
 								{publishing ? (

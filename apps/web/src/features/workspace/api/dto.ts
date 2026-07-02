@@ -49,6 +49,9 @@ export type Deployment = {
 	state: DeploymentState;
 	slug: string | null;
 	publishedVersionId: string | null;
+	/** Version a publish in flight is targeting — lets an interrupted
+	 * publish/rollback recover onto the version that was requested. */
+	pendingVersionId: string | null;
 	publishedAt: string | null;
 };
 

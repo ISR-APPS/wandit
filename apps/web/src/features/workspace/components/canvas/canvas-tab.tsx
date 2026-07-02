@@ -8,8 +8,8 @@ import { motion } from "motion/react";
 import { useEffect, useMemo, useState } from "react";
 
 import { Spark } from "@/components/logo";
+import { getVersionPage } from "../../api/workspace.services";
 import { WORKSPACE_COPY } from "../../lib/constants";
-import { getMockPage } from "../../lib/mock-pages";
 import { useWorkspace } from "../../lib/store";
 import { CanvasToolbar } from "./canvas-toolbar";
 
@@ -41,7 +41,7 @@ function PreviewStage({ reloadKey }: { reloadKey: number }) {
 	const html = useMemo(
 		() =>
 			activeVersion
-				? getMockPage(activeVersion.pageKey, { title: project?.name }).html
+				? getVersionPage(activeVersion.pageKey, project?.name).html
 				: "",
 		[activeVersion, project?.name],
 	);

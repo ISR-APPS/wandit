@@ -59,6 +59,10 @@ export function LeadsCounters({ leads }: { leads: Lead[] }) {
 			>
 				<div className="text-muted-foreground text-xs">
 					{WORKSPACE_COPY.leads.counterConfirmation}
+					<span className="sr-only">
+						{" "}
+						({WORKSPACE_COPY.leads.confirmationHint})
+					</span>
 				</div>
 				<div className="mt-1 font-medium font-mono text-2xl tabular-nums">
 					{rate === null ? "—" : `${rate}%`}

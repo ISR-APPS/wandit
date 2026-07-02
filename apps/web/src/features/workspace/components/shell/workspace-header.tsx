@@ -45,7 +45,7 @@ export function WorkspaceHeader() {
 			/>
 			<ProjectSwitcher />
 
-			<div className="absolute left-1/2 hidden -translate-x-1/2 md:block">
+			<div className="absolute left-1/2 hidden -translate-x-1/2 lg:block">
 				<WorkspaceTabs />
 			</div>
 

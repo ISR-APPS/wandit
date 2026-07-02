@@ -5,6 +5,7 @@
 // lib/store.tsx, which mutates the mock store through the sync helpers
 // re-exported below and refreshes the query cache itself.
 
+import { getMockPage, type MockPage } from "../lib/mock-pages";
 import { getWorkspaceSnapshot } from "../lib/mock-workspace";
 import type { WorkspaceState } from "./dto";
 
@@ -18,6 +19,15 @@ export async function fetchWorkspaceState(
 ): Promise<WorkspaceState> {
 	await latency();
 	return getWorkspaceSnapshot(projectId);
+}
+
+/**
+ * Resolves a version's renderable page — mock HTML today, an authed fetch of
+ * the preview file later. Components go through this seam rather than
+ * importing lib/mock-pages directly so the swap stays contained.
+ */
+export function getVersionPage(pageKey: string, title?: string): MockPage {
+	return getMockPage(pageKey, { title });
 }
 
 // Sync mutators for the client-side job simulation (lib/store.tsx) and the

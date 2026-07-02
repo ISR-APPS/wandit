@@ -83,6 +83,7 @@ export function PublishButton() {
 				<Button
 					size="sm"
 					variant="outline"
+					aria-label={COPY.published}
 					className="h-8 gap-1.5 rounded-lg px-3"
 				>
 					<span

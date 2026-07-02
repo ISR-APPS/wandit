@@ -37,6 +37,8 @@ export const THINKING_DELAY_MS = 650;
 export const STREAM_WORD_INTERVAL_MS = 30;
 export const BUILD_DURATION_MS = 2600;
 export const PUBLISH_DURATION_MS = 2200;
+export const GENERATING_STEP_INTERVAL_MS = 1400;
+export const SLUG_CHECK_DEBOUNCE_MS = 500;
 
 /** Badge variant + select dot per lead status, in pipeline order. */
 export const LEAD_STATUS_ORDER: LeadStatus[] = [
@@ -142,6 +144,7 @@ export const ITERATION_REPLIES: Record<PageLang, string[]> = {
 
 export const WORKSPACE_COPY = {
 	backToDashboard: "Back to dashboard",
+	tabsAriaLabel: "Workspace views",
 
 	switcher: {
 		menuLabel: "Projects",

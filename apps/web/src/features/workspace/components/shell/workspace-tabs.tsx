@@ -5,7 +5,7 @@ import { cn } from "@my-better-t-app/ui/lib/utils";
 import { motion } from "motion/react";
 import { useId } from "react";
 
-import { WORKSPACE_TABS } from "../../lib/constants";
+import { WORKSPACE_COPY, WORKSPACE_TABS } from "../../lib/constants";
 import { useWorkspace } from "../../lib/store";
 
 export function WorkspaceTabs({ className }: { className?: string }) {
@@ -13,9 +13,10 @@ export function WorkspaceTabs({ className }: { className?: string }) {
 	const pillId = useId();
 
 	return (
-		<div
-			role="tablist"
-			aria-label="Workspace views"
+		// The tabs navigate (they drive the ?tab= search param), so nav is the
+		// honest semantic wrapper; buttons stay aria-pressed toggles.
+		<nav
+			aria-label={WORKSPACE_COPY.tabsAriaLabel}
 			className={cn(
 				"flex items-center gap-0.5 rounded-full border border-border/70 bg-muted/40 p-0.5",
 				className,
@@ -27,9 +28,9 @@ export function WorkspaceTabs({ className }: { className?: string }) {
 				return (
 					<button
 						key={def.value}
-						role="tab"
 						type="button"
-						aria-selected={isActive}
+						aria-pressed={isActive}
+						aria-label={def.label}
 						onClick={() => setTab(def.value)}
 						className={cn(
 							"relative flex h-8 items-center gap-1.5 rounded-full px-3 font-medium text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50",
@@ -56,6 +57,6 @@ export function WorkspaceTabs({ className }: { className?: string }) {
 					</button>
 				);
 			})}
-		</div>
+		</nav>
 	);
 }

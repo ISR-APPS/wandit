@@ -17,7 +17,10 @@ const COPY = {
 } as const;
 
 export type PromptBoxProps = {
-	onSubmit: (prompt: string) => void | Promise<void>;
+	/** A sync `false` return means nothing was sent (e.g. insufficient
+	 * credits) — the box then keeps the draft even with clearOnSubmit. */
+	// biome-ignore lint/suspicious/noConfusingVoidType: void keeps fire-and-forget callers assignable
+	onSubmit: (prompt: string) => void | boolean | Promise<void | boolean>;
 	variant?: "hero" | "compact";
 	placeholder?: string;
 	showPriceTag?: boolean;
@@ -59,6 +62,7 @@ export function PromptBox({
 
 	// Initial mount + variant change (typing resizes synchronously in
 	// onChange); also re-measures after a programmatic clear (clearOnSubmit).
+	// biome-ignore lint/correctness/useExhaustiveDependencies: value is an intentional re-measure trigger
 	useEffect(() => {
 		resize();
 	}, [resize, value]);
@@ -71,8 +75,8 @@ export function PromptBox({
 	const handleSubmit = () => {
 		const prompt = value.trim();
 		if (!prompt || isSubmitting) return;
-		void onSubmit(prompt);
-		if (clearOnSubmit) setValue("");
+		const result = onSubmit(prompt);
+		if (clearOnSubmit && result !== false) setValue("");
 	};
 
 	const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -101,6 +105,11 @@ export function PromptBox({
 					value={value}
 					onChange={handleChange}
 					onKeyDown={handleKeyDown}
+					dir="auto"
+					aria-label={
+						placeholder ??
+						(isHero ? COPY.placeholderHero : COPY.placeholderCompact)
+					}
 					placeholder={
 						placeholder ??
 						(isHero ? COPY.placeholderHero : COPY.placeholderCompact)

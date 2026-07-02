@@ -77,9 +77,11 @@ export function GeneralSection() {
 					<div className="flex items-center gap-2">
 						<Input
 							id="settings-project-name"
+							dir="auto"
 							value={name}
 							onChange={(e) => setName(e.target.value)}
 							maxLength={PROJECT_NAME_MAX_LENGTH}
+							disabled={rename.isPending}
 						/>
 						<Button size="sm" onClick={handleNameSave} disabled={nameDisabled}>
 							{rename.isPending ? (

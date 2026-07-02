@@ -22,7 +22,7 @@ export function ChatMessageView({
 			<div className="flex justify-end">
 				<div
 					dir="auto"
-					className="max-w-[85%] whitespace-pre-wrap rounded-2xl rounded-br-md border border-border/60 bg-secondary px-3.5 py-2.5 text-sm leading-relaxed"
+					className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl rounded-br-md border border-border/60 bg-secondary px-3.5 py-2.5 text-sm leading-relaxed"
 				>
 					{textContent}
 				</div>
@@ -47,7 +47,7 @@ export function ChatMessageView({
 							// biome-ignore lint/suspicious/noArrayIndexKey: parts are positional
 							key={index}
 							dir="auto"
-							className="whitespace-pre-wrap text-foreground/90 text-sm leading-relaxed"
+							className="whitespace-pre-wrap break-words text-foreground/90 text-sm leading-relaxed"
 						>
 							{part.text}
 							{isStreaming && isLastPart ? (

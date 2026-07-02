@@ -31,6 +31,7 @@ export function ChatPane() {
 		streamingMessage,
 		generationPhase,
 		isGenerating,
+		pendingVersionNumber,
 		sendPrompt,
 		generationCost,
 		insufficientOpen,
@@ -51,6 +52,9 @@ export function ChatPane() {
 
 	return (
 		<aside
+			// inert removes the collapsed pane's controls from tab order and AT
+			// on desktop, where it only shrinks to w-0 (mobile gets display:none).
+			inert={!chatOpen}
 			className={cn(
 				"relative z-30 h-full min-h-0 shrink-0 overflow-hidden border-r bg-sidebar transition-[width] duration-300 ease-in-out",
 				"max-md:absolute max-md:inset-0 max-md:z-30 max-md:w-full max-md:border-r-0",
@@ -58,6 +62,14 @@ export function ChatPane() {
 			)}
 		>
 			<div className="flex h-full w-full flex-col md:w-[380px]">
+				{/* Screenreader announcement for the otherwise-visual job states. */}
+				<span aria-live="polite" className="sr-only">
+					{generationPhase === "thinking" || generationPhase === "streaming"
+						? COPY.thinking
+						: generationPhase === "building"
+							? WORKSPACE_COPY.canvas.generatingTitle(pendingVersionNumber)
+							: ""}
+				</span>
 				<div className="flex h-11 shrink-0 items-center justify-between border-b px-3">
 					<span className="flex items-center gap-2 font-medium text-sm">
 						<MessagesSquare className="size-4 text-muted-foreground" />
