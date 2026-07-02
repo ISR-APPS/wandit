@@ -7,7 +7,7 @@ import { AppWindow, Images, Settings2, Users } from "lucide-react";
 import type { LeadStatus, PageLang, WorkspaceTab } from "../api/dto";
 
 export const WORKSPACE_TAB_VALUES = [
-	"canvas",
+	"page",
 	"assets",
 	"leads",
 	"settings",
@@ -20,7 +20,7 @@ export type WorkspaceTabDef = {
 };
 
 export const WORKSPACE_TABS: WorkspaceTabDef[] = [
-	{ value: "canvas", label: "Canvas", icon: AppWindow },
+	{ value: "page", label: "Page", icon: AppWindow },
 	{ value: "assets", label: "Assets", icon: Images },
 	{ value: "leads", label: "Leads", icon: Users },
 	{ value: "settings", label: "Settings", icon: Settings2 },
@@ -31,6 +31,10 @@ export const PUBLISHED_DOMAIN = ".wandit.app";
 
 export const LEADS_PAGE_SIZE = 12;
 export const CHAT_OPEN_STORAGE_KEY = "wandit-workspace-chat-open";
+/** react-resizable-panels autoSaveId — persists chat/main split width. */
+export const WORKSPACE_PANELS_STORAGE_ID = "wandit-workspace-panels";
+/** Assets tab view mode (grid vs freeform board), mirrors chat-open persistence. */
+export const ASSETS_VIEW_STORAGE_KEY = "wandit-workspace-assets-view";
 
 // Mock job pacing (ms) — tuned to feel like a real queue without dragging.
 export const THINKING_DELAY_MS = 650;
@@ -178,7 +182,7 @@ export const WORKSPACE_COPY = {
 		emptyBody: "Describe your page and the AI will generate it here.",
 	},
 
-	canvas: {
+	page: {
 		versionShort: (n: number) => `v${n}`,
 		latestSuffix: "Latest",
 		liveBadge: "Live",
@@ -206,11 +210,14 @@ export const WORKSPACE_COPY = {
 		kindLandingPage: "Landing page",
 		liveBadge: "Live",
 		currentBadge: "Viewing",
-		openInCanvas: "Open in canvas",
+		openOnPage: "View on page",
 		openInNewTab: "Open in new tab",
 		versionTitle: (n: number) => `Version ${n}`,
 		emptyTitle: "No assets yet",
 		emptyBody: "Generated pages (and soon images and videos) appear here.",
+		libraryView: "Library",
+		canvasView: "Canvas",
+		viewToggleAriaLabel: "Assets view",
 	},
 
 	leads: {

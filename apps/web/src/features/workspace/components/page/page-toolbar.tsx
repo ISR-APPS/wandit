@@ -1,5 +1,7 @@
-// Canvas toolbar: chat expander, version switcher, generation status,
-// viewport toggle and preview actions.
+// Page toolbar: chat expander, version switcher, generation status,
+// viewport toggle and preview actions. The trailing action group is the
+// reserved slot for the future edit-mode toggle that opens the right-side
+// element-inspector rail (click-to-edit, post-MVP — see docs/PRD.md #4).
 
 import { Button } from "@wandit/ui/components/button";
 import { Separator } from "@wandit/ui/components/separator";
@@ -25,7 +27,7 @@ import { openHtmlInNewTab } from "../../lib/helpers";
 import { useWorkspace, type Viewport } from "../../lib/store";
 import { VersionSwitcher } from "./version-switcher";
 
-const COPY = WORKSPACE_COPY.canvas;
+const COPY = WORKSPACE_COPY.page;
 
 function IconAction({
 	label,
@@ -56,7 +58,7 @@ function IconAction({
 	);
 }
 
-export function CanvasToolbar({ onReload }: { onReload: () => void }) {
+export function PageToolbar({ onReload }: { onReload: () => void }) {
 	const {
 		chatOpen,
 		toggleChat,

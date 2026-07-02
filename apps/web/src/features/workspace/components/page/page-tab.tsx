@@ -1,5 +1,7 @@
-// The polymorphic canvas: preview stage rendering the active version in a
+// The Page tab: preview stage rendering the active landing-page version in a
 // sandboxed iframe (mobile frame by default), plus generating/empty states.
+// The right edge of the stage is reserved column space for a future
+// element-inspector rail (click-to-edit, post-MVP) — see page-toolbar.tsx.
 
 import { Button } from "@wandit/ui/components/button";
 import { Skeleton } from "@wandit/ui/components/skeleton";
@@ -11,15 +13,15 @@ import { Spark } from "@/components/logo";
 import { getVersionPage } from "../../api/workspace.services";
 import { WORKSPACE_COPY } from "../../lib/constants";
 import { useWorkspace } from "../../lib/store";
-import { CanvasToolbar } from "./canvas-toolbar";
+import { PageToolbar } from "./page-toolbar";
 
-const COPY = WORKSPACE_COPY.canvas;
+const COPY = WORKSPACE_COPY.page;
 
-export function CanvasTab() {
+export function PageTab() {
 	const [reloadKey, setReloadKey] = useState(0);
 	return (
 		<div className="flex h-full min-h-0 flex-col">
-			<CanvasToolbar onReload={() => setReloadKey((key) => key + 1)} />
+			<PageToolbar onReload={() => setReloadKey((key) => key + 1)} />
 			<div className="relative min-h-0 flex-1 overflow-hidden">
 				<div aria-hidden className="absolute inset-0 bg-dots" />
 				<PreviewStage reloadKey={reloadKey} />
@@ -57,7 +59,7 @@ function PreviewStage({ reloadKey }: { reloadKey: number }) {
 	if (!activeVersion) {
 		return (
 			<div className="relative flex h-full items-center justify-center p-6">
-				{isGenerating ? <GeneratingPanel /> : <EmptyCanvas />}
+				{isGenerating ? <GeneratingPanel /> : <EmptyPreview />}
 			</div>
 		);
 	}
@@ -157,7 +159,7 @@ function GeneratingPanel() {
 	);
 }
 
-function EmptyCanvas() {
+function EmptyPreview() {
 	const { chatOpen, toggleChat } = useWorkspace();
 	return (
 		<div className="relative flex flex-col items-center gap-2.5 text-center">

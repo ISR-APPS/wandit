@@ -24,7 +24,7 @@ function RouteComponent() {
 	const { tab } = Route.useSearch();
 	return (
 		<Suspense fallback={<Loader />}>
-			<WorkspacePage projectId={projectId} tab={tab ?? "canvas"} />
+			<WorkspacePage projectId={projectId} tab={tab ?? "page"} />
 		</Suspense>
 	);
 }

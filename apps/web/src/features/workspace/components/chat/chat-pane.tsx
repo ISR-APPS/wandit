@@ -1,6 +1,7 @@
 // Collapsible chat pane: message history, streaming assistant reply and the
-// compact ember PromptBox. Collapses to zero width on desktop; overlays the
-// canvas on mobile.
+// compact ember PromptBox. Sizing/positioning (resizable panel on desktop,
+// full-screen overlay on mobile) is owned by the parent layout — this
+// component only fills its container and self-inerts when collapsed.
 
 import { Button } from "@wandit/ui/components/button";
 import { Skeleton } from "@wandit/ui/components/skeleton";
@@ -9,7 +10,6 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@wandit/ui/components/tooltip";
-import { cn } from "@wandit/ui/lib/utils";
 import { MessagesSquare, PanelLeftClose } from "lucide-react";
 import { useEffect, useRef } from "react";
 
@@ -52,22 +52,18 @@ export function ChatPane() {
 
 	return (
 		<aside
-			// inert removes the collapsed pane's controls from tab order and AT
-			// on desktop, where it only shrinks to w-0 (mobile gets display:none).
+			// inert removes the collapsed pane's controls from tab order and AT —
+			// the resizable panel shrinks it to zero width rather than unmounting it.
 			inert={!chatOpen}
-			className={cn(
-				"relative z-30 h-full min-h-0 shrink-0 overflow-hidden border-r bg-sidebar transition-[width] duration-300 ease-in-out",
-				"max-md:absolute max-md:inset-0 max-md:z-30 max-md:w-full max-md:border-r-0",
-				chatOpen ? "md:w-[380px]" : "max-md:hidden md:w-0 md:border-r-0",
-			)}
+			className="relative z-30 flex h-full min-h-0 w-full flex-col overflow-hidden bg-sidebar"
 		>
-			<div className="flex h-full w-full flex-col md:w-[380px]">
+			<div className="flex h-full w-full flex-col">
 				{/* Screenreader announcement for the otherwise-visual job states. */}
 				<span aria-live="polite" className="sr-only">
 					{generationPhase === "thinking" || generationPhase === "streaming"
 						? COPY.thinking
 						: generationPhase === "building"
-							? WORKSPACE_COPY.canvas.generatingTitle(pendingVersionNumber)
+							? WORKSPACE_COPY.page.generatingTitle(pendingVersionNumber)
 							: ""}
 				</span>
 				<div className="flex h-11 shrink-0 items-center justify-between border-b px-3">

@@ -1,5 +1,5 @@
 // Workspace UI state + the mock generation/publish "jobs", shared by the
-// header, chat pane, canvas and tabs through plain React context (house rule:
+// header, chat pane, page preview and tabs through plain React context (house rule:
 // no store lib). The generation flow mirrors what the queue/SSE backend will
 // do — stream an assistant reply, then register a new immutable version and
 // move the active pointer — so swapping in the real transport later only
@@ -74,10 +74,12 @@ type WorkspaceContextValue = {
 	setTab: (tab: WorkspaceTab) => void;
 	chatOpen: boolean;
 	toggleChat: () => void;
+	/** Direct setter — lets the resizable panel sync a drag-to-collapse back into state. */
+	setChatOpenState: (open: boolean) => void;
 	viewport: Viewport;
 	setViewport: (viewport: Viewport) => void;
 	activeVersion: PageVersion | undefined;
-	selectVersion: (versionId: string, opts?: { focusCanvas?: boolean }) => void;
+	selectVersion: (versionId: string, opts?: { focusPage?: boolean }) => void;
 	generationPhase: GenerationPhase;
 	isGenerating: boolean;
 	pendingVersionNumber: number;
@@ -188,25 +190,37 @@ export function WorkspaceProvider({
 			void navigate({
 				to: "/p/$projectId",
 				params: { projectId },
-				search: next === "canvas" ? {} : { tab: next },
+				search: next === "page" ? {} : { tab: next },
 			});
 		},
 		[navigate, projectId],
 	);
 
+	const persistChatOpen = useCallback((open: boolean) => {
+		try {
+			window.localStorage.setItem(
+				CHAT_OPEN_STORAGE_KEY,
+				open ? "open" : "closed",
+			);
+		} catch {
+			// storage unavailable — state still updates for the session
+		}
+	}, []);
+
+	const setChatOpenState = useCallback(
+		(open: boolean) => {
+			persistChatOpen(open);
+			setChatOpen(open);
+		},
+		[persistChatOpen],
+	);
+
 	const toggleChat = useCallback(() => {
 		setChatOpen((open) => {
-			try {
-				window.localStorage.setItem(
-					CHAT_OPEN_STORAGE_KEY,
-					open ? "closed" : "open",
-				);
-			} catch {
-				// storage unavailable — state still toggles for the session
-			}
+			persistChatOpen(!open);
 			return !open;
 		});
-	}, []);
+	}, [persistChatOpen]);
 
 	const versions = useMemo(
 		() =>
@@ -222,9 +236,9 @@ export function WorkspaceProvider({
 	);
 
 	const selectVersion = useCallback(
-		(versionId: string, opts?: { focusCanvas?: boolean }) => {
+		(versionId: string, opts?: { focusPage?: boolean }) => {
 			setActiveVersionId(versionId);
-			if (opts?.focusCanvas && tab !== "canvas") setTab("canvas");
+			if (opts?.focusPage && tab !== "page") setTab("page");
 		},
 		[tab, setTab],
 	);
@@ -569,6 +583,7 @@ export function WorkspaceProvider({
 			setTab,
 			chatOpen,
 			toggleChat,
+			setChatOpenState,
 			viewport,
 			setViewport,
 			activeVersion,
@@ -600,6 +615,7 @@ export function WorkspaceProvider({
 			setTab,
 			chatOpen,
 			toggleChat,
+			setChatOpenState,
 			viewport,
 			activeVersion,
 			selectVersion,

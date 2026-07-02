@@ -28,7 +28,7 @@ Primary market: **Algeria** → Arabic (RTL) + French pages, wilaya/commune addr
 1. Visitor lands on `/` → hero prompt box + examples + pricing.
 2. Types a prompt → **auth modal** (Google OAuth popup, magic link fallback). The typed prompt lives in React state through auth, with a **one-shot sessionStorage stash** as a safety net for redirect flows; cleared after replay.
 3. After first prompt + auth: **project auto-created**, user lands in the workspace with generation **already streaming**.
-4. Iterates via chat; the canvas previews the landing page (mobile/desktop toggle — audience is mobile-first).
+4. Iterates via chat; the Page tab previews the landing page (mobile/desktop toggle — audience is mobile-first).
 5. Publishes to `{slug}.wandit.app` in one click; runs ads to it.
 6. Form submissions appear in the **Leads** tab → user confirms orders by phone → status pipeline `to-confirm → confirmed → shipped → delivered / returned` (+ `cancelled` when phone confirmation fails).
 7. Generation costs credits (visible price tags). When empty: upgrade plan or top-up wallet (post-MVP; **fake credits** in MVP). Publishing and lead collection are always free.
@@ -45,10 +45,11 @@ Primary market: **Algeria** → Arabic (RTL) + French pages, wilaya/commune addr
 
 Auth is a **modal + Google popup overlaying any route** — never a dedicated page.
 
-**Workspace:** chat pane on the left (collapsible), **polymorphic canvas** on the right — renders the active artifact (landing page in a sandboxed cross-origin iframe; later image/video assets and strategy docs). Canvas toolbar: version switcher, desktop/mobile preview toggle, open in new tab.
+**Workspace:** chat pane on the left (drag-resizable + collapsible), main pane on the right floating as an inset card (rounded, bordered, shadowed — chat stays flush to the edge, mirrors the admin dashboard's sidebar-inset look). Desktop uses a real resizable split (`react-resizable-panels`, size persisted); mobile keeps the chat pane as a full-screen overlay.
 
-**Workspace tabs:** Canvas | Assets | Leads | Settings.
-- Assets: grid of generated artifacts (+ user uploads post-MVP).
+**Workspace tabs:** Page | Assets | Leads | Settings.
+- Page: renders the active landing-page version in a sandboxed cross-origin iframe. Toolbar: version switcher, desktop/mobile preview toggle, open in new tab. The toolbar's trailing action group is reserved for the future edit-mode toggle (see §6 roadmap item 4 — visual editing).
+- Assets: every generated artifact (+ user uploads post-MVP), viewable as a **Library** (strict grid) or a **Canvas** (freeform mood board, pannable/zoomable) — one tab, a view toggle switches between them.
 - Leads: submissions table, inline status pipeline, tap-to-call / tap-to-WhatsApp, CSV export, counters.
 - Settings: publish slug, Meta/TikTok pixel IDs, rename/delete, unpublish.
 
@@ -77,7 +78,7 @@ Build **vertical slices** (DB → API → UI per feature), in this order:
 1. **Stripe billing** *(launch-blocking — ships before public launch)* — Free + Pro (credit-amount slider = multiple recurring Prices on one Product) + Business (seats, client workspaces, white-label). Monthly plan credits expire each billing cycle (expire + re-grant inside the `invoice.paid` webhook); one-time top-up packs (Stripe Checkout) never expire and burn only after plan credits. Adds the `subscription` table (Better Auth Stripe plugin or hand-rolled) — purely additive, no changes to existing tables.
 2. **CIB card rail** — pay in DZD → grant credits. The ledger is payment-provider-agnostic by design; CIB is just another writer.
 3. **Image / video generation** — AI SDK `generateImage` / `experimental_generateVideo` inside BullMQ workers (extended timeouts ~15 min), results uploaded to R2 and registered as artifacts.
-4. **Visual editing** — elements stamped with `data-eid` at save time; editor script injected into preview HTML only; cross-origin iframe ↔ app via postMessage; edits applied server-side by element ID, saved as a new version. Two tiers: direct text/style edits (no AI) and element-scoped AI edits. No drag-and-drop, ever.
+4. **Visual editing** — elements stamped with `data-eid` at save time; editor script injected into preview HTML only; cross-origin iframe ↔ app via postMessage; edits applied server-side by element ID, saved as a new version. Two tiers: direct text/style edits (no AI) and element-scoped AI edits. No drag-and-drop, ever. **UI direction (settled 2026-07-02):** a right-side element-inspector rail (Framer/Webflow-style) slides in from the edge of the Page tab when an element is clicked, rather than Lovable's floating bottom toolbar or a plain edit/preview tab-switch — chrome stays anchored and never occludes the page, and it scales naturally to the two-tier edit model above. The Page toolbar's trailing action group is the reserved slot for the edit-mode toggle that opens it.
 5. **Campaign integrations + entity tagging** — link TikTok/Meta campaigns to a project; @-tag entities in chat (`@campaign x`); AI answers questions and takes actions on them via tools. Platform OAuth tokens live in a dedicated connections table — not Better Auth's `account`.
 6. Custom domains (Cloudflare for SaaS), Google Sheets sync, analytics dashboards, Business/orgs (Better Auth organizations plugin).
 

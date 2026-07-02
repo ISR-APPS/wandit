@@ -15,7 +15,7 @@ import { relativeTime } from "@/lib/relative-time";
 import { WORKSPACE_COPY } from "../../lib/constants";
 import { useWorkspace } from "../../lib/store";
 
-const COPY = WORKSPACE_COPY.canvas;
+const COPY = WORKSPACE_COPY.page;
 
 export function VersionSwitcher() {
 	const { versions, activeVersion, selectVersion, state } = useWorkspace();
