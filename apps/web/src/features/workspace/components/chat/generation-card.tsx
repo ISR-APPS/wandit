@@ -42,7 +42,7 @@ export function GenerationCard({ part }: { part: GenerationPart }) {
 				</p>
 				<p dir="auto" className="truncate text-muted-foreground text-xs">
 					{isRunning
-						? WORKSPACE_COPY.canvas.generatingTitle(part.versionNumber)
+						? WORKSPACE_COPY.page.generatingTitle(part.versionNumber)
 						: part.summary}
 				</p>
 			</div>
@@ -73,7 +73,7 @@ export function GenerationCard({ part }: { part: GenerationPart }) {
 			type="button"
 			onClick={() => {
 				if (part.versionId) {
-					selectVersion(part.versionId, { focusCanvas: true });
+					selectVersion(part.versionId, { focusPage: true });
 				}
 			}}
 			className={cn(

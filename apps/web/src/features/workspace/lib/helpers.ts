@@ -1,13 +1,63 @@
 // Pure functions for the workspace feature.
 
 import type { Lead, WorkspaceTab } from "../api/dto";
-import { LEAD_STATUS_META, WORKSPACE_TAB_VALUES } from "./constants";
+import {
+	ASSETS_VIEW_STORAGE_KEY,
+	LEAD_STATUS_META,
+	WORKSPACE_PANELS_STORAGE_ID,
+	WORKSPACE_TAB_VALUES,
+} from "./constants";
+
+export type AssetsView = "library" | "canvas";
+
+/** Library (grid) vs canvas (freeform board) — mirrors chat-open persistence. */
+export function readAssetsView(): AssetsView {
+	try {
+		return window.localStorage.getItem(ASSETS_VIEW_STORAGE_KEY) === "canvas"
+			? "canvas"
+			: "library";
+	} catch {
+		return "library";
+	}
+}
+
+export function writeAssetsView(view: AssetsView): void {
+	try {
+		window.localStorage.setItem(ASSETS_VIEW_STORAGE_KEY, view);
+	} catch {
+		// storage unavailable — view still applies for the session
+	}
+}
 
 export function isWorkspaceTab(value: unknown): value is WorkspaceTab {
 	return (
 		typeof value === "string" &&
 		(WORKSPACE_TAB_VALUES as readonly string[]).includes(value)
 	);
+}
+
+/** Chat/main split width, persisted from the resizable panel group. */
+export function readWorkspacePanelLayout(): Record<string, number> | undefined {
+	try {
+		const raw = window.localStorage.getItem(WORKSPACE_PANELS_STORAGE_ID);
+		const parsed = raw ? JSON.parse(raw) : undefined;
+		return parsed && typeof parsed === "object" ? parsed : undefined;
+	} catch {
+		return undefined;
+	}
+}
+
+export function writeWorkspacePanelLayout(
+	layout: Record<string, number>,
+): void {
+	try {
+		window.localStorage.setItem(
+			WORKSPACE_PANELS_STORAGE_ID,
+			JSON.stringify(layout),
+		);
+	} catch {
+		// storage unavailable — layout still applies for the session
+	}
 }
 
 /**

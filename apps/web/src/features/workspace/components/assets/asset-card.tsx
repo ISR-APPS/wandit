@@ -37,7 +37,7 @@ export function AssetCard({ version }: { version: PageVersion }) {
 		<div className="group relative">
 			<button
 				type="button"
-				onClick={() => selectVersion(version.id, { focusCanvas: true })}
+				onClick={() => selectVersion(version.id, { focusPage: true })}
 				className={cn(
 					"block w-full overflow-hidden rounded-xl border bg-card text-left transition-all duration-150",
 					"hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-lg",
@@ -60,7 +60,7 @@ export function AssetCard({ version }: { version: PageVersion }) {
 						aria-hidden
 						className="absolute inset-0 flex select-none items-center justify-center font-bold font-display text-5xl text-white/20"
 					>
-						{WORKSPACE_COPY.canvas.versionShort(version.number)}
+						{WORKSPACE_COPY.page.versionShort(version.number)}
 					</span>
 					<div className="absolute top-2 left-2 flex items-center gap-1">
 						<Badge variant="secondary" className="font-mono text-[10px]">
