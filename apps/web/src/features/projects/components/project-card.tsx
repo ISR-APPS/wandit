@@ -1,6 +1,7 @@
 // Dashboard grid card: gradient thumbnail, name, status badge, lead count,
 // updated-at, hover actions (open / view live / rename / delete).
 
+import { Link, useNavigate } from "@tanstack/react-router";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -10,9 +11,9 @@ import {
 	AlertDialogFooter,
 	AlertDialogHeader,
 	AlertDialogTitle,
-} from "@my-better-t-app/ui/components/alert-dialog";
-import { Badge } from "@my-better-t-app/ui/components/badge";
-import { Button } from "@my-better-t-app/ui/components/button";
+} from "@wandit/ui/components/alert-dialog";
+import { Badge } from "@wandit/ui/components/badge";
+import { Button } from "@wandit/ui/components/button";
 import {
 	Dialog,
 	DialogContent,
@@ -20,23 +21,22 @@ import {
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
-} from "@my-better-t-app/ui/components/dialog";
+} from "@wandit/ui/components/dialog";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
-} from "@my-better-t-app/ui/components/dropdown-menu";
-import { Input } from "@my-better-t-app/ui/components/input";
-import { Label } from "@my-better-t-app/ui/components/label";
+} from "@wandit/ui/components/dropdown-menu";
+import { Input } from "@wandit/ui/components/input";
+import { Label } from "@wandit/ui/components/label";
 import {
 	Tooltip,
 	TooltipContent,
 	TooltipTrigger,
-} from "@my-better-t-app/ui/components/tooltip";
-import { cn } from "@my-better-t-app/ui/lib/utils";
-import { Link, useNavigate } from "@tanstack/react-router";
+} from "@wandit/ui/components/tooltip";
+import { cn } from "@wandit/ui/lib/utils";
 import {
 	ExternalLink,
 	Loader2,

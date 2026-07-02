@@ -3,7 +3,7 @@ import {
 	AccordionContent,
 	AccordionItem,
 	AccordionTrigger,
-} from "@my-better-t-app/ui/components/accordion";
+} from "@wandit/ui/components/accordion";
 
 import { FAQ } from "../lib/constants";
 import { Reveal } from "./reveal";

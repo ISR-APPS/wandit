@@ -1,11 +1,7 @@
-import { Button } from "@my-better-t-app/ui/components/button";
-import { Input } from "@my-better-t-app/ui/components/input";
-import { Skeleton } from "@my-better-t-app/ui/components/skeleton";
-import {
-	Tabs,
-	TabsList,
-	TabsTrigger,
-} from "@my-better-t-app/ui/components/tabs";
+import { Button } from "@wandit/ui/components/button";
+import { Input } from "@wandit/ui/components/input";
+import { Skeleton } from "@wandit/ui/components/skeleton";
+import { Tabs, TabsList, TabsTrigger } from "@wandit/ui/components/tabs";
 import { Search } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
 

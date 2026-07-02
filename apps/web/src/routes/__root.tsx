@@ -1,4 +1,3 @@
-import { Toaster } from "@my-better-t-app/ui/components/sonner";
 import { QueryClientProvider } from "@tanstack/react-query";
 import {
 	createRootRouteWithContext,
@@ -6,6 +5,7 @@ import {
 	Outlet,
 } from "@tanstack/react-router";
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
+import { Toaster } from "@wandit/ui/components/sonner";
 
 import { ThemeProvider } from "@/components/theme-provider";
 import { AuthModalProvider } from "@/features/auth";

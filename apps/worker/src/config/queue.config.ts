@@ -1,7 +1,7 @@
-import { env } from "@my-better-t-app/env/server";
 import { registerAs } from "@nestjs/config";
+import { env } from "@wandit/env/server";
 
 export const queueConfig = registerAs("queue", () => ({
-  prefix: env.QUEUE_PREFIX,
-  redisUrl: env.REDIS_URL,
+	prefix: env.QUEUE_PREFIX,
+	redisUrl: env.REDIS_URL,
 }));

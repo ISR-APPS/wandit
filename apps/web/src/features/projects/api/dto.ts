@@ -1,17 +1,11 @@
-// Request/response types for this feature's api layer. Source of truth will
-// be packages/contracts — once the backend lands these become derived
-// re-exports (z.infer), never redeclared. Shapes mirror the planned contract.
+// Request/response types for this feature's api layer. Source of truth is
+// packages/contracts — these are derived re-exports (z.infer), never
+// redeclared here.
 
-export type ProjectStatus = "draft" | "publishing" | "published";
-
-export type Project = {
-	id: string;
-	name: string;
-	prompt: string;
-	status: ProjectStatus;
-	leadCount: number;
-	createdAt: string;
-	updatedAt: string;
-	thumbnailSeed: number;
-	publishedSlug?: string;
-};
+export type {
+	CreateProjectBody,
+	CreateProjectResponse,
+	Project,
+	ProjectStatus,
+	UpdateProjectBody,
+} from "@wandit/contracts";

@@ -1,4 +1,4 @@
-import { cn } from "@my-better-t-app/ui/lib/utils";
+import { cn } from "@wandit/ui/lib/utils";
 import { CreditCard, Gift, Hourglass, Zap } from "lucide-react";
 
 import { relativeTime } from "@/lib/relative-time";

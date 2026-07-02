@@ -1,6 +1,6 @@
 "use client";
 
-import { cn } from "@my-better-t-app/ui/lib/utils";
+import { cn } from "@wandit/ui/lib/utils";
 import { CheckIcon, ChevronDownIcon, ChevronUpIcon } from "lucide-react";
 import { Select as SelectPrimitive } from "radix-ui";
 import type * as React from "react";

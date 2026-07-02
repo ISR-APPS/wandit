@@ -1,7 +1,4 @@
-import {
-	SidebarInset,
-	SidebarProvider,
-} from "@my-better-t-app/ui/components/sidebar";
+import { SidebarInset, SidebarProvider } from "@wandit/ui/components/sidebar";
 import type * as React from "react";
 
 import { AppSidebar } from "./app-sidebar";

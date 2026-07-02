@@ -1,5 +1,6 @@
-import { Button } from "@my-better-t-app/ui/components/button";
-import { cn } from "@my-better-t-app/ui/lib/utils";
+import { projectPromptMaxLength } from "@wandit/contracts";
+import { Button } from "@wandit/ui/components/button";
+import { cn } from "@wandit/ui/lib/utils";
 import { ArrowUp, Languages, Loader2 } from "lucide-react";
 import type * as React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -101,6 +102,7 @@ export function PromptBox({
 						(isHero ? COPY.placeholderHero : COPY.placeholderCompact)
 					}
 					rows={1}
+					maxLength={projectPromptMaxLength}
 					disabled={isSubmitting}
 					className={cn(
 						"w-full resize-none overflow-y-auto bg-transparent text-foreground placeholder:text-muted-foreground/70 focus:outline-none disabled:opacity-60",

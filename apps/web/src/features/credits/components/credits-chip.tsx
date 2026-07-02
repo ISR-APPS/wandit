@@ -1,11 +1,11 @@
-import { Button } from "@my-better-t-app/ui/components/button";
+import { Button } from "@wandit/ui/components/button";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
-} from "@my-better-t-app/ui/components/dropdown-menu";
-import { cn } from "@my-better-t-app/ui/lib/utils";
+} from "@wandit/ui/components/dropdown-menu";
+import { cn } from "@wandit/ui/lib/utils";
 
 import { Spark } from "@/components/logo";
 import { CREDITS_COPY, SIGNUP_GRANT } from "../lib/constants";

@@ -1,4 +1,4 @@
-import { Button } from "@my-better-t-app/ui/components/button";
+import { Button } from "@wandit/ui/components/button";
 import {
 	Dialog,
 	DialogContent,
@@ -6,7 +6,7 @@ import {
 	DialogFooter,
 	DialogHeader,
 	DialogTitle,
-} from "@my-better-t-app/ui/components/dialog";
+} from "@wandit/ui/components/dialog";
 
 import { CREDITS_COPY } from "../lib/constants";
 import { useCredits } from "../lib/hooks";

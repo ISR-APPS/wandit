@@ -1,12 +1,12 @@
 {
-  "extends": "@my-better-t-app/config/tsconfig.base.json",
-  "compilerOptions": {
-    "composite": true,
-    "emitDecoratorMetadata": true,
-    "experimentalDecorators": true,
-    "outDir": "dist",
-    "paths": {
-      "@/*": ["./src/*"]
-    }
-  }
+	"extends": "@wandit/config/tsconfig.base.json",
+	"compilerOptions": {
+		"composite": true,
+		"emitDecoratorMetadata": true,
+		"experimentalDecorators": true,
+		"outDir": "dist",
+		"paths": {
+			"@/*": ["./src/*"]
+		}
+	}
 }

@@ -1,9 +1,9 @@
 "use client";
 
-import { Button } from "@my-better-t-app/ui/components/button";
-import { Input } from "@my-better-t-app/ui/components/input";
-import { Textarea } from "@my-better-t-app/ui/components/textarea";
-import { cn } from "@my-better-t-app/ui/lib/utils";
+import { Button } from "@wandit/ui/components/button";
+import { Input } from "@wandit/ui/components/input";
+import { Textarea } from "@wandit/ui/components/textarea";
+import { cn } from "@wandit/ui/lib/utils";
 import { cva, type VariantProps } from "class-variance-authority";
 import type * as React from "react";
 

@@ -1,4 +1,4 @@
-# my-better-t-app
+# wandit
 
 This project was created with [Better-T-Stack](https://github.com/AmanVarshney01/create-better-t-stack), a modern TypeScript stack that combines React, TanStack Router, Fastify, and more.
 
@@ -68,7 +68,7 @@ npx shadcn@latest add accordion dialog popover sheet table -c packages/ui
 Import shared components like this:
 
 ```tsx
-import { Button } from "@my-better-t-app/ui/components/button";
+import { Button } from "@wandit/ui/components/button";
 ```
 
 ### Add app-specific blocks
@@ -82,7 +82,7 @@ If you want to add app-specific blocks instead of shared primitives, run the sha
 ## Project Structure
 
 ```
-my-better-t-app/
+wandit/
 ├── apps/
 │   ├── web/         # Frontend application (React + TanStack Router)
 │   ├── native/      # Mobile application (React Native, Expo)

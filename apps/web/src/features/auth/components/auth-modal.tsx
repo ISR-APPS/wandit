@@ -1,14 +1,14 @@
-import { Button } from "@my-better-t-app/ui/components/button";
+import { Button } from "@wandit/ui/components/button";
 import {
 	Dialog,
 	DialogContent,
 	DialogDescription,
 	DialogHeader,
 	DialogTitle,
-} from "@my-better-t-app/ui/components/dialog";
-import { Input } from "@my-better-t-app/ui/components/input";
-import { Label } from "@my-better-t-app/ui/components/label";
-import { cn } from "@my-better-t-app/ui/lib/utils";
+} from "@wandit/ui/components/dialog";
+import { Input } from "@wandit/ui/components/input";
+import { Label } from "@wandit/ui/components/label";
+import { cn } from "@wandit/ui/lib/utils";
 import { ArrowLeft, Loader2, MailCheck } from "lucide-react";
 import type * as React from "react";
 import {

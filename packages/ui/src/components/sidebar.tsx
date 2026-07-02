@@ -1,24 +1,24 @@
 "use client";
 
-import { Button } from "@my-better-t-app/ui/components/button";
-import { Input } from "@my-better-t-app/ui/components/input";
-import { Separator } from "@my-better-t-app/ui/components/separator";
+import { Button } from "@wandit/ui/components/button";
+import { Input } from "@wandit/ui/components/input";
+import { Separator } from "@wandit/ui/components/separator";
 import {
 	Sheet,
 	SheetContent,
 	SheetDescription,
 	SheetHeader,
 	SheetTitle,
-} from "@my-better-t-app/ui/components/sheet";
-import { Skeleton } from "@my-better-t-app/ui/components/skeleton";
+} from "@wandit/ui/components/sheet";
+import { Skeleton } from "@wandit/ui/components/skeleton";
 import {
 	Tooltip,
 	TooltipContent,
 	TooltipProvider,
 	TooltipTrigger,
-} from "@my-better-t-app/ui/components/tooltip";
-import { useIsMobile } from "@my-better-t-app/ui/hooks/use-mobile";
-import { cn } from "@my-better-t-app/ui/lib/utils";
+} from "@wandit/ui/components/tooltip";
+import { useIsMobile } from "@wandit/ui/hooks/use-mobile";
+import { cn } from "@wandit/ui/lib/utils";
 import { cva, type VariantProps } from "class-variance-authority";
 import { PanelLeftIcon } from "lucide-react";
 import { Slot } from "radix-ui";

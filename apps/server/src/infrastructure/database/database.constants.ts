@@ -1,4 +1,4 @@
-import type { createDb } from "@my-better-t-app/db";
+import type { createDb } from "@wandit/db";
 
 export const DATABASE = Symbol("DATABASE");
 

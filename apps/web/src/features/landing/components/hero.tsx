@@ -1,4 +1,4 @@
-import { Badge } from "@my-better-t-app/ui/components/badge";
+import { Badge } from "@wandit/ui/components/badge";
 import { motion, type Variants } from "motion/react";
 
 import { Spark } from "@/components/logo";

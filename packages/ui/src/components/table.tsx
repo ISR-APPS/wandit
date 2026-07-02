@@ -1,6 +1,6 @@
 "use client";
 
-import { cn } from "@my-better-t-app/ui/lib/utils";
+import { cn } from "@wandit/ui/lib/utils";
 import type * as React from "react";
 
 function Table({ className, ...props }: React.ComponentProps<"table">) {

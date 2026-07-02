@@ -43,6 +43,6 @@ Dashboard grid with cards (name, status badge, lead count, updated-at, gradient 
 - Rename reflects immediately in header, dropdown, and dashboard (Query cache updated).
 - Delete removes the project from the grid and blocks the workspace route.
 
-**Files:** `packages/db/src/schema/projects.ts`, `packages/contracts/src/projects.ts`, `apps/server/src/modules/projects/**`, `apps/web/src/routes/_auth/dashboard.tsx`, `apps/web/src/features/projects/**`.
+**Files:** `packages/db/src/schema/projects.ts`, `packages/contracts/src/v1/projects.ts`, `apps/server/src/modules/projects/**`, `apps/web/src/routes/_auth/dashboard.tsx`, `apps/web/src/features/projects/**`.
 
 Source docs: docs/PRD.md, docs/features/projects-dashboard.md

@@ -1,4 +1,4 @@
-import { cn } from "@my-better-t-app/ui/lib/utils";
+import { cn } from "@wandit/ui/lib/utils";
 
 /** Four-point ember spark — the Wandit brand mark. */
 export function Spark({ className }: { className?: string }) {

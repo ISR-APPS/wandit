@@ -1,6 +1,6 @@
-import { PUBLISH_QUEUE, type PublishJobData } from "@my-better-t-app/jobs";
 import { Processor, WorkerHost } from "@nestjs/bullmq";
 import { Logger } from "@nestjs/common";
+import { PUBLISH_QUEUE, type PublishJobData } from "@wandit/jobs";
 import type { Job } from "bullmq";
 
 @Processor(PUBLISH_QUEUE)

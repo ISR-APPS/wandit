@@ -1,4 +1,4 @@
-import { cn } from "@my-better-t-app/ui/lib/utils";
+import { cn } from "@wandit/ui/lib/utils";
 import { ChevronRight, MoreHorizontal } from "lucide-react";
 import { Slot } from "radix-ui";
 import type * as React from "react";

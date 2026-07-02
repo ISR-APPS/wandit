@@ -51,6 +51,6 @@ Settings publish section: slug input with debounced availability check, publish/
 - Full flow from Settings: pick slug → publish → open live URL; unpublish and rollback both reflect in UI state and on the live domain.
 - Invalid/taken slugs blocked client- and server-side with clear messages.
 
-**Files:** `apps/edge/**`, `packages/db/src/schema/deployments.ts`, `packages/contracts/src/deployments.ts`, `apps/server/src/modules/sites/**`, `apps/worker/src/processors/publish.processor.ts`, `apps/web/src/features/workspace/components/settings/**` (publish section), `apps/web/src/features/workspace/api/deployments.{services,queries,mutations}.ts`.
+**Files:** `apps/edge/**`, `packages/db/src/schema/deployments.ts`, `packages/contracts/src/v1/deployments.ts`, `apps/server/src/modules/sites/**`, `apps/worker/src/processors/publish.processor.ts`, `apps/web/src/features/workspace/components/settings/**` (publish section), `apps/web/src/features/workspace/api/deployments.{services,queries,mutations}.ts`.
 
 Source docs: docs/PRD.md, docs/features/publishing-serving.md

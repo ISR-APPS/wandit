@@ -42,6 +42,6 @@ Balance chip in headers (dashboard + workspace), refreshed via Query invalidatio
 - Attempting a generation with insufficient balance shows the modal and sends nothing.
 - Price tags render on every credit-consuming action, and nowhere on publish/leads actions.
 
-**Files:** `packages/db/src/schema/credits.ts`, `packages/contracts/src/credits.ts`, `apps/server/src/modules/credits/**`, `apps/worker/src/processors/ai-generation.processor.ts` (consume wiring), `apps/web/src/features/credits/**`.
+**Files:** `packages/db/src/schema/credits.ts`, `packages/contracts/src/v1/credits.ts`, `apps/server/src/modules/credits/**`, `apps/worker/src/processors/ai-generation.processor.ts` (consume wiring), `apps/web/src/features/credits/**`.
 
 Source docs: docs/PRD.md, docs/features/credits.md

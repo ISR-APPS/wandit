@@ -6,7 +6,7 @@ Turn the fresh better-t scaffold into the named, observable, deployable skeleton
 
 ## Owns
 
-- Workspace rebrand: `@my-better-t-app/*` → `@wandit/*` (product name: **Wandit**).
+- Workspace rebrand: `@wandit/*` → `@wandit/*` (product name: **Wandit**).
 - `packages/env` schemas for every surface (server, worker, web, edge).
 - `packages/contracts` (new): shared Zod API contracts + types between web and server.
 - `apps/server` base: Nest module layout, Fastify adapter config, CORS, global validation, `/health`, versioned `/api` prefix, Sentry.
@@ -33,7 +33,7 @@ Rename the workspace scope everywhere (package.json files, imports, lockfile). F
 
 **Acceptance criteria**
 - `pnpm dev` boots web + server + worker with validated envs; missing env fails fast with a clear message.
-- No `my-better-t-app` string remains; `pnpm check-types` and `biome check` pass.
+- No `wandit` string remains; `pnpm check-types` and `biome check` pass.
 - `GET /api/health` returns ok from the server; worker connects to Redis and registers no-op queue.
 - Sentry receives a test event from server and worker.
 

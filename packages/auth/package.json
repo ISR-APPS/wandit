@@ -1,25 +1,25 @@
 {
-  "name": "@my-better-t-app/auth",
-  "type": "module",
-  "exports": {
-    ".": {
-      "default": "./src/index.ts"
-    },
-    "./*": {
-      "default": "./src/*.ts"
-    }
-  },
-  "scripts": {},
-  "dependencies": {
-    "@better-auth/expo": "catalog:",
-    "@my-better-t-app/db": "workspace:*",
-    "@my-better-t-app/env": "workspace:*",
-    "better-auth": "catalog:",
-    "dotenv": "catalog:",
-    "zod": "catalog:"
-  },
-  "devDependencies": {
-    "@my-better-t-app/config": "workspace:*",
-    "typescript": "catalog:"
-  }
+	"name": "@wandit/auth",
+	"type": "module",
+	"exports": {
+		".": {
+			"default": "./src/index.ts"
+		},
+		"./*": {
+			"default": "./src/*.ts"
+		}
+	},
+	"scripts": {},
+	"dependencies": {
+		"@better-auth/expo": "catalog:",
+		"@wandit/db": "workspace:*",
+		"@wandit/env": "workspace:*",
+		"better-auth": "catalog:",
+		"dotenv": "catalog:",
+		"zod": "catalog:"
+	},
+	"devDependencies": {
+		"@wandit/config": "workspace:*",
+		"typescript": "catalog:"
+	}
 }
