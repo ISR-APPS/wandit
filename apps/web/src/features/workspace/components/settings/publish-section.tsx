@@ -83,6 +83,9 @@ export function PublishSection() {
 	};
 
 	const orderedVersions = [...versions].reverse();
+	const liveVersionNumber =
+		versions.find((v) => v.id === deployment?.publishedVersionId)?.number ??
+		null;
 
 	return (
 		<Card>
@@ -226,7 +229,10 @@ export function PublishSection() {
 										onClick={() => rollbackTo(version.id)}
 										disabled={publishing}
 									>
-										{COPY.historyRollback}
+										{liveVersionNumber !== null &&
+										version.number < liveVersionNumber
+											? COPY.historyRollback
+											: WORKSPACE_COPY.publish.publishUpdate(version.number)}
 									</Button>
 								)}
 							</div>

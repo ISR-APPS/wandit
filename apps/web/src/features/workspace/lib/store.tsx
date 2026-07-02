@@ -253,7 +253,7 @@ export function WorkspaceProvider({
 				refreshState();
 			}, BUILD_DURATION_MS);
 		},
-		[projectId, schedule, consume, generationCost, setPhase, refreshState],
+		[projectId, schedule, consume, setPhase, refreshState],
 	);
 
 	const runGeneration = useCallback(
@@ -344,15 +344,7 @@ export function WorkspaceProvider({
 				}, STREAM_WORD_INTERVAL_MS);
 			}, THINKING_DELAY_MS);
 		},
-		[
-			projectId,
-			canAfford,
-			generationCost,
-			schedule,
-			setPhase,
-			refreshState,
-			finishGeneration,
-		],
+		[projectId, canAfford, schedule, setPhase, refreshState, finishGeneration],
 	);
 
 	const sendPrompt = useCallback(
@@ -410,11 +402,24 @@ export function WorkspaceProvider({
 	const rollbackTo = useCallback(
 		(versionId: string) => {
 			const target = versions.find((v) => v.id === versionId);
-			runPublish(versionId, () =>
-				WORKSPACE_COPY.settings.historyRolledBackToast(target?.number ?? 0),
+			const liveVersion = versions.find(
+				(v) => v.id === stateQuery.data?.deployment.publishedVersionId,
+			);
+			// Only publishing something OLDER than the live version is a rollback;
+			// otherwise it reads as a regular publish.
+			const isRollback =
+				target && liveVersion && target.number < liveVersion.number;
+			runPublish(
+				versionId,
+				isRollback
+					? () =>
+							WORKSPACE_COPY.settings.historyRolledBackToast(
+								target?.number ?? 0,
+							)
+					: WORKSPACE_COPY.publish.publishedToast,
 			);
 		},
-		[versions, runPublish],
+		[versions, runPublish, stateQuery.data?.deployment.publishedVersionId],
 	);
 
 	const unpublish = useCallback(() => {
@@ -530,7 +535,6 @@ export function WorkspaceProvider({
 			pendingVersionNumber,
 			streamingMessage,
 			sendPrompt,
-			generationCost,
 			insufficientOpen,
 			publish,
 			unpublish,
