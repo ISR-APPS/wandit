@@ -229,7 +229,10 @@ function EngineRow({ option }: { option: EngineOption }) {
 }
 
 export type PromptBoxProps = {
-	onSubmit: (prompt: string) => void | Promise<void>;
+	/** A sync `false` return means nothing was sent (e.g. insufficient
+	 * credits) — the box then keeps the draft even with clearOnSubmit. */
+	// biome-ignore lint/suspicious/noConfusingVoidType: void keeps fire-and-forget callers assignable
+	onSubmit: (prompt: string) => void | boolean | Promise<void | boolean>;
 	variant?: "hero" | "compact";
 	placeholder?: string;
 	showPriceTag?: boolean;
@@ -239,6 +242,8 @@ export type PromptBoxProps = {
 	showModes?: boolean;
 	isSubmitting?: boolean;
 	initialValue?: string;
+	/** Clear the textarea after submitting (chat-style usage). */
+	clearOnSubmit?: boolean;
 	className?: string;
 };
 
@@ -256,6 +261,7 @@ export function PromptBox({
 	showModes = false,
 	isSubmitting = false,
 	initialValue = "",
+	clearOnSubmit = false,
 	className,
 }: PromptBoxProps) {
 	const [value, setValue] = useState(initialValue);
@@ -274,10 +280,12 @@ export function PromptBox({
 		el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
 	}, [maxHeight]);
 
-	// Initial mount + variant change (typing resizes synchronously in onChange).
+	// Initial mount + variant change (typing resizes synchronously in
+	// onChange); also re-measures after a programmatic clear (clearOnSubmit).
+	// biome-ignore lint/correctness/useExhaustiveDependencies: value is an intentional re-measure trigger
 	useEffect(() => {
 		resize();
-	}, [resize]);
+	}, [resize, value]);
 
 	const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
 		setValue(e.target.value);
@@ -287,7 +295,8 @@ export function PromptBox({
 	const handleSubmit = () => {
 		const prompt = value.trim();
 		if (!prompt || isSubmitting) return;
-		void onSubmit(prompt);
+		const result = onSubmit(prompt);
+		if (clearOnSubmit && result !== false) setValue("");
 	};
 
 	const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -342,6 +351,7 @@ export function PromptBox({
 			>
 				<InputGroupTextarea
 					ref={textareaRef}
+					dir="auto"
 					value={value}
 					onChange={handleChange}
 					onKeyDown={handleKeyDown}

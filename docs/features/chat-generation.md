@@ -2,7 +2,7 @@
 
 ## Purpose
 
-The core of the product: the chat is the interface, and the generation engine turns intents into versioned landing pages rendered live in the canvas. Queue-backed so generations survive navigation.
+The core of the product: the chat is the interface, and the generation engine turns intents into versioned landing pages rendered live in the Page tab. Queue-backed so generations survive navigation.
 
 ## Owns
 
@@ -10,7 +10,7 @@ The core of the product: the chat is the interface, and the generation engine tu
 - `artifacts` + `versions` tables (immutable versions pointing to R2 keys `sites/{project_id}/{version_id}/`).
 - Message endpoint + SSE stream endpoint; Redis pub/sub relay between worker and API.
 - The generation BullMQ job: Vercel AI SDK v7 `streamText` via Vercel AI Gateway, system prompt enforcing the **page contract**, version write to R2, artifact pointer update, credits consumption hook.
-- Workspace UI: shell layout (collapsible chat pane, canvas, header, tabs skeleton Canvas | Assets | Leads | Settings), chat message list + input, canvas with sandboxed iframe preview, version switcher, desktop/mobile toggle, open in new tab. Assets tab = simple list of artifacts/versions in MVP.
+- Workspace UI: shell layout (resizable chat pane, header, tabs skeleton Page | Assets | Leads | Settings), chat message list + input, Page tab with sandboxed iframe preview, version switcher, desktop/mobile toggle, open in new tab. Assets tab = simple list of artifacts/versions in MVP, with a Library/Canvas view toggle.
 
 ## Working model
 
@@ -18,7 +18,7 @@ Client `POST`s a message → server persists it, enqueues a generation job, retu
 
 **Page contract (system prompt):** single-file HTML + Tailwind + vanilla JS; whitelisted CDN libs only (Swiper, Alpine.js, AOS); lead form posting to our capture endpoint with the project's `form_id`, a honeypot field, and a small form script forwarding ad params (`utm_*`, `fbclid`, `ttclid`, referrer) from the page URL; viewport meta; pixel placeholders; `dir="rtl"` + Arabic support when the page language is Arabic; mobile-first.
 
-**Preview (MVP interim):** the canvas iframe is `sandbox="allow-scripts allow-forms"` (opaque origin, no `allow-same-origin`) fed with the version HTML fetched through the authed API — safe without infra. It switches to `{token}.<preview-domain>` URLs once the edge worker lands (→ publishing-serving). Tailwind Play CDN in previews.
+**Preview (MVP interim):** the Page tab's iframe is `sandbox="allow-scripts allow-forms"` (opaque origin, no `allow-same-origin`) fed with the version HTML fetched through the authed API — safe without infra. It switches to `{token}.<preview-domain>` URLs once the edge worker lands (→ publishing-serving). Tailwind Play CDN in previews.
 
 ## Does not own
 
@@ -47,12 +47,12 @@ Client `POST`s a message → server persists it, enqueues a generation job, retu
 - Generated HTML passes contract checks: single file, whitelisted CDNs only, form → capture endpoint with correct `form_id` + honeypot, viewport meta, RTL when Arabic.
 - R2 keys match the layout and are reachable by the API for preview fetch.
 
-### 3. Workspace UI: shell, chat pane, canvas preview
+### 3. Workspace UI: shell, chat pane, page preview
 
-Workspace shell on `/p/$projectId`: header (logo → dashboard, project dropdown, tabs), collapsible chat pane, canvas area. Chat UI: message list rendering parts, streaming indicator, input with disabled state while running. Canvas: sandboxed iframe (`allow-scripts allow-forms`, no same-origin) rendering the active version; toolbar with version switcher, desktop/mobile viewport toggle (mobile default), open in new tab. Assets tab: simple artifact/version list. Leads/Settings tabs: placeholders wired for their features.
+Workspace shell on `/p/$projectId`: header (logo → dashboard, project dropdown, tabs), drag-resizable + collapsible chat pane, main pane floating as an inset card. Chat UI: message list rendering parts, streaming indicator, input with disabled state while running. Page tab: sandboxed iframe (`allow-scripts allow-forms`, no same-origin) rendering the active version; toolbar with version switcher, desktop/mobile viewport toggle (mobile default), open in new tab. Assets tab: simple artifact/version list with a Library (grid) / Canvas (freeform board) view toggle. Leads/Settings tabs: placeholders wired for their features.
 
 **Acceptance criteria**
-- Full loop: prompt → streaming text in chat → page appears in canvas when the version is saved.
+- Full loop: prompt → streaming text in chat → page appears in the Page tab when the version is saved.
 - Version switcher flips the iframe between versions; mobile/desktop toggle resizes correctly.
 - The iframe has no same-origin access (verified: no cookies/storage reachable from page JS).
 
