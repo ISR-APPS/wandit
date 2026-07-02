@@ -56,3 +56,5 @@ temp
 
 _admin-dashboard
 _production-ex
+# Playwright MCP session artifacts
+.playwright-mcp/

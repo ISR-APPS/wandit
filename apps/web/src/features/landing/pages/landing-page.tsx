@@ -40,11 +40,7 @@ export default function LandingPage() {
 		<div className="min-h-svh bg-background">
 			<LandingNav />
 			<main>
-				<Hero
-					promptKey={prefill.key}
-					promptInitial={prefill.value}
-					onPrefill={prefillPrompt}
-				/>
+				<Hero promptKey={prefill.key} promptInitial={prefill.value} />
 				<HowItWorks />
 				<Examples onUseExample={(prompt) => prefillPrompt(prompt, true)} />
 				<FeaturesBento />

@@ -142,6 +142,27 @@ function DropdownMenuRadioItem({
 	);
 }
 
+/**
+ * Radio item without the built-in left indicator column — for rows that render
+ * their own selection affordance. Exposes `group/row` so children can react to
+ * the Radix-managed data-[state=checked] on the item.
+ */
+function DropdownMenuRadioItemBare({
+	className,
+	...props
+}: React.ComponentProps<typeof DropdownMenuPrimitive.RadioItem>) {
+	return (
+		<DropdownMenuPrimitive.RadioItem
+			data-slot="dropdown-menu-radio-item-bare"
+			className={cn(
+				"group/row relative flex cursor-default select-none items-center gap-2.5 rounded-lg px-2 py-2 text-sm outline-hidden transition-colors focus:bg-accent focus:text-accent-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0",
+				className,
+			)}
+			{...props}
+		/>
+	);
+}
+
 function DropdownMenuLabel({
 	className,
 	inset,
@@ -247,6 +268,7 @@ export {
 	DropdownMenuPortal,
 	DropdownMenuRadioGroup,
 	DropdownMenuRadioItem,
+	DropdownMenuRadioItemBare,
 	DropdownMenuSeparator,
 	DropdownMenuShortcut,
 	DropdownMenuSub,
