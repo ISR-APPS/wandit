@@ -1,14 +1,14 @@
 // Toolbar dropdown flipping the preview between immutable versions.
 
-import { Badge } from "@my-better-t-app/ui/components/badge";
-import { Button } from "@my-better-t-app/ui/components/button";
+import { Badge } from "@wandit/ui/components/badge";
+import { Button } from "@wandit/ui/components/button";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
 	DropdownMenuLabel,
 	DropdownMenuTrigger,
-} from "@my-better-t-app/ui/components/dropdown-menu";
+} from "@wandit/ui/components/dropdown-menu";
 import { Check, ChevronDown, History } from "lucide-react";
 
 import { relativeTime } from "@/lib/relative-time";

@@ -2,17 +2,17 @@
 // pixel IDs. Local input state resyncs from the store; the name saves through
 // the projects mutation, pixels through the workspace mock services.
 
-import { Button } from "@my-better-t-app/ui/components/button";
+import { Button } from "@wandit/ui/components/button";
 import {
 	Card,
 	CardContent,
 	CardDescription,
 	CardHeader,
 	CardTitle,
-} from "@my-better-t-app/ui/components/card";
-import { Input } from "@my-better-t-app/ui/components/input";
-import { Label } from "@my-better-t-app/ui/components/label";
-import { Separator } from "@my-better-t-app/ui/components/separator";
+} from "@wandit/ui/components/card";
+import { Input } from "@wandit/ui/components/input";
+import { Label } from "@wandit/ui/components/label";
+import { Separator } from "@wandit/ui/components/separator";
 import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";

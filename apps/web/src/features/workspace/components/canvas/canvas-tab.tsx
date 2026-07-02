@@ -1,9 +1,9 @@
 // The polymorphic canvas: preview stage rendering the active version in a
 // sandboxed iframe (mobile frame by default), plus generating/empty states.
 
-import { Button } from "@my-better-t-app/ui/components/button";
-import { Skeleton } from "@my-better-t-app/ui/components/skeleton";
-import { cn } from "@my-better-t-app/ui/lib/utils";
+import { Button } from "@wandit/ui/components/button";
+import { Skeleton } from "@wandit/ui/components/skeleton";
+import { cn } from "@wandit/ui/lib/utils";
 import { motion } from "motion/react";
 import { useEffect, useMemo, useState } from "react";
 

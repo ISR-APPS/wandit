@@ -7,8 +7,8 @@ import {
 	SelectItem,
 	SelectTrigger,
 	SelectValue,
-} from "@my-better-t-app/ui/components/select";
-import { cn } from "@my-better-t-app/ui/lib/utils";
+} from "@wandit/ui/components/select";
+import { cn } from "@wandit/ui/lib/utils";
 import { toast } from "sonner";
 
 import type { Lead, LeadStatus } from "../../api/dto";

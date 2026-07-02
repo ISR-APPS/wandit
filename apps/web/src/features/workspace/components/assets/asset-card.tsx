@@ -2,14 +2,14 @@
 // glyph, kind/lang badges, live/viewing state, and a hover-reveal "open in
 // new tab" action. Clicking the card focuses the version in the canvas.
 
-import { Badge } from "@my-better-t-app/ui/components/badge";
-import { Button } from "@my-better-t-app/ui/components/button";
+import { Badge } from "@wandit/ui/components/badge";
+import { Button } from "@wandit/ui/components/button";
 import {
 	Tooltip,
 	TooltipContent,
 	TooltipTrigger,
-} from "@my-better-t-app/ui/components/tooltip";
-import { cn } from "@my-better-t-app/ui/lib/utils";
+} from "@wandit/ui/components/tooltip";
+import { cn } from "@wandit/ui/lib/utils";
 import { ExternalLink } from "lucide-react";
 import type * as React from "react";
 

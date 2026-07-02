@@ -13,7 +13,6 @@ export const LANDING_NAV = {
 } as const;
 
 export const HERO = {
-	badge: "Beta — built for the Algerian market",
 	titleLine1: "Type it. Launch it.",
 	titleLine2: "Sell it.",
 	sub: "Wandit turns a prompt into a ready-to-run landing page — publish and collect COD orders in minutes.",

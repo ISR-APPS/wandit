@@ -1,5 +1,5 @@
-import { Button } from "@my-better-t-app/ui/components/button";
 import { Link } from "@tanstack/react-router";
+import { Button } from "@wandit/ui/components/button";
 
 import { useAuthModal, useSession } from "@/features/auth";
 

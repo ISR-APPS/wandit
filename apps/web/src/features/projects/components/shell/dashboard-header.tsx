@@ -1,5 +1,5 @@
-import { Separator } from "@my-better-t-app/ui/components/separator";
-import { SidebarTrigger } from "@my-better-t-app/ui/components/sidebar";
+import { Separator } from "@wandit/ui/components/separator";
+import { SidebarTrigger } from "@wandit/ui/components/sidebar";
 
 import { ModeToggle } from "@/components/mode-toggle";
 import { UserMenu } from "@/features/auth";

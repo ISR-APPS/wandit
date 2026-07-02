@@ -1,7 +1,7 @@
 // Inline artifact card in the chat — the version a generation produced.
 // Running: shimmering placeholder; complete: click to view in the canvas.
 
-import { cn } from "@my-better-t-app/ui/lib/utils";
+import { cn } from "@wandit/ui/lib/utils";
 import { Check, Loader2 } from "lucide-react";
 
 import { thumbGradient } from "@/features/projects";

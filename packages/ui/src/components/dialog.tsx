@@ -1,7 +1,7 @@
 "use client";
 
-import { Button } from "@my-better-t-app/ui/components/button";
-import { cn } from "@my-better-t-app/ui/lib/utils";
+import { Button } from "@wandit/ui/components/button";
+import { cn } from "@wandit/ui/lib/utils";
 import { XIcon } from "lucide-react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import type * as React from "react";

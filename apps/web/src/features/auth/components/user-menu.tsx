@@ -1,9 +1,10 @@
+import { useNavigate } from "@tanstack/react-router";
 import {
 	Avatar,
 	AvatarFallback,
 	AvatarImage,
-} from "@my-better-t-app/ui/components/avatar";
-import { Button } from "@my-better-t-app/ui/components/button";
+} from "@wandit/ui/components/avatar";
+import { Button } from "@wandit/ui/components/button";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -11,9 +12,8 @@ import {
 	DropdownMenuLabel,
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
-} from "@my-better-t-app/ui/components/dropdown-menu";
-import { Skeleton } from "@my-better-t-app/ui/components/skeleton";
-import { useNavigate } from "@tanstack/react-router";
+} from "@wandit/ui/components/dropdown-menu";
+import { Skeleton } from "@wandit/ui/components/skeleton";
 import { LogOut } from "lucide-react";
 
 import { LedgerList } from "@/features/credits";

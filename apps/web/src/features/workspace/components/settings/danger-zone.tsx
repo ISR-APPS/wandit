@@ -1,6 +1,7 @@
 // Settings → Danger zone card: delete the project (and its mock workspace
 // data) behind an AlertDialog confirmation, then return to the dashboard.
 
+import { useNavigate } from "@tanstack/react-router";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -10,16 +11,15 @@ import {
 	AlertDialogFooter,
 	AlertDialogHeader,
 	AlertDialogTitle,
-} from "@my-better-t-app/ui/components/alert-dialog";
-import { Button } from "@my-better-t-app/ui/components/button";
+} from "@wandit/ui/components/alert-dialog";
+import { Button } from "@wandit/ui/components/button";
 import {
 	Card,
 	CardContent,
 	CardDescription,
 	CardHeader,
 	CardTitle,
-} from "@my-better-t-app/ui/components/card";
-import { useNavigate } from "@tanstack/react-router";
+} from "@wandit/ui/components/card";
 import { Loader2, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";

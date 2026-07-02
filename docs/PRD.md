@@ -109,7 +109,7 @@ pnpm workspaces + Turborepo. Biome for lint/format. TypeScript everywhere.
 | `packages/ui` | Shared UI kit (shadcn-style, base-ui). |
 | `packages/config` | Shared tsconfig / tooling. |
 
-Naming: the product is **Wandit** — workspace scope `@my-better-t-app/*` → `@wandit/*` in Foundation.
+Naming: the product is **Wandit** — workspace scope `@wandit/*` → `@wandit/*` in Foundation.
 
 Other services: Neon (Postgres), Redis (BullMQ + pub/sub + rate limiting), Cloudflare R2 + KV + Pages + Workers, Vercel AI Gateway, Sentry.
 

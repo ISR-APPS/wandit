@@ -1,7 +1,7 @@
 // Settings tab: stacks the general, publishing and danger-zone cards in a
 // narrow scrollable column, with skeleton cards while the workspace loads.
 
-import { Skeleton } from "@my-better-t-app/ui/components/skeleton";
+import { Skeleton } from "@wandit/ui/components/skeleton";
 
 import { WORKSPACE_COPY } from "../../lib/constants";
 import { useWorkspace } from "../../lib/store";

@@ -1,7 +1,7 @@
 // Renders one chat message from its parts: user prompts as bubbles,
 // assistant turns as marked text blocks with inline generation cards.
 
-import { cn } from "@my-better-t-app/ui/lib/utils";
+import { cn } from "@wandit/ui/lib/utils";
 
 import { Spark } from "@/components/logo";
 import type { ChatMessage } from "../../api/dto";

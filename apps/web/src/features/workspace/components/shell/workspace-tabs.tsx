@@ -1,7 +1,7 @@
 // Segmented control switching the workspace's polymorphic right pane
 // (Canvas | Assets | Leads | Settings) — the active pill slides with motion.
 
-import { cn } from "@my-better-t-app/ui/lib/utils";
+import { cn } from "@wandit/ui/lib/utils";
 import { motion } from "motion/react";
 import { useId } from "react";
 

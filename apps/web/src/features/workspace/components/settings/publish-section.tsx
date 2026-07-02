@@ -2,18 +2,18 @@
 // subdomain slug with validation and a debounced mock availability check,
 // and the immutable version history with rollback.
 
-import { Badge } from "@my-better-t-app/ui/components/badge";
-import { Button } from "@my-better-t-app/ui/components/button";
+import { Badge } from "@wandit/ui/components/badge";
+import { Button } from "@wandit/ui/components/button";
 import {
 	Card,
 	CardContent,
 	CardDescription,
 	CardHeader,
 	CardTitle,
-} from "@my-better-t-app/ui/components/card";
-import { Input } from "@my-better-t-app/ui/components/input";
-import { Label } from "@my-better-t-app/ui/components/label";
-import { Separator } from "@my-better-t-app/ui/components/separator";
+} from "@wandit/ui/components/card";
+import { Input } from "@wandit/ui/components/input";
+import { Label } from "@wandit/ui/components/label";
+import { Separator } from "@wandit/ui/components/separator";
 import { Check, Copy, ExternalLink, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";

@@ -42,6 +42,6 @@ Leads tab in the workspace: TanStack Query paginated table (name, phone, wilaya/
 - `tel:` and `wa.me` links work with Algerian numbers (+213 normalization).
 - Usable on a 360px viewport; Arabic names render correctly (RTL-safe cells).
 
-**Files:** `packages/db/src/schema/leads.ts`, `packages/contracts/src/leads.ts`, `apps/server/src/modules/leads/**`, `apps/web/src/features/workspace/components/leads/**`, `apps/web/src/features/workspace/api/leads.{services,queries,mutations}.ts`.
+**Files:** `packages/db/src/schema/leads.ts`, `packages/contracts/src/v1/leads.ts`, `apps/server/src/modules/leads/**`, `apps/web/src/features/workspace/components/leads/**`, `apps/web/src/features/workspace/api/leads.{services,queries,mutations}.ts`.
 
 Source docs: docs/PRD.md, docs/features/leads-crm.md

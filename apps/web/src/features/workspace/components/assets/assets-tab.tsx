@@ -8,8 +8,8 @@ import {
 	EmptyHeader,
 	EmptyMedia,
 	EmptyTitle,
-} from "@my-better-t-app/ui/components/empty";
-import { Skeleton } from "@my-better-t-app/ui/components/skeleton";
+} from "@wandit/ui/components/empty";
+import { Skeleton } from "@wandit/ui/components/skeleton";
 import { Images } from "lucide-react";
 
 import { WORKSPACE_COPY } from "../../lib/constants";

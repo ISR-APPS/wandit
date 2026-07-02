@@ -1,6 +1,7 @@
 // Project-name dropdown in the workspace header: quick switch between
 // projects + back to the dashboard grid.
 
+import { Link, useNavigate } from "@tanstack/react-router";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -8,10 +9,9 @@ import {
 	DropdownMenuLabel,
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
-} from "@my-better-t-app/ui/components/dropdown-menu";
-import { Skeleton } from "@my-better-t-app/ui/components/skeleton";
-import { cn } from "@my-better-t-app/ui/lib/utils";
-import { Link, useNavigate } from "@tanstack/react-router";
+} from "@wandit/ui/components/dropdown-menu";
+import { Skeleton } from "@wandit/ui/components/skeleton";
+import { cn } from "@wandit/ui/lib/utils";
 import { Check, ChevronsUpDown, LayoutGrid } from "lucide-react";
 
 import { type ProjectStatus, useProjectsQuery } from "@/features/projects";

@@ -56,6 +56,6 @@ Workspace shell on `/p/$projectId`: header (logo → dashboard, project dropdown
 - Version switcher flips the iframe between versions; mobile/desktop toggle resizes correctly.
 - The iframe has no same-origin access (verified: no cookies/storage reachable from page JS).
 
-**Files:** `packages/db/src/schema/{chats,artifacts}.ts`, `packages/jobs/src/**`, `packages/contracts/src/{chat,artifacts}.ts`, `apps/server/src/modules/generation/**` (chats, artifacts, SSE relay), `apps/worker/src/processors/ai-generation.processor.ts`, `apps/web/src/routes/_auth/p.$projectId.tsx`, `apps/web/src/features/workspace/**`.
+**Files:** `packages/db/src/schema/{chats,artifacts}.ts`, `packages/jobs/src/**`, `packages/contracts/src/v1/{chats,artifacts}.ts`, `apps/server/src/modules/generation/**` (chats, artifacts, SSE relay), `apps/worker/src/processors/ai-generation.processor.ts`, `apps/web/src/routes/_auth/p.$projectId.tsx`, `apps/web/src/features/workspace/**`.
 
 Source docs: docs/PRD.md, docs/features/chat-generation.md

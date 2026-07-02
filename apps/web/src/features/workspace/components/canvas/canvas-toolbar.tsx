@@ -1,14 +1,14 @@
 // Canvas toolbar: chat expander, version switcher, generation status,
 // viewport toggle and preview actions.
 
-import { Button } from "@my-better-t-app/ui/components/button";
-import { Separator } from "@my-better-t-app/ui/components/separator";
+import { Button } from "@wandit/ui/components/button";
+import { Separator } from "@wandit/ui/components/separator";
 import {
 	Tooltip,
 	TooltipContent,
 	TooltipTrigger,
-} from "@my-better-t-app/ui/components/tooltip";
-import { cn } from "@my-better-t-app/ui/lib/utils";
+} from "@wandit/ui/components/tooltip";
+import { cn } from "@wandit/ui/lib/utils";
 import {
 	ExternalLink,
 	Loader2,

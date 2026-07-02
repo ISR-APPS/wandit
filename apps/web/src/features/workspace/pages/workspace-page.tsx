@@ -2,10 +2,10 @@
 // left, polymorphic canvas (Canvas | Assets | Leads | Settings) on the right.
 // All workspace-level state lives in WorkspaceProvider (lib/store.tsx).
 
-import { Button } from "@my-better-t-app/ui/components/button";
-import { TooltipProvider } from "@my-better-t-app/ui/components/tooltip";
-import { cn } from "@my-better-t-app/ui/lib/utils";
 import { Link } from "@tanstack/react-router";
+import { Button } from "@wandit/ui/components/button";
+import { TooltipProvider } from "@wandit/ui/components/tooltip";
+import { cn } from "@wandit/ui/lib/utils";
 
 import { Spark } from "@/components/logo";
 import type { WorkspaceTab } from "../api/dto";

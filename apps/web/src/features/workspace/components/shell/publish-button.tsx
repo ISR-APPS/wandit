@@ -1,15 +1,15 @@
 // Header publish control reflecting deployment state: draft → ember Publish,
 // publishing → spinner, published → dropdown with live URL, update & unpublish.
 
-import { Button } from "@my-better-t-app/ui/components/button";
+import { Button } from "@wandit/ui/components/button";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
 	DropdownMenuItem,
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
-} from "@my-better-t-app/ui/components/dropdown-menu";
-import { Skeleton } from "@my-better-t-app/ui/components/skeleton";
+} from "@wandit/ui/components/dropdown-menu";
+import { Skeleton } from "@wandit/ui/components/skeleton";
 import {
 	ChevronDown,
 	CloudOff,

@@ -1,7 +1,7 @@
-import { Badge } from "@my-better-t-app/ui/components/badge";
-import { Button } from "@my-better-t-app/ui/components/button";
-import { Slider } from "@my-better-t-app/ui/components/slider";
-import { cn } from "@my-better-t-app/ui/lib/utils";
+import { Badge } from "@wandit/ui/components/badge";
+import { Button } from "@wandit/ui/components/button";
+import { Slider } from "@wandit/ui/components/slider";
+import { cn } from "@wandit/ui/lib/utils";
 import { Check } from "lucide-react";
 import type * as React from "react";
 import { useState } from "react";

@@ -1,14 +1,14 @@
 // Workspace chrome: brand → dashboard, project switcher, centered tabs,
 // credits, theme, publish state and account.
 
-import { Button } from "@my-better-t-app/ui/components/button";
-import { Separator } from "@my-better-t-app/ui/components/separator";
+import { Link } from "@tanstack/react-router";
+import { Button } from "@wandit/ui/components/button";
+import { Separator } from "@wandit/ui/components/separator";
 import {
 	Tooltip,
 	TooltipContent,
 	TooltipTrigger,
-} from "@my-better-t-app/ui/components/tooltip";
-import { Link } from "@tanstack/react-router";
+} from "@wandit/ui/components/tooltip";
 
 import { Spark } from "@/components/logo";
 import { ModeToggle } from "@/components/mode-toggle";

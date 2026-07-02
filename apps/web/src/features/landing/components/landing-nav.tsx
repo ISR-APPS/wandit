@@ -1,6 +1,6 @@
-import { Button } from "@my-better-t-app/ui/components/button";
-import { cn } from "@my-better-t-app/ui/lib/utils";
 import { Link } from "@tanstack/react-router";
+import { Button } from "@wandit/ui/components/button";
+import { cn } from "@wandit/ui/lib/utils";
 import { useEffect, useState } from "react";
 
 import { Logo } from "@/components/logo";

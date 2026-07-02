@@ -1,4 +1,4 @@
-import { env } from "@my-better-t-app/env/server";
+import { env } from "@wandit/env/server";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 

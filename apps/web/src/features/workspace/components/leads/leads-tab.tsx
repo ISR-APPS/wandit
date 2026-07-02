@@ -2,7 +2,7 @@
 // desktop table / mobile card list with call & WhatsApp shortcuts, inline
 // status pipeline and CSV export, paginated client-side.
 
-import { Button } from "@my-better-t-app/ui/components/button";
+import { Button } from "@wandit/ui/components/button";
 import {
 	Empty,
 	EmptyContent,
@@ -10,16 +10,16 @@ import {
 	EmptyHeader,
 	EmptyMedia,
 	EmptyTitle,
-} from "@my-better-t-app/ui/components/empty";
-import { Input } from "@my-better-t-app/ui/components/input";
+} from "@wandit/ui/components/empty";
+import { Input } from "@wandit/ui/components/input";
 import {
 	Select,
 	SelectContent,
 	SelectItem,
 	SelectTrigger,
 	SelectValue,
-} from "@my-better-t-app/ui/components/select";
-import { Skeleton } from "@my-better-t-app/ui/components/skeleton";
+} from "@wandit/ui/components/select";
+import { Skeleton } from "@wandit/ui/components/skeleton";
 import {
 	Table,
 	TableBody,
@@ -27,13 +27,13 @@ import {
 	TableHead,
 	TableHeader,
 	TableRow,
-} from "@my-better-t-app/ui/components/table";
+} from "@wandit/ui/components/table";
 import {
 	Tooltip,
 	TooltipContent,
 	TooltipTrigger,
-} from "@my-better-t-app/ui/components/tooltip";
-import { cn } from "@my-better-t-app/ui/lib/utils";
+} from "@wandit/ui/components/tooltip";
+import { cn } from "@wandit/ui/lib/utils";
 import {
 	Download,
 	MessageCircle,

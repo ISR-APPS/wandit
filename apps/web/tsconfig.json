@@ -1,17 +1,18 @@
 {
-  "compilerOptions": {
-    "strict": true,
-    "esModuleInterop": true,
-    "jsx": "react-jsx",
-    "target": "ESNext",
-    "module": "ESNext",
-    "moduleResolution": "Bundler",
-    "skipLibCheck": true,
-    "types": ["vite/client"],
-    "rootDirs": ["."],
-    "paths": {
-      "@/*": ["./src/*"],
-      "@my-better-t-app/ui/*": ["../../packages/ui/src/*"]
-    }
-  }
+	"compilerOptions": {
+		"strict": true,
+		"esModuleInterop": true,
+		"jsx": "react-jsx",
+		"target": "ESNext",
+		"module": "ESNext",
+		"moduleResolution": "Bundler",
+		"resolveJsonModule": true,
+		"skipLibCheck": true,
+		"types": ["vite/client"],
+		"rootDirs": ["."],
+		"paths": {
+			"@/*": ["./src/*"],
+			"@wandit/ui/*": ["../../packages/ui/src/*"]
+		}
+	}
 }

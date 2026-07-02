@@ -2,14 +2,14 @@
 // compact ember PromptBox. Collapses to zero width on desktop; overlays the
 // canvas on mobile.
 
-import { Button } from "@my-better-t-app/ui/components/button";
-import { Skeleton } from "@my-better-t-app/ui/components/skeleton";
+import { Button } from "@wandit/ui/components/button";
+import { Skeleton } from "@wandit/ui/components/skeleton";
 import {
 	Tooltip,
 	TooltipContent,
 	TooltipTrigger,
-} from "@my-better-t-app/ui/components/tooltip";
-import { cn } from "@my-better-t-app/ui/lib/utils";
+} from "@wandit/ui/components/tooltip";
+import { cn } from "@wandit/ui/lib/utils";
 import { MessagesSquare, PanelLeftClose } from "lucide-react";
 import { useEffect, useRef } from "react";
 

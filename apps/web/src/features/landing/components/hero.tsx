@@ -1,10 +1,10 @@
-import { Badge } from "@my-better-t-app/ui/components/badge";
+import Lottie from "lottie-react";
 import { motion, type Variants } from "motion/react";
 
-import { Spark } from "@/components/logo";
 import { InsufficientCreditsDialog } from "@/features/credits";
 import { PromptBox, useCreateProjectWithPrompt } from "@/features/projects";
 
+import orbAnimation from "../assets/ai-sphere-animation.json";
 import { HERO } from "../lib/constants";
 
 const container: Variants = {
@@ -20,15 +20,14 @@ const item: Variants = {
 type HeroProps = {
 	promptKey: number;
 	promptInitial: string;
-	onPrefill: (prompt: string) => void;
 };
 
-export function Hero({ promptKey, promptInitial, onPrefill }: HeroProps) {
+export function Hero({ promptKey, promptInitial }: HeroProps) {
 	const { create, isCreating, insufficientOpen, setInsufficientOpen, cost } =
 		useCreateProjectWithPrompt();
 
 	return (
-		<section className="relative overflow-hidden px-4 pt-32 pb-16 md:pt-44 md:pb-24">
+		<section className="relative overflow-hidden px-4 pt-32 pb-16 md:pt-40 md:pb-24">
 			{/* Dot-grid backdrop, fading out from center */}
 			<div aria-hidden className="absolute inset-x-0 top-0 h-[560px] bg-dots" />
 			{/* Film grain, dark mode only — sits under the content layer */}
@@ -43,14 +42,18 @@ export function Hero({ promptKey, promptInitial, onPrefill }: HeroProps) {
 				animate="show"
 				className="relative mx-auto flex max-w-3xl flex-col items-center text-center"
 			>
-				<motion.div variants={item}>
-					<Badge
-						variant="outline"
-						className="gap-1.5 border-primary/25 bg-primary/10 px-3 py-1 text-foreground"
-					>
-						<Spark className="size-3 text-primary" />
-						{HERO.badge}
-					</Badge>
+				{/* Animated orb, radially masked so it melts into the backdrop */}
+				<motion.div
+					variants={item}
+					aria-hidden
+					className="mask-b-from-60% mask-radial-[50%_50%] mask-radial-from-30% pointer-events-none mx-auto -mt-24 -mb-10 hidden w-64 md:block"
+				>
+					<Lottie
+						animationData={orbAnimation}
+						loop
+						autoplay
+						className="w-full"
+					/>
 				</motion.div>
 
 				<motion.h1
@@ -79,27 +82,13 @@ export function Hero({ promptKey, promptInitial, onPrefill }: HeroProps) {
 					<PromptBox
 						key={promptKey}
 						variant="hero"
+						showBanner
+						showModes
 						initialValue={promptInitial}
 						onSubmit={create}
 						isSubmitting={isCreating}
 						className="relative text-left"
 					/>
-				</motion.div>
-
-				<motion.div
-					variants={item}
-					className="mt-5 flex flex-wrap items-center justify-center gap-2"
-				>
-					{HERO.chips.map((chip) => (
-						<button
-							key={chip.label}
-							type="button"
-							onClick={() => onPrefill(chip.prompt)}
-							className="rounded-full border border-border bg-card/50 px-3 py-1.5 text-muted-foreground text-xs outline-none transition-colors hover:border-primary/40 hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50"
-						>
-							{chip.label}
-						</button>
-					))}
 				</motion.div>
 
 				<motion.div

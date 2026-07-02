@@ -1,5 +1,6 @@
-import { Button } from "@my-better-t-app/ui/components/button";
-import { Progress } from "@my-better-t-app/ui/components/progress";
+import { Link, useLocation } from "@tanstack/react-router";
+import { Button } from "@wandit/ui/components/button";
+import { Progress } from "@wandit/ui/components/progress";
 import {
 	Sidebar,
 	SidebarContent,
@@ -13,8 +14,7 @@ import {
 	SidebarMenuButton,
 	SidebarMenuItem,
 	SidebarRail,
-} from "@my-better-t-app/ui/components/sidebar";
-import { Link, useLocation } from "@tanstack/react-router";
+} from "@wandit/ui/components/sidebar";
 import type * as React from "react";
 
 import { Spark } from "@/components/logo";

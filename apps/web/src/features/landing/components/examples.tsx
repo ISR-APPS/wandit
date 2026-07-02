@@ -1,4 +1,4 @@
-import { cn } from "@my-better-t-app/ui/lib/utils";
+import { cn } from "@wandit/ui/lib/utils";
 import type * as React from "react";
 
 import { EXAMPLES, type ExampleItem } from "../lib/constants";
