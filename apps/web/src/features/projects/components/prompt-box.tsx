@@ -23,6 +23,8 @@ export type PromptBoxProps = {
 	showPriceTag?: boolean;
 	isSubmitting?: boolean;
 	initialValue?: string;
+	/** Clear the textarea after submitting (chat-style usage). */
+	clearOnSubmit?: boolean;
 	className?: string;
 };
 
@@ -38,6 +40,7 @@ export function PromptBox({
 	showPriceTag = false,
 	isSubmitting = false,
 	initialValue = "",
+	clearOnSubmit = false,
 	className,
 }: PromptBoxProps) {
 	const [value, setValue] = useState(initialValue);
@@ -54,10 +57,11 @@ export function PromptBox({
 		el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
 	}, [maxHeight]);
 
-	// Initial mount + variant change (typing resizes synchronously in onChange).
+	// Initial mount + variant change (typing resizes synchronously in
+	// onChange); also re-measures after a programmatic clear (clearOnSubmit).
 	useEffect(() => {
 		resize();
-	}, [resize]);
+	}, [resize, value]);
 
 	const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
 		setValue(e.target.value);
@@ -68,6 +72,7 @@ export function PromptBox({
 		const prompt = value.trim();
 		if (!prompt || isSubmitting) return;
 		void onSubmit(prompt);
+		if (clearOnSubmit) setValue("");
 	};
 
 	const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
