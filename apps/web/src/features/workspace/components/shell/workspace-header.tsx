@@ -1,5 +1,6 @@
-// Workspace chrome: brand → dashboard, project switcher, centered tabs,
-// credits, theme, publish state and account.
+// Workspace chrome: brand → dashboard, project switcher, autosave state,
+// credits, theme, publish state and account. Workspace tabs live in the main
+// card's header (shell/main-pane-header.tsx), not here.
 
 import { Link } from "@tanstack/react-router";
 import { Button } from "@wandit/ui/components/button";
@@ -17,7 +18,6 @@ import { CreditsChip } from "@/features/credits";
 import { WORKSPACE_COPY } from "../../lib/constants";
 import { ProjectSwitcher } from "./project-switcher";
 import { PublishButton } from "./publish-button";
-import { WorkspaceTabs } from "./workspace-tabs";
 
 export function WorkspaceHeader() {
 	return (
@@ -45,11 +45,11 @@ export function WorkspaceHeader() {
 			/>
 			<ProjectSwitcher />
 
-			<div className="absolute left-1/2 hidden -translate-x-1/2 lg:block">
-				<WorkspaceTabs />
-			</div>
-
 			<div className="ml-auto flex items-center gap-1.5">
+				<span className="hidden items-center gap-1.5 rounded-full bg-muted/60 px-2.5 py-1 font-mono text-[11px] text-muted-foreground md:flex">
+					<span aria-hidden className="size-1.5 rounded-full bg-success" />
+					{WORKSPACE_COPY.autosaved}
+				</span>
 				<CreditsChip />
 				<span className="hidden sm:block">
 					<ModeToggle />

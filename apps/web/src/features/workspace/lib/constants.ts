@@ -2,13 +2,14 @@
 // swap is cheap) + tab/status/timing config.
 
 import type { LucideIcon } from "lucide-react";
-import { AppWindow, Images, Settings2, Users } from "lucide-react";
+import { AppWindow, Images, Megaphone, Settings2, Users } from "lucide-react";
 
 import type { LeadStatus, PageLang, WorkspaceTab } from "../api/dto";
 
 export const WORKSPACE_TAB_VALUES = [
 	"page",
 	"assets",
+	"marketing",
 	"leads",
 	"settings",
 ] as const;
@@ -22,6 +23,7 @@ export type WorkspaceTabDef = {
 export const WORKSPACE_TABS: WorkspaceTabDef[] = [
 	{ value: "page", label: "Page", icon: AppWindow },
 	{ value: "assets", label: "Assets", icon: Images },
+	{ value: "marketing", label: "Marketing", icon: Megaphone },
 	{ value: "leads", label: "Leads", icon: Users },
 	{ value: "settings", label: "Settings", icon: Settings2 },
 ];
@@ -149,6 +151,7 @@ export const ITERATION_REPLIES: Record<PageLang, string[]> = {
 export const WORKSPACE_COPY = {
 	backToDashboard: "Back to dashboard",
 	tabsAriaLabel: "Workspace views",
+	autosaved: "autosaved",
 
 	switcher: {
 		menuLabel: "Projects",
@@ -207,6 +210,7 @@ export const WORKSPACE_COPY = {
 	assets: {
 		title: "Assets",
 		subtitle: "Every generation is saved as an immutable version.",
+		metaCount: (n: number) => (n === 1 ? "1 asset" : `${n} assets`),
 		kindLandingPage: "Landing page",
 		liveBadge: "Live",
 		currentBadge: "Viewing",
@@ -218,6 +222,35 @@ export const WORKSPACE_COPY = {
 		libraryView: "Library",
 		canvasView: "Canvas",
 		viewToggleAriaLabel: "Assets view",
+	},
+
+	marketing: {
+		title: "Marketing",
+		updatedPrefix: "updated",
+		exportPlan: "Export plan",
+		updatePlan: "Update plan",
+		updating: "Updating…",
+		planUpdatedToast: "Plan updated",
+		exportedToast: "Plan exported",
+		goalKicker: "Goal",
+		goalProgress: (done: number, target: number) => `${done} / ${target}`,
+		goalOnTrack: "on track",
+		goalBehind: "keep pushing",
+		takeKicker: "Wandit's take · this week",
+		channelsKicker: "Where to spend",
+		audienceKicker: "Who you're talking to",
+		checklistKicker: "Week-1 checklist",
+		checklistDone: (done: number, total: number) => `${done} of ${total} done`,
+		ideasKicker: "Campaign ideas",
+		view: "View",
+		openLeads: "Open leads",
+		askWandit: "Ask Wandit",
+		ideaStatus: {
+			ready: "Ready",
+			draft: "Draft",
+			idea: "Idea",
+		},
+		exportFileName: (projectId: string) => `marketing-plan-${projectId}.md`,
 	},
 
 	leads: {

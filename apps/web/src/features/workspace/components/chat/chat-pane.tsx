@@ -1,7 +1,8 @@
 // Collapsible chat pane: message history, streaming assistant reply and the
 // compact ember PromptBox. Sizing/positioning (resizable panel on desktop,
 // full-screen overlay on mobile) is owned by the parent layout — this
-// component only fills its container and self-inerts when collapsed.
+// component only fills its container (desktop passes card chrome via
+// className) and self-inerts when collapsed.
 
 import { Button } from "@wandit/ui/components/button";
 import { Skeleton } from "@wandit/ui/components/skeleton";
@@ -10,6 +11,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@wandit/ui/components/tooltip";
+import { cn } from "@wandit/ui/lib/utils";
 import { MessagesSquare, PanelLeftClose } from "lucide-react";
 import { useEffect, useRef } from "react";
 
@@ -22,7 +24,7 @@ import { ChatMessageView, ThinkingIndicator } from "./chat-message";
 
 const COPY = WORKSPACE_COPY.chat;
 
-export function ChatPane() {
+export function ChatPane({ className }: { className?: string }) {
 	const {
 		chatOpen,
 		toggleChat,
@@ -36,6 +38,7 @@ export function ChatPane() {
 		generationCost,
 		insufficientOpen,
 		setInsufficientOpen,
+		project,
 	} = useWorkspace();
 
 	const scrollRef = useRef<HTMLDivElement>(null);
@@ -55,7 +58,10 @@ export function ChatPane() {
 			// inert removes the collapsed pane's controls from tab order and AT —
 			// the resizable panel shrinks it to zero width rather than unmounting it.
 			inert={!chatOpen}
-			className="relative z-30 flex h-full min-h-0 w-full flex-col overflow-hidden bg-sidebar"
+			className={cn(
+				"relative z-30 flex h-full min-h-0 w-full flex-col overflow-hidden bg-card",
+				className,
+			)}
 		>
 			<div className="flex h-full w-full flex-col">
 				{/* Screenreader announcement for the otherwise-visual job states. */}
@@ -66,10 +72,18 @@ export function ChatPane() {
 							? WORKSPACE_COPY.page.generatingTitle(pendingVersionNumber)
 							: ""}
 				</span>
-				<div className="flex h-11 shrink-0 items-center justify-between border-b px-3">
-					<span className="flex items-center gap-2 font-medium text-sm">
-						<MessagesSquare className="size-4 text-muted-foreground" />
+				<div className="flex h-12 shrink-0 items-center justify-between border-b px-3">
+					<span className="flex min-w-0 items-center gap-2 font-medium text-sm">
+						<MessagesSquare className="size-4 shrink-0 text-muted-foreground" />
 						{COPY.title}
+						{project?.name ? (
+							<span
+								dir="auto"
+								className="min-w-0 truncate rounded-md bg-muted/60 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
+							>
+								{project.name}
+							</span>
+						) : null}
 					</span>
 					<Tooltip>
 						<TooltipTrigger asChild>
@@ -123,7 +137,7 @@ export function ChatPane() {
 					)}
 				</div>
 
-				<div className="shrink-0 border-t bg-sidebar p-3">
+				<div className="shrink-0 border-t p-3">
 					<PromptBox
 						variant="compact"
 						showPriceTag

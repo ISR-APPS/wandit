@@ -5,7 +5,12 @@
 // generated files, deployments are slug → version pointers, leads carry the
 // COD order pipeline.
 
-export type WorkspaceTab = "page" | "assets" | "leads" | "settings";
+export type WorkspaceTab =
+	| "page"
+	| "assets"
+	| "marketing"
+	| "leads"
+	| "settings";
 
 export type MessageRole = "user" | "assistant";
 
