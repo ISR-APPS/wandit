@@ -20,6 +20,8 @@ export const env = createEnv({
 			.transform((value) => value === "true"),
 		QUEUE_PREFIX: z.string().min(1).default("isr-ai"),
 		REDIS_URL: z.url().default("redis://127.0.0.1:6379"),
+		STRIPE_SECRET_KEY: z.string().startsWith("sk_").optional(),
+		STRIPE_WEBHOOK_SECRET: z.string().startsWith("whsec_").optional(),
 	},
 	runtimeEnv: process.env,
 	skipValidation: !!process.env.SKIP_ENV_VALIDATION,
