@@ -160,7 +160,6 @@ export function ChatPane({ className }: { className?: string }) {
 						showEngines
 						showPriceTag
 						clearOnSubmit
-						placeholder={COPY.placeholder}
 						onSubmit={sendPrompt}
 						isSubmitting={isGenerating}
 					/>
