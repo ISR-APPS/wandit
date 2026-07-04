@@ -10,6 +10,7 @@ Google-only sign-in that keeps the prompt-first funnel intact: an auth modal ove
 - Auth schema tables (`user`, `session`, `account`, `verification`) + migration.
 - Mounting Better Auth on the Fastify server under `/api/auth/*`.
 - Server auth infrastructure: global Nest `APP_GUARD`, `@Public()` opt-out, `@CurrentUser()` decorator, and `GET /api/v1/auth/me`.
+- API endpoint security conventions live in `docs/api-security.md`; Auth owns the guard, endpoint slices own the checklist.
 - Web: auth modal over any route, a single Continue-with-Google button, full-page redirect handling, session state via the Better Auth React client, account menu, and sign-out.
 - Prompt stash: a **one-shot sessionStorage stash** used only to prefill the dashboard prompt box after auth; the user clicks Generate again. The stash is consumed after dashboard prefill, stale-stash cleanup on modal dismiss, auth errors, and same-page sign-in while the modal is open.
 
