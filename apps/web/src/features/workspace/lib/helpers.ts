@@ -1,7 +1,9 @@
 // Pure functions for the workspace feature.
 
-import type { Lead, WorkspaceTab } from "../api/dto";
+import type { Lead, PageVersion, WorkspaceTab } from "../api/dto";
 import {
+	ASSETS_CANVAS_BOARD,
+	ASSETS_CANVAS_LAYOUT_SLOTS,
 	ASSETS_VIEW_STORAGE_KEY,
 	LEAD_STATUS_META,
 	WORKSPACE_PANELS_STORAGE_ID,
@@ -27,6 +29,59 @@ export function writeAssetsView(view: AssetsView): void {
 	} catch {
 		// storage unavailable — view still applies for the session
 	}
+}
+
+export type AssetsCanvasItemLayout = {
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+};
+
+function clamp(value: number, min: number, max: number): number {
+	return Math.min(max, Math.max(min, value));
+}
+
+export function createAssetsCanvasLayout(
+	version: Pick<PageVersion, "id" | "number" | "pageKey">,
+	index: number,
+): AssetsCanvasItemLayout {
+	const slot =
+		ASSETS_CANVAS_LAYOUT_SLOTS[index % ASSETS_CANVAS_LAYOUT_SLOTS.length];
+	const lane = Math.floor(index / ASSETS_CANVAS_LAYOUT_SLOTS.length);
+
+	if (lane === 0) return { ...slot };
+
+	const hash = hashString(`${version.id}:${version.number}:${version.pageKey}`);
+	const jitterX = (hash % 57) - 28;
+	const jitterY = ((hash >> 5) % 49) - 24;
+	const laneOffsetX = (lane * 86) % 210;
+	const laneOffsetY = lane * 92;
+
+	return {
+		...slot,
+		x: clamp(
+			slot.x + laneOffsetX + jitterX,
+			48,
+			ASSETS_CANVAS_BOARD.WIDTH - slot.width - 48,
+		),
+		y: clamp(
+			slot.y + laneOffsetY + jitterY,
+			42,
+			ASSETS_CANVAS_BOARD.HEIGHT - slot.height - 58,
+		),
+	};
+}
+
+export function createAssetsCanvasLayouts(
+	versions: Pick<PageVersion, "id" | "number" | "pageKey">[],
+): Record<string, AssetsCanvasItemLayout> {
+	return Object.fromEntries(
+		versions.map((version, index) => [
+			version.id,
+			createAssetsCanvasLayout(version, index),
+		]),
+	);
 }
 
 export function isWorkspaceTab(value: unknown): value is WorkspaceTab {
