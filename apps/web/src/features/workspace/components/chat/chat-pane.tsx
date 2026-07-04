@@ -18,12 +18,13 @@ import { useEffect, useRef } from "react";
 import { Spark } from "@/components/logo";
 import { InsufficientCreditsDialog } from "@/features/credits";
 import { PromptBox } from "@/features/projects";
-import { useTranslation } from "@/lib/i18n";
+import { useDictionary, useTranslation } from "@/lib/i18n";
 import { useWorkspace } from "../../lib/store";
 import { ChatMessageView, ThinkingIndicator } from "./chat-message";
 
 export function ChatPane({ className }: { className?: string }) {
 	const { t, dir } = useTranslation();
+	const dictionary = useDictionary();
 	const {
 		chatOpen,
 		toggleChat,
@@ -122,6 +123,23 @@ export function ChatPane({ className }: { className?: string }) {
 							<p className="max-w-56 text-muted-foreground text-xs leading-relaxed">
 								{t("workspace.chat.emptyBody")}
 							</p>
+							<p className="mt-4 font-mono text-[10px] text-muted-foreground/70 uppercase tracking-widest">
+								{t("workspace.chat.suggestionsKicker")}
+							</p>
+							<div className="flex flex-col items-center gap-1.5">
+								{dictionary.workspace.chat.suggestions.map((suggestion) => (
+									<Button
+										key={suggestion}
+										type="button"
+										variant="outline"
+										size="sm"
+										className="h-7 rounded-full bg-card px-3 font-normal text-muted-foreground text-xs shadow-none hover:text-foreground"
+										onClick={() => sendPrompt(suggestion)}
+									>
+										{suggestion}
+									</Button>
+								))}
+							</div>
 						</div>
 					) : (
 						<div className="flex flex-col gap-5">
@@ -140,9 +158,10 @@ export function ChatPane({ className }: { className?: string }) {
 					)}
 				</div>
 
-				<div className="shrink-0 border-t p-3">
+				<div className="shrink-0 px-3 pt-1 pb-3">
 					<PromptBox
 						variant="compact"
+						showEngines
 						showPriceTag
 						clearOnSubmit
 						placeholder={t("workspace.chat.placeholder")}

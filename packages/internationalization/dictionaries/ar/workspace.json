@@ -44,7 +44,13 @@
 		"generating": "جارٍ التوليد",
 		"versionCardKind": "صفحة هبوط",
 		"emptyTitle": "ابدأ المحادثة",
-		"emptyBody": "صف صفحتك وسيولّدها الذكاء الاصطناعي هنا."
+		"emptyBody": "صف صفحتك وسيولّدها الذكاء الاصطناعي هنا.",
+		"suggestionsKicker": "جرّب أحد هذه الاقتراحات",
+		"suggestions": [
+			"أضف آراء العملاء تحت السعر",
+			"اجعل نموذج الطلب أقصر",
+			"ترجم الصفحة إلى العربية"
+		]
 	},
 	"page": {
 		"versionShort": "v{n}",
@@ -90,7 +96,12 @@
 		"canvasView": "اللوحة",
 		"viewToggleAriaLabel": "عرض الموارد",
 		"zoomIn": "تكبير",
-		"zoomOut": "تصغير"
+		"zoomOut": "تصغير",
+		"toolSelect": "تحديد",
+		"toolFrame": "إطار",
+		"toolImage": "صورة",
+		"toolText": "نص",
+		"generate": "توليد"
 	},
 	"marketing": {
 		"title": "التسويق",

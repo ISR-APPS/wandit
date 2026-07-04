@@ -44,7 +44,13 @@
 		"generating": "Génération",
 		"versionCardKind": "Landing page",
 		"emptyTitle": "Démarre la conversation",
-		"emptyBody": "Décris ta page et l'IA la génère ici."
+		"emptyBody": "Décris ta page et l'IA la génère ici.",
+		"suggestionsKicker": "Essaie l'une de ces idées",
+		"suggestions": [
+			"Ajoute des avis clients sous le prix",
+			"Raccourcis le formulaire de commande",
+			"Traduis la page en arabe"
+		]
 	},
 	"page": {
 		"versionShort": "v{n}",
@@ -90,7 +96,12 @@
 		"canvasView": "Canevas",
 		"viewToggleAriaLabel": "Vue des ressources",
 		"zoomIn": "Zoom avant",
-		"zoomOut": "Zoom arrière"
+		"zoomOut": "Zoom arrière",
+		"toolSelect": "Sélectionner",
+		"toolFrame": "Cadre",
+		"toolImage": "Image",
+		"toolText": "Texte",
+		"generate": "Générer"
 	},
 	"marketing": {
 		"title": "Marketing",

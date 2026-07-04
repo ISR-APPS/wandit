@@ -76,10 +76,10 @@ export function LandingNav() {
 						</>
 					) : (
 						<>
-							<Button size="sm" variant="ghost" onClick={open}>
+							<Button size="sm" variant="ghost" onClick={() => open()}>
 								{t("landing.nav.signIn")}
 							</Button>
-							<Button size="sm" onClick={open}>
+							<Button size="sm" onClick={() => open()}>
 								{t("landing.nav.getStarted")}
 							</Button>
 						</>

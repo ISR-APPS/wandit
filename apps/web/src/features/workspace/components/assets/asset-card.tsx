@@ -21,6 +21,64 @@ import { getVersionPage } from "../../api/workspace.services";
 import { openHtmlInNewTab } from "../../lib/helpers";
 import { useWorkspace } from "../../lib/store";
 
+export function AssetCardFace({
+	version,
+	thumbnailSeed,
+	isLive,
+	isViewing,
+	className,
+}: {
+	version: PageVersion;
+	thumbnailSeed: number;
+	isLive?: boolean;
+	isViewing?: boolean;
+	className?: string;
+}) {
+	const { t } = useTranslation();
+
+	return (
+		<div
+			className={cn("relative overflow-hidden", className)}
+			style={{
+				background: thumbGradient(thumbnailSeed + version.number * 17),
+			}}
+		>
+			<div
+				aria-hidden
+				className="pointer-events-none absolute inset-0 bg-grain"
+			/>
+			<span
+				aria-hidden
+				className="absolute inset-0 flex select-none items-center justify-center font-bold font-display text-5xl text-white/20"
+			>
+				{t("workspace.page.versionShort", { n: version.number })}
+			</span>
+			<div className="absolute start-2 top-2 flex items-center gap-1">
+				<Badge variant="secondary" className="font-mono text-[10px]">
+					{t("workspace.assets.kindLandingPage")}
+				</Badge>
+				<Badge variant="outline" className="font-mono text-[10px]">
+					{version.lang.toUpperCase()}
+				</Badge>
+			</div>
+			{isLive || isViewing ? (
+				<div className="absolute end-2 top-2 flex flex-col items-end gap-1">
+					{isLive ? (
+						<Badge variant="success" className="font-mono text-[10px]">
+							{t("workspace.assets.liveBadge")}
+						</Badge>
+					) : null}
+					{isViewing ? (
+						<Badge className="font-mono text-[10px]">
+							{t("workspace.assets.currentBadge")}
+						</Badge>
+					) : null}
+				</div>
+			) : null}
+		</div>
+	);
+}
+
 export function AssetCard({ version }: { version: PageVersion }) {
 	const { t } = useTranslation();
 	const { project, state, activeVersion, selectVersion } = useWorkspace();
@@ -45,47 +103,13 @@ export function AssetCard({ version }: { version: PageVersion }) {
 					"focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
 				)}
 			>
-				<div
-					className="relative aspect-[4/3]"
-					style={{
-						background: thumbGradient(
-							(project?.thumbnailSeed ?? 7) + version.number * 17,
-						),
-					}}
-				>
-					<div
-						aria-hidden
-						className="pointer-events-none absolute inset-0 bg-grain"
-					/>
-					<span
-						aria-hidden
-						className="absolute inset-0 flex select-none items-center justify-center font-bold font-display text-5xl text-white/20"
-					>
-						{t("workspace.page.versionShort", { n: version.number })}
-					</span>
-					<div className="absolute start-2 top-2 flex items-center gap-1">
-						<Badge variant="secondary" className="font-mono text-[10px]">
-							{t("workspace.assets.kindLandingPage")}
-						</Badge>
-						<Badge variant="outline" className="font-mono text-[10px]">
-							{version.lang.toUpperCase()}
-						</Badge>
-					</div>
-					{isLive || isViewing ? (
-						<div className="absolute end-2 top-2 flex flex-col items-end gap-1">
-							{isLive ? (
-								<Badge variant="success" className="font-mono text-[10px]">
-									{t("workspace.assets.liveBadge")}
-								</Badge>
-							) : null}
-							{isViewing ? (
-								<Badge className="font-mono text-[10px]">
-									{t("workspace.assets.currentBadge")}
-								</Badge>
-							) : null}
-						</div>
-					) : null}
-				</div>
+				<AssetCardFace
+					version={version}
+					thumbnailSeed={project?.thumbnailSeed ?? 7}
+					isLive={isLive}
+					isViewing={isViewing}
+					className="aspect-[4/3]"
+				/>
 				<div className="p-3.5">
 					<h3 dir="auto" className="truncate font-medium text-sm">
 						{version.label}

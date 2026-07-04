@@ -3,9 +3,10 @@ import { Input } from "@wandit/ui/components/input";
 import { Skeleton } from "@wandit/ui/components/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@wandit/ui/components/tabs";
 import { Search } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Spark } from "@/components/logo";
+import { promptStash } from "@/features/auth";
 import { InsufficientCreditsDialog } from "@/features/credits";
 import { useTranslation } from "@/lib/i18n";
 import type { Project } from "../api/dto";
@@ -93,7 +94,14 @@ export default function DashboardPage() {
 
 	const [query, setQuery] = useState("");
 	const [filter, setFilter] = useState<StatusFilter>("all");
+	const [promptPrefill, setPromptPrefill] = useState({ key: 0, value: "" });
 	const promptSectionRef = useRef<HTMLDivElement>(null);
+
+	useEffect(() => {
+		const prompt = promptStash.consume();
+		if (!prompt) return;
+		setPromptPrefill((prev) => ({ key: prev.key + 1, value: prompt }));
+	}, []);
 
 	const filtered = useMemo(() => {
 		const q = query.trim().toLowerCase();
@@ -139,8 +147,11 @@ export default function DashboardPage() {
 						</h2>
 						<div ref={promptSectionRef} className="mt-6">
 							<PromptBox
+								key={promptPrefill.key}
 								variant="hero"
 								showPriceTag
+								showModes
+								initialValue={promptPrefill.value}
 								onSubmit={create}
 								isSubmitting={isCreating}
 							/>

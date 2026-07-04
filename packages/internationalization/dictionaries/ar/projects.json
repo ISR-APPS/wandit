@@ -67,73 +67,540 @@
 		"support": "الدعم"
 	},
 	"promptBox": {
-		"placeholderHero": "صِف ما تريد بيعه أو إنشاءه…",
-		"placeholderCompact": "صِف ما تريد إنشاءه…",
-		"hint": "جاهزة بالعربية والفرنسية",
+		"placeholderHero": "صِف ما تريد أن يُنشئه Wandit أو يُعدّله…",
+		"placeholderCompact": "اطلب تعديل صفحة، أو أصلاً تسويقيًا، أو صورة أو فيديو…",
 		"banner": "إصدار تجريبي — أول 10 صفحات لك مجانًا، دون بطاقة",
-		"generate": "توليد",
 		"submitLabel": "توليد",
 		"micLabel": "الإدخال الصوتي — قريبًا",
-		"engineLabel": "المحرّك",
-		"engineAutoBadge": "موصى به",
-		"engineResetHint": "يعود إلى «تلقائي» عند تغيير النوع.",
-		"creationTypeLabel": "نوع الإنشاء",
-		"modes": {
-			"sales-page": {
-				"label": "صفحة بيع",
-				"placeholder": "صِف منتجك والسعر والعرض ونموذج الدفع عند الاستلام…"
-			},
-			"website": {
-				"label": "موقع إلكتروني",
-				"placeholder": "صِف نشاطك التجاري وأقسام الموقع والأسلوب المطلوب…"
-			},
-			"photos": {
-				"label": "صور المنتج",
-				"placeholder": "صِف صور المنتج: الخلفية، الزاوية، الأجواء، الاستخدام…"
-			},
-			"ads": {
-				"label": "تصاميم إعلانية",
-				"placeholder": "صِف التصاميم الإعلانية لـ TikTok أو Meta أو Instagram…"
-			},
-			"video": {
-				"label": "إعلان فيديو",
-				"placeholder": "صِف الفيديو: المنتج، المشاهد، الصيغة، المدة، التعليق الصوتي…"
-			},
-			"flyer": {
-				"label": "فلاير",
-				"placeholder": "صِف الفلاير: العرض، الألوان، النص والصيغة…"
-			}
-		},
-		"engines": {
+		"addMenuLabel": "إضافة سياق",
+		"addSkillLabel": "إضافة مهارة",
+		"attachLabel": "إرفاق",
+		"attachHint": "رفع الملفات والمراجع — قريبًا",
+		"modeLabel": "الوضع",
+		"outputLabel": "المُخرَج",
+		"settingsLabel": "إعدادات التوليد",
+		"skillLibraryLabel": "من إنشاء Wandit",
+		"removeSkillLabel": "إزالة {name}",
+		"outputsHeading": "مُخرَجات {mode}",
+		"settingsSubtitle": "خيارات مُخرَج {mode}.",
+		"routeModes": {
 			"auto": {
 				"label": "تلقائي",
-				"short": "تلقائي",
-				"description": "أفضل محرّك حسب طلبك."
+				"description": "يقرّر Wandit سير العمل المناسب.",
+				"placeholder": "صِف ما تريد أن يُنشئه Wandit أو يُعدّله…"
 			},
-			"wandit-pages": {
-				"label": "Wandit Pages",
-				"short": "Wandit Pages",
-				"description": "مُحسّن لصفحات الهبوط والدفع عند الاستلام."
+			"page": {
+				"label": "صفحة",
+				"description": "أنشئ أو عدّل الصفحة القابلة للنشر.",
+				"placeholder": "صِف الصفحة التي تريد إنشاءها أو تحسينها…"
 			},
-			"gpt-image-2": {
-				"label": "GPT Image 2",
-				"short": "GPT Image 2",
-				"description": "نص واضح وتكوينات تسويقية."
+			"marketing": {
+				"label": "تسويق",
+				"description": "نصوص، استراتيجية، سكربتات وأصول HTML داعمة.",
+				"placeholder": "اطلب نص إعلان، استراتيجية، سكربتات أو أصل حملة…"
 			},
-			"nano-banana-pro": {
-				"label": "Nano Banana Pro",
-				"short": "Nano Banana",
-				"description": "متغيّرات سريعة، منتجات، ملصقات."
+			"image": {
+				"label": "صورة",
+				"description": "أنشئ صور المنتج وصور الإعلانات.",
+				"placeholder": "صِف صورة المنتج، النسبة، الأسلوب والمكان…"
 			},
-			"seedance-2": {
-				"label": "Seedance 2.0",
-				"short": "Seedance 2",
-				"description": "فيديوهات قصيرة للإعلانات والريلز."
+			"video": {
+				"label": "فيديو",
+				"description": "أنشئ فيديوهات إعلانية قصيرة وخطط مشاهد.",
+				"placeholder": "صِف الفيديو الإعلاني، المشاهد، الصيغة والمدة…"
+			}
+		},
+		"skillGroups": {
+			"review": {
+				"label": "مهارات المراجعة"
 			},
-			"veo-3": {
-				"label": "Veo 3",
-				"short": "Veo 3",
-				"description": "فيديوهات متميّزة بمشاهد أغنى."
+			"market": {
+				"label": "سياق السوق"
+			}
+		},
+		"skills": {
+			"accessibility": {
+				"label": "إمكانية الوصول",
+				"description": "يضيف إرشادات مراجعة التباين والنماذج ولوحة المفاتيح."
+			},
+			"seo-review": {
+				"label": "مراجعة SEO",
+				"description": "يضيف إرشادات مراجعة بنية البحث والبيانات الوصفية والنصوص."
+			},
+			"redesign": {
+				"label": "إعادة تصميم",
+				"description": "يضيف إرشادات تحديث بصري ونقد التخطيط."
+			},
+			"cod-algeria": {
+				"label": "COD الجزائر",
+				"description": "يضيف سياق الدفع عند الاستلام الجزائري والولايات والأولوية للجوال."
+			},
+			"brand-voice": {
+				"label": "صوت العلامة",
+				"description": "يبقي النص المُولَّد متوافقًا مع نبرة العلامة."
+			},
+			"direct-response": {
+				"label": "الاستجابة المباشرة",
+				"description": "يضيف ضغطًا على العرض والإثبات والاعتراضات والحث على الإجراء."
+			},
+			"premium-visuals": {
+				"label": "تصاميم فاخرة",
+				"description": "يضيف إخراجًا فنيًا أرقى للمخرجات البصرية."
+			}
+		},
+		"outputs": {
+			"landing-page": {
+				"label": "صفحة هبوط",
+				"shortLabel": "صفحة هبوط",
+				"description": "يُنشئ صفحة المشروع القابلة للنشر.",
+				"placeholder": "صِف المنتج والعرض والسعر والإثبات وتدفّق الدفع عند الاستلام…",
+				"options": {
+					"goal": {
+						"label": "الهدف",
+						"choices": {
+							"cod": "مبيعات COD",
+							"leads": "جمع العملاء المحتملين",
+							"promo": "عرض ترويجي",
+							"service": "خدمة"
+						}
+					},
+					"language": {
+						"label": "اللغة",
+						"choices": {
+							"auto": "تلقائي",
+							"arabic": "العربية",
+							"french": "الفرنسية",
+							"ar-fr": "AR + FR"
+						}
+					},
+					"shape": {
+						"label": "نوع الصفحة",
+						"choices": {
+							"landing": "هبوط",
+							"product": "صفحة منتج",
+							"service": "صفحة خدمة"
+						}
+					}
+				}
+			},
+			"page-edit": {
+				"label": "تعديل الصفحة",
+				"shortLabel": "تعديل الصفحة",
+				"description": "يُحدّث النص أو التخطيط أو أقسام الصفحة الحالية.",
+				"placeholder": "أخبر Wandit بالجزء الذي يجب تغييره في الصفحة…",
+				"options": {
+					"scope": {
+						"label": "النطاق",
+						"choices": {
+							"hero": "الواجهة",
+							"offer": "كتلة العرض",
+							"form": "نموذج الطلب",
+							"full": "الصفحة كاملة"
+						}
+					},
+					"intensity": {
+						"label": "مستوى التغيير",
+						"choices": {
+							"light": "خفيف",
+							"medium": "متوسط",
+							"rewrite": "إعادة كتابة"
+						}
+					}
+				}
+			},
+			"html-section": {
+				"label": "قسم HTML",
+				"shortLabel": "قسم HTML",
+				"description": "يُنشئ قسمًا قابلاً للتضمين في الصفحة.",
+				"placeholder": "صِف القسم الذي تريد إضافته إلى الصفحة…",
+				"options": {
+					"section": {
+						"label": "نوع القسم",
+						"choices": {
+							"comparison": "مقارنة",
+							"faq": "الأسئلة الشائعة",
+							"testimonials": "شهادات",
+							"offer": "كتلة العرض"
+						}
+					},
+					"style": {
+						"label": "الأسلوب",
+						"choices": {
+							"match": "مطابق للصفحة",
+							"clean": "نظيف",
+							"direct": "استجابة مباشرة"
+						}
+					}
+				}
+			},
+			"ad-copy": {
+				"label": "نص إعلاني",
+				"shortLabel": "نص إعلاني",
+				"description": "يُنشئ الجُمل الافتتاحية والنص الأساسي والعناوين وأزرار الحث.",
+				"placeholder": "صِف المنتج وزاوية الإعلان التي تريد اختبارها…",
+				"options": {
+					"platform": {
+						"label": "المنصّة",
+						"choices": {
+							"meta": "Meta",
+							"tiktok": "TikTok",
+							"google": "Google",
+							"whatsapp": "WhatsApp"
+						}
+					},
+					"variants": {
+						"label": "المتغيّرات",
+						"choices": {
+							"3": "3",
+							"5": "5",
+							"10": "10"
+						}
+					},
+					"angle": {
+						"label": "الزاوية",
+						"choices": {
+							"auto": "تلقائي",
+							"pain": "الألم",
+							"offer": "العرض",
+							"proof": "الإثبات الاجتماعي",
+							"urgency": "الإلحاح"
+						}
+					},
+					"length": {
+						"label": "الطول",
+						"choices": {
+							"short": "قصير",
+							"medium": "متوسط"
+						}
+					}
+				}
+			},
+			"marketing-strategy": {
+				"label": "استراتيجية",
+				"shortLabel": "استراتيجية",
+				"description": "يُخطّط الزوايا وخطوات القمع وتدفّق الحملة.",
+				"placeholder": "صِف المنتج واطلب خطة إطلاق أو حملة…",
+				"options": {
+					"strategy": {
+						"label": "نوع الاستراتيجية",
+						"choices": {
+							"launch": "خطة إطلاق",
+							"campaign": "خطة حملة",
+							"offer": "استراتيجية العرض",
+							"audit": "تدقيق القمع"
+						}
+					},
+					"channel": {
+						"label": "القناة",
+						"choices": {
+							"auto": "تلقائي",
+							"meta": "Meta",
+							"tiktok": "TikTok",
+							"whatsapp": "WhatsApp"
+						}
+					},
+					"depth": {
+						"label": "العمق",
+						"choices": {
+							"quick": "سريع",
+							"detailed": "مفصّل"
+						}
+					}
+				}
+			},
+			"video-script": {
+				"label": "سكربت فيديو",
+				"shortLabel": "سكربت فيديو",
+				"description": "يكتب سكربتات UGC والعروض والإعلانات القصيرة.",
+				"placeholder": "صِف المنتج وبنية الفيديو التي تريدها…",
+				"options": {
+					"format": {
+						"label": "الصيغة",
+						"choices": {
+							"ugc": "UGC",
+							"demo": "عرض منتج",
+							"problem": "مشكلة-حل",
+							"testimonial": "شهادة"
+						}
+					},
+					"duration": {
+						"label": "المدة",
+						"choices": {
+							"15": "15s",
+							"30": "30s",
+							"60": "60s"
+						}
+					},
+					"detail": {
+						"label": "تضمين",
+						"choices": {
+							"hook": "جملة افتتاحية",
+							"voiceover": "تعليق صوتي",
+							"shots": "قائمة اللقطات",
+							"cta": "زر الحث"
+						}
+					}
+				}
+			},
+			"creative-brief": {
+				"label": "بريف إبداعي",
+				"shortLabel": "بريف",
+				"description": "يُنشئ بريفًا منظّمًا للمصمّمين أو صنّاع المحتوى.",
+				"placeholder": "صِف الحملة وما يحتاجه الفريق الإبداعي…",
+				"options": {
+					"channel": {
+						"label": "القناة",
+						"choices": {
+							"meta": "Meta",
+							"tiktok": "TikTok",
+							"mixed": "مختلط"
+						}
+					},
+					"depth": {
+						"label": "العمق",
+						"choices": {
+							"simple": "بسيط",
+							"detailed": "مفصّل"
+						}
+					}
+				}
+			},
+			"html-asset": {
+				"label": "أصل HTML",
+				"shortLabel": "أصل HTML",
+				"description": "يُنشئ عنصر HTML داعمًا يُحفظ في الأصول.",
+				"placeholder": "صِف الأصل الداعم: جدول، صفحة واحدة، أسئلة شائعة أو بريف…",
+				"options": {
+					"asset": {
+						"label": "نوع الأصل",
+						"choices": {
+							"comparison": "جدول مقارنة",
+							"one-pager": "صفحة منتج واحدة",
+							"faq": "كتلة أسئلة شائعة",
+							"offer": "كتلة العرض"
+						}
+					},
+					"format": {
+						"label": "الصيغة",
+						"choices": {
+							"standalone": "مستقل",
+							"embed": "جاهز للتضمين"
+						}
+					}
+				}
+			},
+			"image-creator": {
+				"label": "تلقائي",
+				"shortLabel": "تلقائي",
+				"description": "يختار Wandit أفضل صيغة صورة من الطلب.",
+				"placeholder": "صِف الصورة، المنتج، الخلفية، الأسلوب والنسبة…",
+				"options": {
+					"quality": {
+						"label": "الجودة",
+						"choices": {
+							"auto": "تلقائي",
+							"high": "عالية",
+							"medium": "متوسطة",
+							"low": "منخفضة"
+						}
+					},
+					"size": {
+						"label": "الحجم",
+						"choices": {
+							"1-1": "1:1",
+							"3-2": "3:2",
+							"2-3": "2:3",
+							"4-3": "4:3",
+							"9-16": "9:16",
+							"16-9": "16:9"
+						}
+					},
+					"count": {
+						"label": "عدد الصور",
+						"choices": {
+							"1": "1 صورة",
+							"2": "2 صورة",
+							"4": "4 صور",
+							"8": "8 صور"
+						}
+					}
+				}
+			},
+			"product-shot": {
+				"label": "صورة منتج",
+				"shortLabel": "صورة منتج",
+				"description": "يُنشئ صورًا نظيفة تركّز على المنتج للتجارة.",
+				"placeholder": "صِف صورة المنتج، الزاوية، الخلفية والإكسسوارات…",
+				"options": {
+					"scene": {
+						"label": "المشهد",
+						"choices": {
+							"studio": "استوديو",
+							"lifestyle": "نمط حياة",
+							"packshot": "صورة تغليف",
+							"before-after": "قبل/بعد"
+						}
+					},
+					"size": {
+						"label": "الحجم",
+						"choices": {
+							"1-1": "1:1",
+							"4-5": "4:5",
+							"9-16": "9:16",
+							"16-9": "16:9"
+						}
+					}
+				}
+			},
+			"ad-creative": {
+				"label": "تصميم إعلاني",
+				"shortLabel": "تصميم إعلاني",
+				"description": "يُنشئ تصاميم إعلانية ثابتة بتكوين يركّز على العرض.",
+				"placeholder": "صِف التصميم الإعلاني، العرض، العنوان والمنصّة…",
+				"options": {
+					"platform": {
+						"label": "المنصّة",
+						"choices": {
+							"meta": "Meta",
+							"tiktok": "TikTok",
+							"story": "ستوري",
+							"display": "Display"
+						}
+					},
+					"text": {
+						"label": "كمية النص",
+						"choices": {
+							"none": "بدون نص",
+							"light": "خفيف",
+							"offer": "مركّز على العرض"
+						}
+					},
+					"count": {
+						"label": "المتغيّرات",
+						"choices": {
+							"1": "1",
+							"3": "3",
+							"5": "5"
+						}
+					}
+				}
+			},
+			"background-edit": {
+				"label": "تعديل الخلفية",
+				"shortLabel": "الخلفية",
+				"description": "يُغيّر البيئة حول صورة منتج موجودة.",
+				"placeholder": "أرفق صورة منتج، ثم صِف الخلفية الجديدة…",
+				"options": {
+					"background": {
+						"label": "الخلفية",
+						"choices": {
+							"studio": "استوديو",
+							"premium": "فاخرة",
+							"home": "منزل",
+							"outdoor": "خارجي"
+						}
+					},
+					"preserve": {
+						"label": "الحفاظ على",
+						"choices": {
+							"product": "المنتج",
+							"lighting": "الإضاءة",
+							"shadow": "الظل"
+						}
+					}
+				}
+			},
+			"video-creator": {
+				"label": "تلقائي",
+				"shortLabel": "تلقائي",
+				"description": "يختار Wandit أفضل صيغة فيديو من الطلب.",
+				"placeholder": "صِف الفيديو، المشاهد، الحركة، الأجواء ونسبة العرض…",
+				"options": {
+					"method": {
+						"label": "طريقة التوليد",
+						"choices": {
+							"reference": "مرجع",
+							"edit": "تعديل",
+							"frames": "إطارات"
+						}
+					},
+					"size": {
+						"label": "الحجم",
+						"choices": {
+							"auto": "تلقائي",
+							"16-9": "16:9",
+							"4-3": "4:3",
+							"1-1": "1:1",
+							"9-16": "9:16",
+							"21-9": "21:9"
+						}
+					},
+					"resolution": {
+						"label": "الدقة",
+						"choices": {
+							"720": "720p",
+							"1080": "1080p",
+							"4k": "4k"
+						}
+					},
+					"duration": {
+						"label": "المدة",
+						"choices": {
+							"4": "4s",
+							"5": "5s",
+							"8": "8s",
+							"10": "10s"
+						}
+					}
+				}
+			},
+			"ugc-video": {
+				"label": "فيديو UGC",
+				"shortLabel": "فيديو UGC",
+				"description": "يُنشئ فيديوهات إعلانية قصيرة بأسلوب صنّاع المحتوى.",
+				"placeholder": "صِف إعلان UGC، أجواء صانع المحتوى، الجملة الافتتاحية والإثبات…",
+				"options": {
+					"structure": {
+						"label": "البنية",
+						"choices": {
+							"problem": "مشكلة",
+							"demo": "عرض",
+							"testimonial": "شهادة"
+						}
+					},
+					"duration": {
+						"label": "المدة",
+						"choices": {
+							"15": "15s",
+							"30": "30s",
+							"45": "45s"
+						}
+					}
+				}
+			},
+			"product-demo": {
+				"label": "عرض المنتج",
+				"shortLabel": "عرض",
+				"description": "يُظهر استخدام المنتج والنتيجة وإجراء الطلب.",
+				"placeholder": "صِف تسلسل عرض المنتج والحث النهائي على الإجراء…",
+				"options": {
+					"pace": {
+						"label": "الإيقاع",
+						"choices": {
+							"fast": "سريع",
+							"balanced": "متوازن",
+							"slow": "بطيء"
+						}
+					},
+					"ratio": {
+						"label": "النسبة",
+						"choices": {
+							"9-16": "9:16",
+							"1-1": "1:1",
+							"16-9": "16:9"
+						}
+					}
+				}
 			}
 		}
 	}

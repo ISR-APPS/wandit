@@ -141,6 +141,10 @@ CREATE TABLE "projects" (
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL
 );
 --> statement-breakpoint
+CREATE UNIQUE INDEX "artifacts_id_projectId_uq" ON "artifacts" USING btree ("id","project_id");--> statement-breakpoint
+CREATE UNIQUE INDEX "versions_artifactId_id_uq" ON "versions" USING btree ("artifact_id","id");--> statement-breakpoint
+CREATE UNIQUE INDEX "versions_projectId_id_uq" ON "versions" USING btree ("project_id","id");--> statement-breakpoint
+CREATE UNIQUE INDEX "deployments_projectId_id_uq" ON "deployments" USING btree ("project_id","id");--> statement-breakpoint
 ALTER TABLE "artifacts" ADD CONSTRAINT "artifacts_project_id_projects_id_fk" FOREIGN KEY ("project_id") REFERENCES "public"."projects"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "artifacts" ADD CONSTRAINT "artifacts_active_version_fk" FOREIGN KEY ("id","active_version_id") REFERENCES "public"."versions"("artifact_id","id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
 ALTER TABLE "versions" ADD CONSTRAINT "versions_message_id_messages_id_fk" FOREIGN KEY ("message_id") REFERENCES "public"."messages"("id") ON DELETE set null ON UPDATE no action;--> statement-breakpoint
@@ -157,10 +161,7 @@ ALTER TABLE "leads" ADD CONSTRAINT "leads_project_deployment_fk" FOREIGN KEY ("p
 ALTER TABLE "projects" ADD CONSTRAINT "projects_user_id_user_id_fk" FOREIGN KEY ("user_id") REFERENCES "public"."user"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "artifacts_projectId_idx" ON "artifacts" USING btree ("project_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "artifacts_project_landing_uq" ON "artifacts" USING btree ("project_id") WHERE "artifacts"."kind" = 'landing_page';--> statement-breakpoint
-CREATE UNIQUE INDEX "artifacts_id_projectId_uq" ON "artifacts" USING btree ("id","project_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "versions_artifactId_number_uq" ON "versions" USING btree ("artifact_id","number");--> statement-breakpoint
-CREATE UNIQUE INDEX "versions_artifactId_id_uq" ON "versions" USING btree ("artifact_id","id");--> statement-breakpoint
-CREATE UNIQUE INDEX "versions_projectId_id_uq" ON "versions" USING btree ("project_id","id");--> statement-breakpoint
 CREATE INDEX "account_userId_idx" ON "account" USING btree ("user_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "account_providerId_accountId_uq" ON "account" USING btree ("provider_id","account_id");--> statement-breakpoint
 CREATE INDEX "session_userId_idx" ON "session" USING btree ("user_id");--> statement-breakpoint
@@ -172,7 +173,6 @@ CREATE UNIQUE INDEX "credit_ledger_idempotencyKey_uq" ON "credit_ledger" USING b
 CREATE INDEX "deployments_projectId_idx" ON "deployments" USING btree ("project_id");--> statement-breakpoint
 CREATE UNIQUE INDEX "deployments_active_slug_uq" ON "deployments" USING btree ("slug") WHERE "deployments"."status" = 'active';--> statement-breakpoint
 CREATE UNIQUE INDEX "deployments_active_project_uq" ON "deployments" USING btree ("project_id") WHERE "deployments"."status" = 'active';--> statement-breakpoint
-CREATE UNIQUE INDEX "deployments_projectId_id_uq" ON "deployments" USING btree ("project_id","id");--> statement-breakpoint
 CREATE INDEX "leads_projectId_createdAt_idx" ON "leads" USING btree ("project_id","created_at");--> statement-breakpoint
 CREATE INDEX "leads_projectId_status_createdAt_idx" ON "leads" USING btree ("project_id","status","created_at");--> statement-breakpoint
 CREATE INDEX "projects_userId_idx" ON "projects" USING btree ("user_id");--> statement-breakpoint

@@ -44,7 +44,13 @@
 		"generating": "Generating",
 		"versionCardKind": "Landing page",
 		"emptyTitle": "Start the conversation",
-		"emptyBody": "Describe your page and the AI will generate it here."
+		"emptyBody": "Describe your page and the AI will generate it here.",
+		"suggestionsKicker": "Try one of these",
+		"suggestions": [
+			"Add customer reviews under the price",
+			"Make the order form shorter",
+			"Translate the page to Arabic"
+		]
 	},
 	"page": {
 		"versionShort": "v{n}",
@@ -90,7 +96,12 @@
 		"canvasView": "Canvas",
 		"viewToggleAriaLabel": "Assets view",
 		"zoomIn": "Zoom in",
-		"zoomOut": "Zoom out"
+		"zoomOut": "Zoom out",
+		"toolSelect": "Select",
+		"toolFrame": "Frame",
+		"toolImage": "Image",
+		"toolText": "Text",
+		"generate": "Generate"
 	},
 	"marketing": {
 		"title": "Marketing",

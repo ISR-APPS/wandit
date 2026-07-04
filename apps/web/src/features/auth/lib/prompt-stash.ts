@@ -1,6 +1,6 @@
 // One-shot stash for the prompt a signed-out visitor typed before auth.
 // The prompt flow writes it before opening the auth modal; after sign-in
-// (including a magic-link redirect) it is consumed exactly once.
+// it is consumed exactly once by the dashboard prompt box.
 const STASH_KEY = "wandit-prompt-stash";
 
 export const promptStash = {
@@ -8,7 +8,7 @@ export const promptStash = {
 		try {
 			window.sessionStorage.setItem(STASH_KEY, prompt);
 		} catch {
-			// storage unavailable — continuation still runs in-memory
+			// Storage may be unavailable in hardened/private contexts.
 		}
 	},
 	consume(): string | null {
