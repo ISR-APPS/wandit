@@ -59,7 +59,7 @@ function getErrorMessage(error: unknown): string | null {
 	return null;
 }
 
-export function SignUp() {
+export function SignUpForm() {
 	const emailInputRef = useRef<TextInput>(null);
 	const passwordInputRef = useRef<TextInput>(null);
 	const { toast } = useToast();

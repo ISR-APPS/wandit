@@ -26,8 +26,8 @@ Primary market: **Algeria** → Arabic (RTL) + French pages, wilaya/commune addr
 ## 3. Core journey (prompt-first funnel)
 
 1. Visitor lands on `/` → hero prompt box + examples + pricing.
-2. Types a prompt → **auth modal** (Google OAuth popup, magic link fallback). The typed prompt lives in React state through auth, with a **one-shot sessionStorage stash** as a safety net for redirect flows; cleared after replay.
-3. After first prompt + auth: **project auto-created**, user lands in the workspace with generation **already streaming**.
+2. Types a prompt → **auth modal** with one Continue-with-Google button → full-page Better Auth redirect. The typed prompt survives via a **one-shot sessionStorage stash**; after auth the user lands on `/dashboard` with the prompt prefilled and clicks Generate there.
+3. After Generate: **project auto-created**, user lands in the workspace with generation **already streaming**.
 4. Iterates via chat; the Page tab previews the landing page (mobile/desktop toggle — audience is mobile-first).
 5. Publishes to `{slug}.wandit.app` in one click; runs ads to it.
 6. Form submissions appear in the **Leads** tab → user confirms orders by phone → status pipeline `to-confirm → confirmed → shipped → delivered / returned` (+ `cancelled` when phone confirmation fails).
@@ -43,7 +43,7 @@ Primary market: **Algeria** → Arabic (RTL) + French pages, wilaya/commune addr
 | `/dashboard` | Projects grid (thumbnail, status, lead count) + prompt box |
 | `/p/$projectId` | Workspace (heavy, lazy-loaded) |
 
-Auth is a **modal + Google popup overlaying any route** — never a dedicated page.
+Auth is a **modal that launches a full-page Google redirect from any route** — never a dedicated page.
 
 **Workspace:** chat pane on the left (drag-resizable + collapsible), main pane on the right floating as an inset card (rounded, bordered, shadowed — chat stays flush to the edge, mirrors the admin dashboard's sidebar-inset look). Desktop uses a real resizable split (`react-resizable-panels`, size persisted); mobile keeps the chat pane as a full-screen overlay.
 
@@ -103,7 +103,7 @@ pnpm workspaces + Turborepo. Biome for lint/format. TypeScript everywhere.
 | `apps/edge` *(to be created)* | **Cloudflare Worker** — hostname router for published sites + previews (KV pointer → R2 file). |
 | `apps/native` | Expo app from the scaffold. **Out of MVP** — untouched for now. |
 | `packages/db` | Drizzle ORM + Neon Postgres. Schema + drizzle-kit migrations. |
-| `packages/auth` | Better Auth config (Google OAuth + magic links, Drizzle adapter). |
+| `packages/auth` | Better Auth config (Google OAuth, Drizzle adapter). |
 | `packages/env` | t3-env schemas per surface (`server` / `web` / `native`). |
 | `packages/jobs` | BullMQ queue names + job payload types, shared server ↔ worker. |
 | `packages/contracts` *(to be created)* | Shared Zod API contracts + types, web ↔ server. |
@@ -137,7 +137,6 @@ Other services: Neon (Postgres), Redis (BullMQ + pub/sub + rate limiting), Cloud
 
 - Preview domain purchase (`wandit-preview.xyz` vs `wnditpreview.site` vs other) — placeholder `<preview-domain>` in docs/config until bought.
 - App chrome language for MVP: FR, EN, or both (generated pages are AR/FR regardless).
-- Email provider for magic links (suggestion: Resend).
 - Free credit grant size + per-action credit costs (placeholders defined in `docs/features/credits.md`).
 - API + worker deploy target (Railway / Fly / VPS).
 

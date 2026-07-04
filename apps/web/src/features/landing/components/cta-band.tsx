@@ -33,7 +33,7 @@ export function CtaBand() {
 							<Button
 								size="lg"
 								className={`mt-8 ${BUTTON_CLASSES}`}
-								onClick={open}
+								onClick={() => open()}
 							>
 								{CTA_BAND.button}
 							</Button>
