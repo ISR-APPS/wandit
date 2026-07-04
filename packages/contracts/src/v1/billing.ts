@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { creditBalanceResponseSchema } from "./credits";
 import { isoDateTimeSchema, uuidSchema } from "./shared/primitives";
 
 export const billingPlanIds = ["pro", "business"] as const;
@@ -99,6 +100,50 @@ export function priceLookupKey(
 	return `${plan}_${tierCredits}_${interval}`;
 }
 
+export type ParsedPriceLookupKey = {
+	interval: BillingInterval;
+	plan: BillingPlanId;
+	tierCredits: CreditTier;
+};
+
+export function parsePriceLookupKey(
+	lookupKey: string,
+): ParsedPriceLookupKey | null {
+	const [plan, tierCreditsValue, interval, unexpected] = lookupKey.split("_");
+
+	if (unexpected || !plan || !tierCreditsValue || !interval) {
+		return null;
+	}
+
+	if (!isBillingPlanId(plan) || !isBillingInterval(interval)) {
+		return null;
+	}
+
+	const tierCredits = Number(tierCreditsValue);
+
+	if (!Number.isInteger(tierCredits) || !isCreditTier(tierCredits)) {
+		return null;
+	}
+
+	return {
+		interval,
+		plan,
+		tierCredits,
+	};
+}
+
+function isBillingPlanId(value: string): value is BillingPlanId {
+	return (billingPlanIds as readonly string[]).includes(value);
+}
+
+function isBillingInterval(value: string): value is BillingInterval {
+	return (billingIntervals as readonly string[]).includes(value);
+}
+
+function isCreditTier(value: number): value is CreditTier {
+	return (CREDIT_TIERS as readonly number[]).includes(value);
+}
+
 export const subscriptionSchema = z.object({
 	id: uuidSchema,
 	userId: z.string(),
@@ -118,6 +163,55 @@ export const subscriptionSchema = z.object({
 });
 
 export type Subscription = z.infer<typeof subscriptionSchema>;
+
+export const billingTierPriceSchema = z.object({
+	annualLookupKey: z.string(),
+	annualUsd: z.number(),
+	monthlyLookupKey: z.string(),
+	monthlyUsd: z.number(),
+	tierCredits: creditTierSchema,
+});
+
+export type BillingTierPrice = z.infer<typeof billingTierPriceSchema>;
+
+export const billingPlanCatalogItemSchema = z.object({
+	basePer100Usd: z.number(),
+	features: z.object({
+		seats: z.boolean(),
+		teamWorkspace: z.boolean(),
+	}),
+	id: billingPlanIdSchema,
+	tiers: z.array(billingTierPriceSchema),
+});
+
+export type BillingPlanCatalogItem = z.infer<
+	typeof billingPlanCatalogItemSchema
+>;
+
+export const billingTopupPackSchema = z.object({
+	credits: z.int(),
+	id: topupPackIdSchema,
+	lookupKey: z.string(),
+	usd: z.number(),
+});
+
+export type BillingTopupPack = z.infer<typeof billingTopupPackSchema>;
+
+export const billingPlansResponseSchema = z.object({
+	plans: z.array(billingPlanCatalogItemSchema),
+	topupPacks: z.array(billingTopupPackSchema),
+});
+
+export type BillingPlansResponse = z.infer<typeof billingPlansResponseSchema>;
+
+export const billingSubscriptionViewResponseSchema = z.object({
+	balance: creditBalanceResponseSchema,
+	subscription: subscriptionSchema.nullable(),
+});
+
+export type BillingSubscriptionViewResponse = z.infer<
+	typeof billingSubscriptionViewResponseSchema
+>;
 
 export const createBillingCheckoutBodySchema = z.object({
 	plan: billingPlanIdSchema,

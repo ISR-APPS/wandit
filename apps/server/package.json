@@ -6,7 +6,9 @@
 		"build": "tsdown",
 		"check-types": "tsc -b",
 		"dev": "tsx watch src/main.ts",
-		"start": "node dist/main.mjs"
+		"start": "node dist/main.mjs",
+		"stripe:listen": "stripe listen --events checkout.session.completed,customer.subscription.created,customer.subscription.updated,customer.subscription.deleted,invoice.paid,invoice.payment_failed,charge.refunded,charge.dispute.created --forward-to localhost:3000/api/webhooks/stripe",
+		"stripe:seed": "tsx scripts/seed-stripe.ts"
 	},
 	"dependencies": {
 		"@wandit/auth": "workspace:*",
