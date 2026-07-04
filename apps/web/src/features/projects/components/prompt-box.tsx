@@ -3,6 +3,7 @@ import { Button } from "@wandit/ui/components/button";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
+	DropdownMenuLabel,
 	DropdownMenuRadioGroup,
 	DropdownMenuRadioItemBare,
 	DropdownMenuSeparator,
@@ -25,23 +26,22 @@ import {
 } from "@wandit/ui/components/tooltip";
 import { cn } from "@wandit/ui/lib/utils";
 import {
+	ArrowUp,
 	Camera,
 	Check,
 	ChevronDown,
 	Clapperboard,
 	Globe2,
 	ImageIcon,
-	Languages,
 	Loader2,
 	type LucideIcon,
 	Megaphone,
 	Mic,
 	ShoppingBag,
 	Sparkles,
-	WandSparkles,
 } from "lucide-react";
 import type * as React from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 
 import { CREDIT_COSTS, PriceTag } from "@/features/credits";
 
@@ -50,10 +50,8 @@ import { CREDIT_COSTS, PriceTag } from "@/features/credits";
 const COPY = {
 	placeholderHero: "Décris ce que tu veux vendre ou créer...",
 	placeholderCompact: "Décris ce que tu veux créer...",
-	hint: "AR & FR ready",
 	banner: "Beta — your first 10 pages are on us, no card needed",
-	generate: "Generate",
-	submitLabel: "Generate",
+	submitLabel: "Générer",
 	micLabel: "Voice input — coming soon",
 	engineLabel: "Moteur",
 	engineAutoBadge: "Recommandé",
@@ -94,8 +92,8 @@ const AUTO_ENGINE: EngineOption = {
 	description: "Le meilleur moteur selon ta demande.",
 };
 
+// Engine lists exclude Auto — menus render the Auto hero row themselves.
 const PAGE_ENGINES: readonly EngineOption[] = [
-	AUTO_ENGINE,
 	{
 		id: "wandit-pages",
 		label: "Wandit Pages",
@@ -106,7 +104,6 @@ const PAGE_ENGINES: readonly EngineOption[] = [
 ];
 
 const IMAGE_ENGINES: readonly EngineOption[] = [
-	AUTO_ENGINE,
 	{
 		id: "gpt-image-2",
 		label: "GPT Image 2",
@@ -124,7 +121,6 @@ const IMAGE_ENGINES: readonly EngineOption[] = [
 ];
 
 const VIDEO_ENGINES: readonly EngineOption[] = [
-	AUTO_ENGINE,
 	{
 		id: "seedance-2",
 		label: "Seedance 2.0",
@@ -139,6 +135,19 @@ const VIDEO_ENGINES: readonly EngineOption[] = [
 		mono: "V3",
 		description: "Vidéos premium avec scènes plus riches.",
 	},
+];
+
+// Full catalog, grouped — the chat composer's menu, where there is no active
+// creation mode to scope the list (a page edit, an ad creative and a video
+// can all be asked for from the same conversation).
+const ENGINE_GROUPS: readonly {
+	id: string;
+	label: string;
+	engines: readonly EngineOption[];
+}[] = [
+	{ id: "pages", label: "Pages", engines: PAGE_ENGINES },
+	{ id: "images", label: "Images", engines: IMAGE_ENGINES },
+	{ id: "video", label: "Vidéo", engines: VIDEO_ENGINES },
 ];
 
 const MODES: readonly ModeDef[] = [
@@ -228,6 +237,130 @@ function EngineRow({ option }: { option: EngineOption }) {
 	);
 }
 
+/**
+ * The engine (model) picker: pill trigger + dropdown. Scoped to one mode's
+ * engines when `mode` is given (hero/dashboard), or to the full grouped
+ * catalog when it isn't (chat composer).
+ */
+function EnginePicker({
+	engine,
+	onEngineChange,
+	mode,
+	isHero,
+}: {
+	engine: string;
+	onEngineChange: (id: string) => void;
+	mode?: ModeDef;
+	isHero: boolean;
+}) {
+	const available = mode
+		? mode.engines
+		: ENGINE_GROUPS.flatMap((group) => group.engines);
+	const selectedEngine =
+		available.find((option) => option.id === engine) ?? AUTO_ENGINE;
+	const isAutoEngine = selectedEngine.id === AUTO_ENGINE.id;
+
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger asChild>
+				<Button
+					type="button"
+					variant="outline"
+					size="sm"
+					aria-label={`${COPY.engineLabel} : ${selectedEngine.label}`}
+					className={cn(
+						"group/trigger rounded-full shadow-none transition-colors duration-150",
+						isAutoEngine
+							? "bg-transparent text-muted-foreground hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground dark:bg-transparent"
+							: "border-primary/35 bg-primary/10 text-foreground hover:bg-primary/15 data-[state=open]:bg-primary/15 dark:border-primary/40 dark:bg-primary/15",
+					)}
+				>
+					{isAutoEngine ? (
+						<Sparkles data-icon="inline-start" className="text-primary" />
+					) : (
+						<span
+							aria-hidden
+							className="-ms-0.5 flex size-4 shrink-0 items-center justify-center rounded-[4px] bg-primary/15 font-mono font-semibold text-[9px] text-primary"
+						>
+							{selectedEngine.mono}
+						</span>
+					)}
+					{isHero ? (
+						<span className="text-muted-foreground">
+							{COPY.engineLabel}
+							<span aria-hidden className="px-1 text-muted-foreground/50">
+								·
+							</span>
+						</span>
+					) : null}
+					<span
+						className={cn(
+							"truncate",
+							isHero ? "max-w-32" : "max-w-28",
+							!isAutoEngine && "font-medium",
+						)}
+					>
+						{selectedEngine.short}
+					</span>
+					<ChevronDown
+						data-icon="inline-end"
+						className="transition-transform duration-200 group-data-[state=open]/trigger:rotate-180"
+					/>
+				</Button>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent
+				align="start"
+				sideOffset={8}
+				collisionPadding={12}
+				className="w-80 max-w-[calc(100vw-1.5rem)] rounded-xl border-border/80 p-1.5 shadow-[0_12px_40px_-12px_color-mix(in_oklab,var(--color-primary)_14%,transparent),0_8px_24px_-12px_rgb(0_0_0/0.14)] dark:shadow-[inset_0_1px_0_0_oklch(1_0_0/0.05),0_16px_48px_-16px_rgb(0_0_0/0.6)]"
+			>
+				{/* Mono eyebrow + mode-context chip: says why the list differs per mode */}
+				<div className="flex items-center justify-between gap-2 px-2 pt-1 pb-1.5">
+					<span className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.14em]">
+						{COPY.engineLabel}
+					</span>
+					{mode ? (
+						<span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">
+							<mode.icon className="size-3" aria-hidden />
+							{mode.label}
+						</span>
+					) : null}
+				</div>
+				<DropdownMenuRadioGroup value={engine} onValueChange={onEngineChange}>
+					<EngineRow option={AUTO_ENGINE} />
+					<DropdownMenuSeparator className="my-1 bg-border/70" />
+					{mode ? (
+						mode.engines.map((option) => (
+							<EngineRow key={option.id} option={option} />
+						))
+					) : (
+						<>
+							{ENGINE_GROUPS.map((group) => (
+								<Fragment key={group.id}>
+									<DropdownMenuLabel className="px-2 pt-2 pb-1 font-mono font-normal text-[10px] text-muted-foreground uppercase tracking-[0.14em]">
+										{group.label}
+									</DropdownMenuLabel>
+									{group.engines.map((option) => (
+										<EngineRow key={option.id} option={option} />
+									))}
+								</Fragment>
+							))}
+						</>
+					)}
+				</DropdownMenuRadioGroup>
+				{mode ? (
+					// Footer band bleeds to the panel edge (-mx/-mb cancel p-1.5)
+					<div className="-mx-1.5 mt-1 -mb-1.5 rounded-b-xl border-border/60 border-t bg-muted/40 px-3 py-2">
+						<p className="text-[11px] text-muted-foreground leading-snug">
+							{COPY.engineResetHint}
+						</p>
+					</div>
+				) : null}
+			</DropdownMenuContent>
+		</DropdownMenu>
+	);
+}
+
 export type PromptBoxProps = {
 	/** A sync `false` return means nothing was sent (e.g. insufficient
 	 * credits) — the box then keeps the draft even with clearOnSubmit. */
@@ -235,11 +368,15 @@ export type PromptBoxProps = {
 	onSubmit: (prompt: string) => void | boolean | Promise<void | boolean>;
 	variant?: "hero" | "compact";
 	placeholder?: string;
+	/** Show the generation cost as a quiet mono tag next to the actions. */
 	showPriceTag?: boolean;
 	/** Tinted strip above the card (ai-chat-v2 style). */
 	showBanner?: boolean;
-	/** Creation-type chips below the card + per-mode advanced engine picker. */
+	/** Creation-type chips below the card + per-mode engine picker. */
 	showModes?: boolean;
+	/** Inline engine picker over the full grouped catalog (chat usage —
+	 * mutually exclusive with showModes, which scopes engines per mode). */
+	showEngines?: boolean;
 	isSubmitting?: boolean;
 	initialValue?: string;
 	/** Clear the textarea after submitting (chat-style usage). */
@@ -249,8 +386,9 @@ export type PromptBoxProps = {
 
 /**
  * The ember prompt box — Wandit's signature element, shared verbatim by the
- * landing hero and the dashboard. Enter submits, Shift+Enter inserts a
- * newline; the textarea auto-grows; focus lights the ember-gradient ring.
+ * landing hero, the dashboard and the workspace chat. Enter submits,
+ * Shift+Enter inserts a newline; the textarea auto-grows; focus lights the
+ * ember-gradient ring.
  */
 export function PromptBox({
 	onSubmit,
@@ -259,6 +397,7 @@ export function PromptBox({
 	showPriceTag = false,
 	showBanner = false,
 	showModes = false,
+	showEngines = false,
 	isSubmitting = false,
 	initialValue = "",
 	clearOnSubmit = false,
@@ -312,12 +451,6 @@ export function PromptBox({
 		textareaRef.current?.focus();
 	};
 
-	const selectedEngine =
-		mode.engines.find((option) => option.id === engine) ?? AUTO_ENGINE;
-	const isAutoEngine = selectedEngine.id === AUTO_ENGINE.id;
-	// Every mode's engine list starts with Auto — split it out as the hero row.
-	const [autoOption, ...engineOptions] = mode.engines;
-
 	const handleModeValueChange = (nextModeId: string) => {
 		const nextMode = MODES.find((item) => item.id === nextModeId);
 		if (!nextMode) return;
@@ -369,116 +502,43 @@ export function PromptBox({
 				<InputGroupAddon
 					align="block-end"
 					className={cn(
-						"flex w-full cursor-default items-end justify-between gap-2",
+						"flex w-full cursor-default items-end gap-2",
 						isHero ? "px-4 pb-4" : "px-3 pb-3",
 					)}
 				>
 					{showModes ? (
-						<DropdownMenu>
-							<DropdownMenuTrigger asChild>
-								<Button
-									type="button"
-									variant="outline"
-									size="sm"
-									aria-label={`${COPY.engineLabel} : ${selectedEngine.label}`}
-									className={cn(
-										"group/trigger rounded-full shadow-none transition-colors duration-150",
-										isAutoEngine
-											? "bg-transparent text-muted-foreground hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground dark:bg-transparent"
-											: "border-primary/35 bg-primary/10 text-foreground hover:bg-primary/15 data-[state=open]:bg-primary/15 dark:border-primary/40 dark:bg-primary/15",
-									)}
-								>
-									{isAutoEngine ? (
-										<Sparkles
-											data-icon="inline-start"
-											className="text-primary"
-										/>
-									) : (
-										<span
-											aria-hidden
-											className="-ms-0.5 flex size-4 shrink-0 items-center justify-center rounded-[4px] bg-primary/15 font-mono font-semibold text-[9px] text-primary"
-										>
-											{selectedEngine.mono}
-										</span>
-									)}
-									{isHero ? (
-										<span className="text-muted-foreground">
-											{COPY.engineLabel}
-											<span
-												aria-hidden
-												className="px-1 text-muted-foreground/50"
-											>
-												·
-											</span>
-										</span>
-									) : null}
-									<span
-										className={cn(
-											"truncate",
-											isHero ? "max-w-32" : "max-w-28",
-											!isAutoEngine && "font-medium",
-										)}
-									>
-										{selectedEngine.short}
-									</span>
-									<ChevronDown
-										data-icon="inline-end"
-										className="transition-transform duration-200 group-data-[state=open]/trigger:rotate-180"
-									/>
-								</Button>
-							</DropdownMenuTrigger>
-							<DropdownMenuContent
-								align="start"
-								sideOffset={8}
-								collisionPadding={12}
-								className="w-80 max-w-[calc(100vw-1.5rem)] rounded-xl border-border/80 p-1.5 shadow-[0_12px_40px_-12px_color-mix(in_oklab,var(--color-primary)_14%,transparent),0_8px_24px_-12px_rgb(0_0_0/0.14)] dark:shadow-[inset_0_1px_0_0_oklch(1_0_0/0.05),0_16px_48px_-16px_rgb(0_0_0/0.6)]"
-							>
-								{/* Mono eyebrow + mode-context chip: says why the list differs per mode */}
-								<div className="flex items-center justify-between gap-2 px-2 pt-1 pb-1.5">
-									<span className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.14em]">
-										{COPY.engineLabel}
-									</span>
-									<span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">
-										<mode.icon className="size-3" aria-hidden />
-										{mode.label}
-									</span>
-								</div>
-								<DropdownMenuRadioGroup
-									value={engine}
-									onValueChange={setEngine}
-								>
-									<EngineRow option={autoOption} />
-									<DropdownMenuSeparator className="my-1 bg-border/70" />
-									{engineOptions.map((option) => (
-										<EngineRow key={option.id} option={option} />
-									))}
-								</DropdownMenuRadioGroup>
-								{/* Footer band bleeds to the panel edge (-mx/-mb cancel p-1.5) */}
-								<div className="-mx-1.5 mt-1 -mb-1.5 rounded-b-xl border-border/60 border-t bg-muted/40 px-3 py-2">
-									<p className="text-[11px] text-muted-foreground leading-snug">
-										{COPY.engineResetHint}
-									</p>
-								</div>
-							</DropdownMenuContent>
-						</DropdownMenu>
-					) : (
-						<span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-border/60 px-2.5 py-1 text-[11px] text-muted-foreground">
-							<Languages className="size-3 shrink-0" aria-hidden />
-							{COPY.hint}
-						</span>
-					)}
-					<div className="flex items-center gap-2">
+						<EnginePicker
+							engine={engine}
+							onEngineChange={setEngine}
+							mode={mode}
+							isHero={isHero}
+						/>
+					) : showEngines ? (
+						<EnginePicker
+							engine={engine}
+							onEngineChange={setEngine}
+							isHero={isHero}
+						/>
+					) : null}
+					<div className="ms-auto flex items-center gap-1">
 						<TooltipProvider>
+							{showPriceTag ? (
+								<PriceTag
+									cost={CREDIT_COSTS.generation}
+									withIcon
+									className="me-1.5 text-[11px]"
+								/>
+							) : null}
 							<Tooltip>
 								<TooltipTrigger asChild>
 									<Button
 										type="button"
-										variant="outline"
+										variant="ghost"
 										size="icon"
 										aria-label={COPY.micLabel}
 										className={cn(
-											"rounded-full",
-											isHero ? "size-10" : "size-9",
+											"rounded-full text-muted-foreground hover:text-foreground",
+											isHero ? "size-9" : "size-8",
 										)}
 									>
 										<Mic />
@@ -486,50 +546,29 @@ export function PromptBox({
 								</TooltipTrigger>
 								<TooltipContent>{COPY.micLabel}</TooltipContent>
 							</Tooltip>
+							<Tooltip>
+								<TooltipTrigger asChild>
+									<Button
+										type="button"
+										size="icon"
+										aria-label={COPY.submitLabel}
+										onClick={handleSubmit}
+										disabled={!canSubmit}
+										className={cn(
+											"rounded-full shadow-[0_4px_16px_-4px_color-mix(in_oklab,var(--color-primary)_50%,transparent)] transition-opacity disabled:opacity-40",
+											isHero ? "size-9" : "size-8",
+										)}
+									>
+										{isSubmitting ? (
+											<Loader2 className="animate-spin" />
+										) : (
+											<ArrowUp strokeWidth={2.5} />
+										)}
+									</Button>
+								</TooltipTrigger>
+								<TooltipContent>{COPY.submitLabel}</TooltipContent>
+							</Tooltip>
 						</TooltipProvider>
-						{showPriceTag ? (
-							<Button
-								type="button"
-								onClick={handleSubmit}
-								disabled={!canSubmit}
-								className={cn(
-									"rounded-full shadow-[0_4px_16px_-4px_color-mix(in_oklab,var(--color-primary)_50%,transparent)]",
-									isHero ? "h-10 px-4" : "h-9 px-3.5",
-								)}
-							>
-								{isSubmitting ? (
-									<Loader2 data-icon="inline-start" className="animate-spin" />
-								) : (
-									<WandSparkles data-icon="inline-start" />
-								)}
-								{COPY.generate}
-								<span aria-hidden className="text-primary-foreground/70">
-									—
-								</span>
-								<PriceTag
-									cost={CREDIT_COSTS.generation}
-									className="text-primary-foreground/85"
-								/>
-							</Button>
-						) : (
-							<Button
-								type="button"
-								size="icon"
-								aria-label={COPY.submitLabel}
-								onClick={handleSubmit}
-								disabled={!canSubmit}
-								className={cn(
-									"rounded-full shadow-[0_4px_16px_-4px_color-mix(in_oklab,var(--color-primary)_50%,transparent)]",
-									isHero ? "size-10" : "size-9",
-								)}
-							>
-								{isSubmitting ? (
-									<Loader2 className="animate-spin" />
-								) : (
-									<WandSparkles />
-								)}
-							</Button>
-						)}
 					</div>
 				</InputGroupAddon>
 			</InputGroup>

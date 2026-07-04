@@ -135,6 +135,7 @@ export default function DashboardPage() {
 							<PromptBox
 								variant="hero"
 								showPriceTag
+								showModes
 								onSubmit={create}
 								isSubmitting={isCreating}
 							/>
