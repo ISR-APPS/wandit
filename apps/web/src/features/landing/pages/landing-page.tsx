@@ -1,7 +1,8 @@
 import { getRouteApi } from "@tanstack/react-router";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 
-import { useAuthModal } from "@/features/auth";
+import { AUTH_COPY, promptStash, useAuthModal } from "@/features/auth";
 
 import { CtaBand } from "../components/cta-band";
 import { Examples } from "../components/examples";
@@ -18,18 +19,31 @@ const route = getRouteApi("/");
 
 export default function LandingPage() {
 	const search = route.useSearch();
+	const navigate = route.useNavigate();
 	const { open } = useAuthModal();
 
 	// Remount the PromptBox with a fresh key to prefill it programmatically.
 	const [prefill, setPrefill] = useState({ key: 0, value: "" });
 	const autoOpenedRef = useRef(false);
 
-	// The _auth guard redirects here with ?auth=required — open the modal once.
+	// The _auth guard redirects here with ?auth=required (or Better Auth with
+	// ?auth=error) — open the modal once, then strip consumed auth state.
 	useEffect(() => {
-		if (!search.auth || autoOpenedRef.current) return;
+		if (
+			(search.auth !== "required" && search.auth !== "error") ||
+			autoOpenedRef.current
+		) {
+			return;
+		}
+
 		autoOpenedRef.current = true;
-		open();
-	}, [search.auth, open]);
+		if (search.auth === "error") {
+			promptStash.consume();
+			toast.error(AUTH_COPY.redirectError);
+		}
+		open({ next: search.next, redirectError: search.auth === "error" });
+		void navigate({ search: {}, replace: true });
+	}, [search.auth, search.next, open, navigate]);
 
 	const prefillPrompt = useCallback((value: string, scroll = false) => {
 		setPrefill((prev) => ({ key: prev.key + 1, value }));

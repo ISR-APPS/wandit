@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import {
 	Avatar,
@@ -35,6 +36,7 @@ function initials(name: string): string {
 
 export function UserMenu() {
 	const navigate = useNavigate();
+	const queryClient = useQueryClient();
 	const { data: session, isPending } = useSession();
 	const { open } = useAuthModal();
 
@@ -44,7 +46,7 @@ export function UserMenu() {
 
 	if (!session) {
 		return (
-			<Button type="button" variant="outline" size="sm" onClick={open}>
+			<Button type="button" variant="outline" size="sm" onClick={() => open()}>
 				{AUTH_COPY.signIn}
 			</Button>
 		);
@@ -86,7 +88,11 @@ export function UserMenu() {
 				<DropdownMenuItem
 					variant="destructive"
 					onClick={() => {
-						void signOut().then(() => navigate({ to: "/" }));
+						void (async () => {
+							await signOut();
+							queryClient.clear();
+							await navigate({ to: "/" });
+						})();
 					}}
 				>
 					<LogOut className="size-4" />
