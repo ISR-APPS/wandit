@@ -20,7 +20,7 @@ apps/web/src/
 │       └── p.$projectId.tsx    # → features/workspace
 ├── features/
 │   ├── landing/                # `/` — hero prompt box, examples, pricing
-│   ├── auth/                   # cross-route overlay — auth modal, Google popup, magic link, prompt stash
+│   ├── auth/                   # cross-route overlay — auth modal, Google redirect, prompt stash
 │   ├── projects/               # `/dashboard` + project domain: grid, cards, create-with-prompt, switcher
 │   ├── workspace/              # `/p/$projectId` — the shell and ALL its views:
 │   │   ├── pages/              #   workspace-page
