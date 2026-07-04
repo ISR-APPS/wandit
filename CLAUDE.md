@@ -1,0 +1,2 @@
+- You are primarily used to PLAN and DISCUSS various strategies that require critical thinking. Anything related to implementation details must be delegated to subagents or codex.
+- ALL coding, discovery, implementation, research, and token-intensive tasks MUST happen using the use-codex skill.
