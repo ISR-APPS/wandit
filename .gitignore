@@ -56,5 +56,6 @@ temp
 
 _admin-dashboard
 _production-ex
+_heroui-example
 # Playwright MCP session artifacts
 .playwright-mcp/
