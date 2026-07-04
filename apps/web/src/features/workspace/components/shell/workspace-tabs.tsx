@@ -18,7 +18,7 @@ export function WorkspaceTabs({ className }: { className?: string }) {
 		<nav
 			aria-label={WORKSPACE_COPY.tabsAriaLabel}
 			className={cn(
-				"flex items-center gap-0.5 rounded-full border border-border/70 bg-muted/40 p-0.5",
+				"flex items-center gap-0.5 rounded-lg bg-muted/60 p-0.5",
 				className,
 			)}
 		>
@@ -33,7 +33,7 @@ export function WorkspaceTabs({ className }: { className?: string }) {
 						aria-label={def.label}
 						onClick={() => setTab(def.value)}
 						className={cn(
-							"relative flex h-8 items-center gap-1.5 rounded-full px-3 font-medium text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50",
+							"relative flex h-8 items-center gap-1.5 rounded-md px-3 font-medium text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50",
 							isActive
 								? "text-foreground"
 								: "text-muted-foreground hover:text-foreground",
@@ -44,7 +44,7 @@ export function WorkspaceTabs({ className }: { className?: string }) {
 								aria-hidden
 								layoutId={`workspace-tab-pill-${pillId}`}
 								transition={{ type: "spring", bounce: 0.18, duration: 0.45 }}
-								className="absolute inset-0 rounded-full border border-border bg-background shadow-xs"
+								className="absolute inset-0 rounded-md bg-background shadow-xs"
 							/>
 						) : null}
 						<Icon className="relative size-3.5 shrink-0" />

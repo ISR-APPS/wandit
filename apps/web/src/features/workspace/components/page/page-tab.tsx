@@ -1,7 +1,9 @@
 // The Page tab: preview stage rendering the active landing-page version in a
 // sandboxed iframe (mobile frame by default), plus generating/empty states.
+// Its controls (version switcher, viewport toggle, preview actions) live in
+// the main card's header — see shell/main-pane-header.tsx / page-toolbar.tsx.
 // The right edge of the stage is reserved column space for a future
-// element-inspector rail (click-to-edit, post-MVP) — see page-toolbar.tsx.
+// element-inspector rail (click-to-edit, post-MVP).
 
 import { Button } from "@wandit/ui/components/button";
 import { Skeleton } from "@wandit/ui/components/skeleton";
@@ -13,15 +15,12 @@ import { Spark } from "@/components/logo";
 import { getVersionPage } from "../../api/workspace.services";
 import { WORKSPACE_COPY } from "../../lib/constants";
 import { useWorkspace } from "../../lib/store";
-import { PageToolbar } from "./page-toolbar";
 
 const COPY = WORKSPACE_COPY.page;
 
-export function PageTab() {
-	const [reloadKey, setReloadKey] = useState(0);
+export function PageTab({ reloadKey }: { reloadKey: number }) {
 	return (
 		<div className="flex h-full min-h-0 flex-col">
-			<PageToolbar onReload={() => setReloadKey((key) => key + 1)} />
 			<div className="relative min-h-0 flex-1 overflow-hidden">
 				<div aria-hidden className="absolute inset-0 bg-dots" />
 				<PreviewStage reloadKey={reloadKey} />

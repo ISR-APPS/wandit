@@ -28,7 +28,7 @@ export function AssetsViewToggle({
 	const pillId = useId();
 
 	return (
-		<fieldset className="m-0 flex items-center gap-0.5 rounded-full border border-border/70 bg-muted/40 p-0.5">
+		<fieldset className="m-0 flex items-center gap-0.5 rounded-lg bg-muted/60 p-0.5">
 			<legend className="sr-only">
 				{WORKSPACE_COPY.assets.viewToggleAriaLabel}
 			</legend>
@@ -42,7 +42,7 @@ export function AssetsViewToggle({
 						aria-pressed={isActive}
 						onClick={() => onChange(option.value)}
 						className={cn(
-							"relative flex h-8 items-center gap-1.5 rounded-full px-3 font-medium text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50",
+							"relative flex h-8 items-center gap-1.5 rounded-md px-3 font-medium text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50",
 							isActive
 								? "text-foreground"
 								: "text-muted-foreground hover:text-foreground",
@@ -53,11 +53,11 @@ export function AssetsViewToggle({
 								aria-hidden
 								layoutId={`assets-view-pill-${pillId}`}
 								transition={{ type: "spring", bounce: 0.18, duration: 0.45 }}
-								className="absolute inset-0 rounded-full border border-border bg-background shadow-xs"
+								className="absolute inset-0 rounded-md bg-background shadow-xs"
 							/>
 						) : null}
 						<Icon className="relative size-3.5 shrink-0" />
-						<span className="relative">{option.label}</span>
+						<span className="relative hidden sm:inline">{option.label}</span>
 					</button>
 				);
 			})}
