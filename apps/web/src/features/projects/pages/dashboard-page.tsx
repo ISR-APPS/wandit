@@ -144,6 +144,7 @@ export default function DashboardPage() {
 								key={promptPrefill.key}
 								variant="hero"
 								showPriceTag
+								showModes
 								initialValue={promptPrefill.value}
 								onSubmit={create}
 								isSubmitting={isCreating}

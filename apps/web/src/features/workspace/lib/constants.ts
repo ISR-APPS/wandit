@@ -183,6 +183,12 @@ export const WORKSPACE_COPY = {
 		versionCardKind: "Landing page",
 		emptyTitle: "Start the conversation",
 		emptyBody: "Describe your page and the AI will generate it here.",
+		suggestionsKicker: "Try one of these",
+		suggestions: [
+			"Add customer reviews under the price",
+			"Make the order form shorter",
+			"Translate the page to Arabic",
+		],
 	},
 
 	page: {
