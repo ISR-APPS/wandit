@@ -23,6 +23,7 @@ type NormalizedError = {
 };
 
 type HttpExceptionResponse = {
+	code?: unknown;
 	error?: unknown;
 	issues?: unknown;
 	message?: unknown;
@@ -82,13 +83,30 @@ export class ApiExceptionFilter implements ExceptionFilter {
 				: undefined;
 
 		return {
-			code: details ? "VALIDATION_ERROR" : this.codeForStatus(statusCode),
+			code: details
+				? "VALIDATION_ERROR"
+				: this.codeForExceptionResponse(response, statusCode),
 			...(details ? { details } : {}),
 			message: details
 				? "Validation failed"
 				: this.messageForException(exception, response, statusCode),
 			statusCode,
 		};
+	}
+
+	private codeForExceptionResponse(
+		response: string | object,
+		statusCode: number,
+	) {
+		if (typeof response !== "string") {
+			const body = response as HttpExceptionResponse;
+
+			if (typeof body.code === "string" && body.code.length > 0) {
+				return body.code;
+			}
+		}
+
+		return this.codeForStatus(statusCode);
 	}
 
 	private extractValidationDetails(

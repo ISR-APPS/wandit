@@ -2,6 +2,7 @@ export * from "./http/envelope";
 export * from "./http/pagination";
 export * from "./v1/artifacts";
 export * from "./v1/auth";
+export * from "./v1/billing";
 export * from "./v1/chats";
 export * from "./v1/credits";
 export * from "./v1/deployments";

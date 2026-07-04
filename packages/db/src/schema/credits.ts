@@ -26,6 +26,8 @@ export const creditKind = pgEnum("credit_kind", [
 	"revoke",
 ]);
 
+export const creditBucket = pgEnum("credit_bucket", ["plan", "topup"]);
+
 // Append-only: rows are never updated or deleted. Balance = sum(delta).
 export const creditLedger = pgTable(
 	"credit_ledger",
@@ -36,6 +38,9 @@ export const creditLedger = pgTable(
 			// restrict, not cascade: financial history must survive account rows —
 			// user deletion is soft/anonymize at the app layer, never a DB cascade.
 			.references(() => user.id, { onDelete: "restrict" }),
+		// Reserved for Business org credits; no FK until org mechanics land.
+		organizationId: text("organization_id"),
+		bucket: creditBucket("bucket").notNull().default("plan"),
 		// Signed: grant/topup positive, consume/expire/revoke negative.
 		// UNIT: whole credits — 1 is the minimum billable amount, forever
 		// (rescaling to fractional units later would rewrite every row).
@@ -56,6 +61,7 @@ export const creditLedger = pgTable(
 			table.userId,
 			table.createdAt,
 		),
+		index("credit_ledger_userId_bucket_idx").on(table.userId, table.bucket),
 		uniqueIndex("credit_ledger_idempotencyKey_uq")
 			.on(table.idempotencyKey)
 			.where(sql`${table.idempotencyKey} IS NOT NULL`),

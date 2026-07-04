@@ -20,6 +20,7 @@ async function bootstrap() {
 		adapter,
 		{
 			bufferLogs: true,
+			rawBody: true,
 		},
 	);
 
