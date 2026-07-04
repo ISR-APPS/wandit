@@ -54,7 +54,7 @@ function getErrorMessage(error: unknown): string | null {
 	return null;
 }
 
-function SignIn() {
+function SignInForm() {
 	const passwordInputRef = useRef<TextInput>(null);
 	const { toast } = useToast();
 
@@ -174,4 +174,4 @@ function SignIn() {
 	);
 }
 
-export { SignIn };
+export { SignInForm };

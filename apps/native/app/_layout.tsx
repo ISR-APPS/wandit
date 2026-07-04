@@ -5,19 +5,28 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import { KeyboardProvider } from "react-native-keyboard-controller";
 
 import { AppThemeProvider } from "@/contexts/app-theme-context";
+import { authClient } from "@/lib/auth-client";
 
 export const unstable_settings = {
-	initialRouteName: "(drawer)",
+	initialRouteName: "(app)",
 };
 
-function StackLayout() {
+function RootNavigator() {
+	const { data: session, isPending } = authClient.useSession();
+
+	// TODO: keep the splash screen visible while the session is restoring.
+	if (isPending) {
+		return null;
+	}
+
 	return (
-		<Stack screenOptions={{}}>
-			<Stack.Screen name="(drawer)" options={{ headerShown: false }} />
-			<Stack.Screen
-				name="modal"
-				options={{ title: "Modal", presentation: "modal" }}
-			/>
+		<Stack screenOptions={{ headerShown: false }}>
+			<Stack.Protected guard={!!session?.user}>
+				<Stack.Screen name="(app)" />
+			</Stack.Protected>
+			<Stack.Protected guard={!session?.user}>
+				<Stack.Screen name="(auth)" />
+			</Stack.Protected>
 		</Stack>
 	);
 }
@@ -28,7 +37,7 @@ export default function Layout() {
 			<KeyboardProvider>
 				<AppThemeProvider>
 					<HeroUINativeProvider>
-						<StackLayout />
+						<RootNavigator />
 					</HeroUINativeProvider>
 				</AppThemeProvider>
 			</KeyboardProvider>
