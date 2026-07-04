@@ -1,6 +1,6 @@
 // Typed sidebar nav config for the dashboard shell. Only "Projects" is a
 // real route today; the rest are disabled placeholders ("Soon") or external
-// resource stubs.
+// resource stubs. Titles are dictionary keys, resolved at render.
 
 import {
 	BookOpen,
@@ -12,10 +12,10 @@ import {
 	Users,
 } from "lucide-react";
 
-import { PROJECTS_COPY } from "./constants";
+import type { TranslationKey } from "@/lib/i18n";
 
 type NavItemBase = {
-	title: string;
+	titleKey: TranslationKey;
 	icon: LucideIcon;
 };
 
@@ -27,25 +27,40 @@ export type NavItem = NavItemBase &
 	);
 
 export type NavGroup = {
-	title: string;
+	titleKey: TranslationKey;
 	items: NavItem[];
 };
 
 export const NAV_GROUPS: NavGroup[] = [
 	{
-		title: PROJECTS_COPY.sidebarGroupWorkspace,
+		titleKey: "projects.sidebar.groupWorkspace",
 		items: [
-			{ type: "route", title: "Projects", to: "/dashboard", icon: FolderOpen },
-			{ type: "soon", title: "Leads", icon: Users },
-			{ type: "soon", title: "Assets", icon: Images },
-			{ type: "soon", title: "Analytics", icon: ChartSpline },
+			{
+				type: "route",
+				titleKey: "projects.nav.projects",
+				to: "/dashboard",
+				icon: FolderOpen,
+			},
+			{ type: "soon", titleKey: "projects.nav.leads", icon: Users },
+			{ type: "soon", titleKey: "projects.nav.assets", icon: Images },
+			{ type: "soon", titleKey: "projects.nav.analytics", icon: ChartSpline },
 		],
 	},
 	{
-		title: PROJECTS_COPY.sidebarGroupResources,
+		titleKey: "projects.sidebar.groupResources",
 		items: [
-			{ type: "external", title: "Docs", href: "#", icon: BookOpen },
-			{ type: "external", title: "Support", href: "#", icon: LifeBuoy },
+			{
+				type: "external",
+				titleKey: "projects.nav.docs",
+				href: "#",
+				icon: BookOpen,
+			},
+			{
+				type: "external",
+				titleKey: "projects.nav.support",
+				href: "#",
+				icon: LifeBuoy,
+			},
 		],
 	},
 ];

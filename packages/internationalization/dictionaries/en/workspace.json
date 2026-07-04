@@ -1,0 +1,138 @@
+{
+	"backToDashboard": "Back to dashboard",
+	"tabsAriaLabel": "Workspace views",
+	"autosaved": "autosaved",
+	"meta": {
+		"title": "Workspace — Wandit"
+	},
+	"tabs": {
+		"page": "Page",
+		"assets": "Assets",
+		"marketing": "Marketing",
+		"leads": "Leads",
+		"settings": "Settings"
+	},
+	"switcher": {
+		"menuLabel": "Projects",
+		"allProjects": "All projects"
+	},
+	"store": {
+		"ledgerFallbackName": "Landing page",
+		"initialGeneration": "Initial generation",
+		"fallbackPageName": "your page"
+	},
+	"publish": {
+		"publish": "Publish",
+		"publishing": "Publishing…",
+		"published": "Published",
+		"publishUpdate": "Publish v{n}",
+		"menuLiveLabel": "Live site",
+		"copyLink": "Copy link",
+		"openLive": "Open live site",
+		"unpublish": "Unpublish",
+		"linkCopied": "Link copied",
+		"publishedToast": "Live at {url}",
+		"unpublishedToast": "Site unpublished",
+		"freeNote": "Publishing is always free"
+	},
+	"chat": {
+		"title": "Chat",
+		"collapse": "Collapse chat",
+		"expand": "Open chat",
+		"placeholder": "Describe a change…",
+		"thinking": "Thinking…",
+		"generating": "Generating",
+		"versionCardKind": "Landing page",
+		"emptyTitle": "Start the conversation",
+		"emptyBody": "Describe your page and the AI will generate it here.",
+		"suggestionsKicker": "Try one of these",
+		"suggestions": [
+			"Add customer reviews under the price",
+			"Make the order form shorter",
+			"Translate the page to Arabic"
+		]
+	},
+	"page": {
+		"versionShort": "v{n}",
+		"latestSuffix": "Latest",
+		"liveBadge": "Live",
+		"versionsMenuLabel": "Versions",
+		"viewportMobile": "Mobile preview",
+		"viewportDesktop": "Desktop preview",
+		"refresh": "Reload preview",
+		"openInNewTab": "Open in new tab",
+		"previewFallback": "Preview",
+		"emptyTitle": "Nothing to preview yet",
+		"emptyBody": "Describe your page in the chat — the preview appears here as it generates.",
+		"generatingTitle": "Generating v{n}",
+		"generatingSteps": [
+			"Analyzing your brief…",
+			"Writing the sections…",
+			"Styling for mobile…",
+			"Wiring the order form…",
+			"Final touches…"
+		]
+	},
+	"assets": {
+		"title": "Assets",
+		"subtitle": "Every generation is saved as an immutable version.",
+		"metaCount": {
+			"zero": "{count} assets",
+			"one": "1 asset",
+			"two": "{count} assets",
+			"few": "{count} assets",
+			"many": "{count} assets",
+			"other": "{count} assets"
+		},
+		"kindLandingPage": "Landing page",
+		"liveBadge": "Live",
+		"currentBadge": "Viewing",
+		"openOnPage": "View on page",
+		"openInNewTab": "Open in new tab",
+		"versionTitle": "Version {n}",
+		"emptyTitle": "No assets yet",
+		"emptyBody": "Generated pages (and soon images and videos) appear here.",
+		"libraryView": "Library",
+		"canvasView": "Canvas",
+		"viewToggleAriaLabel": "Assets view",
+		"zoomIn": "Zoom in",
+		"zoomOut": "Zoom out",
+		"toolSelect": "Select",
+		"toolFrame": "Frame",
+		"toolImage": "Image",
+		"toolText": "Text",
+		"generate": "Generate"
+	},
+	"marketing": {
+		"title": "Marketing",
+		"updatedPrefix": "updated",
+		"exportPlan": "Export plan",
+		"updatePlan": "Update plan",
+		"updating": "Updating…",
+		"planUpdatedToast": "Plan updated",
+		"exportedToast": "Plan exported",
+		"goalKicker": "Goal",
+		"goalProgress": "{done} / {target}",
+		"goalOnTrack": "on track",
+		"goalBehind": "keep pushing",
+		"takeKicker": "Wandit's take · this week",
+		"channelsKicker": "Where to spend",
+		"audienceKicker": "Who you're talking to",
+		"checklistKicker": "Week-1 checklist",
+		"checklistDone": "{done} of {total} done",
+		"ideasKicker": "Campaign ideas",
+		"view": "View",
+		"openLeads": "Open leads",
+		"askWandit": "Ask Wandit",
+		"ideaStatus": {
+			"ready": "Ready",
+			"draft": "Draft",
+			"idea": "Idea"
+		}
+	},
+	"notFound": {
+		"title": "Project not found",
+		"body": "It may have been deleted, or the link is wrong.",
+		"cta": "Back to dashboard"
+	}
+}

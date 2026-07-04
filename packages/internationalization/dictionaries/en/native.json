@@ -1,0 +1,72 @@
+{
+	"auth": {
+		"tagline": "Prompt → landing page → publish → orders",
+		"signIn": {
+			"title": "Sign In",
+			"submit": "Sign In"
+		},
+		"signUp": {
+			"title": "Create Account",
+			"submit": "Create Account"
+		},
+		"fields": {
+			"nameLabel": "Name",
+			"namePlaceholder": "John Doe",
+			"emailLabel": "Email",
+			"emailPlaceholder": "email@example.com",
+			"passwordLabel": "Password",
+			"passwordPlaceholder": "••••••••"
+		},
+		"validation": {
+			"nameRequired": "Name is required",
+			"nameMin": "Name must be at least 2 characters",
+			"emailRequired": "Email is required",
+			"emailInvalid": "Enter a valid email address",
+			"passwordRequired": "Password is required",
+			"passwordMin": "Use at least 8 characters"
+		},
+		"toasts": {
+			"signInError": "Failed to sign in",
+			"signInSuccess": "Signed in successfully",
+			"signUpError": "Failed to sign up",
+			"signUpSuccess": "Account created successfully"
+		}
+	},
+	"home": {
+		"heading": "What do you want to build?",
+		"promptPlaceholder": "A landing page for…",
+		"create": "Create"
+	},
+	"drawer": {
+		"projects": "Projects",
+		"signOut": "Sign out",
+		"language": "Language"
+	},
+	"workspace": {
+		"back": "Go back",
+		"send": "Send",
+		"composerPlaceholder": "Describe a change…",
+		"tabs": {
+			"chat": "Chat",
+			"preview": "Preview",
+			"leads": "Leads",
+			"settings": "Settings"
+		},
+		"placeholders": {
+			"chatTitle": "Chat",
+			"chatDescription": "Conversation with the AI — message history and streaming generation updates.",
+			"previewTitle": "Preview",
+			"previewDescription": "Live preview of the generated landing page (sandboxed WebView) with version switching.",
+			"leadsTitle": "Leads",
+			"leadsDescription": "Order CRM — form submissions with the status pipeline, tap-to-call and tap-to-WhatsApp.",
+			"settingsTitle": "Settings",
+			"settingsDescription": "Project settings — publish slug, pixel IDs, rename, unpublish and delete."
+		}
+	},
+	"notFound": {
+		"screenTitle": "Not Found",
+		"title": "Page Not Found",
+		"description": "The page you're looking for doesn't exist.",
+		"goHome": "Go Home"
+	}
+}

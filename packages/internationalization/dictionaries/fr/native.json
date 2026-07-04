@@ -1,0 +1,72 @@
+{
+	"auth": {
+		"tagline": "Prompt → landing page → publication → commandes",
+		"signIn": {
+			"title": "Se connecter",
+			"submit": "Se connecter"
+		},
+		"signUp": {
+			"title": "Créer un compte",
+			"submit": "Créer un compte"
+		},
+		"fields": {
+			"nameLabel": "Nom",
+			"namePlaceholder": "John Doe",
+			"emailLabel": "Email",
+			"emailPlaceholder": "email@example.com",
+			"passwordLabel": "Mot de passe",
+			"passwordPlaceholder": "••••••••"
+		},
+		"validation": {
+			"nameRequired": "Le nom est requis",
+			"nameMin": "Le nom doit contenir au moins 2 caractères",
+			"emailRequired": "L’email est requis",
+			"emailInvalid": "Saisis une adresse email valide",
+			"passwordRequired": "Le mot de passe est requis",
+			"passwordMin": "Utilise au moins 8 caractères"
+		},
+		"toasts": {
+			"signInError": "Échec de la connexion",
+			"signInSuccess": "Connexion réussie",
+			"signUpError": "Échec de la création du compte",
+			"signUpSuccess": "Compte créé avec succès"
+		}
+	},
+	"home": {
+		"heading": "Qu’est-ce que tu veux créer ?",
+		"promptPlaceholder": "Une landing page pour…",
+		"create": "Créer"
+	},
+	"drawer": {
+		"projects": "Projets",
+		"signOut": "Se déconnecter",
+		"language": "Langue"
+	},
+	"workspace": {
+		"back": "Retour",
+		"send": "Envoyer",
+		"composerPlaceholder": "Décris une modification…",
+		"tabs": {
+			"chat": "Chat",
+			"preview": "Aperçu",
+			"leads": "Leads",
+			"settings": "Réglages"
+		},
+		"placeholders": {
+			"chatTitle": "Chat",
+			"chatDescription": "Conversation avec l’IA — historique des messages et mises à jour de génération en direct.",
+			"previewTitle": "Aperçu",
+			"previewDescription": "Aperçu en direct de la landing page générée (WebView sandboxée) avec changement de version.",
+			"leadsTitle": "Leads",
+			"leadsDescription": "CRM commandes — soumissions de formulaire avec le pipeline de statuts, appel et WhatsApp en un tap.",
+			"settingsTitle": "Réglages",
+			"settingsDescription": "Réglages du projet — slug de publication, IDs pixel, renommer, dépublier et supprimer."
+		}
+	},
+	"notFound": {
+		"screenTitle": "Introuvable",
+		"title": "Page introuvable",
+		"description": "La page que tu cherches n’existe pas.",
+		"goHome": "Retour à l’accueil"
+	}
+}

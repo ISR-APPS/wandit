@@ -53,46 +53,28 @@ import type * as React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { CREDIT_COSTS, PriceTag } from "@/features/credits";
-
-const COPY = {
-	placeholderHero: "Describe what you want Wandit to create or change...",
-	placeholderCompact:
-		"Ask for a page edit, a marketing asset, an image or a video...",
-	banner: "Beta - your first 10 pages are on us, no card needed",
-	submitLabel: "Generate",
-	micLabel: "Voice input - coming soon",
-	addMenuLabel: "Add context",
-	addSkillLabel: "Add skill",
-	attachLabel: "Attach",
-	attachHint: "Upload files and references - coming soon",
-	modeLabel: "Mode",
-	outputLabel: "Output",
-	settingsLabel: "Generation settings",
-	skillLibraryLabel: "Built by Wandit",
-	removeSkillLabel: (name: string) => `Remove ${name}`,
-} as const;
+import { useDictionary, useTranslation } from "@/lib/i18n";
 
 type RouteMode = "auto" | "page" | "marketing" | "image" | "video";
 type ConcreteMode = Exclude<RouteMode, "auto">;
 
+// Non-copy option config: ids + layout. Group labels and choice labels live in
+// the `projects.promptBox.outputs.<id>.options` dictionary namespace.
 type Choice = {
 	id: string;
-	label: string;
 };
 
 type OptionGroup = {
 	id: string;
-	label: string;
 	choices: readonly Choice[];
 	layout?: "grid" | "compact";
 };
 
+// Non-copy route-mode config: id + icon. Label/description/placeholder live in
+// the `projects.promptBox.routeModes` dictionary namespace.
 type RouteModeDef = {
 	id: RouteMode;
-	label: string;
 	icon: LucideIcon;
-	description: string;
-	placeholder: string;
 };
 
 type SkillFileId =
@@ -104,17 +86,18 @@ type SkillFileId =
 	| "direct-response"
 	| "premium-visuals";
 
+type SkillGroupId = "review" | "market";
+
+// Non-copy skill config: id + fileName + icon. Label/description live in the
+// `projects.promptBox.skills` dictionary namespace.
 type SkillFileDef = {
 	id: SkillFileId;
-	label: string;
 	fileName: string;
 	icon: LucideIcon;
-	description: string;
 };
 
 type SkillFileGroup = {
-	id: string;
-	label: string;
+	id: SkillGroupId;
 	skills: readonly SkillFileDef[];
 };
 
@@ -135,115 +118,51 @@ type GenerationOutputId =
 	| "ugc-video"
 	| "product-demo";
 
+// Non-copy output config: id + mode + icon + option groups. Label/shortLabel/
+// description/placeholder + option copy live in the
+// `projects.promptBox.outputs` dictionary namespace.
 type GenerationOutputDef = {
 	id: GenerationOutputId;
 	mode: ConcreteMode;
-	label: string;
-	shortLabel: string;
 	icon: LucideIcon;
-	description: string;
-	placeholder: string;
 	options: readonly OptionGroup[];
 };
 
+// Shape of the localized option copy read via useDictionary(); ids are matched
+// against the non-copy config above so ordering stays in code.
+type OptionCopy = { label: string; choices: Record<string, string> };
+
 const ROUTE_MODES: readonly RouteModeDef[] = [
-	{
-		id: "auto",
-		label: "Auto",
-		icon: Sparkles,
-		description: "Wandit decides the right workflow.",
-		placeholder: COPY.placeholderHero,
-	},
-	{
-		id: "page",
-		label: "Page",
-		icon: FileText,
-		description: "Create or edit the publishable page.",
-		placeholder: "Describe the page you want to build or improve...",
-	},
-	{
-		id: "marketing",
-		label: "Marketing",
-		icon: Megaphone,
-		description: "Copy, strategy, scripts and HTML support assets.",
-		placeholder: "Ask for ad copy, strategy, scripts or a campaign asset...",
-	},
-	{
-		id: "image",
-		label: "Image",
-		icon: ImageIcon,
-		description: "Generate product visuals and ad images.",
-		placeholder: "Describe the product image, ratio, style and setting...",
-	},
-	{
-		id: "video",
-		label: "Video",
-		icon: Clapperboard,
-		description: "Generate short ad videos and scene plans.",
-		placeholder: "Describe the video ad, scenes, format and duration...",
-	},
+	{ id: "auto", icon: Sparkles },
+	{ id: "page", icon: FileText },
+	{ id: "marketing", icon: Megaphone },
+	{ id: "image", icon: ImageIcon },
+	{ id: "video", icon: Clapperboard },
 ];
 
 const SKILL_FILE_GROUPS: readonly SkillFileGroup[] = [
 	{
 		id: "review",
-		label: "Review skills",
 		skills: [
-			{
-				id: "accessibility",
-				label: "Accessibility",
-				fileName: "accessibility.md",
-				icon: ShieldCheck,
-				description: "Adds contrast, forms and keyboard review guidance.",
-			},
-			{
-				id: "seo-review",
-				label: "SEO Review",
-				fileName: "seo-review.md",
-				icon: SearchCheck,
-				description:
-					"Adds search structure, metadata and copy review guidance.",
-			},
-			{
-				id: "redesign",
-				label: "Redesign",
-				fileName: "redesign.md",
-				icon: Brush,
-				description: "Adds visual refresh and layout critique guidance.",
-			},
+			{ id: "accessibility", fileName: "accessibility.md", icon: ShieldCheck },
+			{ id: "seo-review", fileName: "seo-review.md", icon: SearchCheck },
+			{ id: "redesign", fileName: "redesign.md", icon: Brush },
 		],
 	},
 	{
 		id: "market",
-		label: "Market context",
 		skills: [
-			{
-				id: "cod-algeria",
-				label: "COD Algeria",
-				fileName: "cod-algeria.md",
-				icon: Target,
-				description: "Adds Algerian COD, wilaya and mobile-first context.",
-			},
-			{
-				id: "brand-voice",
-				label: "Brand Voice",
-				fileName: "brand-voice.md",
-				icon: Captions,
-				description: "Keeps generated copy aligned to the brand tone.",
-			},
+			{ id: "cod-algeria", fileName: "cod-algeria.md", icon: Target },
+			{ id: "brand-voice", fileName: "brand-voice.md", icon: Captions },
 			{
 				id: "direct-response",
-				label: "Direct Response",
 				fileName: "direct-response.md",
 				icon: BadgeCheck,
-				description: "Adds offer, proof, objection and CTA pressure.",
 			},
 			{
 				id: "premium-visuals",
-				label: "Premium Visuals",
 				fileName: "premium-visuals.md",
 				icon: ImageIcon,
-				description: "Adds higher-end art direction for visual outputs.",
 			},
 		],
 	},
@@ -254,100 +173,69 @@ const OUTPUTS_BY_MODE: Record<ConcreteMode, readonly GenerationOutputDef[]> = {
 		{
 			id: "landing-page",
 			mode: "page",
-			label: "Landing Page",
-			shortLabel: "Landing Page",
 			icon: FileText,
-			description: "Creates the publishable project page.",
-			placeholder: "Describe the product, offer, price, proof and COD flow...",
 			options: [
 				{
 					id: "goal",
-					label: "Goal",
 					choices: [
-						{ id: "cod", label: "COD sales" },
-						{ id: "leads", label: "Lead capture" },
-						{ id: "promo", label: "Promo" },
-						{ id: "service", label: "Service" },
+						{ id: "cod" },
+						{ id: "leads" },
+						{ id: "promo" },
+						{ id: "service" },
 					],
 				},
 				{
 					id: "language",
-					label: "Language",
 					choices: [
-						{ id: "auto", label: "Auto" },
-						{ id: "arabic", label: "Arabic" },
-						{ id: "french", label: "French" },
-						{ id: "ar-fr", label: "AR + FR" },
+						{ id: "auto" },
+						{ id: "arabic" },
+						{ id: "french" },
+						{ id: "ar-fr" },
 					],
 				},
 				{
 					id: "shape",
-					label: "Page type",
-					choices: [
-						{ id: "landing", label: "Landing" },
-						{ id: "product", label: "Product page" },
-						{ id: "service", label: "Service page" },
-					],
+					choices: [{ id: "landing" }, { id: "product" }, { id: "service" }],
 				},
 			],
 		},
 		{
 			id: "page-edit",
 			mode: "page",
-			label: "Page Edit",
-			shortLabel: "Page Edit",
 			icon: Brush,
-			description: "Updates copy, layout or sections in the current page.",
-			placeholder: "Tell Wandit which part of the page should change...",
 			options: [
 				{
 					id: "scope",
-					label: "Scope",
 					choices: [
-						{ id: "hero", label: "Hero" },
-						{ id: "offer", label: "Offer block" },
-						{ id: "form", label: "Order form" },
-						{ id: "full", label: "Full page" },
+						{ id: "hero" },
+						{ id: "offer" },
+						{ id: "form" },
+						{ id: "full" },
 					],
 				},
 				{
 					id: "intensity",
-					label: "Change level",
-					choices: [
-						{ id: "light", label: "Light" },
-						{ id: "medium", label: "Medium" },
-						{ id: "rewrite", label: "Rewrite" },
-					],
+					choices: [{ id: "light" }, { id: "medium" }, { id: "rewrite" }],
 				},
 			],
 		},
 		{
 			id: "html-section",
 			mode: "page",
-			label: "HTML Section",
-			shortLabel: "HTML Section",
 			icon: FileText,
-			description: "Creates an embeddable section for the page.",
-			placeholder: "Describe the section you want to add to the page...",
 			options: [
 				{
 					id: "section",
-					label: "Section type",
 					choices: [
-						{ id: "comparison", label: "Comparison" },
-						{ id: "faq", label: "FAQ" },
-						{ id: "testimonials", label: "Testimonials" },
-						{ id: "offer", label: "Offer block" },
+						{ id: "comparison" },
+						{ id: "faq" },
+						{ id: "testimonials" },
+						{ id: "offer" },
 					],
 				},
 				{
 					id: "style",
-					label: "Style",
-					choices: [
-						{ id: "match", label: "Match page" },
-						{ id: "clean", label: "Clean" },
-						{ id: "direct", label: "Direct response" },
-					],
+					choices: [{ id: "match" }, { id: "clean" }, { id: "direct" }],
 				},
 			],
 		},
@@ -356,50 +244,35 @@ const OUTPUTS_BY_MODE: Record<ConcreteMode, readonly GenerationOutputDef[]> = {
 		{
 			id: "ad-copy",
 			mode: "marketing",
-			label: "Ad Copy",
-			shortLabel: "Ad Copy",
 			icon: BadgeCheck,
-			description: "Creates hooks, primary text, headlines and CTAs.",
-			placeholder: "Describe the product and the ad angle you want to test...",
 			options: [
 				{
 					id: "platform",
-					label: "Platform",
 					choices: [
-						{ id: "meta", label: "Meta" },
-						{ id: "tiktok", label: "TikTok" },
-						{ id: "google", label: "Google" },
-						{ id: "whatsapp", label: "WhatsApp" },
+						{ id: "meta" },
+						{ id: "tiktok" },
+						{ id: "google" },
+						{ id: "whatsapp" },
 					],
 				},
 				{
 					id: "variants",
-					label: "Variants",
-					choices: [
-						{ id: "3", label: "3" },
-						{ id: "5", label: "5" },
-						{ id: "10", label: "10" },
-					],
+					choices: [{ id: "3" }, { id: "5" }, { id: "10" }],
 					layout: "compact",
 				},
 				{
 					id: "angle",
-					label: "Angle",
 					choices: [
-						{ id: "auto", label: "Auto" },
-						{ id: "pain", label: "Pain" },
-						{ id: "offer", label: "Offer" },
-						{ id: "proof", label: "Social proof" },
-						{ id: "urgency", label: "Urgency" },
+						{ id: "auto" },
+						{ id: "pain" },
+						{ id: "offer" },
+						{ id: "proof" },
+						{ id: "urgency" },
 					],
 				},
 				{
 					id: "length",
-					label: "Length",
-					choices: [
-						{ id: "short", label: "Short" },
-						{ id: "medium", label: "Medium" },
-					],
+					choices: [{ id: "short" }, { id: "medium" }],
 					layout: "compact",
 				},
 			],
@@ -407,40 +280,29 @@ const OUTPUTS_BY_MODE: Record<ConcreteMode, readonly GenerationOutputDef[]> = {
 		{
 			id: "marketing-strategy",
 			mode: "marketing",
-			label: "Strategy",
-			shortLabel: "Strategy",
 			icon: Target,
-			description: "Plans angles, funnel moves and campaign flow.",
-			placeholder:
-				"Describe the product and ask for a launch or campaign plan...",
 			options: [
 				{
 					id: "strategy",
-					label: "Strategy type",
 					choices: [
-						{ id: "launch", label: "Launch plan" },
-						{ id: "campaign", label: "Campaign plan" },
-						{ id: "offer", label: "Offer strategy" },
-						{ id: "audit", label: "Funnel audit" },
+						{ id: "launch" },
+						{ id: "campaign" },
+						{ id: "offer" },
+						{ id: "audit" },
 					],
 				},
 				{
 					id: "channel",
-					label: "Channel",
 					choices: [
-						{ id: "auto", label: "Auto" },
-						{ id: "meta", label: "Meta" },
-						{ id: "tiktok", label: "TikTok" },
-						{ id: "whatsapp", label: "WhatsApp" },
+						{ id: "auto" },
+						{ id: "meta" },
+						{ id: "tiktok" },
+						{ id: "whatsapp" },
 					],
 				},
 				{
 					id: "depth",
-					label: "Depth",
-					choices: [
-						{ id: "quick", label: "Quick" },
-						{ id: "detailed", label: "Detailed" },
-					],
+					choices: [{ id: "quick" }, { id: "detailed" }],
 					layout: "compact",
 				},
 			],
@@ -448,40 +310,29 @@ const OUTPUTS_BY_MODE: Record<ConcreteMode, readonly GenerationOutputDef[]> = {
 		{
 			id: "video-script",
 			mode: "marketing",
-			label: "Video Script",
-			shortLabel: "Video Script",
 			icon: Captions,
-			description: "Scripts UGC, demos and short-form ads.",
-			placeholder: "Describe the product and the video structure you want...",
 			options: [
 				{
 					id: "format",
-					label: "Format",
 					choices: [
-						{ id: "ugc", label: "UGC" },
-						{ id: "demo", label: "Product demo" },
-						{ id: "problem", label: "Problem-solution" },
-						{ id: "testimonial", label: "Testimonial" },
+						{ id: "ugc" },
+						{ id: "demo" },
+						{ id: "problem" },
+						{ id: "testimonial" },
 					],
 				},
 				{
 					id: "duration",
-					label: "Duration",
-					choices: [
-						{ id: "15", label: "15s" },
-						{ id: "30", label: "30s" },
-						{ id: "60", label: "60s" },
-					],
+					choices: [{ id: "15" }, { id: "30" }, { id: "60" }],
 					layout: "compact",
 				},
 				{
 					id: "detail",
-					label: "Include",
 					choices: [
-						{ id: "hook", label: "Hook" },
-						{ id: "voiceover", label: "Voiceover" },
-						{ id: "shots", label: "Shot list" },
-						{ id: "cta", label: "CTA" },
+						{ id: "hook" },
+						{ id: "voiceover" },
+						{ id: "shots" },
+						{ id: "cta" },
 					],
 				},
 			],
@@ -489,28 +340,15 @@ const OUTPUTS_BY_MODE: Record<ConcreteMode, readonly GenerationOutputDef[]> = {
 		{
 			id: "creative-brief",
 			mode: "marketing",
-			label: "Creative Brief",
-			shortLabel: "Brief",
 			icon: FileText,
-			description: "Creates a structured brief for designers or creators.",
-			placeholder: "Describe the campaign and what the creative team needs...",
 			options: [
 				{
 					id: "channel",
-					label: "Channel",
-					choices: [
-						{ id: "meta", label: "Meta" },
-						{ id: "tiktok", label: "TikTok" },
-						{ id: "mixed", label: "Mixed" },
-					],
+					choices: [{ id: "meta" }, { id: "tiktok" }, { id: "mixed" }],
 				},
 				{
 					id: "depth",
-					label: "Depth",
-					choices: [
-						{ id: "simple", label: "Simple" },
-						{ id: "detailed", label: "Detailed" },
-					],
+					choices: [{ id: "simple" }, { id: "detailed" }],
 					layout: "compact",
 				},
 			],
@@ -518,30 +356,20 @@ const OUTPUTS_BY_MODE: Record<ConcreteMode, readonly GenerationOutputDef[]> = {
 		{
 			id: "html-asset",
 			mode: "marketing",
-			label: "HTML Asset",
-			shortLabel: "HTML Asset",
 			icon: FileText,
-			description: "Creates a supporting HTML artifact saved to assets.",
-			placeholder:
-				"Describe the support asset: table, one-pager, FAQ or brief...",
 			options: [
 				{
 					id: "asset",
-					label: "Asset type",
 					choices: [
-						{ id: "comparison", label: "Comparison table" },
-						{ id: "one-pager", label: "Product one-pager" },
-						{ id: "faq", label: "FAQ block" },
-						{ id: "offer", label: "Offer block" },
+						{ id: "comparison" },
+						{ id: "one-pager" },
+						{ id: "faq" },
+						{ id: "offer" },
 					],
 				},
 				{
 					id: "format",
-					label: "Format",
-					choices: [
-						{ id: "standalone", label: "Standalone" },
-						{ id: "embed", label: "Embed-ready" },
-					],
+					choices: [{ id: "standalone" }, { id: "embed" }],
 					layout: "compact",
 				},
 			],
@@ -551,75 +379,56 @@ const OUTPUTS_BY_MODE: Record<ConcreteMode, readonly GenerationOutputDef[]> = {
 		{
 			id: "image-creator",
 			mode: "image",
-			label: "Auto",
-			shortLabel: "Auto",
 			icon: ImageIcon,
-			description: "Wandit chooses the best image format from the prompt.",
-			placeholder:
-				"Describe the image, product, background, style and ratio...",
 			options: [
 				{
 					id: "quality",
-					label: "Quality",
 					choices: [
-						{ id: "auto", label: "Auto" },
-						{ id: "high", label: "High" },
-						{ id: "medium", label: "Medium" },
-						{ id: "low", label: "Low" },
+						{ id: "auto" },
+						{ id: "high" },
+						{ id: "medium" },
+						{ id: "low" },
 					],
 				},
 				{
 					id: "size",
-					label: "Size",
 					choices: [
-						{ id: "1-1", label: "1:1" },
-						{ id: "3-2", label: "3:2" },
-						{ id: "2-3", label: "2:3" },
-						{ id: "4-3", label: "4:3" },
-						{ id: "9-16", label: "9:16" },
-						{ id: "16-9", label: "16:9" },
+						{ id: "1-1" },
+						{ id: "3-2" },
+						{ id: "2-3" },
+						{ id: "4-3" },
+						{ id: "9-16" },
+						{ id: "16-9" },
 					],
 					layout: "grid",
 				},
 				{
 					id: "count",
-					label: "Images",
-					choices: [
-						{ id: "1", label: "1 img" },
-						{ id: "2", label: "2 img" },
-						{ id: "4", label: "4 img" },
-						{ id: "8", label: "8 img" },
-					],
+					choices: [{ id: "1" }, { id: "2" }, { id: "4" }, { id: "8" }],
 				},
 			],
 		},
 		{
 			id: "product-shot",
 			mode: "image",
-			label: "Product Shot",
-			shortLabel: "Product Shot",
 			icon: ImageIcon,
-			description: "Creates clean product-led visuals for commerce.",
-			placeholder: "Describe the product shot, angle, background and props...",
 			options: [
 				{
 					id: "scene",
-					label: "Scene",
 					choices: [
-						{ id: "studio", label: "Studio" },
-						{ id: "lifestyle", label: "Lifestyle" },
-						{ id: "packshot", label: "Packshot" },
-						{ id: "before-after", label: "Before/after" },
+						{ id: "studio" },
+						{ id: "lifestyle" },
+						{ id: "packshot" },
+						{ id: "before-after" },
 					],
 				},
 				{
 					id: "size",
-					label: "Size",
 					choices: [
-						{ id: "1-1", label: "1:1" },
-						{ id: "4-5", label: "4:5" },
-						{ id: "9-16", label: "9:16" },
-						{ id: "16-9", label: "16:9" },
+						{ id: "1-1" },
+						{ id: "4-5" },
+						{ id: "9-16" },
+						{ id: "16-9" },
 					],
 				},
 			],
@@ -627,39 +436,24 @@ const OUTPUTS_BY_MODE: Record<ConcreteMode, readonly GenerationOutputDef[]> = {
 		{
 			id: "ad-creative",
 			mode: "image",
-			label: "Ad Creative",
-			shortLabel: "Ad Creative",
 			icon: Megaphone,
-			description: "Creates static ad visuals with offer-first composition.",
-			placeholder: "Describe the ad creative, offer, headline and platform...",
 			options: [
 				{
 					id: "platform",
-					label: "Platform",
 					choices: [
-						{ id: "meta", label: "Meta" },
-						{ id: "tiktok", label: "TikTok" },
-						{ id: "story", label: "Story" },
-						{ id: "display", label: "Display" },
+						{ id: "meta" },
+						{ id: "tiktok" },
+						{ id: "story" },
+						{ id: "display" },
 					],
 				},
 				{
 					id: "text",
-					label: "Text amount",
-					choices: [
-						{ id: "none", label: "No text" },
-						{ id: "light", label: "Light" },
-						{ id: "offer", label: "Offer-heavy" },
-					],
+					choices: [{ id: "none" }, { id: "light" }, { id: "offer" }],
 				},
 				{
 					id: "count",
-					label: "Variants",
-					choices: [
-						{ id: "1", label: "1" },
-						{ id: "3", label: "3" },
-						{ id: "5", label: "5" },
-					],
+					choices: [{ id: "1" }, { id: "3" }, { id: "5" }],
 					layout: "compact",
 				},
 			],
@@ -667,31 +461,20 @@ const OUTPUTS_BY_MODE: Record<ConcreteMode, readonly GenerationOutputDef[]> = {
 		{
 			id: "background-edit",
 			mode: "image",
-			label: "Background Edit",
-			shortLabel: "BG Edit",
 			icon: Brush,
-			description: "Changes the environment around an existing product image.",
-			placeholder:
-				"Attach a product photo, then describe the new background...",
 			options: [
 				{
 					id: "background",
-					label: "Background",
 					choices: [
-						{ id: "studio", label: "Studio" },
-						{ id: "premium", label: "Premium" },
-						{ id: "home", label: "Home" },
-						{ id: "outdoor", label: "Outdoor" },
+						{ id: "studio" },
+						{ id: "premium" },
+						{ id: "home" },
+						{ id: "outdoor" },
 					],
 				},
 				{
 					id: "preserve",
-					label: "Preserve",
-					choices: [
-						{ id: "product", label: "Product" },
-						{ id: "lighting", label: "Lighting" },
-						{ id: "shadow", label: "Shadow" },
-					],
+					choices: [{ id: "product" }, { id: "lighting" }, { id: "shadow" }],
 				},
 			],
 		},
@@ -700,82 +483,46 @@ const OUTPUTS_BY_MODE: Record<ConcreteMode, readonly GenerationOutputDef[]> = {
 		{
 			id: "video-creator",
 			mode: "video",
-			label: "Auto",
-			shortLabel: "Auto",
 			icon: Clapperboard,
-			description: "Wandit chooses the best video format from the prompt.",
-			placeholder:
-				"Describe the video, scenes, movement, mood and aspect ratio...",
 			options: [
 				{
 					id: "method",
-					label: "Generate method",
-					choices: [
-						{ id: "reference", label: "Reference" },
-						{ id: "edit", label: "Edit" },
-						{ id: "frames", label: "Frames" },
-					],
+					choices: [{ id: "reference" }, { id: "edit" }, { id: "frames" }],
 				},
 				{
 					id: "size",
-					label: "Size",
 					choices: [
-						{ id: "auto", label: "Auto" },
-						{ id: "16-9", label: "16:9" },
-						{ id: "4-3", label: "4:3" },
-						{ id: "1-1", label: "1:1" },
-						{ id: "9-16", label: "9:16" },
-						{ id: "21-9", label: "21:9" },
+						{ id: "auto" },
+						{ id: "16-9" },
+						{ id: "4-3" },
+						{ id: "1-1" },
+						{ id: "9-16" },
+						{ id: "21-9" },
 					],
 					layout: "grid",
 				},
 				{
 					id: "resolution",
-					label: "Resolution",
-					choices: [
-						{ id: "720", label: "720p" },
-						{ id: "1080", label: "1080p" },
-						{ id: "4k", label: "4k" },
-					],
+					choices: [{ id: "720" }, { id: "1080" }, { id: "4k" }],
 				},
 				{
 					id: "duration",
-					label: "Duration",
-					choices: [
-						{ id: "4", label: "4s" },
-						{ id: "5", label: "5s" },
-						{ id: "8", label: "8s" },
-						{ id: "10", label: "10s" },
-					],
+					choices: [{ id: "4" }, { id: "5" }, { id: "8" }, { id: "10" }],
 				},
 			],
 		},
 		{
 			id: "ugc-video",
 			mode: "video",
-			label: "UGC Video",
-			shortLabel: "UGC Video",
 			icon: Captions,
-			description: "Creates creator-style short-form video ads.",
-			placeholder: "Describe the UGC ad, creator vibe, hook and proof...",
 			options: [
 				{
 					id: "structure",
-					label: "Structure",
-					choices: [
-						{ id: "problem", label: "Problem" },
-						{ id: "demo", label: "Demo" },
-						{ id: "testimonial", label: "Testimonial" },
-					],
+					choices: [{ id: "problem" }, { id: "demo" }, { id: "testimonial" }],
 				},
 				{
 					id: "duration",
-					label: "Duration",
-					choices: [
-						{ id: "15", label: "15s" },
-						{ id: "30", label: "30s" },
-						{ id: "45", label: "45s" },
-					],
+					choices: [{ id: "15" }, { id: "30" }, { id: "45" }],
 					layout: "compact",
 				},
 			],
@@ -783,29 +530,15 @@ const OUTPUTS_BY_MODE: Record<ConcreteMode, readonly GenerationOutputDef[]> = {
 		{
 			id: "product-demo",
 			mode: "video",
-			label: "Product Demo",
-			shortLabel: "Demo",
 			icon: Clapperboard,
-			description: "Shows product use, result and order action.",
-			placeholder: "Describe the product demo sequence and final CTA...",
 			options: [
 				{
 					id: "pace",
-					label: "Pace",
-					choices: [
-						{ id: "fast", label: "Fast" },
-						{ id: "balanced", label: "Balanced" },
-						{ id: "slow", label: "Slow" },
-					],
+					choices: [{ id: "fast" }, { id: "balanced" }, { id: "slow" }],
 				},
 				{
 					id: "ratio",
-					label: "Ratio",
-					choices: [
-						{ id: "9-16", label: "9:16" },
-						{ id: "1-1", label: "1:1" },
-						{ id: "16-9", label: "16:9" },
-					],
+					choices: [{ id: "9-16" }, { id: "1-1" }, { id: "16-9" }],
 				},
 			],
 		},
@@ -867,6 +600,7 @@ function SkillFileRows({
 	selectedIds: readonly SkillFileId[];
 	onToggleSkill: (skill: SkillFileDef) => void;
 }) {
+	const pb = useDictionary().projects.promptBox;
 	return (
 		<>
 			{SKILL_FILE_GROUPS.map((group, groupIndex) => (
@@ -875,10 +609,11 @@ function SkillFileRows({
 						<DropdownMenuSeparator className="my-1 bg-border/70" />
 					) : null}
 					<DropdownMenuLabel className="px-2 pt-2 pb-1 font-mono font-normal text-[10px] text-muted-foreground uppercase tracking-[0.14em]">
-						{group.label}
+						{pb.skillGroups[group.id].label}
 					</DropdownMenuLabel>
 					{group.skills.map((skill) => {
 						const selected = selectedIds.includes(skill.id);
+						const skillCopy = pb.skills[skill.id];
 						return (
 							<DropdownMenuItem
 								key={skill.id}
@@ -888,13 +623,13 @@ function SkillFileRows({
 								<IconTile icon={skill.icon} active={selected} />
 								<span className="min-w-0">
 									<span className="flex items-center gap-2 font-medium text-sm leading-tight">
-										{skill.label}
+										{skillCopy.label}
 										<span className="font-mono text-[10px] text-muted-foreground">
 											{skill.fileName}
 										</span>
 									</span>
 									<span className="mt-0.5 block text-muted-foreground text-xs leading-snug">
-										{skill.description}
+										{skillCopy.description}
 									</span>
 								</span>
 								<Check
@@ -921,6 +656,8 @@ function AddContextMenu({
 	onToggleSkill: (skill: SkillFileDef) => void;
 	isHero: boolean;
 }) {
+	const { t } = useTranslation();
+	const addMenuLabel = t("projects.promptBox.addMenuLabel");
 	return (
 		<DropdownMenu>
 			<Tooltip>
@@ -930,7 +667,7 @@ function AddContextMenu({
 							type="button"
 							variant="outline"
 							size="icon-sm"
-							aria-label={COPY.addMenuLabel}
+							aria-label={addMenuLabel}
 							className={cn(
 								"rounded-full border-border/80 bg-background/70 text-muted-foreground shadow-none transition-[transform,color,background-color,border-color] duration-200 hover:border-primary/30 hover:bg-primary/10 hover:text-foreground active:translate-y-px",
 								isHero ? "size-9" : "size-8",
@@ -940,7 +677,7 @@ function AddContextMenu({
 						</Button>
 					</DropdownMenuTrigger>
 				</TooltipTrigger>
-				<TooltipContent>{COPY.addMenuLabel}</TooltipContent>
+				<TooltipContent>{addMenuLabel}</TooltipContent>
 			</Tooltip>
 			<DropdownMenuContent
 				align="start"
@@ -951,7 +688,7 @@ function AddContextMenu({
 				<DropdownMenuSub>
 					<DropdownMenuSubTrigger className="rounded-xl px-2 py-2">
 						<WandSparkles className="size-4 text-primary" />
-						<span>{COPY.addSkillLabel}</span>
+						<span>{t("projects.promptBox.addSkillLabel")}</span>
 					</DropdownMenuSubTrigger>
 					<DropdownMenuSubContent
 						sideOffset={10}
@@ -959,7 +696,7 @@ function AddContextMenu({
 					>
 						<div className="flex items-center justify-between px-2 pt-1 pb-1.5">
 							<span className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.14em]">
-								{COPY.skillLibraryLabel}
+								{t("projects.promptBox.skillLibraryLabel")}
 							</span>
 						</div>
 						<SkillFileRows
@@ -974,9 +711,9 @@ function AddContextMenu({
 				>
 					<Paperclip className="size-4" />
 					<span className="flex min-w-0 flex-col">
-						<span>{COPY.attachLabel}</span>
+						<span>{t("projects.promptBox.attachLabel")}</span>
 						<span className="truncate text-muted-foreground text-xs">
-							{COPY.attachHint}
+							{t("projects.promptBox.attachHint")}
 						</span>
 					</span>
 				</DropdownMenuItem>
@@ -992,25 +729,30 @@ function AttachedSkillChips({
 	skills: readonly SkillFileDef[];
 	onRemove: (id: SkillFileId) => void;
 }) {
+	const { t } = useTranslation();
+	const pb = useDictionary().projects.promptBox;
 	if (skills.length === 0) return null;
 
 	return (
 		<div className="flex flex-wrap gap-1.5 px-4 pt-3 sm:px-5">
 			{skills.map((skill) => {
 				const SkillIcon = skill.icon;
+				const label = pb.skills[skill.id].label;
 				return (
 					<span
 						key={skill.id}
 						className="inline-flex h-7 max-w-full items-center gap-1.5 rounded-full border border-primary/25 bg-primary/10 px-2.5 text-foreground text-xs"
 					>
 						<SkillIcon className="size-3.5 shrink-0 text-primary" />
-						<span className="truncate">{skill.label}</span>
+						<span className="truncate">{label}</span>
 						<span className="hidden font-mono text-[10px] text-muted-foreground sm:inline">
 							{skill.fileName}
 						</span>
 						<button
 							type="button"
-							aria-label={COPY.removeSkillLabel(skill.label)}
+							aria-label={t("projects.promptBox.removeSkillLabel", {
+								name: label,
+							})}
 							onClick={() => onRemove(skill.id)}
 							className="rounded-full p-0.5 text-muted-foreground transition-colors hover:bg-primary/10 hover:text-foreground"
 						>
@@ -1032,8 +774,11 @@ function ModePicker({
 	onValueChange: (mode: RouteMode) => void;
 	isHero: boolean;
 }) {
+	const { t } = useTranslation();
+	const pb = useDictionary().projects.promptBox;
 	const selectedMode = getMode(value);
 	const SelectedIcon = selectedMode.icon;
+	const selectedModeCopy = pb.routeModes[value];
 
 	return (
 		<DropdownMenu>
@@ -1042,14 +787,14 @@ function ModePicker({
 					type="button"
 					variant="outline"
 					size="sm"
-					aria-label={`${COPY.modeLabel}: ${selectedMode.label}`}
+					aria-label={`${t("projects.promptBox.modeLabel")}: ${selectedModeCopy.label}`}
 					className={cn(
 						"group/trigger rounded-full border-border/75 bg-background/55 text-muted-foreground shadow-none transition-colors hover:border-primary/25 hover:bg-accent/70 hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground",
 						isHero ? "h-9" : "h-8",
 					)}
 				>
 					<SelectedIcon className="size-3.5 text-primary" />
-					<span className="max-w-24 truncate">{selectedMode.label}</span>
+					<span className="max-w-24 truncate">{selectedModeCopy.label}</span>
 					<ChevronDown className="size-3.5 transition-transform duration-200 group-data-[state=open]/trigger:rotate-180" />
 				</Button>
 			</DropdownMenuTrigger>
@@ -1060,30 +805,33 @@ function ModePicker({
 				className="w-72 rounded-2xl border-border/80 p-1.5 shadow-[0_18px_50px_-24px_rgb(0_0_0/0.36)]"
 			>
 				<DropdownMenuLabel className="px-2 pt-1 pb-1.5 font-mono font-normal text-[10px] text-muted-foreground uppercase tracking-[0.14em]">
-					{COPY.modeLabel}
+					{t("projects.promptBox.modeLabel")}
 				</DropdownMenuLabel>
 				<DropdownMenuRadioGroup
 					value={value}
 					onValueChange={(next) => onValueChange(next as RouteMode)}
 				>
-					{ROUTE_MODES.map((mode) => (
-						<DropdownMenuRadioItemBare
-							key={mode.id}
-							value={mode.id}
-							className="data-[state=checked]:bg-primary/10"
-						>
-							<IconTile icon={mode.icon} active={value === mode.id} />
-							<span className="min-w-0">
-								<span className="block font-medium text-sm leading-tight">
-									{mode.label}
+					{ROUTE_MODES.map((mode) => {
+						const modeCopy = pb.routeModes[mode.id];
+						return (
+							<DropdownMenuRadioItemBare
+								key={mode.id}
+								value={mode.id}
+								className="data-[state=checked]:bg-primary/10"
+							>
+								<IconTile icon={mode.icon} active={value === mode.id} />
+								<span className="min-w-0">
+									<span className="block font-medium text-sm leading-tight">
+										{modeCopy.label}
+									</span>
+									<span className="mt-0.5 block text-muted-foreground text-xs leading-snug">
+										{modeCopy.description}
+									</span>
 								</span>
-								<span className="mt-0.5 block text-muted-foreground text-xs leading-snug">
-									{mode.description}
-								</span>
-							</span>
-							<Check className="ms-auto size-4 shrink-0 scale-90 text-primary opacity-0 transition-[opacity,transform] group-data-[state=checked]/row:scale-100 group-data-[state=checked]/row:opacity-100" />
-						</DropdownMenuRadioItemBare>
-					))}
+								<Check className="ms-auto size-4 shrink-0 scale-90 text-primary opacity-0 transition-[opacity,transform] group-data-[state=checked]/row:scale-100 group-data-[state=checked]/row:opacity-100" />
+							</DropdownMenuRadioItemBare>
+						);
+					})}
 				</DropdownMenuRadioGroup>
 			</DropdownMenuContent>
 		</DropdownMenu>
@@ -1101,9 +849,12 @@ function OutputPicker({
 	onSelectOutput: (output: GenerationOutputDef) => void;
 	isHero: boolean;
 }) {
+	const { t } = useTranslation();
+	const pb = useDictionary().projects.promptBox;
 	if (mode === "auto" || !output) return null;
 	const OutputIcon = output.icon;
 	const outputs = OUTPUTS_BY_MODE[mode];
+	const outputCopy = pb.outputs[output.id];
 
 	return (
 		<DropdownMenu>
@@ -1112,7 +863,7 @@ function OutputPicker({
 					type="button"
 					variant="outline"
 					size="sm"
-					aria-label={`${COPY.outputLabel}: ${output.label}`}
+					aria-label={`${t("projects.promptBox.outputLabel")}: ${outputCopy.label}`}
 					className={cn(
 						"group/trigger rounded-full border-primary/30 bg-primary/10 text-foreground shadow-none transition-colors hover:bg-primary/15 data-[state=open]:bg-primary/15",
 						isHero ? "h-9" : "h-8",
@@ -1120,7 +871,7 @@ function OutputPicker({
 				>
 					<OutputIcon className="size-3.5 text-primary" />
 					<span className="max-w-32 truncate font-medium">
-						{output.shortLabel}
+						{outputCopy.shortLabel}
 					</span>
 					<ChevronDown className="size-3.5 transition-transform duration-200 group-data-[state=open]/trigger:rotate-180" />
 				</Button>
@@ -1132,7 +883,9 @@ function OutputPicker({
 				className="w-80 max-w-[calc(100vw-1.5rem)] rounded-2xl border-border/80 p-1.5 shadow-[0_18px_50px_-24px_rgb(0_0_0/0.36)]"
 			>
 				<DropdownMenuLabel className="px-2 pt-1 pb-1.5 font-mono font-normal text-[10px] text-muted-foreground uppercase tracking-[0.14em]">
-					{getMode(mode).label} outputs
+					{t("projects.promptBox.outputsHeading", {
+						mode: pb.routeModes[mode].label,
+					})}
 				</DropdownMenuLabel>
 				<DropdownMenuRadioGroup
 					value={output.id}
@@ -1141,24 +894,27 @@ function OutputPicker({
 						if (nextOutput) onSelectOutput(nextOutput);
 					}}
 				>
-					{outputs.map((item) => (
-						<DropdownMenuRadioItemBare
-							key={item.id}
-							value={item.id}
-							className="data-[state=checked]:bg-primary/10"
-						>
-							<IconTile icon={item.icon} active={item.id === output.id} />
-							<span className="min-w-0">
-								<span className="block font-medium text-sm leading-tight">
-									{item.label}
+					{outputs.map((item) => {
+						const itemCopy = pb.outputs[item.id];
+						return (
+							<DropdownMenuRadioItemBare
+								key={item.id}
+								value={item.id}
+								className="data-[state=checked]:bg-primary/10"
+							>
+								<IconTile icon={item.icon} active={item.id === output.id} />
+								<span className="min-w-0">
+									<span className="block font-medium text-sm leading-tight">
+										{itemCopy.label}
+									</span>
+									<span className="mt-0.5 block text-muted-foreground text-xs leading-snug">
+										{itemCopy.description}
+									</span>
 								</span>
-								<span className="mt-0.5 block text-muted-foreground text-xs leading-snug">
-									{item.description}
-								</span>
-							</span>
-							<Check className="ms-auto size-4 shrink-0 scale-90 text-primary opacity-0 transition-[opacity,transform] group-data-[state=checked]/row:scale-100 group-data-[state=checked]/row:opacity-100" />
-						</DropdownMenuRadioItemBare>
-					))}
+								<Check className="ms-auto size-4 shrink-0 scale-90 text-primary opacity-0 transition-[opacity,transform] group-data-[state=checked]/row:scale-100 group-data-[state=checked]/row:opacity-100" />
+							</DropdownMenuRadioItemBare>
+						);
+					})}
 				</DropdownMenuRadioGroup>
 			</DropdownMenuContent>
 		</DropdownMenu>
@@ -1176,8 +932,16 @@ function OutputSettings({
 	onValueChange: (groupId: string, choiceId: string) => void;
 	isHero: boolean;
 }) {
+	const { t } = useTranslation();
+	const pb = useDictionary().projects.promptBox;
 	if (!output) return null;
 	const OutputIcon = output.icon;
+	const outputCopy = pb.outputs[output.id];
+	const optionsCopy = outputCopy.options as unknown as Record<
+		string,
+		OptionCopy
+	>;
+	const modeLabel = pb.routeModes[output.mode].label;
 
 	return (
 		<DropdownMenu>
@@ -1188,7 +952,7 @@ function OutputSettings({
 							type="button"
 							variant="outline"
 							size="icon-sm"
-							aria-label={COPY.settingsLabel}
+							aria-label={t("projects.promptBox.settingsLabel")}
 							className={cn(
 								"rounded-full border-border/75 bg-background/55 text-muted-foreground shadow-none transition-colors hover:border-primary/25 hover:bg-accent/70 hover:text-foreground data-[state=open]:border-primary/30 data-[state=open]:bg-primary/10 data-[state=open]:text-foreground",
 								isHero ? "size-9" : "size-8",
@@ -1198,7 +962,7 @@ function OutputSettings({
 						</Button>
 					</DropdownMenuTrigger>
 				</TooltipTrigger>
-				<TooltipContent>{COPY.settingsLabel}</TooltipContent>
+				<TooltipContent>{t("projects.promptBox.settingsLabel")}</TooltipContent>
 			</Tooltip>
 			<DropdownMenuContent
 				align="start"
@@ -1211,53 +975,57 @@ function OutputSettings({
 						<IconTile icon={OutputIcon} active />
 						<div className="min-w-0">
 							<p className="font-medium text-sm leading-tight">
-								{output.label}
+								{outputCopy.label}
 							</p>
 							<p className="mt-0.5 text-muted-foreground text-xs">
-								Options for this {getMode(output.mode).label.toLowerCase()}{" "}
-								output.
+								{t("projects.promptBox.settingsSubtitle", {
+									mode: modeLabel.toLowerCase(),
+								})}
 							</p>
 						</div>
 					</div>
 				</div>
 				<div className="space-y-4 p-4">
-					{output.options.map((group) => (
-						<div key={group.id}>
-							<p className="mb-2 text-muted-foreground text-xs">
-								{group.label}
-							</p>
-							<div
-								className={cn(
-									"grid gap-2",
-									group.layout === "grid"
-										? "grid-cols-3"
-										: group.layout === "compact"
-											? "grid-cols-4"
-											: "grid-cols-2",
-								)}
-							>
-								{group.choices.map((choice) => {
-									const selected = values[group.id] === choice.id;
-									return (
-										<button
-											key={choice.id}
-											type="button"
-											onClick={() => onValueChange(group.id, choice.id)}
-											className={cn(
-												"min-h-9 rounded-xl border px-3 py-2 text-center text-xs transition-[transform,color,background-color,border-color] duration-200 active:translate-y-px",
-												selected
-													? "border-primary/35 bg-primary/10 text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.16)]"
-													: "border-border/80 bg-background/60 text-muted-foreground hover:border-primary/25 hover:bg-accent/70 hover:text-foreground",
-												group.layout === "grid" && "min-h-14",
-											)}
-										>
-											{choice.label}
-										</button>
-									);
-								})}
+					{output.options.map((group) => {
+						const groupCopy = optionsCopy[group.id];
+						return (
+							<div key={group.id}>
+								<p className="mb-2 text-muted-foreground text-xs">
+									{groupCopy.label}
+								</p>
+								<div
+									className={cn(
+										"grid gap-2",
+										group.layout === "grid"
+											? "grid-cols-3"
+											: group.layout === "compact"
+												? "grid-cols-4"
+												: "grid-cols-2",
+									)}
+								>
+									{group.choices.map((choice) => {
+										const selected = values[group.id] === choice.id;
+										return (
+											<button
+												key={choice.id}
+												type="button"
+												onClick={() => onValueChange(group.id, choice.id)}
+												className={cn(
+													"min-h-9 rounded-xl border px-3 py-2 text-center text-xs transition-[transform,color,background-color,border-color] duration-200 active:translate-y-px",
+													selected
+														? "border-primary/35 bg-primary/10 text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.16)]"
+														: "border-border/80 bg-background/60 text-muted-foreground hover:border-primary/25 hover:bg-accent/70 hover:text-foreground",
+													group.layout === "grid" && "min-h-14",
+												)}
+											>
+												{groupCopy.choices[choice.id]}
+											</button>
+										);
+									})}
+								</div>
 							</div>
-						</div>
-					))}
+						);
+					})}
 				</div>
 			</DropdownMenuContent>
 		</DropdownMenu>
@@ -1297,6 +1065,8 @@ export function PromptBox({
 	clearOnSubmit = false,
 	className,
 }: PromptBoxProps) {
+	const { t } = useTranslation();
+	const pb = useDictionary().projects.promptBox;
 	const [value, setValue] = useState(initialValue);
 	const [routeMode, setRouteMode] = useState<RouteMode>("auto");
 	const [selectedOutputId, setSelectedOutputId] =
@@ -1310,7 +1080,6 @@ export function PromptBox({
 	const isHero = variant === "hero";
 	const maxHeight = isHero ? 240 : 160;
 	const canSubmit = value.trim().length > 0 && !isSubmitting;
-	const selectedMode = getMode(routeMode);
 	const selectedOutput = useMemo(
 		() => getOutput(selectedOutputId),
 		[selectedOutputId],
@@ -1389,8 +1158,8 @@ export function PromptBox({
 
 	const resolvedPlaceholder =
 		placeholder ??
-		selectedOutput?.placeholder ??
-		(isHero ? selectedMode.placeholder : COPY.placeholderCompact);
+		(selectedOutput ? pb.outputs[selectedOutput.id].placeholder : undefined) ??
+		(isHero ? pb.routeModes[routeMode].placeholder : pb.placeholderCompact);
 
 	const box = (
 		<div className="group/prompt relative">
@@ -1473,7 +1242,7 @@ export function PromptBox({
 										type="button"
 										variant="ghost"
 										size="icon"
-										aria-label={COPY.micLabel}
+										aria-label={t("projects.promptBox.micLabel")}
 										className={cn(
 											"rounded-full text-muted-foreground hover:text-foreground",
 											isHero ? "size-9" : "size-8",
@@ -1482,14 +1251,16 @@ export function PromptBox({
 										<Mic />
 									</Button>
 								</TooltipTrigger>
-								<TooltipContent>{COPY.micLabel}</TooltipContent>
+								<TooltipContent>
+									{t("projects.promptBox.micLabel")}
+								</TooltipContent>
 							</Tooltip>
 							<Tooltip>
 								<TooltipTrigger asChild>
 									<Button
 										type="button"
 										size="icon"
-										aria-label={COPY.submitLabel}
+										aria-label={t("projects.promptBox.submitLabel")}
 										onClick={handleSubmit}
 										disabled={!canSubmit}
 										className={cn(
@@ -1504,7 +1275,9 @@ export function PromptBox({
 										)}
 									</Button>
 								</TooltipTrigger>
-								<TooltipContent>{COPY.submitLabel}</TooltipContent>
+								<TooltipContent>
+									{t("projects.promptBox.submitLabel")}
+								</TooltipContent>
 							</Tooltip>
 						</div>
 					</TooltipProvider>
@@ -1519,7 +1292,7 @@ export function PromptBox({
 				<div className="rounded-[1.25rem] bg-primary/10 p-1 pt-0">
 					<div className="flex items-center gap-1.5 px-4 py-2 text-muted-foreground text-xs">
 						<Sparkles className="size-3 text-primary" />
-						{COPY.banner}
+						{t("projects.promptBox.banner")}
 					</div>
 					{box}
 				</div>

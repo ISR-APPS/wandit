@@ -1,6 +1,7 @@
 import { cn } from "@wandit/ui/lib/utils";
 
 import { Spark } from "@/components/logo";
+import { useTranslation } from "@/lib/i18n";
 
 type PriceTagProps = {
 	cost: number;
@@ -16,6 +17,7 @@ export function PriceTag({
 	showUnit = true,
 	className,
 }: PriceTagProps) {
+	const { t } = useTranslation();
 	return (
 		<span
 			className={cn(
@@ -24,8 +26,7 @@ export function PriceTag({
 			)}
 		>
 			{withIcon ? <Spark className="size-3" /> : null}
-			{cost}
-			{showUnit ? ` ${cost === 1 ? "credit" : "credits"}` : null}
+			{showUnit ? t("credits.creditUnit", { count: cost }) : cost}
 		</span>
 	);
 }

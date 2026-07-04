@@ -1,0 +1,607 @@
+{
+	"headerTitle": "Projects",
+	"promptHeading": "What will you launch today?",
+	"toolbarTitle": "Your projects",
+	"searchPlaceholder": "Search projects…",
+	"filterAll": "All",
+	"filterPublished": "Published",
+	"filterDrafts": "Drafts",
+	"emptyTitle": "No projects yet",
+	"emptyBody": "No projects yet — describe your first page above.",
+	"emptyCta": "Write your first prompt",
+	"noResultsTitle": "No matching projects",
+	"noResultsBody": "Nothing matches « {query} ». Try another search.",
+	"noResultsBodyEmpty": "Nothing matches this filter.",
+	"clearFilters": "Clear filters",
+	"statusDraft": "Draft",
+	"statusPublishing": "Publishing",
+	"statusPublished": "Published",
+	"leadCount": {
+		"zero": "{count} leads",
+		"one": "{count} lead",
+		"two": "{count} leads",
+		"few": "{count} leads",
+		"many": "{count} leads",
+		"other": "{count} leads"
+	},
+	"publishedDomain": ".wandit.app",
+	"menuOpen": "Open",
+	"menuViewLive": "View live",
+	"menuViewLiveMock": "Mock",
+	"menuRename": "Rename",
+	"menuDelete": "Delete",
+	"cardMenuLabel": "Project actions",
+	"renameTitle": "Rename project",
+	"renameDescription": "The published page keeps its slug.",
+	"renameLabel": "Project name",
+	"renameSave": "Save",
+	"renameCancel": "Cancel",
+	"renameSuccess": "Project renamed",
+	"deleteTitle": "Delete project?",
+	"deleteDescription": "« {name} » and its leads will be gone for good. This cannot be undone.",
+	"deleteConfirm": "Delete",
+	"deleteCancel": "Cancel",
+	"deleteSuccess": "Project deleted",
+	"createSuccess": "« {name} » is ready",
+	"untitled": "Untitled project",
+	"logoLabel": "Wandit — projects",
+	"meta": {
+		"title": "Projects — Wandit"
+	},
+	"sidebar": {
+		"groupWorkspace": "Workspace",
+		"groupResources": "Resources",
+		"soon": "Soon",
+		"creditsLabel": "Credits",
+		"topUp": "Top up — soon",
+		"toggleSidebar": "Toggle sidebar",
+		"mobileTitle": "Navigation",
+		"mobileDescription": "Dashboard navigation"
+	},
+	"nav": {
+		"projects": "Projects",
+		"leads": "Leads",
+		"assets": "Assets",
+		"analytics": "Analytics",
+		"docs": "Docs",
+		"support": "Support"
+	},
+	"promptBox": {
+		"placeholderHero": "Describe what you want Wandit to create or change…",
+		"placeholderCompact": "Ask for a page edit, a marketing asset, an image or a video…",
+		"banner": "Beta — your first 10 pages are on us, no card needed",
+		"submitLabel": "Generate",
+		"micLabel": "Voice input — coming soon",
+		"addMenuLabel": "Add context",
+		"addSkillLabel": "Add skill",
+		"attachLabel": "Attach",
+		"attachHint": "Upload files and references — coming soon",
+		"modeLabel": "Mode",
+		"outputLabel": "Output",
+		"settingsLabel": "Generation settings",
+		"skillLibraryLabel": "Built by Wandit",
+		"removeSkillLabel": "Remove {name}",
+		"outputsHeading": "{mode} outputs",
+		"settingsSubtitle": "Options for this {mode} output.",
+		"routeModes": {
+			"auto": {
+				"label": "Auto",
+				"description": "Wandit decides the right workflow.",
+				"placeholder": "Describe what you want Wandit to create or change…"
+			},
+			"page": {
+				"label": "Page",
+				"description": "Create or edit the publishable page.",
+				"placeholder": "Describe the page you want to build or improve…"
+			},
+			"marketing": {
+				"label": "Marketing",
+				"description": "Copy, strategy, scripts and HTML support assets.",
+				"placeholder": "Ask for ad copy, strategy, scripts or a campaign asset…"
+			},
+			"image": {
+				"label": "Image",
+				"description": "Generate product visuals and ad images.",
+				"placeholder": "Describe the product image, ratio, style and setting…"
+			},
+			"video": {
+				"label": "Video",
+				"description": "Generate short ad videos and scene plans.",
+				"placeholder": "Describe the video ad, scenes, format and duration…"
+			}
+		},
+		"skillGroups": {
+			"review": {
+				"label": "Review skills"
+			},
+			"market": {
+				"label": "Market context"
+			}
+		},
+		"skills": {
+			"accessibility": {
+				"label": "Accessibility",
+				"description": "Adds contrast, forms and keyboard review guidance."
+			},
+			"seo-review": {
+				"label": "SEO Review",
+				"description": "Adds search structure, metadata and copy review guidance."
+			},
+			"redesign": {
+				"label": "Redesign",
+				"description": "Adds visual refresh and layout critique guidance."
+			},
+			"cod-algeria": {
+				"label": "COD Algeria",
+				"description": "Adds Algerian COD, wilaya and mobile-first context."
+			},
+			"brand-voice": {
+				"label": "Brand Voice",
+				"description": "Keeps generated copy aligned to the brand tone."
+			},
+			"direct-response": {
+				"label": "Direct Response",
+				"description": "Adds offer, proof, objection and CTA pressure."
+			},
+			"premium-visuals": {
+				"label": "Premium Visuals",
+				"description": "Adds higher-end art direction for visual outputs."
+			}
+		},
+		"outputs": {
+			"landing-page": {
+				"label": "Landing Page",
+				"shortLabel": "Landing Page",
+				"description": "Creates the publishable project page.",
+				"placeholder": "Describe the product, offer, price, proof and COD flow…",
+				"options": {
+					"goal": {
+						"label": "Goal",
+						"choices": {
+							"cod": "COD sales",
+							"leads": "Lead capture",
+							"promo": "Promo",
+							"service": "Service"
+						}
+					},
+					"language": {
+						"label": "Language",
+						"choices": {
+							"auto": "Auto",
+							"arabic": "Arabic",
+							"french": "French",
+							"ar-fr": "AR + FR"
+						}
+					},
+					"shape": {
+						"label": "Page type",
+						"choices": {
+							"landing": "Landing",
+							"product": "Product page",
+							"service": "Service page"
+						}
+					}
+				}
+			},
+			"page-edit": {
+				"label": "Page Edit",
+				"shortLabel": "Page Edit",
+				"description": "Updates copy, layout or sections in the current page.",
+				"placeholder": "Tell Wandit which part of the page should change…",
+				"options": {
+					"scope": {
+						"label": "Scope",
+						"choices": {
+							"hero": "Hero",
+							"offer": "Offer block",
+							"form": "Order form",
+							"full": "Full page"
+						}
+					},
+					"intensity": {
+						"label": "Change level",
+						"choices": {
+							"light": "Light",
+							"medium": "Medium",
+							"rewrite": "Rewrite"
+						}
+					}
+				}
+			},
+			"html-section": {
+				"label": "HTML Section",
+				"shortLabel": "HTML Section",
+				"description": "Creates an embeddable section for the page.",
+				"placeholder": "Describe the section you want to add to the page…",
+				"options": {
+					"section": {
+						"label": "Section type",
+						"choices": {
+							"comparison": "Comparison",
+							"faq": "FAQ",
+							"testimonials": "Testimonials",
+							"offer": "Offer block"
+						}
+					},
+					"style": {
+						"label": "Style",
+						"choices": {
+							"match": "Match page",
+							"clean": "Clean",
+							"direct": "Direct response"
+						}
+					}
+				}
+			},
+			"ad-copy": {
+				"label": "Ad Copy",
+				"shortLabel": "Ad Copy",
+				"description": "Creates hooks, primary text, headlines and CTAs.",
+				"placeholder": "Describe the product and the ad angle you want to test…",
+				"options": {
+					"platform": {
+						"label": "Platform",
+						"choices": {
+							"meta": "Meta",
+							"tiktok": "TikTok",
+							"google": "Google",
+							"whatsapp": "WhatsApp"
+						}
+					},
+					"variants": {
+						"label": "Variants",
+						"choices": {
+							"3": "3",
+							"5": "5",
+							"10": "10"
+						}
+					},
+					"angle": {
+						"label": "Angle",
+						"choices": {
+							"auto": "Auto",
+							"pain": "Pain",
+							"offer": "Offer",
+							"proof": "Social proof",
+							"urgency": "Urgency"
+						}
+					},
+					"length": {
+						"label": "Length",
+						"choices": {
+							"short": "Short",
+							"medium": "Medium"
+						}
+					}
+				}
+			},
+			"marketing-strategy": {
+				"label": "Strategy",
+				"shortLabel": "Strategy",
+				"description": "Plans angles, funnel moves and campaign flow.",
+				"placeholder": "Describe the product and ask for a launch or campaign plan…",
+				"options": {
+					"strategy": {
+						"label": "Strategy type",
+						"choices": {
+							"launch": "Launch plan",
+							"campaign": "Campaign plan",
+							"offer": "Offer strategy",
+							"audit": "Funnel audit"
+						}
+					},
+					"channel": {
+						"label": "Channel",
+						"choices": {
+							"auto": "Auto",
+							"meta": "Meta",
+							"tiktok": "TikTok",
+							"whatsapp": "WhatsApp"
+						}
+					},
+					"depth": {
+						"label": "Depth",
+						"choices": {
+							"quick": "Quick",
+							"detailed": "Detailed"
+						}
+					}
+				}
+			},
+			"video-script": {
+				"label": "Video Script",
+				"shortLabel": "Video Script",
+				"description": "Scripts UGC, demos and short-form ads.",
+				"placeholder": "Describe the product and the video structure you want…",
+				"options": {
+					"format": {
+						"label": "Format",
+						"choices": {
+							"ugc": "UGC",
+							"demo": "Product demo",
+							"problem": "Problem-solution",
+							"testimonial": "Testimonial"
+						}
+					},
+					"duration": {
+						"label": "Duration",
+						"choices": {
+							"15": "15s",
+							"30": "30s",
+							"60": "60s"
+						}
+					},
+					"detail": {
+						"label": "Include",
+						"choices": {
+							"hook": "Hook",
+							"voiceover": "Voiceover",
+							"shots": "Shot list",
+							"cta": "CTA"
+						}
+					}
+				}
+			},
+			"creative-brief": {
+				"label": "Creative Brief",
+				"shortLabel": "Brief",
+				"description": "Creates a structured brief for designers or creators.",
+				"placeholder": "Describe the campaign and what the creative team needs…",
+				"options": {
+					"channel": {
+						"label": "Channel",
+						"choices": {
+							"meta": "Meta",
+							"tiktok": "TikTok",
+							"mixed": "Mixed"
+						}
+					},
+					"depth": {
+						"label": "Depth",
+						"choices": {
+							"simple": "Simple",
+							"detailed": "Detailed"
+						}
+					}
+				}
+			},
+			"html-asset": {
+				"label": "HTML Asset",
+				"shortLabel": "HTML Asset",
+				"description": "Creates a supporting HTML artifact saved to assets.",
+				"placeholder": "Describe the support asset: table, one-pager, FAQ or brief…",
+				"options": {
+					"asset": {
+						"label": "Asset type",
+						"choices": {
+							"comparison": "Comparison table",
+							"one-pager": "Product one-pager",
+							"faq": "FAQ block",
+							"offer": "Offer block"
+						}
+					},
+					"format": {
+						"label": "Format",
+						"choices": {
+							"standalone": "Standalone",
+							"embed": "Embed-ready"
+						}
+					}
+				}
+			},
+			"image-creator": {
+				"label": "Auto",
+				"shortLabel": "Auto",
+				"description": "Wandit chooses the best image format from the prompt.",
+				"placeholder": "Describe the image, product, background, style and ratio…",
+				"options": {
+					"quality": {
+						"label": "Quality",
+						"choices": {
+							"auto": "Auto",
+							"high": "High",
+							"medium": "Medium",
+							"low": "Low"
+						}
+					},
+					"size": {
+						"label": "Size",
+						"choices": {
+							"1-1": "1:1",
+							"3-2": "3:2",
+							"2-3": "2:3",
+							"4-3": "4:3",
+							"9-16": "9:16",
+							"16-9": "16:9"
+						}
+					},
+					"count": {
+						"label": "Images",
+						"choices": {
+							"1": "1 img",
+							"2": "2 img",
+							"4": "4 img",
+							"8": "8 img"
+						}
+					}
+				}
+			},
+			"product-shot": {
+				"label": "Product Shot",
+				"shortLabel": "Product Shot",
+				"description": "Creates clean product-led visuals for commerce.",
+				"placeholder": "Describe the product shot, angle, background and props…",
+				"options": {
+					"scene": {
+						"label": "Scene",
+						"choices": {
+							"studio": "Studio",
+							"lifestyle": "Lifestyle",
+							"packshot": "Packshot",
+							"before-after": "Before/after"
+						}
+					},
+					"size": {
+						"label": "Size",
+						"choices": {
+							"1-1": "1:1",
+							"4-5": "4:5",
+							"9-16": "9:16",
+							"16-9": "16:9"
+						}
+					}
+				}
+			},
+			"ad-creative": {
+				"label": "Ad Creative",
+				"shortLabel": "Ad Creative",
+				"description": "Creates static ad visuals with offer-first composition.",
+				"placeholder": "Describe the ad creative, offer, headline and platform…",
+				"options": {
+					"platform": {
+						"label": "Platform",
+						"choices": {
+							"meta": "Meta",
+							"tiktok": "TikTok",
+							"story": "Story",
+							"display": "Display"
+						}
+					},
+					"text": {
+						"label": "Text amount",
+						"choices": {
+							"none": "No text",
+							"light": "Light",
+							"offer": "Offer-heavy"
+						}
+					},
+					"count": {
+						"label": "Variants",
+						"choices": {
+							"1": "1",
+							"3": "3",
+							"5": "5"
+						}
+					}
+				}
+			},
+			"background-edit": {
+				"label": "Background Edit",
+				"shortLabel": "BG Edit",
+				"description": "Changes the environment around an existing product image.",
+				"placeholder": "Attach a product photo, then describe the new background…",
+				"options": {
+					"background": {
+						"label": "Background",
+						"choices": {
+							"studio": "Studio",
+							"premium": "Premium",
+							"home": "Home",
+							"outdoor": "Outdoor"
+						}
+					},
+					"preserve": {
+						"label": "Preserve",
+						"choices": {
+							"product": "Product",
+							"lighting": "Lighting",
+							"shadow": "Shadow"
+						}
+					}
+				}
+			},
+			"video-creator": {
+				"label": "Auto",
+				"shortLabel": "Auto",
+				"description": "Wandit chooses the best video format from the prompt.",
+				"placeholder": "Describe the video, scenes, movement, mood and aspect ratio…",
+				"options": {
+					"method": {
+						"label": "Generate method",
+						"choices": {
+							"reference": "Reference",
+							"edit": "Edit",
+							"frames": "Frames"
+						}
+					},
+					"size": {
+						"label": "Size",
+						"choices": {
+							"auto": "Auto",
+							"16-9": "16:9",
+							"4-3": "4:3",
+							"1-1": "1:1",
+							"9-16": "9:16",
+							"21-9": "21:9"
+						}
+					},
+					"resolution": {
+						"label": "Resolution",
+						"choices": {
+							"720": "720p",
+							"1080": "1080p",
+							"4k": "4k"
+						}
+					},
+					"duration": {
+						"label": "Duration",
+						"choices": {
+							"4": "4s",
+							"5": "5s",
+							"8": "8s",
+							"10": "10s"
+						}
+					}
+				}
+			},
+			"ugc-video": {
+				"label": "UGC Video",
+				"shortLabel": "UGC Video",
+				"description": "Creates creator-style short-form video ads.",
+				"placeholder": "Describe the UGC ad, creator vibe, hook and proof…",
+				"options": {
+					"structure": {
+						"label": "Structure",
+						"choices": {
+							"problem": "Problem",
+							"demo": "Demo",
+							"testimonial": "Testimonial"
+						}
+					},
+					"duration": {
+						"label": "Duration",
+						"choices": {
+							"15": "15s",
+							"30": "30s",
+							"45": "45s"
+						}
+					}
+				}
+			},
+			"product-demo": {
+				"label": "Product Demo",
+				"shortLabel": "Demo",
+				"description": "Shows product use, result and order action.",
+				"placeholder": "Describe the product demo sequence and final CTA…",
+				"options": {
+					"pace": {
+						"label": "Pace",
+						"choices": {
+							"fast": "Fast",
+							"balanced": "Balanced",
+							"slow": "Slow"
+						}
+					},
+					"ratio": {
+						"label": "Ratio",
+						"choices": {
+							"9-16": "9:16",
+							"1-1": "1:1",
+							"16-9": "16:9"
+						}
+					}
+				}
+			}
+		}
+	}
+}

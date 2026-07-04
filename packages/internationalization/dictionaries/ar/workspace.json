@@ -1,0 +1,138 @@
+{
+	"backToDashboard": "العودة إلى لوحة التحكم",
+	"tabsAriaLabel": "طرق عرض مساحة العمل",
+	"autosaved": "تم الحفظ تلقائيًا",
+	"meta": {
+		"title": "مساحة العمل — Wandit"
+	},
+	"tabs": {
+		"page": "الصفحة",
+		"assets": "الوسائط",
+		"marketing": "التسويق",
+		"leads": "العملاء المحتملون",
+		"settings": "الإعدادات"
+	},
+	"switcher": {
+		"menuLabel": "المشاريع",
+		"allProjects": "كل المشاريع"
+	},
+	"store": {
+		"ledgerFallbackName": "صفحة هبوط",
+		"initialGeneration": "التوليد الأولي",
+		"fallbackPageName": "صفحتك"
+	},
+	"publish": {
+		"publish": "نشر",
+		"publishing": "جارٍ النشر…",
+		"published": "منشور",
+		"publishUpdate": "نشر v{n}",
+		"menuLiveLabel": "الموقع المباشر",
+		"copyLink": "نسخ الرابط",
+		"openLive": "فتح الموقع المباشر",
+		"unpublish": "إلغاء النشر",
+		"linkCopied": "تم نسخ الرابط",
+		"publishedToast": "مباشر على {url}",
+		"unpublishedToast": "تم إلغاء نشر الموقع",
+		"freeNote": "النشر مجاني دائمًا"
+	},
+	"chat": {
+		"title": "المحادثة",
+		"collapse": "طيّ المحادثة",
+		"expand": "فتح المحادثة",
+		"placeholder": "صف التغيير…",
+		"thinking": "جارٍ التفكير…",
+		"generating": "جارٍ التوليد",
+		"versionCardKind": "صفحة هبوط",
+		"emptyTitle": "ابدأ المحادثة",
+		"emptyBody": "صف صفحتك وسيولّدها الذكاء الاصطناعي هنا.",
+		"suggestionsKicker": "جرّب أحد هذه الاقتراحات",
+		"suggestions": [
+			"أضف آراء العملاء تحت السعر",
+			"اجعل نموذج الطلب أقصر",
+			"ترجم الصفحة إلى العربية"
+		]
+	},
+	"page": {
+		"versionShort": "v{n}",
+		"latestSuffix": "الأحدث",
+		"liveBadge": "مباشر",
+		"versionsMenuLabel": "الإصدارات",
+		"viewportMobile": "معاينة الهاتف",
+		"viewportDesktop": "معاينة سطح المكتب",
+		"refresh": "إعادة تحميل المعاينة",
+		"openInNewTab": "فتح في علامة تبويب جديدة",
+		"previewFallback": "معاينة",
+		"emptyTitle": "لا شيء للمعاينة بعد",
+		"emptyBody": "صف صفحتك في المحادثة — تظهر المعاينة هنا أثناء توليدها.",
+		"generatingTitle": "جارٍ توليد v{n}",
+		"generatingSteps": [
+			"تحليل موجزك…",
+			"كتابة الأقسام…",
+			"التنسيق للهاتف…",
+			"ربط استمارة الطلب…",
+			"اللمسات الأخيرة…"
+		]
+	},
+	"assets": {
+		"title": "الوسائط",
+		"subtitle": "يُحفظ كل توليد كإصدار غير قابل للتغيير.",
+		"metaCount": {
+			"zero": "لا موارد",
+			"one": "مورد واحد",
+			"two": "موردان",
+			"few": "{count} موارد",
+			"many": "{count} موردًا",
+			"other": "{count} مورد"
+		},
+		"kindLandingPage": "صفحة هبوط",
+		"liveBadge": "مباشر",
+		"currentBadge": "قيد العرض",
+		"openOnPage": "عرض في الصفحة",
+		"openInNewTab": "فتح في علامة تبويب جديدة",
+		"versionTitle": "الإصدار {n}",
+		"emptyTitle": "لا موارد بعد",
+		"emptyBody": "تظهر هنا الصفحات المولّدة (وقريبًا الصور والفيديوهات).",
+		"libraryView": "المكتبة",
+		"canvasView": "اللوحة",
+		"viewToggleAriaLabel": "عرض الموارد",
+		"zoomIn": "تكبير",
+		"zoomOut": "تصغير",
+		"toolSelect": "تحديد",
+		"toolFrame": "إطار",
+		"toolImage": "صورة",
+		"toolText": "نص",
+		"generate": "توليد"
+	},
+	"marketing": {
+		"title": "التسويق",
+		"updatedPrefix": "آخر تحديث",
+		"exportPlan": "تصدير الخطة",
+		"updatePlan": "تحديث الخطة",
+		"updating": "جارٍ التحديث…",
+		"planUpdatedToast": "تم تحديث الخطة",
+		"exportedToast": "تم تصدير الخطة",
+		"goalKicker": "الهدف",
+		"goalProgress": "{done} / {target}",
+		"goalOnTrack": "على المسار الصحيح",
+		"goalBehind": "واصل التقدّم",
+		"takeKicker": "رأي Wandit · هذا الأسبوع",
+		"channelsKicker": "أين تنفق",
+		"audienceKicker": "من تخاطب",
+		"checklistKicker": "قائمة الأسبوع الأول",
+		"checklistDone": "{done} من {total} مكتملة",
+		"ideasKicker": "أفكار الحملات",
+		"view": "عرض",
+		"openLeads": "فتح العملاء المحتملين",
+		"askWandit": "اسأل Wandit",
+		"ideaStatus": {
+			"ready": "جاهزة",
+			"draft": "مسودة",
+			"idea": "فكرة"
+		}
+	},
+	"notFound": {
+		"title": "المشروع غير موجود",
+		"body": "ربما تم حذفه، أو أن الرابط غير صحيح.",
+		"cta": "العودة إلى لوحة التحكم"
+	}
+}

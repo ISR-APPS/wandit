@@ -1,12 +1,13 @@
 // Stat tiles over the full (unfiltered) lead book: today, this week, total,
 // and confirmation rate with an ember meter.
 
+import { useTranslation } from "@/lib/i18n";
 import type { Lead } from "../../api/dto";
-import { WORKSPACE_COPY } from "../../lib/constants";
 
 const DAY_MS = 86_400_000;
 
 export function LeadsCounters({ leads }: { leads: Lead[] }) {
+	const { t } = useTranslation();
 	const now = new Date();
 	const startOfToday = new Date(
 		now.getFullYear(),
@@ -31,7 +32,7 @@ export function LeadsCounters({ leads }: { leads: Lead[] }) {
 		<div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
 			<div className="rounded-xl border bg-card p-4">
 				<div className="text-muted-foreground text-xs">
-					{WORKSPACE_COPY.leads.counterToday}
+					{t("leads.counterToday")}
 				</div>
 				<div className="mt-1 font-medium font-mono text-2xl tabular-nums">
 					{today}
@@ -39,7 +40,7 @@ export function LeadsCounters({ leads }: { leads: Lead[] }) {
 			</div>
 			<div className="rounded-xl border bg-card p-4">
 				<div className="text-muted-foreground text-xs">
-					{WORKSPACE_COPY.leads.counterWeek}
+					{t("leads.counterWeek")}
 				</div>
 				<div className="mt-1 font-medium font-mono text-2xl tabular-nums">
 					{week}
@@ -47,7 +48,7 @@ export function LeadsCounters({ leads }: { leads: Lead[] }) {
 			</div>
 			<div className="rounded-xl border bg-card p-4">
 				<div className="text-muted-foreground text-xs">
-					{WORKSPACE_COPY.leads.counterTotal}
+					{t("leads.counterTotal")}
 				</div>
 				<div className="mt-1 font-medium font-mono text-2xl tabular-nums">
 					{leads.length}
@@ -55,14 +56,11 @@ export function LeadsCounters({ leads }: { leads: Lead[] }) {
 			</div>
 			<div
 				className="rounded-xl border bg-card p-4"
-				title={WORKSPACE_COPY.leads.confirmationHint}
+				title={t("leads.confirmationHint")}
 			>
 				<div className="text-muted-foreground text-xs">
-					{WORKSPACE_COPY.leads.counterConfirmation}
-					<span className="sr-only">
-						{" "}
-						({WORKSPACE_COPY.leads.confirmationHint})
-					</span>
+					{t("leads.counterConfirmation")}
+					<span className="sr-only"> ({t("leads.confirmationHint")})</span>
 				</div>
 				<div className="mt-1 font-medium font-mono text-2xl tabular-nums">
 					{rate === null ? "—" : `${rate}%`}

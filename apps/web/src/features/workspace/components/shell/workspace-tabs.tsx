@@ -5,10 +5,12 @@ import { cn } from "@wandit/ui/lib/utils";
 import { motion } from "motion/react";
 import { useId } from "react";
 
-import { WORKSPACE_COPY, WORKSPACE_TABS } from "../../lib/constants";
+import { useTranslation } from "@/lib/i18n";
+import { WORKSPACE_TABS } from "../../lib/constants";
 import { useWorkspace } from "../../lib/store";
 
 export function WorkspaceTabs({ className }: { className?: string }) {
+	const { t } = useTranslation();
 	const { tab, setTab, project } = useWorkspace();
 	const pillId = useId();
 
@@ -16,7 +18,7 @@ export function WorkspaceTabs({ className }: { className?: string }) {
 		// The tabs navigate (they drive the ?tab= search param), so nav is the
 		// honest semantic wrapper; buttons stay aria-pressed toggles.
 		<nav
-			aria-label={WORKSPACE_COPY.tabsAriaLabel}
+			aria-label={t("workspace.tabsAriaLabel")}
 			className={cn(
 				"flex items-center gap-0.5 rounded-lg bg-muted/60 p-0.5",
 				className,
@@ -25,12 +27,13 @@ export function WorkspaceTabs({ className }: { className?: string }) {
 			{WORKSPACE_TABS.map((def) => {
 				const isActive = tab === def.value;
 				const Icon = def.icon;
+				const label = t(`workspace.tabs.${def.value}`);
 				return (
 					<button
 						key={def.value}
 						type="button"
 						aria-pressed={isActive}
-						aria-label={def.label}
+						aria-label={label}
 						onClick={() => setTab(def.value)}
 						className={cn(
 							"relative flex h-8 items-center gap-1.5 rounded-md px-3 font-medium text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50",
@@ -48,7 +51,7 @@ export function WorkspaceTabs({ className }: { className?: string }) {
 							/>
 						) : null}
 						<Icon className="relative size-3.5 shrink-0" />
-						<span className="relative hidden sm:inline">{def.label}</span>
+						<span className="relative hidden sm:inline">{label}</span>
 						{def.value === "leads" && project?.leadCount ? (
 							<span className="relative rounded-full bg-primary/10 px-1.5 py-px font-mono text-[10px] text-primary tabular-nums">
 								{project.leadCount}

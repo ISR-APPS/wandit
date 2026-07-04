@@ -6,8 +6,8 @@ import { toast } from "sonner";
 
 import { promptStash, useAuthModal, useSession } from "@/features/auth";
 import { CREDIT_COSTS, useCredits } from "@/features/credits";
+import { useTranslation } from "@/lib/i18n";
 import { useCreateProject } from "../api/projects.mutations";
-import { PROJECTS_COPY } from "./constants";
 import { deriveProjectName } from "./helpers";
 
 export type UseCreateProjectWithPromptResult = {
@@ -27,6 +27,7 @@ export type UseCreateProjectWithPromptResult = {
  * { insufficientOpen, setInsufficientOpen, cost }.
  */
 export function useCreateProjectWithPrompt(): UseCreateProjectWithPromptResult {
+	const { t } = useTranslation();
 	const { data: session, isPending: isSessionPending } = useSession();
 	const { open } = useAuthModal();
 	const { consume } = useCredits();
@@ -46,13 +47,13 @@ export function useCreateProjectWithPrompt(): UseCreateProjectWithPromptResult {
 				return;
 			}
 			const project = await createProject.mutateAsync(prompt);
-			toast.success(PROJECTS_COPY.createSuccess(project.name));
+			toast.success(t("projects.createSuccess", { name: project.name }));
 			await navigate({
 				to: "/p/$projectId",
 				params: { projectId: project.id },
 			});
 		},
-		[consume, createProject, navigate],
+		[consume, createProject, navigate, t],
 	);
 
 	const create = useCallback(

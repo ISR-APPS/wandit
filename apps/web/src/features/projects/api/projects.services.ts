@@ -3,6 +3,7 @@
 // become thin fetch wrappers over the shared api-client (src/lib/api-client)
 // once the NestJS backend lands, responses parsed by packages/contracts.
 
+import { ApiClientError } from "@/lib/api-client";
 import {
 	createMockProject,
 	deleteMockProject,
@@ -25,7 +26,7 @@ export async function listProjects(): Promise<Project[]> {
 export async function getProject(id: string): Promise<Project> {
 	await latency();
 	const project = getMockProject(id);
-	if (!project) throw new Error("Project not found");
+	if (!project) throw createMockNotFoundError("Project not found", id);
 	return project;
 }
 
@@ -39,10 +40,29 @@ export async function renameProject(
 	name: string,
 ): Promise<Project> {
 	await latency();
-	return renameMockProject(id, name);
+	try {
+		return renameMockProject(id, name);
+	} catch (error) {
+		if (error instanceof Error && error.message === "Project not found") {
+			throw createMockNotFoundError(error.message, id);
+		}
+
+		throw error;
+	}
 }
 
 export async function deleteProject(id: string): Promise<void> {
 	await latency();
 	deleteMockProject(id);
+}
+
+function createMockNotFoundError(message: string, id: string) {
+	return new ApiClientError({
+		code: "NOT_FOUND",
+		message,
+		path: `mock:/projects/${id}`,
+		requestId: "mock",
+		statusCode: 404,
+		timestamp: new Date().toISOString(),
+	});
 }

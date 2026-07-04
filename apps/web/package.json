@@ -18,6 +18,7 @@
 		"@tanstack/react-router": "^1.168.22",
 		"@wandit/contracts": "workspace:*",
 		"@wandit/env": "workspace:*",
+		"@wandit/internationalization": "workspace:*",
 		"@wandit/ui": "workspace:*",
 		"axios": "^1.18.1",
 		"better-auth": "catalog:",

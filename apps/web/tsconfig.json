@@ -12,6 +12,12 @@
 		"rootDirs": ["."],
 		"paths": {
 			"@/*": ["./src/*"],
+			"@wandit/internationalization": [
+				"../../packages/internationalization/src/index.ts"
+			],
+			"@wandit/internationalization/*": [
+				"../../packages/internationalization/src/*"
+			],
 			"@wandit/ui/*": ["../../packages/ui/src/*"]
 		}
 	}

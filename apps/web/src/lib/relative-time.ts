@@ -1,27 +1,35 @@
-/**
- * Tiny relative-time formatter ("2h ago", "3d ago") — no date lib.
- * Future or just-now timestamps collapse to "just now".
- */
+import {
+	getCurrentDictionary,
+	getCurrentLocale,
+} from "@/lib/i18n/locale-store";
+
 export function relativeTime(iso: string): string {
-	const ms = Date.now() - new Date(iso).getTime();
-	const seconds = Math.floor(ms / 1000);
+	const seconds = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
+	const absoluteSeconds = Math.abs(seconds);
 
-	if (Number.isNaN(seconds) || seconds < 45) return "just now";
+	if (Number.isNaN(seconds) || absoluteSeconds < 45) {
+		return getCurrentDictionary().common.time.justNow;
+	}
 
-	const minutes = Math.round(seconds / 60);
-	if (minutes < 60) return `${minutes}m ago`;
+	const direction = seconds >= 0 ? -1 : 1;
+	const minutes = Math.round(absoluteSeconds / 60);
+	const formatter = new Intl.RelativeTimeFormat(getCurrentLocale(), {
+		numeric: "auto",
+	});
+
+	if (minutes < 60) return formatter.format(direction * minutes, "minute");
 
 	const hours = Math.round(minutes / 60);
-	if (hours < 24) return `${hours}h ago`;
+	if (hours < 24) return formatter.format(direction * hours, "hour");
 
 	const days = Math.round(hours / 24);
-	if (days < 7) return `${days}d ago`;
+	if (days < 7) return formatter.format(direction * days, "day");
 
 	const weeks = Math.round(days / 7);
-	if (weeks < 5) return `${weeks}w ago`;
+	if (weeks < 5) return formatter.format(direction * weeks, "week");
 
 	const months = Math.round(days / 30);
-	if (months < 12) return `${months}mo ago`;
+	if (months < 12) return formatter.format(direction * months, "month");
 
-	return `${Math.round(days / 365)}y ago`;
+	return formatter.format(direction * Math.round(days / 365), "year");
 }

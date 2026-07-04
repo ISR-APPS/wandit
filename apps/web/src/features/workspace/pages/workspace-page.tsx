@@ -18,8 +18,8 @@ import { TooltipProvider } from "@wandit/ui/components/tooltip";
 import { useIsMobile } from "@wandit/ui/hooks/use-mobile";
 import { cn } from "@wandit/ui/lib/utils";
 import { useEffect, useRef, useState } from "react";
-
 import { Spark } from "@/components/logo";
+import { useTranslation } from "@/lib/i18n";
 import type { WorkspaceTab } from "../api/dto";
 import { AssetsTab } from "../components/assets/assets-tab";
 import { ChatPane } from "../components/chat/chat-pane";
@@ -29,7 +29,6 @@ import { PageTab } from "../components/page/page-tab";
 import { SettingsTab } from "../components/settings/settings-tab";
 import { MainPaneHeader } from "../components/shell/main-pane-header";
 import { WorkspaceHeader } from "../components/shell/workspace-header";
-import { WORKSPACE_COPY } from "../lib/constants";
 import {
 	type AssetsView,
 	readAssetsView,
@@ -127,7 +126,7 @@ function DesktopSplit({ tab }: { tab: WorkspaceTab }) {
 				panelRef={chatPanelRef}
 				className="overflow-hidden"
 			>
-				<div className="h-full py-2.5 pr-1 pl-2.5">
+				<div className="h-full py-2.5 ps-2.5 pe-1">
 					<ChatPane className="rounded-xl border shadow-sm" />
 				</div>
 			</ResizablePanel>
@@ -141,7 +140,7 @@ function DesktopSplit({ tab }: { tab: WorkspaceTab }) {
 			/>
 			<ResizablePanel id="main" minSize="40%">
 				<div
-					className={cn("h-full py-2.5 pr-2.5", chatOpen ? "pl-1" : "pl-2.5")}
+					className={cn("h-full py-2.5 pe-2.5", chatOpen ? "ps-1" : "ps-2.5")}
 				>
 					<WorkspaceMain tab={tab} className="rounded-xl border shadow-sm" />
 				</div>
@@ -215,6 +214,7 @@ function WorkspaceMain({
 }
 
 function ProjectNotFound() {
+	const { t } = useTranslation();
 	return (
 		<div className="grid h-svh place-items-center bg-background">
 			<div className="flex flex-col items-center gap-3 text-center">
@@ -222,13 +222,13 @@ function ProjectNotFound() {
 					<Spark className="size-4 text-primary/60" />
 				</span>
 				<h1 className="font-display font-semibold text-xl">
-					{WORKSPACE_COPY.notFound.title}
+					{t("workspace.notFound.title")}
 				</h1>
 				<p className="text-muted-foreground text-sm">
-					{WORKSPACE_COPY.notFound.body}
+					{t("workspace.notFound.body")}
 				</p>
 				<Button asChild variant="secondary" className="mt-2">
-					<Link to="/dashboard">{WORKSPACE_COPY.notFound.cta}</Link>
+					<Link to="/dashboard">{t("workspace.notFound.cta")}</Link>
 				</Button>
 			</div>
 		</div>

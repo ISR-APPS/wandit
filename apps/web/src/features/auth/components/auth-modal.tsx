@@ -24,8 +24,8 @@ import {
 	registerAuthRedirectHandler,
 	sanitizeAuthRedirectPath,
 } from "@/lib/auth-navigation";
+import { useTranslation } from "@/lib/i18n";
 import { authClient } from "../lib/auth-client";
-import { AUTH_COPY } from "../lib/constants";
 import { promptStash } from "../lib/prompt-stash";
 import { invalidateSessionCache, useSession } from "../lib/session";
 
@@ -165,6 +165,7 @@ function AuthModalDialog({
 	onGoogleRedirectStart: () => void;
 	onGoogleRedirectEnd: () => void;
 }) {
+	const { t } = useTranslation();
 	const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
 
@@ -176,9 +177,9 @@ function AuthModalDialog({
 		}
 
 		if (redirectError) {
-			setError(AUTH_COPY.redirectError);
+			setError(t("auth.redirectError"));
 		}
-	}, [open, redirectError]);
+	}, [open, redirectError, t]);
 
 	const handleGoogle = async () => {
 		if (isGoogleLoading) return;
@@ -201,7 +202,7 @@ function AuthModalDialog({
 
 			if (result.error) {
 				onGoogleRedirectEnd();
-				setError(result.error.message || AUTH_COPY.googleError);
+				setError(result.error.message || t("auth.googleError"));
 				setIsGoogleLoading(false);
 				return;
 			}
@@ -211,22 +212,25 @@ function AuthModalDialog({
 			}
 		} catch (err) {
 			onGoogleRedirectEnd();
-			setError(err instanceof Error ? err.message : AUTH_COPY.googleError);
+			setError(err instanceof Error ? err.message : t("auth.googleError"));
 			setIsGoogleLoading(false);
 		}
 	};
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-sm">
+			<DialogContent
+				className="gap-0 overflow-hidden p-0 sm:max-w-sm"
+				closeLabel={t("common.close")}
+			>
 				<div className="flex flex-col px-6 pt-10 pb-6">
 					<DialogHeader className="items-center gap-2 text-center sm:text-center">
 						<Logo size="md" className="mb-2" />
 						<DialogTitle className="font-display font-semibold text-xl tracking-tight">
-							{AUTH_COPY.modalTitle}
+							{t("auth.modalTitle")}
 						</DialogTitle>
 						<DialogDescription className="text-muted-foreground text-sm">
-							{AUTH_COPY.modalSubtitle}
+							{t("auth.modalSubtitle")}
 						</DialogDescription>
 					</DialogHeader>
 
@@ -243,8 +247,8 @@ function AuthModalDialog({
 								<GoogleIcon className="size-4" />
 							)}
 							{isGoogleLoading
-								? AUTH_COPY.googleLoading
-								: AUTH_COPY.googleButton}
+								? t("auth.googleLoading")
+								: t("auth.googleButton")}
 						</Button>
 
 						{error ? (
@@ -258,7 +262,7 @@ function AuthModalDialog({
 					</div>
 
 					<p className="mt-6 text-center text-muted-foreground/80 text-xs leading-relaxed">
-						{AUTH_COPY.terms}
+						{t("auth.terms")}
 					</p>
 				</div>
 			</DialogContent>

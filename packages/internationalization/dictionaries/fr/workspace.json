@@ -1,0 +1,138 @@
+{
+	"backToDashboard": "Retour au tableau de bord",
+	"tabsAriaLabel": "Vues de l'espace de travail",
+	"autosaved": "enregistré",
+	"meta": {
+		"title": "Espace de travail — Wandit"
+	},
+	"tabs": {
+		"page": "Page",
+		"assets": "Médias",
+		"marketing": "Marketing",
+		"leads": "Leads",
+		"settings": "Réglages"
+	},
+	"switcher": {
+		"menuLabel": "Projets",
+		"allProjects": "Tous les projets"
+	},
+	"store": {
+		"ledgerFallbackName": "Landing page",
+		"initialGeneration": "Génération initiale",
+		"fallbackPageName": "ta page"
+	},
+	"publish": {
+		"publish": "Publier",
+		"publishing": "Publication…",
+		"published": "Publié",
+		"publishUpdate": "Publier v{n}",
+		"menuLiveLabel": "Site en ligne",
+		"copyLink": "Copier le lien",
+		"openLive": "Ouvrir le site en ligne",
+		"unpublish": "Dépublier",
+		"linkCopied": "Lien copié",
+		"publishedToast": "En ligne sur {url}",
+		"unpublishedToast": "Site dépublié",
+		"freeNote": "La publication est toujours gratuite"
+	},
+	"chat": {
+		"title": "Chat",
+		"collapse": "Réduire le chat",
+		"expand": "Ouvrir le chat",
+		"placeholder": "Décris un changement…",
+		"thinking": "Réflexion…",
+		"generating": "Génération",
+		"versionCardKind": "Landing page",
+		"emptyTitle": "Démarre la conversation",
+		"emptyBody": "Décris ta page et l'IA la génère ici.",
+		"suggestionsKicker": "Essaie l'une de ces idées",
+		"suggestions": [
+			"Ajoute des avis clients sous le prix",
+			"Raccourcis le formulaire de commande",
+			"Traduis la page en arabe"
+		]
+	},
+	"page": {
+		"versionShort": "v{n}",
+		"latestSuffix": "Dernière",
+		"liveBadge": "En ligne",
+		"versionsMenuLabel": "Versions",
+		"viewportMobile": "Aperçu mobile",
+		"viewportDesktop": "Aperçu bureau",
+		"refresh": "Recharger l'aperçu",
+		"openInNewTab": "Ouvrir dans un nouvel onglet",
+		"previewFallback": "Aperçu",
+		"emptyTitle": "Rien à prévisualiser pour l'instant",
+		"emptyBody": "Décris ta page dans le chat — l'aperçu apparaît ici au fur et à mesure.",
+		"generatingTitle": "Génération v{n}",
+		"generatingSteps": [
+			"Analyse de ton brief…",
+			"Rédaction des sections…",
+			"Mise en forme mobile…",
+			"Connexion du formulaire de commande…",
+			"Dernières retouches…"
+		]
+	},
+	"assets": {
+		"title": "Médias",
+		"subtitle": "Chaque génération est enregistrée comme version immuable.",
+		"metaCount": {
+			"zero": "{count} ressource",
+			"one": "1 ressource",
+			"two": "{count} ressources",
+			"few": "{count} ressources",
+			"many": "{count} ressources",
+			"other": "{count} ressources"
+		},
+		"kindLandingPage": "Landing page",
+		"liveBadge": "En ligne",
+		"currentBadge": "Affichée",
+		"openOnPage": "Voir sur la page",
+		"openInNewTab": "Ouvrir dans un nouvel onglet",
+		"versionTitle": "Version {n}",
+		"emptyTitle": "Aucune ressource",
+		"emptyBody": "Les pages générées (et bientôt les images et vidéos) apparaissent ici.",
+		"libraryView": "Bibliothèque",
+		"canvasView": "Canevas",
+		"viewToggleAriaLabel": "Vue des ressources",
+		"zoomIn": "Zoom avant",
+		"zoomOut": "Zoom arrière",
+		"toolSelect": "Sélectionner",
+		"toolFrame": "Cadre",
+		"toolImage": "Image",
+		"toolText": "Texte",
+		"generate": "Générer"
+	},
+	"marketing": {
+		"title": "Marketing",
+		"updatedPrefix": "mis à jour",
+		"exportPlan": "Exporter le plan",
+		"updatePlan": "Mettre à jour le plan",
+		"updating": "Mise à jour…",
+		"planUpdatedToast": "Plan mis à jour",
+		"exportedToast": "Plan exporté",
+		"goalKicker": "Objectif",
+		"goalProgress": "{done} / {target}",
+		"goalOnTrack": "sur la bonne voie",
+		"goalBehind": "continue tes efforts",
+		"takeKicker": "L'avis de Wandit · cette semaine",
+		"channelsKicker": "Où investir",
+		"audienceKicker": "À qui tu parles",
+		"checklistKicker": "Check-list semaine 1",
+		"checklistDone": "{done} sur {total} faites",
+		"ideasKicker": "Idées de campagne",
+		"view": "Voir",
+		"openLeads": "Ouvrir les leads",
+		"askWandit": "Demander à Wandit",
+		"ideaStatus": {
+			"ready": "Prête",
+			"draft": "Brouillon",
+			"idea": "Idée"
+		}
+	},
+	"notFound": {
+		"title": "Projet introuvable",
+		"body": "Il a peut-être été supprimé, ou le lien est incorrect.",
+		"cta": "Retour au tableau de bord"
+	}
+}

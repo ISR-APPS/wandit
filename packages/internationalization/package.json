@@ -1,0 +1,28 @@
+{
+	"name": "@wandit/internationalization",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"exports": {
+		".": {
+			"default": "./src/index.ts"
+		},
+		"./react": {
+			"default": "./src/react.tsx"
+		},
+		"./*": {
+			"default": "./src/*.ts"
+		}
+	},
+	"scripts": {
+		"check-types": "tsc -b"
+	},
+	"peerDependencies": {
+		"react": "^19.2.0"
+	},
+	"devDependencies": {
+		"@types/react": "^19.2.17",
+		"@wandit/config": "workspace:*",
+		"typescript": "catalog:"
+	}
+}

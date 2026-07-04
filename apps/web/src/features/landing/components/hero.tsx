@@ -1,3 +1,7 @@
+import {
+	useDictionary,
+	useTranslation,
+} from "@wandit/internationalization/react";
 import Lottie from "lottie-react";
 import { motion, type Variants } from "motion/react";
 
@@ -5,7 +9,6 @@ import { InsufficientCreditsDialog } from "@/features/credits";
 import { PromptBox, useCreateProjectWithPrompt } from "@/features/projects";
 
 import orbAnimation from "../assets/ai-sphere-animation.json";
-import { HERO } from "../lib/constants";
 
 const container: Variants = {
 	hidden: {},
@@ -25,6 +28,8 @@ type HeroProps = {
 export function Hero({ promptKey, promptInitial }: HeroProps) {
 	const { create, isCreating, insufficientOpen, setInsufficientOpen, cost } =
 		useCreateProjectWithPrompt();
+	const { t } = useTranslation();
+	const hero = useDictionary().landing.hero;
 
 	return (
 		<section className="relative overflow-hidden px-4 pt-32 pb-16 md:pt-40 md:pb-24">
@@ -60,9 +65,9 @@ export function Hero({ promptKey, promptInitial }: HeroProps) {
 					variants={item}
 					className="mt-6 font-bold font-display text-[2.75rem] leading-[1.04] tracking-[-0.03em] sm:text-6xl md:text-7xl"
 				>
-					{HERO.titleLine1}
+					{t("landing.hero.titleLine1")}
 					<span className="block pb-1 text-gradient-ember">
-						{HERO.titleLine2}
+						{t("landing.hero.titleLine2")}
 					</span>
 				</motion.h1>
 
@@ -70,7 +75,7 @@ export function Hero({ promptKey, promptInitial }: HeroProps) {
 					variants={item}
 					className="mt-5 max-w-xl text-base text-muted-foreground md:text-lg"
 				>
-					{HERO.sub}
+					{t("landing.hero.sub")}
 				</motion.p>
 
 				<motion.div variants={item} className="relative mt-9 w-full max-w-2xl">
@@ -87,7 +92,7 @@ export function Hero({ promptKey, promptInitial }: HeroProps) {
 						initialValue={promptInitial}
 						onSubmit={create}
 						isSubmitting={isCreating}
-						className="relative text-left"
+						className="relative text-start"
 					/>
 				</motion.div>
 
@@ -95,7 +100,7 @@ export function Hero({ promptKey, promptInitial }: HeroProps) {
 					variants={item}
 					className="mt-10 flex flex-wrap items-center justify-center gap-x-6 gap-y-2 font-mono text-[11px] text-muted-foreground"
 				>
-					{HERO.trust.map((line) => (
+					{hero.trust.map((line) => (
 						<span key={line} className="inline-flex items-center gap-2">
 							<span aria-hidden className="size-1 rounded-full bg-primary/70" />
 							{line}

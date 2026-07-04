@@ -55,7 +55,7 @@ export class AuthController {
 			throw new HttpException(
 				{
 					code: "AUTH_FAILURE",
-					error: "Internal authentication error",
+					message: "Internal authentication error",
 				},
 				HttpStatus.INTERNAL_SERVER_ERROR,
 			);

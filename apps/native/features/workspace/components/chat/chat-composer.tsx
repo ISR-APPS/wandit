@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useTranslation } from "@wandit/internationalization/react";
 import { Surface, useThemeColor } from "heroui-native";
 import { useState } from "react";
 import { Pressable, TextInput, View } from "react-native";
@@ -9,6 +10,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 export function ChatComposer() {
 	const insets = useSafeAreaInsets();
 	const [message, setMessage] = useState("");
+	const { t } = useTranslation();
 	const mutedColor = useThemeColor("muted");
 	const accentForegroundColor = useThemeColor("accent-foreground");
 
@@ -29,13 +31,15 @@ export function ChatComposer() {
 				<TextInput
 					value={message}
 					onChangeText={setMessage}
-					placeholder="Describe a change…"
+					placeholder={t("native.workspace.composerPlaceholder")}
 					placeholderTextColor={mutedColor}
 					multiline
 					className="max-h-28 flex-1 px-2 py-2 text-base text-foreground"
 				/>
 				<Pressable
 					onPress={handleSend}
+					accessibilityRole="button"
+					accessibilityLabel={t("native.workspace.send")}
 					className="h-9 w-9 items-center justify-center rounded-full bg-accent"
 				>
 					<Ionicons name="arrow-up" size={18} color={accentForegroundColor} />

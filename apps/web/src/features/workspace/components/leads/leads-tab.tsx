@@ -45,6 +45,7 @@ import {
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { formatDate, useDictionary, useTranslation } from "@/lib/i18n";
 import { relativeTime } from "@/lib/relative-time";
 import type { Lead, LeadStatus } from "../../api/dto";
 import { useLeadsQuery } from "../../api/leads.queries";
@@ -52,7 +53,6 @@ import {
 	LEAD_STATUS_META,
 	LEAD_STATUS_ORDER,
 	LEADS_PAGE_SIZE,
-	WORKSPACE_COPY,
 } from "../../lib/constants";
 import {
 	buildLeadsCsv,
@@ -64,8 +64,6 @@ import {
 import { useWorkspace } from "../../lib/store";
 import { LeadStatusSelect } from "./lead-status-select";
 import { LeadsCounters } from "./leads-counters";
-
-const COPY = WORKSPACE_COPY.leads;
 
 const HOVER_REVEAL =
 	"opacity-0 transition-opacity duration-150 focus-visible:opacity-100 group-hover/row:opacity-100";
@@ -79,6 +77,7 @@ function ContactLinks({
 	lead: Lead;
 	reveal?: boolean;
 }) {
+	const { t } = useTranslation();
 	const revealClass = reveal ? HOVER_REVEAL : undefined;
 	return (
 		<div className="flex items-center gap-0.5">
@@ -90,12 +89,12 @@ function ContactLinks({
 						size="icon-xs"
 						className={revealClass}
 					>
-						<a href={telHref(lead.phone)} aria-label={COPY.call}>
+						<a href={telHref(lead.phone)} aria-label={t("leads.call")}>
 							<Phone />
 						</a>
 					</Button>
 				</TooltipTrigger>
-				<TooltipContent>{COPY.call}</TooltipContent>
+				<TooltipContent>{t("leads.call")}</TooltipContent>
 			</Tooltip>
 			<Tooltip>
 				<TooltipTrigger asChild>
@@ -109,13 +108,13 @@ function ContactLinks({
 							href={waHref(lead.phone)}
 							target="_blank"
 							rel="noreferrer"
-							aria-label={COPY.whatsapp}
+							aria-label={t("leads.whatsapp")}
 						>
 							<MessageCircle />
 						</a>
 					</Button>
 				</TooltipTrigger>
-				<TooltipContent>{COPY.whatsapp}</TooltipContent>
+				<TooltipContent>{t("leads.whatsapp")}</TooltipContent>
 			</Tooltip>
 		</div>
 	);
@@ -149,6 +148,8 @@ function LeadsSkeleton() {
 }
 
 export function LeadsTab() {
+	const { t, locale } = useTranslation();
+	const dictionary = useDictionary();
 	const { projectId, project, projectPending, setTab } = useWorkspace();
 	const leadsQuery = useLeadsQuery(projectId, project?.leadCount);
 
@@ -197,8 +198,11 @@ export function LeadsTab() {
 
 	const handleExport = () => {
 		if (filtered.length === 0) return;
-		downloadTextFile(`leads-${projectId}.csv`, buildLeadsCsv(filtered));
-		toast.success(COPY.exportedToast(filtered.length));
+		downloadTextFile(
+			`leads-${projectId}.csv`,
+			buildLeadsCsv(filtered, dictionary.leads.csvHeaders),
+		);
+		toast.success(t("leads.exportedToast", { count: filtered.length }));
 	};
 
 	if (projectPending || leadsQuery.isPending) {
@@ -215,9 +219,11 @@ export function LeadsTab() {
 				{/* Header: title + free note, CSV export on the right */}
 				<div className="flex items-start justify-between gap-4">
 					<div>
-						<h2 className="font-display font-semibold text-lg">{COPY.title}</h2>
+						<h2 className="font-display font-semibold text-lg">
+							{t("leads.title")}
+						</h2>
 						<p className="mt-0.5 text-muted-foreground text-xs">
-							{COPY.freeNote}
+							{t("leads.freeNote")}
 						</p>
 					</div>
 					<Button
@@ -227,7 +233,7 @@ export function LeadsTab() {
 						disabled={filtered.length === 0}
 					>
 						<Download />
-						{COPY.exportCsv}
+						{t("leads.exportCsv")}
 					</Button>
 				</div>
 
@@ -238,13 +244,13 @@ export function LeadsTab() {
 								<Users />
 							</EmptyMedia>
 							<EmptyTitle className="font-display">
-								{COPY.emptyTitle}
+								{t("leads.emptyTitle")}
 							</EmptyTitle>
-							<EmptyDescription>{COPY.emptyBody}</EmptyDescription>
+							<EmptyDescription>{t("leads.emptyBody")}</EmptyDescription>
 						</EmptyHeader>
 						<EmptyContent>
 							<Button variant="secondary" onClick={() => setTab("settings")}>
-								{COPY.emptyCta}
+								{t("leads.emptyCta")}
 							</Button>
 						</EmptyContent>
 					</Empty>
@@ -257,12 +263,12 @@ export function LeadsTab() {
 						{/* Toolbar: search + status filter */}
 						<div className="mt-4 flex flex-col gap-2 sm:flex-row sm:items-center">
 							<div className="relative w-full sm:max-w-xs">
-								<Search className="absolute top-1/2 left-3 size-4 -translate-y-1/2 text-muted-foreground" />
+								<Search className="absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
 								<Input
 									value={search}
 									onChange={(e) => handleSearchChange(e.target.value)}
-									placeholder={COPY.searchPlaceholder}
-									className="pl-9"
+									placeholder={t("leads.searchPlaceholder")}
+									className="ps-9"
 								/>
 							</div>
 							<Select value={statusFilter} onValueChange={handleStatusChange}>
@@ -270,7 +276,7 @@ export function LeadsTab() {
 									<SelectValue />
 								</SelectTrigger>
 								<SelectContent>
-									<SelectItem value="all">{COPY.filterAll}</SelectItem>
+									<SelectItem value="all">{t("leads.filterAll")}</SelectItem>
 									{LEAD_STATUS_ORDER.map((status) => (
 										<SelectItem key={status} value={status}>
 											<span
@@ -280,7 +286,7 @@ export function LeadsTab() {
 													LEAD_STATUS_META[status].dotClass,
 												)}
 											/>
-											{LEAD_STATUS_META[status].label}
+											{t(`leads.status.${status}`)}
 										</SelectItem>
 									))}
 								</SelectContent>
@@ -294,9 +300,11 @@ export function LeadsTab() {
 										<SearchX />
 									</EmptyMedia>
 									<EmptyTitle className="font-display">
-										{COPY.noResultsTitle}
+										{t("leads.noResultsTitle")}
 									</EmptyTitle>
-									<EmptyDescription>{COPY.noResultsBody}</EmptyDescription>
+									<EmptyDescription>
+										{t("leads.noResultsBody")}
+									</EmptyDescription>
 								</EmptyHeader>
 								<EmptyContent>
 									<Button
@@ -304,7 +312,7 @@ export function LeadsTab() {
 										size="sm"
 										onClick={handleClearFilters}
 									>
-										{COPY.clearFilters}
+										{t("leads.clearFilters")}
 									</Button>
 								</EmptyContent>
 							</Empty>
@@ -315,19 +323,21 @@ export function LeadsTab() {
 									<Table>
 										<TableHeader>
 											<TableRow className="hover:bg-transparent">
-												<TableHead className="pl-4">{COPY.colName}</TableHead>
-												<TableHead>{COPY.colPhone}</TableHead>
-												<TableHead>{COPY.colLocation}</TableHead>
-												<TableHead>{COPY.colDate}</TableHead>
-												<TableHead className="pr-4 text-right">
-													{COPY.colStatus}
+												<TableHead className="ps-4">
+													{t("leads.colName")}
+												</TableHead>
+												<TableHead>{t("leads.colPhone")}</TableHead>
+												<TableHead>{t("leads.colLocation")}</TableHead>
+												<TableHead>{t("leads.colDate")}</TableHead>
+												<TableHead className="pe-4 text-end">
+													{t("leads.colStatus")}
 												</TableHead>
 											</TableRow>
 										</TableHeader>
 										<TableBody>
 											{pageLeads.map((lead) => (
 												<TableRow key={lead.id} className="group/row">
-													<TableCell className="pl-4">
+													<TableCell className="ps-4">
 														<div
 															dir="auto"
 															className="max-w-52 truncate font-medium"
@@ -351,11 +361,14 @@ export function LeadsTab() {
 													</TableCell>
 													<TableCell
 														className="font-mono text-muted-foreground text-xs"
-														title={new Date(lead.createdAt).toLocaleString()}
+														title={formatDate(lead.createdAt, locale, {
+															dateStyle: "medium",
+															timeStyle: "short",
+														})}
 													>
 														{relativeTime(lead.createdAt)}
 													</TableCell>
-													<TableCell className="pr-4">
+													<TableCell className="pe-4">
 														<div className="flex justify-end">
 															<LeadStatusSelect lead={lead} />
 														</div>
@@ -400,11 +413,11 @@ export function LeadsTab() {
 								{filtered.length > LEADS_PAGE_SIZE ? (
 									<div className="mt-4 flex items-center justify-between gap-3">
 										<span className="font-mono text-muted-foreground text-xs">
-											{COPY.pageInfo(
-												from + 1,
-												Math.min(from + LEADS_PAGE_SIZE, filtered.length),
-												filtered.length,
-											)}
+											{t("leads.pageInfo", {
+												from: from + 1,
+												to: Math.min(from + LEADS_PAGE_SIZE, filtered.length),
+												total: filtered.length,
+											})}
 										</span>
 										<div className="flex items-center gap-2">
 											<Button
@@ -413,7 +426,7 @@ export function LeadsTab() {
 												disabled={currentPage <= 1}
 												onClick={() => setPage(currentPage - 1)}
 											>
-												{COPY.previous}
+												{t("leads.previous")}
 											</Button>
 											<Button
 												variant="outline"
@@ -421,7 +434,7 @@ export function LeadsTab() {
 												disabled={currentPage >= pageCount}
 												onClick={() => setPage(currentPage + 1)}
 											>
-												{COPY.next}
+												{t("leads.next")}
 											</Button>
 										</div>
 									</div>

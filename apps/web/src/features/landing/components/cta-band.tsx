@@ -1,9 +1,9 @@
 import { Link } from "@tanstack/react-router";
+import { useTranslation } from "@wandit/internationalization/react";
 import { Button } from "@wandit/ui/components/button";
 
 import { useAuthModal, useSession } from "@/features/auth";
 
-import { CTA_BAND } from "../lib/constants";
 import { Reveal } from "./reveal";
 
 const BUTTON_CLASSES =
@@ -12,6 +12,7 @@ const BUTTON_CLASSES =
 export function CtaBand() {
 	const { data: session } = useSession();
 	const { open } = useAuthModal();
+	const { t } = useTranslation();
 
 	return (
 		<section className="px-4 py-16 md:py-24">
@@ -20,14 +21,14 @@ export function CtaBand() {
 					<span aria-hidden className="absolute inset-0 bg-grain" />
 					<div className="relative">
 						<h2 className="font-bold font-display text-4xl text-[oklch(0.21_0.03_55)] tracking-[-0.03em] md:text-6xl">
-							{CTA_BAND.title}
+							{t("landing.ctaBand.title")}
 						</h2>
 						<p className="mx-auto mt-4 max-w-md font-medium text-[oklch(0.28_0.03_55)]/90 md:text-lg">
-							{CTA_BAND.sub}
+							{t("landing.ctaBand.sub")}
 						</p>
 						{session ? (
 							<Button asChild size="lg" className={`mt-8 ${BUTTON_CLASSES}`}>
-								<Link to="/dashboard">{CTA_BAND.button}</Link>
+								<Link to="/dashboard">{t("landing.ctaBand.button")}</Link>
 							</Button>
 						) : (
 							<Button
@@ -35,7 +36,7 @@ export function CtaBand() {
 								className={`mt-8 ${BUTTON_CLASSES}`}
 								onClick={() => open()}
 							>
-								{CTA_BAND.button}
+								{t("landing.ctaBand.button")}
 							</Button>
 						)}
 					</div>

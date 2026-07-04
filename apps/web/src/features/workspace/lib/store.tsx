@@ -27,6 +27,7 @@ import {
 	setMockProjectStatus,
 	useProjectQuery,
 } from "@/features/projects";
+import { useTranslation } from "@/lib/i18n";
 import type {
 	ChatMessage,
 	PageLang,
@@ -54,7 +55,6 @@ import {
 	PUBLISHED_DOMAIN,
 	STREAM_WORD_INTERVAL_MS,
 	THINKING_DELAY_MS,
-	WORKSPACE_COPY,
 } from "./constants";
 import { hashString, pickPageKey, slugify, truncatePrompt } from "./helpers";
 import { getMockPage } from "./mock-pages";
@@ -121,6 +121,7 @@ export function WorkspaceProvider({
 }) {
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
+	const { t } = useTranslation();
 	const { canAfford, consume } = useCredits();
 
 	const projectQuery = useProjectQuery(projectId);
@@ -276,7 +277,7 @@ export function WorkspaceProvider({
 				if (input.charge) {
 					consume(
 						generationCost,
-						`v${created.number} — ${projectRef.current?.name ?? "Landing page"}`,
+						`v${created.number} — ${projectRef.current?.name ?? t("workspace.store.ledgerFallbackName")}`,
 					);
 				}
 				setStreamingMessage(null);
@@ -286,7 +287,7 @@ export function WorkspaceProvider({
 				refreshState();
 			}, BUILD_DURATION_MS);
 		},
-		[projectId, schedule, consume, setPhase, refreshState],
+		[projectId, schedule, consume, setPhase, refreshState, t],
 	);
 
 	const runGeneration = useCallback(
@@ -322,10 +323,12 @@ export function WorkspaceProvider({
 			const iterationReplies = ITERATION_REPLIES[lang];
 			const replyText = isFirst
 				? firstReplies[hashString(prompt) % firstReplies.length](
-						projectRef.current?.name ?? "your page",
+						projectRef.current?.name ?? t("workspace.store.fallbackPageName"),
 					)
 				: iterationReplies[hashString(prompt) % iterationReplies.length];
-			const summary = isFirst ? "Initial generation" : truncatePrompt(prompt);
+			const summary = isFirst
+				? t("workspace.store.initialGeneration")
+				: truncatePrompt(prompt);
 
 			setPhase("thinking");
 			setPendingVersionNumber(versionNumber);
@@ -384,7 +387,15 @@ export function WorkspaceProvider({
 			}, THINKING_DELAY_MS);
 			return true;
 		},
-		[projectId, canAfford, schedule, setPhase, refreshState, finishGeneration],
+		[
+			projectId,
+			canAfford,
+			schedule,
+			setPhase,
+			refreshState,
+			finishGeneration,
+			t,
+		],
 	);
 
 	const sendPrompt = useCallback(
@@ -465,9 +476,11 @@ export function WorkspaceProvider({
 
 	const publish = useCallback(() => {
 		if (activeVersion) {
-			runPublish(activeVersion.id, WORKSPACE_COPY.publish.publishedToast);
+			runPublish(activeVersion.id, (url) =>
+				t("workspace.publish.publishedToast", { url }),
+			);
 		}
-	}, [activeVersion, runPublish]);
+	}, [activeVersion, runPublish, t]);
 
 	const rollbackTo = useCallback(
 		(versionId: string) => {
@@ -483,13 +496,13 @@ export function WorkspaceProvider({
 				versionId,
 				isRollback
 					? () =>
-							WORKSPACE_COPY.settings.historyRolledBackToast(
-								target?.number ?? 0,
-							)
-					: WORKSPACE_COPY.publish.publishedToast,
+							t("settings.historyRolledBackToast", {
+								n: target?.number ?? 0,
+							})
+					: (url) => t("workspace.publish.publishedToast", { url }),
 			);
 		},
-		[versions, runPublish, stateQuery.data?.deployment.publishedVersionId],
+		[versions, runPublish, stateQuery.data?.deployment.publishedVersionId, t],
 	);
 
 	const unpublish = useCallback(() => {
@@ -501,8 +514,8 @@ export function WorkspaceProvider({
 		});
 		syncProjectStatus({ status: "draft", publishedSlug: null });
 		refreshState();
-		toast.success(WORKSPACE_COPY.publish.unpublishedToast);
-	}, [projectId, refreshState, syncProjectStatus]);
+		toast.success(t("workspace.publish.unpublishedToast"));
+	}, [projectId, refreshState, syncProjectStatus, t]);
 
 	// Recover deployments stuck in "publishing" (seeded that way, or a publish
 	// interrupted by navigation) by completing them shortly after mount.
@@ -533,9 +546,9 @@ export function WorkspaceProvider({
 			});
 			refreshState();
 			toast.success(
-				WORKSPACE_COPY.publish.publishedToast(
-					`${deployment.slug}${PUBLISHED_DOMAIN}`,
-				),
+				t("workspace.publish.publishedToast", {
+					url: `${deployment.slug}${PUBLISHED_DOMAIN}`,
+				}),
 			);
 		}, PUBLISH_DURATION_MS);
 	}, [
@@ -544,6 +557,7 @@ export function WorkspaceProvider({
 		schedule,
 		refreshState,
 		syncProjectStatus,
+		t,
 	]);
 
 	// --- settings ------------------------------------------------------------

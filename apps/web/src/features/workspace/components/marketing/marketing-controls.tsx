@@ -8,9 +8,10 @@ import { Download, Loader2, RefreshCw } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { useTranslation } from "@/lib/i18n";
 import { relativeTime } from "@/lib/relative-time";
 import { useLeadsQuery } from "../../api/leads.queries";
-import { WORKSPACE_COPY } from "../../lib/constants";
+import { marketingPlanFileName } from "../../lib/constants";
 import { downloadTextFile } from "../../lib/helpers";
 import {
 	buildMarketingPlanMarkdown,
@@ -18,12 +19,11 @@ import {
 } from "../../lib/mock-marketing";
 import { useWorkspace } from "../../lib/store";
 
-const COPY = WORKSPACE_COPY.marketing;
-
 const UPDATE_DURATION_MS = 1200;
 const INITIAL_AGE_MS = 2 * 3_600_000;
 
 export function MarketingControls() {
+	const { t } = useTranslation();
 	const { projectId, project } = useWorkspace();
 	const leadsQuery = useLeadsQuery(projectId, project?.leadCount);
 
@@ -47,11 +47,11 @@ export function MarketingControls() {
 			(lead) => lead.status === "confirmed",
 		).length;
 		downloadTextFile(
-			COPY.exportFileName(projectId),
+			marketingPlanFileName(projectId),
 			buildMarketingPlanMarkdown(plan, project.name, confirmed),
 			"text/markdown;charset=utf-8",
 		);
-		toast.success(COPY.exportedToast);
+		toast.success(t("workspace.marketing.exportedToast"));
 	};
 
 	const updatePlan = () => {
@@ -60,14 +60,14 @@ export function MarketingControls() {
 		timerRef.current = window.setTimeout(() => {
 			setUpdating(false);
 			setUpdatedAt(new Date().toISOString());
-			toast.success(COPY.planUpdatedToast);
+			toast.success(t("workspace.marketing.planUpdatedToast"));
 		}, UPDATE_DURATION_MS);
 	};
 
 	return (
 		<div className="flex items-center gap-1.5">
 			<span className="hidden font-mono text-[11px] text-muted-foreground lg:inline">
-				{COPY.updatedPrefix} {relativeTime(updatedAt)}
+				{t("workspace.marketing.updatedPrefix")} {relativeTime(updatedAt)}
 			</span>
 			<Button
 				variant="outline"
@@ -77,7 +77,9 @@ export function MarketingControls() {
 				disabled={!project}
 			>
 				<Download className="size-3.5" />
-				<span className="hidden sm:inline">{COPY.exportPlan}</span>
+				<span className="hidden sm:inline">
+					{t("workspace.marketing.exportPlan")}
+				</span>
 			</Button>
 			<Button
 				size="sm"
@@ -91,7 +93,9 @@ export function MarketingControls() {
 					<RefreshCw className="size-3.5" />
 				)}
 				<span className="hidden sm:inline">
-					{updating ? COPY.updating : COPY.updatePlan}
+					{updating
+						? t("workspace.marketing.updating")
+						: t("workspace.marketing.updatePlan")}
 				</span>
 			</Button>
 		</div>

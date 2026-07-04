@@ -1,0 +1,34 @@
+{
+	"chipAriaLabel": "رصيدك الحالي",
+	"balanceLabel": "الرصيد",
+	"usageOf": "{balance} من {grant} متبقٍّ",
+	"recentActivity": "النشاط الأخير",
+	"emptyLedger": "لا يوجد نشاط بعد.",
+	"topUpChip": "إعادة الشحن — قريبًا",
+	"topUpDialog": "إعادة الشحن قريبًا",
+	"insufficientTitle": "الرصيد غير كافٍ",
+	"insufficientBody": "تكلفة هذا الإجراء أكبر من رصيدك المتبقي. عمليات الشحن في الطريق.",
+	"costLabel": "التكلفة",
+	"balanceRowLabel": "رصيدك",
+	"seedGrantLabel": "رصيد الترحيب",
+	"creditUnit": {
+		"zero": "{count} رصيد",
+		"one": "رصيد واحد",
+		"two": "رصيدان",
+		"few": "{count} أرصدة",
+		"many": "{count} رصيدًا",
+		"other": "{count} رصيد"
+	},
+	"priceTag": {
+		"zero": "{action} — {count} رصيد",
+		"one": "{action} — رصيد واحد",
+		"two": "{action} — رصيدان",
+		"few": "{action} — {count} أرصدة",
+		"many": "{action} — {count} رصيدًا",
+		"other": "{action} — {count} رصيد"
+	},
+	"actions": {
+		"generation": "توليد",
+		"chatMessage": "إرسال"
+	}
+}

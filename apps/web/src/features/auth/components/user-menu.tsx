@@ -17,8 +17,9 @@ import {
 import { Skeleton } from "@wandit/ui/components/skeleton";
 import { LogOut } from "lucide-react";
 
+import { LanguageSwitcherMenuItems } from "@/components/language-switcher";
 import { LedgerList } from "@/features/credits";
-import { AUTH_COPY } from "../lib/constants";
+import { useTranslation } from "@/lib/i18n";
 import { signOut, useSession } from "../lib/session";
 import { useAuthModal } from "./auth-modal";
 
@@ -35,6 +36,7 @@ function initials(name: string): string {
 }
 
 export function UserMenu() {
+	const { t } = useTranslation();
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
 	const { data: session, isPending } = useSession();
@@ -47,7 +49,7 @@ export function UserMenu() {
 	if (!session) {
 		return (
 			<Button type="button" variant="outline" size="sm" onClick={() => open()}>
-				{AUTH_COPY.signIn}
+				{t("auth.signIn")}
 			</Button>
 		);
 	}
@@ -81,9 +83,14 @@ export function UserMenu() {
 				</DropdownMenuLabel>
 				<DropdownMenuSeparator />
 				<DropdownMenuLabel className="pb-0 text-[10px] text-muted-foreground uppercase tracking-widest">
-					{AUTH_COPY.creditsLabel}
+					{t("auth.creditsLabel")}
 				</DropdownMenuLabel>
 				<LedgerList limit={3} className="px-1 pb-1" />
+				<DropdownMenuSeparator />
+				<DropdownMenuLabel className="pb-0 text-[10px] text-muted-foreground uppercase tracking-widest">
+					{t("common.language")}
+				</DropdownMenuLabel>
+				<LanguageSwitcherMenuItems />
 				<DropdownMenuSeparator />
 				<DropdownMenuItem
 					variant="destructive"
@@ -96,7 +103,7 @@ export function UserMenu() {
 					}}
 				>
 					<LogOut className="size-4" />
-					{AUTH_COPY.signOut}
+					{t("auth.signOut")}
 				</DropdownMenuItem>
 			</DropdownMenuContent>
 		</DropdownMenu>

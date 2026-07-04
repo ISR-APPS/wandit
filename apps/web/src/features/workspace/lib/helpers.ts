@@ -1,11 +1,11 @@
 // Pure functions for the workspace feature.
 
+import { pageTitleDynamic } from "@/lib/i18n";
 import type { Lead, PageVersion, WorkspaceTab } from "../api/dto";
 import {
 	ASSETS_CANVAS_BOARD,
 	ASSETS_CANVAS_LAYOUT_SLOTS,
 	ASSETS_VIEW_STORAGE_KEY,
-	LEAD_STATUS_META,
 	WORKSPACE_PANELS_STORAGE_ID,
 	WORKSPACE_TAB_VALUES,
 } from "./constants";
@@ -203,17 +203,12 @@ export function pickPageKey(projectId: string, versionCount: number): string {
 	return `generic-${(versionCount % 3) + 1}`;
 }
 
-/** CSV with UTF-8 BOM so Arabic names survive Excel; stable column order. */
-export function buildLeadsCsv(leads: Lead[]): string {
-	const header = [
-		"Name",
-		"Phone",
-		"Wilaya",
-		"Commune",
-		"Status",
-		"Source",
-		"Date",
-	];
+/**
+ * CSV with UTF-8 BOM so Arabic names survive Excel; stable column order.
+ * `headers` is the localized header row (leads.csvHeaders); the status cell is
+ * localized from the current dictionary snapshot (leads.status.<enum_value>).
+ */
+export function buildLeadsCsv(leads: Lead[], headers: string[]): string {
 	const escapeCell = (cell: string) =>
 		/[",\n]/.test(cell) ? `"${cell.replace(/"/g, '""')}"` : cell;
 	const rows = leads.map((lead) =>
@@ -222,14 +217,14 @@ export function buildLeadsCsv(leads: Lead[]): string {
 			lead.phone,
 			lead.wilaya,
 			lead.commune,
-			LEAD_STATUS_META[lead.status].label,
+			pageTitleDynamic(`leads.status.${lead.status}`),
 			lead.source,
 			lead.createdAt,
 		]
 			.map(escapeCell)
 			.join(","),
 	);
-	return `\uFEFF${[header.join(","), ...rows].join("\n")}`;
+	return `\uFEFF${[headers.join(","), ...rows].join("\n")}`;
 }
 
 export function downloadTextFile(

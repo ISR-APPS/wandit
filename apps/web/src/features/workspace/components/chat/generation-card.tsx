@@ -5,11 +5,12 @@ import { cn } from "@wandit/ui/lib/utils";
 import { Check, Loader2 } from "lucide-react";
 
 import { thumbGradient } from "@/features/projects";
+import { useTranslation } from "@/lib/i18n";
 import type { GenerationPart } from "../../api/dto";
-import { WORKSPACE_COPY } from "../../lib/constants";
 import { useWorkspace } from "../../lib/store";
 
 export function GenerationCard({ part }: { part: GenerationPart }) {
+	const { t } = useTranslation();
 	const { project, activeVersion, selectVersion } = useWorkspace();
 	const isRunning = part.status === "running";
 	const isActive =
@@ -33,16 +34,16 @@ export function GenerationCard({ part }: { part: GenerationPart }) {
 					v{part.versionNumber}
 				</span>
 			</div>
-			<div className="min-w-0 flex-1 text-left">
+			<div className="min-w-0 flex-1 text-start">
 				<p className="truncate font-medium text-sm">
-					{WORKSPACE_COPY.chat.versionCardKind}
-					<span className="ml-1.5 font-mono text-muted-foreground text-xs tabular-nums">
+					{t("workspace.chat.versionCardKind")}
+					<span className="ms-1.5 font-mono text-muted-foreground text-xs tabular-nums">
 						v{part.versionNumber}
 					</span>
 				</p>
 				<p dir="auto" className="truncate text-muted-foreground text-xs">
 					{isRunning
-						? WORKSPACE_COPY.page.generatingTitle(part.versionNumber)
+						? t("workspace.page.generatingTitle", { n: part.versionNumber })
 						: part.summary}
 				</p>
 			</div>
@@ -77,7 +78,7 @@ export function GenerationCard({ part }: { part: GenerationPart }) {
 				}
 			}}
 			className={cn(
-				"flex items-center gap-3 rounded-xl border bg-card p-3 text-left transition-all duration-150",
+				"flex items-center gap-3 rounded-xl border bg-card p-3 text-start transition-all duration-150",
 				"hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-md",
 				"focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
 				isActive && "border-primary/40",

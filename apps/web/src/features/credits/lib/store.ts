@@ -1,17 +1,32 @@
 import { useSyncExternalStore } from "react";
 
-import { CREDITS_COPY, SIGNUP_GRANT } from "./constants";
+import type { TranslationKey, TranslationParams } from "@/lib/i18n";
+import { SIGNUP_GRANT } from "./constants";
 
 export type LedgerKind = "grant" | "consume" | "topup" | "expire";
 
-export type LedgerEntry = {
+type LedgerLabel =
+	| {
+			labelKey: TranslationKey;
+			labelParams?: TranslationParams;
+			label?: string;
+	  }
+	| {
+			labelKey?: undefined;
+			labelParams?: undefined;
+			label: string;
+	  };
+
+type LedgerEntryBase = {
 	id: string;
 	kind: LedgerKind;
 	/** Signed: grant/topup positive, consume/expire negative. */
 	amount: number;
-	label: string;
 	createdAt: string;
 };
+
+export type LedgerEntry = LedgerEntryBase & LedgerLabel;
+type LedgerEntryInput = Omit<LedgerEntryBase, "id" | "createdAt"> & LedgerLabel;
 
 const STORAGE_KEY = "wandit-mock-ledger";
 const EMPTY: LedgerEntry[] = [];
@@ -26,7 +41,7 @@ function seed(): LedgerEntry[] {
 			id: makeId(),
 			kind: "grant",
 			amount: SIGNUP_GRANT,
-			label: CREDITS_COPY.seedGrantLabel,
+			labelKey: "credits.seedGrantLabel",
 			createdAt: new Date().toISOString(),
 		},
 	];
@@ -79,7 +94,7 @@ export const ledgerStore = {
 	getServerSnapshot(): LedgerEntry[] {
 		return EMPTY;
 	},
-	append(entry: Omit<LedgerEntry, "id" | "createdAt">): void {
+	append(entry: LedgerEntryInput): void {
 		snapshot = [
 			{ ...entry, id: makeId(), createdAt: new Date().toISOString() },
 			...snapshot,

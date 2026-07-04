@@ -1,10 +1,14 @@
+import { useTranslation } from "@wandit/internationalization/react";
+
 import { WorkspacePlaceholder } from "../components/workspace-placeholder";
 
 export function LeadsScreen() {
+	const { t } = useTranslation();
+
 	return (
 		<WorkspacePlaceholder
-			title="Leads"
-			description="Order CRM — form submissions with the status pipeline, tap-to-call and tap-to-WhatsApp."
+			title={t("native.workspace.placeholders.leadsTitle")}
+			description={t("native.workspace.placeholders.leadsDescription")}
 		/>
 	);
 }

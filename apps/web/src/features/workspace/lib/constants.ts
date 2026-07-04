@@ -16,17 +16,22 @@ export const WORKSPACE_TAB_VALUES = [
 
 export type WorkspaceTabDef = {
 	value: WorkspaceTab;
-	label: string;
 	icon: LucideIcon;
 };
 
+// Tab value + icon; the label is localized (workspace.tabs.<value>).
 export const WORKSPACE_TABS: WorkspaceTabDef[] = [
-	{ value: "page", label: "Page", icon: AppWindow },
-	{ value: "assets", label: "Assets", icon: Images },
-	{ value: "marketing", label: "Marketing", icon: Megaphone },
-	{ value: "leads", label: "Leads", icon: Users },
-	{ value: "settings", label: "Settings", icon: Settings2 },
+	{ value: "page", icon: AppWindow },
+	{ value: "assets", icon: Images },
+	{ value: "marketing", icon: Megaphone },
+	{ value: "leads", icon: Users },
+	{ value: "settings", icon: Settings2 },
 ];
+
+/** Downloaded marketing-plan filename — config, not display copy. */
+export function marketingPlanFileName(projectId: string): string {
+	return `marketing-plan-${projectId}.md`;
+}
 
 /** Published sites live on {slug}.wandit.app — mirrors projects' copy. */
 export const PUBLISHED_DOMAIN = ".wandit.app";
@@ -78,10 +83,11 @@ export const LEAD_STATUS_ORDER: LeadStatus[] = [
 	"cancelled",
 ];
 
+// Badge variant + select dot per lead status; the label is localized
+// (leads.status.<enum_value>).
 export const LEAD_STATUS_META: Record<
 	LeadStatus,
 	{
-		label: string;
 		badgeVariant:
 			| "default"
 			| "secondary"
@@ -94,32 +100,26 @@ export const LEAD_STATUS_META: Record<
 	}
 > = {
 	to_confirm: {
-		label: "To confirm",
 		badgeVariant: "warning",
 		dotClass: "bg-amber-500",
 	},
 	confirmed: {
-		label: "Confirmed",
 		badgeVariant: "info",
 		dotClass: "bg-blue-500",
 	},
 	shipped: {
-		label: "Shipped",
 		badgeVariant: "secondary",
 		dotClass: "bg-violet-500",
 	},
 	delivered: {
-		label: "Delivered",
 		badgeVariant: "success",
 		dotClass: "bg-emerald-500",
 	},
 	returned: {
-		label: "Returned",
 		badgeVariant: "outline",
 		dotClass: "bg-slate-400",
 	},
 	cancelled: {
-		label: "Cancelled",
 		badgeVariant: "destructive",
 		dotClass: "bg-red-500",
 	},
@@ -169,198 +169,3 @@ export const ITERATION_REPLIES: Record<PageLang, string[]> = {
 		"طبّقت التغيير مع لمسة خفيفة على المسافات والتباين ليبقى كل شيء متناسقًا. النسخة الجديدة قيد الإنشاء.",
 	],
 };
-
-export const WORKSPACE_COPY = {
-	backToDashboard: "Back to dashboard",
-	tabsAriaLabel: "Workspace views",
-	autosaved: "autosaved",
-
-	switcher: {
-		menuLabel: "Projects",
-		allProjects: "All projects",
-	},
-
-	publish: {
-		publish: "Publish",
-		publishing: "Publishing…",
-		published: "Published",
-		publishUpdate: (n: number) => `Publish v${n}`,
-		menuLiveLabel: "Live site",
-		copyLink: "Copy link",
-		openLive: "Open live site",
-		unpublish: "Unpublish",
-		linkCopied: "Link copied",
-		publishedToast: (url: string) => `Live at ${url}`,
-		unpublishedToast: "Site unpublished",
-		freeNote: "Publishing is always free",
-	},
-
-	chat: {
-		title: "Chat",
-		collapse: "Collapse chat",
-		expand: "Open chat",
-		placeholder: "Describe a change…",
-		thinking: "Thinking…",
-		generating: "Generating",
-		versionCardKind: "Landing page",
-		emptyTitle: "Start the conversation",
-		emptyBody: "Describe your page and the AI will generate it here.",
-		suggestionsKicker: "Try one of these",
-		suggestions: [
-			"Add customer reviews under the price",
-			"Make the order form shorter",
-			"Translate the page to Arabic",
-		],
-	},
-
-	page: {
-		versionShort: (n: number) => `v${n}`,
-		latestSuffix: "Latest",
-		liveBadge: "Live",
-		versionsMenuLabel: "Versions",
-		viewportMobile: "Mobile preview",
-		viewportDesktop: "Desktop preview",
-		refresh: "Reload preview",
-		openInNewTab: "Open in new tab",
-		emptyTitle: "Nothing to preview yet",
-		emptyBody:
-			"Describe your page in the chat — the preview appears here as it generates.",
-		generatingTitle: (n: number) => `Generating v${n}`,
-		generatingSteps: [
-			"Analyzing your brief…",
-			"Writing the sections…",
-			"Styling for mobile…",
-			"Wiring the order form…",
-			"Final touches…",
-		],
-	},
-
-	assets: {
-		title: "Assets",
-		subtitle: "Every generation is saved as an immutable version.",
-		metaCount: (n: number) => (n === 1 ? "1 asset" : `${n} assets`),
-		kindLandingPage: "Landing page",
-		liveBadge: "Live",
-		currentBadge: "Viewing",
-		openOnPage: "View on page",
-		openInNewTab: "Open in new tab",
-		versionTitle: (n: number) => `Version ${n}`,
-		emptyTitle: "No assets yet",
-		emptyBody: "Generated pages (and soon images and videos) appear here.",
-		libraryView: "Library",
-		canvasView: "Canvas",
-		viewToggleAriaLabel: "Assets view",
-	},
-
-	marketing: {
-		title: "Marketing",
-		updatedPrefix: "updated",
-		exportPlan: "Export plan",
-		updatePlan: "Update plan",
-		updating: "Updating…",
-		planUpdatedToast: "Plan updated",
-		exportedToast: "Plan exported",
-		goalKicker: "Goal",
-		goalProgress: (done: number, target: number) => `${done} / ${target}`,
-		goalOnTrack: "on track",
-		goalBehind: "keep pushing",
-		takeKicker: "Wandit's take · this week",
-		channelsKicker: "Where to spend",
-		audienceKicker: "Who you're talking to",
-		checklistKicker: "Week-1 checklist",
-		checklistDone: (done: number, total: number) => `${done} of ${total} done`,
-		ideasKicker: "Campaign ideas",
-		view: "View",
-		openLeads: "Open leads",
-		askWandit: "Ask Wandit",
-		ideaStatus: {
-			ready: "Ready",
-			draft: "Draft",
-			idea: "Idea",
-		},
-		exportFileName: (projectId: string) => `marketing-plan-${projectId}.md`,
-	},
-
-	leads: {
-		title: "Leads",
-		searchPlaceholder: "Search name or phone…",
-		filterAll: "All statuses",
-		exportCsv: "Export CSV",
-		exportedToast: (count: number) =>
-			count === 1 ? "Exported 1 lead" : `Exported ${count} leads`,
-		counterToday: "Today",
-		counterWeek: "This week",
-		counterTotal: "Total leads",
-		counterConfirmation: "Confirmation rate",
-		confirmationHint: "confirmed ÷ (confirmed + cancelled)",
-		colName: "Name",
-		colPhone: "Phone",
-		colLocation: "Wilaya / Commune",
-		colDate: "Date",
-		colStatus: "Status",
-		call: "Call",
-		whatsapp: "WhatsApp",
-		emptyTitle: "No leads yet",
-		emptyBody: "Publish your page to start collecting orders.",
-		emptyCta: "Open publish settings",
-		noResultsTitle: "No matching leads",
-		noResultsBody: "Try another search or clear the status filter.",
-		clearFilters: "Clear filters",
-		statusUpdated: (name: string, status: string) => `${name} → ${status}`,
-		pageInfo: (from: number, to: number, total: number) =>
-			`${from}–${to} of ${total}`,
-		previous: "Previous",
-		next: "Next",
-		freeNote: "Lead collection is always free.",
-	},
-
-	settings: {
-		title: "Settings",
-		generalTitle: "General",
-		generalDescription: "Name and ad tracking for this project.",
-		nameLabel: "Project name",
-		nameSave: "Save",
-		nameSaved: "Project renamed",
-		pixelsTitle: "Ad pixels",
-		pixelsDescription:
-			"Injected into your published page at publish time — paste the IDs from Meta and TikTok.",
-		metaPixelLabel: "Meta pixel ID",
-		tiktokPixelLabel: "TikTok pixel ID",
-		pixelPlaceholder: "1234567890123456",
-		pixelsSave: "Save pixels",
-		pixelsSaved: "Pixels saved",
-		publishTitle: "Publishing",
-		publishDescription: "Your page lives on a free wandit.app subdomain.",
-		slugLabel: "Subdomain",
-		slugChecking: "Checking…",
-		slugAvailable: "Available",
-		slugTaken: "Taken — try another",
-		slugInvalid: "Lowercase letters, numbers and hyphens only",
-		slugSave: "Save slug",
-		slugSaved: "Subdomain saved",
-		liveUrlLabel: "Live URL",
-		notPublished: "Not published yet",
-		publishCta: "Publish",
-		unpublishCta: "Unpublish",
-		historyTitle: "Version history",
-		historyRollback: "Roll back",
-		historyLive: "Live",
-		historyRolledBackToast: (n: number) => `Rolled back — v${n} is live`,
-		dangerTitle: "Danger zone",
-		dangerDescription:
-			"Deleting a project removes its page, chat history and leads.",
-		deleteCta: "Delete project",
-		deleteTitle: "Delete project?",
-		deleteDescription: (name: string) =>
-			`"${name}" and its leads will be gone for good. This cannot be undone.`,
-		deleteConfirm: "Delete",
-		deleteCancel: "Cancel",
-		deleteSuccess: "Project deleted",
-	},
-
-	notFound: {
-		title: "Project not found",
-		body: "It may have been deleted, or the link is wrong.",
-		cta: "Back to dashboard",
-	},
-} as const;

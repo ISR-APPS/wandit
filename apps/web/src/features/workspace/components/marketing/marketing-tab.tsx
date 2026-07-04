@@ -13,8 +13,8 @@ import { Check, UserRound } from "lucide-react";
 import { type ReactNode, useMemo } from "react";
 
 import { Spark } from "@/components/logo";
+import { useTranslation } from "@/lib/i18n";
 import { useLeadsQuery } from "../../api/leads.queries";
-import { WORKSPACE_COPY } from "../../lib/constants";
 import {
 	type ChecklistItem,
 	getMarketingPlan,
@@ -23,15 +23,28 @@ import {
 } from "../../lib/mock-marketing";
 import { useWorkspace } from "../../lib/store";
 
-const COPY = WORKSPACE_COPY.marketing;
-
 const IDEA_STATUS_META: Record<
 	IdeaStatus,
-	{ label: string; badgeVariant: "success" | "warning" | "secondary" }
+	{
+		labelKey:
+			| "workspace.marketing.ideaStatus.ready"
+			| "workspace.marketing.ideaStatus.draft"
+			| "workspace.marketing.ideaStatus.idea";
+		badgeVariant: "success" | "warning" | "secondary";
+	}
 > = {
-	ready: { label: COPY.ideaStatus.ready, badgeVariant: "success" },
-	draft: { label: COPY.ideaStatus.draft, badgeVariant: "warning" },
-	idea: { label: COPY.ideaStatus.idea, badgeVariant: "secondary" },
+	ready: {
+		labelKey: "workspace.marketing.ideaStatus.ready",
+		badgeVariant: "success",
+	},
+	draft: {
+		labelKey: "workspace.marketing.ideaStatus.draft",
+		badgeVariant: "warning",
+	},
+	idea: {
+		labelKey: "workspace.marketing.ideaStatus.idea",
+		badgeVariant: "secondary",
+	},
 };
 
 function Kicker({ children }: { children: ReactNode }) {
@@ -101,19 +114,20 @@ function GoalCard({
 	confirmed: number;
 	confirmedPending: boolean;
 }) {
+	const { t } = useTranslation();
 	const pct = Math.min(100, Math.round((confirmed / plan.goalTarget) * 100));
 	const onTrack = pct >= 25;
 
 	return (
 		<section className="flex flex-wrap items-center justify-between gap-4 rounded-xl border bg-card p-5">
 			<div className="min-w-0">
-				<Kicker>{COPY.goalKicker}</Kicker>
+				<Kicker>{t("workspace.marketing.goalKicker")}</Kicker>
 				<h3 className="mt-1.5 font-display font-semibold text-xl">
 					{plan.goal}
 				</h3>
 			</div>
 			<div className="flex items-center gap-3">
-				<div className="text-right">
+				<div className="text-end">
 					<p className="font-medium font-mono text-lg tabular-nums">
 						{confirmedPending ? "—" : confirmed}
 						<span className="font-normal text-muted-foreground">
@@ -127,7 +141,9 @@ function GoalCard({
 							onTrack ? "text-success" : "text-muted-foreground",
 						)}
 					>
-						{onTrack ? COPY.goalOnTrack : COPY.goalBehind}
+						{onTrack
+							? t("workspace.marketing.goalOnTrack")
+							: t("workspace.marketing.goalBehind")}
 					</p>
 				</div>
 				<div className="h-1.5 w-28 overflow-hidden rounded-full bg-muted">
@@ -142,6 +158,7 @@ function GoalCard({
 }
 
 function TakeCard({ take }: { take: string }) {
+	const { t } = useTranslation();
 	return (
 		<section className="flex items-start gap-3 rounded-xl bg-foreground p-5 text-background">
 			<span className="grid size-6 shrink-0 place-items-center rounded-md bg-gradient-ember">
@@ -149,7 +166,7 @@ function TakeCard({ take }: { take: string }) {
 			</span>
 			<div className="min-w-0">
 				<p className="font-mono text-[10px] text-primary uppercase tracking-widest dark:text-primary-foreground">
-					{COPY.takeKicker}
+					{t("workspace.marketing.takeKicker")}
 				</p>
 				<p className="mt-1.5 text-background/85 text-sm leading-relaxed">
 					{take}
@@ -160,9 +177,10 @@ function TakeCard({ take }: { take: string }) {
 }
 
 function ChannelsCard({ plan }: { plan: MarketingPlan }) {
+	const { t } = useTranslation();
 	return (
 		<section className="rounded-xl border bg-card p-5">
-			<Kicker>{COPY.channelsKicker}</Kicker>
+			<Kicker>{t("workspace.marketing.channelsKicker")}</Kicker>
 			<div className="mt-4 flex flex-col gap-4">
 				{plan.channels.map((channel) => (
 					<div key={channel.key}>
@@ -189,9 +207,10 @@ function ChannelsCard({ plan }: { plan: MarketingPlan }) {
 }
 
 function AudienceCard({ plan }: { plan: MarketingPlan }) {
+	const { t } = useTranslation();
 	return (
 		<section className="rounded-xl border bg-card p-5">
-			<Kicker>{COPY.audienceKicker}</Kicker>
+			<Kicker>{t("workspace.marketing.audienceKicker")}</Kicker>
 			<div className="mt-4 flex flex-col divide-y">
 				{plan.personas.map((persona) => (
 					<div
@@ -230,15 +249,19 @@ function AudienceCard({ plan }: { plan: MarketingPlan }) {
 }
 
 function ChecklistCard({ items }: { items: ChecklistItem[] }) {
+	const { t } = useTranslation();
 	const { setTab, chatOpen, toggleChat } = useWorkspace();
 	const done = items.filter((item) => item.state === "done").length;
 
 	return (
 		<section className="rounded-xl border bg-card p-5">
 			<div className="flex items-center justify-between">
-				<Kicker>{COPY.checklistKicker}</Kicker>
+				<Kicker>{t("workspace.marketing.checklistKicker")}</Kicker>
 				<span className="font-mono text-[10px] text-muted-foreground">
-					{COPY.checklistDone(done, items.length)}
+					{t("workspace.marketing.checklistDone", {
+						done,
+						total: items.length,
+					})}
 				</span>
 			</div>
 			<div className="mt-3 flex flex-col gap-0.5">
@@ -287,7 +310,7 @@ function ChecklistCard({ items }: { items: ChecklistItem[] }) {
 									if (!chatOpen) toggleChat();
 								}}
 							>
-								{COPY.askWandit}
+								{t("workspace.marketing.askWandit")}
 							</Button>
 						) : item.linkTab ? (
 							<Button
@@ -296,7 +319,9 @@ function ChecklistCard({ items }: { items: ChecklistItem[] }) {
 								className="h-7 shrink-0 rounded-lg px-2.5 text-xs"
 								onClick={() => setTab(item.linkTab as "assets" | "leads")}
 							>
-								{item.linkTab === "leads" ? COPY.openLeads : COPY.view}
+								{item.linkTab === "leads"
+									? t("workspace.marketing.openLeads")
+									: t("workspace.marketing.view")}
 							</Button>
 						) : null}
 					</div>
@@ -307,10 +332,11 @@ function ChecklistCard({ items }: { items: ChecklistItem[] }) {
 }
 
 function IdeasCard({ plan }: { plan: MarketingPlan }) {
+	const { t } = useTranslation();
 	return (
 		<section className="rounded-xl border bg-card px-5 py-2">
 			<div className="pt-3 pb-1">
-				<Kicker>{COPY.ideasKicker}</Kicker>
+				<Kicker>{t("workspace.marketing.ideasKicker")}</Kicker>
 			</div>
 			<div className="flex flex-col divide-y">
 				{plan.ideas.map((idea) => {
@@ -330,7 +356,7 @@ function IdeasCard({ plan }: { plan: MarketingPlan }) {
 								variant={status.badgeVariant}
 								className="shrink-0 font-mono text-[10px]"
 							>
-								{status.label}
+								{t(status.labelKey)}
 							</Badge>
 						</div>
 					);

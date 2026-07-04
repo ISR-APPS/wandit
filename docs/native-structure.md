@@ -59,6 +59,7 @@ Each feature mirrors the web exemplar (`apps/web/src/features/projects/`), with 
 
 ## Does not own
 
+- Copy, translations, and RTL — see `docs/localization.md` (native specifics in its §2/§3).
 - Feature scope/behavior — see `docs/features/*.md`; product IA — see PRD §4.
 - Web structure — see `docs/frontend-structure.md`.
 

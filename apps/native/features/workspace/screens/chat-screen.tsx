@@ -1,10 +1,14 @@
+import { useTranslation } from "@wandit/internationalization/react";
+
 import { WorkspacePlaceholder } from "../components/workspace-placeholder";
 
 export function ChatScreen() {
+	const { t } = useTranslation();
+
 	return (
 		<WorkspacePlaceholder
-			title="Chat"
-			description="Conversation with the AI — message history and streaming generation updates."
+			title={t("native.workspace.placeholders.chatTitle")}
+			description={t("native.workspace.placeholders.chatDescription")}
 		/>
 	);
 }

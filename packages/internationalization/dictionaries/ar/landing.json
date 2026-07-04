@@ -1,0 +1,227 @@
+{
+	"meta": {
+		"title": "Wandit — صفحات هبوط بالذكاء الاصطناعي تبيع",
+		"description": "يحوّل Wandit وصفك إلى صفحة هبوط جاهزة للبيع؛ انشرها واجمع طلبات الدفع عند الاستلام خلال دقائق."
+	},
+	"nav": {
+		"links": {
+			"how-it-works": "كيف يعمل",
+			"examples": "أمثلة",
+			"pricing": "الأسعار",
+			"faq": "الأسئلة الشائعة"
+		},
+		"signIn": "تسجيل الدخول",
+		"getStarted": "ابدأ الآن",
+		"dashboard": "لوحة التحكم",
+		"backToTop": "Wandit — العودة إلى الأعلى"
+	},
+	"hero": {
+		"titleLine1": "اكتبها. أطلقها.",
+		"titleLine2": "بِعها.",
+		"sub": "يحوّل Wandit فكرتك المكتوبة إلى صفحة هبوط جاهزة للعمل — انشرها واجمع طلبات الدفع عند الاستلام في دقائق.",
+		"chips": [
+			{
+				"label": "صفحة منتج COD",
+				"prompt": "A COD product page for a vintage leather watch — hero shot, three benefit blocks, and an order form with wilaya and commune fields."
+			},
+			{
+				"label": "موقع تعريفي",
+				"prompt": "Un site vitrine élégant pour un cabinet dentaire à Alger — services, équipe, horaires et prise de rendez-vous."
+			},
+			{
+				"label": "صفحة خدمة",
+				"prompt": "A landing page for a media-buying training program in French — curriculum, testimonials, and an enrollment form."
+			},
+			{
+				"label": "صفحة عرض ترويجي",
+				"prompt": "A limited-time promo page for a sneakers drop in Algiers — bold visuals, size picker, and COD checkout."
+			}
+		],
+		"trust": [
+			"صفحات بالعربية والفرنسية",
+			"نماذج طلب بالدفع عند الاستلام",
+			"انشر بنقرة واحدة"
+		]
+	},
+	"howItWorks": {
+		"kicker": "كيف يعمل",
+		"title": "ثلاث خطوات نحو طلبك الأول.",
+		"steps": [
+			{
+				"title": "صِفها",
+				"body": "اكتب ما تبيعه بالعربية أو الفرنسية أو الإنجليزية. يصيغ Wandit صفحة هبوط كاملة في ثوانٍ."
+			},
+			{
+				"title": "اجعلها لك",
+				"body": "طوّرها عبر المحادثة — بدّل الأقسام والألوان والنصوص. كل تغيير يصبح إصدارًا يمكنك التراجع إليه."
+			},
+			{
+				"title": "انشر وبِع",
+				"body": "انشرها على your-page.wandit.app بنقرة واحدة. تصل طلبات الدفع عند الاستلام مباشرة إلى صندوق العملاء المحتملين."
+			}
+		]
+	},
+	"examples": {
+		"kicker": "أمثلة",
+		"title": "صُنع بواسطة Wandit",
+		"sub": "أنواع الصفحات التي يطلقها البائعون كل يوم — اختر واحدة لتبدأ منها.",
+		"startFrom": "ابدأ من المثال: {name}",
+		"rtlBadge": "RTL",
+		"items": {
+			"watch": {
+				"name": "Montre Vintage COD",
+				"category": "منتج COD",
+				"prompt": "A COD product page for a vintage leather watch — hero shot, three benefit blocks, and an order form with wilaya and commune fields."
+			},
+			"honey": {
+				"name": "عسل الأوراس",
+				"category": "منتج COD",
+				"prompt": "صفحة هبوط لعسل جبلي حر من الأوراس — قصة المنتج، فوائده، ونموذج طلب بالدفع عند الاستلام."
+			},
+			"serum": {
+				"name": "Serum Éclat",
+				"category": "تجميل",
+				"prompt": "Page produit pour un sérum éclat à la vitamine C — avant/après, ingrédients, et formulaire de commande COD."
+			},
+			"dental": {
+				"name": "Cabinet Dentaire Amine",
+				"category": "موقع تعريفي",
+				"prompt": "Un site vitrine pour un cabinet dentaire à Alger — services, équipe, horaires et prise de rendez-vous."
+			},
+			"formation": {
+				"name": "Formation Ads FR",
+				"category": "خدمة",
+				"prompt": "A landing page for a media-buying training program in French — curriculum, testimonials, and an enrollment form."
+			},
+			"sneakers": {
+				"name": "Sneakers Drop DZ",
+				"category": "عرض ترويجي",
+				"prompt": "A limited-time promo page for a sneakers drop in Algiers — bold visuals, size picker, and COD checkout."
+			}
+		}
+	},
+	"features": {
+		"kicker": "لماذا Wandit",
+		"title": "مصمَّم لطريقة بيعك الحقيقية.",
+		"items": {
+			"rtl": {
+				"title": "العربية و RTL من اليوم الأول",
+				"body": "اكتب طلبك بالعربية واحصل على صفحة أصلية من اليمين إلى اليسار — التخطيط والخط ونموذج الطلب مشمولة. والفرنسية أيضًا."
+			},
+			"leads": {
+				"title": "إدارة عملاء الدفع عند الاستلام",
+				"body": "كل طلب يصل إلى مسار يمكنك إدارته — تأكيد، شحن، تم."
+			},
+			"publish": {
+				"title": "نشر بنقرة واحدة",
+				"body": "صفحتك على عنوان حقيقي في ثوانٍ. لا استضافة تشغل بالك."
+			},
+			"credits": {
+				"title": "رصيد شفاف",
+				"body": "كل إجراء يعرض سعره قبل أن تنفّذه. لا فواتير مفاجئة."
+			},
+			"mobile": {
+				"title": "صفحات للهاتف أولًا",
+				"body": "مصممة للهواتف التي يتصفح عليها زبائنك فعلًا."
+			},
+			"versions": {
+				"title": "الإصدارات والتراجع",
+				"body": "كل تعديل إصدار. استعد أيًّا منها بنقرة واحدة."
+			}
+		},
+		"pipeline": ["قيد التأكيد", "مؤكد", "تم الشحن"],
+		"generateLabel": "توليد —",
+		"directionPanel": {
+			"ltrLang": "FR",
+			"rtlLang": "AR"
+		}
+	},
+	"pricing": {
+		"kicker": "الأسعار",
+		"title": "ابدأ مجانًا. توسّع عندما تبيع.",
+		"note": "النشر وجمع العملاء المحتملين مجانيان دائمًا.",
+		"free": {
+			"name": "مجاني",
+			"tagline": "لصفحاتك الأولى",
+			"price": "مجاني",
+			"creditsLine": "100 رصيد مشمولة",
+			"features": [
+				"رصيد يكفي لنحو 10 صفحات",
+				"النشر مجاني دائمًا",
+				"جمع العملاء المحتملين مجاني دائمًا",
+				"صفحات بالعربية والفرنسية والإنجليزية"
+			],
+			"cta": "ابدأ مجانًا"
+		},
+		"pro": {
+			"name": "Pro",
+			"badge": "الأكثر رواجًا",
+			"tagline": "للبائعين الذين يديرون إعلانات",
+			"priceNote": "سعر الحجز المبكر — قريبًا",
+			"sliderLabel": "الرصيد لكل باقة",
+			"creditsUnit": "رصيد",
+			"features": [
+				"كل ما في المجاني",
+				"باقات رصيد أكبر",
+				"توليد بأولوية",
+				"إزالة شارة Wandit"
+			],
+			"cta": "احصل على وصول مبكر"
+		},
+		"business": {
+			"name": "Business",
+			"tagline": "للوكالات والفرق",
+			"price": "حسب الطلب",
+			"features": ["مقاعد لفريقك", "مساحات عمل للعملاء", "صفحات بعلامة بيضاء"],
+			"cta": "تواصل معنا"
+		}
+	},
+	"faq": {
+		"kicker": "الأسئلة الشائعة",
+		"title": "أسئلة، ولها إجابات.",
+		"items": [
+			{
+				"q": "ما هو الرصيد؟",
+				"a": "الرصيد هو عملة Wandit الوحيدة. توليد صفحة يكلّف 10 من الرصيد، وتعديل عبر المحادثة يكلّف 1 — وترى السعر دائمًا قبل أن تنفّذ."
+			},
+			{
+				"q": "هل النشر مجاني؟",
+				"a": "نعم. نشر صفحتك وجمع العملاء المحتملين لا يكلّفان رصيدًا أبدًا. تدفع فقط عندما يعمل الذكاء الاصطناعي من أجلك."
+			},
+			{
+				"q": "هل تدعمون العربية و RTL؟",
+				"a": "بالكامل. اكتب طلبك بالعربية وتحصل على صفحة أصلية من اليمين إلى اليسار — التخطيط والخطوط ونموذج الطلب مشمولة."
+			},
+			{
+				"q": "أين تُستضاف صفحاتي؟",
+				"a": "كل صفحة منشورة تحصل على عنوان your-page.wandit.app على استضافة سريعة. النطاقات المخصصة على خارطة الطريق."
+			},
+			{
+				"q": "ماذا يحدث عند نفاد رصيدي؟",
+				"a": "تبقى صفحاتك المنشورة على الإنترنت وتواصل جمع الطلبات. لكن لا يمكنك التوليد أو التعديل حتى تشحن رصيدك."
+			}
+		]
+	},
+	"ctaBand": {
+		"title": "من الفكرة إلى الطلب الأول.",
+		"sub": "صِف منتجك الليلة. استقبل الطلبات غدًا.",
+		"button": "ابدأ الإنشاء مجانًا"
+	},
+	"footer": {
+		"tagline": "أسرع طريق من فكرة إلى صفحة تبيع.",
+		"columnTitles": {
+			"product": "المنتج",
+			"company": "الشركة"
+		},
+		"linkLabels": {
+			"how-it-works": "كيف يعمل",
+			"examples": "أمثلة",
+			"pricing": "الأسعار",
+			"docs": "الوثائق",
+			"support": "الدعم",
+			"contact": "تواصل"
+		},
+		"copyright": "© 2026 Wandit",
+		"madeIn": "صُنع للبائعين في الجزائر"
+	}
+}

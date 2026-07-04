@@ -58,7 +58,7 @@ function ToggleGroupItem({
 		<ToggleGroupPrimitive.Item
 			data-slot="toggle-group-item"
 			className={cn(
-				"focus:z-10 focus-visible:z-10 group-data-[spacing=0]/toggle-group:rounded-none group-data-[spacing=0]/toggle-group:px-2 group-data-[spacing=0]/toggle-group:data-[variant=outline]:border-l-0 group-data-[spacing=0]/toggle-group:has-data-[icon=inline-end]:pr-1.5 group-data-[spacing=0]/toggle-group:has-data-[icon=inline-start]:pl-1.5 group-data-[spacing=0]/toggle-group:first:data-[variant=outline]:border-l",
+				"focus:z-10 focus-visible:z-10 group-data-[spacing=0]/toggle-group:rounded-none group-data-[spacing=0]/toggle-group:px-2 group-data-[spacing=0]/toggle-group:data-[variant=outline]:border-s-0 group-data-[spacing=0]/toggle-group:has-data-[icon=inline-start]:ps-1.5 group-data-[spacing=0]/toggle-group:has-data-[icon=inline-end]:pe-1.5 group-data-[spacing=0]/toggle-group:first:data-[variant=outline]:border-s",
 				toggleVariants({
 					variant: context.variant || variant,
 					size: context.size || size,

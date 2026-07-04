@@ -18,6 +18,7 @@ import {
 import type * as React from "react";
 import { useEffect, useRef, useState } from "react";
 
+import { useTranslation } from "@/lib/i18n";
 import type { PageVersion } from "../../api/dto";
 import { ASSETS_CANVAS_BOARD, ASSETS_CANVAS_ZOOM } from "../../lib/constants";
 import {
@@ -104,21 +105,23 @@ function CanvasToolButton({
 }
 
 function CanvasToolbar() {
+	const { t } = useTranslation();
+
 	return (
 		<div
 			className="absolute bottom-[18px] left-1/2 z-30 flex -translate-x-1/2 items-center gap-0.5 rounded-[14px] bg-foreground p-1.5 text-background shadow-[0_10px_34px_rgba(0,0,0,.28)] dark:bg-background dark:text-foreground"
 			onPointerDown={(event) => event.stopPropagation()}
 		>
-			<CanvasToolButton label="Select" active>
+			<CanvasToolButton label={t("workspace.assets.toolSelect")} active>
 				<MousePointer2 className="size-[15px]" />
 			</CanvasToolButton>
-			<CanvasToolButton label="Frame">
+			<CanvasToolButton label={t("workspace.assets.toolFrame")}>
 				<Frame className="size-[15px]" />
 			</CanvasToolButton>
-			<CanvasToolButton label="Image">
+			<CanvasToolButton label={t("workspace.assets.toolImage")}>
 				<ImageIcon className="size-[15px]" />
 			</CanvasToolButton>
-			<CanvasToolButton label="Text">
+			<CanvasToolButton label={t("workspace.assets.toolText")}>
 				<Type className="size-[15px]" />
 			</CanvasToolButton>
 			<div
@@ -130,7 +133,7 @@ function CanvasToolbar() {
 				className="inline-flex h-[34px] items-center gap-1.5 rounded-[9px] bg-primary px-3 font-medium text-primary-foreground text-xs transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/70 focus-visible:ring-offset-2 focus-visible:ring-offset-foreground dark:ring-offset-background"
 			>
 				<Plus className="size-[13px]" />
-				Generate
+				{t("workspace.assets.generate")}
 			</button>
 		</div>
 	);
@@ -145,17 +148,18 @@ function ZoomPill({
 	onZoomIn: () => void;
 	onZoomOut: () => void;
 }) {
+	const { t } = useTranslation();
 	const canZoomOut = zoomPercent > ASSETS_CANVAS_ZOOM.MIN;
 	const canZoomIn = zoomPercent < ASSETS_CANVAS_ZOOM.MAX;
 
 	return (
 		<div
-			className="absolute right-[18px] bottom-5 z-30 flex items-center gap-px rounded-[10px] border bg-card p-1 shadow-[0_4px_14px_rgba(26,25,23,.10)]"
+			className="absolute end-[18px] bottom-5 z-30 flex items-center gap-px rounded-[10px] border bg-card p-1 shadow-[0_4px_14px_rgba(26,25,23,.10)]"
 			onPointerDown={(event) => event.stopPropagation()}
 		>
 			<button
 				type="button"
-				aria-label="Zoom out"
+				aria-label={t("workspace.assets.zoomOut")}
 				disabled={!canZoomOut}
 				onClick={onZoomOut}
 				className="grid size-7 place-items-center rounded-[7px] text-foreground transition-colors hover:bg-foreground/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 disabled:pointer-events-none disabled:opacity-40"
@@ -167,7 +171,7 @@ function ZoomPill({
 			</span>
 			<button
 				type="button"
-				aria-label="Zoom in"
+				aria-label={t("workspace.assets.zoomIn")}
 				disabled={!canZoomIn}
 				onClick={onZoomIn}
 				className="grid size-7 place-items-center rounded-[7px] text-foreground transition-colors hover:bg-foreground/[0.06] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60 disabled:pointer-events-none disabled:opacity-40"
@@ -478,6 +482,7 @@ export function AssetsCanvasBoard({ versions }: { versions: PageVersion[] }) {
 								/>
 							</div>
 							<div
+								dir="auto"
 								className="mt-1.5 truncate px-0.5 font-mono text-[9.5px] text-muted-foreground"
 								title={version.label}
 							>

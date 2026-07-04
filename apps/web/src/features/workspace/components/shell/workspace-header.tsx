@@ -15,11 +15,12 @@ import { Spark } from "@/components/logo";
 import { ModeToggle } from "@/components/mode-toggle";
 import { UserMenu } from "@/features/auth";
 import { CreditsChip } from "@/features/credits";
-import { WORKSPACE_COPY } from "../../lib/constants";
+import { useTranslation } from "@/lib/i18n";
 import { ProjectSwitcher } from "./project-switcher";
 import { PublishButton } from "./publish-button";
 
 export function WorkspaceHeader() {
+	const { t } = useTranslation();
 	return (
 		<header className="relative z-40 flex h-14 shrink-0 items-center gap-1.5 border-b bg-background/70 px-3 backdrop-blur-md">
 			<Tooltip>
@@ -28,7 +29,7 @@ export function WorkspaceHeader() {
 						asChild
 						variant="ghost"
 						size="icon-sm"
-						aria-label={WORKSPACE_COPY.backToDashboard}
+						aria-label={t("workspace.backToDashboard")}
 					>
 						<Link to="/dashboard">
 							<Spark className="size-4 text-primary" />
@@ -36,7 +37,7 @@ export function WorkspaceHeader() {
 					</Button>
 				</TooltipTrigger>
 				<TooltipContent side="bottom">
-					{WORKSPACE_COPY.backToDashboard}
+					{t("workspace.backToDashboard")}
 				</TooltipContent>
 			</Tooltip>
 			<Separator
@@ -45,10 +46,10 @@ export function WorkspaceHeader() {
 			/>
 			<ProjectSwitcher />
 
-			<div className="ml-auto flex items-center gap-1.5">
+			<div className="ms-auto flex items-center gap-1.5">
 				<span className="hidden items-center gap-1.5 rounded-full bg-muted/60 px-2.5 py-1 font-mono text-[11px] text-muted-foreground md:flex">
 					<span aria-hidden className="size-1.5 rounded-full bg-success" />
-					{WORKSPACE_COPY.autosaved}
+					{t("workspace.autosaved")}
 				</span>
 				<CreditsChip />
 				<span className="hidden sm:block">
