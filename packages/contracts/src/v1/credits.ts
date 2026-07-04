@@ -67,6 +67,8 @@ export const CREDIT_COSTS = {
 	videoGeneration: 25,
 } as const;
 
+export const SIGNUP_GRANT_CREDITS = 100;
+
 export const creditsRoutes = {
 	balance: "/api/v1/credits/balance",
 	ledger: "/api/v1/credits/ledger",
