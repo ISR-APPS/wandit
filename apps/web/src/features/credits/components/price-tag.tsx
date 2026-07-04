@@ -5,11 +5,17 @@ import { Spark } from "@/components/logo";
 type PriceTagProps = {
 	cost: number;
 	withIcon?: boolean;
+	showUnit?: boolean;
 	className?: string;
 };
 
 /** "10 credits" in the mono ledger voice. Muted by default; restyle via className. */
-export function PriceTag({ cost, withIcon = false, className }: PriceTagProps) {
+export function PriceTag({
+	cost,
+	withIcon = false,
+	showUnit = true,
+	className,
+}: PriceTagProps) {
 	return (
 		<span
 			className={cn(
@@ -18,7 +24,8 @@ export function PriceTag({ cost, withIcon = false, className }: PriceTagProps) {
 			)}
 		>
 			{withIcon ? <Spark className="size-3" /> : null}
-			{cost} {cost === 1 ? "credit" : "credits"}
+			{cost}
+			{showUnit ? ` ${cost === 1 ? "credit" : "credits"}` : null}
 		</span>
 	);
 }
