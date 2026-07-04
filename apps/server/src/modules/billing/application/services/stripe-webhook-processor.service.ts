@@ -2,6 +2,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import {
 	type ParsedPriceLookupKey,
 	parsePriceLookupKey,
+	priceLookupKey,
 } from "@wandit/contracts";
 import type Stripe from "stripe";
 
@@ -50,7 +51,7 @@ export class StripeWebhookProcessor {
 				event.id,
 			);
 
-			if (existing?.status !== "failed") {
+			if (existing?.status === "processed" || existing?.status === "skipped") {
 				return { received: true };
 			}
 		}
@@ -263,7 +264,10 @@ export class StripeWebhookProcessor {
 
 		const userId = await this.requiredUserIdForInvoice(invoice);
 		const paymentIntentId = this.paymentIntentIdFromInvoice(invoice);
-		const { newPlan, oldPlan } = await this.subscriptionUpdatePlans(invoice);
+		const { newPlan, oldPlan } = await this.subscriptionUpdatePlans(
+			invoice,
+			currentPlan,
+		);
 
 		if (
 			oldPlan &&
@@ -309,7 +313,7 @@ export class StripeWebhookProcessor {
 				reason: "subscription_update_interval_change",
 			},
 		});
-		await this.creditsService.grant(userId, this.allotment(currentPlan), {
+		await this.creditsService.grant(userId, this.allotment(newPlan.parsed), {
 			bucket: "plan",
 			idempotencyKey: `inv:${invoice.id}:grant`,
 			meta: this.withPaymentIntent(
@@ -568,24 +572,36 @@ export class StripeWebhookProcessor {
 		);
 	}
 
-	private async subscriptionUpdatePlans(invoice: Stripe.Invoice) {
+	private async subscriptionUpdatePlans(
+		invoice: Stripe.Invoice,
+		newPlan: ParsedPriceLookupKey,
+	) {
 		const lines = await this.parsedInvoiceLines(invoice);
-		const newPlan = lines.find((line) => !line.proration) ?? null;
+		const confirmedNewPlanLookupKey =
+			lines.find(
+				(line) =>
+					line.proration &&
+					line.amount > 0 &&
+					this.samePlan(line.parsed, newPlan),
+			)?.lookupKey ?? this.lookupKeyForParsedPlan(newPlan);
+		const currentPlan = {
+			lookupKey: confirmedNewPlanLookupKey,
+			parsed: newPlan,
+		};
 		const oldPlan =
 			lines.find(
 				(line) =>
 					line.proration &&
 					line.amount < 0 &&
-					(!newPlan || line.lookupKey !== newPlan.lookupKey),
+					line.lookupKey !== currentPlan.lookupKey,
 			) ??
 			lines.find(
-				(line) =>
-					line.proration && (!newPlan || line.lookupKey !== newPlan.lookupKey),
+				(line) => line.proration && line.lookupKey !== currentPlan.lookupKey,
 			) ??
 			null;
 
 		return {
-			newPlan,
+			newPlan: currentPlan,
 			oldPlan,
 		};
 	}
@@ -746,6 +762,18 @@ export class StripeWebhookProcessor {
 
 	private allotment(parsed: ParsedPriceLookupKey) {
 		return parsed.tierCredits * (parsed.interval === "year" ? 12 : 1);
+	}
+
+	private lookupKeyForParsedPlan(parsed: ParsedPriceLookupKey) {
+		return priceLookupKey(parsed.plan, parsed.tierCredits, parsed.interval);
+	}
+
+	private samePlan(left: ParsedPriceLookupKey, right: ParsedPriceLookupKey) {
+		return (
+			left.interval === right.interval &&
+			left.plan === right.plan &&
+			left.tierCredits === right.tierCredits
+		);
 	}
 
 	private dateFromSeconds(seconds: number) {

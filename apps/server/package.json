@@ -7,6 +7,7 @@
 		"check-types": "tsc -b",
 		"dev": "tsx watch src/main.ts",
 		"start": "node dist/main.mjs",
+		"test": "vitest run",
 		"stripe:listen": "stripe listen --events checkout.session.completed,customer.subscription.created,customer.subscription.updated,customer.subscription.deleted,invoice.paid,invoice.payment_failed,charge.refunded,charge.dispute.created --forward-to localhost:3000/api/webhooks/stripe",
 		"stripe:seed": "tsx scripts/seed-stripe.ts"
 	},
@@ -35,6 +36,7 @@
 		"@types/node": "^22.20.0",
 		"tsdown": "^0.21.10",
 		"tsx": "^4.22.4",
-		"typescript": "catalog:"
+		"typescript": "catalog:",
+		"vitest": "^4.1.9"
 	}
 }

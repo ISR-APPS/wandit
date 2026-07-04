@@ -39,13 +39,13 @@ export class StripeWebhookController {
 			});
 		}
 
+		let event: ReturnType<StripeProvider["constructWebhookEvent"]>;
+
 		try {
-			const event = this.stripeProvider.constructWebhookEvent(
+			event = this.stripeProvider.constructWebhookEvent(
 				request.rawBody,
 				signature,
 			);
-
-			return this.stripeWebhookProcessor.process(event);
 		} catch (error) {
 			if (error instanceof BillingNotConfiguredError) {
 				throw error;
@@ -56,5 +56,8 @@ export class StripeWebhookController {
 				message: "Invalid Stripe webhook signature",
 			});
 		}
+
+		// Processing failures must surface as 5xx so Stripe retries the event.
+		return this.stripeWebhookProcessor.process(event);
 	}
 }
