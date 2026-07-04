@@ -38,6 +38,28 @@ export const WORKSPACE_PANELS_STORAGE_ID = "wandit-workspace-panels";
 /** Assets tab view mode (grid vs freeform board), mirrors chat-open persistence. */
 export const ASSETS_VIEW_STORAGE_KEY = "wandit-workspace-assets-view";
 
+export const ASSETS_CANVAS_BOARD = {
+	WIDTH: 1200,
+	HEIGHT: 820,
+	PAN_OVERLAP: 80,
+} as const;
+
+export const ASSETS_CANVAS_ZOOM = {
+	MIN: 28,
+	MAX: 140,
+	STEP: 8,
+	DEFAULT: 68,
+} as const;
+
+export const ASSETS_CANVAS_LAYOUT_SLOTS = [
+	{ x: 80, y: 104, width: 184, height: 184 },
+	{ x: 452, y: 56, width: 196, height: 245 },
+	{ x: 250, y: 352, width: 184, height: 184 },
+	{ x: 704, y: 150, width: 150, height: 266 },
+	{ x: 772, y: 452, width: 300, height: 169 },
+	{ x: 118, y: 594, width: 260, height: 195 },
+] as const;
+
 // Mock job pacing (ms) — tuned to feel like a real queue without dragging.
 export const THINKING_DELAY_MS = 650;
 export const STREAM_WORD_INTERVAL_MS = 30;
