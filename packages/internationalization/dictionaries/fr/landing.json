@@ -1,0 +1,231 @@
+{
+	"meta": {
+		"title": "Wandit — des landing pages IA qui vendent",
+		"description": "Wandit transforme ton prompt en landing page prête à vendre — publie et collecte tes commandes COD en quelques minutes."
+	},
+	"nav": {
+		"links": {
+			"how-it-works": "Comment ça marche",
+			"examples": "Exemples",
+			"pricing": "Tarifs",
+			"faq": "FAQ"
+		},
+		"signIn": "Se connecter",
+		"getStarted": "Commencer",
+		"dashboard": "Tableau de bord",
+		"backToTop": "Wandit — retour en haut"
+	},
+	"hero": {
+		"titleLine1": "Décris-le. Lance-le.",
+		"titleLine2": "Vends-le.",
+		"sub": "Wandit transforme un prompt en landing page prête à l'emploi — publie et récolte des commandes COD en quelques minutes.",
+		"chips": [
+			{
+				"label": "Page produit COD",
+				"prompt": "A COD product page for a vintage leather watch — hero shot, three benefit blocks, and an order form with wilaya and commune fields."
+			},
+			{
+				"label": "Site vitrine",
+				"prompt": "Un site vitrine élégant pour un cabinet dentaire à Alger — services, équipe, horaires et prise de rendez-vous."
+			},
+			{
+				"label": "Page de service",
+				"prompt": "A landing page for a media-buying training program in French — curriculum, testimonials, and an enrollment form."
+			},
+			{
+				"label": "Page promo",
+				"prompt": "A limited-time promo page for a sneakers drop in Algiers — bold visuals, size picker, and COD checkout."
+			}
+		],
+		"trust": [
+			"Pages en AR & FR",
+			"Formulaires de commande COD",
+			"Publie en un clic"
+		]
+	},
+	"howItWorks": {
+		"kicker": "Comment ça marche",
+		"title": "Trois étapes vers ta première commande.",
+		"steps": [
+			{
+				"title": "Décris-le",
+				"body": "Écris ce que tu vends en arabe, français ou anglais. Wandit rédige une landing page complète en quelques secondes."
+			},
+			{
+				"title": "Personnalise-la",
+				"body": "Itère dans le chat — change les sections, les couleurs et les textes. Chaque modification devient une version que tu peux restaurer."
+			},
+			{
+				"title": "Publie & vends",
+				"body": "Mets en ligne sur your-page.wandit.app en un clic. Les commandes COD arrivent directement dans ta boîte de leads."
+			}
+		]
+	},
+	"examples": {
+		"kicker": "Exemples",
+		"title": "Fait avec Wandit",
+		"sub": "Les types de pages que les vendeurs lancent chaque jour — choisis-en une pour démarrer.",
+		"startFrom": "Partir de l'exemple : {name}",
+		"rtlBadge": "RTL",
+		"items": {
+			"watch": {
+				"name": "Montre Vintage COD",
+				"category": "Produit COD",
+				"prompt": "A COD product page for a vintage leather watch — hero shot, three benefit blocks, and an order form with wilaya and commune fields."
+			},
+			"honey": {
+				"name": "عسل الأوراس",
+				"category": "Produit COD",
+				"prompt": "صفحة هبوط لعسل جبلي حر من الأوراس — قصة المنتج، فوائده، ونموذج طلب بالدفع عند الاستلام."
+			},
+			"serum": {
+				"name": "Serum Éclat",
+				"category": "Beauté",
+				"prompt": "Page produit pour un sérum éclat à la vitamine C — avant/après, ingrédients, et formulaire de commande COD."
+			},
+			"dental": {
+				"name": "Cabinet Dentaire Amine",
+				"category": "Site vitrine",
+				"prompt": "Un site vitrine pour un cabinet dentaire à Alger — services, équipe, horaires et prise de rendez-vous."
+			},
+			"formation": {
+				"name": "Formation Ads FR",
+				"category": "Service",
+				"prompt": "A landing page for a media-buying training program in French — curriculum, testimonials, and an enrollment form."
+			},
+			"sneakers": {
+				"name": "Sneakers Drop DZ",
+				"category": "Promo",
+				"prompt": "A limited-time promo page for a sneakers drop in Algiers — bold visuals, size picker, and COD checkout."
+			}
+		}
+	},
+	"features": {
+		"kicker": "Pourquoi Wandit",
+		"title": "Conçu pour ta façon de vendre.",
+		"items": {
+			"rtl": {
+				"title": "AR & RTL dès le premier jour",
+				"body": "Écris ton prompt en arabe et obtiens une page native de droite à gauche — mise en page, typo et formulaire de commande inclus. Le français aussi."
+			},
+			"leads": {
+				"title": "CRM leads COD",
+				"body": "Chaque commande arrive dans un pipeline que tu peux gérer — confirmer, expédier, terminé."
+			},
+			"publish": {
+				"title": "Publication en un clic",
+				"body": "Ta page en ligne sur une vraie adresse en quelques secondes. Aucun hébergement à gérer."
+			},
+			"credits": {
+				"title": "Crédits transparents",
+				"body": "Chaque action affiche son prix avant que tu agisses. Aucune facture surprise."
+			},
+			"mobile": {
+				"title": "Pages mobile-first",
+				"body": "Pensées pour les téléphones sur lesquels tes acheteurs scrollent vraiment."
+			},
+			"versions": {
+				"title": "Versions & restauration",
+				"body": "Chaque modification est une version. Restaure n'importe laquelle en un clic."
+			}
+		},
+		"pipeline": ["à confirmer", "confirmé", "expédié"],
+		"generateLabel": "Générer —",
+		"directionPanel": {
+			"ltrLang": "FR",
+			"rtlLang": "AR"
+		}
+	},
+	"pricing": {
+		"kicker": "Tarifs",
+		"title": "Commence gratuitement. Passe à l'échelle quand tu vends.",
+		"note": "La publication et la collecte de leads sont toujours gratuites.",
+		"free": {
+			"name": "Gratuit",
+			"tagline": "Pour tes premières pages",
+			"price": "Gratuit",
+			"creditsLine": "100 crédits inclus",
+			"features": [
+				"Assez de crédits pour ~10 pages",
+				"Publication toujours gratuite",
+				"Collecte de leads toujours gratuite",
+				"Pages en AR, FR & EN"
+			],
+			"cta": "Commencer gratuitement"
+		},
+		"pro": {
+			"name": "Pro",
+			"badge": "Populaire",
+			"tagline": "Pour les vendeurs qui font de la pub",
+			"priceNote": "Tarif early-bird — bientôt",
+			"sliderLabel": "Crédits par pack",
+			"creditsUnit": "crédits",
+			"features": [
+				"Tout ce qu'il y a dans Gratuit",
+				"Packs de crédits plus grands",
+				"Génération prioritaire",
+				"Retire le badge Wandit"
+			],
+			"cta": "Accès anticipé"
+		},
+		"business": {
+			"name": "Business",
+			"tagline": "Pour les agences & équipes",
+			"price": "Sur mesure",
+			"features": [
+				"Des sièges pour ton équipe",
+				"Espaces de travail clients",
+				"Pages en marque blanche"
+			],
+			"cta": "Nous contacter"
+		}
+	},
+	"faq": {
+		"kicker": "FAQ",
+		"title": "Tes questions, nos réponses.",
+		"items": [
+			{
+				"q": "C'est quoi les crédits ?",
+				"a": "Les crédits sont la monnaie unique de Wandit. Générer une page coûte 10 crédits, une modif en chat coûte 1 — et tu vois toujours le prix avant d'agir."
+			},
+			{
+				"q": "La publication est-elle gratuite ?",
+				"a": "Oui. Publier ta page et collecter des leads ne coûtent jamais de crédits. Tu ne dépenses que quand l'IA travaille pour toi."
+			},
+			{
+				"q": "L'arabe et le RTL sont-ils gérés ?",
+				"a": "Totalement. Écris ton prompt en arabe et tu obtiens une page native de droite à gauche — mise en page, typographie et formulaire de commande inclus."
+			},
+			{
+				"q": "Où vivent mes pages ?",
+				"a": "Chaque page publiée reçoit une adresse your-page.wandit.app sur un hébergement rapide. Les domaines personnalisés sont sur la feuille de route."
+			},
+			{
+				"q": "Que se passe-t-il quand mes crédits sont épuisés ?",
+				"a": "Tes pages publiées restent en ligne et continuent de collecter des commandes. Tu ne peux simplement plus générer ni éditer jusqu'à ce que tu recharges."
+			}
+		]
+	},
+	"ctaBand": {
+		"title": "Du prompt à la première commande.",
+		"sub": "Décris ton produit ce soir. Prends des commandes demain.",
+		"button": "Commence à créer gratuitement"
+	},
+	"footer": {
+		"tagline": "Le chemin le plus rapide d'une idée à une page qui vend.",
+		"columnTitles": {
+			"product": "Produit",
+			"company": "Entreprise"
+		},
+		"linkLabels": {
+			"how-it-works": "Comment ça marche",
+			"examples": "Exemples",
+			"pricing": "Tarifs",
+			"docs": "Docs",
+			"support": "Support",
+			"contact": "Contact"
+		},
+		"copyright": "© 2026 Wandit",
+		"madeIn": "Conçu pour les vendeurs en DZ"
+	}
+}

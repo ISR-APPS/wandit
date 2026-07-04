@@ -1,3 +1,5 @@
+import { getCurrentDictionary, getCurrentLocale, translate } from "@/lib/i18n";
+
 /** Connector words (FR/EN/AR transliterations) a name must not end on. */
 const TRAILING_STOPWORDS = new Set([
 	"de",
@@ -53,7 +55,13 @@ export function deriveProjectName(prompt: string): string {
 	const name = words
 		.map((word) => word.charAt(0).toUpperCase() + word.slice(1))
 		.join(" ");
-	if (!name) return "Untitled project";
+	if (!name)
+		return translate(
+			getCurrentDictionary(),
+			"projects.untitled",
+			undefined,
+			getCurrentLocale(),
+		);
 	return name.length > 48 ? `${name.slice(0, 48).trimEnd()}…` : name;
 }
 

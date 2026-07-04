@@ -1,3 +1,7 @@
+import {
+	useDictionary,
+	useTranslation,
+} from "@wandit/internationalization/react";
 import { cn } from "@wandit/ui/lib/utils";
 import {
 	ChevronRight,
@@ -13,7 +17,7 @@ import type * as React from "react";
 
 import { CREDIT_COSTS, PriceTag } from "@/features/credits";
 
-import { FEATURES } from "../lib/constants";
+import { FEATURES_CONFIG } from "../lib/constants";
 import { Reveal } from "./reveal";
 import { SectionHeader } from "./section-header";
 
@@ -55,7 +59,7 @@ function FauxLeadRow({ name, phone }: { name: string; phone: string }) {
 			<span className="size-5 shrink-0 rounded-full bg-foreground/10" />
 			<span className={cn("h-1.5 rounded-full bg-foreground/20", name)} />
 			<span
-				className={cn("ml-auto h-1.5 rounded-full bg-foreground/10", phone)}
+				className={cn("ms-auto h-1.5 rounded-full bg-foreground/10", phone)}
 			/>
 			<Phone className="size-3 shrink-0 text-success" />
 		</div>
@@ -63,13 +67,14 @@ function FauxLeadRow({ name, phone }: { name: string; phone: string }) {
 }
 
 function DirectionPanel({ rtl }: { rtl?: boolean }) {
+	const { directionPanel } = useDictionary().landing.features;
 	return (
 		<div
 			dir={rtl ? "rtl" : undefined}
 			className="rounded-lg border border-border/70 bg-background/60 p-3"
 		>
 			<div className="mb-2 flex items-center justify-between font-mono text-[10px] text-muted-foreground">
-				<span>{rtl ? "AR" : "FR"}</span>
+				<span>{rtl ? directionPanel.rtlLang : directionPanel.ltrLang}</span>
 				<span>{rtl ? "RTL" : "LTR"}</span>
 			</div>
 			<div className="flex flex-col items-start gap-1.5">
@@ -83,12 +88,17 @@ function DirectionPanel({ rtl }: { rtl?: boolean }) {
 }
 
 export function FeaturesBento() {
-	const { items, pipeline, publishUrl } = FEATURES;
+	const { t } = useTranslation();
+	const { items, pipeline, generateLabel } = useDictionary().landing.features;
+	const { publishUrl } = FEATURES_CONFIG;
 
 	return (
 		<section className="px-4 py-16 md:py-24">
 			<div className="mx-auto max-w-6xl">
-				<SectionHeader kicker={FEATURES.kicker} title={FEATURES.title} />
+				<SectionHeader
+					kicker={t("landing.features.kicker")}
+					title={t("landing.features.title")}
+				/>
 				<div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-12">
 					<Reveal className="sm:col-span-2 lg:col-span-7">
 						<BentoCell
@@ -118,11 +128,11 @@ export function FeaturesBento() {
 									<span className="rounded-full bg-ember-1/15 px-2 py-1 text-ember-2 dark:text-ember-1">
 										{pipeline[0]}
 									</span>
-									<ChevronRight className="size-3 text-muted-foreground/60" />
+									<ChevronRight className="size-3 text-muted-foreground/60 rtl:rotate-180" />
 									<span className="rounded-full bg-primary/15 px-2 py-1 text-primary">
 										{pipeline[1]}
 									</span>
-									<ChevronRight className="size-3 text-muted-foreground/60" />
+									<ChevronRight className="size-3 text-muted-foreground/60 rtl:rotate-180" />
 									<span className="rounded-full bg-success/15 px-2 py-1 text-success">
 										{pipeline[2]}
 									</span>
@@ -160,7 +170,7 @@ export function FeaturesBento() {
 						>
 							<div className="mt-auto flex items-center gap-1.5 rounded-lg border border-border/70 bg-background/60 px-3 py-2">
 								<span className="font-mono text-muted-foreground text-xs">
-									Generate —
+									{generateLabel}
 								</span>
 								<PriceTag
 									cost={CREDIT_COSTS.generation}

@@ -18,12 +18,11 @@ import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import { PROJECT_NAME_MAX_LENGTH, useRenameProject } from "@/features/projects";
-import { WORKSPACE_COPY } from "../../lib/constants";
+import { useTranslation } from "@/lib/i18n";
 import { useWorkspace } from "../../lib/store";
 
-const COPY = WORKSPACE_COPY.settings;
-
 export function GeneralSection() {
+	const { t } = useTranslation();
 	const { project, projectId, state, updatePixels } = useWorkspace();
 	const rename = useRenameProject();
 
@@ -53,7 +52,7 @@ export function GeneralSection() {
 		if (nameDisabled) return;
 		rename.mutate(
 			{ id: projectId, name: trimmedName },
-			{ onSuccess: () => toast.success(COPY.nameSaved) },
+			{ onSuccess: () => toast.success(t("settings.nameSaved")) },
 		);
 	};
 
@@ -62,18 +61,22 @@ export function GeneralSection() {
 			metaPixelId: metaValue.trim() || null,
 			tiktokPixelId: tiktokValue.trim() || null,
 		});
-		toast.success(COPY.pixelsSaved);
+		toast.success(t("settings.pixelsSaved"));
 	};
 
 	return (
 		<Card>
 			<CardHeader>
-				<CardTitle className="font-display">{COPY.generalTitle}</CardTitle>
-				<CardDescription>{COPY.generalDescription}</CardDescription>
+				<CardTitle className="font-display">
+					{t("settings.generalTitle")}
+				</CardTitle>
+				<CardDescription>{t("settings.generalDescription")}</CardDescription>
 			</CardHeader>
 			<CardContent className="flex flex-col gap-6">
 				<div className="space-y-2">
-					<Label htmlFor="settings-project-name">{COPY.nameLabel}</Label>
+					<Label htmlFor="settings-project-name">
+						{t("settings.nameLabel")}
+					</Label>
 					<div className="flex items-center gap-2">
 						<Input
 							id="settings-project-name"
@@ -87,7 +90,7 @@ export function GeneralSection() {
 							{rename.isPending ? (
 								<Loader2 className="size-4 animate-spin" />
 							) : null}
-							{COPY.nameSave}
+							{t("settings.nameSave")}
 						</Button>
 					</div>
 				</div>
@@ -96,29 +99,31 @@ export function GeneralSection() {
 
 				<div className="flex flex-col gap-4">
 					<div>
-						<h3 className="font-medium text-sm">{COPY.pixelsTitle}</h3>
+						<h3 className="font-medium text-sm">{t("settings.pixelsTitle")}</h3>
 						<p className="mt-1 text-muted-foreground text-xs">
-							{COPY.pixelsDescription}
+							{t("settings.pixelsDescription")}
 						</p>
 					</div>
 					<div className="space-y-2">
-						<Label htmlFor="settings-meta-pixel">{COPY.metaPixelLabel}</Label>
+						<Label htmlFor="settings-meta-pixel">
+							{t("settings.metaPixelLabel")}
+						</Label>
 						<Input
 							id="settings-meta-pixel"
 							className="font-mono"
-							placeholder={COPY.pixelPlaceholder}
+							placeholder={t("settings.pixelPlaceholder")}
 							value={metaValue}
 							onChange={(e) => setMetaValue(e.target.value)}
 						/>
 					</div>
 					<div className="space-y-2">
 						<Label htmlFor="settings-tiktok-pixel">
-							{COPY.tiktokPixelLabel}
+							{t("settings.tiktokPixelLabel")}
 						</Label>
 						<Input
 							id="settings-tiktok-pixel"
 							className="font-mono"
-							placeholder={COPY.pixelPlaceholder}
+							placeholder={t("settings.pixelPlaceholder")}
 							value={tiktokValue}
 							onChange={(e) => setTiktokValue(e.target.value)}
 						/>
@@ -130,7 +135,7 @@ export function GeneralSection() {
 							onClick={handlePixelsSave}
 							disabled={pixelsUnchanged}
 						>
-							{COPY.pixelsSave}
+							{t("settings.pixelsSave")}
 						</Button>
 					</div>
 				</div>

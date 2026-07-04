@@ -22,7 +22,7 @@ export function ChatMessageView({
 			<div className="flex justify-end">
 				<div
 					dir="auto"
-					className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl rounded-br-md border border-border/60 bg-secondary px-3.5 py-2.5 text-sm leading-relaxed"
+					className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl rounded-ee-md border border-border/60 bg-secondary px-3.5 py-2.5 text-sm leading-relaxed"
 				>
 					{textContent}
 				</div>
@@ -54,7 +54,7 @@ export function ChatMessageView({
 								<span
 									aria-hidden
 									className={cn(
-										"ml-0.5 inline-block h-3.5 w-[2px] translate-y-0.5 animate-pulse rounded-full bg-primary",
+										"ms-0.5 inline-block h-3.5 w-[2px] translate-y-0.5 animate-pulse rounded-full bg-primary",
 									)}
 								/>
 							) : null}

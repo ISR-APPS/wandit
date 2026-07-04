@@ -1,4 +1,5 @@
 export * from "./http/envelope";
+export * from "./http/error-codes";
 export * from "./http/pagination";
 export * from "./v1/artifacts";
 export * from "./v1/chats";

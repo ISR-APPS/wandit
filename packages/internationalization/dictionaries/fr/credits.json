@@ -1,0 +1,34 @@
+{
+	"chipAriaLabel": "Solde de crédits",
+	"balanceLabel": "Crédits",
+	"usageOf": "{balance} sur {grant} restants",
+	"recentActivity": "Activité récente",
+	"emptyLedger": "Aucune activité pour l'instant.",
+	"topUpChip": "Recharger — bientôt",
+	"topUpDialog": "Recharge bientôt disponible",
+	"insufficientTitle": "Crédits insuffisants",
+	"insufficientBody": "Cette action coûte plus que ce qu'il te reste. Les recharges arrivent bientôt.",
+	"costLabel": "Coût",
+	"balanceRowLabel": "Ton solde",
+	"seedGrantLabel": "Crédits de bienvenue",
+	"creditUnit": {
+		"zero": "{count} crédit",
+		"one": "{count} crédit",
+		"two": "{count} crédits",
+		"few": "{count} crédits",
+		"many": "{count} crédits",
+		"other": "{count} crédits"
+	},
+	"priceTag": {
+		"zero": "{action} — {count} crédit",
+		"one": "{action} — {count} crédit",
+		"two": "{action} — {count} crédits",
+		"few": "{action} — {count} crédits",
+		"many": "{action} — {count} crédits",
+		"other": "{action} — {count} crédits"
+	},
+	"actions": {
+		"generation": "Générer",
+		"chatMessage": "Envoyer"
+	}
+}

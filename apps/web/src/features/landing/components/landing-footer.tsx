@@ -1,9 +1,13 @@
+import { useDictionary } from "@wandit/internationalization/react";
+
 import { Logo } from "@/components/logo";
 
-import { FOOTER } from "../lib/constants";
+import { FOOTER_COLUMNS } from "../lib/constants";
 import { scrollToId } from "../lib/scroll";
 
 export function LandingFooter() {
+	const footer = useDictionary().landing.footer;
+
 	return (
 		<footer className="border-border border-t px-4 py-12 md:py-16">
 			<div className="mx-auto max-w-6xl">
@@ -11,29 +15,29 @@ export function LandingFooter() {
 					<div className="max-w-xs">
 						<Logo size="md" />
 						<p className="mt-3 text-muted-foreground text-sm leading-relaxed">
-							{FOOTER.tagline}
+							{footer.tagline}
 						</p>
 					</div>
 					<div className="grid grid-cols-2 gap-8 sm:gap-16">
-						{FOOTER.columns.map((column) => (
-							<div key={column.title}>
+						{FOOTER_COLUMNS.map((column) => (
+							<div key={column.id}>
 								<h4 className="font-medium font-sans text-foreground text-sm">
-									{column.title}
+									{footer.columnTitles[column.id]}
 								</h4>
 								<ul className="mt-3 flex flex-col gap-2">
 									{column.links.map((link) => (
-										<li key={link.label}>
+										<li key={link.key}>
 											<a
-												href={link.id ? `#${link.id}` : "#"}
+												href={link.scrollId ? `#${link.scrollId}` : "#"}
 												onClick={(e) => {
-													if (link.id) {
+													if (link.scrollId) {
 														e.preventDefault();
-														scrollToId(link.id);
+														scrollToId(link.scrollId);
 													}
 												}}
 												className="rounded-sm text-muted-foreground text-sm outline-none transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50"
 											>
-												{link.label}
+												{footer.linkLabels[link.key]}
 											</a>
 										</li>
 									))}
@@ -43,8 +47,8 @@ export function LandingFooter() {
 					</div>
 				</div>
 				<div className="mt-12 flex flex-wrap items-center justify-between gap-3 border-border border-t pt-6 font-mono text-muted-foreground text-xs">
-					<span>{FOOTER.copyright}</span>
-					<span>{FOOTER.madeIn}</span>
+					<span>{footer.copyright}</span>
+					<span>{footer.madeIn}</span>
 				</div>
 			</div>
 		</footer>

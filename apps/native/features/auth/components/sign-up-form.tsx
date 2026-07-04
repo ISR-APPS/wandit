@@ -1,5 +1,9 @@
 import { useForm } from "@tanstack/react-form";
 import {
+	useDictionary,
+	useTranslation,
+} from "@wandit/internationalization/react";
+import {
 	Button,
 	FieldError,
 	Input,
@@ -9,28 +13,32 @@ import {
 	TextField,
 	useToast,
 } from "heroui-native";
-import { useRef } from "react";
+import { useMemo, useRef } from "react";
 import { Text, type TextInput, View } from "react-native";
 import z from "zod";
 
 import { authClient } from "@/lib/auth-client";
 
-const signUpSchema = z.object({
-	name: z
-		.string()
-		.trim()
-		.min(1, "Name is required")
-		.min(2, "Name must be at least 2 characters"),
-	email: z
-		.string()
-		.trim()
-		.min(1, "Email is required")
-		.email("Enter a valid email address"),
-	password: z
-		.string()
-		.min(1, "Password is required")
-		.min(8, "Use at least 8 characters"),
-});
+type Translate = ReturnType<typeof useTranslation>["t"];
+
+function makeSignUpSchema(t: Translate) {
+	return z.object({
+		name: z
+			.string()
+			.trim()
+			.min(1, t("native.auth.validation.nameRequired"))
+			.min(2, t("native.auth.validation.nameMin")),
+		email: z
+			.string()
+			.trim()
+			.min(1, t("native.auth.validation.emailRequired"))
+			.email(t("native.auth.validation.emailInvalid")),
+		password: z
+			.string()
+			.min(1, t("native.auth.validation.passwordRequired"))
+			.min(8, t("native.auth.validation.passwordMin")),
+	});
+}
 
 function getErrorMessage(error: unknown): string | null {
 	if (!error) return null;
@@ -63,6 +71,9 @@ export function SignUpForm() {
 	const emailInputRef = useRef<TextInput>(null);
 	const passwordInputRef = useRef<TextInput>(null);
 	const { toast } = useToast();
+	const { t } = useTranslation();
+	const dictionary = useDictionary();
+	const signUpSchema = useMemo(() => makeSignUpSchema(t), [t]);
 
 	const form = useForm({
 		defaultValues: {
@@ -82,16 +93,24 @@ export function SignUpForm() {
 				},
 				{
 					onError(error) {
+						const code = error.error?.code;
+						const codeMessage =
+							code && Object.hasOwn(dictionary.errors.codes, code)
+								? t(`errors.codes.${code}` as Parameters<Translate>[0])
+								: null;
 						toast.show({
 							variant: "danger",
-							label: error.error?.message || "Failed to sign up",
+							label:
+								codeMessage ??
+								t("native.auth.toasts.signUpError") ??
+								error.error?.message,
 						});
 					},
 					onSuccess() {
 						formApi.reset();
 						toast.show({
 							variant: "success",
-							label: "Account created successfully",
+							label: t("native.auth.toasts.signUpSuccess"),
 						});
 					},
 				},
@@ -101,7 +120,9 @@ export function SignUpForm() {
 
 	return (
 		<Surface variant="secondary" className="rounded-lg p-4">
-			<Text className="mb-4 font-medium text-foreground">Create Account</Text>
+			<Text className="mb-4 font-medium text-foreground">
+				{t("native.auth.signUp.title")}
+			</Text>
 
 			<form.Subscribe
 				selector={(state) => ({
@@ -122,12 +143,12 @@ export function SignUpForm() {
 								<form.Field name="name">
 									{(field) => (
 										<TextField>
-											<Label>Name</Label>
+											<Label>{t("native.auth.fields.nameLabel")}</Label>
 											<Input
 												value={field.state.value}
 												onBlur={field.handleBlur}
 												onChangeText={field.handleChange}
-												placeholder="John Doe"
+												placeholder={t("native.auth.fields.namePlaceholder")}
 												autoComplete="name"
 												textContentType="name"
 												returnKeyType="next"
@@ -143,13 +164,13 @@ export function SignUpForm() {
 								<form.Field name="email">
 									{(field) => (
 										<TextField>
-											<Label>Email</Label>
+											<Label>{t("native.auth.fields.emailLabel")}</Label>
 											<Input
 												ref={emailInputRef}
 												value={field.state.value}
 												onBlur={field.handleBlur}
 												onChangeText={field.handleChange}
-												placeholder="email@example.com"
+												placeholder={t("native.auth.fields.emailPlaceholder")}
 												keyboardType="email-address"
 												autoCapitalize="none"
 												autoComplete="email"
@@ -167,13 +188,15 @@ export function SignUpForm() {
 								<form.Field name="password">
 									{(field) => (
 										<TextField>
-											<Label>Password</Label>
+											<Label>{t("native.auth.fields.passwordLabel")}</Label>
 											<Input
 												ref={passwordInputRef}
 												value={field.state.value}
 												onBlur={field.handleBlur}
 												onChangeText={field.handleChange}
-												placeholder="••••••••"
+												placeholder={t(
+													"native.auth.fields.passwordPlaceholder",
+												)}
 												secureTextEntry
 												autoComplete="new-password"
 												textContentType="newPassword"
@@ -192,7 +215,9 @@ export function SignUpForm() {
 									{isSubmitting ? (
 										<Spinner size="sm" color="default" />
 									) : (
-										<Button.Label>Create Account</Button.Label>
+										<Button.Label>
+											{t("native.auth.signUp.submit")}
+										</Button.Label>
 									)}
 								</Button>
 							</View>

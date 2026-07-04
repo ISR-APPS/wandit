@@ -44,21 +44,7 @@ import type * as React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { CREDIT_COSTS, PriceTag } from "@/features/credits";
-
-// PromptBox copy lives here (not lib/constants.ts) because this component is
-// owned separately from the rest of the projects feature.
-const COPY = {
-	placeholderHero: "Décris ce que tu veux vendre ou créer...",
-	placeholderCompact: "Décris ce que tu veux créer...",
-	hint: "AR & FR ready",
-	banner: "Beta — your first 10 pages are on us, no card needed",
-	generate: "Generate",
-	submitLabel: "Generate",
-	micLabel: "Voice input — coming soon",
-	engineLabel: "Moteur",
-	engineAutoBadge: "Recommandé",
-	engineResetHint: "Revient sur Auto à chaque changement de type.",
-} as const;
+import { useDictionary } from "@/lib/i18n";
 
 export type PromptMode =
 	| "sales-page"
@@ -68,123 +54,56 @@ export type PromptMode =
 	| "video"
 	| "flyer";
 
-type EngineOption = {
-	id: string;
-	label: string;
-	/** Trigger display name — curated so it never truncates mid-word. */
-	short: string;
+type EngineId =
+	| "auto"
+	| "wandit-pages"
+	| "gpt-image-2"
+	| "nano-banana-pro"
+	| "seedance-2"
+	| "veo-3";
+
+// Non-copy engine config: id + monogram. Labels/descriptions live in the
+// `projects.promptBox.engines` dictionary namespace.
+type EngineConfig = {
+	id: EngineId;
 	/** Two-char monogram call-sign; absent for Auto (which uses Sparkles). */
 	mono?: string;
-	/** Keep ≤ ~40 chars so it never truncates in the w-80 panel. */
-	description: string;
 };
 
-type ModeDef = {
+// Non-copy mode config: id + icon + engine list. Labels/placeholders live in
+// the `projects.promptBox.modes` dictionary namespace.
+type ModeConfig = {
 	id: PromptMode;
-	label: string;
 	icon: LucideIcon;
-	placeholder: string;
-	engines: readonly EngineOption[];
+	engines: readonly EngineConfig[];
 };
 
-const AUTO_ENGINE: EngineOption = {
-	id: "auto",
-	label: "Auto",
-	short: "Auto",
-	description: "Le meilleur moteur selon ta demande.",
-};
+const AUTO_ENGINE: EngineConfig = { id: "auto" };
 
-const PAGE_ENGINES: readonly EngineOption[] = [
+const PAGE_ENGINES: readonly EngineConfig[] = [
 	AUTO_ENGINE,
-	{
-		id: "wandit-pages",
-		label: "Wandit Pages",
-		short: "Wandit Pages",
-		mono: "WP",
-		description: "Optimisé pour landing pages et COD.",
-	},
+	{ id: "wandit-pages", mono: "WP" },
 ];
 
-const IMAGE_ENGINES: readonly EngineOption[] = [
+const IMAGE_ENGINES: readonly EngineConfig[] = [
 	AUTO_ENGINE,
-	{
-		id: "gpt-image-2",
-		label: "GPT Image 2",
-		short: "GPT Image 2",
-		mono: "G2",
-		description: "Texte net et compositions marketing.",
-	},
-	{
-		id: "nano-banana-pro",
-		label: "Nano Banana Pro",
-		short: "Nano Banana",
-		mono: "NB",
-		description: "Variantes rapides, produits, affiches.",
-	},
+	{ id: "gpt-image-2", mono: "G2" },
+	{ id: "nano-banana-pro", mono: "NB" },
 ];
 
-const VIDEO_ENGINES: readonly EngineOption[] = [
+const VIDEO_ENGINES: readonly EngineConfig[] = [
 	AUTO_ENGINE,
-	{
-		id: "seedance-2",
-		label: "Seedance 2.0",
-		short: "Seedance 2",
-		mono: "S2",
-		description: "Vidéos courtes pour ads et reels.",
-	},
-	{
-		id: "veo-3",
-		label: "Veo 3",
-		short: "Veo 3",
-		mono: "V3",
-		description: "Vidéos premium avec scènes plus riches.",
-	},
+	{ id: "seedance-2", mono: "S2" },
+	{ id: "veo-3", mono: "V3" },
 ];
 
-const MODES: readonly ModeDef[] = [
-	{
-		id: "sales-page",
-		label: "Page de vente",
-		icon: ShoppingBag,
-		placeholder: "Décris ton produit, le prix, l'offre et le formulaire COD...",
-		engines: PAGE_ENGINES,
-	},
-	{
-		id: "website",
-		label: "Site web",
-		icon: Globe2,
-		placeholder:
-			"Décris ton business, les sections du site et le style voulu...",
-		engines: PAGE_ENGINES,
-	},
-	{
-		id: "photos",
-		label: "Photos produit",
-		icon: Camera,
-		placeholder: "Décris les photos produit: fond, angle, ambiance, usage...",
-		engines: IMAGE_ENGINES,
-	},
-	{
-		id: "ads",
-		label: "Créas ads",
-		icon: Megaphone,
-		placeholder: "Décris les créatives pour TikTok, Meta ou Instagram...",
-		engines: IMAGE_ENGINES,
-	},
-	{
-		id: "video",
-		label: "Vidéo pub",
-		icon: Clapperboard,
-		placeholder: "Décris la vidéo: produit, scènes, format, durée, voix off...",
-		engines: VIDEO_ENGINES,
-	},
-	{
-		id: "flyer",
-		label: "Flyer",
-		icon: ImageIcon,
-		placeholder: "Décris le flyer: offre, couleurs, texte et format...",
-		engines: IMAGE_ENGINES,
-	},
+const MODES: readonly ModeConfig[] = [
+	{ id: "sales-page", icon: ShoppingBag, engines: PAGE_ENGINES },
+	{ id: "website", icon: Globe2, engines: PAGE_ENGINES },
+	{ id: "photos", icon: Camera, engines: IMAGE_ENGINES },
+	{ id: "ads", icon: Megaphone, engines: IMAGE_ENGINES },
+	{ id: "video", icon: Clapperboard, engines: VIDEO_ENGINES },
+	{ id: "flyer", icon: ImageIcon, engines: IMAGE_ENGINES },
 ];
 
 /**
@@ -192,7 +111,9 @@ const MODES: readonly ModeDef[] = [
  * Auto, mono call-sign otherwise), name + descriptor, trailing check. The
  * check stays in the tree at opacity-0 so rows never shift on selection.
  */
-function EngineRow({ option }: { option: EngineOption }) {
+function EngineRow({ option }: { option: EngineConfig }) {
+	const pb = useDictionary().projects.promptBox;
+	const copy = pb.engines[option.id];
 	const isAuto = option.id === AUTO_ENGINE.id;
 	return (
 		<DropdownMenuRadioItemBare
@@ -212,15 +133,15 @@ function EngineRow({ option }: { option: EngineOption }) {
 			</span>
 			<span className="flex min-w-0 flex-col">
 				<span className="flex items-center gap-1.5 font-medium text-sm leading-tight">
-					{option.label}
+					{copy.label}
 					{isAuto ? (
 						<span className="rounded-full bg-primary/10 px-1.5 py-px font-medium text-[10px] text-primary">
-							{COPY.engineAutoBadge}
+							{pb.engineAutoBadge}
 						</span>
 					) : null}
 				</span>
 				<span className="mt-0.5 truncate text-muted-foreground text-xs leading-snug">
-					{option.description}
+					{copy.description}
 				</span>
 			</span>
 			<Check className="ms-auto size-4 shrink-0 scale-90 text-primary opacity-0 transition-[opacity,transform] duration-150 group-data-[state=checked]/row:scale-100 group-data-[state=checked]/row:opacity-100" />
@@ -264,11 +185,13 @@ export function PromptBox({
 	clearOnSubmit = false,
 	className,
 }: PromptBoxProps) {
+	const pb = useDictionary().projects.promptBox;
 	const [value, setValue] = useState(initialValue);
-	const [mode, setMode] = useState<ModeDef>(MODES[0]);
-	const [engine, setEngine] = useState(AUTO_ENGINE.id);
+	const [mode, setMode] = useState<ModeConfig>(MODES[0]);
+	const [engine, setEngine] = useState<EngineId>(AUTO_ENGINE.id);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 
+	const modeCopy = pb.modes[mode.id];
 	const isHero = variant === "hero";
 	const maxHeight = isHero ? 240 : 160;
 	const canSubmit = value.trim().length > 0 && !isSubmitting;
@@ -306,7 +229,7 @@ export function PromptBox({
 		}
 	};
 
-	const selectMode = (next: ModeDef) => {
+	const selectMode = (next: ModeConfig) => {
 		setMode(next);
 		setEngine(AUTO_ENGINE.id);
 		textareaRef.current?.focus();
@@ -314,6 +237,7 @@ export function PromptBox({
 
 	const selectedEngine =
 		mode.engines.find((option) => option.id === engine) ?? AUTO_ENGINE;
+	const selectedEngineCopy = pb.engines[selectedEngine.id];
 	const isAutoEngine = selectedEngine.id === AUTO_ENGINE.id;
 	// Every mode's engine list starts with Auto — split it out as the hero row.
 	const [autoOption, ...engineOptions] = mode.engines;
@@ -327,10 +251,10 @@ export function PromptBox({
 	const resolvedPlaceholder =
 		placeholder ??
 		(showModes
-			? mode.placeholder
+			? modeCopy.placeholder
 			: isHero
-				? COPY.placeholderHero
-				: COPY.placeholderCompact);
+				? pb.placeholderHero
+				: pb.placeholderCompact);
 
 	const box = (
 		<div className="group/prompt relative">
@@ -380,7 +304,7 @@ export function PromptBox({
 									type="button"
 									variant="outline"
 									size="sm"
-									aria-label={`${COPY.engineLabel} : ${selectedEngine.label}`}
+									aria-label={`${pb.engineLabel} : ${selectedEngineCopy.label}`}
 									className={cn(
 										"group/trigger rounded-full shadow-none transition-colors duration-150",
 										isAutoEngine
@@ -403,7 +327,7 @@ export function PromptBox({
 									)}
 									{isHero ? (
 										<span className="text-muted-foreground">
-											{COPY.engineLabel}
+											{pb.engineLabel}
 											<span
 												aria-hidden
 												className="px-1 text-muted-foreground/50"
@@ -419,7 +343,7 @@ export function PromptBox({
 											!isAutoEngine && "font-medium",
 										)}
 									>
-										{selectedEngine.short}
+										{selectedEngineCopy.short}
 									</span>
 									<ChevronDown
 										data-icon="inline-end"
@@ -436,16 +360,16 @@ export function PromptBox({
 								{/* Mono eyebrow + mode-context chip: says why the list differs per mode */}
 								<div className="flex items-center justify-between gap-2 px-2 pt-1 pb-1.5">
 									<span className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.14em]">
-										{COPY.engineLabel}
+										{pb.engineLabel}
 									</span>
 									<span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-[10px] text-muted-foreground">
 										<mode.icon className="size-3" aria-hidden />
-										{mode.label}
+										{modeCopy.label}
 									</span>
 								</div>
 								<DropdownMenuRadioGroup
 									value={engine}
-									onValueChange={setEngine}
+									onValueChange={(next) => setEngine(next as EngineId)}
 								>
 									<EngineRow option={autoOption} />
 									<DropdownMenuSeparator className="my-1 bg-border/70" />
@@ -456,7 +380,7 @@ export function PromptBox({
 								{/* Footer band bleeds to the panel edge (-mx/-mb cancel p-1.5) */}
 								<div className="-mx-1.5 mt-1 -mb-1.5 rounded-b-xl border-border/60 border-t bg-muted/40 px-3 py-2">
 									<p className="text-[11px] text-muted-foreground leading-snug">
-										{COPY.engineResetHint}
+										{pb.engineResetHint}
 									</p>
 								</div>
 							</DropdownMenuContent>
@@ -464,7 +388,7 @@ export function PromptBox({
 					) : (
 						<span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-border/60 px-2.5 py-1 text-[11px] text-muted-foreground">
 							<Languages className="size-3 shrink-0" aria-hidden />
-							{COPY.hint}
+							{pb.hint}
 						</span>
 					)}
 					<div className="flex items-center gap-2">
@@ -475,7 +399,7 @@ export function PromptBox({
 										type="button"
 										variant="outline"
 										size="icon"
-										aria-label={COPY.micLabel}
+										aria-label={pb.micLabel}
 										className={cn(
 											"rounded-full",
 											isHero ? "size-10" : "size-9",
@@ -484,7 +408,7 @@ export function PromptBox({
 										<Mic />
 									</Button>
 								</TooltipTrigger>
-								<TooltipContent>{COPY.micLabel}</TooltipContent>
+								<TooltipContent>{pb.micLabel}</TooltipContent>
 							</Tooltip>
 						</TooltipProvider>
 						{showPriceTag ? (
@@ -502,7 +426,7 @@ export function PromptBox({
 								) : (
 									<WandSparkles data-icon="inline-start" />
 								)}
-								{COPY.generate}
+								{pb.generate}
 								<span aria-hidden className="text-primary-foreground/70">
 									—
 								</span>
@@ -515,7 +439,7 @@ export function PromptBox({
 							<Button
 								type="button"
 								size="icon"
-								aria-label={COPY.submitLabel}
+								aria-label={pb.submitLabel}
 								onClick={handleSubmit}
 								disabled={!canSubmit}
 								className={cn(
@@ -542,7 +466,7 @@ export function PromptBox({
 				<div className="rounded-[1.25rem] bg-primary/10 p-1 pt-0">
 					<div className="flex items-center gap-1.5 px-4 py-2 text-muted-foreground text-xs">
 						<Sparkles className="size-3 text-primary" />
-						{COPY.banner}
+						{pb.banner}
 					</div>
 					{box}
 				</div>
@@ -559,17 +483,17 @@ export function PromptBox({
 						size="sm"
 						spacing={2}
 						className="flex-wrap justify-center"
-						aria-label="Type de création"
+						aria-label={pb.creationTypeLabel}
 					>
 						{MODES.map((item) => (
 							<ToggleGroupItem
 								key={item.id}
 								value={item.id}
-								aria-label={item.label}
+								aria-label={pb.modes[item.id].label}
 								className="rounded-full border-border bg-card/50 px-3 aria-pressed:border-primary/50 aria-pressed:bg-primary/10 aria-pressed:text-foreground"
 							>
 								<item.icon data-icon="inline-start" />
-								{item.label}
+								{pb.modes[item.id].label}
 							</ToggleGroupItem>
 						))}
 					</ToggleGroup>

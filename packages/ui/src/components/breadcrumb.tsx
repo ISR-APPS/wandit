@@ -76,15 +76,18 @@ function BreadcrumbSeparator({
 			className={cn("[&>svg]:size-3.5", className)}
 			{...props}
 		>
-			{children ?? <ChevronRight />}
+			{children ?? <ChevronRight className="rtl:rotate-180" />}
 		</li>
 	);
 }
 
 function BreadcrumbEllipsis({
 	className,
+	label = "More",
 	...props
-}: React.ComponentProps<"span">) {
+}: React.ComponentProps<"span"> & {
+	label?: string;
+}) {
 	return (
 		<span
 			data-slot="breadcrumb-ellipsis"
@@ -94,7 +97,7 @@ function BreadcrumbEllipsis({
 			{...props}
 		>
 			<MoreHorizontal className="size-4" />
-			<span className="sr-only">More</span>
+			<span className="sr-only">{label}</span>
 		</span>
 	);
 }

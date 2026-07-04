@@ -1,0 +1,140 @@
+{
+	"headerTitle": "Projects",
+	"promptHeading": "What will you launch today?",
+	"toolbarTitle": "Your projects",
+	"searchPlaceholder": "Search projects…",
+	"filterAll": "All",
+	"filterPublished": "Published",
+	"filterDrafts": "Drafts",
+	"emptyTitle": "No projects yet",
+	"emptyBody": "No projects yet — describe your first page above.",
+	"emptyCta": "Write your first prompt",
+	"noResultsTitle": "No matching projects",
+	"noResultsBody": "Nothing matches « {query} ». Try another search.",
+	"noResultsBodyEmpty": "Nothing matches this filter.",
+	"clearFilters": "Clear filters",
+	"statusDraft": "Draft",
+	"statusPublishing": "Publishing",
+	"statusPublished": "Published",
+	"leadCount": {
+		"zero": "{count} leads",
+		"one": "{count} lead",
+		"two": "{count} leads",
+		"few": "{count} leads",
+		"many": "{count} leads",
+		"other": "{count} leads"
+	},
+	"publishedDomain": ".wandit.app",
+	"menuOpen": "Open",
+	"menuViewLive": "View live",
+	"menuViewLiveMock": "Mock",
+	"menuRename": "Rename",
+	"menuDelete": "Delete",
+	"cardMenuLabel": "Project actions",
+	"renameTitle": "Rename project",
+	"renameDescription": "The published page keeps its slug.",
+	"renameLabel": "Project name",
+	"renameSave": "Save",
+	"renameCancel": "Cancel",
+	"renameSuccess": "Project renamed",
+	"deleteTitle": "Delete project?",
+	"deleteDescription": "« {name} » and its leads will be gone for good. This cannot be undone.",
+	"deleteConfirm": "Delete",
+	"deleteCancel": "Cancel",
+	"deleteSuccess": "Project deleted",
+	"createSuccess": "« {name} » is ready",
+	"untitled": "Untitled project",
+	"logoLabel": "Wandit — projects",
+	"meta": {
+		"title": "Projects — Wandit"
+	},
+	"sidebar": {
+		"groupWorkspace": "Workspace",
+		"groupResources": "Resources",
+		"soon": "Soon",
+		"creditsLabel": "Credits",
+		"topUp": "Top up — soon",
+		"toggleSidebar": "Toggle sidebar",
+		"mobileTitle": "Navigation",
+		"mobileDescription": "Dashboard navigation"
+	},
+	"nav": {
+		"projects": "Projects",
+		"leads": "Leads",
+		"assets": "Assets",
+		"analytics": "Analytics",
+		"docs": "Docs",
+		"support": "Support"
+	},
+	"promptBox": {
+		"placeholderHero": "Describe what you want to sell or create…",
+		"placeholderCompact": "Describe what you want to create…",
+		"hint": "AR & FR ready",
+		"banner": "Beta — your first 10 pages are on us, no card needed",
+		"generate": "Generate",
+		"submitLabel": "Generate",
+		"micLabel": "Voice input — coming soon",
+		"engineLabel": "Engine",
+		"engineAutoBadge": "Recommended",
+		"engineResetHint": "Resets to Auto whenever you switch type.",
+		"creationTypeLabel": "Creation type",
+		"modes": {
+			"sales-page": {
+				"label": "Sales page",
+				"placeholder": "Describe your product, price, offer and COD form…"
+			},
+			"website": {
+				"label": "Website",
+				"placeholder": "Describe your business, the site sections and the style you want…"
+			},
+			"photos": {
+				"label": "Product photos",
+				"placeholder": "Describe the product photos: background, angle, mood, use…"
+			},
+			"ads": {
+				"label": "Ad creatives",
+				"placeholder": "Describe the creatives for TikTok, Meta or Instagram…"
+			},
+			"video": {
+				"label": "Video ad",
+				"placeholder": "Describe the video: product, scenes, format, length, voice-over…"
+			},
+			"flyer": {
+				"label": "Flyer",
+				"placeholder": "Describe the flyer: offer, colors, text and format…"
+			}
+		},
+		"engines": {
+			"auto": {
+				"label": "Auto",
+				"short": "Auto",
+				"description": "The best engine for your request."
+			},
+			"wandit-pages": {
+				"label": "Wandit Pages",
+				"short": "Wandit Pages",
+				"description": "Tuned for landing pages and COD."
+			},
+			"gpt-image-2": {
+				"label": "GPT Image 2",
+				"short": "GPT Image 2",
+				"description": "Sharp text and marketing compositions."
+			},
+			"nano-banana-pro": {
+				"label": "Nano Banana Pro",
+				"short": "Nano Banana",
+				"description": "Fast variants, products, posters."
+			},
+			"seedance-2": {
+				"label": "Seedance 2.0",
+				"short": "Seedance 2",
+				"description": "Short videos for ads and reels."
+			},
+			"veo-3": {
+				"label": "Veo 3",
+				"short": "Veo 3",
+				"description": "Premium videos with richer scenes."
+			}
+		}
+	}
+}

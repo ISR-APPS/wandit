@@ -1,0 +1,20 @@
+{
+	"generic": "Un souci est survenu. Réessaie.",
+	"network": "Impossible de joindre le serveur. Vérifie ta connexion et réessaie.",
+	"codes": {
+		"AUTH_FAILURE": "Impossible de confirmer ta session. Connecte-toi à nouveau.",
+		"NETWORK_ERROR": "Impossible de joindre le serveur. Vérifie ta connexion et réessaie.",
+		"CLIENT_ERROR": "Un souci est survenu dans l’app. Réessaie.",
+		"VALIDATION_ERROR": "Vérifie les champs indiqués puis réessaie.",
+		"NOT_FOUND": "Impossible de trouver ce que tu cherches.",
+		"FORBIDDEN": "Tu n’as pas l’autorisation de faire ça.",
+		"RATE_LIMITED": "Trop de requêtes. Attends un moment puis réessaie.",
+		"INTERNAL_ERROR": "Le serveur a rencontré un souci. Réessaie.",
+		"HTTP_400": "La requête n’a pas pu aboutir. Vérifie les détails puis réessaie.",
+		"HTTP_401": "Connecte-toi pour continuer.",
+		"HTTP_403": "Tu n’as pas l’autorisation de faire ça.",
+		"HTTP_404": "Impossible de trouver ce que tu cherches.",
+		"HTTP_429": "Trop de requêtes. Attends un moment puis réessaie.",
+		"HTTP_500": "Le serveur a rencontré un souci. Réessaie."
+	}
+}

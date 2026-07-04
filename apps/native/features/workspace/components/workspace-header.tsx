@@ -1,7 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useTranslation } from "@wandit/internationalization/react";
 import { router } from "expo-router";
 import { useThemeColor } from "heroui-native";
-import { Pressable, Text, View } from "react-native";
+import { I18nManager, Pressable, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { MOCK_PROJECTS } from "@/features/projects";
@@ -13,6 +14,7 @@ type WorkspaceHeaderProps = {
 export function WorkspaceHeader({ projectId }: WorkspaceHeaderProps) {
 	const insets = useSafeAreaInsets();
 	const foregroundColor = useThemeColor("foreground");
+	const { t } = useTranslation();
 
 	// TODO: fetch the project from the API (features/projects/api/).
 	const projectName =
@@ -35,9 +37,15 @@ export function WorkspaceHeader({ projectId }: WorkspaceHeaderProps) {
 			<Pressable
 				onPress={handleBack}
 				hitSlop={8}
+				accessibilityRole="button"
+				accessibilityLabel={t("native.workspace.back")}
 				className="h-10 w-10 items-center justify-center"
 			>
-				<Ionicons name="chevron-back" size={22} color={foregroundColor} />
+				<Ionicons
+					name={I18nManager.isRTL ? "chevron-forward" : "chevron-back"}
+					size={22}
+					color={foregroundColor}
+				/>
 			</Pressable>
 			<Text
 				numberOfLines={1}

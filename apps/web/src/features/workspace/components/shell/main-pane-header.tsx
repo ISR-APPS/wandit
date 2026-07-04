@@ -13,8 +13,8 @@ import {
 } from "@wandit/ui/components/tooltip";
 import { PanelLeftOpen } from "lucide-react";
 
+import { useTranslation } from "@/lib/i18n";
 import type { WorkspaceTab } from "../../api/dto";
-import { WORKSPACE_COPY } from "../../lib/constants";
 import type { AssetsView } from "../../lib/helpers";
 import { useWorkspace } from "../../lib/store";
 import { AssetsViewToggle } from "../assets/assets-view-toggle";
@@ -33,6 +33,7 @@ export function MainPaneHeader({
 	assetsView: AssetsView;
 	onAssetsViewChange: (view: AssetsView) => void;
 }) {
+	const { t } = useTranslation();
 	const { chatOpen, toggleChat, versions, statePending } = useWorkspace();
 
 	const showAssetsToggle = !statePending && versions.length > 0;
@@ -47,13 +48,13 @@ export function MainPaneHeader({
 								variant="ghost"
 								size="icon-sm"
 								onClick={toggleChat}
-								aria-label={WORKSPACE_COPY.chat.expand}
+								aria-label={t("workspace.chat.expand")}
 							>
 								<PanelLeftOpen className="size-4" />
 							</Button>
 						</TooltipTrigger>
 						<TooltipContent side="bottom">
-							{WORKSPACE_COPY.chat.expand}
+							{t("workspace.chat.expand")}
 						</TooltipContent>
 					</Tooltip>
 					<Separator
@@ -65,7 +66,7 @@ export function MainPaneHeader({
 
 			<WorkspaceTabs />
 
-			<div className="ml-auto flex min-w-0 items-center gap-1">
+			<div className="ms-auto flex min-w-0 items-center gap-1">
 				{tab === "page" ? <PageControls onReload={onReloadPage} /> : null}
 				{tab === "assets" && showAssetsToggle ? (
 					<AssetsViewToggle view={assetsView} onChange={onAssetsViewChange} />

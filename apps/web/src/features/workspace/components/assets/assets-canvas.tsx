@@ -13,6 +13,7 @@ import {
 import { Minus, Plus } from "lucide-react";
 import type { CSSProperties } from "react";
 import { useState } from "react";
+import { useTranslation } from "@/lib/i18n";
 import type { PageVersion } from "../../api/dto";
 import { hashString } from "../../lib/helpers";
 import { AssetCard } from "./asset-card";
@@ -39,6 +40,7 @@ function boardJitter(seed: string) {
 type JitterVars = CSSProperties & { "--jr": string; "--jy": string };
 
 export function AssetsCanvasBoard({ versions }: { versions: PageVersion[] }) {
+	const { t } = useTranslation();
 	const [zoom, setZoom] = useState(1);
 
 	return (
@@ -73,13 +75,13 @@ export function AssetsCanvasBoard({ versions }: { versions: PageVersion[] }) {
 				</div>
 			</div>
 
-			<div className="absolute right-3 bottom-3 flex items-center gap-0.5 rounded-lg border bg-background/90 p-0.5 shadow-sm backdrop-blur-sm">
+			<div className="absolute end-3 bottom-3 flex items-center gap-0.5 rounded-lg border bg-background/90 p-0.5 shadow-sm backdrop-blur-sm">
 				<Tooltip>
 					<TooltipTrigger asChild>
 						<Button
 							variant="ghost"
 							size="icon-sm"
-							aria-label="Zoom out"
+							aria-label={t("workspace.assets.zoomOut")}
 							disabled={zoom <= ZOOM_MIN}
 							onClick={() =>
 								setZoom((z) => Math.max(ZOOM_MIN, +(z - ZOOM_STEP).toFixed(2)))
@@ -88,7 +90,9 @@ export function AssetsCanvasBoard({ versions }: { versions: PageVersion[] }) {
 							<Minus className="size-3.5" />
 						</Button>
 					</TooltipTrigger>
-					<TooltipContent side="top">Zoom out</TooltipContent>
+					<TooltipContent side="top">
+						{t("workspace.assets.zoomOut")}
+					</TooltipContent>
 				</Tooltip>
 				<Separator
 					orientation="vertical"
@@ -106,7 +110,7 @@ export function AssetsCanvasBoard({ versions }: { versions: PageVersion[] }) {
 						<Button
 							variant="ghost"
 							size="icon-sm"
-							aria-label="Zoom in"
+							aria-label={t("workspace.assets.zoomIn")}
 							disabled={zoom >= ZOOM_MAX}
 							onClick={() =>
 								setZoom((z) => Math.min(ZOOM_MAX, +(z + ZOOM_STEP).toFixed(2)))
@@ -115,7 +119,9 @@ export function AssetsCanvasBoard({ versions }: { versions: PageVersion[] }) {
 							<Plus className="size-3.5" />
 						</Button>
 					</TooltipTrigger>
-					<TooltipContent side="top">Zoom in</TooltipContent>
+					<TooltipContent side="top">
+						{t("workspace.assets.zoomIn")}
+					</TooltipContent>
 				</Tooltip>
 			</div>
 		</div>

@@ -3,6 +3,8 @@
 // become thin fetch wrappers over the shared api-client once the NestJS
 // backend lands, responses parsed by packages/contracts.
 
+import { ApiClientError } from "@/lib/api-client";
+
 import { listMockLeads, updateMockLeadStatus } from "../lib/mock-leads";
 import type { Lead, LeadStatus } from "./dto";
 
@@ -25,5 +27,20 @@ export async function updateLeadStatus(
 	status: LeadStatus,
 ): Promise<Lead> {
 	await latency();
-	return updateMockLeadStatus(projectId, leadId, status);
+	try {
+		return updateMockLeadStatus(projectId, leadId, status);
+	} catch (error) {
+		if (error instanceof Error && error.message === "Lead not found") {
+			throw new ApiClientError({
+				code: "NOT_FOUND",
+				message: error.message,
+				path: `mock:/projects/${projectId}/leads/${leadId}`,
+				requestId: "mock",
+				statusCode: 404,
+				timestamp: new Date().toISOString(),
+			});
+		}
+
+		throw error;
+	}
 }

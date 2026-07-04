@@ -5,18 +5,21 @@ import { cn } from "@wandit/ui/lib/utils";
 import { Frame, LayoutGrid } from "lucide-react";
 import { motion } from "motion/react";
 import { useId } from "react";
-import { WORKSPACE_COPY } from "../../lib/constants";
+import { useTranslation } from "@/lib/i18n";
 import type { AssetsView } from "../../lib/helpers";
 
-const OPTIONS: { value: AssetsView; label: string; icon: typeof LayoutGrid }[] =
-	[
-		{
-			value: "library",
-			label: WORKSPACE_COPY.assets.libraryView,
-			icon: LayoutGrid,
-		},
-		{ value: "canvas", label: WORKSPACE_COPY.assets.canvasView, icon: Frame },
-	];
+const OPTIONS: {
+	value: AssetsView;
+	labelKey: "workspace.assets.libraryView" | "workspace.assets.canvasView";
+	icon: typeof LayoutGrid;
+}[] = [
+	{
+		value: "library",
+		labelKey: "workspace.assets.libraryView",
+		icon: LayoutGrid,
+	},
+	{ value: "canvas", labelKey: "workspace.assets.canvasView", icon: Frame },
+];
 
 export function AssetsViewToggle({
 	view,
@@ -25,16 +28,18 @@ export function AssetsViewToggle({
 	view: AssetsView;
 	onChange: (view: AssetsView) => void;
 }) {
+	const { t } = useTranslation();
 	const pillId = useId();
 
 	return (
 		<fieldset className="m-0 flex items-center gap-0.5 rounded-lg bg-muted/60 p-0.5">
 			<legend className="sr-only">
-				{WORKSPACE_COPY.assets.viewToggleAriaLabel}
+				{t("workspace.assets.viewToggleAriaLabel")}
 			</legend>
 			{OPTIONS.map((option) => {
 				const isActive = view === option.value;
 				const Icon = option.icon;
+				const label = t(option.labelKey);
 				return (
 					<button
 						key={option.value}
@@ -57,7 +62,7 @@ export function AssetsViewToggle({
 							/>
 						) : null}
 						<Icon className="relative size-3.5 shrink-0" />
-						<span className="relative hidden sm:inline">{option.label}</span>
+						<span className="relative hidden sm:inline">{label}</span>
 					</button>
 				);
 			})}

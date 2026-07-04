@@ -1,3 +1,8 @@
+import { formatNumber } from "@wandit/internationalization";
+import {
+	useDictionary,
+	useTranslation,
+} from "@wandit/internationalization/react";
 import { Badge } from "@wandit/ui/components/badge";
 import { Button } from "@wandit/ui/components/button";
 import { Slider } from "@wandit/ui/components/slider";
@@ -8,7 +13,7 @@ import { useState } from "react";
 
 import { useAuthModal, useSession } from "@/features/auth";
 
-import { PRICING } from "../lib/constants";
+import { PRICING_CONFIG } from "../lib/constants";
 import { scrollToTop } from "../lib/scroll";
 import { Reveal } from "./reveal";
 import { SectionHeader } from "./section-header";
@@ -48,7 +53,11 @@ function PlanCard({
 export function Pricing() {
 	const { data: session } = useSession();
 	const { open } = useAuthModal();
-	const [credits, setCredits] = useState<number>(PRICING.pro.slider.initial);
+	const { locale } = useTranslation();
+	const pricing = useDictionary().landing.pricing;
+	const [credits, setCredits] = useState<number>(
+		PRICING_CONFIG.proSlider.initial,
+	);
 
 	const startBuilding = () => {
 		if (session) {
@@ -61,25 +70,25 @@ export function Pricing() {
 	return (
 		<section id="pricing" className="scroll-mt-20 px-4 py-16 md:py-24">
 			<div className="mx-auto max-w-5xl">
-				<SectionHeader kicker={PRICING.kicker} title={PRICING.title} />
+				<SectionHeader kicker={pricing.kicker} title={pricing.title} />
 				<div className="grid gap-4 md:grid-cols-3 md:gap-5">
 					{/* Free */}
 					<Reveal>
 						<PlanCard>
 							<h3 className="font-display font-semibold text-lg">
-								{PRICING.free.name}
+								{pricing.free.name}
 							</h3>
 							<p className="mt-1 text-muted-foreground text-sm">
-								{PRICING.free.tagline}
+								{pricing.free.tagline}
 							</p>
 							<div className="mt-5 font-bold font-display text-3xl tracking-[-0.02em]">
-								{PRICING.free.price}
+								{pricing.free.price}
 							</div>
 							<p className="mt-1 font-mono text-muted-foreground text-xs">
-								{PRICING.free.creditsLine}
+								{pricing.free.creditsLine}
 							</p>
 							<ul className="mt-6 flex flex-1 flex-col gap-2.5">
-								{PRICING.free.features.map((f) => (
+								{pricing.free.features.map((f) => (
 									<FeatureRow key={f} label={f} />
 								))}
 							</ul>
@@ -88,7 +97,7 @@ export function Pricing() {
 								className="mt-8"
 								onClick={startBuilding}
 							>
-								{PRICING.free.cta}
+								{pricing.free.cta}
 							</Button>
 						</PlanCard>
 					</Reveal>
@@ -97,50 +106,50 @@ export function Pricing() {
 					<Reveal delay={0.07}>
 						<PlanCard popular>
 							<Badge className="absolute -top-2.5 left-1/2 -translate-x-1/2 border-none bg-gradient-ember font-medium font-mono text-[10px] text-[oklch(0.2_0.03_55)] uppercase tracking-[0.14em]">
-								{PRICING.pro.badge}
+								{pricing.pro.badge}
 							</Badge>
 							<h3 className="font-display font-semibold text-lg">
-								{PRICING.pro.name}
+								{pricing.pro.name}
 							</h3>
 							<p className="mt-1 text-muted-foreground text-sm">
-								{PRICING.pro.tagline}
+								{pricing.pro.tagline}
 							</p>
 							<div className="mt-5 font-bold font-mono text-3xl tabular-nums tracking-[-0.02em]">
-								{credits.toLocaleString("en-US")}
+								{formatNumber(credits, locale)}
 								<span className="ms-2 font-mono font-normal text-muted-foreground text-sm">
-									{PRICING.pro.creditsUnit}
+									{pricing.pro.creditsUnit}
 								</span>
 							</div>
 							<p className="mt-1 font-mono text-muted-foreground text-xs">
-								{PRICING.pro.priceNote}
+								{pricing.pro.priceNote}
 							</p>
 							<div className="mt-5">
 								<div className="mb-2.5 flex items-center justify-between text-xs">
 									<span className="text-muted-foreground">
-										{PRICING.pro.sliderLabel}
+										{pricing.pro.sliderLabel}
 									</span>
 									<span className="font-mono tabular-nums">
-										{credits.toLocaleString("en-US")}
+										{formatNumber(credits, locale)}
 									</span>
 								</div>
 								<Slider
 									value={[credits]}
 									onValueChange={(value) =>
-										setCredits(value[0] ?? PRICING.pro.slider.initial)
+										setCredits(value[0] ?? PRICING_CONFIG.proSlider.initial)
 									}
-									min={PRICING.pro.slider.min}
-									max={PRICING.pro.slider.max}
-									step={PRICING.pro.slider.step}
-									aria-label={PRICING.pro.sliderLabel}
+									min={PRICING_CONFIG.proSlider.min}
+									max={PRICING_CONFIG.proSlider.max}
+									step={PRICING_CONFIG.proSlider.step}
+									aria-label={pricing.pro.sliderLabel}
 								/>
 							</div>
 							<ul className="mt-6 flex flex-1 flex-col gap-2.5">
-								{PRICING.pro.features.map((f) => (
+								{pricing.pro.features.map((f) => (
 									<FeatureRow key={f} label={f} />
 								))}
 							</ul>
 							<Button className="mt-8" onClick={startBuilding}>
-								{PRICING.pro.cta}
+								{pricing.pro.cta}
 							</Button>
 						</PlanCard>
 					</Reveal>
@@ -149,25 +158,25 @@ export function Pricing() {
 					<Reveal delay={0.14}>
 						<PlanCard>
 							<h3 className="font-display font-semibold text-lg">
-								{PRICING.business.name}
+								{pricing.business.name}
 							</h3>
 							<p className="mt-1 text-muted-foreground text-sm">
-								{PRICING.business.tagline}
+								{pricing.business.tagline}
 							</p>
 							<div className="mt-5 font-bold font-display text-3xl tracking-[-0.02em]">
-								{PRICING.business.price}
+								{pricing.business.price}
 							</div>
 							<p className="mt-1 font-mono text-muted-foreground text-xs">
 								&nbsp;
 							</p>
 							<ul className="mt-6 flex flex-1 flex-col gap-2.5">
-								{PRICING.business.features.map((f) => (
+								{pricing.business.features.map((f) => (
 									<FeatureRow key={f} label={f} />
 								))}
 							</ul>
 							<Button variant="outline" className="mt-8" asChild>
-								<a href={PRICING.business.contactHref}>
-									{PRICING.business.cta}
+								<a href={PRICING_CONFIG.businessContactHref}>
+									{pricing.business.cta}
 								</a>
 							</Button>
 						</PlanCard>
@@ -175,7 +184,7 @@ export function Pricing() {
 				</div>
 				<Reveal className="mt-8 text-center">
 					<p className="font-mono text-muted-foreground text-xs">
-						{PRICING.note}
+						{pricing.note}
 					</p>
 				</Reveal>
 			</div>

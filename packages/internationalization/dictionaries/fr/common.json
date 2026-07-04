@@ -1,0 +1,15 @@
+{
+	"appTitle": "Wandit — des landing pages IA qui vendent",
+	"appDescription": "Wandit transforme ton prompt en landing page prête à vendre — publie et collecte tes commandes COD en quelques minutes.",
+	"time": {
+		"justNow": "à l’instant"
+	},
+	"close": "Fermer",
+	"toggleTheme": "Changer de thème",
+	"language": "Langue",
+	"changeLanguage": "Changer de langue",
+	"sidebarToggle": "Afficher/masquer la barre latérale",
+	"breadcrumbMore": "Plus",
+	"sidebarMobileTitle": "Barre latérale",
+	"sidebarMobileDescription": "Affiche la barre latérale mobile."
+}

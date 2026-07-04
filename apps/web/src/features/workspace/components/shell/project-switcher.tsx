@@ -15,7 +15,7 @@ import { cn } from "@wandit/ui/lib/utils";
 import { Check, ChevronsUpDown, LayoutGrid } from "lucide-react";
 
 import { type ProjectStatus, useProjectsQuery } from "@/features/projects";
-import { WORKSPACE_COPY } from "../../lib/constants";
+import { useTranslation } from "@/lib/i18n";
 import { useWorkspace } from "../../lib/store";
 
 function statusDotClass(status: ProjectStatus): string {
@@ -30,6 +30,7 @@ function statusDotClass(status: ProjectStatus): string {
 }
 
 export function ProjectSwitcher() {
+	const { t } = useTranslation();
 	const { project, projectId, projectPending } = useWorkspace();
 	const projectsQuery = useProjectsQuery();
 	const navigate = useNavigate();
@@ -39,7 +40,7 @@ export function ProjectSwitcher() {
 			<DropdownMenuTrigger asChild>
 				<button
 					type="button"
-					aria-label={WORKSPACE_COPY.switcher.menuLabel}
+					aria-label={t("workspace.switcher.menuLabel")}
 					className="flex h-8 min-w-0 items-center gap-2 rounded-md px-2 text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
 				>
 					{projectPending || !project ? (
@@ -63,7 +64,7 @@ export function ProjectSwitcher() {
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="start" className="w-72">
 				<DropdownMenuLabel className="text-muted-foreground text-xs">
-					{WORKSPACE_COPY.switcher.menuLabel}
+					{t("workspace.switcher.menuLabel")}
 				</DropdownMenuLabel>
 				<div className="max-h-72 overflow-y-auto">
 					{projectsQuery.data?.map((p) => (
@@ -103,7 +104,7 @@ export function ProjectSwitcher() {
 				<DropdownMenuItem asChild>
 					<Link to="/dashboard">
 						<LayoutGrid className="size-4" />
-						{WORKSPACE_COPY.switcher.allProjects}
+						{t("workspace.switcher.allProjects")}
 					</Link>
 				</DropdownMenuItem>
 			</DropdownMenuContent>

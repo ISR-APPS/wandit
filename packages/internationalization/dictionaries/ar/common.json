@@ -1,0 +1,15 @@
+{
+	"appTitle": "Wandit — صفحات هبوط بالذكاء الاصطناعي تبيع",
+	"appDescription": "يحوّل Wandit وصفك إلى صفحة هبوط جاهزة للبيع؛ انشرها واجمع طلبات الدفع عند الاستلام خلال دقائق.",
+	"time": {
+		"justNow": "الآن"
+	},
+	"close": "إغلاق",
+	"toggleTheme": "تبديل المظهر",
+	"language": "اللغة",
+	"changeLanguage": "تغيير اللغة",
+	"sidebarToggle": "إظهار/إخفاء الشريط الجانبي",
+	"breadcrumbMore": "المزيد",
+	"sidebarMobileTitle": "الشريط الجانبي",
+	"sidebarMobileDescription": "يعرض الشريط الجانبي للجوال."
+}

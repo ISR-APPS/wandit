@@ -21,13 +21,11 @@ import {
 } from "lucide-react";
 import type * as React from "react";
 
+import { useTranslation } from "@/lib/i18n";
 import { getVersionPage } from "../../api/workspace.services";
-import { WORKSPACE_COPY } from "../../lib/constants";
 import { openHtmlInNewTab } from "../../lib/helpers";
 import { useWorkspace, type Viewport } from "../../lib/store";
 import { VersionSwitcher } from "./version-switcher";
-
-const COPY = WORKSPACE_COPY.page;
 
 function IconAction({
 	label,
@@ -62,6 +60,7 @@ function IconAction({
 }
 
 export function PageControls({ onReload }: { onReload: () => void }) {
+	const { t } = useTranslation();
 	const {
 		viewport,
 		setViewport,
@@ -108,21 +107,21 @@ export function PageControls({ onReload }: { onReload: () => void }) {
 			{isGenerating ? (
 				<span className="hidden items-center gap-1.5 rounded-full border border-primary/25 bg-primary/5 px-2.5 py-1 font-mono text-[11px] text-primary lg:flex">
 					<Loader2 className="size-3 animate-spin" />
-					{COPY.generatingTitle(pendingVersionNumber)}
+					{t("workspace.page.generatingTitle", { n: pendingVersionNumber })}
 				</span>
 			) : null}
 
 			<VersionSwitcher />
 
-			<div className="ml-1 flex items-center gap-0.5 rounded-lg bg-muted/60 p-0.5">
+			<div className="ms-1 flex items-center gap-0.5 rounded-lg bg-muted/60 p-0.5">
 				{viewportButton(
 					"mobile",
-					COPY.viewportMobile,
+					t("workspace.page.viewportMobile"),
 					<Smartphone className="size-3.5" />,
 				)}
 				{viewportButton(
 					"desktop",
-					COPY.viewportDesktop,
+					t("workspace.page.viewportDesktop"),
 					<Monitor className="size-3.5" />,
 				)}
 			</div>
@@ -131,7 +130,7 @@ export function PageControls({ onReload }: { onReload: () => void }) {
 				className="mx-1 hidden data-[orientation=vertical]:h-4 sm:block"
 			/>
 			<IconAction
-				label={COPY.refresh}
+				label={t("workspace.page.refresh")}
 				onClick={onReload}
 				disabled={!activeVersion}
 				className="hidden sm:inline-flex"
@@ -139,7 +138,7 @@ export function PageControls({ onReload }: { onReload: () => void }) {
 				<RefreshCw className="size-3.5" />
 			</IconAction>
 			<IconAction
-				label={COPY.openInNewTab}
+				label={t("workspace.page.openInNewTab")}
 				onClick={openInNewTab}
 				disabled={!activeVersion}
 				className="hidden sm:inline-flex"

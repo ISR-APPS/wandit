@@ -3,13 +3,14 @@
 
 import { Skeleton } from "@wandit/ui/components/skeleton";
 
-import { WORKSPACE_COPY } from "../../lib/constants";
+import { useTranslation } from "@/lib/i18n";
 import { useWorkspace } from "../../lib/store";
 import { DangerZone } from "./danger-zone";
 import { GeneralSection } from "./general-section";
 import { PublishSection } from "./publish-section";
 
 export function SettingsTab() {
+	const { t } = useTranslation();
 	const { statePending, projectPending } = useWorkspace();
 	const pending = statePending || projectPending;
 
@@ -17,7 +18,7 @@ export function SettingsTab() {
 		<div className="h-full overflow-y-auto">
 			<div className="mx-auto w-full max-w-2xl px-4 py-6 md:px-8">
 				<h2 className="font-display font-semibold text-lg">
-					{WORKSPACE_COPY.settings.title}
+					{t("settings.title")}
 				</h2>
 				<div className="mt-6 flex flex-col gap-6">
 					{pending ? (

@@ -1,10 +1,14 @@
+import { useTranslation } from "@wandit/internationalization/react";
+
 import { WorkspacePlaceholder } from "../components/workspace-placeholder";
 
 export function PreviewScreen() {
+	const { t } = useTranslation();
+
 	return (
 		<WorkspacePlaceholder
-			title="Preview"
-			description="Live preview of the generated landing page (sandboxed WebView) with version switching."
+			title={t("native.workspace.placeholders.previewTitle")}
+			description={t("native.workspace.placeholders.previewDescription")}
 		/>
 	);
 }

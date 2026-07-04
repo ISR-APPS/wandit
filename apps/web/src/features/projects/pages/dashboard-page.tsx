@@ -7,12 +7,13 @@ import { useMemo, useRef, useState } from "react";
 
 import { Spark } from "@/components/logo";
 import { InsufficientCreditsDialog } from "@/features/credits";
+import { useTranslation } from "@/lib/i18n";
 import type { Project } from "../api/dto";
 import { useProjectsQuery } from "../api/projects.queries";
 import { ProjectCard } from "../components/project-card";
 import { PromptBox } from "../components/prompt-box";
 import { DashboardShell } from "../components/shell/dashboard-shell";
-import { GRID_SKELETON_COUNT, PROJECTS_COPY } from "../lib/constants";
+import { GRID_SKELETON_COUNT } from "../lib/constants";
 import { useCreateProjectWithPrompt } from "../lib/hooks";
 
 type StatusFilter = "all" | "published" | "drafts";
@@ -36,6 +37,7 @@ function CardSkeleton() {
 }
 
 function EmptyState({ onCta }: { onCta: () => void }) {
+	const { t } = useTranslation();
 	return (
 		<div className="relative flex flex-col items-center justify-center rounded-xl border border-dashed px-6 py-20 text-center">
 			<div
@@ -46,13 +48,13 @@ function EmptyState({ onCta }: { onCta: () => void }) {
 				<Spark className="size-5 text-primary" />
 			</div>
 			<h3 className="relative mt-4 font-display font-semibold text-lg">
-				{PROJECTS_COPY.emptyTitle}
+				{t("projects.emptyTitle")}
 			</h3>
 			<p className="relative mt-1 max-w-xs text-muted-foreground text-sm">
-				{PROJECTS_COPY.emptyBody}
+				{t("projects.emptyBody")}
 			</p>
 			<Button onClick={onCta} className="relative mt-5">
-				{PROJECTS_COPY.emptyCta}
+				{t("projects.emptyCta")}
 			</Button>
 		</div>
 	);
@@ -65,22 +67,26 @@ function NoResultsState({
 	query: string;
 	onClear: () => void;
 }) {
+	const { t } = useTranslation();
 	return (
 		<div className="flex flex-col items-center justify-center rounded-xl border border-dashed px-6 py-16 text-center">
 			<h3 className="font-display font-semibold text-base">
-				{PROJECTS_COPY.noResultsTitle}
+				{t("projects.noResultsTitle")}
 			</h3>
 			<p className="mt-1 max-w-xs text-muted-foreground text-sm">
-				{PROJECTS_COPY.noResultsBody(query)}
+				{query
+					? t("projects.noResultsBody", { query })
+					: t("projects.noResultsBodyEmpty")}
 			</p>
 			<Button variant="outline" size="sm" onClick={onClear} className="mt-4">
-				{PROJECTS_COPY.clearFilters}
+				{t("projects.clearFilters")}
 			</Button>
 		</div>
 	);
 }
 
 export default function DashboardPage() {
+	const { t } = useTranslation();
 	const { data: projects, isPending } = useProjectsQuery();
 	const { create, isCreating, insufficientOpen, setInsufficientOpen, cost } =
 		useCreateProjectWithPrompt();
@@ -129,7 +135,7 @@ export default function DashboardPage() {
 					/>
 					<div className="relative mx-auto w-full max-w-2xl">
 						<h2 className="text-center font-display font-semibold text-2xl tracking-tight md:text-3xl">
-							{PROJECTS_COPY.promptHeading}
+							{t("projects.promptHeading")}
 						</h2>
 						<div ref={promptSectionRef} className="mt-6">
 							<PromptBox
@@ -152,7 +158,7 @@ export default function DashboardPage() {
 					<div className="flex flex-wrap items-center gap-x-4 gap-y-3">
 						<div className="flex items-baseline gap-2">
 							<h2 className="font-display font-semibold text-lg tracking-tight">
-								{PROJECTS_COPY.toolbarTitle}
+								{t("projects.toolbarTitle")}
 							</h2>
 							{projects ? (
 								<span className="font-mono text-muted-foreground text-xs">
@@ -160,18 +166,18 @@ export default function DashboardPage() {
 								</span>
 							) : null}
 						</div>
-						<div className="ml-auto flex w-full flex-wrap items-center gap-2 sm:w-auto">
+						<div className="ms-auto flex w-full flex-wrap items-center gap-2 sm:w-auto">
 							<div className="relative min-w-0 flex-1 sm:w-56 sm:flex-none">
 								<Search
 									aria-hidden
-									className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
+									className="pointer-events-none absolute start-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
 								/>
 								<Input
 									value={query}
 									onChange={(e) => setQuery(e.target.value)}
-									placeholder={PROJECTS_COPY.searchPlaceholder}
-									className="h-8 pl-8 text-sm"
-									aria-label={PROJECTS_COPY.searchPlaceholder}
+									placeholder={t("projects.searchPlaceholder")}
+									className="h-8 ps-8 text-sm"
+									aria-label={t("projects.searchPlaceholder")}
 								/>
 							</div>
 							<Tabs
@@ -180,13 +186,13 @@ export default function DashboardPage() {
 							>
 								<TabsList className="h-8">
 									<TabsTrigger value="all" className="text-xs">
-										{PROJECTS_COPY.filterAll}
+										{t("projects.filterAll")}
 									</TabsTrigger>
 									<TabsTrigger value="published" className="text-xs">
-										{PROJECTS_COPY.filterPublished}
+										{t("projects.filterPublished")}
 									</TabsTrigger>
 									<TabsTrigger value="drafts" className="text-xs">
-										{PROJECTS_COPY.filterDrafts}
+										{t("projects.filterDrafts")}
 									</TabsTrigger>
 								</TabsList>
 							</Tabs>

@@ -1,3 +1,4 @@
+import { useTranslation } from "@wandit/internationalization/react";
 import { Button, Input, Surface, TextField } from "heroui-native";
 import { useState } from "react";
 
@@ -6,6 +7,7 @@ type PromptBoxProps = {
 };
 
 export function PromptBox({ onSubmit }: PromptBoxProps) {
+	const { t } = useTranslation();
 	const [prompt, setPrompt] = useState("");
 
 	function handleSubmit() {
@@ -23,13 +25,13 @@ export function PromptBox({ onSubmit }: PromptBoxProps) {
 				<Input
 					value={prompt}
 					onChangeText={setPrompt}
-					placeholder="A landing page for…"
+					placeholder={t("native.home.promptPlaceholder")}
 					multiline
 					className="min-h-20"
 				/>
 			</TextField>
 			<Button onPress={handleSubmit} isDisabled={!prompt.trim()}>
-				<Button.Label>Create</Button.Label>
+				<Button.Label>{t("native.home.create")}</Button.Label>
 			</Button>
 		</Surface>
 	);

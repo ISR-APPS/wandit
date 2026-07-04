@@ -7,6 +7,7 @@ import type {
 import axios, { AxiosHeaders } from "axios";
 
 import { redirectToLoginAfterUnauthorized } from "@/lib/auth-navigation";
+import { getCurrentDictionary } from "@/lib/i18n/locale-store";
 import { getServerUrl } from "@/lib/server-url";
 
 const API_VERSION_PREFIX = "/api/v1";
@@ -21,16 +22,21 @@ export type ApiValidationErrorDetail = {
 export class ApiClientError extends Error {
 	readonly code: string;
 	readonly details: unknown;
+	readonly hasServerEnvelopeMessage: boolean;
 	readonly path: string;
 	readonly requestId: string;
 	readonly statusCode: number;
 	readonly timestamp: string;
 
-	constructor(error: ApiErrorPayload, options?: { cause?: unknown }) {
+	constructor(
+		error: ApiErrorPayload,
+		options?: { cause?: unknown; hasServerEnvelopeMessage?: boolean },
+	) {
 		super(error.message, options);
 		this.name = "ApiClientError";
 		this.code = error.code;
 		this.details = error.details;
+		this.hasServerEnvelopeMessage = options?.hasServerEnvelopeMessage ?? false;
 		this.path = error.path;
 		this.requestId = error.requestId;
 		this.statusCode = error.statusCode;
@@ -80,14 +86,20 @@ export function isUnauthorizedApiError(error: unknown) {
 
 export function getApiErrorMessage(error: unknown) {
 	if (isApiClientError(error)) {
-		return error.message;
+		const codeMessage = getApiErrorCodeMessage(error.code);
+
+		if (codeMessage) {
+			return codeMessage;
+		}
+
+		if (error.hasServerEnvelopeMessage && error.message) {
+			return error.message;
+		}
+
+		return getGenericApiErrorMessage();
 	}
 
-	if (error instanceof Error) {
-		return error.message;
-	}
-
-	return "An unexpected error occurred";
+	return getGenericApiErrorMessage();
 }
 
 export function getApiValidationErrors(error: unknown) {
@@ -99,8 +111,15 @@ export function getApiValidationErrors(error: unknown) {
 }
 
 export function getApiFieldError(error: unknown, field: string) {
-	return getApiValidationErrors(error).find((detail) => detail.field === field)
-		?.messages[0];
+	const message = getApiValidationErrors(error).find(
+		(detail) => detail.field === field,
+	)?.messages[0];
+
+	if (!message) {
+		return undefined;
+	}
+
+	return getApiErrorCodeMessage(message) || message;
 }
 
 function applyDefaultHeaders(config: InternalAxiosRequestConfig) {
@@ -150,7 +169,10 @@ function toApiClientError(error: unknown) {
 		const payload = error.response?.data;
 
 		if (isApiErrorResponse(payload)) {
-			return new ApiClientError(payload.error, { cause: error });
+			return new ApiClientError(payload.error, {
+				cause: error,
+				hasServerEnvelopeMessage: true,
+			});
 		}
 
 		return new ApiClientError(
@@ -161,7 +183,7 @@ function toApiClientError(error: unknown) {
 				message:
 					error.response?.statusText ||
 					error.message ||
-					"Network request failed",
+					getNetworkApiErrorMessage(),
 				path: buildErrorPath(error.config),
 				requestId: readResponseHeader(error.response, "x-request-id"),
 				statusCode: error.response?.status ?? 0,
@@ -187,12 +209,26 @@ function toApiClientError(error: unknown) {
 
 	return new ApiClientError({
 		code: "CLIENT_ERROR",
-		message: "An unexpected error occurred",
+		message: getGenericApiErrorMessage(),
 		path: "unknown",
 		requestId: "unknown",
 		statusCode: 0,
 		timestamp: new Date().toISOString(),
 	});
+}
+
+function getApiErrorCodeMessage(code: string) {
+	const codes = getCurrentDictionary().errors.codes as Record<string, unknown>;
+	const message = Object.hasOwn(codes, code) ? codes[code] : undefined;
+	return typeof message === "string" ? message : undefined;
+}
+
+function getGenericApiErrorMessage() {
+	return getCurrentDictionary().errors.generic;
+}
+
+function getNetworkApiErrorMessage() {
+	return getCurrentDictionary().errors.network;
 }
 
 function shouldRedirectAfterUnauthorized(error: unknown) {

@@ -1,5 +1,9 @@
 import { useForm } from "@tanstack/react-form";
 import {
+	useDictionary,
+	useTranslation,
+} from "@wandit/internationalization/react";
+import {
 	Button,
 	FieldError,
 	Input,
@@ -9,23 +13,27 @@ import {
 	TextField,
 	useToast,
 } from "heroui-native";
-import { useRef } from "react";
+import { useMemo, useRef } from "react";
 import { Text, type TextInput, View } from "react-native";
 import z from "zod";
 
 import { authClient } from "@/lib/auth-client";
 
-const signInSchema = z.object({
-	email: z
-		.string()
-		.trim()
-		.min(1, "Email is required")
-		.email("Enter a valid email address"),
-	password: z
-		.string()
-		.min(1, "Password is required")
-		.min(8, "Use at least 8 characters"),
-});
+type Translate = ReturnType<typeof useTranslation>["t"];
+
+function makeSignInSchema(t: Translate) {
+	return z.object({
+		email: z
+			.string()
+			.trim()
+			.min(1, t("native.auth.validation.emailRequired"))
+			.email(t("native.auth.validation.emailInvalid")),
+		password: z
+			.string()
+			.min(1, t("native.auth.validation.passwordRequired"))
+			.min(8, t("native.auth.validation.passwordMin")),
+	});
+}
 
 function getErrorMessage(error: unknown): string | null {
 	if (!error) return null;
@@ -57,6 +65,9 @@ function getErrorMessage(error: unknown): string | null {
 function SignInForm() {
 	const passwordInputRef = useRef<TextInput>(null);
 	const { toast } = useToast();
+	const { t } = useTranslation();
+	const dictionary = useDictionary();
+	const signInSchema = useMemo(() => makeSignInSchema(t), [t]);
 
 	const form = useForm({
 		defaultValues: {
@@ -74,16 +85,24 @@ function SignInForm() {
 				},
 				{
 					onError(error) {
+						const code = error.error?.code;
+						const codeMessage =
+							code && Object.hasOwn(dictionary.errors.codes, code)
+								? t(`errors.codes.${code}` as Parameters<Translate>[0])
+								: null;
 						toast.show({
 							variant: "danger",
-							label: error.error?.message || "Failed to sign in",
+							label:
+								codeMessage ??
+								t("native.auth.toasts.signInError") ??
+								error.error?.message,
 						});
 					},
 					onSuccess() {
 						formApi.reset();
 						toast.show({
 							variant: "success",
-							label: "Signed in successfully",
+							label: t("native.auth.toasts.signInSuccess"),
 						});
 					},
 				},
@@ -93,7 +112,9 @@ function SignInForm() {
 
 	return (
 		<Surface variant="secondary" className="rounded-lg p-4">
-			<Text className="mb-4 font-medium text-foreground">Sign In</Text>
+			<Text className="mb-4 font-medium text-foreground">
+				{t("native.auth.signIn.title")}
+			</Text>
 
 			<form.Subscribe
 				selector={(state) => ({
@@ -114,12 +135,12 @@ function SignInForm() {
 								<form.Field name="email">
 									{(field) => (
 										<TextField>
-											<Label>Email</Label>
+											<Label>{t("native.auth.fields.emailLabel")}</Label>
 											<Input
 												value={field.state.value}
 												onBlur={field.handleBlur}
 												onChangeText={field.handleChange}
-												placeholder="email@example.com"
+												placeholder={t("native.auth.fields.emailPlaceholder")}
 												keyboardType="email-address"
 												autoCapitalize="none"
 												autoComplete="email"
@@ -137,13 +158,15 @@ function SignInForm() {
 								<form.Field name="password">
 									{(field) => (
 										<TextField>
-											<Label>Password</Label>
+											<Label>{t("native.auth.fields.passwordLabel")}</Label>
 											<Input
 												ref={passwordInputRef}
 												value={field.state.value}
 												onBlur={field.handleBlur}
 												onChangeText={field.handleChange}
-												placeholder="••••••••"
+												placeholder={t(
+													"native.auth.fields.passwordPlaceholder",
+												)}
 												secureTextEntry
 												autoComplete="password"
 												textContentType="password"
@@ -162,7 +185,9 @@ function SignInForm() {
 									{isSubmitting ? (
 										<Spinner size="sm" color="default" />
 									) : (
-										<Button.Label>Sign In</Button.Label>
+										<Button.Label>
+											{t("native.auth.signIn.submit")}
+										</Button.Label>
 									)}
 								</Button>
 							</View>

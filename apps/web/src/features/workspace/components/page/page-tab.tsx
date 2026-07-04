@@ -12,11 +12,9 @@ import { motion } from "motion/react";
 import { useEffect, useMemo, useState } from "react";
 
 import { Spark } from "@/components/logo";
+import { useDictionary, useTranslation } from "@/lib/i18n";
 import { getVersionPage } from "../../api/workspace.services";
-import { WORKSPACE_COPY } from "../../lib/constants";
 import { useWorkspace } from "../../lib/store";
-
-const COPY = WORKSPACE_COPY.page;
 
 export function PageTab({ reloadKey }: { reloadKey: number }) {
 	return (
@@ -30,6 +28,7 @@ export function PageTab({ reloadKey }: { reloadKey: number }) {
 }
 
 function PreviewStage({ reloadKey }: { reloadKey: number }) {
+	const { t } = useTranslation();
 	const {
 		activeVersion,
 		project,
@@ -80,7 +79,7 @@ function PreviewStage({ reloadKey }: { reloadKey: number }) {
 				<PreviewFrame
 					key={`${activeVersion.id}-${reloadKey}-${viewport}`}
 					html={html}
-					title={`${project?.name ?? "Preview"} — v${activeVersion.number}`}
+					title={`${project?.name ?? t("workspace.page.previewFallback")} — v${activeVersion.number}`}
 				/>
 				{generationPhase === "building" ? (
 					<div className="absolute inset-0 z-10 grid place-items-center bg-background/55 backdrop-blur-[2px]">
@@ -113,16 +112,19 @@ function PreviewFrame({ html, title }: { html: string; title: string }) {
 }
 
 function GeneratingPanel() {
+	const { t } = useTranslation();
+	const dictionary = useDictionary();
+	const generatingSteps = dictionary.workspace.page.generatingSteps;
 	const { pendingVersionNumber } = useWorkspace();
 	const [stepIndex, setStepIndex] = useState(0);
 
 	useEffect(() => {
 		const id = window.setInterval(
-			() => setStepIndex((index) => (index + 1) % COPY.generatingSteps.length),
+			() => setStepIndex((index) => (index + 1) % generatingSteps.length),
 			1400,
 		);
 		return () => window.clearInterval(id);
-	}, []);
+	}, [generatingSteps.length]);
 
 	return (
 		<div className="relative flex w-72 flex-col items-center gap-4 rounded-2xl border bg-card/90 p-6 text-center shadow-xl backdrop-blur-sm">
@@ -137,10 +139,10 @@ function GeneratingPanel() {
 			</div>
 			<div>
 				<p className="font-display font-semibold text-sm">
-					{COPY.generatingTitle(pendingVersionNumber)}
+					{t("workspace.page.generatingTitle", { n: pendingVersionNumber })}
 				</p>
 				<p className="mt-1 h-4 font-mono text-[11px] text-muted-foreground">
-					{COPY.generatingSteps[stepIndex]}
+					{generatingSteps[stepIndex]}
 				</p>
 			</div>
 			<div className="h-1 w-full overflow-hidden rounded-full bg-muted">
@@ -159,15 +161,18 @@ function GeneratingPanel() {
 }
 
 function EmptyPreview() {
+	const { t } = useTranslation();
 	const { chatOpen, toggleChat } = useWorkspace();
 	return (
 		<div className="relative flex flex-col items-center gap-2.5 text-center">
 			<span className="grid size-11 place-items-center rounded-full border border-primary/25 bg-card">
 				<Spark className="size-4 text-primary/70" />
 			</span>
-			<p className="font-display font-semibold text-base">{COPY.emptyTitle}</p>
+			<p className="font-display font-semibold text-base">
+				{t("workspace.page.emptyTitle")}
+			</p>
 			<p className="max-w-xs text-muted-foreground text-sm leading-relaxed">
-				{COPY.emptyBody}
+				{t("workspace.page.emptyBody")}
 			</p>
 			{!chatOpen ? (
 				<Button
@@ -176,7 +181,7 @@ function EmptyPreview() {
 					className="mt-1.5"
 					onClick={toggleChat}
 				>
-					{WORKSPACE_COPY.chat.expand}
+					{t("workspace.chat.expand")}
 				</Button>
 			) : null}
 		</div>

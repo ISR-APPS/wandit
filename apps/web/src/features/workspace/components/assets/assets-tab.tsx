@@ -15,7 +15,7 @@ import { Skeleton } from "@wandit/ui/components/skeleton";
 import { Images } from "lucide-react";
 import { useMemo } from "react";
 
-import { WORKSPACE_COPY } from "../../lib/constants";
+import { useTranslation } from "@/lib/i18n";
 import type { AssetsView } from "../../lib/helpers";
 import { useWorkspace } from "../../lib/store";
 import { AssetCard } from "./asset-card";
@@ -36,20 +36,22 @@ function AssetCardSkeleton() {
 }
 
 function AssetsEmptyState() {
+	const { t } = useTranslation();
 	return (
 		<Empty className="rounded-xl border border-dashed">
 			<EmptyHeader>
 				<EmptyMedia variant="icon">
 					<Images />
 				</EmptyMedia>
-				<EmptyTitle>{WORKSPACE_COPY.assets.emptyTitle}</EmptyTitle>
-				<EmptyDescription>{WORKSPACE_COPY.assets.emptyBody}</EmptyDescription>
+				<EmptyTitle>{t("workspace.assets.emptyTitle")}</EmptyTitle>
+				<EmptyDescription>{t("workspace.assets.emptyBody")}</EmptyDescription>
 			</EmptyHeader>
 		</Empty>
 	);
 }
 
 export function AssetsTab({ view }: { view: AssetsView }) {
+	const { t } = useTranslation();
 	const { versions, statePending } = useWorkspace();
 	const ordered = useMemo(() => [...versions].reverse(), [versions]);
 
@@ -57,9 +59,11 @@ export function AssetsTab({ view }: { view: AssetsView }) {
 		<div className="flex h-full min-h-0 flex-col">
 			{!statePending && ordered.length > 0 ? (
 				<div className="flex shrink-0 items-center justify-between gap-3 border-b px-4 py-2.5 font-mono text-[11px] text-muted-foreground md:px-6">
-					<span>{WORKSPACE_COPY.assets.metaCount(ordered.length)}</span>
+					<span>
+						{t("workspace.assets.metaCount", { count: ordered.length })}
+					</span>
 					<span className="hidden truncate sm:block">
-						{WORKSPACE_COPY.assets.subtitle}
+						{t("workspace.assets.subtitle")}
 					</span>
 				</div>
 			) : null}

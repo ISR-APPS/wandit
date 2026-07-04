@@ -22,7 +22,8 @@ import {
 } from "react";
 
 import { Logo } from "@/components/logo";
-import { AUTH_COPY, MOCK_AUTH } from "../lib/constants";
+import { useTranslation } from "@/lib/i18n";
+import { MOCK_AUTH } from "../lib/constants";
 import { signInMock, useSession } from "../lib/session";
 
 type AuthModalContextValue = {
@@ -106,6 +107,7 @@ function AuthModalDialog({
 	onOpenChange: (open: boolean) => void;
 	onSignedIn: () => void;
 }) {
+	const { t } = useTranslation();
 	const [step, setStep] = useState<AuthStep>("start");
 	const [email, setEmail] = useState("");
 	const [isGoogleLoading, setIsGoogleLoading] = useState(false);
@@ -165,16 +167,19 @@ function AuthModalDialog({
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-sm">
+			<DialogContent
+				className="gap-0 overflow-hidden p-0 sm:max-w-sm"
+				closeLabel={t("common.close")}
+			>
 				{step === "start" ? (
 					<div className="flex flex-col px-6 pt-10 pb-6">
 						<DialogHeader className="items-center gap-2 text-center sm:text-center">
 							<Logo size="md" className="mb-2" />
 							<DialogTitle className="font-display font-semibold text-xl tracking-tight">
-								{AUTH_COPY.modalTitle}
+								{t("auth.modalTitle")}
 							</DialogTitle>
 							<DialogDescription className="text-muted-foreground text-sm">
-								{AUTH_COPY.modalSubtitle}
+								{t("auth.modalSubtitle")}
 							</DialogDescription>
 						</DialogHeader>
 
@@ -191,27 +196,27 @@ function AuthModalDialog({
 								) : (
 									<GoogleIcon className="size-4" />
 								)}
-								{AUTH_COPY.googleButton}
+								{t("auth.googleButton")}
 							</Button>
 
 							<div className="flex items-center gap-3">
 								<div className="h-px flex-1 bg-border" />
 								<span className="text-muted-foreground text-xs uppercase tracking-widest">
-									{AUTH_COPY.divider}
+									{t("auth.divider")}
 								</span>
 								<div className="h-px flex-1 bg-border" />
 							</div>
 
 							<form className="flex flex-col gap-2" onSubmit={handleMagicLink}>
 								<Label htmlFor="auth-email" className="sr-only">
-									{AUTH_COPY.emailLabel}
+									{t("auth.emailLabel")}
 								</Label>
 								<Input
 									id="auth-email"
 									type="email"
 									required
 									autoComplete="email"
-									placeholder={AUTH_COPY.emailPlaceholder}
+									placeholder={t("auth.emailPlaceholder")}
 									value={email}
 									onChange={(e) => setEmail(e.target.value)}
 									disabled={isSending}
@@ -226,13 +231,13 @@ function AuthModalDialog({
 									{isSending ? (
 										<Loader2 className="size-4 animate-spin" />
 									) : null}
-									{AUTH_COPY.sendMagicLink}
+									{t("auth.sendMagicLink")}
 								</Button>
 							</form>
 						</div>
 
 						<p className="mt-6 text-center text-muted-foreground/80 text-xs leading-relaxed">
-							{AUTH_COPY.terms}
+							{t("auth.terms")}
 						</p>
 					</div>
 				) : (
@@ -242,13 +247,12 @@ function AuthModalDialog({
 						</span>
 						<DialogHeader className="mt-4 items-center gap-2 text-center sm:text-center">
 							<DialogTitle className="font-display font-semibold text-xl tracking-tight">
-								{AUTH_COPY.sentTitle}
+								{t("auth.sentTitle")}
 							</DialogTitle>
 							<DialogDescription className="text-muted-foreground text-sm">
-								{AUTH_COPY.sentBody}
+								{t("auth.sentBody", { email })}
 							</DialogDescription>
 						</DialogHeader>
-						<p className="mt-1 font-mono text-foreground text-sm">{email}</p>
 						<Button
 							type="button"
 							variant="ghost"
@@ -256,8 +260,8 @@ function AuthModalDialog({
 							className="mt-6 text-muted-foreground"
 							onClick={handleBack}
 						>
-							<ArrowLeft className="size-3.5" />
-							{AUTH_COPY.useDifferentEmail}
+							<ArrowLeft className="size-3.5 rtl:rotate-180" />
+							{t("auth.useDifferentEmail")}
 						</Button>
 					</div>
 				)}

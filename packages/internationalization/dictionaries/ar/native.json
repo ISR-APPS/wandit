@@ -1,0 +1,72 @@
+{
+	"auth": {
+		"tagline": "من الفكرة إلى صفحة هبوط منشورة تجمع طلباتك",
+		"signIn": {
+			"title": "تسجيل الدخول",
+			"submit": "تسجيل الدخول"
+		},
+		"signUp": {
+			"title": "إنشاء حساب",
+			"submit": "إنشاء حساب"
+		},
+		"fields": {
+			"nameLabel": "الاسم",
+			"namePlaceholder": "John Doe",
+			"emailLabel": "البريد الإلكتروني",
+			"emailPlaceholder": "email@example.com",
+			"passwordLabel": "كلمة المرور",
+			"passwordPlaceholder": "••••••••"
+		},
+		"validation": {
+			"nameRequired": "الاسم مطلوب",
+			"nameMin": "يجب أن يتكوّن الاسم من حرفين على الأقل",
+			"emailRequired": "البريد الإلكتروني مطلوب",
+			"emailInvalid": "أدخل عنوان بريد إلكتروني صالحاً",
+			"passwordRequired": "كلمة المرور مطلوبة",
+			"passwordMin": "استخدم 8 أحرف على الأقل"
+		},
+		"toasts": {
+			"signInError": "تعذّر تسجيل الدخول",
+			"signInSuccess": "تم تسجيل الدخول بنجاح",
+			"signUpError": "تعذّر إنشاء الحساب",
+			"signUpSuccess": "تم إنشاء الحساب بنجاح"
+		}
+	},
+	"home": {
+		"heading": "ماذا تريد أن تبني؟",
+		"promptPlaceholder": "صفحة هبوط لـ…",
+		"create": "إنشاء"
+	},
+	"drawer": {
+		"projects": "المشاريع",
+		"signOut": "تسجيل الخروج",
+		"language": "اللغة"
+	},
+	"workspace": {
+		"back": "رجوع",
+		"send": "إرسال",
+		"composerPlaceholder": "صِف تعديلاً…",
+		"tabs": {
+			"chat": "المحادثة",
+			"preview": "المعاينة",
+			"leads": "العملاء المحتملون",
+			"settings": "الإعدادات"
+		},
+		"placeholders": {
+			"chatTitle": "المحادثة",
+			"chatDescription": "محادثة مع الذكاء الاصطناعي — سجل الرسائل وتحديثات التوليد المباشرة.",
+			"previewTitle": "المعاينة",
+			"previewDescription": "معاينة مباشرة لصفحة الهبوط المُولَّدة (داخل WebView معزول) مع تبديل الإصدارات.",
+			"leadsTitle": "العملاء المحتملون",
+			"leadsDescription": "نظام إدارة الطلبات — إرسالات النماذج مع مسار الحالات، والاتصال أو مراسلة WhatsApp بنقرة واحدة.",
+			"settingsTitle": "الإعدادات",
+			"settingsDescription": "إعدادات المشروع — رابط النشر، معرّفات pixel، إعادة التسمية، إلغاء النشر والحذف."
+		}
+	},
+	"notFound": {
+		"screenTitle": "غير موجودة",
+		"title": "الصفحة غير موجودة",
+		"description": "الصفحة التي تبحث عنها غير موجودة.",
+		"goHome": "العودة إلى الرئيسية"
+	}
+}

@@ -1,0 +1,140 @@
+{
+	"headerTitle": "المشاريع",
+	"promptHeading": "ماذا ستطلق اليوم؟",
+	"toolbarTitle": "مشاريعك",
+	"searchPlaceholder": "ابحث في المشاريع…",
+	"filterAll": "الكل",
+	"filterPublished": "منشورة",
+	"filterDrafts": "مسودات",
+	"emptyTitle": "لا توجد مشاريع بعد",
+	"emptyBody": "لا توجد مشاريع بعد — صِف صفحتك الأولى في الأعلى.",
+	"emptyCta": "اكتب أول وصف لك",
+	"noResultsTitle": "لا توجد مشاريع مطابقة",
+	"noResultsBody": "لا شيء يطابق « {query} ». جرّب بحثًا آخر.",
+	"noResultsBodyEmpty": "لا شيء يطابق هذا المرشّح.",
+	"clearFilters": "مسح عوامل التصفية",
+	"statusDraft": "مسودة",
+	"statusPublishing": "جارٍ النشر",
+	"statusPublished": "منشور",
+	"leadCount": {
+		"zero": "{count} عميل محتمل",
+		"one": "عميل محتمل واحد",
+		"two": "عميلان محتملان",
+		"few": "{count} عملاء محتملين",
+		"many": "{count} عميلًا محتملًا",
+		"other": "{count} عميل محتمل"
+	},
+	"publishedDomain": ".wandit.app",
+	"menuOpen": "فتح",
+	"menuViewLive": "عرض مباشر",
+	"menuViewLiveMock": "تجريبي",
+	"menuRename": "إعادة تسمية",
+	"menuDelete": "حذف",
+	"cardMenuLabel": "إجراءات المشروع",
+	"renameTitle": "إعادة تسمية المشروع",
+	"renameDescription": "تحتفظ الصفحة المنشورة بالـ slug الخاص بها.",
+	"renameLabel": "اسم المشروع",
+	"renameSave": "حفظ",
+	"renameCancel": "إلغاء",
+	"renameSuccess": "تمت إعادة تسمية المشروع",
+	"deleteTitle": "حذف المشروع؟",
+	"deleteDescription": "سيُحذف « {name} » وعملاؤه المحتملون نهائيًا. لا يمكن التراجع عن هذا الإجراء.",
+	"deleteConfirm": "حذف",
+	"deleteCancel": "إلغاء",
+	"deleteSuccess": "تم حذف المشروع",
+	"createSuccess": "« {name} » جاهز",
+	"untitled": "مشروع بدون عنوان",
+	"logoLabel": "Wandit — المشاريع",
+	"meta": {
+		"title": "المشاريع — Wandit"
+	},
+	"sidebar": {
+		"groupWorkspace": "مساحة العمل",
+		"groupResources": "الموارد",
+		"soon": "قريبًا",
+		"creditsLabel": "الرصيد",
+		"topUp": "إعادة الشحن — قريبًا",
+		"toggleSidebar": "تبديل الشريط الجانبي",
+		"mobileTitle": "التنقل",
+		"mobileDescription": "تنقل لوحة التحكم"
+	},
+	"nav": {
+		"projects": "المشاريع",
+		"leads": "العملاء المحتملون",
+		"assets": "الوسائط",
+		"analytics": "التحليلات",
+		"docs": "المستندات",
+		"support": "الدعم"
+	},
+	"promptBox": {
+		"placeholderHero": "صِف ما تريد بيعه أو إنشاءه…",
+		"placeholderCompact": "صِف ما تريد إنشاءه…",
+		"hint": "جاهزة بالعربية والفرنسية",
+		"banner": "إصدار تجريبي — أول 10 صفحات لك مجانًا، دون بطاقة",
+		"generate": "توليد",
+		"submitLabel": "توليد",
+		"micLabel": "الإدخال الصوتي — قريبًا",
+		"engineLabel": "المحرّك",
+		"engineAutoBadge": "موصى به",
+		"engineResetHint": "يعود إلى «تلقائي» عند تغيير النوع.",
+		"creationTypeLabel": "نوع الإنشاء",
+		"modes": {
+			"sales-page": {
+				"label": "صفحة بيع",
+				"placeholder": "صِف منتجك والسعر والعرض ونموذج الدفع عند الاستلام…"
+			},
+			"website": {
+				"label": "موقع إلكتروني",
+				"placeholder": "صِف نشاطك التجاري وأقسام الموقع والأسلوب المطلوب…"
+			},
+			"photos": {
+				"label": "صور المنتج",
+				"placeholder": "صِف صور المنتج: الخلفية، الزاوية، الأجواء، الاستخدام…"
+			},
+			"ads": {
+				"label": "تصاميم إعلانية",
+				"placeholder": "صِف التصاميم الإعلانية لـ TikTok أو Meta أو Instagram…"
+			},
+			"video": {
+				"label": "إعلان فيديو",
+				"placeholder": "صِف الفيديو: المنتج، المشاهد، الصيغة، المدة، التعليق الصوتي…"
+			},
+			"flyer": {
+				"label": "فلاير",
+				"placeholder": "صِف الفلاير: العرض، الألوان، النص والصيغة…"
+			}
+		},
+		"engines": {
+			"auto": {
+				"label": "تلقائي",
+				"short": "تلقائي",
+				"description": "أفضل محرّك حسب طلبك."
+			},
+			"wandit-pages": {
+				"label": "Wandit Pages",
+				"short": "Wandit Pages",
+				"description": "مُحسّن لصفحات الهبوط والدفع عند الاستلام."
+			},
+			"gpt-image-2": {
+				"label": "GPT Image 2",
+				"short": "GPT Image 2",
+				"description": "نص واضح وتكوينات تسويقية."
+			},
+			"nano-banana-pro": {
+				"label": "Nano Banana Pro",
+				"short": "Nano Banana",
+				"description": "متغيّرات سريعة، منتجات، ملصقات."
+			},
+			"seedance-2": {
+				"label": "Seedance 2.0",
+				"short": "Seedance 2",
+				"description": "فيديوهات قصيرة للإعلانات والريلز."
+			},
+			"veo-3": {
+				"label": "Veo 3",
+				"short": "Veo 3",
+				"description": "فيديوهات متميّزة بمشاهد أغنى."
+			}
+		}
+	}
+}

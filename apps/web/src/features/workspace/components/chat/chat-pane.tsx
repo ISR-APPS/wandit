@@ -18,13 +18,12 @@ import { useEffect, useRef } from "react";
 import { Spark } from "@/components/logo";
 import { InsufficientCreditsDialog } from "@/features/credits";
 import { PromptBox } from "@/features/projects";
-import { WORKSPACE_COPY } from "../../lib/constants";
+import { useTranslation } from "@/lib/i18n";
 import { useWorkspace } from "../../lib/store";
 import { ChatMessageView, ThinkingIndicator } from "./chat-message";
 
-const COPY = WORKSPACE_COPY.chat;
-
 export function ChatPane({ className }: { className?: string }) {
+	const { t, dir } = useTranslation();
 	const {
 		chatOpen,
 		toggleChat,
@@ -67,15 +66,17 @@ export function ChatPane({ className }: { className?: string }) {
 				{/* Screenreader announcement for the otherwise-visual job states. */}
 				<span aria-live="polite" className="sr-only">
 					{generationPhase === "thinking" || generationPhase === "streaming"
-						? COPY.thinking
+						? t("workspace.chat.thinking")
 						: generationPhase === "building"
-							? WORKSPACE_COPY.page.generatingTitle(pendingVersionNumber)
+							? t("workspace.page.generatingTitle", {
+									n: pendingVersionNumber,
+								})
 							: ""}
 				</span>
 				<div className="flex h-12 shrink-0 items-center justify-between border-b px-3">
 					<span className="flex min-w-0 items-center gap-2 font-medium text-sm">
 						<MessagesSquare className="size-4 shrink-0 text-muted-foreground" />
-						{COPY.title}
+						{t("workspace.chat.title")}
 						{project?.name ? (
 							<span
 								dir="auto"
@@ -91,12 +92,14 @@ export function ChatPane({ className }: { className?: string }) {
 								variant="ghost"
 								size="icon-sm"
 								onClick={toggleChat}
-								aria-label={COPY.collapse}
+								aria-label={t("workspace.chat.collapse")}
 							>
 								<PanelLeftClose className="size-4" />
 							</Button>
 						</TooltipTrigger>
-						<TooltipContent side="right">{COPY.collapse}</TooltipContent>
+						<TooltipContent side={dir === "rtl" ? "left" : "right"}>
+							{t("workspace.chat.collapse")}
+						</TooltipContent>
 					</Tooltip>
 				</div>
 
@@ -106,18 +109,18 @@ export function ChatPane({ className }: { className?: string }) {
 				>
 					{statePending ? (
 						<div className="flex flex-col gap-4">
-							<Skeleton className="ml-auto h-14 w-3/4 rounded-2xl" />
+							<Skeleton className="ms-auto h-14 w-3/4 rounded-2xl" />
 							<Skeleton className="h-20 w-5/6 rounded-xl" />
-							<Skeleton className="ml-auto h-10 w-2/3 rounded-2xl" />
+							<Skeleton className="ms-auto h-10 w-2/3 rounded-2xl" />
 						</div>
 					) : isEmpty ? (
 						<div className="flex h-full flex-col items-center justify-center gap-2 text-center">
 							<Spark className="size-5 text-primary/60" />
 							<p className="font-display font-semibold text-sm">
-								{COPY.emptyTitle}
+								{t("workspace.chat.emptyTitle")}
 							</p>
 							<p className="max-w-56 text-muted-foreground text-xs leading-relaxed">
-								{COPY.emptyBody}
+								{t("workspace.chat.emptyBody")}
 							</p>
 						</div>
 					) : (
@@ -126,7 +129,7 @@ export function ChatPane({ className }: { className?: string }) {
 								<ChatMessageView key={message.id} message={message} />
 							))}
 							{generationPhase === "thinking" ? (
-								<ThinkingIndicator label={COPY.thinking} />
+								<ThinkingIndicator label={t("workspace.chat.thinking")} />
 							) : streamingMessage ? (
 								<ChatMessageView
 									message={streamingMessage}
@@ -142,7 +145,7 @@ export function ChatPane({ className }: { className?: string }) {
 						variant="compact"
 						showPriceTag
 						clearOnSubmit
-						placeholder={COPY.placeholder}
+						placeholder={t("workspace.chat.placeholder")}
 						onSubmit={sendPrompt}
 						isSubmitting={isGenerating}
 					/>
