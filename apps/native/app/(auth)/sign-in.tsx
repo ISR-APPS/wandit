@@ -1,5 +1,5 @@
-import { SignInScreen } from "@/features/auth/screens/sign-in-screen";
+import { WelcomeScreen } from "@/features/auth/screens/welcome-screen";
 
 export default function SignInRoute() {
-	return <SignInScreen />;
+	return <WelcomeScreen />;
 }

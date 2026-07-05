@@ -1,12 +1,12 @@
 import {
-  Chip as HeroChip,
-  useChip as useHeroChip,
-  type ChipColor,
-  type ChipContextValue,
-  type ChipLabelProps,
-  type ChipProps,
-  type ChipSize,
-  type ChipVariant,
+	type ChipColor,
+	type ChipContextValue,
+	type ChipLabelProps,
+	type ChipProps,
+	type ChipSize,
+	type ChipVariant,
+	Chip as HeroChip,
+	useChip as useHeroChip,
 } from "heroui-native";
 import { forwardRef } from "react";
 import type { View } from "react-native";
@@ -19,13 +19,13 @@ export type AppChipSize = ChipSize;
 export type AppChipVariant = ChipVariant;
 
 const AppChipRoot = forwardRef<View, AppChipProps>((props, ref) => (
-  <HeroChip ref={ref} {...props} />
+	<HeroChip ref={ref} {...props} />
 ));
 
 AppChipRoot.displayName = "AppChip";
 
 export const AppChip = Object.assign(AppChipRoot, {
-  Label: HeroChip.Label,
+	Label: HeroChip.Label,
 });
 
 export const useAppChip = useHeroChip;

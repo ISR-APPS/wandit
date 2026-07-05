@@ -80,7 +80,10 @@
 		"outputLabel": "المُخرَج",
 		"settingsLabel": "إعدادات التوليد",
 		"skillLibraryLabel": "من إنشاء Wandit",
+		"searchSkillsPlaceholder": "ابحث عن مهارة…",
+		"noSkillResults": "لا توجد مهارات مطابقة",
 		"removeSkillLabel": "إزالة {name}",
+		"moreSkillsLabel": "{count} مهارات أخرى",
 		"outputsHeading": "مُخرَجات {mode}",
 		"settingsSubtitle": "خيارات مُخرَج {mode}.",
 		"routeModes": {
@@ -155,6 +158,13 @@
 				"description": "يُنشئ صفحة المشروع القابلة للنشر.",
 				"placeholder": "صِف المنتج والعرض والسعر والإثبات وتدفّق الدفع عند الاستلام…",
 				"options": {
+					"quality": {
+						"label": "الجودة",
+						"choices": {
+							"premium": "بريميوم",
+							"max": "ماكس"
+						}
+					},
 					"goal": {
 						"label": "الهدف",
 						"choices": {
@@ -189,6 +199,13 @@
 				"description": "يُحدّث النص أو التخطيط أو أقسام الصفحة الحالية.",
 				"placeholder": "أخبر Wandit بالجزء الذي يجب تغييره في الصفحة…",
 				"options": {
+					"quality": {
+						"label": "الجودة",
+						"choices": {
+							"premium": "بريميوم",
+							"max": "ماكس"
+						}
+					},
 					"scope": {
 						"label": "النطاق",
 						"choices": {
@@ -214,6 +231,13 @@
 				"description": "يُنشئ قسمًا قابلاً للتضمين في الصفحة.",
 				"placeholder": "صِف القسم الذي تريد إضافته إلى الصفحة…",
 				"options": {
+					"quality": {
+						"label": "الجودة",
+						"choices": {
+							"premium": "بريميوم",
+							"max": "ماكس"
+						}
+					},
 					"section": {
 						"label": "نوع القسم",
 						"choices": {

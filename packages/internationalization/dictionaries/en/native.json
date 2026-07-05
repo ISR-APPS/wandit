@@ -1,66 +1,62 @@
 {
 	"auth": {
-		"tagline": "Prompt → landing page → publish → orders",
-		"signIn": {
-			"title": "Sign In",
-			"submit": "Sign In"
-		},
-		"signUp": {
-			"title": "Create Account",
-			"submit": "Create Account"
-		},
-		"fields": {
-			"nameLabel": "Name",
-			"namePlaceholder": "John Doe",
-			"emailLabel": "Email",
-			"emailPlaceholder": "email@example.com",
-			"passwordLabel": "Password",
-			"passwordPlaceholder": "••••••••"
-		},
-		"validation": {
-			"nameRequired": "Name is required",
-			"nameMin": "Name must be at least 2 characters",
-			"emailRequired": "Email is required",
-			"emailInvalid": "Enter a valid email address",
-			"passwordRequired": "Password is required",
-			"passwordMin": "Use at least 8 characters"
-		},
-		"toasts": {
-			"signInError": "Failed to sign in",
-			"signInSuccess": "Signed in successfully",
-			"signUpError": "Failed to sign up",
-			"signUpSuccess": "Account created successfully"
+		"welcome": {
+			"headline1": "Type it.",
+			"headline2": "Launch it.",
+			"headline3": "Sell it.",
+			"tagline": "A prompt becomes a landing page that takes COD orders — publish in minutes.",
+			"googleCta": "Continue with Google",
+			"betaHint": "Beta — your first 10 pages are on us"
 		}
 	},
 	"home": {
-		"heading": "What do you want to build?",
-		"promptPlaceholder": "A landing page for…",
-		"create": "Create"
+		"greeting": "What are we launching today, {name}?",
+		"chips": {
+			"salesPage": "Sales page",
+			"website": "Website",
+			"productPhotos": "Product photos",
+			"adCreatives": "Ad creatives",
+			"videoAd": "Video ad",
+			"flyer": "Flyer"
+		},
+		"tryHint": "Try: COD page for a vintage watch →",
+		"tryPrompt": "A COD product page for a vintage leather watch — hero shot, three benefit blocks, and an order form with wilaya and commune fields."
 	},
 	"drawer": {
-		"projects": "Projects",
 		"signOut": "Sign out",
-		"language": "Language"
+		"language": "Language",
+		"createProject": "Create new project",
+		"filterCreatedByMe": "Created by me",
+		"myWandit": "My Wandit"
 	},
 	"workspace": {
-		"back": "Go back",
-		"send": "Send",
 		"composerPlaceholder": "Describe a change…",
-		"tabs": {
-			"chat": "Chat",
-			"preview": "Preview",
-			"leads": "Leads",
-			"settings": "Settings"
-		},
 		"placeholders": {
-			"chatTitle": "Chat",
-			"chatDescription": "Conversation with the AI — message history and streaming generation updates.",
-			"previewTitle": "Preview",
-			"previewDescription": "Live preview of the generated landing page (sandboxed WebView) with version switching.",
 			"leadsTitle": "Leads",
 			"leadsDescription": "Order CRM — form submissions with the status pipeline, tap-to-call and tap-to-WhatsApp.",
 			"settingsTitle": "Settings",
-			"settingsDescription": "Project settings — publish slug, pixel IDs, rename, unpublish and delete."
+			"settingsDescription": "Project settings — publish slug, pixel IDs, rename, unpublish and delete.",
+			"pageTitle": "Page",
+			"pageDescription": "The publishable landing page — preview, versions and publishing.",
+			"assetsTitle": "Assets",
+			"assetsDescription": "Generated images, videos and HTML assets — library and canvas.",
+			"marketingTitle": "Marketing",
+			"marketingDescription": "Ad copy, strategies, scripts and campaign assets for the project."
+		},
+		"newProject": "New project",
+		"previewLabel": "Open preview",
+		"empty": {
+			"title": "Your page will live here",
+			"subtitle": "Describe what you sell — or attach a product photo to start with creatives."
+		},
+		"artifact": {
+			"details": "Details",
+			"preview": "Preview"
+		},
+		"hints": {
+			"arfr": "AR & FR ready",
+			"cod": "COD forms",
+			"publish": "Publish free"
 		}
 	},
 	"notFound": {
@@ -68,5 +64,33 @@
 		"title": "Page Not Found",
 		"description": "The page you're looking for doesn't exist.",
 		"goHome": "Go Home"
+	},
+	"attach": {
+		"takePhoto": "Take photo",
+		"photoLibrary": "Photo library",
+		"attachSkill": "Attach a skill",
+		"browseFiles": "Browse files",
+		"cancel": "Cancel",
+		"remove": "Remove attachment",
+		"attachedMeta": "attached · {size}"
+	},
+	"credits": {
+		"title": "Credits",
+		"left": "{count} left",
+		"betaNote": "Beta credits · Publishing & leads are always free"
+	},
+	"projectSheet": {
+		"viewsLabel": "Project views",
+		"views": {
+			"page": "Page",
+			"assets": "Assets",
+			"marketing": "Marketing",
+			"leads": "Leads"
+		},
+		"settings": "Settings",
+		"rename": "Rename project",
+		"appearance": "Appearance",
+		"appearanceLight": "Light",
+		"appearanceDark": "Dark"
 	}
 }

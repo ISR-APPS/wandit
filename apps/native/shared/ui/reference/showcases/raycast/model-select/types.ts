@@ -1,5 +1,5 @@
 export type ModelOption = {
-  value: string;
-  label: string;
-  emoji: string;
+	value: string;
+	label: string;
+	emoji: string;
 };

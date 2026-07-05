@@ -6,7 +6,7 @@ export type AppInputProps = InputProps;
 export type AppInputRef = TextInput;
 
 const AppInputRoot = forwardRef<AppInputRef, AppInputProps>((props, ref) => (
-  <HeroInput ref={ref} {...props} />
+	<HeroInput ref={ref} {...props} />
 ));
 
 AppInputRoot.displayName = "AppInput";

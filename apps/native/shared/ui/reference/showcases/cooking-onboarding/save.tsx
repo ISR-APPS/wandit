@@ -1,5 +1,11 @@
 import Feather from "@expo/vector-icons/Feather";
-import { Button, cn, Popover, type PopoverTriggerRef, useThemeColor } from "heroui-native";
+import {
+	Button,
+	cn,
+	Popover,
+	type PopoverTriggerRef,
+	useThemeColor,
+} from "heroui-native";
 import type { FC, RefObject } from "react";
 import { withUniwind } from "uniwind";
 import { simulatePress } from "../../../helpers/utils/simulate-press";
@@ -9,33 +15,42 @@ import { className } from "./styles";
 const StyledFeather = withUniwind(Feather);
 
 type Props = {
-  isOnboardingDone: boolean;
-  triggerRef: RefObject<PopoverTriggerRef | null>;
+	isOnboardingDone: boolean;
+	triggerRef: RefObject<PopoverTriggerRef | null>;
 };
 
 export const Save: FC<Props> = ({ isOnboardingDone, triggerRef }) => {
-  const themeColorForeground = useThemeColor("foreground");
+	const themeColorForeground = useThemeColor("foreground");
 
-  return (
-    <Popover>
-      <Popover.Trigger ref={triggerRef}>
-        <Button
-          variant="secondary"
-          className={cn(className.buttonSecondarySquare, className.buttonSecondaryColors)}
-          onPress={isOnboardingDone ? simulatePress : undefined}
-          isIconOnly
-        >
-          <StyledFeather name="heart" size={16} className="text-foreground" />
-        </Button>
-      </Popover.Trigger>
-      <Popover.Portal>
-        <Popover.Content presentation="popover" className={className.popoverContent}>
-          <Popover.Arrow stroke={themeColorForeground} fill={themeColorForeground} />
-          <AppText className={className.popoverText}>
-            Save your favorite recipes to your collection
-          </AppText>
-        </Popover.Content>
-      </Popover.Portal>
-    </Popover>
-  );
+	return (
+		<Popover>
+			<Popover.Trigger ref={triggerRef}>
+				<Button
+					variant="secondary"
+					className={cn(
+						className.buttonSecondarySquare,
+						className.buttonSecondaryColors,
+					)}
+					onPress={isOnboardingDone ? simulatePress : undefined}
+					isIconOnly
+				>
+					<StyledFeather name="heart" size={16} className="text-foreground" />
+				</Button>
+			</Popover.Trigger>
+			<Popover.Portal>
+				<Popover.Content
+					presentation="popover"
+					className={className.popoverContent}
+				>
+					<Popover.Arrow
+						stroke={themeColorForeground}
+						fill={themeColorForeground}
+					/>
+					<AppText className={className.popoverText}>
+						Save your favorite recipes to your collection
+					</AppText>
+				</Popover.Content>
+			</Popover.Portal>
+		</Popover>
+	);
 };

@@ -80,7 +80,10 @@
 		"outputLabel": "Sortie",
 		"settingsLabel": "Réglages de génération",
 		"skillLibraryLabel": "Conçu par Wandit",
+		"searchSkillsPlaceholder": "Rechercher une compétence…",
+		"noSkillResults": "Aucune compétence trouvée",
 		"removeSkillLabel": "Retirer {name}",
+		"moreSkillsLabel": "{count} compétences de plus",
 		"outputsHeading": "Sorties {mode}",
 		"settingsSubtitle": "Options pour cette sortie {mode}.",
 		"routeModes": {
@@ -155,6 +158,13 @@
 				"description": "Crée la page projet publiable.",
 				"placeholder": "Décris le produit, l'offre, le prix, la preuve et le flux COD…",
 				"options": {
+					"quality": {
+						"label": "Qualité",
+						"choices": {
+							"premium": "Premium",
+							"max": "Max"
+						}
+					},
 					"goal": {
 						"label": "Objectif",
 						"choices": {
@@ -189,6 +199,13 @@
 				"description": "Met à jour le copy, la mise en page ou des sections de la page actuelle.",
 				"placeholder": "Dis à Wandit quelle partie de la page doit changer…",
 				"options": {
+					"quality": {
+						"label": "Qualité",
+						"choices": {
+							"premium": "Premium",
+							"max": "Max"
+						}
+					},
 					"scope": {
 						"label": "Portée",
 						"choices": {
@@ -214,6 +231,13 @@
 				"description": "Crée une section intégrable pour la page.",
 				"placeholder": "Décris la section que tu veux ajouter à la page…",
 				"options": {
+					"quality": {
+						"label": "Qualité",
+						"choices": {
+							"premium": "Premium",
+							"max": "Max"
+						}
+					},
 					"section": {
 						"label": "Type de section",
 						"choices": {

@@ -1,15 +1,15 @@
 import {
-  Avatar as HeroAvatar,
-  useAvatar as useHeroAvatar,
-  type AvatarColor,
-  type AvatarContextValue,
-  type AvatarFallbackProps,
-  type AvatarFallbackRef,
-  type AvatarImageProps,
-  type AvatarImageRef,
-  type AvatarRootProps,
-  type AvatarRootRef,
-  type AvatarSize,
+	type AvatarColor,
+	type AvatarContextValue,
+	type AvatarFallbackProps,
+	type AvatarFallbackRef,
+	type AvatarImageProps,
+	type AvatarImageRef,
+	type AvatarRootProps,
+	type AvatarRootRef,
+	type AvatarSize,
+	Avatar as HeroAvatar,
+	useAvatar as useHeroAvatar,
 } from "heroui-native";
 import { forwardRef } from "react";
 
@@ -24,14 +24,14 @@ export type AppAvatarSize = AvatarSize;
 export type AppAvatarRef = AvatarRootRef;
 
 const AppAvatarRoot = forwardRef<AppAvatarRef, AppAvatarProps>((props, ref) => (
-  <HeroAvatar ref={ref} {...props} />
+	<HeroAvatar ref={ref} {...props} />
 ));
 
 AppAvatarRoot.displayName = "AppAvatar";
 
 export const AppAvatar = Object.assign(AppAvatarRoot, {
-  Image: HeroAvatar.Image,
-  Fallback: HeroAvatar.Fallback,
+	Image: HeroAvatar.Image,
+	Fallback: HeroAvatar.Fallback,
 });
 
 export const useAppAvatar = useHeroAvatar;

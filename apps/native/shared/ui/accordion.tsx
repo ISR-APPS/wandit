@@ -1,15 +1,15 @@
 import {
-  Accordion as HeroAccordion,
-  AccordionLayoutTransition as HeroAccordionLayoutTransition,
-  useAccordion as useHeroAccordion,
-  useAccordionItem as useHeroAccordionItem,
-  type AccordionContentProps,
-  type AccordionContextValue,
-  type AccordionIndicatorProps,
-  type AccordionItemProps,
-  type AccordionRootProps,
-  type AccordionTriggerProps,
-  type AccordionVariant,
+	type AccordionContentProps,
+	type AccordionContextValue,
+	type AccordionIndicatorProps,
+	type AccordionItemProps,
+	type AccordionRootProps,
+	type AccordionTriggerProps,
+	type AccordionVariant,
+	Accordion as HeroAccordion,
+	AccordionLayoutTransition as HeroAccordionLayoutTransition,
+	useAccordion as useHeroAccordion,
+	useAccordionItem as useHeroAccordionItem,
 } from "heroui-native";
 
 export type AppAccordionProps = AccordionRootProps;
