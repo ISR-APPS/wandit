@@ -71,7 +71,11 @@
 		"placeholderCompact": "اطلب تعديل صفحة، أو أصلاً تسويقيًا، أو صورة أو فيديو…",
 		"banner": "إصدار تجريبي — أول 10 صفحات لك مجانًا، دون بطاقة",
 		"submitLabel": "توليد",
-		"micLabel": "الإدخال الصوتي — قريبًا",
+		"micLabel": "الإدخال الصوتي",
+		"micStop": "إيقاف التسجيل",
+		"micTranscribing": "جارٍ التفريغ…",
+		"micPermissionDenied": "تم رفض الوصول إلى الميكروفون. فعّله في المتصفح لاستخدام الإدخال الصوتي.",
+		"micError": "تعذّر تفريغ الصوت. حاول مرة أخرى.",
 		"addMenuLabel": "إضافة سياق",
 		"addSkillLabel": "إضافة مهارة",
 		"attachLabel": "إرفاق",
@@ -79,10 +83,29 @@
 		"modeLabel": "الوضع",
 		"outputLabel": "المُخرَج",
 		"settingsLabel": "إعدادات التوليد",
+		"qualityLabel": "الجودة",
 		"skillLibraryLabel": "من إنشاء Wandit",
 		"removeSkillLabel": "إزالة {name}",
+		"moreSkillsLabel": {
+			"zero": "{count} مهارة إضافية",
+			"one": "مهارة إضافية واحدة",
+			"two": "مهارتان إضافيتان",
+			"few": "{count} مهارات إضافية",
+			"many": "{count} مهارة إضافية",
+			"other": "{count} مهارة إضافية"
+		},
 		"outputsHeading": "مُخرَجات {mode}",
 		"settingsSubtitle": "خيارات مُخرَج {mode}.",
+		"quality": {
+			"standard": {
+				"label": "قياسي",
+				"hint": "سريع وفعّال"
+			},
+			"max": {
+				"label": "أقصى",
+				"hint": "أفضل نتيجة، يستهلك رصيدًا أكثر"
+			}
+		},
 		"routeModes": {
 			"auto": {
 				"label": "تلقائي",

@@ -11,4 +11,3 @@ export { PromptBox } from "./components/prompt-box";
 export { PROJECT_NAME_MAX_LENGTH } from "./lib/constants";
 export { thumbGradient } from "./lib/helpers";
 export { useCreateProjectWithPrompt } from "./lib/hooks";
-export { setMockProjectStatus } from "./lib/mock-projects";

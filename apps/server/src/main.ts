@@ -1,5 +1,6 @@
 import "reflect-metadata";
 
+import multipart from "@fastify/multipart";
 import { Logger, RequestMethod, ValidationPipe } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import {
@@ -25,6 +26,15 @@ async function bootstrap() {
 	);
 
 	app.enableShutdownHooks();
+	await app.register(
+		multipart as unknown as Parameters<NestFastifyApplication["register"]>[0],
+		{
+			limits: {
+				fileSize: 15 * 1024 * 1024,
+				files: 1,
+			},
+		},
+	);
 	app.setGlobalPrefix("api", {
 		exclude: [{ path: "/", method: RequestMethod.GET }],
 	});
@@ -32,7 +42,12 @@ async function bootstrap() {
 		origin: env.CORS_ORIGIN,
 		credentials: true,
 		methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-		allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+		allowedHeaders: [
+			"Content-Type",
+			"Authorization",
+			"X-Requested-With",
+			"Last-Event-ID",
+		],
 		maxAge: 86400,
 	});
 	app.useGlobalPipes(

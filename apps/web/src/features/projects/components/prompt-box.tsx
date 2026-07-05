@@ -1,4 +1,8 @@
-import { projectPromptMaxLength } from "@wandit/contracts";
+import {
+	type ComposerMetadata,
+	type ComposerQuality,
+	projectPromptMaxLength,
+} from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import {
 	DropdownMenu,
@@ -34,6 +38,7 @@ import {
 	ChevronDown,
 	Clapperboard,
 	FileText,
+	Gauge,
 	ImageIcon,
 	Loader2,
 	type LucideIcon,
@@ -41,6 +46,7 @@ import {
 	Mic,
 	Paperclip,
 	Plus,
+	Rocket,
 	SearchCheck,
 	ShieldCheck,
 	SlidersHorizontal,
@@ -52,8 +58,11 @@ import {
 import type * as React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { CREDIT_COSTS, PriceTag } from "@/features/credits";
+import { Spark } from "@/components/logo";
+import { PriceTag } from "@/features/credits";
 import { useDictionary, useTranslation } from "@/lib/i18n";
+import { MAX_VISIBLE_SKILLS, QUALITY_CREDITS } from "../lib/constants";
+import { useVoiceDictation } from "../lib/use-voice-dictation";
 
 type RouteMode = "auto" | "page" | "marketing" | "image" | "video";
 type ConcreteMode = Exclude<RouteMode, "auto">;
@@ -138,6 +147,18 @@ const ROUTE_MODES: readonly RouteModeDef[] = [
 	{ id: "marketing", icon: Megaphone },
 	{ id: "image", icon: ImageIcon },
 	{ id: "video", icon: Clapperboard },
+];
+
+// Non-copy quality-tier config: id + icon. Label/hint live in the
+// `projects.promptBox.quality` dictionary namespace; cost in QUALITY_CREDITS.
+type QualityTierDef = {
+	id: ComposerQuality;
+	icon: LucideIcon;
+};
+
+const QUALITY_TIERS: readonly QualityTierDef[] = [
+	{ id: "standard", icon: Gauge },
+	{ id: "max", icon: Rocket },
 ];
 
 const SKILL_FILE_GROUPS: readonly SkillFileGroup[] = [
@@ -724,18 +745,28 @@ function AddContextMenu({
 
 function AttachedSkillChips({
 	skills,
+	selectedSkillIds,
+	onToggleSkill,
 	onRemove,
 }: {
 	skills: readonly SkillFileDef[];
+	selectedSkillIds: readonly SkillFileId[];
+	onToggleSkill: (skill: SkillFileDef) => void;
 	onRemove: (id: SkillFileId) => void;
 }) {
 	const { t } = useTranslation();
 	const pb = useDictionary().projects.promptBox;
 	if (skills.length === 0) return null;
 
+	const hasOverflow = skills.length > MAX_VISIBLE_SKILLS;
+	const visibleSkills = hasOverflow
+		? skills.slice(0, MAX_VISIBLE_SKILLS)
+		: skills;
+	const hiddenSkills = hasOverflow ? skills.slice(MAX_VISIBLE_SKILLS) : [];
+
 	return (
 		<div className="flex flex-wrap gap-1.5 px-4 pt-3 sm:px-5">
-			{skills.map((skill) => {
+			{visibleSkills.map((skill) => {
 				const SkillIcon = skill.icon;
 				const label = pb.skills[skill.id].label;
 				return (
@@ -761,6 +792,40 @@ function AttachedSkillChips({
 					</span>
 				);
 			})}
+			{hiddenSkills.length > 0 ? (
+				<DropdownMenu>
+					<DropdownMenuTrigger asChild>
+						<button
+							type="button"
+							aria-label={t("projects.promptBox.moreSkillsLabel", {
+								count: hiddenSkills.length,
+							})}
+							title={hiddenSkills
+								.map((skill) => pb.skills[skill.id].label)
+								.join(", ")}
+							className="inline-flex h-7 items-center rounded-full border border-border/70 bg-muted/60 px-2.5 font-medium text-muted-foreground text-xs tabular-nums transition-colors hover:border-primary/30 hover:bg-primary/10 hover:text-foreground data-[state=open]:border-primary/30 data-[state=open]:bg-primary/10 data-[state=open]:text-foreground"
+						>
+							+{hiddenSkills.length}
+						</button>
+					</DropdownMenuTrigger>
+					<DropdownMenuContent
+						align="start"
+						sideOffset={8}
+						collisionPadding={12}
+						className="w-[22rem] max-w-[calc(100vw-1.5rem)] rounded-2xl border-border/80 p-1.5 shadow-[0_18px_50px_-24px_rgb(0_0_0/0.36)]"
+					>
+						<div className="flex items-center justify-between px-2 pt-1 pb-1.5">
+							<span className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.14em]">
+								{t("projects.promptBox.skillLibraryLabel")}
+							</span>
+						</div>
+						<SkillFileRows
+							selectedIds={selectedSkillIds}
+							onToggleSkill={onToggleSkill}
+						/>
+					</DropdownMenuContent>
+				</DropdownMenu>
+			) : null}
 		</div>
 	);
 }
@@ -1032,11 +1097,100 @@ function OutputSettings({
 	);
 }
 
+function QualityPicker({
+	value,
+	onValueChange,
+	isHero,
+}: {
+	value: ComposerQuality;
+	onValueChange: (quality: ComposerQuality) => void;
+	isHero: boolean;
+}) {
+	const { t } = useTranslation();
+	const pb = useDictionary().projects.promptBox;
+	const isMax = value === "max";
+	const selectedCopy = pb.quality[value];
+
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger asChild>
+				<Button
+					type="button"
+					variant="outline"
+					size="sm"
+					aria-label={`${t("projects.promptBox.qualityLabel")}: ${selectedCopy.label}`}
+					className={cn(
+						"group/trigger rounded-full font-medium font-mono text-[11px] tabular-nums shadow-none transition-colors",
+						isMax
+							? "border-primary/35 bg-primary/10 text-foreground hover:bg-primary/15 data-[state=open]:bg-primary/15"
+							: "border-border/75 bg-background/55 text-muted-foreground hover:border-primary/25 hover:bg-accent/70 hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground",
+						isHero ? "h-9" : "h-8",
+					)}
+				>
+					<Spark
+						className={cn("size-3", isMax ? "text-primary" : "text-primary/80")}
+					/>
+					<span>{QUALITY_CREDITS[value]}</span>
+					<ChevronDown className="size-3.5 transition-transform duration-200 group-data-[state=open]/trigger:rotate-180" />
+				</Button>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent
+				align="end"
+				sideOffset={8}
+				collisionPadding={12}
+				className="w-72 rounded-2xl border-border/80 p-1.5 shadow-[0_18px_50px_-24px_rgb(0_0_0/0.36)]"
+			>
+				<DropdownMenuLabel className="px-2 pt-1 pb-1.5 font-mono font-normal text-[10px] text-muted-foreground uppercase tracking-[0.14em]">
+					{t("projects.promptBox.qualityLabel")}
+				</DropdownMenuLabel>
+				<DropdownMenuRadioGroup
+					value={value}
+					onValueChange={(next) => onValueChange(next as ComposerQuality)}
+				>
+					{QUALITY_TIERS.map((tier) => {
+						const tierCopy = pb.quality[tier.id];
+						return (
+							<DropdownMenuRadioItemBare
+								key={tier.id}
+								value={tier.id}
+								className="data-[state=checked]:bg-primary/10"
+							>
+								<IconTile icon={tier.icon} active={value === tier.id} />
+								<span className="min-w-0">
+									<span className="block font-medium text-sm leading-tight">
+										{tierCopy.label}
+									</span>
+									<span className="mt-0.5 block text-muted-foreground text-xs leading-snug">
+										{tierCopy.hint}
+									</span>
+								</span>
+								<span className="ms-auto flex shrink-0 items-center gap-2">
+									<PriceTag
+										cost={QUALITY_CREDITS[tier.id]}
+										withIcon
+										showUnit={false}
+										className="text-[11px]"
+									/>
+									<Check className="size-4 scale-90 text-primary opacity-0 transition-[opacity,transform] group-data-[state=checked]/row:scale-100 group-data-[state=checked]/row:opacity-100" />
+								</span>
+							</DropdownMenuRadioItemBare>
+						);
+					})}
+				</DropdownMenuRadioGroup>
+			</DropdownMenuContent>
+		</DropdownMenu>
+	);
+}
+
 export type PromptBoxProps = {
 	/** A sync `false` return means nothing was sent (e.g. insufficient
-	 * credits) - the box then keeps the draft even with clearOnSubmit. */
-	// biome-ignore lint/suspicious/noConfusingVoidType: void keeps fire-and-forget callers assignable
-	onSubmit: (prompt: string) => void | boolean | Promise<void | boolean>;
+	 * credits) - the box then keeps the draft even with clearOnSubmit. The
+	 * composer metadata mirrors the current mode/output/skills/option UI state. */
+	onSubmit: (
+		prompt: string,
+		composer: ComposerMetadata,
+		// biome-ignore lint/suspicious/noConfusingVoidType: void keeps fire-and-forget callers assignable
+	) => void | boolean | Promise<void | boolean>;
 	variant?: "hero" | "compact";
 	placeholder?: string;
 	/** Show the generation cost as a quiet mono tag next to the actions. */
@@ -1074,6 +1228,7 @@ export function PromptBox({
 	const [outputOptions, setOutputOptions] = useState<Record<string, string>>(
 		{},
 	);
+	const [quality, setQuality] = useState<ComposerQuality>("standard");
 	const [selectedSkillIds, setSelectedSkillIds] = useState<SkillFileId[]>([]);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -1104,6 +1259,33 @@ export function PromptBox({
 		resize();
 	}, [resize, value, attachedSkills.length]);
 
+	const {
+		isRecording,
+		isTranscribing,
+		toggle: toggleRecording,
+		supported: micSupported,
+	} = useVoiceDictation(
+		(text) => {
+			setValue((prev) => (prev ? `${prev.trimEnd()} ${text}` : text));
+			textareaRef.current?.focus();
+		},
+		{
+			permissionDenied: t("projects.promptBox.micPermissionDenied"),
+			transcribeError: t("projects.promptBox.micError"),
+		},
+	);
+
+	// Snapshot of the composer chips (mode/output/skills/options) sent alongside
+	// the prompt so the backend routes the generation the same way the UI shows.
+	const buildComposer = (): ComposerMetadata => ({
+		mode: routeMode,
+		quality,
+		output: selectedOutputId ?? undefined,
+		skills: selectedSkillIds.length > 0 ? selectedSkillIds : undefined,
+		options:
+			Object.keys(outputOptions).length > 0 ? { ...outputOptions } : undefined,
+	});
+
 	const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
 		setValue(e.target.value);
 		resize();
@@ -1112,9 +1294,15 @@ export function PromptBox({
 	const handleSubmit = () => {
 		const prompt = value.trim();
 		if (!prompt || isSubmitting) return;
-		const result = onSubmit(prompt);
+		const result = onSubmit(prompt, buildComposer());
 		if (clearOnSubmit && result !== false) setValue("");
 	};
+
+	const micAriaLabel = isTranscribing
+		? t("projects.promptBox.micTranscribing")
+		: isRecording
+			? t("projects.promptBox.micStop")
+			: t("projects.promptBox.micLabel");
 
 	const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
 		if (e.key === "Enter" && !e.shiftKey) {
@@ -1135,6 +1323,11 @@ export function PromptBox({
 		const defaultOutput = getDefaultOutput(mode);
 		setSelectedOutputId(defaultOutput?.id ?? null);
 		setOutputOptions(defaultOutput ? createDefaultOptions(defaultOutput) : {});
+		textareaRef.current?.focus();
+	};
+
+	const handleQualityChange = (next: ComposerQuality) => {
+		setQuality(next);
 		textareaRef.current?.focus();
 	};
 
@@ -1177,6 +1370,8 @@ export function PromptBox({
 			>
 				<AttachedSkillChips
 					skills={attachedSkills}
+					selectedSkillIds={selectedSkillIds}
+					onToggleSkill={toggleSkillFile}
 					onRemove={removeSkillFile}
 				/>
 				<InputGroupTextarea
@@ -1229,11 +1424,10 @@ export function PromptBox({
 						/>
 						<div className="ms-auto flex items-center gap-1">
 							{showPriceTag ? (
-								<PriceTag
-									cost={CREDIT_COSTS.generation}
-									withIcon
-									showUnit={false}
-									className="me-1.5 text-[11px]"
+								<QualityPicker
+									value={quality}
+									onValueChange={handleQualityChange}
+									isHero={isHero}
 								/>
 							) : null}
 							<Tooltip>
@@ -1242,18 +1436,25 @@ export function PromptBox({
 										type="button"
 										variant="ghost"
 										size="icon"
-										aria-label={t("projects.promptBox.micLabel")}
+										aria-label={micAriaLabel}
+										aria-pressed={isRecording}
+										onClick={toggleRecording}
+										disabled={!micSupported || isSubmitting || isTranscribing}
 										className={cn(
 											"rounded-full text-muted-foreground hover:text-foreground",
 											isHero ? "size-9" : "size-8",
+											isRecording &&
+												"animate-pulse bg-red-500/10 text-red-500 hover:text-red-500",
 										)}
 									>
-										<Mic />
+										{isTranscribing ? (
+											<Loader2 className="animate-spin" />
+										) : (
+											<Mic />
+										)}
 									</Button>
 								</TooltipTrigger>
-								<TooltipContent>
-									{t("projects.promptBox.micLabel")}
-								</TooltipContent>
+								<TooltipContent>{micAriaLabel}</TooltipContent>
 							</Tooltip>
 							<Tooltip>
 								<TooltipTrigger asChild>

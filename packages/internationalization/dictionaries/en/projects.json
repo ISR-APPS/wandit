@@ -71,7 +71,11 @@
 		"placeholderCompact": "Ask for a page edit, a marketing asset, an image or a video…",
 		"banner": "Beta — your first 10 pages are on us, no card needed",
 		"submitLabel": "Generate",
-		"micLabel": "Voice input — coming soon",
+		"micLabel": "Voice input",
+		"micStop": "Stop recording",
+		"micTranscribing": "Transcribing…",
+		"micPermissionDenied": "Microphone access denied. Enable it in your browser to use voice input.",
+		"micError": "Could not transcribe the audio. Please try again.",
 		"addMenuLabel": "Add context",
 		"addSkillLabel": "Add skill",
 		"attachLabel": "Attach",
@@ -79,10 +83,29 @@
 		"modeLabel": "Mode",
 		"outputLabel": "Output",
 		"settingsLabel": "Generation settings",
+		"qualityLabel": "Quality",
 		"skillLibraryLabel": "Built by Wandit",
 		"removeSkillLabel": "Remove {name}",
+		"moreSkillsLabel": {
+			"zero": "{count} more skills",
+			"one": "{count} more skill",
+			"two": "{count} more skills",
+			"few": "{count} more skills",
+			"many": "{count} more skills",
+			"other": "{count} more skills"
+		},
 		"outputsHeading": "{mode} outputs",
 		"settingsSubtitle": "Options for this {mode} output.",
+		"quality": {
+			"standard": {
+				"label": "Standard",
+				"hint": "Fast and efficient"
+			},
+			"max": {
+				"label": "Max",
+				"hint": "Best result, uses more credits"
+			}
+		},
 		"routeModes": {
 			"auto": {
 				"label": "Auto",

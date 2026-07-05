@@ -11,6 +11,7 @@ async function bootstrap() {
 	});
 
 	app.enableShutdownHooks();
+	app.flushLogs();
 
 	const logger = new Logger("Worker");
 	logger.log("Worker process started");
