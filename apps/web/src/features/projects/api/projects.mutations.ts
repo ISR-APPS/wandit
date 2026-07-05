@@ -4,7 +4,7 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-import type { Project } from "./dto";
+import type { CreateProjectBody, Project } from "./dto";
 import { projectKeys } from "./projects.queries";
 import {
 	createProject,
@@ -15,9 +15,10 @@ import {
 export function useCreateProject() {
 	const queryClient = useQueryClient();
 	return useMutation({
-		mutationFn: (prompt: string) => createProject(prompt),
-		onSuccess: (project) => {
-			queryClient.setQueryData(projectKeys.detail(project.id), project);
+		mutationFn: (body: CreateProjectBody) => createProject(body),
+		// Create returns ids only, so there is no full project to seed the detail
+		// cache with — the workspace refetches it. Just refresh the grid.
+		onSuccess: () => {
 			void queryClient.invalidateQueries({ queryKey: projectKeys.lists() });
 		},
 	});

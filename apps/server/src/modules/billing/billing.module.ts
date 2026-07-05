@@ -15,6 +15,7 @@ import { StripeWebhookController } from "./presentation/http/controllers/stripe-
 
 @Module({
 	controllers: [BillingController, StripeWebhookController],
+	exports: [BillingService],
 	imports: [DatabaseModule, CreditsModule],
 	providers: [
 		BillingCreditLedgerRepository,

@@ -71,7 +71,11 @@
 		"placeholderCompact": "Demande une modif de page, un asset marketing, une image ou une vidéo…",
 		"banner": "Beta — tes 10 premières pages sont offertes, sans carte",
 		"submitLabel": "Générer",
-		"micLabel": "Saisie vocale — bientôt",
+		"micLabel": "Saisie vocale",
+		"micStop": "Arrêter l'enregistrement",
+		"micTranscribing": "Transcription…",
+		"micPermissionDenied": "Accès au micro refusé. Autorise-le dans ton navigateur pour utiliser la saisie vocale.",
+		"micError": "Impossible de transcrire l'audio. Réessaie.",
 		"addMenuLabel": "Ajouter du contexte",
 		"addSkillLabel": "Ajouter une compétence",
 		"attachLabel": "Joindre",
@@ -79,10 +83,29 @@
 		"modeLabel": "Mode",
 		"outputLabel": "Sortie",
 		"settingsLabel": "Réglages de génération",
+		"qualityLabel": "Qualité",
 		"skillLibraryLabel": "Conçu par Wandit",
 		"removeSkillLabel": "Retirer {name}",
+		"moreSkillsLabel": {
+			"zero": "{count} compétence de plus",
+			"one": "{count} compétence de plus",
+			"two": "{count} compétences de plus",
+			"few": "{count} compétences de plus",
+			"many": "{count} compétences de plus",
+			"other": "{count} compétences de plus"
+		},
 		"outputsHeading": "Sorties {mode}",
 		"settingsSubtitle": "Options pour cette sortie {mode}.",
+		"quality": {
+			"standard": {
+				"label": "Standard",
+				"hint": "Rapide et efficace"
+			},
+			"max": {
+				"label": "Max",
+				"hint": "Meilleur résultat, consomme plus de crédits"
+			}
+		},
 		"routeModes": {
 			"auto": {
 				"label": "Auto",

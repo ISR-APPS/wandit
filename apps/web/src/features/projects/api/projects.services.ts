@@ -1,68 +1,48 @@
-// Raw async functions for this entity — NO React in here. Currently mock
-// implementations over lib/mock-projects.ts with realistic latency; they
-// become thin fetch wrappers over the shared api-client (src/lib/api-client)
-// once the NestJS backend lands, responses parsed by packages/contracts.
+// Raw async functions for this entity — NO React in here. Thin fetch wrappers
+// over the shared api-client (src/lib/api-client), which unwraps the
+// { data, meta } envelope; responses are parsed with @wandit/contracts schemas
+// so a drift between server and client fails loudly here.
 
-import { ApiClientError } from "@/lib/api-client";
 import {
-	createMockProject,
-	deleteMockProject,
-	getMockProject,
-	listMockProjects,
-	renameMockProject,
-} from "../lib/mock-projects";
-import type { Project } from "./dto";
+	createProjectResponseSchema,
+	listProjectsResponseSchema,
+	projectByIdResponseSchema,
+	projectsRoutes,
+	updateProjectResponseSchema,
+} from "@wandit/contracts";
 
-const latency = () =>
-	new Promise<void>((resolve) =>
-		setTimeout(resolve, 500 + Math.random() * 200),
-	);
+import { apiClient } from "@/lib/api-client";
+import type { CreateProjectBody, CreateProjectResponse, Project } from "./dto";
 
 export async function listProjects(): Promise<Project[]> {
-	await latency();
-	return listMockProjects();
+	const data = await apiClient.get<unknown>(projectsRoutes.list);
+	return listProjectsResponseSchema.parse(data);
 }
 
 export async function getProject(id: string): Promise<Project> {
-	await latency();
-	const project = getMockProject(id);
-	if (!project) throw createMockNotFoundError("Project not found", id);
-	return project;
+	const data = await apiClient.get<unknown>(projectsRoutes.byId(id));
+	return projectByIdResponseSchema.parse(data);
 }
 
-export async function createProject(prompt: string): Promise<Project> {
-	await latency();
-	return createMockProject(prompt);
+// Create-with-prompt returns ids only ({ projectId, chatId }); the caller
+// navigates to /p/{projectId} while the first generation streams into the chat.
+export async function createProject(
+	body: CreateProjectBody,
+): Promise<CreateProjectResponse> {
+	const data = await apiClient.post<unknown>(projectsRoutes.create, body);
+	return createProjectResponseSchema.parse(data);
 }
 
 export async function renameProject(
 	id: string,
 	name: string,
 ): Promise<Project> {
-	await latency();
-	try {
-		return renameMockProject(id, name);
-	} catch (error) {
-		if (error instanceof Error && error.message === "Project not found") {
-			throw createMockNotFoundError(error.message, id);
-		}
-
-		throw error;
-	}
+	const data = await apiClient.patch<unknown>(projectsRoutes.update(id), {
+		name,
+	});
+	return updateProjectResponseSchema.parse(data);
 }
 
 export async function deleteProject(id: string): Promise<void> {
-	await latency();
-	deleteMockProject(id);
-}
-
-function createMockNotFoundError(message: string, id: string) {
-	return new ApiClientError({
-		code: "NOT_FOUND",
-		message,
-		path: `mock:/projects/${id}`,
-		requestId: "mock",
-		statusCode: 404,
-		timestamp: new Date().toISOString(),
-	});
+	await apiClient.delete(projectsRoutes.delete(id));
 }
