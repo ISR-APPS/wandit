@@ -1,31 +1,31 @@
 import {
-  Select as HeroSelect,
-  useSelect as useHeroSelect,
-  useSelectAnimation as useHeroSelectAnimation,
-  useSelectItem as useHeroSelectItem,
-  type SelectAlign,
-  type SelectCloseProps,
-  type SelectContentProps,
-  type SelectItemDescriptionProps,
-  type SelectItemIndicatorIconProps,
-  type SelectItemIndicatorProps,
-  type SelectItemLabelProps,
-  type SelectItemProps,
-  type SelectListLabelProps,
-  type SelectOverlayProps,
-  type SelectPlacement,
-  type SelectPortalProps,
-  type SelectRootProps,
-  type SelectTriggerIndicatorAnimation,
-  type SelectTriggerIndicatorIconProps,
-  type SelectTriggerIndicatorProps,
-  type SelectTriggerProps,
-  type SelectTriggerRef,
-  type SelectValueProps,
+	Select as HeroSelect,
+	type SelectAlign,
+	type SelectCloseProps,
+	type SelectContentProps,
+	type SelectItemDescriptionProps,
+	type SelectItemIndicatorIconProps,
+	type SelectItemIndicatorProps,
+	type SelectItemLabelProps,
+	type SelectItemProps,
+	type SelectListLabelProps,
+	type SelectOverlayProps,
+	type SelectPlacement,
+	type SelectPortalProps,
+	type SelectRootProps,
+	type SelectTriggerIndicatorAnimation,
+	type SelectTriggerIndicatorIconProps,
+	type SelectTriggerIndicatorProps,
+	type SelectTriggerProps,
+	type SelectTriggerRef,
+	type SelectValueProps,
+	useSelect as useHeroSelect,
+	useSelectAnimation as useHeroSelectAnimation,
+	useSelectItem as useHeroSelectItem,
 } from "heroui-native";
 
 export type AppSelectProps<Mode extends "single" | "multiple" = "single"> =
-  SelectRootProps<Mode>;
+	SelectRootProps<Mode>;
 export type AppSelectTriggerProps = SelectTriggerProps;
 export type AppSelectValueProps = SelectValueProps;
 export type AppSelectTriggerIndicatorProps = SelectTriggerIndicatorProps;
@@ -43,9 +43,9 @@ export type AppSelectPlacement = SelectPlacement;
 export type AppSelectAlign = SelectAlign;
 export type AppSelectTriggerRef = SelectTriggerRef;
 export type AppSelectTriggerIndicatorAnimation =
-  SelectTriggerIndicatorAnimation;
+	SelectTriggerIndicatorAnimation;
 export type AppSelectTriggerIndicatorIconProps =
-  SelectTriggerIndicatorIconProps;
+	SelectTriggerIndicatorIconProps;
 
 export const AppSelect = HeroSelect;
 export const useAppSelect = useHeroSelect;

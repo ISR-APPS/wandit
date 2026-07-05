@@ -7,18 +7,21 @@ import type { IconProps } from "../../helpers/types/icons";
  * Minus icon component - React Native SVG implementation
  * Wrapped with withUniwind to enable className-based styling
  */
-const MinusIconComponent: React.FC<IconProps> = ({ size = 20, color = "currentColor" }) => {
-  return (
-    <Svg width={size} height={size} viewBox="0 0 16 16">
-      <Rect width={16} height={16} fill="none" />
-      <Path
-        fill={color}
-        fillRule="evenodd"
-        d="M1.75 8a.75.75 0 0 1 .75-.75h11a.75.75 0 0 1 0 1.5h-11A.75.75 0 0 1 1.75 8"
-        clipRule="evenodd"
-      />
-    </Svg>
-  );
+const MinusIconComponent: React.FC<IconProps> = ({
+	size = 20,
+	color = "currentColor",
+}) => {
+	return (
+		<Svg width={size} height={size} viewBox="0 0 16 16">
+			<Rect width={16} height={16} fill="none" />
+			<Path
+				fill={color}
+				fillRule="evenodd"
+				d="M1.75 8a.75.75 0 0 1 .75-.75h11a.75.75 0 0 1 0 1.5h-11A.75.75 0 0 1 1.75 8"
+				clipRule="evenodd"
+			/>
+		</Svg>
+	);
 };
 
 /**
@@ -34,8 +37,8 @@ const MinusIconComponent: React.FC<IconProps> = ({ size = 20, color = "currentCo
  * ```
  */
 export const MinusIcon = withUniwind(MinusIconComponent, {
-  color: {
-    fromClassName: "colorClassName",
-    styleProperty: "accentColor",
-  },
+	color: {
+		fromClassName: "colorClassName",
+		styleProperty: "accentColor",
+	},
 });

@@ -6,7 +6,7 @@ export type AppTextAreaProps = TextAreaProps;
 export type AppTextAreaRef = TextInput;
 
 const AppTextAreaRoot = forwardRef<AppTextAreaRef, AppTextAreaProps>(
-  (props, ref) => <HeroTextArea ref={ref} {...props} />,
+	(props, ref) => <HeroTextArea ref={ref} {...props} />,
 );
 
 AppTextAreaRoot.displayName = "AppTextArea";

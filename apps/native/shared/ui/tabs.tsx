@@ -1,24 +1,24 @@
 import {
-  Tabs as HeroTabs,
-  cn,
-  useTabs as useHeroTabs,
-  useTabsMeasurements as useHeroTabsMeasurements,
-  useTabsTrigger as useHeroTabsTrigger,
-  type ItemMeasurements,
-  type MeasurementsContextValue,
-  type TabsContentProps,
-  type TabsIndicatorAnimation,
-  type TabsIndicatorProps,
-  type TabsLabelProps,
-  type TabsListProps,
-  type TabsProps,
-  type TabsScrollViewProps,
-  type TabsSeparatorAnimation,
-  type TabsSeparatorProps,
-  type TabsTriggerProps,
-  type TabsTriggerRenderProps,
+	cn,
+	Tabs as HeroTabs,
+	type ItemMeasurements,
+	type MeasurementsContextValue,
+	type TabsContentProps,
+	type TabsIndicatorAnimation,
+	type TabsIndicatorProps,
+	type TabsLabelProps,
+	type TabsListProps,
+	type TabsProps,
+	type TabsScrollViewProps,
+	type TabsSeparatorAnimation,
+	type TabsSeparatorProps,
+	type TabsTriggerProps,
+	type TabsTriggerRenderProps,
+	useTabs as useHeroTabs,
+	useTabsMeasurements as useHeroTabsMeasurements,
+	useTabsTrigger as useHeroTabsTrigger,
 } from "heroui-native";
-import { forwardRef, type ComponentRef } from "react";
+import { type ComponentRef, forwardRef } from "react";
 
 export type AppTabsProps = TabsProps;
 export type AppTabsListProps = TabsListProps;
@@ -45,89 +45,88 @@ export type AppTabsSeparatorRef = ComponentRef<typeof HeroTabs.Separator>;
 export type AppTabsContentRef = ComponentRef<typeof HeroTabs.Content>;
 
 const AppTabsRoot = forwardRef<AppTabsRef, AppTabsProps>((props, ref) => (
-  <HeroTabs ref={ref} {...props} />
+	<HeroTabs ref={ref} {...props} />
 ));
 
 AppTabsRoot.displayName = "AppTabs";
 
 const AppTabsSegmentedList = forwardRef<AppTabsListRef, AppTabsListProps>(
-  ({ className, ...props }, ref) => (
-    <HeroTabs.List
-      ref={ref}
-      className={cn(
-        "flex-row rounded-[14px] bg-surface-tertiary p-[5px]",
-        className,
-      )}
-      {...props}
-    />
-  ),
+	({ className, ...props }, ref) => (
+		<HeroTabs.List
+			ref={ref}
+			className={cn(
+				"flex-row rounded-[14px] bg-surface-tertiary p-[5px]",
+				className,
+			)}
+			{...props}
+		/>
+	),
 );
 
 AppTabsSegmentedList.displayName = "AppTabs.SegmentedList";
 
 const AppTabsSegmentedIndicator = forwardRef<
-  AppTabsIndicatorRef,
-  AppTabsIndicatorProps
+	AppTabsIndicatorRef,
+	AppTabsIndicatorProps
 >(({ className, ...props }, ref) => (
-  <HeroTabs.Indicator
-    ref={ref}
-    className={cn("rounded-[10px] bg-foreground", className)}
-    {...props}
-  />
+	<HeroTabs.Indicator
+		ref={ref}
+		className={cn("rounded-[10px] bg-foreground", className)}
+		{...props}
+	/>
 ));
 
 AppTabsSegmentedIndicator.displayName = "AppTabs.SegmentedIndicator";
 
 const AppTabsSegmentedTrigger = forwardRef<
-  AppTabsTriggerRef,
-  AppTabsTriggerProps
+	AppTabsTriggerRef,
+	AppTabsTriggerProps
 >(({ className, ...props }, ref) => (
-  <HeroTabs.Trigger
-    ref={ref}
-    className={cn(
-      "z-10 flex-1 items-center justify-center rounded-[10px] px-3 py-[11px]",
-      className,
-    )}
-    {...props}
-  />
+	<HeroTabs.Trigger
+		ref={ref}
+		className={cn(
+			"z-10 flex-1 items-center justify-center rounded-[10px] px-3 py-[11px]",
+			className,
+		)}
+		{...props}
+	/>
 ));
 
 AppTabsSegmentedTrigger.displayName = "AppTabs.SegmentedTrigger";
 
-const AppTabsSegmentedLabel = forwardRef<
-  AppTabsLabelRef,
-  AppTabsLabelProps
->(({ className, ...props }, ref) => {
-  const { isSelected } = useHeroTabsTrigger();
+const AppTabsSegmentedLabel = forwardRef<AppTabsLabelRef, AppTabsLabelProps>(
+	({ className, ...props }, ref) => {
+		const { isSelected } = useHeroTabsTrigger();
 
-  return (
-    <HeroTabs.Label
-      ref={ref}
-      allowFontScaling={false}
-      className={cn(
-        "text-[15px] font-extrabold leading-[20px] tracking-normal",
-        isSelected ? "text-background" : "text-muted",
-        className,
-      )}
-      {...props}
-    />
-  );
-});
+		return (
+			<HeroTabs.Label
+				ref={ref}
+				allowFontScaling={false}
+				className={cn(
+					"font-extrabold text-[15px] leading-[20px] tracking-normal",
+					isSelected ? "text-background" : "text-muted",
+					className,
+				)}
+				{...props}
+			/>
+		);
+	},
+);
 
 AppTabsSegmentedLabel.displayName = "AppTabs.SegmentedLabel";
 
 export const AppTabs = Object.assign(AppTabsRoot, {
-  List: HeroTabs.List,
-  ScrollView: HeroTabs.ScrollView,
-  Trigger: HeroTabs.Trigger,
-  Label: HeroTabs.Label,
-  Indicator: HeroTabs.Indicator,
-  Separator: HeroTabs.Separator,
-  Content: HeroTabs.Content,
-  SegmentedList: AppTabsSegmentedList,
-  SegmentedIndicator: AppTabsSegmentedIndicator,
-  SegmentedTrigger: AppTabsSegmentedTrigger,
-  SegmentedLabel: AppTabsSegmentedLabel,
+	List: HeroTabs.List,
+	ScrollView: HeroTabs.ScrollView,
+	Trigger: HeroTabs.Trigger,
+	Label: HeroTabs.Label,
+	Indicator: HeroTabs.Indicator,
+	Separator: HeroTabs.Separator,
+	Content: HeroTabs.Content,
+	SegmentedList: AppTabsSegmentedList,
+	SegmentedIndicator: AppTabsSegmentedIndicator,
+	SegmentedTrigger: AppTabsSegmentedTrigger,
+	SegmentedLabel: AppTabsSegmentedLabel,
 });
 
 export const useAppTabs = useHeroTabs;

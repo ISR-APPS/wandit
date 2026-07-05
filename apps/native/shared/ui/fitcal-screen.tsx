@@ -6,18 +6,18 @@ import { Screen } from "@/shared/ui/screen";
 type FitCalScreenProps = ComponentProps<typeof Screen>;
 
 export function FitCalScreen({
-  bottomSpacing = 16,
-  children,
-  contentClassName,
-  ...props
+	bottomSpacing = 16,
+	children,
+	contentClassName,
+	...props
 }: FitCalScreenProps) {
-  return (
-    <Screen
-      bottomSpacing={bottomSpacing}
-      contentClassName={cn("px-[22px]", contentClassName)}
-      {...props}
-    >
-      {children}
-    </Screen>
-  );
+	return (
+		<Screen
+			bottomSpacing={bottomSpacing}
+			contentClassName={cn("px-[22px]", contentClassName)}
+			{...props}
+		>
+			{children}
+		</Screen>
+	);
 }

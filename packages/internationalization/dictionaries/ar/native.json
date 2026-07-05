@@ -1,66 +1,62 @@
 {
 	"auth": {
-		"tagline": "من الفكرة إلى صفحة هبوط منشورة تجمع طلباتك",
-		"signIn": {
-			"title": "تسجيل الدخول",
-			"submit": "تسجيل الدخول"
-		},
-		"signUp": {
-			"title": "إنشاء حساب",
-			"submit": "إنشاء حساب"
-		},
-		"fields": {
-			"nameLabel": "الاسم",
-			"namePlaceholder": "John Doe",
-			"emailLabel": "البريد الإلكتروني",
-			"emailPlaceholder": "email@example.com",
-			"passwordLabel": "كلمة المرور",
-			"passwordPlaceholder": "••••••••"
-		},
-		"validation": {
-			"nameRequired": "الاسم مطلوب",
-			"nameMin": "يجب أن يتكوّن الاسم من حرفين على الأقل",
-			"emailRequired": "البريد الإلكتروني مطلوب",
-			"emailInvalid": "أدخل عنوان بريد إلكتروني صالحاً",
-			"passwordRequired": "كلمة المرور مطلوبة",
-			"passwordMin": "استخدم 8 أحرف على الأقل"
-		},
-		"toasts": {
-			"signInError": "تعذّر تسجيل الدخول",
-			"signInSuccess": "تم تسجيل الدخول بنجاح",
-			"signUpError": "تعذّر إنشاء الحساب",
-			"signUpSuccess": "تم إنشاء الحساب بنجاح"
+		"welcome": {
+			"headline1": "اكتبها.",
+			"headline2": "أطلقها.",
+			"headline3": "بِعها.",
+			"tagline": "برومبت واحد يتحوّل إلى صفحة هبوط تستقبل طلبات الدفع عند الاستلام — انشر في دقائق.",
+			"googleCta": "المتابعة عبر Google",
+			"betaHint": "نسخة تجريبية — أول 10 صفحات مجانًا"
 		}
 	},
 	"home": {
-		"heading": "ماذا تريد أن تبني؟",
-		"promptPlaceholder": "صفحة هبوط لـ…",
-		"create": "إنشاء"
+		"greeting": "ماذا سنطلق اليوم يا {name}؟",
+		"chips": {
+			"salesPage": "صفحة بيع",
+			"website": "موقع ويب",
+			"productPhotos": "صور المنتج",
+			"adCreatives": "تصاميم إعلانية",
+			"videoAd": "إعلان فيديو",
+			"flyer": "منشور إعلاني"
+		},
+		"tryHint": "جرّب: صفحة دفع عند الاستلام لساعة كلاسيكية ←",
+		"tryPrompt": "صفحة منتج بالدفع عند الاستلام لساعة جلدية كلاسيكية — صورة رئيسية، ثلاثة مزايا، ونموذج طلب بالولاية والبلدية."
 	},
 	"drawer": {
-		"projects": "المشاريع",
 		"signOut": "تسجيل الخروج",
-		"language": "اللغة"
+		"language": "اللغة",
+		"createProject": "إنشاء مشروع جديد",
+		"filterCreatedByMe": "من إنشائي",
+		"myWandit": "Wandit الخاص بي"
 	},
 	"workspace": {
-		"back": "رجوع",
-		"send": "إرسال",
 		"composerPlaceholder": "صِف تعديلاً…",
-		"tabs": {
-			"chat": "المحادثة",
-			"preview": "المعاينة",
-			"leads": "العملاء المحتملون",
-			"settings": "الإعدادات"
-		},
 		"placeholders": {
-			"chatTitle": "المحادثة",
-			"chatDescription": "محادثة مع الذكاء الاصطناعي — سجل الرسائل وتحديثات التوليد المباشرة.",
-			"previewTitle": "المعاينة",
-			"previewDescription": "معاينة مباشرة لصفحة الهبوط المُولَّدة (داخل WebView معزول) مع تبديل الإصدارات.",
 			"leadsTitle": "العملاء المحتملون",
 			"leadsDescription": "نظام إدارة الطلبات — إرسالات النماذج مع مسار الحالات، والاتصال أو مراسلة WhatsApp بنقرة واحدة.",
 			"settingsTitle": "الإعدادات",
-			"settingsDescription": "إعدادات المشروع — رابط النشر، معرّفات pixel، إعادة التسمية، إلغاء النشر والحذف."
+			"settingsDescription": "إعدادات المشروع — رابط النشر، معرّفات pixel، إعادة التسمية، إلغاء النشر والحذف.",
+			"pageTitle": "الصفحة",
+			"pageDescription": "صفحة الهبوط القابلة للنشر — المعاينة والإصدارات والنشر.",
+			"assetsTitle": "الأصول",
+			"assetsDescription": "الصور والفيديوهات وأصول HTML المولّدة — المكتبة واللوحة.",
+			"marketingTitle": "التسويق",
+			"marketingDescription": "نصوص إعلانية واستراتيجيات وسكربتات وأصول حملات المشروع."
+		},
+		"newProject": "مشروع جديد",
+		"previewLabel": "فتح المعاينة",
+		"empty": {
+			"title": "صفحتك ستظهر هنا",
+			"subtitle": "صف ما تبيعه — أو أرفق صورة منتج للبدء بالتصاميم."
+		},
+		"artifact": {
+			"details": "التفاصيل",
+			"preview": "معاينة"
+		},
+		"hints": {
+			"arfr": "جاهز بالعربية والفرنسية",
+			"cod": "نماذج الدفع عند الاستلام",
+			"publish": "النشر مجاني"
 		}
 	},
 	"notFound": {
@@ -68,5 +64,33 @@
 		"title": "الصفحة غير موجودة",
 		"description": "الصفحة التي تبحث عنها غير موجودة.",
 		"goHome": "العودة إلى الرئيسية"
+	},
+	"attach": {
+		"takePhoto": "التقاط صورة",
+		"photoLibrary": "مكتبة الصور",
+		"attachSkill": "إرفاق مهارة",
+		"browseFiles": "تصفّح الملفات",
+		"cancel": "إلغاء",
+		"remove": "إزالة المرفق",
+		"attachedMeta": "مرفق · {size}"
+	},
+	"credits": {
+		"title": "الرصيد",
+		"left": "{count} متبقّية",
+		"betaNote": "رصيد تجريبي · النشر والعملاء المحتملون مجانًا دائمًا"
+	},
+	"projectSheet": {
+		"viewsLabel": "عروض المشروع",
+		"views": {
+			"page": "الصفحة",
+			"assets": "الأصول",
+			"marketing": "التسويق",
+			"leads": "العملاء"
+		},
+		"settings": "الإعدادات",
+		"rename": "إعادة تسمية المشروع",
+		"appearance": "المظهر",
+		"appearanceLight": "فاتح",
+		"appearanceDark": "داكن"
 	}
 }

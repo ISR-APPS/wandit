@@ -1,6 +1,6 @@
 import {
-  FieldError as HeroFieldError,
-  type FieldErrorRootProps,
+	type FieldErrorRootProps,
+	FieldError as HeroFieldError,
 } from "heroui-native";
 import { forwardRef } from "react";
 import type { View } from "react-native";
@@ -8,7 +8,7 @@ import type { View } from "react-native";
 export type AppFieldErrorProps = FieldErrorRootProps;
 
 const AppFieldErrorRoot = forwardRef<View, AppFieldErrorProps>((props, ref) => (
-  <HeroFieldError ref={ref} {...props} />
+	<HeroFieldError ref={ref} {...props} />
 ));
 
 AppFieldErrorRoot.displayName = "AppFieldError";

@@ -85,6 +85,8 @@
 		"settingsLabel": "Generation settings",
 		"qualityLabel": "Quality",
 		"skillLibraryLabel": "Built by Wandit",
+		"searchSkillsPlaceholder": "Search skills…",
+		"noSkillResults": "No skills found",
 		"removeSkillLabel": "Remove {name}",
 		"moreSkillsLabel": {
 			"zero": "{count} more skills",
@@ -178,6 +180,13 @@
 				"description": "Creates the publishable project page.",
 				"placeholder": "Describe the product, offer, price, proof and COD flow…",
 				"options": {
+					"quality": {
+						"label": "Quality",
+						"choices": {
+							"standard": "Standard",
+							"max": "Max"
+						}
+					},
 					"goal": {
 						"label": "Goal",
 						"choices": {
@@ -212,6 +221,13 @@
 				"description": "Updates copy, layout or sections in the current page.",
 				"placeholder": "Tell Wandit which part of the page should change…",
 				"options": {
+					"quality": {
+						"label": "Quality",
+						"choices": {
+							"standard": "Standard",
+							"max": "Max"
+						}
+					},
 					"scope": {
 						"label": "Scope",
 						"choices": {
@@ -237,6 +253,13 @@
 				"description": "Creates an embeddable section for the page.",
 				"placeholder": "Describe the section you want to add to the page…",
 				"options": {
+					"quality": {
+						"label": "Quality",
+						"choices": {
+							"standard": "Standard",
+							"max": "Max"
+						}
+					},
 					"section": {
 						"label": "Section type",
 						"choices": {

@@ -85,6 +85,8 @@
 		"settingsLabel": "إعدادات التوليد",
 		"qualityLabel": "الجودة",
 		"skillLibraryLabel": "من إنشاء Wandit",
+		"searchSkillsPlaceholder": "ابحث عن مهارة…",
+		"noSkillResults": "لا توجد مهارات مطابقة",
 		"removeSkillLabel": "إزالة {name}",
 		"moreSkillsLabel": {
 			"zero": "{count} مهارة إضافية",
@@ -178,6 +180,13 @@
 				"description": "يُنشئ صفحة المشروع القابلة للنشر.",
 				"placeholder": "صِف المنتج والعرض والسعر والإثبات وتدفّق الدفع عند الاستلام…",
 				"options": {
+					"quality": {
+						"label": "الجودة",
+						"choices": {
+							"standard": "قياسي",
+							"max": "أقصى"
+						}
+					},
 					"goal": {
 						"label": "الهدف",
 						"choices": {
@@ -212,6 +221,13 @@
 				"description": "يُحدّث النص أو التخطيط أو أقسام الصفحة الحالية.",
 				"placeholder": "أخبر Wandit بالجزء الذي يجب تغييره في الصفحة…",
 				"options": {
+					"quality": {
+						"label": "الجودة",
+						"choices": {
+							"standard": "قياسي",
+							"max": "أقصى"
+						}
+					},
 					"scope": {
 						"label": "النطاق",
 						"choices": {
@@ -237,6 +253,13 @@
 				"description": "يُنشئ قسمًا قابلاً للتضمين في الصفحة.",
 				"placeholder": "صِف القسم الذي تريد إضافته إلى الصفحة…",
 				"options": {
+					"quality": {
+						"label": "الجودة",
+						"choices": {
+							"standard": "قياسي",
+							"max": "أقصى"
+						}
+					},
 					"section": {
 						"label": "نوع القسم",
 						"choices": {

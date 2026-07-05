@@ -1,11 +1,11 @@
 import {
-  Spinner as HeroSpinner,
-  type SpinnerColor,
-  type SpinnerContextValue,
-  type SpinnerIconProps,
-  type SpinnerIndicatorProps,
-  type SpinnerProps,
-  type SpinnerSize,
+	Spinner as HeroSpinner,
+	type SpinnerColor,
+	type SpinnerContextValue,
+	type SpinnerIconProps,
+	type SpinnerIndicatorProps,
+	type SpinnerProps,
+	type SpinnerSize,
 } from "heroui-native";
 import { forwardRef } from "react";
 import type { View } from "react-native";
@@ -22,11 +22,11 @@ export type AppSpinnerRef = View;
 export type AppSpinnerIndicatorRef = View;
 
 const AppSpinnerRoot = forwardRef<AppSpinnerRef, AppSpinnerProps>(
-  (props, ref) => <HeroSpinner ref={ref} {...props} />,
+	(props, ref) => <HeroSpinner ref={ref} {...props} />,
 );
 
 AppSpinnerRoot.displayName = "AppSpinner";
 
 export const AppSpinner = Object.assign(AppSpinnerRoot, {
-  Indicator: HeroSpinner.Indicator,
+	Indicator: HeroSpinner.Indicator,
 });
