@@ -4,9 +4,20 @@
 		"composite": true,
 		"emitDecoratorMetadata": true,
 		"experimentalDecorators": true,
+		"noEmit": true,
 		"outDir": "dist",
+		"rootDir": "../..",
 		"paths": {
 			"@/*": ["./src/*"]
 		}
-	}
+	},
+	"include": [
+		"src/**/*.ts",
+		"../server/src/infrastructure/database/database.constants.ts",
+		"../server/src/modules/credits/application/services/credits.service.ts",
+		"../server/src/modules/credits/domain/errors/insufficient-credits.error.ts",
+		"../server/src/modules/credits/infrastructure/persistence/credits.repository.ts",
+		"../server/src/modules/domains/domain/**/*.ts",
+		"../server/src/modules/domains/infrastructure/**/*.ts"
+	]
 }

@@ -15,6 +15,13 @@
       "when": 1783158376872,
       "tag": "0001_flowery_vindicator",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1783187013500,
+      "tag": "0002_dear_human_robot",
+      "breakpoints": true
     }
   ]
 }

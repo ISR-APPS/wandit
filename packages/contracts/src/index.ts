@@ -7,6 +7,7 @@ export * from "./v1/billing";
 export * from "./v1/chats";
 export * from "./v1/credits";
 export * from "./v1/deployments";
+export * from "./v1/domains";
 export * from "./v1/leads";
 export * from "./v1/projects";
 export * from "./v1/shared/primitives";
