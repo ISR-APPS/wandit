@@ -3,6 +3,7 @@
 
 import { Skeleton } from "@wandit/ui/components/skeleton";
 
+import { DomainsSection } from "@/features/domains";
 import { useTranslation } from "@/lib/i18n";
 import { useWorkspace } from "../../lib/store";
 import { DangerZone } from "./danger-zone";
@@ -11,7 +12,7 @@ import { PublishSection } from "./publish-section";
 
 export function SettingsTab() {
 	const { t } = useTranslation();
-	const { statePending, projectPending } = useWorkspace();
+	const { projectId, statePending, projectPending } = useWorkspace();
 	const pending = statePending || projectPending;
 
 	return (
@@ -31,6 +32,7 @@ export function SettingsTab() {
 						<>
 							<GeneralSection />
 							<PublishSection />
+							<DomainsSection projectId={projectId} />
 							<DangerZone />
 						</>
 					)}

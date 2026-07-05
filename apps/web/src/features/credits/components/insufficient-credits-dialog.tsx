@@ -9,7 +9,6 @@ import {
 } from "@wandit/ui/components/dialog";
 
 import { useTranslation } from "@/lib/i18n";
-import { useCredits } from "../lib/hooks";
 
 type InsufficientCreditsDialogProps = {
 	open: boolean;
@@ -23,7 +22,6 @@ export function InsufficientCreditsDialog({
 	cost,
 }: InsufficientCreditsDialogProps) {
 	const { t } = useTranslation();
-	const { balance } = useCredits();
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
@@ -40,14 +38,6 @@ export function InsufficientCreditsDialog({
 							{t("credits.costLabel")}
 						</span>
 						<span className="font-medium font-mono tabular-nums">{cost}</span>
-					</div>
-					<div className="flex items-center justify-between text-sm">
-						<span className="text-muted-foreground">
-							{t("credits.balanceRowLabel")}
-						</span>
-						<span className="font-medium font-mono text-destructive tabular-nums">
-							{balance}
-						</span>
 					</div>
 				</div>
 				<DialogFooter>

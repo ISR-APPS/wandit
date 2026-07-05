@@ -4,5 +4,6 @@ export * from "./billing";
 export * from "./chats";
 export * from "./credits";
 export * from "./deployments";
+export * from "./domains";
 export * from "./leads";
 export * from "./projects";

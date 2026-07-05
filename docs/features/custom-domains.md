@@ -24,7 +24,7 @@ Let a user put their published page on a real domain two ways: **buy a domain in
 
 **Purchase pipeline:** search (`checkAvailability` + catalog prices, rate-limited) → user picks domain + fills registrant contact (prefilled from account; phone E.164 like leads; address incl. wilaya) → `POST` purchase creates the `domains` row (`registering`), **atomically consumes credits** (tx + advisory lock, idempotency key = domain row id, typed `InsufficientCreditsError` → 402) → enqueues `domain-purchase` job → worker: wholesale-ceiling re-check → Openprovider register (owner handle from registrant snapshot, privacy on) → set DNS (`www` CNAME + apex forwarding) → create CF custom hostname → `configuring` → poll hostname/cert until active → KV `domain:{host}` → `active`. Terminal failure at any step → `failed` + compensating refund `grant` + user-visible error. Every provider call is idempotent against the order (re-runs check state before acting).
 
-**BYO pipeline:** `source='external'` row → create CF custom hostname → return required records (`www` CNAME → `customers.wandit.app`, apex guidance, ownership TXT if needed) → user sets them at their registrar → `verify` endpoint re-polls until cert issues → `active`. (Entri auto-DNS is a later nicety.)
+**BYO pipeline:** `source='external'` row → create CF custom hostname → return required records (`www` CNAME → `customers.wandit.app`, ownership/SSL TXT if needed) → user sets them at their registrar → `verify` endpoint re-polls until cert issues → `active`. BYO v1 is www-canonical only; apex redirect/ALIAS guidance is intentionally deferred. (Entri auto-DNS is a later nicety.)
 
 **Lifecycle:** `registering → configuring → active → expired | transferred_out` (+ `failed`); "expiring soon" is derived from `expires_at`, not a status. Repeatable daily `domain-renewals` job: `auto_renew` domains expiring ≤30d → consume renewal credits → provider renew → bump `expires_at`; insufficient credits → in-app notice, retry daily until T-5; not renewed → expires (registrar grace/redemption exists but we don't promise it). Manual renew endpoint + auto-renew toggle. Weekly `domain-sync` reconciles status/expiry from the provider. Renewal-due notices are in-app v1 (email provider still an open PRD question).
 
@@ -56,9 +56,9 @@ All authed + ownership-guarded (existing guard infra); envelope idiom; typed err
 
 ## Provider port (modules/domains)
 
-`DomainProvider`: `checkAvailability(names[])`, `getWholesalePrice(tld)`, `register(name, registrant, {privacy, years})`, `renew(name, years)`, `setDnsRecords(name, records[])`, `setUrlForwarding(name, target)`, `getAuthCode(name)`, `setTransferLock(name, bool)`, `getDomainInfo(name)`. `OpenproviderProvider` implements it (bearer token from username/password login, sandbox vs live via env). Explicit `@Inject` per repo DI convention. Cloudflare custom-hostname client is a thin separate service (`CustomHostnameService`) — it's serving infra, not registrar logic.
+`DomainProvider`: `checkAvailability(names[])`, `register(name, registrant, {privacy, years})`, `renew(name, years)`, `setDnsRecords(name, records[])`, `setUrlForwarding(name, target)`, `getAuthCode(name)`, `setTransferLock(name, bool)`, `getDomainInfo(name)`. `OpenproviderProvider` implements it (bearer token from username/password login, sandbox vs live via env). Explicit `@Inject` per repo DI convention. Cloudflare custom-hostname client is a thin separate service (`CustomHostnameService`) — it's serving infra, not registrar logic.
 
-Env (packages/env server): `OPENPROVIDER_API_URL`, `OPENPROVIDER_USERNAME`, `OPENPROVIDER_PASSWORD`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ZONE_ID_WANDIT_APP`. Prod fails loudly when missing; dev boots without (provider throws on use) — billing convention.
+Env (packages/env server): `OPENPROVIDER_API_URL`, `OPENPROVIDER_USERNAME`, `OPENPROVIDER_PASSWORD`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ZONE_ID_WANDIT_APP`, `CLOUDFLARE_KV_NAMESPACE_ID`, `DOMAINS_FALLBACK_ORIGIN` (defaults to `customers.wandit.app`). Environments boot without provider credentials and throw typed not-configured errors lazily on use, matching billing.
 
 ## UI (phase 2 — Settings tab, Domains section)
 
@@ -115,3 +115,11 @@ Phase 2, after the module: everything in the UI section above, `apps/web/src/fea
 **Files:** `packages/db/src/schema/domains.ts` · `packages/contracts/src/v1/domains.ts` (+ TLD catalog) · `packages/env/src/server.ts` · `packages/jobs` (queue names/payloads) · `apps/server/src/modules/domains/**` · `apps/worker/src/processors/domain-*.processor.ts` · `apps/edge` (hostname branch) + publish processor touchpoint · `apps/web/src/features/domains/**`.
 
 Source docs: docs/PRD.md §6, docs/features/custom-domains.md, docs/features/publishing-serving.md, docs/features/billing.md
+
+## Implementation notes (v1)
+
+- Domain provider/Cloudflare env vars are optional at boot and throw typed not-configured errors on use, matching billing.
+- Server and worker use one `domains` queue with job names for purchase/configure/renewal/sync.
+- Public domain DTOs intentionally hide provider ids, Cloudflare ids, raw upstream errors, and wholesale ceilings.
+- `DomainRoutingService.refreshProjectDomains(projectId, pointer)` is the publish seam; pointer shape remains owned by publishing-serving.
+- BYO v1 is www-canonical: users receive the `www` CNAME and Cloudflare validation TXT records only. Purchased domains still use registrar-side URL forwarding for the apex.

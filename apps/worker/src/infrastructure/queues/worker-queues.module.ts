@@ -9,9 +9,19 @@ import { createRedisConnectionOptions } from "../redis/redis-connection";
 	imports: [
 		BullModule.forRoot({
 			connection: createRedisConnectionOptions(env.REDIS_URL),
+			defaultJobOptions: {
+				attempts: 3,
+				backoff: {
+					delay: 1000,
+					type: "exponential",
+				},
+				removeOnComplete: 1000,
+				removeOnFail: 5000,
+			},
 			prefix: env.QUEUE_PREFIX,
 		}),
 		BullModule.registerQueue(...queueNames.map((name) => ({ name }))),
 	],
+	exports: [BullModule],
 })
 export class WorkerQueuesModule {}
