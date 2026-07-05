@@ -11,3 +11,4 @@ export * from "./v1/domains";
 export * from "./v1/leads";
 export * from "./v1/projects";
 export * from "./v1/shared/primitives";
+export * from "./v1/transcriptions";

@@ -1,8 +1,8 @@
 import {
-  Skeleton as HeroSkeleton,
-  type SkeletonAnimation,
-  type SkeletonAnimationContextValue,
-  type SkeletonProps,
+	Skeleton as HeroSkeleton,
+	type SkeletonAnimation,
+	type SkeletonAnimationContextValue,
+	type SkeletonProps,
 } from "heroui-native";
 
 export type AppSkeletonProps = SkeletonProps;

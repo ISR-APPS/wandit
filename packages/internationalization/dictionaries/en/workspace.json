@@ -42,6 +42,11 @@
 		"placeholder": "Describe a change…",
 		"thinking": "Thinking…",
 		"generating": "Generating",
+		"errors": {
+			"busy": "A generation is already running. Wait for it to finish before sending another message.",
+			"credits": "You don't have enough credits for this generation. Top up to continue.",
+			"stream": "The generation stream was interrupted. Please try again."
+		},
 		"versionCardKind": "Landing page",
 		"emptyTitle": "Start the conversation",
 		"emptyBody": "Describe your page and the AI will generate it here.",

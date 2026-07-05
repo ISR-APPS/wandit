@@ -9,6 +9,9 @@
 	"scripts": {
 		"check-types": "tsc -b"
 	},
+	"dependencies": {
+		"@wandit/contracts": "workspace:*"
+	},
 	"devDependencies": {
 		"@wandit/config": "workspace:*",
 		"typescript": "catalog:"

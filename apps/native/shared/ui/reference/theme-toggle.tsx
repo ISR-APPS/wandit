@@ -14,33 +14,33 @@ const StyledIonicons = withUniwind(Ionicons);
 const StyledAntDesign = withUniwind(AntDesign);
 
 export const ThemeToggle: FC = () => {
-  const { toggleTheme, isLight } = useAppTheme();
+	const { toggleTheme, isLight } = useAppTheme();
 
-  const isLGAvailable = isLiquidGlassAvailable();
+	const isLGAvailable = isLiquidGlassAvailable();
 
-  return (
-    <TouchableOpacity
-      onPressIn={() => {
-        if (Platform.OS === "ios") {
-          Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-        }
-      }}
-      onPressOut={() => {
-        toggleTheme();
-      }}
-      className={cn("p-3 z-50", isLGAvailable && "px-2.5 py-2")}
-      hitSlop={12}
-      activeOpacity={0.8}
-    >
-      {isLight ? (
-        <Animated.View key="moon" entering={ZoomIn} exiting={FadeOut}>
-          <StyledAntDesign name="moon" size={20} className="text-foreground" />
-        </Animated.View>
-      ) : (
-        <Animated.View key="sun" entering={ZoomIn} exiting={FadeOut}>
-          <StyledIonicons name="sunny" size={20} className="text-foreground" />
-        </Animated.View>
-      )}
-    </TouchableOpacity>
-  );
+	return (
+		<TouchableOpacity
+			onPressIn={() => {
+				if (Platform.OS === "ios") {
+					Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+				}
+			}}
+			onPressOut={() => {
+				toggleTheme();
+			}}
+			className={cn("z-50 p-3", isLGAvailable && "px-2.5 py-2")}
+			hitSlop={12}
+			activeOpacity={0.8}
+		>
+			{isLight ? (
+				<Animated.View key="moon" entering={ZoomIn} exiting={FadeOut}>
+					<StyledAntDesign name="moon" size={20} className="text-foreground" />
+				</Animated.View>
+			) : (
+				<Animated.View key="sun" entering={ZoomIn} exiting={FadeOut}>
+					<StyledIonicons name="sunny" size={20} className="text-foreground" />
+				</Animated.View>
+			)}
+		</TouchableOpacity>
+	);
 };

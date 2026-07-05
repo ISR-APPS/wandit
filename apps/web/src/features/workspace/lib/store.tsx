@@ -1,9 +1,12 @@
-// Workspace UI state + the mock generation/publish "jobs", shared by the
-// header, chat pane, page preview and tabs through plain React context (house rule:
-// no store lib). The generation flow mirrors what the queue/SSE backend will
-// do — stream an assistant reply, then register a new immutable version and
-// move the active pointer — so swapping in the real transport later only
-// touches this file and the services layer.
+// Workspace UI state + the mock publish "jobs", shared by the header, page
+// preview and tabs through plain React context (house rule: no store lib).
+//
+// The chat + page-generation flow used to be simulated here; the chat is now
+// real (SSE) and lives in lib/use-project-chat.tsx. Page versions, deployment
+// and pixels remain mock for this slice — a real project (no seeded workspace)
+// simply starts with an empty version list, so the Page tab shows its empty
+// state until real page-version streaming lands. The generation-phase fields
+// stay on the context (idle) so the Page tab / toolbar keep compiling.
 
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
@@ -19,45 +22,29 @@ import {
 } from "react";
 import { toast } from "sonner";
 
-import { CREDIT_COSTS, useCredits } from "@/features/credits";
 import {
 	type Project,
 	type ProjectStatus,
 	projectKeys,
-	setMockProjectStatus,
 	useProjectQuery,
 } from "@/features/projects";
 import { useTranslation } from "@/lib/i18n";
-import type {
-	ChatMessage,
-	PageLang,
-	PageVersion,
-	WorkspaceState,
-	WorkspaceTab,
-} from "../api/dto";
+import type { PageVersion, WorkspaceState, WorkspaceTab } from "../api/dto";
 import {
 	useWorkspaceStateQuery,
 	workspaceKeys,
 } from "../api/workspace.queries";
 import {
-	appendMockMessage,
-	createMockVersion,
 	getWorkspaceSnapshot,
 	patchMockDeployment,
 	patchMockPixels,
 } from "../api/workspace.services";
 import {
-	BUILD_DURATION_MS,
 	CHAT_OPEN_STORAGE_KEY,
-	FIRST_GENERATION_REPLIES,
-	ITERATION_REPLIES,
 	PUBLISH_DURATION_MS,
 	PUBLISHED_DOMAIN,
-	STREAM_WORD_INTERVAL_MS,
-	THINKING_DELAY_MS,
 } from "./constants";
-import { hashString, pickPageKey, slugify, truncatePrompt } from "./helpers";
-import { getMockPage } from "./mock-pages";
+import { slugify } from "./helpers";
 
 export type Viewport = "mobile" | "desktop";
 export type GenerationPhase = "idle" | "thinking" | "streaming" | "building";
@@ -80,15 +67,11 @@ type WorkspaceContextValue = {
 	setViewport: (viewport: Viewport) => void;
 	activeVersion: PageVersion | undefined;
 	selectVersion: (versionId: string, opts?: { focusPage?: boolean }) => void;
+	// Page-generation status placeholders — real page-version streaming is not
+	// wired in this slice, so these stay idle (the Page tab reads them).
 	generationPhase: GenerationPhase;
 	isGenerating: boolean;
 	pendingVersionNumber: number;
-	streamingMessage: ChatMessage | null;
-	/** Returns false when the run was refused (busy or insufficient credits). */
-	sendPrompt: (prompt: string) => boolean;
-	generationCost: number;
-	insufficientOpen: boolean;
-	setInsufficientOpen: (open: boolean) => void;
 	publish: () => void;
 	unpublish: () => void;
 	rollbackTo: (versionId: string) => void;
@@ -122,7 +105,6 @@ export function WorkspaceProvider({
 	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 	const { t } = useTranslation();
-	const { canAfford, consume } = useCredits();
 
 	const projectQuery = useProjectQuery(projectId);
 	const stateQuery = useWorkspaceStateQuery(projectId);
@@ -133,31 +115,15 @@ export function WorkspaceProvider({
 	const [chatOpen, setChatOpen] = useState(readChatOpen);
 	const [viewport, setViewport] = useState<Viewport>("mobile");
 	const [activeVersionId, setActiveVersionId] = useState<string | null>(null);
-	const [insufficientOpen, setInsufficientOpen] = useState(false);
-	const [streamingMessage, setStreamingMessage] = useState<ChatMessage | null>(
-		null,
-	);
-	const [pendingVersionNumber, setPendingVersionNumber] = useState(0);
 
-	const [generationPhase, setGenerationPhaseState] =
-		useState<GenerationPhase>("idle");
-	const phaseRef = useRef<GenerationPhase>("idle");
-	const setPhase = useCallback((phase: GenerationPhase) => {
-		phaseRef.current = phase;
-		setGenerationPhaseState(phase);
-	}, []);
-
-	// Mock job timers — cleared on unmount so navigation kills the simulation
-	// (the "stuck publishing" resolver below recovers interrupted publishes).
+	// Mock publish job timers — cleared on unmount so navigation kills the
+	// simulation (the "stuck publishing" resolver below recovers interrupted
+	// publishes).
 	const timersRef = useRef<number[]>([]);
-	const streamIntervalRef = useRef<number | null>(null);
 	const publishTimerActiveRef = useRef(false);
 	useEffect(
 		() => () => {
 			for (const id of timersRef.current) window.clearTimeout(id);
-			if (streamIntervalRef.current !== null) {
-				window.clearInterval(streamIntervalRef.current);
-			}
 		},
 		[],
 	);
@@ -172,19 +138,30 @@ export function WorkspaceProvider({
 		);
 	}, [queryClient, projectId]);
 
-	// Keep the projects store/cache coherent with deployment transitions so
-	// the switcher dot and the dashboard cards tell the same story.
+	// Keep the projects cache coherent with deployment transitions so the
+	// switcher dot and the dashboard cards tell the same story. Projects are
+	// real now, so this patches the query cache directly (optimistic) rather
+	// than a mock store.
 	const syncProjectStatus = useCallback(
 		(patch: { status: ProjectStatus; publishedSlug?: string | null }) => {
-			const updated = setMockProjectStatus(projectId, patch);
-			if (!updated) return;
-			queryClient.setQueryData(projectKeys.detail(projectId), updated);
-			void queryClient.invalidateQueries({ queryKey: projectKeys.lists() });
+			const apply = (p: Project): Project => ({
+				...p,
+				status: patch.status,
+				publishedSlug:
+					patch.publishedSlug === undefined
+						? p.publishedSlug
+						: (patch.publishedSlug ?? undefined),
+				updatedAt: new Date().toISOString(),
+			});
+			queryClient.setQueryData<Project>(projectKeys.detail(projectId), (old) =>
+				old ? apply(old) : old,
+			);
+			queryClient.setQueryData<Project[]>(projectKeys.list(), (old) =>
+				old?.map((p) => (p.id === projectId ? apply(p) : p)),
+			);
 		},
 		[projectId, queryClient],
 	);
-
-	const generationCost = CREDIT_COSTS.generation;
 
 	const setTab = useCallback(
 		(next: WorkspaceTab) => {
@@ -243,199 +220,6 @@ export function WorkspaceProvider({
 		},
 		[tab, setTab],
 	);
-
-	// --- generation simulation ---------------------------------------------
-
-	const finishGeneration = useCallback(
-		(input: {
-			replyText: string;
-			summary: string;
-			versionNumber: number;
-			charge: boolean;
-			pageKey: string;
-			lang: PageLang;
-		}) => {
-			schedule(() => {
-				const created = createMockVersion(projectId, {
-					label: input.summary,
-					lang: input.lang,
-					pageKey: input.pageKey,
-				});
-				appendMockMessage(projectId, {
-					role: "assistant",
-					parts: [
-						{ type: "text", text: input.replyText },
-						{
-							type: "generation",
-							status: "complete",
-							versionId: created.id,
-							versionNumber: created.number,
-							summary: input.summary,
-						},
-					],
-				});
-				if (input.charge) {
-					consume(
-						generationCost,
-						`v${created.number} — ${projectRef.current?.name ?? t("workspace.store.ledgerFallbackName")}`,
-					);
-				}
-				setStreamingMessage(null);
-				setPhase("idle");
-				setPendingVersionNumber(0);
-				setActiveVersionId(created.id);
-				refreshState();
-			}, BUILD_DURATION_MS);
-		},
-		[projectId, schedule, consume, setPhase, refreshState, t],
-	);
-
-	const runGeneration = useCallback(
-		(
-			prompt: string,
-			charge: boolean,
-			opts?: { skipUserMessage?: boolean },
-		): boolean => {
-			if (phaseRef.current !== "idle") return false;
-			if (charge && !canAfford(generationCost)) {
-				setInsufficientOpen(true);
-				return false;
-			}
-			const before = getWorkspaceSnapshot(projectId);
-			const isFirst = before.versions.length === 0;
-			const versionNumber =
-				before.versions.reduce((max, v) => Math.max(max, v.number), 0) + 1;
-			if (!opts?.skipUserMessage) {
-				appendMockMessage(projectId, {
-					role: "user",
-					parts: [{ type: "text", text: prompt }],
-				});
-				refreshState();
-			}
-
-			// Resolve the upcoming version's page (and language) up front so the
-			// streamed assistant reply matches the thread's language.
-			const pageKey = pickPageKey(projectId, versionNumber - 1);
-			const lang = getMockPage(pageKey, {
-				title: projectRef.current?.name,
-			}).lang;
-			const firstReplies = FIRST_GENERATION_REPLIES[lang];
-			const iterationReplies = ITERATION_REPLIES[lang];
-			const replyText = isFirst
-				? firstReplies[hashString(prompt) % firstReplies.length](
-						projectRef.current?.name ?? t("workspace.store.fallbackPageName"),
-					)
-				: iterationReplies[hashString(prompt) % iterationReplies.length];
-			const summary = isFirst
-				? t("workspace.store.initialGeneration")
-				: truncatePrompt(prompt);
-
-			setPhase("thinking");
-			setPendingVersionNumber(versionNumber);
-			setStreamingMessage({
-				id: "m_streaming",
-				role: "assistant",
-				parts: [{ type: "text", text: "" }],
-				createdAt: new Date().toISOString(),
-			});
-
-			schedule(() => {
-				setPhase("streaming");
-				const words = replyText.split(" ");
-				let count = 0;
-				streamIntervalRef.current = window.setInterval(() => {
-					count += 1;
-					const textSoFar = words.slice(0, count).join(" ");
-					setStreamingMessage((prev) =>
-						prev
-							? { ...prev, parts: [{ type: "text", text: textSoFar }] }
-							: prev,
-					);
-					if (count >= words.length) {
-						if (streamIntervalRef.current !== null) {
-							window.clearInterval(streamIntervalRef.current);
-							streamIntervalRef.current = null;
-						}
-						setPhase("building");
-						setStreamingMessage((prev) =>
-							prev
-								? {
-										...prev,
-										parts: [
-											{ type: "text", text: replyText },
-											{
-												type: "generation",
-												status: "running",
-												versionId: null,
-												versionNumber,
-												summary,
-											},
-										],
-									}
-								: prev,
-						);
-						finishGeneration({
-							replyText,
-							summary,
-							versionNumber,
-							charge,
-							pageKey,
-							lang,
-						});
-					}
-				}, STREAM_WORD_INTERVAL_MS);
-			}, THINKING_DELAY_MS);
-			return true;
-		},
-		[
-			projectId,
-			canAfford,
-			schedule,
-			setPhase,
-			refreshState,
-			finishGeneration,
-			t,
-		],
-	);
-
-	const sendPrompt = useCallback(
-		(prompt: string) => runGeneration(prompt, true),
-		[runGeneration],
-	);
-
-	// First visit to a fresh project: the dashboard flow already charged the
-	// generation at create time, so the auto-started run doesn't re-charge.
-	const autoStartedRef = useRef(false);
-	useEffect(() => {
-		if (autoStartedRef.current) return;
-		const project = projectQuery.data;
-		const state = stateQuery.data;
-		if (!project || !state) return;
-		if (state.messages.length > 0 || state.versions.length > 0) return;
-		if (!project.prompt) return;
-		autoStartedRef.current = true;
-		runGeneration(project.prompt, false);
-	}, [projectQuery.data, stateQuery.data, runGeneration]);
-
-	// Resume a generation interrupted by reload/navigation — the mock store
-	// then holds a trailing unanswered user message. First generations were
-	// already charged at project creation; interrupted iterations never
-	// charged (charging happens on completion), so re-running charges once.
-	const recoveredRef = useRef(false);
-	useEffect(() => {
-		if (recoveredRef.current) return;
-		const state = stateQuery.data;
-		if (!state || phaseRef.current !== "idle") return;
-		const last = state.messages.at(-1);
-		if (last?.role !== "user") return;
-		const text = last.parts
-			.map((part) => (part.type === "text" ? part.text : ""))
-			.join("")
-			.trim();
-		if (!text) return;
-		recoveredRef.current = true;
-		runGeneration(text, state.versions.length > 0, { skipUserMessage: true });
-	}, [stateQuery.data, runGeneration]);
 
 	// --- publish simulation --------------------------------------------------
 
@@ -602,14 +386,9 @@ export function WorkspaceProvider({
 			setViewport,
 			activeVersion,
 			selectVersion,
-			generationPhase,
-			isGenerating: generationPhase !== "idle",
-			pendingVersionNumber,
-			streamingMessage,
-			sendPrompt,
-			generationCost,
-			insufficientOpen,
-			setInsufficientOpen,
+			generationPhase: "idle",
+			isGenerating: false,
+			pendingVersionNumber: 0,
 			publish,
 			unpublish,
 			rollbackTo,
@@ -633,11 +412,6 @@ export function WorkspaceProvider({
 			viewport,
 			activeVersion,
 			selectVersion,
-			generationPhase,
-			pendingVersionNumber,
-			streamingMessage,
-			sendPrompt,
-			insufficientOpen,
 			publish,
 			unpublish,
 			rollbackTo,

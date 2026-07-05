@@ -7,30 +7,30 @@ import { withUniwind } from "uniwind";
 const StyledFontAwesome = withUniwind(FontAwesome);
 
 interface SearchBarProps {
-  value: string;
-  onChangeText: (text: string) => void;
-  placeholder?: string;
+	value: string;
+	onChangeText: (text: string) => void;
+	placeholder?: string;
 }
 
 export const SearchBar: FC<SearchBarProps> = ({
-  value,
-  onChangeText,
-  placeholder = "Search...",
+	value,
+	onChangeText,
+	placeholder = "Search...",
 }) => {
-  const themeColorMuted = useThemeColor("muted");
+	const themeColorMuted = useThemeColor("muted");
 
-  return (
-    <View className="flex-row items-center gap-2 rounded-xl bg-surface-secondary h-12 px-3 mb-2">
-      <StyledFontAwesome name="search" size={14} className="text-muted" />
-      <TextInput
-        value={value}
-        onChangeText={onChangeText}
-        placeholder={placeholder}
-        placeholderTextColor={themeColorMuted}
-        selectionColor={themeColorMuted}
-        className="flex-1 font-medium text-foreground"
-        autoFocus
-      />
-    </View>
-  );
+	return (
+		<View className="mb-2 h-12 flex-row items-center gap-2 rounded-xl bg-surface-secondary px-3">
+			<StyledFontAwesome name="search" size={14} className="text-muted" />
+			<TextInput
+				value={value}
+				onChangeText={onChangeText}
+				placeholder={placeholder}
+				placeholderTextColor={themeColorMuted}
+				selectionColor={themeColorMuted}
+				className="flex-1 font-medium text-foreground"
+				autoFocus
+			/>
+		</View>
+	);
 };

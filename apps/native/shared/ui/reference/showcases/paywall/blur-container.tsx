@@ -4,14 +4,21 @@ import type { FC, PropsWithChildren } from "react";
 import { StyleSheet, View } from "react-native";
 
 type Props = {
-  className?: string;
+	className?: string;
 };
 
-export const BlurContainer: FC<PropsWithChildren<Props>> = ({ children, className }) => {
-  return (
-    <View className={cn("h-20 rounded-full overflow-hidden", className)}>
-      <BlurView style={StyleSheet.absoluteFill} tint="systemThinMaterialDark" intensity={100} />
-      {children}
-    </View>
-  );
+export const BlurContainer: FC<PropsWithChildren<Props>> = ({
+	children,
+	className,
+}) => {
+	return (
+		<View className={cn("h-20 overflow-hidden rounded-full", className)}>
+			<BlurView
+				style={StyleSheet.absoluteFill}
+				tint="systemThinMaterialDark"
+				intensity={100}
+			/>
+			{children}
+		</View>
+	);
 };

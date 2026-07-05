@@ -1,8 +1,8 @@
 import {
-  Surface as HeroSurface,
-  useSurface as useHeroSurface,
-  type SurfaceRootProps,
-  type SurfaceVariant,
+	Surface as HeroSurface,
+	type SurfaceRootProps,
+	type SurfaceVariant,
+	useSurface as useHeroSurface,
 } from "heroui-native";
 import { forwardRef } from "react";
 import type { View } from "react-native";
@@ -13,7 +13,7 @@ export type AppSurfaceContextValue = ReturnType<typeof useHeroSurface>;
 export type AppSurfaceRef = View;
 
 const AppSurfaceRoot = forwardRef<AppSurfaceRef, AppSurfaceProps>(
-  (props, ref) => <HeroSurface ref={ref} {...props} />,
+	(props, ref) => <HeroSurface ref={ref} {...props} />,
 );
 
 AppSurfaceRoot.displayName = "AppSurface";

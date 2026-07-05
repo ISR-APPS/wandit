@@ -8,30 +8,30 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 const AnimatedScrollView = Animated.createAnimatedComponent(ScrollView);
 
 interface Props extends AnimatedProps<ScrollViewProps> {
-  className?: string;
-  contentContainerClassName?: string;
+	className?: string;
+	contentContainerClassName?: string;
 }
 
 export const ScreenScrollView: FC<PropsWithChildren<Props>> = ({
-  children,
-  className,
-  contentContainerClassName,
-  ...props
+	children,
+	className,
+	contentContainerClassName,
+	...props
 }) => {
-  const insets = useSafeAreaInsets();
-  const headerHeight = useHeaderHeight();
-  return (
-    <AnimatedScrollView
-      className={cn("bg-background", className)}
-      contentContainerClassName={cn("px-5", contentContainerClassName)}
-      contentContainerStyle={{
-        paddingTop: headerHeight + 20 || insets.top + 50,
-        paddingBottom: insets.bottom,
-      }}
-      showsVerticalScrollIndicator={false}
-      {...props}
-    >
-      {children}
-    </AnimatedScrollView>
-  );
+	const insets = useSafeAreaInsets();
+	const headerHeight = useHeaderHeight();
+	return (
+		<AnimatedScrollView
+			className={cn("bg-background", className)}
+			contentContainerClassName={cn("px-5", contentContainerClassName)}
+			contentContainerStyle={{
+				paddingTop: headerHeight + 20 || insets.top + 50,
+				paddingBottom: insets.bottom,
+			}}
+			showsVerticalScrollIndicator={false}
+			{...props}
+		>
+			{children}
+		</AnimatedScrollView>
+	);
 };

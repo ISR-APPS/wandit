@@ -1,5 +1,5 @@
 export type UsageVariant = {
-  value: string;
-  label: string;
-  content: React.ReactNode;
+	value: string;
+	label: string;
+	content: React.ReactNode;
 };

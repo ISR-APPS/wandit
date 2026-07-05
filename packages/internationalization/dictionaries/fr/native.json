@@ -1,66 +1,62 @@
 {
 	"auth": {
-		"tagline": "Prompt → landing page → publication → commandes",
-		"signIn": {
-			"title": "Se connecter",
-			"submit": "Se connecter"
-		},
-		"signUp": {
-			"title": "Créer un compte",
-			"submit": "Créer un compte"
-		},
-		"fields": {
-			"nameLabel": "Nom",
-			"namePlaceholder": "John Doe",
-			"emailLabel": "Email",
-			"emailPlaceholder": "email@example.com",
-			"passwordLabel": "Mot de passe",
-			"passwordPlaceholder": "••••••••"
-		},
-		"validation": {
-			"nameRequired": "Le nom est requis",
-			"nameMin": "Le nom doit contenir au moins 2 caractères",
-			"emailRequired": "L’email est requis",
-			"emailInvalid": "Saisis une adresse email valide",
-			"passwordRequired": "Le mot de passe est requis",
-			"passwordMin": "Utilise au moins 8 caractères"
-		},
-		"toasts": {
-			"signInError": "Échec de la connexion",
-			"signInSuccess": "Connexion réussie",
-			"signUpError": "Échec de la création du compte",
-			"signUpSuccess": "Compte créé avec succès"
+		"welcome": {
+			"headline1": "Écris-le.",
+			"headline2": "Lance-le.",
+			"headline3": "Vends-le.",
+			"tagline": "Un prompt devient une landing page qui prend des commandes COD — publie en quelques minutes.",
+			"googleCta": "Continuer avec Google",
+			"betaHint": "Bêta — tes 10 premières pages sont offertes"
 		}
 	},
 	"home": {
-		"heading": "Qu’est-ce que tu veux créer ?",
-		"promptPlaceholder": "Une landing page pour…",
-		"create": "Créer"
+		"greeting": "On lance quoi aujourd'hui, {name} ?",
+		"chips": {
+			"salesPage": "Page de vente",
+			"website": "Site web",
+			"productPhotos": "Photos produit",
+			"adCreatives": "Créas pub",
+			"videoAd": "Pub vidéo",
+			"flyer": "Flyer"
+		},
+		"tryHint": "Essaie : page COD pour une montre vintage →",
+		"tryPrompt": "Une page produit COD pour une montre vintage en cuir — photo héro, trois blocs bénéfices, et un formulaire de commande avec wilaya et commune."
 	},
 	"drawer": {
-		"projects": "Projets",
 		"signOut": "Se déconnecter",
-		"language": "Langue"
+		"language": "Langue",
+		"createProject": "Créer un projet",
+		"filterCreatedByMe": "Créés par moi",
+		"myWandit": "Mon Wandit"
 	},
 	"workspace": {
-		"back": "Retour",
-		"send": "Envoyer",
 		"composerPlaceholder": "Décris une modification…",
-		"tabs": {
-			"chat": "Chat",
-			"preview": "Aperçu",
-			"leads": "Leads",
-			"settings": "Réglages"
-		},
 		"placeholders": {
-			"chatTitle": "Chat",
-			"chatDescription": "Conversation avec l’IA — historique des messages et mises à jour de génération en direct.",
-			"previewTitle": "Aperçu",
-			"previewDescription": "Aperçu en direct de la landing page générée (WebView sandboxée) avec changement de version.",
 			"leadsTitle": "Leads",
 			"leadsDescription": "CRM commandes — soumissions de formulaire avec le pipeline de statuts, appel et WhatsApp en un tap.",
 			"settingsTitle": "Réglages",
-			"settingsDescription": "Réglages du projet — slug de publication, IDs pixel, renommer, dépublier et supprimer."
+			"settingsDescription": "Réglages du projet — slug de publication, IDs pixel, renommer, dépublier et supprimer.",
+			"pageTitle": "Page",
+			"pageDescription": "La landing page publiable — aperçu, versions et publication.",
+			"assetsTitle": "Assets",
+			"assetsDescription": "Images, vidéos et assets HTML générés — bibliothèque et canvas.",
+			"marketingTitle": "Marketing",
+			"marketingDescription": "Textes publicitaires, stratégies, scripts et assets de campagne du projet."
+		},
+		"newProject": "Nouveau projet",
+		"previewLabel": "Ouvrir l'aperçu",
+		"empty": {
+			"title": "Ta page vivra ici",
+			"subtitle": "Décris ce que tu vends — ou joins une photo produit pour commencer par les créas."
+		},
+		"artifact": {
+			"details": "Détails",
+			"preview": "Aperçu"
+		},
+		"hints": {
+			"arfr": "AR & FR prêts",
+			"cod": "Formulaires COD",
+			"publish": "Publication gratuite"
 		}
 	},
 	"notFound": {
@@ -68,5 +64,33 @@
 		"title": "Page introuvable",
 		"description": "La page que tu cherches n’existe pas.",
 		"goHome": "Retour à l’accueil"
+	},
+	"attach": {
+		"takePhoto": "Prendre une photo",
+		"photoLibrary": "Photothèque",
+		"attachSkill": "Joindre une compétence",
+		"browseFiles": "Parcourir les fichiers",
+		"cancel": "Annuler",
+		"remove": "Retirer la pièce jointe",
+		"attachedMeta": "joint · {size}"
+	},
+	"credits": {
+		"title": "Crédits",
+		"left": "{count} restants",
+		"betaNote": "Crédits bêta · Publication & leads toujours gratuits"
+	},
+	"projectSheet": {
+		"viewsLabel": "Vues du projet",
+		"views": {
+			"page": "Page",
+			"assets": "Assets",
+			"marketing": "Marketing",
+			"leads": "Leads"
+		},
+		"settings": "Réglages",
+		"rename": "Renommer le projet",
+		"appearance": "Apparence",
+		"appearanceLight": "Clair",
+		"appearanceDark": "Sombre"
 	}
 }

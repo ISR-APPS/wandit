@@ -15,7 +15,11 @@ import {
 	type Database,
 } from "../../server/src/infrastructure/database/database.constants";
 import { queueConfig } from "./config/queue.config";
+import { WorkerDatabaseModule } from "./infrastructure/database/database.module";
+import { WorkerChatRepository } from "./infrastructure/persistence/worker-chat.repository";
+import { WorkerCreditsService } from "./infrastructure/persistence/worker-credits.service";
 import { WorkerQueuesModule } from "./infrastructure/queues/worker-queues.module";
+import { ChatEventsPublisher } from "./infrastructure/redis/chat-events.publisher";
 import { AiGenerationProcessor } from "./processors/ai-generation.processor";
 import { DomainsProcessor } from "./processors/domains.processor";
 import { LeadProcessingProcessor } from "./processors/lead-processing.processor";
@@ -34,11 +38,13 @@ const databaseProvider: Provider<Database> = {
 			isGlobal: true,
 			load: [queueConfig],
 		}),
+		WorkerDatabaseModule,
 		WorkerQueuesModule,
 	],
 	providers: [
 		databaseProvider,
 		AiGenerationProcessor,
+		ChatEventsPublisher,
 		CreditsRepository,
 		CreditsService,
 		CustomHostnameService,
@@ -49,6 +55,8 @@ const databaseProvider: Provider<Database> = {
 		LeadProcessingProcessor,
 		OpenproviderProvider,
 		PublishProcessor,
+		WorkerChatRepository,
+		WorkerCreditsService,
 		{
 			provide: DOMAIN_PROVIDER,
 			useExisting: OpenproviderProvider,

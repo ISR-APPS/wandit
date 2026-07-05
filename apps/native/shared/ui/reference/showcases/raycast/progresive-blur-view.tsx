@@ -7,64 +7,68 @@ import type { FC } from "react";
 import { Platform, StyleSheet, View } from "react-native";
 
 type Props = {
-  position?: "top" | "bottom";
-  height?: number;
-  blurViewProps?: BlurViewProps;
+	position?: "top" | "bottom";
+	height?: number;
+	blurViewProps?: BlurViewProps;
 };
 
 export const ProgressiveBlurView: FC<Props> = ({
-  position = "top",
-  height = 100,
-  blurViewProps,
+	position = "top",
+	height = 100,
+	blurViewProps,
 }) => {
-  const themeColorBackground = useThemeColor("background");
+	const themeColorBackground = useThemeColor("background");
 
-  return (
-    <View
-      className={cn(
-        "absolute left-0 right-0 pointer-events-none",
-        position === "top" ? "top-0" : "bottom-0",
-      )}
-      style={[
-        {
-          position: "absolute",
-          height,
-        },
-      ]}
-    >
-      {Platform.OS === "ios" ? (
-        <MaskedView
-          maskElement={
-            <LinearGradient
-              locations={position === "top" ? [0.5, 1] : [0, 0.5]}
-              colors={position === "top" ? ["black", "transparent"] : ["transparent", "black"]}
-              style={StyleSheet.absoluteFill}
-            />
-          }
-          style={[StyleSheet.absoluteFill]}
-        >
-          <BlurView
-            style={[StyleSheet.absoluteFill, blurViewProps?.style]}
-            intensity={blurViewProps?.intensity ?? 75}
-            {...blurViewProps}
-          />
-        </MaskedView>
-      ) : (
-        <LinearGradient
-          style={StyleSheet.absoluteFillObject}
-          colors={
-            position === "top"
-              ? [
-                  colorKit.setAlpha(themeColorBackground, 0.9).hex(),
-                  colorKit.setAlpha(themeColorBackground, 0).hex(),
-                ]
-              : [
-                  colorKit.setAlpha(themeColorBackground, 0).hex(),
-                  colorKit.setAlpha(themeColorBackground, 0.9).hex(),
-                ]
-          }
-        />
-      )}
-    </View>
-  );
+	return (
+		<View
+			className={cn(
+				"pointer-events-none absolute right-0 left-0",
+				position === "top" ? "top-0" : "bottom-0",
+			)}
+			style={[
+				{
+					position: "absolute",
+					height,
+				},
+			]}
+		>
+			{Platform.OS === "ios" ? (
+				<MaskedView
+					maskElement={
+						<LinearGradient
+							locations={position === "top" ? [0.5, 1] : [0, 0.5]}
+							colors={
+								position === "top"
+									? ["black", "transparent"]
+									: ["transparent", "black"]
+							}
+							style={StyleSheet.absoluteFill}
+						/>
+					}
+					style={[StyleSheet.absoluteFill]}
+				>
+					<BlurView
+						style={[StyleSheet.absoluteFill, blurViewProps?.style]}
+						intensity={blurViewProps?.intensity ?? 75}
+						{...blurViewProps}
+					/>
+				</MaskedView>
+			) : (
+				<LinearGradient
+					style={StyleSheet.absoluteFillObject}
+					colors={
+						position === "top"
+							? [
+									colorKit.setAlpha(themeColorBackground, 0.9).hex(),
+									colorKit.setAlpha(themeColorBackground, 0).hex(),
+								]
+							: [
+									colorKit.setAlpha(themeColorBackground, 0).hex(),
+									colorKit.setAlpha(themeColorBackground, 0.9).hex(),
+								]
+					}
+				/>
+			)}
+		</View>
+	);
 };

@@ -1,3 +1,5 @@
+import type { ComposerMetadata } from "@wandit/contracts";
+
 export const AI_GENERATION_QUEUE = "ai-generation";
 export const MEDIA_GENERATION_QUEUE = "media-generation";
 export const LEAD_PROCESSING_QUEUE = "lead-processing";
@@ -28,6 +30,11 @@ export type DomainJobName =
 	| "domain-sync";
 
 export interface AiGenerationJobData {
+	action: "landingPageGeneration" | "chatMessage";
+	chatId: string;
+	composer?: ComposerMetadata;
+	jobId: string;
+	messageId: string;
 	prompt: string;
 	projectId: string;
 	userId: string;

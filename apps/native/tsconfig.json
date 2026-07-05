@@ -6,5 +6,13 @@
 			"@/*": ["./*"]
 		}
 	},
-	"include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.ts", "expo-env.d.ts"]
+	"include": ["**/*.ts", "**/*.tsx", ".expo/types/**/*.ts", "expo-env.d.ts"],
+	"exclude": [
+		"node_modules",
+		// HeroUI usage examples kept for reference only — not app code.
+		"shared/ui/reference",
+		// Unused kit icon wrapper importing the undeclared
+		// @solar-icons/react-native package. Re-include once that dep lands.
+		"shared/ui/app-icon.tsx"
+	]
 }
