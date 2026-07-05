@@ -42,6 +42,11 @@
 		"placeholder": "Décris un changement…",
 		"thinking": "Réflexion…",
 		"generating": "Génération",
+		"errors": {
+			"busy": "Une génération est déjà en cours. Attends qu'elle se termine avant d'envoyer un autre message.",
+			"credits": "Tu n'as pas assez de crédits pour cette génération. Recharge pour continuer.",
+			"stream": "Le flux de génération a été interrompu. Réessaie."
+		},
 		"versionCardKind": "Landing page",
 		"emptyTitle": "Démarre la conversation",
 		"emptyBody": "Décris ta page et l'IA la génère ici.",

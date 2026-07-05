@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { composerMetadataSchema } from "./chats";
 import { isoDateTimeSchema, uuidSchema } from "./shared/primitives";
 
 // Shared HTTP agreement for Projects & Dashboard
@@ -41,6 +42,7 @@ export const projectPromptMaxLength = 2000;
 
 export const createProjectBodySchema = z.object({
 	prompt: z.string().min(1).max(projectPromptMaxLength),
+	composer: composerMetadataSchema.optional(),
 });
 
 export type CreateProjectBody = z.infer<typeof createProjectBodySchema>;
@@ -63,6 +65,18 @@ export const updateProjectBodySchema = z.object({
 });
 
 export type UpdateProjectBody = z.infer<typeof updateProjectBodySchema>;
+
+export const projectByIdResponseSchema = projectSchema;
+
+export type ProjectByIdResponse = z.infer<typeof projectByIdResponseSchema>;
+
+export const updateProjectResponseSchema = projectSchema;
+
+export type UpdateProjectResponse = z.infer<typeof updateProjectResponseSchema>;
+
+export const deleteProjectResponseSchema = z.void();
+
+export type DeleteProjectResponse = z.infer<typeof deleteProjectResponseSchema>;
 
 export const projectsRoutes = {
 	list: "/api/v1/projects",

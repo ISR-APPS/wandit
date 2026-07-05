@@ -84,6 +84,13 @@ export class BillingService {
 		};
 	}
 
+	async hasActiveSubscription(userId: string): Promise<boolean> {
+		const subscription =
+			await this.subscriptionsRepository.findActiveByUserId(userId);
+
+		return subscription !== null;
+	}
+
 	async checkout(
 		user: AuthUser,
 		body: CreateBillingCheckoutBody,

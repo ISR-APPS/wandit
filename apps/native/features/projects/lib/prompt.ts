@@ -101,11 +101,11 @@ export type GenerationOutputDef = {
 	options: readonly OptionGroup[];
 };
 
-// Page outputs carry a model tier the web composer doesn't have yet: better
-// models burn more credits, so the user picks Premium or Max per generation.
+// Page outputs carry the composer quality tier (contracts composerQualities):
+// better models burn more credits, so the user picks Standard or Max.
 const PAGE_QUALITY: OptionGroup = {
 	id: "quality",
-	choices: [{ id: "premium" }, { id: "max" }],
+	choices: [{ id: "standard" }, { id: "max" }],
 	layout: "compact",
 };
 

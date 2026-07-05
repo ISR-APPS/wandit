@@ -1,4 +1,4 @@
-// Collapsible chat pane: message history, streaming assistant reply and the
+// Collapsible chat pane: real message history, live SSE streaming reply and the
 // compact ember PromptBox. Sizing/positioning (resizable panel on desktop,
 // full-screen overlay on mobile) is owned by the parent layout — this
 // component only fills its container (desktop passes card chrome via
@@ -16,42 +16,41 @@ import { MessagesSquare, PanelLeftClose } from "lucide-react";
 import { useEffect, useRef } from "react";
 
 import { Spark } from "@/components/logo";
-import { InsufficientCreditsDialog } from "@/features/credits";
 import { PromptBox } from "@/features/projects";
 import { useDictionary, useTranslation } from "@/lib/i18n";
 import { useWorkspace } from "../../lib/store";
-import { ChatMessageView, ThinkingIndicator } from "./chat-message";
+import { useProjectChat } from "../../lib/use-project-chat";
+import { ThinkingIndicator } from "./chat-message";
+import { extractMessageText, RealChatMessage } from "./real-message";
 
 export function ChatPane({ className }: { className?: string }) {
 	const { t, dir } = useTranslation();
 	const dictionary = useDictionary();
+	const { chatOpen, toggleChat, project, projectId } = useWorkspace();
 	const {
-		chatOpen,
-		toggleChat,
-		state,
-		statePending,
+		messages,
 		streamingMessage,
-		generationPhase,
+		phase,
+		generationActive,
 		isGenerating,
-		pendingVersionNumber,
-		sendPrompt,
-		generationCost,
-		insufficientOpen,
-		setInsufficientOpen,
-		project,
-	} = useWorkspace();
+		isResolvingChat,
+		isLoadingMessages,
+		send,
+	} = useProjectChat(projectId);
 
 	const scrollRef = useRef<HTMLDivElement>(null);
-	const messages = state?.messages ?? [];
+	const pending = isResolvingChat || isLoadingMessages;
 
 	// Keep the newest message in view while history grows or text streams in.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: scroll reacts to content growth
 	useEffect(() => {
 		const el = scrollRef.current;
 		if (el) el.scrollTop = el.scrollHeight;
-	}, [messages.length, streamingMessage, statePending]);
+	}, [messages.length, streamingMessage, pending]);
 
-	const isEmpty = !statePending && messages.length === 0 && !streamingMessage;
+	const isEmpty =
+		!pending && messages.length === 0 && !streamingMessage && !generationActive;
+	const showThinking = generationActive && !streamingMessage;
 
 	return (
 		<aside
@@ -66,13 +65,9 @@ export function ChatPane({ className }: { className?: string }) {
 			<div className="flex h-full w-full flex-col">
 				{/* Screenreader announcement for the otherwise-visual job states. */}
 				<span aria-live="polite" className="sr-only">
-					{generationPhase === "thinking" || generationPhase === "streaming"
+					{phase === "thinking" || phase === "streaming"
 						? t("workspace.chat.thinking")
-						: generationPhase === "building"
-							? t("workspace.page.generatingTitle", {
-									n: pendingVersionNumber,
-								})
-							: ""}
+						: ""}
 				</span>
 				<div className="flex h-12 shrink-0 items-center justify-between border-b px-3">
 					<span className="flex min-w-0 items-center gap-2 font-medium text-sm">
@@ -108,7 +103,7 @@ export function ChatPane({ className }: { className?: string }) {
 					ref={scrollRef}
 					className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3.5 py-4"
 				>
-					{statePending ? (
+					{pending ? (
 						<div className="flex flex-col gap-4">
 							<Skeleton className="ms-auto h-14 w-3/4 rounded-2xl" />
 							<Skeleton className="h-20 w-5/6 rounded-xl" />
@@ -134,7 +129,7 @@ export function ChatPane({ className }: { className?: string }) {
 										variant="outline"
 										size="sm"
 										className="h-7 rounded-full bg-card px-3 font-normal text-muted-foreground text-xs shadow-none hover:text-foreground"
-										onClick={() => sendPrompt(suggestion)}
+										onClick={() => send(suggestion)}
 									>
 										{suggestion}
 									</Button>
@@ -144,15 +139,21 @@ export function ChatPane({ className }: { className?: string }) {
 					) : (
 						<div className="flex flex-col gap-5">
 							{messages.map((message) => (
-								<ChatMessageView key={message.id} message={message} />
-							))}
-							{generationPhase === "thinking" ? (
-								<ThinkingIndicator label={t("workspace.chat.thinking")} />
-							) : streamingMessage ? (
-								<ChatMessageView
-									message={streamingMessage}
-									isStreaming={generationPhase === "streaming"}
+								<RealChatMessage
+									key={message.id}
+									messageRole={message.role}
+									text={extractMessageText(message.parts)}
 								/>
+							))}
+							{streamingMessage ? (
+								<RealChatMessage
+									messageRole="assistant"
+									text={streamingMessage.text}
+									isStreaming
+								/>
+							) : null}
+							{showThinking ? (
+								<ThinkingIndicator label={t("workspace.chat.thinking")} />
 							) : null}
 						</div>
 					)}
@@ -165,13 +166,8 @@ export function ChatPane({ className }: { className?: string }) {
 						showPriceTag
 						clearOnSubmit
 						placeholder={t("workspace.chat.placeholder")}
-						onSubmit={sendPrompt}
+						onSubmit={(text, composer) => send(text, composer)}
 						isSubmitting={isGenerating}
-					/>
-					<InsufficientCreditsDialog
-						open={insufficientOpen}
-						onOpenChange={setInsufficientOpen}
-						cost={generationCost}
 					/>
 				</div>
 			</div>
