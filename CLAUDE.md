@@ -3,6 +3,7 @@
 
 ## Worktrees
 
+- **Create new worktrees under `.claude/worktrees/<name>` inside the repo, never as sibling directories** (no more `../ISR-AI-<name>`). Existing sibling worktrees stay where they are until their branches land.
 - **NEVER commit at the end of a task** (in worktrees or anywhere else). Leave all changes uncommitted so Zack can review the full diff in his editor's Git view. Only commit when Zack explicitly asks for it.
 - **On worktree creation, always bootstrap it fully:**
   1. Copy the env files the app needs (at minimum `apps/web/.env`) from the main checkout.
