@@ -87,6 +87,8 @@ type WorkspaceContextValue = {
 	isGenerating: boolean;
 	pendingVersionNumber: number;
 	publish: () => void;
+	/** Abort an in-flight mock publish — the live site (if any) stays as-is. */
+	cancelPublish: () => void;
 	unpublish: () => void;
 	rollbackTo: (versionId: string) => void;
 	updateSlug: (slug: string) => void;
@@ -95,6 +97,11 @@ type WorkspaceContextValue = {
 		tiktokPixelId?: string | null;
 	}) => void;
 	liveUrl: string | null;
+	// Publish panel (dc 4a slide-in) — open state lives here so the header
+	// button, page and future entry points share one panel instance.
+	publishPanelOpen: boolean;
+	openPublishPanel: () => void;
+	setPublishPanelOpen: (open: boolean) => void;
 };
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
@@ -135,6 +142,7 @@ export function WorkspaceProvider({
 	// publishes).
 	const timersRef = useRef<number[]>([]);
 	const publishTimerActiveRef = useRef(false);
+	const publishTimerIdRef = useRef<number | null>(null);
 	useEffect(
 		() => () => {
 			for (const id of timersRef.current) window.clearTimeout(id);
@@ -142,7 +150,9 @@ export function WorkspaceProvider({
 		[],
 	);
 	const schedule = useCallback((fn: () => void, ms: number) => {
-		timersRef.current.push(window.setTimeout(fn, ms));
+		const id = window.setTimeout(fn, ms);
+		timersRef.current.push(id);
+		return id;
 	}, []);
 
 	const refreshState = useCallback(() => {
@@ -253,8 +263,9 @@ export function WorkspaceProvider({
 			syncProjectStatus({ status: "publishing" });
 			refreshState();
 			publishTimerActiveRef.current = true;
-			schedule(() => {
+			publishTimerIdRef.current = schedule(() => {
 				publishTimerActiveRef.current = false;
+				publishTimerIdRef.current = null;
 				const deployment = patchMockDeployment(projectId, {
 					state: "published",
 					publishedVersionId: versionId,
@@ -279,6 +290,27 @@ export function WorkspaceProvider({
 			);
 		}
 	}, [activeVersion, runPublish, t]);
+
+	const cancelPublish = useCallback(() => {
+		if (publishTimerIdRef.current !== null) {
+			window.clearTimeout(publishTimerIdRef.current);
+			publishTimerIdRef.current = null;
+		}
+		publishTimerActiveRef.current = false;
+		const snapshot = getWorkspaceSnapshot(projectId);
+		if (snapshot.deployment.state !== "publishing") return;
+		// A previously published version stays live; a first publish reverts to draft.
+		const wasLive = snapshot.deployment.publishedVersionId !== null;
+		patchMockDeployment(projectId, {
+			state: wasLive ? "published" : "draft",
+			pendingVersionId: null,
+		});
+		syncProjectStatus({
+			status: wasLive ? "published" : "draft",
+			publishedSlug: wasLive ? snapshot.deployment.slug : null,
+		});
+		refreshState();
+	}, [projectId, refreshState, syncProjectStatus]);
 
 	const rollbackTo = useCallback(
 		(versionId: string) => {
@@ -315,14 +347,20 @@ export function WorkspaceProvider({
 		toast.success(t("workspace.publish.unpublishedToast"));
 	}, [projectId, refreshState, syncProjectStatus, t]);
 
+	// --- publish panel ---------------------------------------------------------
+
+	const [publishPanelOpen, setPublishPanelOpen] = useState(false);
+	const openPublishPanel = useCallback(() => setPublishPanelOpen(true), []);
+
 	// Recover deployments stuck in "publishing" (seeded that way, or a publish
 	// interrupted by navigation) by completing them shortly after mount.
 	useEffect(() => {
 		if (stateQuery.data?.deployment.state !== "publishing") return;
 		if (publishTimerActiveRef.current) return;
 		publishTimerActiveRef.current = true;
-		schedule(() => {
+		publishTimerIdRef.current = schedule(() => {
 			publishTimerActiveRef.current = false;
+			publishTimerIdRef.current = null;
 			const snapshot = getWorkspaceSnapshot(projectId);
 			if (snapshot.deployment.state !== "publishing") return;
 			const latest = [...snapshot.versions]
@@ -404,11 +442,15 @@ export function WorkspaceProvider({
 			isGenerating: false,
 			pendingVersionNumber: 0,
 			publish,
+			cancelPublish,
 			unpublish,
 			rollbackTo,
 			updateSlug,
 			updatePixels,
 			liveUrl,
+			publishPanelOpen,
+			openPublishPanel,
+			setPublishPanelOpen,
 		}),
 		[
 			projectId,
@@ -427,11 +469,14 @@ export function WorkspaceProvider({
 			activeVersion,
 			selectVersion,
 			publish,
+			cancelPublish,
 			unpublish,
 			rollbackTo,
 			updateSlug,
 			updatePixels,
 			liveUrl,
+			publishPanelOpen,
+			openPublishPanel,
 		],
 	);
 

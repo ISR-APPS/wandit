@@ -43,7 +43,7 @@ export function UserMenu() {
 	const { open } = useAuthModal();
 
 	if (isPending) {
-		return <Skeleton className="size-8 rounded-full" />;
+		return <Skeleton className="size-7 rounded-full" />;
 	}
 
 	if (!session) {
@@ -64,11 +64,12 @@ export function UserMenu() {
 					aria-label={user.name}
 					className="rounded-full transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
 				>
-					<Avatar className="size-8 border border-border">
+					<Avatar className="size-7">
 						{user.image ? (
 							<AvatarImage src={user.image} alt={user.name} />
 						) : null}
-						<AvatarFallback className="bg-gradient-ember font-display font-semibold text-[oklch(0.17_0.02_55)] text-xs">
+						{/* 28px ink circle with a parchment initial (3a reference). */}
+						<AvatarFallback className="bg-foreground font-medium text-background text-xs">
 							{initials(user.name)}
 						</AvatarFallback>
 					</Avatar>

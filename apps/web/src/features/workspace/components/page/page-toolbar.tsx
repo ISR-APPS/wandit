@@ -5,7 +5,6 @@
 // rail (click-to-edit, post-MVP — see docs/PRD.md #4).
 
 import { Button } from "@wandit/ui/components/button";
-import { Separator } from "@wandit/ui/components/separator";
 import {
 	Tooltip,
 	TooltipContent,
@@ -44,12 +43,12 @@ function IconAction({
 		<Tooltip>
 			<TooltipTrigger asChild>
 				<Button
-					variant="ghost"
+					variant="outline"
 					size="icon-sm"
 					aria-label={label}
 					onClick={onClick}
 					disabled={disabled}
-					className={className}
+					className={cn("size-[30px] text-muted-foreground", className)}
 				>
 					{children}
 				</Button>
@@ -89,9 +88,9 @@ export function PageControls({ onReload }: { onReload: () => void }) {
 					aria-pressed={viewport === target}
 					onClick={() => setViewport(target)}
 					className={cn(
-						"grid size-7 place-items-center rounded-md text-muted-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+						"grid h-6 w-[30px] place-items-center rounded-full text-muted-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
 						viewport === target
-							? "bg-background text-foreground shadow-xs"
+							? "bg-background text-foreground shadow-segment"
 							: "hover:text-foreground",
 					)}
 				>
@@ -103,7 +102,7 @@ export function PageControls({ onReload }: { onReload: () => void }) {
 	);
 
 	return (
-		<div className="flex items-center gap-1">
+		<div className="flex items-center gap-2">
 			{isGenerating ? (
 				<span className="hidden items-center gap-1.5 rounded-full border border-primary/25 bg-primary/5 px-2.5 py-1 font-mono text-[11px] text-primary lg:flex">
 					<Loader2 className="size-3 animate-spin" />
@@ -113,22 +112,18 @@ export function PageControls({ onReload }: { onReload: () => void }) {
 
 			<VersionSwitcher />
 
-			<div className="ms-1 flex items-center gap-0.5 rounded-lg bg-muted/60 p-0.5">
-				{viewportButton(
-					"mobile",
-					t("workspace.page.viewportMobile"),
-					<Smartphone className="size-3.5" />,
-				)}
+			<div className="flex items-center gap-0.5 rounded-full border border-border bg-muted p-[3px]">
 				{viewportButton(
 					"desktop",
 					t("workspace.page.viewportDesktop"),
 					<Monitor className="size-3.5" />,
 				)}
+				{viewportButton(
+					"mobile",
+					t("workspace.page.viewportMobile"),
+					<Smartphone className="size-[13px]" />,
+				)}
 			</div>
-			<Separator
-				orientation="vertical"
-				className="mx-1 hidden data-[orientation=vertical]:h-4 sm:block"
-			/>
 			<IconAction
 				label={t("workspace.page.refresh")}
 				onClick={onReload}

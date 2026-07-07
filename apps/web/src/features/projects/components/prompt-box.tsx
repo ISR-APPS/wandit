@@ -1,21 +1,3 @@
-/**
- * Shared prompt composer for the landing page, dashboard, and workspace chat.
- *
- * Flow position:
- * - Users type or dictate text here, then this component calls the supplied
- *   onSubmit handler with the prompt plus ComposerMetadata.
- * - Landing/dashboard callers pass that to useCreateProjectWithPrompt(), which
- *   POSTs create-project-with-prompt and navigates to /p/{projectId}.
- * - SSE means Server-Sent Events: a one-way browser stream used by the chat
- *   hook later to receive assistant tokens from the server.
- * - Workspace callers pass it to useProjectChat().send(), which POSTs a chat
- *   message and then listens for the assistant response over SSE elsewhere.
- *
- * Gotchas:
- * - Most labels live in the i18n dictionary; this file stores ids and layout.
- * - The "attached skill files" are metadata hints, not uploaded files yet.
- * - NOTE: legacy props like showModes/showEngines are kept for older callers.
- */
 import {
 	type ComposerMetadata,
 	type ComposerQuality,
@@ -82,11 +64,7 @@ import { useDictionary, useTranslation } from "@/lib/i18n";
 import { MAX_VISIBLE_SKILLS, QUALITY_CREDITS } from "../lib/constants";
 import { useVoiceDictation } from "../lib/use-voice-dictation";
 
-// RouteMode is the broad category the user picks. "auto" lets the backend infer
-// intent from the prompt, while the other modes expose more specific outputs.
 type RouteMode = "auto" | "page" | "marketing" | "image" | "video";
-// ConcreteMode means "a mode that can actually have output presets." Auto does
-// not have presets because it intentionally leaves routing open-ended.
 type ConcreteMode = Exclude<RouteMode, "auto">;
 
 // Non-copy option config: ids + layout. Group labels and choice labels live in
@@ -103,15 +81,11 @@ type OptionGroup = {
 
 // Non-copy route-mode config: id + icon. Label/description/placeholder live in
 // the `projects.promptBox.routeModes` dictionary namespace.
-// LucideIcon is the icon component type from lucide-react, so each config entry
-// can point at an icon without rendering it until the UI needs it.
 type RouteModeDef = {
 	id: RouteMode;
 	icon: LucideIcon;
 };
 
-// These ids are the stable keys the UI sends as composer.skills. The backend
-// can use them to decide which internal prompt guidance files to include.
 type SkillFileId =
 	| "accessibility"
 	| "redesign"
@@ -121,7 +95,6 @@ type SkillFileId =
 	| "direct-response"
 	| "premium-visuals";
 
-// Skill groups are only for menu organization; they do not change the payload.
 type SkillGroupId = "review" | "market";
 
 // Non-copy skill config: id + fileName + icon. Label/description live in the
@@ -137,8 +110,6 @@ type SkillFileGroup = {
 	skills: readonly SkillFileDef[];
 };
 
-// Output ids are the concrete generation "recipes" shown after the user picks
-// a mode. They become composer.output in the payload sent to the API.
 type GenerationOutputId =
 	| "landing-page"
 	| "page-edit"
@@ -170,8 +141,6 @@ type GenerationOutputDef = {
 // against the non-copy config above so ordering stays in code.
 type OptionCopy = { label: string; choices: Record<string, string> };
 
-// Top-level route choices for the first dropdown. The order here is the order
-// users see in the menu.
 const ROUTE_MODES: readonly RouteModeDef[] = [
 	{ id: "auto", icon: Sparkles },
 	{ id: "page", icon: FileText },
@@ -187,15 +156,11 @@ type QualityTierDef = {
 	icon: LucideIcon;
 };
 
-// Quality tiers mirror ComposerQuality from the shared contracts package. The
-// visible credit cost comes from QUALITY_CREDITS below, not from this list.
 const QUALITY_TIERS: readonly QualityTierDef[] = [
 	{ id: "standard", icon: Gauge },
 	{ id: "max", icon: Rocket },
 ];
 
-// The skill menu is static config: selecting a row only records the id and file
-// name in composer metadata so generation can apply matching instructions.
 const SKILL_FILE_GROUPS: readonly SkillFileGroup[] = [
 	{
 		id: "review",
@@ -224,8 +189,6 @@ const SKILL_FILE_GROUPS: readonly SkillFileGroup[] = [
 	},
 ];
 
-// Output presets and their option groups. This is deliberately data-driven so
-// adding a new output is mostly adding config plus translation strings.
 const OUTPUTS_BY_MODE: Record<ConcreteMode, readonly GenerationOutputDef[]> = {
 	page: [
 		{
@@ -603,45 +566,32 @@ const OUTPUTS_BY_MODE: Record<ConcreteMode, readonly GenerationOutputDef[]> = {
 	],
 };
 
-// Flattened lookup lists keep the render code simple. They are derived from the
-// config above, so there is still only one source of truth for skill/output ids.
 const ALL_SKILL_FILES = SKILL_FILE_GROUPS.flatMap((group) => group.skills);
 const ALL_OUTPUTS = Object.values(OUTPUTS_BY_MODE).flat();
 
-// Find the selected route mode config. Falling back to auto keeps the UI safe if
-// a bad value somehow reaches this component.
 function getMode(id: RouteMode) {
 	return ROUTE_MODES.find((mode) => mode.id === id) ?? ROUTE_MODES[0];
 }
 
-// Convert a saved skill id back into its config row for rendering chips.
 function getSkillFile(id: SkillFileId) {
 	return ALL_SKILL_FILES.find((skill) => skill.id === id);
 }
 
-// Convert a selected output id into full output config. Null means no specific
-// output has been selected yet, which is valid for auto mode.
 function getOutput(id: GenerationOutputId | null) {
 	return ALL_OUTPUTS.find((output) => output.id === id) ?? null;
 }
 
-// Each concrete mode starts on its first output preset. Auto has no default
-// because it should not force an output type before the prompt is read.
 function getDefaultOutput(mode: RouteMode) {
 	if (mode === "auto") return null;
 	return OUTPUTS_BY_MODE[mode][0] ?? null;
 }
 
-// When an output is selected, prefill every option group with its first choice
-// so the metadata payload is complete and predictable.
 function createDefaultOptions(output: GenerationOutputDef) {
 	return Object.fromEntries(
 		output.options.map((group) => [group.id, group.choices[0]?.id ?? ""]),
 	);
 }
 
-// Tiny icon wrapper used in dropdown rows. It keeps all picker menus visually
-// consistent and lets the active state be styled in one place.
 function IconTile({
 	icon: Icon,
 	active = false,
@@ -656,7 +606,7 @@ function IconTile({
 				"flex size-7 shrink-0 items-center justify-center rounded-lg border transition-colors",
 				active
 					? "border-primary/30 bg-primary/10 text-primary"
-					: "border-border/70 bg-muted/60 text-muted-foreground",
+					: "border-border bg-muted/60 text-muted-foreground",
 			)}
 		>
 			<Icon className="size-3.5" />
@@ -664,9 +614,6 @@ function IconTile({
 	);
 }
 
-// Renders all available skill files inside a dropdown. The parent owns the
-// selected ids so this component stays reusable for both the add menu and the
-// overflow chip menu.
 function SkillFileRows({
 	selectedIds,
 	onToggleSkill,
@@ -679,7 +626,6 @@ function SkillFileRows({
 		<>
 			{SKILL_FILE_GROUPS.map((group, groupIndex) => (
 				<div key={group.id}>
-					{/* JSX comments must use braces like this; // comments would render as text or break TSX. */}
 					{groupIndex > 0 ? (
 						<DropdownMenuSeparator className="my-1 bg-border/70" />
 					) : null}
@@ -722,8 +668,6 @@ function SkillFileRows({
 	);
 }
 
-// Plus button menu next to the textarea. Today it offers prompt skill hints and
-// a disabled-looking attachment row; the actual file-upload path is not wired here.
 function AddContextMenu({
 	selectedSkillIds,
 	onToggleSkill,
@@ -746,11 +690,14 @@ function AddContextMenu({
 							size="icon-sm"
 							aria-label={addMenuLabel}
 							className={cn(
-								"rounded-full border-border/80 bg-background/70 text-muted-foreground shadow-none transition-[transform,color,background-color,border-color] duration-200 hover:border-primary/30 hover:bg-primary/10 hover:text-foreground active:translate-y-px",
-								isHero ? "size-9" : "size-8",
+								"rounded-full border-border bg-transparent shadow-none transition-[transform,color,background-color,border-color] duration-200 hover:border-primary/30 hover:bg-primary/10 hover:text-foreground active:translate-y-px",
+								// Compact = ink plus icon on a plain hairline circle (dc reference).
+								isHero
+									? "size-9 text-muted-foreground"
+									: "size-[30px] text-foreground",
 							)}
 						>
-							<Plus className="size-4" />
+							<Plus className={isHero ? "size-4" : "size-[15px]"} />
 						</Button>
 					</DropdownMenuTrigger>
 				</TooltipTrigger>
@@ -760,7 +707,7 @@ function AddContextMenu({
 				align="start"
 				sideOffset={8}
 				collisionPadding={12}
-				className="w-64 rounded-2xl border-border/80 p-1.5 shadow-[0_18px_50px_-24px_rgb(0_0_0/0.36)]"
+				className="w-64 rounded-2xl border-border p-1.5 shadow-[0_18px_50px_-24px_rgb(0_0_0/0.36)]"
 			>
 				<DropdownMenuSub>
 					<DropdownMenuSubTrigger className="rounded-xl px-2 py-2">
@@ -769,7 +716,7 @@ function AddContextMenu({
 					</DropdownMenuSubTrigger>
 					<DropdownMenuSubContent
 						sideOffset={10}
-						className="w-[22rem] max-w-[calc(100vw-1.5rem)] rounded-2xl border-border/80 p-1.5 shadow-[0_18px_50px_-24px_rgb(0_0_0/0.36)]"
+						className="w-[22rem] max-w-[calc(100vw-1.5rem)] rounded-2xl border-border p-1.5 shadow-[0_18px_50px_-24px_rgb(0_0_0/0.36)]"
 					>
 						<div className="flex items-center justify-between px-2 pt-1 pb-1.5">
 							<span className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.14em]">
@@ -786,7 +733,6 @@ function AddContextMenu({
 					className="rounded-xl px-2 py-2"
 					onSelect={(event) => event.preventDefault()}
 				>
-					{/* NOTE: This is a placeholder affordance; preventDefault keeps the dropdown from acting like a completed upload action. */}
 					<Paperclip className="size-4" />
 					<span className="flex min-w-0 flex-col">
 						<span>{t("projects.promptBox.attachLabel")}</span>
@@ -800,8 +746,6 @@ function AddContextMenu({
 	);
 }
 
-// Shows selected skill files as removable chips above the textarea. If the list
-// is long, only the first few chips are visible and the rest move into a +N menu.
 function AttachedSkillChips({
 	skills,
 	selectedSkillIds,
@@ -862,7 +806,7 @@ function AttachedSkillChips({
 							title={hiddenSkills
 								.map((skill) => pb.skills[skill.id].label)
 								.join(", ")}
-							className="inline-flex h-7 items-center rounded-full border border-border/70 bg-muted/60 px-2.5 font-medium text-muted-foreground text-xs tabular-nums transition-colors hover:border-primary/30 hover:bg-primary/10 hover:text-foreground data-[state=open]:border-primary/30 data-[state=open]:bg-primary/10 data-[state=open]:text-foreground"
+							className="inline-flex h-7 items-center rounded-full border border-border bg-muted/60 px-2.5 font-medium text-muted-foreground text-xs tabular-nums transition-colors hover:border-primary/30 hover:bg-primary/10 hover:text-foreground data-[state=open]:border-primary/30 data-[state=open]:bg-primary/10 data-[state=open]:text-foreground"
 						>
 							+{hiddenSkills.length}
 						</button>
@@ -871,7 +815,7 @@ function AttachedSkillChips({
 						align="start"
 						sideOffset={8}
 						collisionPadding={12}
-						className="w-[22rem] max-w-[calc(100vw-1.5rem)] rounded-2xl border-border/80 p-1.5 shadow-[0_18px_50px_-24px_rgb(0_0_0/0.36)]"
+						className="w-[22rem] max-w-[calc(100vw-1.5rem)] rounded-2xl border-border p-1.5 shadow-[0_18px_50px_-24px_rgb(0_0_0/0.36)]"
 					>
 						<div className="flex items-center justify-between px-2 pt-1 pb-1.5">
 							<span className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.14em]">
@@ -889,8 +833,6 @@ function AttachedSkillChips({
 	);
 }
 
-// First picker in the action bar: choose auto/page/marketing/image/video. It
-// updates state only; submitting later is what sends the choice to the backend.
 function ModePicker({
 	value,
 	onValueChange,
@@ -907,8 +849,6 @@ function ModePicker({
 	const selectedModeCopy = pb.routeModes[value];
 
 	return (
-		// DropdownMenu is the shared UI menu primitive. The trigger is the button;
-		// the content is mounted as an overlay when the menu opens.
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
 				<Button
@@ -917,20 +857,40 @@ function ModePicker({
 					size="sm"
 					aria-label={`${t("projects.promptBox.modeLabel")}: ${selectedModeCopy.label}`}
 					className={cn(
-						"group/trigger rounded-full border-border/75 bg-background/55 text-muted-foreground shadow-none transition-colors hover:border-primary/25 hover:bg-accent/70 hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground",
-						isHero ? "h-9" : "h-8",
+						// The mode chip is a small jewel: an ember medallion nested at the
+						// start of a parchment pill. Hover tints the hairline and lifts it
+						// a touch; open blooms a soft ember halo around it.
+						"group/trigger rounded-full border-border bg-background shadow-none transition-[border-color,box-shadow,background-color] duration-200",
+						"hover:border-primary/35 hover:text-foreground hover:shadow-[0_2px_10px_-4px_rgb(0_0_0_/_0.2)]",
+						"data-[state=open]:border-primary/40 data-[state=open]:text-foreground data-[state=open]:ring-[3px] data-[state=open]:ring-primary/10",
+						isHero
+							? "h-9 gap-2 ps-[5px] pe-3 text-muted-foreground"
+							: "h-[30px] gap-1.5 ps-1 pe-2.5 text-[13px] text-foreground",
 					)}
 				>
-					<SelectedIcon className="size-3.5 text-primary" />
+					<span
+						aria-hidden
+						className={cn(
+							"grid shrink-0 place-items-center rounded-full bg-primary/10 text-primary transition-colors duration-200 group-hover/trigger:bg-primary/15 group-data-[state=open]/trigger:bg-primary/15",
+							isHero ? "size-[26px]" : "size-[22px]",
+						)}
+					>
+						<SelectedIcon className={isHero ? "size-3.5" : "size-3"} />
+					</span>
 					<span className="max-w-24 truncate">{selectedModeCopy.label}</span>
-					<ChevronDown className="size-3.5 transition-transform duration-200 group-data-[state=open]/trigger:rotate-180" />
+					<ChevronDown
+						className={cn(
+							"transition-transform duration-200 group-data-[state=open]/trigger:rotate-180",
+							isHero ? "size-3.5" : "size-[11px] opacity-50",
+						)}
+					/>
 				</Button>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent
 				align="start"
 				sideOffset={8}
 				collisionPadding={12}
-				className="w-72 rounded-2xl border-border/80 p-1.5 shadow-[0_18px_50px_-24px_rgb(0_0_0/0.36)]"
+				className="w-72 rounded-2xl border-border p-1.5 shadow-[0_18px_50px_-24px_rgb(0_0_0/0.36)]"
 			>
 				<DropdownMenuLabel className="px-2 pt-1 pb-1.5 font-mono font-normal text-[10px] text-muted-foreground uppercase tracking-[0.14em]">
 					{t("projects.promptBox.modeLabel")}
@@ -966,8 +926,6 @@ function ModePicker({
 	);
 }
 
-// Second picker in the action bar: once a concrete route mode is selected, this
-// lets the user choose the specific output recipe within that mode.
 function OutputPicker({
 	mode,
 	output,
@@ -981,7 +939,6 @@ function OutputPicker({
 }) {
 	const { t } = useTranslation();
 	const pb = useDictionary().projects.promptBox;
-	// Auto mode intentionally hides output recipes; the backend chooses how to route.
 	if (mode === "auto" || !output) return null;
 	const OutputIcon = output.icon;
 	const outputs = OUTPUTS_BY_MODE[mode];
@@ -997,7 +954,7 @@ function OutputPicker({
 					aria-label={`${t("projects.promptBox.outputLabel")}: ${outputCopy.label}`}
 					className={cn(
 						"group/trigger rounded-full border-primary/30 bg-primary/10 text-foreground shadow-none transition-colors hover:bg-primary/15 data-[state=open]:bg-primary/15",
-						isHero ? "h-9" : "h-8",
+						isHero ? "h-9" : "h-[30px]",
 					)}
 				>
 					<OutputIcon className="size-3.5 text-primary" />
@@ -1011,7 +968,7 @@ function OutputPicker({
 				align="start"
 				sideOffset={8}
 				collisionPadding={12}
-				className="w-80 max-w-[calc(100vw-1.5rem)] rounded-2xl border-border/80 p-1.5 shadow-[0_18px_50px_-24px_rgb(0_0_0/0.36)]"
+				className="w-80 max-w-[calc(100vw-1.5rem)] rounded-2xl border-border p-1.5 shadow-[0_18px_50px_-24px_rgb(0_0_0/0.36)]"
 			>
 				<DropdownMenuLabel className="px-2 pt-1 pb-1.5 font-mono font-normal text-[10px] text-muted-foreground uppercase tracking-[0.14em]">
 					{t("projects.promptBox.outputsHeading", {
@@ -1052,8 +1009,6 @@ function OutputPicker({
 	);
 }
 
-// Gear/sliders menu for options belonging to the selected output, such as
-// aspect ratio, platform, or number of variants.
 function OutputSettings({
 	output,
 	values,
@@ -1067,12 +1022,9 @@ function OutputSettings({
 }) {
 	const { t } = useTranslation();
 	const pb = useDictionary().projects.promptBox;
-	// No output means no option groups to show. This is normal in auto mode.
 	if (!output) return null;
 	const OutputIcon = output.icon;
 	const outputCopy = pb.outputs[output.id];
-	// The dictionary shape is keyed by dynamic group ids. This cast tells
-	// TypeScript what the runtime translation object looks like for this menu.
 	const optionsCopy = outputCopy.options as unknown as Record<
 		string,
 		OptionCopy
@@ -1090,8 +1042,8 @@ function OutputSettings({
 							size="icon-sm"
 							aria-label={t("projects.promptBox.settingsLabel")}
 							className={cn(
-								"rounded-full border-border/75 bg-background/55 text-muted-foreground shadow-none transition-colors hover:border-primary/25 hover:bg-accent/70 hover:text-foreground data-[state=open]:border-primary/30 data-[state=open]:bg-primary/10 data-[state=open]:text-foreground",
-								isHero ? "size-9" : "size-8",
+								"rounded-full border-border bg-transparent text-muted-foreground shadow-none transition-colors hover:border-primary/25 hover:bg-accent/70 hover:text-foreground data-[state=open]:border-primary/30 data-[state=open]:bg-primary/10 data-[state=open]:text-foreground",
+								isHero ? "size-9" : "size-[30px]",
 							)}
 						>
 							<SlidersHorizontal className="size-4" />
@@ -1104,9 +1056,9 @@ function OutputSettings({
 				align="start"
 				sideOffset={8}
 				collisionPadding={12}
-				className="w-[22rem] max-w-[calc(100vw-1.5rem)] rounded-2xl border-border/80 p-0 shadow-[0_22px_70px_-28px_rgb(0_0_0/0.42)]"
+				className="w-[22rem] max-w-[calc(100vw-1.5rem)] rounded-2xl border-border p-0 shadow-[0_22px_70px_-28px_rgb(0_0_0/0.42)]"
 			>
-				<div className="border-border/70 border-b px-4 py-3">
+				<div className="border-border border-b px-4 py-3">
 					<div className="flex items-center gap-2">
 						<IconTile icon={OutputIcon} active />
 						<div className="min-w-0">
@@ -1150,7 +1102,7 @@ function OutputSettings({
 													"min-h-9 rounded-xl border px-3 py-2 text-center text-xs transition-[transform,color,background-color,border-color] duration-200 active:translate-y-px",
 													selected
 														? "border-primary/35 bg-primary/10 text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.16)]"
-														: "border-border/80 bg-background/60 text-muted-foreground hover:border-primary/25 hover:bg-accent/70 hover:text-foreground",
+														: "border-border bg-background/60 text-muted-foreground hover:border-primary/25 hover:bg-accent/70 hover:text-foreground",
 													group.layout === "grid" && "min-h-14",
 												)}
 											>
@@ -1168,8 +1120,6 @@ function OutputSettings({
 	);
 }
 
-// Quality/credit picker. The selected tier becomes composer.quality; actual
-// credit enforcement happens later in the project/chat creation flow.
 function QualityPicker({
 	value,
 	onValueChange,
@@ -1196,8 +1146,8 @@ function QualityPicker({
 						"group/trigger rounded-full font-medium font-mono text-[11px] tabular-nums shadow-none transition-colors",
 						isMax
 							? "border-primary/35 bg-primary/10 text-foreground hover:bg-primary/15 data-[state=open]:bg-primary/15"
-							: "border-border/75 bg-background/55 text-muted-foreground hover:border-primary/25 hover:bg-accent/70 hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground",
-						isHero ? "h-9" : "h-8",
+							: "border-border bg-transparent text-muted-foreground hover:border-primary/25 hover:bg-accent/70 hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground",
+						isHero ? "h-9" : "h-[30px]",
 					)}
 				>
 					<Spark
@@ -1211,7 +1161,7 @@ function QualityPicker({
 				align="end"
 				sideOffset={8}
 				collisionPadding={12}
-				className="w-72 rounded-2xl border-border/80 p-1.5 shadow-[0_18px_50px_-24px_rgb(0_0_0/0.36)]"
+				className="w-72 rounded-2xl border-border p-1.5 shadow-[0_18px_50px_-24px_rgb(0_0_0/0.36)]"
 			>
 				<DropdownMenuLabel className="px-2 pt-1 pb-1.5 font-mono font-normal text-[10px] text-muted-foreground uppercase tracking-[0.14em]">
 					{t("projects.promptBox.qualityLabel")}
@@ -1255,8 +1205,6 @@ function QualityPicker({
 	);
 }
 
-// Public props for the shared PromptBox component. Callers decide what submit
-// means: create a new project, or send another message in an existing chat.
 export type PromptBoxProps = {
 	/** A sync `false` return means nothing was sent (e.g. insufficient
 	 * credits) - the box then keeps the draft even with clearOnSubmit. The
@@ -1283,8 +1231,6 @@ export type PromptBoxProps = {
 	className?: string;
 };
 
-// The shared composer UI. It owns draft text, selected mode/output/options,
-// selected skill chips, mic dictation state, and the final submit payload shape.
 export function PromptBox({
 	onSubmit,
 	variant = "hero",
@@ -1298,8 +1244,6 @@ export function PromptBox({
 }: PromptBoxProps) {
 	const { t } = useTranslation();
 	const pb = useDictionary().projects.promptBox;
-	// Local UI state only. None of this talks to the API until handleSubmit calls
-	// onSubmit with a plain prompt string plus composer metadata.
 	const [value, setValue] = useState(initialValue);
 	const [routeMode, setRouteMode] = useState<RouteMode>("auto");
 	const [selectedOutputId, setSelectedOutputId] =
@@ -1311,13 +1255,9 @@ export function PromptBox({
 	const [selectedSkillIds, setSelectedSkillIds] = useState<SkillFileId[]>([]);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-	// Variant changes the component density: the landing/dashboard hero uses a
-	// taller textarea and larger controls than the compact workspace composer.
 	const isHero = variant === "hero";
 	const maxHeight = isHero ? 240 : 160;
 	const canSubmit = value.trim().length > 0 && !isSubmitting;
-	// Memoizing these derived arrays avoids re-looking-up configs on every render
-	// unless their ids actually changed.
 	const selectedOutput = useMemo(
 		() => getOutput(selectedOutputId),
 		[selectedOutputId],
@@ -1330,8 +1270,6 @@ export function PromptBox({
 		[selectedSkillIds],
 	);
 
-	// Auto-grow the textarea up to a cap. Resetting height to "auto" first lets
-	// it shrink again when the user deletes text.
 	const resize = useCallback(() => {
 		const el = textareaRef.current;
 		if (!el) return;
@@ -1339,15 +1277,11 @@ export function PromptBox({
 		el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
 	}, [maxHeight]);
 
-	// Re-measure on text changes and when chips appear/disappear, because both
-	// change how much vertical room the textarea needs.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: value is an intentional re-measure trigger
 	useEffect(() => {
 		resize();
 	}, [resize, value, attachedSkills.length]);
 
-	// Voice dictation appends transcribed text to the current draft. The hook
-	// handles microphone permission, recording, uploading, and toast errors.
 	const {
 		isRecording,
 		isTranscribing,
@@ -1366,8 +1300,6 @@ export function PromptBox({
 
 	// Snapshot of the composer chips (mode/output/skills/options) sent alongside
 	// the prompt so the backend routes the generation the same way the UI shows.
-	// Empty arrays/objects are omitted to keep the payload small and easy for the
-	// server to distinguish from deliberate choices.
 	const buildComposer = (): ComposerMetadata => ({
 		mode: routeMode,
 		quality,
@@ -1377,14 +1309,11 @@ export function PromptBox({
 			Object.keys(outputOptions).length > 0 ? { ...outputOptions } : undefined,
 	});
 
-	// Keep state and DOM height in sync as the user types.
 	const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
 		setValue(e.target.value);
 		resize();
 	};
 
-	// Submitting is intentionally thin: validate the local draft, call the parent,
-	// then optionally clear for chat-style composers. The parent owns API errors.
 	const handleSubmit = () => {
 		const prompt = value.trim();
 		if (!prompt || isSubmitting) return;
@@ -1392,15 +1321,12 @@ export function PromptBox({
 		if (clearOnSubmit && result !== false) setValue("");
 	};
 
-	// One label powers both the tooltip and aria-label so screen-reader users
-	// hear the same state the visual UI shows.
 	const micAriaLabel = isTranscribing
 		? t("projects.promptBox.micTranscribing")
 		: isRecording
 			? t("projects.promptBox.micStop")
 			: t("projects.promptBox.micLabel");
 
-	// Enter submits like a chat app; Shift+Enter remains available for newlines.
 	const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
 		if (e.key === "Enter" && !e.shiftKey) {
 			e.preventDefault();
@@ -1408,8 +1334,6 @@ export function PromptBox({
 		}
 	};
 
-	// Selecting a concrete output also locks the route mode to that output's
-	// mode and seeds default options so the settings menu has valid values.
 	const selectOutput = (output: GenerationOutputDef) => {
 		setRouteMode(output.mode);
 		setSelectedOutputId(output.id);
@@ -1417,9 +1341,6 @@ export function PromptBox({
 		textareaRef.current?.focus();
 	};
 
-	// Changing the route mode resets the output/options to that mode's default.
-	// NOTE: this discards option edits from the previous mode on purpose; keeping
-	// stale option ids would send confusing metadata to the backend.
 	const handleModeChange = (mode: RouteMode) => {
 		setRouteMode(mode);
 		const defaultOutput = getDefaultOutput(mode);
@@ -1428,15 +1349,11 @@ export function PromptBox({
 		textareaRef.current?.focus();
 	};
 
-	// Keep focus in the textarea after menu actions so keyboard users can keep
-	// typing without manually clicking back into the composer.
 	const handleQualityChange = (next: ComposerQuality) => {
 		setQuality(next);
 		textareaRef.current?.focus();
 	};
 
-	// Toggle skill ids rather than storing whole objects. Storing ids keeps the
-	// submitted metadata small and stable even if labels/icons change later.
 	const toggleSkillFile = (skill: SkillFileDef) => {
 		setSelectedSkillIds((current) =>
 			current.includes(skill.id)
@@ -1446,41 +1363,30 @@ export function PromptBox({
 		textareaRef.current?.focus();
 	};
 
-	// Chip close button path: remove exactly one selected skill.
 	const removeSkillFile = (id: SkillFileId) => {
 		setSelectedSkillIds((current) => current.filter((item) => item !== id));
 		textareaRef.current?.focus();
 	};
 
-	// Option choices are stored as { [groupId]: choiceId }, matching the flexible
-	// composer metadata shape from the shared contracts.
 	const updateOutputOption = (groupId: string, choiceId: string) => {
 		setOutputOptions((current) => ({ ...current, [groupId]: choiceId }));
 	};
 
-	// Placeholder priority: explicit prop wins, then output-specific copy, then
-	// mode/default copy. This lets the workspace provide its own chat placeholder.
 	const resolvedPlaceholder =
 		placeholder ??
 		(selectedOutput ? pb.outputs[selectedOutput.id].placeholder : undefined) ??
 		(isHero ? pb.routeModes[routeMode].placeholder : pb.placeholderCompact);
 
-	// The composer card is assigned to a variable so the optional banner can wrap
-	// the exact same markup without duplicating the whole form.
 	const box = (
 		<div className="group/prompt relative">
-			{/* Static border layer behind the input group. */}
+			{/* Soft ember focus ring (DESIGN.md --wd-ring) — the composer itself is
+			    the one richly-shadowed surface, so focus stays quiet. */}
 			<div
 				aria-hidden
-				className="pointer-events-none absolute -inset-px rounded-[calc(1rem+1px)] bg-border"
-			/>
-			{/* Focus glow layer. It stays outside the input so it does not affect layout. */}
-			<div
-				aria-hidden
-				className="pointer-events-none absolute -inset-[1.5px] rounded-[calc(1rem+2px)] bg-gradient-ember opacity-0 shadow-[0_0_20px_-2px_color-mix(in_oklab,var(--color-primary)_30%,transparent),0_8px_48px_-8px_color-mix(in_oklab,var(--color-primary)_25%,transparent)] transition-opacity duration-300 group-focus-within/prompt:opacity-100"
+				className="pointer-events-none absolute inset-0 rounded-3xl opacity-0 shadow-[0_0_0_3px_oklch(0.62_0.16_45_/_0.10)] transition-opacity duration-300 group-focus-within/prompt:opacity-100"
 			/>
 			<InputGroup
-				className="relative h-auto flex-col items-stretch rounded-2xl border-0 bg-card shadow-xs dark:bg-card dark:shadow-[inset_0_1px_0_0_oklch(1_0_0_/_0.04)]"
+				className="relative h-auto flex-col items-stretch rounded-3xl border-0 bg-background shadow-composer dark:bg-card dark:shadow-[inset_0_1px_0_0_oklch(1_0_0_/_0.04)]"
 				data-disabled={isSubmitting}
 			>
 				<AttachedSkillChips
@@ -1500,24 +1406,21 @@ export function PromptBox({
 					maxLength={projectPromptMaxLength}
 					disabled={isSubmitting}
 					className={cn(
-						// The top padding changes when skill chips are visible so text does
-						// not feel crowded against the chip row.
-						"w-full overflow-y-auto py-0 text-foreground placeholder:text-muted-foreground/70 disabled:opacity-60",
+						"w-full overflow-y-auto py-0 text-foreground placeholder:text-muted-foreground disabled:opacity-60",
 						isHero
 							? "min-h-[78px] px-5 pb-1 text-base"
-							: "min-h-11 px-4 pb-1 text-sm",
-						attachedSkills.length > 0 ? "pt-2" : isHero ? "pt-4" : "pt-3",
+							: "min-h-[38px] px-4 pb-0 text-[15px] leading-[1.5]",
+						attachedSkills.length > 0 ? "pt-2" : "pt-4",
 					)}
 				/>
 				<InputGroupAddon
 					align="block-end"
 					className={cn(
 						"flex w-full cursor-default flex-wrap items-center gap-2",
-						isHero ? "px-4 pb-4" : "px-3 pb-3",
+						isHero ? "px-4 pb-4" : "px-4 pt-1.5 pb-3",
 					)}
 				>
 					<TooltipProvider>
-						{/* Left side: context and routing controls that shape composer metadata. */}
 						<AddContextMenu
 							selectedSkillIds={selectedSkillIds}
 							onToggleSkill={toggleSkillFile}
@@ -1541,7 +1444,6 @@ export function PromptBox({
 							isHero={isHero}
 						/>
 						<div className="ms-auto flex items-center gap-1">
-							{/* Right side: cost/quality, microphone, and final submit action. */}
 							{showPriceTag ? (
 								<QualityPicker
 									value={quality}
@@ -1561,9 +1463,9 @@ export function PromptBox({
 										disabled={!micSupported || isSubmitting || isTranscribing}
 										className={cn(
 											"rounded-full text-muted-foreground hover:text-foreground",
-											isHero ? "size-9" : "size-8",
+											isHero ? "size-9" : "size-[30px]",
 											isRecording &&
-												"animate-pulse bg-red-500/10 text-red-500 hover:text-red-500",
+												"animate-pulse bg-destructive/10 text-destructive hover:text-destructive",
 										)}
 									>
 										{isTranscribing ? (
@@ -1584,14 +1486,16 @@ export function PromptBox({
 										onClick={handleSubmit}
 										disabled={!canSubmit}
 										className={cn(
-											"rounded-full shadow-[0_4px_16px_-4px_color-mix(in_oklab,var(--color-primary)_50%,transparent)] transition-opacity disabled:opacity-40",
-											isHero ? "size-9" : "size-8",
+											// The send circle is the gradient's one licensed cameo
+											// on a control (DESIGN.md, Gradient System).
+											"rounded-full bg-gradient-ember shadow-[0_2px_8px_-2px_rgb(0_0_0_/_0.3)] transition-opacity disabled:opacity-40",
+											isHero ? "size-9" : "size-[30px]",
 										)}
 									>
 										{isSubmitting ? (
 											<Loader2 className="animate-spin" />
 										) : (
-											<ArrowUp strokeWidth={2.5} />
+											<ArrowUp className="size-3.5" strokeWidth={2.2} />
 										)}
 									</Button>
 								</TooltipTrigger>
@@ -1608,7 +1512,6 @@ export function PromptBox({
 
 	return (
 		<div className={className}>
-			{/* Optional banner is used by the landing hero; compact chat skips it. */}
 			{showBanner ? (
 				<div className="rounded-[1.25rem] bg-primary/10 p-1 pt-0">
 					<div className="flex items-center gap-1.5 px-4 py-2 text-muted-foreground text-xs">
