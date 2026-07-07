@@ -6,7 +6,6 @@
    existing fonts. */
 :lang(ar) {
 	--font-sans:
-		"Noto Sans Arabic", "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
-	--font-display:
-		"Noto Sans Arabic", "Bricolage Grotesque", "Instrument Sans", sans-serif;
+		"Noto Sans Arabic", "DM Sans", ui-sans-serif, system-ui, sans-serif;
+	--font-display: "Noto Sans Arabic", "DM Sans", sans-serif;
 }

@@ -20,25 +20,24 @@ export function WorkspaceTabs({ className }: { className?: string }) {
 		<nav
 			aria-label={t("workspace.tabsAriaLabel")}
 			className={cn(
-				"flex items-center gap-0.5 rounded-lg bg-muted/60 p-0.5",
+				"flex items-center gap-0.5 rounded-full border border-border bg-muted p-[3px]",
 				className,
 			)}
 		>
 			{WORKSPACE_TABS.map((def) => {
 				const isActive = tab === def.value;
-				const Icon = def.icon;
 				const label = t(`workspace.tabs.${def.value}`);
 				return (
 					<button
 						key={def.value}
 						type="button"
 						aria-pressed={isActive}
-						aria-label={label}
 						onClick={() => setTab(def.value)}
 						className={cn(
-							"relative flex h-8 items-center gap-1.5 rounded-md px-3 font-medium text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50",
+							// Icon + label pills with a thin 1.7 stroke (dc reference).
+							"relative flex h-7 items-center gap-1.5 rounded-full px-3 text-[13px] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50",
 							isActive
-								? "text-foreground"
+								? "font-medium text-foreground"
 								: "text-muted-foreground hover:text-foreground",
 						)}
 					>
@@ -47,11 +46,14 @@ export function WorkspaceTabs({ className }: { className?: string }) {
 								aria-hidden
 								layoutId={`workspace-tab-pill-${pillId}`}
 								transition={{ type: "spring", bounce: 0.18, duration: 0.45 }}
-								className="absolute inset-0 rounded-md bg-background shadow-xs"
+								className="absolute inset-0 rounded-full bg-background shadow-segment"
 							/>
 						) : null}
-						<Icon className="relative size-3.5 shrink-0" />
-						<span className="relative hidden sm:inline">{label}</span>
+						<def.icon
+							className="relative size-3.5 shrink-0"
+							strokeWidth={1.7}
+						/>
+						<span className="relative">{label}</span>
 						{def.value === "leads" && project?.leadCount ? (
 							<span className="relative rounded-full bg-primary/10 px-1.5 py-px font-mono text-[10px] text-primary tabular-nums">
 								{project.leadCount}

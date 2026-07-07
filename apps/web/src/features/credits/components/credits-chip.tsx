@@ -7,7 +7,6 @@ import {
 } from "@wandit/ui/components/dropdown-menu";
 import { cn } from "@wandit/ui/lib/utils";
 
-import { Spark } from "@/components/logo";
 import { useTranslation } from "@/lib/i18n";
 import { SIGNUP_GRANT } from "../lib/constants";
 import { useCredits } from "../lib/hooks";
@@ -25,13 +24,14 @@ export function CreditsChip({ className }: { className?: string }) {
 					type="button"
 					aria-label={t("credits.chipAriaLabel")}
 					className={cn(
-						"inline-flex h-8 items-center gap-1.5 rounded-full border border-border bg-card px-2.5 transition-colors hover:border-primary/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+						// The one place ember appears as an outline instead of a fill
+						// (DESIGN.md, Credits Pill): no fill, ember-tinted border, ember text.
+						"inline-flex h-8 items-center rounded-full border border-primary/35 bg-transparent px-3 transition-colors hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
 						className,
 					)}
 				>
-					<Spark className="size-3.5 text-primary" />
-					<span className="font-medium font-mono text-xs tabular-nums">
-						{balance}
+					<span className="text-[13px] text-ember-text">
+						{t("credits.creditUnit", { count: balance })}
 					</span>
 				</button>
 			</DropdownMenuTrigger>

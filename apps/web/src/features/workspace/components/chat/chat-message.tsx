@@ -22,7 +22,7 @@ export function ChatMessageView({
 			<div className="flex justify-end">
 				<div
 					dir="auto"
-					className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl rounded-ee-md border border-border/60 bg-secondary px-3.5 py-2.5 text-sm leading-relaxed"
+					className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl rounded-ee-md border border-border bg-secondary px-3.5 py-2.5 text-sm leading-relaxed"
 				>
 					{textContent}
 				</div>
@@ -74,11 +74,11 @@ export function ChatMessageView({
 export function ThinkingIndicator({ label }: { label: string }) {
 	return (
 		<div className="flex flex-col gap-2.5">
-			<div className="flex items-center gap-1.5">
-				<Spark className="size-3 animate-pulse text-primary" />
-				<span className="font-mono text-[10px] text-muted-foreground uppercase tracking-widest">
-					wandit
+			<div className="flex items-center gap-2">
+				<span className="grid size-[22px] shrink-0 place-items-center rounded-full bg-gradient-ember">
+					<Spark className="size-3 animate-pulse text-background" />
 				</span>
+				<span className="font-medium text-foreground text-sm">Wandit</span>
 			</div>
 			<div className="flex items-center gap-1.5 text-muted-foreground text-sm">
 				<span className="flex items-center gap-1">

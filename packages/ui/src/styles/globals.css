@@ -5,44 +5,64 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ============================================================
+   Wandit design system — "warm parchment + ember" (see DESIGN.md)
+   Light = the tool chrome. Dark = the generated-output world only.
+   Neutrals are warm (yellow-leaning); never cool gray, never pure black.
+   ============================================================ */
+
 :root {
-	--background: oklch(0.977 0.005 85);
-	--foreground: oklch(0.24 0.012 55);
-	--card: oklch(1 0 0);
+	/* Surfaces & neutrals (warm parchment) */
+	--background: #fcfbf8; /* parchment — page canvas, shell, inner cards */
+	--foreground: oklch(0.24 0.012 55); /* ink — warm near-black */
+	--card: #fcfbf8; /* cards are flat parchment + linen border */
 	--card-foreground: oklch(0.24 0.012 55);
-	--popover: oklch(1 0 0);
+	--popover: #fcfbf8;
 	--popover-foreground: oklch(0.24 0.012 55);
-	--primary: oklch(0.62 0.16 45);
-	--primary-foreground: oklch(0.985 0.01 85);
-	--secondary: oklch(0.94 0.008 80);
-	--secondary-foreground: oklch(0.3 0.012 55);
-	--muted: oklch(0.945 0.007 83);
-	--muted-foreground: oklch(0.5 0.015 60);
-	--accent: oklch(0.93 0.02 70);
+	--primary: oklch(0.62 0.16 45); /* ember — the one colored action */
+	--primary-foreground: #fcfbf8;
+	--secondary: #f7f4ed; /* sand */
+	--secondary-foreground: oklch(0.32 0.012 55);
+	--muted: #f7f4ed;
+	--muted-foreground: oklch(0.5 0.015 60); /* dim */
+	--accent: #f2efe7; /* hover fills, one nudge past sand */
 	--accent-foreground: oklch(0.28 0.02 50);
-	--destructive: oklch(0.577 0.215 27);
-	--border: oklch(0.24 0.012 55 / 10%);
-	--input: oklch(0.24 0.012 55 / 14%);
+	--destructive: oklch(0.58 0.19 25);
+	--border: #e7e4dc; /* linen — every border, warm beige (half-step deeper than the dc reference for legibility) */
+	--input: #e7e4dc;
 	--ring: oklch(0.62 0.16 45);
 	--chart-1: oklch(0.72 0.17 50);
 	--chart-2: oklch(0.72 0.14 155);
 	--chart-3: oklch(0.8 0.14 85);
 	--chart-4: oklch(0.62 0.16 25);
 	--chart-5: oklch(0.68 0.1 200);
-	--radius: 0.625rem;
-	--sidebar: oklch(0.965 0.006 85);
+	--radius: 0.75rem; /* 12px base → xl 16 (card), 2xl 20 (panel), 3xl 24 (composer) */
+	--sidebar: #f7f4ed;
 	--sidebar-foreground: oklch(0.35 0.012 55);
 	--sidebar-primary: oklch(0.62 0.16 45);
-	--sidebar-primary-foreground: oklch(0.985 0.01 85);
-	--sidebar-accent: oklch(0.92 0.012 75);
+	--sidebar-primary-foreground: #fcfbf8;
+	--sidebar-accent: #f2efe7;
 	--sidebar-accent-foreground: oklch(0.28 0.02 50);
-	--sidebar-border: oklch(0.24 0.012 55 / 9%);
+	--sidebar-border: #e7e4dc;
 	--sidebar-ring: oklch(0.62 0.16 45);
-	--ember-1: oklch(0.8 0.15 70);
-	--ember-2: oklch(0.66 0.19 35);
+	/* Extended warm-parchment palette */
+	--sand: #f7f4ed; /* panel & pane surfaces, one step warmer than canvas */
+	--linen: #e7e4dc; /* alias of --border for explicit use */
+	--stone: #d4d3d0; /* browser dots, disabled rings, pending circles */
+	--faint: #a8a7a3; /* not-yet / lowest-emphasis items */
+	--ink-soft: oklch(0.32 0.012 55); /* completed checklist, secondary body */
+	--bubble: oklch(0.94 0.008 80); /* user chat-bubble tint */
+	--ember-text: oklch(0.55 0.16 45); /* ember-colored text/links on light */
+	--ember-strong: oklch(0.5 0.16 45); /* active settings-nav label */
+	--ember-1: oklch(0.8 0.15 70); /* gradient start (amber) */
+	--ember-2: oklch(0.66 0.19 35); /* gradient end (deep ember) */
 	--success: oklch(0.62 0.13 155);
+	--success-text: oklch(0.5 0.13 155); /* green text/links on light (mirrors --ember-text) */
+	--void: oklch(0.14 0.01 45); /* generated-page dark screen */
 }
 
+/* Dark layer — reserved for the generated-output world (and legacy toggle).
+   The tool chrome itself should stay light. */
 .dark {
 	--background: oklch(0.165 0.008 60);
 	--foreground: oklch(0.955 0.006 80);
@@ -75,14 +95,27 @@
 	--sidebar-accent-foreground: oklch(0.95 0.006 80);
 	--sidebar-border: oklch(1 0 0 / 8%);
 	--sidebar-ring: oklch(0.74 0.16 55);
+	--sand: oklch(0.205 0.009 60);
+	--linen: oklch(1 0 0 / 9%);
+	--stone: oklch(0.35 0.01 60);
+	--faint: oklch(0.5 0.012 65);
+	--ink-soft: oklch(0.87 0.008 75);
+	--bubble: oklch(0.27 0.01 60);
+	--ember-text: oklch(0.8 0.12 60);
+	--ember-strong: oklch(0.84 0.14 75);
 	--ember-1: oklch(0.84 0.14 75);
 	--ember-2: oklch(0.7 0.19 38);
 	--success: oklch(0.75 0.14 155);
+	--success-text: oklch(0.75 0.14 155);
+	--void: oklch(0.14 0.01 45);
 }
 
 @theme inline {
-	--font-sans: "Instrument Sans", ui-sans-serif, system-ui, sans-serif;
-	--font-display: "Bricolage Grotesque", "Instrument Sans", sans-serif;
+	/* One interface family — hierarchy comes from weight (400/500/600), not a
+	   second face. Geist Mono is reserved for generated output, money, and
+	   uppercase micro-labels. */
+	--font-sans: "DM Sans", ui-sans-serif, system-ui, sans-serif;
+	--font-display: "DM Sans", ui-sans-serif, system-ui, sans-serif;
 	--font-mono: "Geist Mono", ui-monospace, monospace;
 	--color-sidebar-ring: var(--sidebar-ring);
 	--color-sidebar-border: var(--sidebar-border);
@@ -115,16 +148,87 @@
 	--color-card: var(--card);
 	--color-foreground: var(--foreground);
 	--color-background: var(--background);
+	--color-sand: var(--sand);
+	--color-linen: var(--linen);
+	--color-stone: var(--stone);
+	--color-faint: var(--faint);
+	--color-ink-soft: var(--ink-soft);
+	--color-bubble: var(--bubble);
+	--color-ember-text: var(--ember-text);
+	--color-ember-strong: var(--ember-strong);
 	--color-ember-1: var(--ember-1);
 	--color-ember-2: var(--ember-2);
 	--color-success: var(--success);
+	--color-success-text: var(--success-text);
+	--color-void: var(--void);
 	--radius-sm: calc(var(--radius) - 4px);
 	--radius-md: calc(var(--radius) - 2px);
 	--radius-lg: var(--radius);
-	--radius-xl: calc(var(--radius) + 4px);
-	--radius-2xl: calc(var(--radius) + 8px);
-	--radius-3xl: calc(var(--radius) + 12px);
+	--radius-xl: calc(var(--radius) + 4px); /* 16px — cards & rows */
+	--radius-2xl: calc(var(--radius) + 8px); /* 20px — panes & panels */
+	--radius-3xl: calc(var(--radius) + 12px); /* 24px — composer */
 	--radius-4xl: calc(var(--radius) + 16px);
+	/* Elevation — cards stay flat (border only); these are the sanctioned
+	   shadows: shell, floating flow card, composer, slide-in panel, modal. */
+	--shadow-shell: 0 30px 70px -35px rgb(0 0 0 / 0.25);
+	--shadow-card:
+		0 0 0 1px oklab(0 0 0 / 0.06), 0 22px 40px -20px rgb(0 0 0 / 0.1);
+	--shadow-composer:
+		0 0 0 1px oklab(0 0 0 / 0.08), 0 18px 24px -6px rgb(0 0 0 / 0.1),
+		0 6px 8px -6px rgb(0 0 0 / 0.1);
+	--shadow-panel: -28px 0 60px -30px rgb(0 0 0 / 0.35);
+	--shadow-modal: 0 40px 90px -25px rgb(0 0 0 / 0.5);
+	--shadow-segment: inset 0 0 0 0.5px rgb(0 0 0 / 0.16);
+	/* Named motion (calm chrome; energy stays on the generated thing) */
+	--animate-caret: wd-caret 1s step-end infinite;
+	--animate-shimmer: wd-shimmer 1.6s linear infinite;
+	--animate-spin-slow: wd-spin 3s linear infinite;
+	--animate-bounce-dot: wd-bounce 1.2s ease-in-out infinite;
+	--animate-pulse-soft: wd-pulse 1.6s ease-in-out infinite;
+
+	@keyframes wd-spin {
+		to {
+			transform: rotate(360deg);
+		}
+	}
+	@keyframes wd-caret {
+		0%,
+		100% {
+			opacity: 1;
+		}
+		50% {
+			opacity: 0;
+		}
+	}
+	@keyframes wd-shimmer {
+		0% {
+			background-position: -180% 0;
+		}
+		100% {
+			background-position: 180% 0;
+		}
+	}
+	@keyframes wd-bounce {
+		0%,
+		80%,
+		100% {
+			transform: translateY(0);
+			opacity: 0.4;
+		}
+		40% {
+			transform: translateY(-4px);
+			opacity: 1;
+		}
+	}
+	@keyframes wd-pulse {
+		0%,
+		100% {
+			opacity: 1;
+		}
+		50% {
+			opacity: 0.35;
+		}
+	}
 }
 
 /* Film grain overlay — usage: absolutely-positioned overlay div, e.g.
@@ -153,7 +257,8 @@
 	);
 }
 
-/* Signature ember gradient */
+/* Signature amber→ember gradient — brand surfaces only: logo, AI avatar,
+   send button, progress fills. Never on text buttons, chips, or inputs. */
 @utility bg-gradient-ember {
 	background-image: linear-gradient(135deg, var(--ember-1), var(--ember-2));
 }
@@ -165,12 +270,54 @@
 	color: transparent;
 }
 
-/* Soft layered ember glow — prompt-box focus, primary CTA */
+/* Deep-ember gradient — version thumbnail tiles */
+@utility bg-gradient-ember-deep {
+	background-image: linear-gradient(
+		135deg,
+		oklch(0.7 0.19 38),
+		oklch(0.5 0.13 30)
+	);
+}
+
+/* Ambient prismatic horizon — masked band behind the app header only.
+   Decorative; never on buttons, badges, or icons. */
+@utility bg-gradient-horizon {
+	background-image: linear-gradient(
+		90deg,
+		oklch(0.3 0.03 50) 0%,
+		oklch(0.33 0.06 45) 26%,
+		oklch(0.8 0.15 70) 40%,
+		oklch(0.74 0.18 55) 48%,
+		oklch(0.68 0.19 40) 56%,
+		oklch(0.62 0.16 32) 62%,
+		transparent 73%
+	);
+}
+
+/* Press glow — the emphasised Publish button ring */
 @utility glow-ember {
-	box-shadow:
-		0 0 0 1.5px color-mix(in oklab, var(--primary) 35%, transparent),
-		0 0 20px 0 color-mix(in oklab, var(--primary) 25%, transparent),
-		0 0 48px 8px color-mix(in oklab, var(--primary) 12%, transparent);
+	box-shadow: 0 0 0 3px oklch(0.62 0.16 45 / 0.22);
+}
+
+/* Thin warm scrollbar for panes (chat thread, preview body) */
+@utility scroll-warm {
+	&::-webkit-scrollbar {
+		width: 9px;
+		height: 9px;
+	}
+	&::-webkit-scrollbar-thumb {
+		background: oklch(0 0 0 / 0.12);
+		border-radius: 999px;
+		border: 2px solid transparent;
+		background-clip: padding-box;
+	}
+	&::-webkit-scrollbar-thumb:hover {
+		background: oklch(0 0 0 / 0.2);
+		background-clip: padding-box;
+	}
+	&::-webkit-scrollbar-track {
+		background: transparent;
+	}
 }
 
 @layer base {
@@ -178,10 +325,20 @@
 		@apply border-border outline-ring/50;
 	}
 	body {
-		@apply font-sans bg-background text-foreground;
+		/* Antialiased smoothing is part of the type spec — without it macOS
+		   renders every weight a step heavier than the reference. */
+		@apply font-sans bg-background text-foreground antialiased;
 	}
 	html {
 		@apply font-sans;
+		/* Tight tracking + ligatures off at every size — a defining trait of
+		   the DM Sans chrome. Arabic resets this (see :lang(ar) below). */
+		letter-spacing: -0.025em;
+		font-feature-settings: "liga" 0;
+	}
+	:lang(ar) {
+		/* Negative Latin tracking mangles connected Arabic script. */
+		letter-spacing: 0;
 	}
 	h1,
 	h2,
@@ -191,6 +348,6 @@
 	}
 	::selection {
 		background-color: var(--primary);
-		color: oklch(0.17 0.008 60);
+		color: #fcfbf8;
 	}
 }
