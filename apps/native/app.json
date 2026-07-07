@@ -8,7 +8,16 @@
 		},
 		"name": "wandit",
 		"slug": "wandit",
-		"plugins": ["expo-font"],
+		"plugins": [
+			"expo-font",
+			[
+				"expo-audio",
+				{
+					"microphonePermission": "Allow Wandit to use your microphone for voice input.",
+					"recordAudioAndroid": true
+				}
+			]
+		],
 		"experiments": {
 			"typedRoutes": true,
 			"reactCompiler": true

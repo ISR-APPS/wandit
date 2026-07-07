@@ -1,18 +1,25 @@
+import type { Project } from "@wandit/contracts";
 import { useId } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
 
-import type { ProjectSummary } from "../lib/constants";
+import { getProjectTileGradient } from "../lib/helpers";
 
 type ProjectListItemProps = {
-	project: ProjectSummary;
+	project: Project;
+	updatedAtLabel: string;
 	onPress: () => void;
 };
 
 /** Drawer project row: 50px gradient letter tile + name + meta (light §3.3). */
-export function ProjectListItem({ project, onPress }: ProjectListItemProps) {
+export function ProjectListItem({
+	project,
+	updatedAtLabel,
+	onPress,
+}: ProjectListItemProps) {
 	const gradientId = `tile${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
-	const [from, to] = project.tile;
+	const [from, to] = getProjectTileGradient(project.thumbnailSeed);
+	const initial = project.name.trim().charAt(0).toUpperCase() || "W";
 
 	return (
 		<Pressable
@@ -32,7 +39,7 @@ export function ProjectListItem({ project, onPress }: ProjectListItemProps) {
 					<Rect width="100%" height="100%" fill={`url(#${gradientId})`} />
 				</Svg>
 				<Text className="font-mono-semibold text-[#623E29] text-[14px]">
-					{project.name.charAt(0)}
+					{initial}
 				</Text>
 			</View>
 			<View className="flex-1">
@@ -43,7 +50,7 @@ export function ProjectListItem({ project, onPress }: ProjectListItemProps) {
 					{project.name}
 				</Text>
 				<Text className="mt-0.5 text-[12.5px] text-muted">
-					{project.updatedAt}
+					{updatedAtLabel}
 				</Text>
 			</View>
 		</Pressable>

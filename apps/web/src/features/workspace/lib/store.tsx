@@ -7,6 +7,20 @@
 // simply starts with an empty version list, so the Page tab shows its empty
 // state until real page-version streaming lands. The generation-phase fields
 // stay on the context (idle) so the Page tab / toolbar keep compiling.
+//
+// ── Where this sits in the AI-chat flow ────────────────────────────────────
+// pages/workspace-page.tsx mounts <WorkspaceProvider> around the whole
+// workspace screen. From there:
+//   • components/chat/chat-pane.tsx reads `chatOpen` / `toggleChat` /
+//     `setChatOpenState` to show, hide, and drag-collapse the chat panel
+//     (the open/closed choice is persisted in localStorage across reloads).
+//   • components/chat/generation-card.tsx reads `activeVersion` /
+//     `selectVersion` so clicking a finished generation card focuses that
+//     page version in the Page tab.
+//   • The actual chat messages + SSE streaming live in use-project-chat.tsx;
+//     this file deliberately knows nothing about them.
+// NOTE: despite the "store.tsx" filename this is NOT a Zustand/Redux store —
+// it is a plain React Context provider (house rule: no state library).
 
 import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";

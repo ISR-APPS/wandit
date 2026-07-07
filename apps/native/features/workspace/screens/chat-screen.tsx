@@ -1,52 +1,101 @@
 import { useTranslation } from "@wandit/internationalization/react";
 import { useLocalSearchParams } from "expo-router";
-import { useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ScrollView, Text, View } from "react-native";
 import { KeyboardStickyView } from "react-native-keyboard-controller";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { RadialGlow } from "@/components/radial-glow";
 import { useAppTheme } from "@/contexts/app-theme-context";
-import { MOCK_PROJECTS, PromptBox } from "@/features/projects";
+import { PromptBox, useProject } from "@/features/projects";
 
 import { ChatHeader } from "../components/chat-header";
 import {
 	ChatEmptyState,
+	ChatErrorBanner,
+	ChatLoadingState,
 	ChatMessages,
-	DateSeparator,
-	SuggestionsRow,
+	ChatThinkingIndicator,
 } from "../components/chat-thread";
 import { ProjectSheet } from "../components/project-sheet";
-import { MOCK_THREADS, type MockChatMessage } from "../lib/mock-chat";
+import {
+	extractChatMessageText,
+	type ChatThreadMessage,
+} from "../lib/chat-message";
+import { useProjectChat } from "../lib/use-project-chat";
 
-/** Project chat: header, thread (or empty state), suggestions, composer. */
+/** Project chat: header, live thread (or empty state), and composer. */
 export function ChatScreen() {
-	const { projectId } = useLocalSearchParams<{ projectId: string }>();
+	const { projectId: routeProjectId } = useLocalSearchParams<{
+		projectId?: string;
+	}>();
 	const { t } = useTranslation();
 	const insets = useSafeAreaInsets();
 	const { isDark } = useAppTheme();
 	const scrollRef = useRef<ScrollView>(null);
 	const [sheetOpen, setSheetOpen] = useState(false);
 
-	const project = MOCK_PROJECTS.find((item) => item.id === projectId);
+	const projectId =
+		typeof routeProjectId === "string" ? routeProjectId : undefined;
+	const { data: project } = useProject(projectId);
 	const projectName = project?.name ?? t("native.workspace.newProject");
-	const thread = projectId ? MOCK_THREADS[projectId] : undefined;
-	const [messages, setMessages] = useState<MockChatMessage[]>(
-		thread?.messages ?? [],
-	);
+	const {
+		messages,
+		streamingMessages,
+		errorMessage,
+		chatUnavailable,
+		isResolvingChat,
+		isLoadingMessages,
+		isGenerating,
+		sendMessage,
+	} = useProjectChat(projectId);
 
-	function appendUserMessage(prompt: string) {
-		// TODO: send to the generation pipeline; local echo only for now.
-		setMessages((current) => [
-			...current,
-			{ id: `local-${Date.now()}`, role: "user", text: prompt },
-		]);
+	const threadMessages = useMemo<ChatThreadMessage[]>(() => {
+		const persisted = messages
+			.map((message) => ({
+				id: message.id,
+				role: message.role,
+				text: extractChatMessageText(message.parts),
+			}))
+			.filter((message) => message.text.trim().length > 0);
+
+		const streaming = streamingMessages.map((message) => ({
+			id: `streaming-${message.messageId}`,
+			role: "assistant" as const,
+			text: message.text,
+			isStreaming: true,
+		}));
+
+		return [...persisted, ...streaming];
+	}, [messages, streamingMessages]);
+
+	const streamingText = streamingMessages
+		.map((message) => message.text)
+		.join("");
+	const pending = isResolvingChat || isLoadingMessages;
+	const visibleError =
+		errorMessage ??
+		(chatUnavailable ? t("native.workspace.chat.errors.unavailable") : null);
+	const hasMessages = threadMessages.length > 0;
+	const showThinking = isGenerating && streamingMessages.length === 0;
+	const showThread = hasMessages || showThinking || Boolean(visibleError);
+
+	useEffect(() => {
+		if (!showThread) return;
 		requestAnimationFrame(() =>
 			scrollRef.current?.scrollToEnd({ animated: true }),
 		);
-	}
+	}, [showThread, threadMessages.length, streamingText, visibleError]);
 
-	const hasMessages = messages.length > 0;
+	function handleSubmit(prompt: string) {
+		const accepted = sendMessage(prompt);
+		if (accepted) {
+			requestAnimationFrame(() =>
+				scrollRef.current?.scrollToEnd({ animated: true }),
+			);
+		}
+		return accepted;
+	}
 
 	return (
 		<View className="flex-1 bg-background">
@@ -84,14 +133,21 @@ export function ChatScreen() {
 				previewActive={hasMessages}
 			/>
 
-			{hasMessages ? (
+			{pending ? (
+				<ChatLoadingState />
+			) : showThread ? (
 				<ScrollView
 					ref={scrollRef}
 					className="flex-1"
 					contentContainerClassName="gap-3.5 px-4 pt-2 pb-3"
 				>
-					{thread ? <DateSeparator label={thread.dateLabel} /> : null}
-					<ChatMessages messages={messages} />
+					{visibleError ? <ChatErrorBanner message={visibleError} /> : null}
+					<ChatMessages messages={threadMessages} />
+					{showThinking ? (
+						<ChatThinkingIndicator
+							label={t("native.workspace.chat.thinking")}
+						/>
+					) : null}
 				</ScrollView>
 			) : (
 				<ChatEmptyState />
@@ -99,18 +155,13 @@ export function ChatScreen() {
 
 			<KeyboardStickyView offset={{ closed: 0, opened: insets.bottom }}>
 				<View className="gap-2.5" style={{ paddingBottom: insets.bottom + 10 }}>
-					{hasMessages && thread ? (
-						<SuggestionsRow
-							suggestions={thread.suggestions}
-							onPick={appendUserMessage}
-						/>
-					) : null}
 					<View className="px-4">
 						<PromptBox
 							variant="compact"
 							clearOnSubmit
 							placeholder={t("native.workspace.composerPlaceholder")}
-							onSubmit={appendUserMessage}
+							onSubmit={handleSubmit}
+							isSubmitting={isGenerating}
 						/>
 						<View className="mt-[13px] flex-row justify-center">
 							<Text className="font-mono text-[9.5px] text-muted">

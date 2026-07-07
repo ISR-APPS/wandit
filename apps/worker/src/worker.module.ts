@@ -1,3 +1,10 @@
+// Root module for the worker process.
+//
+// This is the worker version of AppModule. It wires together config, database,
+// queues, processors, Redis publishing, and reused services.
+//
+// Important chat path:
+// API queues job -> AiGenerationProcessor runs job -> worker writes DB/Redis.
 import { Module, type Provider } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { createDb } from "@wandit/db";
@@ -26,13 +33,16 @@ import { LeadProcessingProcessor } from "./processors/lead-processing.processor"
 import { MediaGenerationProcessor } from "./processors/media-generation.processor";
 import { PublishProcessor } from "./processors/publish.processor";
 
+// Some reused server services ask for DATABASE, so the worker provides it too.
 const databaseProvider: Provider<Database> = {
 	provide: DATABASE,
 	useFactory: createDb,
 };
 
+// `@Module()` tells Nest what this worker process imports and can inject.
 @Module({
 	imports: [
+		// Load environment-backed config once.
 		ConfigModule.forRoot({
 			cache: true,
 			isGlobal: true,
@@ -42,6 +52,8 @@ const databaseProvider: Provider<Database> = {
 		WorkerQueuesModule,
 	],
 	providers: [
+		// Providers are classes or values Nest can create/inject. Processors are
+		// providers too, so registering them starts their BullMQ listeners.
 		databaseProvider,
 		AiGenerationProcessor,
 		ChatEventsPublisher,
@@ -57,6 +69,7 @@ const databaseProvider: Provider<Database> = {
 		PublishProcessor,
 		WorkerChatRepository,
 		WorkerCreditsService,
+		// Aliases: when code asks for these tokens, give it these implementations.
 		{
 			provide: DOMAIN_PROVIDER,
 			useExisting: OpenproviderProvider,
@@ -67,4 +80,5 @@ const databaseProvider: Provider<Database> = {
 		},
 	],
 })
+// Empty class: the @Module metadata above is the important part.
 export class WorkerModule {}

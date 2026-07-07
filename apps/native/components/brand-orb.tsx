@@ -142,14 +142,29 @@ export function BrandOrb({ size, variant = "ember" }: BrandOrbProps) {
 
 	if (variant === "ember") {
 		// The Lottie loop carries its own motion (bubble drift + speckles), so no
-		// extra float transform — same as the prototype's .orb-slot.
+		// extra float transform — same as the prototype's .orb-slot. The bubble
+		// only fills 400/700 of the composition, so scale the Lottie up inside a
+		// `size` box: `size` means visible ball diameter, same as the aurora.
+		const lottieSize = size * (700 / 400);
 		return (
-			<LottieView
-				source={require("../assets/lottie/brand-orb.json")}
-				autoPlay
-				loop
-				style={{ width: size, height: size }}
-			/>
+			// The oversized Lottie overflows this box with transparent padding —
+			// keep it from swallowing touches meant for what's underneath.
+			<View
+				pointerEvents="none"
+				style={{
+					width: size,
+					height: size,
+					alignItems: "center",
+					justifyContent: "center",
+				}}
+			>
+				<LottieView
+					source={require("../assets/lottie/brand-orb.json")}
+					autoPlay
+					loop
+					style={{ width: lottieSize, height: lottieSize }}
+				/>
+			</View>
 		);
 	}
 

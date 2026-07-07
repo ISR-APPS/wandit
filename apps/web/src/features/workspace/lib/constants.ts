@@ -1,6 +1,37 @@
 // All user-facing copy for the workspace feature (centralized so a locale
 // swap is cheap) + tab/status/timing config.
 
+/**
+ * WORKSPACE CONSTANTS — the feature's central "settings file".
+ *
+ * What this file is: a grab-bag of plain values (no logic, no React) that the
+ * rest of the workspace feature imports: tab definitions, localStorage keys,
+ * page sizes, canvas geometry, lead-status styling, and some leftover
+ * mock-generation timing/copy. Keeping them in one file means a designer or
+ * translator can retune the workspace without hunting through components.
+ *
+ * Where it sits in the AI-chat flow: two constants matter for chat UI
+ * persistence — CHAT_OPEN_STORAGE_KEY (is the chat pane open or closed?) and
+ * WORKSPACE_PANELS_STORAGE_ID (how wide is the chat/main split?). Both are
+ * localStorage keys. "localStorage" is the browser's tiny built-in key/value
+ * store that survives page reloads, so when you come back to a project the
+ * workspace looks exactly how you left it. store.tsx reads/writes the first
+ * key; helpers.ts + pages/workspace-page.tsx read/write the second. Nothing
+ * here talks to the server — the actual chat traffic lives in
+ * use-project-chat.tsx and api/chat.*.
+ *
+ * NOTE (dead code): FIRST_GENERATION_REPLIES, ITERATION_REPLIES,
+ * THINKING_DELAY_MS, STREAM_WORD_INTERVAL_MS, BUILD_DURATION_MS and
+ * GENERATING_STEP_INTERVAL_MS are no longer imported anywhere — they powered
+ * the old fake "typing" chat before the real server-backed chat (SSE
+ * streaming) replaced it. They are safe-to-delete leftovers; only
+ * PUBLISH_DURATION_MS and SLUG_CHECK_DEBOUNCE_MS from the timing block are
+ * still used (by the still-mocked publish flow).
+ */
+
+// LucideIcon is just the TypeScript type for one icon component from the
+// lucide-react icon library (each icon is a small React component that
+// renders an SVG).
 import type { LucideIcon } from "lucide-react";
 import { AppWindow, Images, Megaphone, Settings2, Users } from "lucide-react";
 

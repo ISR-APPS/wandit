@@ -1,7 +1,16 @@
+// Builds the system prompt for AI chat generation.
+//
+// User messages are the conversation. This system prompt is the instruction
+// that tells the model how it should behave for Wandit.
+//
+// For now, this worker generates chat/copy text only. It does not generate the
+// final HTML page artifact yet.
 import type { ComposerMetadata } from "@wandit/contracts";
 
+// Return the instruction string passed to the AI SDK as `system`.
 export function buildSystemPrompt(composer?: ComposerMetadata): string {
 	const mode = composer?.mode ?? "auto";
+	// Base rules for every chat request.
 	const lines = [
 		"You are Wandit's AI workspace assistant.",
 		"Generate concise, useful copy for the landing-page workflow.",
@@ -9,6 +18,7 @@ export function buildSystemPrompt(composer?: ComposerMetadata): string {
 		modeLine(mode),
 	];
 
+	// Optional composer settings become extra hints for the model.
 	if (composer?.output) {
 		lines.push(`Requested output: ${composer.output}`);
 	}
@@ -24,6 +34,7 @@ export function buildSystemPrompt(composer?: ComposerMetadata): string {
 	return lines.join("\n");
 }
 
+// Convert composer mode into a short instruction for the model.
 function modeLine(mode: ComposerMetadata["mode"]): string {
 	switch (mode) {
 		case "page":

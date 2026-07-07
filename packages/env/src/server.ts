@@ -1,3 +1,10 @@
+// Server-side environment config.
+//
+// API, worker, auth, Redis, queue, and database code import values from here.
+// Zod validates process.env so the app fails early when required config is bad.
+//
+// AI_GATEWAY_API_KEY is optional at startup, but AI generation/transcription
+// will fail later if it is missing.
 import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -5,10 +12,12 @@ import { createEnv } from "@t3-oss/env-core";
 import { config } from "dotenv";
 import { z } from "zod";
 
+// Build paths from this file location so loading works from different cwd values.
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const packageRoot = resolve(currentDir, "..");
 const workspaceRoot = resolve(packageRoot, "../..");
 
+// Try several possible .env file locations.
 const envFileCandidates = [
 	...(process.env.ENV_FILE
 		? [resolve(process.cwd(), process.env.ENV_FILE)]
@@ -18,20 +27,24 @@ const envFileCandidates = [
 	resolve(process.cwd(), ".env"),
 ];
 
+// Load each existing env file. Existing process env values win.
 for (const envFile of new Set(envFileCandidates)) {
 	if (existsSync(envFile)) {
 		config({ path: envFile });
 	}
 }
 
+// Validated config object. Other code should import `env` instead of process.env.
 export const env = createEnv({
 	server: {
+		// AI model settings.
 		AI_CHAT_MODEL: z.string().min(1).default("openai/gpt-4o-mini"),
 		AI_GATEWAY_API_KEY: z.string().min(1).optional(),
 		AI_TRANSCRIPTION_MODEL: z
 			.string()
 			.min(1)
 			.default("openai/gpt-4o-mini-transcribe"),
+		// Core API/auth settings.
 		DATABASE_URL: z.string().min(1),
 		BETTER_AUTH_SECRET: z.string().min(32),
 		BETTER_AUTH_URL: z.url(),
@@ -42,15 +55,19 @@ export const env = createEnv({
 			.enum(["development", "production", "test"])
 			.default("development"),
 		PORT: z.coerce.number().int().positive().default(3000),
+		// Queue/Redis settings. API and worker must share these values.
 		QUEUE_ENABLED: z
 			.enum(["true", "false"])
 			.default("false")
 			.transform((value) => value === "true"),
 		QUEUE_PREFIX: z.string().min(1).default("isr-ai"),
 		REDIS_URL: z.url().default("redis://127.0.0.1:6379"),
+		// Billing mode. `off` is useful for local/dev.
 		GENERATION_BILLING_MODE: z.enum(["enforce", "off"]).default("enforce"),
+		// Stripe is optional at boot.
 		STRIPE_SECRET_KEY: z.string().startsWith("sk_").optional(),
 		STRIPE_WEBHOOK_SECRET: z.string().startsWith("whsec_").optional(),
+		// Domain/Cloudflare settings are optional for chat-only flows.
 		OPENPROVIDER_API_URL: z.url().optional(),
 		OPENPROVIDER_USERNAME: z.string().min(1).optional(),
 		OPENPROVIDER_PASSWORD: z.string().min(1).optional(),
@@ -59,7 +76,10 @@ export const env = createEnv({
 		CLOUDFLARE_ZONE_ID_WANDIT_APP: z.string().min(1).optional(),
 		DOMAINS_FALLBACK_ORIGIN: z.string().min(1).default("customers.wandit.app"),
 	},
+	// Real data source for validation.
 	runtimeEnv: process.env,
+	// Escape hatch for tests/local scripts. Avoid in production.
 	skipValidation: !!process.env.SKIP_ENV_VALIDATION,
+	// Treat empty strings as missing values.
 	emptyStringAsUndefined: true,
 });
