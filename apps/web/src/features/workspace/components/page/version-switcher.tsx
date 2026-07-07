@@ -9,7 +9,7 @@ import {
 	DropdownMenuLabel,
 	DropdownMenuTrigger,
 } from "@wandit/ui/components/dropdown-menu";
-import { Check, ChevronDown, History } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
 
 import { useTranslation } from "@/lib/i18n";
 import { relativeTime } from "@/lib/relative-time";
@@ -22,26 +22,15 @@ export function VersionSwitcher() {
 	if (!activeVersion) return null;
 
 	const publishedVersionId = state?.deployment.publishedVersionId ?? null;
-	const isLatest = activeVersion.id === versions.at(-1)?.id;
 
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
-				<Button
-					variant="outline"
-					size="sm"
-					className="h-8 gap-1.5 rounded-lg px-2.5"
-				>
-					<History className="size-3.5 text-muted-foreground" />
-					<span className="font-mono text-xs tabular-nums">
+				<Button variant="outline" size="sm" className="h-[30px] gap-[7px] px-3">
+					<span className="text-[13px]">
 						{t("workspace.page.versionShort", { n: activeVersion.number })}
 					</span>
-					{isLatest ? (
-						<span className="hidden text-muted-foreground text-xs sm:inline">
-							· {t("workspace.page.latestSuffix")}
-						</span>
-					) : null}
-					<ChevronDown className="size-3.5 text-muted-foreground" />
+					<ChevronDown className="size-[11px] opacity-50" />
 				</Button>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="start" className="w-72">

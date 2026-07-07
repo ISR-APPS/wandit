@@ -60,7 +60,7 @@ function RootProviders() {
 	return (
 		<ThemeProvider
 			attribute="class"
-			defaultTheme="dark"
+			defaultTheme="light"
 			disableTransitionOnChange
 			storageKey="wandit-theme"
 		>

@@ -5,6 +5,12 @@
 // className) and self-inerts when collapsed.
 
 import { Button } from "@wandit/ui/components/button";
+import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "@wandit/ui/components/dropdown-menu";
 import { Skeleton } from "@wandit/ui/components/skeleton";
 import {
 	Tooltip,
@@ -12,7 +18,7 @@ import {
 	TooltipTrigger,
 } from "@wandit/ui/components/tooltip";
 import { cn } from "@wandit/ui/lib/utils";
-import { MessagesSquare, PanelLeftClose } from "lucide-react";
+import { MoreHorizontal, PanelLeftClose } from "lucide-react";
 import { useEffect, useRef } from "react";
 
 import { Spark } from "@/components/logo";
@@ -21,6 +27,7 @@ import { useDictionary, useTranslation } from "@/lib/i18n";
 import { useWorkspace } from "../../lib/store";
 import { useProjectChat } from "../../lib/use-project-chat";
 import { ThinkingIndicator } from "./chat-message";
+import { MOCK_CHAT_THREAD_ENABLED, MockChatThread } from "./mock-thread";
 import { extractMessageText, RealChatMessage } from "./real-message";
 
 export function ChatPane({ className }: { className?: string }) {
@@ -69,41 +76,66 @@ export function ChatPane({ className }: { className?: string }) {
 						? t("workspace.chat.thinking")
 						: ""}
 				</span>
-				<div className="flex h-12 shrink-0 items-center justify-between border-b px-3">
-					<span className="flex min-w-0 items-center gap-2 font-medium text-sm">
-						<MessagesSquare className="size-4 shrink-0 text-muted-foreground" />
+				<div className="flex h-12 shrink-0 items-center justify-between border-b px-4">
+					<span className="flex min-w-0 items-baseline gap-2 font-medium text-[15px]">
 						{t("workspace.chat.title")}
 						{project?.name ? (
 							<span
 								dir="auto"
-								className="min-w-0 truncate rounded-md bg-muted/60 px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
+								className="min-w-0 truncate font-normal text-[13px] text-muted-foreground"
 							>
-								{project.name}
+								· {project.name}
 							</span>
 						) : null}
 					</span>
-					<Tooltip>
-						<TooltipTrigger asChild>
-							<Button
-								variant="ghost"
-								size="icon-sm"
-								onClick={toggleChat}
-								aria-label={t("workspace.chat.collapse")}
-							>
-								<PanelLeftClose className="size-4" />
-							</Button>
-						</TooltipTrigger>
-						<TooltipContent side={dir === "rtl" ? "left" : "right"}>
-							{t("workspace.chat.collapse")}
-						</TooltipContent>
-					</Tooltip>
+					<div className="flex items-center gap-0.5">
+						<DropdownMenu>
+							<DropdownMenuTrigger asChild>
+								<Button
+									variant="ghost"
+									size="icon-sm"
+									className="text-muted-foreground"
+									aria-label={t("workspace.chat.menuLabel")}
+								>
+									<MoreHorizontal className="size-4" />
+								</Button>
+							</DropdownMenuTrigger>
+							<DropdownMenuContent align="end">
+								<DropdownMenuItem onSelect={toggleChat}>
+									<PanelLeftClose className="size-4" />
+									{t("workspace.chat.collapse")}
+								</DropdownMenuItem>
+							</DropdownMenuContent>
+						</DropdownMenu>
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<Button
+									variant="ghost"
+									size="icon-sm"
+									className="text-muted-foreground"
+									onClick={toggleChat}
+									aria-label={t("workspace.chat.collapse")}
+								>
+									<PanelLeftClose className="size-[15px]" />
+								</Button>
+							</TooltipTrigger>
+							<TooltipContent side={dir === "rtl" ? "left" : "right"}>
+								{t("workspace.chat.collapse")}
+							</TooltipContent>
+						</Tooltip>
+					</div>
 				</div>
 
 				<div
 					ref={scrollRef}
-					className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3.5 py-4"
+					className="scroll-warm min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pt-5 pb-2"
 				>
-					{pending ? (
+					{MOCK_CHAT_THREAD_ENABLED ? (
+						// Demo showcase of every chat state (see mock-thread.tsx) — the
+						// live branches below are untouched and take over when the flag
+						// is off.
+						<MockChatThread onSend={send} />
+					) : pending ? (
 						<div className="flex flex-col gap-4">
 							<Skeleton className="ms-auto h-14 w-3/4 rounded-2xl" />
 							<Skeleton className="h-20 w-5/6 rounded-xl" />
@@ -159,7 +191,7 @@ export function ChatPane({ className }: { className?: string }) {
 					)}
 				</div>
 
-				<div className="shrink-0 px-3 pt-1 pb-3">
+				<div className="shrink-0 px-4 pt-3.5 pb-4">
 					<PromptBox
 						variant="compact"
 						showEngines

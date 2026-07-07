@@ -19,8 +19,9 @@ import { useWorkspace } from "../../lib/store";
 export function PageTab({ reloadKey }: { reloadKey: number }) {
 	return (
 		<div className="flex h-full min-h-0 flex-col">
-			<div className="relative min-h-0 flex-1 overflow-hidden">
-				<div aria-hidden className="absolute inset-0 bg-dots" />
+			{/* The stage floor is plain parchment (3a reference) — one step
+			    lighter than the sand card that hosts it. */}
+			<div className="relative min-h-0 flex-1 overflow-hidden bg-background">
 				<PreviewStage reloadKey={reloadKey} />
 			</div>
 		</div>
@@ -66,21 +67,44 @@ function PreviewStage({ reloadKey }: { reloadKey: number }) {
 
 	return (
 		<div className="relative flex h-full items-center justify-center p-4 md:p-6">
+			<span className="absolute start-4 top-3.5 z-10 text-muted-foreground text-xs">
+				{mobile
+					? t("workspace.page.viewportMobile")
+					: t("workspace.page.viewportDesktop")}
+			</span>
 			<motion.div
 				layout
 				transition={{ type: "spring", bounce: 0.14, duration: 0.55 }}
 				className={cn(
-					"relative flex min-h-0 overflow-hidden bg-white",
+					"relative flex min-h-0 overflow-hidden",
 					mobile
-						? "h-full max-h-[780px] w-[390px] max-w-full rounded-[2rem] border-[5px] border-foreground/80 shadow-2xl dark:border-border"
-						: "h-full w-full max-w-[1440px] rounded-xl border border-border/70 shadow-xl",
+						? // Dark phone bezel (3a reference): the generated page is the
+							// only place the system goes dark.
+							"h-full max-h-[632px] w-[304px] max-w-full rounded-[38px] border border-black/12 bg-[#0a0a0c] p-2 shadow-[0_40px_80px_-30px_rgb(0_0_0_/_0.4)]"
+						: "h-full w-full max-w-[1440px] rounded-2xl border bg-white shadow-shell",
 				)}
 			>
-				<PreviewFrame
-					key={`${activeVersion.id}-${reloadKey}-${viewport}`}
-					html={html}
-					title={`${project?.name ?? t("workspace.page.previewFallback")} — v${activeVersion.number}`}
-				/>
+				<div
+					className={cn(
+						"relative flex min-h-0 flex-1 overflow-hidden",
+						// The screen stays void-dark so the load-in feels like a phone
+						// waking up; the iframe paints its own page background.
+						mobile ? "rounded-[31px] bg-void" : "rounded-none bg-white",
+					)}
+				>
+					<PreviewFrame
+						key={`${activeVersion.id}-${reloadKey}-${viewport}`}
+						html={html}
+						title={`${project?.name ?? t("workspace.page.previewFallback")} — v${activeVersion.number}`}
+					/>
+					{/* Bezel handle bar — physically centered; no reading direction. */}
+					{mobile ? (
+						<span
+							aria-hidden
+							className="pointer-events-none absolute top-2 left-1/2 z-10 h-[5px] w-[70px] -translate-x-1/2 rounded-full bg-white/18"
+						/>
+					) : null}
+				</div>
 				{generationPhase === "building" ? (
 					<div className="absolute inset-0 z-10 grid place-items-center bg-background/55 backdrop-blur-[2px]">
 						<GeneratingPanel />

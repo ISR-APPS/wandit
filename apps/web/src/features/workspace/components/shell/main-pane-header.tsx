@@ -39,7 +39,7 @@ export function MainPaneHeader({
 	const showAssetsToggle = !statePending && versions.length > 0;
 
 	return (
-		<div className="flex h-12 shrink-0 items-center gap-2 border-b px-2.5">
+		<div className="flex h-12 shrink-0 items-center gap-2 border-b px-3.5">
 			{!chatOpen ? (
 				<>
 					<Tooltip>
@@ -66,7 +66,7 @@ export function MainPaneHeader({
 
 			<WorkspaceTabs />
 
-			<div className="ms-auto flex min-w-0 items-center gap-1">
+			<div className="ms-auto flex min-w-0 items-center gap-2">
 				{tab === "page" ? <PageControls onReload={onReloadPage} /> : null}
 				{tab === "assets" && showAssetsToggle ? (
 					<AssetsViewToggle view={assetsView} onChange={onAssetsViewChange} />

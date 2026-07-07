@@ -606,7 +606,7 @@ function IconTile({
 				"flex size-7 shrink-0 items-center justify-center rounded-lg border transition-colors",
 				active
 					? "border-primary/30 bg-primary/10 text-primary"
-					: "border-border/70 bg-muted/60 text-muted-foreground",
+					: "border-border bg-muted/60 text-muted-foreground",
 			)}
 		>
 			<Icon className="size-3.5" />
@@ -690,11 +690,14 @@ function AddContextMenu({
 							size="icon-sm"
 							aria-label={addMenuLabel}
 							className={cn(
-								"rounded-full border-border/80 bg-background/70 text-muted-foreground shadow-none transition-[transform,color,background-color,border-color] duration-200 hover:border-primary/30 hover:bg-primary/10 hover:text-foreground active:translate-y-px",
-								isHero ? "size-9" : "size-8",
+								"rounded-full border-border bg-transparent shadow-none transition-[transform,color,background-color,border-color] duration-200 hover:border-primary/30 hover:bg-primary/10 hover:text-foreground active:translate-y-px",
+								// Compact = ink plus icon on a plain hairline circle (dc reference).
+								isHero
+									? "size-9 text-muted-foreground"
+									: "size-[30px] text-foreground",
 							)}
 						>
-							<Plus className="size-4" />
+							<Plus className={isHero ? "size-4" : "size-[15px]"} />
 						</Button>
 					</DropdownMenuTrigger>
 				</TooltipTrigger>
@@ -704,7 +707,7 @@ function AddContextMenu({
 				align="start"
 				sideOffset={8}
 				collisionPadding={12}
-				className="w-64 rounded-2xl border-border/80 p-1.5 shadow-[0_18px_50px_-24px_rgb(0_0_0/0.36)]"
+				className="w-64 rounded-2xl border-border p-1.5 shadow-[0_18px_50px_-24px_rgb(0_0_0/0.36)]"
 			>
 				<DropdownMenuSub>
 					<DropdownMenuSubTrigger className="rounded-xl px-2 py-2">
@@ -713,7 +716,7 @@ function AddContextMenu({
 					</DropdownMenuSubTrigger>
 					<DropdownMenuSubContent
 						sideOffset={10}
-						className="w-[22rem] max-w-[calc(100vw-1.5rem)] rounded-2xl border-border/80 p-1.5 shadow-[0_18px_50px_-24px_rgb(0_0_0/0.36)]"
+						className="w-[22rem] max-w-[calc(100vw-1.5rem)] rounded-2xl border-border p-1.5 shadow-[0_18px_50px_-24px_rgb(0_0_0/0.36)]"
 					>
 						<div className="flex items-center justify-between px-2 pt-1 pb-1.5">
 							<span className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.14em]">
@@ -803,7 +806,7 @@ function AttachedSkillChips({
 							title={hiddenSkills
 								.map((skill) => pb.skills[skill.id].label)
 								.join(", ")}
-							className="inline-flex h-7 items-center rounded-full border border-border/70 bg-muted/60 px-2.5 font-medium text-muted-foreground text-xs tabular-nums transition-colors hover:border-primary/30 hover:bg-primary/10 hover:text-foreground data-[state=open]:border-primary/30 data-[state=open]:bg-primary/10 data-[state=open]:text-foreground"
+							className="inline-flex h-7 items-center rounded-full border border-border bg-muted/60 px-2.5 font-medium text-muted-foreground text-xs tabular-nums transition-colors hover:border-primary/30 hover:bg-primary/10 hover:text-foreground data-[state=open]:border-primary/30 data-[state=open]:bg-primary/10 data-[state=open]:text-foreground"
 						>
 							+{hiddenSkills.length}
 						</button>
@@ -812,7 +815,7 @@ function AttachedSkillChips({
 						align="start"
 						sideOffset={8}
 						collisionPadding={12}
-						className="w-[22rem] max-w-[calc(100vw-1.5rem)] rounded-2xl border-border/80 p-1.5 shadow-[0_18px_50px_-24px_rgb(0_0_0/0.36)]"
+						className="w-[22rem] max-w-[calc(100vw-1.5rem)] rounded-2xl border-border p-1.5 shadow-[0_18px_50px_-24px_rgb(0_0_0/0.36)]"
 					>
 						<div className="flex items-center justify-between px-2 pt-1 pb-1.5">
 							<span className="font-mono text-[10px] text-muted-foreground uppercase tracking-[0.14em]">
@@ -854,20 +857,40 @@ function ModePicker({
 					size="sm"
 					aria-label={`${t("projects.promptBox.modeLabel")}: ${selectedModeCopy.label}`}
 					className={cn(
-						"group/trigger rounded-full border-border/75 bg-background/55 text-muted-foreground shadow-none transition-colors hover:border-primary/25 hover:bg-accent/70 hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground",
-						isHero ? "h-9" : "h-8",
+						// The mode chip is a small jewel: an ember medallion nested at the
+						// start of a parchment pill. Hover tints the hairline and lifts it
+						// a touch; open blooms a soft ember halo around it.
+						"group/trigger rounded-full border-border bg-background shadow-none transition-[border-color,box-shadow,background-color] duration-200",
+						"hover:border-primary/35 hover:text-foreground hover:shadow-[0_2px_10px_-4px_rgb(0_0_0_/_0.2)]",
+						"data-[state=open]:border-primary/40 data-[state=open]:text-foreground data-[state=open]:ring-[3px] data-[state=open]:ring-primary/10",
+						isHero
+							? "h-9 gap-2 ps-[5px] pe-3 text-muted-foreground"
+							: "h-[30px] gap-1.5 ps-1 pe-2.5 text-[13px] text-foreground",
 					)}
 				>
-					<SelectedIcon className="size-3.5 text-primary" />
+					<span
+						aria-hidden
+						className={cn(
+							"grid shrink-0 place-items-center rounded-full bg-primary/10 text-primary transition-colors duration-200 group-hover/trigger:bg-primary/15 group-data-[state=open]/trigger:bg-primary/15",
+							isHero ? "size-[26px]" : "size-[22px]",
+						)}
+					>
+						<SelectedIcon className={isHero ? "size-3.5" : "size-3"} />
+					</span>
 					<span className="max-w-24 truncate">{selectedModeCopy.label}</span>
-					<ChevronDown className="size-3.5 transition-transform duration-200 group-data-[state=open]/trigger:rotate-180" />
+					<ChevronDown
+						className={cn(
+							"transition-transform duration-200 group-data-[state=open]/trigger:rotate-180",
+							isHero ? "size-3.5" : "size-[11px] opacity-50",
+						)}
+					/>
 				</Button>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent
 				align="start"
 				sideOffset={8}
 				collisionPadding={12}
-				className="w-72 rounded-2xl border-border/80 p-1.5 shadow-[0_18px_50px_-24px_rgb(0_0_0/0.36)]"
+				className="w-72 rounded-2xl border-border p-1.5 shadow-[0_18px_50px_-24px_rgb(0_0_0/0.36)]"
 			>
 				<DropdownMenuLabel className="px-2 pt-1 pb-1.5 font-mono font-normal text-[10px] text-muted-foreground uppercase tracking-[0.14em]">
 					{t("projects.promptBox.modeLabel")}
@@ -931,7 +954,7 @@ function OutputPicker({
 					aria-label={`${t("projects.promptBox.outputLabel")}: ${outputCopy.label}`}
 					className={cn(
 						"group/trigger rounded-full border-primary/30 bg-primary/10 text-foreground shadow-none transition-colors hover:bg-primary/15 data-[state=open]:bg-primary/15",
-						isHero ? "h-9" : "h-8",
+						isHero ? "h-9" : "h-[30px]",
 					)}
 				>
 					<OutputIcon className="size-3.5 text-primary" />
@@ -945,7 +968,7 @@ function OutputPicker({
 				align="start"
 				sideOffset={8}
 				collisionPadding={12}
-				className="w-80 max-w-[calc(100vw-1.5rem)] rounded-2xl border-border/80 p-1.5 shadow-[0_18px_50px_-24px_rgb(0_0_0/0.36)]"
+				className="w-80 max-w-[calc(100vw-1.5rem)] rounded-2xl border-border p-1.5 shadow-[0_18px_50px_-24px_rgb(0_0_0/0.36)]"
 			>
 				<DropdownMenuLabel className="px-2 pt-1 pb-1.5 font-mono font-normal text-[10px] text-muted-foreground uppercase tracking-[0.14em]">
 					{t("projects.promptBox.outputsHeading", {
@@ -1019,8 +1042,8 @@ function OutputSettings({
 							size="icon-sm"
 							aria-label={t("projects.promptBox.settingsLabel")}
 							className={cn(
-								"rounded-full border-border/75 bg-background/55 text-muted-foreground shadow-none transition-colors hover:border-primary/25 hover:bg-accent/70 hover:text-foreground data-[state=open]:border-primary/30 data-[state=open]:bg-primary/10 data-[state=open]:text-foreground",
-								isHero ? "size-9" : "size-8",
+								"rounded-full border-border bg-transparent text-muted-foreground shadow-none transition-colors hover:border-primary/25 hover:bg-accent/70 hover:text-foreground data-[state=open]:border-primary/30 data-[state=open]:bg-primary/10 data-[state=open]:text-foreground",
+								isHero ? "size-9" : "size-[30px]",
 							)}
 						>
 							<SlidersHorizontal className="size-4" />
@@ -1033,9 +1056,9 @@ function OutputSettings({
 				align="start"
 				sideOffset={8}
 				collisionPadding={12}
-				className="w-[22rem] max-w-[calc(100vw-1.5rem)] rounded-2xl border-border/80 p-0 shadow-[0_22px_70px_-28px_rgb(0_0_0/0.42)]"
+				className="w-[22rem] max-w-[calc(100vw-1.5rem)] rounded-2xl border-border p-0 shadow-[0_22px_70px_-28px_rgb(0_0_0/0.42)]"
 			>
-				<div className="border-border/70 border-b px-4 py-3">
+				<div className="border-border border-b px-4 py-3">
 					<div className="flex items-center gap-2">
 						<IconTile icon={OutputIcon} active />
 						<div className="min-w-0">
@@ -1079,7 +1102,7 @@ function OutputSettings({
 													"min-h-9 rounded-xl border px-3 py-2 text-center text-xs transition-[transform,color,background-color,border-color] duration-200 active:translate-y-px",
 													selected
 														? "border-primary/35 bg-primary/10 text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.16)]"
-														: "border-border/80 bg-background/60 text-muted-foreground hover:border-primary/25 hover:bg-accent/70 hover:text-foreground",
+														: "border-border bg-background/60 text-muted-foreground hover:border-primary/25 hover:bg-accent/70 hover:text-foreground",
 													group.layout === "grid" && "min-h-14",
 												)}
 											>
@@ -1123,8 +1146,8 @@ function QualityPicker({
 						"group/trigger rounded-full font-medium font-mono text-[11px] tabular-nums shadow-none transition-colors",
 						isMax
 							? "border-primary/35 bg-primary/10 text-foreground hover:bg-primary/15 data-[state=open]:bg-primary/15"
-							: "border-border/75 bg-background/55 text-muted-foreground hover:border-primary/25 hover:bg-accent/70 hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground",
-						isHero ? "h-9" : "h-8",
+							: "border-border bg-transparent text-muted-foreground hover:border-primary/25 hover:bg-accent/70 hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground",
+						isHero ? "h-9" : "h-[30px]",
 					)}
 				>
 					<Spark
@@ -1138,7 +1161,7 @@ function QualityPicker({
 				align="end"
 				sideOffset={8}
 				collisionPadding={12}
-				className="w-72 rounded-2xl border-border/80 p-1.5 shadow-[0_18px_50px_-24px_rgb(0_0_0/0.36)]"
+				className="w-72 rounded-2xl border-border p-1.5 shadow-[0_18px_50px_-24px_rgb(0_0_0/0.36)]"
 			>
 				<DropdownMenuLabel className="px-2 pt-1 pb-1.5 font-mono font-normal text-[10px] text-muted-foreground uppercase tracking-[0.14em]">
 					{t("projects.promptBox.qualityLabel")}
@@ -1356,16 +1379,14 @@ export function PromptBox({
 
 	const box = (
 		<div className="group/prompt relative">
+			{/* Soft ember focus ring (DESIGN.md --wd-ring) — the composer itself is
+			    the one richly-shadowed surface, so focus stays quiet. */}
 			<div
 				aria-hidden
-				className="pointer-events-none absolute -inset-px rounded-[calc(1rem+1px)] bg-border"
-			/>
-			<div
-				aria-hidden
-				className="pointer-events-none absolute -inset-[1.5px] rounded-[calc(1rem+2px)] bg-gradient-ember opacity-0 shadow-[0_0_20px_-2px_color-mix(in_oklab,var(--color-primary)_30%,transparent),0_8px_48px_-8px_color-mix(in_oklab,var(--color-primary)_25%,transparent)] transition-opacity duration-300 group-focus-within/prompt:opacity-100"
+				className="pointer-events-none absolute inset-0 rounded-3xl opacity-0 shadow-[0_0_0_3px_oklch(0.62_0.16_45_/_0.10)] transition-opacity duration-300 group-focus-within/prompt:opacity-100"
 			/>
 			<InputGroup
-				className="relative h-auto flex-col items-stretch rounded-2xl border-0 bg-card shadow-xs dark:bg-card dark:shadow-[inset_0_1px_0_0_oklch(1_0_0_/_0.04)]"
+				className="relative h-auto flex-col items-stretch rounded-3xl border-0 bg-background shadow-composer dark:bg-card dark:shadow-[inset_0_1px_0_0_oklch(1_0_0_/_0.04)]"
 				data-disabled={isSubmitting}
 			>
 				<AttachedSkillChips
@@ -1385,18 +1406,18 @@ export function PromptBox({
 					maxLength={projectPromptMaxLength}
 					disabled={isSubmitting}
 					className={cn(
-						"w-full overflow-y-auto py-0 text-foreground placeholder:text-muted-foreground/70 disabled:opacity-60",
+						"w-full overflow-y-auto py-0 text-foreground placeholder:text-muted-foreground disabled:opacity-60",
 						isHero
 							? "min-h-[78px] px-5 pb-1 text-base"
-							: "min-h-11 px-4 pb-1 text-sm",
-						attachedSkills.length > 0 ? "pt-2" : isHero ? "pt-4" : "pt-3",
+							: "min-h-[38px] px-4 pb-0 text-[15px] leading-[1.5]",
+						attachedSkills.length > 0 ? "pt-2" : "pt-4",
 					)}
 				/>
 				<InputGroupAddon
 					align="block-end"
 					className={cn(
 						"flex w-full cursor-default flex-wrap items-center gap-2",
-						isHero ? "px-4 pb-4" : "px-3 pb-3",
+						isHero ? "px-4 pb-4" : "px-4 pt-1.5 pb-3",
 					)}
 				>
 					<TooltipProvider>
@@ -1442,9 +1463,9 @@ export function PromptBox({
 										disabled={!micSupported || isSubmitting || isTranscribing}
 										className={cn(
 											"rounded-full text-muted-foreground hover:text-foreground",
-											isHero ? "size-9" : "size-8",
+											isHero ? "size-9" : "size-[30px]",
 											isRecording &&
-												"animate-pulse bg-red-500/10 text-red-500 hover:text-red-500",
+												"animate-pulse bg-destructive/10 text-destructive hover:text-destructive",
 										)}
 									>
 										{isTranscribing ? (
@@ -1465,14 +1486,16 @@ export function PromptBox({
 										onClick={handleSubmit}
 										disabled={!canSubmit}
 										className={cn(
-											"rounded-full shadow-[0_4px_16px_-4px_color-mix(in_oklab,var(--color-primary)_50%,transparent)] transition-opacity disabled:opacity-40",
-											isHero ? "size-9" : "size-8",
+											// The send circle is the gradient's one licensed cameo
+											// on a control (DESIGN.md, Gradient System).
+											"rounded-full bg-gradient-ember shadow-[0_2px_8px_-2px_rgb(0_0_0_/_0.3)] transition-opacity disabled:opacity-40",
+											isHero ? "size-9" : "size-[30px]",
 										)}
 									>
 										{isSubmitting ? (
 											<Loader2 className="animate-spin" />
 										) : (
-											<ArrowUp strokeWidth={2.5} />
+											<ArrowUp className="size-3.5" strokeWidth={2.2} />
 										)}
 									</Button>
 								</TooltipTrigger>

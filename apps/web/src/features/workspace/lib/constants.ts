@@ -2,7 +2,7 @@
 // swap is cheap) + tab/status/timing config.
 
 import type { LucideIcon } from "lucide-react";
-import { AppWindow, Images, Megaphone, Settings2, Users } from "lucide-react";
+import { File, Image, Settings2, Users, Volume2 } from "lucide-react";
 
 import type { LeadStatus, PageLang, WorkspaceTab } from "../api/dto";
 
@@ -21,9 +21,9 @@ export type WorkspaceTabDef = {
 
 // Tab value + icon; the label is localized (workspace.tabs.<value>).
 export const WORKSPACE_TABS: WorkspaceTabDef[] = [
-	{ value: "page", icon: AppWindow },
-	{ value: "assets", icon: Images },
-	{ value: "marketing", icon: Megaphone },
+	{ value: "page", icon: File },
+	{ value: "assets", icon: Image },
+	{ value: "marketing", icon: Volume2 },
 	{ value: "leads", icon: Users },
 	{ value: "settings", icon: Settings2 },
 ];
@@ -69,7 +69,8 @@ export const ASSETS_CANVAS_LAYOUT_SLOTS = [
 export const THINKING_DELAY_MS = 650;
 export const STREAM_WORD_INTERVAL_MS = 30;
 export const BUILD_DURATION_MS = 2600;
-export const PUBLISH_DURATION_MS = 2200;
+// Long enough for the publish panel's deploy checklist to read step by step.
+export const PUBLISH_DURATION_MS = 5200;
 export const GENERATING_STEP_INTERVAL_MS = 1400;
 export const SLUG_CHECK_DEBOUNCE_MS = 500;
 

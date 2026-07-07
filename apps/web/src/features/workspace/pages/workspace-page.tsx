@@ -26,6 +26,7 @@ import { ChatPane } from "../components/chat/chat-pane";
 import { LeadsTab } from "../components/leads/leads-tab";
 import { MarketingTab } from "../components/marketing/marketing-tab";
 import { PageTab } from "../components/page/page-tab";
+import { PublishPanel } from "../components/publish/publish-panel";
 import { SettingsTab } from "../components/settings/settings-tab";
 import { MainPaneHeader } from "../components/shell/main-pane-header";
 import { WorkspaceHeader } from "../components/shell/workspace-header";
@@ -60,11 +61,18 @@ function WorkspaceLayout() {
 
 	return (
 		<TooltipProvider>
-			<div className="flex h-svh flex-col overflow-hidden bg-background">
+			<div className="relative flex h-svh flex-col overflow-hidden bg-background">
+				{/* Ambient prismatic horizon — glows through the translucent header
+				    only; the opaque tray below clips it (DESIGN.md, Warm Horizon). */}
+				<div
+					aria-hidden
+					className="pointer-events-none absolute inset-x-0 top-0 z-0 h-[150px] bg-gradient-horizon opacity-90 [-webkit-mask-image:linear-gradient(to_bottom,black_0%,black_34%,transparent_92%)] [mask-image:linear-gradient(to_bottom,black_0%,black_34%,transparent_92%)]"
+				/>
 				<WorkspaceHeader />
-				<div className="relative min-h-0 flex-1 bg-muted/70 dark:bg-background">
+				<div className="relative z-10 min-h-0 flex-1 bg-background">
 					{isMobile ? <MobileSplit tab={tab} /> : <DesktopSplit tab={tab} />}
 				</div>
+				<PublishPanel />
 			</div>
 		</TooltipProvider>
 	);
@@ -84,10 +92,10 @@ function MobileSplit({ tab }: { tab: WorkspaceTab }) {
 
 // Fixed px, not %: the compact PromptBox composer (hint chip + mic + generate
 // button) needs ~410px to avoid clipping, and % of viewport can't guarantee
-// that on narrower desktop widths the way a floor in px can. The extra 20px
-// over the old flush layout absorbs the card's tray padding.
-const DEFAULT_CHAT_WIDTH = "440px";
-const MIN_CHAT_WIDTH = "440px";
+// that on narrower desktop widths the way a floor in px can. 430px is the
+// dc-reference chat-panel width.
+const DEFAULT_CHAT_WIDTH = "430px";
+const MIN_CHAT_WIDTH = "430px";
 
 function DesktopSplit({ tab }: { tab: WorkspaceTab }) {
 	const { chatOpen, setChatOpenState } = useWorkspace();
@@ -126,8 +134,8 @@ function DesktopSplit({ tab }: { tab: WorkspaceTab }) {
 				panelRef={chatPanelRef}
 				className="overflow-hidden"
 			>
-				<div className="h-full py-2.5 ps-2.5 pe-1">
-					<ChatPane className="rounded-xl border shadow-sm" />
+				<div className="h-full py-3 ps-3 pe-1">
+					<ChatPane className="rounded-2xl border bg-secondary" />
 				</div>
 			</ResizablePanel>
 			{/* The handle sits invisibly in the gap between the two cards — no
@@ -139,10 +147,11 @@ function DesktopSplit({ tab }: { tab: WorkspaceTab }) {
 				)}
 			/>
 			<ResizablePanel id="main" minSize="40%">
-				<div
-					className={cn("h-full py-2.5 pe-2.5", chatOpen ? "ps-1" : "ps-2.5")}
-				>
-					<WorkspaceMain tab={tab} className="rounded-xl border shadow-sm" />
+				<div className={cn("h-full py-3 pe-3", chatOpen ? "ps-1" : "ps-3")}>
+					<WorkspaceMain
+						tab={tab}
+						className="rounded-2xl border bg-secondary"
+					/>
 				</div>
 			</ResizablePanel>
 		</ResizablePanelGroup>
