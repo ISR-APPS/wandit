@@ -1,11 +1,22 @@
 import { useTranslation } from "@wandit/internationalization/react";
 import { useThemeColor } from "heroui-native";
-import { Pressable, ScrollView, Text, View } from "react-native";
+import {
+	ActivityIndicator,
+	Pressable,
+	ScrollView,
+	Text,
+	View,
+} from "react-native";
 
 import { WanditIcon } from "@/components/wandit-icon";
 import { BrandGradientFill } from "@/shared/ui/brand-gradient-fill";
 
-import type { MockArtifact, MockChatMessage } from "../lib/mock-chat";
+import type { ChatThreadMessage } from "../lib/chat-message";
+
+export type ChatArtifact = {
+	title: string;
+	meta: string;
+};
 
 export function DateSeparator({ label }: { label: string }) {
 	return (
@@ -29,15 +40,52 @@ export function ThoughtLine({ label }: { label: string }) {
 	return <Text className="text-[12.5px] text-muted">{label}</Text>;
 }
 
-export function AssistantText({ text }: { text: string }) {
+export function AssistantText({
+	text,
+	isStreaming = false,
+}: {
+	text: string;
+	isStreaming?: boolean;
+}) {
+	const accent = useThemeColor("accent");
+
 	return (
 		<Text className="text-[14.5px] text-foreground/90 leading-[22px]">
 			{text}
+			{isStreaming ? <Text style={{ color: accent }}> |</Text> : null}
 		</Text>
 	);
 }
 
-export function ArtifactCard({ artifact }: { artifact: MockArtifact }) {
+export function AssistantMessage({
+	text,
+	isStreaming = false,
+}: {
+	text: string;
+	isStreaming?: boolean;
+}) {
+	const accent = useThemeColor("accent");
+	const muted = useThemeColor("muted");
+
+	if (!text && !isStreaming) {
+		return null;
+	}
+
+	return (
+		<View className="gap-[9px]">
+			<View className="flex-row items-center gap-1.5">
+				<WanditIcon name="spark" size={12} color={accent} />
+				<Text className="font-mono text-[10px] text-muted">wandit</Text>
+			</View>
+			<AssistantText text={text} isStreaming={isStreaming} />
+			{isStreaming && !text ? (
+				<ActivityIndicator size="small" color={muted} />
+			) : null}
+		</View>
+	);
+}
+
+export function ArtifactCard({ artifact }: { artifact: ChatArtifact }) {
 	const { t } = useTranslation();
 	const muted = useThemeColor("muted");
 	const foreground = useThemeColor("foreground");
@@ -153,41 +201,65 @@ export function ChatEmptyState() {
 			<View className="w-full items-center gap-2.5 rounded-[20px] border-[1.5px] border-foreground/15 border-dashed px-5 py-7">
 				<WanditIcon name="page" size={26} color={muted} strokeWidth={1.4} />
 				<Text className="font-display text-[17px] text-foreground">
-					{t("native.workspace.empty.title")}
+					{t("native.workspace.chat.empty.title")}
 				</Text>
 				<Text className="text-center text-[13px] text-muted leading-5">
-					{t("native.workspace.empty.subtitle")}
+					{t("native.workspace.chat.empty.subtitle")}
 				</Text>
 			</View>
 		</View>
 	);
 }
 
-export function ChatMessages({ messages }: { messages: MockChatMessage[] }) {
+export function ChatThinkingIndicator({ label }: { label: string }) {
+	const accent = useThemeColor("accent");
+
+	return (
+		<View className="gap-[9px]">
+			<View className="flex-row items-center gap-1.5">
+				<WanditIcon name="spark" size={12} color={accent} />
+				<Text className="font-mono text-[10px] text-muted">wandit</Text>
+			</View>
+			<View className="flex-row items-center gap-2">
+				<ActivityIndicator size="small" color={accent} />
+				<Text className="text-[12.5px] text-muted">{label}</Text>
+			</View>
+		</View>
+	);
+}
+
+export function ChatErrorBanner({ message }: { message: string }) {
+	return (
+		<View className="rounded-[14px] border border-accent/35 bg-accent/10 px-3 py-2.5">
+			<Text className="text-[13px] text-foreground/90 leading-5">
+				{message}
+			</Text>
+		</View>
+	);
+}
+
+export function ChatLoadingState() {
+	const accent = useThemeColor("accent");
+
+	return (
+		<View className="flex-1 items-center justify-center">
+			<ActivityIndicator size="small" color={accent} />
+		</View>
+	);
+}
+
+export function ChatMessages({ messages }: { messages: ChatThreadMessage[] }) {
 	return (
 		<>
 			{messages.map((message) => {
 				if (message.role === "user") {
 					return <UserBubble key={message.id} text={message.text} />;
 				}
-				if (message.role === "assistant") {
-					return (
-						<View key={message.id} className="gap-[9px]">
-							{message.thoughtLabel ? (
-								<ThoughtLine label={message.thoughtLabel} />
-							) : null}
-							<AssistantText text={message.text} />
-							{message.artifact ? (
-								<ArtifactCard artifact={message.artifact} />
-							) : null}
-						</View>
-					);
-				}
 				return (
-					<UpdateCard
+					<AssistantMessage
 						key={message.id}
 						text={message.text}
-						linkLabel={message.linkLabel}
+						isStreaming={message.isStreaming}
 					/>
 				);
 			})}

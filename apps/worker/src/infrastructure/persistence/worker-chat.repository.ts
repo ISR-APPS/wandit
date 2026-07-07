@@ -1,3 +1,10 @@
+// Worker database helper for chat generation.
+//
+// The API saves the user message. The worker later loads the chat history,
+// calls the model, and saves the final assistant message.
+//
+// Assistant message ids are based on the job id, so retrying the same job
+// updates the same assistant message instead of creating duplicates.
 import { Inject, Injectable } from "@nestjs/common";
 import type { ChatMessage } from "@wandit/contracts";
 import { and, asc, eq, isNull } from "@wandit/db";
@@ -10,26 +17,32 @@ import {
 	type WorkerDatabase,
 } from "../database/database.constants";
 
+// Type of one row from the messages table.
 export type WorkerMessageRow = typeof messages.$inferSelect;
 
+// Data the processor needs before calling the AI model.
 export type GenerationContext = {
 	messages: UIMessage[];
 	projectId: string;
 	userId: string;
 };
 
+// `@Injectable()` lets the processor inject this repository.
 @Injectable()
 export class WorkerChatRepository {
 	constructor(
+		// `@Inject(WORKER_DATABASE)` asks Nest for the worker DB connection.
 		@Inject(WORKER_DATABASE)
 		private readonly db: WorkerDatabase,
 	) {}
 
+	// Load chat history for one queued generation job.
 	async loadGenerationContext(input: {
 		chatId: string;
 		projectId: string;
 		userId: string;
 	}): Promise<GenerationContext> {
+		// Verify the queued job points to a real chat owned by the expected user.
 		const [chat] = await this.db
 			.select({
 				projectId: chats.projectId,
@@ -51,6 +64,7 @@ export class WorkerChatRepository {
 			throw new Error("Generation chat not found");
 		}
 
+		// Load messages in the same order the UI shows them.
 		const rows = await this.db
 			.select()
 			.from(messages)
@@ -64,12 +78,14 @@ export class WorkerChatRepository {
 		};
 	}
 
+	// Save the assistant message. Retry of the same job updates the same row.
 	async insertAssistantMessage(input: {
 		chatId: string;
 		id: string;
 		metadata: Record<string, unknown>;
 		text: string;
 	}): Promise<WorkerMessageRow> {
+		// Messages use AI SDK "parts". This assistant message has one text part.
 		const parts = [
 			{
 				state: "done",
@@ -77,6 +93,7 @@ export class WorkerChatRepository {
 				type: "text",
 			},
 		];
+		// If the same id already exists, update it instead of inserting duplicate.
 		const [row] = await this.db
 			.insert(messages)
 			.values({
@@ -103,6 +120,7 @@ export class WorkerChatRepository {
 	}
 }
 
+// Convert a DB row into the shared chat message shape.
 export function toChatMessage(row: WorkerMessageRow): ChatMessage {
 	return {
 		chatId: row.chatId,
@@ -115,6 +133,7 @@ export function toChatMessage(row: WorkerMessageRow): ChatMessage {
 	};
 }
 
+// Convert a DB row into the message shape expected by the AI SDK.
 function toUiMessage(row: WorkerMessageRow): UIMessage {
 	return {
 		id: row.id,
@@ -124,6 +143,7 @@ function toUiMessage(row: WorkerMessageRow): UIMessage {
 	};
 }
 
+// Runtime check for "plain object, not null, not array".
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
 }

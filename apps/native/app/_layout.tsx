@@ -15,6 +15,7 @@ import {
 	InstrumentSans_600SemiBold,
 	InstrumentSans_700Bold,
 } from "@expo-google-fonts/instrument-sans";
+import { QueryClientProvider } from "@tanstack/react-query";
 import { useFonts } from "expo-font";
 import { Stack } from "expo-router";
 import { HeroUINativeProvider } from "heroui-native";
@@ -26,6 +27,7 @@ import { AppThemeProvider } from "@/contexts/app-theme-context";
 import { LocaleProvider } from "@/contexts/locale-context";
 import { authClient } from "@/lib/auth-client";
 import { useAuthBypass } from "@/lib/dev-auth-bypass";
+import { queryClient } from "@/shared/lib/query-client";
 
 // See docs/localization.md before using forceRTL; it requires an app restart.
 I18nManager.allowRTL(true);
@@ -74,15 +76,17 @@ function RootNavigator() {
 export default function Layout() {
 	return (
 		<GestureHandlerRootView style={{ flex: 1 }}>
-			<KeyboardProvider>
-				<AppThemeProvider>
-					<LocaleProvider>
-						<HeroUINativeProvider>
-							<RootNavigator />
-						</HeroUINativeProvider>
-					</LocaleProvider>
-				</AppThemeProvider>
-			</KeyboardProvider>
+			<QueryClientProvider client={queryClient}>
+				<KeyboardProvider>
+					<AppThemeProvider>
+						<LocaleProvider>
+							<HeroUINativeProvider>
+								<RootNavigator />
+							</HeroUINativeProvider>
+						</LocaleProvider>
+					</AppThemeProvider>
+				</KeyboardProvider>
+			</QueryClientProvider>
 		</GestureHandlerRootView>
 	);
 }

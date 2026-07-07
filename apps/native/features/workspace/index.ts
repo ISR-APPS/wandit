@@ -1,4 +1,10 @@
 // Public barrel — the feature's only surface for other features.
-// The shell and screens are wired by route files via direct paths;
-// nothing is exported cross-feature yet.
-export {};
+// Screens are wired by route files via direct paths.
+export * from "./api/chat.keys";
+export * from "./api/chat.mutations";
+export * from "./api/chat.queries";
+export * from "./api/chat.requests";
+export * from "./lib/chat-message";
+export * from "./lib/chat-sse-parser";
+export * from "./lib/chat-stream";
+export * from "./lib/use-project-chat";

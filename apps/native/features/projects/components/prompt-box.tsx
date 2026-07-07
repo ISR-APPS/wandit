@@ -3,8 +3,16 @@ import {
 	useTranslation,
 } from "@wandit/internationalization/react";
 import { cn, useThemeColor } from "heroui-native";
-import { useRef, useState } from "react";
-import { Pressable, Text, TextInput, View } from "react-native";
+import { useCallback, useRef, useState } from "react";
+import {
+	ActivityIndicator,
+	Keyboard,
+	Pressable,
+	Text,
+	TextInput,
+	View,
+} from "react-native";
+import Animated, { FadeIn } from "react-native-reanimated";
 
 import { WanditIcon } from "@/components/wandit-icon";
 import { useAppTheme } from "@/contexts/app-theme-context";
@@ -25,9 +33,11 @@ import {
 	type SkillFileDef,
 	type SkillFileId,
 } from "../lib/prompt";
+import { useVoiceDictation } from "../lib/use-voice-dictation";
 import { AttachSheet, type AttachSource } from "./attach-sheet";
 import { EnginePickerSheet } from "./engine-picker-sheet";
 import { OutputConfigSheet } from "./output-config-sheet";
+import { RecordingWaveform } from "./recording-waveform";
 import { SkillSelectDialog } from "./skill-select-dialog";
 
 export type PromptBoxProps = {
@@ -39,6 +49,7 @@ export type PromptBoxProps = {
 	placeholder?: string;
 	initialValue?: string;
 	clearOnSubmit?: boolean;
+	isSubmitting?: boolean;
 	className?: string;
 };
 
@@ -54,6 +65,7 @@ export function PromptBox({
 	placeholder,
 	initialValue = "",
 	clearOnSubmit = false,
+	isSubmitting = false,
 	className,
 }: PromptBoxProps) {
 	const { t } = useTranslation();
@@ -62,6 +74,7 @@ export function PromptBox({
 	const foreground = useThemeColor("foreground");
 	const accent = useThemeColor("accent");
 	const muted = useThemeColor("muted");
+	const danger = useThemeColor("danger");
 	const iconStroke = isDark ? ICON_STROKE.dark : ICON_STROKE.light;
 
 	const inputRef = useRef<TextInput>(null);
@@ -82,8 +95,22 @@ export function PromptBox({
 	// Chips beyond this collapse into a "+N" pill so the composer stays short.
 	const maxVisibleSkills = 2;
 
+	const appendTranscript = useCallback((text: string) => {
+		setValue((current) => (current ? `${current.trimEnd()} ${text}` : text));
+	}, []);
+	const voiceDictation = useVoiceDictation(appendTranscript, {
+		permissionDenied: t("native.voiceDictation.permissionDenied"),
+		recordingError: t("native.voiceDictation.recordingError"),
+		recordingTooLargeError: t("native.voiceDictation.recordingTooLargeError"),
+		recordingUnreadableError: t(
+			"native.voiceDictation.recordingUnreadableError",
+		),
+		transcribeError: t("native.voiceDictation.transcribeError"),
+	});
+
 	const isHero = variant === "hero";
 	const canSubmit = value.trim().length > 0;
+	const submitEnabled = canSubmit && !isSubmitting && !voiceDictation.isBusy;
 	const selectedMode =
 		ROUTE_MODES.find((mode) => mode.id === routeMode) ?? ROUTE_MODES[0];
 	const selectedOutput = getOutput(selectedOutputId);
@@ -92,10 +119,15 @@ export function PromptBox({
 	);
 
 	const handleSubmit = () => {
+		if (isSubmitting || voiceDictation.isBusy) {
+			return;
+		}
+
 		const prompt = value.trim();
 		if (!prompt) {
 			return;
 		}
+		voiceDictation.clearError();
 		const result = onSubmit(prompt);
 		if (clearOnSubmit && result !== false) {
 			setValue("");
@@ -103,7 +135,30 @@ export function PromptBox({
 		}
 	};
 
+	const handleValueChange = (nextValue: string) => {
+		voiceDictation.clearError();
+		setValue(nextValue);
+	};
+
+	const startVoiceDictation = () => {
+		if (isSubmitting || voiceDictation.isTranscribing) {
+			return;
+		}
+
+		Keyboard.dismiss();
+		void voiceDictation.start();
+	};
+
+	const cancelVoiceDictation = () => {
+		void voiceDictation.cancel();
+	};
+
+	const confirmVoiceDictation = () => {
+		void voiceDictation.stop();
+	};
+
 	const handleModeChange = (mode: RouteMode) => {
+		voiceDictation.clearError();
 		setRouteMode(mode);
 		const defaultOutput = getDefaultOutput(mode);
 		setSelectedOutputId(defaultOutput?.id ?? null);
@@ -111,15 +166,18 @@ export function PromptBox({
 	};
 
 	const selectOutput = (output: GenerationOutputDef) => {
+		voiceDictation.clearError();
 		setSelectedOutputId(output.id);
 		setOutputOptions(createDefaultOptions(output));
 	};
 
 	const updateOutputOption = (groupId: string, choiceId: string) => {
+		voiceDictation.clearError();
 		setOutputOptions((current) => ({ ...current, [groupId]: choiceId }));
 	};
 
 	const toggleSkill = (skill: SkillFileDef) => {
+		voiceDictation.clearError();
 		setSelectedSkillIds((current) =>
 			current.includes(skill.id)
 				? current.filter((id) => id !== skill.id)
@@ -128,11 +186,13 @@ export function PromptBox({
 	};
 
 	const openSkillDialog = () => {
+		voiceDictation.clearError();
 		// Let the attach sheet's dismissal start before the dialog fades in.
 		setTimeout(() => setSkillsOpen(true), 220);
 	};
 
 	const handlePickAttachment = (source: AttachSource) => {
+		voiceDictation.clearError();
 		// UI-only mock until expo-image-picker is wired: show the attachment row
 		// exactly like the prototype's "IMG_2041.jpg · attached · 2.1 MB".
 		const id = `mock-${Date.now()}`;
@@ -165,8 +225,12 @@ export function PromptBox({
 	const sendGlow = isDark
 		? "0 4px 16px -4px rgba(253, 106, 58, 0.6)"
 		: "0 6px 18px -6px rgba(209, 96, 34, 0.6)";
+	const voiceConfirmGlow = isDark
+		? "0 4px 14px -5px rgba(253, 106, 58, 0.64)"
+		: "0 6px 16px -7px rgba(209, 96, 34, 0.58)";
 	// Same footprint as the other toolbar circles ([+], sliders, mic).
 	const sendSize = 38;
+	const voiceActive = voiceDictation.isRecording || voiceDictation.isTranscribing;
 
 	return (
 		<View
@@ -206,7 +270,10 @@ export function PromptBox({
 							accessibilityLabel={t("projects.promptBox.moreSkillsLabel", {
 								count: attachedSkills.length - maxVisibleSkills,
 							})}
-							onPress={() => setSkillsOpen(true)}
+							onPress={() => {
+								voiceDictation.clearError();
+								setSkillsOpen(true);
+							}}
 							className="h-7 items-center justify-center rounded-full border border-accent/25 bg-accent/10 px-2.5 active:scale-95"
 						>
 							<Text
@@ -228,11 +295,12 @@ export function PromptBox({
 								<Pressable
 									accessibilityRole="button"
 									accessibilityLabel={t("native.attach.remove")}
-									onPress={() =>
+									onPress={() => {
+										voiceDictation.clearError();
 										setAttachments((current) =>
 											current.filter((item) => item.id !== attachment.id),
-										)
-									}
+										);
+									}}
 									className="absolute -end-1.5 -top-1.5 h-[18px] w-[18px] items-center justify-center rounded-full border border-border bg-surface-tertiary"
 								>
 									<WanditIcon name="close" size={8} color={foreground} />
@@ -256,20 +324,90 @@ export function PromptBox({
 				ref={inputRef}
 				accessibilityLabel={resolvedPlaceholder}
 				value={value}
-				onChangeText={setValue}
+				onChangeText={handleValueChange}
 				placeholder={resolvedPlaceholder}
 				placeholderTextColor={muted}
 				multiline
+				editable={!isSubmitting && !voiceActive}
 				maxLength={PROMPT_MAX_LENGTH}
 				textAlignVertical="top"
 				className="w-full px-4 pt-[15px] pb-1 text-[15px] text-foreground leading-[22px]"
-				style={{ minHeight: isHero ? 64 : 48, maxHeight: isHero ? 160 : 120 }}
+				style={{
+					minHeight: isHero ? 64 : 48,
+					maxHeight: isHero ? 160 : 120,
+				}}
 			/>
+			{/* Voice focus mode: the text box stays visible above, only the bottom
+			    options row swaps for the recording controls. */}
+			<View>
+				{voiceDictation.isRecording ? (
+					<Animated.View
+						entering={FadeIn.duration(160)}
+						className="flex-row items-center gap-3 px-2.5 pt-2.5 pb-2.5"
+					>
+						{/* Discard on the left, confirm on the right — the layout every
+						    voice-note UI trains people on. The waveform owns the middle.
+						    Danger tint marks it as "throw this recording away". */}
+						<Pressable
+							accessibilityRole="button"
+							accessibilityLabel={t("native.voiceDictation.cancelLabel")}
+							onPress={cancelVoiceDictation}
+							hitSlop={8}
+							className="h-[38px] w-[38px] items-center justify-center rounded-full border border-danger/30 bg-danger/10 active:scale-95"
+						>
+							<WanditIcon name="close" size={14} color={danger} />
+						</Pressable>
+						<RecordingWaveform
+							recorder={voiceDictation.recorder}
+							elapsedSeconds={voiceDictation.elapsedSeconds}
+						/>
+						{/* Confirm mirrors the send button (gradient + up arrow): the
+						    recording "sends" the same way a typed prompt does. */}
+						<Pressable
+							accessibilityRole="button"
+							accessibilityLabel={t("native.voiceDictation.confirmLabel")}
+							onPress={confirmVoiceDictation}
+							hitSlop={8}
+							className="relative items-center justify-center overflow-visible rounded-full active:scale-95"
+							style={{
+								width: sendSize,
+								height: sendSize,
+								boxShadow: voiceConfirmGlow,
+							}}
+						>
+							<BrandGradientFill radius={sendSize / 2} />
+							<WanditIcon
+								name="arrowUp"
+								size={17}
+								color={isDark ? "#160D07" : "#FFFFFF"}
+							/>
+						</Pressable>
+					</Animated.View>
+				) : null}
+				{voiceDictation.isTranscribing ? (
+					<Animated.View
+						entering={FadeIn.duration(160)}
+						className="mt-2.5 mb-2.5 h-[38px] flex-row items-center gap-2.5 px-4"
+					>
+						<ActivityIndicator size="small" color={accent} />
+						<Text
+							numberOfLines={1}
+							className="font-sans-medium text-[13px] text-muted"
+						>
+							{t("native.voiceDictation.transcribing")}
+						</Text>
+					</Animated.View>
+				) : null}
+			</View>
+			{!voiceActive ? (
 			<View className="flex-row items-center gap-2 px-2.5 pb-2.5">
 				<Pressable
 					accessibilityRole="button"
 					accessibilityLabel={promptBox.addMenuLabel}
-					onPress={() => setAttachOpen(true)}
+					onPress={() => {
+						voiceDictation.clearError();
+						setAttachOpen(true);
+					}}
 					className="h-[38px] w-[38px] items-center justify-center rounded-full border border-border active:scale-95"
 				>
 					<WanditIcon name="plus" size={16} color={iconStroke} />
@@ -277,7 +415,10 @@ export function PromptBox({
 				<Pressable
 					accessibilityRole="button"
 					accessibilityLabel={promptBox.modeLabel}
-					onPress={() => setEngineOpen(true)}
+					onPress={() => {
+						voiceDictation.clearError();
+						setEngineOpen(true);
+					}}
 					className="h-[34px] flex-row items-center gap-1.5 rounded-full border border-border px-[11px] active:scale-95"
 				>
 					<WanditIcon name={selectedMode.icon} size={12} color={accent} />
@@ -296,7 +437,10 @@ export function PromptBox({
 					<Pressable
 						accessibilityRole="button"
 						accessibilityLabel={promptBox.settingsLabel}
-						onPress={() => setConfigOpen(true)}
+						onPress={() => {
+							voiceDictation.clearError();
+							setConfigOpen(true);
+						}}
 						className="h-[38px] w-[38px] items-center justify-center rounded-full border border-border active:scale-95"
 					>
 						<WanditIcon name="sliders" size={16} color={iconStroke} />
@@ -305,25 +449,46 @@ export function PromptBox({
 				<Pressable
 					accessibilityRole="button"
 					accessibilityLabel={promptBox.micLabel}
-					className="h-[38px] w-[38px] items-center justify-center rounded-full border border-border active:scale-95"
+					accessibilityState={{
+						busy: voiceDictation.isTranscribing,
+						disabled: isSubmitting || voiceDictation.isTranscribing,
+						selected: voiceDictation.isRecording,
+					}}
+					disabled={isSubmitting || voiceDictation.isTranscribing}
+					onPress={startVoiceDictation}
+					className={cn(
+						"h-[38px] w-[38px] items-center justify-center rounded-full border border-border active:scale-95",
+						voiceDictation.isRecording && "border-accent/45 bg-accent/10",
+						(isSubmitting || voiceDictation.isTranscribing) && "opacity-45",
+					)}
 				>
-					<WanditIcon name="mic" size={16} color={iconStroke} />
+					<WanditIcon
+						name="mic"
+						size={16}
+						color={voiceDictation.isRecording ? accent : iconStroke}
+					/>
 				</Pressable>
 				<Pressable
 					accessibilityRole="button"
 					accessibilityLabel={promptBox.submitLabel}
-					disabled={!canSubmit}
+					accessibilityState={{ disabled: !submitEnabled, busy: isSubmitting }}
+					disabled={!submitEnabled}
 					onPress={handleSubmit}
 					className="relative items-center justify-center overflow-visible rounded-full active:scale-95"
 					style={{
 						width: sendSize,
 						height: sendSize,
-						opacity: canSubmit ? 1 : 0.45,
-						boxShadow: canSubmit ? sendGlow : undefined,
+						opacity: submitEnabled ? 1 : isSubmitting ? 0.78 : 0.45,
+						boxShadow: submitEnabled ? sendGlow : undefined,
 					}}
 				>
 					<BrandGradientFill radius={sendSize / 2} />
-					{isHero ? (
+					{isSubmitting ? (
+						<ActivityIndicator
+							size="small"
+							color={isHero || !isDark ? "#FFFFFF" : "#160D07"}
+						/>
+					) : isHero ? (
 						<WanditIcon name="spark" size={16} color="#FFFFFF" />
 					) : (
 						<WanditIcon
@@ -334,6 +499,15 @@ export function PromptBox({
 					)}
 				</Pressable>
 			</View>
+			) : null}
+			{voiceDictation.error ? (
+				<Text
+					selectable
+					className="px-4 pb-2.5 font-sans-medium text-[12px] text-danger"
+				>
+					{voiceDictation.error}
+				</Text>
+			) : null}
 
 			<EnginePickerSheet
 				isOpen={engineOpen}

@@ -1,7 +1,7 @@
 import { useTranslation } from "@wandit/internationalization/react";
 import { router, useNavigation } from "expo-router";
 import { cn, useThemeColor } from "heroui-native";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Pressable, ScrollView, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -11,7 +11,7 @@ import { IconCircleButton } from "@/components/icon-circle-button";
 import { Wordmark } from "@/components/wordmark";
 import { useAppTheme } from "@/contexts/app-theme-context";
 import { CreditsChip, MOCK_CREDITS } from "@/features/credits";
-import { MOCK_PROJECTS, PromptBox } from "@/features/projects";
+import { PromptBox, useCreateProject } from "@/features/projects";
 import { authClient } from "@/lib/auth-client";
 
 type SuggestionChipKey =
@@ -42,6 +42,9 @@ export function HomeScreen() {
 	const [prefill, setPrefill] = useState<{ key: number; value: string } | null>(
 		null,
 	);
+	const [submitError, setSubmitError] = useState<string | null>(null);
+	const createProjectLockRef = useRef(false);
+	const createProject = useCreateProject();
 
 	// "Zakaria" mirrors the prototype greeting while the dev auth bypass has
 	// no real session behind it.
@@ -61,11 +64,28 @@ export function HomeScreen() {
 	}
 
 	function handleSubmit(prompt: string) {
-		// TODO: create a real project from the prompt (features/projects/api/),
-		// then land in the workspace with generation streaming. Mock: open the
-		// most recent project.
-		void prompt;
-		router.push(`/project/${MOCK_PROJECTS[0].id}`);
+		if (createProjectLockRef.current || createProject.isPending) {
+			return false;
+		}
+
+		createProjectLockRef.current = true;
+		setSubmitError(null);
+		createProject.mutate(
+			{ prompt },
+			{
+				onSuccess: ({ projectId }) => {
+					setPrefill({ key: Date.now(), value: "" });
+					router.push(`/project/${projectId}`);
+				},
+				onError: () => {
+					setSubmitError(t("native.home.createProjectError"));
+				},
+				onSettled: () => {
+					createProjectLockRef.current = false;
+				},
+			},
+		);
+		return false;
 	}
 
 	return (
@@ -98,7 +118,7 @@ export function HomeScreen() {
 				keyboardShouldPersistTaps="handled"
 			>
 				<View className="mb-3">
-					<BrandOrb size={172} variant="aurora" />
+					<BrandOrb size={112} variant="aurora" />
 				</View>
 				<Text className="max-w-[300px] text-center font-display text-[27px] text-foreground leading-[31px] tracking-[-0.54px]">
 					{t("native.home.greeting", { name: firstName })}
@@ -108,8 +128,14 @@ export function HomeScreen() {
 						key={prefill?.key ?? 0}
 						variant="hero"
 						initialValue={prefill?.value}
+						isSubmitting={createProject.isPending}
 						onSubmit={handleSubmit}
 					/>
+					{submitError ? (
+						<Text className="mt-2 text-center font-sans-medium text-[12.5px] text-danger">
+							{submitError}
+						</Text>
+					) : null}
 				</View>
 				<View className="mt-3.5 flex-row flex-wrap justify-center gap-[7px]">
 					{SUGGESTION_CHIPS.map((chipKey, index) => {
@@ -142,9 +168,10 @@ export function HomeScreen() {
 				</View>
 				<Pressable
 					accessibilityRole="button"
-					onPress={() =>
-						setPrefill({ key: Date.now(), value: t("native.home.tryPrompt") })
-					}
+					onPress={() => {
+						setSubmitError(null);
+						setPrefill({ key: Date.now(), value: t("native.home.tryPrompt") });
+					}}
 					className="mt-4"
 				>
 					<Text

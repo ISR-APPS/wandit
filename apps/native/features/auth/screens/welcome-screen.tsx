@@ -1,6 +1,6 @@
 import { useTranslation } from "@wandit/internationalization/react";
 import { useThemeColor } from "heroui-native";
-import { useId } from "react";
+import { useId, useState } from "react";
 import { Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Svg, {
@@ -16,6 +16,7 @@ import { DottedGrid } from "@/components/dotted-grid";
 import { RadialGlow } from "@/components/radial-glow";
 import { WanditIcon } from "@/components/wandit-icon";
 import { useAppTheme } from "@/contexts/app-theme-context";
+import { authClient } from "@/lib/auth-client";
 import { enableAuthBypass } from "@/lib/dev-auth-bypass";
 import { BRAND_GLOW } from "@/shared/lib/brand";
 import { AppPressableFeedback } from "@/shared/ui/pressable-feedback";
@@ -76,12 +77,37 @@ export function WelcomeScreen() {
 	const insets = useSafeAreaInsets();
 	const { isDark } = useAppTheme();
 	const accent = useThemeColor("accent");
+	const [signInError, setSignInError] = useState<string | null>(null);
+	const [isSigningIn, setIsSigningIn] = useState(false);
 
-	function signInWithGoogle() {
+	async function signInWithGoogle() {
+		if (isSigningIn) {
+			return;
+		}
+
+		setSignInError(null);
+		setIsSigningIn(true);
+
+		try {
+			const { error } = await authClient.signIn.social({
+				provider: "google",
+				callbackURL: "/",
+			});
+
+			if (error) {
+				setSignInError(t("native.auth.welcome.googleError"));
+			}
+		} catch {
+			setSignInError(t("native.auth.welcome.googleError"));
+		} finally {
+			setIsSigningIn(false);
+		}
+	}
+
+	function continueInDevMode() {
 		// DEV BYPASS: real Google OAuth can't round-trip in Expo Go (wandit://
-		// isn't registered there), so the button drops straight into the app.
-		// Restore the call below on a dev build, then delete lib/dev-auth-bypass.ts.
-		// await authClient.signIn.social({ provider: "google", callbackURL: "/" });
+		// isn't registered there), so this secondary dev action drops straight
+		// into the app when a dev build is not available.
 		enableAuthBypass();
 	}
 
@@ -117,7 +143,7 @@ export function WelcomeScreen() {
 				</View>
 
 				<View className="mt-16">
-					<BrandOrb size={210} variant="ember" />
+					<BrandOrb size={172} variant="ember" />
 				</View>
 
 				<View className="mt-[34px] w-full">
@@ -138,16 +164,41 @@ export function WelcomeScreen() {
 
 				<AppPressableFeedback
 					accessibilityRole="button"
+					accessibilityState={{ disabled: isSigningIn }}
 					animation={{ scale: { ignoreScaleCoefficient: true, value: 0.975 } }}
+					isDisabled={isSigningIn}
 					onPress={signInWithGoogle}
-					className="h-[52px] w-full flex-row items-center justify-center gap-2.5 rounded-full bg-foreground"
+					className={`h-[52px] w-full flex-row items-center justify-center gap-2.5 rounded-full bg-foreground ${isSigningIn ? "opacity-70" : ""}`}
 					style={{ boxShadow: BRAND_GLOW.lg }}
 				>
 					<GoogleIcon />
 					<Text className="font-sans-semibold text-[15.5px] text-background">
-						{t("native.auth.welcome.googleCta")}
+						{isSigningIn
+							? t("native.auth.welcome.googlePendingCta")
+							: t("native.auth.welcome.googleCta")}
 					</Text>
 				</AppPressableFeedback>
+
+				{signInError ? (
+					<Text className="mt-3 max-w-[300px] text-center text-[12px] text-danger leading-[17px]">
+						{signInError}
+					</Text>
+				) : null}
+
+				{__DEV__ ? (
+					<AppPressableFeedback
+						accessibilityRole="button"
+						accessibilityState={{ disabled: isSigningIn }}
+						animation={{ scale: { ignoreScaleCoefficient: true, value: 0.975 } }}
+						className={`mt-3 rounded-full px-4 py-2 ${isSigningIn ? "opacity-60" : ""}`}
+						isDisabled={isSigningIn}
+						onPress={continueInDevMode}
+					>
+						<Text className="font-sans-semibold text-[12px] text-muted">
+							{t("native.auth.welcome.devModeCta")}
+						</Text>
+					</AppPressableFeedback>
+				) : null}
 
 				<View className="mt-4 flex-row items-center gap-1.5">
 					<WanditIcon name="spark" size={10} color={accent} />

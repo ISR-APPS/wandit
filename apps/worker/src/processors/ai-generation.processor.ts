@@ -1,3 +1,12 @@
+// Worker processor for AI chat generation jobs.
+//
+// The API already saved the user message and added a BullMQ job.
+// This worker reads that job and does the slow work:
+// 1. load chat history
+// 2. call the AI model
+// 3. publish live text deltas to Redis
+// 4. save the final assistant message
+// 5. spend credits
 import { Processor, WorkerHost } from "@nestjs/bullmq";
 import { Inject, Logger } from "@nestjs/common";
 import { env } from "@wandit/env/server";
@@ -20,14 +29,18 @@ import {
 } from "../infrastructure/persistence/worker-credits.service";
 import { ChatEventsPublisher } from "../infrastructure/redis/chat-events.publisher";
 
+// Do not send huge provider errors to the browser.
 const GENERATION_ERROR_MESSAGE_MAX_LENGTH = 300;
+// AI Gateway uses this marker on some errors.
 const GATEWAY_ERROR_MARKER = Symbol.for("vercel.ai.gateway.error");
 
+// `@Processor(queueName)` tells BullMQ/Nest this class handles jobs from a queue.
 @Processor(AI_GENERATION_QUEUE)
 export class AiGenerationProcessor extends WorkerHost {
 	private readonly logger = new Logger(AiGenerationProcessor.name);
 
 	constructor(
+		// Nest injects these helpers. The processor does not create them manually.
 		@Inject(WorkerChatRepository)
 		private readonly workerChatRepository: WorkerChatRepository,
 		@Inject(WorkerCreditsService)
@@ -38,9 +51,11 @@ export class AiGenerationProcessor extends WorkerHost {
 		super();
 	}
 
+	// BullMQ calls this method once for each queued job.
 	async process(job: Job<AiGenerationJobData, unknown, AiGenerationJobName>) {
 		this.logger.log(`Received ${job.name} job ${job.id}`);
 
+		// This worker currently handles only "generate-copy".
 		if (job.name !== "generate-copy") {
 			return {
 				processed: false,
@@ -51,6 +66,8 @@ export class AiGenerationProcessor extends WorkerHost {
 		const data = job.data;
 		const jobId = data.jobId;
 		const assistantMessageId = assistantMessageIdForJob(jobId);
+		// Some AI SDK errors arrive through callbacks/stream parts, not thrown.
+		// Keep the first one so we can publish one clear error event.
 		let hasStreamError = false;
 		let streamError: unknown;
 		const captureStreamError = (error: unknown) => {
@@ -61,15 +78,19 @@ export class AiGenerationProcessor extends WorkerHost {
 		};
 
 		try {
+			// Mark chat as busy and publish "started".
 			await this.chatEventsPublisher.markStarted(data.chatId, jobId);
 			this.assertGatewayConfigured();
 			await this.chatEventsPublisher.publishThinking(data.chatId);
 
+			// Load messages and verify the job points to the expected user/project.
 			const context =
 				await this.workerChatRepository.loadGenerationContext(data);
+			// Convert saved UI messages into model messages for the AI SDK.
 			const modelMessages = await convertToModelMessages(
 				context.messages.map(({ id: _id, ...message }) => message),
 			);
+			// Start the model request and receive an async stream of parts.
 			const result = streamText({
 				messages: modelMessages,
 				model: env.AI_CHAT_MODEL,
@@ -81,6 +102,7 @@ export class AiGenerationProcessor extends WorkerHost {
 			let text = "";
 
 			try {
+				// Each text delta is saved locally and published to Redis immediately.
 				for await (const part of result.stream) {
 					if (part.type === "error") {
 						captureStreamError(part.error);
@@ -101,17 +123,21 @@ export class AiGenerationProcessor extends WorkerHost {
 					});
 				}
 			} catch (error) {
+				// Prefer the captured provider error if one exists.
 				throw hasStreamError ? streamError : error;
 			}
 
+			// Some provider errors are captured without throwing inside the loop.
 			if (hasStreamError) {
 				throw streamError;
 			}
 
+			// Store usage/finish metadata with the assistant message.
 			const [usage, finishReason] = await Promise.all([
 				result.usage,
 				result.finishReason,
 			]);
+			// Save before publishing completion, so reload can fetch the final message.
 			const assistantMessage =
 				await this.workerChatRepository.insertAssistantMessage({
 					chatId: data.chatId,
@@ -126,6 +152,7 @@ export class AiGenerationProcessor extends WorkerHost {
 				});
 
 			await this.consumeCreditsAfterPersist(data, jobId);
+			// Send final message, then send "done" so UI clears busy state.
 			await this.chatEventsPublisher.publishMessageCompleted(
 				data.chatId,
 				toChatMessage(assistantMessage),
@@ -137,13 +164,16 @@ export class AiGenerationProcessor extends WorkerHost {
 				processed: true,
 			};
 		} catch (error) {
+			// Tell the UI about the failure, then rethrow so BullMQ records it.
 			await this.publishFailureEvents(data.chatId, jobId, error);
 			throw error;
 		} finally {
+			// Always try to clear the busy flag for this job.
 			await this.clearActiveSafely(data.chatId, jobId);
 		}
 	}
 
+	// Spend credits after the assistant message is saved.
 	private async consumeCreditsAfterPersist(
 		data: AiGenerationJobData,
 		jobId: string,
@@ -156,8 +186,7 @@ export class AiGenerationProcessor extends WorkerHost {
 			);
 		} catch (error) {
 			if (error instanceof InsufficientCreditsError) {
-				// The send-time gate owns user-facing credit failures; completed output
-				// should still be delivered if the post-persist consume races balance.
+				// The answer is already saved, so deliver it and log the credit mismatch.
 				this.logger.warn(error.message);
 				return;
 			}
@@ -166,6 +195,7 @@ export class AiGenerationProcessor extends WorkerHost {
 		}
 	}
 
+	// Publish error + done so the browser does not stay stuck in loading state.
 	private async publishFailureEvents(
 		chatId: string,
 		jobId: string,
@@ -181,6 +211,7 @@ export class AiGenerationProcessor extends WorkerHost {
 		);
 	}
 
+	// Clear the busy flag, but do not hide the original error if cleanup fails.
 	private async clearActiveSafely(
 		chatId: string,
 		jobId: string,
@@ -195,6 +226,7 @@ export class AiGenerationProcessor extends WorkerHost {
 		}
 	}
 
+	// During failures, try each publish independently.
 	private async tryPublish(
 		eventName: string,
 		publish: () => Promise<void>,
@@ -209,6 +241,7 @@ export class AiGenerationProcessor extends WorkerHost {
 		}
 	}
 
+	// Fail fast if the worker has no AI Gateway key.
 	private assertGatewayConfigured() {
 		if (!env.AI_GATEWAY_API_KEY) {
 			throw new Error("AI_GATEWAY_API_KEY is required for generation");
@@ -216,12 +249,13 @@ export class AiGenerationProcessor extends WorkerHost {
 	}
 }
 
+// Use job id to make assistant message id stable across retries.
 function assistantMessageIdForJob(jobId: string): string {
-	// Text message ids can use a stable per-job namespace, making BullMQ
-	// replay idempotent.
+	// Same job -> same assistant message id.
 	return `assistant:${jobId}`;
 }
 
+// Convert any error into the small error shape sent to the browser.
 function toPublishedGenerationError(error: unknown): {
 	code: string;
 	message: string;
@@ -238,6 +272,7 @@ function toPublishedGenerationError(error: unknown): {
 	};
 }
 
+// Map known AI Gateway status codes to stable UI error codes.
 function generationErrorCode(error: unknown): string {
 	const gatewayError = findGatewayError(error);
 
@@ -252,10 +287,12 @@ function generationErrorCode(error: unknown): string {
 	return "GENERATION_FAILED";
 }
 
+// Retry errors may wrap the real provider error. Prefer the real one.
 function preferredProviderError(error: unknown): unknown {
 	return retryLastError(error) ?? error;
 }
 
+// Get the last underlying error from retry-shaped objects.
 function retryLastError(error: unknown): unknown | undefined {
 	if (!isRecord(error)) {
 		return undefined;
@@ -272,6 +309,7 @@ function retryLastError(error: unknown): unknown | undefined {
 	return error.errors[error.errors.length - 1];
 }
 
+// Search nested errors for an AI Gateway status code.
 function findGatewayError(error: unknown): { statusCode: number } | undefined {
 	const preferredError = preferredProviderError(error);
 
@@ -293,6 +331,7 @@ function findGatewayError(error: unknown): { statusCode: number } | undefined {
 	return findGatewayError(error.cause);
 }
 
+// Safely get a readable message from an unknown thrown value.
 function errorMessage(error: unknown): string | undefined {
 	let message: string | undefined;
 
@@ -309,12 +348,14 @@ function errorMessage(error: unknown): string | undefined {
 	return normalized ? normalized : undefined;
 }
 
+// Keep error messages short before sending them to the browser.
 function truncateMessage(message: string): string {
 	return message.length > GENERATION_ERROR_MESSAGE_MAX_LENGTH
 		? `${message.slice(0, GENERATION_ERROR_MESSAGE_MAX_LENGTH - 3)}...`
 		: message;
 }
 
+// Runtime check before reading properties from an unknown value.
 function isRecord(value: unknown): value is Record<PropertyKey, unknown> {
 	return typeof value === "object" && value !== null;
 }

@@ -1,6 +1,18 @@
+/**
+ * Nest module for chat/generation.
+ *
+ * In Express you manually register routes and pass services around yourself.
+ * In Nest, a module is the place where you list:
+ * - controllers: HTTP routes
+ * - providers: classes Nest can create and inject
+ * - imports: other modules this feature needs
+ * - exports: providers other modules may use
+ */
+// `@Module()` is Nest's wiring object for one feature area.
 import { Module } from "@nestjs/common";
 
 import { DatabaseModule } from "../../infrastructure/database/database.module";
+// BullMQ is the Redis-backed queue used for slow background work.
 import { QueuesModule } from "../../infrastructure/queues/queues.module";
 import { BillingModule } from "../billing/billing.module";
 import { CreditsModule } from "../credits/credits.module";
@@ -16,13 +28,17 @@ import { ChatsController } from "./presentation/http/controllers/chats.controlle
 import { TranscriptionsController } from "./presentation/http/controllers/transcriptions.controller";
 
 @Module({
+	// Controllers receive HTTP requests.
 	controllers: [ChatsController, TranscriptionsController],
+	// Exports are the services other modules are allowed to inject.
 	exports: [
 		GenerationActivityService,
 		GenerationPolicyService,
 		GenerationQueueService,
 	],
+	// Imports make providers from other modules available here.
 	imports: [DatabaseModule, QueuesModule, BillingModule, CreditsModule],
+	// Providers are classes Nest can create for this module.
 	providers: [
 		ChatEventsRepository,
 		ChatsRepository,
@@ -34,4 +50,5 @@ import { TranscriptionsController } from "./presentation/http/controllers/transc
 		TranscriptionService,
 	],
 })
+// Empty class: the `@Module()` metadata above is the important part.
 export class GenerationModule {}

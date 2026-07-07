@@ -1,3 +1,11 @@
+// Worker-side credit spending.
+//
+// The API checks if the user can start generation. The worker spends credits
+// only after it saved the final assistant message. This avoids charging for a
+// failed generation that never produced a saved answer.
+//
+// The job id is used in idempotency keys, so retrying the same job does not
+// charge twice.
 import { Inject, Injectable } from "@nestjs/common";
 import { CREDIT_COSTS } from "@wandit/contracts";
 import { and, eq, inArray, sql } from "@wandit/db";
@@ -10,11 +18,14 @@ import {
 	type WorkerDatabase,
 } from "../database/database.constants";
 
+// Type of one credit ledger row.
 type CreditLedgerRow = typeof creditLedger.$inferSelect;
+// Type of the transaction object Drizzle gives us inside db.transaction().
 type WorkerTransaction = Parameters<
 	Parameters<WorkerDatabase["transaction"]>[0]
 >[0];
 
+// Error used when the balance is too low at charge time.
 export class InsufficientCreditsError extends Error {
 	constructor(
 		readonly required: number,
@@ -27,18 +38,22 @@ export class InsufficientCreditsError extends Error {
 	}
 }
 
+// `@Injectable()` lets the processor inject this service.
 @Injectable()
 export class WorkerCreditsService {
 	constructor(
+		// Ask Nest for the worker database connection.
 		@Inject(WORKER_DATABASE)
 		private readonly db: WorkerDatabase,
 	) {}
 
+	// Spend credits for a finished generation. Safe to call again for same job id.
 	async consumeForGeneration(
 		userId: string,
 		action: AiGenerationJobData["action"],
 		jobId: string,
 	): Promise<void> {
+		// Local/dev mode can disable billing side effects.
 		if (env.GENERATION_BILLING_MODE === "off") {
 			return;
 		}
@@ -46,9 +61,12 @@ export class WorkerCreditsService {
 		const amount = CREDIT_COSTS[action];
 		const baseIdempotencyKey = `consume:${jobId}`;
 
+		// Transaction keeps balance check and ledger writes together.
+		// Advisory lock makes one user's credit writes run one at a time.
 		await this.db.transaction(async (tx) => {
 			await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${userId}))`);
 
+			// If this job already charged credits, do nothing.
 			const existingRows = await this.findExistingConsumeRows(
 				userId,
 				baseIdempotencyKey,
@@ -59,6 +77,7 @@ export class WorkerCreditsService {
 				return;
 			}
 
+			// Balance is calculated from ledger rows.
 			const balance = await this.getBalance(userId, tx);
 
 			if (balance.balance < amount) {
@@ -68,6 +87,7 @@ export class WorkerCreditsService {
 			const planAmount = Math.min(Math.max(balance.plan, 0), amount);
 			const topupAmount = amount - planAmount;
 
+			// Spend plan credits first, then top-up credits.
 			if (planAmount > 0) {
 				await this.insertLedgerEntry(
 					{
@@ -98,6 +118,7 @@ export class WorkerCreditsService {
 		});
 	}
 
+	// Calculate balance from all ledger deltas.
 	private async getBalance(userId: string, tx: WorkerTransaction) {
 		const rows = await tx
 			.select({
@@ -123,6 +144,7 @@ export class WorkerCreditsService {
 		return balance;
 	}
 
+	// Check if this job already wrote consume rows.
 	private findExistingConsumeRows(
 		userId: string,
 		baseIdempotencyKey: string,
@@ -142,6 +164,7 @@ export class WorkerCreditsService {
 			);
 	}
 
+	// Add one negative ledger row.
 	private async insertLedgerEntry(
 		input: {
 			bucket: "plan" | "topup";

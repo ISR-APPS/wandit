@@ -6,6 +6,9 @@
 			"headline3": "Vends-le.",
 			"tagline": "Un prompt devient une landing page qui prend des commandes COD — publie en quelques minutes.",
 			"googleCta": "Continuer avec Google",
+			"googlePendingCta": "Ouverture de Google...",
+			"googleError": "Impossible de lancer la connexion Google. Réessaie.",
+			"devModeCta": "Continuer en mode dev",
 			"betaHint": "Bêta — tes 10 premières pages sont offertes"
 		}
 	},
@@ -20,14 +23,23 @@
 			"flyer": "Flyer"
 		},
 		"tryHint": "Essaie : page COD pour une montre vintage →",
-		"tryPrompt": "Une page produit COD pour une montre vintage en cuir — photo héro, trois blocs bénéfices, et un formulaire de commande avec wilaya et commune."
+		"tryPrompt": "Une page produit COD pour une montre vintage en cuir — photo héro, trois blocs bénéfices, et un formulaire de commande avec wilaya et commune.",
+		"createProjectError": "Impossible de créer le projet. Réessaie."
 	},
 	"drawer": {
 		"signOut": "Se déconnecter",
 		"language": "Langue",
 		"createProject": "Créer un projet",
 		"filterCreatedByMe": "Créés par moi",
-		"myWandit": "Mon Wandit"
+		"myWandit": "Mon Wandit",
+		"searchLabel": "Rechercher des projets",
+		"searchPlaceholder": "Rechercher des projets",
+		"cancelSearchLabel": "Fermer la recherche",
+		"projectsLoading": "Chargement des projets…",
+		"projectsError": "Les projets n'ont pas pu charger.",
+		"retry": "Réessayer",
+		"emptyProjects": "Aucun projet pour l'instant",
+		"emptySearch": "Aucun résultat"
 	},
 	"workspace": {
 		"composerPlaceholder": "Décris une modification…",
@@ -48,6 +60,20 @@
 		"empty": {
 			"title": "Ta page vivra ici",
 			"subtitle": "Décris ce que tu vends — ou joins une photo produit pour commencer par les créas."
+		},
+		"chat": {
+			"empty": {
+				"title": "Lance le chat",
+				"subtitle": "Demande des changements, de nouveaux assets, ou la prochaine version du projet."
+			},
+			"thinking": "Wandit réfléchit...",
+			"errors": {
+				"stream": "La réponse s'est arrêtée. Réessaie.",
+				"send": "Impossible d'envoyer ce message. Réessaie.",
+				"busy": "Wandit travaille déjà sur une réponse.",
+				"credits": "Tu n'as plus de crédits.",
+				"unavailable": "Le chat n'a pas pu charger. Réessaie."
+			}
 		},
 		"artifact": {
 			"details": "Détails",
@@ -74,6 +100,16 @@
 		"remove": "Retirer la pièce jointe",
 		"attachedMeta": "joint · {size}"
 	},
+	"voiceDictation": {
+		"permissionDenied": "Accès au micro refusé. Active-le dans les réglages pour utiliser la saisie vocale Wandit.",
+		"recordingError": "Impossible de démarrer l'enregistrement. Vérifie l'accès au micro et réessaie.",
+		"recordingTooLargeError": "Cet enregistrement est trop volumineux. Essaie une saisie vocale plus courte.",
+		"recordingUnreadableError": "Cet enregistrement est illisible. Réessaie de l'enregistrer.",
+		"transcribeError": "Impossible de transcrire l'audio. Réessaie.",
+		"transcribing": "Transcription...",
+		"cancelLabel": "Annuler la saisie vocale",
+		"confirmLabel": "Transcrire la saisie vocale"
+	},
 	"credits": {
 		"title": "Crédits",
 		"left": "{count} restants",
@@ -92,5 +128,15 @@
 		"appearance": "Apparence",
 		"appearanceLight": "Clair",
 		"appearanceDark": "Sombre"
+	},
+	"relativeTime": {
+		"now": "maintenant",
+		"separator": " ",
+		"minute": "min",
+		"hour": "h",
+		"day": "j",
+		"week": "sem",
+		"month": "mois",
+		"year": "an"
 	}
 }

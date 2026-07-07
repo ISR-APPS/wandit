@@ -1,9 +1,27 @@
 import { localeMeta, locales } from "@wandit/internationalization";
-import { useTranslation } from "@wandit/internationalization/react";
+import {
+	useDictionary,
+	useTranslation,
+} from "@wandit/internationalization/react";
 import { router } from "expo-router";
 import { cn, useThemeColor } from "heroui-native";
-import { useState } from "react";
-import { FlatList, Pressable, Text, View } from "react-native";
+import {
+	useCallback,
+	useEffect,
+	useMemo,
+	useRef,
+	useState,
+	type ReactNode,
+} from "react";
+import {
+	ActivityIndicator,
+	FlatList,
+	Keyboard,
+	Pressable,
+	Text,
+	TextInput,
+	View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { WanditIcon } from "@/components/wandit-icon";
@@ -14,13 +32,15 @@ import { disableAuthBypass } from "@/lib/dev-auth-bypass";
 import { ICON_STROKE } from "@/shared/lib/brand";
 import { BrandGradientFill } from "@/shared/ui/brand-gradient-fill";
 
-import { MOCK_PROJECTS } from "../lib/constants";
+import { useProjects } from "../api/projects.queries";
+import { foldProjectSearchText, formatShortRelativeTime } from "../lib/helpers";
 import { ProjectListItem } from "./project-list-item";
 
 // Minimal structural type: @react-navigation/drawer is not a direct
 // dependency (pnpm isolated node-linker), so type only what is used.
 type ProjectsDrawerProps = {
 	navigation: {
+		addListener?: (event: "drawerClose", callback: () => void) => () => void;
 		closeDrawer: () => void;
 	};
 };
@@ -30,26 +50,70 @@ export function ProjectsDrawer({ navigation }: ProjectsDrawerProps) {
 	const insets = useSafeAreaInsets();
 	const { data: session } = authClient.useSession();
 	const { t } = useTranslation();
+	const nativeDictionary = useDictionary().native;
 	const { locale, setLocale } = useLocale();
 	const accent = useThemeColor("accent");
 	const muted = useThemeColor("muted");
 	const { isDark } = useAppTheme();
 	const iconStroke = isDark ? ICON_STROKE.dark : ICON_STROKE.light;
 	const [accountOpen, setAccountOpen] = useState(false);
+	const [searchOpen, setSearchOpen] = useState(false);
+	const [searchQuery, setSearchQuery] = useState("");
+	const searchInputRef = useRef<TextInput>(null);
+	const projectsQuery = useProjects();
+	const projects = projectsQuery.data ?? [];
+	const normalizedSearchQuery = foldProjectSearchText(searchQuery.trim(), locale);
+	const visibleProjects = useMemo(() => {
+		if (!normalizedSearchQuery) {
+			return projects;
+		}
+
+		return projects.filter((project) =>
+			foldProjectSearchText(project.name, locale).includes(
+				normalizedSearchQuery,
+			),
+		);
+	}, [locale, normalizedSearchQuery, projects]);
 
 	const userName = session?.user?.name?.trim();
 	const initial = (userName || session?.user?.email || "W")
 		.charAt(0)
 		.toUpperCase();
 
+	useEffect(() => {
+		if (!searchOpen) {
+			return;
+		}
+
+		const frame = requestAnimationFrame(() => searchInputRef.current?.focus());
+		return () => cancelAnimationFrame(frame);
+	}, [searchOpen]);
+
+	const resetSearch = useCallback(() => {
+		setSearchQuery("");
+		setSearchOpen(false);
+	}, []);
+
+	useEffect(() => {
+		return navigation.addListener?.("drawerClose", resetSearch);
+	}, [navigation, resetSearch]);
+
 	function openProject(projectId: string) {
+		Keyboard.dismiss();
+		resetSearch();
 		navigation.closeDrawer();
 		router.push(`/project/${projectId}`);
 	}
 
 	function createNewProject() {
+		Keyboard.dismiss();
+		resetSearch();
 		navigation.closeDrawer();
 		router.push("/");
+	}
+
+	function closeSearch() {
+		resetSearch();
 	}
 
 	return (
@@ -57,22 +121,57 @@ export function ProjectsDrawer({ navigation }: ProjectsDrawerProps) {
 			className="flex-1 bg-background"
 			style={{ paddingTop: insets.top + 10, paddingBottom: insets.bottom + 10 }}
 		>
-			{/* Search + filter row (§3.1) — visual stubs until search is wired. */}
+			{/* Search + filter row (§3.1). */}
 			<View className="flex-row items-center gap-2 px-4">
-				<View className="h-[42px] w-[42px] items-center justify-center rounded-full border border-border bg-surface dark:bg-surface-tertiary/65">
-					<WanditIcon name="search" size={16} color={iconStroke} />
-				</View>
-				<View className="h-[42px] flex-row items-center gap-[7px] rounded-full border border-border bg-surface px-3.5 dark:bg-surface-tertiary/65">
-					<Text className="font-sans-semibold text-[13.5px] text-foreground">
-						{t("native.drawer.filterCreatedByMe")}
-					</Text>
-					<WanditIcon
-						name="caretDown"
-						size={12}
-						color={muted}
-						strokeWidth={2}
-					/>
-				</View>
+				{searchOpen ? (
+					<>
+						<Pressable
+							accessibilityRole="button"
+							accessibilityLabel={t("native.drawer.cancelSearchLabel")}
+							onPress={closeSearch}
+							className="h-[42px] w-[42px] items-center justify-center rounded-full border border-border bg-surface active:scale-[0.98] dark:bg-surface-tertiary/65"
+						>
+							<WanditIcon name="close" size={14} color={iconStroke} />
+						</Pressable>
+						<View className="h-[42px] flex-1 flex-row items-center gap-2 rounded-full border border-border bg-surface px-3.5 dark:bg-surface-tertiary/65">
+							<WanditIcon name="search" size={15} color={muted} />
+							<TextInput
+								ref={searchInputRef}
+								autoFocus
+								value={searchQuery}
+								onChangeText={setSearchQuery}
+								placeholder={t("native.drawer.searchPlaceholder")}
+								placeholderTextColor={muted}
+								returnKeyType="search"
+								selectionColor={accent}
+								className="h-full flex-1 font-sans-medium text-[14px] text-foreground"
+								style={{ paddingVertical: 0 }}
+							/>
+						</View>
+					</>
+				) : (
+					<>
+						<Pressable
+							accessibilityRole="button"
+							accessibilityLabel={t("native.drawer.searchLabel")}
+							onPress={() => setSearchOpen(true)}
+							className="h-[42px] w-[42px] items-center justify-center rounded-full border border-border bg-surface active:scale-[0.98] dark:bg-surface-tertiary/65"
+						>
+							<WanditIcon name="search" size={16} color={iconStroke} />
+						</Pressable>
+						<View className="h-[42px] flex-row items-center gap-[7px] rounded-full border border-border bg-surface px-3.5 dark:bg-surface-tertiary/65">
+							<Text className="font-sans-semibold text-[13.5px] text-foreground">
+								{t("native.drawer.filterCreatedByMe")}
+							</Text>
+							<WanditIcon
+								name="caretDown"
+								size={12}
+								color={muted}
+								strokeWidth={2}
+							/>
+						</View>
+					</>
+				)}
 			</View>
 
 			{/* Create new project (§3.2). */}
@@ -89,19 +188,65 @@ export function ProjectsDrawer({ navigation }: ProjectsDrawerProps) {
 				</Text>
 			</Pressable>
 
-			{/* TODO: fetch the real project list (features/projects/api/). */}
-			<FlatList
-				data={MOCK_PROJECTS}
-				keyExtractor={(project) => project.id}
-				className="mt-3 flex-1"
-				contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 20 }}
-				renderItem={({ item }) => (
-					<ProjectListItem
-						project={item}
-						onPress={() => openProject(item.id)}
+			<View className="mt-3 flex-1">
+				{projectsQuery.isLoading ? (
+					<DrawerListState>
+						<ActivityIndicator
+							color={accent}
+							accessibilityLabel={t("native.drawer.projectsLoading")}
+						/>
+						<Text className="mt-3 text-center font-sans-medium text-[13px] text-muted">
+							{t("native.drawer.projectsLoading")}
+						</Text>
+					</DrawerListState>
+				) : projectsQuery.isError ? (
+					<DrawerListState>
+						<Text className="text-center font-sans-medium text-[13px] text-muted">
+							{t("native.drawer.projectsError")}
+						</Text>
+						<Pressable
+							accessibilityRole="button"
+							onPress={() => void projectsQuery.refetch()}
+							className="mt-3 rounded-full border border-border bg-surface px-4 py-2 active:scale-[0.98] dark:bg-surface-tertiary/65"
+						>
+							<Text className="font-sans-semibold text-[13px] text-foreground">
+								{t("native.drawer.retry")}
+							</Text>
+						</Pressable>
+					</DrawerListState>
+				) : (
+					<FlatList
+						data={visibleProjects}
+						keyExtractor={(project) => project.id}
+						className="flex-1"
+						keyboardShouldPersistTaps="handled"
+						contentContainerStyle={{
+							paddingHorizontal: 16,
+							paddingBottom: 20,
+							flexGrow: visibleProjects.length === 0 ? 1 : undefined,
+						}}
+						ListEmptyComponent={
+							<DrawerListState>
+								<Text className="text-center font-sans-medium text-[13px] text-muted">
+									{normalizedSearchQuery
+										? t("native.drawer.emptySearch")
+										: t("native.drawer.emptyProjects")}
+								</Text>
+							</DrawerListState>
+						}
+						renderItem={({ item }) => (
+							<ProjectListItem
+								project={item}
+								updatedAtLabel={formatShortRelativeTime(
+									item.updatedAt,
+									nativeDictionary.relativeTime,
+								)}
+								onPress={() => openProject(item.id)}
+							/>
+						)}
 					/>
 				)}
-			/>
+			</View>
 
 			{accountOpen ? (
 				<View className="mx-4 mb-3 gap-3 rounded-[18px] border border-border bg-surface p-3.5 dark:bg-surface-secondary">
@@ -188,6 +333,14 @@ export function ProjectsDrawer({ navigation }: ProjectsDrawerProps) {
 					</Text>
 				</View>
 			</View>
+		</View>
+	);
+}
+
+function DrawerListState({ children }: { children: ReactNode }) {
+	return (
+		<View className="flex-1 items-center justify-center px-6 py-10">
+			{children}
 		</View>
 	);
 }
