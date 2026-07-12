@@ -1205,6 +1205,16 @@ function QualityPicker({
 	);
 }
 
+export type PromptBoxSubmitOverride = {
+	/** Visible copy for the ember action that replaces the send arrow. */
+	label: string;
+	/** The caller owns answer validity; PromptBox still also respects isSubmitting. */
+	disabled: boolean;
+	/** Confirm the caller's current draft. A false return keeps the textarea. */
+	// biome-ignore lint/suspicious/noConfusingVoidType: void keeps fire-and-forget overrides assignable
+	onSubmit: () => void | boolean;
+};
+
 export type PromptBoxProps = {
 	/** A sync `false` return means nothing was sent (e.g. insufficient
 	 * credits) - the box then keeps the draft even with clearOnSubmit. The
@@ -1228,6 +1238,17 @@ export type PromptBoxProps = {
 	initialValue?: string;
 	/** Clear the textarea after submitting (chat-style usage). */
 	clearOnSubmit?: boolean;
+	/** Rendered inside the rounded card, ABOVE the textarea — the chat's
+	 * request tray docks here so it fuses into the composer (the slot content
+	 * brings its own background + bottom divider). */
+	topSlot?: React.ReactNode;
+	/** Replace the normal send action in-place for contextual flows such as an
+	 * ask_user answer. Omit it to preserve the standard prompt behavior. */
+	submitOverride?: PromptBoxSubmitOverride;
+	/** Observe the draft as it changes (and when it clears on submit) — lets
+	 * the chat pane derive tray states like "typing overrides the chips"
+	 * without taking over this component's own value state. */
+	onValueChange?: (value: string) => void;
 	className?: string;
 };
 
@@ -1240,6 +1261,9 @@ export function PromptBox({
 	isSubmitting = false,
 	initialValue = "",
 	clearOnSubmit = false,
+	topSlot,
+	submitOverride,
+	onValueChange,
 	className,
 }: PromptBoxProps) {
 	const { t } = useTranslation();
@@ -1257,7 +1281,9 @@ export function PromptBox({
 
 	const isHero = variant === "hero";
 	const maxHeight = isHero ? 240 : 160;
-	const canSubmit = value.trim().length > 0 && !isSubmitting;
+	const canSubmit = submitOverride
+		? !submitOverride.disabled && !isSubmitting
+		: value.trim().length > 0 && !isSubmitting;
 	const selectedOutput = useMemo(
 		() => getOutput(selectedOutputId),
 		[selectedOutputId],
@@ -1311,14 +1337,28 @@ export function PromptBox({
 
 	const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
 		setValue(e.target.value);
+		onValueChange?.(e.target.value);
 		resize();
 	};
 
 	const handleSubmit = () => {
+		if (submitOverride) {
+			if (submitOverride.disabled || isSubmitting) return;
+			const result = submitOverride.onSubmit();
+			if (clearOnSubmit && result !== false) {
+				setValue("");
+				onValueChange?.("");
+			}
+			return;
+		}
+
 		const prompt = value.trim();
 		if (!prompt || isSubmitting) return;
 		const result = onSubmit(prompt, buildComposer());
-		if (clearOnSubmit && result !== false) setValue("");
+		if (clearOnSubmit && result !== false) {
+			setValue("");
+			onValueChange?.("");
+		}
 	};
 
 	const micAriaLabel = isTranscribing
@@ -1326,6 +1366,8 @@ export function PromptBox({
 		: isRecording
 			? t("projects.promptBox.micStop")
 			: t("projects.promptBox.micLabel");
+	const submitLabel =
+		submitOverride?.label ?? t("projects.promptBox.submitLabel");
 
 	const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
 		if (e.key === "Enter" && !e.shiftKey) {
@@ -1389,6 +1431,11 @@ export function PromptBox({
 				className="relative h-auto flex-col items-stretch rounded-3xl border-0 bg-background shadow-composer dark:bg-card dark:shadow-[inset_0_1px_0_0_oklch(1_0_0_/_0.04)]"
 				data-disabled={isSubmitting}
 			>
+				{topSlot ? (
+					// Clip the slot to the card's top radius — its content (the tray)
+					// paints its own full-bleed background.
+					<div className="w-full overflow-hidden rounded-t-3xl">{topSlot}</div>
+				) : null}
 				<AttachedSkillChips
 					skills={attachedSkills}
 					selectedSkillIds={selectedSkillIds}
@@ -1482,26 +1529,41 @@ export function PromptBox({
 									<Button
 										type="button"
 										size="icon"
-										aria-label={t("projects.promptBox.submitLabel")}
+										aria-label={submitLabel}
 										onClick={handleSubmit}
 										disabled={!canSubmit}
 										className={cn(
 											// The send circle is the gradient's one licensed cameo
 											// on a control (DESIGN.md, Gradient System).
 											"rounded-full bg-gradient-ember shadow-[0_2px_8px_-2px_rgb(0_0_0_/_0.3)] transition-opacity disabled:opacity-40",
-											isHero ? "size-9" : "size-[30px]",
+											submitOverride
+												? isHero
+													? "h-9 w-auto gap-1.5 px-3"
+													: "h-[30px] w-auto gap-1.5 px-3"
+												: isHero
+													? "size-9"
+													: "size-[30px]",
 										)}
 									>
-										{isSubmitting ? (
+										{submitOverride ? (
+											<>
+												{isSubmitting ? (
+													<Loader2 className="size-3.5 animate-spin" />
+												) : (
+													<Check className="size-3.5" strokeWidth={2.4} />
+												)}
+												<span className="font-medium text-xs">
+													{submitOverride.label}
+												</span>
+											</>
+										) : isSubmitting ? (
 											<Loader2 className="animate-spin" />
 										) : (
 											<ArrowUp className="size-3.5" strokeWidth={2.2} />
 										)}
 									</Button>
 								</TooltipTrigger>
-								<TooltipContent>
-									{t("projects.promptBox.submitLabel")}
-								</TooltipContent>
+								<TooltipContent>{submitLabel}</TooltipContent>
 							</Tooltip>
 						</div>
 					</TooltipProvider>

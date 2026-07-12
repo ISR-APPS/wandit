@@ -32,6 +32,7 @@ import { TranscriptionsController } from "./presentation/http/controllers/transc
 	controllers: [ChatsController, TranscriptionsController],
 	// Exports are the services other modules are allowed to inject.
 	exports: [
+		ChatsRepository,
 		GenerationActivityService,
 		GenerationPolicyService,
 		GenerationQueueService,

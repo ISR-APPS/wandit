@@ -1,7 +1,4 @@
-import {
-	type ChatStreamEvent,
-	chatStreamEventSchema,
-} from "@wandit/contracts";
+import { type ChatStreamEvent, chatStreamEventSchema } from "@wandit/contracts";
 
 export type SseEventFrame = {
 	id?: string;
@@ -89,8 +86,7 @@ export function parseSseFrame(rawFrame: string): SseEventFrame | null {
 		}
 
 		const separatorIndex = line.indexOf(":");
-		const field =
-			separatorIndex === -1 ? line : line.slice(0, separatorIndex);
+		const field = separatorIndex === -1 ? line : line.slice(0, separatorIndex);
 		const value = normalizeFieldValue(
 			separatorIndex === -1 ? "" : line.slice(separatorIndex + 1),
 		);
@@ -159,8 +155,7 @@ function readFrameId(rawFrame: string) {
 		}
 
 		const separatorIndex = line.indexOf(":");
-		const field =
-			separatorIndex === -1 ? line : line.slice(0, separatorIndex);
+		const field = separatorIndex === -1 ? line : line.slice(0, separatorIndex);
 		if (field !== "id") {
 			continue;
 		}

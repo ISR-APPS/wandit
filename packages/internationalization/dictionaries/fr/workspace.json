@@ -104,6 +104,20 @@
 		"placeholder": "Décris un changement…",
 		"thinking": "Réflexion…",
 		"generating": "Génération",
+		"tray": {
+			"preparing": "Préparation de la question…",
+			"needsDetail": "Détail à préciser",
+			"decideForMe": "Choisis pour moi",
+			"dismiss": "Ignorer la demande",
+			"typingOverride": "tu réponds avec tes mots ↓",
+			"answer": "Répondre",
+			"chooseAnOption": "Choisis une option",
+			"chooseOptions": "Choisis des options",
+			"chooseSelected": {
+				"one": "Choisis cette option",
+				"other": "Choisis ces {count} options"
+			}
+		},
 		"errors": {
 			"busy": "Une génération est déjà en cours. Attends qu'elle se termine avant d'envoyer un autre message.",
 			"credits": "Tu n'as pas assez de crédits pour cette génération. Recharge pour continuer.",

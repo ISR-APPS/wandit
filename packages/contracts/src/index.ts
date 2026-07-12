@@ -11,6 +11,8 @@ export * from "./http/envelope";
 export * from "./http/error-codes";
 // Pagination helpers.
 export * from "./http/pagination";
+// AI SDK chat tool and stream contracts.
+export * from "./v1/ai-chat";
 // Artifact/page contracts.
 export * from "./v1/artifacts";
 // Auth contracts.
@@ -27,6 +29,8 @@ export * from "./v1/deployments";
 export * from "./v1/domains";
 // Lead contracts.
 export * from "./v1/leads";
+// Page generation contracts.
+export * from "./v1/pages";
 // Project contracts.
 export * from "./v1/projects";
 // Shared id/date validators.

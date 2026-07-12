@@ -10,7 +10,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 import type { ComposerMetadata } from "@wandit/contracts";
 // Drizzle is the TypeScript SQL builder/ORM used in this project.
-import { and, asc, eq, isNull } from "@wandit/db";
+import { and, asc, eq, isNull, sql } from "@wandit/db";
 import { chats, messages } from "@wandit/db/schema/chats";
 import { projects } from "@wandit/db/schema/projects";
 
@@ -28,6 +28,13 @@ export type OwnedChatRow = {
 
 // Type of one row from the messages table.
 export type InsertedMessageRow = typeof messages.$inferSelect;
+
+type UiMessageToInsert = {
+	id: string;
+	metadata?: unknown;
+	parts: unknown[];
+	role: "user" | "assistant";
+};
 
 @Injectable()
 // Database adapter around the chats/messages tables.
@@ -123,6 +130,57 @@ export class ChatsRepository {
 
 		// The caller needs the message id for the queue job.
 		return this.expectMessage(row);
+	}
+
+	// Insert complete UI messages without changing rows already in history.
+	async insertUiMessagesIfAbsent(
+		chatId: string,
+		inputMessages: readonly UiMessageToInsert[],
+	): Promise<void> {
+		if (inputMessages.length === 0) {
+			return;
+		}
+
+		await this.db
+			.insert(messages)
+			.values(
+				inputMessages.map((message) => ({
+					chatId,
+					id: message.id,
+					metadata: message.metadata ?? null,
+					parts: message.parts,
+					role: message.role,
+				})),
+			)
+			.onConflictDoNothing({ target: messages.id });
+	}
+
+	// Write a UI message even when a row with the same id already exists.
+	// Needed for tray answers: the AI SDK CONTINUES the previous assistant
+	// message (same id, old parts + the answer + everything after it), so the
+	// insert-if-absent above would hit the id conflict and silently drop the
+	// whole continuation. Here the conflict REPLACES parts/metadata instead —
+	// "excluded" is Postgres for "the row we just tried to insert".
+	async upsertUiMessage(
+		chatId: string,
+		message: UiMessageToInsert,
+	): Promise<void> {
+		await this.db
+			.insert(messages)
+			.values({
+				chatId,
+				id: message.id,
+				metadata: message.metadata ?? null,
+				parts: message.parts,
+				role: message.role,
+			})
+			.onConflictDoUpdate({
+				set: {
+					metadata: sql`excluded.metadata`,
+					parts: sql`excluded.parts`,
+				},
+				target: messages.id,
+			});
 	}
 
 	// Cleanup used if saving succeeded but queueing failed.

@@ -18,5 +18,7 @@ export * from "./deployments";
 export * from "./domains";
 // Lead tables.
 export * from "./leads";
+// Page generation attempt tables.
+export * from "./page-attempts";
 // Project tables.
 export * from "./projects";

@@ -104,6 +104,20 @@
 		"placeholder": "Describe a change…",
 		"thinking": "Thinking…",
 		"generating": "Generating",
+		"tray": {
+			"preparing": "Preparing the question…",
+			"needsDetail": "Needs a detail",
+			"decideForMe": "Decide for me",
+			"dismiss": "Dismiss request",
+			"typingOverride": "answering in your own words ↓",
+			"answer": "Answer",
+			"chooseAnOption": "Choose an option",
+			"chooseOptions": "Choose options",
+			"chooseSelected": {
+				"one": "Choose this option",
+				"other": "Choose these {count} options"
+			}
+		},
 		"errors": {
 			"busy": "A generation is already running. Wait for it to finish before sending another message.",
 			"credits": "You don't have enough credits for this generation. Top up to continue.",

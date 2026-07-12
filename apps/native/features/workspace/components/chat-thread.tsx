@@ -11,7 +11,9 @@ import {
 import { WanditIcon } from "@/components/wandit-icon";
 import { BrandGradientFill } from "@/shared/ui/brand-gradient-fill";
 
-import type { ChatThreadMessage } from "../lib/chat-message";
+import type { AskUserThreadPart, ChatThreadMessage } from "../lib/chat-message";
+import { TrayPointerChip } from "./request-tray/tray-signals";
+import { askAnswerValue } from "./request-tray/use-request-tray";
 
 export type ChatArtifact = {
 	title: string;
@@ -60,14 +62,21 @@ export function AssistantText({
 export function AssistantMessage({
 	text,
 	isStreaming = false,
+	asks,
+	activeAskToolCallId,
 }: {
 	text: string;
 	isStreaming?: boolean;
+	/** ask_user parts of this message — rendered as prose + pointer/receipt. */
+	asks?: AskUserThreadPart[];
+	/** The ask docked on the composer right now, if any. */
+	activeAskToolCallId?: string;
 }) {
 	const accent = useThemeColor("accent");
 	const muted = useThemeColor("muted");
+	const hasAsks = Boolean(asks?.length);
 
-	if (!text && !isStreaming) {
+	if (!text && !isStreaming && !hasAsks) {
 		return null;
 	}
 
@@ -77,10 +86,107 @@ export function AssistantMessage({
 				<WanditIcon name="spark" size={12} color={accent} />
 				<Text className="font-mono text-[10px] text-muted">wandit</Text>
 			</View>
-			<AssistantText text={text} isStreaming={isStreaming} />
+			{text || isStreaming ? (
+				<AssistantText text={text} isStreaming={isStreaming} />
+			) : null}
 			{isStreaming && !text ? (
 				<ActivityIndicator size="small" color={muted} />
 			) : null}
+			{asks?.map((ask) => (
+				<AskUserLine
+					key={ask.toolCallId}
+					ask={ask}
+					isActive={ask.toolCallId === activeAskToolCallId}
+				/>
+			))}
+		</View>
+	);
+}
+
+/** In-thread rendering of an ask_user call. The thread stays PROSE — the
+    interactive chips live ONLY in the request tray docked on the composer.
+    While active: just the pointer chip — the question itself is right below
+    in the tray, and repeating it two lines apart read terribly on a phone
+    (web can afford the duplicate; the pane is taller). Settled: question +
+    a compact receipt, so the transcript stays readable later. */
+function AskUserLine({
+	ask,
+	isActive,
+}: {
+	ask: AskUserThreadPart;
+	isActive: boolean;
+}) {
+	const { t } = useTranslation();
+	const question = ask.input?.question;
+	const hasOptions = (ask.input?.options ?? []).length > 0;
+
+	if (isActive) {
+		return (
+			<TrayPointerChip
+				icon={hasOptions ? "options" : "question"}
+				label={
+					hasOptions
+						? t("native.workspace.chat.tray.pickBelow")
+						: t("native.workspace.chat.tray.answerBelow")
+				}
+			/>
+		);
+	}
+
+	return (
+		<View>
+			{question ? <AssistantText text={question} /> : null}
+			{ask.state === "output-available" && ask.output ? (
+				<AskReceiptLine output={ask.output} />
+			) : null}
+		</View>
+	);
+}
+
+/** How the ask settled, in one quiet line. */
+function AskReceiptLine({
+	output,
+}: {
+	output: NonNullable<AskUserThreadPart["output"]>;
+}) {
+	const { t } = useTranslation();
+	const success = useThemeColor("success");
+
+	if (output.dismissed) {
+		return (
+			<Text className="mt-2 text-[12.5px] text-muted">
+				{t("native.workspace.chat.tray.skipped")}
+			</Text>
+		);
+	}
+
+	if (output.delegated) {
+		return (
+			<View className="mt-2 flex-row items-center gap-[7px]">
+				<View className="relative h-3.5 w-3.5 items-center justify-center overflow-hidden rounded-full">
+					<BrandGradientFill radius={7} />
+				</View>
+				<Text className="text-[12.5px] text-muted">
+					{t("native.workspace.chat.tray.pickedForYou")}
+				</Text>
+			</View>
+		);
+	}
+
+	const value = askAnswerValue(output);
+	if (!value) return null;
+
+	return (
+		<View className="mt-2 flex-row items-center gap-[7px]">
+			<View className="h-3.5 w-3.5 items-center justify-center rounded-full bg-success/15">
+				<WanditIcon name="check" size={9} color={success} />
+			</View>
+			<Text
+				numberOfLines={1}
+				className="min-w-0 flex-1 text-[12.5px] text-muted"
+			>
+				{value}
+			</Text>
 		</View>
 	);
 }
@@ -248,7 +354,15 @@ export function ChatLoadingState() {
 	);
 }
 
-export function ChatMessages({ messages }: { messages: ChatThreadMessage[] }) {
+export function ChatMessages({
+	messages,
+	activeAskToolCallId,
+}: {
+	messages: ChatThreadMessage[];
+	/** The ask docked on the composer right now — its message shows the
+	    pointer chip instead of a receipt. */
+	activeAskToolCallId?: string;
+}) {
 	return (
 		<>
 			{messages.map((message) => {
@@ -260,6 +374,8 @@ export function ChatMessages({ messages }: { messages: ChatThreadMessage[] }) {
 						key={message.id}
 						text={message.text}
 						isStreaming={message.isStreaming}
+						asks={message.asks}
+						activeAskToolCallId={activeAskToolCallId}
 					/>
 				);
 			})}

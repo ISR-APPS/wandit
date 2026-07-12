@@ -73,6 +73,19 @@
 				"busy": "Wandit is already working on a reply.",
 				"credits": "You are out of credits.",
 				"unavailable": "Chat couldn't load. Try again."
+			},
+			"tray": {
+				"preparing": "Preparing the question…",
+				"needsDetail": "Needs a detail",
+				"decideForMe": "Decide for me",
+				"dismiss": "Dismiss request",
+				"useThese": "Use these",
+				"typingOverride": "answering in your own words ↓",
+				"pickBelow": "Pick below ↓",
+				"answerBelow": "Answer below ↓",
+				"skipped": "Skipped",
+				"pickedForYou": "Wandit picked for you",
+				"wanditPicked": "Wandit picked"
 			}
 		},
 		"artifact": {

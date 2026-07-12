@@ -26,6 +26,9 @@ export {
 } from "./api/projects.queries";
 // Shared composer used both to create a project and to send chat messages.
 export { PromptBox } from "./components/prompt-box";
+// One-shot flag the workspace consumes to auto-start the first AI reply
+// after project creation (see lib/chat-autostart.ts for the full flow).
+export { chatAutostart } from "./lib/chat-autostart";
 // Public name-length cap used by forms that edit project names.
 export { PROJECT_NAME_MAX_LENGTH } from "./lib/constants";
 // Deterministic thumbnail helper for project cards.

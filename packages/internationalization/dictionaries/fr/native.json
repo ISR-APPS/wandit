@@ -73,6 +73,19 @@
 				"busy": "Wandit travaille déjà sur une réponse.",
 				"credits": "Tu n'as plus de crédits.",
 				"unavailable": "Le chat n'a pas pu charger. Réessaie."
+			},
+			"tray": {
+				"preparing": "Préparation de la question…",
+				"needsDetail": "Détail à préciser",
+				"decideForMe": "Choisis pour moi",
+				"dismiss": "Ignorer la demande",
+				"useThese": "Utiliser ces choix",
+				"typingOverride": "tu réponds avec tes mots ↓",
+				"pickBelow": "Choisis ci-dessous ↓",
+				"answerBelow": "Réponds ci-dessous ↓",
+				"skipped": "Passée",
+				"pickedForYou": "Wandit a choisi pour toi",
+				"wanditPicked": "Choix de Wandit"
 			}
 		},
 		"artifact": {

@@ -5,7 +5,7 @@
 import { env } from "@wandit/env/server";
 
 // Re-export common Drizzle SQL helpers for repositories.
-export { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+export { and, asc, desc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";

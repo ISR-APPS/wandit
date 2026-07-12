@@ -57,7 +57,9 @@
 	--ember-1: oklch(0.8 0.15 70); /* gradient start (amber) */
 	--ember-2: oklch(0.66 0.19 35); /* gradient end (deep ember) */
 	--success: oklch(0.62 0.13 155);
-	--success-text: oklch(0.5 0.13 155); /* green text/links on light (mirrors --ember-text) */
+	--success-text: oklch(
+		0.5 0.13 155
+	); /* green text/links on light (mirrors --ember-text) */
 	--void: oklch(0.14 0.01 45); /* generated-page dark screen */
 }
 
@@ -185,6 +187,7 @@
 	--animate-spin-slow: wd-spin 3s linear infinite;
 	--animate-bounce-dot: wd-bounce 1.2s ease-in-out infinite;
 	--animate-pulse-soft: wd-pulse 1.6s ease-in-out infinite;
+	--animate-glow-ember: wd-glow 2.4s ease-in-out infinite;
 
 	@keyframes wd-spin {
 		to {
@@ -227,6 +230,21 @@
 		}
 		50% {
 			opacity: 0.35;
+		}
+	}
+	/* Breathing ember ring — the composer card while the build is BLOCKED on
+	   an unanswered request tray (swaps in for the resting shadow-composer). */
+	@keyframes wd-glow {
+		0%,
+		100% {
+			box-shadow:
+				0 0 0 3px oklch(0.74 0.16 55 / 0.3),
+				0 12px 32px -8px oklch(0.74 0.16 55 / 0.18);
+		}
+		50% {
+			box-shadow:
+				0 0 0 3px oklch(0.74 0.16 55 / 0.45),
+				0 12px 40px -8px oklch(0.74 0.16 55 / 0.28);
 		}
 	}
 }
