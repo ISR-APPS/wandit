@@ -1,0 +1,1260 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LUME — Orbe N°1 · A sculptural table lamp, thrown by hand</title>
+<meta name="description" content="Orbe N°1 by LUME — a hand-thrown ceramic table lamp with a brushed-brass stem and travertine base. Launch edition of 250. Pre-order $249, ships October 2026.">
+<meta property="og:title" content="LUME — Orbe N°1">
+<meta property="og:description" content="A hand-thrown ceramic orb, brushed brass, travertine. Edition of 250 — pre-order $249, ships October 2026.">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#F4EEE3">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23211B15'/%3E%3Ccircle cx='32' cy='25' r='14' fill='%23F6E7C8'/%3E%3Crect x='30' y='39' width='4' height='13' rx='2' fill='%23A9834C'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://api.fontshare.com" crossorigin>
+<link href="https://api.fontshare.com/v2/css?f[]=clash-display@400,500,600&f[]=satoshi@400,401,500,700&f[]=sentient@401&display=swap" rel="stylesheet">
+<style>
+/* ============ tokens ============ */
+:root{
+  --ivory:#F4EEE3;
+  --ivory-soft:#EDE4D3;
+  --ink:#211B15;
+  --ink-70:rgba(33,27,21,.72);
+  --ink-50:rgba(33,27,21,.52);
+  --brass:#A9834C;
+  --brass-deep:#8A6836;
+  --noir:#181410;
+  --noir-soft:#241D16;
+  --paper-noir:#F1E9DA;
+  --error:#A4482F;
+  --hairline:rgba(33,27,21,.16);
+  --hairline-noir:rgba(241,233,218,.18);
+  --font-display:'Clash Display','Satoshi',system-ui,sans-serif;
+  --font-body:'Satoshi',system-ui,-apple-system,'Helvetica Neue',sans-serif;
+  --font-accent:'Sentient',Georgia,'Times New Roman',serif;
+  --ease-out:cubic-bezier(.22,.61,.2,1);
+  --pad:clamp(1.25rem,4.5vw,4.5rem);
+}
+/* colorway theme scope — hero + nav read these */
+body{
+  --stage-bg:var(--ivory);
+  --stage-ink:var(--ink);
+  --stage-ink-soft:rgba(33,27,21,.66);
+  --stage-hairline:rgba(33,27,21,.16);
+  --stage-glow:rgba(255,190,110,.55);
+}
+body[data-colorway="noir"]{
+  --stage-bg:var(--noir);
+  --stage-ink:var(--paper-noir);
+  --stage-ink-soft:rgba(241,233,218,.66);
+  --stage-hairline:rgba(241,233,218,.18);
+  --stage-glow:rgba(255,170,80,.4);
+}
+
+/* ============ base ============ */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+html,body{overflow-x:clip}
+body{
+  background:var(--ivory);
+  color:var(--ink);
+  font-family:var(--font-body);
+  font-size:1.0625rem;
+  line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+}
+img{display:block;max-width:100%}
+a{color:inherit}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+input,output{font:inherit;color:inherit}
+::selection{background:var(--brass);color:var(--ivory)}
+:focus-visible{outline:2px solid var(--brass);outline-offset:3px;border-radius:2px}
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+.skip-link{position:fixed;top:-4rem;left:1rem;z-index:200;background:var(--ink);color:var(--ivory);padding:.7em 1.2em;border-radius:999px;transition:top .3s}
+.skip-link:focus{top:1rem}
+
+/* grain overlay */
+.grain{position:fixed;inset:-50%;z-index:90;pointer-events:none;opacity:.16;mix-blend-mode:multiply;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
+}
+
+/* ============ announcement ============ */
+.announce{background:var(--ink);color:var(--ivory);text-align:center;font-size:.8125rem;letter-spacing:.08em;padding:.62em var(--pad)}
+.announce b{color:#E8C88F;font-weight:500}
+.announce .dot{color:var(--brass);margin:0 .8em}
+
+/* ============ nav ============ */
+.site-nav{
+  position:sticky;top:0;z-index:100;
+  color:var(--stage-ink);
+  transition:color .8s var(--ease-out),background-color .8s var(--ease-out),box-shadow .5s;
+  background:var(--stage-bg);
+}
+.site-nav .btn{background:var(--stage-ink);color:var(--stage-bg)}
+.site-nav .btn:hover{background:var(--brass)}
+.site-nav.is-scrolled{
+  background:rgba(244,238,227,.9);
+  -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);
+  color:var(--ink);
+  box-shadow:0 1px 0 var(--hairline);
+}
+/* scrolled chrome follows the chosen colorway */
+body[data-colorway="noir"] .site-nav.is-scrolled{
+  background:rgba(24,20,16,.88);
+  color:var(--paper-noir);
+  box-shadow:0 1px 0 var(--hairline-noir);
+}
+body[data-colorway="noir"] .site-nav.is-scrolled .btn{background:var(--paper-noir);color:var(--noir)}
+body[data-colorway="noir"] .site-nav.is-scrolled .btn:hover{background:var(--brass)}
+.nav-inner{display:flex;align-items:center;gap:2rem;max-width:90rem;margin:0 auto;padding:1rem var(--pad)}
+.wordmark{font-family:var(--font-display);font-weight:600;font-size:1.45rem;letter-spacing:.14em;text-decoration:none;display:flex;align-items:baseline;gap:.4em}
+.wordmark small{font-family:var(--font-body);font-weight:400;font-size:.6rem;letter-spacing:.3em;opacity:.55;text-transform:uppercase}
+.nav-links{display:flex;gap:1.9rem;list-style:none;margin-left:auto}
+.nav-links a{text-decoration:none;font-size:.9rem;font-weight:500;letter-spacing:.02em;opacity:.85;transition:opacity .25s}
+.nav-links a:hover{opacity:1}
+.nav-links a.nav-guide{color:var(--brass);opacity:1}
+.nav-cta{margin-left:auto}
+.nav-links + .nav-cta{margin-left:0}
+
+/* ============ buttons ============ */
+.btn{
+  display:inline-flex;align-items:center;gap:.65em;
+  font-weight:500;font-size:.95rem;letter-spacing:.02em;line-height:1;
+  padding:1.02em 1.7em;border-radius:999px;text-decoration:none;
+  background:var(--ink);color:var(--ivory);
+  transition:background-color .35s,color .35s,transform .35s var(--ease-out),box-shadow .35s;
+}
+.btn .arr{transition:transform .35s var(--ease-out)}
+.btn:hover{background:var(--brass-deep);transform:translateY(-2px)}
+.btn:hover .arr{transform:translateX(4px)}
+.btn--small{padding:.78em 1.35em;font-size:.85rem}
+.btn--stage{background:var(--stage-ink);color:var(--stage-bg)}
+.btn--stage:hover{background:var(--brass)}
+.btn--ghost{background:transparent;color:inherit;box-shadow:inset 0 0 0 1px var(--stage-hairline)}
+.btn--ghost:hover{background:transparent;box-shadow:inset 0 0 0 1px var(--brass);color:var(--brass)}
+.btn[disabled]{opacity:.45;cursor:not-allowed;transform:none}
+.btn[disabled]:hover{background:var(--ink);transform:none}
+
+/* ============ hero ============ */
+.hero{
+  position:relative;
+  background:var(--stage-bg);color:var(--stage-ink);
+  transition:background-color .8s var(--ease-out),color .8s var(--ease-out);
+  overflow:clip;
+}
+.hero-inner{
+  max-width:90rem;margin:0 auto;
+  padding:clamp(2rem,5vh,4rem) var(--pad) clamp(4rem,8vh,6rem);
+  display:grid;grid-template-columns:1.05fr .95fr;gap:clamp(2rem,5vw,5rem);
+  align-items:center;min-height:calc(100vh - 8.2rem);
+}
+.hero-copy{max-width:36rem}
+.eyebrow{
+  font-size:.75rem;font-weight:500;letter-spacing:.22em;text-transform:uppercase;
+  color:var(--brass);display:flex;align-items:center;gap:.9em;margin-bottom:1.6rem;
+}
+.eyebrow::before{content:"";width:2.4rem;height:1px;background:var(--brass);flex:none}
+.hero-title{
+  font-family:var(--font-display);font-weight:500;
+  font-size:clamp(3.2rem,8.4vw,7.2rem);
+  line-height:.98;letter-spacing:-.015em;
+  margin-bottom:1.6rem;
+}
+.hero-title .line{display:block}
+.accent{font-family:var(--font-accent);font-style:italic;font-weight:400;color:var(--brass);letter-spacing:0}
+.hero-lede{font-size:clamp(1rem,1.35vw,1.15rem);line-height:1.65;color:var(--stage-ink-soft);max-width:30em;margin-bottom:2.2rem;transition:color .8s}
+.price-row{display:flex;align-items:baseline;gap:1rem;flex-wrap:wrap;margin-bottom:2rem}
+.price{font-family:var(--font-display);font-weight:600;font-size:clamp(2.4rem,4vw,3.4rem);letter-spacing:-.01em}
+.price sup{font-size:.45em;top:-.9em;position:relative;color:var(--brass);font-weight:500}
+.price-was{font-size:1.15rem;color:var(--stage-ink-soft);text-decoration:line-through;text-decoration-color:var(--brass);text-decoration-thickness:1.5px}
+.price-badge{font-size:.72rem;font-weight:500;letter-spacing:.16em;text-transform:uppercase;border:1px solid var(--stage-hairline);border-radius:999px;padding:.55em 1.1em;transition:border-color .8s}
+.hero-cta-row{display:flex;align-items:center;gap:1.6rem;flex-wrap:wrap;margin-bottom:1.1rem}
+.link-quiet{font-size:.9rem;font-weight:500;text-decoration:none;border-bottom:1px solid var(--stage-hairline);padding-bottom:.2em;transition:border-color .3s,color .3s}
+.link-quiet:hover{color:var(--brass);border-color:var(--brass)}
+.hero-note{font-size:.82rem;color:var(--stage-ink-soft);transition:color .8s}
+
+/* hero stage */
+.hero-stage{position:relative;justify-self:center;width:min(100%,30rem)}
+.hero-glow{
+  position:absolute;left:50%;top:44%;width:130%;aspect-ratio:1;
+  transform:translate(-50%,-50%);
+  background:radial-gradient(circle,var(--stage-glow) 0%,transparent 62%);
+  filter:blur(6px);pointer-events:none;transition:background .8s;
+}
+.hero-frame{
+  position:relative;overflow:hidden;
+  border-radius:15rem 15rem 1.1rem 1.1rem;
+  aspect-ratio:4/5;
+  box-shadow:0 40px 90px -30px rgba(33,27,21,.35);
+}
+.hero-frame img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transition:opacity .9s var(--ease-out),transform .9s var(--ease-out)}
+.hero-img--noir{opacity:0;transform:scale(1.04)}
+body[data-colorway="noir"] .hero-img--noir{opacity:1;transform:scale(1)}
+body[data-colorway="noir"] .hero-img--creme{opacity:0;transform:scale(1.04)}
+.stage-caption{
+  position:relative;text-align:center;margin-top:1.05rem;font-size:.8rem;letter-spacing:.06em;
+  color:var(--stage-ink-soft);height:1.4em;transition:color .8s;
+}
+.stage-caption span{position:absolute;inset:0;transition:opacity .6s}
+.cap-noir{opacity:0}
+body[data-colorway="noir"] .cap-noir{opacity:1}
+body[data-colorway="noir"] .cap-creme{opacity:0}
+
+/* edition seal */
+.seal{position:absolute;top:-2.4rem;left:-2.4rem;width:7.2rem;height:7.2rem;z-index:3;pointer-events:none;color:var(--stage-ink);transition:color .8s}
+.seal svg{width:100%;height:100%;animation:spin 30s linear infinite}
+.seal text{font-family:var(--font-body);font-size:8.6px;font-weight:500;letter-spacing:.25em;text-transform:uppercase;fill:currentColor}
+.seal .seal-orb{fill:var(--brass)}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* colorway toggle */
+.colorway-toggle{
+  position:absolute;left:50%;bottom:-1.55rem;transform:translateX(-50%);z-index:4;
+  display:grid;grid-template-columns:1fr 1fr;align-items:stretch;
+  background:var(--stage-bg);
+  border:1px solid var(--stage-hairline);border-radius:999px;padding:.3rem;
+  width:min(19rem,86%);
+  box-shadow:0 18px 40px -18px rgba(33,27,21,.4);
+  transition:background-color .8s,border-color .8s;
+}
+.colorway-toggle::after{
+  content:"";position:absolute;top:.3rem;bottom:.3rem;left:.3rem;width:calc(50% - .3rem);
+  background:var(--stage-ink);border-radius:999px;
+  transition:transform .5s var(--ease-out),background-color .8s;
+  z-index:0;
+}
+body[data-colorway="noir"] .colorway-toggle::after{transform:translateX(100%)}
+.colorway-toggle label{
+  position:relative;z-index:1;display:flex;align-items:center;justify-content:center;gap:.55em;
+  padding:.68em .5em;border-radius:999px;cursor:pointer;
+  font-size:.82rem;font-weight:500;letter-spacing:.04em;
+  color:var(--stage-ink);transition:color .45s .05s;
+}
+.colorway-toggle input{position:absolute;opacity:0;pointer-events:none}
+.colorway-toggle input:checked ~ .tg-label{color:var(--stage-bg)}
+.colorway-toggle label:has(input:checked){color:var(--stage-bg)}
+.colorway-toggle label:has(input:focus-visible){outline:2px solid var(--brass);outline-offset:2px}
+.tg-dot{width:.85em;height:.85em;border-radius:50%;flex:none;box-shadow:inset 0 0 0 1px rgba(0,0,0,.18)}
+.tg-dot--creme{background:linear-gradient(145deg,#FBF4E6,#D9CBB2)}
+.tg-dot--noir{background:linear-gradient(145deg,#4A423A,#16110C)}
+
+/* hero stat strip */
+.hero-strip{
+  border-top:1px solid var(--stage-hairline);transition:border-color .8s;
+}
+.hero-strip ul{
+  list-style:none;max-width:90rem;margin:0 auto;padding:1.1rem var(--pad);
+  display:flex;gap:2.5rem;flex-wrap:wrap;
+}
+.hero-strip li{font-size:.8rem;letter-spacing:.1em;text-transform:uppercase;color:var(--stage-ink-soft);display:flex;align-items:center;gap:.7em;transition:color .8s}
+.hero-strip li::before{content:"";width:.32em;height:.32em;border-radius:50%;background:var(--brass)}
+
+/* ============ marquee ============ */
+.marquee{background:var(--ink);color:var(--ivory);overflow:hidden;padding:1.05rem 0;border-block:1px solid rgba(233,200,143,.14)}
+.marquee-track{display:flex;width:max-content;animation:marquee 30s linear infinite}
+.marquee-chunk{display:flex;flex:none;white-space:nowrap;align-items:baseline}
+.marquee .mi{font-family:var(--font-display);font-weight:400;font-size:1.05rem;letter-spacing:.06em;padding:0 1.4rem}
+.marquee .mi em{font-family:var(--font-accent);font-style:italic;color:#E8C88F}
+.marquee .msep{color:var(--brass)}
+@keyframes marquee{to{transform:translateX(-50%)}}
+
+/* ============ shared section scaffolding ============ */
+section{position:relative}
+#design,#details,#reviews,#reserve{scroll-margin-top:4.5rem}
+.wrap{max-width:90rem;margin:0 auto;padding-inline:var(--pad)}
+.section-head{margin-bottom:clamp(2.6rem,6vw,4.5rem)}
+.kicker{font-size:.75rem;font-weight:500;letter-spacing:.22em;text-transform:uppercase;color:var(--brass);display:flex;align-items:center;gap:.9em;margin-bottom:1.2rem}
+.kicker::before{content:"";width:2.4rem;height:1px;background:var(--brass)}
+.section-title{font-family:var(--font-display);font-weight:500;font-size:clamp(2.3rem,5vw,4.2rem);line-height:1.04;letter-spacing:-.01em;max-width:16em}
+.section-title .accent{font-size:1.02em}
+
+/* ============ design story ============ */
+.design{padding:clamp(5rem,11vh,8.5rem) 0}
+.design-grid{display:grid;grid-template-columns:.92fr 1.08fr;gap:clamp(2.5rem,6vw,6rem);align-items:start}
+.design-media{position:sticky;top:6.5rem}
+.frame{overflow:hidden;border-radius:1.1rem;position:relative}
+.frame--arch{border-radius:12rem 12rem 1.1rem 1.1rem}
+.frame img{width:100%;height:100%;object-fit:cover}
+.design-media .frame{aspect-ratio:1/1.08}
+.media-caption{display:flex;justify-content:space-between;gap:1rem;margin-top:.9rem;font-size:.78rem;letter-spacing:.06em;color:var(--ink-50)}
+.media-caption b{font-weight:500;color:var(--brass)}
+.features{display:flex;flex-direction:column}
+.feature{padding:clamp(1.8rem,3.5vw,2.6rem) 0;border-top:1px solid var(--hairline);display:grid;grid-template-columns:auto 1fr;gap:1.4rem clamp(1.2rem,3vw,2.4rem)}
+.feature:last-child{border-bottom:1px solid var(--hairline)}
+.feature-no{font-family:var(--font-display);font-weight:500;font-size:.95rem;color:var(--brass);letter-spacing:.1em;padding-top:.45rem}
+.feature h3{font-family:var(--font-display);font-weight:500;font-size:clamp(1.45rem,2.4vw,2rem);line-height:1.15;margin-bottom:.7rem;letter-spacing:-.005em}
+.feature p{color:var(--ink-70);max-width:34em}
+
+/* ============ noir passage ============ */
+.noir{background:var(--noir);color:var(--paper-noir);padding:clamp(5rem,11vh,8.5rem) 0;overflow:clip}
+.noir .kicker{color:#C79A5C}
+.noir .kicker::before{background:#C79A5C}
+.noir-grid{display:grid;grid-template-columns:1.05fr .95fr;gap:clamp(2.5rem,6vw,6rem);align-items:center}
+.noir .section-title{color:var(--paper-noir)}
+.noir p.body{color:rgba(241,233,218,.7);max-width:34em;margin:1.6rem 0 2.4rem}
+.noir-list{list-style:none;display:flex;flex-direction:column;margin-bottom:2.6rem}
+.noir-list li{display:flex;gap:1rem;align-items:baseline;padding:.85rem 0;border-top:1px solid var(--hairline-noir);font-size:.95rem;color:rgba(241,233,218,.82)}
+.noir-list li:last-child{border-bottom:1px solid var(--hairline-noir)}
+.noir-list b{font-weight:500;color:#E8C88F;min-width:9.5em;font-size:.78rem;letter-spacing:.14em;text-transform:uppercase}
+.noir-stage{position:relative}
+.noir-stage .hero-glow{--stage-glow:rgba(255,170,80,.32)}
+.noir-stage .frame{aspect-ratio:4/5;border-radius:15rem 15rem 1.1rem 1.1rem;box-shadow:0 40px 90px -30px rgba(0,0,0,.7)}
+.noir .btn--paper{background:var(--paper-noir);color:var(--noir)}
+.noir .btn--paper:hover{background:var(--brass);color:var(--ivory)}
+
+/* ============ lifestyle ============ */
+.lifestyle{position:relative;height:min(92vh,54rem);overflow:hidden}
+.lifestyle img{position:absolute;left:0;top:-12%;width:100%;height:124%;object-fit:cover}
+.lifestyle::after{content:"";position:absolute;inset:0;background:linear-gradient(to top,rgba(16,12,8,.62),rgba(16,12,8,.05) 55%)}
+.lifestyle-quote{
+  position:absolute;left:0;right:0;bottom:clamp(2.5rem,8vh,5.5rem);z-index:2;
+  color:#F6EFE2;text-align:left;
+}
+.lifestyle-quote blockquote p{
+  font-family:var(--font-accent);font-style:italic;font-weight:400;
+  font-size:clamp(1.7rem,3.6vw,3rem);line-height:1.25;max-width:20em;
+  text-wrap:balance;
+}
+.lifestyle-quote cite{display:block;margin-top:1.2rem;font-family:var(--font-body);font-style:normal;font-size:.8rem;letter-spacing:.18em;text-transform:uppercase;color:#D9BE8C}
+
+/* ============ specs ============ */
+.specs{padding:clamp(5rem,11vh,8.5rem) 0}
+.placard{
+  max-width:62rem;margin:0 auto;
+  border:1px solid var(--hairline);border-radius:1.2rem;
+  padding:clamp(2rem,5vw,4rem);
+  background:linear-gradient(160deg,rgba(255,255,255,.5),rgba(255,255,255,0) 55%);
+}
+.placard-head{text-align:center;margin-bottom:clamp(2.2rem,4vw,3.4rem)}
+.placard-head .title{font-family:var(--font-display);font-weight:500;font-size:clamp(1.7rem,3vw,2.4rem);letter-spacing:-.01em}
+.placard-head .medium{font-family:var(--font-accent);font-style:italic;color:var(--ink-70);margin-top:.5rem;font-size:1.02rem}
+.placard-head .rule{width:3.4rem;height:1px;background:var(--brass);margin:1.4rem auto 0}
+.spec-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 clamp(2rem,5vw,4.5rem)}
+.spec-grid dl{display:block}
+.spec-row{display:flex;justify-content:space-between;align-items:baseline;gap:1.5rem;padding:.95rem 0;border-top:1px solid var(--hairline)}
+.spec-row dt{font-size:.74rem;font-weight:500;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-50);flex:none}
+.spec-row dd{text-align:right;font-size:.98rem;color:var(--ink)}
+.spec-row dd b{font-family:var(--font-display);font-weight:500;font-size:1.35rem;letter-spacing:-.01em}
+.spec-foot{text-align:center;margin-top:clamp(2rem,4vw,3rem);font-size:.82rem;color:var(--ink-50)}
+.spec-foot b{color:var(--brass);font-weight:500}
+
+/* ============ reviews ============ */
+.reviews{padding:0 0 clamp(5rem,11vh,8.5rem)}
+.reviews-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:clamp(2rem,4vw,4rem)}
+.review{position:relative;padding-top:1.8rem}
+@media (min-width:1024px){
+  .review + .review{border-left:1px solid var(--hairline);padding-left:clamp(2rem,3vw,3rem);margin-left:calc(clamp(2rem,4vw,4rem) * -.5)}
+  .review + .review::before{left:calc(clamp(2rem,3vw,3rem) - .35rem)}
+}
+.review::before{content:"“";position:absolute;top:-1.3rem;left:-.35rem;font-family:var(--font-accent);font-style:italic;font-size:4.6rem;line-height:1;color:var(--brass);opacity:.5}
+.review blockquote p{font-family:var(--font-accent);font-style:italic;font-size:clamp(1.12rem,1.5vw,1.3rem);line-height:1.5;color:var(--ink)}
+.review .stars{display:inline-block;color:var(--brass);letter-spacing:.28em;font-size:.8rem;margin:1.1rem 0 .45rem}
+.review figcaption{font-size:.82rem;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-50)}
+.review figcaption b{color:var(--ink);font-weight:500}
+
+/* ============ reserve ============ */
+.reserve{background:var(--ivory-soft);border-block:1px solid var(--hairline);padding:clamp(5rem,11vh,8.5rem) 0;overflow:clip}
+.reserve-grid{display:grid;grid-template-columns:.88fr 1.12fr;gap:clamp(2.5rem,6vw,6rem);align-items:start}
+.order-card{position:sticky;top:6.5rem}
+.order-frame{aspect-ratio:4/5;border-radius:9rem 9rem 1rem 1rem;overflow:hidden;position:relative;box-shadow:0 30px 70px -30px rgba(33,27,21,.35)}
+.order-frame img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transition:opacity .7s var(--ease-out)}
+.order-img--noir{opacity:0}
+body[data-colorway="noir"] .order-img--noir{opacity:1}
+body[data-colorway="noir"] .order-img--creme{opacity:0}
+.edition{margin-top:1.6rem}
+.edition-nums{display:flex;justify-content:space-between;align-items:baseline;font-size:.8rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-50)}
+.edition-nums b{font-family:var(--font-display);font-weight:500;font-size:1.5rem;letter-spacing:0;color:var(--ink);text-transform:none}
+.edition-bar{height:3px;background:rgba(33,27,21,.12);border-radius:2px;margin-top:.7rem;overflow:hidden}
+.edition-bar i{display:block;height:100%;width:0;background:linear-gradient(to right,var(--brass),#C79A5C);border-radius:2px;transition:width 1.4s var(--ease-out)}
+.edition-note{margin-top:.8rem;font-size:.8rem;color:var(--ink-50)}
+
+/* form */
+.reserve-form-wrap{position:relative}
+.rf-title{font-family:var(--font-display);font-weight:500;font-size:clamp(1.9rem,3.4vw,2.9rem);letter-spacing:-.01em;margin-bottom:.6rem}
+.rf-sub{color:var(--ink-70);margin-bottom:2.4rem;max-width:32em}
+fieldset{border:0}
+.swatches{display:grid;grid-template-columns:1fr 1fr;gap:1rem;margin-bottom:1.8rem}
+.swatches legend{font-size:.74rem;font-weight:500;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-50);margin-bottom:.9rem}
+.swatch{
+  position:relative;display:flex;align-items:center;gap:.9rem;
+  border:1px solid var(--hairline);border-radius:.9rem;padding:1rem 1.1rem;cursor:pointer;
+  transition:border-color .3s,background-color .3s,box-shadow .3s;
+  background:rgba(255,255,255,.35);
+}
+.swatch:hover{border-color:var(--brass)}
+.swatch input{position:absolute;opacity:0;pointer-events:none}
+.swatch:has(input:checked){border-color:var(--brass);box-shadow:0 0 0 1px var(--brass);background:rgba(255,255,255,.7)}
+.swatch:has(input:focus-visible){outline:2px solid var(--brass);outline-offset:3px}
+.swatch-dot{width:2.1rem;height:2.1rem;border-radius:50%;flex:none;box-shadow:inset 0 0 0 1px rgba(0,0,0,.14),inset -4px -6px 10px rgba(0,0,0,.14)}
+.swatch-dot--creme{background:radial-gradient(circle at 34% 30%,#FDF7EA,#D8C9AF)}
+.swatch-dot--noir{background:radial-gradient(circle at 34% 30%,#544A40,#171209)}
+.swatch-name{font-weight:500;font-size:.98rem;display:block}
+.swatch-sub{display:block;font-size:.78rem;color:var(--ink-50)}
+.swatch-check{margin-left:auto;width:1.15rem;height:1.15rem;border-radius:50%;border:1px solid var(--hairline);display:grid;place-items:center;transition:all .3s;flex:none}
+.swatch-check::after{content:"";width:.55rem;height:.55rem;border-radius:50%;background:var(--brass);transform:scale(0);transition:transform .3s var(--ease-out)}
+.swatch:has(input:checked) .swatch-check{border-color:var(--brass)}
+.swatch:has(input:checked) .swatch-check::after{transform:scale(1)}
+
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:1.4rem}
+.field{margin-bottom:1.5rem}
+.field > label,.qty-label{display:block;font-size:.74rem;font-weight:500;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-50);margin-bottom:.6rem}
+.field input[type=text],.field input[type=email]{
+  width:100%;background:rgba(255,255,255,.55);
+  border:1px solid var(--hairline);border-radius:.7rem;
+  padding:.95em 1.1em;font-size:1rem;color:var(--ink);
+  transition:border-color .3s,background-color .3s,box-shadow .3s;
+}
+.field input::placeholder{color:rgba(33,27,21,.32)}
+.field input:hover{border-color:rgba(33,27,21,.32)}
+.field input:focus{outline:none;border-color:var(--brass);box-shadow:0 0 0 1px var(--brass);background:#FFFDF8}
+.field.is-invalid input{border-color:var(--error);box-shadow:0 0 0 1px var(--error)}
+.field-error{display:flex;gap:.45em;align-items:baseline;font-size:.82rem;color:var(--error);margin-top:.55rem;min-height:1.2em;opacity:0;transform:translateY(-3px);transition:opacity .3s,transform .3s}
+.field.is-invalid .field-error{opacity:1;transform:none}
+.field-hint{font-size:.78rem;color:var(--ink-50);margin-top:.55rem}
+
+.stepper{display:inline-flex;align-items:center;border:1px solid var(--hairline);border-radius:999px;background:rgba(255,255,255,.55)}
+.stepper button{
+  width:2.9rem;height:2.9rem;border-radius:50%;display:grid;place-items:center;
+  font-size:1.25rem;line-height:1;color:var(--ink);transition:background-color .25s,color .25s,opacity .25s;
+}
+.stepper button:hover:not(:disabled){background:var(--ink);color:var(--ivory)}
+.stepper button:disabled{opacity:.3;cursor:not-allowed}
+.stepper output{min-width:2.6rem;text-align:center;font-family:var(--font-display);font-weight:500;font-size:1.25rem}
+
+.form-foot{display:flex;align-items:center;justify-content:space-between;gap:1.5rem;flex-wrap:wrap;border-top:1px solid var(--hairline);padding-top:1.6rem;margin-top:.4rem}
+.total-line{font-size:.82rem;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-50)}
+.total-line .total{display:block;font-family:var(--font-display);font-weight:600;font-size:2rem;letter-spacing:-.01em;color:var(--ink);text-transform:none}
+.total-line .was{font-size:.95rem;color:var(--ink-50);text-decoration:line-through;text-decoration-color:var(--brass);margin-left:.5em;font-family:var(--font-body);font-weight:400}
+.form-note{width:100%;font-size:.8rem;color:var(--ink-50);margin-top:.9rem}
+
+/* success */
+.reserve-success{
+  position:absolute;inset:0;display:flex;flex-direction:column;justify-content:center;align-items:flex-start;
+  opacity:0;visibility:hidden;transform:translateY(14px);
+  transition:opacity .7s var(--ease-out),transform .7s var(--ease-out),visibility 0s .7s;
+}
+.reserve-form-wrap.is-success .reserve-success{opacity:1;visibility:visible;transform:none;transition-delay:.25s,.25s,0s}
+.reserve-form-wrap.is-success #reserve-form{opacity:0;visibility:hidden;transform:translateY(-10px);pointer-events:none}
+#reserve-form{transition:opacity .45s,transform .45s,visibility 0s .45s}
+.success-no{position:relative;width:11rem;height:11rem;margin-bottom:1.8rem}
+.success-no svg{position:absolute;inset:0;width:100%;height:100%;transform:rotate(-90deg)}
+.success-no circle{fill:none;stroke:var(--brass);stroke-width:1.5;stroke-dasharray:101;stroke-dashoffset:101;transition:stroke-dashoffset 1.4s var(--ease-out) .5s}
+.is-success .success-no circle{stroke-dashoffset:0}
+.success-no .no{position:absolute;inset:0;display:grid;place-items:center;font-family:var(--font-display);font-weight:600;font-size:2.6rem;letter-spacing:-.01em}
+.success-no .no small{display:block;font-family:var(--font-body);font-weight:500;font-size:.62rem;letter-spacing:.26em;text-transform:uppercase;color:var(--ink-50);text-align:center;margin-top:.3rem}
+.success-title{font-family:var(--font-display);font-weight:500;font-size:clamp(1.8rem,3vw,2.6rem);letter-spacing:-.01em;margin-bottom:.8rem}
+.success-copy{color:var(--ink-70);max-width:30em;margin-bottom:1.8rem}
+.success-copy b{color:var(--ink);font-weight:500}
+.success-actions{display:flex;gap:1.4rem;align-items:center}
+
+/* ============ faq ============ */
+.faq{padding:clamp(5rem,11vh,8.5rem) 0}
+.faq-cols{display:grid;grid-template-columns:.8fr 1.2fr;gap:clamp(2rem,6vw,6rem);align-items:start}
+.faq-list{border-top:1px solid var(--hairline)}
+.faq-q{
+  width:100%;display:flex;justify-content:space-between;align-items:center;gap:1.5rem;
+  text-align:left;padding:1.4rem 0;
+  font-family:var(--font-display);font-weight:500;font-size:clamp(1.05rem,1.6vw,1.3rem);
+  transition:color .3s;
+}
+.faq-q:hover{color:var(--brass-deep)}
+.faq-icon{position:relative;flex:none;width:1.05rem;height:1.05rem}
+.faq-icon::before,.faq-icon::after{content:"";position:absolute;left:0;top:50%;width:100%;height:1.5px;background:var(--brass);transition:transform .45s var(--ease-out)}
+.faq-icon::after{transform:rotate(90deg)}
+.faq-q[aria-expanded="true"] .faq-icon::after{transform:rotate(0deg)}
+.faq-q[aria-expanded="true"]{color:var(--brass-deep)}
+.faq-p{display:grid;grid-template-rows:0fr;transition:grid-template-rows .5s var(--ease-out)}
+.faq-p-inner{overflow:hidden}
+.faq-p-inner p{color:var(--ink-70);max-width:38em;padding-bottom:1.5rem}
+.faq-item{border-bottom:1px solid var(--hairline)}
+.faq-item.is-open .faq-p{grid-template-rows:1fr}
+.faq-aside p{color:var(--ink-70);margin-top:1.4rem;max-width:24em}
+.faq-aside a{color:var(--brass-deep)}
+
+/* ============ footer ============ */
+.site-footer{background:var(--ink);color:var(--paper-noir);overflow:clip}
+.footer-news{border-bottom:1px solid rgba(241,233,218,.14)}
+.footer-news .wrap{display:grid;grid-template-columns:1fr 1fr;gap:1rem 2.5rem;align-items:center;padding-block:clamp(2.5rem,6vh,4rem)}
+.news-title{font-family:var(--font-display);font-weight:500;font-size:clamp(1.6rem,2.8vw,2.4rem);letter-spacing:-.01em}
+.news-title .accent{color:#E8C88F}
+.news-sub{color:rgba(241,233,218,.6);margin-top:.7rem;font-size:.95rem}
+.news-form{display:flex;gap:.6rem;position:relative}
+.news-form input{
+  flex:1;min-width:0;background:rgba(241,233,218,.07);border:1px solid rgba(241,233,218,.22);
+  border-radius:999px;padding:.95em 1.4em;color:var(--paper-noir);font-size:.95rem;
+  transition:border-color .3s,background-color .3s;
+}
+.news-form input::placeholder{color:rgba(241,233,218,.4)}
+.news-form input:focus{outline:none;border-color:var(--brass);background:rgba(241,233,218,.1)}
+.news-form .btn{background:var(--paper-noir);color:var(--ink);flex:none}
+.news-form .btn:hover{background:var(--brass);color:var(--ivory)}
+.news-msg{grid-column:2;font-size:.85rem;margin-top:.7rem;min-height:1.3em;color:#D9BE8C}
+.news-msg.is-error{color:#E3907A}
+.footer-main .wrap{padding-block:clamp(3rem,7vh,5rem) 1.5rem}
+.footer-word{
+  font-family:var(--font-display);font-weight:600;
+  font-size:clamp(4.5rem,19.5vw,17.5rem);line-height:.85;letter-spacing:.06em;
+  color:transparent;-webkit-text-stroke:1px rgba(233,200,143,.5);
+  user-select:none;text-align:center;
+}
+.footer-cols{display:flex;justify-content:space-between;gap:2rem;flex-wrap:wrap;align-items:flex-end;margin-top:clamp(2.5rem,6vh,4rem);padding-top:1.6rem;border-top:1px solid rgba(241,233,218,.14)}
+.footer-links{list-style:none;display:flex;gap:1.8rem;flex-wrap:wrap}
+.footer-links a{text-decoration:none;font-size:.85rem;color:rgba(241,233,218,.7);transition:color .25s}
+.footer-links a:hover{color:#E8C88F}
+.footer-credit{font-size:.8rem;color:rgba(241,233,218,.45)}
+.footer-credit a{color:rgba(241,233,218,.7)}
+
+/* ============ responsive ============ */
+@media (max-width:1023px){
+  .hero-inner{grid-template-columns:1fr;min-height:0;gap:3.5rem}
+  .hero-copy{max-width:40rem}
+  .hero-stage{width:min(100%,26rem);margin-bottom:1.6rem}
+  .design-grid,.noir-grid,.reserve-grid{grid-template-columns:1fr}
+  .design-media,.order-card{position:static}
+  .design-media .frame{aspect-ratio:4/3}
+  .noir-stage{order:-1;max-width:26rem;margin:0 auto}
+  .reviews-grid{grid-template-columns:1fr;gap:3rem;max-width:40rem}
+  .faq-cols{grid-template-columns:1fr;gap:2.5rem}
+  .footer-news .wrap{grid-template-columns:1fr}
+  .news-msg{grid-column:1}
+  .order-card{max-width:24rem}
+}
+@media (max-width:859px){
+  .nav-links{display:none}
+  .nav-cta{margin-left:auto}
+  .nav-mobile-guide{display:inline-block}
+}
+@media (min-width:860px){
+  .nav-mobile-guide{display:none}
+}
+@media (max-width:599px){
+  .spec-grid{grid-template-columns:1fr;gap:0}
+  .form-row{grid-template-columns:1fr}
+  .swatches{grid-template-columns:1fr}
+  .seal{width:5.6rem;height:5.6rem;top:-1.6rem;left:-1rem}
+  .hero-frame{border-radius:10rem 10rem 1rem 1rem}
+  .announce{font-size:.72rem}
+  .announce .dot{margin:0 .5em}
+  .hero-strip ul{display:grid;grid-template-columns:1fr 1fr;gap:.9rem 1.2rem;padding-block:1.3rem}
+  .hero-strip li{font-size:.68rem;letter-spacing:.08em}
+  .spec-row{flex-direction:column;align-items:flex-start;gap:.3rem}
+  .spec-row dd{text-align:left}
+  .form-foot .btn{width:100%;justify-content:center}
+  .lifestyle{height:74vh}
+  .success-no{width:9rem;height:9rem}
+}
+
+/* ============ reduced motion ============ */
+@media (prefers-reduced-motion: reduce){
+  html{scroll-behavior:auto}
+  *,*::before,*::after{animation-duration:.01ms !important;animation-iteration-count:1 !important;transition-duration:.01ms !important}
+  .marquee-track{animation:none;width:auto}
+  .seal svg{animation:none}
+}
+</style>
+</head>
+<body data-colorway="creme">
+<a class="skip-link" href="#main">Skip to content</a>
+<div class="grain" aria-hidden="true"></div>
+
+<p class="announce" role="status">
+  <b>Launch edition</b><span class="dot">·</span>250 units<span class="dot">·</span>Ships October 2026
+</p>
+
+<nav class="site-nav" aria-label="Main">
+  <div class="nav-inner">
+    <a class="wordmark" href="#top">LUME<small>Atelier</small></a>
+    <ul class="nav-links">
+      <li><a href="#design">Design</a></li>
+      <li><a href="#details">Details</a></li>
+      <li><a href="#reviews">Reviews</a></li>
+      <li><a class="nav-guide" href="guide.html">How it was made</a></li>
+    </ul>
+    <a class="btn btn--small nav-cta" href="#reserve">Reserve <span class="arr" aria-hidden="true">→</span></a>
+  </div>
+</nav>
+
+<main id="main">
+<!-- ============ HERO ============ -->
+<header class="hero" id="top">
+  <div class="hero-inner">
+    <div class="hero-copy">
+      <p class="eyebrow" data-hero>Orbe N°1 — Edition of 250</p>
+      <h1 class="hero-title">
+        <span class="line" data-hero>Light,</span>
+        <span class="line" data-hero>thrown</span>
+        <span class="line" data-hero>by <em class="accent">hand.</em></span>
+      </h1>
+      <p class="hero-lede" data-hero>A hand-thrown ceramic orb on a brushed-brass stem, grounded in travertine. Orbe N°1 casts the 2700-kelvin glow rooms are remembered by — dimmed with a touch, unplugged for forty hours.</p>
+      <div class="price-row" data-hero>
+        <span class="price"><sup>$</sup>249</span>
+        <span class="price-was"><span class="sr-only">Regular price </span>$289</span>
+        <span class="price-badge">Launch pre-order</span>
+      </div>
+      <div class="hero-cta-row" data-hero>
+        <a class="btn btn--stage" href="#reserve">Reserve yours <span class="arr" aria-hidden="true">→</span></a>
+        <a class="link-quiet" href="#design">Explore the design</a>
+      </div>
+      <p class="hero-note" data-hero>Nothing due today · Fully refundable until dispatch</p>
+    </div>
+
+    <div class="hero-stage" data-hero-stage>
+      <div class="hero-glow" aria-hidden="true"></div>
+      <div class="seal" aria-hidden="true">
+        <svg viewBox="0 0 100 100">
+          <defs><path id="sealpath" d="M50,50 m-38,0 a38,38 0 1,1 76,0 a38,38 0 1,1 -76,0"/></defs>
+          <text><textPath href="#sealpath">Lume Atelier · Edition of 250 ·</textPath></text>
+          <circle class="seal-orb" cx="50" cy="50" r="4.5"/>
+        </svg>
+      </div>
+      <div class="hero-frame">
+        <img class="hero-img--creme" src="assets/img/lamp-hero.jpg" alt="Orbe N°1 in Crème: a glowing white ceramic orb on a brushed-brass stem with a travertine base, against a warm beige studio backdrop." width="1772" height="2200" fetchpriority="high">
+        <img class="hero-img--noir" src="assets/img/lamp-charcoal.jpg" alt="Orbe N°1 in Noir: a charcoal ceramic orb on a brushed-brass stem with a rough basalt base, lit from within against a dark backdrop." width="1650" height="2200" loading="lazy">
+      </div>
+      <fieldset class="colorway-toggle" data-hero-toggle>
+        <legend class="sr-only">Choose colorway</legend>
+        <label>
+          <input type="radio" name="hero-colorway" value="creme" checked>
+          <span class="tg-dot tg-dot--creme" aria-hidden="true"></span>Crème
+        </label>
+        <label>
+          <input type="radio" name="hero-colorway" value="noir">
+          <span class="tg-dot tg-dot--noir" aria-hidden="true"></span>Noir
+        </label>
+      </fieldset>
+      <p class="stage-caption" aria-hidden="true">
+        <span class="cap-creme">N°1 in Crème — travertine base</span>
+        <span class="cap-noir">N°1 in Noir — basalt base</span>
+      </p>
+    </div>
+  </div>
+  <div class="hero-strip" data-hero>
+    <ul>
+      <li>Numbered by hand, 001–250</li>
+      <li>5-year warranty</li>
+      <li>Free carbon-neutral shipping</li>
+      <li>$0 due today</li>
+    </ul>
+  </div>
+</header>
+
+<!-- ============ MARQUEE ============ -->
+<div class="marquee" aria-hidden="true">
+  <div class="marquee-track">
+    <div class="marquee-chunk">
+      <span class="mi">Hand-thrown <em>ceramic</em></span><span class="msep">·</span>
+      <span class="mi">2700K <em>warm</em> glow</span><span class="msep">·</span>
+      <span class="mi">40h battery</span><span class="msep">·</span>
+      <span class="mi">Dim by <em>touch</em></span><span class="msep">·</span>
+      <span class="mi">Hand-thrown <em>ceramic</em></span><span class="msep">·</span>
+      <span class="mi">2700K <em>warm</em> glow</span><span class="msep">·</span>
+      <span class="mi">40h battery</span><span class="msep">·</span>
+      <span class="mi">Dim by <em>touch</em></span><span class="msep">·</span>
+    </div>
+    <div class="marquee-chunk">
+      <span class="mi">Hand-thrown <em>ceramic</em></span><span class="msep">·</span>
+      <span class="mi">2700K <em>warm</em> glow</span><span class="msep">·</span>
+      <span class="mi">40h battery</span><span class="msep">·</span>
+      <span class="mi">Dim by <em>touch</em></span><span class="msep">·</span>
+      <span class="mi">Hand-thrown <em>ceramic</em></span><span class="msep">·</span>
+      <span class="mi">2700K <em>warm</em> glow</span><span class="msep">·</span>
+      <span class="mi">40h battery</span><span class="msep">·</span>
+      <span class="mi">Dim by <em>touch</em></span><span class="msep">·</span>
+    </div>
+  </div>
+</div>
+
+<!-- ============ DESIGN STORY ============ -->
+<section class="design" id="design">
+  <div class="wrap">
+    <div class="section-head" data-rv>
+      <p class="kicker">The design</p>
+      <h2 class="section-title">Made slowly, <em class="accent">on purpose.</em></h2>
+    </div>
+    <div class="design-grid">
+      <div class="design-media" data-rv>
+        <figure class="frame frame--arch" data-clip>
+          <img src="assets/img/lamp-detail.jpg" alt="Macro detail of the glowing orb where it meets the brushed-brass stem, warm light pooling at the junction." loading="lazy" width="2048" height="2048">
+        </figure>
+        <figcaption class="media-caption"><span>Detail — orb &amp; stem junction</span><b>Fig. 01</b></figcaption>
+      </div>
+      <div class="features">
+        <article class="feature" data-rv>
+          <p class="feature-no">N° 01</p>
+          <div>
+            <h3>Thrown, not molded</h3>
+            <p>Each orb is thrown on the wheel in our Lisbon atelier, so the wall of every shade varies by a hair's breadth. That variance is the point — no two lamps diffuse light identically, and yours is numbered to prove it.</p>
+          </div>
+        </article>
+        <article class="feature" data-rv>
+          <p class="feature-no">N° 02</p>
+          <div>
+            <h3>2700K, nothing harsher</h3>
+            <p>The integrated LED is tuned to candle-adjacent warmth — 2700 kelvin at CRI 95 — filtered twice through the ceramic body. It renders skin, wood and wine the way dusk does, not the way offices do.</p>
+          </div>
+        </article>
+        <article class="feature" data-rv>
+          <p class="feature-no">N° 03</p>
+          <div>
+            <h3>Dimmed like an instrument</h3>
+            <p>The brass stem is the switch. Tap it to step through three levels; hold it and the glow sweeps smoothly from reading-bright to almost-ember. No app, no remote, nothing to lose.</p>
+          </div>
+        </article>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ NOIR PASSAGE ============ -->
+<section class="noir" aria-labelledby="noir-title">
+  <div class="wrap noir-grid">
+    <div>
+      <p class="kicker" data-rv>The second colorway</p>
+      <h2 class="section-title" id="noir-title" data-rv>After dark, <em class="accent">Noir.</em></h2>
+      <p class="body" data-rv>The same orb, glazed in deep charcoal and set on raw basalt. Unlit, it reads as sculpture. Lit, the glaze holds the glow inside the sphere — a lamp that keeps its light close, like a well-kept secret.</p>
+      <ul class="noir-list" data-rv>
+        <li><b>Ceramic</b><span>Charcoal glaze, matte, hand-applied</span></li>
+        <li><b>Base</b><span>Split basalt, each face unique</span></li>
+        <li><b>Edition</b><span>80 of the 250 units, allocated in order</span></li>
+      </ul>
+      <button class="btn btn--paper" type="button" data-reserve-noir>Reserve in Noir <span class="arr" aria-hidden="true">→</span></button>
+    </div>
+    <div class="noir-stage" data-rv>
+      <div class="hero-glow" aria-hidden="true"></div>
+      <figure class="frame" data-clip>
+        <img src="assets/img/lamp-charcoal.jpg" alt="Orbe N°1 Noir glowing softly on its basalt base in a dark room, casting a long warm shadow." loading="lazy" width="1650" height="2200">
+      </figure>
+    </div>
+  </div>
+</section>
+
+<!-- ============ LIFESTYLE ============ -->
+<section class="lifestyle" aria-label="Orbe N°1 at home">
+  <img src="assets/img/lamp-lifestyle.jpg" alt="Orbe N°1 glowing on a walnut desk at dusk, beside a ceramic mug and a closed notebook, linen curtains behind." loading="lazy" width="2200" height="1467" data-parallax>
+  <div class="lifestyle-quote wrap">
+    <blockquote data-rv>
+      <p>It doesn't fill the room. It gathers it.</p>
+      <cite>Field notes — first prototypes, Lisbon</cite>
+    </blockquote>
+  </div>
+</section>
+
+<!-- ============ SPECS ============ -->
+<section class="specs" id="details">
+  <div class="wrap">
+    <div class="placard" data-rv>
+      <div class="placard-head">
+        <p class="kicker" style="justify-content:center">Object record</p>
+        <h2 class="title">Orbe N°1, 2026</h2>
+        <p class="medium">Hand-thrown stoneware, brushed brass, Roman travertine — edition of 250</p>
+        <div class="rule" aria-hidden="true"></div>
+      </div>
+      <div class="spec-grid">
+        <dl>
+          <div class="spec-row"><dt>Height</dt><dd><b>42</b> cm — 16.5 in</dd></div>
+          <div class="spec-row"><dt>Orb diameter</dt><dd><b>20</b> cm — 7.9 in</dd></div>
+          <div class="spec-row"><dt>Weight</dt><dd><b>2.4</b> kg — 5.3 lb</dd></div>
+          <div class="spec-row"><dt>Materials</dt><dd>Stoneware, brass, travertine</dd></div>
+          <div class="spec-row"><dt>Colorways</dt><dd>Crème · Noir</dd></div>
+        </dl>
+        <dl>
+          <div class="spec-row"><dt>Light source</dt><dd>LED module, <b>2700</b> K · CRI 95</dd></div>
+          <div class="spec-row"><dt>Output</dt><dd><b>380</b> lm, 3-step + sweep dim</dd></div>
+          <div class="spec-row"><dt>Battery</dt><dd><b>40</b> h low · 9 h full</dd></div>
+          <div class="spec-row"><dt>Charging</dt><dd>USB-C, 3 h to full</dd></div>
+          <div class="spec-row"><dt>Cable</dt><dd>Braided cotton, 1.8 m</dd></div>
+        </dl>
+      </div>
+      <p class="spec-foot">LED module rated <b>50,000 h</b> and user-replaceable — the ceramic will outlive us all.</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ REVIEWS ============ -->
+<section class="reviews" id="reviews">
+  <div class="wrap">
+    <div class="section-head" data-rv>
+      <p class="kicker">From the first hundred</p>
+      <h2 class="section-title">Living with <em class="accent">Orbe.</em></h2>
+    </div>
+    <div class="reviews-grid">
+      <figure class="review" data-rv>
+        <blockquote><p>It doesn't light the room so much as warm it. It's the first object guests ask about, every single time.</p></blockquote>
+        <span class="stars" aria-hidden="true">★★★★★</span><span class="sr-only">Rated 5 out of 5 stars</span>
+        <figcaption><b>Camille R.</b> — Lyon</figcaption>
+      </figure>
+      <figure class="review" data-rv>
+        <blockquote><p>The ceramic has a presence photographs don't capture. Ours lives on the piano and has ended every evening since.</p></blockquote>
+        <span class="stars" aria-hidden="true">★★★★★</span><span class="sr-only">Rated 5 out of 5 stars</span>
+        <figcaption><b>Jonas M.</b> — Copenhagen</figcaption>
+      </figure>
+      <figure class="review" data-rv>
+        <blockquote><p>I reserved a second one before the first had finished its first charge. The Noir is somehow even quieter.</p></blockquote>
+        <span class="stars" aria-hidden="true">★★★★★</span><span class="sr-only">Rated 5 out of 5 stars</span>
+        <figcaption><b>Priya S.</b> — London</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<!-- ============ RESERVE ============ -->
+<section class="reserve" id="reserve">
+  <div class="wrap reserve-grid">
+    <aside class="order-card" data-rv>
+      <div class="order-frame">
+        <img class="order-img--creme" src="assets/img/lamp-hero.jpg" alt="" aria-hidden="true" loading="lazy" width="1772" height="2200">
+        <img class="order-img--noir" src="assets/img/lamp-charcoal.jpg" alt="" aria-hidden="true" loading="lazy" width="1650" height="2200">
+      </div>
+      <div class="edition">
+        <p class="edition-nums"><span><b data-count>0</b> of 250 reserved</span><span data-remaining>250 remain</span></p>
+        <div class="edition-bar"><i data-bar></i></div>
+        <p class="edition-note">Reservations are numbered in order — your place in line is your lamp's number.</p>
+      </div>
+    </aside>
+
+    <div class="reserve-form-wrap" data-rv>
+      <h2 class="rf-title">Reserve yours.</h2>
+      <p class="rf-sub">Nothing is charged today. We'll write to you when your number enters production, and you can bow out any time before dispatch.</p>
+
+      <form id="reserve-form" novalidate>
+        <fieldset class="swatches-wrap">
+          <legend class="swatches legend" style="display:block;font-size:.74rem;font-weight:500;letter-spacing:.18em;text-transform:uppercase;color:var(--ink-50);margin-bottom:.9rem;padding:0">Colorway</legend>
+          <div class="swatches">
+            <label class="swatch">
+              <input type="radio" name="colorway" value="creme" checked>
+              <span class="swatch-dot swatch-dot--creme" aria-hidden="true"></span>
+              <span><span class="swatch-name">Crème</span><span class="swatch-sub">Travertine base</span></span>
+              <span class="swatch-check" aria-hidden="true"></span>
+            </label>
+            <label class="swatch">
+              <input type="radio" name="colorway" value="noir">
+              <span class="swatch-dot swatch-dot--noir" aria-hidden="true"></span>
+              <span><span class="swatch-name">Noir</span><span class="swatch-sub">Basalt base</span></span>
+              <span class="swatch-check" aria-hidden="true"></span>
+            </label>
+          </div>
+        </fieldset>
+
+        <div class="field">
+          <span class="qty-label" id="qty-label">Quantity</span>
+          <div class="stepper" role="group" aria-labelledby="qty-label">
+            <button type="button" data-step="-1" aria-label="Decrease quantity">−</button>
+            <output id="qty-out" aria-live="polite">1</output>
+            <button type="button" data-step="1" aria-label="Increase quantity">+</button>
+          </div>
+          <p class="field-hint">Two per household, so the edition travels far.</p>
+        </div>
+
+        <div class="form-row">
+          <div class="field" data-field="name">
+            <label for="res-name">Full name</label>
+            <input id="res-name" name="name" type="text" autocomplete="name" placeholder="Ada Moreau" required>
+            <p class="field-error" id="err-name" aria-live="polite"></p>
+          </div>
+          <div class="field" data-field="email">
+            <label for="res-email">Email</label>
+            <input id="res-email" name="email" type="email" autocomplete="email" inputmode="email" placeholder="ada@studio.com" required>
+            <p class="field-error" id="err-email" aria-live="polite"></p>
+          </div>
+        </div>
+
+        <div class="form-foot">
+          <p class="total-line">Total at dispatch
+            <span class="total"><span data-total>$249</span><s class="was" data-total-was>$289</s></span>
+          </p>
+          <button class="btn" type="submit" id="reserve-submit" disabled>Reserve — $0 today <span class="arr" aria-hidden="true">→</span></button>
+          <p class="form-note">By reserving you join the waitlist only — we'll confirm details before anything ships or is charged.</p>
+        </div>
+      </form>
+
+      <div class="reserve-success" aria-live="polite">
+        <div class="success-no">
+          <svg viewBox="0 0 120 120" aria-hidden="true"><circle cx="60" cy="60" r="58" pathLength="100"/></svg>
+          <div class="no"><span><span data-success-no>#142</span><small>in line</small></span></div>
+        </div>
+        <h3 class="success-title">You're in line<span data-success-name></span>.</h3>
+        <p class="success-copy" data-success-copy>Your Orbe N°1 is held. We've noted your details and will write before your number enters production.</p>
+        <div class="success-actions">
+          <a class="btn btn--small" href="#design">Revisit the design</a>
+          <button class="link-quiet" type="button" data-reset-form>Reserve another</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ FAQ ============ -->
+<section class="faq" aria-labelledby="faq-title">
+  <div class="wrap faq-cols">
+    <div class="faq-aside" data-rv>
+      <p class="kicker">Practicalities</p>
+      <h2 class="section-title" id="faq-title">Asked, <em class="accent">answered.</em></h2>
+      <p>Anything else? Write to <a href="mailto:atelier@lume.studio">atelier@lume.studio</a> — a person answers, usually the one who glazed your lamp.</p>
+    </div>
+    <div class="faq-list" data-rv>
+      <div class="faq-item">
+        <h3><button class="faq-q" aria-expanded="false" aria-controls="faq-p1" id="faq-q1">When will my lamp ship?<span class="faq-icon" aria-hidden="true"></span></button></h3>
+        <div class="faq-p" id="faq-p1" role="region" aria-labelledby="faq-q1"><div class="faq-p-inner"><p>The launch edition ships in October 2026, in batches ordered by reservation number. Numbers 001–100 leave the atelier first; we'll email your tracking the day yours is packed.</p></div></div>
+      </div>
+      <div class="faq-item">
+        <h3><button class="faq-q" aria-expanded="false" aria-controls="faq-p2" id="faq-q2">Is the reservation refundable?<span class="faq-icon" aria-hidden="true"></span></button></h3>
+        <div class="faq-p" id="faq-p2" role="region" aria-labelledby="faq-q2"><div class="faq-p-inner"><p>Entirely. Nothing is charged until dispatch, and you can step out of line any time before then with a single email. Your number passes to the next person.</p></div></div>
+      </div>
+      <div class="faq-item">
+        <h3><button class="faq-q" aria-expanded="false" aria-controls="faq-p3" id="faq-q3">How does touch dimming actually work?<span class="faq-icon" aria-hidden="true"></span></button></h3>
+        <div class="faq-p" id="faq-p3" role="region" aria-labelledby="faq-q3"><div class="faq-p-inner"><p>The brass stem is capacitive along its full length. Tap it anywhere to cycle three preset levels; rest a finger and the brightness sweeps continuously until you let go. It remembers the last level you chose.</p></div></div>
+      </div>
+      <div class="faq-item">
+        <h3><button class="faq-q" aria-expanded="false" aria-controls="faq-p4" id="faq-q4">Can it stay plugged in?<span class="faq-icon" aria-hidden="true"></span></button></h3>
+        <div class="faq-p" id="faq-p4" role="region" aria-labelledby="faq-q4"><div class="faq-p-inner"><p>Yes — the battery management is designed for it. Leave it on the cotton-braided USB-C cable as a permanent fixture, or unplug and carry it to the table, the bath, the balcony. Forty hours at ember level.</p></div></div>
+      </div>
+      <div class="faq-item">
+        <h3><button class="faq-q" aria-expanded="false" aria-controls="faq-p5" id="faq-q5">What if the ceramic chips or the LED dies?<span class="faq-icon" aria-hidden="true"></span></button></h3>
+        <div class="faq-p" id="faq-p5" role="region" aria-labelledby="faq-q5"><div class="faq-p-inner"><p>Every Orbe carries a five-year warranty. The LED module is rated for 50,000 hours and user-replaceable with one brass screw; if the ceramic is damaged in transit we replace the lamp outright and retire its number.</p></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+</main>
+
+<!-- ============ FOOTER ============ -->
+<footer class="site-footer">
+  <div class="footer-news">
+    <div class="wrap">
+      <div>
+        <h2 class="news-title">First light, <em class="accent">first to know.</em></h2>
+        <p class="news-sub">One letter a month from the atelier — glaze tests, edition news, nothing else.</p>
+      </div>
+      <form class="news-form" id="news-form" novalidate>
+        <label class="sr-only" for="news-email">Email address</label>
+        <input id="news-email" type="email" inputmode="email" autocomplete="email" placeholder="you@somewhere.com" required>
+        <button class="btn" type="submit">Subscribe</button>
+      </form>
+      <p class="news-msg" id="news-msg" aria-live="polite"></p>
+    </div>
+  </div>
+  <div class="footer-main">
+    <div class="wrap">
+      <p class="footer-word" aria-hidden="true">LUME</p>
+      <div class="footer-cols">
+        <ul class="footer-links">
+          <li><a href="#design">Design</a></li>
+          <li><a href="#details">Details</a></li>
+          <li><a href="#reviews">Reviews</a></li>
+          <li><a href="#reserve">Reserve</a></li>
+          <li><a href="guide.html">How this site was made</a></li>
+        </ul>
+        <p class="footer-credit">© 2026 LUME Atelier · Designed &amp; built by <a href="guide.html">Claude (Fable 5)</a></p>
+      </div>
+    </div>
+  </div>
+</footer>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+<script>
+(function(){
+'use strict';
+var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+var hasGsap = typeof window.gsap !== 'undefined';
+var animate = hasGsap && !reduced;
+
+/* ---------- constants ---------- */
+var PRICE = 249, PRICE_WAS = 289, EDITION = 250, BASE_RESERVED = 141;
+var LS_RES = 'lume.reservations', LS_NEWS = 'lume.newsletter';
+
+function readJSON(key, fallback){
+  try{ return JSON.parse(localStorage.getItem(key)) || fallback; }catch(e){ return fallback; }
+}
+function writeJSON(key, val){
+  try{ localStorage.setItem(key, JSON.stringify(val)); }catch(e){}
+}
+
+/* ---------- nav scroll state ---------- */
+var nav = document.querySelector('.site-nav');
+var hero = document.querySelector('.hero');
+function onScroll(){
+  nav.classList.toggle('is-scrolled', window.scrollY > 32);
+}
+window.addEventListener('scroll', onScroll, {passive:true});
+window.addEventListener('resize', onScroll);
+onScroll();
+
+/* ---------- colorway (signature interaction) ---------- */
+var heroRadios = document.querySelectorAll('input[name="hero-colorway"]');
+var formRadios = document.querySelectorAll('input[name="colorway"]');
+var themeMeta = document.querySelector('meta[name="theme-color"]');
+
+function setColorway(value){
+  document.body.setAttribute('data-colorway', value);
+  heroRadios.forEach(function(r){ r.checked = (r.value === value); });
+  formRadios.forEach(function(r){ r.checked = (r.value === value); });
+  if (themeMeta) themeMeta.setAttribute('content', value === 'noir' ? '#181410' : '#F4EEE3');
+}
+heroRadios.forEach(function(r){
+  r.addEventListener('change', function(){ if (r.checked) setColorway(r.value); });
+});
+formRadios.forEach(function(r){
+  r.addEventListener('change', function(){ if (r.checked) setColorway(r.value); });
+});
+document.querySelectorAll('[data-reserve-noir]').forEach(function(btn){
+  btn.addEventListener('click', function(){
+    setColorway('noir');
+    var target = document.getElementById('reserve');
+    if (target) target.scrollIntoView({behavior: reduced ? 'auto' : 'smooth'});
+  });
+});
+
+/* ---------- reservations state ---------- */
+var reservations = readJSON(LS_RES, []);
+function unitsReserved(){
+  var extra = 0;
+  reservations.forEach(function(r){ extra += (r.qty || 1); });
+  return Math.min(BASE_RESERVED + extra, EDITION);
+}
+
+var countEl = document.querySelector('[data-count]');
+var remainEl = document.querySelector('[data-remaining]');
+var barEl = document.querySelector('[data-bar]');
+var counted = false;
+function paintEdition(instant){
+  var n = unitsReserved();
+  if (remainEl) remainEl.textContent = (EDITION - n) + ' remain';
+  if (barEl) barEl.style.width = (n / EDITION * 100) + '%';
+  if (!countEl) return;
+  if (instant || !animate){ countEl.textContent = n; return; }
+  var obj = {v: 0};
+  gsap.to(obj, {v: n, duration: 1.4, ease: 'power2.out',
+    onUpdate: function(){ countEl.textContent = Math.round(obj.v); }});
+}
+
+/* ---------- reserve form ---------- */
+var form = document.getElementById('reserve-form');
+var wrap = document.querySelector('.reserve-form-wrap');
+var submitBtn = document.getElementById('reserve-submit');
+var nameInput = document.getElementById('res-name');
+var emailInput = document.getElementById('res-email');
+var qtyOut = document.getElementById('qty-out');
+var totalEl = document.querySelector('[data-total]');
+var totalWasEl = document.querySelector('[data-total-was]');
+var qty = 1, QTY_MIN = 1, QTY_MAX = 2;
+var touched = {name:false, email:false};
+
+function fmt(n){ return '$' + n.toLocaleString('en-US'); }
+function paintQty(){
+  qtyOut.textContent = qty;
+  totalEl.textContent = fmt(qty * PRICE);
+  totalWasEl.textContent = fmt(qty * PRICE_WAS);
+  document.querySelectorAll('.stepper [data-step]').forEach(function(b){
+    var d = parseInt(b.getAttribute('data-step'), 10);
+    b.disabled = (qty + d < QTY_MIN) || (qty + d > QTY_MAX);
+  });
+}
+document.querySelectorAll('.stepper [data-step]').forEach(function(b){
+  b.addEventListener('click', function(){
+    qty = Math.min(QTY_MAX, Math.max(QTY_MIN, qty + parseInt(b.getAttribute('data-step'), 10)));
+    paintQty();
+    validate(false);
+  });
+});
+paintQty();
+
+function nameError(){
+  var v = nameInput.value.trim();
+  if (!v) return 'Please add your name — it goes on the edition label.';
+  if (v.length < 2) return 'A little more of your name, if you would.';
+  return '';
+}
+function emailError(){
+  var v = emailInput.value.trim();
+  if (!v) return 'We need an email to hold your place.';
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v)) return 'That email doesn’t look complete.';
+  return '';
+}
+function paintField(key, msg){
+  var field = document.querySelector('[data-field="' + key + '"]');
+  var errEl = document.getElementById('err-' + key);
+  var show = msg && touched[key];
+  field.classList.toggle('is-invalid', !!show);
+  errEl.textContent = show ? msg : '';
+}
+function validate(showAll){
+  if (showAll){ touched.name = true; touched.email = true; }
+  var en = nameError(), ee = emailError();
+  paintField('name', en);
+  paintField('email', ee);
+  var ok = !en && !ee;
+  submitBtn.disabled = !ok;
+  return ok;
+}
+[nameInput, emailInput].forEach(function(input){
+  var key = input === nameInput ? 'name' : 'email';
+  input.addEventListener('blur', function(){ touched[key] = true; validate(false); });
+  input.addEventListener('input', function(){ validate(false); });
+});
+validate(false);
+
+function showSuccess(res, instant){
+  var noEl = document.querySelector('[data-success-no]');
+  var nameEl = document.querySelector('[data-success-name]');
+  var copyEl = document.querySelector('[data-success-copy]');
+  var first = (res.name || '').trim().split(/\s+/)[0];
+  noEl.textContent = '#' + res.number;
+  nameEl.textContent = first ? ', ' + first : '';
+  copyEl.innerHTML = 'Orbe N°1 in <b>' + (res.colorway === 'noir' ? 'Noir' : 'Crème') + '</b> × ' + res.qty +
+    ' is held under <b>' + res.email + '</b>. We’ll write before your number enters production — ships October 2026.';
+  if (instant) wrap.classList.add('no-anim');
+  wrap.classList.add('is-success');
+  if (animate && !instant){
+    var no = wrap.querySelector('.success-no .no');
+    gsap.fromTo(no, {scale:.85, autoAlpha:0}, {scale:1, autoAlpha:1, duration:.9, delay:.35, ease:'power3.out'});
+  }
+}
+
+form.addEventListener('submit', function(e){
+  e.preventDefault();
+  if (!validate(true)) return;
+  var label = submitBtn.querySelector('.arr');
+  submitBtn.disabled = true;
+  submitBtn.firstChild.textContent = 'Holding your place… ';
+  setTimeout(function(){
+    var number = unitsReserved() + 1;
+    var res = {
+      name: nameInput.value.trim(),
+      email: emailInput.value.trim(),
+      colorway: document.querySelector('input[name="colorway"]:checked').value,
+      qty: qty,
+      number: number,
+      ts: Date.now()
+    };
+    reservations.push(res);
+    writeJSON(LS_RES, reservations);
+    paintEdition(false);
+    showSuccess(res, false);
+    submitBtn.firstChild.textContent = 'Reserve — $0 today ';
+  }, 750);
+});
+
+document.querySelector('[data-reset-form]').addEventListener('click', function(){
+  wrap.classList.remove('is-success');
+  form.reset();
+  setColorway('creme');
+  qty = 1; paintQty();
+  touched = {name:false, email:false};
+  validate(false);
+  submitBtn.disabled = true;
+  nameInput.focus();
+});
+
+/* restore previous reservation (and its colorway) */
+if (reservations.length){
+  var last = reservations[reservations.length - 1];
+  setColorway(last.colorway === 'noir' ? 'noir' : 'creme');
+  showSuccess(last, true);
+}
+
+/* ---------- faq accordion ---------- */
+document.querySelectorAll('.faq-item').forEach(function(item){
+  var btn = item.querySelector('.faq-q');
+  btn.addEventListener('click', function(){
+    var open = item.classList.contains('is-open');
+    document.querySelectorAll('.faq-item.is-open').forEach(function(other){
+      other.classList.remove('is-open');
+      other.querySelector('.faq-q').setAttribute('aria-expanded', 'false');
+    });
+    if (!open){
+      item.classList.add('is-open');
+      btn.setAttribute('aria-expanded', 'true');
+    }
+  });
+});
+
+/* ---------- newsletter ---------- */
+var newsForm = document.getElementById('news-form');
+var newsEmail = document.getElementById('news-email');
+var newsMsg = document.getElementById('news-msg');
+function newsSuccess(email){
+  newsForm.style.display = 'none';
+  newsMsg.classList.remove('is-error');
+  newsMsg.textContent = 'You’re on the list — first light, first to know. (' + email + ')';
+}
+newsForm.addEventListener('submit', function(e){
+  e.preventDefault();
+  var v = newsEmail.value.trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v)){
+    newsMsg.classList.add('is-error');
+    newsMsg.textContent = 'That email doesn’t look complete — mind checking it?';
+    newsEmail.focus();
+    return;
+  }
+  writeJSON(LS_NEWS, {email: v, ts: Date.now()});
+  newsSuccess(v);
+});
+var storedNews = readJSON(LS_NEWS, null);
+if (storedNews && storedNews.email) newsSuccess(storedNews.email);
+
+/* ---------- motion (all hidden states set here, never in CSS) ---------- */
+if (animate){
+  gsap.registerPlugin(ScrollTrigger);
+
+  /* hero entrance */
+  var heroEls = document.querySelectorAll('[data-hero]');
+  var stage = document.querySelector('[data-hero-stage]');
+  var frame = stage.querySelector('.hero-frame');
+  var frameImg = frame.querySelector('.hero-img--creme');
+  var toggle = stage.querySelector('[data-hero-toggle]');
+  var caption = stage.querySelector('.stage-caption');
+  var seal = stage.querySelector('.seal');
+
+  gsap.set(heroEls, {autoAlpha:0, y:34});
+  gsap.set(frame, {autoAlpha:0, y:60, scale:.96});
+  gsap.set(frameImg, {scale:1.16});
+  gsap.set([toggle, caption, seal], {autoAlpha:0, y:14});
+
+  var tl = gsap.timeline({defaults:{ease:'power3.out'}});
+  tl.to(heroEls, {autoAlpha:1, y:0, duration:1, stagger:.09}, .15)
+    .to(frame, {autoAlpha:1, y:0, scale:1, duration:1.25}, .3)
+    .to(frameImg, {scale:1, duration:1.8, ease:'power2.out'}, .3)
+    .to([toggle, caption, seal], {autoAlpha:1, y:0, duration:.8, stagger:.1}, 1.05);
+
+  /* breathing glow */
+  gsap.to('.hero-glow', {scale:1.12, opacity:.75, duration:3.4, ease:'sine.inOut', yoyo:true, repeat:-1});
+
+  /* generic reveals */
+  document.querySelectorAll('[data-rv]').forEach(function(el){
+    gsap.set(el, {autoAlpha:0, y:30});
+    gsap.to(el, {autoAlpha:1, y:0, duration:.9, ease:'power3.out',
+      scrollTrigger:{trigger:el, start:'top 90%', once:true}});
+  });
+
+  /* masked image reveals */
+  document.querySelectorAll('[data-clip]').forEach(function(el){
+    var img = el.querySelector('img');
+    gsap.set(el, {clipPath:'inset(100% 0% 0% 0%)'});
+    if (img) gsap.set(img, {scale:1.14});
+    var tween = gsap.timeline({scrollTrigger:{trigger:el, start:'top 88%', once:true}});
+    tween.to(el, {clipPath:'inset(0% 0% 0% 0%)', duration:1, ease:'power3.inOut', clearProps:'clipPath'});
+    if (img) tween.to(img, {scale:1, duration:1.4, ease:'power2.out', clearProps:'transform'}, 0);
+  });
+
+  /* lifestyle parallax */
+  var para = document.querySelector('[data-parallax]');
+  if (para){
+    gsap.fromTo(para, {yPercent:-7}, {yPercent:7, ease:'none',
+      scrollTrigger:{trigger:'.lifestyle', start:'top bottom', end:'bottom top', scrub:true}});
+  }
+
+  /* edition count-up when visible */
+  ScrollTrigger.create({
+    trigger:'.edition', start:'top 90%', once:true,
+    onEnter:function(){ counted = true; paintEdition(false); }
+  });
+  /* fallback if trigger never fires (e.g. deep-linked) */
+  setTimeout(function(){ if (!counted && countEl.textContent === '0') paintEdition(true); }, 4000);
+} else {
+  paintEdition(true);
+}
+})();
+</script>
+</body>
+</html>
