@@ -1,0 +1,602 @@
+// The twelve swappable answer bodies of the request tray (design 10b–10m).
+// Each body renders ONLY the answer control — the question, header and escape
+// hatch belong to the shell (request-tray.tsx). Single-choice and multi-select
+// are LIVE: when the shell passes the ask_user callbacks (onPick / onToggle
+// from use-request-tray.ts) they become controlled drafts. Confirmation lives
+// in PromptBox's send-button position; without callbacks the bodies fall back
+// to local state so design review still feels alive. Every other body stays
+// display-only — those kinds activate in later slices. Chip/segment/card
+// styling follows the design verbatim: parchment surfaces on the sand tray,
+// ember for the one selected thing.
+
+import { cn } from "@wandit/ui/lib/utils";
+import {
+	AlertCircle,
+	CalendarDays,
+	Camera,
+	Check,
+	Clapperboard,
+	FileText,
+	ImageIcon,
+	Info,
+	Link2,
+	Minus,
+	Plus,
+	X,
+} from "lucide-react";
+import { useState } from "react";
+
+import { SpinnerArc } from "./tray-signals";
+import type { ChipOption, MediaItem, TrayBody } from "./types";
+
+/** Callbacks the live plumbing threads in (use-request-tray.ts). All
+    optional: absent = display-only preview behavior. */
+export type TrayBodyCallbacks = {
+	/** Single-choice: one tap updates the draft selected by the composer CTA. */
+	onPick?: (option: ChipOption) => void;
+	/** Multi-select: controlled selection confirmed by the composer CTA. */
+	multiSelectedIds?: string[];
+	onToggleMulti?: (id: string) => void;
+};
+
+export function TrayBodySlot({
+	body,
+	callbacks,
+}: {
+	body: TrayBody;
+	callbacks?: TrayBodyCallbacks;
+}) {
+	switch (body.kind) {
+		case "free-text":
+			return null; // 10b — the composer input is the answer, no body at all
+		case "single-choice":
+			return (
+				<ChoiceChipsBody
+					options={body.options}
+					initial={body.selectedId}
+					onPick={callbacks?.onPick}
+				/>
+			);
+		case "multi-select":
+			return (
+				<MultiSelectBody
+					options={body.options}
+					initial={body.selectedIds}
+					selectedIds={callbacks?.multiSelectedIds}
+					onToggle={callbacks?.onToggleMulti}
+				/>
+			);
+		case "segmented":
+			return <SegmentedBody options={body.options} initial={body.selectedId} />;
+		case "visual-pick":
+			return <VisualPickBody body={body} />;
+		case "media-drop":
+			return <MediaDropBody body={body} />;
+		case "file-drop":
+			return <FileDropBody body={body} />;
+		case "link":
+			return <LinkBody body={body} />;
+		case "amount":
+			return <AmountBody body={body} />;
+		case "datetime":
+			return <DatetimeBody body={body} />;
+		case "confirm":
+			return <ConfirmBody body={body} />;
+		case "connect":
+			return <ConnectBody body={body} />;
+	}
+}
+
+/* ---------- chips (10c single / 10d multi) ---------- */
+
+function ChoiceChip({
+	selected,
+	withCheck = false,
+	onClick,
+	children,
+}: {
+	selected: boolean;
+	withCheck?: boolean;
+	onClick: () => void;
+	children: string;
+}) {
+	return (
+		<button
+			type="button"
+			aria-pressed={selected}
+			onClick={onClick}
+			className={cn(
+				"flex items-center rounded-full border py-2 text-[13.5px] tracking-[-0.025em] transition-colors",
+				selected
+					? // The extra 0.5px outer shadow fakes the design's 1.5px ember
+						// border without shifting layout against unselected siblings.
+						"border-primary bg-primary/8 font-medium text-foreground shadow-[0_0_0_0.5px_var(--primary)]"
+					: "border-border bg-background text-foreground hover:bg-accent",
+				withCheck && selected ? "gap-1.5 px-[13px]" : "px-[15px]",
+			)}
+		>
+			{withCheck && selected ? (
+				<Check
+					className="size-[11px] shrink-0 text-ember-text"
+					strokeWidth={3}
+				/>
+			) : null}
+			{children}
+		</button>
+	);
+}
+
+function ChoiceChipsBody({
+	options,
+	initial,
+	onPick,
+}: {
+	options: { id: string; label: string }[];
+	initial?: string;
+	onPick?: (option: ChipOption) => void;
+}) {
+	// Local state only serves the display-only preview; live single-choice
+	// drafts are controlled by the hook so the selected chip and composer CTA
+	// stay in sync until confirmation.
+	const [localId, setLocalId] = useState(initial);
+	const selectedId = onPick ? initial : localId;
+	return (
+		<div className="flex flex-wrap gap-[7px]">
+			{options.map((option) => (
+				<ChoiceChip
+					key={option.id}
+					selected={option.id === selectedId}
+					onClick={() => (onPick ? onPick(option) : setLocalId(option.id))}
+				>
+					{option.label}
+				</ChoiceChip>
+			))}
+		</div>
+	);
+}
+
+function MultiSelectBody({
+	options,
+	initial,
+	selectedIds,
+	onToggle,
+}: {
+	options: { id: string; label: string }[];
+	initial?: string[];
+	selectedIds?: string[];
+	onToggle?: (id: string) => void;
+}) {
+	// Controlled when the live plumbing passes onToggle; local otherwise.
+	const [localIds, setLocalIds] = useState<string[]>(initial ?? []);
+	const picked = onToggle ? (selectedIds ?? []) : localIds;
+	const toggle = (id: string) =>
+		onToggle
+			? onToggle(id)
+			: setLocalIds((current) =>
+					current.includes(id)
+						? current.filter((item) => item !== id)
+						: [...current, id],
+				);
+	return (
+		<div className="flex flex-wrap gap-[7px]">
+			{options.map((option) => (
+				<ChoiceChip
+					key={option.id}
+					withCheck
+					selected={picked.includes(option.id)}
+					onClick={() => toggle(option.id)}
+				>
+					{option.label}
+				</ChoiceChip>
+			))}
+		</div>
+	);
+}
+
+/* ---------- segmented (10e) ---------- */
+
+function SegmentedBody({
+	options,
+	initial,
+}: {
+	options: { id: string; label: string }[];
+	initial?: string;
+}) {
+	const [selectedId, setSelectedId] = useState(initial);
+	return (
+		<div className="inline-flex gap-[3px] rounded-full border border-border bg-background p-[3px]">
+			{options.map((option) => {
+				const selected = option.id === selectedId;
+				return (
+					<button
+						key={option.id}
+						type="button"
+						aria-pressed={selected}
+						onClick={() => setSelectedId(option.id)}
+						className={cn(
+							"rounded-full px-[15px] py-1.5 text-[13px] tracking-[-0.025em] transition-colors",
+							selected
+								? "bg-primary font-medium text-primary-foreground"
+								: "text-muted-foreground hover:text-foreground",
+						)}
+					>
+						{option.label}
+					</button>
+				);
+			})}
+		</div>
+	);
+}
+
+/* ---------- visual pick (10f, 7a generating) ---------- */
+
+function VisualPickBody({
+	body,
+}: {
+	body: Extract<TrayBody, { kind: "visual-pick" }>;
+}) {
+	const [selectedId, setSelectedId] = useState(body.selectedId);
+	return (
+		<div>
+			<div className="flex gap-2">
+				{body.options.map((option) =>
+					option.pending ? (
+						// Card still streaming in — shimmer swatch + skeleton caption.
+						<div
+							key={option.id}
+							className="flex-1 overflow-hidden rounded-xl border border-border bg-background"
+						>
+							<div className="h-12 animate-shimmer bg-[length:180%_100%] bg-[linear-gradient(90deg,var(--border)_25%,var(--secondary)_50%,var(--border)_75%)]" />
+							<div className="px-[9px] py-2">
+								<div className="h-2 w-3/5 rounded-full bg-border" />
+							</div>
+						</div>
+					) : (
+						<button
+							key={option.id}
+							type="button"
+							aria-pressed={option.id === selectedId}
+							onClick={() => setSelectedId(option.id)}
+							className={cn(
+								"flex-1 overflow-hidden rounded-xl border bg-background text-start transition-[border-color,box-shadow]",
+								option.id === selectedId
+									? "border-primary shadow-[0_0_0_3px_oklch(0.62_0.16_45_/_0.12)]"
+									: "border-border hover:shadow-[0_0_0_3px_oklch(0.62_0.16_45_/_0.08)]",
+							)}
+						>
+							<span
+								aria-hidden
+								className="block h-12"
+								style={{ background: option.preview }}
+							/>
+							<span className="flex items-center justify-between px-[9px] py-1.5 text-xs">
+								<span
+									className={
+										option.id === selectedId
+											? "text-foreground"
+											: "text-muted-foreground"
+									}
+								>
+									{option.label}
+								</span>
+								{option.id === selectedId ? (
+									<Check className="size-3 text-ember-text" strokeWidth={3} />
+								) : null}
+							</span>
+						</button>
+					),
+				)}
+			</div>
+			{body.hoverHint ? (
+				<p className="mt-2 text-muted-foreground text-xs">{body.hoverHint}</p>
+			) : null}
+		</div>
+	);
+}
+
+/* ---------- media drop (10g empty, 9b filled) ---------- */
+
+function MediaDropBody({
+	body,
+}: {
+	body: Extract<TrayBody, { kind: "media-drop" }>;
+}) {
+	if (body.items?.length) {
+		return (
+			<div className="flex items-start gap-2 overflow-x-auto">
+				{body.items.map((item) => (
+					<MediaThumb key={item.id} item={item} />
+				))}
+				<button
+					type="button"
+					aria-label="Add more media"
+					className="grid size-16 shrink-0 place-items-center rounded-[11px] border-[1.5px] border-stone border-dashed text-muted-foreground transition-colors hover:border-primary/60 hover:text-foreground"
+				>
+					<Plus className="size-4" />
+				</button>
+			</div>
+		);
+	}
+
+	return (
+		<div>
+			{/* The whole pane is a drop target in the real flow — this zone is the
+			    visible affordance. */}
+			<div className="cursor-pointer rounded-[14px] border-[1.5px] border-primary/45 border-dashed bg-primary/4 px-3.5 pt-[15px] pb-[13px] text-center transition-colors hover:bg-primary/8">
+				<div className="mb-2 flex items-center justify-center gap-2">
+					<span className="grid size-9 place-items-center rounded-[10px] border border-border bg-background text-muted-foreground">
+						<ImageIcon className="size-4" />
+					</span>
+					<span className="grid size-9 place-items-center rounded-[10px] border border-border bg-background text-muted-foreground">
+						<Clapperboard className="size-4" />
+					</span>
+				</div>
+				<p className="font-medium text-[13.5px] text-foreground">
+					{body.title}
+				</p>
+				{body.formatsHint ? (
+					<p className="mt-0.5 text-muted-foreground text-xs">
+						or{" "}
+						<span className="text-ember-text underline underline-offset-2">
+							browse
+						</span>{" "}
+						· {body.formatsHint}
+					</p>
+				) : null}
+			</div>
+			{body.tip ? (
+				<p className="mt-2 flex items-center gap-1.5 text-muted-foreground text-xs">
+					<Info className="size-3 shrink-0" />
+					{body.tip}
+				</p>
+			) : null}
+		</div>
+	);
+}
+
+function MediaThumb({ item }: { item: MediaItem }) {
+	return (
+		<div className="w-[86px] shrink-0">
+			{item.uploading ? (
+				<div className="relative h-16 overflow-hidden rounded-[11px] border border-border">
+					<div className="absolute inset-0 animate-shimmer bg-[length:180%_100%] bg-[linear-gradient(90deg,var(--border)_25%,var(--secondary)_50%,var(--border)_75%)]" />
+					<span className="absolute inset-0 grid place-items-center">
+						<SpinnerArc />
+					</span>
+					<span className="absolute inset-x-1.5 bottom-1.5 h-[3px] overflow-hidden rounded-full bg-black/10">
+						<span
+							className="block h-full rounded-full bg-primary"
+							style={{ width: `${item.uploading.percent}%` }}
+						/>
+					</span>
+				</div>
+			) : (
+				<div
+					className="relative h-16 overflow-hidden rounded-[11px] border border-border"
+					style={{ background: item.preview }}
+				>
+					<button
+						type="button"
+						aria-label={`Remove ${item.name}`}
+						className="absolute end-1 top-1 grid size-[18px] place-items-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70"
+					>
+						<X className="size-2.5" strokeWidth={2.5} />
+					</button>
+				</div>
+			)}
+			<p className="mt-1 truncate font-mono text-[10.5px] text-muted-foreground">
+				{item.name}
+			</p>
+		</div>
+	);
+}
+
+/* ---------- file / document (10h, 10p) ---------- */
+
+function FileDropBody({
+	body,
+}: {
+	body: Extract<TrayBody, { kind: "file-drop" }>;
+}) {
+	const Icon = body.icon === "image" ? ImageIcon : FileText;
+	return (
+		<div className="flex cursor-pointer items-center gap-[11px] rounded-[13px] border-[1.5px] border-stone border-dashed px-[13px] py-[11px] transition-colors hover:border-primary/60">
+			<span className="grid size-[34px] shrink-0 place-items-center rounded-[10px] border border-border bg-background text-muted-foreground">
+				<Icon className="size-4" />
+			</span>
+			<span className="min-w-0">
+				<span className="block text-[13.5px] text-foreground">
+					{body.prompt}
+					{body.browse ? (
+						<>
+							{" or "}
+							<span className="text-ember-text underline underline-offset-2">
+								browse
+							</span>
+						</>
+					) : null}
+				</span>
+				{body.formatsHint ? (
+					<span className="mt-0.5 block text-muted-foreground text-xs">
+						{body.formatsHint}
+					</span>
+				) : null}
+			</span>
+		</div>
+	);
+}
+
+/* ---------- link (10i, invalid = 10n state 5) ---------- */
+
+function LinkBody({ body }: { body: Extract<TrayBody, { kind: "link" }> }) {
+	return (
+		<div>
+			<div
+				className={cn(
+					"flex items-center gap-[9px] rounded-xl border bg-background px-3 py-[9px]",
+					body.error ? "border-destructive/40" : "border-border",
+				)}
+			>
+				<Link2 className="size-3.5 shrink-0 text-muted-foreground" />
+				<span
+					className={cn(
+						"min-w-0 flex-1 truncate font-mono text-[13.5px]",
+						body.error ? "text-destructive" : "text-foreground",
+					)}
+				>
+					{body.value}
+				</span>
+				{body.error ? (
+					<AlertCircle className="size-3.5 shrink-0 text-destructive" />
+				) : (
+					<button
+						type="button"
+						className="h-6 shrink-0 rounded-full bg-secondary px-2.5 text-[11.5px] text-muted-foreground transition-colors hover:text-foreground"
+					>
+						Paste
+					</button>
+				)}
+			</div>
+			{body.verified ? (
+				<div className="mt-2 flex items-center gap-2 rounded-[10px] border border-success/25 bg-success/9 px-[11px] py-[7px]">
+					<span className="grid size-4 shrink-0 place-items-center rounded-full bg-success/16">
+						<Check className="size-2.5 text-success" strokeWidth={2.5} />
+					</span>
+					<span className="min-w-0 truncate text-[12.5px] text-success-text">
+						{body.verified}
+					</span>
+				</div>
+			) : null}
+			{body.error ? (
+				<p className="mt-1.5 text-destructive text-xs">{body.error}</p>
+			) : null}
+		</div>
+	);
+}
+
+/* ---------- amount (10j) ---------- */
+
+function AmountBody({ body }: { body: Extract<TrayBody, { kind: "amount" }> }) {
+	return (
+		<div>
+			<div className="flex flex-wrap items-center gap-2.5">
+				<div className="flex items-center overflow-hidden rounded-xl border-[1.5px] border-primary bg-background shadow-[0_0_0_3px_oklch(0.62_0.16_45_/_0.10)]">
+					<button
+						type="button"
+						aria-label="Decrease"
+						className="grid h-[38px] w-8 place-items-center text-muted-foreground transition-colors hover:text-foreground"
+					>
+						<Minus className="size-3.5" />
+					</button>
+					<span className="min-w-16 text-center font-medium font-mono text-[15px] text-foreground tabular-nums">
+						{body.value}
+					</span>
+					<button
+						type="button"
+						aria-label="Increase"
+						className="grid h-[38px] w-8 place-items-center text-muted-foreground transition-colors hover:text-foreground"
+					>
+						<Plus className="size-3.5" />
+					</button>
+				</div>
+				<span className="font-mono text-muted-foreground text-xs">
+					{body.unit}
+				</span>
+				<div className="ms-auto flex gap-1.5">
+					{body.quickValues.map((value) => (
+						<button
+							key={value}
+							type="button"
+							className="rounded-full border border-border bg-background px-3 py-[7px] text-[12.5px] text-foreground tabular-nums transition-colors hover:bg-accent"
+						>
+							{value}
+						</button>
+					))}
+				</div>
+			</div>
+			{body.hint ? (
+				<p className="mt-2 text-muted-foreground text-xs">{body.hint}</p>
+			) : null}
+		</div>
+	);
+}
+
+/* ---------- date & time (10k) ---------- */
+
+function DatetimeBody({
+	body,
+}: {
+	body: Extract<TrayBody, { kind: "datetime" }>;
+}) {
+	const [selectedId, setSelectedId] = useState(body.selectedId);
+	return (
+		<div>
+			<div className="flex flex-wrap items-center gap-[7px]">
+				{body.presets.map((preset) => (
+					<ChoiceChip
+						key={preset.id}
+						selected={preset.id === selectedId}
+						onClick={() => setSelectedId(preset.id)}
+					>
+						{preset.label}
+					</ChoiceChip>
+				))}
+				{body.pickLabel ? (
+					<button
+						type="button"
+						className="flex items-center gap-1.5 rounded-full border border-border bg-background px-[15px] py-2 text-[13.5px] text-muted-foreground tracking-[-0.025em] transition-colors hover:bg-accent hover:text-foreground"
+					>
+						<CalendarDays className="size-3.5 shrink-0" />
+						{body.pickLabel}
+					</button>
+				) : null}
+			</div>
+			{body.hint ? (
+				<p className="mt-2 text-muted-foreground text-xs">{body.hint}</p>
+			) : null}
+		</div>
+	);
+}
+
+/* ---------- confirmation (10l) ---------- */
+
+function ConfirmBody({
+	body,
+}: {
+	body: Extract<TrayBody, { kind: "confirm" }>;
+}) {
+	return (
+		<div className="flex gap-2">
+			<button
+				type="button"
+				className="flex-1 rounded-full bg-primary py-[9px] font-medium text-[13.5px] text-primary-foreground shadow-[0_2px_8px_-2px_rgb(0_0_0/0.3)] transition-opacity hover:opacity-90"
+			>
+				{body.confirmLabel}
+			</button>
+			<button
+				type="button"
+				className="flex-1 rounded-full border border-border bg-background py-[9px] text-[13.5px] text-foreground transition-colors hover:bg-accent"
+			>
+				{body.cancelLabel}
+			</button>
+		</div>
+	);
+}
+
+/* ---------- connect (10m) ---------- */
+
+function ConnectBody({
+	body,
+}: {
+	body: Extract<TrayBody, { kind: "connect" }>;
+}) {
+	return (
+		<button
+			type="button"
+			className="flex w-full items-center justify-center gap-[9px] rounded-full bg-foreground py-2.5 font-medium text-[13.5px] text-background transition-opacity hover:opacity-90"
+		>
+			<Camera className="size-4" />
+			{body.buttonLabel}
+		</button>
+	);
+}

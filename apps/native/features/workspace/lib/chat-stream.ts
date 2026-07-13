@@ -1,7 +1,4 @@
-import {
-	type ChatStreamEvent,
-	chatsRoutes,
-} from "@wandit/contracts";
+import { type ChatStreamEvent, chatsRoutes } from "@wandit/contracts";
 import { fetch as expoFetch } from "expo/fetch";
 
 import { authClient } from "@/lib/auth-client";

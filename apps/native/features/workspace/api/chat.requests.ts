@@ -1,10 +1,10 @@
 import {
 	type ChatByProjectResponse,
 	type ChatMessagesResponse,
-	type SendChatMessageResponse,
 	chatByProjectResponseSchema,
 	chatMessagesResponseSchema,
 	chatsRoutes,
+	type SendChatMessageResponse,
 	sendChatMessageBodySchema,
 	sendChatMessageResponseSchema,
 } from "@wandit/contracts";

@@ -16,11 +16,11 @@ Spawn autonomous Codex CLI subagents to offload context-heavy work. Subagents bu
 When invoking this skill:
 
 1. **Clarify intent.** Figure out what the user wants. If unclear, ask. Inline args ("use codex to review my auth plan") usually carry the intent — infer from them. Common buckets: second-opinion code review, refactor, plan validation, implementation of features, fresh perspective on a stuck bug, parallel comparison of approaches.
-2. **Pick the reasoning tier.** Always GPT 5.5. Default to `xhigh`; drop to `low` only for trivial lookups (see Model + Reasoning Selection).
+2. **Pick the reasoning tier.** Always GPT 5.6. Default to `xhigh`; drop to `low` only for trivial lookups (see Model + Reasoning Selection).
 3. **Spawn the subagent** using the canonical invocation (Basic Usage). Pipe long prompts via stdin.
 4. **Act autonomously while it runs.** Don't ask for permission mid-flight; the parent only sees the final result, so mid-task pauses waste tokens. Pause only for genuinely destructive operations (data loss, external impact, security).
 5. **Monitor, don't fire-and-forget.** Check completion, verify quality, retry on failure, answer follow-ups if blocked. Feel free to run multiple sequential or parallel codex subagents.
-6. **Present results, don't dump them.** Summarize what Codex said in your own words, surface concrete code changes or recommendations, and leave the next move to the user. Subagent output is *input* for your synthesis. Keep your response to the user concise and specific.
+6. **Present results, don't dump them.** Summarize what Codex said in your own words, surface concrete code changes or recommendations, and leave the next move to the user. Subagent output is _input_ for your synthesis. Keep your response to the user concise and specific.
 
 ## Model + Reasoning Selection
 
@@ -132,7 +132,7 @@ The canonical compare-two-approaches pattern: give both subagents the same probl
 
 ## Sequential Subagents
 
-When the parent is driving a multi-step engagement — each next call is a *judgment* based on what just came back, not a mechanical retry. Spawn one subagent, read its output, decide what to do next (next slice of the work, a review pass, a redo, a different angle, a verification step), spawn the next one, repeat. The parent stays in the driver's seat the whole time:
+When the parent is driving a multi-step engagement — each next call is a _judgment_ based on what just came back, not a mechanical retry. Spawn one subagent, read its output, decide what to do next (next slice of the work, a review pass, a redo, a different angle, a verification step), spawn the next one, repeat. The parent stays in the driver's seat the whole time:
 
 ```bash
 # Step 1: dispatch the first subagent

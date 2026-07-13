@@ -10,6 +10,7 @@ import { CREDIT_COSTS, useCredits } from "@/features/credits";
 import { getApiErrorMessage } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n";
 import { useCreateProject } from "../api/projects.mutations";
+import { chatAutostart } from "./chat-autostart";
 import { deriveProjectName } from "./helpers";
 
 export type UseCreateProjectWithPromptResult = {
@@ -49,11 +50,15 @@ export function useCreateProjectWithPrompt(): UseCreateProjectWithPromptResult {
 				return;
 			}
 			try {
-				const { projectId } = await createProject.mutateAsync({
+				const { projectId, chatId } = await createProject.mutateAsync({
 					prompt,
 					composer,
 				});
 				toast.success(t("projects.createSuccess", { name }));
+				// The prompt is already persisted as the chat's first message
+				// server-side; this one-shot flag tells the workspace to start
+				// streaming the AI's answer to it on arrival.
+				chatAutostart.stash({ projectId, chatId });
 				await navigate({
 					to: "/p/$projectId",
 					params: { projectId },

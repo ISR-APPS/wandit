@@ -1,9 +1,10 @@
-// Collapsible chat pane: real message history, live SSE streaming reply and the
+// Collapsible chat pane: persisted history, live AI SDK stream parts and the
 // compact ember PromptBox. Sizing/positioning (resizable panel on desktop,
 // full-screen overlay on mobile) is owned by the parent layout — this
 // component only fills its container (desktop passes card chrome via
 // className) and self-inerts when collapsed.
 
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@wandit/ui/components/button";
 import {
 	DropdownMenu,
@@ -18,17 +19,24 @@ import {
 	TooltipTrigger,
 } from "@wandit/ui/components/tooltip";
 import { cn } from "@wandit/ui/lib/utils";
-import { MoreHorizontal, PanelLeftClose } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { AlertTriangle, MoreHorizontal, PanelLeftClose } from "lucide-react";
+import { AnimatePresence } from "motion/react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Spark } from "@/components/logo";
 import { PromptBox } from "@/features/projects";
 import { useDictionary, useTranslation } from "@/lib/i18n";
+import { pageKeys } from "../../api/pages.queries";
 import { useWorkspace } from "../../lib/store";
-import { useProjectChat } from "../../lib/use-project-chat";
+import { useAiChat } from "../../lib/use-ai-chat";
 import { ThinkingIndicator } from "./chat-message";
 import { MOCK_CHAT_THREAD_ENABLED, MockChatThread } from "./mock-thread";
-import { extractMessageText, RealChatMessage } from "./real-message";
+import { MessageParts } from "./parts/message-parts";
+import { RequestTray } from "./request-tray/request-tray";
+import { TrayReveal } from "./request-tray/tray-reveal";
+import { TrayStatusPill } from "./request-tray/tray-signals";
+import { useRequestTray } from "./request-tray/use-request-tray";
+import { StatusMessageHeader } from "./status-message-header";
 
 export function ChatPane({ className }: { className?: string }) {
 	const { t, dir } = useTranslation();
@@ -36,28 +44,111 @@ export function ChatPane({ className }: { className?: string }) {
 	const { chatOpen, toggleChat, project, projectId } = useWorkspace();
 	const {
 		messages,
-		streamingMessage,
-		phase,
-		generationActive,
-		isGenerating,
+		status,
+		error,
 		isResolvingChat,
 		isLoadingMessages,
-		send,
-	} = useProjectChat(projectId);
+		sendText,
+		answerAskUser,
+	} = useAiChat(projectId);
+
+	// Mirror of the PromptBox draft (via onValueChange) — the tray needs to
+	// know when typed text should override its chips (design 10n state 2).
+	const [composerText, setComposerText] = useState("");
+
+	// The live "waiting on you" state: derives the docked ask from the message
+	// list and answers it through answerAskUser (chips, free text, escape
+	// hatch and dismiss all complete the same tool call).
+	const tray = useRequestTray({
+		messages,
+		composerText,
+		onAnswer: answerAskUser,
+	});
 
 	const scrollRef = useRef<HTMLDivElement>(null);
 	const pending = isResolvingChat || isLoadingMessages;
+	const isSubmitting = status === "submitted" || status === "streaming";
+
+	// The stream opens with invisible parts (step-start, reasoning) well before
+	// the first visible word, and `status` flips from "submitted" to "streaming"
+	// on the first of those — so gating the dots on "submitted" alone leaves a
+	// blank gap. Keep them up until the reply has something to show, so the
+	// dots are replaced by the streamed text instead of empty space.
+	const lastMessage = messages[messages.length - 1];
+	const replyHasVisibleContent =
+		lastMessage?.role === "assistant" &&
+		lastMessage.parts.some(
+			(part) =>
+				(part.type === "text" && part.text.length > 0) ||
+				part.type === "tool-ask_user" ||
+				part.type === "tool-generate_page",
+		);
+	const showThinking = isSubmitting && !replyHasVisibleContent;
+
+	// Submit routing: while an ask is docked, typed text ANSWERS it (free-text
+	// ask, or typing-override on a chips ask) instead of opening a new user
+	// turn; otherwise it's a normal message. `false` from sendText keeps the
+	// draft (PromptBox clearOnSubmit contract).
+	const handleComposerSubmit = (prompt: string) => {
+		if (tray.answerable) {
+			tray.answerFreeText(prompt);
+			setComposerText("");
+			return;
+		}
+		return sendText(prompt);
+	};
+
+	// While ask_user is docked, the normal send arrow becomes the answer CTA.
+	// Text overrides chip drafts; otherwise labels reflect single vs. multi
+	// selection, while the hook remains the source of truth for validity.
+	const answerSubmitLabel =
+		tray.answerMode === "text"
+			? t("workspace.chat.tray.answer")
+			: tray.selectedCount > 0
+				? t("workspace.chat.tray.chooseSelected", {
+						count: tray.selectedCount,
+					})
+				: tray.answerMode === "single"
+					? t("workspace.chat.tray.chooseAnOption")
+					: t("workspace.chat.tray.chooseOptions");
 
 	// Keep the newest message in view while history grows or text streams in.
-	// biome-ignore lint/correctness/useExhaustiveDependencies: scroll reacts to content growth
+	// biome-ignore lint/correctness/useExhaustiveDependencies: every dep is an intentional re-scroll trigger
 	useEffect(() => {
 		const el = scrollRef.current;
 		if (el) el.scrollTop = el.scrollHeight;
-	}, [messages.length, streamingMessage, pending]);
+	}, [messages, status, pending, error]);
 
-	const isEmpty =
-		!pending && messages.length === 0 && !streamingMessage && !generationActive;
-	const showThinking = generationActive && !streamingMessage;
+	// The Page tab's overview query only POLLS once it has seen a running
+	// attempt — so a build queued right now would go unnoticed (the tab stays
+	// mounted, focus-refetch is off). When the stream reports "queued", poke
+	// the overview cache awake; its own refetchInterval takes over from there.
+	const queryClient = useQueryClient();
+	const queuedAttemptId = useMemo(() => {
+		for (let i = messages.length - 1; i >= 0; i--) {
+			const parts = messages[i]?.parts ?? [];
+			for (let j = parts.length - 1; j >= 0; j--) {
+				const part = parts[j];
+				if (
+					part?.type === "tool-generate_page" &&
+					part.state === "output-available" &&
+					part.output.status === "queued"
+				) {
+					return part.output.attemptId;
+				}
+			}
+		}
+		return undefined;
+	}, [messages]);
+
+	useEffect(() => {
+		if (!queuedAttemptId) return;
+		void queryClient.invalidateQueries({
+			queryKey: pageKeys.overview(projectId),
+		});
+	}, [queuedAttemptId, queryClient, projectId]);
+
+	const isEmpty = !pending && messages.length === 0 && !error;
 
 	return (
 		<aside
@@ -70,9 +161,9 @@ export function ChatPane({ className }: { className?: string }) {
 			)}
 		>
 			<div className="flex h-full w-full flex-col">
-				{/* Screenreader announcement for the otherwise-visual job states. */}
+				{/* Screenreader announcement for the otherwise-visual stream states. */}
 				<span aria-live="polite" className="sr-only">
-					{phase === "thinking" || phase === "streaming"
+					{status === "submitted" || status === "streaming"
 						? t("workspace.chat.thinking")
 						: ""}
 				</span>
@@ -89,6 +180,11 @@ export function ChatPane({ className }: { className?: string }) {
 						) : null}
 					</span>
 					<div className="flex items-center gap-0.5">
+						{/* Companion signal to the docked tray (design: pill lives in the
+                chat header while an ask waits on the composer). */}
+						{tray.active && tray.state ? (
+							<TrayStatusPill label={tray.state.label} className="me-1.5" />
+						) : null}
 						<DropdownMenu>
 							<DropdownMenuTrigger asChild>
 								<Button
@@ -131,10 +227,7 @@ export function ChatPane({ className }: { className?: string }) {
 					className="scroll-warm min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pt-5 pb-2"
 				>
 					{MOCK_CHAT_THREAD_ENABLED ? (
-						// Demo showcase of every chat state (see mock-thread.tsx) — the
-						// live branches below are untouched and take over when the flag
-						// is off.
-						<MockChatThread onSend={send} />
+						<MockChatThread onSend={sendText} />
 					) : pending ? (
 						<div className="flex flex-col gap-4">
 							<Skeleton className="ms-auto h-14 w-3/4 rounded-2xl" />
@@ -161,7 +254,7 @@ export function ChatPane({ className }: { className?: string }) {
 										variant="outline"
 										size="sm"
 										className="h-7 rounded-full bg-card px-3 font-normal text-muted-foreground text-xs shadow-none hover:text-foreground"
-										onClick={() => send(suggestion)}
+										onClick={() => sendText(suggestion)}
 									>
 										{suggestion}
 									</Button>
@@ -170,22 +263,35 @@ export function ChatPane({ className }: { className?: string }) {
 						</div>
 					) : (
 						<div className="flex flex-col gap-5">
-							{messages.map((message) => (
-								<RealChatMessage
+							{messages.map((message, index) => (
+								<MessageParts
 									key={message.id}
-									messageRole={message.role}
-									text={extractMessageText(message.parts)}
+									message={message}
+									isStreaming={
+										status === "streaming" && index === messages.length - 1
+									}
+									activeAskToolCallId={tray.toolCallId}
 								/>
 							))}
-							{streamingMessage ? (
-								<RealChatMessage
-									messageRole="assistant"
-									text={streamingMessage.text}
-									isStreaming
-								/>
-							) : null}
 							{showThinking ? (
 								<ThinkingIndicator label={t("workspace.chat.thinking")} />
+							) : null}
+							{error ? (
+								<div>
+									<StatusMessageHeader
+										avatarClass="border-destructive/38 bg-destructive/14 text-destructive"
+										kickerClass="text-destructive"
+										kicker={t("workspace.chat.errors.stream")}
+									>
+										<AlertTriangle className="size-3" aria-hidden />
+									</StatusMessageHeader>
+									<p
+										dir="auto"
+										className="text-[13px] text-muted-foreground leading-[1.5]"
+									>
+										{error.message || t("workspace.chat.errors.stream")}
+									</p>
+								</div>
 							) : null}
 						</div>
 					)}
@@ -198,8 +304,39 @@ export function ChatPane({ className }: { className?: string }) {
 						showPriceTag
 						clearOnSubmit
 						placeholder={t("workspace.chat.placeholder")}
-						onSubmit={(text, composer) => send(text, composer)}
-						isSubmitting={isGenerating}
+						onSubmit={handleComposerSubmit}
+						onValueChange={setComposerText}
+						isSubmitting={isSubmitting}
+						submitOverride={
+							tray.active
+								? {
+										label: answerSubmitLabel,
+										disabled: !tray.canConfirm,
+										onSubmit: tray.confirmDraft,
+									}
+								: undefined
+						}
+						// The tray fuses into the composer card (design turn 10) — it
+						// grows out of the top and collapses on answer/dismiss thanks to
+						// AnimatePresence + TrayReveal's height animation.
+						topSlot={
+							<AnimatePresence initial={false}>
+								{tray.active && tray.state ? (
+									<TrayReveal key={tray.toolCallId ?? "ask"}>
+										<RequestTray
+											state={tray.state}
+											onEscape={tray.delegate}
+											onDismiss={tray.dismiss}
+											bodyCallbacks={{
+												onPick: tray.onPick,
+												multiSelectedIds: tray.multiSelectedIds,
+												onToggleMulti: tray.onToggleMulti,
+											}}
+										/>
+									</TrayReveal>
+								) : null}
+							</AnimatePresence>
+						}
 					/>
 				</div>
 			</div>

@@ -73,6 +73,19 @@
 				"busy": "Wandit يعمل على إجابة بالفعل.",
 				"credits": "نفد رصيدك.",
 				"unavailable": "تعذّر تحميل المحادثة. حاول مرة أخرى."
+			},
+			"tray": {
+				"preparing": "جارٍ تحضير السؤال…",
+				"needsDetail": "نحتاج توضيحًا",
+				"decideForMe": "قرّر بدلًا مني",
+				"dismiss": "تجاهل الطلب",
+				"useThese": "استخدم هذه",
+				"typingOverride": "تجيب بكلماتك الخاصة ↓",
+				"pickBelow": "اختر بالأسفل ↓",
+				"answerBelow": "أجب بالأسفل ↓",
+				"skipped": "تم التخطي",
+				"pickedForYou": "اختار Wandit نيابةً عنك",
+				"wanditPicked": "اختيار Wandit"
 			}
 		},
 		"artifact": {

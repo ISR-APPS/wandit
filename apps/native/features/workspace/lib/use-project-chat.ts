@@ -1,10 +1,10 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useTranslation } from "@wandit/internationalization/react";
 import type {
 	ChatMessage,
 	ChatMessagesResponse,
 	ChatStreamEvent,
 } from "@wandit/contracts";
+import { useTranslation } from "@wandit/internationalization/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { chatKeys } from "@/features/workspace/api/chat.keys";
@@ -15,20 +15,15 @@ import {
 } from "@/features/workspace/api/chat.queries";
 import { isApiClientError } from "@/shared/lib/api-client";
 import { redirectToSignIn } from "@/shared/lib/auth-redirect";
-
+import type { SseEventFrame } from "./chat-sse-parser";
 import {
-	isChatStreamHttpError,
-	openChatStream,
 	type ChatStreamConnection,
 	type ChatStreamEventMeta,
+	isChatStreamHttpError,
+	openChatStream,
 } from "./chat-stream";
-import type { SseEventFrame } from "./chat-sse-parser";
 
-export type ChatGenerationState =
-	| "idle"
-	| "started"
-	| "thinking"
-	| "streaming";
+export type ChatGenerationState = "idle" | "started" | "thinking" | "streaming";
 
 export type StreamingChatMessage = {
 	messageId: string;
@@ -383,11 +378,10 @@ export function useProjectChat(projectId?: string) {
 					if (!isMountedRef.current) return;
 					patchMessages(chatId, (prev) => ({
 						...prev,
-						messages: upsertSentUserMessage(
-							prev.messages,
-							optimisticId,
-							{ ...optimistic, id: response.messageId },
-						),
+						messages: upsertSentUserMessage(prev.messages, optimisticId, {
+							...optimistic,
+							id: response.messageId,
+						}),
 					}));
 				} catch (error) {
 					if (!isMountedRef.current) return;

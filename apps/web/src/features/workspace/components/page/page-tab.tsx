@@ -1,19 +1,28 @@
 // The Page tab: preview stage rendering the active landing-page version in a
-// sandboxed iframe (mobile frame by default), plus generating/empty states.
-// Its controls (version switcher, viewport toggle, preview actions) live in
-// the main card's header — see shell/main-pane-header.tsx / page-toolbar.tsx.
-// The right edge of the stage is reserved column space for a future
+// sandboxed iframe (mobile frame by default), plus generating/empty/failed
+// states. LIVE data: the overview query polls while a build runs in the
+// background (queued/generating) and the version's HTML is fetched separately
+// once it exists — see api/pages.queries.ts. Its controls (version switcher,
+// viewport toggle, preview actions) live in the main card's header — see
+// shell/main-pane-header.tsx / page-toolbar.tsx (still on mock versions this
+// slice). The right edge of the stage is reserved column space for a future
 // element-inspector rail (click-to-edit, post-MVP).
+// Failure-state strings are hardcoded English this pass (same temporary rule
+// as the request-tray chrome); they move to the dictionary later.
 
 import { Button } from "@wandit/ui/components/button";
 import { Skeleton } from "@wandit/ui/components/skeleton";
 import { cn } from "@wandit/ui/lib/utils";
+import { AlertTriangle } from "lucide-react";
 import { motion } from "motion/react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { Spark } from "@/components/logo";
 import { useDictionary, useTranslation } from "@/lib/i18n";
-import { getVersionPage } from "../../api/workspace.services";
+import {
+	usePageOverviewQuery,
+	useVersionHtmlQuery,
+} from "../../api/pages.queries";
 import { useWorkspace } from "../../lib/store";
 
 export function PageTab({ reloadKey }: { reloadKey: number }) {
@@ -30,24 +39,22 @@ export function PageTab({ reloadKey }: { reloadKey: number }) {
 
 function PreviewStage({ reloadKey }: { reloadKey: number }) {
 	const { t } = useTranslation();
-	const {
-		activeVersion,
-		project,
-		viewport,
-		statePending,
-		isGenerating,
-		generationPhase,
-	} = useWorkspace();
+	const { project, projectId, viewport } = useWorkspace();
 
-	const html = useMemo(
-		() =>
-			activeVersion
-				? getVersionPage(activeVersion.pageKey, project?.name).html
-				: "",
-		[activeVersion, project?.name],
-	);
+	const overviewQuery = usePageOverviewQuery(projectId);
+	const overview = overviewQuery.data;
+	const activeVersion = overview?.activeVersion ?? null;
+	// Immutable HTML, fetched once per version (staleTime Infinity).
+	const htmlQuery = useVersionHtmlQuery(activeVersion?.id);
+	const html = htmlQuery.data?.html ?? "";
 
-	if (statePending) {
+	const attempt = overview?.latestAttempt ?? null;
+	const isBuilding =
+		attempt?.status === "queued" || attempt?.status === "generating";
+	// The number the running build will produce: one past what's showing.
+	const pendingVersionNumber = (activeVersion?.number ?? 0) + 1;
+
+	if (overviewQuery.isPending || (activeVersion && htmlQuery.isPending)) {
 		return (
 			<div className="relative flex h-full items-center justify-center p-6">
 				<Skeleton className="h-full max-h-[720px] w-[390px] max-w-full rounded-[2rem]" />
@@ -58,7 +65,13 @@ function PreviewStage({ reloadKey }: { reloadKey: number }) {
 	if (!activeVersion) {
 		return (
 			<div className="relative flex h-full items-center justify-center p-6">
-				{isGenerating ? <GeneratingPanel /> : <EmptyPreview />}
+				{isBuilding ? (
+					<GeneratingPanel pendingVersionNumber={pendingVersionNumber} />
+				) : attempt?.status === "failed" ? (
+					<FailedPanel error={attempt.error} />
+				) : (
+					<EmptyPreview />
+				)}
 			</div>
 		);
 	}
@@ -72,6 +85,16 @@ function PreviewStage({ reloadKey }: { reloadKey: number }) {
 					? t("workspace.page.viewportMobile")
 					: t("workspace.page.viewportDesktop")}
 			</span>
+			{attempt?.status === "failed" ? (
+				// A later build failed but this version still stands — quiet note
+				// instead of hijacking the whole stage.
+				<div className="absolute top-3 left-1/2 z-10 flex max-w-[80%] -translate-x-1/2 items-center gap-1.5 rounded-full border border-destructive/30 bg-destructive/10 px-3 py-1 text-destructive text-xs">
+					<AlertTriangle className="size-3 shrink-0" aria-hidden />
+					<span className="min-w-0 truncate">
+						{attempt.error ?? "The last build failed."}
+					</span>
+				</div>
+			) : null}
 			<motion.div
 				layout
 				transition={{ type: "spring", bounce: 0.14, duration: 0.55 }}
@@ -105,9 +128,9 @@ function PreviewStage({ reloadKey }: { reloadKey: number }) {
 						/>
 					) : null}
 				</div>
-				{generationPhase === "building" ? (
+				{isBuilding ? (
 					<div className="absolute inset-0 z-10 grid place-items-center bg-background/55 backdrop-blur-[2px]">
-						<GeneratingPanel />
+						<GeneratingPanel pendingVersionNumber={pendingVersionNumber} />
 					</div>
 				) : null}
 			</motion.div>
@@ -135,11 +158,15 @@ function PreviewFrame({ html, title }: { html: string; title: string }) {
 	);
 }
 
-function GeneratingPanel() {
+function GeneratingPanel({
+	pendingVersionNumber,
+}: {
+	/** The version number the in-flight build will produce. */
+	pendingVersionNumber: number;
+}) {
 	const { t } = useTranslation();
 	const dictionary = useDictionary();
 	const generatingSteps = dictionary.workspace.page.generatingSteps;
-	const { pendingVersionNumber } = useWorkspace();
 	const [stepIndex, setStepIndex] = useState(0);
 
 	useEffect(() => {
@@ -180,6 +207,38 @@ function GeneratingPanel() {
 					}}
 				/>
 			</div>
+		</div>
+	);
+}
+
+/** A build failed and there's no earlier version to fall back to. The error
+    comes straight off the attempt row — honest, not prettified. */
+function FailedPanel({ error }: { error: string | null }) {
+	const { chatOpen, toggleChat } = useWorkspace();
+	return (
+		<div className="relative flex max-w-sm flex-col items-center gap-2.5 text-center">
+			<span className="grid size-11 place-items-center rounded-full border border-destructive/30 bg-destructive/10">
+				<AlertTriangle className="size-4 text-destructive" aria-hidden />
+			</span>
+			<p className="font-display font-semibold text-base">
+				The page build failed
+			</p>
+			<p dir="auto" className="text-muted-foreground text-sm leading-relaxed">
+				{error ?? "Something went wrong while generating your page."}
+			</p>
+			<p className="text-muted-foreground text-xs">
+				Ask Wandit in the chat to try again.
+			</p>
+			{!chatOpen ? (
+				<Button
+					variant="secondary"
+					size="sm"
+					className="mt-1.5"
+					onClick={toggleChat}
+				>
+					Open the chat
+				</Button>
+			) : null}
 		</div>
 	);
 }

@@ -1,0 +1,67 @@
+/**
+ * Page generation contracts (docs/features/ai-chat-brain.md).
+ *
+ * The web app never streams page HTML from the model. Generation runs in a
+ * background task; the web polls the project overview until the latest
+ * attempt settles, then fetches the finished version's HTML separately.
+ */
+import { z } from "zod";
+// Shared UUID/date validators.
+import { isoDateTimeSchema, uuidSchema } from "./shared/primitives";
+
+// Lifecycle of one background build. Mirrors page_generation_status in
+// packages/db/src/schema/page-attempts.ts.
+export const pageAttemptStatusSchema = z.enum([
+	"queued",
+	"generating",
+	"succeeded",
+	"failed",
+]);
+
+export type PageAttemptStatus = z.infer<typeof pageAttemptStatusSchema>;
+
+// Just enough about a version for labels ("v3") — HTML is fetched separately.
+export const pageVersionSummarySchema = z.object({
+	id: uuidSchema,
+	number: z.number().int().positive(),
+	createdAt: isoDateTimeSchema,
+});
+
+export type PageVersionSummary = z.infer<typeof pageVersionSummarySchema>;
+
+// Everything the Page tab needs in one request: what to show now
+// (activeVersion) and whether a build is in flight (latestAttempt).
+// Both nullable — a fresh project has neither.
+export const pageOverviewSchema = z.object({
+	artifactId: uuidSchema.nullable(),
+	activeVersion: pageVersionSummarySchema.nullable(),
+	latestAttempt: z
+		.object({
+			id: uuidSchema,
+			status: pageAttemptStatusSchema,
+			error: z.string().nullable(),
+			versionId: uuidSchema.nullable(),
+			createdAt: isoDateTimeSchema,
+		})
+		.nullable(),
+});
+
+export type PageOverview = z.infer<typeof pageOverviewSchema>;
+
+// Full HTML of one immutable version. JSON envelope on purpose: the web
+// renders it in a sandboxed iframe (srcdoc), never as a raw document.
+export const pageVersionHtmlSchema = z.object({
+	versionId: uuidSchema,
+	html: z.string(),
+});
+
+export type PageVersionHtml = z.infer<typeof pageVersionHtmlSchema>;
+
+// Route path builders. These return strings; they do not make network calls.
+export const pagesRoutes = {
+	// GET — overview for the project's landing page (poll while building).
+	overview: (projectId: string) => `/api/v1/projects/${projectId}/page`,
+	// GET — HTML of one version (immutable, cache forever).
+	versionHtml: (versionId: string) =>
+		`/api/v1/pages/versions/${versionId}/html`,
+} as const;

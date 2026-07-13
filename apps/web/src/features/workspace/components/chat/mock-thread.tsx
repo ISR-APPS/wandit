@@ -8,14 +8,13 @@
 // a product surface, so it stays out of the i18n dictionaries.
 
 import { Button } from "@wandit/ui/components/button";
-import { cn } from "@wandit/ui/lib/utils";
 import { Check, Code, Copy, Lock, Play } from "lucide-react";
-import type { ReactNode } from "react";
 
 import { WanditMessageHeader } from "./real-message";
+import { StatusMessageHeader } from "./status-message-header";
 
-/** Flip to false to hand the chat pane back to the live SSE backend. */
-export const MOCK_CHAT_THREAD_ENABLED = true;
+/** Flip to true only while reviewing the visual chat-state showcase. */
+export const MOCK_CHAT_THREAD_ENABLED = false;
 
 /* ---------- tiny building blocks ---------- */
 
@@ -95,44 +94,6 @@ function SuccessCircle() {
 		<span className="grid size-[15px] shrink-0 place-items-center rounded-full bg-success/16">
 			<Check className="size-2.5 text-success" strokeWidth={2.5} />
 		</span>
-	);
-}
-
-/** Assistant header whose avatar carries a status tint instead of the ember
-    gradient, followed by a mono kicker line — the error/published openers. */
-function StatusMessageHeader({
-	avatarClass,
-	kickerClass,
-	kicker,
-	children,
-}: {
-	avatarClass: string;
-	kickerClass: string;
-	kicker: string;
-	children: ReactNode;
-}) {
-	return (
-		<>
-			<div className="mb-2 flex items-center gap-2">
-				<span
-					className={cn(
-						"grid size-[22px] shrink-0 place-items-center rounded-full border",
-						avatarClass,
-					)}
-				>
-					{children}
-				</span>
-				<span className="font-medium text-foreground text-sm">Wandit</span>
-			</div>
-			<div
-				className={cn(
-					"mb-2 font-mono text-[11px] uppercase tracking-[0.1em]",
-					kickerClass,
-				)}
-			>
-				{kicker}
-			</div>
-		</>
 	);
 }
 

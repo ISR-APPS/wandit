@@ -61,7 +61,7 @@ function load(): LedgerEntry[] {
 		const raw = window.localStorage.getItem(STORAGE_KEY);
 		if (raw) {
 			const parsed = JSON.parse(raw) as LedgerEntry[];
-			if (Array.isArray(parsed)) return parsed;
+			if (Array.isArray(parsed)) return refillWhenLow(parsed);
 		}
 	} catch {
 		// fall through to reseed
@@ -69,6 +69,26 @@ function load(): LedgerEntry[] {
 	const seeded = seed();
 	persist(seeded);
 	return seeded;
+}
+
+// Dev self-heal: the mock ledger drains as you test and old drained ledgers
+// survive in localStorage, blocking every action. Top it back up on load so
+// local work is never blocked. Dies with the whole mock once the UI reads the
+// real server balance (credit_ledger table).
+function refillWhenLow(entries: LedgerEntry[]): LedgerEntry[] {
+	if (getBalance(entries) >= 1_000) return entries;
+	const refilled: LedgerEntry[] = [
+		{
+			id: makeId(),
+			kind: "topup",
+			amount: SIGNUP_GRANT,
+			labelKey: "credits.seedGrantLabel",
+			createdAt: new Date().toISOString(),
+		},
+		...entries,
+	];
+	persist(refilled);
+	return refilled;
 }
 
 let snapshot: LedgerEntry[] = load();

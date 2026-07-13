@@ -3,7 +3,13 @@ import {
 	useTranslation,
 } from "@wandit/internationalization/react";
 import { cn, useThemeColor } from "heroui-native";
-import { useCallback, useRef, useState } from "react";
+import {
+	type ReactNode,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import {
 	ActivityIndicator,
 	Keyboard,
@@ -51,6 +57,12 @@ export type PromptBoxProps = {
 	clearOnSubmit?: boolean;
 	isSubmitting?: boolean;
 	className?: string;
+	/** Mirrors every draft change (typing, voice transcripts, clear-on-submit)
+	    so the chat screen can route typed text to a docked ask. */
+	onValueChange?: (value: string) => void;
+	/** Renders INSIDE the card, above everything — the request tray docks
+	    here and fuses with the composer (same contract as the web PromptBox). */
+	topSlot?: ReactNode;
 };
 
 /**
@@ -67,6 +79,8 @@ export function PromptBox({
 	clearOnSubmit = false,
 	isSubmitting = false,
 	className,
+	onValueChange,
+	topSlot,
 }: PromptBoxProps) {
 	const { t } = useTranslation();
 	const promptBox = useDictionary().projects.promptBox;
@@ -107,6 +121,12 @@ export function PromptBox({
 		),
 		transcribeError: t("native.voiceDictation.transcribeError"),
 	});
+
+	// One mirror for every way the draft changes — typing, voice transcript
+	// appends, clear-on-submit — instead of notifying from each call site.
+	useEffect(() => {
+		onValueChange?.(value);
+	}, [value, onValueChange]);
 
 	const isHero = variant === "hero";
 	const canSubmit = value.trim().length > 0;
@@ -230,7 +250,8 @@ export function PromptBox({
 		: "0 6px 16px -7px rgba(209, 96, 34, 0.58)";
 	// Same footprint as the other toolbar circles ([+], sliders, mic).
 	const sendSize = 38;
-	const voiceActive = voiceDictation.isRecording || voiceDictation.isTranscribing;
+	const voiceActive =
+		voiceDictation.isRecording || voiceDictation.isTranscribing;
 
 	return (
 		<View
@@ -241,6 +262,19 @@ export function PromptBox({
 			)}
 			style={{ boxShadow: cardShadow }}
 		>
+			{topSlot ? (
+				// Clips the tray to the card's top radius WITHOUT putting
+				// overflow-hidden on the card itself (that would kill the shadow).
+				<View
+					style={{
+						overflow: "hidden",
+						borderTopLeftRadius: 21,
+						borderTopRightRadius: 21,
+					}}
+				>
+					{topSlot}
+				</View>
+			) : null}
 			{attachedSkills.length > 0 ? (
 				<View className="flex-row flex-wrap gap-1.5 px-3.5 pt-3">
 					{attachedSkills.slice(0, maxVisibleSkills).map((skill) => (
@@ -400,105 +434,108 @@ export function PromptBox({
 				) : null}
 			</View>
 			{!voiceActive ? (
-			<View className="flex-row items-center gap-2 px-2.5 pb-2.5">
-				<Pressable
-					accessibilityRole="button"
-					accessibilityLabel={promptBox.addMenuLabel}
-					onPress={() => {
-						voiceDictation.clearError();
-						setAttachOpen(true);
-					}}
-					className="h-[38px] w-[38px] items-center justify-center rounded-full border border-border active:scale-95"
-				>
-					<WanditIcon name="plus" size={16} color={iconStroke} />
-				</Pressable>
-				<Pressable
-					accessibilityRole="button"
-					accessibilityLabel={promptBox.modeLabel}
-					onPress={() => {
-						voiceDictation.clearError();
-						setEngineOpen(true);
-					}}
-					className="h-[34px] flex-row items-center gap-1.5 rounded-full border border-border px-[11px] active:scale-95"
-				>
-					<WanditIcon name={selectedMode.icon} size={12} color={accent} />
-					<Text className="font-sans-semibold text-[12px] text-foreground">
-						{promptBox.routeModes[routeMode].label}
-					</Text>
-					<WanditIcon
-						name="caretDown"
-						size={12}
-						color={muted}
-						strokeWidth={2}
-					/>
-				</Pressable>
-				<View className="flex-1" />
-				{selectedOutput ? (
+				<View className="flex-row items-center gap-2 px-2.5 pb-2.5">
 					<Pressable
 						accessibilityRole="button"
-						accessibilityLabel={promptBox.settingsLabel}
+						accessibilityLabel={promptBox.addMenuLabel}
 						onPress={() => {
 							voiceDictation.clearError();
-							setConfigOpen(true);
+							setAttachOpen(true);
 						}}
 						className="h-[38px] w-[38px] items-center justify-center rounded-full border border-border active:scale-95"
 					>
-						<WanditIcon name="sliders" size={16} color={iconStroke} />
+						<WanditIcon name="plus" size={16} color={iconStroke} />
 					</Pressable>
-				) : null}
-				<Pressable
-					accessibilityRole="button"
-					accessibilityLabel={promptBox.micLabel}
-					accessibilityState={{
-						busy: voiceDictation.isTranscribing,
-						disabled: isSubmitting || voiceDictation.isTranscribing,
-						selected: voiceDictation.isRecording,
-					}}
-					disabled={isSubmitting || voiceDictation.isTranscribing}
-					onPress={startVoiceDictation}
-					className={cn(
-						"h-[38px] w-[38px] items-center justify-center rounded-full border border-border active:scale-95",
-						voiceDictation.isRecording && "border-accent/45 bg-accent/10",
-						(isSubmitting || voiceDictation.isTranscribing) && "opacity-45",
-					)}
-				>
-					<WanditIcon
-						name="mic"
-						size={16}
-						color={voiceDictation.isRecording ? accent : iconStroke}
-					/>
-				</Pressable>
-				<Pressable
-					accessibilityRole="button"
-					accessibilityLabel={promptBox.submitLabel}
-					accessibilityState={{ disabled: !submitEnabled, busy: isSubmitting }}
-					disabled={!submitEnabled}
-					onPress={handleSubmit}
-					className="relative items-center justify-center overflow-visible rounded-full active:scale-95"
-					style={{
-						width: sendSize,
-						height: sendSize,
-						opacity: submitEnabled ? 1 : isSubmitting ? 0.78 : 0.45,
-						boxShadow: submitEnabled ? sendGlow : undefined,
-					}}
-				>
-					<BrandGradientFill radius={sendSize / 2} />
-					{isSubmitting ? (
-						<ActivityIndicator
-							size="small"
-							color={isHero || !isDark ? "#FFFFFF" : "#160D07"}
-						/>
-					) : isHero ? (
-						<WanditIcon name="spark" size={16} color="#FFFFFF" />
-					) : (
+					<Pressable
+						accessibilityRole="button"
+						accessibilityLabel={promptBox.modeLabel}
+						onPress={() => {
+							voiceDictation.clearError();
+							setEngineOpen(true);
+						}}
+						className="h-[34px] flex-row items-center gap-1.5 rounded-full border border-border px-[11px] active:scale-95"
+					>
+						<WanditIcon name={selectedMode.icon} size={12} color={accent} />
+						<Text className="font-sans-semibold text-[12px] text-foreground">
+							{promptBox.routeModes[routeMode].label}
+						</Text>
 						<WanditIcon
-							name="arrowUp"
-							size={17}
-							color={isDark ? "#160D07" : "#FFFFFF"}
+							name="caretDown"
+							size={12}
+							color={muted}
+							strokeWidth={2}
 						/>
-					)}
-				</Pressable>
-			</View>
+					</Pressable>
+					<View className="flex-1" />
+					{selectedOutput ? (
+						<Pressable
+							accessibilityRole="button"
+							accessibilityLabel={promptBox.settingsLabel}
+							onPress={() => {
+								voiceDictation.clearError();
+								setConfigOpen(true);
+							}}
+							className="h-[38px] w-[38px] items-center justify-center rounded-full border border-border active:scale-95"
+						>
+							<WanditIcon name="sliders" size={16} color={iconStroke} />
+						</Pressable>
+					) : null}
+					<Pressable
+						accessibilityRole="button"
+						accessibilityLabel={promptBox.micLabel}
+						accessibilityState={{
+							busy: voiceDictation.isTranscribing,
+							disabled: isSubmitting || voiceDictation.isTranscribing,
+							selected: voiceDictation.isRecording,
+						}}
+						disabled={isSubmitting || voiceDictation.isTranscribing}
+						onPress={startVoiceDictation}
+						className={cn(
+							"h-[38px] w-[38px] items-center justify-center rounded-full border border-border active:scale-95",
+							voiceDictation.isRecording && "border-accent/45 bg-accent/10",
+							(isSubmitting || voiceDictation.isTranscribing) && "opacity-45",
+						)}
+					>
+						<WanditIcon
+							name="mic"
+							size={16}
+							color={voiceDictation.isRecording ? accent : iconStroke}
+						/>
+					</Pressable>
+					<Pressable
+						accessibilityRole="button"
+						accessibilityLabel={promptBox.submitLabel}
+						accessibilityState={{
+							disabled: !submitEnabled,
+							busy: isSubmitting,
+						}}
+						disabled={!submitEnabled}
+						onPress={handleSubmit}
+						className="relative items-center justify-center overflow-visible rounded-full active:scale-95"
+						style={{
+							width: sendSize,
+							height: sendSize,
+							opacity: submitEnabled ? 1 : isSubmitting ? 0.78 : 0.45,
+							boxShadow: submitEnabled ? sendGlow : undefined,
+						}}
+					>
+						<BrandGradientFill radius={sendSize / 2} />
+						{isSubmitting ? (
+							<ActivityIndicator
+								size="small"
+								color={isHero || !isDark ? "#FFFFFF" : "#160D07"}
+							/>
+						) : isHero ? (
+							<WanditIcon name="spark" size={16} color="#FFFFFF" />
+						) : (
+							<WanditIcon
+								name="arrowUp"
+								size={17}
+								color={isDark ? "#160D07" : "#FFFFFF"}
+							/>
+						)}
+					</Pressable>
+				</View>
 			) : null}
 			{voiceDictation.error ? (
 				<Text
