@@ -76,6 +76,15 @@ export function RequestTray({
 					{state.label}
 				</span>
 				<div className="ms-auto flex shrink-0 items-center gap-1.5">
+					{state.step ? (
+						// Multi-question turns step through the tray one ask at a time —
+						// this is the only signal that more questions are queued behind
+						// the current one. Hardcoded English, same rule as the in-thread
+						// chrome strings (ask-user-part.tsx).
+						<span className="font-mono text-[10.5px] text-muted-foreground">
+							{`Question ${state.step.current} of ${state.step.total}`}
+						</span>
+					) : null}
 					{state.meta ? (
 						<span className="font-mono text-[10.5px] text-muted-foreground">
 							{state.meta}

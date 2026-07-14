@@ -99,7 +99,10 @@ export function ChatPane({ className }: { className?: string }) {
 	};
 
 	// While ask_user is docked, the normal send arrow becomes the answer CTA.
-	// Text overrides chip drafts; otherwise labels reflect single vs. multi
+	// In a multi-question turn it doubles as "Next": confirming re-derives the
+	// tray from the updated messages, so the next pending ask docks in place —
+	// no index is stored anywhere that could go stale when parts update. Text
+	// overrides chip drafts; otherwise labels reflect single vs. multi
 	// selection, while the hook remains the source of truth for validity.
 	const answerSubmitLabel =
 		tray.answerMode === "text"
@@ -318,7 +321,8 @@ export function ChatPane({ className }: { className?: string }) {
 						}
 						// The tray fuses into the composer card (design turn 10) — it
 						// grows out of the top and collapses on answer/dismiss thanks to
-						// AnimatePresence + TrayReveal's height animation.
+						// AnimatePresence + TrayReveal's height animation. Keying by
+						// toolCallId also makes each stepper advance exit/re-enter.
 						topSlot={
 							<AnimatePresence initial={false}>
 								{tray.active && tray.state ? (

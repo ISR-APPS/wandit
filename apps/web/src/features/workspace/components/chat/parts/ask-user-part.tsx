@@ -20,10 +20,17 @@ type AskUserToolPart = Extract<
 export function AskUserPart({
 	part,
 	isActive,
+	isWaiting,
 }: {
 	part: AskUserToolPart;
 	/** True when this ask is the one docked on the composer right now. */
 	isActive: boolean;
+	/** True for a still-pending sibling queued BEHIND the active ask (multi-
+	    question turns step through them oldest first) — it renders a quiet
+	    waiting note instead of the pointer, so only ONE part points at the
+	    tray. Stale unanswered asks in older turns stay false and render
+	    nothing, exactly as before. */
+	isWaiting?: boolean;
 }) {
 	const question = part.input?.question;
 	const hasOptions = (part.input?.options ?? []).length > 0;
@@ -47,6 +54,8 @@ export function AskUserPart({
 					}
 					className="mt-2"
 				/>
+			) : isWaiting ? (
+				<p className="mt-2 text-[12.5px] text-muted-foreground/70">Up next</p>
 			) : part.state === "output-available" ? (
 				<AskReceiptLine output={part.output} />
 			) : null}

@@ -9,5 +9,7 @@
 			"@/*": ["./src/*"]
 		},
 		"jsx": "react-jsx"
-	}
+	},
+	// wandit-kit is a read-only reference folder, not part of the build.
+	"exclude": ["dist", "node_modules", "wandit-kit"]
 }

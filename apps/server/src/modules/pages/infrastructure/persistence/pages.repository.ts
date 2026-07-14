@@ -174,10 +174,11 @@ export class PagesRepository {
 
 		// Self-heal on read: a "queued" run nobody picked up expires after
 		// Trigger.dev's dev TTL (10 min) and will never execute; a "generating"
-		// row can strand the same way if the worker is killed mid-run
-		// (maxDuration is 10 min too). Left alone, either would keep the Page
-		// tab polling forever — flip anything older than 15 min to failed so
-		// the UI stops waiting and says what happened.
+		// row can strand the same way if the worker is killed mid-run. Left
+		// alone, either would keep the Page tab polling forever — flip stale
+		// rows to failed so the UI stops waiting and says what happened. The
+		// cutoff must exceed the task's maxDuration (30 min), or a slow but
+		// healthy build would be flagged failed while still running.
 		await this.db
 			.update(pageGenerationAttempts)
 			.set({
@@ -192,7 +193,7 @@ export class PagesRepository {
 					inArray(pageGenerationAttempts.status, ["queued", "generating"]),
 					lt(
 						pageGenerationAttempts.createdAt,
-						new Date(Date.now() - 15 * 60 * 1000),
+						new Date(Date.now() - 35 * 60 * 1000),
 					),
 				),
 			);

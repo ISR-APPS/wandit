@@ -56,10 +56,9 @@ export type AskUserInput = z.infer<typeof askUserInputSchema>;
 export type AskUserOutput = z.infer<typeof askUserOutputSchema>;
 
 /**
- * read_skill — the assistant loads a markdown playbook on demand (progressive
- * disclosure: the always-on system prompt stays small; deep domain knowledge
- * lives in skill files the model opens only when the task needs them).
- * The enum is the single source of truth for which skills exist.
+ * read_skill — RETIRED. The live agent no longer exposes this tool (the
+ * builder carries its design guidance in its own system prompt now), but the
+ * schemas must survive so chats that called it still validate and render.
  */
 export const skillSlugSchema = z.enum(["landing-page-design"]);
 
@@ -75,6 +74,31 @@ export const readSkillOutputSchema = z.object({
 export type SkillSlug = z.infer<typeof skillSlugSchema>;
 export type ReadSkillInput = z.infer<typeof readSkillInputSchema>;
 export type ReadSkillOutput = z.infer<typeof readSkillOutputSchema>;
+
+/**
+ * get_direction_candidates — the assistant asks the server for a freshly
+ * sampled menu of design directions (palettes, font pairings, page skeletons,
+ * signature interactions, motion vocabularies). The randomness lives
+ * server-side ON PURPOSE: it is the anti-convergence mechanism — the model
+ * may only choose from the returned candidates, never substitute its own.
+ */
+export const getDirectionCandidatesInputSchema = z.object({
+	// Short free-text business descriptor (e.g. "candles", "streetwear"),
+	// matched against the library's avoidFor/industries tags.
+	business: z.string().min(1),
+});
+
+export const getDirectionCandidatesOutputSchema = z.object({
+	// The formatted candidate menu (formatCandidates() text) the model reads.
+	candidates: z.string(),
+});
+
+export type GetDirectionCandidatesInput = z.infer<
+	typeof getDirectionCandidatesInputSchema
+>;
+export type GetDirectionCandidatesOutput = z.infer<
+	typeof getDirectionCandidatesOutputSchema
+>;
 
 /**
  * generate_page — the assistant queues a background page build. Deliberately
@@ -108,6 +132,10 @@ export type GeneratePageOutput = z.infer<typeof generatePageOutputSchema>;
 export type AiChatTools = {
 	ask_user: { input: AskUserInput; output: AskUserOutput };
 	read_skill: { input: ReadSkillInput; output: ReadSkillOutput };
+	get_direction_candidates: {
+		input: GetDirectionCandidatesInput;
+		output: GetDirectionCandidatesOutput;
+	};
 	generate_page: { input: GeneratePageInput; output: GeneratePageOutput };
 };
 

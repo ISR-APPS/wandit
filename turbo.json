@@ -17,6 +17,10 @@
 			"cache": false,
 			"persistent": true
 		},
+		"dev:trigger": {
+			"cache": false,
+			"persistent": true
+		},
 		"db:push": {
 			"cache": false
 		},

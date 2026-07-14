@@ -40,6 +40,9 @@ export const env = createEnv({
 		// AI model settings.
 		AI_CHAT_MODEL: z.string().min(1).default("openai/gpt-4o-mini"),
 		AI_GATEWAY_API_KEY: z.string().min(1).optional(),
+		// Optional: the builder's generate_image tool. Needs R2 plus
+		// R2_PUBLIC_BASE_URL too; unset means the tool answers "unavailable".
+		AI_IMAGE_MODEL: z.string().min(1).optional(),
 		AI_TRANSCRIPTION_MODEL: z
 			.string()
 			.min(1)
@@ -52,11 +55,19 @@ export const env = createEnv({
 			.string()
 			.min(1)
 			.default("anthropic/claude-sonnet-5"),
+		// Builder reasoning knob, forwarded as providerOptions.openai
+		// .reasoningEffort — only OpenAI builder models read it.
+		AI_PAGE_DESIGN_REASONING: z
+			.enum(["minimal", "low", "medium", "high", "xhigh"])
+			.optional(),
 		TRIGGER_SECRET_KEY: z.string().min(1).optional(),
 		R2_ACCOUNT_ID: z.string().min(1).optional(),
 		R2_ACCESS_KEY_ID: z.string().min(1).optional(),
 		R2_SECRET_ACCESS_KEY: z.string().min(1).optional(),
 		R2_BUCKET: z.string().min(1).optional(),
+		// Public base URL of the bucket (Cloudflare public dev URL or custom
+		// domain) — generated images need a browser-reachable URL.
+		R2_PUBLIC_BASE_URL: z.url().optional(),
 		// Core API/auth settings.
 		DATABASE_URL: z.string().min(1),
 		BETTER_AUTH_SECRET: z.string().min(32),

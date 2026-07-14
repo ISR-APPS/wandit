@@ -1,11 +1,13 @@
 import tailwindcss from "@tailwindcss/vite";
 import { tanstackRouter } from "@tanstack/router-plugin/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
 	server: {
-		port: 3001,
+		// Overridable per checkout via PORT in apps/web/.env (untracked), so
+		// worktrees can run beside the main checkout without --port flags.
+		port: Number(loadEnv(mode, import.meta.dirname, "").PORT ?? 3001),
 	},
 	resolve: {
 		tsconfigPaths: true,
@@ -26,4 +28,4 @@ export default defineConfig({
 		}),
 		react(),
 	],
-});
+}));

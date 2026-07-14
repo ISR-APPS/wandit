@@ -11,13 +11,14 @@ import {
 	generatePageToolSchemaOnly,
 } from "./tools/generate-page.tool";
 import {
-	readSkillTool,
-	readSkillToolSchemaOnly,
-} from "./tools/read-skill.tool";
+	getDirectionCandidatesTool,
+	getDirectionCandidatesToolSchemaOnly,
+} from "./tools/get-direction-candidates.tool";
+import { readSkillToolSchemaOnly } from "./tools/read-skill.tool";
 
 type AiChatToolSet = {
 	ask_user: typeof askUserTool;
-	read_skill: typeof readSkillTool;
+	get_direction_candidates: typeof getDirectionCandidatesTool;
 	generate_page: GeneratePageTool;
 };
 
@@ -38,11 +39,14 @@ export function createChatAgent(
 		providerOptions: {
 			// Anthropic's fine-grained tool streaming can emit unvalidated JSON.
 			anthropic: { toolStreaming: false },
+			// Gemini 3 thinking level — only Google models read this key;
+			// every other provider ignores it.
+			google: { thinkingConfig: { thinkingLevel: "high" } },
 		},
 		tools: {
 			ask_user: askUserTool,
 			generate_page: createGeneratePageTool(deps),
-			read_skill: readSkillTool,
+			get_direction_candidates: getDirectionCandidatesTool,
 		},
 	});
 }
@@ -56,5 +60,8 @@ export function createChatAgent(
 export const aiChatToolsForValidation = {
 	ask_user: askUserTool,
 	generate_page: generatePageToolSchemaOnly,
+	get_direction_candidates: getDirectionCandidatesToolSchemaOnly,
+	// read_skill was retired from the live agent; the schema stays so chats
+	// that used it still validate.
 	read_skill: readSkillToolSchemaOnly,
 };
