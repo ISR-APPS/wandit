@@ -18,18 +18,14 @@ import { Check, Copy, ExternalLink, Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { useTranslation } from "@/lib/i18n";
 import { relativeTime } from "@/lib/relative-time";
-import {
-	PUBLISHED_DOMAIN,
-	SLUG_CHECK_DEBOUNCE_MS,
-	WORKSPACE_COPY,
-} from "../../lib/constants";
+import { PUBLISHED_DOMAIN, SLUG_CHECK_DEBOUNCE_MS } from "../../lib/constants";
 import { hashString, isValidSlug, slugify } from "../../lib/helpers";
 import { useWorkspace } from "../../lib/store";
 
-const COPY = WORKSPACE_COPY.settings;
-
 export function PublishSection() {
+	const { t } = useTranslation();
 	const {
 		state,
 		project,
@@ -83,13 +79,13 @@ export function PublishSection() {
 	const handleCopy = () => {
 		if (!liveUrl) return;
 		void navigator.clipboard.writeText(liveUrl);
-		toast.success(WORKSPACE_COPY.publish.linkCopied);
+		toast.success(t("workspace.publish.linkCopied"));
 	};
 
 	const handleSlugSave = () => {
 		if (saveDisabled) return;
 		updateSlug(slug);
-		toast.success(COPY.slugSaved);
+		toast.success(t("settings.slugSaved"));
 	};
 
 	const orderedVersions = [...versions].reverse();
@@ -100,12 +96,14 @@ export function PublishSection() {
 	return (
 		<Card>
 			<CardHeader>
-				<CardTitle className="font-display">{COPY.publishTitle}</CardTitle>
-				<CardDescription>{COPY.publishDescription}</CardDescription>
+				<CardTitle className="font-display">
+					{t("settings.publishTitle")}
+				</CardTitle>
+				<CardDescription>{t("settings.publishDescription")}</CardDescription>
 			</CardHeader>
 			<CardContent className="flex flex-col gap-6">
 				<div className="space-y-2">
-					<Label>{COPY.liveUrlLabel}</Label>
+					<Label>{t("settings.liveUrlLabel")}</Label>
 					{liveUrl ? (
 						<div className="flex items-center gap-1">
 							<a
@@ -119,7 +117,7 @@ export function PublishSection() {
 							<Button
 								variant="ghost"
 								size="icon-sm"
-								aria-label={WORKSPACE_COPY.publish.copyLink}
+								aria-label={t("workspace.publish.copyLink")}
 								onClick={handleCopy}
 							>
 								<Copy className="size-4" />
@@ -127,7 +125,7 @@ export function PublishSection() {
 							<Button
 								variant="ghost"
 								size="icon-sm"
-								aria-label={WORKSPACE_COPY.publish.openLive}
+								aria-label={t("workspace.publish.openLive")}
 								asChild
 							>
 								<a href={liveUrl} target="_blank" rel="noreferrer">
@@ -138,7 +136,7 @@ export function PublishSection() {
 					) : (
 						<div className="flex items-center justify-between gap-3">
 							<p className="text-muted-foreground text-sm">
-								{COPY.notPublished}
+								{t("settings.notPublished")}
 							</p>
 							<Button
 								onClick={() => {
@@ -154,10 +152,10 @@ export function PublishSection() {
 								{publishing ? (
 									<>
 										<Loader2 className="size-4 animate-spin" />
-										{WORKSPACE_COPY.publish.publishing}
+										{t("workspace.publish.publishing")}
 									</>
 								) : (
-									COPY.publishCta
+									t("settings.publishCta")
 								)}
 							</Button>
 						</div>
@@ -170,14 +168,14 @@ export function PublishSection() {
 								className="text-destructive"
 								onClick={() => unpublish()}
 							>
-								{COPY.unpublishCta}
+								{t("settings.unpublishCta")}
 							</Button>
 						</div>
 					) : null}
 				</div>
 
 				<div className="space-y-2">
-					<Label htmlFor="settings-slug">{COPY.slugLabel}</Label>
+					<Label htmlFor="settings-slug">{t("settings.slugLabel")}</Label>
 					<div className="flex items-center gap-2">
 						<Input
 							id="settings-slug"
@@ -197,23 +195,27 @@ export function PublishSection() {
 							onClick={handleSlugSave}
 							disabled={saveDisabled}
 						>
-							{COPY.slugSave}
+							{t("settings.slugSave")}
 						</Button>
 					</div>
 					{slugDirty ? (
 						!slugValid ? (
-							<p className="text-destructive text-xs">{COPY.slugInvalid}</p>
+							<p className="text-destructive text-xs">
+								{t("settings.slugInvalid")}
+							</p>
 						) : checking ? (
 							<p className="flex items-center gap-1 text-muted-foreground text-xs">
 								<Loader2 className="size-3 animate-spin" />
-								{COPY.slugChecking}
+								{t("settings.slugChecking")}
 							</p>
 						) : slugTaken ? (
-							<p className="text-destructive text-xs">{COPY.slugTaken}</p>
+							<p className="text-destructive text-xs">
+								{t("settings.slugTaken")}
+							</p>
 						) : (
 							<p className="flex items-center gap-1 text-success text-xs">
 								<Check className="size-3" />
-								{COPY.slugAvailable}
+								{t("settings.slugAvailable")}
 							</p>
 						)
 					) : null}
@@ -222,12 +224,12 @@ export function PublishSection() {
 				<Separator />
 
 				<div>
-					<h3 className="font-medium text-sm">{COPY.historyTitle}</h3>
+					<h3 className="font-medium text-sm">{t("settings.historyTitle")}</h3>
 					<div className="mt-1">
 						{orderedVersions.map((version) => (
 							<div key={version.id} className="flex items-center gap-3 py-2">
 								<span className="shrink-0 rounded-md border px-1.5 py-0.5 font-mono text-xs tabular-nums">
-									{WORKSPACE_COPY.page.versionShort(version.number)}
+									{t("workspace.page.versionShort", { n: version.number })}
 								</span>
 								<span dir="auto" className="min-w-0 flex-1 truncate text-sm">
 									{version.label}
@@ -237,7 +239,7 @@ export function PublishSection() {
 								</span>
 								{version.id === deployment?.publishedVersionId ? (
 									<Badge variant="success" className="font-mono text-[10px]">
-										{COPY.historyLive}
+										{t("settings.historyLive")}
 									</Badge>
 								) : (
 									<Button
@@ -248,8 +250,10 @@ export function PublishSection() {
 									>
 										{liveVersionNumber !== null &&
 										version.number < liveVersionNumber
-											? COPY.historyRollback
-											: WORKSPACE_COPY.publish.publishUpdate(version.number)}
+											? t("settings.historyRollback")
+											: t("workspace.publish.publishUpdate", {
+													n: version.number,
+												})}
 									</Button>
 								)}
 							</div>
@@ -258,7 +262,7 @@ export function PublishSection() {
 				</div>
 
 				<p className="text-[11px] text-muted-foreground">
-					{WORKSPACE_COPY.publish.freeNote}
+					{t("workspace.publish.freeNote")}
 				</p>
 			</CardContent>
 		</Card>

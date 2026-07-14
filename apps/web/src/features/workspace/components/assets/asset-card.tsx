@@ -14,14 +14,73 @@ import { ExternalLink } from "lucide-react";
 import type * as React from "react";
 
 import { thumbGradient } from "@/features/projects";
+import { useTranslation } from "@/lib/i18n";
 import { relativeTime } from "@/lib/relative-time";
 import type { PageVersion } from "../../api/dto";
 import { getVersionPage } from "../../api/workspace.services";
-import { WORKSPACE_COPY } from "../../lib/constants";
 import { openHtmlInNewTab } from "../../lib/helpers";
 import { useWorkspace } from "../../lib/store";
 
+export function AssetCardFace({
+	version,
+	thumbnailSeed,
+	isLive,
+	isViewing,
+	className,
+}: {
+	version: PageVersion;
+	thumbnailSeed: number;
+	isLive?: boolean;
+	isViewing?: boolean;
+	className?: string;
+}) {
+	const { t } = useTranslation();
+
+	return (
+		<div
+			className={cn("relative overflow-hidden", className)}
+			style={{
+				background: thumbGradient(thumbnailSeed + version.number * 17),
+			}}
+		>
+			<div
+				aria-hidden
+				className="pointer-events-none absolute inset-0 bg-grain"
+			/>
+			<span
+				aria-hidden
+				className="absolute inset-0 flex select-none items-center justify-center font-bold font-display text-5xl text-white/20"
+			>
+				{t("workspace.page.versionShort", { n: version.number })}
+			</span>
+			<div className="absolute start-2 top-2 flex items-center gap-1">
+				<Badge variant="secondary" className="font-mono text-[10px]">
+					{t("workspace.assets.kindLandingPage")}
+				</Badge>
+				<Badge variant="outline" className="font-mono text-[10px]">
+					{version.lang.toUpperCase()}
+				</Badge>
+			</div>
+			{isLive || isViewing ? (
+				<div className="absolute end-2 top-2 flex flex-col items-end gap-1">
+					{isLive ? (
+						<Badge variant="success" className="font-mono text-[10px]">
+							{t("workspace.assets.liveBadge")}
+						</Badge>
+					) : null}
+					{isViewing ? (
+						<Badge className="font-mono text-[10px]">
+							{t("workspace.assets.currentBadge")}
+						</Badge>
+					) : null}
+				</div>
+			) : null}
+		</div>
+	);
+}
+
 export function AssetCard({ version }: { version: PageVersion }) {
+	const { t } = useTranslation();
 	const { project, state, activeVersion, selectVersion } = useWorkspace();
 
 	const isLive = version.id === state?.deployment.publishedVersionId;
@@ -39,58 +98,26 @@ export function AssetCard({ version }: { version: PageVersion }) {
 				type="button"
 				onClick={() => selectVersion(version.id, { focusPage: true })}
 				className={cn(
-					"block w-full overflow-hidden rounded-xl border bg-card text-left transition-all duration-150",
+					"block w-full overflow-hidden rounded-xl border bg-card text-start transition-all duration-150",
 					"hover:-translate-y-0.5 hover:border-primary/30 hover:shadow-lg",
 					"focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
 				)}
 			>
-				<div
-					className="relative aspect-[4/3]"
-					style={{
-						background: thumbGradient(
-							(project?.thumbnailSeed ?? 7) + version.number * 17,
-						),
-					}}
-				>
-					<div
-						aria-hidden
-						className="pointer-events-none absolute inset-0 bg-grain"
-					/>
-					<span
-						aria-hidden
-						className="absolute inset-0 flex select-none items-center justify-center font-bold font-display text-5xl text-white/20"
-					>
-						{WORKSPACE_COPY.page.versionShort(version.number)}
-					</span>
-					<div className="absolute top-2 left-2 flex items-center gap-1">
-						<Badge variant="secondary" className="font-mono text-[10px]">
-							{WORKSPACE_COPY.assets.kindLandingPage}
-						</Badge>
-						<Badge variant="outline" className="font-mono text-[10px]">
-							{version.lang.toUpperCase()}
-						</Badge>
-					</div>
-					{isLive || isViewing ? (
-						<div className="absolute top-2 right-2 flex flex-col items-end gap-1">
-							{isLive ? (
-								<Badge variant="success" className="font-mono text-[10px]">
-									{WORKSPACE_COPY.assets.liveBadge}
-								</Badge>
-							) : null}
-							{isViewing ? (
-								<Badge className="font-mono text-[10px]">
-									{WORKSPACE_COPY.assets.currentBadge}
-								</Badge>
-							) : null}
-						</div>
-					) : null}
-				</div>
+				<AssetCardFace
+					version={version}
+					thumbnailSeed={project?.thumbnailSeed ?? 7}
+					isLive={isLive}
+					isViewing={isViewing}
+					className="aspect-[4/3]"
+				/>
 				<div className="p-3.5">
 					<h3 dir="auto" className="truncate font-medium text-sm">
 						{version.label}
 					</h3>
 					<div className="mt-1.5 flex items-center gap-1.5 font-mono text-muted-foreground text-xs">
-						<span>{WORKSPACE_COPY.assets.versionTitle(version.number)}</span>
+						<span>
+							{t("workspace.assets.versionTitle", { n: version.number })}
+						</span>
 						<span aria-hidden className="text-muted-foreground/50">
 							·
 						</span>
@@ -104,14 +131,14 @@ export function AssetCard({ version }: { version: PageVersion }) {
 					<Button
 						variant="secondary"
 						size="icon-sm"
-						aria-label={WORKSPACE_COPY.assets.openInNewTab}
+						aria-label={t("workspace.assets.openInNewTab")}
 						onClick={handleOpenInNewTab}
-						className="pointer-events-none absolute top-2 right-2 z-10 size-7 opacity-0 shadow-sm transition-opacity duration-150 focus-visible:pointer-events-auto focus-visible:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
+						className="pointer-events-none absolute end-2 top-2 z-10 size-7 opacity-0 shadow-sm transition-opacity duration-150 focus-visible:pointer-events-auto focus-visible:opacity-100 group-focus-within:pointer-events-auto group-focus-within:opacity-100 group-hover:pointer-events-auto group-hover:opacity-100"
 					>
 						<ExternalLink className="size-4" />
 					</Button>
 				</TooltipTrigger>
-				<TooltipContent>{WORKSPACE_COPY.assets.openInNewTab}</TooltipContent>
+				<TooltipContent>{t("workspace.assets.openInNewTab")}</TooltipContent>
 			</Tooltip>
 		</div>
 	);

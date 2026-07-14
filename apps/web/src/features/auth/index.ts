@@ -8,8 +8,8 @@ export { authClient } from "./lib/auth-client";
 export { promptStash } from "./lib/prompt-stash";
 export {
 	getSession,
+	invalidateSessionCache,
 	type SessionUser,
-	signInMock,
 	signOut,
 	useSession,
 } from "./lib/session";

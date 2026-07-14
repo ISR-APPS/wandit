@@ -12,10 +12,10 @@ import {
 } from "@wandit/ui/components/dropdown-menu";
 import { Skeleton } from "@wandit/ui/components/skeleton";
 import { cn } from "@wandit/ui/lib/utils";
-import { Check, ChevronsUpDown, LayoutGrid } from "lucide-react";
+import { Check, ChevronDown, LayoutGrid } from "lucide-react";
 
 import { type ProjectStatus, useProjectsQuery } from "@/features/projects";
-import { WORKSPACE_COPY } from "../../lib/constants";
+import { useTranslation } from "@/lib/i18n";
 import { useWorkspace } from "../../lib/store";
 
 function statusDotClass(status: ProjectStatus): string {
@@ -25,11 +25,13 @@ function statusDotClass(status: ProjectStatus): string {
 		case "publishing":
 			return "animate-pulse bg-chart-3";
 		default:
-			return "bg-muted-foreground/40";
+			// Draft reads as a plain ink dot (3a reference), not a status color.
+			return "bg-foreground";
 	}
 }
 
 export function ProjectSwitcher() {
+	const { t } = useTranslation();
 	const { project, projectId, projectPending } = useWorkspace();
 	const projectsQuery = useProjectsQuery();
 	const navigate = useNavigate();
@@ -39,8 +41,8 @@ export function ProjectSwitcher() {
 			<DropdownMenuTrigger asChild>
 				<button
 					type="button"
-					aria-label={WORKSPACE_COPY.switcher.menuLabel}
-					className="flex h-8 min-w-0 items-center gap-2 rounded-md px-2 text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+					aria-label={t("workspace.switcher.menuLabel")}
+					className="flex h-8 min-w-0 items-center gap-2 rounded-full border border-border bg-background/70 px-3 text-sm transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
 				>
 					{projectPending || !project ? (
 						<Skeleton className="h-4 w-28" />
@@ -49,21 +51,21 @@ export function ProjectSwitcher() {
 							<span
 								aria-hidden
 								className={cn(
-									"size-1.5 shrink-0 rounded-full",
+									"size-2 shrink-0 rounded-full",
 									statusDotClass(project.status),
 								)}
 							/>
 							<span dir="auto" className="max-w-44 truncate font-medium">
 								{project.name}
 							</span>
-							<ChevronsUpDown className="size-3.5 shrink-0 text-muted-foreground" />
+							<ChevronDown className="size-3 shrink-0 opacity-50" />
 						</>
 					)}
 				</button>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="start" className="w-72">
 				<DropdownMenuLabel className="text-muted-foreground text-xs">
-					{WORKSPACE_COPY.switcher.menuLabel}
+					{t("workspace.switcher.menuLabel")}
 				</DropdownMenuLabel>
 				<div className="max-h-72 overflow-y-auto">
 					{projectsQuery.data?.map((p) => (
@@ -103,7 +105,7 @@ export function ProjectSwitcher() {
 				<DropdownMenuItem asChild>
 					<Link to="/dashboard">
 						<LayoutGrid className="size-4" />
-						{WORKSPACE_COPY.switcher.allProjects}
+						{t("workspace.switcher.allProjects")}
 					</Link>
 				</DropdownMenuItem>
 			</DropdownMenuContent>

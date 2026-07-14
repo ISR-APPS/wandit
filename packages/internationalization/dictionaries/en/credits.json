@@ -1,0 +1,34 @@
+{
+	"chipAriaLabel": "Credits balance",
+	"balanceLabel": "Credits",
+	"usageOf": "{balance} of {grant} left",
+	"recentActivity": "Recent activity",
+	"emptyLedger": "No activity yet.",
+	"topUpChip": "Top up — coming soon",
+	"topUpDialog": "Top-up coming soon",
+	"insufficientTitle": "Not enough credits",
+	"insufficientBody": "This action costs more than you have left. Top-ups are on the way.",
+	"costLabel": "Cost",
+	"balanceRowLabel": "Your balance",
+	"seedGrantLabel": "Welcome grant",
+	"creditUnit": {
+		"zero": "{count} credits",
+		"one": "{count} credit",
+		"two": "{count} credits",
+		"few": "{count} credits",
+		"many": "{count} credits",
+		"other": "{count} credits"
+	},
+	"priceTag": {
+		"zero": "{action} — {count} credits",
+		"one": "{action} — {count} credit",
+		"two": "{action} — {count} credits",
+		"few": "{action} — {count} credits",
+		"many": "{action} — {count} credits",
+		"other": "{action} — {count} credits"
+	},
+	"actions": {
+		"generation": "Generate",
+		"chatMessage": "Send"
+	}
+}

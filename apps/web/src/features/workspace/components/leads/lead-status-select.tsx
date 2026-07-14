@@ -11,13 +11,10 @@ import {
 import { cn } from "@wandit/ui/lib/utils";
 import { toast } from "sonner";
 
+import { useTranslation } from "@/lib/i18n";
 import type { Lead, LeadStatus } from "../../api/dto";
 import { useUpdateLeadStatus } from "../../api/leads.mutations";
-import {
-	LEAD_STATUS_META,
-	LEAD_STATUS_ORDER,
-	WORKSPACE_COPY,
-} from "../../lib/constants";
+import { LEAD_STATUS_META, LEAD_STATUS_ORDER } from "../../lib/constants";
 import { useWorkspace } from "../../lib/store";
 
 /** Pill tint per status — border/bg/text tuned for light and dark. */
@@ -37,6 +34,7 @@ const STATUS_TINT: Record<LeadStatus, string> = {
 };
 
 export function LeadStatusSelect({ lead }: { lead: Lead }) {
+	const { t } = useTranslation();
 	const { projectId } = useWorkspace();
 	const updateStatus = useUpdateLeadStatus(projectId);
 
@@ -45,10 +43,10 @@ export function LeadStatusSelect({ lead }: { lead: Lead }) {
 		if (status === lead.status) return;
 		updateStatus.mutate({ leadId: lead.id, status });
 		toast.success(
-			WORKSPACE_COPY.leads.statusUpdated(
-				lead.name,
-				LEAD_STATUS_META[status].label,
-			),
+			t("leads.statusUpdated", {
+				name: lead.name,
+				status: t(`leads.status.${status}`),
+			}),
 		);
 	};
 
@@ -56,13 +54,13 @@ export function LeadStatusSelect({ lead }: { lead: Lead }) {
 		<Select value={lead.status} onValueChange={handleChange}>
 			<SelectTrigger
 				size="sm"
-				aria-label={WORKSPACE_COPY.leads.colStatus}
+				aria-label={t("leads.colStatus")}
 				className={cn(
 					"w-auto gap-1.5 rounded-full px-2.5 font-medium text-xs shadow-none data-[size=sm]:h-7",
 					STATUS_TINT[lead.status],
 				)}
 			>
-				<SelectValue>{LEAD_STATUS_META[lead.status].label}</SelectValue>
+				<SelectValue>{t(`leads.status.${lead.status}`)}</SelectValue>
 			</SelectTrigger>
 			<SelectContent align="end" position="popper">
 				{LEAD_STATUS_ORDER.map((status) => (
@@ -74,7 +72,7 @@ export function LeadStatusSelect({ lead }: { lead: Lead }) {
 								LEAD_STATUS_META[status].dotClass,
 							)}
 						/>
-						{LEAD_STATUS_META[status].label}
+						{t(`leads.status.${status}`)}
 					</SelectItem>
 				))}
 			</SelectContent>

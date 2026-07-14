@@ -1,30 +1,68 @@
 // All user-facing copy for the workspace feature (centralized so a locale
 // swap is cheap) + tab/status/timing config.
 
+/**
+ * WORKSPACE CONSTANTS — the feature's central "settings file".
+ *
+ * What this file is: a grab-bag of plain values (no logic, no React) that the
+ * rest of the workspace feature imports: tab definitions, localStorage keys,
+ * page sizes, canvas geometry, lead-status styling, and some leftover
+ * mock-generation timing/copy. Keeping them in one file means a designer or
+ * translator can retune the workspace without hunting through components.
+ *
+ * Where it sits in the AI-chat flow: two constants matter for chat UI
+ * persistence — CHAT_OPEN_STORAGE_KEY (is the chat pane open or closed?) and
+ * WORKSPACE_PANELS_STORAGE_ID (how wide is the chat/main split?). Both are
+ * localStorage keys. "localStorage" is the browser's tiny built-in key/value
+ * store that survives page reloads, so when you come back to a project the
+ * workspace looks exactly how you left it. store.tsx reads/writes the first
+ * key; helpers.ts + pages/workspace-page.tsx read/write the second. Nothing
+ * here talks to the server — the actual chat traffic lives in
+ * use-project-chat.tsx and api/chat.*.
+ *
+ * NOTE (dead code): FIRST_GENERATION_REPLIES, ITERATION_REPLIES,
+ * THINKING_DELAY_MS, STREAM_WORD_INTERVAL_MS, BUILD_DURATION_MS and
+ * GENERATING_STEP_INTERVAL_MS are no longer imported anywhere — they powered
+ * the old fake "typing" chat before the real server-backed chat (SSE
+ * streaming) replaced it. They are safe-to-delete leftovers; only
+ * PUBLISH_DURATION_MS and SLUG_CHECK_DEBOUNCE_MS from the timing block are
+ * still used (by the still-mocked publish flow).
+ */
+
+// LucideIcon is just the TypeScript type for one icon component from the
+// lucide-react icon library (each icon is a small React component that
+// renders an SVG).
 import type { LucideIcon } from "lucide-react";
-import { AppWindow, Images, Settings2, Users } from "lucide-react";
+import { File, Image, Settings2, Users, Volume2 } from "lucide-react";
 
 import type { LeadStatus, PageLang, WorkspaceTab } from "../api/dto";
 
 export const WORKSPACE_TAB_VALUES = [
 	"page",
 	"assets",
+	"marketing",
 	"leads",
 	"settings",
 ] as const;
 
 export type WorkspaceTabDef = {
 	value: WorkspaceTab;
-	label: string;
 	icon: LucideIcon;
 };
 
+// Tab value + icon; the label is localized (workspace.tabs.<value>).
 export const WORKSPACE_TABS: WorkspaceTabDef[] = [
-	{ value: "page", label: "Page", icon: AppWindow },
-	{ value: "assets", label: "Assets", icon: Images },
-	{ value: "leads", label: "Leads", icon: Users },
-	{ value: "settings", label: "Settings", icon: Settings2 },
+	{ value: "page", icon: File },
+	{ value: "assets", icon: Image },
+	{ value: "marketing", icon: Volume2 },
+	{ value: "leads", icon: Users },
+	{ value: "settings", icon: Settings2 },
 ];
+
+/** Downloaded marketing-plan filename — config, not display copy. */
+export function marketingPlanFileName(projectId: string): string {
+	return `marketing-plan-${projectId}.md`;
+}
 
 /** Published sites live on {slug}.wandit.app — mirrors projects' copy. */
 export const PUBLISHED_DOMAIN = ".wandit.app";
@@ -36,11 +74,34 @@ export const WORKSPACE_PANELS_STORAGE_ID = "wandit-workspace-panels";
 /** Assets tab view mode (grid vs freeform board), mirrors chat-open persistence. */
 export const ASSETS_VIEW_STORAGE_KEY = "wandit-workspace-assets-view";
 
+export const ASSETS_CANVAS_BOARD = {
+	WIDTH: 1200,
+	HEIGHT: 820,
+	PAN_OVERLAP: 80,
+} as const;
+
+export const ASSETS_CANVAS_ZOOM = {
+	MIN: 28,
+	MAX: 140,
+	STEP: 8,
+	DEFAULT: 68,
+} as const;
+
+export const ASSETS_CANVAS_LAYOUT_SLOTS = [
+	{ x: 80, y: 104, width: 184, height: 184 },
+	{ x: 452, y: 56, width: 196, height: 245 },
+	{ x: 250, y: 352, width: 184, height: 184 },
+	{ x: 704, y: 150, width: 150, height: 266 },
+	{ x: 772, y: 452, width: 300, height: 169 },
+	{ x: 118, y: 594, width: 260, height: 195 },
+] as const;
+
 // Mock job pacing (ms) — tuned to feel like a real queue without dragging.
 export const THINKING_DELAY_MS = 650;
 export const STREAM_WORD_INTERVAL_MS = 30;
 export const BUILD_DURATION_MS = 2600;
-export const PUBLISH_DURATION_MS = 2200;
+// Long enough for the publish panel's deploy checklist to read step by step.
+export const PUBLISH_DURATION_MS = 5200;
 export const GENERATING_STEP_INTERVAL_MS = 1400;
 export const SLUG_CHECK_DEBOUNCE_MS = 500;
 
@@ -54,10 +115,11 @@ export const LEAD_STATUS_ORDER: LeadStatus[] = [
 	"cancelled",
 ];
 
+// Badge variant + select dot per lead status; the label is localized
+// (leads.status.<enum_value>).
 export const LEAD_STATUS_META: Record<
 	LeadStatus,
 	{
-		label: string;
 		badgeVariant:
 			| "default"
 			| "secondary"
@@ -70,32 +132,26 @@ export const LEAD_STATUS_META: Record<
 	}
 > = {
 	to_confirm: {
-		label: "To confirm",
 		badgeVariant: "warning",
 		dotClass: "bg-amber-500",
 	},
 	confirmed: {
-		label: "Confirmed",
 		badgeVariant: "info",
 		dotClass: "bg-blue-500",
 	},
 	shipped: {
-		label: "Shipped",
 		badgeVariant: "secondary",
 		dotClass: "bg-violet-500",
 	},
 	delivered: {
-		label: "Delivered",
 		badgeVariant: "success",
 		dotClass: "bg-emerald-500",
 	},
 	returned: {
-		label: "Returned",
 		badgeVariant: "outline",
 		dotClass: "bg-slate-400",
 	},
 	cancelled: {
-		label: "Cancelled",
 		badgeVariant: "destructive",
 		dotClass: "bg-red-500",
 	},
@@ -145,161 +201,3 @@ export const ITERATION_REPLIES: Record<PageLang, string[]> = {
 		"طبّقت التغيير مع لمسة خفيفة على المسافات والتباين ليبقى كل شيء متناسقًا. النسخة الجديدة قيد الإنشاء.",
 	],
 };
-
-export const WORKSPACE_COPY = {
-	backToDashboard: "Back to dashboard",
-	tabsAriaLabel: "Workspace views",
-
-	switcher: {
-		menuLabel: "Projects",
-		allProjects: "All projects",
-	},
-
-	publish: {
-		publish: "Publish",
-		publishing: "Publishing…",
-		published: "Published",
-		publishUpdate: (n: number) => `Publish v${n}`,
-		menuLiveLabel: "Live site",
-		copyLink: "Copy link",
-		openLive: "Open live site",
-		unpublish: "Unpublish",
-		linkCopied: "Link copied",
-		publishedToast: (url: string) => `Live at ${url}`,
-		unpublishedToast: "Site unpublished",
-		freeNote: "Publishing is always free",
-	},
-
-	chat: {
-		title: "Chat",
-		collapse: "Collapse chat",
-		expand: "Open chat",
-		placeholder: "Describe a change…",
-		thinking: "Thinking…",
-		generating: "Generating",
-		versionCardKind: "Landing page",
-		emptyTitle: "Start the conversation",
-		emptyBody: "Describe your page and the AI will generate it here.",
-	},
-
-	page: {
-		versionShort: (n: number) => `v${n}`,
-		latestSuffix: "Latest",
-		liveBadge: "Live",
-		versionsMenuLabel: "Versions",
-		viewportMobile: "Mobile preview",
-		viewportDesktop: "Desktop preview",
-		refresh: "Reload preview",
-		openInNewTab: "Open in new tab",
-		emptyTitle: "Nothing to preview yet",
-		emptyBody:
-			"Describe your page in the chat — the preview appears here as it generates.",
-		generatingTitle: (n: number) => `Generating v${n}`,
-		generatingSteps: [
-			"Analyzing your brief…",
-			"Writing the sections…",
-			"Styling for mobile…",
-			"Wiring the order form…",
-			"Final touches…",
-		],
-	},
-
-	assets: {
-		title: "Assets",
-		subtitle: "Every generation is saved as an immutable version.",
-		kindLandingPage: "Landing page",
-		liveBadge: "Live",
-		currentBadge: "Viewing",
-		openOnPage: "View on page",
-		openInNewTab: "Open in new tab",
-		versionTitle: (n: number) => `Version ${n}`,
-		emptyTitle: "No assets yet",
-		emptyBody: "Generated pages (and soon images and videos) appear here.",
-		libraryView: "Library",
-		canvasView: "Canvas",
-		viewToggleAriaLabel: "Assets view",
-	},
-
-	leads: {
-		title: "Leads",
-		searchPlaceholder: "Search name or phone…",
-		filterAll: "All statuses",
-		exportCsv: "Export CSV",
-		exportedToast: (count: number) =>
-			count === 1 ? "Exported 1 lead" : `Exported ${count} leads`,
-		counterToday: "Today",
-		counterWeek: "This week",
-		counterTotal: "Total leads",
-		counterConfirmation: "Confirmation rate",
-		confirmationHint: "confirmed ÷ (confirmed + cancelled)",
-		colName: "Name",
-		colPhone: "Phone",
-		colLocation: "Wilaya / Commune",
-		colDate: "Date",
-		colStatus: "Status",
-		call: "Call",
-		whatsapp: "WhatsApp",
-		emptyTitle: "No leads yet",
-		emptyBody: "Publish your page to start collecting orders.",
-		emptyCta: "Open publish settings",
-		noResultsTitle: "No matching leads",
-		noResultsBody: "Try another search or clear the status filter.",
-		clearFilters: "Clear filters",
-		statusUpdated: (name: string, status: string) => `${name} → ${status}`,
-		pageInfo: (from: number, to: number, total: number) =>
-			`${from}–${to} of ${total}`,
-		previous: "Previous",
-		next: "Next",
-		freeNote: "Lead collection is always free.",
-	},
-
-	settings: {
-		title: "Settings",
-		generalTitle: "General",
-		generalDescription: "Name and ad tracking for this project.",
-		nameLabel: "Project name",
-		nameSave: "Save",
-		nameSaved: "Project renamed",
-		pixelsTitle: "Ad pixels",
-		pixelsDescription:
-			"Injected into your published page at publish time — paste the IDs from Meta and TikTok.",
-		metaPixelLabel: "Meta pixel ID",
-		tiktokPixelLabel: "TikTok pixel ID",
-		pixelPlaceholder: "1234567890123456",
-		pixelsSave: "Save pixels",
-		pixelsSaved: "Pixels saved",
-		publishTitle: "Publishing",
-		publishDescription: "Your page lives on a free wandit.app subdomain.",
-		slugLabel: "Subdomain",
-		slugChecking: "Checking…",
-		slugAvailable: "Available",
-		slugTaken: "Taken — try another",
-		slugInvalid: "Lowercase letters, numbers and hyphens only",
-		slugSave: "Save slug",
-		slugSaved: "Subdomain saved",
-		liveUrlLabel: "Live URL",
-		notPublished: "Not published yet",
-		publishCta: "Publish",
-		unpublishCta: "Unpublish",
-		historyTitle: "Version history",
-		historyRollback: "Roll back",
-		historyLive: "Live",
-		historyRolledBackToast: (n: number) => `Rolled back — v${n} is live`,
-		dangerTitle: "Danger zone",
-		dangerDescription:
-			"Deleting a project removes its page, chat history and leads.",
-		deleteCta: "Delete project",
-		deleteTitle: "Delete project?",
-		deleteDescription: (name: string) =>
-			`"${name}" and its leads will be gone for good. This cannot be undone.`,
-		deleteConfirm: "Delete",
-		deleteCancel: "Cancel",
-		deleteSuccess: "Project deleted",
-	},
-
-	notFound: {
-		title: "Project not found",
-		body: "It may have been deleted, or the link is wrong.",
-		cta: "Back to dashboard",
-	},
-} as const;

@@ -1,6 +1,8 @@
 // Assets tab: every generated page version (soon images/video too), newest
 // first. Library is the strict grid; Canvas is the same set as a freeform
-// mood board — the view choice persists across visits.
+// mood board. The view toggle lives in the main card's header (see
+// shell/main-pane-header.tsx) — this tab only renders the chosen view under
+// a slim meta strip.
 
 import {
 	Empty,
@@ -11,18 +13,13 @@ import {
 } from "@wandit/ui/components/empty";
 import { Skeleton } from "@wandit/ui/components/skeleton";
 import { Images } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
 
-import { WORKSPACE_COPY } from "../../lib/constants";
-import {
-	type AssetsView,
-	readAssetsView,
-	writeAssetsView,
-} from "../../lib/helpers";
+import { useTranslation } from "@/lib/i18n";
+import type { AssetsView } from "../../lib/helpers";
 import { useWorkspace } from "../../lib/store";
 import { AssetCard } from "./asset-card";
 import { AssetsCanvasBoard } from "./assets-canvas";
-import { AssetsViewToggle } from "./assets-view-toggle";
 
 const SKELETON_KEYS = ["a", "b", "c", "d"];
 
@@ -39,50 +36,41 @@ function AssetCardSkeleton() {
 }
 
 function AssetsEmptyState() {
+	const { t } = useTranslation();
 	return (
 		<Empty className="rounded-xl border border-dashed">
 			<EmptyHeader>
 				<EmptyMedia variant="icon">
 					<Images />
 				</EmptyMedia>
-				<EmptyTitle>{WORKSPACE_COPY.assets.emptyTitle}</EmptyTitle>
-				<EmptyDescription>{WORKSPACE_COPY.assets.emptyBody}</EmptyDescription>
+				<EmptyTitle>{t("workspace.assets.emptyTitle")}</EmptyTitle>
+				<EmptyDescription>{t("workspace.assets.emptyBody")}</EmptyDescription>
 			</EmptyHeader>
 		</Empty>
 	);
 }
 
-export function AssetsTab() {
+export function AssetsTab({ view }: { view: AssetsView }) {
+	const { t } = useTranslation();
 	const { versions, statePending } = useWorkspace();
 	const ordered = useMemo(() => [...versions].reverse(), [versions]);
-	const [view, setViewState] = useState<AssetsView>(readAssetsView);
-
-	const setView = (next: AssetsView) => {
-		setViewState(next);
-		writeAssetsView(next);
-	};
-
-	const showToggle = !statePending && ordered.length > 0;
 
 	return (
 		<div className="flex h-full min-h-0 flex-col">
-			<div className="flex shrink-0 flex-wrap items-center justify-between gap-3 px-4 pt-6 pb-4 md:px-8">
-				<div>
-					<h2 className="font-display font-semibold text-lg">
-						{WORKSPACE_COPY.assets.title}
-					</h2>
-					<p className="text-muted-foreground text-sm">
-						{WORKSPACE_COPY.assets.subtitle}
-					</p>
+			{!statePending && ordered.length > 0 ? (
+				<div className="flex shrink-0 items-center justify-between gap-3 border-b px-4 py-2.5 font-mono text-[11px] text-muted-foreground md:px-6">
+					<span>
+						{t("workspace.assets.metaCount", { count: ordered.length })}
+					</span>
+					<span className="hidden truncate sm:block">
+						{t("workspace.assets.subtitle")}
+					</span>
 				</div>
-				{showToggle ? (
-					<AssetsViewToggle view={view} onChange={setView} />
-				) : null}
-			</div>
+			) : null}
 
 			<div className="min-h-0 flex-1">
 				{statePending ? (
-					<div className="h-full overflow-y-auto px-4 pb-8 md:px-8">
+					<div className="h-full overflow-y-auto px-4 py-6 md:px-6">
 						<div className="mx-auto grid w-full max-w-6xl grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
 							{SKELETON_KEYS.map((key) => (
 								<AssetCardSkeleton key={key} />
@@ -90,13 +78,13 @@ export function AssetsTab() {
 						</div>
 					</div>
 				) : ordered.length === 0 ? (
-					<div className="h-full overflow-y-auto px-4 pb-8 md:px-8">
+					<div className="h-full overflow-y-auto px-4 py-6 md:px-6">
 						<div className="mx-auto w-full max-w-6xl">
 							<AssetsEmptyState />
 						</div>
 					</div>
 				) : view === "library" ? (
-					<div className="h-full overflow-y-auto px-4 pb-8 md:px-8">
+					<div className="h-full overflow-y-auto px-4 py-5 md:px-6">
 						<div className="mx-auto grid w-full max-w-6xl grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
 							{ordered.map((version) => (
 								<AssetCard key={version.id} version={version} />

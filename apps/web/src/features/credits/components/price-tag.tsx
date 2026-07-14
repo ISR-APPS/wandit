@@ -1,15 +1,23 @@
 import { cn } from "@wandit/ui/lib/utils";
 
 import { Spark } from "@/components/logo";
+import { useTranslation } from "@/lib/i18n";
 
 type PriceTagProps = {
 	cost: number;
 	withIcon?: boolean;
+	showUnit?: boolean;
 	className?: string;
 };
 
 /** "10 credits" in the mono ledger voice. Muted by default; restyle via className. */
-export function PriceTag({ cost, withIcon = false, className }: PriceTagProps) {
+export function PriceTag({
+	cost,
+	withIcon = false,
+	showUnit = true,
+	className,
+}: PriceTagProps) {
+	const { t } = useTranslation();
 	return (
 		<span
 			className={cn(
@@ -18,7 +26,7 @@ export function PriceTag({ cost, withIcon = false, className }: PriceTagProps) {
 			)}
 		>
 			{withIcon ? <Spark className="size-3" /> : null}
-			{cost} {cost === 1 ? "credit" : "credits"}
+			{showUnit ? t("credits.creditUnit", { count: cost }) : cost}
 		</span>
 	);
 }

@@ -1,17 +1,32 @@
 import { useSyncExternalStore } from "react";
 
-import { CREDITS_COPY, SIGNUP_GRANT } from "./constants";
+import type { TranslationKey, TranslationParams } from "@/lib/i18n";
+import { SIGNUP_GRANT } from "./constants";
 
 export type LedgerKind = "grant" | "consume" | "topup" | "expire";
 
-export type LedgerEntry = {
+type LedgerLabel =
+	| {
+			labelKey: TranslationKey;
+			labelParams?: TranslationParams;
+			label?: string;
+	  }
+	| {
+			labelKey?: undefined;
+			labelParams?: undefined;
+			label: string;
+	  };
+
+type LedgerEntryBase = {
 	id: string;
 	kind: LedgerKind;
 	/** Signed: grant/topup positive, consume/expire negative. */
 	amount: number;
-	label: string;
 	createdAt: string;
 };
+
+export type LedgerEntry = LedgerEntryBase & LedgerLabel;
+type LedgerEntryInput = Omit<LedgerEntryBase, "id" | "createdAt"> & LedgerLabel;
 
 const STORAGE_KEY = "wandit-mock-ledger";
 const EMPTY: LedgerEntry[] = [];
@@ -26,7 +41,7 @@ function seed(): LedgerEntry[] {
 			id: makeId(),
 			kind: "grant",
 			amount: SIGNUP_GRANT,
-			label: CREDITS_COPY.seedGrantLabel,
+			labelKey: "credits.seedGrantLabel",
 			createdAt: new Date().toISOString(),
 		},
 	];
@@ -46,7 +61,7 @@ function load(): LedgerEntry[] {
 		const raw = window.localStorage.getItem(STORAGE_KEY);
 		if (raw) {
 			const parsed = JSON.parse(raw) as LedgerEntry[];
-			if (Array.isArray(parsed)) return parsed;
+			if (Array.isArray(parsed)) return refillWhenLow(parsed);
 		}
 	} catch {
 		// fall through to reseed
@@ -54,6 +69,26 @@ function load(): LedgerEntry[] {
 	const seeded = seed();
 	persist(seeded);
 	return seeded;
+}
+
+// Dev self-heal: the mock ledger drains as you test and old drained ledgers
+// survive in localStorage, blocking every action. Top it back up on load so
+// local work is never blocked. Dies with the whole mock once the UI reads the
+// real server balance (credit_ledger table).
+function refillWhenLow(entries: LedgerEntry[]): LedgerEntry[] {
+	if (getBalance(entries) >= 1_000) return entries;
+	const refilled: LedgerEntry[] = [
+		{
+			id: makeId(),
+			kind: "topup",
+			amount: SIGNUP_GRANT,
+			labelKey: "credits.seedGrantLabel",
+			createdAt: new Date().toISOString(),
+		},
+		...entries,
+	];
+	persist(refilled);
+	return refilled;
 }
 
 let snapshot: LedgerEntry[] = load();
@@ -79,7 +114,7 @@ export const ledgerStore = {
 	getServerSnapshot(): LedgerEntry[] {
 		return EMPTY;
 	},
-	append(entry: Omit<LedgerEntry, "id" | "createdAt">): void {
+	append(entry: LedgerEntryInput): void {
 		snapshot = [
 			{ ...entry, id: makeId(), createdAt: new Date().toISOString() },
 			...snapshot,

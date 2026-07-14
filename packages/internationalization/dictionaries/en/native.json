@@ -1,0 +1,155 @@
+{
+	"auth": {
+		"welcome": {
+			"headline1": "Type it.",
+			"headline2": "Launch it.",
+			"headline3": "Sell it.",
+			"tagline": "A prompt becomes a landing page that takes COD orders — publish in minutes.",
+			"googleCta": "Continue with Google",
+			"googlePendingCta": "Opening Google...",
+			"googleError": "Could not start Google sign-in. Please try again.",
+			"devModeCta": "Continue in dev mode",
+			"betaHint": "Beta — your first 10 pages are on us"
+		}
+	},
+	"home": {
+		"greeting": "What are we launching today, {name}?",
+		"chips": {
+			"salesPage": "Sales page",
+			"website": "Website",
+			"productPhotos": "Product photos",
+			"adCreatives": "Ad creatives",
+			"videoAd": "Video ad",
+			"flyer": "Flyer"
+		},
+		"tryHint": "Try: COD page for a vintage watch →",
+		"tryPrompt": "A COD product page for a vintage leather watch — hero shot, three benefit blocks, and an order form with wilaya and commune fields.",
+		"createProjectError": "Couldn't create the project. Try again."
+	},
+	"drawer": {
+		"signOut": "Sign out",
+		"language": "Language",
+		"createProject": "Create new project",
+		"filterCreatedByMe": "Created by me",
+		"myWandit": "My Wandit",
+		"searchLabel": "Search projects",
+		"searchPlaceholder": "Search projects",
+		"cancelSearchLabel": "Close search",
+		"projectsLoading": "Loading projects…",
+		"projectsError": "Projects couldn't load.",
+		"retry": "Retry",
+		"emptyProjects": "No projects yet",
+		"emptySearch": "No matches"
+	},
+	"workspace": {
+		"composerPlaceholder": "Describe a change…",
+		"placeholders": {
+			"leadsTitle": "Leads",
+			"leadsDescription": "Order CRM — form submissions with the status pipeline, tap-to-call and tap-to-WhatsApp.",
+			"settingsTitle": "Settings",
+			"settingsDescription": "Project settings — publish slug, pixel IDs, rename, unpublish and delete.",
+			"pageTitle": "Page",
+			"pageDescription": "The publishable landing page — preview, versions and publishing.",
+			"assetsTitle": "Assets",
+			"assetsDescription": "Generated images, videos and HTML assets — library and canvas.",
+			"marketingTitle": "Marketing",
+			"marketingDescription": "Ad copy, strategies, scripts and campaign assets for the project."
+		},
+		"newProject": "New project",
+		"previewLabel": "Open preview",
+		"empty": {
+			"title": "Your page will live here",
+			"subtitle": "Describe what you sell — or attach a product photo to start with creatives."
+		},
+		"chat": {
+			"empty": {
+				"title": "Start the chat",
+				"subtitle": "Ask for changes, new assets, or the next version of this project."
+			},
+			"thinking": "Wandit is thinking...",
+			"errors": {
+				"stream": "The reply stopped. Try again.",
+				"send": "Couldn't send that message. Try again.",
+				"busy": "Wandit is already working on a reply.",
+				"credits": "You are out of credits.",
+				"unavailable": "Chat couldn't load. Try again."
+			},
+			"tray": {
+				"preparing": "Preparing the question…",
+				"needsDetail": "Needs a detail",
+				"decideForMe": "Decide for me",
+				"dismiss": "Dismiss request",
+				"useThese": "Use these",
+				"typingOverride": "answering in your own words ↓",
+				"pickBelow": "Pick below ↓",
+				"answerBelow": "Answer below ↓",
+				"skipped": "Skipped",
+				"pickedForYou": "Wandit picked for you",
+				"wanditPicked": "Wandit picked"
+			}
+		},
+		"artifact": {
+			"details": "Details",
+			"preview": "Preview"
+		},
+		"hints": {
+			"arfr": "AR & FR ready",
+			"cod": "COD forms",
+			"publish": "Publish free"
+		}
+	},
+	"notFound": {
+		"screenTitle": "Not Found",
+		"title": "Page Not Found",
+		"description": "The page you're looking for doesn't exist.",
+		"goHome": "Go Home"
+	},
+	"attach": {
+		"takePhoto": "Take photo",
+		"photoLibrary": "Photo library",
+		"attachSkill": "Attach a skill",
+		"browseFiles": "Browse files",
+		"cancel": "Cancel",
+		"remove": "Remove attachment",
+		"attachedMeta": "attached · {size}"
+	},
+	"voiceDictation": {
+		"permissionDenied": "Microphone access denied. Enable it in settings to use Wandit voice input.",
+		"recordingError": "Could not start recording. Check microphone access and try again.",
+		"recordingTooLargeError": "That recording is too large. Try a shorter voice input.",
+		"recordingUnreadableError": "That recording couldn't be read. Try recording it again.",
+		"transcribeError": "Could not transcribe the audio. Please try again.",
+		"transcribing": "Transcribing...",
+		"cancelLabel": "Cancel voice input",
+		"confirmLabel": "Transcribe voice input"
+	},
+	"credits": {
+		"title": "Credits",
+		"left": "{count} left",
+		"betaNote": "Beta credits · Publishing & leads are always free"
+	},
+	"projectSheet": {
+		"viewsLabel": "Project views",
+		"views": {
+			"page": "Page",
+			"assets": "Assets",
+			"marketing": "Marketing",
+			"leads": "Leads"
+		},
+		"settings": "Settings",
+		"rename": "Rename project",
+		"appearance": "Appearance",
+		"appearanceLight": "Light",
+		"appearanceDark": "Dark"
+	},
+	"relativeTime": {
+		"now": "now",
+		"separator": "",
+		"minute": "m",
+		"hour": "h",
+		"day": "d",
+		"week": "w",
+		"month": "mo",
+		"year": "y"
+	}
+}

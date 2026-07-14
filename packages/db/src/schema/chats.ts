@@ -1,3 +1,9 @@
+// Database schema for chat conversations.
+//
+// Drizzle describes Postgres tables in TypeScript. API and worker repositories
+// use these table definitions for typed queries.
+//
+// Important: messages store AI SDK "parts" as JSONB, not just one text column.
 import { relations } from "drizzle-orm";
 import {
 	bigint,
@@ -11,21 +17,24 @@ import {
 } from "drizzle-orm/pg-core";
 import { projects } from "./projects";
 
+// Postgres enum for who wrote a message.
 export const messageRole = pgEnum("message_role", [
 	"system",
 	"user",
 	"assistant",
 ]);
 
-// One chat per project in MVP; the FK is intentionally non-unique so
-// multiple chats per project need no migration later.
+// One chat conversation attached to a project.
+// MVP uses one chat per project, but the schema allows more later.
 export const chats = pgTable(
 	"chats",
 	{
 		id: uuid("id").primaryKey().defaultRandom(),
+		// Chat belongs to a project.
 		projectId: uuid("project_id")
 			.notNull()
 			.references(() => projects.id, { onDelete: "cascade" }),
+		// Timestamps for chat container.
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.defaultNow()
 			.notNull(),
@@ -34,35 +43,38 @@ export const chats = pgTable(
 			.$onUpdate(() => /* @__PURE__ */ new Date())
 			.notNull(),
 	},
+	// Speeds up "find chat by project id".
 	(table) => [index("chats_projectId_idx").on(table.projectId)],
 );
 
-// Text id (not uuid): AI SDK v7 generates its own message ids client- and
-// worker-side, and useChat reconciles by id on reload — we store them as-is.
+// Saved chat messages: user prompts and final assistant replies.
+// Live streaming deltas are not saved here; they go through Redis/SSE.
 export const messages = pgTable(
 	"messages",
 	{
 		id: text("id")
 			.primaryKey()
 			.$defaultFn(() => crypto.randomUUID()),
+		// Message belongs to a chat.
 		chatId: uuid("chat_id")
 			.notNull()
 			.references(() => chats.id, { onDelete: "cascade" }),
-		// Insertion-order tiebreaker: created_at is transaction time, so rows
-		// written in the same transaction tie exactly.
+		// Server-side insertion order.
 		seq: bigint("seq", { mode: "number" }).generatedAlwaysAsIdentity(),
 		role: messageRole("role").notNull(),
-		// AI SDK v7 UIMessage parts — flexible enough for future @-mentions.
+		// AI SDK UIMessage parts stored as JSON.
 		parts: jsonb("parts").notNull(),
-		// AI SDK message metadata (model, usage…).
+		// Extra metadata like model/usage.
 		metadata: jsonb("metadata"),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.defaultNow()
 			.notNull(),
 	},
+	// Speeds up loading messages for one chat in order.
 	(table) => [index("messages_chatId_seq_idx").on(table.chatId, table.seq)],
 );
 
+// Relations tell Drizzle how tables connect.
 export const chatsRelations = relations(chats, ({ one, many }) => ({
 	project: one(projects, {
 		fields: [chats.projectId],
@@ -71,6 +83,7 @@ export const chatsRelations = relations(chats, ({ one, many }) => ({
 	messages: many(messages),
 }));
 
+// One message belongs to one chat.
 export const messagesRelations = relations(messages, ({ one }) => ({
 	chat: one(chats, {
 		fields: [messages.chatId],

@@ -9,45 +9,33 @@ import {
 	DropdownMenuLabel,
 	DropdownMenuTrigger,
 } from "@wandit/ui/components/dropdown-menu";
-import { Check, ChevronDown, History } from "lucide-react";
+import { Check, ChevronDown } from "lucide-react";
 
+import { useTranslation } from "@/lib/i18n";
 import { relativeTime } from "@/lib/relative-time";
-import { WORKSPACE_COPY } from "../../lib/constants";
 import { useWorkspace } from "../../lib/store";
 
-const COPY = WORKSPACE_COPY.page;
-
 export function VersionSwitcher() {
+	const { t } = useTranslation();
 	const { versions, activeVersion, selectVersion, state } = useWorkspace();
 
 	if (!activeVersion) return null;
 
 	const publishedVersionId = state?.deployment.publishedVersionId ?? null;
-	const isLatest = activeVersion.id === versions.at(-1)?.id;
 
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
-				<Button
-					variant="outline"
-					size="sm"
-					className="h-8 gap-1.5 rounded-lg px-2.5"
-				>
-					<History className="size-3.5 text-muted-foreground" />
-					<span className="font-mono text-xs tabular-nums">
-						{COPY.versionShort(activeVersion.number)}
+				<Button variant="outline" size="sm" className="h-[30px] gap-[7px] px-3">
+					<span className="text-[13px]">
+						{t("workspace.page.versionShort", { n: activeVersion.number })}
 					</span>
-					{isLatest ? (
-						<span className="hidden text-muted-foreground text-xs sm:inline">
-							· {COPY.latestSuffix}
-						</span>
-					) : null}
-					<ChevronDown className="size-3.5 text-muted-foreground" />
+					<ChevronDown className="size-[11px] opacity-50" />
 				</Button>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="start" className="w-72">
 				<DropdownMenuLabel className="text-muted-foreground text-xs">
-					{COPY.versionsMenuLabel}
+					{t("workspace.page.versionsMenuLabel")}
 				</DropdownMenuLabel>
 				<div className="max-h-80 overflow-y-auto">
 					{[...versions].reverse().map((version) => (
@@ -69,7 +57,7 @@ export function VersionSwitcher() {
 							</div>
 							{version.id === publishedVersionId ? (
 								<Badge variant="success" className="font-mono text-[10px]">
-									{COPY.liveBadge}
+									{t("workspace.page.liveBadge")}
 								</Badge>
 							) : null}
 							{version.id === activeVersion.id ? (

@@ -1,18 +1,28 @@
 import { createFileRoute } from "@tanstack/react-router";
 
 import LandingPage from "@/features/landing/pages/landing-page";
+import { sanitizeAuthRedirectPath } from "@/lib/auth-navigation";
+import { pageTitle } from "@/lib/i18n";
+
+type LandingSearch = {
+	auth?: string;
+	next?: string;
+};
 
 export const Route = createFileRoute("/")({
-	validateSearch: (search: Record<string, unknown>): { auth?: string } => ({
+	validateSearch: (search: Record<string, unknown>): LandingSearch => ({
 		auth: typeof search.auth === "string" ? search.auth : undefined,
+		next:
+			typeof search.next === "string"
+				? sanitizeAuthRedirectPath(search.next)
+				: undefined,
 	}),
 	head: () => ({
 		meta: [
-			{ title: "Wandit — AI landing pages that sell" },
+			{ title: pageTitle("landing.meta.title") },
 			{
 				name: "description",
-				content:
-					"Wandit turns a prompt into a ready-to-run landing page — publish and collect COD orders in minutes.",
+				content: pageTitle("landing.meta.description"),
 			},
 		],
 	}),

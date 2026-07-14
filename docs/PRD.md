@@ -1,6 +1,6 @@
 # PRD — Wandit
 
-**Status:** MVP planning · **Owner:** Zack · **Last updated:** 2026-07-02
+**Status:** MVP planning · **Owner:** Zack · **Last updated:** 2026-07-04
 This document is the source of truth for product scope, build order, and settled architecture decisions. Feature-level detail lives in `docs/features/*.md`.
 
 ---
@@ -26,8 +26,8 @@ Primary market: **Algeria** → Arabic (RTL) + French pages, wilaya/commune addr
 ## 3. Core journey (prompt-first funnel)
 
 1. Visitor lands on `/` → hero prompt box + examples + pricing.
-2. Types a prompt → **auth modal** (Google OAuth popup, magic link fallback). The typed prompt lives in React state through auth, with a **one-shot sessionStorage stash** as a safety net for redirect flows; cleared after replay.
-3. After first prompt + auth: **project auto-created**, user lands in the workspace with generation **already streaming**.
+2. Types a prompt → **auth modal** with one Continue-with-Google button → full-page Better Auth redirect. The typed prompt survives via a **one-shot sessionStorage stash**; after auth the user lands on `/dashboard` with the prompt prefilled and clicks Generate there.
+3. After Generate: **project auto-created**, user lands in the workspace with generation **already streaming**.
 4. Iterates via chat; the Page tab previews the landing page (mobile/desktop toggle — audience is mobile-first).
 5. Publishes to `{slug}.wandit.app` in one click; runs ads to it.
 6. Form submissions appear in the **Leads** tab → user confirms orders by phone → status pipeline `to-confirm → confirmed → shipped → delivered / returned` (+ `cancelled` when phone confirmation fails).
@@ -43,7 +43,7 @@ Primary market: **Algeria** → Arabic (RTL) + French pages, wilaya/commune addr
 | `/dashboard` | Projects grid (thumbnail, status, lead count) + prompt box |
 | `/p/$projectId` | Workspace (heavy, lazy-loaded) |
 
-Auth is a **modal + Google popup overlaying any route** — never a dedicated page.
+Auth is a **modal that launches a full-page Google redirect from any route** — never a dedicated page.
 
 **Workspace:** chat pane on the left (drag-resizable + collapsible), main pane on the right floating as an inset card (rounded, bordered, shadowed — chat stays flush to the edge, mirrors the admin dashboard's sidebar-inset look). Desktop uses a real resizable split (`react-resizable-panels`, size persisted); mobile keeps the chat pane as a full-screen overlay.
 
@@ -80,7 +80,8 @@ Build **vertical slices** (DB → API → UI per feature), in this order:
 3. **Image / video generation** — AI SDK `generateImage` / `experimental_generateVideo` inside BullMQ workers (extended timeouts ~15 min), results uploaded to R2 and registered as artifacts.
 4. **Visual editing** — elements stamped with `data-eid` at save time; editor script injected into preview HTML only; cross-origin iframe ↔ app via postMessage; edits applied server-side by element ID, saved as a new version. Two tiers: direct text/style edits (no AI) and element-scoped AI edits. No drag-and-drop, ever. **UI direction (settled 2026-07-02):** a right-side element-inspector rail (Framer/Webflow-style) slides in from the edge of the Page tab when an element is clicked, rather than Lovable's floating bottom toolbar or a plain edit/preview tab-switch — chrome stays anchored and never occludes the page, and it scales naturally to the two-tier edit model above. The Page toolbar's trailing action group is the reserved slot for the edit-mode toggle that opens it.
 5. **Campaign integrations + entity tagging** — link TikTok/Meta campaigns to a project; @-tag entities in chat (`@campaign x`); AI answers questions and takes actions on them via tools. Platform OAuth tokens live in a dedicated connections table — not Better Auth's `account`.
-6. Custom domains (Cloudflare for SaaS), Google Sheets sync, analytics dashboards, Business/orgs (Better Auth organizations plugin).
+6. **Custom domains — buy in-app or bring your own** — sell domains at a markup via a reseller registrar API (**Openprovider**, behind a `DomainProvider` port; decided 2026-07-04 after researched comparison) + Cloudflare for SaaS custom hostnames for serving both paths. Buying in-app unblocks Algerian users who can't pay international registrars (CIB/EDAHABIA). See `docs/features/custom-domains.md`.
+7. Google Sheets sync, analytics dashboards, Business/orgs (Better Auth organizations plugin).
 
 ## 7. Architecture decisions (settled — do not relitigate)
 
@@ -103,7 +104,7 @@ pnpm workspaces + Turborepo. Biome for lint/format. TypeScript everywhere.
 | `apps/edge` *(to be created)* | **Cloudflare Worker** — hostname router for published sites + previews (KV pointer → R2 file). |
 | `apps/native` | Expo app from the scaffold. **Out of MVP** — untouched for now. |
 | `packages/db` | Drizzle ORM + Neon Postgres. Schema + drizzle-kit migrations. |
-| `packages/auth` | Better Auth config (Google OAuth + magic links, Drizzle adapter). |
+| `packages/auth` | Better Auth config (Google OAuth, Drizzle adapter). |
 | `packages/env` | t3-env schemas per surface (`server` / `web` / `native`). |
 | `packages/jobs` | BullMQ queue names + job payload types, shared server ↔ worker. |
 | `packages/contracts` *(to be created)* | Shared Zod API contracts + types, web ↔ server. |
@@ -125,6 +126,7 @@ Other services: Neon (Postgres), Redis (BullMQ + pub/sub + rate limiting), Cloud
 | `deployments` | Publishing | slug → version pointer, publish state, history. |
 | `leads` | Leads | name, phone (E.164), wilaya, commune, extra fields jsonb, ad attribution jsonb, status pipeline. |
 | `credit_ledger` | Credits | grant / consume / topup / expire / revoke rows; balance = sum; idempotency key dedupes retried jobs/webhooks. |
+| `domains` | Custom Domains (post-MVP) | user-owned, project-attached; purchased (Openprovider) or external (BYO); status lifecycle, registrant snapshot, CF custom-hostname id. |
 
 ## 10. Non-functional requirements
 
@@ -137,7 +139,6 @@ Other services: Neon (Postgres), Redis (BullMQ + pub/sub + rate limiting), Cloud
 
 - Preview domain purchase (`wandit-preview.xyz` vs `wnditpreview.site` vs other) — placeholder `<preview-domain>` in docs/config until bought.
 - App chrome language for MVP: FR, EN, or both (generated pages are AR/FR regardless).
-- Email provider for magic links (suggestion: Resend).
 - Free credit grant size + per-action credit costs (placeholders defined in `docs/features/credits.md`).
 - API + worker deploy target (Railway / Fly / VPS).
 

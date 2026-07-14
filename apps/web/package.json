@@ -11,6 +11,7 @@
 		"check-types": "vite build && tsc --noEmit"
 	},
 	"dependencies": {
+		"@ai-sdk/react": "^4.0.17",
 		"@hookform/resolvers": "^5.2.2",
 		"@tailwindcss/vite": "^4.3.1",
 		"@tanstack/react-form": "catalog:",
@@ -18,7 +19,9 @@
 		"@tanstack/react-router": "^1.168.22",
 		"@wandit/contracts": "workspace:*",
 		"@wandit/env": "workspace:*",
+		"@wandit/internationalization": "workspace:*",
 		"@wandit/ui": "workspace:*",
+		"ai": "^7.0.14",
 		"axios": "^1.18.1",
 		"better-auth": "catalog:",
 		"dotenv": "catalog:",

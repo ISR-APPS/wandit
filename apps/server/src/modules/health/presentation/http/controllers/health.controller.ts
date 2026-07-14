@@ -1,5 +1,8 @@
 import { Controller, Get } from "@nestjs/common";
 
+import { Public } from "../../../../auth";
+
+@Public()
 @Controller()
 export class HealthController {
 	@Get()

@@ -1,3 +1,9 @@
+// Database schema for projects.
+//
+// A project is the main workspace object. Chat, artifacts, deployments, and
+// leads all connect back to a project.
+//
+// Projects are soft-deleted with `deletedAt`, so normal queries must filter it.
 import { relations, sql } from "drizzle-orm";
 import {
 	index,
@@ -13,26 +19,26 @@ import { chats } from "./chats";
 import { deployments } from "./deployments";
 import { leads } from "./leads";
 
+// Main workspace table.
 export const projects = pgTable(
 	"projects",
 	{
 		id: uuid("id").primaryKey().defaultRandom(),
 		userId: text("user_id")
 			.notNull()
-			// restrict, not cascade: a user delete must not hard-wipe projects
-			// (and their versions/deployments — the only catalog of live R2/KV
-			// state); deletion is soft/anonymize at the app layer.
+			// Do not hard-delete projects automatically when a user is deleted.
 			.references(() => user.id, { onDelete: "restrict" }),
+		// Name shown in dashboard/workspace.
 		name: text("name").notNull(),
-		// Unguessable public id the generated page's lead form posts to.
+		// Public id used by generated lead forms.
 		publicFormId: uuid("public_form_id").notNull().defaultRandom(),
-		// Unguessable draft-preview subdomain: {token}.<preview-domain>.
-		// Rotating the token = writing a new random value.
+		// Token for future preview URLs.
 		previewToken: uuid("preview_token").notNull().defaultRandom(),
 		metaPixelId: text("meta_pixel_id"),
 		tiktokPixelId: text("tiktok_pixel_id"),
-		// Soft delete: hides the project everywhere, keeps data recoverable.
+		// Soft delete marker.
 		deletedAt: timestamp("deleted_at", { withTimezone: true }),
+		// Timestamps used for dashboard sorting.
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.defaultNow()
 			.notNull(),
@@ -42,16 +48,19 @@ export const projects = pgTable(
 			.notNull(),
 	},
 	(table) => [
+		// Speeds up owner-based lookups.
 		index("projects_userId_idx").on(table.userId),
-		// Dashboard list: caller's live projects, newest activity first.
+		// Speeds up dashboard list of live projects.
 		index("projects_dashboard_idx")
 			.on(table.userId, table.updatedAt)
 			.where(sql`${table.deletedAt} IS NULL`),
+		// Public tokens must be unique.
 		uniqueIndex("projects_publicFormId_uq").on(table.publicFormId),
 		uniqueIndex("projects_previewToken_uq").on(table.previewToken),
 	],
 );
 
+// Relations tell Drizzle what connects to a project.
 export const projectsRelations = relations(projects, ({ one, many }) => ({
 	user: one(user, {
 		fields: [projects.userId],

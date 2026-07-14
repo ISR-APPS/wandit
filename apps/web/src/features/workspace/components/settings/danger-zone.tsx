@@ -25,13 +25,12 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { useDeleteProject } from "@/features/projects";
+import { useTranslation } from "@/lib/i18n";
 import { deleteMockWorkspace } from "../../api/workspace.services";
-import { WORKSPACE_COPY } from "../../lib/constants";
 import { useWorkspace } from "../../lib/store";
 
-const COPY = WORKSPACE_COPY.settings;
-
 export function DangerZone() {
+	const { t } = useTranslation();
 	const { project, projectId } = useWorkspace();
 	const navigate = useNavigate();
 	const deleteProject = useDeleteProject();
@@ -40,15 +39,17 @@ export function DangerZone() {
 	const handleDelete = async () => {
 		await deleteProject.mutateAsync(projectId);
 		deleteMockWorkspace(projectId);
-		toast.success(COPY.deleteSuccess);
+		toast.success(t("settings.deleteSuccess"));
 		void navigate({ to: "/dashboard" });
 	};
 
 	return (
 		<Card className="border-destructive/30">
 			<CardHeader>
-				<CardTitle className="font-display">{COPY.dangerTitle}</CardTitle>
-				<CardDescription>{COPY.dangerDescription}</CardDescription>
+				<CardTitle className="font-display">
+					{t("settings.dangerTitle")}
+				</CardTitle>
+				<CardDescription>{t("settings.dangerDescription")}</CardDescription>
 			</CardHeader>
 			<CardContent>
 				<Button
@@ -61,7 +62,7 @@ export function DangerZone() {
 					) : (
 						<Trash2 className="size-4" />
 					)}
-					{COPY.deleteCta}
+					{t("settings.deleteCta")}
 				</Button>
 			</CardContent>
 
@@ -69,21 +70,21 @@ export function DangerZone() {
 				<AlertDialogContent>
 					<AlertDialogHeader>
 						<AlertDialogTitle className="font-display">
-							{COPY.deleteTitle}
+							{t("settings.deleteTitle")}
 						</AlertDialogTitle>
 						<AlertDialogDescription>
-							{COPY.deleteDescription(project?.name ?? "")}
+							{t("settings.deleteDescription", { name: project?.name ?? "" })}
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
-						<AlertDialogCancel>{COPY.deleteCancel}</AlertDialogCancel>
+						<AlertDialogCancel>{t("settings.deleteCancel")}</AlertDialogCancel>
 						<AlertDialogAction
 							onClick={() => {
 								void handleDelete();
 							}}
 							className="bg-destructive text-white hover:bg-destructive/90"
 						>
-							{COPY.deleteConfirm}
+							{t("settings.deleteConfirm")}
 						</AlertDialogAction>
 					</AlertDialogFooter>
 				</AlertDialogContent>
