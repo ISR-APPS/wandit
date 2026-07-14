@@ -22,8 +22,8 @@ vi.mock("@trigger.dev/sdk", () => ({
 	tasks: { trigger: vi.fn() },
 }));
 
-vi.mock("../designer-prompt", () => ({
-	buildDesignerSystemPrompt: vi
+vi.mock("../site-builder/builder-prompt", () => ({
+	buildSiteBuilderSystemPrompt: vi
 		.fn()
 		.mockResolvedValue("designer prompt (test)"),
 }));

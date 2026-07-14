@@ -13,6 +13,7 @@ import { env } from "@wandit/env/server";
 import {
 	createAgentUIStream,
 	createUIMessageStream,
+	type InferUIMessageChunk,
 	InvalidToolInputError,
 	pipeUIMessageStreamToResponse,
 	smoothStream,
@@ -65,18 +66,24 @@ export class AiChatService {
 		// TODO(billing): gate like GenerationPolicyService before public launch
 		const stream = createUIMessageStream<WanditUIMessage>({
 			execute: async ({ writer }) => {
+				const agentStream = await createAgentUIStream({
+					abortSignal,
+					agent,
+					// Models emit text in sentence-sized bursts, which renders as
+					// "snapping" blocks. smoothStream re-slices the deltas into
+					// words with a small delay so the UI reads like typing.
+					// Word chunking splits on whitespace — fine for FR/AR alike.
+					experimental_transform: smoothStream({ delayInMs: 15 }),
+					onError,
+					uiMessages: agentMessages,
+				});
+				// The live agent's tool set is a strict SUBSET of WanditUIMessage's
+				// (read_skill exists only in retired history), so its chunks are
+				// valid WanditUIMessage chunks — TS can't see through the generics.
 				writer.merge(
-					await createAgentUIStream({
-						abortSignal,
-						agent,
-						// Models emit text in sentence-sized bursts, which renders as
-						// "snapping" blocks. smoothStream re-slices the deltas into
-						// words with a small delay so the UI reads like typing.
-						// Word chunking splits on whitespace — fine for FR/AR alike.
-						experimental_transform: smoothStream({ delayInMs: 15 }),
-						onError,
-						uiMessages: agentMessages,
-					}),
+					agentStream as unknown as ReadableStream<
+						InferUIMessageChunk<WanditUIMessage>
+					>,
 				);
 			},
 			onError,

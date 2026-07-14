@@ -58,6 +58,77 @@ export function pageHtmlKey(projectId: string, versionId: string): string {
 	return `sites/${projectId}/${versionId}/index.html`;
 }
 
+// Non-entry files of a generated site live beside its index.html:
+// sites/{project_id}/{version_id}/{relative_path}
+export function siteFileKey(
+	projectId: string,
+	versionId: string,
+	path: string,
+): string {
+	return `sites/${projectId}/${versionId}/${path}`;
+}
+
+// Images the builder generates mid-build live under the attempt, not a
+// version (they exist before any version does):
+// sites/{project_id}/assets/{attempt_id}/img-{n}.{ext}
+export function siteAssetKey(
+	projectId: string,
+	attemptId: string,
+	index: number,
+	extension: string,
+): string {
+	return `sites/${projectId}/assets/${attemptId}/img-${index}.${extension}`;
+}
+
+// Browser-reachable URL for an object key, through the bucket's public base
+// URL (Cloudflare public dev URL or custom domain). Callers MUST check that
+// env.R2_PUBLIC_BASE_URL is set first — same contract as isR2Configured().
+export function publicAssetUrl(key: string): string {
+	const base = (env.R2_PUBLIC_BASE_URL ?? "").replace(/\/+$/, "");
+
+	return `${base}/${key}`;
+}
+
+const CONTENT_TYPES: Record<string, string> = {
+	css: "text/css; charset=utf-8",
+	html: "text/html; charset=utf-8",
+	ico: "image/x-icon",
+	jpeg: "image/jpeg",
+	jpg: "image/jpeg",
+	js: "text/javascript; charset=utf-8",
+	json: "application/json; charset=utf-8",
+	png: "image/png",
+	svg: "image/svg+xml",
+	txt: "text/plain; charset=utf-8",
+	webp: "image/webp",
+	woff2: "font/woff2",
+};
+
+// Best-effort by extension; octet-stream keeps unknown files downloadable
+// instead of failing the upload.
+export function contentTypeFor(path: string): string {
+	const extension = path.split(".").pop()?.toLowerCase() ?? "";
+
+	return CONTENT_TYPES[extension] ?? "application/octet-stream";
+}
+
+// Upload one file of a generated site (the builder may emit more than just
+// index.html). Same overwrite semantics as putPageHtml.
+export async function putSiteFile(
+	key: string,
+	body: string | Uint8Array,
+	contentType: string,
+): Promise<void> {
+	await r2Client().send(
+		new PutObjectCommand({
+			Body: body,
+			Bucket: env.R2_BUCKET,
+			ContentType: contentType,
+			Key: key,
+		}),
+	);
+}
+
 // Upload one finished page. Overwrites are harmless: version ids are unique,
 // so a retry writes the same content to the same key.
 export async function putPageHtml(key: string, html: string): Promise<void> {

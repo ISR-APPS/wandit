@@ -8,7 +8,7 @@
 // an AnimatePresence to get the collapse-on-answer exit for free.
 
 import { cn } from "@wandit/ui/lib/utils";
-import { motion } from "motion/react";
+import { motion, useIsPresent } from "motion/react";
 import { type ReactNode, useLayoutEffect, useRef, useState } from "react";
 
 /** Calm, no-bounce ease for tray chrome — quiet motion per the design
@@ -24,6 +24,11 @@ export function TrayReveal({
 }) {
 	const innerRef = useRef<HTMLDivElement>(null);
 	const [height, setHeight] = useState(0);
+
+	// While EXITING under AnimatePresence the tray keeps rendering with props
+	// frozen from before the answer — its buttons must not take clicks aimed
+	// at the incoming tray (they would overwrite the answer just given).
+	const isPresent = useIsPresent();
 
 	// Layout effect so the first real height lands before paint — the reveal
 	// then animates 0 → measured on mount, and re-measures on every content
@@ -44,7 +49,11 @@ export function TrayReveal({
 			animate={{ height, opacity: 1 }}
 			exit={{ height: 0, opacity: 0 }}
 			transition={{ duration: 0.34, ease: TRAY_EASE }}
-			className={cn("overflow-hidden", className)}
+			className={cn(
+				"overflow-hidden",
+				!isPresent && "pointer-events-none",
+				className,
+			)}
 		>
 			<div ref={innerRef}>{children}</div>
 		</motion.div>

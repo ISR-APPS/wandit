@@ -8,6 +8,7 @@
 	"type": "module",
 	"scripts": {
 		"dev": "turbo run dev",
+		"dev:pipeline": "turbo run dev dev:trigger -F server -F web",
 		"build": "turbo run build",
 		"check-types": "turbo run check-types",
 		"dev:native": "turbo run dev -F native",

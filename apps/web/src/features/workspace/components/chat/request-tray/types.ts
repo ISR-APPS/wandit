@@ -97,6 +97,9 @@ export type RequestTrayState = {
 	question?: string;
 	/** Quiet line under the question (helper, or a confirm's consequence). */
 	helper?: string;
+	/** Multi-question turns only ("Question 2 of 4") — omitted when the turn
+	    asks a single question so that tray stays exactly as before. */
+	step?: { current: number; total: number };
 	body: TrayBody;
 	/** The user is typing a free-form answer instead — the body's options dim
 	    and a small ember note points at the composer (design 10n state 2). */

@@ -2,22 +2,27 @@
  * Background page build — runs on Trigger.dev, NOT inside the Nest app.
  *
  * The whole job in one sentence: read the attempt row that the generate_page
- * tool queued, ask the designer model for a full HTML page, upload it to R2,
- * and flip the attempt to succeeded/failed so the web's polling sees it.
+ * tool queued, run the site-builder agent (a tool loop that writes files
+ * into a virtual FS), upload the resulting files to R2, and flip the attempt
+ * to succeeded/failed so the web's polling sees it.
  *
  * No NestJS imports here on purpose: the Trigger CLI bundles this file on its
  * own, and workspace packages (@wandit/db, @wandit/env) bundle fine, but the
  * Nest DI container does not exist in this process. The .env is auto-loaded
  * by the dev CLI from apps/server/.
  */
-import { task } from "@trigger.dev/sdk";
+import { logger, task } from "@trigger.dev/sdk";
 import { createDb, desc, eq } from "@wandit/db";
 import { artifacts, versions } from "@wandit/db/schema/artifacts";
 import { pageGenerationAttempts } from "@wandit/db/schema/page-attempts";
-import { generateText } from "ai";
 import { z } from "zod";
-
-import { pageHtmlKey, putPageHtml } from "../infrastructure/storage/r2";
+import {
+	contentTypeFor,
+	pageHtmlKey,
+	putSiteFile,
+	siteFileKey,
+} from "../infrastructure/storage/r2";
+import { runSiteBuild } from "../modules/ai-chat/agent/site-builder/site-builder-agent";
 
 // Shape of the jsonb `spec` column, snapshotted at queue time by the tool.
 // Parsed defensively: a bad row should fail with a clear message, not deep
@@ -30,7 +35,9 @@ const attemptSpecSchema = z.object({
 
 export const generatePageTask = task({
 	id: "generate-page",
-	maxDuration: 600,
+	// A full agent build (write → review → rewrite → finish) measured ~10
+	// minutes with claude-fable-5; 600 was killing real runs.
+	maxDuration: 1800,
 	retry: { maxAttempts: 1 },
 	run: async (payload: { attemptId: string }, { ctx }) => {
 		// Fresh pool per run; ended in `finally` so the worker process can be
@@ -51,6 +58,11 @@ export const generatePageTask = task({
 			try {
 				const spec = attemptSpecSchema.parse(attempt.spec);
 
+				logger.info(
+					`🚀 Build starting — page "${spec.title}", attempt ${attempt.id}, ` +
+						`model ${attempt.model}`,
+				);
+
 				// Mark "generating" + pin the run id so the row links to the
 				// Trigger dashboard even if the tool's own update lost a race.
 				await db
@@ -58,21 +70,39 @@ export const generatePageTask = task({
 					.set({ status: "generating", triggerRunId: ctx.run.id })
 					.where(eq(pageGenerationAttempts.id, attempt.id));
 
-				// generateText, NOT streamText: nothing consumes deltas here —
-				// the user sees progress through the attempt status, not tokens.
-				const result = await generateText({
+				logger.info(
+					"🧠 The builder agent is writing the page now — expect ~10 minutes " +
+						"of [site-builder] logs below",
+				);
+
+				// The build brain: a tool-loop agent writing into a virtual FS.
+				// It validates its own output (index.html present, complete,
+				// non-trivial) and throws human-readable errors on failure.
+				const build = await runSiteBuild({
+					attemptId: attempt.id,
+					brief: spec.brief,
 					model: attempt.model,
-					prompt: spec.brief,
+					projectId: attempt.projectId,
 					system: spec.designerSystemPrompt,
+					title: spec.title,
 				});
 
-				const html = extractHtml(result.text);
 				const versionId = crypto.randomUUID();
 				const key = pageHtmlKey(attempt.projectId, versionId);
 
 				// Upload BEFORE the DB transaction: a version row must never
-				// point at an object that does not exist.
-				await putPageHtml(key, html);
+				// point at an object that does not exist. index.html keeps the
+				// canonical key the pages service reads; extra files (if any)
+				// land beside it.
+				for (const file of build.files) {
+					const fileKey =
+						file.path === "index.html"
+							? key
+							: siteFileKey(attempt.projectId, versionId, file.path);
+
+					await putSiteFile(fileKey, file.content, contentTypeFor(file.path));
+					logger.info(`☁️ Uploaded ${file.path} to R2 → ${fileKey}`);
+				}
 
 				// One transaction: version number, immutable version row, active
 				// pointer, and attempt completion move together or not at all.
@@ -88,7 +118,12 @@ export const generatePageTask = task({
 					await tx.insert(versions).values({
 						artifactId: attempt.artifactId,
 						id: versionId,
-						meta: { title: spec.title },
+						meta: {
+							builderSummary: build.summary,
+							builderSteps: build.steps,
+							files: build.files.map((file) => file.path),
+							title: spec.title,
+						},
 						number: nextNumber,
 						projectId: attempt.projectId,
 						r2Key: key,
@@ -111,9 +146,23 @@ export const generatePageTask = task({
 					return nextNumber;
 				});
 
+				logger.info(
+					`🎉 Version ${number} is live — it should now appear in the ` +
+						`Page tab (versionId ${versionId})`,
+				);
+
 				// Returned for Trigger dashboard visibility only.
-				return { number, versionId };
+				return {
+					files: build.files.map((file) => file.path),
+					number,
+					steps: build.steps,
+					versionId,
+				};
 			} catch (error) {
+				logger.error(
+					`❌ Build failed: ${error instanceof Error ? error.message : String(error)}`,
+				);
+
 				// Record the failure for the Page tab, then rethrow so the run
 				// also shows as failed in the Trigger dashboard.
 				await db
@@ -132,31 +181,3 @@ export const generatePageTask = task({
 		}
 	},
 });
-
-/**
- * Models sometimes wrap output in markdown fences despite instructions.
- * Unwrap, then sanity-check the result actually looks like a full page —
- * a truncated or chatty response must fail loudly, not ship to the user.
- */
-function extractHtml(raw: string): string {
-	const trimmed = raw.trim();
-	const fenced = /^```(?:html)?\s*\n([\s\S]*?)\n```\s*$/.exec(trimmed);
-	const html = (fenced?.[1] ?? trimmed).trim();
-	const start = html.slice(0, 20).toLowerCase();
-
-	if (!start.startsWith("<!doctype") && !start.startsWith("<html")) {
-		throw new Error(
-			"Designer output does not start with an HTML document (got: " +
-				`${html.slice(0, 80)}…)`,
-		);
-	}
-
-	if (html.length < 2000) {
-		throw new Error(
-			`Designer output is suspiciously short (${html.length} chars) — ` +
-				"a real landing page never is; refusing to publish it",
-		);
-	}
-
-	return html;
-}

@@ -1,13 +1,15 @@
 // Derives the live request-tray state from the AI SDK message list — the
 // bridge between stream parts and the display types in types.ts. The rule
-// (design turn 10): the LAST unanswered ask_user call of the LAST assistant
-// message docks on the composer; everything else in the thread stays prose.
-// Answering goes back through ONE callback (answerAskUser in use-ai-chat.ts)
-// with the output shape built here, so the tray, the composer free-text path
-// and the escape hatch all complete the same tool call the same way.
+// (design turn 10, stepper revision): the FIRST unanswered ask_user call of
+// the LAST assistant message docks on the composer — a multi-question turn
+// steps through them oldest first, one at a time, with "Question 2 of 4"
+// progress; everything else in the thread stays prose. Answering goes back
+// through ONE callback (answerAskUser in use-ai-chat.ts) with the output
+// shape built here, so the tray, the composer free-text path and the escape
+// hatch all complete the same tool call the same way.
 
 import type { AskUserOption, AskUserOutput } from "@wandit/contracts";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useTranslation } from "@/lib/i18n";
 import type { WanditUIMessage } from "../../../lib/use-ai-chat";
@@ -50,27 +52,54 @@ export function dismissAnswer(): AskUserOutput {
 
 /* ---------- derivation helpers (pure) ---------- */
 
-/** The ask currently waiting on the user: the last ask_user part of the last
-    assistant message that hasn't produced an output yet. */
-export function findActiveAsk(
-	messages: WanditUIMessage[],
-): AskUserToolPart | null {
-	const lastIndex = messages.length - 1;
-	const last = messages[lastIndex];
-	if (last?.role !== "assistant") return null;
+export type AskStepper = {
+	/** The ask docked on the composer — the FIRST one still without an output. */
+	active: AskUserToolPart | null;
+	/** 1-based position shown as "Question 2 of 4": answered asks + 1. */
+	current: number;
+	/** Every ask_user call in the turn, answered or not. 0 = no asks. */
+	total: number;
+};
 
-	for (let i = last.parts.length - 1; i >= 0; i--) {
-		const part = last.parts[i];
-		if (part?.type !== "tool-ask_user") continue;
-		if (part.state === "input-streaming" || part.state === "input-available") {
-			return part;
-		}
-		// This ask is settled — keep scanning older siblings. The model can
-		// emit several ask_user calls in one turn; if the user answers the
-		// newest first, an older one may still be waiting, and it must dock
-		// next or auto-resubmit (which needs EVERY call answered) never fires.
-	}
-	return null;
+const NO_ASKS: AskStepper = { active: null, current: 0, total: 0 };
+
+/** Pending = the user still owes an answer. input-streaming counts (the tray
+    shows its spinner preamble) but stays unanswerable until input-available. */
+function isPendingAsk(part: AskUserToolPart): boolean {
+	return part.state === "input-streaming" || part.state === "input-available";
+}
+
+/** Ordered stepper over the last assistant message's ask_user calls. The
+    model may ask several questions in one turn; they dock ONE at a time,
+    OLDEST first, so the thread reads top-to-bottom. Answering the active ask
+    advances to the next pending sibling; once every call has an output,
+    sendAutomaticallyWhen posts them all back in one request. */
+export function collectAskStepper(messages: WanditUIMessage[]): AskStepper {
+	const last = messages[messages.length - 1];
+	if (last?.role !== "assistant") return NO_ASKS;
+
+	// Tray answers CONTINUE the same assistant message (the server upserts by
+	// message id), so earlier rounds' answered asks are still among the parts.
+	// Only the parts after the LAST step-start belong to the current round —
+	// the same scoping as lastAssistantMessageIsCompleteWithToolCalls —
+	// otherwise "Question X of Y" inflates on every follow-up round.
+	const lastStepStart = last.parts.reduce(
+		(lastIndex, part, index) =>
+			part.type === "step-start" ? index : lastIndex,
+		-1,
+	);
+	const asks = last.parts
+		.slice(lastStepStart + 1)
+		.filter((part): part is AskUserToolPart => part.type === "tool-ask_user");
+	if (asks.length === 0) return NO_ASKS;
+
+	const answered = asks.filter((ask) => !isPendingAsk(ask)).length;
+	return {
+		active: asks.find(isPendingAsk) ?? null,
+		// Clamped for the instant every ask is settled, before auto-resubmit.
+		current: Math.min(answered + 1, asks.length),
+		total: asks.length,
+	};
 }
 
 /** One-line summary of an answer for the settled ask shown in the thread. */
@@ -96,8 +125,18 @@ export function useRequestTray({
 	onAnswer: (toolCallId: string, output: AskUserOutput) => void;
 }) {
 	const { t } = useTranslation();
-	const active = useMemo(() => findActiveAsk(messages), [messages]);
+	const stepper = useMemo(() => collectAskStepper(messages), [messages]);
+	const active = stepper.active;
 	const toolCallId = active?.toolCallId;
+
+	// AnimatePresence keeps the EXITING tray mounted (~340ms) with callbacks
+	// frozen from the render where the previous ask was still pending. The ref
+	// always names the LIVE active call, so a stale closure invoked from that
+	// tray no-ops instead of overwriting an answer that already settled.
+	const activeToolCallIdRef = useRef(toolCallId);
+	useEffect(() => {
+		activeToolCallIdRef.current = toolCallId;
+	}, [toolCallId]);
 
 	// Choice drafts live above the bodies so the PromptBox CTA can validate and
 	// confirm them. Keying by toolCallId prevents a queued ask from inheriting
@@ -160,17 +199,26 @@ export function useRequestTray({
 				icon: "shuffle",
 			},
 			body,
+			// Progress only when the turn actually has several questions — a
+			// single ask keeps today's exact tray (no "Question 1 of 1" noise).
+			step:
+				stepper.total > 1
+					? { current: stepper.current, total: stepper.total }
+					: undefined,
 			// Typed text beats the chips (design 10n state 2) — only meaningful
 			// when there ARE chips to dim.
 			typingOverride: composerText.trim().length > 0 && options.length > 0,
 		};
-	}, [active, composerText, selectedId, selectedIds, t]);
+	}, [active, stepper, composerText, selectedId, selectedIds, t]);
 
 	const answer = useCallback(
 		(output: AskUserOutput) => {
 			// Only a fully-arrived ask may be answered: writing an output onto a
 			// part whose input is still streaming would race the incoming chunks.
 			if (!toolCallId || active?.state !== "input-available") return;
+			// A closure captured before a stepper advance targets the PREVIOUS
+			// ask — addToolOutput would silently replace its answer.
+			if (toolCallId !== activeToolCallIdRef.current) return;
 			onAnswer(toolCallId, output);
 			setSinglePick(null);
 			setMultiPicks(null);

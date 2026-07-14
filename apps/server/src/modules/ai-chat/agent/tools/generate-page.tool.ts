@@ -1,7 +1,8 @@
 /**
  * generate_page — the server-executed tool that queues a real page build.
  *
- * Unlike ask_user (no execute) and read_skill (module-level singleton), this
+ * Unlike ask_user (no execute) and get_direction_candidates (module-level
+ * singleton), this
  * tool is a FACTORY: it must know which project/chat it acts for, so the
  * agent builds a fresh instance per request with those ids closed over.
  *
@@ -9,6 +10,7 @@
  * brief into an attempt row and hands off to the Trigger.dev task; its
  * return value is only the "queued"/"unavailable" answer the model relays.
  */
+import { Logger } from "@nestjs/common";
 import { tasks } from "@trigger.dev/sdk";
 import {
 	type GeneratePageInput,
@@ -25,7 +27,11 @@ import { isR2Configured } from "../../../../infrastructure/storage/r2";
 // tasks.trigger() check the payload shape.
 import type { generatePageTask } from "../../../../trigger/generate-page.task";
 import type { PagesRepository } from "../../../pages/infrastructure/persistence/pages.repository";
-import { buildDesignerSystemPrompt } from "../designer-prompt";
+import { buildSiteBuilderSystemPrompt } from "../site-builder/builder-prompt";
+
+// Static Nest logger (no DI needed): queue-side events land in the API
+// server terminal; the build itself logs in the Trigger worker terminal.
+const logger = new Logger("generate-page");
 
 export type GeneratePageToolDeps = {
 	chatId: string;
@@ -41,7 +47,7 @@ export function createGeneratePageTool(
 	return tool({
 		description:
 			"Queue the real landing-page build for this project. Call it ONCE, " +
-			"after the brief is complete (read the design skill first). The build " +
+			"after the brief is complete (get_direction_candidates first). The build " +
 			"runs in the background and the finished page appears in the user's " +
 			"Page tab — it is not instant.",
 		inputSchema: generatePageInputSchema,
@@ -66,7 +72,7 @@ export function createGeneratePageTool(
 			);
 			// Snapshotted NOW so later prompt edits never change what this
 			// attempt meant (full reproducibility per attempt row).
-			const designerSystemPrompt = await buildDesignerSystemPrompt();
+			const designerSystemPrompt = await buildSiteBuilderSystemPrompt();
 			const attempt = await deps.pagesRepository.insertAttempt({
 				artifactId: artifact.id,
 				chatId: deps.chatId,
@@ -75,6 +81,11 @@ export function createGeneratePageTool(
 				spec: { brief, designerSystemPrompt, title },
 			});
 
+			logger.log(
+				`Queued page build "${title}" — attempt ${attempt.id}, ` +
+					`model ${env.AI_PAGE_DESIGN_MODEL}`,
+			);
+
 			try {
 				const handle = await tasks.trigger<typeof generatePageTask>(
 					"generate-page",
@@ -82,7 +93,15 @@ export function createGeneratePageTool(
 				);
 
 				await deps.pagesRepository.markAttemptTriggered(attempt.id, handle.id);
+				logger.log(
+					`Trigger.dev accepted the build — run ${handle.id}. Follow the ` +
+						"live logs in the worker terminal (npx trigger.dev@latest dev).",
+				);
 			} catch (error) {
+				logger.error(
+					`Queueing attempt ${attempt.id} failed: ` +
+						(error instanceof Error ? error.message : String(error)),
+				);
 				// Queueing failed (Trigger down, bad key…): close the attempt and
 				// answer honestly — NEVER throw raw, the model needs something to
 				// relay instead of an opaque tool error.
@@ -110,8 +129,9 @@ export function createGeneratePageTool(
 				attemptId: attempt.id,
 				message:
 					`Queued: version ${versionNumber} is being generated in the ` +
-					"background. It will appear in the Page tab when ready " +
-					"(usually a couple of minutes).",
+					"background. It will appear in the Page tab when ready — the " +
+					"builder writes and reviews the page, which can take around " +
+					"ten minutes.",
 				status: "queued",
 				versionNumber,
 			};
