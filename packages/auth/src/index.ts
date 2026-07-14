@@ -12,7 +12,27 @@ export type CreateAuthOptions = {
 export function createAuth(options: CreateAuthOptions = {}) {
 	const db = createDb();
 
+	// Staging serves the web (vercel.app) and the API (railway.app) from two
+	// DIFFERENT sites, so every auth cookie (OAuth state, session) must be
+	// SameSite=None;Secure or browsers drop it on the cross-site hop — the
+	// symptom is "State mismatch: State not persisted correctly" on the
+	// Google callback. Local dev is same-site localhost over plain http,
+	// where None+Secure would itself be rejected — keep defaults there.
+	// Real production should put both on one apex (app./api.wandit…) and
+	// switch to crossSubDomainCookies instead.
+	const crossSiteCookies = env.BETTER_AUTH_URL.startsWith("https://");
+
 	return betterAuth({
+		...(crossSiteCookies
+			? {
+					advanced: {
+						defaultCookieAttributes: {
+							sameSite: "none" as const,
+							secure: true,
+						},
+					},
+				}
+			: {}),
 		database: drizzleAdapter(db, {
 			provider: "pg",
 
