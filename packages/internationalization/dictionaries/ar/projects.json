@@ -79,7 +79,16 @@
 		"addMenuLabel": "إضافة سياق",
 		"addSkillLabel": "إضافة مهارة",
 		"attachLabel": "إرفاق",
-		"attachHint": "رفع الملفات والمراجع — قريبًا",
+		"attachHint": "أرفق صورًا أو ملفات",
+		"attachments": {
+			"uploading": "جارٍ الرفع…",
+			"remove": "إزالة",
+			"retry": "أعد المحاولة",
+			"unsupported": "صيغة غير مدعومة",
+			"tooLarge": "الملف كبير جدًا (15 م.ب كحد أقصى)",
+			"failed": "فشل الرفع",
+			"signInFirst": "سجّل الدخول لإرفاق الملفات"
+		},
 		"modeLabel": "الوضع",
 		"outputLabel": "المُخرَج",
 		"settingsLabel": "إعدادات التوليد",
@@ -115,9 +124,9 @@
 				"placeholder": "صِف ما تريد أن يُنشئه Wandit أو يُعدّله…"
 			},
 			"page": {
-				"label": "صفحة",
-				"description": "أنشئ أو عدّل الصفحة القابلة للنشر.",
-				"placeholder": "صِف الصفحة التي تريد إنشاءها أو تحسينها…"
+				"label": "موقع ويب",
+				"description": "أنشئ موقع ويب — صفحة هبوط أو موقعًا تعريفيًا.",
+				"placeholder": "صِف الموقع الذي تريد إنشاءه أو تحسينه…"
 			},
 			"marketing": {
 				"label": "تسويق",
@@ -131,8 +140,8 @@
 			},
 			"video": {
 				"label": "فيديو",
-				"description": "أنشئ فيديوهات إعلانية قصيرة وخطط مشاهد.",
-				"placeholder": "صِف الفيديو الإعلاني، المشاهد، الصيغة والمدة…"
+				"description": "حرّك إحدى صورك لتصبح فيديو قصيرًا.",
+				"placeholder": "صِف الصورة التي تريد تحريكها والحركة المطلوبة…"
 			}
 		},
 		"skillGroups": {
@@ -180,101 +189,30 @@
 				"description": "يُنشئ صفحة المشروع القابلة للنشر.",
 				"placeholder": "صِف المنتج والعرض والسعر والإثبات وتدفّق الدفع عند الاستلام…",
 				"options": {
-					"quality": {
-						"label": "الجودة",
-						"choices": {
-							"standard": "قياسي",
-							"max": "أقصى"
-						}
-					},
 					"goal": {
 						"label": "الهدف",
 						"choices": {
 							"cod": "مبيعات COD",
 							"leads": "جمع العملاء المحتملين",
-							"promo": "عرض ترويجي",
-							"service": "خدمة"
-						}
-					},
-					"language": {
-						"label": "اللغة",
-						"choices": {
-							"auto": "تلقائي",
-							"arabic": "العربية",
-							"french": "الفرنسية",
-							"ar-fr": "AR + FR"
-						}
-					},
-					"shape": {
-						"label": "نوع الصفحة",
-						"choices": {
-							"landing": "هبوط",
-							"product": "صفحة منتج",
-							"service": "صفحة خدمة"
+							"service": "خدمة",
+							"promo": "عرض ترويجي"
 						}
 					}
 				}
 			},
-			"page-edit": {
-				"label": "تعديل الصفحة",
-				"shortLabel": "تعديل الصفحة",
-				"description": "يُحدّث النص أو التخطيط أو أقسام الصفحة الحالية.",
-				"placeholder": "أخبر Wandit بالجزء الذي يجب تغييره في الصفحة…",
+			"site-vitrine": {
+				"label": "موقع تعريفي",
+				"shortLabel": "موقع تعريفي",
+				"description": "موقع متعدد الأقسام لتقديم نشاطك.",
+				"placeholder": "صِف نشاطك وخدماتك وبيانات التواصل…",
 				"options": {
-					"quality": {
-						"label": "الجودة",
+					"goal": {
+						"label": "الهدف",
 						"choices": {
-							"standard": "قياسي",
-							"max": "أقصى"
-						}
-					},
-					"scope": {
-						"label": "النطاق",
-						"choices": {
-							"hero": "الواجهة",
-							"offer": "كتلة العرض",
-							"form": "نموذج الطلب",
-							"full": "الصفحة كاملة"
-						}
-					},
-					"intensity": {
-						"label": "مستوى التغيير",
-						"choices": {
-							"light": "خفيف",
-							"medium": "متوسط",
-							"rewrite": "إعادة كتابة"
-						}
-					}
-				}
-			},
-			"html-section": {
-				"label": "قسم HTML",
-				"shortLabel": "قسم HTML",
-				"description": "يُنشئ قسمًا قابلاً للتضمين في الصفحة.",
-				"placeholder": "صِف القسم الذي تريد إضافته إلى الصفحة…",
-				"options": {
-					"quality": {
-						"label": "الجودة",
-						"choices": {
-							"standard": "قياسي",
-							"max": "أقصى"
-						}
-					},
-					"section": {
-						"label": "نوع القسم",
-						"choices": {
-							"comparison": "مقارنة",
-							"faq": "الأسئلة الشائعة",
-							"testimonials": "شهادات",
-							"offer": "كتلة العرض"
-						}
-					},
-					"style": {
-						"label": "الأسلوب",
-						"choices": {
-							"match": "مطابق للصفحة",
-							"clean": "نظيف",
-							"direct": "استجابة مباشرة"
+							"cod": "مبيعات COD",
+							"leads": "جمع العملاء المحتملين",
+							"service": "خدمة",
+							"promo": "عرض ترويجي"
 						}
 					}
 				}
@@ -556,54 +494,10 @@
 					}
 				}
 			},
-			"video-creator": {
-				"label": "تلقائي",
-				"shortLabel": "تلقائي",
-				"description": "يختار Wandit أفضل صيغة فيديو من الطلب.",
-				"placeholder": "صِف الفيديو، المشاهد، الحركة، الأجواء ونسبة العرض…",
-				"options": {
-					"method": {
-						"label": "طريقة التوليد",
-						"choices": {
-							"reference": "مرجع",
-							"edit": "تعديل",
-							"frames": "إطارات"
-						}
-					},
-					"size": {
-						"label": "الحجم",
-						"choices": {
-							"auto": "تلقائي",
-							"16-9": "16:9",
-							"4-3": "4:3",
-							"1-1": "1:1",
-							"9-16": "9:16",
-							"21-9": "21:9"
-						}
-					},
-					"resolution": {
-						"label": "الدقة",
-						"choices": {
-							"720": "720p",
-							"1080": "1080p",
-							"4k": "4k"
-						}
-					},
-					"duration": {
-						"label": "المدة",
-						"choices": {
-							"4": "4s",
-							"5": "5s",
-							"8": "8s",
-							"10": "10s"
-						}
-					}
-				}
-			},
 			"ugc-video": {
 				"label": "فيديو UGC",
 				"shortLabel": "فيديو UGC",
-				"description": "يُنشئ فيديوهات إعلانية قصيرة بأسلوب صنّاع المحتوى.",
+				"description": "فيديو UGC متحرك انطلاقًا من صورة المنتج.",
 				"placeholder": "صِف إعلان UGC، أجواء صانع المحتوى، الجملة الافتتاحية والإثبات…",
 				"options": {
 					"structure": {
@@ -627,7 +521,7 @@
 			"product-demo": {
 				"label": "عرض المنتج",
 				"shortLabel": "عرض",
-				"description": "يُظهر استخدام المنتج والنتيجة وإجراء الطلب.",
+				"description": "عرض منتج متحرك انطلاقًا من صورة.",
 				"placeholder": "صِف تسلسل عرض المنتج والحث النهائي على الإجراء…",
 				"options": {
 					"pace": {

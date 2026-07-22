@@ -12,6 +12,25 @@ function makeRng(seed: number): () => number {
 	};
 }
 
+// Test-side mirror of the sampler's fuzzy matcher (accent-fold + two-way
+// includes). Duplicated on purpose: if the sampler's matching contract drifts,
+// the affinity tests below break loudly instead of drifting with it.
+function fold(s: string): string {
+	return s
+		.normalize("NFD")
+		.replace(/\p{Diacritic}/gu, "")
+		.toLowerCase()
+		.replace(/[^a-z0-9]/g, "");
+}
+
+function matchesHint(tags: string[] | undefined, hints: string[]): boolean {
+	const t = (tags ?? []).map(fold).filter(Boolean);
+	const h = hints.map(fold).filter(Boolean);
+	return t.some((tag) =>
+		h.some((hint) => tag.includes(hint) || hint.includes(tag)),
+	);
+}
+
 describe("design library data", () => {
 	it("keeps espresso-bronze's bg a clean hex (regression: trailing-comma string)", () => {
 		const espresso = palettes.find((p) => p.id === "espresso-bronze");
@@ -21,17 +40,19 @@ describe("design library data", () => {
 });
 
 describe("sampleCandidates", () => {
-	it("samples the fixed menu sizes: 5 palettes, 5 pairings, 4 skeletons, 5 interactions, 4 motions", () => {
+	it("samples the fixed menu sizes: 10 palettes, 10 pairings, 3 skeletons, 12 layout moves, 8 interactions, 4 motions, 3 finishes", () => {
 		const candidates = sampleCandidates({
 			business: "candles",
 			rng: makeRng(7),
 		});
 
-		expect(candidates.palettes).toHaveLength(5);
-		expect(candidates.fontPairings).toHaveLength(5);
-		expect(candidates.skeletons).toHaveLength(4);
-		expect(candidates.interactions).toHaveLength(5);
+		expect(candidates.palettes).toHaveLength(10);
+		expect(candidates.fontPairings).toHaveLength(10);
+		expect(candidates.skeletons).toHaveLength(3);
+		expect(candidates.layoutMoves).toHaveLength(12);
+		expect(candidates.interactions).toHaveLength(8);
 		expect(candidates.motions).toHaveLength(4);
+		expect(candidates.finishes).toHaveLength(3);
 	});
 
 	it("never offers an entry whose avoidFor matches the business", () => {
@@ -48,6 +69,74 @@ describe("sampleCandidates", () => {
 			const pairingIds = candidates.fontPairings.map((f) => f.id);
 			expect(pairingIds).not.toContain("tanker-general");
 			expect(pairingIds).not.toContain("melodrama-switzer");
+		}
+	});
+
+	it("accent-folds the business before avoidFor matching (clinique médicale)", () => {
+		for (let seed = 0; seed < 200; seed++) {
+			const candidates = sampleCandidates({
+				business: "Clinique médicale à Alger",
+				rng: makeRng(seed),
+			});
+
+			expect(candidates.palettes.map((p) => p.id)).not.toContain("noir-acide");
+		}
+	});
+
+	it("accent-folds industryHints before avoidFor matching (médical → medical)", () => {
+		// The business text itself is innocent — only the accented hint carries
+		// the industry. Without accent folding, "médical" folds to nothing that
+		// matches "medical" and the guarded entries would leak through.
+		for (let seed = 0; seed < 200; seed++) {
+			const candidates = sampleCandidates({
+				business: "candles",
+				industryHints: ["médical"],
+				rng: makeRng(seed),
+			});
+
+			expect(candidates.palettes.map((p) => p.id)).not.toContain("noir-acide");
+		}
+	});
+
+	it("ignores hints that fold to nothing (Arabic script must not match everything)", () => {
+		// norm() strips non-Latin entirely, so an Arabic hint folds to "".
+		// Unguarded, "".includes / .includes("") matches EVERY avoidFor tag and
+		// every guarded entry vanishes. With the guard, noir-acide stays
+		// sampleable and must appear at least once across many seeds.
+		let sawNoirAcide = false;
+		for (let seed = 0; seed < 200 && !sawNoirAcide; seed++) {
+			const candidates = sampleCandidates({
+				business: "candles",
+				industryHints: ["مطعم"],
+				rng: makeRng(seed),
+			});
+			sawNoirAcide = candidates.palettes.some((p) => p.id === "noir-acide");
+		}
+
+		expect(sawNoirAcide).toBe(true);
+	});
+
+	it("guarantees ~40% of the palette menu fits the industry hints", () => {
+		const hints = ["restaurant"];
+		const affineCount = palettes.filter((p) =>
+			matchesHint(p.industries, hints),
+		).length;
+		// The library must actually carry restaurant-tagged palettes for the
+		// guarantee to mean anything.
+		expect(affineCount).toBeGreaterThan(0);
+		const guaranteed = Math.min(Math.ceil(10 * 0.4), affineCount);
+
+		for (let seed = 0; seed < 50; seed++) {
+			const candidates = sampleCandidates({
+				business: "bistro oriental",
+				industryHints: hints,
+				rng: makeRng(seed),
+			});
+
+			const affineInSample = candidates.palettes.filter((p) =>
+				matchesHint(p.industries, hints),
+			).length;
+			expect(affineInSample).toBeGreaterThanOrEqual(guaranteed);
 		}
 	});
 

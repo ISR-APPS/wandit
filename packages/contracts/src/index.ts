@@ -15,6 +15,8 @@ export * from "./http/pagination";
 export * from "./v1/ai-chat";
 // Artifact/page contracts.
 export * from "./v1/artifacts";
+// Attachment upload contract.
+export * from "./v1/attachments";
 // Auth contracts.
 export * from "./v1/auth";
 // Billing contracts.
@@ -29,6 +31,10 @@ export * from "./v1/deployments";
 export * from "./v1/domains";
 // Lead contracts.
 export * from "./v1/leads";
+// Page edit-ops contract.
+export * from "./v1/page-edits";
+// Page theme vocabulary (tokens, fonts, presets).
+export * from "./v1/page-theme";
 // Page generation contracts.
 export * from "./v1/pages";
 // Project contracts.

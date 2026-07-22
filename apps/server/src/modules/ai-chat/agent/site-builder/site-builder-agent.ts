@@ -7,13 +7,16 @@
  * brief, ids) is passed in by the caller. Model strings resolve through the
  * AI SDK's default Vercel AI Gateway provider.
  *
- * The loop is draft → three screenshot review passes → finish. The passes
- * are enforced in code (the finish guard), not just in the prompt: the model
- * literally cannot end the build before reviewing its own rendered page.
+ * The loop is ONE deliberate build pass → finish. screenshot_page stays
+ * available as an optional diagnostic, but no review pass is mandated: the
+ * finish guard only validates that index.html exists and the finish protocol
+ * was followed.
  */
-import { env } from "@wandit/env/server";
 import { isStepCount, type Tool, ToolLoopAgent, tool } from "ai";
 import { z } from "zod";
+
+// Plain module (no Nest), safe in the Trigger bundle — cheerio bundles fine.
+import { stampHtml } from "../../../pages/domain/stamp";
 
 import {
 	BUILD_IMAGE_ASPECTS,
@@ -21,6 +24,18 @@ import {
 	generateBuildImage,
 	MAX_IMAGES,
 } from "./generate-image";
+import {
+	type BuildVideoAspect,
+	generateBuildVideo,
+	MAX_VIDEOS,
+	VIDEO_ASPECTS,
+} from "./generate-video";
+import {
+	modelNeedsToolImageRelocation,
+	modelNeedsToolImageStripping,
+	relocateToolResultImages,
+	stripToolResultImages,
+} from "./relocate-tool-images";
 import {
 	type CapturedShot,
 	createScreenshotSession,
@@ -49,17 +64,14 @@ export type SiteBuildResult = {
 	summary: string | null;
 };
 
-// Generous but bounded: draft + three screenshot/rewrite passes + image
-// generations. The accepted-finish flag is the intended exit; isStepCount is
-// the runaway backstop.
+// Generous but bounded: one build pass + image generations + optional
+// screenshot diagnostics. The accepted-finish flag is the intended exit;
+// isStepCount is the runaway backstop (unused steps cost nothing).
 const MAX_STEPS = 48;
 
 // Full landing pages routinely exceed 30k chars of HTML; the ceiling must
 // leave room for a complete write_file call in a single step.
 const MAX_OUTPUT_TOKENS = 64_000;
-
-// finish is refused until this many screenshot_page passes succeeded.
-export const REQUIRED_SCREENSHOT_PASSES = 3;
 
 /**
  * Mutable loop state shared between the tools and the stop condition. A
@@ -72,6 +84,9 @@ export type BuildLoopState = {
 	imagesGenerated: number;
 	screenshotPasses: number;
 	summary: string | null;
+	/** Same monotonic-sequence discipline as images, for vid-{n} keys. */
+	videoSequence: number;
+	videosGenerated: number;
 };
 
 export function createBuildLoopState(): BuildLoopState {
@@ -81,6 +96,8 @@ export function createBuildLoopState(): BuildLoopState {
 		imagesGenerated: 0,
 		screenshotPasses: 0,
 		summary: null,
+		videoSequence: 0,
+		videosGenerated: 0,
 	};
 }
 
@@ -119,6 +136,10 @@ type EmptyInput = z.infer<typeof emptyInputSchema>;
 
 type FinishOutput = { accepted: true } | { accepted: false; reason: string };
 
+type AnimateImageOutput =
+	| { message: string; status: "failed" | "unavailable" }
+	| { posterUrl: string; status: "generated"; url: string };
+
 type GenerateImageOutput =
 	| { message: string; status: "failed" | "unavailable" }
 	| {
@@ -142,6 +163,10 @@ type ScreenshotPageOutput =
 // Explicit (declaration-emit friendly) tool map; same alias-over-Record
 // pattern as AiChatToolSet in chat-agent.ts.
 export type BuilderTools = {
+	animate_image: Tool<
+		{ aspect: BuildVideoAspect; imageUrl: string; motionPrompt: string },
+		AnimateImageOutput
+	>;
 	finish: Tool<{ summary: string }, FinishOutput>;
 	generate_image: Tool<
 		{ aspect: BuildImageAspect; prompt: string; role: string },
@@ -173,11 +198,69 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 	const imageByCall = new Map<string, { base64: string; mediaType: string }>();
 
 	return {
+		animate_image: tool({
+			description:
+				"OPTIONAL: animate ONE existing image (a generate_image URL or a " +
+				"user asset from the brief) into a short (~5s) looping ambient " +
+				"background video. Use it ONLY when subtle motion genuinely " +
+				"elevates a section — a hero atmosphere, a fabric drift — never by " +
+				`default, never more than ${MAX_VIDEOS} per build. Embed the ` +
+				'result as <video autoplay muted loop playsinline poster="<posterUrl>"> ' +
+				"with the still image as poster. On unavailable/failed, keep the " +
+				"still image — a page is never blocked on video.",
+			inputSchema: z.object({
+				aspect: z.enum(VIDEO_ASPECTS),
+				imageUrl: z.url(),
+				motionPrompt: z.string().min(10),
+			}),
+			execute: async ({ aspect, imageUrl, motionPrompt }) => {
+				if (state.videosGenerated >= MAX_VIDEOS) {
+					return {
+						message:
+							`Video budget exhausted (${MAX_VIDEOS} per build) — keep ` +
+							"the still image.",
+						status: "failed" as const,
+					};
+				}
+
+				// Same concurrency discipline as generate_image: reserve the
+				// budget slot and the key sequence synchronously BEFORE the first
+				// await; a failure releases its slot but keeps its sequence.
+				state.videosGenerated += 1;
+				state.videoSequence += 1;
+				const index = state.videoSequence;
+
+				const result = await generateBuildVideo({
+					aspect,
+					attemptId: params.attemptId,
+					imageUrl,
+					index,
+					motionPrompt,
+					projectId: params.projectId,
+				});
+
+				if (result.status !== "generated") {
+					state.videosGenerated -= 1;
+					log(`animate_image ${result.status}: ${result.message}`);
+
+					return { message: result.message, status: result.status };
+				}
+
+				log(`animated image ${index}/${MAX_VIDEOS} → ${result.url}`);
+
+				// The model cannot watch video — the URL text is all it needs, so
+				// no toModelOutput override exists for this tool.
+				return {
+					posterUrl: imageUrl,
+					status: "generated" as const,
+					url: result.url,
+				};
+			},
+		}),
 		finish: tool({
 			description:
-				"Declare the site complete. Call this ONCE, only after index.html " +
-				`is written AND all ${REQUIRED_SCREENSHOT_PASSES} screenshot review ` +
-				"passes are done.",
+				"Declare the site complete. Call this ONCE, only after the full " +
+				"index.html is written.",
 			inputSchema: z.object({
 				summary: z
 					.string()
@@ -191,23 +274,8 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 					return {
 						accepted: false as const,
 						reason:
-							"index.html has not been written yet. Write the page, do the " +
-							`${REQUIRED_SCREENSHOT_PASSES} screenshot review passes, then finish.`,
-					};
-				}
-
-				if (state.screenshotPasses < REQUIRED_SCREENSHOT_PASSES) {
-					log(
-						`finish refused — ${state.screenshotPasses} of ` +
-							`${REQUIRED_SCREENSHOT_PASSES} screenshot passes done`,
-					);
-
-					return {
-						accepted: false as const,
-						reason:
-							`Only ${state.screenshotPasses} of ${REQUIRED_SCREENSHOT_PASSES} ` +
-							"required screenshot review passes done. Call screenshot_page, " +
-							"review, fix, then finish.",
+							"index.html has not been written yet. Write the complete " +
+							"page, then finish.",
 					};
 				}
 
@@ -336,10 +404,11 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 		}),
 		screenshot_page: tool({
 			description:
-				"Render the current index.html in a real browser and SEE it: " +
-				"desktop (1440px) and mobile (390px) screenshots top to bottom, " +
-				"console errors, and a horizontal-overflow report. " +
-				`${REQUIRED_SCREENSHOT_PASSES} passes are required before finish.`,
+				"OPTIONAL diagnostic: render the current index.html in a real " +
+				"browser and SEE it — desktop (1440px) and mobile (390px) " +
+				"screenshots top to bottom, console errors, and a " +
+				"horizontal-overflow report. Use it only when you are genuinely " +
+				"unsure something renders correctly; it is never required.",
 			inputSchema: emptyInputSchema,
 			execute: async (_input, { toolCallId }) => {
 				const html = vfs.read("index.html");
@@ -364,7 +433,7 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 				const mobileShots = capture.shots.length - desktopShots;
 
 				log(
-					`screenshot pass ${state.screenshotPasses}/${REQUIRED_SCREENSHOT_PASSES} — ` +
+					`screenshot review ${state.screenshotPasses} — ` +
 						`${capture.shots.length} shots, ` +
 						`${capture.consoleErrors.length} console errors`,
 				);
@@ -398,7 +467,7 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 					value: [
 						{
 							text:
-								`Pass ${output.pass} of ${REQUIRED_SCREENSHOT_PASSES}. ` +
+								`Screenshot review ${output.pass}. ` +
 								`Desktop: ${output.desktopShots} shots, mobile: ` +
 								`${output.mobileShots} shots. Console errors: ${errors}. ` +
 								"Horizontal overflow: desktop " +
@@ -455,38 +524,46 @@ export async function runSiteBuild(
 	const screenshots = createScreenshotSession(params.attemptId);
 	const startedAt = Date.now();
 
-	// Read at BUILD time (not snapshotted like the model): a knob for quick
-	// reasoning experiments across builder models. Every provider reads only
-	// its own providerOptions key, so both are always safe to send.
-	const reasoningEffort = env.AI_PAGE_DESIGN_REASONING;
-	const reasoningOptions = reasoningEffort
-		? {
-				providerOptions: {
-					// Gemini 3 knows exactly two thinking levels — medium+ → high.
-					google: {
-						thinkingConfig: {
-							thinkingLevel:
-								reasoningEffort === "minimal" || reasoningEffort === "low"
-									? ("low" as const)
-									: ("high" as const),
-						},
-					},
-					openai: { reasoningEffort },
-				},
-			}
-		: {};
-
-	log(
-		`starting build of "${params.title}" with model ${params.model}` +
-			(reasoningEffort ? ` (reasoning: ${reasoningEffort})` : ""),
-	);
+	log(`starting build of "${params.title}" with model ${params.model}`);
 
 	try {
 		const agent = new ToolLoopAgent({
 			instructions: params.system,
 			maxOutputTokens: MAX_OUTPUT_TOKENS,
 			model: params.model,
-			...reasoningOptions,
+			// Kimi/Moonshot rejects image parts inside tool results (they fall
+			// through as base64 TEXT and blow the context) but reads images fine
+			// from user messages — so relocate them there before every step.
+			// The provider order also prefers Novita: same price, ~1.5s TTFT vs
+			// Moonshot's 6s+ launch congestion (Moonshot stays as fallback).
+			// Text-only models (DeepSeek) cannot see images anywhere, so image
+			// parts are stripped instead — the tool result's URL text line is
+			// all they need to place assets.
+			...(modelNeedsToolImageRelocation(params.model)
+				? {
+						providerOptions: {
+							gateway: { order: ["novita"] },
+						},
+						prepareStep: ({ messages }) => {
+							const relocated = relocateToolResultImages(messages);
+
+							return relocated === messages
+								? undefined
+								: { messages: relocated };
+						},
+					}
+				: {}),
+			...(modelNeedsToolImageStripping(params.model)
+				? {
+						prepareStep: ({ messages }) => {
+							const stripped = stripToolResultImages(messages);
+
+							return stripped === messages
+								? undefined
+								: { messages: stripped };
+						},
+					}
+				: {}),
 			stopWhen: buildStopConditions(state),
 			tools: createBuilderTools({
 				attemptId: params.attemptId,
@@ -542,6 +619,15 @@ export async function runSiteBuild(
 					`(${steps.length} steps) — refusing to publish an ` +
 					"unfinished build",
 			);
+		}
+
+		// Deterministic stamping pass (spec §4): every editable leaf gets a
+		// stable data-wid before upload, so every version's canonical HTML in
+		// R2 is fully stamped. The model is never asked to do this itself.
+		const rawHtml = vfs.read("index.html");
+
+		if (rawHtml !== null) {
+			vfs.write("index.html", stampHtml(rawHtml));
 		}
 
 		assertValidSite(vfs);

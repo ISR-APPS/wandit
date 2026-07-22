@@ -1,5 +1,6 @@
 import type { WanditUIMessage } from "../../../lib/use-ai-chat";
 import { AskUserPart } from "./ask-user-part";
+import { FilePart } from "./file-part";
 import { GeneratePagePart } from "./generate-page-part";
 import { TextPart } from "./text-part";
 
@@ -63,6 +64,16 @@ export function MessageParts({
 					/>
 				);
 			}
+			case "file":
+				// User-attached assets (contract §10.4) — thumbnails for images,
+				// filename chips for documents.
+				return (
+					<FilePart
+						// biome-ignore lint/suspicious/noArrayIndexKey: message parts are ordered and file parts have no id
+						key={`${message.id}:${index}`}
+						part={part}
+					/>
+				);
 			case "tool-generate_page":
 				return <GeneratePagePart key={part.toolCallId} part={part} />;
 			case "tool-read_skill":

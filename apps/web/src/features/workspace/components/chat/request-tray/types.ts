@@ -25,6 +25,8 @@ export type MediaItem = {
 	preview: string;
 	/** Present while the file is still uploading. */
 	uploading?: { percent: number };
+	/** Upload failed — destructive tint, still removable. */
+	error?: boolean;
 };
 
 /** The swappable answer body — the only part of the tray that changes
@@ -43,8 +45,12 @@ export type TrayBody =
 	| {
 			kind: "media-drop"; // 10g empty / 9b filled
 			title?: string;
+			/** Copy for the inline "browse" affordance (i18n-supplied). */
+			browseLabel?: string;
 			formatsHint?: string;
 			tip?: string;
+			/** File-input accept attr derived from the ask's accept kinds. */
+			accept?: string;
 			items?: MediaItem[];
 	  }
 	| {

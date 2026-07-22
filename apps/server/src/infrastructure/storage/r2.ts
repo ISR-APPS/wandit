@@ -80,6 +80,28 @@ export function siteAssetKey(
 	return `sites/${projectId}/assets/${attemptId}/img-${index}.${extension}`;
 }
 
+// Videos the builder animates mid-build, beside the images:
+// sites/{project_id}/assets/{attempt_id}/vid-{n}.{ext}
+export function siteVideoKey(
+	projectId: string,
+	attemptId: string,
+	index: number,
+	extension: string,
+): string {
+	return `sites/${projectId}/assets/${attemptId}/vid-${index}.${extension}`;
+}
+
+// User-uploaded attachments (product photos, logos, docs) are user-scoped —
+// they exist before any project does (dashboard composer uploads):
+// uploads/{user_id}/{uuid}/{sanitized-filename}
+export function userUploadKey(
+	userId: string,
+	uuid: string,
+	filename: string,
+): string {
+	return `uploads/${userId}/${uuid}/${filename}`;
+}
+
 // Browser-reachable URL for an object key, through the bucket's public base
 // URL (Cloudflare public dev URL or custom domain). Callers MUST check that
 // env.R2_PUBLIC_BASE_URL is set first — same contract as isR2Configured().
@@ -87,6 +109,51 @@ export function publicAssetUrl(key: string): string {
 	const base = (env.R2_PUBLIC_BASE_URL ?? "").replace(/\/+$/, "");
 
 	return `${base}/${key}`;
+}
+
+/**
+ * Is this URL one of OUR public R2 objects? Every place that accepts an
+ * asset URL from outside (file parts, image-src ops, animate_image inputs,
+ * project attachments) must use this — a raw startsWith(base) check is
+ * prefix-confusable: with base https://assets.example.com,
+ * https://assets.example.com.attacker.test/x.png would pass. This parses
+ * both sides and compares the ORIGIN exactly plus the path boundary.
+ */
+export function isWanditHostedUrl(url: string): boolean {
+	const base = env.R2_PUBLIC_BASE_URL;
+
+	if (!base) {
+		return false;
+	}
+
+	let parsedBase: URL;
+	let parsed: URL;
+
+	try {
+		parsedBase = new URL(base);
+		parsed = new URL(url);
+	} catch {
+		return false;
+	}
+
+	// Credentials in an asset URL are never legitimate.
+	if (parsed.username !== "" || parsed.password !== "") {
+		return false;
+	}
+
+	if (parsed.origin !== parsedBase.origin) {
+		return false;
+	}
+
+	// Path boundary: base path must be a whole-segment prefix — a base of
+	// /bucket must not accept /bucket-evil/x.
+	const basePath = parsedBase.pathname.replace(/\/+$/, "");
+
+	return (
+		basePath === "" ||
+		parsed.pathname === basePath ||
+		parsed.pathname.startsWith(`${basePath}/`)
+	);
 }
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -97,9 +164,11 @@ const CONTENT_TYPES: Record<string, string> = {
 	jpg: "image/jpeg",
 	js: "text/javascript; charset=utf-8",
 	json: "application/json; charset=utf-8",
+	mp4: "video/mp4",
 	png: "image/png",
 	svg: "image/svg+xml",
 	txt: "text/plain; charset=utf-8",
+	webm: "video/webm",
 	webp: "image/webp",
 	woff2: "font/woff2",
 };

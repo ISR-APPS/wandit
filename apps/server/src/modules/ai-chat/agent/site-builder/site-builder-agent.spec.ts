@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { generateBuildImage, MAX_IMAGES } from "./generate-image";
+import { generateBuildVideo, MAX_VIDEOS } from "./generate-video";
 import type { ScreenshotCapture, ScreenshotSession } from "./screenshot";
 import {
 	buildStopConditions,
 	createBuilderTools,
 	createBuildLoopState,
-	REQUIRED_SCREENSHOT_PASSES,
 } from "./site-builder-agent";
 import { VirtualFileSystem } from "./virtual-files";
 
@@ -19,12 +19,25 @@ vi.mock("./generate-image", async (importOriginal) => {
 	return { ...original, generateBuildImage: vi.fn() };
 });
 
+vi.mock("./generate-video", async (importOriginal) => {
+	const original = await importOriginal<typeof import("./generate-video")>();
+
+	return { ...original, generateBuildVideo: vi.fn() };
+});
+
 const HTML = "<!doctype html><html><body>page</body></html>";
 
 const IMAGE_INPUT = {
 	aspect: "16:9" as const,
 	prompt: "editorial photography of a ceramic tagine, warm side light",
 	role: "hero background",
+};
+
+const VIDEO_INPUT = {
+	aspect: "16:9" as const,
+	imageUrl:
+		"https://assets.example.com/sites/project_1/assets/attempt_1/img-1.png",
+	motionPrompt: "steam drifts slowly, warm light breathes",
 };
 
 // Base64 markers that must appear ONLY in toModelOutput, never in the
@@ -81,17 +94,9 @@ function materialize<T>(value: T | AsyncIterable<T> | undefined): T {
 	return value as T;
 }
 
-async function completeScreenshotPasses(context: ReturnType<typeof setup>) {
-	for (let pass = 1; pass <= REQUIRED_SCREENSHOT_PASSES; pass++) {
-		await context.tools.screenshot_page.execute?.(
-			{},
-			context.options(`shot_${pass}`),
-		);
-	}
-}
-
 beforeEach(() => {
 	vi.mocked(generateBuildImage).mockReset();
+	vi.mocked(generateBuildVideo).mockReset();
 });
 
 describe("write_file guard", () => {
@@ -129,6 +134,19 @@ describe("screenshot_page", () => {
 		expect(output).toMatchObject({ refused: true });
 		expect(state.screenshotPasses).toBe(0);
 		expect(screenshots.capture).not.toHaveBeenCalled();
+	});
+
+	it("still counts passes when used — telemetry only, never a gate", async () => {
+		const { options, state, tools } = setup();
+		await tools.write_file.execute?.(
+			{ content: HTML, path: "index.html" },
+			options(),
+		);
+
+		await tools.screenshot_page.execute?.({}, options("shot_1"));
+		await tools.screenshot_page.execute?.({}, options("shot_2"));
+
+		expect(state.screenshotPasses).toBe(2);
 	});
 
 	it("keeps the transcript output small and hands the images to toModelOutput", async () => {
@@ -172,7 +190,7 @@ describe("screenshot_page", () => {
 
 		expect(text).toMatchObject({ type: "text" });
 		expect(text?.type === "text" ? text.text : "").toContain(
-			`Pass 1 of ${REQUIRED_SCREENSHOT_PASSES}`,
+			"Screenshot review 1.",
 		);
 		expect(files).toEqual([
 			{
@@ -203,26 +221,12 @@ describe("finish guard", () => {
 		expect(state.summary).toBeNull();
 	});
 
-	it("refuses until all screenshot passes are done, then accepts", async () => {
-		const context = setup();
-		const { options, state, tools } = context;
+	it("accepts immediately once index.html exists — zero screenshot passes", async () => {
+		const { options, state, tools } = setup();
 		await tools.write_file.execute?.(
 			{ content: HTML, path: "index.html" },
 			options(),
 		);
-
-		const refused = await tools.finish.execute?.(
-			{ summary: "A page." },
-			options(),
-		);
-
-		expect(refused).toMatchObject({
-			accepted: false,
-			reason: expect.stringContaining(`0 of ${REQUIRED_SCREENSHOT_PASSES}`),
-		});
-		expect(state.summary).toBeNull();
-
-		await completeScreenshotPasses(context);
 
 		const accepted = await tools.finish.execute?.(
 			{ summary: "Souk Heat direction, warm editorial." },
@@ -231,12 +235,12 @@ describe("finish guard", () => {
 
 		expect(accepted).toEqual({ accepted: true });
 		expect(state.finishAccepted).toBe(true);
+		expect(state.screenshotPasses).toBe(0);
 		expect(state.summary).toBe("Souk Heat direction, warm editorial.");
 	});
 
 	it("a refused finish does not stop the loop; an accepted one does", async () => {
-		const context = setup();
-		const { options, state, tools } = context;
+		const { options, state, tools } = setup();
 		const conditions = buildStopConditions(state);
 		const finishStop = conditions[1];
 
@@ -244,17 +248,16 @@ describe("finish guard", () => {
 			throw new Error("expected the accepted-finish stop condition");
 		}
 
-		await tools.write_file.execute?.(
-			{ content: HTML, path: "index.html" },
-			options(),
-		);
 		await tools.finish.execute?.({ summary: "Too early." }, options());
 
 		// This is the hasToolCall("finish") bug the closure replaces: the tool
 		// WAS called, but the refusal must keep the loop running.
 		expect(await finishStop({ steps: [] })).toBe(false);
 
-		await completeScreenshotPasses(context);
+		await tools.write_file.execute?.(
+			{ content: HTML, path: "index.html" },
+			options(),
+		);
 		await tools.finish.execute?.({ summary: "Done for real." }, options());
 
 		expect(await finishStop({ steps: [] })).toBe(true);
@@ -389,5 +392,92 @@ describe("generate_image tool", () => {
 			1,
 		);
 		expect(state.imagesGenerated).toBe(MAX_IMAGES);
+	});
+});
+
+describe("animate_image tool", () => {
+	it("refuses once the video budget is exhausted", async () => {
+		const { options, state, tools } = setup();
+		state.videosGenerated = MAX_VIDEOS;
+
+		const output = await tools.animate_image.execute?.(VIDEO_INPUT, options());
+
+		expect(output).toMatchObject({
+			message: expect.stringContaining("budget"),
+			status: "failed",
+		});
+		expect(generateBuildVideo).not.toHaveBeenCalled();
+	});
+
+	it("returns the video URL with the source image as poster", async () => {
+		const { options, state, tools } = setup();
+		const url =
+			"https://assets.example.com/sites/project_1/assets/attempt_1/vid-1.mp4";
+		vi.mocked(generateBuildVideo).mockResolvedValue({
+			mediaType: "video/mp4",
+			status: "generated",
+			url,
+		});
+
+		const output = materialize(
+			await tools.animate_image.execute?.(VIDEO_INPUT, options("vid_1")),
+		);
+
+		expect(generateBuildVideo).toHaveBeenCalledWith({
+			aspect: "16:9",
+			attemptId: "attempt_1",
+			imageUrl: VIDEO_INPUT.imageUrl,
+			index: 1,
+			motionPrompt: VIDEO_INPUT.motionPrompt,
+			projectId: "project_1",
+		});
+		expect(output).toEqual({
+			posterUrl: VIDEO_INPUT.imageUrl,
+			status: "generated",
+			url,
+		});
+		expect(state.videosGenerated).toBe(1);
+	});
+
+	it("relays unavailable without counting the video — graceful fallback", async () => {
+		const { options, state, tools } = setup();
+		vi.mocked(generateBuildVideo).mockResolvedValue({
+			message: "video animation not configured — use the still image instead",
+			status: "unavailable",
+		});
+
+		const output = await tools.animate_image.execute?.(VIDEO_INPUT, options());
+
+		expect(output).toEqual({
+			message: "video animation not configured — use the still image instead",
+			status: "unavailable",
+		});
+		expect(state.videosGenerated).toBe(0);
+	});
+
+	it("releases the budget slot on failure but never reuses the key index", async () => {
+		const { options, state, tools } = setup();
+		vi.mocked(generateBuildVideo).mockResolvedValue({
+			message: "gateway exploded",
+			status: "failed",
+		});
+
+		const output = await tools.animate_image.execute?.(VIDEO_INPUT, options());
+
+		expect(output).toEqual({ message: "gateway exploded", status: "failed" });
+		expect(state.videosGenerated).toBe(0);
+
+		// The key sequence is never reused: a retry after a failure must not
+		// collide with a video a concurrent call may have uploaded meanwhile.
+		vi.mocked(generateBuildVideo).mockResolvedValue({
+			mediaType: "video/mp4",
+			status: "generated",
+			url: "https://assets.example.com/sites/project_1/assets/attempt_1/vid-2.mp4",
+		});
+		await tools.animate_image.execute?.(VIDEO_INPUT, options("vid_2"));
+		expect(generateBuildVideo).toHaveBeenLastCalledWith(
+			expect.objectContaining({ index: 2 }),
+		);
+		expect(state.videosGenerated).toBe(1);
 	});
 });

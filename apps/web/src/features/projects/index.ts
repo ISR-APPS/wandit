@@ -15,6 +15,14 @@
 // Pages are never exported from barrels.
 // Project types are re-exported from the feature DTO layer, which is derived
 // from shared contracts rather than handwritten duplicate types.
+
+// Attachment upload service (V2 spec §11) — shared with the workspace chat's
+// ask_user attachments tray, which loops it once per picked file.
+export {
+	ATTACHMENT_MAX_BYTES,
+	AttachmentUploadError,
+	uploadAttachment,
+} from "./api/attachments.services";
 export type { Project, ProjectStatus } from "./api/dto";
 // Mutations that other features can use to update existing projects.
 export { useDeleteProject, useRenameProject } from "./api/projects.mutations";

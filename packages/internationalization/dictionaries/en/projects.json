@@ -79,7 +79,16 @@
 		"addMenuLabel": "Add context",
 		"addSkillLabel": "Add skill",
 		"attachLabel": "Attach",
-		"attachHint": "Upload files and references — coming soon",
+		"attachHint": "Attach images or files",
+		"attachments": {
+			"uploading": "Uploading…",
+			"remove": "Remove",
+			"retry": "Retry",
+			"unsupported": "Unsupported format",
+			"tooLarge": "File too large (15 MB max)",
+			"failed": "Upload failed",
+			"signInFirst": "Sign in to attach files"
+		},
 		"modeLabel": "Mode",
 		"outputLabel": "Output",
 		"settingsLabel": "Generation settings",
@@ -115,9 +124,9 @@
 				"placeholder": "Describe what you want Wandit to create or change…"
 			},
 			"page": {
-				"label": "Page",
-				"description": "Create or edit the publishable page.",
-				"placeholder": "Describe the page you want to build or improve…"
+				"label": "Website",
+				"description": "Create a website — landing page or showcase site.",
+				"placeholder": "Describe the website you want to build or improve…"
 			},
 			"marketing": {
 				"label": "Marketing",
@@ -131,8 +140,8 @@
 			},
 			"video": {
 				"label": "Video",
-				"description": "Generate short ad videos and scene plans.",
-				"placeholder": "Describe the video ad, scenes, format and duration…"
+				"description": "Animate one of your images into a short video.",
+				"placeholder": "Describe the image to animate and the motion you want…"
 			}
 		},
 		"skillGroups": {
@@ -180,101 +189,30 @@
 				"description": "Creates the publishable project page.",
 				"placeholder": "Describe the product, offer, price, proof and COD flow…",
 				"options": {
-					"quality": {
-						"label": "Quality",
-						"choices": {
-							"standard": "Standard",
-							"max": "Max"
-						}
-					},
 					"goal": {
 						"label": "Goal",
 						"choices": {
 							"cod": "COD sales",
 							"leads": "Lead capture",
-							"promo": "Promo",
-							"service": "Service"
-						}
-					},
-					"language": {
-						"label": "Language",
-						"choices": {
-							"auto": "Auto",
-							"arabic": "Arabic",
-							"french": "French",
-							"ar-fr": "AR + FR"
-						}
-					},
-					"shape": {
-						"label": "Page type",
-						"choices": {
-							"landing": "Landing",
-							"product": "Product page",
-							"service": "Service page"
+							"service": "Service",
+							"promo": "Promo"
 						}
 					}
 				}
 			},
-			"page-edit": {
-				"label": "Page Edit",
-				"shortLabel": "Page Edit",
-				"description": "Updates copy, layout or sections in the current page.",
-				"placeholder": "Tell Wandit which part of the page should change…",
+			"site-vitrine": {
+				"label": "Showcase site",
+				"shortLabel": "Showcase site",
+				"description": "Multi-section site to present your business.",
+				"placeholder": "Describe your business, services and contact details…",
 				"options": {
-					"quality": {
-						"label": "Quality",
+					"goal": {
+						"label": "Goal",
 						"choices": {
-							"standard": "Standard",
-							"max": "Max"
-						}
-					},
-					"scope": {
-						"label": "Scope",
-						"choices": {
-							"hero": "Hero",
-							"offer": "Offer block",
-							"form": "Order form",
-							"full": "Full page"
-						}
-					},
-					"intensity": {
-						"label": "Change level",
-						"choices": {
-							"light": "Light",
-							"medium": "Medium",
-							"rewrite": "Rewrite"
-						}
-					}
-				}
-			},
-			"html-section": {
-				"label": "HTML Section",
-				"shortLabel": "HTML Section",
-				"description": "Creates an embeddable section for the page.",
-				"placeholder": "Describe the section you want to add to the page…",
-				"options": {
-					"quality": {
-						"label": "Quality",
-						"choices": {
-							"standard": "Standard",
-							"max": "Max"
-						}
-					},
-					"section": {
-						"label": "Section type",
-						"choices": {
-							"comparison": "Comparison",
-							"faq": "FAQ",
-							"testimonials": "Testimonials",
-							"offer": "Offer block"
-						}
-					},
-					"style": {
-						"label": "Style",
-						"choices": {
-							"match": "Match page",
-							"clean": "Clean",
-							"direct": "Direct response"
+							"cod": "COD sales",
+							"leads": "Lead capture",
+							"service": "Service",
+							"promo": "Promo"
 						}
 					}
 				}
@@ -556,54 +494,10 @@
 					}
 				}
 			},
-			"video-creator": {
-				"label": "Auto",
-				"shortLabel": "Auto",
-				"description": "Wandit chooses the best video format from the prompt.",
-				"placeholder": "Describe the video, scenes, movement, mood and aspect ratio…",
-				"options": {
-					"method": {
-						"label": "Generate method",
-						"choices": {
-							"reference": "Reference",
-							"edit": "Edit",
-							"frames": "Frames"
-						}
-					},
-					"size": {
-						"label": "Size",
-						"choices": {
-							"auto": "Auto",
-							"16-9": "16:9",
-							"4-3": "4:3",
-							"1-1": "1:1",
-							"9-16": "9:16",
-							"21-9": "21:9"
-						}
-					},
-					"resolution": {
-						"label": "Resolution",
-						"choices": {
-							"720": "720p",
-							"1080": "1080p",
-							"4k": "4k"
-						}
-					},
-					"duration": {
-						"label": "Duration",
-						"choices": {
-							"4": "4s",
-							"5": "5s",
-							"8": "8s",
-							"10": "10s"
-						}
-					}
-				}
-			},
 			"ugc-video": {
 				"label": "UGC Video",
 				"shortLabel": "UGC Video",
-				"description": "Creates creator-style short-form video ads.",
+				"description": "UGC-style video animated from a product image.",
 				"placeholder": "Describe the UGC ad, creator vibe, hook and proof…",
 				"options": {
 					"structure": {
@@ -627,7 +521,7 @@
 			"product-demo": {
 				"label": "Product Demo",
 				"shortLabel": "Demo",
-				"description": "Shows product use, result and order action.",
+				"description": "Product demo animated from an image.",
 				"placeholder": "Describe the product demo sequence and final CTA…",
 				"options": {
 					"pace": {

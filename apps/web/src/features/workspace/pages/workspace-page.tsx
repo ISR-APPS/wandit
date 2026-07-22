@@ -25,6 +25,7 @@ import { AssetsTab } from "../components/assets/assets-tab";
 import { ChatPane } from "../components/chat/chat-pane";
 import { LeadsTab } from "../components/leads/leads-tab";
 import { MarketingTab } from "../components/marketing/marketing-tab";
+import { EditPanel } from "../components/page/edit-panel";
 import { PageTab } from "../components/page/page-tab";
 import { PublishPanel } from "../components/publish/publish-panel";
 import { SettingsTab } from "../components/settings/settings-tab";
@@ -38,6 +39,7 @@ import {
 	writeWorkspacePanelLayout,
 } from "../lib/helpers";
 import { useWorkspace, WorkspaceProvider } from "../lib/store";
+import { PageEditorProvider, usePageEditor } from "../lib/use-page-editor";
 
 export default function WorkspacePage({
 	projectId,
@@ -48,14 +50,29 @@ export default function WorkspacePage({
 }) {
 	return (
 		<WorkspaceProvider key={projectId} projectId={projectId} tab={tab}>
-			<WorkspaceLayout />
+			{/* Edit-mode state (WS2) wraps BOTH panes: the chat composer reads
+			    the click-to-target selection, the Page surfaces read the rest. */}
+			<PageEditorProvider>
+				<WorkspaceLayout />
+			</PageEditorProvider>
 		</WorkspaceProvider>
 	);
 }
 
 function WorkspaceLayout() {
 	const { tab, projectMissing } = useWorkspace();
+	const { mode, requestMode } = usePageEditor();
 	const isMobile = useIsMobile();
+
+	// Leaving the Page tab while targeting/editing hands the mode back to
+	// browse — otherwise the left pane would keep the edit panel (chat
+	// unreachable) steering a now-hidden preview. The dirty guard inside
+	// requestMode turns this into the discard confirm when unsaved edits
+	// exist; cancelling it keeps editing (the user can return to the Page
+	// tab), confirming discards and restores the chat.
+	useEffect(() => {
+		if (tab !== "page" && mode !== "browse") requestMode("browse");
+	}, [tab, mode, requestMode]);
 
 	if (projectMissing) return <ProjectNotFound />;
 
@@ -80,10 +97,26 @@ function WorkspaceLayout() {
 
 function MobileSplit({ tab }: { tab: WorkspaceTab }) {
 	const { chatOpen } = useWorkspace();
+	const editor = usePageEditor();
+	const editing = editor.mode === "edit";
 	return (
 		<div className="relative h-full min-h-0">
-			<div className={cn("absolute inset-0 z-30", !chatOpen && "hidden")}>
-				<ChatPane />
+			{/* One overlay slot, edit wins over chat: the edit panel mirrors the
+			    chat's full-screen behavior; both stay mounted (CSS toggle) so the
+			    composer draft, chat scroll and streams survive the swap. Closing
+			    via the panel's X reveals the preview (browse mode). */}
+			<div
+				className={cn(
+					"absolute inset-0 z-30",
+					!(chatOpen || editing) && "hidden",
+				)}
+			>
+				<div className={cn("h-full", editing && "hidden")}>
+					<ChatPane />
+				</div>
+				<div className={cn("h-full", !editing && "hidden")}>
+					<EditPanel />
+				</div>
 			</div>
 			<WorkspaceMain tab={tab} />
 		</div>
@@ -99,6 +132,12 @@ const MIN_CHAT_WIDTH = "430px";
 
 function DesktopSplit({ tab }: { tab: WorkspaceTab }) {
 	const { chatOpen, setChatOpenState } = useWorkspace();
+	const editor = usePageEditor();
+	const editing = editor.mode === "edit";
+	// Edit (Modifier) swaps the LEFT pane's content from chat to the edit
+	// panel — so the pane must be open whenever editing, even if the chat was
+	// collapsed; leaving edit falls back to the persisted chatOpen state.
+	const paneOpen = chatOpen || editing;
 	const chatPanelRef = useRef<ResizablePanelHandle>(null);
 
 	// Button-driven open/close (from the store) imperatively drives the panel;
@@ -106,9 +145,9 @@ function DesktopSplit({ tab }: { tab: WorkspaceTab }) {
 	useEffect(() => {
 		const panel = chatPanelRef.current;
 		if (!panel) return;
-		if (chatOpen && panel.isCollapsed()) panel.expand();
-		if (!chatOpen && !panel.isCollapsed()) panel.collapse();
-	}, [chatOpen]);
+		if (paneOpen && panel.isCollapsed()) panel.expand();
+		if (!paneOpen && !panel.isCollapsed()) panel.collapse();
+	}, [paneOpen]);
 
 	return (
 		<ResizablePanelGroup
@@ -119,7 +158,19 @@ function DesktopSplit({ tab }: { tab: WorkspaceTab }) {
 				// unlike onResize, it never fires for programmatic collapse/expand
 				// or the animation frames those produce, so it's safe to trust here.
 				if (!meta.isUserInteraction) return;
+				// While editing, paneOpen never transitions, so the expand effect
+				// above could not recover from a drag-collapse: edit mode would be
+				// stranded with a zero-width panel (and chatOpen would desync from
+				// the physical pane on exit). Snap the pane back open instead and
+				// skip persisting the transient collapsed layout.
+				if (editing && (layout.chat ?? 0) === 0) {
+					chatPanelRef.current?.expand();
+					return;
+				}
 				writeWorkspacePanelLayout(layout);
+				// While editing, the pane shows the edit panel — a drag-resize
+				// must not rewrite the user's persisted chat preference.
+				if (editing) return;
 				const collapsed = (layout.chat ?? 0) === 0;
 				if (collapsed === chatOpen) setChatOpenState(!collapsed);
 			}}
@@ -134,8 +185,15 @@ function DesktopSplit({ tab }: { tab: WorkspaceTab }) {
 				panelRef={chatPanelRef}
 				className="overflow-hidden"
 			>
+				{/* Chat and edit panel both stay MOUNTED (CSS toggle) so the
+				    composer draft, chat scroll and streams survive the swap. */}
 				<div className="h-full py-3 ps-3 pe-1">
-					<ChatPane className="rounded-2xl border bg-secondary" />
+					<div className={cn("h-full", editing && "hidden")}>
+						<ChatPane className="rounded-2xl border bg-secondary" />
+					</div>
+					<div className={cn("h-full", !editing && "hidden")}>
+						<EditPanel className="rounded-2xl border bg-secondary" />
+					</div>
 				</div>
 			</ResizablePanel>
 			{/* The handle sits invisibly in the gap between the two cards — no
@@ -143,11 +201,11 @@ function DesktopSplit({ tab }: { tab: WorkspaceTab }) {
 			<ResizableHandle
 				className={cn(
 					"bg-transparent after:rounded-full after:transition-colors data-[separator=active]:after:bg-foreground/20 data-[separator=hover]:after:bg-foreground/15 data-[separator=keyboard]:after:bg-foreground/20",
-					!chatOpen && "hidden",
+					!paneOpen && "hidden",
 				)}
 			/>
 			<ResizablePanel id="main" minSize="40%">
-				<div className={cn("h-full py-3 pe-3", chatOpen ? "ps-1" : "ps-3")}>
+				<div className={cn("h-full py-3 pe-3", paneOpen ? "ps-1" : "ps-3")}>
 					<WorkspaceMain
 						tab={tab}
 						className="rounded-2xl border bg-secondary"

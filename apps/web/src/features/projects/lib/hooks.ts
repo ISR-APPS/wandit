@@ -1,7 +1,10 @@
 // Feature hooks that aren't queries/mutations.
 
 import { useNavigate } from "@tanstack/react-router";
-import type { ComposerMetadata } from "@wandit/contracts";
+import type {
+	ComposerMetadata,
+	UploadAttachmentResponse,
+} from "@wandit/contracts";
 import { useCallback, useState } from "react";
 import { toast } from "sonner";
 
@@ -14,7 +17,11 @@ import { chatAutostart } from "./chat-autostart";
 import { deriveProjectName } from "./helpers";
 
 export type UseCreateProjectWithPromptResult = {
-	create: (prompt: string, composer?: ComposerMetadata) => void;
+	create: (
+		prompt: string,
+		composer?: ComposerMetadata,
+		attachments?: UploadAttachmentResponse[],
+	) => void;
 	isCreating: boolean;
 	insufficientOpen: boolean;
 	setInsufficientOpen: (open: boolean) => void;
@@ -33,7 +40,7 @@ export function useCreateProjectWithPrompt(): UseCreateProjectWithPromptResult {
 	const { t } = useTranslation();
 	const { data: session, isPending: isSessionPending } = useSession();
 	const { open } = useAuthModal();
-	const { consume } = useCredits();
+	const { canAfford, consume } = useCredits();
 	const createProject = useCreateProject();
 	const navigate = useNavigate();
 	const [insufficientOpen, setInsufficientOpen] = useState(false);
@@ -41,11 +48,15 @@ export function useCreateProjectWithPrompt(): UseCreateProjectWithPromptResult {
 	const cost = CREDIT_COSTS.generation;
 
 	const createSignedInProject = useCallback(
-		async (prompt: string, composer?: ComposerMetadata) => {
+		async (
+			prompt: string,
+			composer?: ComposerMetadata,
+			attachments?: UploadAttachmentResponse[],
+		) => {
 			const name = deriveProjectName(prompt);
-			// consume() re-checks the live balance atomically — covers both
-			// the canAfford gate and the charge in one step.
-			if (!consume(cost, name)) {
+			// Affordability gate BEFORE the request, charge AFTER it succeeds —
+			// a failed creation must never leave a consumed-credit ledger entry.
+			if (!canAfford(cost)) {
 				setInsufficientOpen(true);
 				return;
 			}
@@ -53,7 +64,17 @@ export function useCreateProjectWithPrompt(): UseCreateProjectWithPromptResult {
 				const { projectId, chatId } = await createProject.mutateAsync({
 					prompt,
 					composer,
+					// Uploaded R2 assets ride the create body as FileRefs — the server
+					// persists them as file parts on the first user message (spec §11).
+					attachments: attachments?.length
+						? attachments.map((attachment) => ({
+								url: attachment.url,
+								mediaType: attachment.mediaType,
+								filename: attachment.filename,
+							}))
+						: undefined,
 				});
+				consume(cost, name);
 				toast.success(t("projects.createSuccess", { name }));
 				// The prompt is already persisted as the chat's first message
 				// server-side; this one-shot flag tells the workspace to start
@@ -67,18 +88,24 @@ export function useCreateProjectWithPrompt(): UseCreateProjectWithPromptResult {
 				toast.error(getApiErrorMessage(error));
 			}
 		},
-		[consume, createProject, navigate, t],
+		[canAfford, consume, createProject, navigate, t],
 	);
 
 	const create = useCallback(
-		(prompt: string, composer?: ComposerMetadata) => {
+		(
+			prompt: string,
+			composer?: ComposerMetadata,
+			attachments?: UploadAttachmentResponse[],
+		) => {
 			if (!session) {
+				// Documented gap: only the TEXT survives the auth redirect — the
+				// attach row is disabled on signed-out surfaces so this stays moot.
 				promptStash.stash(prompt);
 				open();
 				return;
 			}
 
-			void createSignedInProject(prompt, composer);
+			void createSignedInProject(prompt, composer, attachments);
 		},
 		[createSignedInProject, open, session],
 	);
