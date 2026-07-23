@@ -32,8 +32,7 @@ export function modelNeedsToolImageRelocation(model: string): boolean {
  * Text-only models (DeepSeek) reject image parts no matter where they sit,
  * so relocation cannot help — the image entries are dropped outright and the
  * tool result keeps only its text lines (which carry the hosted URL, all the
- * model needs to place the asset in HTML). Visual self-review via
- * screenshot_page is effectively a no-op for these models.
+ * model needs to place the asset in HTML).
  */
 export function modelNeedsToolImageStripping(model: string): boolean {
 	return model.startsWith("deepseek/");

@@ -7,10 +7,8 @@
  * brief, ids) is passed in by the caller. Model strings resolve through the
  * AI SDK's default Vercel AI Gateway provider.
  *
- * The loop is ONE deliberate build pass → finish. screenshot_page stays
- * available as an optional diagnostic, but no review pass is mandated: the
- * finish guard only validates that index.html exists and the finish protocol
- * was followed.
+ * The loop is ONE deliberate build pass → finish. The finish guard only
+ * validates that index.html exists and the finish protocol was followed.
  */
 import { isStepCount, type Tool, ToolLoopAgent, tool } from "ai";
 import { z } from "zod";
@@ -36,15 +34,10 @@ import {
 	relocateToolResultImages,
 	stripToolResultImages,
 } from "./relocate-tool-images";
-import {
-	type CapturedShot,
-	createScreenshotSession,
-	type ScreenshotSession,
-} from "./screenshot";
 import { type SiteFile, VirtualFileSystem } from "./virtual-files";
 
 export type SiteBuildParams = {
-	/** Names the screenshot temp dir and the R2 asset prefix. */
+	/** Names the R2 asset prefix for this build's generated assets. */
 	attemptId: string;
 	brief: string;
 	/** Gateway model string, snapshotted on the attempt (e.g. anthropic/claude-fable-5). */
@@ -64,9 +57,9 @@ export type SiteBuildResult = {
 	summary: string | null;
 };
 
-// Generous but bounded: one build pass + image generations + optional
-// screenshot diagnostics. The accepted-finish flag is the intended exit;
-// isStepCount is the runaway backstop (unused steps cost nothing).
+// Generous but bounded: one build pass + image generations. The
+// accepted-finish flag is the intended exit; isStepCount is the runaway
+// backstop (unused steps cost nothing).
 const MAX_STEPS = 48;
 
 // Full landing pages routinely exceed 30k chars of HTML; the ceiling must
@@ -82,7 +75,6 @@ export type BuildLoopState = {
 	/** R2 key sequence — monotonic, never reused even after a failed call. */
 	imageSequence: number;
 	imagesGenerated: number;
-	screenshotPasses: number;
 	summary: string | null;
 	/** Same monotonic-sequence discipline as images, for vid-{n} keys. */
 	videoSequence: number;
@@ -94,7 +86,6 @@ export function createBuildLoopState(): BuildLoopState {
 		finishAccepted: false,
 		imageSequence: 0,
 		imagesGenerated: 0,
-		screenshotPasses: 0,
 		summary: null,
 		videoSequence: 0,
 		videosGenerated: 0,
@@ -123,7 +114,6 @@ function log(message: string): void {
 type BuilderToolsParams = {
 	attemptId: string;
 	projectId: string;
-	screenshots: ScreenshotSession;
 	state: BuildLoopState;
 	vfs: VirtualFileSystem;
 };
@@ -149,17 +139,6 @@ type GenerateImageOutput =
 			url: string;
 	  };
 
-type ScreenshotPageOutput =
-	| { message: string; refused: true }
-	| {
-			consoleErrors: string[];
-			desktopShots: number;
-			mobileShots: number;
-			overflow: { desktop: number; mobile: number };
-			pass: number;
-			refused: false;
-	  };
-
 // Explicit (declaration-emit friendly) tool map; same alias-over-Record
 // pattern as AiChatToolSet in chat-agent.ts.
 export type BuilderTools = {
@@ -177,7 +156,6 @@ export type BuilderTools = {
 		{ files: Array<{ bytes: number; path: string }> }
 	>;
 	read_file: Tool<{ path: string }, { content: string; path: string }>;
-	screenshot_page: Tool<EmptyInput, ScreenshotPageOutput>;
 	write_file: Tool<
 		{ content: string; path: string },
 		{ bytes: number; path: string }
@@ -186,15 +164,14 @@ export type BuilderTools = {
 
 /**
  * The builder's tool set. Exported for tests: the guards (single-file
- * write_file, refused finish, pass counting, image budget) are code, not
- * prompt prose, and must stay verifiable without a model or a browser.
+ * write_file, refused finish, image/video budgets) are code, not prompt
+ * prose, and must stay verifiable without a model.
  */
 export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
-	const { screenshots, state, vfs } = params;
+	const { state, vfs } = params;
 
 	// toModelOutput must show the model images that the transcript output must
 	// NOT carry — raw bytes are stashed per tool call and looked up by id.
-	const shotsByCall = new Map<string, CapturedShot[]>();
 	const imageByCall = new Map<string, { base64: string; mediaType: string }>();
 
 	return {
@@ -402,88 +379,6 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 				return { content, path };
 			},
 		}),
-		screenshot_page: tool({
-			description:
-				"OPTIONAL diagnostic: render the current index.html in a real " +
-				"browser and SEE it — desktop (1440px) and mobile (390px) " +
-				"screenshots top to bottom, console errors, and a " +
-				"horizontal-overflow report. Use it only when you are genuinely " +
-				"unsure something renders correctly; it is never required.",
-			inputSchema: emptyInputSchema,
-			execute: async (_input, { toolCallId }) => {
-				const html = vfs.read("index.html");
-
-				if (html === null) {
-					return {
-						message:
-							"index.html has not been written yet — write it first, then " +
-							"screenshot.",
-						refused: true as const,
-					};
-				}
-
-				const capture = await screenshots.capture(html);
-
-				state.screenshotPasses += 1;
-				shotsByCall.set(toolCallId, capture.shots);
-
-				const desktopShots = capture.shots.filter(
-					(shot) => shot.viewport === "desktop",
-				).length;
-				const mobileShots = capture.shots.length - desktopShots;
-
-				log(
-					`screenshot review ${state.screenshotPasses} — ` +
-						`${capture.shots.length} shots, ` +
-						`${capture.consoleErrors.length} console errors`,
-				);
-
-				return {
-					consoleErrors: capture.consoleErrors,
-					desktopShots,
-					mobileShots,
-					overflow: capture.overflow,
-					pass: state.screenshotPasses,
-					refused: false as const,
-				};
-			},
-			toModelOutput: ({ output, toolCallId }) => {
-				if (output.refused) {
-					return {
-						type: "content",
-						value: [{ text: output.message, type: "text" }],
-					};
-				}
-
-				const shots = shotsByCall.get(toolCallId) ?? [];
-				const errors =
-					output.consoleErrors.length > 0
-						? output.consoleErrors.join(" | ")
-						: "none";
-				const overflowText = (px: number) => (px > 1 ? `${px}px` : "none");
-
-				return {
-					type: "content",
-					value: [
-						{
-							text:
-								`Screenshot review ${output.pass}. ` +
-								`Desktop: ${output.desktopShots} shots, mobile: ` +
-								`${output.mobileShots} shots. Console errors: ${errors}. ` +
-								"Horizontal overflow: desktop " +
-								`${overflowText(output.overflow.desktop)}, mobile ` +
-								`${overflowText(output.overflow.mobile)}.`,
-							type: "text",
-						},
-						...shots.map((shot) => ({
-							data: { data: shot.base64, type: "data" as const },
-							mediaType: "image/jpeg",
-							type: "file" as const,
-						})),
-					],
-				};
-			},
-		}),
 		write_file: tool({
 			description:
 				"Create or overwrite ONE complete file of the site. The site " +
@@ -521,133 +416,120 @@ export async function runSiteBuild(
 ): Promise<SiteBuildResult> {
 	const vfs = new VirtualFileSystem();
 	const state = createBuildLoopState();
-	const screenshots = createScreenshotSession(params.attemptId);
 	const startedAt = Date.now();
 
 	log(`starting build of "${params.title}" with model ${params.model}`);
 
-	try {
-		const agent = new ToolLoopAgent({
-			instructions: params.system,
-			maxOutputTokens: MAX_OUTPUT_TOKENS,
-			model: params.model,
-			// Kimi/Moonshot rejects image parts inside tool results (they fall
-			// through as base64 TEXT and blow the context) but reads images fine
-			// from user messages — so relocate them there before every step.
-			// The provider order also prefers Novita: same price, ~1.5s TTFT vs
-			// Moonshot's 6s+ launch congestion (Moonshot stays as fallback).
-			// Text-only models (DeepSeek) cannot see images anywhere, so image
-			// parts are stripped instead — the tool result's URL text line is
-			// all they need to place assets.
-			...(modelNeedsToolImageRelocation(params.model)
-				? {
-						providerOptions: {
-							gateway: { order: ["novita"] },
-						},
-						prepareStep: ({ messages }) => {
-							const relocated = relocateToolResultImages(messages);
+	const agent = new ToolLoopAgent({
+		instructions: params.system,
+		maxOutputTokens: MAX_OUTPUT_TOKENS,
+		model: params.model,
+		// Kimi/Moonshot rejects image parts inside tool results (they fall
+		// through as base64 TEXT and blow the context) but reads images fine
+		// from user messages — so relocate them there before every step.
+		// The provider order also prefers Novita: same price, ~1.5s TTFT vs
+		// Moonshot's 6s+ launch congestion (Moonshot stays as fallback).
+		// Text-only models (DeepSeek) cannot see images anywhere, so image
+		// parts are stripped instead — the tool result's URL text line is
+		// all they need to place assets.
+		...(modelNeedsToolImageRelocation(params.model)
+			? {
+					providerOptions: {
+						gateway: { order: ["novita"] },
+					},
+					prepareStep: ({ messages }) => {
+						const relocated = relocateToolResultImages(messages);
 
-							return relocated === messages
-								? undefined
-								: { messages: relocated };
-						},
-					}
-				: {}),
-			...(modelNeedsToolImageStripping(params.model)
-				? {
-						prepareStep: ({ messages }) => {
-							const stripped = stripToolResultImages(messages);
-
-							return stripped === messages
-								? undefined
-								: { messages: stripped };
-						},
-					}
-				: {}),
-			stopWhen: buildStopConditions(state),
-			tools: createBuilderTools({
-				attemptId: params.attemptId,
-				projectId: params.projectId,
-				screenshots,
-				state,
-				vfs,
-			}),
-		});
-
-		// stream(), NOT generate(): a non-streaming call buffers the entire
-		// generation server-side before sending response headers, and a full-page
-		// write step routinely exceeds Node's 5-minute undici headersTimeout
-		// (observed as GatewayTimeoutError 408). Streaming receives headers
-		// immediately; nothing here consumes deltas — the stream is just drained.
-		const stream = await agent.stream({
-			prompt:
-				`Build the landing page now.\n\nTITLE: ${params.title}\n\n` +
-				`BRIEF:\n${params.brief}`,
-		});
-
-		// Model-call failures don't throw while draining: the SDK enqueues them
-		// as {type:"error"} stream parts (consumeStream's onError only fires
-		// when reading itself fails). Drain fullStream and capture the first
-		// real cause — it must land in the attempt row instead of a misleading
-		// generic "stopped without an accepted finish".
-		let streamError: unknown;
-		try {
-			for await (const part of stream.fullStream) {
-				if (part.type === "error" && streamError === undefined) {
-					streamError = part.error;
+						return relocated === messages ? undefined : { messages: relocated };
+					},
 				}
+			: {}),
+		...(modelNeedsToolImageStripping(params.model)
+			? {
+					prepareStep: ({ messages }) => {
+						const stripped = stripToolResultImages(messages);
+
+						return stripped === messages ? undefined : { messages: stripped };
+					},
+				}
+			: {}),
+		stopWhen: buildStopConditions(state),
+		tools: createBuilderTools({
+			attemptId: params.attemptId,
+			projectId: params.projectId,
+			state,
+			vfs,
+		}),
+	});
+
+	// stream(), NOT generate(): a non-streaming call buffers the entire
+	// generation server-side before sending response headers, and a full-page
+	// write step routinely exceeds Node's 5-minute undici headersTimeout
+	// (observed as GatewayTimeoutError 408). Streaming receives headers
+	// immediately; nothing here consumes deltas — the stream is just drained.
+	const stream = await agent.stream({
+		prompt:
+			`Build the landing page now.\n\nTITLE: ${params.title}\n\n` +
+			`BRIEF:\n${params.brief}`,
+	});
+
+	// Model-call failures don't throw while draining: the SDK enqueues them
+	// as {type:"error"} stream parts (consumeStream's onError only fires
+	// when reading itself fails). Drain fullStream and capture the first
+	// real cause — it must land in the attempt row instead of a misleading
+	// generic "stopped without an accepted finish".
+	let streamError: unknown;
+	try {
+		for await (const part of stream.fullStream) {
+			if (part.type === "error" && streamError === undefined) {
+				streamError = part.error;
 			}
-		} catch (error) {
-			streamError ??= error;
 		}
-
-		if (streamError !== undefined) {
-			throw streamError instanceof Error
-				? streamError
-				: new Error(String(streamError));
-		}
-
-		const steps = await stream.steps;
-		const summary = state.summary;
-
-		// An accepted finish is the ONLY valid exit: a natural stop or the step
-		// backstop means the model abandoned the protocol mid-build, and an
-		// interim draft must never be published as a succeeded version.
-		if (summary === null) {
-			throw new Error(
-				"The builder stopped without an accepted finish " +
-					`(${steps.length} steps) — refusing to publish an ` +
-					"unfinished build",
-			);
-		}
-
-		// Deterministic stamping pass (spec §4): every editable leaf gets a
-		// stable data-wid before upload, so every version's canonical HTML in
-		// R2 is fully stamped. The model is never asked to do this itself.
-		const rawHtml = vfs.read("index.html");
-
-		if (rawHtml !== null) {
-			vfs.write("index.html", stampHtml(rawHtml));
-		}
-
-		assertValidSite(vfs);
-
-		log(
-			`build done in ${Math.round((Date.now() - startedAt) / 1000)}s — ` +
-				`${steps.length} steps, ${state.screenshotPasses} screenshot passes, ` +
-				`${state.imagesGenerated} images`,
-		);
-
-		return {
-			files: vfs.toFiles(),
-			steps: steps.length,
-			summary,
-		};
-	} finally {
-		// Browser + temp dir always go away, success or failure — the Trigger
-		// worker process may be reused for the next build.
-		await screenshots.dispose();
+	} catch (error) {
+		streamError ??= error;
 	}
+
+	if (streamError !== undefined) {
+		throw streamError instanceof Error
+			? streamError
+			: new Error(String(streamError));
+	}
+
+	const steps = await stream.steps;
+	const summary = state.summary;
+
+	// An accepted finish is the ONLY valid exit: a natural stop or the step
+	// backstop means the model abandoned the protocol mid-build, and an
+	// interim draft must never be published as a succeeded version.
+	if (summary === null) {
+		throw new Error(
+			"The builder stopped without an accepted finish " +
+				`(${steps.length} steps) — refusing to publish an ` +
+				"unfinished build",
+		);
+	}
+
+	// Deterministic stamping pass (spec §4): every editable leaf gets a
+	// stable data-wid before upload, so every version's canonical HTML in
+	// R2 is fully stamped. The model is never asked to do this itself.
+	const rawHtml = vfs.read("index.html");
+
+	if (rawHtml !== null) {
+		vfs.write("index.html", stampHtml(rawHtml));
+	}
+
+	assertValidSite(vfs);
+
+	log(
+		`build done in ${Math.round((Date.now() - startedAt) / 1000)}s — ` +
+			`${steps.length} steps, ${state.imagesGenerated} images`,
+	);
+
+	return {
+		files: vfs.toFiles(),
+		steps: steps.length,
+		summary,
+	};
 }
 
 /**

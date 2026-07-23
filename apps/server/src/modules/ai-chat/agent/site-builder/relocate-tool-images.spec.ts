@@ -17,7 +17,10 @@ function toolMessageWithImage(toolCallId: string): ModelMessage {
 				output: {
 					type: "content",
 					value: [
-						{ text: "Generated (hero, 16:9): https://r2/img.png", type: "text" },
+						{
+							text: "Generated (hero, 16:9): https://r2/img.png",
+							type: "text",
+						},
 						{
 							data: { data: PIXEL, type: "data" },
 							mediaType: "image/png",
@@ -60,7 +63,10 @@ describe("stripToolResultImages", () => {
 		const messages: Array<ModelMessage> = [
 			{ content: "build the page", role: "user" },
 			toolMessageWithImage("call-1"),
-			{ content: [{ text: "placing it now", type: "text" }], role: "assistant" },
+			{
+				content: [{ text: "placing it now", type: "text" }],
+				role: "assistant",
+			},
 		];
 
 		const result = stripToolResultImages(messages);
@@ -138,7 +144,10 @@ describe("relocateToolResultImages", () => {
 		const messages: Array<ModelMessage> = [
 			{ content: "build the page", role: "user" },
 			toolMessageWithImage("call-1"),
-			{ content: [{ text: "placing it now", type: "text" }], role: "assistant" },
+			{
+				content: [{ text: "placing it now", type: "text" }],
+				role: "assistant",
+			},
 		];
 
 		const result = relocateToolResultImages(messages);
@@ -151,9 +160,9 @@ describe("relocateToolResultImages", () => {
 		if (part?.type !== "tool-result" || part.output.type !== "content") {
 			throw new Error("expected content tool result");
 		}
-		expect(
-			part.output.value.every((entry) => entry.type === "text"),
-		).toBe(true);
+		expect(part.output.value.every((entry) => entry.type === "text")).toBe(
+			true,
+		);
 
 		const carrier = result[2];
 		if (carrier?.role !== "user" || !Array.isArray(carrier.content)) {

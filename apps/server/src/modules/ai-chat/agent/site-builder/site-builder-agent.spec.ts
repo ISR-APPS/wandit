@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { generateBuildImage, MAX_IMAGES } from "./generate-image";
 import { generateBuildVideo, MAX_VIDEOS } from "./generate-video";
-import type { ScreenshotCapture, ScreenshotSession } from "./screenshot";
 import {
 	buildStopConditions,
 	createBuilderTools,
@@ -10,9 +9,9 @@ import {
 } from "./site-builder-agent";
 import { VirtualFileSystem } from "./virtual-files";
 
-// The guards must be verifiable without a browser or a network: the
-// screenshot session is injected as a fake, and the image handler (which
-// talks to the gateway and R2) is mocked. Everything else runs for real.
+// The guards must be verifiable without a network: the image/video handlers
+// (which talk to the gateway and R2) are mocked. Everything else runs for
+// real.
 vi.mock("./generate-image", async (importOriginal) => {
 	const original = await importOriginal<typeof import("./generate-image")>();
 
@@ -40,33 +39,12 @@ const VIDEO_INPUT = {
 	motionPrompt: "steam drifts slowly, warm light breathes",
 };
 
-// Base64 markers that must appear ONLY in toModelOutput, never in the
-// transcript output.
-const DESKTOP_SHOT = "ZGVza3RvcC1zaG90";
-const MOBILE_SHOT = "bW9iaWxlLXNob3Q=";
-
-function fakeCapture(): ScreenshotCapture {
-	return {
-		consoleErrors: ["[mobile] boom is not defined"],
-		overflow: { desktop: 0, mobile: 12 },
-		shots: [
-			{ base64: DESKTOP_SHOT, viewport: "desktop" },
-			{ base64: MOBILE_SHOT, viewport: "mobile" },
-		],
-	};
-}
-
 function setup() {
 	const state = createBuildLoopState();
 	const vfs = new VirtualFileSystem();
-	const screenshots: ScreenshotSession = {
-		capture: vi.fn().mockResolvedValue(fakeCapture()),
-		dispose: vi.fn(),
-	};
 	const tools = createBuilderTools({
 		attemptId: "attempt_1",
 		projectId: "project_1",
-		screenshots,
 		state,
 		vfs,
 	});
@@ -76,7 +54,7 @@ function setup() {
 	const options = (toolCallId = "call_1") =>
 		({ messages: [], toolCallId }) as never;
 
-	return { options, screenshots, state, tools, vfs };
+	return { options, state, tools, vfs };
 }
 
 // Tool execute types allow streamed AsyncIterable outputs; these tools never
@@ -125,88 +103,6 @@ describe("write_file guard", () => {
 	});
 });
 
-describe("screenshot_page", () => {
-	it("refuses before index.html exists and does not count a pass", async () => {
-		const { options, screenshots, state, tools } = setup();
-
-		const output = await tools.screenshot_page.execute?.({}, options());
-
-		expect(output).toMatchObject({ refused: true });
-		expect(state.screenshotPasses).toBe(0);
-		expect(screenshots.capture).not.toHaveBeenCalled();
-	});
-
-	it("still counts passes when used — telemetry only, never a gate", async () => {
-		const { options, state, tools } = setup();
-		await tools.write_file.execute?.(
-			{ content: HTML, path: "index.html" },
-			options(),
-		);
-
-		await tools.screenshot_page.execute?.({}, options("shot_1"));
-		await tools.screenshot_page.execute?.({}, options("shot_2"));
-
-		expect(state.screenshotPasses).toBe(2);
-	});
-
-	it("keeps the transcript output small and hands the images to toModelOutput", async () => {
-		const { options, state, tools } = setup();
-		await tools.write_file.execute?.(
-			{ content: HTML, path: "index.html" },
-			options(),
-		);
-
-		const output = materialize(
-			await tools.screenshot_page.execute?.({}, options("shot_1")),
-		);
-
-		expect(output).toMatchObject({
-			consoleErrors: ["[mobile] boom is not defined"],
-			desktopShots: 1,
-			mobileShots: 1,
-			overflow: { desktop: 0, mobile: 12 },
-			pass: 1,
-			refused: false,
-		});
-		expect(state.screenshotPasses).toBe(1);
-		// The transcript/DB output must never carry the base64 screenshots.
-		expect(JSON.stringify(output)).not.toContain(DESKTOP_SHOT);
-
-		if (output.refused) {
-			throw new Error("screenshot_page must succeed here");
-		}
-
-		const modelOutput = await tools.screenshot_page.toModelOutput?.({
-			input: {},
-			output,
-			toolCallId: "shot_1",
-		});
-
-		if (modelOutput?.type !== "content") {
-			throw new Error("expected a content tool result");
-		}
-
-		const [text, ...files] = modelOutput.value;
-
-		expect(text).toMatchObject({ type: "text" });
-		expect(text?.type === "text" ? text.text : "").toContain(
-			"Screenshot review 1.",
-		);
-		expect(files).toEqual([
-			{
-				data: { data: DESKTOP_SHOT, type: "data" },
-				mediaType: "image/jpeg",
-				type: "file",
-			},
-			{
-				data: { data: MOBILE_SHOT, type: "data" },
-				mediaType: "image/jpeg",
-				type: "file",
-			},
-		]);
-	});
-});
-
 describe("finish guard", () => {
 	it("refuses while index.html is missing", async () => {
 		const { options, state, tools } = setup();
@@ -221,7 +117,7 @@ describe("finish guard", () => {
 		expect(state.summary).toBeNull();
 	});
 
-	it("accepts immediately once index.html exists — zero screenshot passes", async () => {
+	it("accepts immediately once index.html exists", async () => {
 		const { options, state, tools } = setup();
 		await tools.write_file.execute?.(
 			{ content: HTML, path: "index.html" },
@@ -235,7 +131,6 @@ describe("finish guard", () => {
 
 		expect(accepted).toEqual({ accepted: true });
 		expect(state.finishAccepted).toBe(true);
-		expect(state.screenshotPasses).toBe(0);
 		expect(state.summary).toBe("Souk Heat direction, warm editorial.");
 	});
 
