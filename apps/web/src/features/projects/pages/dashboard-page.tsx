@@ -151,6 +151,7 @@ export default function DashboardPage() {
 								variant="hero"
 								showPriceTag
 								showModes
+								attachmentsEnabled
 								initialValue={promptPrefill.value}
 								onSubmit={create}
 								isSubmitting={isCreating}

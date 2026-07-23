@@ -41,9 +41,9 @@ export default defineConfig({
 	project: "proj_stzpldofqndpuwhwrdlw",
 	dirs: ["./src/trigger"],
 	runtime: "node",
-	// Generous ceiling: the builder agent does several long model calls
-	// (write → review → rewrite → finish); a full run measured ~10 minutes,
-	// so 600 would kill real builds. Compute-seconds: 1800 = 30 minutes.
+	// Generous ceiling: the builder agent does a single deliberate build pass
+	// (typically a few minutes), but long model calls need headroom.
+	// Compute-seconds: 1800 = 30 minutes — a safety net, not an estimate.
 	maxDuration: 1800,
 	// One attempt only: a failed build is marked failed in our own attempts
 	// table and surfaced to the user — silent model re-runs would just burn

@@ -2,6 +2,7 @@ import {
 	type ComposerMetadata,
 	type ComposerQuality,
 	projectPromptMaxLength,
+	type UploadAttachmentResponse,
 } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import {
@@ -40,12 +41,14 @@ import {
 	FileText,
 	Gauge,
 	ImageIcon,
+	LayoutTemplate,
 	Loader2,
 	type LucideIcon,
 	Megaphone,
 	Mic,
 	Paperclip,
 	Plus,
+	RefreshCw,
 	Rocket,
 	SearchCheck,
 	ShieldCheck,
@@ -61,6 +64,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Spark } from "@/components/logo";
 import { PriceTag } from "@/features/credits";
 import { useDictionary, useTranslation } from "@/lib/i18n";
+import {
+	ATTACHMENT_ACCEPT,
+	ATTACHMENT_MAX_BYTES,
+	AttachmentUploadError,
+	uploadAttachment,
+} from "../api/attachments.services";
 import { MAX_VISIBLE_SKILLS, QUALITY_CREDITS } from "../lib/constants";
 import { useVoiceDictation } from "../lib/use-voice-dictation";
 
@@ -112,8 +121,7 @@ type SkillFileGroup = {
 
 type GenerationOutputId =
 	| "landing-page"
-	| "page-edit"
-	| "html-section"
+	| "site-vitrine"
 	| "ad-copy"
 	| "marketing-strategy"
 	| "video-script"
@@ -123,7 +131,6 @@ type GenerationOutputId =
 	| "product-shot"
 	| "ad-creative"
 	| "background-edit"
-	| "video-creator"
 	| "ugc-video"
 	| "product-demo";
 
@@ -140,6 +147,43 @@ type GenerationOutputDef = {
 // Shape of the localized option copy read via useDictionary(); ids are matched
 // against the non-copy config above so ordering stays in code.
 type OptionCopy = { label: string; choices: Record<string, string> };
+
+/** One user asset attached to the draft (V2 spec §11). Uploads start the
+ *  moment the file is picked — submit only forwards the `ready` ones. */
+export type ComposerAttachment = {
+	id: string; // local uuid
+	filename: string;
+	mediaType: string;
+	previewUrl: string | null; // object URL for images
+	status: "uploading" | "ready" | "error";
+	uploaded?: UploadAttachmentResponse;
+	/** Failure reason key (maps to promptBox.attachments.* copy). */
+	error?: string;
+	/** Kept so a failed upload can be retried without re-picking. */
+	file?: File;
+};
+
+/** Contract §7.2 allowlist mirrored client-side for instant feedback. */
+const ALLOWED_ATTACHMENT_TYPES = new Set(ATTACHMENT_ACCEPT.split(","));
+
+/** createProject caps `attachments` at 6 (contract Appendix C). */
+const MAX_ATTACHMENTS = 6;
+
+function toComposerAttachment(file: File): ComposerAttachment {
+	const unsupported = !ALLOWED_ATTACHMENT_TYPES.has(file.type);
+	const tooLarge = file.size > ATTACHMENT_MAX_BYTES;
+	return {
+		id: crypto.randomUUID(),
+		filename: file.name,
+		mediaType: file.type,
+		previewUrl: file.type.startsWith("image/")
+			? URL.createObjectURL(file)
+			: null,
+		status: unsupported || tooLarge ? "error" : "uploading",
+		error: unsupported ? "unsupported" : tooLarge ? "too-large" : undefined,
+		file,
+	};
+}
 
 const ROUTE_MODES: readonly RouteModeDef[] = [
 	{ id: "auto", icon: Sparkles },
@@ -190,6 +234,9 @@ const SKILL_FILE_GROUPS: readonly SkillFileGroup[] = [
 ];
 
 const OUTPUTS_BY_MODE: Record<ConcreteMode, readonly GenerationOutputDef[]> = {
+	// Mode "page" (FR label "Site web") — two outputs only (spec §10): the
+	// single-page COD-style funnel and the multi-section vitrine site. `goal`
+	// choice ids are the frozen vocabulary (contract §10.2).
 	page: [
 		{
 			id: "landing-page",
@@ -201,62 +248,25 @@ const OUTPUTS_BY_MODE: Record<ConcreteMode, readonly GenerationOutputDef[]> = {
 					choices: [
 						{ id: "cod" },
 						{ id: "leads" },
-						{ id: "promo" },
 						{ id: "service" },
+						{ id: "promo" },
 					],
-				},
-				{
-					id: "language",
-					choices: [
-						{ id: "auto" },
-						{ id: "arabic" },
-						{ id: "french" },
-						{ id: "ar-fr" },
-					],
-				},
-				{
-					id: "shape",
-					choices: [{ id: "landing" }, { id: "product" }, { id: "service" }],
 				},
 			],
 		},
 		{
-			id: "page-edit",
+			id: "site-vitrine",
 			mode: "page",
-			icon: Brush,
+			icon: LayoutTemplate,
 			options: [
 				{
-					id: "scope",
+					id: "goal",
 					choices: [
-						{ id: "hero" },
-						{ id: "offer" },
-						{ id: "form" },
-						{ id: "full" },
+						{ id: "cod" },
+						{ id: "leads" },
+						{ id: "service" },
+						{ id: "promo" },
 					],
-				},
-				{
-					id: "intensity",
-					choices: [{ id: "light" }, { id: "medium" }, { id: "rewrite" }],
-				},
-			],
-		},
-		{
-			id: "html-section",
-			mode: "page",
-			icon: FileText,
-			options: [
-				{
-					id: "section",
-					choices: [
-						{ id: "comparison" },
-						{ id: "faq" },
-						{ id: "testimonials" },
-						{ id: "offer" },
-					],
-				},
-				{
-					id: "style",
-					choices: [{ id: "match" }, { id: "clean" }, { id: "direct" }],
 				},
 			],
 		},
@@ -500,38 +510,9 @@ const OUTPUTS_BY_MODE: Record<ConcreteMode, readonly GenerationOutputDef[]> = {
 			],
 		},
 	],
+	// Mode "video" is reframed as image→video animation (spec §10) — the
+	// "generate from scratch" video-creator output is retired.
 	video: [
-		{
-			id: "video-creator",
-			mode: "video",
-			icon: Clapperboard,
-			options: [
-				{
-					id: "method",
-					choices: [{ id: "reference" }, { id: "edit" }, { id: "frames" }],
-				},
-				{
-					id: "size",
-					choices: [
-						{ id: "auto" },
-						{ id: "16-9" },
-						{ id: "4-3" },
-						{ id: "1-1" },
-						{ id: "9-16" },
-						{ id: "21-9" },
-					],
-					layout: "grid",
-				},
-				{
-					id: "resolution",
-					choices: [{ id: "720" }, { id: "1080" }, { id: "4k" }],
-				},
-				{
-					id: "duration",
-					choices: [{ id: "4" }, { id: "5" }, { id: "8" }, { id: "10" }],
-				},
-			],
-		},
 		{
 			id: "ugc-video",
 			mode: "video",
@@ -671,10 +652,16 @@ function SkillFileRows({
 function AddContextMenu({
 	selectedSkillIds,
 	onToggleSkill,
+	attachmentsEnabled,
+	onAttach,
 	isHero,
 }: {
 	selectedSkillIds: readonly SkillFileId[];
 	onToggleSkill: (skill: SkillFileDef) => void;
+	/** False on the signed-out hero — the row stays visible but inert with the
+	 *  signInFirst hint (attachments cannot survive the auth redirect). */
+	attachmentsEnabled: boolean;
+	onAttach: () => void;
 	isHero: boolean;
 }) {
 	const { t } = useTranslation();
@@ -731,13 +718,22 @@ function AddContextMenu({
 				</DropdownMenuSub>
 				<DropdownMenuItem
 					className="rounded-xl px-2 py-2"
-					onSelect={(event) => event.preventDefault()}
+					disabled={!attachmentsEnabled}
+					onSelect={(event) => {
+						if (!attachmentsEnabled) {
+							event.preventDefault();
+							return;
+						}
+						onAttach();
+					}}
 				>
 					<Paperclip className="size-4" />
 					<span className="flex min-w-0 flex-col">
 						<span>{t("projects.promptBox.attachLabel")}</span>
 						<span className="truncate text-muted-foreground text-xs">
-							{t("projects.promptBox.attachHint")}
+							{attachmentsEnabled
+								? t("projects.promptBox.attachHint")
+								: t("projects.promptBox.attachments.signInFirst")}
 						</span>
 					</span>
 				</DropdownMenuItem>
@@ -829,6 +825,105 @@ function AttachedSkillChips({
 					</DropdownMenuContent>
 				</DropdownMenu>
 			) : null}
+		</div>
+	);
+}
+
+function AttachmentChips({
+	attachments,
+	onRemove,
+	onRetry,
+}: {
+	attachments: readonly ComposerAttachment[];
+	onRemove: (id: string) => void;
+	onRetry: (id: string) => void;
+}) {
+	const pb = useDictionary().projects.promptBox;
+	if (attachments.length === 0) return null;
+
+	return (
+		<div className="flex flex-wrap gap-1.5 px-4 pt-3 sm:px-5">
+			{attachments.map((attachment) => {
+				const isError = attachment.status === "error";
+				const errorLabel =
+					attachment.error === "unsupported"
+						? pb.attachments.unsupported
+						: attachment.error === "too-large"
+							? pb.attachments.tooLarge
+							: pb.attachments.failed;
+				return (
+					<span
+						key={attachment.id}
+						className={cn(
+							"inline-flex h-9 max-w-full items-center gap-2 rounded-xl border px-1.5 text-xs",
+							isError
+								? "border-destructive/40 bg-destructive/10 text-destructive"
+								: "border-border bg-muted/60 text-foreground",
+						)}
+					>
+						{attachment.previewUrl ? (
+							<span className="relative size-6 shrink-0 overflow-hidden rounded-lg">
+								<img
+									src={attachment.previewUrl}
+									alt=""
+									className="size-full object-cover"
+								/>
+								{attachment.status === "uploading" ? (
+									<span className="absolute inset-0 grid place-items-center bg-black/40">
+										<Loader2 className="size-3 animate-spin text-white" />
+									</span>
+								) : null}
+							</span>
+						) : (
+							<span className="grid size-6 shrink-0 place-items-center rounded-lg border border-border bg-background text-muted-foreground">
+								{attachment.status === "uploading" ? (
+									<Loader2 className="size-3 animate-spin" />
+								) : (
+									<FileText className="size-3" />
+								)}
+							</span>
+						)}
+						<span className="min-w-0">
+							<span dir="auto" className="block max-w-36 truncate">
+								{attachment.filename}
+							</span>
+							{attachment.status === "uploading" ? (
+								<span className="block text-[10px] text-muted-foreground">
+									{pb.attachments.uploading}
+								</span>
+							) : isError ? (
+								<span className="block max-w-36 truncate text-[10px]">
+									{errorLabel}
+								</span>
+							) : null}
+						</span>
+						{isError && attachment.file ? (
+							<button
+								type="button"
+								aria-label={pb.attachments.retry}
+								title={pb.attachments.retry}
+								onClick={() => onRetry(attachment.id)}
+								className="rounded-full p-0.5 text-destructive transition-colors hover:bg-destructive/15"
+							>
+								<RefreshCw className="size-3" />
+							</button>
+						) : null}
+						<button
+							type="button"
+							aria-label={pb.attachments.remove}
+							onClick={() => onRemove(attachment.id)}
+							className={cn(
+								"rounded-full p-0.5 transition-colors",
+								isError
+									? "text-destructive hover:bg-destructive/15"
+									: "text-muted-foreground hover:bg-primary/10 hover:text-foreground",
+							)}
+						>
+							<X className="size-3" />
+						</button>
+					</span>
+				);
+			})}
 		</div>
 	);
 }
@@ -1218,12 +1313,18 @@ export type PromptBoxSubmitOverride = {
 export type PromptBoxProps = {
 	/** A sync `false` return means nothing was sent (e.g. insufficient
 	 * credits) - the box then keeps the draft even with clearOnSubmit. The
-	 * composer metadata mirrors the current mode/output/skills/option UI state. */
+	 * composer metadata mirrors the current mode/output/skills/option UI state;
+	 * attachments are the successfully uploaded assets (empty when the feature
+	 * is disabled or nothing was attached). */
 	onSubmit: (
 		prompt: string,
 		composer: ComposerMetadata,
+		attachments: UploadAttachmentResponse[],
 		// biome-ignore lint/suspicious/noConfusingVoidType: void keeps fire-and-forget callers assignable
 	) => void | boolean | Promise<void | boolean>;
+	/** Enables the "+" attach flow (upload to R2, chips, submit forwarding).
+	 * Leave false on signed-out surfaces — uploads require a session. */
+	attachmentsEnabled?: boolean;
 	variant?: "hero" | "compact";
 	placeholder?: string;
 	/** Show the generation cost as a quiet mono tag next to the actions. */
@@ -1254,6 +1355,7 @@ export type PromptBoxProps = {
 
 export function PromptBox({
 	onSubmit,
+	attachmentsEnabled = false,
 	variant = "hero",
 	placeholder,
 	showPriceTag = false,
@@ -1277,13 +1379,40 @@ export function PromptBox({
 	);
 	const [quality, setQuality] = useState<ComposerQuality>("standard");
 	const [selectedSkillIds, setSelectedSkillIds] = useState<SkillFileId[]>([]);
+	const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
 	const textareaRef = useRef<HTMLTextAreaElement>(null);
+	const fileInputRef = useRef<HTMLInputElement>(null);
+
+	// Mirror for unmount cleanup — object URLs leak without an explicit revoke.
+	const attachmentsRef = useRef(attachments);
+	useEffect(() => {
+		attachmentsRef.current = attachments;
+	}, [attachments]);
+	useEffect(
+		() => () => {
+			for (const attachment of attachmentsRef.current) {
+				if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
+			}
+		},
+		[],
+	);
 
 	const isHero = variant === "hero";
 	const maxHeight = isHero ? 240 : 160;
+	const readyAttachments = useMemo(
+		() => attachments.filter((attachment) => attachment.status === "ready"),
+		[attachments],
+	);
+	const hasUploadingAttachment = attachments.some(
+		(attachment) => attachment.status === "uploading",
+	);
+	// Attachments loosen the empty-text rule: at least one READY upload lets an
+	// otherwise-empty message through; an in-flight upload always blocks send.
 	const canSubmit = submitOverride
 		? !submitOverride.disabled && !isSubmitting
-		: value.trim().length > 0 && !isSubmitting;
+		: (value.trim().length > 0 || readyAttachments.length > 0) &&
+			!isSubmitting &&
+			!hasUploadingAttachment;
 	const selectedOutput = useMemo(
 		() => getOutput(selectedOutputId),
 		[selectedOutputId],
@@ -1303,10 +1432,87 @@ export function PromptBox({
 		el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
 	}, [maxHeight]);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: value is an intentional re-measure trigger
+	// biome-ignore lint/correctness/useExhaustiveDependencies: value/chip counts are intentional re-measure triggers
 	useEffect(() => {
 		resize();
-	}, [resize, value, attachedSkills.length]);
+	}, [resize, value, attachedSkills.length, attachments.length]);
+
+	const runUpload = useCallback(async (id: string, file: File) => {
+		try {
+			const uploaded = await uploadAttachment(file);
+			setAttachments((current) =>
+				current.map((attachment) =>
+					attachment.id === id
+						? { ...attachment, status: "ready", uploaded, error: undefined }
+						: attachment,
+				),
+			);
+		} catch (error) {
+			const reason =
+				error instanceof AttachmentUploadError ? error.reason : "failed";
+			setAttachments((current) =>
+				current.map((attachment) =>
+					attachment.id === id
+						? { ...attachment, status: "error", error: reason }
+						: attachment,
+				),
+			);
+		}
+	}, []);
+
+	const handleFilesPicked = useCallback(
+		(files: FileList | File[]) => {
+			const room = MAX_ATTACHMENTS - attachmentsRef.current.length;
+			if (room <= 0) return;
+			const picked = Array.from(files).slice(0, room);
+			if (picked.length === 0) return;
+			const next = picked.map(toComposerAttachment);
+			setAttachments((current) =>
+				[...current, ...next].slice(0, MAX_ATTACHMENTS),
+			);
+			for (const attachment of next) {
+				if (attachment.status === "uploading" && attachment.file) {
+					void runUpload(attachment.id, attachment.file);
+				}
+			}
+		},
+		[runUpload],
+	);
+
+	const removeAttachment = useCallback((id: string) => {
+		const found = attachmentsRef.current.find(
+			(attachment) => attachment.id === id,
+		);
+		if (found?.previewUrl) URL.revokeObjectURL(found.previewUrl);
+		setAttachments((current) =>
+			current.filter((attachment) => attachment.id !== id),
+		);
+	}, []);
+
+	const retryAttachment = useCallback(
+		(id: string) => {
+			const found = attachmentsRef.current.find(
+				(attachment) => attachment.id === id,
+			);
+			if (!found?.file) return;
+			setAttachments((current) =>
+				current.map((attachment) =>
+					attachment.id === id
+						? { ...attachment, status: "uploading", error: undefined }
+						: attachment,
+				),
+			);
+			void runUpload(id, found.file);
+		},
+		[runUpload],
+	);
+
+	const clearAttachments = useCallback(() => {
+		for (const attachment of attachmentsRef.current) {
+			if (attachment.previewUrl) URL.revokeObjectURL(attachment.previewUrl);
+		}
+		setAttachments([]);
+	}, []);
 
 	const {
 		isRecording,
@@ -1353,11 +1559,24 @@ export function PromptBox({
 		}
 
 		const prompt = value.trim();
-		if (!prompt || isSubmitting) return;
-		const result = onSubmit(prompt, buildComposer());
+		if (
+			(!prompt && readyAttachments.length === 0) ||
+			isSubmitting ||
+			hasUploadingAttachment
+		) {
+			return;
+		}
+		const result = onSubmit(
+			prompt,
+			buildComposer(),
+			readyAttachments.flatMap((attachment) =>
+				attachment.uploaded ? [attachment.uploaded] : [],
+			),
+		);
 		if (clearOnSubmit && result !== false) {
 			setValue("");
 			onValueChange?.("");
+			clearAttachments();
 		}
 	};
 
@@ -1442,6 +1661,25 @@ export function PromptBox({
 					onToggleSkill={toggleSkillFile}
 					onRemove={removeSkillFile}
 				/>
+				<AttachmentChips
+					attachments={attachments}
+					onRemove={removeAttachment}
+					onRetry={retryAttachment}
+				/>
+				{attachmentsEnabled ? (
+					<input
+						ref={fileInputRef}
+						type="file"
+						multiple
+						accept={ATTACHMENT_ACCEPT}
+						className="hidden"
+						onChange={(event) => {
+							if (event.target.files) handleFilesPicked(event.target.files);
+							// Reset so picking the same file again re-fires onChange.
+							event.target.value = "";
+						}}
+					/>
+				) : null}
 				<InputGroupTextarea
 					ref={textareaRef}
 					dir="auto"
@@ -1457,7 +1695,9 @@ export function PromptBox({
 						isHero
 							? "min-h-[78px] px-5 pb-1 text-base"
 							: "min-h-[38px] px-4 pb-0 text-[15px] leading-[1.5]",
-						attachedSkills.length > 0 ? "pt-2" : "pt-4",
+						attachedSkills.length > 0 || attachments.length > 0
+							? "pt-2"
+							: "pt-4",
 					)}
 				/>
 				<InputGroupAddon
@@ -1471,6 +1711,8 @@ export function PromptBox({
 						<AddContextMenu
 							selectedSkillIds={selectedSkillIds}
 							onToggleSkill={toggleSkillFile}
+							attachmentsEnabled={attachmentsEnabled}
+							onAttach={() => fileInputRef.current?.click()}
 							isHero={isHero}
 						/>
 						<ModePicker

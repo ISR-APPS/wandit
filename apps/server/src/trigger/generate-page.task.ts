@@ -12,7 +12,7 @@
  * by the dev CLI from apps/server/.
  */
 import { logger, task } from "@trigger.dev/sdk";
-import { createDb, desc, eq } from "@wandit/db";
+import { and, createDb, desc, eq, gt } from "@wandit/db";
 import { artifacts, versions } from "@wandit/db/schema/artifacts";
 import { pageGenerationAttempts } from "@wandit/db/schema/page-attempts";
 import { z } from "zod";
@@ -35,8 +35,8 @@ const attemptSpecSchema = z.object({
 
 export const generatePageTask = task({
 	id: "generate-page",
-	// A full agent build (write → review → rewrite → finish) measured ~10
-	// minutes with claude-fable-5; 600 was killing real runs.
+	// Single build pass; typically a few minutes. The generous ceiling is a
+	// safety net (Kimi's always-on reasoning is slow-ish), not an estimate.
 	maxDuration: 1800,
 	retry: { maxAttempts: 1 },
 	run: async (payload: { attemptId: string }, { ctx }) => {
@@ -71,8 +71,8 @@ export const generatePageTask = task({
 					.where(eq(pageGenerationAttempts.id, attempt.id));
 
 				logger.info(
-					"🧠 The builder agent is writing the page now — expect ~10 minutes " +
-						"of [site-builder] logs below",
+					"🧠 The builder agent is writing the page now — single build " +
+						"pass; expect a few minutes of [site-builder] logs below",
 				);
 
 				// The build brain: a tool-loop agent writing into a virtual FS.
@@ -106,7 +106,22 @@ export const generatePageTask = task({
 
 				// One transaction: version number, immutable version row, active
 				// pointer, and attempt completion move together or not at all.
-				const number = await db.transaction(async (tx) => {
+				const { activated, number } = await db.transaction(async (tx) => {
+					// Row lock on the artifact — the SAME lock the ops pipeline
+					// takes (insertVersionAndActivate), so concurrent builds and
+					// edit saves serialize here instead of colliding on the
+					// unique (artifactId, number) index.
+					const [artifact] = await tx
+						.select({ id: artifacts.id })
+						.from(artifacts)
+						.where(eq(artifacts.id, attempt.artifactId))
+						.limit(1)
+						.for("update");
+
+					if (!artifact) {
+						throw new Error(`Artifact ${attempt.artifactId} not found`);
+					}
+
 					const [latest] = await tx
 						.select({ number: versions.number })
 						.from(versions)
@@ -122,6 +137,8 @@ export const generatePageTask = task({
 							builderSummary: build.summary,
 							builderSteps: build.steps,
 							files: build.files.map((file) => file.path),
+							// Contract §9: absent source means LEGACY builder rows.
+							source: "builder",
 							title: spec.title,
 						},
 						number: nextNumber,
@@ -129,10 +146,27 @@ export const generatePageTask = task({
 						r2Key: key,
 					});
 
-					await tx
-						.update(artifacts)
-						.set({ activeVersionId: versionId })
-						.where(eq(artifacts.id, attempt.artifactId));
+					// A build queued LATER that already finished owns the active
+					// pointer — a stale run must not clobber it. Its version row
+					// and attempt completion are still recorded for history.
+					const [newerSucceeded] = await tx
+						.select({ id: pageGenerationAttempts.id })
+						.from(pageGenerationAttempts)
+						.where(
+							and(
+								eq(pageGenerationAttempts.artifactId, attempt.artifactId),
+								eq(pageGenerationAttempts.status, "succeeded"),
+								gt(pageGenerationAttempts.createdAt, attempt.createdAt),
+							),
+						)
+						.limit(1);
+
+					if (!newerSucceeded) {
+						await tx
+							.update(artifacts)
+							.set({ activeVersionId: versionId })
+							.where(eq(artifacts.id, attempt.artifactId));
+					}
 
 					await tx
 						.update(pageGenerationAttempts)
@@ -143,16 +177,21 @@ export const generatePageTask = task({
 						})
 						.where(eq(pageGenerationAttempts.id, attempt.id));
 
-					return nextNumber;
+					return { activated: !newerSucceeded, number: nextNumber };
 				});
 
 				logger.info(
-					`🎉 Version ${number} is live — it should now appear in the ` +
-						`Page tab (versionId ${versionId})`,
+					activated
+						? `🎉 Version ${number} is live — it should now appear in the ` +
+								`Page tab (versionId ${versionId})`
+						: `📦 Version ${number} recorded (versionId ${versionId}) — a ` +
+								"newer build already finished, so the active pointer was " +
+								"left on its version",
 				);
 
 				// Returned for Trigger dashboard visibility only.
 				return {
+					activated,
 					files: build.files.map((file) => file.path),
 					number,
 					steps: build.steps,

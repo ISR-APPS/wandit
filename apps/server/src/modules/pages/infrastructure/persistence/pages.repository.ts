@@ -51,6 +51,25 @@ export type PageAttemptSpec = {
 	title: string;
 };
 
+// Landing artifact + its active version, the working set of every mutation
+// (ops batch, chat edit tool). version is null until a first build succeeds.
+export type ActivePageRow = {
+	artifactId: string;
+	version: { id: string; number: number; r2Key: string } | null;
+};
+
+/**
+ * Thrown by insertVersionAndActivate when the artifact's active version moved
+ * between the caller's read and its write (optimistic concurrency). Carries
+ * the CURRENT pointer so HTTP callers can answer 409 with it.
+ */
+export class VersionConflictError extends Error {
+	constructor(readonly activeVersionId: string | null) {
+		super("The page's active version changed mid-edit");
+		this.name = "VersionConflictError";
+	}
+}
+
 @Injectable()
 export class PagesRepository {
 	// DATABASE is the Nest token for the Drizzle database connection.
@@ -252,6 +271,180 @@ export class PagesRepository {
 			.limit(1);
 
 		return (latest?.number ?? 0) + 1;
+	}
+
+	// Landing artifact + its active version for an OWNED project, or null when
+	// the project is missing/not owned (the service turns that into a 404).
+	async findActivePageByProject(
+		userId: string,
+		projectId: string,
+	): Promise<ActivePageRow | null> {
+		const [project] = await this.db
+			.select({ id: projects.id })
+			.from(projects)
+			.where(
+				and(
+					eq(projects.id, projectId),
+					eq(projects.userId, userId),
+					isNull(projects.deletedAt),
+				),
+			)
+			.limit(1);
+
+		if (!project) {
+			return null;
+		}
+
+		return this.findActivePageByProjectUnchecked(projectId);
+	}
+
+	// Same shape, ownership already proven — the chat edit tools pass the
+	// projectId of a chat the controller's ownership query validated.
+	async findActivePageByProjectUnchecked(
+		projectId: string,
+	): Promise<ActivePageRow | null> {
+		const artifact = await this.findLandingArtifact(projectId);
+
+		if (!artifact) {
+			return null;
+		}
+
+		let version: ActivePageRow["version"] = null;
+
+		if (artifact.activeVersionId) {
+			const [row] = await this.db
+				.select({
+					id: versions.id,
+					number: versions.number,
+					r2Key: versions.r2Key,
+				})
+				.from(versions)
+				.where(eq(versions.id, artifact.activeVersionId))
+				.limit(1);
+
+			version = row ?? null;
+		}
+
+		return { artifactId: artifact.id, version };
+	}
+
+	/**
+	 * Append an immutable version + flip the active pointer atomically.
+	 * The caller pre-allocates the version id (the R2 upload happens FIRST —
+	 * a version row must never point at an object that does not exist).
+	 * expectedActiveVersionId is re-checked INSIDE the transaction under a
+	 * row lock; a mismatch throws VersionConflictError instead of silently
+	 * winning a last-write race. The version number is recomputed inside the
+	 * same transaction (same invariant as the Trigger task) so a concurrent
+	 * build completion cannot violate the unique (artifactId, number) index.
+	 */
+	async insertVersionAndActivate(input: {
+		artifactId: string;
+		expectedActiveVersionId: string | null;
+		meta: Record<string, unknown>;
+		projectId: string;
+		r2Key: string;
+		versionId: string;
+	}): Promise<{ createdAt: Date; number: number }> {
+		return this.db.transaction(async (tx) => {
+			const [artifact] = await tx
+				.select({ activeVersionId: artifacts.activeVersionId })
+				.from(artifacts)
+				.where(eq(artifacts.id, input.artifactId))
+				.limit(1)
+				.for("update");
+
+			if (!artifact) {
+				throw new Error(`Artifact ${input.artifactId} not found`);
+			}
+
+			if (artifact.activeVersionId !== input.expectedActiveVersionId) {
+				throw new VersionConflictError(artifact.activeVersionId);
+			}
+
+			const [latest] = await tx
+				.select({ number: versions.number })
+				.from(versions)
+				.where(eq(versions.artifactId, input.artifactId))
+				.orderBy(desc(versions.number))
+				.limit(1);
+			const nextNumber = (latest?.number ?? 0) + 1;
+
+			const [inserted] = await tx
+				.insert(versions)
+				.values({
+					artifactId: input.artifactId,
+					id: input.versionId,
+					meta: input.meta,
+					number: nextNumber,
+					projectId: input.projectId,
+					r2Key: input.r2Key,
+				})
+				.returning({ createdAt: versions.createdAt });
+
+			if (!inserted) {
+				throw new Error("Version insert did not return a row");
+			}
+
+			await tx
+				.update(artifacts)
+				.set({ activeVersionId: input.versionId })
+				.where(eq(artifacts.id, input.artifactId));
+
+			return { createdAt: inserted.createdAt, number: nextNumber };
+		});
+	}
+
+	/**
+	 * Wids the user manually edited since the last AI-produced version
+	 * (contract §9): walk versions by number DESC from the active one,
+	 * collecting meta.editedWids while source is "inline"/"theme"; stop at
+	 * the first "builder"/"ai-edit"/absent source. May include "__tokens__".
+	 */
+	async collectManualEditTrail(projectId: string): Promise<string[]> {
+		const page = await this.findActivePageByProjectUnchecked(projectId);
+
+		if (!page?.version) {
+			return [];
+		}
+
+		const rows = await this.db
+			.select({ id: versions.id, meta: versions.meta })
+			.from(versions)
+			.where(eq(versions.artifactId, page.artifactId))
+			.orderBy(desc(versions.number));
+
+		const wids = new Set<string>();
+		let reachedActive = false;
+
+		for (const row of rows) {
+			if (!reachedActive) {
+				if (row.id !== page.version.id) {
+					continue;
+				}
+
+				reachedActive = true;
+			}
+
+			const meta = (row.meta ?? {}) as {
+				editedWids?: unknown;
+				source?: unknown;
+			};
+
+			if (meta.source !== "inline" && meta.source !== "theme") {
+				break;
+			}
+
+			if (Array.isArray(meta.editedWids)) {
+				for (const wid of meta.editedWids) {
+					if (typeof wid === "string") {
+						wids.add(wid);
+					}
+				}
+			}
+		}
+
+		return [...wids];
 	}
 
 	private async findLandingArtifact(

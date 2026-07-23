@@ -24,7 +24,8 @@ import {
 	Plus,
 	X,
 } from "lucide-react";
-import { useState } from "react";
+import type * as React from "react";
+import { useRef, useState } from "react";
 
 import { SpinnerArc } from "./tray-signals";
 import type { ChipOption, MediaItem, TrayBody } from "./types";
@@ -37,6 +38,11 @@ export type TrayBodyCallbacks = {
 	/** Multi-select: controlled selection confirmed by the composer CTA. */
 	multiSelectedIds?: string[];
 	onToggleMulti?: (id: string) => void;
+	/** Attachments ask: files picked/dropped into the media-drop body — the
+	    hook loops uploadAttachment() per file (endpoint takes one file). */
+	onBrowseFiles?: (files: FileList) => void;
+	/** Attachments ask: remove one drafted upload by its local id. */
+	onRemoveAttachment?: (id: string) => void;
 };
 
 export function TrayBodySlot({
@@ -71,7 +77,7 @@ export function TrayBodySlot({
 		case "visual-pick":
 			return <VisualPickBody body={body} />;
 		case "media-drop":
-			return <MediaDropBody body={body} />;
+			return <MediaDropBody body={body} callbacks={callbacks} />;
 		case "file-drop":
 			return <FileDropBody body={body} />;
 		case "link":
@@ -298,18 +304,62 @@ function VisualPickBody({
 
 function MediaDropBody({
 	body,
+	callbacks,
 }: {
 	body: Extract<TrayBody, { kind: "media-drop" }>;
+	callbacks?: TrayBodyCallbacks;
 }) {
+	const inputRef = useRef<HTMLInputElement>(null);
+	const live = Boolean(callbacks?.onBrowseFiles);
+	const openPicker = () => inputRef.current?.click();
+	const handleDrop = (event: React.DragEvent) => {
+		event.preventDefault();
+		if (event.dataTransfer.files.length > 0) {
+			callbacks?.onBrowseFiles?.(event.dataTransfer.files);
+		}
+	};
+	const handleDragOver = (event: React.DragEvent) => event.preventDefault();
+	const fileInput = live ? (
+		<input
+			ref={inputRef}
+			type="file"
+			multiple
+			accept={body.accept}
+			className="hidden"
+			onChange={(event) => {
+				if (event.target.files?.length) {
+					callbacks?.onBrowseFiles?.(event.target.files);
+				}
+				// Reset so re-picking the same file fires onChange again.
+				event.target.value = "";
+			}}
+		/>
+	) : null;
+
 	if (body.items?.length) {
 		return (
-			<div className="flex items-start gap-2 overflow-x-auto">
+			// biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop is a pointer-only enhancement; the keyboard path is the "add more" button + file input
+			<div
+				className="flex items-start gap-2 overflow-x-auto"
+				onDrop={live ? handleDrop : undefined}
+				onDragOver={live ? handleDragOver : undefined}
+			>
+				{fileInput}
 				{body.items.map((item) => (
-					<MediaThumb key={item.id} item={item} />
+					<MediaThumb
+						key={item.id}
+						item={item}
+						onRemove={
+							callbacks?.onRemoveAttachment
+								? () => callbacks.onRemoveAttachment?.(item.id)
+								: undefined
+						}
+					/>
 				))}
 				<button
 					type="button"
 					aria-label="Add more media"
+					onClick={live ? openPicker : undefined}
 					className="grid size-16 shrink-0 place-items-center rounded-[11px] border-[1.5px] border-stone border-dashed text-muted-foreground transition-colors hover:border-primary/60 hover:text-foreground"
 				>
 					<Plus className="size-4" />
@@ -320,30 +370,39 @@ function MediaDropBody({
 
 	return (
 		<div>
+			{fileInput}
 			{/* The whole pane is a drop target in the real flow — this zone is the
 			    visible affordance. */}
-			<div className="cursor-pointer rounded-[14px] border-[1.5px] border-primary/45 border-dashed bg-primary/4 px-3.5 pt-[15px] pb-[13px] text-center transition-colors hover:bg-primary/8">
-				<div className="mb-2 flex items-center justify-center gap-2">
+			<button
+				type="button"
+				onClick={live ? openPicker : undefined}
+				onDrop={live ? handleDrop : undefined}
+				onDragOver={live ? handleDragOver : undefined}
+				className="w-full cursor-pointer rounded-[14px] border-[1.5px] border-primary/45 border-dashed bg-primary/4 px-3.5 pt-[15px] pb-[13px] text-center transition-colors hover:bg-primary/8"
+			>
+				<span className="mb-2 flex items-center justify-center gap-2">
 					<span className="grid size-9 place-items-center rounded-[10px] border border-border bg-background text-muted-foreground">
 						<ImageIcon className="size-4" />
 					</span>
 					<span className="grid size-9 place-items-center rounded-[10px] border border-border bg-background text-muted-foreground">
 						<Clapperboard className="size-4" />
 					</span>
-				</div>
-				<p className="font-medium text-[13.5px] text-foreground">
+				</span>
+				<span className="block font-medium text-[13.5px] text-foreground">
 					{body.title}
-				</p>
-				{body.formatsHint ? (
-					<p className="mt-0.5 text-muted-foreground text-xs">
-						or{" "}
-						<span className="text-ember-text underline underline-offset-2">
-							browse
-						</span>{" "}
-						· {body.formatsHint}
-					</p>
+				</span>
+				{body.browseLabel || body.formatsHint ? (
+					<span className="mt-0.5 block text-muted-foreground text-xs">
+						{body.browseLabel ? (
+							<span className="text-ember-text underline underline-offset-2">
+								{body.browseLabel}
+							</span>
+						) : null}
+						{body.browseLabel && body.formatsHint ? " · " : null}
+						{body.formatsHint}
+					</span>
 				) : null}
-			</div>
+			</button>
 			{body.tip ? (
 				<p className="mt-2 flex items-center gap-1.5 text-muted-foreground text-xs">
 					<Info className="size-3 shrink-0" />
@@ -354,7 +413,13 @@ function MediaDropBody({
 	);
 }
 
-function MediaThumb({ item }: { item: MediaItem }) {
+function MediaThumb({
+	item,
+	onRemove,
+}: {
+	item: MediaItem;
+	onRemove?: () => void;
+}) {
 	return (
 		<div className="w-[86px] shrink-0">
 			{item.uploading ? (
@@ -372,19 +437,35 @@ function MediaThumb({ item }: { item: MediaItem }) {
 				</div>
 			) : (
 				<div
-					className="relative h-16 overflow-hidden rounded-[11px] border border-border"
-					style={{ background: item.preview }}
+					className={cn(
+						"relative h-16 overflow-hidden rounded-[11px] border",
+						item.error
+							? "border-destructive/60 bg-destructive/10"
+							: "border-border",
+					)}
+					style={item.error ? undefined : { background: item.preview }}
 				>
-					<button
-						type="button"
-						aria-label={`Remove ${item.name}`}
-						className="absolute end-1 top-1 grid size-[18px] place-items-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70"
-					>
-						<X className="size-2.5" strokeWidth={2.5} />
-					</button>
+					{item.error ? (
+						<span className="absolute inset-0 grid place-items-center text-destructive">
+							<AlertCircle className="size-4" />
+						</span>
+					) : null}
+					{onRemove ? (
+						<button
+							type="button"
+							aria-label={`Remove ${item.name}`}
+							onClick={onRemove}
+							className="absolute end-1 top-1 grid size-[18px] place-items-center rounded-full bg-black/50 text-white transition-colors hover:bg-black/70"
+						>
+							<X className="size-2.5" strokeWidth={2.5} />
+						</button>
+					) : null}
 				</div>
 			)}
-			<p className="mt-1 truncate font-mono text-[10.5px] text-muted-foreground">
+			<p
+				dir="auto"
+				className="mt-1 truncate font-mono text-[10.5px] text-muted-foreground"
+			>
 				{item.name}
 			</p>
 		</div>

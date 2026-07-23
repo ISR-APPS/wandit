@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { widSchema } from "./page-edits";
 
 /**
  * ask_user — the assistant asks ONE focused question, answered in the
@@ -21,6 +22,7 @@ export const askUserKindSchema = z.enum([
 	"single-choice",
 	"multi-select",
 	"free-text",
+	"attachments",
 ]);
 
 export const askUserInputSchema = z.object({
@@ -36,6 +38,11 @@ export const askUserInputSchema = z.object({
 	helper: z.string().optional(),
 	// Legacy flag, kept so old rows still parse.
 	allowFreeform: z.boolean().optional(),
+	// kind "attachments" only — what the drop tray should accept (default
+	// ["image"]) and how many files at most (default 3). Optional so every
+	// pre-attachments row stays valid (spec §11 / contract §10.5).
+	accept: z.array(z.enum(["image", "document"])).optional(),
+	maxFiles: z.number().int().min(1).max(6).optional(),
 });
 
 // Old rows have {selectedId, label} — every field optional keeps them valid.
@@ -48,6 +55,17 @@ export const askUserOutputSchema = z.object({
 	text: z.string().optional(), // free-text answer (or typed-over answer)
 	delegated: z.boolean().optional(), // "Decide for me" escape hatch
 	dismissed: z.boolean().optional(), // tray X — treat as "skip, continue"
+	// kind "attachments" — uploaded R2 assets the user provided. The model
+	// reads the URLs and writes them into the brief's assets section.
+	files: z
+		.array(
+			z.object({
+				url: z.url(),
+				mediaType: z.string().min(1),
+				filename: z.string().optional(),
+			}),
+		)
+		.optional(),
 });
 
 export type AskUserOption = z.infer<typeof askUserOptionSchema>;
@@ -86,6 +104,11 @@ export const getDirectionCandidatesInputSchema = z.object({
 	// Short free-text business descriptor (e.g. "candles", "streetwear"),
 	// matched against the library's avoidFor/industries tags.
 	business: z.string().min(1),
+	// 2-4 lowercase English industry keywords (canonical list lives in the
+	// system prompt; matching is fuzzy + accent-folded server-side). Free
+	// strings, NOT an enum, on purpose: an enum violation kills the run, while
+	// an off-list hint just matches nothing. Optional so old rows stay valid.
+	industryHints: z.array(z.string().min(1)).max(4).optional(),
 });
 
 export const getDirectionCandidatesOutputSchema = z.object({
@@ -128,6 +151,54 @@ export const generatePageOutputSchema = z.object({
 export type GeneratePageInput = z.infer<typeof generatePageInputSchema>;
 export type GeneratePageOutput = z.infer<typeof generatePageOutputSchema>;
 
+/** get_page_outline — cheap section map of the active version (spec §5). */
+export const getPageOutlineInputSchema = z.object({});
+
+export const pageOutlineSectionSchema = z.object({
+	wid: widSchema,
+	tag: z.string().min(1),
+	snippet: z.string(),
+	elements: z.number().int().nonnegative(),
+});
+
+export const getPageOutlineOutputSchema = z.object({
+	status: z.enum(["ok", "no-page"]),
+	versionNumber: z.number().int().positive().optional(),
+	sections: z.array(pageOutlineSectionSchema).optional(),
+	message: z.string().optional(),
+});
+
+export type GetPageOutlineInput = z.infer<typeof getPageOutlineInputSchema>;
+export type GetPageOutlineOutput = z.infer<typeof getPageOutlineOutputSchema>;
+
+/** read_section — one section's stamped HTML. */
+export const readSectionInputSchema = z.object({ wid: widSchema });
+
+export const readSectionOutputSchema = z.object({
+	status: z.enum(["ok", "not-found", "no-page"]),
+	wid: widSchema,
+	html: z.string().optional(),
+	message: z.string().optional(),
+});
+
+export type ReadSectionInput = z.infer<typeof readSectionInputSchema>;
+export type ReadSectionOutput = z.infer<typeof readSectionOutputSchema>;
+
+/** replace_section — DOM surgery producing a NEW immutable version. */
+export const replaceSectionInputSchema = z.object({
+	wid: widSchema,
+	html: z.string().min(20).max(60_000),
+});
+
+export const replaceSectionOutputSchema = z.object({
+	status: z.enum(["applied", "rejected", "no-page"]),
+	versionNumber: z.number().int().positive().optional(),
+	message: z.string().min(1),
+});
+
+export type ReplaceSectionInput = z.infer<typeof replaceSectionInputSchema>;
+export type ReplaceSectionOutput = z.infer<typeof replaceSectionOutputSchema>;
+
 /** Tool map for typing UIMessage on both web and server without sharing runtime code. */
 export type AiChatTools = {
 	ask_user: { input: AskUserInput; output: AskUserOutput };
@@ -137,6 +208,15 @@ export type AiChatTools = {
 		output: GetDirectionCandidatesOutput;
 	};
 	generate_page: { input: GeneratePageInput; output: GeneratePageOutput };
+	get_page_outline: {
+		input: GetPageOutlineInput;
+		output: GetPageOutlineOutput;
+	};
+	read_section: { input: ReadSectionInput; output: ReadSectionOutput };
+	replace_section: {
+		input: ReplaceSectionInput;
+		output: ReplaceSectionOutput;
+	};
 };
 
 export const aiChatRoutes = {

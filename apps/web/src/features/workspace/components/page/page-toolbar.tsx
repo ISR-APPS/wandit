@@ -1,8 +1,10 @@
 // Page tab controls, rendered inside the main card's header (see
 // shell/main-pane-header.tsx): version switcher, generation status, viewport
-// toggle and preview actions. The trailing action group is the reserved slot
-// for the future edit-mode toggle that opens the right-side element-inspector
-// rail (click-to-edit, post-MVP — see docs/PRD.md #4).
+// toggle, preview actions, and the WS2 edit-mode toggles — "Cibler"
+// (click-to-target) and "Modifier" (inline editor) — driving the PageEditor
+// context that opens the right-side inspector rail. The toggles derive their
+// disabled state from the REAL page overview query (an actual version must
+// exist and no build may be running), not the mock workspace versions.
 
 import { Button } from "@wandit/ui/components/button";
 import {
@@ -12,18 +14,22 @@ import {
 } from "@wandit/ui/components/tooltip";
 import { cn } from "@wandit/ui/lib/utils";
 import {
+	Crosshair,
 	ExternalLink,
 	Loader2,
 	Monitor,
+	Pencil,
 	RefreshCw,
 	Smartphone,
 } from "lucide-react";
 import type * as React from "react";
 
 import { useTranslation } from "@/lib/i18n";
+import { usePageOverviewQuery } from "../../api/pages.queries";
 import { getVersionPage } from "../../api/workspace.services";
 import { openHtmlInNewTab } from "../../lib/helpers";
 import { useWorkspace, type Viewport } from "../../lib/store";
+import { usePageEditor } from "../../lib/use-page-editor";
 import { VersionSwitcher } from "./version-switcher";
 
 function IconAction({
@@ -65,9 +71,20 @@ export function PageControls({ onReload }: { onReload: () => void }) {
 		setViewport,
 		activeVersion,
 		project,
+		projectId,
 		isGenerating,
 		pendingVersionNumber,
 	} = useWorkspace();
+	const editor = usePageEditor();
+
+	// REAL overview (contract §12 / lane 2.6/3.3): editing needs an actual
+	// active version and no in-flight build — the mock workspace versions above
+	// feed only the untouched switcher/open-in-tab controls.
+	const overviewQuery = usePageOverviewQuery(projectId);
+	const realActiveVersion = overviewQuery.data?.activeVersion ?? null;
+	const attemptStatus = overviewQuery.data?.latestAttempt?.status;
+	const buildRunning =
+		attemptStatus === "queued" || attemptStatus === "generating";
 
 	const openInNewTab = () => {
 		if (!activeVersion) return;
@@ -124,10 +141,53 @@ export function PageControls({ onReload }: { onReload: () => void }) {
 					<Smartphone className="size-[13px]" />,
 				)}
 			</div>
+			{/* Hidden entirely without a version to edit (lane 3.3); while a build
+			    runs they only disable for ENTERING a mode — exiting must stay
+			    possible when a build kicks off mid-edit. */}
+			{realActiveVersion ? (
+				<>
+					<IconAction
+						label={
+							editor.mode === "select"
+								? t("workspace.page.editor.done")
+								: t("workspace.page.editor.target")
+						}
+						onClick={() =>
+							editor.requestMode(editor.mode === "select" ? "browse" : "select")
+						}
+						disabled={buildRunning && editor.mode !== "select"}
+						className={cn(
+							editor.mode === "select" &&
+								"border-primary/40 bg-primary/10 text-primary",
+						)}
+					>
+						<Crosshair className="size-3.5" />
+					</IconAction>
+					<IconAction
+						label={
+							editor.mode === "edit"
+								? t("workspace.page.editor.done")
+								: t("workspace.page.editor.edit")
+						}
+						onClick={() =>
+							editor.requestMode(editor.mode === "edit" ? "browse" : "edit")
+						}
+						disabled={buildRunning && editor.mode !== "edit"}
+						className={cn(
+							editor.mode === "edit" &&
+								"border-primary/40 bg-primary/10 text-primary",
+						)}
+					>
+						<Pencil className="size-3.5" />
+					</IconAction>
+				</>
+			) : null}
+			{/* Refresh reloads the REAL preview iframe — its availability must
+			    track the real overview, not the mock workspace versions. */}
 			<IconAction
 				label={t("workspace.page.refresh")}
 				onClick={onReload}
-				disabled={!activeVersion}
+				disabled={!realActiveVersion}
 				className="hidden sm:inline-flex"
 			>
 				<RefreshCw className="size-3.5" />

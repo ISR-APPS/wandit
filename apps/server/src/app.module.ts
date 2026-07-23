@@ -20,6 +20,7 @@ import { PagesModule } from "./modules/pages/pages.module";
 import { ProjectsModule } from "./modules/projects/projects.module";
 import { SitesModule } from "./modules/sites/sites.module";
 import { StorageModule } from "./modules/storage/storage.module";
+import { UploadsModule } from "./modules/uploads/uploads.module";
 
 @Module({
 	imports: [
@@ -42,6 +43,7 @@ import { StorageModule } from "./modules/storage/storage.module";
 		DomainsModule,
 		StorageModule,
 		GenerationModule,
+		UploadsModule,
 	],
 	providers: [
 		{

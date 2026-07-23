@@ -85,6 +85,7 @@ export function createGeneratePageTool(
 				`Queued page build "${title}" — attempt ${attempt.id}, ` +
 					`model ${env.AI_PAGE_DESIGN_MODEL}`,
 			);
+			logger.log(`Brief for attempt ${attempt.id}:\n${brief}`);
 
 			try {
 				const handle = await tasks.trigger<typeof generatePageTask>(
@@ -129,9 +130,8 @@ export function createGeneratePageTool(
 				attemptId: attempt.id,
 				message:
 					`Queued: version ${versionNumber} is being generated in the ` +
-					"background. It will appear in the Page tab when ready — the " +
-					"builder writes and reviews the page, which can take around " +
-					"ten minutes.",
+					"background. It will appear in the Page tab when ready — " +
+					"usually a few minutes.",
 				status: "queued",
 				versionNumber,
 			};

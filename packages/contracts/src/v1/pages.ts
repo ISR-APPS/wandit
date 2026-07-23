@@ -59,6 +59,8 @@ export type PageVersionHtml = z.infer<typeof pageVersionHtmlSchema>;
 
 // Route path builders. These return strings; they do not make network calls.
 export const pagesRoutes = {
+	// POST — apply an inline-editor / theme-panel op batch (one new version per batch).
+	applyOps: (projectId: string) => `/api/v1/projects/${projectId}/page/ops`,
 	// GET — overview for the project's landing page (poll while building).
 	overview: (projectId: string) => `/api/v1/projects/${projectId}/page`,
 	// GET — HTML of one version (immutable, cache forever).

@@ -55,11 +55,10 @@ export const env = createEnv({
 			.string()
 			.min(1)
 			.default("anthropic/claude-sonnet-5"),
-		// Builder reasoning knob, forwarded as providerOptions.openai
-		// .reasoningEffort — only OpenAI builder models read it.
-		AI_PAGE_DESIGN_REASONING: z
-			.enum(["minimal", "low", "medium", "high", "xhigh"])
-			.optional(),
+		// Optional: the builder's animate_image tool (image → short ambient video).
+		// Needs R2 + R2_PUBLIC_BASE_URL too; unset means the tool answers
+		// "unavailable".
+		AI_VIDEO_MODEL: z.string().min(1).optional(),
 		TRIGGER_SECRET_KEY: z.string().min(1).optional(),
 		R2_ACCOUNT_ID: z.string().min(1).optional(),
 		R2_ACCESS_KEY_ID: z.string().min(1).optional(),

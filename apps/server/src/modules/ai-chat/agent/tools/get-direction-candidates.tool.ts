@@ -18,15 +18,17 @@ export const getDirectionCandidatesTool: Tool<
 > = tool({
 	description:
 		"Sample a fresh menu of design directions for this business: palettes, " +
-		"font pairings, page skeletons, signature interactions and motion " +
-		"vocabularies. Call it BEFORE composing any brief — the returned " +
-		"candidates are your ONLY menu for those five choices.",
+		"font pairings, page skeletons, layout moves, signature interactions, " +
+		"motion vocabularies and finishes. Call it BEFORE composing any brief — " +
+		"the returned candidates are your ONLY menu for those choices. Pass " +
+		"industryHints (2-4 lowercase English keywords) so part of the menu is " +
+		"guaranteed to fit the business.",
 	inputSchema: getDirectionCandidatesInputSchema,
 	outputSchema: getDirectionCandidatesOutputSchema,
 	// No cooldownIds yet: the served_directions cooldown table is a later
 	// iteration; the sampler already accepts it.
-	execute: async ({ business }) => ({
-		candidates: formatCandidates(sampleCandidates({ business })),
+	execute: async ({ business, industryHints }) => ({
+		candidates: formatCandidates(sampleCandidates({ business, industryHints })),
 	}),
 });
 

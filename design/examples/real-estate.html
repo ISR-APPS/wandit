@@ -1,0 +1,1226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MERIDIAN — Architectural Estates</title>
+<meta name="description" content="Meridian is a private brokerage for landmark modern architecture. Cliffside villas, desert monoliths, forest pavilions — sold quietly, between people who understand what they hold.">
+<meta property="og:title" content="MERIDIAN — Architectural Estates">
+<meta property="og:description" content="A private brokerage for landmark modern architecture. The rarest houses are never listed.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%2312100E'/%3E%3Cpath d='M16 46V18h5l11 17 11-17h5v28h-6V30l-10 15-10-15v16z' fill='%23B08D57'/%3E%3C/svg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,100..900;1,9..144,100..900&family=Instrument+Sans:ital,wght@0,400..700;1,400..700&display=swap" rel="stylesheet">
+<!-- GSAP loaded synchronously in head so the preloader gate below can check for it -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/gsap.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gsap/3.12.5/ScrollTrigger.min.js"></script>
+<style>
+/* ============ tokens ============ */
+:root{
+  --ink:#12100E;
+  --ink-2:#17140F;
+  --ink-3:#1D1913;
+  --ivory:#EDE6DA;
+  --ivory-80:rgba(237,230,218,.8);
+  --ivory-60:rgba(237,230,218,.6);
+  --ivory-40:rgba(237,230,218,.42);
+  --bronze:#B08D57;
+  --bronze-dim:rgba(176,141,87,.55);
+  --hairline:rgba(237,230,218,.14);
+  --hairline-soft:rgba(237,230,218,.08);
+  --terracotta:#C97B5A;
+  --gutter:clamp(20px,4.5vw,84px);
+  --serif:"Fraunces",Georgia,serif;
+  --sans:"Instrument Sans",Helvetica,Arial,sans-serif;
+  color-scheme:dark;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){ html{scroll-behavior:auto} }
+html,body{overflow-x:clip}
+body{
+  background:var(--ink);
+  color:var(--ivory);
+  font-family:var(--sans);
+  font-size:16px;
+  line-height:1.6;
+  -webkit-font-smoothing:antialiased;
+  text-rendering:optimizeLegibility;
+}
+::selection{background:var(--bronze);color:var(--ink)}
+:focus-visible{outline:1px solid var(--bronze);outline-offset:4px}
+img{display:block;max-width:100%}
+a{color:inherit;text-decoration:none}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+
+/* ============ shared devices ============ */
+.eyebrow{
+  font-family:var(--sans);
+  font-size:11px;
+  font-weight:500;
+  letter-spacing:.22em;
+  text-transform:uppercase;
+  color:var(--bronze);
+}
+.eyebrow--ivory{color:var(--ivory-60)}
+.wrap{padding-left:var(--gutter);padding-right:var(--gutter);max-width:1720px;margin:0 auto}
+.sec-head{
+  display:flex;align-items:baseline;gap:1.25rem;
+  padding-bottom:1.1rem;margin-bottom:clamp(2.5rem,6vw,5rem);
+  border-bottom:1px solid var(--hairline);
+}
+.sec-head .idx{font-family:var(--serif);font-style:italic;font-size:13px;color:var(--bronze);letter-spacing:.08em}
+.sec-head .rule{flex:1}
+.sec-head .aside{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--ivory-40)}
+.serif-i{font-style:italic;font-weight:340;color:var(--bronze)}
+/* words that were inside <em> keep their voice after the runtime line-split */
+.w-em{font-style:italic;color:var(--bronze)}
+
+/* grain overlay */
+.grain{
+  position:fixed;inset:-50%;z-index:60;pointer-events:none;opacity:.055;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size:300px;
+}
+
+/* ============ preloader ============ */
+#preloader{
+  position:fixed;inset:0;z-index:100;background:var(--ink);
+  display:flex;align-items:center;justify-content:center;
+}
+#preloader[hidden]{display:none}
+.pre-mono{
+  font-family:var(--serif);font-weight:300;font-style:italic;
+  font-size:clamp(2.4rem,5vw,4.2rem);letter-spacing:.04em;color:var(--ivory);
+}
+.pre-count{
+  position:absolute;right:var(--gutter);bottom:calc(var(--gutter) * .75);
+  font-family:var(--serif);font-weight:300;font-size:clamp(3rem,7vw,6rem);
+  color:var(--bronze);font-variant-numeric:tabular-nums;line-height:1;
+}
+.pre-label{
+  position:absolute;left:var(--gutter);bottom:calc(var(--gutter) * .75 + .5rem);
+  font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--ivory-40);
+}
+
+/* ============ nav ============ */
+.nav{
+  position:fixed;top:0;left:0;right:0;z-index:80;
+  display:flex;align-items:center;justify-content:space-between;
+  padding:1.35rem var(--gutter);
+  transition:background .5s ease,border-color .5s ease,transform .55s cubic-bezier(.6,0,.2,1);
+  border-bottom:1px solid transparent;
+}
+.nav.is-solid{
+  background:rgba(18,16,14,.82);
+  -webkit-backdrop-filter:blur(14px);backdrop-filter:blur(14px);
+  border-bottom-color:var(--hairline-soft);
+}
+.nav.is-hidden{transform:translateY(-110%)}
+.nav-mark{
+  font-family:var(--sans);font-weight:600;font-size:14px;
+  letter-spacing:.34em;text-transform:uppercase;color:var(--ivory);
+}
+.nav-mark em{font-family:var(--serif);font-style:italic;font-weight:400;color:var(--bronze);letter-spacing:0;margin-left:.1em}
+.nav-links{display:flex;gap:2.4rem;list-style:none;align-items:center}
+.nav-links a{
+  font-size:12px;letter-spacing:.16em;text-transform:uppercase;color:var(--ivory-60);
+  transition:color .3s ease;position:relative;padding:.3rem 0;
+}
+.nav-links a::after{
+  content:"";position:absolute;left:0;right:100%;bottom:0;height:1px;background:var(--bronze);
+  transition:right .4s cubic-bezier(.6,0,.2,1);
+}
+.nav-links a:hover{color:var(--ivory)}
+.nav-links a:hover::after{right:0}
+.nav-cta{
+  font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--bronze);
+  border:1px solid var(--bronze-dim);padding:.72rem 1.5rem;border-radius:99px;
+  transition:background .35s ease,color .35s ease,border-color .35s ease;
+  white-space:nowrap;
+}
+.nav-cta:hover{background:var(--bronze);color:var(--ink);border-color:var(--bronze)}
+.nav-burger{display:none;flex-direction:column;gap:6px;padding:.6rem .2rem}
+.nav-burger span{display:block;width:26px;height:1px;background:var(--ivory);transition:transform .4s ease,opacity .4s ease}
+.menu-overlay{
+  position:fixed;inset:0;z-index:75;background:var(--ink-2);
+  display:flex;flex-direction:column;justify-content:center;gap:.5rem;
+  padding:0 var(--gutter);
+  opacity:0;visibility:hidden;transition:opacity .5s ease,visibility .5s ease;
+}
+.menu-overlay.is-open{opacity:1;visibility:visible}
+.menu-overlay a{
+  font-family:var(--serif);font-weight:300;font-size:clamp(2.2rem,9vw,3.4rem);
+  color:var(--ivory);padding:.4rem 0;border-bottom:1px solid var(--hairline-soft);
+  display:flex;align-items:baseline;gap:1rem;
+}
+.menu-overlay a .mo-idx{font-size:12px;font-family:var(--sans);letter-spacing:.2em;color:var(--bronze)}
+body.menu-open .nav-burger span:nth-child(1){transform:translateY(3.5px) rotate(45deg)}
+body.menu-open .nav-burger span:nth-child(2){transform:translateY(-3.5px) rotate(-45deg)}
+
+/* ============ hero ============ */
+.hero{
+  position:relative;min-height:100svh;
+  display:flex;flex-direction:column;justify-content:flex-end;
+  overflow:clip;
+}
+.hero-media{position:absolute;inset:0;overflow:hidden}
+.hero-media img{
+  width:100%;height:112%;object-fit:cover;object-position:center 40%;
+  will-change:transform;
+}
+.hero-scrim{
+  position:absolute;inset:0;
+  background:
+    linear-gradient(180deg,rgba(18,16,14,.62) 0%,rgba(18,16,14,.12) 32%,rgba(18,16,14,.05) 55%,rgba(18,16,14,.88) 100%),
+    linear-gradient(90deg,rgba(18,16,14,.5) 0%,rgba(18,16,14,0) 45%);
+}
+.hero-inner{
+  position:relative;z-index:2;
+  padding:0 var(--gutter) clamp(2.2rem,5vh,4rem);
+}
+.hero-eyebrow{display:flex;align-items:center;gap:1.2rem;margin-bottom:clamp(1.2rem,3vh,2.2rem);text-shadow:0 1px 18px rgba(18,16,14,.9)}
+.hero-eyebrow .tick{width:44px;height:1px;background:var(--bronze);box-shadow:0 1px 12px rgba(18,16,14,.8)}
+.hero h1{text-shadow:0 2px 40px rgba(18,16,14,.45)}
+.hero h1{
+  font-family:var(--serif);
+  font-weight:310;
+  font-variation-settings:"opsz" 144;
+  font-size:clamp(3.4rem,9.6vw,10.2rem);
+  line-height:.98;
+  letter-spacing:-.018em;
+  max-width:12em;
+}
+.hero h1 em{font-style:italic;font-weight:280;color:var(--bronze)}
+.hl-line{display:block;overflow:hidden;padding-bottom:.06em;margin-bottom:-.06em}
+.hl-in{display:block;will-change:transform}
+.hero-foot{
+  position:relative;z-index:2;
+  display:flex;align-items:flex-end;justify-content:space-between;gap:2rem;
+  padding:1.4rem var(--gutter) 1.8rem;
+  border-top:1px solid var(--hairline-soft);
+  margin-top:clamp(1.6rem,4vh,3rem);
+}
+.hero-sub{max-width:34ch;font-size:14px;line-height:1.75;color:var(--ivory-60)}
+.hero-meta{
+  text-align:right;font-size:11px;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--ivory-40);line-height:2.1;white-space:nowrap;
+}
+.hero-meta b{color:var(--ivory-80);font-weight:500}
+.scroll-cue{
+  position:absolute;bottom:0;left:50%;transform:translateX(-50%);z-index:3;
+  width:1px;height:clamp(48px,8vh,84px);background:var(--hairline);overflow:hidden;
+}
+.scroll-cue::after{
+  content:"";position:absolute;left:0;top:-40%;width:1px;height:40%;background:var(--bronze);
+  animation:cueDrop 2.6s cubic-bezier(.6,0,.2,1) infinite;
+}
+@keyframes cueDrop{0%{top:-40%}60%,100%{top:110%}}
+@media (prefers-reduced-motion:reduce){.scroll-cue::after{animation:none}}
+
+/* ============ intro ============ */
+.intro{padding-top:clamp(6rem,14vh,11rem);padding-bottom:clamp(5rem,12vh,9rem)}
+.intro-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,2.2fr);gap:clamp(2rem,6vw,7rem)}
+.intro-side{display:flex;flex-direction:column;gap:1.4rem}
+.intro-side .tick{width:44px;height:1px;background:var(--bronze)}
+.intro-lede{
+  font-family:var(--serif);font-weight:300;
+  font-size:clamp(1.55rem,3vw,2.6rem);
+  line-height:1.42;letter-spacing:-.005em;color:var(--ivory);
+}
+.intro-lede .w-em{font-style:italic;color:var(--bronze)}
+.intro-stats{
+  display:flex;gap:clamp(1.5rem,4vw,3.5rem);
+  margin-top:clamp(2.5rem,6vh,4rem);
+  padding-top:2rem;border-top:1px solid var(--hairline-soft);
+}
+.intro-stat{display:flex;flex-direction:column;gap:.4rem}
+.intro-stat .v{font-family:var(--serif);font-weight:340;font-size:clamp(1.4rem,2.2vw,2rem);color:var(--ivory)}
+.intro-stat .k{font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--ivory-40)}
+
+/* ============ portfolio ============
+   Stacked editorial cards are the CSS default (works with no JS at any width).
+   The pinned horizontal layout is opt-in via body.h-scroll, added only when
+   GSAP is live, motion is allowed and the viewport is wide. */
+.portfolio{position:relative;background:var(--ink)}
+.pf-viewport{overflow:hidden}
+.pf-track{display:flex;flex-direction:column}
+.pf-panel{
+  display:grid;grid-template-columns:1fr;
+  gap:clamp(2rem,4vw,5rem);
+  padding:clamp(3.5rem,9vw,5rem) var(--gutter);
+  position:relative;
+  border-bottom:1px solid var(--hairline-soft);
+}
+.pf-num{
+  font-family:var(--serif);font-style:italic;font-weight:250;
+  font-size:clamp(4.5rem,18vw,7rem);line-height:1;
+  color:transparent;-webkit-text-stroke:1px rgba(176,141,87,.4);
+  pointer-events:none;user-select:none;
+  margin-bottom:.5rem;
+}
+.pf-copy{position:relative;z-index:2;display:flex;flex-direction:column;gap:1.3rem;max-width:34rem}
+.pf-copy .pf-loc{display:flex;align-items:center;gap:1rem}
+.pf-copy .tick{width:32px;height:1px;background:var(--bronze)}
+.pf-name{
+  font-family:var(--serif);font-weight:320;
+  font-size:clamp(2.4rem,4.6vw,4.6rem);line-height:1.04;letter-spacing:-.01em;
+}
+.pf-name em{font-style:italic;color:var(--bronze);font-weight:290}
+.pf-desc{font-size:14.5px;line-height:1.8;color:var(--ivory-60);max-width:38ch}
+.pf-specs{
+  display:flex;gap:clamp(1.4rem,3vw,2.6rem);
+  padding:1.3rem 0;border-top:1px solid var(--hairline-soft);border-bottom:1px solid var(--hairline-soft);
+}
+.pf-spec{display:flex;flex-direction:column;gap:.3rem}
+.pf-spec .v{font-family:var(--serif);font-weight:360;font-size:1.25rem}
+.pf-spec .k{font-size:10px;letter-spacing:.2em;text-transform:uppercase;color:var(--ivory-40)}
+.pf-priceline{display:flex;align-items:baseline;gap:1.2rem}
+.pf-price{font-family:var(--serif);font-weight:320;font-size:clamp(1.7rem,2.6vw,2.5rem);color:var(--bronze)}
+.pf-price-k{font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--ivory-40)}
+.pf-media{position:relative;z-index:2;width:100%}
+@media (min-width:900px){
+  /* stacked fallback on wide screens: keep plates book-sized */
+  .pf-media{width:min(100%,520px)}
+}
+.pf-frame{
+  position:relative;overflow:hidden;aspect-ratio:4/5;
+  will-change:clip-path;
+}
+.pf-frame img{
+  position:absolute;inset:-6% 0;width:100%;height:112%;object-fit:cover;
+  will-change:transform;
+}
+.pf-frame img.pos-high{object-position:center 32%}
+/* hover lives on the frame so it never fights GSAP's transforms on the img */
+.pf-media:hover .pf-frame{transform:scale(1.015)}
+.pf-frame{transition:transform 1.6s cubic-bezier(.22,.6,.2,1)}
+.pf-caption{
+  display:flex;justify-content:space-between;gap:1rem;
+  margin-top:.9rem;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--ivory-40);
+}
+.pf-lead-title{
+  font-family:var(--serif);font-weight:300;
+  font-size:clamp(2.6rem,5.4vw,5.4rem);line-height:1.05;letter-spacing:-.012em;
+  max-width:9em;margin-top:1.6rem;
+}
+.pf-lead-title em{font-style:italic;color:var(--bronze)}
+.pf-lead-note{margin-top:2rem;max-width:30ch;font-size:14px;line-height:1.8;color:var(--ivory-60)}
+.pf-lead-hint{
+  display:none;align-items:center;gap:.9rem;margin-top:2.6rem;
+  font-size:10.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--ivory-40);
+}
+.pf-lead-hint .ln{display:inline-block;width:56px;height:1px;background:var(--bronze-dim)}
+.pf-progress{
+  position:absolute;left:var(--gutter);right:var(--gutter);bottom:clamp(1.6rem,4vh,2.6rem);z-index:5;
+  display:none;align-items:center;gap:1.4rem;
+}
+/* --- horizontal showcase (JS-enabled, wide viewports only) --- */
+@media (min-width:900px){
+  body.h-scroll .pf-track{flex-direction:row;width:max-content;will-change:transform}
+  body.h-scroll .pf-panel{
+    width:92vw;min-height:100svh;flex-shrink:0;
+    grid-template-columns:minmax(0,1.05fr) minmax(0,1fr);
+    align-items:center;
+    padding:clamp(5rem,10vh,7rem) var(--gutter);
+    border-right:1px solid var(--hairline-soft);border-bottom:0;
+  }
+  body.h-scroll .pf-panel--lead{width:58vw;grid-template-columns:1fr;align-content:center}
+  body.h-scroll .pf-panel--flip .pf-copy{order:2}
+  body.h-scroll .pf-panel--flip .pf-media{order:1;justify-self:start}
+  body.h-scroll .pf-num{
+    position:absolute;top:clamp(4.5rem,9vh,6rem);left:var(--gutter);z-index:1;
+    font-size:clamp(7rem,16vh,13rem);margin-bottom:0;
+  }
+  body.h-scroll .pf-panel--flip .pf-num{left:auto;right:var(--gutter)}
+  body.h-scroll .pf-media{justify-self:end;width:min(100%,36vw)}
+  body.h-scroll .pf-progress{display:flex}
+  body.h-scroll .pf-lead-hint{display:inline-flex}
+}
+.pf-progress .bar{flex:1;height:1px;background:var(--hairline);position:relative;overflow:visible}
+.pf-progress .bar i{
+  position:absolute;left:0;top:0;height:1px;width:100%;background:var(--bronze);
+  transform:scaleX(0);transform-origin:left center;display:block;
+}
+.pf-count{font-family:var(--serif);font-style:italic;font-size:13px;color:var(--ivory-60);white-space:nowrap;font-variant-numeric:tabular-nums}
+
+/* ============ residence ============ */
+.residence{position:relative;padding-top:clamp(6rem,14vh,11rem)}
+.res-head{margin-bottom:clamp(3rem,8vh,6rem)}
+.res-media{
+  position:relative;height:min(88vh,58vw);min-height:420px;overflow:hidden;
+}
+.res-media img{
+  position:absolute;left:0;top:-12%;width:100%;height:124%;object-fit:cover;
+  will-change:transform;
+}
+.res-media::after{
+  content:"";position:absolute;inset:0;
+  background:linear-gradient(180deg,rgba(18,16,14,.35),rgba(18,16,14,0) 30%,rgba(18,16,14,0) 60%,rgba(18,16,14,.55));
+}
+.res-quote{
+  position:relative;z-index:3;
+  max-width:48rem;
+  margin:calc(clamp(3rem,10vh,7rem) * -1) auto 0;
+  padding:clamp(2.2rem,5vw,3.8rem) clamp(1.8rem,4.5vw,4rem);
+  background:var(--ink-2);
+  border:1px solid var(--hairline-soft);
+}
+.res-quote::before{
+  content:"\201C";position:absolute;top:-.12em;left:clamp(.6rem,2vw,1.6rem);
+  font-family:var(--serif);font-style:italic;font-weight:250;
+  font-size:clamp(5rem,10vw,8.5rem);line-height:1;color:transparent;
+  -webkit-text-stroke:1px rgba(176,141,87,.45);
+  pointer-events:none;
+}
+.res-quote blockquote{
+  font-family:var(--serif);font-weight:300;
+  font-size:clamp(1.5rem,2.8vw,2.35rem);line-height:1.42;letter-spacing:-.005em;
+}
+.res-quote blockquote em{font-style:italic;color:var(--bronze)}
+.res-quote figcaption{
+  display:flex;align-items:center;gap:1rem;justify-content:flex-end;
+  margin-top:1.8rem;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--ivory-40);
+}
+.res-quote figcaption::before{content:"";width:36px;height:1px;background:var(--bronze-dim)}
+.res-specs{
+  display:grid;grid-template-columns:repeat(4,1fr);
+  max-width:64rem;margin:clamp(3rem,8vh,5rem) auto 0;
+  border-top:1px solid var(--hairline);border-bottom:1px solid var(--hairline);
+}
+.res-spec{
+  padding:1.8rem 1rem;text-align:center;
+  border-right:1px solid var(--hairline-soft);
+  display:flex;flex-direction:column;gap:.5rem;
+}
+.res-spec:last-child{border-right:0}
+.res-spec .v{font-family:var(--serif);font-weight:320;font-size:clamp(1.5rem,2.4vw,2.2rem)}
+.res-spec .k{font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--ivory-40)}
+.res-cta-row{display:flex;justify-content:center;margin-top:clamp(2.5rem,6vh,4rem)}
+.btn-line{
+  display:inline-flex;align-items:center;gap:.9rem;
+  font-size:11.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--ivory);
+  padding-bottom:.6rem;border-bottom:1px solid var(--bronze-dim);
+  transition:color .3s ease,border-color .3s ease,gap .3s ease;
+}
+.btn-line:hover{color:var(--bronze);border-color:var(--bronze);gap:1.3rem}
+.btn-line .arr{font-family:var(--serif);font-style:italic}
+
+/* ============ numbers ============ */
+.numbers{
+  margin-top:clamp(6rem,14vh,11rem);
+  background:var(--ink-2);
+  border-top:1px solid var(--hairline-soft);border-bottom:1px solid var(--hairline-soft);
+}
+.numbers-head{
+  display:flex;justify-content:space-between;align-items:baseline;gap:1rem;
+  padding:1.6rem var(--gutter);
+  border-bottom:1px solid var(--hairline-soft);
+}
+.numbers-grid{
+  display:grid;grid-template-columns:repeat(4,1fr);
+}
+.numcell{
+  padding:clamp(3rem,7vh,5rem) clamp(1rem,2.5vw,2.5rem);
+  border-right:1px solid var(--hairline-soft);
+  display:flex;flex-direction:column;gap:.8rem;
+}
+.numcell:last-child{border-right:0}
+.numcell .num{
+  font-family:var(--serif);font-weight:280;
+  font-size:clamp(2.8rem,6vw,5.4rem);line-height:1;letter-spacing:-.02em;
+  font-variant-numeric:tabular-nums;
+}
+.numcell .num sup{font-size:.45em;color:var(--bronze);font-style:italic;font-weight:340}
+.numcell .cap{font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--ivory-40)}
+
+/* ============ contact ============ */
+.contact{padding-top:clamp(6rem,15vh,12rem);padding-bottom:clamp(5rem,10vh,8rem)}
+.contact-grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.2fr);gap:clamp(3rem,7vw,8rem)}
+.contact-side h2{
+  font-family:var(--serif);font-weight:300;
+  font-size:clamp(2.2rem,4.2vw,4rem);line-height:1.1;letter-spacing:-.012em;
+  margin:1.4rem 0 1.8rem;
+}
+.contact-side h2 em{font-style:italic;color:var(--bronze)}
+.contact-side p{color:var(--ivory-60);font-size:15px;max-width:38ch}
+.contact-mail{
+  display:inline-block;margin-top:2.2rem;
+  font-family:var(--serif);font-style:italic;font-size:1.25rem;color:var(--ivory-80);
+  border-bottom:1px solid var(--bronze-dim);padding-bottom:.3rem;
+  transition:color .3s;
+}
+.contact-mail:hover{color:var(--bronze)}
+.form{display:flex;flex-direction:column;gap:2.2rem}
+.field{display:flex;flex-direction:column;gap:.55rem;position:relative}
+.field label{font-size:10.5px;letter-spacing:.2em;text-transform:uppercase;color:var(--ivory-40);transition:color .3s}
+.field input,.field select{
+  background:transparent;border:0;border-bottom:1px solid var(--hairline);
+  border-radius:0;
+  color:var(--ivory);font-family:var(--sans);font-size:17px;
+  padding:.55rem 0 .8rem;
+  transition:border-color .35s ease;
+  appearance:none;-webkit-appearance:none;
+}
+.field select{
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23B08D57' fill='none'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right .2rem center;
+  padding-right:1.6rem;cursor:pointer;
+}
+.field select option{background:var(--ink-2);color:var(--ivory)}
+.field input::placeholder{color:var(--ivory-40)}
+.field input:focus,.field select:focus{outline:none;border-bottom-color:var(--bronze)}
+.field:focus-within label{color:var(--bronze)}
+.field input:focus-visible,.field select:focus-visible{outline:none}
+.field.has-error input,.field.has-error select{border-bottom-color:var(--terracotta)}
+.field-err{
+  font-size:12px;color:var(--terracotta);letter-spacing:.03em;
+  min-height:1.1em;margin-top:.15rem;
+}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:2.2rem}
+.form-actions{display:flex;align-items:center;gap:1.8rem;margin-top:.6rem;flex-wrap:wrap}
+.btn-solid{
+  font-size:11.5px;letter-spacing:.2em;text-transform:uppercase;
+  color:var(--bronze);border:1px solid var(--bronze-dim);
+  padding:1.05rem 2.4rem;border-radius:99px;
+  transition:background .35s ease,color .35s ease,border-color .35s ease;
+}
+.btn-solid:hover{background:var(--bronze);color:var(--ink);border-color:var(--bronze)}
+.form-note{font-size:12px;color:var(--ivory-40);max-width:26ch;line-height:1.6}
+.form-success{
+  display:flex;flex-direction:column;gap:1.4rem;justify-content:center;
+  min-height:320px;
+}
+.form-success[hidden],.form[hidden]{display:none}
+.form-success .ok-line{
+  font-family:var(--serif);font-weight:300;
+  font-size:clamp(1.9rem,3.4vw,3rem);line-height:1.2;
+}
+.form-success .ok-line em{font-style:italic;color:var(--bronze)}
+.form-success .ok-sub{color:var(--ivory-60);font-size:15px;max-width:42ch}
+.form-success .ok-meta{
+  margin-top:1rem;padding-top:1.4rem;border-top:1px solid var(--hairline-soft);
+  font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--ivory-40);line-height:2.2;
+}
+.form-success .ok-meta b{color:var(--ivory-80);font-weight:500}
+
+/* ============ footer ============ */
+.footer{
+  border-top:1px solid var(--hairline);
+  padding:clamp(3.5rem,8vh,6rem) 0 2rem;
+  position:relative;overflow:clip;
+}
+.footer-cols{
+  display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:2.5rem;
+  padding-bottom:clamp(3rem,8vh,6rem);
+}
+.footer-col h3{font-size:10.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--ivory-40);font-weight:500;margin-bottom:1.2rem}
+.footer-col ul{list-style:none;display:flex;flex-direction:column;gap:.55rem}
+.footer-col a,.footer-col li{font-size:14px;color:var(--ivory-60)}
+.footer-col a{transition:color .3s}
+.footer-col a:hover{color:var(--bronze)}
+.footer-mark{
+  font-family:var(--serif);font-weight:290;
+  font-size:clamp(3.2rem,16.5vw,17.5rem);
+  line-height:.95;letter-spacing:.02em;text-align:center;
+  color:var(--ivory);white-space:nowrap;
+  user-select:none;
+}
+.footer-mark .mk{display:block;overflow:hidden}
+.footer-mark .mk-in{display:block;will-change:transform}
+.footer-legal{
+  display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;
+  margin-top:clamp(2rem,5vh,3.5rem);padding-top:1.4rem;
+  border-top:1px solid var(--hairline-soft);
+  font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ivory-40);
+}
+.footer-legal a{border-bottom:1px solid transparent;transition:color .3s,border-color .3s}
+.footer-legal a:hover{color:var(--bronze);border-color:var(--bronze-dim)}
+
+/* ============ responsive ============ */
+@media (max-width:1100px){
+  body.h-scroll .pf-media{width:min(100%,40vw)}
+}
+@media (max-width:899px){
+  .nav-links{display:none}
+  .nav-burger{display:flex}
+  .nav-cta{display:none}
+  .pf-copy{max-width:none}
+  .intro-grid{grid-template-columns:1fr;gap:2.5rem}
+  .contact-grid{grid-template-columns:1fr}
+  .numbers-grid{grid-template-columns:1fr 1fr}
+  .numcell:nth-child(2){border-right:0}
+  .numcell:nth-child(1),.numcell:nth-child(2){border-bottom:1px solid var(--hairline-soft)}
+  .res-specs{grid-template-columns:1fr 1fr;max-width:none;margin-left:var(--gutter);margin-right:var(--gutter)}
+  .res-spec:nth-child(2){border-right:0}
+  .res-spec:nth-child(1),.res-spec:nth-child(2){border-bottom:1px solid var(--hairline-soft)}
+  .footer-cols{grid-template-columns:1fr;gap:2rem}
+  .hero-foot{flex-direction:column;align-items:flex-start;gap:1.4rem}
+  .hero-meta{text-align:left}
+  .form-row{grid-template-columns:1fr}
+  .res-quote{margin-left:var(--gutter);margin-right:var(--gutter)}
+}
+@media (max-width:520px){
+  .intro-stats{flex-wrap:wrap;gap:1.4rem 2.2rem}
+  .pf-specs{flex-wrap:wrap;gap:1.1rem 1.8rem}
+}
+</style>
+</head>
+<body>
+
+<div class="grain" aria-hidden="true"></div>
+
+<!-- preloader: hidden by default; enabled only when GSAP is present and motion allowed,
+     so a failed CDN or reduced-motion never blocks the page -->
+<div id="preloader" hidden aria-hidden="true">
+  <div class="pre-mono">Meridian<span style="color:var(--bronze)">.</span></div>
+  <div class="pre-label">Architectural Estates</div>
+  <div class="pre-count" id="preCount">00</div>
+</div>
+<script>
+(function(){
+  var m=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if(window.gsap && !m){ document.getElementById('preloader').removeAttribute('hidden'); }
+})();
+</script>
+
+<header class="nav" id="siteNav">
+  <a class="nav-mark" href="#top">Meridian<em>.</em></a>
+  <nav aria-label="Primary">
+    <ul class="nav-links">
+      <li><a href="#portfolio">Portfolio</a></li>
+      <li><a href="#residence">Residence</a></li>
+      <li><a href="#contact">Contact</a></li>
+      <li><a href="guide.html">How it was made</a></li>
+    </ul>
+  </nav>
+  <a class="nav-cta" href="#contact">Private viewing</a>
+  <button class="nav-burger" id="burger" aria-label="Open menu" aria-expanded="false" aria-controls="menuOverlay">
+    <span></span><span></span>
+  </button>
+</header>
+
+<div class="menu-overlay" id="menuOverlay">
+  <a href="#portfolio"><span class="mo-idx">01</span>Portfolio</a>
+  <a href="#residence"><span class="mo-idx">02</span>Residence</a>
+  <a href="#contact"><span class="mo-idx">03</span>Contact</a>
+  <a href="guide.html"><span class="mo-idx">04</span>How it was made</a>
+  <p style="margin-top:2.4rem;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:var(--ivory-40)">viewings@meridian.estate — by appointment</p>
+</div>
+
+<main id="top">
+
+  <!-- ============ HERO ============ -->
+  <section class="hero" aria-label="Introduction">
+    <div class="hero-media">
+      <img src="assets/img/hero-villa.jpg" alt="Concrete cliffside villa at dusk, its infinity pool mirroring a pale sky above the sea" fetchpriority="high">
+    </div>
+    <div class="hero-scrim" aria-hidden="true"></div>
+    <div class="scroll-cue" aria-hidden="true"></div>
+    <div class="hero-inner">
+      <p class="hero-eyebrow eyebrow" style="color:var(--ivory-80)"><span class="tick" aria-hidden="true"></span>Meridian — Architectural Estates</p>
+      <h1>
+        <span class="hl-line"><span class="hl-in">The rarest houses</span></span>
+        <span class="hl-line"><span class="hl-in">are never <em>listed.</em></span></span>
+      </h1>
+    </div>
+    <div class="hero-foot">
+      <p class="hero-sub">A private brokerage for landmark modern architecture — placed quietly, between people who understand what they hold.</p>
+      <p class="hero-meta">
+        Currently represented — <b>Casa Meridiana</b><br>
+        41°57′ N · 3°13′ E — Costa Brava, España
+      </p>
+    </div>
+  </section>
+
+  <!-- ============ INTRO ============ -->
+  <section class="intro wrap" aria-label="About Meridian">
+    <div class="intro-grid">
+      <div class="intro-side">
+        <span class="tick" aria-hidden="true"></span>
+        <p class="eyebrow eyebrow--ivory">The practice</p>
+      </div>
+      <div>
+        <p class="intro-lede" data-split>Since 2009 we have placed one hundred and forty houses of record — desert monoliths, cliff pavilions, courtyards of poured light — into the hands of people who intend to <em>keep</em> them. We do not advertise. We introduce.</p>
+        <div class="intro-stats">
+          <div class="intro-stat"><span class="v">MMIX</span><span class="k">Established</span></div>
+          <div class="intro-stat"><span class="v">$2.4B</span><span class="k">Quietly placed</span></div>
+          <div class="intro-stat"><span class="v">Four</span><span class="k">Continents</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ PORTFOLIO ============ -->
+  <section class="portfolio" id="portfolio" aria-label="Current portfolio">
+    <div class="pf-viewport">
+      <div class="pf-track">
+
+        <div class="pf-panel pf-panel--lead">
+          <div>
+            <p class="eyebrow"><span style="margin-right:1rem">01 — 03</span>The Portfolio</p>
+            <h2 class="pf-lead-title">Three houses,<br>currently <em>represented.</em></h2>
+            <p class="pf-lead-note">Each held to the same test: would the architect recognise it, and would the landscape miss it.</p>
+            <p class="pf-lead-hint" aria-hidden="true">Scroll <span class="ln"></span> the portfolio moves sideways</p>
+          </div>
+        </div>
+
+        <article class="pf-panel" aria-label="Vermilion House">
+          <span class="pf-num" aria-hidden="true">01</span>
+          <div class="pf-copy">
+            <p class="pf-loc eyebrow eyebrow--ivory"><span class="tick" aria-hidden="true"></span>Sonoran Desert, Arizona — US</p>
+            <h3 class="pf-name">Vermilion <em>House</em></h3>
+            <p class="pf-desc">Board-formed concrete rising off the dune line an hour past Scottsdale. Round apertures track the sun; the shadow does the landscaping.</p>
+            <div class="pf-specs">
+              <div class="pf-spec"><span class="v">4</span><span class="k">Bedrooms</span></div>
+              <div class="pf-spec"><span class="v">620 m²</span><span class="k">Interior</span></div>
+              <div class="pf-spec"><span class="v">2019</span><span class="k">Completed</span></div>
+            </div>
+            <div class="pf-priceline"><span class="pf-price">$8.4M</span><span class="pf-price-k">Guide price</span></div>
+          </div>
+          <div class="pf-media">
+            <div class="pf-frame reveal-img">
+              <img class="pos-high" src="assets/img/prop-desert.jpg" loading="lazy" decoding="async" alt="Brutalist concrete house with a round window standing alone in golden desert dunes">
+            </div>
+            <p class="pf-caption"><span>Fig. 01 — North elevation</span><span>33°41′ N · 111°52′ W</span></p>
+          </div>
+        </article>
+
+        <article class="pf-panel pf-panel--flip" aria-label="Pavilion Nord">
+          <span class="pf-num" aria-hidden="true">02</span>
+          <div class="pf-copy">
+            <p class="pf-loc eyebrow eyebrow--ivory"><span class="tick" aria-hidden="true"></span>Lofoten — Norway</p>
+            <h3 class="pf-name">Pavilion <em>Nord</em></h3>
+            <p class="pf-desc">A glass and concrete shelf cantilevered over volcanic rock, its lap pool holding a line against the Norwegian Sea. Silence, engineered.</p>
+            <div class="pf-specs">
+              <div class="pf-spec"><span class="v">3</span><span class="k">Bedrooms</span></div>
+              <div class="pf-spec"><span class="v">340 m²</span><span class="k">Interior</span></div>
+              <div class="pf-spec"><span class="v">2022</span><span class="k">Completed</span></div>
+            </div>
+            <div class="pf-priceline"><span class="pf-price">$6.1M</span><span class="pf-price-k">Guide price</span></div>
+          </div>
+          <div class="pf-media">
+            <div class="pf-frame reveal-img">
+              <img src="assets/img/prop-ocean.jpg" loading="lazy" decoding="async" alt="Minimal concrete pavilion with a cantilevered pool hovering above mossy coastal rocks and calm sea">
+            </div>
+            <p class="pf-caption"><span>Fig. 02 — Seaward terrace</span><span>68°09′ N · 13°36′ E</span></p>
+          </div>
+        </article>
+
+        <article class="pf-panel" aria-label="Kiri House">
+          <span class="pf-num" aria-hidden="true">03</span>
+          <div class="pf-copy">
+            <p class="pf-loc eyebrow eyebrow--ivory"><span class="tick" aria-hidden="true"></span>Karuizawa — Japan</p>
+            <h3 class="pf-name">Kiri <em>House</em></h3>
+            <p class="pf-desc">Charred-cedar walls under old-growth cryptomeria, one warm window against the mist. A retreat built to the rhythm of shou sugi ban.</p>
+            <div class="pf-specs">
+              <div class="pf-spec"><span class="v">5</span><span class="k">Bedrooms</span></div>
+              <div class="pf-spec"><span class="v">410 m²</span><span class="k">Interior</span></div>
+              <div class="pf-spec"><span class="v">2017</span><span class="k">Completed</span></div>
+            </div>
+            <div class="pf-priceline"><span class="pf-price">$4.7M</span><span class="pf-price-k">Guide price</span></div>
+          </div>
+          <div class="pf-media">
+            <div class="pf-frame reveal-img">
+              <img src="assets/img/prop-forest.jpg" loading="lazy" decoding="async" alt="Black timber house glowing from within, set among ferns and towering cedars in fog">
+            </div>
+            <p class="pf-caption"><span>Fig. 03 — Forest approach</span><span>36°21′ N · 138°35′ E</span></p>
+          </div>
+        </article>
+
+      </div>
+    </div>
+    <div class="pf-progress" aria-hidden="true">
+      <span class="pf-count" id="pfCount">01 / 03</span>
+      <span class="bar"><i id="pfBar"></i></span>
+    </div>
+  </section>
+
+  <!-- ============ RESIDENCE ============ -->
+  <section class="residence" id="residence" aria-label="Flagship residence">
+    <div class="wrap res-head">
+      <div class="sec-head">
+        <span class="idx">02</span>
+        <p class="eyebrow eyebrow--ivory">The Residence — Casa Meridiana, Costa Brava</p>
+        <span class="rule" aria-hidden="true"></span>
+        <span class="aside">Price on application</span>
+      </div>
+    </div>
+    <figure class="res-media reveal-img">
+      <img src="assets/img/interior.jpg" loading="lazy" decoding="async" alt="Double-height living room in warm wood and travertine, sunlight falling across linen sofas">
+    </figure>
+    <figure class="res-quote">
+      <blockquote data-split>A house should stand against the sea the way a sentence stands against silence — <em>deliberately.</em></blockquote>
+      <figcaption>E. Meridian — Founding Partner</figcaption>
+    </figure>
+    <div class="res-specs">
+      <div class="res-spec"><span class="v">6</span><span class="k">Bedrooms</span></div>
+      <div class="res-spec"><span class="v">8</span><span class="k">Bathrooms</span></div>
+      <div class="res-spec"><span class="v">1,240 m²</span><span class="k">Interior</span></div>
+      <div class="res-spec"><span class="v">2021</span><span class="k">Completed</span></div>
+    </div>
+    <div class="res-cta-row">
+      <a class="btn-line" href="#contact">Request the private dossier <span class="arr" aria-hidden="true">→</span></a>
+    </div>
+  </section>
+
+  <!-- ============ NUMBERS ============ -->
+  <section class="numbers" aria-label="Meridian in numbers">
+    <div class="numbers-head">
+      <p class="eyebrow eyebrow--ivory">Meridian, measured</p>
+      <p class="eyebrow" style="color:var(--ivory-40)">MMIX — MMXXVI</p>
+    </div>
+    <div class="numbers-grid">
+      <div class="numcell"><span class="num"><span data-count="140">140</span><sup>+</sup></span><span class="cap">Houses placed since 2009</span></div>
+      <div class="numcell"><span class="num"><span data-count="96400">96,400</span></span><span class="cap">Combined m² represented</span></div>
+      <div class="numcell"><span class="num"><span data-count="34">34</span></span><span class="cap">Average days to close</span></div>
+      <div class="numcell"><span class="num"><span data-count="12">12</span></span><span class="cap">Countries, four continents</span></div>
+    </div>
+  </section>
+
+  <!-- ============ CONTACT ============ -->
+  <section class="contact wrap" id="contact" aria-label="Request a private viewing">
+    <div class="contact-grid">
+      <div class="contact-side">
+        <p class="eyebrow">03 — Private viewing</p>
+        <h2>Viewings are private, and never <em>rushed.</em></h2>
+        <p>Tell us where to reach you and which house holds your attention. A partner — never an assistant — will reply within the day.</p>
+        <a class="contact-mail" href="mailto:viewings@meridian.estate">viewings@meridian.estate</a>
+      </div>
+      <div class="contact-form-zone">
+        <form class="form" id="viewingForm" novalidate>
+          <div class="form-row">
+            <div class="field">
+              <label for="fName">Full name</label>
+              <input id="fName" name="name" type="text" autocomplete="name" placeholder="Elena Vasquez">
+              <p class="field-err" aria-live="polite"></p>
+            </div>
+            <div class="field">
+              <label for="fEmail">Email</label>
+              <input id="fEmail" name="email" type="email" autocomplete="email" placeholder="elena@studio.com">
+              <p class="field-err" aria-live="polite"></p>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="field">
+              <label for="fDate">Preferred date</label>
+              <input id="fDate" name="date" type="date">
+              <p class="field-err" aria-live="polite"></p>
+            </div>
+            <div class="field">
+              <label for="fProp">Property</label>
+              <select id="fProp" name="property">
+                <option value="" selected>Select a house</option>
+                <option>Vermilion House — Sonoran Desert</option>
+                <option>Pavilion Nord — Lofoten</option>
+                <option>Kiri House — Karuizawa</option>
+                <option>Casa Meridiana — Costa Brava</option>
+                <option>Off-portfolio enquiry</option>
+              </select>
+              <p class="field-err" aria-live="polite"></p>
+            </div>
+          </div>
+          <div class="form-actions">
+            <button class="btn-solid" type="submit">Request private viewing</button>
+            <p class="form-note">No listings portal. No open days. One conversation.</p>
+          </div>
+        </form>
+        <div class="form-success" id="formSuccess" hidden>
+          <p class="ok-line">Received. A partner will write to you <em>within the day.</em></p>
+          <p class="ok-sub">Viewings are arranged around light — expect a proposal for early morning or the last two hours of the afternoon.</p>
+          <p class="ok-meta" id="okMeta"></p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<!-- ============ FOOTER ============ -->
+<footer class="footer" aria-label="Footer">
+  <div class="wrap">
+    <div class="footer-cols">
+      <div class="footer-col">
+        <h3>Enquiries</h3>
+        <ul>
+          <li><a href="mailto:viewings@meridian.estate">viewings@meridian.estate</a></li>
+          <li><a href="mailto:press@meridian.estate">press@meridian.estate</a></li>
+          <li>+34 872 00 41 — Girona</li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h3>Offices</h3>
+        <ul>
+          <li>Costa Brava — by appointment</li>
+          <li>Scottsdale — by appointment</li>
+          <li>Karuizawa — by appointment</li>
+        </ul>
+      </div>
+      <div class="footer-col">
+        <h3>Elsewhere</h3>
+        <ul>
+          <li><a href="#" rel="noopener">Instagram</a></li>
+          <li><a href="#" rel="noopener">Pinterest</a></li>
+          <li><a href="guide.html">How this site was made</a></li>
+        </ul>
+      </div>
+    </div>
+    <p class="footer-mark" aria-label="Meridian"><span class="mk"><span class="mk-in">MERIDIAN</span></span></p>
+    <div class="footer-legal">
+      <span>© MMXXVI Meridian Estates SL — All viewings by appointment</span>
+      <span>Designed &amp; built by <a href="guide.html">Claude (Fable 5)</a></span>
+    </div>
+  </div>
+</footer>
+
+<script>
+(function(){
+  'use strict';
+  var reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var hasGsap = typeof window.gsap !== 'undefined' && typeof window.ScrollTrigger !== 'undefined';
+  var q = function(s,c){ return (c||document).querySelector(s); };
+  var qa = function(s,c){ return Array.prototype.slice.call((c||document).querySelectorAll(s)); };
+
+  /* ---------- always-on behaviour (works without GSAP) ---------- */
+
+  // mobile menu
+  var burger = q('#burger'), overlay = q('#menuOverlay');
+  if (burger){
+    burger.addEventListener('click', function(){
+      var open = overlay.classList.toggle('is-open');
+      document.body.classList.toggle('menu-open', open);
+      burger.setAttribute('aria-expanded', open ? 'true' : 'false');
+      burger.setAttribute('aria-label', open ? 'Close menu' : 'Open menu');
+    });
+    qa('a', overlay).forEach(function(a){
+      a.addEventListener('click', function(){
+        overlay.classList.remove('is-open');
+        document.body.classList.remove('menu-open');
+        burger.setAttribute('aria-expanded','false');
+      });
+    });
+  }
+
+  // form validation + simulated success
+  var form = q('#viewingForm');
+  if (form){
+    var dateInput = q('#fDate');
+    if (dateInput){
+      var t = new Date(); t.setDate(t.getDate()+1);
+      dateInput.min = t.toISOString().split('T')[0];
+    }
+    function setErr(input, msg){
+      var field = input.closest('.field');
+      field.classList.toggle('has-error', !!msg);
+      q('.field-err', field).textContent = msg || '';
+    }
+    function validate(){
+      var ok = true;
+      var name = q('#fName'), email = q('#fEmail'), date = q('#fDate'), prop = q('#fProp');
+      if (name.value.trim().length < 2){ setErr(name,'Please share your name.'); ok=false; } else setErr(name,'');
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email.value.trim())){ setErr(email,'A valid email lets us reply.'); ok=false; } else setErr(email,'');
+      if (!date.value){ setErr(date,'Choose any day that suits.'); ok=false; }
+      else if (date.min && date.value < date.min){ setErr(date,'Viewings are booked a day ahead.'); ok=false; }
+      else setErr(date,'');
+      if (!prop.value){ setErr(prop,'Which house holds your attention?'); ok=false; } else setErr(prop,'');
+      return ok;
+    }
+    ['fName','fEmail','fDate','fProp'].forEach(function(id){
+      var el = q('#'+id);
+      el.addEventListener('input', function(){ if (el.closest('.field').classList.contains('has-error')) validate(); });
+    });
+    form.addEventListener('submit', function(e){
+      e.preventDefault();
+      if (!validate()) return;
+      var success = q('#formSuccess');
+      var meta = q('#okMeta');
+      var d = new Date(q('#fDate').value + 'T12:00:00');
+      meta.innerHTML = 'For — <b>' + q('#fProp').value.split('—')[0].trim() + '</b><br>' +
+        'Preferred — <b>' + d.toLocaleDateString('en-GB',{weekday:'long', day:'numeric', month:'long'}) + '</b><br>' +
+        'Reply to — <b>' + q('#fEmail').value.trim() + '</b>';
+      if (hasGsap && !reduced){
+        gsap.to(form, {autoAlpha:0, y:-24, duration:.5, ease:'power2.in', onComplete: function(){
+          form.hidden = true; success.hidden = false;
+          gsap.fromTo(success, {autoAlpha:0, y:28}, {autoAlpha:1, y:0, duration:.8, ease:'power3.out'});
+          if (window.ScrollTrigger) ScrollTrigger.refresh();
+        }});
+      } else {
+        form.hidden = true; success.hidden = false;
+      }
+    });
+  }
+
+  // if animation is off, we're done — everything stays visible by default
+  if (!hasGsap || reduced) return;
+
+  /* ---------- GSAP setup ---------- */
+  gsap.registerPlugin(ScrollTrigger);
+  gsap.defaults({ease:'power3.out', duration:1.1});
+  var isDesktop = window.matchMedia('(min-width: 900px)').matches;
+
+  /* line splitter: wraps words, groups them into masked line blocks.
+     em/strong words keep styling via .w-em class. */
+  function splitLines(el){
+    if (el.dataset.splitDone) return qa('.sl-in', el);
+    el.dataset.splitDone = '1';
+    var words = [];
+    (function wrapWords(node, inEm){
+      Array.prototype.slice.call(node.childNodes).forEach(function(child){
+        if (child.nodeType === 3){
+          var frag = document.createDocumentFragment();
+          child.textContent.split(/(\s+)/).forEach(function(part){
+            if (!part) return;
+            if (/^\s+$/.test(part)) frag.appendChild(document.createTextNode(' '));
+            else {
+              var s = document.createElement('span');
+              s.className = 'w' + (inEm ? ' w-em' : '');
+              s.textContent = part;
+              frag.appendChild(s); words.push(s);
+            }
+          });
+          node.replaceChild(frag, child);
+        } else if (child.nodeType === 1){
+          wrapWords(child, inEm || /^(EM|I|STRONG)$/.test(child.tagName));
+        }
+      });
+    })(el, false);
+    // group by rendered line
+    var lines = [], lastTop = null, cur = null;
+    words.forEach(function(w){
+      var top = w.offsetTop;
+      if (top !== lastTop){ cur = []; lines.push(cur); lastTop = top; }
+      cur.push(w);
+    });
+    // rebuild as masked blocks
+    var label = el.textContent.replace(/\s+/g,' ').trim();
+    el.setAttribute('aria-label', label);
+    el.innerHTML = '';
+    var inners = [];
+    lines.forEach(function(lineWords){
+      var line = document.createElement('span');
+      line.setAttribute('aria-hidden','true');
+      line.style.cssText = 'display:block;overflow:hidden;padding-bottom:.08em;margin-bottom:-.08em';
+      var inner = document.createElement('span');
+      inner.className = 'sl-in';
+      inner.style.cssText = 'display:block;will-change:transform';
+      lineWords.forEach(function(w,i){
+        inner.appendChild(w);
+        if (i < lineWords.length-1) inner.appendChild(document.createTextNode(' '));
+      });
+      line.appendChild(inner);
+      el.appendChild(line);
+      inners.push(inner);
+    });
+    return inners;
+  }
+
+  /* ---------- preloader + hero entrance ---------- */
+  var pre = q('#preloader');
+  var heroImg = q('.hero-media img');
+  var heroLines = qa('.hero .hl-in');
+  var heroBits = [q('.hero-eyebrow'), q('.hero-foot')];
+
+  gsap.set(heroLines, {yPercent:112});
+  gsap.set(heroBits, {autoAlpha:0, y:26});
+  gsap.set(heroImg, {scale:1.16});
+
+  var entrance = gsap.timeline({paused:true});
+  entrance
+    .to(heroImg, {scale:1.04, duration:2.4, ease:'power2.out'}, 0)
+    .to(heroLines, {yPercent:0, duration:1.35, ease:'power4.out', stagger:.14}, .12)
+    .to(heroBits, {autoAlpha:1, y:0, duration:1, stagger:.15}, .55);
+
+  if (pre && !pre.hidden){
+    var cnt = {v:0}, cntEl = q('#preCount');
+    var tl = gsap.timeline();
+    tl.to(cnt, {v:100, duration:1.35, ease:'power2.inOut', onUpdate:function(){
+        cntEl.textContent = String(Math.round(cnt.v)).padStart(2,'0');
+      }})
+      .to(pre, {yPercent:-100, duration:.95, ease:'power4.inOut'}, '+=.15')
+      .add(function(){ pre.hidden = true; entrance.play(); }, '-=.75');
+  } else {
+    entrance.play();
+  }
+
+  // hero scroll parallax
+  gsap.to(heroImg, {
+    yPercent:10, ease:'none',
+    scrollTrigger:{trigger:'.hero', start:'top top', end:'bottom top', scrub:true}
+  });
+
+  /* ---------- nav: solid after hero, hide on scroll down ---------- */
+  var nav = q('#siteNav');
+  ScrollTrigger.create({
+    start:'80 top',
+    onUpdate:function(self){
+      nav.classList.toggle('is-solid', self.scroll() > 80);
+      if (self.scroll() > 300){
+        nav.classList.toggle('is-hidden', self.direction === 1 && !document.body.classList.contains('menu-open'));
+      } else nav.classList.remove('is-hidden');
+    }
+  });
+
+  /* ---------- split-line reveals ---------- */
+  window.addEventListener('load', function(){
+    qa('[data-split]').forEach(function(el){
+      var inners = splitLines(el);
+      gsap.set(inners, {yPercent:112});
+      gsap.to(inners, {
+        yPercent:0, duration:1.05, ease:'power4.out', stagger:.09,
+        scrollTrigger:{trigger:el, start:'top 85%', once:true}
+      });
+    });
+    ScrollTrigger.refresh();
+  });
+
+  /* ---------- generic image clip reveals (vertical scroll contexts) ---------- */
+  qa('.reveal-img').forEach(function(frame){
+    if (frame.closest('.pf-track') && isDesktop) return; // handled with containerAnimation
+    var img = q('img', frame);
+    gsap.set(frame, {clipPath:'inset(14% 6% 14% 6%)', autoAlpha:0});
+    gsap.set(img, {scale:1.18});
+    gsap.timeline({scrollTrigger:{trigger:frame, start:'top 80%', once:true}})
+      .to(frame, {clipPath:'inset(0% 0% 0% 0%)', autoAlpha:1, duration:1.4, ease:'power3.inOut'}, 0)
+      .to(img, {scale:1.06, duration:1.8, ease:'power2.out'}, 0);
+  });
+
+  /* ---------- portfolio: horizontal pin on desktop ---------- */
+  var mm = gsap.matchMedia();
+  mm.add('(min-width: 900px)', function(){
+    // opt into the horizontal layout only when JS + motion are live
+    document.body.classList.add('h-scroll');
+    var track = q('.pf-track');
+    var panels = qa('.pf-panel');
+    var dist = function(){ return track.scrollWidth - window.innerWidth; };
+
+    var hTween = gsap.to(track, {
+      x:function(){ return -dist(); },
+      ease:'none',
+      scrollTrigger:{
+        trigger:'.portfolio',
+        start:'top top',
+        end:function(){ return '+=' + dist(); },
+        pin:true,
+        scrub:1,
+        anticipatePin:1,
+        invalidateOnRefresh:true,
+        onUpdate:function(self){
+          var bar = q('#pfBar');
+          if (bar) bar.style.transform = 'scaleX(' + self.progress + ')';
+          var count = q('#pfCount');
+          if (count){
+            var n = Math.min(3, Math.floor(self.progress * 3) + 1);
+            count.textContent = '0' + n + ' / 03';
+          }
+        }
+      }
+    });
+
+    // image reveals + horizontal parallax inside the moving track
+    panels.forEach(function(panel){
+      var frame = q('.pf-frame', panel);
+      if (!frame) return;
+      var img = q('img', frame);
+      gsap.set(frame, {clipPath:'inset(10% 8% 10% 8%)', autoAlpha:0});
+      gsap.set(img, {scale:1.2});
+      gsap.timeline({
+        scrollTrigger:{
+          trigger:panel, containerAnimation:hTween,
+          start:'left 78%', once:true
+        }
+      })
+        .to(frame, {clipPath:'inset(0% 0% 0% 0%)', autoAlpha:1, duration:1.3, ease:'power3.inOut'}, 0)
+        .to(img, {scale:1.08, duration:1.7, ease:'power2.out'}, 0);
+      gsap.fromTo(img, {xPercent:-5},{
+        xPercent:5, ease:'none',
+        scrollTrigger:{trigger:panel, containerAnimation:hTween, start:'left right', end:'right left', scrub:true}
+      });
+      // copy slides in gently
+      var copy = q('.pf-copy', panel);
+      if (copy){
+        gsap.from(copy.children, {
+          autoAlpha:0, y:34, duration:1, stagger:.08,
+          scrollTrigger:{trigger:panel, containerAnimation:hTween, start:'left 70%', once:true}
+        });
+      }
+    });
+    return function(){ document.body.classList.remove('h-scroll'); };
+  });
+
+  // mobile / stacked portfolio: soft parallax on images
+  mm.add('(max-width: 899px)', function(){
+    qa('.pf-frame img').forEach(function(img){
+      gsap.fromTo(img, {yPercent:-5},{
+        yPercent:5, ease:'none',
+        scrollTrigger:{trigger:img.closest('.pf-frame'), start:'top bottom', end:'bottom top', scrub:true}
+      });
+    });
+    return function(){};
+  });
+
+  /* ---------- residence parallax ---------- */
+  gsap.fromTo(q('.res-media img'), {yPercent:-8},{
+    yPercent:8, ease:'none',
+    scrollTrigger:{trigger:'.res-media', start:'top bottom', end:'bottom top', scrub:true}
+  });
+  gsap.from(qa('.res-spec'), {
+    autoAlpha:0, y:28, duration:.9, stagger:.1,
+    scrollTrigger:{trigger:'.res-specs', start:'top 85%', once:true}
+  });
+  gsap.from(q('.res-quote'), {
+    autoAlpha:0, y:48, duration:1.2,
+    scrollTrigger:{trigger:'.res-quote', start:'top 88%', once:true}
+  });
+
+  /* ---------- count-up numbers ---------- */
+  qa('[data-count]').forEach(function(el){
+    var end = parseFloat(el.dataset.count);
+    var obj = {v:0};
+    var fmt = function(v){ return Math.round(v).toLocaleString('en-US'); };
+    ScrollTrigger.create({
+      trigger:el, start:'top 88%', once:true,
+      onEnter:function(){
+        gsap.to(obj, {v:end, duration:2.2, ease:'power3.out', onUpdate:function(){
+          el.textContent = fmt(obj.v);
+        }});
+      }
+    });
+  });
+  gsap.from(qa('.numcell'), {
+    autoAlpha:0, y:30, duration:1, stagger:.09,
+    scrollTrigger:{trigger:'.numbers', start:'top 85%', once:true}
+  });
+
+  /* ---------- section heads: rule draws in ---------- */
+  qa('.sec-head').forEach(function(head){
+    gsap.from(head, {
+      autoAlpha:0, y:20, duration:1,
+      scrollTrigger:{trigger:head, start:'top 88%', once:true}
+    });
+  });
+
+  /* ---------- contact + intro side reveals ---------- */
+  gsap.from(qa('.contact-side > *'), {
+    autoAlpha:0, y:30, duration:1, stagger:.1,
+    scrollTrigger:{trigger:'.contact', start:'top 75%', once:true}
+  });
+  gsap.from(qa('.form .field, .form .form-actions'), {
+    autoAlpha:0, y:26, duration:.9, stagger:.07,
+    scrollTrigger:{trigger:'.contact-form-zone', start:'top 78%', once:true}
+  });
+  gsap.from(qa('.intro-stat'), {
+    autoAlpha:0, y:24, duration:.9, stagger:.12,
+    scrollTrigger:{trigger:'.intro-stats', start:'top 90%', once:true}
+  });
+
+  /* ---------- footer wordmark ---------- */
+  gsap.set(q('.footer-mark .mk-in'), {yPercent:104});
+  gsap.to(q('.footer-mark .mk-in'), {
+    yPercent:0, duration:1.5, ease:'power4.out',
+    scrollTrigger:{trigger:'.footer-mark', start:'top 92%', once:true}
+  });
+})();
+</script>
+</body>
+</html>
