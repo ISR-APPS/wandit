@@ -21,7 +21,7 @@ import { z } from "zod";
 
 import { SkipResponseEnvelope } from "../../../../../infrastructure/http/skip-envelope.decorator";
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
-import { isWanditHostedUrl } from "../../../../../infrastructure/storage/r2";
+import { isUserUploadUrl } from "../../../../../infrastructure/storage/r2";
 import { CurrentUser } from "../../../../auth";
 import { ChatsRepository } from "../../../../generation/infrastructure/persistence/chats.repository";
 import {
@@ -83,7 +83,7 @@ export class AiChatController {
 			});
 		}
 
-		const messages = await this.validateMessages(body.messages);
+		const messages = await this.validateMessages(body.messages, user.id);
 		const abortController = new AbortController();
 
 		request.raw.once("close", () => abortController.abort());
@@ -101,11 +101,13 @@ export class AiChatController {
 			projectId: chat.projectId,
 			reply,
 			requestCountryCode: readRequestCountryCode(request.headers),
+			userId: user.id,
 		});
 	}
 
 	private async validateMessages(
 		messages: unknown[],
+		userId: string,
 	): Promise<WanditUIMessage[]> {
 		// Historical failed streams could persist empty assistant messages. They carry
 		// no transcript information, so discard them here as a defensive safeguard.
@@ -127,18 +129,19 @@ export class AiChatController {
 			});
 		}
 
-		this.assertWanditHostedFileParts(validated);
+		this.assertOwnedFileParts(validated, userId);
 
 		return validated;
 	}
 
 	// Attachments ride user messages as AI SDK file parts (contract §10.4),
 	// and ask_user "attachments" answers carry uploaded files in the tool
-	// output. Every such URL must be one of our own R2 objects —
-	// isWanditHostedUrl compares parsed origin + path boundary, so data:
-	// URLs, foreign hosts, and prefix-confusable hosts are all rejected.
-	private assertWanditHostedFileParts(
+	// output. Every such URL must be an R2 upload beneath this authenticated
+	// user's prefix — foreign hosts, generated-site assets, and another user's
+	// otherwise-public upload are all rejected.
+	private assertOwnedFileParts(
 		messages: readonly WanditUIMessage[],
+		userId: string,
 	): void {
 		const reject = (): never => {
 			throw new BadRequestException({
@@ -150,7 +153,7 @@ export class AiChatController {
 		for (const message of messages) {
 			for (const part of message.parts) {
 				if (message.role === "user" && part.type === "file") {
-					if (!isWanditHostedUrl(part.url)) {
+					if (!isUserUploadUrl(part.url, userId)) {
 						reject();
 					}
 
@@ -158,13 +161,13 @@ export class AiChatController {
 				}
 
 				// ask_user outputs are client-supplied (addToolResult) — their
-				// uploaded-file URLs need the same host validation as file parts.
+				// uploaded-file URLs need the same ownership validation as file parts.
 				if (
 					part.type === "tool-ask_user" &&
 					part.state === "output-available"
 				) {
 					for (const file of part.output.files ?? []) {
-						if (!isWanditHostedUrl(file.url)) {
+						if (!isUserUploadUrl(file.url, userId)) {
 							reject();
 						}
 					}

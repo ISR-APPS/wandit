@@ -9,6 +9,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { BillingService } from "../../../billing/application/services/billing.service";
 import type { CreditsService } from "../../../credits/application/services/credits.service";
+import { InsufficientCreditsError } from "../../../credits/domain/errors/insufficient-credits.error";
 import { GenerationPaymentRequiredError } from "../../domain/errors/generation-payment-required.error";
 import { GenerationPolicyService } from "./generation-policy.service";
 
@@ -19,8 +20,10 @@ class FakeBillingService {
 
 // Fake credits dependency.
 class FakeCreditsService {
+	consume = vi.fn();
 	getBalance =
 		vi.fn<() => Promise<{ balance: number; plan: number; topup: number }>>();
+	refundConsume = vi.fn();
 }
 
 // Tests change the env flag directly because env is a shared object.
@@ -113,5 +116,86 @@ describe("GenerationPolicyService", () => {
 				HttpStatus.PAYMENT_REQUIRED,
 			);
 		}
+	});
+
+	it("reserves the exact video cost under a stable attempt key", async () => {
+		setBillingMode("enforce");
+		const { billing, credits, service } = setup();
+		billing.hasActiveSubscription.mockResolvedValue(false);
+		credits.consume.mockResolvedValue([]);
+
+		await expect(
+			service.reserveGeneration("user_1", "videoGeneration", "attempt_1"),
+		).resolves.toBeUndefined();
+
+		expect(credits.consume).toHaveBeenCalledWith("user_1", 25, {
+			idempotencyKey: "media-generation:attempt_1",
+			meta: {
+				action: "videoGeneration",
+				reason: "generation_reservation",
+				reservationId: "attempt_1",
+			},
+		});
+	});
+
+	it("does not consume credits for an active subscriber", async () => {
+		setBillingMode("enforce");
+		const { billing, credits, service } = setup();
+		billing.hasActiveSubscription.mockResolvedValue(true);
+
+		await expect(
+			service.reserveGeneration("user_1", "videoGeneration", "attempt_1"),
+		).resolves.toBeUndefined();
+
+		expect(credits.consume).not.toHaveBeenCalled();
+	});
+
+	it("maps an atomic reservation race to the public payment-required error", async () => {
+		setBillingMode("enforce");
+		const { billing, credits, service } = setup();
+		billing.hasActiveSubscription.mockResolvedValue(false);
+		credits.consume.mockRejectedValue(new InsufficientCreditsError(25, 4));
+
+		await expect(
+			service.reserveGeneration("user_1", "videoGeneration", "attempt_1"),
+		).rejects.toMatchObject({
+			response: {
+				availableCredits: 4,
+				requiredCredits: 25,
+			},
+			status: HttpStatus.PAYMENT_REQUIRED,
+		});
+	});
+
+	it("refunds the reservation using the same stable ledger key", async () => {
+		setBillingMode("enforce");
+		const { credits, service } = setup();
+		credits.refundConsume.mockResolvedValue([]);
+
+		await expect(
+			service.refundGenerationReservation("user_1", "attempt_1"),
+		).resolves.toEqual([]);
+
+		expect(credits.refundConsume).toHaveBeenCalledWith(
+			"user_1",
+			"media-generation:attempt_1",
+			{ reason: "generation_failed", reservationId: "attempt_1" },
+		);
+	});
+
+	it("still refunds a prior reservation when billing is switched off", async () => {
+		setBillingMode("off");
+		const { credits, service } = setup();
+		credits.refundConsume.mockResolvedValue([]);
+
+		await expect(
+			service.refundGenerationReservation("user_1", "attempt_1"),
+		).resolves.toEqual([]);
+
+		expect(credits.refundConsume).toHaveBeenCalledWith(
+			"user_1",
+			"media-generation:attempt_1",
+			{ reason: "generation_failed", reservationId: "attempt_1" },
+		);
 	});
 });

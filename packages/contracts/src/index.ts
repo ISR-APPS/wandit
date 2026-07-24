@@ -33,6 +33,8 @@ export * from "./v1/domains";
 export * from "./v1/lead-scrapes";
 // Lead contracts.
 export * from "./v1/leads";
+// Image-to-video generation contracts.
+export * from "./v1/media-generations";
 // Payment order contracts.
 export * from "./v1/orders";
 // Page edit-ops contract.

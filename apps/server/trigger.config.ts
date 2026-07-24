@@ -49,7 +49,10 @@ export default defineConfig({
 	// table and surfaced to the user — silent model re-runs would just burn
 	// tokens on the same brief.
 	retries: {
-		enabledInDev: false,
+		// Task-level policies remain authoritative. Page + lead tasks explicitly
+		// stay single-attempt, while image animation exercises its crash-recovery
+		// retries in local Trigger.dev runs as well as production.
+		enabledInDev: true,
 		default: { maxAttempts: 1 },
 	},
 	// Playwright must resolve from node_modules at runtime (it locates its

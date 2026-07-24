@@ -1,4 +1,10 @@
 import { z } from "zod";
+import { attachmentMediaTypeSchema } from "./attachments";
+import {
+	imageToVideoAspectSchema,
+	imageToVideoMotionSchema,
+	imageToVideoSourceMediaTypeSchema,
+} from "./media-generations";
 import { widSchema } from "./page-edits";
 
 /**
@@ -42,6 +48,10 @@ export const askUserInputSchema = z.object({
 	// ["image"]) and how many files at most (default 3). Optional so every
 	// pre-attachments row stays valid (spec §11 / contract §10.5).
 	accept: z.array(z.enum(["image", "document"])).optional(),
+	// Optional exact MIME allowlist. This narrows a broad category such as
+	// "image" when a workflow only supports still JPEG/PNG/WebP sources.
+	// Kept optional so persisted asks from before this field remain valid.
+	mediaTypes: z.array(attachmentMediaTypeSchema).min(1).max(7).optional(),
 	maxFiles: z.number().int().min(1).max(6).optional(),
 });
 
@@ -183,6 +193,30 @@ export const scrapeLeadsOutputSchema = z.object({
 export type ScrapeLeadsInput = z.infer<typeof scrapeLeadsInputSchema>;
 export type ScrapeLeadsOutput = z.infer<typeof scrapeLeadsOutputSchema>;
 
+/**
+ * animate_image — queues a five-second image-to-video generation. The source
+ * must be an uploaded JPEG/PNG/WebP; this tool never generates video from text
+ * alone. The chat card polls the durable media-generation attempt.
+ */
+export const animateImageInputSchema = z.object({
+	sourceImageUrl: z.url(),
+	sourceMediaType: imageToVideoSourceMediaTypeSchema,
+	aspect: imageToVideoAspectSchema,
+	motion: imageToVideoMotionSchema,
+	prompt: z.string().min(1).max(2_000),
+});
+
+export const animateImageOutputSchema = z.object({
+	// "unavailable" means the server is missing video-provider or storage
+	// configuration; the model must say so instead of promising a result.
+	status: z.enum(["queued", "unavailable"]),
+	attemptId: z.string().uuid().optional(),
+	message: z.string().min(1),
+});
+
+export type AnimateImageInput = z.infer<typeof animateImageInputSchema>;
+export type AnimateImageOutput = z.infer<typeof animateImageOutputSchema>;
+
 /** get_page_outline — cheap section map of the active version (spec §5). */
 export const getPageOutlineInputSchema = z.object({});
 
@@ -241,6 +275,7 @@ export type AiChatTools = {
 	};
 	generate_page: { input: GeneratePageInput; output: GeneratePageOutput };
 	scrape_leads: { input: ScrapeLeadsInput; output: ScrapeLeadsOutput };
+	animate_image: { input: AnimateImageInput; output: AnimateImageOutput };
 	get_page_outline: {
 		input: GetPageOutlineInput;
 		output: GetPageOutlineOutput;

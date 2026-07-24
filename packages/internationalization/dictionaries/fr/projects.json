@@ -89,6 +89,24 @@
 			"failed": "Échec de l'envoi",
 			"signInFirst": "Connecte-toi pour joindre des fichiers"
 		},
+		"sourceImage": {
+			"title": "Ajoute une image source",
+			"label": "Image source",
+			"required": "Requise",
+			"dropHint": "Dépose-la ici ou choisis un fichier",
+			"formats": "JPEG, PNG ou WebP · 15 Mo max",
+			"choose": "Choisir l'image",
+			"replace": "Remplacer",
+			"remove": "Retirer l'image source",
+			"retry": "Réessayer l'envoi de l'image source",
+			"uploading": "Envoi…",
+			"ready": "Prête à animer",
+			"unsupported": "Choisis une image JPEG, PNG ou WebP",
+			"tooLarge": "L'image dépasse 15 Mo",
+			"failed": "Échec de l'envoi de l'image source",
+			"limit": "Retire d'abord une pièce jointe (6 fichiers max)",
+			"signInFirst": "Connecte-toi pour ajouter l'image source"
+		},
 		"modeLabel": "Mode",
 		"outputLabel": "Sortie",
 		"settingsLabel": "Réglages de génération",
@@ -139,9 +157,9 @@
 				"placeholder": "Décris l'image produit, le ratio, le style et le décor…"
 			},
 			"video": {
-				"label": "Vidéo",
-				"description": "Anime une de tes images en courte vidéo.",
-				"placeholder": "Décris l'image à animer et le mouvement que tu veux…"
+				"label": "Image en vidéo",
+				"description": "Anime une image source en courte vidéo.",
+				"placeholder": "Facultatif : décris le mouvement ou le déplacement de caméra…"
 			}
 		},
 		"skillGroups": {
@@ -494,42 +512,18 @@
 					}
 				}
 			},
-			"ugc-video": {
-				"label": "Vidéo UGC",
-				"shortLabel": "Vidéo UGC",
-				"description": "Vidéo UGC animée à partir d'une image produit.",
-				"placeholder": "Décris la pub UGC, le vibe créateur, le hook et la preuve…",
+			"image-animation": {
+				"label": "Animation d'image",
+				"shortLabel": "Animation d'image",
+				"description": "Anime une image fixe ; ne crée pas de vidéo à partir de zéro.",
+				"placeholder": "Facultatif : décris le mouvement, la caméra ou ce qui doit rester fixe…",
 				"options": {
-					"structure": {
-						"label": "Structure",
+					"motion": {
+						"label": "Mouvement",
 						"choices": {
-							"problem": "Problème",
-							"demo": "Démo",
-							"testimonial": "Témoignage"
-						}
-					},
-					"duration": {
-						"label": "Durée",
-						"choices": {
-							"15": "15s",
-							"30": "30s",
-							"45": "45s"
-						}
-					}
-				}
-			},
-			"product-demo": {
-				"label": "Démo produit",
-				"shortLabel": "Démo",
-				"description": "Démo produit animée à partir d'une image.",
-				"placeholder": "Décris la séquence de démo produit et le CTA final…",
-				"options": {
-					"pace": {
-						"label": "Rythme",
-						"choices": {
-							"fast": "Rapide",
+							"subtle": "Subtil",
 							"balanced": "Équilibré",
-							"slow": "Lent"
+							"dynamic": "Dynamique"
 						}
 					},
 					"ratio": {

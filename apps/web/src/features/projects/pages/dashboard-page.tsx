@@ -1,3 +1,4 @@
+import type { ComposerMetadata } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import { Input } from "@wandit/ui/components/input";
 import { Skeleton } from "@wandit/ui/components/skeleton";
@@ -94,13 +95,21 @@ export default function DashboardPage() {
 
 	const [query, setQuery] = useState("");
 	const [filter, setFilter] = useState<StatusFilter>("all");
-	const [promptPrefill, setPromptPrefill] = useState({ key: 0, value: "" });
+	const [promptPrefill, setPromptPrefill] = useState<{
+		key: number;
+		value: string;
+		composer?: ComposerMetadata;
+	}>({ key: 0, value: "" });
 	const promptSectionRef = useRef<HTMLDivElement>(null);
 
 	useEffect(() => {
-		const prompt = promptStash.consume();
-		if (!prompt) return;
-		setPromptPrefill((prev) => ({ key: prev.key + 1, value: prompt }));
+		const draft = promptStash.consume();
+		if (!draft) return;
+		setPromptPrefill((prev) => ({
+			key: prev.key + 1,
+			value: draft.prompt,
+			composer: draft.composer,
+		}));
 	}, []);
 
 	const filtered = useMemo(() => {
@@ -153,6 +162,7 @@ export default function DashboardPage() {
 								showModes
 								attachmentsEnabled
 								initialValue={promptPrefill.value}
+								initialComposer={promptPrefill.composer}
 								onSubmit={create}
 								isSubmitting={isCreating}
 							/>
