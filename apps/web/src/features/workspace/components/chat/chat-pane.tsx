@@ -92,7 +92,8 @@ export function ChatPane({ className }: { className?: string }) {
 			(part) =>
 				(part.type === "text" && part.text.length > 0) ||
 				part.type === "tool-ask_user" ||
-				part.type === "tool-generate_page",
+				part.type === "tool-generate_page" ||
+				part.type === "tool-scrape_leads",
 		);
 	const showThinking = isSubmitting && !replyHasVisibleContent;
 

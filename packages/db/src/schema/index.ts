@@ -16,6 +16,8 @@ export * from "./credits";
 export * from "./deployments";
 // Domain tables.
 export * from "./domains";
+// Lead-scrape (outbound prospecting) attempt tables.
+export * from "./lead-scrape-attempts";
 // Lead tables.
 export * from "./leads";
 // Page generation attempt tables.

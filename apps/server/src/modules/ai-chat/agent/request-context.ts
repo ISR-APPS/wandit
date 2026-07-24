@@ -9,6 +9,9 @@ import type { AiChatRequestMetadata } from "../presentation/http/controllers/ai-
 export type ChatRequestContext = {
 	manualEdits: string[];
 	metadata?: AiChatRequestMetadata;
+	// ISO alpha-2 country derived from the request IP at the edge (e.g. "DZ"),
+	// or null when no trusted geo header was present.
+	requestCountryCode?: string | null;
 };
 
 const PAGE_GOALS = ["cod", "leads", "service", "promo"] as const;
@@ -40,7 +43,7 @@ const OUTPUT_LINES: Record<string, string> = {
 	"landing-page":
 		'  They chose "Landing page": a single-page conversion funnel (COD-style skeleton when the goal is COD).',
 	"site-vitrine":
-		'  They chose "Site vitrine": a multi-section presentation site (hero, offer/services, about/trust, contact) — softer conversion pressure than a COD funnel, still one self-contained page.',
+		'  They chose "Site vitrine": a multi-section presentation site with softer conversion pressure than a COD funnel. Capture the required content and goal; do not prescribe a standard hero/services/about/contact sequence because the Art Director will compose the page flow.',
 };
 
 /**
@@ -91,6 +94,15 @@ export function buildChatRequestContext(
 				`data-wid="${selectedWid}". When they say "this", "here", "ça", ` +
 				'"هذا" they mean that element. Call get_page_outline / ' +
 				"read_section to see it before answering or editing.",
+		);
+	}
+
+	if (context.requestCountryCode) {
+		paragraphs.push(
+			"The user's request came from country code " +
+				`${context.requestCountryCode.toUpperCase()} (IP-derived, approximate). ` +
+				"When they ask to scrape leads without naming a place, default to " +
+				"this country. Their words always win over this hint.",
 		);
 	}
 

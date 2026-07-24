@@ -39,6 +39,12 @@ export const env = createEnv({
 	server: {
 		// AI model settings.
 		AI_CHAT_MODEL: z.string().min(1).default("openai/gpt-4o-mini"),
+		// One-shot structured creative direction between the chat Brain and the
+		// Builder. Kept separate so models can be tested independently.
+		AI_ART_DIRECTOR_MODEL: z
+			.string()
+			.min(1)
+			.default("anthropic/claude-sonnet-5"),
 		AI_GATEWAY_API_KEY: z.string().min(1).optional(),
 		// Optional: the builder's generate_image tool. Needs R2 plus
 		// R2_PUBLIC_BASE_URL too; unset means the tool answers "unavailable".
@@ -50,7 +56,12 @@ export const env = createEnv({
 		// Page generation foundation (Trigger.dev queue + Cloudflare R2 storage).
 		// All optional: the server must boot before these creds exist; the
 		// generate_page tool checks at call time and answers gracefully when
-		// unconfigured. The model default keeps design quality decisions in one place.
+		// unconfigured.
+		//
+		// AI_PAGE_BUILDER_MODEL is the explicit new name. The older
+		// AI_PAGE_DESIGN_MODEL remains as a fallback so existing deployments and
+		// .env files keep working during the migration.
+		AI_PAGE_BUILDER_MODEL: z.string().min(1).optional(),
 		AI_PAGE_DESIGN_MODEL: z
 			.string()
 			.min(1)
@@ -60,6 +71,10 @@ export const env = createEnv({
 		// "unavailable".
 		AI_VIDEO_MODEL: z.string().min(1).optional(),
 		TRIGGER_SECRET_KEY: z.string().min(1).optional(),
+		// Lead scraping (scrape_leads chat tool). Serper.dev key for the Google
+		// Maps business search. Optional: the tool checks at call time and
+		// answers "unavailable" until the key exists (same contract as R2).
+		SERPER_API_KEY: z.string().min(1).optional(),
 		R2_ACCOUNT_ID: z.string().min(1).optional(),
 		R2_ACCESS_KEY_ID: z.string().min(1).optional(),
 		R2_SECRET_ACCESS_KEY: z.string().min(1).optional(),

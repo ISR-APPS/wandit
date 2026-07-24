@@ -3,21 +3,49 @@
 Decisions agreed with Zack on 2026-07-20. Every implementation agent reads this
 file first. **Never commit — leave all changes uncommitted for review.**
 
-## 1. Builder model → Kimi K3
+## 1. Swappable generation models
 
-- Swap `AI_PAGE_DESIGN_MODEL` in `apps/server/.env` to Kimi K3 via the Vercel
-  AI Gateway (exact slug from research; if K3 is not on the gateway, use the
-  most capable available Kimi and flag it in the final summary).
+- The chat Brain uses `AI_CHAT_MODEL`.
+- The Art Director uses `AI_ART_DIRECTOR_MODEL`.
+- The Builder uses `AI_PAGE_BUILDER_MODEL`. During migration,
+  `AI_PAGE_DESIGN_MODEL` remains its fallback.
+- All values are Vercel AI Gateway model strings and may be changed in
+  `apps/server/.env` without code changes.
 - Chat model stays `xai/grok-4.5`. Image model stays `openai/gpt-image-2`.
 - Remove the dead `AI_BUILDER_REASONING` var from `.env` (read by nothing).
 
-## 2. Single-pass generation
+## 2. Two-stage direction + three-pass visual review
 
-- Remove the enforced multi-pass review loop (screenshot/Playwright review
-  passes) from the build. One build pass only — speed is the priority.
-- Tools like `screenshot_page` may remain *available* to the model, but no
-  pass is mandated by the harness/prompt. The finish guard (structural
-  validation) stays.
+- The Art Director uses two calls to the same snapshotted
+  `AI_ART_DIRECTOR_MODEL`:
+  1. **Creative Direction** is plain `generateText` with a 32,000-token
+     ceiling and no structured decoder. It writes one fixed-format Creative
+     Capsule after privately comparing three divergent routes. The Capsule
+     binds every design adjective to an observable CSS/GSAP value in the same
+     breath.
+  2. **Spec Extraction** uses `generateText` +
+     `Output.object(creativeSpecSchema)` with a 24,000-token ceiling. It
+     faithfully transcribes the Capsule into the unchanged validated schema;
+     it does not invent or soften the direction.
+- The Creative Direction prompt includes a technique lexicon distilled from
+  `design/examples/agency.html`, `real-estate.html`, and `ecommerce.html`.
+  The lexicon is compositional vocabulary, never a checklist or house style.
+  It gives the Art Director concrete implementation coordinates while leaving
+  every project free to invent beyond them.
+- The Capsule and validated `CreativeSpec` are persisted together inside the
+  attempt's existing JSON spec blob. Retries reuse both exact handoffs.
+- Browser review is back as three enforced screenshot passes
+  (`REQUIRED_SCREENSHOT_PASSES = 3`) with distinct jobs — correctness,
+  creative fidelity/ambition, final verification — combined with a
+  final-revision invariant. The Builder writes and re-reads `index.html`,
+  captures desktop and mobile screenshots, fixes what each pass finds, and
+  captures again after any rewrite. Three passes is a floor, not a ceiling.
+- `finish` accepts only when at least three successful screenshot passes are
+  recorded AND both `reviewedRevision` and `screenshotRevision` equal the
+  latest `writeRevision` — so pass counting alone can never bless a stale
+  draft. Text-only Builder models degrade explicitly to code review, and a
+  runtime without Playwright/Chromium logs the downgrade instead of failing
+  the whole build. Structural validation remains mandatory in every mode.
 
 ## 3. Builder output contract (prompt revision, one consolidated change)
 
@@ -32,7 +60,9 @@ Every top-level section carries `data-wid="<semantic-slug>"` (e.g. `hero`,
 Every page declares its design system as CSS custom properties in `:root`
 with **fixed names, free values**:
 `--background, --foreground, --primary, --primary-foreground, --secondary,
---accent, --muted, --border, --radius, --font-heading, --font-body`.
+--secondary-foreground, --accent, --accent-foreground, --muted,
+--muted-foreground, --border, --radius, --font-heading, --font-body,
+--font-utility`.
 All styling references the variables. The model chooses values freely per
 design (diversity preserved); it never renames or skips tokens. Google Fonts
 `<link>` tags correspond to the two font tokens.
@@ -49,12 +79,12 @@ Non-negotiable skeleton:
    (bureau vs domicile, different fees); live order summary
    (product + delivery = total). Form is display/markup only for now —
    no backend submission (explicitly out of scope).
-3. COD trust markers: الدفع عند الاستلام badge, توصيل 58 ولاية, fast
-   delivery, local-product signals.
-4. Price anchoring: strikethrough original, discount badge, bundles with a
-   cheaper downsell link.
-5. Urgency devices: limited stock banners, countdowns.
-6. Social proof as chat-screenshot-style reviews / star rows.
+3. COD trust markers, delivery coverage, local-product signals, and return
+   rules appear only when the merchant supplied those facts.
+4. Original prices, discounts, bundles, and downsells appear only when the
+   merchant supplied the exact values.
+5. Never invent urgency, limited stock, countdown deadlines, reviews, ratings,
+   testimonials, or delivery claims.
 7. Language: RTL Arabic, MSA blended with Algerian darija; emojis in
    headlines/CTAs are genre-appropriate.
 8. Multiple CTAs, all anchoring to the form. Mobile-first.

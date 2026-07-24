@@ -11,21 +11,24 @@ import {
 	type GeneratePageToolDeps,
 	generatePageToolSchemaOnly,
 } from "./tools/generate-page.tool";
-import {
-	getDirectionCandidatesTool,
-	getDirectionCandidatesToolSchemaOnly,
-} from "./tools/get-direction-candidates.tool";
+import { getDirectionCandidatesToolSchemaOnly } from "./tools/get-direction-candidates.tool";
 import {
 	createPageEditTools,
 	type PageEditTools,
 	pageEditToolsSchemaOnly,
 } from "./tools/page-edit.tools";
 import { readSkillToolSchemaOnly } from "./tools/read-skill.tool";
+import {
+	createScrapeLeadsTool,
+	type ScrapeLeadsTool,
+	type ScrapeLeadsToolDeps,
+	scrapeLeadsToolSchemaOnly,
+} from "./tools/scrape-leads.tool";
 
 type AiChatToolSet = {
 	ask_user: typeof askUserTool;
-	get_direction_candidates: typeof getDirectionCandidatesTool;
 	generate_page: GeneratePageTool;
+	scrape_leads: ScrapeLeadsTool;
 	get_page_outline: PageEditTools["get_page_outline"];
 	read_section: PageEditTools["read_section"];
 	replace_section: PageEditTools["replace_section"];
@@ -33,11 +36,12 @@ type AiChatToolSet = {
 
 export type WanditUIMessage = UIMessage<never, never, AiChatTools>;
 
-// Everything the per-request tools need: generate_page's queue deps plus the
-// edit tools' mutation service.
-export type ChatAgentDeps = GeneratePageToolDeps & {
-	pageEditsService: PageEditsService;
-};
+// Everything the per-request tools need: generate_page's queue deps, the
+// scrape_leads queue deps, plus the edit tools' mutation service.
+export type ChatAgentDeps = GeneratePageToolDeps &
+	Omit<ScrapeLeadsToolDeps, "chatId" | "projectId"> & {
+		pageEditsService: PageEditsService;
+	};
 
 /**
  * The agent is built PER REQUEST now (it used to be a module singleton):
@@ -51,7 +55,12 @@ export function createChatAgent(
 	deps: ChatAgentDeps,
 	contextBlock?: string | null,
 ): ToolLoopAgent<never, AiChatToolSet> {
-	const { pageEditsService, ...generatePageDeps } = deps;
+	const {
+		leadScrapesRepository,
+		pageEditsService,
+		requestCountryCode,
+		...generatePageDeps
+	} = deps;
 
 	return new ToolLoopAgent({
 		instructions: contextBlock
@@ -68,7 +77,12 @@ export function createChatAgent(
 		tools: {
 			ask_user: askUserTool,
 			generate_page: createGeneratePageTool(generatePageDeps),
-			get_direction_candidates: getDirectionCandidatesTool,
+			scrape_leads: createScrapeLeadsTool({
+				chatId: deps.chatId,
+				leadScrapesRepository,
+				projectId: deps.projectId,
+				requestCountryCode,
+			}),
 			...createPageEditTools({
 				pageEditsService,
 				pagesRepository: deps.pagesRepository,
@@ -87,6 +101,9 @@ export function createChatAgent(
 export const aiChatToolsForValidation = {
 	ask_user: askUserTool,
 	generate_page: generatePageToolSchemaOnly,
+	scrape_leads: scrapeLeadsToolSchemaOnly,
+	// Retired from the live Brain. Keep the schema so historical messages
+	// that used the old random direction menu still validate and render.
 	get_direction_candidates: getDirectionCandidatesToolSchemaOnly,
 	...pageEditToolsSchemaOnly,
 	// read_skill was retired from the live agent; the schema stays so chats

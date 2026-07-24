@@ -2,6 +2,7 @@ import type { WanditUIMessage } from "../../../lib/use-ai-chat";
 import { AskUserPart } from "./ask-user-part";
 import { FilePart } from "./file-part";
 import { GeneratePagePart } from "./generate-page-part";
+import { ScrapeLeadsPart } from "./scrape-leads-part";
 import { TextPart } from "./text-part";
 
 const warnedPartTypes = new Set<string>();
@@ -76,6 +77,8 @@ export function MessageParts({
 				);
 			case "tool-generate_page":
 				return <GeneratePagePart key={part.toolCallId} part={part} />;
+			case "tool-scrape_leads":
+				return <ScrapeLeadsPart key={part.toolCallId} part={part} />;
 			case "tool-read_skill":
 			case "tool-get_direction_candidates":
 				// Server-side context tools — deliberately invisible in the thread

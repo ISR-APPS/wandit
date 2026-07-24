@@ -1,14 +1,15 @@
 /**
  * generate_page — the server-executed tool that queues a real page build.
  *
- * Unlike ask_user (no execute) and get_direction_candidates (module-level
- * singleton), this
- * tool is a FACTORY: it must know which project/chat it acts for, so the
+ * Unlike ask_user (no execute), this tool is a FACTORY: it must know which
+ * project/chat it acts for, so the
  * agent builds a fresh instance per request with those ids closed over.
  *
- * The tool itself does no design work. It snapshots the designer prompt +
- * brief into an attempt row and hands off to the Trigger.dev task; its
- * return value is only the "queued"/"unavailable" answer the model relays.
+ * The tool itself does no design work. It snapshots the content brief, both
+ * Art Director stage prompts, the Art Director model, and the Builder
+ * prompt/model into an attempt row and hands off to the Trigger.dev task; its
+ * return value is only the
+ * "queued"/"unavailable" answer the model relays.
  */
 import { Logger } from "@nestjs/common";
 import { tasks } from "@trigger.dev/sdk";
@@ -27,6 +28,10 @@ import { isR2Configured } from "../../../../infrastructure/storage/r2";
 // tasks.trigger() check the payload shape.
 import type { generatePageTask } from "../../../../trigger/generate-page.task";
 import type { PagesRepository } from "../../../pages/infrastructure/persistence/pages.repository";
+import {
+	buildArtDirectorExtractionSystemPrompt,
+	buildArtDirectorSystemPrompt,
+} from "../art-director/art-director-prompt";
 import { buildSiteBuilderSystemPrompt } from "../site-builder/builder-prompt";
 
 // Static Nest logger (no DI needed): queue-side events land in the API
@@ -47,9 +52,9 @@ export function createGeneratePageTool(
 	return tool({
 		description:
 			"Queue the real landing-page build for this project. Call it ONCE, " +
-			"after the brief is complete (get_direction_candidates first). The build " +
-			"runs in the background and the finished page appears in the user's " +
-			"Page tab — it is not instant.",
+			"after the factual content brief is complete. Do not choose the visual " +
+			"direction yourself: the queued Art Director does that before the " +
+			"Builder runs. The finished page appears in the user's Page tab.",
 		inputSchema: generatePageInputSchema,
 		outputSchema: generatePageOutputSchema,
 		execute: async ({ brief, title }): Promise<GeneratePageOutput> => {
@@ -70,22 +75,36 @@ export function createGeneratePageTool(
 			const artifact = await deps.pagesRepository.findOrCreateLandingArtifact(
 				deps.projectId,
 			);
-			// Snapshotted NOW so later prompt edits never change what this
-			// attempt meant (full reproducibility per attempt row).
+			// Snapshotted NOW so later prompt, model, or environment changes
+			// never change what this attempt meant.
+			const artDirectorExtractionSystemPrompt =
+				buildArtDirectorExtractionSystemPrompt();
+			const artDirectorSystemPrompt = buildArtDirectorSystemPrompt();
 			const designerSystemPrompt = await buildSiteBuilderSystemPrompt();
+			const builderModel =
+				env.AI_PAGE_BUILDER_MODEL ?? env.AI_PAGE_DESIGN_MODEL;
+			const attemptSpec = {
+				artDirectorExtractionSystemPrompt,
+				artDirectorModel: env.AI_ART_DIRECTOR_MODEL,
+				artDirectorSystemPrompt,
+				brief,
+				designerSystemPrompt,
+				title,
+				version: 2 as const,
+			};
 			const attempt = await deps.pagesRepository.insertAttempt({
 				artifactId: artifact.id,
 				chatId: deps.chatId,
-				model: env.AI_PAGE_DESIGN_MODEL,
+				model: builderModel,
 				projectId: deps.projectId,
-				spec: { brief, designerSystemPrompt, title },
+				spec: attemptSpec,
 			});
 
 			logger.log(
 				`Queued page build "${title}" — attempt ${attempt.id}, ` +
-					`model ${env.AI_PAGE_DESIGN_MODEL}`,
+					`Art Director ${env.AI_ART_DIRECTOR_MODEL}, Builder ${builderModel}`,
 			);
-			logger.log(`Brief for attempt ${attempt.id}:\n${brief}`);
+			logger.log(`Content brief for attempt ${attempt.id}:\n${brief}`);
 
 			try {
 				const handle = await tasks.trigger<typeof generatePageTask>(

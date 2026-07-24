@@ -17,6 +17,9 @@ import {
 	readSectionInputSchema,
 	readSkillInputSchema,
 	replaceSectionInputSchema,
+	type ScrapeLeadsInput,
+	type ScrapeLeadsOutput,
+	scrapeLeadsInputSchema,
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import {
@@ -31,6 +34,7 @@ import type { FastifyReply } from "fastify";
 
 import { ChatsRepository } from "../../../generation/infrastructure/persistence/chats.repository";
 // Value imports (not `import type`): Nest needs the classes at runtime for @Inject.
+import { LeadScrapesRepository } from "../../../lead-scrapes/infrastructure/persistence/lead-scrapes.repository";
 import { PageEditsService } from "../../../pages/application/services/page-edits.service";
 import { PagesRepository } from "../../../pages/infrastructure/persistence/pages.repository";
 import { createChatAgent, type WanditUIMessage } from "../../agent/chat-agent";
@@ -48,6 +52,8 @@ export class AiChatService {
 		private readonly pagesRepository: PagesRepository,
 		@Inject(PageEditsService)
 		private readonly pageEditsService: PageEditsService,
+		@Inject(LeadScrapesRepository)
+		private readonly leadScrapesRepository: LeadScrapesRepository,
 	) {}
 
 	async stream(options: {
@@ -58,6 +64,7 @@ export class AiChatService {
 		origin?: string;
 		projectId: string;
 		reply: FastifyReply;
+		requestCountryCode?: string | null;
 	}): Promise<void> {
 		const {
 			abortSignal,
@@ -67,21 +74,28 @@ export class AiChatService {
 			origin,
 			projectId,
 			reply,
+			requestCountryCode,
 		} = options;
 		// Per-request context: prompt-box settings, preview selection, and the
 		// wids the user manually edited since the last AI change (so the model
 		// never clobbers intentional edits).
 		const manualEdits =
 			await this.pagesRepository.collectManualEditTrail(projectId);
-		const context = buildChatRequestContext({ manualEdits, metadata });
-		// Per-request agent: generate_page and the page-edit tools need to know
-		// which project/chat they act for (see chat-agent.ts).
+		const context = buildChatRequestContext({
+			manualEdits,
+			metadata,
+			requestCountryCode,
+		});
+		// Per-request agent: generate_page, scrape_leads, and the page-edit
+		// tools need to know which project/chat they act for (see chat-agent.ts).
 		const agent = createChatAgent(
 			{
 				chatId,
+				leadScrapesRepository: this.leadScrapesRepository,
 				pageEditsService: this.pageEditsService,
 				pagesRepository: this.pagesRepository,
 				projectId,
+				requestCountryCode: requestCountryCode ?? null,
 			},
 			context,
 		);
@@ -89,9 +103,9 @@ export class AiChatService {
 		// 1. complete tool calls that never got a result (typed-past ask_user,
 		//    or a stream aborted mid-execute) — providers reject a history that
 		//    carries a tool call without a matching result,
-		// 2. elide old read_skill outputs so a ~large skill markdown doesn't
-		//    ride along (and cost tokens) on every later request forever.
-		const agentMessages = elideReadSkillOutputs(
+		// 2. elide outputs from retired skill/direction tools so large stale
+		//    guidance neither costs tokens nor anchors the new facts-only Brain.
+		const agentMessages = elideRetiredToolOutputs(
 			completeDanglingToolCalls(messages),
 		);
 		const onError = (error: unknown) => this.handleStreamError(error);
@@ -207,6 +221,21 @@ const INCOMPLETE_GENERATE_PAGE_INPUT: GeneratePageInput = {
 		"dropped, so the original brief was lost. Recompose it from the " +
 		"conversation if the user still wants the page.",
 	title: "Interrupted build request",
+};
+
+// scrape_leads aborted mid-execute (the user closed the tab while it was
+// queueing): a schema-valid "unavailable" answer the model can act on.
+const INTERRUPTED_SCRAPE_LEADS_OUTPUT: ScrapeLeadsOutput = {
+	message:
+		"The lead scrape request was interrupted before it could be queued. If " +
+		"the user still wants the lead list, call scrape_leads again.",
+	status: "unavailable",
+};
+
+// Only used when the INPUT itself never finished streaming, so the real
+// query is unrecoverable.
+const INCOMPLETE_SCRAPE_LEADS_INPUT: ScrapeLeadsInput = {
+	query: "unknown",
 };
 
 const INTERRUPTED_READ_SKILL_MARKDOWN =
@@ -349,6 +378,28 @@ function completeDanglingToolCalls(
 				};
 			}
 
+			if (part.type === "tool-scrape_leads") {
+				if (
+					part.state !== "input-available" &&
+					part.state !== "input-streaming"
+				) {
+					return part;
+				}
+
+				changed = true;
+
+				const parsedInput = scrapeLeadsInputSchema.safeParse(part.input);
+
+				return {
+					...part,
+					input: parsedInput.success
+						? parsedInput.data
+						: INCOMPLETE_SCRAPE_LEADS_INPUT,
+					output: INTERRUPTED_SCRAPE_LEADS_OUTPUT,
+					state: "output-available" as const,
+				};
+			}
+
 			if (part.type === "tool-get_direction_candidates") {
 				if (
 					part.state !== "input-available" &&
@@ -450,14 +501,16 @@ function completeDanglingToolCalls(
 
 const SKILL_ELIDED_PLACEHOLDER =
 	"[skill content elided from history — call read_skill again if needed]";
+const DIRECTIONS_ELIDED_PLACEHOLDER =
+	"[old random direction menu elided — visual direction now belongs to the queued Art Director]";
 
 /**
- * The model re-reads the whole history on every request; a skill's markdown
- * is only needed the turn it was loaded. Blank it out of PRIOR messages —
- * the model can always call read_skill again. The last message is left
- * untouched so an in-flight tool loop keeps its real output.
+ * The model re-reads the whole history on every request. Blank large outputs
+ * from retired tools out of PRIOR messages: old skill markdown wastes tokens,
+ * and old random direction menus would anchor the new facts-only Brain. The
+ * persisted transcript stays untouched.
  */
-function elideReadSkillOutputs(
+function elideRetiredToolOutputs(
 	messages: readonly WanditUIMessage[],
 ): WanditUIMessage[] {
 	const lastMessageIndex = messages.length - 1;
@@ -470,18 +523,33 @@ function elideReadSkillOutputs(
 		let changed = false;
 		const parts = message.parts.map((part) => {
 			if (
-				part.type !== "tool-read_skill" ||
-				part.state !== "output-available"
+				part.type === "tool-read_skill" &&
+				part.state === "output-available"
 			) {
-				return part;
+				changed = true;
+
+				return {
+					...part,
+					output: { ...part.output, markdown: SKILL_ELIDED_PLACEHOLDER },
+				};
 			}
 
-			changed = true;
+			if (
+				part.type === "tool-get_direction_candidates" &&
+				part.state === "output-available"
+			) {
+				changed = true;
 
-			return {
-				...part,
-				output: { ...part.output, markdown: SKILL_ELIDED_PLACEHOLDER },
-			};
+				return {
+					...part,
+					output: {
+						...part.output,
+						candidates: DIRECTIONS_ELIDED_PLACEHOLDER,
+					},
+				};
+			}
+
+			return part;
 		});
 
 		return changed ? { ...message, parts } : message;
