@@ -4,7 +4,9 @@
  * user selected in the preview, and the wids they manually edited since the
  * last AI change. Metadata BIASES the model; the user's words always win.
  */
+import { videoSubmissionIdSchema } from "@wandit/contracts";
 import type { AiChatRequestMetadata } from "../presentation/http/controllers/ai-chat.controller";
+import type { AvailableImage } from "./tools/animate-image.tool";
 
 export type ChatRequestContext = {
 	manualEdits: string[];
@@ -12,6 +14,8 @@ export type ChatRequestContext = {
 	// ISO alpha-2 country derived from the request IP at the edge (e.g. "DZ"),
 	// or null when no trusted geo header was present.
 	requestCountryCode?: string | null;
+	// Exact, ownership-checked source selected in the dedicated video picker.
+	selectedSourceImage?: AvailableImage;
 };
 
 const PAGE_GOALS = ["cod", "leads", "service", "promo"] as const;
@@ -36,7 +40,7 @@ const MODE_LINES: Record<string, string> = {
 		"- Mode: Marketing — the user wants a marketing deliverable IN CHAT (copy, plan, script). Do not queue a page build unless they clearly ask for a page.",
 	page: "- Mode: Site web — the user wants a website built.",
 	video:
-		"- Mode: Vidéo — Wandit animates existing images into short videos rather than generating video from scratch; standalone animation is not available in chat yet. Say so honestly.",
+		"- Mode: Vidéo — animate the single uploaded source image with animate_image. This is image-to-video, never text-to-video.",
 };
 
 const OUTPUT_LINES: Record<string, string> = {
@@ -45,6 +49,26 @@ const OUTPUT_LINES: Record<string, string> = {
 	"site-vitrine":
 		'  They chose "Site vitrine": a multi-section presentation site with softer conversion pressure than a COD funnel. Capture the required content and goal; do not prescribe a standard hero/services/about/contact sequence because the Art Director will compose the page flow.',
 };
+
+/**
+ * Resolves the idempotency seed for image animation. Composer options are
+ * intentionally extensible, so only a validated browser UUID in Video mode
+ * may replace the final user-message id fallback.
+ */
+export function resolveVideoRequestKeySeed(
+	metadata: AiChatRequestMetadata | undefined,
+	fallback: string | undefined,
+): string | undefined {
+	if (metadata?.composer?.mode !== "video") {
+		return fallback;
+	}
+
+	const parsed = videoSubmissionIdSchema.safeParse(
+		metadata.composer.options?.videoSubmissionId,
+	);
+
+	return parsed.success ? parsed.data : fallback;
+}
 
 /**
  * Returns the block appended to WANDIT_SYSTEM_PROMPT, or null when nothing
@@ -80,6 +104,36 @@ export function buildChatRequestContext(
 
 			if (typeof goal === "string" && isPageGoal(goal)) {
 				lines.push(GOAL_LINES[goal]);
+			}
+		}
+
+		if (composer.mode === "video") {
+			if (composer.output === "image-animation") {
+				lines.push(
+					'  Output: "Image animation" — one silent five-second clip.',
+				);
+			}
+
+			if (context.selectedSourceImage) {
+				lines.push(
+					"  Dedicated source image for this request — pass these exact " +
+						`values to animate_image: URL ${JSON.stringify(
+							context.selectedSourceImage.url,
+						)}, media type ${context.selectedSourceImage.mediaType}.`,
+				);
+			}
+
+			const motion = composer.options?.motion;
+
+			if (isVideoMotion(motion)) {
+				lines.push(`  Motion strength: ${motion}.`);
+			}
+
+			const ratio = composer.options?.ratio;
+			const aspect = videoAspectFromRatio(ratio);
+
+			if (aspect) {
+				lines.push(`  Required video aspect ratio: ${aspect}.`);
 			}
 		}
 
@@ -134,4 +188,26 @@ export function buildChatRequestContext(
 
 function isPageGoal(goal: string): goal is PageGoal {
 	return (PAGE_GOALS as readonly string[]).includes(goal);
+}
+
+function isVideoMotion(
+	value: unknown,
+): value is "subtle" | "balanced" | "dynamic" {
+	return value === "subtle" || value === "balanced" || value === "dynamic";
+}
+
+function videoAspectFromRatio(value: unknown): "9:16" | "1:1" | "16:9" | null {
+	if (value === "9-16") {
+		return "9:16";
+	}
+
+	if (value === "1-1") {
+		return "1:1";
+	}
+
+	if (value === "16-9") {
+		return "16:9";
+	}
+
+	return null;
 }

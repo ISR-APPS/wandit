@@ -4,6 +4,12 @@ import { ToolLoopAgent, type UIMessage } from "ai";
 
 import type { PageEditsService } from "../../pages/application/services/page-edits.service";
 import { WANDIT_SYSTEM_PROMPT } from "./system-prompt";
+import {
+	type AnimateImageTool,
+	type AnimateImageToolDeps,
+	animateImageToolSchemaOnly,
+	createAnimateImageTool,
+} from "./tools/animate-image.tool";
 import { askUserTool } from "./tools/ask-user.tool";
 import {
 	createGeneratePageTool,
@@ -26,6 +32,7 @@ import {
 } from "./tools/scrape-leads.tool";
 
 type AiChatToolSet = {
+	animate_image: AnimateImageTool;
 	ask_user: typeof askUserTool;
 	generate_page: GeneratePageTool;
 	scrape_leads: ScrapeLeadsTool;
@@ -41,7 +48,7 @@ export type WanditUIMessage = UIMessage<never, never, AiChatTools>;
 export type ChatAgentDeps = GeneratePageToolDeps &
 	Omit<ScrapeLeadsToolDeps, "chatId" | "projectId"> & {
 		pageEditsService: PageEditsService;
-	};
+	} & Omit<AnimateImageToolDeps, "chatId" | "projectId">;
 
 /**
  * The agent is built PER REQUEST now (it used to be a module singleton):
@@ -55,13 +62,6 @@ export function createChatAgent(
 	deps: ChatAgentDeps,
 	contextBlock?: string | null,
 ): ToolLoopAgent<never, AiChatToolSet> {
-	const {
-		leadScrapesRepository,
-		pageEditsService,
-		requestCountryCode,
-		...generatePageDeps
-	} = deps;
-
 	return new ToolLoopAgent({
 		instructions: contextBlock
 			? `${WANDIT_SYSTEM_PROMPT}\n\n${contextBlock}`
@@ -75,16 +75,31 @@ export function createChatAgent(
 			google: { thinkingConfig: { thinkingLevel: "high" } },
 		},
 		tools: {
+			animate_image: createAnimateImageTool({
+				availableImages: deps.availableImages,
+				chatId: deps.chatId,
+				generationPolicyService: deps.generationPolicyService,
+				mediaGenerationsRepository: deps.mediaGenerationsRepository,
+				projectId: deps.projectId,
+				requireSelectedSource: deps.requireSelectedSource,
+				requestKeySeed: deps.requestKeySeed,
+				selectedSourceImage: deps.selectedSourceImage,
+				userId: deps.userId,
+			}),
 			ask_user: askUserTool,
-			generate_page: createGeneratePageTool(generatePageDeps),
+			generate_page: createGeneratePageTool({
+				chatId: deps.chatId,
+				pagesRepository: deps.pagesRepository,
+				projectId: deps.projectId,
+			}),
 			scrape_leads: createScrapeLeadsTool({
 				chatId: deps.chatId,
-				leadScrapesRepository,
+				leadScrapesRepository: deps.leadScrapesRepository,
 				projectId: deps.projectId,
-				requestCountryCode,
+				requestCountryCode: deps.requestCountryCode,
 			}),
 			...createPageEditTools({
-				pageEditsService,
+				pageEditsService: deps.pageEditsService,
 				pagesRepository: deps.pagesRepository,
 				projectId: deps.projectId,
 			}),
@@ -99,6 +114,7 @@ export function createChatAgent(
  * (re-read a skill, queue a build, write a version) by accident.
  */
 export const aiChatToolsForValidation = {
+	animate_image: animateImageToolSchemaOnly,
 	ask_user: askUserTool,
 	generate_page: generatePageToolSchemaOnly,
 	scrape_leads: scrapeLeadsToolSchemaOnly,

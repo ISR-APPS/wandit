@@ -1,4 +1,5 @@
 import type { WanditUIMessage } from "../../../lib/use-ai-chat";
+import { AnimateImagePart } from "./animate-image-part";
 import { AskUserPart } from "./ask-user-part";
 import { FilePart } from "./file-part";
 import { GeneratePagePart } from "./generate-page-part";
@@ -79,6 +80,8 @@ export function MessageParts({
 				return <GeneratePagePart key={part.toolCallId} part={part} />;
 			case "tool-scrape_leads":
 				return <ScrapeLeadsPart key={part.toolCallId} part={part} />;
+			case "tool-animate_image":
+				return <AnimateImagePart key={part.toolCallId} part={part} />;
 			case "tool-read_skill":
 			case "tool-get_direction_candidates":
 				// Server-side context tools — deliberately invisible in the thread

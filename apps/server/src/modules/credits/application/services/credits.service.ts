@@ -111,6 +111,56 @@ export class CreditsService {
 		});
 	}
 
+	/**
+	 * Compensate an idempotent consume, preserving the original plan/top-up
+	 * split. Replays return the same refund rows and never credit twice.
+	 */
+	async refundConsume(
+		userId: string,
+		consumeIdempotencyKey: string,
+		meta: CreditMeta = {},
+	): Promise<CreditLedgerRow[]> {
+		return this.creditsRepository.withUserLock(userId, async (tx) => {
+			const consumedRows = await this.creditsRepository.findByIdempotencyKeys(
+				userId,
+				[
+					this.consumeIdempotencyKey(consumeIdempotencyKey, "plan"),
+					this.consumeIdempotencyKey(consumeIdempotencyKey, "topup"),
+				],
+				tx,
+			);
+			const refunded: CreditLedgerRow[] = [];
+
+			for (const consumed of consumedRows) {
+				if (consumed.delta >= 0) {
+					continue;
+				}
+
+				refunded.push(
+					await this.creditsRepository.insertLedgerEntry(
+						{
+							bucket: consumed.bucket,
+							delta: Math.abs(consumed.delta),
+							idempotencyKey: `refund:${consumeIdempotencyKey}:${consumed.bucket}`,
+							kind: "grant",
+							meta: this.withReason(
+								{
+									...meta,
+									consumeLedgerId: consumed.id,
+								},
+								"generation_refund",
+							),
+							userId,
+						},
+						tx,
+					),
+				);
+			}
+
+			return refunded;
+		});
+	}
+
 	async grant(
 		userId: string,
 		amount: number,

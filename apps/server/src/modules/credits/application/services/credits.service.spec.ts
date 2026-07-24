@@ -14,10 +14,7 @@ type SeedLedgerEntry = Pick<
 	"bucket" | "delta" | "kind" | "userId"
 > &
 	Partial<
-		Pick<
-			InsertCreditLedgerEntry,
-			"idempotencyKey" | "meta" | "organizationId"
-		>
+		Pick<InsertCreditLedgerEntry, "idempotencyKey" | "meta" | "organizationId">
 	>;
 
 class InMemoryCreditsRepository {
@@ -216,6 +213,41 @@ describe("CreditsService", () => {
 		});
 	});
 
+	it("serializes concurrent reservations so credits cannot be overspent", async () => {
+		const { repository, service } = setup();
+
+		repository.seed({
+			bucket: "plan",
+			delta: 25,
+			kind: "grant",
+			userId: "user_1",
+		});
+
+		const results = await Promise.allSettled([
+			service.consume("user_1", 25, {
+				idempotencyKey: "media-generation:attempt_1",
+			}),
+			service.consume("user_1", 25, {
+				idempotencyKey: "media-generation:attempt_2",
+			}),
+		]);
+		const fulfilled = results.filter((result) => result.status === "fulfilled");
+		const rejected = results.filter((result) => result.status === "rejected");
+
+		expect(fulfilled).toHaveLength(1);
+		expect(rejected).toMatchObject([
+			{ reason: expect.any(InsufficientCreditsError) },
+		]);
+		expect(
+			repository.rows.filter((row) => row.kind === "consume"),
+		).toHaveLength(1);
+		expect(await service.getBalance("user_1")).toEqual({
+			balance: 0,
+			plan: 0,
+			topup: 0,
+		});
+	});
+
 	it("replays consume idempotently without writing new rows", async () => {
 		const { repository, service } = setup();
 
@@ -242,6 +274,70 @@ describe("CreditsService", () => {
 
 		expect(secondRows).toEqual(firstRows);
 		expect(repository.rows).toHaveLength(rowCount);
+	});
+
+	it("refunds the original plan/top-up split exactly once", async () => {
+		const { repository, service } = setup();
+
+		repository.seed({
+			bucket: "plan",
+			delta: 5,
+			kind: "grant",
+			userId: "user_1",
+		});
+		repository.seed({
+			bucket: "topup",
+			delta: 10,
+			kind: "topup",
+			userId: "user_1",
+		});
+		await service.consume("user_1", 8, {
+			idempotencyKey: "media-generation:attempt_1",
+		});
+
+		const firstRefund = await service.refundConsume(
+			"user_1",
+			"media-generation:attempt_1",
+			{ attemptId: "attempt_1" },
+		);
+		const rowCount = repository.rows.length;
+		const replayedRefund = await service.refundConsume(
+			"user_1",
+			"media-generation:attempt_1",
+			{ attemptId: "attempt_1" },
+		);
+
+		expect(firstRefund).toMatchObject([
+			{
+				bucket: "plan",
+				delta: 5,
+				idempotencyKey: "refund:media-generation:attempt_1:plan",
+				kind: "grant",
+				meta: {
+					attemptId: "attempt_1",
+					consumeLedgerId: "ledger_3",
+					reason: "generation_refund",
+				},
+			},
+			{
+				bucket: "topup",
+				delta: 3,
+				idempotencyKey: "refund:media-generation:attempt_1:topup",
+				kind: "grant",
+				meta: {
+					attemptId: "attempt_1",
+					consumeLedgerId: "ledger_4",
+					reason: "generation_refund",
+				},
+			},
+		]);
+		expect(replayedRefund).toEqual(firstRefund);
+		expect(repository.rows).toHaveLength(rowCount);
+		expect(await service.getBalance("user_1")).toEqual({
+			balance: 15,
+			plan: 5,
+			topup: 10,
+		});
 	});
 
 	it("expires only positive plan remainder and is replay-safe", async () => {

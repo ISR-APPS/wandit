@@ -5,6 +5,7 @@ import {
 import Lottie from "lottie-react";
 import { motion, type Variants } from "motion/react";
 
+import { useSession } from "@/features/auth";
 import { InsufficientCreditsDialog } from "@/features/credits";
 import { PromptBox, useCreateProjectWithPrompt } from "@/features/projects";
 
@@ -28,6 +29,7 @@ type HeroProps = {
 export function Hero({ promptKey, promptInitial }: HeroProps) {
 	const { create, isCreating, insufficientOpen, setInsufficientOpen, cost } =
 		useCreateProjectWithPrompt();
+	const { data: session } = useSession();
 	const { t } = useTranslation();
 	const hero = useDictionary().landing.hero;
 
@@ -89,6 +91,7 @@ export function Hero({ promptKey, promptInitial }: HeroProps) {
 						variant="hero"
 						showBanner
 						showModes
+						attachmentsEnabled={Boolean(session)}
 						initialValue={promptInitial}
 						onSubmit={create}
 						isSubmitting={isCreating}

@@ -11,6 +11,7 @@
  */
 import {
 	GetObjectCommand,
+	HeadObjectCommand,
 	NoSuchKey,
 	PutObjectCommand,
 	S3Client,
@@ -132,10 +133,19 @@ export function publicAssetUrl(key: string): string {
  * both sides and compares the ORIGIN exactly plus the path boundary.
  */
 export function isWanditHostedUrl(url: string): boolean {
+	return publicAssetKeyFromUrl(url) !== null;
+}
+
+/**
+ * Resolve one public R2 URL back to its object key. Returns null for another
+ * origin, credentials in the URL, a path outside the configured public-base
+ * boundary, or malformed percent encoding.
+ */
+export function publicAssetKeyFromUrl(url: string): string | null {
 	const base = env.R2_PUBLIC_BASE_URL;
 
 	if (!base) {
-		return false;
+		return null;
 	}
 
 	let parsedBase: URL;
@@ -145,26 +155,54 @@ export function isWanditHostedUrl(url: string): boolean {
 		parsedBase = new URL(base);
 		parsed = new URL(url);
 	} catch {
-		return false;
+		return null;
 	}
 
 	// Credentials in an asset URL are never legitimate.
 	if (parsed.username !== "" || parsed.password !== "") {
-		return false;
+		return null;
 	}
 
 	if (parsed.origin !== parsedBase.origin) {
-		return false;
+		return null;
 	}
 
 	// Path boundary: base path must be a whole-segment prefix — a base of
 	// /bucket must not accept /bucket-evil/x.
 	const basePath = parsedBase.pathname.replace(/\/+$/, "");
 
+	if (
+		basePath !== "" &&
+		parsed.pathname !== basePath &&
+		!parsed.pathname.startsWith(`${basePath}/`)
+	) {
+		return null;
+	}
+
+	const encodedKey = parsed.pathname.slice(basePath.length).replace(/^\/+/, "");
+
+	try {
+		return decodeURIComponent(encodedKey);
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Stronger guard for standalone media generation: the source must be an
+ * attachment uploaded under the authenticated user's own R2 prefix, not just
+ * any publicly reachable Wandit object.
+ */
+export function isUserUploadUrl(url: string, userId: string): boolean {
+	const key = publicAssetKeyFromUrl(url);
+	if (!key) return false;
+
+	const [root, owner, uploadId, filename] = key.split("/");
 	return (
-		basePath === "" ||
-		parsed.pathname === basePath ||
-		parsed.pathname.startsWith(`${basePath}/`)
+		root === "uploads" &&
+		owner === userId &&
+		Boolean(uploadId) &&
+		Boolean(filename)
 	);
 }
 
@@ -243,6 +281,32 @@ export async function getObjectBytes(key: string): Promise<Uint8Array | null> {
 	}
 }
 
+/**
+ * Read one object's content type without downloading its body. A media worker
+ * uses this to recover after a crash between the deterministic R2 upload and
+ * the database's succeeded transition.
+ */
+export async function getObjectContentType(
+	key: string,
+): Promise<string | null> {
+	try {
+		const result = await r2Client().send(
+			new HeadObjectCommand({ Bucket: env.R2_BUCKET, Key: key }),
+		);
+
+		return result.ContentType ?? contentTypeFor(key);
+	} catch (error) {
+		if (
+			error instanceof NoSuchKey ||
+			(isAwsNotFoundError(error) && error.$metadata.httpStatusCode === 404)
+		) {
+			return null;
+		}
+
+		throw error;
+	}
+}
+
 // Fetch one page's HTML. Returns null when the object does not exist so the
 // caller can turn it into a 404 instead of a 500.
 export async function getPageHtml(key: string): Promise<string | null> {
@@ -259,4 +323,16 @@ export async function getPageHtml(key: string): Promise<string | null> {
 
 		throw error;
 	}
+}
+
+function isAwsNotFoundError(
+	error: unknown,
+): error is { $metadata: { httpStatusCode?: number } } {
+	return (
+		typeof error === "object" &&
+		error !== null &&
+		"$metadata" in error &&
+		typeof error.$metadata === "object" &&
+		error.$metadata !== null
+	);
 }

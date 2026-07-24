@@ -1,3 +1,5 @@
+import { CREDIT_COSTS as CONTRACT_CREDIT_COSTS } from "@wandit/contracts";
+
 import {
 	getCurrentDictionary,
 	getCurrentLocale,
@@ -11,8 +13,9 @@ import {
 export const SIGNUP_GRANT = 100_000;
 
 export const CREDIT_COSTS = {
-	generation: 10,
-	chatMessage: 1,
+	generation: CONTRACT_CREDIT_COSTS.landingPageGeneration,
+	chatMessage: CONTRACT_CREDIT_COSTS.chatMessage,
+	videoGeneration: CONTRACT_CREDIT_COSTS.videoGeneration,
 } as const;
 
 export type CreditAction = keyof typeof CREDIT_COSTS;

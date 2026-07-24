@@ -21,7 +21,7 @@ export type UseCreateProjectWithPromptResult = {
 		prompt: string,
 		composer?: ComposerMetadata,
 		attachments?: UploadAttachmentResponse[],
-	) => void;
+	) => Promise<boolean>;
 	isCreating: boolean;
 	insufficientOpen: boolean;
 	setInsufficientOpen: (open: boolean) => void;
@@ -44,8 +44,7 @@ export function useCreateProjectWithPrompt(): UseCreateProjectWithPromptResult {
 	const createProject = useCreateProject();
 	const navigate = useNavigate();
 	const [insufficientOpen, setInsufficientOpen] = useState(false);
-
-	const cost = CREDIT_COSTS.generation;
+	const [cost, setCost] = useState<number>(CREDIT_COSTS.generation);
 
 	const createSignedInProject = useCallback(
 		async (
@@ -54,14 +53,22 @@ export function useCreateProjectWithPrompt(): UseCreateProjectWithPromptResult {
 			attachments?: UploadAttachmentResponse[],
 		) => {
 			const name = deriveProjectName(prompt);
+			const generationCost =
+				composer?.mode === "video"
+					? CREDIT_COSTS.videoGeneration
+					: CREDIT_COSTS.generation;
+			setCost(generationCost);
 			// Affordability gate BEFORE the request, charge AFTER it succeeds —
 			// a failed creation must never leave a consumed-credit ledger entry.
-			if (!canAfford(cost)) {
+			if (!canAfford(generationCost)) {
 				setInsufficientOpen(true);
-				return;
+				return false;
 			}
+
+			let created: { projectId: string; chatId: string };
+
 			try {
-				const { projectId, chatId } = await createProject.mutateAsync({
+				created = await createProject.mutateAsync({
 					prompt,
 					composer,
 					// Uploaded R2 assets ride the create body as FileRefs — the server
@@ -74,38 +81,49 @@ export function useCreateProjectWithPrompt(): UseCreateProjectWithPromptResult {
 							}))
 						: undefined,
 				});
-				consume(cost, name);
-				toast.success(t("projects.createSuccess", { name }));
-				// The prompt is already persisted as the chat's first message
-				// server-side; this one-shot flag tells the workspace to start
-				// streaming the AI's answer to it on arrival.
-				chatAutostart.stash({ projectId, chatId });
+			} catch (error) {
+				toast.error(getApiErrorMessage(error));
+				return false;
+			}
+
+			consume(generationCost, name);
+			toast.success(t("projects.createSuccess", { name }));
+			// The prompt is already persisted as the chat's first message
+			// server-side; this one-shot flag tells the workspace to start
+			// streaming the AI's answer to it on arrival.
+			chatAutostart.stash(created);
+
+			try {
 				await navigate({
 					to: "/p/$projectId",
-					params: { projectId },
+					params: { projectId: created.projectId },
 				});
 			} catch (error) {
 				toast.error(getApiErrorMessage(error));
 			}
+
+			// The server accepted and persisted the project even if client-side
+			// navigation failed, so a second submit must not duplicate it.
+			return true;
 		},
 		[canAfford, consume, createProject, navigate, t],
 	);
 
 	const create = useCallback(
-		(
+		async (
 			prompt: string,
 			composer?: ComposerMetadata,
 			attachments?: UploadAttachmentResponse[],
 		) => {
 			if (!session) {
-				// Documented gap: only the TEXT survives the auth redirect — the
-				// attach row is disabled on signed-out surfaces so this stays moot.
-				promptStash.stash(prompt);
+				// Uploaded files cannot survive auth, but keeping composer metadata
+				// restores the selected workflow and its settings on the dashboard.
+				promptStash.stash(prompt, composer);
 				open();
-				return;
+				return true;
 			}
 
-			void createSignedInProject(prompt, composer, attachments);
+			return createSignedInProject(prompt, composer, attachments);
 		},
 		[createSignedInProject, open, session],
 	);
