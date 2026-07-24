@@ -91,6 +91,18 @@ export function siteVideoKey(
 	return `sites/${projectId}/assets/${attemptId}/vid-${index}.${extension}`;
 }
 
+// Exported lead-scrape workbooks live under their attempt. The object is
+// served through an ownership-checked download endpoint (contact exports are
+// personal data), so the key is persisted instead of a public URL:
+// lead-scrapes/{project_id}/{attempt_id}/{filename}
+export function leadScrapeFileKey(
+	projectId: string,
+	attemptId: string,
+	filename: string,
+): string {
+	return `lead-scrapes/${projectId}/${attemptId}/${filename}`;
+}
+
 // User-uploaded attachments (product photos, logos, docs) are user-scoped —
 // they exist before any project does (dashboard composer uploads):
 // uploads/{user_id}/{uuid}/{sanitized-filename}
@@ -171,6 +183,7 @@ const CONTENT_TYPES: Record<string, string> = {
 	webm: "video/webm",
 	webp: "image/webp",
 	woff2: "font/woff2",
+	xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 };
 
 // Best-effort by extension; octet-stream keeps unknown files downloadable
@@ -209,6 +222,25 @@ export async function putPageHtml(key: string, html: string): Promise<void> {
 			Key: key,
 		}),
 	);
+}
+
+// Fetch one object's raw bytes (lead-scrape workbook downloads). Returns
+// null when the object does not exist so the caller can answer 404.
+export async function getObjectBytes(key: string): Promise<Uint8Array | null> {
+	try {
+		const result = await r2Client().send(
+			new GetObjectCommand({ Bucket: env.R2_BUCKET, Key: key }),
+		);
+		const bytes = await result.Body?.transformToByteArray();
+
+		return bytes ?? null;
+	} catch (error) {
+		if (error instanceof NoSuchKey) {
+			return null;
+		}
+
+		throw error;
+	}
 }
 
 // Fetch one page's HTML. Returns null when the object does not exist so the

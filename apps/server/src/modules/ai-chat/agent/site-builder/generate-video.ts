@@ -40,6 +40,7 @@ export type GenerateBuildVideoResult =
 	| { mediaType: string; status: "generated"; url: string };
 
 export async function generateBuildVideo(params: {
+	abortSignal?: AbortSignal;
 	aspect: BuildVideoAspect;
 	attemptId: string;
 	/** Source still — MUST already be a Wandit-hosted (R2) asset. */
@@ -69,8 +70,12 @@ export async function generateBuildVideo(params: {
 	}
 
 	try {
+		const timeoutSignal = AbortSignal.timeout(VIDEO_TIMEOUT_MS);
+		const abortSignal = params.abortSignal
+			? AbortSignal.any([params.abortSignal, timeoutSignal])
+			: timeoutSignal;
 		const result = await generateVideo({
-			abortSignal: AbortSignal.timeout(VIDEO_TIMEOUT_MS),
+			abortSignal,
 			aspectRatio: params.aspect,
 			duration: 5,
 			fps: 30,

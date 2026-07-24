@@ -94,11 +94,9 @@ export type ReadSkillInput = z.infer<typeof readSkillInputSchema>;
 export type ReadSkillOutput = z.infer<typeof readSkillOutputSchema>;
 
 /**
- * get_direction_candidates — the assistant asks the server for a freshly
- * sampled menu of design directions (palettes, font pairings, page skeletons,
- * signature interactions, motion vocabularies). The randomness lives
- * server-side ON PURPOSE: it is the anti-convergence mechanism — the model
- * may only choose from the returned candidates, never substitute its own.
+ * get_direction_candidates — RETIRED from the live Brain. Schemas remain for
+ * backward compatibility with persisted chats that used the old random
+ * direction-menu architecture.
  */
 export const getDirectionCandidatesInputSchema = z.object({
 	// Short free-text business descriptor (e.g. "candles", "streetwear"),
@@ -124,17 +122,18 @@ export type GetDirectionCandidatesOutput = z.infer<
 >;
 
 /**
- * generate_page — the assistant queues a background page build. Deliberately
- * minimal: the brief is ONE free-text field, not a rigid structure, because
- * the brief itself is the tweak surface Zack iterates on. The tool answers
- * immediately (queued/unavailable); the finished page lands in the Page tab.
+ * generate_page — the Brain queues a background page build. The brief is
+ * factual content and constraints, not art direction: the queued Art Director
+ * creates a typed CreativeSpec before the Builder starts. The tool answers
+ * immediately; the finished page lands in the Page tab.
  */
 export const generatePageInputSchema = z.object({
 	// Short human title for the page (used for version labels).
 	title: z.string().min(1).max(120),
-	// The full creative brief the agent composed from the conversation:
-	// product, audience, language(s), chosen aesthetic direction, sections,
-	// offer/price, COD details. Free text on purpose.
+	// The complete factual brief the Brain composed from the conversation:
+	// business, audience, language, assets, required content, offer/price,
+	// conversion details, constraints, and user-supplied taste. Free text keeps
+	// old tool calls valid while the Art Director owns the structured design.
 	brief: z.string().min(50),
 });
 
@@ -150,6 +149,39 @@ export const generatePageOutputSchema = z.object({
 
 export type GeneratePageInput = z.infer<typeof generatePageInputSchema>;
 export type GeneratePageOutput = z.infer<typeof generatePageOutputSchema>;
+
+/**
+ * scrape_leads — the Brain queues a background prospect scrape: find real
+ * businesses (name/phone/email/website/address) matching a niche + location
+ * and export them to a downloadable .xlsx. Like generate_page, the tool
+ * answers immediately with "queued"; the chat card polls the attempt endpoint
+ * (v1/lead-scrapes.ts) for live progress and the finished workbook.
+ */
+export const scrapeLeadsInputSchema = z.object({
+	// The business niche to hunt for, e.g. "gyms", "cabinets dentaires".
+	query: z.string().min(1).max(200),
+	// City/region to search, e.g. "Alger" or "Oran, Algérie". Optional so the
+	// server can fall back to the user's IP-derived country when omitted.
+	location: z.string().min(1).max(200).optional(),
+	// ISO 3166-1 alpha-2 country of that location (e.g. "dz"). Critical for
+	// ambiguous city names — "Algiers" alone geocodes to Algiers, Louisiana.
+	// Falls back to the request's IP-derived country when omitted.
+	country: z.string().length(2).optional(),
+	// How many businesses to collect at most; the server clamps to its cap.
+	limit: z.number().int().min(5).max(200).optional(),
+});
+
+export const scrapeLeadsOutputSchema = z.object({
+	// "unavailable" = server missing the provider/R2/Trigger credentials; the
+	// model relays that honestly instead of pretending a scrape is running.
+	status: z.enum(["queued", "unavailable"]),
+	attemptId: z.string().uuid().optional(),
+	// Human-facing note the model can relay verbatim.
+	message: z.string(),
+});
+
+export type ScrapeLeadsInput = z.infer<typeof scrapeLeadsInputSchema>;
+export type ScrapeLeadsOutput = z.infer<typeof scrapeLeadsOutputSchema>;
 
 /** get_page_outline — cheap section map of the active version (spec §5). */
 export const getPageOutlineInputSchema = z.object({});
@@ -208,6 +240,7 @@ export type AiChatTools = {
 		output: GetDirectionCandidatesOutput;
 	};
 	generate_page: { input: GeneratePageInput; output: GeneratePageOutput };
+	scrape_leads: { input: ScrapeLeadsInput; output: ScrapeLeadsOutput };
 	get_page_outline: {
 		input: GetPageOutlineInput;
 		output: GetPageOutlineOutput;

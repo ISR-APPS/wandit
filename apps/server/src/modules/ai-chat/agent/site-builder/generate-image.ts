@@ -1,7 +1,7 @@
 /**
  * Image generation behind the builder's generate_image tool.
  *
- * Executes one SHOT LIST entry: generate through the gateway image model,
+ * Executes one approved CreativeSpec shot: generate through the gateway image model,
  * upload to R2 under the attempt, and hand back a browser-reachable URL.
  * Deliberately never throws — a page build must never fail because of
  * images; the builder is told to fall back to CSS/SVG art instead.
@@ -17,7 +17,7 @@ import {
 } from "../../../../infrastructure/storage/r2";
 
 // Hard budget per build: images are the most expensive tool call the builder
-// has, and the brief's SHOT LIST is capped at 6 shots anyway.
+// has, and the CreativeSpec is capped at 6 shots anyway.
 export const MAX_IMAGES = 6;
 
 // gpt-image-class models accept exact sizes, not free aspect ratios — each
@@ -56,6 +56,7 @@ export type GeneratedBuildImage =
 	  };
 
 export async function generateBuildImage(params: {
+	abortSignal?: AbortSignal;
 	aspect: BuildImageAspect;
 	attemptId: string;
 	/** 1-based position in the build, used for the R2 object name. */
@@ -72,6 +73,7 @@ export async function generateBuildImage(params: {
 
 	try {
 		const { image } = await generateImage({
+			...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
 			model: env.AI_IMAGE_MODEL,
 			prompt: params.prompt,
 			size: SIZE_BY_ASPECT[params.aspect],

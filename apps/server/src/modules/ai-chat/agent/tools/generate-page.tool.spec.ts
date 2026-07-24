@@ -1,4 +1,5 @@
 import { tasks } from "@trigger.dev/sdk";
+import { env } from "@wandit/env/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { isR2Configured } from "../../../../infrastructure/storage/r2";
@@ -6,10 +7,12 @@ import type { PagesRepository } from "../../../pages/infrastructure/persistence/
 import { createGeneratePageTool } from "./generate-page.tool";
 
 // Everything with side effects is replaced: env (credentials), storage
-// (R2 check), the Trigger queue, and the designer prompt (reads a file).
+// (R2 check), the Trigger queue, and both generation prompts.
 vi.mock("@wandit/env/server", () => ({
 	env: {
-		AI_PAGE_DESIGN_MODEL: "test-provider/test-design-model",
+		AI_ART_DIRECTOR_MODEL: "test-provider/test-art-director-model",
+		AI_PAGE_BUILDER_MODEL: "test-provider/test-builder-model",
+		AI_PAGE_DESIGN_MODEL: "test-provider/legacy-builder-model",
 		TRIGGER_SECRET_KEY: "tr_dev_test",
 	},
 }));
@@ -25,7 +28,16 @@ vi.mock("@trigger.dev/sdk", () => ({
 vi.mock("../site-builder/builder-prompt", () => ({
 	buildSiteBuilderSystemPrompt: vi
 		.fn()
-		.mockResolvedValue("designer prompt (test)"),
+		.mockResolvedValue("builder prompt (test)"),
+}));
+
+vi.mock("../art-director/art-director-prompt", () => ({
+	buildArtDirectorExtractionSystemPrompt: vi
+		.fn()
+		.mockReturnValue("spec extraction prompt (test)"),
+	buildArtDirectorSystemPrompt: vi
+		.fn()
+		.mockReturnValue("art director prompt (test)"),
 }));
 
 const INPUT = {
@@ -33,6 +45,11 @@ const INPUT = {
 		"Arabic RTL landing page for handmade kabyle jewelry, Souk Heat direction, " +
 		"COD form phone-first, prices in DZD, WhatsApp CTA.",
 	title: "Kabyle jewelry page",
+};
+
+const mutableEnv = env as {
+	AI_PAGE_BUILDER_MODEL?: string;
+	AI_PAGE_DESIGN_MODEL: string;
 };
 
 function setup() {
@@ -68,6 +85,7 @@ function setup() {
 }
 
 beforeEach(() => {
+	mutableEnv.AI_PAGE_BUILDER_MODEL = "test-provider/test-builder-model";
 	vi.mocked(isR2Configured).mockReset();
 	vi.mocked(tasks.trigger).mockReset();
 });
@@ -102,12 +120,16 @@ describe("generate_page tool", () => {
 		expect(pagesRepository.insertAttempt).toHaveBeenCalledWith({
 			artifactId: "artifact_1",
 			chatId: "chat_1",
-			model: "test-provider/test-design-model",
+			model: "test-provider/test-builder-model",
 			projectId: "project_1",
 			spec: {
+				artDirectorExtractionSystemPrompt: "spec extraction prompt (test)",
+				artDirectorModel: "test-provider/test-art-director-model",
+				artDirectorSystemPrompt: "art director prompt (test)",
 				brief: INPUT.brief,
-				designerSystemPrompt: "designer prompt (test)",
+				designerSystemPrompt: "builder prompt (test)",
 				title: INPUT.title,
+				version: 2,
 			},
 		});
 		expect(tasks.trigger).toHaveBeenCalledWith("generate-page", {
@@ -122,6 +144,29 @@ describe("generate_page tool", () => {
 			status: "queued",
 			versionNumber: 1,
 		});
+	});
+
+	it("uses the legacy Builder model variable when the new one is unset", async () => {
+		mutableEnv.AI_PAGE_BUILDER_MODEL = undefined;
+		const { execute, pagesRepository } = setup();
+		vi.mocked(isR2Configured).mockReturnValue(true);
+		pagesRepository.findOrCreateLandingArtifact.mockResolvedValue({
+			activeVersionId: null,
+			id: "artifact_1",
+		});
+		pagesRepository.insertAttempt.mockResolvedValue({ id: "attempt_1" });
+		pagesRepository.nextVersionNumber.mockResolvedValue(1);
+		vi.mocked(tasks.trigger).mockResolvedValue({
+			id: "run_123",
+		} as Awaited<ReturnType<typeof tasks.trigger>>);
+
+		await execute(INPUT);
+
+		expect(pagesRepository.insertAttempt).toHaveBeenCalledWith(
+			expect.objectContaining({
+				model: "test-provider/legacy-builder-model",
+			}),
+		);
 	});
 
 	it("marks the attempt failed and answers unavailable when queueing throws", async () => {

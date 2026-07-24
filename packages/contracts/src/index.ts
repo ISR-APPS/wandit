@@ -29,6 +29,8 @@ export * from "./v1/credits";
 export * from "./v1/deployments";
 // Domain contracts.
 export * from "./v1/domains";
+// Lead-scrape (outbound prospecting) contracts.
+export * from "./v1/lead-scrapes";
 // Lead contracts.
 export * from "./v1/leads";
 // Page edit-ops contract.
