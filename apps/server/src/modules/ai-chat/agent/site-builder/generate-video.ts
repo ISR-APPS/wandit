@@ -1,10 +1,14 @@
 /**
- * Image-to-video animation behind the builder's animate_image tool (spec
- * §12): one already-hosted image (a generate_image result or a user asset)
- * becomes a short ambient loop via the gateway video model, uploaded to R2
- * under the attempt beside the images. Deliberately never throws — a page
- * build must never fail because of video; the still image always stands.
- * Graceful-unavailable is the required behavior when AI_VIDEO_MODEL is unset.
+ * Shared image-to-video primitive.
+ *
+ * The page Builder uses the ambient-loop profile for optional hero motion.
+ * Standalone chat generation uses the image-animation profile for a general
+ * five-second product/social clip. Both profiles keep the same provider,
+ * timeout, hosted-source guard and R2 upload path so there is only one media
+ * integration to secure and maintain.
+ *
+ * Deliberately never throws: callers receive generated/failed/unavailable and
+ * decide how to present or persist the failure.
  */
 import { gateway } from "@ai-sdk/gateway";
 import { env } from "@wandit/env/server";
@@ -23,8 +27,11 @@ import {
 export const MAX_VIDEOS = 2;
 
 export const VIDEO_ASPECTS = ["16:9", "9:16", "1:1"] as const;
+export const IMAGE_VIDEO_DURATION_SECONDS = 5;
 
 export type BuildVideoAspect = (typeof VIDEO_ASPECTS)[number];
+export type ImageVideoProfile = "ambient-loop" | "image-animation";
+export type ImageVideoMotion = "subtle" | "balanced" | "dynamic";
 
 const EXTENSION_BY_MEDIA_TYPE: Record<string, string> = {
 	"video/mp4": "mp4",
@@ -47,6 +54,10 @@ export async function generateBuildVideo(params: {
 	imageUrl: string;
 	/** 1-based position in the build, used for the R2 object name. */
 	index: number;
+	/** Defaults to the Builder's restrained ambient-loop behavior. */
+	profile?: ImageVideoProfile;
+	/** Standalone image-animation motion strength. Ignored for ambient loops. */
+	motion?: ImageVideoMotion;
 	motionPrompt: string;
 	projectId: string;
 }): Promise<GenerateBuildVideoResult> {
@@ -77,29 +88,25 @@ export async function generateBuildVideo(params: {
 		const result = await generateVideo({
 			abortSignal,
 			aspectRatio: params.aspect,
-			duration: 5,
+			duration: IMAGE_VIDEO_DURATION_SECONDS,
 			fps: 30,
 			generateAudio: false,
 			model: gateway.video(env.AI_VIDEO_MODEL),
 			n: 1,
 			prompt: {
 				image: params.imageUrl,
-				text:
-					"Restrained ambient motion for a website hero background. " +
-					"Preserve the composition, subject, colors and framing exactly. " +
-					"Only subtle lighting drift, gentle atmospheric/fabric movement, " +
-					"a very slow camera float. No cuts, no morphing, no new objects, " +
-					"no large motion. End in the same visual state as the first " +
-					`frame. ${params.motionPrompt}`,
+				text: buildVideoPrompt(params),
 			},
 			// std keeps cost down; Kling rejects imageTail (last-frame anchoring)
 			// in std mode, so the loop closes via the prompt's "end in the same
 			// visual state" instruction instead — good enough for slow ambient
 			// motion. Upgrading to a clean anchored loop = mode "pro" + imageTail
 			// at roughly double the cost.
-			providerOptions: {
-				klingai: { mode: "std" },
-			},
+			providerOptions: env.AI_VIDEO_MODEL.startsWith("klingai/")
+				? {
+						klingai: { mode: "std" },
+					}
+				: undefined,
 		});
 
 		const mediaType = result.video.mediaType;
@@ -124,4 +131,39 @@ export async function generateBuildVideo(params: {
 			status: "failed",
 		};
 	}
+}
+
+function buildVideoPrompt(params: {
+	motion?: ImageVideoMotion;
+	motionPrompt: string;
+	profile?: ImageVideoProfile;
+}): string {
+	if ((params.profile ?? "ambient-loop") === "ambient-loop") {
+		return (
+			"Restrained ambient motion for a website hero background. " +
+			"Preserve the composition, subject, colors and framing exactly. " +
+			"Only subtle lighting drift, gentle atmospheric/fabric movement, " +
+			"a very slow camera float. No cuts, no morphing, no new objects, " +
+			"no large motion. End in the same visual state as the first " +
+			`frame. ${params.motionPrompt}`
+		);
+	}
+
+	const motionDirection: Record<ImageVideoMotion, string> = {
+		subtle:
+			"Use restrained subject motion, gentle environmental movement and a nearly locked camera.",
+		balanced:
+			"Use clear natural subject or product motion with a smooth, controlled camera move.",
+		dynamic:
+			"Use energetic but physically believable motion and a confident camera move without losing the subject.",
+	};
+
+	return (
+		"Create one continuous five-second image-to-video shot from the supplied " +
+		"still. Preserve the exact subject identity, product shape, logos, text, " +
+		"colors and scene continuity. Do not add people or objects, cut to another " +
+		"shot, morph anatomy or packaging, distort lettering, or invent details. " +
+		`${motionDirection[params.motion ?? "balanced"]} ` +
+		`Motion direction: ${params.motionPrompt}`
+	);
 }

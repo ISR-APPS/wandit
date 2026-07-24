@@ -21,7 +21,7 @@ import type {
 	UpdateProjectBody,
 } from "@wandit/contracts";
 
-import { isWanditHostedUrl } from "../../../../infrastructure/storage/r2";
+import { isUserUploadUrl } from "../../../../infrastructure/storage/r2";
 import { GenerationPolicyService } from "../../../generation/application/services/generation-policy.service";
 import { mapProjectRow } from "../../infrastructure/mappers/project.mapper";
 import { ProjectsRepository } from "../../infrastructure/persistence/projects.repository";
@@ -68,13 +68,15 @@ export class ProjectsService {
 		// Check credits/subscription before writing anything.
 		await this.generationPolicyService.assertCanGenerate(
 			userId,
-			"landingPageGeneration",
+			body.composer?.mode === "video"
+				? "videoGeneration"
+				: "landingPageGeneration",
 		);
 
 		// Attachment URLs must be Wandit-hosted assets (contract §10.4) — the
 		// composer uploads through /api/v1/attachments first, so anything else
 		// is a forged reference.
-		this.assertWanditHostedAttachments(body.attachments);
+		this.assertWanditHostedAttachments(userId, body.attachments);
 
 		// Create project + chat + first message in one DB transaction.
 		const created = await this.projectsRepository.createWithChatAndFirstMessage(
@@ -117,10 +119,11 @@ export class ProjectsService {
 	// Reject any attachment reference that is not one of our own R2 objects.
 	// Parsed origin + path boundary, never a raw prefix check.
 	private assertWanditHostedAttachments(
+		userId: string,
 		attachments: CreateProjectBody["attachments"],
 	): void {
 		for (const attachment of attachments ?? []) {
-			if (!isWanditHostedUrl(attachment.url)) {
+			if (!isUserUploadUrl(attachment.url, userId)) {
 				throw new BadRequestException({
 					code: "INVALID_FILE_PART",
 					message: "Attachments must be uploaded through Wandit",

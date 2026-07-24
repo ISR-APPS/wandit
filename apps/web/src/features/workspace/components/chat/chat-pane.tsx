@@ -93,7 +93,8 @@ export function ChatPane({ className }: { className?: string }) {
 				(part.type === "text" && part.text.length > 0) ||
 				part.type === "tool-ask_user" ||
 				part.type === "tool-generate_page" ||
-				part.type === "tool-scrape_leads",
+				part.type === "tool-scrape_leads" ||
+				part.type === "tool-animate_image",
 		);
 	const showThinking = isSubmitting && !replyHasVisibleContent;
 
@@ -107,7 +108,7 @@ export function ChatPane({ className }: { className?: string }) {
 	// turn; otherwise it's a normal message carrying the composer metadata and
 	// any uploaded attachments as AI SDK file parts. `false` from sendText
 	// keeps the draft (PromptBox clearOnSubmit contract).
-	const handleComposerSubmit = (
+	const handleComposerSubmit = async (
 		prompt: string,
 		composer: ComposerMetadata,
 		attachments: UploadAttachmentResponse[],
@@ -115,20 +116,20 @@ export function ChatPane({ className }: { className?: string }) {
 		if (tray.answerable) {
 			tray.answerFreeText(prompt);
 			setComposerText("");
-			return;
+			return true;
 		}
 		// Select (Cibler) is the ONLY mode whose selection rides the chat —
 		// an edit-mode selection belongs to the inspector and must neither
 		// attach nor be consumed by a send (contract §4).
 		const isTargeting = editor.mode === "select";
-		const result = sendText(prompt, {
+		const sent = await sendText(prompt, {
 			files: attachments,
 			composer,
 			selectedWid: isTargeting ? editor.selection?.wid : undefined,
 		});
 		// Selection is per-message: a successful send consumes the chip.
-		if (result !== false && isTargeting) editor.clearSelection();
-		return result;
+		if (sent && isTargeting) editor.clearSelection();
+		return sent;
 	};
 
 	// While ask_user is docked, the normal send arrow becomes the answer CTA.
@@ -292,7 +293,7 @@ export function ChatPane({ className }: { className?: string }) {
 										variant="outline"
 										size="sm"
 										className="h-7 rounded-full bg-card px-3 font-normal text-muted-foreground text-xs shadow-none hover:text-foreground"
-										onClick={() => sendText(suggestion)}
+										onClick={() => void sendText(suggestion)}
 									>
 										{suggestion}
 									</Button>
@@ -327,7 +328,7 @@ export function ChatPane({ className }: { className?: string }) {
 										dir="auto"
 										className="text-[13px] text-muted-foreground leading-[1.5]"
 									>
-										{error.message || t("workspace.chat.errors.stream")}
+										{t("workspace.chat.errors.stream")}
 									</p>
 								</div>
 							) : null}

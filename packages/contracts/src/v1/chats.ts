@@ -52,6 +52,10 @@ export const composerQualitySchema = z.enum(composerQualities);
 // TypeScript type for quality.
 export type ComposerQuality = z.infer<typeof composerQualitySchema>;
 
+// Stable idempotency token carried only by Video composer submissions.
+// It lives inside `options` so old clients and non-video modes stay compatible.
+export const videoSubmissionIdSchema = uuidSchema;
+
 // Extra settings attached to a prompt.
 export const composerMetadataSchema = z.object({
 	mode: composerModeSchema,

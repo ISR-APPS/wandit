@@ -52,14 +52,28 @@ const IMAGE_MEDIA_TYPES = [
 ];
 const DOCUMENT_MEDIA_TYPES = ["application/pdf", "text/plain"];
 
-function acceptedMediaTypes(accept: readonly ("image" | "document")[]) {
+function acceptedMediaTypes(
+	accept: readonly ("image" | "document")[],
+	mediaTypes?: readonly string[],
+) {
+	if (mediaTypes && mediaTypes.length > 0) {
+		return new Set(mediaTypes);
+	}
+
 	return new Set([
 		...(accept.includes("image") ? IMAGE_MEDIA_TYPES : []),
 		...(accept.includes("document") ? DOCUMENT_MEDIA_TYPES : []),
 	]);
 }
 
-function acceptAttrFor(accept: readonly ("image" | "document")[]) {
+function acceptAttrFor(
+	accept: readonly ("image" | "document")[],
+	mediaTypes?: readonly string[],
+) {
+	if (mediaTypes && mediaTypes.length > 0) {
+		return mediaTypes.join(",");
+	}
+
 	const parts = [
 		...(accept.includes("image") ? ["image/*"] : []),
 		...(accept.includes("document") ? DOCUMENT_MEDIA_TYPES : []),
@@ -279,7 +293,10 @@ export function useRequestTray({
 						kind: "media-drop",
 						title: t("workspace.chat.tray.dropHint"),
 						browseLabel: t("workspace.chat.tray.browse"),
-						accept: acceptAttrFor(active.input?.accept ?? ["image"]),
+						accept: acceptAttrFor(
+							active.input?.accept ?? ["image"],
+							active.input?.mediaTypes,
+						),
 						items: attachItems.map(toMediaItem),
 					}
 				: kind === "multi-select"
@@ -392,7 +409,10 @@ export function useRequestTray({
 			const input = active.input;
 			if (input?.kind !== "attachments") return;
 			const maxFiles = input.maxFiles ?? 3;
-			const allowed = acceptedMediaTypes(input.accept ?? ["image"]);
+			const allowed = acceptedMediaTypes(
+				input.accept ?? ["image"],
+				input.mediaTypes,
+			);
 			const existing =
 				attachDraftsRef.current &&
 				attachDraftsRef.current.toolCallId === toolCallId

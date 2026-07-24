@@ -74,6 +74,10 @@ export function useAiChat(projectId: string) {
 			),
 		[messagesQuery.data?.messages],
 	);
+	// AI SDK's sendMessage Promise resolves even when the transport fails; the
+	// authoritative outcome arrives through onFinish. PromptBox uses this
+	// result to clear only drafts that were actually accepted and completed.
+	const lastSendSucceededRef = useRef(false);
 
 	const transport = useMemo(
 		() =>
@@ -122,7 +126,10 @@ export function useAiChat(projectId: string) {
 		sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
 		// Unconditional turn-end refetch — harmless after aborted/failed turns
 		// and covers partial turns that already applied a section.
-		onFinish: () => invalidatePageDataRef.current(),
+		onFinish: ({ isAbort, isError }) => {
+			lastSendSucceededRef.current = !isAbort && !isError;
+			invalidatePageDataRef.current();
+		},
 	});
 
 	const seededChatId = useRef<string | null>(null);
@@ -202,7 +209,7 @@ export function useAiChat(projectId: string) {
 	}, [messages, status, invalidatePageData]);
 
 	const sendText = useCallback(
-		(
+		async (
 			text: string,
 			options?: {
 				/** Uploaded R2 assets sent as AI SDK v7 file parts (contract §10.4). */
@@ -221,15 +228,23 @@ export function useAiChat(projectId: string) {
 				composer: options?.composer,
 				selectedWid: options?.selectedWid,
 			};
-			void sendMessage({
-				text: trimmed,
-				files: options?.files?.map((file) => ({
-					type: "file" as const,
-					mediaType: file.mediaType,
-					filename: file.filename,
-					url: file.url,
-				})),
-			});
+			lastSendSucceededRef.current = false;
+			try {
+				await sendMessage({
+					text: trimmed,
+					files: options?.files?.map((file) => ({
+						type: "file" as const,
+						mediaType: file.mediaType,
+						filename: file.filename,
+						url: file.url,
+					})),
+				});
+				return lastSendSucceededRef.current;
+			} catch {
+				// Synchronous message construction errors can reject even though
+				// transport errors normally resolve through onFinish.
+				return false;
+			}
 		},
 		[chatId, messagesQuery.data, sendMessage],
 	);

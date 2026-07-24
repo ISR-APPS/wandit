@@ -1,7 +1,10 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import {
+	type AnimateImageInput,
+	type AnimateImageOutput,
 	type AskUserInput,
 	type AskUserOutput,
+	animateImageInputSchema,
 	askUserInputSchema,
 	type GeneratePageInput,
 	type GeneratePageOutput,
@@ -10,6 +13,7 @@ import {
 	type GetPageOutlineOutput,
 	generatePageInputSchema,
 	getDirectionCandidatesInputSchema,
+	IMAGE_TO_VIDEO_SOURCE_MEDIA_TYPES,
 	type ReadSectionOutput,
 	type ReadSkillInput,
 	type ReplaceSectionInput,
@@ -32,13 +36,20 @@ import {
 } from "ai";
 import type { FastifyReply } from "fastify";
 
+import { isUserUploadUrl } from "../../../../infrastructure/storage/r2";
+import { GenerationPolicyService } from "../../../generation/application/services/generation-policy.service";
 import { ChatsRepository } from "../../../generation/infrastructure/persistence/chats.repository";
 // Value imports (not `import type`): Nest needs the classes at runtime for @Inject.
 import { LeadScrapesRepository } from "../../../lead-scrapes/infrastructure/persistence/lead-scrapes.repository";
+import { MediaGenerationsRepository } from "../../../media-generations/infrastructure/persistence/media-generations.repository";
 import { PageEditsService } from "../../../pages/application/services/page-edits.service";
 import { PagesRepository } from "../../../pages/infrastructure/persistence/pages.repository";
 import { createChatAgent, type WanditUIMessage } from "../../agent/chat-agent";
-import { buildChatRequestContext } from "../../agent/request-context";
+import {
+	buildChatRequestContext,
+	resolveVideoRequestKeySeed,
+} from "../../agent/request-context";
+import type { AvailableImage } from "../../agent/tools/animate-image.tool";
 import type { AiChatRequestMetadata } from "../../presentation/http/controllers/ai-chat.controller";
 
 @Injectable()
@@ -54,6 +65,10 @@ export class AiChatService {
 		private readonly pageEditsService: PageEditsService,
 		@Inject(LeadScrapesRepository)
 		private readonly leadScrapesRepository: LeadScrapesRepository,
+		@Inject(GenerationPolicyService)
+		private readonly generationPolicyService: GenerationPolicyService,
+		@Inject(MediaGenerationsRepository)
+		private readonly mediaGenerationsRepository: MediaGenerationsRepository,
 	) {}
 
 	async stream(options: {
@@ -65,6 +80,7 @@ export class AiChatService {
 		projectId: string;
 		reply: FastifyReply;
 		requestCountryCode?: string | null;
+		userId: string;
 	}): Promise<void> {
 		const {
 			abortSignal,
@@ -75,27 +91,49 @@ export class AiChatService {
 			projectId,
 			reply,
 			requestCountryCode,
+			userId,
 		} = options;
 		// Per-request context: prompt-box settings, preview selection, and the
 		// wids the user manually edited since the last AI change (so the model
 		// never clobbers intentional edits).
 		const manualEdits =
 			await this.pagesRepository.collectManualEditTrail(projectId);
+		const availableImages = collectAvailableImages(messages);
+		const selectedSourceImage = resolveSelectedSourceImage(
+			metadata,
+			availableImages,
+			userId,
+		);
+		// A transport retry appends a new user message id, but the retained Video
+		// draft carries the same browser UUID. Prefer that validated token so the
+		// original DB attempt and Trigger.dev idempotency key are reused.
+		const requestKeySeed = resolveVideoRequestKeySeed(
+			metadata,
+			findFinalUserMessage(messages)?.id,
+		);
 		const context = buildChatRequestContext({
 			manualEdits,
 			metadata,
 			requestCountryCode,
+			selectedSourceImage,
 		});
 		// Per-request agent: generate_page, scrape_leads, and the page-edit
 		// tools need to know which project/chat they act for (see chat-agent.ts).
 		const agent = createChatAgent(
 			{
+				availableImages,
 				chatId,
+				generationPolicyService: this.generationPolicyService,
 				leadScrapesRepository: this.leadScrapesRepository,
+				mediaGenerationsRepository: this.mediaGenerationsRepository,
 				pageEditsService: this.pageEditsService,
 				pagesRepository: this.pagesRepository,
 				projectId,
+				requireSelectedSource: metadata?.composer?.mode === "video",
+				requestKeySeed,
 				requestCountryCode: requestCountryCode ?? null,
+				selectedSourceImage,
+				userId,
 			},
 			context,
 		);
@@ -236,6 +274,22 @@ const INTERRUPTED_SCRAPE_LEADS_OUTPUT: ScrapeLeadsOutput = {
 // query is unrecoverable.
 const INCOMPLETE_SCRAPE_LEADS_INPUT: ScrapeLeadsInput = {
 	query: "unknown",
+};
+
+const INTERRUPTED_ANIMATE_IMAGE_OUTPUT: AnimateImageOutput = {
+	message:
+		"The image animation request was interrupted before it could be queued. " +
+		"If the user still wants it, call animate_image again with their attachment.",
+	status: "unavailable",
+};
+
+const INCOMPLETE_ANIMATE_IMAGE_INPUT: AnimateImageInput = {
+	aspect: "16:9",
+	motion: "balanced",
+	prompt:
+		"The motion direction was lost when the request stream was interrupted.",
+	sourceImageUrl: "https://invalid.local/interrupted-image.jpg",
+	sourceMediaType: "image/jpeg",
 };
 
 const INTERRUPTED_READ_SKILL_MARKDOWN =
@@ -396,6 +450,28 @@ function completeDanglingToolCalls(
 						? parsedInput.data
 						: INCOMPLETE_SCRAPE_LEADS_INPUT,
 					output: INTERRUPTED_SCRAPE_LEADS_OUTPUT,
+					state: "output-available" as const,
+				};
+			}
+
+			if (part.type === "tool-animate_image") {
+				if (
+					part.state !== "input-available" &&
+					part.state !== "input-streaming"
+				) {
+					return part;
+				}
+
+				changed = true;
+
+				const parsedInput = animateImageInputSchema.safeParse(part.input);
+
+				return {
+					...part,
+					input: parsedInput.success
+						? parsedInput.data
+						: INCOMPLETE_ANIMATE_IMAGE_INPUT,
+					output: INTERRUPTED_ANIMATE_IMAGE_OUTPUT,
 					state: "output-available" as const,
 				};
 			}
@@ -568,4 +644,83 @@ function findFinalUserMessage(
 	}
 
 	return undefined;
+}
+
+const IMAGE_TO_VIDEO_MEDIA_TYPE_SET = new Set<string>(
+	IMAGE_TO_VIDEO_SOURCE_MEDIA_TYPES,
+);
+
+/**
+ * The tool's source allowlist is derived from validated transcript parts,
+ * not from model input. Include ask_user attachment answers because those
+ * live on an assistant tool part rather than a user file part.
+ */
+function collectAvailableImages(
+	messages: readonly WanditUIMessage[],
+): AvailableImage[] {
+	const images = new Map<string, AvailableImage>();
+
+	const add = (url: string, mediaType: string) => {
+		if (!IMAGE_TO_VIDEO_MEDIA_TYPE_SET.has(mediaType)) {
+			return;
+		}
+
+		images.set(url, {
+			mediaType:
+				mediaType as (typeof IMAGE_TO_VIDEO_SOURCE_MEDIA_TYPES)[number],
+			url,
+		});
+	};
+
+	for (const message of messages) {
+		for (const part of message.parts) {
+			if (message.role === "user" && part.type === "file") {
+				add(part.url, part.mediaType);
+				continue;
+			}
+
+			if (part.type === "tool-ask_user" && part.state === "output-available") {
+				for (const file of part.output.files ?? []) {
+					add(file.url, file.mediaType);
+				}
+			}
+		}
+	}
+
+	return [...images.values()];
+}
+
+/**
+ * The dashboard's dedicated source picker records its exact uploaded URL in
+ * server-validated composer metadata. Resolve that marker only against an
+ * eligible transcript file owned by this user, then close the tool over it so
+ * another context attachment cannot be substituted by the model.
+ */
+function resolveSelectedSourceImage(
+	metadata: AiChatRequestMetadata | undefined,
+	availableImages: readonly AvailableImage[],
+	userId: string,
+): AvailableImage | undefined {
+	if (metadata?.composer?.mode !== "video") {
+		return undefined;
+	}
+
+	const sourceImageUrl = metadata.composer.options?.sourceImageUrl;
+	const sourceMediaType = metadata.composer.options?.sourceMediaType;
+
+	if (
+		typeof sourceImageUrl !== "string" ||
+		typeof sourceMediaType !== "string"
+	) {
+		return undefined;
+	}
+
+	const selected = availableImages.find(
+		(image) =>
+			image.url === sourceImageUrl && image.mediaType === sourceMediaType,
+	);
+
+	return selected && isUserUploadUrl(selected.url, userId)
+		? selected
+		: undefined;
 }

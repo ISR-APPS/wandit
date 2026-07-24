@@ -69,6 +69,11 @@ export const CREDIT_COSTS = {
 
 export const SIGNUP_GRANT_CREDITS = 100;
 
+/** Shared ledger key for an image-to-video credit reservation/refund pair. */
+export function mediaGenerationReservationKey(attemptId: string): string {
+	return `media-generation:${attemptId}`;
+}
+
 export const creditsRoutes = {
 	balance: "/api/v1/credits/balance",
 	ledger: "/api/v1/credits/ledger",

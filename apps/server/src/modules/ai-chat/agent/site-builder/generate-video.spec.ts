@@ -136,6 +136,42 @@ describe("generateBuildVideo", () => {
 		});
 	});
 
+	it("uses the standalone preservation prompt and requested motion strength", async () => {
+		mockGeneratedVideo();
+
+		await generateBuildVideo({
+			...PARAMS,
+			motion: "dynamic",
+			profile: "image-animation",
+		});
+
+		expect(generateVideo).toHaveBeenCalledWith(
+			expect.objectContaining({
+				prompt: {
+					image: PARAMS.imageUrl,
+					text: expect.stringMatching(
+						/continuous five-second[\s\S]*Preserve the exact subject[\s\S]*energetic but physically believable[\s\S]*Motion direction:/,
+					),
+				},
+			}),
+		);
+	});
+
+	it("does not send Kling-only options to another video provider", async () => {
+		mockEnv.AI_VIDEO_MODEL = "google/veo-test";
+		mockGeneratedVideo();
+
+		await generateBuildVideo({
+			...PARAMS,
+			profile: "image-animation",
+		});
+
+		expect(gateway.video).toHaveBeenCalledWith("google/veo-test");
+		expect(generateVideo).toHaveBeenCalledWith(
+			expect.objectContaining({ providerOptions: undefined }),
+		);
+	});
+
 	it("derives the object extension from the returned media type", async () => {
 		mockGeneratedVideo("video/webm");
 
