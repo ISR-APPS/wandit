@@ -17,6 +17,7 @@ import { GenerationModule } from "./modules/generation/generation.module";
 import { HealthModule } from "./modules/health/health.module";
 import { LeadScrapesModule } from "./modules/lead-scrapes/lead-scrapes.module";
 import { LeadsModule } from "./modules/leads/leads.module";
+import { OrdersModule } from "./modules/orders/orders.module";
 import { PagesModule } from "./modules/pages/pages.module";
 import { ProjectsModule } from "./modules/projects/projects.module";
 import { SitesModule } from "./modules/sites/sites.module";
@@ -42,6 +43,7 @@ import { UploadsModule } from "./modules/uploads/uploads.module";
 		LeadScrapesModule,
 		CreditsModule,
 		BillingModule,
+		OrdersModule,
 		DomainsModule,
 		StorageModule,
 		GenerationModule,

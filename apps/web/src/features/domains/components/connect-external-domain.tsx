@@ -8,16 +8,13 @@ import { toast } from "sonner";
 
 import { getApiErrorMessage } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n";
-import type { Domain, RequiredDomainRecord } from "../api/domains.dto";
+import type { RequiredDomainRecord } from "../api/domains.dto";
 import {
 	useAttachExternalDomain,
 	useVerifyDomain,
 } from "../api/domains.mutations";
 import { useDomainsQuery } from "../api/domains.queries";
-import {
-	externalDomainLiveUrl,
-	normalizeDomainInput,
-} from "../lib/helpers";
+import { externalDomainLiveUrl, normalizeDomainInput } from "../lib/helpers";
 import { useCopyToClipboard } from "../lib/hooks";
 import { externalDomainFormSchema } from "../lib/schemas";
 import type { ExternalDomainStep } from "../lib/store";
@@ -28,7 +25,9 @@ type ConnectExternalDomainProps = {
 	projectId: string;
 };
 
-export function ConnectExternalDomain({ projectId }: ConnectExternalDomainProps) {
+export function ConnectExternalDomain({
+	projectId,
+}: ConnectExternalDomainProps) {
 	const { t } = useTranslation();
 	const attach = useAttachExternalDomain(projectId);
 	const verify = useVerifyDomain(projectId);
@@ -47,7 +46,9 @@ export function ConnectExternalDomain({ projectId }: ConnectExternalDomainProps)
 		() => (domains.data ?? []).find((domain) => domain.id === domainId) ?? null,
 		[domainId, domains.data],
 	);
-	const liveUrl = currentDomain ? externalDomainLiveUrl(currentDomain.name) : "";
+	const liveUrl = currentDomain
+		? externalDomainLiveUrl(currentDomain.name)
+		: "";
 
 	useEffect(() => {
 		if (currentDomain?.status === "active") {
@@ -187,7 +188,7 @@ export function ConnectExternalDomain({ projectId }: ConnectExternalDomainProps)
 
 			{step === "success" && currentDomain ? (
 				<div className="flex flex-col gap-3 rounded-lg border border-success/40 bg-success/5 px-4 py-3">
-					<div className="flex items-center gap-2 text-success text-sm">
+					<div className="flex items-center gap-2 text-sm text-success">
 						<Check className="size-4" />
 						{t("settings.domains.externalSuccess")}
 					</div>

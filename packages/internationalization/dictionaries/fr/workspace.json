@@ -125,41 +125,6 @@
 				"legalNotice": "Les achats de domaines sont définitifs. Le transfert est possible après le verrouillage ICANN de 60 jours.",
 				"continueToStripe": "Continuer vers Stripe · {amount}",
 				"stripeCaption": "Paiement sécurisé pris en charge par Stripe"
-			},
-			"stripe": {
-				"title": "Finaliser le paiement",
-				"description": "Terminez le paiement sur Stripe, puis revenez ici.",
-				"waitingTitle": "Terminez le paiement sur Stripe",
-				"waitingDescription": "Stripe s’est ouvert dans un nouvel onglet. Revenez ici une fois le paiement terminé.",
-				"returnedTitle": "Bon retour",
-				"returnedDescription": "Dès que Stripe confirme le paiement de {domain}, continuez pour le connecter.",
-				"domainPending": "{domain} · confirmation du paiement en attente",
-				"prototypeNotice": "Mode prototype : aucun statut de paiement n’est vérifié. Continuez pour prévisualiser l’état connecté.",
-				"openAgain": "Rouvrir Stripe",
-				"completePrototype": "J’ai terminé le paiement"
-			},
-			"connecting": {
-				"title": "Configuration du domaine",
-				"description": "Nous l’enregistrons et le connectons à votre page.",
-				"connectingDomain": "Connexion de {domain}",
-				"estimate": "Cette étape prend généralement quelques minutes.",
-				"paymentConfirmed": "Paiement confirmé",
-				"domainRegistered": "Domaine enregistré — vous en êtes propriétaire",
-				"dnsConfigured": "DNS configuré",
-				"sslActivated": "Certificat SSL activé"
-			},
-			"connected": {
-				"title": "Domaine connecté",
-				"description": "Votre nouveau domaine est en ligne.",
-				"successTitle": "Votre domaine est en ligne",
-				"successDescription": "Votre page est maintenant accessible sur {domain}.",
-				"primaryTitle": "Définir comme domaine principal",
-				"primaryDescription": "Utilisé comme lien principal partout.",
-				"qrTitle": "Nouveau code QR prêt",
-				"qrDescription": "Il ouvre votre domaine personnalisé — partagez-le en story ou imprimez-le sur vos emballages.",
-				"subdomainContinues": "Votre sous-domaine gratuit {url} reste également en ligne.",
-				"done": "Terminé",
-				"openDomain": "Ouvrir le domaine"
 			}
 		},
 		"panel": {

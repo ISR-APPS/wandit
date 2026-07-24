@@ -1,6 +1,7 @@
 import {
 	attachExternalDomainBodySchema,
 	catalogFor,
+	DOMAIN_REGISTRATION_USD_CENTS,
 	DOMAIN_TLD_CATALOG,
 	domainNameSchema,
 	domainSchema,
@@ -13,6 +14,7 @@ import {
 	purchaseDomainBodySchema,
 	registrantSchema,
 	registrationPriceFor,
+	registrationUsdCentsFor,
 	renewalPriceFor,
 } from "@wandit/contracts";
 import { describe, expect, it } from "vitest";
@@ -139,12 +141,24 @@ describe("domain TLD catalog", () => {
 		}
 	});
 
+	it("defines a positive integer USD-cents registration price for every supported TLD", () => {
+		for (const tld of domainTlds) {
+			const priceCents = DOMAIN_REGISTRATION_USD_CENTS[tld];
+
+			expect(Number.isInteger(priceCents)).toBe(true);
+			expect(priceCents).toBeGreaterThan(0);
+			expect(registrationUsdCentsFor(`example.${tld}`)).toBe(priceCents);
+		}
+	});
+
 	it("identifies unsupported TLDs and invalid names", () => {
 		expect(isSupportedTld("com")).toBe(true);
 		expect(isSupportedTld(".shop")).toBe(true);
 		expect(isSupportedTld("dz")).toBe(false);
 		expect(catalogFor("dz")).toBeNull();
 		expect(registrationPriceFor("example.dz")).toBeNull();
+		expect(registrationUsdCentsFor("example.dz")).toBeNull();
+		expect(registrationUsdCentsFor("not-a-domain")).toBeNull();
 		expect(renewalPriceFor("dz")).toBeNull();
 	});
 });

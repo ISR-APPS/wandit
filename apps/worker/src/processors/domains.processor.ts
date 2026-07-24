@@ -1,5 +1,5 @@
-import { Inject, Logger, type OnModuleInit } from "@nestjs/common";
 import { InjectQueue, Processor, WorkerHost } from "@nestjs/bullmq";
+import { Inject, Logger, type OnModuleInit } from "@nestjs/common";
 import {
 	type DomainDns,
 	type DomainPriceSnapshot,
@@ -19,9 +19,7 @@ import {
 import type { Job, Queue } from "bullmq";
 
 import { InsufficientCreditsError } from "../../../server/src/modules/credits/domain/errors/insufficient-credits.error";
-import {
-	apexRedirectTarget,
-} from "../../../server/src/modules/domains/domain/domain-hosts";
+import { apexRedirectTarget } from "../../../server/src/modules/domains/domain/domain-hosts";
 import { DomainHttpError } from "../../../server/src/modules/domains/domain/errors/domain.errors";
 import {
 	CREDITS_PORT,
@@ -38,6 +36,8 @@ import {
 	type DomainRow,
 	DomainsRepository,
 } from "../../../server/src/modules/domains/infrastructure/persistence/domains.repository";
+import { OrderRefundQueueService } from "../../../server/src/modules/orders/application/services/order-refund-queue.service";
+import { PaymentOrdersRepository } from "../../../server/src/modules/orders/infrastructure/persistence/payment-orders.repository";
 
 type DomainJobData =
 	| DomainConfigureJobData
@@ -60,6 +60,17 @@ class TerminalDomainJobError extends Error {
 	}
 }
 
+class OrderFulfillmentStoppedError extends Error {
+	constructor(readonly reason: "financial_race" | "order_not_fulfillable") {
+		super(
+			reason === "financial_race"
+				? "Payment order changed after registrar registration"
+				: "Payment order is no longer eligible for registrar registration",
+		);
+		this.name = "OrderFulfillmentStoppedError";
+	}
+}
+
 @Processor(DOMAINS_QUEUE)
 export class DomainsProcessor extends WorkerHost implements OnModuleInit {
 	private readonly logger = new Logger(DomainsProcessor.name);
@@ -71,6 +82,10 @@ export class DomainsProcessor extends WorkerHost implements OnModuleInit {
 		private readonly domainProvider: DomainProvider,
 		@Inject(CREDITS_PORT)
 		private readonly creditsPort: CreditsPort,
+		@Inject(PaymentOrdersRepository)
+		private readonly paymentOrdersRepository: PaymentOrdersRepository,
+		@Inject(OrderRefundQueueService)
+		private readonly orderRefundQueueService: OrderRefundQueueService,
 		@Inject(CustomHostnameService)
 		private readonly customHostnameService: CustomHostnameService,
 		@Inject(DomainRoutingService)
@@ -133,43 +148,125 @@ export class DomainsProcessor extends WorkerHost implements OnModuleInit {
 		const data = job.data;
 		const row = await this.domainsRepository.getById(data.domainId);
 
-		if (!row || row.status !== "registering") {
+		if (!row) {
 			return { processed: false, reason: "not_registering" };
 		}
 
+		const orderId = this.orderIdForPurchase(data, row);
 		const priceSnapshot = this.expectPriceSnapshot(row);
+		const configureNonce = this.configureNonce(
+			row,
+			job.id ?? `purchase-${row.id}`,
+		);
+
+		if (row.status === "active") {
+			await this.markOrderFulfilled(row);
+
+			return { processed: false, reason: "already_active" };
+		}
+
+		if (row.status === "failed") {
+			if (orderId) {
+				await this.enqueueFailedOrderRefund(
+					orderId,
+					row.error ?? "Domain registration failed",
+				);
+				await this.bestEffortDeleteCustomHostname(row);
+				await this.bestEffortDeleteDomainPointer(row);
+			}
+
+			return { processed: false, reason: "terminal_failure" };
+		}
+
+		if (row.status === "configuring") {
+			try {
+				await this.enqueueConfigure(row.id, 0, undefined, configureNonce);
+			} catch (error) {
+				if (!this.shouldTerminalPurchaseFailure(error, job)) {
+					throw error;
+				}
+
+				await this.terminalPurchaseFailure(row, priceSnapshot, error, orderId);
+
+				return { processed: false, reason: "terminal_failure" };
+			}
+
+			return { processed: false, reason: "configure_requeued" };
+		}
+
+		if (row.status !== "registering") {
+			return { processed: false, reason: "not_registering" };
+		}
+
+		if (orderId) {
+			const orderState = await this.prepareOrderFulfillment(orderId);
+
+			if (orderState === "repair_refund") {
+				await this.terminalPurchaseFailure(
+					row,
+					priceSnapshot,
+					new Error("Domain registration failed"),
+					orderId,
+				);
+
+				return { processed: false, reason: "terminal_failure" };
+			}
+
+			if (orderState === "repair_domain") {
+				await this.bestEffortDeleteCustomHostname(row);
+				await this.domainsRepository.updateIfStatusOrNull(
+					row.id,
+					["registering", "configuring"],
+					{
+						error: "Domain registration failed",
+						isPrimary: false,
+						status: "failed",
+					},
+				);
+
+				return { processed: false, reason: "terminal_failure" };
+			}
+
+			if (orderState === "stop") {
+				return { processed: false, reason: "order_not_fulfillable" };
+			}
+		}
 
 		try {
 			await this.assertRegistrationAllowed(row, priceSnapshot);
-			const registered = await this.ensureRegistered(row);
+			const registered = await this.ensureRegistered(row, orderId);
 			const dnsConfigured = await this.ensurePurchasedDns(registered);
-			const hostnameConfigured =
-				await this.ensureCustomHostname(dnsConfigured);
-			await this.domainsRepository.updateIfStatus(
-				row.id,
-				["registering"],
-				{
-					error: null,
-					status: "configuring",
-				},
-			);
-			await this.enqueueConfigure(
-				row.id,
-				0,
-				undefined,
-				this.configureNonce(row, job.id),
-			);
+			const hostnameConfigured = await this.ensureCustomHostname(dnsConfigured);
+			await this.updatePostRegistrationState(hostnameConfigured, {
+				error: null,
+				status: "configuring",
+			});
+			await this.enqueueConfigure(row.id, 0, undefined, configureNonce);
 
 			return {
 				processed: true,
 				status: hostnameConfigured.status,
 			};
 		} catch (error) {
+			if (error instanceof OrderFulfillmentStoppedError) {
+				const current = await this.domainsRepository.getById(row.id);
+
+				if (current?.status === "failed") {
+					await this.bestEffortDeleteCustomHostname(current);
+					await this.bestEffortDeleteDomainPointer(current);
+				}
+
+				return {
+					processed: false,
+					reason: error.reason,
+				};
+			}
+
 			if (!this.shouldTerminalPurchaseFailure(error, job)) {
 				throw error;
 			}
 
-			await this.terminalPurchaseFailure(row, priceSnapshot, error);
+			await this.terminalPurchaseFailure(row, priceSnapshot, error, orderId);
 
 			return {
 				processed: false,
@@ -184,7 +281,26 @@ export class DomainsProcessor extends WorkerHost implements OnModuleInit {
 		const data = job.data;
 		const row = await this.domainsRepository.getById(data.domainId);
 
-		if (!row || row.status === "active" || row.status === "failed") {
+		if (!row) {
+			return { processed: false, reason: "not_configuring" };
+		}
+
+		if (row.status === "failed") {
+			if (row.paymentOrderId) {
+				await this.enqueueFailedOrderRefund(
+					row.paymentOrderId,
+					row.error ?? "Domain registration failed",
+				);
+				await this.bestEffortDeleteCustomHostname(row);
+				await this.bestEffortDeleteDomainPointer(row);
+			}
+
+			return { processed: false, reason: "not_configuring" };
+		}
+
+		if (row.status === "active") {
+			await this.markOrderFulfilled(row);
+
 			return { processed: false, reason: "not_configuring" };
 		}
 
@@ -211,11 +327,26 @@ export class DomainsProcessor extends WorkerHost implements OnModuleInit {
 				row.cfCustomHostnameId,
 			);
 		} catch (error) {
-			return this.handleConfigureTransient(row, attempt, nonce, error);
+			return this.handleConfigureTransient(row, attempt, nonce, error, job);
 		}
 
 		if (status.status === "active") {
 			if (!row.projectId) {
+				if (row.paymentOrderId) {
+					const active = await this.activateConfiguredDomain(row, {
+						error: null,
+						status: "active",
+					});
+
+					if (!active) {
+						return { processed: false, reason: "state_changed" };
+					}
+
+					await this.markOrderFulfilled(active);
+
+					return { processed: true, status: "active" };
+				}
+
 				await this.bestEffortDeleteCustomHostname(row);
 				await this.domainsRepository.markFailed(
 					row.id,
@@ -231,12 +362,18 @@ export class DomainsProcessor extends WorkerHost implements OnModuleInit {
 					source: "domain",
 				});
 			} catch (error) {
-				return this.handleConfigureTransient(row, attempt, nonce, error);
+				return this.handleConfigureTransient(row, attempt, nonce, error, job);
 			}
-			await this.domainsRepository.updateById(row.id, {
+			const active = await this.activateConfiguredDomain(row, {
 				error: null,
 				status: "active",
 			});
+
+			if (!active) {
+				return { processed: false, reason: "state_changed" };
+			}
+
+			await this.markOrderFulfilled(active);
 
 			return { processed: true, status: "active" };
 		}
@@ -255,12 +392,16 @@ export class DomainsProcessor extends WorkerHost implements OnModuleInit {
 			return { processed: false, reason: "external_still_pending" };
 		}
 
-		await this.enqueueConfigure(
-			row.id,
-			attempt + 1,
-			this.configureDelay(attempt),
-			nonce,
-		);
+		try {
+			await this.enqueueConfigure(
+				row.id,
+				attempt + 1,
+				this.configureDelay(attempt),
+				nonce,
+			);
+		} catch (error) {
+			return this.handleConfigureEnqueueFailure(row, job, error);
+		}
 
 		return { processed: false, reason: "pending" };
 	}
@@ -354,7 +495,10 @@ export class DomainsProcessor extends WorkerHost implements OnModuleInit {
 		}
 	}
 
-	private async ensureRegistered(row: DomainRow): Promise<DomainRow> {
+	private async ensureRegistered(
+		row: DomainRow,
+		orderId: string | null,
+	): Promise<DomainRow> {
 		if (row.providerDomainId) {
 			return row;
 		}
@@ -362,7 +506,7 @@ export class DomainsProcessor extends WorkerHost implements OnModuleInit {
 		const existing = await this.domainProvider.getDomainInfo(row.name);
 
 		if (existing) {
-			return this.domainsRepository.updateById(row.id, {
+			return this.updatePostRegistrationState(row, {
 				expiresAt: existing.expiresAt,
 				providerDomainId: existing.id,
 			});
@@ -374,6 +518,26 @@ export class DomainsProcessor extends WorkerHost implements OnModuleInit {
 			throw new TerminalDomainJobError("Registrant snapshot is invalid");
 		}
 
+		if (orderId) {
+			await this.paymentOrdersRepository.withOrderFulfillmentFence(
+				orderId,
+				async (order) => {
+					if (order.status !== "fulfilling") {
+						this.logger.warn(
+							`Skipping registrar purchase for payment order ${order.id} in ${order.status} state`,
+						);
+						throw new OrderFulfillmentStoppedError("order_not_fulfillable");
+					}
+				},
+			);
+		}
+
+		/*
+		 * The database fence must be released before calling the external
+		 * registrar. A refund can still land in that unavoidable narrow window;
+		 * every write after registration is therefore a status CAS, and a lost
+		 * CAS records a loud manual-review note on the financially reversed order.
+		 */
 		const registered = await this.domainProvider.register(
 			row.name,
 			registrant.data,
@@ -383,7 +547,7 @@ export class DomainsProcessor extends WorkerHost implements OnModuleInit {
 			},
 		);
 
-		return this.domainsRepository.updateById(row.id, {
+		return this.updatePostRegistrationState(row, {
 			expiresAt: registered.expiresAt,
 			providerDomainId: registered.providerDomainId,
 		});
@@ -409,18 +573,20 @@ export class DomainsProcessor extends WorkerHost implements OnModuleInit {
 			apexRedirectTarget(row.name),
 		);
 
-		return this.domainsRepository.setDns(row.id, {
-			...dns,
-			purchaseDnsConfigured: true,
-			records: [
-				...(dns.records ?? []),
-				{
-					name: "www",
-					purpose: "traffic",
-					type: "CNAME",
-					value: env.DOMAINS_FALLBACK_ORIGIN,
-				},
-			],
+		return this.updatePostRegistrationState(row, {
+			dns: {
+				...dns,
+				purchaseDnsConfigured: true,
+				records: [
+					...(dns.records ?? []),
+					{
+						name: "www",
+						purpose: "traffic",
+						type: "CNAME",
+						value: env.DOMAINS_FALLBACK_ORIGIN,
+					},
+				],
+			},
 		});
 	}
 
@@ -434,21 +600,89 @@ export class DomainsProcessor extends WorkerHost implements OnModuleInit {
 		);
 		const dns = this.purchaseDnsState(row);
 
-		return this.domainsRepository.updateById(row.id, {
-			cfCustomHostnameId: hostname.id,
-			dns: {
-				...dns,
-				records: [
-					...(dns.records ?? []),
-					...hostname.requiredRecords.map((record) => ({
-						name: record.name,
-						purpose: "ownership_or_ssl_validation",
-						type: record.type,
-						value: record.value,
-					})),
-				],
-			},
-		});
+		try {
+			return await this.updatePostRegistrationState(row, {
+				cfCustomHostnameId: hostname.id,
+				dns: {
+					...dns,
+					records: [
+						...(dns.records ?? []),
+						...hostname.requiredRecords.map((record) => ({
+							name: record.name,
+							purpose: "ownership_or_ssl_validation",
+							type: record.type,
+							value: record.value,
+						})),
+					],
+				},
+			});
+		} catch (error) {
+			try {
+				await this.customHostnameService.deleteCustomHostname(hostname.id);
+			} catch (cleanupError) {
+				this.logger.warn(
+					`Failed to delete unclaimed Cloudflare custom hostname ${hostname.id}`,
+					cleanupError instanceof Error
+						? cleanupError.message
+						: String(cleanupError),
+				);
+			}
+
+			throw error;
+		}
+	}
+
+	private async updatePostRegistrationState(
+		row: DomainRow,
+		patch: Partial<DomainRow>,
+	): Promise<DomainRow> {
+		const updated = await this.domainsRepository.updateIfStatusOrNull(
+			row.id,
+			["registering"],
+			patch,
+		);
+
+		if (updated) {
+			return updated;
+		}
+
+		const current = await this.domainsRepository.getById(row.id);
+		const orderId = row.paymentOrderId;
+
+		if (orderId) {
+			const order = await this.paymentOrdersRepository.findById(orderId);
+
+			if (order?.status === "failed" || order?.status === "refunded") {
+				const providerDomainId =
+					typeof patch.providerDomainId === "string"
+						? patch.providerDomainId
+						: (row.providerDomainId ?? current?.providerDomainId);
+				const note = `Manual review required: domain ${row.name} was purchased at the registrar${providerDomainId ? ` as ${providerDomainId}` : ""}, but payment order ${order.id} became ${order.status} before post-registration state could be committed.`;
+				const recorded =
+					await this.paymentOrdersRepository.recordFinancialRaceNote(
+						order.id,
+						note,
+					);
+
+				this.logger.error(
+					`MANUAL REVIEW REQUIRED: registrar purchase outlived financial reversal for payment order ${order.id}`,
+					JSON.stringify({
+						domainId: row.id,
+						domainName: row.name,
+						orderId: order.id,
+						orderStatus: order.status,
+						providerDomainId: providerDomainId ?? null,
+						recorded: recorded !== null,
+					}),
+				);
+
+				throw new OrderFulfillmentStoppedError("financial_race");
+			}
+		}
+
+		throw new Error(
+			`Domain ${row.id} changed from registering during post-registration persistence`,
+		);
 	}
 
 	private async renewCandidate(row: DomainRow): Promise<boolean> {
@@ -525,9 +759,96 @@ export class DomainsProcessor extends WorkerHost implements OnModuleInit {
 		row: DomainRow,
 		priceSnapshot: DomainPriceSnapshot,
 		error: unknown,
+		orderId: string | null = row.paymentOrderId,
 	): Promise<void> {
+		if (orderId) {
+			const failure = this.failureSummary(error);
+			const current =
+				await this.paymentOrdersRepository.withOrderFulfillmentFence(
+					orderId,
+					async (order, tx) => {
+						const lockedDomain =
+							await this.domainsRepository.findByPaymentOrderIdForUpdate(
+								orderId,
+								tx,
+							);
+
+						if (!lockedDomain || lockedDomain.id !== row.id) {
+							throw new Error(
+								`Payment order ${orderId} has no matching domain ${row.id}`,
+							);
+						}
+
+						if (
+							lockedDomain.status === "active" ||
+							order.status === "fulfilled"
+						) {
+							return lockedDomain;
+						}
+
+						const needsRefund =
+							order.status === "paid" ||
+							order.status === "fulfilling" ||
+							order.status === "failed";
+
+						if (needsRefund) {
+							/*
+							 * Redis persistence happens before either terminal DB
+							 * transition. The order/domain locks keep a fast worker
+							 * from observing an intermediate committed state.
+							 */
+							await this.orderRefundQueueService.enqueue(orderId, failure);
+						}
+
+						const failedDomain =
+							lockedDomain.status === "failed"
+								? lockedDomain
+								: await this.domainsRepository.updateIfStatusOrNull(
+										lockedDomain.id,
+										["registering", "configuring"],
+										{
+											error: failure,
+											isPrimary: false,
+											status: "failed",
+										},
+										tx,
+									);
+
+						if (
+							needsRefund &&
+							(order.status === "paid" || order.status === "fulfilling")
+						) {
+							await this.paymentOrdersRepository.markFailed(
+								orderId,
+								failure,
+								tx,
+							);
+						}
+
+						return failedDomain ?? lockedDomain;
+					},
+				);
+
+			if (!current || current.status === "active") {
+				if (current?.status === "active") {
+					await this.markOrderFulfilled(current);
+				}
+
+				return;
+			}
+
+			if (current.status !== "failed") {
+				return;
+			}
+
+			await this.bestEffortDeleteCustomHostname(current);
+			await this.bestEffortDeleteDomainPointer(current);
+
+			return;
+		}
 		await this.grantPurchaseRefund(row, priceSnapshot);
 		await this.bestEffortDeleteCustomHostname(row);
+		await this.bestEffortDeleteDomainPointer(row);
 		await this.domainsRepository.markFailed(row.id, this.failureSummary(error));
 	}
 
@@ -575,10 +896,15 @@ export class DomainsProcessor extends WorkerHost implements OnModuleInit {
 		attempt: number,
 		nonce: string,
 		error: unknown,
+		job: Job<DomainConfigureJobData, unknown, "domain-configure">,
 	) {
 		if (attempt >= CONFIGURE_MAX_ATTEMPTS) {
 			if (row.source === "purchased") {
-				await this.terminalPurchaseFailure(row, this.expectPriceSnapshot(row), error);
+				await this.terminalPurchaseFailure(
+					row,
+					this.expectPriceSnapshot(row),
+					error,
+				);
 
 				return { processed: false, reason: "timed_out" };
 			}
@@ -586,14 +912,38 @@ export class DomainsProcessor extends WorkerHost implements OnModuleInit {
 			return { processed: false, reason: "external_still_pending" };
 		}
 
-		await this.enqueueConfigure(
-			row.id,
-			attempt + 1,
-			this.configureDelay(attempt),
-			nonce,
-		);
+		try {
+			await this.enqueueConfigure(
+				row.id,
+				attempt + 1,
+				this.configureDelay(attempt),
+				nonce,
+			);
+		} catch (enqueueError) {
+			return this.handleConfigureEnqueueFailure(row, job, enqueueError);
+		}
 
 		return { processed: false, reason: "transient_retry" };
+	}
+
+	private async handleConfigureEnqueueFailure(
+		row: DomainRow,
+		job: Job<DomainConfigureJobData, unknown, "domain-configure">,
+		error: unknown,
+	) {
+		const attempts = job.opts.attempts ?? 1;
+
+		if (job.attemptsMade + 1 < attempts || row.source !== "purchased") {
+			throw error;
+		}
+
+		await this.terminalPurchaseFailure(
+			row,
+			this.expectPriceSnapshot(row),
+			error,
+		);
+
+		return { processed: false, reason: "terminal_failure" };
 	}
 
 	private shouldTerminalPurchaseFailure(
@@ -607,6 +957,130 @@ export class DomainsProcessor extends WorkerHost implements OnModuleInit {
 		const attempts = job.opts.attempts ?? 1;
 
 		return job.attemptsMade + 1 >= attempts;
+	}
+
+	private orderIdForPurchase(
+		data: DomainPurchaseJobData,
+		row: DomainRow,
+	): string | null {
+		const paymentSource = data.paymentSource ?? "credits";
+
+		if (paymentSource === "credits") {
+			return null;
+		}
+
+		if (row.paymentOrderId !== data.orderId) {
+			throw new Error(
+				`Domain ${row.id} does not belong to payment order ${data.orderId}`,
+			);
+		}
+
+		return data.orderId;
+	}
+
+	private async prepareOrderFulfillment(
+		orderId: string,
+	): Promise<"ready" | "repair_domain" | "repair_refund" | "stop"> {
+		const order = await this.paymentOrdersRepository.findById(orderId);
+
+		if (!order) {
+			throw new Error(`Payment order ${orderId} not found`);
+		}
+
+		if (order.status === "fulfilling") {
+			return "ready";
+		}
+
+		if (order.status === "failed") {
+			return "repair_refund";
+		}
+
+		if (order.status === "refunded") {
+			return "repair_domain";
+		}
+
+		if (order.status !== "paid") {
+			return "stop";
+		}
+
+		const transitioned =
+			await this.paymentOrdersRepository.markFulfilling(orderId);
+
+		if (transitioned) {
+			return "ready";
+		}
+
+		const current = await this.paymentOrdersRepository.findById(orderId);
+
+		return current?.status === "fulfilling" ? "ready" : "stop";
+	}
+
+	private async enqueueFailedOrderRefund(
+		orderId: string,
+		failureReason: string,
+	): Promise<void> {
+		const order = await this.paymentOrdersRepository.findById(orderId);
+
+		if (!order) {
+			throw new Error(`Payment order ${orderId} not found`);
+		}
+
+		if (
+			order.status === "paid" ||
+			order.status === "fulfilling" ||
+			order.status === "failed"
+		) {
+			await this.orderRefundQueueService.enqueue(orderId, failureReason);
+		}
+	}
+
+	private async markOrderFulfilled(row: DomainRow): Promise<void> {
+		if (!row.paymentOrderId) {
+			return;
+		}
+
+		await this.paymentOrdersRepository.markFulfilled(row.paymentOrderId);
+	}
+
+	private async activateConfiguredDomain(
+		row: DomainRow,
+		patch: Partial<DomainRow>,
+	): Promise<DomainRow | null> {
+		const active = await this.domainsRepository.updateIfStatusOrNull(
+			row.id,
+			["configuring"],
+			patch,
+		);
+
+		if (active) {
+			return active;
+		}
+
+		const current = await this.domainsRepository.getById(row.id);
+
+		if (current?.status === "active") {
+			return current;
+		}
+
+		if (current?.status === "failed") {
+			const hostnameDeleted =
+				await this.bestEffortDeleteCustomHostname(current);
+			await this.bestEffortDeleteDomainPointer(current);
+
+			if (hostnameDeleted) {
+				await this.domainsRepository.updateIfStatusOrNull(
+					current.id,
+					["failed"],
+					{ cfCustomHostnameId: null },
+				);
+			}
+
+			return null;
+		}
+
+		await this.bestEffortDeleteDomainPointer(row);
+
+		return null;
 	}
 
 	private failureSummary(error: unknown): string {
@@ -628,16 +1102,37 @@ export class DomainsProcessor extends WorkerHost implements OnModuleInit {
 		return "Domain registration failed";
 	}
 
-	private async bestEffortDeleteCustomHostname(row: DomainRow): Promise<void> {
+	private async bestEffortDeleteCustomHostname(
+		row: DomainRow,
+	): Promise<boolean> {
 		if (!row.cfCustomHostnameId) {
+			return false;
+		}
+
+		try {
+			await this.customHostnameService.deleteCustomHostname(
+				row.cfCustomHostnameId,
+			);
+			return true;
+		} catch (error) {
+			this.logger.warn(
+				`Failed to delete Cloudflare custom hostname for domain ${row.id}`,
+				error instanceof Error ? error.message : String(error),
+			);
+			return false;
+		}
+	}
+
+	private async bestEffortDeleteDomainPointer(row: DomainRow): Promise<void> {
+		if (!row.projectId) {
 			return;
 		}
 
 		try {
-			await this.customHostnameService.deleteCustomHostname(row.cfCustomHostnameId);
+			await this.domainRoutingService.deleteDomainPointer(row.name);
 		} catch (error) {
 			this.logger.warn(
-				`Failed to delete Cloudflare custom hostname for domain ${row.id}`,
+				`Failed to delete domain routing pointer for ${row.id}`,
 				error instanceof Error ? error.message : String(error),
 			);
 		}
@@ -679,7 +1174,7 @@ export class DomainsProcessor extends WorkerHost implements OnModuleInit {
 					type: "exponential",
 				},
 				...(delay ? { delay } : {}),
-				jobId: `domain-configure:${domainId}:${nonce}:${attempt}`,
+				jobId: `domain-configure-${domainId}-${nonce.replaceAll(":", "-")}-${attempt}`,
 				removeOnComplete: 1000,
 				removeOnFail: 5000,
 			},

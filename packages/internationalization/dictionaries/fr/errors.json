@@ -9,6 +9,7 @@
 		"NOT_FOUND": "Impossible de trouver ce que tu cherches.",
 		"FORBIDDEN": "Tu n’as pas l’autorisation de faire ça.",
 		"INSUFFICIENT_CREDITS": "Tu n'as pas assez de crédits pour cette action.",
+		"PAYMENT_PAST_DUE": "Le paiement de ton abonnement doit être corrigé dans le portail de facturation.",
 		"RATE_LIMITED": "Trop de requêtes. Attends un moment puis réessaie.",
 		"INTERNAL_ERROR": "Le serveur a rencontré un souci. Réessaie.",
 		"HTTP_400": "La requête n’a pas pu aboutir. Vérifie les détails puis réessaie.",

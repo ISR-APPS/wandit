@@ -1,3 +1,4 @@
+import { formatDate } from "@wandit/internationalization";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -9,7 +10,13 @@ import {
 	AlertDialogTitle,
 } from "@wandit/ui/components/alert-dialog";
 import { Button } from "@wandit/ui/components/button";
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@wandit/ui/components/empty";
+import {
+	Empty,
+	EmptyDescription,
+	EmptyHeader,
+	EmptyMedia,
+	EmptyTitle,
+} from "@wandit/ui/components/empty";
 import { Switch } from "@wandit/ui/components/switch";
 import {
 	Table,
@@ -20,12 +27,10 @@ import {
 	TableRow,
 } from "@wandit/ui/components/table";
 import { cn } from "@wandit/ui/lib/utils";
-import { formatDate } from "@wandit/internationalization";
 import {
 	Check,
 	CircleDashed,
 	Copy,
-	ExternalLink,
 	KeyRound,
 	Loader2,
 	RefreshCw,
@@ -88,7 +93,9 @@ export function DomainList({ projectId, domains }: DomainListProps) {
 					<TableHead>{t("settings.domains.autoRenewColumn")}</TableHead>
 					<TableHead>{t("settings.domains.expiryColumn")}</TableHead>
 					<TableHead>{t("settings.domains.renewalColumn")}</TableHead>
-					<TableHead className="text-end">{t("settings.domains.actionsColumn")}</TableHead>
+					<TableHead className="text-end">
+						{t("settings.domains.actionsColumn")}
+					</TableHead>
 				</TableRow>
 			</TableHeader>
 			<TableBody>
@@ -438,7 +445,9 @@ function DomainListRow({
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
-						<AlertDialogCancel>{t("settings.domains.cancel")}</AlertDialogCancel>
+						<AlertDialogCancel>
+							{t("settings.domains.cancel")}
+						</AlertDialogCancel>
 						<AlertDialogAction
 							variant="destructive"
 							onClick={(event) => {

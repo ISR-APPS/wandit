@@ -125,41 +125,6 @@
 				"legalNotice": "شراء النطاق نهائي. يمكنك نقله بعد انتهاء قفل ICANN لمدة 60 يومًا.",
 				"continueToStripe": "المتابعة إلى Stripe · {amount}",
 				"stripeCaption": "دفع آمن تتولاه Stripe"
-			},
-			"stripe": {
-				"title": "إتمام الدفع",
-				"description": "أكمل الدفع على Stripe، ثم عُد إلى هنا.",
-				"waitingTitle": "أكمل الدفع على Stripe",
-				"waitingDescription": "فُتح Stripe في علامة تبويب جديدة. عُد إلى هنا بعد إتمام الدفع.",
-				"returnedTitle": "مرحبًا بعودتك",
-				"returnedDescription": "بعد أن يؤكد Stripe دفع قيمة {domain}، تابع لربطه.",
-				"domainPending": "{domain} · في انتظار تأكيد الدفع",
-				"prototypeNotice": "هذه نسخة تجريبية: لا نتحقق من حالة الدفع. تابع لمعاينة النطاق بعد اتصاله.",
-				"openAgain": "فتح Stripe مجددًا",
-				"completePrototype": "أتممت الدفع"
-			},
-			"connecting": {
-				"title": "إعداد نطاقك",
-				"description": "نسجّل النطاق ونربطه بصفحتك.",
-				"connectingDomain": "جارٍ ربط {domain}",
-				"estimate": "يستغرق هذا عادةً بضع دقائق.",
-				"paymentConfirmed": "تم تأكيد الدفع",
-				"domainRegistered": "تم تسجيل النطاق — أنت مالكه",
-				"dnsConfigured": "تم إعداد DNS",
-				"sslActivated": "تم تفعيل شهادة SSL"
-			},
-			"connected": {
-				"title": "تم ربط النطاق",
-				"description": "نطاقك الجديد مباشر الآن.",
-				"successTitle": "نطاقك مباشر الآن",
-				"successDescription": "أصبحت صفحتك متاحة على {domain}.",
-				"primaryTitle": "تعيينه نطاقًا رئيسيًا",
-				"primaryDescription": "استخدامه كرابط رئيسي في كل مكان.",
-				"qrTitle": "رمز QR الجديد جاهز",
-				"qrDescription": "يفتح نطاقك المخصص — شاركه في القصص أو اطبعه على التغليف.",
-				"subdomainContinues": "يبقى نطاقك الفرعي المجاني {url} مباشرًا أيضًا.",
-				"done": "تم",
-				"openDomain": "فتح النطاق"
 			}
 		},
 		"panel": {

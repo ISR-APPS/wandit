@@ -72,6 +72,17 @@ export const DOMAIN_TLD_CATALOG = {
 	},
 } as const satisfies Record<DomainTld, DomainTldCatalogItem>;
 
+// Explicit one-time registration prices. These intentionally remain a
+// separate catalog instead of implying a universal credits-to-USD rate.
+export const DOMAIN_REGISTRATION_USD_CENTS = {
+	com: 3_000,
+	net: 3_500,
+	shop: 4_500,
+	store: 4_500,
+	online: 4_000,
+	site: 3_750,
+} as const satisfies Record<DomainTld, number>;
+
 const e164PhoneRegex = /^\+[1-9]\d{1,14}$/;
 const domainLabelRegex = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const reservedRegistrableDomains = ["wandit.app", "wandit.dev"] as const;
@@ -196,12 +207,7 @@ export function parseExternalDomainName(
 
 	const [sld, tld] = labels;
 
-	if (
-		!sld ||
-		!tld ||
-		!isValidDomainLabel(sld) ||
-		!isValidDomainLabel(tld)
-	) {
+	if (!sld || !tld || !isValidDomainLabel(sld) || !isValidDomainLabel(tld)) {
 		return null;
 	}
 
@@ -217,6 +223,14 @@ export function registrationPriceFor(name: string) {
 
 	return parsedDomainName
 		? DOMAIN_TLD_CATALOG[parsedDomainName.tld].registrationCredits
+		: null;
+}
+
+export function registrationUsdCentsFor(name: string) {
+	const parsedDomainName = parseDomainName(name);
+
+	return parsedDomainName
+		? DOMAIN_REGISTRATION_USD_CENTS[parsedDomainName.tld]
 		: null;
 }
 

@@ -61,6 +61,12 @@ export const DOMAINS_LOGGER = Symbol("DOMAINS_LOGGER");
 
 type DomainLogger = Pick<Logger, "error" | "log" | "warn">;
 
+export type PreparedDomainPurchase = {
+	name: string;
+	priceSnapshot: DomainPriceSnapshot;
+	tld: DomainTld;
+};
+
 type DomainJobData =
 	| { domainId: string }
 	| { attempt?: number; domainId: string; nonce?: string }
@@ -126,34 +132,25 @@ export class DomainsService {
 		projectId: string,
 		body: PurchaseDomainBody,
 	): Promise<PurchaseDomainResponse> {
-		const parsed = this.parseSafeDomainName(body.name);
-		const priceSnapshot = this.priceSnapshot(parsed.tld);
-
-		await this.domainsRepository.assertProjectOwned(userId, projectId);
-		this.assertDomainQueueAvailable();
-
-		const [availability] = await this.domainProvider.checkAvailability([
-			parsed.name,
-		]);
-		this.assertDomainAvailable(parsed.name, availability);
+		const prepared = await this.preparePurchase(userId, body.name, projectId);
 
 		// The domain row is created before consuming credits so the ledger
 		// idempotency key can be derived from the durable row id. If consume
 		// rejects, the row is deleted before the error is rethrown; queueing only
 		// happens after consume succeeds, preserving no-row/no-charge invariants.
 		const row = await this.domainsRepository.createPurchasedReplacingTerminal({
-			name: parsed.name,
-			priceSnapshot,
+			name: prepared.name,
+			priceSnapshot: prepared.priceSnapshot,
 			projectId,
 			registrant: body.registrant,
-			tld: parsed.tld,
+			tld: prepared.tld,
 			userId,
 		});
 
 		try {
 			await this.creditsPort.consume(
 				userId,
-				priceSnapshot.registrationCredits,
+				prepared.priceSnapshot.registrationCredits,
 				{
 					idempotencyKey: `domain-purchase:${row.id}`,
 					meta: {
@@ -171,10 +168,35 @@ export class DomainsService {
 		await this.enqueueDomainJob(
 			"domain-purchase",
 			{ domainId: row.id },
-			`domain-purchase:${row.id}`,
+			`domain-purchase-${row.id}`,
 		);
 
 		return { domain: mapDomain(row) };
+	}
+
+	async preparePurchase(
+		userId: string,
+		name: string,
+		projectId?: string,
+	): Promise<PreparedDomainPurchase> {
+		const parsed = this.parseSafeDomainName(name);
+		const priceSnapshot = this.priceSnapshot(parsed.tld);
+
+		if (projectId) {
+			await this.domainsRepository.assertProjectOwned(userId, projectId);
+		}
+		this.assertDomainQueueAvailable();
+
+		const [availability] = await this.domainProvider.checkAvailability([
+			parsed.name,
+		]);
+		this.assertDomainAvailable(parsed.name, availability);
+
+		return {
+			name: parsed.name,
+			priceSnapshot,
+			tld: parsed.tld,
+		};
 	}
 
 	async attachExternal(
@@ -214,7 +236,7 @@ export class DomainsService {
 			await this.enqueueDomainJob(
 				"domain-configure",
 				{ attempt: 0, domainId: row.id, nonce },
-				`domain-configure:${row.id}:${nonce}:0`,
+				`domain-configure-${row.id}-${nonce}-0`,
 			);
 
 			return {
@@ -232,6 +254,12 @@ export class DomainsService {
 
 	async verify(id: string, userId: string): Promise<VerifyDomainResponse> {
 		const row = await this.domainsRepository.getByIdForUser(id, userId);
+
+		if (row.status !== "configuring" && row.status !== "active") {
+			throw new InvalidDomainStateError(
+				"Only configuring domains can be verified",
+			);
+		}
 
 		if (!row.cfCustomHostnameId) {
 			throw new InvalidDomainStateError(
@@ -257,7 +285,7 @@ export class DomainsService {
 		await this.enqueueDomainJob(
 			"domain-configure",
 			{ attempt: 0, domainId: row.id },
-			`domain-configure:${row.id}:manual:${Date.now()}`,
+			`domain-configure-${row.id}-manual-${Date.now()}`,
 		);
 
 		return {
@@ -380,15 +408,62 @@ export class DomainsService {
 			);
 		}
 
+		if (row.status === "active") {
+			return row;
+		}
+
+		if (row.status !== "configuring") {
+			throw new InvalidDomainStateError(
+				"Only configuring domains can be activated",
+			);
+		}
+
 		await this.domainRoutingService.putDomainPointer(row.name, {
 			projectId: row.projectId,
 			source: "domain",
 		});
 
-		return this.domainsRepository.updateById(row.id, {
-			error: null,
-			status: "active",
-		});
+		const active = await this.domainsRepository.updateIfStatusOrNull(
+			row.id,
+			["configuring"],
+			{
+				error: null,
+				status: "active",
+			},
+		);
+
+		if (active) {
+			return active;
+		}
+
+		const current = await this.domainsRepository.getByIdForUser(
+			row.id,
+			row.userId,
+		);
+
+		if (current.status === "active") {
+			return current;
+		}
+
+		await this.bestEffortDeleteDomainPointer(row.name, row.id);
+
+		throw new InvalidDomainStateError(
+			"Domain state changed before activation completed",
+		);
+	}
+
+	private async bestEffortDeleteDomainPointer(
+		name: string,
+		domainId: string,
+	): Promise<void> {
+		try {
+			await this.domainRoutingService.deleteDomainPointer(name);
+		} catch (error) {
+			this.logger.warn(
+				`Failed to delete domain routing pointer for ${domainId}`,
+				error instanceof Error ? error.message : String(error),
+			);
+		}
 	}
 
 	private searchCandidates(q: string): Array<{ name: string; tld: DomainTld }> {

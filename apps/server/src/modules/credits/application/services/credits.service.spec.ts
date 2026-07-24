@@ -14,14 +14,13 @@ type SeedLedgerEntry = Pick<
 	"bucket" | "delta" | "kind" | "userId"
 > &
 	Partial<
-		Pick<
-			InsertCreditLedgerEntry,
-			"idempotencyKey" | "meta" | "organizationId"
-		>
+		Pick<InsertCreditLedgerEntry, "idempotencyKey" | "meta" | "organizationId">
 	>;
 
 class InMemoryCreditsRepository {
 	readonly rows: CreditLedgerRow[] = [];
+	readonly transactionInputs: Array<CreditsTransaction | undefined> = [];
+	readonly writeClients: unknown[] = [];
 	private lock: Promise<void> = Promise.resolve();
 	private nextId = 1;
 	private readonly tx = {} as CreditsTransaction;
@@ -29,7 +28,14 @@ class InMemoryCreditsRepository {
 	async withUserLock<T>(
 		_userId: string,
 		fn: (tx: CreditsTransaction) => Promise<T>,
+		transaction?: CreditsTransaction,
 	): Promise<T> {
+		this.transactionInputs.push(transaction);
+
+		if (transaction) {
+			return fn(transaction);
+		}
+
 		const previousLock = this.lock;
 		let releaseLock!: () => void;
 
@@ -68,8 +74,10 @@ class InMemoryCreditsRepository {
 
 	async insertLedgerEntry(
 		input: InsertCreditLedgerEntry,
-		_client?: unknown,
+		client?: unknown,
 	): Promise<CreditLedgerRow> {
+		this.writeClients.push(client);
+
 		if (input.idempotencyKey) {
 			const existing = this.rows.find(
 				(row) => row.idempotencyKey === input.idempotencyKey,
@@ -306,6 +314,81 @@ describe("CreditsService", () => {
 			idempotencyKey: "expire:amount_1",
 			kind: "expire",
 		});
+	});
+
+	it("revokes from top-up by default and replays the idempotency key without a new row", async () => {
+		const { repository, service } = setup();
+
+		const first = await service.revoke("user_1", 25, {
+			idempotencyKey: "refund:ch_1:250",
+			meta: {
+				chargeId: "ch_1",
+				reason: "charge_refunded",
+			},
+		});
+		const rowCount = repository.rows.length;
+		const replay = await service.revoke("user_1", 25, {
+			idempotencyKey: "refund:ch_1:250",
+			meta: {
+				chargeId: "ch_1",
+				reason: "charge_refunded",
+			},
+		});
+
+		expect(first).toMatchObject({
+			bucket: "topup",
+			delta: -25,
+			idempotencyKey: "refund:ch_1:250",
+			kind: "revoke",
+			meta: {
+				chargeId: "ch_1",
+				reason: "charge_refunded",
+			},
+		});
+		expect(replay).toEqual(first);
+		expect(repository.rows).toHaveLength(rowCount);
+	});
+
+	it("revokes from an explicitly selected original bucket", async () => {
+		const { repository, service } = setup();
+
+		const row = await service.revoke("user_1", 40, {
+			bucket: "plan",
+			idempotencyKey: "refund:ch_plan:400",
+			meta: {
+				chargeId: "ch_plan",
+				reason: "charge_refunded",
+			},
+		});
+
+		expect(row).toMatchObject({
+			bucket: "plan",
+			delta: -40,
+			idempotencyKey: "refund:ch_plan:400",
+			kind: "revoke",
+		});
+		expect(repository.rows).toHaveLength(1);
+	});
+
+	it("reuses an existing transaction for a charge-locked revocation", async () => {
+		const { repository, service } = setup();
+		const transaction = {
+			kind: "existing-charge-lock-transaction",
+		} as unknown as CreditsTransaction;
+
+		await service.revoke(
+			"user_1",
+			40,
+			{
+				bucket: "plan",
+				idempotencyKey: "dispute:dp_1",
+				meta: { chargeId: "ch_1" },
+			},
+			transaction,
+		);
+
+		expect(repository.transactionInputs).toEqual([transaction]);
+		expect(repository.writeClients).toEqual([transaction]);
 	});
 
 	it("grants signup credits with the expected amount and idempotency key", async () => {

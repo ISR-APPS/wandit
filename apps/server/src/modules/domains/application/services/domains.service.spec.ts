@@ -165,6 +165,20 @@ class FakeDomainsRepository {
 		return updated;
 	}
 
+	async updateIfStatusOrNull(
+		id: string,
+		statuses: DomainRow["status"][],
+		patch: Partial<DomainRow>,
+	) {
+		const row = this.rows.get(id);
+
+		if (!row || !statuses.includes(row.status)) {
+			return null;
+		}
+
+		return this.updateById(id, patch);
+	}
+
 	async recordRenewalNotice(id: string, message: string) {
 		return this.updateById(id, { error: message });
 	}
@@ -233,6 +247,7 @@ class FakeDomainsRepository {
 			id,
 			isPrimary: false,
 			name,
+			paymentOrderId: null,
 			priceSnapshot: null,
 			projectId,
 			provider: "openprovider",
@@ -441,7 +456,7 @@ describe("DomainsService", () => {
 					delay: 60_000,
 					type: "exponential",
 				},
-				jobId: `domain-purchase:${row?.id}`,
+				jobId: `domain-purchase-${row?.id}`,
 			},
 		);
 		expect("providerDomainId" in response.domain).toBe(false);
@@ -655,7 +670,7 @@ describe("DomainsService", () => {
 					delay: 60_000,
 					type: "exponential",
 				},
-				jobId: `domain-configure:${row.id}:${row.updatedAt.getTime()}:0`,
+				jobId: `domain-configure-${row.id}-${row.updatedAt.getTime()}-0`,
 			}),
 		);
 
@@ -706,6 +721,24 @@ describe("DomainsService", () => {
 		expect(repository.rows.size).toBe(0);
 		expect(queue.add).not.toHaveBeenCalled();
 		expect(cloudflare.deleteCustomHostname).not.toHaveBeenCalled();
+	});
+
+	it("never reactivates a failed domain through manual verification", async () => {
+		const { cloudflare, repository, routing, service } = setup();
+		const row = repository.seed({
+			cfCustomHostnameId: "cf_failed",
+			name: "failed-money.com",
+			source: "purchased",
+			status: "failed",
+		});
+		cloudflare.status = "active";
+
+		await expect(service.verify(row.id, userId)).rejects.toThrow(
+			"Only configuring domains can be verified",
+		);
+		expect(repository.rows.get(row.id)?.status).toBe("failed");
+		expect(routing.pointers).toHaveLength(0);
+		expect(cloudflare.getCustomHostnameStatus).not.toHaveBeenCalled();
 	});
 
 	it("cleans up the Cloudflare hostname when BYO enqueue rollback runs", async () => {

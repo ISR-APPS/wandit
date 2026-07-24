@@ -48,6 +48,7 @@ function domainRow(overrides: Partial<DomainRow> = {}): DomainRow {
 		id: "22222222-2222-4222-8222-000000000001",
 		isPrimary: false,
 		name: "brand.com",
+		paymentOrderId: null,
 		priceSnapshot: null,
 		projectId: "11111111-1111-4111-8111-111111111111",
 		provider: null,

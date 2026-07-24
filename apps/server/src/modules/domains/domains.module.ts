@@ -19,7 +19,7 @@ import { DomainRateLimitGuard } from "./presentation/http/guards/rate-limit.guar
 
 @Module({
 	controllers: [DomainsController],
-	exports: [DomainRoutingService, DomainsRepository],
+	exports: [DomainRoutingService, DomainsRepository, DomainsService],
 	imports: [DatabaseModule, CreditsModule, QueuesModule],
 	providers: [
 		CustomHostnameService,

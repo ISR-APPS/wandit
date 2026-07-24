@@ -50,8 +50,8 @@ Flat per-action prices now (above). Every `consume` row stores AI SDK token usag
 - **Signup grant**: `grantSignupCredits(userId)`, idempotency key `signup:{userId}`, wired into `createAuth({ onUserCreated })` in the server AuthModule (seam already exists on the auth branch).
 - **Renewal** (`invoice.paid`, billing_reason `subscription_cycle`): one `expire` row zeroing the plan bucket remainder + one `grant` row for the full tier (×12 if annual). Both idempotency-keyed on the invoice id.
 - **Initial subscribe** (`subscription_create` invoice): grant tier (×12 annual). **Upgrade** (`subscription_update` invoice): grant `newTier − oldTier` when positive; when negative, write an `expire` row of `min(|delta|, plan-bucket balance)`.
-- **Cancel**: flag at period end; on `customer.subscription.deleted`, expire the plan bucket remainder. **`past_due`** = grace, keep credits; expire only on terminal states.
-- **Refunds/disputes** (`charge.refunded`, `charge.dispute.created`): `revoke` row clawing back the full grant meta-linked to that charge/payment-intent (balance may go negative by design).
+- **Cancel**: flag at period end; on `customer.subscription.deleted`, expire the plan bucket remainder. **`past_due`** keeps previously granted credits until normal expiry, but is not an entitled subscription state and cannot bypass generation credit checks. Only `active` and `trialing` grant subscription entitlement.
+- **Refunds/disputes** (`charge.refunded`, `charge.dispute.created`): cumulative refund target = `floor(original granted credits × amount_refunded / amount_captured)`. Revoke only the delta not already clawed back for the charge, from the same `plan` or `topup` bucket as each original grant. Deterministic refund/dispute ledger keys make retries idempotent, and each path subtracts prior charge clawbacks so a dispute followed by a refund cannot double-revoke. An owned refund that arrives before its order/grant remains retryable instead of being skipped; every payment-linked grant immediately re-fetches its Charge and applies any already-recorded refund/dispute. Paid invoice grants bind only to a paid payment source and fail loudly rather than choose arbitrarily when multiple paid sources exist. Balance may go negative by design.
 - Top-ups: `topup` rows, bucket `topup`, never expire.
 
 ## Billing module (modules/billing)
@@ -67,8 +67,9 @@ Endpoints (all authed via global guard, `@CurrentUser`; response envelope idiom)
 | `POST /api/v1/billing/checkout` | `{plan, tierCredits, interval}` → Checkout Session URL (subscription mode; ensures customer; `client_reference_id = userId`, metadata userId) |
 | `POST /api/v1/billing/topup` | `{packId}` → Checkout Session URL (payment mode) |
 | `POST /api/v1/billing/portal` | Billing Portal URL |
-| `POST /api/v1/billing/change` | `{tierCredits, interval}` → subscription item price swap, proration `always_invoice` |
+| `POST /api/v1/billing/change` | `{tierCredits, interval, plan?}` → optional Pro/Business plan switch plus subscription item price swap, proration `always_invoice` |
 | `POST /api/v1/billing/cancel` · `/resume` | toggle `cancel_at_period_end` |
+| `POST /api/v1/billing/sync` | re-fetch the authenticated user's Stripe subscriptions and return the refreshed subscription view; safe no-op without a configured customer/provider |
 | `POST /api/webhooks/stripe` | public, raw body, signature-verified — below |
 
 ## Webhooks
@@ -82,7 +83,7 @@ Bootstrap gets `rawBody: true` (Nest native support on the Fastify adapter); the
 | `customer.subscription.deleted` | status canceled + expire plan bucket |
 | `invoice.paid` | by `billing_reason`: create → grant; cycle → expire + re-grant; update → delta grant/expire |
 | `invoice.payment_failed` | mirror status only (Stripe owns dunning) |
-| `charge.refunded`, `charge.dispute.created` | `revoke` linked grant |
+| `charge.refunded`, `charge.dispute.created` | proportionally `revoke` linked grants; owned-but-not-yet-mapped events fail retryably, while grant creation also reconciles the current Charge immediately |
 | anything else | mark `skipped`, 200 |
 
 Local dev: `stripe listen --forward-to localhost:3000/api/webhooks/stripe` script in `apps/server/package.json`. Seed script `apps/server/scripts/seed-stripe.ts` (tsx): idempotently ensures 2 Products + all tier/interval Prices + top-up Prices by lookup_key.

@@ -15,6 +15,8 @@ export const LEAD_PROCESSING_QUEUE = "lead-processing";
 export const PUBLISH_QUEUE = "publish";
 // Queue for custom domain jobs.
 export const DOMAINS_QUEUE = "domains";
+// Queue for durable payment-order refunds.
+export const ORDER_REFUNDS_QUEUE = "order-refunds";
 
 // One list used by API and worker to register all queues.
 export const queueNames = [
@@ -23,6 +25,7 @@ export const queueNames = [
 	LEAD_PROCESSING_QUEUE,
 	PUBLISH_QUEUE,
 	DOMAINS_QUEUE,
+	ORDER_REFUNDS_QUEUE,
 ] as const;
 
 // Job names allowed inside the AI generation queue.
@@ -42,6 +45,8 @@ export type DomainJobName =
 	| "domain-configure"
 	| "domain-renewals"
 	| "domain-sync";
+// Payment-order refund job names.
+export type OrderRefundJobName = "order-refund";
 
 // Payload the API sends to the AI worker.
 export interface AiGenerationJobData {
@@ -84,9 +89,25 @@ export interface PublishJobData {
 	slug: string;
 }
 
-// Domain purchase job payload.
-export interface DomainPurchaseJobData {
-	domainId: string;
+// Domain purchase job payload. Jobs created before money orders existed omit
+// paymentSource and therefore remain credits-backed.
+export type DomainPurchaseJobData =
+	| {
+			domainId: string;
+			orderId: string;
+			paymentSource: "order";
+	  }
+	| {
+			domainId: string;
+			orderId?: never;
+			paymentSource?: "credits";
+	  };
+
+// A refund job is persisted before a money-backed fulfillment is terminalized.
+// The order id also scopes the Stripe idempotency key and BullMQ job id.
+export interface OrderRefundJobData {
+	failureReason: string;
+	orderId: string;
 }
 
 // Domain configure job payload.

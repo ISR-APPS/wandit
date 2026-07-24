@@ -12,6 +12,7 @@ import {
 	uuid,
 } from "drizzle-orm/pg-core";
 import { user } from "./auth";
+import { paymentOrders } from "./orders";
 import { projects } from "./projects";
 
 export const domainSource = pgEnum("domain_source", ["purchased", "external"]);
@@ -35,6 +36,12 @@ export const domains = pgTable(
 		projectId: uuid("project_id").references(() => projects.id, {
 			onDelete: "set null",
 		}),
+		paymentOrderId: uuid("payment_order_id").references(
+			() => paymentOrders.id,
+			{
+				onDelete: "set null",
+			},
+		),
 		name: text("name").notNull(),
 		tld: text("tld").notNull(),
 		source: domainSource("source").notNull(),
@@ -82,6 +89,10 @@ export const domains = pgTable(
 );
 
 export const domainsRelations = relations(domains, ({ one }) => ({
+	paymentOrder: one(paymentOrders, {
+		fields: [domains.paymentOrderId],
+		references: [paymentOrders.id],
+	}),
 	project: one(projects, {
 		fields: [domains.projectId],
 		references: [projects.id],

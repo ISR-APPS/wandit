@@ -80,6 +80,20 @@ describe("GenerationPolicyService", () => {
 		).resolves.toBeUndefined();
 	});
 
+	it("requires credits when a past_due subscription is not entitled", async () => {
+		setBillingMode("enforce");
+		const { billing, credits, service } = setup();
+		// BillingService maps `past_due` to false; the generation policy must then
+		// use the normal credit gate instead of treating dunning as entitlement.
+		billing.hasActiveSubscription.mockResolvedValue(false);
+		credits.getBalance.mockResolvedValue({ balance: 0, plan: 0, topup: 0 });
+
+		await expect(
+			service.assertCanGenerate("user_past_due", "chatMessage"),
+		).rejects.toBeInstanceOf(GenerationPaymentRequiredError);
+		expect(billing.hasActiveSubscription).toHaveBeenCalledWith("user_past_due");
+	});
+
 	// No subscription and not enough credits should throw 402.
 	it("rejects users without a subscription or enough credits", async () => {
 		setBillingMode("enforce");

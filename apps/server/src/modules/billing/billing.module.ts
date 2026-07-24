@@ -2,33 +2,34 @@ import { Module } from "@nestjs/common";
 
 import { DatabaseModule } from "../../infrastructure/database/database.module";
 import { CreditsModule } from "../credits/credits.module";
+import { OrdersModule } from "../orders/orders.module";
 import { BillingService } from "./application/services/billing.service";
+import { PaymentRefundsService } from "./application/services/payment-refunds.service";
+import { StripeEventRouter } from "./application/services/stripe-event-router.service";
+import { StripeSubscriptionSyncService } from "./application/services/stripe-subscription-sync.service";
 import { StripeWebhookProcessor } from "./application/services/stripe-webhook-processor.service";
-import { PAYMENT_PROVIDER } from "./domain/ports/payment-provider.port";
+import { SubscriptionCreditsService } from "./application/services/subscription-credits.service";
+import { BillingPaymentsModule } from "./billing-payments.module";
 import { BillingCreditLedgerRepository } from "./infrastructure/persistence/billing-credit-ledger.repository";
-import { BillingCustomersRepository } from "./infrastructure/persistence/billing-customers.repository";
 import { BillingWebhookEventsRepository } from "./infrastructure/persistence/billing-webhook-events.repository";
 import { SubscriptionsRepository } from "./infrastructure/persistence/subscriptions.repository";
-import { StripeProvider } from "./infrastructure/stripe/stripe.provider";
 import { BillingController } from "./presentation/http/controllers/billing.controller";
 import { StripeWebhookController } from "./presentation/http/controllers/stripe-webhook.controller";
 
 @Module({
 	controllers: [BillingController, StripeWebhookController],
 	exports: [BillingService],
-	imports: [DatabaseModule, CreditsModule],
+	imports: [BillingPaymentsModule, CreditsModule, DatabaseModule, OrdersModule],
 	providers: [
 		BillingCreditLedgerRepository,
-		BillingCustomersRepository,
 		BillingService,
 		BillingWebhookEventsRepository,
-		StripeProvider,
+		PaymentRefundsService,
+		StripeEventRouter,
+		StripeSubscriptionSyncService,
 		StripeWebhookProcessor,
+		SubscriptionCreditsService,
 		SubscriptionsRepository,
-		{
-			provide: PAYMENT_PROVIDER,
-			useExisting: StripeProvider,
-		},
 	],
 })
 export class BillingModule {}

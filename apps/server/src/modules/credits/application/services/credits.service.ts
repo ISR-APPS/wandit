@@ -26,6 +26,10 @@ type GrantCreditOptions = CreditWriteOptions & {
 	bucket: CreditBucket;
 };
 
+type RevokeCreditOptions = CreditWriteOptions & {
+	bucket?: CreditBucket;
+};
+
 @Injectable()
 export class CreditsService {
 	constructor(
@@ -237,22 +241,27 @@ export class CreditsService {
 	async revoke(
 		userId: string,
 		amount: number,
-		options: CreditWriteOptions = {},
+		options: RevokeCreditOptions = {},
+		transaction?: CreditsTransaction,
 	): Promise<CreditLedgerRow> {
 		this.assertPositiveCreditAmount(amount);
 
-		return this.creditsRepository.withUserLock(userId, (tx) =>
-			this.creditsRepository.insertLedgerEntry(
-				{
-					bucket: "topup",
-					delta: -amount,
-					idempotencyKey: options.idempotencyKey,
-					kind: "revoke",
-					meta: this.withReason(options.meta, "revoke"),
-					userId,
-				},
-				tx,
-			),
+		return this.creditsRepository.withUserLock(
+			userId,
+			(tx) =>
+				this.creditsRepository.insertLedgerEntry(
+					{
+						// Preserve the existing top-up default for untouched callers.
+						bucket: options.bucket ?? "topup",
+						delta: -amount,
+						idempotencyKey: options.idempotencyKey,
+						kind: "revoke",
+						meta: this.withReason(options.meta, "revoke"),
+						userId,
+					},
+					tx,
+				),
+			transaction,
 		);
 	}
 

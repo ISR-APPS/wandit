@@ -20,6 +20,8 @@ export * from "./domains";
 export * from "./lead-scrape-attempts";
 // Lead tables.
 export * from "./leads";
+// Payment order tables.
+export * from "./orders";
 // Page generation attempt tables.
 export * from "./page-attempts";
 // Project tables.

@@ -14,6 +14,12 @@ import {
 
 export type SubscriptionRow = typeof subscriptions.$inferSelect;
 
+export type SubscriptionsTransaction = Parameters<
+	Parameters<Database["transaction"]>[0]
+>[0];
+
+type SubscriptionsClient = Pick<Database, "insert" | "select" | "update">;
+
 export type UpsertSubscriptionInput = {
 	cancelAtPeriodEnd: boolean;
 	currentPeriodEnd: Date;
@@ -29,12 +35,34 @@ export type UpsertSubscriptionInput = {
 	userId: string;
 };
 
+export type UpdateSubscriptionProviderStateInput = {
+	cancelAtPeriodEnd: boolean;
+	currentPeriodEnd: Date;
+	currentPeriodStart: Date;
+	providerSubscriptionId: string;
+	status: string;
+};
+
 @Injectable()
 export class SubscriptionsRepository {
 	constructor(@Inject(DATABASE) private readonly db: Database) {}
 
+	async withStripeCustomerSyncLock<T>(
+		providerCustomerId: string,
+		fn: (tx: SubscriptionsTransaction) => Promise<T>,
+	): Promise<T> {
+		return this.db.transaction(async (tx) => {
+			await tx.execute(
+				sql`select pg_advisory_xact_lock(hashtext('stripe-sub-sync:' || ${providerCustomerId}::text))`,
+			);
+
+			return fn(tx);
+		});
+	}
+
 	async upsertByProviderSubscriptionId(
 		input: UpsertSubscriptionInput,
+		client: SubscriptionsClient = this.db,
 	): Promise<SubscriptionRow> {
 		const values = {
 			cancelAtPeriodEnd: input.cancelAtPeriodEnd,
@@ -50,7 +78,7 @@ export class SubscriptionsRepository {
 			tierCredits: input.tierCredits,
 			userId: input.userId,
 		};
-		const [row] = await this.db
+		const [row] = await client
 			.insert(subscriptions)
 			.values(values)
 			.onConflictDoUpdate({
@@ -65,8 +93,11 @@ export class SubscriptionsRepository {
 		return this.expectRow(row);
 	}
 
-	async findActiveByUserId(userId: string): Promise<SubscriptionRow | null> {
-		const [row] = await this.db
+	async findActiveByUserId(
+		userId: string,
+		client: SubscriptionsClient = this.db,
+	): Promise<SubscriptionRow | null> {
+		const [row] = await client
 			.select()
 			.from(subscriptions)
 			.where(
@@ -83,8 +114,9 @@ export class SubscriptionsRepository {
 
 	async findByProviderSubscriptionId(
 		providerSubscriptionId: string,
+		client: SubscriptionsClient = this.db,
 	): Promise<SubscriptionRow | null> {
-		const [row] = await this.db
+		const [row] = await client
 			.select()
 			.from(subscriptions)
 			.where(eq(subscriptions.providerSubscriptionId, providerSubscriptionId))
@@ -96,14 +128,36 @@ export class SubscriptionsRepository {
 	async updateStatus(
 		providerSubscriptionId: string,
 		status: string,
+		client: SubscriptionsClient = this.db,
 	): Promise<SubscriptionRow | null> {
-		const [row] = await this.db
+		const [row] = await client
 			.update(subscriptions)
 			.set({
 				status,
 				updatedAt: new Date(),
 			})
 			.where(eq(subscriptions.providerSubscriptionId, providerSubscriptionId))
+			.returning();
+
+		return row ?? null;
+	}
+
+	async updateProviderState(
+		input: UpdateSubscriptionProviderStateInput,
+		client: SubscriptionsClient = this.db,
+	): Promise<SubscriptionRow | null> {
+		const [row] = await client
+			.update(subscriptions)
+			.set({
+				cancelAtPeriodEnd: input.cancelAtPeriodEnd,
+				currentPeriodEnd: input.currentPeriodEnd,
+				currentPeriodStart: input.currentPeriodStart,
+				status: input.status,
+				updatedAt: new Date(),
+			})
+			.where(
+				eq(subscriptions.providerSubscriptionId, input.providerSubscriptionId),
+			)
 			.returning();
 
 		return row ?? null;

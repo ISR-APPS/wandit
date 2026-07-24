@@ -1,0 +1,1256 @@
+import type { AuthUser } from "@wandit/auth";
+import {
+	DOMAIN_REGISTRATION_USD_CENTS,
+	DOMAIN_TLD_CATALOG,
+	type PaymentOrderStatus,
+} from "@wandit/contracts";
+import type Stripe from "stripe";
+import { describe, expect, it, vi } from "vitest";
+
+import type { BillingCustomerService } from "../../../billing/application/services/billing-customer.service";
+import type { PaymentProvider } from "../../../billing/domain/ports/payment-provider.port";
+import type { BillingCustomersRepository } from "../../../billing/infrastructure/persistence/billing-customers.repository";
+import type { DomainsService } from "../../../domains/application/services/domains.service";
+import { DomainAlreadyExistsError } from "../../../domains/domain/errors/domain.errors";
+import type { DomainsRepository } from "../../../domains/infrastructure/persistence/domains.repository";
+import {
+	OrderInvariantViolationError,
+	OrderNotFoundError,
+} from "../../domain/errors/payment-order.errors";
+import type { PaymentOrderRow } from "../../domain/payment-order.types";
+import type { PaymentOrdersRepository } from "../../infrastructure/persistence/payment-orders.repository";
+import type { OrderFulfillmentRegistry } from "./order-fulfillment.registry";
+import type { OrderRefundQueueService } from "./order-refund-queue.service";
+import type { OrderRefundsService } from "./order-refunds.service";
+import { OrdersService } from "./orders.service";
+
+const orderId = "11111111-1111-4111-8111-111111111111";
+const domainId = "22222222-2222-4222-8222-222222222222";
+const projectId = "33333333-3333-4333-8333-333333333333";
+const userId = "user_1";
+const otherUserId = "user_2";
+const sessionId = "cs_test_domain";
+const paymentIntentId = "pi_test_domain";
+const customerId = "cus_test_domain";
+const now = new Date("2026-07-24T12:00:00.000Z");
+
+const user = {
+	email: "buyer@example.com",
+	id: userId,
+} as AuthUser;
+
+const registrant = {
+	firstName: "Zack",
+	lastName: "Belaid",
+	email: "zack@example.com",
+	phone: "+213555123456",
+	address: {
+		street: "12 Rue Didouche Mourad",
+		city: "Algiers",
+		wilaya: "Alger",
+		zip: "16000",
+		countryCode: "DZ",
+	},
+};
+
+class FakePaymentOrdersRepository {
+	beforeLockedById: (() => Promise<void> | void) | null = null;
+	readonly rows = new Map<string, PaymentOrderRow>();
+	readonly markPaid = vi.fn(
+		async (
+			id: string,
+			input: {
+				paymentIntentId: string;
+				paymentStatus: string;
+				sessionId: string;
+			},
+		) => {
+			const row = this.rows.get(id);
+
+			if (row?.status !== "pending") {
+				return null;
+			}
+
+			const updated = {
+				...row,
+				paidAt: new Date(now.getTime() + 1_000),
+				providerCheckoutSessionId: input.sessionId,
+				providerPaymentIntentId: input.paymentIntentId,
+				providerPaymentStatus: input.paymentStatus,
+				status: "paid" as const,
+			};
+			this.rows.set(id, updated);
+
+			return updated;
+		},
+	);
+	readonly markFulfilling = vi.fn(async (id: string) => {
+		const row = this.rows.get(id);
+
+		if (row?.status !== "paid") {
+			return null;
+		}
+
+		const updated = { ...row, status: "fulfilling" as const };
+		this.rows.set(id, updated);
+
+		return updated;
+	});
+	readonly markFailed = vi.fn(async (id: string, error: string) => {
+		const row = this.rows.get(id);
+
+		if (row?.status !== "paid" && row?.status !== "fulfilling") {
+			return null;
+		}
+
+		const updated = {
+			...row,
+			fulfillmentError: error,
+			status: "failed" as const,
+		};
+		this.rows.set(id, updated);
+
+		return updated;
+	});
+	readonly markRefunded = vi.fn(async (id: string, _client?: unknown) => {
+		const row = this.rows.get(id);
+
+		if (
+			!row ||
+			!["pending", "paid", "fulfilling", "fulfilled", "failed"].includes(
+				row.status,
+			)
+		) {
+			return null;
+		}
+
+		const updated = { ...row, status: "refunded" as const };
+		this.rows.set(id, updated);
+
+		return updated;
+	});
+	readonly recordPaymentState = vi.fn(
+		async (
+			id: string,
+			input: {
+				paymentIntentId: string | null;
+				paymentStatus: string;
+				sessionId: string;
+			},
+		) => {
+			const row = this.rows.get(id);
+
+			if (!row) {
+				return null;
+			}
+
+			const updated = {
+				...row,
+				providerCheckoutSessionId: input.sessionId,
+				providerPaymentIntentId:
+					input.paymentIntentId ?? row.providerPaymentIntentId,
+				providerPaymentStatus: input.paymentStatus,
+			};
+			this.rows.set(id, updated);
+
+			return updated;
+		},
+	);
+	readonly markPendingTerminal = vi.fn(
+		async (
+			id: string,
+			status: "canceled" | "failed",
+			input: {
+				fulfillmentError: string | null;
+				paymentIntentId: string | null;
+				paymentStatus: string;
+				sessionId?: string;
+			},
+		) => {
+			const row = this.rows.get(id);
+
+			if (row?.status !== "pending") {
+				return null;
+			}
+
+			const updated = {
+				...row,
+				fulfillmentError: input.fulfillmentError,
+				providerCheckoutSessionId:
+					input.sessionId ?? row.providerCheckoutSessionId,
+				providerPaymentIntentId:
+					input.paymentIntentId ?? row.providerPaymentIntentId,
+				providerPaymentStatus: input.paymentStatus,
+				status,
+			};
+			this.rows.set(id, updated);
+
+			return updated;
+		},
+	);
+
+	async insert(input: {
+		amountCents: number;
+		currency: string;
+		kind: "domain_registration";
+		metadata: unknown;
+		userId: string;
+	}) {
+		const row = paymentOrderRow({
+			...input,
+			id: orderId,
+		});
+		this.rows.set(row.id, row);
+
+		return row;
+	}
+
+	async attachCheckoutSession(id: string, checkoutSessionId: string) {
+		const row = this.rows.get(id);
+
+		if (row?.status !== "pending") {
+			return null;
+		}
+
+		const updated = {
+			...row,
+			providerCheckoutSessionId: checkoutSessionId,
+		};
+		this.rows.set(id, updated);
+
+		return updated;
+	}
+
+	async findById(id: string) {
+		return this.rows.get(id) ?? null;
+	}
+
+	async findByIdForUser(id: string, ownerId: string) {
+		const row = this.rows.get(id);
+
+		if (!row || row.userId !== ownerId) {
+			throw new OrderNotFoundError();
+		}
+
+		return row;
+	}
+
+	async findBySessionIdForUser(checkoutSessionId: string, ownerId: string) {
+		const row = [...this.rows.values()].find(
+			(candidate) =>
+				candidate.providerCheckoutSessionId === checkoutSessionId &&
+				candidate.userId === ownerId,
+		);
+
+		if (!row) {
+			throw new OrderNotFoundError();
+		}
+
+		return row;
+	}
+
+	async findByPaymentIntentId(providerPaymentIntentId: string) {
+		return (
+			[...this.rows.values()].find(
+				(row) => row.providerPaymentIntentId === providerPaymentIntentId,
+			) ?? null
+		);
+	}
+
+	async withLockedById<T>(
+		id: string,
+		operation: (row: PaymentOrderRow, tx: never) => Promise<T>,
+	) {
+		const beforeLockedById = this.beforeLockedById;
+		this.beforeLockedById = null;
+		await beforeLockedById?.();
+		const row = this.rows.get(id);
+
+		if (!row) {
+			throw new OrderNotFoundError();
+		}
+
+		return operation(row, {} as never);
+	}
+
+	seed(
+		overrides: Partial<PaymentOrderRow> & {
+			status?: PaymentOrderStatus;
+		} = {},
+	) {
+		const row = paymentOrderRow(overrides);
+		this.rows.set(row.id, row);
+
+		return row;
+	}
+}
+
+class FakeDomainsService {
+	readonly preparePurchase = vi.fn(
+		async (_userId: string, domain: string, _projectId?: string) => ({
+			name: domain.trim().toLowerCase(),
+			priceSnapshot: {
+				registrationCredits: DOMAIN_TLD_CATALOG.com.registrationCredits,
+				renewalCredits: DOMAIN_TLD_CATALOG.com.renewalCredits,
+				tld: "com" as const,
+				wholesaleCeilingUsd: DOMAIN_TLD_CATALOG.com.wholesaleCeilingUsd,
+			},
+			tld: "com" as const,
+		}),
+	);
+}
+
+class FakeDomainsRepository {
+	readonly orderDomains = new Map<string, string>();
+
+	async findByPaymentOrderId(id: string) {
+		const idForDomain = this.orderDomains.get(id);
+
+		return idForDomain ? ({ id: idForDomain } as never) : null;
+	}
+}
+
+class FakeBillingCustomersRepository {
+	readonly rows = new Map<
+		string,
+		{
+			createdAt: Date;
+			id: string;
+			provider: string;
+			providerCustomerId: string;
+			updatedAt: Date;
+			userId: string;
+		}
+	>();
+
+	constructor() {
+		this.rows.set(userId, this.customer(userId, customerId));
+	}
+
+	async findByUserId(id: string) {
+		return this.rows.get(id) ?? null;
+	}
+
+	async upsertByUserId(input: {
+		provider: string;
+		providerCustomerId: string;
+		userId: string;
+	}) {
+		const row = this.customer(input.userId, input.providerCustomerId);
+		this.rows.set(input.userId, row);
+
+		return row;
+	}
+
+	private customer(id: string, providerCustomerId: string) {
+		return {
+			createdAt: now,
+			id: `bc_${id}`,
+			provider: "stripe",
+			providerCustomerId,
+			updatedAt: now,
+			userId: id,
+		};
+	}
+}
+
+class FakeBillingCustomerService {
+	readonly ensureCustomer = vi.fn(
+		async (requestedUser: Pick<AuthUser, "email" | "id">) => ({
+			createdAt: now,
+			id: `bc_${requestedUser.id}`,
+			provider: "stripe",
+			providerCustomerId: customerId,
+			updatedAt: now,
+			userId: requestedUser.id,
+		}),
+	);
+}
+
+class FakePaymentProvider {
+	session = checkoutSession();
+	paymentIntent = stripePaymentIntent();
+	charge = stripeCharge();
+	readonly createOrderCheckout = vi.fn(async () => ({
+		id: sessionId,
+		url: "https://checkout.stripe.com/c/pay/cs_test_domain",
+	}));
+	readonly createRefund = vi.fn(async () => undefined);
+	readonly ensureCustomer = vi.fn(async () => customerId);
+	readonly retrieveCharge = vi.fn(async () => this.charge);
+	readonly retrieveCheckoutSession = vi.fn(async () => this.session);
+	readonly retrievePaymentIntent = vi.fn(async () => this.paymentIntent);
+}
+
+class FakeFulfillmentRegistry {
+	error: Error | null = null;
+	failures = 0;
+	readonly jobs = new Set<string>();
+	readonly fulfill = vi.fn(async (order: PaymentOrderRow) => {
+		if (this.error) {
+			throw this.error;
+		}
+
+		if (this.failures > 0) {
+			this.failures -= 1;
+			throw new Error("queue unavailable");
+		}
+		this.jobs.add(`order-fulfill-${order.id}`);
+	});
+
+	forKind(kind: string) {
+		if (kind !== "domain_registration") {
+			throw new Error(`Unexpected kind ${kind}`);
+		}
+
+		return {
+			fulfill: this.fulfill,
+			kind: "domain_registration" as const,
+		};
+	}
+}
+
+class FakeOrderRefundsService {
+	constructor(private readonly orders: FakePaymentOrdersRepository) {}
+
+	readonly markRefundedByPaymentIntent = vi.fn(
+		async (input: {
+			cause?: "dispute";
+			chargeId: string;
+			paymentIntentId: string;
+		}) => {
+			const order = [...this.orders.rows.values()].find(
+				(order) => order.providerPaymentIntentId === input.paymentIntentId,
+			);
+
+			if (!order) {
+				return false;
+			}
+
+			return (await this.orders.markRefunded(order.id)) !== null;
+		},
+	);
+	readonly handleChargeRefundedByPaymentIntent = vi.fn(
+		async (input: {
+			amountCaptured: number;
+			amountRefunded: number;
+			chargeId: string;
+			paymentIntentId: string;
+		}) => {
+			if (input.amountRefunded >= input.amountCaptured) {
+				return this.markRefundedByPaymentIntent(input);
+			}
+
+			const order = [...this.orders.rows.values()].find(
+				(order) => order.providerPaymentIntentId === input.paymentIntentId,
+			);
+
+			if (!order) {
+				return false;
+			}
+
+			this.orders.rows.set(order.id, {
+				...order,
+				fulfillmentError:
+					"Manual review required: Stripe reported a partial refund for this domain order; fulfillment was intentionally left unchanged.",
+				refundStatus: "partial",
+			});
+
+			return true;
+		},
+	);
+}
+
+class FakeOrderRefundQueueService {
+	enqueueFailure: Error | null = null;
+	readonly enqueue = vi.fn(async (_orderId: string, _failureReason: string) => {
+		if (this.enqueueFailure) {
+			throw this.enqueueFailure;
+		}
+	});
+}
+
+function setup() {
+	const orders = new FakePaymentOrdersRepository();
+	const domainsService = new FakeDomainsService();
+	const domainsRepository = new FakeDomainsRepository();
+	const customers = new FakeBillingCustomersRepository();
+	const customerService = new FakeBillingCustomerService();
+	const payments = new FakePaymentProvider();
+	const fulfillment = new FakeFulfillmentRegistry();
+	const orderRefunds = new FakeOrderRefundsService(orders);
+	const refundQueue = new FakeOrderRefundQueueService();
+	const service = new OrdersService(
+		orders as unknown as PaymentOrdersRepository,
+		domainsService as unknown as DomainsService,
+		domainsRepository as unknown as DomainsRepository,
+		customerService as unknown as BillingCustomerService,
+		customers as unknown as BillingCustomersRepository,
+		payments as unknown as PaymentProvider,
+		fulfillment as unknown as OrderFulfillmentRegistry,
+		orderRefunds as unknown as OrderRefundsService,
+		refundQueue as unknown as OrderRefundQueueService,
+	);
+
+	return {
+		customerService,
+		customers,
+		domainsRepository,
+		domainsService,
+		fulfillment,
+		orderRefunds,
+		orders,
+		payments,
+		refundQueue,
+		service,
+	};
+}
+
+function paymentOrderRow(
+	overrides: Partial<PaymentOrderRow> = {},
+): PaymentOrderRow {
+	return {
+		amountCents: DOMAIN_REGISTRATION_USD_CENTS.com,
+		createdAt: now,
+		currency: "usd",
+		fulfilledAt: null,
+		fulfillmentError: null,
+		id: orderId,
+		kind: "domain_registration",
+		metadata: {
+			domain: "example.com",
+			priceSnapshot: {
+				registrationCredits: DOMAIN_TLD_CATALOG.com.registrationCredits,
+				renewalCredits: DOMAIN_TLD_CATALOG.com.renewalCredits,
+				tld: "com",
+				wholesaleCeilingUsd: DOMAIN_TLD_CATALOG.com.wholesaleCeilingUsd,
+			},
+			registrant,
+			tld: "com",
+			whoisPrivacy: true,
+		},
+		paidAt: null,
+		provider: "stripe",
+		providerCheckoutSessionId: sessionId,
+		providerPaymentIntentId: null,
+		providerPaymentStatus: null,
+		providerRefundId: null,
+		refundStatus: null,
+		status: "pending",
+		updatedAt: now,
+		userId,
+		...overrides,
+	};
+}
+
+function checkoutSession(
+	overrides: Partial<Stripe.Checkout.Session> = {},
+): Stripe.Checkout.Session {
+	return {
+		amount_total: DOMAIN_REGISTRATION_USD_CENTS.com,
+		currency: "usd",
+		customer: customerId,
+		id: sessionId,
+		metadata: {
+			orderId,
+			orderKind: "domain_registration",
+			purpose: "order",
+			userId,
+		},
+		mode: "payment",
+		payment_intent: { id: paymentIntentId },
+		payment_status: "paid",
+		...overrides,
+	} as Stripe.Checkout.Session;
+}
+
+function stripePaymentIntent(
+	overrides: Partial<Stripe.PaymentIntent> = {},
+): Stripe.PaymentIntent {
+	return {
+		id: paymentIntentId,
+		latest_charge: "ch_test_domain",
+		...overrides,
+	} as Stripe.PaymentIntent;
+}
+
+function stripeCharge(overrides: Partial<Stripe.Charge> = {}): Stripe.Charge {
+	return {
+		amount: DOMAIN_REGISTRATION_USD_CENTS.com,
+		amount_captured: DOMAIN_REGISTRATION_USD_CENTS.com,
+		amount_refunded: 0,
+		disputed: false,
+		id: "ch_test_domain",
+		payment_intent: paymentIntentId,
+		refunded: false,
+		...overrides,
+	} as Stripe.Charge;
+}
+
+describe("OrdersService", () => {
+	it("creates a server-priced domain order and checkout session", async () => {
+		const { customerService, orders, payments, service } = setup();
+
+		const result = await service.createDomainOrder(user, {
+			domain: "example.com",
+			projectId,
+			registrant,
+			whoisPrivacy: false,
+		});
+
+		expect(result.order).toMatchObject({
+			amountCents: DOMAIN_REGISTRATION_USD_CENTS.com,
+			currency: "usd",
+			id: orderId,
+			status: "pending",
+		});
+		expect(result.checkoutUrl).toContain("checkout.stripe.com");
+		expect(customerService.ensureCustomer).toHaveBeenCalledOnce();
+		expect(customerService.ensureCustomer).toHaveBeenCalledWith(user);
+		expect(payments.ensureCustomer).not.toHaveBeenCalled();
+		expect(payments.createOrderCheckout).toHaveBeenCalledWith(
+			expect.objectContaining({
+				amountCents: DOMAIN_REGISTRATION_USD_CENTS.com,
+				currency: "usd",
+				customerId,
+				kind: "domain_registration",
+				orderId,
+				productName: "Domain registration: example.com",
+				userId,
+			}),
+		);
+		expect(orders.rows.get(orderId)?.metadata).toMatchObject({
+			domain: "example.com",
+			projectId,
+			tld: "com",
+			whoisPrivacy: false,
+		});
+		expect(orders.rows.get(orderId)?.providerCheckoutSessionId).toBe(sessionId);
+	});
+
+	it.each([
+		["amount", { amount_total: DOMAIN_REGISTRATION_USD_CENTS.com + 1 }],
+		["currency", { currency: "eur" }],
+		["customer", { customer: "cus_someone_else" }],
+	] as const)("rejects a checkout %s mismatch without marking the order paid", async (_label, mismatch) => {
+		const { orders, payments, service } = setup();
+		orders.seed();
+		payments.session = checkoutSession(mismatch);
+
+		await expect(service.reconcileBySession(sessionId)).rejects.toBeInstanceOf(
+			OrderInvariantViolationError,
+		);
+		expect(orders.markPaid).not.toHaveBeenCalled();
+		expect(orders.rows.get(orderId)?.status).toBe("pending");
+	});
+
+	it("records an unpaid session without changing order status", async () => {
+		const { fulfillment, orders, payments, service } = setup();
+		orders.seed();
+		payments.session = checkoutSession({
+			payment_status: "unpaid",
+		});
+
+		await service.reconcileBySession(sessionId);
+
+		expect(orders.rows.get(orderId)).toMatchObject({
+			providerPaymentIntentId: paymentIntentId,
+			providerPaymentStatus: "unpaid",
+			status: "pending",
+		});
+		expect(orders.markPaid).not.toHaveBeenCalled();
+		expect(fulfillment.fulfill).not.toHaveBeenCalled();
+	});
+
+	it("uses the paid CAS winner to enqueue fulfillment only once", async () => {
+		const { fulfillment, orders, payments, service } = setup();
+		orders.seed();
+
+		await service.reconcileBySession(sessionId);
+		await service.reconcileBySession(sessionId);
+
+		expect(orders.markPaid).toHaveBeenCalledTimes(2);
+		expect(orders.markFulfilling).toHaveBeenCalledTimes(1);
+		expect(fulfillment.fulfill).toHaveBeenCalledTimes(1);
+		expect(fulfillment.jobs).toEqual(new Set([`order-fulfill-${orderId}`]));
+		expect(orders.rows.get(orderId)?.status).toBe("fulfilling");
+		expect(payments.retrievePaymentIntent).toHaveBeenCalledTimes(2);
+		expect(payments.retrievePaymentIntent).toHaveBeenCalledWith(
+			paymentIntentId,
+		);
+		expect(payments.retrieveCharge).toHaveBeenCalledTimes(2);
+		expect(payments.retrieveCharge).toHaveBeenCalledWith("ch_test_domain");
+	});
+
+	it("records an early Stripe refund before a locally unmapped paid order can fulfill", async () => {
+		const { fulfillment, orderRefunds, orders, payments, service } = setup();
+		orders.seed({
+			paidAt: null,
+			providerPaymentIntentId: null,
+			status: "pending",
+		});
+		payments.paymentIntent = stripePaymentIntent({
+			latest_charge: "ch_refunded_before_mapping",
+		});
+		payments.retrievePaymentIntent.mockImplementationOnce(async () => {
+			expect(orders.rows.get(orderId)?.providerPaymentIntentId).toBe(
+				paymentIntentId,
+			);
+
+			return payments.paymentIntent;
+		});
+		payments.charge = stripeCharge({
+			amount_refunded: DOMAIN_REGISTRATION_USD_CENTS.com,
+			id: "ch_refunded_before_mapping",
+			refunded: true,
+		});
+
+		await expect(
+			service.reconcileBySession(sessionId),
+		).resolves.toBeUndefined();
+
+		expect(payments.retrievePaymentIntent).toHaveBeenCalledWith(
+			paymentIntentId,
+		);
+		expect(payments.retrieveCharge).toHaveBeenCalledWith(
+			"ch_refunded_before_mapping",
+		);
+		expect(orders.markPaid).toHaveBeenCalledWith(
+			orderId,
+			{
+				paymentIntentId,
+				paymentStatus: "paid",
+				sessionId,
+			},
+			expect.anything(),
+		);
+		expect(orders.rows.get(orderId)).toMatchObject({
+			providerPaymentIntentId: paymentIntentId,
+			providerPaymentStatus: "paid",
+			status: "refunded",
+		});
+		expect(orders.recordPaymentState).not.toHaveBeenCalled();
+		expect(orders.markRefunded).toHaveBeenCalledWith(orderId);
+		expect(
+			orderRefunds.handleChargeRefundedByPaymentIntent,
+		).toHaveBeenCalledWith({
+			amountCaptured: DOMAIN_REGISTRATION_USD_CENTS.com,
+			amountRefunded: DOMAIN_REGISTRATION_USD_CENTS.com,
+			chargeId: "ch_refunded_before_mapping",
+			paymentIntentId,
+		});
+		expect(orderRefunds.markRefundedByPaymentIntent).toHaveBeenCalledWith({
+			amountCaptured: DOMAIN_REGISTRATION_USD_CENTS.com,
+			amountRefunded: DOMAIN_REGISTRATION_USD_CENTS.com,
+			chargeId: "ch_refunded_before_mapping",
+			paymentIntentId,
+		});
+		expect(fulfillment.fulfill).not.toHaveBeenCalled();
+		expect(fulfillment.jobs).toEqual(new Set());
+		expect(orders.markFulfilling).not.toHaveBeenCalled();
+		expect(payments.createRefund).not.toHaveBeenCalled();
+	});
+
+	it("records an early partial Stripe refund for manual review without fulfilling", async () => {
+		const { fulfillment, orderRefunds, orders, payments, service } = setup();
+		orders.seed({
+			paidAt: null,
+			providerPaymentIntentId: null,
+			status: "pending",
+		});
+		payments.paymentIntent = stripePaymentIntent({
+			latest_charge: "ch_partially_refunded_before_mapping",
+		});
+		payments.charge = stripeCharge({
+			amount_refunded: 1,
+			id: "ch_partially_refunded_before_mapping",
+		});
+
+		await expect(
+			service.reconcileBySession(sessionId),
+		).resolves.toBeUndefined();
+
+		expect(orders.rows.get(orderId)).toMatchObject({
+			fulfillmentError: expect.stringContaining("partial refund"),
+			providerPaymentIntentId: paymentIntentId,
+			providerPaymentStatus: "paid",
+			refundStatus: "partial",
+			status: "paid",
+		});
+		expect(
+			orderRefunds.handleChargeRefundedByPaymentIntent,
+		).toHaveBeenCalledWith({
+			amountCaptured: DOMAIN_REGISTRATION_USD_CENTS.com,
+			amountRefunded: 1,
+			chargeId: "ch_partially_refunded_before_mapping",
+			paymentIntentId,
+		});
+		expect(orderRefunds.markRefundedByPaymentIntent).not.toHaveBeenCalled();
+		expect(fulfillment.fulfill).not.toHaveBeenCalled();
+		expect(orders.markFulfilling).not.toHaveBeenCalled();
+		expect(payments.createRefund).not.toHaveBeenCalled();
+	});
+
+	it("gives an early Stripe dispute precedence over a simultaneous partial refund", async () => {
+		const { fulfillment, orderRefunds, orders, payments, service } = setup();
+		orders.seed({
+			paidAt: null,
+			providerPaymentIntentId: null,
+			status: "pending",
+		});
+		payments.paymentIntent = stripePaymentIntent({
+			latest_charge: "ch_disputed_before_mapping",
+		});
+		payments.retrievePaymentIntent.mockImplementationOnce(async () => {
+			expect(orders.rows.get(orderId)?.providerPaymentIntentId).toBe(
+				paymentIntentId,
+			);
+
+			return payments.paymentIntent;
+		});
+		payments.charge = stripeCharge({
+			amount_refunded: 1,
+			disputed: true,
+			id: "ch_disputed_before_mapping",
+		});
+
+		await expect(
+			service.reconcileBySession(sessionId),
+		).resolves.toBeUndefined();
+
+		expect(orders.rows.get(orderId)).toMatchObject({
+			providerPaymentIntentId: paymentIntentId,
+			providerPaymentStatus: "paid",
+			status: "refunded",
+		});
+		expect(orderRefunds.markRefundedByPaymentIntent).toHaveBeenCalledWith({
+			chargeId: "ch_disputed_before_mapping",
+			cause: "dispute",
+			paymentIntentId,
+		});
+		expect(
+			orderRefunds.handleChargeRefundedByPaymentIntent,
+		).not.toHaveBeenCalled();
+		expect(fulfillment.fulfill).not.toHaveBeenCalled();
+		expect(orders.markFulfilling).not.toHaveBeenCalled();
+		expect(payments.createRefund).not.toHaveBeenCalled();
+	});
+
+	it("leaves a paid order retryable when fulfillment enqueue fails", async () => {
+		const { fulfillment, orders, service } = setup();
+		orders.seed();
+		fulfillment.failures = 1;
+
+		await expect(service.reconcileBySession(sessionId)).rejects.toThrow(
+			"queue unavailable",
+		);
+		expect(orders.rows.get(orderId)?.status).toBe("paid");
+
+		await expect(
+			service.reconcileBySession(sessionId),
+		).resolves.toBeUndefined();
+		expect(fulfillment.fulfill).toHaveBeenCalledTimes(2);
+		expect(fulfillment.jobs).toEqual(new Set([`order-fulfill-${orderId}`]));
+		expect(orders.rows.get(orderId)?.status).toBe("fulfilling");
+	});
+
+	it("queues a refund before failing an order whose domain was already claimed", async () => {
+		const { fulfillment, orders, payments, refundQueue, service } = setup();
+		orders.seed();
+		fulfillment.error = new DomainAlreadyExistsError("example.com");
+
+		await service.reconcileBySession(sessionId);
+		await service.reconcileBySession(sessionId);
+
+		expect(orders.rows.get(orderId)).toMatchObject({
+			fulfillmentError: "example.com is already connected to Wandit",
+			status: "failed",
+		});
+		expect(refundQueue.enqueue).toHaveBeenCalledTimes(2);
+		expect(refundQueue.enqueue).toHaveBeenCalledWith(
+			orderId,
+			"example.com is already connected to Wandit",
+		);
+		expect(payments.createRefund).not.toHaveBeenCalled();
+		expect(orders.markFulfilling).not.toHaveBeenCalled();
+	});
+
+	it("keeps a duplicate-domain order paid when the refund job cannot be persisted", async () => {
+		const { fulfillment, orders, refundQueue, service } = setup();
+		orders.seed();
+		fulfillment.error = new DomainAlreadyExistsError("example.com");
+		refundQueue.enqueueFailure = new Error("Redis unavailable");
+
+		await expect(service.reconcileBySession(sessionId)).rejects.toThrow(
+			"Redis unavailable",
+		);
+		expect(orders.rows.get(orderId)?.status).toBe("paid");
+		expect(orders.markFailed).not.toHaveBeenCalled();
+	});
+
+	it("rejects a foreign user's reconcile request before retrieving Stripe", async () => {
+		const { orders, payments, service } = setup();
+		orders.seed();
+
+		await expect(
+			service.reconcileSessionForUser(otherUserId, sessionId),
+		).rejects.toBeInstanceOf(OrderNotFoundError);
+		expect(payments.retrieveCheckoutSession).not.toHaveBeenCalled();
+	});
+
+	it("cancels an expired checkout session without crediting or fulfilling", async () => {
+		const { fulfillment, orders, payments, service } = setup();
+		orders.seed();
+		payments.session = checkoutSession({
+			payment_intent: "pi_async_failed",
+			payment_status: "unpaid",
+			status: "expired",
+		});
+
+		await service.reconcileBySession(sessionId);
+
+		expect(orders.rows.get(orderId)).toMatchObject({
+			providerPaymentIntentId: "pi_async_failed",
+			providerPaymentStatus: "unpaid",
+			status: "canceled",
+		});
+		expect(fulfillment.fulfill).not.toHaveBeenCalled();
+	});
+
+	it("honors an expired webhook outcome before the retrieved session reflects it", async () => {
+		const { fulfillment, orders, payments, service } = setup();
+		orders.seed();
+		payments.session = checkoutSession({
+			payment_intent: "pi_expired_webhook",
+			payment_status: "unpaid",
+			status: "open",
+		});
+
+		await service.reconcileBySession(sessionId, "expired");
+
+		expect(orders.rows.get(orderId)).toMatchObject({
+			providerPaymentIntentId: "pi_expired_webhook",
+			providerPaymentStatus: "unpaid",
+			status: "canceled",
+		});
+		expect(fulfillment.fulfill).not.toHaveBeenCalled();
+	});
+
+	it("fails a completed unpaid asynchronous checkout without refunding", async () => {
+		const { fulfillment, orders, payments, refundQueue, service } = setup();
+		orders.seed();
+		payments.session = checkoutSession({
+			payment_intent: "pi_async_failed",
+			payment_status: "unpaid",
+			status: "complete",
+		});
+
+		await service.reconcileBySession(sessionId, "async_payment_failed");
+
+		expect(orders.rows.get(orderId)).toMatchObject({
+			fulfillmentError: "Payment could not be completed",
+			providerPaymentIntentId: "pi_async_failed",
+			providerPaymentStatus: "unpaid",
+			status: "failed",
+		});
+		expect(fulfillment.fulfill).not.toHaveBeenCalled();
+		expect(refundQueue.enqueue).not.toHaveBeenCalled();
+	});
+
+	it("keeps completed unpaid delayed payment pending until async success", async () => {
+		const { fulfillment, orders, payments, service } = setup();
+		orders.seed();
+		payments.session = checkoutSession({
+			payment_intent: "pi_delayed_payment",
+			payment_status: "unpaid",
+			status: "complete",
+		});
+
+		await service.reconcileBySession(sessionId, "completed");
+
+		expect(orders.rows.get(orderId)).toMatchObject({
+			fulfillmentError: null,
+			providerPaymentIntentId: "pi_delayed_payment",
+			providerPaymentStatus: "unpaid",
+			status: "pending",
+		});
+		expect(orders.markPendingTerminal).not.toHaveBeenCalled();
+		expect(fulfillment.fulfill).not.toHaveBeenCalled();
+
+		payments.session = checkoutSession({
+			payment_intent: "pi_delayed_payment",
+			payment_status: "paid",
+			status: "complete",
+		});
+		payments.paymentIntent = stripePaymentIntent({
+			id: "pi_delayed_payment",
+			latest_charge: "ch_delayed_payment",
+		});
+		payments.charge = stripeCharge({
+			id: "ch_delayed_payment",
+			payment_intent: "pi_delayed_payment",
+		});
+
+		await service.reconcileBySession(sessionId, "async_payment_succeeded");
+
+		expect(orders.rows.get(orderId)).toMatchObject({
+			providerPaymentIntentId: "pi_delayed_payment",
+			providerPaymentStatus: "paid",
+			status: "fulfilling",
+		});
+		expect(fulfillment.fulfill).toHaveBeenCalledOnce();
+	});
+
+	it.each([
+		[
+			"failed",
+			"requires_payment_method",
+			"failed",
+			"Payment could not be completed",
+		],
+		["canceled", "canceled", "canceled", null],
+	] as const)("maps a %s payment-intent event to a terminal pending-order state idempotently", async (outcome, providerPaymentStatus, status, error) => {
+		const { fulfillment, orders, payments, refundQueue, service } = setup();
+		orders.seed({
+			providerPaymentIntentId: paymentIntentId,
+		});
+		payments.session = checkoutSession({
+			payment_status: "unpaid",
+			status: "complete",
+		});
+
+		await expect(
+			service.reconcileByPaymentIntent(
+				paymentIntentId,
+				outcome,
+				providerPaymentStatus,
+			),
+		).resolves.toBe(true);
+		await expect(
+			service.reconcileByPaymentIntent(
+				paymentIntentId,
+				outcome,
+				providerPaymentStatus,
+			),
+		).resolves.toBe(true);
+
+		expect(orders.rows.get(orderId)).toMatchObject({
+			fulfillmentError: error,
+			providerPaymentStatus,
+			status,
+		});
+		expect(fulfillment.fulfill).not.toHaveBeenCalled();
+		expect(refundQueue.enqueue).not.toHaveBeenCalled();
+	});
+
+	it("keeps an open-session payment-intent failure pending while recording provider state", async () => {
+		const { fulfillment, orders, payments, refundQueue, service } = setup();
+		orders.seed({
+			providerPaymentIntentId: paymentIntentId,
+		});
+		payments.session = checkoutSession({
+			payment_status: "unpaid",
+			status: "open",
+		});
+
+		await expect(
+			service.reconcileByPaymentIntent(
+				paymentIntentId,
+				"failed",
+				"requires_payment_method",
+			),
+		).resolves.toBe(true);
+
+		expect(payments.retrieveCheckoutSession).toHaveBeenCalledWith(sessionId);
+		expect(orders.rows.get(orderId)).toMatchObject({
+			fulfillmentError: null,
+			providerPaymentIntentId: paymentIntentId,
+			providerPaymentStatus: "requires_payment_method",
+			status: "pending",
+		});
+		expect(orders.recordPaymentState).toHaveBeenCalledWith(
+			orderId,
+			{
+				paymentIntentId,
+				paymentStatus: "requires_payment_method",
+				sessionId,
+			},
+			expect.anything(),
+		);
+		expect(orders.markPendingTerminal).not.toHaveBeenCalled();
+		expect(fulfillment.fulfill).not.toHaveBeenCalled();
+		expect(refundQueue.enqueue).not.toHaveBeenCalled();
+	});
+
+	it("does not overwrite a concurrently successful order with stale open-session payment state", async () => {
+		const { orders, payments, service } = setup();
+		orders.seed({
+			providerPaymentIntentId: paymentIntentId,
+		});
+		payments.session = checkoutSession({
+			payment_status: "unpaid",
+			status: "open",
+		});
+		orders.beforeLockedById = async () => {
+			await orders.markPaid(orderId, {
+				paymentIntentId,
+				paymentStatus: "paid",
+				sessionId,
+			});
+			await orders.markFulfilling(orderId);
+		};
+
+		await service.reconcileByPaymentIntent(
+			paymentIntentId,
+			"failed",
+			"requires_payment_method",
+		);
+
+		expect(orders.rows.get(orderId)).toMatchObject({
+			providerPaymentIntentId: paymentIntentId,
+			providerPaymentStatus: "paid",
+			status: "fulfilling",
+		});
+		expect(orders.recordPaymentState).not.toHaveBeenCalled();
+		expect(orders.markPendingTerminal).not.toHaveBeenCalled();
+	});
+
+	it("fulfills an open session after its same-session card retry succeeds without refunding", async () => {
+		const { fulfillment, orders, payments, refundQueue, service } = setup();
+		orders.seed({
+			providerPaymentIntentId: paymentIntentId,
+		});
+		payments.session = checkoutSession({
+			payment_status: "unpaid",
+			status: "open",
+		});
+
+		await service.reconcileByPaymentIntent(
+			paymentIntentId,
+			"failed",
+			"requires_payment_method",
+		);
+
+		payments.session = checkoutSession({
+			payment_status: "paid",
+			status: "complete",
+		});
+
+		await service.reconcileByPaymentIntent(
+			paymentIntentId,
+			"succeeded",
+			"succeeded",
+		);
+
+		expect(orders.rows.get(orderId)).toMatchObject({
+			fulfillmentError: null,
+			providerPaymentIntentId: paymentIntentId,
+			providerPaymentStatus: "paid",
+			status: "fulfilling",
+		});
+		expect(orders.markPaid).toHaveBeenCalledOnce();
+		expect(orders.markFulfilling).toHaveBeenCalledOnce();
+		expect(fulfillment.fulfill).toHaveBeenCalledOnce();
+		expect(refundQueue.enqueue).not.toHaveBeenCalled();
+		expect(payments.createRefund).not.toHaveBeenCalled();
+	});
+
+	it("reconciles a stale payment-intent failure from a complete paid session without refunding", async () => {
+		const { fulfillment, orders, payments, refundQueue, service } = setup();
+		orders.seed({
+			providerPaymentIntentId: paymentIntentId,
+		});
+		payments.session = checkoutSession({
+			payment_status: "paid",
+			status: "complete",
+		});
+
+		await service.reconcileByPaymentIntent(
+			paymentIntentId,
+			"failed",
+			"requires_payment_method",
+		);
+
+		expect(orders.rows.get(orderId)).toMatchObject({
+			fulfillmentError: null,
+			providerPaymentIntentId: paymentIntentId,
+			providerPaymentStatus: "paid",
+			status: "fulfilling",
+		});
+		expect(payments.retrieveCheckoutSession).toHaveBeenCalledTimes(2);
+		expect(orders.markPendingTerminal).not.toHaveBeenCalled();
+		expect(orders.markPaid).toHaveBeenCalledOnce();
+		expect(orders.markFulfilling).toHaveBeenCalledOnce();
+		expect(fulfillment.fulfill).toHaveBeenCalledOnce();
+		expect(refundQueue.enqueue).not.toHaveBeenCalled();
+		expect(payments.createRefund).not.toHaveBeenCalled();
+	});
+
+	it("cancels an expired session when its payment intent fails", async () => {
+		const { fulfillment, orders, payments, refundQueue, service } = setup();
+		orders.seed({
+			providerPaymentIntentId: paymentIntentId,
+		});
+		payments.session = checkoutSession({
+			payment_status: "unpaid",
+			status: "expired",
+		});
+
+		await expect(
+			service.reconcileByPaymentIntent(
+				paymentIntentId,
+				"failed",
+				"requires_payment_method",
+			),
+		).resolves.toBe(true);
+
+		expect(orders.rows.get(orderId)).toMatchObject({
+			fulfillmentError: null,
+			providerPaymentIntentId: paymentIntentId,
+			providerPaymentStatus: "requires_payment_method",
+			status: "canceled",
+		});
+		expect(orders.markPendingTerminal).toHaveBeenCalledWith(
+			orderId,
+			"canceled",
+			{
+				fulfillmentError: null,
+				paymentIntentId,
+				paymentStatus: "requires_payment_method",
+				sessionId,
+			},
+		);
+		expect(orders.recordPaymentState).not.toHaveBeenCalled();
+		expect(fulfillment.fulfill).not.toHaveBeenCalled();
+		expect(refundQueue.enqueue).not.toHaveBeenCalled();
+	});
+
+	it("returns false for an unrelated payment intent and reconciles a known one", async () => {
+		const { orders, service } = setup();
+		const row = orders.seed({
+			providerPaymentIntentId: paymentIntentId,
+		});
+
+		await expect(
+			service.reconcileByPaymentIntent("pi_unrelated"),
+		).resolves.toBe(false);
+		await expect(
+			service.reconcileByPaymentIntent(paymentIntentId),
+		).resolves.toBe(true);
+		expect(orders.rows.get(row.id)?.status).toBe("fulfilling");
+	});
+
+	it("returns owned orders with a linked domain id", async () => {
+		const { domainsRepository, orders, service } = setup();
+		orders.seed({ status: "fulfilled" });
+		domainsRepository.orderDomains.set(orderId, domainId);
+
+		await expect(
+			service.getOrderForUser(userId, orderId),
+		).resolves.toMatchObject({
+			domainId,
+			id: orderId,
+			status: "fulfilled",
+		});
+	});
+});
