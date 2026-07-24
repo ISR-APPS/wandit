@@ -27,7 +27,6 @@ import { LeadsTab } from "../components/leads/leads-tab";
 import { MarketingTab } from "../components/marketing/marketing-tab";
 import { EditPanel } from "../components/page/edit-panel";
 import { PageTab } from "../components/page/page-tab";
-import { PublishPanel } from "../components/publish/publish-panel";
 import { SettingsTab } from "../components/settings/settings-tab";
 import { MainPaneHeader } from "../components/shell/main-pane-header";
 import { WorkspaceHeader } from "../components/shell/workspace-header";
@@ -89,7 +88,6 @@ function WorkspaceLayout() {
 				<div className="relative z-10 min-h-0 flex-1 bg-background">
 					{isMobile ? <MobileSplit tab={tab} /> : <DesktopSplit tab={tab} />}
 				</div>
-				<PublishPanel />
 			</div>
 		</TooltipProvider>
 	);
