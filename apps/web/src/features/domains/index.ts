@@ -25,10 +25,11 @@ export {
 	useDomainsQuery,
 } from "./api/domains.queries";
 export { DomainsSection } from "./components/domains-section";
+export { DOMAIN_SEARCH_DEBOUNCE_MS } from "./lib/constants";
 export {
-	domainRenewalCredits,
 	externalDomainLiveUrl,
 	hasTransitionalDomains,
 	isDomainTransitional,
 	purchasedDomainLiveUrl,
 } from "./lib/helpers";
+export { useDebouncedValue } from "./lib/hooks";

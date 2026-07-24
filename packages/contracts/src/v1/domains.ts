@@ -34,45 +34,39 @@ export const domainTldSchema = z.enum(domainTlds);
 export type DomainTld = z.infer<typeof domainTldSchema>;
 
 export type DomainTldCatalogItem = {
-	registrationCredits: number;
-	renewalCredits: number;
 	wholesaleCeilingUsd: number;
 };
 
+/*
+ * Fail-closed guards around Name.com's registration quote.
+ *
+ * Each cap has headroom above the registrar's normal price so ordinary domains
+ * stay purchasable, while an unexpected premium/price spike is still blocked.
+ * The UI displays Name.com's actual quote—never these cap values.
+ */
 export const DOMAIN_TLD_CATALOG = {
 	com: {
-		registrationCredits: 120, // PLACEHOLDER — Zack tunes
-		renewalCredits: 120, // PLACEHOLDER — Zack tunes
-		wholesaleCeilingUsd: 15, // PLACEHOLDER — Zack tunes
+		wholesaleCeilingUsd: 30,
 	},
 	net: {
-		registrationCredits: 140, // PLACEHOLDER — Zack tunes
-		renewalCredits: 140, // PLACEHOLDER — Zack tunes
-		wholesaleCeilingUsd: 18, // PLACEHOLDER — Zack tunes
+		wholesaleCeilingUsd: 35,
 	},
 	shop: {
-		registrationCredits: 180, // PLACEHOLDER — Zack tunes
-		renewalCredits: 220, // PLACEHOLDER — Zack tunes
-		wholesaleCeilingUsd: 35, // PLACEHOLDER — Zack tunes
+		wholesaleCeilingUsd: 90,
 	},
 	store: {
-		registrationCredits: 180, // PLACEHOLDER — Zack tunes
-		renewalCredits: 240, // PLACEHOLDER — Zack tunes
-		wholesaleCeilingUsd: 40, // PLACEHOLDER — Zack tunes
+		wholesaleCeilingUsd: 100,
 	},
 	online: {
-		registrationCredits: 160, // PLACEHOLDER — Zack tunes
-		renewalCredits: 220, // PLACEHOLDER — Zack tunes
-		wholesaleCeilingUsd: 35, // PLACEHOLDER — Zack tunes
+		wholesaleCeilingUsd: 75,
 	},
 	site: {
-		registrationCredits: 150, // PLACEHOLDER — Zack tunes
-		renewalCredits: 210, // PLACEHOLDER — Zack tunes
-		wholesaleCeilingUsd: 32, // PLACEHOLDER — Zack tunes
+		wholesaleCeilingUsd: 75,
 	},
 } as const satisfies Record<DomainTld, DomainTldCatalogItem>;
 
-const e164PhoneRegex = /^\+[1-9]\d{1,14}$/;
+// Name.com requires a real E.164 number: "+" plus 8–15 digits.
+const e164PhoneRegex = /^\+[1-9]\d{7,14}$/;
 const domainLabelRegex = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const reservedRegistrableDomains = ["wandit.app", "wandit.dev"] as const;
 const reservedSecondLevelDomains = ["wandit-preview"] as const;
@@ -196,12 +190,7 @@ export function parseExternalDomainName(
 
 	const [sld, tld] = labels;
 
-	if (
-		!sld ||
-		!tld ||
-		!isValidDomainLabel(sld) ||
-		!isValidDomainLabel(tld)
-	) {
+	if (!sld || !tld || !isValidDomainLabel(sld) || !isValidDomainLabel(tld)) {
 		return null;
 	}
 
@@ -210,18 +199,6 @@ export function parseExternalDomainName(
 		sld,
 		tld,
 	};
-}
-
-export function registrationPriceFor(name: string) {
-	const parsedDomainName = parseDomainName(name);
-
-	return parsedDomainName
-		? DOMAIN_TLD_CATALOG[parsedDomainName.tld].registrationCredits
-		: null;
-}
-
-export function renewalPriceFor(tld: string) {
-	return catalogFor(tld)?.renewalCredits ?? null;
 }
 
 const sanitizedDomainInputSchema = z
@@ -276,23 +253,6 @@ export const registrantSchema = z.object({
 
 export type Registrant = z.infer<typeof registrantSchema>;
 
-export const domainPriceSnapshotSchema = z.object({
-	registrationCredits: z.int().positive(),
-	renewalCredits: z.int().positive(),
-	tld: domainTldSchema,
-	wholesaleCeilingUsd: z.number().positive(),
-});
-
-export type DomainPriceSnapshot = z.infer<typeof domainPriceSnapshotSchema>;
-
-export const publicDomainPriceSnapshotSchema = domainPriceSnapshotSchema.omit({
-	wholesaleCeilingUsd: true,
-});
-
-export type PublicDomainPriceSnapshot = z.infer<
-	typeof publicDomainPriceSnapshotSchema
->;
-
 export const requiredDomainRecordSchema = z.object({
 	type: z.enum(["A", "AAAA", "CNAME", "TXT"]),
 	name: z.string().min(1),
@@ -323,9 +283,9 @@ export const domainSchema = z.object({
 	whoisPrivacy: z.boolean(),
 	autoRenew: z.boolean(),
 	expiresAt: isoDateTimeSchema.nullable(),
-	provider: z.literal("openprovider").nullable(),
+	// `openprovider` is read-only compatibility for old rows. New rows use Name.com.
+	provider: z.enum(["namecom", "openprovider"]).nullable(),
 	dns: domainDnsSchema.nullable(),
-	priceSnapshot: publicDomainPriceSnapshotSchema.nullable(),
 	error: z.string().nullable(),
 	createdAt: isoDateTimeSchema,
 	updatedAt: isoDateTimeSchema,
@@ -357,8 +317,9 @@ export const searchDomainsResultSchema = z.object({
 	name: domainNameSchema,
 	tld: domainTldSchema,
 	availability: domainAvailabilityStatusSchema,
-	registrationCredits: z.int().positive(),
-	renewalCredits: z.int().positive(),
+	// `null` means Name.com did not return a safe, purchasable USD quote.
+	// Never replace it with a mock or catalog fallback price.
+	registrationPriceUsd: z.number().positive().nullable(),
 });
 
 export type SearchDomainsResult = z.infer<typeof searchDomainsResultSchema>;
@@ -382,6 +343,12 @@ export const purchaseDomainBodySchema = z.object({
 
 export type PurchaseDomainBody = z.infer<typeof purchaseDomainBodySchema>;
 
+/*
+ * PAYMENT TODO:
+ * The route currently fails closed before returning this legacy shape. When
+ * PaymentsModule is ready, replace it with a checkout-session response; the
+ * verified payment webhook will create and return/provision the Domain later.
+ */
 export const purchaseDomainResponseSchema = z.object({
 	domain: domainSchema,
 });

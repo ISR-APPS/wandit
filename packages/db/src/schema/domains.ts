@@ -4,6 +4,7 @@ import {
 	check,
 	index,
 	jsonb,
+	numeric,
 	pgEnum,
 	pgTable,
 	text,
@@ -41,13 +42,22 @@ export const domains = pgTable(
 		status: domainStatus("status").notNull().default("registering"),
 		isPrimary: boolean("is_primary").notNull().default(false),
 		registrant: jsonb("registrant"),
-		whoisPrivacy: boolean("whois_privacy").notNull().default(true),
-		autoRenew: boolean("auto_renew").notNull().default(true),
+		whoisPrivacy: boolean("whois_privacy").notNull().default(false),
+		autoRenew: boolean("auto_renew").notNull().default(false),
 		expiresAt: timestamp("expires_at", { withTimezone: true }),
 		provider: text("provider"),
 		providerDomainId: text("provider_domain_id"),
+		providerOrderId: text("provider_order_id"),
+		providerTotalPaidUsd: numeric("provider_total_paid_usd", {
+			precision: 12,
+			scale: 2,
+		}),
+		transferLockExpiresAt: timestamp("transfer_lock_expires_at", {
+			withTimezone: true,
+		}),
 		cfCustomHostnameId: text("cf_custom_hostname_id"),
 		dns: jsonb("dns"),
+		// Legacy credit-era data. New customer pricing belongs to PaymentsModule.
 		priceSnapshot: jsonb("price_snapshot"),
 		error: text("error"),
 		createdAt: timestamp("created_at", { withTimezone: true })
@@ -76,7 +86,7 @@ export const domains = pgTable(
 		),
 		check(
 			"domains_provider_ck",
-			sql`${table.provider} IS NULL OR ${table.provider} = 'openprovider'`,
+			sql`${table.provider} IS NULL OR ${table.provider} IN ('namecom', 'openprovider')`,
 		),
 	],
 );

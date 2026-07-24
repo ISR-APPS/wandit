@@ -6,6 +6,7 @@ export type DomainAvailability = {
 	available: boolean;
 	name: string;
 	premium?: boolean;
+	renewalPriceUsd?: number;
 	wholesalePriceUsd?: number;
 };
 
@@ -18,6 +19,10 @@ export type DomainDnsRecord = {
 export type DomainRegistrationResult = {
 	expiresAt: Date | null;
 	providerDomainId: string;
+	// Registrar receipt data is kept for support and cost reconciliation.
+	providerOrderId?: string;
+	totalPaidUsd?: number;
+	transferLockExpiresAt?: Date | null;
 };
 
 export type DomainProviderInfo = {
@@ -25,6 +30,15 @@ export type DomainProviderInfo = {
 	id: string;
 	isLocked?: boolean;
 	status?: string;
+	transferLockExpiresAt?: Date | null;
+};
+
+export type DomainRegistrationOptions = {
+	// Name.com replays the original result when this key is reused. The worker
+	// derives it from our durable domain id so retries cannot buy twice.
+	idempotencyKey: string;
+	privacy: boolean;
+	years: number;
 };
 
 export interface DomainProvider {
@@ -32,7 +46,7 @@ export interface DomainProvider {
 	register(
 		name: string,
 		registrant: Registrant,
-		options: { privacy: boolean; years: number },
+		options: DomainRegistrationOptions,
 	): Promise<DomainRegistrationResult>;
 	renew(name: string, years: number): Promise<{ expiresAt: Date | null }>;
 	setDnsRecords(name: string, records: DomainDnsRecord[]): Promise<void>;

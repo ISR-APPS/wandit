@@ -1,19 +1,15 @@
 import {
-	DOMAIN_TLD_CATALOG,
-	type DomainPriceSnapshot,
 	purchaseDomainBodySchema,
 	type RequiredDomainRecord,
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import { describe, expect, it, vi } from "vitest";
 
-import { InsufficientCreditsError } from "../../../credits/domain/errors/insufficient-credits.error";
 import {
 	DomainAlreadyExistsError,
-	DomainsUnavailableError,
+	DomainPaymentsNotConfiguredError,
 	PremiumDomainBlockedError,
 } from "../../domain/errors/domain.errors";
-import type { CreditsPort } from "../../domain/ports/credits.port";
 import type {
 	DomainAvailability,
 	DomainDnsRecord,
@@ -76,7 +72,6 @@ class FakeDomainsRepository {
 
 	async createPurchased(input: {
 		name: string;
-		priceSnapshot: DomainPriceSnapshot;
 		projectId: string;
 		registrant: typeof validRegistrant;
 		tld: string;
@@ -84,9 +79,8 @@ class FakeDomainsRepository {
 	}) {
 		const row = this.makeRow({
 			name: input.name,
-			priceSnapshot: input.priceSnapshot,
 			projectId: input.projectId,
-			provider: "openprovider",
+			provider: "namecom",
 			registrant: input.registrant,
 			source: "purchased",
 			status: "registering",
@@ -100,7 +94,6 @@ class FakeDomainsRepository {
 
 	async createPurchasedReplacingTerminal(input: {
 		name: string;
-		priceSnapshot: DomainPriceSnapshot;
 		projectId: string;
 		registrant: typeof validRegistrant;
 		tld: string;
@@ -235,12 +228,15 @@ class FakeDomainsRepository {
 			name,
 			priceSnapshot: null,
 			projectId,
-			provider: "openprovider",
+			provider: "namecom",
 			providerDomainId: null,
+			providerOrderId: null,
+			providerTotalPaidUsd: null,
 			registrant: null,
 			source: "purchased",
 			status: "registering",
 			tld: "com",
+			transferLockExpiresAt: null,
 			updatedAt: now,
 			userId,
 			whoisPrivacy: true,
@@ -249,32 +245,12 @@ class FakeDomainsRepository {
 	}
 }
 
-class FakeCreditsPort implements CreditsPort {
-	readonly consumeLedgerKeys: string[] = [];
-	private readonly consumedKeys = new Set<string>();
-	readonly consume = vi.fn(
-		async (
-			_userId: string,
-			_amount: number,
-			options: { idempotencyKey: string },
-		) => {
-			if (this.consumedKeys.has(options.idempotencyKey)) {
-				return;
-			}
-
-			this.consumedKeys.add(options.idempotencyKey);
-			this.consumeLedgerKeys.push(options.idempotencyKey);
-		},
-	);
-	readonly grant = vi.fn(async () => undefined);
-}
-
 class FakeProvider implements DomainProvider {
 	availability: DomainAvailability[] = [];
 	authCode = "AUTH-SECRET";
 	lockCalls: Array<{ locked: boolean; name: string }> = [];
 
-	async checkAvailability(names: string[]) {
+	readonly checkAvailability = vi.fn(async (names: string[]) => {
 		return names.map(
 			(name) =>
 				this.availability.find((item) => item.name === name) ?? {
@@ -283,34 +259,41 @@ class FakeProvider implements DomainProvider {
 					wholesalePriceUsd: 8,
 				},
 		);
-	}
+	});
 
-	async register() {
+	readonly register = vi.fn(async () => {
 		return {
 			expiresAt: new Date("2027-01-01T00:00:00.000Z"),
-			providerDomainId: "op_1",
+			providerDomainId: "namecom_1",
+			providerOrderId: "namecom_order_1",
+			totalPaidUsd: 12.5,
+			transferLockExpiresAt: new Date("2027-03-02T00:00:00.000Z"),
 		};
-	}
+	});
 
 	readonly renew = vi.fn(async () => {
 		return { expiresAt: new Date("2028-01-01T00:00:00.000Z") };
 	});
 
-	async setDnsRecords(_name: string, _records: DomainDnsRecord[]) {}
+	readonly setDnsRecords = vi.fn(
+		async (_name: string, _records: DomainDnsRecord[]) => undefined,
+	);
 
-	async setUrlForwarding() {}
+	readonly setUrlForwarding = vi.fn(
+		async (_name: string, _target: string) => undefined,
+	);
 
-	async getAuthCode() {
+	readonly getAuthCode = vi.fn(async () => {
 		return this.authCode;
-	}
+	});
 
-	async setTransferLock(name: string, locked: boolean) {
+	readonly setTransferLock = vi.fn(async (name: string, locked: boolean) => {
 		this.lockCalls.push({ locked, name });
-	}
+	});
 
-	async getDomainInfo(): Promise<DomainProviderInfo | null> {
-		return null;
-	}
+	readonly getDomainInfo = vi.fn(
+		async (): Promise<DomainProviderInfo | null> => null,
+	);
 }
 
 class FakeCustomHostnameService {
@@ -354,25 +337,6 @@ class FakeRoutingService {
 	async refreshProjectDomains() {}
 }
 
-function priceSnapshot(tld = "com"): DomainPriceSnapshot {
-	const catalog = DOMAIN_TLD_CATALOG.com;
-
-	return {
-		registrationCredits: catalog.registrationCredits,
-		renewalCredits: catalog.renewalCredits,
-		tld: tld as DomainPriceSnapshot["tld"],
-		wholesaleCeilingUsd: catalog.wholesaleCeilingUsd,
-	};
-}
-
-function nextExpiryYear(row: DomainRow): number {
-	if (!row.expiresAt) {
-		throw new Error(`Expected ${row.name} to have an expiry date`);
-	}
-
-	return row.expiresAt.getUTCFullYear() + 1;
-}
-
 function setQueueEnabled(enabled: boolean) {
 	process.env.QUEUE_ENABLED = enabled ? "true" : "false";
 }
@@ -380,7 +344,6 @@ function setQueueEnabled(enabled: boolean) {
 function setup() {
 	setQueueEnabled(true);
 	const repository = new FakeDomainsRepository();
-	const credits = new FakeCreditsPort();
 	const provider = new FakeProvider();
 	const cloudflare = new FakeCustomHostnameService();
 	const routing = new FakeRoutingService();
@@ -395,7 +358,6 @@ function setup() {
 	const service = new DomainsService(
 		repository as unknown as DomainsRepository,
 		provider,
-		credits,
 		cloudflare as unknown as CustomHostnameService,
 		routing as unknown as DomainRoutingService,
 		logger,
@@ -404,7 +366,6 @@ function setup() {
 
 	return {
 		cloudflare,
-		credits,
 		logger,
 		provider,
 		queue,
@@ -414,58 +375,44 @@ function setup() {
 	};
 }
 
+function expectNoRegistrarMutation(provider: FakeProvider) {
+	expect(provider.register).not.toHaveBeenCalled();
+	expect(provider.renew).not.toHaveBeenCalled();
+	expect(provider.setDnsRecords).not.toHaveBeenCalled();
+	expect(provider.setUrlForwarding).not.toHaveBeenCalled();
+	expect(provider.setTransferLock).not.toHaveBeenCalled();
+}
+
 describe("DomainsService", () => {
-	it("purchases by creating a row, consuming credits, then enqueueing the job", async () => {
-		const { credits, queue, repository, service } = setup();
-
-		const response = await service.purchase(userId, projectId, {
-			name: "Example.COM",
-			registrant: validRegistrant,
-		});
-
-		const [row] = [...repository.rows.values()];
-		expect(row?.name).toBe("example.com");
-		expect(credits.consume).toHaveBeenCalledWith(
-			userId,
-			DOMAIN_TLD_CATALOG.com.registrationCredits,
-			expect.objectContaining({
-				idempotencyKey: `domain-purchase:${row?.id}`,
-			}),
+	it("stops an available purchase before row, queue, or registrar mutation", async () => {
+		const { provider, queue, repository, service } = setup();
+		const createPurchased = vi.spyOn(
+			repository,
+			"createPurchasedReplacingTerminal",
 		);
-		expect(queue.add).toHaveBeenCalledWith(
-			"domain-purchase",
-			{ domainId: row?.id },
-			{
-				attempts: 5,
-				backoff: {
-					delay: 60_000,
-					type: "exponential",
-				},
-				jobId: `domain-purchase:${row?.id}`,
-			},
-		);
-		expect("providerDomainId" in response.domain).toBe(false);
-		expect(response.domain.priceSnapshot).not.toHaveProperty(
-			"wholesaleCeilingUsd",
-		);
-	});
-
-	it("propagates insufficient credits and deletes the created registering row", async () => {
-		const { credits, queue, repository, service } = setup();
-		credits.consume.mockRejectedValueOnce(new InsufficientCreditsError(120, 5));
+		const update = vi.spyOn(repository, "updateById");
 
 		await expect(
 			service.purchase(userId, projectId, {
-				name: "example.com",
+				name: "Example.COM",
 				registrant: validRegistrant,
 			}),
-		).rejects.toBeInstanceOf(InsufficientCreditsError);
+		).rejects.toBeInstanceOf(DomainPaymentsNotConfiguredError);
+
+		expect(provider.checkAvailability).toHaveBeenCalledWith(["example.com"]);
+		expect(createPurchased).not.toHaveBeenCalled();
+		expect(update).not.toHaveBeenCalled();
 		expect(repository.rows.size).toBe(0);
 		expect(queue.add).not.toHaveBeenCalled();
+		expectNoRegistrarMutation(provider);
 	});
 
-	it("rejects premium purchases before creating rows or consuming credits", async () => {
-		const { credits, provider, repository, service } = setup();
+	it("rejects premium purchases before payment or registrar mutation", async () => {
+		const { provider, queue, repository, service } = setup();
+		const createPurchased = vi.spyOn(
+			repository,
+			"createPurchasedReplacingTerminal",
+		);
 		provider.availability = [
 			{
 				available: true,
@@ -482,151 +429,159 @@ describe("DomainsService", () => {
 			}),
 		).rejects.toBeInstanceOf(PremiumDomainBlockedError);
 
+		expect(createPurchased).not.toHaveBeenCalled();
 		expect(repository.rows.size).toBe(0);
-		expect(credits.consume).not.toHaveBeenCalled();
+		expect(queue.add).not.toHaveBeenCalled();
+		expectNoRegistrarMutation(provider);
 	});
 
-	it("fails closed before creating rows or consuming credits when domain jobs are disabled", async () => {
-		const { credits, repository, service } = setup();
-		setQueueEnabled(false);
+	it("fails closed when an available registrar result omits its price", async () => {
+		const { provider, queue, repository, service } = setup();
+		const createPurchased = vi.spyOn(
+			repository,
+			"createPurchasedReplacingTerminal",
+		);
+		provider.availability = [
+			{
+				available: true,
+				name: "missing-price.com",
+			},
+		];
 
 		await expect(
 			service.purchase(userId, projectId, {
-				name: "example.com",
+				name: "missing-price.com",
 				registrant: validRegistrant,
 			}),
-		).rejects.toBeInstanceOf(DomainsUnavailableError);
+		).rejects.toBeInstanceOf(PremiumDomainBlockedError);
 
+		expect(createPurchased).not.toHaveBeenCalled();
 		expect(repository.rows.size).toBe(0);
-		expect(credits.consume).not.toHaveBeenCalled();
+		expect(queue.add).not.toHaveBeenCalled();
+		expectNoRegistrarMutation(provider);
 	});
 
-	it("rotates renewal consume and refund keys after a failed provider renewal", async () => {
-		const { credits, provider, repository, service } = setup();
+	it("stops renewal before row, queue, or registrar mutation", async () => {
+		const { provider, queue, repository, service } = setup();
 		const row = repository.seed({
 			expiresAt: new Date("2027-01-01T00:00:00.000Z"),
-			name: "renew-retry.com",
-			priceSnapshot: priceSnapshot(),
-			providerDomainId: "op_renew",
+			name: "renew.com",
+			providerDomainId: "namecom_renew",
 			source: "purchased",
 			status: "active",
 		});
-		const periodEndYear = nextExpiryYear(row);
-		const firstAttemptMs = row.updatedAt.getTime();
-		provider.renew.mockRejectedValueOnce(new Error("registrar down"));
+		const update = vi.spyOn(repository, "updateById");
 
-		await expect(service.renew(row.id, userId)).rejects.toThrow(
-			"registrar down",
+		await expect(service.renew(row.id, userId)).rejects.toBeInstanceOf(
+			DomainPaymentsNotConfiguredError,
 		);
-		const retryRow = repository.rows.get(row.id);
 
-		if (!retryRow) {
-			throw new Error("Expected renewal row to remain after failed attempt");
-		}
-
-		await service.renew(row.id, userId);
-
-		expect(credits.consumeLedgerKeys).toEqual([
-			`domain-renew:${row.id}:${periodEndYear}:${firstAttemptMs}`,
-			`domain-renew:${row.id}:${periodEndYear}:${retryRow.updatedAt.getTime()}`,
-		]);
-		expect(credits.grant).toHaveBeenCalledWith(
-			userId,
-			DOMAIN_TLD_CATALOG.com.renewalCredits,
-			expect.objectContaining({
-				bucket: "topup",
-				idempotencyKey: `domain-renew-refund:${row.id}:${periodEndYear}:${firstAttemptMs}`,
-			}),
-		);
+		expect(update).not.toHaveBeenCalled();
+		expect(repository.rows.get(row.id)).toEqual(row);
+		expect(queue.add).not.toHaveBeenCalled();
+		expectNoRegistrarMutation(provider);
 	});
 
-	it("deduplicates same-instant renewal submits that read the same updatedAt", async () => {
-		const { credits, repository, service } = setup();
+	it("stops auto-renew enable before row, queue, or registrar mutation", async () => {
+		const { provider, queue, repository, service } = setup();
 		const row = repository.seed({
-			expiresAt: new Date("2027-01-01T00:00:00.000Z"),
-			name: "renew-double-submit.com",
-			priceSnapshot: priceSnapshot(),
-			providerDomainId: "op_renew",
+			autoRenew: false,
+			name: "auto-renew.com",
+			providerDomainId: "namecom_auto_renew",
 			source: "purchased",
 			status: "active",
 		});
-
-		await Promise.all([
-			service.renew(row.id, userId),
-			service.renew(row.id, userId),
-		]);
-
-		expect(credits.consume).toHaveBeenCalledTimes(2);
-		expect(credits.consumeLedgerKeys).toEqual([
-			`domain-renew:${row.id}:${nextExpiryYear(row)}:${row.updatedAt.getTime()}`,
-		]);
-	});
-
-	it("replaces terminal rows when purchasing the same domain again", async () => {
-		const { repository, service } = setup();
-		const failed = repository.seed({
-			name: "retry.com",
-			source: "purchased",
-			status: "failed",
-			userId: "other_user",
-		});
-
-		const response = await service.purchase(userId, projectId, {
-			name: "retry.com",
-			registrant: validRegistrant,
-		});
-
-		expect(response.domain.name).toBe("retry.com");
-		expect(response.domain.id).not.toBe(failed.id);
-		expect(repository.rows.has(failed.id)).toBe(false);
-		expect(repository.rows.size).toBe(1);
-	});
-
-	it("keeps non-terminal rows as unique-name conflicts", async () => {
-		const { repository, service } = setup();
-		repository.seed({
-			name: "live.com",
-			source: "purchased",
-			status: "active",
-		});
+		const update = vi.spyOn(repository, "updateById");
 
 		await expect(
-			service.purchase(userId, projectId, {
-				name: "live.com",
-				registrant: validRegistrant,
-			}),
-		).rejects.toBeInstanceOf(DomainAlreadyExistsError);
+			service.setAutoRenew(row.id, userId, { autoRenew: true }),
+		).rejects.toBeInstanceOf(DomainPaymentsNotConfiguredError);
+
+		expect(update).not.toHaveBeenCalled();
+		expect(repository.rows.get(row.id)?.autoRenew).toBe(false);
+		expect(queue.add).not.toHaveBeenCalled();
+		expectNoRegistrarMutation(provider);
 	});
 
-	it("uses catalog prices in search and never exposes wholesale prices", async () => {
+	it("allows disabling auto-renew without payment or registrar mutation", async () => {
+		const { provider, queue, repository, service } = setup();
+		const row = repository.seed({
+			autoRenew: true,
+			name: "disable-auto-renew.com",
+			providerDomainId: "namecom_disable_auto_renew",
+			source: "purchased",
+			status: "active",
+		});
+		const update = vi.spyOn(repository, "updateById");
+
+		await expect(
+			service.setAutoRenew(row.id, userId, { autoRenew: false }),
+		).resolves.toMatchObject({
+			domain: { autoRenew: false, id: row.id },
+		});
+
+		expect(update).toHaveBeenCalledWith(row.id, { autoRenew: false });
+		expect(repository.rows.get(row.id)?.autoRenew).toBe(false);
+		expect(queue.add).not.toHaveBeenCalled();
+		expectNoRegistrarMutation(provider);
+	});
+
+	it("returns Name.com USD prices only for safely purchasable domains", async () => {
 		const { provider, service } = setup();
 		provider.availability = [
 			{
 				available: true,
 				name: "shop.com",
-				wholesalePriceUsd: 9,
+				wholesalePriceUsd: 17.99,
 			},
 			{
 				available: true,
 				name: "shop.net",
 				premium: true,
-				wholesalePriceUsd: 900,
+				wholesalePriceUsd: 19.99,
+			},
+			{
+				available: true,
+				name: "shop.shop",
+			},
+			{
+				available: false,
+				name: "shop.store",
+				wholesalePriceUsd: 72.99,
 			},
 		];
 
 		const response = await service.search(userId, "shop");
 
-		expect(response.results[0]).toMatchObject({
-			availability: "available",
-			name: "shop.com",
-			registrationCredits: DOMAIN_TLD_CATALOG.com.registrationCredits,
-		});
-		expect(response.results[1]).toMatchObject({
-			availability: "premium_blocked",
-			name: "shop.net",
-			registrationCredits: DOMAIN_TLD_CATALOG.net.registrationCredits,
-		});
-		expect(JSON.stringify(response)).not.toContain("900");
+		expect(response.results.slice(0, 4)).toEqual([
+			{
+				availability: "available",
+				name: "shop.com",
+				registrationPriceUsd: 17.99,
+				tld: "com",
+			},
+			{
+				availability: "premium_blocked",
+				name: "shop.net",
+				registrationPriceUsd: null,
+				tld: "net",
+			},
+			{
+				availability: "premium_blocked",
+				name: "shop.shop",
+				registrationPriceUsd: null,
+				tld: "shop",
+			},
+			{
+				availability: "unavailable",
+				name: "shop.store",
+				registrationPriceUsd: null,
+				tld: "store",
+			},
+		]);
+		expect(JSON.stringify(response)).not.toMatch(
+			/registrationCredits|renewalCredits|wholesalePriceUsd/,
+		);
 	});
 
 	it("attaches BYO domains with required records and verifies only once Cloudflare is active", async () => {
@@ -725,18 +680,21 @@ describe("DomainsService", () => {
 		const first = repository.seed({
 			isPrimary: true,
 			name: "first.com",
-			priceSnapshot: priceSnapshot(),
 			projectId,
+			providerDomainId: "namecom_first",
 			source: "purchased",
 			status: "active",
 		});
 		const second = repository.seed({
 			cfCustomHostnameId: "cf_detach",
 			name: "second.com",
-			priceSnapshot: priceSnapshot(),
 			projectId,
+			providerDomainId: "namecom_second",
+			providerOrderId: "namecom_order_second",
+			providerTotalPaidUsd: "12.50",
 			source: "purchased",
 			status: "active",
+			transferLockExpiresAt: new Date("2027-01-01T00:00:00.000Z"),
 		});
 
 		await service.setPrimary(second.id, userId);
@@ -746,7 +704,9 @@ describe("DomainsService", () => {
 		const detached = await service.detach(second.id, userId);
 		expect(detached.domain.projectId).toBeNull();
 		expect(detached.domain.isPrimary).toBe(false);
-		expect(repository.rows.get(second.id)?.providerDomainId).toBeNull();
+		expect(repository.rows.get(second.id)?.providerDomainId).toBe(
+			"namecom_second",
+		);
 		expect(routing.deleted).toEqual(["second.com"]);
 		expect(cloudflare.deleteCustomHostname).toHaveBeenCalledWith("cf_detach");
 	});
@@ -755,8 +715,9 @@ describe("DomainsService", () => {
 		const { logger, provider, repository, service } = setup();
 		const row = repository.seed({
 			name: "unlock.com",
-			priceSnapshot: priceSnapshot(),
-			providerDomainId: "op_1",
+			providerDomainId: "namecom_1",
+			providerOrderId: "namecom_order_1",
+			providerTotalPaidUsd: "11.25",
 			source: "purchased",
 			status: "active",
 		});

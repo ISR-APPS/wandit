@@ -1,10 +1,10 @@
-import { Inject, Logger, type OnModuleInit } from "@nestjs/common";
 import { InjectQueue, Processor, WorkerHost } from "@nestjs/bullmq";
+import { Inject, Logger, type OnModuleInit } from "@nestjs/common";
 import {
+	DOMAIN_TLD_CATALOG,
 	type DomainDns,
-	type DomainPriceSnapshot,
 	domainDnsSchema,
-	domainPriceSnapshotSchema,
+	parseDomainName,
 	registrantSchema,
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
@@ -13,20 +13,15 @@ import {
 	type DomainConfigureJobData,
 	type DomainJobName,
 	type DomainPurchaseJobData,
-	type DomainRenewalsJobData,
 	type DomainSyncJobData,
 } from "@wandit/jobs";
 import type { Job, Queue } from "bullmq";
 
-import { InsufficientCreditsError } from "../../../server/src/modules/credits/domain/errors/insufficient-credits.error";
+import { apexRedirectTarget } from "../../../server/src/modules/domains/domain/domain-hosts";
 import {
-	apexRedirectTarget,
-} from "../../../server/src/modules/domains/domain/domain-hosts";
-import { DomainHttpError } from "../../../server/src/modules/domains/domain/errors/domain.errors";
-import {
-	CREDITS_PORT,
-	type CreditsPort,
-} from "../../../server/src/modules/domains/domain/ports/credits.port";
+	DomainHttpError,
+	DomainProviderError,
+} from "../../../server/src/modules/domains/domain/errors/domain.errors";
 import {
 	DOMAIN_PROVIDER,
 	type DomainDnsRecord,
@@ -42,14 +37,13 @@ import {
 type DomainJobData =
 	| DomainConfigureJobData
 	| DomainPurchaseJobData
-	| DomainRenewalsJobData
 	| DomainSyncJobData;
 
 type PurchaseDnsState = DomainDns & {
+	customHostnameDnsConfigured?: boolean;
 	purchaseDnsConfigured?: boolean;
 };
 
-const DAY_MS = 24 * 60 * 60 * 1000;
 const CONFIGURE_MAX_ATTEMPTS = 100;
 const CONFIGURE_MAX_DELAY_MS = 15 * 60 * 1000;
 
@@ -69,8 +63,6 @@ export class DomainsProcessor extends WorkerHost implements OnModuleInit {
 		private readonly domainsRepository: DomainsRepository,
 		@Inject(DOMAIN_PROVIDER)
 		private readonly domainProvider: DomainProvider,
-		@Inject(CREDITS_PORT)
-		private readonly creditsPort: CreditsPort,
 		@Inject(CustomHostnameService)
 		private readonly customHostnameService: CustomHostnameService,
 		@Inject(DomainRoutingService)
@@ -82,27 +74,16 @@ export class DomainsProcessor extends WorkerHost implements OnModuleInit {
 	}
 
 	async onModuleInit(): Promise<void> {
-		await Promise.all([
-			this.domainsQueue.upsertJobScheduler(
-				"domain-renewals-daily",
-				{ pattern: "0 2 * * *" },
-				{
-					data: {},
-					name: "domain-renewals",
-					opts: { removeOnComplete: 10, removeOnFail: 50 },
-				},
-			),
-			this.domainsQueue.upsertJobScheduler(
-				"domain-sync-weekly",
-				{ pattern: "0 3 * * 0" },
-				{
-					data: {},
-					name: "domain-sync",
-					opts: { removeOnComplete: 10, removeOnFail: 50 },
-				},
-			),
-		]);
-		this.logger.log("Domain job schedulers registered");
+		await this.domainsQueue.upsertJobScheduler(
+			"domain-sync-weekly",
+			{ pattern: "0 3 * * 0" },
+			{
+				data: {},
+				name: "domain-sync",
+				opts: { removeOnComplete: 10, removeOnFail: 50 },
+			},
+		);
+		this.logger.log("Domain sync scheduler registered");
 	}
 
 	async process(job: Job<DomainJobData, unknown, DomainJobName>) {
@@ -115,8 +96,6 @@ export class DomainsProcessor extends WorkerHost implements OnModuleInit {
 				return this.processDomainConfigure(
 					job as Job<DomainConfigureJobData, unknown, "domain-configure">,
 				);
-			case "domain-renewals":
-				return this.processDomainRenewals();
 			case "domain-sync":
 				return this.processDomainSync();
 			default:
@@ -133,26 +112,28 @@ export class DomainsProcessor extends WorkerHost implements OnModuleInit {
 		const data = job.data;
 		const row = await this.domainsRepository.getById(data.domainId);
 
-		if (!row || row.status !== "registering") {
+		if (row?.status !== "registering") {
 			return { processed: false, reason: "not_registering" };
 		}
 
-		const priceSnapshot = this.expectPriceSnapshot(row);
+		if (row.provider !== "namecom") {
+			await this.domainsRepository.markFailed(
+				row.id,
+				"Unsupported registrar for this worker",
+			);
+
+			return { processed: false, reason: "unsupported_provider" };
+		}
 
 		try {
-			await this.assertRegistrationAllowed(row, priceSnapshot);
+			await this.assertRegistrationAllowed(row);
 			const registered = await this.ensureRegistered(row);
 			const dnsConfigured = await this.ensurePurchasedDns(registered);
-			const hostnameConfigured =
-				await this.ensureCustomHostname(dnsConfigured);
-			await this.domainsRepository.updateIfStatus(
-				row.id,
-				["registering"],
-				{
-					error: null,
-					status: "configuring",
-				},
-			);
+			const hostnameConfigured = await this.ensureCustomHostname(dnsConfigured);
+			await this.domainsRepository.updateIfStatus(row.id, ["registering"], {
+				error: null,
+				status: "configuring",
+			});
 			await this.enqueueConfigure(
 				row.id,
 				0,
@@ -169,7 +150,7 @@ export class DomainsProcessor extends WorkerHost implements OnModuleInit {
 				throw error;
 			}
 
-			await this.terminalPurchaseFailure(row, priceSnapshot, error);
+			await this.terminalPurchaseFailure(row, error);
 
 			return {
 				processed: false,
@@ -192,7 +173,6 @@ export class DomainsProcessor extends WorkerHost implements OnModuleInit {
 			if (row.source === "purchased") {
 				await this.terminalPurchaseFailure(
 					row,
-					this.expectPriceSnapshot(row),
 					new Error("Missing Cloudflare custom hostname id"),
 				);
 			}
@@ -245,7 +225,6 @@ export class DomainsProcessor extends WorkerHost implements OnModuleInit {
 			if (row.source === "purchased") {
 				await this.terminalPurchaseFailure(
 					row,
-					this.expectPriceSnapshot(row),
 					new Error("Cloudflare SSL verification timed out"),
 				);
 
@@ -265,40 +244,6 @@ export class DomainsProcessor extends WorkerHost implements OnModuleInit {
 		return { processed: false, reason: "pending" };
 	}
 
-	private async processDomainRenewals(now = new Date()) {
-		const candidates = await this.domainsRepository.findRenewalCandidates(now);
-		let renewed = 0;
-		let skipped = 0;
-
-		for (const row of candidates) {
-			const expiresAt = row.expiresAt;
-
-			if (!expiresAt) {
-				skipped += 1;
-				continue;
-			}
-
-			const daysUntilExpiry = Math.ceil(
-				(expiresAt.getTime() - now.getTime()) / DAY_MS,
-			);
-
-			if (daysUntilExpiry <= 5) {
-				await this.domainsRepository.recordRenewalNotice(
-					row.id,
-					"Auto-renew stopped at T-5 because renewal credits were not available",
-				);
-				skipped += 1;
-				continue;
-			}
-
-			const didRenew = await this.renewCandidate(row);
-			renewed += didRenew ? 1 : 0;
-			skipped += didRenew ? 0 : 1;
-		}
-
-		return { processed: true, renewed, skipped };
-	}
-
 	private async processDomainSync() {
 		const rows = await this.domainsRepository.findPurchasedForSync();
 		let synced = 0;
@@ -307,6 +252,12 @@ export class DomainsProcessor extends WorkerHost implements OnModuleInit {
 			const info = await this.domainProvider.getDomainInfo(row.name);
 
 			if (!info) {
+				await this.domainsRepository.updateById(row.id, {
+					error: "Domain is no longer present in the Name.com account",
+					isPrimary: false,
+					status: "transferred_out",
+				});
+				synced += 1;
 				continue;
 			}
 			const status = this.syncedStatus(info.status);
@@ -314,6 +265,7 @@ export class DomainsProcessor extends WorkerHost implements OnModuleInit {
 			await this.domainsRepository.updateById(row.id, {
 				...(info.expiresAt ? { expiresAt: info.expiresAt } : {}),
 				...(status ? { status } : {}),
+				transferLockExpiresAt: info.transferLockExpiresAt ?? null,
 			});
 			synced += 1;
 		}
@@ -321,10 +273,7 @@ export class DomainsProcessor extends WorkerHost implements OnModuleInit {
 		return { processed: true, synced };
 	}
 
-	private async assertRegistrationAllowed(
-		row: DomainRow,
-		priceSnapshot: DomainPriceSnapshot,
-	): Promise<void> {
+	private async assertRegistrationAllowed(row: DomainRow): Promise<void> {
 		if (row.providerDomainId) {
 			return;
 		}
@@ -343,13 +292,23 @@ export class DomainsProcessor extends WorkerHost implements OnModuleInit {
 			throw new TerminalDomainJobError("Domain is not available");
 		}
 
+		const parsed = parseDomainName(row.name);
+
+		if (!parsed) {
+			throw new TerminalDomainJobError(
+				"Domain is not in the supported catalog",
+			);
+		}
+
+		const ceiling = DOMAIN_TLD_CATALOG[parsed.tld].wholesaleCeilingUsd;
+
 		if (
 			availability.premium ||
-			(typeof availability.wholesalePriceUsd === "number" &&
-				availability.wholesalePriceUsd > priceSnapshot.wholesaleCeilingUsd)
+			typeof availability.wholesalePriceUsd !== "number" ||
+			availability.wholesalePriceUsd > ceiling
 		) {
 			throw new TerminalDomainJobError(
-				"Domain wholesale price exceeded catalog ceiling",
+				"Domain price is premium, missing, or above the catalog safety ceiling",
 			);
 		}
 	}
@@ -359,25 +318,23 @@ export class DomainsProcessor extends WorkerHost implements OnModuleInit {
 			return row;
 		}
 
-		const existing = await this.domainProvider.getDomainInfo(row.name);
-
-		if (existing) {
-			return this.domainsRepository.updateById(row.id, {
-				expiresAt: existing.expiresAt,
-				providerDomainId: existing.id,
-			});
-		}
-
 		const registrant = registrantSchema.safeParse(row.registrant);
 
 		if (!registrant.success) {
 			throw new TerminalDomainJobError("Registrant snapshot is invalid");
 		}
 
+		/*
+		 * Always replay create with our stable key when the row has no receipt.
+		 * This recovers the original Name.com order after an ambiguous timeout.
+		 * Merely finding the name in our registrar account is not enough proof that
+		 * it belongs to this customer's paid order.
+		 */
 		const registered = await this.domainProvider.register(
 			row.name,
 			registrant.data,
 			{
+				idempotencyKey: `domain-purchase:${row.id}`,
 				privacy: row.whoisPrivacy,
 				years: 1,
 			},
@@ -386,6 +343,12 @@ export class DomainsProcessor extends WorkerHost implements OnModuleInit {
 		return this.domainsRepository.updateById(row.id, {
 			expiresAt: registered.expiresAt,
 			providerDomainId: registered.providerDomainId,
+			providerOrderId: registered.providerOrderId ?? null,
+			providerTotalPaidUsd:
+				registered.totalPaidUsd === undefined
+					? null
+					: registered.totalPaidUsd.toFixed(2),
+			transferLockExpiresAt: registered.transferLockExpiresAt ?? null,
 		});
 	}
 
@@ -425,149 +388,116 @@ export class DomainsProcessor extends WorkerHost implements OnModuleInit {
 	}
 
 	private async ensureCustomHostname(row: DomainRow): Promise<DomainRow> {
-		if (row.cfCustomHostnameId) {
-			return row;
-		}
+		let current = row;
 
-		const hostname = await this.customHostnameService.createCustomHostname(
-			row.name,
-		);
-		const dns = this.purchaseDnsState(row);
-
-		return this.domainsRepository.updateById(row.id, {
-			cfCustomHostnameId: hostname.id,
-			dns: {
-				...dns,
-				records: [
-					...(dns.records ?? []),
-					...hostname.requiredRecords.map((record) => ({
-						name: record.name,
-						purpose: "ownership_or_ssl_validation",
-						type: record.type,
-						value: record.value,
-					})),
-				],
-			},
-		});
-	}
-
-	private async renewCandidate(row: DomainRow): Promise<boolean> {
-		const priceSnapshot = this.expectPriceSnapshot(row);
-		const periodEndYear = (row.expiresAt ?? new Date()).getUTCFullYear() + 1;
-		const attemptUpdatedAtMs = row.updatedAt.getTime();
-		const idempotencyKey = `domain-renew:${row.id}:${periodEndYear}:${attemptUpdatedAtMs}`;
-		const providerInfo = await this.domainProvider.getDomainInfo(row.name);
-
-		if (
-			providerInfo?.expiresAt &&
-			row.expiresAt &&
-			providerInfo.expiresAt > row.expiresAt
-		) {
-			await this.domainsRepository.updateById(row.id, {
-				error: null,
-				expiresAt: providerInfo.expiresAt,
-				status: "active",
-			});
-
-			return true;
-		}
-
-		try {
-			await this.creditsPort.consume(row.userId, priceSnapshot.renewalCredits, {
-				idempotencyKey,
-				meta: {
-					domainId: row.id,
-					name: row.name,
-					reason: "domain_auto_renewal",
-				},
-			});
-		} catch (error) {
-			if (error instanceof InsufficientCreditsError) {
-				await this.domainsRepository.recordRenewalNotice(
-					row.id,
-					"Auto-renew skipped because renewal credits were not available",
-				);
-
-				return false;
-			}
-
-			throw error;
-		}
-
-		try {
-			const renewed = await this.domainProvider.renew(row.name, 1);
-			await this.domainsRepository.updateById(row.id, {
-				error: null,
-				expiresAt:
-					renewed.expiresAt ?? this.addYears(row.expiresAt ?? new Date(), 1),
-				status: "active",
-			});
-
-			return true;
-		} catch (error) {
-			await this.domainsRepository.recordRenewalNotice(
-				row.id,
-				"Renewal failed; credits were refunded and the next retry will use a fresh charge attempt",
+		if (!current.cfCustomHostnameId) {
+			const hostname = await this.customHostnameService.createCustomHostname(
+				current.name,
 			);
-			await this.creditsPort.grant(row.userId, priceSnapshot.renewalCredits, {
-				bucket: "topup",
-				idempotencyKey: `domain-renew-refund:${row.id}:${periodEndYear}:${attemptUpdatedAtMs}`,
-				meta: {
-					domainId: row.id,
-					reason: "domain_renewal_failed",
+			const dns = this.purchaseDnsState(current);
+			const validationRecords = hostname.requiredRecords.map((record) => ({
+				name: record.name,
+				purpose: "ownership_or_ssl_validation",
+				type: record.type,
+				value: record.value,
+			}));
+
+			/*
+			 * Persist Cloudflare's id and TXT challenges before touching Name.com.
+			 * If the DNS call times out, the retry resumes this same hostname instead
+			 * of creating a second one.
+			 */
+			current = await this.domainsRepository.updateById(current.id, {
+				cfCustomHostnameId: hostname.id,
+				dns: {
+					...dns,
+					records: this.mergeDnsRecords(dns.records ?? [], validationRecords),
 				},
 			});
-			throw error;
 		}
+
+		let dns = this.purchaseDnsState(current);
+
+		if (dns.customHostnameDnsConfigured) {
+			return current;
+		}
+
+		let validationRecords = (dns.records ?? []).filter(
+			(record) => record.purpose === "ownership_or_ssl_validation",
+		);
+
+		// Older rows may have the Cloudflare id but not its validation records.
+		if (validationRecords.length === 0 && current.cfCustomHostnameId) {
+			const hostname = await this.customHostnameService.getCustomHostnameStatus(
+				current.cfCustomHostnameId,
+			);
+			validationRecords = hostname.requiredRecords.map((record) => ({
+				name: record.name,
+				purpose: "ownership_or_ssl_validation",
+				type: record.type,
+				value: record.value,
+			}));
+			dns = {
+				...dns,
+				records: this.mergeDnsRecords(dns.records ?? [], validationRecords),
+			};
+		}
+
+		if (validationRecords.length > 0) {
+			await this.domainProvider.setDnsRecords(
+				current.name,
+				validationRecords.map((record) => ({
+					name: record.name,
+					type: record.type,
+					value: record.value,
+				})),
+			);
+		}
+
+		return this.domainsRepository.setDns(current.id, {
+			...dns,
+			customHostnameDnsConfigured: true,
+		});
 	}
 
 	private async terminalPurchaseFailure(
 		row: DomainRow,
-		priceSnapshot: DomainPriceSnapshot,
 		error: unknown,
 	): Promise<void> {
-		await this.grantPurchaseRefund(row, priceSnapshot);
-		await this.bestEffortDeleteCustomHostname(row);
-		await this.domainsRepository.markFailed(row.id, this.failureSummary(error));
-	}
+		const latest = (await this.domainsRepository.getById(row.id)) ?? row;
 
-	private async grantPurchaseRefund(
-		row: DomainRow,
-		priceSnapshot: DomainPriceSnapshot,
-	): Promise<void> {
-		const idempotencyKey = `domain-refund:${row.id}`;
-		const amount = priceSnapshot.registrationCredits;
-		const grant = () =>
-			this.creditsPort.grant(row.userId, amount, {
-				bucket: "topup",
-				idempotencyKey,
-				meta: {
-					domainId: row.id,
-					reason: "domain_registration_failed",
-				},
-			});
-
-		try {
-			await grant();
-			return;
-		} catch {
-			// Retry once immediately for transient ledger/database failures.
-		}
-
-		try {
-			await grant();
-		} catch (error) {
+		if (latest.providerDomainId) {
+			/*
+			 * Name.com already owns the domain now. A hosting/SSL failure must be
+			 * repaired; automatically refunding the full payment would give away a
+			 * paid domain and would not undo the registrar charge.
+			 */
 			this.logger.error(
-				"Domain purchase refund failed",
+				"Name.com registration succeeded but domain provisioning failed; manual repair required",
 				JSON.stringify({
-					amount,
-					domainId: row.id,
-					idempotencyKey,
-					userId: row.userId,
+					domainId: latest.id,
+					name: latest.name,
+					providerOrderId: latest.providerOrderId,
 				}),
 			);
-			throw error;
+		} else {
+			await this.bestEffortDeleteCustomHostname(latest);
+			/*
+			 * PAYMENT INTEGRATION — intentionally a log for now.
+			 *
+			 * DomainsModule will request an idempotent refund from PaymentsModule
+			 * using the domain-order reference. There is no speculative Stripe call.
+			 */
+			this.logger.warn(
+				"Domain registration failed before registrar purchase; payment refund hook is not connected",
+				JSON.stringify({ domainId: latest.id, name: latest.name }),
+			);
 		}
+
+		await this.domainsRepository.markFailed(
+			latest.id,
+			this.failureSummary(error),
+		);
 	}
 
 	private async handleConfigureTransient(
@@ -578,7 +508,7 @@ export class DomainsProcessor extends WorkerHost implements OnModuleInit {
 	) {
 		if (attempt >= CONFIGURE_MAX_ATTEMPTS) {
 			if (row.source === "purchased") {
-				await this.terminalPurchaseFailure(row, this.expectPriceSnapshot(row), error);
+				await this.terminalPurchaseFailure(row, error);
 
 				return { processed: false, reason: "timed_out" };
 			}
@@ -600,7 +530,10 @@ export class DomainsProcessor extends WorkerHost implements OnModuleInit {
 		error: unknown,
 		job: Job<DomainPurchaseJobData, unknown, "domain-purchase">,
 	): boolean {
-		if (error instanceof TerminalDomainJobError) {
+		if (
+			error instanceof TerminalDomainJobError ||
+			(error instanceof DomainProviderError && !error.retryable)
+		) {
 			return true;
 		}
 
@@ -610,6 +543,10 @@ export class DomainsProcessor extends WorkerHost implements OnModuleInit {
 	}
 
 	private failureSummary(error: unknown): string {
+		if (error instanceof TerminalDomainJobError) {
+			return error.message;
+		}
+
 		if (error instanceof DomainHttpError) {
 			const response = error.getResponse();
 
@@ -634,7 +571,9 @@ export class DomainsProcessor extends WorkerHost implements OnModuleInit {
 		}
 
 		try {
-			await this.customHostnameService.deleteCustomHostname(row.cfCustomHostnameId);
+			await this.customHostnameService.deleteCustomHostname(
+				row.cfCustomHostnameId,
+			);
 		} catch (error) {
 			this.logger.warn(
 				`Failed to delete Cloudflare custom hostname for domain ${row.id}`,
@@ -643,20 +582,26 @@ export class DomainsProcessor extends WorkerHost implements OnModuleInit {
 		}
 	}
 
-	private expectPriceSnapshot(row: DomainRow): DomainPriceSnapshot {
-		const parsed = domainPriceSnapshotSchema.safeParse(row.priceSnapshot);
-
-		if (!parsed.success) {
-			throw new Error(`Domain ${row.id} is missing price snapshot`);
-		}
-
-		return parsed.data;
-	}
-
 	private purchaseDnsState(row: DomainRow): PurchaseDnsState {
 		const parsed = domainDnsSchema.safeParse(row.dns);
 
 		return parsed.success ? parsed.data : {};
+	}
+
+	private mergeDnsRecords(
+		existing: NonNullable<DomainDns["records"]>,
+		incoming: NonNullable<DomainDns["records"]>,
+	): NonNullable<DomainDns["records"]> {
+		const records = new Map<
+			string,
+			NonNullable<DomainDns["records"]>[number]
+		>();
+
+		for (const record of [...existing, ...incoming]) {
+			records.set(`${record.type}:${record.name}:${record.value}`, record);
+		}
+
+		return [...records.values()];
 	}
 
 	private configureDelay(attempt: number) {
@@ -704,12 +649,5 @@ export class DomainsProcessor extends WorkerHost implements OnModuleInit {
 		}
 
 		return null;
-	}
-
-	private addYears(date: Date, years: number): Date {
-		const copy = new Date(date);
-		copy.setUTCFullYear(copy.getUTCFullYear() + years);
-
-		return copy;
 	}
 }

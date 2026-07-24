@@ -12,8 +12,7 @@ import {
 	parseExternalDomainName,
 	purchaseDomainBodySchema,
 	registrantSchema,
-	registrationPriceFor,
-	renewalPriceFor,
+	searchDomainsResultSchema,
 } from "@wandit/contracts";
 import { describe, expect, it } from "vitest";
 
@@ -115,7 +114,7 @@ describe("domain name contracts", () => {
 });
 
 describe("domain TLD catalog", () => {
-	it("exports the launch TLD set and positive catalog values", () => {
+	it("exports the launch TLD set and positive wholesale safety ceilings", () => {
 		expect(domainTlds).toEqual([
 			"com",
 			"net",
@@ -128,15 +127,25 @@ describe("domain TLD catalog", () => {
 		for (const tld of domainTlds) {
 			const catalog = DOMAIN_TLD_CATALOG[tld];
 
-			expect(catalog.registrationCredits).toBeGreaterThan(0);
-			expect(catalog.renewalCredits).toBeGreaterThan(0);
 			expect(catalog.wholesaleCeilingUsd).toBeGreaterThan(0);
 			expect(catalogFor(tld)).toEqual(catalog);
-			expect(registrationPriceFor(`example.${tld}`)).toBe(
-				catalog.registrationCredits,
-			);
-			expect(renewalPriceFor(`.${tld}`)).toBe(catalog.renewalCredits);
 		}
+
+		expect(
+			Object.fromEntries(
+				domainTlds.map((tld) => [
+					tld,
+					DOMAIN_TLD_CATALOG[tld].wholesaleCeilingUsd,
+				]),
+			),
+		).toEqual({
+			com: 30,
+			net: 35,
+			online: 75,
+			shop: 90,
+			site: 75,
+			store: 100,
+		});
 	});
 
 	it("identifies unsupported TLDs and invalid names", () => {
@@ -144,8 +153,46 @@ describe("domain TLD catalog", () => {
 		expect(isSupportedTld(".shop")).toBe(true);
 		expect(isSupportedTld("dz")).toBe(false);
 		expect(catalogFor("dz")).toBeNull();
-		expect(registrationPriceFor("example.dz")).toBeNull();
-		expect(renewalPriceFor("dz")).toBeNull();
+	});
+
+	it("accepts Name.com as the provider for newly purchased domains", () => {
+		const domain = domainSchema.parse({
+			...domainDto(),
+			provider: "namecom",
+			source: "purchased",
+			status: "active",
+		});
+
+		expect(domain.provider).toBe("namecom");
+		expect(domain).not.toHaveProperty("priceSnapshot");
+	});
+
+	it("requires an explicit USD price or null in domain search results", () => {
+		expect(
+			searchDomainsResultSchema.parse({
+				availability: "available",
+				name: "example.com",
+				registrationPriceUsd: 17.99,
+				tld: "com",
+			}),
+		).toMatchObject({ registrationPriceUsd: 17.99 });
+
+		expect(
+			searchDomainsResultSchema.parse({
+				availability: "unavailable",
+				name: "example.net",
+				registrationPriceUsd: null,
+				tld: "net",
+			}),
+		).toMatchObject({ registrationPriceUsd: null });
+
+		expect(
+			searchDomainsResultSchema.safeParse({
+				availability: "available",
+				name: "example.com",
+				tld: "com",
+			}).success,
+		).toBe(false);
 	});
 });
 
@@ -200,7 +247,6 @@ function baseDomainDto() {
 		id: "22222222-2222-4222-8222-000000000001",
 		isPrimary: false,
 		name: "brand.com",
-		priceSnapshot: null,
 		projectId: "11111111-1111-4111-8111-111111111111",
 		provider: null,
 		registrant: null,

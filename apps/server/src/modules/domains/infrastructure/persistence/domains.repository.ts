@@ -1,7 +1,6 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type {
 	DomainDns,
-	DomainPriceSnapshot,
 	DomainStatus,
 	DomainTld,
 	Registrant,
@@ -27,7 +26,6 @@ export type DomainTransaction = Parameters<
 
 type CreatePurchasedDomainInput = {
 	name: string;
-	priceSnapshot: DomainPriceSnapshot;
 	projectId: string;
 	registrant: Registrant;
 	tld: DomainTld;
@@ -50,11 +48,13 @@ type DomainUpdate = Partial<
 		| "error"
 		| "expiresAt"
 		| "isPrimary"
-		| "priceSnapshot"
 		| "projectId"
 		| "provider"
 		| "providerDomainId"
+		| "providerOrderId"
+		| "providerTotalPaidUsd"
 		| "status"
+		| "transferLockExpiresAt"
 	>
 >;
 
@@ -200,10 +200,7 @@ export class DomainsRepository {
 				.update(domains)
 				.set({ isPrimary: false })
 				.where(
-					and(
-						eq(domains.userId, userId),
-						eq(domains.projectId, row.projectId),
-					),
+					and(eq(domains.userId, userId), eq(domains.projectId, row.projectId)),
 				);
 
 			const [updated] = await tx
@@ -234,31 +231,9 @@ export class DomainsRepository {
 			.select()
 			.from(domains)
 			.where(
-				and(
-					eq(domains.projectId, projectId),
-					eq(domains.status, "active"),
-				),
+				and(eq(domains.projectId, projectId), eq(domains.status, "active")),
 			)
 			.orderBy(desc(domains.updatedAt));
-	}
-
-	async findRenewalCandidates(now = new Date()): Promise<DomainRow[]> {
-		const renewBy = new Date(now);
-		renewBy.setUTCDate(renewBy.getUTCDate() + 30);
-
-		return this.db
-			.select()
-			.from(domains)
-			.where(
-				and(
-					eq(domains.source, "purchased"),
-					eq(domains.autoRenew, true),
-					inArray(domains.status, ["active", "expired"]),
-					sql`${domains.expiresAt} IS NOT NULL`,
-					sql`${domains.expiresAt} <= ${renewBy}`,
-				),
-			)
-			.orderBy(domains.expiresAt, domains.id);
 	}
 
 	async findPurchasedForSync(): Promise<DomainRow[]> {
@@ -268,15 +243,12 @@ export class DomainsRepository {
 			.where(
 				and(
 					eq(domains.source, "purchased"),
+					eq(domains.provider, "namecom"),
 					sql`${domains.providerDomainId} IS NOT NULL`,
 					sql`${domains.status} NOT IN ('failed', 'transferred_out')`,
 				),
 			)
 			.orderBy(desc(domains.updatedAt));
-	}
-
-	recordRenewalNotice(id: string, message: string): Promise<DomainRow> {
-		return this.updateById(id, { error: message });
 	}
 
 	markFailed(id: string, summary: string): Promise<DomainRow> {
@@ -316,20 +288,27 @@ export class DomainsRepository {
 		db: Database | DomainTransaction,
 		input: CreatePurchasedDomainInput,
 	): Promise<DomainRow> {
+		/*
+		 * This insertion is a fulfillment step, not checkout.
+		 *
+		 * A domain application service will call it only after PaymentsModule
+		 * reports a verified webhook. PaymentsModule must not import this
+		 * repository directly. Privacy and auto-renew stay off until their separate
+		 * costs/consent are represented by that payment flow.
+		 */
 		const [inserted] = await db
 			.insert(domains)
 			.values({
-				autoRenew: true,
+				autoRenew: false,
 				name: input.name,
-				priceSnapshot: input.priceSnapshot,
 				projectId: input.projectId,
-				provider: "openprovider",
+				provider: "namecom",
 				registrant: input.registrant,
 				source: "purchased",
 				status: "registering",
 				tld: input.tld,
 				userId: input.userId,
-				whoisPrivacy: true,
+				whoisPrivacy: false,
 			})
 			.onConflictDoNothing({ target: domains.name })
 			.returning();

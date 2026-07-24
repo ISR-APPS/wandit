@@ -1,10 +1,5 @@
-import {
-	DOMAIN_TLD_CATALOG,
-	renewalPriceFor,
-	type Registrant,
-} from "@wandit/contracts";
+import type { Registrant } from "@wandit/contracts";
 
-import { isApiClientError } from "@/lib/api-client";
 import type {
 	Domain,
 	DomainStatus,
@@ -24,14 +19,8 @@ export function isDomainTransitional(status: DomainStatus) {
 }
 
 export function hasTransitionalDomains(domains: Domain[] | undefined) {
-	return domains?.some((domain) => isDomainTransitional(domain.status)) ?? false;
-}
-
-export function domainRenewalCredits(domain: Domain) {
 	return (
-		domain.priceSnapshot?.renewalCredits ??
-		renewalPriceFor(domain.tld) ??
-		DOMAIN_TLD_CATALOG.com.renewalCredits
+		domains?.some((domain) => isDomainTransitional(domain.status)) ?? false
 	);
 }
 
@@ -44,18 +33,15 @@ export function externalDomainLiveUrl(name: string) {
 }
 
 export function normalizeDomainInput(value: string) {
-	return value.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+	return value
+		.trim()
+		.toLowerCase()
+		.replace(/^https?:\/\//, "")
+		.replace(/\/.*$/, "");
 }
 
 export function isAvailableSearchResult(result: SearchDomainsResult) {
 	return result.availability === "available";
-}
-
-export function isInsufficientCreditsError(error: unknown) {
-	return (
-		isApiClientError(error) &&
-		(error.code === "INSUFFICIENT_CREDITS" || error.statusCode === 402)
-	);
 }
 
 export function createRegistrantDefaults(user?: {
@@ -109,7 +95,9 @@ export function toRegistrantBody(values: RegistrantFlatFormValues): Registrant {
 
 export type RegistrantFormField = keyof RegistrantFlatFormValues;
 
-export function registrantPathToField(path: PropertyKey[]): RegistrantFormField | null {
+export function registrantPathToField(
+	path: PropertyKey[],
+): RegistrantFormField | null {
 	const joined = path.join(".");
 
 	switch (joined) {

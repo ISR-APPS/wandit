@@ -3,15 +3,12 @@ import { Inject, Injectable, type Logger, Optional } from "@nestjs/common";
 import {
 	type AttachExternalDomainBody,
 	type AttachExternalDomainResponse,
-	catalogFor,
 	type DetachDomainResponse,
 	DOMAIN_TLD_CATALOG,
 	type DomainAvailabilityStatus,
 	type DomainDns,
-	type DomainPriceSnapshot,
 	type DomainTld,
 	domainDnsSchema,
-	domainPriceSnapshotSchema,
 	domainTlds,
 	isReservedDomainName,
 	isValidDomainLabel,
@@ -36,14 +33,10 @@ import type { JobsOptions, Queue } from "bullmq";
 import {
 	DomainBlockedError,
 	DomainNotAvailableError,
-	DomainsUnavailableError,
+	DomainPaymentsNotConfiguredError,
 	InvalidDomainStateError,
 	PremiumDomainBlockedError,
 } from "../../domain/errors/domain.errors";
-import {
-	CREDITS_PORT,
-	type CreditsPort,
-} from "../../domain/ports/credits.port";
 import {
 	DOMAIN_PROVIDER,
 	type DomainAvailability,
@@ -73,8 +66,6 @@ export class DomainsService {
 		private readonly domainsRepository: DomainsRepository,
 		@Inject(DOMAIN_PROVIDER)
 		private readonly domainProvider: DomainProvider,
-		@Inject(CREDITS_PORT)
-		private readonly creditsPort: CreditsPort,
 		@Inject(CustomHostnameService)
 		private readonly customHostnameService: CustomHostnameService,
 		@Inject(DomainRoutingService)
@@ -99,16 +90,21 @@ export class DomainsService {
 			results: candidates.map((candidate) => {
 				const catalog = DOMAIN_TLD_CATALOG[candidate.tld];
 				const result = availabilityByName.get(candidate.name);
+				const availability = this.publicAvailability(
+					candidate.name,
+					catalog,
+					result,
+				);
 
 				return {
-					availability: this.publicAvailability(
-						candidate.name,
-						catalog,
-						result,
-					),
+					availability,
 					name: candidate.name,
-					registrationCredits: catalog.registrationCredits,
-					renewalCredits: catalog.renewalCredits,
+					// Only expose Name.com's current USD registration quote when
+					// the same result is safe to purchase. Every other state is null.
+					registrationPriceUsd:
+						availability === "available"
+							? (result?.wholesalePriceUsd ?? null)
+							: null,
 					tld: candidate.tld,
 				};
 			}),
@@ -127,54 +123,33 @@ export class DomainsService {
 		body: PurchaseDomainBody,
 	): Promise<PurchaseDomainResponse> {
 		const parsed = this.parseSafeDomainName(body.name);
-		const priceSnapshot = this.priceSnapshot(parsed.tld);
 
 		await this.domainsRepository.assertProjectOwned(userId, projectId);
-		this.assertDomainQueueAvailable();
 
 		const [availability] = await this.domainProvider.checkAvailability([
 			parsed.name,
 		]);
 		this.assertDomainAvailable(parsed.name, availability);
 
-		// The domain row is created before consuming credits so the ledger
-		// idempotency key can be derived from the durable row id. If consume
-		// rejects, the row is deleted before the error is rethrown; queueing only
-		// happens after consume succeeds, preserving no-row/no-charge invariants.
-		const row = await this.domainsRepository.createPurchasedReplacingTerminal({
-			name: parsed.name,
-			priceSnapshot,
-			projectId,
-			registrant: body.registrant,
-			tld: parsed.tld,
-			userId,
-		});
-
-		try {
-			await this.creditsPort.consume(
-				userId,
-				priceSnapshot.registrationCredits,
-				{
-					idempotencyKey: `domain-purchase:${row.id}`,
-					meta: {
-						domainId: row.id,
-						name: row.name,
-						reason: "domain_purchase",
-					},
-				},
-			);
-		} catch (error) {
-			await this.domainsRepository.deleteById(row.id);
-			throw error;
-		}
-
-		await this.enqueueDomainJob(
-			"domain-purchase",
-			{ domainId: row.id },
-			`domain-purchase:${row.id}`,
+		this.logger.log(
+			`Domain checkout stopped before payment for ${parsed.name} (user ${userId}, project ${projectId})`,
 		);
 
-		return { domain: mapDomain(row) };
+		/*
+		 * PAYMENT INTEGRATION — intentionally empty for now.
+		 *
+		 * 1. DomainsModule creates a durable pending domain order containing the
+		 *    name, registrant, quote, user, and project.
+		 * 2. Ask PaymentsModule for checkout using only that order reference and
+		 *    the amount/currency, then return its checkout URL.
+		 * 3. PaymentsModule verifies Stripe's webhook and emits one idempotent
+		 *    success for the order. DomainsModule then creates the domain row and
+		 *    enqueues `domain-purchase`. Only that worker may charge Name.com.
+		 *
+		 * Important: do not move registration back into this HTTP request. A user
+		 * closing their browser must not lose an already-paid purchase.
+		 */
+		throw new DomainPaymentsNotConfiguredError();
 	}
 
 	async attachExternal(
@@ -271,46 +246,19 @@ export class DomainsService {
 
 		this.assertRenewable(row);
 
-		const priceSnapshot = this.expectPriceSnapshot(row);
-		const periodEndYear = this.nextExpiryYear(row);
-		const attemptUpdatedAtMs = row.updatedAt.getTime();
-		const idempotencyKey = `domain-renew:${row.id}:${periodEndYear}:${attemptUpdatedAtMs}`;
+		this.logger.log(
+			`Domain renewal stopped before payment for ${row.name} (user ${userId})`,
+		);
 
-		await this.creditsPort.consume(userId, priceSnapshot.renewalCredits, {
-			idempotencyKey,
-			meta: {
-				domainId: row.id,
-				name: row.name,
-				reason: "domain_renewal",
-			},
-		});
-
-		try {
-			const renewed = await this.domainProvider.renew(row.name, 1);
-			const expiresAt =
-				renewed.expiresAt ?? this.addYears(row.expiresAt ?? new Date(), 1);
-			const updated = await this.domainsRepository.updateById(row.id, {
-				error: null,
-				expiresAt,
-				status: "active",
-			});
-
-			return { domain: mapDomain(updated) };
-		} catch (error) {
-			await this.domainsRepository.recordRenewalNotice(
-				row.id,
-				"Renewal failed; credits were refunded and the next retry will use a fresh charge attempt",
-			);
-			await this.creditsPort.grant(userId, priceSnapshot.renewalCredits, {
-				bucket: "topup",
-				idempotencyKey: `domain-renew-refund:${row.id}:${periodEndYear}:${attemptUpdatedAtMs}`,
-				meta: {
-					domainId: row.id,
-					reason: "domain_renewal_failed",
-				},
-			});
-			throw error;
-		}
+		/*
+		 * PAYMENT INTEGRATION — intentionally empty for now.
+		 *
+		 * DomainsModule first creates a durable renewal order. A verified payment
+		 * event for that order may then enqueue a dedicated renewal-fulfillment job.
+		 * Name.com's renew endpoint spends registrar balance, so it must never run
+		 * merely because this button was clicked.
+		 */
+		throw new DomainPaymentsNotConfiguredError();
 	}
 
 	async setAutoRenew(
@@ -318,9 +266,24 @@ export class DomainsService {
 		userId: string,
 		body: UpdateDomainAutoRenewBody,
 	): Promise<UpdateDomainAutoRenewResponse> {
-		await this.domainsRepository.getByIdForUser(id, userId);
+		const row = await this.domainsRepository.getByIdForUser(id, userId);
+
+		if (body.autoRenew) {
+			this.logger.log(
+				`Auto-renew enable stopped before payment setup for ${row.name} (user ${userId})`,
+			);
+
+			/*
+			 * PAYMENT INTEGRATION — intentionally empty for now.
+			 *
+			 * Enabling auto-renew needs a saved Stripe payment method, customer
+			 * consent, and webhook-driven fulfillment. Disabling it is always safe.
+			 */
+			throw new DomainPaymentsNotConfiguredError();
+		}
+
 		const updated = await this.domainsRepository.updateById(id, {
-			autoRenew: body.autoRenew,
+			autoRenew: false,
 		});
 
 		return { domain: mapDomain(updated) };
@@ -357,15 +320,23 @@ export class DomainsService {
 	): Promise<TransferUnlockDomainResponse> {
 		const row = await this.domainsRepository.getByIdForUser(id, userId);
 
-		if (row.source !== "purchased" || row.status === "failed") {
+		if (
+			row.source !== "purchased" ||
+			row.provider !== "namecom" ||
+			row.status === "failed"
+		) {
 			throw new InvalidDomainStateError(
-				"Only purchased domains can be unlocked for transfer",
+				"Only Name.com-purchased domains can be unlocked for transfer",
 			);
 		}
 
 		await this.domainProvider.setTransferLock(row.name, false);
 		const authCode = await this.domainProvider.getAuthCode(row.name);
-		const lockedUntil = this.icannLockedUntil(row.createdAt);
+		const providerInfo = await this.domainProvider.getDomainInfo(row.name);
+		const lockedUntil =
+			providerInfo?.transferLockExpiresAt ??
+			row.transferLockExpiresAt ??
+			this.icannLockedUntil(row.createdAt);
 
 		return {
 			authCode,
@@ -457,15 +428,17 @@ export class DomainsService {
 			return "premium_blocked";
 		}
 
+		if (!availability.available) {
+			return "unavailable";
+		}
+
 		if (
-			typeof availability.wholesalePriceUsd === "number" &&
+			typeof availability.wholesalePriceUsd !== "number" ||
+			!Number.isFinite(availability.wholesalePriceUsd) ||
+			availability.wholesalePriceUsd <= 0 ||
 			availability.wholesalePriceUsd > catalog.wholesaleCeilingUsd
 		) {
 			return "premium_blocked";
-		}
-
-		if (!availability.available) {
-			return "unavailable";
 		}
 
 		if (isReservedDomainName(name)) {
@@ -473,21 +446,6 @@ export class DomainsService {
 		}
 
 		return "available";
-	}
-
-	private priceSnapshot(tld: DomainTld): DomainPriceSnapshot {
-		const catalog = catalogFor(tld);
-
-		if (!catalog) {
-			throw new DomainBlockedError("Unsupported domain TLD");
-		}
-
-		return {
-			registrationCredits: catalog.registrationCredits,
-			renewalCredits: catalog.renewalCredits,
-			tld,
-			wholesaleCeilingUsd: catalog.wholesaleCeilingUsd,
-		};
 	}
 
 	private requiredRecords(
@@ -540,41 +498,11 @@ export class DomainsService {
 		}
 	}
 
-	private expectPriceSnapshot(row: DomainRow): DomainPriceSnapshot {
-		const parsed = domainPriceSnapshotSchema.safeParse(row.priceSnapshot);
-
-		if (!parsed.success) {
-			throw new InvalidDomainStateError("Domain is missing its price snapshot");
-		}
-
-		return parsed.data;
-	}
-
-	private nextExpiryYear(row: DomainRow): number {
-		return (row.expiresAt ?? new Date()).getUTCFullYear() + 1;
-	}
-
-	private addYears(date: Date, years: number): Date {
-		const copy = new Date(date);
-		copy.setUTCFullYear(copy.getUTCFullYear() + years);
-
-		return copy;
-	}
-
 	private icannLockedUntil(createdAt: Date): Date | null {
 		const lockedUntil = new Date(createdAt);
 		lockedUntil.setUTCDate(lockedUntil.getUTCDate() + 60);
 
 		return lockedUntil > new Date() ? lockedUntil : null;
-	}
-
-	private assertDomainQueueAvailable(): void {
-		if (!isDomainQueueEnabled()) {
-			this.logger.warn(
-				"Domain purchase rejected because QUEUE_ENABLED is false",
-			);
-			throw new DomainsUnavailableError();
-		}
 	}
 
 	private async bestEffortDeleteCustomHostname(
@@ -657,8 +585,10 @@ export class DomainsService {
 
 		if (
 			availability.premium ||
-			(typeof availability.wholesalePriceUsd === "number" &&
-				availability.wholesalePriceUsd > catalog.wholesaleCeilingUsd)
+			typeof availability.wholesalePriceUsd !== "number" ||
+			!Number.isFinite(availability.wholesalePriceUsd) ||
+			availability.wholesalePriceUsd <= 0 ||
+			availability.wholesalePriceUsd > catalog.wholesaleCeilingUsd
 		) {
 			throw new PremiumDomainBlockedError(name);
 		}

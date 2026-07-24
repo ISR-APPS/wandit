@@ -8,7 +8,6 @@ export type {
 	Domain,
 	DomainAvailabilityStatus,
 	DomainDns,
-	DomainPriceSnapshot,
 	DomainSource,
 	DomainStatus,
 	DomainTld,

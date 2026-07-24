@@ -1,92 +1,137 @@
-# Custom Domains — Journal d'implémentation & décisions
+# Custom Domains — Journal d'implémentation et décisions
 
-**Date :** 2026-07-04 → 2026-07-05 · **Branche :** `feat/custom-domains` (worktree `ISR-AI-domains`, tout **non-commité**)
-**Spec technique :** `docs/features/custom-domains.md` (anglais) · **Linear :** ISRECOM-42 (ops) / ISRECOM-43 (infra) / ISRECOM-44 (UI)
-Ce document résume, en français, tout le travail réalisé et toutes les décisions discutées avec Zack. Il complète le spec, il ne le remplace pas.
+**Prototype initial :** 2026-07-04 → 2026-07-05 · **Direction actuelle mise à jour :** 2026-07-24
+**Spec de référence :** `docs/features/custom-domains.md`
 
----
+Ce document sépare volontairement l'état actuel des notes historiques. Les décisions de la section suivante font foi.
 
-## 1. C'est quoi cette feature, en une phrase
+## 1. Direction actuelle
 
-Un utilisateur Wandit choisit un nom de domaine (ex. `boutique-maya.com`), l'achète directement dans l'app, et son landing page généré est servi dessus automatiquement — DNS, certificat HTTPS, configuration : tout est fait par nous, il ne touche à rien.
+- **Registrar : Name.com CORE v1.** Le nouvel adapter utilise l'API CORE, son sandbox fonctionnel et l'authentification Basic username + API token.
+- **Paiement direct, jamais en crédits Wandit.** Achat initial et renouvellement passent par un checkout géré par un futur `PaymentsModule`.
+- **Fail-closed obligatoire.** Tant que `PaymentsModule`, la vérification de signature webhook et la réconciliation ne sont pas branchés, aucun endpoint d'achat ou de renouvellement ne peut muter le registrar.
+- **Le webhook vérifié est l'autorité.** Le retour navigateur « success » ne déclenche rien. Seul un événement signé, associé au bon ordre, au bon montant et à la bonne devise, enregistré de façon idempotente, peut lancer le job de fulfillment.
+- **Le client reste registrant légal.** Ses coordonnées sont envoyées à Name.com; le produit doit suivre et expliquer la vérification de contact.
+- **Wandit pilote les renouvellements.** L'autorenew Name.com est désactivé. Le flag local exprime une intention, mais ne permet jamais de renouveler avant paiement confirmé.
+- **Premium et aftermarket sont exclus du v1.** L'absence de prix ou tout dépassement du plafond wholesale bloque l'achat.
 
-## 2. Le modèle économique (décidé)
+## 2. Architecture conservée
 
-- **Wandit est reseller** : le client nous paie, et nous achetons le domaine chez un grossiste (**Openprovider**) depuis un **portefeuille prépayé**. La différence = notre marge, sur l'enregistrement ET chaque renouvellement annuel.
-- **Décision Zack (2026-07-05) — paiement direct, PAS de crédits** : le client paiera le domaine par carte via Stripe (checkout séparé), contrairement au spec initial qui prévoyait un paiement en crédits. ⚠️ Le code actuel consomme encore des crédits via un port (`CREDITS_PORT`) — c'est volontairement la partie "stop au paiement" : au moment de l'intégration Stripe, ce port sera remplacé par le flow checkout → webhook → enregistrement. Rien d'autre ne change.
-- **Devise du compte Openprovider : USD** (alignée sur le code : plafonds `wholesaleCeilingUsd`, prix spec en dollars, un seul taux USD→DZD à gérer).
-- **Le client est propriétaire légal du domaine** (registrant of record), WHOIS privacy activé gratuitement, transfert sortant toujours possible (code d'autorisation + verrou ICANN 60 jours affiché).
-- Le portefeuille Openprovider est notre **stock** : s'il est vide, les ventes échouent (le client est auto-remboursé par le code, mais c'est une vente perdue). Au go-live : alertes de solde bas + fonds de roulement (~10 domaines d'avance).
+Le prototype a fourni des briques utiles qui restent valables :
 
-## 3. Ce qui a été construit (tout est fonctionnel, testé, non-commité)
+- table `domains` et cycle `registering → configuring → active → failed | expired | transferred_out`;
+- validation stricte des domaines et du registrant;
+- port `DomainProvider`, aujourd'hui implémenté par `NamecomProvider`;
+- queue `domains` et jobs purchase/configure/sync;
+- configuration DNS gérée, redirection apex et transfert sortant;
+- Cloudflare for SaaS pour certificat et custom hostname;
+- pointeur KV `domain:{host}` pour la couture avec publishing-serving;
+- UI recherche/BYO/lifecycle et traductions en/fr/ar.
 
-### Base de données (`packages/db`)
-Table `domains` (migration `0002`, appliquée en local) : cycle de vie `registering → configuring → active → failed / expired / transferred_out`, snapshot du registrant et du prix au moment de l'achat, IDs provider/Cloudflare, contraintes d'intégrité (nom unique, lowercase, un seul domaine "primary" par projet).
+`packages/jobs` reste registrar-agnostique. Le serveur et le worker doivent toutefois utiliser le même binding Name.com.
 
-### Contrats partagés (`packages/contracts/src/v1/domains.ts`)
-- Toutes les routes API + schémas de validation (Zod) : noms de domaine stricts (anti-injection), téléphone E.164, adresse avec wilaya, blocklist (`wandit.app`, `wandit.dev`, `wandit-preview`).
-- **Catalogue TLD en code** : 6 TLDs de lancement (`.com .net .shop .store .online .site`) avec 3 chiffres chacun — prix de vente enregistrement, prix de vente renouvellement, **plafond wholesale** (le "prix d'alarme" qui bloque les domaines premium). Chiffres actuels = **PLACEHOLDERS** à calibrer avec les vrais prix du panel Openprovider.
+## 3. Frontière paiement
 
-### API serveur (`apps/server/src/modules/domains`)
-- 9 endpoints : recherche (avec prix), liste par projet, achat, connexion d'un domaine existant (BYO), vérification, renouvellement, auto-renew, primary, transfer-unlock, détachement.
-- **Port registrar swappable** : Openprovider n'est qu'une implémentation derrière une interface (`DomainProvider`). Passer à name.com ou autre = 1 fichier + 1 ligne de binding, rien d'autre ne bouge.
-- Client **Cloudflare for SaaS** (certificats HTTPS automatiques pour les domaines clients) + écriture des pointeurs **KV** (`domain:{host}` → quel site afficher) — c'est la couture avec la future slice publishing-serving.
-- Sécurité : validation systématique avant tout appel externe, ownership vérifié en SQL (404 jamais 403), rate limiting sur toutes les surfaces sensibles, aucune fuite de secrets/prix wholesale/erreurs brutes vers le client, idempotence sur tout ce qui touche l'argent.
+Le domaine ne doit pas réimplémenter un prestataire de paiement.
 
-### Worker (`apps/worker`)
-4 jobs sur la queue `domains` :
-- **domain-purchase** : re-vérifie le prix wholesale du domaine précis (anti-premium) → enregistre → configure le DNS (www CNAME + redirection apex) → crée le custom hostname Cloudflare. Chaque étape est idempotente (un retry ne ré-enregistre/ré-facture jamais) avec retries automatiques ; échec définitif = remboursement automatique garanti.
-- **domain-configure** : surveille l'émission du certificat SSL, active le domaine quand tout est prêt.
-- **domain-renewals** (quotidien) : renouvelle les domaines à ≤30 jours de l'expiration.
-- **domain-sync** (hebdomadaire) : réconcilie les statuts avec Openprovider.
+DomainsModule possède l'ordre métier domaine : nom, registrant, quote, user,
+project et état de fulfillment. `PaymentsModule` reçoit seulement une référence
+opaque, le montant et la devise; il ne doit jamais importer le repository domaine.
 
-### UI (`apps/web/src/features/domains`)
-Dans **Settings → section Domains** du workspace :
-- **Modal d'achat** : recherche → disponibilités par TLD avec prix → formulaire registrant (prérempli) → confirmation → progression en temps réel → URL live.
-- **Flow BYO** : "j'ai déjà un domaine" → table des enregistrements DNS à copier → bouton Vérifier.
-- **Liste** : statuts, primary, auto-renew, renouveler, transfer-out (code d'autorisation), détacher.
-- i18n complet **en / fr / ar** (RTL ok).
+`PaymentsModule` doit posséder :
 
-## 4. Comment ça a été construit (méthode)
+- création du checkout et état durable de la tentative de paiement;
+- montant, devise, référence métier et expiration;
+- vérification cryptographique des webhooks;
+- déduplication par event ID et idempotency key;
+- états payé/échoué/expiré/remboursé;
+- réconciliation et remboursement vers le moyen de paiement d'origine.
 
-Orchestration multi-agents : **Fable** (planning, arbitrages, review finale) · **Codex GPT-5.5** (discovery des conventions du repo + implémentation backend en 2 phases + corrections) · **Opus** (UI).
-Qualité : après l'implémentation, review personnelle du chemin critique argent par Fable (5 findings) + **review adversariale de 85 agents** sur 7 dimensions (33 findings confirmés sur 39, 6 réfutés). **Les 38 findings ont tous été corrigés et verrouillés par des tests.** Exemples de bugs attrapés : renouvellement gratuit possible après remboursement, remboursement perdu en cas de panne au mauvais moment, blocage premium inopérant à l'achat, crash du worker au démarrage, activation avant émission du certificat.
-État final : **62 tests serveur + 12 tests worker verts, typecheck repo vert, API saine.**
+### Achat
 
-## 5. État des opérations (où on en est côté comptes)
+1. Recherche Name.com en lecture seule avec estimation d'inscription en USD non verrouillée.
+2. Recheck et création d'une quote courte durée.
+3. Checkout direct.
+4. Webhook vérifié et enregistré.
+5. Seulement ensuite : `domain-purchase`.
+6. Recheck wholesale, enregistrement Name.com avec idempotency key stable, DNS, Cloudflare, activation.
 
-| Étape | Statut |
+### Renouvellement
+
+1. Détection d'échéance ou action « Renew now ».
+2. Quote de renouvellement courante.
+3. Paiement autorisé et confirmé.
+4. Webhook vérifié.
+5. Seulement ensuite : appel Name.com `renew`, puis persistance de la nouvelle expiration.
+
+Si le paiement est confirmé mais que le fulfillment échoue définitivement, la compensation passe par `PaymentsModule`. Aucun grant dans `credit_ledger`.
+
+## 4. État de sécurité
+
+| Surface | État attendu |
 |---|---|
-| Compte Openprovider **live** (RID 321973, USD) | ✅ Créé — 2FA à activer si pas fait |
-| Compte Openprovider **sandbox** | ❌ **HS côté Openprovider** — leur support confirme : "sandbox en panne, une nouvelle version arrive" (pas de date) |
-| **Plan B validé** : tests lecture-seule sur l'API live (login, disponibilité, prix — gratuits, sans risque, solde 0 $ = filet de sécurité) | ⏳ En attente des identifiants live dans `apps/server/.env` de la worktree |
-| Screenshot des prix réels (menu Prices) pour calibrer le catalogue | ⏳ À envoyer par Zack |
-| Financement du portefeuille (min 20 $, carte étrangère de Zack — pas de CIB nécessaire côté Wandit) | Plus tard, juste avant le smoke test réel |
-| **Cloudflare** : zone `wandit.app` sur le compte ? → Custom Hostnames à activer, namespace KV à créer, token API (SSL:Edit + Zone:Read + KV:Edit) + Zone ID | ⏳ À faire par Zack (~10 min) |
+| Recherche Name.com | Lecture seule, autorisée avec credentials sandbox |
+| BYO domain | Indépendant du registrar et du paiement |
+| Achat | Désactivé/fail-closed jusqu'au webhook vérifié |
+| Renouvellement manuel | Désactivé/fail-closed jusqu'au webhook vérifié |
+| Autorenew | Intention locale uniquement jusqu'au paiement off-session validé |
+| Production Name.com | Interdite aux tests locaux et automatiques |
 
-## 6. Ce qu'il reste à faire (dans l'ordre)
+Une disponibilité ou une quote ne réserve pas le domaine. Le worker doit toujours rechecker avant l'achat payé.
 
-1. **[Zack]** Identifiants Openprovider live dans le `.env` de la worktree → **[Agent]** validation lecture-seule des appels API réels + correction des ~10 marqueurs `// VERIFY` du client Openprovider.
-2. **[Zack]** Screenshot des prix → **[Agent]** proposition de calibrage du catalogue (wholesale → prix de vente → plafond) → validation Zack → écriture dans le code.
-3. **[Zack]** Les 4 points Cloudflare → **[Agent]** validation custom hostname + KV de bout en bout.
-4. **[Zack]** Review du diff complet dans l'éditeur, puis commit/PR quand satisfait.
-5. Financement 20 $ → **smoke test réel** : 1 vrai domaine pas cher (~2-3 $) acheté de bout en bout.
-6. **Intégration paiement** (chantier séparé, décision actée : Stripe checkout direct) — remplace le port crédits.
-7. **Publishing-serving** (`apps/edge`) — la slice qui affichera réellement les sites générés sur les domaines (la couture KV est prête de notre côté).
-8. Quand le nouveau sandbox Openprovider sort : e2e complet dessus par acquit de conscience.
+## 5. Opérations Name.com
 
-## 7. Points de vigilance / dettes assumées
+| Élément | Valeur |
+|---|---|
+| Sandbox | `https://api.dev.name.com` |
+| Production | `https://api.name.com` |
+| Auth | HTTP Basic : username + API token |
+| Username sandbox | username suffixé `-test` |
+| Inventaire v1 | `purchaseType=registration` uniquement |
+| Idempotence achat registrar | `X-Idempotency-Key` dérivée de l'ordre/domaine durable |
 
-- **Le worker importe du code de `apps/server` en chemins relatifs** (`../../server/src/...`) — ça marche (tsx + tsdown), mais c'est la première entorse aux frontières entre apps. Alternative propre si ça dérange : extraire un package partagé. **Décision à prendre par Zack à la review.**
-- Le spec dit encore "payé en crédits" — à mettre à jour quand l'intégration Stripe démarrera (décision paiement direct actée ici).
-- `vitest` ajouté en devDependency du worker (version déjà présente dans le repo, aucune dépendance externe nouvelle).
-- Les prix du catalogue sont des placeholders — **ne pas lancer sans calibrage**.
-- Sandbox Openprovider indisponible → les 3 marqueurs VERIFY restants (register/renew/authcode) ne seront validés qu'au smoke test réel.
+Variables serveur :
 
-## 8. Références pratiques
+- `NAMECOM_ENVIRONMENT=sandbox|production`
+- `NAMECOM_USERNAME`
+- `NAMECOM_API_TOKEN`
+- `CLOUDFLARE_API_TOKEN`
+- `CLOUDFLARE_ZONE_ID_WANDIT_APP`
+- `CLOUDFLARE_KV_NAMESPACE_ID`
+- `DOMAINS_FALLBACK_ORIGIN`
+- `QUEUE_ENABLED=true` + Redis pour le fulfillment asynchrone
 
-- **Worktree :** `/Users/mac/Desktop/work/projects/ISR-AI-domains` · serveurs dev : API **:3100**, web **:3101** (lancés en processus détachés ; logs `/tmp/wandit-domains-api.log` et `/tmp/wandit-domains-web.log`)
-- **Google OAuth (Console) :** origins `http://localhost:3100` + `http://localhost:3101`, redirect `http://localhost:3100/api/auth/callback/google`
-- **Env attendues** (`packages/env/src/server.ts`, optionnelles au boot) : `OPENPROVIDER_API_URL`, `OPENPROVIDER_USERNAME`, `OPENPROVIDER_PASSWORD`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ZONE_ID_WANDIT_APP`, `CLOUDFLARE_KV_NAMESPACE_ID`, `DOMAINS_FALLBACK_ORIGIN` (défaut `customers.wandit.app`) — et `QUEUE_ENABLED=true` + Redis + worker pour le pipeline d'achat.
-- **API Openprovider :** live `https://api.openprovider.eu` · sandbox (HS) `http://api.sandbox.openprovider.nl:8480` · panel live `cp.openprovider.eu` · panel sandbox `cp.sandbox.openprovider.nl`
-- **Fichiers clés :** catalogue TLD → `packages/contracts/src/v1/domains.ts` · client registrar → `apps/server/src/modules/domains/infrastructure/openprovider/openprovider.provider.ts` · jobs → `apps/worker/src/processors/domains.processor.ts` · UI → `apps/web/src/features/domains/`
+Le compte registrar doit être financé et monitoré. Les prix publics doivent couvrir le prix Name.com courant, le renouvellement, la privacy éventuelle, la fiscalité applicable et la marge.
+
+## 6. Prochaines étapes, dans l'ordre
+
+1. Le binding Name.com serveur/worker et la compatibilité read-only des anciennes lignes OpenProvider sont en place.
+2. Vérifier l'adapter contre le sandbox : availability, register idempotent, contacts, DNS, forwarding, lock/auth code, renewal et erreurs retryables.
+3. Construire `PaymentsModule` : checkout, ordre durable, webhook signé, matching montant/devise, déduplication, remboursement et réconciliation.
+4. Brancher l'achat et le renouvellement au webhook; prouver par tests qu'aucune mutation registrar n'arrive avant paiement confirmé.
+5. Adapter l'UI : checkout externe, retour cancel/success, écran d'état d'ordre et polling.
+6. Ajouter suivi de vérification contact, alertes de solde et procédures support.
+7. Valider Cloudflare + publishing-serving de bout en bout.
+8. Effectuer un smoke test production contrôlé seulement après tous les gates précédents.
+
+## 7. Points de vigilance
+
+- Le worker importe encore des éléments de `apps/server` par chemins relatifs; extraire un package partagé reste la frontière propre à terme.
+- Le prix de découverte Name.com n'inclut pas forcément privacy et TVA. La marge doit être vérifiée sur le coût complet.
+- Le statut de transfert et les rejets registry bénéficient de webhooks Name.com; le polling seul ne couvre pas tout.
+- Les contacts non vérifiés peuvent provoquer un lock et une interruption de résolution.
+- Les migrations historiques OpenProvider ne doivent pas être réécrites; une migration forward adapte les contraintes.
+
+## 8. Notes historiques — ne décrivent plus le produit courant
+
+Le prototype de juillet 2026 utilisait OpenProvider, un portefeuille registrar prépayé et le `credit_ledger` Wandit pour simuler achat, renouvellement et remboursement. Le sandbox OpenProvider était indisponible et plusieurs payloads restaient à vérifier. Ces limites ont motivé le passage à Name.com CORE v1.
+
+Les références suivantes sont donc historiques uniquement :
+
+- `OPENPROVIDER_API_URL`, `OPENPROVIDER_USERNAME`, `OPENPROVIDER_PASSWORD`;
+- `OpenproviderProvider`;
+- prix exprimés en crédits;
+- consommation/grant de crédits pour achat ou renouvellement;
+- promesse « changer de registrar = un fichier et une ligne ».
+
+Les détails techniques actuels sont dans `docs/features/custom-domains.md`.

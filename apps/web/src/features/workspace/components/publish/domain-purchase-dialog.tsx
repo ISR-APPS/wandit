@@ -17,15 +17,14 @@ import {
 import { Input } from "@wandit/ui/components/input";
 import { Separator } from "@wandit/ui/components/separator";
 import { Skeleton } from "@wandit/ui/components/skeleton";
-import { Switch } from "@wandit/ui/components/switch";
 import { cn } from "@wandit/ui/lib/utils";
 import {
 	ArrowLeft,
 	Check,
 	ChevronRight,
-	ExternalLink,
 	Globe2,
 	LockKeyhole,
+	RefreshCw,
 	Search,
 	ShieldCheck,
 	X,
@@ -38,41 +37,19 @@ import {
 	useState,
 } from "react";
 
-import { formatNumber, useTranslation } from "@/lib/i18n";
+import { useSession } from "@/features/auth";
 import {
-	CheckCircle,
-	ChecklistRow,
-	EmberOrb,
-	LiveUrlRow,
-	MockQr,
-	PulseBar,
-	RoundIconButton,
-	SpinnerArc,
-} from "./publish-bits";
+	DOMAIN_SEARCH_DEBOUNCE_MS,
+	type SearchDomainsResult,
+	useDebouncedValue,
+	useDomainSearchQuery,
+} from "@/features/domains";
+import { getApiErrorMessage } from "@/lib/api-client";
+import { formatNumber, useTranslation } from "@/lib/i18n";
+import { RoundIconButton } from "./publish-bits";
 
-const STRIPE_CHECKOUT_URL = "https://stripe.com/payments/checkout";
-const SEARCH_DELAY_MS = 620;
-const STRIPE_RETURN_DELAY_MS = 1_400;
-const PROVISIONING_DELAYS_MS = [850, 1_750, 2_850, 4_050] as const;
-
-type DomainPurchaseStep =
-	| "search"
-	| "details"
-	| "checkout"
-	| "stripe"
-	| "connecting"
-	| "connected";
-
-type SearchState = "idle" | "loading" | "ready" | "empty";
-
-type DomainOption = {
-	name: string;
-	priceDzd: number;
-	priceUsd: number;
-	available: boolean;
-	kind: "recommended" | "store" | "deal" | "standard" | "taken";
-	period: "year" | "firstYear";
-};
+type DomainPurchaseStep = "search" | "details" | "checkout";
+type SearchState = "idle" | "loading" | "ready" | "empty" | "error";
 
 type RegistrantDetails = {
 	fullName: string;
@@ -96,171 +73,97 @@ export type DomainPurchaseDialogProps = {
 	onConnected: (domainName: string, primary: boolean) => void;
 };
 
-const INITIAL_REGISTRANT_DETAILS: RegistrantDetails = {
-	fullName: "Yacine Benali",
-	email: "yacine@auroravoid.dz",
-	phone: "+213 661 20 34 88",
-	streetAddress: "14 Rue Didouche Mourad",
-	city: "Sidi M'Hamed",
-	region: "16 — Alger",
-	postalCode: "16000",
-	countryCode: "DZ",
-};
-
 const STEP_INDEX: Record<DomainPurchaseStep, number> = {
 	search: 1,
 	details: 2,
 	checkout: 3,
-	stripe: 3,
-	connecting: 4,
-	connected: 5,
 };
 
 export function DomainPurchaseDialog({
 	open,
 	onOpenChange,
 	suggestedStem,
-	subdomainUrl,
-	onConnected,
 }: DomainPurchaseDialogProps) {
 	const { t } = useTranslation();
+	const { data: session } = useSession();
 	const [step, setStep] = useState<DomainPurchaseStep>("search");
 	const [query, setQuery] = useState(() => normalizeDomainStem(suggestedStem));
-	const [searchState, setSearchState] = useState<SearchState>("idle");
-	const [results, setResults] = useState<DomainOption[]>([]);
-	const [selectedDomain, setSelectedDomain] = useState<DomainOption | null>(
-		null,
+	const normalizedQuery = normalizeDomainStem(query);
+	const debouncedQuery = useDebouncedValue(
+		normalizedQuery,
+		DOMAIN_SEARCH_DEBOUNCE_MS,
 	);
-	const [registrant, setRegistrant] = useState<RegistrantDetails>(() => ({
-		...INITIAL_REGISTRANT_DETAILS,
-	}));
+	const searchEnabled = open && step === "search" && debouncedQuery.length >= 2;
+	const search = useDomainSearchQuery(debouncedQuery, searchEnabled);
+	const queryIsSettled = normalizedQuery === debouncedQuery;
+	const results = queryIsSettled ? (search.data?.results ?? []) : [];
+
+	const [selectedDomain, setSelectedDomain] =
+		useState<SearchDomainsResult | null>(null);
+	const [registrant, setRegistrant] = useState<RegistrantDetails>(() =>
+		createRegistrantDefaults(),
+	);
 	const [registrantErrors, setRegistrantErrors] = useState<RegistrantErrors>(
 		{},
 	);
-	const [autoRenew, setAutoRenew] = useState(true);
-	const [stripeReturned, setStripeReturned] = useState(false);
-	const [provisioningStage, setProvisioningStage] = useState(0);
-	const [primaryDomain, setPrimaryDomain] = useState(true);
-
 	const wasOpenRef = useRef(false);
-	const connectedDomainRef = useRef<string | null>(null);
-	const onConnectedRef = useRef(onConnected);
-	onConnectedRef.current = onConnected;
+
+	/*
+	 * REAL SEARCH FLOW — this is intentionally short:
+	 * 1. Normalize the text so Name.com receives a safe domain stem.
+	 * 2. Debounce typing so we stay well below Name.com's request limit.
+	 * 3. useDomainSearchQuery calls our backend; the backend calls Name.com.
+	 *
+	 * There is no local availability or price fallback. If Name.com fails, the
+	 * user sees an error instead of believable-looking mock results.
+	 */
+	const searchState: SearchState =
+		normalizedQuery.length < 2
+			? "idle"
+			: !queryIsSettled || search.isFetching
+				? "loading"
+				: search.isError
+					? "error"
+					: results.length > 0
+						? "ready"
+						: "empty";
 
 	useEffect(() => {
 		if (open && !wasOpenRef.current) {
 			const initialStem = normalizeDomainStem(suggestedStem);
 			setStep("search");
 			setQuery(initialStem);
-			setSearchState(initialStem.length >= 2 ? "loading" : "idle");
-			setResults([]);
 			setSelectedDomain(null);
-			setRegistrant({ ...INITIAL_REGISTRANT_DETAILS });
+			setRegistrant(createRegistrantDefaults(session?.user));
 			setRegistrantErrors({});
-			setAutoRenew(true);
-			setStripeReturned(false);
-			setProvisioningStage(0);
-			setPrimaryDomain(true);
-			connectedDomainRef.current = null;
 		}
 
 		wasOpenRef.current = open;
-	}, [open, suggestedStem]);
+	}, [open, session?.user, suggestedStem]);
 
 	useEffect(() => {
-		if (!open || step !== "search") {
+		if (!queryIsSettled || !search.data) {
 			return;
 		}
 
-		const stem = normalizeDomainStem(query);
+		setSelectedDomain((current) => {
+			const currentResult = search.data.results.find(
+				(result) => result.name === current?.name,
+			);
+
+			if (currentResult && canPurchaseResult(currentResult)) {
+				return currentResult;
+			}
+
+			return (
+				search.data.results.find((result) => canPurchaseResult(result)) ?? null
+			);
+		});
+	}, [queryIsSettled, search.data]);
+
+	const handleQueryChange = (value: string) => {
+		setQuery(value);
 		setSelectedDomain(null);
-		setResults([]);
-
-		if (stem.length < 2) {
-			setSearchState("idle");
-			return;
-		}
-
-		setSearchState("loading");
-		const timer = window.setTimeout(() => {
-			const nextResults = createMockDomainResults(stem);
-			setResults(nextResults);
-			setSelectedDomain(nextResults.find((result) => result.available) ?? null);
-			setSearchState(nextResults.length > 0 ? "ready" : "empty");
-		}, SEARCH_DELAY_MS);
-
-		return () => window.clearTimeout(timer);
-	}, [open, query, step]);
-
-	useEffect(() => {
-		if (!open || step !== "stripe") {
-			return;
-		}
-
-		setStripeReturned(false);
-		const markReturned = () => setStripeReturned(true);
-		const handleVisibilityChange = () => {
-			if (document.visibilityState === "visible") {
-				markReturned();
-			}
-		};
-		const fallbackTimer = window.setTimeout(
-			markReturned,
-			STRIPE_RETURN_DELAY_MS,
-		);
-
-		window.addEventListener("focus", markReturned);
-		document.addEventListener("visibilitychange", handleVisibilityChange);
-
-		return () => {
-			window.clearTimeout(fallbackTimer);
-			window.removeEventListener("focus", markReturned);
-			document.removeEventListener("visibilitychange", handleVisibilityChange);
-		};
-	}, [open, step]);
-
-	useEffect(() => {
-		if (!open || step !== "connecting") {
-			return;
-		}
-
-		setProvisioningStage(0);
-		const timers = PROVISIONING_DELAYS_MS.map((delay, index) =>
-			window.setTimeout(() => {
-				if (index === PROVISIONING_DELAYS_MS.length - 1) {
-					setStep("connected");
-					return;
-				}
-
-				setProvisioningStage(index + 1);
-			}, delay),
-		);
-
-		return () => {
-			for (const timer of timers) {
-				window.clearTimeout(timer);
-			}
-		};
-	}, [open, step]);
-
-	const commitConnectedDomain = () => {
-		if (
-			step !== "connected" ||
-			!selectedDomain ||
-			connectedDomainRef.current === selectedDomain.name
-		) {
-			return;
-		}
-
-		connectedDomainRef.current = selectedDomain.name;
-		onConnectedRef.current(selectedDomain.name, primaryDomain);
-	};
-
-	const handleDialogOpenChange = (nextOpen: boolean) => {
-		if (!nextOpen) {
-			commitConnectedDomain();
-		}
-		onOpenChange(nextOpen);
 	};
 
 	const handleRegistrantChange = (field: RegistrantField, value: string) => {
@@ -280,7 +183,9 @@ export function DomainPurchaseDialog({
 		if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(registrant.email.trim())) {
 			errors.email = t("workspace.publish.domainPurchase.validation.email");
 		}
-		if (registrant.phone.replace(/\D/g, "").length < 9) {
+
+		const normalizedPhone = registrant.phone.replace(/[\s()-]/g, "");
+		if (!/^\+[1-9]\d{7,14}$/.test(normalizedPhone)) {
 			errors.phone = t("workspace.publish.domainPurchase.validation.phone");
 		}
 		if (registrant.streetAddress.trim().length < 5) {
@@ -311,34 +216,13 @@ export function DomainPurchaseDialog({
 		}
 	};
 
-	const title =
-		step === "search"
-			? t("workspace.publish.domainPurchase.search.title")
-			: step === "details"
-				? t("workspace.publish.domainPurchase.details.title")
-				: step === "checkout"
-					? t("workspace.publish.domainPurchase.checkout.title")
-					: step === "stripe"
-						? t("workspace.publish.domainPurchase.stripe.title")
-						: step === "connecting"
-							? t("workspace.publish.domainPurchase.connecting.title")
-							: t("workspace.publish.domainPurchase.connected.title");
-
-	const description =
-		step === "search"
-			? t("workspace.publish.domainPurchase.search.description")
-			: step === "details"
-				? t("workspace.publish.domainPurchase.details.description")
-				: step === "checkout"
-					? t("workspace.publish.domainPurchase.checkout.description")
-					: step === "stripe"
-						? t("workspace.publish.domainPurchase.stripe.description")
-						: step === "connecting"
-							? t("workspace.publish.domainPurchase.connecting.description")
-							: t("workspace.publish.domainPurchase.connected.description");
+	const title = t(`workspace.publish.domainPurchase.${step}.title` as const);
+	const description = t(
+		`workspace.publish.domainPurchase.${step}.description` as const,
+	);
 
 	return (
-		<Dialog open={open} onOpenChange={handleDialogOpenChange}>
+		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent
 				showCloseButton={false}
 				closeLabel={t("workspace.publish.domainPurchase.common.close")}
@@ -363,7 +247,7 @@ export function DomainPurchaseDialog({
 					<span className="hidden shrink-0 text-[11.5px] text-muted-foreground sm:block">
 						{t("workspace.publish.domainPurchase.common.stepCount", {
 							current: STEP_INDEX[step],
-							total: 5,
+							total: 3,
 						})}
 					</span>
 					<DialogClose asChild>
@@ -383,8 +267,10 @@ export function DomainPurchaseDialog({
 					{step === "search" ? (
 						<SearchStep
 							query={query}
-							onQueryChange={setQuery}
+							onQueryChange={handleQueryChange}
 							state={searchState}
+							error={search.isError ? getApiErrorMessage(search.error) : null}
+							onRetry={() => void search.refetch()}
 							results={results}
 							selected={selectedDomain}
 							onSelect={setSelectedDomain}
@@ -406,36 +292,7 @@ export function DomainPurchaseDialog({
 					{step === "checkout" && selectedDomain ? (
 						<CheckoutStep
 							domain={selectedDomain}
-							autoRenew={autoRenew}
-							onAutoRenewChange={setAutoRenew}
 							onBack={() => setStep("details")}
-							onStripeHandoff={() => setStep("stripe")}
-						/>
-					) : null}
-
-					{step === "stripe" && selectedDomain ? (
-						<StripeWaitingStep
-							domain={selectedDomain}
-							returned={stripeReturned}
-							onBack={() => setStep("checkout")}
-							onPrototypeComplete={() => setStep("connecting")}
-						/>
-					) : null}
-
-					{step === "connecting" && selectedDomain ? (
-						<ConnectingStep
-							domainName={selectedDomain.name}
-							stage={provisioningStage}
-						/>
-					) : null}
-
-					{step === "connected" && selectedDomain ? (
-						<ConnectedStep
-							domainName={selectedDomain.name}
-							subdomainUrl={subdomainUrl}
-							primary={primaryDomain}
-							onPrimaryChange={setPrimaryDomain}
-							onDone={() => handleDialogOpenChange(false)}
 						/>
 					) : null}
 				</div>
@@ -448,6 +305,8 @@ function SearchStep({
 	query,
 	onQueryChange,
 	state,
+	error,
+	onRetry,
 	results,
 	selected,
 	onSelect,
@@ -456,9 +315,11 @@ function SearchStep({
 	query: string;
 	onQueryChange: (value: string) => void;
 	state: SearchState;
-	results: DomainOption[];
-	selected: DomainOption | null;
-	onSelect: (domain: DomainOption) => void;
+	error: string | null;
+	onRetry: () => void;
+	results: SearchDomainsResult[];
+	selected: SearchDomainsResult | null;
+	onSelect: (domain: SearchDomainsResult) => void;
 	onContinue: () => void;
 }) {
 	const { t, locale } = useTranslation();
@@ -466,36 +327,34 @@ function SearchStep({
 	return (
 		<>
 			<ModalBody className="gap-4">
-				<div>
-					<Field>
-						<FieldLabel htmlFor="domain-purchase-search">
-							{t("workspace.publish.domainPurchase.search.label")}
-						</FieldLabel>
-						<div className="relative">
-							<Search
-								aria-hidden
-								className="pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
-								strokeWidth={1.9}
-							/>
-							<Input
-								id="domain-purchase-search"
-								value={query}
-								onChange={(event) => onQueryChange(event.target.value)}
-								placeholder={t(
-									"workspace.publish.domainPurchase.search.placeholder",
-								)}
-								autoComplete="off"
-								spellCheck={false}
-								dir="ltr"
-								aria-busy={state === "loading"}
-								className="h-11 rounded-[11px] bg-background ps-10 pe-4 font-medium text-[15px] shadow-none"
-							/>
-						</div>
-						<FieldDescription>
-							{t("workspace.publish.domainPurchase.search.hint")}
-						</FieldDescription>
-					</Field>
-				</div>
+				<Field>
+					<FieldLabel htmlFor="domain-purchase-search">
+						{t("workspace.publish.domainPurchase.search.label")}
+					</FieldLabel>
+					<div className="relative">
+						<Search
+							aria-hidden
+							className="pointer-events-none absolute start-3.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
+							strokeWidth={1.9}
+						/>
+						<Input
+							id="domain-purchase-search"
+							value={query}
+							onChange={(event) => onQueryChange(event.target.value)}
+							placeholder={t(
+								"workspace.publish.domainPurchase.search.placeholder",
+							)}
+							autoComplete="off"
+							spellCheck={false}
+							dir="ltr"
+							aria-busy={state === "loading"}
+							className="h-11 rounded-[11px] bg-background ps-10 pe-4 font-medium text-[15px] shadow-none"
+						/>
+					</div>
+					<FieldDescription>
+						{t("workspace.publish.domainPurchase.search.hint")}
+					</FieldDescription>
+				</Field>
 
 				<div
 					className="min-h-[214px]"
@@ -505,27 +364,40 @@ function SearchStep({
 					{state === "loading" ? <SearchSkeleton /> : null}
 
 					{state === "idle" || state === "empty" ? (
-						<div className="grid min-h-[214px] place-items-center rounded-[16px] border border-dashed bg-secondary/40 p-6 text-center">
-							<div className="flex max-w-[300px] flex-col items-center">
-								<span className="grid size-10 place-items-center rounded-[12px] border bg-background text-primary shadow-xs">
-									<Globe2 className="size-[19px]" strokeWidth={1.7} />
-								</span>
-								<p className="mt-3 font-medium text-sm">
-									{t(
-										state === "empty"
-											? "workspace.publish.domainPurchase.search.noResultsTitle"
-											: "workspace.publish.domainPurchase.search.emptyTitle",
-									)}
-								</p>
-								<p className="mt-1 text-[12.5px] text-muted-foreground leading-relaxed">
-									{t(
-										state === "empty"
-											? "workspace.publish.domainPurchase.search.noResultsDescription"
-											: "workspace.publish.domainPurchase.search.emptyDescription",
-									)}
-								</p>
-							</div>
-						</div>
+						<SearchMessage
+							title={t(
+								state === "empty"
+									? "workspace.publish.domainPurchase.search.noResultsTitle"
+									: "workspace.publish.domainPurchase.search.emptyTitle",
+							)}
+							description={t(
+								state === "empty"
+									? "workspace.publish.domainPurchase.search.noResultsDescription"
+									: "workspace.publish.domainPurchase.search.emptyDescription",
+							)}
+						/>
+					) : null}
+
+					{state === "error" ? (
+						<SearchMessage
+							title={t("workspace.publish.domainPurchase.search.errorTitle")}
+							description={
+								error ??
+								t("workspace.publish.domainPurchase.search.errorDescription")
+							}
+							action={
+								<Button
+									type="button"
+									variant="outline"
+									size="sm"
+									onClick={onRetry}
+									className="mt-3"
+								>
+									<RefreshCw className="size-3.5" />
+									{t("workspace.publish.domainPurchase.search.retry")}
+								</Button>
+							}
+						/>
 					) : null}
 
 					{state === "ready" ? (
@@ -562,9 +434,7 @@ function SearchStep({
 								·
 							</span>
 							<span className="shrink-0">
-								{t("workspace.publish.domainPurchase.common.priceDzd", {
-									amount: formatNumber(selected.priceDzd, locale),
-								})}
+								{formatUsd(selected.registrationPriceUsd, locale)}
 							</span>
 						</>
 					) : (
@@ -573,6 +443,31 @@ function SearchStep({
 				</Button>
 			</ModalFooter>
 		</>
+	);
+}
+
+function SearchMessage({
+	title,
+	description,
+	action,
+}: {
+	title: string;
+	description: string;
+	action?: React.ReactNode;
+}) {
+	return (
+		<div className="grid min-h-[214px] place-items-center rounded-[16px] border border-dashed bg-secondary/40 p-6 text-center">
+			<div className="flex max-w-[320px] flex-col items-center">
+				<span className="grid size-10 place-items-center rounded-[12px] border bg-background text-primary shadow-xs">
+					<Globe2 className="size-[19px]" strokeWidth={1.7} />
+				</span>
+				<p className="mt-3 font-medium text-sm">{title}</p>
+				<p className="mt-1 text-[12.5px] text-muted-foreground leading-relaxed">
+					{description}
+				</p>
+				{action}
+			</div>
+		</div>
 	);
 }
 
@@ -604,31 +499,30 @@ function DomainResultButton({
 	selected,
 	onSelect,
 }: {
-	domain: DomainOption;
+	domain: SearchDomainsResult;
 	selected: boolean;
 	onSelect: () => void;
 }) {
 	const { t, locale } = useTranslation();
-	const helper =
-		domain.kind === "recommended"
-			? t("workspace.publish.domainPurchase.search.privateRegistration")
-			: domain.kind === "store"
-				? t("workspace.publish.domainPurchase.search.storeHelper")
-				: domain.kind === "deal"
-					? t("workspace.publish.domainPurchase.search.dealHelper")
-					: domain.kind === "standard"
-						? t("workspace.publish.domainPurchase.search.standardHelper")
-						: t("workspace.publish.domainPurchase.search.unavailable");
+	const selectable = canPurchaseResult(domain);
+	const isPremium = domain.availability === "premium_blocked";
+	const helper = selectable
+		? t("workspace.publish.domainPurchase.search.liveAvailability")
+		: isPremium
+			? t("workspace.publish.domainPurchase.search.premiumUnavailable")
+			: domain.availability === "available"
+				? t("workspace.publish.domainPurchase.search.priceUnavailable")
+				: t("workspace.publish.domainPurchase.search.unavailable");
 
 	return (
 		<button
 			type="button"
-			disabled={!domain.available}
+			disabled={!selectable}
 			aria-pressed={selected}
 			onClick={onSelect}
 			className={cn(
 				"group flex min-h-[62px] items-center gap-3 rounded-[13px] border px-3 py-2.5 text-start outline-none transition-[border-color,background-color,transform,box-shadow] focus-visible:ring-[3px] focus-visible:ring-ring/40",
-				domain.available
+				selectable
 					? "hover:border-primary/35 hover:bg-primary/[0.025] active:scale-[0.985]"
 					: "cursor-not-allowed bg-secondary/35 opacity-65",
 				selected &&
@@ -636,56 +530,28 @@ function DomainResultButton({
 			)}
 		>
 			<div className="min-w-0 flex-1">
-				<div className="flex min-w-0 flex-wrap items-center gap-1.5">
-					<span
-						dir="ltr"
-						className={cn(
-							"truncate font-semibold text-sm tracking-[-0.2px]",
-							!domain.available && "text-muted-foreground line-through",
-						)}
-					>
-						{domain.name}
-					</span>
-					{domain.kind === "recommended" ? (
-						<span className="rounded-full bg-primary px-1.5 py-0.5 font-medium text-[9.5px] text-primary-foreground">
-							{t("workspace.publish.domainPurchase.search.recommended")}
-						</span>
-					) : null}
-					{domain.kind === "deal" ? (
-						<span className="rounded-full border border-primary/35 px-1.5 py-0.5 font-medium text-[9.5px] text-primary">
-							{t("workspace.publish.domainPurchase.search.firstYearDeal")}
-						</span>
-					) : null}
-				</div>
-				{domain.available ? (
-					<p className="mt-0.5 truncate text-[10.5px] text-muted-foreground">
-						{helper}
-					</p>
-				) : null}
+				<p
+					dir="ltr"
+					className={cn(
+						"truncate font-semibold text-sm tracking-[-0.2px]",
+						!selectable && "text-muted-foreground",
+					)}
+				>
+					{domain.name}
+				</p>
+				<p className="mt-0.5 truncate text-[10.5px] text-muted-foreground">
+					{helper}
+				</p>
 			</div>
-			{domain.available ? (
+
+			{selectable ? (
 				<>
 					<div className="shrink-0 text-end">
 						<p className="whitespace-nowrap font-semibold text-[12.5px]">
-							{t("workspace.publish.domainPurchase.common.priceDzd", {
-								amount: formatNumber(domain.priceDzd, locale),
-							})}
-							<span className="ms-0.5 hidden font-normal text-[10px] text-muted-foreground min-[420px]:inline">
-								{domain.period === "firstYear"
-									? t("workspace.publish.domainPurchase.common.perFirstYear")
-									: t("workspace.publish.domainPurchase.common.perYear")}
+							{formatUsd(domain.registrationPriceUsd, locale)}
+							<span className="ms-0.5 font-normal text-[10px] text-muted-foreground">
+								{t("workspace.publish.domainPurchase.common.perYear")}
 							</span>
-						</p>
-						<p className="mt-0.5 whitespace-nowrap text-[10px] text-muted-foreground">
-							<span className="min-[420px]:hidden">
-								{domain.period === "firstYear"
-									? t("workspace.publish.domainPurchase.common.perFirstYear")
-									: t("workspace.publish.domainPurchase.common.perYear")}{" "}
-								·{" "}
-							</span>
-							{t("workspace.publish.domainPurchase.common.approxUsd", {
-								amount: domain.priceUsd,
-							})}
 						</p>
 					</div>
 					<span
@@ -705,7 +571,7 @@ function DomainResultButton({
 				</>
 			) : (
 				<span className="shrink-0 rounded-full border bg-background px-2.5 py-1 text-[10px] text-muted-foreground">
-					{helper}
+					{t("workspace.publish.domainPurchase.search.notSelectable")}
 				</span>
 			)}
 		</button>
@@ -720,7 +586,7 @@ function DetailsStep({
 	onBack,
 	onSubmit,
 }: {
-	domain: DomainOption;
+	domain: SearchDomainsResult;
 	values: RegistrantDetails;
 	errors: RegistrantErrors;
 	onChange: (field: RegistrantField, value: string) => void;
@@ -737,18 +603,20 @@ function DetailsStep({
 		>
 			<ModalBody className="gap-4">
 				<SelectedDomainStrip domain={domain} />
-				<div className="flex items-start gap-2 rounded-[12px] border border-success/25 bg-success/[0.055] px-3 py-2.5">
-					<LockKeyhole
+				<div className="flex items-start gap-2 rounded-[12px] border border-primary/20 bg-primary/[0.045] px-3 py-2.5">
+					<ShieldCheck
 						aria-hidden
-						className="mt-px size-4 shrink-0 text-success-text"
+						className="mt-px size-4 shrink-0 text-primary"
 						strokeWidth={1.8}
 					/>
 					<div>
 						<p className="font-medium text-[12.5px]">
-							{t("workspace.publish.domainPurchase.details.privacyTitle")}
+							{t("workspace.publish.domainPurchase.details.registrantTitle")}
 						</p>
 						<p className="mt-0.5 text-[11.5px] text-muted-foreground leading-relaxed">
-							{t("workspace.publish.domainPurchase.details.privacyDescription")}
+							{t(
+								"workspace.publish.domainPurchase.details.registrantDescription",
+							)}
 						</p>
 					</div>
 				</div>
@@ -826,7 +694,6 @@ function DetailsStep({
 						value={values.postalCode}
 						error={errors.postalCode}
 						autoComplete="postal-code"
-						inputMode="numeric"
 						onChange={(event) => onChange("postalCode", event.target.value)}
 					/>
 				</FieldGroup>
@@ -890,21 +757,13 @@ function RegistrantInput({
 
 function CheckoutStep({
 	domain,
-	autoRenew,
-	onAutoRenewChange,
 	onBack,
-	onStripeHandoff,
 }: {
-	domain: DomainOption;
-	autoRenew: boolean;
-	onAutoRenewChange: (checked: boolean) => void;
+	domain: SearchDomainsResult;
 	onBack: () => void;
-	onStripeHandoff: () => void;
 }) {
 	const { t, locale } = useTranslation();
-	const formattedPrice = t("workspace.publish.domainPurchase.common.priceDzd", {
-		amount: formatNumber(domain.priceDzd, locale),
-	});
+	const formattedPrice = formatUsd(domain.registrationPriceUsd, locale);
 
 	return (
 		<>
@@ -926,49 +785,24 @@ function CheckoutStep({
 
 					<Separator className="my-4" />
 
-					<div className="flex items-center gap-3">
-						<div className="min-w-0 flex-1">
-							<label
-								htmlFor="domain-purchase-auto-renew"
-								className="cursor-pointer font-medium text-[13px]"
-							>
-								{t("workspace.publish.domainPurchase.checkout.autoRenewTitle")}
-							</label>
-							<p className="mt-0.5 text-[11.5px] text-muted-foreground">
-								{t(
-									"workspace.publish.domainPurchase.checkout.autoRenewDescription",
-									{ amount: formattedPrice },
-								)}
-							</p>
-						</div>
-						<Switch
-							id="domain-purchase-auto-renew"
-							checked={autoRenew}
-							onCheckedChange={onAutoRenewChange}
-							aria-label={t(
-								"workspace.publish.domainPurchase.checkout.autoRenewTitle",
-							)}
-						/>
-					</div>
-
-					<Separator className="my-4" />
-
 					<div className="flex items-baseline justify-between gap-4">
 						<span className="font-medium text-sm">
-							{t("workspace.publish.domainPurchase.checkout.totalToday")}
+							{t("workspace.publish.domainPurchase.checkout.estimatedTotal")}
 						</span>
-						<div className="text-end">
-							<p className="font-semibold text-base">{formattedPrice}</p>
-							<p className="text-[11px] text-muted-foreground">
-								{t("workspace.publish.domainPurchase.common.approxUsd", {
-									amount: domain.priceUsd,
-								})}
-							</p>
-						</div>
+						<p className="font-semibold text-base">{formattedPrice}</p>
 					</div>
 				</div>
 
 				<div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+					<CheckoutBenefit
+						icon={<Globe2 className="size-4" strokeWidth={1.8} />}
+						title={t(
+							"workspace.publish.domainPurchase.checkout.liveQuoteTitle",
+						)}
+						description={t(
+							"workspace.publish.domainPurchase.checkout.liveQuoteDescription",
+						)}
+					/>
 					<CheckoutBenefit
 						icon={<ShieldCheck className="size-4" strokeWidth={1.8} />}
 						title={t("workspace.publish.domainPurchase.checkout.privacyTitle")}
@@ -976,13 +810,24 @@ function CheckoutStep({
 							"workspace.publish.domainPurchase.checkout.privacyDescription",
 						)}
 					/>
-					<CheckoutBenefit
-						icon={<LockKeyhole className="size-4" strokeWidth={1.8} />}
-						title={t("workspace.publish.domainPurchase.checkout.secureTitle")}
-						description={t(
-							"workspace.publish.domainPurchase.checkout.secureDescription",
-						)}
-					/>
+				</div>
+
+				<div className="flex items-start gap-3 rounded-[14px] border border-primary/25 bg-primary/[0.055] p-3.5">
+					<span className="grid size-9 shrink-0 place-items-center rounded-[11px] bg-primary/10 text-primary">
+						<LockKeyhole className="size-[17px]" strokeWidth={1.8} />
+					</span>
+					<div>
+						<p className="font-medium text-[13px]">
+							{t(
+								"workspace.publish.domainPurchase.checkout.paymentUnavailableTitle",
+							)}
+						</p>
+						<p className="mt-1 text-[11.5px] text-muted-foreground leading-relaxed">
+							{t(
+								"workspace.publish.domainPurchase.checkout.paymentUnavailableDescription",
+							)}
+						</p>
+					</div>
 				</div>
 
 				<p className="text-[11.5px] text-muted-foreground leading-relaxed">
@@ -1002,25 +847,27 @@ function CheckoutStep({
 					{t("workspace.publish.domainPurchase.common.back")}
 				</Button>
 				<div className="flex min-w-0 flex-1 flex-col items-stretch gap-1.5 sm:items-end">
-					<Button
-						asChild
-						size="lg"
-						className="w-full active:scale-[0.98] sm:w-auto"
-					>
-						<a
-							href={STRIPE_CHECKOUT_URL}
-							target="_blank"
-							rel="noreferrer"
-							onClick={onStripeHandoff}
-						>
-							{t("workspace.publish.domainPurchase.checkout.continueToStripe", {
-								amount: formattedPrice,
-							})}
-							<ExternalLink className="size-4" strokeWidth={1.9} />
-						</a>
+					{/*
+					 * PAYMENTS MODULE HANDOFF — intentionally disabled.
+					 *
+					 * 1. Create a durable domain order using this domain, registrant
+					 *    data, and a fresh server-side Name.com quote.
+					 * 2. Ask PaymentsModule for a Stripe checkout URL using only the
+					 *    order ID and its USD amount.
+					 * 3. Move forward only after PaymentsModule verifies Stripe's
+					 *    webhook. Never trust a browser redirect as proof of payment.
+					 *
+					 * Until those three pieces exist, this button must not call the
+					 * purchase endpoint or show a fake success state.
+					 */}
+					<Button type="button" size="lg" disabled className="w-full sm:w-auto">
+						<LockKeyhole className="size-4" strokeWidth={1.9} />
+						{t(
+							"workspace.publish.domainPurchase.checkout.paymentUnavailableCta",
+						)}
 					</Button>
 					<span className="text-center text-[10.5px] text-muted-foreground sm:text-end">
-						{t("workspace.publish.domainPurchase.checkout.stripeCaption")}
+						{t("workspace.publish.domainPurchase.checkout.nothingCharged")}
 					</span>
 				</div>
 			</ModalFooter>
@@ -1052,256 +899,7 @@ function CheckoutBenefit({
 	);
 }
 
-function StripeWaitingStep({
-	domain,
-	returned,
-	onBack,
-	onPrototypeComplete,
-}: {
-	domain: DomainOption;
-	returned: boolean;
-	onBack: () => void;
-	onPrototypeComplete: () => void;
-}) {
-	const { t } = useTranslation();
-
-	return (
-		<>
-			<ModalBody className="justify-center">
-				<div className="mx-auto flex w-full max-w-[390px] flex-col items-center text-center">
-					<div className="relative">
-						<EmberOrb className="size-[68px]">
-							{returned ? (
-								<Check
-									className="size-7 text-primary-foreground"
-									strokeWidth={2.4}
-								/>
-							) : (
-								<SpinnerArc className="size-7" onEmber />
-							)}
-						</EmberOrb>
-						<span className="absolute -end-3 -bottom-2 rounded-md border bg-background px-2 py-1 font-bold text-[10px] tracking-[-0.2px] shadow-sm">
-							Stripe
-						</span>
-					</div>
-					<h3 className="mt-6 font-medium text-xl tracking-[-0.55px]">
-						{returned
-							? t("workspace.publish.domainPurchase.stripe.returnedTitle")
-							: t("workspace.publish.domainPurchase.stripe.waitingTitle")}
-					</h3>
-					<p className="mt-2 max-w-[340px] text-[13px] text-muted-foreground leading-relaxed">
-						{returned
-							? t(
-									"workspace.publish.domainPurchase.stripe.returnedDescription",
-									{ domain: domain.name },
-								)
-							: t("workspace.publish.domainPurchase.stripe.waitingDescription")}
-					</p>
-
-					<div className="mt-5 flex items-center gap-2 rounded-full border bg-secondary px-3 py-1.5 text-[11.5px] text-muted-foreground">
-						<span
-							aria-hidden
-							className={cn(
-								"size-1.5 rounded-full",
-								returned ? "bg-success" : "animate-pulse bg-primary",
-							)}
-						/>
-						{t("workspace.publish.domainPurchase.stripe.domainPending", {
-							domain: domain.name,
-						})}
-					</div>
-
-					<p className="mt-5 rounded-[12px] border border-primary/20 bg-primary/[0.045] px-3 py-2.5 text-[11.5px] text-muted-foreground leading-relaxed">
-						{t("workspace.publish.domainPurchase.stripe.prototypeNotice")}
-					</p>
-				</div>
-			</ModalBody>
-
-			<ModalFooter className="sm:flex-row sm:justify-end">
-				<Button type="button" variant="outline" size="lg" onClick={onBack}>
-					<ArrowLeft className="size-4 rtl:rotate-180" strokeWidth={1.9} />
-					{t("workspace.publish.domainPurchase.common.back")}
-				</Button>
-				<Button asChild variant="outline" size="lg">
-					<a href={STRIPE_CHECKOUT_URL} target="_blank" rel="noreferrer">
-						{t("workspace.publish.domainPurchase.stripe.openAgain")}
-						<ExternalLink className="size-4" strokeWidth={1.9} />
-					</a>
-				</Button>
-				<Button
-					type="button"
-					size="lg"
-					onClick={onPrototypeComplete}
-					className="active:scale-[0.98]"
-				>
-					{t("workspace.publish.domainPurchase.stripe.completePrototype")}
-					<ChevronRight className="size-4 rtl:rotate-180" strokeWidth={2} />
-				</Button>
-			</ModalFooter>
-		</>
-	);
-}
-
-function ConnectingStep({
-	domainName,
-	stage,
-}: {
-	domainName: string;
-	stage: number;
-}) {
-	const { t } = useTranslation();
-	const stateFor = (index: number): "done" | "active" | "pending" => {
-		if (index < stage) return "done";
-		if (index === stage) return "active";
-		return "pending";
-	};
-	const progress = [18, 42, 68, 91][stage] ?? 91;
-
-	return (
-		<ModalBody className="justify-center">
-			<div className="mx-auto w-full max-w-[390px]">
-				<div className="flex flex-col items-center text-center">
-					<EmberOrb className="size-[68px]">
-						<SpinnerArc className="size-7" onEmber />
-					</EmberOrb>
-					<h3 className="mt-5 font-medium text-xl tracking-[-0.55px]">
-						{t("workspace.publish.domainPurchase.connecting.connectingDomain", {
-							domain: domainName,
-						})}
-					</h3>
-					<p className="mt-1.5 text-[13px] text-muted-foreground">
-						{t("workspace.publish.domainPurchase.connecting.estimate")}
-					</p>
-				</div>
-
-				<div className="mt-6">
-					<PulseBar value={progress} />
-					<div className="mt-5 flex flex-col gap-3.5 rounded-[15px] border bg-secondary/55 p-4">
-						<ChecklistRow state={stateFor(0)}>
-							{t(
-								"workspace.publish.domainPurchase.connecting.paymentConfirmed",
-							)}
-						</ChecklistRow>
-						<ChecklistRow state={stateFor(1)}>
-							{t(
-								"workspace.publish.domainPurchase.connecting.domainRegistered",
-							)}
-						</ChecklistRow>
-						<ChecklistRow state={stateFor(2)}>
-							{t("workspace.publish.domainPurchase.connecting.dnsConfigured")}
-						</ChecklistRow>
-						<ChecklistRow state={stateFor(3)}>
-							{t("workspace.publish.domainPurchase.connecting.sslActivated")}
-						</ChecklistRow>
-					</div>
-				</div>
-			</div>
-		</ModalBody>
-	);
-}
-
-function ConnectedStep({
-	domainName,
-	subdomainUrl,
-	primary,
-	onPrimaryChange,
-	onDone,
-}: {
-	domainName: string;
-	subdomainUrl: string;
-	primary: boolean;
-	onPrimaryChange: (checked: boolean) => void;
-	onDone: () => void;
-}) {
-	const { t } = useTranslation();
-	const liveUrl = ensureHttps(domainName);
-	const displayedSubdomain = displayUrl(subdomainUrl);
-
-	return (
-		<>
-			<ModalBody className="gap-4">
-				<div className="flex flex-col items-center py-1 text-center">
-					<EmberOrb className="size-[68px]">
-						<Check
-							className="size-7 text-primary-foreground"
-							strokeWidth={2.4}
-						/>
-					</EmberOrb>
-					<h3 className="mt-4 font-medium text-xl tracking-[-0.55px]">
-						{t("workspace.publish.domainPurchase.connected.successTitle")}
-					</h3>
-					<p className="mt-1.5 max-w-[360px] text-[13px] text-muted-foreground leading-relaxed">
-						{t(
-							"workspace.publish.domainPurchase.connected.successDescription",
-							{ domain: domainName },
-						)}
-					</p>
-				</div>
-
-				<LiveUrlRow url={domainName} href={liveUrl} />
-
-				<div className="flex items-center gap-3 rounded-[13px] border px-3.5 py-3">
-					<CheckCircle className="size-[18px]" />
-					<div className="min-w-0 flex-1">
-						<label
-							htmlFor="domain-purchase-primary"
-							className="cursor-pointer font-medium text-[13.5px]"
-						>
-							{t("workspace.publish.domainPurchase.connected.primaryTitle")}
-						</label>
-						<p className="mt-0.5 text-[11.5px] text-muted-foreground">
-							{t(
-								"workspace.publish.domainPurchase.connected.primaryDescription",
-							)}
-						</p>
-					</div>
-					<Switch
-						id="domain-purchase-primary"
-						checked={primary}
-						onCheckedChange={onPrimaryChange}
-						aria-label={t(
-							"workspace.publish.domainPurchase.connected.primaryTitle",
-						)}
-					/>
-				</div>
-
-				<div className="grid grid-cols-1 items-center gap-4 rounded-[16px] border p-3.5 sm:grid-cols-[88px_1fr]">
-					<div className="mx-auto rounded-[11px] border bg-background p-1.5 shadow-[inset_0_1px_0_color-mix(in_oklab,var(--background)_60%,white)] sm:mx-0">
-						<MockQr className="size-[74px]" />
-					</div>
-					<div className="min-w-0 text-center sm:text-start">
-						<p className="font-medium text-sm">
-							{t("workspace.publish.domainPurchase.connected.qrTitle")}
-						</p>
-						<p className="mt-1 text-[12px] text-muted-foreground leading-relaxed">
-							{t("workspace.publish.domainPurchase.connected.qrDescription")}
-						</p>
-					</div>
-				</div>
-
-				<p className="text-center text-[11.5px] text-muted-foreground">
-					{t("workspace.publish.domainPurchase.connected.subdomainContinues", {
-						url: displayedSubdomain,
-					})}
-				</p>
-			</ModalBody>
-
-			<ModalFooter className="sm:flex-row sm:justify-end">
-				<Button type="button" variant="outline" size="lg" onClick={onDone}>
-					{t("workspace.publish.domainPurchase.connected.done")}
-				</Button>
-				<Button asChild size="lg" className="active:scale-[0.98]">
-					<a href={liveUrl} target="_blank" rel="noreferrer">
-						<ExternalLink className="size-4" strokeWidth={1.9} />
-						{t("workspace.publish.domainPurchase.connected.openDomain")}
-					</a>
-				</Button>
-			</ModalFooter>
-		</>
-	);
-}
-
-function SelectedDomainStrip({ domain }: { domain: DomainOption }) {
+function SelectedDomainStrip({ domain }: { domain: SearchDomainsResult }) {
 	const { t, locale } = useTranslation();
 
 	return (
@@ -1318,9 +916,7 @@ function SelectedDomainStrip({ domain }: { domain: DomainOption }) {
 				</p>
 			</div>
 			<p className="shrink-0 font-semibold text-[13px]">
-				{t("workspace.publish.domainPurchase.common.priceDzd", {
-					amount: formatNumber(domain.priceDzd, locale),
-				})}
+				{formatUsd(domain.registrationPriceUsd, locale)}
 			</p>
 		</div>
 	);
@@ -1364,61 +960,35 @@ function ModalFooter({
 	);
 }
 
-function createMockDomainResults(stem: string): DomainOption[] {
-	if (stem.length < 2 || stem.includes("no-results")) {
-		return [];
-	}
+function canPurchaseResult(
+	result: SearchDomainsResult,
+): result is SearchDomainsResult & { registrationPriceUsd: number } {
+	return (
+		result.availability === "available" && result.registrationPriceUsd !== null
+	);
+}
 
-	return [
-		{
-			name: `${stem}.com`,
-			priceDzd: 2_400,
-			priceUsd: 18,
-			available: true,
-			kind: "recommended",
-			period: "year",
-		},
-		{
-			name: `${stem}.store`,
-			priceDzd: 6_900,
-			priceUsd: 52,
-			available: true,
-			kind: "store",
-			period: "year",
-		},
-		{
-			name: `${stem}.shop`,
-			priceDzd: 990,
-			priceUsd: 7,
-			available: true,
-			kind: "deal",
-			period: "firstYear",
-		},
-		{
-			name: `${stem}.online`,
-			priceDzd: 5_400,
-			priceUsd: 41,
-			available: true,
-			kind: "standard",
-			period: "year",
-		},
-		{
-			name: `${stem}.net`,
-			priceDzd: 2_900,
-			priceUsd: 22,
-			available: true,
-			kind: "standard",
-			period: "year",
-		},
-		{
-			name: `${stem}.site`,
-			priceDzd: 0,
-			priceUsd: 0,
-			available: false,
-			kind: "taken",
-			period: "year",
-		},
-	];
+function formatUsd(
+	value: number | null,
+	locale: Parameters<typeof formatNumber>[1],
+) {
+	return value === null ? "—" : `USD ${formatNumber(value, locale)}`;
+}
+
+function createRegistrantDefaults(user?: {
+	name?: string | null;
+	email?: string | null;
+}): RegistrantDetails {
+	return {
+		fullName: user?.name?.trim() ?? "",
+		email: user?.email?.trim() ?? "",
+		phone: "",
+		streetAddress: "",
+		city: "",
+		region: "",
+		postalCode: "",
+		countryCode: "DZ",
+	};
 }
 
 function normalizeDomainStem(value: string): string {
@@ -1433,20 +1003,4 @@ function normalizeDomainStem(value: string): string {
 		.replace(/[^a-z0-9-]/g, "")
 		.replace(/^-+|-+$/g, "")
 		.slice(0, 42);
-}
-
-function ensureHttps(value: string): string {
-	const normalized = value.trim();
-	if (/^https?:\/\//i.test(normalized)) {
-		return normalized;
-	}
-
-	return `https://${normalized}`;
-}
-
-function displayUrl(value: string): string {
-	return value
-		.trim()
-		.replace(/^https?:\/\//i, "")
-		.replace(/\/+$/, "");
 }

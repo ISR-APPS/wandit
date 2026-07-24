@@ -40,7 +40,6 @@ export type PublishJobName = "publish-site";
 export type DomainJobName =
 	| "domain-purchase"
 	| "domain-configure"
-	| "domain-renewals"
 	| "domain-sync";
 
 // Payload the API sends to the AI worker.
@@ -95,10 +94,6 @@ export interface DomainConfigureJobData {
 	domainId: string;
 	nonce?: string;
 }
-
-// Empty because renewals worker can scan due domains itself.
-// biome-ignore lint/suspicious/noEmptyInterface: Empty payload interface required by the jobs contract.
-export interface DomainRenewalsJobData {}
 
 // Empty because domain sync is a global sweep.
 // biome-ignore lint/suspicious/noEmptyInterface: Empty payload interface required by the jobs contract.

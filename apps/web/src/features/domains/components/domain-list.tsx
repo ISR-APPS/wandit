@@ -1,3 +1,4 @@
+import { formatDate } from "@wandit/internationalization";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -9,7 +10,13 @@ import {
 	AlertDialogTitle,
 } from "@wandit/ui/components/alert-dialog";
 import { Button } from "@wandit/ui/components/button";
-import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@wandit/ui/components/empty";
+import {
+	Empty,
+	EmptyDescription,
+	EmptyHeader,
+	EmptyMedia,
+	EmptyTitle,
+} from "@wandit/ui/components/empty";
 import { Switch } from "@wandit/ui/components/switch";
 import {
 	Table,
@@ -20,12 +27,10 @@ import {
 	TableRow,
 } from "@wandit/ui/components/table";
 import { cn } from "@wandit/ui/lib/utils";
-import { formatDate } from "@wandit/internationalization";
 import {
 	Check,
 	CircleDashed,
 	Copy,
-	ExternalLink,
 	KeyRound,
 	Loader2,
 	RefreshCw,
@@ -34,7 +39,6 @@ import {
 import { Fragment, useState } from "react";
 import { toast } from "sonner";
 
-import { InsufficientCreditsDialog, PriceTag } from "@/features/credits";
 import { getApiErrorMessage } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n";
 import type { Domain } from "../api/domains.dto";
@@ -46,11 +50,7 @@ import {
 	useUpdateDomainAutoRenew,
 	useVerifyDomain,
 } from "../api/domains.mutations";
-import {
-	domainRenewalCredits,
-	isInsufficientCreditsError,
-	safeDomainErrorSummary,
-} from "../lib/helpers";
+import { safeDomainErrorSummary } from "../lib/helpers";
 import { useCopyToClipboard } from "../lib/hooks";
 import { DnsRecordsTable } from "./dns-records-table";
 import { DomainStatusChip } from "./domain-status-chip";
@@ -87,8 +87,9 @@ export function DomainList({ projectId, domains }: DomainListProps) {
 					<TableHead>{t("settings.domains.primaryColumn")}</TableHead>
 					<TableHead>{t("settings.domains.autoRenewColumn")}</TableHead>
 					<TableHead>{t("settings.domains.expiryColumn")}</TableHead>
-					<TableHead>{t("settings.domains.renewalColumn")}</TableHead>
-					<TableHead className="text-end">{t("settings.domains.actionsColumn")}</TableHead>
+					<TableHead className="text-end">
+						{t("settings.domains.actionsColumn")}
+					</TableHead>
 				</TableRow>
 			</TableHeader>
 			<TableBody>
@@ -125,7 +126,6 @@ function DomainListRow({
 		lockedUntil?: string;
 	} | null>(null);
 	const [transferError, setTransferError] = useState<string | null>(null);
-	const [insufficientOpen, setInsufficientOpen] = useState(false);
 	const [externalRecordsOpen, setExternalRecordsOpen] = useState(false);
 	const [externalRecords, setExternalRecords] = useState(
 		domain.dns?.records ?? [],
@@ -134,7 +134,6 @@ function DomainListRow({
 		null,
 	);
 
-	const renewalCredits = domainRenewalCredits(domain);
 	const expiresAt = domain.expiresAt
 		? formatDate(domain.expiresAt, locale, { dateStyle: "medium" })
 		: t("settings.domains.noExpiry");
@@ -164,14 +163,7 @@ function DomainListRow({
 	const handleRenew = () => {
 		renew.mutate(domain.id, {
 			onSuccess: () => toast.success(t("settings.domains.renewSuccess")),
-			onError: (error) => {
-				if (isInsufficientCreditsError(error)) {
-					setInsufficientOpen(true);
-					return;
-				}
-
-				toast.error(getApiErrorMessage(error));
-			},
+			onError: (error) => toast.error(getApiErrorMessage(error)),
 		});
 	};
 
@@ -241,18 +233,13 @@ function DomainListRow({
 							<DomainStatusChip status={domain.status} />
 						</div>
 						{domain.status === "failed" ? (
-							<div className="flex flex-col gap-1 text-xs">
-								<p className="text-destructive">
-									{failedSummary
-										? t("settings.domains.failedSummaryWithReason", {
-												reason: failedSummary,
-											})
-										: t("settings.domains.failedSummary")}
-								</p>
-								<p className="text-muted-foreground">
-									{t("settings.domains.refundedNote")}
-								</p>
-							</div>
+							<p className="text-destructive text-xs">
+								{failedSummary
+									? t("settings.domains.failedSummaryWithReason", {
+											reason: failedSummary,
+										})
+									: t("settings.domains.failedSummary")}
+							</p>
 						) : null}
 					</div>
 				</TableCell>
@@ -291,15 +278,6 @@ function DomainListRow({
 					</div>
 				</TableCell>
 				<TableCell className="font-mono text-xs">{expiresAt}</TableCell>
-				<TableCell>
-					{domain.source === "purchased" ? (
-						<PriceTag cost={renewalCredits} />
-					) : (
-						<span className="text-muted-foreground text-xs">
-							{t("settings.domains.externalRenewal")}
-						</span>
-					)}
-				</TableCell>
 				<TableCell>
 					<div className="flex justify-end gap-1">
 						<Button
@@ -361,7 +339,7 @@ function DomainListRow({
 			</TableRow>
 			{transferResult || transferError ? (
 				<TableRow>
-					<TableCell colSpan={6} className="bg-muted/30">
+					<TableCell colSpan={5} className="bg-muted/30">
 						<div className="flex flex-col gap-3 py-2">
 							{transferError ? (
 								<p className="text-destructive text-sm">{transferError}</p>
@@ -408,7 +386,7 @@ function DomainListRow({
 			) : null}
 			{externalRecordsOpen || externalVerifyError ? (
 				<TableRow>
-					<TableCell colSpan={6} className="bg-muted/30">
+					<TableCell colSpan={5} className="bg-muted/30">
 						<div className="flex flex-col gap-3 py-2">
 							{externalVerifyError ? (
 								<p className="text-destructive text-sm">
@@ -422,11 +400,6 @@ function DomainListRow({
 					</TableCell>
 				</TableRow>
 			) : null}
-			<InsufficientCreditsDialog
-				open={insufficientOpen}
-				onOpenChange={setInsufficientOpen}
-				cost={renewalCredits}
-			/>
 			<AlertDialog open={detachOpen} onOpenChange={setDetachOpen}>
 				<AlertDialogContent>
 					<AlertDialogHeader>
@@ -438,7 +411,9 @@ function DomainListRow({
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
-						<AlertDialogCancel>{t("settings.domains.cancel")}</AlertDialogCancel>
+						<AlertDialogCancel>
+							{t("settings.domains.cancel")}
+						</AlertDialogCancel>
 						<AlertDialogAction
 							variant="destructive"
 							onClick={(event) => {
