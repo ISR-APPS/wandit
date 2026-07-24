@@ -1,4 +1,7 @@
-import { mediaGenerationReservationKey } from "@wandit/contracts";
+import {
+	ENTITLED_SUBSCRIPTION_STATUSES,
+	mediaGenerationReservationKey,
+} from "@wandit/contracts";
 import { and, asc, type createDb, eq, lt, sql } from "@wandit/db";
 import { creditLedger } from "@wandit/db/schema/credits";
 import { mediaGenerationAttempts } from "@wandit/db/schema/media-generation-attempts";
@@ -107,8 +110,17 @@ function createBilling(db: TriggerDatabase): ImageAnimationBilling {
 	return createImageAnimationBilling({
 		consumeCredits: (userId, amount, options) =>
 			creditsService.consume(userId, amount, options),
-		hasActiveSubscription: async (userId) =>
-			Boolean(await subscriptionsRepository.findActiveByUserId(userId)),
+		hasActiveSubscription: async (userId) => {
+			const subscription =
+				await subscriptionsRepository.findActiveByUserId(userId);
+
+			return (
+				subscription !== null &&
+				(ENTITLED_SUBSCRIPTION_STATUSES as readonly string[]).includes(
+					subscription.status,
+				)
+			);
+		},
 		isBillingDisabled: () => env.GENERATION_BILLING_MODE === "off",
 		refundCredits: (userId, consumeIdempotencyKey, meta) =>
 			creditsService.refundConsume(userId, consumeIdempotencyKey, meta),

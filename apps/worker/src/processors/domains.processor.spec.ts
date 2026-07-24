@@ -24,6 +24,8 @@ import type {
 	DomainRow,
 	DomainsRepository,
 } from "../../../server/src/modules/domains/infrastructure/persistence/domains.repository";
+import type { OrderRefundQueueService } from "../../../server/src/modules/orders/application/services/order-refund-queue.service";
+import type { PaymentOrdersRepository } from "../../../server/src/modules/orders/infrastructure/persistence/payment-orders.repository";
 import { DomainsProcessor } from "./domains.processor";
 
 const userId = "user_1";
@@ -54,6 +56,14 @@ class FakeDomainsRepository {
 		return this.rows.get(id) ?? null;
 	}
 
+	async findByPaymentOrderIdForUpdate(paymentOrderId: string) {
+		return (
+			[...this.rows.values()].find(
+				(row) => row.paymentOrderId === paymentOrderId,
+			) ?? null
+		);
+	}
+
 	async updateById(id: string, patch: Partial<DomainRow>) {
 		const row = this.expect(id);
 		const updated = {
@@ -71,10 +81,30 @@ class FakeDomainsRepository {
 		statuses: DomainRow["status"][],
 		patch: Partial<DomainRow>,
 	) {
+		const row = await this.updateIfStatusOrNull(id, statuses, patch);
+
+		if (!row) {
+			throw new Error("Invalid status");
+		}
+
+		return row;
+	}
+
+	async updateIfStatusOrNull(
+		id: string,
+		statuses: DomainRow["status"][],
+		patch: Partial<DomainRow>,
+	) {
 		const row = this.expect(id);
 
 		if (!statuses.includes(row.status)) {
-			throw new Error("Invalid status");
+			return null;
+		}
+
+		if (patch.status === "failed") {
+			this.events.push(
+				`markFailed:${id}:${typeof patch.error === "string" ? patch.error : "Domain registration failed"}`,
+			);
 		}
 
 		return this.updateById(id, patch);
@@ -140,6 +170,7 @@ class FakeDomainsRepository {
 			id,
 			isPrimary: false,
 			name,
+			paymentOrderId: null,
 			priceSnapshot: priceSnapshot(),
 			projectId,
 			provider: "openprovider",
@@ -279,6 +310,153 @@ class FakeCredits implements CreditsPort {
 	);
 }
 
+type FakePaymentOrder = {
+	fulfillmentError: string | null;
+	id: string;
+	providerPaymentIntentId: string | null;
+	refundStatus: string | null;
+	status:
+		| "pending"
+		| "paid"
+		| "fulfilling"
+		| "failed"
+		| "canceled"
+		| "refunded"
+		| "fulfilled";
+};
+
+class FakePaymentOrdersRepository {
+	readonly rows = new Map<string, FakePaymentOrder>();
+
+	constructor(private readonly events: string[]) {}
+
+	seed(
+		input: Pick<FakePaymentOrder, "id" | "providerPaymentIntentId"> &
+			Partial<
+				Pick<FakePaymentOrder, "fulfillmentError" | "refundStatus" | "status">
+			>,
+	) {
+		const row = {
+			fulfillmentError: null,
+			refundStatus: null,
+			status: "fulfilling",
+			...input,
+		} satisfies FakePaymentOrder;
+		this.rows.set(row.id, row);
+
+		return row;
+	}
+
+	async findById(id: string) {
+		return this.rows.get(id) ?? null;
+	}
+
+	async withOrderFulfillmentFence<T>(
+		id: string,
+		operation: (order: FakePaymentOrder, tx: never) => Promise<T>,
+	) {
+		return operation(this.expect(id), {} as never);
+	}
+
+	async recordFinancialRaceNote(id: string, note: string) {
+		const row = this.expect(id);
+
+		if (row.status !== "failed" && row.status !== "refunded") {
+			return null;
+		}
+
+		const noted = { ...row, fulfillmentError: note };
+		this.rows.set(id, noted);
+		this.events.push(`financialRace:${id}`);
+
+		return noted;
+	}
+
+	async markFailed(id: string, error: string, _client?: unknown) {
+		const row = this.expect(id);
+
+		if (row.status !== "paid" && row.status !== "fulfilling") {
+			return null;
+		}
+
+		const failed = {
+			...row,
+			fulfillmentError: error,
+			status: "failed" as const,
+		};
+		this.rows.set(id, failed);
+		this.events.push(`orderFailed:${id}:${error}`);
+
+		return failed;
+	}
+
+	async markFulfilling(id: string) {
+		const row = this.expect(id);
+
+		if (row.status !== "paid") {
+			return null;
+		}
+
+		const fulfilling = { ...row, status: "fulfilling" as const };
+		this.rows.set(id, fulfilling);
+		this.events.push(`orderFulfilling:${id}`);
+
+		return fulfilling;
+	}
+
+	async markRefunded(id: string) {
+		const row = this.expect(id);
+		const refunded = { ...row, status: "refunded" as const };
+		this.rows.set(id, refunded);
+		this.events.push(`orderRefunded:${id}`);
+
+		return refunded;
+	}
+
+	async markFulfilled(id: string) {
+		const row = this.expect(id);
+
+		if (row.status !== "fulfilling") {
+			return null;
+		}
+
+		const fulfilled = {
+			...row,
+			fulfillmentError:
+				row.refundStatus === "partial" ? row.fulfillmentError : null,
+			status: "fulfilled" as const,
+		};
+		this.rows.set(id, fulfilled);
+		this.events.push(`orderFulfilled:${id}`);
+
+		return fulfilled;
+	}
+
+	private expect(id: string) {
+		const row = this.rows.get(id);
+
+		if (!row) {
+			throw new Error(`Missing order ${id}`);
+		}
+
+		return row;
+	}
+}
+
+class FakeOrderRefundQueue {
+	constructor(private readonly events: string[]) {}
+
+	enqueueFailures = 0;
+	readonly enqueue = vi.fn(async (orderId: string, failureReason: string) => {
+		if (this.enqueueFailures > 0) {
+			this.enqueueFailures -= 1;
+			throw new Error("refund queue unavailable");
+		}
+
+		this.events.push(`refundQueued:${orderId}:${failureReason}`);
+	});
+}
+
 class FakeCustomHostnameService {
 	status = "pending";
 	readonly createCustomHostname = vi.fn(async () => ({
@@ -326,6 +504,8 @@ function setup() {
 	const repository = new FakeDomainsRepository(events);
 	const provider = new FakeProvider();
 	const credits = new FakeCredits(events);
+	const orders = new FakePaymentOrdersRepository(events);
+	const refundQueue = new FakeOrderRefundQueue(events);
 	const cloudflare = new FakeCustomHostnameService();
 	const routing = new FakeRoutingService();
 	const queue = {
@@ -336,6 +516,8 @@ function setup() {
 		repository as unknown as DomainsRepository,
 		provider,
 		credits,
+		orders as unknown as PaymentOrdersRepository,
+		refundQueue as unknown as OrderRefundQueueService,
 		cloudflare as unknown as CustomHostnameService,
 		routing as unknown as DomainRoutingService,
 		queue as never,
@@ -345,9 +527,11 @@ function setup() {
 		cloudflare,
 		credits,
 		events,
+		orders,
 		processor,
 		provider,
 		queue,
+		refundQueue,
 		repository,
 		routing,
 	};
@@ -469,6 +653,418 @@ describe("DomainsProcessor", () => {
 		expect(repository.rows.get(row.id)?.status).toBe("failed");
 	});
 
+	it("queues money refunds before terminalizing the domain and order", async () => {
+		const {
+			credits,
+			events,
+			orders,
+			processor,
+			provider,
+			refundQueue,
+			repository,
+		} = setup();
+		const orderId = "33333333-3333-4333-8333-333333333333";
+		const paymentIntentId = "pi_domain_order";
+		orders.seed({
+			id: orderId,
+			providerPaymentIntentId: paymentIntentId,
+			status: "paid",
+		});
+		const row = repository.seed({
+			name: "money-failure.com",
+			paymentOrderId: orderId,
+			status: "registering",
+		});
+		provider.availability = [{ available: false, name: "money-failure.com" }];
+
+		await processor.process(
+			job(
+				"domain-purchase",
+				{ domainId: row.id, orderId, paymentSource: "order" },
+				{ attempts: 5 },
+			),
+		);
+
+		expect(credits.grant).not.toHaveBeenCalled();
+		expect(refundQueue.enqueue).toHaveBeenCalledWith(
+			orderId,
+			"Domain registration failed",
+		);
+		expect(orders.rows.get(orderId)?.status).toBe("failed");
+		expect(repository.rows.get(row.id)?.status).toBe("failed");
+		expect(events).toEqual([
+			`orderFulfilling:${orderId}`,
+			`refundQueued:${orderId}:Domain registration failed`,
+			`markFailed:${row.id}:Domain registration failed`,
+			`orderFailed:${orderId}:Domain registration failed`,
+		]);
+	});
+
+	it("fences a stale purchase job when its money order was already refunded", async () => {
+		const {
+			cloudflare,
+			credits,
+			orders,
+			processor,
+			provider,
+			queue,
+			refundQueue,
+			repository,
+		} = setup();
+		const orderId = "12121212-1212-4121-8121-121212121212";
+		orders.seed({
+			id: orderId,
+			providerPaymentIntentId: "pi_already_refunded",
+			status: "refunded",
+		});
+		const row = repository.seed({
+			cfCustomHostnameId: "cf_already_refunded",
+			name: "already-refunded.com",
+			paymentOrderId: orderId,
+			status: "registering",
+		});
+
+		await expect(
+			processor.process(
+				job("domain-purchase", {
+					domainId: row.id,
+					orderId,
+					paymentSource: "order",
+				}),
+			),
+		).resolves.toEqual({
+			processed: false,
+			reason: "terminal_failure",
+		});
+
+		expect(repository.rows.get(row.id)).toMatchObject({
+			error: "Domain registration failed",
+			status: "failed",
+		});
+		expect(provider.availabilityNames).toEqual([]);
+		expect(provider.registerCalls).toBe(0);
+		expect(queue.add).not.toHaveBeenCalled();
+		expect(cloudflare.deleteCustomHostname).toHaveBeenCalledWith(
+			"cf_already_refunded",
+		);
+		expect(refundQueue.enqueue).not.toHaveBeenCalled();
+		expect(credits.grant).not.toHaveBeenCalled();
+	});
+
+	it("re-checks the locked order immediately before calling the registrar", async () => {
+		const { orders, processor, provider, refundQueue, repository } = setup();
+		const orderId = "14141414-1414-4141-8141-141414141414";
+		orders.seed({
+			id: orderId,
+			providerPaymentIntentId: "pi_fresh_fence",
+			status: "fulfilling",
+		});
+		const row = repository.seed({
+			name: "fresh-fence.com",
+			paymentOrderId: orderId,
+			status: "registering",
+		});
+		const originalFence = orders.withOrderFulfillmentFence.bind(orders);
+		vi.spyOn(orders, "withOrderFulfillmentFence").mockImplementationOnce(
+			async (id, operation) => {
+				const current = orders.rows.get(id);
+
+				if (!current) {
+					throw new Error(`Missing order ${id}`);
+				}
+				orders.rows.set(id, { ...current, status: "refunded" });
+
+				return originalFence(id, operation);
+			},
+		);
+
+		await expect(
+			processor.process(
+				job("domain-purchase", {
+					domainId: row.id,
+					orderId,
+					paymentSource: "order",
+				}),
+			),
+		).resolves.toEqual({
+			processed: false,
+			reason: "order_not_fulfillable",
+		});
+
+		expect(provider.registerCalls).toBe(0);
+		expect(repository.rows.get(row.id)?.status).toBe("registering");
+		expect(refundQueue.enqueue).not.toHaveBeenCalled();
+	});
+
+	it("records manual review when a refund wins after registrar registration", async () => {
+		const { orders, processor, provider, repository } = setup();
+		const orderId = "15151515-1515-4151-8151-151515151515";
+		orders.seed({
+			id: orderId,
+			providerPaymentIntentId: "pi_registrar_race",
+			status: "fulfilling",
+		});
+		const row = repository.seed({
+			name: "registrar-race.com",
+			paymentOrderId: orderId,
+			status: "registering",
+		});
+		const originalUpdate = repository.updateIfStatusOrNull.bind(repository);
+		vi.spyOn(repository, "updateIfStatusOrNull").mockImplementationOnce(
+			async (id, statuses, patch) => {
+				if (patch.providerDomainId === "op_registered") {
+					await repository.updateById(row.id, {
+						error: "Payment was refunded",
+						status: "failed",
+					});
+					const current = orders.rows.get(orderId);
+
+					if (!current) {
+						throw new Error(`Missing order ${orderId}`);
+					}
+					orders.rows.set(orderId, { ...current, status: "refunded" });
+
+					return null;
+				}
+
+				return originalUpdate(id, statuses, patch);
+			},
+		);
+		const loggerError = vi
+			.spyOn(
+				(
+					processor as unknown as {
+						logger: { error: (...args: unknown[]) => void };
+					}
+				).logger,
+				"error",
+			)
+			.mockImplementation(() => undefined);
+
+		await expect(
+			processor.process(
+				job("domain-purchase", {
+					domainId: row.id,
+					orderId,
+					paymentSource: "order",
+				}),
+			),
+		).resolves.toEqual({
+			processed: false,
+			reason: "financial_race",
+		});
+
+		expect(provider.registerCalls).toBe(1);
+		expect(orders.rows.get(orderId)?.fulfillmentError).toContain(
+			"was purchased at the registrar as op_registered",
+		);
+		expect(orders.rows.get(orderId)?.status).toBe("refunded");
+		expect(provider.setDnsRecordsMock).not.toHaveBeenCalled();
+		expect(loggerError).toHaveBeenCalledWith(
+			expect.stringContaining("MANUAL REVIEW REQUIRED"),
+			expect.stringContaining(`"orderId":"${orderId}"`),
+		);
+		loggerError.mockRestore();
+	});
+
+	it("uses registering-state CAS writes for every post-registration mutation", async () => {
+		const { orders, processor, repository } = setup();
+		const orderId = "16161616-1616-4161-8161-161616161616";
+		orders.seed({
+			id: orderId,
+			providerPaymentIntentId: "pi_post_registration_cas",
+			status: "fulfilling",
+		});
+		const row = repository.seed({
+			name: "post-registration-cas.com",
+			paymentOrderId: orderId,
+			status: "registering",
+		});
+		const cas = vi.spyOn(repository, "updateIfStatusOrNull");
+		const setDns = vi.spyOn(repository, "setDns");
+
+		await expect(
+			processor.process(
+				job("domain-purchase", {
+					domainId: row.id,
+					orderId,
+					paymentSource: "order",
+				}),
+			),
+		).resolves.toEqual({
+			processed: true,
+			status: "registering",
+		});
+
+		expect(cas).toHaveBeenCalledTimes(4);
+		for (const call of cas.mock.calls) {
+			expect(call[1]).toEqual(["registering"]);
+		}
+		expect(setDns).not.toHaveBeenCalled();
+		expect(repository.rows.get(row.id)?.status).toBe("configuring");
+	});
+
+	it("cannot reactivate a refund-fenced configure job on replay", async () => {
+		const {
+			cloudflare,
+			credits,
+			orders,
+			processor,
+			refundQueue,
+			repository,
+			routing,
+		} = setup();
+		const orderId = "13131313-1313-4131-8131-131313131313";
+		orders.seed({
+			id: orderId,
+			providerPaymentIntentId: "pi_refund_fenced",
+			status: "refunded",
+		});
+		const row = repository.seed({
+			cfCustomHostnameId: "cf_refund_fenced",
+			error: "Payment was refunded before domain fulfillment completed",
+			name: "refund-fenced.com",
+			paymentOrderId: orderId,
+			status: "failed",
+		});
+
+		await expect(
+			processor.process(
+				job("domain-configure", {
+					domainId: row.id,
+					nonce: "refund-fenced",
+				}),
+			),
+		).resolves.toEqual({
+			processed: false,
+			reason: "not_configuring",
+		});
+
+		expect(repository.rows.get(row.id)).toMatchObject({
+			error: "Payment was refunded before domain fulfillment completed",
+			status: "failed",
+		});
+		expect(cloudflare.getCustomHostnameStatus).not.toHaveBeenCalled();
+		expect(cloudflare.deleteCustomHostname).toHaveBeenCalledWith(
+			"cf_refund_fenced",
+		);
+		expect(routing.putDomainPointer).not.toHaveBeenCalled();
+		expect(routing.deleteDomainPointer).toHaveBeenCalledWith(
+			"refund-fenced.com",
+		);
+		expect(refundQueue.enqueue).not.toHaveBeenCalled();
+		expect(credits.grant).not.toHaveBeenCalled();
+	});
+
+	it("deletes the custom hostname once when activation loses its CAS to a refund fence, including replay", async () => {
+		const {
+			cloudflare,
+			credits,
+			orders,
+			processor,
+			refundQueue,
+			repository,
+			routing,
+		} = setup();
+		const orderId = "17171717-1717-4171-8171-171717171717";
+		orders.seed({
+			id: orderId,
+			providerPaymentIntentId: "pi_configure_fence",
+			status: "fulfilling",
+		});
+		const row = repository.seed({
+			cfCustomHostnameId: "cf_configure_fence",
+			name: "configure-fence.com",
+			paymentOrderId: orderId,
+			status: "configuring",
+		});
+		cloudflare.status = "active";
+		vi.spyOn(repository, "updateIfStatusOrNull").mockImplementationOnce(
+			async () => {
+				await repository.updateById(row.id, {
+					error: "Payment was refunded before domain fulfillment completed",
+					status: "failed",
+				});
+				const current = orders.rows.get(orderId);
+
+				if (!current) {
+					throw new Error(`Missing order ${orderId}`);
+				}
+				orders.rows.set(orderId, { ...current, status: "refunded" });
+
+				return null;
+			},
+		);
+		const configureJob = job("domain-configure", {
+			domainId: row.id,
+			nonce: "configure-fence",
+		});
+
+		await expect(processor.process(configureJob)).resolves.toEqual({
+			processed: false,
+			reason: "state_changed",
+		});
+		await expect(processor.process(configureJob)).resolves.toEqual({
+			processed: false,
+			reason: "not_configuring",
+		});
+
+		expect(repository.rows.get(row.id)).toMatchObject({
+			cfCustomHostnameId: null,
+			error: "Payment was refunded before domain fulfillment completed",
+			status: "failed",
+		});
+		expect(orders.rows.get(orderId)?.status).toBe("refunded");
+		expect(cloudflare.getCustomHostnameStatus).toHaveBeenCalledTimes(1);
+		expect(cloudflare.deleteCustomHostname).toHaveBeenCalledTimes(1);
+		expect(cloudflare.deleteCustomHostname).toHaveBeenCalledWith(
+			"cf_configure_fence",
+		);
+		expect(routing.putDomainPointer).toHaveBeenCalledTimes(1);
+		expect(routing.deleteDomainPointer).toHaveBeenCalledTimes(2);
+		expect(refundQueue.enqueue).not.toHaveBeenCalled();
+		expect(credits.grant).not.toHaveBeenCalled();
+	});
+
+	it("does not terminalize money fulfillment until its durable refund is queued", async () => {
+		const { credits, orders, processor, provider, refundQueue, repository } =
+			setup();
+		const orderId = "77777777-7777-4777-8777-777777777777";
+		const paymentIntentId = "pi_refund_retry";
+		orders.seed({ id: orderId, providerPaymentIntentId: paymentIntentId });
+		const row = repository.seed({
+			name: "refund-retry.com",
+			paymentOrderId: orderId,
+			status: "registering",
+		});
+		provider.availability = [{ available: false, name: "refund-retry.com" }];
+		refundQueue.enqueueFailures = 1;
+		const purchaseJob = job(
+			"domain-purchase",
+			{ domainId: row.id, orderId, paymentSource: "order" },
+			{ attempts: 5 },
+		);
+
+		await expect(processor.process(purchaseJob)).rejects.toThrow(
+			"refund queue unavailable",
+		);
+		expect(orders.rows.get(orderId)?.status).toBe("fulfilling");
+		expect(repository.rows.get(row.id)?.status).toBe("registering");
+
+		await expect(processor.process(purchaseJob)).resolves.toEqual({
+			processed: false,
+			reason: "terminal_failure",
+		});
+		expect(refundQueue.enqueue).toHaveBeenCalledTimes(2);
+		expect(refundQueue.enqueue).toHaveBeenLastCalledWith(
+			orderId,
+			"Domain registration failed",
+		);
+		expect(orders.rows.get(orderId)?.status).toBe("failed");
+		expect(repository.rows.get(row.id)?.status).toBe("failed");
+		expect(credits.grant).not.toHaveBeenCalled();
+	});
+
 	it("exhausted transient purchase attempts refund with a generic stored failure summary", async () => {
 		const { credits, processor, provider, repository } = setup();
 		const row = repository.seed({
@@ -556,7 +1152,7 @@ describe("DomainsProcessor", () => {
 			name: "partial.com",
 			status: "registering",
 		});
-		const nonce = String(row.updatedAt.getTime());
+		const nonce = `purchase-${row.id}`;
 		provider.info = {
 			expiresAt: new Date("2027-01-01T00:00:00.000Z"),
 			id: "op_existing",
@@ -578,10 +1174,95 @@ describe("DomainsProcessor", () => {
 					delay: 60_000,
 					type: "exponential",
 				},
-				jobId: `domain-configure:${row.id}:${nonce}:0`,
+				jobId: `domain-configure-${row.id}-${nonce}-0`,
 				removeOnComplete: 1000,
 				removeOnFail: 5000,
 			},
+		);
+		expect(queue.add).toHaveBeenCalledTimes(2);
+	});
+
+	it("replays the deterministic configure enqueue after a purchase queue failure", async () => {
+		const { processor, queue, repository } = setup();
+		const row = repository.seed({
+			name: "queue-repair.com",
+			status: "registering",
+		});
+		const purchaseJob = job(
+			"domain-purchase",
+			{ domainId: row.id },
+			{ attempts: 5, id: `domain-purchase-${row.id}` },
+		);
+		queue.add.mockRejectedValueOnce(new Error("queue unavailable"));
+
+		await expect(processor.process(purchaseJob)).rejects.toThrow(
+			"queue unavailable",
+		);
+		expect(repository.rows.get(row.id)?.status).toBe("configuring");
+
+		await expect(processor.process(purchaseJob)).resolves.toEqual({
+			processed: false,
+			reason: "configure_requeued",
+		});
+		expect(queue.add).toHaveBeenLastCalledWith(
+			"domain-configure",
+			{
+				attempt: 0,
+				domainId: row.id,
+				nonce: `domain-purchase-${row.id}`,
+			},
+			expect.objectContaining({
+				jobId: `domain-configure-${row.id}-domain-purchase-${row.id}-0`,
+			}),
+		);
+	});
+
+	it("terminally reimburses a purchase if configure enqueue exhausts retries", async () => {
+		const { credits, processor, queue, repository } = setup();
+		const row = repository.seed({
+			name: "queue-exhausted.com",
+			status: "registering",
+		});
+		queue.add.mockRejectedValue(new Error("queue unavailable"));
+
+		await expect(
+			processor.process(
+				job(
+					"domain-purchase",
+					{ domainId: row.id },
+					{
+						attempts: 5,
+						attemptsMade: 0,
+						id: `domain-purchase-${row.id}`,
+					},
+				),
+			),
+		).rejects.toThrow("queue unavailable");
+		expect(repository.rows.get(row.id)?.status).toBe("configuring");
+
+		await expect(
+			processor.process(
+				job(
+					"domain-purchase",
+					{ domainId: row.id },
+					{
+						attempts: 5,
+						attemptsMade: 4,
+						id: `domain-purchase-${row.id}`,
+					},
+				),
+			),
+		).resolves.toEqual({
+			processed: false,
+			reason: "terminal_failure",
+		});
+		expect(repository.rows.get(row.id)?.status).toBe("failed");
+		expect(credits.grant).toHaveBeenCalledWith(
+			userId,
+			DOMAIN_TLD_CATALOG.com.registrationCredits,
+			expect.objectContaining({
+				idempotencyKey: `domain-refund:${row.id}`,
+			}),
 		);
 	});
 
@@ -615,11 +1296,246 @@ describe("DomainsProcessor", () => {
 			expect.objectContaining({
 				attempts: 3,
 				delay: 120_000,
-				jobId: `domain-configure:${row.id}:chain-1:3`,
+				jobId: `domain-configure-${row.id}-chain-1-3`,
 				removeOnComplete: 1000,
 				removeOnFail: 5000,
 			}),
 		);
+	});
+
+	it("queues a money refund when configure enqueue exhausts BullMQ retries", async () => {
+		const { credits, orders, processor, queue, refundQueue, repository } =
+			setup();
+		const orderId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+		const paymentIntentId = "pi_config_queue_exhausted";
+		orders.seed({ id: orderId, providerPaymentIntentId: paymentIntentId });
+		const row = repository.seed({
+			cfCustomHostnameId: "cf_config_queue_exhausted",
+			name: "config-queue-exhausted.com",
+			paymentOrderId: orderId,
+			status: "configuring",
+		});
+		queue.add.mockRejectedValue(new Error("queue unavailable"));
+
+		await expect(
+			processor.process(
+				job(
+					"domain-configure",
+					{
+						attempt: 2,
+						domainId: row.id,
+						nonce: "queue-exhausted",
+					},
+					{ attempts: 3, attemptsMade: 2 },
+				),
+			),
+		).resolves.toEqual({
+			processed: false,
+			reason: "terminal_failure",
+		});
+
+		expect(repository.rows.get(row.id)?.status).toBe("failed");
+		expect(orders.rows.get(orderId)?.status).toBe("failed");
+		expect(refundQueue.enqueue).toHaveBeenCalledWith(
+			orderId,
+			"Domain registration failed",
+		);
+		expect(credits.grant).not.toHaveBeenCalled();
+	});
+
+	it("queues a money refund when domain configuration times out", async () => {
+		const { credits, orders, processor, refundQueue, repository } = setup();
+		const orderId = "44444444-4444-4444-8444-444444444444";
+		const paymentIntentId = "pi_config_timeout";
+		orders.seed({ id: orderId, providerPaymentIntentId: paymentIntentId });
+		const row = repository.seed({
+			cfCustomHostnameId: "cf_timeout",
+			name: "config-timeout.com",
+			paymentOrderId: orderId,
+			status: "configuring",
+		});
+
+		await processor.process(
+			job("domain-configure", {
+				attempt: 100,
+				domainId: row.id,
+				nonce: "money-timeout",
+			}),
+		);
+
+		expect(credits.grant).not.toHaveBeenCalled();
+		expect(refundQueue.enqueue).toHaveBeenCalledWith(
+			orderId,
+			"Domain registration failed",
+		);
+		expect(orders.rows.get(orderId)?.status).toBe("failed");
+		expect(repository.rows.get(row.id)?.status).toBe("failed");
+	});
+
+	it("keeps configure state retryable until the durable refund enqueue succeeds", async () => {
+		const { orders, processor, refundQueue, repository } = setup();
+		const orderId = "88888888-8888-4888-8888-888888888888";
+		const paymentIntentId = "pi_config_refund_retry";
+		orders.seed({ id: orderId, providerPaymentIntentId: paymentIntentId });
+		const row = repository.seed({
+			cfCustomHostnameId: "cf_refund_retry",
+			name: "config-refund-retry.com",
+			paymentOrderId: orderId,
+			status: "configuring",
+		});
+		const configureJob = job("domain-configure", {
+			attempt: 100,
+			domainId: row.id,
+			nonce: "refund-retry",
+		});
+		refundQueue.enqueueFailures = 1;
+
+		await expect(processor.process(configureJob)).rejects.toThrow(
+			"refund queue unavailable",
+		);
+		expect(repository.rows.get(row.id)?.status).toBe("configuring");
+		expect(orders.rows.get(orderId)?.status).toBe("fulfilling");
+
+		await expect(processor.process(configureJob)).resolves.toEqual({
+			processed: false,
+			reason: "timed_out",
+		});
+		expect(repository.rows.get(row.id)?.status).toBe("failed");
+		expect(orders.rows.get(orderId)?.status).toBe("failed");
+		expect(refundQueue.enqueue).toHaveBeenCalledTimes(2);
+	});
+
+	it("does not refund when a stale configure timeout loses the activation CAS", async () => {
+		const { orders, processor, refundQueue, repository } = setup();
+		const orderId = "99999999-9999-4999-8999-999999999999";
+		orders.seed({
+			id: orderId,
+			providerPaymentIntentId: "pi_stale_timeout",
+		});
+		const row = repository.seed({
+			cfCustomHostnameId: "cf_stale_timeout",
+			name: "stale-timeout.com",
+			paymentOrderId: orderId,
+			status: "configuring",
+		});
+		const originalFence = orders.withOrderFulfillmentFence.bind(orders);
+		vi.spyOn(orders, "withOrderFulfillmentFence").mockImplementationOnce(
+			async (id, operation) => {
+				await repository.updateById(row.id, {
+					error: null,
+					status: "active",
+				});
+
+				return originalFence(id, operation);
+			},
+		);
+
+		await processor.process(
+			job("domain-configure", {
+				attempt: 100,
+				domainId: row.id,
+				nonce: "stale-timeout",
+			}),
+		);
+
+		expect(repository.rows.get(row.id)?.status).toBe("active");
+		expect(orders.rows.get(orderId)?.status).toBe("fulfilled");
+		expect(refundQueue.enqueue).not.toHaveBeenCalled();
+	});
+
+	it("activates and fulfills an unattached money order without refunding it", async () => {
+		const {
+			cloudflare,
+			credits,
+			orders,
+			processor,
+			refundQueue,
+			repository,
+			routing,
+		} = setup();
+		const orderId = "55555555-5555-4555-8555-555555555555";
+		orders.seed({
+			id: orderId,
+			providerPaymentIntentId: "pi_unattached_order",
+		});
+		const row = repository.seed({
+			cfCustomHostnameId: "cf_unattached",
+			name: "unattached.com",
+			paymentOrderId: orderId,
+			projectId: null,
+			status: "configuring",
+		});
+		cloudflare.status = "active";
+
+		await expect(
+			processor.process(
+				job("domain-configure", {
+					domainId: row.id,
+					nonce: "unattached-order",
+				}),
+			),
+		).resolves.toEqual({ processed: true, status: "active" });
+
+		expect(repository.rows.get(row.id)?.status).toBe("active");
+		expect(orders.rows.get(orderId)?.status).toBe("fulfilled");
+		expect(routing.putDomainPointer).not.toHaveBeenCalled();
+		expect(cloudflare.deleteCustomHostname).not.toHaveBeenCalled();
+		expect(credits.grant).not.toHaveBeenCalled();
+		expect(refundQueue.enqueue).not.toHaveBeenCalled();
+	});
+
+	it("heals a missed order completion when an active domain job is replayed", async () => {
+		const { orders, processor, repository } = setup();
+		const orderId = "66666666-6666-4666-8666-666666666666";
+		orders.seed({
+			id: orderId,
+			providerPaymentIntentId: "pi_active_replay",
+		});
+		const row = repository.seed({
+			name: "active-replay.com",
+			paymentOrderId: orderId,
+			status: "active",
+		});
+
+		await expect(
+			processor.process(job("domain-configure", { domainId: row.id })),
+		).resolves.toEqual({
+			processed: false,
+			reason: "not_configuring",
+		});
+
+		expect(orders.rows.get(orderId)?.status).toBe("fulfilled");
+	});
+
+	it("preserves a partial-refund manual-review note when fulfillment completes", async () => {
+		const { orders, processor, repository } = setup();
+		const orderId = "12121212-1212-4212-8212-121212121212";
+		const manualReviewNote =
+			"Manual review required: Stripe reported a partial refund for this domain order; fulfillment was intentionally left unchanged.";
+		orders.seed({
+			fulfillmentError: manualReviewNote,
+			id: orderId,
+			providerPaymentIntentId: "pi_partial_then_fulfilled",
+			refundStatus: "partial",
+		});
+		const row = repository.seed({
+			name: "partial-then-fulfilled.com",
+			paymentOrderId: orderId,
+			status: "active",
+		});
+
+		await expect(
+			processor.process(job("domain-configure", { domainId: row.id })),
+		).resolves.toEqual({
+			processed: false,
+			reason: "not_configuring",
+		});
+
+		expect(orders.rows.get(orderId)).toMatchObject({
+			fulfillmentError: manualReviewNote,
+			refundStatus: "partial",
+			status: "fulfilled",
+		});
 	});
 
 	it("renews only purchased active or expired domains inside the <=30d window", async () => {

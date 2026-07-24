@@ -24,16 +24,12 @@ import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
 import { Spark } from "@/components/logo";
+import { useDomainsQuery } from "@/features/domains/api/domains.queries";
 import { useTranslation } from "@/lib/i18n";
 import { PUBLISHED_DOMAIN } from "../../lib/constants";
 import { isValidSlug, slugify } from "../../lib/helpers";
 import { useWorkspace } from "../../lib/store";
 import { DomainPurchaseDialog } from "./domain-purchase-dialog";
-
-type ConnectedDomain = {
-	name: string;
-	primary: boolean;
-};
 
 export function PublishPopover() {
 	const { t } = useTranslation();
@@ -47,6 +43,13 @@ export function PublishPopover() {
 		updateSlug,
 	} = useWorkspace();
 	const deployment = state?.deployment;
+	const domains = useDomainsQuery(projectId);
+	const customDomain =
+		(domains.data ?? []).find(
+			(domain) => domain.status === "active" && domain.isPrimary,
+		) ??
+		(domains.data ?? []).find((domain) => domain.status === "active") ??
+		null;
 
 	const fallbackSlug = `page-${projectId.replace(/^p_/, "").slice(0, 12) || "wandit"}`;
 	const slug = deployment?.slug ?? slugify(project?.name ?? "", fallbackSlug);
@@ -54,9 +57,6 @@ export function PublishPopover() {
 
 	const [popoverOpen, setPopoverOpen] = useState(false);
 	const [purchaseOpen, setPurchaseOpen] = useState(false);
-	const [customDomain, setCustomDomain] = useState<ConnectedDomain | null>(
-		null,
-	);
 	const [editingSlug, setEditingSlug] = useState(false);
 	const [slugDraft, setSlugDraft] = useState(slug);
 
@@ -94,11 +94,6 @@ export function PublishPopover() {
 		if (!nextOpen) {
 			queueMicrotask(() => setPopoverOpen(true));
 		}
-	};
-
-	const handleConnected = (domain: string, primary: boolean) => {
-		setCustomDomain({ name: domain, primary });
-		if (!published && !publishing) publish();
 	};
 
 	const triggerLabel = publishing
@@ -143,7 +138,7 @@ export function PublishPopover() {
 					{customDomain ? (
 						<CustomDomainLiveContent
 							domain={customDomain.name}
-							primary={customDomain.primary}
+							primary={customDomain.isPrimary}
 							subdomain={subdomain}
 							subdomainPublishing={publishing}
 							onCopy={copyUrl}
@@ -175,9 +170,8 @@ export function PublishPopover() {
 			<DomainPurchaseDialog
 				open={purchaseOpen}
 				onOpenChange={handlePurchaseOpenChange}
+				projectId={projectId}
 				suggestedStem={slug.replaceAll("-", "")}
-				subdomainUrl={subdomain}
-				onConnected={handleConnected}
 			/>
 		</>
 	);
@@ -367,7 +361,7 @@ function SubdomainContent({
 							{t("workspace.publish.popover.customDomainTitle")}
 						</span>
 						<span className="mt-0.5 block text-muted-foreground text-xs leading-relaxed">
-							{t("workspace.publish.popover.customDomainDescription")}
+							{t("workspace.publish.domainPurchase.search.description")}
 						</span>
 					</span>
 					<ChevronRight className="size-4 shrink-0 text-ember-text transition-transform group-hover:translate-x-0.5 rtl:rotate-180 rtl:group-hover:-translate-x-0.5" />

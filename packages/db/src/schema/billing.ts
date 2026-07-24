@@ -1,6 +1,7 @@
 import { relations, sql } from "drizzle-orm";
 import {
 	boolean,
+	index,
 	integer,
 	jsonb,
 	pgEnum,
@@ -18,6 +19,7 @@ export const billingInterval = pgEnum("billing_interval", ["month", "year"]);
 
 export const billingWebhookStatus = pgEnum("billing_webhook_status", [
 	"received",
+	"processing",
 	"processed",
 	"failed",
 	"skipped",
@@ -32,6 +34,7 @@ export const billingCustomers = pgTable(
 			.references(() => user.id, { onDelete: "restrict" }),
 		provider: text("provider").notNull(),
 		providerCustomerId: text("provider_customer_id").notNull(),
+		openCheckoutSessionId: text("open_checkout_session_id"),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.defaultNow()
 			.notNull(),
@@ -89,18 +92,25 @@ export const subscriptions = pgTable(
 	],
 );
 
-export const billingWebhookEvents = pgTable("billing_webhook_events", {
-	id: text("id").primaryKey(),
-	provider: text("provider").notNull(),
-	type: text("type").notNull(),
-	payload: jsonb("payload").notNull(),
-	status: billingWebhookStatus("status").notNull(),
-	error: text("error"),
-	processedAt: timestamp("processed_at", { withTimezone: true }),
-	createdAt: timestamp("created_at", { withTimezone: true })
-		.defaultNow()
-		.notNull(),
-});
+export const billingWebhookEvents = pgTable(
+	"billing_webhook_events",
+	{
+		id: text("id").primaryKey(),
+		provider: text("provider").notNull(),
+		type: text("type").notNull(),
+		payload: jsonb("payload").notNull(),
+		status: billingWebhookStatus("status").notNull(),
+		attemptCount: integer("attempt_count").notNull().default(0),
+		claimedAt: timestamp("claimed_at", { withTimezone: true }),
+		eventCreatedAt: timestamp("event_created_at", { withTimezone: true }),
+		error: text("error"),
+		processedAt: timestamp("processed_at", { withTimezone: true }),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+	},
+	(table) => [index("billing_webhook_events_status_idx").on(table.status)],
+);
 
 export const billingCustomersRelations = relations(
 	billingCustomers,

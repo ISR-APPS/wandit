@@ -9,6 +9,7 @@
 		"NOT_FOUND": "We could not find what you were looking for.",
 		"FORBIDDEN": "You do not have permission to do that.",
 		"INSUFFICIENT_CREDITS": "Not enough credits for this action.",
+		"PAYMENT_PAST_DUE": "Your subscription payment needs attention. Update it in the billing portal.",
 		"RATE_LIMITED": "Too many requests. Please wait a moment and try again.",
 		"INTERNAL_ERROR": "The server ran into a problem. Please try again.",
 		"HTTP_400": "The request could not be completed. Check the details and try again.",

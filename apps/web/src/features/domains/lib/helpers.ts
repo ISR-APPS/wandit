@@ -1,7 +1,7 @@
 import {
 	DOMAIN_TLD_CATALOG,
-	renewalPriceFor,
 	type Registrant,
+	renewalPriceFor,
 } from "@wandit/contracts";
 
 import { isApiClientError } from "@/lib/api-client";
@@ -24,7 +24,9 @@ export function isDomainTransitional(status: DomainStatus) {
 }
 
 export function hasTransitionalDomains(domains: Domain[] | undefined) {
-	return domains?.some((domain) => isDomainTransitional(domain.status)) ?? false;
+	return (
+		domains?.some((domain) => isDomainTransitional(domain.status)) ?? false
+	);
 }
 
 export function domainRenewalCredits(domain: Domain) {
@@ -44,7 +46,11 @@ export function externalDomainLiveUrl(name: string) {
 }
 
 export function normalizeDomainInput(value: string) {
-	return value.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+	return value
+		.trim()
+		.toLowerCase()
+		.replace(/^https?:\/\//, "")
+		.replace(/\/.*$/, "");
 }
 
 export function isAvailableSearchResult(result: SearchDomainsResult) {
@@ -109,7 +115,9 @@ export function toRegistrantBody(values: RegistrantFlatFormValues): Registrant {
 
 export type RegistrantFormField = keyof RegistrantFlatFormValues;
 
-export function registrantPathToField(path: PropertyKey[]): RegistrantFormField | null {
+export function registrantPathToField(
+	path: PropertyKey[],
+): RegistrantFormField | null {
 	const joined = path.join(".");
 
 	switch (joined) {

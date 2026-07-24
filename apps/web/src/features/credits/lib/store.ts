@@ -31,6 +31,9 @@ type LedgerEntryInput = Omit<LedgerEntryBase, "id" | "createdAt"> & LedgerLabel;
 const STORAGE_KEY = "wandit-mock-ledger";
 const EMPTY: LedgerEntry[] = [];
 
+// TODO(credits-api): replace this mock store with creditsRoutes.balance
+// (GET /api/v1/credits/balance) and creditsRoutes.ledger
+// (GET /api/v1/credits/ledger).
 function makeId(): string {
 	return `led_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 }

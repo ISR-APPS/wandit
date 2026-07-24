@@ -43,7 +43,7 @@ export function DnsRecordsTable({ records }: DnsRecordsTableProps) {
 								<div className="min-w-0 flex-1">
 									<p
 										dir="ltr"
-										className="break-all font-mono text-xs text-foreground"
+										className="break-all font-mono text-foreground text-xs"
 									>
 										{record.value}
 									</p>

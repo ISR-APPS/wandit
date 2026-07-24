@@ -14,7 +14,6 @@ import { Skeleton } from "@wandit/ui/components/skeleton";
 import { cn } from "@wandit/ui/lib/utils";
 import { Check, Copy, ExternalLink, Loader2, Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
 
 import { useSession } from "@/features/auth";
 import { InsufficientCreditsDialog, PriceTag } from "@/features/credits";
@@ -22,24 +21,24 @@ import { getApiErrorMessage } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n";
 import type { Domain, SearchDomainsResult } from "../api/domains.dto";
 import { usePurchaseDomain } from "../api/domains.mutations";
-import {
-	useDomainSearchQuery,
-	useDomainsQuery,
-} from "../api/domains.queries";
+import { useDomainSearchQuery, useDomainsQuery } from "../api/domains.queries";
 import { DOMAIN_SEARCH_DEBOUNCE_MS } from "../lib/constants";
 import {
 	createRegistrantDefaults,
-	isInsufficientCreditsError,
 	isAvailableSearchResult,
+	isInsufficientCreditsError,
 	normalizeDomainInput,
 	purchasedDomainLiveUrl,
+	type RegistrantFormField,
 	registrantPathToField,
 	safeDomainErrorSummary,
 	toRegistrantBody,
-	type RegistrantFormField,
 } from "../lib/helpers";
 import { useCopyToClipboard, useDebouncedValue } from "../lib/hooks";
-import { registrantFormSchema, type RegistrantFlatFormValues } from "../lib/schemas";
+import {
+	type RegistrantFlatFormValues,
+	registrantFormSchema,
+} from "../lib/schemas";
 import type { BuyDomainStep } from "../lib/store";
 import { DomainStatusChip } from "./domain-status-chip";
 
@@ -75,9 +74,13 @@ export function BuyDomainDialog({
 	const [registrant, setRegistrant] = useState<RegistrantFlatFormValues>(() =>
 		createRegistrantDefaults(session?.user),
 	);
-	const [registrantErrors, setRegistrantErrors] = useState<RegistrantErrors>({});
+	const [registrantErrors, setRegistrantErrors] = useState<RegistrantErrors>(
+		{},
+	);
 	const [submitError, setSubmitError] = useState<string | null>(null);
-	const [purchasedDomainId, setPurchasedDomainId] = useState<string | null>(null);
+	const [purchasedDomainId, setPurchasedDomainId] = useState<string | null>(
+		null,
+	);
 	const [insufficientOpen, setInsufficientOpen] = useState(false);
 
 	const domains = useDomainsQuery(projectId, {
@@ -238,7 +241,9 @@ export function BuyDomainDialog({
 							results={search.data?.results ?? []}
 							selected={selected}
 							onSelect={setSelected}
-							showMinHint={normalizedSearch.length > 0 && normalizedSearch.length < 2}
+							showMinHint={
+								normalizedSearch.length > 0 && normalizedSearch.length < 2
+							}
 						/>
 					) : null}
 
@@ -265,19 +270,17 @@ export function BuyDomainDialog({
 					) : null}
 
 					{step === "progress" ? (
-						<ProgressStep domain={purchasedDomain} isFetching={domains.isFetching} />
-					) : null}
-
-					{step === "success" && selected ? (
-						<SuccessStep
-							liveUrl={liveUrl}
-							onCopy={() => void copy(liveUrl)}
+						<ProgressStep
+							domain={purchasedDomain}
+							isFetching={domains.isFetching}
 						/>
 					) : null}
 
-					{step === "failed" ? (
-						<FailedStep domain={purchasedDomain} />
+					{step === "success" && selected ? (
+						<SuccessStep liveUrl={liveUrl} onCopy={() => void copy(liveUrl)} />
 					) : null}
+
+					{step === "failed" ? <FailedStep domain={purchasedDomain} /> : null}
 
 					<DialogFooter>
 						{step === "search" ? (
@@ -318,7 +321,9 @@ export function BuyDomainDialog({
 									onClick={() => void submitPurchase()}
 									disabled={purchase.isPending}
 								>
-									{purchase.isPending ? <Loader2 className="animate-spin" /> : null}
+									{purchase.isPending ? (
+										<Loader2 className="animate-spin" />
+									) : null}
 									{t("settings.domains.buyConfirmCta", {
 										count: selectedCost,
 									})}
@@ -368,7 +373,9 @@ function SearchStep({
 	return (
 		<div className="flex flex-col gap-4">
 			<div className="flex flex-col gap-2">
-				<Label htmlFor="domain-search">{t("settings.domains.searchLabel")}</Label>
+				<Label htmlFor="domain-search">
+					{t("settings.domains.searchLabel")}
+				</Label>
 				<div className="relative">
 					<Search className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
 					<Input
@@ -440,7 +447,10 @@ function SearchStep({
 							);
 						})
 					: null}
-				{!searching && !error && value.trim().length >= 2 && results.length === 0 ? (
+				{!searching &&
+				!error &&
+				value.trim().length >= 2 &&
+				results.length === 0 ? (
 					<p className="rounded-lg border border-dashed px-4 py-6 text-center text-muted-foreground text-sm">
 						{t("settings.domains.noSearchResults")}
 					</p>
@@ -726,7 +736,7 @@ function SuccessStep({
 
 	return (
 		<div className="flex flex-col gap-4">
-			<div className="flex items-center gap-2 rounded-lg border border-success/40 bg-success/5 px-4 py-3 text-success text-sm">
+			<div className="flex items-center gap-2 rounded-lg border border-success/40 bg-success/5 px-4 py-3 text-sm text-success">
 				<Check className="size-4" />
 				{t("settings.domains.buySuccess")}
 			</div>

@@ -33,9 +33,7 @@ import type {
 	VerifyDomainResponse,
 } from "./domains.dto";
 
-export async function searchDomains(
-	q: string,
-): Promise<SearchDomainsResponse> {
+export async function searchDomains(q: string): Promise<SearchDomainsResponse> {
 	try {
 		const payload = await ApiService.get<SearchDomainsResponse>(
 			domainsRoutes.search,
@@ -76,10 +74,10 @@ export async function purchaseDomain(
 	projectId: string,
 	body: PurchaseDomainBody,
 ): Promise<PurchaseDomainResponse> {
-	const payload = await ApiService.post<PurchaseDomainResponse, PurchaseDomainBody>(
-		domainsRoutes.purchase(projectId),
-		body,
-	);
+	const payload = await ApiService.post<
+		PurchaseDomainResponse,
+		PurchaseDomainBody
+	>(domainsRoutes.purchase(projectId), body);
 
 	return purchaseDomainResponseSchema.parse(payload);
 }

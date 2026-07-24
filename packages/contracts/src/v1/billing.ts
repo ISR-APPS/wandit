@@ -2,6 +2,15 @@ import { z } from "zod";
 import { creditBalanceResponseSchema } from "./credits";
 import { isoDateTimeSchema, uuidSchema } from "./shared/primitives";
 
+export const CHECKOUT_PURPOSE = {
+	subscription: "subscription",
+	topup: "topup",
+	order: "order",
+} as const;
+
+export type CheckoutPurpose =
+	(typeof CHECKOUT_PURPOSE)[keyof typeof CHECKOUT_PURPOSE];
+
 export const billingPlanIds = ["pro", "business"] as const;
 
 export const billingPlanIdSchema = z.enum(billingPlanIds);
@@ -13,6 +22,13 @@ export const billingIntervals = ["month", "year"] as const;
 export const billingIntervalSchema = z.enum(billingIntervals);
 
 export type BillingInterval = z.infer<typeof billingIntervalSchema>;
+
+// Only these Stripe states grant subscription entitlement. In particular,
+// `past_due` keeps previously granted credits but does not bypass credit checks.
+export const ENTITLED_SUBSCRIPTION_STATUSES = ["active", "trialing"] as const;
+
+export type EntitledSubscriptionStatus =
+	(typeof ENTITLED_SUBSCRIPTION_STATUSES)[number];
 
 export const CREDIT_TIERS = [
 	100, 200, 400, 800, 1200, 2000, 3000, 4000, 5000, 7500, 10000,
@@ -145,6 +161,7 @@ function isCreditTier(value: number): value is CreditTier {
 }
 
 export const subscriptionSchema = z.object({
+	entitled: z.boolean(),
 	id: uuidSchema,
 	userId: z.string(),
 	organizationId: z.string().nullable(),
@@ -232,8 +249,9 @@ export type CreateBillingTopupBody = z.infer<
 >;
 
 export const changeBillingSubscriptionBodySchema = z.object({
-	tierCredits: creditTierSchema,
 	interval: billingIntervalSchema,
+	plan: billingPlanIdSchema.optional(),
+	tierCredits: creditTierSchema,
 });
 
 export type ChangeBillingSubscriptionBody = z.infer<
@@ -263,5 +281,6 @@ export const billingRoutes = {
 	change: "/api/v1/billing/change",
 	cancel: "/api/v1/billing/cancel",
 	resume: "/api/v1/billing/resume",
+	sync: "/api/v1/billing/sync",
 	webhook: "/api/webhooks/stripe",
 } as const;

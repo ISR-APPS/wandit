@@ -125,41 +125,6 @@
 				"legalNotice": "Domain purchases are final. You can transfer the domain after the 60-day ICANN lock.",
 				"continueToStripe": "Continue to Stripe · {amount}",
 				"stripeCaption": "Secure payment handled by Stripe"
-			},
-			"stripe": {
-				"title": "Finish payment",
-				"description": "Complete checkout in Stripe, then return here.",
-				"waitingTitle": "Complete payment in Stripe",
-				"waitingDescription": "Stripe opened in a new tab. Return here when checkout is complete.",
-				"returnedTitle": "Welcome back",
-				"returnedDescription": "Once Stripe confirms payment for {domain}, continue to connect it.",
-				"domainPending": "{domain} · awaiting payment confirmation",
-				"prototypeNotice": "Prototype mode: no payment status is checked. Continue to preview the connected state.",
-				"openAgain": "Open Stripe again",
-				"completePrototype": "I’ve completed payment"
-			},
-			"connecting": {
-				"title": "Setting up your domain",
-				"description": "We’re registering it and connecting it to your page.",
-				"connectingDomain": "Connecting {domain}",
-				"estimate": "This usually takes a few minutes.",
-				"paymentConfirmed": "Payment confirmed",
-				"domainRegistered": "Domain registered — you’re the owner",
-				"dnsConfigured": "DNS configured",
-				"sslActivated": "SSL certificate activated"
-			},
-			"connected": {
-				"title": "Domain connected",
-				"description": "Your new domain is live.",
-				"successTitle": "Your domain is live",
-				"successDescription": "Your page now loads at {domain}.",
-				"primaryTitle": "Set as primary domain",
-				"primaryDescription": "Use it as the main link everywhere.",
-				"qrTitle": "New QR code ready",
-				"qrDescription": "It opens your custom domain — share it in stories or print it on packaging.",
-				"subdomainContinues": "Your free subdomain {url} stays live too.",
-				"done": "Done",
-				"openDomain": "Open domain"
 			}
 		},
 		"panel": {
