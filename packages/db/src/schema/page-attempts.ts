@@ -40,9 +40,9 @@ export const pageGenerationAttempts = pgTable(
 			onDelete: "set null",
 		}),
 		status: pageGenerationStatus("status").notNull().default("queued"),
-		// Versioned generation contract. V2 snapshots the factual brief, Art
-		// Director prompt/model, Builder prompt, and (once generated) CreativeSpec
-		// so later prompt or environment edits never change an old attempt.
+		// Generation contract snapshot: the creative brief, Builder prompt, and
+		// title, captured at queue time so later prompt or environment edits
+		// never change what an old attempt meant.
 		spec: jsonb("spec").notNull(),
 		// Model id snapshotted at queue time, same reasoning as spec.
 		model: text("model").notNull(),

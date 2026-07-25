@@ -39,12 +39,6 @@ export const env = createEnv({
 	server: {
 		// AI model settings.
 		AI_CHAT_MODEL: z.string().min(1).default("openai/gpt-4o-mini"),
-		// One-shot structured creative direction between the chat Brain and the
-		// Builder. Kept separate so models can be tested independently.
-		AI_ART_DIRECTOR_MODEL: z
-			.string()
-			.min(1)
-			.default("anthropic/claude-sonnet-5"),
 		AI_GATEWAY_API_KEY: z.string().min(1).optional(),
 		// Optional: the builder's generate_image tool. Needs R2 plus
 		// R2_PUBLIC_BASE_URL too; unset means the tool answers "unavailable".
@@ -66,6 +60,12 @@ export const env = createEnv({
 			.string()
 			.min(1)
 			.default("anthropic/claude-sonnet-5"),
+		// Builder reasoning knob, read at build time inside runSiteBuild() and
+		// forwarded as providerOptions (openai.reasoningEffort; mapped onto
+		// Gemini's two thinking levels). Unset means provider defaults.
+		AI_PAGE_DESIGN_REASONING: z
+			.enum(["minimal", "low", "medium", "high", "xhigh"])
+			.optional(),
 		// Optional: the builder's animate_image tool (image → short ambient video).
 		// Needs R2 + R2_PUBLIC_BASE_URL too; unset means the tool answers
 		// "unavailable".

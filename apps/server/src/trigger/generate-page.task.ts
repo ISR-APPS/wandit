@@ -19,28 +19,29 @@ import { logger, task } from "@trigger.dev/sdk";
 import { and, createDb, desc, eq, gt, inArray } from "@wandit/db";
 import { artifacts, versions } from "@wandit/db/schema/artifacts";
 import { pageGenerationAttempts } from "@wandit/db/schema/page-attempts";
+import { z } from "zod";
 import {
 	contentTypeFor,
 	pageHtmlKey,
 	putSiteFile,
 	siteFileKey,
 } from "../infrastructure/storage/r2";
-import { runArtDirection } from "../modules/ai-chat/agent/art-director/art-director-agent";
-import { buildArtDirectorExtractionSystemPrompt } from "../modules/ai-chat/agent/art-director/art-director-prompt";
-import {
-	assertCreativeSpecSemantics,
-	type CreativeSpec,
-	serializeCreativeSpec,
-} from "../modules/ai-chat/agent/art-director/creative-spec";
-import { pageAttemptSpecSchema } from "../modules/ai-chat/agent/art-director/page-attempt-spec";
 import { runSiteBuild } from "../modules/ai-chat/agent/site-builder/site-builder-agent";
+
+// The queue tool snapshots exactly this shape. Non-strict on purpose: rows
+// queued by the retired art-director pipeline carry extra fields (art prompts,
+// creative spec) that parse() strips — their brief/prompt/title still build.
+const attemptSpecSchema = z.object({
+	brief: z.string().min(1),
+	designerSystemPrompt: z.string().min(1),
+	title: z.string().min(1),
+});
 
 export const generatePageTask = task({
 	id: "generate-page",
-	// Two streamed Art Director calls plus one Builder tool loop with three
-	// screenshot review passes. Slow reasoning models spend 10+ minutes on the
-	// Capsule alone, so the ceiling is a safety net, not an estimate.
-	maxDuration: 3600,
+	// One Builder tool loop with three screenshot review passes; typically a
+	// few minutes. The generous ceiling is a safety net, not an estimate.
+	maxDuration: 1800,
 	retry: { maxAttempts: 1 },
 	run: async (payload: { attemptId: string }, { ctx, signal }) => {
 		// Fresh pool per run; ended in `finally` so the worker process can be
@@ -96,116 +97,16 @@ export const generatePageTask = task({
 			}
 
 			try {
-				const spec = pageAttemptSpecSchema.parse(attempt.spec);
+				const spec = attemptSpecSchema.parse(attempt.spec);
 
 				logger.info(
 					`🚀 Build starting — page "${spec.title}", attempt ${attempt.id}, ` +
 						`Builder ${attempt.model}`,
 				);
 
-				let creativeSpec: CreativeSpec | null = null;
-				let creativeCapsuleForBuilder: string;
-				let creativeSpecForBuilder: string;
-
-				if (spec.version === 2) {
-					if (spec.creativeSpec) {
-						creativeSpec = spec.creativeSpec;
-						creativeCapsuleForBuilder =
-							spec.creativeCapsule ??
-							"This attempt predates Creative Capsules. Treat the saved " +
-								"Creative Specification as the complete design contract.";
-						logger.info(
-							`🎨 Reusing snapshotted Art Direction "${spec.creativeSpec.direction.name}"`,
-						);
-
-						if (spec.creativeCapsule) {
-							logger.info(
-								`📜 Reused Creative Capsule (Art Director → Builder):\n\n${spec.creativeCapsule}`,
-							);
-						}
-					} else {
-						logger.info(
-							`🎨 Art Director ${spec.artDirectorModel} is creating the ` +
-								"visual concept and page composition",
-						);
-
-						const extractionSystem =
-							spec.artDirectorExtractionSystemPrompt ??
-							buildArtDirectorExtractionSystemPrompt();
-						const specWithExtractionPrompt = {
-							...spec,
-							artDirectorExtractionSystemPrompt: extractionSystem,
-						};
-
-						// V2 rows queued before two-stage Art Direction have no
-						// extraction-prompt snapshot. Pin the fallback before the
-						// call so a failed run cannot drift on its next retry.
-						if (!spec.artDirectorExtractionSystemPrompt) {
-							await db
-								.update(pageGenerationAttempts)
-								.set({ spec: specWithExtractionPrompt })
-								.where(eq(pageGenerationAttempts.id, attempt.id));
-						}
-
-						const generatedArtDirection = await runArtDirection({
-							abortSignal: signal,
-							contentBrief: spec.brief,
-							extractionSystem,
-							model: spec.artDirectorModel,
-							system: spec.artDirectorSystemPrompt,
-							title: spec.title,
-						});
-						creativeSpec = generatedArtDirection.spec;
-						creativeCapsuleForBuilder = generatedArtDirection.capsule;
-
-						// Persist the exact validated handoff before building. A
-						// manually retried run can reuse it, and prompt/model changes
-						// can never reinterpret this attempt later.
-						await db
-							.update(pageGenerationAttempts)
-							.set({
-								spec: {
-									...specWithExtractionPrompt,
-									creativeCapsule: generatedArtDirection.capsule,
-									creativeSpec: generatedArtDirection.spec,
-								},
-							})
-							.where(eq(pageGenerationAttempts.id, attempt.id));
-
-						logger.info(
-							`🎨 Art Direction ready — "${generatedArtDirection.spec.direction.name}": ` +
-								generatedArtDirection.spec.direction.concept,
-						);
-						logger.info(
-							`📜 Creative Capsule (Art Director → Builder):\n\n${generatedArtDirection.capsule}`,
-						);
-					}
-
-					if (!creativeSpec) {
-						throw new Error("Art Director returned no CreativeSpec");
-					}
-
-					// Revalidate cross-field rules for both fresh output and a
-					// persisted CreativeSpec reused by a failed-attempt retry.
-					assertCreativeSpecSemantics(creativeSpec);
-					creativeSpecForBuilder = serializeCreativeSpec(creativeSpec);
-				} else {
-					// Legacy rows used one combined free-text brief. Preserve that
-					// exact behavior instead of failing an already-queued build.
-					creativeCapsuleForBuilder =
-						"This legacy attempt has no separate Creative Capsule. Its " +
-						"original combined brief is preserved in creativeSpecification.";
-					creativeSpecForBuilder = `LEGACY COMBINED CREATIVE BRIEF:\n${spec.brief}`;
-					logger.warn(
-						"Legacy attempt has no Art Director snapshot; using its " +
-							"original combined brief",
-					);
-				}
-
 				logger.info(
-					"🧠 The Builder is writing the page now — final source review " +
-						"plus final-revision desktop/mobile review when vision and " +
-						"Playwright are available",
+					"🧠 The Builder is writing the page now — three screenshot " +
+						"review passes when vision and Playwright are available",
 				);
 
 				// The build brain: a tool-loop agent writing into a virtual FS.
@@ -213,26 +114,10 @@ export const generatePageTask = task({
 				// non-trivial) and throws human-readable errors on failure.
 				const build = await runSiteBuild({
 					abortSignal: signal,
-					...(creativeSpec
-						? {
-								allowedImageShots: creativeSpec.media.generatedShots,
-								allowedVideoPlan: creativeSpec.media.ambientVideo
-									? {
-											aspect: creativeSpec.media.ambientVideo.aspect,
-											motionPrompt:
-												creativeSpec.media.ambientVideo.motionPrompt,
-											placement: creativeSpec.media.ambientVideo.placement,
-											source: creativeSpec.media.ambientVideo.source,
-										}
-									: null,
-							}
-						: {}),
 					// Every run gets a fresh asset namespace. A deliberate retry
 					// can never overwrite images referenced by an older version.
 					attemptId: `${attempt.id}-${crypto.randomUUID()}`,
-					contentBrief: spec.brief,
-					creativeCapsule: creativeCapsuleForBuilder,
-					creativeSpec: creativeSpecForBuilder,
+					brief: spec.brief,
 					model: attempt.model,
 					projectId: attempt.projectId,
 					system: spec.designerSystemPrompt,
@@ -294,16 +179,8 @@ export const generatePageTask = task({
 						meta: {
 							builderSummary: build.summary,
 							builderSteps: build.steps,
-							creativeDirection: creativeSpec
-								? {
-										concept: creativeSpec.direction.concept,
-										name: creativeSpec.direction.name,
-										schemaVersion: creativeSpec.schemaVersion,
-									}
-								: undefined,
 							files: build.files.map((file) => file.path),
 							generationModels: {
-								artDirector: spec.version === 2 ? spec.artDirectorModel : null,
 								builder: attempt.model,
 							},
 							// Contract §9: absent source means LEGACY builder rows.

@@ -17,7 +17,10 @@ import {
 	type GeneratePageToolDeps,
 	generatePageToolSchemaOnly,
 } from "./tools/generate-page.tool";
-import { getDirectionCandidatesToolSchemaOnly } from "./tools/get-direction-candidates.tool";
+import {
+	getDirectionCandidatesTool,
+	getDirectionCandidatesToolSchemaOnly,
+} from "./tools/get-direction-candidates.tool";
 import {
 	createPageEditTools,
 	type PageEditTools,
@@ -35,6 +38,7 @@ type AiChatToolSet = {
 	animate_image: AnimateImageTool;
 	ask_user: typeof askUserTool;
 	generate_page: GeneratePageTool;
+	get_direction_candidates: typeof getDirectionCandidatesTool;
 	scrape_leads: ScrapeLeadsTool;
 	get_page_outline: PageEditTools["get_page_outline"];
 	read_section: PageEditTools["read_section"];
@@ -92,6 +96,7 @@ export function createChatAgent(
 				pagesRepository: deps.pagesRepository,
 				projectId: deps.projectId,
 			}),
+			get_direction_candidates: getDirectionCandidatesTool,
 			scrape_leads: createScrapeLeadsTool({
 				chatId: deps.chatId,
 				leadScrapesRepository: deps.leadScrapesRepository,
@@ -118,8 +123,6 @@ export const aiChatToolsForValidation = {
 	ask_user: askUserTool,
 	generate_page: generatePageToolSchemaOnly,
 	scrape_leads: scrapeLeadsToolSchemaOnly,
-	// Retired from the live Brain. Keep the schema so historical messages
-	// that used the old random direction menu still validate and render.
 	get_direction_candidates: getDirectionCandidatesToolSchemaOnly,
 	...pageEditToolsSchemaOnly,
 	// read_skill was retired from the live agent; the schema stays so chats

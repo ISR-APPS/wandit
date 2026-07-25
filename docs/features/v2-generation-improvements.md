@@ -1,4 +1,10 @@
-# V2 Generation Improvements — Spec (source of truth)
+# V2 Generation Improvements — Spec (RETIRED, historical record)
+
+> **Status (2026-07-24): RETIRED.** The Art Director pipeline this spec
+> describes was removed — it burned tokens, added latency, and failed too
+> often. Generation is back to the two-agent flow (Brain → Builder); see
+> `ai-chat-brain.md` for the current architecture. This file is kept only as
+> the historical record of what was tried. Do not implement from it.
 
 Decisions agreed with Zack on 2026-07-20. Every implementation agent reads this
 file first. **Never commit — leave all changes uncommitted for review.**
