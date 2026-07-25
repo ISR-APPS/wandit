@@ -7,8 +7,10 @@ export function mapProjectRow(row: ProjectQueryRow): Project {
 		createdAt: row.createdAt.toISOString(),
 		id: row.id,
 		leadCount: row.leadCount,
+		metaPixelId: row.metaPixelId,
 		name: row.name,
 		prompt: row.prompt,
+		tiktokPixelId: row.tiktokPixelId,
 		...(row.activeSlug ? { publishedSlug: row.activeSlug } : {}),
 		status: row.activeSlug
 			? "published"

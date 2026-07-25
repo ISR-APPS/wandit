@@ -10,6 +10,7 @@ import {
 	type ApplyPageOpsBody,
 	type ApplyPageOpsResponse,
 	applyPageOpsBodySchema,
+	type ListPageVersionsResponse,
 	type PageOverview,
 	type PageVersionHtml,
 	uuidSchema,
@@ -51,6 +52,16 @@ export class PagesController {
 		@CurrentUser() user: AuthUser,
 	): Promise<PageOverview> {
 		return this.pagesService.overview(user.id, projectId);
+	}
+
+	// Version history, newest first, with the live version marked.
+	@Get("projects/:projectId/page/versions")
+	versions(
+		@Param("projectId", new ZodValidationPipe(uuidSchema))
+		projectId: string,
+		@CurrentUser() user: AuthUser,
+	): Promise<ListPageVersionsResponse> {
+		return this.pagesService.listVersions(user.id, projectId);
 	}
 
 	// JSON envelope on purpose (NOT a raw text/html response): the web puts

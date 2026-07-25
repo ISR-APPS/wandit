@@ -1,6 +1,6 @@
 // Settings → General card: rename the project and manage Meta/TikTok ad
-// pixel IDs. Local input state resyncs from the store; the name saves through
-// the projects mutation, pixels through the workspace mock services.
+// pixel IDs. Local input state resyncs from the project; both the name and
+// the pixels save through real project mutations.
 
 import { Button } from "@wandit/ui/components/button";
 import {
@@ -23,7 +23,7 @@ import { useWorkspace } from "../../lib/store";
 
 export function GeneralSection() {
 	const { t } = useTranslation();
-	const { project, projectId, state, updatePixels } = useWorkspace();
+	const { project, projectId, updatePixels } = useWorkspace();
 	const rename = useRenameProject();
 
 	const [name, setName] = useState(project?.name ?? "");
@@ -31,8 +31,8 @@ export function GeneralSection() {
 		setName(project?.name ?? "");
 	}, [project?.name]);
 
-	const savedMeta = state?.pixels.metaPixelId ?? null;
-	const savedTiktok = state?.pixels.tiktokPixelId ?? null;
+	const savedMeta = project?.metaPixelId ?? null;
+	const savedTiktok = project?.tiktokPixelId ?? null;
 	const [metaValue, setMetaValue] = useState(savedMeta ?? "");
 	const [tiktokValue, setTiktokValue] = useState(savedTiktok ?? "");
 	useEffect(() => {

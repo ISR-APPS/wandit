@@ -6,9 +6,8 @@
  * value, persisting the chat/main panel layout, remembering the Assets view,
  * formatting leads, and building/exporting simple files.
  *
- * Some helpers still serve the mock page-version path (canvas layout,
- * pickPageKey, CSV/download helpers). That is why you will see PageVersion and
- * Lead types here even though the real chat message flow now lives in
+ * PageVersion and Lead types appear here for the canvas layout and
+ * CSV/download helpers; the real chat message flow lives in
  * use-project-chat.tsx and api/chat.*.
  */
 // Pure functions for the workspace feature.
@@ -122,38 +121,6 @@ export function hashString(value: string): number {
 		hash = (Math.imul(hash, 31) + value.charCodeAt(i)) | 0;
 	}
 	return Math.abs(hash);
-}
-
-/** Which mock page family a project's next generation renders. */
-const PAGE_FAMILIES: Record<
-	string,
-	{ prefix: string; count: number; lang: "fr" | "ar" | "en" }
-> = {
-	p_montre: { prefix: "watch", count: 3, lang: "fr" },
-	p_miel: { prefix: "honey", count: 2, lang: "ar" },
-	p_serum: { prefix: "serum", count: 1, lang: "fr" },
-	p_sneakers: { prefix: "sneakers", count: 2, lang: "en" },
-	p_ramadan: { prefix: "dates", count: 1, lang: "fr" },
-	p_dentaire: { prefix: "dental", count: 1, lang: "fr" },
-	p_formation: { prefix: "formation", count: 1, lang: "fr" },
-	p_gaming: { prefix: "gaming", count: 1, lang: "en" },
-};
-
-// Choose which mock page template a new version should render. This is not the
-// real worker generation path; it is legacy/demo scaffolding for preview data.
-export function pickPageKey(projectId: string, versionCount: number): string {
-	const family = PAGE_FAMILIES[projectId];
-	if (family) {
-		if (versionCount < family.count) {
-			return `${family.prefix}-${versionCount + 1}`;
-		}
-		// The generic fallback family is French-only; keep AR/EN threads in
-		// their own language by cycling their family instead.
-		if (family.lang !== "fr") {
-			return `${family.prefix}-${(versionCount % family.count) + 1}`;
-		}
-	}
-	return `generic-${(versionCount % 3) + 1}`;
 }
 
 /**

@@ -22,7 +22,6 @@ import {
 	useChatMessagesQuery,
 } from "../api/chat.queries";
 import { pageKeys } from "../api/pages.queries";
-import { workspaceKeys } from "../api/workspace.queries";
 
 export type WanditUIMessage = UIMessage<never, never, AiChatTools>;
 
@@ -41,13 +40,14 @@ export function useAiChat(projectId: string) {
 	);
 
 	// AI edits (replace_section, page generation) mint a NEW immutable version
-	// server-side. Both keys must be invalidated: workspaceKeys.state refreshes
-	// the versions list (VersionSwitcher), while the preview iframe only
-	// remounts via pageKeys.overview (its key contains activeVersion.id).
+	// server-side. Both keys must be invalidated: pageKeys.versions refreshes
+	// the version list (VersionSwitcher, assets, history), while the preview
+	// iframe only remounts via pageKeys.overview (its key contains
+	// activeVersion.id).
 	const queryClient = useQueryClient();
 	const invalidatePageData = useCallback(() => {
 		void queryClient.invalidateQueries({
-			queryKey: workspaceKeys.state(projectId),
+			queryKey: pageKeys.versions(projectId),
 		});
 		void queryClient.invalidateQueries({
 			queryKey: pageKeys.overview(projectId),

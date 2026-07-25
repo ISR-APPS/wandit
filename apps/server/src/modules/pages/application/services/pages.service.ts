@@ -5,7 +5,11 @@
 // repository talks to the database. R2 access goes through the plain storage
 // module (no Nest wrapper) because the Trigger.dev task shares it.
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
-import type { PageOverview, PageVersionHtml } from "@wandit/contracts";
+import type {
+	ListPageVersionsResponse,
+	PageOverview,
+	PageVersionHtml,
+} from "@wandit/contracts";
 
 import { getPageHtml } from "../../../../infrastructure/storage/r2";
 import { PagesRepository } from "../../infrastructure/persistence/pages.repository";
@@ -51,6 +55,31 @@ export class PagesService {
 		};
 	}
 
+	// Full version history (Settings history, version switcher, rollback).
+	async listVersions(
+		userId: string,
+		projectId: string,
+	): Promise<ListPageVersionsResponse> {
+		const rows = await this.pagesRepository.listVersionsForProject(
+			userId,
+			projectId,
+		);
+
+		if (!rows) {
+			throw new NotFoundException();
+		}
+
+		return {
+			versions: rows.map((row) => ({
+				createdAt: row.createdAt.toISOString(),
+				id: row.id,
+				isLive: row.isLive,
+				label: versionLabel(row.meta),
+				number: row.number,
+			})),
+		};
+	}
+
 	// Full HTML of one immutable version, fetched from R2.
 	async versionHtml(
 		userId: string,
@@ -75,4 +104,26 @@ export class PagesService {
 
 		return { html, versionId: version.id };
 	}
+}
+
+// Human summary from a version's build metadata: the builder's own summary
+// when the AI generated it, an edit count for inline-editor batches.
+function versionLabel(meta: unknown): string | null {
+	if (typeof meta !== "object" || meta === null) {
+		return null;
+	}
+
+	const record = meta as Record<string, unknown>;
+
+	if (typeof record.builderSummary === "string" && record.builderSummary) {
+		return record.builderSummary;
+	}
+
+	if (Array.isArray(record.ops) && record.ops.length > 0) {
+		const count = record.ops.length;
+
+		return count === 1 ? "1 manual edit" : `${count} manual edits`;
+	}
+
+	return null;
 }

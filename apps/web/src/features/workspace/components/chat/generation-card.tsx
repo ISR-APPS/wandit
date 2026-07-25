@@ -22,7 +22,7 @@
  * -------------
  * The `status: "running"` branch (spinner + shimmer) is currently
  * forward-looking: as of now nothing in the web app produces a running part —
- * mock-workspace.ts only creates status "complete" cards, and the SSE stream
+ * The demo path only creates status "complete" cards, and the SSE stream
  * hook (use-project-chat.tsx) doesn't yet emit artifact-updated parts. The
  * running UI will light up once the real streaming events are wired through.
  */

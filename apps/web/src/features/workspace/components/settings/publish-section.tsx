@@ -1,7 +1,8 @@
 // Settings → Publishing card: live URL with copy/open + publish/unpublish,
-// subdomain slug with validation and a debounced mock availability check,
-// and the immutable version history with rollback.
+// subdomain slug with validation and a debounced server availability check,
+// and the publish history with rollback.
 
+import type { Deployment, DeploymentStatus } from "@wandit/contracts";
 import { Badge } from "@wandit/ui/components/badge";
 import { Button } from "@wandit/ui/components/button";
 import {
@@ -15,66 +16,77 @@ import { Input } from "@wandit/ui/components/input";
 import { Label } from "@wandit/ui/components/label";
 import { Separator } from "@wandit/ui/components/separator";
 import { Check, Copy, ExternalLink, Loader2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { useTranslation } from "@/lib/i18n";
 import { relativeTime } from "@/lib/relative-time";
+import {
+	useDeploymentsQuery,
+	useSlugAvailabilityQuery,
+} from "../../api/deployments.queries";
 import { PUBLISHED_DOMAIN, SLUG_CHECK_DEBOUNCE_MS } from "../../lib/constants";
-import { hashString, isValidSlug, slugify } from "../../lib/helpers";
+import { isValidSlug } from "../../lib/helpers";
+import {
+	canPublish as canPublishFor,
+	displaySlug,
+	slugVerdict,
+} from "../../lib/publish-state";
 import { useWorkspace } from "../../lib/store";
 
 export function PublishSection() {
 	const { t } = useTranslation();
 	const {
-		state,
-		project,
-		versions,
+		deployment,
+		draftSlug,
 		liveUrl,
+		project,
+		projectId,
 		publish,
-		unpublish,
+		publishPending,
 		rollbackTo,
+		unpublish,
 		updateSlug,
+		versions,
 	} = useWorkspace();
 
-	const deployment = state?.deployment;
-	const publishing = deployment?.state === "publishing";
-	const savedSlug = deployment?.slug ?? "";
+	const publishing = deployment?.uiState === "publishing" || publishPending;
+	const failed = deployment?.uiState === "failed";
+	const savedSlug = displaySlug(deployment, draftSlug, project?.name);
 
 	const [slug, setSlug] = useState(savedSlug);
 	const [slugDirty, setSlugDirty] = useState(false);
-	const [checking, setChecking] = useState(false);
 	useEffect(() => {
 		setSlug(savedSlug);
 		setSlugDirty(false);
 	}, [savedSlug]);
 
-	const slugValid = isValidSlug(slug);
-	const slugUnchanged = slug === savedSlug;
-	// The publish flow auto-assigns slugify(project.name) without a check,
-	// so the mock availability rule must never contradict it.
-	const autoSlug = project ? slugify(project.name, "") : "";
-	const slugTaken =
-		slugValid &&
-		hashString(slug) % 5 === 0 &&
-		slug !== deployment?.slug &&
-		slug !== autoSlug;
-
-	// Mock availability check — debounced so the verdict lands after typing.
+	// Let typing settle before asking the server about a candidate slug.
+	const [settledSlug, setSettledSlug] = useState(slug);
 	useEffect(() => {
-		if (!slugDirty || !isValidSlug(slug)) {
-			setChecking(false);
-			return;
-		}
-		setChecking(true);
 		const id = window.setTimeout(
-			() => setChecking(false),
+			() => setSettledSlug(slug),
 			SLUG_CHECK_DEBOUNCE_MS,
 		);
 		return () => window.clearTimeout(id);
-	}, [slug, slugDirty]);
+	}, [slug]);
 
-	const saveDisabled = !slugValid || slugTaken || checking || slugUnchanged;
+	const slugUnchanged = slug === savedSlug;
+	const availabilityQuery = useSlugAvailabilityQuery(
+		projectId,
+		settledSlug,
+		slugDirty && !slugUnchanged && isValidSlug(settledSlug),
+	);
+
+	const verdict = slugVerdict({
+		slug,
+		dirty: slugDirty,
+		unchanged: slugUnchanged,
+		checking: availabilityQuery.isFetching || slug !== settledSlug,
+		availability: slug === settledSlug ? availabilityQuery.data : undefined,
+	});
+
+	const saveDisabled = verdict !== "available";
 
 	const handleCopy = () => {
 		if (!liveUrl) return;
@@ -88,10 +100,14 @@ export function PublishSection() {
 		toast.success(t("settings.slugSaved"));
 	};
 
-	const orderedVersions = [...versions].reverse();
-	const liveVersionNumber =
-		versions.find((v) => v.id === deployment?.publishedVersionId)?.number ??
-		null;
+	const deploymentsQuery = useDeploymentsQuery(projectId);
+	const history = deploymentsQuery.data ?? [];
+	const versionNumberById = useMemo(
+		() => new Map(versions.map((v) => [v.id, v.number])),
+		[versions],
+	);
+
+	const canPublish = canPublishFor(deployment) && !publishPending;
 
 	return (
 		<Card>
@@ -136,30 +152,37 @@ export function PublishSection() {
 					) : (
 						<div className="flex items-center justify-between gap-3">
 							<p className="text-muted-foreground text-sm">
-								{t("settings.notPublished")}
+								{failed
+									? t("settings.publishFailed")
+									: t("settings.notPublished")}
 							</p>
 							<Button
 								onClick={() => {
 									// Carry a valid unsaved slug edit into the publish so the
 									// site doesn't go live on a stale name-derived slug.
-									if (slugDirty && slugValid && !slugTaken && !slugUnchanged) {
+									if (slugDirty && !slugUnchanged && verdict === "available") {
 										updateSlug(slug);
 									}
 									publish();
 								}}
-								disabled={versions.length === 0 || publishing}
+								disabled={!canPublish || publishing}
 							>
 								{publishing ? (
 									<>
 										<Loader2 className="size-4 animate-spin" />
 										{t("workspace.publish.publishing")}
 									</>
+								) : failed ? (
+									t("workspace.publish.retryCta")
 								) : (
 									t("settings.publishCta")
 								)}
 							</Button>
 						</div>
 					)}
+					{failed && deployment?.error ? (
+						<p className="text-destructive text-xs">{deployment.error}</p>
+					) : null}
 					{liveUrl ? (
 						<div>
 							<Button
@@ -167,6 +190,7 @@ export function PublishSection() {
 								size="sm"
 								className="text-destructive"
 								onClick={() => unpublish()}
+								disabled={publishPending}
 							>
 								{t("settings.unpublishCta")}
 							</Button>
@@ -182,7 +206,7 @@ export function PublishSection() {
 							className="font-mono"
 							value={slug}
 							onChange={(e) => {
-								setSlug(e.target.value);
+								setSlug(e.target.value.toLowerCase());
 								setSlugDirty(true);
 							}}
 						/>
@@ -198,26 +222,28 @@ export function PublishSection() {
 							{t("settings.slugSave")}
 						</Button>
 					</div>
-					{slugDirty ? (
-						!slugValid ? (
-							<p className="text-destructive text-xs">
-								{t("settings.slugInvalid")}
-							</p>
-						) : checking ? (
-							<p className="flex items-center gap-1 text-muted-foreground text-xs">
-								<Loader2 className="size-3 animate-spin" />
-								{t("settings.slugChecking")}
-							</p>
-						) : slugTaken ? (
-							<p className="text-destructive text-xs">
-								{t("settings.slugTaken")}
-							</p>
-						) : (
-							<p className="flex items-center gap-1 text-success text-xs">
-								<Check className="size-3" />
-								{t("settings.slugAvailable")}
-							</p>
-						)
+					{verdict === "invalid" ? (
+						<p className="text-destructive text-xs">
+							{t("settings.slugInvalid")}
+						</p>
+					) : verdict === "checking" ? (
+						<p className="flex items-center gap-1 text-muted-foreground text-xs">
+							<Loader2 className="size-3 animate-spin" />
+							{t("settings.slugChecking")}
+						</p>
+					) : verdict === "taken" ? (
+						<p className="text-destructive text-xs">
+							{t("settings.slugTaken")}
+						</p>
+					) : verdict === "reserved" ? (
+						<p className="text-destructive text-xs">
+							{t("settings.slugReserved")}
+						</p>
+					) : verdict === "available" ? (
+						<p className="flex items-center gap-1 text-success text-xs">
+							<Check className="size-3" />
+							{t("settings.slugAvailable")}
+						</p>
 					) : null}
 				</div>
 
@@ -226,38 +252,27 @@ export function PublishSection() {
 				<div>
 					<h3 className="font-medium text-sm">{t("settings.historyTitle")}</h3>
 					<div className="mt-1">
-						{orderedVersions.map((version) => (
-							<div key={version.id} className="flex items-center gap-3 py-2">
-								<span className="shrink-0 rounded-md border px-1.5 py-0.5 font-mono text-xs tabular-nums">
-									{t("workspace.page.versionShort", { n: version.number })}
-								</span>
-								<span dir="auto" className="min-w-0 flex-1 truncate text-sm">
-									{version.label}
-								</span>
-								<span className="shrink-0 font-mono text-muted-foreground text-xs">
-									{relativeTime(version.createdAt)}
-								</span>
-								{version.id === deployment?.publishedVersionId ? (
-									<Badge variant="success" className="font-mono text-[10px]">
-										{t("settings.historyLive")}
-									</Badge>
-								) : (
-									<Button
-										variant="ghost"
-										size="xs"
-										onClick={() => rollbackTo(version.id)}
-										disabled={publishing}
-									>
-										{liveVersionNumber !== null &&
-										version.number < liveVersionNumber
-											? t("settings.historyRollback")
-											: t("workspace.publish.publishUpdate", {
-													n: version.number,
-												})}
-									</Button>
-								)}
-							</div>
-						))}
+						{history.length === 0 ? (
+							<p className="py-2 text-muted-foreground text-sm">
+								{t("settings.historyEmpty")}
+							</p>
+						) : (
+							history.map((row) => (
+								<HistoryRow
+									key={row.id}
+									row={row}
+									versionNumber={versionNumberById.get(row.versionId) ?? null}
+									busy={publishing}
+									onRollback={() =>
+										rollbackTo({
+											deploymentId: row.id,
+											versionNumber:
+												versionNumberById.get(row.versionId) ?? null,
+										})
+									}
+								/>
+							))
+						)}
 					</div>
 				</div>
 
@@ -266,5 +281,55 @@ export function PublishSection() {
 				</p>
 			</CardContent>
 		</Card>
+	);
+}
+
+// Publish attempts that once served traffic have archived bytes to restore.
+const ROLLBACKABLE: DeploymentStatus[] = ["superseded", "unpublished"];
+
+function HistoryRow({
+	row,
+	versionNumber,
+	busy,
+	onRollback,
+}: {
+	row: Deployment;
+	versionNumber: number | null;
+	busy: boolean;
+	onRollback: () => void;
+}) {
+	const { t } = useTranslation();
+
+	return (
+		<div className="flex items-center gap-3 py-2">
+			<span className="shrink-0 rounded-md border px-1.5 py-0.5 font-mono text-xs tabular-nums">
+				{versionNumber !== null
+					? t("workspace.page.versionShort", { n: versionNumber })
+					: "—"}
+			</span>
+			<span dir="ltr" className="min-w-0 flex-1 truncate font-mono text-sm">
+				{row.slug}
+			</span>
+			<span className="shrink-0 font-mono text-muted-foreground text-xs">
+				{relativeTime(row.createdAt)}
+			</span>
+			{row.status === "active" ? (
+				<Badge variant="success" className="font-mono text-[10px]">
+					{t("settings.historyLive")}
+				</Badge>
+			) : ROLLBACKABLE.includes(row.status) ? (
+				<Button variant="ghost" size="xs" onClick={onRollback} disabled={busy}>
+					{t("settings.historyRollback")}
+				</Button>
+			) : (
+				<Badge variant="outline" className="font-mono text-[10px]">
+					{t(
+						row.status === "pending"
+							? "settings.historyStatus.pending"
+							: "settings.historyStatus.failed",
+					)}
+				</Badge>
+			)}
+		</div>
 	);
 }

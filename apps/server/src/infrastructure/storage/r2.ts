@@ -10,6 +10,7 @@
  * exist), so callers MUST check isR2Configured() before touching storage.
  */
 import {
+	DeleteObjectCommand,
 	GetObjectCommand,
 	HeadObjectCommand,
 	ListObjectsV2Command,
@@ -68,6 +69,23 @@ export function siteFileKey(
 	path: string,
 ): string {
 	return `sites/${projectId}/${versionId}/${path}`;
+}
+
+// The live published bytes for a project. One stable, mutable key per
+// project — overwritten on every publish, deleted on unpublish — so the
+// edge worker and the KV pointer never need to know a version id.
+// published/{project_id}/current.html
+export function publishedCurrentKey(projectId: string): string {
+	return `published/${projectId}/current.html`;
+}
+
+// Immutable archive of each publish attempt, for rollback and audit:
+// published/{project_id}/v/{deployment_id}.html
+export function publishedArchiveKey(
+	projectId: string,
+	deploymentId: string,
+): string {
+	return `published/${projectId}/v/${deploymentId}.html`;
 }
 
 // Images the builder generates mid-build live under the attempt, not a
@@ -280,6 +298,22 @@ export async function putPageHtml(key: string, html: string): Promise<void> {
 			Key: key,
 		}),
 	);
+}
+
+// Delete one object. Missing keys are fine: unpublish retries and races
+// must be idempotent, so NoSuchKey is swallowed on purpose.
+export async function deleteObject(key: string): Promise<void> {
+	try {
+		await r2Client().send(
+			new DeleteObjectCommand({ Bucket: env.R2_BUCKET, Key: key }),
+		);
+	} catch (error) {
+		if (error instanceof NoSuchKey) {
+			return;
+		}
+
+		throw error;
+	}
 }
 
 // Fetch one object's raw bytes (lead-scrape workbook downloads). Returns

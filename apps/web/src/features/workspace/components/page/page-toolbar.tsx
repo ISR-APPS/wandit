@@ -26,7 +26,7 @@ import type * as React from "react";
 
 import { useTranslation } from "@/lib/i18n";
 import { usePageOverviewQuery } from "../../api/pages.queries";
-import { getVersionPage } from "../../api/workspace.services";
+import { getVersionHtml } from "../../api/pages.services";
 import { openHtmlInNewTab } from "../../lib/helpers";
 import { useWorkspace, type Viewport } from "../../lib/store";
 import { usePageEditor } from "../../lib/use-page-editor";
@@ -69,8 +69,6 @@ export function PageControls({ onReload }: { onReload: () => void }) {
 	const {
 		viewport,
 		setViewport,
-		activeVersion,
-		project,
 		projectId,
 		isGenerating,
 		pendingVersionNumber,
@@ -78,8 +76,7 @@ export function PageControls({ onReload }: { onReload: () => void }) {
 	const editor = usePageEditor();
 
 	// REAL overview (contract §12 / lane 2.6/3.3): editing needs an actual
-	// active version and no in-flight build — the mock workspace versions above
-	// feed only the untouched switcher/open-in-tab controls.
+	// active version and no in-flight build.
 	const overviewQuery = usePageOverviewQuery(projectId);
 	const realActiveVersion = overviewQuery.data?.activeVersion ?? null;
 	const attemptStatus = overviewQuery.data?.latestAttempt?.status;
@@ -87,9 +84,11 @@ export function PageControls({ onReload }: { onReload: () => void }) {
 		attemptStatus === "queued" || attemptStatus === "generating";
 
 	const openInNewTab = () => {
-		if (!activeVersion) return;
-		const page = getVersionPage(activeVersion.pageKey, project?.name);
-		openHtmlInNewTab(page.html);
+		if (!realActiveVersion) return;
+		// Versions are immutable; fetch the real HTML and open it.
+		void getVersionHtml(realActiveVersion.id).then(({ html }) =>
+			openHtmlInNewTab(html),
+		);
 	};
 
 	const viewportButton = (
@@ -195,7 +194,7 @@ export function PageControls({ onReload }: { onReload: () => void }) {
 			<IconAction
 				label={t("workspace.page.openInNewTab")}
 				onClick={openInNewTab}
-				disabled={!activeVersion}
+				disabled={!realActiveVersion}
 				className="hidden sm:inline-flex"
 			>
 				<ExternalLink className="size-3.5" />

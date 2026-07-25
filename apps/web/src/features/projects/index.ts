@@ -25,7 +25,11 @@ export {
 } from "./api/attachments.services";
 export type { Project, ProjectStatus } from "./api/dto";
 // Mutations that other features can use to update existing projects.
-export { useDeleteProject, useRenameProject } from "./api/projects.mutations";
+export {
+	useDeleteProject,
+	useRenameProject,
+	useUpdateProjectPixels,
+} from "./api/projects.mutations";
 // Query keys and query hooks for reading project list/detail data.
 export {
 	projectKeys,

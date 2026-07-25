@@ -4,7 +4,7 @@
 // background (queued/generating) and the version's HTML is fetched separately
 // once it exists — see api/pages.queries.ts. Its controls (version switcher,
 // viewport toggle, preview actions) live in the main card's header — see
-// shell/main-pane-header.tsx / page-toolbar.tsx (still on mock versions this
+// shell/main-pane-header.tsx / page-toolbar.tsx (real page versions
 // slice).
 // WS2: the preview doubles as the click-to-target / inline-editor surface —
 // the srcDoc gets the preview-editor script injected at render time (never

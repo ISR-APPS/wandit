@@ -1,16 +1,16 @@
 // Raw async functions for the generated landing page — NO React in here.
 // Thin fetch wrappers over the shared api-client; responses parsed with the
 // @wandit/contracts Zod schemas so a drifted server shape fails loudly here
-// instead of as undefined deeper in the UI. This is the REAL counterpart to
-// the mock getVersionPage seam in workspace.services.ts (which still feeds
-// the untouched mock surfaces: assets grid, page toolbar).
+// instead of as undefined deeper in the UI.
 
 import {
 	type ApplyPageOpsBody,
 	type ApplyPageOpsResponse,
 	applyPageOpsResponseSchema,
+	listPageVersionsResponseSchema,
 	type PageOverview,
 	type PageVersionHtml,
+	type PageVersionListItem,
 	pageOverviewSchema,
 	pagesRoutes,
 	pageVersionHtmlSchema,
@@ -39,6 +39,28 @@ export async function getVersionHtml(
 ): Promise<PageVersionHtml> {
 	const data = await apiClient.get<unknown>(pagesRoutes.versionHtml(versionId));
 	return pageVersionHtmlSchema.parse(data);
+}
+
+/**
+ * Full version history for the project (newest first from the server). Feeds
+ * the version switcher, the assets grid, and Settings history. 404/501 fall
+ * back to an empty list so the workspace renders while the endpoint rolls out.
+ */
+export async function getPageVersions(
+	projectId: string,
+): Promise<PageVersionListItem[]> {
+	try {
+		const data = await apiClient.get<unknown>(pagesRoutes.versions(projectId));
+		return listPageVersionsResponseSchema.parse(data).versions;
+	} catch (error) {
+		if (
+			isApiClientError(error) &&
+			(error.statusCode === 404 || error.statusCode === 501)
+		) {
+			return [];
+		}
+		throw error;
+	}
 }
 
 // ── Edit ops (contract §7.1) ───────────────────────────────────────────────

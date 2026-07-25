@@ -12,8 +12,8 @@ import { PublishSection } from "./publish-section";
 
 export function SettingsTab() {
 	const { t } = useTranslation();
-	const { projectId, statePending, projectPending } = useWorkspace();
-	const pending = statePending || projectPending;
+	const { projectId, versionsPending, projectPending } = useWorkspace();
+	const pending = versionsPending || projectPending;
 
 	return (
 		<div className="h-full overflow-y-auto">

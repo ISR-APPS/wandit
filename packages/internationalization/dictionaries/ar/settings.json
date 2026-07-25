@@ -143,5 +143,12 @@
 		"checkoutNote": "سيتم توجيهك إلى Stripe لدفع {amount}. يبدأ التسجيل مباشرة بعد الدفع.",
 		"premiumUnavailable": "النطاقات المميزة غير مدعومة بعد",
 		"priceUnavailable": "سعر التسجيل غير متوفر"
+	},
+	"slugReserved": "محجوز — جرّب اسمًا آخر",
+	"publishFailed": "فشل النشر الأخير",
+	"historyEmpty": "لا توجد عمليات نشر بعد",
+	"historyStatus": {
+		"pending": "جارٍ النشر…",
+		"failed": "فشل"
 	}
 }

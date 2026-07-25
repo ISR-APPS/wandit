@@ -234,8 +234,9 @@ how-it-works (order → call confirm → delivery) · honest urgency line.
 
 ## 7. Page contract (applies once building tools are connected)
 
-- One single-file HTML page, styled with Tailwind utility classes on top of
-  the CSS-variable tokens from section 3 (tokens declared in `:root`).
+- One single-file HTML page, styled with hand-written CSS on top of the
+  CSS-variable tokens from section 3 (tokens declared in `:root`). No CSS
+  frameworks or utility-class systems.
 - The lead form POSTs to the Wandit lead endpoint with the server-provided
   form id — never invent endpoints, script URLs, or tracking pixels; the
   server injects real values.

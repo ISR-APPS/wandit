@@ -1,0 +1,13 @@
+{
+	// Local-dev twin of wrangler.jsonc. ONLY intended delta: no "routes" —
+	// with a zone route configured, `wrangler dev` (4.114) fails every local
+	// request with an opaque internal error. Keep every other field in
+	// lockstep with wrangler.jsonc.
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "wandit-edge",
+	"main": "src/index.ts",
+	"compatibility_date": "2025-10-11",
+	"kv_namespaces": [{ "binding": "PTR", "id": "TODO-kv-namespace-id" }],
+	"r2_buckets": [{ "binding": "SITES", "bucket_name": "wandit-pages-dev" }],
+	"observability": { "enabled": true }
+}

@@ -125,6 +125,8 @@ export const env = createEnv({
 		CLOUDFLARE_KV_NAMESPACE_ID: z.string().min(1).optional(),
 		CLOUDFLARE_ZONE_ID_WANDIT_APP: z.string().min(1).optional(),
 		DOMAINS_FALLBACK_ORIGIN: z.string().min(1).default("customers.wandit.app"),
+		// Zone serving published customer sites: {slug}.SITES_DOMAIN.
+		SITES_DOMAIN: z.string().min(1).default("wandit.app"),
 	},
 	// Real data source for validation.
 	runtimeEnv: process.env,
