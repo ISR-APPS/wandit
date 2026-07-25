@@ -11,6 +11,7 @@
 		"dev:pipeline": "turbo run dev dev:trigger -F server -F web",
 		"build": "turbo run build",
 		"check-types": "turbo run check-types",
+		"dev:admin": "turbo run dev -F admin",
 		"dev:native": "turbo run dev -F native",
 		"dev:web": "turbo run dev -F web",
 		"dev:server": "turbo run dev -F server",
