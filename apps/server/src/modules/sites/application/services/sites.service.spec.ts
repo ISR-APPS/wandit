@@ -35,6 +35,7 @@ vi.mock("../../../../infrastructure/storage/r2", () => ({
 }));
 
 const PROJECT_ID = "11111111-1111-4111-8111-111111111111";
+const FORM_ID = "44444444-4444-4444-8444-444444444444";
 const VERSION_ID = "22222222-2222-4222-8222-222222222222";
 const USER_ID = "user-1";
 
@@ -70,6 +71,7 @@ function setup(options: { kvConfigured?: boolean } = {}) {
 			id: PROJECT_ID,
 			metaPixelId: null,
 			name: "Smoke Project",
+			publicFormId: FORM_ID,
 			tiktokPixelId: null,
 		}),
 		healStalePending: vi.fn().mockResolvedValue(undefined),
@@ -244,6 +246,7 @@ describe("SitesService.publish", () => {
 			id: PROJECT_ID,
 			metaPixelId: "1234567890",
 			name: "Smoke Project",
+			publicFormId: FORM_ID,
 			tiktokPixelId: null,
 		});
 		const bodies: string[] = [];
@@ -256,6 +259,19 @@ describe("SitesService.publish", () => {
 		expect(bodies).toHaveLength(2);
 		expect(bodies[0]).toContain('data-wandit-pixel="meta"');
 		expect(bodies[0]).toContain("1234567890");
+	});
+
+	it("injects the leads capture runtime into the published bytes", async () => {
+		const { service } = setup();
+		const bodies: string[] = [];
+		vi.mocked(putPageHtml).mockImplementation(async (_key, html) => {
+			bodies.push(html);
+		});
+
+		await service.publish(USER_ID, PROJECT_ID, {});
+
+		expect(bodies[0]).toContain('id="wandit-leads-runtime"');
+		expect(bodies[0]).toContain(`/api/public/leads/${FORM_ID}`);
 	});
 });
 
@@ -328,6 +344,7 @@ describe("SitesService.rollback", () => {
 			id: PROJECT_ID,
 			metaPixelId: "777",
 			name: "Smoke Project",
+			publicFormId: FORM_ID,
 			tiktokPixelId: null,
 		});
 		vi.mocked(getPageHtml)
