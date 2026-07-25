@@ -1,4 +1,12 @@
-import { Body, Controller, Get, Inject, Param, Post } from "@nestjs/common";
+import {
+	Body,
+	Controller,
+	Get,
+	Inject,
+	Param,
+	Post,
+	UseGuards,
+} from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
 	type CreateDomainOrderBody,
@@ -12,6 +20,10 @@ import {
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { CurrentUser } from "../../../../auth";
+import {
+	DomainRateLimit,
+	DomainRateLimitGuard,
+} from "../../../../domains/presentation/http/guards/rate-limit.guard";
 import { OrdersService } from "../../../application/services/orders.service";
 
 @Controller("v1/orders")
@@ -21,6 +33,10 @@ export class OrdersController {
 		private readonly ordersService: OrdersService,
 	) {}
 
+	// Each call creates a Stripe customer + checkout session and a registrar
+	// availability request, so it gets the same budget as domain purchase had.
+	@UseGuards(DomainRateLimitGuard)
+	@DomainRateLimit({ limit: 5, windowMs: 60_000 })
 	@Post("domain")
 	createDomain(
 		@CurrentUser() user: AuthUser,

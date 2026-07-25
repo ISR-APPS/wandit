@@ -5,35 +5,17 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import type {
 	AttachExternalDomainBody,
-	PurchaseDomainBody,
 	UpdateDomainAutoRenewBody,
 } from "./domains.dto";
 import { domainKeys } from "./domains.queries";
 import {
 	attachExternalDomain,
 	detachDomain,
-	purchaseDomain,
-	renewDomain,
 	setPrimaryDomain,
 	transferUnlockDomain,
 	updateDomainAutoRenew,
 	verifyDomain,
 } from "./domains.services";
-
-export function usePurchaseDomain(projectId: string) {
-	const queryClient = useQueryClient();
-	return useMutation({
-		mutationFn: (body: PurchaseDomainBody) => purchaseDomain(projectId, body),
-		onSuccess: ({ domain }) => {
-			queryClient.setQueryData(domainKeys.list(projectId), (old) =>
-				Array.isArray(old) ? upsertDomain(old, domain) : [domain],
-			);
-			void queryClient.invalidateQueries({
-				queryKey: domainKeys.list(projectId),
-			});
-		},
-	});
-}
 
 export function useAttachExternalDomain(projectId: string) {
 	const queryClient = useQueryClient();
@@ -55,21 +37,6 @@ export function useVerifyDomain(projectId: string) {
 	const queryClient = useQueryClient();
 	return useMutation({
 		mutationFn: (domainId: string) => verifyDomain(domainId),
-		onSuccess: ({ domain }) => {
-			queryClient.setQueryData(domainKeys.list(projectId), (old) =>
-				Array.isArray(old) ? upsertDomain(old, domain) : [domain],
-			);
-			void queryClient.invalidateQueries({
-				queryKey: domainKeys.list(projectId),
-			});
-		},
-	});
-}
-
-export function useRenewDomain(projectId: string) {
-	const queryClient = useQueryClient();
-	return useMutation({
-		mutationFn: (domainId: string) => renewDomain(domainId),
 		onSuccess: ({ domain }) => {
 			queryClient.setQueryData(domainKeys.list(projectId), (old) =>
 				Array.isArray(old) ? upsertDomain(old, domain) : [domain],

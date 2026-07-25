@@ -1,14 +1,12 @@
 import {
 	type Domain,
 	domainDnsSchema,
-	domainPriceSnapshotSchema,
 	registrantSchema,
 } from "@wandit/contracts";
 
 import type { DomainRow } from "../persistence/domains.repository";
 
 export function mapDomain(row: DomainRow): Domain {
-	const priceSnapshot = domainPriceSnapshotSchema.safeParse(row.priceSnapshot);
 	const registrant = registrantSchema.safeParse(row.registrant);
 	const dns = domainDnsSchema.safeParse(row.dns);
 
@@ -21,15 +19,11 @@ export function mapDomain(row: DomainRow): Domain {
 		id: row.id,
 		isPrimary: row.isPrimary,
 		name: row.name,
-		priceSnapshot: priceSnapshot.success
-			? {
-					registrationCredits: priceSnapshot.data.registrationCredits,
-					renewalCredits: priceSnapshot.data.renewalCredits,
-					tld: priceSnapshot.data.tld,
-				}
-			: null,
 		projectId: row.projectId,
-		provider: row.provider === "openprovider" ? "openprovider" : null,
+		provider:
+			row.provider === "namecom" || row.provider === "openprovider"
+				? row.provider
+				: null,
 		registrant: registrant.success ? registrant.data : null,
 		source: row.source,
 		status: row.status,

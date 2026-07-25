@@ -1,7 +1,11 @@
 import { InjectQueue } from "@nestjs/bullmq";
 import { Inject, Injectable, Optional } from "@nestjs/common";
 import { env } from "@wandit/env/server";
-import { DOMAINS_QUEUE, type DomainPurchaseJobData } from "@wandit/jobs";
+import {
+	DOMAIN_PURCHASE_JOB_ATTEMPTS,
+	DOMAINS_QUEUE,
+	type DomainPurchaseJobData,
+} from "@wandit/jobs";
 import type { Queue } from "bullmq";
 
 import { DomainsUnavailableError } from "../../../domains/domain/errors/domain.errors";
@@ -75,7 +79,7 @@ export class DomainRegistrationFulfillment implements OrderFulfillmentHandler {
 				paymentSource: "order",
 			},
 			{
-				attempts: 5,
+				attempts: DOMAIN_PURCHASE_JOB_ATTEMPTS,
 				backoff: {
 					delay: 60_000,
 					type: "exponential",

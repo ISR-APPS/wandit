@@ -15,13 +15,10 @@ import {
 } from "../../server/src/infrastructure/database/database.constants";
 import { PAYMENT_PROVIDER } from "../../server/src/modules/billing/domain/ports/payment-provider.port";
 import { StripeProvider } from "../../server/src/modules/billing/infrastructure/stripe/stripe.provider";
-import { CreditsService } from "../../server/src/modules/credits/application/services/credits.service";
-import { CreditsRepository } from "../../server/src/modules/credits/infrastructure/persistence/credits.repository";
-import { CREDITS_PORT } from "../../server/src/modules/domains/domain/ports/credits.port";
 import { DOMAIN_PROVIDER } from "../../server/src/modules/domains/domain/ports/domain-provider.port";
 import { CustomHostnameService } from "../../server/src/modules/domains/infrastructure/cloudflare/custom-hostname.service";
 import { DomainRoutingService } from "../../server/src/modules/domains/infrastructure/cloudflare/domain-routing.service";
-import { OpenproviderProvider } from "../../server/src/modules/domains/infrastructure/openprovider/openprovider.provider";
+import { NamecomProvider } from "../../server/src/modules/domains/infrastructure/namecom/namecom.provider";
 import { DomainsRepository } from "../../server/src/modules/domains/infrastructure/persistence/domains.repository";
 import { OrderRefundExecutorService } from "../../server/src/modules/orders/application/services/order-refund-executor.service";
 import { OrderRefundQueueService } from "../../server/src/modules/orders/application/services/order-refund-queue.service";
@@ -64,15 +61,13 @@ const databaseProvider: Provider<Database> = {
 		databaseProvider,
 		AiGenerationProcessor,
 		ChatEventsPublisher,
-		CreditsRepository,
-		CreditsService,
 		CustomHostnameService,
 		DomainRoutingService,
 		DomainsProcessor,
 		DomainsRepository,
 		MediaGenerationProcessor,
 		LeadProcessingProcessor,
-		OpenproviderProvider,
+		NamecomProvider,
 		OrderRefundExecutorService,
 		OrderRefundProcessor,
 		OrderRefundQueueService,
@@ -85,11 +80,7 @@ const databaseProvider: Provider<Database> = {
 		// Aliases: when code asks for these tokens, give it these implementations.
 		{
 			provide: DOMAIN_PROVIDER,
-			useExisting: OpenproviderProvider,
-		},
-		{
-			provide: CREDITS_PORT,
-			useExisting: CreditsService,
+			useExisting: NamecomProvider,
 		},
 		{
 			provide: PAYMENT_PROVIDER,

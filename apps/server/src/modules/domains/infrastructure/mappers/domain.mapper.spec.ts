@@ -33,6 +33,34 @@ describe("mapDomain", () => {
 		});
 		expect(JSON.stringify(mapped.dns)).not.toContain("purchaseDnsConfigured");
 	});
+
+	it("never exposes the internal price snapshot", () => {
+		const mapped = mapDomain(
+			domainRow({
+				priceSnapshot: {
+					chargedAmountCents: 3000,
+					chargedCurrency: "usd",
+					quotedWholesaleUsd: 11.06,
+					tld: "com",
+					wholesaleCeilingUsd: 24,
+				},
+			}),
+		);
+
+		expect(mapped).not.toHaveProperty("priceSnapshot");
+		expect(JSON.stringify(mapped)).not.toContain("wholesale");
+	});
+
+	it("passes through known providers and nulls anything else", () => {
+		expect(mapDomain(domainRow({ provider: "namecom" })).provider).toBe(
+			"namecom",
+		);
+		expect(mapDomain(domainRow({ provider: "openprovider" })).provider).toBe(
+			"openprovider",
+		);
+		expect(mapDomain(domainRow({ provider: "legacy-x" })).provider).toBeNull();
+		expect(mapDomain(domainRow({ provider: null })).provider).toBeNull();
+	});
 });
 
 function domainRow(overrides: Partial<DomainRow> = {}): DomainRow {
@@ -53,10 +81,13 @@ function domainRow(overrides: Partial<DomainRow> = {}): DomainRow {
 		projectId: "11111111-1111-4111-8111-111111111111",
 		provider: null,
 		providerDomainId: null,
+		providerOrderId: null,
+		providerTotalPaidUsd: null,
 		registrant: null,
 		source: "external",
 		status: "configuring",
 		tld: "com",
+		transferLockExpiresAt: null,
 		updatedAt: now,
 		userId: "user_1",
 		whoisPrivacy: false,

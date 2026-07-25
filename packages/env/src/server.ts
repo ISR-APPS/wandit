@@ -106,9 +106,11 @@ export const env = createEnv({
 		STRIPE_SECRET_KEY: z.string().startsWith("sk_").optional(),
 		STRIPE_WEBHOOK_SECRET: z.string().startsWith("whsec_").optional(),
 		// Domain/Cloudflare settings are optional for chat-only flows.
-		OPENPROVIDER_API_URL: z.url().optional(),
-		OPENPROVIDER_USERNAME: z.string().min(1).optional(),
-		OPENPROVIDER_PASSWORD: z.string().min(1).optional(),
+		// Sandbox is the safe default: switching to production requires one
+		// explicit environment change plus production-only credentials.
+		NAMECOM_ENVIRONMENT: z.enum(["sandbox", "production"]).default("sandbox"),
+		NAMECOM_USERNAME: z.string().min(1).optional(),
+		NAMECOM_API_TOKEN: z.string().min(1).optional(),
 		CLOUDFLARE_API_TOKEN: z.string().min(1).optional(),
 		CLOUDFLARE_KV_NAMESPACE_ID: z.string().min(1).optional(),
 		CLOUDFLARE_ZONE_ID_WANDIT_APP: z.string().min(1).optional(),

@@ -12,35 +12,29 @@ import { Label } from "@wandit/ui/components/label";
 import { Separator } from "@wandit/ui/components/separator";
 import { Skeleton } from "@wandit/ui/components/skeleton";
 import { cn } from "@wandit/ui/lib/utils";
-import { Check, Copy, ExternalLink, Loader2, Search } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Check, Loader2, Search } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 import { useSession } from "@/features/auth";
-import { InsufficientCreditsDialog, PriceTag } from "@/features/credits";
+import { useCreateDomainOrder } from "@/features/orders/api/orders.mutations";
 import { getApiErrorMessage } from "@/lib/api-client";
-import { useTranslation } from "@/lib/i18n";
-import type { Domain, SearchDomainsResult } from "../api/domains.dto";
-import { usePurchaseDomain } from "../api/domains.mutations";
-import { useDomainSearchQuery, useDomainsQuery } from "../api/domains.queries";
+import { type Locale, useTranslation } from "@/lib/i18n";
+import type { SearchDomainsResult } from "../api/domains.dto";
+import { useDomainSearchQuery } from "../api/domains.queries";
 import { DOMAIN_SEARCH_DEBOUNCE_MS } from "../lib/constants";
 import {
 	createRegistrantDefaults,
-	isAvailableSearchResult,
-	isInsufficientCreditsError,
 	normalizeDomainInput,
-	purchasedDomainLiveUrl,
 	type RegistrantFormField,
 	registrantPathToField,
-	safeDomainErrorSummary,
 	toRegistrantBody,
 } from "../lib/helpers";
-import { useCopyToClipboard, useDebouncedValue } from "../lib/hooks";
+import { useDebouncedValue } from "../lib/hooks";
 import {
 	type RegistrantFlatFormValues,
 	registrantFormSchema,
 } from "../lib/schemas";
 import type { BuyDomainStep } from "../lib/store";
-import { DomainStatusChip } from "./domain-status-chip";
 
 type BuyDomainDialogProps = {
 	projectId: string;
@@ -57,8 +51,7 @@ export function BuyDomainDialog({
 }: BuyDomainDialogProps) {
 	const { t } = useTranslation();
 	const { data: session } = useSession();
-	const purchase = usePurchaseDomain(projectId);
-	const copy = useCopyToClipboard(t("settings.domains.copySuccess"));
+	const createOrder = useCreateDomainOrder();
 	const wasOpen = useRef(false);
 
 	const [step, setStep] = useState<BuyDomainStep>("search");
@@ -70,6 +63,10 @@ export function BuyDomainDialog({
 	);
 	const searchEnabled = open && debouncedSearch.length >= 2;
 	const search = useDomainSearchQuery(debouncedSearch, searchEnabled);
+	// Results from a previous query must not render during the debounce window,
+	// or a stale row can be clicked while the visible input says otherwise.
+	const queryIsSettled = debouncedSearch === normalizedSearch;
+	const settledResults = queryIsSettled ? search.data?.results : undefined;
 	const [selected, setSelected] = useState<SearchDomainsResult | null>(null);
 	const [registrant, setRegistrant] = useState<RegistrantFlatFormValues>(() =>
 		createRegistrantDefaults(session?.user),
@@ -78,23 +75,6 @@ export function BuyDomainDialog({
 		{},
 	);
 	const [submitError, setSubmitError] = useState<string | null>(null);
-	const [purchasedDomainId, setPurchasedDomainId] = useState<string | null>(
-		null,
-	);
-	const [insufficientOpen, setInsufficientOpen] = useState(false);
-
-	const domains = useDomainsQuery(projectId, {
-		enabled: open && ["progress", "success", "failed"].includes(step),
-	});
-
-	const purchasedDomain = useMemo(() => {
-		const list = domains.data ?? [];
-		return (
-			list.find((domain) => domain.id === purchasedDomainId) ??
-			list.find((domain) => domain.name === selected?.name) ??
-			null
-		);
-	}, [domains.data, purchasedDomainId, selected?.name]);
 
 	useEffect(() => {
 		if (open && !wasOpen.current) {
@@ -104,20 +84,6 @@ export function BuyDomainDialog({
 		wasOpen.current = open;
 	}, [open, session?.user]);
 
-	useEffect(() => {
-		if (step !== "progress" || !purchasedDomain) {
-			return;
-		}
-
-		if (purchasedDomain.status === "active") {
-			setStep("success");
-		}
-
-		if (purchasedDomain.status === "failed") {
-			setStep("failed");
-		}
-	}, [purchasedDomain, step]);
-
 	const reset = () => {
 		setStep("search");
 		setSearchValue("");
@@ -125,7 +91,6 @@ export function BuyDomainDialog({
 		setRegistrant(createRegistrantDefaults(session?.user));
 		setRegistrantErrors({});
 		setSubmitError(null);
-		setPurchasedDomainId(null);
 	};
 
 	const handleOpenChange = (nextOpen: boolean) => {
@@ -137,7 +102,7 @@ export function BuyDomainDialog({
 	};
 
 	const continueToRegistrant = () => {
-		if (!selected || !isAvailableSearchResult(selected)) {
+		if (!selected || !canPurchaseResult(selected)) {
 			return;
 		}
 
@@ -169,7 +134,8 @@ export function BuyDomainDialog({
 	};
 
 	const submitPurchase = async () => {
-		if (!selected) {
+		if (!selected || !canPurchaseResult(selected)) {
+			setStep("search");
 			return;
 		}
 
@@ -184,166 +150,138 @@ export function BuyDomainDialog({
 		setSubmitError(null);
 
 		try {
-			const response = await purchase.mutateAsync({
-				name: selected.name,
+			const { checkoutUrl } = await createOrder.mutateAsync({
+				domain: selected.name,
+				projectId,
 				registrant: parsed.data,
+				// WHOIS privacy is a paid registrar add-on with no line item in
+				// this charge, so it is never enabled implicitly.
+				whoisPrivacy: false,
 			});
-			setPurchasedDomainId(response.domain.id);
 
-			if (response.domain.status === "active") {
-				setStep("success");
-			} else if (response.domain.status === "failed") {
-				setStep("failed");
-			} else {
-				setStep("progress");
-			}
+			window.location.assign(checkoutUrl);
 		} catch (error) {
-			if (isInsufficientCreditsError(error)) {
-				setInsufficientOpen(true);
-				return;
-			}
-
 			setSubmitError(getApiErrorMessage(error));
 		}
 	};
 
-	const selectedCost = selected?.registrationCredits ?? 0;
-	const liveUrl = selected ? purchasedDomainLiveUrl(selected.name) : "";
-	const currentDomain = purchasedDomain ?? selectedToDomain(selected);
-
 	return (
-		<>
-			<Dialog open={open} onOpenChange={handleOpenChange}>
-				<DialogContent
-					className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl"
-					closeLabel={t("common.close")}
-				>
-					<DialogHeader>
-						<DialogTitle className="font-display">
-							{t(`settings.domains.buyStepTitle.${step}`)}
-						</DialogTitle>
-						<DialogDescription>
-							{t(`settings.domains.buyStepDescription.${step}`)}
-						</DialogDescription>
-					</DialogHeader>
+		<Dialog open={open} onOpenChange={handleOpenChange}>
+			<DialogContent
+				className="max-h-[90dvh] overflow-y-auto sm:max-w-2xl"
+				closeLabel={t("common.close")}
+			>
+				<DialogHeader>
+					<DialogTitle className="font-display">
+						{t(`settings.domains.buyStepTitle.${step}`)}
+					</DialogTitle>
+					<DialogDescription>
+						{t(`settings.domains.buyStepDescription.${step}`)}
+					</DialogDescription>
+				</DialogHeader>
 
-					{selected && step !== "search" ? (
-						<SelectedDomainSummary selected={selected} domain={currentDomain} />
-					) : null}
+				{selected && step !== "search" ? (
+					<SelectedDomainSummary selected={selected} />
+				) : null}
 
+				{step === "search" ? (
+					<SearchStep
+						value={searchValue}
+						onChange={(value) => {
+							setSearchValue(value);
+							setSelected(null);
+							setSubmitError(null);
+						}}
+						searching={
+							normalizedSearch.length >= 2 &&
+							(!queryIsSettled || search.isFetching)
+						}
+						error={
+							queryIsSettled && search.isError
+								? getApiErrorMessage(search.error)
+								: null
+						}
+						onRetry={() => void search.refetch()}
+						results={settledResults ?? []}
+						selected={selected}
+						onSelect={setSelected}
+						showMinHint={
+							normalizedSearch.length > 0 && normalizedSearch.length < 2
+						}
+					/>
+				) : null}
+
+				{step === "registrant" ? (
+					<RegistrantStep
+						values={registrant}
+						errors={registrantErrors}
+						onChange={(field, value) => {
+							setRegistrant((current) => ({ ...current, [field]: value }));
+							setRegistrantErrors((current) => ({
+								...current,
+								[field]: undefined,
+							}));
+						}}
+					/>
+				) : null}
+
+				{step === "confirm" && selected ? (
+					<ConfirmStep
+						selected={selected}
+						registrant={registrant}
+						error={submitError}
+					/>
+				) : null}
+
+				<DialogFooter>
 					{step === "search" ? (
-						<SearchStep
-							value={searchValue}
-							onChange={setSearchValue}
-							searching={search.isFetching}
-							error={search.isError ? getApiErrorMessage(search.error) : null}
-							onRetry={() => void search.refetch()}
-							results={search.data?.results ?? []}
-							selected={selected}
-							onSelect={setSelected}
-							showMinHint={
-								normalizedSearch.length > 0 && normalizedSearch.length < 2
-							}
-						/>
+						<Button
+							type="button"
+							onClick={continueToRegistrant}
+							disabled={!selected || !canPurchaseResult(selected)}
+						>
+							{t("settings.domains.continue")}
+						</Button>
 					) : null}
-
 					{step === "registrant" ? (
-						<RegistrantStep
-							values={registrant}
-							errors={registrantErrors}
-							onChange={(field, value) => {
-								setRegistrant((current) => ({ ...current, [field]: value }));
-								setRegistrantErrors((current) => ({
-									...current,
-									[field]: undefined,
-								}));
-							}}
-						/>
-					) : null}
-
-					{step === "confirm" && selected ? (
-						<ConfirmStep
-							selected={selected}
-							registrant={registrant}
-							error={submitError}
-						/>
-					) : null}
-
-					{step === "progress" ? (
-						<ProgressStep
-							domain={purchasedDomain}
-							isFetching={domains.isFetching}
-						/>
-					) : null}
-
-					{step === "success" && selected ? (
-						<SuccessStep liveUrl={liveUrl} onCopy={() => void copy(liveUrl)} />
-					) : null}
-
-					{step === "failed" ? <FailedStep domain={purchasedDomain} /> : null}
-
-					<DialogFooter>
-						{step === "search" ? (
+						<>
 							<Button
 								type="button"
-								onClick={continueToRegistrant}
-								disabled={!selected || !isAvailableSearchResult(selected)}
+								variant="outline"
+								onClick={() => setStep("search")}
 							>
+								{t("settings.domains.back")}
+							</Button>
+							<Button type="button" onClick={continueToConfirm}>
 								{t("settings.domains.continue")}
 							</Button>
-						) : null}
-						{step === "registrant" ? (
-							<>
-								<Button
-									type="button"
-									variant="outline"
-									onClick={() => setStep("search")}
-								>
-									{t("settings.domains.back")}
-								</Button>
-								<Button type="button" onClick={continueToConfirm}>
-									{t("settings.domains.continue")}
-								</Button>
-							</>
-						) : null}
-						{step === "confirm" ? (
-							<>
-								<Button
-									type="button"
-									variant="outline"
-									onClick={() => setStep("registrant")}
-									disabled={purchase.isPending}
-								>
-									{t("settings.domains.back")}
-								</Button>
-								<Button
-									type="button"
-									onClick={() => void submitPurchase()}
-									disabled={purchase.isPending}
-								>
-									{purchase.isPending ? (
-										<Loader2 className="animate-spin" />
-									) : null}
-									{t("settings.domains.buyConfirmCta", {
-										count: selectedCost,
-									})}
-								</Button>
-							</>
-						) : null}
-						{step === "success" || step === "failed" ? (
-							<Button type="button" onClick={() => handleOpenChange(false)}>
-								{t("settings.domains.close")}
+						</>
+					) : null}
+					{step === "confirm" ? (
+						<>
+							<Button
+								type="button"
+								variant="outline"
+								onClick={() => setStep("registrant")}
+								disabled={createOrder.isPending}
+							>
+								{t("settings.domains.back")}
 							</Button>
-						) : null}
-					</DialogFooter>
-				</DialogContent>
-			</Dialog>
-			<InsufficientCreditsDialog
-				open={insufficientOpen}
-				onOpenChange={setInsufficientOpen}
-				cost={selectedCost}
-			/>
-		</>
+							<Button
+								type="button"
+								onClick={() => void submitPurchase()}
+								disabled={createOrder.isPending}
+							>
+								{createOrder.isPending ? (
+									<Loader2 className="animate-spin" />
+								) : null}
+								{t("settings.domains.checkoutCta")}
+							</Button>
+						</>
+					) : null}
+				</DialogFooter>
+			</DialogContent>
+		</Dialog>
 	);
 }
 
@@ -368,7 +306,7 @@ function SearchStep({
 	onSelect: (result: SearchDomainsResult) => void;
 	showMinHint: boolean;
 }) {
-	const { t } = useTranslation();
+	const { locale, t } = useTranslation();
 
 	return (
 		<div className="flex flex-col gap-4">
@@ -394,7 +332,7 @@ function SearchStep({
 				</p>
 			</div>
 
-			<div className="flex flex-col gap-2">
+			<div className="flex flex-col gap-2" aria-live="polite">
 				{searching ? (
 					<>
 						<Skeleton className="h-14 rounded-lg" />
@@ -410,20 +348,27 @@ function SearchStep({
 						</Button>
 					</div>
 				) : null}
-				{!searching && results.length > 0
+				{!searching && !error && results.length > 0
 					? results.map((result) => {
-							const available = isAvailableSearchResult(result);
+							const selectable = canPurchaseResult(result);
 							const active = selected?.name === result.name;
+							const helper = selectable
+								? t("settings.domains.available")
+								: result.availability === "premium_blocked"
+									? t("settings.domains.premiumUnavailable")
+									: result.availability === "available"
+										? t("settings.domains.priceUnavailable")
+										: t("settings.domains.unavailable");
 
 							return (
 								<button
 									key={result.name}
 									type="button"
-									disabled={!available}
+									disabled={!selectable}
 									onClick={() => onSelect(result)}
 									className={cn(
 										"flex items-center justify-between gap-4 rounded-lg border bg-background px-4 py-3 text-start transition-colors",
-										available
+										selectable
 											? "hover:bg-muted/50"
 											: "cursor-not-allowed opacity-60",
 										active && "border-primary bg-primary/5",
@@ -433,14 +378,14 @@ function SearchStep({
 										<p dir="ltr" className="truncate font-medium font-mono">
 											{result.name}
 										</p>
-										<p className="text-muted-foreground text-xs">
-											{available
-												? t("settings.domains.available")
-												: t("settings.domains.unavailable")}
-										</p>
+										<p className="text-muted-foreground text-xs">{helper}</p>
 									</div>
 									<div className="flex shrink-0 items-center gap-2">
-										<PriceTag cost={result.registrationCredits} />
+										{selectable ? (
+											<span dir="ltr" className="font-medium text-sm">
+												{formatCurrency(result.registrationPriceUsd, locale)}
+											</span>
+										) : null}
 										{active ? <Check className="size-4 text-primary" /> : null}
 									</div>
 								</button>
@@ -462,27 +407,21 @@ function SearchStep({
 
 function SelectedDomainSummary({
 	selected,
-	domain,
 }: {
 	selected: SearchDomainsResult;
-	domain: Domain | null;
 }) {
-	const { t } = useTranslation();
+	const { locale } = useTranslation();
 
 	return (
 		<div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-muted/30 px-4 py-3">
-			<div className="min-w-0">
-				<p dir="ltr" className="truncate font-medium font-mono text-sm">
-					{selected.name}
-				</p>
-				<p className="text-muted-foreground text-xs">
-					{t("settings.domains.priceAlwaysVisible")}
-				</p>
-			</div>
-			<div className="flex items-center gap-2">
-				{domain ? <DomainStatusChip status={domain.status} /> : null}
-				<PriceTag cost={selected.registrationCredits} withIcon />
-			</div>
+			<p dir="ltr" className="min-w-0 truncate font-medium font-mono text-sm">
+				{selected.name}
+			</p>
+			{selected.registrationPriceUsd !== null ? (
+				<span dir="ltr" className="font-medium text-sm">
+					{formatCurrency(selected.registrationPriceUsd, locale)}
+				</span>
+			) : null}
 		</div>
 	);
 }
@@ -602,6 +541,12 @@ function RegistrantField({
 	maxLength?: number;
 	onChange: (value: string) => void;
 }) {
+	const errorId = `${id}-error`;
+	const hintId = `${id}-hint`;
+	const describedBy = [hint ? hintId : null, error ? errorId : null]
+		.filter(Boolean)
+		.join(" ");
+
 	return (
 		<div className="flex flex-col gap-2">
 			<Label htmlFor={id}>{label}</Label>
@@ -612,10 +557,19 @@ function RegistrantField({
 				placeholder={placeholder}
 				maxLength={maxLength}
 				aria-invalid={Boolean(error)}
+				aria-describedby={describedBy || undefined}
 				onChange={(event) => onChange(event.target.value)}
 			/>
-			{hint ? <p className="text-muted-foreground text-xs">{hint}</p> : null}
-			{error ? <p className="text-destructive text-xs">{error}</p> : null}
+			{hint ? (
+				<p id={hintId} className="text-muted-foreground text-xs">
+					{hint}
+				</p>
+			) : null}
+			{error ? (
+				<p id={errorId} className="text-destructive text-xs">
+					{error}
+				</p>
+			) : null}
 		</div>
 	);
 }
@@ -629,7 +583,11 @@ function ConfirmStep({
 	registrant: RegistrantFlatFormValues;
 	error: string | null;
 }) {
-	const { t } = useTranslation();
+	const { locale, t } = useTranslation();
+	const amount =
+		selected.registrationPriceUsd === null
+			? null
+			: formatCurrency(selected.registrationPriceUsd, locale);
 
 	return (
 		<div className="flex flex-col gap-4">
@@ -652,153 +610,31 @@ function ConfirmStep({
 					</span>
 				</div>
 			</div>
-			<p className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 font-medium text-sm">
-				{t("settings.domains.confirmBurn", {
-					count: selected.registrationCredits,
-				})}
-			</p>
+			{amount ? (
+				<p className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 font-medium text-sm">
+					{t("settings.domains.checkoutNote", { amount })}
+				</p>
+			) : null}
 			{error ? <p className="text-destructive text-sm">{error}</p> : null}
 		</div>
 	);
 }
 
-function ProgressStep({
-	domain,
-	isFetching,
-}: {
-	domain: Domain | null;
-	isFetching: boolean;
-}) {
-	const { t } = useTranslation();
-	const status = domain?.status ?? "registering";
-
+function canPurchaseResult(
+	result: SearchDomainsResult,
+): result is SearchDomainsResult & { registrationPriceUsd: number } {
 	return (
-		<div className="flex flex-col gap-4">
-			<div className="flex items-center gap-2 rounded-lg border bg-muted/30 px-4 py-3 text-sm">
-				<Loader2 className="size-4 animate-spin text-muted-foreground" />
-				<span>
-					{isFetching
-						? t("settings.domains.polling")
-						: t("settings.domains.waiting")}
-				</span>
-			</div>
-			<div className="grid gap-3 sm:grid-cols-3">
-				<ProgressPill
-					active={status === "registering"}
-					done={status === "configuring" || status === "active"}
-					label={t("settings.domains.progressRegistering")}
-				/>
-				<ProgressPill
-					active={status === "configuring"}
-					done={status === "active"}
-					label={t("settings.domains.progressConfiguring")}
-				/>
-				<ProgressPill
-					active={status === "active"}
-					done={status === "active"}
-					label={t("settings.domains.progressLive")}
-				/>
-			</div>
-		</div>
+		result.availability === "available" && result.registrationPriceUsd !== null
 	);
 }
 
-function ProgressPill({
-	active,
-	done,
-	label,
-}: {
-	active: boolean;
-	done: boolean;
-	label: string;
-}) {
-	return (
-		<div
-			className={cn(
-				"rounded-lg border px-3 py-2 text-sm",
-				active && "border-primary bg-primary/5 text-primary",
-				done && "border-success/40 bg-success/5 text-success",
-			)}
-		>
-			{label}
-		</div>
-	);
-}
-
-function SuccessStep({
-	liveUrl,
-	onCopy,
-}: {
-	liveUrl: string;
-	onCopy: () => void;
-}) {
-	const { t } = useTranslation();
-
-	return (
-		<div className="flex flex-col gap-4">
-			<div className="flex items-center gap-2 rounded-lg border border-success/40 bg-success/5 px-4 py-3 text-sm text-success">
-				<Check className="size-4" />
-				{t("settings.domains.buySuccess")}
-			</div>
-			<div className="flex items-center gap-2 rounded-lg border px-3 py-2">
-				<a
-					href={liveUrl}
-					target="_blank"
-					rel="noreferrer"
-					dir="ltr"
-					className="min-w-0 flex-1 truncate font-mono text-primary text-sm hover:underline"
-				>
-					{liveUrl}
-				</a>
-				<Button
-					type="button"
-					variant="ghost"
-					size="icon-xs"
-					aria-label={t("settings.domains.copy")}
-					onClick={onCopy}
-				>
-					<Copy />
-				</Button>
-				<Button
-					type="button"
-					variant="ghost"
-					size="icon-xs"
-					aria-label={t("settings.domains.openLiveUrl")}
-					asChild
-				>
-					<a href={liveUrl} target="_blank" rel="noreferrer">
-						<ExternalLink />
-					</a>
-				</Button>
-			</div>
-		</div>
-	);
-}
-
-function FailedStep({ domain }: { domain: Domain | null }) {
-	const { t } = useTranslation();
-	const summary = safeDomainErrorSummary(domain?.error);
-
-	return (
-		<div className="flex flex-col gap-3 rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3">
-			<p className="font-medium text-destructive text-sm">
-				{summary
-					? t("settings.domains.failedSummaryWithReason", { reason: summary })
-					: t("settings.domains.failedSummary")}
-			</p>
-			<p className="text-muted-foreground text-sm">
-				{t("settings.domains.refundedNote")}
-			</p>
-		</div>
-	);
-}
-
-function selectedToDomain(selected: SearchDomainsResult | null): Domain | null {
-	if (!selected) {
-		return null;
-	}
-
-	return null;
+function formatCurrency(usd: number, locale: Locale) {
+	return new Intl.NumberFormat(locale, {
+		style: "currency",
+		currency: "USD",
+		minimumFractionDigits: Number.isInteger(usd) ? 0 : 2,
+		maximumFractionDigits: 2,
+	}).format(usd);
 }
 
 function validationMessageForField(

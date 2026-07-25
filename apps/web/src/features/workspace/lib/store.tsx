@@ -97,11 +97,6 @@ type WorkspaceContextValue = {
 		tiktokPixelId?: string | null;
 	}) => void;
 	liveUrl: string | null;
-	// Publish panel (dc 4a slide-in) — open state lives here so the header
-	// button, page and future entry points share one panel instance.
-	publishPanelOpen: boolean;
-	openPublishPanel: () => void;
-	setPublishPanelOpen: (open: boolean) => void;
 };
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
@@ -347,11 +342,6 @@ export function WorkspaceProvider({
 		toast.success(t("workspace.publish.unpublishedToast"));
 	}, [projectId, refreshState, syncProjectStatus, t]);
 
-	// --- publish panel ---------------------------------------------------------
-
-	const [publishPanelOpen, setPublishPanelOpen] = useState(false);
-	const openPublishPanel = useCallback(() => setPublishPanelOpen(true), []);
-
 	// Recover deployments stuck in "publishing" (seeded that way, or a publish
 	// interrupted by navigation) by completing them shortly after mount.
 	useEffect(() => {
@@ -448,9 +438,6 @@ export function WorkspaceProvider({
 			updateSlug,
 			updatePixels,
 			liveUrl,
-			publishPanelOpen,
-			openPublishPanel,
-			setPublishPanelOpen,
 		}),
 		[
 			projectId,
@@ -475,8 +462,6 @@ export function WorkspaceProvider({
 			updateSlug,
 			updatePixels,
 			liveUrl,
-			publishPanelOpen,
-			openPublishPanel,
 		],
 	);
 

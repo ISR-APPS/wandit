@@ -13,23 +13,19 @@ import type { AuthUser } from "@wandit/auth";
 import {
 	type AttachExternalDomainBody,
 	type AttachExternalDomainResponse,
+	attachExternalDomainBodySchema,
 	type DetachDomainResponse,
 	type ListDomainsResponse,
-	type PurchaseDomainBody,
-	type PurchaseDomainResponse,
-	type RenewDomainResponse,
 	type SearchDomainsQuery,
 	type SearchDomainsResponse,
 	type SetPrimaryDomainResponse,
+	searchDomainsQuerySchema,
 	type TransferUnlockDomainResponse,
 	type UpdateDomainAutoRenewBody,
 	type UpdateDomainAutoRenewResponse,
-	type VerifyDomainResponse,
-	attachExternalDomainBodySchema,
-	purchaseDomainBodySchema,
-	searchDomainsQuerySchema,
 	updateDomainAutoRenewBodySchema,
 	uuidSchema,
+	type VerifyDomainResponse,
 } from "@wandit/contracts";
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
@@ -69,19 +65,6 @@ export class DomainsController {
 
 	@UseGuards(DomainRateLimitGuard)
 	@DomainRateLimit({ limit: 5, windowMs: 60_000 })
-	@Post("projects/:projectId/domains")
-	purchase(
-		@Param("projectId", new ZodValidationPipe(uuidSchema))
-		projectId: string,
-		@Body(new ZodValidationPipe(purchaseDomainBodySchema))
-		body: PurchaseDomainBody,
-		@CurrentUser() user: AuthUser,
-	): Promise<PurchaseDomainResponse> {
-		return this.domainsService.purchase(user.id, projectId, body);
-	}
-
-	@UseGuards(DomainRateLimitGuard)
-	@DomainRateLimit({ limit: 5, windowMs: 60_000 })
 	@Post("projects/:projectId/domains/external")
 	attachExternal(
 		@Param("projectId", new ZodValidationPipe(uuidSchema))
@@ -102,17 +85,6 @@ export class DomainsController {
 		@CurrentUser() user: AuthUser,
 	): Promise<VerifyDomainResponse> {
 		return this.domainsService.verify(id, user.id);
-	}
-
-	@UseGuards(DomainRateLimitGuard)
-	@DomainRateLimit({ limit: 5, windowMs: 60_000 })
-	@Post("domains/:id/renew")
-	renew(
-		@Param("id", new ZodValidationPipe(uuidSchema))
-		id: string,
-		@CurrentUser() user: AuthUser,
-	): Promise<RenewDomainResponse> {
-		return this.domainsService.renew(id, user.id);
 	}
 
 	@Post("domains/:id/auto-renew")

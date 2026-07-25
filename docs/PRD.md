@@ -80,7 +80,7 @@ Build **vertical slices** (DB → API → UI per feature), in this order:
 3. **Image / video generation** — AI SDK `generateImage` / `experimental_generateVideo` inside BullMQ workers (extended timeouts ~15 min), results uploaded to R2 and registered as artifacts.
 4. **Visual editing** — elements stamped with `data-eid` at save time; editor script injected into preview HTML only; cross-origin iframe ↔ app via postMessage; edits applied server-side by element ID, saved as a new version. Two tiers: direct text/style edits (no AI) and element-scoped AI edits. No drag-and-drop, ever. **UI direction (settled 2026-07-02):** a right-side element-inspector rail (Framer/Webflow-style) slides in from the edge of the Page tab when an element is clicked, rather than Lovable's floating bottom toolbar or a plain edit/preview tab-switch — chrome stays anchored and never occludes the page, and it scales naturally to the two-tier edit model above. The Page toolbar's trailing action group is the reserved slot for the edit-mode toggle that opens it.
 5. **Campaign integrations + entity tagging** — link TikTok/Meta campaigns to a project; @-tag entities in chat (`@campaign x`); AI answers questions and takes actions on them via tools. Platform OAuth tokens live in a dedicated connections table — not Better Auth's `account`.
-6. **Custom domains — buy in-app or bring your own** — sell domains at a markup via a reseller registrar API (**Openprovider**, behind a `DomainProvider` port; decided 2026-07-04 after researched comparison) + Cloudflare for SaaS custom hostnames for serving both paths. Buying in-app unblocks Algerian users who can't pay international registrars (CIB/EDAHABIA). See `docs/features/custom-domains.md`.
+6. **Custom domains — buy in-app or bring your own** — sell domains at a markup through **Name.com CORE v1** (behind the `DomainProvider` port; switched from Openprovider 2026-07-24), plus Cloudflare for SaaS custom hostnames for serving both paths. Registration is paid by direct Stripe checkout through the orders module — never Wandit credits — with a fail-closed wholesale-price ceiling and refund-before-terminal-write fulfillment. Buying in-app unblocks Algerian users who can't pay international registrars (CIB/EDAHABIA). See `docs/features/custom-domains.md`.
 7. Google Sheets sync, analytics dashboards, Business/orgs (Better Auth organizations plugin).
 
 ## 7. Architecture decisions (settled — do not relitigate)
@@ -126,7 +126,7 @@ Other services: Neon (Postgres), Redis (BullMQ + pub/sub + rate limiting), Cloud
 | `deployments` | Publishing | slug → version pointer, publish state, history. |
 | `leads` | Leads | name, phone (E.164), wilaya, commune, extra fields jsonb, ad attribution jsonb, status pipeline. |
 | `credit_ledger` | Credits | grant / consume / topup / expire / revoke rows; balance = sum; idempotency key dedupes retried jobs/webhooks. |
-| `domains` | Custom Domains (post-MVP) | user-owned, project-attached; purchased (Openprovider) or external (BYO); status lifecycle, registrant snapshot, CF custom-hostname id. |
+| `domains` | Custom Domains (post-MVP) | user-owned, project-attached; purchased through Name.com CORE v1 or external (BYO); status lifecycle, registrant snapshot, CF custom-hostname id. |
 
 ## 10. Non-functional requirements
 

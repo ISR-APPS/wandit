@@ -11,7 +11,10 @@ import type { BillingCustomerService } from "../../../billing/application/servic
 import type { PaymentProvider } from "../../../billing/domain/ports/payment-provider.port";
 import type { BillingCustomersRepository } from "../../../billing/infrastructure/persistence/billing-customers.repository";
 import type { DomainsService } from "../../../domains/application/services/domains.service";
-import { DomainAlreadyExistsError } from "../../../domains/domain/errors/domain.errors";
+import {
+	DomainAlreadyExistsError,
+	PremiumDomainBlockedError,
+} from "../../../domains/domain/errors/domain.errors";
 import type { DomainsRepository } from "../../../domains/infrastructure/persistence/domains.repository";
 import {
 	OrderInvariantViolationError,
@@ -289,13 +292,9 @@ class FakeDomainsService {
 	readonly preparePurchase = vi.fn(
 		async (_userId: string, domain: string, _projectId?: string) => ({
 			name: domain.trim().toLowerCase(),
-			priceSnapshot: {
-				registrationCredits: DOMAIN_TLD_CATALOG.com.registrationCredits,
-				renewalCredits: DOMAIN_TLD_CATALOG.com.renewalCredits,
-				tld: "com" as const,
-				wholesaleCeilingUsd: DOMAIN_TLD_CATALOG.com.wholesaleCeilingUsd,
-			},
+			quotedWholesaleUsd: 11.06,
 			tld: "com" as const,
+			wholesaleCeilingUsd: DOMAIN_TLD_CATALOG.com.wholesaleCeilingUsd,
 		}),
 	);
 }
@@ -520,14 +519,15 @@ function paymentOrderRow(
 		metadata: {
 			domain: "example.com",
 			priceSnapshot: {
-				registrationCredits: DOMAIN_TLD_CATALOG.com.registrationCredits,
-				renewalCredits: DOMAIN_TLD_CATALOG.com.renewalCredits,
+				chargedAmountCents: DOMAIN_REGISTRATION_USD_CENTS.com,
+				chargedCurrency: "usd",
+				quotedWholesaleUsd: 11.06,
 				tld: "com",
 				wholesaleCeilingUsd: DOMAIN_TLD_CATALOG.com.wholesaleCeilingUsd,
 			},
 			registrant,
 			tld: "com",
-			whoisPrivacy: true,
+			whoisPrivacy: false,
 		},
 		paidAt: null,
 		provider: "stripe",
@@ -621,11 +621,53 @@ describe("OrdersService", () => {
 		);
 		expect(orders.rows.get(orderId)?.metadata).toMatchObject({
 			domain: "example.com",
+			priceSnapshot: {
+				chargedAmountCents: DOMAIN_REGISTRATION_USD_CENTS.com,
+				chargedCurrency: "usd",
+				quotedWholesaleUsd: 11.06,
+				tld: "com",
+				wholesaleCeilingUsd: DOMAIN_TLD_CATALOG.com.wholesaleCeilingUsd,
+			},
 			projectId,
 			tld: "com",
 			whoisPrivacy: false,
 		});
 		expect(orders.rows.get(orderId)?.providerCheckoutSessionId).toBe(sessionId);
+	});
+
+	it("defaults WHOIS privacy to off when the body omits it", async () => {
+		const { orders, service } = setup();
+
+		await service.createDomainOrder(user, {
+			domain: "example.com",
+			projectId,
+			registrant,
+		});
+
+		expect(orders.rows.get(orderId)?.metadata).toMatchObject({
+			whoisPrivacy: false,
+		});
+	});
+
+	it("refuses to start checkout when the wholesale quote erases the margin", async () => {
+		const { domainsService, orders, payments, service } = setup();
+		domainsService.preparePurchase.mockResolvedValueOnce({
+			name: "example.com",
+			quotedWholesaleUsd: DOMAIN_REGISTRATION_USD_CENTS.com / 100,
+			tld: "com" as const,
+			wholesaleCeilingUsd: DOMAIN_TLD_CATALOG.com.wholesaleCeilingUsd,
+		});
+
+		await expect(
+			service.createDomainOrder(user, {
+				domain: "example.com",
+				projectId,
+				registrant,
+			}),
+		).rejects.toBeInstanceOf(PremiumDomainBlockedError);
+
+		expect(payments.createOrderCheckout).not.toHaveBeenCalled();
+		expect(orders.rows.size).toBe(0);
 	});
 
 	it.each([

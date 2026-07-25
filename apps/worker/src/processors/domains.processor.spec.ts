@@ -1,8 +1,4 @@
-import {
-	DOMAIN_TLD_CATALOG,
-	type DomainPriceSnapshot,
-	type Registrant,
-} from "@wandit/contracts";
+import { DOMAIN_TLD_CATALOG, type Registrant } from "@wandit/contracts";
 import type {
 	DomainConfigureJobData,
 	DomainJobName,
@@ -10,13 +6,14 @@ import type {
 } from "@wandit/jobs";
 import { describe, expect, it, vi } from "vitest";
 
-import { InsufficientCreditsError } from "../../../server/src/modules/credits/domain/errors/insufficient-credits.error";
-import type { CreditsPort } from "../../../server/src/modules/domains/domain/ports/credits.port";
+import { DomainProviderError } from "../../../server/src/modules/domains/domain/errors/domain.errors";
 import type {
 	DomainAvailability,
 	DomainDnsRecord,
 	DomainProvider,
 	DomainProviderInfo,
+	DomainRegistrationOptions,
+	DomainRegistrationResult,
 } from "../../../server/src/modules/domains/domain/ports/domain-provider.port";
 import type { CustomHostnameService } from "../../../server/src/modules/domains/infrastructure/cloudflare/custom-hostname.service";
 import type { DomainRoutingService } from "../../../server/src/modules/domains/infrastructure/cloudflare/domain-routing.service";
@@ -76,20 +73,6 @@ class FakeDomainsRepository {
 		return updated;
 	}
 
-	async updateIfStatus(
-		id: string,
-		statuses: DomainRow["status"][],
-		patch: Partial<DomainRow>,
-	) {
-		const row = await this.updateIfStatusOrNull(id, statuses, patch);
-
-		if (!row) {
-			throw new Error("Invalid status");
-		}
-
-		return row;
-	}
-
 	async updateIfStatusOrNull(
 		id: string,
 		statuses: DomainRow["status"][],
@@ -124,18 +107,17 @@ class FakeDomainsRepository {
 		});
 	}
 
-	async findRenewalCandidates(now = new Date()) {
-		const renewBy = new Date(now);
-		renewBy.setUTCDate(renewBy.getUTCDate() + 30);
+	async findExpiringPurchased(now = new Date()) {
+		const expiringBy = new Date(now);
+		expiringBy.setUTCDate(expiringBy.getUTCDate() + 30);
 
 		return [...this.rows.values()]
 			.filter(
 				(row) =>
 					row.source === "purchased" &&
-					row.autoRenew &&
 					(row.status === "active" || row.status === "expired") &&
 					row.expiresAt !== null &&
-					row.expiresAt <= renewBy,
+					row.expiresAt <= expiringBy,
 			)
 			.sort((left, right) => {
 				const byExpiry =
@@ -146,12 +128,17 @@ class FakeDomainsRepository {
 	}
 
 	async recordRenewalNotice(id: string, message: string) {
+		this.events.push(`renewalNotice:${id}`);
+
 		return this.updateById(id, { error: message });
 	}
 
 	async findPurchasedForSync() {
 		return [...this.rows.values()].filter(
-			(row) => row.source === "purchased" && row.providerDomainId,
+			(row) =>
+				row.source === "purchased" &&
+				row.provider === "namecom" &&
+				row.providerDomainId,
 		);
 	}
 
@@ -161,7 +148,7 @@ class FakeDomainsRepository {
 		const now = new Date(1_700_000_000_000 + this.nextId * 1000);
 		this.nextId += 1;
 		const row = {
-			autoRenew: true,
+			autoRenew: false,
 			cfCustomHostnameId: null,
 			createdAt: now,
 			dns: null,
@@ -171,17 +158,20 @@ class FakeDomainsRepository {
 			isPrimary: false,
 			name,
 			paymentOrderId: null,
-			priceSnapshot: priceSnapshot(),
+			priceSnapshot: null,
 			projectId,
-			provider: "openprovider",
+			provider: "namecom",
 			providerDomainId: null,
+			providerOrderId: null,
+			providerTotalPaidUsd: null,
 			registrant,
 			source: "purchased",
 			status,
 			tld: "com",
+			transferLockExpiresAt: null,
 			updatedAt: now,
 			userId,
-			whoisPrivacy: true,
+			whoisPrivacy: false,
 			...rest,
 		} satisfies DomainRow;
 		this.rows.set(row.id, row);
@@ -204,12 +194,18 @@ class FakeProvider implements DomainProvider {
 	availability: DomainAvailability[] = [];
 	availabilityNames: string[][] = [];
 	info: DomainProviderInfo | null = null;
+	readonly infoByName = new Map<string, DomainProviderInfo | null | Error>();
 	registerCalls = 0;
 	registerError: Error | null = null;
+	registerResult: DomainRegistrationResult = {
+		expiresAt: new Date("2027-01-01T00:00:00.000Z"),
+		providerDomainId: "nc_registered",
+	};
+	readonly registerOptions: DomainRegistrationOptions[] = [];
 	renewCalls = 0;
-	renewErrors: Error[] = [];
-	renewedExpiresAt = new Date("2027-08-01T00:00:00.000Z");
-	readonly setDnsRecordsMock = vi.fn(async () => undefined);
+	readonly setDnsRecordsMock = vi.fn(
+		async (_name: string, _records: DomainDnsRecord[]) => undefined,
+	);
 	readonly setUrlForwardingMock = vi.fn(async () => undefined);
 
 	async checkAvailability(names: string[]) {
@@ -225,33 +221,29 @@ class FakeProvider implements DomainProvider {
 		);
 	}
 
-	async register() {
+	async register(
+		_name: string,
+		_registrant: Registrant,
+		options: DomainRegistrationOptions,
+	) {
 		this.registerCalls += 1;
+		this.registerOptions.push(options);
 
 		if (this.registerError) {
 			throw this.registerError;
 		}
 
-		return {
-			expiresAt: new Date("2027-01-01T00:00:00.000Z"),
-			providerDomainId: "op_registered",
-		};
+		return this.registerResult;
 	}
 
 	async renew() {
 		this.renewCalls += 1;
 
-		const error = this.renewErrors.shift();
-
-		if (error) {
-			throw error;
-		}
-
-		return { expiresAt: this.renewedExpiresAt };
+		return { expiresAt: new Date("2028-01-01T00:00:00.000Z") };
 	}
 
-	async setDnsRecords(_name: string, _records: DomainDnsRecord[]) {
-		return this.setDnsRecordsMock();
+	async setDnsRecords(name: string, records: DomainDnsRecord[]) {
+		return this.setDnsRecordsMock(name, records);
 	}
 
 	async setUrlForwarding() {
@@ -264,50 +256,19 @@ class FakeProvider implements DomainProvider {
 
 	async setTransferLock() {}
 
-	async getDomainInfo() {
+	async getDomainInfo(name: string) {
+		if (this.infoByName.has(name)) {
+			const entry = this.infoByName.get(name);
+
+			if (entry instanceof Error) {
+				throw entry;
+			}
+
+			return entry ?? null;
+		}
+
 		return this.info;
 	}
-}
-
-class FakeCredits implements CreditsPort {
-	readonly consumeLedgerKeys: string[] = [];
-	private readonly consumedKeys = new Set<string>();
-	grantFailures = 0;
-
-	constructor(private readonly events: string[]) {}
-
-	readonly consume = vi.fn(
-		async (
-			_userId: string,
-			_amount: number,
-			options?: { idempotencyKey?: string },
-		) => {
-			const key = options?.idempotencyKey ?? "missing-key";
-
-			if (this.consumedKeys.has(key)) {
-				return;
-			}
-
-			this.consumedKeys.add(key);
-			this.consumeLedgerKeys.push(key);
-			this.events.push(`consume:${key}`);
-		},
-	);
-
-	readonly grant = vi.fn(
-		async (
-			_userId: string,
-			_amount: number,
-			options: { idempotencyKey?: string },
-		) => {
-			this.events.push(`grant:${options.idempotencyKey ?? "missing-key"}`);
-
-			if (this.grantFailures > 0) {
-				this.grantFailures -= 1;
-				throw new Error("ledger down");
-			}
-		},
-	);
 }
 
 type FakePaymentOrder = {
@@ -404,15 +365,6 @@ class FakePaymentOrdersRepository {
 		return fulfilling;
 	}
 
-	async markRefunded(id: string) {
-		const row = this.expect(id);
-		const refunded = { ...row, status: "refunded" as const };
-		this.rows.set(id, refunded);
-		this.events.push(`orderRefunded:${id}`);
-
-		return refunded;
-	}
-
 	async markFulfilled(id: string) {
 		const row = this.expect(id);
 
@@ -459,17 +411,18 @@ class FakeOrderRefundQueue {
 
 class FakeCustomHostnameService {
 	status = "pending";
+	requiredRecords: Array<{ name: string; type: "TXT"; value: string }> = [];
 	readonly createCustomHostname = vi.fn(async () => ({
 		hostnameStatus: "pending",
 		id: "cf_1",
-		requiredRecords: [],
+		requiredRecords: this.requiredRecords,
 		sslStatus: "pending_validation",
 		status: "pending",
 	}));
 	readonly getCustomHostnameStatus = vi.fn(async () => ({
 		hostnameStatus: this.status,
 		id: "cf_1",
-		requiredRecords: [],
+		requiredRecords: this.requiredRecords,
 		sslStatus: this.status,
 		status: this.status,
 	}));
@@ -482,28 +435,10 @@ class FakeRoutingService {
 	readonly refreshProjectDomains = vi.fn(async () => undefined);
 }
 
-function priceSnapshot(): DomainPriceSnapshot {
-	return {
-		registrationCredits: DOMAIN_TLD_CATALOG.com.registrationCredits,
-		renewalCredits: DOMAIN_TLD_CATALOG.com.renewalCredits,
-		tld: "com",
-		wholesaleCeilingUsd: DOMAIN_TLD_CATALOG.com.wholesaleCeilingUsd,
-	};
-}
-
-function nextExpiryYear(row: DomainRow): number {
-	if (!row.expiresAt) {
-		throw new Error(`Expected ${row.name} to have an expiry date`);
-	}
-
-	return row.expiresAt.getUTCFullYear() + 1;
-}
-
 function setup() {
 	const events: string[] = [];
 	const repository = new FakeDomainsRepository(events);
 	const provider = new FakeProvider();
-	const credits = new FakeCredits(events);
 	const orders = new FakePaymentOrdersRepository(events);
 	const refundQueue = new FakeOrderRefundQueue(events);
 	const cloudflare = new FakeCustomHostnameService();
@@ -515,7 +450,6 @@ function setup() {
 	const processor = new DomainsProcessor(
 		repository as unknown as DomainsRepository,
 		provider,
-		credits,
 		orders as unknown as PaymentOrdersRepository,
 		refundQueue as unknown as OrderRefundQueueService,
 		cloudflare as unknown as CustomHostnameService,
@@ -525,7 +459,6 @@ function setup() {
 
 	return {
 		cloudflare,
-		credits,
 		events,
 		orders,
 		processor,
@@ -541,11 +474,14 @@ type ProcessorJob = Parameters<DomainsProcessor["process"]>[0];
 
 type ProcessorInternals = {
 	processDomainRenewals(now?: Date): Promise<{
+		noticed: number;
 		processed: boolean;
-		renewed: number;
-		skipped: number;
 	}>;
-	renewCandidate(row: DomainRow): Promise<boolean>;
+	processDomainSync(): Promise<{
+		failed: number;
+		processed: boolean;
+		synced: number;
+	}>;
 };
 
 function job<Name extends DomainJobName>(
@@ -567,8 +503,26 @@ function job<Name extends DomainJobName>(
 }
 
 describe("DomainsProcessor", () => {
-	it("re-checks real-domain availability and terminally refunds over-ceiling purchase jobs", async () => {
-		const { credits, cloudflare, processor, provider, repository } = setup();
+	it("registers both the renewal-notice and weekly sync schedulers", async () => {
+		const { processor, queue } = setup();
+
+		await processor.onModuleInit();
+
+		expect(queue.upsertJobScheduler).toHaveBeenCalledWith(
+			"domain-renewals-daily",
+			{ pattern: "0 2 * * *" },
+			expect.objectContaining({ name: "domain-renewals" }),
+		);
+		expect(queue.upsertJobScheduler).toHaveBeenCalledWith(
+			"domain-sync-weekly",
+			{ pattern: "0 3 * * 0" },
+			expect.objectContaining({ name: "domain-sync" }),
+		);
+	});
+
+	it("re-checks real-domain availability and terminally fails over-ceiling purchases", async () => {
+		const { cloudflare, events, processor, provider, refundQueue, repository } =
+			setup();
 		const row = repository.seed({
 			cfCustomHostnameId: "cf_cleanup",
 			name: "premium.com",
@@ -585,28 +539,36 @@ describe("DomainsProcessor", () => {
 		await processor.process(
 			job("domain-purchase", { domainId: row.id }, { attempts: 5 }),
 		);
-		await processor.process(
-			job("domain-purchase", { domainId: row.id }, { attempts: 5 }),
-		);
 
 		expect(provider.availabilityNames).toEqual([["premium.com"]]);
 		expect(provider.registerCalls).toBe(0);
 		expect(repository.rows.get(row.id)?.status).toBe("failed");
-		expect(credits.grant).toHaveBeenCalledTimes(1);
-		expect(credits.grant).toHaveBeenCalledWith(
-			userId,
-			DOMAIN_TLD_CATALOG.com.registrationCredits,
-			expect.objectContaining({
-				bucket: "topup",
-				idempotencyKey: `domain-refund:${row.id}`,
-				meta: { domainId: row.id, reason: "domain_registration_failed" },
-			}),
+		expect(repository.rows.get(row.id)?.error).toBe(
+			"Domain price is premium, missing, or above the catalog safety ceiling",
 		);
+		expect(refundQueue.enqueue).not.toHaveBeenCalled();
+		expect(events.some((event) => event.startsWith("markFailed"))).toBe(true);
 		expect(cloudflare.deleteCustomHostname).toHaveBeenCalledWith("cf_cleanup");
 	});
 
-	it("rethrows transient purchase failures while attempts remain without refunding or marking failed", async () => {
-		const { credits, events, processor, provider, repository } = setup();
+	it("fails closed when the registrar quote is missing entirely", async () => {
+		const { processor, provider, repository } = setup();
+		const row = repository.seed({
+			name: "no-quote.com",
+			status: "registering",
+		});
+		provider.availability = [{ available: true, name: "no-quote.com" }];
+
+		await processor.process(
+			job("domain-purchase", { domainId: row.id }, { attempts: 5 }),
+		);
+
+		expect(provider.registerCalls).toBe(0);
+		expect(repository.rows.get(row.id)?.status).toBe("failed");
+	});
+
+	it("rethrows transient purchase failures while attempts remain without marking failed", async () => {
+		const { events, processor, provider, repository } = setup();
 		const row = repository.seed({
 			name: "transient.com",
 			status: "registering",
@@ -624,50 +586,81 @@ describe("DomainsProcessor", () => {
 		).rejects.toThrow("network timeout");
 
 		expect(repository.rows.get(row.id)?.status).toBe("registering");
-		expect(credits.grant).not.toHaveBeenCalled();
 		expect(events.some((event) => event.startsWith("markFailed"))).toBe(false);
 	});
 
-	it("terminal purchase errors refund and mark failed immediately even with attempts remaining", async () => {
-		const { credits, processor, provider, repository } = setup();
+	it("treats a non-retryable registrar error as terminal on the first attempt and refunds inside the fence", async () => {
+		const { events, orders, processor, provider, refundQueue, repository } =
+			setup();
+		const orderId = "20202020-2020-4020-8020-202020202020";
+		orders.seed({
+			id: orderId,
+			providerPaymentIntentId: "pi_nonretryable",
+			status: "paid",
+		});
 		const row = repository.seed({
-			name: "taken.com",
+			name: "rejected.com",
+			paymentOrderId: orderId,
 			status: "registering",
 		});
-		provider.availability = [
-			{
-				available: false,
-				name: "taken.com",
-			},
-		];
-
-		await processor.process(
-			job(
-				"domain-purchase",
-				{ domainId: row.id },
-				{ attempts: 5, attemptsMade: 0 },
-			),
+		provider.registerError = new DomainProviderError(
+			"Registrar rejected request",
+			{ retryable: false, upstreamStatus: 400 },
 		);
 
-		expect(credits.grant).toHaveBeenCalledTimes(1);
+		await expect(
+			processor.process(
+				job(
+					"domain-purchase",
+					{ domainId: row.id, orderId, paymentSource: "order" },
+					{ attempts: 5, attemptsMade: 0 },
+				),
+			),
+		).resolves.toEqual({ processed: false, reason: "terminal_failure" });
+
+		expect(refundQueue.enqueue).toHaveBeenCalledTimes(1);
+		expect(orders.rows.get(orderId)?.status).toBe("failed");
 		expect(repository.rows.get(row.id)?.status).toBe("failed");
+		expect(events).toEqual([
+			`orderFulfilling:${orderId}`,
+			`refundQueued:${orderId}:Registrar rejected request`,
+			`markFailed:${row.id}:Registrar rejected request`,
+			`orderFailed:${orderId}:Registrar rejected request`,
+		]);
+	});
+
+	it("retries a retryable registrar error instead of terminalizing", async () => {
+		const { processor, provider, refundQueue, repository } = setup();
+		const row = repository.seed({
+			name: "retryable.com",
+			status: "registering",
+		});
+		provider.registerError = new DomainProviderError("Registrar 502", {
+			retryable: true,
+			upstreamStatus: 502,
+		});
+
+		await expect(
+			processor.process(
+				job(
+					"domain-purchase",
+					{ domainId: row.id },
+					{ attempts: 5, attemptsMade: 0 },
+				),
+			),
+		).rejects.toThrow("Registrar 502");
+
+		expect(repository.rows.get(row.id)?.status).toBe("registering");
+		expect(refundQueue.enqueue).not.toHaveBeenCalled();
 	});
 
 	it("queues money refunds before terminalizing the domain and order", async () => {
-		const {
-			credits,
-			events,
-			orders,
-			processor,
-			provider,
-			refundQueue,
-			repository,
-		} = setup();
+		const { events, orders, processor, provider, refundQueue, repository } =
+			setup();
 		const orderId = "33333333-3333-4333-8333-333333333333";
-		const paymentIntentId = "pi_domain_order";
 		orders.seed({
 			id: orderId,
-			providerPaymentIntentId: paymentIntentId,
+			providerPaymentIntentId: "pi_domain_order",
 			status: "paid",
 		});
 		const row = repository.seed({
@@ -685,25 +678,126 @@ describe("DomainsProcessor", () => {
 			),
 		);
 
-		expect(credits.grant).not.toHaveBeenCalled();
 		expect(refundQueue.enqueue).toHaveBeenCalledWith(
 			orderId,
-			"Domain registration failed",
+			"Domain is not available",
 		);
 		expect(orders.rows.get(orderId)?.status).toBe("failed");
 		expect(repository.rows.get(row.id)?.status).toBe("failed");
 		expect(events).toEqual([
 			`orderFulfilling:${orderId}`,
-			`refundQueued:${orderId}:Domain registration failed`,
-			`markFailed:${row.id}:Domain registration failed`,
-			`orderFailed:${orderId}:Domain registration failed`,
+			`refundQueued:${orderId}:Domain is not available`,
+			`markFailed:${row.id}:Domain is not available`,
+			`orderFailed:${orderId}:Domain is not available`,
 		]);
+	});
+
+	it("terminally fails a job whose order id does not match the domain row and still refunds the row's order", async () => {
+		const { events, orders, processor, provider, refundQueue, repository } =
+			setup();
+		const rowOrderId = "21212121-2121-4121-8121-212121212121";
+		const bogusOrderId = "31313131-3131-4131-8131-313131313131";
+		orders.seed({
+			id: rowOrderId,
+			providerPaymentIntentId: "pi_row_order",
+			status: "fulfilling",
+		});
+		const row = repository.seed({
+			name: "mismatch.com",
+			paymentOrderId: rowOrderId,
+			status: "registering",
+		});
+
+		await expect(
+			processor.process(
+				job(
+					"domain-purchase",
+					{ domainId: row.id, orderId: bogusOrderId, paymentSource: "order" },
+					{ attempts: 5 },
+				),
+			),
+		).resolves.toEqual({ processed: false, reason: "terminal_failure" });
+
+		expect(provider.registerCalls).toBe(0);
+		expect(refundQueue.enqueue).toHaveBeenCalledWith(
+			rowOrderId,
+			"Domain registration failed",
+		);
+		expect(orders.rows.get(rowOrderId)?.status).toBe("failed");
+		expect(repository.rows.get(row.id)?.status).toBe("failed");
+		expect(events).toEqual([
+			`refundQueued:${rowOrderId}:Domain registration failed`,
+			`markFailed:${row.id}:Domain registration failed`,
+			`orderFailed:${rowOrderId}:Domain registration failed`,
+		]);
+	});
+
+	it("terminally fails without retry when the referenced payment order does not exist", async () => {
+		const { events, processor, provider, refundQueue, repository } = setup();
+		const missingOrderId = "41414141-4141-4141-8141-414141414141";
+		const row = repository.seed({
+			name: "orphan-order.com",
+			paymentOrderId: missingOrderId,
+			status: "registering",
+		});
+
+		await expect(
+			processor.process(
+				job(
+					"domain-purchase",
+					{ domainId: row.id, orderId: missingOrderId, paymentSource: "order" },
+					{ attempts: 5 },
+				),
+			),
+		).resolves.toEqual({ processed: false, reason: "terminal_failure" });
+
+		expect(provider.registerCalls).toBe(0);
+		expect(refundQueue.enqueue).not.toHaveBeenCalled();
+		expect(repository.rows.get(row.id)?.status).toBe("failed");
+		expect(events).toEqual([
+			`markFailed:${row.id}:Payment order is missing for this domain purchase`,
+		]);
+	});
+
+	it("routes unsupported legacy registrar rows through the terminal path so their order refunds", async () => {
+		const { orders, processor, provider, refundQueue, repository } = setup();
+		const orderId = "23232323-2323-4323-8323-232323232323";
+		orders.seed({
+			id: orderId,
+			providerPaymentIntentId: "pi_legacy_provider",
+			status: "fulfilling",
+		});
+		const row = repository.seed({
+			name: "legacy.com",
+			paymentOrderId: orderId,
+			provider: "openprovider",
+			status: "registering",
+		});
+
+		await expect(
+			processor.process(
+				job(
+					"domain-purchase",
+					{ domainId: row.id, orderId, paymentSource: "order" },
+					{ attempts: 5 },
+				),
+			),
+		).resolves.toEqual({ processed: false, reason: "terminal_failure" });
+
+		expect(provider.registerCalls).toBe(0);
+		expect(refundQueue.enqueue).toHaveBeenCalledWith(
+			orderId,
+			"Unsupported registrar for this worker",
+		);
+		expect(repository.rows.get(row.id)).toMatchObject({
+			error: "Unsupported registrar for this worker",
+			status: "failed",
+		});
 	});
 
 	it("fences a stale purchase job when its money order was already refunded", async () => {
 		const {
 			cloudflare,
-			credits,
 			orders,
 			processor,
 			provider,
@@ -748,7 +842,6 @@ describe("DomainsProcessor", () => {
 			"cf_already_refunded",
 		);
 		expect(refundQueue.enqueue).not.toHaveBeenCalled();
-		expect(credits.grant).not.toHaveBeenCalled();
 	});
 
 	it("re-checks the locked order immediately before calling the registrar", async () => {
@@ -796,6 +889,99 @@ describe("DomainsProcessor", () => {
 		expect(refundQueue.enqueue).not.toHaveBeenCalled();
 	});
 
+	it("passes the stable registration idempotency key and stores the registrar receipt", async () => {
+		const { orders, processor, provider, repository } = setup();
+		const orderId = "24242424-2424-4424-8424-242424242424";
+		orders.seed({
+			id: orderId,
+			providerPaymentIntentId: "pi_receipt",
+			status: "fulfilling",
+		});
+		const row = repository.seed({
+			name: "receipt.com",
+			paymentOrderId: orderId,
+			status: "registering",
+		});
+		provider.registerResult = {
+			expiresAt: new Date("2027-01-01T00:00:00.000Z"),
+			providerDomainId: "receipt.com",
+			providerOrderId: "1234",
+			totalPaidUsd: 12.99,
+			transferLockExpiresAt: new Date("2026-09-22T00:00:00.000Z"),
+		};
+
+		await expect(
+			processor.process(
+				job("domain-purchase", {
+					domainId: row.id,
+					orderId,
+					paymentSource: "order",
+				}),
+			),
+		).resolves.toEqual({ processed: true, status: "registering" });
+
+		expect(provider.registerCalls).toBe(1);
+		expect(provider.registerOptions).toEqual([
+			{
+				idempotencyKey: `domain-purchase:${row.id}`,
+				privacy: false,
+				years: 1,
+			},
+		]);
+		expect(repository.rows.get(row.id)).toMatchObject({
+			providerDomainId: "receipt.com",
+			providerOrderId: "1234",
+			providerTotalPaidUsd: "12.99",
+			status: "configuring",
+			transferLockExpiresAt: new Date("2026-09-22T00:00:00.000Z"),
+		});
+	});
+
+	it("replays the stable key to recover a prior registrar success without buying twice", async () => {
+		const { processor, provider, queue, repository } = setup();
+		const row = repository.seed({
+			name: "partial.com",
+			status: "registering",
+		});
+		const nonce = `purchase-${row.id}`;
+		// The name exists in our account (lost receipt); availability would say
+		// "taken", so the gate must be skipped and the idempotent create replayed.
+		provider.infoByName.set("partial.com", {
+			expiresAt: new Date("2027-01-01T00:00:00.000Z"),
+			id: "partial.com",
+		});
+		provider.registerResult = {
+			expiresAt: new Date("2027-01-01T00:00:00.000Z"),
+			providerDomainId: "partial.com",
+		};
+
+		await processor.process(job("domain-purchase", { domainId: row.id }));
+		await processor.process(job("domain-purchase", { domainId: row.id }));
+
+		expect(provider.availabilityNames).toEqual([]);
+		expect(provider.registerCalls).toBe(1);
+		expect(provider.registerOptions[0]?.idempotencyKey).toBe(
+			`domain-purchase:${row.id}`,
+		);
+		expect(repository.rows.get(row.id)?.providerDomainId).toBe("partial.com");
+		expect(repository.rows.get(row.id)?.status).toBe("configuring");
+		expect(queue.add).toHaveBeenCalledWith(
+			"domain-configure",
+			{ attempt: 0, domainId: row.id, nonce },
+			{
+				attempts: 3,
+				backoff: {
+					delay: 60_000,
+					type: "exponential",
+				},
+				jobId: `domain-configure-${row.id}-${nonce}-0`,
+				removeOnComplete: 1000,
+				removeOnFail: 5000,
+			},
+		);
+		expect(queue.add).toHaveBeenCalledTimes(2);
+	});
+
 	it("records manual review when a refund wins after registrar registration", async () => {
 		const { orders, processor, provider, repository } = setup();
 		const orderId = "15151515-1515-4151-8151-151515151515";
@@ -809,10 +995,14 @@ describe("DomainsProcessor", () => {
 			paymentOrderId: orderId,
 			status: "registering",
 		});
+		provider.registerResult = {
+			expiresAt: new Date("2027-01-01T00:00:00.000Z"),
+			providerDomainId: "nc_registered",
+		};
 		const originalUpdate = repository.updateIfStatusOrNull.bind(repository);
 		vi.spyOn(repository, "updateIfStatusOrNull").mockImplementationOnce(
 			async (id, statuses, patch) => {
-				if (patch.providerDomainId === "op_registered") {
+				if (patch.providerDomainId === "nc_registered") {
 					await repository.updateById(row.id, {
 						error: "Payment was refunded",
 						status: "failed",
@@ -856,7 +1046,7 @@ describe("DomainsProcessor", () => {
 
 		expect(provider.registerCalls).toBe(1);
 		expect(orders.rows.get(orderId)?.fulfillmentError).toContain(
-			"was purchased at the registrar as op_registered",
+			"was purchased at the registrar as nc_registered",
 		);
 		expect(orders.rows.get(orderId)?.status).toBe("refunded");
 		expect(provider.setDnsRecordsMock).not.toHaveBeenCalled();
@@ -896,7 +1086,7 @@ describe("DomainsProcessor", () => {
 			status: "registering",
 		});
 
-		expect(cas).toHaveBeenCalledTimes(4);
+		expect(cas).toHaveBeenCalledTimes(5);
 		for (const call of cas.mock.calls) {
 			expect(call[1]).toEqual(["registering"]);
 		}
@@ -904,16 +1094,142 @@ describe("DomainsProcessor", () => {
 		expect(repository.rows.get(row.id)?.status).toBe("configuring");
 	});
 
+	it("persists Cloudflare validation records and pushes them to the registrar before SSL polling", async () => {
+		const { cloudflare, processor, provider, repository } = setup();
+		const orderRow = repository.seed({
+			name: "ssl-fix.com",
+			status: "registering",
+		});
+		cloudflare.requiredRecords = [
+			{
+				name: "_cf-custom-hostname.ssl-fix.com",
+				type: "TXT",
+				value: "validation-token",
+			},
+		];
+
+		await expect(
+			processor.process(job("domain-purchase", { domainId: orderRow.id })),
+		).resolves.toEqual({ processed: true, status: "registering" });
+
+		// First call is the www CNAME, second is the CF validation push.
+		expect(provider.setDnsRecordsMock).toHaveBeenCalledTimes(2);
+		expect(provider.setDnsRecordsMock).toHaveBeenLastCalledWith("ssl-fix.com", [
+			{
+				name: "_cf-custom-hostname.ssl-fix.com",
+				type: "TXT",
+				value: "validation-token",
+			},
+		]);
+		const dns = repository.rows.get(orderRow.id)?.dns as {
+			customHostnameDnsConfigured?: boolean;
+			records?: Array<{ name: string; value: string }>;
+		};
+		expect(dns.customHostnameDnsConfigured).toBe(true);
+		expect(
+			dns.records?.some((record) => record.value === "validation-token"),
+		).toBe(true);
+	});
+
+	it("back-fills validation records for older rows that only carry the Cloudflare id", async () => {
+		const { cloudflare, processor, provider, repository } = setup();
+		const row = repository.seed({
+			cfCustomHostnameId: "cf_backfill",
+			dns: {
+				purchaseDnsConfigured: true,
+				records: [
+					{
+						name: "www",
+						purpose: "traffic",
+						type: "CNAME",
+						value: "customers.wandit.app",
+					},
+				],
+			},
+			name: "backfill.com",
+			providerDomainId: "backfill.com",
+			status: "registering",
+		});
+		cloudflare.requiredRecords = [
+			{ name: "_cf.backfill.com", type: "TXT", value: "backfill-token" },
+		];
+
+		await expect(
+			processor.process(job("domain-purchase", { domainId: row.id })),
+		).resolves.toEqual({ processed: true, status: "registering" });
+
+		expect(cloudflare.createCustomHostname).not.toHaveBeenCalled();
+		expect(cloudflare.getCustomHostnameStatus).toHaveBeenCalledWith(
+			"cf_backfill",
+		);
+		expect(provider.setDnsRecordsMock).toHaveBeenCalledWith("backfill.com", [
+			{ name: "_cf.backfill.com", type: "TXT", value: "backfill-token" },
+		]);
+	});
+
+	it("deletes an unclaimed Cloudflare hostname when persisting its id loses the CAS", async () => {
+		const { cloudflare, orders, processor, repository } = setup();
+		const orderId = "25252525-2525-4525-8525-252525252525";
+		orders.seed({
+			id: orderId,
+			providerPaymentIntentId: "pi_unclaimed_cf",
+			status: "fulfilling",
+		});
+		const row = repository.seed({
+			name: "unclaimed-cf.com",
+			paymentOrderId: orderId,
+			providerDomainId: "unclaimed-cf.com",
+			status: "registering",
+		});
+		const originalUpdate = repository.updateIfStatusOrNull.bind(repository);
+		vi.spyOn(repository, "updateIfStatusOrNull").mockImplementation(
+			async (id, statuses, patch) => {
+				if (patch.cfCustomHostnameId === "cf_1") {
+					await repository.updateById(row.id, {
+						error: "Payment was refunded",
+						status: "failed",
+					});
+					const current = orders.rows.get(orderId);
+
+					if (!current) {
+						throw new Error(`Missing order ${orderId}`);
+					}
+					orders.rows.set(orderId, { ...current, status: "refunded" });
+
+					return null;
+				}
+
+				return originalUpdate(id, statuses, patch);
+			},
+		);
+		const loggerError = vi
+			.spyOn(
+				(
+					processor as unknown as {
+						logger: { error: (...args: unknown[]) => void };
+					}
+				).logger,
+				"error",
+			)
+			.mockImplementation(() => undefined);
+
+		await expect(
+			processor.process(
+				job("domain-purchase", {
+					domainId: row.id,
+					orderId,
+					paymentSource: "order",
+				}),
+			),
+		).resolves.toEqual({ processed: false, reason: "financial_race" });
+
+		expect(cloudflare.deleteCustomHostname).toHaveBeenCalledWith("cf_1");
+		loggerError.mockRestore();
+	});
+
 	it("cannot reactivate a refund-fenced configure job on replay", async () => {
-		const {
-			cloudflare,
-			credits,
-			orders,
-			processor,
-			refundQueue,
-			repository,
-			routing,
-		} = setup();
+		const { cloudflare, orders, processor, refundQueue, repository, routing } =
+			setup();
 		const orderId = "13131313-1313-4131-8131-131313131313";
 		orders.seed({
 			id: orderId,
@@ -953,19 +1269,11 @@ describe("DomainsProcessor", () => {
 			"refund-fenced.com",
 		);
 		expect(refundQueue.enqueue).not.toHaveBeenCalled();
-		expect(credits.grant).not.toHaveBeenCalled();
 	});
 
 	it("deletes the custom hostname once when activation loses its CAS to a refund fence, including replay", async () => {
-		const {
-			cloudflare,
-			credits,
-			orders,
-			processor,
-			refundQueue,
-			repository,
-			routing,
-		} = setup();
+		const { cloudflare, orders, processor, refundQueue, repository, routing } =
+			setup();
 		const orderId = "17171717-1717-4171-8171-171717171717";
 		orders.seed({
 			id: orderId,
@@ -1023,15 +1331,15 @@ describe("DomainsProcessor", () => {
 		expect(routing.putDomainPointer).toHaveBeenCalledTimes(1);
 		expect(routing.deleteDomainPointer).toHaveBeenCalledTimes(2);
 		expect(refundQueue.enqueue).not.toHaveBeenCalled();
-		expect(credits.grant).not.toHaveBeenCalled();
 	});
 
 	it("does not terminalize money fulfillment until its durable refund is queued", async () => {
-		const { credits, orders, processor, provider, refundQueue, repository } =
-			setup();
+		const { orders, processor, provider, refundQueue, repository } = setup();
 		const orderId = "77777777-7777-4777-8777-777777777777";
-		const paymentIntentId = "pi_refund_retry";
-		orders.seed({ id: orderId, providerPaymentIntentId: paymentIntentId });
+		orders.seed({
+			id: orderId,
+			providerPaymentIntentId: "pi_refund_retry",
+		});
 		const row = repository.seed({
 			name: "refund-retry.com",
 			paymentOrderId: orderId,
@@ -1058,15 +1366,14 @@ describe("DomainsProcessor", () => {
 		expect(refundQueue.enqueue).toHaveBeenCalledTimes(2);
 		expect(refundQueue.enqueue).toHaveBeenLastCalledWith(
 			orderId,
-			"Domain registration failed",
+			"Domain is not available",
 		);
 		expect(orders.rows.get(orderId)?.status).toBe("failed");
 		expect(repository.rows.get(row.id)?.status).toBe("failed");
-		expect(credits.grant).not.toHaveBeenCalled();
 	});
 
-	it("exhausted transient purchase attempts refund with a generic stored failure summary", async () => {
-		const { credits, processor, provider, repository } = setup();
+	it("exhausted transient purchase attempts fail with a generic stored failure summary", async () => {
+		const { processor, provider, refundQueue, repository } = setup();
 		const row = repository.seed({
 			name: "exhausted.com",
 			status: "registering",
@@ -1081,105 +1388,11 @@ describe("DomainsProcessor", () => {
 			),
 		);
 
-		expect(credits.grant).toHaveBeenCalledTimes(1);
 		expect(repository.rows.get(row.id)?.status).toBe("failed");
 		expect(repository.rows.get(row.id)?.error).toBe(
 			"Domain registration failed",
 		);
-	});
-
-	it("grants purchase refunds before markFailed and retries the refund once", async () => {
-		const { credits, events, processor, provider, repository } = setup();
-		const row = repository.seed({
-			name: "refund-order.com",
-			status: "registering",
-		});
-		provider.availability = [{ available: false, name: "refund-order.com" }];
-		credits.grantFailures = 1;
-
-		await processor.process(
-			job("domain-purchase", { domainId: row.id }, { attempts: 5 }),
-		);
-
-		expect(credits.grant).toHaveBeenCalledTimes(2);
-		expect(events).toEqual([
-			`grant:domain-refund:${row.id}`,
-			`grant:domain-refund:${row.id}`,
-			`markFailed:${row.id}:Domain registration failed`,
-		]);
-	});
-
-	it("logs refund replay details and does not mark failed when purchase refund finally fails", async () => {
-		const { credits, events, processor, provider, repository } = setup();
-		const row = repository.seed({
-			name: "refund-down.com",
-			status: "registering",
-		});
-		provider.availability = [{ available: false, name: "refund-down.com" }];
-		credits.grantFailures = 2;
-		const loggerError = vi
-			.spyOn(
-				(
-					processor as unknown as {
-						logger: { error: (...args: unknown[]) => void };
-					}
-				).logger,
-				"error",
-			)
-			.mockImplementation(() => undefined);
-
-		await expect(
-			processor.process(
-				job("domain-purchase", { domainId: row.id }, { attempts: 5 }),
-			),
-		).rejects.toThrow("ledger down");
-
-		expect(events).toEqual([
-			`grant:domain-refund:${row.id}`,
-			`grant:domain-refund:${row.id}`,
-		]);
-		expect(repository.rows.get(row.id)?.status).toBe("registering");
-		expect(loggerError).toHaveBeenCalledWith(
-			"Domain purchase refund failed",
-			expect.stringContaining(`"idempotencyKey":"domain-refund:${row.id}"`),
-		);
-		loggerError.mockRestore();
-	});
-
-	it("detects prior registrar success and never double-registers on rerun", async () => {
-		const { processor, provider, queue, repository } = setup();
-		const row = repository.seed({
-			name: "partial.com",
-			status: "registering",
-		});
-		const nonce = `purchase-${row.id}`;
-		provider.info = {
-			expiresAt: new Date("2027-01-01T00:00:00.000Z"),
-			id: "op_existing",
-		};
-
-		await processor.process(job("domain-purchase", { domainId: row.id }));
-		await processor.process(job("domain-purchase", { domainId: row.id }));
-
-		expect(provider.registerCalls).toBe(0);
-		expect(provider.availabilityNames).toEqual([]);
-		expect(repository.rows.get(row.id)?.providerDomainId).toBe("op_existing");
-		expect(repository.rows.get(row.id)?.status).toBe("configuring");
-		expect(queue.add).toHaveBeenCalledWith(
-			"domain-configure",
-			{ attempt: 0, domainId: row.id, nonce },
-			{
-				attempts: 3,
-				backoff: {
-					delay: 60_000,
-					type: "exponential",
-				},
-				jobId: `domain-configure-${row.id}-${nonce}-0`,
-				removeOnComplete: 1000,
-				removeOnFail: 5000,
-			},
-		);
-		expect(queue.add).toHaveBeenCalledTimes(2);
+		expect(refundQueue.enqueue).not.toHaveBeenCalled();
 	});
 
 	it("replays the deterministic configure enqueue after a purchase queue failure", async () => {
@@ -1217,8 +1430,8 @@ describe("DomainsProcessor", () => {
 		);
 	});
 
-	it("terminally reimburses a purchase if configure enqueue exhausts retries", async () => {
-		const { credits, processor, queue, repository } = setup();
+	it("terminally fails a purchase if configure enqueue exhausts retries", async () => {
+		const { processor, queue, refundQueue, repository } = setup();
 		const row = repository.seed({
 			name: "queue-exhausted.com",
 			status: "registering",
@@ -1257,13 +1470,7 @@ describe("DomainsProcessor", () => {
 			reason: "terminal_failure",
 		});
 		expect(repository.rows.get(row.id)?.status).toBe("failed");
-		expect(credits.grant).toHaveBeenCalledWith(
-			userId,
-			DOMAIN_TLD_CATALOG.com.registrationCredits,
-			expect.objectContaining({
-				idempotencyKey: `domain-refund:${row.id}`,
-			}),
-		);
+		expect(refundQueue.enqueue).not.toHaveBeenCalled();
 	});
 
 	it("re-enqueues configure jobs on transient Cloudflare failures instead of failing the chain", async () => {
@@ -1304,11 +1511,12 @@ describe("DomainsProcessor", () => {
 	});
 
 	it("queues a money refund when configure enqueue exhausts BullMQ retries", async () => {
-		const { credits, orders, processor, queue, refundQueue, repository } =
-			setup();
+		const { orders, processor, queue, refundQueue, repository } = setup();
 		const orderId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
-		const paymentIntentId = "pi_config_queue_exhausted";
-		orders.seed({ id: orderId, providerPaymentIntentId: paymentIntentId });
+		orders.seed({
+			id: orderId,
+			providerPaymentIntentId: "pi_config_queue_exhausted",
+		});
 		const row = repository.seed({
 			cfCustomHostnameId: "cf_config_queue_exhausted",
 			name: "config-queue-exhausted.com",
@@ -1340,14 +1548,15 @@ describe("DomainsProcessor", () => {
 			orderId,
 			"Domain registration failed",
 		);
-		expect(credits.grant).not.toHaveBeenCalled();
 	});
 
 	it("queues a money refund when domain configuration times out", async () => {
-		const { credits, orders, processor, refundQueue, repository } = setup();
+		const { orders, processor, refundQueue, repository } = setup();
 		const orderId = "44444444-4444-4444-8444-444444444444";
-		const paymentIntentId = "pi_config_timeout";
-		orders.seed({ id: orderId, providerPaymentIntentId: paymentIntentId });
+		orders.seed({
+			id: orderId,
+			providerPaymentIntentId: "pi_config_timeout",
+		});
 		const row = repository.seed({
 			cfCustomHostnameId: "cf_timeout",
 			name: "config-timeout.com",
@@ -1363,7 +1572,6 @@ describe("DomainsProcessor", () => {
 			}),
 		);
 
-		expect(credits.grant).not.toHaveBeenCalled();
 		expect(refundQueue.enqueue).toHaveBeenCalledWith(
 			orderId,
 			"Domain registration failed",
@@ -1375,8 +1583,10 @@ describe("DomainsProcessor", () => {
 	it("keeps configure state retryable until the durable refund enqueue succeeds", async () => {
 		const { orders, processor, refundQueue, repository } = setup();
 		const orderId = "88888888-8888-4888-8888-888888888888";
-		const paymentIntentId = "pi_config_refund_retry";
-		orders.seed({ id: orderId, providerPaymentIntentId: paymentIntentId });
+		orders.seed({
+			id: orderId,
+			providerPaymentIntentId: "pi_config_refund_retry",
+		});
 		const row = repository.seed({
 			cfCustomHostnameId: "cf_refund_retry",
 			name: "config-refund-retry.com",
@@ -1444,15 +1654,8 @@ describe("DomainsProcessor", () => {
 	});
 
 	it("activates and fulfills an unattached money order without refunding it", async () => {
-		const {
-			cloudflare,
-			credits,
-			orders,
-			processor,
-			refundQueue,
-			repository,
-			routing,
-		} = setup();
+		const { cloudflare, orders, processor, refundQueue, repository, routing } =
+			setup();
 		const orderId = "55555555-5555-4555-8555-555555555555";
 		orders.seed({
 			id: orderId,
@@ -1480,7 +1683,6 @@ describe("DomainsProcessor", () => {
 		expect(orders.rows.get(orderId)?.status).toBe("fulfilled");
 		expect(routing.putDomainPointer).not.toHaveBeenCalled();
 		expect(cloudflare.deleteCustomHostname).not.toHaveBeenCalled();
-		expect(credits.grant).not.toHaveBeenCalled();
 		expect(refundQueue.enqueue).not.toHaveBeenCalled();
 	});
 
@@ -1538,140 +1740,161 @@ describe("DomainsProcessor", () => {
 		});
 	});
 
-	it("renews only purchased active or expired domains inside the <=30d window", async () => {
-		const { credits, processor, provider, repository } = setup();
+	it("records expiry notices inside the 30-day window without renewing or charging", async () => {
+		const { events, processor, provider, repository } = setup();
 		const now = new Date("2027-01-01T00:00:00.000Z");
 		const due = repository.seed({
 			expiresAt: new Date(now.getTime() + 20 * dayMs),
-			name: "renew.com",
-			providerDomainId: "op_renew",
+			name: "expiring.com",
+			providerDomainId: "expiring.com",
 			status: "active",
+		});
+		const alreadyExpired = repository.seed({
+			expiresAt: new Date(now.getTime() - 2 * dayMs),
+			name: "already-expired.com",
+			providerDomainId: "already-expired.com",
+			status: "expired",
 		});
 		repository.seed({
 			expiresAt: new Date(now.getTime() + 60 * dayMs),
 			name: "too-early.com",
-			providerDomainId: "op_far",
+			providerDomainId: "too-early.com",
 			status: "active",
 		});
 		repository.seed({
 			expiresAt: new Date(now.getTime() + 20 * dayMs),
 			name: "failed.com",
-			providerDomainId: "op_failed",
+			providerDomainId: "failed.com",
 			status: "failed",
 		});
-		repository.seed({
-			expiresAt: new Date(now.getTime() + 20 * dayMs),
-			name: "external.com",
-			providerDomainId: null,
-			source: "external",
-			status: "configuring",
-		});
 
-		await (processor as unknown as ProcessorInternals).processDomainRenewals(
-			now,
-		);
+		const result = await (
+			processor as unknown as ProcessorInternals
+		).processDomainRenewals(now);
 
-		expect(credits.consume).toHaveBeenCalledTimes(1);
-		expect(credits.consume).toHaveBeenCalledWith(
-			userId,
-			DOMAIN_TLD_CATALOG.com.renewalCredits,
-			expect.objectContaining({
-				idempotencyKey: `domain-renew:${due.id}:${nextExpiryYear(due)}:${due.updatedAt.getTime()}`,
-			}),
-		);
-		expect(provider.renewCalls).toBe(1);
-	});
-
-	it("charges renewal retries again after a failed provider renewal rotates updatedAt", async () => {
-		const { credits, processor, provider, repository } = setup();
-		const now = new Date("2027-01-01T00:00:00.000Z");
-		const row = repository.seed({
-			expiresAt: new Date(now.getTime() + 20 * dayMs),
-			name: "renew-retry.com",
-			providerDomainId: "op_renew",
-			status: "active",
-		});
-		const periodEndYear = nextExpiryYear(row);
-		const firstAttemptMs = row.updatedAt.getTime();
-		provider.renewErrors.push(new Error("registrar down"));
-
-		await expect(
-			(processor as unknown as ProcessorInternals).processDomainRenewals(now),
-		).rejects.toThrow("registrar down");
-		const retryRow = repository.rows.get(row.id);
-
-		if (!retryRow) {
-			throw new Error("Expected renewal row to remain after failed attempt");
-		}
-
-		await (processor as unknown as ProcessorInternals).processDomainRenewals(
-			now,
-		);
-
-		expect(credits.consumeLedgerKeys).toEqual([
-			`domain-renew:${row.id}:${periodEndYear}:${firstAttemptMs}`,
-			`domain-renew:${row.id}:${periodEndYear}:${retryRow.updatedAt.getTime()}`,
-		]);
-		expect(credits.grant).toHaveBeenCalledWith(
-			userId,
-			DOMAIN_TLD_CATALOG.com.renewalCredits,
-			expect.objectContaining({
-				bucket: "topup",
-				idempotencyKey: `domain-renew-refund:${row.id}:${periodEndYear}:${firstAttemptMs}`,
-			}),
-		);
-	});
-
-	it("deduplicates same-updatedAt renewal candidates on the consume key", async () => {
-		const { credits, processor, repository } = setup();
-		const row = repository.seed({
-			expiresAt: new Date("2027-01-21T00:00:00.000Z"),
-			name: "renew-double-submit.com",
-			providerDomainId: "op_renew",
-			status: "active",
-		});
-		const internals = processor as unknown as ProcessorInternals;
-
-		await Promise.all([
-			internals.renewCandidate(row),
-			internals.renewCandidate(row),
-		]);
-
-		expect(credits.consume).toHaveBeenCalledTimes(2);
-		expect(credits.consumeLedgerKeys).toEqual([
-			`domain-renew:${row.id}:${nextExpiryYear(row)}:${row.updatedAt.getTime()}`,
-		]);
-	});
-
-	it("records insufficient-credit notices and stops attempting renewals at T-5", async () => {
-		const { credits, processor, provider, repository } = setup();
-		const now = new Date("2027-01-01T00:00:00.000Z");
-		const insufficient = repository.seed({
-			expiresAt: new Date(now.getTime() + 20 * dayMs),
-			name: "insufficient.com",
-			providerDomainId: "op_insufficient",
-			status: "active",
-		});
-		const cutoff = repository.seed({
-			expiresAt: new Date(now.getTime() + 4 * dayMs),
-			name: "cutoff.com",
-			providerDomainId: "op_cutoff",
-			status: "active",
-		});
-		credits.consume.mockRejectedValue(new InsufficientCreditsError(120, 0));
-
-		await (processor as unknown as ProcessorInternals).processDomainRenewals(
-			now,
-		);
-
+		expect(result).toEqual({ noticed: 2, processed: true });
 		expect(provider.renewCalls).toBe(0);
-		expect(repository.rows.get(insufficient.id)?.expiresAt).toEqual(
-			insufficient.expiresAt,
+		expect(repository.rows.get(due.id)?.error).toContain(
+			"automatic renewal is not available yet",
 		);
-		expect(repository.rows.get(insufficient.id)?.error).toContain(
-			"credits were not available",
+		expect(repository.rows.get(alreadyExpired.id)?.error).toContain(
+			"expires in 0 day(s)",
 		);
-		expect(repository.rows.get(cutoff.id)?.error).toContain("T-5");
-		expect(credits.consume).toHaveBeenCalledTimes(1);
+		expect(
+			events.filter((event) => event.startsWith("renewalNotice")).length,
+		).toBe(2);
+	});
+
+	it("notices expiring domains even when auto-renew was never enabled", async () => {
+		const { processor, provider, repository } = setup();
+		const now = new Date("2027-01-01T00:00:00.000Z");
+		const row = repository.seed({
+			autoRenew: false,
+			expiresAt: new Date(now.getTime() + 10 * dayMs),
+			name: "no-autorenew.com",
+			providerDomainId: "no-autorenew.com",
+			status: "active",
+		});
+
+		const result = await (
+			processor as unknown as ProcessorInternals
+		).processDomainRenewals(now);
+
+		expect(result).toEqual({ noticed: 1, processed: true });
+		expect(provider.renewCalls).toBe(0);
+		expect(repository.rows.get(row.id)?.error).toContain("expires in 10");
+	});
+
+	it("weekly sync reconciles registrar state and marks vanished domains transferred out", async () => {
+		const { processor, provider, repository } = setup();
+		const lockDate = new Date("2026-09-22T00:00:00.000Z");
+		const active = repository.seed({
+			expiresAt: new Date("2026-06-01T00:00:00.000Z"),
+			isPrimary: true,
+			name: "synced.com",
+			providerDomainId: "synced.com",
+			status: "active",
+		});
+		const vanished = repository.seed({
+			isPrimary: true,
+			name: "vanished.com",
+			providerDomainId: "vanished.com",
+			status: "active",
+		});
+		repository.seed({
+			name: "legacy-op.com",
+			provider: "openprovider",
+			providerDomainId: "op_1",
+			status: "active",
+		});
+		provider.infoByName.set("synced.com", {
+			expiresAt: new Date("2027-06-01T00:00:00.000Z"),
+			id: "synced.com",
+			status: "active",
+			transferLockExpiresAt: lockDate,
+		});
+		provider.infoByName.set("vanished.com", null);
+
+		const result = await (
+			processor as unknown as ProcessorInternals
+		).processDomainSync();
+
+		expect(result).toEqual({ failed: 0, processed: true, synced: 2 });
+		expect(repository.rows.get(active.id)).toMatchObject({
+			expiresAt: new Date("2027-06-01T00:00:00.000Z"),
+			status: "active",
+			transferLockExpiresAt: lockDate,
+		});
+		expect(repository.rows.get(vanished.id)).toMatchObject({
+			error: "Domain is no longer present in the registrar account",
+			isPrimary: false,
+			status: "transferred_out",
+		});
+	});
+
+	it("isolates per-row sync failures so one bad row does not abort the sweep", async () => {
+		const { processor, provider, repository } = setup();
+		const broken = repository.seed({
+			name: "broken.com",
+			providerDomainId: "broken.com",
+			status: "active",
+		});
+		const healthy = repository.seed({
+			name: "healthy.com",
+			providerDomainId: "healthy.com",
+			status: "active",
+		});
+		provider.infoByName.set("broken.com", new Error("registrar 500"));
+		provider.infoByName.set("healthy.com", {
+			expiresAt: new Date("2027-06-01T00:00:00.000Z"),
+			id: "healthy.com",
+			status: "active",
+			transferLockExpiresAt: null,
+		});
+		const loggerWarn = vi
+			.spyOn(
+				(
+					processor as unknown as {
+						logger: { warn: (...args: unknown[]) => void };
+					}
+				).logger,
+				"warn",
+			)
+			.mockImplementation(() => undefined);
+
+		const result = await (
+			processor as unknown as ProcessorInternals
+		).processDomainSync();
+
+		expect(result).toEqual({ failed: 1, processed: true, synced: 1 });
+		expect(repository.rows.get(broken.id)?.status).toBe("active");
+		expect(repository.rows.get(healthy.id)?.expiresAt).toEqual(
+			new Date("2027-06-01T00:00:00.000Z"),
+		);
+		expect(loggerWarn).toHaveBeenCalledWith(
+			expect.stringContaining(`Domain sync failed for ${broken.id}`),
+			"registrar 500",
+		);
+		loggerWarn.mockRestore();
 	});
 });

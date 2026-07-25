@@ -1,5 +1,4 @@
 import type { SearchDomainsResult } from "@wandit/contracts";
-import { registrationUsdCentsFor } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import {
 	Dialog,
@@ -44,7 +43,6 @@ import { useDomainSearchQuery } from "@/features/domains/api/domains.queries";
 import { DOMAIN_SEARCH_DEBOUNCE_MS } from "@/features/domains/lib/constants";
 import {
 	createRegistrantDefaults,
-	isAvailableSearchResult,
 	normalizeDomainInput,
 	type RegistrantFormField,
 	registrantPathToField,
@@ -130,13 +128,10 @@ export function DomainPurchaseDialog({
 
 		setSelectedDomain((current) => {
 			const currentResult = searchResults.find(
-				(result) =>
-					result.name === current?.name && isAvailableSearchResult(result),
+				(result) => result.name === current?.name && canPurchaseResult(result),
 			);
 
-			return (
-				currentResult ?? searchResults.find(isAvailableSearchResult) ?? null
-			);
+			return currentResult ?? searchResults.find(canPurchaseResult) ?? null;
 		});
 	}, [open, searchResults, step]);
 
@@ -170,7 +165,7 @@ export function DomainPurchaseDialog({
 	};
 
 	const submitOrder = async () => {
-		if (!selectedDomain || !isAvailableSearchResult(selectedDomain)) {
+		if (!selectedDomain || !canPurchaseResult(selectedDomain)) {
 			setStep("search");
 			return;
 		}
@@ -190,7 +185,9 @@ export function DomainPurchaseDialog({
 				domain: selectedDomain.name,
 				projectId,
 				registrant: parsed.data,
-				whoisPrivacy: true,
+				// WHOIS privacy is a paid registrar add-on with no line item in
+				// this charge, so it is never enabled implicitly.
+				whoisPrivacy: false,
 			});
 
 			window.location.assign(checkoutUrl);
@@ -423,7 +420,7 @@ function SearchStep({
 				<Button
 					type="button"
 					size="lg"
-					disabled={!selected || !isAvailableSearchResult(selected)}
+					disabled={!selected || !canPurchaseResult(selected)}
 					onClick={onContinue}
 					className="w-full min-w-0 overflow-hidden active:scale-[0.98]"
 				>
@@ -483,17 +480,26 @@ function DomainResultButton({
 	onSelect: () => void;
 }) {
 	const { locale, t } = useTranslation();
-	const available = isAvailableSearchResult(domain);
+	const selectable = canPurchaseResult(domain);
+	// Four visible states: purchasable, premium-blocked, available-but-unpriced
+	// (never purchasable — the server refused to quote it), and plain taken.
+	const helper = selectable
+		? t("workspace.publish.domainPurchase.search.liveAvailability")
+		: domain.availability === "premium_blocked"
+			? t("workspace.publish.domainPurchase.search.premiumUnavailable")
+			: domain.availability === "available"
+				? t("workspace.publish.domainPurchase.search.priceUnavailable")
+				: t("workspace.publish.domainPurchase.search.unavailable");
 
 	return (
 		<button
 			type="button"
-			disabled={!available}
+			disabled={!selectable}
 			aria-pressed={selected}
 			onClick={onSelect}
 			className={cn(
 				"group flex min-h-[62px] items-center gap-3 rounded-[13px] border px-3 py-2.5 text-start outline-none transition-[border-color,background-color,transform,box-shadow] focus-visible:ring-[3px] focus-visible:ring-ring/40",
-				available
+				selectable
 					? "hover:border-primary/35 hover:bg-primary/[0.025] active:scale-[0.985]"
 					: "cursor-not-allowed bg-secondary/35 opacity-65",
 				selected &&
@@ -506,25 +512,24 @@ function DomainResultButton({
 						dir="ltr"
 						className={cn(
 							"truncate font-semibold text-sm tracking-[-0.2px]",
-							!available && "text-muted-foreground line-through",
+							!selectable && "text-muted-foreground",
+							domain.availability === "unavailable" && "line-through",
 						)}
 					>
 						{domain.name}
 					</span>
-					{domain.tld === "com" && available ? (
+					{domain.tld === "com" && selectable ? (
 						<span className="rounded-full bg-primary px-1.5 py-0.5 font-medium text-[9.5px] text-primary-foreground">
 							{t("workspace.publish.domainPurchase.search.recommended")}
 						</span>
 					) : null}
 				</div>
-				{available ? (
-					<p className="mt-0.5 truncate text-[10.5px] text-muted-foreground">
-						{t("workspace.publish.domainPurchase.search.privateRegistration")}
-					</p>
-				) : null}
+				<p className="mt-0.5 truncate text-[10.5px] text-muted-foreground">
+					{helper}
+				</p>
 			</div>
 
-			{available ? (
+			{selectable ? (
 				<>
 					<div className="shrink-0 text-end">
 						<p
@@ -535,9 +540,6 @@ function DomainResultButton({
 							<span className="ms-0.5 font-normal text-[10px] text-muted-foreground">
 								{t("workspace.publish.domainPurchase.common.perYear")}
 							</span>
-						</p>
-						<p className="mt-0.5 whitespace-nowrap text-[10px] text-muted-foreground">
-							{t("workspace.publish.domainPurchase.search.privateRegistration")}
 						</p>
 					</div>
 					<span
@@ -557,7 +559,7 @@ function DomainResultButton({
 				</>
 			) : (
 				<span className="shrink-0 rounded-full border bg-background px-2.5 py-1 text-[10px] text-muted-foreground">
-					{t("workspace.publish.domainPurchase.search.unavailable")}
+					{t("workspace.publish.domainPurchase.search.notSelectable")}
 				</span>
 			)}
 		</button>
@@ -983,19 +985,31 @@ function validationMessageForField(
 	return t("settings.domains.errorRequired");
 }
 
-function formatDomainPrice(domain: SearchDomainsResult, locale: Locale) {
-	const cents = registrationUsdCentsFor(domain.name);
+function canPurchaseResult(
+	result: SearchDomainsResult,
+): result is SearchDomainsResult & { registrationPriceUsd: number } {
+	return (
+		result.availability === "available" && result.registrationPriceUsd !== null
+	);
+}
 
-	if (cents === null) {
-		return "USD";
+function formatDomainPrice(domain: SearchDomainsResult, locale: Locale) {
+	// Price comes from the search wire; a null quote is never substituted
+	// with a fallback — such results are not selectable in the first place.
+	if (domain.registrationPriceUsd === null) {
+		return "—";
 	}
 
+	return formatCurrency(domain.registrationPriceUsd, locale);
+}
+
+function formatCurrency(usd: number, locale: Locale) {
 	return new Intl.NumberFormat(locale, {
 		style: "currency",
 		currency: "USD",
-		minimumFractionDigits: cents % 100 === 0 ? 0 : 2,
+		minimumFractionDigits: Number.isInteger(usd) ? 0 : 2,
 		maximumFractionDigits: 2,
-	}).format(cents / 100);
+	}).format(usd);
 }
 
 function normalizeDomainStem(value: string) {

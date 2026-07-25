@@ -48,7 +48,6 @@
 		"primaryColumn": "Principal",
 		"autoRenewColumn": "Renouvellement auto",
 		"expiryColumn": "Expiration",
-		"renewalColumn": "Renouvellement",
 		"actionsColumn": "Actions",
 		"status": {
 			"registering": "Enregistrement",
@@ -63,13 +62,7 @@
 		"makePrimary": "Définir comme domaine principal",
 		"primarySuccess": "Domaine principal mis à jour",
 		"autoRenew": "Renouvellement automatique",
-		"autoRenewOn": "Activé",
-		"autoRenewOff": "Désactivé",
-		"autoRenewSuccess": "Renouvellement automatique mis à jour",
 		"noExpiry": "Non défini",
-		"externalRenewal": "Géré ailleurs",
-		"renewNow": "Renouveler maintenant",
-		"renewSuccess": "Renouvellement lancé",
 		"transferOut": "Transférer",
 		"authCodeLabel": "Code auth/EPP",
 		"icannNote": "L'ICANN peut bloquer les transferts pendant 60 jours après l'enregistrement ou un changement de titulaire. Garde ce code privé jusqu'au transfert.",
@@ -89,18 +82,12 @@
 		"buyStepTitle": {
 			"search": "Acheter un domaine",
 			"registrant": "Coordonnées du titulaire",
-			"confirm": "Confirmer l'achat",
-			"progress": "Configuration du domaine",
-			"success": "Domaine en ligne",
-			"failed": "Achat échoué"
+			"confirm": "Confirmer l'achat"
 		},
 		"buyStepDescription": {
 			"search": "Cherche un nom dans le catalogue de TLD supportés.",
-			"registrant": "Ces informations deviennent le dossier du titulaire. La confidentialité WHOIS reste activée par défaut.",
-			"confirm": "Vérifie le débit exact en crédits avant le lancement de l'enregistrement.",
-			"progress": "L'enregistrement, le DNS et le SSL tournent en arrière-plan.",
-			"success": "Ta page Wandit est disponible sur son domaine personnalisé.",
-			"failed": "Aucune relance n'est disponible en v1. La commande échouée a été remboursée."
+			"registrant": "Ces informations constituent le dossier d’enregistrement public exigé par l’ICANN.",
+			"confirm": "Vérifiez le domaine et les coordonnées du titulaire avant le paiement sécurisé Stripe."
 		},
 		"searchLabel": "Nom de domaine",
 		"searchPlaceholder": "tamarque",
@@ -112,8 +99,6 @@
 		"searchRetry": "Réessayer",
 		"continue": "Continuer",
 		"back": "Retour",
-		"close": "Fermer",
-		"priceAlwaysVisible": "Prix d'enregistrement",
 		"firstNameLabel": "Prénom",
 		"lastNameLabel": "Nom",
 		"emailLabel": "E-mail",
@@ -132,14 +117,6 @@
 		"errorCountry": "Utilise un code pays à deux lettres.",
 		"confirmDomain": "Domaine",
 		"confirmRegistrant": "Titulaire",
-		"confirmBurn": "Cela consomme {count} crédits.",
-		"buyConfirmCta": "Acheter pour {count} crédits",
-		"polling": "Vérification de l'état de l'enregistrement...",
-		"waiting": "En attente de la prochaine mise à jour...",
-		"progressRegistering": "Enregistrement",
-		"progressConfiguring": "Configuration DNS et SSL",
-		"progressLive": "En ligne",
-		"buySuccess": "Ton domaine est en ligne.",
 		"openLiveUrl": "Ouvrir l'URL en ligne",
 		"externalTitle": "Connecter le tien",
 		"externalDescription": "Ajoute les enregistrements DNS chez ton registrar, puis vérifie après leur propagation.",
@@ -160,6 +137,11 @@
 		"dnsPurposeOwnership": "Prouve que tu contrôles ce domaine.",
 		"dnsPurposeRouting": "Route le trafic web vers Wandit.",
 		"dnsPurposeApex": "Pointe le domaine racine vers Wandit.",
-		"dnsPurposeGeneric": "Nécessaire pour vérifier le domaine."
+		"dnsPurposeGeneric": "Nécessaire pour vérifier le domaine.",
+		"autoRenewComingSoon": "Le renouvellement automatique arrive bientôt",
+		"checkoutCta": "Continuer vers le paiement",
+		"checkoutNote": "Vous serez redirigé vers Stripe pour payer {amount}. L’enregistrement démarre juste après le paiement.",
+		"premiumUnavailable": "Les domaines premium ne sont pas encore pris en charge",
+		"priceUnavailable": "Prix d’enregistrement indisponible"
 	}
 }

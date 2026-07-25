@@ -48,7 +48,6 @@
 		"primaryColumn": "Primary",
 		"autoRenewColumn": "Auto-renew",
 		"expiryColumn": "Expiry",
-		"renewalColumn": "Renewal",
 		"actionsColumn": "Actions",
 		"status": {
 			"registering": "Registering",
@@ -63,13 +62,7 @@
 		"makePrimary": "Make primary domain",
 		"primarySuccess": "Primary domain updated",
 		"autoRenew": "Auto-renew",
-		"autoRenewOn": "On",
-		"autoRenewOff": "Off",
-		"autoRenewSuccess": "Auto-renew updated",
 		"noExpiry": "Not set",
-		"externalRenewal": "Managed externally",
-		"renewNow": "Renew now",
-		"renewSuccess": "Renewal started",
 		"transferOut": "Transfer out",
 		"authCodeLabel": "Auth/EPP code",
 		"icannNote": "ICANN may block transfers for 60 days after registration or a registrant change. Keep this code private until you are ready to transfer.",
@@ -89,18 +82,12 @@
 		"buyStepTitle": {
 			"search": "Buy a domain",
 			"registrant": "Registrant details",
-			"confirm": "Confirm purchase",
-			"progress": "Setting up your domain",
-			"success": "Domain is live",
-			"failed": "Purchase failed"
+			"confirm": "Confirm purchase"
 		},
 		"buyStepDescription": {
 			"search": "Search a name across the supported TLD catalog.",
-			"registrant": "These details become the registrant record. WHOIS privacy stays on by default.",
-			"confirm": "Review the exact credit burn before registration starts.",
-			"progress": "Registration, DNS and SSL are running in the background.",
-			"success": "Your Wandit page is available on its custom domain.",
-			"failed": "No retry is available in v1. The failed order has been refunded."
+			"registrant": "These details become the public registration record required by ICANN.",
+			"confirm": "Review your domain and registrant details before secure Stripe checkout."
 		},
 		"searchLabel": "Domain name",
 		"searchPlaceholder": "yourbrand",
@@ -112,8 +99,6 @@
 		"searchRetry": "Retry",
 		"continue": "Continue",
 		"back": "Back",
-		"close": "Close",
-		"priceAlwaysVisible": "Registration price",
 		"firstNameLabel": "First name",
 		"lastNameLabel": "Last name",
 		"emailLabel": "Email",
@@ -132,14 +117,6 @@
 		"errorCountry": "Use a two-letter country code.",
 		"confirmDomain": "Domain",
 		"confirmRegistrant": "Registrant",
-		"confirmBurn": "This burns {count} credits.",
-		"buyConfirmCta": "Buy for {count} credits",
-		"polling": "Checking registration status...",
-		"waiting": "Waiting for the next status update...",
-		"progressRegistering": "Registering",
-		"progressConfiguring": "Configuring DNS and SSL",
-		"progressLive": "Live",
-		"buySuccess": "Your domain is live.",
 		"openLiveUrl": "Open live URL",
 		"externalTitle": "Connect your own",
 		"externalDescription": "Add the DNS records at your registrar, then verify when they have propagated.",
@@ -160,6 +137,11 @@
 		"dnsPurposeOwnership": "Proves that you control this domain.",
 		"dnsPurposeRouting": "Routes web traffic to Wandit.",
 		"dnsPurposeApex": "Points the apex domain to Wandit.",
-		"dnsPurposeGeneric": "Required for domain verification."
+		"dnsPurposeGeneric": "Required for domain verification.",
+		"autoRenewComingSoon": "Automatic renewal is coming soon",
+		"checkoutCta": "Continue to checkout",
+		"checkoutNote": "You’ll be redirected to Stripe to pay {amount}. Registration starts right after payment.",
+		"premiumUnavailable": "Premium domains aren’t supported yet",
+		"priceUnavailable": "Registration price is unavailable"
 	}
 }

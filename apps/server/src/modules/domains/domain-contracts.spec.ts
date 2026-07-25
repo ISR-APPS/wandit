@@ -4,6 +4,7 @@ import {
 	DOMAIN_REGISTRATION_USD_CENTS,
 	DOMAIN_TLD_CATALOG,
 	domainNameSchema,
+	domainPriceSnapshotSchema,
 	domainSchema,
 	domainTlds,
 	externalDomainNameSchema,
@@ -11,11 +12,9 @@ import {
 	isSupportedTld,
 	parseDomainName,
 	parseExternalDomainName,
-	purchaseDomainBodySchema,
 	registrantSchema,
-	registrationPriceFor,
 	registrationUsdCentsFor,
-	renewalPriceFor,
+	searchDomainsResultSchema,
 } from "@wandit/contracts";
 import { describe, expect, it } from "vitest";
 
@@ -49,12 +48,7 @@ describe("domain name contracts", () => {
 
 	it("normalizes uppercase user input at the schema boundary", () => {
 		expect(domainNameSchema.parse("Example.COM")).toBe("example.com");
-		expect(
-			purchaseDomainBodySchema.parse({
-				name: "My-Store.SHOP",
-				registrant: validRegistrant,
-			}).name,
-		).toBe("my-store.shop");
+		expect(domainNameSchema.parse("My-Store.SHOP")).toBe("my-store.shop");
 	});
 
 	it("rejects bad characters and hyphen edge labels", () => {
@@ -117,7 +111,7 @@ describe("domain name contracts", () => {
 });
 
 describe("domain TLD catalog", () => {
-	it("exports the launch TLD set and positive catalog values", () => {
+	it("exports the launch TLD set and positive wholesale safety ceilings", () => {
 		expect(domainTlds).toEqual([
 			"com",
 			"net",
@@ -130,14 +124,34 @@ describe("domain TLD catalog", () => {
 		for (const tld of domainTlds) {
 			const catalog = DOMAIN_TLD_CATALOG[tld];
 
-			expect(catalog.registrationCredits).toBeGreaterThan(0);
-			expect(catalog.renewalCredits).toBeGreaterThan(0);
 			expect(catalog.wholesaleCeilingUsd).toBeGreaterThan(0);
 			expect(catalogFor(tld)).toEqual(catalog);
-			expect(registrationPriceFor(`example.${tld}`)).toBe(
-				catalog.registrationCredits,
+		}
+
+		expect(
+			Object.fromEntries(
+				domainTlds.map((tld) => [
+					tld,
+					DOMAIN_TLD_CATALOG[tld].wholesaleCeilingUsd,
+				]),
+			),
+		).toEqual({
+			com: 24,
+			net: 28,
+			online: 32,
+			shop: 36,
+			site: 30,
+			store: 36,
+		});
+	});
+
+	it("never allows a wholesale ceiling at or above the retail price", () => {
+		// Money invariant: a quote that passes the ceiling must still leave
+		// margin against what the customer is charged — we never sell at a loss.
+		for (const tld of domainTlds) {
+			expect(DOMAIN_TLD_CATALOG[tld].wholesaleCeilingUsd * 100).toBeLessThan(
+				DOMAIN_REGISTRATION_USD_CENTS[tld],
 			);
-			expect(renewalPriceFor(`.${tld}`)).toBe(catalog.renewalCredits);
 		}
 	});
 
@@ -156,10 +170,81 @@ describe("domain TLD catalog", () => {
 		expect(isSupportedTld(".shop")).toBe(true);
 		expect(isSupportedTld("dz")).toBe(false);
 		expect(catalogFor("dz")).toBeNull();
-		expect(registrationPriceFor("example.dz")).toBeNull();
 		expect(registrationUsdCentsFor("example.dz")).toBeNull();
 		expect(registrationUsdCentsFor("not-a-domain")).toBeNull();
-		expect(renewalPriceFor("dz")).toBeNull();
+	});
+
+	it("accepts Name.com as the provider for newly purchased domains", () => {
+		const domain = domainSchema.parse({
+			...domainDto(),
+			provider: "namecom",
+			source: "purchased",
+			status: "active",
+		});
+
+		expect(domain.provider).toBe("namecom");
+		expect(domain).not.toHaveProperty("priceSnapshot");
+	});
+
+	it("requires an explicit USD price or null in domain search results", () => {
+		expect(
+			searchDomainsResultSchema.parse({
+				availability: "available",
+				name: "example.com",
+				registrationPriceUsd: 30,
+				tld: "com",
+			}),
+		).toMatchObject({ registrationPriceUsd: 30 });
+
+		expect(
+			searchDomainsResultSchema.parse({
+				availability: "unavailable",
+				name: "example.net",
+				registrationPriceUsd: null,
+				tld: "net",
+			}),
+		).toMatchObject({ registrationPriceUsd: null });
+
+		expect(
+			searchDomainsResultSchema.safeParse({
+				availability: "available",
+				name: "example.com",
+				tld: "com",
+			}).success,
+		).toBe(false);
+	});
+
+	it("freezes charged pricing facts in the order price snapshot", () => {
+		const snapshot = domainPriceSnapshotSchema.parse({
+			chargedAmountCents: 3000,
+			chargedCurrency: "usd",
+			quotedWholesaleUsd: 11.06,
+			tld: "com",
+			wholesaleCeilingUsd: 24,
+		});
+
+		expect(snapshot.chargedAmountCents).toBe(3000);
+		expect(snapshot.quotedWholesaleUsd).toBe(11.06);
+
+		expect(
+			domainPriceSnapshotSchema.parse({
+				chargedAmountCents: 3000,
+				chargedCurrency: "usd",
+				quotedWholesaleUsd: null,
+				tld: "com",
+				wholesaleCeilingUsd: 24,
+			}).quotedWholesaleUsd,
+		).toBeNull();
+
+		// The legacy credits-era shape no longer parses.
+		expect(
+			domainPriceSnapshotSchema.safeParse({
+				registrationCredits: 120,
+				renewalCredits: 120,
+				tld: "com",
+				wholesaleCeilingUsd: 15,
+			}).success,
+		).toBe(false);
 	});
 });
 
@@ -171,8 +256,14 @@ describe("registrant contract", () => {
 		expect(registrant.address.countryCode).toBe("DZ");
 	});
 
-	it("rejects non-E.164 phone numbers", () => {
-		for (const phone of ["0555123456", "+0123", "+213 555123456", "+abc"]) {
+	it("rejects non-E.164 or too-short phone numbers", () => {
+		for (const phone of [
+			"0555123456",
+			"+0123",
+			"+213 555123456",
+			"+abc",
+			"+1234567",
+		]) {
 			expect(
 				registrantSchema.safeParse({
 					...validRegistrant,
@@ -214,7 +305,6 @@ function baseDomainDto() {
 		id: "22222222-2222-4222-8222-000000000001",
 		isPrimary: false,
 		name: "brand.com",
-		priceSnapshot: null,
 		projectId: "11111111-1111-4111-8111-111111111111",
 		provider: null,
 		registrant: null,

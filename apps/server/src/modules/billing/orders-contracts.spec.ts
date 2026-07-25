@@ -40,6 +40,7 @@ const pendingOrder = {
 	paidAt: null,
 	fulfilledAt: null,
 	error: null,
+	projectId: null,
 	refundStatus: null,
 };
 

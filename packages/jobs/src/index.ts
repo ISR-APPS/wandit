@@ -15,6 +15,10 @@ export const LEAD_PROCESSING_QUEUE = "lead-processing";
 export const PUBLISH_QUEUE = "publish";
 // Queue for custom domain jobs.
 export const DOMAINS_QUEUE = "domains";
+// Every producer of domain-purchase jobs must use the same attempt budget:
+// the worker treats "last attempt" as the trigger for the refund path, so a
+// producer defaulting to 1 would turn the first transient error terminal.
+export const DOMAIN_PURCHASE_JOB_ATTEMPTS = 5;
 // Queue for durable payment-order refunds.
 export const ORDER_REFUNDS_QUEUE = "order-refunds";
 

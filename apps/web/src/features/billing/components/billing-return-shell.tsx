@@ -91,6 +91,24 @@ export function DashboardButton({
 	);
 }
 
+export function ProjectButton({
+	label,
+	projectId,
+	variant = "default",
+}: {
+	label: string;
+	projectId: string;
+	variant?: "default" | "outline";
+}) {
+	return (
+		<Button asChild variant={variant} className="active:scale-[0.98]">
+			<Link to="/p/$projectId" params={{ projectId }}>
+				{label}
+			</Link>
+		</Button>
+	);
+}
+
 function BillingReturnIcon({ tone }: { tone: BillingReturnTone }) {
 	return (
 		<span

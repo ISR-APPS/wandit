@@ -1,10 +1,5 @@
-import {
-	DOMAIN_TLD_CATALOG,
-	type Registrant,
-	renewalPriceFor,
-} from "@wandit/contracts";
+import type { Registrant } from "@wandit/contracts";
 
-import { isApiClientError } from "@/lib/api-client";
 import type {
 	Domain,
 	DomainStatus,
@@ -29,14 +24,6 @@ export function hasTransitionalDomains(domains: Domain[] | undefined) {
 	);
 }
 
-export function domainRenewalCredits(domain: Domain) {
-	return (
-		domain.priceSnapshot?.renewalCredits ??
-		renewalPriceFor(domain.tld) ??
-		DOMAIN_TLD_CATALOG.com.renewalCredits
-	);
-}
-
 export function purchasedDomainLiveUrl(name: string) {
 	return `https://www.${name}`;
 }
@@ -55,13 +42,6 @@ export function normalizeDomainInput(value: string) {
 
 export function isAvailableSearchResult(result: SearchDomainsResult) {
 	return result.availability === "available";
-}
-
-export function isInsufficientCreditsError(error: unknown) {
-	return (
-		isApiClientError(error) &&
-		(error.code === "INSUFFICIENT_CREDITS" || error.statusCode === 402)
-	);
 }
 
 export function createRegistrantDefaults(user?: {
@@ -101,7 +81,9 @@ export function toRegistrantBody(values: RegistrantFlatFormValues): Registrant {
 		firstName: values.firstName.trim(),
 		lastName: values.lastName.trim(),
 		email: values.email.trim(),
-		phone: values.phone.trim(),
+		// Users paste numbers as "+213 (555) 12-34-56"; the registrar wants
+		// bare E.164, so formatting characters are stripped, not rejected.
+		phone: values.phone.replace(/[\s().-]/g, ""),
 		address: {
 			street: values.street.trim(),
 			city: values.city.trim(),

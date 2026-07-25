@@ -2,6 +2,7 @@ import type { Locale } from "@wandit/internationalization";
 
 export type BillingReturnCopy = {
 	backToDashboard: string;
+	openProject: string;
 	cancel: {
 		body: string;
 		title: string;
@@ -64,6 +65,7 @@ export type BillingReturnCopy = {
 const billingReturnCopy = {
 	en: {
 		backToDashboard: "Go to dashboard",
+		openProject: "Open project",
 		cancel: {
 			body: "Nothing was charged. You can return to Wandit whenever you are ready.",
 			title: "Checkout canceled",
@@ -142,6 +144,7 @@ const billingReturnCopy = {
 	},
 	fr: {
 		backToDashboard: "Accéder au tableau de bord",
+		openProject: "Ouvrir le projet",
 		cancel: {
 			body: "Aucun montant n’a été débité. Vous pourrez reprendre quand vous serez prêt.",
 			title: "Paiement annulé",
@@ -220,6 +223,7 @@ const billingReturnCopy = {
 	},
 	ar: {
 		backToDashboard: "الانتقال إلى لوحة التحكم",
+		openProject: "فتح المشروع",
 		cancel: {
 			body: "لم يتم خصم أي مبلغ. يمكنك العودة إلى Wandit عندما تكون مستعدًا.",
 			title: "تم إلغاء الدفع",

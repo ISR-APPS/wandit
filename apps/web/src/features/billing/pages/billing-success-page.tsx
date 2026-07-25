@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import type { CheckoutPurpose, PaymentOrder } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import { cn } from "@wandit/ui/lib/utils";
@@ -11,6 +12,7 @@ import {
 import {
 	BillingReturnShell,
 	DashboardButton,
+	ProjectButton,
 } from "@/features/billing/components/billing-return-shell";
 import { getBillingReturnCopy } from "@/features/billing/lib/billing-return-copy";
 import {
@@ -20,6 +22,7 @@ import {
 	shouldPollOrder,
 } from "@/features/billing/lib/order-return-state";
 import { subscriptionReturnStateFor } from "@/features/billing/lib/subscription-return-state";
+import { domainKeys } from "@/features/domains/api/domains.queries";
 import { useReconcileSession } from "@/features/orders/api/orders.mutations";
 import { useOrderQuery } from "@/features/orders/api/orders.queries";
 import { formatNumber, useTranslation } from "@/lib/i18n";
@@ -220,6 +223,20 @@ function OrderSuccessFlow({
 		? isOrderLifecycleTerminal(order.status)
 		: false;
 	const shouldPoll = order ? shouldPollOrder(order) : true;
+	const queryClient = useQueryClient();
+	const fulfilledProjectId =
+		order?.status === "fulfilled" ? (order.projectId ?? null) : null;
+
+	useEffect(() => {
+		if (!fulfilledProjectId) {
+			return;
+		}
+
+		// The purchased domain now exists on the project; drop any cached list.
+		void queryClient.invalidateQueries({
+			queryKey: domainKeys.list(fulfilledProjectId),
+		});
+	}, [fulfilledProjectId, queryClient]);
 
 	useEffect(() => {
 		if (lifecycleTerminal || !shouldPoll || reconcile.isError) {
@@ -317,7 +334,15 @@ function OrderSuccessFlow({
 			body={state.body}
 			details={<OrderDetails order={currentOrder} statusText={state.title} />}
 			actions={
-				state.tone === "progress" ? null : (
+				state.tone === "progress" ? null : currentOrder.projectId ? (
+					<>
+						<DashboardButton label={copy.backToDashboard} variant="outline" />
+						<ProjectButton
+							label={copy.openProject}
+							projectId={currentOrder.projectId}
+						/>
+					</>
+				) : (
 					<DashboardButton label={copy.backToDashboard} />
 				)
 			}

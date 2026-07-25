@@ -1,19 +1,18 @@
 import {
+	DOMAIN_REGISTRATION_USD_CENTS,
 	DOMAIN_TLD_CATALOG,
-	type DomainPriceSnapshot,
-	purchaseDomainBodySchema,
+	domainNameSchema,
 	type RequiredDomainRecord,
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import { describe, expect, it, vi } from "vitest";
 
-import { InsufficientCreditsError } from "../../../credits/domain/errors/insufficient-credits.error";
 import {
-	DomainAlreadyExistsError,
+	DomainNotAvailableError,
 	DomainsUnavailableError,
+	InvalidDomainStateError,
 	PremiumDomainBlockedError,
 } from "../../domain/errors/domain.errors";
-import type { CreditsPort } from "../../domain/ports/credits.port";
 import type {
 	DomainAvailability,
 	DomainDnsRecord,
@@ -30,20 +29,6 @@ import { DomainsService } from "./domains.service";
 
 const userId = "user_1";
 const projectId = "11111111-1111-4111-8111-111111111111";
-
-const validRegistrant = {
-	firstName: "Zack",
-	lastName: "Belaid",
-	email: "zack@example.com",
-	phone: "+213555123456",
-	address: {
-		street: "12 Rue Didouche Mourad",
-		city: "Algiers",
-		wilaya: "Alger",
-		zip: "16000",
-		countryCode: "DZ",
-	},
-};
 
 class FakeDomainsRepository {
 	readonly projects = new Set([`${userId}:${projectId}`]);
@@ -72,43 +57,6 @@ class FakeDomainsRepository {
 		}
 
 		return row;
-	}
-
-	async createPurchased(input: {
-		name: string;
-		priceSnapshot: DomainPriceSnapshot;
-		projectId: string;
-		registrant: typeof validRegistrant;
-		tld: string;
-		userId: string;
-	}) {
-		const row = this.makeRow({
-			name: input.name,
-			priceSnapshot: input.priceSnapshot,
-			projectId: input.projectId,
-			provider: "openprovider",
-			registrant: input.registrant,
-			source: "purchased",
-			status: "registering",
-			tld: input.tld,
-			userId: input.userId,
-		});
-		this.rows.set(row.id, row);
-
-		return row;
-	}
-
-	async createPurchasedReplacingTerminal(input: {
-		name: string;
-		priceSnapshot: DomainPriceSnapshot;
-		projectId: string;
-		registrant: typeof validRegistrant;
-		tld: string;
-		userId: string;
-	}) {
-		this.deleteTerminalNameOrThrow(input.name);
-
-		return this.createPurchased(input);
 	}
 
 	async createExternal(input: {
@@ -179,10 +127,6 @@ class FakeDomainsRepository {
 		return this.updateById(id, patch);
 	}
 
-	async recordRenewalNotice(id: string, message: string) {
-		return this.updateById(id, { error: message });
-	}
-
 	async setPrimary(id: string, inputUserId: string) {
 		const row = await this.getByIdForUser(id, inputUserId);
 
@@ -225,7 +169,7 @@ class FakeDomainsRepository {
 		}
 
 		if (existing.status !== "failed" && existing.status !== "transferred_out") {
-			throw new DomainAlreadyExistsError(name);
+			throw new Error(`${name} already connected`);
 		}
 
 		this.rows.delete(existing.id);
@@ -238,7 +182,7 @@ class FakeDomainsRepository {
 		this.nextId += 1;
 
 		return {
-			autoRenew: true,
+			autoRenew: false,
 			cfCustomHostnameId: null,
 			createdAt: now,
 			dns: null,
@@ -250,46 +194,30 @@ class FakeDomainsRepository {
 			paymentOrderId: null,
 			priceSnapshot: null,
 			projectId,
-			provider: "openprovider",
+			provider: "namecom",
 			providerDomainId: null,
+			providerOrderId: null,
+			providerTotalPaidUsd: null,
 			registrant: null,
 			source: "purchased",
 			status: "registering",
 			tld: "com",
+			transferLockExpiresAt: null,
 			updatedAt: now,
 			userId,
-			whoisPrivacy: true,
+			whoisPrivacy: false,
 			...rest,
 		} satisfies DomainRow;
 	}
 }
 
-class FakeCreditsPort implements CreditsPort {
-	readonly consumeLedgerKeys: string[] = [];
-	private readonly consumedKeys = new Set<string>();
-	readonly consume = vi.fn(
-		async (
-			_userId: string,
-			_amount: number,
-			options: { idempotencyKey: string },
-		) => {
-			if (this.consumedKeys.has(options.idempotencyKey)) {
-				return;
-			}
-
-			this.consumedKeys.add(options.idempotencyKey);
-			this.consumeLedgerKeys.push(options.idempotencyKey);
-		},
-	);
-	readonly grant = vi.fn(async () => undefined);
-}
-
 class FakeProvider implements DomainProvider {
 	availability: DomainAvailability[] = [];
 	authCode = "AUTH-SECRET";
+	info: DomainProviderInfo | null = null;
 	lockCalls: Array<{ locked: boolean; name: string }> = [];
 
-	async checkAvailability(names: string[]) {
+	readonly checkAvailability = vi.fn(async (names: string[]) => {
 		return names.map(
 			(name) =>
 				this.availability.find((item) => item.name === name) ?? {
@@ -298,22 +226,24 @@ class FakeProvider implements DomainProvider {
 					wholesalePriceUsd: 8,
 				},
 		);
-	}
+	});
 
-	async register() {
+	readonly register = vi.fn(async () => {
 		return {
 			expiresAt: new Date("2027-01-01T00:00:00.000Z"),
-			providerDomainId: "op_1",
+			providerDomainId: "example.com",
 		};
-	}
+	});
 
 	readonly renew = vi.fn(async () => {
 		return { expiresAt: new Date("2028-01-01T00:00:00.000Z") };
 	});
 
-	async setDnsRecords(_name: string, _records: DomainDnsRecord[]) {}
+	readonly setDnsRecords = vi.fn(
+		async (_name: string, _records: DomainDnsRecord[]) => undefined,
+	);
 
-	async setUrlForwarding() {}
+	readonly setUrlForwarding = vi.fn(async () => undefined);
 
 	async getAuthCode() {
 		return this.authCode;
@@ -324,7 +254,7 @@ class FakeProvider implements DomainProvider {
 	}
 
 	async getDomainInfo(): Promise<DomainProviderInfo | null> {
-		return null;
+		return this.info;
 	}
 }
 
@@ -369,23 +299,12 @@ class FakeRoutingService {
 	async refreshProjectDomains() {}
 }
 
-function priceSnapshot(tld = "com"): DomainPriceSnapshot {
-	const catalog = DOMAIN_TLD_CATALOG.com;
-
-	return {
-		registrationCredits: catalog.registrationCredits,
-		renewalCredits: catalog.renewalCredits,
-		tld: tld as DomainPriceSnapshot["tld"],
-		wholesaleCeilingUsd: catalog.wholesaleCeilingUsd,
-	};
-}
-
-function nextExpiryYear(row: DomainRow): number {
-	if (!row.expiresAt) {
-		throw new Error(`Expected ${row.name} to have an expiry date`);
-	}
-
-	return row.expiresAt.getUTCFullYear() + 1;
+function expectNoRegistrarMutation(provider: FakeProvider) {
+	expect(provider.register).not.toHaveBeenCalled();
+	expect(provider.renew).not.toHaveBeenCalled();
+	expect(provider.setDnsRecords).not.toHaveBeenCalled();
+	expect(provider.setUrlForwarding).not.toHaveBeenCalled();
+	expect(provider.lockCalls).toHaveLength(0);
 }
 
 function setQueueEnabled(enabled: boolean) {
@@ -395,7 +314,6 @@ function setQueueEnabled(enabled: boolean) {
 function setup() {
 	setQueueEnabled(true);
 	const repository = new FakeDomainsRepository();
-	const credits = new FakeCreditsPort();
 	const provider = new FakeProvider();
 	const cloudflare = new FakeCustomHostnameService();
 	const routing = new FakeRoutingService();
@@ -410,7 +328,6 @@ function setup() {
 	const service = new DomainsService(
 		repository as unknown as DomainsRepository,
 		provider,
-		credits,
 		cloudflare as unknown as CustomHostnameService,
 		routing as unknown as DomainRoutingService,
 		logger,
@@ -419,7 +336,6 @@ function setup() {
 
 	return {
 		cloudflare,
-		credits,
 		logger,
 		provider,
 		queue,
@@ -430,190 +346,7 @@ function setup() {
 }
 
 describe("DomainsService", () => {
-	it("purchases by creating a row, consuming credits, then enqueueing the job", async () => {
-		const { credits, queue, repository, service } = setup();
-
-		const response = await service.purchase(userId, projectId, {
-			name: "Example.COM",
-			registrant: validRegistrant,
-		});
-
-		const [row] = [...repository.rows.values()];
-		expect(row?.name).toBe("example.com");
-		expect(credits.consume).toHaveBeenCalledWith(
-			userId,
-			DOMAIN_TLD_CATALOG.com.registrationCredits,
-			expect.objectContaining({
-				idempotencyKey: `domain-purchase:${row?.id}`,
-			}),
-		);
-		expect(queue.add).toHaveBeenCalledWith(
-			"domain-purchase",
-			{ domainId: row?.id },
-			{
-				attempts: 5,
-				backoff: {
-					delay: 60_000,
-					type: "exponential",
-				},
-				jobId: `domain-purchase-${row?.id}`,
-			},
-		);
-		expect("providerDomainId" in response.domain).toBe(false);
-		expect(response.domain.priceSnapshot).not.toHaveProperty(
-			"wholesaleCeilingUsd",
-		);
-	});
-
-	it("propagates insufficient credits and deletes the created registering row", async () => {
-		const { credits, queue, repository, service } = setup();
-		credits.consume.mockRejectedValueOnce(new InsufficientCreditsError(120, 5));
-
-		await expect(
-			service.purchase(userId, projectId, {
-				name: "example.com",
-				registrant: validRegistrant,
-			}),
-		).rejects.toBeInstanceOf(InsufficientCreditsError);
-		expect(repository.rows.size).toBe(0);
-		expect(queue.add).not.toHaveBeenCalled();
-	});
-
-	it("rejects premium purchases before creating rows or consuming credits", async () => {
-		const { credits, provider, repository, service } = setup();
-		provider.availability = [
-			{
-				available: true,
-				name: "premium.com",
-				premium: true,
-				wholesalePriceUsd: 900,
-			},
-		];
-
-		await expect(
-			service.purchase(userId, projectId, {
-				name: "premium.com",
-				registrant: validRegistrant,
-			}),
-		).rejects.toBeInstanceOf(PremiumDomainBlockedError);
-
-		expect(repository.rows.size).toBe(0);
-		expect(credits.consume).not.toHaveBeenCalled();
-	});
-
-	it("fails closed before creating rows or consuming credits when domain jobs are disabled", async () => {
-		const { credits, repository, service } = setup();
-		setQueueEnabled(false);
-
-		await expect(
-			service.purchase(userId, projectId, {
-				name: "example.com",
-				registrant: validRegistrant,
-			}),
-		).rejects.toBeInstanceOf(DomainsUnavailableError);
-
-		expect(repository.rows.size).toBe(0);
-		expect(credits.consume).not.toHaveBeenCalled();
-	});
-
-	it("rotates renewal consume and refund keys after a failed provider renewal", async () => {
-		const { credits, provider, repository, service } = setup();
-		const row = repository.seed({
-			expiresAt: new Date("2027-01-01T00:00:00.000Z"),
-			name: "renew-retry.com",
-			priceSnapshot: priceSnapshot(),
-			providerDomainId: "op_renew",
-			source: "purchased",
-			status: "active",
-		});
-		const periodEndYear = nextExpiryYear(row);
-		const firstAttemptMs = row.updatedAt.getTime();
-		provider.renew.mockRejectedValueOnce(new Error("registrar down"));
-
-		await expect(service.renew(row.id, userId)).rejects.toThrow(
-			"registrar down",
-		);
-		const retryRow = repository.rows.get(row.id);
-
-		if (!retryRow) {
-			throw new Error("Expected renewal row to remain after failed attempt");
-		}
-
-		await service.renew(row.id, userId);
-
-		expect(credits.consumeLedgerKeys).toEqual([
-			`domain-renew:${row.id}:${periodEndYear}:${firstAttemptMs}`,
-			`domain-renew:${row.id}:${periodEndYear}:${retryRow.updatedAt.getTime()}`,
-		]);
-		expect(credits.grant).toHaveBeenCalledWith(
-			userId,
-			DOMAIN_TLD_CATALOG.com.renewalCredits,
-			expect.objectContaining({
-				bucket: "topup",
-				idempotencyKey: `domain-renew-refund:${row.id}:${periodEndYear}:${firstAttemptMs}`,
-			}),
-		);
-	});
-
-	it("deduplicates same-instant renewal submits that read the same updatedAt", async () => {
-		const { credits, repository, service } = setup();
-		const row = repository.seed({
-			expiresAt: new Date("2027-01-01T00:00:00.000Z"),
-			name: "renew-double-submit.com",
-			priceSnapshot: priceSnapshot(),
-			providerDomainId: "op_renew",
-			source: "purchased",
-			status: "active",
-		});
-
-		await Promise.all([
-			service.renew(row.id, userId),
-			service.renew(row.id, userId),
-		]);
-
-		expect(credits.consume).toHaveBeenCalledTimes(2);
-		expect(credits.consumeLedgerKeys).toEqual([
-			`domain-renew:${row.id}:${nextExpiryYear(row)}:${row.updatedAt.getTime()}`,
-		]);
-	});
-
-	it("replaces terminal rows when purchasing the same domain again", async () => {
-		const { repository, service } = setup();
-		const failed = repository.seed({
-			name: "retry.com",
-			source: "purchased",
-			status: "failed",
-			userId: "other_user",
-		});
-
-		const response = await service.purchase(userId, projectId, {
-			name: "retry.com",
-			registrant: validRegistrant,
-		});
-
-		expect(response.domain.name).toBe("retry.com");
-		expect(response.domain.id).not.toBe(failed.id);
-		expect(repository.rows.has(failed.id)).toBe(false);
-		expect(repository.rows.size).toBe(1);
-	});
-
-	it("keeps non-terminal rows as unique-name conflicts", async () => {
-		const { repository, service } = setup();
-		repository.seed({
-			name: "live.com",
-			source: "purchased",
-			status: "active",
-		});
-
-		await expect(
-			service.purchase(userId, projectId, {
-				name: "live.com",
-				registrant: validRegistrant,
-			}),
-		).rejects.toBeInstanceOf(DomainAlreadyExistsError);
-	});
-
-	it("uses catalog prices in search and never exposes wholesale prices", async () => {
+	it("returns retail USD prices only for safely purchasable domains", async () => {
 		const { provider, service } = setup();
 		provider.availability = [
 			{
@@ -625,23 +358,186 @@ describe("DomainsService", () => {
 				available: true,
 				name: "shop.net",
 				premium: true,
-				wholesalePriceUsd: 900,
+				wholesalePriceUsd: 19.99,
+			},
+			{
+				available: true,
+				name: "shop.shop",
+			},
+			{
+				available: false,
+				name: "shop.store",
+				wholesalePriceUsd: 72.99,
 			},
 		];
 
 		const response = await service.search(userId, "shop");
 
+		expect(response.results.slice(0, 4)).toEqual([
+			{
+				availability: "available",
+				name: "shop.com",
+				registrationPriceUsd: DOMAIN_REGISTRATION_USD_CENTS.com / 100,
+				tld: "com",
+			},
+			{
+				availability: "premium_blocked",
+				name: "shop.net",
+				registrationPriceUsd: null,
+				tld: "net",
+			},
+			{
+				availability: "premium_blocked",
+				name: "shop.shop",
+				registrationPriceUsd: null,
+				tld: "shop",
+			},
+			{
+				availability: "unavailable",
+				name: "shop.store",
+				registrationPriceUsd: null,
+				tld: "store",
+			},
+		]);
+		// The wire shape never carries the registrar's wholesale quote.
+		expect(JSON.stringify(response)).not.toMatch(
+			/registrationCredits|renewalCredits|wholesalePriceUsd/,
+		);
+	});
+
+	it("blocks an over-ceiling wholesale quote from being shown as available", async () => {
+		const { provider, service } = setup();
+		provider.availability = [
+			{
+				available: true,
+				name: "spike.com",
+				wholesalePriceUsd: DOMAIN_TLD_CATALOG.com.wholesaleCeilingUsd + 0.01,
+			},
+		];
+
+		const response = await service.search(userId, "spike.com");
+
 		expect(response.results[0]).toMatchObject({
-			availability: "available",
-			name: "shop.com",
-			registrationCredits: DOMAIN_TLD_CATALOG.com.registrationCredits,
-		});
-		expect(response.results[1]).toMatchObject({
 			availability: "premium_blocked",
-			name: "shop.net",
-			registrationCredits: DOMAIN_TLD_CATALOG.net.registrationCredits,
+			registrationPriceUsd: null,
 		});
-		expect(JSON.stringify(response)).not.toContain("900");
+	});
+
+	it("prepares a purchase with the validated wholesale quote and ceiling", async () => {
+		const { provider, service } = setup();
+
+		const prepared = await service.preparePurchase(
+			userId,
+			"Example.COM",
+			projectId,
+		);
+
+		expect(prepared).toEqual({
+			name: "example.com",
+			quotedWholesaleUsd: 8,
+			tld: "com",
+			wholesaleCeilingUsd: DOMAIN_TLD_CATALOG.com.wholesaleCeilingUsd,
+		});
+		expect(provider.checkAvailability).toHaveBeenCalledWith(["example.com"]);
+		expectNoRegistrarMutation(provider);
+	});
+
+	it("fails closed before contacting the registrar when domain jobs are disabled", async () => {
+		const { provider, service } = setup();
+		setQueueEnabled(false);
+
+		await expect(
+			service.preparePurchase(userId, "example.com", projectId),
+		).rejects.toBeInstanceOf(DomainsUnavailableError);
+
+		expect(provider.checkAvailability).not.toHaveBeenCalled();
+	});
+
+	it("rejects preparing an unavailable domain", async () => {
+		const { provider, service } = setup();
+		provider.availability = [
+			{ available: false, name: "taken.com", wholesalePriceUsd: 9 },
+		];
+
+		await expect(
+			service.preparePurchase(userId, "taken.com", projectId),
+		).rejects.toBeInstanceOf(DomainNotAvailableError);
+	});
+
+	it.each([
+		["premium", { available: true, premium: true, wholesalePriceUsd: 9 }],
+		["missing-price", { available: true }],
+		["non-finite-price", { available: true, wholesalePriceUsd: Number.NaN }],
+		["zero-price", { available: true, wholesalePriceUsd: 0 }],
+		[
+			"over-ceiling",
+			{
+				available: true,
+				wholesalePriceUsd: DOMAIN_TLD_CATALOG.com.wholesaleCeilingUsd + 1,
+			},
+		],
+	] as const)("fails closed when the registrar quote is unsafe (%s)", async (_label, availability) => {
+		const { provider, service } = setup();
+		provider.availability = [{ ...availability, name: "unsafe.com" }];
+
+		await expect(
+			service.preparePurchase(userId, "unsafe.com", projectId),
+		).rejects.toBeInstanceOf(PremiumDomainBlockedError);
+	});
+
+	it("asserts project ownership before preparing a project-scoped purchase", async () => {
+		const { provider, service } = setup();
+
+		await expect(
+			service.preparePurchase(
+				userId,
+				"example.com",
+				"99999999-9999-4999-8999-999999999999",
+			),
+		).rejects.toThrow("Project not found");
+		expect(provider.checkAvailability).not.toHaveBeenCalled();
+	});
+
+	it("rejects enabling auto-renew while paid renewals are unavailable", async () => {
+		const { provider, queue, repository, service } = setup();
+		const row = repository.seed({
+			autoRenew: false,
+			name: "auto-renew.com",
+			providerDomainId: "namecom_auto_renew",
+			source: "purchased",
+			status: "active",
+		});
+		const update = vi.spyOn(repository, "updateById");
+
+		await expect(
+			service.setAutoRenew(row.id, userId, { autoRenew: true }),
+		).rejects.toBeInstanceOf(InvalidDomainStateError);
+
+		expect(update).not.toHaveBeenCalled();
+		expect(repository.rows.get(row.id)?.autoRenew).toBe(false);
+		expect(queue.add).not.toHaveBeenCalled();
+		expectNoRegistrarMutation(provider);
+	});
+
+	it("allows disabling auto-renew without payment or registrar mutation", async () => {
+		const { provider, queue, repository, service } = setup();
+		const row = repository.seed({
+			autoRenew: true,
+			name: "disable-auto-renew.com",
+			providerDomainId: "namecom_disable_auto_renew",
+			source: "purchased",
+			status: "active",
+		});
+
+		await expect(
+			service.setAutoRenew(row.id, userId, { autoRenew: false }),
+		).resolves.toMatchObject({
+			domain: { autoRenew: false, id: row.id },
+		});
+
+		expect(repository.rows.get(row.id)?.autoRenew).toBe(false);
+		expect(queue.add).not.toHaveBeenCalled();
+		expectNoRegistrarMutation(provider);
 	});
 
 	it("attaches BYO domains with required records and verifies only once Cloudflare is active", async () => {
@@ -758,7 +654,6 @@ describe("DomainsService", () => {
 		const first = repository.seed({
 			isPrimary: true,
 			name: "first.com",
-			priceSnapshot: priceSnapshot(),
 			projectId,
 			source: "purchased",
 			status: "active",
@@ -766,7 +661,6 @@ describe("DomainsService", () => {
 		const second = repository.seed({
 			cfCustomHostnameId: "cf_detach",
 			name: "second.com",
-			priceSnapshot: priceSnapshot(),
 			projectId,
 			source: "purchased",
 			status: "active",
@@ -788,8 +682,8 @@ describe("DomainsService", () => {
 		const { logger, provider, repository, service } = setup();
 		const row = repository.seed({
 			name: "unlock.com",
-			priceSnapshot: priceSnapshot(),
-			providerDomainId: "op_1",
+			provider: "namecom",
+			providerDomainId: "unlock.com",
 			source: "purchased",
 			status: "active",
 		});
@@ -806,18 +700,46 @@ describe("DomainsService", () => {
 		}
 	});
 
+	it("prefers the registrar's transfer-lock expiry over local fallbacks", async () => {
+		const { provider, repository, service } = setup();
+		const registrarLock = new Date("2026-09-22T00:00:00.000Z");
+		provider.info = {
+			expiresAt: new Date("2027-07-24T00:00:00.000Z"),
+			id: "unlock-lock.com",
+			transferLockExpiresAt: registrarLock,
+		};
+		const row = repository.seed({
+			name: "unlock-lock.com",
+			provider: "namecom",
+			providerDomainId: "unlock-lock.com",
+			source: "purchased",
+			status: "active",
+			transferLockExpiresAt: new Date("2026-01-01T00:00:00.000Z"),
+		});
+
+		const response = await service.transferUnlock(row.id, userId);
+
+		expect(response.lockedUntil).toBe(registrarLock.toISOString());
+	});
+
+	it("rejects transfer unlock for legacy openprovider rows", async () => {
+		const { provider, repository, service } = setup();
+		const row = repository.seed({
+			name: "legacy.com",
+			provider: "openprovider",
+			providerDomainId: "op_1",
+			source: "purchased",
+			status: "active",
+		});
+
+		await expect(service.transferUnlock(row.id, userId)).rejects.toBeInstanceOf(
+			InvalidDomainStateError,
+		);
+		expect(provider.lockCalls).toHaveLength(0);
+	});
+
 	it("rejects invalid names at the validation boundary before services run", () => {
-		expect(() =>
-			purchaseDomainBodySchema.parse({
-				name: "wandit.app",
-				registrant: validRegistrant,
-			}),
-		).toThrow();
-		expect(() =>
-			purchaseDomainBodySchema.parse({
-				name: "bad_name.com",
-				registrant: validRegistrant,
-			}),
-		).toThrow();
+		expect(() => domainNameSchema.parse("wandit.app")).toThrow();
+		expect(() => domainNameSchema.parse("bad_name.com")).toThrow();
 	});
 });
