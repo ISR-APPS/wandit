@@ -49,18 +49,10 @@ export const NAV_GROUPS: NavGroup[] = [
 	{
 		titleKey: "projects.sidebar.groupResources",
 		items: [
-			{
-				type: "external",
-				titleKey: "projects.nav.docs",
-				href: "#",
-				icon: BookOpen,
-			},
-			{
-				type: "external",
-				titleKey: "projects.nav.support",
-				href: "#",
-				icon: LifeBuoy,
-			},
+			// Docs/support sites don't exist yet — "Soon" until they do, so the
+			// launch video doesn't show dead "#" links.
+			{ type: "soon", titleKey: "projects.nav.docs", icon: BookOpen },
+			{ type: "soon", titleKey: "projects.nav.support", icon: LifeBuoy },
 		],
 	},
 ];

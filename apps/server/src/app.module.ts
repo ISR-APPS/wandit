@@ -15,11 +15,17 @@ import { CreditsModule } from "./modules/credits/credits.module";
 import { DomainsModule } from "./modules/domains/domains.module";
 import { GenerationModule } from "./modules/generation/generation.module";
 import { HealthModule } from "./modules/health/health.module";
+import { ImageGenerationsModule } from "./modules/image-generations/image-generations.module";
+import { LeadScrapesModule } from "./modules/lead-scrapes/lead-scrapes.module";
 import { LeadsModule } from "./modules/leads/leads.module";
+import { MarketingAssetsModule } from "./modules/marketing-assets/marketing-assets.module";
+import { OrdersModule } from "./modules/orders/orders.module";
 import { PagesModule } from "./modules/pages/pages.module";
+import { ProjectAssetsModule } from "./modules/project-assets/project-assets.module";
 import { ProjectsModule } from "./modules/projects/projects.module";
 import { SitesModule } from "./modules/sites/sites.module";
 import { StorageModule } from "./modules/storage/storage.module";
+import { UploadsModule } from "./modules/uploads/uploads.module";
 
 @Module({
 	imports: [
@@ -34,14 +40,20 @@ import { StorageModule } from "./modules/storage/storage.module";
 		AiChatModule,
 		HealthModule,
 		ProjectsModule,
+		ProjectAssetsModule,
 		PagesModule,
 		SitesModule,
 		LeadsModule,
+		LeadScrapesModule,
+		MarketingAssetsModule,
+		ImageGenerationsModule,
 		CreditsModule,
 		BillingModule,
+		OrdersModule,
 		DomainsModule,
 		StorageModule,
 		GenerationModule,
+		UploadsModule,
 	],
 	providers: [
 		{

@@ -64,6 +64,7 @@ import {
 import { useWorkspace } from "../../lib/store";
 import { LeadStatusSelect } from "./lead-status-select";
 import { LeadsCounters } from "./leads-counters";
+import { SheetSyncButton } from "./sheet-sync-button";
 
 const HOVER_REVEAL =
 	"opacity-0 transition-opacity duration-150 focus-visible:opacity-100 group-hover/row:opacity-100";
@@ -150,8 +151,8 @@ function LeadsSkeleton() {
 export function LeadsTab() {
 	const { t, locale } = useTranslation();
 	const dictionary = useDictionary();
-	const { projectId, project, projectPending, setTab } = useWorkspace();
-	const leadsQuery = useLeadsQuery(projectId, project?.leadCount);
+	const { projectId, projectPending, setTab } = useWorkspace();
+	const leadsQuery = useLeadsQuery(projectId);
 
 	const [search, setSearch] = useState("");
 	const [statusFilter, setStatusFilter] = useState<LeadStatus | "all">("all");
@@ -216,8 +217,9 @@ export function LeadsTab() {
 	return (
 		<div className="h-full overflow-y-auto">
 			<div className="mx-auto w-full max-w-6xl px-4 py-6 md:px-8">
-				{/* Header: title + free note, CSV export on the right */}
-				<div className="flex items-start justify-between gap-4">
+				{/* Header: title + free note; sheet sync + CSV export on the right,
+				    wrapping under the title on narrow screens. */}
+				<div className="flex flex-wrap items-start justify-between gap-3">
 					<div>
 						<h2 className="font-display font-semibold text-lg">
 							{t("leads.title")}
@@ -226,15 +228,18 @@ export function LeadsTab() {
 							{t("leads.freeNote")}
 						</p>
 					</div>
-					<Button
-						variant="outline"
-						size="sm"
-						onClick={handleExport}
-						disabled={filtered.length === 0}
-					>
-						<Download />
-						{t("leads.exportCsv")}
-					</Button>
+					<div className="flex flex-wrap items-center justify-end gap-2">
+						<SheetSyncButton />
+						<Button
+							variant="outline"
+							size="sm"
+							onClick={handleExport}
+							disabled={filtered.length === 0}
+						>
+							<Download />
+							{t("leads.exportCsv")}
+						</Button>
+					</div>
 				</div>
 
 				{leads.length === 0 ? (
@@ -354,10 +359,12 @@ export function LeadsTab() {
 														</div>
 													</TableCell>
 													<TableCell>
-														<div className="text-sm">{lead.wilaya}</div>
-														<div className="text-muted-foreground text-xs">
-															{lead.commune}
-														</div>
+														<div className="text-sm">{lead.wilaya ?? "—"}</div>
+														{lead.commune ? (
+															<div className="text-muted-foreground text-xs">
+																{lead.commune}
+															</div>
+														) : null}
 													</TableCell>
 													<TableCell
 														className="font-mono text-muted-foreground text-xs"
@@ -402,8 +409,13 @@ export function LeadsTab() {
 												<ContactLinks lead={lead} />
 											</div>
 											<div className="mt-2 text-muted-foreground text-xs">
-												{lead.wilaya} · {lead.commune} ·{" "}
-												{relativeTime(lead.createdAt)}
+												{[
+													lead.wilaya,
+													lead.commune,
+													relativeTime(lead.createdAt),
+												]
+													.filter((part) => part !== null)
+													.join(" · ")}
 											</div>
 										</div>
 									))}

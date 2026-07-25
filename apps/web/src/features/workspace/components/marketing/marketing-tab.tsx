@@ -1,367 +1,336 @@
-// Marketing tab: the AI-maintained plan for the project — goal progress,
-// this week's advice, channel mix, audiences, a week-1 checklist and
-// campaign ideas. Content is mock (lib/mock-marketing.ts) until strategy
-// artifacts land; goal progress is real, computed from the lead book so it
-// always agrees with the Leads tab. Header controls live in
+// Marketing tab: every AI-generated marketing deliverable (ad copy sets,
+// strategies, video scripts, creative briefs, custom HTML assets) as a card
+// grid, newest first. Clicking a finished card opens the document in a
+// sandboxed iframe inside the tab. Data is real (marketing-assets API) and
+// the list polls only while something is generating. Header controls live in
 // marketing-controls.tsx via shell/main-pane-header.tsx.
 
-import { Badge } from "@wandit/ui/components/badge";
+import type { MarketingAsset, MarketingAssetType } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
+import {
+	Empty,
+	EmptyDescription,
+	EmptyHeader,
+	EmptyMedia,
+	EmptyTitle,
+} from "@wandit/ui/components/empty";
 import { Skeleton } from "@wandit/ui/components/skeleton";
 import { cn } from "@wandit/ui/lib/utils";
-import { Check, UserRound } from "lucide-react";
-import { type ReactNode, useMemo } from "react";
-
-import { Spark } from "@/components/logo";
-import { useTranslation } from "@/lib/i18n";
-import { useLeadsQuery } from "../../api/leads.queries";
 import {
-	type ChecklistItem,
-	getMarketingPlan,
-	type IdeaStatus,
-	type MarketingPlan,
-} from "../../lib/mock-marketing";
-import { useWorkspace } from "../../lib/store";
+	AlertTriangle,
+	ArrowLeft,
+	ChevronRight,
+	Clapperboard,
+	Download,
+	FileText,
+	LayoutTemplate,
+	type LucideIcon,
+	Megaphone,
+	RefreshCw,
+	Route,
+} from "lucide-react";
+import { useState } from "react";
 
-const IDEA_STATUS_META: Record<
-	IdeaStatus,
-	{
-		labelKey:
-			| "workspace.marketing.ideaStatus.ready"
-			| "workspace.marketing.ideaStatus.draft"
-			| "workspace.marketing.ideaStatus.idea";
-		badgeVariant: "success" | "warning" | "secondary";
-	}
+import { useTranslation } from "@/lib/i18n";
+import { relativeTime } from "@/lib/relative-time";
+import {
+	useMarketingAssetHtmlQuery,
+	useMarketingAssetsQuery,
+} from "../../api/marketing-assets.queries";
+import { marketingAssetDownloadUrl } from "../../api/marketing-assets.services";
+import { useWorkspace } from "../../lib/store";
+import { SpinnerArc } from "../chat/request-tray/tray-signals";
+
+type TypeLabelKey =
+	| "workspace.marketing.types.adCopy"
+	| "workspace.marketing.types.marketingStrategy"
+	| "workspace.marketing.types.videoScript"
+	| "workspace.marketing.types.creativeBrief"
+	| "workspace.marketing.types.htmlAsset";
+
+const TYPE_META: Record<
+	MarketingAssetType,
+	{ icon: LucideIcon; labelKey: TypeLabelKey }
 > = {
-	ready: {
-		labelKey: "workspace.marketing.ideaStatus.ready",
-		badgeVariant: "success",
+	"ad-copy": { icon: Megaphone, labelKey: "workspace.marketing.types.adCopy" },
+	"marketing-strategy": {
+		icon: Route,
+		labelKey: "workspace.marketing.types.marketingStrategy",
 	},
-	draft: {
-		labelKey: "workspace.marketing.ideaStatus.draft",
-		badgeVariant: "warning",
+	"video-script": {
+		icon: Clapperboard,
+		labelKey: "workspace.marketing.types.videoScript",
 	},
-	idea: {
-		labelKey: "workspace.marketing.ideaStatus.idea",
-		badgeVariant: "secondary",
+	"creative-brief": {
+		icon: FileText,
+		labelKey: "workspace.marketing.types.creativeBrief",
+	},
+	"html-asset": {
+		icon: LayoutTemplate,
+		labelKey: "workspace.marketing.types.htmlAsset",
 	},
 };
 
-function Kicker({ children }: { children: ReactNode }) {
-	return (
-		<p className="font-mono text-[10px] text-muted-foreground uppercase tracking-widest">
-			{children}
-		</p>
-	);
-}
-
-const SKELETON_KEYS = ["goal", "take", "mix", "list"];
+const SKELETON_KEYS = ["a", "b", "c", "d", "e", "f"];
 
 export function MarketingTab() {
-	const { projectId, project, projectPending } = useWorkspace();
-	const leadsQuery = useLeadsQuery(projectId, project?.leadCount);
+	const { projectId } = useWorkspace();
+	const assetsQuery = useMarketingAssetsQuery(projectId);
+	const [openAssetId, setOpenAssetId] = useState<string | null>(null);
 
-	const plan = useMemo(
-		() => (project ? getMarketingPlan(project) : null),
-		[project],
-	);
+	const assets = assetsQuery.data ?? [];
+	const openAsset = assets.find((asset) => asset.id === openAssetId) ?? null;
 
-	const confirmed = useMemo(
-		() =>
-			(leadsQuery.data ?? []).filter((lead) => lead.status === "confirmed")
-				.length,
-		[leadsQuery.data],
-	);
-
-	if (projectPending || !plan) {
+	if (openAsset) {
 		return (
-			<div className="h-full overflow-y-auto">
-				<div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-6 md:px-8">
-					{SKELETON_KEYS.map((key) => (
-						<Skeleton key={key} className="h-32 rounded-xl" />
-					))}
-				</div>
-			</div>
+			<MarketingAssetDetail
+				asset={openAsset}
+				onBack={() => setOpenAssetId(null)}
+			/>
 		);
 	}
 
 	return (
 		<div className="h-full overflow-y-auto">
-			<div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-6 md:px-8">
-				<GoalCard
-					plan={plan}
-					confirmed={confirmed}
-					confirmedPending={leadsQuery.isPending}
-				/>
-				<TakeCard take={plan.take} />
-				<div className="grid gap-4 md:grid-cols-2">
-					<ChannelsCard plan={plan} />
-					<AudienceCard plan={plan} />
-				</div>
-				<ChecklistCard items={plan.checklist} />
-				<IdeasCard plan={plan} />
+			<div className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 py-6 md:px-8">
+				{assetsQuery.isPending ? (
+					<CardGrid>
+						{SKELETON_KEYS.map((key) => (
+							<Skeleton key={key} className="h-36 rounded-xl" />
+						))}
+					</CardGrid>
+				) : assetsQuery.isError ? (
+					<ListError
+						onRetry={() => void assetsQuery.refetch()}
+						retrying={assetsQuery.isFetching}
+					/>
+				) : assets.length === 0 ? (
+					<MarketingEmptyState />
+				) : (
+					<CardGrid>
+						{assets.map((asset) => (
+							<MarketingAssetCard
+								key={asset.id}
+								asset={asset}
+								onOpen={() => setOpenAssetId(asset.id)}
+							/>
+						))}
+					</CardGrid>
+				)}
 			</div>
 		</div>
 	);
 }
 
-function GoalCard({
-	plan,
-	confirmed,
-	confirmedPending,
+function CardGrid({ children }: { children: React.ReactNode }) {
+	return (
+		<div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+			{children}
+		</div>
+	);
+}
+
+function MarketingEmptyState() {
+	const { t } = useTranslation();
+	const { chatOpen, toggleChat } = useWorkspace();
+
+	return (
+		<Empty className="rounded-xl border border-dashed">
+			<EmptyHeader>
+				<EmptyMedia variant="icon">
+					<Megaphone />
+				</EmptyMedia>
+				<EmptyTitle>{t("workspace.marketing.emptyTitle")}</EmptyTitle>
+				<EmptyDescription>
+					{t("workspace.marketing.emptyBody")}
+				</EmptyDescription>
+			</EmptyHeader>
+			<Button
+				size="sm"
+				className="mt-1 rounded-lg"
+				onClick={() => {
+					if (!chatOpen) toggleChat();
+				}}
+			>
+				{t("workspace.marketing.emptyCta")}
+			</Button>
+		</Empty>
+	);
+}
+
+function ListError({
+	onRetry,
+	retrying,
 }: {
-	plan: MarketingPlan;
-	confirmed: number;
-	confirmedPending: boolean;
+	onRetry: () => void;
+	retrying: boolean;
 }) {
 	const { t } = useTranslation();
-	const pct = Math.min(100, Math.round((confirmed / plan.goalTarget) * 100));
-	const onTrack = pct >= 25;
 
 	return (
-		<section className="flex flex-wrap items-center justify-between gap-4 rounded-xl border bg-card p-5">
-			<div className="min-w-0">
-				<Kicker>{t("workspace.marketing.goalKicker")}</Kicker>
-				<h3 className="mt-1.5 font-display font-semibold text-xl">
-					{plan.goal}
-				</h3>
-			</div>
-			<div className="flex items-center gap-3">
-				<div className="text-end">
-					<p className="font-medium font-mono text-lg tabular-nums">
-						{confirmedPending ? "—" : confirmed}
-						<span className="font-normal text-muted-foreground">
-							{" "}
-							/ {plan.goalTarget}
-						</span>
-					</p>
-					<p
-						className={cn(
-							"font-mono text-[10px]",
-							onTrack ? "text-success" : "text-muted-foreground",
-						)}
-					>
-						{onTrack
-							? t("workspace.marketing.goalOnTrack")
-							: t("workspace.marketing.goalBehind")}
-					</p>
-				</div>
-				<div className="h-1.5 w-28 overflow-hidden rounded-full bg-muted">
-					<div
-						className="h-full rounded-full bg-gradient-ember"
-						style={{ width: `${confirmedPending ? 0 : pct}%` }}
-					/>
-				</div>
-			</div>
-		</section>
-	);
-}
-
-function TakeCard({ take }: { take: string }) {
-	const { t } = useTranslation();
-	return (
-		<section className="flex items-start gap-3 rounded-xl bg-foreground p-5 text-background">
-			<span className="grid size-6 shrink-0 place-items-center rounded-md bg-gradient-ember">
-				<Spark className="size-3.5 text-white" />
-			</span>
-			<div className="min-w-0">
-				<p className="font-mono text-[10px] text-primary uppercase tracking-widest dark:text-primary-foreground">
-					{t("workspace.marketing.takeKicker")}
-				</p>
-				<p className="mt-1.5 text-background/85 text-sm leading-relaxed">
-					{take}
-				</p>
-			</div>
-		</section>
-	);
-}
-
-function ChannelsCard({ plan }: { plan: MarketingPlan }) {
-	const { t } = useTranslation();
-	return (
-		<section className="rounded-xl border bg-card p-5">
-			<Kicker>{t("workspace.marketing.channelsKicker")}</Kicker>
-			<div className="mt-4 flex flex-col gap-4">
-				{plan.channels.map((channel) => (
-					<div key={channel.key}>
-						<div className="flex items-baseline justify-between gap-2">
-							<span className="font-medium text-sm">{channel.name}</span>
-							<span className="font-mono text-muted-foreground text-xs tabular-nums">
-								{channel.share}%
-							</span>
-						</div>
-						<p className="mt-0.5 text-muted-foreground text-xs leading-relaxed">
-							{channel.note}
-						</p>
-						<div className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted">
-							<div
-								className={cn("h-full rounded-full", channel.barClass)}
-								style={{ width: `${channel.share}%` }}
-							/>
-						</div>
-					</div>
-				))}
-			</div>
-		</section>
-	);
-}
-
-function AudienceCard({ plan }: { plan: MarketingPlan }) {
-	const { t } = useTranslation();
-	return (
-		<section className="rounded-xl border bg-card p-5">
-			<Kicker>{t("workspace.marketing.audienceKicker")}</Kicker>
-			<div className="mt-4 flex flex-col divide-y">
-				{plan.personas.map((persona) => (
-					<div
-						key={persona.key}
-						className="flex gap-3 py-3.5 first:pt-0 last:pb-0"
-					>
-						<span className="grid size-8 shrink-0 place-items-center rounded-full bg-primary/10 text-primary">
-							<UserRound className="size-4" />
-						</span>
-						<div className="min-w-0">
-							<p className="font-medium text-sm">
-								{persona.name}{" "}
-								<span className="font-normal text-muted-foreground text-xs">
-									{persona.ageRange}
-								</span>
-							</p>
-							<p className="mt-0.5 text-muted-foreground text-xs leading-relaxed">
-								{persona.description}
-							</p>
-							<div className="mt-2 flex gap-1.5">
-								{persona.platforms.map((platform) => (
-									<span
-										key={platform}
-										className="rounded-full bg-muted/60 px-2 py-0.5 font-mono text-[9px] text-muted-foreground tracking-wider"
-									>
-										{platform}
-									</span>
-								))}
-							</div>
-						</div>
-					</div>
-				))}
-			</div>
-		</section>
-	);
-}
-
-function ChecklistCard({ items }: { items: ChecklistItem[] }) {
-	const { t } = useTranslation();
-	const { setTab, chatOpen, toggleChat } = useWorkspace();
-	const done = items.filter((item) => item.state === "done").length;
-
-	return (
-		<section className="rounded-xl border bg-card p-5">
-			<div className="flex items-center justify-between">
-				<Kicker>{t("workspace.marketing.checklistKicker")}</Kicker>
-				<span className="font-mono text-[10px] text-muted-foreground">
-					{t("workspace.marketing.checklistDone", {
-						done,
-						total: items.length,
-					})}
+		<div className="rounded-xl border border-destructive/25 bg-destructive/[0.035] p-4">
+			<div className="flex items-start gap-2.5">
+				<span className="mt-0.5 grid size-7 shrink-0 place-items-center rounded-full bg-destructive/10 text-destructive">
+					<AlertTriangle className="size-3.5" aria-hidden />
 				</span>
-			</div>
-			<div className="mt-3 flex flex-col gap-0.5">
-				{items.map((item) => (
-					<div
-						key={item.key}
-						className={cn(
-							"flex items-center gap-3 rounded-lg px-3 py-2.5",
-							item.state === "current" &&
-								"bg-primary/5 ring-1 ring-primary/25 ring-inset",
-						)}
+				<div className="min-w-0 flex-1">
+					<p className="font-medium text-[13.5px] text-foreground">
+						{t("workspace.marketing.loadError")}
+					</p>
+					<Button
+						type="button"
+						variant="ghost"
+						size="sm"
+						className="-ms-2 mt-1 h-7 px-2 text-muted-foreground text-xs"
+						disabled={retrying}
+						onClick={onRetry}
 					>
-						{item.state === "done" ? (
-							<span className="grid size-[18px] shrink-0 place-items-center rounded-full bg-success/15 text-success">
-								<Check className="size-3" strokeWidth={3} />
-							</span>
-						) : item.state === "current" ? (
-							<span className="grid size-[18px] shrink-0 place-items-center rounded-full border-2 border-primary">
-								<span className="size-1.5 rounded-full bg-primary" />
-							</span>
+						{retrying ? (
+							<SpinnerArc className="size-3" />
 						) : (
-							<span className="size-[18px] shrink-0 rounded-full border border-border" />
+							<RefreshCw className="size-3" aria-hidden />
 						)}
-						<div className="min-w-0 flex-1">
-							<p
-								className={cn(
-									"text-sm",
-									item.state === "done" &&
-										"text-muted-foreground line-through decoration-border",
-									item.state === "current" && "font-medium",
-								)}
-							>
-								{item.label}
-							</p>
-							{item.detail ? (
-								<p className="mt-0.5 text-muted-foreground text-xs">
-									{item.detail}
-								</p>
-							) : null}
-						</div>
-						{item.state === "current" ? (
-							<Button
-								size="sm"
-								className="h-7 shrink-0 rounded-lg px-2.5 text-xs"
-								onClick={() => {
-									if (!chatOpen) toggleChat();
-								}}
-							>
-								{t("workspace.marketing.askWandit")}
-							</Button>
-						) : item.linkTab ? (
-							<Button
-								variant="outline"
-								size="sm"
-								className="h-7 shrink-0 rounded-lg px-2.5 text-xs"
-								onClick={() => setTab(item.linkTab as "assets" | "leads")}
-							>
-								{item.linkTab === "leads"
-									? t("workspace.marketing.openLeads")
-									: t("workspace.marketing.view")}
-							</Button>
-						) : null}
-					</div>
-				))}
+						{t("workspace.marketing.retry")}
+					</Button>
+				</div>
 			</div>
-		</section>
+		</div>
 	);
 }
 
-function IdeasCard({ plan }: { plan: MarketingPlan }) {
+function MarketingAssetCard({
+	asset,
+	onOpen,
+}: {
+	asset: MarketingAsset;
+	onOpen: () => void;
+}) {
 	const { t } = useTranslation();
+	const meta = TYPE_META[asset.assetType];
+	const Icon = meta.icon;
+	const working = asset.status === "queued" || asset.status === "generating";
+	const failed = asset.status === "failed";
+	const openable = asset.status === "succeeded";
+
 	return (
-		<section className="rounded-xl border bg-card px-5 py-2">
-			<div className="pt-3 pb-1">
-				<Kicker>{t("workspace.marketing.ideasKicker")}</Kicker>
+		<button
+			type="button"
+			disabled={!openable}
+			onClick={onOpen}
+			className={cn(
+				"group flex flex-col items-stretch rounded-xl border bg-card p-4 text-start transition-shadow",
+				openable && "cursor-pointer hover:shadow-md",
+				failed && "border-destructive/30 bg-destructive/[0.03]",
+				working && "animate-pulse [animation-duration:2.4s]",
+			)}
+		>
+			<div className="flex items-start gap-3">
+				<span
+					className={cn(
+						"grid size-9 shrink-0 place-items-center rounded-lg",
+						failed
+							? "bg-destructive/10 text-destructive"
+							: "bg-primary/10 text-primary",
+					)}
+				>
+					{working ? (
+						<SpinnerArc className="size-4" />
+					) : (
+						<Icon className="size-4" aria-hidden />
+					)}
+				</span>
+				<div className="min-w-0 flex-1">
+					<p className="line-clamp-2 font-medium text-[14px] leading-snug">
+						{asset.name}
+					</p>
+					<p className="mt-1 font-mono text-[10px] text-muted-foreground uppercase tracking-widest">
+						{t(meta.labelKey)}
+					</p>
+				</div>
+				{openable ? (
+					<ChevronRight
+						className="mt-1 size-4 shrink-0 text-muted-foreground/50 transition-transform group-hover:translate-x-0.5"
+						aria-hidden
+					/>
+				) : null}
 			</div>
-			<div className="flex flex-col divide-y">
-				{plan.ideas.map((idea) => {
-					const status = IDEA_STATUS_META[idea.status];
-					return (
-						<div key={idea.key} className="flex items-center gap-3 py-3.5">
-							<div className="min-w-0 flex-1">
-								<p className="font-medium text-sm">{idea.name}</p>
-								<p className="mt-0.5 text-muted-foreground text-xs">
-									{idea.detail}
-								</p>
-							</div>
-							<span className="shrink-0 font-mono text-[9px] text-muted-foreground tracking-widest">
-								{idea.platform}
-							</span>
-							<Badge
-								variant={status.badgeVariant}
-								className="shrink-0 font-mono text-[10px]"
-							>
-								{t(status.labelKey)}
-							</Badge>
-						</div>
-					);
-				})}
+			<div className="mt-3 flex items-center justify-between gap-2 border-t pt-2.5">
+				<span className="font-mono text-[10px] text-muted-foreground">
+					{relativeTime(asset.createdAt)}
+				</span>
+				{working ? (
+					<span className="text-[11px] text-muted-foreground">
+						{asset.status === "generating"
+							? t("workspace.marketing.generating")
+							: t("workspace.marketing.queued")}
+					</span>
+				) : failed ? (
+					<span className="line-clamp-1 text-[11px] text-destructive">
+						{t("workspace.marketing.failed")}
+					</span>
+				) : null}
 			</div>
-		</section>
+		</button>
+	);
+}
+
+function MarketingAssetDetail({
+	asset,
+	onBack,
+}: {
+	asset: MarketingAsset;
+	onBack: () => void;
+}) {
+	const { t } = useTranslation();
+	const htmlQuery = useMarketingAssetHtmlQuery(asset.id);
+	const meta = TYPE_META[asset.assetType];
+
+	return (
+		<div className="flex h-full min-h-0 flex-col">
+			<div className="flex shrink-0 items-center gap-2 border-b px-4 py-2.5 md:px-6">
+				<Button
+					variant="ghost"
+					size="sm"
+					className="h-8 rounded-lg px-2"
+					onClick={onBack}
+				>
+					<ArrowLeft className="size-4" aria-hidden />
+					<span className="hidden sm:inline">
+						{t("workspace.marketing.back")}
+					</span>
+				</Button>
+				<div className="min-w-0 flex-1">
+					<p className="truncate font-medium text-sm">{asset.name}</p>
+					<p className="font-mono text-[10px] text-muted-foreground uppercase tracking-widest">
+						{t(meta.labelKey)}
+					</p>
+				</div>
+				<Button asChild size="sm" variant="outline" className="h-8 rounded-lg">
+					<a href={marketingAssetDownloadUrl(asset.id)}>
+						<Download className="size-3.5" aria-hidden />
+						<span className="hidden sm:inline">
+							{t("workspace.marketing.download")}
+						</span>
+					</a>
+				</Button>
+			</div>
+			<div className="min-h-0 flex-1 p-3 md:p-4">
+				{htmlQuery.isPending ? (
+					<Skeleton className="h-full w-full rounded-xl" />
+				) : htmlQuery.isError ? (
+					<ListError
+						onRetry={() => void htmlQuery.refetch()}
+						retrying={htmlQuery.isFetching}
+					/>
+				) : (
+					<iframe
+						srcDoc={htmlQuery.data.html}
+						sandbox="allow-scripts"
+						title={asset.name}
+						className="h-full w-full rounded-xl border bg-white"
+					/>
+				)}
+			</div>
+		</div>
 	);
 }

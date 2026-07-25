@@ -16,7 +16,7 @@ Spawn autonomous Codex CLI subagents to offload context-heavy work. Subagents bu
 When invoking this skill:
 
 1. **Clarify intent.** Figure out what the user wants. If unclear, ask. Inline args ("use codex to review my auth plan") usually carry the intent — infer from them. Common buckets: second-opinion code review, refactor, plan validation, implementation of features, fresh perspective on a stuck bug, parallel comparison of approaches.
-2. **Pick the reasoning tier.** Always GPT 5.6. Default to `xhigh`; drop to `low` only for trivial lookups (see Model + Reasoning Selection).
+2. **Pick the reasoning tier.** Always `gpt-5.6-sol`. Building/implementation → `ultra` or `xhigh` (follow Zack's demand; default `xhigh`, escalate to `ultra` for the hardest tasks). Research/exploration → `medium` (see Model + Reasoning Selection).
 3. **Spawn the subagent** using the canonical invocation (Basic Usage). Pipe long prompts via stdin.
 4. **Act autonomously while it runs.** Don't ask for permission mid-flight; the parent only sees the final result, so mid-task pauses waste tokens. Pause only for genuinely destructive operations (data loss, external impact, security).
 5. **Monitor, don't fire-and-forget.** Check completion, verify quality, retry on failure, answer follow-ups if blocked. Feel free to run multiple sequential or parallel codex subagents.
@@ -24,7 +24,15 @@ When invoking this skill:
 
 ## Model + Reasoning Selection
 
-Always use GPT 5.5 (latest). **Reasoning effort defaults to `xhigh` — never downgrade to save time or tokens.** Any implementation, refactor, debugging, code review, plan validation, or multi-file analysis counts as high-end work and MUST run at `xhigh`. Use `low` ONLY for trivial mechanical tasks: a single-file lookup, a short docs fetch, a grep-style search with an obvious answer. If you're unsure which tier a task belongs to, that uncertainty itself means it isn't trivial — use `xhigh`.
+Always use `gpt-5.6-sol` (GPT‑5.6 Sol, latest). There is NO standalone `gpt-5.6-sol-ultra` model slug — "Sol Ultra" = `-m gpt-5.6-sol` + `-c 'model_reasoning_effort="ultra"'`.
+
+Pick the reasoning effort by task type:
+
+- **Building / implementation** (features, refactors, debugging, fixes, code review, plan validation, multi-file changes): `xhigh` by default; escalate to `ultra` when the task is especially hard or Zack explicitly asks for it ("use ultra", "sol ultra", "max reasoning"). Never downgrade below `xhigh` to save time or tokens.
+- **Research / exploration** (codebase discovery, architecture analysis, docs lookups, web research, API discovery, "how does X work"): `medium`.
+- **Trivial mechanical lookups** (a single-file read, a grep with an obvious answer): `low` is acceptable.
+
+If you're unsure whether a task is implementation or research, treat it as implementation and use `xhigh`.
 
 ## Intelligent Prompting
 
@@ -83,11 +91,11 @@ Vague prompts produce vague work; specific prompts produce useful work.
 
 **Default: pipe the prompt via stdin using `-` as the positional argument.** Inline string prompts work for short ones, but anything with newlines, quotes, backticks, or `$` should be piped to avoid shell-escaping bugs.
 
-Canonical invocation (capture output to file, GPT 5.5 with xhigh reasoning):
+Canonical invocation (capture output to file, GPT‑5.6 Sol with xhigh reasoning — the implementation default):
 
 ```bash
 cat <<'EOF' | codex exec --yolo --skip-git-repo-check \
-  -m gpt-5.5 -c 'model_reasoning_effort="xhigh"' \
+  -m gpt-5.6-sol -c 'model_reasoning_effort="xhigh"' \
   -o /tmp/codex-result.txt -
 [TASK CONTEXT]
 You are analyzing /path/to/repo.
@@ -103,9 +111,11 @@ EOF
 result=$(cat /tmp/codex-result.txt)
 ```
 
-**Variants** (only what changes from the canonical form):
+**Variants** (only what changes from the canonical form; model always stays `gpt-5.6-sol`):
 
-- **Low-effort task** (simple search, short fetch, basic lookup): swap `-c 'model_reasoning_effort="xhigh"'` → `-c 'model_reasoning_effort="low"'`. Model stays `gpt-5.5`.
+- **Sol Ultra** (hardest implementation tasks, or when Zack asks for ultra): swap effort → `-c 'model_reasoning_effort="ultra"'`.
+- **Research / exploration**: swap effort → `-c 'model_reasoning_effort="medium"'`.
+- **Trivial lookup**: swap effort → `-c 'model_reasoning_effort="low"'`.
 - **Machine-parsable output:** swap `-o /tmp/codex-result.txt` → `--json`, then pipe through `jq -r 'select(.event=="turn.completed") | .content'`. Prefer `-o` whenever possible — it skips JSON parsing and avoids terminal truncation on long outputs.
 
 ## Parallel Subagents
@@ -114,12 +124,12 @@ Spawn multiple subagents for independent tasks — research two topics in parall
 
 ```bash
 cat <<'EOF' | codex exec --yolo --skip-git-repo-check \
-  -m gpt-5.5 -c 'model_reasoning_effort="xhigh"' -o /tmp/agent-a.txt - &
+  -m gpt-5.6-sol -c 'model_reasoning_effort="xhigh"' -o /tmp/agent-a.txt - &
 Approach A: solve [problem] using [strategy A]. Return diff + rationale.
 EOF
 
 cat <<'EOF' | codex exec --yolo --skip-git-repo-check \
-  -m gpt-5.5 -c 'model_reasoning_effort="xhigh"' -o /tmp/agent-b.txt - &
+  -m gpt-5.6-sol -c 'model_reasoning_effort="xhigh"' -o /tmp/agent-b.txt - &
 Approach B: solve [problem] using [strategy B]. Return diff + rationale.
 EOF
 
@@ -137,7 +147,7 @@ When the parent is driving a multi-step engagement — each next call is a _judg
 ```bash
 # Step 1: dispatch the first subagent
 cat <<'EOF' | codex exec --yolo --skip-git-repo-check \
-  -m gpt-5.5 -c 'model_reasoning_effort="xhigh"' \
+  -m gpt-5.6-sol -c 'model_reasoning_effort="xhigh"' \
   -o /tmp/codex-step-1.txt -
 Implement the auth middleware in src/middleware/auth.ts per the spec at docs/auth.md.
 Return: summary of changes + files touched.
@@ -158,7 +168,7 @@ Review the auth middleware changes summarized below for security holes
 EOF
   cat /tmp/codex-step-1.txt
 } | codex exec --yolo --skip-git-repo-check \
-  -m gpt-5.5 -c 'model_reasoning_effort="xhigh"' \
+  -m gpt-5.6-sol -c 'model_reasoning_effort="xhigh"' \
   -o /tmp/codex-step-2.txt -
 
 # Step 3: parent reads /tmp/codex-step-2.txt, dispatches a fix pass — or moves

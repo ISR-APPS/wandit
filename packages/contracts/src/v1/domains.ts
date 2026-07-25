@@ -34,45 +34,51 @@ export const domainTldSchema = z.enum(domainTlds);
 export type DomainTld = z.infer<typeof domainTldSchema>;
 
 export type DomainTldCatalogItem = {
-	registrationCredits: number;
-	renewalCredits: number;
 	wholesaleCeilingUsd: number;
 };
 
+/*
+ * Fail-closed guards around the registrar's wholesale registration quote.
+ *
+ * Every ceiling is 80% of the retail price in DOMAIN_REGISTRATION_USD_CENTS,
+ * guaranteeing at least a 20% gross margin: a purchase whose wholesale quote
+ * exceeds the ceiling is blocked, never sold at a loss. A contract test pins
+ * ceiling < retail for every TLD. The UI never displays these cap values.
+ */
 export const DOMAIN_TLD_CATALOG = {
 	com: {
-		registrationCredits: 120, // PLACEHOLDER — Zack tunes
-		renewalCredits: 120, // PLACEHOLDER — Zack tunes
-		wholesaleCeilingUsd: 15, // PLACEHOLDER — Zack tunes
+		wholesaleCeilingUsd: 24,
 	},
 	net: {
-		registrationCredits: 140, // PLACEHOLDER — Zack tunes
-		renewalCredits: 140, // PLACEHOLDER — Zack tunes
-		wholesaleCeilingUsd: 18, // PLACEHOLDER — Zack tunes
+		wholesaleCeilingUsd: 28,
 	},
 	shop: {
-		registrationCredits: 180, // PLACEHOLDER — Zack tunes
-		renewalCredits: 220, // PLACEHOLDER — Zack tunes
-		wholesaleCeilingUsd: 35, // PLACEHOLDER — Zack tunes
+		wholesaleCeilingUsd: 36,
 	},
 	store: {
-		registrationCredits: 180, // PLACEHOLDER — Zack tunes
-		renewalCredits: 240, // PLACEHOLDER — Zack tunes
-		wholesaleCeilingUsd: 40, // PLACEHOLDER — Zack tunes
+		wholesaleCeilingUsd: 36,
 	},
 	online: {
-		registrationCredits: 160, // PLACEHOLDER — Zack tunes
-		renewalCredits: 220, // PLACEHOLDER — Zack tunes
-		wholesaleCeilingUsd: 35, // PLACEHOLDER — Zack tunes
+		wholesaleCeilingUsd: 32,
 	},
 	site: {
-		registrationCredits: 150, // PLACEHOLDER — Zack tunes
-		renewalCredits: 210, // PLACEHOLDER — Zack tunes
-		wholesaleCeilingUsd: 32, // PLACEHOLDER — Zack tunes
+		wholesaleCeilingUsd: 30,
 	},
 } as const satisfies Record<DomainTld, DomainTldCatalogItem>;
 
-const e164PhoneRegex = /^\+[1-9]\d{1,14}$/;
+// Explicit one-time registration prices. These intentionally remain a
+// separate catalog instead of implying a universal credits-to-USD rate.
+export const DOMAIN_REGISTRATION_USD_CENTS = {
+	com: 3_000,
+	net: 3_500,
+	shop: 4_500,
+	store: 4_500,
+	online: 4_000,
+	site: 3_750,
+} as const satisfies Record<DomainTld, number>;
+
+// Name.com requires a real E.164 number: "+" plus 8–15 digits.
+const e164PhoneRegex = /^\+[1-9]\d{7,14}$/;
 const domainLabelRegex = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const reservedRegistrableDomains = ["wandit.app", "wandit.dev"] as const;
 const reservedSecondLevelDomains = ["wandit-preview"] as const;
@@ -196,12 +202,7 @@ export function parseExternalDomainName(
 
 	const [sld, tld] = labels;
 
-	if (
-		!sld ||
-		!tld ||
-		!isValidDomainLabel(sld) ||
-		!isValidDomainLabel(tld)
-	) {
+	if (!sld || !tld || !isValidDomainLabel(sld) || !isValidDomainLabel(tld)) {
 		return null;
 	}
 
@@ -212,16 +213,12 @@ export function parseExternalDomainName(
 	};
 }
 
-export function registrationPriceFor(name: string) {
+export function registrationUsdCentsFor(name: string) {
 	const parsedDomainName = parseDomainName(name);
 
 	return parsedDomainName
-		? DOMAIN_TLD_CATALOG[parsedDomainName.tld].registrationCredits
+		? DOMAIN_REGISTRATION_USD_CENTS[parsedDomainName.tld]
 		: null;
-}
-
-export function renewalPriceFor(tld: string) {
-	return catalogFor(tld)?.renewalCredits ?? null;
 }
 
 const sanitizedDomainInputSchema = z
@@ -276,22 +273,22 @@ export const registrantSchema = z.object({
 
 export type Registrant = z.infer<typeof registrantSchema>;
 
+/*
+ * Pricing facts frozen onto a payment order at checkout time, so fulfillment
+ * and refunds reason about what was actually charged even if the catalog or
+ * registrar quote changes later. Server-side only — never sent to clients.
+ */
 export const domainPriceSnapshotSchema = z.object({
-	registrationCredits: z.int().positive(),
-	renewalCredits: z.int().positive(),
 	tld: domainTldSchema,
 	wholesaleCeilingUsd: z.number().positive(),
+	chargedAmountCents: z.int().positive(),
+	chargedCurrency: z.string().length(3),
+	// The registrar's wholesale quote at checkout time; null when the order
+	// predates quote capture. The worker re-quotes before registering anyway.
+	quotedWholesaleUsd: z.number().positive().nullable(),
 });
 
 export type DomainPriceSnapshot = z.infer<typeof domainPriceSnapshotSchema>;
-
-export const publicDomainPriceSnapshotSchema = domainPriceSnapshotSchema.omit({
-	wholesaleCeilingUsd: true,
-});
-
-export type PublicDomainPriceSnapshot = z.infer<
-	typeof publicDomainPriceSnapshotSchema
->;
 
 export const requiredDomainRecordSchema = z.object({
 	type: z.enum(["A", "AAAA", "CNAME", "TXT"]),
@@ -323,9 +320,9 @@ export const domainSchema = z.object({
 	whoisPrivacy: z.boolean(),
 	autoRenew: z.boolean(),
 	expiresAt: isoDateTimeSchema.nullable(),
-	provider: z.literal("openprovider").nullable(),
+	// `openprovider` is read-only compatibility for old rows. New rows use Name.com.
+	provider: z.enum(["namecom", "openprovider"]).nullable(),
 	dns: domainDnsSchema.nullable(),
-	priceSnapshot: publicDomainPriceSnapshotSchema.nullable(),
 	error: z.string().nullable(),
 	createdAt: isoDateTimeSchema,
 	updatedAt: isoDateTimeSchema,
@@ -357,8 +354,11 @@ export const searchDomainsResultSchema = z.object({
 	name: domainNameSchema,
 	tld: domainTldSchema,
 	availability: domainAvailabilityStatusSchema,
-	registrationCredits: z.int().positive(),
-	renewalCredits: z.int().positive(),
+	// Retail price in USD, derived server-side from DOMAIN_REGISTRATION_USD_CENTS.
+	// `null` means there is no safe purchasable quote (premium, missing, or
+	// over-ceiling wholesale) — never substitute a mock or fallback price.
+	// The registrar's wholesale quote stays server-side and never crosses the wire.
+	registrationPriceUsd: z.number().positive().nullable(),
 });
 
 export type SearchDomainsResult = z.infer<typeof searchDomainsResultSchema>;
@@ -374,21 +374,6 @@ export const listDomainsResponseSchema = z.object({
 });
 
 export type ListDomainsResponse = z.infer<typeof listDomainsResponseSchema>;
-
-export const purchaseDomainBodySchema = z.object({
-	name: domainNameSchema,
-	registrant: registrantSchema,
-});
-
-export type PurchaseDomainBody = z.infer<typeof purchaseDomainBodySchema>;
-
-export const purchaseDomainResponseSchema = z.object({
-	domain: domainSchema,
-});
-
-export type PurchaseDomainResponse = z.infer<
-	typeof purchaseDomainResponseSchema
->;
 
 export const attachExternalDomainBodySchema = z.object({
 	name: externalDomainNameSchema,
@@ -413,12 +398,6 @@ export const verifyDomainResponseSchema = z.object({
 });
 
 export type VerifyDomainResponse = z.infer<typeof verifyDomainResponseSchema>;
-
-export const renewDomainResponseSchema = z.object({
-	domain: domainSchema,
-});
-
-export type RenewDomainResponse = z.infer<typeof renewDomainResponseSchema>;
 
 export const updateDomainAutoRenewBodySchema = z.object({
 	autoRenew: z.boolean(),
@@ -462,11 +441,9 @@ export type DetachDomainResponse = z.infer<typeof detachDomainResponseSchema>;
 export const domainsRoutes = {
 	search: "/api/v1/domains/search",
 	listByProject: (projectId: string) => `/api/v1/projects/${projectId}/domains`,
-	purchase: (projectId: string) => `/api/v1/projects/${projectId}/domains`,
 	external: (projectId: string) =>
 		`/api/v1/projects/${projectId}/domains/external`,
 	verify: (domainId: string) => `/api/v1/domains/${domainId}/verify`,
-	renew: (domainId: string) => `/api/v1/domains/${domainId}/renew`,
 	autoRenew: (domainId: string) => `/api/v1/domains/${domainId}/auto-renew`,
 	primary: (domainId: string) => `/api/v1/domains/${domainId}/primary`,
 	transferUnlock: (domainId: string) =>

@@ -21,6 +21,7 @@ import {
 
 import { Logo } from "@/components/logo";
 import {
+	buildAuthCallbackUrls,
 	registerAuthRedirectHandler,
 	sanitizeAuthRedirectPath,
 } from "@/lib/auth-navigation";
@@ -122,7 +123,7 @@ export function AuthModalProvider({ children }: { children: React.ReactNode }) {
 
 	useEffect(() => {
 		return registerAuthRedirectHandler(() => {
-			const next = getCurrentPathname();
+			const next = getCurrentReturnPath();
 			open({ next: next === "/" ? undefined : next });
 		});
 	}, [open]);
@@ -190,8 +191,10 @@ function AuthModalDialog({
 		invalidateSessionCache();
 
 		const destination = nextPath && nextPath !== "/" ? nextPath : "/dashboard";
-		const callbackURL = `${window.location.origin}${destination}`;
-		const errorCallbackURL = `${window.location.origin}/?auth=error`;
+		const { callbackURL, errorCallbackURL } = buildAuthCallbackUrls(
+			window.location.origin,
+			destination,
+		);
 
 		try {
 			const result = await authClient.signIn.social({
@@ -270,12 +273,14 @@ function AuthModalDialog({
 	);
 }
 
-function getCurrentPathname(): string | undefined {
+function getCurrentReturnPath(): string | undefined {
 	if (typeof window === "undefined") {
 		return undefined;
 	}
 
-	return sanitizeAuthRedirectPath(window.location.pathname);
+	return sanitizeAuthRedirectPath(
+		`${window.location.pathname}${window.location.search}`,
+	);
 }
 
 function GoogleIcon({ className }: { className?: string }) {

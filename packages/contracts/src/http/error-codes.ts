@@ -7,6 +7,7 @@ export const apiErrorCodes = [
 	"VALIDATION_ERROR",
 	"NOT_FOUND",
 	"FORBIDDEN",
+	"PAYMENT_PAST_DUE",
 	"RATE_LIMITED",
 	"INTERNAL_ERROR",
 	"HTTP_400",

@@ -48,7 +48,6 @@
 		"primaryColumn": "الرئيسي",
 		"autoRenewColumn": "التجديد التلقائي",
 		"expiryColumn": "الانتهاء",
-		"renewalColumn": "التجديد",
 		"actionsColumn": "الإجراءات",
 		"status": {
 			"registering": "قيد التسجيل",
@@ -63,13 +62,7 @@
 		"makePrimary": "تعيين كنطاق رئيسي",
 		"primarySuccess": "تم تحديث النطاق الرئيسي",
 		"autoRenew": "التجديد التلقائي",
-		"autoRenewOn": "مفعّل",
-		"autoRenewOff": "متوقف",
-		"autoRenewSuccess": "تم تحديث التجديد التلقائي",
 		"noExpiry": "غير محدد",
-		"externalRenewal": "مدار خارجيًا",
-		"renewNow": "جدّد الآن",
-		"renewSuccess": "بدأ التجديد",
 		"transferOut": "النقل للخارج",
 		"authCodeLabel": "رمز Auth/EPP",
 		"icannNote": "قد تمنع ICANN النقل لمدة 60 يومًا بعد التسجيل أو تغيير صاحب التسجيل. احتفظ بهذا الرمز سرًا حتى تكون جاهزًا للنقل.",
@@ -89,18 +82,12 @@
 		"buyStepTitle": {
 			"search": "شراء نطاق",
 			"registrant": "بيانات صاحب التسجيل",
-			"confirm": "تأكيد الشراء",
-			"progress": "إعداد النطاق",
-			"success": "النطاق مباشر",
-			"failed": "فشل الشراء"
+			"confirm": "تأكيد الشراء"
 		},
 		"buyStepDescription": {
 			"search": "ابحث عن اسم ضمن كتالوج الامتدادات المدعومة.",
-			"registrant": "تصبح هذه البيانات سجل صاحب النطاق. تبقى خصوصية WHOIS مفعلة افتراضيًا.",
-			"confirm": "راجع مقدار الأرصدة الدقيق قبل بدء التسجيل.",
-			"progress": "يجري التسجيل وDNS وSSL في الخلفية.",
-			"success": "صفحتك على Wandit متاحة الآن على نطاقها المخصص.",
-			"failed": "لا يوجد زر إعادة محاولة في الإصدار الأول. تم ردّ الطلب الفاشل."
+			"registrant": "تصبح هذه البيانات سجل التسجيل العلني المطلوب من ICANN.",
+			"confirm": "راجع النطاق وبيانات المالك قبل الدفع الآمن عبر Stripe."
 		},
 		"searchLabel": "اسم النطاق",
 		"searchPlaceholder": "brandname",
@@ -112,8 +99,6 @@
 		"searchRetry": "إعادة المحاولة",
 		"continue": "متابعة",
 		"back": "رجوع",
-		"close": "إغلاق",
-		"priceAlwaysVisible": "سعر التسجيل",
 		"firstNameLabel": "الاسم الأول",
 		"lastNameLabel": "اللقب",
 		"emailLabel": "البريد الإلكتروني",
@@ -132,14 +117,6 @@
 		"errorCountry": "استخدم رمز بلد من حرفين.",
 		"confirmDomain": "النطاق",
 		"confirmRegistrant": "صاحب التسجيل",
-		"confirmBurn": "سيستهلك هذا {count} رصيدًا.",
-		"buyConfirmCta": "شراء مقابل {count} رصيد",
-		"polling": "جارٍ التحقق من حالة التسجيل...",
-		"waiting": "بانتظار تحديث الحالة التالي...",
-		"progressRegistering": "التسجيل",
-		"progressConfiguring": "إعداد DNS وSSL",
-		"progressLive": "مباشر",
-		"buySuccess": "نطاقك مباشر الآن.",
 		"openLiveUrl": "فتح الرابط المباشر",
 		"externalTitle": "ربط نطاقك",
 		"externalDescription": "أضف سجلات DNS لدى المسجل، ثم تحقق بعد انتشارها.",
@@ -160,6 +137,18 @@
 		"dnsPurposeOwnership": "يثبت أنك تتحكم في هذا النطاق.",
 		"dnsPurposeRouting": "يوجه زيارات الويب إلى Wandit.",
 		"dnsPurposeApex": "يوجه النطاق الجذر إلى Wandit.",
-		"dnsPurposeGeneric": "مطلوب للتحقق من النطاق."
+		"dnsPurposeGeneric": "مطلوب للتحقق من النطاق.",
+		"autoRenewComingSoon": "التجديد التلقائي قادم قريبًا",
+		"checkoutCta": "المتابعة إلى الدفع",
+		"checkoutNote": "سيتم توجيهك إلى Stripe لدفع {amount}. يبدأ التسجيل مباشرة بعد الدفع.",
+		"premiumUnavailable": "النطاقات المميزة غير مدعومة بعد",
+		"priceUnavailable": "سعر التسجيل غير متوفر"
+	},
+	"slugReserved": "محجوز — جرّب اسمًا آخر",
+	"publishFailed": "فشل النشر الأخير",
+	"historyEmpty": "لا توجد عمليات نشر بعد",
+	"historyStatus": {
+		"pending": "جارٍ النشر…",
+		"failed": "فشل"
 	}
 }

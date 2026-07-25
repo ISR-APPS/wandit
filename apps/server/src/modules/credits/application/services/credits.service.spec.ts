@@ -14,14 +14,13 @@ type SeedLedgerEntry = Pick<
 	"bucket" | "delta" | "kind" | "userId"
 > &
 	Partial<
-		Pick<
-			InsertCreditLedgerEntry,
-			"idempotencyKey" | "meta" | "organizationId"
-		>
+		Pick<InsertCreditLedgerEntry, "idempotencyKey" | "meta" | "organizationId">
 	>;
 
 class InMemoryCreditsRepository {
 	readonly rows: CreditLedgerRow[] = [];
+	readonly transactionInputs: Array<CreditsTransaction | undefined> = [];
+	readonly writeClients: unknown[] = [];
 	private lock: Promise<void> = Promise.resolve();
 	private nextId = 1;
 	private readonly tx = {} as CreditsTransaction;
@@ -29,7 +28,14 @@ class InMemoryCreditsRepository {
 	async withUserLock<T>(
 		_userId: string,
 		fn: (tx: CreditsTransaction) => Promise<T>,
+		transaction?: CreditsTransaction,
 	): Promise<T> {
+		this.transactionInputs.push(transaction);
+
+		if (transaction) {
+			return fn(transaction);
+		}
+
 		const previousLock = this.lock;
 		let releaseLock!: () => void;
 
@@ -68,8 +74,10 @@ class InMemoryCreditsRepository {
 
 	async insertLedgerEntry(
 		input: InsertCreditLedgerEntry,
-		_client?: unknown,
+		client?: unknown,
 	): Promise<CreditLedgerRow> {
+		this.writeClients.push(client);
+
 		if (input.idempotencyKey) {
 			const existing = this.rows.find(
 				(row) => row.idempotencyKey === input.idempotencyKey,
@@ -216,6 +224,41 @@ describe("CreditsService", () => {
 		});
 	});
 
+	it("serializes concurrent reservations so credits cannot be overspent", async () => {
+		const { repository, service } = setup();
+
+		repository.seed({
+			bucket: "plan",
+			delta: 25,
+			kind: "grant",
+			userId: "user_1",
+		});
+
+		const results = await Promise.allSettled([
+			service.consume("user_1", 25, {
+				idempotencyKey: "media-generation:attempt_1",
+			}),
+			service.consume("user_1", 25, {
+				idempotencyKey: "media-generation:attempt_2",
+			}),
+		]);
+		const fulfilled = results.filter((result) => result.status === "fulfilled");
+		const rejected = results.filter((result) => result.status === "rejected");
+
+		expect(fulfilled).toHaveLength(1);
+		expect(rejected).toMatchObject([
+			{ reason: expect.any(InsufficientCreditsError) },
+		]);
+		expect(
+			repository.rows.filter((row) => row.kind === "consume"),
+		).toHaveLength(1);
+		expect(await service.getBalance("user_1")).toEqual({
+			balance: 0,
+			plan: 0,
+			topup: 0,
+		});
+	});
+
 	it("replays consume idempotently without writing new rows", async () => {
 		const { repository, service } = setup();
 
@@ -242,6 +285,70 @@ describe("CreditsService", () => {
 
 		expect(secondRows).toEqual(firstRows);
 		expect(repository.rows).toHaveLength(rowCount);
+	});
+
+	it("refunds the original plan/top-up split exactly once", async () => {
+		const { repository, service } = setup();
+
+		repository.seed({
+			bucket: "plan",
+			delta: 5,
+			kind: "grant",
+			userId: "user_1",
+		});
+		repository.seed({
+			bucket: "topup",
+			delta: 10,
+			kind: "topup",
+			userId: "user_1",
+		});
+		await service.consume("user_1", 8, {
+			idempotencyKey: "media-generation:attempt_1",
+		});
+
+		const firstRefund = await service.refundConsume(
+			"user_1",
+			"media-generation:attempt_1",
+			{ attemptId: "attempt_1" },
+		);
+		const rowCount = repository.rows.length;
+		const replayedRefund = await service.refundConsume(
+			"user_1",
+			"media-generation:attempt_1",
+			{ attemptId: "attempt_1" },
+		);
+
+		expect(firstRefund).toMatchObject([
+			{
+				bucket: "plan",
+				delta: 5,
+				idempotencyKey: "refund:media-generation:attempt_1:plan",
+				kind: "grant",
+				meta: {
+					attemptId: "attempt_1",
+					consumeLedgerId: "ledger_3",
+					reason: "generation_refund",
+				},
+			},
+			{
+				bucket: "topup",
+				delta: 3,
+				idempotencyKey: "refund:media-generation:attempt_1:topup",
+				kind: "grant",
+				meta: {
+					attemptId: "attempt_1",
+					consumeLedgerId: "ledger_4",
+					reason: "generation_refund",
+				},
+			},
+		]);
+		expect(replayedRefund).toEqual(firstRefund);
+		expect(repository.rows).toHaveLength(rowCount);
+		expect(await service.getBalance("user_1")).toEqual({
+			balance: 15,
+			plan: 5,
+			topup: 10,
+		});
 	});
 
 	it("expires only positive plan remainder and is replay-safe", async () => {
@@ -306,6 +413,81 @@ describe("CreditsService", () => {
 			idempotencyKey: "expire:amount_1",
 			kind: "expire",
 		});
+	});
+
+	it("revokes from top-up by default and replays the idempotency key without a new row", async () => {
+		const { repository, service } = setup();
+
+		const first = await service.revoke("user_1", 25, {
+			idempotencyKey: "refund:ch_1:250",
+			meta: {
+				chargeId: "ch_1",
+				reason: "charge_refunded",
+			},
+		});
+		const rowCount = repository.rows.length;
+		const replay = await service.revoke("user_1", 25, {
+			idempotencyKey: "refund:ch_1:250",
+			meta: {
+				chargeId: "ch_1",
+				reason: "charge_refunded",
+			},
+		});
+
+		expect(first).toMatchObject({
+			bucket: "topup",
+			delta: -25,
+			idempotencyKey: "refund:ch_1:250",
+			kind: "revoke",
+			meta: {
+				chargeId: "ch_1",
+				reason: "charge_refunded",
+			},
+		});
+		expect(replay).toEqual(first);
+		expect(repository.rows).toHaveLength(rowCount);
+	});
+
+	it("revokes from an explicitly selected original bucket", async () => {
+		const { repository, service } = setup();
+
+		const row = await service.revoke("user_1", 40, {
+			bucket: "plan",
+			idempotencyKey: "refund:ch_plan:400",
+			meta: {
+				chargeId: "ch_plan",
+				reason: "charge_refunded",
+			},
+		});
+
+		expect(row).toMatchObject({
+			bucket: "plan",
+			delta: -40,
+			idempotencyKey: "refund:ch_plan:400",
+			kind: "revoke",
+		});
+		expect(repository.rows).toHaveLength(1);
+	});
+
+	it("reuses an existing transaction for a charge-locked revocation", async () => {
+		const { repository, service } = setup();
+		const transaction = {
+			kind: "existing-charge-lock-transaction",
+		} as unknown as CreditsTransaction;
+
+		await service.revoke(
+			"user_1",
+			40,
+			{
+				bucket: "plan",
+				idempotencyKey: "dispute:dp_1",
+				meta: { chargeId: "ch_1" },
+			},
+			transaction,
+		);
+
+		expect(repository.transactionInputs).toEqual([transaction]);
+		expect(repository.writeClients).toEqual([transaction]);
 	});
 
 	it("grants signup credits with the expected amount and idempotency key", async () => {

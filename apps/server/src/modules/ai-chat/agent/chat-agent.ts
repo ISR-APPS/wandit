@@ -2,8 +2,27 @@ import type { AiChatTools } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import { ToolLoopAgent, type UIMessage } from "ai";
 
+import type { PageEditsService } from "../../pages/application/services/page-edits.service";
 import { WANDIT_SYSTEM_PROMPT } from "./system-prompt";
+import {
+	type AnimateImageTool,
+	type AnimateImageToolDeps,
+	animateImageToolSchemaOnly,
+	createAnimateImageTool,
+} from "./tools/animate-image.tool";
 import { askUserTool } from "./tools/ask-user.tool";
+import {
+	createGenerateImageTool,
+	type GenerateImageTool,
+	type GenerateImageToolDeps,
+	generateImageToolSchemaOnly,
+} from "./tools/generate-image.tool";
+import {
+	createGenerateMarketingAssetTool,
+	type GenerateMarketingAssetTool,
+	type GenerateMarketingAssetToolDeps,
+	generateMarketingAssetToolSchemaOnly,
+} from "./tools/generate-marketing-asset.tool";
 import {
 	createGeneratePageTool,
 	type GeneratePageTool,
@@ -14,27 +33,59 @@ import {
 	getDirectionCandidatesTool,
 	getDirectionCandidatesToolSchemaOnly,
 } from "./tools/get-direction-candidates.tool";
+import {
+	createPageEditTools,
+	type PageEditTools,
+	pageEditToolsSchemaOnly,
+} from "./tools/page-edit.tools";
 import { readSkillToolSchemaOnly } from "./tools/read-skill.tool";
+import {
+	createScrapeLeadsTool,
+	type ScrapeLeadsTool,
+	type ScrapeLeadsToolDeps,
+	scrapeLeadsToolSchemaOnly,
+} from "./tools/scrape-leads.tool";
 
 type AiChatToolSet = {
+	animate_image: AnimateImageTool;
 	ask_user: typeof askUserTool;
-	get_direction_candidates: typeof getDirectionCandidatesTool;
+	generate_image: GenerateImageTool;
+	generate_marketing_asset: GenerateMarketingAssetTool;
 	generate_page: GeneratePageTool;
+	get_direction_candidates: typeof getDirectionCandidatesTool;
+	scrape_leads: ScrapeLeadsTool;
+	get_page_outline: PageEditTools["get_page_outline"];
+	read_section: PageEditTools["read_section"];
+	replace_section: PageEditTools["replace_section"];
 };
 
 export type WanditUIMessage = UIMessage<never, never, AiChatTools>;
 
+// Everything the per-request tools need: generate_page's queue deps, the
+// scrape_leads queue deps, plus the edit tools' mutation service.
+export type ChatAgentDeps = GeneratePageToolDeps &
+	Omit<ScrapeLeadsToolDeps, "chatId" | "projectId"> & {
+		pageEditsService: PageEditsService;
+	} & Omit<AnimateImageToolDeps, "chatId" | "projectId"> &
+	Omit<GenerateMarketingAssetToolDeps, "chatId" | "projectId"> &
+	Omit<GenerateImageToolDeps, "chatId" | "projectId">;
+
 /**
  * The agent is built PER REQUEST now (it used to be a module singleton):
- * generate_page must know which project/chat it acts for, and those ids only
- * exist once the controller has loaded the owned chat. Everything else —
- * prompt, model, provider options — is unchanged.
+ * generate_page and the page-edit tools must know which project/chat they act
+ * for, and those ids only exist once the controller has loaded the owned
+ * chat. contextBlock is the pre-built per-request text from
+ * request-context.ts (mode metadata, preview selection, manual-edit notes),
+ * appended to the static system prompt when present.
  */
 export function createChatAgent(
-	deps: GeneratePageToolDeps,
+	deps: ChatAgentDeps,
+	contextBlock?: string | null,
 ): ToolLoopAgent<never, AiChatToolSet> {
 	return new ToolLoopAgent({
-		instructions: WANDIT_SYSTEM_PROMPT,
+		instructions: contextBlock
+			? `${WANDIT_SYSTEM_PROMPT}\n\n${contextBlock}`
+			: WANDIT_SYSTEM_PROMPT,
 		model: env.AI_CHAT_MODEL,
 		providerOptions: {
 			// Anthropic's fine-grained tool streaming can emit unvalidated JSON.
@@ -42,11 +93,59 @@ export function createChatAgent(
 			// Gemini 3 thinking level — only Google models read this key;
 			// every other provider ignores it.
 			google: { thinkingConfig: { thinkingLevel: "high" } },
+			// The brief IS the product: the brain must reason hard when it
+			// composes one. Only OpenAI models read this key.
+			openai: { reasoningEffort: "high" },
 		},
 		tools: {
+			animate_image: createAnimateImageTool({
+				availableImages: deps.availableImages,
+				chatId: deps.chatId,
+				generationPolicyService: deps.generationPolicyService,
+				mediaGenerationsRepository: deps.mediaGenerationsRepository,
+				projectId: deps.projectId,
+				requireSelectedSource: deps.requireSelectedSource,
+				requestKeySeed: deps.requestKeySeed,
+				selectedSourceImage: deps.selectedSourceImage,
+				userId: deps.userId,
+			}),
 			ask_user: askUserTool,
-			generate_page: createGeneratePageTool(deps),
+			generate_image: createGenerateImageTool({
+				availableImages: deps.availableImages,
+				chatId: deps.chatId,
+				generationPolicyService: deps.generationPolicyService,
+				imageGenerationsRepository: deps.imageGenerationsRepository,
+				projectId: deps.projectId,
+				quality: deps.quality,
+				requestKeySeed: deps.requestKeySeed,
+				userId: deps.userId,
+			}),
+			generate_marketing_asset: createGenerateMarketingAssetTool({
+				chatId: deps.chatId,
+				generationPolicyService: deps.generationPolicyService,
+				marketingAssetsRepository: deps.marketingAssetsRepository,
+				projectId: deps.projectId,
+				quality: deps.quality,
+				requestKeySeed: deps.requestKeySeed,
+				userId: deps.userId,
+			}),
+			generate_page: createGeneratePageTool({
+				chatId: deps.chatId,
+				pagesRepository: deps.pagesRepository,
+				projectId: deps.projectId,
+			}),
 			get_direction_candidates: getDirectionCandidatesTool,
+			scrape_leads: createScrapeLeadsTool({
+				chatId: deps.chatId,
+				leadScrapesRepository: deps.leadScrapesRepository,
+				projectId: deps.projectId,
+				requestCountryCode: deps.requestCountryCode,
+			}),
+			...createPageEditTools({
+				pageEditsService: deps.pageEditsService,
+				pagesRepository: deps.pagesRepository,
+				projectId: deps.projectId,
+			}),
 		},
 	});
 }
@@ -55,12 +154,17 @@ export function createChatAgent(
  * Static, execute-less tool map used ONLY by validateUIMessages in the
  * controller. Validation needs the input/output schemas, never execute —
  * using schema-only twins means history validation can never run a tool
- * (re-read a skill, queue a build) by accident.
+ * (re-read a skill, queue a build, write a version) by accident.
  */
 export const aiChatToolsForValidation = {
+	animate_image: animateImageToolSchemaOnly,
 	ask_user: askUserTool,
+	generate_image: generateImageToolSchemaOnly,
+	generate_marketing_asset: generateMarketingAssetToolSchemaOnly,
 	generate_page: generatePageToolSchemaOnly,
+	scrape_leads: scrapeLeadsToolSchemaOnly,
 	get_direction_candidates: getDirectionCandidatesToolSchemaOnly,
+	...pageEditToolsSchemaOnly,
 	// read_skill was retired from the live agent; the schema stays so chats
 	// that used it still validate.
 	read_skill: readSkillToolSchemaOnly,

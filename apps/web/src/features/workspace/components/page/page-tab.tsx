@@ -4,18 +4,34 @@
 // background (queued/generating) and the version's HTML is fetched separately
 // once it exists — see api/pages.queries.ts. Its controls (version switcher,
 // viewport toggle, preview actions) live in the main card's header — see
-// shell/main-pane-header.tsx / page-toolbar.tsx (still on mock versions this
-// slice). The right edge of the stage is reserved column space for a future
-// element-inspector rail (click-to-edit, post-MVP).
+// shell/main-pane-header.tsx / page-toolbar.tsx (real page versions
+// slice).
+// WS2: the preview doubles as the click-to-target / inline-editor surface —
+// the srcDoc gets the preview-editor script injected at render time (never
+// into the canonical HTML), the postMessage bridge feeds the PageEditor
+// context, and the left-pane edit panel (edit-panel.tsx, swapped in for the
+// chat by workspace-page.tsx) + save bar/dialogs render the pending op batch
+// (contract §6/§7.1/§11).
 // Failure-state strings are hardcoded English this pass (same temporary rule
 // as the request-tray chrome); they move to the dictionary later.
 
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+} from "@wandit/ui/components/alert-dialog";
 import { Button } from "@wandit/ui/components/button";
 import { Skeleton } from "@wandit/ui/components/skeleton";
 import { cn } from "@wandit/ui/lib/utils";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, Loader2 } from "lucide-react";
 import { motion } from "motion/react";
-import { useEffect, useState } from "react";
+import type * as React from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Spark } from "@/components/logo";
 import { useDictionary, useTranslation } from "@/lib/i18n";
@@ -23,23 +39,135 @@ import {
 	usePageOverviewQuery,
 	useVersionHtmlQuery,
 } from "../../api/pages.queries";
+import { injectPreviewEditor } from "../../lib/preview-editor/inject";
+import { setModeMessage } from "../../lib/preview-editor/messages";
+import { usePreviewBridge } from "../../lib/preview-editor/use-preview-bridge";
 import { useWorkspace } from "../../lib/store";
+import { usePageEditor } from "../../lib/use-page-editor";
 
 export function PageTab({ reloadKey }: { reloadKey: number }) {
 	return (
 		<div className="flex h-full min-h-0 flex-col">
-			{/* The stage floor is plain parchment (3a reference) — one step
-			    lighter than the sand card that hosts it. */}
-			<div className="relative min-h-0 flex-1 overflow-hidden bg-background">
-				<PreviewStage reloadKey={reloadKey} />
+			<SaveBar />
+			<div className="flex min-h-0 flex-1">
+				{/* The stage floor is plain parchment (3a reference) — one step
+				    lighter than the sand card that hosts it. The stage keeps the
+				    full row width: edit (Modifier) controls live in the LEFT pane
+				    (edit-panel.tsx, swapped in for the chat by workspace-page.tsx),
+				    not in a rail beside the preview. */}
+				<div className="relative min-h-0 flex-1 overflow-hidden bg-background">
+					<PreviewStage reloadKey={reloadKey} />
+				</div>
+			</div>
+			<DiscardConfirmDialog />
+			<ConflictDialog />
+		</div>
+	);
+}
+
+/** Slim pending-changes strip above the stage — appears with the first
+    recorded op, persists ONE new version per Save (contract §7.1). */
+function SaveBar() {
+	const { t } = useTranslation();
+	const editor = usePageEditor();
+	if (editor.dirtyCount === 0) return null;
+	return (
+		<div className="flex shrink-0 items-center justify-between gap-3 border-b bg-card px-3.5 py-2">
+			<span className="text-muted-foreground text-xs">
+				{t("workspace.page.editor.changesCount", {
+					count: editor.dirtyCount,
+				})}
+			</span>
+			<div className="flex items-center gap-1.5">
+				<Button
+					variant="ghost"
+					size="sm"
+					className="h-7"
+					disabled={editor.isSaving}
+					onClick={() => editor.openDiscardPrompt(null)}
+				>
+					{t("workspace.page.editor.discard")}
+				</Button>
+				<Button
+					size="sm"
+					className="h-7"
+					disabled={editor.isSaving}
+					onClick={() => void editor.save()}
+				>
+					{editor.isSaving ? (
+						<Loader2 className="size-3.5 animate-spin" aria-hidden />
+					) : null}
+					{t("workspace.page.editor.save")}
+				</Button>
 			</div>
 		</div>
+	);
+}
+
+function DiscardConfirmDialog() {
+	const { t } = useTranslation();
+	const editor = usePageEditor();
+	return (
+		<AlertDialog
+			open={editor.discardPrompt !== null}
+			onOpenChange={(open) => {
+				if (!open) editor.cancelDiscardPrompt();
+			}}
+		>
+			<AlertDialogContent>
+				<AlertDialogHeader>
+					<AlertDialogTitle>
+						{t("workspace.page.editor.discardConfirm")}
+					</AlertDialogTitle>
+					<AlertDialogDescription>
+						{t("workspace.page.editor.changesCount", {
+							count: editor.dirtyCount,
+						})}
+					</AlertDialogDescription>
+				</AlertDialogHeader>
+				<AlertDialogFooter>
+					<AlertDialogCancel onClick={editor.cancelDiscardPrompt}>
+						{t("workspace.page.editor.discardKeep")}
+					</AlertDialogCancel>
+					<AlertDialogAction onClick={editor.confirmDiscardPrompt}>
+						{t("workspace.page.editor.discard")}
+					</AlertDialogAction>
+				</AlertDialogFooter>
+			</AlertDialogContent>
+		</AlertDialog>
+	);
+}
+
+/** 409 VERSION_CONFLICT — the only sane recovery is reload-from-latest
+    (contract §7.1: client should refetch and re-edit). */
+function ConflictDialog() {
+	const { t } = useTranslation();
+	const editor = usePageEditor();
+	return (
+		<AlertDialog open={editor.conflictOpen}>
+			<AlertDialogContent>
+				<AlertDialogHeader>
+					<AlertDialogTitle>
+						{t("workspace.page.editor.conflictTitle")}
+					</AlertDialogTitle>
+					<AlertDialogDescription>
+						{t("workspace.page.editor.conflictBody")}
+					</AlertDialogDescription>
+				</AlertDialogHeader>
+				<AlertDialogFooter>
+					<AlertDialogAction onClick={editor.resolveConflict}>
+						{t("workspace.page.editor.conflictReload")}
+					</AlertDialogAction>
+				</AlertDialogFooter>
+			</AlertDialogContent>
+		</AlertDialog>
 	);
 }
 
 function PreviewStage({ reloadKey }: { reloadKey: number }) {
 	const { t } = useTranslation();
 	const { project, projectId, viewport } = useWorkspace();
+	const editor = usePageEditor();
 
 	const overviewQuery = usePageOverviewQuery(projectId);
 	const overview = overviewQuery.data;
@@ -47,6 +175,71 @@ function PreviewStage({ reloadKey }: { reloadKey: number }) {
 	// Immutable HTML, fetched once per version (staleTime Infinity).
 	const htmlQuery = useVersionHtmlQuery(activeVersion?.id);
 	const html = htmlQuery.data?.html ?? "";
+
+	// The cache keeps the CANONICAL html; the editor script is injected at
+	// render time only (contract §11 — never part of published output).
+	const previewHtml = useMemo(
+		() => (html ? injectPreviewEditor(html) : html),
+		[html],
+	);
+
+	const iframeRef = useRef<HTMLIFrameElement>(null);
+	const modeRef = useRef(editor.mode);
+	modeRef.current = editor.mode;
+	// The wid of the LAST select the user produced in this document — the
+	// only element a text-edited message may target. Deliberately not
+	// cleared on deselect/chip-clear (the editor script emits text-edited
+	// BEFORE deselect, and a chip clear can race a still-open contentEditable
+	// session); reset on every iframe remount (onReady).
+	const lastSelectWidRef = useRef<string | null>(null);
+
+	// Same-frame forgery guard: generated page JS shares the iframe's
+	// contentWindow with the injected editor script, so the `event.source`
+	// check alone cannot tell them apart — any child message is spoofable
+	// from inside the sandbox. Gate what each message may do: selections
+	// only while a targeting mode is active, text edits only for the element
+	// the user actually selected (the editor script always emits `select`
+	// from a real click before any `text-edited` for that element). Residual
+	// risk — a hostile page forging select+text-edited while the user is
+	// targeting — stays visible in the inspector/save bar and only persists
+	// through an explicit user Save of plain text (the server escapes it).
+	const post = usePreviewBridge({
+		iframeRef,
+		onSelect: (selection) => {
+			if (modeRef.current === "browse") return;
+			lastSelectWidRef.current = selection.wid;
+			editor.setSelection(selection);
+		},
+		onDeselect: () => editor.setSelection(null),
+		onTextEdited: (wid, value) => {
+			if (modeRef.current === "browse") return;
+			if (lastSelectWidRef.current !== wid) return;
+			editor.recordText(wid, value);
+		},
+		// The iframe remounts per version/reload/discard — sync the mode as
+		// soon as its editor script boots, then re-apply any pending live
+		// tweaks (edits recorded during an in-flight save survive the remount
+		// as pending state and must stay visible).
+		onReady: () => {
+			lastSelectWidRef.current = null;
+			iframeRef.current?.contentWindow?.postMessage(
+				setModeMessage(modeRef.current),
+				"*",
+			);
+			editor.replayPending();
+		},
+	});
+
+	// Panels (element/theme) post live messages through the provider.
+	useEffect(() => {
+		editor.registerPost(post);
+		return () => editor.registerPost(null);
+	}, [editor.registerPost, post]);
+
+	// Mode toggles arrive from the toolbar — mirror them into the iframe.
+	useEffect(() => {
+		post(setModeMessage(editor.mode));
+	}, [editor.mode, post]);
 
 	const attempt = overview?.latestAttempt ?? null;
 	const isBuilding =
@@ -116,9 +309,10 @@ function PreviewStage({ reloadKey }: { reloadKey: number }) {
 					)}
 				>
 					<PreviewFrame
-						key={`${activeVersion.id}-${reloadKey}-${viewport}`}
-						html={html}
+						key={`${activeVersion.id}-${reloadKey}-${viewport}-${editor.discardCount}`}
+						html={previewHtml}
 						title={`${project?.name ?? t("workspace.page.previewFallback")} — v${activeVersion.number}`}
+						frameRef={iframeRef}
 					/>
 					{/* Bezel handle bar — physically centered; no reading direction. */}
 					{mobile ? (
@@ -128,7 +322,9 @@ function PreviewStage({ reloadKey }: { reloadKey: number }) {
 						/>
 					) : null}
 				</div>
-				{isBuilding ? (
+				{/* While editing, the overlay would swallow the editor's clicks —
+				    keep it browse-only (the toolbar still shows build status). */}
+				{isBuilding && editor.mode === "browse" ? (
 					<div className="absolute inset-0 z-10 grid place-items-center bg-background/55 backdrop-blur-[2px]">
 						<GeneratingPanel pendingVersionNumber={pendingVersionNumber} />
 					</div>
@@ -140,12 +336,22 @@ function PreviewStage({ reloadKey }: { reloadKey: number }) {
 
 /**
  * Sandboxed preview — no allow-same-origin, mirroring how user HTML will be
- * isolated in production. Remounted (via key) on version switch or reload.
+ * isolated in production (the editor bridge relies on this opaque origin —
+ * contract §11). Remounted (via key) on version switch, reload, or discard.
  */
-function PreviewFrame({ html, title }: { html: string; title: string }) {
+function PreviewFrame({
+	html,
+	title,
+	frameRef,
+}: {
+	html: string;
+	title: string;
+	frameRef: React.RefObject<HTMLIFrameElement | null>;
+}) {
 	const [loaded, setLoaded] = useState(false);
 	return (
 		<iframe
+			ref={frameRef}
 			srcDoc={html}
 			sandbox="allow-scripts allow-forms"
 			title={title}

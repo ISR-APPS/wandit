@@ -5,6 +5,10 @@
 // className) and self-inerts when collapsed.
 
 import { useQueryClient } from "@tanstack/react-query";
+import type {
+	ComposerMetadata,
+	UploadAttachmentResponse,
+} from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import {
 	DropdownMenu,
@@ -19,7 +23,13 @@ import {
 	TooltipTrigger,
 } from "@wandit/ui/components/tooltip";
 import { cn } from "@wandit/ui/lib/utils";
-import { AlertTriangle, MoreHorizontal, PanelLeftClose } from "lucide-react";
+import {
+	AlertTriangle,
+	Crosshair,
+	MoreHorizontal,
+	PanelLeftClose,
+	X,
+} from "lucide-react";
 import { AnimatePresence } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
@@ -29,6 +39,7 @@ import { useDictionary, useTranslation } from "@/lib/i18n";
 import { pageKeys } from "../../api/pages.queries";
 import { useWorkspace } from "../../lib/store";
 import { useAiChat } from "../../lib/use-ai-chat";
+import { usePageEditor } from "../../lib/use-page-editor";
 import { ThinkingIndicator } from "./chat-message";
 import { MOCK_CHAT_THREAD_ENABLED, MockChatThread } from "./mock-thread";
 import { MessageParts } from "./parts/message-parts";
@@ -81,21 +92,44 @@ export function ChatPane({ className }: { className?: string }) {
 			(part) =>
 				(part.type === "text" && part.text.length > 0) ||
 				part.type === "tool-ask_user" ||
-				part.type === "tool-generate_page",
+				part.type === "tool-generate_page" ||
+				part.type === "tool-scrape_leads" ||
+				part.type === "tool-animate_image",
 		);
 	const showThinking = isSubmitting && !replyHasVisibleContent;
 
+	// Click-to-target (contract §12): the active selection renders as a
+	// removable chip above the composer and rides the NEXT send as
+	// metadata.selectedWid (WS3 wires the transport; the ref records it now).
+	const editor = usePageEditor();
+
 	// Submit routing: while an ask is docked, typed text ANSWERS it (free-text
 	// ask, or typing-override on a chips ask) instead of opening a new user
-	// turn; otherwise it's a normal message. `false` from sendText keeps the
-	// draft (PromptBox clearOnSubmit contract).
-	const handleComposerSubmit = (prompt: string) => {
+	// turn; otherwise it's a normal message carrying the composer metadata and
+	// any uploaded attachments as AI SDK file parts. `false` from sendText
+	// keeps the draft (PromptBox clearOnSubmit contract).
+	const handleComposerSubmit = async (
+		prompt: string,
+		composer: ComposerMetadata,
+		attachments: UploadAttachmentResponse[],
+	) => {
 		if (tray.answerable) {
 			tray.answerFreeText(prompt);
 			setComposerText("");
-			return;
+			return true;
 		}
-		return sendText(prompt);
+		// Select (Cibler) is the ONLY mode whose selection rides the chat —
+		// an edit-mode selection belongs to the inspector and must neither
+		// attach nor be consumed by a send (contract §4).
+		const isTargeting = editor.mode === "select";
+		const sent = await sendText(prompt, {
+			files: attachments,
+			composer,
+			selectedWid: isTargeting ? editor.selection?.wid : undefined,
+		});
+		// Selection is per-message: a successful send consumes the chip.
+		if (sent && isTargeting) editor.clearSelection();
+		return sent;
 	};
 
 	// While ask_user is docked, the normal send arrow becomes the answer CTA.
@@ -107,13 +141,15 @@ export function ChatPane({ className }: { className?: string }) {
 	const answerSubmitLabel =
 		tray.answerMode === "text"
 			? t("workspace.chat.tray.answer")
-			: tray.selectedCount > 0
-				? t("workspace.chat.tray.chooseSelected", {
-						count: tray.selectedCount,
-					})
-				: tray.answerMode === "single"
-					? t("workspace.chat.tray.chooseAnOption")
-					: t("workspace.chat.tray.chooseOptions");
+			: tray.answerMode === "attachments"
+				? t("workspace.chat.tray.sendFiles", { count: tray.readyFileCount })
+				: tray.selectedCount > 0
+					? t("workspace.chat.tray.chooseSelected", {
+							count: tray.selectedCount,
+						})
+					: tray.answerMode === "single"
+						? t("workspace.chat.tray.chooseAnOption")
+						: t("workspace.chat.tray.chooseOptions");
 
 	// Keep the newest message in view while history grows or text streams in.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: every dep is an intentional re-scroll trigger
@@ -257,7 +293,7 @@ export function ChatPane({ className }: { className?: string }) {
 										variant="outline"
 										size="sm"
 										className="h-7 rounded-full bg-card px-3 font-normal text-muted-foreground text-xs shadow-none hover:text-foreground"
-										onClick={() => sendText(suggestion)}
+										onClick={() => void sendText(suggestion)}
 									>
 										{suggestion}
 									</Button>
@@ -292,7 +328,7 @@ export function ChatPane({ className }: { className?: string }) {
 										dir="auto"
 										className="text-[13px] text-muted-foreground leading-[1.5]"
 									>
-										{error.message || t("workspace.chat.errors.stream")}
+										{t("workspace.chat.errors.stream")}
 									</p>
 								</div>
 							) : null}
@@ -301,11 +337,47 @@ export function ChatPane({ className }: { className?: string }) {
 				</div>
 
 				<div className="shrink-0 px-4 pt-3.5 pb-4">
+					{/* Click-to-target chip (contract §12) — sibling of the tray slot
+					    on purpose: the tray owns topSlot. Select mode ONLY: an
+					    edit-mode selection is inspector state, never a chat target. */}
+					{editor.mode === "select" && editor.selection ? (
+						<div className="mb-2 flex items-center">
+							<span className="flex min-w-0 items-center gap-1.5 rounded-full border border-primary/30 bg-primary/5 py-1 ps-2.5 pe-1 text-primary text-xs">
+								<Crosshair className="size-3 shrink-0" aria-hidden />
+								<span className="sr-only">
+									{t("workspace.page.editor.selectedElement")}
+								</span>
+								<span dir="ltr" className="min-w-0 truncate font-mono">
+									{editor.selection.wid}
+									{editor.selection.kind === "element" &&
+									editor.selection.sectionWid ? (
+										<span className="text-primary/60">
+											{` · ${editor.selection.sectionWid}`}
+										</span>
+									) : null}
+								</span>
+								<button
+									type="button"
+									aria-label={t("workspace.page.editor.clearTarget")}
+									onClick={editor.clearSelection}
+									className="grid size-5 shrink-0 place-items-center rounded-full transition-colors hover:bg-primary/10"
+								>
+									<X className="size-3" aria-hidden />
+								</button>
+							</span>
+						</div>
+					) : editor.mode === "select" ? (
+						<div className="mb-2 flex items-center gap-1.5 text-muted-foreground text-xs">
+							<Crosshair className="size-3 shrink-0" aria-hidden />
+							{t("workspace.page.editor.targetHint")}
+						</div>
+					) : null}
 					<PromptBox
 						variant="compact"
 						showEngines
 						showPriceTag
 						clearOnSubmit
+						attachmentsEnabled
 						placeholder={t("workspace.chat.placeholder")}
 						onSubmit={handleComposerSubmit}
 						onValueChange={setComposerText}
@@ -335,6 +407,8 @@ export function ChatPane({ className }: { className?: string }) {
 												onPick: tray.onPick,
 												multiSelectedIds: tray.multiSelectedIds,
 												onToggleMulti: tray.onToggleMulti,
+												onBrowseFiles: tray.onBrowseFiles,
+												onRemoveAttachment: tray.onRemoveAttachment,
 											}}
 										/>
 									</TrayReveal>

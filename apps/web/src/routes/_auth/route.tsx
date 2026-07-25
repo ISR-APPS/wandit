@@ -12,7 +12,9 @@ export const Route = createFileRoute("/_auth")({
 				to: "/",
 				search: {
 					auth: "required",
-					next: sanitizeAuthRedirectPath(location.pathname),
+					// Stripe returns order reconciliation state in the query
+					// string. Keep it across a re-authentication redirect.
+					next: sanitizeAuthRedirectPath(location.href),
 				},
 			});
 		}

@@ -13,62 +13,51 @@ One agentic AI chat — Wandit's main selling point. The user types a thin promp
 
 The brain decides what to build and which tools to use. It must NOT be a template machine: same prompt twice → two genuinely different pages.
 
-## Settled architecture (do not relitigate)
+## Settled generation architecture
 
-- **AI SDK `ToolLoopAgent`** — never bare `generateText`. Step zero of any SDK work: verify installed `ai` version + bundled docs (`node_modules/ai/docs/`); APIs churn.
-- **Vercel AI Gateway** for ALL model routing (text/image/video where possible). Models swappable via `provider/model` strings.
-- **No queue for now.** NestJS endpoint → direct SSE streaming → `useChat` on web. (Old Redis/BullMQ path blocked `useChat` — removed.) **Trigger.dev comes later**, once the brain is proven locally; refactor then is cheap.
-- **Web app only** for this rebuild; native chat streaming stays as-is.
-- **Auto mode first.** Manual mode (user picks video type / size / duration) = constraints passed into the same brain, layered later.
-- **Prompt layering:** small always-on system prompt (identity "designer using code", workflow ask→plan→build→verify, page contract) + **markdown skills loaded on demand** via a `read_skill` tool. Skill #1 = landing-page design. Frontend-design knowledge lives in skills, never in the system prompt.
-- Chat-state UI already exists in the workspace (design-system work) — the brain plugs into it.
+- **Brain → Builder. Two agents, one handoff.** The chat Brain gathers business facts AND commits to the art direction (from server-sampled candidates), writing everything into one complete creative brief. A tool-loop Builder implements that brief. The intermediate Art Director stage was tried and retired (2026-07): it burned tokens, added latency, and failed too often — the two-agent flow is the baseline to iterate from.
+- **AI SDK 7.** The Brain and Builder both use `ToolLoopAgent`.
+- **Vercel AI Gateway** routes every model through swappable `provider/model` environment values.
+- **Trigger.dev** runs the Builder in one background task after chat queues a page attempt.
+- **Permanent focused prompts, not a design skill.** These agents exist for one product workflow, so the role-specific methods live in their system prompts.
+- **One tool loop, three enforced review passes.** The Builder must complete at least three screenshot passes (correctness, fidelity/ambition, final verification) AND the final revision must be the one captured — any rewrite invalidates both review gates, so the count can never bless a stale draft.
+- **Web app first.** Native chat streaming remains unchanged.
 
-## The quality + variety engine (from the Claude Design inspection)
+## Quality and variety engine
 
-Sources: `docs/prompts/claude-design.md` (real production dump), `claude-design-light.md` (= repo `claude/system-prompt.md`, identical), Trystan-SA repo skills (reconstruction; use `claude/` variants — `codex/` ones weakened anti-sameness). Memory note: `claude-design-system-inspection.md`.
+Variety comes from server-side randomness plus project-specific reasoning, not from choosing a preset style:
 
-Variety does NOT come from prompt wording — it comes from mechanisms:
-
-1. **Design seed** — server code randomly picks style direction / palette family / layout archetype / type mood per generation, injected into context. Code is random; the model isn't.
-2. **Mandatory aesthetic-direction step** before any HTML ("NEVER converge across generations"; one off-distribution option).
-3. **Anti-slop ban list** (no Inter/Roboto, no gradient abuse, no rounded-card-left-border, no emoji, no filler) + **review gates** as separate steps: slop-check, hierarchy-rhythm, polish.
-4. **Structured questions tool** (à la `questions_v2`): options always include "Explore a few options" / "Decide for me" / "Other"; min 2 options; ask when ambiguous, skip when brief is complete. Ask-mode and auto-mode fill the SAME checklist — only who answers differs.
-5. **Brief-drafter stage** — a cheap subagent call that expands thin prompt + discovery answers + seed into a rich Saraev-style creative brief before generation (the "25 websites" YouTube prompt, manufactured automatically).
-6. **Verification loop** — later a Playwright `verify_landing_page` tool: render → console errors + screenshots → structured defects fed back to the agent.
-7. **Curated section/starter library** beats free-drawing: COD form, WhatsApp CTA, trust strip, sticky mobile CTA, product grid, FAQ; image-slot concept (design around fillable image placeholders → R2).
+1. `get_direction_candidates` samples a bounded random menu (palettes, font pairings, skeletons, layout moves, signature interactions, motion vocabularies, finishes) with industry-hint matching, so two identical prompts get materially different menus.
+2. The Brain must commit to choices from that menu and write them into the brief's ART DIRECTION / PAGE STRUCTURE / SIGNATURE INTERACTION / MOTION / SHOT LIST sections — single-product pages adapt a skeleton, multi-section websites are composed from layout moves with one marked SHOWPIECE.
+3. The brief is law for the Builder: palette hexes, fonts, structure, interaction, and motion are commitments; the Builder's ambition lives in execution (composition, craft, copy rhythm, detail).
+4. The Builder re-reads the final source and completes at least three screenshot review passes over desktop/mobile frames — correctness, then design quality/ambition, then final verification. `finish` refuses fewer than three passes, stale source, or a stale screenshot review. Text-only models and unavailable Chromium degrade explicitly to code review.
 
 ## Algeria layer (no source covers this — we write it)
 
 AR-RTL + FR bilingual, mobile-first; COD forms phone-first with wilaya/commune; WhatsApp/phone trust patterns; page contract: single-file HTML+Tailwind, form posts to our lead endpoint with project form ID, pixel injection.
 
-## Build order
-
-1. **Walking skeleton (current slice):** POST chat endpoint on NestJS → `ToolLoopAgent` (minimal system prompt, zero/trivial tools) → SSE stream → `useChat` in the workspace chat UI. "Hey" round trip, message persistence per existing schema. Nothing else.
-2. System prompt v1 + skill registry (`read_skill` tool + markdown folder) + landing-page design skill.
-3. Generation tools (write page version, patch fragment) + design seed + brief-drafter.
-4. Review gates (slop/hierarchy/polish) + structured questions tool.
-5. Higgsfield MCP + image slots.
-6. Verification tool (Playwright).
-7. Trigger.dev migration + credits metering.
-
-## Generation foundation (built 2026-07-11)
+## Current generation flow
 
 The plumbing that turns a chat brief into a real page. Flow, in words:
 
-1. The chat agent composes a brief and calls the **`generate_page` tool** (server-executed, built per request so it knows its project/chat).
+1. The chat Brain samples direction candidates, composes one complete creative brief, and calls the **`generate_page` tool** once.
 2. The tool checks credentials at CALL time (`isR2Configured()` + `TRIGGER_SECRET_KEY`). Unconfigured → it answers `status: "unavailable"` and the model relays that honestly; nothing breaks at boot.
-3. Configured → it finds-or-creates the project's one landing **artifact**, snapshots `{ title, brief, designerSystemPrompt }` into a **`page_generation_attempts` row** (status `queued`), and fires the **Trigger.dev task** `generate-page` with just the attempt id.
-4. The task (`apps/server/src/trigger/generate-page.task.ts`, no Nest) loads the attempt, flips it to `generating`, runs **`generateText`** with the snapshotted designer prompt (`AI_PAGE_DESIGN_MODEL`, gateway string), sanity-checks the HTML, uploads to **R2** (`sites/{project}/{version}/index.html`), then in one transaction inserts the immutable **version row**, moves the artifact's active pointer, and marks the attempt `succeeded` (failures → `failed` + error text).
-5. The web polls **`GET /api/v1/projects/:id/page`** (overview: artifact + active version + latest attempt) until the attempt settles, then fetches **`GET /api/v1/pages/versions/:id/html`** (JSON envelope) and renders it in a sandboxed iframe.
+3. Configured → it snapshots `{brief, designerSystemPrompt, title}` into a **`page_generation_attempts`** row, then fires the Trigger task with only the attempt id.
+4. The task claims the attempt atomically and runs the Builder with the snapshotted brief and prompt. The Builder generates the brief's SHOT LIST images (and optionally animates one into ambient video), writes one self-contained `index.html`, re-reads it, and captures desktop 1440×900 plus mobile 390×844 screenshots. It fixes all source/render defects across at least three screenshot passes and must visually verify the final write before finishing.
+5. The task validates the file, uploads it to **R2**, then transactionally creates the immutable version, updates the active artifact pointer, and marks the attempt `succeeded`. Errors mark it `failed` with stage-specific text.
+6. The web polls **`GET /api/v1/projects/:id/page`** until the attempt settles, then fetches the active HTML and renders it in a sandboxed iframe.
 
 Pieces and where they live:
-- Designer prompt (Zack's tweak surface): `apps/server/src/modules/ai-chat/agent/designer-prompt.ts` — short wrapper + the landing-page-design skill; snapshotted per attempt for reproducibility.
+- Brain prompt: `apps/server/src/modules/ai-chat/agent/system-prompt.ts`.
+- Direction sampling: `apps/server/src/modules/ai-chat/agent/directions/directions.ts`.
+- Builder method and tool loop: `apps/server/src/modules/ai-chat/agent/site-builder/builder-prompt.ts` and `site-builder-agent.ts`.
 - R2 storage (plain functions, shared by Nest + task): `apps/server/src/infrastructure/storage/r2.ts`.
 - Pages read API + attempt writes: `apps/server/src/modules/pages/**` (PagesRepository is what the tool uses).
-- Trigger config: `apps/server/trigger.config.ts` (project ref is a TODO placeholder). Dev loop: `npx trigger.dev@latest dev` from `apps/server/` once `TRIGGER_SECRET_KEY` exists.
-- Env (all optional, checked at call time): `TRIGGER_SECRET_KEY`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`, `AI_PAGE_DESIGN_MODEL`.
+- Trigger task: `apps/server/src/trigger/generate-page.task.ts`.
+- Models: `AI_CHAT_MODEL` and `AI_PAGE_BUILDER_MODEL`. `AI_PAGE_DESIGN_MODEL` remains the Builder fallback during migration; `AI_PAGE_DESIGN_REASONING` is the optional builder reasoning knob.
+- Infrastructure: `TRIGGER_SECRET_KEY`, `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_BUCKET`.
 
-Deliberately NOT here yet: billing gate (TODO stays in ai-chat.service), regenerate/version switcher, deploy/publish, screenshot verification loop, Trigger Realtime.
+Deliberately NOT here: novelty memory or past-generation fingerprints, multi-candidate judging, preview-generation galleries, billing gate, regenerate/version switcher, deploy/publish, Trigger Realtime.
 
 ## Working rules
 

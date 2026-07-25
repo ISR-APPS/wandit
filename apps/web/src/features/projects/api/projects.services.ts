@@ -70,6 +70,19 @@ export async function renameProject(
 	return updateProjectResponseSchema.parse(data);
 }
 
+// Save the ad pixel ids injected into the published page at publish time.
+// null clears a pixel; the server persists and echoes the full project.
+export async function updateProjectPixels(
+	id: string,
+	pixels: { metaPixelId: string | null; tiktokPixelId: string | null },
+): Promise<Project> {
+	const data = await apiClient.patch<unknown>(
+		projectsRoutes.update(id),
+		pixels,
+	);
+	return updateProjectResponseSchema.parse(data);
+}
+
 // Delete one project. No body is expected back, so there is no schema parse here.
 // The mutation layer handles optimistic removal and rollback.
 export async function deleteProject(id: string): Promise<void> {

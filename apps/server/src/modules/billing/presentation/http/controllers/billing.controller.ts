@@ -82,4 +82,11 @@ export class BillingController {
 	): Promise<BillingSubscriptionViewResponse> {
 		return this.billingService.resume(user);
 	}
+
+	@Post("sync")
+	sync(
+		@CurrentUser() user: AuthUser,
+	): Promise<BillingSubscriptionViewResponse> {
+		return this.billingService.sync(user);
+	}
 }

@@ -1,15 +1,18 @@
 import { tasks } from "@trigger.dev/sdk";
+import { env } from "@wandit/env/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { isR2Configured } from "../../../../infrastructure/storage/r2";
 import type { PagesRepository } from "../../../pages/infrastructure/persistence/pages.repository";
+import { monographe } from "../worlds/monographe";
 import { createGeneratePageTool } from "./generate-page.tool";
 
 // Everything with side effects is replaced: env (credentials), storage
-// (R2 check), the Trigger queue, and the designer prompt (reads a file).
+// (R2 check), the Trigger queue, and the builder prompt.
 vi.mock("@wandit/env/server", () => ({
 	env: {
-		AI_PAGE_DESIGN_MODEL: "test-provider/test-design-model",
+		AI_PAGE_BUILDER_MODEL: "test-provider/test-builder-model",
+		AI_PAGE_DESIGN_MODEL: "test-provider/legacy-builder-model",
 		TRIGGER_SECRET_KEY: "tr_dev_test",
 	},
 }));
@@ -25,7 +28,7 @@ vi.mock("@trigger.dev/sdk", () => ({
 vi.mock("../site-builder/builder-prompt", () => ({
 	buildSiteBuilderSystemPrompt: vi
 		.fn()
-		.mockResolvedValue("designer prompt (test)"),
+		.mockResolvedValue("builder prompt (test)"),
 }));
 
 const INPUT = {
@@ -33,6 +36,11 @@ const INPUT = {
 		"Arabic RTL landing page for handmade kabyle jewelry, Souk Heat direction, " +
 		"COD form phone-first, prices in DZD, WhatsApp CTA.",
 	title: "Kabyle jewelry page",
+};
+
+const mutableEnv = env as {
+	AI_PAGE_BUILDER_MODEL?: string;
+	AI_PAGE_DESIGN_MODEL: string;
 };
 
 function setup() {
@@ -51,7 +59,7 @@ function setup() {
 
 	// The AI SDK calls execute with (input, callOptions); the tool ignores
 	// the call options, so a stub second argument is enough here.
-	const execute = (input: typeof INPUT) => {
+	const execute = (input: typeof INPUT & { worldId?: string }) => {
 		const run = generatePageTool.execute;
 
 		if (!run) {
@@ -68,6 +76,7 @@ function setup() {
 }
 
 beforeEach(() => {
+	mutableEnv.AI_PAGE_BUILDER_MODEL = "test-provider/test-builder-model";
 	vi.mocked(isR2Configured).mockReset();
 	vi.mocked(tasks.trigger).mockReset();
 });
@@ -102,11 +111,11 @@ describe("generate_page tool", () => {
 		expect(pagesRepository.insertAttempt).toHaveBeenCalledWith({
 			artifactId: "artifact_1",
 			chatId: "chat_1",
-			model: "test-provider/test-design-model",
+			model: "test-provider/test-builder-model",
 			projectId: "project_1",
 			spec: {
 				brief: INPUT.brief,
-				designerSystemPrompt: "designer prompt (test)",
+				designerSystemPrompt: "builder prompt (test)",
 				title: INPUT.title,
 			},
 		});
@@ -122,6 +131,82 @@ describe("generate_page tool", () => {
 			status: "queued",
 			versionNumber: 1,
 		});
+	});
+
+	it("appends the chosen design world's doc to the prompt snapshot", async () => {
+		const { execute, pagesRepository } = setup();
+		vi.mocked(isR2Configured).mockReturnValue(true);
+		pagesRepository.findOrCreateLandingArtifact.mockResolvedValue({
+			activeVersionId: null,
+			id: "artifact_1",
+		});
+		pagesRepository.insertAttempt.mockResolvedValue({ id: "attempt_1" });
+		pagesRepository.nextVersionNumber.mockResolvedValue(1);
+		vi.mocked(tasks.trigger).mockResolvedValue({
+			id: "run_123",
+		} as Awaited<ReturnType<typeof tasks.trigger>>);
+
+		await execute({ ...INPUT, worldId: "monographe" });
+
+		expect(pagesRepository.insertAttempt).toHaveBeenCalledWith(
+			expect.objectContaining({
+				spec: {
+					brief: INPUT.brief,
+					designerSystemPrompt: `builder prompt (test)\n\n${monographe.doc}`,
+					title: INPUT.title,
+				},
+			}),
+		);
+	});
+
+	it("falls back to a world-less snapshot on an unknown worldId", async () => {
+		const { execute, pagesRepository } = setup();
+		vi.mocked(isR2Configured).mockReturnValue(true);
+		pagesRepository.findOrCreateLandingArtifact.mockResolvedValue({
+			activeVersionId: null,
+			id: "artifact_1",
+		});
+		pagesRepository.insertAttempt.mockResolvedValue({ id: "attempt_1" });
+		pagesRepository.nextVersionNumber.mockResolvedValue(1);
+		vi.mocked(tasks.trigger).mockResolvedValue({
+			id: "run_123",
+		} as Awaited<ReturnType<typeof tasks.trigger>>);
+
+		const output = await execute({ ...INPUT, worldId: "no-such-world" });
+
+		expect(pagesRepository.insertAttempt).toHaveBeenCalledWith(
+			expect.objectContaining({
+				spec: {
+					brief: INPUT.brief,
+					designerSystemPrompt: "builder prompt (test)",
+					title: INPUT.title,
+				},
+			}),
+		);
+		expect(output).toMatchObject({ status: "queued" });
+	});
+
+	it("uses the legacy Builder model variable when the new one is unset", async () => {
+		mutableEnv.AI_PAGE_BUILDER_MODEL = undefined;
+		const { execute, pagesRepository } = setup();
+		vi.mocked(isR2Configured).mockReturnValue(true);
+		pagesRepository.findOrCreateLandingArtifact.mockResolvedValue({
+			activeVersionId: null,
+			id: "artifact_1",
+		});
+		pagesRepository.insertAttempt.mockResolvedValue({ id: "attempt_1" });
+		pagesRepository.nextVersionNumber.mockResolvedValue(1);
+		vi.mocked(tasks.trigger).mockResolvedValue({
+			id: "run_123",
+		} as Awaited<ReturnType<typeof tasks.trigger>>);
+
+		await execute(INPUT);
+
+		expect(pagesRepository.insertAttempt).toHaveBeenCalledWith(
+			expect.objectContaining({
+				model: "test-provider/legacy-builder-model",
+			}),
+		);
 	});
 
 	it("marks the attempt failed and answers unavailable when queueing throws", async () => {

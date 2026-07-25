@@ -5,7 +5,11 @@
 //
 // Project creation also creates the first chat and first user message.
 import { Inject, Injectable } from "@nestjs/common";
-import type { ComposerMetadata, UpdateProjectBody } from "@wandit/contracts";
+import type {
+	ComposerMetadata,
+	FileRef,
+	UpdateProjectBody,
+} from "@wandit/contracts";
 // Drizzle is the TypeScript SQL builder/ORM used in this project.
 import { and, asc, desc, eq, isNull, sql } from "@wandit/db";
 import { chats, messages } from "@wandit/db/schema/chats";
@@ -24,9 +28,11 @@ export type ProjectQueryRow = {
 	createdAt: Date;
 	id: string;
 	leadCount: number;
+	metaPixelId: string | null;
 	name: string;
 	pendingDeploymentCount: number;
 	prompt: string;
+	tiktokPixelId: string | null;
 	updatedAt: Date;
 };
 
@@ -72,6 +78,7 @@ export class ProjectsRepository {
 
 	// Create project + chat + first user message together.
 	async createWithChatAndFirstMessage(input: {
+		attachments?: FileRef[];
 		composer?: ComposerMetadata;
 		name: string;
 		prompt: string;
@@ -110,13 +117,27 @@ export class ProjectsRepository {
 				.values({
 					chatId: chat.id,
 					metadata: input.composer ?? null,
-					// Messages use AI SDK "parts". This first prompt is one text part.
+					// Messages use AI SDK "parts". Uploaded attachments become file
+					// parts placed BEFORE the text part (contract §10.4), so the
+					// hydrate + autostart flow carries them to the agent unchanged.
+					// Attachment-only creations skip the text part entirely — an
+					// empty text block would be rejected by some providers.
 					parts: [
-						{
-							state: "done",
-							text: input.prompt,
-							type: "text",
-						},
+						...(input.attachments ?? []).map((attachment) => ({
+							...(attachment.filename ? { filename: attachment.filename } : {}),
+							mediaType: attachment.mediaType,
+							type: "file",
+							url: attachment.url,
+						})),
+						...(input.prompt.trim().length > 0
+							? [
+									{
+										state: "done",
+										text: input.prompt,
+										type: "text",
+									},
+								]
+							: []),
 					],
 					role: "user",
 				})
@@ -206,10 +227,15 @@ export class ProjectsRepository {
 		const firstMessages = this.db
 			.selectDistinctOn([chats.projectId], {
 				projectId: chats.projectId,
-				// Read `parts[0].text` from the JSONB message parts column.
-				prompt: sql<string>`coalesce(${messages.parts}->0->>'text', '')`.as(
-					"prompt",
-				),
+				// Read the first TEXT part from the JSONB parts column — attachment
+				// file parts sit BEFORE the text part (contract §10.4), so a plain
+				// parts[0] lookup would show an empty prompt for those projects.
+				prompt: sql<string>`coalesce((
+					select part->>'text'
+					from jsonb_array_elements(${messages.parts}) as part
+					where part->>'type' = 'text'
+					limit 1
+				), '')`.as("prompt"),
 			})
 			.from(chats)
 			.innerJoin(messages, eq(messages.chatId, chats.id))
@@ -253,9 +279,11 @@ export class ProjectsRepository {
 				id: projects.id,
 				// coalesce turns missing joins into friendly default values.
 				leadCount: sql<number>`coalesce(${leadCounts.leadCount}, 0)::int`,
+				metaPixelId: projects.metaPixelId,
 				name: projects.name,
 				pendingDeploymentCount: sql<number>`coalesce(${deploymentAgg.pendingDeploymentCount}, 0)::int`,
 				prompt: sql<string>`coalesce(${firstMessages.prompt}, '')`,
+				tiktokPixelId: projects.tiktokPixelId,
 				updatedAt: projects.updatedAt,
 			})
 			.from(projects)

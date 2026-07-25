@@ -58,7 +58,9 @@ function fallbackRedirectToLanding() {
 	const url = new URL("/", window.location.origin);
 	url.searchParams.set("auth", "required");
 
-	const next = sanitizeAuthRedirectPath(window.location.pathname);
+	const next = sanitizeAuthRedirectPath(
+		`${window.location.pathname}${window.location.search}`,
+	);
 	if (next && next !== "/") {
 		url.searchParams.set("next", next);
 	}
@@ -80,4 +82,23 @@ export function sanitizeAuthRedirectPath(
 	}
 
 	return next;
+}
+
+export function buildAuthCallbackUrls(
+	origin: string,
+	destination: string,
+): {
+	callbackURL: string;
+	errorCallbackURL: string;
+} {
+	const safeDestination = sanitizeAuthRedirectPath(destination) ?? "/dashboard";
+	const callbackURL = new URL(safeDestination, origin).toString();
+	const errorCallbackURL = new URL("/", origin);
+	errorCallbackURL.searchParams.set("auth", "error");
+	errorCallbackURL.searchParams.set("next", safeDestination);
+
+	return {
+		callbackURL,
+		errorCallbackURL: errorCallbackURL.toString(),
+	};
 }

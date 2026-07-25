@@ -41,15 +41,18 @@ export default defineConfig({
 	project: "proj_stzpldofqndpuwhwrdlw",
 	dirs: ["./src/trigger"],
 	runtime: "node",
-	// Generous ceiling: the builder agent does several long model calls
-	// (write → review → rewrite → finish); a full run measured ~10 minutes,
-	// so 600 would kill real builds. Compute-seconds: 1800 = 30 minutes.
+	// Generous ceiling: the builder agent does a single deliberate build pass
+	// (typically a few minutes), but long model calls need headroom.
+	// Compute-seconds: 1800 = 30 minutes — a safety net, not an estimate.
 	maxDuration: 1800,
 	// One attempt only: a failed build is marked failed in our own attempts
 	// table and surfaced to the user — silent model re-runs would just burn
 	// tokens on the same brief.
 	retries: {
-		enabledInDev: false,
+		// Task-level policies remain authoritative. Page + lead tasks explicitly
+		// stay single-attempt, while image animation exercises its crash-recovery
+		// retries in local Trigger.dev runs as well as production.
+		enabledInDev: true,
 		default: { maxAttempts: 1 },
 	},
 	// Playwright must resolve from node_modules at runtime (it locates its

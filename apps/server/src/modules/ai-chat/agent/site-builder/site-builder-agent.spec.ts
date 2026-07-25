@@ -1,25 +1,38 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { generateBuildImage, MAX_IMAGES } from "./generate-image";
-import type { ScreenshotCapture, ScreenshotSession } from "./screenshot";
+import { generateBuildVideo, MAX_VIDEOS } from "./generate-video";
+import {
+	type ScreenshotCapture,
+	type ScreenshotSession,
+	ScreenshotUnavailableError,
+} from "./screenshot";
 import {
 	buildStopConditions,
 	createBuilderTools,
 	createBuildLoopState,
-	REQUIRED_SCREENSHOT_PASSES,
 } from "./site-builder-agent";
 import { VirtualFileSystem } from "./virtual-files";
 
-// The guards must be verifiable without a browser or a network: the
-// screenshot session is injected as a fake, and the image handler (which
-// talks to the gateway and R2) is mocked. Everything else runs for real.
+// The guards must be verifiable without a network: the image/video handlers
+// (which talk to the gateway and R2) are mocked. Everything else runs for
+// real.
 vi.mock("./generate-image", async (importOriginal) => {
 	const original = await importOriginal<typeof import("./generate-image")>();
 
 	return { ...original, generateBuildImage: vi.fn() };
 });
 
+vi.mock("./generate-video", async (importOriginal) => {
+	const original = await importOriginal<typeof import("./generate-video")>();
+
+	return { ...original, generateBuildVideo: vi.fn() };
+});
+
 const HTML = "<!doctype html><html><body>page</body></html>";
+
+const DESKTOP_SHOT = "ZGVza3RvcC1zaG90";
+const MOBILE_SHOT = "bW9iaWxlLXNob3Q=";
 
 const IMAGE_INPUT = {
 	aspect: "16:9" as const,
@@ -27,14 +40,19 @@ const IMAGE_INPUT = {
 	role: "hero background",
 };
 
-// Base64 markers that must appear ONLY in toModelOutput, never in the
-// transcript output.
-const DESKTOP_SHOT = "ZGVza3RvcC1zaG90";
-const MOBILE_SHOT = "bW9iaWxlLXNob3Q=";
+const VIDEO_INPUT = {
+	aspect: "16:9" as const,
+	imageUrl:
+		"https://assets.example.com/sites/project_1/assets/attempt_1/img-1.png",
+	motionPrompt: "steam drifts slowly, warm light breathes",
+};
 
 function fakeCapture(): ScreenshotCapture {
 	return {
 		consoleErrors: ["[mobile] boom is not defined"],
+		failedRequests: [
+			"[desktop] https://assets.example.com/broken.png (net::ERR_FAILED)",
+		],
 		overflow: { desktop: 0, mobile: 12 },
 		shots: [
 			{ base64: DESKTOP_SHOT, viewport: "desktop" },
@@ -43,14 +61,23 @@ function fakeCapture(): ScreenshotCapture {
 	};
 }
 
-function setup() {
-	const state = createBuildLoopState();
+function setup(config?: {
+	abortSignal?: AbortSignal;
+	screenshotRequired?: boolean;
+	screenshots?: ScreenshotSession;
+}) {
+	const {
+		screenshotRequired = true,
+		screenshots = {
+			capture: vi.fn().mockResolvedValue(fakeCapture()),
+			dispose: vi.fn(),
+		},
+		...toolConfig
+	} = config ?? {};
+	const state = createBuildLoopState(screenshotRequired);
 	const vfs = new VirtualFileSystem();
-	const screenshots: ScreenshotSession = {
-		capture: vi.fn().mockResolvedValue(fakeCapture()),
-		dispose: vi.fn(),
-	};
 	const tools = createBuilderTools({
+		...toolConfig,
 		attemptId: "attempt_1",
 		projectId: "project_1",
 		screenshots,
@@ -81,17 +108,9 @@ function materialize<T>(value: T | AsyncIterable<T> | undefined): T {
 	return value as T;
 }
 
-async function completeScreenshotPasses(context: ReturnType<typeof setup>) {
-	for (let pass = 1; pass <= REQUIRED_SCREENSHOT_PASSES; pass++) {
-		await context.tools.screenshot_page.execute?.(
-			{},
-			context.options(`shot_${pass}`),
-		);
-	}
-}
-
 beforeEach(() => {
 	vi.mocked(generateBuildImage).mockReset();
+	vi.mocked(generateBuildVideo).mockReset();
 });
 
 describe("write_file guard", () => {
@@ -121,18 +140,22 @@ describe("write_file guard", () => {
 });
 
 describe("screenshot_page", () => {
-	it("refuses before index.html exists and does not count a pass", async () => {
+	it("refuses before index.html exists without recording a revision", async () => {
 		const { options, screenshots, state, tools } = setup();
 
 		const output = await tools.screenshot_page.execute?.({}, options());
 
-		expect(output).toMatchObject({ refused: true });
-		expect(state.screenshotPasses).toBe(0);
+		expect(output).toEqual({
+			message:
+				"index.html has not been written yet — write it first, then screenshot it.",
+			refused: true,
+		});
+		expect(state.screenshotRevision).toBe(0);
 		expect(screenshots.capture).not.toHaveBeenCalled();
 	});
 
-	it("keeps the transcript output small and hands the images to toModelOutput", async () => {
-		const { options, state, tools } = setup();
+	it("records the captured write revision and sends images only via toModelOutput", async () => {
+		const { options, screenshots, state, tools } = setup();
 		await tools.write_file.execute?.(
 			{ content: HTML, path: "index.html" },
 			options(),
@@ -142,19 +165,23 @@ describe("screenshot_page", () => {
 			await tools.screenshot_page.execute?.({}, options("shot_1")),
 		);
 
+		expect(screenshots.capture).toHaveBeenCalledWith(HTML);
 		expect(output).toMatchObject({
 			consoleErrors: ["[mobile] boom is not defined"],
 			desktopShots: 1,
+			failedRequests: [
+				"[desktop] https://assets.example.com/broken.png (net::ERR_FAILED)",
+			],
 			mobileShots: 1,
 			overflow: { desktop: 0, mobile: 12 },
-			pass: 1,
 			refused: false,
+			revision: 1,
+			unavailable: false,
 		});
-		expect(state.screenshotPasses).toBe(1);
-		// The transcript/DB output must never carry the base64 screenshots.
+		expect(state.screenshotRevision).toBe(1);
 		expect(JSON.stringify(output)).not.toContain(DESKTOP_SHOT);
 
-		if (output.refused) {
+		if (output.refused || output.unavailable) {
 			throw new Error("screenshot_page must succeed here");
 		}
 
@@ -172,7 +199,7 @@ describe("screenshot_page", () => {
 
 		expect(text).toMatchObject({ type: "text" });
 		expect(text?.type === "text" ? text.text : "").toContain(
-			`Pass 1 of ${REQUIRED_SCREENSHOT_PASSES}`,
+			"Failed requests: [desktop] https://assets.example.com/broken.png",
 		);
 		expect(files).toEqual([
 			{
@@ -186,6 +213,69 @@ describe("screenshot_page", () => {
 				type: "file",
 			},
 		]);
+	});
+
+	it("does not credit an older capture to a write made while it renders", async () => {
+		let resolveCapture: (capture: ScreenshotCapture) => void = () => undefined;
+		const pendingCapture = new Promise<ScreenshotCapture>((resolve) => {
+			resolveCapture = resolve;
+		});
+		const screenshots: ScreenshotSession = {
+			capture: vi.fn().mockReturnValue(pendingCapture),
+			dispose: vi.fn(),
+		};
+		const { options, state, tools } = setup({ screenshots });
+		await tools.write_file.execute?.(
+			{ content: HTML, path: "index.html" },
+			options(),
+		);
+
+		const capture = tools.screenshot_page.execute?.({}, options("shot_1"));
+		await tools.write_file.execute?.(
+			{ content: HTML.replace("page", "new page"), path: "index.html" },
+			options(),
+		);
+		resolveCapture(fakeCapture());
+		await capture;
+
+		expect(state.screenshotRevision).toBe(1);
+		expect(state.writeRevision).toBe(2);
+		await tools.read_file.execute?.({ path: "index.html" }, options());
+		await expect(
+			tools.finish.execute?.({ summary: "Old capture." }, options()),
+		).resolves.toMatchObject({
+			accepted: false,
+			reason: expect.stringContaining("screenshot_page"),
+		});
+	});
+
+	it("degrades to code review when Playwright/Chromium is unavailable", async () => {
+		const screenshots: ScreenshotSession = {
+			capture: vi
+				.fn()
+				.mockRejectedValue(
+					new ScreenshotUnavailableError("Chromium executable is missing"),
+				),
+			dispose: vi.fn(),
+		};
+		const { options, state, tools } = setup({ screenshots });
+		await tools.write_file.execute?.(
+			{ content: HTML, path: "index.html" },
+			options(),
+		);
+		await tools.read_file.execute?.({ path: "index.html" }, options());
+
+		const output = await tools.screenshot_page.execute?.({}, options());
+
+		expect(output).toMatchObject({
+			message: expect.stringContaining("Visual review is unavailable"),
+			refused: false,
+			unavailable: true,
+		});
+		expect(state.screenshotRequired).toBe(false);
+		await expect(
+			tools.finish.execute?.({ summary: "Code reviewed." }, options()),
+		).resolves.toEqual({ accepted: true });
 	});
 });
 
@@ -203,27 +293,35 @@ describe("finish guard", () => {
 		expect(state.summary).toBeNull();
 	});
 
-	it("refuses until all screenshot passes are done, then accepts", async () => {
-		const context = setup();
-		const { options, state, tools } = context;
+	it("accepts only after the final index.html has been re-read and rendered", async () => {
+		const { options, state, tools } = setup();
 		await tools.write_file.execute?.(
 			{ content: HTML, path: "index.html" },
 			options(),
 		);
 
-		const refused = await tools.finish.execute?.(
-			{ summary: "A page." },
-			options(),
-		);
+		await expect(
+			tools.finish.execute?.({ summary: "Too early." }, options()),
+		).resolves.toMatchObject({ accepted: false });
 
-		expect(refused).toMatchObject({
+		await tools.read_file.execute?.({ path: "index.html" }, options());
+		await expect(
+			tools.finish.execute?.({ summary: "Still too early." }, options()),
+		).resolves.toMatchObject({
 			accepted: false,
-			reason: expect.stringContaining(`0 of ${REQUIRED_SCREENSHOT_PASSES}`),
+			reason: expect.stringContaining("screenshot_page"),
 		});
-		expect(state.summary).toBeNull();
 
-		await completeScreenshotPasses(context);
+		await tools.screenshot_page.execute?.({}, options("shot_1"));
+		await expect(
+			tools.finish.execute?.({ summary: "One pass only." }, options()),
+		).resolves.toMatchObject({
+			accepted: false,
+			reason: expect.stringContaining("1 of 3"),
+		});
 
+		await tools.screenshot_page.execute?.({}, options("shot_2"));
+		await tools.screenshot_page.execute?.({}, options("shot_3"));
 		const accepted = await tools.finish.execute?.(
 			{ summary: "Souk Heat direction, warm editorial." },
 			options(),
@@ -231,12 +329,12 @@ describe("finish guard", () => {
 
 		expect(accepted).toEqual({ accepted: true });
 		expect(state.finishAccepted).toBe(true);
+		expect(state.screenshotPasses).toBe(3);
 		expect(state.summary).toBe("Souk Heat direction, warm editorial.");
 	});
 
 	it("a refused finish does not stop the loop; an accepted one does", async () => {
-		const context = setup();
-		const { options, state, tools } = context;
+		const { options, state, tools } = setup();
 		const conditions = buildStopConditions(state);
 		const finishStop = conditions[1];
 
@@ -244,27 +342,86 @@ describe("finish guard", () => {
 			throw new Error("expected the accepted-finish stop condition");
 		}
 
-		await tools.write_file.execute?.(
-			{ content: HTML, path: "index.html" },
-			options(),
-		);
 		await tools.finish.execute?.({ summary: "Too early." }, options());
 
 		// This is the hasToolCall("finish") bug the closure replaces: the tool
 		// WAS called, but the refusal must keep the loop running.
 		expect(await finishStop({ steps: [] })).toBe(false);
 
-		await completeScreenshotPasses(context);
+		await tools.write_file.execute?.(
+			{ content: HTML, path: "index.html" },
+			options(),
+		);
+		await tools.read_file.execute?.({ path: "index.html" }, options());
+		await tools.screenshot_page.execute?.({}, options("shot_1"));
+		await tools.screenshot_page.execute?.({}, options("shot_2"));
+		await tools.screenshot_page.execute?.({}, options("shot_3"));
 		await tools.finish.execute?.({ summary: "Done for real." }, options());
 
 		expect(await finishStop({ steps: [] })).toBe(true);
+	});
+
+	it("requires fresh code and screenshot reviews after a rewrite", async () => {
+		const { options, tools } = setup();
+		await tools.write_file.execute?.(
+			{ content: HTML, path: "index.html" },
+			options(),
+		);
+		await tools.read_file.execute?.({ path: "index.html" }, options());
+		await tools.screenshot_page.execute?.({}, options("shot_1"));
+		await tools.write_file.execute?.(
+			{ content: HTML.replace("page", "improved page"), path: "index.html" },
+			options(),
+		);
+
+		await expect(
+			tools.finish.execute?.({ summary: "Not reviewed yet." }, options()),
+		).resolves.toMatchObject({
+			accepted: false,
+			reason: expect.stringContaining("Re-read"),
+		});
+
+		await tools.read_file.execute?.({ path: "index.html" }, options());
+		await expect(
+			tools.finish.execute?.({ summary: "Still not rendered." }, options()),
+		).resolves.toMatchObject({
+			accepted: false,
+			reason: expect.stringContaining("screenshot_page"),
+		});
+
+		await tools.screenshot_page.execute?.({}, options("shot_2"));
+		await expect(
+			tools.finish.execute?.({ summary: "Two passes only." }, options()),
+		).resolves.toMatchObject({
+			accepted: false,
+			reason: expect.stringContaining("2 of 3"),
+		});
+
+		await tools.screenshot_page.execute?.({}, options("shot_3"));
+		await expect(
+			tools.finish.execute?.({ summary: "Freshly reviewed." }, options()),
+		).resolves.toEqual({ accepted: true });
+	});
+
+	it("does not require screenshots for a text-only review mode", async () => {
+		const { options, state, tools } = setup({ screenshotRequired: false });
+		await tools.write_file.execute?.(
+			{ content: HTML, path: "index.html" },
+			options(),
+		);
+		await tools.read_file.execute?.({ path: "index.html" }, options());
+
+		await expect(
+			tools.finish.execute?.({ summary: "Code reviewed." }, options()),
+		).resolves.toEqual({ accepted: true });
+		expect(state.screenshotRevision).toBe(0);
 	});
 });
 
 describe("generate_image tool", () => {
 	it("refuses once the image budget is exhausted", async () => {
 		const { options, state, tools } = setup();
-		state.imagesGenerated = 6;
+		state.imageSequence = MAX_IMAGES;
 
 		const output = await tools.generate_image.execute?.(IMAGE_INPUT, options());
 
@@ -389,5 +546,92 @@ describe("generate_image tool", () => {
 			1,
 		);
 		expect(state.imagesGenerated).toBe(MAX_IMAGES);
+	});
+});
+
+describe("animate_image tool", () => {
+	it("refuses once the video budget is exhausted", async () => {
+		const { options, state, tools } = setup();
+		state.videoSequence = MAX_VIDEOS;
+
+		const output = await tools.animate_image.execute?.(VIDEO_INPUT, options());
+
+		expect(output).toMatchObject({
+			message: expect.stringContaining("budget"),
+			status: "failed",
+		});
+		expect(generateBuildVideo).not.toHaveBeenCalled();
+	});
+
+	it("returns the video URL with the source image as poster", async () => {
+		const { options, state, tools } = setup();
+		const url =
+			"https://assets.example.com/sites/project_1/assets/attempt_1/vid-1.mp4";
+		vi.mocked(generateBuildVideo).mockResolvedValue({
+			mediaType: "video/mp4",
+			status: "generated",
+			url,
+		});
+
+		const output = materialize(
+			await tools.animate_image.execute?.(VIDEO_INPUT, options("vid_1")),
+		);
+
+		expect(generateBuildVideo).toHaveBeenCalledWith({
+			aspect: "16:9",
+			attemptId: "attempt_1",
+			imageUrl: VIDEO_INPUT.imageUrl,
+			index: 1,
+			motionPrompt: VIDEO_INPUT.motionPrompt,
+			projectId: "project_1",
+		});
+		expect(output).toEqual({
+			posterUrl: VIDEO_INPUT.imageUrl,
+			status: "generated",
+			url,
+		});
+		expect(state.videosGenerated).toBe(1);
+	});
+
+	it("relays unavailable without counting the video — graceful fallback", async () => {
+		const { options, state, tools } = setup();
+		vi.mocked(generateBuildVideo).mockResolvedValue({
+			message: "video animation not configured — use the still image instead",
+			status: "unavailable",
+		});
+
+		const output = await tools.animate_image.execute?.(VIDEO_INPUT, options());
+
+		expect(output).toEqual({
+			message: "video animation not configured — use the still image instead",
+			status: "unavailable",
+		});
+		expect(state.videosGenerated).toBe(0);
+	});
+
+	it("counts a failed attempt and never reuses the key index", async () => {
+		const { options, state, tools } = setup();
+		vi.mocked(generateBuildVideo).mockResolvedValue({
+			message: "gateway exploded",
+			status: "failed",
+		});
+
+		const output = await tools.animate_image.execute?.(VIDEO_INPUT, options());
+
+		expect(output).toEqual({ message: "gateway exploded", status: "failed" });
+		expect(state.videosGenerated).toBe(0);
+
+		// The key sequence is never reused: a retry after a failure must not
+		// collide with a video a concurrent call may have uploaded meanwhile.
+		vi.mocked(generateBuildVideo).mockResolvedValue({
+			mediaType: "video/mp4",
+			status: "generated",
+			url: "https://assets.example.com/sites/project_1/assets/attempt_1/vid-2.mp4",
+		});
+		await tools.animate_image.execute?.(VIDEO_INPUT, options("vid_2"));
+		expect(generateBuildVideo).toHaveBeenLastCalledWith(
+			expect.objectContaining({ index: 2 }),
+		);
+		expect(state.videosGenerated).toBe(1);
 	});
 });

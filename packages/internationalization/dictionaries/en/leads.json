@@ -34,6 +34,22 @@
 	"previous": "Previous",
 	"next": "Next",
 	"freeNote": "Lead collection is always free.",
+	"sheetSync": {
+		"connect": "Connect Google Sheets",
+		"syncFirst": "Sync to Google Sheet",
+		"syncNow": "Sync now",
+		"open": "Open sheet",
+		"lastSynced": "Last synced {time}",
+		"syncedToast": {
+			"zero": "{count} leads synced",
+			"one": "1 lead synced",
+			"two": "{count} leads synced",
+			"few": "{count} leads synced",
+			"many": "{count} leads synced",
+			"other": "{count} leads synced"
+		},
+		"errorToast": "Google Sheets sync failed. Try again."
+	},
 	"status": {
 		"to_confirm": "To confirm",
 		"confirmed": "Confirmed",

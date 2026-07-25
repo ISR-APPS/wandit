@@ -79,8 +79,16 @@ export class DomainVerificationPendingError extends DomainHttpError {
 }
 
 export class DomainProviderError extends DomainHttpError {
-	constructor(message = "Domain provider request failed") {
+	readonly retryable: boolean;
+	readonly upstreamStatus?: number;
+
+	constructor(
+		message = "Domain provider request failed",
+		options: { retryable?: boolean; upstreamStatus?: number } = {},
+	) {
 		super("DOMAIN_PROVIDER_ERROR", message, HttpStatus.BAD_GATEWAY);
+		this.retryable = options.retryable ?? true;
+		this.upstreamStatus = options.upstreamStatus;
 	}
 }
 

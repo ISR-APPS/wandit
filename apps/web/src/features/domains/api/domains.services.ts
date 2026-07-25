@@ -7,8 +7,6 @@ import {
 	domainsRoutes,
 	isSupportedTld,
 	listDomainsResponseSchema,
-	purchaseDomainResponseSchema,
-	renewDomainResponseSchema,
 	searchDomainsResponseSchema,
 	setPrimaryDomainResponseSchema,
 	transferUnlockDomainResponseSchema,
@@ -22,9 +20,6 @@ import type {
 	AttachExternalDomainResponse,
 	DetachDomainResponse,
 	Domain,
-	PurchaseDomainBody,
-	PurchaseDomainResponse,
-	RenewDomainResponse,
 	SearchDomainsResponse,
 	SetPrimaryDomainResponse,
 	TransferUnlockDomainResponse,
@@ -33,9 +28,7 @@ import type {
 	VerifyDomainResponse,
 } from "./domains.dto";
 
-export async function searchDomains(
-	q: string,
-): Promise<SearchDomainsResponse> {
+export async function searchDomains(q: string): Promise<SearchDomainsResponse> {
 	try {
 		const payload = await ApiService.get<SearchDomainsResponse>(
 			domainsRoutes.search,
@@ -72,18 +65,6 @@ export async function listProjectDomains(projectId: string): Promise<Domain[]> {
 	}
 }
 
-export async function purchaseDomain(
-	projectId: string,
-	body: PurchaseDomainBody,
-): Promise<PurchaseDomainResponse> {
-	const payload = await ApiService.post<PurchaseDomainResponse, PurchaseDomainBody>(
-		domainsRoutes.purchase(projectId),
-		body,
-	);
-
-	return purchaseDomainResponseSchema.parse(payload);
-}
-
 export async function attachExternalDomain(
 	projectId: string,
 	body: AttachExternalDomainBody,
@@ -104,16 +85,6 @@ export async function verifyDomain(
 	);
 
 	return verifyDomainResponseSchema.parse(payload);
-}
-
-export async function renewDomain(
-	domainId: string,
-): Promise<RenewDomainResponse> {
-	const payload = await ApiService.post<RenewDomainResponse>(
-		domainsRoutes.renew(domainId),
-	);
-
-	return renewDomainResponseSchema.parse(payload);
 }
 
 export async function updateDomainAutoRenew(
@@ -163,8 +134,9 @@ function isReadEndpointPendingError(error: unknown) {
 		return false;
 	}
 
+	// 401 deliberately propagates: an expired session must surface as an auth
+	// error, not render as "No domains found".
 	return (
-		error.statusCode === 401 ||
 		error.statusCode === 404 ||
 		error.statusCode === 501 ||
 		error.code === "NOT_FOUND" ||

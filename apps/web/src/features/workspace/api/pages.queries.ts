@@ -6,7 +6,11 @@
 
 import { useQuery } from "@tanstack/react-query";
 
-import { getPageOverview, getVersionHtml } from "./pages.services";
+import {
+	getPageOverview,
+	getPageVersions,
+	getVersionHtml,
+} from "./pages.services";
 
 export const pageKeys = {
 	all: ["pages"] as const,
@@ -14,6 +18,8 @@ export const pageKeys = {
 		[...pageKeys.all, "overview", projectId] as const,
 	versionHtml: (versionId: string) =>
 		[...pageKeys.all, "version-html", versionId] as const,
+	versions: (projectId: string) =>
+		[...pageKeys.all, "versions", projectId] as const,
 };
 
 export function usePageOverviewQuery(projectId: string) {
@@ -25,6 +31,13 @@ export function usePageOverviewQuery(projectId: string) {
 			// Poll only while a build is actually in flight.
 			return status === "queued" || status === "generating" ? 1500 : false;
 		},
+	});
+}
+
+export function usePageVersionsQuery(projectId: string) {
+	return useQuery({
+		queryKey: pageKeys.versions(projectId),
+		queryFn: () => getPageVersions(projectId),
 	});
 }
 

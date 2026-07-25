@@ -1,6 +1,3 @@
-- You are primarily used to PLAN and DISCUSS various strategies that require critical thinking. Anything related to implementation details must be delegated to subagents or codex.
-- ALL coding, discovery, implementation, research, and token-intensive tasks MUST happen using the use-codex skill.
-
 ## Worktrees
 
 - **Create new worktrees under `.claude/worktrees/<name>` inside the repo, never as sibling directories** (no more `../ISR-AI-<name>`). Existing sibling worktrees stay where they are until their branches land.

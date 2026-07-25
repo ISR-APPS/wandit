@@ -43,9 +43,16 @@ export class CreditsRepository {
 	async withUserLock<T>(
 		userId: string,
 		fn: (tx: CreditsTransaction) => Promise<T>,
+		transaction?: CreditsTransaction,
 	): Promise<T> {
+		if (transaction) {
+			await this.acquireUserLock(userId, transaction);
+
+			return fn(transaction);
+		}
+
 		return this.db.transaction(async (tx) => {
-			await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${userId}))`);
+			await this.acquireUserLock(userId, tx);
 
 			return fn(tx);
 		});
@@ -184,6 +191,15 @@ export class CreditsRepository {
 		balance.balance = balance.plan + balance.topup;
 
 		return balance;
+	}
+
+	private async acquireUserLock(
+		userId: string,
+		transaction: CreditsTransaction,
+	): Promise<void> {
+		await transaction.execute(
+			sql`select pg_advisory_xact_lock(hashtext(${userId}))`,
+		);
 	}
 
 	private expectInsertedRow(row: CreditLedgerRow | undefined | null) {

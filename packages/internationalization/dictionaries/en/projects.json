@@ -1,6 +1,8 @@
 {
 	"headerTitle": "Projects",
 	"promptHeading": "What will you launch today?",
+	"promptSoonTitle": "Coming soon",
+	"promptSoonBody": "Wandit is opening to everyone very soon. Creating new sites is in private early access for now.",
 	"toolbarTitle": "Your projects",
 	"searchPlaceholder": "Search projects…",
 	"filterAll": "All",
@@ -79,7 +81,34 @@
 		"addMenuLabel": "Add context",
 		"addSkillLabel": "Add skill",
 		"attachLabel": "Attach",
-		"attachHint": "Upload files and references — coming soon",
+		"attachHint": "Attach images or files",
+		"attachments": {
+			"uploading": "Uploading…",
+			"remove": "Remove",
+			"retry": "Retry",
+			"unsupported": "Unsupported format",
+			"tooLarge": "File too large (15 MB max)",
+			"failed": "Upload failed",
+			"signInFirst": "Sign in to attach files"
+		},
+		"sourceImage": {
+			"title": "Add a source image",
+			"label": "Source image",
+			"required": "Required",
+			"dropHint": "Drop it here or choose a file",
+			"formats": "JPEG, PNG or WebP · 15 MB max",
+			"choose": "Choose image",
+			"replace": "Replace",
+			"remove": "Remove source image",
+			"retry": "Retry source image upload",
+			"uploading": "Uploading…",
+			"ready": "Ready to animate",
+			"unsupported": "Choose a JPEG, PNG or WebP image",
+			"tooLarge": "Image is larger than 15 MB",
+			"failed": "Source image upload failed",
+			"limit": "Remove a context attachment first (6 files max)",
+			"signInFirst": "Sign in to add the source image"
+		},
 		"modeLabel": "Mode",
 		"outputLabel": "Output",
 		"settingsLabel": "Generation settings",
@@ -115,9 +144,9 @@
 				"placeholder": "Describe what you want Wandit to create or change…"
 			},
 			"page": {
-				"label": "Page",
-				"description": "Create or edit the publishable page.",
-				"placeholder": "Describe the page you want to build or improve…"
+				"label": "Website",
+				"description": "Create a website — landing page or showcase site.",
+				"placeholder": "Describe the website you want to build or improve…"
 			},
 			"marketing": {
 				"label": "Marketing",
@@ -130,9 +159,9 @@
 				"placeholder": "Describe the product image, ratio, style and setting…"
 			},
 			"video": {
-				"label": "Video",
-				"description": "Generate short ad videos and scene plans.",
-				"placeholder": "Describe the video ad, scenes, format and duration…"
+				"label": "Animate an image",
+				"description": "Turn a photo into a short animated video.",
+				"placeholder": "Optional: describe the motion or camera movement…"
 			}
 		},
 		"skillGroups": {
@@ -180,101 +209,30 @@
 				"description": "Creates the publishable project page.",
 				"placeholder": "Describe the product, offer, price, proof and COD flow…",
 				"options": {
-					"quality": {
-						"label": "Quality",
-						"choices": {
-							"standard": "Standard",
-							"max": "Max"
-						}
-					},
 					"goal": {
 						"label": "Goal",
 						"choices": {
 							"cod": "COD sales",
 							"leads": "Lead capture",
-							"promo": "Promo",
-							"service": "Service"
-						}
-					},
-					"language": {
-						"label": "Language",
-						"choices": {
-							"auto": "Auto",
-							"arabic": "Arabic",
-							"french": "French",
-							"ar-fr": "AR + FR"
-						}
-					},
-					"shape": {
-						"label": "Page type",
-						"choices": {
-							"landing": "Landing",
-							"product": "Product page",
-							"service": "Service page"
+							"service": "Service",
+							"promo": "Promo"
 						}
 					}
 				}
 			},
-			"page-edit": {
-				"label": "Page Edit",
-				"shortLabel": "Page Edit",
-				"description": "Updates copy, layout or sections in the current page.",
-				"placeholder": "Tell Wandit which part of the page should change…",
+			"site-vitrine": {
+				"label": "Showcase site",
+				"shortLabel": "Showcase site",
+				"description": "Multi-section site to present your business.",
+				"placeholder": "Describe your business, services and contact details…",
 				"options": {
-					"quality": {
-						"label": "Quality",
+					"goal": {
+						"label": "Goal",
 						"choices": {
-							"standard": "Standard",
-							"max": "Max"
-						}
-					},
-					"scope": {
-						"label": "Scope",
-						"choices": {
-							"hero": "Hero",
-							"offer": "Offer block",
-							"form": "Order form",
-							"full": "Full page"
-						}
-					},
-					"intensity": {
-						"label": "Change level",
-						"choices": {
-							"light": "Light",
-							"medium": "Medium",
-							"rewrite": "Rewrite"
-						}
-					}
-				}
-			},
-			"html-section": {
-				"label": "HTML Section",
-				"shortLabel": "HTML Section",
-				"description": "Creates an embeddable section for the page.",
-				"placeholder": "Describe the section you want to add to the page…",
-				"options": {
-					"quality": {
-						"label": "Quality",
-						"choices": {
-							"standard": "Standard",
-							"max": "Max"
-						}
-					},
-					"section": {
-						"label": "Section type",
-						"choices": {
-							"comparison": "Comparison",
-							"faq": "FAQ",
-							"testimonials": "Testimonials",
-							"offer": "Offer block"
-						}
-					},
-					"style": {
-						"label": "Style",
-						"choices": {
-							"match": "Match page",
-							"clean": "Clean",
-							"direct": "Direct response"
+							"cod": "COD sales",
+							"leads": "Lead capture",
+							"service": "Service",
+							"promo": "Promo"
 						}
 					}
 				}
@@ -441,15 +399,6 @@
 				"description": "Wandit chooses the best image format from the prompt.",
 				"placeholder": "Describe the image, product, background, style and ratio…",
 				"options": {
-					"quality": {
-						"label": "Quality",
-						"choices": {
-							"auto": "Auto",
-							"high": "High",
-							"medium": "Medium",
-							"low": "Low"
-						}
-					},
 					"size": {
 						"label": "Size",
 						"choices": {
@@ -466,8 +415,7 @@
 						"choices": {
 							"1": "1 img",
 							"2": "2 img",
-							"4": "4 img",
-							"8": "8 img"
+							"4": "4 img"
 						}
 					}
 				}
@@ -531,111 +479,18 @@
 					}
 				}
 			},
-			"background-edit": {
-				"label": "Background Edit",
-				"shortLabel": "BG Edit",
-				"description": "Changes the environment around an existing product image.",
-				"placeholder": "Attach a product photo, then describe the new background…",
+			"image-animation": {
+				"label": "Image animation",
+				"shortLabel": "Image animation",
+				"description": "Animates one still image; it does not create a video from scratch.",
+				"placeholder": "Optional: describe motion, camera movement or what should stay still…",
 				"options": {
-					"background": {
-						"label": "Background",
+					"motion": {
+						"label": "Motion",
 						"choices": {
-							"studio": "Studio",
-							"premium": "Premium",
-							"home": "Home",
-							"outdoor": "Outdoor"
-						}
-					},
-					"preserve": {
-						"label": "Preserve",
-						"choices": {
-							"product": "Product",
-							"lighting": "Lighting",
-							"shadow": "Shadow"
-						}
-					}
-				}
-			},
-			"video-creator": {
-				"label": "Auto",
-				"shortLabel": "Auto",
-				"description": "Wandit chooses the best video format from the prompt.",
-				"placeholder": "Describe the video, scenes, movement, mood and aspect ratio…",
-				"options": {
-					"method": {
-						"label": "Generate method",
-						"choices": {
-							"reference": "Reference",
-							"edit": "Edit",
-							"frames": "Frames"
-						}
-					},
-					"size": {
-						"label": "Size",
-						"choices": {
-							"auto": "Auto",
-							"16-9": "16:9",
-							"4-3": "4:3",
-							"1-1": "1:1",
-							"9-16": "9:16",
-							"21-9": "21:9"
-						}
-					},
-					"resolution": {
-						"label": "Resolution",
-						"choices": {
-							"720": "720p",
-							"1080": "1080p",
-							"4k": "4k"
-						}
-					},
-					"duration": {
-						"label": "Duration",
-						"choices": {
-							"4": "4s",
-							"5": "5s",
-							"8": "8s",
-							"10": "10s"
-						}
-					}
-				}
-			},
-			"ugc-video": {
-				"label": "UGC Video",
-				"shortLabel": "UGC Video",
-				"description": "Creates creator-style short-form video ads.",
-				"placeholder": "Describe the UGC ad, creator vibe, hook and proof…",
-				"options": {
-					"structure": {
-						"label": "Structure",
-						"choices": {
-							"problem": "Problem",
-							"demo": "Demo",
-							"testimonial": "Testimonial"
-						}
-					},
-					"duration": {
-						"label": "Duration",
-						"choices": {
-							"15": "15s",
-							"30": "30s",
-							"45": "45s"
-						}
-					}
-				}
-			},
-			"product-demo": {
-				"label": "Product Demo",
-				"shortLabel": "Demo",
-				"description": "Shows product use, result and order action.",
-				"placeholder": "Describe the product demo sequence and final CTA…",
-				"options": {
-					"pace": {
-						"label": "Pace",
-						"choices": {
-							"fast": "Fast",
+							"subtle": "Subtle",
 							"balanced": "Balanced",
-							"slow": "Slow"
+							"dynamic": "Dynamic"
 						}
 					},
 					"ratio": {

@@ -7,7 +7,12 @@
 //
 // This is the "business flow" file. The controller receives HTTP, this service
 // decides the steps, and the repository writes to the database.
-import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import {
+	BadRequestException,
+	Inject,
+	Injectable,
+	NotFoundException,
+} from "@nestjs/common";
 import type {
 	CreateProjectBody,
 	CreateProjectResponse,
@@ -16,6 +21,7 @@ import type {
 	UpdateProjectBody,
 } from "@wandit/contracts";
 
+import { isUserUploadUrl } from "../../../../infrastructure/storage/r2";
 import { GenerationPolicyService } from "../../../generation/application/services/generation-policy.service";
 import { mapProjectRow } from "../../infrastructure/mappers/project.mapper";
 import { ProjectsRepository } from "../../infrastructure/persistence/projects.repository";
@@ -62,12 +68,20 @@ export class ProjectsService {
 		// Check credits/subscription before writing anything.
 		await this.generationPolicyService.assertCanGenerate(
 			userId,
-			"landingPageGeneration",
+			body.composer?.mode === "video"
+				? "videoGeneration"
+				: "landingPageGeneration",
 		);
+
+		// Attachment URLs must be Wandit-hosted assets (contract §10.4) — the
+		// composer uploads through /api/v1/attachments first, so anything else
+		// is a forged reference.
+		this.assertWanditHostedAttachments(userId, body.attachments);
 
 		// Create project + chat + first message in one DB transaction.
 		const created = await this.projectsRepository.createWithChatAndFirstMessage(
 			{
+				attachments: body.attachments,
 				composer: body.composer,
 				name: deriveProjectName(body.prompt),
 				prompt: body.prompt,
@@ -100,6 +114,22 @@ export class ProjectsService {
 		}
 
 		return mapProjectRow(row);
+	}
+
+	// Reject any attachment reference that is not one of our own R2 objects.
+	// Parsed origin + path boundary, never a raw prefix check.
+	private assertWanditHostedAttachments(
+		userId: string,
+		attachments: CreateProjectBody["attachments"],
+	): void {
+		for (const attachment of attachments ?? []) {
+			if (!isUserUploadUrl(attachment.url, userId)) {
+				throw new BadRequestException({
+					code: "INVALID_FILE_PART",
+					message: "Attachments must be uploaded through Wandit",
+				});
+			}
+		}
 	}
 
 	// Soft-delete: mark as deleted, do not physically remove the row.

@@ -1,6 +1,8 @@
 {
 	"headerTitle": "المشاريع",
 	"promptHeading": "ماذا ستطلق اليوم؟",
+	"promptSoonTitle": "قريبًا",
+	"promptSoonBody": "سيفتح Wandit أبوابه للجميع قريبًا جدًا. إنشاء المواقع متاح حاليًا في وصول مبكر خاص.",
 	"toolbarTitle": "مشاريعك",
 	"searchPlaceholder": "ابحث في المشاريع…",
 	"filterAll": "الكل",
@@ -79,7 +81,34 @@
 		"addMenuLabel": "إضافة سياق",
 		"addSkillLabel": "إضافة مهارة",
 		"attachLabel": "إرفاق",
-		"attachHint": "رفع الملفات والمراجع — قريبًا",
+		"attachHint": "أرفق صورًا أو ملفات",
+		"attachments": {
+			"uploading": "جارٍ الرفع…",
+			"remove": "إزالة",
+			"retry": "أعد المحاولة",
+			"unsupported": "صيغة غير مدعومة",
+			"tooLarge": "الملف كبير جدًا (15 م.ب كحد أقصى)",
+			"failed": "فشل الرفع",
+			"signInFirst": "سجّل الدخول لإرفاق الملفات"
+		},
+		"sourceImage": {
+			"title": "أضف الصورة المصدر",
+			"label": "الصورة المصدر",
+			"required": "مطلوبة",
+			"dropHint": "أسقطها هنا أو اختر ملفًا",
+			"formats": "JPEG أو PNG أو WebP · بحد أقصى 15 م.ب",
+			"choose": "اختيار صورة",
+			"replace": "استبدال",
+			"remove": "إزالة الصورة المصدر",
+			"retry": "إعادة رفع الصورة المصدر",
+			"uploading": "جارٍ الرفع…",
+			"ready": "جاهزة للتحريك",
+			"unsupported": "اختر صورة بصيغة JPEG أو PNG أو WebP",
+			"tooLarge": "حجم الصورة أكبر من 15 م.ب",
+			"failed": "فشل رفع الصورة المصدر",
+			"limit": "أزل مرفق سياق أولًا (6 ملفات كحد أقصى)",
+			"signInFirst": "سجّل الدخول لإضافة الصورة المصدر"
+		},
 		"modeLabel": "الوضع",
 		"outputLabel": "المُخرَج",
 		"settingsLabel": "إعدادات التوليد",
@@ -115,9 +144,9 @@
 				"placeholder": "صِف ما تريد أن يُنشئه Wandit أو يُعدّله…"
 			},
 			"page": {
-				"label": "صفحة",
-				"description": "أنشئ أو عدّل الصفحة القابلة للنشر.",
-				"placeholder": "صِف الصفحة التي تريد إنشاءها أو تحسينها…"
+				"label": "موقع ويب",
+				"description": "أنشئ موقع ويب — صفحة هبوط أو موقعًا تعريفيًا.",
+				"placeholder": "صِف الموقع الذي تريد إنشاءه أو تحسينه…"
 			},
 			"marketing": {
 				"label": "تسويق",
@@ -130,9 +159,9 @@
 				"placeholder": "صِف صورة المنتج، النسبة، الأسلوب والمكان…"
 			},
 			"video": {
-				"label": "فيديو",
-				"description": "أنشئ فيديوهات إعلانية قصيرة وخطط مشاهد.",
-				"placeholder": "صِف الفيديو الإعلاني، المشاهد، الصيغة والمدة…"
+				"label": "تحريك صورة",
+				"description": "حوّل صورة إلى فيديو قصير متحرك.",
+				"placeholder": "اختياري: صِف الحركة أو حركة الكاميرا…"
 			}
 		},
 		"skillGroups": {
@@ -180,101 +209,30 @@
 				"description": "يُنشئ صفحة المشروع القابلة للنشر.",
 				"placeholder": "صِف المنتج والعرض والسعر والإثبات وتدفّق الدفع عند الاستلام…",
 				"options": {
-					"quality": {
-						"label": "الجودة",
-						"choices": {
-							"standard": "قياسي",
-							"max": "أقصى"
-						}
-					},
 					"goal": {
 						"label": "الهدف",
 						"choices": {
 							"cod": "مبيعات COD",
 							"leads": "جمع العملاء المحتملين",
-							"promo": "عرض ترويجي",
-							"service": "خدمة"
-						}
-					},
-					"language": {
-						"label": "اللغة",
-						"choices": {
-							"auto": "تلقائي",
-							"arabic": "العربية",
-							"french": "الفرنسية",
-							"ar-fr": "AR + FR"
-						}
-					},
-					"shape": {
-						"label": "نوع الصفحة",
-						"choices": {
-							"landing": "هبوط",
-							"product": "صفحة منتج",
-							"service": "صفحة خدمة"
+							"service": "خدمة",
+							"promo": "عرض ترويجي"
 						}
 					}
 				}
 			},
-			"page-edit": {
-				"label": "تعديل الصفحة",
-				"shortLabel": "تعديل الصفحة",
-				"description": "يُحدّث النص أو التخطيط أو أقسام الصفحة الحالية.",
-				"placeholder": "أخبر Wandit بالجزء الذي يجب تغييره في الصفحة…",
+			"site-vitrine": {
+				"label": "موقع تعريفي",
+				"shortLabel": "موقع تعريفي",
+				"description": "موقع متعدد الأقسام لتقديم نشاطك.",
+				"placeholder": "صِف نشاطك وخدماتك وبيانات التواصل…",
 				"options": {
-					"quality": {
-						"label": "الجودة",
+					"goal": {
+						"label": "الهدف",
 						"choices": {
-							"standard": "قياسي",
-							"max": "أقصى"
-						}
-					},
-					"scope": {
-						"label": "النطاق",
-						"choices": {
-							"hero": "الواجهة",
-							"offer": "كتلة العرض",
-							"form": "نموذج الطلب",
-							"full": "الصفحة كاملة"
-						}
-					},
-					"intensity": {
-						"label": "مستوى التغيير",
-						"choices": {
-							"light": "خفيف",
-							"medium": "متوسط",
-							"rewrite": "إعادة كتابة"
-						}
-					}
-				}
-			},
-			"html-section": {
-				"label": "قسم HTML",
-				"shortLabel": "قسم HTML",
-				"description": "يُنشئ قسمًا قابلاً للتضمين في الصفحة.",
-				"placeholder": "صِف القسم الذي تريد إضافته إلى الصفحة…",
-				"options": {
-					"quality": {
-						"label": "الجودة",
-						"choices": {
-							"standard": "قياسي",
-							"max": "أقصى"
-						}
-					},
-					"section": {
-						"label": "نوع القسم",
-						"choices": {
-							"comparison": "مقارنة",
-							"faq": "الأسئلة الشائعة",
-							"testimonials": "شهادات",
-							"offer": "كتلة العرض"
-						}
-					},
-					"style": {
-						"label": "الأسلوب",
-						"choices": {
-							"match": "مطابق للصفحة",
-							"clean": "نظيف",
-							"direct": "استجابة مباشرة"
+							"cod": "مبيعات COD",
+							"leads": "جمع العملاء المحتملين",
+							"service": "خدمة",
+							"promo": "عرض ترويجي"
 						}
 					}
 				}
@@ -441,15 +399,6 @@
 				"description": "يختار Wandit أفضل صيغة صورة من الطلب.",
 				"placeholder": "صِف الصورة، المنتج، الخلفية، الأسلوب والنسبة…",
 				"options": {
-					"quality": {
-						"label": "الجودة",
-						"choices": {
-							"auto": "تلقائي",
-							"high": "عالية",
-							"medium": "متوسطة",
-							"low": "منخفضة"
-						}
-					},
 					"size": {
 						"label": "الحجم",
 						"choices": {
@@ -466,8 +415,7 @@
 						"choices": {
 							"1": "1 صورة",
 							"2": "2 صورة",
-							"4": "4 صور",
-							"8": "8 صور"
+							"4": "4 صور"
 						}
 					}
 				}
@@ -531,111 +479,18 @@
 					}
 				}
 			},
-			"background-edit": {
-				"label": "تعديل الخلفية",
-				"shortLabel": "الخلفية",
-				"description": "يُغيّر البيئة حول صورة منتج موجودة.",
-				"placeholder": "أرفق صورة منتج، ثم صِف الخلفية الجديدة…",
+			"image-animation": {
+				"label": "تحريك صورة",
+				"shortLabel": "تحريك صورة",
+				"description": "يحرّك صورة ثابتة واحدة؛ ولا ينشئ فيديو من الصفر.",
+				"placeholder": "اختياري: صِف الحركة أو الكاميرا أو ما يجب أن يبقى ثابتًا…",
 				"options": {
-					"background": {
-						"label": "الخلفية",
+					"motion": {
+						"label": "الحركة",
 						"choices": {
-							"studio": "استوديو",
-							"premium": "فاخرة",
-							"home": "منزل",
-							"outdoor": "خارجي"
-						}
-					},
-					"preserve": {
-						"label": "الحفاظ على",
-						"choices": {
-							"product": "المنتج",
-							"lighting": "الإضاءة",
-							"shadow": "الظل"
-						}
-					}
-				}
-			},
-			"video-creator": {
-				"label": "تلقائي",
-				"shortLabel": "تلقائي",
-				"description": "يختار Wandit أفضل صيغة فيديو من الطلب.",
-				"placeholder": "صِف الفيديو، المشاهد، الحركة، الأجواء ونسبة العرض…",
-				"options": {
-					"method": {
-						"label": "طريقة التوليد",
-						"choices": {
-							"reference": "مرجع",
-							"edit": "تعديل",
-							"frames": "إطارات"
-						}
-					},
-					"size": {
-						"label": "الحجم",
-						"choices": {
-							"auto": "تلقائي",
-							"16-9": "16:9",
-							"4-3": "4:3",
-							"1-1": "1:1",
-							"9-16": "9:16",
-							"21-9": "21:9"
-						}
-					},
-					"resolution": {
-						"label": "الدقة",
-						"choices": {
-							"720": "720p",
-							"1080": "1080p",
-							"4k": "4k"
-						}
-					},
-					"duration": {
-						"label": "المدة",
-						"choices": {
-							"4": "4s",
-							"5": "5s",
-							"8": "8s",
-							"10": "10s"
-						}
-					}
-				}
-			},
-			"ugc-video": {
-				"label": "فيديو UGC",
-				"shortLabel": "فيديو UGC",
-				"description": "يُنشئ فيديوهات إعلانية قصيرة بأسلوب صنّاع المحتوى.",
-				"placeholder": "صِف إعلان UGC، أجواء صانع المحتوى، الجملة الافتتاحية والإثبات…",
-				"options": {
-					"structure": {
-						"label": "البنية",
-						"choices": {
-							"problem": "مشكلة",
-							"demo": "عرض",
-							"testimonial": "شهادة"
-						}
-					},
-					"duration": {
-						"label": "المدة",
-						"choices": {
-							"15": "15s",
-							"30": "30s",
-							"45": "45s"
-						}
-					}
-				}
-			},
-			"product-demo": {
-				"label": "عرض المنتج",
-				"shortLabel": "عرض",
-				"description": "يُظهر استخدام المنتج والنتيجة وإجراء الطلب.",
-				"placeholder": "صِف تسلسل عرض المنتج والحث النهائي على الإجراء…",
-				"options": {
-					"pace": {
-						"label": "الإيقاع",
-						"choices": {
-							"fast": "سريع",
-							"balanced": "متوازن",
-							"slow": "بطيء"
+							"subtle": "خفيفة",
+							"balanced": "متوازنة",
+							"dynamic": "ديناميكية"
 						}
 					},
 					"ratio": {

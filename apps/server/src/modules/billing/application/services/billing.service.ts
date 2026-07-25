@@ -1,4 +1,4 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
 	BILLING_CATALOG,
@@ -11,6 +11,7 @@ import {
 	CREDIT_TIERS,
 	type CreateBillingCheckoutBody,
 	type CreateBillingTopupBody,
+	ENTITLED_SUBSCRIPTION_STATUSES,
 	priceLookupKey,
 	priceUsdFor,
 	TOPUP_PACKS,
@@ -19,20 +20,23 @@ import {
 
 import { CreditsService } from "../../../credits/application/services/credits.service";
 import { ActiveSubscriptionExistsError } from "../../domain/errors/active-subscription-exists.error";
+import { BillingNotConfiguredError } from "../../domain/errors/billing-not-configured.error";
 import { NoActiveSubscriptionError } from "../../domain/errors/no-active-subscription.error";
+import { PaymentPastDueError } from "../../domain/errors/payment-past-due.error";
 import {
 	PAYMENT_PROVIDER,
 	type PaymentProvider,
 } from "../../domain/ports/payment-provider.port";
 import { mapSubscriptionRow } from "../../infrastructure/mappers/subscription.mapper";
-import {
-	type BillingCustomerRow,
-	BillingCustomersRepository,
-} from "../../infrastructure/persistence/billing-customers.repository";
+import { BillingCustomersRepository } from "../../infrastructure/persistence/billing-customers.repository";
 import { SubscriptionsRepository } from "../../infrastructure/persistence/subscriptions.repository";
+import { BillingCustomerService } from "./billing-customer.service";
+import { StripeSubscriptionSyncService } from "./stripe-subscription-sync.service";
 
 @Injectable()
 export class BillingService {
+	private readonly logger = new Logger(BillingService.name);
+
 	constructor(
 		@Inject(BillingCustomersRepository)
 		private readonly billingCustomersRepository: BillingCustomersRepository,
@@ -42,6 +46,10 @@ export class BillingService {
 		private readonly creditsService: CreditsService,
 		@Inject(PAYMENT_PROVIDER)
 		private readonly paymentProvider: PaymentProvider,
+		@Inject(BillingCustomerService)
+		private readonly billingCustomerService: BillingCustomerService,
+		@Inject(StripeSubscriptionSyncService)
+		private readonly subscriptionSyncService: StripeSubscriptionSyncService,
 	) {}
 
 	plans(): BillingPlansResponse {
@@ -88,38 +96,104 @@ export class BillingService {
 		const subscription =
 			await this.subscriptionsRepository.findActiveByUserId(userId);
 
-		return subscription !== null;
+		return subscription !== null && this.isEntitled(subscription.status);
 	}
 
 	async checkout(
 		user: AuthUser,
 		body: CreateBillingCheckoutBody,
 	): Promise<BillingCheckoutResponse> {
-		const activeSubscription =
+		const visibleSubscription =
 			await this.subscriptionsRepository.findActiveByUserId(user.id);
 
-		if (activeSubscription) {
-			throw new ActiveSubscriptionExistsError();
+		if (visibleSubscription) {
+			this.throwCheckoutBlocked(visibleSubscription.status);
 		}
 
-		const customer = await this.ensureCustomer(user);
-		const url = await this.paymentProvider.createSubscriptionCheckout({
-			customerId: customer.providerCustomerId,
-			email: user.email,
-			interval: body.interval,
-			plan: body.plan,
-			tierCredits: body.tierCredits,
-			userId: user.id,
-		});
+		await this.billingCustomerService.ensureCustomer(user);
+		let createdCheckoutId: string | null = null;
 
-		return { url };
+		try {
+			return await this.billingCustomersRepository.withUserLock(
+				user.id,
+				async (tx) => {
+					const customer = await this.billingCustomersRepository.findByUserId(
+						user.id,
+						tx,
+					);
+
+					if (!customer) {
+						throw new Error(
+							`Billing customer mapping disappeared for user ${user.id}`,
+						);
+					}
+
+					const providerSubscriptions =
+						await this.paymentProvider.listSubscriptionsForCustomer(
+							customer.providerCustomerId,
+						);
+					const entitledSubscription = providerSubscriptions.find(
+						(subscription) => this.isEntitled(subscription.status),
+					);
+					const blockingSubscription =
+						entitledSubscription ??
+						providerSubscriptions.find((subscription) =>
+							this.isNonTerminal(subscription.status),
+						);
+
+					if (blockingSubscription) {
+						this.throwCheckoutBlocked(blockingSubscription.status);
+					}
+
+					if (customer.openCheckoutSessionId) {
+						await this.paymentProvider.expireCheckoutSession(
+							customer.openCheckoutSessionId,
+						);
+					}
+
+					const checkout =
+						await this.paymentProvider.createSubscriptionCheckout({
+							customerId: customer.providerCustomerId,
+							email: user.email,
+							interval: body.interval,
+							plan: body.plan,
+							tierCredits: body.tierCredits,
+							userId: user.id,
+						});
+					createdCheckoutId = checkout.id;
+
+					await this.billingCustomersRepository.setOpenCheckoutSessionId(
+						user.id,
+						checkout.id,
+						tx,
+					);
+
+					return { url: checkout.url };
+				},
+			);
+		} catch (error) {
+			if (createdCheckoutId) {
+				try {
+					await this.paymentProvider.expireCheckoutSession(createdCheckoutId);
+				} catch (compensationError) {
+					this.logger.error(
+						`Failed to expire unpersisted Stripe checkout session ${createdCheckoutId} for user ${user.id}`,
+						compensationError instanceof Error
+							? compensationError.message
+							: String(compensationError),
+					);
+				}
+			}
+
+			throw error;
+		}
 	}
 
 	async topup(
 		user: AuthUser,
 		body: CreateBillingTopupBody,
 	): Promise<BillingCheckoutResponse> {
-		const customer = await this.ensureCustomer(user);
+		const customer = await this.billingCustomerService.ensureCustomer(user);
 		const pack = TOPUP_PACKS[body.packId];
 		const url = await this.paymentProvider.createTopupCheckout({
 			credits: pack.credits,
@@ -152,8 +226,17 @@ export class BillingService {
 		body: ChangeBillingSubscriptionBody,
 	): Promise<BillingSubscriptionViewResponse> {
 		const subscription = await this.requireActiveSubscription(user.id);
+		const customer = await this.billingCustomersRepository.findByUserId(
+			user.id,
+		);
+
+		if (!customer) {
+			throw new Error(
+				`Subscription ${subscription.providerSubscriptionId} has no billing customer`,
+			);
+		}
 		const lookupKey = priceLookupKey(
-			subscription.plan,
+			body.plan ?? subscription.plan,
 			body.tierCredits,
 			body.interval,
 		);
@@ -162,6 +245,31 @@ export class BillingService {
 			subscription.providerSubscriptionId,
 			lookupKey,
 		);
+		await this.subscriptionSyncService.syncFromStripe(
+			customer.providerCustomerId,
+		);
+
+		return this.getSubscriptionView(user.id);
+	}
+
+	async sync(user: AuthUser): Promise<BillingSubscriptionViewResponse> {
+		const customer = await this.billingCustomersRepository.findByUserId(
+			user.id,
+		);
+
+		if (!customer) {
+			return this.getSubscriptionView(user.id);
+		}
+
+		try {
+			await this.subscriptionSyncService.syncFromStripe(
+				customer.providerCustomerId,
+			);
+		} catch (error) {
+			if (!(error instanceof BillingNotConfiguredError)) {
+				throw error;
+			}
+		}
 
 		return this.getSubscriptionView(user.id);
 	}
@@ -196,27 +304,6 @@ export class BillingService {
 		return this.getSubscriptionView(user.id);
 	}
 
-	private async ensureCustomer(user: AuthUser): Promise<BillingCustomerRow> {
-		const existing = await this.billingCustomersRepository.findByUserId(
-			user.id,
-		);
-
-		if (existing) {
-			return existing;
-		}
-
-		const providerCustomerId = await this.paymentProvider.ensureCustomer(
-			user.id,
-			user.email,
-		);
-
-		return this.billingCustomersRepository.upsertByUserId({
-			provider: "stripe",
-			providerCustomerId,
-			userId: user.id,
-		});
-	}
-
 	private async requireActiveSubscription(userId: string) {
 		const subscription =
 			await this.subscriptionsRepository.findActiveByUserId(userId);
@@ -226,5 +313,23 @@ export class BillingService {
 		}
 
 		return subscription;
+	}
+
+	private isEntitled(status: string) {
+		return (ENTITLED_SUBSCRIPTION_STATUSES as readonly string[]).includes(
+			status,
+		);
+	}
+
+	private isNonTerminal(status: string) {
+		return status !== "canceled" && status !== "incomplete_expired";
+	}
+
+	private throwCheckoutBlocked(status: string): never {
+		if (status === "past_due") {
+			throw new PaymentPastDueError();
+		}
+
+		throw new ActiveSubscriptionExistsError();
 	}
 }

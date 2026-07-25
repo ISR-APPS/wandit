@@ -8,6 +8,7 @@ import type {
 } from "@wandit/contracts";
 import { and, desc, eq, inArray, sql } from "@wandit/db";
 import { domains } from "@wandit/db/schema/domains";
+import { paymentOrders } from "@wandit/db/schema/orders";
 import { projects } from "@wandit/db/schema/projects";
 
 import {
@@ -25,13 +26,26 @@ export type DomainTransaction = Parameters<
 	Parameters<Database["transaction"]>[0]
 >[0];
 
-type CreatePurchasedDomainInput = {
+type CreatePurchasedOrderDomainInput = {
 	name: string;
+	paymentOrderId: string;
 	priceSnapshot: DomainPriceSnapshot;
-	projectId: string;
+	projectId: string | null;
 	registrant: Registrant;
 	tld: DomainTld;
 	userId: string;
+	whoisPrivacy: boolean;
+};
+
+type PurchasedDomainInsertInput = {
+	name: string;
+	paymentOrderId?: string;
+	priceSnapshot: DomainPriceSnapshot;
+	projectId: string | null;
+	registrant: Registrant;
+	tld: DomainTld;
+	userId: string;
+	whoisPrivacy?: boolean;
 };
 
 type CreateExternalDomainInput = {
@@ -54,7 +68,10 @@ type DomainUpdate = Partial<
 		| "projectId"
 		| "provider"
 		| "providerDomainId"
+		| "providerOrderId"
+		| "providerTotalPaidUsd"
 		| "status"
+		| "transferLockExpiresAt"
 	>
 >;
 
@@ -120,14 +137,68 @@ export class DomainsRepository {
 		return row ?? null;
 	}
 
-	async createPurchased(input: CreatePurchasedDomainInput): Promise<DomainRow> {
-		return this.insertPurchased(this.db, input);
+	async findByPaymentOrderId(
+		paymentOrderId: string,
+	): Promise<DomainRow | null> {
+		const [row] = await this.db
+			.select()
+			.from(domains)
+			.where(eq(domains.paymentOrderId, paymentOrderId))
+			.limit(1);
+
+		return row ?? null;
 	}
 
-	async createPurchasedReplacingTerminal(
-		input: CreatePurchasedDomainInput,
+	async findByPaymentOrderIdForUpdate(
+		paymentOrderId: string,
+		tx: DomainTransaction,
+	): Promise<DomainRow | null> {
+		// This is the same lock used by findOrCreatePurchasedForOrder. A refund
+		// therefore either sees and fences the linked row, or commits the refunded
+		// order before a stale fulfillment is allowed to create that row.
+		await tx.execute(
+			sql`select pg_advisory_xact_lock(hashtext('domain-order:' || ${paymentOrderId}::text))`,
+		);
+		const [row] = await tx
+			.select()
+			.from(domains)
+			.where(eq(domains.paymentOrderId, paymentOrderId))
+			.limit(1)
+			.for("update");
+
+		return row ?? null;
+	}
+
+	async findOrCreatePurchasedForOrder(
+		input: CreatePurchasedOrderDomainInput,
 	): Promise<DomainRow> {
 		return this.db.transaction(async (tx) => {
+			await tx.execute(
+				sql`select pg_advisory_xact_lock(hashtext('domain-order:' || ${input.paymentOrderId}::text))`,
+			);
+			const [order] = await tx
+				.select({ status: paymentOrders.status })
+				.from(paymentOrders)
+				.where(eq(paymentOrders.id, input.paymentOrderId))
+				.limit(1)
+				.for("update");
+
+			if (!order || !["paid", "fulfilling"].includes(order.status)) {
+				throw new InvalidDomainStateError(
+					"Payment order is no longer eligible for domain fulfillment",
+				);
+			}
+
+			const [existing] = await tx
+				.select()
+				.from(domains)
+				.where(eq(domains.paymentOrderId, input.paymentOrderId))
+				.limit(1);
+
+			if (existing) {
+				return existing;
+			}
+
 			await this.deleteTerminalNameOrThrow(tx, input.name);
 
 			return this.insertPurchased(tx, input);
@@ -167,17 +238,28 @@ export class DomainsRepository {
 		statuses: DomainStatus[],
 		patch: DomainUpdate,
 	): Promise<DomainRow> {
-		const [row] = await this.db
-			.update(domains)
-			.set(patch)
-			.where(and(eq(domains.id, id), inArray(domains.status, statuses)))
-			.returning();
+		const row = await this.updateIfStatusOrNull(id, statuses, patch);
 
 		if (!row) {
 			throw new InvalidDomainStateError();
 		}
 
 		return row;
+	}
+
+	async updateIfStatusOrNull(
+		id: string,
+		statuses: DomainStatus[],
+		patch: DomainUpdate,
+		db: Database | DomainTransaction = this.db,
+	): Promise<DomainRow | null> {
+		const [row] = await db
+			.update(domains)
+			.set(patch)
+			.where(and(eq(domains.id, id), inArray(domains.status, statuses)))
+			.returning();
+
+		return row ?? null;
 	}
 
 	async setPrimary(id: string, userId: string): Promise<DomainRow> {
@@ -200,10 +282,7 @@ export class DomainsRepository {
 				.update(domains)
 				.set({ isPrimary: false })
 				.where(
-					and(
-						eq(domains.userId, userId),
-						eq(domains.projectId, row.projectId),
-					),
+					and(eq(domains.userId, userId), eq(domains.projectId, row.projectId)),
 				);
 
 			const [updated] = await tx
@@ -234,17 +313,16 @@ export class DomainsRepository {
 			.select()
 			.from(domains)
 			.where(
-				and(
-					eq(domains.projectId, projectId),
-					eq(domains.status, "active"),
-				),
+				and(eq(domains.projectId, projectId), eq(domains.status, "active")),
 			)
 			.orderBy(desc(domains.updatedAt));
 	}
 
-	async findRenewalCandidates(now = new Date()): Promise<DomainRow[]> {
-		const renewBy = new Date(now);
-		renewBy.setUTCDate(renewBy.getUTCDate() + 30);
+	// Expiry-notice sweep input: every purchased domain nearing expiry, whether
+	// or not auto-renew is set — renewal is not wired yet, only notices are.
+	async findExpiringPurchased(now = new Date()): Promise<DomainRow[]> {
+		const expiringBy = new Date(now);
+		expiringBy.setUTCDate(expiringBy.getUTCDate() + 30);
 
 		return this.db
 			.select()
@@ -252,10 +330,9 @@ export class DomainsRepository {
 			.where(
 				and(
 					eq(domains.source, "purchased"),
-					eq(domains.autoRenew, true),
 					inArray(domains.status, ["active", "expired"]),
 					sql`${domains.expiresAt} IS NOT NULL`,
-					sql`${domains.expiresAt} <= ${renewBy}`,
+					sql`${domains.expiresAt} <= ${expiringBy}`,
 				),
 			)
 			.orderBy(domains.expiresAt, domains.id);
@@ -268,6 +345,7 @@ export class DomainsRepository {
 			.where(
 				and(
 					eq(domains.source, "purchased"),
+					eq(domains.provider, "namecom"),
 					sql`${domains.providerDomainId} IS NOT NULL`,
 					sql`${domains.status} NOT IN ('failed', 'transferred_out')`,
 				),
@@ -314,22 +392,25 @@ export class DomainsRepository {
 
 	private async insertPurchased(
 		db: Database | DomainTransaction,
-		input: CreatePurchasedDomainInput,
+		input: PurchasedDomainInsertInput,
 	): Promise<DomainRow> {
 		const [inserted] = await db
 			.insert(domains)
 			.values({
-				autoRenew: true,
+				// Off by default: renewal and privacy are separate paid costs the
+				// customer has not consented to at registration time.
+				autoRenew: false,
 				name: input.name,
+				paymentOrderId: input.paymentOrderId ?? null,
 				priceSnapshot: input.priceSnapshot,
-				projectId: input.projectId,
-				provider: "openprovider",
+				projectId: input.projectId ?? null,
+				provider: "namecom",
 				registrant: input.registrant,
 				source: "purchased",
 				status: "registering",
 				tld: input.tld,
 				userId: input.userId,
-				whoisPrivacy: true,
+				whoisPrivacy: input.whoisPrivacy ?? false,
 			})
 			.onConflictDoNothing({ target: domains.name })
 			.returning();

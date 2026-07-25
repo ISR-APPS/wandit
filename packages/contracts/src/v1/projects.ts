@@ -6,6 +6,8 @@
  */
 // Zod validates real JSON at runtime.
 import { z } from "zod";
+// Uploaded-attachment references ride the create body (V2 spec §11).
+import { fileRefSchema } from "./attachments";
 // Composer settings are shared with chat messages.
 import { composerMetadataSchema } from "./chats";
 // Shared id/date validators.
@@ -39,6 +41,9 @@ export const projectSchema = z.object({
 	// Temporary thumbnail seed until real thumbnails exist.
 	thumbnailSeed: z.number(),
 	publishedSlug: z.string().optional(),
+	// Ad pixels injected into the published page at publish time.
+	metaPixelId: z.string().nullable(),
+	tiktokPixelId: z.string().nullable(),
 });
 
 // TypeScript project type.
@@ -53,11 +58,25 @@ export type ListProjectsResponse = z.infer<typeof listProjectsResponseSchema>;
 // Max length for the first prompt that creates a project.
 export const projectPromptMaxLength = 2000;
 
-// Body for creating a project from a prompt.
-export const createProjectBodySchema = z.object({
-	prompt: z.string().min(1).max(projectPromptMaxLength),
-	composer: composerMetadataSchema.optional(),
-});
+// Body for creating a project from a prompt. The composer allows
+// attachment-only submissions, so the prompt may be empty WHEN at least one
+// attachment rides along — never both empty.
+export const createProjectBodySchema = z
+	.object({
+		prompt: z.string().max(projectPromptMaxLength),
+		composer: composerMetadataSchema.optional(),
+		// First-message assets already uploaded through /api/v1/attachments — the
+		// server persists them as file parts on the chat's first user message.
+		attachments: z.array(fileRefSchema).max(6).optional(),
+	})
+	.refine(
+		(body) =>
+			body.prompt.trim().length > 0 || (body.attachments?.length ?? 0) > 0,
+		{
+			message: "prompt or at least one attachment is required",
+			path: ["prompt"],
+		},
+	);
 
 // TypeScript create body.
 export type CreateProjectBody = z.infer<typeof createProjectBodySchema>;

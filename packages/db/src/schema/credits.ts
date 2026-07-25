@@ -62,6 +62,10 @@ export const creditLedger = pgTable(
 			table.createdAt,
 		),
 		index("credit_ledger_userId_bucket_idx").on(table.userId, table.bucket),
+		index("credit_ledger_paymentIntentId_idx").on(
+			sql`(${table.meta} ->> 'paymentIntentId')`,
+		),
+		index("credit_ledger_chargeId_idx").on(sql`(${table.meta} ->> 'chargeId')`),
 		uniqueIndex("credit_ledger_idempotencyKey_uq")
 			.on(table.idempotencyKey)
 			.where(sql`${table.idempotencyKey} IS NOT NULL`),

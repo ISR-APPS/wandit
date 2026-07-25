@@ -1,6 +1,11 @@
 import type { WanditUIMessage } from "../../../lib/use-ai-chat";
+import { AnimateImagePart } from "./animate-image-part";
 import { AskUserPart } from "./ask-user-part";
+import { FilePart } from "./file-part";
+import { GenerateImagePart } from "./generate-image-part";
+import { GenerateMarketingAssetPart } from "./generate-marketing-asset-part";
 import { GeneratePagePart } from "./generate-page-part";
+import { ScrapeLeadsPart } from "./scrape-leads-part";
 import { TextPart } from "./text-part";
 
 const warnedPartTypes = new Set<string>();
@@ -63,8 +68,26 @@ export function MessageParts({
 					/>
 				);
 			}
+			case "file":
+				// User-attached assets (contract §10.4) — thumbnails for images,
+				// filename chips for documents.
+				return (
+					<FilePart
+						// biome-ignore lint/suspicious/noArrayIndexKey: message parts are ordered and file parts have no id
+						key={`${message.id}:${index}`}
+						part={part}
+					/>
+				);
 			case "tool-generate_page":
 				return <GeneratePagePart key={part.toolCallId} part={part} />;
+			case "tool-generate_marketing_asset":
+				return <GenerateMarketingAssetPart key={part.toolCallId} part={part} />;
+			case "tool-generate_image":
+				return <GenerateImagePart key={part.toolCallId} part={part} />;
+			case "tool-scrape_leads":
+				return <ScrapeLeadsPart key={part.toolCallId} part={part} />;
+			case "tool-animate_image":
+				return <AnimateImagePart key={part.toolCallId} part={part} />;
 			case "tool-read_skill":
 			case "tool-get_direction_candidates":
 				// Server-side context tools — deliberately invisible in the thread

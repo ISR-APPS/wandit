@@ -1,11 +1,16 @@
-// HTTP endpoints for the Page tab. Both are plain JSON reads behind the
-// global AuthGuard; ownership is proven in the repository queries.
+// HTTP endpoints for the Page tab: two plain JSON reads plus the edit-ops
+// write, all behind the global AuthGuard; ownership is proven in the
+// repository queries.
 //
-// Route prefix is "v1" (not "v1/pages") because the two routes live under
+// Route prefix is "v1" (not "v1/pages") because the routes live under
 // different roots: /v1/projects/:id/page and /v1/pages/versions/:id/html.
-import { Controller, Get, Inject, Param } from "@nestjs/common";
+import { Body, Controller, Get, Inject, Param, Post } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
+	type ApplyPageOpsBody,
+	type ApplyPageOpsResponse,
+	applyPageOpsBodySchema,
+	type ListPageVersionsResponse,
 	type PageOverview,
 	type PageVersionHtml,
 	uuidSchema,
@@ -13,6 +18,7 @@ import {
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { CurrentUser } from "../../../../auth";
+import { PageEditsService } from "../../../application/services/page-edits.service";
 import { PagesService } from "../../../application/services/pages.service";
 
 @Controller("v1")
@@ -20,7 +26,23 @@ export class PagesController {
 	constructor(
 		@Inject(PagesService)
 		private readonly pagesService: PagesService,
+		@Inject(PageEditsService)
+		private readonly pageEditsService: PageEditsService,
 	) {}
+
+	// One inline-editor/theme-panel Save = one op batch = one NEW immutable
+	// version (spec §7/§14). The body schema only accepts client op kinds —
+	// a replace-section op 400s at validation (the browser never sends HTML).
+	@Post("projects/:projectId/page/ops")
+	applyOps(
+		@Param("projectId", new ZodValidationPipe(uuidSchema))
+		projectId: string,
+		@Body(new ZodValidationPipe(applyPageOpsBodySchema))
+		body: ApplyPageOpsBody,
+		@CurrentUser() user: AuthUser,
+	): Promise<ApplyPageOpsResponse> {
+		return this.pageEditsService.applyClientOps(user.id, projectId, body);
+	}
 
 	// Polled by the web while an attempt is queued/generating.
 	@Get("projects/:projectId/page")
@@ -30,6 +52,16 @@ export class PagesController {
 		@CurrentUser() user: AuthUser,
 	): Promise<PageOverview> {
 		return this.pagesService.overview(user.id, projectId);
+	}
+
+	// Version history, newest first, with the live version marked.
+	@Get("projects/:projectId/page/versions")
+	versions(
+		@Param("projectId", new ZodValidationPipe(uuidSchema))
+		projectId: string,
+		@CurrentUser() user: AuthUser,
+	): Promise<ListPageVersionsResponse> {
+		return this.pagesService.listVersions(user.id, projectId);
 	}
 
 	// JSON envelope on purpose (NOT a raw text/html response): the web puts

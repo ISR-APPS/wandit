@@ -64,10 +64,16 @@ export const CREDIT_COSTS = {
 	landingPageGeneration: 10,
 	chatMessage: 1,
 	imageGeneration: 5,
+	marketingAssetGeneration: 5,
 	videoGeneration: 25,
 } as const;
 
 export const SIGNUP_GRANT_CREDITS = 100;
+
+/** Shared ledger key for an image-to-video credit reservation/refund pair. */
+export function mediaGenerationReservationKey(attemptId: string): string {
+	return `media-generation:${attemptId}`;
+}
 
 export const creditsRoutes = {
 	balance: "/api/v1/credits/balance",

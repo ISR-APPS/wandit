@@ -34,6 +34,22 @@
 	"previous": "Précédent",
 	"next": "Suivant",
 	"freeNote": "La collecte de leads est toujours gratuite.",
+	"sheetSync": {
+		"connect": "Connecter Google Sheets",
+		"syncFirst": "Synchroniser vers Google Sheets",
+		"syncNow": "Synchroniser",
+		"open": "Ouvrir la feuille",
+		"lastSynced": "Dernière synchro {time}",
+		"syncedToast": {
+			"zero": "{count} lead synchronisé",
+			"one": "{count} lead synchronisé",
+			"two": "{count} leads synchronisés",
+			"few": "{count} leads synchronisés",
+			"many": "{count} leads synchronisés",
+			"other": "{count} leads synchronisés"
+		},
+		"errorToast": "Échec de la synchronisation Google Sheets. Réessaie."
+	},
 	"status": {
 		"to_confirm": "À confirmer",
 		"confirmed": "Confirmé",

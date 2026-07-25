@@ -46,6 +46,13 @@ export function createAuth(options: CreateAuthOptions = {}) {
 		],
 		socialProviders: {
 			google: {
+				// offline → Google issues a refresh token whenever its consent
+				// screen is shown (first sign-up, or the linkSocial re-consent
+				// that requests the Sheets scope). Server-side Sheets sync then
+				// mints fresh access tokens via auth.api.getAccessToken without
+				// the user present. No global `prompt` on purpose: forcing the
+				// consent screen on every sign-in would hurt the funnel.
+				accessType: "offline",
 				clientId: env.GOOGLE_CLIENT_ID,
 				clientSecret: env.GOOGLE_CLIENT_SECRET,
 			},

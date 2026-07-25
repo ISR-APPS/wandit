@@ -40,9 +40,9 @@ export const pageGenerationAttempts = pgTable(
 			onDelete: "set null",
 		}),
 		status: pageGenerationStatus("status").notNull().default("queued"),
-		// { title, brief, designerSystemPrompt } — full reproducibility: exactly
-		// what the designer model was asked, snapshotted at queue time so later
-		// prompt edits never change what an old attempt meant.
+		// Generation contract snapshot: the creative brief, Builder prompt, and
+		// title, captured at queue time so later prompt or environment edits
+		// never change what an old attempt meant.
 		spec: jsonb("spec").notNull(),
 		// Model id snapshotted at queue time, same reasoning as spec.
 		model: text("model").notNull(),

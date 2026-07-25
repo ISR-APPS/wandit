@@ -43,6 +43,14 @@ export const env = createEnv({
 		// Optional: the builder's generate_image tool. Needs R2 plus
 		// R2_PUBLIC_BASE_URL too; unset means the tool answers "unavailable".
 		AI_IMAGE_MODEL: z.string().min(1).optional(),
+		// Optional: multimodal model used when a generation EDITS user-provided
+		// source images (product photo, logo). Must accept image inputs and
+		// return image outputs through generateText (e.g. a Gemini image
+		// model). Unset means source-image requests degrade to text-only.
+		AI_IMAGE_EDIT_MODEL: z.string().min(1).optional(),
+		// Optional override for marketing HTML documents; falls back to
+		// AI_CHAT_MODEL when unset.
+		AI_MARKETING_MODEL: z.string().min(1).optional(),
 		AI_TRANSCRIPTION_MODEL: z
 			.string()
 			.min(1)
@@ -50,17 +58,33 @@ export const env = createEnv({
 		// Page generation foundation (Trigger.dev queue + Cloudflare R2 storage).
 		// All optional: the server must boot before these creds exist; the
 		// generate_page tool checks at call time and answers gracefully when
-		// unconfigured. The model default keeps design quality decisions in one place.
+		// unconfigured.
+		//
+		// AI_PAGE_BUILDER_MODEL is the explicit new name. The older
+		// AI_PAGE_DESIGN_MODEL remains as a fallback so existing deployments and
+		// .env files keep working during the migration.
+		AI_PAGE_BUILDER_MODEL: z.string().min(1).optional(),
 		AI_PAGE_DESIGN_MODEL: z
 			.string()
 			.min(1)
 			.default("anthropic/claude-sonnet-5"),
-		// Builder reasoning knob, forwarded as providerOptions.openai
-		// .reasoningEffort — only OpenAI builder models read it.
+		// Builder reasoning knob, read at build time inside runSiteBuild() and
+		// forwarded as providerOptions (openai.reasoningEffort; mapped onto
+		// Gemini's two thinking levels). Defaults to "high": an unset var once
+		// silently meant provider-default effort (a misnamed .env entry hid the
+		// knob for weeks) — design quality must never again depend on a typo.
 		AI_PAGE_DESIGN_REASONING: z
 			.enum(["minimal", "low", "medium", "high", "xhigh"])
-			.optional(),
+			.default("high"),
+		// Optional: the builder's animate_image tool (image → short ambient video).
+		// Needs R2 + R2_PUBLIC_BASE_URL too; unset means the tool answers
+		// "unavailable".
+		AI_VIDEO_MODEL: z.string().min(1).optional(),
 		TRIGGER_SECRET_KEY: z.string().min(1).optional(),
+		// Lead scraping (scrape_leads chat tool). Serper.dev key for the Google
+		// Maps business search. Optional: the tool checks at call time and
+		// answers "unavailable" until the key exists (same contract as R2).
+		SERPER_API_KEY: z.string().min(1).optional(),
 		R2_ACCOUNT_ID: z.string().min(1).optional(),
 		R2_ACCESS_KEY_ID: z.string().min(1).optional(),
 		R2_SECRET_ACCESS_KEY: z.string().min(1).optional(),
@@ -92,13 +116,17 @@ export const env = createEnv({
 		STRIPE_SECRET_KEY: z.string().startsWith("sk_").optional(),
 		STRIPE_WEBHOOK_SECRET: z.string().startsWith("whsec_").optional(),
 		// Domain/Cloudflare settings are optional for chat-only flows.
-		OPENPROVIDER_API_URL: z.url().optional(),
-		OPENPROVIDER_USERNAME: z.string().min(1).optional(),
-		OPENPROVIDER_PASSWORD: z.string().min(1).optional(),
+		// Sandbox is the safe default: switching to production requires one
+		// explicit environment change plus production-only credentials.
+		NAMECOM_ENVIRONMENT: z.enum(["sandbox", "production"]).default("sandbox"),
+		NAMECOM_USERNAME: z.string().min(1).optional(),
+		NAMECOM_API_TOKEN: z.string().min(1).optional(),
 		CLOUDFLARE_API_TOKEN: z.string().min(1).optional(),
 		CLOUDFLARE_KV_NAMESPACE_ID: z.string().min(1).optional(),
 		CLOUDFLARE_ZONE_ID_WANDIT_APP: z.string().min(1).optional(),
 		DOMAINS_FALLBACK_ORIGIN: z.string().min(1).default("customers.wandit.app"),
+		// Zone serving published customer sites: {slug}.SITES_DOMAIN.
+		SITES_DOMAIN: z.string().min(1).default("wandit.app"),
 	},
 	// Real data source for validation.
 	runtimeEnv: process.env,

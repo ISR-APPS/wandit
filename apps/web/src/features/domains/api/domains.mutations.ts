@@ -5,33 +5,17 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import type {
 	AttachExternalDomainBody,
-	PurchaseDomainBody,
 	UpdateDomainAutoRenewBody,
 } from "./domains.dto";
 import { domainKeys } from "./domains.queries";
 import {
 	attachExternalDomain,
 	detachDomain,
-	purchaseDomain,
-	renewDomain,
 	setPrimaryDomain,
 	transferUnlockDomain,
 	updateDomainAutoRenew,
 	verifyDomain,
 } from "./domains.services";
-
-export function usePurchaseDomain(projectId: string) {
-	const queryClient = useQueryClient();
-	return useMutation({
-		mutationFn: (body: PurchaseDomainBody) => purchaseDomain(projectId, body),
-		onSuccess: ({ domain }) => {
-			queryClient.setQueryData(domainKeys.list(projectId), (old) =>
-				Array.isArray(old) ? upsertDomain(old, domain) : [domain],
-			);
-			void queryClient.invalidateQueries({ queryKey: domainKeys.list(projectId) });
-		},
-	});
-}
 
 export function useAttachExternalDomain(projectId: string) {
 	const queryClient = useQueryClient();
@@ -42,7 +26,9 @@ export function useAttachExternalDomain(projectId: string) {
 			queryClient.setQueryData(domainKeys.list(projectId), (old) =>
 				Array.isArray(old) ? upsertDomain(old, domain) : [domain],
 			);
-			void queryClient.invalidateQueries({ queryKey: domainKeys.list(projectId) });
+			void queryClient.invalidateQueries({
+				queryKey: domainKeys.list(projectId),
+			});
 		},
 	});
 }
@@ -55,20 +41,9 @@ export function useVerifyDomain(projectId: string) {
 			queryClient.setQueryData(domainKeys.list(projectId), (old) =>
 				Array.isArray(old) ? upsertDomain(old, domain) : [domain],
 			);
-			void queryClient.invalidateQueries({ queryKey: domainKeys.list(projectId) });
-		},
-	});
-}
-
-export function useRenewDomain(projectId: string) {
-	const queryClient = useQueryClient();
-	return useMutation({
-		mutationFn: (domainId: string) => renewDomain(domainId),
-		onSuccess: ({ domain }) => {
-			queryClient.setQueryData(domainKeys.list(projectId), (old) =>
-				Array.isArray(old) ? upsertDomain(old, domain) : [domain],
-			);
-			void queryClient.invalidateQueries({ queryKey: domainKeys.list(projectId) });
+			void queryClient.invalidateQueries({
+				queryKey: domainKeys.list(projectId),
+			});
 		},
 	});
 }
@@ -79,13 +54,20 @@ export function useUpdateDomainAutoRenew(projectId: string) {
 		mutationFn: ({
 			domainId,
 			autoRenew,
-		}: { domainId: string; autoRenew: boolean }) =>
-			updateDomainAutoRenew(domainId, { autoRenew } satisfies UpdateDomainAutoRenewBody),
+		}: {
+			domainId: string;
+			autoRenew: boolean;
+		}) =>
+			updateDomainAutoRenew(domainId, {
+				autoRenew,
+			} satisfies UpdateDomainAutoRenewBody),
 		onSuccess: ({ domain }) => {
 			queryClient.setQueryData(domainKeys.list(projectId), (old) =>
 				Array.isArray(old) ? upsertDomain(old, domain) : [domain],
 			);
-			void queryClient.invalidateQueries({ queryKey: domainKeys.list(projectId) });
+			void queryClient.invalidateQueries({
+				queryKey: domainKeys.list(projectId),
+			});
 		},
 	});
 }
@@ -103,7 +85,9 @@ export function useSetPrimaryDomain(projectId: string) {
 						}))
 					: [domain],
 			);
-			void queryClient.invalidateQueries({ queryKey: domainKeys.list(projectId) });
+			void queryClient.invalidateQueries({
+				queryKey: domainKeys.list(projectId),
+			});
 		},
 	});
 }
@@ -120,11 +104,11 @@ export function useDetachDomain(projectId: string) {
 		mutationFn: (domainId: string) => detachDomain(domainId),
 		onSuccess: ({ domain }) => {
 			queryClient.setQueryData(domainKeys.list(projectId), (old) =>
-				Array.isArray(old)
-					? old.filter((item) => item.id !== domain.id)
-					: [],
+				Array.isArray(old) ? old.filter((item) => item.id !== domain.id) : [],
 			);
-			void queryClient.invalidateQueries({ queryKey: domainKeys.list(projectId) });
+			void queryClient.invalidateQueries({
+				queryKey: domainKeys.list(projectId),
+			});
 		},
 	});
 }

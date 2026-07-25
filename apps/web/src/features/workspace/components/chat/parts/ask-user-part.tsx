@@ -5,8 +5,9 @@
 // settled. The interactive chips live ONLY in the request tray now.
 // Chrome strings hardcoded English this pass, same rule as the tray files.
 
-import { Check } from "lucide-react";
+import { Check, Paperclip } from "lucide-react";
 
+import { useTranslation } from "@/lib/i18n";
 import type { WanditUIMessage } from "../../../lib/use-ai-chat";
 import { WanditMessageHeader } from "../real-message";
 import { TrayPointerChip } from "../request-tray/tray-signals";
@@ -70,8 +71,22 @@ function AskReceiptLine({
 }: {
 	output: Extract<AskUserToolPart, { state: "output-available" }>["output"];
 }) {
+	const { t } = useTranslation();
+
 	if (output.dismissed) {
 		return <p className="mt-2 text-[12.5px] text-muted-foreground">Skipped</p>;
+	}
+
+	// Attachments ask settled with uploads — count receipt instead of text.
+	if (output.files?.length) {
+		return (
+			<p className="mt-2 flex items-center gap-[7px] text-[12.5px] text-muted-foreground">
+				<span className="grid size-3.5 shrink-0 place-items-center rounded-full bg-success/16">
+					<Paperclip className="size-2 text-success" strokeWidth={3} />
+				</span>
+				{t("workspace.chat.tray.filesSent", { count: output.files.length })}
+			</p>
+		);
 	}
 
 	if (output.delegated) {

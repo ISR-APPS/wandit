@@ -2,9 +2,9 @@
  * generate_page — the server-executed tool that queues a real page build.
  *
  * Unlike ask_user (no execute) and get_direction_candidates (module-level
- * singleton), this
- * tool is a FACTORY: it must know which project/chat it acts for, so the
- * agent builds a fresh instance per request with those ids closed over.
+ * singleton), this tool is a FACTORY: it must know which project/chat it acts
+ * for, so the agent builds a fresh instance per request with those ids closed
+ * over.
  *
  * The tool itself does no design work. It snapshots the designer prompt +
  * brief into an attempt row and hands off to the Trigger.dev task; its
@@ -28,6 +28,7 @@ import { isR2Configured } from "../../../../infrastructure/storage/r2";
 import type { generatePageTask } from "../../../../trigger/generate-page.task";
 import type { PagesRepository } from "../../../pages/infrastructure/persistence/pages.repository";
 import { buildSiteBuilderSystemPrompt } from "../site-builder/builder-prompt";
+import { getWorld } from "../worlds";
 
 // Static Nest logger (no DI needed): queue-side events land in the API
 // server terminal; the build itself logs in the Trigger worker terminal.
@@ -52,7 +53,7 @@ export function createGeneratePageTool(
 			"Page tab — it is not instant.",
 		inputSchema: generatePageInputSchema,
 		outputSchema: generatePageOutputSchema,
-		execute: async ({ brief, title }): Promise<GeneratePageOutput> => {
+		execute: async ({ brief, title, worldId }): Promise<GeneratePageOutput> => {
 			// Checked at CALL time, not boot time: the server must run before
 			// credentials exist, and the model must answer honestly when they don't.
 			if (!isR2Configured() || !env.TRIGGER_SECRET_KEY) {
@@ -70,21 +71,36 @@ export function createGeneratePageTool(
 			const artifact = await deps.pagesRepository.findOrCreateLandingArtifact(
 				deps.projectId,
 			);
-			// Snapshotted NOW so later prompt edits never change what this
-			// attempt meant (full reproducibility per attempt row).
-			const designerSystemPrompt = await buildSiteBuilderSystemPrompt();
+			// Snapshotted NOW so later prompt, model, or environment changes
+			// never change what this attempt meant. The chosen design world's
+			// bible rides inside the same snapshot — the trigger task and the
+			// build loop never need to know worlds exist.
+			const world = worldId ? getWorld(worldId) : undefined;
+			if (worldId && !world) {
+				logger.warn(
+					`Unknown worldId "${worldId}" — building without a world doc.`,
+				);
+			}
+			const basePrompt = await buildSiteBuilderSystemPrompt();
+			const designerSystemPrompt = world
+				? `${basePrompt}\n\n${world.doc}`
+				: basePrompt;
+			const builderModel =
+				env.AI_PAGE_BUILDER_MODEL ?? env.AI_PAGE_DESIGN_MODEL;
 			const attempt = await deps.pagesRepository.insertAttempt({
 				artifactId: artifact.id,
 				chatId: deps.chatId,
-				model: env.AI_PAGE_DESIGN_MODEL,
+				model: builderModel,
 				projectId: deps.projectId,
 				spec: { brief, designerSystemPrompt, title },
 			});
 
 			logger.log(
 				`Queued page build "${title}" — attempt ${attempt.id}, ` +
-					`model ${env.AI_PAGE_DESIGN_MODEL}`,
+					`Builder ${builderModel}` +
+					(world ? `, world "${world.id}"` : ", no world"),
 			);
+			logger.log(`Brief for attempt ${attempt.id}:\n${brief}`);
 
 			try {
 				const handle = await tasks.trigger<typeof generatePageTask>(
@@ -129,9 +145,8 @@ export function createGeneratePageTool(
 				attemptId: attempt.id,
 				message:
 					`Queued: version ${versionNumber} is being generated in the ` +
-					"background. It will appear in the Page tab when ready — the " +
-					"builder writes and reviews the page, which can take around " +
-					"ten minutes.",
+					"background. It will appear in the Page tab when ready — " +
+					"usually a few minutes.",
 				status: "queued",
 				versionNumber,
 			};

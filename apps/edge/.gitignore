@@ -1,0 +1,4 @@
+# wrangler local dev state (seeded KV/R2) and scratch files
+.wrangler/
+tmp/
+dist/

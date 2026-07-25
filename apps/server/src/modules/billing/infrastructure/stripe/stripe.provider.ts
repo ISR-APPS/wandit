@@ -2,6 +2,7 @@ import { Injectable, InternalServerErrorException } from "@nestjs/common";
 import {
 	type BillingInterval,
 	type BillingPlanId,
+	CHECKOUT_PURPOSE,
 	type CreditTier,
 	parsePriceLookupKey,
 	priceLookupKey,
@@ -11,7 +12,11 @@ import Stripe from "stripe";
 
 import { BillingNotConfiguredError } from "../../domain/errors/billing-not-configured.error";
 import type {
+	CreateOrderCheckoutParams,
+	CreateOrderCheckoutResult,
+	CreateRefundParams,
 	CreateSubscriptionCheckoutParams,
+	CreateSubscriptionCheckoutResult,
 	CreateTopupCheckoutParams,
 	PaymentProvider,
 } from "../../domain/ports/payment-provider.port";
@@ -25,19 +30,68 @@ export class StripeProvider implements PaymentProvider {
 	private client: Stripe | null = null;
 
 	async ensureCustomer(userId: string, email: string): Promise<string> {
-		const customer = await this.stripe().customers.create({
-			email,
-			metadata: {
-				userId,
+		const customer = await this.stripe().customers.create(
+			{
+				email,
+				metadata: {
+					userId,
+				},
 			},
-		});
+			{
+				idempotencyKey: `customer:${userId}`,
+			},
+		);
 
 		return customer.id;
 	}
 
+	async createOrderCheckout(
+		params: CreateOrderCheckoutParams,
+	): Promise<CreateOrderCheckoutResult> {
+		const metadata = {
+			orderId: params.orderId,
+			orderKind: params.kind,
+			purpose: CHECKOUT_PURPOSE.order,
+			userId: params.userId,
+		};
+		const session = await this.stripe().checkout.sessions.create(
+			{
+				cancel_url: params.cancelUrl,
+				client_reference_id: params.orderId,
+				customer: params.customerId,
+				line_items: [
+					{
+						price_data: {
+							currency: params.currency,
+							product_data: {
+								name: params.productName,
+							},
+							unit_amount: params.amountCents,
+						},
+						quantity: 1,
+					},
+				],
+				metadata,
+				mode: "payment",
+				payment_intent_data: {
+					metadata,
+				},
+				success_url: params.successUrl,
+			},
+			{
+				idempotencyKey: `order-checkout:${params.orderId}`,
+			},
+		);
+
+		return {
+			id: session.id,
+			url: this.expectUrl(session.url, "Stripe order checkout session"),
+		};
+	}
+
 	async createSubscriptionCheckout(
 		params: CreateSubscriptionCheckoutParams,
-	): Promise<string> {
+	): Promise<CreateSubscriptionCheckoutResult> {
 		const lookupKey = priceLookupKey(
 			params.plan,
 			params.tierCredits,
@@ -50,8 +104,10 @@ export class StripeProvider implements PaymentProvider {
 			params.tierCredits,
 			params.interval,
 		);
+		// Checkout Sessions are retryable attempts: an abandoned subscription
+		// attempt must be able to create a fresh Session after the preflight.
 		const session = await this.stripe().checkout.sessions.create({
-			cancel_url: `${env.CORS_ORIGIN}/dashboard?billing=cancelled`,
+			cancel_url: `${env.CORS_ORIGIN}/billing/cancel`,
 			client_reference_id: params.userId,
 			customer: params.customerId,
 			line_items: [
@@ -65,18 +121,27 @@ export class StripeProvider implements PaymentProvider {
 			subscription_data: {
 				metadata,
 			},
-			success_url: `${env.CORS_ORIGIN}/dashboard?billing=success&session_id={CHECKOUT_SESSION_ID}`,
+			success_url: `${env.CORS_ORIGIN}/billing/success?purpose=subscription`,
 		});
 
-		return this.expectUrl(session.url, "Stripe checkout session");
+		return {
+			id: session.id,
+			url: this.expectUrl(session.url, "Stripe checkout session"),
+		};
 	}
 
 	async createTopupCheckout(
 		params: CreateTopupCheckoutParams,
 	): Promise<string> {
 		const priceId = await this.resolvePriceId(params.packId);
+		const metadata = {
+			credits: String(params.credits),
+			packId: params.packId,
+			purpose: CHECKOUT_PURPOSE.topup,
+			userId: params.userId,
+		};
 		const session = await this.stripe().checkout.sessions.create({
-			cancel_url: `${env.CORS_ORIGIN}/dashboard?billing=cancelled`,
+			cancel_url: `${env.CORS_ORIGIN}/billing/cancel`,
 			customer: params.customerId,
 			line_items: [
 				{
@@ -84,16 +149,26 @@ export class StripeProvider implements PaymentProvider {
 					quantity: 1,
 				},
 			],
-			metadata: {
-				credits: String(params.credits),
-				packId: params.packId,
-				userId: params.userId,
-			},
+			metadata,
 			mode: "payment",
-			success_url: `${env.CORS_ORIGIN}/dashboard?billing=success&session_id={CHECKOUT_SESSION_ID}`,
+			payment_intent_data: {
+				metadata,
+			},
+			success_url: `${env.CORS_ORIGIN}/billing/success?purpose=topup`,
 		});
 
 		return this.expectUrl(session.url, "Stripe top-up checkout session");
+	}
+
+	createRefund(params: CreateRefundParams): Promise<Stripe.Refund> {
+		return this.stripe().refunds.create(
+			{
+				payment_intent: params.paymentIntentId,
+			},
+			{
+				idempotencyKey: params.idempotencyKey,
+			},
+		);
 	}
 
 	async createPortalSession(customerId: string): Promise<string> {
@@ -103,6 +178,31 @@ export class StripeProvider implements PaymentProvider {
 		});
 
 		return this.expectUrl(session.url, "Stripe billing portal session");
+	}
+
+	async expireCheckoutSession(sessionId: string): Promise<void> {
+		const stripe = this.stripe();
+		const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+		if (session.status !== "open") {
+			return;
+		}
+
+		try {
+			await stripe.checkout.sessions.expire(sessionId);
+		} catch (error) {
+			/*
+			 * A customer can complete the Session between the retrieve and expire
+			 * calls. Re-read before deciding whether the expiration error is real.
+			 */
+			const latest = await stripe.checkout.sessions.retrieve(sessionId);
+
+			if (latest.status === "complete" || latest.status === "expired") {
+				return;
+			}
+
+			throw error;
+		}
 	}
 
 	async changeSubscription(
@@ -175,7 +275,7 @@ export class StripeProvider implements PaymentProvider {
 			expand: [
 				"lines.data.pricing.price_details.price",
 				"parent.subscription_details.subscription",
-				"payments.data.payment.payment_intent",
+				"payments.data.payment.payment_intent.latest_charge",
 			],
 		});
 	}
@@ -188,6 +288,48 @@ export class StripeProvider implements PaymentProvider {
 		providerSubscriptionId: string,
 	): Promise<Stripe.Subscription> {
 		return this.stripe().subscriptions.retrieve(providerSubscriptionId);
+	}
+
+	retrievePaymentIntent(
+		paymentIntentId: string,
+	): Promise<Stripe.PaymentIntent> {
+		return this.stripe().paymentIntents.retrieve(paymentIntentId, {
+			expand: ["latest_charge"],
+		});
+	}
+
+	retrieveCharge(chargeId: string): Promise<Stripe.Charge> {
+		return this.stripe().charges.retrieve(chargeId, {
+			expand: ["refunds"],
+		});
+	}
+
+	async listDisputesForCharge(chargeId: string): Promise<Stripe.Dispute[]> {
+		const disputes = await this.stripe().disputes.list({
+			charge: chargeId,
+			limit: 100,
+		});
+
+		return disputes.data;
+	}
+
+	retrieveCheckoutSession(sessionId: string): Promise<Stripe.Checkout.Session> {
+		return this.stripe().checkout.sessions.retrieve(sessionId, {
+			expand: ["payment_intent.latest_charge"],
+		});
+	}
+
+	async listSubscriptionsForCustomer(
+		providerCustomerId: string,
+	): Promise<Stripe.Subscription[]> {
+		const subscriptions = await this.stripe().subscriptions.list({
+			customer: providerCustomerId,
+			expand: ["data.default_payment_method"],
+			limit: 100,
+			status: "all",
+		});
+
+		return subscriptions.data;
 	}
 
 	async lookupKeyForPriceId(priceId: string): Promise<string | null> {
@@ -262,6 +404,7 @@ export class StripeProvider implements PaymentProvider {
 		return {
 			interval,
 			plan,
+			purpose: CHECKOUT_PURPOSE.subscription,
 			tierCredits: String(tierCredits),
 			userId,
 		};
