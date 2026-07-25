@@ -1,0 +1,34 @@
+WORLD: fournil — "Fournil". Une boulangerie-pâtisserie artisanale de quartier: la chaleur du fournil, la farine, le geste du matin — le monde parle exactement sa langue.
+
+BUSINESS: Le Fournil d'Amel — boulangerie-pâtisserie artisanale à Oran (quartier Akid Lotfi), tenue par Amel Kaddour. Ce qui la distingue: levain naturel maison, cuisson au four à sole, viennoiseries pur beurre, gâteaux traditionnels (kalb el louz, makrout) et pâtisserie française.
+
+AUDIENCE: familles et jeunes actifs du quartier; ce qui les convainc: l'odeur du vrai pain, les photos qui donnent faim, les horaires du matin, la commande de gâteaux pour les fêtes.
+
+PAGE TYPE: site vitrine de boulangerie, une page. Succès = une visite en boutique ou une commande de gâteau passée par téléphone/WhatsApp.
+
+PAGE GOAL: commandes de gâteaux et fidélisation — bouton WhatsApp et téléphone mis en avant; pas de formulaire complexe, un simple formulaire "commander un gâteau" (nom, téléphone, date de l'événement, message).
+
+OFFER: pain au levain 90 DZD · baguette tradition 30 DZD · croissant pur beurre 120 DZD · kalb el louz (part) 150 DZD · makrout (kg) 2 400 DZD · gâteaux d'anniversaire sur commande à partir de 4 500 DZD · plateaux de fête sur devis.
+
+LANGUAGE: français.
+
+ART DIRECTION: palette instanciée dans la physique du monde — papier fariné chaud: #F6EFE3 (fond), #EFE5D3 (surface), #E8DCC6 (2e ton) · encre brune profonde: #2B1E12 (décliné en alpha) · accent UNIQUE croûte/ambre: #C97E2F · touche beurre en second accent si le monde le permet: #E8B54A. Fonts: territoire slab doux pour le display (Fraunces/Bricolage territoire), grotesque chaleureuse pour le texte. Mood: chaleureux, gourmand, artisanal.
+
+PAGE STORY: la page se lit comme la journée du fournil, de 5h au goûter — les griffonnages SVG (épis, volutes de vapeur) voyagent de scène en scène.
+- Scène 01 — ouverture: photo pleine largeur de pains au levain sortant du four, titre ancré "Le pain a une heure. C'est 5h du matin." (un mot accentué), note manuscrite en marge "pétri à 5h, cuit à 7h". SEAM: bord déchiré (clip-path ondulé) vers le papier fariné.
+- Scène 02 — la carte, pièce maîtresse typographique (quiet): LE MENU comme objet design — table réglée pains & viennoiseries avec prix en DZD en moments typographiques, ardoise "du jour". SEAM: ticker marquee des noms de produits (25s).
+- Scène 03 — SHOWPIECE (loud): "Du pétrin au four" — la timeline du fournil, journey épinglée ou sticky des 4 gestes (01 pétrir · 02 lever · 03 façonner · 04 cuire) avec photos macro chaudes et griffonnages vapeur. SEAM: weld sur photo pleine largeur.
+- Scène 04 — gâteaux de fête (medium): commandes spéciales — kalb el louz, makrout, anniversaires; le formulaire "commander un gâteau" comme objet designé (nom, téléphone, date, message), WhatsApp stylé au monde. SEAM: ton fariné inversé (scène plus sombre, four éteint du soir).
+- Scène 05 — infos pratiques: horaires du matin en GRAND (5h30 — 19h30), adresse, téléphone, en table réglée chaleureuse. Fermeture: wordmark "AMEL" ou griffonnage épi final.
+Motif voyageur: les griffonnages SVG (épi, vapeur) + les notes manuscrites en marge. Rythme: loud → quiet → LOUD → medium → quiet.
+
+SIGNATURE INTERACTION: l'ardoise "du jour" — au survol/tap des produits de la carte, une petite note manuscrite apparaît (origine, cuisson); le ticker des produits ralentit au survol.
+
+MOTION: l'identité du monde (rebonds courts power2.out .6-.9s), emphase sur la scène 03.
+
+SHOT LIST:
+- ROLE hero background · PROMPT "editorial photography of rustic sourdough loaves fresh from a stone oven, flour dust in warm morning light, golden crust macro detail, warm, artisanal, appetizing, generous negative space in the upper third for display type, color world anchored to #F6EFE3 #2B1E12 #C97E2F. No text, no logos, no watermarks, no UI." · ASPECT 16:9 · GROUP fournil
+- ROLE section scene · PROMPT "editorial photography of hands kneading dough on a floured wooden table, warm side light, flour motes in the air, tactile, honest, warm, subject in lower half with space above, color world anchored to #EFE5D3 #2B1E12 #C97E2F. No text, no logos, no watermarks, no UI." · ASPECT 4:5 · GROUP fournil
+- ROLE section scene · PROMPT "editorial photography of traditional Algerian pastries kalb el louz and makrout on ceramic plates, honey glistening, warm afternoon light, festive, generous, appetizing, negative space on the left, color world anchored to #E8DCC6 #2B1E12 #E8B54A. No text, no logos, no watermarks, no UI." · ASPECT 4:5 · GROUP fournil
+
+CONTENT FACTS: Le Fournil d'Amel · Amel Kaddour, artisan boulangère · Cité Akid Lotfi, Oran · Tél / WhatsApp: +213 560 18 24 90 · Horaires: tous les jours 5h30–19h30, vendredi 5h30–12h · Fondé en 2019 · Produits et prix: pain au levain 90 DZD; baguette tradition 30 DZD; croissant pur beurre 120 DZD; kalb el louz (part) 150 DZD; makrout (kg) 2 400 DZD; gâteaux d'anniversaire à partir de 4 500 DZD; plateaux de fête sur devis · Commandes de gâteaux 48h à l'avance.

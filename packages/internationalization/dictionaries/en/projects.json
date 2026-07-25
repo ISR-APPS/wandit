@@ -157,8 +157,8 @@
 				"placeholder": "Describe the product image, ratio, style and setting…"
 			},
 			"video": {
-				"label": "Image to video",
-				"description": "Animate one source image into a short video.",
+				"label": "Animate an image",
+				"description": "Turn a photo into a short animated video.",
 				"placeholder": "Optional: describe the motion or camera movement…"
 			}
 		},
@@ -397,15 +397,6 @@
 				"description": "Wandit chooses the best image format from the prompt.",
 				"placeholder": "Describe the image, product, background, style and ratio…",
 				"options": {
-					"quality": {
-						"label": "Quality",
-						"choices": {
-							"auto": "Auto",
-							"high": "High",
-							"medium": "Medium",
-							"low": "Low"
-						}
-					},
 					"size": {
 						"label": "Size",
 						"choices": {
@@ -422,8 +413,7 @@
 						"choices": {
 							"1": "1 img",
 							"2": "2 img",
-							"4": "4 img",
-							"8": "8 img"
+							"4": "4 img"
 						}
 					}
 				}
@@ -483,31 +473,6 @@
 							"1": "1",
 							"3": "3",
 							"5": "5"
-						}
-					}
-				}
-			},
-			"background-edit": {
-				"label": "Background Edit",
-				"shortLabel": "BG Edit",
-				"description": "Changes the environment around an existing product image.",
-				"placeholder": "Attach a product photo, then describe the new background…",
-				"options": {
-					"background": {
-						"label": "Background",
-						"choices": {
-							"studio": "Studio",
-							"premium": "Premium",
-							"home": "Home",
-							"outdoor": "Outdoor"
-						}
-					},
-					"preserve": {
-						"label": "Preserve",
-						"choices": {
-							"product": "Product",
-							"lighting": "Lighting",
-							"shadow": "Shadow"
 						}
 					}
 				}

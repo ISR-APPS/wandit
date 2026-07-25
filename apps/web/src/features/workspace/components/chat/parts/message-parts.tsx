@@ -2,6 +2,8 @@ import type { WanditUIMessage } from "../../../lib/use-ai-chat";
 import { AnimateImagePart } from "./animate-image-part";
 import { AskUserPart } from "./ask-user-part";
 import { FilePart } from "./file-part";
+import { GenerateImagePart } from "./generate-image-part";
+import { GenerateMarketingAssetPart } from "./generate-marketing-asset-part";
 import { GeneratePagePart } from "./generate-page-part";
 import { ScrapeLeadsPart } from "./scrape-leads-part";
 import { TextPart } from "./text-part";
@@ -78,6 +80,10 @@ export function MessageParts({
 				);
 			case "tool-generate_page":
 				return <GeneratePagePart key={part.toolCallId} part={part} />;
+			case "tool-generate_marketing_asset":
+				return <GenerateMarketingAssetPart key={part.toolCallId} part={part} />;
+			case "tool-generate_image":
+				return <GenerateImagePart key={part.toolCallId} part={part} />;
 			case "tool-scrape_leads":
 				return <ScrapeLeadsPart key={part.toolCallId} part={part} />;
 			case "tool-animate_image":

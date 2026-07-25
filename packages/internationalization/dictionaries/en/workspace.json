@@ -243,7 +243,30 @@
 			"Add customer reviews under the price",
 			"Make the order form shorter",
 			"Translate the page to Arabic"
-		]
+		],
+		"marketingAsset": {
+			"preparing": "Preparing the marketing brief…",
+			"queueing": "Queueing the generation…",
+			"failedToStart": "Marketing generation failed to start",
+			"buildingKicker": "Creating your marketing asset",
+			"building": "The asset is being generated — it will appear in the Marketing tab.",
+			"buildingNamed": "“{title}” is being generated — it will appear in the Marketing tab.",
+			"openTab": "Open the Marketing tab"
+		},
+		"generateImage": {
+			"preparing": "Preparing your images…",
+			"queueing": "Queueing the generation…",
+			"failedToStart": "Image generation failed to start",
+			"failedTitle": "Image generation failed",
+			"failedBody": "Generation stopped before the images were ready.",
+			"statusLoadError": "Could not load the generation status.",
+			"retry": "Retry",
+			"queuedTitle": "Images queued…",
+			"generatingTitle": "Generating images…",
+			"readyTitle": "Images ready",
+			"download": "Download",
+			"inAssetsTab": "Also available in the Assets tab"
+		}
 	},
 	"page": {
 		"versionShort": "v{n}",
@@ -341,7 +364,6 @@
 	},
 	"assets": {
 		"title": "Assets",
-		"subtitle": "Every generation is saved as an immutable version.",
 		"metaCount": {
 			"zero": "{count} assets",
 			"one": "1 asset",
@@ -350,50 +372,47 @@
 			"many": "{count} assets",
 			"other": "{count} assets"
 		},
-		"kindLandingPage": "Landing page",
-		"liveBadge": "Live",
-		"currentBadge": "Viewing",
-		"openOnPage": "View on page",
-		"openInNewTab": "Open in new tab",
-		"versionTitle": "Version {n}",
+		"filterAll": "All",
+		"filterImages": "Images",
+		"filterVideos": "Videos",
+		"sourceGeneration": "Generated",
+		"sourceAnimation": "Animation",
+		"sourceBuild": "Site",
+		"download": "Download",
+		"refresh": "Refresh",
+		"close": "Close",
+		"loadError": "Could not load assets.",
+		"retry": "Retry",
 		"emptyTitle": "No assets yet",
-		"emptyBody": "Generated pages (and soon images and videos) appear here.",
-		"libraryView": "Library",
-		"canvasView": "Canvas",
-		"viewToggleAriaLabel": "Assets view",
-		"zoomIn": "Zoom in",
-		"zoomOut": "Zoom out",
-		"toolSelect": "Select",
-		"toolFrame": "Frame",
-		"toolImage": "Image",
-		"toolText": "Text",
-		"generate": "Generate"
+		"emptyBody": "AI-generated images and videos — for your site, your ads and your animations — appear here, ready to download."
 	},
 	"marketing": {
 		"title": "Marketing",
-		"updatedPrefix": "updated",
-		"exportPlan": "Export plan",
-		"updatePlan": "Update plan",
-		"updating": "Updating…",
-		"planUpdatedToast": "Plan updated",
-		"exportedToast": "Plan exported",
-		"goalKicker": "Goal",
-		"goalProgress": "{done} / {target}",
-		"goalOnTrack": "on track",
-		"goalBehind": "keep pushing",
-		"takeKicker": "Wandit's take · this week",
-		"channelsKicker": "Where to spend",
-		"audienceKicker": "Who you're talking to",
-		"checklistKicker": "Week-1 checklist",
-		"checklistDone": "{done} of {total} done",
-		"ideasKicker": "Campaign ideas",
-		"view": "View",
-		"openLeads": "Open leads",
-		"askWandit": "Ask Wandit",
-		"ideaStatus": {
-			"ready": "Ready",
-			"draft": "Draft",
-			"idea": "Idea"
+		"countLabel": {
+			"zero": "{count} assets",
+			"one": "1 asset",
+			"two": "{count} assets",
+			"few": "{count} assets",
+			"many": "{count} assets",
+			"other": "{count} assets"
+		},
+		"refresh": "Refresh",
+		"emptyTitle": "No marketing assets yet",
+		"emptyBody": "Ask the chat for ad copy, a strategy, a video script or a creative brief — every deliverable appears here as a card.",
+		"emptyCta": "Ask Wandit",
+		"loadError": "Could not load marketing assets.",
+		"retry": "Retry",
+		"generating": "Generating…",
+		"queued": "Queued…",
+		"failed": "Generation failed",
+		"back": "Back",
+		"download": "Download",
+		"types": {
+			"adCopy": "Ad copy",
+			"marketingStrategy": "Marketing strategy",
+			"videoScript": "Video script",
+			"creativeBrief": "Creative brief",
+			"htmlAsset": "HTML asset"
 		}
 	},
 	"notFound": {

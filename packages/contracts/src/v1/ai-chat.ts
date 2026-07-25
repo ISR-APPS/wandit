@@ -1,6 +1,11 @@
 import { z } from "zod";
 import { attachmentMediaTypeSchema } from "./attachments";
 import {
+	imageGenerationAspectSchema,
+	MAX_IMAGES_PER_GENERATION,
+} from "./image-generations";
+import { marketingAssetTypeSchema } from "./marketing-assets";
+import {
 	imageToVideoAspectSchema,
 	imageToVideoMotionSchema,
 	imageToVideoSourceMediaTypeSchema,
@@ -145,6 +150,11 @@ export const generatePageInputSchema = z.object({
 	// conversion details, constraints, and the committed art direction.
 	// Free text on purpose — the builder prompt defines the section format.
 	brief: z.string().min(50),
+	// Id of the DESIGN WORLD the Brain chose from get_direction_candidates.
+	// The server appends that world's full design bible to the builder's
+	// system prompt snapshot. Free string (not an enum) so an off-list id
+	// degrades to a world-less build instead of killing the run.
+	worldId: z.string().min(1).optional(),
 });
 
 export const generatePageOutputSchema = z.object({
@@ -217,6 +227,69 @@ export const animateImageOutputSchema = z.object({
 export type AnimateImageInput = z.infer<typeof animateImageInputSchema>;
 export type AnimateImageOutput = z.infer<typeof animateImageOutputSchema>;
 
+/**
+ * generate_marketing_asset — the Brain queues one named marketing deliverable
+ * (HTML document) built from a complete marketing brief. The tool answers
+ * immediately; the finished card appears in the Marketing tab.
+ */
+export const generateMarketingAssetInputSchema = z.object({
+	// Display name for the Marketing tab card, in the user's language
+	// (e.g. "Ads Meta — Lancement PulseBuds").
+	title: z.string().min(1).max(120),
+	assetType: marketingAssetTypeSchema,
+	// The complete marketing brief composed from the conversation: business,
+	// audience, offer, platform, angle, tone, language, count of variants,
+	// every real fact the copy may use. The generator sees ONLY this.
+	brief: z.string().min(30),
+});
+
+export const generateMarketingAssetOutputSchema = z.object({
+	// "unavailable" = server missing R2/Trigger credentials or the request was
+	// rejected; the model relays that honestly.
+	status: z.enum(["queued", "unavailable"]),
+	assetId: z.string().uuid().optional(),
+	// Human-facing note the model can relay verbatim.
+	message: z.string().min(1),
+});
+
+export type GenerateMarketingAssetInput = z.infer<
+	typeof generateMarketingAssetInputSchema
+>;
+export type GenerateMarketingAssetOutput = z.infer<
+	typeof generateMarketingAssetOutputSchema
+>;
+
+/**
+ * generate_image — queues one standalone image generation (1-4 images). Can
+ * start from text alone or EDIT user-uploaded source images (product photo,
+ * logo) so outputs stay faithful to the real product. Distinct from the
+ * builder's in-build image tool.
+ */
+export const generateImageInputSchema = z.object({
+	// Display name for the chat card and the Assets tab, in the user's
+	// language (e.g. "Photo produit — fond studio").
+	title: z.string().min(1).max(120),
+	// Full image prompt following the house conventions (medium, subject,
+	// setting, lighting, mood, composition, color anchors, "No text...").
+	prompt: z.string().min(10).max(4_000),
+	aspect: imageGenerationAspectSchema,
+	count: z.number().int().min(1).max(MAX_IMAGES_PER_GENERATION).default(1),
+	// URLs of images the user attached in this conversation to edit or stay
+	// faithful to. Each MUST exactly match a user-provided attachment.
+	sourceImageUrls: z.array(z.url()).max(3).default([]),
+});
+
+export const generateImageOutputSchema = z.object({
+	// "unavailable" means missing provider/storage config or an ineligible
+	// source image; the model must say so instead of promising a result.
+	status: z.enum(["queued", "unavailable"]),
+	attemptId: z.string().uuid().optional(),
+	message: z.string().min(1),
+});
+
+export type GenerateImageInput = z.infer<typeof generateImageInputSchema>;
+export type GenerateImageOutput = z.infer<typeof generateImageOutputSchema>;
+
 /** get_page_outline — cheap section map of the active version (spec §5). */
 export const getPageOutlineInputSchema = z.object({});
 
@@ -274,6 +347,11 @@ export type AiChatTools = {
 		output: GetDirectionCandidatesOutput;
 	};
 	generate_page: { input: GeneratePageInput; output: GeneratePageOutput };
+	generate_marketing_asset: {
+		input: GenerateMarketingAssetInput;
+		output: GenerateMarketingAssetOutput;
+	};
+	generate_image: { input: GenerateImageInput; output: GenerateImageOutput };
 	scrape_leads: { input: ScrapeLeadsInput; output: ScrapeLeadsOutput };
 	animate_image: { input: AnimateImageInput; output: AnimateImageOutput };
 	get_page_outline: {

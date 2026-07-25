@@ -62,8 +62,6 @@ import {
 } from "lucide-react";
 import type * as React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-
-import { Spark } from "@/components/logo";
 import { PriceTag } from "@/features/credits";
 import { useDictionary, useTranslation } from "@/lib/i18n";
 import {
@@ -132,7 +130,6 @@ type GenerationOutputId =
 	| "image-creator"
 	| "product-shot"
 	| "ad-creative"
-	| "background-edit"
 	| "image-animation";
 
 // Non-copy output config: id + mode + icon + option groups. Label/shortLabel/
@@ -456,16 +453,9 @@ const OUTPUTS_BY_MODE: Record<ConcreteMode, readonly GenerationOutputDef[]> = {
 			id: "image-creator",
 			mode: "image",
 			icon: ImageIcon,
+			// No per-output "quality" group: the composer-wide quality tier in
+			// the settings popover is the single quality control.
 			options: [
-				{
-					id: "quality",
-					choices: [
-						{ id: "auto" },
-						{ id: "high" },
-						{ id: "medium" },
-						{ id: "low" },
-					],
-				},
 				{
 					id: "size",
 					choices: [
@@ -479,8 +469,9 @@ const OUTPUTS_BY_MODE: Record<ConcreteMode, readonly GenerationOutputDef[]> = {
 					layout: "grid",
 				},
 				{
+					// Server cap: MAX_IMAGES_PER_GENERATION = 4 (contracts).
 					id: "count",
-					choices: [{ id: "1" }, { id: "2" }, { id: "4" }, { id: "8" }],
+					choices: [{ id: "1" }, { id: "2" }, { id: "4" }],
 				},
 			],
 		},
@@ -531,26 +522,6 @@ const OUTPUTS_BY_MODE: Record<ConcreteMode, readonly GenerationOutputDef[]> = {
 					id: "count",
 					choices: [{ id: "1" }, { id: "3" }, { id: "5" }],
 					layout: "compact",
-				},
-			],
-		},
-		{
-			id: "background-edit",
-			mode: "image",
-			icon: Brush,
-			options: [
-				{
-					id: "background",
-					choices: [
-						{ id: "studio" },
-						{ id: "premium" },
-						{ id: "home" },
-						{ id: "outdoor" },
-					],
-				},
-				{
-					id: "preserve",
-					choices: [{ id: "product" }, { id: "lighting" }, { id: "shadow" }],
 				},
 			],
 		},
@@ -1413,23 +1384,33 @@ function OutputSettings({
 	output,
 	values,
 	onValueChange,
+	quality,
+	onQualityChange,
+	showQuality,
+	isVideoMode,
 	isHero,
 }: {
 	output: GenerationOutputDef | null;
 	values: Record<string, string>;
 	onValueChange: (groupId: string, choiceId: string) => void;
+	quality: ComposerQuality;
+	onQualityChange: (quality: ComposerQuality) => void;
+	// Quality lives INSIDE this popover (not as its own chip) so the composer
+	// footer never wraps to a second row of pills.
+	showQuality: boolean;
+	isVideoMode: boolean;
 	isHero: boolean;
 }) {
 	const { t } = useTranslation();
 	const pb = useDictionary().projects.promptBox;
-	if (!output) return null;
-	const OutputIcon = output.icon;
-	const outputCopy = pb.outputs[output.id];
-	const optionsCopy = outputCopy.options as unknown as Record<
+	if (!output && !showQuality) return null;
+	const OutputIcon = output?.icon;
+	const outputCopy = output ? pb.outputs[output.id] : null;
+	const optionsCopy = (outputCopy?.options ?? {}) as unknown as Record<
 		string,
 		OptionCopy
 	>;
-	const modeLabel = pb.routeModes[output.mode].label;
+	const modeLabel = output ? pb.routeModes[output.mode].label : null;
 
 	return (
 		<DropdownMenu>
@@ -1458,23 +1439,25 @@ function OutputSettings({
 				collisionPadding={12}
 				className="w-[22rem] max-w-[calc(100vw-1.5rem)] rounded-2xl border-border p-0 shadow-[0_22px_70px_-28px_rgb(0_0_0/0.42)]"
 			>
-				<div className="border-border border-b px-4 py-3">
-					<div className="flex items-center gap-2">
-						<IconTile icon={OutputIcon} active />
-						<div className="min-w-0">
-							<p className="font-medium text-sm leading-tight">
-								{outputCopy.label}
-							</p>
-							<p className="mt-0.5 text-muted-foreground text-xs">
-								{t("projects.promptBox.settingsSubtitle", {
-									mode: modeLabel.toLowerCase(),
-								})}
-							</p>
+				{OutputIcon && outputCopy && modeLabel ? (
+					<div className="border-border border-b px-4 py-3">
+						<div className="flex items-center gap-2">
+							<IconTile icon={OutputIcon} active />
+							<div className="min-w-0">
+								<p className="font-medium text-sm leading-tight">
+									{outputCopy.label}
+								</p>
+								<p className="mt-0.5 text-muted-foreground text-xs">
+									{t("projects.promptBox.settingsSubtitle", {
+										mode: modeLabel.toLowerCase(),
+									})}
+								</p>
+							</div>
 						</div>
 					</div>
-				</div>
+				) : null}
 				<div className="space-y-4 p-4">
-					{output.options.map((group) => {
+					{(output?.options ?? []).map((group) => {
 						const groupCopy = optionsCopy[group.id];
 						return (
 							<div key={group.id}>
@@ -1514,92 +1497,56 @@ function OutputSettings({
 							</div>
 						);
 					})}
+					{showQuality && !isVideoMode ? (
+						<div>
+							<p className="mb-2 text-muted-foreground text-xs">
+								{t("projects.promptBox.qualityLabel")}
+							</p>
+							<div className="grid grid-cols-2 gap-2">
+								{QUALITY_TIERS.map((tier) => {
+									const tierCopy = pb.quality[tier.id];
+									const selected = quality === tier.id;
+									return (
+										<button
+											key={tier.id}
+											type="button"
+											onClick={() => onQualityChange(tier.id)}
+											className={cn(
+												"min-h-14 rounded-xl border px-3 py-2 text-center text-xs transition-[transform,color,background-color,border-color] duration-200 active:translate-y-px",
+												selected
+													? "border-primary/35 bg-primary/10 text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.16)]"
+													: "border-border bg-background/60 text-muted-foreground hover:border-primary/25 hover:bg-accent/70 hover:text-foreground",
+											)}
+										>
+											<span className="block font-medium">
+												{tierCopy.label}
+											</span>
+											<PriceTag
+												cost={QUALITY_CREDITS[tier.id]}
+												withIcon
+												showUnit={false}
+												className="mt-1 justify-center text-[11px]"
+											/>
+										</button>
+									);
+								})}
+							</div>
+						</div>
+					) : null}
+					{showQuality && isVideoMode ? (
+						<div className="flex min-h-9 items-center justify-between rounded-xl border border-primary/35 bg-primary/10 px-3 py-2">
+							<span className="text-muted-foreground text-xs">
+								{t("projects.promptBox.qualityLabel")}
+							</span>
+							<PriceTag
+								cost={CREDIT_COSTS.videoGeneration}
+								withIcon
+								showUnit={false}
+								className="text-[11px] text-foreground"
+							/>
+						</div>
+					) : null}
 				</div>
-			</DropdownMenuContent>
-		</DropdownMenu>
-	);
-}
-
-function QualityPicker({
-	value,
-	onValueChange,
-	isHero,
-}: {
-	value: ComposerQuality;
-	onValueChange: (quality: ComposerQuality) => void;
-	isHero: boolean;
-}) {
-	const { t } = useTranslation();
-	const pb = useDictionary().projects.promptBox;
-	const isMax = value === "max";
-	const selectedCopy = pb.quality[value];
-
-	return (
-		<DropdownMenu>
-			<DropdownMenuTrigger asChild>
-				<Button
-					type="button"
-					variant="outline"
-					size="sm"
-					aria-label={`${t("projects.promptBox.qualityLabel")}: ${selectedCopy.label}`}
-					className={cn(
-						"group/trigger rounded-full font-medium font-mono text-[11px] tabular-nums shadow-none transition-colors",
-						isMax
-							? "border-primary/35 bg-primary/10 text-foreground hover:bg-primary/15 data-[state=open]:bg-primary/15"
-							: "border-border bg-transparent text-muted-foreground hover:border-primary/25 hover:bg-accent/70 hover:text-foreground data-[state=open]:bg-accent data-[state=open]:text-foreground",
-						isHero ? "h-9" : "h-[30px]",
-					)}
-				>
-					<Spark
-						className={cn("size-3", isMax ? "text-primary" : "text-primary/80")}
-					/>
-					<span>{QUALITY_CREDITS[value]}</span>
-					<ChevronDown className="size-3.5 transition-transform duration-200 group-data-[state=open]/trigger:rotate-180" />
-				</Button>
-			</DropdownMenuTrigger>
-			<DropdownMenuContent
-				align="end"
-				sideOffset={8}
-				collisionPadding={12}
-				className="w-72 rounded-2xl border-border p-1.5 shadow-[0_18px_50px_-24px_rgb(0_0_0/0.36)]"
-			>
-				<DropdownMenuLabel className="px-2 pt-1 pb-1.5 font-mono font-normal text-[10px] text-muted-foreground uppercase tracking-[0.14em]">
-					{t("projects.promptBox.qualityLabel")}
-				</DropdownMenuLabel>
-				<DropdownMenuRadioGroup
-					value={value}
-					onValueChange={(next) => onValueChange(next as ComposerQuality)}
-				>
-					{QUALITY_TIERS.map((tier) => {
-						const tierCopy = pb.quality[tier.id];
-						return (
-							<DropdownMenuRadioItemBare
-								key={tier.id}
-								value={tier.id}
-								className="data-[state=checked]:bg-primary/10"
-							>
-								<IconTile icon={tier.icon} active={value === tier.id} />
-								<span className="min-w-0">
-									<span className="block font-medium text-sm leading-tight">
-										{tierCopy.label}
-									</span>
-									<span className="mt-0.5 block text-muted-foreground text-xs leading-snug">
-										{tierCopy.hint}
-									</span>
-								</span>
-								<span className="ms-auto flex shrink-0 items-center gap-2">
-									<PriceTag
-										cost={QUALITY_CREDITS[tier.id]}
-										withIcon
-										showUnit={false}
-										className="text-[11px]"
-									/>
-									<Check className="size-4 scale-90 text-primary opacity-0 transition-[opacity,transform] group-data-[state=checked]/row:scale-100 group-data-[state=checked]/row:opacity-100" />
-								</span>
-							</DropdownMenuRadioItemBare>
-						);
-					})}
-				</DropdownMenuRadioGroup>
 			</DropdownMenuContent>
 		</DropdownMenu>
 	);
@@ -2264,32 +2211,13 @@ export function PromptBox({
 							output={selectedOutput}
 							values={outputOptions}
 							onValueChange={updateOutputOption}
+							quality={quality}
+							onQualityChange={handleQualityChange}
+							showQuality={showPriceTag}
+							isVideoMode={isVideoMode}
 							isHero={isHero}
 						/>
 						<div className="ms-auto flex items-center gap-1">
-							{showPriceTag ? (
-								isVideoMode ? (
-									<span
-										className={cn(
-											"inline-flex items-center rounded-full border border-primary/35 bg-primary/10 px-3",
-											isHero ? "h-9" : "h-[30px]",
-										)}
-									>
-										<PriceTag
-											cost={CREDIT_COSTS.videoGeneration}
-											withIcon
-											showUnit={false}
-											className="text-[11px] text-foreground"
-										/>
-									</span>
-								) : (
-									<QualityPicker
-										value={quality}
-										onValueChange={handleQualityChange}
-										isHero={isHero}
-									/>
-								)
-							) : null}
 							<Tooltip>
 								<TooltipTrigger asChild>
 									<Button

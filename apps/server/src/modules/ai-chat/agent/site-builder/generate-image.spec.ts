@@ -100,7 +100,9 @@ describe("generateBuildImage", () => {
 			"image/png",
 		);
 		expect(result).toEqual({
-			imageBase64: "aW1nLWJ5dGVz",
+			// Base64 is now derived from the uploaded bytes, so transcript and
+			// bucket can never disagree.
+			imageBase64: "AQID",
 			mediaType: "image/png",
 			status: "generated",
 			url: "https://assets.example.com/sites/project_1/assets/attempt_1/img-2.png",

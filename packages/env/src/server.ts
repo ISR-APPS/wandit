@@ -43,6 +43,14 @@ export const env = createEnv({
 		// Optional: the builder's generate_image tool. Needs R2 plus
 		// R2_PUBLIC_BASE_URL too; unset means the tool answers "unavailable".
 		AI_IMAGE_MODEL: z.string().min(1).optional(),
+		// Optional: multimodal model used when a generation EDITS user-provided
+		// source images (product photo, logo). Must accept image inputs and
+		// return image outputs through generateText (e.g. a Gemini image
+		// model). Unset means source-image requests degrade to text-only.
+		AI_IMAGE_EDIT_MODEL: z.string().min(1).optional(),
+		// Optional override for marketing HTML documents; falls back to
+		// AI_CHAT_MODEL when unset.
+		AI_MARKETING_MODEL: z.string().min(1).optional(),
 		AI_TRANSCRIPTION_MODEL: z
 			.string()
 			.min(1)
@@ -62,10 +70,12 @@ export const env = createEnv({
 			.default("anthropic/claude-sonnet-5"),
 		// Builder reasoning knob, read at build time inside runSiteBuild() and
 		// forwarded as providerOptions (openai.reasoningEffort; mapped onto
-		// Gemini's two thinking levels). Unset means provider defaults.
+		// Gemini's two thinking levels). Defaults to "high": an unset var once
+		// silently meant provider-default effort (a misnamed .env entry hid the
+		// knob for weeks) — design quality must never again depend on a typo.
 		AI_PAGE_DESIGN_REASONING: z
 			.enum(["minimal", "low", "medium", "high", "xhigh"])
-			.optional(),
+			.default("high"),
 		// Optional: the builder's animate_image tool (image → short ambient video).
 		// Needs R2 + R2_PUBLIC_BASE_URL too; unset means the tool answers
 		// "unavailable".
