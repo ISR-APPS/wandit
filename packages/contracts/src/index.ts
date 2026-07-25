@@ -34,6 +34,7 @@ export * from "./v1/image-generations";
 // Lead-scrape (outbound prospecting) contracts.
 export * from "./v1/lead-scrapes";
 // Lead contracts.
+export * from "./v1/lead-sheet-sync";
 export * from "./v1/leads";
 // Marketing asset (HTML deliverable) contracts.
 export * from "./v1/marketing-assets";

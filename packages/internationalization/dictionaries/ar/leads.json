@@ -34,6 +34,22 @@
 	"previous": "السابق",
 	"next": "التالي",
 	"freeNote": "جمع العملاء المحتملين مجاني دائمًا.",
+	"sheetSync": {
+		"connect": "ربط Google Sheets",
+		"syncFirst": "المزامنة إلى Google Sheets",
+		"syncNow": "مزامنة الآن",
+		"open": "فتح الجدول",
+		"lastSynced": "آخر مزامنة {time}",
+		"syncedToast": {
+			"zero": "لم يُزامَن أي عميل",
+			"one": "تمت مزامنة عميل واحد",
+			"two": "تمت مزامنة عميلين",
+			"few": "تمت مزامنة {count} عملاء",
+			"many": "تمت مزامنة {count} عميلًا",
+			"other": "تمت مزامنة {count} عميل"
+		},
+		"errorToast": "فشلت المزامنة مع Google Sheets. حاول مجددًا."
+	},
 	"status": {
 		"to_confirm": "بانتظار التأكيد",
 		"confirmed": "مؤكد",

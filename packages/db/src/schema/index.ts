@@ -21,6 +21,7 @@ export * from "./image-generation-attempts";
 // Lead-scrape (outbound prospecting) attempt tables.
 export * from "./lead-scrape-attempts";
 // Lead tables.
+export * from "./lead-sheet-syncs";
 export * from "./leads";
 // Marketing deliverable (HTML asset) tables.
 export * from "./marketing-assets";

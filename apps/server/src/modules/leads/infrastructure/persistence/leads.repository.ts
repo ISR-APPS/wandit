@@ -45,6 +45,12 @@ const LEAD_COLUMNS = {
 // guards against a runaway project becoming an unbounded response.
 const LIST_LIMIT = 1_000;
 
+// The sheet sync exports everything the merchant has — the tab cap is a UI
+// response guard, not export semantics. This ceiling only bounds a
+// pathological flood (far beyond any real project) so one sync stays a
+// single in-memory batch and one Google write.
+const SYNC_LIST_LIMIT = 10_000;
+
 @Injectable()
 export class LeadsRepository {
 	constructor(@Inject(DATABASE) private readonly db: Database) {}
@@ -121,6 +127,21 @@ export class LeadsRepository {
 		userId: string,
 		projectId: string,
 	): Promise<LeadRow[]> {
+		return this.listOwned(userId, projectId, LIST_LIMIT);
+	}
+
+	async listOwnedByProjectForSync(
+		userId: string,
+		projectId: string,
+	): Promise<LeadRow[]> {
+		return this.listOwned(userId, projectId, SYNC_LIST_LIMIT);
+	}
+
+	private listOwned(
+		userId: string,
+		projectId: string,
+		limit: number,
+	): Promise<LeadRow[]> {
 		return this.db
 			.select(LEAD_COLUMNS)
 			.from(leads)
@@ -133,7 +154,7 @@ export class LeadsRepository {
 				),
 			)
 			.orderBy(desc(leads.createdAt))
-			.limit(LIST_LIMIT);
+			.limit(limit);
 	}
 
 	async updateOwnedLeadStatus(
