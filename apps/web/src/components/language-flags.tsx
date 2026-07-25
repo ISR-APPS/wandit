@@ -55,28 +55,26 @@ function FranceFlag(): ReactElement {
 }
 
 /**
- * Algeria — this product's market. Green/white vertical halves with a centered
- * red crescent (opening toward the fly) cradling a five-pointed star. The
- * crescent is a masked disc so the two-tone background shows through the bite.
+ * Arabic — deliberately NOT a flag: the language spans two dozen countries,
+ * so tying it to any one of them is wrong. The badge is the letter ʿayn (ع),
+ * the conventional country-neutral mark for Arabic. currentColor keeps it
+ * legible in both themes.
  */
-function AlgeriaFlag(): ReactElement {
-	const raw = useId();
-	const maskId = `dz-${raw.replace(/:/g, "")}`;
-
+function ArabicBadge(): ReactElement {
 	return (
 		<svg viewBox="0 0 60 60" aria-hidden="true" {...svgProps}>
-			<mask id={maskId}>
-				<rect width="60" height="60" fill="black" />
-				<circle cx="30" cy="30" r="13" fill="white" />
-				<circle cx="35" cy="30" r="10.5" fill="black" />
-			</mask>
-			<rect x="0" width="30" height="60" fill="#006233" />
-			<rect x="30" width="30" height="60" fill="#FFFFFF" />
-			<rect width="60" height="60" fill="#D21034" mask={`url(#${maskId})`} />
-			<path
-				d="M39,25.2 L40.12,28.46 L43.57,28.52 L40.81,30.59 L41.82,33.88 L39,31.9 L36.18,33.88 L37.19,30.59 L34.43,28.52 L37.88,28.46 Z"
-				fill="#D21034"
-			/>
+			<rect width="60" height="60" fill="currentColor" opacity={0.08} />
+			<text
+				x="30"
+				y="32"
+				textAnchor="middle"
+				dominantBaseline="central"
+				fontSize="34"
+				fontWeight="600"
+				fill="currentColor"
+			>
+				ع
+			</text>
 		</svg>
 	);
 }
@@ -84,7 +82,7 @@ function AlgeriaFlag(): ReactElement {
 const FLAGS: Record<Locale, () => ReactElement> = {
 	en: UnitedKingdomFlag,
 	fr: FranceFlag,
-	ar: AlgeriaFlag,
+	ar: ArabicBadge,
 };
 
 /**

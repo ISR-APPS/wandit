@@ -7,8 +7,9 @@ import { Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Spark } from "@/components/logo";
-import { promptStash } from "@/features/auth";
+import { promptStash, useSession } from "@/features/auth";
 import { InsufficientCreditsDialog } from "@/features/credits";
+import { isEarlyAccessUser } from "@/lib/early-access";
 import { useTranslation } from "@/lib/i18n";
 import type { Project } from "../api/dto";
 import { useProjectsQuery } from "../api/projects.queries";
@@ -62,6 +63,25 @@ function EmptyState({ onCta }: { onCta: () => void }) {
 	);
 }
 
+// Launch-window placeholder shown where the prompt box would be for accounts
+// outside the early-access list (see lib/early-access.ts).
+function PromptComingSoon() {
+	const { t } = useTranslation();
+	return (
+		<div className="relative flex flex-col items-center justify-center rounded-xl border border-dashed bg-card/50 px-6 py-12 text-center">
+			<div className="flex size-12 items-center justify-center rounded-xl border bg-card shadow-xs">
+				<Spark className="size-5 text-primary" />
+			</div>
+			<h3 className="mt-4 font-display font-semibold text-lg">
+				{t("projects.promptSoonTitle")}
+			</h3>
+			<p className="mt-1 max-w-sm text-muted-foreground text-sm">
+				{t("projects.promptSoonBody")}
+			</p>
+		</div>
+	);
+}
+
 function NoResultsState({
 	query,
 	onClear,
@@ -89,9 +109,12 @@ function NoResultsState({
 
 export default function DashboardPage() {
 	const { t } = useTranslation();
+	const { data: session } = useSession();
 	const { data: projects, isPending } = useProjectsQuery();
 	const { create, isCreating, insufficientOpen, setInsufficientOpen, cost } =
 		useCreateProjectWithPrompt();
+
+	const hasEarlyAccess = isEarlyAccessUser(session?.user.email);
 
 	const [query, setQuery] = useState("");
 	const [filter, setFilter] = useState<StatusFilter>("all");
@@ -155,17 +178,21 @@ export default function DashboardPage() {
 							{t("projects.promptHeading")}
 						</h2>
 						<div ref={promptSectionRef} className="mt-6">
-							<PromptBox
-								key={promptPrefill.key}
-								variant="hero"
-								showPriceTag
-								showModes
-								attachmentsEnabled
-								initialValue={promptPrefill.value}
-								initialComposer={promptPrefill.composer}
-								onSubmit={create}
-								isSubmitting={isCreating}
-							/>
+							{hasEarlyAccess ? (
+								<PromptBox
+									key={promptPrefill.key}
+									variant="hero"
+									showPriceTag
+									showModes
+									attachmentsEnabled
+									initialValue={promptPrefill.value}
+									initialComposer={promptPrefill.composer}
+									onSubmit={create}
+									isSubmitting={isCreating}
+								/>
+							) : (
+								<PromptComingSoon />
+							)}
 						</div>
 						<InsufficientCreditsDialog
 							open={insufficientOpen}

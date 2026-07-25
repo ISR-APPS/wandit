@@ -18,7 +18,6 @@ import { Skeleton } from "@wandit/ui/components/skeleton";
 import { LogOut } from "lucide-react";
 
 import { LanguageSwitcherMenuItems } from "@/components/language-switcher";
-import { LedgerList } from "@/features/credits";
 import { useTranslation } from "@/lib/i18n";
 import { signOut, useSession } from "../lib/session";
 import { useAuthModal } from "./auth-modal";
@@ -82,11 +81,6 @@ export function UserMenu() {
 						{user.email}
 					</span>
 				</DropdownMenuLabel>
-				<DropdownMenuSeparator />
-				<DropdownMenuLabel className="pb-0 text-[10px] text-muted-foreground uppercase tracking-widest">
-					{t("auth.creditsLabel")}
-				</DropdownMenuLabel>
-				<LedgerList limit={3} className="px-1 pb-1" />
 				<DropdownMenuSeparator />
 				<DropdownMenuLabel className="pb-0 text-[10px] text-muted-foreground uppercase tracking-widest">
 					{t("common.language")}
