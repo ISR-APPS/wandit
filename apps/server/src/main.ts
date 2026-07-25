@@ -47,6 +47,19 @@ async function bootstrap() {
 			},
 		},
 	);
+	// Published-page lead capture posts JSON as text/plain: a bare-string
+	// sendBeacon body is a CORS simple request, so cross-origin merchant sites
+	// need no preflight and no CORS changes. Parse it as a raw string with a
+	// tight cap — the capture endpoint is the only text/plain consumer.
+	adapter
+		.getInstance()
+		.addContentTypeParser(
+			"text/plain",
+			{ bodyLimit: 16 * 1024, parseAs: "string" },
+			(_request, body, done) => {
+				done(null, body);
+			},
+		);
 	// All API routes start with `/api`, for example `/api/v1/chats/...`.
 	app.setGlobalPrefix("api", {
 		exclude: [{ path: "/", method: RequestMethod.GET }],

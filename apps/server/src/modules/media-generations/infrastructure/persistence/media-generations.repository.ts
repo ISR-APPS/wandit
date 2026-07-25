@@ -11,7 +11,7 @@ import type {
 	ImageToVideoMotion,
 	ImageToVideoSourceMediaType,
 } from "@wandit/contracts";
-import { and, eq, isNull, lt } from "@wandit/db";
+import { and, desc, eq, isNull, lt } from "@wandit/db";
 import { mediaGenerationAttempts } from "@wandit/db/schema/media-generation-attempts";
 import { projects } from "@wandit/db/schema/projects";
 import {
@@ -33,6 +33,15 @@ export type MediaGenerationAttemptRow = {
 	sourceMediaType: ImageToVideoSourceMediaType;
 	startedAt: Date | null;
 	status: "queued" | "generating" | "succeeded" | "failed";
+	videoMediaType: string | null;
+	videoUrl: string | null;
+};
+
+export type SucceededMediaGenerationRow = {
+	completedAt: Date | null;
+	createdAt: Date;
+	id: string;
+	prompt: string;
 	videoMediaType: string | null;
 	videoUrl: string | null;
 };
@@ -221,6 +230,33 @@ export class MediaGenerationsRepository {
 			.returning({ id: mediaGenerationAttempts.id });
 
 		return Boolean(row);
+	}
+
+	// Assets tab: every finished animation of one owned project, newest first.
+	async listOwnedSucceededByProject(
+		userId: string,
+		projectId: string,
+	): Promise<SucceededMediaGenerationRow[]> {
+		return this.db
+			.select({
+				completedAt: mediaGenerationAttempts.completedAt,
+				createdAt: mediaGenerationAttempts.createdAt,
+				id: mediaGenerationAttempts.id,
+				prompt: mediaGenerationAttempts.prompt,
+				videoMediaType: mediaGenerationAttempts.videoMediaType,
+				videoUrl: mediaGenerationAttempts.videoUrl,
+			})
+			.from(mediaGenerationAttempts)
+			.innerJoin(projects, eq(projects.id, mediaGenerationAttempts.projectId))
+			.where(
+				and(
+					eq(mediaGenerationAttempts.projectId, projectId),
+					eq(mediaGenerationAttempts.status, "succeeded"),
+					eq(projects.userId, userId),
+					isNull(projects.deletedAt),
+				),
+			)
+			.orderBy(desc(mediaGenerationAttempts.createdAt));
 	}
 
 	private async selectOwnedAttempt(

@@ -14,106 +14,8 @@
 // Pure functions for the workspace feature.
 
 import { pageTitleDynamic } from "@/lib/i18n";
-import type { Lead, PageVersion, WorkspaceTab } from "../api/dto";
-import {
-	ASSETS_CANVAS_BOARD,
-	ASSETS_CANVAS_LAYOUT_SLOTS,
-	ASSETS_VIEW_STORAGE_KEY,
-	WORKSPACE_PANELS_STORAGE_ID,
-	WORKSPACE_TAB_VALUES,
-} from "./constants";
-
-// The Assets tab has two display modes: a normal library grid and a freeform
-// canvas board. Components import this type so only those two strings are valid.
-export type AssetsView = "library" | "canvas";
-
-// Read the user's last Assets tab mode from localStorage. localStorage is the
-// browser's tiny key/value store that survives reloads; try/catch keeps private
-// browsing or blocked storage from crashing the workspace.
-/** Library (grid) vs canvas (freeform board) — mirrors chat-open persistence. */
-export function readAssetsView(): AssetsView {
-	try {
-		return window.localStorage.getItem(ASSETS_VIEW_STORAGE_KEY) === "canvas"
-			? "canvas"
-			: "library";
-	} catch {
-		return "library";
-	}
-}
-
-// Persist the Assets tab mode so a reload reopens the same view. Failure is not
-// fatal: the React state in the current session still changes.
-export function writeAssetsView(view: AssetsView): void {
-	try {
-		window.localStorage.setItem(ASSETS_VIEW_STORAGE_KEY, view);
-	} catch {
-		// storage unavailable — view still applies for the session
-	}
-}
-
-// Pixel rectangle for one generated page/version inside the Assets canvas.
-export type AssetsCanvasItemLayout = {
-	x: number;
-	y: number;
-	width: number;
-	height: number;
-};
-
-function clamp(value: number, min: number, max: number): number {
-	return Math.min(max, Math.max(min, value));
-}
-
-// Create a stable canvas rectangle for one page version. Stable matters here:
-// the same version should appear in the same place after a reload, not jump
-// around every time React renders.
-export function createAssetsCanvasLayout(
-	version: Pick<PageVersion, "id" | "number" | "pageKey">,
-	index: number,
-): AssetsCanvasItemLayout {
-	// First fill a small set of hand-picked layout slots so the board starts with
-	// intentional-looking positions instead of a mechanical grid.
-	const slot =
-		ASSETS_CANVAS_LAYOUT_SLOTS[index % ASSETS_CANVAS_LAYOUT_SLOTS.length];
-	const lane = Math.floor(index / ASSETS_CANVAS_LAYOUT_SLOTS.length);
-
-	if (lane === 0) return { ...slot };
-
-	// Versions beyond the first lane reuse the same slots with deterministic
-	// offsets and jitter. The hash makes the spread feel organic without using
-	// Math.random(), which would make positions change on every render.
-	const hash = hashString(`${version.id}:${version.number}:${version.pageKey}`);
-	const jitterX = (hash % 57) - 28;
-	const jitterY = ((hash >> 5) % 49) - 24;
-	const laneOffsetX = (lane * 86) % 210;
-	const laneOffsetY = lane * 92;
-
-	return {
-		...slot,
-		x: clamp(
-			slot.x + laneOffsetX + jitterX,
-			48,
-			ASSETS_CANVAS_BOARD.WIDTH - slot.width - 48,
-		),
-		y: clamp(
-			slot.y + laneOffsetY + jitterY,
-			42,
-			ASSETS_CANVAS_BOARD.HEIGHT - slot.height - 58,
-		),
-	};
-}
-
-// Build the full id -> layout lookup consumed by the Assets canvas. Object maps
-// are faster for the UI than searching an array every time it renders an item.
-export function createAssetsCanvasLayouts(
-	versions: Pick<PageVersion, "id" | "number" | "pageKey">[],
-): Record<string, AssetsCanvasItemLayout> {
-	return Object.fromEntries(
-		versions.map((version, index) => [
-			version.id,
-			createAssetsCanvasLayout(version, index),
-		]),
-	);
-}
+import type { Lead, WorkspaceTab } from "../api/dto";
+import { WORKSPACE_PANELS_STORAGE_ID, WORKSPACE_TAB_VALUES } from "./constants";
 
 // Runtime guard for route search params. TypeScript types do not protect values
 // that arrive from the URL, so this checks the string before the route accepts it
@@ -268,8 +170,8 @@ export function buildLeadsCsv(leads: Lead[], headers: string[]): string {
 		[
 			lead.name,
 			lead.phone,
-			lead.wilaya,
-			lead.commune,
+			lead.wilaya ?? "",
+			lead.commune ?? "",
 			pageTitleDynamic(`leads.status.${lead.status}`),
 			lead.source,
 			lead.createdAt,

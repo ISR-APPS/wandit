@@ -12,6 +12,7 @@
 import {
 	GetObjectCommand,
 	HeadObjectCommand,
+	ListObjectsV2Command,
 	NoSuchKey,
 	PutObjectCommand,
 	S3Client,
@@ -90,6 +91,25 @@ export function siteVideoKey(
 	extension: string,
 ): string {
 	return `sites/${projectId}/assets/${attemptId}/vid-${index}.${extension}`;
+}
+
+// Standalone images from the chat's generate_image tool live under their own
+// root — NOT under sites/{id}/assets/, so the Assets tab's build-asset prefix
+// listing never double-counts them:
+// images/{project_id}/{attempt_id}/img-{n}.{ext}
+export function imageGenerationKey(
+	projectId: string,
+	attemptId: string,
+	index: number,
+	extension: string,
+): string {
+	return `images/${projectId}/${attemptId}/img-${index}.${extension}`;
+}
+
+// Finished marketing HTML documents (Marketing tab cards):
+// marketing/{project_id}/{asset_id}/index.html
+export function marketingAssetKey(projectId: string, assetId: string): string {
+	return `marketing/${projectId}/${assetId}/index.html`;
 }
 
 // Exported lead-scrape workbooks live under their attempt. The object is
@@ -323,6 +343,54 @@ export async function getPageHtml(key: string): Promise<string | null> {
 
 		throw error;
 	}
+}
+
+export type StoredObject = {
+	key: string;
+	lastModified: Date | null;
+	sizeBytes: number | null;
+};
+
+// Paginated prefix listing (Assets tab: build images/videos have no DB rows,
+// the bucket itself is their source of truth). Capped so one project can
+// never turn a tab load into an unbounded scan.
+export async function listObjectsByPrefix(
+	prefix: string,
+	maxObjects = 500,
+): Promise<StoredObject[]> {
+	const objects: StoredObject[] = [];
+	let continuationToken: string | undefined;
+
+	while (objects.length < maxObjects) {
+		const result = await r2Client().send(
+			new ListObjectsV2Command({
+				Bucket: env.R2_BUCKET,
+				ContinuationToken: continuationToken,
+				MaxKeys: Math.min(1_000, maxObjects - objects.length),
+				Prefix: prefix,
+			}),
+		);
+
+		for (const item of result.Contents ?? []) {
+			if (!item.Key) {
+				continue;
+			}
+
+			objects.push({
+				key: item.Key,
+				lastModified: item.LastModified ?? null,
+				sizeBytes: typeof item.Size === "number" ? item.Size : null,
+			});
+		}
+
+		if (!result.IsTruncated || !result.NextContinuationToken) {
+			break;
+		}
+
+		continuationToken = result.NextContinuationToken;
+	}
+
+	return objects;
 }
 
 function isAwsNotFoundError(

@@ -15,9 +15,7 @@ import { PanelLeftOpen } from "lucide-react";
 
 import { useTranslation } from "@/lib/i18n";
 import type { WorkspaceTab } from "../../api/dto";
-import type { AssetsView } from "../../lib/helpers";
 import { useWorkspace } from "../../lib/store";
-import { AssetsViewToggle } from "../assets/assets-view-toggle";
 import { MarketingControls } from "../marketing/marketing-controls";
 import { PageControls } from "../page/page-toolbar";
 import { WorkspaceTabs } from "./workspace-tabs";
@@ -25,18 +23,12 @@ import { WorkspaceTabs } from "./workspace-tabs";
 export function MainPaneHeader({
 	tab,
 	onReloadPage,
-	assetsView,
-	onAssetsViewChange,
 }: {
 	tab: WorkspaceTab;
 	onReloadPage: () => void;
-	assetsView: AssetsView;
-	onAssetsViewChange: (view: AssetsView) => void;
 }) {
 	const { t } = useTranslation();
-	const { chatOpen, toggleChat, versions, statePending } = useWorkspace();
-
-	const showAssetsToggle = !statePending && versions.length > 0;
+	const { chatOpen, toggleChat } = useWorkspace();
 
 	return (
 		<div className="flex h-12 shrink-0 items-center gap-2 border-b px-3.5">
@@ -68,9 +60,6 @@ export function MainPaneHeader({
 
 			<div className="ms-auto flex min-w-0 items-center gap-2">
 				{tab === "page" ? <PageControls onReload={onReloadPage} /> : null}
-				{tab === "assets" && showAssetsToggle ? (
-					<AssetsViewToggle view={assetsView} onChange={onAssetsViewChange} />
-				) : null}
 				{tab === "marketing" ? <MarketingControls /> : null}
 			</div>
 		</div>

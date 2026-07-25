@@ -370,8 +370,14 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 				aspect: z.enum(BUILD_IMAGE_ASPECTS),
 				prompt: z.string().min(20),
 				role: z.string().min(1),
+				// User asset URLs from the brief's BRAND ASSETS — edit the user's
+				// real photos instead of inventing the product.
+				sourceImageUrls: z.array(z.url()).max(3).optional(),
 			}),
-			execute: async ({ aspect, prompt, role }, { toolCallId }) => {
+			execute: async (
+				{ aspect, prompt, role, sourceImageUrls },
+				{ toolCallId },
+			) => {
 				if (state.imageSequence >= MAX_IMAGES) {
 					return {
 						message:
@@ -396,6 +402,7 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 					index,
 					projectId: params.projectId,
 					prompt,
+					...(sourceImageUrls?.length ? { sourceImageUrls } : {}),
 				});
 
 				if (result.status !== "generated") {

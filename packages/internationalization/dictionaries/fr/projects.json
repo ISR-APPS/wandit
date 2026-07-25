@@ -157,8 +157,8 @@
 				"placeholder": "Décris l'image produit, le ratio, le style et le décor…"
 			},
 			"video": {
-				"label": "Image en vidéo",
-				"description": "Anime une image source en courte vidéo.",
+				"label": "Animer une image",
+				"description": "Transforme une photo en courte vidéo animée.",
 				"placeholder": "Facultatif : décris le mouvement ou le déplacement de caméra…"
 			}
 		},
@@ -397,15 +397,6 @@
 				"description": "Wandit choisit le meilleur format d'image selon le prompt.",
 				"placeholder": "Décris l'image, le produit, le fond, le style et le ratio…",
 				"options": {
-					"quality": {
-						"label": "Qualité",
-						"choices": {
-							"auto": "Auto",
-							"high": "Haute",
-							"medium": "Moyenne",
-							"low": "Basse"
-						}
-					},
 					"size": {
 						"label": "Taille",
 						"choices": {
@@ -422,8 +413,7 @@
 						"choices": {
 							"1": "1 img",
 							"2": "2 img",
-							"4": "4 img",
-							"8": "8 img"
+							"4": "4 img"
 						}
 					}
 				}
@@ -483,31 +473,6 @@
 							"1": "1",
 							"3": "3",
 							"5": "5"
-						}
-					}
-				}
-			},
-			"background-edit": {
-				"label": "Édition de fond",
-				"shortLabel": "Édit. fond",
-				"description": "Change l'environnement autour d'une image produit existante.",
-				"placeholder": "Joins une photo produit, puis décris le nouveau fond…",
-				"options": {
-					"background": {
-						"label": "Fond",
-						"choices": {
-							"studio": "Studio",
-							"premium": "Premium",
-							"home": "Maison",
-							"outdoor": "Extérieur"
-						}
-					},
-					"preserve": {
-						"label": "Préserver",
-						"choices": {
-							"product": "Produit",
-							"lighting": "Éclairage",
-							"shadow": "Ombre"
 						}
 					}
 				}

@@ -60,6 +60,7 @@ describe("billing catalog", () => {
 			chatMessage: 1,
 			imageGeneration: 5,
 			landingPageGeneration: 10,
+			marketingAssetGeneration: 5,
 			videoGeneration: 25,
 		});
 		expect(SIGNUP_GRANT_CREDITS).toBe(100);

@@ -16,10 +16,14 @@ export * from "./credits";
 export * from "./deployments";
 // Domain tables.
 export * from "./domains";
+// Standalone image generation attempt tables (chat's generate_image tool).
+export * from "./image-generation-attempts";
 // Lead-scrape (outbound prospecting) attempt tables.
 export * from "./lead-scrape-attempts";
 // Lead tables.
 export * from "./leads";
+// Marketing deliverable (HTML asset) tables.
+export * from "./marketing-assets";
 // Image-to-video generation attempt tables.
 export * from "./media-generation-attempts";
 // Payment order tables.

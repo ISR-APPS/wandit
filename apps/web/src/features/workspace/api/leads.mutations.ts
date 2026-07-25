@@ -1,6 +1,6 @@
 // TanStack Query mutations wrapping leads.services.ts: status change is
 // fully optimistic (snapshot + rollback) so the pipeline feels instant even
-// with the mock latency.
+// over real network latency.
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 

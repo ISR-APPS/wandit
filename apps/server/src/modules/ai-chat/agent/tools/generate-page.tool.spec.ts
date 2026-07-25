@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { isR2Configured } from "../../../../infrastructure/storage/r2";
 import type { PagesRepository } from "../../../pages/infrastructure/persistence/pages.repository";
+import { monographe } from "../worlds/monographe";
 import { createGeneratePageTool } from "./generate-page.tool";
 
 // Everything with side effects is replaced: env (credentials), storage
@@ -58,7 +59,7 @@ function setup() {
 
 	// The AI SDK calls execute with (input, callOptions); the tool ignores
 	// the call options, so a stub second argument is enough here.
-	const execute = (input: typeof INPUT) => {
+	const execute = (input: typeof INPUT & { worldId?: string }) => {
 		const run = generatePageTool.execute;
 
 		if (!run) {
@@ -130,6 +131,59 @@ describe("generate_page tool", () => {
 			status: "queued",
 			versionNumber: 1,
 		});
+	});
+
+	it("appends the chosen design world's doc to the prompt snapshot", async () => {
+		const { execute, pagesRepository } = setup();
+		vi.mocked(isR2Configured).mockReturnValue(true);
+		pagesRepository.findOrCreateLandingArtifact.mockResolvedValue({
+			activeVersionId: null,
+			id: "artifact_1",
+		});
+		pagesRepository.insertAttempt.mockResolvedValue({ id: "attempt_1" });
+		pagesRepository.nextVersionNumber.mockResolvedValue(1);
+		vi.mocked(tasks.trigger).mockResolvedValue({
+			id: "run_123",
+		} as Awaited<ReturnType<typeof tasks.trigger>>);
+
+		await execute({ ...INPUT, worldId: "monographe" });
+
+		expect(pagesRepository.insertAttempt).toHaveBeenCalledWith(
+			expect.objectContaining({
+				spec: {
+					brief: INPUT.brief,
+					designerSystemPrompt: `builder prompt (test)\n\n${monographe.doc}`,
+					title: INPUT.title,
+				},
+			}),
+		);
+	});
+
+	it("falls back to a world-less snapshot on an unknown worldId", async () => {
+		const { execute, pagesRepository } = setup();
+		vi.mocked(isR2Configured).mockReturnValue(true);
+		pagesRepository.findOrCreateLandingArtifact.mockResolvedValue({
+			activeVersionId: null,
+			id: "artifact_1",
+		});
+		pagesRepository.insertAttempt.mockResolvedValue({ id: "attempt_1" });
+		pagesRepository.nextVersionNumber.mockResolvedValue(1);
+		vi.mocked(tasks.trigger).mockResolvedValue({
+			id: "run_123",
+		} as Awaited<ReturnType<typeof tasks.trigger>>);
+
+		const output = await execute({ ...INPUT, worldId: "no-such-world" });
+
+		expect(pagesRepository.insertAttempt).toHaveBeenCalledWith(
+			expect.objectContaining({
+				spec: {
+					brief: INPUT.brief,
+					designerSystemPrompt: "builder prompt (test)",
+					title: INPUT.title,
+				},
+			}),
+		);
+		expect(output).toMatchObject({ status: "queued" });
 	});
 
 	it("uses the legacy Builder model variable when the new one is unset", async () => {

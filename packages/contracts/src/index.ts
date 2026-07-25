@@ -29,10 +29,14 @@ export * from "./v1/credits";
 export * from "./v1/deployments";
 // Domain contracts.
 export * from "./v1/domains";
+// Standalone image generation contracts.
+export * from "./v1/image-generations";
 // Lead-scrape (outbound prospecting) contracts.
 export * from "./v1/lead-scrapes";
 // Lead contracts.
 export * from "./v1/leads";
+// Marketing asset (HTML deliverable) contracts.
+export * from "./v1/marketing-assets";
 // Image-to-video generation contracts.
 export * from "./v1/media-generations";
 // Payment order contracts.
@@ -43,6 +47,8 @@ export * from "./v1/page-edits";
 export * from "./v1/page-theme";
 // Page generation contracts.
 export * from "./v1/pages";
+// Project media assets (Assets tab) contracts.
+export * from "./v1/project-assets";
 // Project contracts.
 export * from "./v1/projects";
 // Shared id/date validators.

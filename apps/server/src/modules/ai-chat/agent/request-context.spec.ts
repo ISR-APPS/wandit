@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import type { AiChatRequestMetadata } from "../presentation/http/controllers/ai-chat.controller";
-import { resolveVideoRequestKeySeed } from "./request-context";
+import {
+	buildChatRequestContext,
+	resolveVideoRequestKeySeed,
+} from "./request-context";
 
 const VIDEO_SUBMISSION_ID = "de890510-e194-4a18-8d4a-a30f80dbe32a";
 
@@ -41,5 +44,66 @@ describe("resolveVideoRequestKeySeed", () => {
 				"message_3",
 			),
 		).toBe("message_3");
+	});
+});
+
+function composerContext(
+	mode: "auto" | "page" | "marketing" | "image" | "video",
+	output: string | undefined,
+	options: Record<string, unknown> | undefined,
+): string {
+	return (
+		buildChatRequestContext({
+			manualEdits: [],
+			metadata: { composer: { mode, options, output, quality: "standard" } },
+		}) ?? ""
+	);
+}
+
+describe("buildChatRequestContext composer settings", () => {
+	it("renders marketing output and every generation setting", () => {
+		const block = composerContext("marketing", "ad-copy", {
+			angle: "proof",
+			length: "short",
+			platform: "tiktok",
+			variants: "5",
+		});
+
+		expect(block).toContain("Mode: Marketing");
+		expect(block).toContain('They chose "Ad copy"');
+		expect(block).toContain("Platform: tiktok.");
+		expect(block).toContain("Number of variants: 5.");
+		expect(block).toContain("Angle: proof.");
+		expect(block).toContain("Copy length: short.");
+	});
+
+	it("renders image output, translates size tokens, and keeps unknown keys visible", () => {
+		const block = composerContext("image", "product-shot", {
+			froopy: "max",
+			scene: "studio",
+			size: "9-16",
+		});
+
+		expect(block).toContain('They chose "Product shot"');
+		expect(block).toContain("Aspect ratio: 9:16.");
+		expect(block).toContain("Scene: studio.");
+		// A UI option the server has no label for must still reach the model.
+		expect(block).toContain("froopy: max.");
+	});
+
+	it("never leaks transport-internal option keys", () => {
+		const block = composerContext("image", "image-creator", {
+			videoSubmissionId: VIDEO_SUBMISSION_ID,
+		});
+
+		expect(block).not.toContain("videoSubmissionId");
+		expect(block).not.toContain(VIDEO_SUBMISSION_ID);
+	});
+
+	it("keeps the page goal block intact", () => {
+		const block = composerContext("page", "landing-page", { goal: "cod" });
+
+		expect(block).toContain('They chose "Landing page"');
+		expect(block).toContain("Objectif: Vente COD");
 	});
 });

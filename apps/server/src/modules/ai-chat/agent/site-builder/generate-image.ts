@@ -15,6 +15,7 @@ import {
 	putSiteFile,
 	siteAssetKey,
 } from "../../../../infrastructure/storage/r2";
+import { editImageFromSources } from "../../../image-generations/application/services/image-generator";
 
 // Hard budget per build: images are the most expensive tool call the builder
 // has, and the brief's SHOT LIST is capped at 6 shots anyway.
@@ -63,6 +64,12 @@ export async function generateBuildImage(params: {
 	index: number;
 	projectId: string;
 	prompt: string;
+	/**
+	 * User asset URLs from the brief's BRAND ASSETS — when present (and the
+	 * edit model is configured) the shot is produced by EDITING the real
+	 * photos instead of inventing the product.
+	 */
+	sourceImageUrls?: string[];
 }): Promise<GeneratedBuildImage> {
 	if (!env.AI_IMAGE_MODEL || !env.R2_PUBLIC_BASE_URL || !isR2Configured()) {
 		return {
@@ -72,14 +79,42 @@ export async function generateBuildImage(params: {
 	}
 
 	try {
-		const { image } = await generateImage({
-			...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
-			model: env.AI_IMAGE_MODEL,
-			prompt: params.prompt,
-			size: SIZE_BY_ASPECT[params.aspect],
-		});
+		let mediaType: string;
+		let bytes: Uint8Array;
 
-		const extension = EXTENSION_BY_MEDIA_TYPE[image.mediaType] ?? "png";
+		// A missing edit model degrades to text-only generation on purpose — a
+		// page build must never fail because photo-faithful mode is unconfigured.
+		if (
+			params.sourceImageUrls &&
+			params.sourceImageUrls.length > 0 &&
+			env.AI_IMAGE_EDIT_MODEL
+		) {
+			const edited = await editImageFromSources({
+				...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
+				aspect: params.aspect,
+				prompt: params.prompt,
+				sourceImageUrls: params.sourceImageUrls,
+			});
+
+			if (edited.status !== "generated") {
+				return { message: edited.message, status: "failed" };
+			}
+
+			mediaType = edited.mediaType;
+			bytes = edited.uint8Array;
+		} else {
+			const { image } = await generateImage({
+				...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
+				model: env.AI_IMAGE_MODEL,
+				prompt: params.prompt,
+				size: SIZE_BY_ASPECT[params.aspect],
+			});
+
+			mediaType = image.mediaType;
+			bytes = image.uint8Array;
+		}
+
+		const extension = EXTENSION_BY_MEDIA_TYPE[mediaType] ?? "png";
 		const key = siteAssetKey(
 			params.projectId,
 			params.attemptId,
@@ -87,11 +122,11 @@ export async function generateBuildImage(params: {
 			extension,
 		);
 
-		await putSiteFile(key, image.uint8Array, image.mediaType);
+		await putSiteFile(key, bytes, mediaType);
 
 		return {
-			imageBase64: image.base64,
-			mediaType: image.mediaType,
+			imageBase64: Buffer.from(bytes).toString("base64"),
+			mediaType,
 			status: "generated",
 			url: publicAssetUrl(key),
 		};

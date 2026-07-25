@@ -28,6 +28,7 @@ import { isR2Configured } from "../../../../infrastructure/storage/r2";
 import type { generatePageTask } from "../../../../trigger/generate-page.task";
 import type { PagesRepository } from "../../../pages/infrastructure/persistence/pages.repository";
 import { buildSiteBuilderSystemPrompt } from "../site-builder/builder-prompt";
+import { getWorld } from "../worlds";
 
 // Static Nest logger (no DI needed): queue-side events land in the API
 // server terminal; the build itself logs in the Trigger worker terminal.
@@ -52,7 +53,7 @@ export function createGeneratePageTool(
 			"Page tab — it is not instant.",
 		inputSchema: generatePageInputSchema,
 		outputSchema: generatePageOutputSchema,
-		execute: async ({ brief, title }): Promise<GeneratePageOutput> => {
+		execute: async ({ brief, title, worldId }): Promise<GeneratePageOutput> => {
 			// Checked at CALL time, not boot time: the server must run before
 			// credentials exist, and the model must answer honestly when they don't.
 			if (!isR2Configured() || !env.TRIGGER_SECRET_KEY) {
@@ -71,8 +72,19 @@ export function createGeneratePageTool(
 				deps.projectId,
 			);
 			// Snapshotted NOW so later prompt, model, or environment changes
-			// never change what this attempt meant.
-			const designerSystemPrompt = await buildSiteBuilderSystemPrompt();
+			// never change what this attempt meant. The chosen design world's
+			// bible rides inside the same snapshot — the trigger task and the
+			// build loop never need to know worlds exist.
+			const world = worldId ? getWorld(worldId) : undefined;
+			if (worldId && !world) {
+				logger.warn(
+					`Unknown worldId "${worldId}" — building without a world doc.`,
+				);
+			}
+			const basePrompt = await buildSiteBuilderSystemPrompt();
+			const designerSystemPrompt = world
+				? `${basePrompt}\n\n${world.doc}`
+				: basePrompt;
 			const builderModel =
 				env.AI_PAGE_BUILDER_MODEL ?? env.AI_PAGE_DESIGN_MODEL;
 			const attempt = await deps.pagesRepository.insertAttempt({
@@ -85,7 +97,8 @@ export function createGeneratePageTool(
 
 			logger.log(
 				`Queued page build "${title}" — attempt ${attempt.id}, ` +
-					`Builder ${builderModel}`,
+					`Builder ${builderModel}` +
+					(world ? `, world "${world.id}"` : ", no world"),
 			);
 			logger.log(`Brief for attempt ${attempt.id}:\n${brief}`);
 

@@ -170,8 +170,17 @@ export function createScreenshotSession(
 					viewport.height,
 					MAX_SHOTS_PER_VIEWPORT,
 				)) {
+					// Smooth-scroll libraries (Lenis) hijack window.scrollTo, so a
+					// plain call may never reach the target and every shot collapses
+					// into the same frame. The builder prompt requires any smooth
+					// scroller to be exposed as window.__lenis; drive it immediately
+					// when present, else fall back to a native instant jump.
 					await abortable(
-						page.evaluate(`window.scrollTo(0, ${top})`),
+						page.evaluate(
+							"window.__lenis && window.__lenis.scrollTo" +
+								` ? window.__lenis.scrollTo(${top}, { immediate: true })` +
+								` : window.scrollTo({ top: ${top}, behavior: "instant" })`,
+						),
 						abortSignal,
 					);
 					await abortable(page.waitForTimeout(SCROLL_SETTLE_MS), abortSignal);
