@@ -31,6 +31,7 @@ import type {
 	UserRole,
 } from "@/features/users/api/users.dto";
 import { useChangeUserRoleMutation } from "@/features/users/api/users.mutations";
+import { isApiClientError } from "@/lib/api-client";
 
 const ROLE_OPTIONS: readonly {
 	value: UserRole;
@@ -43,19 +44,9 @@ const ROLE_OPTIONS: readonly {
 		description: "Standard product access.",
 	},
 	{
-		value: "affiliate",
-		label: "Affiliate",
-		description: "Product access with affiliate tools.",
-	},
-	{
 		value: "admin",
 		label: "Admin",
 		description: "Platform management access.",
-	},
-	{
-		value: "owner",
-		label: "Owner",
-		description: "Full platform and administrative access.",
 	},
 ];
 
@@ -75,12 +66,15 @@ export function ChangeRoleDialog({
 	const selectedRole = ROLE_OPTIONS.find((option) => option.value === role);
 
 	function handleOpenChange(nextOpen: boolean) {
-		if (nextOpen) {
+		if (!nextOpen && mutation.isPending) {
+			return;
+		}
+		// The dialog stays mounted per row, so an abandoned selection has to be
+		// dropped on close — this Root has no trigger, so it never reopens itself.
+		if (!nextOpen) {
 			setRole(user.role);
 		}
-		if (!mutation.isPending) {
-			onOpenChange(nextOpen);
-		}
+		onOpenChange(nextOpen);
 	}
 
 	async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -95,8 +89,12 @@ export function ChangeRoleDialog({
 			await mutation.mutateAsync({ userId: user.id, role });
 			toast.success(`${user.name} is now ${selectedRole?.label ?? role}.`);
 			onOpenChange(false);
-		} catch {
-			toast.error("The user role could not be changed. Please try again.");
+		} catch (error) {
+			toast.error(
+				isApiClientError(error)
+					? error.message
+					: "The user role could not be changed. Please try again.",
+			);
 		}
 	}
 
@@ -147,9 +145,9 @@ export function ChangeRoleDialog({
 						</Field>
 					</FieldGroup>
 
-					{user.role === "owner" && role !== "owner" ? (
+					{user.role === "admin" && role !== "admin" ? (
 						<p className="rounded-md border bg-muted/40 p-3 text-muted-foreground text-sm">
-							Confirm that another owner will retain access before changing this
+							Confirm that another admin will retain access before changing this
 							role.
 						</p>
 					) : null}

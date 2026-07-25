@@ -7,6 +7,7 @@ export const sessionUserSchema = z.object({
 	email: z.email(),
 	emailVerified: z.boolean(),
 	image: z.string().nullable(),
+	role: z.enum(["user", "admin"]),
 	createdAt: isoDateTimeSchema,
 	updatedAt: isoDateTimeSchema,
 });

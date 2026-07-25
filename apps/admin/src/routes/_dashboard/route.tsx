@@ -1,7 +1,8 @@
-import { createFileRoute, Outlet } from "@tanstack/react-router";
+import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
 import type { CSSProperties } from "react";
 
 import { SiteHeader } from "@/components/layout/header";
+import { getSession } from "@/features/auth/lib/session";
 import { AppSidebar } from "@/components/layout/sidebar/app-sidebar";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
 
@@ -21,6 +22,17 @@ function getDefaultSidebarState() {
 }
 
 export const Route = createFileRoute("/_dashboard")({
+	beforeLoad: async () => {
+		const session = await getSession();
+
+		if (!session) {
+			throw redirect({ to: "/login" });
+		}
+
+		if (session.user.role !== "admin") {
+			throw redirect({ to: "/login", search: { error: "forbidden" } });
+		}
+	},
 	component: DashboardShell,
 });
 

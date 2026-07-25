@@ -93,6 +93,11 @@ export const env = createEnv({
 		// domain) — generated images need a browser-reachable URL.
 		R2_PUBLIC_BASE_URL: z.url().optional(),
 		// Core API/auth settings.
+		// Admin dashboard origin (apps/admin). Optional: unset means no admin
+		// origin is trusted for CORS/auth.
+		ADMIN_ORIGIN: z.url().optional(),
+		// Comma-separated emails auto-promoted to the admin role on signup.
+		ADMIN_EMAILS: z.string().optional(),
 		DATABASE_URL: z.string().min(1),
 		BETTER_AUTH_SECRET: z.string().min(32),
 		BETTER_AUTH_URL: z.url(),

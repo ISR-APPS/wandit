@@ -22,6 +22,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import type { AdminUserSummary } from "@/features/users/api/users.dto";
 import { useSetUserBannedMutation } from "@/features/users/api/users.mutations";
+import { isApiClientError } from "@/lib/api-client";
 
 type BanUserDialogProps = {
 	user: AdminUserSummary;
@@ -37,7 +38,7 @@ export function BanUserDialog({
 	const [reason, setReason] = useState("");
 	const [submitted, setSubmitted] = useState(false);
 	const mutation = useSetUserBannedMutation();
-	const nextBannedState = !user.isBanned;
+	const nextBannedState = !user.banned;
 	const reasonIsValid = !nextBannedState || reason.trim().length >= 3;
 
 	function resetForm() {
@@ -76,11 +77,13 @@ export function BanUserDialog({
 			);
 			resetForm();
 			onOpenChange(false);
-		} catch {
+		} catch (error) {
 			toast.error(
-				nextBannedState
-					? "The user could not be banned. Please try again."
-					: "Access could not be restored. Please try again.",
+				isApiClientError(error)
+					? error.message
+					: nextBannedState
+						? "The user could not be banned. Please try again."
+						: "Access could not be restored. Please try again.",
 			);
 		}
 	}

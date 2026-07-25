@@ -1,58 +1,58 @@
-import {
-	changeMockUserRole,
-	getMockUser,
-	grantMockUserCredits,
-	listMockUsers,
-	setMockUserBanned,
-} from "../lib/mock-users";
+import { adminRoutes } from "@wandit/contracts";
+
+import { apiGet, apiPost } from "@/lib/api-client";
+
 import type {
+	AdminListUsersResponse,
 	ChangeUserRoleInput,
 	GrantUserCreditsInput,
+	ListUsersParams,
 	SetUserBannedInput,
 	UserDetail,
-	UserSummary,
 } from "./users.dto";
 
-const MOCK_LATENCY_MS = 180;
-
-export async function listUsers(): Promise<UserSummary[]> {
-	await mockLatency();
-	return listMockUsers();
+export function listUsers(
+	params: ListUsersParams,
+): Promise<AdminListUsersResponse> {
+	return apiGet<AdminListUsersResponse>(adminRoutes.users, {
+		page: params.page,
+		pageSize: params.pageSize,
+		q: params.q || undefined,
+		sort: params.sort,
+	});
 }
 
-export async function getUser(userId: string): Promise<UserDetail> {
-	await mockLatency();
-	return getMockUser(userId);
+export function getUser(userId: string): Promise<UserDetail> {
+	return apiGet<UserDetail>(adminRoutes.user(userId));
 }
 
-export async function grantUserCredits({
+export function grantUserCredits({
 	userId,
 	amount,
 	reason,
+	requestId,
 }: GrantUserCreditsInput): Promise<UserDetail> {
-	await mockLatency();
-	return grantMockUserCredits(userId, amount, reason);
+	return apiPost<UserDetail>(adminRoutes.grantCredits(userId), {
+		amount,
+		reason,
+		requestId,
+	});
 }
 
-export async function changeUserRole({
+export function changeUserRole({
 	userId,
 	role,
 }: ChangeUserRoleInput): Promise<UserDetail> {
-	await mockLatency();
-	return changeMockUserRole(userId, role);
+	return apiPost<UserDetail>(adminRoutes.setRole(userId), { role });
 }
 
-export async function setUserBanned({
+export function setUserBanned({
 	userId,
 	banned,
 	reason,
 }: SetUserBannedInput): Promise<UserDetail> {
-	await mockLatency();
-	return setMockUserBanned(userId, banned, reason);
-}
-
-function mockLatency() {
-	return new Promise<void>((resolve) => {
-		globalThis.setTimeout(resolve, MOCK_LATENCY_MS);
+	return apiPost<UserDetail>(adminRoutes.setBanned(userId), {
+		banned,
+		reason,
 	});
 }

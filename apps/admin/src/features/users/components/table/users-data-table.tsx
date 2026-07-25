@@ -1,24 +1,16 @@
 import {
 	type Column,
-	type ColumnFiltersState,
 	type ColumnSizingState,
 	flexRender,
 	getCoreRowModel,
-	getFacetedRowModel,
-	getFacetedUniqueValues,
-	getFilteredRowModel,
-	getPaginationRowModel,
-	getSortedRowModel,
 	type Header,
 	type PaginationState,
-	type SortingState,
 	type Table as TanStackTable,
 	useReactTable,
 	type VisibilityState,
 } from "@tanstack/react-table";
-import { DownloadIcon, ListFilterIcon, XIcon } from "lucide-react";
+import { SearchXIcon, XIcon } from "lucide-react";
 import { type CSSProperties, type KeyboardEvent, useState } from "react";
-import { toast } from "sonner";
 
 import { DataTablePagination } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
@@ -38,193 +30,117 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
-import type { AdminUserSummary } from "@/features/users/api/users.dto";
-import { USER_TABLE_DEFAULT_PAGE_SIZE } from "@/features/users/lib/constants";
+import type {
+	AdminListUsersSort,
+	AdminUserSummary,
+} from "@/features/users/api/users.dto";
 import { cn } from "@/lib/utils";
 
 import { UsersMobileList } from "./users-mobile-list";
 import { usersTableColumns } from "./users-table-columns";
 import { UsersTableToolbar } from "./users-table-toolbar";
-import type { UserTablePresetId } from "./users-table-utils";
 
 type UsersDataTableProps = {
 	data: AdminUserSummary[];
+	page: number;
+	pageSize: number;
+	total: number;
+	sort: AdminListUsersSort;
+	searchValue: string;
+	isFetching?: boolean;
+	onSearchChange: (value: string) => void;
+	onSortChange: (sort: AdminListUsersSort) => void;
+	onPageChange: (page: number) => void;
+	onPageSizeChange: (pageSize: number) => void;
 };
 
-const initialPagination: PaginationState = {
-	pageIndex: 0,
-	pageSize: USER_TABLE_DEFAULT_PAGE_SIZE,
-};
-
-const initialVisibility: VisibilityState = {
-	usageBand: false,
-	signupCohort: false,
-};
-
-function UsersDataTable({ data }: UsersDataTableProps) {
-	const [sorting, setSorting] = useState<SortingState>([
-		{ id: "signedUpAt", desc: true },
-	]);
-	const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
-	const [columnVisibility, setColumnVisibility] =
-		useState<VisibilityState>(initialVisibility);
+function UsersDataTable({
+	data,
+	page,
+	pageSize,
+	total,
+	sort,
+	searchValue,
+	isFetching = false,
+	onSearchChange,
+	onSortChange,
+	onPageChange,
+	onPageSizeChange,
+}: UsersDataTableProps) {
+	const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
 	const [columnSizing, setColumnSizing] = useState<ColumnSizingState>({});
-	const [rowSelection, setRowSelection] = useState({});
-	const [pagination, setPagination] =
-		useState<PaginationState>(initialPagination);
-	const [searchValue, setSearchValue] = useState("");
-	const [activePreset, setActivePreset] = useState<UserTablePresetId | null>(
-		"all",
-	);
+
+	const pagination: PaginationState = {
+		pageIndex: Math.max(page - 1, 0),
+		pageSize,
+	};
 
 	const table = useReactTable({
 		data,
 		columns: usersTableColumns,
 		state: {
-			sorting,
-			columnFilters,
 			columnVisibility,
 			columnSizing,
-			rowSelection,
 			pagination,
 		},
 		defaultColumn: {
 			enableResizing: false,
+			enableSorting: false,
 		},
 		enableColumnResizing: true,
 		columnResizeMode: "onChange",
-		enableRowSelection: true,
+		manualPagination: true,
+		pageCount: Math.max(Math.ceil(total / pageSize), 1),
+		rowCount: total,
 		getRowId: (user) => user.id,
-		onSortingChange: setSorting,
-		onColumnFiltersChange: (updater) => {
-			setColumnFilters(updater);
-			setActivePreset(null);
-			setPagination((current) => ({ ...current, pageIndex: 0 }));
-		},
 		onColumnVisibilityChange: setColumnVisibility,
 		onColumnSizingChange: setColumnSizing,
-		onRowSelectionChange: setRowSelection,
-		onPaginationChange: setPagination,
+		onPaginationChange: (updater) => {
+			const next =
+				typeof updater === "function" ? updater(pagination) : updater;
+
+			if (next.pageSize !== pagination.pageSize) {
+				onPageSizeChange(next.pageSize);
+			} else if (next.pageIndex !== pagination.pageIndex) {
+				onPageChange(next.pageIndex + 1);
+			}
+		},
 		getCoreRowModel: getCoreRowModel(),
-		getFilteredRowModel: getFilteredRowModel(),
-		getPaginationRowModel: getPaginationRowModel(),
-		getSortedRowModel: getSortedRowModel(),
-		getFacetedRowModel: getFacetedRowModel(),
-		getFacetedUniqueValues: getFacetedUniqueValues(),
 	});
 
 	const visibleRows = table.getRowModel().rows;
-	const selectedRows = table.getFilteredSelectedRowModel().rows;
-
-	function handleSearchChange(value: string) {
-		setSearchValue(value);
-		table.getColumn("user")?.setFilterValue(value || undefined);
-		setActivePreset(null);
-	}
-
-	function handlePresetChange(preset: UserTablePresetId) {
-		setSearchValue("");
-		setActivePreset(preset);
-		setPagination((current) => ({ ...current, pageIndex: 0 }));
-
-		switch (preset) {
-			case "paying":
-				setColumnFilters([{ id: "plan", value: ["starter", "pro"] }]);
-				break;
-			case "staff":
-				setColumnFilters([{ id: "role", value: ["admin", "owner"] }]);
-				break;
-			case "affiliates":
-				setColumnFilters([{ id: "role", value: ["affiliate"] }]);
-				break;
-			case "past-due":
-				setColumnFilters([{ id: "subscriptionStatus", value: ["past-due"] }]);
-				break;
-			case "banned":
-				setColumnFilters([{ id: "accountState", value: ["banned"] }]);
-				break;
-			case "high-usage":
-				setColumnFilters([{ id: "usageBand", value: ["high"] }]);
-				break;
-			case "new-this-week":
-				setColumnFilters([{ id: "signupCohort", value: ["new"] }]);
-				break;
-			case "all":
-				setColumnFilters([]);
-				break;
-		}
-	}
-
-	function handleReset() {
-		setSearchValue("");
-		setColumnFilters([]);
-		setActivePreset("all");
-		setPagination((current) => ({ ...current, pageIndex: 0 }));
-	}
-
-	function exportSelectedUsers() {
-		const selectedCount = selectedRows.length;
-		toast.success(
-			`${selectedCount.toLocaleString()} selected ${
-				selectedCount === 1 ? "user" : "users"
-			} prepared for export`,
-		);
-	}
+	const isFiltered = searchValue.trim().length > 0;
 
 	return (
 		<div className="space-y-4">
 			<div className="rounded-xl border bg-background p-3 sm:p-4">
 				<UsersTableToolbar
 					table={table}
-					data={data}
 					searchValue={searchValue}
-					activePreset={activePreset}
-					onSearchChange={handleSearchChange}
-					onPresetChange={handlePresetChange}
-					onReset={handleReset}
+					sort={sort}
+					onSearchChange={onSearchChange}
+					onSortChange={onSortChange}
 				/>
 			</div>
 
-			{selectedRows.length > 0 && (
-				<div className="flex flex-col gap-3 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5 sm:flex-row sm:items-center">
-					<p className="flex-1 font-medium text-sm">
-						{selectedRows.length.toLocaleString()}{" "}
-						{selectedRows.length === 1 ? "user" : "users"} selected
-					</p>
-					<div className="flex items-center gap-2">
-						<Button
-							type="button"
-							variant="ghost"
-							size="sm"
-							onClick={() => table.resetRowSelection()}
-						>
-							<XIcon data-icon="inline-start" />
-							Clear
-						</Button>
-						<Button
-							type="button"
-							variant="outline"
-							size="sm"
-							onClick={exportSelectedUsers}
-						>
-							<DownloadIcon data-icon="inline-start" />
-							Export selected
-						</Button>
-					</div>
-				</div>
-			)}
-
 			{visibleRows.length > 0 ? (
-				<UsersMobileList rows={visibleRows} />
+				<UsersMobileList users={visibleRows.map((row) => row.original)} />
 			) : (
-				<FilteredEmptyState onReset={handleReset} className="lg:hidden" />
+				<FilteredEmptyState
+					isFiltered={isFiltered}
+					onClear={() => onSearchChange("")}
+					className="lg:hidden"
+				/>
 			)}
 
 			<div
-				className="isolate hidden overflow-hidden rounded-xl border bg-background lg:block"
+				className={cn(
+					"isolate hidden overflow-hidden rounded-xl border bg-background transition-opacity lg:block",
+					isFetching && "opacity-60",
+				)}
 				data-testid="users-table"
 			>
-				<Table className="min-w-[2100px]">
+				<Table className="min-w-[1200px]">
 					<TableHeader>
 						{table.getHeaderGroups().map((headerGroup) => (
 							<TableRow key={headerGroup.id}>
@@ -253,11 +169,7 @@ function UsersDataTable({ data }: UsersDataTableProps) {
 					<TableBody>
 						{visibleRows.length > 0 ? (
 							visibleRows.map((row) => (
-								<TableRow
-									key={row.id}
-									data-state={row.getIsSelected() ? "selected" : undefined}
-									className="group hover:bg-muted data-[state=selected]:bg-muted"
-								>
+								<TableRow key={row.id} className="group hover:bg-muted">
 									{row.getVisibleCells().map((cell) => (
 										<TableCell
 											key={cell.id}
@@ -279,7 +191,10 @@ function UsersDataTable({ data }: UsersDataTableProps) {
 									colSpan={table.getVisibleLeafColumns().length}
 									className="h-72"
 								>
-									<FilteredEmptyState onReset={handleReset} />
+									<FilteredEmptyState
+										isFiltered={isFiltered}
+										onClear={() => onSearchChange("")}
+									/>
 								</TableCell>
 							</TableRow>
 						)}
@@ -293,21 +208,12 @@ function UsersDataTable({ data }: UsersDataTableProps) {
 }
 
 function getStickyClass(columnId: string, isHeader: boolean) {
-	if (columnId === "select") {
-		return cn(
-			"sticky left-0 z-30 w-12 min-w-12 max-w-12 border-r",
-			isHeader
-				? "bg-background"
-				: "bg-background group-hover:bg-muted group-data-[state=selected]:bg-muted",
-		);
-	}
-
 	if (columnId === "user") {
 		return cn(
-			"sticky left-12 z-20 border-r px-4 pr-7",
+			"sticky left-0 z-20 border-r px-4 pr-7",
 			isHeader
 				? "bg-background"
-				: "bg-background group-hover:bg-muted group-data-[state=selected]:bg-muted",
+				: "bg-background group-hover:bg-muted",
 		);
 	}
 
@@ -315,11 +221,7 @@ function getStickyClass(columnId: string, isHeader: boolean) {
 		return "min-w-[104px] pr-3 pl-5";
 	}
 
-	if (columnId === "paymentProvider") {
-		return "min-w-[132px]";
-	}
-
-	if (columnId === "accountState") {
+	if (columnId === "status") {
 		return "min-w-[184px]";
 	}
 
@@ -328,7 +230,7 @@ function getStickyClass(columnId: string, isHeader: boolean) {
 			"sticky right-0 z-20 w-14 min-w-14 max-w-14 border-l px-2 text-center",
 			isHeader
 				? "bg-background"
-				: "bg-background group-hover:bg-muted group-data-[state=selected]:bg-muted",
+				: "bg-background group-hover:bg-muted",
 		);
 	}
 
@@ -411,30 +313,37 @@ function UserColumnResizeHandle({
 }
 
 function FilteredEmptyState({
-	onReset,
+	isFiltered,
+	onClear,
 	className,
 }: {
-	onReset: () => void;
+	isFiltered: boolean;
+	onClear: () => void;
 	className?: string;
 }) {
 	return (
 		<Empty className={cn("border-0 py-10", className)}>
 			<EmptyHeader>
 				<EmptyMedia variant="icon">
-					<ListFilterIcon />
+					<SearchXIcon />
 				</EmptyMedia>
-				<EmptyTitle>No users match this view</EmptyTitle>
+				<EmptyTitle>
+					{isFiltered ? "No users match this search" : "No users on this page"}
+				</EmptyTitle>
 				<EmptyDescription>
-					Change the search, remove a facet, or return to the complete user
-					directory.
+					{isFiltered
+						? "Try a different name or email, or clear the search."
+						: "Go back to an earlier page of the directory."}
 				</EmptyDescription>
 			</EmptyHeader>
-			<EmptyContent>
-				<Button type="button" variant="outline" size="sm" onClick={onReset}>
-					<XIcon data-icon="inline-start" />
-					Clear filters
-				</Button>
-			</EmptyContent>
+			{isFiltered && (
+				<EmptyContent>
+					<Button type="button" variant="outline" size="sm" onClick={onClear}>
+						<XIcon data-icon="inline-start" />
+						Clear search
+					</Button>
+				</EmptyContent>
+			)}
 		</Empty>
 	);
 }
