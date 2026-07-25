@@ -36,6 +36,10 @@ import {
 } from "../../../../infrastructure/storage/r2";
 import { DomainRoutingService } from "../../../domains/infrastructure/cloudflare/domain-routing.service";
 import {
+	buildLeadsCaptureUrl,
+	injectLeadsRuntime,
+} from "../../../leads/runtime/inject-leads-runtime";
+import {
 	NoVersionToPublishError,
 	PublishFailedError,
 	PublishUnavailableError,
@@ -245,12 +249,22 @@ export class SitesService {
 		});
 
 		try {
-			const published = input.skipInjection
+			const withPixels = input.skipInjection
 				? input.html
 				: injectPixels(input.html, {
 						metaPixelId: input.project.metaPixelId,
 						tiktokPixelId: input.project.tiktokPixelId,
 					});
+
+			// Unconditional on purpose: the injector is idempotent (id marker),
+			// so fresh publishes gain the lead-capture runtime and rollbacks of
+			// pre-runtime archives gain it too instead of losing lead capture.
+			const published = injectLeadsRuntime(withPixels, {
+				captureUrl: buildLeadsCaptureUrl(
+					env.BETTER_AUTH_URL,
+					input.project.publicFormId,
+				),
+			});
 
 			assertNoEditorArtifacts(published);
 

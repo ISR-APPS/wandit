@@ -24,6 +24,8 @@ export type OwnedProjectRow = {
 	id: string;
 	metaPixelId: string | null;
 	name: string;
+	// Capture key baked into the published page's leads runtime.
+	publicFormId: string;
 	tiktokPixelId: string | null;
 };
 
@@ -60,6 +62,7 @@ export class DeploymentsRepository {
 				id: projects.id,
 				metaPixelId: projects.metaPixelId,
 				name: projects.name,
+				publicFormId: projects.publicFormId,
 				tiktokPixelId: projects.tiktokPixelId,
 			})
 			.from(projects)
