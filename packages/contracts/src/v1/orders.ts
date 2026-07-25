@@ -42,6 +42,9 @@ export const paymentOrderSchema = z.object({
 		.regex(/^[a-z]{3}$/),
 	checkoutUrl: z.url().optional(),
 	domainId: uuidSchema.optional(),
+	// The project the purchase belongs to, so return pages can route back into
+	// the workspace instead of dead-ending at the dashboard.
+	projectId: uuidSchema.nullable(),
 	createdAt: isoDateTimeSchema,
 	paidAt: isoDateTimeSchema.nullable(),
 	fulfilledAt: isoDateTimeSchema.nullable(),

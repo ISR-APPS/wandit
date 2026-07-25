@@ -8,16 +8,7 @@ const reflect = Reflect as typeof Reflect & {
 };
 
 describe("DomainsController rate limits", () => {
-	it("rate-limits money and Cloudflare-mutating domain routes", () => {
-		expect(
-			reflect.getMetadata(
-				"domain_rate_limit",
-				DomainsController.prototype.purchase,
-			),
-		).toEqual({
-			limit: 5,
-			windowMs: 60_000,
-		});
+	it("rate-limits Cloudflare-mutating and registrar-touching domain routes", () => {
 		expect(
 			reflect.getMetadata(
 				"domain_rate_limit",
@@ -30,11 +21,21 @@ describe("DomainsController rate limits", () => {
 		expect(
 			reflect.getMetadata(
 				"domain_rate_limit",
-				DomainsController.prototype.renew,
+				DomainsController.prototype.transferUnlock,
 			),
 		).toEqual({
-			limit: 5,
-			windowMs: 60_000,
+			limit: 3,
+			windowMs: 60 * 60_000,
 		});
+	});
+
+	it("no longer exposes the credits-era purchase and renew routes", () => {
+		const prototype = DomainsController.prototype as unknown as Record<
+			string,
+			unknown
+		>;
+
+		expect(prototype.purchase).toBeUndefined();
+		expect(prototype.renew).toBeUndefined();
 	});
 });

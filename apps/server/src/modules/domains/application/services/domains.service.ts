@@ -3,24 +3,19 @@ import { Inject, Injectable, type Logger, Optional } from "@nestjs/common";
 import {
 	type AttachExternalDomainBody,
 	type AttachExternalDomainResponse,
-	catalogFor,
 	type DetachDomainResponse,
+	DOMAIN_REGISTRATION_USD_CENTS,
 	DOMAIN_TLD_CATALOG,
 	type DomainAvailabilityStatus,
 	type DomainDns,
-	type DomainPriceSnapshot,
 	type DomainTld,
 	domainDnsSchema,
-	domainPriceSnapshotSchema,
 	domainTlds,
 	isReservedDomainName,
 	isValidDomainLabel,
 	type ListDomainsResponse,
-	type PurchaseDomainBody,
-	type PurchaseDomainResponse,
 	parseDomainName,
 	parseExternalDomainName,
-	type RenewDomainResponse,
 	type RequiredDomainRecord,
 	type SearchDomainsResponse,
 	type SetPrimaryDomainResponse,
@@ -30,7 +25,11 @@ import {
 	type VerifyDomainResponse,
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
-import { DOMAINS_QUEUE, type DomainJobName } from "@wandit/jobs";
+import {
+	DOMAIN_PURCHASE_JOB_ATTEMPTS,
+	DOMAINS_QUEUE,
+	type DomainJobName,
+} from "@wandit/jobs";
 import type { JobsOptions, Queue } from "bullmq";
 
 import {
@@ -40,10 +39,6 @@ import {
 	InvalidDomainStateError,
 	PremiumDomainBlockedError,
 } from "../../domain/errors/domain.errors";
-import {
-	CREDITS_PORT,
-	type CreditsPort,
-} from "../../domain/ports/credits.port";
 import {
 	DOMAIN_PROVIDER,
 	type DomainAvailability,
@@ -63,8 +58,11 @@ type DomainLogger = Pick<Logger, "error" | "log" | "warn">;
 
 export type PreparedDomainPurchase = {
 	name: string;
-	priceSnapshot: DomainPriceSnapshot;
+	// The registrar's live wholesale quote, already validated against the
+	// TLD ceiling. OrdersService freezes it into the order's price snapshot.
+	quotedWholesaleUsd: number;
 	tld: DomainTld;
+	wholesaleCeilingUsd: number;
 };
 
 type DomainJobData =
@@ -79,8 +77,6 @@ export class DomainsService {
 		private readonly domainsRepository: DomainsRepository,
 		@Inject(DOMAIN_PROVIDER)
 		private readonly domainProvider: DomainProvider,
-		@Inject(CREDITS_PORT)
-		private readonly creditsPort: CreditsPort,
 		@Inject(CustomHostnameService)
 		private readonly customHostnameService: CustomHostnameService,
 		@Inject(DomainRoutingService)
@@ -105,16 +101,21 @@ export class DomainsService {
 			results: candidates.map((candidate) => {
 				const catalog = DOMAIN_TLD_CATALOG[candidate.tld];
 				const result = availabilityByName.get(candidate.name);
+				const publicAvailability = this.publicAvailability(
+					candidate.name,
+					catalog,
+					result,
+				);
 
 				return {
-					availability: this.publicAvailability(
-						candidate.name,
-						catalog,
-						result,
-					),
+					availability: publicAvailability,
 					name: candidate.name,
-					registrationCredits: catalog.registrationCredits,
-					renewalCredits: catalog.renewalCredits,
+					// Retail price from the catalog, only for safely purchasable
+					// results. The registrar's wholesale quote never crosses the wire.
+					registrationPriceUsd:
+						publicAvailability === "available"
+							? DOMAIN_REGISTRATION_USD_CENTS[candidate.tld] / 100
+							: null,
 					tld: candidate.tld,
 				};
 			}),
@@ -127,60 +128,13 @@ export class DomainsService {
 		return { domains: rows.map(mapDomain) };
 	}
 
-	async purchase(
-		userId: string,
-		projectId: string,
-		body: PurchaseDomainBody,
-	): Promise<PurchaseDomainResponse> {
-		const prepared = await this.preparePurchase(userId, body.name, projectId);
-
-		// The domain row is created before consuming credits so the ledger
-		// idempotency key can be derived from the durable row id. If consume
-		// rejects, the row is deleted before the error is rethrown; queueing only
-		// happens after consume succeeds, preserving no-row/no-charge invariants.
-		const row = await this.domainsRepository.createPurchasedReplacingTerminal({
-			name: prepared.name,
-			priceSnapshot: prepared.priceSnapshot,
-			projectId,
-			registrant: body.registrant,
-			tld: prepared.tld,
-			userId,
-		});
-
-		try {
-			await this.creditsPort.consume(
-				userId,
-				prepared.priceSnapshot.registrationCredits,
-				{
-					idempotencyKey: `domain-purchase:${row.id}`,
-					meta: {
-						domainId: row.id,
-						name: row.name,
-						reason: "domain_purchase",
-					},
-				},
-			);
-		} catch (error) {
-			await this.domainsRepository.deleteById(row.id);
-			throw error;
-		}
-
-		await this.enqueueDomainJob(
-			"domain-purchase",
-			{ domainId: row.id },
-			`domain-purchase-${row.id}`,
-		);
-
-		return { domain: mapDomain(row) };
-	}
-
 	async preparePurchase(
 		userId: string,
 		name: string,
 		projectId?: string,
 	): Promise<PreparedDomainPurchase> {
 		const parsed = this.parseSafeDomainName(name);
-		const priceSnapshot = this.priceSnapshot(parsed.tld);
+		const catalog = DOMAIN_TLD_CATALOG[parsed.tld];
 
 		if (projectId) {
 			await this.domainsRepository.assertProjectOwned(userId, projectId);
@@ -192,10 +146,19 @@ export class DomainsService {
 		]);
 		this.assertDomainAvailable(parsed.name, availability);
 
+		const quotedWholesaleUsd = availability?.wholesalePriceUsd;
+
+		// assertDomainAvailable already fail-closes on a missing quote; this
+		// re-check only exists so the type system carries the guarantee forward.
+		if (typeof quotedWholesaleUsd !== "number") {
+			throw new PremiumDomainBlockedError(parsed.name);
+		}
+
 		return {
 			name: parsed.name,
-			priceSnapshot,
+			quotedWholesaleUsd,
 			tld: parsed.tld,
+			wholesaleCeilingUsd: catalog.wholesaleCeilingUsd,
 		};
 	}
 
@@ -294,58 +257,19 @@ export class DomainsService {
 		};
 	}
 
-	async renew(id: string, userId: string): Promise<RenewDomainResponse> {
-		const row = await this.domainsRepository.getByIdForUser(id, userId);
-
-		this.assertRenewable(row);
-
-		const priceSnapshot = this.expectPriceSnapshot(row);
-		const periodEndYear = this.nextExpiryYear(row);
-		const attemptUpdatedAtMs = row.updatedAt.getTime();
-		const idempotencyKey = `domain-renew:${row.id}:${periodEndYear}:${attemptUpdatedAtMs}`;
-
-		await this.creditsPort.consume(userId, priceSnapshot.renewalCredits, {
-			idempotencyKey,
-			meta: {
-				domainId: row.id,
-				name: row.name,
-				reason: "domain_renewal",
-			},
-		});
-
-		try {
-			const renewed = await this.domainProvider.renew(row.name, 1);
-			const expiresAt =
-				renewed.expiresAt ?? this.addYears(row.expiresAt ?? new Date(), 1);
-			const updated = await this.domainsRepository.updateById(row.id, {
-				error: null,
-				expiresAt,
-				status: "active",
-			});
-
-			return { domain: mapDomain(updated) };
-		} catch (error) {
-			await this.domainsRepository.recordRenewalNotice(
-				row.id,
-				"Renewal failed; credits were refunded and the next retry will use a fresh charge attempt",
-			);
-			await this.creditsPort.grant(userId, priceSnapshot.renewalCredits, {
-				bucket: "topup",
-				idempotencyKey: `domain-renew-refund:${row.id}:${periodEndYear}:${attemptUpdatedAtMs}`,
-				meta: {
-					domainId: row.id,
-					reason: "domain_renewal_failed",
-				},
-			});
-			throw error;
-		}
-	}
-
 	async setAutoRenew(
 		id: string,
 		userId: string,
 		body: UpdateDomainAutoRenewBody,
 	): Promise<UpdateDomainAutoRenewResponse> {
+		// Paid renewals are not wired yet (no `domain_renewal` payment-order
+		// kind), so enabling auto-renew would promise a charge that cannot run.
+		if (body.autoRenew) {
+			throw new InvalidDomainStateError(
+				"Automatic renewal is not available yet",
+			);
+		}
+
 		await this.domainsRepository.getByIdForUser(id, userId);
 		const updated = await this.domainsRepository.updateById(id, {
 			autoRenew: body.autoRenew,
@@ -385,15 +309,23 @@ export class DomainsService {
 	): Promise<TransferUnlockDomainResponse> {
 		const row = await this.domainsRepository.getByIdForUser(id, userId);
 
-		if (row.source !== "purchased" || row.status === "failed") {
+		if (
+			row.source !== "purchased" ||
+			row.provider !== "namecom" ||
+			row.status === "failed"
+		) {
 			throw new InvalidDomainStateError(
-				"Only purchased domains can be unlocked for transfer",
+				"Only Name.com-purchased domains can be unlocked for transfer",
 			);
 		}
 
 		await this.domainProvider.setTransferLock(row.name, false);
 		const authCode = await this.domainProvider.getAuthCode(row.name);
-		const lockedUntil = this.icannLockedUntil(row.createdAt);
+		const providerInfo = await this.domainProvider.getDomainInfo(row.name);
+		const lockedUntil =
+			providerInfo?.transferLockExpiresAt ??
+			row.transferLockExpiresAt ??
+			this.icannLockedUntil(row.createdAt);
 
 		return {
 			authCode,
@@ -532,15 +464,19 @@ export class DomainsService {
 			return "premium_blocked";
 		}
 
+		if (!availability.available) {
+			return "unavailable";
+		}
+
+		// Fail closed: a missing, non-finite, or over-ceiling wholesale quote
+		// means the purchase could lose money, so it is never shown as buyable.
 		if (
-			typeof availability.wholesalePriceUsd === "number" &&
+			typeof availability.wholesalePriceUsd !== "number" ||
+			!Number.isFinite(availability.wholesalePriceUsd) ||
+			availability.wholesalePriceUsd <= 0 ||
 			availability.wholesalePriceUsd > catalog.wholesaleCeilingUsd
 		) {
 			return "premium_blocked";
-		}
-
-		if (!availability.available) {
-			return "unavailable";
 		}
 
 		if (isReservedDomainName(name)) {
@@ -548,21 +484,6 @@ export class DomainsService {
 		}
 
 		return "available";
-	}
-
-	private priceSnapshot(tld: DomainTld): DomainPriceSnapshot {
-		const catalog = catalogFor(tld);
-
-		if (!catalog) {
-			throw new DomainBlockedError("Unsupported domain TLD");
-		}
-
-		return {
-			registrationCredits: catalog.registrationCredits,
-			renewalCredits: catalog.renewalCredits,
-			tld,
-			wholesaleCeilingUsd: catalog.wholesaleCeilingUsd,
-		};
 	}
 
 	private requiredRecords(
@@ -602,38 +523,6 @@ export class DomainsService {
 
 	private isHostnameActive(status: string) {
 		return status === "active";
-	}
-
-	private assertRenewable(row: DomainRow): void {
-		if (
-			row.source !== "purchased" ||
-			(row.status !== "active" && row.status !== "expired")
-		) {
-			throw new InvalidDomainStateError(
-				"Only active or expired purchased domains can be renewed",
-			);
-		}
-	}
-
-	private expectPriceSnapshot(row: DomainRow): DomainPriceSnapshot {
-		const parsed = domainPriceSnapshotSchema.safeParse(row.priceSnapshot);
-
-		if (!parsed.success) {
-			throw new InvalidDomainStateError("Domain is missing its price snapshot");
-		}
-
-		return parsed.data;
-	}
-
-	private nextExpiryYear(row: DomainRow): number {
-		return (row.expiresAt ?? new Date()).getUTCFullYear() + 1;
-	}
-
-	private addYears(date: Date, years: number): Date {
-		const copy = new Date(date);
-		copy.setUTCFullYear(copy.getUTCFullYear() + years);
-
-		return copy;
 	}
 
 	private icannLockedUntil(createdAt: Date): Date | null {
@@ -698,7 +587,7 @@ export class DomainsService {
 	private jobOptions(name: DomainJobName): JobsOptions {
 		if (name === "domain-purchase") {
 			return {
-				attempts: 5,
+				attempts: DOMAIN_PURCHASE_JOB_ATTEMPTS,
 				backoff: {
 					delay: 60_000,
 					type: "exponential",
@@ -732,8 +621,10 @@ export class DomainsService {
 
 		if (
 			availability.premium ||
-			(typeof availability.wholesalePriceUsd === "number" &&
-				availability.wholesalePriceUsd > catalog.wholesaleCeilingUsd)
+			typeof availability.wholesalePriceUsd !== "number" ||
+			!Number.isFinite(availability.wholesalePriceUsd) ||
+			availability.wholesalePriceUsd <= 0 ||
+			availability.wholesalePriceUsd > catalog.wholesaleCeilingUsd
 		) {
 			throw new PremiumDomainBlockedError(name);
 		}

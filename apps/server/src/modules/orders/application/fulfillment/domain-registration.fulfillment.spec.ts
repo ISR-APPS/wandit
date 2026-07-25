@@ -52,8 +52,9 @@ function validMetadata() {
 	return {
 		domain: "example.com",
 		priceSnapshot: {
-			registrationCredits: DOMAIN_TLD_CATALOG.com.registrationCredits,
-			renewalCredits: DOMAIN_TLD_CATALOG.com.renewalCredits,
+			chargedAmountCents: 3000,
+			chargedCurrency: "usd",
+			quotedWholesaleUsd: 11.06,
 			tld: "com",
 			wholesaleCeilingUsd: DOMAIN_TLD_CATALOG.com.wholesaleCeilingUsd,
 		},

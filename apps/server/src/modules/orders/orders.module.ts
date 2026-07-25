@@ -6,6 +6,7 @@ import { BillingPaymentsModule } from "../billing/billing-payments.module";
 import { WEBHOOK_ORDER_RECONCILER } from "../billing/domain/ports/webhook-order-reconciler.port";
 import { WEBHOOK_ORDER_REFUND_HANDLER } from "../billing/domain/ports/webhook-order-refund-handler.port";
 import { DomainsModule } from "../domains/domains.module";
+import { DomainRateLimitGuard } from "../domains/presentation/http/guards/rate-limit.guard";
 import { DomainRegistrationFulfillment } from "./application/fulfillment/domain-registration.fulfillment";
 import { OrderFulfillmentRegistry } from "./application/services/order-fulfillment.registry";
 import { OrderRefundExecutorService } from "./application/services/order-refund-executor.service";
@@ -24,6 +25,8 @@ import { OrdersController } from "./presentation/http/controllers/orders.control
 	exports: [WEBHOOK_ORDER_RECONCILER, WEBHOOK_ORDER_REFUND_HANDLER],
 	imports: [BillingPaymentsModule, DatabaseModule, DomainsModule, QueuesModule],
 	providers: [
+		// Module-local limiter instance (in-process map, same as DomainsModule's).
+		DomainRateLimitGuard,
 		DomainRegistrationFulfillment,
 		OrderFulfillmentRegistry,
 		OrderRefundExecutorService,

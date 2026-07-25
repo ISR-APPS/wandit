@@ -361,7 +361,7 @@ function SubdomainContent({
 							{t("workspace.publish.popover.customDomainTitle")}
 						</span>
 						<span className="mt-0.5 block text-muted-foreground text-xs leading-relaxed">
-							{t("workspace.publish.domainPurchase.search.description")}
+							{t("workspace.publish.popover.customDomainDescription")}
 						</span>
 					</span>
 					<ChevronRight className="size-4 shrink-0 text-ember-text transition-transform group-hover:translate-x-0.5 rtl:rotate-180 rtl:group-hover:-translate-x-0.5" />

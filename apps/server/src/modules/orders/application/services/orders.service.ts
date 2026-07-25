@@ -23,10 +23,16 @@ import type {
 } from "../../../billing/domain/ports/webhook-order-reconciler.port";
 import { BillingCustomersRepository } from "../../../billing/infrastructure/persistence/billing-customers.repository";
 import { DomainsService } from "../../../domains/application/services/domains.service";
-import { DomainAlreadyExistsError } from "../../../domains/domain/errors/domain.errors";
+import {
+	DomainAlreadyExistsError,
+	PremiumDomainBlockedError,
+} from "../../../domains/domain/errors/domain.errors";
 import { DomainsRepository } from "../../../domains/infrastructure/persistence/domains.repository";
 import { OrderInvariantViolationError } from "../../domain/errors/payment-order.errors";
-import type { PaymentOrderRow } from "../../domain/payment-order.types";
+import {
+	domainRegistrationOrderMetadataSchema,
+	type PaymentOrderRow,
+} from "../../domain/payment-order.types";
 import {
 	PaymentOrdersRepository,
 	type PaymentOrderTransaction,
@@ -87,6 +93,13 @@ export class OrdersService implements WebhookOrderReconciler {
 			body.projectId,
 		);
 		const amountCents = DOMAIN_REGISTRATION_USD_CENTS[prepared.tld];
+
+		// Never contact Stripe for a purchase that would lose money: the retail
+		// charge must stay above the registrar's live wholesale quote.
+		if (prepared.quotedWholesaleUsd * 100 >= amountCents) {
+			throw new PremiumDomainBlockedError(prepared.name);
+		}
+
 		const customer = await this.billingCustomerService.ensureCustomer(user);
 		const order = await this.paymentOrdersRepository.insert({
 			amountCents,
@@ -94,11 +107,19 @@ export class OrdersService implements WebhookOrderReconciler {
 			kind: "domain_registration",
 			metadata: {
 				domain: prepared.name,
-				priceSnapshot: prepared.priceSnapshot,
+				priceSnapshot: {
+					chargedAmountCents: amountCents,
+					chargedCurrency: "usd",
+					quotedWholesaleUsd: prepared.quotedWholesaleUsd,
+					tld: prepared.tld,
+					wholesaleCeilingUsd: prepared.wholesaleCeilingUsd,
+				},
 				...(body.projectId ? { projectId: body.projectId } : {}),
 				registrant: body.registrant,
 				tld: prepared.tld,
-				whoisPrivacy: body.whoisPrivacy ?? true,
+				// WHOIS privacy is a separate paid registrar add-on with no line
+				// item in the charge, so it is never enabled implicitly.
+				whoisPrivacy: body.whoisPrivacy ?? false,
 			},
 			userId: user.id,
 		});
@@ -679,8 +700,23 @@ export class OrdersService implements WebhookOrderReconciler {
 			id: order.id,
 			kind: order.kind,
 			paidAt: order.paidAt?.toISOString() ?? null,
+			// Before fulfillment no domain row exists yet, so fall back to the
+			// project frozen into the order metadata at checkout time.
+			projectId: domain?.projectId ?? this.orderProjectId(order),
 			refundStatus: order.refundStatus,
 			status: order.status,
 		};
+	}
+
+	private orderProjectId(order: PaymentOrderRow): string | null {
+		if (order.kind !== "domain_registration") {
+			return null;
+		}
+
+		const metadata = domainRegistrationOrderMetadataSchema.safeParse(
+			order.metadata,
+		);
+
+		return metadata.success ? (metadata.data.projectId ?? null) : null;
 	}
 }

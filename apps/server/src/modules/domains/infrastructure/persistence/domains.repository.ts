@@ -26,15 +26,6 @@ export type DomainTransaction = Parameters<
 	Parameters<Database["transaction"]>[0]
 >[0];
 
-type CreatePurchasedDomainInput = {
-	name: string;
-	priceSnapshot: DomainPriceSnapshot;
-	projectId: string;
-	registrant: Registrant;
-	tld: DomainTld;
-	userId: string;
-};
-
 type CreatePurchasedOrderDomainInput = {
 	name: string;
 	paymentOrderId: string;
@@ -46,12 +37,14 @@ type CreatePurchasedOrderDomainInput = {
 	whoisPrivacy: boolean;
 };
 
-type PurchasedDomainInsertInput = Omit<
-	CreatePurchasedDomainInput,
-	"projectId"
-> & {
+type PurchasedDomainInsertInput = {
+	name: string;
 	paymentOrderId?: string;
+	priceSnapshot: DomainPriceSnapshot;
 	projectId: string | null;
+	registrant: Registrant;
+	tld: DomainTld;
+	userId: string;
 	whoisPrivacy?: boolean;
 };
 
@@ -75,7 +68,10 @@ type DomainUpdate = Partial<
 		| "projectId"
 		| "provider"
 		| "providerDomainId"
+		| "providerOrderId"
+		| "providerTotalPaidUsd"
 		| "status"
+		| "transferLockExpiresAt"
 	>
 >;
 
@@ -171,20 +167,6 @@ export class DomainsRepository {
 			.for("update");
 
 		return row ?? null;
-	}
-
-	async createPurchased(input: CreatePurchasedDomainInput): Promise<DomainRow> {
-		return this.insertPurchased(this.db, input);
-	}
-
-	async createPurchasedReplacingTerminal(
-		input: CreatePurchasedDomainInput,
-	): Promise<DomainRow> {
-		return this.db.transaction(async (tx) => {
-			await this.deleteTerminalNameOrThrow(tx, input.name);
-
-			return this.insertPurchased(tx, input);
-		});
 	}
 
 	async findOrCreatePurchasedForOrder(
@@ -336,9 +318,11 @@ export class DomainsRepository {
 			.orderBy(desc(domains.updatedAt));
 	}
 
-	async findRenewalCandidates(now = new Date()): Promise<DomainRow[]> {
-		const renewBy = new Date(now);
-		renewBy.setUTCDate(renewBy.getUTCDate() + 30);
+	// Expiry-notice sweep input: every purchased domain nearing expiry, whether
+	// or not auto-renew is set — renewal is not wired yet, only notices are.
+	async findExpiringPurchased(now = new Date()): Promise<DomainRow[]> {
+		const expiringBy = new Date(now);
+		expiringBy.setUTCDate(expiringBy.getUTCDate() + 30);
 
 		return this.db
 			.select()
@@ -346,10 +330,9 @@ export class DomainsRepository {
 			.where(
 				and(
 					eq(domains.source, "purchased"),
-					eq(domains.autoRenew, true),
 					inArray(domains.status, ["active", "expired"]),
 					sql`${domains.expiresAt} IS NOT NULL`,
-					sql`${domains.expiresAt} <= ${renewBy}`,
+					sql`${domains.expiresAt} <= ${expiringBy}`,
 				),
 			)
 			.orderBy(domains.expiresAt, domains.id);
@@ -362,6 +345,7 @@ export class DomainsRepository {
 			.where(
 				and(
 					eq(domains.source, "purchased"),
+					eq(domains.provider, "namecom"),
 					sql`${domains.providerDomainId} IS NOT NULL`,
 					sql`${domains.status} NOT IN ('failed', 'transferred_out')`,
 				),
@@ -413,18 +397,20 @@ export class DomainsRepository {
 		const [inserted] = await db
 			.insert(domains)
 			.values({
-				autoRenew: true,
+				// Off by default: renewal and privacy are separate paid costs the
+				// customer has not consented to at registration time.
+				autoRenew: false,
 				name: input.name,
 				paymentOrderId: input.paymentOrderId ?? null,
 				priceSnapshot: input.priceSnapshot,
 				projectId: input.projectId ?? null,
-				provider: "openprovider",
+				provider: "namecom",
 				registrant: input.registrant,
 				source: "purchased",
 				status: "registering",
 				tld: input.tld,
 				userId: input.userId,
-				whoisPrivacy: input.whoisPrivacy ?? true,
+				whoisPrivacy: input.whoisPrivacy ?? false,
 			})
 			.onConflictDoNothing({ target: domains.name })
 			.returning();

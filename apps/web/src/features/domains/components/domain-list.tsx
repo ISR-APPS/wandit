@@ -33,29 +33,21 @@ import {
 	Copy,
 	KeyRound,
 	Loader2,
-	RefreshCw,
 	Trash2,
 } from "lucide-react";
 import { Fragment, useState } from "react";
 import { toast } from "sonner";
 
-import { InsufficientCreditsDialog, PriceTag } from "@/features/credits";
 import { getApiErrorMessage } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n";
 import type { Domain } from "../api/domains.dto";
 import {
 	useDetachDomain,
-	useRenewDomain,
 	useSetPrimaryDomain,
 	useTransferUnlockDomain,
-	useUpdateDomainAutoRenew,
 	useVerifyDomain,
 } from "../api/domains.mutations";
-import {
-	domainRenewalCredits,
-	isInsufficientCreditsError,
-	safeDomainErrorSummary,
-} from "../lib/helpers";
+import { safeDomainErrorSummary } from "../lib/helpers";
 import { useCopyToClipboard } from "../lib/hooks";
 import { DnsRecordsTable } from "./dns-records-table";
 import { DomainStatusChip } from "./domain-status-chip";
@@ -92,7 +84,6 @@ export function DomainList({ projectId, domains }: DomainListProps) {
 					<TableHead>{t("settings.domains.primaryColumn")}</TableHead>
 					<TableHead>{t("settings.domains.autoRenewColumn")}</TableHead>
 					<TableHead>{t("settings.domains.expiryColumn")}</TableHead>
-					<TableHead>{t("settings.domains.renewalColumn")}</TableHead>
 					<TableHead className="text-end">
 						{t("settings.domains.actionsColumn")}
 					</TableHead>
@@ -119,9 +110,7 @@ function DomainListRow({
 	domain: Domain;
 }) {
 	const { t, locale } = useTranslation();
-	const renew = useRenewDomain(projectId);
 	const verify = useVerifyDomain(projectId);
-	const autoRenew = useUpdateDomainAutoRenew(projectId);
 	const setPrimary = useSetPrimaryDomain(projectId);
 	const transferUnlock = useTransferUnlockDomain();
 	const detach = useDetachDomain(projectId);
@@ -132,7 +121,6 @@ function DomainListRow({
 		lockedUntil?: string;
 	} | null>(null);
 	const [transferError, setTransferError] = useState<string | null>(null);
-	const [insufficientOpen, setInsufficientOpen] = useState(false);
 	const [externalRecordsOpen, setExternalRecordsOpen] = useState(false);
 	const [externalRecords, setExternalRecords] = useState(
 		domain.dns?.records ?? [],
@@ -141,46 +129,22 @@ function DomainListRow({
 		null,
 	);
 
-	const renewalCredits = domainRenewalCredits(domain);
 	const expiresAt = domain.expiresAt
 		? formatDate(domain.expiresAt, locale, { dateStyle: "medium" })
 		: t("settings.domains.noExpiry");
 	const failedSummary = safeDomainErrorSummary(domain.error);
 	const isTransitioning =
 		domain.status === "registering" || domain.status === "configuring";
-	const canRenew =
-		domain.source === "purchased" &&
-		!isTransitioning &&
-		domain.status !== "failed" &&
-		domain.status !== "transferred_out";
 	const canTransfer =
 		domain.source === "purchased" &&
 		!isTransitioning &&
 		domain.status !== "failed" &&
 		domain.status !== "transferred_out";
 	const canSetPrimary = domain.status === "active" && !domain.isPrimary;
-	const canAutoRenew =
-		domain.source === "purchased" &&
-		domain.status !== "failed" &&
-		domain.status !== "transferred_out";
 	const canVerifyExternal =
 		domain.source === "external" &&
 		domain.status !== "active" &&
 		domain.status !== "failed";
-
-	const handleRenew = () => {
-		renew.mutate(domain.id, {
-			onSuccess: () => toast.success(t("settings.domains.renewSuccess")),
-			onError: (error) => {
-				if (isInsufficientCreditsError(error)) {
-					setInsufficientOpen(true);
-					return;
-				}
-
-				toast.error(getApiErrorMessage(error));
-			},
-		});
-	};
 
 	const handlePrimary = () => {
 		if (!canSetPrimary) return;
@@ -188,16 +152,6 @@ function DomainListRow({
 			onSuccess: () => toast.success(t("settings.domains.primarySuccess")),
 			onError: (error) => toast.error(getApiErrorMessage(error)),
 		});
-	};
-
-	const handleAutoRenew = (checked: boolean) => {
-		autoRenew.mutate(
-			{ domainId: domain.id, autoRenew: checked },
-			{
-				onSuccess: () => toast.success(t("settings.domains.autoRenewSuccess")),
-				onError: (error) => toast.error(getApiErrorMessage(error)),
-			},
-		);
 	};
 
 	const handleTransferUnlock = () => {
@@ -283,46 +237,21 @@ function DomainListRow({
 				</TableCell>
 				<TableCell>
 					<div className="flex items-center gap-2">
+						{/* Enabling is rejected server-side until paid renewals exist. */}
 						<Switch
 							size="sm"
 							checked={domain.autoRenew}
-							disabled={!canAutoRenew || autoRenew.isPending}
+							disabled
 							aria-label={t("settings.domains.autoRenew")}
-							onCheckedChange={handleAutoRenew}
 						/>
 						<span className="text-muted-foreground text-xs">
-							{domain.autoRenew
-								? t("settings.domains.autoRenewOn")
-								: t("settings.domains.autoRenewOff")}
+							{t("settings.domains.autoRenewComingSoon")}
 						</span>
 					</div>
 				</TableCell>
 				<TableCell className="font-mono text-xs">{expiresAt}</TableCell>
 				<TableCell>
-					{domain.source === "purchased" ? (
-						<PriceTag cost={renewalCredits} />
-					) : (
-						<span className="text-muted-foreground text-xs">
-							{t("settings.domains.externalRenewal")}
-						</span>
-					)}
-				</TableCell>
-				<TableCell>
 					<div className="flex justify-end gap-1">
-						<Button
-							type="button"
-							variant="ghost"
-							size="icon-xs"
-							aria-label={t("settings.domains.renewNow")}
-							disabled={!canRenew || renew.isPending}
-							onClick={handleRenew}
-						>
-							{renew.isPending ? (
-								<Loader2 className="animate-spin" />
-							) : (
-								<RefreshCw />
-							)}
-						</Button>
 						<Button
 							type="button"
 							variant="ghost"
@@ -368,7 +297,7 @@ function DomainListRow({
 			</TableRow>
 			{transferResult || transferError ? (
 				<TableRow>
-					<TableCell colSpan={6} className="bg-muted/30">
+					<TableCell colSpan={5} className="bg-muted/30">
 						<div className="flex flex-col gap-3 py-2">
 							{transferError ? (
 								<p className="text-destructive text-sm">{transferError}</p>
@@ -415,7 +344,7 @@ function DomainListRow({
 			) : null}
 			{externalRecordsOpen || externalVerifyError ? (
 				<TableRow>
-					<TableCell colSpan={6} className="bg-muted/30">
+					<TableCell colSpan={5} className="bg-muted/30">
 						<div className="flex flex-col gap-3 py-2">
 							{externalVerifyError ? (
 								<p className="text-destructive text-sm">
@@ -429,11 +358,6 @@ function DomainListRow({
 					</TableCell>
 				</TableRow>
 			) : null}
-			<InsufficientCreditsDialog
-				open={insufficientOpen}
-				onOpenChange={setInsufficientOpen}
-				cost={renewalCredits}
-			/>
 			<AlertDialog open={detachOpen} onOpenChange={setDetachOpen}>
 				<AlertDialogContent>
 					<AlertDialogHeader>
