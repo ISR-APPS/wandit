@@ -12,12 +12,27 @@ import {
 } from "./tools/animate-image.tool";
 import { askUserTool } from "./tools/ask-user.tool";
 import {
+	createGenerateImageTool,
+	type GenerateImageTool,
+	type GenerateImageToolDeps,
+	generateImageToolSchemaOnly,
+} from "./tools/generate-image.tool";
+import {
+	createGenerateMarketingAssetTool,
+	type GenerateMarketingAssetTool,
+	type GenerateMarketingAssetToolDeps,
+	generateMarketingAssetToolSchemaOnly,
+} from "./tools/generate-marketing-asset.tool";
+import {
 	createGeneratePageTool,
 	type GeneratePageTool,
 	type GeneratePageToolDeps,
 	generatePageToolSchemaOnly,
 } from "./tools/generate-page.tool";
-import { getDirectionCandidatesToolSchemaOnly } from "./tools/get-direction-candidates.tool";
+import {
+	getDirectionCandidatesTool,
+	getDirectionCandidatesToolSchemaOnly,
+} from "./tools/get-direction-candidates.tool";
 import {
 	createPageEditTools,
 	type PageEditTools,
@@ -34,7 +49,10 @@ import {
 type AiChatToolSet = {
 	animate_image: AnimateImageTool;
 	ask_user: typeof askUserTool;
+	generate_image: GenerateImageTool;
+	generate_marketing_asset: GenerateMarketingAssetTool;
 	generate_page: GeneratePageTool;
+	get_direction_candidates: typeof getDirectionCandidatesTool;
 	scrape_leads: ScrapeLeadsTool;
 	get_page_outline: PageEditTools["get_page_outline"];
 	read_section: PageEditTools["read_section"];
@@ -48,7 +66,9 @@ export type WanditUIMessage = UIMessage<never, never, AiChatTools>;
 export type ChatAgentDeps = GeneratePageToolDeps &
 	Omit<ScrapeLeadsToolDeps, "chatId" | "projectId"> & {
 		pageEditsService: PageEditsService;
-	} & Omit<AnimateImageToolDeps, "chatId" | "projectId">;
+	} & Omit<AnimateImageToolDeps, "chatId" | "projectId"> &
+	Omit<GenerateMarketingAssetToolDeps, "chatId" | "projectId"> &
+	Omit<GenerateImageToolDeps, "chatId" | "projectId">;
 
 /**
  * The agent is built PER REQUEST now (it used to be a module singleton):
@@ -73,6 +93,9 @@ export function createChatAgent(
 			// Gemini 3 thinking level — only Google models read this key;
 			// every other provider ignores it.
 			google: { thinkingConfig: { thinkingLevel: "high" } },
+			// The brief IS the product: the brain must reason hard when it
+			// composes one. Only OpenAI models read this key.
+			openai: { reasoningEffort: "high" },
 		},
 		tools: {
 			animate_image: createAnimateImageTool({
@@ -87,11 +110,31 @@ export function createChatAgent(
 				userId: deps.userId,
 			}),
 			ask_user: askUserTool,
+			generate_image: createGenerateImageTool({
+				availableImages: deps.availableImages,
+				chatId: deps.chatId,
+				generationPolicyService: deps.generationPolicyService,
+				imageGenerationsRepository: deps.imageGenerationsRepository,
+				projectId: deps.projectId,
+				quality: deps.quality,
+				requestKeySeed: deps.requestKeySeed,
+				userId: deps.userId,
+			}),
+			generate_marketing_asset: createGenerateMarketingAssetTool({
+				chatId: deps.chatId,
+				generationPolicyService: deps.generationPolicyService,
+				marketingAssetsRepository: deps.marketingAssetsRepository,
+				projectId: deps.projectId,
+				quality: deps.quality,
+				requestKeySeed: deps.requestKeySeed,
+				userId: deps.userId,
+			}),
 			generate_page: createGeneratePageTool({
 				chatId: deps.chatId,
 				pagesRepository: deps.pagesRepository,
 				projectId: deps.projectId,
 			}),
+			get_direction_candidates: getDirectionCandidatesTool,
 			scrape_leads: createScrapeLeadsTool({
 				chatId: deps.chatId,
 				leadScrapesRepository: deps.leadScrapesRepository,
@@ -116,10 +159,10 @@ export function createChatAgent(
 export const aiChatToolsForValidation = {
 	animate_image: animateImageToolSchemaOnly,
 	ask_user: askUserTool,
+	generate_image: generateImageToolSchemaOnly,
+	generate_marketing_asset: generateMarketingAssetToolSchemaOnly,
 	generate_page: generatePageToolSchemaOnly,
 	scrape_leads: scrapeLeadsToolSchemaOnly,
-	// Retired from the live Brain. Keep the schema so historical messages
-	// that used the old random direction menu still validate and render.
 	get_direction_candidates: getDirectionCandidatesToolSchemaOnly,
 	...pageEditToolsSchemaOnly,
 	// read_skill was retired from the live agent; the schema stays so chats

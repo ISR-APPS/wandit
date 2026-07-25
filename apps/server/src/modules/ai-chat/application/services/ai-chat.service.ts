@@ -6,11 +6,17 @@ import {
 	type AskUserOutput,
 	animateImageInputSchema,
 	askUserInputSchema,
+	type GenerateImageInput,
+	type GenerateImageOutput,
+	type GenerateMarketingAssetInput,
+	type GenerateMarketingAssetOutput,
 	type GeneratePageInput,
 	type GeneratePageOutput,
 	type GetDirectionCandidatesInput,
 	type GetDirectionCandidatesOutput,
 	type GetPageOutlineOutput,
+	generateImageInputSchema,
+	generateMarketingAssetInputSchema,
 	generatePageInputSchema,
 	getDirectionCandidatesInputSchema,
 	IMAGE_TO_VIDEO_SOURCE_MEDIA_TYPES,
@@ -39,11 +45,14 @@ import type { FastifyReply } from "fastify";
 import { isUserUploadUrl } from "../../../../infrastructure/storage/r2";
 import { GenerationPolicyService } from "../../../generation/application/services/generation-policy.service";
 import { ChatsRepository } from "../../../generation/infrastructure/persistence/chats.repository";
+import { ImageGenerationsRepository } from "../../../image-generations/infrastructure/persistence/image-generations.repository";
 // Value imports (not `import type`): Nest needs the classes at runtime for @Inject.
 import { LeadScrapesRepository } from "../../../lead-scrapes/infrastructure/persistence/lead-scrapes.repository";
+import { MarketingAssetsRepository } from "../../../marketing-assets/infrastructure/persistence/marketing-assets.repository";
 import { MediaGenerationsRepository } from "../../../media-generations/infrastructure/persistence/media-generations.repository";
 import { PageEditsService } from "../../../pages/application/services/page-edits.service";
 import { PagesRepository } from "../../../pages/infrastructure/persistence/pages.repository";
+import { annotateUserFileParts } from "../../agent/annotate-file-parts";
 import { createChatAgent, type WanditUIMessage } from "../../agent/chat-agent";
 import {
 	buildChatRequestContext,
@@ -69,6 +78,10 @@ export class AiChatService {
 		private readonly generationPolicyService: GenerationPolicyService,
 		@Inject(MediaGenerationsRepository)
 		private readonly mediaGenerationsRepository: MediaGenerationsRepository,
+		@Inject(MarketingAssetsRepository)
+		private readonly marketingAssetsRepository: MarketingAssetsRepository,
+		@Inject(ImageGenerationsRepository)
+		private readonly imageGenerationsRepository: ImageGenerationsRepository,
 	) {}
 
 	async stream(options: {
@@ -124,11 +137,16 @@ export class AiChatService {
 				availableImages,
 				chatId,
 				generationPolicyService: this.generationPolicyService,
+				imageGenerationsRepository: this.imageGenerationsRepository,
 				leadScrapesRepository: this.leadScrapesRepository,
+				marketingAssetsRepository: this.marketingAssetsRepository,
 				mediaGenerationsRepository: this.mediaGenerationsRepository,
 				pageEditsService: this.pageEditsService,
 				pagesRepository: this.pagesRepository,
 				projectId,
+				// Snapshotted into generation specs for later model swapping; no
+				// generator reads it yet.
+				quality: metadata?.composer?.quality,
 				requireSelectedSource: metadata?.composer?.mode === "video",
 				requestKeySeed,
 				requestCountryCode: requestCountryCode ?? null,
@@ -137,14 +155,17 @@ export class AiChatService {
 			},
 			context,
 		);
-		// Two transforms on the MODEL-BOUND copy only (DB + UI keep the truth):
+		// Three transforms on the MODEL-BOUND copy only (DB + UI keep the truth):
 		// 1. complete tool calls that never got a result (typed-past ask_user,
 		//    or a stream aborted mid-execute) — providers reject a history that
 		//    carries a tool call without a matching result,
-		// 2. elide outputs from retired skill/direction tools so large stale
-		//    guidance neither costs tokens nor anchors the new facts-only Brain.
-		const agentMessages = elideRetiredToolOutputs(
-			completeDanglingToolCalls(messages),
+		// 2. elide outputs from the retired read_skill tool so large stale
+		//    guidance does not cost tokens on every request,
+		// 3. follow user file parts with a text marker exposing their URL —
+		//    without it the model sees the image but cannot reference it in
+		//    generate_image/animate_image and asks for an already-sent photo.
+		const agentMessages = annotateUserFileParts(
+			elideRetiredToolOutputs(completeDanglingToolCalls(messages)),
 		);
 		const onError = (error: unknown) => this.handleStreamError(error);
 
@@ -274,6 +295,42 @@ const INTERRUPTED_SCRAPE_LEADS_OUTPUT: ScrapeLeadsOutput = {
 // query is unrecoverable.
 const INCOMPLETE_SCRAPE_LEADS_INPUT: ScrapeLeadsInput = {
 	query: "unknown",
+};
+
+// generate_marketing_asset aborted mid-execute: a schema-valid "unavailable"
+// answer the model can act on.
+const INTERRUPTED_GENERATE_MARKETING_ASSET_OUTPUT: GenerateMarketingAssetOutput =
+	{
+		message:
+			"The marketing request was interrupted before it could be queued. If " +
+			"the user still wants the deliverable, call generate_marketing_asset " +
+			"again with the brief.",
+		status: "unavailable",
+	};
+
+// Only used when the INPUT itself never finished streaming, so the real
+// brief is unrecoverable. Must pass the schema's brief .min(30).
+const INCOMPLETE_GENERATE_MARKETING_ASSET_INPUT: GenerateMarketingAssetInput = {
+	assetType: "html-asset",
+	brief:
+		"The marketing brief did not finish streaming before the connection " +
+		"dropped. Recompose it from the conversation if still wanted.",
+	title: "Interrupted marketing request",
+};
+
+const INTERRUPTED_GENERATE_IMAGE_OUTPUT: GenerateImageOutput = {
+	message:
+		"The image request was interrupted before it could be queued. If the " +
+		"user still wants the images, call generate_image again.",
+	status: "unavailable",
+};
+
+const INCOMPLETE_GENERATE_IMAGE_INPUT: GenerateImageInput = {
+	aspect: "1:1",
+	count: 1,
+	prompt: "The image prompt was lost when the request stream was interrupted.",
+	sourceImageUrls: [],
+	title: "Interrupted image request",
 };
 
 const INTERRUPTED_ANIMATE_IMAGE_OUTPUT: AnimateImageOutput = {
@@ -476,6 +533,52 @@ function completeDanglingToolCalls(
 				};
 			}
 
+			if (part.type === "tool-generate_marketing_asset") {
+				if (
+					part.state !== "input-available" &&
+					part.state !== "input-streaming"
+				) {
+					return part;
+				}
+
+				changed = true;
+
+				const parsedInput = generateMarketingAssetInputSchema.safeParse(
+					part.input,
+				);
+
+				return {
+					...part,
+					input: parsedInput.success
+						? parsedInput.data
+						: INCOMPLETE_GENERATE_MARKETING_ASSET_INPUT,
+					output: INTERRUPTED_GENERATE_MARKETING_ASSET_OUTPUT,
+					state: "output-available" as const,
+				};
+			}
+
+			if (part.type === "tool-generate_image") {
+				if (
+					part.state !== "input-available" &&
+					part.state !== "input-streaming"
+				) {
+					return part;
+				}
+
+				changed = true;
+
+				const parsedInput = generateImageInputSchema.safeParse(part.input);
+
+				return {
+					...part,
+					input: parsedInput.success
+						? parsedInput.data
+						: INCOMPLETE_GENERATE_IMAGE_INPUT,
+					output: INTERRUPTED_GENERATE_IMAGE_OUTPUT,
+					state: "output-available" as const,
+				};
+			}
+
 			if (part.type === "tool-get_direction_candidates") {
 				if (
 					part.state !== "input-available" &&
@@ -577,14 +680,12 @@ function completeDanglingToolCalls(
 
 const SKILL_ELIDED_PLACEHOLDER =
 	"[skill content elided from history — call read_skill again if needed]";
-const DIRECTIONS_ELIDED_PLACEHOLDER =
-	"[old random direction menu elided — visual direction now belongs to the queued Art Director]";
 
 /**
  * The model re-reads the whole history on every request. Blank large outputs
- * from retired tools out of PRIOR messages: old skill markdown wastes tokens,
- * and old random direction menus would anchor the new facts-only Brain. The
- * persisted transcript stays untouched.
+ * from retired tools out of PRIOR messages: old skill markdown wastes tokens.
+ * Direction menus are NOT elided — the Brain must keep seeing the candidates
+ * it already sampled and chose from. The persisted transcript stays untouched.
  */
 function elideRetiredToolOutputs(
 	messages: readonly WanditUIMessage[],
@@ -607,21 +708,6 @@ function elideRetiredToolOutputs(
 				return {
 					...part,
 					output: { ...part.output, markdown: SKILL_ELIDED_PLACEHOLDER },
-				};
-			}
-
-			if (
-				part.type === "tool-get_direction_candidates" &&
-				part.state === "output-available"
-			) {
-				changed = true;
-
-				return {
-					...part,
-					output: {
-						...part.output,
-						candidates: DIRECTIONS_ELIDED_PLACEHOLDER,
-					},
 				};
 			}
 

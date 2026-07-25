@@ -4,13 +4,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { isR2Configured } from "../../../../infrastructure/storage/r2";
 import type { PagesRepository } from "../../../pages/infrastructure/persistence/pages.repository";
+import { monographe } from "../worlds/monographe";
 import { createGeneratePageTool } from "./generate-page.tool";
 
 // Everything with side effects is replaced: env (credentials), storage
-// (R2 check), the Trigger queue, and both generation prompts.
+// (R2 check), the Trigger queue, and the builder prompt.
 vi.mock("@wandit/env/server", () => ({
 	env: {
-		AI_ART_DIRECTOR_MODEL: "test-provider/test-art-director-model",
 		AI_PAGE_BUILDER_MODEL: "test-provider/test-builder-model",
 		AI_PAGE_DESIGN_MODEL: "test-provider/legacy-builder-model",
 		TRIGGER_SECRET_KEY: "tr_dev_test",
@@ -29,15 +29,6 @@ vi.mock("../site-builder/builder-prompt", () => ({
 	buildSiteBuilderSystemPrompt: vi
 		.fn()
 		.mockResolvedValue("builder prompt (test)"),
-}));
-
-vi.mock("../art-director/art-director-prompt", () => ({
-	buildArtDirectorExtractionSystemPrompt: vi
-		.fn()
-		.mockReturnValue("spec extraction prompt (test)"),
-	buildArtDirectorSystemPrompt: vi
-		.fn()
-		.mockReturnValue("art director prompt (test)"),
 }));
 
 const INPUT = {
@@ -68,7 +59,7 @@ function setup() {
 
 	// The AI SDK calls execute with (input, callOptions); the tool ignores
 	// the call options, so a stub second argument is enough here.
-	const execute = (input: typeof INPUT) => {
+	const execute = (input: typeof INPUT & { worldId?: string }) => {
 		const run = generatePageTool.execute;
 
 		if (!run) {
@@ -123,13 +114,9 @@ describe("generate_page tool", () => {
 			model: "test-provider/test-builder-model",
 			projectId: "project_1",
 			spec: {
-				artDirectorExtractionSystemPrompt: "spec extraction prompt (test)",
-				artDirectorModel: "test-provider/test-art-director-model",
-				artDirectorSystemPrompt: "art director prompt (test)",
 				brief: INPUT.brief,
 				designerSystemPrompt: "builder prompt (test)",
 				title: INPUT.title,
-				version: 2,
 			},
 		});
 		expect(tasks.trigger).toHaveBeenCalledWith("generate-page", {
@@ -144,6 +131,59 @@ describe("generate_page tool", () => {
 			status: "queued",
 			versionNumber: 1,
 		});
+	});
+
+	it("appends the chosen design world's doc to the prompt snapshot", async () => {
+		const { execute, pagesRepository } = setup();
+		vi.mocked(isR2Configured).mockReturnValue(true);
+		pagesRepository.findOrCreateLandingArtifact.mockResolvedValue({
+			activeVersionId: null,
+			id: "artifact_1",
+		});
+		pagesRepository.insertAttempt.mockResolvedValue({ id: "attempt_1" });
+		pagesRepository.nextVersionNumber.mockResolvedValue(1);
+		vi.mocked(tasks.trigger).mockResolvedValue({
+			id: "run_123",
+		} as Awaited<ReturnType<typeof tasks.trigger>>);
+
+		await execute({ ...INPUT, worldId: "monographe" });
+
+		expect(pagesRepository.insertAttempt).toHaveBeenCalledWith(
+			expect.objectContaining({
+				spec: {
+					brief: INPUT.brief,
+					designerSystemPrompt: `builder prompt (test)\n\n${monographe.doc}`,
+					title: INPUT.title,
+				},
+			}),
+		);
+	});
+
+	it("falls back to a world-less snapshot on an unknown worldId", async () => {
+		const { execute, pagesRepository } = setup();
+		vi.mocked(isR2Configured).mockReturnValue(true);
+		pagesRepository.findOrCreateLandingArtifact.mockResolvedValue({
+			activeVersionId: null,
+			id: "artifact_1",
+		});
+		pagesRepository.insertAttempt.mockResolvedValue({ id: "attempt_1" });
+		pagesRepository.nextVersionNumber.mockResolvedValue(1);
+		vi.mocked(tasks.trigger).mockResolvedValue({
+			id: "run_123",
+		} as Awaited<ReturnType<typeof tasks.trigger>>);
+
+		const output = await execute({ ...INPUT, worldId: "no-such-world" });
+
+		expect(pagesRepository.insertAttempt).toHaveBeenCalledWith(
+			expect.objectContaining({
+				spec: {
+					brief: INPUT.brief,
+					designerSystemPrompt: "builder prompt (test)",
+					title: INPUT.title,
+				},
+			}),
+		);
+		expect(output).toMatchObject({ status: "queued" });
 	});
 
 	it("uses the legacy Builder model variable when the new one is unset", async () => {

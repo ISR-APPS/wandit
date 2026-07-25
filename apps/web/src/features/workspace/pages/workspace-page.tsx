@@ -31,10 +31,7 @@ import { SettingsTab } from "../components/settings/settings-tab";
 import { MainPaneHeader } from "../components/shell/main-pane-header";
 import { WorkspaceHeader } from "../components/shell/workspace-header";
 import {
-	type AssetsView,
-	readAssetsView,
 	readWorkspacePanelLayout,
-	writeAssetsView,
 	writeWorkspacePanelLayout,
 } from "../lib/helpers";
 import { useWorkspace, WorkspaceProvider } from "../lib/store";
@@ -224,12 +221,6 @@ function WorkspaceMain({
 	// Bumping the key remounts the preview iframe — the header's reload
 	// control lives outside PageTab, so the key is owned here.
 	const [pageReloadKey, setPageReloadKey] = useState(0);
-	const [assetsView, setAssetsViewState] = useState<AssetsView>(readAssetsView);
-
-	const setAssetsView = (view: AssetsView) => {
-		setAssetsViewState(view);
-		writeAssetsView(view);
-	};
 
 	return (
 		<main
@@ -241,8 +232,6 @@ function WorkspaceMain({
 			<MainPaneHeader
 				tab={tab}
 				onReloadPage={() => setPageReloadKey((key) => key + 1)}
-				assetsView={assetsView}
-				onAssetsViewChange={setAssetsView}
 			/>
 			{/* Page stays mounted across tab switches so the preview iframe
 			    keeps its state. */}
@@ -256,7 +245,7 @@ function WorkspaceMain({
 			</div>
 			{tab === "assets" ? (
 				<div className="flex min-h-0 flex-1 flex-col">
-					<AssetsTab view={assetsView} />
+					<AssetsTab />
 				</div>
 			) : null}
 			{tab === "marketing" ? (

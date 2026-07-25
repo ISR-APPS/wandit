@@ -50,11 +50,6 @@ export const WORKSPACE_TABS: WorkspaceTabDef[] = [
 	{ value: "settings", icon: Settings2 },
 ];
 
-/** Downloaded marketing-plan filename — config, not display copy. */
-export function marketingPlanFileName(projectId: string): string {
-	return `marketing-plan-${projectId}.md`;
-}
-
 /** Published sites live on {slug}.wandit.app — mirrors projects' copy. */
 export const PUBLISHED_DOMAIN = ".wandit.app";
 
@@ -62,30 +57,6 @@ export const LEADS_PAGE_SIZE = 12;
 export const CHAT_OPEN_STORAGE_KEY = "wandit-workspace-chat-open";
 /** react-resizable-panels autoSaveId — persists chat/main split width. */
 export const WORKSPACE_PANELS_STORAGE_ID = "wandit-workspace-panels";
-/** Assets tab view mode (grid vs freeform board), mirrors chat-open persistence. */
-export const ASSETS_VIEW_STORAGE_KEY = "wandit-workspace-assets-view";
-
-export const ASSETS_CANVAS_BOARD = {
-	WIDTH: 1200,
-	HEIGHT: 820,
-	PAN_OVERLAP: 80,
-} as const;
-
-export const ASSETS_CANVAS_ZOOM = {
-	MIN: 28,
-	MAX: 140,
-	STEP: 8,
-	DEFAULT: 68,
-} as const;
-
-export const ASSETS_CANVAS_LAYOUT_SLOTS = [
-	{ x: 80, y: 104, width: 184, height: 184 },
-	{ x: 452, y: 56, width: 196, height: 245 },
-	{ x: 250, y: 352, width: 184, height: 184 },
-	{ x: 704, y: 150, width: 150, height: 266 },
-	{ x: 772, y: 452, width: 300, height: 169 },
-	{ x: 118, y: 594, width: 260, height: 195 },
-] as const;
 
 /** Debounce before the slug-availability endpoint is asked about a draft. */
 export const SLUG_CHECK_DEBOUNCE_MS = 500;

@@ -1,0 +1,34 @@
+WORLD: laboratoire — "Laboratoire". Des écouteurs sans fil vendus en COD: la page banc-d'essai transforme une fiche technique en théâtre de précision — exactement le registre qui fait confiance aux acheteurs tech.
+
+BUSINESS: PulseBuds Pro — écouteurs sans fil à réduction de bruit active, vendus en ligne en Algérie par TechDirect DZ (import officiel, garantie locale). Ce qui les distingue: ANC -42 dB, 36 h d'autonomie totale avec le boîtier, Bluetooth 5.4, charge rapide (10 min = 2 h d'écoute), résistance IPX5.
+
+AUDIENCE: 18-35 ans urbains, gamers et navetteurs; ce qui les convainc: les chiffres vérifiables, les photos produit propres, la garantie locale, le paiement à la livraison.
+
+PAGE TYPE: page produit COD mono-produit. Succès = un formulaire de commande complété (paiement à la livraison).
+
+PAGE GOAL: commande COD — formulaire téléphone d'abord (type=tel), sélecteur de wilaya, adresse; barre de commande sticky mobile (prix + CTA) après le héros; WhatsApp en canal secondaire.
+
+OFFER: PulseBuds Pro — 8 900 DZD (prix lancement, au lieu de 11 500 DZD) · coloris: noir graphite, blanc lunaire · garantie 12 mois TechDirect DZ · livraison 58 wilayas, 24-48h Alger/Oran/Constantine.
+
+LANGUAGE: français.
+
+ART DIRECTION: palette instanciée dans la physique du monde — banc sombre froid: #0D1117 (fond), #12181F (surface), #171F28 (2e ton) · encre claire: #E8EDF2 (déclinée en alpha) · accent LED UNIQUE: #35E0A1 (vert signal) · erreur: #E0574F. Fonts: mono technique pour données/labels (JetBrains/Space Mono territoire), grotesque précise pour le display (Space Grotesk territoire). Mood: précis, technique, nocturne.
+
+PAGE STORY: la page se lit comme un banc d'essai — la trace de circuit (ligne fine à coudes 90°) voyage de scène en scène et relie les données.
+- Scène 01 — ouverture: le produit flottant sur fond banc sombre, lueur LED respirante derrière, LE CHIFFRE CLÉ énorme en mono tabulaire (-42 dB) avec callout coté vers l'écouteur, nom du produit en display. Prix de lancement en moment typographique (ancien prix barré en alpha). SEAM: trace de circuit vers la scène suivante.
+- Scène 02 — SHOWPIECE (loud): VUE ÉCLATÉE — les composants de l'écouteur se séparent au scroll (scrub), chaque couche annotée par un callout mono (driver 11 mm · micro ANC · batterie 55 mAh); la trace de circuit relie les annotations. SEAM: reassemblage puis inversion vers la fiche claire.
+- Scène 03 — la fiche technique (quiet, scène claire inversée): table réglée des specs complètes (Bluetooth 5.4, IPX5, codecs, poids), compteurs count-up à l'entrée (36 h · 10 min · 42 dB). SEAM: retour au banc sombre par trace de circuit.
+- Scène 04 — usage réel (medium): 3 contextes (transport, sport, appels) en bento avec UNE cellule surdimensionnée, photos duotone encre+LED. SEAM: weld.
+- Scène 05 — la commande: le formulaire COD comme terminal de checkout — labels mono, téléphone d'abord, sélecteur wilaya stylé, validation précise, état de succès honnête; garantie et livraison en bande de confiance (icônes SVG tracées). Fermeture: colophon TechDirect DZ + wordmark.
+Motif voyageur: la trace de circuit + les callouts cotés. Rythme: medium → LOUD → quiet → medium → quiet.
+
+SIGNATURE INTERACTION: la vue éclatée pilotée au scroll (scrub) avec callouts qui s'allument séquentiellement; sur mobile, la même séquence en reveals étagés.
+
+MOTION: l'identité du monde, emphase sur la scène 02; compteurs tabulaires; lueur LED 4s.
+
+SHOT LIST:
+- ROLE hero background · PROMPT "soft 3D render of premium wireless earbuds floating over a dark charging case on a matte black bench, subtle green LED rim light, studio darkness, precise, technical, premium, wide negative space around the product for annotations, color world anchored to #0D1117 #E8EDF2 #35E0A1. No text, no logos, no watermarks, no UI." · ASPECT 16:9 · GROUP pulsebuds
+- ROLE section scene · PROMPT "soft 3D render of a single wireless earbud in three-quarter view with visible speaker mesh detail, macro precision, dark background with green LED accent glow, technical, clean, premium, product centered with space above and below, color world anchored to #12181F #E8EDF2 #35E0A1. No text, no logos, no watermarks, no UI." · ASPECT 1:1 · GROUP pulsebuds
+- ROLE section scene · PROMPT "editorial photography of a young man wearing wireless earbuds on a night metro platform, cinematic teal-dark grade with one green light accent, urban, focused, modern, subject on the right third with negative space left, color world anchored to #171F28 #E8EDF2 #35E0A1. No text, no logos, no watermarks, no UI." · ASPECT 4:5 · GROUP pulsebuds
+
+CONTENT FACTS: PulseBuds Pro par TechDirect DZ (importateur officiel) · Prix: 8 900 DZD au lieu de 11 500 DZD (offre de lancement) · Coloris: noir graphite, blanc lunaire · Specs: ANC -42 dB; autonomie 9 h (36 h avec boîtier); Bluetooth 5.4; IPX5; charge rapide 10 min = 2 h; driver 11 mm; poids 4,7 g par écouteur · Garantie 12 mois · Livraison 58 wilayas (24-48h grandes villes), paiement à la livraison · Tél / WhatsApp: +213 540 77 31 02.

@@ -1,6 +1,7 @@
 // TanStack Query queries + query keys for leads. queryFn delegates to
-// leads.services.ts; the list stays disabled until the project record (and
-// its seed leadCount) is available.
+// leads.services.ts. The query only mounts while the Leads tab is open, and
+// new leads arrive from outside the app (published-page form posts), so a
+// gentle poll + refetch-on-focus is their arrival path into the UI.
 
 import { useQuery } from "@tanstack/react-query";
 
@@ -12,13 +13,12 @@ export const leadKeys = {
 	list: (projectId: string) => [...leadKeys.lists(), projectId] as const,
 };
 
-export function useLeadsQuery(
-	projectId: string,
-	seedCount: number | undefined,
-) {
+export function useLeadsQuery(projectId: string) {
 	return useQuery({
 		queryKey: leadKeys.list(projectId),
-		queryFn: () => listLeads(projectId, seedCount ?? 0),
-		enabled: seedCount !== undefined,
+		queryFn: () => listLeads(projectId),
+		enabled: projectId !== "",
+		refetchInterval: 15_000,
+		refetchOnWindowFocus: true,
 	});
 }

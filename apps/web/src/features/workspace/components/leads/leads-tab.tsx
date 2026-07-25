@@ -150,8 +150,8 @@ function LeadsSkeleton() {
 export function LeadsTab() {
 	const { t, locale } = useTranslation();
 	const dictionary = useDictionary();
-	const { projectId, project, projectPending, setTab } = useWorkspace();
-	const leadsQuery = useLeadsQuery(projectId, project?.leadCount);
+	const { projectId, projectPending, setTab } = useWorkspace();
+	const leadsQuery = useLeadsQuery(projectId);
 
 	const [search, setSearch] = useState("");
 	const [statusFilter, setStatusFilter] = useState<LeadStatus | "all">("all");
@@ -354,10 +354,12 @@ export function LeadsTab() {
 														</div>
 													</TableCell>
 													<TableCell>
-														<div className="text-sm">{lead.wilaya}</div>
-														<div className="text-muted-foreground text-xs">
-															{lead.commune}
-														</div>
+														<div className="text-sm">{lead.wilaya ?? "—"}</div>
+														{lead.commune ? (
+															<div className="text-muted-foreground text-xs">
+																{lead.commune}
+															</div>
+														) : null}
 													</TableCell>
 													<TableCell
 														className="font-mono text-muted-foreground text-xs"
@@ -402,8 +404,13 @@ export function LeadsTab() {
 												<ContactLinks lead={lead} />
 											</div>
 											<div className="mt-2 text-muted-foreground text-xs">
-												{lead.wilaya} · {lead.commune} ·{" "}
-												{relativeTime(lead.createdAt)}
+												{[
+													lead.wilaya,
+													lead.commune,
+													relativeTime(lead.createdAt),
+												]
+													.filter((part) => part !== null)
+													.join(" · ")}
 											</div>
 										</div>
 									))}

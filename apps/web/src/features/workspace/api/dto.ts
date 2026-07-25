@@ -98,32 +98,10 @@ export type { PageVersionListItem as PageVersion } from "@wandit/contracts";
 // api/deployments.dto.ts (DeploymentCurrent: the live slug, uiState, liveUrl
 // at https://{slug}.{sites domain}, and the version pointers).
 
-// The COD (cash-on-delivery) order pipeline, listed in the order a lead
-// normally moves through it; "returned" and "cancelled" are the failure
-// exits. The Leads tab groups and colors leads by this status.
-export type LeadStatus =
-	| "to_confirm"
-	| "confirmed"
-	| "shipped"
-	| "delivered"
-	| "returned"
-	| "cancelled";
-
-// Which channel brought the visitor who became this lead — used for
-// filtering today, and for ad-campaign attribution later.
-export type LeadSource = "facebook" | "tiktok" | "direct";
-
-// One customer order/lead captured by the published page's order form.
-// `wilaya` and `commune` are Algeria's province/municipality address units —
-// the standard way delivery addresses are expressed there.
-export type Lead = {
-	id: string;
-	name: string;
-	/** Canonical E.164 (+213…). */
-	phone: string;
-	wilaya: string;
-	commune: string;
-	createdAt: string;
-	status: LeadStatus;
-	source: LeadSource;
-};
+// Lead types are pure re-exports of the contract shapes (z.infer of the
+// leads schemas in @wandit/contracts) now that the backend is live: the COD
+// pipeline status, the server-derived source channel, and the lead row —
+// `wilaya`/`commune` (Algeria's province/municipality address units) are
+// nullable because the published page's form may omit them, and `extras`
+// carries any additional form fields the UI can ignore.
+export type { Lead, LeadSource, LeadStatus } from "@wandit/contracts";

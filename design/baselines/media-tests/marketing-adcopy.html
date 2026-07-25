@@ -1,0 +1,536 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ads Meta — Lancement PulseBuds Pro</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --paper:#FBF8F3;
+      --ink:#191613;
+      --accent:#191613;
+      --muted:rgba(25,22,19,.62);
+      --line:rgba(25,22,19,.14);
+      --wash:rgba(25,22,19,.03);
+      --soft:rgba(25,22,19,.06);
+    }
+
+    *{box-sizing:border-box}
+
+    html{
+      background:var(--paper);
+      color:var(--ink);
+      font-family:"Inter",Arial,sans-serif;
+      font-size:16px;
+      -webkit-font-smoothing:antialiased;
+      text-rendering:optimizeLegibility;
+    }
+
+    body{
+      margin:0;
+      background:var(--paper);
+    }
+
+    .document{
+      width:min(860px,100%);
+      margin:0 auto;
+      padding:clamp(34px,7vw,76px) clamp(20px,5vw,56px) 42px;
+    }
+
+    .meta,
+    .section-kicker,
+    .field-label,
+    .variant-id,
+    .tag,
+    .count,
+    .colophon{
+      font-size:11px;
+      line-height:1.35;
+      font-weight:700;
+      letter-spacing:.11em;
+      text-transform:uppercase;
+    }
+
+    .meta{
+      margin:0 0 16px;
+      color:var(--muted);
+    }
+
+    h1,
+    h2,
+    .hook-copy{
+      font-family:"Fraunces",Georgia,serif;
+      font-weight:600;
+      letter-spacing:-.025em;
+    }
+
+    h1{
+      max-width:720px;
+      margin:0;
+      font-size:clamp(29px,5vw,44px);
+      line-height:1.08;
+    }
+
+    .standfirst{
+      max-width:680px;
+      margin:18px 0 0;
+      color:var(--muted);
+      font-size:16px;
+      line-height:1.65;
+    }
+
+    .accent-rule{
+      width:48px;
+      height:3px;
+      margin-top:23px;
+      background:var(--accent);
+    }
+
+    section{
+      margin-top:62px;
+      padding-top:0;
+      border-top:1px solid var(--line);
+    }
+
+    .section-kicker{
+      display:block;
+      margin-top:0;
+      padding-top:18px;
+      color:var(--accent);
+    }
+
+    h2{
+      margin:12px 0 0;
+      font-size:clamp(22px,3.4vw,29px);
+      line-height:1.16;
+    }
+
+    .strategy-note{
+      max-width:720px;
+      margin:16px 0 0;
+      color:var(--muted);
+      font-size:15.5px;
+      line-height:1.7;
+    }
+
+    .variants{
+      display:grid;
+      gap:18px;
+      margin-top:24px;
+    }
+
+    .variant-card{
+      position:relative;
+      padding:24px;
+      border:1px solid var(--line);
+      border-radius:8px;
+      background:var(--wash);
+      box-shadow:0 1px 2px rgba(25,22,19,.05);
+      break-inside:avoid;
+      page-break-inside:avoid;
+    }
+
+    .card-topline{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:16px;
+      padding-right:116px;
+    }
+
+    .variant-id{
+      color:var(--accent);
+    }
+
+    .copy-button{
+      position:absolute;
+      top:18px;
+      right:18px;
+      min-width:94px;
+      padding:8px 11px;
+      border:1px solid var(--accent);
+      border-radius:5px;
+      background:var(--accent);
+      color:var(--paper);
+      font:700 11px/1 "Inter",Arial,sans-serif;
+      letter-spacing:.08em;
+      text-transform:uppercase;
+      cursor:pointer;
+    }
+
+    .copy-button:focus-visible{
+      outline:2px solid var(--ink);
+      outline-offset:3px;
+    }
+
+    .field{
+      margin-top:22px;
+    }
+
+    .field-label{
+      display:block;
+      margin-bottom:8px;
+      color:var(--muted);
+    }
+
+    .hook-copy{
+      margin:0;
+      font-size:clamp(19px,3vw,21px);
+      line-height:1.25;
+    }
+
+    .copy-text{
+      margin:0;
+      font-size:15.5px;
+      line-height:1.65;
+      white-space:pre-line;
+    }
+
+    .headline-copy{
+      margin:0;
+      font-size:17px;
+      font-weight:700;
+      line-height:1.4;
+    }
+
+    .description-copy,
+    .cta-copy{
+      margin:0;
+      color:var(--muted);
+      font-size:15px;
+      line-height:1.55;
+    }
+
+    .cta-copy{
+      color:var(--ink);
+      font-weight:600;
+    }
+
+    .card-footer{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      gap:14px;
+      flex-wrap:wrap;
+      margin-top:25px;
+      padding-top:14px;
+      border-top:1px solid var(--line);
+    }
+
+    .tag{
+      display:inline-flex;
+      align-items:center;
+      min-height:25px;
+      padding:4px 9px;
+      border:1px solid rgba(25,22,19,.22);
+      border-radius:5px;
+      background:rgba(25,22,19,.04);
+      color:var(--accent);
+      white-space:nowrap;
+    }
+
+    .counts{
+      display:flex;
+      justify-content:flex-end;
+      gap:8px 13px;
+      flex-wrap:wrap;
+      color:var(--muted);
+      font-variant-numeric:tabular-nums;
+    }
+
+    .count{
+      letter-spacing:.055em;
+      text-transform:none;
+      font-weight:600;
+      white-space:nowrap;
+    }
+
+    .hook-count{
+      color:var(--muted);
+    }
+
+    .colophon{
+      margin-top:64px;
+      padding-top:18px;
+      border-top:1px solid var(--line);
+      color:var(--muted);
+    }
+
+    @media (max-width:520px){
+      .document{
+        padding-top:34px;
+      }
+
+      .variant-card{
+        padding:21px 18px;
+      }
+
+      .card-topline{
+        padding-right:104px;
+      }
+
+      .copy-button{
+        top:15px;
+        right:15px;
+        min-width:88px;
+      }
+
+      .counts{
+        justify-content:flex-start;
+      }
+    }
+
+    @media print{
+      html,body{
+        background:#fff;
+      }
+
+      .document{
+        width:100%;
+        max-width:none;
+        padding:16mm 15mm;
+      }
+
+      .copy-button{
+        display:none;
+      }
+
+      section,
+      .variant-card,
+      .colophon{
+        break-inside:avoid;
+        page-break-inside:avoid;
+      }
+
+      .variant-card{
+        box-shadow:none;
+        background:#fff;
+      }
+    }
+  </style>
+</head>
+<body>
+  <main class="document">
+    <header>
+      <p class="meta">WANDIT · META · 25 juillet 2026</p>
+      <h1>Ads Meta — Lancement PulseBuds Pro</h1>
+      <p class="standfirst">Cinq variantes prêtes à diffuser en feed Facebook et Instagram, conçues pour transformer la preuve produit et la garantie locale en commandes à la livraison.</p>
+      <div class="accent-rule" aria-hidden="true"></div>
+    </header>
+
+    <section aria-labelledby="strategie">
+      <span class="section-kicker">01 — Cadre stratégique</span>
+      <h2 id="strategie">La preuve avant la promesse</h2>
+      <p class="strategy-note">Ces textes parlent aux 18–35 ans urbains, notamment aux gamers et navetteurs d’Alger, Oran et Constantine. Chaque variante ouvre sur un chiffre, un prix ou une garantie afin de désamorcer la méfiance liée au paiement à la livraison, puis conduit vers la commande directe.</p>
+    </section>
+
+    <section aria-labelledby="variantes">
+      <span class="section-kicker">02 — Variantes prêtes à diffuser</span>
+      <h2 id="variantes">Cinq angles, une même base de confiance</h2>
+
+      <div class="variants">
+        <article class="variant-card">
+          <div class="card-topline">
+            <span class="variant-id">V1 — Preuve technique</span>
+          </div>
+          <button class="copy-button" type="button" aria-label="Copier la variante 1" data-copy="HOOK&#10;Des chiffres, pas des promesses.&#10;&#10;PRIMARY TEXT&#10;ANC -42 dB. 36 h avec boîtier. Bluetooth 5.4.&#10;PulseBuds Pro : garantie locale 12 mois TechDirect DZ.&#10;&#10;HEADLINE&#10;ANC -42 dB. Garantie 12 mois.&#10;&#10;CTA&#10;Commander" onclick="navigator.clipboard.writeText(this.dataset.copy).then(()=>{this.textContent='Copié';setTimeout(()=>{this.textContent='Copier'},1200)})">Copier</button>
+
+          <div class="field">
+            <span class="field-label">Hook</span>
+            <p class="hook-copy">Des chiffres, pas des promesses.</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Primary text</span>
+            <p class="copy-text">ANC -42 dB. 36 h avec boîtier. Bluetooth 5.4.
+PulseBuds Pro : garantie locale 12 mois TechDirect DZ.</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Headline</span>
+            <p class="headline-copy">ANC -42 dB. Garantie 12 mois.</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Description</span>
+            <p class="description-copy">Livraison 58 wilayas</p>
+          </div>
+          <div class="field">
+            <span class="field-label">CTA</span>
+            <p class="cta-copy">Commander</p>
+          </div>
+
+          <footer class="card-footer">
+            <span class="tag">Preuve</span>
+            <div class="counts" aria-label="Comptes de caractères">
+              <span class="count hook-count">Hook · 32 caractères</span>
+              <span class="count">Texte · 97 / 125</span>
+              <span class="count">Titre · 29 / 40</span>
+              <span class="count">Description · 20 / 30</span>
+            </div>
+          </footer>
+        </article>
+
+        <article class="variant-card">
+          <div class="card-topline">
+            <span class="variant-id">V2 — Offre de lancement</span>
+          </div>
+          <button class="copy-button" type="button" aria-label="Copier la variante 2" data-copy="HOOK&#10;8 900 DZD, pas 11 500 DZD.&#10;&#10;PRIMARY TEXT&#10;PulseBuds Pro à 8 900 DZD au lieu de 11 500 DZD.&#10;Garantie locale 12 mois. Paiement à la livraison.&#10;&#10;HEADLINE&#10;Offre lancement : 8 900 DZD&#10;&#10;CTA&#10;Commander" onclick="navigator.clipboard.writeText(this.dataset.copy).then(()=>{this.textContent='Copié';setTimeout(()=>{this.textContent='Copier'},1200)})">Copier</button>
+
+          <div class="field">
+            <span class="field-label">Hook</span>
+            <p class="hook-copy">8 900 DZD, pas 11 500 DZD.</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Primary text</span>
+            <p class="copy-text">PulseBuds Pro à 8 900 DZD au lieu de 11 500 DZD.
+Garantie locale 12 mois. Paiement à la livraison.</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Headline</span>
+            <p class="headline-copy">Offre lancement : 8 900 DZD</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Description</span>
+            <p class="description-copy">Paiement à la livraison</p>
+          </div>
+          <div class="field">
+            <span class="field-label">CTA</span>
+            <p class="cta-copy">Commander</p>
+          </div>
+
+          <footer class="card-footer">
+            <span class="tag">Offre</span>
+            <div class="counts" aria-label="Comptes de caractères">
+              <span class="count hook-count">Hook · 26 caractères</span>
+              <span class="count">Texte · 98 / 125</span>
+              <span class="count">Titre · 27 / 40</span>
+              <span class="count">Description · 23 / 30</span>
+            </div>
+          </footer>
+        </article>
+
+        <article class="variant-card">
+          <div class="card-topline">
+            <span class="variant-id">V3 — Réassurance COD</span>
+          </div>
+          <button class="copy-button" type="button" aria-label="Copier la variante 3" data-copy="HOOK&#10;COD, avec des preuves.&#10;&#10;PRIMARY TEXT&#10;Garantie locale 12 mois TechDirect DZ.&#10;58 wilayas, 24-48h. Paiement à la livraison.&#10;WhatsApp +213 540 77 31 02.&#10;&#10;HEADLINE&#10;Garantie locale 12 mois&#10;&#10;CTA&#10;Envoyer un message" onclick="navigator.clipboard.writeText(this.dataset.copy).then(()=>{this.textContent='Copié';setTimeout(()=>{this.textContent='Copier'},1200)})">Copier</button>
+
+          <div class="field">
+            <span class="field-label">Hook</span>
+            <p class="hook-copy">COD, avec des preuves.</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Primary text</span>
+            <p class="copy-text">Garantie locale 12 mois TechDirect DZ.
+58 wilayas, 24-48h. Paiement à la livraison.
+WhatsApp +213 540 77 31 02.</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Headline</span>
+            <p class="headline-copy">Garantie locale 12 mois</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Description</span>
+            <p class="description-copy">COD · 24-48h</p>
+          </div>
+          <div class="field">
+            <span class="field-label">CTA</span>
+            <p class="cta-copy">Envoyer un message</p>
+          </div>
+
+          <footer class="card-footer">
+            <span class="tag">Réassurance</span>
+            <div class="counts" aria-label="Comptes de caractères">
+              <span class="count hook-count">Hook · 22 caractères</span>
+              <span class="count">Texte · 111 / 125</span>
+              <span class="count">Titre · 23 / 40</span>
+              <span class="count">Description · 12 / 30</span>
+            </div>
+          </footer>
+        </article>
+
+        <article class="variant-card">
+          <div class="card-topline">
+            <span class="variant-id">V4 — Fiche performance</span>
+          </div>
+          <button class="copy-button" type="button" aria-label="Copier la variante 4" data-copy="HOOK&#10;36 h. -42 dB. 11 mm.&#10;&#10;PRIMARY TEXT&#10;36 h d'autonomie avec boîtier. ANC -42 dB. Driver 11 mm.&#10;Bluetooth 5.4 et IPX5.&#10;&#10;HEADLINE&#10;36 h d'autonomie totale&#10;&#10;CTA&#10;Commander" onclick="navigator.clipboard.writeText(this.dataset.copy).then(()=>{this.textContent='Copié';setTimeout(()=>{this.textContent='Copier'},1200)})">Copier</button>
+
+          <div class="field">
+            <span class="field-label">Hook</span>
+            <p class="hook-copy">36 h. -42 dB. 11 mm.</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Primary text</span>
+            <p class="copy-text">36 h d'autonomie avec boîtier. ANC -42 dB. Driver 11 mm.
+Bluetooth 5.4 et IPX5.</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Headline</span>
+            <p class="headline-copy">36 h d'autonomie totale</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Description</span>
+            <p class="description-copy">ANC -42 dB · 11 mm</p>
+          </div>
+          <div class="field">
+            <span class="field-label">CTA</span>
+            <p class="cta-copy">Commander</p>
+          </div>
+
+          <footer class="card-footer">
+            <span class="tag">Performance</span>
+            <div class="counts" aria-label="Comptes de caractères">
+              <span class="count hook-count">Hook · 20 caractères</span>
+              <span class="count">Texte · 79 / 125</span>
+              <span class="count">Titre · 23 / 40</span>
+              <span class="count">Description · 18 / 30</span>
+            </div>
+          </footer>
+        </article>
+
+        <article class="variant-card">
+          <div class="card-topline">
+            <span class="variant-id">V5 — Darija · preuve</span>
+          </div>
+          <button class="copy-button" type="button" aria-label="Copier la variante 5" data-copy="HOOK&#10;Hna, kolchi bel arkam.&#10;&#10;PRIMARY TEXT&#10;ANC -42 dB, 36 h m3a boîtier, Bluetooth 5.4.&#10;Garantie TechDirect DZ 12 mois. Khallas ki touslek.&#10;&#10;HEADLINE&#10;PulseBuds Pro : 8 900 DZD&#10;&#10;CTA&#10;Commander" onclick="navigator.clipboard.writeText(this.dataset.copy).then(()=>{this.textContent='Copié';setTimeout(()=>{this.textContent='Copier'},1200)})">Copier</button>
+
+          <div class="field">
+            <span class="field-label">Hook</span>
+            <p class="hook-copy">Hna, kolchi bel arkam.</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Primary text</span>
+            <p class="copy-text">ANC -42 dB, 36 h m3a boîtier, Bluetooth 5.4.
+Garantie TechDirect DZ 12 mois. Khallas ki touslek.</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Headline</span>
+            <p class="headline-copy">PulseBuds Pro : 8 900 DZD</p>
+          </div>
+          <div class="field">
+            <span class="field-label">Description</span>
+            <p class="description-copy">Garantie 12 mois · COD</p>
+          </div>
+          <div class="field">
+            <span class="field-label">CTA</span>
+            <p class="cta-copy">Commander</p>
+          </div>
+
+          <footer class="card-footer">
+            <span class="tag">Darija · preuve</span>
+            <div class="counts" aria-label="Comptes de caractères">
+              <span class="count hook-count">Hook · 22 caractères</span>
+              <span class="count">Texte · 96 / 125</span>
+              <span class="count">Titre · 25 / 40</span>
+              <span class="count">Description · 22 / 30</span>
+            </div>
+          </footer>
+        </article>
+      </div>
+    </section>
+
+    <footer class="colophon">Généré par Wandit pour PulseBuds Pro</footer>
+  </main>
+</body>
+</html>

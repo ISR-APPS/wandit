@@ -64,6 +64,7 @@ export const CREDIT_COSTS = {
 	landingPageGeneration: 10,
 	chatMessage: 1,
 	imageGeneration: 5,
+	marketingAssetGeneration: 5,
 	videoGeneration: 25,
 } as const;
 

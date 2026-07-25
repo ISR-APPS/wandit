@@ -35,20 +35,117 @@ const GOAL_LINES: Record<PageGoal, string> = {
 const MODE_LINES: Record<string, string> = {
 	auto: "- Mode: Auto — infer everything from the message.",
 	image:
-		"- Mode: Image — standalone image generation is not available yet; say so honestly and offer what you CAN do (images are generated inside page builds).",
+		"- Mode: Image — the user wants standalone images, generated in the background with generate_image (results appear in the chat and the Assets tab). When the image should feature THEIR product or logo and no usable photo is attached, ask for one first and pass it as a source.",
 	marketing:
-		"- Mode: Marketing — the user wants a marketing deliverable IN CHAT (copy, plan, script). Do not queue a page build unless they clearly ask for a page.",
+		"- Mode: Marketing — the user wants a marketing deliverable generated as a named HTML document with generate_marketing_asset (it appears as a card in their Marketing tab). Gather any missing facts first. Do not queue a page build unless they clearly ask for a page.",
 	page: "- Mode: Site web — the user wants a website built.",
 	video:
-		"- Mode: Vidéo — animate the single uploaded source image with animate_image. This is image-to-video, never text-to-video.",
+		"- Mode: Animer une image — animate the single uploaded source image with animate_image. This is image-to-video, never text-to-video.",
 };
 
 const OUTPUT_LINES: Record<string, string> = {
+	"ad-copy":
+		'  They chose "Ad copy": ready-to-paste ad text variants for one platform, delivered as a named HTML document.',
+	"ad-creative":
+		'  They chose "Ad creative": a scroll-stopping image composed for a paid ad placement.',
+	"creative-brief":
+		'  They chose "Creative brief": a brief a designer or videographer could execute without questions, delivered as a named HTML document.',
+	"html-asset":
+		'  They chose "HTML asset": a custom standalone HTML marketing document (comparison, one-pager, FAQ, offer page…).',
+	"image-creator":
+		'  They chose "Image creator": free-form standalone image generation.',
 	"landing-page":
 		'  They chose "Landing page": a single-page conversion funnel (COD-style skeleton when the goal is COD).',
+	"marketing-strategy":
+		'  They chose "Marketing strategy": a structured, actionable plan, delivered as a named HTML document.',
+	"product-shot":
+		'  They chose "Product shot": a styled photograph of THEIR product. Build it FROM their real product photo (pass it in sourceImageUrls) — if no product photo is attached yet, ask for one before generating.',
 	"site-vitrine":
-		'  They chose "Site vitrine": a multi-section presentation site with softer conversion pressure than a COD funnel. Capture the required content and goal; do not prescribe a standard hero/services/about/contact sequence because the Art Director will compose the page flow.',
+		'  They chose "Site vitrine": a multi-section presentation site with softer conversion pressure than a COD funnel. Capture the required content and goal; do not prescribe a standard hero/services/about/contact sequence — compose the page flow from the sampled layout moves instead.',
+	"video-script":
+		'  They chose "Video script": a shot-by-shot short-form ad script (hook, scenes, voiceover, CTA), delivered as a named HTML document.',
 };
+
+// Human labels for the generation-settings popover keys. Every setting the
+// composer can send MUST surface here or in the mode-specific blocks — an
+// option that produces no line is a promise the UI makes and the AI ignores.
+const OPTION_LABELS: Record<string, string> = {
+	angle: "Angle",
+	asset: "Asset kind",
+	background: "Background",
+	channel: "Channel",
+	count: "Number of images",
+	depth: "Depth",
+	detail: "Detail level",
+	duration: "Duration (seconds)",
+	format: "Format",
+	length: "Copy length",
+	platform: "Platform",
+	preserve: "Preserve",
+	quality: "Image quality",
+	scene: "Scene",
+	size: "Aspect ratio",
+	strategy: "Strategy kind",
+	text: "Text on image",
+	variants: "Number of variants",
+};
+
+// Transport/internal keys, or keys already rendered by a dedicated block.
+const HANDLED_OPTION_KEYS = new Set([
+	"goal",
+	"motion",
+	"ratio",
+	"sourceImageUrl",
+	"sourceMediaType",
+	"videoSubmissionId",
+]);
+
+/**
+ * Render the remaining generation settings generically ("Platform: tiktok.")
+ * so a newly added UI option is ALWAYS visible to the model even before it
+ * gets bespoke prose.
+ */
+function formatOptionLines(
+	options: Record<string, unknown> | undefined,
+): string[] {
+	if (!options) {
+		return [];
+	}
+
+	const lines: string[] = [];
+
+	for (const [key, raw] of Object.entries(options)) {
+		if (HANDLED_OPTION_KEYS.has(key)) {
+			continue;
+		}
+
+		if (typeof raw !== "string" && typeof raw !== "number") {
+			continue;
+		}
+
+		const value = String(raw);
+		const label = OPTION_LABELS[key] ?? key;
+		const rendered =
+			key === "size" ? (aspectFromSizeToken(value) ?? value) : value;
+
+		lines.push(`  ${label}: ${rendered}.`);
+	}
+
+	return lines;
+}
+
+// The composer encodes aspect ratios as "9-16" tokens; the model reads "9:16".
+function aspectFromSizeToken(value: string): string | null {
+	const match = /^(\d+)-(\d+)$/.exec(value);
+
+	if (!match) {
+		return null;
+	}
+
+	const [, width, height] = match;
+
+	return width && height ? `${width}:${height}` : null;
+}
 
 /**
  * Resolves the idempotency seed for image animation. Composer options are
@@ -105,6 +202,18 @@ export function buildChatRequestContext(
 			if (typeof goal === "string" && isPageGoal(goal)) {
 				lines.push(GOAL_LINES[goal]);
 			}
+		}
+
+		if (composer.mode === "marketing" || composer.mode === "image") {
+			const outputLine = composer.output
+				? OUTPUT_LINES[composer.output]
+				: undefined;
+
+			if (outputLine) {
+				lines.push(outputLine);
+			}
+
+			lines.push(...formatOptionLines(composer.options));
 		}
 
 		if (composer.mode === "video") {
