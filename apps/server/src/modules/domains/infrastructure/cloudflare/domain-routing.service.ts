@@ -20,22 +20,39 @@ export class DomainRoutingService {
 		private readonly domainsRepository: DomainsRepository,
 	) {}
 
+	/**
+	 * Raw-host pointer writer for hosts that are already complete hostnames
+	 * (e.g. `{slug}.wandit.app` written by publishing). No canonicalization.
+	 */
+	putHostPointer(
+		host: string,
+		pointer: Record<string, unknown>,
+	): Promise<void> {
+		return this.writeKvValue(`domain:${host}`, pointer);
+	}
+
+	deleteHostPointer(host: string): Promise<void> {
+		return this.deleteKvValue(`domain:${host}`);
+	}
+
 	putDomainPointer(
 		host: string,
 		pointer: Record<string, unknown>,
 	): Promise<void> {
-		return this.writeKvValue(`domain:${canonicalDomainHost(host)}`, pointer);
+		return this.putHostPointer(canonicalDomainHost(host), pointer);
 	}
 
 	deleteDomainPointer(host: string): Promise<void> {
-		return this.deleteKvValue(`domain:${canonicalDomainHost(host)}`);
+		return this.deleteHostPointer(canonicalDomainHost(host));
 	}
 
 	/**
-	 * THE PUBLISH SEAM: pointer must match the slug pointer shape owned by
-	 * publishing-serving. The publish processor should call this after every
-	 * publish so each active `domain:{host}` KV key follows the latest project
-	 * artifact/version pointer.
+	 * Re-point every active custom domain of a project. Currently uncalled by
+	 * design: published bytes live at an R2 key derived from projectId alone
+	 * (published/{projectId}/current.html), so `domain:{host}` pointers are
+	 * version-free ({projectId, source}) and never need a per-publish refresh.
+	 * Only reach for this if the pointer shape ever grows per-publish data —
+	 * and prefer not to let it.
 	 */
 	async refreshProjectDomains(
 		projectId: string,
@@ -48,18 +65,28 @@ export class DomainRoutingService {
 		);
 	}
 
+	/**
+	 * True when the Cloudflare KV credentials exist. Publishing degrades to
+	 * log-and-skip when they are absent (mirrors the isR2Configured contract)
+	 * so local dev without Cloudflare still publishes.
+	 */
+	isKvConfigured(): boolean {
+		return Boolean(
+			env.CLOUDFLARE_API_TOKEN &&
+				env.CLOUDFLARE_KV_NAMESPACE_ID &&
+				env.CLOUDFLARE_ZONE_ID_WANDIT_APP,
+		);
+	}
+
 	private async writeKvValue(
 		key: string,
 		pointer: Record<string, unknown>,
 	): Promise<void> {
-		await this.kvFetch(
-			`/values/${encodeURIComponent(key)}`,
-			{
-				body: JSON.stringify(pointer),
-				headers: { "Content-Type": "application/json" },
-				method: "PUT",
-			},
-		);
+		await this.kvFetch(`/values/${encodeURIComponent(key)}`, {
+			body: JSON.stringify(pointer),
+			headers: { "Content-Type": "application/json" },
+			method: "PUT",
+		});
 	}
 
 	private async deleteKvValue(key: string): Promise<void> {
@@ -164,7 +191,9 @@ export class DomainRoutingService {
 		} catch (error) {
 			if (this.isAbortError(error)) {
 				this.logger.error("Cloudflare domain routing request timed out");
-				throw new DomainProviderError("Cloudflare domain routing request failed");
+				throw new DomainProviderError(
+					"Cloudflare domain routing request failed",
+				);
 			}
 
 			throw error;

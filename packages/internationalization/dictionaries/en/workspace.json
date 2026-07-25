@@ -25,8 +25,9 @@
 		"publish": "Publish",
 		"publishing": "Publishing…",
 		"published": "Published",
-		"publishUpdate": "Publish v{n}",
-		"menuLiveLabel": "Live site",
+		"failed": "Publish failed",
+		"retryCta": "Try again",
+		"failedHint": "Something went wrong. Your last live version is unaffected — try again.",
 		"copyLink": "Copy link",
 		"openLive": "Open live site",
 		"unpublish": "Unpublish",
@@ -367,7 +368,8 @@
 		"toolFrame": "Frame",
 		"toolImage": "Image",
 		"toolText": "Text",
-		"generate": "Generate"
+		"generate": "Generate",
+		"openFailed": "Couldn't load this version"
 	},
 	"marketing": {
 		"title": "Marketing",

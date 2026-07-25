@@ -6,6 +6,8 @@ allowBuilds:
   esbuild: true
   msw: true
   msgpackr-extract: true
+  sharp: false
+  workerd: false
 catalog:
   dotenv: ^17.2.2
   zod: ^4.1.13

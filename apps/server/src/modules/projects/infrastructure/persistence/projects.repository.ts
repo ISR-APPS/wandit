@@ -28,9 +28,11 @@ export type ProjectQueryRow = {
 	createdAt: Date;
 	id: string;
 	leadCount: number;
+	metaPixelId: string | null;
 	name: string;
 	pendingDeploymentCount: number;
 	prompt: string;
+	tiktokPixelId: string | null;
 	updatedAt: Date;
 };
 
@@ -277,9 +279,11 @@ export class ProjectsRepository {
 				id: projects.id,
 				// coalesce turns missing joins into friendly default values.
 				leadCount: sql<number>`coalesce(${leadCounts.leadCount}, 0)::int`,
+				metaPixelId: projects.metaPixelId,
 				name: projects.name,
 				pendingDeploymentCount: sql<number>`coalesce(${deploymentAgg.pendingDeploymentCount}, 0)::int`,
 				prompt: sql<string>`coalesce(${firstMessages.prompt}, '')`,
+				tiktokPixelId: projects.tiktokPixelId,
 				updatedAt: projects.updatedAt,
 			})
 			.from(projects)

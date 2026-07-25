@@ -25,8 +25,9 @@
 		"publish": "نشر",
 		"publishing": "جارٍ النشر…",
 		"published": "منشور",
-		"publishUpdate": "نشر v{n}",
-		"menuLiveLabel": "الموقع المباشر",
+		"failed": "فشل النشر",
+		"retryCta": "أعد المحاولة",
+		"failedHint": "حدث خطأ ما. نسختك المنشورة الأخيرة لم تتأثر — أعد المحاولة.",
 		"copyLink": "نسخ الرابط",
 		"openLive": "فتح الموقع المباشر",
 		"unpublish": "إلغاء النشر",
@@ -371,7 +372,8 @@
 		"toolFrame": "إطار",
 		"toolImage": "صورة",
 		"toolText": "نص",
-		"generate": "توليد"
+		"generate": "توليد",
+		"openFailed": "تعذّر تحميل هذه النسخة"
 	},
 	"marketing": {
 		"title": "التسويق",

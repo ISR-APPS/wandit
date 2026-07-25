@@ -41,6 +41,9 @@ export const projectSchema = z.object({
 	// Temporary thumbnail seed until real thumbnails exist.
 	thumbnailSeed: z.number(),
 	publishedSlug: z.string().optional(),
+	// Ad pixels injected into the published page at publish time.
+	metaPixelId: z.string().nullable(),
+	tiktokPixelId: z.string().nullable(),
 });
 
 // TypeScript project type.

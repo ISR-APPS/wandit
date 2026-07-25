@@ -27,22 +27,26 @@ import { Spark } from "@/components/logo";
 import { useDomainsQuery } from "@/features/domains/api/domains.queries";
 import { useTranslation } from "@/lib/i18n";
 import { PUBLISHED_DOMAIN } from "../../lib/constants";
-import { isValidSlug, slugify } from "../../lib/helpers";
+import { isValidSlug } from "../../lib/helpers";
+import {
+	canPublish as canPublishFor,
+	displaySlug,
+} from "../../lib/publish-state";
 import { useWorkspace } from "../../lib/store";
 import { DomainPurchaseDialog } from "./domain-purchase-dialog";
 
 export function PublishPopover() {
 	const { t } = useTranslation();
 	const {
-		activeVersion,
+		deployment,
+		deploymentPending,
+		draftSlug,
 		project,
 		projectId,
 		publish,
-		state,
-		statePending,
+		publishPending,
 		updateSlug,
 	} = useWorkspace();
-	const deployment = state?.deployment;
 	const domains = useDomainsQuery(projectId);
 	const customDomain =
 		(domains.data ?? []).find(
@@ -51,8 +55,9 @@ export function PublishPopover() {
 		(domains.data ?? []).find((domain) => domain.status === "active") ??
 		null;
 
-	const fallbackSlug = `page-${projectId.replace(/^p_/, "").slice(0, 12) || "wandit"}`;
-	const slug = deployment?.slug ?? slugify(project?.name ?? "", fallbackSlug);
+	// Display + intent only: the server generates the real slug when the first
+	// publish omits one, so an unresolvable name just shows a placeholder stem.
+	const slug = displaySlug(deployment, draftSlug, project?.name) || "site";
 	const subdomain = `${slug}${PUBLISHED_DOMAIN}`;
 
 	const [popoverOpen, setPopoverOpen] = useState(false);
@@ -64,16 +69,17 @@ export function PublishPopover() {
 		if (!editingSlug) setSlugDraft(slug);
 	}, [editingSlug, slug]);
 
-	if (statePending || !deployment) {
+	if (deploymentPending || !deployment) {
 		return <Skeleton className="h-8 w-24 rounded-full" />;
 	}
 
-	const publishing = deployment.state === "publishing";
-	const published = deployment.state === "published";
-	const canPublish = activeVersion != null && isValidSlug(slug);
+	const publishing = deployment.uiState === "publishing" || publishPending;
+	const published = deployment.uiState === "published";
+	const failed = deployment.uiState === "failed";
+	const canPublish = canPublishFor(deployment) && !publishPending;
 
 	const saveSlug = () => {
-		const normalized = slugify(slugDraft, slug);
+		const normalized = isValidSlug(slugDraft) ? slugDraft : slug;
 		setSlugDraft(normalized);
 		setEditingSlug(false);
 		if (normalized !== slug) updateSlug(normalized);
@@ -96,9 +102,11 @@ export function PublishPopover() {
 		}
 	};
 
+	// Published state comes from the deployment only — owning a custom domain
+	// does not mean the page is live on it.
 	const triggerLabel = publishing
 		? t("workspace.publish.publishing")
-		: customDomain || published
+		: published
 			? t("workspace.publish.published")
 			: t("workspace.publish.publish");
 
@@ -109,7 +117,7 @@ export function PublishPopover() {
 					<Button size="sm" className="h-8 px-4">
 						{publishing ? (
 							<Loader2 data-icon="inline-start" className="animate-spin" />
-						) : customDomain || published ? (
+						) : published ? (
 							<Check data-icon="inline-start" />
 						) : (
 							<ArrowUp data-icon="inline-start" />
@@ -135,7 +143,7 @@ export function PublishPopover() {
 					className="w-[min(404px,calc(100vw-1.5rem))] overflow-hidden rounded-[18px] p-0 shadow-[0_34px_70px_-26px_rgb(0_0_0/0.4),0_0_0_0.5px_rgb(0_0_0/0.03)]"
 				>
 					<PopoverArrow className="size-3" />
-					{customDomain ? (
+					{customDomain && published ? (
 						<CustomDomainLiveContent
 							domain={customDomain.name}
 							primary={customDomain.isPrimary}
@@ -150,6 +158,8 @@ export function PublishPopover() {
 							subdomain={subdomain}
 							live={published}
 							publishing={publishing}
+							failed={failed}
+							failedDetail={deployment.error}
 							canPublish={canPublish}
 							editingSlug={editingSlug}
 							onSlugDraftChange={setSlugDraft}
@@ -180,7 +190,7 @@ export function PublishPopover() {
 function PublishStatusHeader({
 	state,
 }: {
-	state: "draft" | "publishing" | "published";
+	state: "draft" | "publishing" | "published" | "failed";
 }) {
 	const { t } = useTranslation();
 	const label =
@@ -188,7 +198,9 @@ function PublishStatusHeader({
 			? t("workspace.publish.publishing")
 			: state === "published"
 				? t("workspace.publish.published")
-				: t("workspace.publish.popover.notPublished");
+				: state === "failed"
+					? t("workspace.publish.failed")
+					: t("workspace.publish.popover.notPublished");
 
 	return (
 		<header className="flex items-center gap-[9px] px-4 pt-[15px] pb-3">
@@ -201,6 +213,8 @@ function PublishStatusHeader({
 						"animate-pulse-soft bg-primary shadow-[0_0_0_3px_color-mix(in_oklab,var(--primary)_16%,transparent)]",
 					state === "published" &&
 						"bg-success shadow-[0_0_0_3px_color-mix(in_oklab,var(--success)_18%,transparent)]",
+					state === "failed" &&
+						"bg-destructive shadow-[0_0_0_3px_color-mix(in_oklab,var(--destructive)_18%,transparent)]",
 				)}
 			/>
 			<div className="min-w-0 flex-1">
@@ -223,6 +237,8 @@ function SubdomainContent({
 	subdomain,
 	live,
 	publishing,
+	failed,
+	failedDetail,
 	canPublish,
 	editingSlug,
 	onSlugDraftChange,
@@ -238,6 +254,8 @@ function SubdomainContent({
 	subdomain: string;
 	live: boolean;
 	publishing: boolean;
+	failed: boolean;
+	failedDetail: string | null;
 	canPublish: boolean;
 	editingSlug: boolean;
 	onSlugDraftChange: (value: string) => void;
@@ -250,7 +268,13 @@ function SubdomainContent({
 }) {
 	const { t } = useTranslation();
 	const href = `https://${subdomain}`;
-	const state = publishing ? "publishing" : live ? "published" : "draft";
+	const state = publishing
+		? "publishing"
+		: live
+			? "published"
+			: failed
+				? "failed"
+				: "draft";
 
 	return (
 		<>
@@ -369,10 +393,17 @@ function SubdomainContent({
 			</div>
 
 			<footer className="flex items-center gap-3 border-t bg-secondary px-4 py-[13px]">
-				<span className="min-w-0 flex-1 text-muted-foreground text-xs">
+				<span
+					className={cn(
+						"min-w-0 flex-1 text-xs",
+						failed ? "text-destructive" : "text-muted-foreground",
+					)}
+				>
 					{live
 						? t("workspace.publish.popover.publishedHint")
-						: t("workspace.publish.popover.freeTiming")}
+						: failed
+							? (failedDetail ?? t("workspace.publish.failedHint"))
+							: t("workspace.publish.popover.freeTiming")}
 				</span>
 				{live ? (
 					<Button size="lg" asChild>
@@ -394,7 +425,9 @@ function SubdomainContent({
 						)}
 						{publishing
 							? t("workspace.publish.publishing")
-							: t("workspace.publish.publish")}
+							: failed
+								? t("workspace.publish.retryCta")
+								: t("workspace.publish.publish")}
 					</Button>
 				)}
 			</footer>

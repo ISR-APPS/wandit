@@ -26,7 +26,6 @@ import { toast } from "sonner";
 
 import { useDeleteProject } from "@/features/projects";
 import { useTranslation } from "@/lib/i18n";
-import { deleteMockWorkspace } from "../../api/workspace.services";
 import { useWorkspace } from "../../lib/store";
 
 export function DangerZone() {
@@ -38,7 +37,6 @@ export function DangerZone() {
 
 	const handleDelete = async () => {
 		await deleteProject.mutateAsync(projectId);
-		deleteMockWorkspace(projectId);
 		toast.success(t("settings.deleteSuccess"));
 		void navigate({ to: "/dashboard" });
 	};

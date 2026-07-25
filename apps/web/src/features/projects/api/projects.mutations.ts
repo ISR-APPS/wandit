@@ -10,6 +10,7 @@ import {
 	createProject,
 	deleteProject,
 	renameProject,
+	updateProjectPixels,
 } from "./projects.services";
 
 export function useCreateProject() {
@@ -35,6 +36,27 @@ export function useRenameProject() {
 				old?.map((p) => (p.id === project.id ? project : p)),
 			);
 			void queryClient.invalidateQueries({ queryKey: projectKeys.lists() });
+		},
+	});
+}
+
+export function useUpdateProjectPixels() {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: ({
+			id,
+			metaPixelId,
+			tiktokPixelId,
+		}: {
+			id: string;
+			metaPixelId: string | null;
+			tiktokPixelId: string | null;
+		}) => updateProjectPixels(id, { metaPixelId, tiktokPixelId }),
+		onSuccess: (project) => {
+			queryClient.setQueryData(projectKeys.detail(project.id), project);
+			queryClient.setQueryData<Project[]>(projectKeys.list(), (old) =>
+				old?.map((p) => (p.id === project.id ? project : p)),
+			);
 		},
 	});
 }

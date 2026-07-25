@@ -143,5 +143,12 @@
 		"checkoutNote": "You’ll be redirected to Stripe to pay {amount}. Registration starts right after payment.",
 		"premiumUnavailable": "Premium domains aren’t supported yet",
 		"priceUnavailable": "Registration price is unavailable"
+	},
+	"slugReserved": "Reserved — try another",
+	"publishFailed": "Last publish failed",
+	"historyEmpty": "No publishes yet",
+	"historyStatus": {
+		"pending": "Publishing…",
+		"failed": "Failed"
 	}
 }

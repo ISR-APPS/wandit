@@ -94,7 +94,7 @@ Le compte registrar doit être financé et monitoré. Les prix publics doivent c
 4. Smoke test local complet : recherche → checkout test → `paid → fulfilling → fulfilled`, `registering → configuring → active`, reçu registrar persisté; puis chemin d'échec → refund dans `order-refunds` avant l'écriture terminale.
 5. Calibrer le catalogue retail sur le coût Name.com complet (privacy, fiscalité, marge) — plafonds actuels = 80 % du retail.
 6. Ajouter suivi de vérification contact (ICANN), alertes de solde registrar (402) et procédures support.
-7. Valider Cloudflare + publishing-serving de bout en bout (le pointeur KV n'a pas encore de consommateur).
+7. Valider Cloudflare + publishing-serving de bout en bout (le pointeur KV est désormais consommé par `apps/edge` — voir `docs/features/edge-serving.md`).
 8. Renouvellement payé : kind `domain_renewal`, idempotency key sur `renew()`, UI « Renew now ».
 9. Smoke test production contrôlé seulement après tous les gates précédents.
 

@@ -484,7 +484,7 @@ export function AssetsCanvasBoard({ versions }: { versions: PageVersion[] }) {
 							<div
 								dir="auto"
 								className="mt-1.5 truncate px-0.5 font-mono text-[9.5px] text-muted-foreground"
-								title={version.label}
+								title={version.label ?? undefined}
 							>
 								{version.label}
 							</div>

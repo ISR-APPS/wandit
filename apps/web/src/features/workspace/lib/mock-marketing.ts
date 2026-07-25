@@ -1,7 +1,7 @@
 // Mock marketing plan for the Marketing tab — deterministic per project so
 // the tab reads coherently across visits. When the real generation lands
 // this becomes an artifact produced by the queue (strategy doc, PRD §1) and
-// this file is replaced by the services layer, same as mock-pages.
+// this file is replaced by the services layer when marketing goes real.
 
 export type ChannelSlice = {
 	key: string;

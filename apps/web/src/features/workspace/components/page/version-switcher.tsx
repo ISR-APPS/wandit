@@ -17,11 +17,9 @@ import { useWorkspace } from "../../lib/store";
 
 export function VersionSwitcher() {
 	const { t } = useTranslation();
-	const { versions, activeVersion, selectVersion, state } = useWorkspace();
+	const { versions, activeVersion, selectVersion } = useWorkspace();
 
 	if (!activeVersion) return null;
-
-	const publishedVersionId = state?.deployment.publishedVersionId ?? null;
 
 	return (
 		<DropdownMenu>
@@ -49,13 +47,14 @@ export function VersionSwitcher() {
 							</span>
 							<div className="min-w-0 flex-1">
 								<p dir="auto" className="truncate text-sm">
-									{version.label}
+									{version.label ??
+										t("workspace.page.versionShort", { n: version.number })}
 								</p>
 								<p className="font-mono text-[10px] text-muted-foreground">
 									{relativeTime(version.createdAt)}
 								</p>
 							</div>
-							{version.id === publishedVersionId ? (
+							{version.isLive ? (
 								<Badge variant="success" className="font-mono text-[10px]">
 									{t("workspace.page.liveBadge")}
 								</Badge>

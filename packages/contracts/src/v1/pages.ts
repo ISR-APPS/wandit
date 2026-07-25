@@ -57,6 +57,24 @@ export const pageVersionHtmlSchema = z.object({
 
 export type PageVersionHtml = z.infer<typeof pageVersionHtmlSchema>;
 
+// One row of the version-history list (Settings history, version switcher,
+// rollback picker). `label` is a human summary derived from the version's
+// build metadata; `isLive` marks the currently published version.
+export const pageVersionListItemSchema = pageVersionSummarySchema.extend({
+	label: z.string().nullable(),
+	isLive: z.boolean(),
+});
+
+export type PageVersionListItem = z.infer<typeof pageVersionListItemSchema>;
+
+export const listPageVersionsResponseSchema = z.object({
+	versions: z.array(pageVersionListItemSchema),
+});
+
+export type ListPageVersionsResponse = z.infer<
+	typeof listPageVersionsResponseSchema
+>;
+
 // Route path builders. These return strings; they do not make network calls.
 export const pagesRoutes = {
 	// POST — apply an inline-editor / theme-panel op batch (one new version per batch).
@@ -66,4 +84,7 @@ export const pagesRoutes = {
 	// GET — HTML of one version (immutable, cache forever).
 	versionHtml: (versionId: string) =>
 		`/api/v1/pages/versions/${versionId}/html`,
+	// GET — full version history for the project (newest first).
+	versions: (projectId: string) =>
+		`/api/v1/projects/${projectId}/page/versions`,
 } as const;

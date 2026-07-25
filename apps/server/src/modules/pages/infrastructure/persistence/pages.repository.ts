@@ -9,6 +9,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { and, desc, eq, inArray, isNull, lt } from "@wandit/db";
 import { artifacts, versions } from "@wandit/db/schema/artifacts";
+import { deployments } from "@wandit/db/schema/deployments";
 import { pageGenerationAttempts } from "@wandit/db/schema/page-attempts";
 import { projects } from "@wandit/db/schema/projects";
 
@@ -26,6 +27,14 @@ export type LandingArtifactRow = {
 export type OwnedVersionRow = {
 	id: string;
 	r2Key: string;
+};
+
+export type VersionListRow = {
+	createdAt: Date;
+	id: string;
+	isLive: boolean;
+	meta: unknown;
+	number: number;
 };
 
 export type PageOverviewRows = {
@@ -266,6 +275,63 @@ export class PagesRepository {
 			.limit(1);
 
 		return row ?? null;
+	}
+
+	// Full version history for the project's landing artifact, newest first,
+	// with the live (published) version marked. Returns null when the project
+	// is missing or not owned — the caller answers 404.
+	async listVersionsForProject(
+		userId: string,
+		projectId: string,
+	): Promise<VersionListRow[] | null> {
+		const [project] = await this.db
+			.select({ id: projects.id })
+			.from(projects)
+			.where(
+				and(
+					eq(projects.id, projectId),
+					eq(projects.userId, userId),
+					isNull(projects.deletedAt),
+				),
+			)
+			.limit(1);
+
+		if (!project) {
+			return null;
+		}
+
+		const [live] = await this.db
+			.select({ versionId: deployments.versionId })
+			.from(deployments)
+			.where(
+				and(
+					eq(deployments.projectId, projectId),
+					eq(deployments.status, "active"),
+				),
+			)
+			.limit(1);
+
+		const rows = await this.db
+			.select({
+				createdAt: versions.createdAt,
+				id: versions.id,
+				meta: versions.meta,
+				number: versions.number,
+			})
+			.from(versions)
+			.innerJoin(artifacts, eq(artifacts.id, versions.artifactId))
+			.where(
+				and(
+					eq(versions.projectId, projectId),
+					eq(artifacts.kind, "landing_page"),
+				),
+			)
+			.orderBy(desc(versions.number));
+
+		return rows.map((row) => ({
+			...row,
+			isLive: row.id === (live?.versionId ?? null),
+		}));
 	}
 
 	// What number the NEXT version will get. Advisory only (used for the

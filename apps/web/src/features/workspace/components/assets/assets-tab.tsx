@@ -52,12 +52,12 @@ function AssetsEmptyState() {
 
 export function AssetsTab({ view }: { view: AssetsView }) {
 	const { t } = useTranslation();
-	const { versions, statePending } = useWorkspace();
+	const { versions, versionsPending } = useWorkspace();
 	const ordered = useMemo(() => [...versions].reverse(), [versions]);
 
 	return (
 		<div className="flex h-full min-h-0 flex-col">
-			{!statePending && ordered.length > 0 ? (
+			{!versionsPending && ordered.length > 0 ? (
 				<div className="flex shrink-0 items-center justify-between gap-3 border-b px-4 py-2.5 font-mono text-[11px] text-muted-foreground md:px-6">
 					<span>
 						{t("workspace.assets.metaCount", { count: ordered.length })}
@@ -69,7 +69,7 @@ export function AssetsTab({ view }: { view: AssetsView }) {
 			) : null}
 
 			<div className="min-h-0 flex-1">
-				{statePending ? (
+				{versionsPending ? (
 					<div className="h-full overflow-y-auto px-4 py-6 md:px-6">
 						<div className="mx-auto grid w-full max-w-6xl grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
 							{SKELETON_KEYS.map((key) => (

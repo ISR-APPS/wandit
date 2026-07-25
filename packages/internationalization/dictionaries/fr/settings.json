@@ -143,5 +143,12 @@
 		"checkoutNote": "Vous serez redirigé vers Stripe pour payer {amount}. L’enregistrement démarre juste après le paiement.",
 		"premiumUnavailable": "Les domaines premium ne sont pas encore pris en charge",
 		"priceUnavailable": "Prix d’enregistrement indisponible"
+	},
+	"slugReserved": "Réservé — essayez un autre",
+	"publishFailed": "La dernière publication a échoué",
+	"historyEmpty": "Aucune publication pour le moment",
+	"historyStatus": {
+		"pending": "Publication…",
+		"failed": "Échec"
 	}
 }

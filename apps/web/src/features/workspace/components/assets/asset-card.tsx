@@ -13,11 +13,13 @@ import { cn } from "@wandit/ui/lib/utils";
 import { ExternalLink } from "lucide-react";
 import type * as React from "react";
 
+import { toast } from "sonner";
+
 import { thumbGradient } from "@/features/projects";
 import { useTranslation } from "@/lib/i18n";
 import { relativeTime } from "@/lib/relative-time";
 import type { PageVersion } from "../../api/dto";
-import { getVersionPage } from "../../api/workspace.services";
+import { getVersionHtml } from "../../api/pages.services";
 import { openHtmlInNewTab } from "../../lib/helpers";
 import { useWorkspace } from "../../lib/store";
 
@@ -57,9 +59,6 @@ export function AssetCardFace({
 				<Badge variant="secondary" className="font-mono text-[10px]">
 					{t("workspace.assets.kindLandingPage")}
 				</Badge>
-				<Badge variant="outline" className="font-mono text-[10px]">
-					{version.lang.toUpperCase()}
-				</Badge>
 			</div>
 			{isLive || isViewing ? (
 				<div className="absolute end-2 top-2 flex flex-col items-end gap-1">
@@ -81,15 +80,18 @@ export function AssetCardFace({
 
 export function AssetCard({ version }: { version: PageVersion }) {
 	const { t } = useTranslation();
-	const { project, state, activeVersion, selectVersion } = useWorkspace();
+	const { project, activeVersion, selectVersion } = useWorkspace();
 
-	const isLive = version.id === state?.deployment.publishedVersionId;
+	const isLive = version.isLive;
 	const isViewing = activeVersion?.id === version.id;
 
 	const handleOpenInNewTab = (event: React.MouseEvent) => {
 		event.stopPropagation();
-		const { html } = getVersionPage(version.pageKey, project?.name);
-		openHtmlInNewTab(html);
+		// Versions are immutable, so the fetched HTML is cache-friendly; a
+		// failure only affects this convenience action.
+		void getVersionHtml(version.id)
+			.then(({ html }) => openHtmlInNewTab(html))
+			.catch(() => toast.error(t("workspace.assets.openFailed")));
 	};
 
 	return (
@@ -112,7 +114,8 @@ export function AssetCard({ version }: { version: PageVersion }) {
 				/>
 				<div className="p-3.5">
 					<h3 dir="auto" className="truncate font-medium text-sm">
-						{version.label}
+						{version.label ??
+							t("workspace.assets.versionTitle", { n: version.number })}
 					</h3>
 					<div className="mt-1.5 flex items-center gap-1.5 font-mono text-muted-foreground text-xs">
 						<span>

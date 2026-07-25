@@ -7,9 +7,8 @@
 // when TypeScript compiles).
 //
 // Where this sits in the chat flow:
-//   - The MOCK/demo path uses these chat types: lib/mock-workspace.ts builds
-//     fake data in these shapes, lib/store.tsx holds it, and
-//     components/chat/chat-message.tsx + generation-card.tsx render it.
+//   - The demo chat path uses these chat types, rendered by
+//     components/chat/chat-message.tsx + generation-card.tsx.
 //   - The REAL chat path does NOT use these chat types. api/chat.services.ts
 //     and lib/use-project-chat.tsx import `ChatMessage` / `MessagePart` from
 //     @wandit/contracts instead (rendered by components/chat/real-message.tsx).
@@ -89,62 +88,15 @@ export type ChatMessage = {
 	createdAt: string;
 };
 
-// Languages a generated landing page can be written in — French / Arabic /
-// English, matching the Algerian market (Arabic pages render right-to-left).
-export type PageLang = "fr" | "ar" | "en";
-
 // Every generation produces a NEW immutable version rather than overwriting
 // the previous one, so users can compare versions, roll back, and publish any
-// past version safely. (R2 is Cloudflare's file storage, like Amazon S3 —
-// in production each version will point at a stored HTML file there; for now
-// `pageKey` points at a hardcoded mock page instead.)
-/** Immutable generated-page version (points at an R2 key in production). */
-export type PageVersion = {
-	id: string;
-	number: number;
-	label: string;
-	lang: PageLang;
-	/** Mock renderer key resolved by lib/mock-pages. */
-	pageKey: string;
-	createdAt: string;
-};
+// past version safely. The shape is the contracts version-list item: `label`
+// is a human summary (nullable), `isLive` marks the published version.
+export type { PageVersionListItem as PageVersion } from "@wandit/contracts";
 
-// Publish lifecycle of a project's page: not live yet → publish request in
-// flight → live at its public URL.
-export type DeploymentState = "draft" | "publishing" | "published";
-
-// Where (and whether) the project's page is live. `slug` is the public URL
-// path segment (the page ends up at something like wandit.app/<slug>). All
-// the nullable fields stay null until the first publish happens.
-export type Deployment = {
-	state: DeploymentState;
-	slug: string | null;
-	publishedVersionId: string | null;
-	/** Version a publish in flight is targeting — lets an interrupted
-	 * publish/rollback recover onto the version that was requested. */
-	pendingVersionId: string | null;
-	publishedAt: string | null;
-};
-
-// Ad-tracking pixel IDs the user pastes into the Marketing/Settings UI.
-// They get injected into the published page so Meta (Facebook) and TikTok can
-// attribute ad conversions. Null means "not configured yet".
-export type PixelSettings = {
-	metaPixelId: string | null;
-	tiktokPixelId: string | null;
-};
-
-// The whole workspace snapshot in one blob — messages, versions, deployment
-// and pixels together. Fetching it as one unit (api/workspace.services.ts)
-// keeps the loading UX simple: one spinner, one error path, instead of four
-// requests that can each fail independently.
-/** Everything the workspace needs for one project, fetched as one unit. */
-export type WorkspaceState = {
-	messages: ChatMessage[];
-	versions: PageVersion[];
-	deployment: Deployment;
-	pixels: PixelSettings;
-};
+// Publishing state is entirely contract-derived now — see
+// api/deployments.dto.ts (DeploymentCurrent: the live slug, uiState, liveUrl
+// at https://{slug}.{sites domain}, and the version pointers).
 
 // The COD (cash-on-delivery) order pipeline, listed in the order a lead
 // normally moves through it; "returned" and "cancelled" are the failure

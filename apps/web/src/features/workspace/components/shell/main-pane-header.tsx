@@ -34,9 +34,9 @@ export function MainPaneHeader({
 	onAssetsViewChange: (view: AssetsView) => void;
 }) {
 	const { t } = useTranslation();
-	const { chatOpen, toggleChat, versions, statePending } = useWorkspace();
+	const { chatOpen, toggleChat, versions, versionsPending } = useWorkspace();
 
-	const showAssetsToggle = !statePending && versions.length > 0;
+	const showAssetsToggle = !versionsPending && versions.length > 0;
 
 	return (
 		<div className="flex h-12 shrink-0 items-center gap-2 border-b px-3.5">
