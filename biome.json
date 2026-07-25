@@ -27,6 +27,7 @@
 			"!**/wrangler.jsonc",
 			"!**/.source",
 			"!**/convex/_generated",
+			"!apps/admin/src/themes.css",
 			"!_production-ex",
 			"!_admin-dashboard"
 		]
