@@ -1,6 +1,8 @@
 {
 	"headerTitle": "Projets",
 	"promptHeading": "Qu'est-ce que tu lances aujourd'hui ?",
+	"promptSoonTitle": "Bientôt disponible",
+	"promptSoonBody": "Wandit ouvre à tout le monde très bientôt. La création de sites est pour l'instant en accès anticipé privé.",
 	"toolbarTitle": "Tes projets",
 	"searchPlaceholder": "Rechercher des projets…",
 	"filterAll": "Tous",

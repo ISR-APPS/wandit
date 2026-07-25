@@ -1,6 +1,8 @@
 {
 	"headerTitle": "Projects",
 	"promptHeading": "What will you launch today?",
+	"promptSoonTitle": "Coming soon",
+	"promptSoonBody": "Wandit is opening to everyone very soon. Creating new sites is in private early access for now.",
 	"toolbarTitle": "Your projects",
 	"searchPlaceholder": "Search projects…",
 	"filterAll": "All",

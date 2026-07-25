@@ -1,6 +1,8 @@
 {
 	"headerTitle": "المشاريع",
 	"promptHeading": "ماذا ستطلق اليوم؟",
+	"promptSoonTitle": "قريبًا",
+	"promptSoonBody": "سيفتح Wandit أبوابه للجميع قريبًا جدًا. إنشاء المواقع متاح حاليًا في وصول مبكر خاص.",
 	"toolbarTitle": "مشاريعك",
 	"searchPlaceholder": "ابحث في المشاريع…",
 	"filterAll": "الكل",
