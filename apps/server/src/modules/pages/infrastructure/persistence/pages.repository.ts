@@ -44,20 +44,11 @@ export type PageOverviewRows = {
 	} | null;
 };
 
-// What generate_page snapshots into the attempt's jsonb spec. The Trigger
-// task adds creativeCapsule + creativeSpec after Art Direction succeeds; the
-// structured value stays unknown here so persistence does not depend on the
-// AI agent's domain schema.
+// What generate_page snapshots into the attempt's jsonb spec.
 export type PageAttemptSpec = {
-	artDirectorExtractionSystemPrompt: string;
-	artDirectorModel: string;
-	artDirectorSystemPrompt: string;
 	brief: string;
-	creativeCapsule?: string;
-	creativeSpec?: unknown;
 	designerSystemPrompt: string;
 	title: string;
-	version: 2;
 };
 
 // Landing artifact + its active version, the working set of every mutation

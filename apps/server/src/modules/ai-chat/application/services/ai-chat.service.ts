@@ -141,8 +141,8 @@ export class AiChatService {
 		// 1. complete tool calls that never got a result (typed-past ask_user,
 		//    or a stream aborted mid-execute) — providers reject a history that
 		//    carries a tool call without a matching result,
-		// 2. elide outputs from retired skill/direction tools so large stale
-		//    guidance neither costs tokens nor anchors the new facts-only Brain.
+		// 2. elide outputs from the retired read_skill tool so large stale
+		//    guidance does not cost tokens on every request.
 		const agentMessages = elideRetiredToolOutputs(
 			completeDanglingToolCalls(messages),
 		);
@@ -577,14 +577,12 @@ function completeDanglingToolCalls(
 
 const SKILL_ELIDED_PLACEHOLDER =
 	"[skill content elided from history — call read_skill again if needed]";
-const DIRECTIONS_ELIDED_PLACEHOLDER =
-	"[old random direction menu elided — visual direction now belongs to the queued Art Director]";
 
 /**
  * The model re-reads the whole history on every request. Blank large outputs
- * from retired tools out of PRIOR messages: old skill markdown wastes tokens,
- * and old random direction menus would anchor the new facts-only Brain. The
- * persisted transcript stays untouched.
+ * from retired tools out of PRIOR messages: old skill markdown wastes tokens.
+ * Direction menus are NOT elided — the Brain must keep seeing the candidates
+ * it already sampled and chose from. The persisted transcript stays untouched.
  */
 function elideRetiredToolOutputs(
 	messages: readonly WanditUIMessage[],
@@ -607,21 +605,6 @@ function elideRetiredToolOutputs(
 				return {
 					...part,
 					output: { ...part.output, markdown: SKILL_ELIDED_PLACEHOLDER },
-				};
-			}
-
-			if (
-				part.type === "tool-get_direction_candidates" &&
-				part.state === "output-available"
-			) {
-				changed = true;
-
-				return {
-					...part,
-					output: {
-						...part.output,
-						candidates: DIRECTIONS_ELIDED_PLACEHOLDER,
-					},
 				};
 			}
 

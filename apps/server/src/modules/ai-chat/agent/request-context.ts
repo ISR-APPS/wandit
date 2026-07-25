@@ -47,7 +47,7 @@ const OUTPUT_LINES: Record<string, string> = {
 	"landing-page":
 		'  They chose "Landing page": a single-page conversion funnel (COD-style skeleton when the goal is COD).',
 	"site-vitrine":
-		'  They chose "Site vitrine": a multi-section presentation site with softer conversion pressure than a COD funnel. Capture the required content and goal; do not prescribe a standard hero/services/about/contact sequence because the Art Director will compose the page flow.',
+		'  They chose "Site vitrine": a multi-section presentation site with softer conversion pressure than a COD funnel. Capture the required content and goal; do not prescribe a standard hero/services/about/contact sequence — compose the page flow from the sampled layout moves instead.',
 };
 
 /**

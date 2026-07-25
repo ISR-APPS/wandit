@@ -104,9 +104,9 @@ export type ReadSkillInput = z.infer<typeof readSkillInputSchema>;
 export type ReadSkillOutput = z.infer<typeof readSkillOutputSchema>;
 
 /**
- * get_direction_candidates — RETIRED from the live Brain. Schemas remain for
- * backward compatibility with persisted chats that used the old random
- * direction-menu architecture.
+ * get_direction_candidates — the Brain samples a bounded random menu of
+ * palettes, font pairings, skeletons, layout moves, interactions, motion
+ * vocabularies and finishes, then commits to choices from it in the brief.
  */
 export const getDirectionCandidatesInputSchema = z.object({
 	// Short free-text business descriptor (e.g. "candles", "streetwear"),
@@ -132,18 +132,18 @@ export type GetDirectionCandidatesOutput = z.infer<
 >;
 
 /**
- * generate_page — the Brain queues a background page build. The brief is
- * factual content and constraints, not art direction: the queued Art Director
- * creates a typed CreativeSpec before the Builder starts. The tool answers
- * immediately; the finished page lands in the Page tab.
+ * generate_page — the Brain queues a background page build with one complete
+ * creative brief (facts + the art direction the Brain committed to from the
+ * sampled candidates). The tool answers immediately; the finished page lands
+ * in the Page tab.
  */
 export const generatePageInputSchema = z.object({
 	// Short human title for the page (used for version labels).
 	title: z.string().min(1).max(120),
-	// The complete factual brief the Brain composed from the conversation:
+	// The complete creative brief the Brain composed from the conversation:
 	// business, audience, language, assets, required content, offer/price,
-	// conversion details, constraints, and user-supplied taste. Free text keeps
-	// old tool calls valid while the Art Director owns the structured design.
+	// conversion details, constraints, and the committed art direction.
+	// Free text on purpose — the builder prompt defines the section format.
 	brief: z.string().min(50),
 });
 

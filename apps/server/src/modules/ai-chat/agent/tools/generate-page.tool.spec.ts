@@ -7,10 +7,9 @@ import type { PagesRepository } from "../../../pages/infrastructure/persistence/
 import { createGeneratePageTool } from "./generate-page.tool";
 
 // Everything with side effects is replaced: env (credentials), storage
-// (R2 check), the Trigger queue, and both generation prompts.
+// (R2 check), the Trigger queue, and the builder prompt.
 vi.mock("@wandit/env/server", () => ({
 	env: {
-		AI_ART_DIRECTOR_MODEL: "test-provider/test-art-director-model",
 		AI_PAGE_BUILDER_MODEL: "test-provider/test-builder-model",
 		AI_PAGE_DESIGN_MODEL: "test-provider/legacy-builder-model",
 		TRIGGER_SECRET_KEY: "tr_dev_test",
@@ -29,15 +28,6 @@ vi.mock("../site-builder/builder-prompt", () => ({
 	buildSiteBuilderSystemPrompt: vi
 		.fn()
 		.mockResolvedValue("builder prompt (test)"),
-}));
-
-vi.mock("../art-director/art-director-prompt", () => ({
-	buildArtDirectorExtractionSystemPrompt: vi
-		.fn()
-		.mockReturnValue("spec extraction prompt (test)"),
-	buildArtDirectorSystemPrompt: vi
-		.fn()
-		.mockReturnValue("art director prompt (test)"),
 }));
 
 const INPUT = {
@@ -123,13 +113,9 @@ describe("generate_page tool", () => {
 			model: "test-provider/test-builder-model",
 			projectId: "project_1",
 			spec: {
-				artDirectorExtractionSystemPrompt: "spec extraction prompt (test)",
-				artDirectorModel: "test-provider/test-art-director-model",
-				artDirectorSystemPrompt: "art director prompt (test)",
 				brief: INPUT.brief,
 				designerSystemPrompt: "builder prompt (test)",
 				title: INPUT.title,
-				version: 2,
 			},
 		});
 		expect(tasks.trigger).toHaveBeenCalledWith("generate-page", {
