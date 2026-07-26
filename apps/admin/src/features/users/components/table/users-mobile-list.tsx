@@ -1,113 +1,75 @@
-import type { Row } from "@tanstack/react-table";
 import type { ReactNode } from "react";
 
-import { Checkbox } from "@/components/ui/checkbox";
 import type { AdminUserSummary } from "@/features/users/api/users.dto";
 import {
 	formatAdminDate,
-	formatCompactNumber,
-	formatMinorCurrency,
+	formatAdminDateTime,
 	formatWholeNumber,
 } from "@/features/users/lib/formatters";
 
 import { UserRowActions } from "./user-row-actions";
 import {
-	AccountBadge,
-	PaymentProviderBadge,
 	PlanBadge,
 	RoleBadge,
-	SubscriptionBadge,
+	StatusBadge,
 	UserIdentity,
 } from "./user-table-cells";
 
-function UsersMobileList({ rows }: { rows: Row<AdminUserSummary>[] }) {
+function UsersMobileList({ users }: { users: AdminUserSummary[] }) {
 	return (
 		<div className="space-y-3 lg:hidden">
-			{rows.map((row) => {
-				const user = row.original;
-
-				return (
-					<article
-						key={user.id}
-						data-state={row.getIsSelected() ? "selected" : undefined}
-						className="overflow-hidden rounded-xl border bg-background data-[state=selected]:border-primary/35 data-[state=selected]:bg-muted/35"
-					>
-						<div className="flex items-center gap-3 border-b p-3">
-							<Checkbox
-								checked={row.getIsSelected()}
-								onCheckedChange={(value) => row.toggleSelected(!!value)}
-								aria-label={`Select ${user.name}`}
-							/>
-							<div className="min-w-0 flex-1">
-								<UserIdentity user={user} />
-							</div>
-							<UserRowActions user={user} />
+			{users.map((user) => (
+				<article
+					key={user.id}
+					className="overflow-hidden rounded-xl border bg-background"
+				>
+					<div className="flex items-center gap-3 border-b p-3">
+						<div className="min-w-0 flex-1">
+							<UserIdentity user={user} />
 						</div>
+						<UserRowActions user={user} />
+					</div>
 
-						<div className="grid grid-cols-2 divide-x border-b">
-							<MobileDatum label="Role">
-								<RoleBadge role={user.role} />
-							</MobileDatum>
-							<MobileDatum label="Plan">
-								<PlanBadge plan={user.plan} />
-							</MobileDatum>
-						</div>
+					<div className="grid grid-cols-2 divide-x border-b">
+						<MobileDatum label="Role">
+							<RoleBadge role={user.role} />
+						</MobileDatum>
+						<MobileDatum label="Plan">
+							<PlanBadge plan={user.plan} />
+						</MobileDatum>
+					</div>
 
-						<div className="grid grid-cols-2 divide-x border-b">
-							<MobileDatum label="Subscription">
-								<SubscriptionBadge status={user.subscriptionStatus} />
-							</MobileDatum>
-							<MobileDatum label="Monthly">
-								<p className="font-medium font-mono tabular-nums">
-									{formatMinorCurrency(user.monthlyAmountMinor, user.currency)}
-								</p>
-								<div className="mt-1">
-									<PaymentProviderBadge provider={user.paymentProvider} />
-								</div>
-							</MobileDatum>
-						</div>
+					<div className="grid grid-cols-2 divide-x border-b">
+						<MobileDatum label="Credits">
+							<p className="font-medium font-mono tabular-nums">
+								{formatWholeNumber(user.creditsBalance)}
+							</p>
+						</MobileDatum>
+						<MobileDatum label="Projects">
+							<p className="font-medium font-mono tabular-nums">
+								{formatWholeNumber(user.projectsCount)}
+							</p>
+						</MobileDatum>
+					</div>
 
-						<div className="grid grid-cols-2 divide-x border-b">
-							<MobileDatum label="Credits">
-								<p className="font-medium font-mono tabular-nums">
-									{formatWholeNumber(user.creditsBalance)}
-								</p>
-							</MobileDatum>
-							<MobileDatum label="Tokens used">
-								<p className="font-medium font-mono tabular-nums">
-									{formatCompactNumber(user.tokensLifetime)}
-								</p>
-								<p className="text-muted-foreground text-xs">
-									{formatMinorCurrency(user.tokenCostUsdMinor, "USD")}
-								</p>
-							</MobileDatum>
-						</div>
+					<div className="grid grid-cols-2 divide-x border-b">
+						<MobileDatum label="Status">
+							<StatusBadge user={user} />
+						</MobileDatum>
+						<MobileDatum label="Last seen">
+							<p className="tabular-nums text-muted-foreground">
+								{formatAdminDateTime(user.lastSeenAt)}
+							</p>
+						</MobileDatum>
+					</div>
 
-						<div className="grid grid-cols-2 divide-x border-b">
-							<MobileDatum label="Generations">
-								<p className="font-mono tabular-nums">
-									{formatWholeNumber(user.websitesGenerated)} websites
-								</p>
-								<p className="text-muted-foreground text-xs">
-									{formatWholeNumber(user.assetsGenerated)} assets
-								</p>
-							</MobileDatum>
-							<MobileDatum label="Account">
-								<AccountBadge user={user} />
-							</MobileDatum>
-						</div>
-
-						<div className="flex items-center justify-between gap-3 px-3 py-2.5 text-xs">
-							<span className="text-muted-foreground">
-								Joined {formatAdminDate(user.signedUpAt)}
-							</span>
-							<span className="truncate text-muted-foreground">
-								{user.country}
-							</span>
-						</div>
-					</article>
-				);
-			})}
+					<div className="flex items-center justify-between gap-3 px-3 py-2.5 text-xs">
+						<span className="text-muted-foreground">
+							Joined {formatAdminDate(user.createdAt)}
+						</span>
+					</div>
+				</article>
+			))}
 		</div>
 	);
 }

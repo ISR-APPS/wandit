@@ -31,11 +31,13 @@ function setup() {
 
 // Fake logged-in user for controller method calls.
 const user = {
+	banned: false,
 	createdAt: new Date("2026-01-01T00:00:00.000Z"),
 	email: "user@example.com",
 	emailVerified: true,
 	id: "user_1",
 	name: "User",
+	role: "user",
 	updatedAt: new Date("2026-01-01T00:00:00.000Z"),
 } satisfies Parameters<ChatsController["stream"]>[1];
 

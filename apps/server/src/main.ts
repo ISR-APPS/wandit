@@ -67,7 +67,9 @@ async function bootstrap() {
 	// Allow the web app to call this API with cookies. `Last-Event-ID` is needed
 	// so the SSE chat stream can reconnect and resume.
 	app.enableCors({
-		origin: env.CORS_ORIGIN,
+		origin: [env.CORS_ORIGIN, env.ADMIN_ORIGIN].filter(
+			(origin): origin is string => Boolean(origin),
+		),
 		credentials: true,
 		methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 		allowedHeaders: [

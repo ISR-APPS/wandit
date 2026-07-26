@@ -1,6 +1,8 @@
 import { Link } from "@tanstack/react-router";
+import { isAdminRole } from "@wandit/contracts";
 import {
 	ArrowLeftIcon,
+	BadgeCheckIcon,
 	BanIcon,
 	CheckIcon,
 	CopyIcon,
@@ -13,16 +15,14 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { AdminUserDetail } from "@/features/users/api/users.dto";
+import { formatAdminDate } from "@/features/users/lib/formatters";
 
-import {
-	getInitials,
-	getRoleLabel,
-	getSubscriptionLabel,
-	titleCase,
-} from "./user-detail-helpers";
+import { getInitials, getRoleLabel, titleCase } from "./user-detail-helpers";
 
 type UserDetailHeaderProps = {
 	user: AdminUserDetail;
+	/** False when the signed-in admin is viewing their own account. */
+	canManageAccess: boolean;
 	onGrantCredits: () => void;
 	onChangeRole: () => void;
 	onToggleBanned: () => void;
@@ -30,10 +30,16 @@ type UserDetailHeaderProps = {
 
 export function UserDetailHeader({
 	user,
+	canManageAccess,
 	onGrantCredits,
 	onChangeRole,
 	onToggleBanned,
 }: UserDetailHeaderProps) {
+	// The server rejects banning an admin (restoring one is still allowed), so
+	// banning an admin has to go through "Change role" first.
+	const canToggleAccess =
+		canManageAccess && (user.banned || !isAdminRole(user.role));
+
 	async function copyUserId() {
 		try {
 			await navigator.clipboard.writeText(user.id);
@@ -55,7 +61,7 @@ export function UserDetailHeader({
 			<div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-start">
 				<div className="flex min-w-0 items-start gap-4">
 					<Avatar className="size-12">
-						<AvatarImage src={user.avatarUrl} alt="" />
+						<AvatarImage src={user.image ?? undefined} alt="" />
 						<AvatarFallback>{getInitials(user.name)}</AvatarFallback>
 					</Avatar>
 					<div className="flex min-w-0 flex-col gap-2">
@@ -68,20 +74,19 @@ export function UserDetailHeader({
 							</p>
 						</div>
 						<div className="flex flex-wrap items-center gap-2">
-							<Badge variant={user.role === "owner" ? "default" : "outline"}>
+							<Badge variant={user.role === "admin" ? "default" : "outline"}>
 								{getRoleLabel(user.role)}
 							</Badge>
 							<Badge variant="secondary">{titleCase(user.plan)}</Badge>
-							<Badge
-								variant={
-									user.subscriptionStatus === "past-due"
-										? "destructive"
-										: "outline"
-								}
-							>
-								{getSubscriptionLabel(user.subscriptionStatus)}
-							</Badge>
-							{user.isBanned ? (
+							{user.emailVerified ? (
+								<Badge variant="outline">
+									<BadgeCheckIcon aria-hidden="true" />
+									Verified
+								</Badge>
+							) : (
+								<Badge variant="outline">Unverified</Badge>
+							)}
+							{user.banned ? (
 								<Badge variant="destructive">
 									<BanIcon aria-hidden="true" />
 									Banned
@@ -92,6 +97,9 @@ export function UserDetailHeader({
 									Access active
 								</Badge>
 							)}
+							<span className="text-muted-foreground text-xs">
+								Signed up {formatAdminDate(user.createdAt)}
+							</span>
 							<Button
 								type="button"
 								variant="ghost"
@@ -105,30 +113,39 @@ export function UserDetailHeader({
 								{user.id}
 							</Button>
 						</div>
+						{user.banned && user.banReason ? (
+							<p className="max-w-xl rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2 text-muted-foreground text-sm">
+								Ban reason: {user.banReason}
+							</p>
+						) : null}
 					</div>
 				</div>
 
 				<div className="flex flex-wrap items-center gap-2">
-					<Button type="button" variant="outline" onClick={onChangeRole}>
-						<ShieldCheckIcon data-icon="inline-start" aria-hidden="true" />
-						Change role
-					</Button>
+					{canManageAccess ? (
+						<Button type="button" variant="outline" onClick={onChangeRole}>
+							<ShieldCheckIcon data-icon="inline-start" aria-hidden="true" />
+							Change role
+						</Button>
+					) : null}
 					<Button type="button" onClick={onGrantCredits}>
 						<WalletCardsIcon data-icon="inline-start" aria-hidden="true" />
 						Grant credits
 					</Button>
-					<Button
-						type="button"
-						variant={user.isBanned ? "outline" : "destructive"}
-						onClick={onToggleBanned}
-					>
-						{user.isBanned ? (
-							<ShieldCheckIcon data-icon="inline-start" aria-hidden="true" />
-						) : (
-							<BanIcon data-icon="inline-start" aria-hidden="true" />
-						)}
-						{user.isBanned ? "Restore access" : "Ban user"}
-					</Button>
+					{canToggleAccess ? (
+						<Button
+							type="button"
+							variant={user.banned ? "outline" : "destructive"}
+							onClick={onToggleBanned}
+						>
+							{user.banned ? (
+								<ShieldCheckIcon data-icon="inline-start" aria-hidden="true" />
+							) : (
+								<BanIcon data-icon="inline-start" aria-hidden="true" />
+							)}
+							{user.banned ? "Restore access" : "Ban user"}
+						</Button>
+					) : null}
 				</div>
 			</div>
 		</header>

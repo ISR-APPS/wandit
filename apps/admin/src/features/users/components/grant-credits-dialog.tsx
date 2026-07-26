@@ -1,5 +1,5 @@
 import { Loader2Icon, WalletCardsIcon } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { AdminUserSummary } from "@/features/users/api/users.dto";
 import { useGrantCreditsMutation } from "@/features/users/api/users.mutations";
+import { isApiClientError } from "@/lib/api-client";
 
 const CREDIT_PRESETS = [100, 500, 1_000, 5_000] as const;
 
@@ -40,6 +41,11 @@ export function GrantCreditsDialog({
 	const [amount, setAmount] = useState("");
 	const [reason, setReason] = useState("");
 	const [submitted, setSubmitted] = useState(false);
+	// Keyed by the submitted payload: retrying an unchanged grant reuses the id so
+	// the server dedupes it, while editing the amount or reason mints a new one —
+	// otherwise an edited retry of a grant that silently succeeded would dedupe
+	// against the old row and apply the old amount.
+	const requestIdRef = useRef<{ key: string; id: string } | null>(null);
 	const mutation = useGrantCreditsMutation();
 
 	const parsedAmount = Number(amount);
@@ -47,12 +53,14 @@ export function GrantCreditsDialog({
 		Number.isInteger(parsedAmount) &&
 		parsedAmount > 0 &&
 		parsedAmount <= 1_000_000;
-	const reasonIsValid = reason.trim().length >= 3;
+	const trimmedReason = reason.trim();
+	const reasonIsValid = trimmedReason.length <= 500;
 
 	function resetForm() {
 		setAmount("");
 		setReason("");
 		setSubmitted(false);
+		requestIdRef.current = null;
 	}
 
 	function handleOpenChange(nextOpen: boolean) {
@@ -73,19 +81,29 @@ export function GrantCreditsDialog({
 			return;
 		}
 
+		const payloadKey = `${parsedAmount}:${trimmedReason}`;
+		if (requestIdRef.current?.key !== payloadKey) {
+			requestIdRef.current = { key: payloadKey, id: crypto.randomUUID() };
+		}
+
 		try {
 			await mutation.mutateAsync({
 				userId: user.id,
 				amount: parsedAmount,
-				reason: reason.trim(),
+				reason: trimmedReason || undefined,
+				requestId: requestIdRef.current.id,
 			});
 			toast.success(
 				`${parsedAmount.toLocaleString()} credits granted to ${user.name}.`,
 			);
 			resetForm();
 			onOpenChange(false);
-		} catch {
-			toast.error("Credits could not be granted. Please try again.");
+		} catch (error) {
+			toast.error(
+				isApiClientError(error)
+					? error.message
+					: "Credits could not be granted. Please try again.",
+			);
 		}
 	}
 
@@ -162,21 +180,26 @@ export function GrantCreditsDialog({
 						</Field>
 
 						<Field data-invalid={submitted && !reasonIsValid}>
-							<FieldLabel htmlFor="grant-credit-reason">Reason</FieldLabel>
+							<FieldLabel htmlFor="grant-credit-reason">
+								Reason{" "}
+								<span className="font-normal text-muted-foreground">
+									(optional)
+								</span>
+							</FieldLabel>
 							<Textarea
 								id="grant-credit-reason"
 								value={reason}
 								onChange={(event) => setReason(event.target.value)}
 								placeholder="Campaign credit, support adjustment…"
 								aria-invalid={submitted && !reasonIsValid}
-								maxLength={240}
+								maxLength={500}
 							/>
 							<FieldDescription>
 								This note will appear in the user&apos;s credit ledger.
 							</FieldDescription>
 							<FieldError>
 								{submitted && !reasonIsValid
-									? "Add a short reason for this adjustment."
+									? "Keep the reason under 500 characters."
 									: null}
 							</FieldError>
 						</Field>
