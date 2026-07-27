@@ -25,7 +25,15 @@ const STRIPPED_NOTE =
 	"from the text line above)";
 
 export function modelNeedsToolImageRelocation(model: string): boolean {
-	return model.startsWith("moonshotai/");
+	// Qwen (alibaba) and Inkling (thinkingmachines) are vision-capable but
+	// silently DROP images inside tool results — live probes answered the
+	// wrong color for a solid-red image delivered that way, yet read the
+	// same image fine from a user message.
+	return (
+		model.startsWith("moonshotai/") ||
+		model.startsWith("alibaba/") ||
+		model.startsWith("thinkingmachines/")
+	);
 }
 
 /**

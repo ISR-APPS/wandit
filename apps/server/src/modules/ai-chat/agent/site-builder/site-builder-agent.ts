@@ -77,11 +77,13 @@ const MAX_STEPS = 64;
 // leave room for a complete write_file call in a single step.
 const MAX_OUTPUT_TOKENS = 64_000;
 
-// Three rendered review passes minimum — correctness, creative fidelity, and
-// final verification. Counted only on successful captures and enforced
-// TOGETHER with the final-revision gate, so re-shooting one draft three
-// times cannot replace re-verifying the latest write. Exported for tests.
-export const REQUIRED_SCREENSHOT_PASSES = 3;
+// Two rendered review passes minimum — one correctness/structure hunt, one
+// design-quality hunt with final verification. Counted only on successful
+// captures and enforced TOGETHER with the final-revision gate, so re-shooting
+// one draft twice cannot replace re-verifying the latest write. Exported for
+// tests. (3 originally; tuned through 1 and 5 during the 2026-07-26
+// experiments — 2 is the speed/quality compromise.)
+export const REQUIRED_SCREENSHOT_PASSES = 2;
 
 /**
  * Mutable loop state shared between the tools and the stop condition. A
@@ -141,6 +143,33 @@ function log(message: string): void {
 	console.log(`[site-builder] ${message}`);
 }
 
+/**
+ * Shared guard for both mutating tools (write_file, edit_file). Enforces the
+ * one-file contract, and seals the build once finish is accepted: the SDK
+ * runs a step's tool calls together, so a [finish, edit_file] step would
+ * otherwise mutate the VFS AFTER the gates passed and publish content that
+ * was never re-read or screenshot-reviewed.
+ */
+function assertMutationAllowed(
+	state: BuildLoopState,
+	path: string,
+	action: "edit" | "write",
+): void {
+	if (path.trim().replace(/^\.?\//, "") !== "index.html") {
+		throw new Error(
+			`The site is exactly ONE file: "index.html" — refusing to ` +
+				`${action} "${path}". Inline everything into index.html.`,
+		);
+	}
+
+	if (state.finishAccepted) {
+		throw new Error(
+			"finish was already accepted — the build is sealed, no further " +
+				`${action} is possible.`,
+		);
+	}
+}
+
 type BuilderToolsParams = {
 	abortSignal?: AbortSignal;
 	attemptId: string;
@@ -191,6 +220,10 @@ export type BuilderTools = {
 	animate_image: Tool<
 		{ aspect: BuildVideoAspect; imageUrl: string; motionPrompt: string },
 		AnimateImageOutput
+	>;
+	edit_file: Tool<
+		{ path: string; replace: string; search: string },
+		{ bytes: number; path: string }
 	>;
 	finish: Tool<{ summary: string }, FinishOutput>;
 	generate_image: Tool<
@@ -283,10 +316,98 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 				};
 			},
 		}),
+		edit_file: tool({
+			description:
+				"Surgically replace ONE exact snippet inside index.html — the " +
+				"tool for review-pass fixes, far cheaper and faster than " +
+				"rewriting the whole file. The search text must match the " +
+				"CURRENT file exactly (whitespace and indentation included) and " +
+				"be unique — include enough surrounding lines to pin one " +
+				"occurrence. For structural overhauls, rewrite with write_file.",
+			inputSchema: z.object({
+				path: z.string().min(1).describe('Must be "index.html".'),
+				replace: z
+					.string()
+					.describe("The replacement text. Empty deletes the snippet."),
+				search: z
+					.string()
+					.min(1)
+					.describe(
+						"Exact text currently in the file, unique across the file.",
+					),
+			}),
+			execute: async ({ path, replace, search }) => {
+				assertMutationAllowed(state, path, "edit");
+
+				const current = vfs.read("index.html");
+
+				if (current === null) {
+					throw new Error(
+						"index.html does not exist yet — write the complete first " +
+							"draft with write_file before editing.",
+					);
+				}
+
+				if (search === replace) {
+					throw new Error(
+						"search and replace are identical — nothing would change.",
+					);
+				}
+
+				// indexOf stepping by ONE, not by search.length: split-based
+				// counting misses overlapping occurrences (e.g. "</div></div>"
+				// occurs twice inside "</div></div></div>"), silently accepting
+				// an ambiguous edit this guard exists to refuse.
+				let occurrences = 0;
+				for (
+					let index = current.indexOf(search);
+					index !== -1;
+					index = current.indexOf(search, index + 1)
+				) {
+					occurrences += 1;
+				}
+
+				if (occurrences === 0) {
+					throw new Error(
+						"search text not found in index.html. It must match the " +
+							"CURRENT file exactly, including whitespace and " +
+							"indentation — re-read the file with read_file and copy " +
+							"the snippet verbatim.",
+					);
+				}
+
+				if (occurrences > 1) {
+					throw new Error(
+						`search text appears ${occurrences} times in index.html — ` +
+							"extend it with surrounding lines until it matches " +
+							"exactly once.",
+					);
+				}
+
+				// Replacement via callback: String.replace would otherwise expand
+				// $-patterns ($&, $', $$…) inside `replace`, silently corrupting
+				// pages that contain template literals or prices.
+				const content = current.replace(search, () => replace);
+				const written = vfs.write("index.html", content);
+				state.writeRevision += 1;
+				const bytes = Buffer.byteLength(content, "utf-8");
+				const delta =
+					Buffer.byteLength(replace, "utf-8") -
+					Buffer.byteLength(search, "utf-8");
+
+				log(
+					`edited ${written} (${delta >= 0 ? "+" : ""}${delta} bytes → ` +
+						`${Math.round(bytes / 1024)} KB, revision ${state.writeRevision})`,
+				);
+
+				return { bytes, path: written };
+			},
+		}),
 		finish: tool({
 			description:
-				"Declare the site complete. Call this ONCE, only after " +
-				`${REQUIRED_SCREENSHOT_PASSES} screenshot_page review passes and a ` +
+				"Declare the site complete. Call this ONCE, only after the " +
+				"required screenshot_page review (minimum " +
+				`${REQUIRED_SCREENSHOT_PASSES} per build) and a ` +
 				"re-read plus visual review of the final index.html.",
 			inputSchema: z.object({
 				summary: z
@@ -312,7 +433,7 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 					return {
 						accepted: false as const,
 						reason:
-							"Re-read the current index.html with read_file after the latest write, review it, then finish.",
+							"Re-read the current index.html with read_file after the latest write or edit, review it, then finish.",
 					};
 				}
 
@@ -347,7 +468,7 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 					return {
 						accepted: false as const,
 						reason:
-							"Call screenshot_page on the current index.html after the latest write, review its desktop/mobile renders and diagnostics, then finish.",
+							"Call screenshot_page on the current index.html after the latest write or edit, review its desktop/mobile renders and diagnostics, then finish.",
 					};
 				}
 
@@ -488,11 +609,11 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 		screenshot_page: tool({
 			description:
 				"Render the current index.html in a real browser for one required " +
-				`review pass (${REQUIRED_SCREENSHOT_PASSES} passes minimum per ` +
+				`review pass (minimum ${REQUIRED_SCREENSHOT_PASSES} per ` +
 				"build). Returns desktop (1440×900) and mobile (390×844) " +
 				"screenshots from top to bottom, console/page errors, failed " +
 				"asset requests, and horizontal-overflow measurements. After " +
-				"any subsequent write_file, call this again.",
+				"any subsequent write_file or edit_file, call this again.",
 			inputSchema: emptyInputSchema,
 			execute: async (_input, { toolCallId }) => {
 				const html = vfs.read("index.html");
@@ -613,8 +734,11 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 			description:
 				"Create or overwrite ONE complete file of the site. The site " +
 				'must be a single self-contained "index.html" — writing any ' +
-				"other file fails the build. Always write the whole file — " +
-				"there are no partial edits.",
+				"other file fails the build. This tool always takes the WHOLE " +
+				"file; for targeted fixes use edit_file instead. After the first " +
+				"draft, a rewrite is ONLY for changing the page's fundamental " +
+				"structure — never to consolidate, reformat, or clean up (a " +
+				"rewrite streams the entire file again and costs minutes).",
 			inputSchema: z.object({
 				content: z.string().min(1),
 				path: z.string().min(1).describe('Relative path, e.g. "index.html".'),
@@ -623,12 +747,7 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 				// The one-file contract is enforced here, not just in the prompt:
 				// the preview cannot serve sibling assets, so any other path is
 				// rejected before it ever lands in the VFS.
-				if (path.trim().replace(/^\.?\//, "") !== "index.html") {
-					throw new Error(
-						`The site is exactly ONE file: "index.html" — refusing to ` +
-							`write "${path}". Inline everything into index.html.`,
-					);
-				}
+				assertMutationAllowed(state, path, "write");
 
 				const written = vfs.write(path, content);
 				state.writeRevision += 1;
@@ -659,7 +778,11 @@ export async function runSiteBuild(
 	// its own providerOptions key, so both are always safe to send. Merged
 	// into ONE providerOptions object with the gateway ordering below — two
 	// separate spreads would overwrite each other.
-	const reasoningEffort = env.AI_PAGE_DESIGN_REASONING;
+	// "auto" = send nothing and let the provider pick its default effort.
+	const reasoningEffort =
+		env.AI_PAGE_DESIGN_REASONING === "auto"
+			? undefined
+			: env.AI_PAGE_DESIGN_REASONING;
 	const providerOptions = {
 		...(reasoningEffort
 			? {
@@ -673,10 +796,28 @@ export async function runSiteBuild(
 						},
 					},
 					openai: { reasoningEffort },
+					// Grok knows exactly three efforts — clamp both ends.
+					xai: {
+						reasoningEffort:
+							reasoningEffort === "minimal"
+								? ("low" as const)
+								: reasoningEffort === "xhigh"
+									? ("high" as const)
+									: reasoningEffort,
+					},
 				}
 			: {}),
-		...(modelNeedsToolImageRelocation(params.model)
+		// Novita-first was a fix for Kimi K2's launch congestion (6s+ TTFT on
+		// Moonshot). K3 measured faster on official Moonshot routing, so the
+		// preference stays scoped to K2-era models.
+		...(params.model.startsWith("moonshotai/kimi-k2")
 			? { gateway: { order: ["novita"] } }
+			: {}),
+		// Qwen's default routing lands on Alibaba Cloud/Together at ~55 tps;
+		// Fireworks serves the same models at ~330 tps (gateway P50 chart,
+		// 2026-07-26). The others stay as fallback.
+		...(params.model.startsWith("alibaba/")
+			? { gateway: { order: ["fireworks"] } }
 			: {}),
 	};
 
@@ -701,9 +842,8 @@ export async function runSiteBuild(
 			// Kimi/Moonshot rejects image parts inside tool results (they fall
 			// through as base64 TEXT and blow the context) but reads images fine
 			// from user messages — so relocate them there before every step.
-			// The provider order also prefers Novita (set in providerOptions
-			// above): same price, ~1.5s TTFT vs Moonshot's 6s+ launch congestion
-			// (Moonshot stays as fallback).
+			// (K2-era models additionally prefer Novita routing — set in
+			// providerOptions above.)
 			// Text-only models (DeepSeek) cannot see images anywhere, so image
 			// parts are stripped instead — the tool result's URL text line is
 			// all they need to place assets.

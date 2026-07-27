@@ -70,11 +70,13 @@ export const env = createEnv({
 			.default("anthropic/claude-sonnet-5"),
 		// Builder reasoning knob, read at build time inside runSiteBuild() and
 		// forwarded as providerOptions (openai.reasoningEffort; mapped onto
-		// Gemini's two thinking levels). Defaults to "high": an unset var once
-		// silently meant provider-default effort (a misnamed .env entry hid the
-		// knob for weeks) — design quality must never again depend on a typo.
+		// Gemini's two thinking levels and Grok's three efforts). "auto" sends
+		// no reasoning parameter at all — the provider picks. Defaults to
+		// "high": an unset var once silently meant provider-default effort (a
+		// misnamed .env entry hid the knob for weeks) — design quality must
+		// never again depend on a typo, so turning it off is an explicit value.
 		AI_PAGE_DESIGN_REASONING: z
-			.enum(["minimal", "low", "medium", "high", "xhigh"])
+			.enum(["auto", "minimal", "low", "medium", "high", "xhigh"])
 			.default("high"),
 		// Optional: the builder's animate_image tool (image → short ambient video).
 		// Needs R2 + R2_PUBLIC_BASE_URL too; unset means the tool answers
