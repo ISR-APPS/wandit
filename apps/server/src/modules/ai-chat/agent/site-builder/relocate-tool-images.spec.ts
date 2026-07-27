@@ -40,6 +40,10 @@ function toolMessageWithImage(toolCallId: string): ModelMessage {
 describe("modelNeedsToolImageRelocation", () => {
 	it("targets moonshot models only", () => {
 		expect(modelNeedsToolImageRelocation("moonshotai/kimi-k3")).toBe(true);
+		expect(modelNeedsToolImageRelocation("alibaba/qwen3.7-plus")).toBe(true);
+		expect(modelNeedsToolImageRelocation("thinkingmachines/inkling")).toBe(
+			true,
+		);
 		expect(modelNeedsToolImageRelocation("xai/grok-4.5")).toBe(false);
 		expect(modelNeedsToolImageRelocation("anthropic/claude-fable-5")).toBe(
 			false,

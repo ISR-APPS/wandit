@@ -1,3 +1,4 @@
+import { useNavigate } from "@tanstack/react-router";
 import type { ComposerMetadata } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import { Input } from "@wandit/ui/components/input";
@@ -63,25 +64,6 @@ function EmptyState({ onCta }: { onCta: () => void }) {
 	);
 }
 
-// Launch-window placeholder shown where the prompt box would be for accounts
-// outside the early-access list (see lib/early-access.ts).
-function PromptComingSoon() {
-	const { t } = useTranslation();
-	return (
-		<div className="relative flex flex-col items-center justify-center rounded-xl border border-dashed bg-card/50 px-6 py-12 text-center">
-			<div className="flex size-12 items-center justify-center rounded-xl border bg-card shadow-xs">
-				<Spark className="size-5 text-primary" />
-			</div>
-			<h3 className="mt-4 font-display font-semibold text-lg">
-				{t("projects.promptSoonTitle")}
-			</h3>
-			<p className="mt-1 max-w-sm text-muted-foreground text-sm">
-				{t("projects.promptSoonBody")}
-			</p>
-		</div>
-	);
-}
-
 function NoResultsState({
 	query,
 	onClear,
@@ -109,12 +91,19 @@ function NoResultsState({
 
 export default function DashboardPage() {
 	const { t } = useTranslation();
+	const navigate = useNavigate();
 	const { data: session } = useSession();
 	const { data: projects, isPending } = useProjectsQuery();
 	const { create, isCreating, insufficientOpen, setInsufficientOpen, cost } =
 		useCreateProjectWithPrompt();
 
+	// Launch window: everyone can type, but only early-access accounts really
+	// generate — the rest land on the workspace-shaped Coming Soon teaser with
+	// their prompt echoed in the chat (see lib/early-access.ts).
 	const hasEarlyAccess = isEarlyAccessUser(session?.user.email);
+	const teaseComingSoon = (prompt: string) => {
+		void navigate({ to: "/preview", search: { prompt } });
+	};
 
 	const [query, setQuery] = useState("");
 	const [filter, setFilter] = useState<StatusFilter>("all");
@@ -178,21 +167,17 @@ export default function DashboardPage() {
 							{t("projects.promptHeading")}
 						</h2>
 						<div ref={promptSectionRef} className="mt-6">
-							{hasEarlyAccess ? (
-								<PromptBox
-									key={promptPrefill.key}
-									variant="hero"
-									showPriceTag
-									showModes
-									attachmentsEnabled
-									initialValue={promptPrefill.value}
-									initialComposer={promptPrefill.composer}
-									onSubmit={create}
-									isSubmitting={isCreating}
-								/>
-							) : (
-								<PromptComingSoon />
-							)}
+							<PromptBox
+								key={promptPrefill.key}
+								variant="hero"
+								showPriceTag
+								showModes
+								attachmentsEnabled={hasEarlyAccess}
+								initialValue={promptPrefill.value}
+								initialComposer={promptPrefill.composer}
+								onSubmit={hasEarlyAccess ? create : teaseComingSoon}
+								isSubmitting={isCreating}
+							/>
 						</div>
 						<InsufficientCreditsDialog
 							open={insufficientOpen}

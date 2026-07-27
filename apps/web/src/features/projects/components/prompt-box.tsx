@@ -76,6 +76,41 @@ import { useVoiceDictation } from "../lib/use-voice-dictation";
 type RouteMode = "auto" | "page" | "marketing" | "image" | "video";
 type ConcreteMode = Exclude<RouteMode, "auto">;
 
+// Dev-only builder model picker: ids are slugs the server maps to gateway
+// model ids (see apps/server .../tools/builder-model-options.ts — the two
+// lists must stay in sync). "default" sends nothing and the server env
+// decides. Labels are model names, so no i18n copy.
+const DEFAULT_BUILDER_MODEL = { id: "default", label: "Builder: default" };
+const BUILDER_MODELS: Array<{ id: string; label: string }> = [
+	DEFAULT_BUILDER_MODEL,
+	{ id: "grok-4-5", label: "Grok 4.5" },
+	{ id: "gemini-3-5-flash", label: "Gemini 3.5 Flash" },
+	{ id: "gemini-3-5-flash-lite", label: "Gemini 3.5 Flash Lite" },
+	{ id: "gemini-3-6-flash", label: "Gemini 3.6 Flash" },
+	{ id: "gemini-3-1-pro", label: "Gemini 3.1 Pro" },
+	{ id: "kimi-k3-fast", label: "Kimi K3 Fast" },
+	{ id: "gpt-5-6-sol", label: "GPT-5.6 Sol" },
+	{ id: "gpt-5-6-luna", label: "GPT-5.6 Luna" },
+	{ id: "sonnet-5", label: "Claude Sonnet 5" },
+	{ id: "muse-spark-1-1", label: "Muse Spark 1.1" },
+];
+
+// The prompt box remounts on hero→chat transitions and navigation, so the
+// dev picker persists its choice in localStorage — picking once holds until
+// changed, across messages and reloads.
+const BUILDER_MODEL_STORAGE_KEY = "wandit:dev-builder-model";
+
+function readStoredBuilderModel(fromComposer: unknown): string {
+	const candidate =
+		typeof fromComposer === "string"
+			? fromComposer
+			: window.localStorage.getItem(BUILDER_MODEL_STORAGE_KEY);
+
+	return BUILDER_MODELS.some((model) => model.id === candidate) && candidate
+		? candidate
+		: DEFAULT_BUILDER_MODEL.id;
+}
+
 // Non-copy option config: ids + layout. Group labels and choice labels live in
 // the `projects.promptBox.outputs.<id>.options` dictionary namespace.
 type Choice = {
@@ -1283,6 +1318,75 @@ function ModePicker({
 	);
 }
 
+// Dev-only chip next to the mode picker: overrides the page-builder model per
+// message (composer options.builderModel). Hidden outside local dev builds.
+function BuilderModelPicker({
+	value,
+	onValueChange,
+	isHero,
+}: {
+	value: string;
+	onValueChange: (id: string) => void;
+	isHero: boolean;
+}) {
+	const selected =
+		BUILDER_MODELS.find((model) => model.id === value) ?? DEFAULT_BUILDER_MODEL;
+
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger asChild>
+				<Button
+					type="button"
+					variant="outline"
+					size="sm"
+					aria-label={`Builder model: ${selected.label}`}
+					className={cn(
+						"group/trigger rounded-full border-border bg-background shadow-none transition-[border-color,box-shadow,background-color] duration-200",
+						"hover:border-primary/35 hover:text-foreground",
+						"data-[state=open]:border-primary/40 data-[state=open]:text-foreground",
+						isHero
+							? "h-9 gap-1.5 px-3 text-muted-foreground"
+							: "h-[30px] gap-1.5 px-2.5 text-[13px] text-foreground",
+					)}
+				>
+					<Gauge className={isHero ? "size-3.5" : "size-3"} />
+					<span className="max-w-32 truncate">{selected.label}</span>
+					<ChevronDown
+						className={cn(
+							"transition-transform duration-200 group-data-[state=open]/trigger:rotate-180",
+							isHero ? "size-3.5" : "size-[11px] opacity-50",
+						)}
+					/>
+				</Button>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent
+				align="start"
+				sideOffset={8}
+				collisionPadding={12}
+				className="w-60 rounded-2xl border-border p-1.5 shadow-[0_18px_50px_-24px_rgb(0_0_0/0.36)]"
+			>
+				<DropdownMenuLabel className="px-2 pt-1 pb-1.5 font-mono font-normal text-[10px] text-muted-foreground uppercase tracking-[0.14em]">
+					Builder model (dev)
+				</DropdownMenuLabel>
+				<DropdownMenuRadioGroup value={value} onValueChange={onValueChange}>
+					{BUILDER_MODELS.map((model) => (
+						<DropdownMenuRadioItemBare
+							key={model.id}
+							value={model.id}
+							className="data-[state=checked]:bg-primary/10"
+						>
+							<span className="min-w-0 flex-1 truncate text-sm">
+								{model.label}
+							</span>
+							<Check className="ms-auto size-4 shrink-0 scale-90 text-primary opacity-0 transition-[opacity,transform] group-data-[state=checked]/row:scale-100 group-data-[state=checked]/row:opacity-100" />
+						</DropdownMenuRadioItemBare>
+					))}
+				</DropdownMenuRadioGroup>
+			</DropdownMenuContent>
+		</DropdownMenu>
+	);
+}
+
 function OutputPicker({
 	mode,
 	output,
@@ -1646,6 +1750,19 @@ export function PromptBox({
 	const [quality, setQuality] = useState<ComposerQuality>(
 		initialComposer?.quality ?? "standard",
 	);
+	// Dev-only builder override (see BUILDER_MODELS); localStorage-backed so
+	// the choice survives the remounts between hero and chat composers.
+	const [builderModel, setBuilderModelState] = useState(() =>
+		readStoredBuilderModel(initialComposer?.options?.builderModel),
+	);
+	const setBuilderModel = useCallback((id: string) => {
+		setBuilderModelState(id);
+		try {
+			window.localStorage.setItem(BUILDER_MODEL_STORAGE_KEY, id);
+		} catch {
+			// Private-mode storage failures just lose persistence, not the pick.
+		}
+	}, []);
 	const [selectedSkillIds, setSelectedSkillIds] = useState<SkillFileId[]>(() =>
 		(initialComposer?.skills ?? []).filter((id): id is SkillFileId =>
 			Boolean(getSkillFile(id as SkillFileId)),
@@ -1914,6 +2031,12 @@ export function PromptBox({
 	// the prompt so the backend routes the generation the same way the UI shows.
 	const buildComposer = (): ComposerMetadata => {
 		const options: Record<string, unknown> = { ...outputOptions };
+
+		// Dev-only builder override: rides as a composer option so each
+		// generate_page call snapshots the picked model — no server restart.
+		if (builderModel !== DEFAULT_BUILDER_MODEL.id) {
+			options.builderModel = builderModel;
+		}
 
 		if (isVideoMode) {
 			options.videoSubmissionId = videoSubmissionIdRef.current;
@@ -2201,6 +2324,13 @@ export function PromptBox({
 							onValueChange={handleModeChange}
 							isHero={isHero}
 						/>
+						{import.meta.env.DEV ? (
+							<BuilderModelPicker
+								value={builderModel}
+								onValueChange={setBuilderModel}
+								isHero={isHero}
+							/>
+						) : null}
 						<OutputPicker
 							mode={routeMode}
 							output={selectedOutput}

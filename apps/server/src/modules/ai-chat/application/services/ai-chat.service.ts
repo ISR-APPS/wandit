@@ -59,6 +59,7 @@ import {
 	resolveVideoRequestKeySeed,
 } from "../../agent/request-context";
 import type { AvailableImage } from "../../agent/tools/animate-image.tool";
+import { resolveBuilderModelOption } from "../../agent/tools/builder-model-options";
 import type { AiChatRequestMetadata } from "../../presentation/http/controllers/ai-chat.controller";
 
 @Injectable()
@@ -135,6 +136,11 @@ export class AiChatService {
 		const agent = createChatAgent(
 			{
 				availableImages,
+				// Composer's model picker: per-message builder override, validated
+				// against the allow-list; undefined = env default.
+				builderModel: resolveBuilderModelOption(
+					metadata?.composer?.options?.builderModel,
+				),
 				chatId,
 				generationPolicyService: this.generationPolicyService,
 				imageGenerationsRepository: this.imageGenerationsRepository,
