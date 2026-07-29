@@ -5,8 +5,8 @@
 // chat.service.ts tells the "send a message" story (check → save → enqueue).
 // ============================================================================
 
-import { Inject, Injectable } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
+import { Inject, Injectable } from "@nestjs/common";
 import { TooManyToppingsError } from "../../domain/errors/too-many-toppings.error";
 import {
 	MAX_TOPPINGS,

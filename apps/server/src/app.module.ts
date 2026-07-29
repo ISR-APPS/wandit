@@ -12,6 +12,7 @@ import { AdminModule } from "./modules/admin/admin.module";
 import { AiChatModule } from "./modules/ai-chat/ai-chat.module";
 import { AuthModule } from "./modules/auth/auth.module";
 import { BillingModule } from "./modules/billing/billing.module";
+import { ConnectorGenerationsModule } from "./modules/connector-generations/connector-generations.module";
 import { CreditsModule } from "./modules/credits/credits.module";
 import { DomainsModule } from "./modules/domains/domains.module";
 import { GenerationModule } from "./modules/generation/generation.module";
@@ -20,6 +21,7 @@ import { ImageGenerationsModule } from "./modules/image-generations/image-genera
 import { LeadScrapesModule } from "./modules/lead-scrapes/lead-scrapes.module";
 import { LeadsModule } from "./modules/leads/leads.module";
 import { MarketingAssetsModule } from "./modules/marketing-assets/marketing-assets.module";
+import { McpConnectorsModule } from "./modules/mcp-connectors/mcp-connectors.module";
 import { OrdersModule } from "./modules/orders/orders.module";
 import { PagesModule } from "./modules/pages/pages.module";
 import { ProjectAssetsModule } from "./modules/project-assets/project-assets.module";
@@ -48,6 +50,8 @@ import { UploadsModule } from "./modules/uploads/uploads.module";
 		LeadsModule,
 		LeadScrapesModule,
 		MarketingAssetsModule,
+		ConnectorGenerationsModule,
+		McpConnectorsModule,
 		ImageGenerationsModule,
 		CreditsModule,
 		BillingModule,

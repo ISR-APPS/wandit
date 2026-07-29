@@ -71,6 +71,30 @@
 		"docs": "Docs",
 		"support": "Support"
 	},
+	"connectors": {
+		"title": "Connecter des applications",
+		"description": "Connecte et gère les applications de ton compte Wandit.",
+		"searchPlaceholder": "Rechercher une application…",
+		"noResults": "Aucune application trouvée.",
+		"connect": "Connecter",
+		"connecting": "Connexion…",
+		"reconnect": "Reconnecter",
+		"disconnect": "Déconnecter",
+		"connected": "Connectée",
+		"expired": "Connexion expirée",
+		"retry": "Réessayer",
+		"completeTitle": "Connexion de l’application",
+		"completeConnected": "L’application est connectée.",
+		"completeError": "Impossible de connecter l’application.",
+		"completeCloseHint": "Tu peux fermer cet onglet et revenir sur Wandit.",
+		"successToast": "Application connectée.",
+		"deniedToast": "Connexion annulée.",
+		"failedToast": "Impossible de connecter l’application. Réessaie.",
+		"invalidStateToast": "Cette demande de connexion n’est plus valide. Relance la connexion.",
+		"notConfigured": "Cette application n’est pas encore configurée.",
+		"disconnectedToast": "Application déconnectée.",
+		"signInFirst": "Connecte-toi pour connecter des applications"
+	},
 	"promptBox": {
 		"placeholderHero": "Décris ce que tu veux que Wandit crée ou modifie…",
 		"placeholderCompact": "Demande une modif de page, un asset marketing, une image ou une vidéo…",
@@ -85,6 +109,7 @@
 		"addSkillLabel": "Ajouter une compétence",
 		"attachLabel": "Joindre",
 		"attachHint": "Joindre des images ou des fichiers",
+		"connectApps": "Connecter des applications",
 		"attachments": {
 			"uploading": "Envoi…",
 			"remove": "Retirer",

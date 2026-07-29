@@ -1,0 +1,1 @@
+ALTER TABLE "mcp_connectors" ADD COLUMN "tool_policy" jsonb;

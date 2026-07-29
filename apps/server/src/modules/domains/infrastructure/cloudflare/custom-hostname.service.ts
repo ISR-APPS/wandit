@@ -89,7 +89,9 @@ export class CustomHostnameService {
 				`Cloudflare custom-hostname ${method} failed with status ${response.status}`,
 				JSON.stringify(payload),
 			);
-			throw new DomainProviderError("Cloudflare custom hostname request failed");
+			throw new DomainProviderError(
+				"Cloudflare custom hostname request failed",
+			);
 		}
 
 		if (method === "DELETE") {
@@ -107,7 +109,9 @@ export class CustomHostnameService {
 
 		if (!id) {
 			this.logger.error("Cloudflare custom-hostname response omitted id");
-			throw new DomainProviderError("Cloudflare custom hostname request failed");
+			throw new DomainProviderError(
+				"Cloudflare custom hostname request failed",
+			);
 		}
 
 		const statuses = this.statusFromResult(result);
@@ -164,7 +168,10 @@ export class CustomHostnameService {
 		const sslStatus = this.stringValue(ssl?.status);
 		const hostnameStatus = this.stringValue(result.status);
 
-		if (sslStatus === "active" && (!hostnameStatus || hostnameStatus === "active")) {
+		if (
+			sslStatus === "active" &&
+			(!hostnameStatus || hostnameStatus === "active")
+		) {
 			return { hostnameStatus, sslStatus, status: "active" };
 		}
 
@@ -196,7 +203,9 @@ export class CustomHostnameService {
 		} catch (error) {
 			if (this.isAbortError(error)) {
 				this.logger.error("Cloudflare custom-hostname request timed out");
-				throw new DomainProviderError("Cloudflare custom hostname request failed");
+				throw new DomainProviderError(
+					"Cloudflare custom hostname request failed",
+				);
 			}
 
 			throw error;

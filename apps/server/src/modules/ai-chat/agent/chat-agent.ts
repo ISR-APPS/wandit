@@ -1,7 +1,8 @@
 import type { AiChatTools } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
-import { ToolLoopAgent, type UIMessage } from "ai";
+import { type Tool, ToolLoopAgent, type UIMessage } from "ai";
 
+import type { McpToolApprovalMap } from "../../mcp-connectors/domain/mcp-tool-policy";
 import type { PageEditsService } from "../../pages/application/services/page-edits.service";
 import { WANDIT_SYSTEM_PROMPT } from "./system-prompt";
 import {
@@ -58,6 +59,8 @@ type AiChatToolSet = {
 	replace_section: PageEditTools["replace_section"];
 };
 
+type McpToolSet = Record<string, Tool>;
+
 export type WanditUIMessage = UIMessage<never, never, AiChatTools>;
 
 // Everything the per-request tools need: generate_page's queue deps, the
@@ -80,7 +83,9 @@ export type ChatAgentDeps = GeneratePageToolDeps &
 export function createChatAgent(
 	deps: ChatAgentDeps,
 	contextBlock?: string | null,
-): ToolLoopAgent<never, AiChatToolSet> {
+	mcpTools: McpToolSet = {},
+	approvalMap: McpToolApprovalMap = {},
+): ToolLoopAgent<never, AiChatToolSet & McpToolSet> {
 	return new ToolLoopAgent({
 		instructions: contextBlock
 			? `${WANDIT_SYSTEM_PROMPT}\n\n${contextBlock}`
@@ -97,6 +102,8 @@ export function createChatAgent(
 			// composes one. Only OpenAI models read this key.
 			openai: { reasoningEffort: "high" },
 		},
+		// ToolLoopAgentSettings does not expose experimental_toolApprovalSecret.
+		toolApproval: approvalMap,
 		tools: {
 			animate_image: createAnimateImageTool({
 				availableImages: deps.availableImages,
@@ -146,6 +153,7 @@ export function createChatAgent(
 				pagesRepository: deps.pagesRepository,
 				projectId: deps.projectId,
 			}),
+			...mcpTools,
 		},
 	});
 }

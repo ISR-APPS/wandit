@@ -17,6 +17,7 @@ import { z } from "zod";
 // Plain module (no Nest), safe in the Trigger bundle — cheerio bundles fine.
 import { stampHtml } from "../../../pages/domain/stamp";
 
+import type { BuildProgressEvent } from "./build-progress";
 import {
 	BUILD_IMAGE_ASPECTS,
 	type BuildImageAspect,
@@ -53,6 +54,8 @@ export type SiteBuildParams = {
 	brief: string;
 	/** Gateway model string, snapshotted on the attempt (e.g. anthropic/claude-fable-5). */
 	model: string;
+	/** Live-progress sink (chat card via run metadata). Best-effort. */
+	onEvent?: (event: BuildProgressEvent) => void;
 	/** Generated images upload under this project's R2 prefix. */
 	projectId: string;
 	/** System prompt snapshotted at queue time — see builder-prompt.ts. */
@@ -173,6 +176,7 @@ function assertMutationAllowed(
 type BuilderToolsParams = {
 	abortSignal?: AbortSignal;
 	attemptId: string;
+	onEvent?: (event: BuildProgressEvent) => void;
 	projectId: string;
 	screenshots: ScreenshotSession;
 	state: BuildLoopState;
@@ -255,6 +259,16 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 	const imageByCall = new Map<string, { base64: string; mediaType: string }>();
 	const shotsByCall = new Map<string, CapturedShot[]>();
 
+	// Progress events feed the chat card; a listener bug must never be able
+	// to fail a tool call, so every emission goes through this shield.
+	const emitEvent = (event: BuildProgressEvent): void => {
+		try {
+			params.onEvent?.(event);
+		} catch {
+			// Progress is best-effort telemetry.
+		}
+	};
+
 	return {
 		animate_image: tool({
 			description:
@@ -306,6 +320,7 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 				}
 
 				log(`animated image ${index}/${MAX_VIDEOS} → ${result.url}`);
+				emitEvent({ type: "video-generated" });
 
 				// The model cannot watch video — the URL text is all it needs, so
 				// no toModelOutput override exists for this tool.
@@ -391,6 +406,7 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 				const written = vfs.write("index.html", content);
 				state.writeRevision += 1;
 				const bytes = Buffer.byteLength(content, "utf-8");
+				emitEvent({ bytes, html: content, kind: "edit", type: "page-written" });
 				const delta =
 					Buffer.byteLength(replace, "utf-8") -
 					Buffer.byteLength(search, "utf-8");
@@ -475,6 +491,7 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 				state.summary = input.summary;
 				state.finishAccepted = true;
 				log("builder declared the page finished");
+				emitEvent({ summary: input.summary, type: "finished" });
 
 				return { accepted: true as const };
 			},
@@ -515,6 +532,7 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 				state.imagesGenerated += 1;
 				state.imageSequence += 1;
 				const index = state.imageSequence;
+				emitEvent({ role, type: "image-start" });
 
 				const result = await generateBuildImage({
 					...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
@@ -538,6 +556,7 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 					mediaType: result.mediaType,
 				});
 				log(`generated image ${index}/${MAX_IMAGES} (${role}) → ${result.url}`);
+				emitEvent({ role, type: "image-generated", url: result.url });
 
 				return {
 					aspect,
@@ -629,6 +648,10 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 				// The captured HTML belongs to this revision even if another tool
 				// call writes a newer revision while Playwright is rendering.
 				const revision = state.writeRevision;
+				emitEvent({
+					pass: state.screenshotPasses + 1,
+					type: "screenshot-start",
+				});
 				let capture: ScreenshotCapture;
 
 				try {
@@ -664,6 +687,14 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 				state.screenshotPasses += 1;
 				state.screenshotRevision = revision;
 				shotsByCall.set(toolCallId, capture.shots);
+				emitEvent({
+					consoleErrors: capture.consoleErrors,
+					failedRequests: capture.failedRequests,
+					overflow: capture.overflow,
+					pass: state.screenshotPasses,
+					shots: capture.shots,
+					type: "screenshot-pass",
+				});
 
 				const desktopShots = capture.shots.filter(
 					(shot) => shot.viewport === "desktop",
@@ -754,8 +785,20 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 				const bytes = Buffer.byteLength(content, "utf-8");
 
 				log(`wrote ${written} (${Math.round(bytes / 1024)} KB)`);
+				emitEvent({
+					bytes,
+					html: content,
+					kind: "write",
+					type: "page-written",
+				});
 
 				return { bytes, path: written };
+			},
+			// Fires when the model STARTS streaming the file content — the one
+			// live signal that the page is being written (the write itself can
+			// stream for minutes before execute ever runs).
+			onInputStart: () => {
+				emitEvent({ type: "write-start" });
 			},
 		}),
 	};
@@ -871,6 +914,7 @@ export async function runSiteBuild(
 			tools: createBuilderTools({
 				abortSignal: params.abortSignal,
 				attemptId: params.attemptId,
+				...(params.onEvent ? { onEvent: params.onEvent } : {}),
 				projectId: params.projectId,
 				screenshots,
 				state,
