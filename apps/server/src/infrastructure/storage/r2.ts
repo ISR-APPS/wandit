@@ -111,6 +111,19 @@ export function siteVideoKey(
 	return `sites/${projectId}/assets/${attemptId}/vid-${index}.${extension}`;
 }
 
+// Review screenshots the build publishes for the chat progress card. Under
+// sites/{id}/shots/ — NOT sites/{id}/assets/ — so the Assets tab's
+// build-asset prefix listing never picks them up as user assets:
+// sites/{project_id}/shots/{attempt_id}/p{pass}-{n}.jpg
+export function siteShotKey(
+	projectId: string,
+	attemptId: string,
+	pass: number,
+	index: number,
+): string {
+	return `sites/${projectId}/shots/${attemptId}/p${pass}-${index}.jpg`;
+}
+
 // Standalone images from the chat's generate_image tool live under their own
 // root — NOT under sites/{id}/assets/, so the Assets tab's build-asset prefix
 // listing never double-counts them:

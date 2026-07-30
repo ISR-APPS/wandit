@@ -34,6 +34,7 @@ export function createAuth(options: CreateAuthOptions = {}) {
 					},
 				}
 			: {}),
+		account: { encryptOAuthTokens: true },
 		database: drizzleAdapter(db, {
 			provider: "pg",
 

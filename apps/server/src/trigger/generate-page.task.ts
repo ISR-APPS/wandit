@@ -15,7 +15,7 @@
 // before any AI/storage SDK can issue a request.
 import "./undici-timeouts";
 
-import { logger, task } from "@trigger.dev/sdk";
+import { logger, metadata, task } from "@trigger.dev/sdk";
 import { and, createDb, desc, eq, gt, inArray } from "@wandit/db";
 import { artifacts, versions } from "@wandit/db/schema/artifacts";
 import { pageGenerationAttempts } from "@wandit/db/schema/page-attempts";
@@ -26,6 +26,7 @@ import {
 	putSiteFile,
 	siteFileKey,
 } from "../infrastructure/storage/r2";
+import { createBuildProgressTracker } from "../modules/ai-chat/agent/site-builder/build-progress";
 import { runSiteBuild } from "../modules/ai-chat/agent/site-builder/site-builder-agent";
 
 // The queue tool snapshots exactly this shape. Non-strict on purpose: rows
@@ -109,20 +110,37 @@ export const generatePageTask = task({
 						"review passes when vision and Playwright are available",
 				);
 
+				// Every run gets a fresh asset namespace. A deliberate retry
+				// can never overwrite images referenced by an older version.
+				const assetNamespace = `${attempt.id}-${crypto.randomUUID()}`;
+
+				// Live progress for the chat card: builder tool events fold into
+				// one metadata object that Realtime pushes to the subscribed card.
+				const progress = createBuildProgressTracker({
+					attemptId: assetNamespace,
+					projectId: attempt.projectId,
+					publish: (snapshot) => {
+						metadata.set("progress", snapshot);
+					},
+				});
+
 				// The build brain: a tool-loop agent writing into a virtual FS.
 				// It validates its own output (index.html present, complete,
 				// non-trivial) and throws human-readable errors on failure.
 				const build = await runSiteBuild({
 					abortSignal: signal,
-					// Every run gets a fresh asset namespace. A deliberate retry
-					// can never overwrite images referenced by an older version.
-					attemptId: `${attempt.id}-${crypto.randomUUID()}`,
+					attemptId: assetNamespace,
 					brief: spec.brief,
 					model: attempt.model,
+					onEvent: progress.emit,
 					projectId: attempt.projectId,
 					system: spec.designerSystemPrompt,
 					title: spec.title,
 				});
+
+				// Terminal shot uploads may still be in flight — settle them so
+				// the final metadata push (done + 100%) lands before completion.
+				await progress.idle();
 
 				signal.throwIfAborted();
 				const versionId = crypto.randomUUID();

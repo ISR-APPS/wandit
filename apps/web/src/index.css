@@ -1,5 +1,10 @@
 @import "@wandit/ui/globals.css";
 
+/* Streamdown (chat markdown renderer) styles itself with Tailwind utility
+   classes; Tailwind only generates classes it can see, so its dist files
+   must be scanned as a content source. Path is relative to THIS css file. */
+@source "../node_modules/streamdown/dist/*.js";
+
 /* Arabic text falls back to a proper Arabic family instead of the system
    default. Overriding the font CSS variables at the :lang(ar) scope cascades
    into every `font-sans` / `font-display` utility. Latin locales keep their

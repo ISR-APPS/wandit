@@ -10,6 +10,8 @@ export * from "./auth";
 export * from "./billing";
 // Chat and message tables.
 export * from "./chats";
+// Connector (MCP) background generation attempt tables.
+export * from "./connector-generation-attempts";
 // Credit ledger tables.
 export * from "./credits";
 // Deployment tables.
@@ -25,6 +27,7 @@ export * from "./lead-sheet-syncs";
 export * from "./leads";
 // Marketing deliverable (HTML asset) tables.
 export * from "./marketing-assets";
+export * from "./mcp-connectors";
 // Image-to-video generation attempt tables.
 export * from "./media-generation-attempts";
 // Payment order tables.

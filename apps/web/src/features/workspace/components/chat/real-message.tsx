@@ -5,9 +5,16 @@
 // no bubble — a 22px ember-gradient avatar + name row over plain body text.
 
 import type { ChatMessage, MessageRole } from "@wandit/contracts";
-import { cn } from "@wandit/ui/lib/utils";
+import remarkBreaks from "remark-breaks";
+import { defaultRemarkPlugins, Streamdown } from "streamdown";
 
 import { Spark } from "@/components/logo";
+
+// Custom remarkPlugins REPLACE Streamdown's defaults (GFM tables included),
+// so re-spread them and append remark-breaks: single newlines become hard
+// breaks (chat convention, and what all the pre-Markdown history written as
+// plain text expects).
+const REMARK_PLUGINS = [...Object.values(defaultRemarkPlugins), remarkBreaks];
 
 /** Concatenate the text of every `{ type: "text", text }` part; ignore rest. */
 export function extractMessageText(parts: ChatMessage["parts"]): string {
@@ -44,10 +51,14 @@ export function RealChatMessage({
 	messageRole,
 	text,
 	isStreaming = false,
+	showHeader = true,
 }: {
 	messageRole: MessageRole;
 	text: string;
 	isStreaming?: boolean;
+	/** In the workspace thread the turn wrapper renders one header for the
+	 * whole message; standalone renders (history, tests) keep their own. */
+	showHeader?: boolean;
 }) {
 	if (!text && !isStreaming) return null;
 
@@ -66,21 +77,21 @@ export function RealChatMessage({
 
 	return (
 		<div>
-			<WanditMessageHeader />
-			<p
+			{showHeader ? <WanditMessageHeader /> : null}
+			<Streamdown
 				dir="auto"
-				className="whitespace-pre-wrap break-words text-[14.5px] text-foreground leading-[1.55]"
+				mode="streaming"
+				isAnimating={isStreaming}
+				caret="block"
+				remarkPlugins={REMARK_PLUGINS}
+				// Long tables cap at ~10 visible rows and scroll internally (the
+				// header stays pinned); the full set lives behind the toolbar's
+				// fullscreen control. Short tables render whole, unchanged. The
+				// fullscreen overlay portals to <body>, outside this scope.
+				className="space-y-2.5 break-words text-[14.5px] text-foreground leading-[1.55] [&_[data-streamdown=table-header]]:sticky [&_[data-streamdown=table-header]]:top-0 [&_[data-streamdown=table-header]]:z-[1] [&_[data-streamdown=table-header]]:bg-muted [&_[data-streamdown=table-header]]:shadow-[0_1px_0_0_var(--color-border)] [&_[data-streamdown=table-wrapper]>div:last-child]:max-h-[420px] [&_ol]:space-y-1 [&_table]:my-1 [&_ul]:space-y-1"
 			>
 				{text}
-				{isStreaming ? (
-					<span
-						aria-hidden
-						className={cn(
-							"ms-0.5 inline-block h-3 w-[2px] translate-y-0.5 animate-caret rounded-full bg-foreground",
-						)}
-					/>
-				) : null}
-			</p>
+			</Streamdown>
 		</div>
 	);
 }

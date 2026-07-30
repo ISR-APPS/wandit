@@ -62,7 +62,10 @@ export class DomainRateLimitGuard implements CanActivate {
 		);
 
 		if (recentHits.length >= options.limit) {
-			this.hits.set(key, { timestamps: recentHits, windowMs: options.windowMs });
+			this.hits.set(key, {
+				timestamps: recentHits,
+				windowMs: options.windowMs,
+			});
 			throw new DomainRateLimitExceededError();
 		}
 

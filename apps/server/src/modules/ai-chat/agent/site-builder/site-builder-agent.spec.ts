@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { z } from "zod";
 
+import type { BuildProgressEvent } from "./build-progress";
 import { generateBuildImage, MAX_IMAGES } from "./generate-image";
 import { generateBuildVideo, MAX_VIDEOS } from "./generate-video";
 import {
@@ -65,6 +66,7 @@ function fakeCapture(): ScreenshotCapture {
 
 function setup(config?: {
 	abortSignal?: AbortSignal;
+	onEvent?: (event: BuildProgressEvent) => void;
 	screenshotRequired?: boolean;
 	screenshots?: ScreenshotSession;
 }) {
@@ -888,5 +890,144 @@ describe("animate_image tool", () => {
 			expect.objectContaining({ index: 2 }),
 		);
 		expect(state.videosGenerated).toBe(1);
+	});
+});
+
+describe("progress events", () => {
+	it("emits the full write → screenshot → finish trail to the listener", async () => {
+		const events: BuildProgressEvent[] = [];
+		const { options, tools } = setup({
+			onEvent: (event) => events.push(event),
+		});
+
+		await tools.write_file.execute?.(
+			{ content: HTML, path: "index.html" },
+			options("w1"),
+		);
+		await tools.read_file.execute?.({ path: "index.html" }, options("r1"));
+		await completeRequiredPasses(tools, options);
+		await tools.read_file.execute?.({ path: "index.html" }, options("r2"));
+		await tools.finish.execute?.({ summary: "warm editorial page" }, options());
+
+		const types = events.map((event) => event.type);
+
+		expect(types[0]).toBe("page-written");
+		expect(events[0]).toMatchObject({ html: HTML, kind: "write" });
+		// Each pass announces itself before its capture lands.
+		expect(types).toContain("screenshot-start");
+		const passEvents = events.filter(
+			(event) => event.type === "screenshot-pass",
+		);
+		expect(passEvents).toHaveLength(REQUIRED_SCREENSHOT_PASSES);
+		expect(passEvents[0]).toMatchObject({
+			overflow: { desktop: 0, mobile: 12 },
+			pass: 1,
+		});
+		expect(
+			passEvents[0]?.type === "screenshot-pass" && passEvents[0].shots.length,
+		).toBe(2);
+		expect(events.at(-1)).toEqual({
+			summary: "warm editorial page",
+			type: "finished",
+		});
+	});
+
+	it("labels an edit as kind edit and a generated image with its url", async () => {
+		const events: BuildProgressEvent[] = [];
+		const { options, tools } = setup({
+			onEvent: (event) => events.push(event),
+		});
+		vi.mocked(generateBuildImage).mockResolvedValue({
+			imageBase64: "aW1n",
+			mediaType: "image/png",
+			status: "generated",
+			url: "https://assets.example.com/sites/project_1/assets/attempt_1/img-1.png",
+		});
+
+		await tools.write_file.execute?.(
+			{
+				content: "<!doctype html><html><body>original</body></html>",
+				path: "index.html",
+			},
+			options("w1"),
+		);
+		await tools.edit_file.execute?.(
+			{ path: "index.html", replace: "revised", search: "original" },
+			options("e1"),
+		);
+		await tools.generate_image.execute?.(IMAGE_INPUT, options("img_1"));
+
+		expect(
+			events.filter((event) => event.type === "page-written"),
+		).toMatchObject([{ kind: "write" }, { kind: "edit" }]);
+		expect(events).toContainEqual({
+			role: "hero background",
+			type: "image-start",
+		});
+		expect(events).toContainEqual({
+			role: "hero background",
+			type: "image-generated",
+			url: "https://assets.example.com/sites/project_1/assets/attempt_1/img-1.png",
+		});
+	});
+
+	it("shields the build from a throwing listener", async () => {
+		const { options, tools, vfs } = setup({
+			onEvent: () => {
+				throw new Error("listener bug");
+			},
+		});
+
+		const output = materialize(
+			await tools.write_file.execute?.(
+				{ content: HTML, path: "index.html" },
+				options("w1"),
+			),
+		);
+
+		expect(output).toMatchObject({ path: "index.html" });
+		expect(vfs.read("index.html")).toBe(HTML);
+	});
+
+	it("emits write-start when the model begins streaming the file", async () => {
+		const events: BuildProgressEvent[] = [];
+		const { options, tools } = setup({
+			onEvent: (event) => events.push(event),
+		});
+
+		await tools.write_file.onInputStart?.(options("w1"));
+
+		expect(events).toEqual([{ type: "write-start" }]);
+	});
+
+	it("emits video-generated for a successful animate_image call", async () => {
+		const events: BuildProgressEvent[] = [];
+		const { options, tools } = setup({
+			onEvent: (event) => events.push(event),
+		});
+		vi.mocked(generateBuildVideo).mockResolvedValue({
+			mediaType: "video/mp4",
+			status: "generated",
+			url: "https://assets.example.com/sites/project_1/assets/attempt_1/vid-1.mp4",
+		});
+
+		await tools.animate_image.execute?.(VIDEO_INPUT, options("vid_1"));
+
+		expect(events).toEqual([{ type: "video-generated" }]);
+	});
+
+	it("does not emit image-generated when the provider fails", async () => {
+		const events: BuildProgressEvent[] = [];
+		const { options, tools } = setup({
+			onEvent: (event) => events.push(event),
+		});
+		vi.mocked(generateBuildImage).mockResolvedValue({
+			message: "gateway exploded",
+			status: "failed",
+		});
+
+		await tools.generate_image.execute?.(IMAGE_INPUT, options("img_1"));
+
+		expect(events.map((event) => event.type)).toEqual(["image-start"]);
 	});
 });

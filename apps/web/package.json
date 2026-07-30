@@ -18,6 +18,7 @@
 		"@tanstack/react-form": "catalog:",
 		"@tanstack/react-query": "^5.101.2",
 		"@tanstack/react-router": "^1.168.22",
+		"@trigger.dev/react-hooks": "4.5.3",
 		"@wandit/contracts": "workspace:*",
 		"@wandit/env": "workspace:*",
 		"@wandit/internationalization": "workspace:*",
@@ -32,7 +33,9 @@
 		"next-themes": "catalog:",
 		"react": "^19.2.7",
 		"react-dom": "^19.2.7",
+		"remark-breaks": "^4.0.0",
 		"sonner": "catalog:",
+		"streamdown": "^2.5.0",
 		"zod": "catalog:"
 	},
 	"devDependencies": {

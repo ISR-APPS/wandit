@@ -1,4 +1,4 @@
-import { tasks } from "@trigger.dev/sdk";
+import { auth, tasks } from "@trigger.dev/sdk";
 import { env } from "@wandit/env/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -22,6 +22,7 @@ vi.mock("../../../../infrastructure/storage/r2", () => ({
 }));
 
 vi.mock("@trigger.dev/sdk", () => ({
+	auth: { createPublicToken: vi.fn() },
 	tasks: { trigger: vi.fn() },
 }));
 
@@ -79,6 +80,9 @@ beforeEach(() => {
 	mutableEnv.AI_PAGE_BUILDER_MODEL = "test-provider/test-builder-model";
 	vi.mocked(isR2Configured).mockReset();
 	vi.mocked(tasks.trigger).mockReset();
+	vi.mocked(auth.createPublicToken).mockReset();
+	// Default: minting fails softly, like a server without Realtime access.
+	vi.mocked(auth.createPublicToken).mockRejectedValue(new Error("no realtime"));
 });
 
 describe("generate_page tool", () => {
@@ -105,6 +109,7 @@ describe("generate_page tool", () => {
 		vi.mocked(tasks.trigger).mockResolvedValue({
 			id: "run_123",
 		} as Awaited<ReturnType<typeof tasks.trigger>>);
+		vi.mocked(auth.createPublicToken).mockResolvedValue("tok_read");
 
 		const output = await execute(INPUT);
 
@@ -126,11 +131,39 @@ describe("generate_page tool", () => {
 			"attempt_1",
 			"run_123",
 		);
+		expect(auth.createPublicToken).toHaveBeenCalledWith({
+			expirationTime: "2h",
+			scopes: { read: { runs: ["run_123"] } },
+		});
 		expect(output).toMatchObject({
 			attemptId: "attempt_1",
+			realtime: { publicAccessToken: "tok_read", runId: "run_123" },
 			status: "queued",
 			versionNumber: 1,
 		});
+	});
+
+	it("still queues (without a realtime handle) when token minting fails", async () => {
+		const { execute, pagesRepository } = setup();
+		vi.mocked(isR2Configured).mockReturnValue(true);
+		pagesRepository.findOrCreateLandingArtifact.mockResolvedValue({
+			activeVersionId: null,
+			id: "artifact_1",
+		});
+		pagesRepository.insertAttempt.mockResolvedValue({ id: "attempt_1" });
+		pagesRepository.nextVersionNumber.mockResolvedValue(1);
+		vi.mocked(tasks.trigger).mockResolvedValue({
+			id: "run_123",
+		} as Awaited<ReturnType<typeof tasks.trigger>>);
+		vi.mocked(auth.createPublicToken).mockRejectedValue(
+			new Error("realtime down"),
+		);
+
+		const output = await execute(INPUT);
+
+		expect(output).toMatchObject({ status: "queued", versionNumber: 1 });
+		expect(output).not.toHaveProperty("realtime");
+		expect(pagesRepository.markAttemptFailed).not.toHaveBeenCalled();
 	});
 
 	it("appends the chosen design world's doc to the prompt snapshot", async () => {

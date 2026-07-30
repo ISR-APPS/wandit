@@ -190,6 +190,387 @@
 		"placeholder": "Décris un changement…",
 		"thinking": "Réflexion…",
 		"generating": "Génération",
+		"mcpTool": {
+			"workingWith": "Utilisation de tes outils",
+			"running": "En cours…",
+			"approvalTitle": "Cette action nécessite ton approbation.",
+			"wantsTo": "Wandit veut : {action} · {connector}",
+			"approve": "Approuver",
+			"deny": "Refuser",
+			"approved": "Approuvé",
+			"denied": "Refusé",
+			"expired": "Approbation expirée",
+			"waiting": "En attente de reprise…",
+			"error": "Erreur",
+			"result": "Résultat",
+			"searchingToolCatalog": "Recherche dans le catalogue d’outils",
+			"searchedToolCatalog": "Recherche effectuée dans le catalogue d’outils",
+			"readingToolDetails": "Lecture des détails de l’outil",
+			"readToolDetails": "Détails de l’outil consultés",
+			"showDetails": "Afficher les détails",
+			"hideDetails": "Masquer les détails",
+			"actionCount": "{count} actions",
+			"usedTool": "1 outil utilisé",
+			"usedTools": "{count} outils utilisés",
+			"progressOf": "{done} sur {total}",
+			"genericLabels": {
+				"fetch": {
+					"active": "Lecture des données",
+					"past": "Données consultées"
+				},
+				"create": {
+					"active": "Création",
+					"past": "Création effectuée"
+				},
+				"update": {
+					"active": "Modification",
+					"past": "Modification effectuée"
+				},
+				"delete": {
+					"active": "Suppression",
+					"past": "Suppression effectuée"
+				},
+				"publish": {
+					"active": "Publication",
+					"past": "Publication effectuée"
+				},
+				"send": {
+					"active": "Envoi",
+					"past": "Envoi effectué"
+				},
+				"generate": {
+					"active": "Génération",
+					"past": "Génération effectuée"
+				},
+				"other": {
+					"active": "Action sur la plateforme",
+					"past": "Action effectuée"
+				}
+			},
+			"toolLabels": {
+				"media_upload": {
+					"active": "Envoi de tes médias",
+					"past": "Médias envoyés"
+				},
+				"media_upload_widget": {
+					"active": "Ouverture de la fenêtre média",
+					"past": "Fenêtre média ouverte"
+				},
+				"media_import_url": {
+					"active": "Import depuis un lien",
+					"past": "Média importé depuis un lien"
+				},
+				"media_confirm": {
+					"active": "Validation de l’envoi",
+					"past": "Envoi validé"
+				},
+				"select_workspace": {
+					"active": "Sélection de ton espace",
+					"past": "Espace sélectionné"
+				},
+				"generate_image": {
+					"active": "Création de l’image",
+					"past": "Image créée"
+				},
+				"generate_video": {
+					"active": "Création de la vidéo",
+					"past": "Vidéo créée"
+				},
+				"generate_audio": {
+					"active": "Création de l’audio",
+					"past": "Audio créé"
+				},
+				"generate_3d": {
+					"active": "Création du modèle 3D",
+					"past": "Modèle 3D créé"
+				},
+				"animation_actions": {
+					"active": "Chargement des animations 3D",
+					"past": "Animations 3D chargées"
+				},
+				"outpaint_image": {
+					"active": "Extension de l’image",
+					"past": "Image étendue"
+				},
+				"reframe": {
+					"active": "Recadrage de la vidéo",
+					"past": "Vidéo recadrée"
+				},
+				"remove_background": {
+					"active": "Suppression de l’arrière-plan",
+					"past": "Arrière-plan supprimé"
+				},
+				"upscale_image": {
+					"active": "Amélioration de l’image",
+					"past": "Image améliorée"
+				},
+				"upscale_video": {
+					"active": "Amélioration de la vidéo",
+					"past": "Vidéo améliorée"
+				},
+				"motion_control": {
+					"active": "Ajout de mouvement",
+					"past": "Mouvement ajouté"
+				},
+				"voice_change": {
+					"active": "Changement de voix",
+					"past": "Voix modifiée"
+				},
+				"dubbing": {
+					"active": "Doublage de la vidéo",
+					"past": "Vidéo doublée"
+				},
+				"models_explore": {
+					"active": "Exploration des styles",
+					"past": "Styles explorés"
+				},
+				"job_status": {
+					"active": "Suivi de la progression",
+					"past": "Progression vérifiée"
+				},
+				"job_display": {
+					"active": "Affichage de la création",
+					"past": "Création affichée"
+				},
+				"show_generations": {
+					"active": "Chargement de tes créations",
+					"past": "Créations chargées"
+				},
+				"ads_get_ad_accounts": {
+					"active": "Récupération des comptes pub",
+					"past": "Comptes pub récupérés"
+				},
+				"ads_get_ad_entities": {
+					"active": "Recherche de campagnes et pubs",
+					"past": "Campagnes et pubs trouvées"
+				},
+				"ads_entity_get_report": {
+					"active": "Récupération du rapport pub",
+					"past": "Rapport pub récupéré"
+				},
+				"ads_insights_performance_trend": {
+					"active": "Analyse des tendances",
+					"past": "Tendances analysées"
+				},
+				"ads_insights_advertiser_context": {
+					"active": "Analyse du compte publicitaire",
+					"past": "Compte publicitaire analysé"
+				},
+				"ads_get_ad_preview": {
+					"active": "Chargement de l’aperçu pub",
+					"past": "Aperçu pub chargé"
+				},
+				"ads_get_creatives": {
+					"active": "Récupération des visuels pub",
+					"past": "Visuels pub récupérés"
+				},
+				"ads_get_ad_account_pages": {
+					"active": "Récupération des Pages liées",
+					"past": "Pages liées récupérées"
+				},
+				"ads_get_ig_accounts": {
+					"active": "Chargement des comptes Instagram",
+					"past": "Comptes Instagram chargés"
+				},
+				"ads_get_ad_account_custom_audiences": {
+					"active": "Chargement des audiences perso",
+					"past": "Audiences perso chargées"
+				},
+				"ads_get_errors": {
+					"active": "Vérification des problèmes pub",
+					"past": "Problèmes pub vérifiés"
+				},
+				"ads_library_search": {
+					"active": "Recherche dans la bibliothèque",
+					"past": "Bibliothèque consultée"
+				},
+				"ads_get_field_context": {
+					"active": "Lecture des indicateurs pub",
+					"past": "Indicateurs pub consultés"
+				},
+				"advertiser_info_get": {
+					"active": "Lecture des infos de l’annonceur",
+					"past": "Infos de l’annonceur consultées"
+				},
+				"auth_advertiser_get": {
+					"active": "Vérification des comptes liés",
+					"past": "Comptes liés vérifiés"
+				},
+				"report_integrated_get": {
+					"active": "Récupération du rapport",
+					"past": "Rapport récupéré"
+				},
+				"identity_get": {
+					"active": "Chargement des profils TikTok",
+					"past": "Profils TikTok chargés"
+				},
+				"page_get": {
+					"active": "Chargement des Instant Pages",
+					"past": "Instant Pages chargées"
+				},
+				"pixel_list_get": {
+					"active": "Chargement des pixels de suivi",
+					"past": "Pixels de suivi chargés"
+				},
+				"dmp_custom_audience_list_get": {
+					"active": "Chargement des audiences perso",
+					"past": "Audiences perso chargées"
+				},
+				"smart_plus_campaign_get": {
+					"active": "Chargement des campagnes Smart+",
+					"past": "Campagnes Smart+ chargées"
+				},
+				"ads_create_campaign": {
+					"active": "Création de la campagne",
+					"past": "Campagne créée"
+				},
+				"ads_create_ad_set": {
+					"active": "Création de l’ensemble de pubs",
+					"past": "Ensemble de pubs créé"
+				},
+				"ads_create_ad": {
+					"active": "Création de la pub",
+					"past": "Pub créée"
+				},
+				"ads_create_creative": {
+					"active": "Création du visuel pub",
+					"past": "Visuel pub créé"
+				},
+				"ads_create_custom_audience": {
+					"active": "Création de l’audience perso",
+					"past": "Audience perso créée"
+				},
+				"ads_update_entity": {
+					"active": "Modification de campagne ou de pub",
+					"past": "Campagne ou pub modifiée"
+				},
+				"ads_update_custom_audience": {
+					"active": "Modification de l’audience perso",
+					"past": "Audience perso modifiée"
+				},
+				"smart_plus_campaign_create": {
+					"active": "Création de la campagne Smart+",
+					"past": "Campagne Smart+ créée"
+				},
+				"smart_plus_campaign_update": {
+					"active": "Modification de la campagne Smart+",
+					"past": "Campagne Smart+ modifiée"
+				},
+				"smart_plus_campaign_status_update": {
+					"active": "Activation/pause de campagne Smart+",
+					"past": "Campagne Smart+ activée ou en pause"
+				},
+				"smart_plus_adgroup_create": {
+					"active": "Création du groupe de pubs Smart+",
+					"past": "Groupe de pubs Smart+ créé"
+				},
+				"smart_plus_adgroup_update": {
+					"active": "Modification du groupe Smart+",
+					"past": "Groupe de pubs Smart+ modifié"
+				},
+				"smart_plus_adgroup_status_update": {
+					"active": "Activation/pause du groupe Smart+",
+					"past": "Groupe Smart+ activé ou en pause"
+				},
+				"smart_plus_adgroup_budget_update": {
+					"active": "Réglage du budget du groupe Smart+",
+					"past": "Budget du groupe Smart+ modifié"
+				},
+				"smart_plus_ad_create": {
+					"active": "Création de la pub Smart+",
+					"past": "Pub Smart+ créée"
+				},
+				"smart_plus_ad_update": {
+					"active": "Modification de la pub Smart+",
+					"past": "Pub Smart+ modifiée"
+				},
+				"smart_plus_ad_status_update": {
+					"active": "Activation/pause de la pub Smart+",
+					"past": "Pub Smart+ activée ou mise en pause"
+				},
+				"smart_plus_ad_get": {
+					"active": "Lecture de la pub Smart+",
+					"past": "Pub Smart+ consultée"
+				},
+				"smart_plus_adgroup_get": {
+					"active": "Lecture du groupe de pubs Smart+",
+					"past": "Groupe de pubs Smart+ consulté"
+				},
+				"campaign_get": {
+					"active": "Lecture de la campagne",
+					"past": "Campagne consultée"
+				},
+				"campaign_create": {
+					"active": "Création de la campagne",
+					"past": "Campagne créée"
+				},
+				"campaign_update": {
+					"active": "Modification de la campagne",
+					"past": "Campagne modifiée"
+				},
+				"campaign_status_update": {
+					"active": "Activation/pause de la campagne",
+					"past": "Campagne activée ou mise en pause"
+				},
+				"adgroup_get": {
+					"active": "Lecture du groupe de pubs",
+					"past": "Groupe de pubs consulté"
+				},
+				"adgroup_create": {
+					"active": "Création du groupe de pubs",
+					"past": "Groupe de pubs créé"
+				},
+				"adgroup_update": {
+					"active": "Modification du groupe de pubs",
+					"past": "Groupe de pubs modifié"
+				},
+				"adgroup_status_update": {
+					"active": "Activation/pause du groupe de pubs",
+					"past": "Groupe de pubs activé ou en pause"
+				},
+				"ad_get": {
+					"active": "Lecture de la pub",
+					"past": "Pub consultée"
+				},
+				"ad_create": {
+					"active": "Création de la pub",
+					"past": "Pub créée"
+				},
+				"ad_update": {
+					"active": "Modification de la pub",
+					"past": "Pub modifiée"
+				},
+				"ad_status_update": {
+					"active": "Activation/pause de la pub",
+					"past": "Pub activée ou mise en pause"
+				}
+			},
+			"stepFailed": "Cette étape a échoué",
+			"interrupted": "Interrompu",
+			"skippedDeclined": "Étape ignorée — tu as refusé",
+			"arguments": "Arguments",
+			"generation": {
+				"working": "Génération du média en cours…",
+				"workingHint": "Le fournisseur s'en occupe. Il n'annonce pas sa progression pendant le rendu — le résultat apparaîtra ici dès qu'il est prêt.",
+				"ready": "Média prêt",
+				"noMedia": "Génération terminée, mais aucun fichier à afficher ici — vérifie ton compte connecté.",
+				"failed": "La génération a échoué",
+				"stoppedEarly": "La génération s'est arrêtée avant la fin.",
+				"statusLoadError": "Impossible de charger l'état de la génération — rouvre cette conversation pour réessayer.",
+				"statusQueued": "En file",
+				"statusGenerating": "Génération",
+				"usually": "généralement 2–4 min"
+			}
+		},
+		"askUser": {
+			"questionsTitle": "Quelques questions",
+			"answerBelow": "Réponds ci-dessous ↓",
+			"upNext": "À suivre",
+			"pickedForYou": "Wandit a choisi pour toi",
+			"skipped": "Ignorée",
+			"questionCount": "{count} questions",
+			"answeredCount": "{answered}/{total} répondues"
+		},
 		"animateImage": {
 			"preparing": "Préparation de l’animation de ton image…",
 			"queueing": "Mise en file de l’animation…",
@@ -252,7 +633,13 @@
 			"buildingKicker": "Création de ton asset marketing",
 			"building": "L’asset se prépare — il apparaîtra dans l’onglet Marketing.",
 			"buildingNamed": "« {title} » se prépare — il apparaîtra dans l’onglet Marketing.",
-			"openTab": "Voir dans l’onglet Marketing"
+			"openTab": "Voir dans l’onglet Marketing",
+			"readyKicker": "Asset marketing prêt",
+			"ready": "L’asset est prêt dans l’onglet Marketing.",
+			"readyNamed": "« {title} » est prêt dans l’onglet Marketing.",
+			"failedKicker": "La génération a échoué",
+			"failedBody": "La génération s’est arrêtée avant la fin — demande une nouvelle tentative.",
+			"missing": "Cet asset n’est plus dans l’onglet Marketing."
 		},
 		"generateImage": {
 			"preparing": "Préparation de tes images…",
@@ -267,6 +654,12 @@
 			"readyTitle": "Images prêtes",
 			"download": "Télécharger",
 			"inAssetsTab": "Aussi disponible dans l’onglet Médias"
+		},
+		"media": {
+			"close": "Fermer",
+			"download": "Télécharger",
+			"previous": "Précédent",
+			"next": "Suivant"
 		}
 	},
 	"page": {
