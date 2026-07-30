@@ -124,6 +124,80 @@ export async function editImageFromSources(params: {
 	}
 }
 
+/**
+ * Nano-banana-class Gemini image models are LANGUAGE models on the gateway —
+ * generateImage refuses them outright ("is a language model, not an image
+ * model"); their images come back through generateText's result.files, the
+ * same contract the edit path uses. Google's true image models (imagen-*)
+ * stay on the image API.
+ */
+function isLanguageImageModel(model: string): boolean {
+	return model.startsWith("google/gemini-");
+}
+
+/**
+ * Text-to-image through whichever API shape the configured model requires.
+ * Shared by the standalone generator and the site builder's in-build tool.
+ * Never throws; a failed generation is a normal result the caller degrades on.
+ */
+export async function generateImageFromPrompt(params: {
+	abortSignal?: AbortSignal;
+	/** Free aspect ratio for language image models (e.g. "2:3"). */
+	aspect: string;
+	model: string;
+	prompt: string;
+	/** Exact canvas for gpt-image-class models (e.g. "1024x1536"). */
+	size: "1024x1024" | "1024x1536" | "1536x1024";
+}): Promise<EditImageResult> {
+	try {
+		if (isLanguageImageModel(params.model)) {
+			const result = await generateText({
+				...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
+				model: params.model,
+				prompt: params.prompt,
+				providerOptions: {
+					google: { imageConfig: { aspectRatio: params.aspect } },
+				},
+			});
+
+			const file = result.files.find((candidate) =>
+				candidate.mediaType.startsWith("image/"),
+			);
+
+			if (!file) {
+				return {
+					message: "the image model returned no image",
+					status: "failed",
+				};
+			}
+
+			return {
+				mediaType: file.mediaType,
+				status: "generated",
+				uint8Array: file.uint8Array,
+			};
+		}
+
+		const { image } = await generateImage({
+			...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
+			model: params.model,
+			prompt: params.prompt,
+			size: params.size,
+		});
+
+		return {
+			mediaType: image.mediaType,
+			status: "generated",
+			uint8Array: image.uint8Array,
+		};
+	} catch (error) {
+		return {
+			message: error instanceof Error ? error.message : String(error),
+			status: "failed",
+		};
+	}
+}
+
 export type GeneratedStandaloneImage =
 	| { message: string; status: "failed" | "unavailable" }
 	| { mediaType: string; status: "generated"; url: string };
@@ -164,15 +238,20 @@ export async function generateStandaloneImage(params: {
 			mediaType = edited.mediaType;
 			bytes = edited.uint8Array;
 		} else {
-			const { image } = await generateImage({
+			const generated = await generateImageFromPrompt({
 				...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
+				aspect: params.aspect,
 				model: env.AI_IMAGE_MODEL,
 				prompt: params.prompt,
 				size: STANDALONE_SIZE_BY_ASPECT[params.aspect],
 			});
 
-			mediaType = image.mediaType;
-			bytes = image.uint8Array;
+			if (generated.status !== "generated") {
+				return { message: generated.message, status: "failed" };
+			}
+
+			mediaType = generated.mediaType;
+			bytes = generated.uint8Array;
 		}
 
 		const extension = EXTENSION_BY_MEDIA_TYPE[mediaType] ?? "png";

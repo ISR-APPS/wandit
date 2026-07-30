@@ -18,7 +18,7 @@ export function useGrantCreditsMutation() {
 
 	return useMutation({
 		mutationFn: (input: GrantUserCreditsInput) => grantUserCredits(input),
-		onSuccess: (user) => syncUserQueries(queryClient, user.id, user),
+		onSuccess: (user) => syncUserQueries(queryClient, user),
 	});
 }
 
@@ -27,7 +27,7 @@ export function useChangeUserRoleMutation() {
 
 	return useMutation({
 		mutationFn: (input: ChangeUserRoleInput) => changeUserRole(input),
-		onSuccess: (user) => syncUserQueries(queryClient, user.id, user),
+		onSuccess: (user) => syncUserQueries(queryClient, user),
 	});
 }
 
@@ -36,18 +36,16 @@ export function useSetUserBannedMutation() {
 
 	return useMutation({
 		mutationFn: (input: SetUserBannedInput) => setUserBanned(input),
-		onSuccess: (user) => syncUserQueries(queryClient, user.id, user),
+		onSuccess: (user) => syncUserQueries(queryClient, user),
 	});
 }
 
 function syncUserQueries(
 	queryClient: ReturnType<typeof useQueryClient>,
-	userId: string,
 	user: UserDetail,
 ) {
-	queryClient.setQueryData(userKeys.detail(userId), user);
+	queryClient.setQueryData(userKeys.detail(user.id), user);
 	void queryClient.invalidateQueries({ queryKey: userKeys.lists() });
-	void queryClient.invalidateQueries({ queryKey: userKeys.detail(userId) });
 }
 
 export const useGrantUserCredits = useGrantCreditsMutation;

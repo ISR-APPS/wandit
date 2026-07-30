@@ -4,6 +4,7 @@ import * as schema from "@wandit/db/schema/auth";
 import { env } from "@wandit/env/server";
 import { betterAuth, type User } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
+import { admin } from "better-auth/plugins";
 
 export type CreateAuthOptions = {
 	onUserCreated?: (user: User) => void | Promise<void>;
@@ -38,8 +39,35 @@ export function createAuth(options: CreateAuthOptions = {}) {
 
 			schema: schema,
 		}),
+		// The admin plugin is kept for its schema fields (role/banned/banExpires)
+		// and its banned-user session hook, but every HTTP route it mounts is taken
+		// off the wire: those are served by our @Public() catch-all auth controller,
+		// so they bypass the AdminGuard, the AdminUsersService invariants
+		// (self-role-change block, admins-cannot-be-banned) and the audit log.
+		// Better Auth answers 404 in onRequest before routing; server-side
+		// `auth.api.*` calls are unaffected. Enumerated from
+		// better-auth/dist/plugins/admin/routes.mjs — keep in sync on upgrades.
+		disabledPaths: [
+			"/admin/set-role",
+			"/admin/get-user",
+			"/admin/create-user",
+			"/admin/update-user",
+			"/admin/list-users",
+			"/admin/list-user-sessions",
+			"/admin/unban-user",
+			"/admin/ban-user",
+			"/admin/impersonate-user",
+			"/admin/stop-impersonating",
+			"/admin/revoke-user-session",
+			"/admin/revoke-user-sessions",
+			"/admin/remove-user",
+			"/admin/set-user-password",
+			"/admin/has-permission",
+		],
 		trustedOrigins: [
 			env.CORS_ORIGIN,
+			// Admin dashboard origin (apps/admin); only set where the admin runs.
+			...(env.ADMIN_ORIGIN ? [env.ADMIN_ORIGIN] : []),
 			"wandit://",
 			"exp://",
 			"http://localhost:8081",
@@ -69,7 +97,7 @@ export function createAuth(options: CreateAuthOptions = {}) {
 				},
 			},
 		},
-		plugins: [expo()],
+		plugins: [expo(), admin({ defaultRole: "user", adminRoles: ["admin"] })],
 	});
 }
 

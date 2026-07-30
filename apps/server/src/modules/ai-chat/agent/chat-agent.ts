@@ -29,10 +29,10 @@ import {
 	type GeneratePageToolDeps,
 	generatePageToolSchemaOnly,
 } from "./tools/generate-page.tool";
-import {
-	getDirectionCandidatesTool,
-	getDirectionCandidatesToolSchemaOnly,
-} from "./tools/get-direction-candidates.tool";
+// EXPERIMENT (2026-07-27): worlds OFF again — the live tool is unplugged and
+// the brain invents the whole art direction itself. The schema-only twin
+// stays so chats that used the tool still validate.
+import { getDirectionCandidatesToolSchemaOnly } from "./tools/get-direction-candidates.tool";
 import {
 	createPageEditTools,
 	type PageEditTools,
@@ -52,7 +52,6 @@ type AiChatToolSet = {
 	generate_image: GenerateImageTool;
 	generate_marketing_asset: GenerateMarketingAssetTool;
 	generate_page: GeneratePageTool;
-	get_direction_candidates: typeof getDirectionCandidatesTool;
 	scrape_leads: ScrapeLeadsTool;
 	get_page_outline: PageEditTools["get_page_outline"];
 	read_section: PageEditTools["read_section"];
@@ -90,9 +89,10 @@ export function createChatAgent(
 		providerOptions: {
 			// Anthropic's fine-grained tool streaming can emit unvalidated JSON.
 			anthropic: { toolStreaming: false },
-			// Gemini 3 thinking level — only Google models read this key;
-			// every other provider ignores it.
-			google: { thinkingConfig: { thinkingLevel: "high" } },
+			// Gemini thinking level — only Google models read this key; every
+			// other provider ignores it. MEDIUM: the launch-window compromise
+			// between snappy chat replies and brief quality (2026-07-26).
+			google: { thinkingConfig: { thinkingLevel: "medium" } },
 			// The brief IS the product: the brain must reason hard when it
 			// composes one. Only OpenAI models read this key.
 			openai: { reasoningEffort: "high" },
@@ -130,11 +130,11 @@ export function createChatAgent(
 				userId: deps.userId,
 			}),
 			generate_page: createGeneratePageTool({
+				builderModel: deps.builderModel,
 				chatId: deps.chatId,
 				pagesRepository: deps.pagesRepository,
 				projectId: deps.projectId,
 			}),
-			get_direction_candidates: getDirectionCandidatesTool,
 			scrape_leads: createScrapeLeadsTool({
 				chatId: deps.chatId,
 				leadScrapesRepository: deps.leadScrapesRepository,

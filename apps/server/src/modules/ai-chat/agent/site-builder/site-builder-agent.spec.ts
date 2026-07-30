@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { z } from "zod";
 
 import { generateBuildImage, MAX_IMAGES } from "./generate-image";
 import { generateBuildVideo, MAX_VIDEOS } from "./generate-video";
@@ -11,6 +12,7 @@ import {
 	buildStopConditions,
 	createBuilderTools,
 	createBuildLoopState,
+	REQUIRED_SCREENSHOT_PASSES,
 } from "./site-builder-agent";
 import { VirtualFileSystem } from "./virtual-files";
 
@@ -91,6 +93,18 @@ function setup(config?: {
 		({ messages: [], toolCallId }) as never;
 
 	return { options, screenshots, state, tools, vfs };
+}
+
+// Complete the minimum screenshot passes the finish gate requires — keeps
+// these specs valid whatever REQUIRED_SCREENSHOT_PASSES is tuned to.
+async function completeRequiredPasses(
+	tools: ReturnType<typeof setup>["tools"],
+	options: ReturnType<typeof setup>["options"],
+	prefix = "shot",
+) {
+	for (let i = 1; i <= REQUIRED_SCREENSHOT_PASSES; i += 1) {
+		await tools.screenshot_page.execute?.({}, options(`${prefix}_${i}`));
+	}
 }
 
 // Tool execute types allow streamed AsyncIterable outputs; these tools never
@@ -215,6 +229,24 @@ describe("screenshot_page", () => {
 		]);
 	});
 
+	it("does not credit a review pass when the browser returns zero shots", async () => {
+		const screenshots: ScreenshotSession = {
+			capture: vi.fn().mockResolvedValue({ ...fakeCapture(), shots: [] }),
+			dispose: vi.fn(),
+		};
+		const { options, state, tools } = setup({ screenshots });
+		await tools.write_file.execute?.(
+			{ content: HTML, path: "index.html" },
+			options(),
+		);
+
+		const output = await tools.screenshot_page.execute?.({}, options("shot_1"));
+
+		expect(output).toMatchObject({ refused: true });
+		expect(state.screenshotPasses).toBe(0);
+		expect(state.screenshotRevision).toBe(0);
+	});
+
 	it("does not credit an older capture to a write made while it renders", async () => {
 		let resolveCapture: (capture: ScreenshotCapture) => void = () => undefined;
 		const pendingCapture = new Promise<ScreenshotCapture>((resolve) => {
@@ -241,6 +273,8 @@ describe("screenshot_page", () => {
 		expect(state.screenshotRevision).toBe(1);
 		expect(state.writeRevision).toBe(2);
 		await tools.read_file.execute?.({ path: "index.html" }, options());
+		// Which refusal branch fires depends on REQUIRED_SCREENSHOT_PASSES;
+		// both demand a fresh screenshot_page call, which is the point here.
 		await expect(
 			tools.finish.execute?.({ summary: "Old capture." }, options()),
 		).resolves.toMatchObject({
@@ -279,6 +313,242 @@ describe("screenshot_page", () => {
 	});
 });
 
+describe("edit_file guard", () => {
+	it("refuses to edit before the first draft exists", async () => {
+		const { options, tools } = setup();
+
+		await expect(
+			tools.edit_file.execute?.(
+				{ path: "index.html", replace: "b", search: "a" },
+				options(),
+			),
+		).rejects.toThrow(/write_file/);
+	});
+
+	it("refuses any path other than index.html", async () => {
+		const { options, tools } = setup();
+		await tools.write_file.execute?.(
+			{ content: HTML, path: "index.html" },
+			options(),
+		);
+
+		await expect(
+			tools.edit_file.execute?.(
+				{ path: "styles.css", replace: "b", search: "a" },
+				options(),
+			),
+		).rejects.toThrow(/exactly ONE file/);
+	});
+
+	it("accepts the ./index.html spelling like write_file does", async () => {
+		const { options, tools, vfs } = setup();
+		await tools.write_file.execute?.(
+			{ content: HTML, path: "index.html" },
+			options(),
+		);
+
+		await expect(
+			tools.edit_file.execute?.(
+				{ path: "./index.html", replace: "site", search: "page" },
+				options(),
+			),
+		).resolves.toMatchObject({ path: "index.html" });
+		expect(vfs.read("index.html")).toBe(HTML.replace("page", "site"));
+	});
+
+	it("refuses a search that matches nothing, without any side effect", async () => {
+		const { options, state, tools, vfs } = setup();
+		await tools.write_file.execute?.(
+			{ content: HTML, path: "index.html" },
+			options(),
+		);
+
+		await expect(
+			tools.edit_file.execute?.(
+				{ path: "index.html", replace: "x", search: "not-in-the-file" },
+				options(),
+			),
+		).rejects.toThrow(/not found/);
+		expect(vfs.read("index.html")).toBe(HTML);
+		expect(state.writeRevision).toBe(1);
+	});
+
+	it("refuses an identical search and replace, without any side effect", async () => {
+		const { options, state, tools, vfs } = setup();
+		await tools.write_file.execute?.(
+			{ content: HTML, path: "index.html" },
+			options(),
+		);
+
+		await expect(
+			tools.edit_file.execute?.(
+				{ path: "index.html", replace: "page", search: "page" },
+				options(),
+			),
+		).rejects.toThrow(/identical/);
+		expect(vfs.read("index.html")).toBe(HTML);
+		expect(state.writeRevision).toBe(1);
+	});
+
+	it("refuses an ambiguous search that matches more than once", async () => {
+		const { options, state, tools, vfs } = setup();
+		const content = "<p>twice</p><p>twice</p>";
+		await tools.write_file.execute?.(
+			{ content, path: "index.html" },
+			options(),
+		);
+
+		await expect(
+			tools.edit_file.execute?.(
+				{ path: "index.html", replace: "once", search: "twice" },
+				options(),
+			),
+		).rejects.toThrow(/2 times/);
+		expect(vfs.read("index.html")).toBe(content);
+		expect(state.writeRevision).toBe(1);
+	});
+
+	it("counts OVERLAPPING occurrences as ambiguous too", async () => {
+		const { options, state, tools, vfs } = setup();
+		// "</div></div>" occurs at two (overlapping) positions here; a
+		// split-based count would see one and silently edit the wrong spot.
+		const content = "<div><div><p>x</p></div></div></div>";
+		await tools.write_file.execute?.(
+			{ content, path: "index.html" },
+			options(),
+		);
+
+		await expect(
+			tools.edit_file.execute?.(
+				{
+					path: "index.html",
+					replace: "<aside>new</aside></div></div>",
+					search: "</div></div>",
+				},
+				options(),
+			),
+		).rejects.toThrow(/2 times/);
+		expect(vfs.read("index.html")).toBe(content);
+		expect(state.writeRevision).toBe(1);
+	});
+
+	it("applies a unique edit, keeps $-patterns literal, and returns exact utf-8 bytes", async () => {
+		const { options, state, tools, vfs } = setup();
+		await tools.write_file.execute?.(
+			{ content: "<h1>Old title</h1><p>rest</p>", path: "index.html" },
+			options(),
+		);
+
+		const output = materialize(
+			await tools.edit_file.execute?.(
+				// $& would expand to the matched text under naive String.replace;
+				// the accented chars pin byte accounting to utf-8, not .length.
+				{
+					path: "index.html",
+					replace: "<h1>Prix élevé $&99</h1>",
+					search: "<h1>Old title</h1>",
+				},
+				options(),
+			),
+		);
+
+		const expected = "<h1>Prix élevé $&99</h1><p>rest</p>";
+		expect(output.path).toBe("index.html");
+		expect(output.bytes).toBe(Buffer.byteLength(expected, "utf-8"));
+		expect(vfs.read("index.html")).toBe(expected);
+		expect(state.writeRevision).toBe(2);
+	});
+
+	it("deletes a snippet when replace is empty — and the schema allows it", async () => {
+		const { options, state, tools, vfs } = setup();
+		await tools.write_file.execute?.(
+			{ content: HTML, path: "index.html" },
+			options(),
+		);
+
+		// The Tool type erases the zod schema; at runtime it IS the zod object.
+		expect(
+			(tools.edit_file.inputSchema as z.ZodType).safeParse({
+				path: "index.html",
+				replace: "",
+				search: "page",
+			}).success,
+		).toBe(true);
+
+		await tools.edit_file.execute?.(
+			{ path: "index.html", replace: "", search: "page" },
+			options(),
+		);
+
+		expect(vfs.read("index.html")).toBe(HTML.replace("page", ""));
+		expect(state.writeRevision).toBe(2);
+	});
+
+	it("seals the build: no write or edit is possible after an accepted finish", async () => {
+		const { options, state, tools, vfs } = setup();
+		await tools.write_file.execute?.(
+			{ content: HTML, path: "index.html" },
+			options(),
+		);
+		await tools.read_file.execute?.({ path: "index.html" }, options());
+		await completeRequiredPasses(tools, options);
+		await expect(
+			tools.finish.execute?.({ summary: "Done." }, options()),
+		).resolves.toEqual({ accepted: true });
+
+		// A [finish, edit_file] step must not mutate the published snapshot.
+		await expect(
+			tools.edit_file.execute?.(
+				{ path: "index.html", replace: "sneaky", search: "page" },
+				options(),
+			),
+		).rejects.toThrow(/sealed/);
+		await expect(
+			tools.write_file.execute?.(
+				{ content: "<p>replaced wholesale</p>", path: "index.html" },
+				options(),
+			),
+		).rejects.toThrow(/sealed/);
+		expect(vfs.read("index.html")).toBe(HTML);
+		expect(state.writeRevision).toBe(1);
+	});
+
+	it("an edit invalidates the review: finish demands a fresh re-read and screenshot", async () => {
+		const { options, tools } = setup();
+		await tools.write_file.execute?.(
+			{ content: HTML, path: "index.html" },
+			options(),
+		);
+		await tools.read_file.execute?.({ path: "index.html" }, options());
+		await completeRequiredPasses(tools, options);
+
+		await tools.edit_file.execute?.(
+			{ path: "index.html", replace: "Improved", search: "page" },
+			options(),
+		);
+
+		await expect(
+			tools.finish.execute?.({ summary: "Edited but unreviewed." }, options()),
+		).resolves.toMatchObject({
+			accepted: false,
+			reason: expect.stringContaining("Re-read"),
+		});
+
+		await tools.read_file.execute?.({ path: "index.html" }, options());
+		await expect(
+			tools.finish.execute?.({ summary: "Still not rendered." }, options()),
+		).resolves.toMatchObject({
+			accepted: false,
+			reason: expect.stringContaining("on the current index.html"),
+		});
+
+		await tools.screenshot_page.execute?.({}, options("shot_2"));
+		await expect(
+			tools.finish.execute?.({ summary: "Freshly reviewed." }, options()),
+		).resolves.toEqual({ accepted: true });
+	});
+});
+
 describe("finish guard", () => {
 	it("refuses while index.html is missing", async () => {
 		const { options, state, tools } = setup();
@@ -305,23 +575,18 @@ describe("finish guard", () => {
 		).resolves.toMatchObject({ accepted: false });
 
 		await tools.read_file.execute?.({ path: "index.html" }, options());
+		// Zero passes recorded — this must hit the PASS-COUNT branch, not the
+		// revision-mismatch one (they both mention screenshot_page).
 		await expect(
 			tools.finish.execute?.({ summary: "Still too early." }, options()),
 		).resolves.toMatchObject({
 			accepted: false,
-			reason: expect.stringContaining("screenshot_page"),
+			reason: expect.stringContaining(
+				`0 of ${REQUIRED_SCREENSHOT_PASSES} required screenshot review`,
+			),
 		});
 
-		await tools.screenshot_page.execute?.({}, options("shot_1"));
-		await expect(
-			tools.finish.execute?.({ summary: "One pass only." }, options()),
-		).resolves.toMatchObject({
-			accepted: false,
-			reason: expect.stringContaining("1 of 3"),
-		});
-
-		await tools.screenshot_page.execute?.({}, options("shot_2"));
-		await tools.screenshot_page.execute?.({}, options("shot_3"));
+		await completeRequiredPasses(tools, options);
 		const accepted = await tools.finish.execute?.(
 			{ summary: "Souk Heat direction, warm editorial." },
 			options(),
@@ -329,7 +594,7 @@ describe("finish guard", () => {
 
 		expect(accepted).toEqual({ accepted: true });
 		expect(state.finishAccepted).toBe(true);
-		expect(state.screenshotPasses).toBe(3);
+		expect(state.screenshotPasses).toBe(REQUIRED_SCREENSHOT_PASSES);
 		expect(state.summary).toBe("Souk Heat direction, warm editorial.");
 	});
 
@@ -353,9 +618,7 @@ describe("finish guard", () => {
 			options(),
 		);
 		await tools.read_file.execute?.({ path: "index.html" }, options());
-		await tools.screenshot_page.execute?.({}, options("shot_1"));
-		await tools.screenshot_page.execute?.({}, options("shot_2"));
-		await tools.screenshot_page.execute?.({}, options("shot_3"));
+		await completeRequiredPasses(tools, options);
 		await tools.finish.execute?.({ summary: "Done for real." }, options());
 
 		expect(await finishStop({ steps: [] })).toBe(true);
@@ -368,7 +631,7 @@ describe("finish guard", () => {
 			options(),
 		);
 		await tools.read_file.execute?.({ path: "index.html" }, options());
-		await tools.screenshot_page.execute?.({}, options("shot_1"));
+		await completeRequiredPasses(tools, options);
 		await tools.write_file.execute?.(
 			{ content: HTML.replace("page", "improved page"), path: "index.html" },
 			options(),
@@ -386,18 +649,10 @@ describe("finish guard", () => {
 			tools.finish.execute?.({ summary: "Still not rendered." }, options()),
 		).resolves.toMatchObject({
 			accepted: false,
-			reason: expect.stringContaining("screenshot_page"),
+			reason: expect.stringContaining("on the current index.html"),
 		});
 
-		await tools.screenshot_page.execute?.({}, options("shot_2"));
-		await expect(
-			tools.finish.execute?.({ summary: "Two passes only." }, options()),
-		).resolves.toMatchObject({
-			accepted: false,
-			reason: expect.stringContaining("2 of 3"),
-		});
-
-		await tools.screenshot_page.execute?.({}, options("shot_3"));
+		await tools.screenshot_page.execute?.({}, options("shot_final"));
 		await expect(
 			tools.finish.execute?.({ summary: "Freshly reviewed." }, options()),
 		).resolves.toEqual({ accepted: true });

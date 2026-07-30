@@ -8,20 +8,38 @@ import {
 	uniqueIndex,
 } from "drizzle-orm/pg-core";
 
-export const user = pgTable("user", {
-	id: text("id").primaryKey(),
-	name: text("name").notNull(),
-	email: text("email").notNull().unique(),
-	emailVerified: boolean("email_verified").default(false).notNull(),
-	image: text("image"),
-	createdAt: timestamp("created_at", { withTimezone: true })
-		.defaultNow()
-		.notNull(),
-	updatedAt: timestamp("updated_at", { withTimezone: true })
-		.defaultNow()
-		.$onUpdate(() => /* @__PURE__ */ new Date())
-		.notNull(),
-});
+export const user = pgTable(
+	"user",
+	{
+		id: text("id").primaryKey(),
+		name: text("name").notNull(),
+		email: text("email").notNull().unique(),
+		emailVerified: boolean("email_verified").default(false).notNull(),
+		image: text("image"),
+		// Better Auth admin plugin fields (role/banned/banReason/banExpires) —
+		// property names must match the plugin's schema so the drizzle adapter
+		// maps them.
+		role: text("role").default("user").notNull(),
+		banned: boolean("banned").default(false).notNull(),
+		banReason: text("ban_reason"),
+		banExpires: timestamp("ban_expires", { withTimezone: true }),
+		// Durable activity stamp for the admin dashboard. Sessions are deleted on
+		// sign-out and by the ban sweep, so this cannot be derived from them; the
+		// AuthGuard refreshes it (throttled) on authenticated requests.
+		lastSeenAt: timestamp("last_seen_at", { withTimezone: true }),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+		updatedAt: timestamp("updated_at", { withTimezone: true })
+			.defaultNow()
+			.$onUpdate(() => /* @__PURE__ */ new Date())
+			.notNull(),
+	},
+	(table) => [
+		// Serves admin signup stats and newest/oldest user listings.
+		index("user_createdAt_idx").on(table.createdAt),
+	],
+);
 
 export const session = pgTable(
 	"session",
@@ -41,6 +59,8 @@ export const session = pgTable(
 		userId: text("user_id")
 			.notNull()
 			.references(() => user.id, { onDelete: "cascade" }),
+		// Better Auth admin plugin: id of the admin impersonating this session.
+		impersonatedBy: text("impersonated_by"),
 	},
 	(table) => [index("session_userId_idx").on(table.userId)],
 );

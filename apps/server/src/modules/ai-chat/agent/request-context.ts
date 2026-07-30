@@ -92,6 +92,7 @@ const OPTION_LABELS: Record<string, string> = {
 
 // Transport/internal keys, or keys already rendered by a dedicated block.
 const HANDLED_OPTION_KEYS = new Set([
+	"builderModel",
 	"goal",
 	"motion",
 	"ratio",

@@ -40,7 +40,10 @@ function playwrightChromium(): BuildExtension {
 export default defineConfig({
 	project: "proj_stzpldofqndpuwhwrdlw",
 	dirs: ["./src/trigger"],
-	runtime: "node",
+	// node-22, not the default "node" (21): undici 8 (undici-timeouts.ts)
+	// calls webidl.util.markAsUncloneable, which Node 21 never got — the
+	// deploy indexer crashes on import with the default runtime.
+	runtime: "node-22",
 	// Generous ceiling: the builder agent does a single deliberate build pass
 	// (typically a few minutes), but long model calls need headroom.
 	// Compute-seconds: 1800 = 30 minutes — a safety net, not an estimate.

@@ -35,6 +35,10 @@ import { getWorld } from "../worlds";
 const logger = new Logger("generate-page");
 
 export type GeneratePageToolDeps = {
+	// Per-request builder override from the composer's model picker (already
+	// resolved against the allow-list in builder-model-options.ts).
+	// Undefined = use the env default.
+	builderModel?: string;
 	chatId: string;
 	pagesRepository: PagesRepository;
 	projectId: string;
@@ -48,7 +52,7 @@ export function createGeneratePageTool(
 	return tool({
 		description:
 			"Queue the real landing-page build for this project. Call it ONCE, " +
-			"after the brief is complete (get_direction_candidates first). The build " +
+			"after the brief is complete. The build " +
 			"runs in the background and the finished page appears in the user's " +
 			"Page tab — it is not instant.",
 		inputSchema: generatePageInputSchema,
@@ -86,7 +90,7 @@ export function createGeneratePageTool(
 				? `${basePrompt}\n\n${world.doc}`
 				: basePrompt;
 			const builderModel =
-				env.AI_PAGE_BUILDER_MODEL ?? env.AI_PAGE_DESIGN_MODEL;
+				deps.builderModel ?? env.AI_PAGE_BUILDER_MODEL ?? env.AI_PAGE_DESIGN_MODEL;
 			const attempt = await deps.pagesRepository.insertAttempt({
 				artifactId: artifact.id,
 				chatId: deps.chatId,

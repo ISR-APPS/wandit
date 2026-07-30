@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import { isAdminRole } from "@wandit/contracts";
 import {
 	BanIcon,
 	CopyIcon,
@@ -26,6 +27,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useSession } from "@/features/auth/lib/session";
 import type { AdminUserSummary } from "@/features/users/api/users.dto";
 import { BanUserDialog } from "@/features/users/components/ban-user-dialog";
 import { ChangeRoleDialog } from "@/features/users/components/change-role-dialog";
@@ -35,6 +37,11 @@ type ActiveDialog = "credits" | "role" | "ban" | null;
 
 function UserRowActions({ user }: { user: AdminUserSummary }) {
 	const [activeDialog, setActiveDialog] = useState<ActiveDialog>(null);
+	const { data: session } = useSession();
+	const isSelf = session?.user.id === user.id;
+	// The server rejects banning an admin (restoring one is still allowed), so
+	// banning an admin has to go through "Change role" first.
+	const canToggleAccess = !isSelf && (user.banned || !isAdminRole(user.role));
 
 	async function copyUserId() {
 		try {
@@ -87,25 +94,31 @@ function UserRowActions({ user }: { user: AdminUserSummary }) {
 							<CreditCardIcon />
 							Grant credits
 						</DropdownMenuItem>
-						<DropdownMenuItem onSelect={() => setActiveDialog("role")}>
-							<UserCogIcon />
-							Change role
-						</DropdownMenuItem>
+						{!isSelf && (
+							<DropdownMenuItem onSelect={() => setActiveDialog("role")}>
+								<UserCogIcon />
+								Change role
+							</DropdownMenuItem>
+						)}
 						<DropdownMenuItem onSelect={() => void copyUserId()}>
 							<CopyIcon />
 							Copy user ID
 						</DropdownMenuItem>
 					</DropdownMenuGroup>
-					<DropdownMenuSeparator />
-					<DropdownMenuGroup>
-						<DropdownMenuItem
-							variant={user.isBanned ? "default" : "destructive"}
-							onSelect={() => setActiveDialog("ban")}
-						>
-							{user.isBanned ? <ShieldCheckIcon /> : <BanIcon />}
-							{user.isBanned ? "Restore access" : "Ban user"}
-						</DropdownMenuItem>
-					</DropdownMenuGroup>
+					{canToggleAccess && (
+						<>
+							<DropdownMenuSeparator />
+							<DropdownMenuGroup>
+								<DropdownMenuItem
+									variant={user.banned ? "default" : "destructive"}
+									onSelect={() => setActiveDialog("ban")}
+								>
+									{user.banned ? <ShieldCheckIcon /> : <BanIcon />}
+									{user.banned ? "Restore access" : "Ban user"}
+								</DropdownMenuItem>
+							</DropdownMenuGroup>
+						</>
+					)}
 				</DropdownMenuContent>
 			</DropdownMenu>
 

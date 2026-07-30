@@ -70,11 +70,13 @@ export const env = createEnv({
 			.default("anthropic/claude-sonnet-5"),
 		// Builder reasoning knob, read at build time inside runSiteBuild() and
 		// forwarded as providerOptions (openai.reasoningEffort; mapped onto
-		// Gemini's two thinking levels). Defaults to "high": an unset var once
-		// silently meant provider-default effort (a misnamed .env entry hid the
-		// knob for weeks) — design quality must never again depend on a typo.
+		// Gemini's two thinking levels and Grok's three efforts). "auto" sends
+		// no reasoning parameter at all — the provider picks. Defaults to
+		// "high": an unset var once silently meant provider-default effort (a
+		// misnamed .env entry hid the knob for weeks) — design quality must
+		// never again depend on a typo, so turning it off is an explicit value.
 		AI_PAGE_DESIGN_REASONING: z
-			.enum(["minimal", "low", "medium", "high", "xhigh"])
+			.enum(["auto", "minimal", "low", "medium", "high", "xhigh"])
 			.default("high"),
 		// Optional: the builder's animate_image tool (image → short ambient video).
 		// Needs R2 + R2_PUBLIC_BASE_URL too; unset means the tool answers
@@ -93,6 +95,11 @@ export const env = createEnv({
 		// domain) — generated images need a browser-reachable URL.
 		R2_PUBLIC_BASE_URL: z.url().optional(),
 		// Core API/auth settings.
+		// Admin dashboard origin (apps/admin). Optional: unset means no admin
+		// origin is trusted for CORS/auth.
+		ADMIN_ORIGIN: z.url().optional(),
+		// Comma-separated emails auto-promoted to the admin role on signup.
+		ADMIN_EMAILS: z.string().optional(),
 		DATABASE_URL: z.string().min(1),
 		BETTER_AUTH_SECRET: z.string().min(32),
 		BETTER_AUTH_URL: z.url(),

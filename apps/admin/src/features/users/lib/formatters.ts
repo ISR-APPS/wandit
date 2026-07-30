@@ -1,29 +1,3 @@
-import type { Currency } from "../api/users.dto";
-
-export function formatMinorCurrency(
-	amountMinor: number,
-	currency: Currency | null,
-	locale = "en-US",
-) {
-	if (!currency) {
-		return "—";
-	}
-
-	return new Intl.NumberFormat(locale, {
-		style: "currency",
-		currency,
-		currencyDisplay: "narrowSymbol",
-		maximumFractionDigits: amountMinor % 100 === 0 ? 0 : 2,
-	}).format(amountMinor / 100);
-}
-
-export function formatCompactNumber(value: number, locale = "en-US") {
-	return new Intl.NumberFormat(locale, {
-		notation: "compact",
-		maximumFractionDigits: 1,
-	}).format(value);
-}
-
 export function formatWholeNumber(value: number, locale = "en-US") {
 	return new Intl.NumberFormat(locale, {
 		maximumFractionDigits: 0,
@@ -46,7 +20,7 @@ export function formatAdminDate(
 	return new Intl.DateTimeFormat(locale, options).format(new Date(value));
 }
 
-export function formatAdminDateTime(value: string, locale = "en-US") {
+export function formatAdminDateTime(value: string | null, locale = "en-US") {
 	return formatAdminDate(value, locale, {
 		day: "numeric",
 		hour: "numeric",

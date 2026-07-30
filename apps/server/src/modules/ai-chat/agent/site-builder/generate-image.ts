@@ -7,7 +7,6 @@
  * images; the builder is told to fall back to CSS/SVG art instead.
  */
 import { env } from "@wandit/env/server";
-import { generateImage } from "ai";
 
 import {
 	isR2Configured,
@@ -15,7 +14,10 @@ import {
 	putSiteFile,
 	siteAssetKey,
 } from "../../../../infrastructure/storage/r2";
-import { editImageFromSources } from "../../../image-generations/application/services/image-generator";
+import {
+	editImageFromSources,
+	generateImageFromPrompt,
+} from "../../../image-generations/application/services/image-generator";
 
 // Hard budget per build: images are the most expensive tool call the builder
 // has, and the brief's SHOT LIST is capped at 6 shots anyway.
@@ -103,15 +105,20 @@ export async function generateBuildImage(params: {
 			mediaType = edited.mediaType;
 			bytes = edited.uint8Array;
 		} else {
-			const { image } = await generateImage({
+			const generated = await generateImageFromPrompt({
 				...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
+				aspect: params.aspect,
 				model: env.AI_IMAGE_MODEL,
 				prompt: params.prompt,
 				size: SIZE_BY_ASPECT[params.aspect],
 			});
 
-			mediaType = image.mediaType;
-			bytes = image.uint8Array;
+			if (generated.status !== "generated") {
+				return { message: generated.message, status: "failed" };
+			}
+
+			mediaType = generated.mediaType;
+			bytes = generated.uint8Array;
 		}
 
 		const extension = EXTENSION_BY_MEDIA_TYPE[mediaType] ?? "png";

@@ -1,6 +1,22 @@
-import { Global, Logger, Module, type Provider } from "@nestjs/common";
+import {
+	Global,
+	Inject,
+	Logger,
+	Module,
+	type OnModuleInit,
+	type Provider,
+} from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
 import { type Auth, createAuth } from "@wandit/auth";
+import { isAdminRole } from "@wandit/contracts";
+import { eq, inArray, sql } from "@wandit/db";
+import { user } from "@wandit/db/schema/auth";
+import { env } from "@wandit/env/server";
+import {
+	DATABASE,
+	type Database,
+} from "../../infrastructure/database/database.constants";
+import { DatabaseModule } from "../../infrastructure/database/database.module";
 import { CreditsService } from "../credits/application/services/credits.service";
 import { CreditsModule } from "../credits/credits.module";
 import { AUTH_INSTANCE } from "./auth.constants";
@@ -10,16 +26,41 @@ import { AuthGuard } from "./presentation/http/guards/auth.guard";
 
 const logger = new Logger("AuthModule");
 
+// ADMIN_EMAILS is a comma-separated allowlist; matching signups are promoted
+// to the admin role right after creation.
+function parseAdminEmails(raw: string | undefined): string[] {
+	return (raw ?? "")
+		.split(",")
+		.map((email) => email.trim().toLowerCase())
+		.filter((email) => email.length > 0);
+}
+
 const authProvider: Provider<Auth> = {
 	provide: AUTH_INSTANCE,
-	inject: [CreditsService],
-	useFactory: (creditsService: CreditsService) =>
+	inject: [CreditsService, DATABASE],
+	useFactory: (creditsService: CreditsService, db: Database) =>
 		createAuth({
-			onUserCreated: async (user) => {
+			onUserCreated: async (newUser) => {
 				try {
-					await creditsService.grantSignupCredits(user.id);
+					await creditsService.grantSignupCredits(newUser.id);
 				} catch (error) {
 					logger.error("Signup credit grant failed", error);
+				}
+
+				try {
+					const adminEmails = parseAdminEmails(env.ADMIN_EMAILS);
+
+					if (adminEmails.includes(newUser.email.toLowerCase())) {
+						await db
+							.update(user)
+							.set({ role: "admin" })
+							.where(eq(user.id, newUser.id));
+						logger.log(
+							`Bootstrapped admin role for user ${newUser.id} (${newUser.email})`,
+						);
+					}
+				} catch (error) {
+					logger.error("Admin role bootstrap failed", error);
 				}
 			},
 		}),
@@ -29,7 +70,7 @@ const authProvider: Provider<Auth> = {
 @Module({
 	controllers: [AuthController, AuthMeController],
 	exports: [AUTH_INSTANCE, AuthGuard],
-	imports: [CreditsModule],
+	imports: [CreditsModule, DatabaseModule],
 	providers: [
 		authProvider,
 		AuthGuard,
@@ -39,4 +80,45 @@ const authProvider: Provider<Auth> = {
 		},
 	],
 })
-export class AuthModule {}
+export class AuthModule implements OnModuleInit {
+	constructor(@Inject(DATABASE) private readonly db: Database) {}
+
+	/**
+	 * Reconcile ADMIN_EMAILS against users that already existed before the
+	 * allowlist named them (the signup hook above only covers new accounts).
+	 *
+	 * Promote-only on purpose: admins granted through the admin UI must never be
+	 * revoked by env drift. Failures are logged, never fatal — the API must boot
+	 * even when this cannot run.
+	 */
+	async onModuleInit(): Promise<void> {
+		const adminEmails = parseAdminEmails(env.ADMIN_EMAILS);
+
+		if (adminEmails.length === 0) {
+			return;
+		}
+
+		try {
+			const candidates = await this.db
+				.select({ id: user.id, email: user.email, role: user.role })
+				.from(user)
+				.where(inArray(sql`lower(${user.email})`, adminEmails));
+
+			for (const candidate of candidates) {
+				if (isAdminRole(candidate.role)) {
+					continue;
+				}
+
+				await this.db
+					.update(user)
+					.set({ role: "admin" })
+					.where(eq(user.id, candidate.id));
+				logger.log(
+					`Bootstrapped admin role for user ${candidate.id} (${candidate.email})`,
+				);
+			}
+		} catch (error) {
+			logger.error("Admin role reconcile failed", error);
+		}
+	}
+}

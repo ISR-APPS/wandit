@@ -11,10 +11,13 @@ export {
 	desc,
 	eq,
 	gt,
+	ilike,
 	inArray,
 	isNull,
 	lt,
 	ne,
+	notInArray,
+	or,
 	sql,
 } from "drizzle-orm";
 

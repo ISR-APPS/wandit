@@ -11,6 +11,8 @@ export * from "./http/envelope";
 export * from "./http/error-codes";
 // Pagination helpers.
 export * from "./http/pagination";
+// Admin dashboard contracts.
+export * from "./v1/admin";
 // AI SDK chat tool and stream contracts.
 export * from "./v1/ai-chat";
 // Artifact/page contracts.

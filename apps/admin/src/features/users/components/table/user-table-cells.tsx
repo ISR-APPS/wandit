@@ -1,11 +1,9 @@
 import { Link } from "@tanstack/react-router";
-import { CircleIcon } from "lucide-react";
+import { BadgeCheckIcon } from "lucide-react";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import type {
-	AdminPaymentProvider,
-	AdminSubscriptionStatus,
 	AdminUserPlan,
 	AdminUserRole,
 	AdminUserSummary,
@@ -18,7 +16,7 @@ function UserIdentity({ user }: { user: AdminUserSummary }) {
 	return (
 		<div className="flex w-full min-w-0 items-center gap-3">
 			<Avatar size="lg" className="border">
-				<AvatarImage src={user.avatarUrl} alt="" />
+				<AvatarImage src={user.image ?? undefined} alt="" />
 				<AvatarFallback className="font-medium">
 					{getInitials(user.name)}
 				</AvatarFallback>
@@ -40,41 +38,10 @@ function UserIdentity({ user }: { user: AdminUserSummary }) {
 	);
 }
 
-function PaymentProviderBadge({
-	provider,
-}: {
-	provider: AdminPaymentProvider | null;
-}) {
-	if (!provider) {
-		return <span className="text-muted-foreground">—</span>;
-	}
-
-	const isStripe = provider === "stripe";
-
-	return (
-		<span className="inline-flex items-center gap-2.5">
-			<span
-				aria-hidden="true"
-				className={cn(
-					"flex size-6 shrink-0 items-center justify-center rounded-md font-semibold text-[11px] text-white shadow-xs ring-1 ring-white/15 ring-inset",
-					isStripe ? "bg-[#635bff]" : "bg-[#0b9b72]",
-				)}
-			>
-				{isStripe ? "S" : "C"}
-			</span>
-			<span className="font-medium text-sm">
-				{isStripe ? "Stripe" : "Chargily"}
-			</span>
-		</span>
-	);
-}
-
 const roleClasses: Record<AdminUserRole, string> = {
 	user: "text-muted-foreground",
-	affiliate: "border-sky-500/30 bg-sky-500/8 text-sky-700 dark:text-sky-300",
 	admin:
 		"border-amber-500/30 bg-amber-500/8 text-amber-700 dark:text-amber-300",
-	owner: "border-primary/30 bg-primary/8 text-primary",
 };
 
 function RoleBadge({ role }: { role: AdminUserRole }) {
@@ -87,83 +54,50 @@ function RoleBadge({ role }: { role: AdminUserRole }) {
 
 const planClasses: Record<AdminUserPlan, string> = {
 	free: "text-muted-foreground",
-	starter: "border-border bg-muted/50 text-foreground",
 	pro: "border-primary/25 bg-primary/8 text-primary",
+	business: "border-border bg-muted/50 text-foreground",
 };
 
 function PlanBadge({ plan }: { plan: AdminUserPlan }) {
 	return (
 		<Badge variant="outline" className={cn("capitalize", planClasses[plan])}>
-			{plan}
+			{titleCase(plan)}
 		</Badge>
 	);
 }
 
-const subscriptionClasses: Record<AdminSubscriptionStatus, string> = {
-	active:
-		"border-emerald-500/25 bg-emerald-500/8 text-emerald-700 dark:text-emerald-300",
-	"past-due":
-		"border-amber-500/25 bg-amber-500/8 text-amber-700 dark:text-amber-300",
-	canceled:
-		"border-border bg-muted/50 text-muted-foreground line-through decoration-muted-foreground/40",
-};
-
-function SubscriptionBadge({
-	status,
-}: {
-	status: AdminSubscriptionStatus | null;
-}) {
-	if (!status) {
+function StatusBadge({ user }: { user: AdminUserSummary }) {
+	if (user.banned) {
 		return (
-			<span className="text-muted-foreground text-sm">No subscription</span>
+			<Badge
+				variant="outline"
+				className="border-destructive/30 bg-destructive/8 text-destructive"
+			>
+				Banned
+			</Badge>
 		);
 	}
 
 	return (
-		<Badge
-			variant="outline"
-			className={cn("gap-1 capitalize", subscriptionClasses[status])}
-		>
-			<CircleIcon className="size-1.5 fill-current" />
-			{titleCase(status)}
-		</Badge>
-	);
-}
-
-function AccountBadge({ user }: { user: AdminUserSummary }) {
-	if (user.isBanned) {
-		return (
-			<div className="space-y-1">
-				<Badge
-					variant="outline"
-					className="border-destructive/30 bg-destructive/8 text-destructive"
-				>
-					Banned
+		<div className="flex flex-wrap items-center gap-1.5">
+			<Badge
+				variant="outline"
+				className="border-emerald-500/25 bg-emerald-500/8 text-emerald-700 dark:text-emerald-300"
+			>
+				Active
+			</Badge>
+			{user.emailVerified ? (
+				<Badge variant="outline" className="gap-1 text-muted-foreground">
+					<BadgeCheckIcon className="size-3" aria-hidden="true" />
+					Verified
 				</Badge>
-				{user.banReason && (
-					<p className="max-w-[150px] truncate text-muted-foreground text-xs">
-						{user.banReason}
-					</p>
-				)}
-			</div>
-		);
-	}
-
-	return (
-		<Badge
-			variant="outline"
-			className="border-emerald-500/25 bg-emerald-500/8 text-emerald-700 dark:text-emerald-300"
-		>
-			Active
-		</Badge>
+			) : (
+				<Badge variant="outline" className="text-muted-foreground">
+					Unverified
+				</Badge>
+			)}
+		</div>
 	);
 }
 
-export {
-	AccountBadge,
-	PaymentProviderBadge,
-	PlanBadge,
-	RoleBadge,
-	SubscriptionBadge,
-	UserIdentity,
-};
+export { PlanBadge, RoleBadge, StatusBadge, UserIdentity };

@@ -8,6 +8,7 @@ import { DatabaseModule } from "./infrastructure/database/database.module";
 import { ApiExceptionFilter } from "./infrastructure/http/api-exception.filter";
 import { ApiResponseEnvelopeInterceptor } from "./infrastructure/http/api-response-envelope.interceptor";
 import { QueuesModule } from "./infrastructure/queues/queues.module";
+import { AdminModule } from "./modules/admin/admin.module";
 import { AiChatModule } from "./modules/ai-chat/ai-chat.module";
 import { AuthModule } from "./modules/auth/auth.module";
 import { BillingModule } from "./modules/billing/billing.module";
@@ -37,6 +38,7 @@ import { UploadsModule } from "./modules/uploads/uploads.module";
 		DatabaseModule,
 		QueuesModule,
 		AuthModule,
+		AdminModule,
 		AiChatModule,
 		HealthModule,
 		ProjectsModule,
