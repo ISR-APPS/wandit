@@ -1,8 +1,9 @@
-// TanStack Query hooks + keys for lead scraping. The attempt is the ONE
-// polled entry point: while it is queued/running the card refetches every
-// 1.2s, and the interval switches itself off the moment the attempt settles
-// (succeeded/failed) or the request errors — TanStack re-evaluates the
-// refetchInterval callback after every fetch.
+// TanStack Query hooks + keys for lead scraping. Live progress arrives over
+// Trigger.dev Realtime (the card subscribes to the run); the interval is the
+// guarantee behind it — fast when the card has no usable subscription, slow
+// as a safety net while Realtime is healthy (an Electric stream can die
+// silently: backgrounded tab, sleep/wake, proxies). It always stops by
+// itself once the attempt settles.
 
 import { useQuery } from "@tanstack/react-query";
 
@@ -14,7 +15,10 @@ export const leadScrapeKeys = {
 		[...leadScrapeKeys.all, "attempt", attemptId] as const,
 };
 
-export function useLeadScrapeAttemptQuery(attemptId: string) {
+export function useLeadScrapeAttemptQuery(
+	attemptId: string,
+	intervalMs = 1200,
+) {
 	return useQuery({
 		queryKey: leadScrapeKeys.attempt(attemptId),
 		queryFn: () => getLeadScrapeAttempt(attemptId),
@@ -25,7 +29,7 @@ export function useLeadScrapeAttemptQuery(attemptId: string) {
 			const status = query.state.data?.status;
 			// Poll only while the scrape is actually in flight (or unknown).
 			return status === undefined || status === "queued" || status === "running"
-				? 1200
+				? intervalMs
 				: false;
 		},
 	});

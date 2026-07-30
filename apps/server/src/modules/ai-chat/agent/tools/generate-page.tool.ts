@@ -11,7 +11,7 @@
  * return value is only the "queued"/"unavailable" answer the model relays.
  */
 import { Logger } from "@nestjs/common";
-import { tasks } from "@trigger.dev/sdk";
+import { auth, tasks } from "@trigger.dev/sdk";
 import {
 	type GeneratePageInput,
 	type GeneratePageOutput,
@@ -90,7 +90,9 @@ export function createGeneratePageTool(
 				? `${basePrompt}\n\n${world.doc}`
 				: basePrompt;
 			const builderModel =
-				deps.builderModel ?? env.AI_PAGE_BUILDER_MODEL ?? env.AI_PAGE_DESIGN_MODEL;
+				deps.builderModel ??
+				env.AI_PAGE_BUILDER_MODEL ??
+				env.AI_PAGE_DESIGN_MODEL;
 			const attempt = await deps.pagesRepository.insertAttempt({
 				artifactId: artifact.id,
 				chatId: deps.chatId,
@@ -106,6 +108,8 @@ export function createGeneratePageTool(
 			);
 			logger.log(`Brief for attempt ${attempt.id}:\n${brief}`);
 
+			let realtime: GeneratePageOutput["realtime"];
+
 			try {
 				const handle = await tasks.trigger<typeof generatePageTask>(
 					"generate-page",
@@ -117,6 +121,7 @@ export function createGeneratePageTool(
 					`Trigger.dev accepted the build — run ${handle.id}. Follow the ` +
 						"live logs in the worker terminal (npx trigger.dev@latest dev).",
 				);
+				realtime = await mintRealtimeHandle(handle.id);
 			} catch (error) {
 				logger.error(
 					`Queueing attempt ${attempt.id} failed: ` +
@@ -151,11 +156,39 @@ export function createGeneratePageTool(
 					`Queued: version ${versionNumber} is being generated in the ` +
 					"background. It will appear in the Page tab when ready — " +
 					"usually a few minutes.",
+				...(realtime ? { realtime } : {}),
 				status: "queued",
 				versionNumber,
 			};
 		},
 	});
+}
+
+/**
+ * Mint a read-scoped Realtime token so the chat card can follow the build
+ * live instead of showing a static "building…" line. Best-effort: on failure
+ * the card falls back to its static state, so the queue must never fail here.
+ */
+async function mintRealtimeHandle(
+	runId: string,
+): Promise<GeneratePageOutput["realtime"]> {
+	try {
+		const publicAccessToken = await auth.createPublicToken({
+			// Long enough to outlive any build plus a same-session reload; an
+			// expired token just means the card shows the static line again.
+			expirationTime: "2h",
+			scopes: { read: { runs: [runId] } },
+		});
+
+		return { publicAccessToken, runId };
+	} catch (error) {
+		logger.warn(
+			`Realtime token minting failed for run ${runId} — the chat card ` +
+				`will show static progress: ${error instanceof Error ? error.message : String(error)}`,
+		);
+
+		return undefined;
+	}
 }
 
 export type GeneratePageTool = ReturnType<typeof createGeneratePageTool>;

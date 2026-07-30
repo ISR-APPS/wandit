@@ -157,18 +157,101 @@ export const generatePageInputSchema = z.object({
 	worldId: z.string().min(1).optional(),
 });
 
+/**
+ * Live-progress subscription handle for a queued background job: the
+ * Trigger.dev run id plus a read-scoped public access token the chat card
+ * uses with Realtime (no polling). Absent when Realtime is unavailable
+ * (missing credentials, token minting failure, or messages persisted before
+ * this field existed) — cards fall back to polling the attempt endpoint.
+ */
+export const triggerRealtimeHandleSchema = z.object({
+	runId: z.string().min(1),
+	publicAccessToken: z.string().min(1),
+});
+
+export type TriggerRealtimeHandle = z.infer<typeof triggerRealtimeHandleSchema>;
+
 export const generatePageOutputSchema = z.object({
 	// "unavailable" = server missing R2/Trigger credentials; the model relays
 	// that honestly instead of pretending a page is coming.
 	status: z.enum(["queued", "unavailable"]),
 	attemptId: z.string().uuid().optional(),
 	versionNumber: z.number().int().positive().optional(),
+	realtime: triggerRealtimeHandleSchema.optional(),
 	// Human-facing note the model can relay verbatim.
 	message: z.string(),
 });
 
 export type GeneratePageInput = z.infer<typeof generatePageInputSchema>;
 export type GeneratePageOutput = z.infer<typeof generatePageOutputSchema>;
+
+/**
+ * Live build progress the page-build worker pushes over Trigger Realtime
+ * (metadata key "progress"). The chat card folds it into a checklist: art
+ * generated (with hosted thumbnails), page written (with section chips),
+ * screenshot review passes (with shot thumbnails), fixes applied, handover.
+ *
+ * Wire-tolerant BY CONSTRUCTION: every field carries a .catch() default, so
+ * one bad or missing field (an older worker, a future field change, a
+ * malformed URL) degrades that field alone — it must never blank the whole
+ * card mid-build.
+ */
+export const pageBuildShotSchema = z.object({
+	// Plain string, not z.url(): a misconfigured public base yields relative
+	// paths, and rejecting them here would discard the entire snapshot.
+	url: z.string(),
+	viewport: z.enum(["desktop", "mobile"]),
+});
+
+export const pageBuildPhaseSchema = z.enum([
+	"starting",
+	"art",
+	"writing",
+	"reviewing",
+	"fixing",
+	"finishing",
+]);
+
+export type PageBuildPhase = z.infer<typeof pageBuildPhaseSchema>;
+
+export const pageBuildProgressSchema = z.object({
+	// 0-100, monotonically non-decreasing (the tracker clamps regressions).
+	percent: z.number().min(0).max(100).catch(2),
+	// Which checklist row is currently alive. Phases can recur (review →
+	// fix → review) — the card re-activates the matching row in place.
+	phase: pageBuildPhaseSchema.catch("starting"),
+	// One short present-tense line for the card header, e.g. "Writing the
+	// page…". English chrome, same rule as the tray strings.
+	headline: z.string().min(1).catch("Working on the page…"),
+	// Hosted URLs of successfully generated build images, in order.
+	images: z
+		.array(z.object({ role: z.string(), url: z.string() }))
+		.max(12)
+		.catch([]),
+	videos: z.number().int().min(0).catch(0),
+	// Section labels parsed from the latest index.html write (aria-label, id,
+	// or first heading per top-level <section>; h2 fallback).
+	sections: z.array(z.string()).max(12).catch([]),
+	pageBytes: z.number().int().min(0).catch(0),
+	// Successful screenshot review passes so far / required per build.
+	reviewPasses: z.number().int().min(0).catch(0),
+	reviewTarget: z.number().int().min(1).catch(2),
+	// The pass currently being captured or reviewed (1-based) — what the
+	// card's "pass X of Y" badge shows while the review row is active.
+	currentPass: z.number().int().min(1).optional().catch(undefined),
+	// Hosted thumbnails from the LATEST screenshot pass only.
+	shots: z.array(pageBuildShotSchema).max(8).catch([]),
+	// Human-readable diagnostics from the latest pass (console errors,
+	// failed requests, overflow) — empty when the render came back clean.
+	findings: z.array(z.string()).max(6).catch([]),
+	// edit_file fixes applied after the first review pass.
+	fixes: z.number().int().min(0).catch(0),
+	// finish accepted — the page is being published.
+	done: z.boolean().catch(false),
+});
+
+export type PageBuildShot = z.infer<typeof pageBuildShotSchema>;
+export type PageBuildProgress = z.infer<typeof pageBuildProgressSchema>;
 
 /**
  * scrape_leads — the Brain queues a background prospect scrape: find real
@@ -196,6 +279,7 @@ export const scrapeLeadsOutputSchema = z.object({
 	// model relays that honestly instead of pretending a scrape is running.
 	status: z.enum(["queued", "unavailable"]),
 	attemptId: z.string().uuid().optional(),
+	realtime: triggerRealtimeHandleSchema.optional(),
 	// Human-facing note the model can relay verbatim.
 	message: z.string(),
 });
@@ -248,6 +332,7 @@ export const generateMarketingAssetOutputSchema = z.object({
 	// rejected; the model relays that honestly.
 	status: z.enum(["queued", "unavailable"]),
 	assetId: z.string().uuid().optional(),
+	realtime: triggerRealtimeHandleSchema.optional(),
 	// Human-facing note the model can relay verbatim.
 	message: z.string().min(1),
 });

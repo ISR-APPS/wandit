@@ -17,9 +17,10 @@ import {
 	Param,
 	Post,
 } from "@nestjs/common";
+import { PizzaOrdersService } from "../../../application/services/pizza-orders.service";
 import { TooManyToppingsError } from "../../../domain/errors/too-many-toppings.error";
 import type { PizzaSize } from "../../../domain/pizza.types";
-import { PizzaOrdersService } from "../../../application/services/pizza-orders.service";
+
 // ^ value import (no `import type`!) — it goes into @Inject below.
 
 // What the browser must POST to us. In the REAL controllers this shape lives

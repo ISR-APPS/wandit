@@ -9,7 +9,7 @@ import type { ImageGenerationAttempt } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import { Skeleton } from "@wandit/ui/components/skeleton";
 import { cn } from "@wandit/ui/lib/utils";
-import { AlertTriangle, Download, RefreshCw } from "lucide-react";
+import { AlertTriangle, RefreshCw } from "lucide-react";
 import { type ReactNode, useEffect } from "react";
 
 import { useTranslation } from "@/lib/i18n";
@@ -20,6 +20,7 @@ import { useWorkspace } from "../../../lib/store";
 import type { WanditUIMessage } from "../../../lib/use-ai-chat";
 import { SpinnerArc } from "../request-tray/tray-signals";
 import { StatusMessageHeader } from "../status-message-header";
+import { ChatMediaGallery } from "./chat-media";
 
 type GenerateImageToolPart = Extract<
 	WanditUIMessage["parts"][number],
@@ -190,44 +191,15 @@ function ImageGenerationResult({
 			>
 				{attempt.title}
 			</p>
-			<div
-				className={cn(
-					"grid gap-2",
-					images.length > 1 ? "grid-cols-2" : "grid-cols-1",
-				)}
-			>
-				{images.map((image, index) => (
-					<div
-						key={image.url}
-						className="group relative overflow-hidden rounded-lg border bg-secondary"
-					>
-						<a href={image.url} target="_blank" rel="noreferrer">
-							<img
-								src={image.url}
-								alt={`${attempt.title} ${index + 1}`}
-								loading="lazy"
-								className={cn(
-									"block w-full object-cover",
-									aspectClass(attempt.aspect),
-								)}
-							/>
-						</a>
-						<Button
-							asChild
-							size="icon-sm"
-							variant="secondary"
-							className="absolute end-1.5 top-1.5 size-7 rounded-md opacity-0 shadow-sm transition-opacity group-hover:opacity-100"
-						>
-							<a
-								href={imageGenerationDownloadUrl(attempt.id, index + 1)}
-								aria-label={t("workspace.chat.generateImage.download")}
-							>
-								<Download className="size-3.5" aria-hidden />
-							</a>
-						</Button>
-					</div>
-				))}
-			</div>
+			<ChatMediaGallery
+				items={images.map((image, index) => ({
+					key: image.url,
+					kind: "image" as const,
+					url: image.url,
+					label: `${attempt.title} ${index + 1}`,
+					downloadUrl: imageGenerationDownloadUrl(attempt.id, index + 1),
+				}))}
+			/>
 			<p className="mt-2 font-mono text-[10px] text-muted-foreground">
 				{t("workspace.chat.generateImage.inAssetsTab")}
 			</p>

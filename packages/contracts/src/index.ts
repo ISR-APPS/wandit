@@ -25,6 +25,8 @@ export * from "./v1/auth";
 export * from "./v1/billing";
 // Chat API and stream contracts.
 export * from "./v1/chats";
+// Connector (MCP) background generation contracts.
+export * from "./v1/connector-generations";
 // Credits contracts.
 export * from "./v1/credits";
 // Deployment contracts.
@@ -40,6 +42,8 @@ export * from "./v1/lead-sheet-sync";
 export * from "./v1/leads";
 // Marketing asset (HTML deliverable) contracts.
 export * from "./v1/marketing-assets";
+// MCP connector contracts.
+export * from "./v1/mcp-connectors";
 // Image-to-video generation contracts.
 export * from "./v1/media-generations";
 // Payment order contracts.

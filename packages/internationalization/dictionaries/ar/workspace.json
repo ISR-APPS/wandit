@@ -190,6 +190,387 @@
 		"placeholder": "صف التغيير…",
 		"thinking": "جارٍ التفكير…",
 		"generating": "جارٍ التوليد",
+		"mcpTool": {
+			"workingWith": "العمل باستخدام أدواتك",
+			"running": "جارٍ التنفيذ…",
+			"approvalTitle": "يتطلب هذا الإجراء موافقتك.",
+			"wantsTo": "يريد Wandit تنفيذ: {action} · {connector}",
+			"approve": "موافقة",
+			"deny": "رفض",
+			"approved": "تمت الموافقة",
+			"denied": "تم الرفض",
+			"expired": "انتهت صلاحية الموافقة",
+			"waiting": "في انتظار المتابعة…",
+			"error": "خطأ",
+			"result": "النتيجة",
+			"searchingToolCatalog": "جارٍ البحث في كتالوج الأدوات",
+			"searchedToolCatalog": "تم البحث في كتالوج الأدوات",
+			"readingToolDetails": "جارٍ قراءة تفاصيل الأداة",
+			"readToolDetails": "تمت قراءة تفاصيل الأداة",
+			"showDetails": "عرض التفاصيل",
+			"hideDetails": "إخفاء التفاصيل",
+			"actionCount": "{count} إجراءات",
+			"usedTool": "استُخدمت أداة واحدة",
+			"usedTools": "استُخدمت {count} أدوات",
+			"progressOf": "{done} من {total}",
+			"genericLabels": {
+				"fetch": {
+					"active": "جارٍ قراءة البيانات",
+					"past": "تمت قراءة البيانات"
+				},
+				"create": {
+					"active": "جارٍ الإنشاء",
+					"past": "تم الإنشاء"
+				},
+				"update": {
+					"active": "جارٍ التعديل",
+					"past": "تم التعديل"
+				},
+				"delete": {
+					"active": "جارٍ الحذف",
+					"past": "تم الحذف"
+				},
+				"publish": {
+					"active": "جارٍ النشر",
+					"past": "تم النشر"
+				},
+				"send": {
+					"active": "جارٍ الإرسال",
+					"past": "تم الإرسال"
+				},
+				"generate": {
+					"active": "جارٍ التوليد",
+					"past": "تم التوليد"
+				},
+				"other": {
+					"active": "جارٍ تنفيذ إجراء على المنصة",
+					"past": "تم تنفيذ الإجراء"
+				}
+			},
+			"toolLabels": {
+				"media_upload": {
+					"active": "جارٍ رفع وسائطك",
+					"past": "تم رفع وسائطك"
+				},
+				"media_upload_widget": {
+					"active": "جارٍ فتح نافذة الوسائط",
+					"past": "تم فتح نافذة الوسائط"
+				},
+				"media_import_url": {
+					"active": "جارٍ استيراد الوسائط من رابط",
+					"past": "تم استيراد الوسائط من رابط"
+				},
+				"media_confirm": {
+					"active": "جارٍ تأكيد رفع الوسائط",
+					"past": "تم تأكيد رفع الوسائط"
+				},
+				"select_workspace": {
+					"active": "جارٍ اختيار مساحة العمل",
+					"past": "تم اختيار مساحة العمل"
+				},
+				"generate_image": {
+					"active": "جارٍ إنشاء الصورة",
+					"past": "تم إنشاء الصورة"
+				},
+				"generate_video": {
+					"active": "جارٍ إنشاء الفيديو",
+					"past": "تم إنشاء الفيديو"
+				},
+				"generate_audio": {
+					"active": "جارٍ إنشاء المقطع الصوتي",
+					"past": "تم إنشاء المقطع الصوتي"
+				},
+				"generate_3d": {
+					"active": "جارٍ إنشاء نموذج ثلاثي الأبعاد",
+					"past": "تم إنشاء نموذج ثلاثي الأبعاد"
+				},
+				"animation_actions": {
+					"active": "جارٍ تحميل خيارات التحريك",
+					"past": "تم تحميل خيارات التحريك"
+				},
+				"outpaint_image": {
+					"active": "جارٍ توسيع الصورة",
+					"past": "تم توسيع الصورة"
+				},
+				"reframe": {
+					"active": "جارٍ إعادة تأطير الفيديو",
+					"past": "تمت إعادة تأطير الفيديو"
+				},
+				"remove_background": {
+					"active": "جارٍ إزالة خلفية الصورة",
+					"past": "تمت إزالة خلفية الصورة"
+				},
+				"upscale_image": {
+					"active": "جارٍ تحسين جودة الصورة",
+					"past": "تم تحسين جودة الصورة"
+				},
+				"upscale_video": {
+					"active": "جارٍ تحسين جودة الفيديو",
+					"past": "تم تحسين جودة الفيديو"
+				},
+				"motion_control": {
+					"active": "جارٍ تطبيق الحركة",
+					"past": "تم تطبيق الحركة"
+				},
+				"voice_change": {
+					"active": "جارٍ تغيير الصوت",
+					"past": "تم تغيير الصوت"
+				},
+				"dubbing": {
+					"active": "جارٍ دبلجة الفيديو",
+					"past": "تمت دبلجة الفيديو"
+				},
+				"models_explore": {
+					"active": "جارٍ استكشاف الأساليب",
+					"past": "تم استكشاف الأساليب"
+				},
+				"job_status": {
+					"active": "جارٍ التحقق من تقدم الإنشاء",
+					"past": "تم التحقق من تقدم الإنشاء"
+				},
+				"job_display": {
+					"active": "جارٍ عرض النتيجة",
+					"past": "تم عرض النتيجة"
+				},
+				"show_generations": {
+					"active": "جارٍ تحميل إبداعاتك",
+					"past": "تم تحميل إبداعاتك"
+				},
+				"ads_get_ad_accounts": {
+					"active": "جارٍ جلب حسابات الإعلانات",
+					"past": "تم جلب حسابات الإعلانات"
+				},
+				"ads_get_ad_entities": {
+					"active": "جارٍ جلب الحملات والإعلانات",
+					"past": "تم جلب الحملات والإعلانات"
+				},
+				"ads_entity_get_report": {
+					"active": "جارٍ جلب تقرير الحملة",
+					"past": "تم جلب تقرير الحملة"
+				},
+				"ads_insights_performance_trend": {
+					"active": "جارٍ تحليل اتجاهات الأداء",
+					"past": "تم تحليل اتجاهات الأداء"
+				},
+				"ads_insights_advertiser_context": {
+					"active": "جارٍ مراجعة ملخص الحساب",
+					"past": "تمت مراجعة ملخص الحساب"
+				},
+				"ads_get_ad_preview": {
+					"active": "جارٍ تحميل معاينة الإعلان",
+					"past": "تم تحميل معاينة الإعلان"
+				},
+				"ads_get_creatives": {
+					"active": "جارٍ جلب تصاميم الإعلانات",
+					"past": "تم جلب تصاميم الإعلانات"
+				},
+				"ads_get_ad_account_pages": {
+					"active": "جارٍ جلب الصفحات المرتبطة",
+					"past": "تم جلب الصفحات المرتبطة"
+				},
+				"ads_get_ig_accounts": {
+					"active": "جارٍ جلب حسابات إنستغرام",
+					"past": "تم جلب حسابات إنستغرام"
+				},
+				"ads_get_ad_account_custom_audiences": {
+					"active": "جارٍ جلب الجماهير المخصصة",
+					"past": "تم جلب الجماهير المخصصة"
+				},
+				"ads_get_errors": {
+					"active": "جارٍ فحص مشكلات الحساب",
+					"past": "تم فحص مشكلات الحساب"
+				},
+				"ads_library_search": {
+					"active": "جارٍ البحث في مكتبة الإعلانات",
+					"past": "تم البحث في مكتبة الإعلانات"
+				},
+				"ads_get_field_context": {
+					"active": "جارٍ مراجعة مقاييس التقرير",
+					"past": "تمت مراجعة مقاييس التقرير"
+				},
+				"advertiser_info_get": {
+					"active": "جارٍ جلب تفاصيل المُعلن",
+					"past": "تم جلب تفاصيل المُعلن"
+				},
+				"auth_advertiser_get": {
+					"active": "جارٍ فحص الحسابات المتصلة",
+					"past": "تم فحص الحسابات المتصلة"
+				},
+				"report_integrated_get": {
+					"active": "جارٍ جلب تقرير الإعلان",
+					"past": "تم جلب تقرير الإعلان"
+				},
+				"identity_get": {
+					"active": "جارٍ جلب حسابات تيك توك",
+					"past": "تم جلب حسابات تيك توك"
+				},
+				"page_get": {
+					"active": "جارٍ جلب الصفحات الفورية",
+					"past": "تم جلب الصفحات الفورية"
+				},
+				"pixel_list_get": {
+					"active": "جارٍ جلب بكسلات التتبع",
+					"past": "تم جلب بكسلات التتبع"
+				},
+				"dmp_custom_audience_list_get": {
+					"active": "جارٍ جلب الجماهير المخصصة",
+					"past": "تم جلب الجماهير المخصصة"
+				},
+				"smart_plus_campaign_get": {
+					"active": "جارٍ جلب حملات Smart+",
+					"past": "تم جلب حملات Smart+"
+				},
+				"ads_create_campaign": {
+					"active": "جارٍ إنشاء الحملة",
+					"past": "تم إنشاء الحملة"
+				},
+				"ads_create_ad_set": {
+					"active": "جارٍ إنشاء المجموعة الإعلانية",
+					"past": "تم إنشاء المجموعة الإعلانية"
+				},
+				"ads_create_ad": {
+					"active": "جارٍ إنشاء الإعلان",
+					"past": "تم إنشاء الإعلان"
+				},
+				"ads_create_creative": {
+					"active": "جارٍ إنشاء تصميم الإعلان",
+					"past": "تم إنشاء تصميم الإعلان"
+				},
+				"ads_create_custom_audience": {
+					"active": "جارٍ إنشاء الجمهور المخصص",
+					"past": "تم إنشاء الجمهور المخصص"
+				},
+				"ads_update_entity": {
+					"active": "جارٍ تعديل الحملة أو الإعلان",
+					"past": "تم تعديل الحملة أو الإعلان"
+				},
+				"ads_update_custom_audience": {
+					"active": "جارٍ تعديل الجمهور المخصص",
+					"past": "تم تعديل الجمهور المخصص"
+				},
+				"smart_plus_campaign_create": {
+					"active": "جارٍ إنشاء حملة Smart+",
+					"past": "تم إنشاء حملة Smart+"
+				},
+				"smart_plus_campaign_update": {
+					"active": "جارٍ تعديل حملة Smart+",
+					"past": "تم تعديل حملة Smart+"
+				},
+				"smart_plus_campaign_status_update": {
+					"active": "جارٍ تشغيل حملة Smart+ أو إيقافها",
+					"past": "تم تشغيل حملة Smart+ أو إيقافها"
+				},
+				"smart_plus_adgroup_create": {
+					"active": "جارٍ إنشاء مجموعة إعلانية Smart+",
+					"past": "تم إنشاء مجموعة إعلانية Smart+"
+				},
+				"smart_plus_adgroup_update": {
+					"active": "جارٍ تعديل مجموعة إعلانية Smart+",
+					"past": "تم تعديل مجموعة إعلانية Smart+"
+				},
+				"smart_plus_adgroup_status_update": {
+					"active": "جارٍ تشغيل مجموعة Smart+ أو إيقافها",
+					"past": "تم تشغيل مجموعة Smart+ أو إيقافها"
+				},
+				"smart_plus_adgroup_budget_update": {
+					"active": "جارٍ تعديل ميزانية مجموعة Smart+",
+					"past": "تم تعديل ميزانية مجموعة Smart+"
+				},
+				"smart_plus_ad_create": {
+					"active": "جارٍ إنشاء إعلان Smart+",
+					"past": "تم إنشاء إعلان Smart+"
+				},
+				"smart_plus_ad_update": {
+					"active": "جارٍ تعديل إعلان Smart+",
+					"past": "تم تعديل إعلان Smart+"
+				},
+				"smart_plus_ad_status_update": {
+					"active": "جارٍ تشغيل إعلان Smart+ أو إيقافه",
+					"past": "تم تشغيل إعلان Smart+ أو إيقافه"
+				},
+				"smart_plus_ad_get": {
+					"active": "جارٍ الاطلاع على إعلان Smart+",
+					"past": "تم الاطلاع على إعلان Smart+"
+				},
+				"smart_plus_adgroup_get": {
+					"active": "جارٍ الاطلاع على مجموعة إعلانية Smart+",
+					"past": "تم الاطلاع على مجموعة إعلانية Smart+"
+				},
+				"campaign_get": {
+					"active": "جارٍ الاطلاع على الحملة",
+					"past": "تم الاطلاع على الحملة"
+				},
+				"campaign_create": {
+					"active": "جارٍ إنشاء الحملة",
+					"past": "تم إنشاء الحملة"
+				},
+				"campaign_update": {
+					"active": "جارٍ تعديل الحملة",
+					"past": "تم تعديل الحملة"
+				},
+				"campaign_status_update": {
+					"active": "جارٍ تشغيل الحملة أو إيقافها",
+					"past": "تم تشغيل الحملة أو إيقافها"
+				},
+				"adgroup_get": {
+					"active": "جارٍ الاطلاع على المجموعة الإعلانية",
+					"past": "تم الاطلاع على المجموعة الإعلانية"
+				},
+				"adgroup_create": {
+					"active": "جارٍ إنشاء المجموعة الإعلانية",
+					"past": "تم إنشاء المجموعة الإعلانية"
+				},
+				"adgroup_update": {
+					"active": "جارٍ تعديل المجموعة الإعلانية",
+					"past": "تم تعديل المجموعة الإعلانية"
+				},
+				"adgroup_status_update": {
+					"active": "جارٍ تشغيل المجموعة الإعلانية أو إيقافها",
+					"past": "تم تشغيل المجموعة الإعلانية أو إيقافها"
+				},
+				"ad_get": {
+					"active": "جارٍ الاطلاع على الإعلان",
+					"past": "تم الاطلاع على الإعلان"
+				},
+				"ad_create": {
+					"active": "جارٍ إنشاء الإعلان",
+					"past": "تم إنشاء الإعلان"
+				},
+				"ad_update": {
+					"active": "جارٍ تعديل الإعلان",
+					"past": "تم تعديل الإعلان"
+				},
+				"ad_status_update": {
+					"active": "جارٍ تشغيل الإعلان أو إيقافه",
+					"past": "تم تشغيل الإعلان أو إيقافه"
+				}
+			},
+			"stepFailed": "فشلت هذه الخطوة",
+			"interrupted": "توقّف قبل الاكتمال",
+			"skippedDeclined": "تم التخطي — لقد رفضت",
+			"arguments": "المُدخلات",
+			"generation": {
+				"working": "جارٍ إنشاء الوسائط…",
+				"workingHint": "المزوّد يعمل عليه الآن. لا يُعلن عن تقدمه أثناء المعالجة — ستظهر النتيجة هنا فور جهوزها.",
+				"ready": "الوسائط جاهزة",
+				"noMedia": "اكتمل الإنشاء، لكن لا يوجد ملف لعرضه هنا — تحقق من حسابك المتصل.",
+				"failed": "فشل الإنشاء",
+				"stoppedEarly": "توقف الإنشاء قبل الاكتمال.",
+				"statusLoadError": "تعذر تحميل حالة الإنشاء — أعد فتح هذه المحادثة للمحاولة مجددًا.",
+				"statusQueued": "في الانتظار",
+				"statusGenerating": "جارٍ الإنشاء",
+				"usually": "عادةً 2–4 دقائق"
+			}
+		},
+		"askUser": {
+			"questionsTitle": "بضعة أسئلة",
+			"answerBelow": "أجب أدناه ↓",
+			"upNext": "التالي",
+			"pickedForYou": "اختار Wandit نيابةً عنك",
+			"skipped": "تم التخطي",
+			"questionCount": "{count} أسئلة",
+			"answeredCount": "تمت الإجابة على {answered}/{total}"
+		},
 		"animateImage": {
 			"preparing": "جارٍ تحضير تحريك صورتك…",
 			"queueing": "جارٍ إضافة التحريك إلى قائمة الانتظار…",
@@ -256,7 +637,13 @@
 			"buildingKicker": "جارٍ إنشاء أصلك التسويقي",
 			"building": "يجري توليد الأصل — سيظهر في تبويب التسويق.",
 			"buildingNamed": "يجري توليد «{title}» — سيظهر في تبويب التسويق.",
-			"openTab": "افتح تبويب التسويق"
+			"openTab": "افتح تبويب التسويق",
+			"readyKicker": "أصلك التسويقي جاهز",
+			"ready": "الأصل جاهز في تبويب التسويق.",
+			"readyNamed": "«{title}» جاهز في تبويب التسويق.",
+			"failedKicker": "فشل التوليد",
+			"failedBody": "توقف التوليد قبل الاكتمال — اطلب المحاولة من جديد.",
+			"missing": "هذا الأصل لم يعد موجودًا في تبويب التسويق."
 		},
 		"generateImage": {
 			"preparing": "جارٍ تحضير صورك…",
@@ -271,6 +658,12 @@
 			"readyTitle": "الصور جاهزة",
 			"download": "تنزيل",
 			"inAssetsTab": "متاحة أيضًا في تبويب الوسائط"
+		},
+		"media": {
+			"close": "إغلاق",
+			"download": "تحميل",
+			"previous": "السابق",
+			"next": "التالي"
 		}
 	},
 	"page": {

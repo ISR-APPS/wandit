@@ -10,17 +10,17 @@ import type { DesignWorld } from "./types";
  * system prompt.
  */
 export const matiere: DesignWorld = {
-  avoidFor: [
-    "finance",
-    "banking",
-    "insurance",
-    "law",
-    "notary",
-    "gaming",
-    "electronics",
-    "logistics",
-  ],
-  doc: `# DESIGN WORLD: MATIÈRE — the sunlit material atelier
+	avoidFor: [
+		"finance",
+		"banking",
+		"insurance",
+		"law",
+		"notary",
+		"gaming",
+		"electronics",
+		"logistics",
+	],
+	doc: `# DESIGN WORLD: MATIÈRE — the sunlit material atelier
 
 ## Philosophy
 This page is a SUN-WARMED WALL OF MATERIALS, not a website. Everything on it feels touched by hand: lime plaster, terracotta, walnut, woven fiber, brass. Its defining structural fact: the Mediterranean arch is the ONLY geometry — every image mask, frame, divider, button, pill, form field and ornament echoes an arch or a half-circle. Its second structural fact: ZERO photography. Rooms, patios and scenes are built as layered CSS/SVG architectural miniatures — flat planes of wall color, arched openings, pooled light, plant silhouettes, rugs, lamps — like painted maquettes. Warm, generous, slightly imperfect, and deeply local (Maghreb material culture carried with dignity, never as folklore wallpaper). The failure mode "a big stock photo does the visual work" is structurally impossible here; so is cold minimalism. Self-audit before shipping: zero <img> raster elements, zero sharp-cornered media boxes, one grain overlay, at least three drawn scenes, and a page that would still charm printed in flat inks.
@@ -108,30 +108,30 @@ Photography or photoreal renders · thin/didone/high-contrast serifs · ANY ital
 
 ## Intensity
 This world lives or dies on THREE things at 100%: the DRAWN SCENES (a MATIÈRE page with weak or missing miniatures is a beige template — the scenes are the photography budget spent in code), the MATIÉRIAUTHÈQUE actually retinting the world, and the ARCH DISCIPLINE (one straying sharp-cornered frame breaks the spell). The grain, the arch pills, the provenance captions and the brass rationing cost almost nothing and are what separate this from a generated page. When in doubt, add another lamp glow inside a drawing — warmth is this world's voltage.`,
-  energy: "medium",
-  // fusesWith: ["calque"],
-  id: "matiere",
-  industries: [
-    "interior-design",
-    "architecture",
-    "crafts",
-    "ceramics",
-    "furniture",
-    "decor",
-    "hammam",
-    "spa",
-    "guesthouse",
-    "hotel",
-    "riad",
-    "bakery",
-    "restaurant",
-    "wellness",
-    "family-services",
-  ],
-  kind: "website",
-  mood: ["warm", "tactile", "sunlit", "artisanal", "generous"],
-  name: "Matière",
-  priceFeel: "premium",
-  tagline:
-    "A sun-warmed wall of materials: arches as the only geometry, rooms painted as CSS/SVG miniatures with light glowing inside them, a chunky serif that never whispers, and a cabinet of drawn material samples that re-tints the whole page when touched — the warmth of a real atelier, zero photography.",
+	energy: "medium",
+	// fusesWith: ["calque"],
+	id: "matiere",
+	industries: [
+		"interior-design",
+		"architecture",
+		"crafts",
+		"ceramics",
+		"furniture",
+		"decor",
+		"hammam",
+		"spa",
+		"guesthouse",
+		"hotel",
+		"riad",
+		"bakery",
+		"restaurant",
+		"wellness",
+		"family-services",
+	],
+	kind: "website",
+	mood: ["warm", "tactile", "sunlit", "artisanal", "generous"],
+	name: "Matière",
+	priceFeel: "premium",
+	tagline:
+		"A sun-warmed wall of materials: arches as the only geometry, rooms painted as CSS/SVG miniatures with light glowing inside them, a chunky serif that never whispers, and a cabinet of drawn material samples that re-tints the whole page when touched — the warmth of a real atelier, zero photography.",
 };

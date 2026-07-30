@@ -405,7 +405,7 @@ describe("applyOps", () => {
 		expect(style).not.toContain("background-position");
 	});
 
-	it('overrides a stylesheet-rule background with inline none (no prior inline value)', () => {
+	it("overrides a stylesheet-rule background with inline none (no prior inline value)", () => {
 		// The common builder case: the background comes from a <style> rule, so
 		// a property DELETE would let it resurface — the override must be an
 		// explicit inline "none".

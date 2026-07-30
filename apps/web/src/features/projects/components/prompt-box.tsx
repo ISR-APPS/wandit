@@ -49,6 +49,7 @@ import {
 	Megaphone,
 	Mic,
 	Paperclip,
+	Plug,
 	Plus,
 	RefreshCw,
 	Rocket,
@@ -62,6 +63,8 @@ import {
 } from "lucide-react";
 import type * as React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSession } from "@/features/auth";
+import { ConnectorsDialog } from "@/features/connectors";
 import { PriceTag } from "@/features/credits";
 import { useDictionary, useTranslation } from "@/lib/i18n";
 import {
@@ -706,6 +709,8 @@ function AddContextMenu({
 	onToggleSkill,
 	attachmentsEnabled,
 	onAttach,
+	connectorsEnabled,
+	onConnectApps,
 	isHero,
 }: {
 	selectedSkillIds: readonly SkillFileId[];
@@ -714,6 +719,8 @@ function AddContextMenu({
 	 *  signInFirst hint (attachments cannot survive the auth redirect). */
 	attachmentsEnabled: boolean;
 	onAttach: () => void;
+	connectorsEnabled: boolean;
+	onConnectApps: () => void;
 	isHero: boolean;
 }) {
 	const { t } = useTranslation();
@@ -787,6 +794,27 @@ function AddContextMenu({
 								? t("projects.promptBox.attachHint")
 								: t("projects.promptBox.attachments.signInFirst")}
 						</span>
+					</span>
+				</DropdownMenuItem>
+				<DropdownMenuItem
+					className="rounded-xl px-2 py-2"
+					disabled={!connectorsEnabled}
+					onSelect={(event) => {
+						if (!connectorsEnabled) {
+							event.preventDefault();
+							return;
+						}
+						onConnectApps();
+					}}
+				>
+					<Plug className="size-4" />
+					<span className="flex min-w-0 flex-col">
+						<span>{t("projects.promptBox.connectApps")}</span>
+						{!connectorsEnabled ? (
+							<span className="truncate text-muted-foreground text-xs">
+								{t("projects.connectors.signInFirst")}
+							</span>
+						) : null}
 					</span>
 				</DropdownMenuItem>
 			</DropdownMenuContent>
@@ -1729,6 +1757,7 @@ export function PromptBox({
 	className,
 }: PromptBoxProps) {
 	const { t } = useTranslation();
+	const { data: session } = useSession();
 	const pb = useDictionary().projects.promptBox;
 	const initialRouteMode = initialComposer?.mode ?? "auto";
 	const requestedInitialOutput = initialComposer?.output
@@ -1775,6 +1804,7 @@ export function PromptBox({
 	const [sourceValidationError, setSourceValidationError] =
 		useState<SourceImageValidationError | null>(null);
 	const [isLocallySubmitting, setIsLocallySubmitting] = useState(false);
+	const [connectorsOpen, setConnectorsOpen] = useState(false);
 	const [initialVideoSubmissionId] = useState(() =>
 		restoreVideoSubmissionId(initialComposer),
 	);
@@ -2317,6 +2347,8 @@ export function PromptBox({
 							onToggleSkill={toggleSkillFile}
 							attachmentsEnabled={attachmentsEnabled}
 							onAttach={() => fileInputRef.current?.click()}
+							connectorsEnabled={Boolean(session)}
+							onConnectApps={() => setConnectorsOpen(true)}
 							isHero={isHero}
 						/>
 						<ModePicker
@@ -2425,18 +2457,24 @@ export function PromptBox({
 	);
 
 	return (
-		<div className={className}>
-			{showBanner ? (
-				<div className="rounded-[1.25rem] bg-primary/10 p-1 pt-0">
-					<div className="flex items-center gap-1.5 px-4 py-2 text-muted-foreground text-xs">
-						<Sparkles className="size-3 text-primary" />
-						{t("projects.promptBox.banner")}
+		<>
+			<div className={className}>
+				{showBanner ? (
+					<div className="rounded-[1.25rem] bg-primary/10 p-1 pt-0">
+						<div className="flex items-center gap-1.5 px-4 py-2 text-muted-foreground text-xs">
+							<Sparkles className="size-3 text-primary" />
+							{t("projects.promptBox.banner")}
+						</div>
+						{box}
 					</div>
-					{box}
-				</div>
-			) : (
-				box
-			)}
-		</div>
+				) : (
+					box
+				)}
+			</div>
+			<ConnectorsDialog
+				open={connectorsOpen}
+				onOpenChange={setConnectorsOpen}
+			/>
+		</>
 	);
 }
