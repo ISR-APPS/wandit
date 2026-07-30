@@ -2,7 +2,7 @@
 // visible only to these accounts until subscriptions open. UI-level only by
 // design — it hides the prompt box, it is not a security boundary. Add or
 // remove emails here; matching is case-insensitive.
-const EARLY_ACCESS_EMAILS = ["zakisb97@gmail.com", "ramyyoukanapro@gmail.com"];
+const EARLY_ACCESS_EMAILS = ["zakisb97@gmail.com"];
 
 export function isEarlyAccessUser(email: string | null | undefined): boolean {
 	if (!email) {
