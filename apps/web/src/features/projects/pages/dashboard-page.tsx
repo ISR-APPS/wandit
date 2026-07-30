@@ -1,4 +1,3 @@
-import { useNavigate } from "@tanstack/react-router";
 import type { ComposerMetadata } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import { Input } from "@wandit/ui/components/input";
@@ -8,9 +7,8 @@ import { Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Spark } from "@/components/logo";
-import { promptStash, useSession } from "@/features/auth";
+import { promptStash } from "@/features/auth";
 import { InsufficientCreditsDialog } from "@/features/credits";
-import { isEarlyAccessUser } from "@/lib/early-access";
 import { useTranslation } from "@/lib/i18n";
 import type { Project } from "../api/dto";
 import { useProjectsQuery } from "../api/projects.queries";
@@ -91,19 +89,9 @@ function NoResultsState({
 
 export default function DashboardPage() {
 	const { t } = useTranslation();
-	const navigate = useNavigate();
-	const { data: session } = useSession();
 	const { data: projects, isPending } = useProjectsQuery();
 	const { create, isCreating, insufficientOpen, setInsufficientOpen, cost } =
 		useCreateProjectWithPrompt();
-
-	// Launch window: everyone can type, but only early-access accounts really
-	// generate — the rest land on the workspace-shaped Coming Soon teaser with
-	// their prompt echoed in the chat (see lib/early-access.ts).
-	const hasEarlyAccess = isEarlyAccessUser(session?.user.email);
-	const teaseComingSoon = (prompt: string) => {
-		void navigate({ to: "/preview", search: { prompt } });
-	};
 
 	const [query, setQuery] = useState("");
 	const [filter, setFilter] = useState<StatusFilter>("all");
@@ -172,10 +160,10 @@ export default function DashboardPage() {
 								variant="hero"
 								showPriceTag
 								showModes
-								attachmentsEnabled={hasEarlyAccess}
+								attachmentsEnabled
 								initialValue={promptPrefill.value}
 								initialComposer={promptPrefill.composer}
-								onSubmit={hasEarlyAccess ? create : teaseComingSoon}
+								onSubmit={create}
 								isSubmitting={isCreating}
 							/>
 						</div>

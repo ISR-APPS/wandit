@@ -1,6 +1,7 @@
-// Launch-window route: where a non-early-access prompt submission lands
-// instead of a real /p/$projectId workspace (see lib/early-access.ts). The
-// typed prompt rides in ?prompt= so the page can echo it as a chat bubble.
+// Launch-window teaser route. Currently UNLINKED: the early-access gate was
+// removed (2026-07-30) and every account generates for real — nothing
+// navigates here anymore. Kept for the next launch window. The typed prompt
+// rides in ?prompt= so the page can echo it as a chat bubble.
 import { createFileRoute } from "@tanstack/react-router";
 
 import WorkspacePreviewPage from "@/features/projects/pages/workspace-preview-page";
