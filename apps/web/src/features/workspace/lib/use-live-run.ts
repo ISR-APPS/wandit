@@ -1,16 +1,20 @@
 // Push-based progress for queued background jobs: subscribe to a Trigger.dev
-// run with the read-scoped token minted at queue time. No polling — Realtime
-// pushes every metadata/status change. Consumers keep the durable attempt row
-// as the source of truth for the final result: on settle they refetch it ONCE
-// (via onSettled), and if the subscription cannot be established (expired
-// token after a late reload, network, old messages without a handle) they
-// fall back to the legacy polling path, flagged here via `failed`.
+// run with the read-scoped token minted at queue time. Realtime pushes every
+// metadata/status change; a slow management-API poll (5s, plus tab-refocus
+// revalidation) rides along as a safety net, because the underlying Electric
+// stream can die silently AFTER delivering its first snapshot. Whichever
+// transport has the newer row wins. Consumers keep the durable attempt row
+// as the source of truth for the final result: on settle they refetch it
+// ONCE (via onSettled), and when neither transport delivers they fall back
+// to the legacy polling path, flagged here via `failed`.
 
-import { useRealtimeRun } from "@trigger.dev/react-hooks";
+import { useRealtimeRun, useRun } from "@trigger.dev/react-hooks";
 import type { TriggerRealtimeHandle } from "@wandit/contracts";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef } from "react";
 
-const STALL_TIMEOUT_MS = 15_000;
+// Slow on purpose: the stream carries the live cadence; the poll only keeps
+// the card honest when the stream dies. SWR stops it once the run completes.
+const POLL_INTERVAL_MS = 5_000;
 
 const SETTLED_RUN_STATUSES = new Set([
 	"COMPLETED",
@@ -21,6 +25,27 @@ const SETTLED_RUN_STATUSES = new Set([
 	"EXPIRED",
 	"TIMED_OUT",
 ]);
+
+/** The slice of a run row this hook reads, common to both transports. */
+type RunSnapshot = {
+	metadata?: Record<string, unknown> | undefined;
+	status?: string;
+	updatedAt?: Date | string;
+};
+
+/** Newer row wins; a lone row wins by default. */
+function pickFresher(
+	a: RunSnapshot | undefined,
+	b: RunSnapshot | undefined,
+): RunSnapshot | undefined {
+	if (!a) return b;
+	if (!b) return a;
+
+	const aTime = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+	const bTime = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+
+	return bTime > aTime ? b : a;
+}
 
 export function useLiveRun({
 	handle,
@@ -33,30 +58,35 @@ export function useLiveRun({
 	onSettled?: () => void;
 }) {
 	const subscribed = Boolean(handle) && enabled;
-	const { run, error } = useRealtimeRun(handle?.runId, {
+	const { run: streamedRun, error } = useRealtimeRun(handle?.runId, {
 		accessToken: handle?.publicAccessToken,
 		enabled: subscribed,
 		skipColumns: ["payload", "output"],
 	});
 
+	// SWR disables itself on a null key, so the poll obeys the same gate as
+	// the subscription and stops with it after settle.
+	const { run: polledRun } = useRun(
+		(subscribed ? (handle?.runId ?? null) : null) as string,
+		{
+			accessToken: handle?.publicAccessToken,
+			refreshInterval: POLL_INTERVAL_MS,
+			revalidateOnFocus: true,
+		},
+	);
+
+	const run = pickFresher(
+		streamedRun as RunSnapshot | undefined,
+		polledRun as RunSnapshot | undefined,
+	);
+
 	const status = run?.status;
 	const settled = status !== undefined && SETTLED_RUN_STATUSES.has(status);
 
-	// Liveness guard: the underlying Electric stream retries network errors
-	// forever WITHOUT surfacing them (`error` stays undefined behind a proxy
-	// or DNS block). A subscription that delivers nothing within the window
-	// counts as failed so consumers fall back to polling.
-	const [stalled, setStalled] = useState(false);
-	const hasData = run !== undefined;
-
-	useEffect(() => {
-		if (!subscribed || hasData) return;
-		const timer = setTimeout(() => setStalled(true), STALL_TIMEOUT_MS);
-		return () => clearTimeout(timer);
-	}, [subscribed, hasData]);
-
-	// Latch: settle exactly once per run, even though Realtime keeps pushing
-	// row updates after the terminal transition.
+	// The ONE effect this hook keeps, and only because it must: onSettled
+	// performs external side effects (query invalidation) on a transition,
+	// which React forbids during render. It runs exactly once per run —
+	// latched — not per render.
 	const settledOnce = useRef(false);
 	const onSettledRef = useRef(onSettled);
 	onSettledRef.current = onSettled;
@@ -68,11 +98,9 @@ export function useLiveRun({
 	}, [settled]);
 
 	return {
-		/** Subscription is unusable — the consumer should poll instead. */
-		failed: subscribed && (error !== undefined || (stalled && !hasData)),
-		metadata: (run?.metadata ?? undefined) as
-			| Record<string, unknown>
-			| undefined,
+		/** Neither transport is usable — the consumer should poll instead. */
+		failed: subscribed && error !== undefined && polledRun === undefined,
+		metadata: run?.metadata as Record<string, unknown> | undefined,
 		settled,
 		status,
 	};
