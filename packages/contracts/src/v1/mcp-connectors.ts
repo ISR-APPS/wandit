@@ -12,6 +12,11 @@ export const mcpConnectorStatuses = [
 export const mcpConnectorStatusSchema = z.enum(mcpConnectorStatuses);
 
 export const mcpConnectorListItemSchema = z.object({
+	// False when the server cannot run this connector's OAuth yet (e.g. a
+	// pre-registered provider whose app credentials aren't configured) — the
+	// UI shows "Coming soon" instead of Connect. Defaulted for tolerance of
+	// older server responses that predate the field.
+	available: z.boolean().default(true),
 	connectedAt: isoDateTimeSchema.nullable(),
 	description: z.string(),
 	iconUrl: z.string().nullable(),

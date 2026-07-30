@@ -353,6 +353,12 @@ export class McpOauthService {
 		connection?: McpConnectionRow,
 	): McpConnectorListItem {
 		return {
+			// Pre-registered providers need app credentials on the server; DCR
+			// connectors register themselves. Unavailable = "Coming soon" in
+			// the UI, and startConnect would refuse with 503 anyway.
+			available:
+				connector.authKind !== "oauth_prereg" ||
+				getProviderAdapter(connector.slug)?.credentials() != null,
 			connectedAt: connection?.connectedAt?.toISOString() ?? null,
 			description: connector.description,
 			iconUrl: connector.iconUrl,

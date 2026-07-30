@@ -189,17 +189,23 @@ function ConnectorRow({
 
 			<div className="flex w-full flex-wrap items-center justify-end gap-2 sm:w-auto sm:shrink-0">
 				{connector.status === "not_connected" ? (
-					<Button
-						type="button"
-						size="sm"
-						disabled={connectDisabled}
-						onClick={onConnect}
-					>
-						{connecting ? <Loader2 className="size-4 animate-spin" /> : null}
-						{connecting
-							? t("projects.connectors.connecting")
-							: t("projects.connectors.connect")}
-					</Button>
+					connector.available ? (
+						<Button
+							type="button"
+							size="sm"
+							disabled={connectDisabled}
+							onClick={onConnect}
+						>
+							{connecting ? <Loader2 className="size-4 animate-spin" /> : null}
+							{connecting
+								? t("projects.connectors.connecting")
+								: t("projects.connectors.connect")}
+						</Button>
+					) : (
+						<span className="inline-flex items-center rounded-full border border-border bg-muted/60 px-3 py-1 text-muted-foreground text-xs">
+							{t("projects.connectors.comingSoon")}
+						</span>
+					)
 				) : null}
 
 				{connector.status === "connected" ? (

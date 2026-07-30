@@ -418,3 +418,27 @@ describe("McpOauthService.handleCallback", () => {
 		expect(redirect.searchParams.get("mcp_error")).toBe("invalid_state");
 	});
 });
+
+describe("McpOauthService.list", () => {
+	it("marks prereg connectors without usable credentials as unavailable", async () => {
+		const context = buildService({});
+		const prereg = pendingConnection().connector;
+		const dcr = {
+			...prereg,
+			authKind: "mcp_dcr" as const,
+			id: "22222222-2222-4222-8222-222222222222",
+			mcpServerUrl: "https://mcp.example.com/mcp",
+			name: "DCR Connector",
+			slug: "dcr-connector",
+		};
+		context.connectorsRepository.listEnabled.mockResolvedValue([prereg, dcr]);
+		context.connectionsRepository.listByUser.mockResolvedValue([]);
+
+		const items = await context.service.list(USER_ID);
+
+		expect(items).toMatchObject([
+			{ available: false, slug: "future-oauth", status: "not_connected" },
+			{ available: true, slug: "dcr-connector", status: "not_connected" },
+		]);
+	});
+});
