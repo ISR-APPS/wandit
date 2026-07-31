@@ -14,11 +14,13 @@ import {
 	type AdminGrantCreditsInput,
 	type AdminListUsersQuery,
 	type AdminListUsersResponse,
+	type AdminSetAccessInput,
 	type AdminSetBannedInput,
 	type AdminSetRoleInput,
 	type AdminUserDetail,
 	adminGrantCreditsInputSchema,
 	adminListUsersQuerySchema,
+	adminSetAccessInputSchema,
 	adminSetBannedInputSchema,
 	adminSetRoleInputSchema,
 } from "@wandit/contracts";
@@ -69,6 +71,17 @@ export class AdminUsersController {
 		@CurrentUser() admin: AuthUser,
 	): Promise<AdminUserDetail> {
 		return this.adminUsersService.setRole(admin.id, userId, body);
+	}
+
+	@Post(":userId/access")
+	@HttpCode(200)
+	setAccess(
+		@Param("userId") userId: string,
+		@Body(new ZodValidationPipe(adminSetAccessInputSchema))
+		body: AdminSetAccessInput,
+		@CurrentUser() admin: AuthUser,
+	): Promise<AdminUserDetail> {
+		return this.adminUsersService.setAccess(admin.id, userId, body);
 	}
 
 	@Post(":userId/banned")

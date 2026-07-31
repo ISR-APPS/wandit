@@ -8,6 +8,7 @@ import {
 	Post,
 	Req,
 	Res,
+	UseGuards,
 } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
@@ -22,7 +23,7 @@ import { z } from "zod";
 import { SkipResponseEnvelope } from "../../../../../infrastructure/http/skip-envelope.decorator";
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { isUserUploadUrl } from "../../../../../infrastructure/storage/r2";
-import { CurrentUser } from "../../../../auth";
+import { CurrentUser, EarlyAccessGuard } from "../../../../auth";
 import { ChatsRepository } from "../../../../generation/infrastructure/persistence/chats.repository";
 import {
 	aiChatToolsForValidation,
@@ -59,6 +60,7 @@ export class AiChatController {
 		private readonly chatsRepository: ChatsRepository,
 	) {}
 
+	@UseGuards(EarlyAccessGuard)
 	@Post(":chatId/ai-stream")
 	@SkipResponseEnvelope()
 	async stream(

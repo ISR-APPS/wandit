@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Inject, Post } from "@nestjs/common";
+import { Body, Controller, Get, Inject, Post, UseGuards } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
 	type BillingCheckoutResponse,
@@ -14,7 +14,7 @@ import {
 } from "@wandit/contracts";
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
-import { CurrentUser, Public } from "../../../../auth";
+import { CurrentUser, EarlyAccessGuard, Public } from "../../../../auth";
 import { BillingService } from "../../../application/services/billing.service";
 
 @Controller("v1/billing")
@@ -37,6 +37,7 @@ export class BillingController {
 		return this.billingService.getSubscriptionView(user.id);
 	}
 
+	@UseGuards(EarlyAccessGuard)
 	@Post("checkout")
 	checkout(
 		@CurrentUser() user: AuthUser,
@@ -46,6 +47,7 @@ export class BillingController {
 		return this.billingService.checkout(user, body);
 	}
 
+	@UseGuards(EarlyAccessGuard)
 	@Post("topup")
 	topup(
 		@CurrentUser() user: AuthUser,
@@ -60,6 +62,7 @@ export class BillingController {
 		return this.billingService.portal(user);
 	}
 
+	@UseGuards(EarlyAccessGuard)
 	@Post("change")
 	change(
 		@CurrentUser() user: AuthUser,
@@ -76,6 +79,7 @@ export class BillingController {
 		return this.billingService.cancel(user);
 	}
 
+	@UseGuards(EarlyAccessGuard)
 	@Post("resume")
 	resume(
 		@CurrentUser() user: AuthUser,

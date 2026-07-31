@@ -9,6 +9,7 @@ import {
 	Param,
 	Post,
 	Query,
+	UseGuards,
 } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
@@ -26,7 +27,7 @@ import {
 } from "@wandit/contracts";
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
-import { CurrentUser } from "../../../../auth";
+import { CurrentUser, EarlyAccessGuard } from "../../../../auth";
 import { SitesService } from "../../../application/services/sites.service";
 
 @Controller("v1")
@@ -66,6 +67,7 @@ export class SitesController {
 		return this.sitesService.list(user.id, projectId);
 	}
 
+	@UseGuards(EarlyAccessGuard)
 	@Post("projects/:projectId/deployments")
 	publish(
 		@Param("projectId", new ZodValidationPipe(uuidSchema))
@@ -78,6 +80,7 @@ export class SitesController {
 	}
 
 	// A rollback is a normal publish of an older deployment's bytes.
+	@UseGuards(EarlyAccessGuard)
 	@Post("projects/:projectId/deployments/rollback")
 	rollback(
 		@Param("projectId", new ZodValidationPipe(uuidSchema))

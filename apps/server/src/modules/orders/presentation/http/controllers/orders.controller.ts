@@ -19,7 +19,7 @@ import {
 } from "@wandit/contracts";
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
-import { CurrentUser } from "../../../../auth";
+import { CurrentUser, EarlyAccessGuard } from "../../../../auth";
 import {
 	DomainRateLimit,
 	DomainRateLimitGuard,
@@ -35,7 +35,7 @@ export class OrdersController {
 
 	// Each call creates a Stripe customer + checkout session and a registrar
 	// availability request, so it gets the same budget as domain purchase had.
-	@UseGuards(DomainRateLimitGuard)
+	@UseGuards(EarlyAccessGuard, DomainRateLimitGuard)
 	@DomainRateLimit({ limit: 5, windowMs: 60_000 })
 	@Post("domain")
 	createDomain(
@@ -46,6 +46,7 @@ export class OrdersController {
 		return this.ordersService.createDomainOrder(user, body);
 	}
 
+	@UseGuards(EarlyAccessGuard)
 	@Post("reconcile-session")
 	reconcileSession(
 		@CurrentUser() user: AuthUser,

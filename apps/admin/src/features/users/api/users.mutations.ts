@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type {
 	ChangeUserRoleInput,
 	GrantUserCreditsInput,
+	SetUserAccessInput,
 	SetUserBannedInput,
 	UserDetail,
 } from "./users.dto";
@@ -10,6 +11,7 @@ import { userKeys } from "./users.queries";
 import {
 	changeUserRole,
 	grantUserCredits,
+	setUserAccess,
 	setUserBanned,
 } from "./users.services";
 
@@ -27,6 +29,15 @@ export function useChangeUserRoleMutation() {
 
 	return useMutation({
 		mutationFn: (input: ChangeUserRoleInput) => changeUserRole(input),
+		onSuccess: (user) => syncUserQueries(queryClient, user),
+	});
+}
+
+export function useSetUserAccessMutation() {
+	const queryClient = useQueryClient();
+
+	return useMutation({
+		mutationFn: (input: SetUserAccessInput) => setUserAccess(input),
 		onSuccess: (user) => syncUserQueries(queryClient, user),
 	});
 }
@@ -50,4 +61,5 @@ function syncUserQueries(
 
 export const useGrantUserCredits = useGrantCreditsMutation;
 export const useChangeUserRole = useChangeUserRoleMutation;
+export const useSetUserAccess = useSetUserAccessMutation;
 export const useSetUserBanned = useSetUserBannedMutation;

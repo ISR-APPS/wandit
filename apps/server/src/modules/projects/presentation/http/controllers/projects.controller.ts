@@ -8,6 +8,7 @@ import {
 	Param,
 	Patch,
 	Post,
+	UseGuards,
 } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
@@ -22,7 +23,7 @@ import {
 } from "@wandit/contracts";
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
-import { CurrentUser } from "../../../../auth";
+import { CurrentUser, EarlyAccessGuard } from "../../../../auth";
 import { ProjectsService } from "../../../application/services/projects.service";
 
 @Controller("v1/projects")
@@ -37,6 +38,7 @@ export class ProjectsController {
 		return this.projectsService.list(user.id);
 	}
 
+	@UseGuards(EarlyAccessGuard)
 	@Post()
 	create(
 		@Body(new ZodValidationPipe(createProjectBodySchema))

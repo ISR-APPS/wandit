@@ -12,6 +12,7 @@ import { ProjectAssetsController } from "./presentation/http/controllers/project
 // plus a forced-download route.
 @Module({
 	controllers: [ProjectAssetsController],
+	exports: [ProjectAssetsService],
 	imports: [DatabaseModule, ImageGenerationsModule, MediaGenerationsModule],
 	providers: [ProjectAssetsRepository, ProjectAssetsService],
 })

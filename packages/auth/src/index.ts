@@ -40,6 +40,15 @@ export function createAuth(options: CreateAuthOptions = {}) {
 
 			schema: schema,
 		}),
+		user: {
+			additionalFields: {
+				earlyAccess: {
+					type: "boolean",
+					defaultValue: false,
+					input: false,
+				},
+			},
+		},
 		// The admin plugin is kept for its schema fields (role/banned/banExpires)
 		// and its banned-user session hook, but every HTTP route it mounts is taken
 		// off the wire: those are served by our @Public() catch-all auth controller,

@@ -7,6 +7,7 @@ import type {
 	ChangeUserRoleInput,
 	GrantUserCreditsInput,
 	ListUsersParams,
+	SetUserAccessInput,
 	SetUserBannedInput,
 	UserDetail,
 } from "./users.dto";
@@ -44,6 +45,13 @@ export function changeUserRole({
 	role,
 }: ChangeUserRoleInput): Promise<UserDetail> {
 	return apiPost<UserDetail>(adminRoutes.setRole(userId), { role });
+}
+
+export function setUserAccess({
+	userId,
+	granted,
+}: SetUserAccessInput): Promise<UserDetail> {
+	return apiPost<UserDetail>(adminRoutes.setAccess(userId), { granted });
 }
 
 export function setUserBanned({

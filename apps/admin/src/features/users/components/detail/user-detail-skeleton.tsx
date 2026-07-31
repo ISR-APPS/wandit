@@ -50,7 +50,7 @@ export function UserDetailSkeleton() {
 				</CardContent>
 			</Card>
 			<Skeleton className="h-9 w-96 max-w-full" />
-			<div className="grid gap-4 xl:grid-cols-2">
+			<div className="grid gap-6 xl:grid-cols-2">
 				{DETAIL_SKELETONS.map((section) => (
 					<Card key={section.key} className="shadow-none">
 						<CardHeader>

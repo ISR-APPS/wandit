@@ -18,6 +18,7 @@ import {
 	Query,
 	Req,
 	Res,
+	UseGuards,
 } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
@@ -34,7 +35,7 @@ import { z } from "zod";
 
 import { SkipResponseEnvelope } from "../../../../../infrastructure/http/skip-envelope.decorator";
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
-import { CurrentUser } from "../../../../auth";
+import { CurrentUser, EarlyAccessGuard } from "../../../../auth";
 import { ChatService } from "../../../application/services/chat.service";
 import { ChatStreamRelayService } from "../../../application/services/chat-stream-relay.service";
 
@@ -75,6 +76,7 @@ export class ChatsController {
 	}
 
 	// Save the user's prompt and enqueue generation. The answer streams later.
+	@UseGuards(EarlyAccessGuard)
 	@Post(":chatId/messages")
 	sendMessage(
 		@Param("chatId", new ZodValidationPipe(uuidSchema))

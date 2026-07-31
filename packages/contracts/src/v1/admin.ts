@@ -5,6 +5,16 @@ import {
 } from "../http/pagination";
 import { billingPlanIdSchema } from "./billing";
 import { creditBucketSchema, creditKindSchema } from "./credits";
+import { deploymentSlugSchema, deploymentUiStateSchema } from "./deployments";
+import { domainStatusSchema } from "./domains";
+import { leadScrapeAttemptSchema } from "./lead-scrapes";
+import { leadSchema } from "./leads";
+import {
+	marketingAssetStatusSchema,
+	marketingAssetTypeSchema,
+} from "./marketing-assets";
+import { pageAttemptStatusSchema } from "./pages";
+import { projectAssetSourceSchema } from "./project-assets";
 import { isoDateTimeSchema, uuidSchema } from "./shared/primitives";
 
 // Admin contracts (consumed by apps/admin only). Every route below sits behind
@@ -43,6 +53,7 @@ export const adminUserSummarySchema = z.object({
 	emailVerified: z.boolean(),
 	image: z.string().nullable(),
 	role: adminUserRoleSchema,
+	earlyAccess: z.boolean(),
 	banned: z.boolean(),
 	createdAt: isoDateTimeSchema,
 	// Last authenticated request, refreshed at most every few minutes; null when
@@ -118,6 +129,118 @@ export const adminUserDetailSchema = adminUserSummarySchema.extend({
 
 export type AdminUserDetail = z.infer<typeof adminUserDetailSchema>;
 
+export const adminProjectMetadataSchema = z.object({
+	id: uuidSchema,
+	name: z.string(),
+	createdAt: isoDateTimeSchema,
+	updatedAt: isoDateTimeSchema,
+});
+
+export type AdminProjectMetadata = z.infer<typeof adminProjectMetadataSchema>;
+
+export const adminProjectOwnerSchema = z.object({
+	id: z.string(),
+	name: z.string(),
+	email: z.email(),
+});
+
+export type AdminProjectOwner = z.infer<typeof adminProjectOwnerSchema>;
+
+export const adminProjectAssetKinds = ["image", "video", "build-file"] as const;
+
+export const adminProjectAssetKindSchema = z.enum(adminProjectAssetKinds);
+
+export type AdminProjectAssetKind = z.infer<typeof adminProjectAssetKindSchema>;
+
+export const adminProjectAssetSchema = z.object({
+	id: z.string().min(1),
+	kind: adminProjectAssetKindSchema,
+	name: z.string().min(1),
+	url: z.url(),
+	mediaType: z.string().min(1),
+	source: projectAssetSourceSchema,
+	createdAt: isoDateTimeSchema.nullable(),
+});
+
+export type AdminProjectAsset = z.infer<typeof adminProjectAssetSchema>;
+
+export const adminProjectWebsiteSchema = z.object({
+	activeVersionNumber: z.int().positive().nullable(),
+	versionsCount: z.int().nonnegative(),
+	latestAttemptStatus: pageAttemptStatusSchema.nullable(),
+	currentDeployment: z.object({
+		status: deploymentUiStateSchema,
+		slug: deploymentSlugSchema.nullable(),
+		liveUrl: z.url().nullable(),
+	}),
+	deploymentHistoryCount: z.int().nonnegative(),
+});
+
+export type AdminProjectWebsite = z.infer<typeof adminProjectWebsiteSchema>;
+
+export const adminProjectMarketingAssetSchema = z.object({
+	id: uuidSchema,
+	name: z.string().min(1),
+	type: marketingAssetTypeSchema,
+	status: marketingAssetStatusSchema,
+	createdAt: isoDateTimeSchema,
+});
+
+export type AdminProjectMarketingAsset = z.infer<
+	typeof adminProjectMarketingAssetSchema
+>;
+
+export const adminProjectLeadsSchema = z.object({
+	recent: z.array(leadSchema),
+	total: z.int().nonnegative(),
+});
+
+export type AdminProjectLeads = z.infer<typeof adminProjectLeadsSchema>;
+
+export const adminProjectLeadScrapeExportsSchema = z.object({
+	recent: z.array(leadScrapeAttemptSchema),
+	total: z.int().nonnegative(),
+});
+
+export type AdminProjectLeadScrapeExports = z.infer<
+	typeof adminProjectLeadScrapeExportsSchema
+>;
+
+export const adminProjectDomainSchema = z.object({
+	id: uuidSchema,
+	name: z.string().min(1),
+	status: domainStatusSchema,
+	primary: z.boolean(),
+});
+
+export type AdminProjectDomain = z.infer<typeof adminProjectDomainSchema>;
+
+export const adminProjectSheetsIntegrationSchema = z.object({
+	connected: z.boolean(),
+	spreadsheetUrl: z.url().nullable(),
+	lastSyncAt: isoDateTimeSchema.nullable(),
+});
+
+export type AdminProjectSheetsIntegration = z.infer<
+	typeof adminProjectSheetsIntegrationSchema
+>;
+
+export const adminProjectDetailSchema = z.object({
+	project: adminProjectMetadataSchema,
+	owner: adminProjectOwnerSchema,
+	assets: z.array(adminProjectAssetSchema),
+	website: adminProjectWebsiteSchema,
+	marketingAssets: z.array(adminProjectMarketingAssetSchema),
+	leads: adminProjectLeadsSchema,
+	leadScrapeExports: adminProjectLeadScrapeExportsSchema,
+	domains: z.array(adminProjectDomainSchema),
+	integrations: z.object({
+		sheets: adminProjectSheetsIntegrationSchema,
+	}),
+});
+
+export type AdminProjectDetail = z.infer<typeof adminProjectDetailSchema>;
+
 export const adminGrantCreditsInputSchema = z.object({
 	amount: z.int().positive().max(1_000_000),
 	reason: z.string().trim().min(1).max(500).optional(),
@@ -136,6 +259,12 @@ export const adminSetRoleInputSchema = z.object({
 });
 
 export type AdminSetRoleInput = z.infer<typeof adminSetRoleInputSchema>;
+
+export const adminSetAccessInputSchema = z.object({
+	granted: z.boolean(),
+});
+
+export type AdminSetAccessInput = z.infer<typeof adminSetAccessInputSchema>;
 
 export const adminSetBannedInputSchema = z.object({
 	banned: z.boolean(),
@@ -172,7 +301,9 @@ export type AdminSignupStats = z.infer<typeof adminSignupStatsSchema>;
 export const adminRoutes = {
 	users: "/api/v1/admin/users",
 	user: (userId: string) => `/api/v1/admin/users/${userId}`,
+	project: (projectId: string) => `/api/v1/admin/projects/${projectId}`,
 	grantCredits: (userId: string) => `/api/v1/admin/users/${userId}/credits`,
+	setAccess: (userId: string) => `/api/v1/admin/users/${userId}/access`,
 	setRole: (userId: string) => `/api/v1/admin/users/${userId}/role`,
 	setBanned: (userId: string) => `/api/v1/admin/users/${userId}/banned`,
 	signupStats: "/api/v1/admin/stats/signups",

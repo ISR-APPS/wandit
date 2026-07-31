@@ -18,7 +18,7 @@ import { LeadsCaptureController } from "./presentation/http/controllers/leads-ca
 		LeadsController,
 		LeadSheetSyncController,
 	],
-	exports: [LeadsRepository],
+	exports: [LeadSheetSyncService, LeadsRepository, LeadsService],
 	imports: [DatabaseModule],
 	providers: [
 		GoogleSheetsClient,

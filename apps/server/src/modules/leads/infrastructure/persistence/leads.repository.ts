@@ -8,7 +8,7 @@
  */
 import { Inject, Injectable } from "@nestjs/common";
 import type { LeadStatus } from "@wandit/contracts";
-import { and, desc, eq, gt, isNull } from "@wandit/db";
+import { and, desc, eq, gt, isNull, sql } from "@wandit/db";
 import { deployments } from "@wandit/db/schema/deployments";
 import { leads } from "@wandit/db/schema/leads";
 import { projects } from "@wandit/db/schema/projects";
@@ -126,8 +126,32 @@ export class LeadsRepository {
 	async listOwnedByProject(
 		userId: string,
 		projectId: string,
+		limit = LIST_LIMIT,
 	): Promise<LeadRow[]> {
-		return this.listOwned(userId, projectId, LIST_LIMIT);
+		return this.listOwned(
+			userId,
+			projectId,
+			Math.min(LIST_LIMIT, Math.max(1, Math.floor(limit))),
+		);
+	}
+
+	async countOwnedByProject(
+		userId: string,
+		projectId: string,
+	): Promise<number> {
+		const [row] = await this.db
+			.select({ total: sql<number>`count(*)::int` })
+			.from(leads)
+			.innerJoin(projects, eq(projects.id, leads.projectId))
+			.where(
+				and(
+					eq(leads.projectId, projectId),
+					eq(projects.userId, userId),
+					isNull(projects.deletedAt),
+				),
+			);
+
+		return row?.total ?? 0;
 	}
 
 	async listOwnedByProjectForSync(

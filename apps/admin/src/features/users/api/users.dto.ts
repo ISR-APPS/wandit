@@ -5,6 +5,7 @@ import type {
 	AdminCreditLedgerEntry,
 	AdminGrantCreditsInput,
 	AdminListUsersResponse,
+	AdminSetAccessInput,
 	AdminSetBannedInput,
 	AdminSetRoleInput,
 	AdminUserDetail,
@@ -20,6 +21,7 @@ export type {
 	AdminCreditLedgerEntry,
 	AdminGrantCreditsInput,
 	AdminListUsersResponse,
+	AdminSetAccessInput,
 	AdminSetBannedInput,
 	AdminSetRoleInput,
 	AdminUserDetail,
@@ -54,6 +56,10 @@ export type GrantUserCreditsInput = AdminGrantCreditsInput & {
 };
 
 export type ChangeUserRoleInput = AdminSetRoleInput & {
+	userId: string;
+};
+
+export type SetUserAccessInput = AdminSetAccessInput & {
 	userId: string;
 };
 

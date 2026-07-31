@@ -1,10 +1,11 @@
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
+import { isAdminRole } from "@wandit/contracts";
 import type { CSSProperties } from "react";
 
 import { SiteHeader } from "@/components/layout/header";
-import { getSession } from "@/features/auth/lib/session";
 import { AppSidebar } from "@/components/layout/sidebar/app-sidebar";
 import { SidebarInset, SidebarProvider } from "@/components/ui/sidebar";
+import { getSession } from "@/features/auth/lib/session";
 
 const shellVariables = {
 	"--sidebar-width": "15.5rem",
@@ -29,7 +30,7 @@ export const Route = createFileRoute("/_dashboard")({
 			throw redirect({ to: "/login" });
 		}
 
-		if (session.user.role !== "admin") {
+		if (!isAdminRole(session.user.role)) {
 			throw redirect({ to: "/login", search: { error: "forbidden" } });
 		}
 	},
