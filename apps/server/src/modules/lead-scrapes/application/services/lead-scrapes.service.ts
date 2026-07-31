@@ -18,6 +18,7 @@ import {
 } from "../../infrastructure/persistence/lead-scrapes.repository";
 
 const previewRowsSchema = z.array(leadScrapePreviewRowSchema);
+const PROJECT_LIST_LIMIT = 20;
 
 export type LeadScrapeDownload = {
 	bytes: Uint8Array;
@@ -44,6 +45,23 @@ export class LeadScrapesService {
 		}
 
 		return mapAttemptRow(row);
+	}
+
+	async listByProject(
+		userId: string,
+		projectId: string,
+	): Promise<LeadScrapeAttempt[]> {
+		const rows = await this.leadScrapesRepository.listByProject(
+			userId,
+			projectId,
+			PROJECT_LIST_LIMIT,
+		);
+
+		return rows.map(mapAttemptRow);
+	}
+
+	countByProject(userId: string, projectId: string): Promise<number> {
+		return this.leadScrapesRepository.countByProject(userId, projectId);
 	}
 
 	// The finished workbook, ownership-checked. Only a succeeded attempt has

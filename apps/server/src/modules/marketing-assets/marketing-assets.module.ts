@@ -10,7 +10,7 @@ import { MarketingAssetsController } from "./presentation/http/controllers/marke
 // failed generations).
 @Module({
 	controllers: [MarketingAssetsController],
-	exports: [MarketingAssetsRepository],
+	exports: [MarketingAssetsRepository, MarketingAssetsService],
 	imports: [DatabaseModule, GenerationModule],
 	providers: [MarketingAssetsRepository, MarketingAssetsService],
 })

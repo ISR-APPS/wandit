@@ -9,6 +9,7 @@ import {
 	type AdminGrantCreditsInput,
 	type AdminListUsersQuery,
 	type AdminListUsersResponse,
+	type AdminSetAccessInput,
 	type AdminSetBannedInput,
 	type AdminSetRoleInput,
 	type AdminUserDetail,
@@ -104,6 +105,21 @@ export class AdminUsersService {
 
 		this.logger.log(
 			`admin_set_role admin=${actingAdminId} target=${userId} role=${input.role}`,
+		);
+
+		return this.getUserDetail(userId);
+	}
+
+	async setAccess(
+		actingAdminId: string,
+		userId: string,
+		input: AdminSetAccessInput,
+	): Promise<AdminUserDetail> {
+		await this.ensureUserExists(userId);
+		await this.adminRepository.setUserEarlyAccess(userId, input.granted);
+
+		this.logger.log(
+			`admin_set_access admin=${actingAdminId} target=${userId} granted=${input.granted}`,
 		);
 
 		return this.getUserDetail(userId);

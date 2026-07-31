@@ -4,7 +4,15 @@
 //
 // Route prefix is "v1" (not "v1/pages") because the routes live under
 // different roots: /v1/projects/:id/page and /v1/pages/versions/:id/html.
-import { Body, Controller, Get, Inject, Param, Post } from "@nestjs/common";
+import {
+	Body,
+	Controller,
+	Get,
+	Inject,
+	Param,
+	Post,
+	UseGuards,
+} from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
 	type ApplyPageOpsBody,
@@ -17,7 +25,7 @@ import {
 } from "@wandit/contracts";
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
-import { CurrentUser } from "../../../../auth";
+import { CurrentUser, EarlyAccessGuard } from "../../../../auth";
 import { PageEditsService } from "../../../application/services/page-edits.service";
 import { PagesService } from "../../../application/services/pages.service";
 
@@ -33,6 +41,7 @@ export class PagesController {
 	// One inline-editor/theme-panel Save = one op batch = one NEW immutable
 	// version (spec §7/§14). The body schema only accepts client op kinds —
 	// a replace-section op 400s at validation (the browser never sends HTML).
+	@UseGuards(EarlyAccessGuard)
 	@Post("projects/:projectId/page/ops")
 	applyOps(
 		@Param("projectId", new ZodValidationPipe(uuidSchema))

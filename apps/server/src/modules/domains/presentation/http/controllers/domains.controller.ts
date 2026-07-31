@@ -29,7 +29,7 @@ import {
 } from "@wandit/contracts";
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
-import { CurrentUser } from "../../../../auth";
+import { CurrentUser, EarlyAccessGuard } from "../../../../auth";
 import { DomainsService } from "../../../application/services/domains.service";
 import {
 	DomainRateLimit,
@@ -63,7 +63,7 @@ export class DomainsController {
 		return this.domainsService.list(projectId, user.id);
 	}
 
-	@UseGuards(DomainRateLimitGuard)
+	@UseGuards(EarlyAccessGuard, DomainRateLimitGuard)
 	@DomainRateLimit({ limit: 5, windowMs: 60_000 })
 	@Post("projects/:projectId/domains/external")
 	attachExternal(
@@ -76,7 +76,7 @@ export class DomainsController {
 		return this.domainsService.attachExternal(user.id, projectId, body);
 	}
 
-	@UseGuards(DomainRateLimitGuard)
+	@UseGuards(EarlyAccessGuard, DomainRateLimitGuard)
 	@DomainRateLimit({ limit: 10, windowMs: 60_000 })
 	@Post("domains/:id/verify")
 	verify(

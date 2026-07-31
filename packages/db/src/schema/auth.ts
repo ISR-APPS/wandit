@@ -20,6 +20,9 @@ export const user = pgTable(
 		// property names must match the plugin's schema so the drizzle adapter
 		// maps them.
 		role: text("role").default("user").notNull(),
+		// Server-owned Better Auth additional field. The auth config exposes it
+		// on session users but rejects it from signup/update input.
+		earlyAccess: boolean("early_access").default(false).notNull(),
 		banned: boolean("banned").default(false).notNull(),
 		banReason: text("ban_reason"),
 		banExpires: timestamp("ban_expires", { withTimezone: true }),

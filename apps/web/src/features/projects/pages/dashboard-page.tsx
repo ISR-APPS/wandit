@@ -100,7 +100,7 @@ export default function DashboardPage() {
 	// Launch window: everyone can type, but only early-access accounts really
 	// generate — the rest land on the workspace-shaped Coming Soon teaser with
 	// their prompt echoed in the chat (see lib/early-access.ts).
-	const hasEarlyAccess = isEarlyAccessUser(session?.user.email);
+	const hasEarlyAccess = isEarlyAccessUser(session?.user);
 	const teaseComingSoon = (prompt: string) => {
 		void navigate({ to: "/preview", search: { prompt } });
 	};

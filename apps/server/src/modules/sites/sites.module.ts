@@ -11,7 +11,7 @@ import { SitesController } from "./presentation/http/controllers/sites.controlle
 @Module({
 	controllers: [SitesController],
 	// The pages module reads the active deployment to mark the live version.
-	exports: [DeploymentsRepository],
+	exports: [DeploymentsRepository, SitesService],
 	imports: [DatabaseModule, DomainsModule],
 	providers: [DeploymentsRepository, SitesService],
 })

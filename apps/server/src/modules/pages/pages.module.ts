@@ -11,7 +11,7 @@ import { PagesController } from "./presentation/http/controllers/pages.controlle
 	// PagesRepository is exported because the ai-chat module's generate_page
 	// tool writes attempt rows through it at queue time; PageEditsService
 	// because the chat agent's replace_section tool mutates versions through it.
-	exports: [PageEditsService, PagesRepository],
+	exports: [PageEditsService, PagesRepository, PagesService],
 	imports: [DatabaseModule],
 	providers: [PageEditsService, PagesRepository, PagesService],
 })

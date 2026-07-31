@@ -1,4 +1,5 @@
 import { useNavigate, useSearch } from "@tanstack/react-router";
+import { isAdminRole } from "@wandit/contracts";
 import { Loader2Icon, ShieldAlertIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 
@@ -17,7 +18,7 @@ export function LoginPage() {
 		let cancelled = false;
 
 		void getSession().then((session) => {
-			if (!cancelled && session?.user.role === "admin") {
+			if (!cancelled && isAdminRole(session?.user.role)) {
 				void navigate({ to: "/dashboard" });
 			}
 		});

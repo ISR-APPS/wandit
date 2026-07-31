@@ -13,10 +13,12 @@ import {
 	PayloadTooLargeException,
 	Post,
 	Req,
+	UseGuards,
 } from "@nestjs/common";
 import type { TranscriptionResponse } from "@wandit/contracts";
 import type { FastifyRequest } from "fastify";
 
+import { EarlyAccessGuard } from "../../../../auth";
 import { TranscriptionService } from "../../../application/services/transcription.service";
 
 // The multipart plugin adds `request.file()` at runtime.
@@ -34,6 +36,7 @@ export class TranscriptionsController {
 	) {}
 
 	// Accept one uploaded audio file and return recognized text.
+	@UseGuards(EarlyAccessGuard)
 	@Post()
 	async create(@Req() request: FastifyRequest): Promise<TranscriptionResponse> {
 		const file = await this.readFile(request as MultipartRequest);

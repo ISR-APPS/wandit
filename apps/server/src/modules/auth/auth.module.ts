@@ -23,6 +23,7 @@ import { AUTH_INSTANCE } from "./auth.constants";
 import { AuthController } from "./presentation/http/controllers/auth.controller";
 import { AuthMeController } from "./presentation/http/controllers/me.controller";
 import { AuthGuard } from "./presentation/http/guards/auth.guard";
+import { EarlyAccessGuard } from "./presentation/http/guards/early-access.guard";
 
 const logger = new Logger("AuthModule");
 
@@ -69,11 +70,12 @@ const authProvider: Provider<Auth> = {
 @Global()
 @Module({
 	controllers: [AuthController, AuthMeController],
-	exports: [AUTH_INSTANCE, AuthGuard],
+	exports: [AUTH_INSTANCE, AuthGuard, EarlyAccessGuard],
 	imports: [CreditsModule, DatabaseModule],
 	providers: [
 		authProvider,
 		AuthGuard,
+		EarlyAccessGuard,
 		{
 			provide: APP_GUARD,
 			useExisting: AuthGuard,

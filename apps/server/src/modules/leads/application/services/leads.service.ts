@@ -16,13 +16,22 @@ export class LeadsService {
 		private readonly leadsRepository: LeadsRepository,
 	) {}
 
-	async list(userId: string, projectId: string): Promise<LeadsResponse> {
+	async list(
+		userId: string,
+		projectId: string,
+		limit = 1_000,
+	): Promise<LeadsResponse> {
 		const rows = await this.leadsRepository.listOwnedByProject(
 			userId,
 			projectId,
+			limit,
 		);
 
 		return { leads: rows.map(toLeadDto) };
+	}
+
+	countByProject(userId: string, projectId: string): Promise<number> {
+		return this.leadsRepository.countOwnedByProject(userId, projectId);
 	}
 
 	async updateStatus(

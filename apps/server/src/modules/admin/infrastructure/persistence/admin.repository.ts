@@ -32,6 +32,7 @@ export type AdminUserSummaryRow = {
 	emailVerified: boolean;
 	image: string | null;
 	role: string;
+	earlyAccess: boolean;
 	banned: boolean | null;
 	createdAt: Date;
 	lastSeenAt: Date | null;
@@ -57,6 +58,16 @@ export type AdminProjectRow = {
 	id: string;
 	name: string;
 	createdAt: Date;
+};
+
+export type AdminProjectDetailRow = {
+	id: string;
+	name: string;
+	createdAt: Date;
+	updatedAt: Date;
+	ownerId: string;
+	ownerName: string;
+	ownerEmail: string;
 };
 
 export type AdminCreditLedgerRow = {
@@ -185,6 +196,27 @@ export class AdminRepository {
 			.limit(limit);
 	}
 
+	async findProjectDetail(
+		projectId: string,
+	): Promise<AdminProjectDetailRow | null> {
+		const [row] = await this.db
+			.select({
+				createdAt: projects.createdAt,
+				id: projects.id,
+				name: projects.name,
+				ownerEmail: user.email,
+				ownerId: user.id,
+				ownerName: user.name,
+				updatedAt: projects.updatedAt,
+			})
+			.from(projects)
+			.innerJoin(user, eq(user.id, projects.userId))
+			.where(and(eq(projects.id, projectId), isNull(projects.deletedAt)))
+			.limit(1);
+
+		return row ?? null;
+	}
+
 	listRecentCreditLedger(
 		userId: string,
 		limit: number,
@@ -206,6 +238,13 @@ export class AdminRepository {
 
 	async updateUserRole(userId: string, role: string): Promise<void> {
 		await this.db.update(user).set({ role }).where(eq(user.id, userId));
+	}
+
+	async setUserEarlyAccess(
+		userId: string,
+		earlyAccess: boolean,
+	): Promise<void> {
+		await this.db.update(user).set({ earlyAccess }).where(eq(user.id, userId));
 	}
 
 	async setUserBanned(
@@ -280,6 +319,7 @@ export class AdminRepository {
 			emailVerified: user.emailVerified,
 			image: user.image,
 			role: user.role,
+			earlyAccess: user.earlyAccess,
 			banned: user.banned,
 			createdAt: user.createdAt,
 			lastSeenAt: user.lastSeenAt,
