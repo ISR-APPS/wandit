@@ -11,6 +11,7 @@ import {
 	Query,
 	Req,
 	Res,
+	UseGuards,
 } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
@@ -26,7 +27,7 @@ import { z } from "zod";
 
 import { SkipResponseEnvelope } from "../../../../../infrastructure/http/skip-envelope.decorator";
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
-import { CurrentUser, Public } from "../../../../auth";
+import { CurrentUser, EarlyAccessGuard, Public } from "../../../../auth";
 import { McpOauthService } from "../../../application/services/mcp-oauth.service";
 
 const connectorSlugSchema = z.string().min(1).max(100);
@@ -46,6 +47,7 @@ export class McpConnectorsController {
 	}
 
 	@Post(":slug/connect")
+	@UseGuards(EarlyAccessGuard)
 	@HttpCode(200)
 	startConnect(
 		@Param("slug", new ZodValidationPipe(connectorSlugSchema))
