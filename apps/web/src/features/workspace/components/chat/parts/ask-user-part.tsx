@@ -1,11 +1,10 @@
-// In-thread rendering of an ask_user call. The thread stays PROSE (design
-// turn 10: "instead of pushing option cards into the thread, they dock on the
-// composer") — so this shows the question text plus either a pointer chip at
-// the docked tray (while the ask is active) or a compact receipt of how it
-// settled. The interactive chips live ONLY in the request tray now.
-// Chrome strings hardcoded English this pass, same rule as the tray files.
+// In-thread rendering for one round of ask_user calls. The questions share a
+// single transcript card while the interactive answer UI remains docked on the
+// composer, one question at a time.
 
-import { Check, Paperclip } from "lucide-react";
+import { cn } from "@wandit/ui/lib/utils";
+import { Check, ChevronDown, Paperclip } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 import { useTranslation } from "@/lib/i18n";
 import type { WanditUIMessage } from "../../../lib/use-ai-chat";
@@ -13,52 +12,130 @@ import { WanditMessageHeader } from "../real-message";
 import { TrayPointerChip } from "../request-tray/tray-signals";
 import { askAnswerValue } from "../request-tray/use-request-tray";
 
-type AskUserToolPart = Extract<
+export type AskUserToolPart = Extract<
 	WanditUIMessage["parts"][number],
 	{ type: "tool-ask_user" }
 >;
 
-export function AskUserPart({
-	part,
-	isActive,
-	isWaiting,
+export function AskUserGroupCard({
+	parts,
+	activeAskToolCallId,
+	ownsActiveAsk,
+	isAfterActiveAsk,
+	showHeader = true,
 }: {
-	part: AskUserToolPart;
-	/** True when this ask is the one docked on the composer right now. */
-	isActive: boolean;
-	/** True for a still-pending sibling queued BEHIND the active ask (multi-
-	    question turns step through them oldest first) — it renders a quiet
-	    waiting note instead of the pointer, so only ONE part points at the
-	    tray. Stale unanswered asks in older turns stay false and render
-	    nothing, exactly as before. */
-	isWaiting?: boolean;
+	parts: AskUserToolPart[];
+	activeAskToolCallId?: string;
+	ownsActiveAsk: boolean;
+	isAfterActiveAsk: boolean;
+	/** MessageParts hoists one Wandit header per assistant turn — the card
+	 * must not repeat it inside the same turn. */
+	showHeader?: boolean;
 }) {
-	const question = part.input?.question;
-	const hasOptions = (part.input?.options ?? []).length > 0;
+	const { t } = useTranslation();
+	const activeAskIndex = parts.findIndex(
+		(part) => part.toolCallId === activeAskToolCallId,
+	);
+
+	// Collapsible: open while the round still needs answers, folded into a
+	// one-line receipt once everything settled (long question lists otherwise
+	// dominate the thread). Manual toggle always wins until the next
+	// open/settled transition.
+	const hasOpenAsk = parts.some(
+		(part) =>
+			part.state === "input-streaming" || part.state === "input-available",
+	);
+	// Skipped questions don't count as answered — "4/5 répondues" is honest.
+	const answeredCount = parts.filter(
+		(part) => part.state === "output-available" && !part.output.dismissed,
+	).length;
+	const [open, setOpen] = useState(hasOpenAsk);
+	const previousHasOpenAsk = useRef(hasOpenAsk);
+
+	useEffect(() => {
+		if (previousHasOpenAsk.current !== hasOpenAsk) {
+			previousHasOpenAsk.current = hasOpenAsk;
+			setOpen(hasOpenAsk);
+		}
+	}, [hasOpenAsk]);
 
 	return (
-		<div>
-			<WanditMessageHeader />
-			{question ? (
-				<p
-					dir="auto"
-					className="whitespace-pre-wrap break-words text-[14.5px] text-foreground leading-[1.5]"
+		<div className="overflow-hidden rounded-[14px] border border-border bg-background">
+			<div className="px-3.5 pt-3 pb-2.5">
+				{showHeader ? <WanditMessageHeader /> : null}
+				<button
+					type="button"
+					onClick={() => setOpen((value) => !value)}
+					aria-expanded={open}
+					className="flex w-full min-w-0 items-center gap-2 text-start"
 				>
-					{question}
-				</p>
-			) : null}
-			{isActive ? (
-				<TrayPointerChip
-					icon={hasOptions ? "options" : "question"}
-					label={
-						hasOptions ? "Pick below · on the composer ↓" : "Answer below ↓"
-					}
-					className="mt-2"
-				/>
-			) : isWaiting ? (
-				<p className="mt-2 text-[12.5px] text-muted-foreground/70">Up next</p>
-			) : part.state === "output-available" ? (
-				<AskReceiptLine output={part.output} />
+					<span className="min-w-0 truncate font-medium text-[13.5px] text-foreground">
+						{t("workspace.chat.askUser.questionsTitle")}
+					</span>
+					<span
+						dir="auto"
+						className="ms-auto shrink-0 text-[11px] text-muted-foreground"
+					>
+						{open
+							? t("workspace.chat.askUser.questionCount", {
+									count: parts.length,
+								})
+							: t("workspace.chat.askUser.answeredCount", {
+									answered: answeredCount,
+									total: parts.length,
+								})}
+					</span>
+					<ChevronDown
+						aria-hidden
+						className={cn(
+							"size-3.5 shrink-0 text-muted-foreground transition-transform",
+							open && "rotate-180",
+						)}
+					/>
+				</button>
+			</div>
+			{open ? (
+				<div className="divide-y divide-border border-border border-t">
+					{parts.map((part, index) => {
+						const question = part.input?.question;
+						const isActive = part.toolCallId === activeAskToolCallId;
+						const isPending =
+							part.state === "input-streaming" ||
+							part.state === "input-available";
+						const isWaiting =
+							!isActive &&
+							ownsActiveAsk &&
+							isPending &&
+							(activeAskIndex >= 0 ? index > activeAskIndex : isAfterActiveAsk);
+						const hasOptions = (part.input?.options ?? []).length > 0;
+
+						return (
+							<div key={part.toolCallId} className="px-3.5 py-3">
+								{question ? (
+									<p
+										dir="auto"
+										className="whitespace-pre-wrap break-words text-[14px] text-foreground leading-[1.5]"
+									>
+										{question}
+									</p>
+								) : null}
+								{isActive ? (
+									<TrayPointerChip
+										icon={hasOptions ? "options" : "question"}
+										label={t("workspace.chat.askUser.answerBelow")}
+										className="mt-2"
+									/>
+								) : isWaiting ? (
+									<p className="mt-2 text-[12.5px] text-muted-foreground/70">
+										{t("workspace.chat.askUser.upNext")}
+									</p>
+								) : part.state === "output-available" ? (
+									<AskReceiptLine output={part.output} />
+								) : null}
+							</div>
+						);
+					})}
+				</div>
 			) : null}
 		</div>
 	);
@@ -74,7 +151,11 @@ function AskReceiptLine({
 	const { t } = useTranslation();
 
 	if (output.dismissed) {
-		return <p className="mt-2 text-[12.5px] text-muted-foreground">Skipped</p>;
+		return (
+			<p className="mt-2 text-[12.5px] text-muted-foreground">
+				{t("workspace.chat.askUser.skipped")}
+			</p>
+		);
 	}
 
 	// Attachments ask settled with uploads — count receipt instead of text.
@@ -96,7 +177,7 @@ function AskReceiptLine({
 					aria-hidden
 					className="size-3.5 shrink-0 rounded-full bg-gradient-ember"
 				/>
-				Wandit picked for you
+				{t("workspace.chat.askUser.pickedForYou")}
 			</p>
 		);
 	}

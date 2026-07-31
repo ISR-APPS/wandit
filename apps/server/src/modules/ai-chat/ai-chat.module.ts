@@ -4,6 +4,7 @@ import { GenerationModule } from "../generation/generation.module";
 import { ImageGenerationsModule } from "../image-generations/image-generations.module";
 import { LeadScrapesModule } from "../lead-scrapes/lead-scrapes.module";
 import { MarketingAssetsModule } from "../marketing-assets/marketing-assets.module";
+import { McpConnectorsModule } from "../mcp-connectors/mcp-connectors.module";
 import { MediaGenerationsModule } from "../media-generations/media-generations.module";
 import { PagesModule } from "../pages/pages.module";
 import { AiChatService } from "./application/services/ai-chat.service";
@@ -21,6 +22,7 @@ import { AiChatController } from "./presentation/http/controllers/ai-chat.contro
 		ImageGenerationsModule,
 		LeadScrapesModule,
 		MarketingAssetsModule,
+		McpConnectorsModule,
 		MediaGenerationsModule,
 		PagesModule,
 	],

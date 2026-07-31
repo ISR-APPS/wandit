@@ -190,6 +190,387 @@
 		"placeholder": "Describe a change…",
 		"thinking": "Thinking…",
 		"generating": "Generating",
+		"mcpTool": {
+			"workingWith": "Working with your tools",
+			"running": "Running…",
+			"approvalTitle": "This action needs your approval.",
+			"wantsTo": "Wandit wants to: {action} · {connector}",
+			"approve": "Approve",
+			"deny": "Deny",
+			"approved": "Approved",
+			"denied": "Denied",
+			"expired": "Approval expired",
+			"waiting": "Waiting to continue…",
+			"error": "Error",
+			"result": "Result",
+			"searchingToolCatalog": "Searching the tool catalog",
+			"searchedToolCatalog": "Searched the tool catalog",
+			"readingToolDetails": "Reading tool details",
+			"readToolDetails": "Read tool details",
+			"showDetails": "Show details",
+			"hideDetails": "Hide details",
+			"actionCount": "{count} actions",
+			"usedTool": "Used 1 tool",
+			"usedTools": "Used {count} tools",
+			"progressOf": "{done} of {total}",
+			"genericLabels": {
+				"fetch": {
+					"active": "Fetching data",
+					"past": "Fetched data"
+				},
+				"create": {
+					"active": "Creating",
+					"past": "Created"
+				},
+				"update": {
+					"active": "Updating",
+					"past": "Updated"
+				},
+				"delete": {
+					"active": "Deleting",
+					"past": "Deleted"
+				},
+				"publish": {
+					"active": "Publishing",
+					"past": "Published"
+				},
+				"send": {
+					"active": "Sending",
+					"past": "Sent"
+				},
+				"generate": {
+					"active": "Generating",
+					"past": "Generated"
+				},
+				"other": {
+					"active": "Running an action",
+					"past": "Action completed"
+				}
+			},
+			"toolLabels": {
+				"media_upload": {
+					"active": "Uploading your media",
+					"past": "Uploaded your media"
+				},
+				"media_upload_widget": {
+					"active": "Opening the media uploader",
+					"past": "Opened the media uploader"
+				},
+				"media_import_url": {
+					"active": "Importing media from a link",
+					"past": "Imported media from a link"
+				},
+				"media_confirm": {
+					"active": "Confirming the media upload",
+					"past": "Confirmed the media upload"
+				},
+				"select_workspace": {
+					"active": "Selecting your workspace",
+					"past": "Selected your workspace"
+				},
+				"generate_image": {
+					"active": "Generating the image",
+					"past": "Generated the image"
+				},
+				"generate_video": {
+					"active": "Generating the video",
+					"past": "Generated the video"
+				},
+				"generate_audio": {
+					"active": "Generating the audio",
+					"past": "Generated the audio"
+				},
+				"generate_3d": {
+					"active": "Creating the 3D model",
+					"past": "Created the 3D model"
+				},
+				"animation_actions": {
+					"active": "Loading 3D animation options",
+					"past": "Loaded 3D animation options"
+				},
+				"outpaint_image": {
+					"active": "Expanding the image",
+					"past": "Expanded the image"
+				},
+				"reframe": {
+					"active": "Reframing the video",
+					"past": "Reframed the video"
+				},
+				"remove_background": {
+					"active": "Removing the background",
+					"past": "Removed the background"
+				},
+				"upscale_image": {
+					"active": "Enhancing the image",
+					"past": "Enhanced the image"
+				},
+				"upscale_video": {
+					"active": "Enhancing the video",
+					"past": "Enhanced the video"
+				},
+				"motion_control": {
+					"active": "Applying motion",
+					"past": "Applied motion"
+				},
+				"voice_change": {
+					"active": "Changing the voice",
+					"past": "Changed the voice"
+				},
+				"dubbing": {
+					"active": "Dubbing the video",
+					"past": "Dubbed the video"
+				},
+				"models_explore": {
+					"active": "Exploring creative styles",
+					"past": "Explored creative styles"
+				},
+				"job_status": {
+					"active": "Checking creation progress",
+					"past": "Checked creation progress"
+				},
+				"job_display": {
+					"active": "Loading the creation preview",
+					"past": "Loaded the creation preview"
+				},
+				"show_generations": {
+					"active": "Loading your creations",
+					"past": "Loaded your creations"
+				},
+				"ads_get_ad_accounts": {
+					"active": "Fetching ad accounts",
+					"past": "Fetched ad accounts"
+				},
+				"ads_get_ad_entities": {
+					"active": "Fetching ads and campaigns",
+					"past": "Fetched ads and campaigns"
+				},
+				"ads_entity_get_report": {
+					"active": "Fetching the campaign report",
+					"past": "Fetched the campaign report"
+				},
+				"ads_insights_performance_trend": {
+					"active": "Analyzing performance trends",
+					"past": "Analyzed performance trends"
+				},
+				"ads_insights_advertiser_context": {
+					"active": "Reviewing the ad account",
+					"past": "Reviewed the ad account"
+				},
+				"ads_get_ad_preview": {
+					"active": "Loading the ad preview",
+					"past": "Loaded the ad preview"
+				},
+				"ads_get_creatives": {
+					"active": "Fetching ad creatives",
+					"past": "Fetched ad creatives"
+				},
+				"ads_get_ad_account_pages": {
+					"active": "Fetching linked Pages",
+					"past": "Fetched linked Pages"
+				},
+				"ads_get_ig_accounts": {
+					"active": "Fetching Instagram accounts",
+					"past": "Fetched Instagram accounts"
+				},
+				"ads_get_ad_account_custom_audiences": {
+					"active": "Fetching custom audiences",
+					"past": "Fetched custom audiences"
+				},
+				"ads_get_errors": {
+					"active": "Checking ad account issues",
+					"past": "Checked ad account issues"
+				},
+				"ads_library_search": {
+					"active": "Searching the Ads Library",
+					"past": "Searched the Ads Library"
+				},
+				"ads_get_field_context": {
+					"active": "Reviewing report metrics",
+					"past": "Reviewed report metrics"
+				},
+				"advertiser_info_get": {
+					"active": "Fetching advertiser details",
+					"past": "Fetched advertiser details"
+				},
+				"auth_advertiser_get": {
+					"active": "Checking connected ad accounts",
+					"past": "Checked connected ad accounts"
+				},
+				"report_integrated_get": {
+					"active": "Fetching the ad report",
+					"past": "Fetched the ad report"
+				},
+				"identity_get": {
+					"active": "Fetching TikTok profiles",
+					"past": "Fetched TikTok profiles"
+				},
+				"page_get": {
+					"active": "Fetching Instant Pages",
+					"past": "Fetched Instant Pages"
+				},
+				"pixel_list_get": {
+					"active": "Fetching tracking pixels",
+					"past": "Fetched tracking pixels"
+				},
+				"dmp_custom_audience_list_get": {
+					"active": "Fetching custom audiences",
+					"past": "Fetched custom audiences"
+				},
+				"smart_plus_campaign_get": {
+					"active": "Fetching Smart+ campaigns",
+					"past": "Fetched Smart+ campaigns"
+				},
+				"ads_create_campaign": {
+					"active": "Creating the campaign",
+					"past": "Campaign created"
+				},
+				"ads_create_ad_set": {
+					"active": "Creating the ad set",
+					"past": "Ad set created"
+				},
+				"ads_create_ad": {
+					"active": "Creating the ad",
+					"past": "Ad created"
+				},
+				"ads_create_creative": {
+					"active": "Creating the ad design",
+					"past": "Ad design created"
+				},
+				"ads_create_custom_audience": {
+					"active": "Creating the custom audience",
+					"past": "Custom audience created"
+				},
+				"ads_update_entity": {
+					"active": "Updating the campaign or ad",
+					"past": "Campaign or ad updated"
+				},
+				"ads_update_custom_audience": {
+					"active": "Updating the custom audience",
+					"past": "Custom audience updated"
+				},
+				"smart_plus_campaign_create": {
+					"active": "Creating the Smart+ campaign",
+					"past": "Smart+ campaign created"
+				},
+				"smart_plus_campaign_update": {
+					"active": "Updating the Smart+ campaign",
+					"past": "Smart+ campaign updated"
+				},
+				"smart_plus_campaign_status_update": {
+					"active": "Turning Smart+ campaign on or off",
+					"past": "Smart+ campaign turned on or off"
+				},
+				"smart_plus_adgroup_create": {
+					"active": "Creating the Smart+ ad group",
+					"past": "Smart+ ad group created"
+				},
+				"smart_plus_adgroup_update": {
+					"active": "Updating the Smart+ ad group",
+					"past": "Smart+ ad group updated"
+				},
+				"smart_plus_adgroup_status_update": {
+					"active": "Turning Smart+ ad group on or off",
+					"past": "Smart+ ad group turned on or off"
+				},
+				"smart_plus_adgroup_budget_update": {
+					"active": "Updating the Smart+ ad group budget",
+					"past": "Smart+ ad group budget updated"
+				},
+				"smart_plus_ad_create": {
+					"active": "Creating the Smart+ ad",
+					"past": "Smart+ ad created"
+				},
+				"smart_plus_ad_update": {
+					"active": "Updating the Smart+ ad",
+					"past": "Smart+ ad updated"
+				},
+				"smart_plus_ad_status_update": {
+					"active": "Turning Smart+ ad on or off",
+					"past": "Smart+ ad turned on or off"
+				},
+				"smart_plus_ad_get": {
+					"active": "Reading the Smart+ ad",
+					"past": "Smart+ ad viewed"
+				},
+				"smart_plus_adgroup_get": {
+					"active": "Reading the Smart+ ad group",
+					"past": "Smart+ ad group viewed"
+				},
+				"campaign_get": {
+					"active": "Reading the campaign",
+					"past": "Campaign viewed"
+				},
+				"campaign_create": {
+					"active": "Creating the campaign",
+					"past": "Campaign created"
+				},
+				"campaign_update": {
+					"active": "Updating the campaign",
+					"past": "Campaign updated"
+				},
+				"campaign_status_update": {
+					"active": "Turning the campaign on or off",
+					"past": "Campaign turned on or off"
+				},
+				"adgroup_get": {
+					"active": "Reading the ad group",
+					"past": "Ad group viewed"
+				},
+				"adgroup_create": {
+					"active": "Creating the ad group",
+					"past": "Ad group created"
+				},
+				"adgroup_update": {
+					"active": "Updating the ad group",
+					"past": "Ad group updated"
+				},
+				"adgroup_status_update": {
+					"active": "Turning the ad group on or off",
+					"past": "Ad group turned on or off"
+				},
+				"ad_get": {
+					"active": "Reading the ad",
+					"past": "Ad viewed"
+				},
+				"ad_create": {
+					"active": "Creating the ad",
+					"past": "Ad created"
+				},
+				"ad_update": {
+					"active": "Updating the ad",
+					"past": "Ad updated"
+				},
+				"ad_status_update": {
+					"active": "Turning the ad on or off",
+					"past": "Ad turned on or off"
+				}
+			},
+			"stepFailed": "This step failed",
+			"interrupted": "Interrupted",
+			"skippedDeclined": "Skipped — you declined",
+			"arguments": "Arguments",
+			"generation": {
+				"working": "Generating your media…",
+				"workingHint": "The provider is on it. It doesn't report progress while it renders — the result will appear right here the moment it's back.",
+				"ready": "Media ready",
+				"noMedia": "Generation finished, but there is no previewable file here — check your connected account.",
+				"failed": "Generation failed",
+				"stoppedEarly": "The generation stopped before finishing.",
+				"statusLoadError": "Couldn't load the generation status — reopen this chat to retry.",
+				"statusQueued": "Queued",
+				"statusGenerating": "Generating",
+				"usually": "usually 2–4 min"
+			}
+		},
+		"askUser": {
+			"questionsTitle": "A few questions",
+			"answerBelow": "Answer below ↓",
+			"upNext": "Up next",
+			"pickedForYou": "Wandit picked for you",
+			"skipped": "Skipped",
+			"questionCount": "{count} questions",
+			"answeredCount": "{answered}/{total} answered"
+		},
 		"animateImage": {
 			"preparing": "Preparing your image animation…",
 			"queueing": "Queueing the animation…",
@@ -252,7 +633,13 @@
 			"buildingKicker": "Creating your marketing asset",
 			"building": "The asset is being generated — it will appear in the Marketing tab.",
 			"buildingNamed": "“{title}” is being generated — it will appear in the Marketing tab.",
-			"openTab": "Open the Marketing tab"
+			"openTab": "Open the Marketing tab",
+			"readyKicker": "Marketing asset ready",
+			"ready": "The asset is ready in the Marketing tab.",
+			"readyNamed": "“{title}” is ready in the Marketing tab.",
+			"failedKicker": "Marketing generation failed",
+			"failedBody": "The generation stopped before finishing — ask to retry.",
+			"missing": "This asset is no longer in the Marketing tab."
 		},
 		"generateImage": {
 			"preparing": "Preparing your images…",
@@ -267,6 +654,12 @@
 			"readyTitle": "Images ready",
 			"download": "Download",
 			"inAssetsTab": "Also available in the Assets tab"
+		},
+		"media": {
+			"close": "Close",
+			"download": "Download",
+			"previous": "Previous",
+			"next": "Next"
 		}
 	},
 	"page": {

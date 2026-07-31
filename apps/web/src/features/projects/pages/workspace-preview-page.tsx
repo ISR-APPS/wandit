@@ -138,15 +138,15 @@ export default function WorkspacePreviewPage({ prompt }: { prompt?: string }) {
 								aria-hidden
 								className="pointer-events-none absolute inset-0 bg-dots"
 							/>
-						<div className="relative flex size-14 items-center justify-center rounded-2xl border bg-card shadow-xs">
-							<Spark className="size-6 text-primary" />
-						</div>
-						<h1 className="relative mt-5 font-display font-semibold text-2xl tracking-tight md:text-3xl">
-							{t("projects.promptSoonTitle")}
-						</h1>
-						<p className="relative mt-2 max-w-md text-balance text-muted-foreground text-sm md:text-base">
-							{t("projects.promptSoonBody")}
-						</p>
+							<div className="relative flex size-14 items-center justify-center rounded-2xl border bg-card shadow-xs">
+								<Spark className="size-6 text-primary" />
+							</div>
+							<h1 className="relative mt-5 font-display font-semibold text-2xl tracking-tight md:text-3xl">
+								{t("projects.promptSoonTitle")}
+							</h1>
+							<p className="relative mt-2 max-w-md text-balance text-muted-foreground text-sm md:text-base">
+								{t("projects.promptSoonBody")}
+							</p>
 							<Button asChild variant="outline" className="relative mt-6">
 								<Link to="/dashboard">{t("workspace.backToDashboard")}</Link>
 							</Button>

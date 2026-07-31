@@ -16,7 +16,5 @@ export const BUILDER_MODEL_BY_OPTION: Record<string, string> = {
 };
 
 export function resolveBuilderModelOption(value: unknown): string | undefined {
-	return typeof value === "string"
-		? BUILDER_MODEL_BY_OPTION[value]
-		: undefined;
+	return typeof value === "string" ? BUILDER_MODEL_BY_OPTION[value] : undefined;
 }

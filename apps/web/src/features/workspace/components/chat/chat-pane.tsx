@@ -61,6 +61,7 @@ export function ChatPane({ className }: { className?: string }) {
 		isLoadingMessages,
 		sendText,
 		answerAskUser,
+		addToolApprovalResponse,
 	} = useAiChat(projectId);
 
 	// Mirror of the PromptBox draft (via onValueChange) — the tray needs to
@@ -93,8 +94,11 @@ export function ChatPane({ className }: { className?: string }) {
 				(part.type === "text" && part.text.length > 0) ||
 				part.type === "tool-ask_user" ||
 				part.type === "tool-generate_page" ||
+				part.type === "tool-generate_marketing_asset" ||
+				part.type === "tool-generate_image" ||
 				part.type === "tool-scrape_leads" ||
-				part.type === "tool-animate_image",
+				part.type === "tool-animate_image" ||
+				part.type === "dynamic-tool",
 		);
 	const showThinking = isSubmitting && !replyHasVisibleContent;
 
@@ -309,7 +313,12 @@ export function ChatPane({ className }: { className?: string }) {
 									isStreaming={
 										status === "streaming" && index === messages.length - 1
 									}
+									isLastAssistantMessage={
+										message.role === "assistant" &&
+										index === messages.length - 1
+									}
 									activeAskToolCallId={tray.toolCallId}
+									onToolApprovalResponse={addToolApprovalResponse}
 								/>
 							))}
 							{showThinking ? (

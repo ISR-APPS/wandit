@@ -7,7 +7,7 @@
 import { createHash } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import { Logger } from "@nestjs/common";
-import { idempotencyKeys, tasks } from "@trigger.dev/sdk";
+import { auth, idempotencyKeys, tasks } from "@trigger.dev/sdk";
 import {
 	type GenerateMarketingAssetInput,
 	type GenerateMarketingAssetOutput,
@@ -147,6 +147,7 @@ export function createGenerateMarketingAssetTool(
 				};
 			}
 
+			let realtime: GenerateMarketingAssetOutput["realtime"];
 			try {
 				const handle = await triggerMarketingAssetTask({
 					assetId: asset.id,
@@ -166,6 +167,8 @@ export function createGenerateMarketingAssetTool(
 						}`,
 					);
 				}
+
+				realtime = await mintRealtimeHandle(handle.id);
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 
@@ -217,10 +220,38 @@ export function createGenerateMarketingAssetTool(
 					"Queued: the marketing asset is being generated. It appears as " +
 					"a named card in the user's Marketing tab, usually within a " +
 					"minute or two.",
+				realtime,
 				status: "queued",
 			};
 		},
 	});
+}
+
+/**
+ * Mint a read-scoped Realtime token so the chat card can follow the run
+ * instead of waiting on the poll. Best-effort: on failure the card silently
+ * falls back to the Marketing list poll, so the queue must never fail here.
+ */
+async function mintRealtimeHandle(
+	runId: string,
+): Promise<GenerateMarketingAssetOutput["realtime"]> {
+	try {
+		const publicAccessToken = await auth.createPublicToken({
+			// Long enough to outlive any generation plus a same-session reload;
+			// an expired token just means the poll carries the card alone.
+			expirationTime: "2h",
+			scopes: { read: { runs: [runId] } },
+		});
+
+		return { publicAccessToken, runId };
+	} catch (error) {
+		logger.warn(
+			`Realtime token minting failed for run ${runId} — the chat card ` +
+				`will rely on polling: ${error instanceof Error ? error.message : String(error)}`,
+		);
+
+		return undefined;
+	}
 }
 
 async function triggerMarketingAssetTask(payload: {

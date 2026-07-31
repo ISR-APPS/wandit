@@ -49,6 +49,10 @@ import { ImageGenerationsRepository } from "../../../image-generations/infrastru
 // Value imports (not `import type`): Nest needs the classes at runtime for @Inject.
 import { LeadScrapesRepository } from "../../../lead-scrapes/infrastructure/persistence/lead-scrapes.repository";
 import { MarketingAssetsRepository } from "../../../marketing-assets/infrastructure/persistence/marketing-assets.repository";
+import {
+	type McpChatToolsResult,
+	McpChatToolsService,
+} from "../../../mcp-connectors/application/services/mcp-chat-tools.service";
 import { MediaGenerationsRepository } from "../../../media-generations/infrastructure/persistence/media-generations.repository";
 import { PageEditsService } from "../../../pages/application/services/page-edits.service";
 import { PagesRepository } from "../../../pages/infrastructure/persistence/pages.repository";
@@ -83,6 +87,8 @@ export class AiChatService {
 		private readonly marketingAssetsRepository: MarketingAssetsRepository,
 		@Inject(ImageGenerationsRepository)
 		private readonly imageGenerationsRepository: ImageGenerationsRepository,
+		@Inject(McpChatToolsService)
+		private readonly mcpChatToolsService: McpChatToolsService,
 	) {}
 
 	async stream(options: {
@@ -107,144 +113,172 @@ export class AiChatService {
 			requestCountryCode,
 			userId,
 		} = options;
-		// Per-request context: prompt-box settings, preview selection, and the
-		// wids the user manually edited since the last AI change (so the model
-		// never clobbers intentional edits).
-		const manualEdits =
-			await this.pagesRepository.collectManualEditTrail(projectId);
-		const availableImages = collectAvailableImages(messages);
-		const selectedSourceImage = resolveSelectedSourceImage(
-			metadata,
-			availableImages,
-			userId,
-		);
-		// A transport retry appends a new user message id, but the retained Video
-		// draft carries the same browser UUID. Prefer that validated token so the
-		// original DB attempt and Trigger.dev idempotency key are reused.
-		const requestKeySeed = resolveVideoRequestKeySeed(
-			metadata,
-			findFinalUserMessage(messages)?.id,
-		);
-		const context = buildChatRequestContext({
-			manualEdits,
-			metadata,
-			requestCountryCode,
-			selectedSourceImage,
-		});
-		// Per-request agent: generate_page, scrape_leads, and the page-edit
-		// tools need to know which project/chat they act for (see chat-agent.ts).
-		const agent = createChatAgent(
-			{
+		const mcpResultPromise =
+			this.mcpChatToolsService.resolveToolsForUser(userId);
+		let resolvedMcpResult: McpChatToolsResult | undefined;
+
+		try {
+			// Per-request context and connector discovery are independent. Start
+			// both together so zero-connection users add no wall-clock wait.
+			const [manualEdits, mcpResult] = await Promise.all([
+				this.pagesRepository.collectManualEditTrail(projectId),
+				mcpResultPromise,
+			]);
+			resolvedMcpResult = mcpResult;
+			const availableImages = collectAvailableImages(messages);
+			const selectedSourceImage = resolveSelectedSourceImage(
+				metadata,
 				availableImages,
-				// Composer's model picker: per-message builder override, validated
-				// against the allow-list; undefined = env default.
-				builderModel: resolveBuilderModelOption(
-					metadata?.composer?.options?.builderModel,
-				),
-				chatId,
-				generationPolicyService: this.generationPolicyService,
-				imageGenerationsRepository: this.imageGenerationsRepository,
-				leadScrapesRepository: this.leadScrapesRepository,
-				marketingAssetsRepository: this.marketingAssetsRepository,
-				mediaGenerationsRepository: this.mediaGenerationsRepository,
-				pageEditsService: this.pageEditsService,
-				pagesRepository: this.pagesRepository,
-				projectId,
-				// Snapshotted into generation specs for later model swapping; no
-				// generator reads it yet.
-				quality: metadata?.composer?.quality,
-				requireSelectedSource: metadata?.composer?.mode === "video",
-				requestKeySeed,
-				requestCountryCode: requestCountryCode ?? null,
-				selectedSourceImage,
 				userId,
-			},
-			context,
-		);
-		// Three transforms on the MODEL-BOUND copy only (DB + UI keep the truth):
-		// 1. complete tool calls that never got a result (typed-past ask_user,
-		//    or a stream aborted mid-execute) — providers reject a history that
-		//    carries a tool call without a matching result,
-		// 2. elide outputs from the retired read_skill tool so large stale
-		//    guidance does not cost tokens on every request,
-		// 3. follow user file parts with a text marker exposing their URL —
-		//    without it the model sees the image but cannot reference it in
-		//    generate_image/animate_image and asks for an already-sent photo.
-		const agentMessages = annotateUserFileParts(
-			elideRetiredToolOutputs(completeDanglingToolCalls(messages)),
-		);
-		const onError = (error: unknown) => this.handleStreamError(error);
-
-		// TODO(billing): gate like GenerationPolicyService before public launch
-		const stream = createUIMessageStream<WanditUIMessage>({
-			execute: async ({ writer }) => {
-				const agentStream = await createAgentUIStream({
-					abortSignal,
-					agent,
-					// Models emit text in sentence-sized bursts, which renders as
-					// "snapping" blocks. smoothStream re-slices the deltas into
-					// words with a small delay so the UI reads like typing.
-					// Word chunking splits on whitespace — fine for FR/AR alike.
-					experimental_transform: smoothStream({ delayInMs: 15 }),
-					onError,
-					uiMessages: agentMessages,
-				});
-				// The live agent's tool set is a strict SUBSET of WanditUIMessage's
-				// (read_skill exists only in retired history), so its chunks are
-				// valid WanditUIMessage chunks — TS can't see through the generics.
-				writer.merge(
-					agentStream as unknown as ReadableStream<
-						InferUIMessageChunk<WanditUIMessage>
-					>,
-				);
-			},
-			onError,
-			onEnd: async ({ isContinuation, responseMessage }) => {
-				// A tray answer CONTINUES the previous assistant message: the SDK
-				// keeps its id and hands back the original row extended with the
-				// answer + everything the model did after it. The insert-if-absent
-				// below would hit the id conflict and silently drop all of that,
-				// so continuations overwrite the existing row instead.
-				if (isContinuation) {
-					await this.chatsRepository.upsertUiMessage(chatId, {
-						...responseMessage,
-						role: "assistant" as const,
-					});
-
-					return;
-				}
-
-				const finalUserMessage = findFinalUserMessage(messages);
-				const messagesToInsert = [
-					...(finalUserMessage
-						? [{ ...finalUserMessage, role: "user" as const }]
-						: []),
-					...(responseMessage.parts.length > 0
-						? [{ ...responseMessage, role: "assistant" as const }]
-						: []),
-				];
-
-				// Save only the new request/response rows; never replace prior history.
-				await this.chatsRepository.insertUiMessagesIfAbsent(
+			);
+			// A transport retry appends a new user message id, but the retained Video
+			// draft carries the same browser UUID. Prefer that validated token so the
+			// original DB attempt and Trigger.dev idempotency key are reused.
+			const requestKeySeed = resolveVideoRequestKeySeed(
+				metadata,
+				findFinalUserMessage(messages)?.id,
+			);
+			const context = buildChatRequestContext({
+				manualEdits,
+				metadata,
+				requestCountryCode,
+				selectedSourceImage,
+			});
+			const mcpNoticeBlock =
+				mcpResult.notices.length > 0
+					? `MCP connector notices:\n${mcpResult.notices
+							.map((notice) => `- ${notice}`)
+							.join("\n")}`
+					: null;
+			const contextWithMcpNotices = [context, mcpNoticeBlock]
+				.filter((block): block is string => Boolean(block))
+				.join("\n\n");
+			// Per-request agent: generate_page, scrape_leads, and the page-edit
+			// tools need to know which project/chat they act for (see chat-agent.ts).
+			const agent = createChatAgent(
+				{
+					availableImages,
+					// Composer's model picker: per-message builder override, validated
+					// against the allow-list; undefined = env default.
+					builderModel: resolveBuilderModelOption(
+						metadata?.composer?.options?.builderModel,
+					),
 					chatId,
-					messagesToInsert,
-				);
-			},
-			originalMessages: messages,
-		});
+					generationPolicyService: this.generationPolicyService,
+					imageGenerationsRepository: this.imageGenerationsRepository,
+					leadScrapesRepository: this.leadScrapesRepository,
+					marketingAssetsRepository: this.marketingAssetsRepository,
+					mediaGenerationsRepository: this.mediaGenerationsRepository,
+					pageEditsService: this.pageEditsService,
+					pagesRepository: this.pagesRepository,
+					projectId,
+					// Snapshotted into generation specs for later model swapping; no
+					// generator reads it yet.
+					quality: metadata?.composer?.quality,
+					requireSelectedSource: metadata?.composer?.mode === "video",
+					requestKeySeed,
+					requestCountryCode: requestCountryCode ?? null,
+					selectedSourceImage,
+					userId,
+				},
+				contextWithMcpNotices || null,
+				mcpResult.tools,
+				mcpResult.approvalMap,
+			);
+			// Three transforms on the MODEL-BOUND copy only (DB + UI keep the truth):
+			// 1. complete tool calls that never got a result (typed-past ask_user,
+			//    or a stream aborted mid-execute) — providers reject a history that
+			//    carries a tool call without a matching result,
+			// 2. elide outputs from the retired read_skill tool so large stale
+			//    guidance does not cost tokens on every request,
+			// 3. follow user file parts with a text marker exposing their URL —
+			//    without it the model sees the image but cannot reference it in
+			//    generate_image/animate_image and asks for an already-sent photo.
+			const agentMessages = annotateUserFileParts(
+				elideRetiredToolOutputs(completeDanglingToolCalls(messages)),
+			);
+			const onError = (error: unknown) => this.handleStreamError(error);
 
-		pipeUIMessageStreamToResponse({
-			headers:
-				origin === env.CORS_ORIGIN
-					? {
-							"Access-Control-Allow-Credentials": "true",
-							"Access-Control-Allow-Origin": origin,
-							Vary: "Origin",
+			// TODO(billing): gate like GenerationPolicyService before public launch
+			const stream = createUIMessageStream<WanditUIMessage>({
+				execute: async ({ writer }) => {
+					const agentStream = await createAgentUIStream({
+						abortSignal,
+						agent,
+						// Models emit text in sentence-sized bursts, which renders as
+						// "snapping" blocks. smoothStream re-slices the deltas into
+						// words with a small delay so the UI reads like typing.
+						// Word chunking splits on whitespace — fine for FR/AR alike.
+						experimental_transform: smoothStream({ delayInMs: 15 }),
+						onError,
+						uiMessages: agentMessages,
+					});
+					// The live agent's tool set is a strict SUBSET of WanditUIMessage's
+					// (read_skill exists only in retired history), so its chunks are
+					// valid WanditUIMessage chunks — TS can't see through the generics.
+					writer.merge(
+						agentStream as unknown as ReadableStream<
+							InferUIMessageChunk<WanditUIMessage>
+						>,
+					);
+				},
+				onError,
+				onEnd: async ({ isContinuation, responseMessage }) => {
+					try {
+						// A tray answer CONTINUES the previous assistant message: the SDK
+						// keeps its id and hands back the original row extended with the
+						// answer + everything the model did after it. The insert-if-absent
+						// below would hit the id conflict and silently drop all of that,
+						// so continuations overwrite the existing row instead.
+						if (isContinuation) {
+							await this.chatsRepository.upsertUiMessage(chatId, {
+								...responseMessage,
+								role: "assistant" as const,
+							});
+
+							return;
 						}
-					: undefined,
-			response: reply.raw,
-			stream,
-		});
+
+						const finalUserMessage = findFinalUserMessage(messages);
+						const messagesToInsert = [
+							...(finalUserMessage
+								? [{ ...finalUserMessage, role: "user" as const }]
+								: []),
+							...(responseMessage.parts.length > 0
+								? [{ ...responseMessage, role: "assistant" as const }]
+								: []),
+						];
+
+						// Save only the new request/response rows; never replace prior history.
+						await this.chatsRepository.insertUiMessagesIfAbsent(
+							chatId,
+							messagesToInsert,
+						);
+					} finally {
+						await mcpResult.close();
+					}
+				},
+				originalMessages: messages,
+			});
+
+			pipeUIMessageStreamToResponse({
+				headers:
+					origin === env.CORS_ORIGIN
+						? {
+								"Access-Control-Allow-Credentials": "true",
+								"Access-Control-Allow-Origin": origin,
+								Vary: "Origin",
+							}
+						: undefined,
+				response: reply.raw,
+				stream,
+			});
+		} catch (error) {
+			const mcpResult =
+				resolvedMcpResult ?? (await mcpResultPromise.catch(() => undefined));
+			await mcpResult?.close();
+			throw error;
+		}
 	}
 
 	private handleStreamError(error: unknown): string {
@@ -406,12 +440,11 @@ const INCOMPLETE_REPLACE_SECTION_INPUT: ReplaceSectionInput = {
  * was still executing. History MUST NOT carry a tool call without a result —
  * providers answer 400 to that, which would brick the chat on every turn.
  * Complete them for the model without mutating the transcript persisted by
- * onEnd. EVERY tool the agent exposes needs a branch here (a new tool
- * without one re-opens the bricked-chat bug); each branch fills schema-valid
- * input AND output, because the model-bound copy is re-validated inside
- * createAgentUIStream.
+ * onEnd. Dynamic MCP tools share the generic branch below; every built-in
+ * tool the agent exposes needs its own schema-valid branch because the
+ * model-bound copy is re-validated inside createAgentUIStream.
  */
-function completeDanglingToolCalls(
+export function completeDanglingToolCalls(
 	messages: readonly WanditUIMessage[],
 ): WanditUIMessage[] {
 	const lastMessageIndex = messages.length - 1;
@@ -423,6 +456,58 @@ function completeDanglingToolCalls(
 
 		let changed = false;
 		const parts = message.parts.map((part) => {
+			if (part.type === "dynamic-tool") {
+				switch (part.state) {
+					case "input-streaming":
+					case "input-available":
+						changed = true;
+
+						return {
+							...part,
+							errorText: "Tool call was interrupted.",
+							input: part.input,
+							state: "output-error" as const,
+						};
+					case "approval-requested":
+						changed = true;
+
+						return {
+							...part,
+							approval: {
+								approved: false as const,
+								id: part.approval.id,
+								reason: "interrupted",
+							},
+							state: "output-denied" as const,
+						};
+					case "approval-responded":
+						changed = true;
+
+						if (!part.approval.approved) {
+							return {
+								...part,
+								approval: {
+									...part.approval,
+									approved: false as const,
+								},
+								state: "output-denied" as const,
+							};
+						}
+
+						return {
+							...part,
+							approval: {
+								...part.approval,
+								approved: true as const,
+							},
+							errorText: "Tool call was interrupted.",
+							state: "output-error" as const,
+						};
+					default:
+						return part;
+				}
+			}
+
 			if (part.type === "tool-ask_user") {
 				if (
 					part.state !== "input-available" &&

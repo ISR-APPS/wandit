@@ -10,6 +10,7 @@ import {
 } from "@wandit/contracts";
 import {
 	DefaultChatTransport,
+	lastAssistantMessageIsCompleteWithApprovalResponses,
 	lastAssistantMessageIsCompleteWithToolCalls,
 	type UIMessage,
 } from "ai";
@@ -117,13 +118,16 @@ export function useAiChat(projectId: string) {
 		error,
 		sendMessage,
 		addToolOutput,
+		addToolApprovalResponse,
 		setMessages,
 		regenerate,
 	} = useChat<WanditUIMessage>({
 		id: chatId ?? `project:${projectId}`,
 		messages: initialMessages,
 		transport,
-		sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
+		sendAutomaticallyWhen: (options) =>
+			lastAssistantMessageIsCompleteWithToolCalls(options) ||
+			lastAssistantMessageIsCompleteWithApprovalResponses(options),
 		// Unconditional turn-end refetch — harmless after aborted/failed turns
 		// and covers partial turns that already applied a section.
 		onFinish: ({ isAbort, isError }) => {
@@ -271,6 +275,7 @@ export function useAiChat(projectId: string) {
 		error,
 		sendText,
 		answerAskUser,
+		addToolApprovalResponse,
 		isResolvingChat: chatByProjectQuery.isPending,
 		isLoadingMessages: Boolean(chatId) && messagesQuery.isPending,
 	};

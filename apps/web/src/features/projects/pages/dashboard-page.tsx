@@ -10,8 +10,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Spark } from "@/components/logo";
 import { promptStash, useSession } from "@/features/auth";
 import { InsufficientCreditsDialog } from "@/features/credits";
-import { isEarlyAccessUser } from "@/lib/early-access";
 import { useTranslation } from "@/lib/i18n";
+import { isEarlyAccessUser } from "@/lib/early-access";
 import type { Project } from "../api/dto";
 import { useProjectsQuery } from "../api/projects.queries";
 import { ProjectCard } from "../components/project-card";
@@ -91,11 +91,11 @@ function NoResultsState({
 
 export default function DashboardPage() {
 	const { t } = useTranslation();
-	const navigate = useNavigate();
-	const { data: session } = useSession();
 	const { data: projects, isPending } = useProjectsQuery();
 	const { create, isCreating, insufficientOpen, setInsufficientOpen, cost } =
 		useCreateProjectWithPrompt();
+	const navigate = useNavigate();
+	const { data: session } = useSession();
 
 	// Launch window: everyone can type, but only early-access accounts really
 	// generate — the rest land on the workspace-shaped Coming Soon teaser with

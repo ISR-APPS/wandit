@@ -1,11 +1,18 @@
 // In-thread card for a scrape_leads call. The scrape runs in a background
-// task; this part polls the attempt endpoint and renders the live progress
-// checklist (per the lead-scrape mockup), then the finished-workbook card
-// with a preview table and the Download .xlsx action. Reload-safe: the card
-// rebuilds itself entirely from the persisted attemptId + polled state.
+// task; this part subscribes to the Trigger.dev run over Realtime (progress
+// pushed, zero polling) and renders the live progress checklist, then the
+// finished-workbook card with a preview table and the Download .xlsx action.
+// The durable attempt row stays the source of truth: fetched once on mount,
+// refetched once when the run settles. Attempts without a realtime handle
+// (old messages) or with a dead subscription fall back to the legacy poll.
 // Chrome strings hardcoded English this pass, same rule as the tray files.
 
-import type { LeadScrapeAttempt, LeadScrapeStage } from "@wandit/contracts";
+import { useQueryClient } from "@tanstack/react-query";
+import type {
+	LeadScrapeAttempt,
+	LeadScrapeStage,
+	TriggerRealtimeHandle,
+} from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import { cn } from "@wandit/ui/lib/utils";
 import {
@@ -15,9 +22,14 @@ import {
 	Download,
 	FileSpreadsheet,
 } from "lucide-react";
-import { useLeadScrapeAttemptQuery } from "../../../api/lead-scrapes.queries";
+import { useEffect, useState } from "react";
+import {
+	leadScrapeKeys,
+	useLeadScrapeAttemptQuery,
+} from "../../../api/lead-scrapes.queries";
 import { leadScrapeDownloadUrl } from "../../../api/lead-scrapes.services";
 import type { WanditUIMessage } from "../../../lib/use-ai-chat";
+import { useLiveRun } from "../../../lib/use-live-run";
 import { SpinnerArc } from "../request-tray/tray-signals";
 import { StatusMessageHeader } from "../status-message-header";
 
@@ -70,6 +82,7 @@ export function ScrapeLeadsPart({ part }: { part: ScrapeLeadsToolPart }) {
 		return (
 			<LeadScrapeCard
 				attemptId={part.output.attemptId}
+				realtime={part.output.realtime}
 				fallbackQuery={part.input.query}
 				fallbackLocation={part.input.location ?? null}
 			/>
@@ -85,17 +98,48 @@ export function ScrapeLeadsPart({ part }: { part: ScrapeLeadsToolPart }) {
 	);
 }
 
-/** Polls the attempt and picks the progress / result / failed presentation. */
+/** Subscribes to the run and picks the progress / result / failed view. */
 function LeadScrapeCard({
 	attemptId,
+	realtime,
 	fallbackQuery,
 	fallbackLocation,
 }: {
 	attemptId: string;
+	realtime: TriggerRealtimeHandle | undefined;
 	fallbackQuery: string;
 	fallbackLocation: string | null;
 }) {
-	const { data: attempt, error } = useLeadScrapeAttemptQuery(attemptId);
+	const queryClient = useQueryClient();
+	// Flipped when the subscription dies OR the run settles: the poll re-checks
+	// the attempt row until it is terminal (its interval stops by itself), so a
+	// crashed run still resolves via the server's stale-row janitor.
+	const [pollFallback, setPollFallback] = useState(false);
+
+	// Fast interval without a usable subscription; slow safety net with one —
+	// a silently-dead Realtime stream must never freeze the card until reload.
+	const intervalMs = !realtime || pollFallback ? 1200 : 15_000;
+	const { data: attempt, error } = useLeadScrapeAttemptQuery(
+		attemptId,
+		intervalMs,
+	);
+	const attemptSettled =
+		attempt?.status === "succeeded" || attempt?.status === "failed";
+
+	const live = useLiveRun({
+		handle: realtime,
+		enabled: !attemptSettled,
+		onSettled: () => {
+			void queryClient.invalidateQueries({
+				queryKey: leadScrapeKeys.attempt(attemptId),
+			});
+			setPollFallback(true);
+		},
+	});
+
+	useEffect(() => {
+		if (live.failed) setPollFallback(true);
+	}, [live.failed]);
 
 	if (error) {
 		return (
@@ -129,10 +173,12 @@ function LeadScrapeCard({
 		return <LeadScrapeResultCard attempt={attempt} />;
 	}
 
-	// queued / running / first poll still in flight.
+	// queued / running / first fetch still in flight. A dead subscription's
+	// last-pushed metadata must not shadow the fresher polled row.
 	return (
 		<LeadScrapeProgressCard
 			attempt={attempt}
+			live={live.failed ? undefined : live.metadata}
 			fallbackQuery={fallbackQuery}
 			fallbackLocation={fallbackLocation}
 		/>
@@ -180,24 +226,36 @@ const STAGE_ORDER: LeadScrapeStage[] = [
 
 function LeadScrapeProgressCard({
 	attempt,
+	live,
 	fallbackQuery,
 	fallbackLocation,
 }: {
 	attempt: LeadScrapeAttempt | undefined;
+	/** Run metadata pushed over Realtime — fresher than the one-shot attempt. */
+	live?: Record<string, unknown>;
 	fallbackQuery: string;
 	fallbackLocation: string | null;
 }) {
+	const liveProgress =
+		typeof live?.progress === "number" ? live.progress : null;
+	const liveFound = typeof live?.found === "number" ? live.found : null;
+	const liveStage =
+		typeof live?.stage === "string" &&
+		STAGE_ORDER.includes(live.stage as LeadScrapeStage)
+			? (live.stage as LeadScrapeStage)
+			: null;
+
 	const query = attempt?.query || fallbackQuery;
 	const location = attempt?.location ?? fallbackLocation;
-	const progress = attempt?.progress ?? 0;
+	const progress = liveProgress ?? attempt?.progress ?? 0;
 	const sources = attempt?.sources.length ? attempt.sources : ["google-maps"];
 	// While the row still says "queued" the search is about to start — show
 	// its row as active rather than an all-pending dead card.
 	const stageIndex = Math.max(
 		1,
-		STAGE_ORDER.indexOf(attempt?.stage ?? "queued"),
+		STAGE_ORDER.indexOf(liveStage ?? attempt?.stage ?? "queued"),
 	);
-	const foundCount = attempt?.foundCount ?? 0;
+	const foundCount = liveFound ?? attempt?.foundCount ?? 0;
 
 	return (
 		<div className="rounded-xl border border-border bg-background p-[15px]">

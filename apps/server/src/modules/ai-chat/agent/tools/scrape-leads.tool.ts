@@ -8,7 +8,7 @@
  * card polls the attempt endpoint for live progress and the download.
  */
 import { Logger } from "@nestjs/common";
-import { tasks } from "@trigger.dev/sdk";
+import { auth, tasks } from "@trigger.dev/sdk";
 import {
 	type ScrapeLeadsInput,
 	type ScrapeLeadsOutput,
@@ -104,6 +104,7 @@ export function createScrapeLeadsTool(
 					`(limit ${spec.limit}) — attempt ${attempt.id}`,
 			);
 
+			let realtime: ScrapeLeadsOutput["realtime"];
 			try {
 				const handle = await tasks.trigger<typeof scrapeLeadsTask>(
 					"scrape-leads",
@@ -118,6 +119,7 @@ export function createScrapeLeadsTool(
 					`Trigger.dev accepted the scrape — run ${handle.id}. Follow the ` +
 						"live logs in the worker terminal (npx trigger.dev@latest dev).",
 				);
+				realtime = await mintRealtimeHandle(handle.id);
 			} catch (error) {
 				logger.error(
 					`Queueing attempt ${attempt.id} failed: ` +
@@ -145,10 +147,38 @@ export function createScrapeLeadsTool(
 					"Queued: the lead scrape is running in the background. Progress " +
 					"and the Excel download appear right here in the conversation — " +
 					"usually a few minutes.",
+				realtime,
 				status: "queued",
 			};
 		},
 	});
+}
+
+/**
+ * Mint a read-scoped Realtime token so the chat card can subscribe to the
+ * run instead of polling. Best-effort: on failure the card silently falls
+ * back to polling, so the scrape must never fail because of this.
+ */
+async function mintRealtimeHandle(
+	runId: string,
+): Promise<ScrapeLeadsOutput["realtime"]> {
+	try {
+		const publicAccessToken = await auth.createPublicToken({
+			// Long enough to outlive any scrape (maxDuration 1800s) plus a
+			// same-session reload; expired tokens just mean polling fallback.
+			expirationTime: "2h",
+			scopes: { read: { runs: [runId] } },
+		});
+
+		return { publicAccessToken, runId };
+	} catch (error) {
+		logger.warn(
+			`Realtime token minting failed for run ${runId} — the chat card ` +
+				`will poll instead: ${error instanceof Error ? error.message : String(error)}`,
+		);
+
+		return undefined;
+	}
 }
 
 export type ScrapeLeadsTool = ReturnType<typeof createScrapeLeadsTool>;

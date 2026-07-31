@@ -10,6 +10,7 @@ import { Toaster } from "@wandit/ui/components/sonner";
 
 import { ThemeProvider } from "@/components/theme-provider";
 import { AuthModalProvider } from "@/features/auth";
+import { useConnectReturnToast } from "@/features/connectors/components/connect-return-toast";
 import { AppI18nProvider, pageTitle, useI18n } from "@/lib/i18n";
 import { queryClient } from "@/lib/query-client";
 
@@ -56,6 +57,7 @@ function RootComponent() {
 
 function RootProviders() {
 	const { dir } = useI18n();
+	useConnectReturnToast();
 
 	return (
 		<ThemeProvider
