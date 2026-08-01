@@ -95,13 +95,6 @@ const RADIUS_STEPS = [
 
 type SelectionStyles = PreviewSelection["styles"];
 
-type PanelLoadingVariant =
-	| "compact"
-	| "image"
-	| "section"
-	| "surface"
-	| "typography";
-
 const SKELETON_CHIPS = ["one", "two", "three", "four", "five"] as const;
 
 function PanelShimmer({ className }: { className?: string }) {
@@ -185,55 +178,35 @@ function AiApplyingStatus() {
 	);
 }
 
-function PanelControlSkeletons({ variant }: { variant: PanelLoadingVariant }) {
+function PanelControlSkeletons() {
 	return (
 		<div
-			data-slot="element-panel-skeleton"
+			data-slot="editor-panel-skeleton"
 			aria-hidden
 			className="flex flex-col gap-3"
 		>
-			{variant === "image" ? <PanelShimmer className="h-28 w-full" /> : null}
-			{variant === "typography" ? (
-				<PanelShimmer className="h-12 w-full" />
-			) : null}
-			{variant === "section" ? (
-				<>
-					<LoadingChoices />
-					<LoadingChoices />
-				</>
-			) : null}
+			<PanelShimmer className="h-12 w-full" />
 			<LoadingField />
-			{variant === "typography" ? (
-				<>
-					<LoadingSlider />
-					<LoadingField />
-					<LoadingChoices columns={2} />
-					<LoadingInlineControl />
-					<LoadingInlineControl />
-					<LoadingSlider />
-				</>
-			) : null}
-			{variant === "surface" ? (
-				<>
-					<LoadingField />
-					<LoadingChoices />
-				</>
-			) : null}
-			{variant === "image" ? (
-				<>
-					<LoadingChoices />
-					<LoadingChoices />
-					<LoadingInlineControl />
-				</>
-			) : null}
-			{variant === "section" ? (
-				<>
-					<PanelShimmer className="h-20 w-full" />
-					<PanelShimmer className="h-8 w-full" />
-				</>
-			) : null}
-			{variant === "compact" ? <PanelShimmer className="h-8 w-full" /> : null}
+			<LoadingSlider />
+			<LoadingField />
+			<LoadingChoices columns={2} />
+			<LoadingInlineControl />
+			<LoadingChoices />
+			<PanelShimmer className="h-20 w-full" />
 		</div>
+	);
+}
+
+/** Shared inspector body shown while a scoped AI turn owns the editor. */
+export function EditorWorkingState() {
+	return (
+		<section
+			data-slot="editor-working-state"
+			className="flex flex-col gap-3 p-3.5"
+		>
+			<AiApplyingStatus />
+			<PanelControlSkeletons />
+		</section>
 	);
 }
 
@@ -338,15 +311,6 @@ export function ElementPanel() {
 		selection.isPlaceholderImage ||
 		selection.wid in editor.pendingPlaceholderImages;
 	const editControlsDisabled = editor.isAskAiDispatching;
-	const loadingVariant: PanelLoadingVariant = isSection
-		? "section"
-		: isImage
-			? "image"
-			: isTextLeaf
-				? "typography"
-				: isSurface || isLink || isButton
-					? "surface"
-					: "compact";
 	const ladder =
 		selection.ladder.length > 0
 			? selection.ladder
@@ -413,7 +377,6 @@ export function ElementPanel() {
 				</nav>
 			</header>
 
-			{editControlsDisabled ? <AiApplyingStatus /> : null}
 			<fieldset
 				disabled={editControlsDisabled}
 				inert={editControlsDisabled ? true : undefined}
@@ -423,10 +386,7 @@ export function ElementPanel() {
 					editControlsDisabled && "pointer-events-none select-none",
 				)}
 			>
-				{editControlsDisabled ? (
-					<PanelControlSkeletons variant={loadingVariant} />
-				) : null}
-				<div data-slot="element-panel-controls" hidden={editControlsDisabled}>
+				<div data-slot="element-panel-controls">
 					{isSection ? (
 						<SectionControls
 							wid={selection.wid}

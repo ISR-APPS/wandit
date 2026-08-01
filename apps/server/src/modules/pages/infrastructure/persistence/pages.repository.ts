@@ -7,13 +7,16 @@
  * and the generate_page chat tool (queue-time writes).
  */
 import { Inject, Injectable } from "@nestjs/common";
-import { and, desc, eq, isNull, lt } from "@wandit/db";
+import { and, desc, eq, isNull, lt, sql } from "@wandit/db";
 import { artifacts, versions } from "@wandit/db/schema/artifacts";
 import { deployments } from "@wandit/db/schema/deployments";
 import { pageGenerationAttempts } from "@wandit/db/schema/page-attempts";
 import { projects } from "@wandit/db/schema/projects";
 import { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
-import { captureGenerationFailed } from "../../../../infrastructure/analytics/generation-events";
+import {
+	type AnalyticsCapture,
+	captureGenerationFailed,
+} from "../../../../infrastructure/analytics/generation-events";
 import {
 	DATABASE,
 	type Database,
@@ -94,7 +97,7 @@ export class PagesRepository {
 	constructor(
 		@Inject(DATABASE) private readonly db: Database,
 		@Inject(AnalyticsService)
-		private readonly analyticsService: AnalyticsService,
+		private readonly analyticsService: AnalyticsCapture,
 	) {}
 
 	// The MVP invariant is ONE landing-page artifact per project. First
@@ -457,6 +460,32 @@ export class PagesRepository {
 		return null;
 	}
 
+	/** A placement receipt lives on the immutable ai-edit version it created.
+	 * Search history, not only the active pointer: a later user edit must not
+	 * make a retried generation overwrite that newer work. */
+	async findAiEditVersionByReceipt(
+		projectId: string,
+		attemptId: string,
+	): Promise<{ number: number } | null> {
+		const [row] = await this.db
+			.select({ number: versions.number })
+			.from(versions)
+			.innerJoin(artifacts, eq(artifacts.id, versions.artifactId))
+			.where(
+				and(
+					eq(versions.projectId, projectId),
+					eq(artifacts.kind, "landing_page"),
+					sql`${versions.meta}->>'source' = 'ai-edit'`,
+					sql`${versions.meta}->'receipt'->>'kind' = 'image-generation-placement'`,
+					sql`${versions.meta}->'receipt'->>'attemptId' = ${attemptId}`,
+				),
+			)
+			.orderBy(desc(versions.number))
+			.limit(1);
+
+		return row ?? null;
+	}
+
 	// Landing artifact + its active version for an OWNED project, or null when
 	// the project is missing/not owned (the service turns that into a 404).
 	async findActivePageByProject(
@@ -527,9 +556,17 @@ export class PagesRepository {
 		expectedActiveVersionId: string | null;
 		meta: Record<string, unknown>;
 		projectId: string;
+		receipt?: {
+			attemptId: string;
+			kind: "image-generation-placement";
+		};
 		r2Key: string;
 		versionId: string;
-	}): Promise<{ createdAt: Date; number: number }> {
+	}): Promise<{
+		createdAt: Date;
+		existingVersionId?: string;
+		number: number;
+	}> {
 		return this.db.transaction(async (tx) => {
 			const [artifact] = await tx
 				.select({ activeVersionId: artifacts.activeVersionId })
@@ -540,6 +577,37 @@ export class PagesRepository {
 
 			if (!artifact) {
 				throw new Error(`Artifact ${input.artifactId} not found`);
+			}
+
+			// The artifact lock serializes receipt lookup with version insertion.
+			// A Trigger retry and the polling fallback can therefore converge on
+			// the first immutable placement version instead of creating a second.
+			if (input.receipt) {
+				const [existing] = await tx
+					.select({
+						createdAt: versions.createdAt,
+						id: versions.id,
+						number: versions.number,
+					})
+					.from(versions)
+					.where(
+						and(
+							eq(versions.artifactId, input.artifactId),
+							sql`${versions.meta}->>'source' = 'ai-edit'`,
+							sql`${versions.meta}->'receipt'->>'kind' = ${input.receipt.kind}`,
+							sql`${versions.meta}->'receipt'->>'attemptId' = ${input.receipt.attemptId}`,
+						),
+					)
+					.orderBy(desc(versions.number))
+					.limit(1);
+
+				if (existing) {
+					return {
+						createdAt: existing.createdAt,
+						existingVersionId: existing.id,
+						number: existing.number,
+					};
+				}
 			}
 
 			if (artifact.activeVersionId !== input.expectedActiveVersionId) {

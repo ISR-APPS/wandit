@@ -12,25 +12,70 @@ type FilePartData = {
 	url: string;
 };
 
-export function FilePart({ part }: { part: FilePartData }) {
-	if (part.mediaType.startsWith("image/")) {
+export function ImageFileThumbnail({
+	part,
+	variant = "single",
+}: {
+	part: FilePartData;
+	variant?: "single" | "grid";
+}) {
+	return (
+		<a
+			href={part.url}
+			target="_blank"
+			rel="noreferrer"
+			className={
+				variant === "grid"
+					? "block aspect-square overflow-hidden rounded-xl border border-border"
+					: "block max-w-48 overflow-hidden rounded-xl border border-border"
+			}
+		>
+			<img
+				src={part.url}
+				alt={part.filename ?? ""}
+				loading="lazy"
+				className={
+					variant === "grid"
+						? "block size-full object-cover"
+						: "block max-h-40 w-full object-cover"
+				}
+			/>
+		</a>
+	);
+}
+
+export function ImageFileGrid({ parts }: { parts: FilePartData[] }) {
+	if (parts.length === 1) {
 		return (
 			<div className="flex justify-end">
-				<a
-					href={part.url}
-					target="_blank"
-					rel="noreferrer"
-					className="block max-w-48 overflow-hidden rounded-xl border border-border"
-				>
-					<img
-						src={part.url}
-						alt={part.filename ?? ""}
-						loading="lazy"
-						className="block max-h-40 w-full object-cover"
-					/>
-				</a>
+				<ImageFileThumbnail part={parts[0]} />
 			</div>
 		);
+	}
+	const urlOccurrences = new Map<string, number>();
+
+	return (
+		<div className="flex justify-end">
+			<div className="grid w-full max-w-[86%] grid-cols-2 gap-1.5">
+				{parts.map((part) => {
+					const occurrence = urlOccurrences.get(part.url) ?? 0;
+					urlOccurrences.set(part.url, occurrence + 1);
+					return (
+						<ImageFileThumbnail
+							key={`${part.url}:${occurrence}`}
+							part={part}
+							variant="grid"
+						/>
+					);
+				})}
+			</div>
+		</div>
+	);
+}
+
+export function FilePart({ part }: { part: FilePartData }) {
+	if (part.mediaType.startsWith("image/")) {
+		return <ImageFileGrid parts={[part]} />;
 	}
 
 	return (

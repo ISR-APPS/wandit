@@ -40,6 +40,7 @@ const OTHER_ARTIFACT_ID = "77777777-7777-4777-8777-777777777777";
 const ACTIVE_VERSION_ID = "44444444-4444-4444-8444-444444444444";
 const RESTORED_VERSION_ID = "55555555-5555-4555-8555-555555555555";
 const RACED_VERSION_ID = "66666666-6666-4666-8666-666666666666";
+const IMAGE_GENERATION_ATTEMPT_ID = "99999999-9999-4999-8999-999999999999";
 const RESTORED_R2_KEY = `sites/${PROJECT_ID}/${RESTORED_VERSION_ID}/index.html`;
 
 function setup() {
@@ -350,6 +351,114 @@ describe("PageEditsService.restoreVersion", () => {
 });
 
 describe("PageEditsService.applyAiOps", () => {
+	it("rejects an externally hosted image before loading page HTML", async () => {
+		const { pagesRepository, service } = setup();
+		mockAiActivePage(pagesRepository);
+		vi.mocked(isWanditHostedUrl).mockReturnValue(false);
+
+		const result = await service.applyAiOps(PROJECT_ID, [
+			{
+				kind: "image-src",
+				value: "https://external.example.com/generated.png",
+				wid: "e-1",
+			},
+		]);
+
+		expect(result).toEqual({
+			message:
+				'op 1 (image-src, data-wid="e-1"): image URL must be a Wandit-hosted asset',
+			status: "rejected",
+		});
+		expect(isWanditHostedUrl).toHaveBeenCalledWith(
+			"https://external.example.com/generated.png",
+		);
+		expect(getPageHtml).not.toHaveBeenCalled();
+		expect(putPageHtml).not.toHaveBeenCalled();
+		expect(pagesRepository.insertVersionAndActivate).not.toHaveBeenCalled();
+	});
+
+	it("applies a hosted image as an immutable AI-edit version", async () => {
+		const { pagesRepository, service } = setup();
+		const imageUrl = "https://assets.example.com/images/generated.png";
+		mockAiActivePage(pagesRepository);
+		vi.mocked(getPageHtml).mockResolvedValue(
+			completeThemeHtml(
+				'<section data-wid="hero"><img data-wid="e-1" src="https://assets.example.com/images/old.png"></section>',
+			),
+		);
+		pagesRepository.insertVersionAndActivate.mockResolvedValue({
+			createdAt: new Date("2026-07-31T12:00:00.000Z"),
+			number: 4,
+		});
+
+		const result = await service.applyAiOps(PROJECT_ID, [
+			{ kind: "image-src", value: imageUrl, wid: "e-1" },
+		]);
+
+		expect(result).toEqual({ status: "applied", versionNumber: 4 });
+		expect(isWanditHostedUrl).toHaveBeenCalledWith(imageUrl);
+		const savedHtml = vi.mocked(putPageHtml).mock.calls[0]?.[1] ?? "";
+		expect(cheerio.load(savedHtml)('[data-wid="e-1"]').attr("src")).toBe(
+			imageUrl,
+		);
+		expect(
+			pagesRepository.insertVersionAndActivate.mock.calls[0]?.[0].meta,
+		).toEqual({
+			editedWids: ["e-1"],
+			ops: [{ kind: "image-src", wid: "e-1" }],
+			parentVersionId: ACTIVE_VERSION_ID,
+			source: "ai-edit",
+		});
+	});
+
+	it("reuses an atomic placement receipt and removes the duplicate upload", async () => {
+		const { pagesRepository, service } = setup();
+		const imageUrl = "https://assets.example.com/images/generated.png";
+		mockAiActivePage(pagesRepository);
+		vi.mocked(getPageHtml).mockResolvedValue(
+			completeThemeHtml(
+				'<section data-wid="hero"><img data-wid="e-1" src="https://assets.example.com/images/old.png"></section>',
+			),
+		);
+		pagesRepository.insertVersionAndActivate.mockResolvedValue({
+			createdAt: new Date("2026-07-31T12:00:00.000Z"),
+			existingVersionId: RACED_VERSION_ID,
+			number: 4,
+		});
+
+		const result = await service.applyAiOps(
+			PROJECT_ID,
+			[{ kind: "image-src", value: imageUrl, wid: "e-1" }],
+			{
+				attemptId: IMAGE_GENERATION_ATTEMPT_ID,
+				kind: "image-generation-placement",
+			},
+		);
+
+		expect(result).toEqual({ status: "applied", versionNumber: 4 });
+		expect(
+			pagesRepository.insertVersionAndActivate.mock.calls[0]?.[0].receipt,
+		).toEqual({
+			attemptId: IMAGE_GENERATION_ATTEMPT_ID,
+			kind: "image-generation-placement",
+		});
+		expect(
+			pagesRepository.insertVersionAndActivate.mock.calls[0]?.[0].meta,
+		).toEqual({
+			editedWids: ["e-1"],
+			ops: [{ kind: "image-src", wid: "e-1" }],
+			parentVersionId: ACTIVE_VERSION_ID,
+			receipt: {
+				attemptId: IMAGE_GENERATION_ATTEMPT_ID,
+				kind: "image-generation-placement",
+			},
+			source: "ai-edit",
+		});
+		const uploadedKey = vi.mocked(putPageHtml).mock.calls[0]?.[0];
+		expect(uploadedKey).toEqual(expect.any(String));
+		expect(deleteObject).toHaveBeenCalledWith(uploadedKey);
+	});
+
 	it("identifies a failed batched op by one-based index, kind, and wid", async () => {
 		const { pagesRepository, service } = setup();
 		mockAiActivePage(pagesRepository);

@@ -63,6 +63,7 @@ const IMAGE_ATTEMPT: ImageGenerationAttemptRow = {
 	projectId: PROJECT_ID,
 	prompt: "studio shot",
 	sourceImageUrls: [],
+	spec: null,
 	status: "succeeded",
 	title: "Photo produit",
 };

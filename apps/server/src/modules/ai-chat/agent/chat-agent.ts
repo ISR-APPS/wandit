@@ -133,6 +133,7 @@ export function createChatAgent(
 				chatId: deps.chatId,
 				generationPolicyService: deps.generationPolicyService,
 				imageGenerationsRepository: deps.imageGenerationsRepository,
+				pagesRepository: deps.pagesRepository,
 				projectId: deps.projectId,
 				quality: deps.quality,
 				requestKeySeed: deps.requestKeySeed,

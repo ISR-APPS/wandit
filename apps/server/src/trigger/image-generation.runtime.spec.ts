@@ -1,0 +1,349 @@
+import { describe, expect, it, vi } from "vitest";
+import {
+	type ImagePlacementDependencies,
+	settleImagePlacement,
+} from "../modules/image-generations/application/services/image-generation-placement.service";
+import type {
+	GeneratedImageResult,
+	ImageGenerationAttemptState,
+} from "../modules/image-generations/application/services/image-generation-runner";
+
+const ATTEMPT_ID = "11111111-1111-4111-8111-111111111111";
+const PROJECT_ID = "22222222-2222-4222-8222-222222222222";
+const GENERATED_URL =
+	"https://assets.example.com/images/project/attempt/img-1.png";
+
+function makeAttempt(
+	placement: Record<string, unknown> = {
+		imageIndex: 1,
+		kind: "image-src",
+		status: "pending",
+		wid: "e-3",
+	},
+): ImageGenerationAttemptState {
+	return {
+		aspect: "1:1",
+		completedAt: new Date("2026-01-01T00:05:00Z"),
+		count: 1,
+		error: null,
+		id: ATTEMPT_ID,
+		images: makeImages(),
+		projectDeletedAt: null,
+		projectId: PROJECT_ID,
+		prompt: "A studio product photograph",
+		sourceImageUrls: [],
+		spec: { placement },
+		startedAt: new Date("2026-01-01T00:00:00Z"),
+		status: "succeeded",
+		title: "Product photo",
+		triggerRunId: "run_1",
+		userId: "user_1",
+	};
+}
+
+function makeImages(): GeneratedImageResult[] {
+	return [{ mediaType: "image/png", url: GENERATED_URL }];
+}
+
+function pageHtml(
+	target = `<img data-wid="e-3" src="https://assets.example.com/old.png">`,
+): string {
+	return `<!doctype html><html><body><main><section data-wid="hero">${target}</section></main></body></html>`;
+}
+
+function makeDependencies(
+	overrides: Partial<ImagePlacementDependencies> = {},
+): ImagePlacementDependencies {
+	return {
+		findReceipt: vi.fn().mockResolvedValue(null),
+		loadCurrentPageHtml: vi.fn().mockResolvedValue(pageHtml()),
+		pageEditsService: {
+			applyAiOps: vi
+				.fn()
+				.mockResolvedValue({ status: "applied", versionNumber: 4 }),
+		},
+		updatePlacement: vi.fn().mockResolvedValue(undefined),
+		...overrides,
+	};
+}
+
+describe("settleImagePlacement", () => {
+	it("does nothing for standalone generation", async () => {
+		const attempt = makeAttempt();
+		attempt.spec = null;
+		const dependencies = makeDependencies();
+
+		await settleImagePlacement(attempt, makeImages(), dependencies);
+
+		expect(dependencies.loadCurrentPageHtml).not.toHaveBeenCalled();
+		expect(dependencies.pageEditsService.applyAiOps).not.toHaveBeenCalled();
+		expect(dependencies.updatePlacement).not.toHaveBeenCalled();
+	});
+
+	it("applies the selected image once and skips a terminal retry", async () => {
+		const attempt = makeAttempt();
+		const dependencies = makeDependencies({
+			updatePlacement: vi
+				.fn()
+				.mockImplementation(async (_attempt, placement) => {
+					Object.assign(
+						(attempt.spec as { placement: Record<string, unknown> }).placement,
+						placement,
+					);
+				}),
+		});
+
+		await settleImagePlacement(attempt, makeImages(), dependencies);
+		await settleImagePlacement(attempt, makeImages(), dependencies);
+
+		expect(dependencies.pageEditsService.applyAiOps).toHaveBeenCalledTimes(1);
+		expect(dependencies.pageEditsService.applyAiOps).toHaveBeenCalledWith(
+			PROJECT_ID,
+			[
+				{
+					kind: "image-src",
+					value: GENERATED_URL,
+					wid: "e-3",
+				},
+			],
+			{
+				attemptId: ATTEMPT_ID,
+				kind: "image-generation-placement",
+			},
+		);
+		expect(dependencies.updatePlacement).toHaveBeenCalledTimes(1);
+		expect(dependencies.updatePlacement).toHaveBeenCalledWith(
+			attempt,
+			expect.objectContaining({
+				status: "applied",
+				versionNumber: 4,
+				wid: "e-3",
+			}),
+		);
+	});
+
+	it("honors a historical receipt after a later edit changed the image", async () => {
+		const attempt = makeAttempt();
+		const dependencies = makeDependencies({
+			findReceipt: vi.fn().mockResolvedValue({ number: 4 }),
+			loadCurrentPageHtml: vi
+				.fn()
+				.mockResolvedValue(
+					pageHtml('<img data-wid="e-3" src="later-user-edit.png">'),
+				),
+		});
+
+		await settleImagePlacement(attempt, makeImages(), dependencies);
+
+		expect(dependencies.pageEditsService.applyAiOps).not.toHaveBeenCalled();
+		expect(dependencies.loadCurrentPageHtml).not.toHaveBeenCalled();
+		expect(dependencies.updatePlacement).toHaveBeenCalledWith(
+			attempt,
+			expect.objectContaining({ status: "applied", versionNumber: 4 }),
+		);
+	});
+
+	it("repairs a raced failed status only when an immutable receipt exists", async () => {
+		const attempt = makeAttempt({
+			imageIndex: 1,
+			kind: "image-src",
+			status: "failed",
+			wid: "e-3",
+		});
+		const dependencies = makeDependencies({
+			findReceipt: vi.fn().mockResolvedValue({ number: 4 }),
+		});
+
+		await settleImagePlacement(attempt, makeImages(), dependencies);
+
+		expect(dependencies.loadCurrentPageHtml).not.toHaveBeenCalled();
+		expect(dependencies.pageEditsService.applyAiOps).not.toHaveBeenCalled();
+		expect(dependencies.updatePlacement).toHaveBeenCalledWith(
+			attempt,
+			expect.objectContaining({ status: "applied", versionNumber: 4 }),
+		);
+	});
+
+	it("leaves an honest failed status terminal when no receipt exists", async () => {
+		const attempt = makeAttempt({
+			imageIndex: 1,
+			kind: "image-src",
+			status: "failed",
+			wid: "e-3",
+		});
+		const dependencies = makeDependencies();
+
+		await settleImagePlacement(attempt, makeImages(), dependencies);
+
+		expect(dependencies.findReceipt).toHaveBeenCalledOnce();
+		expect(dependencies.loadCurrentPageHtml).not.toHaveBeenCalled();
+		expect(dependencies.pageEditsService.applyAiOps).not.toHaveBeenCalled();
+		expect(dependencies.updatePlacement).not.toHaveBeenCalled();
+	});
+
+	it("re-checks the receipt after a page CAS conflict", async () => {
+		const findReceipt = vi
+			.fn()
+			.mockResolvedValueOnce(null)
+			.mockResolvedValueOnce({ number: 5 });
+		const dependencies = makeDependencies({
+			findReceipt,
+			pageEditsService: {
+				applyAiOps: vi.fn().mockResolvedValue({
+					message:
+						"The page changed mid-edit (another save landed first) — re-read the section and retry.",
+					status: "rejected",
+				}),
+			},
+		});
+
+		await settleImagePlacement(makeAttempt(), makeImages(), dependencies);
+
+		expect(findReceipt).toHaveBeenCalledTimes(2);
+		expect(dependencies.loadCurrentPageHtml).toHaveBeenCalledTimes(1);
+		expect(dependencies.pageEditsService.applyAiOps).toHaveBeenCalledTimes(1);
+		expect(dependencies.updatePlacement).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({ status: "applied", versionNumber: 5 }),
+		);
+	});
+
+	it("retries the page edit once after a CAS conflict", async () => {
+		const pageChanged = {
+			message:
+				"The page changed mid-edit (another save landed first) — re-read the section and retry.",
+			status: "rejected" as const,
+		};
+		const applyAiOps = vi
+			.fn()
+			.mockResolvedValueOnce(pageChanged)
+			.mockResolvedValueOnce({ status: "applied", versionNumber: 5 });
+		const dependencies = makeDependencies({
+			pageEditsService: { applyAiOps },
+		});
+
+		await settleImagePlacement(makeAttempt(), makeImages(), dependencies);
+
+		expect(dependencies.findReceipt).toHaveBeenCalledTimes(2);
+		expect(dependencies.loadCurrentPageHtml).toHaveBeenCalledTimes(2);
+		expect(applyAiOps).toHaveBeenCalledTimes(2);
+		expect(applyAiOps).toHaveBeenNthCalledWith(
+			2,
+			PROJECT_ID,
+			[
+				{
+					kind: "image-src",
+					value: GENERATED_URL,
+					wid: "e-3",
+				},
+			],
+			{
+				attemptId: ATTEMPT_ID,
+				kind: "image-generation-placement",
+			},
+		);
+		expect(dependencies.updatePlacement).toHaveBeenCalledOnce();
+		expect(dependencies.updatePlacement).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({ status: "applied", versionNumber: 5 }),
+		);
+	});
+
+	it("fails placement after exhausting the single CAS retry", async () => {
+		const pageChanged = {
+			message:
+				"The page changed mid-edit (another save landed first) — re-read the section and retry.",
+			status: "rejected" as const,
+		};
+		const applyAiOps = vi.fn().mockResolvedValue(pageChanged);
+		const dependencies = makeDependencies({
+			pageEditsService: { applyAiOps },
+		});
+
+		await settleImagePlacement(makeAttempt(), makeImages(), dependencies);
+
+		expect(dependencies.findReceipt).toHaveBeenCalledTimes(3);
+		expect(dependencies.loadCurrentPageHtml).toHaveBeenCalledTimes(2);
+		expect(applyAiOps).toHaveBeenCalledTimes(2);
+		expect(dependencies.updatePlacement).toHaveBeenCalledOnce();
+		expect(dependencies.updatePlacement).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({
+				reason: pageChanged.message,
+				status: "failed",
+			}),
+		);
+		expect(dependencies.updatePlacement).not.toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({ versionNumber: expect.any(Number) }),
+		);
+	});
+
+	it("fails pending placement without editing a soft-deleted project", async () => {
+		const attempt = makeAttempt();
+		attempt.projectDeletedAt = new Date("2026-01-01T00:06:00Z");
+		const dependencies = makeDependencies();
+
+		await settleImagePlacement(attempt, makeImages(), dependencies);
+
+		expect(dependencies.findReceipt).toHaveBeenCalledOnce();
+		expect(dependencies.loadCurrentPageHtml).not.toHaveBeenCalled();
+		expect(dependencies.pageEditsService.applyAiOps).not.toHaveBeenCalled();
+		expect(dependencies.updatePlacement).toHaveBeenCalledOnce();
+		expect(dependencies.updatePlacement).toHaveBeenCalledWith(
+			attempt,
+			expect.objectContaining({
+				reason:
+					"The project was deleted before the generated image could be applied.",
+				status: "failed",
+			}),
+		);
+	});
+
+	it.each([
+		[
+			"vanished",
+			pageHtml('<img data-wid="different-image" src="old.png">'),
+			'No element with data-wid="e-3" remains on the page.',
+		],
+		[
+			"changed tag",
+			pageHtml('<figure data-wid="e-3"></figure>'),
+			'The element with data-wid="e-3" is no longer an <img>.',
+		],
+	] as const)("records an honest failure when the target %s", async (_label, html, reason) => {
+		const dependencies = makeDependencies({
+			loadCurrentPageHtml: vi.fn().mockResolvedValue(html),
+		});
+
+		await settleImagePlacement(makeAttempt(), makeImages(), dependencies);
+
+		expect(dependencies.pageEditsService.applyAiOps).not.toHaveBeenCalled();
+		expect(dependencies.updatePlacement).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({ reason, status: "failed", wid: "e-3" }),
+		);
+	});
+
+	it("lets a concurrently committed receipt win over a stale target failure", async () => {
+		const dependencies = makeDependencies({
+			findReceipt: vi
+				.fn()
+				.mockResolvedValueOnce(null)
+				.mockResolvedValueOnce({ number: 6 }),
+			loadCurrentPageHtml: vi
+				.fn()
+				.mockResolvedValue(
+					pageHtml('<img data-wid="different-image" src="old.png">'),
+				),
+		});
+
+		await settleImagePlacement(makeAttempt(), makeImages(), dependencies);
+
+		expect(dependencies.pageEditsService.applyAiOps).not.toHaveBeenCalled();
+		expect(dependencies.updatePlacement).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({ status: "applied", versionNumber: 6 }),
+		);
+	});
+});
