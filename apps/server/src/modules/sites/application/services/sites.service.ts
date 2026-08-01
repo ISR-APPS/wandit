@@ -26,6 +26,7 @@ import {
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 
+import { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
 import {
 	deleteObject,
 	getPageHtml,
@@ -68,6 +69,8 @@ export class SitesService {
 		private readonly deploymentsRepository: DeploymentsRepository,
 		@Inject(DomainRoutingService)
 		private readonly domainRoutingService: DomainRoutingService,
+		@Inject(AnalyticsService)
+		private readonly analyticsService: AnalyticsService,
 	) {}
 
 	async current(
@@ -130,6 +133,9 @@ export class SitesService {
 			project,
 			requestedSlug: body.slug,
 			versionId: version.id,
+		});
+		this.analyticsService.capture(userId, "site_published", {
+			projectId: project.id,
 		});
 
 		return {

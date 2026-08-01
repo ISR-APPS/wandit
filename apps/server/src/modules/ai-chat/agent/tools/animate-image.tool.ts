@@ -209,6 +209,7 @@ export function createAnimateImageTool(
 							await deps.mediaGenerationsRepository.markAttemptFailed(
 								attempt.id,
 								"The background generator rejected this request. Please try again.",
+								deps.userId,
 							);
 
 						if (closed) {

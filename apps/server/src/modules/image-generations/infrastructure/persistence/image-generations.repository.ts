@@ -17,6 +17,8 @@ import {
 	imageGenerationAttempts,
 } from "@wandit/db/schema/image-generation-attempts";
 import { projects } from "@wandit/db/schema/projects";
+import { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
+import { captureGenerationFailed } from "../../../../infrastructure/analytics/generation-events";
 import {
 	DATABASE,
 	type Database,
@@ -54,7 +56,11 @@ const ATTEMPT_COLUMNS = {
 
 @Injectable()
 export class ImageGenerationsRepository {
-	constructor(@Inject(DATABASE) private readonly db: Database) {}
+	constructor(
+		@Inject(DATABASE) private readonly db: Database,
+		@Inject(AnalyticsService)
+		private readonly analyticsService: AnalyticsService,
+	) {}
 
 	async insertAttempt(input: {
 		aspect: ImageGenerationAspect;
@@ -122,7 +128,12 @@ export class ImageGenerationsRepository {
 			.where(eq(imageGenerationAttempts.id, attemptId));
 	}
 
-	async markAttemptFailed(attemptId: string, error: string): Promise<boolean> {
+	async markAttemptFailed(
+		attemptId: string,
+		error: string,
+		userId: string,
+		reason: "stale_queued" | "trigger_rejected",
+	): Promise<boolean> {
 		const [row] = await this.db
 			.update(imageGenerationAttempts)
 			.set({
@@ -136,9 +147,22 @@ export class ImageGenerationsRepository {
 					eq(imageGenerationAttempts.status, "queued"),
 				),
 			)
-			.returning({ id: imageGenerationAttempts.id });
+			.returning({ projectId: imageGenerationAttempts.projectId });
 
-		return Boolean(row);
+		if (!row) {
+			return false;
+		}
+
+		captureGenerationFailed(
+			this.analyticsService,
+			userId,
+			"image",
+			row.projectId,
+			attemptId,
+			reason,
+		);
+
+		return true;
 	}
 
 	async findOwnedAttempt(

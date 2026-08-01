@@ -9,6 +9,11 @@ import { projects } from "@wandit/db/schema/projects";
 import { env } from "@wandit/env/server";
 
 import {
+	type AnalyticsCapture,
+	captureGenerationCompleted,
+	captureGenerationFailed,
+} from "../infrastructure/analytics/generation-events";
+import {
 	getObjectContentType,
 	publicAssetUrl,
 	siteVideoKey,
@@ -64,9 +69,10 @@ export type ImageAnimationRuntime = {
  */
 export function createImageAnimationRuntime(
 	db: TriggerDatabase,
+	analytics: AnalyticsCapture,
 ): ImageAnimationRuntime {
 	const billing = createBilling(db);
-	const persistence = createPersistence(db);
+	const persistence = createPersistence(db, analytics);
 	const recoverStoredVideo = createStoredVideoRecovery();
 
 	return {
@@ -127,7 +133,7 @@ function createBilling(db: TriggerDatabase): ImageAnimationBilling {
 	});
 }
 
-function createPersistence(db: TriggerDatabase) {
+function createPersistence(db: TriggerDatabase, analytics: AnalyticsCapture) {
 	const loadAttempt = async (
 		attemptId: string,
 	): Promise<ImageAnimationAttempt | null> => {
@@ -195,6 +201,16 @@ function createPersistence(db: TriggerDatabase) {
 			)
 			.returning({ id: mediaGenerationAttempts.id });
 
+		if (updated) {
+			captureGenerationCompleted(
+				analytics,
+				attempt.userId,
+				"animation",
+				attempt.projectId,
+				attempt.id,
+			);
+		}
+
 		return Boolean(updated);
 	};
 
@@ -204,6 +220,7 @@ function createPersistence(db: TriggerDatabase) {
 			completedAt: Date;
 			error: string;
 			expectedStatus: "queued" | "generating";
+			reason: string;
 		},
 	): Promise<boolean> => {
 		const [updated] = await db
@@ -221,6 +238,17 @@ function createPersistence(db: TriggerDatabase) {
 				),
 			)
 			.returning({ id: mediaGenerationAttempts.id });
+
+		if (updated) {
+			captureGenerationFailed(
+				analytics,
+				attempt.userId,
+				"animation",
+				attempt.projectId,
+				attempt.id,
+				input.reason,
+			);
+		}
 
 		return Boolean(updated);
 	};

@@ -13,6 +13,8 @@ import type {
 import { and, desc, eq, isNull } from "@wandit/db";
 import { marketingAssets } from "@wandit/db/schema/marketing-assets";
 import { projects } from "@wandit/db/schema/projects";
+import { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
+import { captureGenerationFailed } from "../../../../infrastructure/analytics/generation-events";
 import {
 	DATABASE,
 	type Database,
@@ -44,7 +46,11 @@ const ASSET_COLUMNS = {
 
 @Injectable()
 export class MarketingAssetsRepository {
-	constructor(@Inject(DATABASE) private readonly db: Database) {}
+	constructor(
+		@Inject(DATABASE) private readonly db: Database,
+		@Inject(AnalyticsService)
+		private readonly analyticsService: AnalyticsService,
+	) {}
 
 	async insertAsset(input: {
 		assetType: MarketingAssetType;
@@ -101,7 +107,11 @@ export class MarketingAssetsRepository {
 			.where(eq(marketingAssets.id, assetId));
 	}
 
-	async markAssetFailed(assetId: string, error: string): Promise<boolean> {
+	async markAssetFailed(
+		assetId: string,
+		error: string,
+		userId: string,
+	): Promise<boolean> {
 		const [row] = await this.db
 			.update(marketingAssets)
 			.set({
@@ -115,9 +125,22 @@ export class MarketingAssetsRepository {
 					eq(marketingAssets.status, "queued"),
 				),
 			)
-			.returning({ id: marketingAssets.id });
+			.returning({ projectId: marketingAssets.projectId });
 
-		return Boolean(row);
+		if (!row) {
+			return false;
+		}
+
+		captureGenerationFailed(
+			this.analyticsService,
+			userId,
+			"marketing_asset",
+			row.projectId,
+			assetId,
+			"trigger_rejected",
+		);
+
+		return true;
 	}
 
 	async findOwnedAsset(

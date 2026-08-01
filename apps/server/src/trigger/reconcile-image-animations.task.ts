@@ -3,6 +3,7 @@ import { createDb } from "@wandit/db";
 
 import { reconcileImageAnimations } from "../modules/media-generations/application/services/image-animation-reconciler";
 import { createImageAnimationRuntime } from "./image-animation.runtime";
+import { triggerAnalytics } from "./init";
 
 const imageAnimationReconciliationQueue = queue({
 	concurrencyLimit: 1,
@@ -33,7 +34,7 @@ export const reconcileImageAnimationsTask = schedules.task({
 		const db = createDb();
 
 		try {
-			const runtime = createImageAnimationRuntime(db);
+			const runtime = createImageAnimationRuntime(db, triggerAnalytics);
 			const result = await reconcileImageAnimations(runtime.reconciler);
 
 			logger.info("Image animation reconciliation completed", {

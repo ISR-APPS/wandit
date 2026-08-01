@@ -19,6 +19,7 @@ import { PromptBox } from "../components/prompt-box";
 import { DashboardShell } from "../components/shell/dashboard-shell";
 import { GRID_SKELETON_COUNT } from "../lib/constants";
 import { useCreateProjectWithPrompt } from "../lib/hooks";
+import { PREVIEW_PROMPT_STATE_KEY } from "../lib/preview-prompt";
 
 type StatusFilter = "all" | "published" | "drafts";
 
@@ -102,7 +103,13 @@ export default function DashboardPage() {
 	// their prompt echoed in the chat (see lib/early-access.ts).
 	const hasEarlyAccess = isEarlyAccessUser(session?.user);
 	const teaseComingSoon = (prompt: string) => {
-		void navigate({ to: "/preview", search: { prompt } });
+		void navigate({
+			to: "/preview",
+			state: (previous) => ({
+				...previous,
+				[PREVIEW_PROMPT_STATE_KEY]: prompt,
+			}),
+		});
 	};
 
 	const [query, setQuery] = useState("");

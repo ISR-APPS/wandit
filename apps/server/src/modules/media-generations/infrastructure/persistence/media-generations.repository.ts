@@ -14,6 +14,11 @@ import type {
 import { and, desc, eq, isNull, lt } from "@wandit/db";
 import { mediaGenerationAttempts } from "@wandit/db/schema/media-generation-attempts";
 import { projects } from "@wandit/db/schema/projects";
+import { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
+import {
+	captureGenerationCompleted,
+	captureGenerationFailed,
+} from "../../../../infrastructure/analytics/generation-events";
 import {
 	DATABASE,
 	type Database,
@@ -66,7 +71,11 @@ const ATTEMPT_COLUMNS = {
 
 @Injectable()
 export class MediaGenerationsRepository {
-	constructor(@Inject(DATABASE) private readonly db: Database) {}
+	constructor(
+		@Inject(DATABASE) private readonly db: Database,
+		@Inject(AnalyticsService)
+		private readonly analyticsService: AnalyticsService,
+	) {}
 
 	async insertAttempt(input: {
 		aspect: ImageToVideoAspect;
@@ -133,7 +142,11 @@ export class MediaGenerationsRepository {
 			.where(eq(mediaGenerationAttempts.id, attemptId));
 	}
 
-	async markAttemptFailed(attemptId: string, error: string): Promise<boolean> {
+	async markAttemptFailed(
+		attemptId: string,
+		error: string,
+		userId: string,
+	): Promise<boolean> {
 		const [row] = await this.db
 			.update(mediaGenerationAttempts)
 			.set({
@@ -147,9 +160,22 @@ export class MediaGenerationsRepository {
 					eq(mediaGenerationAttempts.status, "queued"),
 				),
 			)
-			.returning({ id: mediaGenerationAttempts.id });
+			.returning({ projectId: mediaGenerationAttempts.projectId });
 
-		return Boolean(row);
+		if (!row) {
+			return false;
+		}
+
+		captureGenerationFailed(
+			this.analyticsService,
+			userId,
+			"animation",
+			row.projectId,
+			attemptId,
+			"trigger_rejected",
+		);
+
+		return true;
 	}
 
 	async findOwnedAttempt(
@@ -163,6 +189,7 @@ export class MediaGenerationsRepository {
 		attemptId: string,
 		startedBefore: Date,
 		error: string,
+		userId: string,
 	): Promise<boolean> {
 		const [row] = await this.db
 			.update(mediaGenerationAttempts)
@@ -178,15 +205,29 @@ export class MediaGenerationsRepository {
 					lt(mediaGenerationAttempts.startedAt, startedBefore),
 				),
 			)
-			.returning({ id: mediaGenerationAttempts.id });
+			.returning({ projectId: mediaGenerationAttempts.projectId });
 
-		return Boolean(row);
+		if (!row) {
+			return false;
+		}
+
+		captureGenerationFailed(
+			this.analyticsService,
+			userId,
+			"animation",
+			row.projectId,
+			attemptId,
+			"stale_generation",
+		);
+
+		return true;
 	}
 
 	async markStaleQueuedAttemptFailed(
 		attemptId: string,
 		createdBefore: Date,
 		error: string,
+		userId: string,
 	): Promise<boolean> {
 		const [row] = await this.db
 			.update(mediaGenerationAttempts)
@@ -202,15 +243,29 @@ export class MediaGenerationsRepository {
 					lt(mediaGenerationAttempts.createdAt, createdBefore),
 				),
 			)
-			.returning({ id: mediaGenerationAttempts.id });
+			.returning({ projectId: mediaGenerationAttempts.projectId });
 
-		return Boolean(row);
+		if (!row) {
+			return false;
+		}
+
+		captureGenerationFailed(
+			this.analyticsService,
+			userId,
+			"animation",
+			row.projectId,
+			attemptId,
+			"stale_queued",
+		);
+
+		return true;
 	}
 
 	async markGeneratingAttemptSucceeded(
 		attemptId: string,
 		videoUrl: string,
 		videoMediaType: string,
+		userId: string,
 	): Promise<boolean> {
 		const [row] = await this.db
 			.update(mediaGenerationAttempts)
@@ -227,9 +282,21 @@ export class MediaGenerationsRepository {
 					eq(mediaGenerationAttempts.status, "generating"),
 				),
 			)
-			.returning({ id: mediaGenerationAttempts.id });
+			.returning({ projectId: mediaGenerationAttempts.projectId });
 
-		return Boolean(row);
+		if (!row) {
+			return false;
+		}
+
+		captureGenerationCompleted(
+			this.analyticsService,
+			userId,
+			"animation",
+			row.projectId,
+			attemptId,
+		);
+
+		return true;
 	}
 
 	// Assets tab: every finished animation of one owned project, newest first.

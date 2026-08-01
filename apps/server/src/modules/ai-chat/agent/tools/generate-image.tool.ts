@@ -222,6 +222,8 @@ export function createGenerateImageTool(
 							await deps.imageGenerationsRepository.markAttemptFailed(
 								attempt.id,
 								"The background generator rejected this request. Please try again.",
+								deps.userId,
+								"trigger_rejected",
 							);
 
 						if (closed) {

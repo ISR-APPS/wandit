@@ -5,6 +5,11 @@ import { projects } from "@wandit/db/schema/projects";
 import { env } from "@wandit/env/server";
 
 import {
+	type AnalyticsCapture,
+	captureGenerationCompleted,
+	captureGenerationFailed,
+} from "../infrastructure/analytics/generation-events";
+import {
 	getObjectContentType,
 	imageGenerationKey,
 	publicAssetUrl,
@@ -54,9 +59,10 @@ export type ImageGenerationRuntime = {
  */
 export function createImageGenerationRuntime(
 	db: TriggerDatabase,
+	analytics: AnalyticsCapture,
 ): ImageGenerationRuntime {
 	const billing = createBilling(db);
-	const persistence = createPersistence(db);
+	const persistence = createPersistence(db, analytics);
 
 	return {
 		runner: {
@@ -106,7 +112,7 @@ function createBilling(db: TriggerDatabase): ImageGenerationBilling {
 	});
 }
 
-function createPersistence(db: TriggerDatabase) {
+function createPersistence(db: TriggerDatabase, analytics: AnalyticsCapture) {
 	const loadAttempt = async (
 		attemptId: string,
 	): Promise<ImageGenerationAttemptState | null> => {
@@ -173,6 +179,16 @@ function createPersistence(db: TriggerDatabase) {
 			)
 			.returning({ id: imageGenerationAttempts.id });
 
+		if (updated) {
+			captureGenerationCompleted(
+				analytics,
+				attempt.userId,
+				"image",
+				attempt.projectId,
+				attempt.id,
+			);
+		}
+
 		return Boolean(updated);
 	};
 
@@ -182,6 +198,7 @@ function createPersistence(db: TriggerDatabase) {
 			completedAt: Date;
 			error: string;
 			expectedStatus: "queued" | "generating";
+			reason: string;
 		},
 	): Promise<boolean> => {
 		const [updated] = await db
@@ -199,6 +216,17 @@ function createPersistence(db: TriggerDatabase) {
 				),
 			)
 			.returning({ id: imageGenerationAttempts.id });
+
+		if (updated) {
+			captureGenerationFailed(
+				analytics,
+				attempt.userId,
+				"image",
+				attempt.projectId,
+				attempt.id,
+				input.reason,
+			);
+		}
 
 		return Boolean(updated);
 	};

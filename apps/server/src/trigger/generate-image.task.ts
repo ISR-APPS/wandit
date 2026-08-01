@@ -10,6 +10,7 @@ import {
 	runImageGeneration,
 } from "../modules/image-generations/application/services/image-generation-runner";
 import { createImageGenerationRuntime } from "./image-generation.runtime";
+import { triggerAnalytics } from "./init";
 
 const imageGenerationQueue = queue({
 	concurrencyLimit: 2,
@@ -47,7 +48,7 @@ export const generateImageTask = schemaTask({
 				.set("projectId", payload.projectId)
 				.set("stage", "settling");
 
-			const runtime = createImageGenerationRuntime(db);
+			const runtime = createImageGenerationRuntime(db, triggerAnalytics);
 			const result = await runImageGeneration(payload, {
 				dependencies: runtime.runner,
 				runId: ctx.run.id,

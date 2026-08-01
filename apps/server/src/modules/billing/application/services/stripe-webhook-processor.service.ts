@@ -1,8 +1,13 @@
 import { Inject, Injectable } from "@nestjs/common";
+import { ENTITLED_SUBSCRIPTION_STATUSES } from "@wandit/contracts";
 import type Stripe from "stripe";
 
+import { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
 import { BillingWebhookEventsRepository } from "../../infrastructure/persistence/billing-webhook-events.repository";
-import { StripeEventRouter } from "./stripe-event-router.service";
+import {
+	type StripeEventRouteResult,
+	StripeEventRouter,
+} from "./stripe-event-router.service";
 
 @Injectable()
 export class StripeWebhookProcessor {
@@ -11,6 +16,8 @@ export class StripeWebhookProcessor {
 		private readonly billingWebhookEventsRepository: BillingWebhookEventsRepository,
 		@Inject(StripeEventRouter)
 		private readonly stripeEventRouter: StripeEventRouter,
+		@Inject(AnalyticsService)
+		private readonly analyticsService: AnalyticsService,
 	) {}
 
 	async process(event: Stripe.Event): Promise<{ received: true }> {
@@ -49,13 +56,16 @@ export class StripeWebhookProcessor {
 			const result = await this.stripeEventRouter.route(event);
 
 			if (result.status === "processed") {
-				await this.requireTerminalClaimWrite(
-					event.id,
+				const terminalized =
 					await this.billingWebhookEventsRepository.markProcessed(
 						event.id,
 						claimedAt,
-					),
-				);
+					);
+				await this.requireTerminalClaimWrite(event.id, terminalized);
+
+				if (terminalized) {
+					this.captureSubscriptionStarted(event, result);
+				}
 			} else {
 				await this.requireTerminalClaimWrite(
 					event.id,
@@ -90,6 +100,29 @@ export class StripeWebhookProcessor {
 		}
 
 		return { received: true };
+	}
+
+	private captureSubscriptionStarted(
+		event: Stripe.Event,
+		result: Extract<StripeEventRouteResult, { status: "processed" }>,
+	): void {
+		if (event.type !== "checkout.session.completed") {
+			return;
+		}
+
+		const started = result.mirroredSubscriptions?.find((subscription) =>
+			(ENTITLED_SUBSCRIPTION_STATUSES as readonly string[]).includes(
+				subscription.status,
+			),
+		);
+
+		if (!started) {
+			return;
+		}
+
+		this.analyticsService.capture(started.userId, "subscription_started", {
+			plan: started.plan,
+		});
 	}
 
 	private async requireTerminalClaimWrite(

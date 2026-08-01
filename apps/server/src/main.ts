@@ -4,6 +4,8 @@
  * This is similar to `app.listen(...)` in Express, but Nest first builds the
  * whole application from modules, controllers, services, guards, and providers.
  */
+// Sentry must load before Nest/Fastify so OpenTelemetry can patch them.
+import "./instrument";
 // Required by Nest so decorators like `@Controller()` and `@Injectable()` work.
 import "reflect-metadata";
 
@@ -15,6 +17,7 @@ import {
 	type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { env } from "@wandit/env/server";
+import { SentryNestLogger } from "@wandit/observability/nestjs-setup";
 
 import { AppModule } from "./app.module";
 
@@ -35,6 +38,9 @@ async function bootstrap() {
 		},
 	);
 
+	// Nest's default logger writes straight to stdout, invisible to Sentry —
+	// this one mirrors warn/error to Sentry Logs (no-op without a DSN).
+	app.useLogger(new SentryNestLogger());
 	// Let Nest close resources like Redis/database connections on shutdown.
 	app.enableShutdownHooks();
 	// Add file upload support. The chat flow does not use this directly.
@@ -77,6 +83,10 @@ async function bootstrap() {
 			"Authorization",
 			"X-Requested-With",
 			"Last-Event-ID",
+			// Distributed tracing: the SPA's Sentry attaches these to API calls.
+			// Missing from this whitelist = failed preflight = blocked request.
+			"sentry-trace",
+			"baggage",
 		],
 		maxAge: 86400,
 	});

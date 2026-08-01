@@ -19,7 +19,13 @@ import { logger, metadata, task } from "@trigger.dev/sdk";
 import { and, createDb, desc, eq, gt, inArray } from "@wandit/db";
 import { artifacts, versions } from "@wandit/db/schema/artifacts";
 import { pageGenerationAttempts } from "@wandit/db/schema/page-attempts";
+import { projects } from "@wandit/db/schema/projects";
 import { z } from "zod";
+import {
+	captureGenerationCompleted,
+	captureGenerationFailed,
+	machineFailureReason,
+} from "../infrastructure/analytics/generation-events";
 import {
 	contentTypeFor,
 	pageHtmlKey,
@@ -28,6 +34,7 @@ import {
 } from "../infrastructure/storage/r2";
 import { createBuildProgressTracker } from "../modules/ai-chat/agent/site-builder/build-progress";
 import { runSiteBuild } from "../modules/ai-chat/agent/site-builder/site-builder-agent";
+import { triggerAnalytics } from "./init";
 
 // The queue tool snapshots exactly this shape. Non-strict on purpose: rows
 // queued by the retired art-director pipeline carry extra fields (art prompts,
@@ -50,15 +57,18 @@ export const generatePageTask = task({
 		const db = createDb();
 
 		try {
-			const [attempt] = await db
-				.select()
+			const [loaded] = await db
+				.select({ attempt: pageGenerationAttempts, userId: projects.userId })
 				.from(pageGenerationAttempts)
+				.innerJoin(projects, eq(projects.id, pageGenerationAttempts.projectId))
 				.where(eq(pageGenerationAttempts.id, payload.attemptId))
 				.limit(1);
 
-			if (!attempt) {
+			if (!loaded) {
 				throw new Error(`Attempt ${payload.attemptId} not found`);
 			}
+
+			const { attempt, userId } = loaded;
 
 			if (attempt.status === "succeeded") {
 				logger.info(
@@ -232,17 +242,38 @@ export const generatePageTask = task({
 							.where(eq(artifacts.id, attempt.artifactId));
 					}
 
-					await tx
+					const [completed] = await tx
 						.update(pageGenerationAttempts)
 						.set({
 							completedAt: new Date(),
 							status: "succeeded",
 							versionId,
 						})
-						.where(eq(pageGenerationAttempts.id, attempt.id));
+						.where(
+							and(
+								eq(pageGenerationAttempts.id, attempt.id),
+								eq(pageGenerationAttempts.status, "generating"),
+								eq(pageGenerationAttempts.triggerRunId, ctx.run.id),
+							),
+						)
+						.returning({ id: pageGenerationAttempts.id });
+
+					if (!completed) {
+						throw new Error(
+							`Attempt ${attempt.id} lost its completion state transition`,
+						);
+					}
 
 					return { activated: !newerSucceeded, number: nextNumber };
 				});
+
+				captureGenerationCompleted(
+					triggerAnalytics,
+					userId,
+					"page",
+					attempt.projectId,
+					attempt.id,
+				);
 
 				logger.info(
 					activated
@@ -268,14 +299,32 @@ export const generatePageTask = task({
 
 				// Record the failure for the Page tab, then rethrow so the run
 				// also shows as failed in the Trigger dashboard.
-				await db
+				const [failed] = await db
 					.update(pageGenerationAttempts)
 					.set({
 						completedAt: new Date(),
 						error: error instanceof Error ? error.message : String(error),
 						status: "failed",
 					})
-					.where(eq(pageGenerationAttempts.id, attempt.id));
+					.where(
+						and(
+							eq(pageGenerationAttempts.id, attempt.id),
+							eq(pageGenerationAttempts.status, "generating"),
+							eq(pageGenerationAttempts.triggerRunId, ctx.run.id),
+						),
+					)
+					.returning({ id: pageGenerationAttempts.id });
+
+				if (failed) {
+					captureGenerationFailed(
+						triggerAnalytics,
+						userId,
+						"page",
+						attempt.projectId,
+						attempt.id,
+						machineFailureReason(error),
+					);
+				}
 
 				throw error;
 			}

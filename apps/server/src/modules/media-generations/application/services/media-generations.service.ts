@@ -54,6 +54,7 @@ export class MediaGenerationsService {
 				row.id,
 				queuedStaleCutoff,
 				STALE_QUEUED_ERROR,
+				userId,
 			);
 			row = await this.mediaGenerationsRepository.findOwnedAttempt(
 				userId,
@@ -70,13 +71,14 @@ export class MediaGenerationsService {
 			row.startedAt !== null &&
 			row.startedAt < staleCutoff
 		) {
-			const recovered = await this.recoverStoredVideo(row);
+			const recovered = await this.recoverStoredVideo(row, userId);
 
 			if (!recovered) {
 				await this.mediaGenerationsRepository.markStaleGeneratingAttemptFailed(
 					row.id,
 					staleCutoff,
 					STALE_GENERATION_ERROR,
+					userId,
 				);
 			}
 			row = await this.mediaGenerationsRepository.findOwnedAttempt(
@@ -104,6 +106,7 @@ export class MediaGenerationsService {
 
 	private async recoverStoredVideo(
 		row: MediaGenerationAttemptRow,
+		userId: string,
 	): Promise<boolean> {
 		for (const candidate of [
 			{ extension: "mp4", mediaType: "video/mp4" },
@@ -122,6 +125,7 @@ export class MediaGenerationsService {
 				storedMediaType.startsWith("video/")
 					? storedMediaType
 					: candidate.mediaType,
+				userId,
 			);
 
 			return true;
