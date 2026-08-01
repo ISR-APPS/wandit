@@ -241,7 +241,7 @@ Executed at 100 percent — a name cut in half by the edge of the screen with a 
 		"events",
 		"delivery",
 	],
-	kind: "cod",
+	kind: "product",
 	mood: ["loud", "street", "graphic", "kinetic", "irreverent"],
 	name: "Cargo",
 	priceFeel: "accessible",

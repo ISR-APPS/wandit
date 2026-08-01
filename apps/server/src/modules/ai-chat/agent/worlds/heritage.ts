@@ -236,7 +236,7 @@ This world fails by warming up too fast. Every wrong decision here is an impatie
 		"cosmetics",
 		"wedding",
 	],
-	kind: "cod",
+	kind: "product",
 	mood: ["storied", "tactile", "earthen", "slow", "handmade"],
 	name: "Héritage",
 	priceFeel: "premium",

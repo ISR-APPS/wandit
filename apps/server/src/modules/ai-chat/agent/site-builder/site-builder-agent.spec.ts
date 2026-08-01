@@ -986,14 +986,14 @@ describe("finish guard", () => {
 
 		await completeRequiredPasses(tools, options);
 		const accepted = await tools.finish.execute?.(
-			{ summary: "Souk Heat direction, warm editorial." },
+			{ summary: "Bazar Heat direction, warm editorial." },
 			options(),
 		);
 
 		expect(accepted).toEqual({ accepted: true });
 		expect(state.finishAccepted).toBe(true);
 		expect(state.screenshotPasses).toBe(REQUIRED_SCREENSHOT_PASSES);
-		expect(state.summary).toBe("Souk Heat direction, warm editorial.");
+		expect(state.summary).toBe("Bazar Heat direction, warm editorial.");
 	});
 
 	it("a refused finish does not stop the loop; an accepted one does", async () => {

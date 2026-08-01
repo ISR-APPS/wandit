@@ -5,6 +5,7 @@ import { designWorlds, formatWorldCandidates, getWorld } from "./index";
 describe("design worlds library", () => {
 	it("every world honors the library contract", () => {
 		const ids = designWorlds.map((w) => w.id);
+		expect(designWorlds).toHaveLength(69);
 		expect(new Set(ids).size).toBe(ids.length);
 
 		for (const world of designWorlds) {
@@ -16,7 +17,9 @@ describe("design worlds library", () => {
 			expect(world.tagline.length).toBeGreaterThan(40);
 			expect(world.mood.length).toBeGreaterThanOrEqual(3);
 			expect(world.name.length).toBeGreaterThan(1);
-			expect(world.doc).toContain("var(--radius)");
+			if (world.kind !== "cod") {
+				expect(world.doc).toContain("var(--radius)");
+			}
 		}
 	});
 
@@ -104,7 +107,7 @@ describe("design worlds library", () => {
 				formatWorldCandidates({ business: "boutique", industryHints: [] }),
 			);
 		}
-		// 10 draws from a 23-world library colliding into one menu would mean
+		// 10 draws from a 69-world library colliding into one menu would mean
 		// the sampler is not sampling.
 		expect(draws.size).toBeGreaterThan(1);
 	});

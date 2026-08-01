@@ -1,14 +1,14 @@
 import type { DesignWorld } from "./types";
 
 /**
- * SOUK — bazaar heat with craft. The loud pole of the COD library: three
+ * BAZAR — bazaar heat with craft. The loud pole of the COD library: three
  * saturated spice poles color-blocked onto warm paper, offer stamps slammed on
  * at 2-4deg with hard offset shadows, a price so large it gets a hand-drawn ink
  * circle around it, and a deals ticker running the width of the page. Built for
  * general ecommerce, household goods and multi-variant cash-on-delivery offers.
  * The doc is appended VERBATIM to the builder system prompt.
  */
-export const souk: DesignWorld = {
+export const bazar: DesignWorld = {
 	avoidFor: [
 		"luxury",
 		"law",
@@ -19,14 +19,14 @@ export const souk: DesignWorld = {
 		"finance",
 		"funeral",
 	],
-	doc: `# DESIGN WORLD: SOUK — the market stall, printed
+	doc: `# DESIGN WORLD: BAZAR — the market stall, printed
 
 ## Philosophy
 This page is a MARKET STALL that has been printed properly. Not a marketplace listing — a stall run by someone who paints their own signs, stamps their own boxes, stacks the goods so the best deal is physically bigger than the others, and shouts the price because the price is the point.
 
 Two failure modes sit on either side. The cheap-deal page — flashing red URGENT bar, fake clock, screaming yellows, a green WhatsApp blob in the corner, a starburst PNG on the product — converts once and burns the merchant's credibility. The timid boutique page — white ground, 1px gray hairlines, 16px-radius cards, a whispered price — never converts at all, because a page that will not state its offer is assumed to be hiding something.
 
-SOUK is the third thing: LOUD and MADE. Every loud element is a physical object — a stamp, a crate, a tag, a plank, an awning, a slip of paper — with a border, an angle, and a shadow falling at a hard 45 degrees with zero blur.
+BAZAR is the third thing: LOUD and MADE. Every loud element is a physical object — a stamp, a crate, a tag, a plank, an awning, a slip of paper — with a border, an angle, and a shadow falling at a hard 45 degrees with zero blur.
 
 AND THE OBJECTS ARE MARKET OBJECTS, NEVER PRINT-SHOP FURNITURE. This is the distinction that keeps the world from collapsing into a zine or a brutalist poster page, which is the nearest wrong answer and the easiest one to drift into. The vocabulary is a STALL — awning valances, crates, rope, hanging tags, painted boards, stamped slips, a crier's call — set on warm kraft with a real tooth. It is NOT the print shop: no registration crosses, no barcode rules, no halftone dot fields, no photocopy grain, no outline-stroke display type, no zine collage. Loudness here comes from spice colour, poster type scale and hand-placed angles; it never comes from reprographic ornament. The loudness comes from COLOR AREA and TYPE SCALE, never from alarm. Nothing flashes, nothing pulses, nothing lies. It is a full stall on a Friday morning, not a siren. What keeps it out of clown territory is repetition: THREE poles, ONE sticker shape, FOUR rotation angles, ONE shadow physics, FOUR rule weights, repeated forty times. Forty repetitions of one idea reads as a brand; forty ideas read as a mess.
 
@@ -102,7 +102,7 @@ RIGHT COLUMN IS A PINNED CUT-OUT, not a photo slab: the product at width min(100
 
 EVERY HERO TERMINATES IN THE PLANK RAIL, never in whitespace: a full-bleed INK or DEEP strip, padding-block 1.05rem, four uppercase micro-facts at .8rem/.14em in PAPER-ON-DEEP each preceded by a GOLD 8px diamond, gap clamp(1.4rem,4vw,3rem), space-between above 720px and a 2x2 grid at .7rem below. Real facts from the brief — delivery, payment, warranty, returns — never adjectives.
 
-## Section seams (the souk's own vocabulary — every boundary uses one, never the same twice in a row)
+## Section seams (the bazar's own vocabulary — every boundary uses one, never the same twice in a row)
 Use at least five of these eight. This world escapes the card stack CHROMATICALLY and PHYSICALLY: color area and objects crossing edges, never whitespace.
 - THE STALL CUT: a hard full-bleed ground change, zero gradient, zero radius, with a 3px rule of a DIFFERENT pole sitting exactly on the boundary (GOLD between paper and DEEP; INK between paper and GOLD). Four to six ground changes per page.
 - THE AWNING: a scalloped or zigzag valance 26px tall hanging from the incoming block's top edge, painted with the OUTGOING block's applicable fixed token — var(--background), var(--secondary), var(--accent) or var(--primary) — so the two interlock; repeat that token directly at every stop and never create an outgoing color property. Scallop: height 26px; a radial-gradient circle at 50% 100%, transparent 0 13px and the chosen fixed token from 13px; background-size 34px 26px; repeat-x. Zigzag: paired 135deg and 225deg linear-gradients using that same fixed token to 50% and transparent after; background-size 30px 26px. ONE variant per page, held.
@@ -197,7 +197,7 @@ MICRO-INTERACTION KIT (all CSS, all inside the bands):
 - SUBMIT: an 800ms pending state where the label becomes a present-tense human sentence, then the slip CROSS-FADES IN PLACE into a success panel absolutely positioned over it in the same box — the slip leaves over .4s to y -10px with visibility 0s .4s so focus never lands on a hidden element; the success side arrives over .5s with a .2s delay. The panel opens on a giant success STAMP at rotate -3deg entering from scale .8 and autoAlpha 0 over .5s back.out(1.7), the order number beneath it in tabular numerals at 2.4rem, and copy echoing the buyer's own name, wilaya, variant and quantity alongside the amount they will hand to the driver. Store the order in localStorage; on return, paint the success state INSTANTLY with no animation so a buyer is never asked to order twice. And the instant validation passes — as the stamp slams — the stall calls the order back to the wandit runtime by dispatching the wandit:lead CustomEvent on document with the buyer's fields flat in detail (name, phone as typed, wilaya, commune, plus variant and quantity), while one off-canvas decoy input marked data-wandit-hp hangs in the slip, never read by the page's own script.
 - CROSS-SECTION STATE LINKS: every bundle card's CTA writes its variant and quantity into the order slip, updates the total and the WhatsApp message, then smooth-scrolls to the slip — and the chosen card's stamp flips to the local word for "chosen" with a .28s stamp slam. Sections talk to each other.
 
-## Editorial furniture (REQUIRED — this is the souk's voice)
+## Editorial furniture (REQUIRED — this is the bazar's voice)
 - THE CRIER LINE: the announce marquee written as a market call in the brief's language, made of real offers separated by GOLD diamonds.
 - OFFER STAMP COPY: two to four uppercase words, always a fact — the discount, the bundle, the free delivery, the warranty. Never "BEST" or "TOP" or a decorative word.
 - LOT NUMBERS: LOT 01 / LOT 02 in GOLD in every crate's corner and under every framed photograph, in the SIGN face at .74rem. Pure typesetting, invents nothing.
@@ -221,7 +221,7 @@ MICRO-INTERACTION KIT (all CSS, all inside the bands):
 9. Global: no hand-drawn SVG illustrations. HERE: the four trust icons, the WhatsApp glyph, the select chevron, the hanging price tag, the gold burst and the hand-drawn price circle are DRAWN inline SVG — they are marks and ornament in the world's own stroke language, never imagery. The ban holds absolutely for anything standing in for a PHOTOGRAPH: no drawn products, no mascots, no clipart, no illustrated scenes, no drawn logo. A missing photo becomes a labelled image slot.
 10. Global: count-up numerals on stats and prices. HERE the price DOES count up once, inside the price-theatre chain, and only there — every other number is printed. The live total never counts up; it pops scale 1.08 to 1 over .22s.
 
-## Souk ban list (in addition to the global one)
+## Bazar ban list (in addition to the global one)
 A red URGENT banner or any alarm strip · a countdown with no real end date in the brief · a stock number, an "only 2 left" or a viewer count the brief did not state · anything that flashes, blinks, pulses forever or scales a CTA on a loop to nag · the default WhatsApp green #25D366 and the floating round green blob · gradients as decorative fills or section grounds (the rope and the awning are repeating PATTERNS, not blends; the only other gradient allowed is the type scrim over a photograph) · glassmorphism, backdrop blur, neon glows, soft ambient light of any kind · soft drop shadows on cards, buttons, stamps, pills or the nav · 1px gray hairlines and detached grays that are not alpha-of-ink · a uniform 12-16px radius as the page's only shape · rows of identical same-size cards with no oversized cell · a stamp at 0deg, a rotation beyond 4deg, more than seven stamps, or two adjacent stamps sharing an angle · a perfect border-radius:50% circle standing in for the hand-drawn one · emoji, icon fonts, clipart, starburst PNGs or a sale badge that is an image · REPROGRAPHIC FURNITURE OF ANY KIND — registration crosses, crop marks, barcode rules, halftone dot fields, photocopy grain, colour-bar strips, zine collage, outline-stroke display type (this world is a stall, not a print shop, and that drift is its nearest wrong answer) · pure #FF0000, pure #FFFF00, purple or violet in any role · a hero that is headline plus paragraph plus one button plus a photo · centred body copy anywhere except the poster hero's lede and the footer credit · testimonial carousels · per-character text splitting · more than ONE ambient loop, ONE scrubbed moment and ONE pinned rail · any hidden state authored in CSS · letter-spaced Arabic.
 
 ## Intensity
@@ -229,7 +229,7 @@ This world fails in two directions and both are easy. Pull back and it becomes a
 
 The 100 percent version sits precisely between them and is unmistakable — warm paper with a real tooth, a stripe of saturated blocks reading down the page like an awning, a headline with one word slabbed in ink-bordered color, a price at 7rem with a crooked pen circle drawing itself around it as you arrive, offer stamps landing at four fixed angles with their ink shadows spreading out beneath them, ONE bundle physically larger than its neighbours and standing straight while they lean, a ticker of real offers running the page's width, thumb-sized pills, a printed order slip with stamped step numbers, and a hot total row that recomputes with a small confident pop. It looks like the best stall in the market: the one run by someone who knows their prices are good and prints their signs properly. Push INTO the specificity. Every number above is load-bearing.`,
 	energy: "loud",
-	id: "souk",
+	id: "bazar",
 	industries: [
 		"ecommerce",
 		"gadgets",
@@ -246,9 +246,9 @@ The 100 percent version sits precisely between them and is unmistakable — warm
 		"food",
 		"delivery",
 	],
-	kind: "cod",
+	kind: "product",
 	mood: ["loud", "saturated", "hand-stamped", "generous", "market-warm"],
-	name: "Souk",
+	name: "Bazar",
 	priceFeel: "accessible",
 	tagline:
 		"Spice-hot color blocks on warm paper, offer stamps slammed on at an angle like a stall's hand-painted signs, and your price so big it gets a crooked ink circle drawn around it — a page that shouts the deal and still looks made by hand.",

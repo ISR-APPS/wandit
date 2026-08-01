@@ -46,6 +46,7 @@ import { triggerAnalytics } from "./init";
 const attemptSpecSchema = z.object({
 	brief: z.string().min(1),
 	designerSystemPrompt: z.string().min(1),
+	pageKind: z.enum(["website", "cod"]).optional(),
 	title: z.string().min(1),
 });
 
@@ -254,6 +255,7 @@ export const generatePageTask = task({
 							},
 							// Contract §9: absent source means LEGACY builder rows.
 							source: "builder",
+							...(spec.pageKind ? { pageKind: spec.pageKind } : {}),
 							title: spec.title,
 						},
 						number: nextNumber,

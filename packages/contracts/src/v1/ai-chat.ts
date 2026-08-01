@@ -173,6 +173,9 @@ export const getDirectionCandidatesInputSchema = z.object({
 	// Short free-text business descriptor (e.g. "candles", "streetwear"),
 	// matched against the library's avoidFor/industries tags.
 	business: z.string().min(1),
+	// Optional build genre. Omitted by legacy rows and callers, which keeps the
+	// original website + product-dossier menu behavior.
+	pageKind: z.enum(["website", "product", "cod"]).optional(),
 	// 2-4 lowercase English industry keywords (canonical list lives in the
 	// system prompt; matching is fuzzy + accent-folded server-side). Free
 	// strings, NOT an enum, on purpose: an enum violation kills the run, while
@@ -211,6 +214,12 @@ export const generatePageInputSchema = z.object({
 	// system prompt snapshot. Free string (not an enum) so an off-list id
 	// degrades to a world-less build instead of killing the run.
 	worldId: z.string().min(1).optional(),
+	// Ordered design-world ids for COD fusion: base first, then donors. When
+	// present this wins over the legacy single worldId field.
+	worldIds: z.array(z.string().min(1)).min(1).max(4).optional(),
+	// Durable page classification. Optional so historical tool calls continue
+	// to validate unchanged.
+	pageKind: z.enum(["website", "cod"]).optional(),
 });
 
 /**

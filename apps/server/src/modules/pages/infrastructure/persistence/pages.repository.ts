@@ -65,6 +65,7 @@ export type PageOverviewRows = {
 export type PageAttemptSpec = {
 	brief: string;
 	designerSystemPrompt: string;
+	pageKind?: "cod" | "website";
 	title: string;
 };
 
