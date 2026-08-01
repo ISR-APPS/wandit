@@ -668,7 +668,8 @@
 			"generatingTitle": "Generating images…",
 			"readyTitle": "Images ready",
 			"download": "Download",
-			"inAssetsTab": "Also available in the Assets tab"
+			"inAssetsTab": "Also available in the Assets tab",
+			"placementFailed": "Couldn't apply it to the page — the image is in your Assets"
 		},
 		"media": {
 			"close": "Close",

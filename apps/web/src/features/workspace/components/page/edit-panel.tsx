@@ -26,7 +26,7 @@ import { parsePageTheme } from "../../lib/preview-editor/parse-tokens";
 import { useWorkspace } from "../../lib/store";
 import { usePageEditor } from "../../lib/use-page-editor";
 import { DataPanel } from "./data-panel";
-import { ElementPanel } from "./element-panel";
+import { EditorWorkingState, ElementPanel } from "./element-panel";
 import { ThemePanel } from "./theme-panel";
 
 export function EditPanel({ className }: { className?: string }) {
@@ -70,40 +70,50 @@ export function EditPanel({ className }: { className?: string }) {
 					<X className="size-4" />
 				</Button>
 			</div>
-			<div className="scroll-warm min-h-0 flex-1 overflow-y-auto">
-				{editor.selection ? <ElementPanel /> : null}
-				<Tabs
-					value={tab}
-					onValueChange={(next) => setTab(next === "data" ? "data" : "theme")}
-					className="gap-0"
+			<div
+				data-slot="edit-panel-body"
+				aria-busy={editor.isAskAiDispatching}
+				className="scroll-warm min-h-0 flex-1 overflow-y-auto"
+			>
+				{editor.isAskAiDispatching ? <EditorWorkingState /> : null}
+				<div
+					hidden={editor.isAskAiDispatching}
+					inert={editor.isAskAiDispatching ? true : undefined}
 				>
-					<div className="px-3.5 pt-3.5">
-						<TabsList className="w-full">
-							<TabsTrigger value="theme" className="text-xs">
-								{t("workspace.page.editor.theme")}
-							</TabsTrigger>
-							<TabsTrigger value="data" className="text-xs">
-								{t("workspace.page.editor.data")}
-							</TabsTrigger>
-						</TabsList>
-					</div>
-					<TabsContent value="theme">
-						<ThemePanel
-							baseTokens={pageTheme.tokens}
-							colorScheme={pageTheme.colorScheme}
-						/>
-					</TabsContent>
-					<TabsContent value="data">
-						<DataPanel html={html} />
-					</TabsContent>
-				</Tabs>
+					{editor.selection ? <ElementPanel /> : null}
+					<Tabs
+						value={tab}
+						onValueChange={(next) => setTab(next === "data" ? "data" : "theme")}
+						className="gap-0"
+					>
+						<div className="px-3.5 pt-3.5">
+							<TabsList className="w-full">
+								<TabsTrigger value="theme" className="text-xs">
+									{t("workspace.page.editor.theme")}
+								</TabsTrigger>
+								<TabsTrigger value="data" className="text-xs">
+									{t("workspace.page.editor.data")}
+								</TabsTrigger>
+							</TabsList>
+						</div>
+						<TabsContent value="theme">
+							<ThemePanel
+								baseTokens={pageTheme.tokens}
+								colorScheme={pageTheme.colorScheme}
+							/>
+						</TabsContent>
+						<TabsContent value="data">
+							<DataPanel html={html} />
+						</TabsContent>
+					</Tabs>
+				</div>
 			</div>
 			{/* Mobile-only save strip — the full-screen overlay covers PageTab's
 			    SaveBar (the desktop Save affordance), so dirty edits need their
 			    own way to persist here. Mirrors SaveBar byte-for-byte; the
 			    discard confirm dialog portals from PageTab, which stays mounted
 			    under the overlay. */}
-			{isMobile && editor.dirtyCount > 0 ? (
+			{!editor.isAskAiDispatching && isMobile && editor.dirtyCount > 0 ? (
 				<div className="flex shrink-0 items-center justify-between gap-3 border-t bg-card px-3.5 py-2">
 					<span className="text-muted-foreground text-xs">
 						{t("workspace.page.editor.changesCount", {

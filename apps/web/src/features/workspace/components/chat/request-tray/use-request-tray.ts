@@ -5,8 +5,8 @@
 // steps through them oldest first, one at a time, with "Question 2 of 4"
 // progress; everything else in the thread stays prose. Answering goes back
 // through ONE callback (answerAskUser in use-ai-chat.ts) with the output
-// shape built here, so the tray, the composer free-text path and the escape
-// hatch all complete the same tool call the same way.
+// shape built here. The X is intentionally different: it only hides the
+// current round locally, leaving the pending call for next-send repair.
 
 import type {
 	AskUserOption,
@@ -122,14 +122,11 @@ export function delegateAnswer(): AskUserOutput {
 	return { delegated: true };
 }
 
-/** Tray X — "skip, continue" (the question is logged, never lost). */
-export function dismissAnswer(): AskUserOutput {
-	return { dismissed: true };
-}
-
 /* ---------- derivation helpers (pure) ---------- */
 
 export type AskStepper = {
+	/** Stable identity for this assistant step's question round. */
+	roundKey: string | null;
 	/** The ask docked on the composer — the FIRST one still without an output. */
 	active: AskUserToolPart | null;
 	/** 1-based position shown as "Question 2 of 4": answered asks + 1. */
@@ -138,7 +135,12 @@ export type AskStepper = {
 	total: number;
 };
 
-const NO_ASKS: AskStepper = { active: null, current: 0, total: 0 };
+const NO_ASKS: AskStepper = {
+	roundKey: null,
+	active: null,
+	current: 0,
+	total: 0,
+};
 
 /** Pending = the user still owes an answer. input-streaming counts (the tray
     shows its spinner preamble) but stays unanswerable until input-available. */
@@ -172,6 +174,7 @@ export function collectAskStepper(messages: WanditUIMessage[]): AskStepper {
 
 	const answered = asks.filter((ask) => !isPendingAsk(ask)).length;
 	return {
+		roundKey: `${last.id}:${lastStepStart}`,
 		active: asks.find(isPendingAsk) ?? null,
 		// Clamped for the instant every ask is settled, before auto-resubmit.
 		current: Math.min(answered + 1, asks.length),
@@ -203,7 +206,12 @@ export function useRequestTray({
 }) {
 	const { t } = useTranslation();
 	const stepper = useMemo(() => collectAskStepper(messages), [messages]);
-	const active = stepper.active;
+	const [dismissedRoundKey, setDismissedRoundKey] = useState<string | null>(
+		null,
+	);
+	const roundDismissed =
+		stepper.roundKey !== null && stepper.roundKey === dismissedRoundKey;
+	const active = roundDismissed ? null : stepper.active;
 	const toolCallId = active?.toolCallId;
 
 	// AnimatePresence keeps the EXITING tray mounted (~340ms) with callbacks
@@ -497,7 +505,13 @@ export function useRequestTray({
 		[answer],
 	);
 	const delegate = useCallback(() => answer(delegateAnswer()), [answer]);
-	const dismiss = useCallback(() => answer(dismissAnswer()), [answer]);
+	const dismiss = useCallback(() => {
+		if (!active || !stepper.roundKey) return;
+		setDismissedRoundKey(stepper.roundKey);
+		setSinglePick(null);
+		setMultiPicks(null);
+		clearAttachDrafts();
+	}, [active, stepper.roundKey, clearAttachDrafts]);
 
 	// Typed text wins over any chip/upload draft. That preserves the existing
 	// free-form override while every answer mode now confirms through one CTA.

@@ -21,12 +21,16 @@ import {
 	createImageGenerationBilling,
 	type ImageGenerationBilling,
 } from "../modules/image-generations/application/services/image-generation-billing";
+import { ImageGenerationPlacementService } from "../modules/image-generations/application/services/image-generation-placement.service";
 import type {
 	GeneratedImageResult,
 	ImageGenerationAttemptState,
 	ImageGenerationRunnerDependencies,
 } from "../modules/image-generations/application/services/image-generation-runner";
 import { generateStandaloneImage } from "../modules/image-generations/application/services/image-generator";
+import { ImageGenerationsRepository } from "../modules/image-generations/infrastructure/persistence/image-generations.repository";
+import { PageEditsService } from "../modules/pages/application/services/page-edits.service";
+import { PagesRepository } from "../modules/pages/infrastructure/persistence/pages.repository";
 
 type TriggerDatabase = ReturnType<typeof createDb>;
 
@@ -41,6 +45,7 @@ const ATTEMPT_COLUMNS = {
 	projectId: imageGenerationAttempts.projectId,
 	prompt: imageGenerationAttempts.prompt,
 	sourceImageUrls: imageGenerationAttempts.sourceImageUrls,
+	spec: imageGenerationAttempts.spec,
 	startedAt: imageGenerationAttempts.startedAt,
 	status: imageGenerationAttempts.status,
 	title: imageGenerationAttempts.title,
@@ -63,6 +68,17 @@ export function createImageGenerationRuntime(
 ): ImageGenerationRuntime {
 	const billing = createBilling(db);
 	const persistence = createPersistence(db, analytics);
+	const pagesRepository = new PagesRepository(db, analytics);
+	const pageEditsService = new PageEditsService(pagesRepository);
+	const imageGenerationsRepository = new ImageGenerationsRepository(
+		db,
+		analytics,
+	);
+	const placementService = new ImageGenerationPlacementService(
+		imageGenerationsRepository,
+		pageEditsService,
+		pagesRepository,
+	);
 
 	return {
 		runner: {
@@ -84,6 +100,9 @@ export function createImageGenerationRuntime(
 			recoverStoredImages: createStoredImagesRecovery(),
 			refund: billing.refund,
 			reserve: billing.reserve,
+			settlePlacement: async (attempt, images) => {
+				await placementService.settle(attempt, images);
+			},
 		},
 	};
 }
@@ -231,7 +250,12 @@ function createPersistence(db: TriggerDatabase, analytics: AnalyticsCapture) {
 		return Boolean(updated);
 	};
 
-	return { claimQueued, failFromStatus, loadAttempt, markSucceeded };
+	return {
+		claimQueued,
+		failFromStatus,
+		loadAttempt,
+		markSucceeded,
+	};
 }
 
 function createStoredImagesRecovery() {

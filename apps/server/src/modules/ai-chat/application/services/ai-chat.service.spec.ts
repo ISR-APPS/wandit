@@ -2,6 +2,7 @@ import { BadRequestException } from "@nestjs/common";
 import {
 	applyElementOpsInputSchema,
 	applyElementOpsOutputSchema,
+	askUserOutputSchema,
 	readElementsInputSchema,
 	readElementsOutputSchema,
 	readThemeInputSchema,
@@ -547,6 +548,52 @@ describe("completeDanglingToolCalls dynamic tools", () => {
 			errorText: "Tool call was interrupted.",
 			state: "output-error",
 		});
+	});
+});
+
+describe("completeDanglingToolCalls ask_user", () => {
+	it("repairs a prior unanswered question as dismissed without mutating transcript messages", () => {
+		const pendingPart = {
+			input: {
+				options: [
+					{ id: "option-1", label: "First option" },
+					{ id: "option-2", label: "Second option" },
+				],
+				question: "Which option should I use?",
+			},
+			state: "input-available",
+			toolCallId: "call-ask-user",
+			type: "tool-ask_user",
+		} satisfies WanditUIMessage["parts"][number];
+		const priorMessage: WanditUIMessage = {
+			id: "prior-assistant",
+			parts: [pendingPart],
+			role: "assistant",
+		};
+		const tailMessage = userMessage();
+
+		const result = completeDanglingToolCalls([priorMessage, tailMessage]);
+		const repairedPart = result[0]?.parts[0];
+
+		expect(result[0]).not.toBe(priorMessage);
+		expect(repairedPart).toEqual({
+			...pendingPart,
+			output: { dismissed: true },
+			state: "output-available",
+		});
+		if (
+			repairedPart?.type !== "tool-ask_user" ||
+			repairedPart.state !== "output-available"
+		) {
+			throw new Error("Expected a repaired ask_user output");
+		}
+		expect(askUserOutputSchema.safeParse(repairedPart.output).success).toBe(
+			true,
+		);
+		expect(priorMessage.parts[0]).toBe(pendingPart);
+		expect(pendingPart.state).toBe("input-available");
+		expect("output" in pendingPart).toBe(false);
+		expect(result[1]).toBe(tailMessage);
 	});
 });
 
