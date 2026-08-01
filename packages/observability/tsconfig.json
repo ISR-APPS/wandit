@@ -1,0 +1,3 @@
+{
+	"extends": "@wandit/config/tsconfig.base.json"
+}

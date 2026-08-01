@@ -348,6 +348,7 @@ describe("animate_image tool", () => {
 		expect(mediaGenerationsRepository.markAttemptFailed).toHaveBeenCalledWith(
 			"b48dfa65-13a2-4bd8-af89-d01c4bbdb1e3",
 			"The background generator rejected this request. Please try again.",
+			"user_1",
 		);
 		expect(
 			generationPolicyService.refundGenerationReservation,

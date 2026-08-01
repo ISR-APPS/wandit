@@ -6,7 +6,11 @@ import type {
 } from "@wandit/contracts";
 import { and, eq, lt } from "@wandit/db";
 import { marketingAssets } from "@wandit/db/schema/marketing-assets";
-
+import { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
+import {
+	captureGenerationCompleted,
+	captureGenerationFailed,
+} from "../../../../infrastructure/analytics/generation-events";
 import {
 	DATABASE,
 	type Database,
@@ -40,6 +44,8 @@ export class MarketingAssetsService {
 		// repository stays the tool-facing surface; these guarded updates are a
 		// polling concern of this service).
 		@Inject(DATABASE) private readonly db: Database,
+		@Inject(AnalyticsService)
+		private readonly analyticsService: AnalyticsService,
 	) {}
 
 	async list(
@@ -51,7 +57,7 @@ export class MarketingAssetsService {
 			projectId,
 		);
 
-		if (await this.settleStaleRows(rows)) {
+		if (await this.settleStaleRows(rows, userId)) {
 			rows = await this.marketingAssetsRepository.listOwnedByProject(
 				userId,
 				projectId,
@@ -121,14 +127,17 @@ export class MarketingAssetsService {
 	 * (crashed worker, expired delivery). Returns true when any row changed so
 	 * the caller re-reads.
 	 */
-	private async settleStaleRows(rows: MarketingAssetRow[]): Promise<boolean> {
+	private async settleStaleRows(
+		rows: MarketingAssetRow[],
+		userId: string,
+	): Promise<boolean> {
 		const queuedCutoff = new Date(Date.now() - QUEUED_STALE_AFTER_MS);
 		const generatingCutoff = new Date(Date.now() - GENERATION_STALE_AFTER_MS);
 		let changed = false;
 
 		for (const row of rows) {
 			if (row.status === "queued" && row.createdAt < queuedCutoff) {
-				await this.db
+				const [failed] = await this.db
 					.update(marketingAssets)
 					.set({
 						completedAt: new Date(),
@@ -141,7 +150,19 @@ export class MarketingAssetsService {
 							eq(marketingAssets.status, "queued"),
 							lt(marketingAssets.createdAt, queuedCutoff),
 						),
+					)
+					.returning({ projectId: marketingAssets.projectId });
+
+				if (failed) {
+					captureGenerationFailed(
+						this.analyticsService,
+						userId,
+						"marketing_asset",
+						failed.projectId,
+						row.id,
+						"stale_queued",
 					);
+				}
 				changed = true;
 				continue;
 			}
@@ -167,7 +188,7 @@ export class MarketingAssetsService {
 			const stored = await getObjectContentType(key);
 
 			if (stored) {
-				await this.db
+				const [completed] = await this.db
 					.update(marketingAssets)
 					.set({
 						completedAt: new Date(),
@@ -180,9 +201,20 @@ export class MarketingAssetsService {
 							eq(marketingAssets.id, row.id),
 							eq(marketingAssets.status, "generating"),
 						),
+					)
+					.returning({ projectId: marketingAssets.projectId });
+
+				if (completed) {
+					captureGenerationCompleted(
+						this.analyticsService,
+						userId,
+						"marketing_asset",
+						completed.projectId,
+						row.id,
 					);
+				}
 			} else {
-				await this.db
+				const [failed] = await this.db
 					.update(marketingAssets)
 					.set({
 						completedAt: new Date(),
@@ -195,7 +227,19 @@ export class MarketingAssetsService {
 							eq(marketingAssets.status, "generating"),
 							lt(marketingAssets.startedAt, generatingCutoff),
 						),
+					)
+					.returning({ projectId: marketingAssets.projectId });
+
+				if (failed) {
+					captureGenerationFailed(
+						this.analyticsService,
+						userId,
+						"marketing_asset",
+						failed.projectId,
+						row.id,
+						"stale_generation",
 					);
+				}
 			}
 
 			changed = true;

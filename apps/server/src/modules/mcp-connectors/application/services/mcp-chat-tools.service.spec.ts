@@ -226,7 +226,7 @@ function buildService({
 	};
 	const connectorGenerationsRepository = {
 		insertAttempt: vi.fn().mockResolvedValue({ id: GENERATION_ATTEMPT_ID }),
-		markAttemptFailed: vi.fn().mockResolvedValue(undefined),
+		markAttemptFailed: vi.fn().mockResolvedValue(true),
 		markAttemptTriggered: vi.fn().mockResolvedValue(undefined),
 	};
 	const service = new McpChatToolsService(

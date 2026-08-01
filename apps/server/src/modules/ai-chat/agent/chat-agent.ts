@@ -148,6 +148,7 @@ export function createChatAgent(
 				chatId: deps.chatId,
 				pagesRepository: deps.pagesRepository,
 				projectId: deps.projectId,
+				userId: deps.userId,
 			}),
 			scrape_leads: createScrapeLeadsTool({
 				chatId: deps.chatId,

@@ -5,6 +5,7 @@ import {
 	type OrderRefundJobData,
 	type OrderRefundJobName,
 } from "@wandit/jobs";
+import { Sentry } from "@wandit/observability/node";
 import type { Job } from "bullmq";
 
 import { OrderRefundExecutorService } from "../../../server/src/modules/orders/application/services/order-refund-executor.service";
@@ -43,6 +44,20 @@ export class OrderRefundProcessor extends WorkerHost {
 	): void {
 		if (!job) {
 			return;
+		}
+
+		// Failing refunds are money on the line, but they retry every minute
+		// forever — capturing each attempt would burn 1,440 events/day per
+		// broken refund. Report the first failure, the escalation threshold,
+		// and an hourly heartbeat after that.
+		if (
+			job.attemptsMade <= 1 ||
+			job.attemptsMade === REFUND_FAILURES_BEFORE_ESCALATION ||
+			job.attemptsMade % 60 === 0
+		) {
+			Sentry.captureException(error, {
+				tags: { orderId: job.data.orderId, attemptsMade: job.attemptsMade },
+			});
 		}
 
 		if (job.attemptsMade >= REFUND_FAILURES_BEFORE_ESCALATION) {

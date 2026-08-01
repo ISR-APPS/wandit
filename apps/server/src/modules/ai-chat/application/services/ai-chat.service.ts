@@ -44,6 +44,7 @@ import {
 	scrapeLeadsInputSchema,
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
+import { Sentry } from "@wandit/observability/nestjs";
 import {
 	createAgentUIStream,
 	createUIMessageStream,
@@ -209,46 +210,65 @@ export class AiChatService {
 			const agentMessages = annotateUserFileParts(
 				elideRetiredToolOutputs(completeDanglingToolCalls(messages)),
 			);
-			const onError = (error: unknown) => this.handleStreamError(error);
+			// Capture happens in exactly ONE place per failure: the agent stream's
+			// onError (real errors, with stacks) or the execute catch below. The
+			// outer createUIMessageStream onError must stay map-only — the SDK
+			// re-invokes it with a synthetic Error(errorText) built from the error
+			// CHUNK of an already-handled failure, so capturing there would
+			// double-report every stream error and destroy issue grouping.
+			const onAgentStreamError = (error: unknown) =>
+				this.handleStreamError(error, { chatId, projectId, userId });
 
 			// TODO(billing): gate like GenerationPolicyService before public launch
 			const stream = createUIMessageStream<WanditUIMessage>({
 				execute: async ({ writer }) => {
-					const agentStream = await createAgentUIStream({
-						abortSignal,
-						agent,
-						// Models emit text in sentence-sized bursts, which renders as
-						// "snapping" blocks. smoothStream re-slices the deltas into
-						// words with a small delay so the UI reads like typing.
-						// Word chunking splits on whitespace — fine for FR/AR alike.
-						experimental_transform: smoothStream({ delayInMs: 15 }),
-						messageMetadata: ({ part }): AiChatMessageMetadata | undefined => {
-							if (part.type === "start") {
-								return { model: env.AI_CHAT_MODEL };
-							}
+					try {
+						const agentStream = await createAgentUIStream({
+							abortSignal,
+							agent,
+							// Models emit text in sentence-sized bursts, which renders as
+							// "snapping" blocks. smoothStream re-slices the deltas into
+							// words with a small delay so the UI reads like typing.
+							// Word chunking splits on whitespace — fine for FR/AR alike.
+							experimental_transform: smoothStream({ delayInMs: 15 }),
+							messageMetadata: ({
+								part,
+							}): AiChatMessageMetadata | undefined => {
+								if (part.type === "start") {
+									return { model: env.AI_CHAT_MODEL };
+								}
 
-							if (part.type === "finish") {
-								return {
-									model: env.AI_CHAT_MODEL,
-									usage: toAiChatMessageUsage(part.totalUsage),
-								};
-							}
+								if (part.type === "finish") {
+									return {
+										model: env.AI_CHAT_MODEL,
+										usage: toAiChatMessageUsage(part.totalUsage),
+									};
+								}
 
-							return undefined;
-						},
-						onError,
-						uiMessages: agentMessages,
-					});
-					// The live agent's tool set is a strict SUBSET of WanditUIMessage's
-					// (read_skill exists only in retired history), so its chunks are
-					// valid WanditUIMessage chunks — TS can't see through the generics.
-					writer.merge(
-						agentStream as unknown as ReadableStream<
-							InferUIMessageChunk<WanditUIMessage>
-						>,
-					);
+								return undefined;
+							},
+							onError: onAgentStreamError,
+							uiMessages: agentMessages,
+						});
+						// The live agent's tool set is a strict SUBSET of WanditUIMessage's
+						// (read_skill exists only in retired history), so its chunks are
+						// valid WanditUIMessage chunks — TS can't see through the generics.
+						writer.merge(
+							agentStream as unknown as ReadableStream<
+								InferUIMessageChunk<WanditUIMessage>
+							>,
+						);
+					} catch (error) {
+						// Setup failures never reach the agent stream's onError —
+						// capture here, then rethrow so the SDK still emits an error
+						// chunk for the client.
+						Sentry.captureException(error, {
+							tags: { chatId, projectId, userId },
+						});
+						throw error;
+					}
 				},
-				onError,
+				onError: (error: unknown) => this.streamErrorMessage(error),
 				onEnd: async ({ isContinuation, responseMessage }) => {
 					try {
 						// A tray answer CONTINUES the previous assistant message: the SDK
@@ -300,6 +320,9 @@ export class AiChatService {
 				stream,
 			});
 		} catch (error) {
+			// The controller hijacked the reply before calling us, so the global
+			// exception filter sees reply.sent and skips — capture here or lose it.
+			Sentry.captureException(error, { tags: { chatId, projectId, userId } });
 			const mcpResult =
 				resolvedMcpResult ?? (await mcpResultPromise.catch(() => undefined));
 			await mcpResult?.close();
@@ -307,9 +330,19 @@ export class AiChatService {
 		}
 	}
 
-	private handleStreamError(error: unknown): string {
+	private handleStreamError(
+		error: unknown,
+		context: { chatId: string; projectId: string; userId: string },
+	): string {
+		// Stream onError never reaches any exception filter — capture explicitly.
+		Sentry.captureException(error, { tags: context });
 		this.logger.error("AI chat stream failed", error);
 
+		return this.streamErrorMessage(error);
+	}
+
+	/** User-facing message only — no capture, no log (see capture-once note). */
+	private streamErrorMessage(error: unknown): string {
 		return InvalidToolInputError.isInstance(error)
 			? error.message
 			: "An error occurred.";

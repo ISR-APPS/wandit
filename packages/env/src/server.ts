@@ -137,6 +137,17 @@ export const env = createEnv({
 		DOMAINS_FALLBACK_ORIGIN: z.string().min(1).default("customers.wandit.app"),
 		// Zone serving published customer sites: {slug}.SITES_DOMAIN.
 		SITES_DOMAIN: z.string().min(1).default("wandit.app"),
+		// Sentry error tracking. Unset DSN = Sentry disabled (local dev).
+		SENTRY_DSN: z.url().optional(),
+		SENTRY_ENVIRONMENT: z
+			.enum(["production", "preview", "development"])
+			.optional(),
+		// Release tag, e.g. server@<RAILWAY_GIT_COMMIT_SHA>.
+		SENTRY_RELEASE: z.string().min(1).optional(),
+		// PostHog product analytics. Unset = analytics disabled (local dev).
+		POSTHOG_KEY: z.string().startsWith("phc_").optional(),
+		// Defaults to the EU cloud in the package when unset.
+		POSTHOG_HOST: z.url().optional(),
 	},
 	// Real data source for validation.
 	runtimeEnv: process.env,

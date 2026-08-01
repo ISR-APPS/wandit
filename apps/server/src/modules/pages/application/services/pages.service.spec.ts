@@ -11,6 +11,10 @@ vi.mock("../../../../infrastructure/storage/r2", () => ({
 	getPageHtml: vi.fn(),
 }));
 
+vi.mock("../../../../infrastructure/analytics/analytics.service", () => ({
+	AnalyticsService: class AnalyticsService {},
+}));
+
 function setup() {
 	const pagesRepository = {
 		findOverviewByProject: vi.fn(),

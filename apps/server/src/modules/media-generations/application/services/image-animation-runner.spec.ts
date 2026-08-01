@@ -89,6 +89,7 @@ describe("runImageAnimation", () => {
 			completedAt: NOW,
 			error: USER_SAFE_IMAGE_ANIMATION_ERROR,
 			expectedStatus: "queued",
+			reason: "project_deleted",
 		});
 		expect(dependencies.refund).toHaveBeenCalledWith(USER_ID, ATTEMPT_ID);
 		expect(dependencies.claimQueued).not.toHaveBeenCalled();
@@ -123,6 +124,7 @@ describe("runImageAnimation", () => {
 			completedAt: NOW,
 			error: USER_SAFE_IMAGE_ANIMATION_ERROR,
 			expectedStatus: "generating",
+			reason: "project_deleted",
 		});
 		expect(dependencies.refund).toHaveBeenCalledWith(USER_ID, ATTEMPT_ID);
 		expect(dependencies.recoverStoredVideo).not.toHaveBeenCalled();
@@ -177,6 +179,7 @@ describe("runImageAnimation", () => {
 			completedAt: NOW,
 			error: USER_SAFE_IMAGE_ANIMATION_ERROR,
 			expectedStatus: "generating",
+			reason: "project_deleted",
 		});
 		expect(dependencies.refund).toHaveBeenCalledWith(USER_ID, ATTEMPT_ID);
 	});
@@ -218,6 +221,7 @@ describe("runImageAnimation", () => {
 			completedAt: NOW,
 			error: USER_SAFE_IMAGE_ANIMATION_ERROR,
 			expectedStatus: "generating",
+			reason: "project_deleted",
 		});
 		expect(dependencies.refund).toHaveBeenCalledWith(USER_ID, ATTEMPT_ID);
 	});
@@ -335,6 +339,7 @@ describe("runImageAnimation", () => {
 			completedAt: NOW,
 			error: USER_SAFE_IMAGE_ANIMATION_ERROR,
 			expectedStatus: "generating",
+			reason: "stale_generation",
 		});
 		expect(dependencies.refund).toHaveBeenCalledWith(USER_ID, ATTEMPT_ID);
 	});

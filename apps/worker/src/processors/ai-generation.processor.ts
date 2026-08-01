@@ -15,6 +15,7 @@ import {
 	type AiGenerationJobData,
 	type AiGenerationJobName,
 } from "@wandit/jobs";
+import { Sentry } from "@wandit/observability/node";
 import { convertToModelMessages, streamText } from "ai";
 import type { Job } from "bullmq";
 
@@ -164,6 +165,11 @@ export class AiGenerationProcessor extends WorkerHost {
 				processed: true,
 			};
 		} catch (error) {
+			// BullMQ records the failure but nothing reports it — the original
+			// provider error used to vanish here (UI only gets a truncated copy).
+			Sentry.captureException(error, {
+				tags: { chatId: data.chatId, jobId, userId: data.userId },
+			});
 			// Tell the UI about the failure, then rethrow so BullMQ records it.
 			await this.publishFailureEvents(data.chatId, jobId, error);
 			throw error;

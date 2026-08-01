@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
 import type { Database } from "../../../../infrastructure/database/database.constants";
 
 import { PagesRepository } from "./pages.repository";
@@ -10,7 +11,11 @@ function repositoryWithVersions(
 	const where = vi.fn(() => ({ orderBy }));
 	const from = vi.fn(() => ({ where }));
 	const select = vi.fn(() => ({ from }));
-	const repository = new PagesRepository({ select } as unknown as Database);
+	const analytics = { capture: vi.fn() };
+	const repository = new PagesRepository(
+		{ select } as unknown as Database,
+		analytics as unknown as AnalyticsService,
+	);
 
 	return { repository, select };
 }

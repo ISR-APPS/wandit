@@ -61,7 +61,7 @@ export function UserMenu() {
 				<button
 					type="button"
 					aria-label={user.name}
-					className="rounded-full transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+					className="ph-no-capture rounded-full transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
 				>
 					<Avatar className="size-7">
 						{user.image ? (
@@ -75,7 +75,7 @@ export function UserMenu() {
 				</button>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="end" className="w-64">
-				<DropdownMenuLabel className="flex flex-col gap-0.5 font-normal">
+				<DropdownMenuLabel className="ph-no-capture flex flex-col gap-0.5 font-normal">
 					<span className="font-medium text-sm">{user.name}</span>
 					<span className="font-mono text-muted-foreground text-xs">
 						{user.email}

@@ -42,6 +42,7 @@ export type GeneratePageToolDeps = {
 	chatId: string;
 	pagesRepository: PagesRepository;
 	projectId: string;
+	userId: string;
 };
 
 // Explicit return type: composite-project declaration emit cannot name the
@@ -106,7 +107,11 @@ export function createGeneratePageTool(
 					`Builder ${builderModel}` +
 					(world ? `, world "${world.id}"` : ", no world"),
 			);
-			logger.log(`Brief for attempt ${attempt.id}:\n${brief}`);
+			// Log only a preview: the full brief is user business data and the
+			// full spec is already persisted on the attempt row above.
+			logger.log(
+				`Brief for attempt ${attempt.id} (${brief.length} chars): ${brief.slice(0, 200)}${brief.length > 200 ? "…" : ""}`,
+			);
 
 			let realtime: GeneratePageOutput["realtime"];
 
@@ -133,6 +138,7 @@ export function createGeneratePageTool(
 				await deps.pagesRepository.markAttemptFailed(
 					attempt.id,
 					error instanceof Error ? error.message : String(error),
+					deps.userId,
 				);
 
 				return {

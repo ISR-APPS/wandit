@@ -56,6 +56,7 @@ function setup() {
 		chatId: "chat_1",
 		pagesRepository: pagesRepository as unknown as PagesRepository,
 		projectId: "project_1",
+		userId: "user_1",
 	});
 
 	// The AI SDK calls execute with (input, callOptions); the tool ignores
@@ -258,6 +259,7 @@ describe("generate_page tool", () => {
 		expect(pagesRepository.markAttemptFailed).toHaveBeenCalledWith(
 			"attempt_1",
 			"trigger is down",
+			"user_1",
 		);
 		expect(output).toMatchObject({ status: "unavailable" });
 		expect(pagesRepository.nextVersionNumber).not.toHaveBeenCalled();

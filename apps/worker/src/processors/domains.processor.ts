@@ -16,6 +16,7 @@ import {
 	type DomainRenewalsJobData,
 	type DomainSyncJobData,
 } from "@wandit/jobs";
+import { Sentry } from "@wandit/observability/node";
 import type { Job, Queue } from "bullmq";
 
 import { apexRedirectTarget } from "../../../server/src/modules/domains/domain/domain-hosts";
@@ -118,24 +119,32 @@ export class DomainsProcessor extends WorkerHost implements OnModuleInit {
 	}
 
 	async process(job: Job<DomainJobData, unknown, DomainJobName>) {
-		switch (job.name) {
-			case "domain-purchase":
-				return this.processDomainPurchase(
-					job as Job<DomainPurchaseJobData, unknown, "domain-purchase">,
-				);
-			case "domain-configure":
-				return this.processDomainConfigure(
-					job as Job<DomainConfigureJobData, unknown, "domain-configure">,
-				);
-			case "domain-renewals":
-				return this.processDomainRenewals();
-			case "domain-sync":
-				return this.processDomainSync();
-			default:
-				return {
-					processed: false,
-					reason: `Unknown domains job ${job.name satisfies never}`,
-				};
+		try {
+			switch (job.name) {
+				case "domain-purchase":
+					return await this.processDomainPurchase(
+						job as Job<DomainPurchaseJobData, unknown, "domain-purchase">,
+					);
+				case "domain-configure":
+					return await this.processDomainConfigure(
+						job as Job<DomainConfigureJobData, unknown, "domain-configure">,
+					);
+				case "domain-renewals":
+					return await this.processDomainRenewals();
+				case "domain-sync":
+					return await this.processDomainSync();
+				default:
+					return {
+						processed: false,
+						reason: `Unknown domains job ${job.name satisfies never}`,
+					};
+			}
+		} catch (error) {
+			// BullMQ records the failure but nothing reports it to Sentry.
+			Sentry.captureException(error, {
+				tags: { jobId: job.id, jobName: job.name },
+			});
+			throw error;
 		}
 	}
 
@@ -802,6 +811,12 @@ export class DomainsProcessor extends WorkerHost implements OnModuleInit {
 		error: unknown,
 		orderId: string | null = row.paymentOrderId,
 	): Promise<void> {
+		// Terminal failures return normally to BullMQ (no throw), so the outer
+		// process() capture never sees them — this is the only report point
+		// for the original provider error.
+		Sentry.captureException(error, {
+			tags: { domainId: row.id, orderId: orderId ?? "none" },
+		});
 		if (orderId) {
 			const failure = this.failureSummary(error);
 			const current =

@@ -2,7 +2,11 @@ import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { ImageGenerationAttempt } from "@wandit/contracts";
 import { and, eq, lt } from "@wandit/db";
 import { imageGenerationAttempts } from "@wandit/db/schema/image-generation-attempts";
-
+import { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
+import {
+	captureGenerationCompleted,
+	captureGenerationFailed,
+} from "../../../../infrastructure/analytics/generation-events";
 import {
 	DATABASE,
 	type Database,
@@ -43,6 +47,8 @@ export class ImageGenerationsService {
 		// Direct database access ONLY for the stale-generating settlement below —
 		// the repository stays the single reader/writer for everything else.
 		@Inject(DATABASE) private readonly db: Database,
+		@Inject(AnalyticsService)
+		private readonly analyticsService: AnalyticsService,
 	) {}
 
 	async attempt(
@@ -65,6 +71,8 @@ export class ImageGenerationsService {
 			await this.imageGenerationsRepository.markAttemptFailed(
 				row.id,
 				STALE_QUEUED_ERROR,
+				userId,
+				"stale_queued",
 			);
 			row = await this.imageGenerationsRepository.findOwnedAttempt(
 				userId,
@@ -79,7 +87,7 @@ export class ImageGenerationsService {
 		if (
 			row.status === "generating" &&
 			row.completedAt === null &&
-			(await this.settleStaleGenerating(row, staleCutoff))
+			(await this.settleStaleGenerating(row, staleCutoff, userId))
 		) {
 			row = await this.imageGenerationsRepository.findOwnedAttempt(
 				userId,
@@ -152,6 +160,7 @@ export class ImageGenerationsService {
 	private async settleStaleGenerating(
 		row: ImageGenerationAttemptRow,
 		staleCutoff: Date,
+		userId: string,
 	): Promise<boolean> {
 		const [stale] = await this.db
 			.select({ startedAt: imageGenerationAttempts.startedAt })
@@ -172,7 +181,7 @@ export class ImageGenerationsService {
 		const recovered = await this.recoverStoredImages(row);
 
 		if (recovered) {
-			await this.db
+			const [completed] = await this.db
 				.update(imageGenerationAttempts)
 				.set({
 					completedAt: new Date(),
@@ -185,12 +194,23 @@ export class ImageGenerationsService {
 						eq(imageGenerationAttempts.id, row.id),
 						eq(imageGenerationAttempts.status, "generating"),
 					),
+				)
+				.returning({ projectId: imageGenerationAttempts.projectId });
+
+			if (completed) {
+				captureGenerationCompleted(
+					this.analyticsService,
+					userId,
+					"image",
+					completed.projectId,
+					row.id,
 				);
+			}
 
 			return true;
 		}
 
-		await this.db
+		const [failed] = await this.db
 			.update(imageGenerationAttempts)
 			.set({
 				completedAt: new Date(),
@@ -203,7 +223,19 @@ export class ImageGenerationsService {
 					eq(imageGenerationAttempts.status, "generating"),
 					lt(imageGenerationAttempts.startedAt, staleCutoff),
 				),
+			)
+			.returning({ projectId: imageGenerationAttempts.projectId });
+
+		if (failed) {
+			captureGenerationFailed(
+				this.analyticsService,
+				userId,
+				"image",
+				failed.projectId,
+				row.id,
+				"stale_generation",
 			);
+		}
 
 		return true;
 	}

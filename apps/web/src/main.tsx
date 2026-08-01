@@ -1,20 +1,72 @@
-import { createRouter, RouterProvider } from "@tanstack/react-router";
+import {
+	createBrowserHistory,
+	createRouter,
+	RouterProvider,
+} from "@tanstack/react-router";
+import {
+	analyticsSentryIntegration,
+	initBrowserAnalytics,
+} from "@wandit/analytics/browser";
+import { env } from "@wandit/env/web";
 import { defaultLocale, getDictionary } from "@wandit/internationalization";
+import {
+	initBrowserSentry,
+	Sentry,
+	sentryCreateRootOptions,
+	sentryDefaultOnCatch,
+} from "@wandit/observability/browser";
 import ReactDOM from "react-dom/client";
 
 import Loader from "./components/loader";
+import RouteError, { ErrorScreen } from "./components/route-error";
+import { migrateLegacyPreviewPromptUrl } from "./features/projects/lib/preview-prompt";
 import {
 	getCurrentLocale,
 	setCurrentDictionary,
 } from "./lib/i18n/locale-store";
 import { routeTree } from "./routeTree.gen";
 
+// Replay initializes before React, so remove rollout-era prompt query params
+// synchronously while preserving the prompt in reload-safe history state.
+// Key history first so TanStack preserves that state and tracks the replacement.
+const history = createBrowserHistory();
+migrateLegacyPreviewPromptUrl();
+
 const router = createRouter({
+	history,
 	routeTree,
 	defaultPreload: "intent",
 	scrollRestoration: true,
 	defaultPendingComponent: () => <Loader />,
+	// The router wraps every route in its own CatchBoundary, so route render
+	// errors never reach a React ErrorBoundary — this hook is the reliable
+	// Sentry capture point for them.
+	defaultOnCatch: sentryDefaultOnCatch,
+	defaultErrorComponent: RouteError,
 	context: {},
+});
+
+const environment =
+	env.VITE_SENTRY_ENVIRONMENT ??
+	(import.meta.env.MODE === "production" ? "production" : "development");
+
+// The Sentry link integration needs an initialized PostHog instance.
+initBrowserAnalytics({
+	key: env.VITE_POSTHOG_KEY,
+	host: env.VITE_POSTHOG_HOST,
+	environment,
+});
+
+const posthogSentryIntegration = analyticsSentryIntegration();
+
+// After createRouter (the tracing integration needs the router instance),
+// before anything renders. No-op without VITE_SENTRY_DSN (local dev).
+initBrowserSentry({
+	dsn: env.VITE_SENTRY_DSN,
+	environment,
+	router,
+	apiOrigin: env.VITE_SERVER_URL,
+	extraIntegrations: posthogSentryIntegration ? [posthogSentryIntegration] : [],
 });
 
 declare module "@tanstack/react-router" {
@@ -40,6 +92,13 @@ if (initialLocale !== defaultLocale) {
 }
 
 if (!rootElement.innerHTML) {
-	const root = ReactDOM.createRoot(rootElement);
-	root.render(<RouterProvider router={router} />);
+	// React 19 reports render errors only through these root callbacks.
+	const root = ReactDOM.createRoot(rootElement, sentryCreateRootOptions());
+	root.render(
+		// Catches errors thrown by the provider stack in __root.tsx, which sits
+		// outside the router's own error boundaries.
+		<Sentry.ErrorBoundary fallback={<ErrorScreen />}>
+			<RouterProvider router={router} />
+		</Sentry.ErrorBoundary>,
+	);
 }

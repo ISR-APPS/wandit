@@ -1,6 +1,6 @@
 import { NotFoundException } from "@nestjs/common";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-
+import type { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
 import {
 	deleteObject,
 	getPageHtml,
@@ -32,6 +32,10 @@ vi.mock("../../../../infrastructure/storage/r2", () => ({
 	publishedCurrentKey: (projectId: string) =>
 		`published/${projectId}/current.html`,
 	putPageHtml: vi.fn(),
+}));
+
+vi.mock("../../../../infrastructure/analytics/analytics.service", () => ({
+	AnalyticsService: class AnalyticsService {},
 }));
 
 const PROJECT_ID = "11111111-1111-4111-8111-111111111111";
@@ -89,12 +93,16 @@ function setup(options: { kvConfigured?: boolean } = {}) {
 		isKvConfigured: vi.fn().mockReturnValue(options.kvConfigured ?? false),
 		putHostPointer: vi.fn().mockResolvedValue(undefined),
 	};
+	const analytics = {
+		capture: vi.fn(),
+	};
 	const service = new SitesService(
 		repository as unknown as DeploymentsRepository,
 		routing as unknown as DomainRoutingService,
+		analytics as unknown as AnalyticsService,
 	);
 
-	return { repository, routing, service };
+	return { analytics, repository, routing, service };
 }
 
 beforeEach(() => {
@@ -108,7 +116,7 @@ beforeEach(() => {
 
 describe("SitesService.publish", () => {
 	it("publishes the draft version: archive + current written before promote", async () => {
-		const { repository, service } = setup();
+		const { analytics, repository, service } = setup();
 		const calls: string[] = [];
 		vi.mocked(putPageHtml).mockImplementation(async (key) => {
 			calls.push(`put:${key}`);
@@ -127,6 +135,10 @@ describe("SitesService.publish", () => {
 			`put:published/${PROJECT_ID}/current.html`,
 			"promote",
 		]);
+		expect(analytics.capture).toHaveBeenCalledOnce();
+		expect(analytics.capture).toHaveBeenCalledWith(USER_ID, "site_published", {
+			projectId: PROJECT_ID,
+		});
 	});
 
 	it("skips the KV pointer with a warning when Cloudflare is unconfigured", async () => {
@@ -228,7 +240,7 @@ describe("SitesService.publish", () => {
 	});
 
 	it("marks the pending row failed and rethrows typed when R2 write fails", async () => {
-		const { repository, service } = setup();
+		const { analytics, repository, service } = setup();
 		vi.mocked(putPageHtml).mockRejectedValue(new Error("R2 exploded"));
 
 		await expect(
@@ -238,6 +250,7 @@ describe("SitesService.publish", () => {
 			"33333333-3333-4333-8333-333333333333",
 			expect.stringContaining("R2 exploded"),
 		);
+		expect(analytics.capture).not.toHaveBeenCalled();
 	});
 
 	it("injects pixels into the published bytes when the project has them", async () => {
@@ -304,7 +317,7 @@ describe("SitesService.unpublish", () => {
 
 describe("SitesService.rollback", () => {
 	it("republished archived bytes without re-injecting pixels", async () => {
-		const { repository, service } = setup();
+		const { analytics, repository, service } = setup();
 		const target = deploymentRow({
 			id: "44444444-4444-4444-8444-444444444444",
 			status: "superseded",
@@ -327,6 +340,7 @@ describe("SitesService.rollback", () => {
 		);
 		// One marker only — the archive's pixel was not duplicated.
 		expect(bodies[0]?.match(/data-wandit-pixel/g)).toHaveLength(1);
+		expect(analytics.capture).not.toHaveBeenCalled();
 	});
 
 	it("falls back to draft bytes + injection when the archive is missing", async () => {

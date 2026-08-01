@@ -145,6 +145,7 @@ describe("runMarketingAssetGeneration", () => {
 				completedAt: NOW,
 				error: USER_SAFE_MARKETING_ASSET_ERROR,
 				expectedStatus: "generating",
+				reason: "generation_failed",
 			},
 		);
 		expect(dependencies.refund).toHaveBeenCalledWith(USER_ID, ASSET_ID);
@@ -277,6 +278,7 @@ describe("runMarketingAssetGeneration", () => {
 			completedAt: NOW,
 			error: USER_SAFE_MARKETING_ASSET_ERROR,
 			expectedStatus: "queued",
+			reason: "project_deleted",
 		});
 		expect(dependencies.claimQueued).not.toHaveBeenCalled();
 		expect(dependencies.generate).not.toHaveBeenCalled();

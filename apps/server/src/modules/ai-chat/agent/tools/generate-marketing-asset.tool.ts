@@ -181,6 +181,7 @@ export function createGenerateMarketingAssetTool(
 						const closed = await deps.marketingAssetsRepository.markAssetFailed(
 							asset.id,
 							"The background generator rejected this request. Please try again.",
+							deps.userId,
 						);
 
 						if (closed) {

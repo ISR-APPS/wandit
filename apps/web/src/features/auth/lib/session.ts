@@ -1,3 +1,5 @@
+import { resetAnalytics } from "@wandit/analytics/browser";
+
 import { authClient } from "./auth-client";
 
 export type SessionUser = (typeof authClient)["$Infer"]["Session"]["user"];
@@ -59,6 +61,10 @@ export function invalidateSessionCache(): void {
 }
 
 export async function signOut(): Promise<void> {
-	await authClient.signOut();
-	invalidateSessionCache();
+	try {
+		await authClient.signOut();
+	} finally {
+		resetAnalytics();
+		invalidateSessionCache();
+	}
 }

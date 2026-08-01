@@ -24,6 +24,10 @@ vi.mock("../../../../infrastructure/storage/r2", () => ({
 	),
 }));
 
+vi.mock("../../../../infrastructure/analytics/analytics.service", () => ({
+	AnalyticsService: class AnalyticsService {},
+}));
+
 const BASE_ROW: MediaGenerationAttemptRow = {
 	aspect: "9:16",
 	completedAt: null,
@@ -118,6 +122,7 @@ describe("MediaGenerationsService", () => {
 			BASE_ROW.id,
 			expect.any(Date),
 			failedRow.error,
+			"user_1",
 		);
 		expect(
 			generationPolicyService.refundGenerationReservation,
@@ -154,6 +159,7 @@ describe("MediaGenerationsService", () => {
 			BASE_ROW.id,
 			expect.any(Date),
 			failedRow.error,
+			"user_1",
 		);
 		expect(
 			generationPolicyService.refundGenerationReservation,
@@ -211,6 +217,7 @@ describe("MediaGenerationsService", () => {
 			BASE_ROW.id,
 			expect.stringContaining("vid-1.mp4"),
 			"video/mp4",
+			"user_1",
 		);
 		expect(repository.markStaleGeneratingAttemptFailed).not.toHaveBeenCalled();
 		expect(
