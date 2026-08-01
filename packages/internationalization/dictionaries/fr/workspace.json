@@ -668,7 +668,8 @@
 			"generatingTitle": "Génération des images…",
 			"readyTitle": "Images prêtes",
 			"download": "Télécharger",
-			"inAssetsTab": "Aussi disponible dans l’onglet Médias"
+			"inAssetsTab": "Aussi disponible dans l’onglet Médias",
+			"placementFailed": "Impossible de l’appliquer à la page — l’image est dans tes Médias"
 		},
 		"media": {
 			"close": "Fermer",

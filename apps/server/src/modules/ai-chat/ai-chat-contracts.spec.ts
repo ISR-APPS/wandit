@@ -4,6 +4,8 @@ import {
 	aiChatSelectedTargetSchema,
 	aiElementOpSchema,
 	applyElementOpsInputSchema,
+	generateImageInputSchema,
+	imageGenerationAttemptSchema,
 } from "@wandit/contracts";
 import { describe, expect, it } from "vitest";
 
@@ -99,6 +101,11 @@ describe("AI element-op contract", () => {
 	it.each([
 		{ kind: "text", value: "Updated copy", wid: "hero-title" },
 		{
+			kind: "image-src",
+			value: "https://assets.wandit.example/images/hero.png",
+			wid: "hero-image",
+		},
+		{
 			kind: "element-style",
 			value: { fontSize: "24px", textAlign: "center" },
 			wid: "hero-title",
@@ -114,7 +121,7 @@ describe("AI element-op contract", () => {
 			kind: "section-style",
 			value: {
 				backgroundColor: "#ffffff",
-				backgroundImage: "none",
+				backgroundImage: "https://assets.wandit.example/images/background.png",
 				paddingBottom: "l",
 				paddingTop: "m",
 			},
@@ -126,11 +133,6 @@ describe("AI element-op contract", () => {
 
 	it.each([
 		{ kind: "reset-tokens" },
-		{
-			kind: "image-src",
-			value: "https://example.com/image.png",
-			wid: "hero-image",
-		},
 		{ kind: "brand-logo", value: null, wid: "brand-logo" },
 		{ kind: "placeholder-image", wid: "hero-image" },
 		{ kind: "set-placeholder", value: "Email", wid: "email" },
@@ -143,11 +145,24 @@ describe("AI element-op contract", () => {
 		expect(aiElementOpSchema.safeParse(op).success).toBe(false);
 	});
 
-	it("rejects an HTTPS section background image", () => {
+	it("rejects an arbitrary image-src value", () => {
+		expect(
+			aiElementOpSchema.safeParse({
+				kind: "image-src",
+				value: "not-a-url",
+				wid: "hero-image",
+			}).success,
+		).toBe(false);
+	});
+
+	it.each([
+		"http://assets.wandit.example/background.png",
+		"not-a-url",
+	])("rejects a non-HTTPS or arbitrary section background: %s", (backgroundImage) => {
 		expect(
 			aiElementOpSchema.safeParse({
 				kind: "section-style",
-				value: { backgroundImage: "https://example.com/background.png" },
+				value: { backgroundImage },
 				wid: "hero",
 			}).success,
 		).toBe(false);
@@ -181,5 +196,82 @@ describe("AI element-op contract", () => {
 		expect(applyElementOpsInputSchema.safeParse({ ops: [] }).success).toBe(
 			false,
 		);
+	});
+});
+
+describe("generate_image placement contract", () => {
+	const baseInput = {
+		aspect: "4:5",
+		prompt: "Editorial product photo in a warm studio",
+		title: "Updated hero image",
+	} as const;
+
+	it("keeps standalone generation unchanged when placement is absent", () => {
+		expect(generateImageInputSchema.parse(baseInput)).toEqual({
+			...baseInput,
+			count: 1,
+			sourceImageUrls: [],
+		});
+	});
+
+	it("accepts image placement and defaults its image index to one", () => {
+		expect(
+			generateImageInputSchema.parse({
+				...baseInput,
+				placement: { kind: "image-src", wid: "hero-image" },
+			}),
+		).toMatchObject({
+			placement: { imageIndex: 1, kind: "image-src", wid: "hero-image" },
+		});
+
+		expect(
+			generateImageInputSchema.safeParse({
+				...baseInput,
+				placement: {
+					imageIndex: 4,
+					kind: "image-src",
+					wid: "gallery-image",
+				},
+			}).success,
+		).toBe(true);
+	});
+
+	it.each([
+		{ kind: "section-background", wid: "hero-image" },
+		{ kind: "image-src", wid: "INVALID" },
+		{ imageIndex: 0, kind: "image-src", wid: "hero-image" },
+		{ imageIndex: 5, kind: "image-src", wid: "hero-image" },
+		{ imageIndex: 1.5, kind: "image-src", wid: "hero-image" },
+	])("rejects invalid placement %#", (placement) => {
+		expect(
+			generateImageInputSchema.safeParse({ ...baseInput, placement }).success,
+		).toBe(false);
+	});
+
+	it("exposes only the bounded placement status on attempt responses", () => {
+		const attempt = {
+			aspect: "4:5",
+			completedAt: null,
+			count: 1,
+			createdAt: "2026-08-01T10:00:00.000Z",
+			error: null,
+			id: "11111111-1111-4111-8111-111111111111",
+			images: null,
+			placement: { status: "pending" },
+			prompt: baseInput.prompt,
+			sourceImageUrls: [],
+			status: "generating",
+			title: baseInput.title,
+		};
+
+		expect(imageGenerationAttemptSchema.parse(attempt).placement).toEqual({
+			status: "pending",
+		});
+		expect(
+			imageGenerationAttemptSchema.safeParse({
+				...attempt,
+				placement: { status: "queued" },
+			}).success,
+		).toBe(false);
 	});
 });

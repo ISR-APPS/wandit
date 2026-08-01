@@ -38,6 +38,7 @@ export type ImageGenerationAttemptState = {
 	projectId: string;
 	prompt: string;
 	sourceImageUrls: string[];
+	spec: Record<string, unknown> | null;
 	startedAt: Date | null;
 	status: ImageGenerationAttemptStatus;
 	title: string;
@@ -90,6 +91,10 @@ export type ImageGenerationRunnerDependencies = {
 	) => Promise<GeneratedImageResult[] | null>;
 	refund: (userId: string, attemptId: string) => Promise<void>;
 	reserve: (userId: string, attemptId: string) => Promise<void>;
+	settlePlacement: (
+		attempt: ImageGenerationAttemptState,
+		images: GeneratedImageResult[],
+	) => Promise<void>;
 };
 
 export type ImageGenerationRunResult =
@@ -207,7 +212,7 @@ export async function runImageGeneration(
 	}
 
 	if (loaded.status === "succeeded") {
-		return succeededResult(loaded, false);
+		return settleSucceeded(loaded, loaded.images, false, dependencies);
 	}
 
 	if (loaded.projectDeletedAt !== null) {
@@ -240,7 +245,7 @@ export async function runImageGeneration(
 		}
 
 		if (raced.status === "succeeded") {
-			return succeededResult(raced, false);
+			return settleSucceeded(raced, raced.images, false, dependencies);
 		}
 
 		if (raced.projectDeletedAt !== null) {
@@ -327,7 +332,7 @@ export async function runImageGeneration(
 		);
 	}
 
-	return { images, recovered: false, status: "succeeded" };
+	return settleSucceeded(claimed, images, false, dependencies);
 }
 
 async function recoverOrSettleGenerating(
@@ -351,7 +356,7 @@ async function recoverOrSettleGenerating(
 			);
 		}
 
-		return { images: recovered, recovered: true, status: "succeeded" };
+		return settleSucceeded(attempt, recovered, true, dependencies);
 	}
 
 	if (!isStaleGenerating(attempt, dependencies.now())) {
@@ -378,6 +383,7 @@ async function failAndRefund(
 		const current = await dependencies.loadAttempt(attempt.id);
 
 		if (current?.status === "succeeded") {
+			await settleSucceeded(current, current.images, true, dependencies);
 			return;
 		}
 
@@ -397,7 +403,7 @@ async function settleDeletedProject(
 ): Promise<ImageGenerationRunResult> {
 	if (attempt.status === "succeeded") {
 		// Deleting a project after delivery must not grant a free refund.
-		return succeededResult(attempt, false);
+		return settleSucceeded(attempt, attempt.images, false, dependencies);
 	}
 
 	if (attempt.status === "failed") {
@@ -416,7 +422,7 @@ async function settleDeletedProject(
 		const current = await dependencies.loadAttempt(attempt.id);
 
 		if (current?.status === "succeeded") {
-			return succeededResult(current, false);
+			return settleSucceeded(current, current.images, false, dependencies);
 		}
 
 		if (current?.status !== "failed") {
@@ -438,7 +444,7 @@ async function resolveSuccessCasLoss(
 	const current = await dependencies.loadAttempt(attempt.id);
 
 	if (current?.status === "succeeded") {
-		return succeededResult(current, true);
+		return settleSucceeded(current, current.images, true, dependencies);
 	}
 
 	if (
@@ -471,15 +477,22 @@ function isStaleGenerating(
 	);
 }
 
-function succeededResult(
-	attempt: Pick<ImageGenerationAttemptState, "id" | "images">,
+async function settleSucceeded(
+	attempt: ImageGenerationAttemptState,
+	images: GeneratedImageResult[] | null,
 	recovered: boolean,
-): ImageGenerationRunResult {
-	if (!attempt.images || attempt.images.length === 0) {
+	dependencies: ImageGenerationRunnerDependencies,
+): Promise<ImageGenerationRunResult> {
+	if (!images || images.length === 0) {
 		throw new Error(
 			`Succeeded image generation ${attempt.id} has no persisted images`,
 		);
 	}
 
-	return { images: attempt.images, recovered, status: "succeeded" };
+	// Generation is already durable here. If placement infrastructure fails,
+	// let Trigger retry this succeeded attempt; it must never regress or refund
+	// the generated asset.
+	await dependencies.settlePlacement(attempt, images);
+
+	return { images, recovered, status: "succeeded" };
 }

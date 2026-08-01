@@ -48,6 +48,11 @@ export type ApplyAiOpsResult =
 	| { status: "applied"; versionNumber: number }
 	| { status: "no-page" | "rejected"; message: string };
 
+export type AiEditReceipt = {
+	attemptId: string;
+	kind: "image-generation-placement";
+};
+
 type MutationOutcome =
 	| { ok: true; version: { createdAt: Date; id: string; number: number } }
 	| { kind: "no-html"; ok: false }
@@ -88,43 +93,14 @@ export class PageEditsService {
 			});
 		}
 
-		// Image, brand-logo, and section background URLs must be Wandit-hosted assets
-		// (contract §6) — the ops module stays env-free, so the origin checks
-		// live here. Parsed-origin comparison, never a raw prefix check
-		// (prefix confusion).
-		for (const [index, op] of body.ops.entries()) {
-			if (op.kind === "image-src" && !isWanditHostedUrl(op.value)) {
-				throw new UnprocessableEntityException({
-					code: "OP_FAILED",
-					index,
-					reason: "image URL must be a Wandit-hosted asset",
-				});
-			}
+		const hostedUrlFailure = validateHostedAssetUrls(body.ops);
 
-			if (
-				op.kind === "brand-logo" &&
-				op.value !== null &&
-				!isWanditHostedUrl(op.value)
-			) {
-				throw new UnprocessableEntityException({
-					code: "OP_FAILED",
-					index,
-					reason: "brand logo URL must be a Wandit-hosted asset",
-				});
-			}
-
-			if (
-				op.kind === "section-style" &&
-				op.value.backgroundImage !== undefined &&
-				op.value.backgroundImage !== "none" &&
-				!isWanditHostedUrl(op.value.backgroundImage)
-			) {
-				throw new UnprocessableEntityException({
-					code: "OP_FAILED",
-					index,
-					reason: "background image URL must be a Wandit-hosted asset",
-				});
-			}
+		if (hostedUrlFailure) {
+			throw new UnprocessableEntityException({
+				code: "OP_FAILED",
+				index: hostedUrlFailure.index,
+				reason: hostedUrlFailure.reason,
+			});
 		}
 
 		let context: ApplyOpsContext | undefined;
@@ -288,6 +264,7 @@ export class PageEditsService {
 	async applyAiOps(
 		projectId: string,
 		ops: EditOp[],
+		receipt?: AiEditReceipt,
 	): Promise<ApplyAiOpsResult> {
 		const page =
 			await this.pagesRepository.findActivePageByProjectUnchecked(projectId);
@@ -299,12 +276,26 @@ export class PageEditsService {
 			};
 		}
 
+		const hostedUrlFailure = validateHostedAssetUrls(ops);
+
+		if (hostedUrlFailure) {
+			return {
+				message: formatAiOpFailure(
+					ops,
+					hostedUrlFailure.index,
+					hostedUrlFailure.reason,
+				),
+				status: "rejected",
+			};
+		}
+
 		const outcome = await this.mutate({
 			artifactId: page.artifactId,
 			baseVersion: page.version,
 			expectedActiveVersionId: page.version.id,
 			ops,
 			projectId,
+			receipt,
 			source: "ai-edit",
 		});
 
@@ -316,15 +307,8 @@ export class PageEditsService {
 						status: "no-page",
 					};
 				case "op-failed": {
-					const failedOp = ops[outcome.index];
-					const opDetails = failedOp
-						? `${failedOp.kind}${
-								"wid" in failedOp ? `, data-wid="${failedOp.wid}"` : ""
-							}`
-						: "unknown op";
-
 					return {
-						message: `op ${outcome.index + 1} (${opDetails}): ${outcome.reason}`,
+						message: formatAiOpFailure(ops, outcome.index, outcome.reason),
 						status: "rejected",
 					};
 				}
@@ -350,6 +334,7 @@ export class PageEditsService {
 		expectedActiveVersionId: string;
 		ops: readonly EditOp[];
 		projectId: string;
+		receipt?: AiEditReceipt;
 		restoredFromVersionId?: string;
 		source: "ai-edit" | "inline" | "restore" | "theme";
 	}): Promise<MutationOutcome> {
@@ -382,42 +367,53 @@ export class PageEditsService {
 		await putPageHtml(key, stamped);
 
 		try {
-			const { createdAt, number } =
-				await this.pagesRepository.insertVersionAndActivate({
-					artifactId: input.artifactId,
-					expectedActiveVersionId: input.expectedActiveVersionId,
-					meta: {
-						editedWids: result.editedWids,
-						// Value-free audit summary — never the payloads.
-						ops: input.ops.map((op) => ({
-							kind: op.kind,
-							...("wid" in op ? { wid: op.wid } : {}),
-						})),
-						parentVersionId: input.expectedActiveVersionId,
-						...(input.restoredFromVersionId
-							? { restoredFromVersionId: input.restoredFromVersionId }
-							: {}),
-						source: input.source,
+			const activation = await this.pagesRepository.insertVersionAndActivate({
+				artifactId: input.artifactId,
+				expectedActiveVersionId: input.expectedActiveVersionId,
+				meta: {
+					editedWids: result.editedWids,
+					// Value-free audit summary — never the payloads.
+					ops: input.ops.map((op) => ({
+						kind: op.kind,
+						...("wid" in op ? { wid: op.wid } : {}),
+					})),
+					parentVersionId: input.expectedActiveVersionId,
+					...(input.receipt ? { receipt: input.receipt } : {}),
+					...(input.restoredFromVersionId
+						? { restoredFromVersionId: input.restoredFromVersionId }
+						: {}),
+					source: input.source,
+				},
+				projectId: input.projectId,
+				...(input.receipt ? { receipt: input.receipt } : {}),
+				r2Key: key,
+				versionId: newVersionId,
+			});
+
+			if (activation.existingVersionId) {
+				await this.deleteOrphanVersionObject(key);
+
+				return {
+					ok: true,
+					version: {
+						createdAt: activation.createdAt,
+						id: activation.existingVersionId,
+						number: activation.number,
 					},
-					projectId: input.projectId,
-					r2Key: key,
-					versionId: newVersionId,
-				});
+				};
+			}
 
 			return {
 				ok: true,
-				version: { createdAt, id: newVersionId, number },
+				version: {
+					createdAt: activation.createdAt,
+					id: newVersionId,
+					number: activation.number,
+				},
 			};
 		} catch (error) {
 			if (error instanceof VersionConflictError) {
-				try {
-					await deleteObject(key);
-				} catch (cleanupError) {
-					this.logger.warn(
-						`Failed to delete orphaned page version object ${key}`,
-						cleanupError,
-					);
-				}
+				await this.deleteOrphanVersionObject(key);
 
 				return {
 					activeVersionId: error.activeVersionId,
@@ -429,6 +425,70 @@ export class PageEditsService {
 			throw error;
 		}
 	}
+
+	private async deleteOrphanVersionObject(key: string): Promise<void> {
+		try {
+			await deleteObject(key);
+		} catch (cleanupError) {
+			this.logger.warn(
+				`Failed to delete orphaned page version object ${key}`,
+				cleanupError,
+			);
+		}
+	}
+}
+
+function validateHostedAssetUrls(
+	ops: readonly EditOp[],
+): { index: number; reason: string } | undefined {
+	// Image, brand-logo, and section background URLs must be Wandit-hosted assets
+	// (contract §6). Parsed-origin comparison, never a raw prefix check.
+	for (const [index, op] of ops.entries()) {
+		if (op.kind === "image-src" && !isWanditHostedUrl(op.value)) {
+			return {
+				index,
+				reason: "image URL must be a Wandit-hosted asset",
+			};
+		}
+
+		if (
+			op.kind === "brand-logo" &&
+			op.value !== null &&
+			!isWanditHostedUrl(op.value)
+		) {
+			return {
+				index,
+				reason: "brand logo URL must be a Wandit-hosted asset",
+			};
+		}
+
+		if (
+			op.kind === "section-style" &&
+			op.value.backgroundImage !== undefined &&
+			op.value.backgroundImage !== "none" &&
+			!isWanditHostedUrl(op.value.backgroundImage)
+		) {
+			return {
+				index,
+				reason: "background image URL must be a Wandit-hosted asset",
+			};
+		}
+	}
+}
+
+function formatAiOpFailure(
+	ops: readonly EditOp[],
+	index: number,
+	reason: string,
+): string {
+	const failedOp = ops[index];
+	const opDetails = failedOp
+		? `${failedOp.kind}${
+				"wid" in failedOp ? `, data-wid="${failedOp.wid}"` : ""
+			}`
+		: "unknown op";
+
+	return `op ${index + 1} (${opDetails}): ${reason}`;
 }
 
 function collectFontStylesheetHrefs(html: string): string[] {

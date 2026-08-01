@@ -366,9 +366,8 @@ function toAiChatMessageUsage(usage: LanguageModelUsage): AiChatMessageUsage {
 	};
 }
 
-const SKIPPED_ASK_USER_OUTPUT: AskUserOutput = {
-	label: "User answered in chat instead of selecting an option",
-	selectedId: "__skipped__",
+const DISMISSED_ASK_USER_OUTPUT: AskUserOutput = {
+	dismissed: true,
 };
 
 const INCOMPLETE_ASK_USER_INPUT: AskUserInput = {
@@ -640,7 +639,7 @@ export function completeDanglingToolCalls(
 					input: parsedInput.success
 						? parsedInput.data
 						: INCOMPLETE_ASK_USER_INPUT,
-					output: SKIPPED_ASK_USER_OUTPUT,
+					output: DISMISSED_ASK_USER_OUTPUT,
 					state: "output-available" as const,
 				};
 			}

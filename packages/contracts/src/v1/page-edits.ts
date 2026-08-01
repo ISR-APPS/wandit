@@ -268,23 +268,15 @@ export const sectionStyleOpSchema = z.object({
 		),
 });
 
-// The AI path deliberately excludes hosted background images: unlike the
-// manual-editor path, it does not run Wandit asset-origin checks. Reusing the
-// existing value schema keeps every other section-style rule identical.
-const aiSectionStyleOpSchema = sectionStyleOpSchema.safeExtend({
-	value: sectionStyleOpSchema.shape.value.safeExtend({
-		backgroundImage: z.literal("none").optional(),
-	}),
-});
-
 /** Curated element ops that are safe at the chat-tool boundary. */
 export const aiElementOpSchema = z.discriminatedUnion("kind", [
 	textOpSchema,
+	imageSrcOpSchema,
 	elementStyleOpSchema,
 	setTokensOpSchema,
 	setLinkHrefOpSchema,
 	removeElementOpSchema,
-	aiSectionStyleOpSchema,
+	sectionStyleOpSchema,
 ]);
 
 export type AiElementOp = z.infer<typeof aiElementOpSchema>;

@@ -128,8 +128,10 @@ export function createPageEditTools(deps: PageEditToolsDeps): PageEditTools {
 		}),
 		apply_element_ops: tool({
 			description:
-				"Use for small targeted page changes: text content, element styles, " +
-				"link hrefs, removing an element, section background/padding, or " +
+				"Use for small targeted page changes: text content, image replacement " +
+				"with image-src when a final Wandit-hosted URL is known, element " +
+				"styles, link hrefs, removing an element, hosted section backgrounds " +
+				"and padding, or " +
 				"theme-wide changes with set-tokens. set-tokens edits the page's 11 " +
 				":root tokens and restyles the whole page consistently. Use one op " +
 				"per user ask when possible. For restructuring one section's layout " +

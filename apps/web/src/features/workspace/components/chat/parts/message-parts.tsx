@@ -6,7 +6,7 @@ import { TargetChip } from "../target-chip";
 import { MessageTokenUsage } from "../token-usage";
 import { AnimateImagePart } from "./animate-image-part";
 import { AskUserGroupCard } from "./ask-user-part";
-import { FilePart } from "./file-part";
+import { FilePart, ImageFileGrid } from "./file-part";
 import { GenerateImagePart } from "./generate-image-part";
 import { GenerateMarketingAssetPart } from "./generate-marketing-asset-part";
 import { GeneratePagePart } from "./generate-page-part";
@@ -21,6 +21,7 @@ import { TextPart } from "./text-part";
 type MessagePart = WanditUIMessage["parts"][number];
 type McpToolPart = Extract<MessagePart, { type: "dynamic-tool" }>;
 type AskUserToolPart = Extract<MessagePart, { type: "tool-ask_user" }>;
+type ImageFilePart = Extract<MessagePart, { type: "file" }>;
 
 const TRANSPARENT_PART_TYPES = new Set([
 	"step-start",
@@ -41,6 +42,7 @@ export function isTransparentMessagePart(part: MessagePart): boolean {
 
 export type MessagePartRenderEntry =
 	| { kind: "part"; part: MessagePart; index: number }
+	| { kind: "image-run"; parts: ImageFilePart[]; firstIndex: number }
 	| {
 			kind: "mcp-run";
 			parts: McpToolPart[];
@@ -67,7 +69,7 @@ const ASYNC_CARD_PART_TYPES = new Set([
 
 function isAsyncCardEntry(entry: MessagePartRenderEntry): boolean {
 	if (entry.kind === "mcp-run") return entry.section === "deliverables";
-	if (entry.kind === "ask-run") return false;
+	if (entry.kind === "ask-run" || entry.kind === "image-run") return false;
 	return ASYNC_CARD_PART_TYPES.has(entry.part.type);
 }
 
@@ -75,7 +77,12 @@ function isAsyncCardEntry(entry: MessagePartRenderEntry): boolean {
  * a wrapper + Wandit header at all (a turn of transparent parts renders
  * nothing, and an empty wrapper would still cost a gap slot in the column). */
 function entryRendersContent(entry: MessagePartRenderEntry): boolean {
-	if (entry.kind === "mcp-run" || entry.kind === "ask-run") return true;
+	if (
+		entry.kind === "mcp-run" ||
+		entry.kind === "ask-run" ||
+		entry.kind === "image-run"
+	)
+		return true;
 	const { part } = entry;
 	if (part.type === "text") return part.text.length > 0;
 	return part.type === "file" || ASYNC_CARD_PART_TYPES.has(part.type);
@@ -220,6 +227,15 @@ export function MessageParts({
 			);
 		}
 
+		if (entry.kind === "image-run") {
+			return (
+				<ImageFileGrid
+					key={`${message.id}:image-run:${entry.firstIndex}`}
+					parts={entry.parts}
+				/>
+			);
+		}
+
 		const { part, index } = entry;
 		const isLastPart = index === message.parts.length - 1;
 
@@ -311,6 +327,28 @@ export function coalesceMessageParts(
 		const part = parts[index];
 		if (!part) {
 			index += 1;
+			continue;
+		}
+
+		if (part.type === "file" && part.mediaType.startsWith("image/")) {
+			const firstIndex = index;
+			const runParts: ImageFilePart[] = [part];
+			let cursor = index + 1;
+
+			while (cursor < parts.length) {
+				const candidate = parts[cursor];
+				if (
+					candidate?.type !== "file" ||
+					!candidate.mediaType.startsWith("image/")
+				)
+					break;
+
+				runParts.push(candidate);
+				cursor += 1;
+			}
+
+			entries.push({ kind: "image-run", parts: runParts, firstIndex });
+			index = cursor;
 			continue;
 		}
 
