@@ -12,9 +12,9 @@ import {
 } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
-	composerMetadataSchema,
+	aiChatMessageMetadataSchema,
+	aiChatRequestMetadataSchema,
 	uuidSchema,
-	widSchema,
 } from "@wandit/contracts";
 import { validateUIMessages } from "ai";
 import type { FastifyReply, FastifyRequest } from "fastify";
@@ -31,16 +31,6 @@ import {
 } from "../../../agent/chat-agent";
 import { AiChatService } from "../../../application/services/ai-chat.service";
 
-// Per-request app metadata (contract §10.1): the prompt-box settings and the
-// preview selection. Exported so the service and request-context module can
-// import the type (type-only — no runtime cycle).
-export const aiChatRequestMetadataSchema = z.object({
-	composer: composerMetadataSchema.optional(),
-	selectedWid: widSchema.optional(),
-});
-
-export type AiChatRequestMetadata = z.infer<typeof aiChatRequestMetadataSchema>;
-
 const aiChatRequestBodySchema = z.object({
 	id: z.string().min(1).optional(),
 	messageId: z.string().min(1).optional(),
@@ -48,6 +38,13 @@ const aiChatRequestBodySchema = z.object({
 	metadata: aiChatRequestMetadataSchema.optional(),
 	trigger: z.enum(["submit-message", "regenerate-message"]).optional(),
 });
+
+// validateUIMessages invokes the metadata schema even when metadata is absent.
+// Normalize historical null/absent values to an empty optional-field object.
+const aiChatValidationMetadataSchema = z.preprocess(
+	(value) => value ?? {},
+	aiChatMessageMetadataSchema,
+);
 
 type AiChatRequestBody = z.infer<typeof aiChatRequestBodySchema>;
 
@@ -122,6 +119,7 @@ export class AiChatController {
 		try {
 			validated = await validateUIMessages<WanditUIMessage>({
 				messages: nonEmptyMessages,
+				metadataSchema: aiChatValidationMetadataSchema,
 				tools: aiChatToolsForValidation,
 			});
 		} catch {

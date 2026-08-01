@@ -11,6 +11,7 @@ import {
 	BadRequestException,
 	Inject,
 	Injectable,
+	Logger,
 	NotFoundException,
 } from "@nestjs/common";
 import type {
@@ -25,16 +26,21 @@ import { isUserUploadUrl } from "../../../../infrastructure/storage/r2";
 import { GenerationPolicyService } from "../../../generation/application/services/generation-policy.service";
 import { mapProjectRow } from "../../infrastructure/mappers/project.mapper";
 import { ProjectsRepository } from "../../infrastructure/persistence/projects.repository";
+import { ProjectTitleService } from "./project-title.service";
 
 // `@Injectable()` lets Nest create this class and inject it into controllers.
 @Injectable()
 export class ProjectsService {
+	private readonly logger = new Logger(ProjectsService.name);
+
 	constructor(
 		// `@Inject(...)` means "Nest, give me this dependency."
 		@Inject(ProjectsRepository)
 		private readonly projectsRepository: ProjectsRepository,
 		@Inject(GenerationPolicyService)
 		private readonly generationPolicyService: GenerationPolicyService,
+		@Inject(ProjectTitleService)
+		private readonly projectTitleService: ProjectTitleService,
 	) {}
 
 	// List projects for the dashboard.
@@ -78,16 +84,31 @@ export class ProjectsService {
 		// is a forged reference.
 		this.assertWanditHostedAttachments(userId, body.attachments);
 
+		const derivedName = deriveProjectName(body.prompt);
+
 		// Create project + chat + first message in one DB transaction.
 		const created = await this.projectsRepository.createWithChatAndFirstMessage(
 			{
 				attachments: body.attachments,
 				composer: body.composer,
-				name: deriveProjectName(body.prompt),
+				name: derivedName,
 				prompt: body.prompt,
 				userId,
 			},
 		);
+
+		// The transaction has committed. Title generation is best-effort and must
+		// never add latency or failure to the create response.
+		void this.generateAndPersistTitle({
+			attachments: body.attachments,
+			derivedName,
+			projectId: created.projectId,
+			prompt: body.prompt,
+			userId,
+		}).catch((error) => {
+			const message = error instanceof Error ? error.message : String(error);
+			this.logger.warn(`Background project title update failed: ${message}`);
+		});
 
 		// The frontend can now open the workspace and start AI streaming separately.
 		return {
@@ -96,12 +117,43 @@ export class ProjectsService {
 		};
 	}
 
+	private async generateAndPersistTitle(input: {
+		attachments: CreateProjectBody["attachments"];
+		derivedName: string;
+		projectId: string;
+		prompt: string;
+		userId: string;
+	}): Promise<void> {
+		const generatedTitle = await this.projectTitleService.generate({
+			attachments: input.attachments,
+			fallbackTitle: input.derivedName,
+			prompt: input.prompt,
+		});
+
+		if (generatedTitle === input.derivedName) {
+			return;
+		}
+
+		// expectedName makes this a single atomic guard: a manual rename that lands
+		// first wins, and the background title update becomes a no-op.
+		await this.projectsRepository.updateByIdForUser(
+			input.userId,
+			input.projectId,
+			{ name: generatedTitle },
+			{ expectedName: input.derivedName },
+		);
+	}
+
 	// Update editable project fields.
 	async update(
 		userId: string,
 		projectId: string,
 		body: UpdateProjectBody,
 	): Promise<Project> {
+		if (body.logoUrl !== undefined && body.logoUrl !== null) {
+			this.assertValidLogoUrl(userId, body.logoUrl);
+		}
+
 		const row = await this.projectsRepository.updateByIdForUser(
 			userId,
 			projectId,
@@ -114,6 +166,28 @@ export class ProjectsService {
 		}
 
 		return mapProjectRow(row);
+	}
+
+	private assertValidLogoUrl(userId: string, logoUrl: string): void {
+		let pathname = "";
+
+		try {
+			pathname = new URL(logoUrl).pathname;
+		} catch {
+			// The shared HTTP schema catches malformed URLs. Keep the service guard
+			// defensive for direct callers and unit-level use.
+		}
+
+		if (
+			!isUserUploadUrl(logoUrl, userId) ||
+			!/[.](?:jpe?g|png|webp|gif|avif)$/i.test(pathname)
+		) {
+			throw new BadRequestException({
+				code: "INVALID_LOGO_URL",
+				message:
+					"Project logo must be a Wandit-uploaded JPEG, PNG, WebP, GIF, or AVIF image",
+			});
+		}
 	}
 
 	// Reject any attachment reference that is not one of our own R2 objects.

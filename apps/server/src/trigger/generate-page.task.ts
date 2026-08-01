@@ -20,6 +20,7 @@ import { and, createDb, desc, eq, gt, inArray } from "@wandit/db";
 import { artifacts, versions } from "@wandit/db/schema/artifacts";
 import { pageGenerationAttempts } from "@wandit/db/schema/page-attempts";
 import { projects } from "@wandit/db/schema/projects";
+import { env } from "@wandit/env/server";
 import { z } from "zod";
 import {
 	captureGenerationCompleted,
@@ -29,11 +30,14 @@ import {
 import {
 	contentTypeFor,
 	pageHtmlKey,
+	projectThumbnailKey,
+	publicAssetUrl,
 	putSiteFile,
 	siteFileKey,
 } from "../infrastructure/storage/r2";
 import { createBuildProgressTracker } from "../modules/ai-chat/agent/site-builder/build-progress";
 import { runSiteBuild } from "../modules/ai-chat/agent/site-builder/site-builder-agent";
+import { appendProjectBrandAsset } from "./generate-page-brand";
 import { triggerAnalytics } from "./init";
 
 // The queue tool snapshots exactly this shape. Non-strict on purpose: rows
@@ -109,6 +113,15 @@ export const generatePageTask = task({
 
 			try {
 				const spec = attemptSpecSchema.parse(attempt.spec);
+				const [projectBrand] = await db
+					.select({ logoUrl: projects.logoUrl })
+					.from(projects)
+					.where(eq(projects.id, attempt.projectId))
+					.limit(1);
+				const brief = appendProjectBrandAsset(
+					spec.brief,
+					projectBrand?.logoUrl ?? null,
+				);
 
 				logger.info(
 					`🚀 Build starting — page "${spec.title}", attempt ${attempt.id}, ` +
@@ -133,6 +146,7 @@ export const generatePageTask = task({
 						metadata.set("progress", snapshot);
 					},
 				});
+				let heroShotBase64: string | null = null;
 
 				// The build brain: a tool-loop agent writing into a virtual FS.
 				// It validates its own output (index.html present, complete,
@@ -140,9 +154,16 @@ export const generatePageTask = task({
 				const build = await runSiteBuild({
 					abortSignal: signal,
 					attemptId: assetNamespace,
-					brief: spec.brief,
+					brief,
 					model: attempt.model,
-					onEvent: progress.emit,
+					onEvent: (event) => {
+						if (event.type === "screenshot-pass") {
+							heroShotBase64 =
+								event.shots.find((shot) => shot.viewport === "desktop")
+									?.base64 ?? heroShotBase64;
+						}
+						progress.emit(event);
+					},
 					projectId: attempt.projectId,
 					system: spec.designerSystemPrompt,
 					title: spec.title,
@@ -169,6 +190,26 @@ export const generatePageTask = task({
 
 					await putSiteFile(fileKey, file.content, contentTypeFor(file.path));
 					logger.info(`☁️ Uploaded ${file.path} to R2 → ${fileKey}`);
+				}
+
+				let previewImageUrl: string | null = null;
+				if (heroShotBase64 && env.R2_PUBLIC_BASE_URL) {
+					try {
+						const thumbnailKey = projectThumbnailKey(
+							attempt.projectId,
+							versionId,
+						);
+						await putSiteFile(
+							thumbnailKey,
+							Buffer.from(heroShotBase64, "base64"),
+							"image/jpeg",
+						);
+						previewImageUrl = publicAssetUrl(thumbnailKey);
+					} catch (error) {
+						logger.warn(
+							`Thumbnail upload failed (non-fatal): ${error instanceof Error ? error.message : String(error)}`,
+						);
+					}
 				}
 
 				// A cancellation during the final upload may leave an orphaned
@@ -240,6 +281,13 @@ export const generatePageTask = task({
 							.update(artifacts)
 							.set({ activeVersionId: versionId })
 							.where(eq(artifacts.id, attempt.artifactId));
+
+						if (previewImageUrl) {
+							await tx
+								.update(projects)
+								.set({ previewImageUrl })
+								.where(eq(projects.id, attempt.projectId));
+						}
 					}
 
 					const [completed] = await tx

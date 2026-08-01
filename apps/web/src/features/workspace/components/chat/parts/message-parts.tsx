@@ -2,6 +2,8 @@ import type { ChatAddToolApproveResponseFunction } from "ai";
 
 import type { WanditUIMessage } from "../../../lib/use-ai-chat";
 import { WanditMessageHeader } from "../real-message";
+import { TargetChip } from "../target-chip";
+import { MessageTokenUsage } from "../token-usage";
 import { AnimateImagePart } from "./animate-image-part";
 import { AskUserGroupCard } from "./ask-user-part";
 import { FilePart } from "./file-part";
@@ -26,6 +28,9 @@ const TRANSPARENT_PART_TYPES = new Set([
 	"tool-read_skill",
 	"tool-get_direction_candidates",
 	"tool-get_page_outline",
+	"tool-apply_element_ops",
+	"tool-read_elements",
+	"tool-read_theme",
 	"tool-read_section",
 	"tool-replace_section",
 ]);
@@ -255,6 +260,7 @@ export function MessageParts({
 				// (the model narrates what it did in prose when it matters).
 				return null;
 			default:
+				if (isTransparentMessagePart(part)) return null;
 				// Every future rich state (building, versions, media, credits, publish)
 				// plugs into this registry as another typed message-part renderer.
 				warnUnknownPart(part.type);
@@ -265,7 +271,32 @@ export function MessageParts({
 	return (
 		<div>
 			{showTurnHeader ? <WanditMessageHeader /> : null}
+			{message.role === "user" && message.metadata?.selectedTargets ? (
+				<ol className="mb-1.5 flex list-none flex-wrap justify-end gap-1.5">
+					{message.metadata.selectedTargets.map((target, index) => (
+						<li
+							key={target.wid}
+							aria-label={`Target ${index + 1}: ${target.tag}${
+								target.excerpt?.trim() ? ` — ${target.excerpt.trim()}` : ""
+							}`}
+							className="flex min-w-0 items-center gap-1"
+						>
+							<span aria-hidden className="shrink-0 text-primary text-xs">
+								{String.fromCodePoint(0x2460 + index)}
+							</span>
+							<TargetChip target={target} />
+						</li>
+					))}
+				</ol>
+			) : message.role === "user" && message.metadata?.selectedTarget ? (
+				<div className="mb-1.5 flex justify-end">
+					<TargetChip target={message.metadata.selectedTarget} />
+				</div>
+			) : null}
 			<div className="flex flex-col gap-2.5">{renderedEntries}</div>
+			{message.role === "assistant" && message.metadata?.usage ? (
+				<MessageTokenUsage usage={message.metadata.usage} />
+			) : null}
 		</div>
 	);
 }

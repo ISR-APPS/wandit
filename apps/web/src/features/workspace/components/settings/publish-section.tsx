@@ -42,6 +42,8 @@ export function PublishSection() {
 		liveUrl,
 		project,
 		projectId,
+		previewVersion,
+		isPreviewingHistorical,
 		publish,
 		publishPending,
 		rollbackTo,
@@ -107,7 +109,10 @@ export function PublishSection() {
 		[versions],
 	);
 
-	const canPublish = canPublishFor(deployment) && !publishPending;
+	const canPublish =
+		Boolean(previewVersion) &&
+		(canPublishFor(deployment) || isPreviewingHistorical) &&
+		!publishPending;
 
 	return (
 		<Card>
@@ -144,7 +149,12 @@ export function PublishSection() {
 								aria-label={t("workspace.publish.openLive")}
 								asChild
 							>
-								<a href={liveUrl} target="_blank" rel="noreferrer">
+								<a
+									href={liveUrl}
+									target="_blank"
+									rel="noreferrer"
+									aria-label={t("workspace.publish.openLive")}
+								>
 									<ExternalLink className="size-4" />
 								</a>
 							</Button>
@@ -160,10 +170,14 @@ export function PublishSection() {
 								onClick={() => {
 									// Carry a valid unsaved slug edit into the publish so the
 									// site doesn't go live on a stale name-derived slug.
-									if (slugDirty && !slugUnchanged && verdict === "available") {
+									const publishSlug =
+										slugDirty && !slugUnchanged && verdict === "available"
+											? slug
+											: undefined;
+									if (publishSlug) {
 										updateSlug(slug);
 									}
-									publish();
+									publish(publishSlug ? { slug: publishSlug } : undefined);
 								}}
 								disabled={!canPublish || publishing}
 							>
@@ -184,7 +198,19 @@ export function PublishSection() {
 						<p className="text-destructive text-xs">{deployment.error}</p>
 					) : null}
 					{liveUrl ? (
-						<div>
+						<div className="flex flex-wrap items-center gap-2">
+							{isPreviewingHistorical && previewVersion ? (
+								<Button
+									size="sm"
+									onClick={() => publish()}
+									disabled={!canPublish || publishing}
+									dir="auto"
+								>
+									{t("workspace.publish.confirmVersion", {
+										n: previewVersion.number,
+									})}
+								</Button>
+							) : null}
 							<Button
 								variant="ghost"
 								size="sm"

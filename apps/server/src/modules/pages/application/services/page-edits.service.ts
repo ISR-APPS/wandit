@@ -1,30 +1,41 @@
 /**
  * The write side of page editing (V2 spec §5/§7/§14): every mutation — an
- * inline-editor/theme-panel ops batch over HTTP, or the chat agent's
- * replace_section — copies the ACTIVE version's HTML, applies the ops,
- * re-stamps, uploads a NEW immutable version to R2, and flips the artifact's
- * active pointer in one transaction. No in-place mutation, ever.
+ * inline-editor/theme-panel ops batch over HTTP, the chat agent's
+ * replace_section, or a historical-version restore — copies source HTML,
+ * applies the ops, re-stamps, uploads a NEW immutable version to R2, and flips
+ * the artifact's active pointer in one transaction. No in-place mutation,
+ * ever.
  */
 import {
 	ConflictException,
 	Inject,
 	Injectable,
+	Logger,
 	NotFoundException,
 	UnprocessableEntityException,
 } from "@nestjs/common";
-import type {
-	ApplyPageOpsBody,
-	ApplyPageOpsResponse,
-	EditOp,
+import {
+	type ApplyPageOpsBody,
+	type ApplyPageOpsResponse,
+	type EditOp,
+	PAGE_TOKEN_NAMES,
+	type RestorePageVersionBody,
+	type RestorePageVersionResponse,
 } from "@wandit/contracts";
+import * as cheerio from "cheerio";
 
 import {
+	deleteObject,
 	getPageHtml,
 	isWanditHostedUrl,
 	pageHtmlKey,
 	putPageHtml,
 } from "../../../../infrastructure/storage/r2";
-import { applyOps } from "../../domain/ops";
+import {
+	type ApplyOpsContext,
+	applyOps,
+	extractRootTokens,
+} from "../../domain/ops";
 import { stampHtml } from "../../domain/stamp";
 import {
 	PagesRepository,
@@ -45,6 +56,8 @@ type MutationOutcome =
 
 @Injectable()
 export class PageEditsService {
+	private readonly logger = new Logger(PageEditsService.name);
+
 	constructor(
 		@Inject(PagesRepository)
 		private readonly pagesRepository: PagesRepository,
@@ -75,7 +88,7 @@ export class PageEditsService {
 			});
 		}
 
-		// image-src and section background URLs must be Wandit-hosted assets
+		// Image, brand-logo, and section background URLs must be Wandit-hosted assets
 		// (contract §6) — the ops module stays env-free, so the origin checks
 		// live here. Parsed-origin comparison, never a raw prefix check
 		// (prefix confusion).
@@ -85,6 +98,18 @@ export class PageEditsService {
 					code: "OP_FAILED",
 					index,
 					reason: "image URL must be a Wandit-hosted asset",
+				});
+			}
+
+			if (
+				op.kind === "brand-logo" &&
+				op.value !== null &&
+				!isWanditHostedUrl(op.value)
+			) {
+				throw new UnprocessableEntityException({
+					code: "OP_FAILED",
+					index,
+					reason: "brand logo URL must be a Wandit-hosted asset",
 				});
 			}
 
@@ -102,12 +127,133 @@ export class PageEditsService {
 			}
 		}
 
+		let context: ApplyOpsContext | undefined;
+		const resetIndex = body.ops.findIndex((op) => op.kind === "reset-tokens");
+
+		if (resetIndex !== -1) {
+			const builderVersion =
+				await this.pagesRepository.findLatestBuilderVersion(page.artifactId);
+
+			if (!builderVersion) {
+				throw new UnprocessableEntityException({
+					code: "OP_FAILED",
+					index: resetIndex,
+					reason: "no original theme found",
+				});
+			}
+
+			const originalHtml = await getPageHtml(builderVersion.r2Key);
+
+			if (originalHtml === null) {
+				throw new UnprocessableEntityException({
+					code: "OP_FAILED",
+					index: resetIndex,
+					reason: "the original version could not be loaded",
+				});
+			}
+
+			const values = extractRootTokens(originalHtml);
+
+			if (PAGE_TOKEN_NAMES.some((name) => values[name] === undefined)) {
+				throw new UnprocessableEntityException({
+					code: "OP_FAILED",
+					index: resetIndex,
+					reason: "the original page does not declare a complete theme",
+				});
+			}
+
+			context = {
+				originalTheme: {
+					fontLinkHrefs: collectFontStylesheetHrefs(originalHtml),
+					values,
+				},
+			};
+		}
+
 		const outcome = await this.mutate({
 			artifactId: page.artifactId,
+			baseVersion: page.version,
+			context,
+			expectedActiveVersionId: page.version.id,
 			ops: body.ops,
 			projectId,
 			source: body.source,
-			version: page.version,
+		});
+
+		if (!outcome.ok) {
+			switch (outcome.kind) {
+				case "no-html":
+					throw new NotFoundException();
+				case "op-failed":
+					throw new UnprocessableEntityException({
+						code: "OP_FAILED",
+						index: outcome.index,
+						reason: outcome.reason,
+					});
+				case "conflict":
+					throw new ConflictException({
+						activeVersionId: outcome.activeVersionId,
+						code: "VERSION_CONFLICT",
+					});
+			}
+		}
+
+		return {
+			version: {
+				createdAt: outcome.version.createdAt.toISOString(),
+				id: outcome.version.id,
+				number: outcome.version.number,
+			},
+		};
+	}
+
+	// Restoring is copy-forward, never a pointer rewind: read the selected
+	// historical version, then append its stamped HTML as a brand-new version.
+	async restoreVersion(
+		userId: string,
+		projectId: string,
+		versionId: string,
+		body: RestorePageVersionBody,
+	): Promise<RestorePageVersionResponse> {
+		const page = await this.pagesRepository.findActivePageByProject(
+			userId,
+			projectId,
+		);
+
+		if (!page?.version) {
+			throw new NotFoundException();
+		}
+
+		const version = await this.pagesRepository.findOwnedVersionById(
+			userId,
+			versionId,
+		);
+
+		// The version must belong to this exact project's landing artifact. An
+		// owned version from another project is still foreign to this route.
+		if (
+			!version ||
+			version.projectId !== projectId ||
+			version.artifactId !== page.artifactId
+		) {
+			throw new NotFoundException();
+		}
+
+		if (body.expectedActiveVersionId !== page.version.id) {
+			throw new ConflictException({
+				activeVersionId: page.version.id,
+				code: "VERSION_CONFLICT",
+			});
+		}
+
+		const outcome = await this.mutate({
+			artifactId: page.artifactId,
+			baseVersion: version,
+			expectedActiveVersionId: body.expectedActiveVersionId,
+			ops: [],
+			projectId,
+			restoredFromVersionId: version.id,
+			source: "restore",
 		});
 
 		if (!outcome.ok) {
@@ -155,10 +301,11 @@ export class PageEditsService {
 
 		const outcome = await this.mutate({
 			artifactId: page.artifactId,
+			baseVersion: page.version,
+			expectedActiveVersionId: page.version.id,
 			ops,
 			projectId,
 			source: "ai-edit",
-			version: page.version,
 		});
 
 		if (!outcome.ok) {
@@ -168,8 +315,19 @@ export class PageEditsService {
 						message: "The page's HTML could not be loaded.",
 						status: "no-page",
 					};
-				case "op-failed":
-					return { message: outcome.reason, status: "rejected" };
+				case "op-failed": {
+					const failedOp = ops[outcome.index];
+					const opDetails = failedOp
+						? `${failedOp.kind}${
+								"wid" in failedOp ? `, data-wid="${failedOp.wid}"` : ""
+							}`
+						: "unknown op";
+
+					return {
+						message: `op ${outcome.index + 1} (${opDetails}): ${outcome.reason}`,
+						status: "rejected",
+					};
+				}
 				case "conflict":
 					return {
 						message:
@@ -187,23 +345,24 @@ export class PageEditsService {
 	// object → insert row + flip pointer atomically.
 	private async mutate(input: {
 		artifactId: string;
+		baseVersion: { id: string; r2Key: string };
+		context?: ApplyOpsContext;
+		expectedActiveVersionId: string;
 		ops: readonly EditOp[];
 		projectId: string;
-		source: "ai-edit" | "inline" | "theme";
-		version: { id: string; number: number; r2Key: string };
+		restoredFromVersionId?: string;
+		source: "ai-edit" | "inline" | "restore" | "theme";
 	}): Promise<MutationOutcome> {
-		const html = await getPageHtml(input.version.r2Key);
+		const html = await getPageHtml(input.baseVersion.r2Key);
 
 		if (html === null) {
 			return { kind: "no-html", ok: false };
 		}
 
-		// Legacy pre-V2 versions carry no wids: stamp-on-read so the wids the
-		// outline showed (also stamped in memory) resolve — the stamper is
-		// deterministic, so both sides agree. This edit then PERSISTS stamped
-		// HTML for good.
-		const baseHtml = html.includes("data-wid=") ? html : stampHtml(html);
-		const result = applyOps(baseHtml, input.ops);
+		// The preview, AI-read, and mutation paths all run this deterministic
+		// pass so widened leaf eligibility resolves to the same stable wids.
+		const baseHtml = stampHtml(html);
+		const result = applyOps(baseHtml, input.ops, input.context);
 
 		if (!result.ok) {
 			return {
@@ -226,7 +385,7 @@ export class PageEditsService {
 			const { createdAt, number } =
 				await this.pagesRepository.insertVersionAndActivate({
 					artifactId: input.artifactId,
-					expectedActiveVersionId: input.version.id,
+					expectedActiveVersionId: input.expectedActiveVersionId,
 					meta: {
 						editedWids: result.editedWids,
 						// Value-free audit summary — never the payloads.
@@ -234,7 +393,10 @@ export class PageEditsService {
 							kind: op.kind,
 							...("wid" in op ? { wid: op.wid } : {}),
 						})),
-						parentVersionId: input.version.id,
+						parentVersionId: input.expectedActiveVersionId,
+						...(input.restoredFromVersionId
+							? { restoredFromVersionId: input.restoredFromVersionId }
+							: {}),
 						source: input.source,
 					},
 					projectId: input.projectId,
@@ -248,6 +410,15 @@ export class PageEditsService {
 			};
 		} catch (error) {
 			if (error instanceof VersionConflictError) {
+				try {
+					await deleteObject(key);
+				} catch (cleanupError) {
+					this.logger.warn(
+						`Failed to delete orphaned page version object ${key}`,
+						cleanupError,
+					);
+				}
+
 				return {
 					activeVersionId: error.activeVersionId,
 					kind: "conflict",
@@ -258,4 +429,34 @@ export class PageEditsService {
 			throw error;
 		}
 	}
+}
+
+function collectFontStylesheetHrefs(html: string): string[] {
+	const $ = cheerio.load(html);
+	const hrefs = new Set<string>();
+
+	$('head link[rel="stylesheet"][href]').each((_, node) => {
+		const href = $(node).attr("href");
+
+		if (!href) {
+			return;
+		}
+
+		try {
+			const url = new URL(href);
+
+			if (
+				url.username === "" &&
+				url.password === "" &&
+				(url.origin === "https://fonts.googleapis.com" ||
+					url.origin === "https://api.fontshare.com")
+			) {
+				hrefs.add(url.href);
+			}
+		} catch {
+			// Ignore malformed and relative links from stored page HTML.
+		}
+	});
+
+	return [...hrefs];
 }

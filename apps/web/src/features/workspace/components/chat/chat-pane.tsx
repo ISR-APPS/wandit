@@ -28,7 +28,6 @@ import {
 	Crosshair,
 	MoreHorizontal,
 	PanelLeftClose,
-	X,
 } from "lucide-react";
 import { AnimatePresence } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -36,18 +35,22 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Spark } from "@/components/logo";
 import { PromptBox } from "@/features/projects";
 import { useDictionary, useTranslation } from "@/lib/i18n";
+import { readStoredBuilderGatewayModel } from "@/lib/model-labels";
 import { pageKeys } from "../../api/pages.queries";
+import { useSharedAiChat } from "../../lib/ai-chat-context";
 import { useWorkspace } from "../../lib/store";
-import { useAiChat } from "../../lib/use-ai-chat";
 import { usePageEditor } from "../../lib/use-page-editor";
 import { ThinkingIndicator } from "./chat-message";
 import { MOCK_CHAT_THREAD_ENABLED, MockChatThread } from "./mock-thread";
+import { ConversationModelIndicator } from "./model-indicator";
 import { MessageParts } from "./parts/message-parts";
 import { RequestTray } from "./request-tray/request-tray";
 import { TrayReveal } from "./request-tray/tray-reveal";
 import { TrayStatusPill } from "./request-tray/tray-signals";
 import { useRequestTray } from "./request-tray/use-request-tray";
 import { StatusMessageHeader } from "./status-message-header";
+import { TargetChip } from "./target-chip";
+import { ConversationContextMeter } from "./token-usage";
 
 export function ChatPane({ className }: { className?: string }) {
 	const { t, dir } = useTranslation();
@@ -62,11 +65,15 @@ export function ChatPane({ className }: { className?: string }) {
 		sendText,
 		answerAskUser,
 		addToolApprovalResponse,
-	} = useAiChat(projectId);
+	} = useSharedAiChat();
+	const editor = usePageEditor();
 
 	// Mirror of the PromptBox draft (via onValueChange) — the tray needs to
 	// know when typed text should override its chips (design 10n state 2).
 	const [composerText, setComposerText] = useState("");
+	const [pickerBuilderModel, setPickerBuilderModel] = useState<
+		string | undefined
+	>(() => (import.meta.env.DEV ? readStoredBuilderGatewayModel() : undefined));
 
 	// The live "waiting on you" state: derives the docked ask from the message
 	// list and answers it through answerAskUser (chips, free text, escape
@@ -104,9 +111,7 @@ export function ChatPane({ className }: { className?: string }) {
 
 	// Click-to-target (contract §12): the active selection renders as a
 	// removable chip above the composer and rides the NEXT send as
-	// metadata.selectedWid (WS3 wires the transport; the ref records it now).
-	const editor = usePageEditor();
-
+	// metadata.selectedWids (WS3 wires the transport; the ref records it now).
 	// Submit routing: while an ask is docked, typed text ANSWERS it (free-text
 	// ask, or typing-override on a chips ask) instead of opening a new user
 	// turn; otherwise it's a normal message carrying the composer metadata and
@@ -122,14 +127,22 @@ export function ChatPane({ className }: { className?: string }) {
 			setComposerText("");
 			return true;
 		}
-		// Select (Cibler) is the ONLY mode whose selection rides the chat —
-		// an edit-mode selection belongs to the inspector and must neither
-		// attach nor be consumed by a send (contract §4).
+		// Select (Cibler) is the only mode whose selection rides the main
+		// composer. An edit-mode selection belongs to the manual inspector.
 		const isTargeting = editor.mode === "select";
+		const target = isTargeting ? editor.selection : null;
+		const selectedTarget = target
+			? {
+					wid: target.wid,
+					tag: target.tag,
+					excerpt: target.excerpt,
+				}
+			: undefined;
 		const sent = await sendText(prompt, {
 			files: attachments,
 			composer,
-			selectedWid: isTargeting ? editor.selection?.wid : undefined,
+			selectedWids: target ? [target.wid] : undefined,
+			selectedTargets: selectedTarget ? [selectedTarget] : undefined,
 		});
 		// Selection is per-message: a successful send consumes the chip.
 		if (sent && isTargeting) editor.clearSelection();
@@ -346,34 +359,27 @@ export function ChatPane({ className }: { className?: string }) {
 				</div>
 
 				<div className="shrink-0 px-4 pt-3.5 pb-4">
+					<ConversationContextMeter messages={messages} />
+					<ConversationModelIndicator
+						messages={messages}
+						pickerBuilderModel={pickerBuilderModel}
+					/>
 					{/* Click-to-target chip (contract §12) — sibling of the tray slot
-					    on purpose: the tray owns topSlot. Select mode ONLY: an
-					    edit-mode selection is inspector state, never a chat target. */}
+					    on purpose: the tray owns topSlot. Edit-mode selection stays
+					    within the manual inspector. */}
 					{editor.mode === "select" && editor.selection ? (
 						<div className="mb-2 flex items-center">
-							<span className="flex min-w-0 items-center gap-1.5 rounded-full border border-primary/30 bg-primary/5 py-1 ps-2.5 pe-1 text-primary text-xs">
-								<Crosshair className="size-3 shrink-0" aria-hidden />
-								<span className="sr-only">
-									{t("workspace.page.editor.selectedElement")}
-								</span>
-								<span dir="ltr" className="min-w-0 truncate font-mono">
-									{editor.selection.wid}
-									{editor.selection.kind === "element" &&
-									editor.selection.sectionWid ? (
-										<span className="text-primary/60">
-											{` · ${editor.selection.sectionWid}`}
-										</span>
-									) : null}
-								</span>
-								<button
-									type="button"
-									aria-label={t("workspace.page.editor.clearTarget")}
-									onClick={editor.clearSelection}
-									className="grid size-5 shrink-0 place-items-center rounded-full transition-colors hover:bg-primary/10"
-								>
-									<X className="size-3" aria-hidden />
-								</button>
-							</span>
+							<TargetChip
+								target={{
+									wid: editor.selection.wid,
+									tag: editor.selection.tag,
+									excerpt: editor.selection.excerpt,
+								}}
+								accessibleLabel={t("workspace.page.editor.selectedElement")}
+								onClear={editor.clearSelection}
+								clearLabel={t("workspace.page.editor.clearTarget")}
+								className="pe-1"
+							/>
 						</div>
 					) : editor.mode === "select" ? (
 						<div className="mb-2 flex items-center gap-1.5 text-muted-foreground text-xs">
@@ -390,6 +396,9 @@ export function ChatPane({ className }: { className?: string }) {
 						placeholder={t("workspace.chat.placeholder")}
 						onSubmit={handleComposerSubmit}
 						onValueChange={setComposerText}
+						onBuilderModelChange={
+							import.meta.env.DEV ? setPickerBuilderModel : undefined
+						}
 						isSubmitting={isSubmitting}
 						submitOverride={
 							tray.active

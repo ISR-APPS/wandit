@@ -83,6 +83,17 @@ export async function updateProjectPixels(
 	return updateProjectResponseSchema.parse(data);
 }
 
+// Persist or remove the project-level logo used by the Data tab and rebuilds.
+export async function updateProjectLogo(
+	id: string,
+	logoUrl: string | null,
+): Promise<Project> {
+	const data = await apiClient.patch<unknown>(projectsRoutes.update(id), {
+		logoUrl,
+	});
+	return updateProjectResponseSchema.parse(data);
+}
+
 // Delete one project. No body is expected back, so there is no schema parse here.
 // The mutation layer handles optimistic removal and rollback.
 export async function deleteProject(id: string): Promise<void> {

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { attachmentMediaTypeSchema } from "./attachments";
+import { composerMetadataSchema } from "./chats";
 import {
 	imageGenerationAspectSchema,
 	MAX_IMAGES_PER_GENERATION,
@@ -10,7 +11,62 @@ import {
 	imageToVideoMotionSchema,
 	imageToVideoSourceMediaTypeSchema,
 } from "./media-generations";
-import { widSchema } from "./page-edits";
+import { aiElementOpSchema, widSchema } from "./page-edits";
+import { PAGE_TOKEN_NAMES } from "./page-theme";
+
+// AI SDK v7 LanguageModelUsage-compatible fields kept on assistant messages.
+// The nested detail names deliberately follow v7: the old top-level
+// cachedInputTokens/reasoningTokens fields no longer exist in the SDK.
+const aiChatTokenCountSchema = z.number().int().nonnegative();
+
+export const aiChatMessageUsageSchema = z.object({
+	inputTokens: aiChatTokenCountSchema.optional(),
+	inputTokenDetails: z
+		.object({
+			noCacheTokens: aiChatTokenCountSchema.optional(),
+			cacheReadTokens: aiChatTokenCountSchema.optional(),
+			cacheWriteTokens: aiChatTokenCountSchema.optional(),
+		})
+		.optional(),
+	outputTokens: aiChatTokenCountSchema.optional(),
+	outputTokenDetails: z
+		.object({
+			textTokens: aiChatTokenCountSchema.optional(),
+			reasoningTokens: aiChatTokenCountSchema.optional(),
+		})
+		.optional(),
+	totalTokens: aiChatTokenCountSchema.optional(),
+});
+
+/** Human-readable snapshot of the preview target attached to one user turn. */
+export const aiChatSelectedTargetSchema = z.object({
+	wid: widSchema,
+	tag: z.string().min(1).max(32),
+	excerpt: z.string().max(160).nullable(),
+});
+
+export const aiChatMessageMetadataSchema = z.object({
+	model: z.string().min(1).optional(),
+	usage: aiChatMessageUsageSchema.optional(),
+	selectedTarget: aiChatSelectedTargetSchema.optional(),
+	selectedTargets: z
+		.array(aiChatSelectedTargetSchema)
+		.min(1)
+		.max(10)
+		.optional(),
+});
+
+/** Per-request composer settings and preview targets for the current turn. */
+export const aiChatRequestMetadataSchema = z.object({
+	composer: composerMetadataSchema.optional(),
+	selectedWid: widSchema.optional(),
+	selectedWids: z.array(widSchema).min(1).max(10).optional(),
+});
+
+export type AiChatSelectedTarget = z.infer<typeof aiChatSelectedTargetSchema>;
+export type AiChatMessageUsage = z.infer<typeof aiChatMessageUsageSchema>;
+export type AiChatMessageMetadata = z.infer<typeof aiChatMessageMetadataSchema>;
+export type AiChatRequestMetadata = z.infer<typeof aiChatRequestMetadataSchema>;
 
 /**
  * ask_user — the assistant asks ONE focused question, answered in the
@@ -177,6 +233,9 @@ export const generatePageOutputSchema = z.object({
 	status: z.enum(["queued", "unavailable"]),
 	attemptId: z.string().uuid().optional(),
 	versionNumber: z.number().int().positive().optional(),
+	// Resolved gateway model snapshotted onto the queued attempt. Optional for
+	// historical and non-queued outputs.
+	builderModel: z.string().min(1).optional(),
 	realtime: triggerRealtimeHandleSchema.optional(),
 	// Human-facing note the model can relay verbatim.
 	message: z.string(),
@@ -375,6 +434,54 @@ export const generateImageOutputSchema = z.object({
 export type GenerateImageInput = z.infer<typeof generateImageInputSchema>;
 export type GenerateImageOutput = z.infer<typeof generateImageOutputSchema>;
 
+/** apply_element_ops — a bounded batch of targeted, AI-safe page mutations. */
+export const applyElementOpsInputSchema = z.object({
+	ops: z.array(aiElementOpSchema).min(1).max(20),
+});
+
+export const applyElementOpsOutputSchema = z.object({
+	status: z.enum(["applied", "rejected", "no-page"]),
+	versionNumber: z.number().int().positive().optional(),
+	message: z.string().min(1),
+});
+
+export type ApplyElementOpsInput = z.infer<typeof applyElementOpsInputSchema>;
+export type ApplyElementOpsOutput = z.infer<typeof applyElementOpsOutputSchema>;
+
+/** read_elements — current stamped HTML for up to ten exact data-wids. */
+export const readElementsInputSchema = z.object({
+	wids: z.array(widSchema).min(1).max(10),
+});
+
+const readElementResultSchema = z.object({
+	wid: widSchema,
+	found: z.boolean(),
+	html: z.string().optional(),
+});
+
+export const readElementsOutputSchema = z.object({
+	status: z.enum(["ok", "no-page"]),
+	versionNumber: z.number().int().positive().optional(),
+	elements: z.array(readElementResultSchema).max(10).optional(),
+	message: z.string().optional(),
+});
+
+export type ReadElementsInput = z.infer<typeof readElementsInputSchema>;
+export type ReadElementsOutput = z.infer<typeof readElementsOutputSchema>;
+
+/** read_theme — current values from the first reserved :root token block. */
+export const readThemeInputSchema = z.object({});
+
+export const readThemeOutputSchema = z.object({
+	status: z.enum(["ok", "no-page"]),
+	versionNumber: z.number().int().positive().optional(),
+	tokens: z.partialRecord(z.enum(PAGE_TOKEN_NAMES), z.string()).optional(),
+	message: z.string().optional(),
+});
+
+export type ReadThemeInput = z.infer<typeof readThemeInputSchema>;
+export type ReadThemeOutput = z.infer<typeof readThemeOutputSchema>;
+
 /** get_page_outline — cheap section map of the active version (spec §5). */
 export const getPageOutlineInputSchema = z.object({});
 
@@ -443,6 +550,12 @@ export type AiChatTools = {
 		input: GetPageOutlineInput;
 		output: GetPageOutlineOutput;
 	};
+	apply_element_ops: {
+		input: ApplyElementOpsInput;
+		output: ApplyElementOpsOutput;
+	};
+	read_elements: { input: ReadElementsInput; output: ReadElementsOutput };
+	read_theme: { input: ReadThemeInput; output: ReadThemeOutput };
 	read_section: { input: ReadSectionInput; output: ReadSectionOutput };
 	replace_section: {
 		input: ReplaceSectionInput;

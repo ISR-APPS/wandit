@@ -19,13 +19,19 @@
 // it is a plain React Context provider (house rule: no state library).
 
 import { useNavigate } from "@tanstack/react-router";
-import type { PageVersionListItem } from "@wandit/contracts";
+import type {
+	PageOverview,
+	PageVersionListItem,
+	PageVersionSummary,
+} from "@wandit/contracts";
 import type * as React from "react";
 import {
 	createContext,
 	useCallback,
 	useContext,
+	useEffect,
 	useMemo,
+	useRef,
 	useState,
 } from "react";
 import { toast } from "sonner";
@@ -45,11 +51,24 @@ import {
 } from "../api/deployments.mutations";
 import { useDeploymentCurrentQuery } from "../api/deployments.queries";
 import type { WorkspaceTab } from "../api/dto";
-import { usePageVersionsQuery } from "../api/pages.queries";
+import {
+	usePageOverviewQuery,
+	usePageVersionsQuery,
+	useRestorePageVersion,
+} from "../api/pages.queries";
 import { CHAT_OPEN_STORAGE_KEY } from "./constants";
+import {
+	buildPublishedSlugRenameBody,
+	buildPublishPageBody,
+	deriveGenerationState,
+	type GenerationPhase,
+	isHistoricalPreview,
+	type PreviewVersion,
+	resolvePreviewVersion,
+} from "./page-version-state";
 
 export type Viewport = "mobile" | "desktop";
-export type GenerationPhase = "idle" | "thinking" | "streaming" | "building";
+export type { GenerationPhase, PreviewVersion } from "./page-version-state";
 
 type WorkspaceContextValue = {
 	projectId: string;
@@ -61,6 +80,8 @@ type WorkspaceContextValue = {
 	deploymentPending: boolean;
 	versions: PageVersionListItem[];
 	versionsPending: boolean;
+	pageOverview: PageOverview | undefined;
+	pageOverviewPending: boolean;
 	tab: WorkspaceTab;
 	setTab: (tab: WorkspaceTab) => void;
 	chatOpen: boolean;
@@ -69,14 +90,26 @@ type WorkspaceContextValue = {
 	setChatOpenState: (open: boolean) => void;
 	viewport: Viewport;
 	setViewport: (viewport: Viewport) => void;
-	activeVersion: PageVersionListItem | undefined;
-	selectVersion: (versionId: string, opts?: { focusPage?: boolean }) => void;
-	// Page-generation status placeholders — real page-version streaming is not
-	// wired in this slice, so these stay idle (the Page tab reads them).
+	/** Resolved canvas version. Kept as an alias for older consumers. */
+	activeVersion: PreviewVersion | undefined;
+	serverActiveVersion: PageVersionSummary | null;
+	previewVersion: PreviewVersion | null;
+	isPreviewingHistorical: boolean;
+	selectVersion: (
+		version: PreviewVersion,
+		opts?: { focusPage?: boolean },
+	) => void;
+	backToLatest: () => void;
+	restorePreviewVersion: () => void;
+	restorePending: boolean;
 	generationPhase: GenerationPhase;
 	isGenerating: boolean;
 	pendingVersionNumber: number;
-	publish: () => void;
+	/** Opens the version-aware confirmation for the resolved canvas version. */
+	publish: (options?: { slug?: string }) => void;
+	publishCandidateVersion: PreviewVersion | null;
+	confirmPublish: () => void;
+	cancelPublish: () => void;
 	publishPending: boolean;
 	unpublish: () => void;
 	rollbackTo: (input: {
@@ -121,16 +154,24 @@ export function WorkspaceProvider({
 
 	const projectQuery = useProjectQuery(projectId);
 	const deploymentQuery = useDeploymentCurrentQuery(projectId);
+	const overviewQuery = usePageOverviewQuery(projectId);
 	const versionsQuery = usePageVersionsQuery(projectId);
 
 	const publishMutation = usePublishDeployment(projectId);
 	const unpublishMutation = useUnpublishDeployment(projectId);
 	const rollbackMutation = useRollbackDeployment(projectId);
+	const restoreMutation = useRestorePageVersion(projectId);
 	const pixelsMutation = useUpdateProjectPixels();
 
 	const [chatOpen, setChatOpen] = useState(readChatOpen);
 	const [viewport, setViewport] = useState<Viewport>("mobile");
-	const [activeVersionId, setActiveVersionId] = useState<string | null>(null);
+	const [manualVersion, setManualVersion] = useState<PreviewVersion | null>(
+		null,
+	);
+	const [publishCandidate, setPublishCandidate] = useState<{
+		version: PreviewVersion;
+		slug?: string;
+	} | null>(null);
 	// A slug picked before the first publish. The server keeps the live slug
 	// once published, so this only matters while the project is a draft.
 	const [draftSlug, setDraftSlug] = useState<string | null>(null);
@@ -166,29 +207,87 @@ export function WorkspaceProvider({
 	);
 
 	const toggleChat = useCallback(() => {
-		setChatOpen((open) => {
-			persistChatOpen(!open);
-			return !open;
-		});
-	}, [persistChatOpen]);
+		const nextOpen = !chatOpen;
+		persistChatOpen(nextOpen);
+		setChatOpen(nextOpen);
+	}, [chatOpen, persistChatOpen]);
 
 	const versions = useMemo(
-		() => [...(versionsQuery.data ?? [])].sort((a, b) => a.number - b.number),
+		() => (versionsQuery.data ?? []).toSorted((a, b) => a.number - b.number),
 		[versionsQuery.data],
 	);
 
-	const activeVersion = useMemo(
-		() => versions.find((v) => v.id === activeVersionId) ?? versions.at(-1),
-		[versions, activeVersionId],
+	const pageOverview = overviewQuery.data;
+	const serverActiveVersion = pageOverview?.activeVersion ?? null;
+	const previewVersion = resolvePreviewVersion(
+		manualVersion,
+		serverActiveVersion,
+		versionsQuery.data,
+	);
+	const isPreviewingHistorical = isHistoricalPreview(
+		previewVersion,
+		serverActiveVersion,
 	);
 
+	// Selecting what is currently active means "follow latest", not "pin this
+	// id". The effect covers the race where selection happens before overview
+	// finishes loading; clearing the pin is what lets a later build auto-advance.
+	useEffect(() => {
+		if (manualVersion?.id !== serverActiveVersion?.id) return;
+		setManualVersion(null);
+	}, [manualVersion?.id, serverActiveVersion?.id]);
+
+	// Overview polling observes a completed build before the independently
+	// cached history list does. Refresh it once per unseen active id so the
+	// switcher catches up without delaying the canvas itself.
+	const refreshedVersionIdRef = useRef<string | null>(null);
+	useEffect(() => {
+		const activeId = serverActiveVersion?.id;
+		if (!activeId || versions.some((version) => version.id === activeId))
+			return;
+		if (refreshedVersionIdRef.current === activeId) return;
+		refreshedVersionIdRef.current = activeId;
+		void versionsQuery.refetch();
+	}, [serverActiveVersion?.id, versions, versionsQuery.refetch]);
+
 	const selectVersion = useCallback(
-		(versionId: string, opts?: { focusPage?: boolean }) => {
-			setActiveVersionId(versionId);
+		(version: PreviewVersion, opts?: { focusPage?: boolean }) => {
+			setManualVersion(version.id === serverActiveVersion?.id ? null : version);
 			if (opts?.focusPage && tab !== "page") setTab("page");
 		},
-		[tab, setTab],
+		[serverActiveVersion?.id, tab, setTab],
 	);
+
+	const backToLatest = useCallback(() => setManualVersion(null), []);
+
+	const restorePreviewVersion = useCallback(() => {
+		if (
+			!previewVersion ||
+			!serverActiveVersion ||
+			previewVersion.id === serverActiveVersion.id
+		) {
+			return;
+		}
+
+		restoreMutation.mutate(
+			{
+				versionId: previewVersion.id,
+				expectedActiveVersionId: serverActiveVersion.id,
+			},
+			{
+				onSuccess: ({ version }) => {
+					setManualVersion(null);
+					toast.success(
+						t("workspace.page.restoreSucceeded", { n: version.number }),
+					);
+				},
+				onError: (error) => toast.error(getApiErrorMessage(error)),
+			},
+		);
+	}, [previewVersion, restoreMutation, serverActiveVersion, t]);
+
+	const { generationPhase, isGenerating, pendingVersionNumber } =
+		deriveGenerationState(pageOverview);
 
 	// --- publishing ------------------------------------------------------------
 
@@ -196,24 +295,41 @@ export function WorkspaceProvider({
 		toast.error(getApiErrorMessage(error));
 	}, []);
 
-	const publish = useCallback(() => {
-		publishMutation.mutate(
-			{ ...(draftSlug ? { slug: draftSlug } : {}) },
-			{
-				onSuccess: ({ current }) => {
-					setDraftSlug(null);
-					if (current.liveUrl) {
-						toast.success(
-							t("workspace.publish.publishedToast", {
-								url: current.liveUrl.replace(/^https:\/\//, ""),
-							}),
-						);
-					}
-				},
-				onError: publishErrorToast,
-			},
+	const publish = useCallback(
+		(options?: { slug?: string }) => {
+			if (!previewVersion || publishMutation.isPending) return;
+			const slug = options?.slug ?? draftSlug;
+			setPublishCandidate({
+				version: previewVersion,
+				...(slug ? { slug } : {}),
+			});
+		},
+		[draftSlug, previewVersion, publishMutation.isPending],
+	);
+
+	const cancelPublish = useCallback(() => setPublishCandidate(null), []);
+
+	const confirmPublish = useCallback(() => {
+		if (!publishCandidate) return;
+		const body = buildPublishPageBody(
+			publishCandidate.version,
+			publishCandidate.slug,
 		);
-	}, [publishMutation, draftSlug, publishErrorToast, t]);
+		setPublishCandidate(null);
+		publishMutation.mutate(body, {
+			onSuccess: ({ current }) => {
+				setDraftSlug(null);
+				if (current.liveUrl) {
+					toast.success(
+						t("workspace.publish.publishedToast", {
+							url: current.liveUrl.replace(/^https:\/\//, ""),
+						}),
+					);
+				}
+			},
+			onError: publishErrorToast,
+		});
+	}, [publishCandidate, publishMutation, publishErrorToast, t]);
 
 	const unpublish = useCallback(() => {
 		unpublishMutation.mutate(undefined, {
@@ -252,9 +368,10 @@ export function WorkspaceProvider({
 	const updateSlug = useCallback(
 		(slug: string) => {
 			if (deployment?.uiState === "published") {
-				// Slug lives on the deployment, so a rename is a republish.
+				// Slug lives on the deployment, so a rename is a republish. Pin the
+				// currently live immutable version: active may intentionally be newer.
 				publishMutation.mutate(
-					{ slug },
+					buildPublishedSlugRenameBody(slug, deployment.publishedVersionId),
 					{
 						onSuccess: ({ current }) => {
 							if (current.liveUrl) {
@@ -273,7 +390,13 @@ export function WorkspaceProvider({
 
 			setDraftSlug(slug);
 		},
-		[deployment?.uiState, publishMutation, publishErrorToast, t],
+		[
+			deployment?.publishedVersionId,
+			deployment?.uiState,
+			publishMutation,
+			publishErrorToast,
+			t,
+		],
 	);
 
 	// --- settings ------------------------------------------------------------
@@ -323,6 +446,8 @@ export function WorkspaceProvider({
 			deploymentPending: deploymentQuery.isPending,
 			versions,
 			versionsPending: versionsQuery.isPending,
+			pageOverview,
+			pageOverviewPending: overviewQuery.isPending,
 			tab,
 			setTab,
 			chatOpen,
@@ -330,12 +455,21 @@ export function WorkspaceProvider({
 			setChatOpenState,
 			viewport,
 			setViewport,
-			activeVersion,
+			activeVersion: previewVersion ?? undefined,
+			serverActiveVersion,
+			previewVersion,
+			isPreviewingHistorical,
 			selectVersion,
-			generationPhase: "idle",
-			isGenerating: false,
-			pendingVersionNumber: 0,
+			backToLatest,
+			restorePreviewVersion,
+			restorePending: restoreMutation.isPending,
+			generationPhase,
+			isGenerating,
+			pendingVersionNumber,
 			publish,
+			publishCandidateVersion: publishCandidate?.version ?? null,
+			confirmPublish,
+			cancelPublish,
 			publishPending,
 			unpublish,
 			rollbackTo,
@@ -353,15 +487,28 @@ export function WorkspaceProvider({
 			deploymentQuery.isPending,
 			versions,
 			versionsQuery.isPending,
+			pageOverview,
+			overviewQuery.isPending,
 			tab,
 			setTab,
 			chatOpen,
 			toggleChat,
 			setChatOpenState,
 			viewport,
-			activeVersion,
+			serverActiveVersion,
+			previewVersion,
+			isPreviewingHistorical,
 			selectVersion,
+			backToLatest,
+			restorePreviewVersion,
+			restoreMutation.isPending,
+			generationPhase,
+			isGenerating,
+			pendingVersionNumber,
 			publish,
+			publishCandidate?.version,
+			confirmPublish,
+			cancelPublish,
 			publishPending,
 			unpublish,
 			rollbackTo,

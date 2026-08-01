@@ -10,13 +10,22 @@ import { type RefObject, useCallback, useEffect, useRef } from "react";
 import {
 	type PreviewParentMessage,
 	type PreviewSelection,
+	type PreviewSelectionRect,
 	parsePreviewMessage,
+	parsePreviewParentMessage,
 } from "./messages";
 
 export type PreviewBridgeHandlers = {
 	onSelect?: (selection: PreviewSelection) => void;
 	onDeselect?: () => void;
-	onTextEdited?: (wid: string, value: string) => void;
+	onSelectionRect?: (rect: PreviewSelectionRect | null) => void;
+	onEscape?: () => void;
+	onAskAiShortcut?: () => void;
+	onTextEdited?: (
+		wid: string,
+		value: string,
+		flattenedWids: readonly string[],
+	) => void;
 	/** Editor script booted — re-send the current mode here (the iframe
 	 *  remounts per version / reload / discard). */
 	onReady?: () => void;
@@ -49,10 +58,20 @@ export function usePreviewBridge({
 				case "deselect":
 					handlersRef.current.onDeselect?.();
 					break;
+				case "selection-rect":
+					handlersRef.current.onSelectionRect?.(message.payload);
+					break;
+				case "escape":
+					handlersRef.current.onEscape?.();
+					break;
+				case "ask-ai-shortcut":
+					handlersRef.current.onAskAiShortcut?.();
+					break;
 				case "text-edited":
 					handlersRef.current.onTextEdited?.(
 						message.payload.wid,
 						message.payload.value,
+						message.payload.flattenedWids,
 					);
 					break;
 			}
@@ -63,7 +82,8 @@ export function usePreviewBridge({
 
 	return useCallback(
 		(message: PreviewParentMessage) => {
-			iframeRef.current?.contentWindow?.postMessage(message, "*");
+			const parsed = parsePreviewParentMessage(message);
+			if (parsed) iframeRef.current?.contentWindow?.postMessage(parsed, "*");
 		},
 		[iframeRef],
 	);

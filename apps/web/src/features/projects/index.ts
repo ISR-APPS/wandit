@@ -28,6 +28,7 @@ export type { Project, ProjectStatus } from "./api/dto";
 export {
 	useDeleteProject,
 	useRenameProject,
+	useUpdateProjectLogo,
 	useUpdateProjectPixels,
 } from "./api/projects.mutations";
 // Query keys and query hooks for reading project list/detail data.

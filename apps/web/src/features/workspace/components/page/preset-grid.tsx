@@ -1,20 +1,27 @@
 // Curated preset palettes (contract §4) as one-click swatch cards. Applying
 // records ONE set-tokens patch over all 11 token names + live-previews it;
 // Save persists (spec §8). Active detection compares the panel's effective
-// values (fonts normalized to curated ids, hex lowercased) to the preset.
+// values (fonts normalized to curated ids, CSS colors converted to hex) to
+// the preset.
 
 import {
-	PAGE_TOKEN_NAMES,
 	type PageTokenName,
 	PRESET_PALETTES,
 	type PresetPalette,
 } from "@wandit/contracts";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@wandit/ui/components/tooltip";
 import { cn } from "@wandit/ui/lib/utils";
 import { Moon, Sun } from "lucide-react";
 
 import { useTranslation } from "@/lib/i18n";
-import { normalizeHex } from "../../lib/preview-editor/contrast";
-import { matchCuratedFontId } from "../../lib/preview-editor/parse-tokens";
+import {
+	type PageColorScheme,
+	tokensEqual,
+} from "../../lib/preview-editor/parse-tokens";
 import { usePageEditor } from "../../lib/use-page-editor";
 
 const CHIP_TOKENS: readonly PageTokenName[] = [
@@ -25,31 +32,21 @@ const CHIP_TOKENS: readonly PageTokenName[] = [
 	"foreground",
 ];
 
-function normalizeTokenValue(name: PageTokenName, value: string): string {
-	if (name === "font-heading" || name === "font-body") {
-		return matchCuratedFontId(value) ?? value;
-	}
-	return normalizeHex(value) ?? value.trim().toLowerCase();
-}
-
 function presetMatches(
 	preset: PresetPalette,
 	effective: Partial<Record<PageTokenName, string>>,
 ): boolean {
-	return PAGE_TOKEN_NAMES.every((name) => {
-		const current = effective[name];
-		return (
-			current !== undefined &&
-			normalizeTokenValue(name, current) ===
-				normalizeTokenValue(name, preset.values[name])
-		);
-	});
+	return tokensEqual(effective, preset.values);
 }
 
 export function PresetGrid({
 	effective,
+	colorScheme = null,
+	disabled = false,
 }: {
 	effective: Partial<Record<PageTokenName, string>>;
+	colorScheme?: PageColorScheme;
+	disabled?: boolean;
 }) {
 	const { t } = useTranslation();
 	const editor = usePageEditor();
@@ -58,16 +55,35 @@ export function PresetGrid({
 		<div className="grid grid-cols-2 gap-2">
 			{PRESET_PALETTES.map((preset) => {
 				const active = presetMatches(preset, effective);
-				return (
+				const modeMismatch =
+					colorScheme !== null && preset.mode !== colorScheme;
+				const mismatchWarning = modeMismatch
+					? t(
+							preset.mode === "dark"
+								? "workspace.page.editor.presetModeMismatchDark"
+								: "workspace.page.editor.presetModeMismatchLight",
+						)
+					: null;
+				const card = (
 					<button
 						key={preset.id}
 						type="button"
 						aria-pressed={active}
-						onClick={() =>
-							editor.applyTokens({ ...preset.values }, { ...preset.values })
+						aria-label={
+							mismatchWarning
+								? `${preset.name} — ${mismatchWarning}`
+								: undefined
 						}
+						title={mismatchWarning ?? undefined}
+						disabled={disabled}
+						onClick={() => {
+							if (disabled || active) return;
+							editor.applyTokens({ ...preset.values }, { ...preset.values });
+						}}
 						className={cn(
-							"flex flex-col gap-1.5 rounded-lg border bg-background p-2 text-start transition-colors hover:border-primary/40",
+							"flex flex-col gap-1.5 rounded-lg border bg-background p-2 text-start transition-[border-color,opacity,filter] hover:border-primary/40 disabled:cursor-not-allowed disabled:opacity-50",
+							modeMismatch &&
+								"opacity-45 saturate-50 hover:opacity-80 focus-visible:opacity-100",
 							active && "border-primary ring-1 ring-primary/40",
 						)}
 					>
@@ -108,6 +124,15 @@ export function PresetGrid({
 							))}
 						</span>
 					</button>
+				);
+
+				return modeMismatch ? (
+					<Tooltip key={preset.id}>
+						<TooltipTrigger asChild>{card}</TooltipTrigger>
+						<TooltipContent>{mismatchWarning}</TooltipContent>
+					</Tooltip>
+				) : (
+					card
 				);
 			})}
 		</div>

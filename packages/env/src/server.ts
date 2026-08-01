@@ -39,6 +39,7 @@ export const env = createEnv({
 	server: {
 		// AI model settings.
 		AI_CHAT_MODEL: z.string().min(1).default("openai/gpt-4o-mini"),
+		AI_TITLE_MODEL: z.string().min(1).default("openai/gpt-5.6-luna"),
 		AI_GATEWAY_API_KEY: z.string().min(1).optional(),
 		// Optional: the builder's generate_image tool. Needs R2 plus
 		// R2_PUBLIC_BASE_URL too; unset means the tool answers "unavailable".

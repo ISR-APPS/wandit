@@ -1,10 +1,16 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import {
+	type AiChatMessageMetadata,
+	type AiChatMessageUsage,
+	type AiChatRequestMetadata,
 	type AnimateImageInput,
 	type AnimateImageOutput,
+	type ApplyElementOpsInput,
+	type ApplyElementOpsOutput,
 	type AskUserInput,
 	type AskUserOutput,
 	animateImageInputSchema,
+	applyElementOpsInputSchema,
 	askUserInputSchema,
 	type GenerateImageInput,
 	type GenerateImageOutput,
@@ -20,12 +26,18 @@ import {
 	generatePageInputSchema,
 	getDirectionCandidatesInputSchema,
 	IMAGE_TO_VIDEO_SOURCE_MEDIA_TYPES,
+	type ReadElementsInput,
+	type ReadElementsOutput,
 	type ReadSectionOutput,
 	type ReadSkillInput,
+	type ReadThemeInput,
+	type ReadThemeOutput,
 	type ReplaceSectionInput,
 	type ReplaceSectionOutput,
+	readElementsInputSchema,
 	readSectionInputSchema,
 	readSkillInputSchema,
+	readThemeInputSchema,
 	replaceSectionInputSchema,
 	type ScrapeLeadsInput,
 	type ScrapeLeadsOutput,
@@ -38,6 +50,7 @@ import {
 	createUIMessageStream,
 	type InferUIMessageChunk,
 	InvalidToolInputError,
+	type LanguageModelUsage,
 	pipeUIMessageStreamToResponse,
 	smoothStream,
 } from "ai";
@@ -65,7 +78,6 @@ import {
 } from "../../agent/request-context";
 import type { AvailableImage } from "../../agent/tools/animate-image.tool";
 import { resolveBuilderModelOption } from "../../agent/tools/builder-model-options";
-import type { AiChatRequestMetadata } from "../../presentation/http/controllers/ai-chat.controller";
 
 @Injectable()
 export class AiChatService {
@@ -219,6 +231,22 @@ export class AiChatService {
 							// words with a small delay so the UI reads like typing.
 							// Word chunking splits on whitespace — fine for FR/AR alike.
 							experimental_transform: smoothStream({ delayInMs: 15 }),
+							messageMetadata: ({
+								part,
+							}): AiChatMessageMetadata | undefined => {
+								if (part.type === "start") {
+									return { model: env.AI_CHAT_MODEL };
+								}
+
+								if (part.type === "finish") {
+									return {
+										model: env.AI_CHAT_MODEL,
+										usage: toAiChatMessageUsage(part.totalUsage),
+									};
+								}
+
+								return undefined;
+							},
 							onError: onAgentStreamError,
 							uiMessages: agentMessages,
 						});
@@ -319,6 +347,23 @@ export class AiChatService {
 			? error.message
 			: "An error occurred.";
 	}
+}
+
+function toAiChatMessageUsage(usage: LanguageModelUsage): AiChatMessageUsage {
+	return {
+		inputTokens: usage.inputTokens,
+		inputTokenDetails: {
+			cacheReadTokens: usage.inputTokenDetails.cacheReadTokens,
+			cacheWriteTokens: usage.inputTokenDetails.cacheWriteTokens,
+			noCacheTokens: usage.inputTokenDetails.noCacheTokens,
+		},
+		outputTokens: usage.outputTokens,
+		outputTokenDetails: {
+			reasoningTokens: usage.outputTokenDetails.reasoningTokens,
+			textTokens: usage.outputTokenDetails.textTokens,
+		},
+		totalTokens: usage.totalTokens,
+	};
 }
 
 const SKIPPED_ASK_USER_OUTPUT: AskUserOutput = {
@@ -434,6 +479,45 @@ const INTERRUPTED_GET_DIRECTION_CANDIDATES_OUTPUT: GetDirectionCandidatesOutput 
 const INCOMPLETE_GET_DIRECTION_CANDIDATES_INPUT: GetDirectionCandidatesInput = {
 	business: "unknown",
 };
+
+// The mutation may or may not have landed before the abort. The model must
+// inspect the current page instead of blindly replaying the batch.
+const INTERRUPTED_APPLY_ELEMENT_OPS_OUTPUT: ApplyElementOpsOutput = {
+	message:
+		"The targeted edit was interrupted mid-stream — it may or may not have " +
+		"been applied. Read the affected elements or theme before retrying.",
+	status: "rejected",
+};
+
+const INCOMPLETE_APPLY_ELEMENT_OPS_INPUT: ApplyElementOpsInput = {
+	ops: [
+		{
+			kind: "text",
+			value: "The requested text was lost when the tool input was interrupted.",
+			wid: "unknown",
+		},
+	],
+};
+
+const INTERRUPTED_READ_ELEMENTS_OUTPUT: ReadElementsOutput = {
+	message:
+		"The element read was interrupted before it finished — call " +
+		"read_elements again if the elements are still needed.",
+	status: "no-page",
+};
+
+const INCOMPLETE_READ_ELEMENTS_INPUT: ReadElementsInput = {
+	wids: ["unknown"],
+};
+
+const INTERRUPTED_READ_THEME_OUTPUT: ReadThemeOutput = {
+	message:
+		"The theme read was interrupted before it finished — call read_theme " +
+		"again if the current tokens are still needed.",
+	status: "no-page",
+};
+
+const INCOMPLETE_READ_THEME_INPUT: ReadThemeInput = {};
 
 // "no-page" is the only non-ok status the schema allows; the message keeps
 // the model from concluding the page is actually gone.
@@ -739,6 +823,72 @@ export function completeDanglingToolCalls(
 					...part,
 					input: {},
 					output: INTERRUPTED_GET_PAGE_OUTLINE_OUTPUT,
+					state: "output-available" as const,
+				};
+			}
+
+			if (part.type === "tool-apply_element_ops") {
+				if (
+					part.state !== "input-available" &&
+					part.state !== "input-streaming"
+				) {
+					return part;
+				}
+
+				changed = true;
+
+				const parsedInput = applyElementOpsInputSchema.safeParse(part.input);
+
+				return {
+					...part,
+					input: parsedInput.success
+						? parsedInput.data
+						: INCOMPLETE_APPLY_ELEMENT_OPS_INPUT,
+					output: INTERRUPTED_APPLY_ELEMENT_OPS_OUTPUT,
+					state: "output-available" as const,
+				};
+			}
+
+			if (part.type === "tool-read_elements") {
+				if (
+					part.state !== "input-available" &&
+					part.state !== "input-streaming"
+				) {
+					return part;
+				}
+
+				changed = true;
+
+				const parsedInput = readElementsInputSchema.safeParse(part.input);
+
+				return {
+					...part,
+					input: parsedInput.success
+						? parsedInput.data
+						: INCOMPLETE_READ_ELEMENTS_INPUT,
+					output: INTERRUPTED_READ_ELEMENTS_OUTPUT,
+					state: "output-available" as const,
+				};
+			}
+
+			if (part.type === "tool-read_theme") {
+				if (
+					part.state !== "input-available" &&
+					part.state !== "input-streaming"
+				) {
+					return part;
+				}
+
+				changed = true;
+
+				const parsedInput = readThemeInputSchema.safeParse(part.input);
+
+				return {
+					...part,
+					input: parsedInput.success
+						? parsedInput.data
+						: INCOMPLETE_READ_THEME_INPUT,
+					output: INTERRUPTED_READ_THEME_OUTPUT,
 					state: "output-available" as const,
 				};
 			}

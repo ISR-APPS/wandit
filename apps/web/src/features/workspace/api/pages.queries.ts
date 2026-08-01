@@ -4,12 +4,19 @@
 // attempt settles (succeeded/failed) or when there is no attempt at all —
 // TanStack re-evaluates the refetchInterval callback after every fetch.
 
-import { useQuery } from "@tanstack/react-query";
+import {
+	type QueryClient,
+	useMutation,
+	useQuery,
+	useQueryClient,
+} from "@tanstack/react-query";
+import type { PageOverview } from "@wandit/contracts";
 
 import {
 	getPageOverview,
 	getPageVersions,
 	getVersionHtml,
+	restorePageVersion,
 } from "./pages.services";
 
 export const pageKeys = {
@@ -51,5 +58,51 @@ export function useVersionHtmlQuery(versionId: string | undefined) {
 		enabled: Boolean(versionId),
 		// Versions are immutable — once fetched, the HTML never goes stale.
 		staleTime: Number.POSITIVE_INFINITY,
+	});
+}
+
+/**
+ * Restore conflicts carry newer server truth. Refresh the overview after any
+ * failed restore so the next attempt cannot remain pinned to a stale active id.
+ */
+export function refreshOverviewAfterRestoreFailure(
+	queryClient: Pick<QueryClient, "invalidateQueries">,
+	projectId: string,
+): void {
+	void queryClient.invalidateQueries({
+		queryKey: pageKeys.overview(projectId),
+	});
+}
+
+export function useRestorePageVersion(projectId: string) {
+	const queryClient = useQueryClient();
+
+	return useMutation({
+		mutationFn: ({
+			versionId,
+			expectedActiveVersionId,
+		}: {
+			versionId: string;
+			expectedActiveVersionId: string;
+		}) => restorePageVersion(projectId, versionId, { expectedActiveVersionId }),
+		onSuccess: ({ version }) => {
+			queryClient.setQueryData<PageOverview>(
+				pageKeys.overview(projectId),
+				(current) =>
+					current ? { ...current, activeVersion: version } : current,
+			);
+			void queryClient.invalidateQueries({
+				queryKey: pageKeys.overview(projectId),
+			});
+			void queryClient.invalidateQueries({
+				queryKey: pageKeys.versions(projectId),
+			});
+		},
+		onError: () => {
+			// A restore can race any edit made in another tab. Refresh server truth
+			// after failures so a 409 retry uses the new active version id instead
+			// of remaining permanently pinned to the stale expectation.
+			refreshOverviewAfterRestoreFailure(queryClient, projectId);
+		},
 	});
 }
