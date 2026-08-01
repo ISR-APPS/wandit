@@ -4,8 +4,10 @@
  * user selected in the preview, and the wids they manually edited since the
  * last AI change. Metadata BIASES the model; the user's words always win.
  */
-import { videoSubmissionIdSchema } from "@wandit/contracts";
-import type { AiChatRequestMetadata } from "../presentation/http/controllers/ai-chat.controller";
+import {
+	type AiChatRequestMetadata,
+	videoSubmissionIdSchema,
+} from "@wandit/contracts";
 import type { AvailableImage } from "./tools/animate-image.tool";
 
 export type ChatRequestContext = {
@@ -250,9 +252,26 @@ export function buildChatRequestContext(
 		paragraphs.push(lines.join("\n"));
 	}
 
-	const selectedWid = context.metadata?.selectedWid;
+	const selectedWids = context.metadata?.selectedWids;
+	const selectedWid =
+		selectedWids?.length === 1
+			? selectedWids[0]
+			: context.metadata?.selectedWid;
 
-	if (selectedWid) {
+	if (selectedWids && selectedWids.length > 1) {
+		const targets = selectedWids
+			.map((wid, index) => `${index + 1}. data-wid="${wid}"`)
+			.join("\n");
+
+		paragraphs.push(
+			`The user attached ${selectedWids.length} numbered comments to elements ` +
+				"in the page preview for THIS message.\nTargets in order:\n" +
+				targets +
+				"\nThe numbered comments are in the message body. Resolve each " +
+				"comment against its wid at the same numbered position, and prefer " +
+				"apply_element_ops for these edits.",
+		);
+	} else if (selectedWid) {
 		paragraphs.push(
 			"The user selected an element in the page preview for THIS message: " +
 				`data-wid="${selectedWid}". When they say "this", "here", "ça", ` +

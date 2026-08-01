@@ -28,9 +28,11 @@ export type ProjectQueryRow = {
 	createdAt: Date;
 	id: string;
 	leadCount: number;
+	logoUrl: string | null;
 	metaPixelId: string | null;
 	name: string;
 	pendingDeploymentCount: number;
+	previewImageUrl: string | null;
 	prompt: string;
 	tiktokPixelId: string | null;
 	updatedAt: Date;
@@ -162,6 +164,7 @@ export class ProjectsRepository {
 		userId: string,
 		projectId: string,
 		body: UpdateProjectBody,
+		options: { expectedName?: string } = {},
 	): Promise<ProjectQueryRow | null> {
 		// Only update fields that were actually sent in the PATCH body.
 		const [row] = await this.db
@@ -169,6 +172,7 @@ export class ProjectsRepository {
 			.set({
 				...(body.name !== undefined ? { name: body.name } : {}),
 				// null clears the value; undefined means "do not change it".
+				...(body.logoUrl !== undefined ? { logoUrl: body.logoUrl } : {}),
 				...(body.metaPixelId !== undefined
 					? { metaPixelId: body.metaPixelId }
 					: {}),
@@ -182,6 +186,9 @@ export class ProjectsRepository {
 					eq(projects.id, projectId),
 					eq(projects.userId, userId),
 					isNull(projects.deletedAt),
+					options.expectedName === undefined
+						? undefined
+						: eq(projects.name, options.expectedName),
 				),
 			)
 			.returning({ id: projects.id });
@@ -279,9 +286,11 @@ export class ProjectsRepository {
 				id: projects.id,
 				// coalesce turns missing joins into friendly default values.
 				leadCount: sql<number>`coalesce(${leadCounts.leadCount}, 0)::int`,
+				logoUrl: projects.logoUrl,
 				metaPixelId: projects.metaPixelId,
 				name: projects.name,
 				pendingDeploymentCount: sql<number>`coalesce(${deploymentAgg.pendingDeploymentCount}, 0)::int`,
+				previewImageUrl: projects.previewImageUrl,
 				prompt: sql<string>`coalesce(${firstMessages.prompt}, '')`,
 				tiktokPixelId: projects.tiktokPixelId,
 				updatedAt: projects.updatedAt,

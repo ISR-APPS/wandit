@@ -152,6 +152,7 @@ export function createGeneratePageTool(
 
 			return {
 				attemptId: attempt.id,
+				builderModel,
 				message:
 					`Queued: version ${versionNumber} is being generated in the ` +
 					"background. It will appear in the Page tab when ready — " +

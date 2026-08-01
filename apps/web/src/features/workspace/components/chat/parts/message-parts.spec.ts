@@ -1,8 +1,11 @@
+import type { ChatMessage } from "@wandit/contracts";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-
-import type { WanditUIMessage } from "../../../lib/use-ai-chat";
+import {
+	hydrateAiChatMessages,
+	type WanditUIMessage,
+} from "../../../lib/use-ai-chat";
 import {
 	coalesceMessageParts,
 	MessageParts,
@@ -11,10 +14,16 @@ import {
 
 vi.mock("@/lib/i18n", () => ({
 	useTranslation: () => ({
-		t: (key: string, params?: Record<string, unknown>) =>
-			key.replace(/\{(\w+)\}/g, (_, name: string) =>
+		t: (key: string, params?: Record<string, unknown>) => {
+			const value =
+				key === "workspace.chat.usage.message"
+					? "Input {input} · Output {output} · Total {total} tokens"
+					: key;
+
+			return value.replace(/\{(\w+)\}/g, (_, name: string) =>
 				String(params?.[name] ?? `{${name}}`),
-			),
+			);
+		},
 	}),
 	useDictionary: () => ({
 		workspace: {
@@ -385,11 +394,13 @@ function renderMessage(
 	role: WanditUIMessage["role"],
 	parts: unknown[],
 	isStreaming = false,
+	metadata?: WanditUIMessage["metadata"],
 ): string {
 	return renderToStaticMarkup(
 		createElement(MessageParts, {
 			message: {
 				id: "message-1",
+				metadata,
 				role,
 				parts: asMessageParts(parts),
 			} as WanditUIMessage,
@@ -438,6 +449,109 @@ describe("MessageParts turn block", () => {
 
 		expect(html).toContain("salut");
 		expect(html).not.toContain(">Wandit<");
+	});
+
+	it("renders a persisted target chip above a targeted user message", () => {
+		const html = renderMessage(
+			"user",
+			[{ type: "text", text: "Make this warmer", state: "done" }],
+			false,
+			{
+				selectedTarget: {
+					wid: "e-17",
+					tag: "article",
+					excerpt: "Handmade in Algiers",
+				},
+			},
+		);
+
+		expect(html).toContain('title="e-17"');
+		expect(html).toContain('<bdi dir="ltr"');
+		expect(html).toContain("article");
+		expect(html).toContain("Handmade in Algiers");
+		expect(html.indexOf("article")).toBeLessThan(
+			html.indexOf("Make this warmer"),
+		);
+	});
+
+	it("renders ordered target chips with matching circled numbers", () => {
+		const html = renderMessage(
+			"user",
+			[{ type: "text", text: "Update both", state: "done" }],
+			false,
+			{
+				selectedTargets: [
+					{ wid: "hero-title", tag: "h1", excerpt: "Build faster" },
+					{ wid: "hero-cta", tag: "a", excerpt: "Start now" },
+				],
+			},
+		);
+
+		expect(html).toContain("①");
+		expect(html).toContain("②");
+		expect(html).toContain('aria-label="Target 1: h1 — Build faster"');
+		expect(html).toContain('aria-label="Target 2: a — Start now"');
+		expect(html.indexOf("①")).toBeLessThan(html.indexOf("hero-title"));
+		expect(html.indexOf("hero-title")).toBeLessThan(html.indexOf("②"));
+		expect(html.indexOf("②")).toBeLessThan(html.indexOf("hero-cta"));
+		expect(html.indexOf("hero-cta")).toBeLessThan(html.indexOf("Update both"));
+	});
+
+	it("prefers ordered targets over legacy metadata when both are present", () => {
+		const html = renderMessage(
+			"user",
+			[{ type: "text", text: "Update this", state: "done" }],
+			false,
+			{
+				selectedTargets: [
+					{ wid: "current-target", tag: "p", excerpt: "Current" },
+				],
+				selectedTarget: {
+					wid: "legacy-target",
+					tag: "div",
+					excerpt: "Legacy",
+				},
+			},
+		);
+
+		expect(html).toContain('title="current-target"');
+		expect(html).not.toContain("legacy-target");
+	});
+
+	it("renders a target chip after seeding a persisted history row", () => {
+		const persisted: ChatMessage = {
+			id: "persisted-target-turn",
+			chatId: "11111111-1111-4111-8111-111111111111",
+			role: "user",
+			parts: [{ type: "text", text: "Tighten this headline" }],
+			metadata: {
+				selectedTarget: {
+					wid: "hero-title",
+					tag: "h1",
+					excerpt: "A clearer way to grow",
+				},
+			},
+			seq: 4,
+			createdAt: "2026-08-01T10:00:00.000Z",
+		};
+		const [hydrated] = hydrateAiChatMessages([persisted]);
+		if (!hydrated) throw new Error("Expected persisted user row to hydrate");
+
+		const html = renderToStaticMarkup(
+			createElement(MessageParts, {
+				message: hydrated,
+				isStreaming: false,
+				isLastAssistantMessage: false,
+				onToolApprovalResponse: () => {},
+			}),
+		);
+
+		expect(html).toContain('title="hero-title"');
+		expect(html).toContain(">h1</bdi>");
+		expect(html).toContain("A clearer way to grow");
+		expect(html.indexOf(">h1</bdi>")).toBeLessThan(
+			html.indexOf("Tighten this headline"),
+		);
 	});
 
 	it("renders nothing for a turn of transparent parts", () => {
@@ -524,5 +638,24 @@ describe("MessageParts turn block", () => {
 			html.indexOf("Je regarde."),
 		);
 		expect(html).not.toContain("max-h-0");
+	});
+
+	it("renders one compact usage footer for an assistant turn", () => {
+		const html = renderMessage(
+			"assistant",
+			[{ type: "text", text: "Done.", state: "done" }],
+			false,
+			{
+				model: "provider/model",
+				usage: {
+					inputTokens: 8_421,
+					outputTokens: 950,
+					totalTokens: 9_371,
+				},
+			},
+		);
+
+		expect(html).toContain("Input 8.4k · Output 950 · Total 9.4k tokens");
+		expect(html.match(/Input 8\.4k/g)).toHaveLength(1);
 	});
 });

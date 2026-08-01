@@ -1,4 +1,4 @@
-// Dashboard grid card: gradient thumbnail, name, status badge, lead count,
+// Dashboard grid card: hero/gradient thumbnail, name, status badge, lead count,
 // updated-at, hover actions (open / view live / rename / delete).
 
 import { Link, useNavigate } from "@tanstack/react-router";
@@ -54,7 +54,7 @@ import { relativeTime } from "@/lib/relative-time";
 import type { Project } from "../api/dto";
 import { useDeleteProject, useRenameProject } from "../api/projects.mutations";
 import { PROJECT_NAME_MAX_LENGTH } from "../lib/constants";
-import { thumbGradient } from "../lib/helpers";
+import { shouldShowProjectPreview, thumbGradient } from "../lib/helpers";
 
 function StatusBadge({ status }: { status: Project["status"] }) {
 	const { t } = useTranslation();
@@ -161,10 +161,17 @@ export function ProjectCard({ project }: { project: Project }) {
 	const navigate = useNavigate();
 	const [renameOpen, setRenameOpen] = useState(false);
 	const [deleteOpen, setDeleteOpen] = useState(false);
+	const [failedPreviewImageUrl, setFailedPreviewImageUrl] = useState<
+		string | null
+	>(null);
 	const deleteProject = useDeleteProject();
 
 	const isPublished = project.status === "published";
 	const glyph = project.name.trim().charAt(0).toUpperCase() || "✦";
+	const showPreview = shouldShowProjectPreview(
+		project.previewImageUrl,
+		failedPreviewImageUrl,
+	);
 
 	const handleDelete = () => {
 		deleteProject.mutate(project.id, {
@@ -188,10 +195,24 @@ export function ProjectCard({ project }: { project: Project }) {
 					className="relative aspect-video"
 					style={{ background: thumbGradient(project.thumbnailSeed) }}
 				>
-					<div className="pointer-events-none absolute inset-0 bg-grain" />
-					<span className="absolute end-4 bottom-0 select-none font-bold font-display text-8xl text-white/15 leading-none">
-						{glyph}
-					</span>
+					{showPreview ? (
+						<img
+							key={project.previewImageUrl}
+							src={project.previewImageUrl ?? undefined}
+							alt=""
+							loading="lazy"
+							decoding="async"
+							onError={() => setFailedPreviewImageUrl(project.previewImageUrl)}
+							className="absolute inset-0 h-full w-full object-cover object-top"
+						/>
+					) : (
+						<>
+							<div className="pointer-events-none absolute inset-0 bg-grain" />
+							<span className="absolute end-4 bottom-0 select-none font-bold font-display text-8xl text-white/15 leading-none">
+								{glyph}
+							</span>
+						</>
+					)}
 					<div className="absolute start-2 top-2">
 						<StatusBadge status={project.status} />
 					</div>

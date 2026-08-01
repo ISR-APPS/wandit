@@ -137,6 +137,7 @@ describe("generate_page tool", () => {
 		});
 		expect(output).toMatchObject({
 			attemptId: "attempt_1",
+			builderModel: "test-provider/test-builder-model",
 			realtime: { publicAccessToken: "tok_read", runId: "run_123" },
 			status: "queued",
 			versionNumber: 1,

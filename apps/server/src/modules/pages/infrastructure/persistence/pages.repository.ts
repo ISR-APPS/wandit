@@ -25,7 +25,9 @@ export type LandingArtifactRow = {
 };
 
 export type OwnedVersionRow = {
+	artifactId: string;
 	id: string;
+	projectId: string;
 	r2Key: string;
 };
 
@@ -35,6 +37,11 @@ export type VersionListRow = {
 	isLive: boolean;
 	meta: unknown;
 	number: number;
+};
+
+export type BuilderVersionRow = {
+	id: string;
+	r2Key: string;
 };
 
 export type PageOverviewRows = {
@@ -253,7 +260,12 @@ export class PagesRepository {
 		versionId: string,
 	): Promise<OwnedVersionRow | null> {
 		const [row] = await this.db
-			.select({ id: versions.id, r2Key: versions.r2Key })
+			.select({
+				artifactId: versions.artifactId,
+				id: versions.id,
+				projectId: versions.projectId,
+				r2Key: versions.r2Key,
+			})
 			.from(versions)
 			.innerJoin(projects, eq(projects.id, versions.projectId))
 			.where(
@@ -337,6 +349,32 @@ export class PagesRepository {
 			.limit(1);
 
 		return (latest?.number ?? 0) + 1;
+	}
+
+	/** Newest builder-origin version. A missing/null source is the legacy
+	 *  builder marker; manual, AI-edit, and restore rows are skipped. */
+	async findLatestBuilderVersion(
+		artifactId: string,
+	): Promise<BuilderVersionRow | null> {
+		const rows = await this.db
+			.select({ id: versions.id, meta: versions.meta, r2Key: versions.r2Key })
+			.from(versions)
+			.where(eq(versions.artifactId, artifactId))
+			.orderBy(desc(versions.number));
+
+		for (const row of rows) {
+			const meta =
+				typeof row.meta === "object" && row.meta !== null
+					? (row.meta as Record<string, unknown>)
+					: null;
+			const source = meta?.source;
+
+			if (source === "builder" || source === undefined || source === null) {
+				return { id: row.id, r2Key: row.r2Key };
+			}
+		}
+
+		return null;
 	}
 
 	// Landing artifact + its active version for an OWNED project, or null when

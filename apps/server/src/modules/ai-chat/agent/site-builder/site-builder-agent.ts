@@ -8,14 +8,21 @@
  * AI SDK's default Vercel AI Gateway provider.
  *
  * The loop is ONE deliberate build pass → code review → rendered review →
- * finish. The finish guard refuses an unreviewed write.
+ * finish. The finish guard refuses an unreviewed edit.
  */
+import { PAGE_TOKEN_NAMES } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import { isStepCount, type Tool, ToolLoopAgent, tool } from "ai";
+import * as cheerio from "cheerio";
 import { z } from "zod";
 
 // Plain module (no Nest), safe in the Trigger bundle — cheerio bundles fine.
-import { stampHtml } from "../../../pages/domain/stamp";
+import {
+	isStampableContainer,
+	isStampableLeaf,
+	stampHtml,
+} from "../../../pages/domain/stamp";
+import { BUILDER_REASONING_EFFORT_BY_MODEL } from "../tools/builder-model-options";
 
 import type { BuildProgressEvent } from "./build-progress";
 import {
@@ -93,10 +100,12 @@ export const REQUIRED_SCREENSHOT_PASSES = 2;
  * plain object (not closure variables) so the guards are unit-testable.
  */
 export type BuildLoopState = {
+	failedEditRepeats: number;
 	finishAccepted: boolean;
 	/** R2 key sequence — monotonic, never reused even after a failed call. */
 	imageSequence: number;
 	imagesGenerated: number;
+	lastFailedEditSearch: string | null;
 	reviewedRevision: number;
 	/** Successful screenshot_page captures — refused/unavailable calls do not count. */
 	screenshotPasses: number;
@@ -113,9 +122,11 @@ export function createBuildLoopState(
 	screenshotRequired = true,
 ): BuildLoopState {
 	return {
+		failedEditRepeats: 0,
 		finishAccepted: false,
 		imageSequence: 0,
 		imagesGenerated: 0,
+		lastFailedEditSearch: null,
 		reviewedRevision: 0,
 		screenshotPasses: 0,
 		screenshotRequired,
@@ -146,12 +157,97 @@ function log(message: string): void {
 	console.log(`[site-builder] ${message}`);
 }
 
+type CharacterSpan = { end: number; start: number };
+
+function findWholeLineMatches(
+	content: string,
+	search: string,
+	normalize: (line: string) => string,
+): CharacterSpan[] {
+	const contentEndsWithLineBreak = content.endsWith("\n");
+	const contentLines = content.split("\n");
+	const searchEndsWithLineBreak = search.endsWith("\n");
+	const searchLines = search.split("\n");
+
+	if (contentEndsWithLineBreak) {
+		contentLines.pop();
+	}
+
+	if (searchEndsWithLineBreak) {
+		searchLines.pop();
+	}
+
+	const lineStarts: number[] = [];
+	let offset = 0;
+
+	for (const line of contentLines) {
+		lineStarts.push(offset);
+		offset += line.length + 1;
+	}
+
+	const matches: CharacterSpan[] = [];
+
+	for (
+		let lineIndex = 0;
+		lineIndex <= contentLines.length - searchLines.length;
+		lineIndex += 1
+	) {
+		const matchesWindow = searchLines.every(
+			(line, searchIndex) =>
+				normalize(contentLines[lineIndex + searchIndex] ?? "") ===
+				normalize(line),
+		);
+
+		if (!matchesWindow) {
+			continue;
+		}
+
+		const lastLineIndex = lineIndex + searchLines.length - 1;
+		const lastLine = contentLines[lastLineIndex] ?? "";
+		const hasLineBreak =
+			lastLineIndex < contentLines.length - 1 || contentEndsWithLineBreak;
+
+		if (searchEndsWithLineBreak && !hasLineBreak) {
+			continue;
+		}
+
+		const lastLineStart = lineStarts[lastLineIndex] ?? content.length;
+		// Keep CRLF intact when the search does not include its final newline.
+		const contentEnd =
+			lastLineStart +
+			lastLine.length -
+			(hasLineBreak && lastLine.endsWith("\r") ? 1 : 0);
+		const end = searchEndsWithLineBreak
+			? lastLineStart + lastLine.length + 1
+			: contentEnd;
+
+		matches.push({ end, start: lineStarts[lineIndex] ?? 0 });
+	}
+
+	return matches;
+}
+
+const MAX_SCREENSHOT_DIAGNOSTICS = 5;
+
+function compactScreenshotDiagnostics(entries: string[]): string[] {
+	const unique = [...new Set(entries)];
+
+	if (unique.length <= MAX_SCREENSHOT_DIAGNOSTICS) {
+		return unique;
+	}
+
+	return [
+		...unique.slice(0, MAX_SCREENSHOT_DIAGNOSTICS),
+		`…and ${unique.length - MAX_SCREENSHOT_DIAGNOSTICS} more`,
+	];
+}
+
 /**
  * Shared guard for both mutating tools (write_file, edit_file). Enforces the
  * one-file contract, and seals the build once finish is accepted: the SDK
  * runs a step's tool calls together, so a [finish, edit_file] step would
- * otherwise mutate the VFS AFTER the gates passed and publish content that
- * was never re-read or screenshot-reviewed.
+ * otherwise mutate the VFS AFTER the gates passed and publish a later
+ * revision that never passed them.
  */
 function assertMutationAllowed(
 	state: BuildLoopState,
@@ -373,16 +469,66 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 				// counting misses overlapping occurrences (e.g. "</div></div>"
 				// occurs twice inside "</div></div></div>"), silently accepting
 				// an ambiguous edit this guard exists to refuse.
+				let matchEnd = -1;
+				let matchStart = -1;
 				let occurrences = 0;
 				for (
 					let index = current.indexOf(search);
 					index !== -1;
 					index = current.indexOf(search, index + 1)
 				) {
+					if (occurrences === 0) {
+						matchStart = index;
+						matchEnd = index + search.length;
+					}
+
 					occurrences += 1;
 				}
 
+				// Fallback tiers slide across complete logical lines only. A
+				// partial-line fragment can succeed through the exact tier, but is
+				// never whitespace-normalized inside a larger line.
 				if (occurrences === 0) {
+					const trimEndMatches = findWholeLineMatches(current, search, (line) =>
+						line.trimEnd(),
+					);
+
+					if (trimEndMatches.length > 0) {
+						occurrences = trimEndMatches.length;
+						matchStart = trimEndMatches[0]?.start ?? -1;
+						matchEnd = trimEndMatches[0]?.end ?? -1;
+					}
+				}
+
+				if (occurrences === 0) {
+					const trimMatches = findWholeLineMatches(current, search, (line) =>
+						line.trim(),
+					);
+
+					if (trimMatches.length > 0) {
+						occurrences = trimMatches.length;
+						matchStart = trimMatches[0]?.start ?? -1;
+						matchEnd = trimMatches[0]?.end ?? -1;
+					}
+				}
+
+				if (occurrences === 0) {
+					if (state.lastFailedEditSearch === search) {
+						state.failedEditRepeats += 1;
+					} else {
+						state.failedEditRepeats = 1;
+						state.lastFailedEditSearch = search;
+					}
+
+					if (state.failedEditRepeats >= 2) {
+						throw new Error(
+							"search text not found in index.html again. STOP retrying " +
+								"this snippet. Call read_file to see the current file and " +
+								"copy a snippet verbatim from it — or rewrite the section " +
+								"with write_file if the edit keeps failing.",
+						);
+					}
+
 					throw new Error(
 						"search text not found in index.html. It must match the " +
 							"CURRENT file exactly, including whitespace and " +
@@ -399,17 +545,21 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 					);
 				}
 
-				// Replacement via callback: String.replace would otherwise expand
-				// $-patterns ($&, $', $$…) inside `replace`, silently corrupting
-				// pages that contain template literals or prices.
-				const content = current.replace(search, () => replace);
+				// Slice assembly avoids String.replace expanding $-patterns ($&,
+				// $', $$…) and replaces the original whitespace-bearing span found
+				// by the line tiers, not the model's normalized search text.
+				const matched = current.slice(matchStart, matchEnd);
+				const content =
+					current.slice(0, matchStart) + replace + current.slice(matchEnd);
 				const written = vfs.write("index.html", content);
+				state.failedEditRepeats = 0;
+				state.lastFailedEditSearch = null;
 				state.writeRevision += 1;
 				const bytes = Buffer.byteLength(content, "utf-8");
 				emitEvent({ bytes, html: content, kind: "edit", type: "page-written" });
 				const delta =
 					Buffer.byteLength(replace, "utf-8") -
-					Buffer.byteLength(search, "utf-8");
+					Buffer.byteLength(matched, "utf-8");
 
 				log(
 					`edited ${written} (${delta >= 0 ? "+" : ""}${delta} bytes → ` +
@@ -424,7 +574,9 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 				"Declare the site complete. Call this ONCE, only after the " +
 				"required screenshot_page review (minimum " +
 				`${REQUIRED_SCREENSHOT_PASSES} per build) and a ` +
-				"re-read plus visual review of the final index.html.",
+				"visual review of the final index.html. A full write_file is " +
+				"source-reviewed automatically; after edit_file, re-read the " +
+				"file with read_file before finishing.",
 			inputSchema: z.object({
 				summary: z
 					.string()
@@ -444,12 +596,14 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 				}
 
 				if (state.reviewedRevision !== state.writeRevision) {
-					log("finish refused — the final index.html has not been re-read");
+					log("finish refused — the final edit has not been re-read");
 
 					return {
 						accepted: false as const,
 						reason:
-							"Re-read the current index.html with read_file after the latest write or edit, review it, then finish.",
+							"Re-read the current index.html with read_file after the " +
+							"latest edit_file, review it, then finish. A full " +
+							"write_file is reviewed automatically.",
 					};
 				}
 
@@ -487,6 +641,8 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 							"Call screenshot_page on the current index.html after the latest write or edit, review its desktop/mobile renders and diagnostics, then finish.",
 					};
 				}
+
+				assertValidSite(vfs);
 
 				state.summary = input.summary;
 				state.finishAccepted = true;
@@ -605,7 +761,10 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 			execute: async () => ({ files: vfs.list() }),
 		}),
 		read_file: tool({
-			description: "Read back one file you wrote, to review and improve it.",
+			description:
+				"Read back one file you wrote, to review and improve it. This " +
+				"is required after edit_file before finish, but not solely " +
+				"because write_file wrote the complete file.",
 			inputSchema: z.object({
 				path: z.string().min(1),
 			}),
@@ -670,7 +829,8 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 					return {
 						message:
 							`${error.message}. Visual review is unavailable in this ` +
-							"runtime; continue with a rigorous read_file code review.",
+							"runtime; continue with a rigorous source review, using " +
+							"read_file after any edit.",
 						refused: false as const,
 						unavailable: true as const,
 					};
@@ -708,10 +868,19 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 						`${capture.failedRequests.length} failed requests`,
 				);
 
+				// The progress card keeps full diagnostics; only the tool result is
+				// bounded because it is copied into every later model step.
+				const consoleErrors = compactScreenshotDiagnostics(
+					capture.consoleErrors,
+				);
+				const failedRequests = compactScreenshotDiagnostics(
+					capture.failedRequests,
+				);
+
 				return {
-					consoleErrors: capture.consoleErrors,
+					consoleErrors,
 					desktopShots,
-					failedRequests: capture.failedRequests,
+					failedRequests,
 					mobileShots,
 					overflow: capture.overflow,
 					refused: false as const,
@@ -769,7 +938,9 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 				"file; for targeted fixes use edit_file instead. After the first " +
 				"draft, a rewrite is ONLY for changing the page's fundamental " +
 				"structure — never to consolidate, reformat, or clean up (a " +
-				"rewrite streams the entire file again and costs minutes).",
+				"rewrite streams the entire file again and costs minutes). " +
+				"The complete content is marked source-reviewed automatically; " +
+				"do not call read_file solely because you wrote it.",
 			inputSchema: z.object({
 				content: z.string().min(1),
 				path: z.string().min(1).describe('Relative path, e.g. "index.html".'),
@@ -782,6 +953,10 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 
 				const written = vfs.write(path, content);
 				state.writeRevision += 1;
+
+				// The model just supplied every byte, so reading the same full file
+				// back would add context tokens without revealing new information.
+				state.reviewedRevision = state.writeRevision;
 				const bytes = Buffer.byteLength(content, "utf-8");
 
 				log(`wrote ${written} (${Math.round(bytes / 1024)} KB)`);
@@ -821,11 +996,15 @@ export async function runSiteBuild(
 	// its own providerOptions key, so both are always safe to send. Merged
 	// into ONE providerOptions object with the gateway ordering below — two
 	// separate spreads would overwrite each other.
-	// "auto" = send nothing and let the provider pick its default effort.
+	// Per-model overrides win over the env knob; resolve "auto" afterward so an
+	// override still applies when the env defers to the provider.
+	const configuredReasoningEffort =
+		BUILDER_REASONING_EFFORT_BY_MODEL[params.model] ??
+		env.AI_PAGE_DESIGN_REASONING;
 	const reasoningEffort =
-		env.AI_PAGE_DESIGN_REASONING === "auto"
+		configuredReasoningEffort === "auto"
 			? undefined
-			: env.AI_PAGE_DESIGN_REASONING;
+			: configuredReasoningEffort;
 	const providerOptions = {
 		...(reasoningEffort
 			? {
@@ -1012,6 +1191,102 @@ export async function runSiteBuild(
  * upload fine yet 404 at view time — better to fail the build than to
  * record a succeeded version that renders broken.
  */
+const BRAND_MARKER_WRAPPER_SELECTOR = "a, figure, article";
+const BRAND_SECTION_SCOPE_SELECTOR = "nav, header, section, footer, aside";
+
+function assertValidBrandMarkers(html: string): void {
+	const $ = cheerio.load(html);
+	const brandMarkers = $("[data-brand]");
+
+	brandMarkers.each((_, node) => {
+		const marker = $(node);
+		const role = marker.attr("data-brand");
+
+		if (role !== "nav" && role !== "footer") {
+			throw new Error(
+				`index.html has unsupported data-brand role "${role ?? ""}" — ` +
+					'brand markers must use exactly data-brand="nav" or data-brand="footer"',
+			);
+		}
+
+		if (!marker.is(BRAND_MARKER_WRAPPER_SELECTOR)) {
+			throw new Error(
+				`data-brand="${role}" must be on a stampable <a>, <figure>, or ` +
+					`<article> wrapper (found <${node.tagName}>) — never put the ` +
+					"marker on a div, image, SVG, or decorative child",
+			);
+		}
+
+		const isStampable = marker.is("a")
+			? isStampableLeaf($, node)
+			: isStampableContainer($, node);
+
+		if (!isStampable) {
+			throw new Error(
+				`data-brand="${role}" is on <${node.tagName}>, but that wrapper ` +
+					"is not stampable in this location — keep it outside SVG/form " +
+					"content and inside the recognized nav/header/footer chassis",
+			);
+		}
+
+		const hasTextContent = marker.text().trim().length > 0;
+		const hasAriaLabel = (marker.attr("aria-label") ?? "").trim().length > 0;
+		const hasImageAlt = marker
+			.find("img")
+			.toArray()
+			.some((image) => ($(image).attr("alt") ?? "").trim().length > 0);
+
+		if (!hasTextContent && !hasAriaLabel && !hasImageAlt) {
+			throw new Error(
+				`data-brand="${role}" must include restorable brand text: non-empty ` +
+					"text content, aria-label, or an inner <img> with non-empty alt",
+			);
+		}
+	});
+
+	const navMarkers = $('[data-brand="nav"]');
+
+	if (navMarkers.length !== 1) {
+		throw new Error(
+			'index.html must contain exactly one data-brand="nav" marker on ' +
+				`the replaceable nav/header brand wrapper (found ${navMarkers.length})`,
+		);
+	}
+
+	const navScope = navMarkers
+		.first()
+		.closest(BRAND_SECTION_SCOPE_SELECTOR)
+		.first();
+
+	if (
+		!navScope.is("nav, header") ||
+		navMarkers.first().closest("footer").length > 0
+	) {
+		throw new Error(
+			'data-brand="nav" must be inside the nav/header chassis, with its ' +
+				"nearest section scope being <nav> or <header>",
+		);
+	}
+
+	const footerMarkers = $('[data-brand="footer"]');
+
+	if (footerMarkers.length > 1) {
+		throw new Error(
+			'index.html may contain at most one data-brand="footer" marker ' +
+				`(found ${footerMarkers.length})`,
+		);
+	}
+
+	if (
+		footerMarkers.length === 1 &&
+		footerMarkers.first().closest("footer").length === 0
+	) {
+		throw new Error(
+			'data-brand="footer" must be inside the page footer wordmark',
+		);
+	}
+}
+
 function assertValidSite(vfs: VirtualFileSystem): void {
 	const html = vfs.read("index.html");
 
@@ -1055,6 +1330,73 @@ function assertValidSite(vfs: VirtualFileSystem): void {
 		throw new Error(
 			`index.html is suspiciously short (${trimmed.length} chars) — ` +
 				"a real landing page never is; refusing to publish it",
+		);
+	}
+
+	assertValidBrandMarkers(html);
+
+	const firstStyle = /<style\b[^>]*>([\s\S]*?)<\/style\s*>/i.exec(html);
+
+	if (!firstStyle) {
+		throw new Error(
+			"index.html is missing a <style> block — its first <style> must " +
+				"contain the required :root page-theme token block",
+		);
+	}
+
+	const firstStyleCss = firstStyle[1] ?? "";
+	const firstStyleCssWithoutComments = firstStyleCss.replace(
+		/\/\*[\s\S]*?\*\//g,
+		(comment) => " ".repeat(comment.length),
+	);
+	const root = /:root\s*\{([^}]*)\}/.exec(firstStyleCssWithoutComments);
+
+	if (!root) {
+		throw new Error(
+			"index.html's first <style> must contain a :root block declaring " +
+				"all required page-theme tokens",
+		);
+	}
+
+	const rootDeclarations = root[1] ?? "";
+	const missingTokens = PAGE_TOKEN_NAMES.filter(
+		(token) => !new RegExp(`(?:^|;)\\s*--${token}\\s*:`).test(rootDeclarations),
+	);
+
+	if (missingTokens.length > 0) {
+		throw new Error(
+			"index.html's first <style> :root is missing required page-theme " +
+				`tokens (${missingTokens.map((token) => `--${token}`).join(", ")}) — ` +
+				"declare every contract token before finishing",
+		);
+	}
+
+	const styleOpenEnd = (firstStyle.index ?? 0) + firstStyle[0].indexOf(">") + 1;
+	const rootStart = styleOpenEnd + root.index;
+	const rootEnd = rootStart + root[0].length;
+	const outsideOpeningRoot = html.slice(0, rootStart) + html.slice(rootEnd);
+	const outsideRootDeclarations = outsideOpeningRoot
+		.replace(/\/\*[\s\S]*?\*\//g, "")
+		.replace(/<!--[\s\S]*?-->/g, "")
+		.replace(/:root\s*\{[^}]*\}/gi, "");
+	const requiredConsumptions = [
+		"background",
+		"foreground",
+		"primary",
+		"font-body",
+		"radius",
+	] as const;
+	const unconsumedTokens = requiredConsumptions.filter(
+		(token) =>
+			!new RegExp(`var\\(\\s*--${token}\\s*[,)]`).test(outsideRootDeclarations),
+	);
+
+	if (unconsumedTokens.length > 0) {
+		throw new Error(
+			"index.html declares but does not consume required page-theme tokens " +
+				`outside :root (${unconsumedTokens
+					.map((token) => `--${token}`)
+					.join(", ")}) — reference each with var(--token) in the page styles`,
 		);
 	}
 }

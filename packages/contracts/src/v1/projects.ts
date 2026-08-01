@@ -38,8 +38,12 @@ export const projectSchema = z.object({
 	leadCount: z.int().min(0),
 	createdAt: isoDateTimeSchema,
 	updatedAt: isoDateTimeSchema,
-	// Temporary thumbnail seed until real thumbnails exist.
+	// Deterministic fallback for projects without a hero screenshot.
 	thumbnailSeed: z.number(),
+	// Hero screenshot of the latest activated build; null until one exists.
+	previewImageUrl: z.string().nullable(),
+	// User-uploaded brand logo reused by rebuilds; null until one is selected.
+	logoUrl: z.string().nullable(),
 	publishedSlug: z.string().optional(),
 	// Ad pixels injected into the published page at publish time.
 	metaPixelId: z.string().nullable(),
@@ -93,6 +97,8 @@ export type CreateProjectResponse = z.infer<typeof createProjectResponseSchema>;
 // Body for updating project settings.
 export const updateProjectBodySchema = z.object({
 	name: z.string().min(1).max(120).optional(),
+	// null removes the logo; undefined leaves it unchanged.
+	logoUrl: z.url().max(2048).nullable().optional(),
 	// null clears the pixel id; undefined leaves it unchanged.
 	metaPixelId: z.string().nullable().optional(),
 	tiktokPixelId: z.string().nullable().optional(),

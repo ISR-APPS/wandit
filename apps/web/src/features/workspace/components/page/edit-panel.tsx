@@ -21,11 +21,8 @@ import { Loader2, X } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { useTranslation } from "@/lib/i18n";
-import {
-	usePageOverviewQuery,
-	useVersionHtmlQuery,
-} from "../../api/pages.queries";
-import { parsePageTokens } from "../../lib/preview-editor/parse-tokens";
+import { useVersionHtmlQuery } from "../../api/pages.queries";
+import { parsePageTheme } from "../../lib/preview-editor/parse-tokens";
 import { useWorkspace } from "../../lib/store";
 import { usePageEditor } from "../../lib/use-page-editor";
 import { DataPanel } from "./data-panel";
@@ -34,18 +31,22 @@ import { ThemePanel } from "./theme-panel";
 
 export function EditPanel({ className }: { className?: string }) {
 	const { t } = useTranslation();
-	const { projectId } = useWorkspace();
+	const { previewVersion } = useWorkspace();
 	const editor = usePageEditor();
 	const isMobile = useIsMobile();
 	const [tab, setTab] = useState<"theme" | "data">("theme");
 
-	// Both queries are cache hits — PreviewStage already fetched them.
-	const overviewQuery = usePageOverviewQuery(projectId);
-	const versionId = overviewQuery.data?.activeVersion?.id;
-	const htmlQuery = useVersionHtmlQuery(versionId);
+	// This is a cache hit — PreviewStage already fetched the resolved canvas.
+	const htmlQuery = useVersionHtmlQuery(previewVersion?.id);
 	const html = htmlQuery.data?.html ?? "";
 
-	const baseTokens = useMemo(() => (html ? parsePageTokens(html) : {}), [html]);
+	const pageTheme = useMemo(
+		() =>
+			html
+				? parsePageTheme(html)
+				: ({ tokens: {}, colorScheme: null } as const),
+		[html],
+	);
 
 	return (
 		<aside
@@ -87,7 +88,10 @@ export function EditPanel({ className }: { className?: string }) {
 						</TabsList>
 					</div>
 					<TabsContent value="theme">
-						<ThemePanel baseTokens={baseTokens} />
+						<ThemePanel
+							baseTokens={pageTheme.tokens}
+							colorScheme={pageTheme.colorScheme}
+						/>
 					</TabsContent>
 					<TabsContent value="data">
 						<DataPanel html={html} />

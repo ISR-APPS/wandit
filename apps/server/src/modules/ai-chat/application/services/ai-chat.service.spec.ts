@@ -1,8 +1,19 @@
+import { BadRequestException } from "@nestjs/common";
+import {
+	applyElementOpsInputSchema,
+	applyElementOpsOutputSchema,
+	readElementsInputSchema,
+	readElementsOutputSchema,
+	readThemeInputSchema,
+	readThemeOutputSchema,
+} from "@wandit/contracts";
+import { env } from "@wandit/env/server";
 import type { DynamicToolUIPart, Tool } from "ai";
-import type { FastifyReply } from "fastify";
+import type { FastifyReply, FastifyRequest } from "fastify";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const aiMocks = vi.hoisted(() => ({
+	createAgentUIStream: vi.fn(),
 	createUIMessageStream: vi.fn(),
 	pipeUIMessageStreamToResponse: vi.fn(),
 }));
@@ -15,21 +26,27 @@ vi.mock("ai", async (importOriginal) => {
 
 	return {
 		...actual,
+		createAgentUIStream: aiMocks.createAgentUIStream,
 		createUIMessageStream: aiMocks.createUIMessageStream,
 		pipeUIMessageStreamToResponse: aiMocks.pipeUIMessageStreamToResponse,
 	};
 });
 
 vi.mock("../../agent/chat-agent", () => ({
+	aiChatToolsForValidation: {},
 	createChatAgent: chatAgentMocks.createChatAgent,
 }));
 
 import type { McpChatToolsResult } from "../../../mcp-connectors/application/services/mcp-chat-tools.service";
 import type { WanditUIMessage } from "../../agent/chat-agent";
+import { AiChatController } from "../../presentation/http/controllers/ai-chat.controller";
 import { AiChatService, completeDanglingToolCalls } from "./ai-chat.service";
 
 type AiChatServiceDependencies = ConstructorParameters<typeof AiChatService>;
 type CapturedStreamOptions = {
+	execute?: (options: {
+		writer: { merge: (stream: ReadableStream<unknown>) => void };
+	}) => Promise<void>;
 	onEnd?: (options: {
 		isContinuation: boolean;
 		responseMessage: WanditUIMessage;
@@ -48,6 +65,10 @@ function buildService({
 	mcpResult?: McpChatToolsResult;
 } = {}) {
 	const chatsRepository = {
+		findOwnedChatById: vi.fn().mockResolvedValue({
+			id: CHAT_ID,
+			projectId: PROJECT_ID,
+		}),
 		insertUiMessagesIfAbsent: vi.fn().mockResolvedValue(undefined),
 		upsertUiMessage: vi.fn().mockResolvedValue(undefined),
 	};
@@ -83,6 +104,32 @@ function buildService({
 	};
 }
 
+async function streamThroughController(
+	service: AiChatService,
+	chatsRepository: ReturnType<typeof buildService>["chatsRepository"],
+	messages: unknown[],
+) {
+	const controller = new AiChatController(service, chatsRepository as never);
+	const request = {
+		headers: {},
+		raw: { once: vi.fn() },
+	} as unknown as FastifyRequest;
+	const reply = {
+		hijack: vi.fn(),
+		raw: {},
+	} as unknown as FastifyReply;
+
+	await controller.stream(
+		CHAT_ID,
+		{ messages },
+		{ id: USER_ID } as never,
+		request,
+		reply,
+	);
+
+	return { reply, request };
+}
+
 function createMcpResult(
 	overrides: Partial<McpChatToolsResult> = {},
 ): McpChatToolsResult {
@@ -114,9 +161,12 @@ function userMessage(): WanditUIMessage {
 	};
 }
 
-function assistantMessage(): WanditUIMessage {
+function assistantMessage(
+	metadata?: WanditUIMessage["metadata"],
+): WanditUIMessage {
 	return {
 		id: "assistant-message",
+		metadata,
 		parts: [{ text: "Hi", type: "text" }],
 		role: "assistant",
 	};
@@ -132,16 +182,105 @@ function capturedOnEnd() {
 	return onEnd;
 }
 
+function capturedExecute() {
+	const execute = capturedStreamOptions?.execute;
+
+	if (!execute) {
+		throw new Error("createUIMessageStream did not receive execute");
+	}
+
+	return execute;
+}
+
 describe("AiChatService MCP lifecycle", () => {
 	beforeEach(() => {
 		vi.resetAllMocks();
 		capturedStreamOptions = undefined;
 		chatAgentMocks.createChatAgent.mockReturnValue({});
+		aiMocks.createAgentUIStream.mockResolvedValue(new ReadableStream());
 		aiMocks.createUIMessageStream.mockImplementation((options: unknown) => {
 			capturedStreamOptions = options as CapturedStreamOptions;
 			return {};
 		});
 		aiMocks.pipeUIMessageStreamToResponse.mockImplementation(() => {});
+	});
+
+	it("preserves a clean selected target through UI validation and history seeding", async () => {
+		const selectedTarget = {
+			excerpt: "A focused launch headline",
+			tag: "h1",
+			wid: "hero-title",
+		};
+		const rawUserMessage = {
+			id: "targeted-user-message",
+			metadata: { selectedTarget },
+			parts: [{ text: "Refine this headline", type: "text" }],
+			role: "user",
+		};
+		const { chatsRepository, service } = buildService();
+
+		await streamThroughController(service, chatsRepository, [rawUserMessage]);
+
+		const responseMessage = assistantMessage();
+		await capturedOnEnd()({
+			isContinuation: false,
+			responseMessage,
+		});
+
+		expect(chatsRepository.insertUiMessagesIfAbsent).toHaveBeenCalledWith(
+			CHAT_ID,
+			[rawUserMessage, responseMessage],
+		);
+		const insertedUserMessage =
+			chatsRepository.insertUiMessagesIfAbsent.mock.calls[0]?.[1]?.[0];
+		expect(insertedUserMessage).toEqual(rawUserMessage);
+		expect(insertedUserMessage?.metadata?.selectedTarget).toEqual({
+			excerpt: "A focused launch headline",
+			tag: "h1",
+			wid: "hero-title",
+		});
+		expect(
+			Object.keys(insertedUserMessage?.metadata?.selectedTarget ?? {}).sort(),
+		).toEqual(["excerpt", "tag", "wid"]);
+	});
+
+	it.each([
+		{
+			field: "tag",
+			selectedTarget: {
+				excerpt: "Headline",
+				tag: "t".repeat(33),
+				wid: "hero-title",
+			},
+		},
+		{
+			field: "excerpt",
+			selectedTarget: {
+				excerpt: "e".repeat(161),
+				tag: "h1",
+				wid: "hero-title",
+			},
+		},
+	])("rejects an overlong selectedTarget $field at the controller boundary", async ({
+		selectedTarget,
+	}) => {
+		const { chatsRepository, service } = buildService();
+		const serviceStream = vi.spyOn(service, "stream");
+		const error = await streamThroughController(service, chatsRepository, [
+			{
+				id: "invalid-target-message",
+				metadata: { selectedTarget },
+				parts: [{ text: "Refine this", type: "text" }],
+				role: "user",
+			},
+		]).catch((caught: unknown) => caught);
+
+		expect(error).toBeInstanceOf(BadRequestException);
+		expect((error as BadRequestException).getResponse()).toEqual({
+			code: "INVALID_UI_MESSAGES",
+			message: "Messages do not match the AI chat protocol",
+		});
+		expect(serviceStream).not.toHaveBeenCalled();
 	});
 
 	it("closes MCP clients after the continuation persistence branch", async () => {
@@ -165,14 +304,78 @@ describe("AiChatService MCP lifecycle", () => {
 			mcpResult.approvalMap,
 		);
 
+		const responseMessage = assistantMessage({
+			model: "provider/model",
+			usage: { inputTokens: 120, outputTokens: 30, totalTokens: 150 },
+		});
 		await capturedOnEnd()({
 			isContinuation: true,
-			responseMessage: assistantMessage(),
+			responseMessage,
 		});
 
-		expect(chatsRepository.upsertUiMessage).toHaveBeenCalledTimes(1);
+		expect(chatsRepository.upsertUiMessage).toHaveBeenCalledWith(
+			CHAT_ID,
+			responseMessage,
+		);
 		expect(chatsRepository.insertUiMessagesIfAbsent).not.toHaveBeenCalled();
 		expect(mcpResult.close).toHaveBeenCalledTimes(1);
+	});
+
+	it("attaches model and accumulated v7 usage through messageMetadata", async () => {
+		const { service } = buildService();
+
+		await service.stream(streamOptions());
+		await capturedExecute()({ writer: { merge: vi.fn() } });
+
+		const agentOptions = aiMocks.createAgentUIStream.mock.calls[0]?.[0] as
+			| {
+					messageMetadata?: (options: { part: unknown }) => unknown;
+			  }
+			| undefined;
+		const messageMetadata = agentOptions?.messageMetadata;
+		if (!messageMetadata) throw new Error("messageMetadata was not configured");
+
+		expect(messageMetadata({ part: { type: "start" } })).toEqual({
+			model: env.AI_CHAT_MODEL,
+		});
+		expect(
+			messageMetadata({
+				part: {
+					type: "finish",
+					totalUsage: {
+						inputTokens: 120,
+						inputTokenDetails: {
+							cacheReadTokens: 20,
+							cacheWriteTokens: 5,
+							noCacheTokens: 100,
+						},
+						outputTokens: 30,
+						outputTokenDetails: {
+							reasoningTokens: 10,
+							textTokens: 20,
+						},
+						totalTokens: 150,
+					},
+				},
+			}),
+		).toEqual({
+			model: env.AI_CHAT_MODEL,
+			usage: {
+				inputTokens: 120,
+				inputTokenDetails: {
+					cacheReadTokens: 20,
+					cacheWriteTokens: 5,
+					noCacheTokens: 100,
+				},
+				outputTokens: 30,
+				outputTokenDetails: {
+					reasoningTokens: 10,
+					textTokens: 20,
+				},
+				totalTokens: 150,
+			},
+		});
+		expect(messageMetadata({ part: { type: "text-delta" } })).toBeUndefined();
 	});
 
 	it("closes MCP clients when ordinary persistence rejects", async () => {
@@ -184,14 +387,21 @@ describe("AiChatService MCP lifecycle", () => {
 		);
 		await service.stream(streamOptions());
 
+		const responseMessage = assistantMessage({
+			model: "provider/model",
+			usage: { inputTokens: 120, outputTokens: 30, totalTokens: 150 },
+		});
 		await expect(
 			capturedOnEnd()({
 				isContinuation: false,
-				responseMessage: assistantMessage(),
+				responseMessage,
 			}),
 		).rejects.toBe(persistenceError);
 
-		expect(chatsRepository.insertUiMessagesIfAbsent).toHaveBeenCalledTimes(1);
+		expect(chatsRepository.insertUiMessagesIfAbsent).toHaveBeenCalledWith(
+			CHAT_ID,
+			[userMessage(), responseMessage],
+		);
 		expect(chatsRepository.upsertUiMessage).not.toHaveBeenCalled();
 		expect(mcpResult.close).toHaveBeenCalledTimes(1);
 	});
@@ -336,6 +546,76 @@ describe("completeDanglingToolCalls dynamic tools", () => {
 	});
 });
 
+describe("completeDanglingToolCalls page tools", () => {
+	it("repairs apply_element_ops with schema-valid rejected output", () => {
+		const repaired = repairBuiltInPart({
+			input: { ops: [] },
+			state: "input-streaming",
+			toolCallId: "call-apply-element-ops",
+			type: "tool-apply_element_ops",
+		});
+
+		expect(repaired).toMatchObject({
+			input: {
+				ops: [{ kind: "text", wid: "unknown" }],
+			},
+			output: {
+				status: "rejected",
+			},
+			state: "output-available",
+		});
+		expect(applyElementOpsInputSchema.safeParse(repaired.input).success).toBe(
+			true,
+		);
+		expect(applyElementOpsOutputSchema.safeParse(repaired.output).success).toBe(
+			true,
+		);
+	});
+
+	it("repairs read_elements while preserving a valid ordered input", () => {
+		const input = { wids: ["hero-title", "pricing-cta"] };
+		const repaired = repairBuiltInPart({
+			input,
+			state: "input-available",
+			toolCallId: "call-read-elements",
+			type: "tool-read_elements",
+		});
+
+		expect(repaired).toMatchObject({
+			input,
+			output: {
+				status: "no-page",
+			},
+			state: "output-available",
+		});
+		expect(readElementsInputSchema.safeParse(repaired.input).success).toBe(
+			true,
+		);
+		expect(readElementsOutputSchema.safeParse(repaired.output).success).toBe(
+			true,
+		);
+	});
+
+	it("repairs read_theme with schema-valid input and output", () => {
+		const repaired = repairBuiltInPart({
+			input: {},
+			state: "input-streaming",
+			toolCallId: "call-read-theme",
+			type: "tool-read_theme",
+		});
+
+		expect(repaired).toMatchObject({
+			input: {},
+			output: {
+				status: "no-page",
+			},
+			state: "output-available",
+		});
+		expect(readThemeInputSchema.safeParse(repaired.input).success).toBe(true);
+		expect(readThemeOutputSchema.safeParse(repaired.output).success).toBe(true);
+	});
+});
+
 function repairDynamicPart(part: DynamicToolUIPart) {
 	const priorMessage: WanditUIMessage = {
 		id: "prior-assistant",
@@ -350,6 +630,24 @@ function repairDynamicPart(part: DynamicToolUIPart) {
 	return {
 		repaired: result[0]?.parts[0] as DynamicToolUIPart,
 		result,
+	};
+}
+
+function repairBuiltInPart(part: WanditUIMessage["parts"][number]) {
+	const priorMessage: WanditUIMessage = {
+		id: "prior-assistant",
+		parts: [part],
+		role: "assistant",
+	};
+	const tailMessage = userMessage();
+	const result = completeDanglingToolCalls([priorMessage, tailMessage]);
+
+	expect(result[1]).toBe(tailMessage);
+
+	return result[0]?.parts[0] as {
+		input: unknown;
+		output: unknown;
+		state: string;
 	};
 }
 

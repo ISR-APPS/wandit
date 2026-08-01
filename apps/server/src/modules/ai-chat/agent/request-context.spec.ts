@@ -1,6 +1,5 @@
+import type { AiChatRequestMetadata } from "@wandit/contracts";
 import { describe, expect, it } from "vitest";
-
-import type { AiChatRequestMetadata } from "../presentation/http/controllers/ai-chat.controller";
 import {
 	buildChatRequestContext,
 	resolveVideoRequestKeySeed,
@@ -105,5 +104,72 @@ describe("buildChatRequestContext composer settings", () => {
 
 		expect(block).toContain('They chose "Landing page"');
 		expect(block).toContain("Objectif: Vente COD");
+	});
+});
+
+describe("buildChatRequestContext preview targets", () => {
+	it("renders a one-item selectedWids array as the single-target block", () => {
+		const block = buildChatRequestContext({
+			manualEdits: [],
+			metadata: { selectedWids: ["hero-title"] },
+		});
+
+		expect(block).toBe(
+			"## This request (set by the app, not the user's words)\n\n" +
+				"The user selected an element in the page preview for THIS message: " +
+				'data-wid="hero-title". When they say "this", "here", "ça", ' +
+				'"هذا" they mean that element. Call get_page_outline / ' +
+				"read_section to see it before answering or editing.",
+		);
+	});
+
+	it("renders multiple selectedWids in their original numbered order", () => {
+		const block = buildChatRequestContext({
+			manualEdits: [],
+			metadata: {
+				selectedWids: ["hero-title", "pricing-cta", "footer-link"],
+			},
+		});
+
+		expect(block).toBe(
+			"## This request (set by the app, not the user's words)\n\n" +
+				"The user attached 3 numbered comments to elements in the page " +
+				"preview for THIS message.\nTargets in order:\n" +
+				'1. data-wid="hero-title"\n' +
+				'2. data-wid="pricing-cta"\n' +
+				'3. data-wid="footer-link"\n' +
+				"The numbered comments are in the message body. Resolve each " +
+				"comment against its wid at the same numbered position, and prefer " +
+				"apply_element_ops for these edits.",
+		);
+	});
+
+	it("keeps the legacy selectedWid block unchanged", () => {
+		const block = buildChatRequestContext({
+			manualEdits: [],
+			metadata: { selectedWid: "hero-title" },
+		});
+
+		expect(block).toBe(
+			"## This request (set by the app, not the user's words)\n\n" +
+				"The user selected an element in the page preview for THIS message: " +
+				'data-wid="hero-title". When they say "this", "here", "ça", ' +
+				'"هذا" they mean that element. Call get_page_outline / ' +
+				"read_section to see it before answering or editing.",
+		);
+	});
+
+	it("prefers selectedWids when both request fields are present", () => {
+		const block = buildChatRequestContext({
+			manualEdits: [],
+			metadata: {
+				selectedWid: "legacy-target",
+				selectedWids: ["first-target", "second-target"],
+			},
+		});
+
+		expect(block).toContain('1. data-wid="first-target"');
+		expect(block).toContain('2. data-wid="second-target"');
+		expect(block).not.toContain("legacy-target");
 	});
 });

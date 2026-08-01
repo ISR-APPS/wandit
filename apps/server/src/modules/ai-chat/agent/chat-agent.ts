@@ -1,4 +1,4 @@
-import type { AiChatTools } from "@wandit/contracts";
+import type { AiChatMessageMetadata, AiChatTools } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import { type Tool, ToolLoopAgent, type UIMessage } from "ai";
 
@@ -55,13 +55,20 @@ type AiChatToolSet = {
 	generate_page: GeneratePageTool;
 	scrape_leads: ScrapeLeadsTool;
 	get_page_outline: PageEditTools["get_page_outline"];
+	apply_element_ops: PageEditTools["apply_element_ops"];
+	read_elements: PageEditTools["read_elements"];
+	read_theme: PageEditTools["read_theme"];
 	read_section: PageEditTools["read_section"];
 	replace_section: PageEditTools["replace_section"];
 };
 
 type McpToolSet = Record<string, Tool>;
 
-export type WanditUIMessage = UIMessage<never, never, AiChatTools>;
+export type WanditUIMessage = UIMessage<
+	AiChatMessageMetadata,
+	never,
+	AiChatTools
+>;
 
 // Everything the per-request tools need: generate_page's queue deps, the
 // scrape_leads queue deps, plus the edit tools' mutation service.

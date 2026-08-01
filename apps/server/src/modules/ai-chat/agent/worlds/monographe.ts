@@ -18,16 +18,17 @@ Discretion, scarcity, calm authority. Copy is written by an insider who dislikes
 
 ## Visual signatures (what makes it instantly recognizable)
 - A near-black warm field with ivory hairline-weight serif display type at enormous sizes.
-- ZERO cards, ZERO box-shadow, border-radius only on pill buttons (99px). Separation is 1px hairlines at 8-14% alpha and background tone steps of 2-5 RGB points — sections read as paper-stock changes, never as colored blocks.
+- ZERO cards, ZERO box-shadow, border-radius only on buttons through var(--radius) (:root sets the square treatment at 0). Separation is 1px hairlines at 8-14% alpha and background tone steps of 2-5 RGB points — sections read as paper-stock changes, never as colored blocks.
 - One warm accent (bronze-like, taken from the brief's palette) that lives in the TYPOGRAPHY — an italic word inside a headline, tick rules, numerals — never as a loud button color.
 - Fixed full-viewport film grain: inline SVG feTurbulence fractalNoise baseFrequency 0.9, tiled ~300px, opacity .05-.06, inset:-50%, pointer-events:none, above content.
 - Outline/stroked type moments: color:transparent with -webkit-text-stroke 1px rgba(accent,.4) — giant background folio numerals, an oversized hanging quote glyph.
 - Everything numbered: sections 01/02/03, plates "Fig. 01 — North elevation", coordinates with prime marks (36°45′ N · 3°04′ E), Roman numerals for years (MMIX — MMXXVI).
 
-## Color physics (instantiate with the brief's hexes — the physics is law, the hexes are the brief's)
+## Color physics (route the brief's palette through the fixed tokens — the physics is law)
+FIXED TOKEN MAP — base dark→--background · light pole→--foreground · ACCENT→--primary · base dark→--primary-foreground · upper dark sibling→--secondary · lower dark sibling→--accent · light pole at 60%→--muted · light pole at structural alpha→--border · zero→--radius · DISPLAY→--font-heading · BODY→--font-body. These are the only CSS color/type/radius variables: every pole below is a prose role, literal register hexes belong only in these :root values, and every sibling or alpha step is a color-mix(in srgb, var(--foreground) N%, transparent), substituting the mapped fixed token for that pole, or a color-mix between two mapped fixed-token references. Every unmapped role below MUST reuse the nearest mapped token or such a mix; it never gets another custom property or literal. Non-color mechanics may keep their own custom properties. Any rgba(POLE, a) notation below is design shorthand for that color-mix, never emitted CSS.
 - Ground: the palette's DARK pole, built as a tonal trio — three near-identical darks 2-5 RGB points apart (e.g. #12100E / #17140F / #1D1913) used as section tone shifts.
 - Text: the palette's light pole (warm ivory territory), stepped through alpha: 1 / .8 / .6 / .42 for display / body / secondary / captions.
-- Exactly ONE accent, used sparingly; one error-only warm tone for forms. No other hue exists.
+- Exactly ONE accent, used sparingly; form errors reuse var(--primary) mixed toward var(--foreground). No other hue or color property exists.
 - Declare color-scheme:dark on :root and a matching theme-color meta.
 
 ## Typography system
@@ -75,8 +76,8 @@ Global: gsap.defaults({ease:"power3.out", duration:1.1}). Durations live in 0.9-
 - Hover micro-craft (CSS): underline grows FROM THE LEFT by transitioning right:100% -> 0 (.4s); accent-outline pills FILL with accent and invert text (.35s); image plates swell scale(1.015) over 1.6s on a WRAPPER (never the element GSAP transforms); a button whose gap expands .9rem -> 1.3rem so the arrow slides away; input rules and their labels turn accent together on :focus-within.
 
 ## Components
-- Forms are RULED LINES: transparent background, border:0, border-bottom 1px hairline, border-radius:0, accent focus rule, phone-first inputs. Validation errors are brand-voice full sentences; the success state echoes the user's own input back with locale date formatting; if a date is involved, the minimum is computed from the copy's promise. The instant validation passes — as the success line is typeset — the page files the entry by dispatching the wandit:lead CustomEvent on document with the visitor's fields flat in detail (name, phone as typed, wilaya, commune, plus whatever else the form collects), and the form carries one off-canvas decoy input marked data-wandit-hp that the page's own script never reads.
-- Buttons: pill outline in accent that fills on hover, or a ruled text-link with the sliding arrow. Never a solid colored rectangle.
+- Forms are RULED LINES: transparent background, border:0, border-bottom 1px hairline, border-radius:min(var(--radius), 0px), accent focus rule, phone-first inputs. Validation errors are brand-voice full sentences; the success state echoes the user's own input back with locale date formatting; if a date is involved, the minimum is computed from the copy's promise. The instant validation passes — as the success line is typeset — the page files the entry by dispatching the wandit:lead CustomEvent on document with the visitor's fields flat in detail (name, phone as typed, wilaya, commune, plus whatever else the form collects), and the form carries one off-canvas decoy input marked data-wandit-hp that the page's own script never reads.
+- Buttons: a squared outline at border-radius var(--radius) that fills on hover, or a ruled text-link with the sliding arrow. Never a solid colored rectangle.
 - ::selection recolored to the accent; :focus-visible is a 1px accent outline at outline-offset:4px.
 
 ## Editorial furniture (REQUIRED — this is the monograph's voice)
