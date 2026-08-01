@@ -255,7 +255,7 @@ This world fails in exactly the ways a dark tech page always fails: a purple gra
 		"photography",
 		"ecommerce",
 	],
-	kind: "cod",
+	kind: "product",
 	mood: ["technical", "engineered", "dark", "precise", "confident"],
 	name: "Laboratoire",
 	priceFeel: "premium",

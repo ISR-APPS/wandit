@@ -29,6 +29,7 @@ import type { generatePageTask } from "../../../../trigger/generate-page.task";
 import type { PagesRepository } from "../../../pages/infrastructure/persistence/pages.repository";
 import { buildSiteBuilderSystemPrompt } from "../site-builder/builder-prompt";
 import { getWorld } from "../worlds";
+import { COD_GENRE_DOC, FUSION_CONTRACT } from "../worlds/cod/genre";
 
 // Static Nest logger (no DI needed): queue-side events land in the API
 // server terminal; the build itself logs in the Trigger worker terminal.
@@ -58,7 +59,13 @@ export function createGeneratePageTool(
 			"Page tab — it is not instant.",
 		inputSchema: generatePageInputSchema,
 		outputSchema: generatePageOutputSchema,
-		execute: async ({ brief, title, worldId }): Promise<GeneratePageOutput> => {
+		execute: async ({
+			brief,
+			pageKind,
+			title,
+			worldId,
+			worldIds,
+		}): Promise<GeneratePageOutput> => {
 			// Checked at CALL time, not boot time: the server must run before
 			// credentials exist, and the model must answer honestly when they don't.
 			if (!isR2Configured() || !env.TRIGGER_SECRET_KEY) {
@@ -80,16 +87,40 @@ export function createGeneratePageTool(
 			// never change what this attempt meant. The chosen design world's
 			// bible rides inside the same snapshot — the trigger task and the
 			// build loop never need to know worlds exist.
-			const world = worldId ? getWorld(worldId) : undefined;
-			if (worldId && !world) {
-				logger.warn(
-					`Unknown worldId "${worldId}" — building without a world doc.`,
-				);
-			}
+			const requestedWorldIds = worldIds ?? (worldId ? [worldId] : []);
+			const resolvedWorlds = requestedWorldIds.flatMap((id) => {
+				const world = getWorld(id);
+
+				if (!world) {
+					logger.warn(
+						worldIds
+							? `Unknown worldId "${id}" — dropping it from the fusion.`
+							: `Unknown worldId "${id}" — building without a world doc.`,
+					);
+
+					return [];
+				}
+
+				return [world];
+			});
+			const isCod =
+				pageKind === "cod" ||
+				resolvedWorlds.some((world) => world.kind === "cod");
 			const basePrompt = await buildSiteBuilderSystemPrompt();
-			const designerSystemPrompt = world
-				? `${basePrompt}\n\n${world.doc}`
-				: basePrompt;
+			const designerSystemPrompt = isCod
+				? [
+						basePrompt,
+						COD_GENRE_DOC,
+						...(resolvedWorlds.length > 0
+							? [
+									FUSION_CONTRACT(resolvedWorlds),
+									...resolvedWorlds.map((world) => world.doc),
+								]
+							: []),
+					].join("\n\n")
+				: resolvedWorlds[0]
+					? `${basePrompt}\n\n${resolvedWorlds[0].doc}`
+					: basePrompt;
 			const builderModel =
 				deps.builderModel ??
 				env.AI_PAGE_BUILDER_MODEL ??
@@ -99,13 +130,20 @@ export function createGeneratePageTool(
 				chatId: deps.chatId,
 				model: builderModel,
 				projectId: deps.projectId,
-				spec: { brief, designerSystemPrompt, title },
+				spec: {
+					brief,
+					designerSystemPrompt,
+					...(pageKind ? { pageKind } : {}),
+					title,
+				},
 			});
 
 			logger.log(
 				`Queued page build "${title}" — attempt ${attempt.id}, ` +
 					`Builder ${builderModel}` +
-					(world ? `, world "${world.id}"` : ", no world"),
+					(resolvedWorlds.length > 0
+						? `, world${resolvedWorlds.length === 1 ? "" : "s"} "${resolvedWorlds.map((world) => world.id).join('", "')}"`
+						: ", no world"),
 			);
 			// Log only a preview: the full brief is user business data and the
 			// full spec is already persisted on the attempt row above.

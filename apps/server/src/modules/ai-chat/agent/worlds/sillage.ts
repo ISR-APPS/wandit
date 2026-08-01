@@ -305,7 +305,7 @@ Executed at 100 percent — three warm near-blacks cutting between chapters, thr
 		"gifts",
 		"hammam",
 	],
-	kind: "cod",
+	kind: "product",
 	mood: ["dark", "hushed", "sensual", "drifting", "opulent"],
 	name: "Sillage",
 	priceFeel: "premium",
