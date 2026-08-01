@@ -5,6 +5,11 @@ import { projects } from "@wandit/db/schema/projects";
 import { env } from "@wandit/env/server";
 
 import {
+	type AnalyticsCapture,
+	captureGenerationCompleted,
+	captureGenerationFailed,
+} from "../infrastructure/analytics/generation-events";
+import {
 	getObjectContentType,
 	marketingAssetKey,
 	putPageHtml,
@@ -52,9 +57,10 @@ export type MarketingAssetRuntime = {
  */
 export function createMarketingAssetRuntime(
 	db: TriggerDatabase,
+	analytics: AnalyticsCapture,
 ): MarketingAssetRuntime {
 	const billing = createBilling(db);
-	const persistence = createPersistence(db);
+	const persistence = createPersistence(db, analytics);
 
 	return {
 		runner: {
@@ -119,7 +125,7 @@ function createBilling(db: TriggerDatabase): MarketingAssetBilling {
 	});
 }
 
-function createPersistence(db: TriggerDatabase) {
+function createPersistence(db: TriggerDatabase, analytics: AnalyticsCapture) {
 	const loadAsset = async (
 		assetId: string,
 	): Promise<MarketingAssetJob | null> => {
@@ -186,6 +192,16 @@ function createPersistence(db: TriggerDatabase) {
 			)
 			.returning({ id: marketingAssets.id });
 
+		if (updated) {
+			captureGenerationCompleted(
+				analytics,
+				asset.userId,
+				"marketing_asset",
+				asset.projectId,
+				asset.id,
+			);
+		}
+
 		return Boolean(updated);
 	};
 
@@ -195,6 +211,7 @@ function createPersistence(db: TriggerDatabase) {
 			completedAt: Date;
 			error: string;
 			expectedStatus: "queued" | "generating";
+			reason: string;
 		},
 	): Promise<boolean> => {
 		const [updated] = await db
@@ -212,6 +229,17 @@ function createPersistence(db: TriggerDatabase) {
 				),
 			)
 			.returning({ id: marketingAssets.id });
+
+		if (updated) {
+			captureGenerationFailed(
+				analytics,
+				asset.userId,
+				"marketing_asset",
+				asset.projectId,
+				asset.id,
+				input.reason,
+			);
+		}
 
 		return Boolean(updated);
 	};

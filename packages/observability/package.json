@@ -1,0 +1,46 @@
+{
+	"name": "@wandit/observability",
+	"version": "0.0.0",
+	"private": true,
+	"type": "module",
+	"exports": {
+		"./nestjs": "./src/nestjs.ts",
+		"./nestjs-setup": "./src/nestjs-setup.ts",
+		"./node": "./src/node.ts",
+		"./browser": "./src/browser.ts",
+		"./cloudflare": "./src/cloudflare.ts",
+		"./trigger": "./src/trigger.ts",
+		"./vite": "./src/vite.ts",
+		"./error": "./src/error.ts"
+	},
+	"scripts": {
+		"check-types": "tsc --noEmit"
+	},
+	"dependencies": {
+		"@sentry/cloudflare": "catalog:",
+		"@sentry/nestjs": "catalog:",
+		"@sentry/node": "catalog:",
+		"@sentry/react": "catalog:",
+		"@sentry/vite-plugin": "catalog:"
+	},
+	"peerDependencies": {
+		"@nestjs/common": "^11",
+		"@trigger.dev/sdk": "4.5.3"
+	},
+	"peerDependenciesMeta": {
+		"@nestjs/common": {
+			"optional": true
+		},
+		"@trigger.dev/sdk": {
+			"optional": true
+		}
+	},
+	"devDependencies": {
+		"@nestjs/common": "^11.1.27",
+		"@trigger.dev/sdk": "4.5.3",
+		"@types/node": "^22.13.14",
+		"@types/react": "^19.2.0",
+		"@wandit/config": "workspace:*",
+		"typescript": "catalog:"
+	}
+}

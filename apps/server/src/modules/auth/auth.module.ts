@@ -12,6 +12,7 @@ import { isAdminRole } from "@wandit/contracts";
 import { eq, inArray, sql } from "@wandit/db";
 import { user } from "@wandit/db/schema/auth";
 import { env } from "@wandit/env/server";
+import { AnalyticsService } from "../../infrastructure/analytics/analytics.service";
 import {
 	DATABASE,
 	type Database,
@@ -38,10 +39,16 @@ function parseAdminEmails(raw: string | undefined): string[] {
 
 const authProvider: Provider<Auth> = {
 	provide: AUTH_INSTANCE,
-	inject: [CreditsService, DATABASE],
-	useFactory: (creditsService: CreditsService, db: Database) =>
+	inject: [CreditsService, DATABASE, AnalyticsService],
+	useFactory: (
+		creditsService: CreditsService,
+		db: Database,
+		analytics: AnalyticsService,
+	) =>
 		createAuth({
 			onUserCreated: async (newUser) => {
+				analytics.capture(newUser.id, "user_signed_up");
+
 				try {
 					await creditsService.grantSignupCredits(newUser.id);
 				} catch (error) {

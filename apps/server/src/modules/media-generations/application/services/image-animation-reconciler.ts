@@ -32,6 +32,7 @@ export type ImageAnimationReconcilerDependencies = {
 				ImageAnimationAttemptStatus,
 				"queued" | "generating"
 			>;
+			reason: string;
 		},
 	) => Promise<boolean>;
 	listCandidates: (input: {
@@ -99,6 +100,7 @@ export async function reconcileImageAnimations(
 				completedAt: now,
 				error: USER_SAFE_IMAGE_ANIMATION_ERROR,
 				expectedStatus,
+				reason: "project_deleted",
 			});
 
 			if (!failed) {
@@ -139,6 +141,10 @@ export async function reconcileImageAnimations(
 			completedAt: now,
 			error: USER_SAFE_IMAGE_ANIMATION_ERROR,
 			expectedStatus,
+			reason:
+				candidate.reconciliationReason === "stale_queued"
+					? "stale_queued"
+					: "stale_generation",
 		});
 
 		if (!failed) {

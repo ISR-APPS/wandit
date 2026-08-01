@@ -9,6 +9,8 @@ import { Inject, Injectable } from "@nestjs/common";
 import { and, eq, inArray, lt } from "@wandit/db";
 import { connectorGenerationAttempts } from "@wandit/db/schema/connector-generation-attempts";
 
+import { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
+import { captureGenerationFailed } from "../../../../infrastructure/analytics/generation-events";
 import {
 	DATABASE,
 	type Database,
@@ -33,7 +35,11 @@ const STALE_ATTEMPT_MS = 35 * 60 * 1000;
 
 @Injectable()
 export class ConnectorGenerationsRepository {
-	constructor(@Inject(DATABASE) private readonly db: Database) {}
+	constructor(
+		@Inject(DATABASE) private readonly db: Database,
+		@Inject(AnalyticsService)
+		private readonly analyticsService: AnalyticsService,
+	) {}
 
 	// One attempt row per intercepted generation call, born "queued".
 	async insertAttempt(input: {
@@ -64,11 +70,35 @@ export class ConnectorGenerationsRepository {
 			.where(eq(connectorGenerationAttempts.id, attemptId));
 	}
 
-	async markAttemptFailed(attemptId: string, error: string): Promise<void> {
-		await this.db
+	async markAttemptFailed(attemptId: string, error: string): Promise<boolean> {
+		const [failed] = await this.db
 			.update(connectorGenerationAttempts)
 			.set({ completedAt: new Date(), error, status: "failed" })
-			.where(eq(connectorGenerationAttempts.id, attemptId));
+			.where(
+				and(
+					eq(connectorGenerationAttempts.id, attemptId),
+					eq(connectorGenerationAttempts.status, "queued"),
+				),
+			)
+			.returning({
+				id: connectorGenerationAttempts.id,
+				userId: connectorGenerationAttempts.userId,
+			});
+
+		if (!failed) {
+			return false;
+		}
+
+		captureGenerationFailed(
+			this.analyticsService,
+			failed.userId,
+			"connector",
+			null,
+			failed.id,
+			"trigger_rejected",
+		);
+
+		return true;
 	}
 
 	// Ownership is by user id (the MCP connection is per-user). Missing and

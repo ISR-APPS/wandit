@@ -1,3 +1,7 @@
+import {
+	identifyAnalyticsUser,
+	resetAnalytics,
+} from "@wandit/analytics/browser";
 import { Button } from "@wandit/ui/components/button";
 import {
 	Dialog,
@@ -68,9 +72,13 @@ export function AuthModalProvider({ children }: { children: React.ReactNode }) {
 	const [nextPath, setNextPath] = useState<string | undefined>();
 	const [redirectError, setRedirectError] = useState(false);
 	const googleRedirectStartedRef = useRef(false);
-	const { data: session } = useSession();
+	const { data: session, isPending: isSessionPending } = useSession();
 	const sessionRef = useRef(session);
 	sessionRef.current = session;
+	const userId = session?.user.id;
+	const userEmail = session?.user.email;
+	const userName = session?.user.name;
+	const identifiedUserIdRef = useRef<string | null>(null);
 
 	const open = useCallback((opts?: AuthModalOpenOptions) => {
 		setNextPath(sanitizeAuthRedirectPath(opts?.next));
@@ -127,6 +135,30 @@ export function AuthModalProvider({ children }: { children: React.ReactNode }) {
 			open({ next: next === "/" ? undefined : next });
 		});
 	}, [open]);
+
+	useEffect(() => {
+		if (isSessionPending) return;
+
+		if (!userId) {
+			if (identifiedUserIdRef.current) {
+				resetAnalytics();
+			}
+			identifiedUserIdRef.current = null;
+			return;
+		}
+
+		if (identifiedUserIdRef.current !== userId) {
+			if (identifiedUserIdRef.current) {
+				resetAnalytics();
+			}
+			// Email and name are deliberate person properties for beta-support lookup.
+			identifyAnalyticsUser(userId, {
+				...(userEmail ? { email: userEmail } : {}),
+				...(userName ? { name: userName } : {}),
+			});
+			identifiedUserIdRef.current = userId;
+		}
+	}, [isSessionPending, userEmail, userId, userName]);
 
 	useEffect(() => {
 		if (isOpen && session) {

@@ -10,6 +10,7 @@ import {
 	type TriggerRealtimeHandle,
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
+import { Sentry } from "@wandit/observability/nestjs";
 import { dynamicTool, type Tool, type ToolExecutionOptions } from "ai";
 import { z } from "zod";
 
@@ -325,7 +326,12 @@ export class McpChatToolsService {
 						connector,
 						registerCloser,
 					);
-				} catch {
+				} catch (error) {
+					// The chat silently continues without this connector — without a
+					// capture the failure is invisible in production.
+					Sentry.captureException(error, {
+						tags: { connectorId: connector.id, connectorSlug: connector.slug },
+					});
 					return skippedConnector(connector, "unreachable");
 				}
 			}),
@@ -419,6 +425,13 @@ export class McpChatToolsService {
 				connector.slug,
 			);
 		} catch (error) {
+			// reconnect_required is an expected state (user must re-auth) — only
+			// genuine reachability failures go to Sentry.
+			if (!(error instanceof ConflictException)) {
+				Sentry.captureException(error, {
+					tags: { connectorId: connector.id, connectorSlug: connector.slug },
+				});
+			}
 			return skippedConnector(
 				connector,
 				error instanceof ConflictException
@@ -436,7 +449,10 @@ export class McpChatToolsService {
 				accessToken,
 				registerCloser,
 			);
-		} catch {
+		} catch (error) {
+			Sentry.captureException(error, {
+				tags: { connectorId: connector.id, connectorSlug: connector.slug },
+			});
 			return skippedConnector(connector, "unreachable");
 		}
 

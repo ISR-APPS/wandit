@@ -1,3 +1,6 @@
+// /node, not /nestjs: this code also runs inside Trigger tasks and the worker.
+import { Sentry } from "@wandit/observability/node";
+
 export const USER_SAFE_IMAGE_ANIMATION_ERROR =
 	"We couldn't animate this image. Please try again in a moment.";
 
@@ -62,6 +65,7 @@ export type ImageAnimationRunnerDependencies = {
 				ImageAnimationAttemptStatus,
 				"queued" | "generating"
 			>;
+			reason: string;
 		},
 	) => Promise<boolean>;
 	generate: (
@@ -262,8 +266,17 @@ export async function runImageAnimation(
 
 	try {
 		await dependencies.reserve(claimed.userId, claimed.id);
-	} catch {
-		await failAndRefund(claimed, dependencies);
+	} catch (error) {
+		// Insufficient credits is an expected outcome; anything else here is
+		// billing/DB infrastructure failing and must be visible.
+		if (
+			!(error instanceof Error && error.name === "InsufficientCreditsError")
+		) {
+			Sentry.captureException(error, {
+				tags: { animationId: claimed.id, userId: claimed.userId },
+			});
+		}
+		await failAndRefund(claimed, dependencies, "reservation_failed");
 		return { reason: "reservation_failed", status: "failed" };
 	}
 
@@ -271,13 +284,25 @@ export async function runImageAnimation(
 
 	try {
 		generated = await dependencies.generate(claimed, input.signal);
-	} catch {
-		await failAndRefund(claimed, dependencies);
+	} catch (error) {
+		// User aborts are expected; anything else was previously invisible.
+		if (!input.signal?.aborted) {
+			Sentry.captureException(error, {
+				tags: { animationId: claimed.id, userId: claimed.userId },
+			});
+		}
+		await failAndRefund(claimed, dependencies, "generation_failed");
 		return { reason: "generation_failed", status: "failed" };
 	}
 
 	if (generated.status !== "generated") {
-		await failAndRefund(claimed, dependencies);
+		// The provider's message is about to be replaced by a generic
+		// "generation_failed" — keep the original reason.
+		Sentry.captureMessage(`Image animation failed: ${generated.message}`, {
+			level: "error",
+			tags: { animationId: claimed.id, userId: claimed.userId },
+		});
+		await failAndRefund(claimed, dependencies, "generation_failed");
 		return { reason: "generation_failed", status: "failed" };
 	}
 
@@ -336,18 +361,20 @@ async function recoverOrSettleGenerating(
 		throw new ImageAnimationSettlementPendingError(attempt.id);
 	}
 
-	await failAndRefund(attempt, dependencies);
+	await failAndRefund(attempt, dependencies, "stale_generation");
 	return { reason: "stale_generation", status: "failed" };
 }
 
 async function failAndRefund(
 	attempt: ImageAnimationAttempt,
 	dependencies: ImageAnimationRunnerDependencies,
+	reason: string,
 ): Promise<void> {
 	const failed = await dependencies.fail(attempt, {
 		completedAt: dependencies.now(),
 		error: USER_SAFE_IMAGE_ANIMATION_ERROR,
 		expectedStatus: "generating",
+		reason,
 	});
 
 	if (!failed) {
@@ -386,6 +413,7 @@ async function settleDeletedProject(
 		completedAt: dependencies.now(),
 		error: USER_SAFE_IMAGE_ANIMATION_ERROR,
 		expectedStatus: attempt.status,
+		reason: "project_deleted",
 	});
 
 	if (!failed) {

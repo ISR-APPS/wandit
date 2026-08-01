@@ -12,6 +12,10 @@ import type { SitesService } from "../../../sites/application/services/sites.ser
 import type { AdminRepository } from "../../infrastructure/persistence/admin.repository";
 import { AdminProjectsService } from "./admin-projects.service";
 
+vi.mock("../../../../infrastructure/analytics/analytics.service", () => ({
+	AnalyticsService: class AnalyticsService {},
+}));
+
 const PROJECT_ID = "11111111-1111-4111-8111-111111111111";
 const OWNER_ID = "owner_1";
 

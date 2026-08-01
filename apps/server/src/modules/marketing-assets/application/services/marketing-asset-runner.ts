@@ -1,3 +1,6 @@
+// /node, not /nestjs: this code also runs inside Trigger tasks and the worker.
+import { Sentry } from "@wandit/observability/node";
+
 export const USER_SAFE_MARKETING_ASSET_ERROR =
 	"We couldn't generate this marketing asset. Please try again in a moment.";
 
@@ -61,6 +64,7 @@ export type MarketingAssetRunnerDependencies = {
 			completedAt: Date;
 			error: string;
 			expectedStatus: Extract<MarketingAssetJobStatus, "queued" | "generating">;
+			reason: string;
 		},
 	) => Promise<boolean>;
 	generate: (
@@ -256,8 +260,17 @@ export async function runMarketingAssetGeneration(
 
 	try {
 		await dependencies.reserve(claimed.userId, claimed.id);
-	} catch {
-		await failAndRefund(claimed, dependencies);
+	} catch (error) {
+		// Insufficient credits is an expected outcome; anything else here is
+		// billing/DB infrastructure failing and must be visible.
+		if (
+			!(error instanceof Error && error.name === "InsufficientCreditsError")
+		) {
+			Sentry.captureException(error, {
+				tags: { assetId: claimed.id, userId: claimed.userId },
+			});
+		}
+		await failAndRefund(claimed, dependencies, "reservation_failed");
 		return { reason: "reservation_failed", status: "failed" };
 	}
 
@@ -265,13 +278,25 @@ export async function runMarketingAssetGeneration(
 
 	try {
 		generated = await dependencies.generate(claimed, input.signal);
-	} catch {
-		await failAndRefund(claimed, dependencies);
+	} catch (error) {
+		// User aborts are expected; anything else was previously invisible.
+		if (!input.signal?.aborted) {
+			Sentry.captureException(error, {
+				tags: { assetId: claimed.id, userId: claimed.userId },
+			});
+		}
+		await failAndRefund(claimed, dependencies, "generation_failed");
 		return { reason: "generation_failed", status: "failed" };
 	}
 
 	if (generated.status !== "generated") {
-		await failAndRefund(claimed, dependencies);
+		// The provider's message is about to be replaced by a generic
+		// "generation_failed" — keep the original reason.
+		Sentry.captureMessage(`Marketing asset failed: ${generated.message}`, {
+			level: "error",
+			tags: { assetId: claimed.id, userId: claimed.userId },
+		});
+		await failAndRefund(claimed, dependencies, "generation_failed");
 		return { reason: "generation_failed", status: "failed" };
 	}
 
@@ -328,18 +353,20 @@ async function recoverOrSettleGenerating(
 		throw new MarketingAssetSettlementPendingError(asset.id);
 	}
 
-	await failAndRefund(asset, dependencies);
+	await failAndRefund(asset, dependencies, "stale_generation");
 	return { reason: "stale_generation", status: "failed" };
 }
 
 async function failAndRefund(
 	asset: MarketingAssetJob,
 	dependencies: MarketingAssetRunnerDependencies,
+	reason: string,
 ): Promise<void> {
 	const failed = await dependencies.fail(asset, {
 		completedAt: dependencies.now(),
 		error: USER_SAFE_MARKETING_ASSET_ERROR,
 		expectedStatus: "generating",
+		reason,
 	});
 
 	if (!failed) {
@@ -378,6 +405,7 @@ async function settleDeletedProject(
 		completedAt: dependencies.now(),
 		error: USER_SAFE_MARKETING_ASSET_ERROR,
 		expectedStatus: asset.status,
+		reason: "project_deleted",
 	});
 
 	if (!failed) {

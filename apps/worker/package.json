@@ -6,7 +6,7 @@
 		"build": "tsdown",
 		"check-types": "tsc -b",
 		"dev": "tsx watch src/main.ts",
-		"start": "node dist/main.mjs",
+		"start": "node --enable-source-maps --import ./dist/instrument.mjs dist/main.mjs",
 		"test": "vitest run"
 	},
 	"dependencies": {
@@ -17,7 +17,9 @@
 		"@wandit/contracts": "workspace:*",
 		"@wandit/db": "workspace:*",
 		"@wandit/env": "workspace:*",
+		"@sentry/node": "catalog:",
 		"@wandit/jobs": "workspace:*",
+		"@wandit/observability": "workspace:*",
 		"ai": "^7.0.14",
 		"bullmq": "^5.79.2",
 		"ioredis": "^5.11.1",

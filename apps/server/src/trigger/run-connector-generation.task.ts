@@ -22,11 +22,17 @@ import { logger, metadata, task } from "@trigger.dev/sdk";
 import { and, createDb, eq, inArray } from "@wandit/db";
 import { connectorGenerationAttempts } from "@wandit/db/schema/connector-generation-attempts";
 
+import {
+	captureGenerationCompleted,
+	captureGenerationFailed,
+	machineFailureReason,
+} from "../infrastructure/analytics/generation-events";
 import { extractMediaUrls } from "../modules/connector-generations/domain/extract-media-urls";
 import { McpConnectionsService } from "../modules/mcp-connectors/application/services/mcp-connections.service";
 import { McpDcrClient } from "../modules/mcp-connectors/infrastructure/oauth/mcp-dcr.client";
 import { McpConnectionsRepository } from "../modules/mcp-connectors/infrastructure/persistence/mcp-connections.repository";
 import { McpConnectorsRepository } from "../modules/mcp-connectors/infrastructure/persistence/mcp-connectors.repository";
+import { triggerAnalytics } from "./init";
 
 export const runConnectorGenerationTask = task({
 	id: "run-connector-generation",
@@ -42,6 +48,7 @@ export const runConnectorGenerationTask = task({
 		// Only the run that WON the claim may settle the row on error — a
 		// duplicate run losing the race must not fail the live attempt.
 		let claimed = false;
+		let claimedAttempt: { userId: string } | undefined;
 
 		try {
 			const [attempt] = await db
@@ -88,6 +95,7 @@ export const runConnectorGenerationTask = task({
 				);
 			}
 			claimed = true;
+			claimedAttempt = { userId: attempt.userId };
 
 			metadata.set("stage", "generating");
 
@@ -188,7 +196,7 @@ export const runConnectorGenerationTask = task({
 
 			metadata.set("stage", "done");
 
-			await db
+			const [completed] = await db
 				.update(connectorGenerationAttempts)
 				.set({
 					completedAt: new Date(),
@@ -200,7 +208,18 @@ export const runConnectorGenerationTask = task({
 						eq(connectorGenerationAttempts.id, attempt.id),
 						eq(connectorGenerationAttempts.status, "running"),
 					),
+				)
+				.returning({ id: connectorGenerationAttempts.id });
+
+			if (completed) {
+				captureGenerationCompleted(
+					triggerAnalytics,
+					attempt.userId,
+					"connector",
+					null,
+					completed.id,
 				);
+			}
 
 			logger.info(
 				`Attempt ${attempt.id} succeeded with ${media.length} media URL(s)`,
@@ -211,7 +230,7 @@ export const runConnectorGenerationTask = task({
 			if (claimed) {
 				const message = error instanceof Error ? error.message : String(error);
 
-				await db
+				const [failed] = await db
 					.update(connectorGenerationAttempts)
 					.set({
 						completedAt: new Date(),
@@ -226,7 +245,19 @@ export const runConnectorGenerationTask = task({
 								"running",
 							]),
 						),
+					)
+					.returning({ id: connectorGenerationAttempts.id });
+
+				if (failed && claimedAttempt) {
+					captureGenerationFailed(
+						triggerAnalytics,
+						claimedAttempt.userId,
+						"connector",
+						null,
+						failed.id,
+						machineFailureReason(error),
 					);
+				}
 			}
 
 			throw error;

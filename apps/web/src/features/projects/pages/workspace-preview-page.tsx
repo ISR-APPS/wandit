@@ -3,7 +3,7 @@
 // lookalike of the real /p/$projectId workspace (same horizon band, header,
 // floating chat + main cards) with the chat frozen and the main pane showing
 // Coming Soon. Nothing is created server-side; the typed prompt only travels
-// via the URL so it can be echoed back as their chat bubble.
+// via same-tab history state so it can be echoed back as their chat bubble.
 
 import { Link } from "@tanstack/react-router";
 import { Button } from "@wandit/ui/components/button";

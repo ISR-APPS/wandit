@@ -7,12 +7,13 @@
  * and the generate_page chat tool (queue-time writes).
  */
 import { Inject, Injectable } from "@nestjs/common";
-import { and, desc, eq, inArray, isNull, lt } from "@wandit/db";
+import { and, desc, eq, isNull, lt } from "@wandit/db";
 import { artifacts, versions } from "@wandit/db/schema/artifacts";
 import { deployments } from "@wandit/db/schema/deployments";
 import { pageGenerationAttempts } from "@wandit/db/schema/page-attempts";
 import { projects } from "@wandit/db/schema/projects";
-
+import { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
+import { captureGenerationFailed } from "../../../../infrastructure/analytics/generation-events";
 import {
 	DATABASE,
 	type Database,
@@ -82,7 +83,11 @@ export class VersionConflictError extends Error {
 @Injectable()
 export class PagesRepository {
 	// DATABASE is the Nest token for the Drizzle database connection.
-	constructor(@Inject(DATABASE) private readonly db: Database) {}
+	constructor(
+		@Inject(DATABASE) private readonly db: Database,
+		@Inject(AnalyticsService)
+		private readonly analyticsService: AnalyticsService,
+	) {}
 
 	// The MVP invariant is ONE landing-page artifact per project. First
 	// generation creates it; every later one reuses it.
@@ -151,11 +156,36 @@ export class PagesRepository {
 
 	// Used when queueing itself failed — the background task never ran, so
 	// somebody has to move the row to a terminal state.
-	async markAttemptFailed(attemptId: string, error: string): Promise<void> {
-		await this.db
+	async markAttemptFailed(
+		attemptId: string,
+		error: string,
+		userId: string,
+	): Promise<boolean> {
+		const [failed] = await this.db
 			.update(pageGenerationAttempts)
 			.set({ completedAt: new Date(), error, status: "failed" })
-			.where(eq(pageGenerationAttempts.id, attemptId));
+			.where(
+				and(
+					eq(pageGenerationAttempts.id, attemptId),
+					eq(pageGenerationAttempts.status, "queued"),
+				),
+			)
+			.returning({ projectId: pageGenerationAttempts.projectId });
+
+		if (!failed) {
+			return false;
+		}
+
+		captureGenerationFailed(
+			this.analyticsService,
+			userId,
+			"page",
+			failed.projectId,
+			attemptId,
+			"trigger_rejected",
+		);
+
+		return true;
 	}
 
 	// Everything the Page tab polls for, or null when the project is not
@@ -207,7 +237,7 @@ export class PagesRepository {
 		// rows to failed so the UI stops waiting and says what happened. The
 		// cutoff must exceed the task's maxDuration (30 min), or a slow but
 		// healthy build would be flagged failed while still running.
-		await this.db
+		const staleQueued = await this.db
 			.update(pageGenerationAttempts)
 			.set({
 				completedAt: new Date(),
@@ -218,13 +248,62 @@ export class PagesRepository {
 			.where(
 				and(
 					eq(pageGenerationAttempts.projectId, projectId),
-					inArray(pageGenerationAttempts.status, ["queued", "generating"]),
+					eq(pageGenerationAttempts.status, "queued"),
 					lt(
 						pageGenerationAttempts.createdAt,
 						new Date(Date.now() - 35 * 60 * 1000),
 					),
 				),
+			)
+			.returning({
+				id: pageGenerationAttempts.id,
+				projectId: pageGenerationAttempts.projectId,
+			});
+
+		for (const failed of staleQueued) {
+			captureGenerationFailed(
+				this.analyticsService,
+				userId,
+				"page",
+				failed.projectId,
+				failed.id,
+				"stale_queued",
 			);
+		}
+
+		const staleGenerating = await this.db
+			.update(pageGenerationAttempts)
+			.set({
+				completedAt: new Date(),
+				error:
+					"The build never finished — most likely no Trigger.dev dev worker was running (`npx trigger.dev@latest dev`). Start it and ask for the page again.",
+				status: "failed",
+			})
+			.where(
+				and(
+					eq(pageGenerationAttempts.projectId, projectId),
+					eq(pageGenerationAttempts.status, "generating"),
+					lt(
+						pageGenerationAttempts.createdAt,
+						new Date(Date.now() - 35 * 60 * 1000),
+					),
+				),
+			)
+			.returning({
+				id: pageGenerationAttempts.id,
+				projectId: pageGenerationAttempts.projectId,
+			});
+
+		for (const failed of staleGenerating) {
+			captureGenerationFailed(
+				this.analyticsService,
+				userId,
+				"page",
+				failed.projectId,
+				failed.id,
+				"stale_generation",
+			);
+		}
 
 		const [latestAttempt] = await this.db
 			.select({

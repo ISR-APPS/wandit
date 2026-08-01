@@ -24,6 +24,10 @@ vi.mock("../../agent/chat-agent", () => ({
 	createChatAgent: chatAgentMocks.createChatAgent,
 }));
 
+vi.mock("../../../../infrastructure/analytics/analytics.service", () => ({
+	AnalyticsService: class AnalyticsService {},
+}));
+
 import type { McpChatToolsResult } from "../../../mcp-connectors/application/services/mcp-chat-tools.service";
 import type { WanditUIMessage } from "../../agent/chat-agent";
 import { AiChatService, completeDanglingToolCalls } from "./ai-chat.service";
