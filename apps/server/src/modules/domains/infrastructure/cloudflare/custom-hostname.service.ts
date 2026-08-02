@@ -1,25 +1,15 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { env } from "@wandit/env/server";
 
+import type {
+	CustomHostnameRecord,
+	CustomHostnameResult,
+} from "../../application/fulfillment/domain-fulfillment.contracts";
 import { canonicalDomainHost } from "../../domain/domain-hosts";
 import {
 	DomainProviderError,
 	DomainsNotConfiguredError,
 } from "../../domain/errors/domain.errors";
-
-export type CustomHostnameRecord = {
-	name: string;
-	type: "TXT";
-	value: string;
-};
-
-export type CustomHostnameResult = {
-	hostnameStatus: string | null;
-	id: string;
-	requiredRecords: CustomHostnameRecord[];
-	sslStatus: string | null;
-	status: string;
-};
 
 const CLOUDFLARE_FETCH_TIMEOUT_MS = 10_000;
 

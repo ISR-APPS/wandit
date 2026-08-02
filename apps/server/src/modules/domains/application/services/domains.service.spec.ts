@@ -5,7 +5,7 @@ import {
 	type RequiredDomainRecord,
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
 	DomainNotAvailableError,
@@ -19,6 +19,7 @@ import type {
 	DomainProvider,
 	DomainProviderInfo,
 } from "../../domain/ports/domain-provider.port";
+import type { DomainTaskDispatcher } from "../../domain/ports/domain-task-dispatcher.port";
 import type { CustomHostnameService } from "../../infrastructure/cloudflare/custom-hostname.service";
 import type { DomainRoutingService } from "../../infrastructure/cloudflare/domain-routing.service";
 import type {
@@ -299,6 +300,32 @@ class FakeRoutingService {
 	async refreshProjectDomains() {}
 }
 
+class FakeDomainTaskDispatcher implements DomainTaskDispatcher {
+	readonly assertAvailable = vi.fn(() => {
+		if (!process.env.TRIGGER_SECRET_KEY?.trim()) {
+			throw new DomainsUnavailableError();
+		}
+	});
+
+	readonly recoverPurchase = vi.fn(
+		async (_payload: { domainId: string; orderId: string }) => ({
+			id: "run_recovered",
+		}),
+	);
+
+	readonly triggerConfiguration = vi.fn(
+		async (_payload: { domainId: string; nonce: string }) => ({
+			id: "run_configuration",
+		}),
+	);
+
+	readonly triggerPurchase = vi.fn(
+		async (_payload: { domainId: string; orderId: string }) => ({
+			id: "run_purchase",
+		}),
+	);
+}
+
 function expectNoRegistrarMutation(provider: FakeProvider) {
 	expect(provider.register).not.toHaveBeenCalled();
 	expect(provider.renew).not.toHaveBeenCalled();
@@ -307,19 +334,13 @@ function expectNoRegistrarMutation(provider: FakeProvider) {
 	expect(provider.lockCalls).toHaveLength(0);
 }
 
-function setQueueEnabled(enabled: boolean) {
-	process.env.QUEUE_ENABLED = enabled ? "true" : "false";
-}
-
 function setup() {
-	setQueueEnabled(true);
+	vi.stubEnv("TRIGGER_SECRET_KEY", "tr_dev_test");
 	const repository = new FakeDomainsRepository();
 	const provider = new FakeProvider();
 	const cloudflare = new FakeCustomHostnameService();
 	const routing = new FakeRoutingService();
-	const queue = {
-		add: vi.fn(async () => undefined),
-	};
+	const dispatcher = new FakeDomainTaskDispatcher();
 	const logger = {
 		error: vi.fn(),
 		log: vi.fn(),
@@ -331,14 +352,14 @@ function setup() {
 		cloudflare as unknown as CustomHostnameService,
 		routing as unknown as DomainRoutingService,
 		logger,
-		queue as never,
+		dispatcher,
 	);
 
 	return {
 		cloudflare,
+		dispatcher,
 		logger,
 		provider,
-		queue,
 		repository,
 		routing,
 		service,
@@ -346,6 +367,10 @@ function setup() {
 }
 
 describe("DomainsService", () => {
+	afterEach(() => {
+		vi.unstubAllEnvs();
+	});
+
 	it("returns retail USD prices only for safely purchasable domains", async () => {
 		const { provider, service } = setup();
 		provider.availability = [
@@ -424,7 +449,9 @@ describe("DomainsService", () => {
 	});
 
 	it("prepares a purchase with the validated wholesale quote and ceiling", async () => {
-		const { provider, service } = setup();
+		const { dispatcher, provider, repository, service } = setup();
+		vi.stubEnv("QUEUE_ENABLED", "false");
+		const assertProjectOwned = vi.spyOn(repository, "assertProjectOwned");
 
 		const prepared = await service.preparePurchase(
 			userId,
@@ -438,18 +465,39 @@ describe("DomainsService", () => {
 			tld: "com",
 			wholesaleCeilingUsd: DOMAIN_TLD_CATALOG.com.wholesaleCeilingUsd,
 		});
+		expect(dispatcher.assertAvailable).toHaveBeenCalledOnce();
 		expect(provider.checkAvailability).toHaveBeenCalledWith(["example.com"]);
+		expect(assertProjectOwned.mock.invocationCallOrder[0]).toBeLessThan(
+			dispatcher.assertAvailable.mock.invocationCallOrder[0] ?? 0,
+		);
+		expect(dispatcher.assertAvailable.mock.invocationCallOrder[0]).toBeLessThan(
+			provider.checkAvailability.mock.invocationCallOrder[0] ?? 0,
+		);
 		expectNoRegistrarMutation(provider);
 	});
 
-	it("fails closed before contacting the registrar when domain jobs are disabled", async () => {
-		const { provider, service } = setup();
-		setQueueEnabled(false);
+	it("keeps the existing 503 contract before the registrar when Trigger is unavailable", async () => {
+		const { dispatcher, provider, repository, service } = setup();
+		vi.stubEnv("TRIGGER_SECRET_KEY", "   ");
+		const assertProjectOwned = vi.spyOn(repository, "assertProjectOwned");
 
-		await expect(
-			service.preparePurchase(userId, "example.com", projectId),
-		).rejects.toBeInstanceOf(DomainsUnavailableError);
+		const error = await service
+			.preparePurchase(userId, "example.com", projectId)
+			.catch((caught: unknown) => caught);
 
+		expect(error).toBeInstanceOf(DomainsUnavailableError);
+		expect(error).toMatchObject({
+			response: {
+				code: "DOMAINS_TEMPORARILY_UNAVAILABLE",
+				message: "Custom domains are temporarily unavailable",
+			},
+			status: 503,
+		});
+		expect(assertProjectOwned).toHaveBeenCalledWith(userId, projectId);
+		expect(dispatcher.assertAvailable).toHaveBeenCalledOnce();
+		expect(assertProjectOwned.mock.invocationCallOrder[0]).toBeLessThan(
+			dispatcher.assertAvailable.mock.invocationCallOrder[0] ?? 0,
+		);
 		expect(provider.checkAvailability).not.toHaveBeenCalled();
 	});
 
@@ -486,7 +534,7 @@ describe("DomainsService", () => {
 	});
 
 	it("asserts project ownership before preparing a project-scoped purchase", async () => {
-		const { provider, service } = setup();
+		const { dispatcher, provider, service } = setup();
 
 		await expect(
 			service.preparePurchase(
@@ -495,11 +543,12 @@ describe("DomainsService", () => {
 				"99999999-9999-4999-8999-999999999999",
 			),
 		).rejects.toThrow("Project not found");
+		expect(dispatcher.assertAvailable).not.toHaveBeenCalled();
 		expect(provider.checkAvailability).not.toHaveBeenCalled();
 	});
 
 	it("rejects enabling auto-renew while paid renewals are unavailable", async () => {
-		const { provider, queue, repository, service } = setup();
+		const { dispatcher, provider, repository, service } = setup();
 		const row = repository.seed({
 			autoRenew: false,
 			name: "auto-renew.com",
@@ -515,12 +564,13 @@ describe("DomainsService", () => {
 
 		expect(update).not.toHaveBeenCalled();
 		expect(repository.rows.get(row.id)?.autoRenew).toBe(false);
-		expect(queue.add).not.toHaveBeenCalled();
+		expect(dispatcher.triggerConfiguration).not.toHaveBeenCalled();
+		expect(dispatcher.triggerPurchase).not.toHaveBeenCalled();
 		expectNoRegistrarMutation(provider);
 	});
 
 	it("allows disabling auto-renew without payment or registrar mutation", async () => {
-		const { provider, queue, repository, service } = setup();
+		const { dispatcher, provider, repository, service } = setup();
 		const row = repository.seed({
 			autoRenew: true,
 			name: "disable-auto-renew.com",
@@ -536,12 +586,13 @@ describe("DomainsService", () => {
 		});
 
 		expect(repository.rows.get(row.id)?.autoRenew).toBe(false);
-		expect(queue.add).not.toHaveBeenCalled();
+		expect(dispatcher.triggerConfiguration).not.toHaveBeenCalled();
+		expect(dispatcher.triggerPurchase).not.toHaveBeenCalled();
 		expectNoRegistrarMutation(provider);
 	});
 
 	it("attaches BYO domains with required records and verifies only once Cloudflare is active", async () => {
-		const { cloudflare, queue, repository, routing, service } = setup();
+		const { cloudflare, dispatcher, repository, routing, service } = setup();
 
 		const attached = await service.attachExternal(userId, projectId, {
 			name: "brand.com",
@@ -553,22 +604,10 @@ describe("DomainsService", () => {
 			throw new Error("Expected BYO row");
 		}
 
-		expect(queue.add).toHaveBeenCalledWith(
-			"domain-configure",
-			{
-				attempt: 0,
-				domainId: row.id,
-				nonce: String(row.updatedAt.getTime()),
-			},
-			expect.objectContaining({
-				attempts: 3,
-				backoff: {
-					delay: 60_000,
-					type: "exponential",
-				},
-				jobId: `domain-configure-${row.id}-${row.updatedAt.getTime()}-0`,
-			}),
-		);
+		expect(dispatcher.triggerConfiguration).toHaveBeenNthCalledWith(1, {
+			domainId: row.id,
+			nonce: String(row.updatedAt.getTime()),
+		});
 
 		expect(attached.requiredRecords).toEqual(
 			expect.arrayContaining<RequiredDomainRecord>([
@@ -596,6 +635,21 @@ describe("DomainsService", () => {
 			domain: { status: "configuring" },
 		});
 		expect(routing.pointers).toHaveLength(0);
+		expect(dispatcher.triggerConfiguration).toHaveBeenCalledTimes(2);
+		const firstManualPayload =
+			dispatcher.triggerConfiguration.mock.calls[1]?.[0];
+		expect(firstManualPayload).toEqual({
+			domainId: row.id,
+			nonce: expect.stringMatching(
+				/^manual:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+			),
+		});
+
+		await service.verify(row.id, userId);
+		const secondManualPayload =
+			dispatcher.triggerConfiguration.mock.calls[2]?.[0];
+		expect(secondManualPayload?.nonce).toMatch(/^manual:/);
+		expect(secondManualPayload?.nonce).not.toBe(firstManualPayload?.nonce);
 
 		cloudflare.status = "active";
 		await expect(service.verify(row.id, userId)).resolves.toMatchObject({
@@ -604,10 +658,11 @@ describe("DomainsService", () => {
 		expect(routing.pointers).toEqual([
 			{ host: "brand.com", pointer: { projectId, source: "domain" } },
 		]);
+		expect(dispatcher.triggerConfiguration).toHaveBeenCalledTimes(3);
 	});
 
 	it("deletes the external row when Cloudflare hostname creation fails", async () => {
-		const { cloudflare, queue, repository, service } = setup();
+		const { cloudflare, dispatcher, repository, service } = setup();
 		cloudflare.createCustomHostname.mockRejectedValueOnce(new Error("cf down"));
 
 		await expect(
@@ -615,7 +670,7 @@ describe("DomainsService", () => {
 		).rejects.toThrow("cf down");
 
 		expect(repository.rows.size).toBe(0);
-		expect(queue.add).not.toHaveBeenCalled();
+		expect(dispatcher.triggerConfiguration).not.toHaveBeenCalled();
 		expect(cloudflare.deleteCustomHostname).not.toHaveBeenCalled();
 	});
 
@@ -637,13 +692,15 @@ describe("DomainsService", () => {
 		expect(cloudflare.getCustomHostnameStatus).not.toHaveBeenCalled();
 	});
 
-	it("cleans up the Cloudflare hostname when BYO enqueue rollback runs", async () => {
-		const { cloudflare, queue, repository, service } = setup();
-		queue.add.mockRejectedValueOnce(new Error("redis down"));
+	it("cleans up the Cloudflare hostname and row when BYO Trigger handoff is rejected", async () => {
+		const { cloudflare, dispatcher, repository, service } = setup();
+		dispatcher.triggerConfiguration.mockRejectedValueOnce(
+			new Error("trigger down"),
+		);
 
 		await expect(
 			service.attachExternal(userId, projectId, { name: "rollback.org" }),
-		).rejects.toThrow("redis down");
+		).rejects.toThrow("trigger down");
 
 		expect(repository.rows.size).toBe(0);
 		expect(cloudflare.deleteCustomHostname).toHaveBeenCalledWith("cf_1");
