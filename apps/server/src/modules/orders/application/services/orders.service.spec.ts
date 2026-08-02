@@ -21,9 +21,9 @@ import {
 	OrderNotFoundError,
 } from "../../domain/errors/payment-order.errors";
 import type { PaymentOrderRow } from "../../domain/payment-order.types";
+import type { OrderRefundDispatcher } from "../../domain/ports/order-refund-dispatcher.port";
 import type { PaymentOrdersRepository } from "../../infrastructure/persistence/payment-orders.repository";
 import type { OrderFulfillmentRegistry } from "./order-fulfillment.registry";
-import type { OrderRefundQueueService } from "./order-refund-queue.service";
 import type { OrderRefundsService } from "./order-refunds.service";
 import { OrdersService } from "./orders.service";
 
@@ -384,7 +384,7 @@ class FakePaymentProvider {
 class FakeFulfillmentRegistry {
 	error: Error | null = null;
 	failures = 0;
-	readonly jobs = new Set<string>();
+	readonly handoffs = new Set<string>();
 	readonly fulfill = vi.fn(async (order: PaymentOrderRow) => {
 		if (this.error) {
 			throw this.error;
@@ -392,9 +392,9 @@ class FakeFulfillmentRegistry {
 
 		if (this.failures > 0) {
 			this.failures -= 1;
-			throw new Error("queue unavailable");
+			throw new Error("Trigger handoff unavailable");
 		}
-		this.jobs.add(`order-fulfill-${order.id}`);
+		this.handoffs.add(order.id);
 	});
 
 	forKind(kind: string) {
@@ -460,13 +460,17 @@ class FakeOrderRefundsService {
 	);
 }
 
-class FakeOrderRefundQueueService {
-	enqueueFailure: Error | null = null;
-	readonly enqueue = vi.fn(async (_orderId: string, _failureReason: string) => {
-		if (this.enqueueFailure) {
-			throw this.enqueueFailure;
-		}
-	});
+class FakeOrderRefundDispatcher {
+	triggerFailure: Error | null = null;
+	readonly triggerRefund = vi.fn(
+		async (_payload: { failureReason: string; orderId: string }) => {
+			if (this.triggerFailure) {
+				throw this.triggerFailure;
+			}
+
+			return { id: "run_order_refund" };
+		},
+	);
 }
 
 function setup() {
@@ -478,7 +482,7 @@ function setup() {
 	const payments = new FakePaymentProvider();
 	const fulfillment = new FakeFulfillmentRegistry();
 	const orderRefunds = new FakeOrderRefundsService(orders);
-	const refundQueue = new FakeOrderRefundQueueService();
+	const refundDispatcher = new FakeOrderRefundDispatcher();
 	const service = new OrdersService(
 		orders as unknown as PaymentOrdersRepository,
 		domainsService as unknown as DomainsService,
@@ -488,7 +492,7 @@ function setup() {
 		payments as unknown as PaymentProvider,
 		fulfillment as unknown as OrderFulfillmentRegistry,
 		orderRefunds as unknown as OrderRefundsService,
-		refundQueue as unknown as OrderRefundQueueService,
+		refundDispatcher as unknown as OrderRefundDispatcher,
 	);
 
 	return {
@@ -500,7 +504,7 @@ function setup() {
 		orderRefunds,
 		orders,
 		payments,
-		refundQueue,
+		refundDispatcher,
 		service,
 	};
 }
@@ -704,7 +708,7 @@ describe("OrdersService", () => {
 		expect(fulfillment.fulfill).not.toHaveBeenCalled();
 	});
 
-	it("uses the paid CAS winner to enqueue fulfillment only once", async () => {
+	it("uses the paid CAS winner to dispatch fulfillment only once", async () => {
 		const { fulfillment, orders, payments, service } = setup();
 		orders.seed();
 
@@ -714,7 +718,7 @@ describe("OrdersService", () => {
 		expect(orders.markPaid).toHaveBeenCalledTimes(2);
 		expect(orders.markFulfilling).toHaveBeenCalledTimes(1);
 		expect(fulfillment.fulfill).toHaveBeenCalledTimes(1);
-		expect(fulfillment.jobs).toEqual(new Set([`order-fulfill-${orderId}`]));
+		expect(fulfillment.handoffs).toEqual(new Set([orderId]));
 		expect(orders.rows.get(orderId)?.status).toBe("fulfilling");
 		expect(payments.retrievePaymentIntent).toHaveBeenCalledTimes(2);
 		expect(payments.retrievePaymentIntent).toHaveBeenCalledWith(
@@ -788,7 +792,7 @@ describe("OrdersService", () => {
 			paymentIntentId,
 		});
 		expect(fulfillment.fulfill).not.toHaveBeenCalled();
-		expect(fulfillment.jobs).toEqual(new Set());
+		expect(fulfillment.handoffs).toEqual(new Set());
 		expect(orders.markFulfilling).not.toHaveBeenCalled();
 		expect(payments.createRefund).not.toHaveBeenCalled();
 	});
@@ -878,13 +882,13 @@ describe("OrdersService", () => {
 		expect(payments.createRefund).not.toHaveBeenCalled();
 	});
 
-	it("leaves a paid order retryable when fulfillment enqueue fails", async () => {
+	it("leaves a paid order retryable when the fulfillment handoff fails", async () => {
 		const { fulfillment, orders, service } = setup();
 		orders.seed();
 		fulfillment.failures = 1;
 
 		await expect(service.reconcileBySession(sessionId)).rejects.toThrow(
-			"queue unavailable",
+			"Trigger handoff unavailable",
 		);
 		expect(orders.rows.get(orderId)?.status).toBe("paid");
 
@@ -892,12 +896,29 @@ describe("OrdersService", () => {
 			service.reconcileBySession(sessionId),
 		).resolves.toBeUndefined();
 		expect(fulfillment.fulfill).toHaveBeenCalledTimes(2);
-		expect(fulfillment.jobs).toEqual(new Set([`order-fulfill-${orderId}`]));
+		expect(fulfillment.handoffs).toEqual(new Set([orderId]));
 		expect(orders.rows.get(orderId)?.status).toBe("fulfilling");
 	});
 
-	it("queues a refund before failing an order whose domain was already claimed", async () => {
-		const { fulfillment, orders, payments, refundQueue, service } = setup();
+	it("leaves a paid order with no domain terminalization when fulfillment rethrows an invariant violation", async () => {
+		const { fulfillment, orders, refundDispatcher, service } = setup();
+		orders.seed();
+		fulfillment.error = new OrderInvariantViolationError(
+			`Payment order ${orderId} has invalid domain-registration metadata`,
+		);
+
+		await expect(service.reconcileBySession(sessionId)).rejects.toBeInstanceOf(
+			OrderInvariantViolationError,
+		);
+		expect(orders.rows.get(orderId)?.status).toBe("paid");
+		expect(refundDispatcher.triggerRefund).not.toHaveBeenCalled();
+		expect(orders.markFailed).not.toHaveBeenCalled();
+		expect(orders.markFulfilling).not.toHaveBeenCalled();
+	});
+
+	it("accepts a refund Trigger handoff before failing an order whose domain was already claimed", async () => {
+		const { fulfillment, orders, payments, refundDispatcher, service } =
+			setup();
 		orders.seed();
 		fulfillment.error = new DomainAlreadyExistsError("example.com");
 
@@ -908,25 +929,32 @@ describe("OrdersService", () => {
 			fulfillmentError: "example.com is already connected to Wandit",
 			status: "failed",
 		});
-		expect(refundQueue.enqueue).toHaveBeenCalledTimes(2);
-		expect(refundQueue.enqueue).toHaveBeenCalledWith(
+		expect(refundDispatcher.triggerRefund).toHaveBeenCalledTimes(2);
+		expect(refundDispatcher.triggerRefund).toHaveBeenCalledWith({
+			failureReason: "example.com is already connected to Wandit",
 			orderId,
-			"example.com is already connected to Wandit",
-		);
+		});
+		expect(
+			refundDispatcher.triggerRefund.mock.invocationCallOrder[0],
+		).toBeLessThan(orders.markFailed.mock.invocationCallOrder[0] ?? 0);
 		expect(payments.createRefund).not.toHaveBeenCalled();
 		expect(orders.markFulfilling).not.toHaveBeenCalled();
 	});
 
-	it("keeps a duplicate-domain order paid when the refund job cannot be persisted", async () => {
-		const { fulfillment, orders, refundQueue, service } = setup();
+	it("keeps a duplicate-domain order paid when the refund Trigger handoff is rejected", async () => {
+		const { fulfillment, orders, refundDispatcher, service } = setup();
 		orders.seed();
 		fulfillment.error = new DomainAlreadyExistsError("example.com");
-		refundQueue.enqueueFailure = new Error("Redis unavailable");
+		refundDispatcher.triggerFailure = new Error("Trigger unavailable");
 
 		await expect(service.reconcileBySession(sessionId)).rejects.toThrow(
-			"Redis unavailable",
+			"Trigger unavailable",
 		);
 		expect(orders.rows.get(orderId)?.status).toBe("paid");
+		expect(refundDispatcher.triggerRefund).toHaveBeenCalledWith({
+			failureReason: "example.com is already connected to Wandit",
+			orderId,
+		});
 		expect(orders.markFailed).not.toHaveBeenCalled();
 	});
 
@@ -979,7 +1007,8 @@ describe("OrdersService", () => {
 	});
 
 	it("fails a completed unpaid asynchronous checkout without refunding", async () => {
-		const { fulfillment, orders, payments, refundQueue, service } = setup();
+		const { fulfillment, orders, payments, refundDispatcher, service } =
+			setup();
 		orders.seed();
 		payments.session = checkoutSession({
 			payment_intent: "pi_async_failed",
@@ -996,7 +1025,7 @@ describe("OrdersService", () => {
 			status: "failed",
 		});
 		expect(fulfillment.fulfill).not.toHaveBeenCalled();
-		expect(refundQueue.enqueue).not.toHaveBeenCalled();
+		expect(refundDispatcher.triggerRefund).not.toHaveBeenCalled();
 	});
 
 	it("keeps completed unpaid delayed payment pending until async success", async () => {
@@ -1052,7 +1081,8 @@ describe("OrdersService", () => {
 		],
 		["canceled", "canceled", "canceled", null],
 	] as const)("maps a %s payment-intent event to a terminal pending-order state idempotently", async (outcome, providerPaymentStatus, status, error) => {
-		const { fulfillment, orders, payments, refundQueue, service } = setup();
+		const { fulfillment, orders, payments, refundDispatcher, service } =
+			setup();
 		orders.seed({
 			providerPaymentIntentId: paymentIntentId,
 		});
@@ -1082,11 +1112,12 @@ describe("OrdersService", () => {
 			status,
 		});
 		expect(fulfillment.fulfill).not.toHaveBeenCalled();
-		expect(refundQueue.enqueue).not.toHaveBeenCalled();
+		expect(refundDispatcher.triggerRefund).not.toHaveBeenCalled();
 	});
 
 	it("keeps an open-session payment-intent failure pending while recording provider state", async () => {
-		const { fulfillment, orders, payments, refundQueue, service } = setup();
+		const { fulfillment, orders, payments, refundDispatcher, service } =
+			setup();
 		orders.seed({
 			providerPaymentIntentId: paymentIntentId,
 		});
@@ -1121,7 +1152,7 @@ describe("OrdersService", () => {
 		);
 		expect(orders.markPendingTerminal).not.toHaveBeenCalled();
 		expect(fulfillment.fulfill).not.toHaveBeenCalled();
-		expect(refundQueue.enqueue).not.toHaveBeenCalled();
+		expect(refundDispatcher.triggerRefund).not.toHaveBeenCalled();
 	});
 
 	it("does not overwrite a concurrently successful order with stale open-session payment state", async () => {
@@ -1158,7 +1189,8 @@ describe("OrdersService", () => {
 	});
 
 	it("fulfills an open session after its same-session card retry succeeds without refunding", async () => {
-		const { fulfillment, orders, payments, refundQueue, service } = setup();
+		const { fulfillment, orders, payments, refundDispatcher, service } =
+			setup();
 		orders.seed({
 			providerPaymentIntentId: paymentIntentId,
 		});
@@ -1193,12 +1225,13 @@ describe("OrdersService", () => {
 		expect(orders.markPaid).toHaveBeenCalledOnce();
 		expect(orders.markFulfilling).toHaveBeenCalledOnce();
 		expect(fulfillment.fulfill).toHaveBeenCalledOnce();
-		expect(refundQueue.enqueue).not.toHaveBeenCalled();
+		expect(refundDispatcher.triggerRefund).not.toHaveBeenCalled();
 		expect(payments.createRefund).not.toHaveBeenCalled();
 	});
 
 	it("reconciles a stale payment-intent failure from a complete paid session without refunding", async () => {
-		const { fulfillment, orders, payments, refundQueue, service } = setup();
+		const { fulfillment, orders, payments, refundDispatcher, service } =
+			setup();
 		orders.seed({
 			providerPaymentIntentId: paymentIntentId,
 		});
@@ -1224,12 +1257,13 @@ describe("OrdersService", () => {
 		expect(orders.markPaid).toHaveBeenCalledOnce();
 		expect(orders.markFulfilling).toHaveBeenCalledOnce();
 		expect(fulfillment.fulfill).toHaveBeenCalledOnce();
-		expect(refundQueue.enqueue).not.toHaveBeenCalled();
+		expect(refundDispatcher.triggerRefund).not.toHaveBeenCalled();
 		expect(payments.createRefund).not.toHaveBeenCalled();
 	});
 
 	it("cancels an expired session when its payment intent fails", async () => {
-		const { fulfillment, orders, payments, refundQueue, service } = setup();
+		const { fulfillment, orders, payments, refundDispatcher, service } =
+			setup();
 		orders.seed({
 			providerPaymentIntentId: paymentIntentId,
 		});
@@ -1264,7 +1298,7 @@ describe("OrdersService", () => {
 		);
 		expect(orders.recordPaymentState).not.toHaveBeenCalled();
 		expect(fulfillment.fulfill).not.toHaveBeenCalled();
-		expect(refundQueue.enqueue).not.toHaveBeenCalled();
+		expect(refundDispatcher.triggerRefund).not.toHaveBeenCalled();
 	});
 
 	it("returns false for an unrelated payment intent and reconciles a known one", async () => {
