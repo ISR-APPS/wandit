@@ -17,16 +17,17 @@ import { useWorkspace } from "../../lib/store";
 
 export function VersionSwitcher() {
 	const { t } = useTranslation();
-	const { versions, activeVersion, selectVersion } = useWorkspace();
+	const { versions, previewVersion, serverActiveVersion, selectVersion } =
+		useWorkspace();
 
-	if (!activeVersion) return null;
+	if (!previewVersion) return null;
 
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
 				<Button variant="outline" size="sm" className="h-[30px] gap-[7px] px-3">
-					<span className="text-[13px]">
-						{t("workspace.page.versionShort", { n: activeVersion.number })}
+					<span dir="ltr" className="text-[13px]">
+						{t("workspace.page.versionShort", { n: previewVersion.number })}
 					</span>
 					<ChevronDown className="size-[11px] opacity-50" />
 				</Button>
@@ -39,10 +40,13 @@ export function VersionSwitcher() {
 					{[...versions].reverse().map((version) => (
 						<DropdownMenuItem
 							key={version.id}
-							onSelect={() => selectVersion(version.id)}
+							onSelect={() => selectVersion(version)}
 							className="gap-2.5"
 						>
-							<span className="rounded-md border bg-muted/50 px-1.5 py-0.5 font-mono text-[10px] tabular-nums">
+							<span
+								dir="ltr"
+								className="rounded-md border bg-muted/50 px-1.5 py-0.5 font-mono text-[10px] tabular-nums"
+							>
 								v{version.number}
 							</span>
 							<div className="min-w-0 flex-1">
@@ -59,7 +63,12 @@ export function VersionSwitcher() {
 									{t("workspace.page.liveBadge")}
 								</Badge>
 							) : null}
-							{version.id === activeVersion.id ? (
+							{version.id === serverActiveVersion?.id ? (
+								<Badge variant="outline" className="font-mono text-[10px]">
+									{t("workspace.page.latestSuffix")}
+								</Badge>
+							) : null}
+							{version.id === previewVersion.id ? (
 								<Check className="size-4 shrink-0 text-primary" />
 							) : null}
 						</DropdownMenuItem>

@@ -158,7 +158,10 @@ export function GenerationCard({ part }: { part: GenerationPart }) {
 				// Defensive guard: versionId should always be set once status is
 				// "complete", but the type allows null, so we check anyway.
 				if (part.versionId) {
-					selectVersion(part.versionId, { focusPage: true });
+					selectVersion(
+						{ id: part.versionId, number: part.versionNumber },
+						{ focusPage: true },
+					);
 				}
 			}}
 			// cn() merges Tailwind class strings and drops falsy entries — it

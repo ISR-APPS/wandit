@@ -10,15 +10,143 @@
  * Plain functions, NO NestJS imports on purpose: the Trigger.dev build task,
  * the ops pipeline, and the chat edit tools all share this module.
  */
+
+import type { CheerioAPI } from "cheerio";
 import * as cheerio from "cheerio";
 
+// Always pair this selector with isStampableLeaf so span shape and SVG
+// exclusions stay consistent across stamping and outline extraction.
 export const STAMPABLE_LEAF_SELECTOR =
-	"h1, h2, h3, h4, h5, h6, p, li, blockquote, figcaption, img, a, button";
+	"h1, h2, h3, h4, h5, h6, p, li, blockquote, figcaption, " +
+	"label, legend, span, input, textarea, img, a, button";
 
-export const TOP_LEVEL_SECTION_SELECTOR =
-	"body > header, body > section, body > footer, body > aside, body > nav, " +
-	"body > main > header, body > main > section, body > main > footer, " +
-	"body > main > aside, body > main > nav";
+export const STAMPABLE_CONTAINER_SELECTOR = "div, figure, article";
+
+export const INLINE_FORMATTING_SELECTOR =
+	"em, i, strong, b, u, s, small, mark, sub, sup, br, span, a";
+
+const SECTIONISH_ELEMENT_SELECTOR = "header, section, footer, aside, nav";
+const GENERIC_SECTION_WRAPPER_SELECTOR = "div, main";
+const MAX_SECTION_WRAPPER_DEPTH = 2;
+
+type StampNode = ReturnType<CheerioAPI>[number];
+
+/** True when every element descendant is inline formatting. */
+export function hasOnlyInlineFormatting(
+	$: CheerioAPI,
+	node: StampNode | undefined,
+): boolean {
+	if (!node) {
+		return false;
+	}
+
+	for (const descendant of $(node).find("*").toArray()) {
+		if (!$(descendant).is(INLINE_FORMATTING_SELECTOR)) {
+			return false;
+		}
+	}
+
+	return true;
+}
+
+/**
+ * True for a section-ish element separated from <body> by at most two
+ * generic <div>/<main> wrappers and by no other section-ish ancestor.
+ */
+export function isTopLevelSection(
+	$: CheerioAPI,
+	node: StampNode | undefined,
+): boolean {
+	if (!node) {
+		return false;
+	}
+
+	const section = $(node);
+
+	if (!section.is(SECTIONISH_ELEMENT_SELECTOR)) {
+		return false;
+	}
+
+	let ancestor = section.parent();
+	let wrapperDepth = 0;
+
+	while (ancestor.length > 0 && !ancestor.is("body")) {
+		if (
+			ancestor.is(SECTIONISH_ELEMENT_SELECTOR) ||
+			!ancestor.is(GENERIC_SECTION_WRAPPER_SELECTOR)
+		) {
+			return false;
+		}
+
+		wrapperDepth += 1;
+
+		if (wrapperDepth > MAX_SECTION_WRAPPER_DEPTH) {
+			return false;
+		}
+
+		ancestor = ancestor.parent();
+	}
+
+	return ancestor.length === 1 && ancestor.is("body");
+}
+
+/** True for an editable leaf outside SVG artwork. */
+export function isStampableLeaf(
+	$: CheerioAPI,
+	node: StampNode | undefined,
+): boolean {
+	if (!node) {
+		return false;
+	}
+
+	const element = $(node);
+
+	if (
+		!element.is(STAMPABLE_LEAF_SELECTOR) ||
+		element.closest("svg").length > 0
+	) {
+		return false;
+	}
+
+	if (element.is("span") && !hasOnlyInlineFormatting($, node)) {
+		return false;
+	}
+
+	return true;
+}
+
+/** True for a structural wrapper inside a recognized page section. Containers
+ * stay separate from editable leaves: they can be styled, but never flattened,
+ * counted as outline leaves, or removed through remove-element. */
+export function isStampableContainer(
+	$: CheerioAPI,
+	node: StampNode | undefined,
+): boolean {
+	if (!node) {
+		return false;
+	}
+
+	const element = $(node);
+
+	if (
+		!element.is(STAMPABLE_CONTAINER_SELECTOR) ||
+		element.closest("svg").length > 0 ||
+		element.closest("form").length > 0
+	) {
+		return false;
+	}
+
+	return element
+		.parents(SECTIONISH_ELEMENT_SELECTOR)
+		.toArray()
+		.some((ancestor) => isTopLevelSection($, ancestor));
+}
+
+function topLevelSections($: CheerioAPI) {
+	return $(SECTIONISH_ELEMENT_SELECTOR).filter((_, node) =>
+		isTopLevelSection($, node),
+	);
+}
 
 // Server-stamped element wids: e-1, e-2, … (contract §1).
 const ELEMENT_WID_PATTERN = /^e-(\d+)$/;
@@ -36,6 +164,10 @@ function isValidSectionWid(wid: string): boolean {
 		SECTION_WID_PATTERN.test(wid) &&
 		!ELEMENT_WID_PATTERN.test(wid)
 	);
+}
+
+function isContractValidWid(wid: string): boolean {
+	return wid.length <= MAX_WID_LENGTH && SECTION_WID_PATTERN.test(wid);
 }
 
 /**
@@ -69,7 +201,7 @@ export function stampHtml(html: string): string {
 	const sectionNodes = new Set<object>();
 	let fallbackNumber = 0;
 
-	$(TOP_LEVEL_SECTION_SELECTOR).each((_, node) => {
+	topLevelSections($).each((_, node) => {
 		const section = $(node);
 		const wid = section.attr("data-wid");
 
@@ -128,13 +260,33 @@ export function stampHtml(html: string): string {
 	$(STAMPABLE_LEAF_SELECTOR).each((_, node) => {
 		const element = $(node);
 
-		if (element.closest("svg").length > 0) {
+		if (!isStampableLeaf($, node)) {
 			return;
 		}
 
 		const value = element.attr("data-wid");
 
 		if (value && ELEMENT_WID_PATTERN.test(value)) {
+			return;
+		}
+
+		maxNumber += 1;
+		element.attr("data-wid", `e-${maxNumber}`);
+	});
+
+	// Structural surfaces are a distinct pass after leaves. Preserve any unique
+	// contract-valid semantic or e-N wid; otherwise continue above the document
+	// maximum so widening an old stamped page never shifts existing targets.
+	$(STAMPABLE_CONTAINER_SELECTOR).each((_, node) => {
+		const element = $(node);
+
+		if (!isStampableContainer($, node)) {
+			return;
+		}
+
+		const value = element.attr("data-wid");
+
+		if (value && isContractValidWid(value)) {
 			return;
 		}
 
@@ -153,21 +305,21 @@ export type OutlineSection = {
 };
 
 /**
- * Cheap section map for get_page_outline. Assumes STAMPED input — callers
- * stamp-on-read when a legacy pre-V2 version carries no wids.
+ * Cheap section map for get_page_outline. Assumes STAMPED input — read paths
+ * run the deterministic stamping pass before calling it.
  */
 export function extractOutline(html: string): { sections: OutlineSection[] } {
 	const $ = cheerio.load(html);
 	const sections: OutlineSection[] = [];
 
-	$(TOP_LEVEL_SECTION_SELECTOR).each((_, node) => {
+	topLevelSections($).each((_, node) => {
 		const section = $(node);
 		let elements = 0;
 
 		section.find(STAMPABLE_LEAF_SELECTOR).each((_, leafNode) => {
 			const leaf = $(leafNode);
 
-			if (leaf.closest("svg").length > 0) {
+			if (!isStampableLeaf($, leafNode)) {
 				return;
 			}
 
@@ -202,4 +354,25 @@ export function extractSectionHtml(html: string, wid: string): string | null {
 	}
 
 	return $.html(match);
+}
+
+/**
+ * Multiple elements' outerHTML by exact data-wid. Loads the document once and
+ * reports missing or non-unique wids as not found.
+ */
+export function extractElementsHtml(
+	html: string,
+	wids: readonly string[],
+): Array<{ wid: string; found: boolean; html?: string }> {
+	const $ = cheerio.load(html);
+
+	return wids.map((wid) => {
+		const match = $(`[data-wid="${wid}"]`);
+
+		if (match.length !== 1) {
+			return { wid, found: false };
+		}
+
+		return { wid, found: true, html: $.html(match) };
+	});
 }

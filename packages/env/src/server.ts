@@ -39,6 +39,7 @@ export const env = createEnv({
 	server: {
 		// AI model settings.
 		AI_CHAT_MODEL: z.string().min(1).default("openai/gpt-4o-mini"),
+		AI_TITLE_MODEL: z.string().min(1).default("openai/gpt-5.6-luna"),
 		AI_GATEWAY_API_KEY: z.string().min(1).optional(),
 		// Optional: the builder's generate_image tool. Needs R2 plus
 		// R2_PUBLIC_BASE_URL too; unset means the tool answers "unavailable".
@@ -136,6 +137,17 @@ export const env = createEnv({
 		DOMAINS_FALLBACK_ORIGIN: z.string().min(1).default("customers.wandit.app"),
 		// Zone serving published customer sites: {slug}.SITES_DOMAIN.
 		SITES_DOMAIN: z.string().min(1).default("wandit.app"),
+		// Sentry error tracking. Unset DSN = Sentry disabled (local dev).
+		SENTRY_DSN: z.url().optional(),
+		SENTRY_ENVIRONMENT: z
+			.enum(["production", "preview", "development"])
+			.optional(),
+		// Release tag, e.g. server@<RAILWAY_GIT_COMMIT_SHA>.
+		SENTRY_RELEASE: z.string().min(1).optional(),
+		// PostHog product analytics. Unset = analytics disabled (local dev).
+		POSTHOG_KEY: z.string().startsWith("phc_").optional(),
+		// Defaults to the EU cloud in the package when unset.
+		POSTHOG_HOST: z.url().optional(),
 	},
 	// Real data source for validation.
 	runtimeEnv: process.env,

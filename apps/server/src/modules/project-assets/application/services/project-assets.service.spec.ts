@@ -36,6 +36,10 @@ vi.mock("../../../../infrastructure/storage/r2", () => ({
 	publicAssetUrl: (key: string) => `https://assets.example.com/${key}`,
 }));
 
+vi.mock("../../../../infrastructure/analytics/analytics.service", () => ({
+	AnalyticsService: class AnalyticsService {},
+}));
+
 const PROJECT_ID = "22222222-2222-4222-8222-222222222222";
 const USER_ID = "user_1";
 
@@ -59,6 +63,7 @@ const IMAGE_ATTEMPT: ImageGenerationAttemptRow = {
 	projectId: PROJECT_ID,
 	prompt: "studio shot",
 	sourceImageUrls: [],
+	spec: null,
 	status: "succeeded",
 	title: "Photo produit",
 };

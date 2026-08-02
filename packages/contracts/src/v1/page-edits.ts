@@ -30,6 +30,35 @@ const fontSizePxSchema = z
 		return n >= 8 && n <= 200;
 	}, "font size must be between 8px and 200px");
 
+const fontWeightSchema = z.union([
+	z.enum(["normal", "bold"]),
+	z.number().int().min(100).max(900).multipleOf(100),
+]);
+
+const letterSpacingEmSchema = z
+	.string()
+	.regex(/^-?\d+(\.\d+)?em$/)
+	.refine((v) => {
+		const n = Number.parseFloat(v);
+		return n >= -0.05 && n <= 0.5;
+	}, "letter spacing must be between -0.05em and 0.5em");
+
+const borderRadiusSchema = z
+	.string()
+	.regex(/^\d+(\.\d+)?(px|rem)$/)
+	.refine((v) => {
+		if (v === "9999px") {
+			return true;
+		}
+
+		const n = Number.parseFloat(v);
+		return n >= 0 && n <= 64;
+	}, "border radius must be between 0 and 64, or 9999px");
+
+const widthPercentSchema = z
+	.string()
+	.regex(/^(?:[1-9]\d|100)%$/, "width must be an integer from 10% to 100%");
+
 const cssLengthSchema = z.string().regex(/^\d+(\.\d+)?(px|rem|em)$/);
 
 /** Section padding step scale (inline-editor V3): the client sends STEPS,
@@ -112,14 +141,46 @@ export const imageSrcOpSchema = z.object({
 	value: z.url().max(2048),
 });
 
+export const brandLogoOpSchema = z.object({
+	kind: z.literal("brand-logo"),
+	wid: widSchema,
+	value: z.url().max(2048).nullable(),
+});
+
+/** Neutral inline-SVG placeholder (3:2). Detect persisted placeholders by
+ *  data-wandit-placeholder, never by comparing this source string. */
+export const PLACEHOLDER_IMAGE_SRC =
+	"data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%201200%20800'%3E%3Crect%20width='1200'%20height='800'%20fill='%23E2E8F0'/%3E%3Cg%20stroke='%2394A3B8'%20stroke-width='18'%20fill='none'%20stroke-linecap='round'%20stroke-linejoin='round'%3E%3Crect%20x='440'%20y='300'%20width='320'%20height='200'%20rx='16'/%3E%3Ccircle%20cx='530'%20cy='368'%20r='22'/%3E%3Cpath%20d='M472%20476l86-86%2062%2062%2054-54%2086%2078'/%3E%3C/g%3E%3C/svg%3E";
+
+export const placeholderImageOpSchema = z.object({
+	kind: z.literal("placeholder-image"),
+	wid: widSchema,
+	/** Rendered slot size in CSS px, measured when the edit is recorded. */
+	value: z
+		.object({
+			width: z.number().int().min(1).max(10_000),
+			height: z.number().int().min(1).max(10_000),
+		})
+		.optional(),
+});
+
 export const elementStyleOpSchema = z.object({
 	kind: z.literal("element-style"),
 	wid: widSchema,
 	value: z
 		.object({
+			backgroundColor: hexColorSchema.optional(),
+			borderRadius: borderRadiusSchema.optional(),
 			color: hexColorSchema.optional(),
+			fontStyle: z.enum(["normal", "italic"]).optional(),
 			fontSize: fontSizePxSchema.optional(),
 			fontFamily: curatedFontIdSchema.optional(),
+			fontWeight: fontWeightSchema.optional(),
+			letterSpacing: letterSpacingEmSchema.optional(),
+			lineHeight: z.number().min(1).max(2.5).optional(),
+			objectFit: z.enum(["cover", "contain"]).optional(),
+			textAlign: z.enum(["start", "center", "end", "justify"]).optional(),
+			width: widthPercentSchema.optional(),
 		})
 		.refine((v) => Object.keys(v).length > 0, "at least one style property"),
 });
@@ -150,14 +211,20 @@ export const setTokensOpSchema = z.object({
 				>;
 			},
 		)
+		.strict()
 		.refine(
 			(v) => Object.values(v).some((x) => x !== undefined),
 			"at least one token",
 		),
 });
 
+/** Server-resolved restore of the newest builder-origin theme. */
+export const resetTokensOpSchema = z.object({
+	kind: z.literal("reset-tokens"),
+});
+
 /** Element removal (inline-editor V3) — the server restricts targets to
- *  <img> for now (ops.ts owns the tag check, same split as image-src). */
+ *  stamped leaf elements; section elements are never removable. */
 export const removeElementOpSchema = z.object({
 	kind: z.literal("remove-element"),
 	wid: widSchema,
@@ -167,6 +234,12 @@ export const setLinkHrefOpSchema = z.object({
 	kind: z.literal("set-link-href"),
 	wid: widSchema,
 	value: linkHrefSchema,
+});
+
+export const setPlaceholderOpSchema = z.object({
+	kind: z.literal("set-placeholder"),
+	wid: widSchema,
+	value: z.string().max(200),
 });
 
 const sectionBackgroundImageSchema = z.union([
@@ -184,6 +257,7 @@ export const sectionStyleOpSchema = z.object({
 	wid: widSchema,
 	value: z
 		.object({
+			backgroundColor: hexColorSchema.optional(),
 			paddingTop: sectionPaddingStepSchema.optional(),
 			paddingBottom: sectionPaddingStepSchema.optional(),
 			backgroundImage: sectionBackgroundImageSchema.optional(),
@@ -193,6 +267,19 @@ export const sectionStyleOpSchema = z.object({
 			"at least one section style property",
 		),
 });
+
+/** Curated element ops that are safe at the chat-tool boundary. */
+export const aiElementOpSchema = z.discriminatedUnion("kind", [
+	textOpSchema,
+	imageSrcOpSchema,
+	elementStyleOpSchema,
+	setTokensOpSchema,
+	setLinkHrefOpSchema,
+	removeElementOpSchema,
+	sectionStyleOpSchema,
+]);
+
+export type AiElementOp = z.infer<typeof aiElementOpSchema>;
 
 /** SERVER-INTERNAL: produced by the chat agent's replace_section tool only. */
 export const replaceSectionOpSchema = z.object({
@@ -204,20 +291,28 @@ export const replaceSectionOpSchema = z.object({
 export const clientEditOpSchema = z.discriminatedUnion("kind", [
 	textOpSchema,
 	imageSrcOpSchema,
+	brandLogoOpSchema,
+	placeholderImageOpSchema,
 	elementStyleOpSchema,
 	removeElementOpSchema,
 	setLinkHrefOpSchema,
+	setPlaceholderOpSchema,
 	sectionStyleOpSchema,
+	resetTokensOpSchema,
 	setTokensOpSchema,
 ]);
 
 export const editOpSchema = z.discriminatedUnion("kind", [
 	textOpSchema,
 	imageSrcOpSchema,
+	brandLogoOpSchema,
+	placeholderImageOpSchema,
 	elementStyleOpSchema,
 	removeElementOpSchema,
 	setLinkHrefOpSchema,
+	setPlaceholderOpSchema,
 	sectionStyleOpSchema,
+	resetTokensOpSchema,
 	setTokensOpSchema,
 	replaceSectionOpSchema,
 ]);

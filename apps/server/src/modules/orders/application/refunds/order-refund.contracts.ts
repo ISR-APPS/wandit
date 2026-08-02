@@ -21,6 +21,16 @@ export type OrderRefundFailureContext = {
 	orderId: string;
 };
 
+export type OrderRefundErrorTags = {
+	attempt: number;
+	orderId: string;
+};
+
+export type OrderRefundErrorReporter = (
+	error: unknown,
+	tags: OrderRefundErrorTags,
+) => void;
+
 export interface DurableWait {
 	for(input: { seconds: number }): Promise<void>;
 }

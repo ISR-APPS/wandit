@@ -1,3 +1,5 @@
+import type { env } from "@wandit/env/server";
+
 // The composer's dev-only builder picker sends a SLUG (composer
 // options.builderModel); this allow-list maps slugs to gateway model ids.
 // Unknown or absent values resolve to undefined so the env default applies —
@@ -11,8 +13,19 @@ export const BUILDER_MODEL_BY_OPTION: Record<string, string> = {
 	"gpt-5-6-sol": "openai/gpt-5.6-sol",
 	"grok-4-5": "xai/grok-4.5",
 	"kimi-k3-fast": "moonshotai/kimi-k3-fast",
+	"mimo-v2-5": "xiaomi/mimo-v2.5",
+	"minimax-m3": "minimax/minimax-m3",
 	"muse-spark-1-1": "meta/muse-spark-1.1",
 	"sonnet-5": "anthropic/claude-sonnet-5",
+};
+
+type BuilderReasoningEffort = typeof env.AI_PAGE_DESIGN_REASONING;
+
+export const BUILDER_REASONING_EFFORT_BY_MODEL: Record<
+	string,
+	BuilderReasoningEffort
+> = {
+	"openai/gpt-5.6-luna": "xhigh",
 };
 
 export function resolveBuilderModelOption(value: unknown): string | undefined {

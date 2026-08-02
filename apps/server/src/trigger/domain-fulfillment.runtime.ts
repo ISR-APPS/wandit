@@ -1,5 +1,6 @@
 import { logger as triggerLogger } from "@trigger.dev/sdk";
 import type { createDb } from "@wandit/db";
+import { Sentry } from "@wandit/observability/node";
 
 import { CustomHostnameConfigurationStep } from "../modules/domains/application/fulfillment/custom-hostname-configuration.step";
 import { CustomHostnameVerificationStep } from "../modules/domains/application/fulfillment/custom-hostname-verification.step";
@@ -237,6 +238,9 @@ function createDomainInfrastructure(
 				transaction as PaymentOrderTransaction,
 			),
 		markOrderFulfilled: (orderId) => paymentOrders.markFulfilled(orderId),
+		reportError: (error, tags) => {
+			Sentry.captureException(error, { tags });
+		},
 		updateDomainIfStatus: (domainId, statuses, patch, transaction) =>
 			domains.updateIfStatusOrNull(
 				domainId,

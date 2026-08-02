@@ -2,112 +2,99 @@
 
 ## Why
 
-Every generated website converged to the same page: eyebrow label → serif
-headline → gray paragraph → accent CTA → photo on the right, then a linear
-stack of sections. A deep audit found the causes:
+Generated sites converge when the model receives loose ingredients — a
+palette, a font pair, a few motion words — but must invent the composition.
+Unspecified composition falls back to the same polished landing-page
+defaults. A design world fixes that by supplying one deep, authored visual
+system whose philosophy, page physics, type, components, motion and bans agree
+with one another.
 
-- The direction catalog sampled **fragments** (a palette, four motion-move
-  names, a finish) and left **composition** — hero form, page chassis, how
-  sections meet — to the model's defaults. Unspecified means template.
-- The builder prompt's only concrete numbers *were* the generic hero
-  (11px eyebrow, 1px rule, `clamp(3rem,8vw,7rem)` headline), constant across
-  every build.
-- The quality bar (`design/examples/*.html`) was read by zero code.
-- Ambitious motion was gated behind a low-probability `[GSAP]` tag draw, and
-  the screenshot review pass treated mid-animation frames as bugs — so the
-  cheapest "fix" was deleting the animation.
-- `AI_BUILDER_REASONING=high` in `.env` was a misnamed no-op (the code reads
-  `AI_PAGE_DESIGN_REASONING`), so the builder ran at default effort.
-
-The counter-example: one 5,000-word style prompt (a "neo-brutalism" design
-system doc) makes even an ordinary layout feel branded, because nothing is
-left to guess. Depth of instruction, not number of options, is what kills
-the template look. And a live art-director *agent* was already tried (July
-15–25) and removed — an agent improvising a plan has the same defaults as
-the builder. The fix is a **library written once with care, delivered whole
-every time**.
+The library is written once with care and delivered whole. It replaces neither
+the user's facts nor the Brain's content brief: those remain cargo. It supplies
+the visual laws that make the result belong to a recognizable family without
+turning every build into the same template.
 
 ## What
 
-A **design world** (`apps/server/src/modules/ai-chat/agent/worlds/`) is a
-complete visual universe written as one deep document: philosophy, color
-physics, typography system, page chassis, hero forms, a seam vocabulary
-(how scenes hand off to each other), motion identity with real values
-(durations, eases, staggers), components, editorial voice, its own ban
-list, and an intensity clause. Every world declares a `kind` — `website`,
-`cod` (single-product COD pages, with a mandatory Conversion objects
-section), or `both`.
+A design world lives in
+`apps/server/src/modules/ai-chat/agent/worlds/`. Every world declares a `kind`:
 
-Three worlds are distilled from the target-quality examples with their
-exact measured values: `monographe` (dark architectural monograph, from
-`real-estate.html`), `cinetique` (kinetic concept studio, from
-`agency.html`), `atelier` (crafted commerce, from `ecommerce.html`, kind
-both).
+- `website` is for multi-purpose business sites; `both` can also enter the
+  legacy product-dossier pool.
+- `product` is a single-product **dossier**: an object presented for study,
+  story or desire. The ten dossier worlds are `bazar`, `cargo`, `cocon`,
+  `forge`, `heritage`, `laboratoire`, `nid`, `sillage`, `verger` and
+  `vitrine`.
+- `cod` is a single-product cash-on-delivery **funnel**: a pitch answered on a
+  phone, with one corridor from hook to embedded order form. Its separate
+  46-world library lives under `worlds/cod/`.
 
-Twenty more were authored from concept briefs and adversarially critiqued
-(every file reviewed and patched by a second agent for depth, value
-specificity, executability, RTL coverage, and distinctness):
+Those last two genres are deliberately different. A product dossier may ask
+the visitor to admire an object; a COD funnel must keep convincing, restating
+the offer and making the order action reachable. The old dossier world `souk`
+was therefore renamed `bazar`. The COD library owns the `souk` id and keeps its
+cross-world fusion references intact.
 
-- Websites: `clarte` (light porcelain editorial — clinics/wellness),
-  `fournil` (warm artisan food), `beton` (neo-brutalist punk), `riviera`
-  (Mediterranean coastal, horizon-line system), `precis` (blueprint
-  precision — tech/consulting/finance), `zellige` (Maghreb heritage
-  lattice), `palestre` (training-floor energy), `nocturne` (candlelight
-  fine dining), `pellicule` (film contact-sheet portfolio), `ribambelle`
-  (paper-collage storybook — kids/family).
-- COD product pages: `vitrine` (museum case for one object), `souk`
-  (bazaar heat), `laboratoire` (spec-bench tech, exploded view), `cocon`
-  (dewy beauty ritual), `heritage` (artisan lineage cold-open), `cargo`
-  (streetwear drop), `verger` (terroir harvest food), `forge` (industrial
-  tools), `sillage` (perfume vapor luxury), `nid` (baby trust softness).
+The original website and dossier worlds describe their visual physics in the
+established deep-document form. A COD world uses a stricter authoring genre:
+
+- Its document has 13 sections: philosophy, variation contract, measured
+  signatures, color physics, typography, signature art and components, spine,
+  block treatments, hero menu, form menu, motion identity, ban list and example
+  variations.
+- It records literal palette hexes, font names and radii so its skin is exact.
+  The shared COD genre layer bridges those values into the builder's canonical
+  page tokens; literals become `:root` token values, never scattered raw CSS.
+- Its BLOCKS TREATMENT speaks the permanent 30-id vocabulary from
+  `worlds/cod/blocks.ts`, and its refused blocks are law. The shared genre layer
+  supplies funnel behavior once, while each world supplies the distinctive
+  dress.
+
+See [COD Worlds](./cod-worlds.md) for the funnel contract and complete runtime
+flow.
 
 ## How it flows
 
-1. `get_direction_candidates` now returns the **world menu first**, SAMPLED
-   per call: 6 website worlds + 6 product-page worlds drawn fresh from the
-   library, shuffled, with industry-affine worlds guaranteed at most 3
-   seats (fit never crowds out surprise) and `avoidFor` filtering wrong
-   matches. The randomness lives server-side — same anti-convergence
-   contract as the palette/font sampler, one level up.
-2. The Brain picks **exactly one world per website** (optional for COD pages
-   when one fits), instantiates it (palette hexes mapped into the world's
-   physics, font pairing, signature interaction), and writes a **PAGE
-   STORY** — scenes with jobs, named seams, a traveling motif, quiet/loud
-   rhythm, one showpiece — instead of a section list. Collected data (phone,
-   prices, hours) is **cargo, never blueprint**: it lands in CONTENT FACTS
-   and must not dictate structure.
-3. `generate_page` takes an optional `worldId`. The queue tool appends the
-   world's doc verbatim to the builder system-prompt **snapshot** — the
-   Trigger task and build loop never know worlds exist.
-4. The builder prompt was rewritten: world = design authority, brief =
-   content authority; scenes + seams replace sections; the marketplace hero
-   and default navbar are banned by name; a color-derivation rule (all
-   secondary text/borders are alpha of ink); GSAP + ScrollTrigger load on
-   every build with the examples' timing bands; review passes treat
-   mid-scroll animation frames as correct and a fully static page as a
-   finding.
-5. `screenshot.ts` drives `window.__lenis` when present (smooth-scroll pages
-   used to collapse every shot into the same frame).
-6. `AI_PAGE_DESIGN_REASONING` now defaults to `high` in the env schema, and
-   the `.env` var was renamed to the name the code actually reads.
+1. Website art direction remains model-authored: the 2026-07-27 experiment is
+   still off for websites, and the Brain does not pass a world id for them.
+   The legacy single-`worldId` assembly path remains supported.
+2. In COD mode, after collecting the product and offer facts, the Brain asks
+   one optional funnel-block question and requests a fresh COD world menu. The
+   server samples eight candidates from the 46-world pool, limits obvious
+   industry matches and preserves compatible fusion choices.
+3. The Brain commits to one **base** world and two or three **donors**, menu
+   choices only. It passes their ids base-first to `generate_page`, together
+   with `pageKind: "cod"`.
+4. The queue tool snapshots one builder prompt in this order: base builder
+   prompt, shared COD genre law, fusion contract, base world document, then the
+   donor documents. Unknown ids are warned about and dropped; a COD build with
+   no resolved worlds still receives the genre law.
+5. The base owns palette registers, type stacks, spine, refused blocks and
+   motion identity. Each donor contributes at most one or two compatible
+   signatures, redressed in the base skin. Conflicts resolve to the base, while
+   refused blocks accumulate across every supplied world. The target is one new
+   coherent pressing, never a collage or a copy of one example variation.
+
+The builder still receives the user's brief as content authority. World and
+genre documents govern presentation and funnel craft; they cannot invent
+prices, reviews, stock, deadlines or delivery claims.
 
 ## Authoring a new world
 
-Copy `monographe.ts` as the format exemplar. Rules of the genre:
+For a website or dossier world, copy `monographe.ts` as the format exemplar.
+Describe a complete system, give every executable value a reason, keep
+backticks and `${` out of the document template literal, end with an intensity
+clause, and register the world in `worlds/index.ts`.
 
-- Physics is law, tokens are instantiated: write "the palette's dark pole",
-  not a hex, unless the value *is* the physics (durations, alphas, ratios).
-- Every number real — distill from a torn-down reference, never invent.
-- No backticks or `${` inside the doc (it ships in a template literal).
-- End with an intensity clause: a world at 60% reads broken, at 100% reads
-  branded.
-- Register it in `worlds/index.ts`.
+For a COD world, copy an existing file under `worlds/cod/` and preserve the
+13-section contract. Use literal skin values, declare `family`, `fusesWith`
+and the five-field `preview`, dress only ids from `COD_BLOCKS`, and state
+refused blocks explicitly. Register it in `worlds/cod/index.ts`; the COD barrel
+is merged into the global registry.
 
 ## Deliberately not here (yet)
 
-- Cooldown/memory of served worlds per vertical (sampler accepts
-  `cooldownIds`; a `served_directions` table is a later iteration).
-- Brief validation/observability (`analyzeBrief`) — measure first.
-- `scripts/test-build-world.ts` is throwaway experiment tooling: it runs
-  `runSiteBuild` directly on a fixed dental-clinic brief in Monographe so
-  before/after can be judged on the complaint's own subject.
+- Persisted cooldown or memory of worlds served to a vertical. Sampling is
+  fresh and server-side, but it has no cross-request history.
+- Generic brief validation and observability (`analyzeBrief`).
+- Re-enabling the world chooser for website builds.

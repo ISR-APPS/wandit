@@ -25,9 +25,15 @@ function setup() {
 	const logger = {
 		error: vi.fn(),
 	};
-	const runner = new OrderRefundRunner(refundStep, durableWait, logger);
+	const reportError = vi.fn();
+	const runner = new OrderRefundRunner(
+		refundStep,
+		durableWait,
+		logger,
+		reportError,
+	);
 
-	return { durableWait, logger, refundStep, runner };
+	return { durableWait, logger, refundStep, reportError, runner };
 }
 
 describe("parseOrderRefundPayload", () => {
@@ -76,6 +82,7 @@ describe("OrderRefundRunner", () => {
 		);
 		expect(fixture.durableWait.for).not.toHaveBeenCalled();
 		expect(fixture.logger.error).not.toHaveBeenCalled();
+		expect(fixture.reportError).not.toHaveBeenCalled();
 	});
 
 	it("returns a stale false result without retrying", async () => {
@@ -87,13 +94,13 @@ describe("OrderRefundRunner", () => {
 		});
 		expect(fixture.refundStep.execute).toHaveBeenCalledTimes(1);
 		expect(fixture.durableWait.for).not.toHaveBeenCalled();
+		expect(fixture.reportError).not.toHaveBeenCalled();
 	});
 
 	it("logs a thrown step failure, durably waits 60 seconds, and retries", async () => {
 		const fixture = setup();
-		fixture.refundStep.execute.mockRejectedValueOnce(
-			new Error("Stripe unavailable"),
-		);
+		const originalError = new Error("Stripe unavailable");
+		fixture.refundStep.execute.mockRejectedValueOnce(originalError);
 
 		await expect(fixture.runner.run(payload())).resolves.toEqual({
 			processed: true,
@@ -111,6 +118,39 @@ describe("OrderRefundRunner", () => {
 				orderId,
 			},
 		);
+		expect(fixture.reportError).toHaveBeenCalledExactlyOnceWith(originalError, {
+			attempt: 1,
+			orderId,
+		});
+	});
+
+	it("throttles reports to the first failure, escalation, and hourly heartbeats", async () => {
+		const fixture = setup();
+		const errors = Array.from(
+			{ length: 61 },
+			(_, index) => new Error(`failure ${index + 1}`),
+		);
+		let attempt = 0;
+		fixture.refundStep.execute.mockImplementation(async () => {
+			const error = errors[attempt];
+			attempt += 1;
+
+			if (error) {
+				throw error;
+			}
+
+			return true;
+		});
+
+		await expect(fixture.runner.run(payload())).resolves.toEqual({
+			processed: true,
+		});
+
+		expect(fixture.reportError.mock.calls).toEqual([
+			[errors[0], { attempt: 1, orderId }],
+			[errors[29], { attempt: 30, orderId }],
+			[errors[59], { attempt: 60, orderId }],
+		]);
 	});
 
 	it("uses the same fixed durable wait after every thrown failure", async () => {

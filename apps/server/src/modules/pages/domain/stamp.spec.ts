@@ -1,7 +1,16 @@
 import * as cheerio from "cheerio";
 import { describe, expect, it } from "vitest";
 
-import { extractOutline, extractSectionHtml, stampHtml } from "./stamp";
+import {
+	extractElementsHtml,
+	extractOutline,
+	extractSectionHtml,
+	isStampableContainer,
+	isStampableLeaf,
+	isTopLevelSection,
+	STAMPABLE_LEAF_SELECTOR,
+	stampHtml,
+} from "./stamp";
 
 // A representative builder output: semantic section wids, a <main> wrapper,
 // preview-editor junk, svg internals, and a few pre-existing element wids.
@@ -33,6 +42,50 @@ describe("stampHtml", () => {
 		expect(sectionWids).toEqual(["sec-1", "sec-2", "sec-3"]);
 	});
 
+	it("pierces up to two generic wrappers and excludes nested sections", () => {
+		const html = `<!doctype html><html><body>
+<div class="page">
+<header id="wrapped-header"><h1>Header</h1></header>
+<main><section id="twice-wrapped"><p>Offer</p>
+<div><aside id="nested-aside"><p>Nested</p></aside></div>
+</section></main>
+</div>
+<div><div><main><footer id="too-deep"><p>Deep</p></footer></main></div></div>
+<article><nav id="non-generic"><a href="#x">Nav</a></nav></article>
+</body></html>`;
+		const $ = cheerio.load(stampHtml(html));
+
+		expect($("#wrapped-header").attr("data-wid")).toBe("sec-1");
+		expect($("#twice-wrapped").attr("data-wid")).toBe("sec-2");
+		expect($("#nested-aside").attr("data-wid")).toBeUndefined();
+		expect($("#too-deep").attr("data-wid")).toBeUndefined();
+		expect($("#non-generic").attr("data-wid")).toBeUndefined();
+
+		expect(isTopLevelSection($, $("#wrapped-header")[0])).toBe(true);
+		expect(isTopLevelSection($, $("#twice-wrapped")[0])).toBe(true);
+		expect(isTopLevelSection($, $("#nested-aside")[0])).toBe(false);
+		expect(isTopLevelSection($, $("#too-deep")[0])).toBe(false);
+		expect(isTopLevelSection($, $("#non-generic")[0])).toBe(false);
+	});
+
+	it("keeps fallback and uniqueness rules across generic wrappers", () => {
+		const html = `<!doctype html><html><body>
+<div data-wid="sec-1"><main>
+<section data-wid="offer"><p data-wid="e-5">First</p></section>
+<section data-wid="offer"><p data-wid="e-5">Second</p></section>
+</main></div>
+</body></html>`;
+		const $ = cheerio.load(stampHtml(html));
+		const allWids = $("[data-wid]")
+			.map((_, node) => $(node).attr("data-wid"))
+			.get();
+
+		expect($("section").first().attr("data-wid")).toBe("offer");
+		expect($("section").last().attr("data-wid")).toBe("sec-2");
+		expect($("section").last().find("p").attr("data-wid")).toBe("e-6");
+		expect(new Set(allWids).size).toBe(allWids.length);
+	});
+
 	it("stamps every leaf, preserving existing e- wids and numbering past the max", () => {
 		const $ = cheerio.load(stampHtml(FIXTURE));
 
@@ -62,8 +115,56 @@ describe("stampHtml", () => {
 		expect(Math.max(...numbers)).toBeGreaterThan(3);
 	});
 
-	it("is idempotent", () => {
-		const once = stampHtml(FIXTURE);
+	it("stamps form leaves and spans containing only inline formatting", () => {
+		const html = `<!doctype html><html><body><section>
+<form><fieldset><legend>Order</legend>
+<label for="name">Name</label><input id="name" placeholder="Your name">
+<label for="note">Note</label><textarea id="note"></textarea>
+<span id="text-span">Cash on delivery</span>
+<span id="nested-span">Price: <strong>1 000 DZD</strong></span>
+	<span id="formatted-span">A quiet <em>corner<br>of <span>the city</span></em></span>
+</fieldset></form>
+</section></body></html>`;
+		const $ = cheerio.load(stampHtml(html));
+
+		for (const selector of [
+			"legend",
+			"label",
+			"input",
+			"textarea",
+			"#text-span",
+			"#nested-span",
+			"#formatted-span",
+			"#formatted-span span",
+		]) {
+			expect($(selector).attr("data-wid"), selector).toMatch(/^e-\d+$/);
+		}
+
+		expect(isStampableLeaf($, $("#text-span")[0])).toBe(true);
+		expect(isStampableLeaf($, $("#nested-span")[0])).toBe(true);
+		expect(isStampableLeaf($, $("#formatted-span")[0])).toBe(true);
+	});
+
+	it("does not stamp spans containing non-inline descendants", () => {
+		const html = `<!doctype html><html><body><section>
+<span id="div-span">Copy <div>block</div></span>
+<span id="img-span">Copy <img src="/photo.jpg" alt=""></span>
+<span id="svg-span">Rating <svg viewBox="0 0 10 10"><path d="M0 0h10v10z"></path></svg></span>
+</section></body></html>`;
+		const $ = cheerio.load(stampHtml(html));
+
+		for (const selector of ["#div-span", "#img-span", "#svg-span"]) {
+			expect($(selector).attr("data-wid"), selector).toBeUndefined();
+			expect(isStampableLeaf($, $(selector)[0]), selector).toBe(false);
+		}
+	});
+
+	it("is idempotent with nested inline spans", () => {
+		const html = FIXTURE.replace(
+			"</body>",
+			"<span>A quiet <em>corner <span>of the city</span></em></span></body>",
+		);
+		const once = stampHtml(html);
 
 		expect(stampHtml(once)).toBe(once);
 	});
@@ -112,6 +213,74 @@ describe("stampHtml", () => {
 
 		expect($("a").attr("data-wid")).toBe("e-1");
 	});
+
+	it("stamps section containers after leaves without changing leaf semantics", () => {
+		const html = `<!doctype html><html><body><section data-wid="hero">
+			<div id="card"><p data-wid="e-7">Copy</p><img id="photo" src="/photo.jpg"></div>
+			<figure id="semantic" data-wid="price-card"><figcaption>Price</figcaption></figure>
+			<article id="article"><h2>Details</h2></article>
+		</section></body></html>`;
+		const $ = cheerio.load(stampHtml(html));
+
+		expect($("#semantic").attr("data-wid")).toBe("price-card");
+		expect($("#photo").attr("data-wid")).toBe("e-8");
+		expect($("#card").attr("data-wid")).toMatch(/^e-\d+$/);
+		expect($("#article").attr("data-wid")).toMatch(/^e-\d+$/);
+		expect(
+			Number.parseInt($("#card").attr("data-wid")?.slice(2) ?? "0", 10),
+		).toBeGreaterThan(8);
+		expect(isStampableContainer($, $("#card")[0])).toBe(true);
+		expect(isStampableLeaf($, $("#card")[0])).toBe(false);
+		expect(STAMPABLE_LEAF_SELECTOR).not.toContain("div");
+		expect(STAMPABLE_LEAF_SELECTOR).not.toContain("figure");
+		expect(STAMPABLE_LEAF_SELECTOR).not.toContain("article");
+	});
+
+	it("replaces invalid and duplicate container wids but preserves valid semantic wids", () => {
+		const html = `<!doctype html><html><body><section data-wid="hero">
+			<div id="valid" data-wid="brand-lockup"></div>
+			<div id="duplicate" data-wid="brand-lockup"></div>
+			<article id="invalid" data-wid="Brand Card"></article>
+		</section></body></html>`;
+		const $ = cheerio.load(stampHtml(html));
+
+		expect($("#valid").attr("data-wid")).toBe("brand-lockup");
+		expect($("#duplicate").attr("data-wid")).toMatch(/^e-\d+$/);
+		expect($("#invalid").attr("data-wid")).toMatch(/^e-\d+$/);
+		expect($("#duplicate").attr("data-wid")).not.toBe(
+			$("#invalid").attr("data-wid"),
+		);
+	});
+
+	it("excludes page wrappers, SVG artwork, forms, and form descendants from container stamping", () => {
+		const html = `<!doctype html><html><body><div id="page-shell">
+			<section data-wid="order"><div id="surface"></div>
+				<form><div id="form-wrapper"></div><article id="form-article"></article></form>
+				<svg><foreignObject><div id="svg-wrapper"></div></foreignObject></svg>
+			</section>
+		</div></body></html>`;
+		const $ = cheerio.load(stampHtml(html));
+
+		expect($("#surface").attr("data-wid")).toMatch(/^e-\d+$/);
+		for (const selector of [
+			"#page-shell",
+			"#form-wrapper",
+			"#form-article",
+			"#svg-wrapper",
+		]) {
+			expect($(selector).attr("data-wid"), selector).toBeUndefined();
+			expect(isStampableContainer($, $(selector)[0]), selector).toBe(false);
+		}
+	});
+
+	it("is idempotent after adding container stamps", () => {
+		const html = `<!doctype html><html><body><section data-wid="hero">
+			<div><article data-wid="feature-plate"><p>Copy</p></article></div>
+		</section></body></html>`;
+		const once = stampHtml(html);
+
+		expect(stampHtml(once)).toBe(once);
+	});
 });
 
 describe("extractOutline", () => {
@@ -130,6 +299,26 @@ describe("extractOutline", () => {
 		// header: h1 + p = 2 stamped leaves; first main section: h2 + 2 li = 3.
 		expect(sections[0]?.elements).toBe(2);
 		expect(sections[1]?.elements).toBe(3);
+	});
+
+	it("maps wrapper-pierced sections and counts the extended leaf set", () => {
+		const html = stampHtml(`<!doctype html><html><body>
+<div class="page"><main><section data-wid="order-form">
+<form><legend>Order</legend><label>Name</label><input>
+<textarea></textarea><span>COD only</span><span><b>Nested</b></span></form>
+</section></main></div>
+</body></html>`);
+
+		expect(extractOutline(html)).toEqual({
+			sections: [
+				{
+					elements: 6,
+					snippet: "OrderName COD onlyNested",
+					tag: "section",
+					wid: "order-form",
+				},
+			],
+		});
 	});
 
 	it("normalizes whitespace and truncates snippets to 90 chars", () => {
@@ -156,5 +345,40 @@ describe("extractSectionHtml", () => {
 
 	it("returns null for unknown wids", () => {
 		expect(extractSectionHtml(stampHtml(FIXTURE), "missing")).toBeNull();
+	});
+});
+
+describe("extractElementsHtml", () => {
+	it("returns ordered results for multiple wids from one document load", () => {
+		const stamped = stampHtml(FIXTURE);
+		const results = extractElementsHtml(stamped, ["e-3", "hero", "missing"]);
+
+		expect(results).toHaveLength(3);
+		expect(results[0]).toMatchObject({
+			found: true,
+			html: expect.stringContaining('data-wid="e-3"'),
+			wid: "e-3",
+		});
+		expect(results[1]).toMatchObject({
+			found: true,
+			html: expect.stringContaining("<header"),
+			wid: "hero",
+		});
+		expect(results[2]).toEqual({ found: false, wid: "missing" });
+	});
+
+	it("requires one exact match for each wid", () => {
+		const html = `<!doctype html><html><body>
+			<p data-wid="e-1">First</p><p data-wid="e-1">Second</p>
+			<p data-wid="e-10">Exact</p>
+		</body></html>`;
+		const results = extractElementsHtml(html, ["e-1", "e-10"]);
+
+		expect(results[0]).toEqual({ found: false, wid: "e-1" });
+		expect(results[1]).toMatchObject({
+			found: true,
+			html: expect.stringContaining(">Exact</p>"),
+			wid: "e-10",
+		});
 	});
 });

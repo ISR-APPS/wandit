@@ -124,6 +124,17 @@ export function siteShotKey(
 	return `sites/${projectId}/shots/${attemptId}/p${pass}-${index}.jpg`;
 }
 
+// Dashboard card cover — the final build's hero screenshot. Versioned key
+// (immutable, cache-safe: a new build writes a NEW key, so no cache-buster
+// is needed). Deliberately NOT under sites/{id}/assets/ (Assets tab) nor
+// sites/{id}/shots/ (chat-card strips).
+export function projectThumbnailKey(
+	projectId: string,
+	versionId: string,
+): string {
+	return `sites/${projectId}/thumbnails/${versionId}.jpg`;
+}
+
 // Standalone images from the chat's generate_image tool live under their own
 // root — NOT under sites/{id}/assets/, so the Assets tab's build-asset prefix
 // listing never double-counts them:

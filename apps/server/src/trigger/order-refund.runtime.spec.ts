@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const observability = vi.hoisted(() => ({ captureException: vi.fn() }));
+
+vi.mock("@wandit/observability/node", () => ({
+	Sentry: { captureException: observability.captureException },
+}));
+
 import { OrderRefundStep } from "../modules/orders/application/refunds/order-refund.step";
 import { createOrderRefundRuntime } from "./order-refund.runtime";
 
@@ -10,6 +16,7 @@ const payload = {
 
 describe("createOrderRefundRuntime", () => {
 	afterEach(() => {
+		vi.clearAllMocks();
 		vi.restoreAllMocks();
 	});
 
@@ -37,14 +44,16 @@ describe("createOrderRefundRuntime", () => {
 			payload.orderId,
 			payload.failureReason,
 		);
+		expect(observability.captureException).not.toHaveBeenCalled();
 	});
 
 	it("rechecks configuration again after each durable retry", async () => {
 		const events: string[] = [];
+		const originalError = new Error("Stripe unavailable");
 		vi.spyOn(OrderRefundStep.prototype, "execute")
 			.mockImplementationOnce(async () => {
 				events.push("step-1");
-				throw new Error("Stripe unavailable");
+				throw originalError;
 			})
 			.mockImplementationOnce(async () => {
 				events.push("step-2");
@@ -72,6 +81,10 @@ describe("createOrderRefundRuntime", () => {
 			"step-2",
 		]);
 		expect(waitFor).toHaveBeenCalledWith({ seconds: 60 });
+		expect(observability.captureException).toHaveBeenCalledExactlyOnceWith(
+			originalError,
+			{ tags: { attempt: 1, orderId: payload.orderId } },
+		);
 	});
 });
 

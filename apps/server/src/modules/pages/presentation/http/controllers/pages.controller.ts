@@ -21,6 +21,9 @@ import {
 	type ListPageVersionsResponse,
 	type PageOverview,
 	type PageVersionHtml,
+	type RestorePageVersionBody,
+	type RestorePageVersionResponse,
+	restorePageVersionBodySchema,
 	uuidSchema,
 } from "@wandit/contracts";
 
@@ -71,6 +74,28 @@ export class PagesController {
 		@CurrentUser() user: AuthUser,
 	): Promise<ListPageVersionsResponse> {
 		return this.pagesService.listVersions(user.id, projectId);
+	}
+
+	// Copy a historical version forward as a new immutable active version.
+	// The expected pointer gives restores the same compare-and-swap discipline
+	// as inline edit batches.
+	@UseGuards(EarlyAccessGuard)
+	@Post("projects/:projectId/page/versions/:versionId/restore")
+	restoreVersion(
+		@Param("projectId", new ZodValidationPipe(uuidSchema))
+		projectId: string,
+		@Param("versionId", new ZodValidationPipe(uuidSchema))
+		versionId: string,
+		@Body(new ZodValidationPipe(restorePageVersionBodySchema))
+		body: RestorePageVersionBody,
+		@CurrentUser() user: AuthUser,
+	): Promise<RestorePageVersionResponse> {
+		return this.pageEditsService.restoreVersion(
+			user.id,
+			projectId,
+			versionId,
+			body,
+		);
 	}
 
 	// JSON envelope on purpose (NOT a raw text/html response): the web puts

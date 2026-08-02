@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { attachmentMediaTypeSchema } from "./attachments";
+import { composerMetadataSchema } from "./chats";
 import {
 	imageGenerationAspectSchema,
 	MAX_IMAGES_PER_GENERATION,
@@ -10,7 +11,62 @@ import {
 	imageToVideoMotionSchema,
 	imageToVideoSourceMediaTypeSchema,
 } from "./media-generations";
-import { widSchema } from "./page-edits";
+import { aiElementOpSchema, widSchema } from "./page-edits";
+import { PAGE_TOKEN_NAMES } from "./page-theme";
+
+// AI SDK v7 LanguageModelUsage-compatible fields kept on assistant messages.
+// The nested detail names deliberately follow v7: the old top-level
+// cachedInputTokens/reasoningTokens fields no longer exist in the SDK.
+const aiChatTokenCountSchema = z.number().int().nonnegative();
+
+export const aiChatMessageUsageSchema = z.object({
+	inputTokens: aiChatTokenCountSchema.optional(),
+	inputTokenDetails: z
+		.object({
+			noCacheTokens: aiChatTokenCountSchema.optional(),
+			cacheReadTokens: aiChatTokenCountSchema.optional(),
+			cacheWriteTokens: aiChatTokenCountSchema.optional(),
+		})
+		.optional(),
+	outputTokens: aiChatTokenCountSchema.optional(),
+	outputTokenDetails: z
+		.object({
+			textTokens: aiChatTokenCountSchema.optional(),
+			reasoningTokens: aiChatTokenCountSchema.optional(),
+		})
+		.optional(),
+	totalTokens: aiChatTokenCountSchema.optional(),
+});
+
+/** Human-readable snapshot of the preview target attached to one user turn. */
+export const aiChatSelectedTargetSchema = z.object({
+	wid: widSchema,
+	tag: z.string().min(1).max(32),
+	excerpt: z.string().max(160).nullable(),
+});
+
+export const aiChatMessageMetadataSchema = z.object({
+	model: z.string().min(1).optional(),
+	usage: aiChatMessageUsageSchema.optional(),
+	selectedTarget: aiChatSelectedTargetSchema.optional(),
+	selectedTargets: z
+		.array(aiChatSelectedTargetSchema)
+		.min(1)
+		.max(10)
+		.optional(),
+});
+
+/** Per-request composer settings and preview targets for the current turn. */
+export const aiChatRequestMetadataSchema = z.object({
+	composer: composerMetadataSchema.optional(),
+	selectedWid: widSchema.optional(),
+	selectedWids: z.array(widSchema).min(1).max(10).optional(),
+});
+
+export type AiChatSelectedTarget = z.infer<typeof aiChatSelectedTargetSchema>;
+export type AiChatMessageUsage = z.infer<typeof aiChatMessageUsageSchema>;
+export type AiChatMessageMetadata = z.infer<typeof aiChatMessageMetadataSchema>;
+export type AiChatRequestMetadata = z.infer<typeof aiChatRequestMetadataSchema>;
 
 /**
  * ask_user — the assistant asks ONE focused question, answered in the
@@ -117,6 +173,9 @@ export const getDirectionCandidatesInputSchema = z.object({
 	// Short free-text business descriptor (e.g. "candles", "streetwear"),
 	// matched against the library's avoidFor/industries tags.
 	business: z.string().min(1),
+	// Optional build genre. Omitted by legacy rows and callers, which keeps the
+	// original website + product-dossier menu behavior.
+	pageKind: z.enum(["website", "product", "cod"]).optional(),
 	// 2-4 lowercase English industry keywords (canonical list lives in the
 	// system prompt; matching is fuzzy + accent-folded server-side). Free
 	// strings, NOT an enum, on purpose: an enum violation kills the run, while
@@ -155,6 +214,12 @@ export const generatePageInputSchema = z.object({
 	// system prompt snapshot. Free string (not an enum) so an off-list id
 	// degrades to a world-less build instead of killing the run.
 	worldId: z.string().min(1).optional(),
+	// Ordered design-world ids for COD fusion: base first, then donors. When
+	// present this wins over the legacy single worldId field.
+	worldIds: z.array(z.string().min(1)).min(1).max(4).optional(),
+	// Durable page classification. Optional so historical tool calls continue
+	// to validate unchanged.
+	pageKind: z.enum(["website", "cod"]).optional(),
 });
 
 /**
@@ -177,6 +242,9 @@ export const generatePageOutputSchema = z.object({
 	status: z.enum(["queued", "unavailable"]),
 	attemptId: z.string().uuid().optional(),
 	versionNumber: z.number().int().positive().optional(),
+	// Resolved gateway model snapshotted onto the queued attempt. Optional for
+	// historical and non-queued outputs.
+	builderModel: z.string().min(1).optional(),
 	realtime: triggerRealtimeHandleSchema.optional(),
 	// Human-facing note the model can relay verbatim.
 	message: z.string(),
@@ -344,11 +412,22 @@ export type GenerateMarketingAssetOutput = z.infer<
 	typeof generateMarketingAssetOutputSchema
 >;
 
+export const generateImagePlacementSchema = z.object({
+	kind: z.literal("image-src"),
+	wid: widSchema,
+	imageIndex: z.number().int().min(1).max(MAX_IMAGES_PER_GENERATION).default(1),
+});
+
+export type GenerateImagePlacement = z.infer<
+	typeof generateImagePlacementSchema
+>;
+
 /**
- * generate_image — queues one standalone image generation (1-4 images). Can
- * start from text alone or EDIT user-uploaded source images (product photo,
- * logo) so outputs stay faithful to the real product. Distinct from the
- * builder's in-build image tool.
+ * generate_image — queues one image generation (1-4 images). Can start from
+ * text alone or EDIT user-uploaded source images (product photo, logo) so
+ * outputs stay faithful to the real product. A bounded optional placement
+ * replaces one existing page image when generation finishes. Distinct from
+ * the builder's in-build image tool.
  */
 export const generateImageInputSchema = z.object({
 	// Display name for the chat card and the Assets tab, in the user's
@@ -362,6 +441,7 @@ export const generateImageInputSchema = z.object({
 	// URLs of images the user attached in this conversation to edit or stay
 	// faithful to. Each MUST exactly match a user-provided attachment.
 	sourceImageUrls: z.array(z.url()).max(3).default([]),
+	placement: generateImagePlacementSchema.optional(),
 });
 
 export const generateImageOutputSchema = z.object({
@@ -374,6 +454,54 @@ export const generateImageOutputSchema = z.object({
 
 export type GenerateImageInput = z.infer<typeof generateImageInputSchema>;
 export type GenerateImageOutput = z.infer<typeof generateImageOutputSchema>;
+
+/** apply_element_ops — a bounded batch of targeted, AI-safe page mutations. */
+export const applyElementOpsInputSchema = z.object({
+	ops: z.array(aiElementOpSchema).min(1).max(20),
+});
+
+export const applyElementOpsOutputSchema = z.object({
+	status: z.enum(["applied", "rejected", "no-page"]),
+	versionNumber: z.number().int().positive().optional(),
+	message: z.string().min(1),
+});
+
+export type ApplyElementOpsInput = z.infer<typeof applyElementOpsInputSchema>;
+export type ApplyElementOpsOutput = z.infer<typeof applyElementOpsOutputSchema>;
+
+/** read_elements — current stamped HTML for up to ten exact data-wids. */
+export const readElementsInputSchema = z.object({
+	wids: z.array(widSchema).min(1).max(10),
+});
+
+const readElementResultSchema = z.object({
+	wid: widSchema,
+	found: z.boolean(),
+	html: z.string().optional(),
+});
+
+export const readElementsOutputSchema = z.object({
+	status: z.enum(["ok", "no-page"]),
+	versionNumber: z.number().int().positive().optional(),
+	elements: z.array(readElementResultSchema).max(10).optional(),
+	message: z.string().optional(),
+});
+
+export type ReadElementsInput = z.infer<typeof readElementsInputSchema>;
+export type ReadElementsOutput = z.infer<typeof readElementsOutputSchema>;
+
+/** read_theme — current values from the first reserved :root token block. */
+export const readThemeInputSchema = z.object({});
+
+export const readThemeOutputSchema = z.object({
+	status: z.enum(["ok", "no-page"]),
+	versionNumber: z.number().int().positive().optional(),
+	tokens: z.partialRecord(z.enum(PAGE_TOKEN_NAMES), z.string()).optional(),
+	message: z.string().optional(),
+});
+
+export type ReadThemeInput = z.infer<typeof readThemeInputSchema>;
+export type ReadThemeOutput = z.infer<typeof readThemeOutputSchema>;
 
 /** get_page_outline — cheap section map of the active version (spec §5). */
 export const getPageOutlineInputSchema = z.object({});
@@ -443,6 +571,12 @@ export type AiChatTools = {
 		input: GetPageOutlineInput;
 		output: GetPageOutlineOutput;
 	};
+	apply_element_ops: {
+		input: ApplyElementOpsInput;
+		output: ApplyElementOpsOutput;
+	};
+	read_elements: { input: ReadElementsInput; output: ReadElementsOutput };
+	read_theme: { input: ReadThemeInput; output: ReadThemeOutput };
 	read_section: { input: ReadSectionInput; output: ReadSectionOutput };
 	replace_section: {
 		input: ReplaceSectionInput;

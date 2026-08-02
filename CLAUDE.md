@@ -21,7 +21,10 @@
 - **Implementation** (writing or editing code, fixes, refactors, features):
   `gpt-5.6-sol` at `ultra` effort. This matches the config default, so plain `codex exec` works;
   to be explicit: `codex exec -m gpt-5.6-sol -c model_reasoning_effort="ultra" "<prompt>"`
-- **Research, exploration, and codebase reading** (investigation, code-base Q&A, data analysis):
+- **Batch inspection probes** (the pre-implementation codebase investigation for a feature batch):
+  `gpt-5.6-sol` at `high` effort — NOT Claude agents, NOT luna:
+  `codex exec -s read-only -m gpt-5.6-sol -c model_reasoning_effort="high" "<prompt>"`
+- **Other research and exploration** (standalone code-base Q&A, data analysis):
   `gpt-5.6-luna` at `high` effort:
   `codex exec -s read-only -m gpt-5.6-luna -c model_reasoning_effort="high" "<prompt>"`
 - Only deviate from this routing when Zack explicitly names a different model or effort.

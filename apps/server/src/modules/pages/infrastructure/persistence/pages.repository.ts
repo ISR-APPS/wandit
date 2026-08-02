@@ -7,12 +7,16 @@
  * and the generate_page chat tool (queue-time writes).
  */
 import { Inject, Injectable } from "@nestjs/common";
-import { and, desc, eq, inArray, isNull, lt } from "@wandit/db";
+import { and, desc, eq, isNull, lt, sql } from "@wandit/db";
 import { artifacts, versions } from "@wandit/db/schema/artifacts";
 import { deployments } from "@wandit/db/schema/deployments";
 import { pageGenerationAttempts } from "@wandit/db/schema/page-attempts";
 import { projects } from "@wandit/db/schema/projects";
-
+import { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
+import {
+	type AnalyticsCapture,
+	captureGenerationFailed,
+} from "../../../../infrastructure/analytics/generation-events";
 import {
 	DATABASE,
 	type Database,
@@ -25,7 +29,9 @@ export type LandingArtifactRow = {
 };
 
 export type OwnedVersionRow = {
+	artifactId: string;
 	id: string;
+	projectId: string;
 	r2Key: string;
 };
 
@@ -35,6 +41,11 @@ export type VersionListRow = {
 	isLive: boolean;
 	meta: unknown;
 	number: number;
+};
+
+export type BuilderVersionRow = {
+	id: string;
+	r2Key: string;
 };
 
 export type PageOverviewRows = {
@@ -57,6 +68,7 @@ export type PageOverviewRows = {
 export type PageAttemptSpec = {
 	brief: string;
 	designerSystemPrompt: string;
+	pageKind?: "cod" | "website";
 	title: string;
 };
 
@@ -82,7 +94,11 @@ export class VersionConflictError extends Error {
 @Injectable()
 export class PagesRepository {
 	// DATABASE is the Nest token for the Drizzle database connection.
-	constructor(@Inject(DATABASE) private readonly db: Database) {}
+	constructor(
+		@Inject(DATABASE) private readonly db: Database,
+		@Inject(AnalyticsService)
+		private readonly analyticsService: AnalyticsCapture,
+	) {}
 
 	// The MVP invariant is ONE landing-page artifact per project. First
 	// generation creates it; every later one reuses it.
@@ -151,11 +167,36 @@ export class PagesRepository {
 
 	// Used when queueing itself failed — the background task never ran, so
 	// somebody has to move the row to a terminal state.
-	async markAttemptFailed(attemptId: string, error: string): Promise<void> {
-		await this.db
+	async markAttemptFailed(
+		attemptId: string,
+		error: string,
+		userId: string,
+	): Promise<boolean> {
+		const [failed] = await this.db
 			.update(pageGenerationAttempts)
 			.set({ completedAt: new Date(), error, status: "failed" })
-			.where(eq(pageGenerationAttempts.id, attemptId));
+			.where(
+				and(
+					eq(pageGenerationAttempts.id, attemptId),
+					eq(pageGenerationAttempts.status, "queued"),
+				),
+			)
+			.returning({ projectId: pageGenerationAttempts.projectId });
+
+		if (!failed) {
+			return false;
+		}
+
+		captureGenerationFailed(
+			this.analyticsService,
+			userId,
+			"page",
+			failed.projectId,
+			attemptId,
+			"trigger_rejected",
+		);
+
+		return true;
 	}
 
 	// Everything the Page tab polls for, or null when the project is not
@@ -207,7 +248,7 @@ export class PagesRepository {
 		// rows to failed so the UI stops waiting and says what happened. The
 		// cutoff must exceed the task's maxDuration (30 min), or a slow but
 		// healthy build would be flagged failed while still running.
-		await this.db
+		const staleQueued = await this.db
 			.update(pageGenerationAttempts)
 			.set({
 				completedAt: new Date(),
@@ -218,13 +259,62 @@ export class PagesRepository {
 			.where(
 				and(
 					eq(pageGenerationAttempts.projectId, projectId),
-					inArray(pageGenerationAttempts.status, ["queued", "generating"]),
+					eq(pageGenerationAttempts.status, "queued"),
 					lt(
 						pageGenerationAttempts.createdAt,
 						new Date(Date.now() - 35 * 60 * 1000),
 					),
 				),
+			)
+			.returning({
+				id: pageGenerationAttempts.id,
+				projectId: pageGenerationAttempts.projectId,
+			});
+
+		for (const failed of staleQueued) {
+			captureGenerationFailed(
+				this.analyticsService,
+				userId,
+				"page",
+				failed.projectId,
+				failed.id,
+				"stale_queued",
 			);
+		}
+
+		const staleGenerating = await this.db
+			.update(pageGenerationAttempts)
+			.set({
+				completedAt: new Date(),
+				error:
+					"The build never finished — most likely no Trigger.dev dev worker was running (`npx trigger.dev@latest dev`). Start it and ask for the page again.",
+				status: "failed",
+			})
+			.where(
+				and(
+					eq(pageGenerationAttempts.projectId, projectId),
+					eq(pageGenerationAttempts.status, "generating"),
+					lt(
+						pageGenerationAttempts.createdAt,
+						new Date(Date.now() - 35 * 60 * 1000),
+					),
+				),
+			)
+			.returning({
+				id: pageGenerationAttempts.id,
+				projectId: pageGenerationAttempts.projectId,
+			});
+
+		for (const failed of staleGenerating) {
+			captureGenerationFailed(
+				this.analyticsService,
+				userId,
+				"page",
+				failed.projectId,
+				failed.id,
+				"stale_generation",
+			);
+		}
 
 		const [latestAttempt] = await this.db
 			.select({
@@ -253,7 +343,12 @@ export class PagesRepository {
 		versionId: string,
 	): Promise<OwnedVersionRow | null> {
 		const [row] = await this.db
-			.select({ id: versions.id, r2Key: versions.r2Key })
+			.select({
+				artifactId: versions.artifactId,
+				id: versions.id,
+				projectId: versions.projectId,
+				r2Key: versions.r2Key,
+			})
 			.from(versions)
 			.innerJoin(projects, eq(projects.id, versions.projectId))
 			.where(
@@ -339,6 +434,58 @@ export class PagesRepository {
 		return (latest?.number ?? 0) + 1;
 	}
 
+	/** Newest builder-origin version. A missing/null source is the legacy
+	 *  builder marker; manual, AI-edit, and restore rows are skipped. */
+	async findLatestBuilderVersion(
+		artifactId: string,
+	): Promise<BuilderVersionRow | null> {
+		const rows = await this.db
+			.select({ id: versions.id, meta: versions.meta, r2Key: versions.r2Key })
+			.from(versions)
+			.where(eq(versions.artifactId, artifactId))
+			.orderBy(desc(versions.number));
+
+		for (const row of rows) {
+			const meta =
+				typeof row.meta === "object" && row.meta !== null
+					? (row.meta as Record<string, unknown>)
+					: null;
+			const source = meta?.source;
+
+			if (source === "builder" || source === undefined || source === null) {
+				return { id: row.id, r2Key: row.r2Key };
+			}
+		}
+
+		return null;
+	}
+
+	/** A placement receipt lives on the immutable ai-edit version it created.
+	 * Search history, not only the active pointer: a later user edit must not
+	 * make a retried generation overwrite that newer work. */
+	async findAiEditVersionByReceipt(
+		projectId: string,
+		attemptId: string,
+	): Promise<{ number: number } | null> {
+		const [row] = await this.db
+			.select({ number: versions.number })
+			.from(versions)
+			.innerJoin(artifacts, eq(artifacts.id, versions.artifactId))
+			.where(
+				and(
+					eq(versions.projectId, projectId),
+					eq(artifacts.kind, "landing_page"),
+					sql`${versions.meta}->>'source' = 'ai-edit'`,
+					sql`${versions.meta}->'receipt'->>'kind' = 'image-generation-placement'`,
+					sql`${versions.meta}->'receipt'->>'attemptId' = ${attemptId}`,
+				),
+			)
+			.orderBy(desc(versions.number))
+			.limit(1);
+
+		return row ?? null;
+	}
+
 	// Landing artifact + its active version for an OWNED project, or null when
 	// the project is missing/not owned (the service turns that into a 404).
 	async findActivePageByProject(
@@ -409,9 +556,17 @@ export class PagesRepository {
 		expectedActiveVersionId: string | null;
 		meta: Record<string, unknown>;
 		projectId: string;
+		receipt?: {
+			attemptId: string;
+			kind: "image-generation-placement";
+		};
 		r2Key: string;
 		versionId: string;
-	}): Promise<{ createdAt: Date; number: number }> {
+	}): Promise<{
+		createdAt: Date;
+		existingVersionId?: string;
+		number: number;
+	}> {
 		return this.db.transaction(async (tx) => {
 			const [artifact] = await tx
 				.select({ activeVersionId: artifacts.activeVersionId })
@@ -422,6 +577,37 @@ export class PagesRepository {
 
 			if (!artifact) {
 				throw new Error(`Artifact ${input.artifactId} not found`);
+			}
+
+			// The artifact lock serializes receipt lookup with version insertion.
+			// A Trigger retry and the polling fallback can therefore converge on
+			// the first immutable placement version instead of creating a second.
+			if (input.receipt) {
+				const [existing] = await tx
+					.select({
+						createdAt: versions.createdAt,
+						id: versions.id,
+						number: versions.number,
+					})
+					.from(versions)
+					.where(
+						and(
+							eq(versions.artifactId, input.artifactId),
+							sql`${versions.meta}->>'source' = 'ai-edit'`,
+							sql`${versions.meta}->'receipt'->>'kind' = ${input.receipt.kind}`,
+							sql`${versions.meta}->'receipt'->>'attemptId' = ${input.receipt.attemptId}`,
+						),
+					)
+					.orderBy(desc(versions.number))
+					.limit(1);
+
+				if (existing) {
+					return {
+						createdAt: existing.createdAt,
+						existingVersionId: existing.id,
+						number: existing.number,
+					};
+				}
 			}
 
 			if (artifact.activeVersionId !== input.expectedActiveVersionId) {

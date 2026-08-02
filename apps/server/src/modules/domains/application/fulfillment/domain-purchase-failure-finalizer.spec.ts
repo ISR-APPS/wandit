@@ -87,6 +87,25 @@ describe("domain purchase failure finalization policy", () => {
 		);
 	});
 
+	it("forwards the original attempt-exhaustion error for a fresh row", async () => {
+		const row = domain();
+		const originalError = new Error("provider unavailable on attempt five");
+		const execute = vi.fn(async () => ({ status: "failed" as const }));
+		const finalizer = new DomainPurchaseFailureFinalizer({
+			findDomain: vi.fn(async () => row),
+			terminalFailure: { execute },
+		});
+
+		await finalizer.execute(
+			{ domainId, orderId: payloadOrderId },
+			originalError,
+		);
+
+		expect(execute).toHaveBeenCalledExactlyOnceWith(row, originalError, {
+			orderId: rowOrderId,
+		});
+	});
+
 	it("does nothing when the domain row no longer exists", async () => {
 		const execute = vi.fn();
 		const finalizer = new DomainPurchaseFailureFinalizer({

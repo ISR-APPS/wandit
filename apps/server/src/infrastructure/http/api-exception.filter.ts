@@ -6,6 +6,7 @@ import {
 	HttpStatus,
 	Logger,
 } from "@nestjs/common";
+import { Sentry } from "@wandit/observability/nestjs";
 import type { FastifyReply, FastifyRequest } from "fastify";
 
 import type { ZodValidationIssue } from "./zod-validation.pipe";
@@ -47,6 +48,8 @@ export class ApiExceptionFilter implements ExceptionFilter {
 		const timestamp = new Date().toISOString();
 
 		if (error.statusCode >= 500) {
+			// Expected 4xx responses stay out of Sentry — only real failures.
+			Sentry.captureException(exception);
 			this.logger.error(
 				`Unhandled exception on ${request.method} ${request.url} (${request.id})`,
 				exception instanceof Error ? exception.stack : String(exception),

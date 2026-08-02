@@ -1,9 +1,14 @@
+import { Logger } from "@nestjs/common";
 import { auth, tasks } from "@trigger.dev/sdk";
 import { env } from "@wandit/env/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { isR2Configured } from "../../../../infrastructure/storage/r2";
 import type { PagesRepository } from "../../../pages/infrastructure/persistence/pages.repository";
+import { argan } from "../worlds/cod/argan";
+import { atay } from "../worlds/cod/atay";
+import { COD_GENRE_DOC, FUSION_CONTRACT } from "../worlds/cod/genre";
+import { hammam } from "../worlds/cod/hammam";
 import { monographe } from "../worlds/monographe";
 import { createGeneratePageTool } from "./generate-page.tool";
 
@@ -34,7 +39,7 @@ vi.mock("../site-builder/builder-prompt", () => ({
 
 const INPUT = {
 	brief:
-		"Arabic RTL landing page for handmade kabyle jewelry, Souk Heat direction, " +
+		"Arabic RTL landing page for handmade kabyle jewelry, Bazar Heat direction, " +
 		"COD form phone-first, prices in DZD, WhatsApp CTA.",
 	title: "Kabyle jewelry page",
 };
@@ -56,11 +61,18 @@ function setup() {
 		chatId: "chat_1",
 		pagesRepository: pagesRepository as unknown as PagesRepository,
 		projectId: "project_1",
+		userId: "user_1",
 	});
 
 	// The AI SDK calls execute with (input, callOptions); the tool ignores
 	// the call options, so a stub second argument is enough here.
-	const execute = (input: typeof INPUT & { worldId?: string }) => {
+	const execute = (
+		input: typeof INPUT & {
+			pageKind?: "cod" | "website";
+			worldId?: string;
+			worldIds?: string[];
+		},
+	) => {
 		const run = generatePageTool.execute;
 
 		if (!run) {
@@ -74,6 +86,22 @@ function setup() {
 	};
 
 	return { execute, pagesRepository };
+}
+
+function prepareSuccessfulQueue(
+	pagesRepository: ReturnType<typeof setup>["pagesRepository"],
+) {
+	vi.mocked(isR2Configured).mockReturnValue(true);
+	pagesRepository.findOrCreateLandingArtifact.mockResolvedValue({
+		activeVersionId: null,
+		id: "artifact_1",
+	});
+	pagesRepository.insertAttempt.mockResolvedValue({ id: "attempt_1" });
+	pagesRepository.nextVersionNumber.mockResolvedValue(1);
+	vi.mocked(tasks.trigger).mockResolvedValue({
+		id: "run_123",
+	} as Awaited<ReturnType<typeof tasks.trigger>>);
+	vi.mocked(auth.createPublicToken).mockResolvedValue("tok_read");
 }
 
 beforeEach(() => {
@@ -137,6 +165,7 @@ describe("generate_page tool", () => {
 		});
 		expect(output).toMatchObject({
 			attemptId: "attempt_1",
+			builderModel: "test-provider/test-builder-model",
 			realtime: { publicAccessToken: "tok_read", runId: "run_123" },
 			status: "queued",
 			versionNumber: 1,
@@ -190,6 +219,83 @@ describe("generate_page tool", () => {
 				},
 			}),
 		);
+	});
+
+	it("assembles COD worldIds as genre law, fusion contract, base, then donors", async () => {
+		const { execute, pagesRepository } = setup();
+		prepareSuccessfulQueue(pagesRepository);
+
+		await execute({
+			...INPUT,
+			worldIds: [argan.id, hammam.id, atay.id],
+		});
+
+		expect(pagesRepository.insertAttempt).toHaveBeenCalledWith(
+			expect.objectContaining({
+				spec: {
+					brief: INPUT.brief,
+					designerSystemPrompt: [
+						"builder prompt (test)",
+						COD_GENRE_DOC,
+						FUSION_CONTRACT([argan, hammam, atay]),
+						argan.doc,
+						hammam.doc,
+						atay.doc,
+					].join("\n\n"),
+					title: INPUT.title,
+				},
+			}),
+		);
+	});
+
+	it("builds with COD genre law alone and persists pageKind", async () => {
+		const { execute, pagesRepository } = setup();
+		prepareSuccessfulQueue(pagesRepository);
+
+		await execute({ ...INPUT, pageKind: "cod" });
+
+		expect(pagesRepository.insertAttempt).toHaveBeenCalledWith(
+			expect.objectContaining({
+				spec: {
+					brief: INPUT.brief,
+					designerSystemPrompt: `builder prompt (test)\n\n${COD_GENRE_DOC}`,
+					pageKind: "cod",
+					title: INPUT.title,
+				},
+			}),
+		);
+	});
+
+	it("warns and drops unknown ids while preserving resolved fusion order", async () => {
+		const warn = vi
+			.spyOn(Logger.prototype, "warn")
+			.mockImplementation(() => undefined);
+		const { execute, pagesRepository } = setup();
+		prepareSuccessfulQueue(pagesRepository);
+
+		await execute({
+			...INPUT,
+			worldIds: [argan.id, "no-such-world", atay.id],
+		});
+
+		expect(warn).toHaveBeenCalledWith(
+			expect.stringContaining('Unknown worldId "no-such-world"'),
+		);
+		expect(pagesRepository.insertAttempt).toHaveBeenCalledWith(
+			expect.objectContaining({
+				spec: expect.objectContaining({
+					designerSystemPrompt: [
+						"builder prompt (test)",
+						COD_GENRE_DOC,
+						FUSION_CONTRACT([argan, atay]),
+						argan.doc,
+						atay.doc,
+					].join("\n\n"),
+				}),
+			}),
+		);
+
+		warn.mockRestore();
 	});
 
 	it("falls back to a world-less snapshot on an unknown worldId", async () => {
@@ -257,6 +363,7 @@ describe("generate_page tool", () => {
 		expect(pagesRepository.markAttemptFailed).toHaveBeenCalledWith(
 			"attempt_1",
 			"trigger is down",
+			"user_1",
 		);
 		expect(output).toMatchObject({ status: "unavailable" });
 		expect(pagesRepository.nextVersionNumber).not.toHaveBeenCalled();

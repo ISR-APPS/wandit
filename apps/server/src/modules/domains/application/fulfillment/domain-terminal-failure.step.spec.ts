@@ -137,6 +137,7 @@ function setup(
 
 			return currentOrder;
 		}),
+		reportError: vi.fn(),
 		updateDomainIfStatus: vi.fn(
 			async (
 				_id: string,
@@ -232,27 +233,35 @@ describe("DomainTerminalFailureStep", () => {
 			},
 			fixture.transaction,
 		);
+		expect(fixture.dependencies.reportError).toHaveBeenCalledExactlyOnceWith(
+			failure,
+			{ domainId, orderId },
+		);
 		expect(fixture.domain.status).toBe("failed");
 		expect(fixture.order.status).toBe("failed");
 	});
 
 	it("does not terminalize or clean up until durable refund dispatch succeeds", async () => {
 		const fixture = setup(domain(), order("fulfilling"));
+		const originalError = new TerminalDomainFulfillmentError(
+			"Domain is not available",
+		);
 		fixture.dependencies.dispatchRefund.mockRejectedValueOnce(
 			new Error("refund dispatcher unavailable"),
 		);
 
 		await expect(
-			fixture.step.execute(
-				fixture.domain,
-				new TerminalDomainFulfillmentError("Domain is not available"),
-			),
+			fixture.step.execute(fixture.domain, originalError),
 		).rejects.toThrow("refund dispatcher unavailable");
 
 		expect(fixture.domain.status).toBe("registering");
 		expect(fixture.order.status).toBe("fulfilling");
 		expect(fixture.dependencies.updateDomainIfStatus).not.toHaveBeenCalled();
 		expect(fixture.dependencies.markOrderFailed).not.toHaveBeenCalled();
+		expect(fixture.dependencies.reportError).toHaveBeenCalledExactlyOnceWith(
+			originalError,
+			{ domainId, orderId },
+		);
 		expect(fixture.dependencies.deleteCustomHostname).not.toHaveBeenCalled();
 		expect(fixture.dependencies.deleteDomainPointer).not.toHaveBeenCalled();
 	});
@@ -273,6 +282,7 @@ describe("DomainTerminalFailureStep", () => {
 		);
 		expect(fixture.dependencies.updateDomainIfStatus).not.toHaveBeenCalled();
 		expect(fixture.dependencies.markOrderFailed).not.toHaveBeenCalled();
+		expect(fixture.dependencies.reportError).not.toHaveBeenCalled();
 		expect(fixture.dependencies.deleteCustomHostname).toHaveBeenCalledTimes(1);
 		expect(fixture.dependencies.deleteDomainPointer).toHaveBeenCalledTimes(1);
 	});
@@ -330,13 +340,35 @@ describe("DomainTerminalFailureStep", () => {
 			}),
 		);
 
+		const originalError = error();
+
 		await expect(
-			fixture.step.execute(fixture.domain, error()),
+			fixture.step.execute(fixture.domain, originalError),
 		).resolves.toEqual({ status: "failed" });
 
 		expect(fixture.dependencies.markDomainFailed).toHaveBeenCalledWith(
 			domainId,
 			expected,
+		);
+		expect(fixture.dependencies.reportError).toHaveBeenCalledExactlyOnceWith(
+			originalError,
+			{ domainId, orderId: "none" },
+		);
+	});
+
+	it("reports a fresh failure once when terminalization is replayed", async () => {
+		const fixture = setup(domain(), order("fulfilling"));
+		const originalError = new Error("provider rejected registration");
+
+		await fixture.step.execute(fixture.domain, originalError);
+		await fixture.step.execute(
+			fixture.domain,
+			new Error("Trigger onFailure replay"),
+		);
+
+		expect(fixture.dependencies.reportError).toHaveBeenCalledExactlyOnceWith(
+			originalError,
+			{ domainId, orderId },
 		);
 	});
 
@@ -357,6 +389,7 @@ describe("DomainTerminalFailureStep", () => {
 		expect(fixture.dependencies.dispatchRefund).not.toHaveBeenCalled();
 		expect(fixture.dependencies.updateDomainIfStatus).not.toHaveBeenCalled();
 		expect(fixture.dependencies.markOrderFailed).not.toHaveBeenCalled();
+		expect(fixture.dependencies.reportError).not.toHaveBeenCalled();
 		expect(fixture.dependencies.markOrderFulfilled).toHaveBeenCalledWith(
 			orderId,
 		);
@@ -378,6 +411,7 @@ describe("DomainTerminalFailureStep", () => {
 		expect(fixture.dependencies.updateDomainIfStatus).not.toHaveBeenCalled();
 		expect(fixture.dependencies.markOrderFailed).not.toHaveBeenCalled();
 		expect(fixture.dependencies.markOrderFulfilled).not.toHaveBeenCalled();
+		expect(fixture.dependencies.reportError).not.toHaveBeenCalled();
 		expect(fixture.domain.status).toBe("registering");
 	});
 
@@ -413,6 +447,7 @@ describe("DomainTerminalFailureStep", () => {
 
 		expect(fixture.dependencies.dispatchRefund).not.toHaveBeenCalled();
 		expect(fixture.dependencies.updateDomainIfStatus).not.toHaveBeenCalled();
+		expect(fixture.dependencies.reportError).not.toHaveBeenCalled();
 		expect(fixture.dependencies.markOrderFulfilled).toHaveBeenCalledWith(
 			orderId,
 		);
@@ -468,6 +503,10 @@ describe("DomainTerminalFailureStep", () => {
 		expect(fixture.dependencies.logger.warn).toHaveBeenCalledWith(
 			`Domain ${domainId} failed terminally with no payment order attached; nothing to refund`,
 		);
+		expect(fixture.dependencies.reportError).toHaveBeenCalledWith(
+			expect.any(TerminalDomainFulfillmentError),
+			{ domainId, orderId: "none" },
+		);
 	});
 
 	it("repairs an orphaned-order domain without claiming it was unattached or deleting KV", async () => {
@@ -487,6 +526,10 @@ describe("DomainTerminalFailureStep", () => {
 		]);
 		expect(fixture.dependencies.logger.warn).not.toHaveBeenCalled();
 		expect(fixture.dependencies.deleteDomainPointer).not.toHaveBeenCalled();
+		expect(fixture.dependencies.reportError).toHaveBeenCalledWith(
+			expect.any(MissingDomainPaymentOrderError),
+			{ domainId, orderId: "none" },
+		);
 	});
 
 	it("swallows both cleanup failures after terminal database state is durable", async () => {
@@ -510,6 +553,7 @@ describe("DomainTerminalFailureStep", () => {
 			`Failed to delete domain routing pointer for ${domainId}`,
 			"KV unavailable",
 		);
+		expect(fixture.dependencies.reportError).not.toHaveBeenCalled();
 		expect(fixture.domain.status).toBe("failed");
 	});
 });

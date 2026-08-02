@@ -25,7 +25,6 @@ import {
 import type * as React from "react";
 
 import { useTranslation } from "@/lib/i18n";
-import { usePageOverviewQuery } from "../../api/pages.queries";
 import { getVersionHtml } from "../../api/pages.services";
 import { openHtmlInNewTab } from "../../lib/helpers";
 import { useWorkspace, type Viewport } from "../../lib/store";
@@ -69,24 +68,18 @@ export function PageControls({ onReload }: { onReload: () => void }) {
 	const {
 		viewport,
 		setViewport,
-		projectId,
+		previewVersion,
+		serverActiveVersion,
+		isPreviewingHistorical,
 		isGenerating,
 		pendingVersionNumber,
 	} = useWorkspace();
 	const editor = usePageEditor();
 
-	// REAL overview (contract §12 / lane 2.6/3.3): editing needs an actual
-	// active version and no in-flight build.
-	const overviewQuery = usePageOverviewQuery(projectId);
-	const realActiveVersion = overviewQuery.data?.activeVersion ?? null;
-	const attemptStatus = overviewQuery.data?.latestAttempt?.status;
-	const buildRunning =
-		attemptStatus === "queued" || attemptStatus === "generating";
-
 	const openInNewTab = () => {
-		if (!realActiveVersion) return;
-		// Versions are immutable; fetch the real HTML and open it.
-		void getVersionHtml(realActiveVersion.id).then(({ html }) =>
+		if (!previewVersion) return;
+		// Versions are immutable; open the same one currently on the canvas.
+		void getVersionHtml(previewVersion.id).then(({ html }) =>
 			openHtmlInNewTab(html),
 		);
 	};
@@ -140,10 +133,10 @@ export function PageControls({ onReload }: { onReload: () => void }) {
 					<Smartphone className="size-[13px]" />,
 				)}
 			</div>
-			{/* Hidden entirely without a version to edit (lane 3.3); while a build
-			    runs they only disable for ENTERING a mode — exiting must stay
-			    possible when a build kicks off mid-edit. */}
-			{realActiveVersion ? (
+			{/* Historical versions keep the controls visible but disabled so the
+			    read-only state is explicit. A build only blocks ENTERING a mode —
+			    exiting must stay possible if one starts mid-edit. */}
+			{previewVersion ? (
 				<>
 					<IconAction
 						label={
@@ -154,7 +147,11 @@ export function PageControls({ onReload }: { onReload: () => void }) {
 						onClick={() =>
 							editor.requestMode(editor.mode === "select" ? "browse" : "select")
 						}
-						disabled={buildRunning && editor.mode !== "select"}
+						disabled={
+							isPreviewingHistorical ||
+							!serverActiveVersion ||
+							(isGenerating && editor.mode !== "select")
+						}
 						className={cn(
 							editor.mode === "select" &&
 								"border-primary/40 bg-primary/10 text-primary",
@@ -171,7 +168,11 @@ export function PageControls({ onReload }: { onReload: () => void }) {
 						onClick={() =>
 							editor.requestMode(editor.mode === "edit" ? "browse" : "edit")
 						}
-						disabled={buildRunning && editor.mode !== "edit"}
+						disabled={
+							isPreviewingHistorical ||
+							!serverActiveVersion ||
+							(isGenerating && editor.mode !== "edit")
+						}
 						className={cn(
 							editor.mode === "edit" &&
 								"border-primary/40 bg-primary/10 text-primary",
@@ -181,12 +182,11 @@ export function PageControls({ onReload }: { onReload: () => void }) {
 					</IconAction>
 				</>
 			) : null}
-			{/* Refresh reloads the REAL preview iframe — its availability must
-			    track the real overview, not the mock workspace versions. */}
+			{/* Refresh/open always target the resolved canvas version. */}
 			<IconAction
 				label={t("workspace.page.refresh")}
 				onClick={onReload}
-				disabled={!realActiveVersion}
+				disabled={!previewVersion}
 				className="hidden sm:inline-flex"
 			>
 				<RefreshCw className="size-3.5" />
@@ -194,7 +194,7 @@ export function PageControls({ onReload }: { onReload: () => void }) {
 			<IconAction
 				label={t("workspace.page.openInNewTab")}
 				onClick={openInNewTab}
-				disabled={!realActiveVersion}
+				disabled={!previewVersion}
 				className="hidden sm:inline-flex"
 			>
 				<ExternalLink className="size-3.5" />

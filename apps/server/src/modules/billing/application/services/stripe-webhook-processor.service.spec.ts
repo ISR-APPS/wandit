@@ -1,6 +1,7 @@
 import type Stripe from "stripe";
 import { describe, expect, it, vi } from "vitest";
 
+import type { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
 import type { CreditsService } from "../../../credits/application/services/credits.service";
 import type { PaymentProvider } from "../../domain/ports/payment-provider.port";
 import type { WebhookOrderReconciler } from "../../domain/ports/webhook-order-reconciler.port";
@@ -25,6 +26,10 @@ import {
 import { StripeSubscriptionSyncService } from "./stripe-subscription-sync.service";
 import { StripeWebhookProcessor } from "./stripe-webhook-processor.service";
 import { SubscriptionCreditsService } from "./subscription-credits.service";
+
+vi.mock("../../../../infrastructure/analytics/analytics.service", () => ({
+	AnalyticsService: class AnalyticsService {},
+}));
 
 type WebhookStatus =
 	| "failed"
@@ -592,6 +597,9 @@ function setup(
 	const credits = new FakeCreditsService();
 	const paymentProvider = new FakePaymentProvider();
 	const stripe = new FakeStripeProvider();
+	const analytics = {
+		capture: vi.fn(),
+	};
 	billingCustomers.seed({
 		providerCustomerId: "cus_1",
 		userId: "user_1",
@@ -625,9 +633,11 @@ function setup(
 	const processor = new StripeWebhookProcessor(
 		webhookEvents as unknown as BillingWebhookEventsRepository,
 		router,
+		analytics as unknown as AnalyticsService,
 	);
 
 	return {
+		analytics,
 		billingCreditLedger,
 		billingCustomers,
 		credits,
@@ -668,6 +678,7 @@ function checkoutSession(input: {
 	id: string;
 	mode: "payment" | "subscription";
 	packId?: string;
+	plan?: string;
 	paymentIntentId?: string;
 	paymentStatus?: "no_payment_required" | "paid" | "unpaid";
 	purpose?: string;
@@ -680,6 +691,7 @@ function checkoutSession(input: {
 		metadata: {
 			...(input.credits ? { credits: input.credits } : {}),
 			...(input.packId ? { packId: input.packId } : {}),
+			...(input.plan ? { plan: input.plan } : {}),
 			...(input.purpose ? { purpose: input.purpose } : {}),
 			...(input.userId ? { userId: input.userId } : {}),
 		},
@@ -1228,8 +1240,13 @@ describe("StripeEventRouter checkout routing", () => {
 	});
 
 	it("maps and synchronizes a subscription checkout", async () => {
-		const { billingCustomers, paymentProvider, processor, subscriptions } =
-			setup();
+		const {
+			analytics,
+			billingCustomers,
+			paymentProvider,
+			processor,
+			subscriptions,
+		} = setup();
 		billingCustomers.seed({
 			openCheckoutSessionId: "cs_subscription",
 			providerCustomerId: "cus_checkout",
@@ -1242,19 +1259,20 @@ describe("StripeEventRouter checkout routing", () => {
 		});
 		paymentProvider.seedSubscriptions("cus_checkout", [subscription]);
 
-		await processor.process(
-			stripeEvent(
-				"checkout.session.completed",
-				checkoutSession({
-					customer: "cus_checkout",
-					id: "cs_subscription",
-					mode: "subscription",
-					purpose: "subscription",
-					userId: "user_checkout",
-				}) as unknown as Record<string, unknown>,
-				"evt_subscription_checkout",
-			),
+		const event = stripeEvent(
+			"checkout.session.completed",
+			checkoutSession({
+				customer: "cus_checkout",
+				id: "cs_subscription",
+				mode: "subscription",
+				plan: "pro",
+				purpose: "subscription",
+				userId: "user_checkout",
+			}) as unknown as Record<string, unknown>,
+			"evt_subscription_checkout",
 		);
+		await processor.process(event);
+		await processor.process(event);
 
 		expect(billingCustomers.upsertByUserId).toHaveBeenCalledWith({
 			provider: "stripe",
@@ -1268,6 +1286,122 @@ describe("StripeEventRouter checkout routing", () => {
 			"cus_checkout",
 		);
 		expect(subscriptions.row("sub_checkout")?.userId).toBe("user_checkout");
+		expect(analytics.capture).toHaveBeenCalledOnce();
+		expect(analytics.capture).toHaveBeenCalledWith(
+			"user_checkout",
+			"subscription_started",
+			{ plan: "pro" },
+		);
+	});
+
+	it("does not capture when subscription checkout mirrors no subscription", async () => {
+		const { analytics, processor, webhookEvents } = setup();
+
+		await processor.process(
+			stripeEvent(
+				"checkout.session.completed",
+				checkoutSession({
+					customer: "cus_empty",
+					id: "cs_subscription_empty",
+					mode: "subscription",
+					plan: "pro",
+					purpose: "subscription",
+					userId: "user_empty",
+				}) as unknown as Record<string, unknown>,
+				"evt_subscription_empty",
+			),
+		);
+
+		expect(webhookEvents.statusOf("evt_subscription_empty")).toBe("processed");
+		expect(analytics.capture).not.toHaveBeenCalled();
+	});
+
+	it("does not capture an unrecognized Stripe subscription price", async () => {
+		const { analytics, paymentProvider, processor, webhookEvents } = setup();
+		paymentProvider.seedSubscriptions("cus_unrecognized", [
+			stripeSubscription({
+				customer: "cus_unrecognized",
+				id: "sub_unrecognized",
+				lookupKey: "future_plan",
+			}),
+		]);
+
+		await processor.process(
+			stripeEvent(
+				"checkout.session.completed",
+				checkoutSession({
+					customer: "cus_unrecognized",
+					id: "cs_subscription_unrecognized",
+					mode: "subscription",
+					plan: "pro",
+					purpose: "subscription",
+					userId: "user_unrecognized",
+				}) as unknown as Record<string, unknown>,
+				"evt_subscription_unrecognized",
+			),
+		);
+
+		expect(webhookEvents.statusOf("evt_subscription_unrecognized")).toBe(
+			"processed",
+		);
+		expect(analytics.capture).not.toHaveBeenCalled();
+	});
+
+	it("does not capture when the mirrored subscription is not active or trialing", async () => {
+		const { analytics, paymentProvider, processor, webhookEvents } = setup();
+		paymentProvider.seedSubscriptions("cus_canceled", [
+			stripeSubscription({
+				customer: "cus_canceled",
+				id: "sub_canceled",
+				lookupKey: "pro_100_month",
+				status: "canceled",
+			}),
+		]);
+
+		await processor.process(
+			stripeEvent(
+				"checkout.session.completed",
+				checkoutSession({
+					customer: "cus_canceled",
+					id: "cs_subscription_canceled",
+					mode: "subscription",
+					plan: "pro",
+					purpose: "subscription",
+					userId: "user_canceled",
+				}) as unknown as Record<string, unknown>,
+				"evt_subscription_canceled",
+			),
+		);
+
+		expect(webhookEvents.statusOf("evt_subscription_canceled")).toBe(
+			"processed",
+		);
+		expect(analytics.capture).not.toHaveBeenCalled();
+	});
+
+	it("does not capture a subscription whose persistence fails", async () => {
+		const { analytics, paymentProvider, processor, webhookEvents } = setup();
+		paymentProvider.listSubscriptionsForCustomer.mockRejectedValueOnce(
+			new Error("Stripe unavailable"),
+		);
+
+		await expect(
+			processor.process(
+				stripeEvent(
+					"checkout.session.completed",
+					checkoutSession({
+						id: "cs_subscription_failed",
+						mode: "subscription",
+						plan: "pro",
+						purpose: "subscription",
+						userId: "user_1",
+					}) as unknown as Record<string, unknown>,
+					"evt_subscription_failed",
+				),
+			),
+		).rejects.toThrow("Stripe unavailable");
+		expect(webhookEvents.statusOf("evt_subscription_failed")).toBe("failed");
+		expect(analytics.capture).not.toHaveBeenCalled();
 	});
 
 	it("clears a stored subscription attempt when its checkout expires", async () => {

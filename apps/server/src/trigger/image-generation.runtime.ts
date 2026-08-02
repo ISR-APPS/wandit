@@ -5,6 +5,11 @@ import { projects } from "@wandit/db/schema/projects";
 import { env } from "@wandit/env/server";
 
 import {
+	type AnalyticsCapture,
+	captureGenerationCompleted,
+	captureGenerationFailed,
+} from "../infrastructure/analytics/generation-events";
+import {
 	getObjectContentType,
 	imageGenerationKey,
 	publicAssetUrl,
@@ -16,12 +21,16 @@ import {
 	createImageGenerationBilling,
 	type ImageGenerationBilling,
 } from "../modules/image-generations/application/services/image-generation-billing";
+import { ImageGenerationPlacementService } from "../modules/image-generations/application/services/image-generation-placement.service";
 import type {
 	GeneratedImageResult,
 	ImageGenerationAttemptState,
 	ImageGenerationRunnerDependencies,
 } from "../modules/image-generations/application/services/image-generation-runner";
 import { generateStandaloneImage } from "../modules/image-generations/application/services/image-generator";
+import { ImageGenerationsRepository } from "../modules/image-generations/infrastructure/persistence/image-generations.repository";
+import { PageEditsService } from "../modules/pages/application/services/page-edits.service";
+import { PagesRepository } from "../modules/pages/infrastructure/persistence/pages.repository";
 
 type TriggerDatabase = ReturnType<typeof createDb>;
 
@@ -36,6 +45,7 @@ const ATTEMPT_COLUMNS = {
 	projectId: imageGenerationAttempts.projectId,
 	prompt: imageGenerationAttempts.prompt,
 	sourceImageUrls: imageGenerationAttempts.sourceImageUrls,
+	spec: imageGenerationAttempts.spec,
 	startedAt: imageGenerationAttempts.startedAt,
 	status: imageGenerationAttempts.status,
 	title: imageGenerationAttempts.title,
@@ -54,9 +64,21 @@ export type ImageGenerationRuntime = {
  */
 export function createImageGenerationRuntime(
 	db: TriggerDatabase,
+	analytics: AnalyticsCapture,
 ): ImageGenerationRuntime {
 	const billing = createBilling(db);
-	const persistence = createPersistence(db);
+	const persistence = createPersistence(db, analytics);
+	const pagesRepository = new PagesRepository(db, analytics);
+	const pageEditsService = new PageEditsService(pagesRepository);
+	const imageGenerationsRepository = new ImageGenerationsRepository(
+		db,
+		analytics,
+	);
+	const placementService = new ImageGenerationPlacementService(
+		imageGenerationsRepository,
+		pageEditsService,
+		pagesRepository,
+	);
 
 	return {
 		runner: {
@@ -78,6 +100,9 @@ export function createImageGenerationRuntime(
 			recoverStoredImages: createStoredImagesRecovery(),
 			refund: billing.refund,
 			reserve: billing.reserve,
+			settlePlacement: async (attempt, images) => {
+				await placementService.settle(attempt, images);
+			},
 		},
 	};
 }
@@ -106,7 +131,7 @@ function createBilling(db: TriggerDatabase): ImageGenerationBilling {
 	});
 }
 
-function createPersistence(db: TriggerDatabase) {
+function createPersistence(db: TriggerDatabase, analytics: AnalyticsCapture) {
 	const loadAttempt = async (
 		attemptId: string,
 	): Promise<ImageGenerationAttemptState | null> => {
@@ -173,6 +198,16 @@ function createPersistence(db: TriggerDatabase) {
 			)
 			.returning({ id: imageGenerationAttempts.id });
 
+		if (updated) {
+			captureGenerationCompleted(
+				analytics,
+				attempt.userId,
+				"image",
+				attempt.projectId,
+				attempt.id,
+			);
+		}
+
 		return Boolean(updated);
 	};
 
@@ -182,6 +217,7 @@ function createPersistence(db: TriggerDatabase) {
 			completedAt: Date;
 			error: string;
 			expectedStatus: "queued" | "generating";
+			reason: string;
 		},
 	): Promise<boolean> => {
 		const [updated] = await db
@@ -200,10 +236,26 @@ function createPersistence(db: TriggerDatabase) {
 			)
 			.returning({ id: imageGenerationAttempts.id });
 
+		if (updated) {
+			captureGenerationFailed(
+				analytics,
+				attempt.userId,
+				"image",
+				attempt.projectId,
+				attempt.id,
+				input.reason,
+			);
+		}
+
 		return Boolean(updated);
 	};
 
-	return { claimQueued, failFromStatus, loadAttempt, markSucceeded };
+	return {
+		claimQueued,
+		failFromStatus,
+		loadAttempt,
+		markSucceeded,
+	};
 }
 
 function createStoredImagesRecovery() {

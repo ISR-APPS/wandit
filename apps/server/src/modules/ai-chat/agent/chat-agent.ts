@@ -1,4 +1,4 @@
-import type { AiChatTools } from "@wandit/contracts";
+import type { AiChatMessageMetadata, AiChatTools } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import { type Tool, ToolLoopAgent, type UIMessage } from "ai";
 
@@ -30,10 +30,13 @@ import {
 	type GeneratePageToolDeps,
 	generatePageToolSchemaOnly,
 } from "./tools/generate-page.tool";
-// EXPERIMENT (2026-07-27): worlds OFF again — the live tool is unplugged and
-// the brain invents the whole art direction itself. The schema-only twin
-// stays so chats that used the tool still validate.
-import { getDirectionCandidatesToolSchemaOnly } from "./tools/get-direction-candidates.tool";
+// EXPERIMENT (2026-07-27): worlds stay OFF for websites — the brain invents
+// website art direction itself. The live sampler is available only for COD
+// builds; the schema-only twin keeps historical tool calls valid.
+import {
+	getDirectionCandidatesTool,
+	getDirectionCandidatesToolSchemaOnly,
+} from "./tools/get-direction-candidates.tool";
 import {
 	createPageEditTools,
 	type PageEditTools,
@@ -53,15 +56,23 @@ type AiChatToolSet = {
 	generate_image: GenerateImageTool;
 	generate_marketing_asset: GenerateMarketingAssetTool;
 	generate_page: GeneratePageTool;
+	get_direction_candidates: typeof getDirectionCandidatesTool;
 	scrape_leads: ScrapeLeadsTool;
 	get_page_outline: PageEditTools["get_page_outline"];
+	apply_element_ops: PageEditTools["apply_element_ops"];
+	read_elements: PageEditTools["read_elements"];
+	read_theme: PageEditTools["read_theme"];
 	read_section: PageEditTools["read_section"];
 	replace_section: PageEditTools["replace_section"];
 };
 
 type McpToolSet = Record<string, Tool>;
 
-export type WanditUIMessage = UIMessage<never, never, AiChatTools>;
+export type WanditUIMessage = UIMessage<
+	AiChatMessageMetadata,
+	never,
+	AiChatTools
+>;
 
 // Everything the per-request tools need: generate_page's queue deps, the
 // scrape_leads queue deps, plus the edit tools' mutation service.
@@ -122,6 +133,7 @@ export function createChatAgent(
 				chatId: deps.chatId,
 				generationPolicyService: deps.generationPolicyService,
 				imageGenerationsRepository: deps.imageGenerationsRepository,
+				pagesRepository: deps.pagesRepository,
 				projectId: deps.projectId,
 				quality: deps.quality,
 				requestKeySeed: deps.requestKeySeed,
@@ -141,7 +153,9 @@ export function createChatAgent(
 				chatId: deps.chatId,
 				pagesRepository: deps.pagesRepository,
 				projectId: deps.projectId,
+				userId: deps.userId,
 			}),
+			get_direction_candidates: getDirectionCandidatesTool,
 			scrape_leads: createScrapeLeadsTool({
 				chatId: deps.chatId,
 				leadScrapesRepository: deps.leadScrapesRepository,

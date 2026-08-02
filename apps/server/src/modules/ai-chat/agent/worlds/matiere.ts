@@ -43,20 +43,21 @@ A MATIÈRE page with no concept noun is a failure: name it FIRST, then let it ch
 Warm-plain French with a maker's precision. Short declaratives that respect the reader ("Chaque échantillon existe en vrai, sur la table de l'atelier."). Material vocabulary is exact — tadelakt, zellige émaillé, noyer huilé, chaux ferrée — never "des matériaux de qualité". One line of honest hospitality near the contact ("les enfants sont les bienvenus à l'atelier" register). No superlatives, no luxury-speak, no exclamation marks.
 
 ## Visual signatures (what makes it instantly recognizable)
-- Arch-topped everything: labels are small text inside arch-topped pill OUTLINES (border-radius 999px 999px 0 0 or full 999px), buttons are filled arches, media frames crown at 90-340px radii tapering to 10-28px feet (the measured register: 200px 200px 18px 18px · 260px 260px 22px 22px · 120px 120px 14px 14px).
+- Arch-topped everything: labels and buttons use the var(--radius) action silhouette, while media frames keep sculpted multi-value crowns at 90-340px radii tapering to 10-28px feet (the measured register: 200px 200px 18px 18px · 260px 260px 22px 22px · 120px 120px 14px 14px).
 - Drawn miniatures with interior light: every scene contains at least one arched opening GLOWING with a warm gradient (the sun, a lamp, dusk) — light lives INSIDE the drawings, not behind the page.
 - The materiautheque cabinet: a large arch-framed panel of six drawn material swatches, each an honest CSS/SVG texture, with name + provenance caption (chaux de Tipaza, émaillé main Tlemcen register).
 - Fixed full-page grain at exactly 4% opacity (inline SVG feTurbulence), the cheap move that makes flat color read as plaster.
 - Hairlines in ink at 10-15% for rules and frame strokes; brass reserved for hairline moments, medallions, lamp glows and ONE footer rule.
 - A giant serif wordmark edge-to-edge as the footer's final scene.
 
-## Color physics (instantiate with the brief's hexes — the physics is law, the hexes are the client's)
+## Color physics (route the brief's palette through the fixed tokens — the physics is law)
+FIXED TOKEN MAP — GROUND A→--background · INK→--foreground · ACCENT→--primary · warm ivory→--primary-foreground · GROUND B→--secondary · DEEP COMPANION→--accent · softened ink→--muted · ink at hairline strength→--border · 999px→--radius · DISPLAY→--font-heading · BODY→--font-body. These are the only CSS color/type/radius variables: every pole below is a prose role, literal register hexes belong only in these :root values, and every sibling, brass or alpha step is a color-mix(in srgb, var(--foreground) N%, transparent), substituting the mapped fixed token for that pole, or a color-mix between two mapped fixed-token references. Every unmapped role below MUST reuse the nearest mapped token or such a mix; it never gets another custom property or literal. Non-color mechanics may keep their own custom properties. Any rgba(POLE, a) notation below is design shorthand for that color-mix, never emitted CSS.
 - GROUND A and GROUND B: two warm plaster/sand tones 4-8 RGB points apart (the #EDE0D2/#E3D0B9 and #E7D4B6/#DCC49F registers). Sections alternate between them; the alternation IS the section rhythm.
 - INK: a deep warm brown, never black (the #221710 / #2A1B10 / #33221A register).
 - ACCENT: one earth pigment — terracotta, oxide red, apricot, oxblood (the #B8552F / #9E3B2B / #E08A4C / #7E2D26 register). Budget: CTAs, active swatch ring, marquee band, small ornaments, one accent word per major headline at most.
 - DEEP COMPANION: one dark warm tone — palm green, indigo night, fig leaf, dusk aubergine (the #274A3A / #22304A / #3E5B3F / #3A2430 register). It exists for exactly ONE full-bleed interlude where ink flips to warm ivory, plus small supporting shapes.
 - BRASS: #A87E3F-#B08D57 register, rationed as written above.
-- The materiautheque RE-TINTS the page: selecting a swatch shifts the accent custom property globally (~0.6s ease). Color is therefore interactive state, not just theme.
+- The materiautheque RE-TINTS the page: selecting a swatch reassigns --primary globally to an authored mix between the fixed --primary and --accent poles (~0.6s ease). No material-named color property is introduced. Color is therefore interactive state, not just theme.
 - Gradients exist ONLY as light inside drawn scenes (a glowing arch, a dusk sky, a lamp pool) — never as section decoration.
 
 ## Typography system
@@ -77,7 +78,7 @@ Warm-plain French with a maker's precision. Short declaratives that respect the 
 
 ## LA MATIÉRIAUTHÈQUE (signature interaction — mandatory, exact spec)
 An arch-framed cabinet of SIX drawn material swatches beside one large room vignette.
-- Selecting a swatch (click, Enter/Space; aria-pressed synced) retints the vignette's wall/floor/textile layers AND the page accent custom property, both over 0.6-0.7s eased fills; the active swatch gets an accent ring; a polite aria-live region announces the material.
+- Selecting a swatch (click, Enter/Space; aria-pressed synced) retints the vignette's wall/floor/textile layers AND the scoped --primary override, both over 0.6-0.7s eased fills; the active swatch gets a var(--primary) ring; a polite aria-live region announces the material.
 - Each swatch: drawn texture + name + one-line provenance. The cabinet footer states the honest line: every sample exists physically at the atelier.
 - The vignette's SUBJECT is client-owned (salon, patio niche, children's room, dining room are the four shipped ones) — the mechanism is world law.
 
@@ -98,8 +99,8 @@ THE GOVERNING LAW: every hidden state is set in JS via gsap.set, NEVER in CSS. G
 - The grain never animates. Reduced motion: instant reveals, static interlude at its most composed frame.
 
 ## Components
-- Buttons: filled arch (999px 999px top) in accent with ivory text, or arch-outline ghost; hover deepens fill, never underlines.
-- Forms: fields inside hairline arch-topped boxes, labels as arch pills, accent focus ring, phone-first inputs, select for structured choices (commune, type de projet); success state is an honest drawn moment (an arch checkmark, a stamped-note register) with real next-step words.
+- Buttons: filled pills at border-radius var(--radius) in accent with ivory text, or an outline ghost on the same token-borne silhouette; hover deepens fill, never underlines. The larger architectural frames keep their multi-value sculpted arches.
+- Forms: fields inside hairline arch-topped boxes capped at min(var(--radius), 1rem), labels as token-borne arch pills, accent focus ring, phone-first inputs, select for structured choices (commune, type de projet); success state is an honest drawn moment (an arch checkmark, a stamped-note register) with real next-step words.
 - ::selection accent on ground; :focus-visible 2px accent outline offset 3px. Decorative SVG aria-hidden; one h1; semantic landmarks.
 - Favicon: inline SVG data URI — an arch stroke in the accent on the ground.
 

@@ -122,6 +122,7 @@ describe("reconcileImageAnimations", () => {
 			completedAt: NOW,
 			error: USER_SAFE_IMAGE_ANIMATION_ERROR,
 			expectedStatus: "queued",
+			reason: "stale_queued",
 		});
 		expect(refund).toHaveBeenCalledWith("user_1", "attempt_1");
 	});
@@ -177,6 +178,7 @@ describe("reconcileImageAnimations", () => {
 			completedAt: NOW,
 			error: USER_SAFE_IMAGE_ANIMATION_ERROR,
 			expectedStatus: "generating",
+			reason: "stale_generation",
 		});
 		expect(refund).toHaveBeenCalledWith("user_1", "attempt_1");
 	});
@@ -207,6 +209,7 @@ describe("reconcileImageAnimations", () => {
 			completedAt: NOW,
 			error: USER_SAFE_IMAGE_ANIMATION_ERROR,
 			expectedStatus: "generating",
+			reason: "project_deleted",
 		});
 		expect(refund).toHaveBeenCalledWith("user_1", "attempt_1");
 	});

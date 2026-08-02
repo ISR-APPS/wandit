@@ -4,8 +4,10 @@
  * user selected in the preview, and the wids they manually edited since the
  * last AI change. Metadata BIASES the model; the user's words always win.
  */
-import { videoSubmissionIdSchema } from "@wandit/contracts";
-import type { AiChatRequestMetadata } from "../presentation/http/controllers/ai-chat.controller";
+import {
+	type AiChatRequestMetadata,
+	videoSubmissionIdSchema,
+} from "@wandit/contracts";
 import type { AvailableImage } from "./tools/animate-image.tool";
 
 export type ChatRequestContext = {
@@ -23,7 +25,9 @@ const PAGE_GOALS = ["cod", "leads", "service", "promo"] as const;
 type PageGoal = (typeof PAGE_GOALS)[number];
 
 const GOAL_LINES: Record<PageGoal, string> = {
-	cod: "  Objectif: Vente COD — the page converts through an Algerian COD order form.",
+	cod:
+		"  Objectif: Vente COD — this is a COD funnel build; run the COD intake, including the optional block question.\n" +
+		'  Sample COD worlds, then pass the chosen worldIds (base first) and pageKind: "cod" to generate_page. This setting is cargo, never law; the user\'s words still win.',
 	leads:
 		"  Objectif: Capture de leads — the page converts through a lead form (name + phone).",
 	promo:
@@ -250,9 +254,26 @@ export function buildChatRequestContext(
 		paragraphs.push(lines.join("\n"));
 	}
 
-	const selectedWid = context.metadata?.selectedWid;
+	const selectedWids = context.metadata?.selectedWids;
+	const selectedWid =
+		selectedWids?.length === 1
+			? selectedWids[0]
+			: context.metadata?.selectedWid;
 
-	if (selectedWid) {
+	if (selectedWids && selectedWids.length > 1) {
+		const targets = selectedWids
+			.map((wid, index) => `${index + 1}. data-wid="${wid}"`)
+			.join("\n");
+
+		paragraphs.push(
+			`The user attached ${selectedWids.length} numbered comments to elements ` +
+				"in the page preview for THIS message.\nTargets in order:\n" +
+				targets +
+				"\nThe numbered comments are in the message body. Resolve each " +
+				"comment against its wid at the same numbered position, and prefer " +
+				"apply_element_ops for these edits.",
+		);
+	} else if (selectedWid) {
 		paragraphs.push(
 			"The user selected an element in the page preview for THIS message: " +
 				`data-wid="${selectedWid}". When they say "this", "here", "ça", ` +

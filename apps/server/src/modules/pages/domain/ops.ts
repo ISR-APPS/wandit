@@ -16,35 +16,57 @@ import {
 	curatedFontStack,
 	type EditOp,
 	isSafeLinkHref,
+	PAGE_TOKEN_NAMES,
 	type PageTokenName,
+	PLACEHOLDER_IMAGE_SRC,
 	SECTION_PADDING_CSS,
 } from "@wandit/contracts";
 import type { CheerioAPI } from "cheerio";
 import * as cheerio from "cheerio";
 
-import { TOP_LEVEL_SECTION_SELECTOR } from "./stamp";
+import {
+	hasOnlyInlineFormatting,
+	isStampableContainer,
+	isStampableLeaf,
+	isTopLevelSection,
+} from "./stamp";
 
 export type ApplyOpsResult =
 	| { ok: true; html: string; editedWids: string[] }
 	| { ok: false; index: number; reason: string };
 
-export function applyOps(html: string, ops: readonly EditOp[]): ApplyOpsResult {
+export type ApplyOpsContext = {
+	originalTheme?: {
+		values: Partial<Record<PageTokenName, string>>;
+		fontLinkHrefs: string[];
+	};
+};
+
+export function applyOps(
+	html: string,
+	ops: readonly EditOp[],
+	context?: ApplyOpsContext,
+): ApplyOpsResult {
 	const $ = cheerio.load(html);
+	const hadRootBlock = findRootBlock($) !== null;
 	const editedWids = new Set<string>();
 	let tokensTouched = false;
 	let fontsTouched = false;
+	let resetTokensTouched = false;
 
 	for (const [index, op] of ops.entries()) {
-		const reason = applyOne($, op);
+		const reason = applyOne($, op, context);
 
 		if (reason !== null) {
 			return { index, ok: false, reason };
 		}
 
-		if (op.kind === "set-tokens") {
+		if (op.kind === "set-tokens" || op.kind === "reset-tokens") {
 			tokensTouched = true;
+			resetTokensTouched ||= op.kind === "reset-tokens";
 
 			if (
+				op.kind === "reset-tokens" ||
 				op.value["font-heading"] !== undefined ||
 				op.value["font-body"] !== undefined
 			) {
@@ -66,16 +88,36 @@ export function applyOps(html: string, ops: readonly EditOp[]): ApplyOpsResult {
 	// Google Fonts links are only reconciled when a font-affecting op ran —
 	// otherwise the head is left untouched (contract §3).
 	if (fontsTouched) {
-		reconcileFontLinks($);
+		reconcileFontLinks($, hadRootBlock && !resetTokensTouched);
 	}
 
 	return { editedWids: [...editedWids], html: $.html(), ok: true };
 }
 
 // Returns a failure reason, or null when the op applied.
-function applyOne($: CheerioAPI, op: EditOp): string | null {
+function applyOne(
+	$: CheerioAPI,
+	op: EditOp,
+	context?: ApplyOpsContext,
+): string | null {
 	if (op.kind === "set-tokens") {
 		return applySetTokens($, op.value);
+	}
+
+	if (op.kind === "reset-tokens") {
+		if (!context?.originalTheme) {
+			return "no original theme is available for this page";
+		}
+
+		const reason = applyRawTokenValues($, context.originalTheme.values);
+
+		if (reason !== null) {
+			return reason;
+		}
+
+		appendOriginalFontLinks($, context.originalTheme.fontLinkHrefs);
+
+		return null;
 	}
 
 	const match = $(`[data-wid="${op.wid}"]`);
@@ -90,6 +132,14 @@ function applyOne($: CheerioAPI, op: EditOp): string | null {
 
 	switch (op.kind) {
 		case "text": {
+			// Array order is the dependency contract: clients must emit a descendant
+			// removal before a parent text edit. Non-inline descendants fail this
+			// guard; stamped inline formatting is deliberately flattened by text(),
+			// so processing the text first would erase a later removal's target.
+			if (!hasOnlyInlineFormatting($, match[0])) {
+				return "text edits are not supported on elements with non-inline child elements";
+			}
+
 			// cheerio escapes the value — ops carry plain text, never markup.
 			match.text(op.value);
 
@@ -100,34 +150,143 @@ function applyOne($: CheerioAPI, op: EditOp): string | null {
 				return "target is not an <img>";
 			}
 
-			// srcset/sizes would keep pointing at the old asset — drop them.
+			const wasPlaceholder =
+				match.attr("data-wandit-placeholder") !== undefined;
+
+			if (wasPlaceholder) {
+				restorePlaceholderImageAttributes(match);
+			}
+
 			match.attr("src", op.value);
+
+			if (!wasPlaceholder) {
+				// srcset/sizes would keep pointing at the old asset — drop them.
+				match.removeAttr("srcset");
+				match.removeAttr("sizes");
+			}
+
+			return null;
+		}
+		case "brand-logo": {
+			if (!match.is(BRAND_WRAPPER_SELECTOR) || !brandRoleForTarget(match)) {
+				return "target is not a brand wrapper inside header, nav, or footer";
+			}
+
+			return applyBrandLogo(match, op.value);
+		}
+		case "placeholder-image": {
+			if (!match.is("img")) {
+				return "target is not an <img>";
+			}
+
+			if (!isStampableLeaf($, match[0])) {
+				return "target is not a stamped editable leaf";
+			}
+
+			if (match.attr("data-wandit-placeholder") === undefined) {
+				preservePlaceholderImageAttributes(match);
+			}
+
+			if (op.value) {
+				match.attr("width", String(op.value.width));
+				match.attr("height", String(op.value.height));
+				match.attr(
+					"style",
+					mergeInlineStyle(match.attr("style"), {
+						"aspect-ratio": `${op.value.width} / ${op.value.height}`,
+					}),
+				);
+			}
+
+			match.attr("src", PLACEHOLDER_IMAGE_SRC);
 			match.removeAttr("srcset");
 			match.removeAttr("sizes");
+			match.attr("alt", "");
+			match.attr("data-wandit-placeholder", "1");
 
 			return null;
 		}
 		case "element-style": {
+			if (op.value.width !== undefined && !match.is("img")) {
+				return "width is only supported for <img> elements";
+			}
+
+			if (op.value.objectFit !== undefined && !match.is("img")) {
+				return "object-fit is only supported for <img> elements";
+			}
+
+			if (
+				op.value.backgroundColor !== undefined &&
+				!match.is("a, button") &&
+				!isStampableContainer($, match[0]) &&
+				!isTopLevelSection($, match[0])
+			) {
+				return "background-color is only supported for links, buttons, stampable containers, and top-level sections";
+			}
+
 			match.attr(
 				"style",
 				mergeInlineStyle(match.attr("style"), {
-					...(op.value.color !== undefined ? { color: op.value.color } : {}),
-					...(op.value.fontSize !== undefined
-						? { "font-size": op.value.fontSize }
+					...(op.value.backgroundColor !== undefined
+						? { "background-color": op.value.backgroundColor }
 						: {}),
+					...(op.value.borderRadius !== undefined
+						? { "border-radius": op.value.borderRadius }
+						: {}),
+					...(op.value.color !== undefined ? { color: op.value.color } : {}),
 					...(op.value.fontFamily !== undefined
 						? { "font-family": curatedFontStack(op.value.fontFamily) }
 						: {}),
+					...(op.value.fontSize !== undefined
+						? { "font-size": op.value.fontSize }
+						: {}),
+					...(op.value.fontStyle !== undefined
+						? { "font-style": op.value.fontStyle }
+						: {}),
+					...(op.value.fontWeight !== undefined
+						? { "font-weight": String(op.value.fontWeight) }
+						: {}),
+					...(op.value.letterSpacing !== undefined
+						? { "letter-spacing": op.value.letterSpacing }
+						: {}),
+					...(op.value.lineHeight !== undefined
+						? { "line-height": String(op.value.lineHeight) }
+						: {}),
+					...(op.value.objectFit !== undefined
+						? { "object-fit": op.value.objectFit }
+						: {}),
+					...(op.value.textAlign !== undefined
+						? { "text-align": op.value.textAlign }
+						: {}),
+					...(op.value.width !== undefined ? { width: op.value.width } : {}),
 				}),
 			);
 
 			return null;
 		}
 		case "remove-element": {
-			// Only <img> removal for now — deleting text/sections from the
-			// inspector is a bigger product decision than dropping media.
-			if (!match.is("img")) {
-				return "removal is only supported for <img> elements";
+			if (!isStampableLeaf($, match[0])) {
+				return "target is not a stamped editable leaf";
+			}
+
+			const form = match.closest("form").first();
+
+			if (form.length > 0 && match.is("input, textarea")) {
+				return "form input and textarea fields cannot be removed";
+			}
+
+			if (form.length > 0 && isFormSubmitControl($, match[0])) {
+				let submitControlCount = 0;
+
+				form.find("button, input").each((_, node) => {
+					if (isFormSubmitControl($, node)) {
+						submitControlCount += 1;
+					}
+				});
+
+				if (submitControlCount === 1) {
+					return "a form's only submit control cannot be removed";
+				}
 			}
 
 			match.remove();
@@ -149,14 +308,28 @@ function applyOne($: CheerioAPI, op: EditOp): string | null {
 
 			return null;
 		}
+		case "set-placeholder": {
+			if (!match.is("input, textarea")) {
+				return "target is not an <input> or <textarea>";
+			}
+
+			// Cheerio serializes attribute values safely; ops never carry markup.
+			match.attr("placeholder", op.value);
+
+			return null;
+		}
 		case "section-style": {
-			if (!match.is(TOP_LEVEL_SECTION_SELECTOR)) {
+			if (!isTopLevelSection($, match[0])) {
 				return "target is not a top-level section";
 			}
 
 			// CSS is built HERE from validated steps/URLs — the client never
 			// sends raw style strings (contract §1c).
 			const updates: Record<string, string | null> = {};
+
+			if (op.value.backgroundColor !== undefined) {
+				updates["background-color"] = op.value.backgroundColor;
+			}
 
 			if (op.value.paddingTop !== undefined) {
 				updates["padding-top"] = SECTION_PADDING_CSS[op.value.paddingTop];
@@ -208,6 +381,219 @@ function applyOne($: CheerioAPI, op: EditOp): string | null {
 			return null;
 		}
 	}
+}
+
+const PLACEHOLDER_ORIGINAL_ATTRIBUTES = [
+	["width", "data-wandit-orig-width"],
+	["height", "data-wandit-orig-height"],
+	["srcset", "data-wandit-orig-srcset"],
+	["sizes", "data-wandit-orig-sizes"],
+	["style", "data-wandit-orig-style"],
+] as const;
+const PLACEHOLDER_ORIGINAL_SNAPSHOT = "data-wandit-orig-snapshot";
+const BRAND_WRAPPER_SELECTOR = "a, div, figure, article";
+const BRAND_IMAGE_SELECTOR = "img[data-wandit-brand-image]";
+const BRAND_ORIGINAL_HTML = "data-wandit-orig-brand-html";
+const BRAND_ORIGINAL_SNAPSHOT = "data-wandit-orig-brand-snapshot";
+const BRAND_LOGO_MARKER = "data-wandit-brand-logo";
+const BRAND_IMAGE_STYLE =
+	"display:block;width:auto;height:auto;max-width:min(12rem,40vw);" +
+	"max-height:3rem;object-fit:contain;object-position:center";
+
+type PageElement = ReturnType<CheerioAPI>;
+type PageNode = ReturnType<CheerioAPI>[number];
+
+function applyBrandLogo(
+	match: PageElement,
+	value: string | null,
+): string | null {
+	const role = brandRoleForTarget(match);
+	const existingRole = match.attr("data-brand");
+
+	if (existingRole !== "nav" && existingRole !== "footer" && role) {
+		// Legacy heuristic targets become deterministic after their first op.
+		match.attr("data-brand", role);
+	}
+
+	if (value === null) {
+		return restoreBrandText(match);
+	}
+
+	if (match.attr(BRAND_ORIGINAL_SNAPSHOT) !== "1") {
+		match.attr(BRAND_ORIGINAL_HTML, brandSnapshotHtml(match));
+		match.attr(BRAND_ORIGINAL_SNAPSHOT, "1");
+	}
+
+	let image = match.children(BRAND_IMAGE_SELECTOR).first();
+
+	if (image.length === 0) {
+		const originalHtml = match.attr(BRAND_ORIGINAL_HTML) ?? "";
+		const originalText = normalizedText(
+			cheerio.load(originalHtml, undefined, false).root().text(),
+		);
+
+		// Create the node through Cheerio; user-controlled values are assigned only
+		// through attr(), never interpolated into markup.
+		match.empty().append("<img>");
+		image = match.children("img").first();
+		image.attr(
+			"alt",
+			match.attr("aria-label") !== undefined ? "" : originalText,
+		);
+		image.attr("data-wandit-brand-image", "1");
+		image.attr("style", BRAND_IMAGE_STYLE);
+	}
+
+	image.attr("src", value);
+	match.attr(BRAND_LOGO_MARKER, "1");
+
+	return null;
+}
+
+function brandSnapshotHtml(match: PageElement): string {
+	const snapshot = match.clone();
+
+	// Descendant wids belong to the version being edited, not to the brand
+	// content itself. Restoring a snapshot must let the service's final stamp
+	// pass mint identifiers for the restored tree instead of resurrecting stale
+	// identifiers from an older DOM shape.
+	snapshot.find("[data-wid]").removeAttr("data-wid");
+
+	return snapshot.html() ?? "";
+}
+
+function restoreBrandText(match: PageElement): string | null {
+	if (match.attr(BRAND_ORIGINAL_SNAPSHOT) === "1") {
+		match.html(match.attr(BRAND_ORIGINAL_HTML) ?? "");
+		clearBrandSwapAttributes(match);
+
+		return null;
+	}
+
+	const wanditImage = match.children(BRAND_IMAGE_SELECTOR).first();
+	const image =
+		wanditImage.length > 0 ? wanditImage : match.find("img").first();
+	const hasLogo =
+		image.length > 0 || match.attr(BRAND_LOGO_MARKER) !== undefined;
+
+	if (!hasLogo) {
+		// A second restore after the snapshot was already consumed is a no-op.
+		return null;
+	}
+
+	const fallback =
+		normalizedText(match.attr("aria-label") ?? "") ||
+		normalizedText(image.attr("alt") ?? "");
+
+	if (!fallback) {
+		return "no original brand text to restore";
+	}
+
+	match.text(fallback);
+	clearBrandSwapAttributes(match);
+
+	return null;
+}
+
+function clearBrandSwapAttributes(match: PageElement): void {
+	match.removeAttr(BRAND_LOGO_MARKER);
+	match.removeAttr(BRAND_ORIGINAL_HTML);
+	match.removeAttr(BRAND_ORIGINAL_SNAPSHOT);
+}
+
+function brandRoleForTarget(match: PageElement): "footer" | "nav" | null {
+	if (match.parents("footer").length > 0) {
+		return "footer";
+	}
+
+	if (match.parents("nav, header").length > 0) {
+		return "nav";
+	}
+
+	return null;
+}
+
+function normalizedText(value: string): string {
+	return value.replace(/\s+/g, " ").trim();
+}
+
+function preservePlaceholderImageAttributes(match: PageElement): void {
+	for (const [
+		attribute,
+		originalAttribute,
+	] of PLACEHOLDER_ORIGINAL_ATTRIBUTES) {
+		const value = match.attr(attribute);
+
+		if (value === undefined) {
+			match.removeAttr(originalAttribute);
+		} else {
+			// Cheerio handles attribute quoting/escaping, including srcset URLs.
+			match.attr(originalAttribute, value);
+		}
+	}
+
+	// The sentinel distinguishes a new snapshot whose original image had none
+	// of the tracked attrs from placeholders saved before snapshots existed.
+	match.attr(PLACEHOLDER_ORIGINAL_SNAPSHOT, "1");
+}
+
+function restorePlaceholderImageAttributes(match: PageElement): void {
+	if (match.attr(PLACEHOLDER_ORIGINAL_SNAPSHOT) === "1") {
+		for (const [
+			attribute,
+			originalAttribute,
+		] of PLACEHOLDER_ORIGINAL_ATTRIBUTES) {
+			const value = match.attr(originalAttribute);
+
+			if (value === undefined) {
+				match.removeAttr(attribute);
+			} else {
+				match.attr(attribute, value);
+			}
+		}
+	} else {
+		// Backward compatibility for placeholders saved before original attrs
+		// were captured: retain unrelated inline styles where possible.
+		match.removeAttr("width");
+		match.removeAttr("height");
+		match.removeAttr("srcset");
+		match.removeAttr("sizes");
+		const style = mergeInlineStyle(match.attr("style"), {
+			"aspect-ratio": null,
+		});
+
+		if (style) {
+			match.attr("style", style);
+		} else {
+			match.removeAttr("style");
+		}
+	}
+
+	for (const [, originalAttribute] of PLACEHOLDER_ORIGINAL_ATTRIBUTES) {
+		match.removeAttr(originalAttribute);
+	}
+
+	match.removeAttr(PLACEHOLDER_ORIGINAL_SNAPSHOT);
+	match.removeAttr("data-wandit-placeholder");
+}
+
+function isFormSubmitControl(
+	$: CheerioAPI,
+	node: PageNode | undefined,
+): boolean {
+	if (!node) {
+		return false;
+	}
+
+	const element = $(node);
+	const type = (element.attr("type") ?? "").trim().toLowerCase();
+
+	if (element.is("button")) {
+		// Missing and invalid button types use the browser's submit default.
+		return type !== "button" && type !== "reset";
+	}
+
+	return element.is("input") && (type === "submit" || type === "image");
 }
 
 // Elements that execute or load active content — never legitimate inside a
@@ -311,10 +697,15 @@ function findActiveContent($: CheerioAPI): string | null {
 	return reason;
 }
 
-// Frozen CSS url() escaping (backslash FIRST, then double quote) — only
-// section-style background images go through it.
+// Frozen CSS url() escaping (backslash FIRST, then double quote). Characters
+// that can break the conservative inline-style parser are percent-encoded.
 function escapeCssUrlValue(value: string): string {
-	return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+	return value
+		.replace(/\\/g, "\\\\")
+		.replace(/"/g, '\\"')
+		.replace(/;/g, "%3B")
+		.replace(/\(/g, "%28")
+		.replace(/\)/g, "%29");
 }
 
 // Merge updates into an existing inline style attribute; a null update value
@@ -402,16 +793,37 @@ function findRootBlock($: CheerioAPI): {
 	return found;
 }
 
+function ensureRootBlock(
+	$: CheerioAPI,
+): NonNullable<ReturnType<typeof findRootBlock>> {
+	const existing = findRootBlock($);
+
+	if (existing) {
+		return existing;
+	}
+
+	const firstStyle = $("style").first();
+
+	if (firstStyle.length > 0) {
+		firstStyle.text(`:root {\n}\n${firstStyle.text()}`);
+	} else {
+		$("head").first().prepend("<style>:root {\n}</style>");
+	}
+
+	const injected = findRootBlock($);
+
+	if (!injected) {
+		throw new Error("failed to inject :root token block");
+	}
+
+	return injected;
+}
+
 function applySetTokens(
 	$: CheerioAPI,
 	value: Partial<Record<PageTokenName, string>>,
 ): string | null {
-	const root = findRootBlock($);
-
-	if (!root) {
-		// Legacy pre-V2 versions have no token block to rewrite.
-		return "no :root token block found";
-	}
+	const root = ensureRootBlock($);
 
 	let block = root.text.slice(root.open + 1, root.close);
 
@@ -439,6 +851,102 @@ function applySetTokens(
 	);
 
 	return null;
+}
+
+function applyRawTokenValues(
+	$: CheerioAPI,
+	value: Partial<Record<PageTokenName, string>>,
+): string | null {
+	const root = ensureRootBlock($);
+	let block = root.text.slice(root.open + 1, root.close);
+
+	for (const [name, raw] of Object.entries(value)) {
+		if (raw === undefined) {
+			continue;
+		}
+
+		if (raw.includes("<")) {
+			return `original theme token --${name} is unsafe`;
+		}
+
+		const declaration = new RegExp(`--${name}\\s*:[^;}]*;?`);
+
+		block = declaration.test(block)
+			? block.replace(declaration, `--${name}: ${raw};`)
+			: `${block.trimEnd()}\n  --${name}: ${raw};\n`;
+	}
+
+	root.setText(
+		root.text.slice(0, root.open + 1) + block + root.text.slice(root.close),
+	);
+
+	return null;
+}
+
+/** Raw values from the first :root block — the same target token ops rewrite. */
+export function extractRootTokens(
+	html: string,
+): Partial<Record<PageTokenName, string>> {
+	const $ = cheerio.load(html);
+	const root = findRootBlock($);
+
+	if (!root) {
+		return {};
+	}
+
+	const block = root.text.slice(root.open + 1, root.close);
+	const values: Partial<Record<PageTokenName, string>> = {};
+
+	for (const name of PAGE_TOKEN_NAMES) {
+		const value = readTokenValue(block, name);
+
+		if (value !== null) {
+			values[name] = value;
+		}
+	}
+
+	return values;
+}
+
+function appendOriginalFontLinks($: CheerioAPI, hrefs: string[]): void {
+	if (hrefs.length === 0) {
+		return;
+	}
+
+	const head = $("head").first();
+
+	if (head.length === 0) {
+		return;
+	}
+
+	if (
+		$('link[rel="preconnect"][href="https://fonts.googleapis.com"]').length ===
+		0
+	) {
+		head.append('<link rel="preconnect" href="https://fonts.googleapis.com">');
+	}
+
+	if (
+		$('link[rel="preconnect"][href="https://fonts.gstatic.com"]').length === 0
+	) {
+		head.append(
+			'<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>',
+		);
+	}
+
+	for (const href of hrefs) {
+		if ($(`link[rel="stylesheet"][href="${href}"]`).length === 0) {
+			head.append(
+				cheerio
+					.load(
+						"<link>",
+						undefined,
+						false,
+					)("link")
+					.attr({ href, rel: "stylesheet" }),
+			);
+		}
+	}
 }
 
 function curatedFontByFamily(family: string): CuratedFont | undefined {
@@ -469,7 +977,10 @@ function readTokenValue(block: string, name: string): string | null {
  * unchanged token would lose its stylesheet. In that case the combined
  * curated link is ADDED and existing links stay.
  */
-function reconcileFontLinks($: CheerioAPI): void {
+function reconcileFontLinks(
+	$: CheerioAPI,
+	mayReplaceExistingLinks: boolean,
+): void {
 	const root = findRootBlock($);
 	const block = root ? root.text.slice(root.open + 1, root.close) : "";
 	const headingFont = curatedFontFromToken(block, "font-heading");
@@ -507,7 +1018,10 @@ function reconcileFontLinks($: CheerioAPI): void {
 		return;
 	}
 
-	if (headingFont && bodyFont) {
+	// An injected token block on a legacy page is not consumed by its existing
+	// hard-coded font-family rules. Keep those pages' original font links and
+	// add the curated families instead of silently breaking their typography.
+	if (mayReplaceExistingLinks && headingFont && bodyFont) {
 		$('link[href*="fonts.googleapis.com/css"]').remove();
 	}
 

@@ -1,4 +1,6 @@
 import type { ImageGenerationAspect } from "@wandit/contracts";
+// /node, not /nestjs: this code also runs inside Trigger tasks and the worker.
+import { Sentry } from "@wandit/observability/node";
 
 export const USER_SAFE_IMAGE_GENERATION_ERROR =
 	"We couldn't generate these images. Please try again in a moment.";
@@ -36,6 +38,7 @@ export type ImageGenerationAttemptState = {
 	projectId: string;
 	prompt: string;
 	sourceImageUrls: string[];
+	spec: Record<string, unknown> | null;
 	startedAt: Date | null;
 	status: ImageGenerationAttemptStatus;
 	title: string;
@@ -66,6 +69,7 @@ export type ImageGenerationRunnerDependencies = {
 				ImageGenerationAttemptStatus,
 				"queued" | "generating"
 			>;
+			reason: string;
 		},
 	) => Promise<boolean>;
 	generateOne: (
@@ -87,6 +91,10 @@ export type ImageGenerationRunnerDependencies = {
 	) => Promise<GeneratedImageResult[] | null>;
 	refund: (userId: string, attemptId: string) => Promise<void>;
 	reserve: (userId: string, attemptId: string) => Promise<void>;
+	settlePlacement: (
+		attempt: ImageGenerationAttemptState,
+		images: GeneratedImageResult[],
+	) => Promise<void>;
 };
 
 export type ImageGenerationRunResult =
@@ -204,7 +212,7 @@ export async function runImageGeneration(
 	}
 
 	if (loaded.status === "succeeded") {
-		return succeededResult(loaded, false);
+		return settleSucceeded(loaded, loaded.images, false, dependencies);
 	}
 
 	if (loaded.projectDeletedAt !== null) {
@@ -237,7 +245,7 @@ export async function runImageGeneration(
 		}
 
 		if (raced.status === "succeeded") {
-			return succeededResult(raced, false);
+			return settleSucceeded(raced, raced.images, false, dependencies);
 		}
 
 		if (raced.projectDeletedAt !== null) {
@@ -264,8 +272,17 @@ export async function runImageGeneration(
 
 	try {
 		await dependencies.reserve(claimed.userId, claimed.id);
-	} catch {
-		await failAndRefund(claimed, dependencies);
+	} catch (error) {
+		// Insufficient credits is an expected outcome; anything else here is
+		// billing/DB infrastructure failing and must be visible.
+		if (
+			!(error instanceof Error && error.name === "InsufficientCreditsError")
+		) {
+			Sentry.captureException(error, {
+				tags: { generationId: claimed.id, userId: claimed.userId },
+			});
+		}
+		await failAndRefund(claimed, dependencies, "reservation_failed");
 		return { reason: "reservation_failed", status: "failed" };
 	}
 
@@ -276,13 +293,25 @@ export async function runImageGeneration(
 
 		try {
 			generated = await dependencies.generateOne(claimed, index, input.signal);
-		} catch {
-			await failAndRefund(claimed, dependencies);
+		} catch (error) {
+			// User aborts are expected; anything else was previously invisible.
+			if (!input.signal?.aborted) {
+				Sentry.captureException(error, {
+					tags: { generationId: claimed.id, userId: claimed.userId },
+				});
+			}
+			await failAndRefund(claimed, dependencies, "generation_failed");
 			return { reason: "generation_failed", status: "failed" };
 		}
 
 		if (generated.status !== "generated") {
-			await failAndRefund(claimed, dependencies);
+			// The provider's message is about to be replaced by a generic
+			// "generation_failed" — keep the original reason.
+			Sentry.captureMessage(`Image generation failed: ${generated.message}`, {
+				level: "error",
+				tags: { generationId: claimed.id, userId: claimed.userId },
+			});
+			await failAndRefund(claimed, dependencies, "generation_failed");
 			return { reason: "generation_failed", status: "failed" };
 		}
 
@@ -303,7 +332,7 @@ export async function runImageGeneration(
 		);
 	}
 
-	return { images, recovered: false, status: "succeeded" };
+	return settleSucceeded(claimed, images, false, dependencies);
 }
 
 async function recoverOrSettleGenerating(
@@ -327,31 +356,34 @@ async function recoverOrSettleGenerating(
 			);
 		}
 
-		return { images: recovered, recovered: true, status: "succeeded" };
+		return settleSucceeded(attempt, recovered, true, dependencies);
 	}
 
 	if (!isStaleGenerating(attempt, dependencies.now())) {
 		throw new ImageGenerationSettlementPendingError(attempt.id);
 	}
 
-	await failAndRefund(attempt, dependencies);
+	await failAndRefund(attempt, dependencies, "stale_generation");
 	return { reason: "stale_generation", status: "failed" };
 }
 
 async function failAndRefund(
 	attempt: ImageGenerationAttemptState,
 	dependencies: ImageGenerationRunnerDependencies,
+	reason: string,
 ): Promise<void> {
 	const failed = await dependencies.fail(attempt, {
 		completedAt: dependencies.now(),
 		error: USER_SAFE_IMAGE_GENERATION_ERROR,
 		expectedStatus: "generating",
+		reason,
 	});
 
 	if (!failed) {
 		const current = await dependencies.loadAttempt(attempt.id);
 
 		if (current?.status === "succeeded") {
+			await settleSucceeded(current, current.images, true, dependencies);
 			return;
 		}
 
@@ -371,7 +403,7 @@ async function settleDeletedProject(
 ): Promise<ImageGenerationRunResult> {
 	if (attempt.status === "succeeded") {
 		// Deleting a project after delivery must not grant a free refund.
-		return succeededResult(attempt, false);
+		return settleSucceeded(attempt, attempt.images, false, dependencies);
 	}
 
 	if (attempt.status === "failed") {
@@ -383,13 +415,14 @@ async function settleDeletedProject(
 		completedAt: dependencies.now(),
 		error: USER_SAFE_IMAGE_GENERATION_ERROR,
 		expectedStatus: attempt.status,
+		reason: "project_deleted",
 	});
 
 	if (!failed) {
 		const current = await dependencies.loadAttempt(attempt.id);
 
 		if (current?.status === "succeeded") {
-			return succeededResult(current, false);
+			return settleSucceeded(current, current.images, false, dependencies);
 		}
 
 		if (current?.status !== "failed") {
@@ -411,7 +444,7 @@ async function resolveSuccessCasLoss(
 	const current = await dependencies.loadAttempt(attempt.id);
 
 	if (current?.status === "succeeded") {
-		return succeededResult(current, true);
+		return settleSucceeded(current, current.images, true, dependencies);
 	}
 
 	if (
@@ -444,15 +477,22 @@ function isStaleGenerating(
 	);
 }
 
-function succeededResult(
-	attempt: Pick<ImageGenerationAttemptState, "id" | "images">,
+async function settleSucceeded(
+	attempt: ImageGenerationAttemptState,
+	images: GeneratedImageResult[] | null,
 	recovered: boolean,
-): ImageGenerationRunResult {
-	if (!attempt.images || attempt.images.length === 0) {
+	dependencies: ImageGenerationRunnerDependencies,
+): Promise<ImageGenerationRunResult> {
+	if (!images || images.length === 0) {
 		throw new Error(
 			`Succeeded image generation ${attempt.id} has no persisted images`,
 		);
 	}
 
-	return { images: attempt.images, recovered, status: "succeeded" };
+	// Generation is already durable here. If placement infrastructure fails,
+	// let Trigger retry this succeeded attempt; it must never regress or refund
+	// the generated asset.
+	await dependencies.settlePlacement(attempt, images);
+
+	return { images, recovered, status: "succeeded" };
 }

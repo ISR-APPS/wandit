@@ -1,9 +1,13 @@
 import { useChat } from "@ai-sdk/react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+	type AiChatMessageMetadata,
+	type AiChatSelectedTarget,
 	type AiChatTools,
 	type AskUserOutput,
+	aiChatMessageMetadataSchema,
 	aiChatRoutes,
+	type ChatMessage,
 	type ComposerMetadata,
 	composerMetadataSchema,
 	type UploadAttachmentResponse,
@@ -14,9 +18,9 @@ import {
 	lastAssistantMessageIsCompleteWithToolCalls,
 	type UIMessage,
 } from "ai";
-import { useCallback, useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { chatAutostart } from "@/features/projects";
+import { chatAutostart, projectKeys } from "@/features/projects";
 import { getServerUrl } from "@/lib/server-url";
 import {
 	useChatByProjectQuery,
@@ -24,7 +28,43 @@ import {
 } from "../api/chat.queries";
 import { pageKeys } from "../api/pages.queries";
 
-export type WanditUIMessage = UIMessage<never, never, AiChatTools>;
+export type WanditUIMessage = UIMessage<
+	AiChatMessageMetadata,
+	never,
+	AiChatTools
+>;
+
+export type SendAiTextOptions = {
+	/** Uploaded R2 assets sent as AI SDK v7 file parts (contract §10.4). */
+	files?: UploadAttachmentResponse[];
+	composer?: ComposerMetadata;
+	/** Ordered request-level targets used by the agent for this turn. */
+	selectedWids?: string[];
+	/** Ordered display snapshots persisted on the user message for target chips. */
+	selectedTargets?: AiChatSelectedTarget[];
+};
+
+/** Turn persisted chat rows into the AI SDK shape used by the live thread. */
+export function hydrateAiChatMessages(
+	messages: readonly ChatMessage[],
+): WanditUIMessage[] {
+	return messages.flatMap<WanditUIMessage>((message) => {
+		if (message.role === "system" || message.parts.length === 0) return [];
+
+		// Both sides can carry typed metadata now: assistants carry model/usage,
+		// while targeted user turns carry the descriptor rendered in history.
+		const metadata = aiChatMessageMetadataSchema.safeParse(message.metadata);
+
+		return [
+			{
+				id: message.id,
+				role: message.role,
+				parts: message.parts as WanditUIMessage["parts"],
+				...(metadata.success ? { metadata: metadata.data } : {}),
+			},
+		];
+	});
+}
 
 export function useAiChat(projectId: string) {
 	const chatByProjectQuery = useChatByProjectQuery(projectId);
@@ -36,9 +76,10 @@ export function useAiChat(projectId: string) {
 	// and is overwritten by the next sendText. The transport reads it below in
 	// prepareSendMessagesRequest — sendMessage's options.body is NOT used
 	// because it would not cover those automatic resubmits.
-	const metaRef = useRef<{ composer?: ComposerMetadata; selectedWid?: string }>(
-		{},
-	);
+	const metaRef = useRef<{
+		composer?: ComposerMetadata;
+		selectedWids?: string[];
+	}>({});
 
 	// AI edits (replace_section, page generation) mint a NEW immutable version
 	// server-side. Both keys must be invalidated: pageKeys.versions refreshes
@@ -54,31 +95,31 @@ export function useAiChat(projectId: string) {
 			queryKey: pageKeys.overview(projectId),
 		});
 	}, [queryClient, projectId]);
+	const invalidateFinishedTurnData = useCallback(() => {
+		invalidatePageData();
+		void queryClient.invalidateQueries({
+			queryKey: projectKeys.lists(),
+		});
+		void queryClient.invalidateQueries({
+			queryKey: projectKeys.detail(projectId),
+		});
+	}, [invalidatePageData, queryClient, projectId]);
 	// Ref so the Chat instance (created once per chat id) never holds a stale
-	// closure.
-	const invalidatePageDataRef = useRef(invalidatePageData);
-	invalidatePageDataRef.current = invalidatePageData;
+	// turn-end invalidation closure.
+	const invalidateFinishedTurnDataRef = useRef(invalidateFinishedTurnData);
+	invalidateFinishedTurnDataRef.current = invalidateFinishedTurnData;
 
 	const initialMessages = useMemo(
-		() =>
-			(messagesQuery.data?.messages ?? []).flatMap<WanditUIMessage>(
-				(message) =>
-					message.role === "system" || message.parts.length === 0
-						? []
-						: [
-								{
-									id: message.id,
-									role: message.role,
-									parts: message.parts as WanditUIMessage["parts"],
-								},
-							],
-			),
+		() => hydrateAiChatMessages(messagesQuery.data?.messages ?? []),
 		[messagesQuery.data?.messages],
 	);
 	// AI SDK's sendMessage Promise resolves even when the transport fails; the
 	// authoritative outcome arrives through onFinish. PromptBox uses this
 	// result to clear only drafts that were actually accepted and completed.
 	const lastSendSucceededRef = useRef(false);
+	// Targets belong to the live AI turn, not the mutable editor selection.
+	// Keeping them here lets the preview replay its pulses after iframe remounts.
+	const [aiTargets, setAiTargets] = useState<AiChatSelectedTarget[]>([]);
 
 	const transport = useMemo(
 		() =>
@@ -94,14 +135,14 @@ export function useAiChat(projectId: string) {
 						messages,
 						trigger,
 						messageId,
-						...(metaRef.current.composer || metaRef.current.selectedWid
+						...(metaRef.current.composer || metaRef.current.selectedWids
 							? {
 									metadata: {
 										...(metaRef.current.composer
 											? { composer: metaRef.current.composer }
 											: {}),
-										...(metaRef.current.selectedWid
-											? { selectedWid: metaRef.current.selectedWid }
+										...(metaRef.current.selectedWids
+											? { selectedWids: metaRef.current.selectedWids }
 											: {}),
 									},
 								}
@@ -123,6 +164,7 @@ export function useAiChat(projectId: string) {
 		regenerate,
 	} = useChat<WanditUIMessage>({
 		id: chatId ?? `project:${projectId}`,
+		messageMetadataSchema: aiChatMessageMetadataSchema,
 		messages: initialMessages,
 		transport,
 		sendAutomaticallyWhen: (options) =>
@@ -132,7 +174,7 @@ export function useAiChat(projectId: string) {
 		// and covers partial turns that already applied a section.
 		onFinish: ({ isAbort, isError }) => {
 			lastSendSucceededRef.current = !isAbort && !isError;
-			invalidatePageDataRef.current();
+			invalidateFinishedTurnDataRef.current();
 		},
 	});
 
@@ -186,24 +228,22 @@ export function useAiChat(projectId: string) {
 		setMessages,
 	]);
 
-	// replace_section landing mid-turn: invalidate as soon as a NEW applied
+	// A page edit landing mid-turn: invalidate as soon as a NEW applied
 	// output shows up, so the preview updates before the turn finishes. Only
 	// an ACTIVE turn may invalidate — historical applied parts arrive with
 	// status "ready" (the persisted transcript seeding, warm or cold cache)
 	// and are recorded silently: their versions are already reflected by the
 	// queries' own initial fetches. A part that lands exactly on the ready
 	// flip is covered by the onFinish refetch above either way.
-	const handledReplaceIdsRef = useRef<Set<string>>(new Set());
+	const handledPageEditIdsRef = useRef<Set<string>>(new Set());
 	useEffect(() => {
 		let sawNew = false;
 		for (const message of messages) {
 			if (message.role !== "assistant") continue;
 			for (const part of message.parts) {
-				if (part.type !== "tool-replace_section") continue;
-				if (part.state !== "output-available") continue;
-				if (part.output.status !== "applied") continue;
-				if (handledReplaceIdsRef.current.has(part.toolCallId)) continue;
-				handledReplaceIdsRef.current.add(part.toolCallId);
+				if (!isAppliedPageEditPart(part)) continue;
+				if (handledPageEditIdsRef.current.has(part.toolCallId)) continue;
+				handledPageEditIdsRef.current.add(part.toolCallId);
 				sawNew = true;
 			}
 		}
@@ -213,29 +253,28 @@ export function useAiChat(projectId: string) {
 	}, [messages, status, invalidatePageData]);
 
 	const sendText = useCallback(
-		async (
-			text: string,
-			options?: {
-				/** Uploaded R2 assets sent as AI SDK v7 file parts (contract §10.4). */
-				files?: UploadAttachmentResponse[];
-				composer?: ComposerMetadata;
-				/** Click-to-target selection riding this message (contract §10.3). */
-				selectedWid?: string;
-			},
-		) => {
+		async (text: string, options?: SendAiTextOptions) => {
 			const trimmed = text.trim();
 			if (!chatId || !messagesQuery.data) return false;
 			// Attachments alone are a valid message; empty text with no files is not.
 			if (!trimmed && !options?.files?.length) return false;
+			const selectedWids = options?.selectedWids?.length
+				? options.selectedWids
+				: undefined;
+			const selectedTargets = options?.selectedTargets?.length
+				? options.selectedTargets
+				: undefined;
 
 			metaRef.current = {
 				composer: options?.composer,
-				selectedWid: options?.selectedWid,
+				selectedWids,
 			};
+			if (selectedTargets) setAiTargets(selectedTargets);
 			lastSendSucceededRef.current = false;
 			try {
 				await sendMessage({
 					text: trimmed,
+					...(selectedTargets ? { metadata: { selectedTargets } } : {}),
 					files: options?.files?.map((file) => ({
 						type: "file" as const,
 						mediaType: file.mediaType,
@@ -248,6 +287,11 @@ export function useAiChat(projectId: string) {
 				// Synchronous message construction errors can reject even though
 				// transport errors normally resolve through onFinish.
 				return false;
+			} finally {
+				// AI SDK invokes onFinish before deciding whether a completed tool step
+				// should automatically continue. sendMessage resolves only after that
+				// whole chain, so clear the pulse here rather than between tool steps.
+				if (selectedTargets) setAiTargets([]);
 			}
 		},
 		[chatId, messagesQuery.data, sendMessage],
@@ -273,6 +317,7 @@ export function useAiChat(projectId: string) {
 		messages,
 		status,
 		error,
+		aiTargets,
 		sendText,
 		answerAskUser,
 		addToolApprovalResponse,
@@ -283,4 +328,18 @@ export function useAiChat(projectId: string) {
 
 function buildStreamUrl(chatId: string) {
 	return `${getServerUrl().replace(/\/$/, "")}${aiChatRoutes.stream(chatId)}`;
+}
+
+export function isAppliedPageEditPart(
+	part: WanditUIMessage["parts"][number],
+): part is Extract<
+	WanditUIMessage["parts"][number],
+	{ type: "tool-apply_element_ops" | "tool-replace_section" }
+> & { state: "output-available" } {
+	return (
+		(part.type === "tool-replace_section" ||
+			part.type === "tool-apply_element_ops") &&
+		part.state === "output-available" &&
+		part.output.status === "applied"
+	);
 }

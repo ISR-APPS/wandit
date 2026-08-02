@@ -10,6 +10,7 @@ import {
 	runImageAnimation,
 } from "../modules/media-generations/application/services/image-animation-runner";
 import { createImageAnimationRuntime } from "./image-animation.runtime";
+import { triggerAnalytics } from "./init";
 
 const imageAnimationQueue = queue({
 	concurrencyLimit: 2,
@@ -47,7 +48,7 @@ export const animateImageTask = schemaTask({
 				.set("projectId", payload.projectId)
 				.set("stage", "settling");
 
-			const runtime = createImageAnimationRuntime(db);
+			const runtime = createImageAnimationRuntime(db, triggerAnalytics);
 			const result = await runImageAnimation(payload, {
 				dependencies: runtime.runner,
 				runId: ctx.run.id,

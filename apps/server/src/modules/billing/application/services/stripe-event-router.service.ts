@@ -8,12 +8,16 @@ import {
 	type WebhookOrderReconciler,
 } from "../../domain/ports/webhook-order-reconciler.port";
 import { BillingCustomersRepository } from "../../infrastructure/persistence/billing-customers.repository";
+import type { SubscriptionRow } from "../../infrastructure/persistence/subscriptions.repository";
 import { PaymentRefundsService } from "./payment-refunds.service";
 import { StripeSubscriptionSyncService } from "./stripe-subscription-sync.service";
 import { SubscriptionCreditsService } from "./subscription-credits.service";
 
 export type StripeEventRouteResult =
-	| { status: "processed" }
+	| {
+			mirroredSubscriptions?: SubscriptionRow[];
+			status: "processed";
+	  }
 	| { reason: string; status: "skipped" };
 
 const PROCESSED = { status: "processed" } as const;
@@ -225,9 +229,10 @@ export class StripeEventRouter {
 		await this.billingCustomersRepository.clearOpenCheckoutSessionId(
 			session.id,
 		);
-		await this.subscriptionSyncService.syncFromStripe(providerCustomerId);
+		const mirroredSubscriptions =
+			await this.subscriptionSyncService.syncFromStripe(providerCustomerId);
 
-		return PROCESSED;
+		return { mirroredSubscriptions, status: "processed" };
 	}
 
 	private async routeSubscriptionSync(

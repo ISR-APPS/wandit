@@ -5,6 +5,7 @@ import { designWorlds, formatWorldCandidates, getWorld } from "./index";
 describe("design worlds library", () => {
 	it("every world honors the library contract", () => {
 		const ids = designWorlds.map((w) => w.id);
+		expect(designWorlds).toHaveLength(69);
 		expect(new Set(ids).size).toBe(ids.length);
 
 		for (const world of designWorlds) {
@@ -16,6 +17,9 @@ describe("design worlds library", () => {
 			expect(world.tagline.length).toBeGreaterThan(40);
 			expect(world.mood.length).toBeGreaterThanOrEqual(3);
 			expect(world.name.length).toBeGreaterThan(1);
+			if (world.kind !== "cod") {
+				expect(world.doc).toContain("var(--radius)");
+			}
 		}
 	});
 
@@ -24,6 +28,45 @@ describe("design worlds library", () => {
 		if (!first) throw new Error("worlds library is empty");
 		expect(getWorld(` ${first.id.toUpperCase()} `)).toBe(first);
 		expect(getWorld("no-such-world")).toBeUndefined();
+	});
+
+	it("does not call the primary hue accent when --accent is a ground token", () => {
+		for (const [id, primaryPole] of [
+			["nocturne", "AMBER"],
+			["cargo", "TAPE"],
+		] as const) {
+			const world = getWorld(id);
+
+			expect(world).toBeDefined();
+			expect(world?.doc).toContain(`${primaryPole}→--primary`);
+			expect(world?.doc).toContain("→--accent");
+			expect(world?.doc.replaceAll("--accent", "")).not.toMatch(/\baccent\b/iu);
+		}
+	});
+
+	it("keeps the repaired world radius laws internally consistent", () => {
+		const palestre = getWorld("palestre")?.doc ?? "";
+		const cargo = getWorld("cargo")?.doc ?? "";
+		const forge = getWorld("forge")?.doc ?? "";
+		const beton = getWorld("beton")?.doc ?? "";
+
+		expect(palestre).toContain(
+			"every action slab and chip consumes var(--radius) directly",
+		);
+		expect(palestre).not.toContain("nothing is rounded");
+		expect(palestre).not.toContain("a 999px accent dot");
+		expect(cargo).toContain(
+			"var(--radius) on every CTA slab, size pill and chip",
+		);
+		expect(cargo).not.toContain("a 999px var(--primary) dot");
+		expect(forge).toContain(
+			"buttons, CTAs, chips and steppers consume var(--radius) directly",
+		);
+		expect(forge).toContain(
+			"every other rectangle uses min(var(--radius), 0px)",
+		);
+		expect(beton).toContain("only curved exception is the true circular seal");
+		expect(beton).not.toContain("two stamp pills");
 	});
 
 	it("offers both sections with bounded, fitting samples", () => {
@@ -64,7 +107,7 @@ describe("design worlds library", () => {
 				formatWorldCandidates({ business: "boutique", industryHints: [] }),
 			);
 		}
-		// 10 draws from a 23-world library colliding into one menu would mean
+		// 10 draws from a 69-world library colliding into one menu would mean
 		// the sampler is not sampling.
 		expect(draws.size).toBeGreaterThan(1);
 	});

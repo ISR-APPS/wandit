@@ -27,9 +27,11 @@ import { LeadsTab } from "../components/leads/leads-tab";
 import { MarketingTab } from "../components/marketing/marketing-tab";
 import { EditPanel } from "../components/page/edit-panel";
 import { PageTab } from "../components/page/page-tab";
+import { PublishConfirmDialog } from "../components/publish/publish-confirm-dialog";
 import { SettingsTab } from "../components/settings/settings-tab";
 import { MainPaneHeader } from "../components/shell/main-pane-header";
 import { WorkspaceHeader } from "../components/shell/workspace-header";
+import { AiChatProvider } from "../lib/ai-chat-context";
 import {
 	readWorkspacePanelLayout,
 	writeWorkspacePanelLayout,
@@ -46,10 +48,12 @@ export default function WorkspacePage({
 }) {
 	return (
 		<WorkspaceProvider key={projectId} projectId={projectId} tab={tab}>
-			{/* Edit-mode state (WS2) wraps BOTH panes: the chat composer reads
-			    the click-to-target selection, the Page surfaces read the rest. */}
+			{/* The editor and ONE AI SDK chat instance wrap both left panes. Their
+			    CSS swap must never remount the live stream or inspector state. */}
 			<PageEditorProvider>
-				<WorkspaceLayout />
+				<AiChatProvider projectId={projectId}>
+					<WorkspaceLayout />
+				</AiChatProvider>
 			</PageEditorProvider>
 		</WorkspaceProvider>
 	);
@@ -85,6 +89,7 @@ function WorkspaceLayout() {
 				<div className="relative z-10 min-h-0 flex-1 bg-background">
 					{isMobile ? <MobileSplit tab={tab} /> : <DesktopSplit tab={tab} />}
 				</div>
+				<PublishConfirmDialog />
 			</div>
 		</TooltipProvider>
 	);

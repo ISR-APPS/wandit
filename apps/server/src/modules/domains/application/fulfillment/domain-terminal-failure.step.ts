@@ -19,6 +19,11 @@ export type DomainTerminalFailureResult = {
 	status: "active" | "failed" | "unchanged";
 };
 
+export type DomainTerminalFailureErrorTags = {
+	domainId: string;
+	orderId: string;
+};
+
 type DomainTerminalFailureDependencies = {
 	deleteCustomHostname(id: string): Promise<void>;
 	deleteDomainPointer(name: string): Promise<void>;
@@ -38,6 +43,7 @@ type DomainTerminalFailureDependencies = {
 		transaction: unknown,
 	): Promise<DomainFulfillmentOrder | null>;
 	markOrderFulfilled(orderId: string): Promise<unknown>;
+	reportError(error: unknown, tags: DomainTerminalFailureErrorTags): void;
 	updateDomainIfStatus(
 		domainId: string,
 		statuses: DomainStatus[],
@@ -67,13 +73,15 @@ export class DomainTerminalFailureStep {
 		const failure = domainFailureSummary(error);
 
 		if (!orderId) {
-			if (error instanceof MissingDomainPaymentOrderError) {
-				await this.failMissingOrder(row, failure);
-
-				return { status: "failed" };
+			if (row.status === "registering" || row.status === "configuring") {
+				this.reportError(row.id, null, error);
 			}
 
-			await this.failWithoutOrder(row, failure);
+			if (error instanceof MissingDomainPaymentOrderError) {
+				await this.failMissingOrder(row, failure);
+			} else {
+				await this.failWithoutOrder(row, failure);
+			}
 
 			return { status: "failed" };
 		}
@@ -94,6 +102,13 @@ export class DomainTerminalFailureStep {
 
 				if (lockedDomain.status === "active" || order.status === "fulfilled") {
 					return lockedDomain;
+				}
+
+				if (
+					lockedDomain.status === "registering" ||
+					lockedDomain.status === "configuring"
+				) {
+					this.reportError(lockedDomain.id, orderId, error);
 				}
 
 				const needsRefund =
@@ -144,6 +159,20 @@ export class DomainTerminalFailureStep {
 		await bestEffortDeleteDomainPointer(current, this.dependencies);
 
 		return { status: "failed" };
+	}
+
+	private reportError(
+		domainId: string,
+		orderId: string | null,
+		error: unknown,
+	): void {
+		// Terminal failures complete normally after storing a sanitized summary,
+		// so this is the only report point for the original provider error. Failed
+		// row replays from Trigger onFailure are guarded before reaching this call.
+		this.dependencies.reportError(error, {
+			domainId,
+			orderId: orderId ?? "none",
+		});
 	}
 
 	private async failMissingOrder(

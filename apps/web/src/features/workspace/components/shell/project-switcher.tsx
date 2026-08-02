@@ -13,10 +13,48 @@ import {
 import { Skeleton } from "@wandit/ui/components/skeleton";
 import { cn } from "@wandit/ui/lib/utils";
 import { Check, ChevronDown, LayoutGrid } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
 
 import { type ProjectStatus, useProjectsQuery } from "@/features/projects";
 import { useTranslation } from "@/lib/i18n";
 import { useWorkspace } from "../../lib/store";
+
+const TITLE_CHARACTER_DELAY_MS = 30;
+
+function TypewriterProjectName({ name }: { name: string }) {
+	const [displayedName, setDisplayedName] = useState(name);
+	const previousNameRef = useRef(name);
+
+	useEffect(() => {
+		if (previousNameRef.current === name) return;
+		previousNameRef.current = name;
+
+		if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+			setDisplayedName(name);
+			return;
+		}
+
+		const characters = [...name];
+		let visibleCharacters = 0;
+		setDisplayedName("");
+
+		const intervalId = window.setInterval(() => {
+			visibleCharacters += 1;
+			setDisplayedName(characters.slice(0, visibleCharacters).join(""));
+			if (visibleCharacters >= characters.length) {
+				window.clearInterval(intervalId);
+			}
+		}, TITLE_CHARACTER_DELAY_MS);
+
+		return () => window.clearInterval(intervalId);
+	}, [name]);
+
+	return (
+		<span dir="auto" className="max-w-44 truncate font-medium">
+			{displayedName}
+		</span>
+	);
+}
 
 function statusDotClass(status: ProjectStatus): string {
 	switch (status) {
@@ -55,9 +93,7 @@ export function ProjectSwitcher() {
 									statusDotClass(project.status),
 								)}
 							/>
-							<span dir="auto" className="max-w-44 truncate font-medium">
-								{project.name}
-							</span>
+							<TypewriterProjectName name={project.name} />
 							<ChevronDown className="size-3 shrink-0 opacity-50" />
 						</>
 					)}

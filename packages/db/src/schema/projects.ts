@@ -36,6 +36,11 @@ export const projects = pgTable(
 		previewToken: uuid("preview_token").notNull().defaultRandom(),
 		metaPixelId: text("meta_pixel_id"),
 		tiktokPixelId: text("tiktok_pixel_id"),
+		// Hero-viewport screenshot of the latest activated build (dashboard card
+		// cover). Null until a build succeeds.
+		previewImageUrl: text("preview_image_url"),
+		// User-uploaded brand logo reused by page rebuilds. Null until selected.
+		logoUrl: text("logo_url"),
 		// Soft delete marker.
 		deletedAt: timestamp("deleted_at", { withTimezone: true }),
 		// Timestamps used for dashboard sorting.

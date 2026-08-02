@@ -1,6 +1,7 @@
 import {
 	type DurableWait,
 	ORDER_REFUND_RETRY_DELAY_SECONDS,
+	type OrderRefundErrorReporter,
 	type OrderRefundLogger,
 	type OrderRefundPayload,
 	type OrderRefundResult,
@@ -13,6 +14,7 @@ export class OrderRefundRunner {
 		private readonly refundStep: OrderRefundStepExecutor,
 		private readonly durableWait: DurableWait,
 		private readonly logger: OrderRefundLogger,
+		private readonly reportError: OrderRefundErrorReporter,
 	) {}
 
 	async run(payload: OrderRefundPayload): Promise<OrderRefundResult> {
@@ -28,6 +30,22 @@ export class OrderRefundRunner {
 				};
 			} catch (error) {
 				failures += 1;
+
+				// Failing refunds are money on the line, but they retry every minute
+				// forever — capturing each attempt would burn 1,440 events/day per
+				// broken refund. Report the first failure, the escalation threshold,
+				// and an hourly heartbeat after that.
+				if (
+					failures <= 1 ||
+					failures === REFUND_FAILURES_BEFORE_ESCALATION ||
+					failures % 60 === 0
+				) {
+					this.reportError(error, {
+						attempt: failures,
+						orderId: payload.orderId,
+					});
+				}
+
 				const context = {
 					attemptsMade: failures,
 					failureReason: payload.failureReason,

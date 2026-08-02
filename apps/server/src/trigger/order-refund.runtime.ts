@@ -1,4 +1,5 @@
 import type { createDb } from "@wandit/db";
+import { Sentry } from "@wandit/observability/node";
 
 import { StripeProvider } from "../modules/billing/infrastructure/stripe/stripe.provider";
 import {
@@ -58,6 +59,9 @@ export function createOrderRefundRuntime(
 			configuredRefundStep,
 			options.wait,
 			options.logger,
+			(error, tags) => {
+				Sentry.captureException(error, { tags });
+			},
 		),
 	};
 }

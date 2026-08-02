@@ -10,8 +10,10 @@ import type {
 	PageOverview,
 	PageVersionHtml,
 } from "@wandit/contracts";
+import { pageVersionSourceSchema } from "@wandit/contracts";
 
 import { getPageHtml } from "../../../../infrastructure/storage/r2";
+import { stampHtml } from "../../domain/stamp";
 import { PagesRepository } from "../../infrastructure/persistence/pages.repository";
 
 @Injectable()
@@ -73,9 +75,11 @@ export class PagesService {
 			versions: rows.map((row) => ({
 				createdAt: row.createdAt.toISOString(),
 				id: row.id,
+				isBuilderOrigin: versionIsBuilderOrigin(row.meta),
 				isLive: row.isLive,
 				label: versionLabel(row.meta),
 				number: row.number,
+				source: versionSource(row.meta),
 			})),
 		};
 	}
@@ -102,8 +106,29 @@ export class PagesService {
 			throw new NotFoundException();
 		}
 
-		return { html, versionId: version.id };
+		return { html: stampHtml(html), versionId: version.id };
 	}
+}
+
+function versionIsBuilderOrigin(meta: unknown): boolean {
+	const source =
+		typeof meta === "object" && meta !== null
+			? (meta as Record<string, unknown>).source
+			: undefined;
+
+	return source === "builder" || source === undefined || source === null;
+}
+
+function versionSource(meta: unknown) {
+	if (typeof meta !== "object" || meta === null) {
+		return null;
+	}
+
+	const parsed = pageVersionSourceSchema.safeParse(
+		(meta as Record<string, unknown>).source,
+	);
+
+	return parsed.success ? parsed.data : null;
 }
 
 // Human summary from a version's build metadata: the builder's own summary

@@ -34,6 +34,14 @@ export const generatedImageSchema = z.object({
 
 export type GeneratedImage = z.infer<typeof generatedImageSchema>;
 
+export const imageGenerationPlacementStatusSchema = z.object({
+	status: z.enum(["pending", "applied", "failed"]),
+});
+
+export type ImageGenerationPlacementStatus = z.infer<
+	typeof imageGenerationPlacementStatusSchema
+>;
+
 export const imageGenerationAttemptSchema = z.object({
 	id: uuidSchema,
 	status: mediaGenerationStatusSchema,
@@ -44,6 +52,8 @@ export const imageGenerationAttemptSchema = z.object({
 	sourceImageUrls: z.array(z.url()),
 	// One entry per generated image in index order; null until succeeded.
 	images: z.array(generatedImageSchema).nullable(),
+	// Present only when generate_image was asked to replace a page image.
+	placement: imageGenerationPlacementStatusSchema.optional(),
 	error: z.string().nullable(),
 	createdAt: isoDateTimeSchema,
 	completedAt: isoDateTimeSchema.nullable(),

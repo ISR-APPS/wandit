@@ -1,36 +1,221 @@
 // Element panel — top of the inspector rail while something is targeted.
-// Type-aware (inline-editor V3): sections get spacing steps + a background
-// image block, images get swap + remove, links get an href editor (phone
-// field for tel:/WhatsApp forms) above the usual style controls. Style edits
-// (color / size / curated font) are recorded as element-style ops pinned to
-// the wid AND live-applied through the bridge; image/background uploads go
-// to R2 first (WS1 attachments service) then record their op. Text editing
-// itself happens IN the preview (contentEditable — contract §11 edit mode);
-// the panel only hints at it.
+// Type-aware (inline-editor V4): section spacing/background; full typography
+// for text leaves; image sizing/crop/radius; link/button surfaces; and form
+// placeholders. Every control records a contract edit-op and live-applies it
+// through the sandbox bridge; canonical HTML only changes on Save.
 
 import {
 	isSafeLinkHref,
 	SECTION_PADDING_STEPS,
 	type SectionPaddingStep,
 } from "@wandit/contracts";
+import {
+	AlertDialog,
+	AlertDialogAction,
+	AlertDialogCancel,
+	AlertDialogContent,
+	AlertDialogDescription,
+	AlertDialogFooter,
+	AlertDialogHeader,
+	AlertDialogTitle,
+	AlertDialogTrigger,
+} from "@wandit/ui/components/alert-dialog";
 import { Button } from "@wandit/ui/components/button";
 import { Input } from "@wandit/ui/components/input";
 import { Separator } from "@wandit/ui/components/separator";
+import { Skeleton } from "@wandit/ui/components/skeleton";
 import { Slider } from "@wandit/ui/components/slider";
+import { Toggle } from "@wandit/ui/components/toggle";
+import {
+	ToggleGroup,
+	ToggleGroupItem,
+} from "@wandit/ui/components/toggle-group";
 import { cn } from "@wandit/ui/lib/utils";
-import { Crosshair, ImageIcon, Loader2, Trash2, Upload } from "lucide-react";
+import {
+	AlignCenter,
+	AlignLeft,
+	AlignRight,
+	Crosshair,
+	ImageIcon,
+	Italic,
+	Loader2,
+	Minus,
+	Plus,
+	Trash2,
+	Upload,
+} from "lucide-react";
 import { useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { AttachmentUploadError, uploadAttachment } from "@/features/projects";
 import { useTranslation } from "@/lib/i18n";
-import { cssColorToHex } from "../../lib/preview-editor/contrast";
+import {
+	cssColorToHex,
+	isFullyTransparentCssColor,
+} from "../../lib/preview-editor/contrast";
+import {
+	type PreviewSelection,
+	selectTargetMessage,
+} from "../../lib/preview-editor/messages";
 import { matchCuratedFontId } from "../../lib/preview-editor/parse-tokens";
-import { usePageEditor } from "../../lib/use-page-editor";
+import {
+	type PendingElementStyle,
+	usePageEditor,
+} from "../../lib/use-page-editor";
 import { ColorField, FontSelect } from "./inspector-controls";
 
 /** Image types only (contract §7.2 allowlist minus documents). */
 const IMAGE_ACCEPT = "image/jpeg,image/png,image/webp,image/gif,image/avif";
+
+const TEXT_LEAF_TAGS = new Set([
+	"h1",
+	"h2",
+	"h3",
+	"h4",
+	"h5",
+	"h6",
+	"p",
+	"li",
+	"blockquote",
+	"figcaption",
+	"label",
+	"legend",
+	"span",
+]);
+
+const IMAGE_WIDTHS = ["25%", "33%", "50%", "66%", "100%"] as const;
+const FONT_WEIGHTS = [400, 500, 600, 700] as const;
+const RADIUS_STEPS = [
+	{ key: "none", value: "0px" },
+	{ key: "s", value: "0.25rem" },
+	{ key: "m", value: "0.75rem" },
+	{ key: "l", value: "1.5rem" },
+	{ key: "full", value: "9999px" },
+] as const;
+
+type SelectionStyles = PreviewSelection["styles"];
+
+const SKELETON_CHIPS = ["one", "two", "three", "four", "five"] as const;
+
+function PanelShimmer({ className }: { className?: string }) {
+	return (
+		<Skeleton
+			aria-hidden
+			className={cn(
+				"animate-shimmer bg-[length:180%_100%] bg-[linear-gradient(90deg,var(--border)_25%,var(--secondary)_50%,var(--border)_75%)] motion-reduce:animate-none motion-reduce:bg-muted motion-reduce:bg-none",
+				className,
+			)}
+		/>
+	);
+}
+
+function LoadingField() {
+	return (
+		<div className="flex flex-col gap-1.5">
+			<PanelShimmer className="h-2.5 w-20" />
+			<PanelShimmer className="h-8 w-full" />
+		</div>
+	);
+}
+
+function LoadingSlider() {
+	return (
+		<div className="flex flex-col gap-2">
+			<div className="flex items-center justify-between gap-3">
+				<PanelShimmer className="h-2.5 w-20" />
+				<PanelShimmer className="h-2.5 w-10" />
+			</div>
+			<PanelShimmer className="h-1.5 w-full rounded-full" />
+		</div>
+	);
+}
+
+function LoadingChoices({ columns = 5 }: { columns?: 2 | 5 }) {
+	const chips = columns === 2 ? SKELETON_CHIPS.slice(0, 4) : SKELETON_CHIPS;
+	return (
+		<div className="flex flex-col gap-1.5">
+			<PanelShimmer className="h-2.5 w-16" />
+			<div
+				className={cn(
+					"grid gap-1",
+					columns === 2 ? "grid-cols-2" : "grid-cols-5",
+				)}
+			>
+				{chips.map((chip) => (
+					<PanelShimmer key={chip} className="h-7" />
+				))}
+			</div>
+		</div>
+	);
+}
+
+function LoadingInlineControl() {
+	return (
+		<div className="flex items-center justify-between gap-3">
+			<PanelShimmer className="h-2.5 w-20" />
+			<PanelShimmer className="h-7 w-20" />
+		</div>
+	);
+}
+
+function AiApplyingStatus() {
+	const { t } = useTranslation();
+	return (
+		<div
+			role="status"
+			aria-live="polite"
+			aria-atomic="true"
+			className="flex items-center gap-2 rounded-md border border-primary/15 bg-primary/5 px-2.5 py-2"
+		>
+			<span
+				aria-hidden
+				className="size-[7px] shrink-0 animate-pulse-soft rounded-full bg-primary motion-reduce:animate-none"
+			/>
+			<span className="font-medium text-foreground/80 text-xs">
+				{t("workspace.page.editor.aiApplying")}
+			</span>
+		</div>
+	);
+}
+
+function PanelControlSkeletons() {
+	return (
+		<div
+			data-slot="editor-panel-skeleton"
+			aria-hidden
+			className="flex flex-col gap-3"
+		>
+			<PanelShimmer className="h-12 w-full" />
+			<LoadingField />
+			<LoadingSlider />
+			<LoadingField />
+			<LoadingChoices columns={2} />
+			<LoadingInlineControl />
+			<LoadingChoices />
+			<PanelShimmer className="h-20 w-full" />
+		</div>
+	);
+}
+
+/** Shared inspector body shown while a scoped AI turn owns the editor. */
+export function EditorWorkingState() {
+	return (
+		<section
+			data-slot="editor-working-state"
+			className="flex flex-col gap-3 p-3.5"
+		>
+			<AiApplyingStatus />
+			<PanelControlSkeletons />
+		</section>
+	);
+}
+
+export function postLadderSelection(
+	post: ReturnType<typeof usePageEditor>["postToPreview"],
+	wid: string,
+): void {
+	post(selectTargetMessage(wid));
+}
 
 // ── Link href parsing / construction (shared with the Données panel) ────────
 
@@ -116,8 +301,27 @@ export function ElementPanel() {
 
 	const pending = editor.pendingStyles[selection.wid];
 	const isSection = selection.kind === "section";
+	const isSurface = selection.kind === "surface";
 	const isImage = selection.tag === "img";
 	const isLink = selection.tag === "a";
+	const isButton = selection.tag === "button";
+	const isFormField = selection.tag === "input" || selection.tag === "textarea";
+	const isTextLeaf = TEXT_LEAF_TAGS.has(selection.tag);
+	const isPlaceholderImage =
+		selection.isPlaceholderImage ||
+		selection.wid in editor.pendingPlaceholderImages;
+	const editControlsDisabled = editor.isAskAiDispatching;
+	const ladder =
+		selection.ladder.length > 0
+			? selection.ladder
+			: [
+					{
+						wid: selection.wid,
+						kind: selection.kind,
+						tag: selection.tag,
+						label: selection.excerpt ?? selection.tag,
+					},
+				];
 
 	return (
 		<section className="flex flex-col gap-3 p-3.5">
@@ -125,67 +329,182 @@ export function ElementPanel() {
 				<span className="font-mono text-[10px] text-muted-foreground uppercase tracking-widest">
 					{isSection
 						? t("workspace.page.editor.section")
-						: t("workspace.page.editor.element")}
+						: isSurface
+							? t("workspace.page.editor.surface")
+							: t("workspace.page.editor.element")}
 				</span>
-				<span className="flex min-w-0 items-center gap-1.5 text-sm">
+				<nav
+					className="flex min-w-0 items-center gap-1.5 text-sm"
+					aria-label={t("workspace.page.editor.selectionPath")}
+				>
 					<Crosshair className="size-3.5 shrink-0 text-primary" aria-hidden />
-					<span dir="ltr" className="min-w-0 truncate font-mono">
-						{selection.wid}
-						<span className="text-muted-foreground"> · {selection.tag}</span>
-					</span>
-				</span>
-				{selection.kind === "element" && selection.sectionWid ? (
-					<span dir="ltr" className="truncate text-muted-foreground text-xs">
-						{t("workspace.page.editor.inSection", {
-							wid: selection.sectionWid,
+					<div className="flex min-w-0 items-center gap-1 overflow-hidden">
+						{ladder.map((stop, index) => {
+							const active = stop.wid === selection.wid;
+							return (
+								<span
+									key={stop.wid}
+									className="flex min-w-0 items-center gap-1"
+								>
+									{index > 0 ? (
+										<span aria-hidden className="text-muted-foreground/50">
+											·
+										</span>
+									) : null}
+									<button
+										type="button"
+										aria-current={active ? "true" : undefined}
+										aria-label={t("workspace.page.editor.selectLevel", {
+											label: stop.label,
+										})}
+										title={stop.wid}
+										onClick={() =>
+											postLadderSelection(editor.postToPreview, stop.wid)
+										}
+										className={cn(
+											"min-w-0 truncate rounded px-1 py-0.5 font-mono text-[11px] transition-colors",
+											active
+												? "bg-primary/12 text-primary"
+												: "text-muted-foreground hover:bg-muted hover:text-foreground",
+										)}
+									>
+										<bdi dir="ltr">{stop.tag}</bdi>
+									</button>
+								</span>
+							);
 						})}
-					</span>
-				) : null}
+					</div>
+				</nav>
 			</header>
 
-			{isSection ? (
-				<SectionControls
-					wid={selection.wid}
-					sectionStyles={selection.sectionStyles}
-					bgImage={selection.bgImage}
-				/>
-			) : isImage ? (
-				<ImageControls wid={selection.wid} src={selection.src} />
-			) : (
-				<>
-					{isLink ? (
-						// Keyed per wid so the draft resets when the target changes.
-						<LinkEditor
-							key={selection.wid}
+			<fieldset
+				disabled={editControlsDisabled}
+				inert={editControlsDisabled ? true : undefined}
+				aria-disabled={editControlsDisabled}
+				className={cn(
+					"m-0 min-w-0 border-0 p-0",
+					editControlsDisabled && "pointer-events-none select-none",
+				)}
+			>
+				<div data-slot="element-panel-controls">
+					{isSection ? (
+						<SectionControls
 							wid={selection.wid}
-							href={selection.href}
+							sectionStyles={selection.sectionStyles}
+							bgImage={selection.bgImage}
 						/>
-					) : null}
-					<StyleControls
-						wid={selection.wid}
-						text={selection.text}
-						styles={selection.styles}
-						pending={pending}
-					/>
-				</>
-			)}
+					) : isSurface ? (
+						<SurfaceControls
+							wid={selection.wid}
+							styles={selection.styles}
+							pending={pending}
+						/>
+					) : (
+						<div className="flex flex-col gap-3">
+							{isImage ? (
+								<ImageControls
+									wid={selection.wid}
+									src={selection.src}
+									inlineWidth={selection.inlineWidth}
+									styles={selection.styles}
+									pending={pending}
+								/>
+							) : null}
+							{isLink ? (
+								// Keyed per wid so the draft resets when the target changes.
+								<LinkEditor
+									key={selection.wid}
+									wid={selection.wid}
+									href={selection.href}
+								/>
+							) : null}
+							{isLink || isButton ? (
+								<InteractiveStyleControls
+									wid={selection.wid}
+									styles={selection.styles}
+									pending={pending}
+								/>
+							) : null}
+							{isFormField ? (
+								<PlaceholderEditor
+									key={selection.wid}
+									wid={selection.wid}
+									placeholder={selection.placeholder}
+								/>
+							) : null}
+							{isTextLeaf ? (
+								<TextStyleControls
+									wid={selection.wid}
+									text={selection.text}
+									textEditable={selection.textEditable}
+									styles={selection.styles}
+									pending={pending}
+								/>
+							) : null}
+							{selection.removable ? (
+								isImage && !isPlaceholderImage ? (
+									<PlaceholderImageButton
+										wid={selection.wid}
+										styles={selection.styles}
+									/>
+								) : (
+									<RemoveElementButton wid={selection.wid} />
+								)
+							) : null}
+						</div>
+					)}
+				</div>
+			</fieldset>
 			<Separator />
 		</section>
 	);
 }
 
-function StyleControls({
+function SurfaceControls({
+	wid,
+	styles,
+	pending,
+}: {
+	wid: string;
+	styles: SelectionStyles;
+	pending: PendingElementStyle | undefined;
+}) {
+	const { t } = useTranslation();
+	const editor = usePageEditor();
+	const computedBackground = isFullyTransparentCssColor(styles.backgroundColor)
+		? ""
+		: (cssColorToHex(styles.backgroundColor) ?? styles.backgroundColor);
+
+	return (
+		<div className="flex flex-col gap-3">
+			<ColorField
+				label={t("workspace.page.editor.backgroundColor")}
+				value={pending?.backgroundColor ?? computedBackground}
+				onChange={(backgroundColor) =>
+					editor.applyStyle(wid, { backgroundColor })
+				}
+			/>
+			<RadiusControl
+				wid={wid}
+				computed={styles.borderRadius}
+				pending={pending?.borderRadius}
+			/>
+		</div>
+	);
+}
+
+function TextStyleControls({
 	wid,
 	text,
+	textEditable,
 	styles,
 	pending,
 }: {
 	wid: string;
 	text: string | null;
-	styles: { color: string; fontSize: string; fontFamily: string };
-	pending:
-		| { color?: string; fontSize?: string; fontFamily?: string }
-		| undefined;
+	textEditable: boolean;
+	styles: SelectionStyles;
+	pending: PendingElementStyle | undefined;
 }) {
 	const { t } = useTranslation();
 	const editor = usePageEditor();
@@ -198,10 +517,37 @@ function StyleControls({
 	const fontValue = pending?.fontFamily
 		? matchCuratedFontId(pending.fontFamily)
 		: matchCuratedFontId(styles.fontFamily);
+	const weightValue = nearestFontWeight(
+		pending?.fontWeight ?? styles.fontWeight,
+	);
+	const italic = (pending?.fontStyle ?? styles.fontStyle) === "italic";
+	const alignment = normalizeTextAlign(styles.textAlign, styles.direction);
+	const alignValue = pending?.textAlign ?? alignment;
+	const lineHeightValue = clamp(
+		pending?.lineHeight ??
+			computedLineHeight(styles.lineHeight, styles.fontSize),
+		1,
+		2.5,
+	);
+	const letterSpacingValue = clamp(
+		pending?.letterSpacing !== undefined
+			? Number.parseFloat(pending.letterSpacing)
+			: computedLetterSpacing(styles.letterSpacing, styles.fontSize),
+		-0.05,
+		0.5,
+	);
+	const StartIcon = styles.direction === "rtl" ? AlignRight : AlignLeft;
+	const EndIcon = styles.direction === "rtl" ? AlignLeft : AlignRight;
+	const weightLabels = [
+		t("workspace.page.editor.weightNormal"),
+		t("workspace.page.editor.weightMedium"),
+		t("workspace.page.editor.weightSemibold"),
+		t("workspace.page.editor.weightBold"),
+	];
 
 	return (
 		<div className="flex flex-col gap-3">
-			{text ? (
+			{text !== null ? (
 				<div className="flex flex-col gap-1">
 					<p
 						dir="auto"
@@ -209,7 +555,7 @@ function StyleControls({
 					>
 						{text}
 					</p>
-					{editor.mode === "edit" ? (
+					{editor.mode === "edit" && textEditable ? (
 						<p className="text-[11px] text-muted-foreground/80">
 							{t("workspace.page.editor.textHint")}
 						</p>
@@ -258,6 +604,186 @@ function StyleControls({
 					ariaLabel={t("workspace.page.editor.fontFamily")}
 				/>
 			</div>
+
+			<div className="flex flex-col gap-1.5">
+				<span className="text-foreground/80 text-xs">
+					{t("workspace.page.editor.fontWeight")}
+				</span>
+				<div className="grid grid-cols-2 gap-1">
+					{FONT_WEIGHTS.map((weight, index) => (
+						<button
+							key={weight}
+							type="button"
+							aria-pressed={weightValue === weight}
+							onClick={() => editor.applyStyle(wid, { fontWeight: weight })}
+							className={choiceClass(weightValue === weight)}
+						>
+							<span>{weightLabels[index]}</span>
+							<span dir="ltr" className="font-mono text-[10px] opacity-65">
+								{weight}
+							</span>
+						</button>
+					))}
+				</div>
+			</div>
+
+			<div className="flex items-center justify-between gap-2">
+				<span className="text-foreground/80 text-xs">
+					{t("workspace.page.editor.italic")}
+				</span>
+				<Toggle
+					variant="outline"
+					size="sm"
+					pressed={italic}
+					onPressedChange={(pressed) =>
+						editor.applyStyle(wid, {
+							fontStyle: pressed ? "italic" : "normal",
+						})
+					}
+					aria-label={t("workspace.page.editor.italic")}
+				>
+					<Italic aria-hidden />
+				</Toggle>
+			</div>
+
+			<div className="flex items-center justify-between gap-2">
+				<span className="text-foreground/80 text-xs">
+					{t("workspace.page.editor.textAlign")}
+				</span>
+				<ToggleGroup
+					type="single"
+					variant="outline"
+					size="sm"
+					spacing={0}
+					value={alignValue}
+					onValueChange={(value) => {
+						if (value === "start" || value === "center" || value === "end") {
+							editor.applyStyle(wid, { textAlign: value });
+						}
+					}}
+				>
+					<ToggleGroupItem
+						value="start"
+						aria-label={t("workspace.page.editor.alignStart")}
+					>
+						<StartIcon aria-hidden />
+					</ToggleGroupItem>
+					<ToggleGroupItem
+						value="center"
+						aria-label={t("workspace.page.editor.alignCenter")}
+					>
+						<AlignCenter aria-hidden />
+					</ToggleGroupItem>
+					<ToggleGroupItem
+						value="end"
+						aria-label={t("workspace.page.editor.alignEnd")}
+					>
+						<EndIcon aria-hidden />
+					</ToggleGroupItem>
+				</ToggleGroup>
+			</div>
+
+			<div className="flex flex-col gap-1.5">
+				<div className="flex items-center justify-between">
+					<span className="text-foreground/80 text-xs">
+						{t("workspace.page.editor.lineHeight")}
+					</span>
+					<span dir="ltr" className="font-mono text-muted-foreground text-xs">
+						{lineHeightValue.toFixed(1)}
+					</span>
+				</div>
+				<Slider
+					min={1}
+					max={2.5}
+					step={0.1}
+					value={[lineHeightValue]}
+					onValueChange={([next]) => {
+						if (typeof next === "number") {
+							editor.applyStyle(wid, {
+								lineHeight: round(next, 1),
+							});
+						}
+					}}
+					aria-label={t("workspace.page.editor.lineHeight")}
+				/>
+			</div>
+
+			<NumberStepper
+				label={t("workspace.page.editor.letterSpacing")}
+				value={letterSpacingValue}
+				min={-0.05}
+				max={0.5}
+				step={0.01}
+				format={(value) => `${value.toFixed(2)}em`}
+				onChange={(value) =>
+					editor.applyStyle(wid, {
+						letterSpacing: `${round(value, 2)}em`,
+					})
+				}
+			/>
+		</div>
+	);
+}
+
+function InteractiveStyleControls({
+	wid,
+	styles,
+	pending,
+}: {
+	wid: string;
+	styles: SelectionStyles;
+	pending: PendingElementStyle | undefined;
+}) {
+	const { t } = useTranslation();
+	const editor = usePageEditor();
+	const backgroundColor = isFullyTransparentCssColor(styles.backgroundColor)
+		? ""
+		: (cssColorToHex(styles.backgroundColor) ?? styles.backgroundColor);
+	return (
+		<div className="flex flex-col gap-3">
+			<ColorField
+				label={t("workspace.page.editor.color")}
+				value={pending?.color ?? cssColorToHex(styles.color) ?? styles.color}
+				onChange={(color) => editor.applyStyle(wid, { color })}
+			/>
+			<ColorField
+				label={t("workspace.page.editor.backgroundColor")}
+				value={pending?.backgroundColor ?? backgroundColor}
+				onChange={(backgroundColor) =>
+					editor.applyStyle(wid, { backgroundColor })
+				}
+			/>
+			<RadiusControl
+				wid={wid}
+				computed={styles.borderRadius}
+				pending={pending?.borderRadius}
+			/>
+		</div>
+	);
+}
+
+function PlaceholderEditor({
+	wid,
+	placeholder,
+}: {
+	wid: string;
+	placeholder: string | null;
+}) {
+	const { t } = useTranslation();
+	const editor = usePageEditor();
+	const value = editor.pendingPlaceholders[wid] ?? placeholder ?? "";
+	return (
+		<div className="flex flex-col gap-1.5">
+			<span className="text-foreground/80 text-xs">
+				{t("workspace.page.editor.placeholder")}
+			</span>
+			<Input
+				value={value}
+				maxLength={200}
+				onChange={(event) => editor.applyPlaceholder(wid, event.target.value)}
+				aria-label={t("workspace.page.editor.placeholder")}
+				className="h-8 px-2 text-xs"
+			/>
 		</div>
 	);
 }
@@ -328,13 +854,26 @@ function LinkEditor({ wid, href }: { wid: string; href: string | null }) {
 	);
 }
 
-function ImageControls({ wid, src }: { wid: string; src: string | null }) {
+function ImageControls({
+	wid,
+	src,
+	inlineWidth,
+	styles,
+	pending,
+}: {
+	wid: string;
+	src: string | null;
+	inlineWidth: string | null;
+	styles: SelectionStyles;
+	pending: PendingElementStyle | undefined;
+}) {
 	const { t } = useTranslation();
 	const editor = usePageEditor();
 	const inputRef = useRef<HTMLInputElement>(null);
 	const [isUploading, setIsUploading] = useState(false);
 
 	const currentSrc = editor.pendingImages[wid] ?? src;
+	const activeWidth = pending?.width ?? normalizeImageWidth(inlineWidth ?? "");
 
 	const handleFile = async (file: File) => {
 		setIsUploading(true);
@@ -397,22 +936,366 @@ function ImageControls({ wid, src }: { wid: string; src: string | null }) {
 				)}
 				{t("workspace.page.editor.replaceImage")}
 			</Button>
-			<Button
-				variant="outline"
-				size="sm"
-				className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
-				onClick={() => {
-					// Records the removal (dropping the wid's other pending edits),
-					// live-removes the node, then clears the now-dangling selection.
-					editor.removeElement(wid);
-					editor.clearSelection();
-				}}
-			>
-				<Trash2 className="size-3.5" aria-hidden />
-				{t("workspace.page.editor.removeImage")}
-			</Button>
+
+			<div className="flex flex-col gap-1.5">
+				<span className="text-foreground/80 text-xs">
+					{t("workspace.page.editor.width")}
+				</span>
+				<div className="grid grid-cols-5 gap-1">
+					{IMAGE_WIDTHS.map((width) => (
+						<button
+							key={width}
+							type="button"
+							aria-pressed={activeWidth === width}
+							onClick={() => editor.applyStyle(wid, { width })}
+							className={choiceClass(activeWidth === width)}
+						>
+							<span dir="ltr">{width}</span>
+						</button>
+					))}
+				</div>
+			</div>
+
+			<RadiusControl
+				wid={wid}
+				computed={styles.borderRadius}
+				pending={pending?.borderRadius}
+			/>
+
+			<div className="flex items-center justify-between gap-2">
+				<span className="text-foreground/80 text-xs">
+					{t("workspace.page.editor.objectFit")}
+				</span>
+				<ToggleGroup
+					type="single"
+					variant="outline"
+					size="sm"
+					spacing={0}
+					value={normalizeObjectFit(pending?.objectFit ?? styles.objectFit)}
+					onValueChange={(value) => {
+						if (value === "cover" || value === "contain") {
+							editor.applyStyle(wid, { objectFit: value });
+						}
+					}}
+				>
+					<ToggleGroupItem
+						value="cover"
+						aria-label={t("workspace.page.editor.fitCover")}
+					>
+						{t("workspace.page.editor.fitCover")}
+					</ToggleGroupItem>
+					<ToggleGroupItem
+						value="contain"
+						aria-label={t("workspace.page.editor.fitContain")}
+					>
+						{t("workspace.page.editor.fitContain")}
+					</ToggleGroupItem>
+				</ToggleGroup>
+			</div>
 		</div>
 	);
+}
+
+function RemoveElementButton({ wid }: { wid: string }) {
+	const { t } = useTranslation();
+	const editor = usePageEditor();
+
+	return (
+		<AlertDialog>
+			<AlertDialogTrigger asChild>
+				<Button
+					variant="outline"
+					size="sm"
+					className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+				>
+					<Trash2 className="size-3.5" aria-hidden />
+					{t("workspace.page.editor.removeElement")}
+				</Button>
+			</AlertDialogTrigger>
+			<AlertDialogContent>
+				<AlertDialogHeader>
+					<AlertDialogTitle>
+						{t("workspace.page.editor.removeConfirmTitle")}
+					</AlertDialogTitle>
+					<AlertDialogDescription>
+						{t("workspace.page.editor.removeConfirmBody")}
+					</AlertDialogDescription>
+				</AlertDialogHeader>
+				<AlertDialogFooter>
+					<AlertDialogCancel>
+						{t("workspace.page.editor.removeCancel")}
+					</AlertDialogCancel>
+					<AlertDialogAction
+						variant="destructive"
+						onClick={() => {
+							editor.removeElement(wid);
+							editor.clearSelection();
+						}}
+					>
+						{t("workspace.page.editor.removeConfirm")}
+					</AlertDialogAction>
+				</AlertDialogFooter>
+			</AlertDialogContent>
+		</AlertDialog>
+	);
+}
+
+function PlaceholderImageButton({
+	wid,
+	styles,
+}: {
+	wid: string;
+	styles: SelectionStyles;
+}) {
+	const { t } = useTranslation();
+	const editor = usePageEditor();
+
+	return (
+		<AlertDialog>
+			<AlertDialogTrigger asChild>
+				<Button variant="outline" size="sm">
+					<ImageIcon className="size-3.5" aria-hidden />
+					{t("workspace.page.editor.placeholderImage")}
+				</Button>
+			</AlertDialogTrigger>
+			<AlertDialogContent>
+				<AlertDialogHeader>
+					<AlertDialogTitle>
+						{t("workspace.page.editor.placeholderConfirmTitle")}
+					</AlertDialogTitle>
+					<AlertDialogDescription>
+						{t("workspace.page.editor.placeholderConfirmBody")}
+					</AlertDialogDescription>
+				</AlertDialogHeader>
+				<AlertDialogFooter>
+					<AlertDialogCancel>
+						{t("workspace.page.editor.placeholderCancel")}
+					</AlertDialogCancel>
+					<AlertDialogAction
+						onClick={() => {
+							editor.applyImagePlaceholder(wid, measureImageDimensions(styles));
+							editor.clearSelection();
+						}}
+					>
+						{t("workspace.page.editor.placeholderConfirm")}
+					</AlertDialogAction>
+				</AlertDialogFooter>
+			</AlertDialogContent>
+		</AlertDialog>
+	);
+}
+
+function measureImageDimensions(
+	styles: SelectionStyles,
+): { width: number; height: number } | null {
+	if (!styles.width.endsWith("px") || !styles.height.endsWith("px")) {
+		return null;
+	}
+
+	const width = Math.round(Number.parseFloat(styles.width));
+	const height = Math.round(Number.parseFloat(styles.height));
+
+	if (!Number.isFinite(width) || !Number.isFinite(height)) {
+		return null;
+	}
+
+	if (width <= 0 || height <= 0) {
+		return null;
+	}
+
+	return {
+		width: clamp(width, 1, 10_000),
+		height: clamp(height, 1, 10_000),
+	};
+}
+
+function RadiusControl({
+	wid,
+	computed,
+	pending,
+}: {
+	wid: string;
+	computed: string;
+	pending: string | undefined;
+}) {
+	const { t } = useTranslation();
+	const editor = usePageEditor();
+	const active = pending
+		? (RADIUS_STEPS.find((step) => step.value === pending)?.key ?? null)
+		: nearestRadiusStep(computed);
+	const labels = {
+		none: t("workspace.page.editor.radiusNone"),
+		s: t("workspace.page.editor.radiusSmall"),
+		m: t("workspace.page.editor.radiusMedium"),
+		l: t("workspace.page.editor.radiusLarge"),
+		full: t("workspace.page.editor.radiusFull"),
+	};
+
+	return (
+		<div className="flex flex-col gap-1.5">
+			<span className="text-foreground/80 text-xs">
+				{t("workspace.page.editor.radius")}
+			</span>
+			<div className="grid grid-cols-5 gap-1">
+				{RADIUS_STEPS.map((step) => (
+					<button
+						key={step.key}
+						type="button"
+						aria-label={labels[step.key]}
+						aria-pressed={active === step.key}
+						title={labels[step.key]}
+						onClick={() => editor.applyStyle(wid, { borderRadius: step.value })}
+						className={choiceClass(active === step.key)}
+					>
+						{step.key === "none"
+							? "0"
+							: step.key === "full"
+								? labels.full
+								: step.key.toUpperCase()}
+					</button>
+				))}
+			</div>
+		</div>
+	);
+}
+
+function NumberStepper({
+	label,
+	value,
+	min,
+	max,
+	step,
+	format,
+	onChange,
+}: {
+	label: string;
+	value: number;
+	min: number;
+	max: number;
+	step: number;
+	format: (value: number) => string;
+	onChange: (value: number) => void;
+}) {
+	const decrement = () => onChange(round(clamp(value - step, min, max), 2));
+	const increment = () => onChange(round(clamp(value + step, min, max), 2));
+
+	return (
+		<div className="flex items-center justify-between gap-2">
+			<span className="text-foreground/80 text-xs">{label}</span>
+			<div className="flex items-center rounded-md border">
+				<button
+					type="button"
+					aria-label={`${label} −`}
+					disabled={value <= min}
+					onClick={decrement}
+					className="grid size-7 place-items-center text-muted-foreground hover:text-foreground disabled:opacity-40"
+				>
+					<Minus className="size-3" aria-hidden />
+				</button>
+				<span
+					dir="ltr"
+					className="min-w-16 border-x px-1 text-center font-mono text-xs"
+				>
+					{format(value)}
+				</span>
+				<button
+					type="button"
+					aria-label={`${label} +`}
+					disabled={value >= max}
+					onClick={increment}
+					className="grid size-7 place-items-center text-muted-foreground hover:text-foreground disabled:opacity-40"
+				>
+					<Plus className="size-3" aria-hidden />
+				</button>
+			</div>
+		</div>
+	);
+}
+
+function choiceClass(active: boolean): string {
+	return cn(
+		"flex min-h-7 items-center justify-center gap-1 rounded-md border px-1 text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
+		active
+			? "border-primary/50 bg-primary/10 text-foreground"
+			: "border-border text-muted-foreground hover:text-foreground",
+	);
+}
+
+function clamp(value: number, min: number, max: number): number {
+	if (!Number.isFinite(value)) return min;
+	return Math.min(max, Math.max(min, value));
+}
+
+function round(value: number, digits: number): number {
+	const factor = 10 ** digits;
+	return Math.round((value + Number.EPSILON) * factor) / factor;
+}
+
+function nearestFontWeight(
+	value: string | number,
+): (typeof FONT_WEIGHTS)[number] {
+	const normalized =
+		value === "normal" ? 400 : value === "bold" ? 700 : Number(value);
+	return FONT_WEIGHTS.reduce((nearest, weight) =>
+		Math.abs(weight - normalized) < Math.abs(nearest - normalized)
+			? weight
+			: nearest,
+	);
+}
+
+function normalizeTextAlign(
+	value: string,
+	direction: string,
+): "start" | "center" | "end" {
+	if (value === "center") return "center";
+	if (value === "start" || value === "end") return value;
+	if (value === "right") return direction === "rtl" ? "start" : "end";
+	return direction === "rtl" && value === "left" ? "end" : "start";
+}
+
+function computedLineHeight(lineHeight: string, fontSize: string): number {
+	const raw = Number.parseFloat(lineHeight);
+	if (!Number.isFinite(raw)) return 1.5;
+	if (!lineHeight.trim().endsWith("px")) return raw;
+	const size = Number.parseFloat(fontSize);
+	return Number.isFinite(size) && size > 0 ? raw / size : 1.5;
+}
+
+function computedLetterSpacing(
+	letterSpacing: string,
+	fontSize: string,
+): number {
+	if (letterSpacing === "normal") return 0;
+	const raw = Number.parseFloat(letterSpacing);
+	if (!Number.isFinite(raw)) return 0;
+	if (letterSpacing.trim().endsWith("em")) return raw;
+	const size = Number.parseFloat(fontSize);
+	return Number.isFinite(size) && size > 0 ? raw / size : 0;
+}
+
+function nearestRadiusStep(
+	value: string,
+): (typeof RADIUS_STEPS)[number]["key"] | null {
+	const first = value.split(/\s+/)[0] ?? value;
+	const amount = Number.parseFloat(first);
+	if (!Number.isFinite(amount)) return null;
+	const px = first.endsWith("rem") ? amount * 16 : amount;
+	if (px <= 0) return "none";
+	if (px >= 100) return "full";
+	if (px < 8) return "s";
+	if (px < 18) return "m";
+	return "l";
+}
+
+function normalizeImageWidth(value: string): string | null {
+	const trimmed = value.trim();
+	return IMAGE_WIDTHS.includes(trimmed as (typeof IMAGE_WIDTHS)[number])
+		? trimmed
+		: null;
+}
+
+function normalizeObjectFit(value: string): "cover" | "contain" | undefined {
+	return value === "cover" || value === "contain" ? value : undefined;
 }
 
 /** Pull the url out of a COMPUTED background-image value ("none" → null). */
@@ -486,6 +1369,7 @@ function SectionControls({
 		paddingTop: string;
 		paddingBottom: string;
 		backgroundImage: string;
+		backgroundColor: string;
 	} | null;
 	bgImage: { wid: string; src: string | null } | null;
 }) {
@@ -512,6 +1396,13 @@ function SectionControls({
 				? null
 				: pending.backgroundImage
 			: extractCssUrl(sectionStyles?.backgroundImage ?? "");
+	const computedBackground = isFullyTransparentCssColor(
+		sectionStyles?.backgroundColor ?? "transparent",
+	)
+		? ""
+		: (cssColorToHex(sectionStyles?.backgroundColor ?? "") ??
+			sectionStyles?.backgroundColor ??
+			"");
 
 	const handleFile = async (file: File) => {
 		setIsUploading(true);
@@ -547,6 +1438,13 @@ function SectionControls({
 				active={activeBottom}
 				onPick={(step) =>
 					editor.applySectionStyle(wid, { paddingBottom: step })
+				}
+			/>
+			<ColorField
+				label={t("workspace.page.editor.backgroundColor")}
+				value={pending?.backgroundColor ?? computedBackground}
+				onChange={(backgroundColor) =>
+					editor.applySectionStyle(wid, { backgroundColor })
 				}
 			/>
 

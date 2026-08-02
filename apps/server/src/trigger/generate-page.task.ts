@@ -19,15 +19,26 @@ import { logger, metadata, task } from "@trigger.dev/sdk";
 import { and, createDb, desc, eq, gt, inArray } from "@wandit/db";
 import { artifacts, versions } from "@wandit/db/schema/artifacts";
 import { pageGenerationAttempts } from "@wandit/db/schema/page-attempts";
+import { projects } from "@wandit/db/schema/projects";
+import { env } from "@wandit/env/server";
 import { z } from "zod";
+import {
+	captureGenerationCompleted,
+	captureGenerationFailed,
+	machineFailureReason,
+} from "../infrastructure/analytics/generation-events";
 import {
 	contentTypeFor,
 	pageHtmlKey,
+	projectThumbnailKey,
+	publicAssetUrl,
 	putSiteFile,
 	siteFileKey,
 } from "../infrastructure/storage/r2";
 import { createBuildProgressTracker } from "../modules/ai-chat/agent/site-builder/build-progress";
 import { runSiteBuild } from "../modules/ai-chat/agent/site-builder/site-builder-agent";
+import { appendProjectBrandAsset } from "./generate-page-brand";
+import { triggerAnalytics } from "./init";
 
 // The queue tool snapshots exactly this shape. Non-strict on purpose: rows
 // queued by the retired art-director pipeline carry extra fields (art prompts,
@@ -35,6 +46,7 @@ import { runSiteBuild } from "../modules/ai-chat/agent/site-builder/site-builder
 const attemptSpecSchema = z.object({
 	brief: z.string().min(1),
 	designerSystemPrompt: z.string().min(1),
+	pageKind: z.enum(["website", "cod"]).optional(),
 	title: z.string().min(1),
 });
 
@@ -50,15 +62,18 @@ export const generatePageTask = task({
 		const db = createDb();
 
 		try {
-			const [attempt] = await db
-				.select()
+			const [loaded] = await db
+				.select({ attempt: pageGenerationAttempts, userId: projects.userId })
 				.from(pageGenerationAttempts)
+				.innerJoin(projects, eq(projects.id, pageGenerationAttempts.projectId))
 				.where(eq(pageGenerationAttempts.id, payload.attemptId))
 				.limit(1);
 
-			if (!attempt) {
+			if (!loaded) {
 				throw new Error(`Attempt ${payload.attemptId} not found`);
 			}
+
+			const { attempt, userId } = loaded;
 
 			if (attempt.status === "succeeded") {
 				logger.info(
@@ -99,6 +114,15 @@ export const generatePageTask = task({
 
 			try {
 				const spec = attemptSpecSchema.parse(attempt.spec);
+				const [projectBrand] = await db
+					.select({ logoUrl: projects.logoUrl })
+					.from(projects)
+					.where(eq(projects.id, attempt.projectId))
+					.limit(1);
+				const brief = appendProjectBrandAsset(
+					spec.brief,
+					projectBrand?.logoUrl ?? null,
+				);
 
 				logger.info(
 					`🚀 Build starting — page "${spec.title}", attempt ${attempt.id}, ` +
@@ -123,6 +147,7 @@ export const generatePageTask = task({
 						metadata.set("progress", snapshot);
 					},
 				});
+				let heroShotBase64: string | null = null;
 
 				// The build brain: a tool-loop agent writing into a virtual FS.
 				// It validates its own output (index.html present, complete,
@@ -130,9 +155,16 @@ export const generatePageTask = task({
 				const build = await runSiteBuild({
 					abortSignal: signal,
 					attemptId: assetNamespace,
-					brief: spec.brief,
+					brief,
 					model: attempt.model,
-					onEvent: progress.emit,
+					onEvent: (event) => {
+						if (event.type === "screenshot-pass") {
+							heroShotBase64 =
+								event.shots.find((shot) => shot.viewport === "desktop")
+									?.base64 ?? heroShotBase64;
+						}
+						progress.emit(event);
+					},
 					projectId: attempt.projectId,
 					system: spec.designerSystemPrompt,
 					title: spec.title,
@@ -159,6 +191,26 @@ export const generatePageTask = task({
 
 					await putSiteFile(fileKey, file.content, contentTypeFor(file.path));
 					logger.info(`☁️ Uploaded ${file.path} to R2 → ${fileKey}`);
+				}
+
+				let previewImageUrl: string | null = null;
+				if (heroShotBase64 && env.R2_PUBLIC_BASE_URL) {
+					try {
+						const thumbnailKey = projectThumbnailKey(
+							attempt.projectId,
+							versionId,
+						);
+						await putSiteFile(
+							thumbnailKey,
+							Buffer.from(heroShotBase64, "base64"),
+							"image/jpeg",
+						);
+						previewImageUrl = publicAssetUrl(thumbnailKey);
+					} catch (error) {
+						logger.warn(
+							`Thumbnail upload failed (non-fatal): ${error instanceof Error ? error.message : String(error)}`,
+						);
+					}
 				}
 
 				// A cancellation during the final upload may leave an orphaned
@@ -203,6 +255,7 @@ export const generatePageTask = task({
 							},
 							// Contract §9: absent source means LEGACY builder rows.
 							source: "builder",
+							...(spec.pageKind ? { pageKind: spec.pageKind } : {}),
 							title: spec.title,
 						},
 						number: nextNumber,
@@ -230,19 +283,47 @@ export const generatePageTask = task({
 							.update(artifacts)
 							.set({ activeVersionId: versionId })
 							.where(eq(artifacts.id, attempt.artifactId));
+
+						if (previewImageUrl) {
+							await tx
+								.update(projects)
+								.set({ previewImageUrl })
+								.where(eq(projects.id, attempt.projectId));
+						}
 					}
 
-					await tx
+					const [completed] = await tx
 						.update(pageGenerationAttempts)
 						.set({
 							completedAt: new Date(),
 							status: "succeeded",
 							versionId,
 						})
-						.where(eq(pageGenerationAttempts.id, attempt.id));
+						.where(
+							and(
+								eq(pageGenerationAttempts.id, attempt.id),
+								eq(pageGenerationAttempts.status, "generating"),
+								eq(pageGenerationAttempts.triggerRunId, ctx.run.id),
+							),
+						)
+						.returning({ id: pageGenerationAttempts.id });
+
+					if (!completed) {
+						throw new Error(
+							`Attempt ${attempt.id} lost its completion state transition`,
+						);
+					}
 
 					return { activated: !newerSucceeded, number: nextNumber };
 				});
+
+				captureGenerationCompleted(
+					triggerAnalytics,
+					userId,
+					"page",
+					attempt.projectId,
+					attempt.id,
+				);
 
 				logger.info(
 					activated
@@ -268,14 +349,32 @@ export const generatePageTask = task({
 
 				// Record the failure for the Page tab, then rethrow so the run
 				// also shows as failed in the Trigger dashboard.
-				await db
+				const [failed] = await db
 					.update(pageGenerationAttempts)
 					.set({
 						completedAt: new Date(),
 						error: error instanceof Error ? error.message : String(error),
 						status: "failed",
 					})
-					.where(eq(pageGenerationAttempts.id, attempt.id));
+					.where(
+						and(
+							eq(pageGenerationAttempts.id, attempt.id),
+							eq(pageGenerationAttempts.status, "generating"),
+							eq(pageGenerationAttempts.triggerRunId, ctx.run.id),
+						),
+					)
+					.returning({ id: pageGenerationAttempts.id });
+
+				if (failed) {
+					captureGenerationFailed(
+						triggerAnalytics,
+						userId,
+						"page",
+						attempt.projectId,
+						attempt.id,
+						machineFailureReason(error),
+					);
+				}
 
 				throw error;
 			}
