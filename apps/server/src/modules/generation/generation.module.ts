@@ -14,12 +14,10 @@ import { Module } from "@nestjs/common";
 import { DatabaseModule } from "../../infrastructure/database/database.module";
 // BullMQ is the Redis-backed queue used for slow background work.
 import { QueuesModule } from "../../infrastructure/queues/queues.module";
-import { BillingModule } from "../billing/billing.module";
-import { CreditsModule } from "../credits/credits.module";
+import { MeteringModule } from "../metering/metering.module";
 import { ChatService } from "./application/services/chat.service";
 import { ChatStreamRelayService } from "./application/services/chat-stream-relay.service";
 import { GenerationActivityService } from "./application/services/generation-activity.service";
-import { GenerationPolicyService } from "./application/services/generation-policy.service";
 import { GenerationQueueService } from "./application/services/generation-queue.service";
 import { TranscriptionService } from "./application/services/transcription.service";
 import { ChatsRepository } from "./infrastructure/persistence/chats.repository";
@@ -31,14 +29,9 @@ import { TranscriptionsController } from "./presentation/http/controllers/transc
 	// Controllers receive HTTP requests.
 	controllers: [ChatsController, TranscriptionsController],
 	// Exports are the services other modules are allowed to inject.
-	exports: [
-		ChatsRepository,
-		GenerationActivityService,
-		GenerationPolicyService,
-		GenerationQueueService,
-	],
+	exports: [ChatsRepository, GenerationActivityService, GenerationQueueService],
 	// Imports make providers from other modules available here.
-	imports: [DatabaseModule, QueuesModule, BillingModule, CreditsModule],
+	imports: [DatabaseModule, QueuesModule, MeteringModule],
 	// Providers are classes Nest can create for this module.
 	providers: [
 		ChatEventsRepository,
@@ -46,7 +39,6 @@ import { TranscriptionsController } from "./presentation/http/controllers/transc
 		ChatService,
 		ChatStreamRelayService,
 		GenerationActivityService,
-		GenerationPolicyService,
 		GenerationQueueService,
 		TranscriptionService,
 	],

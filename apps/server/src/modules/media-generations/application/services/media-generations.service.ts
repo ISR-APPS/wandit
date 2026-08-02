@@ -3,6 +3,7 @@ import {
 	IMAGE_TO_VIDEO_DURATION_SECONDS,
 	type MediaGenerationAttempt,
 } from "@wandit/contracts";
+import { env } from "@wandit/env/server";
 
 import {
 	getObjectBytes,
@@ -11,11 +12,12 @@ import {
 	publicAssetUrl,
 	siteVideoKey,
 } from "../../../../infrastructure/storage/r2";
-import { GenerationPolicyService } from "../../../generation/application/services/generation-policy.service";
+import { MeteringService } from "../../../metering/application/services/metering.service";
 import {
 	type MediaGenerationAttemptRow,
 	MediaGenerationsRepository,
 } from "../../infrastructure/persistence/media-generations.repository";
+import { createImageAnimationBilling } from "./image-animation-billing";
 
 const GENERATION_STALE_AFTER_MS = 15 * 60 * 1_000;
 const QUEUED_STALE_AFTER_MS = 30 * 60 * 1_000;
@@ -29,8 +31,8 @@ export class MediaGenerationsService {
 	constructor(
 		@Inject(MediaGenerationsRepository)
 		private readonly mediaGenerationsRepository: MediaGenerationsRepository,
-		@Inject(GenerationPolicyService)
-		private readonly generationPolicyService: GenerationPolicyService,
+		@Inject(MeteringService)
+		private readonly meteringService: MeteringService,
 	) {}
 
 	async attempt(
@@ -95,10 +97,10 @@ export class MediaGenerationsService {
 		// transient refund failure is retried by the next poll without ever
 		// granting the same reservation twice.
 		if (row.status === "failed") {
-			await this.generationPolicyService.refundGenerationReservation(
-				userId,
-				row.id,
-			);
+			await createImageAnimationBilling({
+				isBillingDisabled: () => env.GENERATION_BILLING_MODE === "off",
+				meteringService: this.meteringService,
+			}).refund(userId, row.id);
 		}
 
 		return mapAttemptRow(row);
@@ -118,6 +120,13 @@ export class MediaGenerationsService {
 			if (!storedMediaType) {
 				continue;
 			}
+
+			// Storage is durable proof that provider work completed. Settle any
+			// existing hold before making the recovered video visible.
+			await createImageAnimationBilling({
+				isBillingDisabled: () => env.GENERATION_BILLING_MODE === "off",
+				meteringService: this.meteringService,
+			}).settleExisting(userId, row.id);
 
 			await this.mediaGenerationsRepository.markGeneratingAttemptSucceeded(
 				row.id,

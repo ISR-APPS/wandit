@@ -1,5 +1,6 @@
 import type { Icon } from "@phosphor-icons/react";
 import { ChatCenteredDotsIcon } from "@phosphor-icons/react/ChatCenteredDots";
+import { GearSixIcon } from "@phosphor-icons/react/GearSix";
 import { PulseIcon } from "@phosphor-icons/react/Pulse";
 import { ShareNetworkIcon } from "@phosphor-icons/react/ShareNetwork";
 import { UsersThreeIcon } from "@phosphor-icons/react/UsersThree";
@@ -8,7 +9,8 @@ export type AdminRoutePath =
 	| "/dashboard"
 	| "/users"
 	| "/feedback"
-	| "/affiliates";
+	| "/affiliates"
+	| "/settings";
 
 export type AdminNavigationItem = {
 	title: string;
@@ -41,5 +43,11 @@ export const adminNavigation: AdminNavigationItem[] = [
 		description: "Codes and attribution",
 		to: "/affiliates",
 		icon: ShareNetworkIcon,
+	},
+	{
+		title: "Settings",
+		description: "Product controls",
+		to: "/settings",
+		icon: GearSixIcon,
 	},
 ];

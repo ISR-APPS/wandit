@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import {
+	ENTITLED_SUBSCRIPTION_STATUSES,
 	type ParsedPriceLookupKey,
 	parsePriceLookupKey,
 } from "@wandit/contracts";
@@ -89,6 +90,14 @@ export class StripeSubscriptionSyncService {
 				const nonTerminal = prepared
 					.filter(({ subscription }) => !this.isTerminal(subscription.status))
 					.sort((left, right) => {
+						const entitledDifference =
+							Number(this.isEntitled(right.subscription.status)) -
+							Number(this.isEntitled(left.subscription.status));
+
+						if (entitledDifference !== 0) {
+							return entitledDifference;
+						}
+
 						const createdDifference =
 							right.subscription.created - left.subscription.created;
 
@@ -214,22 +223,53 @@ export class StripeSubscriptionSyncService {
 			);
 		}
 
-		return this.subscriptionsRepository.upsertByProviderSubscriptionId(
-			{
-				cancelAtPeriodEnd: subscription.cancel_at_period_end,
-				currentPeriodEnd: this.dateFromSeconds(item.current_period_end),
-				currentPeriodStart: this.dateFromSeconds(item.current_period_start),
-				interval: parsed.interval,
-				organizationId: null,
-				plan: parsed.plan,
-				priceLookupKey: lookupKey,
-				provider: "stripe",
-				providerSubscriptionId: subscription.id,
-				status: subscription.status,
-				tierCredits: parsed.tierCredits,
-				userId,
-			},
+		return this.upsertRecognizedSubscription(
+			{ ...prepared, item, lookupKey, parsed },
+			userId,
 			tx,
+		);
+	}
+
+	private async upsertRecognizedSubscription(
+		prepared: PreparedSubscription & {
+			item: Stripe.SubscriptionItem;
+			lookupKey: string;
+			parsed: ParsedPriceLookupKey;
+		},
+		userId: string,
+		tx: SubscriptionsTransaction,
+	): Promise<SubscriptionRow> {
+		const { item, lookupKey, parsed, subscription } = prepared;
+		const mirrored =
+			await this.subscriptionsRepository.upsertByProviderSubscriptionId(
+				{
+					cancelAtPeriodEnd: subscription.cancel_at_period_end,
+					currentPeriodEnd: this.dateFromSeconds(item.current_period_end),
+					currentPeriodStart: this.dateFromSeconds(item.current_period_start),
+					interval: parsed.interval,
+					organizationId: null,
+					plan: parsed.plan,
+					priceLookupKey: lookupKey,
+					provider: "stripe",
+					providerSubscriptionId: subscription.id,
+					status: subscription.status,
+					tierCredits: parsed.tierCredits,
+					userId,
+				},
+				tx,
+			);
+		const cleared = await this.subscriptionsRepository.clearMatchingPendingTier(
+			subscription.id,
+			parsed.tierCredits,
+			tx,
+		);
+
+		return cleared ?? mirrored;
+	}
+
+	private isEntitled(status: Stripe.Subscription.Status) {
+		return (ENTITLED_SUBSCRIPTION_STATUSES as readonly string[]).includes(
+			status,
 		);
 	}
 

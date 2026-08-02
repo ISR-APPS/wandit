@@ -1,6 +1,18 @@
 // /node, not /nestjs: this code also runs inside Trigger tasks and the worker.
 import { Sentry } from "@wandit/observability/node";
 
+import { isTerminalFixedOperationReplay } from "../../../metering/application/services/fixed-operation-billing";
+import {
+	fixedGenerationStepUsage,
+	type GatewayGenerationFailure,
+	type GatewayGenerationMetadata,
+	hasGatewayGenerationMetadata,
+} from "../../../metering/domain/gateway-metering";
+import type {
+	ImageAnimationBilling,
+	ImageAnimationReservation,
+} from "./image-animation-billing";
+
 export const USER_SAFE_IMAGE_ANIMATION_ERROR =
 	"We couldn't animate this image. Please try again in a moment.";
 
@@ -14,6 +26,8 @@ const UUID_PATTERN =
 
 export type ImageAnimationPayload = {
 	attemptId: string;
+	billingMode?: "enforce" | "off";
+	parentEventId?: string;
 	projectId: string;
 	userId: string;
 };
@@ -48,8 +62,9 @@ export type ImageAnimationVideo = {
 };
 
 export type ImageAnimationProviderResult =
-	| ({ status: "generated" } & ImageAnimationVideo)
-	| { message: string; status: "failed" | "unavailable" };
+	| ({ status: "generated" } & ImageAnimationVideo & GatewayGenerationMetadata)
+	| GatewayGenerationFailure
+	| { message: string; status: "unavailable" };
 
 export type ImageAnimationRunnerDependencies = {
 	claimQueued: (
@@ -71,6 +86,9 @@ export type ImageAnimationRunnerDependencies = {
 	generate: (
 		attempt: ImageAnimationAttempt,
 		signal?: AbortSignal,
+		onProviderGeneration?: (
+			generation: GatewayGenerationMetadata,
+		) => Promise<void>,
 	) => Promise<ImageAnimationProviderResult>;
 	loadAttempt: (attemptId: string) => Promise<ImageAnimationAttempt | null>;
 	markSucceeded: (
@@ -82,8 +100,11 @@ export type ImageAnimationRunnerDependencies = {
 	recoverStoredVideo: (
 		attempt: Pick<ImageAnimationAttempt, "id" | "projectId">,
 	) => Promise<ImageAnimationVideo | null>;
-	refund: (userId: string, attemptId: string) => Promise<void>;
-	reserve: (userId: string, attemptId: string) => Promise<void>;
+	capture: ImageAnimationBilling["capture"];
+	refund: ImageAnimationBilling["refund"];
+	reserve: ImageAnimationBilling["reserve"];
+	settle: ImageAnimationBilling["settle"];
+	settleExisting: ImageAnimationBilling["settleExisting"];
 };
 
 export type ImageAnimationRunResult =
@@ -132,14 +153,20 @@ export function parseImageAnimationPayload(
 	const input = value as Record<string, unknown>;
 	const keys = Object.keys(input).sort();
 
+	const expectedKeys = [
+		"attemptId",
+		...(input.billingMode === undefined ? [] : ["billingMode"]),
+		...(input.parentEventId === undefined ? [] : ["parentEventId"]),
+		"projectId",
+		"userId",
+	].sort();
+
 	if (
-		keys.length !== 3 ||
-		keys[0] !== "attemptId" ||
-		keys[1] !== "projectId" ||
-		keys[2] !== "userId"
+		keys.length !== expectedKeys.length ||
+		keys.some((key, index) => key !== expectedKeys[index])
 	) {
 		throw new TypeError(
-			"Image animation payload must contain only attemptId, projectId, and userId",
+			"Image animation payload must contain only attemptId, optional billingMode, optional parentEventId, projectId, and userId",
 		);
 	}
 
@@ -158,6 +185,17 @@ export function parseImageAnimationPayload(
 	}
 
 	if (
+		input.parentEventId !== undefined &&
+		(typeof input.parentEventId !== "string" ||
+			!UUID_PATTERN.test(input.parentEventId))
+	) {
+		throw new TypeError("parentEventId must be a UUID");
+	}
+
+	if (
+		(input.billingMode !== undefined &&
+			input.billingMode !== "enforce" &&
+			input.billingMode !== "off") ||
 		typeof input.userId !== "string" ||
 		input.userId.length === 0 ||
 		input.userId.length > 255 ||
@@ -168,6 +206,12 @@ export function parseImageAnimationPayload(
 
 	return {
 		attemptId: input.attemptId,
+		...(input.billingMode === "enforce" || input.billingMode === "off"
+			? { billingMode: input.billingMode }
+			: {}),
+		...(typeof input.parentEventId === "string"
+			? { parentEventId: input.parentEventId }
+			: {}),
 		projectId: input.projectId,
 		userId: input.userId,
 	};
@@ -206,6 +250,13 @@ export async function runImageAnimation(
 	}
 
 	if (loaded.status === "succeeded") {
+		const reservation = await dependencies.reserve(
+			loaded.userId,
+			loaded.id,
+			payload.parentEventId,
+			payload.billingMode,
+		);
+		await dependencies.settle(reservation);
 		return succeededResult(loaded, false);
 	}
 
@@ -219,7 +270,21 @@ export async function runImageAnimation(
 	}
 
 	if (loaded.status === "generating") {
-		return recoverOrSettleGenerating(loaded, dependencies);
+		const recovered = await recoverStoredVideoWithExistingSettlement(
+			loaded,
+			dependencies,
+			payload.billingMode,
+		);
+		if (recovered) {
+			return recovered;
+		}
+		const reservation = await dependencies.reserve(
+			loaded.userId,
+			loaded.id,
+			payload.parentEventId,
+			payload.billingMode,
+		);
+		return recoverOrSettleGenerating(loaded, dependencies, reservation);
 	}
 
 	const claimed = await dependencies.claimQueued(loaded, {
@@ -239,6 +304,13 @@ export async function runImageAnimation(
 		}
 
 		if (raced.status === "succeeded") {
+			const reservation = await dependencies.reserve(
+				raced.userId,
+				raced.id,
+				payload.parentEventId,
+				payload.billingMode,
+			);
+			await dependencies.settle(reservation);
 			return succeededResult(raced, false);
 		}
 
@@ -252,7 +324,21 @@ export async function runImageAnimation(
 		}
 
 		if (raced.status === "generating") {
-			return recoverOrSettleGenerating(raced, dependencies);
+			const recovered = await recoverStoredVideoWithExistingSettlement(
+				raced,
+				dependencies,
+				payload.billingMode,
+			);
+			if (recovered) {
+				return recovered;
+			}
+			const reservation = await dependencies.reserve(
+				raced.userId,
+				raced.id,
+				payload.parentEventId,
+				payload.billingMode,
+			);
+			return recoverOrSettleGenerating(raced, dependencies, reservation);
 		}
 
 		throw new Error(
@@ -264,8 +350,15 @@ export async function runImageAnimation(
 		return settleDeletedProject(claimed, dependencies);
 	}
 
+	let reservation: ImageAnimationReservation;
+
 	try {
-		await dependencies.reserve(claimed.userId, claimed.id);
+		reservation = await dependencies.reserve(
+			claimed.userId,
+			claimed.id,
+			payload.parentEventId,
+			payload.billingMode,
+		);
 	} catch (error) {
 		// Insufficient credits is an expected outcome; anything else here is
 		// billing/DB infrastructure failing and must be visible.
@@ -280,10 +373,25 @@ export async function runImageAnimation(
 		return { reason: "reservation_failed", status: "failed" };
 	}
 
+	if (isTerminalFixedOperationReplay(reservation)) {
+		return recoverOrSettleGenerating(claimed, dependencies, reservation);
+	}
+
 	let generated: ImageAnimationProviderResult;
+	let generationCapturedBeforeDelivery = false;
 
 	try {
-		generated = await dependencies.generate(claimed, input.signal);
+		generated = await dependencies.generate(
+			claimed,
+			input.signal,
+			async (generation) => {
+				await dependencies.capture(reservation, {
+					providerMetadata: generation.providerMetadata,
+					stepUsage: fixedGenerationStepUsage(generation.usage, 1),
+				});
+				generationCapturedBeforeDelivery = true;
+			},
+		);
 	} catch (error) {
 		// User aborts are expected; anything else was previously invisible.
 		if (!input.signal?.aborted) {
@@ -302,9 +410,48 @@ export async function runImageAnimation(
 			level: "error",
 			tags: { animationId: claimed.id, userId: claimed.userId },
 		});
-		await failAndRefund(claimed, dependencies, "generation_failed");
+		const providerUnits =
+			"providerUnits" in generated && generated.providerUnits === 1 ? 1 : 0;
+		if (hasGatewayGenerationMetadata(generated)) {
+			if (!generationCapturedBeforeDelivery) {
+				await dependencies.capture(reservation, {
+					providerMetadata: generated.providerMetadata,
+					stepUsage: fixedGenerationStepUsage(generated.usage, providerUnits),
+				});
+			}
+			await dependencies.settle(reservation, providerUnits);
+		}
+		await failAndRefund(
+			claimed,
+			dependencies,
+			"generation_failed",
+			!hasGatewayGenerationMetadata(generated),
+		);
 		return { reason: "generation_failed", status: "failed" };
 	}
+
+	if (!generationCapturedBeforeDelivery) {
+		try {
+			await dependencies.capture(reservation, {
+				providerMetadata: generated.providerMetadata,
+				stepUsage: fixedGenerationStepUsage(generated.usage, 1),
+			});
+		} catch (error) {
+			Sentry.captureException(error, {
+				tags: { animationId: claimed.id, userId: claimed.userId },
+			});
+			await failAndRefund(
+				claimed,
+				dependencies,
+				"generation_capture_failed",
+				false,
+			);
+			return { reason: "generation_failed", status: "failed" };
+		}
+	}
+
+	// Do not publish a succeeded row until the financial settlement is durable.
+	await dependencies.settle(reservation);
 
 	const persisted = await dependencies.markSucceeded(
 		claimed,
@@ -316,6 +463,7 @@ export async function runImageAnimation(
 		return resolveSuccessCasLoss(
 			claimed,
 			dependencies,
+			reservation,
 			"direct generation completion",
 		);
 	}
@@ -331,10 +479,15 @@ export async function runImageAnimation(
 async function recoverOrSettleGenerating(
 	attempt: ImageAnimationAttempt,
 	dependencies: ImageAnimationRunnerDependencies,
+	reservation: ImageAnimationReservation,
 ): Promise<ImageAnimationRunResult> {
 	const recovered = await dependencies.recoverStoredVideo(attempt);
 
 	if (recovered) {
+		if (!isTerminalFixedOperationReplay(reservation)) {
+			await dependencies.settle(reservation);
+		}
+
 		const persisted = await dependencies.markSucceeded(
 			attempt,
 			recovered,
@@ -345,6 +498,7 @@ async function recoverOrSettleGenerating(
 			return resolveSuccessCasLoss(
 				attempt,
 				dependencies,
+				reservation,
 				"stored-video recovery",
 			);
 		}
@@ -357,6 +511,11 @@ async function recoverOrSettleGenerating(
 		};
 	}
 
+	if (isTerminalFixedOperationReplay(reservation)) {
+		await failAndRefund(attempt, dependencies, "terminal_billing", false);
+		return { reason: "generation_failed", status: "failed" };
+	}
+
 	if (!isStaleGenerating(attempt, dependencies.now())) {
 		throw new ImageAnimationSettlementPendingError(attempt.id);
 	}
@@ -365,10 +524,63 @@ async function recoverOrSettleGenerating(
 	return { reason: "stale_generation", status: "failed" };
 }
 
+async function recoverStoredVideoWithExistingSettlement(
+	attempt: ImageAnimationAttempt,
+	dependencies: ImageAnimationRunnerDependencies,
+	billingMode: ImageAnimationPayload["billingMode"],
+): Promise<ImageAnimationRunResult | null> {
+	const recovered = await dependencies.recoverStoredVideo(attempt);
+
+	if (!recovered) {
+		return null;
+	}
+
+	const settled = await dependencies.settleExisting(attempt.userId, attempt.id);
+	if (!settled && billingMode === "enforce") {
+		throw new Error(
+			`Image animation ${attempt.id} has stored output but no enforced metering event`,
+		);
+	}
+	const persisted = await dependencies.markSucceeded(
+		attempt,
+		recovered,
+		dependencies.now(),
+	);
+
+	if (!persisted) {
+		const current = await dependencies.loadAttempt(attempt.id);
+		if (current?.status === "succeeded") {
+			return succeededResult(current, true);
+		}
+		if (
+			current &&
+			current.projectId === attempt.projectId &&
+			current.userId === attempt.userId &&
+			current.projectDeletedAt !== null
+		) {
+			return settleDeletedProject(current, dependencies, false);
+		}
+		if (current?.status === "failed") {
+			return { reason: "already_failed", status: "failed" };
+		}
+		throw new Error(
+			`Image animation ${attempt.id} lost its stored-video completion state`,
+		);
+	}
+
+	return {
+		mediaType: recovered.mediaType,
+		recovered: true,
+		status: "succeeded",
+		url: recovered.url,
+	};
+}
+
 async function failAndRefund(
 	attempt: ImageAnimationAttempt,
 	dependencies: ImageAnimationRunnerDependencies,
 	reason: string,
+	shouldRefund = true,
 ): Promise<void> {
 	const failed = await dependencies.fail(attempt, {
 		completedAt: dependencies.now(),
@@ -391,12 +603,15 @@ async function failAndRefund(
 		}
 	}
 
-	await dependencies.refund(attempt.userId, attempt.id);
+	if (shouldRefund) {
+		await dependencies.refund(attempt.userId, attempt.id);
+	}
 }
 
 async function settleDeletedProject(
 	attempt: ImageAnimationAttempt,
 	dependencies: ImageAnimationRunnerDependencies,
+	shouldRefund = true,
 ): Promise<ImageAnimationRunResult> {
 	if (attempt.status === "succeeded") {
 		// Deleting a project after a result was delivered must not grant a free
@@ -405,7 +620,9 @@ async function settleDeletedProject(
 	}
 
 	if (attempt.status === "failed") {
-		await dependencies.refund(attempt.userId, attempt.id);
+		if (shouldRefund) {
+			await dependencies.refund(attempt.userId, attempt.id);
+		}
 		return { reason: "already_failed", status: "failed" };
 	}
 
@@ -430,18 +647,22 @@ async function settleDeletedProject(
 		}
 	}
 
-	await dependencies.refund(attempt.userId, attempt.id);
+	if (shouldRefund) {
+		await dependencies.refund(attempt.userId, attempt.id);
+	}
 	return { reason: "project_deleted", status: "failed" };
 }
 
 async function resolveSuccessCasLoss(
 	attempt: ImageAnimationAttempt,
 	dependencies: ImageAnimationRunnerDependencies,
+	reservation: ImageAnimationReservation,
 	operation: string,
 ): Promise<ImageAnimationRunResult> {
 	const current = await dependencies.loadAttempt(attempt.id);
 
 	if (current?.status === "succeeded") {
+		await dependencies.settle(reservation);
 		return succeededResult(current, true);
 	}
 
@@ -451,11 +672,10 @@ async function resolveSuccessCasLoss(
 		current.userId === attempt.userId &&
 		current.projectDeletedAt !== null
 	) {
-		return settleDeletedProject(current, dependencies);
+		return settleDeletedProject(current, dependencies, false);
 	}
 
 	if (current?.status === "failed") {
-		await dependencies.refund(attempt.userId, attempt.id);
 		return { reason: "already_failed", status: "failed" };
 	}
 

@@ -1,93 +1,106 @@
-export type AffiliateStatus = "active" | "paused" | "pending";
+import type {
+	AffiliateCurrencyAggregate,
+	AffiliateDetail,
+	AffiliateLinkListItem,
+	AffiliateListItem,
+	AffiliatePayoutMethod,
+	AffiliateStatus,
+} from "@wandit/contracts";
 
-export type AffiliateCodeStatus = "active" | "paused" | "expired";
-
-export type AffiliateChannel = "creator" | "agency" | "community" | "partner";
-
-export type AffiliatePayoutMethod = "paypal" | "wise" | "bank-transfer";
-
-export type AffiliatePerformance = {
-	clicks: number;
-	uniqueVisitors: number;
-	signups: number;
-	paidConversions: number;
-	conversionRatePercent: number;
-	revenueUsdMinor: number;
-	commissionUsdMinor: number;
-	paidCommissionUsdMinor: number;
-	pendingCommissionUsdMinor: number;
-};
-
-export type AffiliateCode = {
-	id: string;
-	code: string;
-	label: string;
-	landingPath: string;
-	status: AffiliateCodeStatus;
-	commissionRatePercent: number;
-	attributionWindowDays: number;
-	createdAt: string;
-	expiresAt: string | null;
-	lastConversionAt: string | null;
-	performance: AffiliatePerformance;
-};
-
-export type Affiliate = {
+/**
+ * The list contract deliberately keeps the affiliate record and its aggregates
+ * separate. The table uses a flat row so sorting and cell rendering stay
+ * straightforward without inventing mock-only fields.
+ */
+export type AffiliateTableRow = {
 	id: string;
 	userId: string | null;
 	name: string;
 	email: string;
-	avatarUrl: string;
 	company: string | null;
-	channel: AffiliateChannel;
+	channel: string | null;
+	country: string | null;
+	payoutMethod: AffiliatePayoutMethod;
 	status: AffiliateStatus;
-	country: string;
-	joinedAt: string;
-	lastActiveAt: string;
-	defaultCommissionRatePercent: number;
-	payoutMethod: AffiliatePayoutMethod | null;
-	payoutEmail: string | null;
-	notes: string | null;
-	codes: AffiliateCode[];
-	performance: AffiliatePerformance;
+	createdAt: string;
+	updatedAt: string;
+	linkCount: number;
+	activeLinkCount: number;
+	clickCount: number;
+	uniqueVisitorCount: number;
+	attributedUserCount: number;
+	paidCustomerCount: number;
+	paidInvoiceCount: number;
+	lastConversionAt: string | null;
+	currencies: AffiliateCurrencyAggregate[];
 };
 
-export type AffiliateCodeDraft = {
+export type AffiliateLinkTableRow = {
+	id: string;
+	affiliateId: string;
+	programId: string;
+	programName: string;
+	programKind: AffiliateLinkListItem["program"]["kind"];
+	programStatus: AffiliateLinkListItem["program"]["status"];
 	code: string;
-	label: string;
-	landingPath?: string;
-	commissionRatePercent?: number;
-	attributionWindowDays?: number;
-	expiresAt?: string | null;
+	label: string | null;
+	landingPath: string;
+	expiresAt: string | null;
+	active: boolean;
+	status: AffiliateLinkListItem["link"]["status"];
+	createdAt: string;
+	updatedAt: string;
+	clickCount: number;
+	uniqueVisitorCount: number;
+	attributedUserCount: number;
+	paidCustomerCount: number;
+	paidInvoiceCount: number;
+	lastConversionAt: string | null;
+	currencies: AffiliateCurrencyAggregate[];
 };
 
-export type CreateAffiliateInput = {
-	name: string;
-	email: string;
-	company?: string;
-	channel: AffiliateChannel;
-	country: string;
-	defaultCommissionRatePercent: number;
-	payoutMethod?: AffiliatePayoutMethod | null;
-	payoutEmail?: string;
-	notes?: string;
-	initialCode?: AffiliateCodeDraft;
-};
+export function mapAffiliateListItemToTableRow(
+	item: AffiliateListItem,
+): AffiliateTableRow {
+	return {
+		...item.affiliate,
+		...item.aggregates,
+		currencies: item.aggregates.currencies.map((currency) => ({
+			...currency,
+		})),
+	};
+}
 
-export type CreateAffiliateCodeInput = AffiliateCodeDraft & {
-	affiliateId: string;
-};
+export function mapAffiliateDetailToTableRow(
+	detail: AffiliateDetail,
+): AffiliateTableRow {
+	return mapAffiliateListItemToTableRow({
+		affiliate: detail.affiliate,
+		aggregates: detail.aggregates,
+	});
+}
 
-export type SetAffiliateStatusInput = {
-	affiliateId: string;
-	status: Exclude<AffiliateStatus, "pending">;
-};
-
-export type SetAffiliateCodeStatusInput = {
-	affiliateId: string;
-	codeId: string;
-	status: Exclude<AffiliateCodeStatus, "expired">;
-};
-
-export type AffiliateSummary = Affiliate;
-export type AffiliateDetail = Affiliate;
+export function mapAffiliateLinkListItemToTableRow(
+	item: AffiliateLinkListItem,
+): AffiliateLinkTableRow {
+	return {
+		id: item.link.id,
+		affiliateId: item.link.affiliateId,
+		programId: item.link.programId,
+		programName: item.program.name,
+		programKind: item.program.kind,
+		programStatus: item.program.status,
+		code: item.link.code,
+		label: item.link.label,
+		landingPath: item.link.landingPath,
+		expiresAt: item.link.expiresAt,
+		active: item.link.active,
+		status: item.link.status,
+		createdAt: item.link.createdAt,
+		updatedAt: item.link.updatedAt,
+		...item.aggregates,
+		currencies: item.aggregates.currencies.map((currency) => ({
+			...currency,
+		})),
+	};
+}

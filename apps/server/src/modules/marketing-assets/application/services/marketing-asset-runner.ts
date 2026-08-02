@@ -1,6 +1,18 @@
 // /node, not /nestjs: this code also runs inside Trigger tasks and the worker.
 import { Sentry } from "@wandit/observability/node";
 
+import { isTerminalFixedOperationReplay } from "../../../metering/application/services/fixed-operation-billing";
+import {
+	fixedGenerationStepUsage,
+	type GatewayGenerationFailure,
+	type GatewayGenerationMetadata,
+	hasGatewayGenerationMetadata,
+} from "../../../metering/domain/gateway-metering";
+import type {
+	MarketingAssetBilling,
+	MarketingAssetReservation,
+} from "./marketing-asset-billing";
+
 export const USER_SAFE_MARKETING_ASSET_ERROR =
 	"We couldn't generate this marketing asset. Please try again in a moment.";
 
@@ -14,6 +26,8 @@ const UUID_PATTERN =
 
 export type MarketingAssetPayload = {
 	assetId: string;
+	billingMode?: "enforce" | "off";
+	parentEventId?: string;
 	projectId: string;
 	userId: string;
 };
@@ -50,8 +64,10 @@ export type MarketingAssetDocument = {
 };
 
 export type MarketingAssetProviderResult =
-	| ({ status: "generated" } & MarketingAssetDocument)
-	| { message: string; status: "failed" | "unavailable" };
+	| ({ status: "generated" } & MarketingAssetDocument &
+			GatewayGenerationMetadata)
+	| GatewayGenerationFailure
+	| { message: string; status: "unavailable" };
 
 export type MarketingAssetRunnerDependencies = {
 	claimQueued: (
@@ -70,6 +86,9 @@ export type MarketingAssetRunnerDependencies = {
 	generate: (
 		asset: MarketingAssetJob,
 		signal?: AbortSignal,
+		onProviderGeneration?: (
+			generation: GatewayGenerationMetadata,
+		) => Promise<void>,
 	) => Promise<MarketingAssetProviderResult>;
 	loadAsset: (assetId: string) => Promise<MarketingAssetJob | null>;
 	markSucceeded: (
@@ -81,8 +100,11 @@ export type MarketingAssetRunnerDependencies = {
 	recoverStoredDocument: (
 		asset: Pick<MarketingAssetJob, "id" | "projectId">,
 	) => Promise<MarketingAssetDocument | null>;
-	refund: (userId: string, assetId: string) => Promise<void>;
-	reserve: (userId: string, assetId: string) => Promise<void>;
+	capture: MarketingAssetBilling["capture"];
+	refund: MarketingAssetBilling["refund"];
+	reserve: MarketingAssetBilling["reserve"];
+	settle: MarketingAssetBilling["settle"];
+	settleExisting: MarketingAssetBilling["settleExisting"];
 };
 
 export type MarketingAssetRunResult =
@@ -130,14 +152,20 @@ export function parseMarketingAssetPayload(
 	const input = value as Record<string, unknown>;
 	const keys = Object.keys(input).sort();
 
+	const expectedKeys = [
+		"assetId",
+		...(input.billingMode === undefined ? [] : ["billingMode"]),
+		...(input.parentEventId === undefined ? [] : ["parentEventId"]),
+		"projectId",
+		"userId",
+	].sort();
+
 	if (
-		keys.length !== 3 ||
-		keys[0] !== "assetId" ||
-		keys[1] !== "projectId" ||
-		keys[2] !== "userId"
+		keys.length !== expectedKeys.length ||
+		keys.some((key, index) => key !== expectedKeys[index])
 	) {
 		throw new TypeError(
-			"Marketing asset payload must contain only assetId, projectId, and userId",
+			"Marketing asset payload must contain only assetId, optional billingMode, optional parentEventId, projectId, and userId",
 		);
 	}
 
@@ -153,6 +181,17 @@ export function parseMarketingAssetPayload(
 	}
 
 	if (
+		input.parentEventId !== undefined &&
+		(typeof input.parentEventId !== "string" ||
+			!UUID_PATTERN.test(input.parentEventId))
+	) {
+		throw new TypeError("parentEventId must be a UUID");
+	}
+
+	if (
+		(input.billingMode !== undefined &&
+			input.billingMode !== "enforce" &&
+			input.billingMode !== "off") ||
 		typeof input.userId !== "string" ||
 		input.userId.length === 0 ||
 		input.userId.length > 255 ||
@@ -163,6 +202,12 @@ export function parseMarketingAssetPayload(
 
 	return {
 		assetId: input.assetId,
+		...(input.billingMode === "enforce" || input.billingMode === "off"
+			? { billingMode: input.billingMode }
+			: {}),
+		...(typeof input.parentEventId === "string"
+			? { parentEventId: input.parentEventId }
+			: {}),
 		projectId: input.projectId,
 		userId: input.userId,
 	};
@@ -200,6 +245,13 @@ export async function runMarketingAssetGeneration(
 	}
 
 	if (loaded.status === "succeeded") {
+		const reservation = await dependencies.reserve(
+			loaded.userId,
+			loaded.id,
+			payload.parentEventId,
+			payload.billingMode,
+		);
+		await dependencies.settle(reservation);
 		return succeededResult(loaded, false);
 	}
 
@@ -213,7 +265,21 @@ export async function runMarketingAssetGeneration(
 	}
 
 	if (loaded.status === "generating") {
-		return recoverOrSettleGenerating(loaded, dependencies);
+		const recovered = await recoverStoredDocumentWithExistingSettlement(
+			loaded,
+			dependencies,
+			payload.billingMode,
+		);
+		if (recovered) {
+			return recovered;
+		}
+		const reservation = await dependencies.reserve(
+			loaded.userId,
+			loaded.id,
+			payload.parentEventId,
+			payload.billingMode,
+		);
+		return recoverOrSettleGenerating(loaded, dependencies, reservation);
 	}
 
 	const claimed = await dependencies.claimQueued(loaded, {
@@ -233,6 +299,13 @@ export async function runMarketingAssetGeneration(
 		}
 
 		if (raced.status === "succeeded") {
+			const reservation = await dependencies.reserve(
+				raced.userId,
+				raced.id,
+				payload.parentEventId,
+				payload.billingMode,
+			);
+			await dependencies.settle(reservation);
 			return succeededResult(raced, false);
 		}
 
@@ -246,7 +319,21 @@ export async function runMarketingAssetGeneration(
 		}
 
 		if (raced.status === "generating") {
-			return recoverOrSettleGenerating(raced, dependencies);
+			const recovered = await recoverStoredDocumentWithExistingSettlement(
+				raced,
+				dependencies,
+				payload.billingMode,
+			);
+			if (recovered) {
+				return recovered;
+			}
+			const reservation = await dependencies.reserve(
+				raced.userId,
+				raced.id,
+				payload.parentEventId,
+				payload.billingMode,
+			);
+			return recoverOrSettleGenerating(raced, dependencies, reservation);
 		}
 
 		throw new Error(
@@ -258,8 +345,15 @@ export async function runMarketingAssetGeneration(
 		return settleDeletedProject(claimed, dependencies);
 	}
 
+	let reservation: MarketingAssetReservation;
+
 	try {
-		await dependencies.reserve(claimed.userId, claimed.id);
+		reservation = await dependencies.reserve(
+			claimed.userId,
+			claimed.id,
+			payload.parentEventId,
+			payload.billingMode,
+		);
 	} catch (error) {
 		// Insufficient credits is an expected outcome; anything else here is
 		// billing/DB infrastructure failing and must be visible.
@@ -274,10 +368,25 @@ export async function runMarketingAssetGeneration(
 		return { reason: "reservation_failed", status: "failed" };
 	}
 
+	if (isTerminalFixedOperationReplay(reservation)) {
+		return recoverOrSettleGenerating(claimed, dependencies, reservation);
+	}
+
 	let generated: MarketingAssetProviderResult;
+	let generationCapturedBeforeDelivery = false;
 
 	try {
-		generated = await dependencies.generate(claimed, input.signal);
+		generated = await dependencies.generate(
+			claimed,
+			input.signal,
+			async (generation) => {
+				await dependencies.capture(reservation, {
+					providerMetadata: generation.providerMetadata,
+					stepUsage: fixedGenerationStepUsage(generation.usage, 1),
+				});
+				generationCapturedBeforeDelivery = true;
+			},
+		);
 	} catch (error) {
 		// User aborts are expected; anything else was previously invisible.
 		if (!input.signal?.aborted) {
@@ -296,9 +405,48 @@ export async function runMarketingAssetGeneration(
 			level: "error",
 			tags: { assetId: claimed.id, userId: claimed.userId },
 		});
-		await failAndRefund(claimed, dependencies, "generation_failed");
+		const providerUnits =
+			"providerUnits" in generated && generated.providerUnits === 1 ? 1 : 0;
+		if (hasGatewayGenerationMetadata(generated)) {
+			if (!generationCapturedBeforeDelivery) {
+				await dependencies.capture(reservation, {
+					providerMetadata: generated.providerMetadata,
+					stepUsage: fixedGenerationStepUsage(generated.usage, providerUnits),
+				});
+			}
+			await dependencies.settle(reservation, providerUnits);
+		}
+		await failAndRefund(
+			claimed,
+			dependencies,
+			"generation_failed",
+			!hasGatewayGenerationMetadata(generated),
+		);
 		return { reason: "generation_failed", status: "failed" };
 	}
+
+	if (!generationCapturedBeforeDelivery) {
+		try {
+			await dependencies.capture(reservation, {
+				providerMetadata: generated.providerMetadata,
+				stepUsage: fixedGenerationStepUsage(generated.usage, 1),
+			});
+		} catch (error) {
+			Sentry.captureException(error, {
+				tags: { assetId: claimed.id, userId: claimed.userId },
+			});
+			await failAndRefund(
+				claimed,
+				dependencies,
+				"generation_capture_failed",
+				false,
+			);
+			return { reason: "generation_failed", status: "failed" };
+		}
+	}
+
+	// A succeeded asset is user-visible, so settle before publishing that state.
+	await dependencies.settle(reservation);
 
 	const persisted = await dependencies.markSucceeded(
 		claimed,
@@ -310,6 +458,7 @@ export async function runMarketingAssetGeneration(
 		return resolveSuccessCasLoss(
 			claimed,
 			dependencies,
+			reservation,
 			"direct generation completion",
 		);
 	}
@@ -324,10 +473,15 @@ export async function runMarketingAssetGeneration(
 async function recoverOrSettleGenerating(
 	asset: MarketingAssetJob,
 	dependencies: MarketingAssetRunnerDependencies,
+	reservation: MarketingAssetReservation,
 ): Promise<MarketingAssetRunResult> {
 	const recovered = await dependencies.recoverStoredDocument(asset);
 
 	if (recovered) {
+		if (!isTerminalFixedOperationReplay(reservation)) {
+			await dependencies.settle(reservation);
+		}
+
 		const persisted = await dependencies.markSucceeded(
 			asset,
 			recovered,
@@ -338,6 +492,7 @@ async function recoverOrSettleGenerating(
 			return resolveSuccessCasLoss(
 				asset,
 				dependencies,
+				reservation,
 				"stored-document recovery",
 			);
 		}
@@ -349,6 +504,11 @@ async function recoverOrSettleGenerating(
 		};
 	}
 
+	if (isTerminalFixedOperationReplay(reservation)) {
+		await failAndRefund(asset, dependencies, "terminal_billing", false);
+		return { reason: "generation_failed", status: "failed" };
+	}
+
 	if (!isStaleGenerating(asset, dependencies.now())) {
 		throw new MarketingAssetSettlementPendingError(asset.id);
 	}
@@ -357,10 +517,58 @@ async function recoverOrSettleGenerating(
 	return { reason: "stale_generation", status: "failed" };
 }
 
+async function recoverStoredDocumentWithExistingSettlement(
+	asset: MarketingAssetJob,
+	dependencies: MarketingAssetRunnerDependencies,
+	billingMode: MarketingAssetPayload["billingMode"],
+): Promise<MarketingAssetRunResult | null> {
+	const recovered = await dependencies.recoverStoredDocument(asset);
+
+	if (!recovered) {
+		return null;
+	}
+
+	const settled = await dependencies.settleExisting(asset.userId, asset.id);
+	if (!settled && billingMode === "enforce") {
+		throw new Error(
+			`Marketing asset ${asset.id} has stored output but no enforced metering event`,
+		);
+	}
+	const persisted = await dependencies.markSucceeded(
+		asset,
+		recovered,
+		dependencies.now(),
+	);
+
+	if (!persisted) {
+		const current = await dependencies.loadAsset(asset.id);
+		if (current?.status === "succeeded") {
+			return succeededResult(current, true);
+		}
+		if (
+			current &&
+			current.projectId === asset.projectId &&
+			current.userId === asset.userId &&
+			current.projectDeletedAt !== null
+		) {
+			return settleDeletedProject(current, dependencies, false);
+		}
+		if (current?.status === "failed") {
+			return { reason: "already_failed", status: "failed" };
+		}
+		throw new Error(
+			`Marketing asset ${asset.id} lost its stored-document completion state`,
+		);
+	}
+
+	return { r2Key: recovered.r2Key, recovered: true, status: "succeeded" };
+}
+
 async function failAndRefund(
 	asset: MarketingAssetJob,
 	dependencies: MarketingAssetRunnerDependencies,
 	reason: string,
+	shouldRefund = true,
 ): Promise<void> {
 	const failed = await dependencies.fail(asset, {
 		completedAt: dependencies.now(),
@@ -383,12 +591,15 @@ async function failAndRefund(
 		}
 	}
 
-	await dependencies.refund(asset.userId, asset.id);
+	if (shouldRefund) {
+		await dependencies.refund(asset.userId, asset.id);
+	}
 }
 
 async function settleDeletedProject(
 	asset: MarketingAssetJob,
 	dependencies: MarketingAssetRunnerDependencies,
+	shouldRefund = true,
 ): Promise<MarketingAssetRunResult> {
 	if (asset.status === "succeeded") {
 		// Deleting a project after a result was delivered must not grant a free
@@ -397,7 +608,9 @@ async function settleDeletedProject(
 	}
 
 	if (asset.status === "failed") {
-		await dependencies.refund(asset.userId, asset.id);
+		if (shouldRefund) {
+			await dependencies.refund(asset.userId, asset.id);
+		}
 		return { reason: "already_failed", status: "failed" };
 	}
 
@@ -422,18 +635,22 @@ async function settleDeletedProject(
 		}
 	}
 
-	await dependencies.refund(asset.userId, asset.id);
+	if (shouldRefund) {
+		await dependencies.refund(asset.userId, asset.id);
+	}
 	return { reason: "project_deleted", status: "failed" };
 }
 
 async function resolveSuccessCasLoss(
 	asset: MarketingAssetJob,
 	dependencies: MarketingAssetRunnerDependencies,
+	reservation: MarketingAssetReservation,
 	operation: string,
 ): Promise<MarketingAssetRunResult> {
 	const current = await dependencies.loadAsset(asset.id);
 
 	if (current?.status === "succeeded") {
+		await dependencies.settle(reservation);
 		return succeededResult(current, true);
 	}
 
@@ -443,11 +660,10 @@ async function resolveSuccessCasLoss(
 		current.userId === asset.userId &&
 		current.projectDeletedAt !== null
 	) {
-		return settleDeletedProject(current, dependencies);
+		return settleDeletedProject(current, dependencies, false);
 	}
 
 	if (current?.status === "failed") {
-		await dependencies.refund(asset.userId, asset.id);
 		return { reason: "already_failed", status: "failed" };
 	}
 

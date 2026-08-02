@@ -21,8 +21,13 @@ import { isR2Configured } from "../../../../infrastructure/storage/r2";
 // Type-only import: importing the task value would pull the Trigger worker
 // (and its database pool) into the Nest API process.
 import type { generateMarketingAssetTask } from "../../../../trigger/generate-marketing-asset.task";
-import type { GenerationPolicyService } from "../../../generation/application/services/generation-policy.service";
+import {
+	createMarketingAssetBilling,
+	type MarketingAssetBilling,
+} from "../../../marketing-assets/application/services/marketing-asset-billing";
 import type { MarketingAssetsRepository } from "../../../marketing-assets/infrastructure/persistence/marketing-assets.repository";
+import { assertFixedOperationProviderExecutionAllowed } from "../../../metering/application/services/fixed-operation-billing";
+import type { MeteringService } from "../../../metering/application/services/metering.service";
 
 const logger = new Logger("generate-marketing-asset");
 const TRIGGER_HANDOFF_ATTEMPTS = 3;
@@ -30,8 +35,9 @@ const TRIGGER_IDEMPOTENCY_TTL = "14d";
 
 export type GenerateMarketingAssetToolDeps = {
 	chatId: string;
-	generationPolicyService: GenerationPolicyService;
 	marketingAssetsRepository: MarketingAssetsRepository;
+	meteringService: MeteringService;
+	parentEventId?: string;
 	projectId: string;
 	// Composer quality tier, snapshotted for later model swapping — the
 	// generator does not read it yet.
@@ -43,6 +49,11 @@ export type GenerateMarketingAssetToolDeps = {
 export function createGenerateMarketingAssetTool(
 	deps: GenerateMarketingAssetToolDeps,
 ): Tool<GenerateMarketingAssetInput, GenerateMarketingAssetOutput> {
+	const billing = createMarketingAssetBilling({
+		isBillingDisabled: () => env.GENERATION_BILLING_MODE === "off",
+		meteringService: deps.meteringService,
+	});
+
 	return tool({
 		description:
 			"Queue one named marketing deliverable as a designed HTML document " +
@@ -65,21 +76,6 @@ export function createGenerateMarketingAssetTool(
 						"Marketing asset generation is not configured on this server " +
 						"yet. Tell the user honestly that model, storage, and " +
 						"Trigger.dev credentials are required.",
-					status: "unavailable",
-				};
-			}
-
-			try {
-				await deps.generationPolicyService.assertCanGenerate(
-					deps.userId,
-					"marketingAssetGeneration",
-				);
-			} catch {
-				return {
-					message:
-						"The user needs an active subscription or 5 credits for a " +
-						"marketing asset. Explain that clearly and do not claim the " +
-						"asset was queued.",
 					status: "unavailable",
 				};
 			}
@@ -126,6 +122,8 @@ export function createGenerateMarketingAssetTool(
 			}
 
 			if (!asset.created && asset.status === "failed") {
+				await refundReservation(deps, billing, asset.id);
+
 				return {
 					message:
 						"This exact marketing request already failed. Tell the user " +
@@ -147,10 +145,20 @@ export function createGenerateMarketingAssetTool(
 				};
 			}
 
+			const reservation = await billing.reserve(
+				deps.userId,
+				asset.id,
+				deps.parentEventId,
+			);
+
+			assertFixedOperationProviderExecutionAllowed(reservation);
+
 			let realtime: GenerateMarketingAssetOutput["realtime"];
 			try {
 				const handle = await triggerMarketingAssetTask({
 					assetId: asset.id,
+					billingMode: reservation.eventId ? "enforce" : "off",
+					...(deps.parentEventId ? { parentEventId: deps.parentEventId } : {}),
 					projectId: deps.projectId,
 					userId: deps.userId,
 				});
@@ -185,6 +193,8 @@ export function createGenerateMarketingAssetTool(
 						);
 
 						if (closed) {
+							await refundReservation(deps, billing, asset.id);
+
 							return {
 								message:
 									"Trigger.dev rejected the marketing request. Tell the " +
@@ -257,6 +267,8 @@ async function mintRealtimeHandle(
 
 async function triggerMarketingAssetTask(payload: {
 	assetId: string;
+	billingMode: "enforce" | "off";
+	parentEventId?: string;
 	projectId: string;
 	userId: string;
 }): Promise<Awaited<ReturnType<typeof tasks.trigger>>> {
@@ -314,6 +326,21 @@ function isDefinitiveTriggerRejection(error: unknown): boolean {
 			candidate.status === 404 ||
 			candidate.status === 422)
 	);
+}
+
+async function refundReservation(
+	deps: GenerateMarketingAssetToolDeps,
+	billing: MarketingAssetBilling,
+	assetId: string,
+): Promise<void> {
+	try {
+		await billing.refund(deps.userId, assetId);
+	} catch (error) {
+		logger.error(
+			`Refunding marketing asset reservation ${assetId} failed`,
+			error instanceof Error ? error.stack : String(error),
+		);
+	}
 }
 
 export type GenerateMarketingAssetTool = ReturnType<

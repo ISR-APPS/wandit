@@ -6,7 +6,7 @@
 // 2. call the AI model
 // 3. publish live text deltas to Redis
 // 4. save the final assistant message
-// 5. spend credits
+// 5. settle the durable AI usage reservation
 import { Processor, WorkerHost } from "@nestjs/bullmq";
 import { Inject, Logger } from "@nestjs/common";
 import { env } from "@wandit/env/server";
@@ -16,24 +16,42 @@ import {
 	type AiGenerationJobName,
 } from "@wandit/jobs";
 import { Sentry } from "@wandit/observability/node";
-import { convertToModelMessages, streamText } from "ai";
+import { convertToModelMessages, stepCountIs, streamText } from "ai";
 import type { Job } from "bullmq";
-
+import { MeteringService } from "../../../server/src/modules/metering/application/services/metering.service";
+import {
+	gatewayGenerationCaptureFromError,
+	withGatewayAttribution,
+} from "../../../server/src/modules/metering/domain/gateway-metering";
 import { buildSystemPrompt } from "../generation/system-prompt";
 import {
 	toChatMessage,
 	WorkerChatRepository,
 } from "../infrastructure/persistence/worker-chat.repository";
-import {
-	InsufficientCreditsError,
-	WorkerCreditsService,
-} from "../infrastructure/persistence/worker-credits.service";
 import { ChatEventsPublisher } from "../infrastructure/redis/chat-events.publisher";
 
 // Do not send huge provider errors to the browser.
 const GENERATION_ERROR_MESSAGE_MAX_LENGTH = 300;
+const LEGACY_CHAT_MAX_OUTPUT_TOKENS = 4_096;
+const LEGACY_CHAT_MAX_STEPS = 1;
+const LEGACY_METERING_WRITE_ATTEMPTS = 3;
+// Metering recovery refunds reservations at 40 minutes. Do not begin provider
+// work so late that the sweep can refund a live request: 30m queue age + 8m
+// provider ceiling leaves two minutes for capture, save, and settlement.
+const LEGACY_CHAT_MAX_START_AGE_MS = 30 * 60 * 1000;
+const LEGACY_CHAT_PROVIDER_TIMEOUT_MS = 8 * 60 * 1000;
 // AI Gateway uses this marker on some errors.
 const GATEWAY_ERROR_MARKER = Symbol.for("vercel.ai.gateway.error");
+
+class LegacyChatStartWindowExpiredError extends Error {
+	constructor(
+		readonly eventId: string,
+		jobId: string,
+	) {
+		super(`Legacy generation job ${jobId} waited too long to start safely`);
+		this.name = "LegacyChatStartWindowExpiredError";
+	}
+}
 
 // `@Processor(queueName)` tells BullMQ/Nest this class handles jobs from a queue.
 @Processor(AI_GENERATION_QUEUE)
@@ -44,10 +62,10 @@ export class AiGenerationProcessor extends WorkerHost {
 		// Nest injects these helpers. The processor does not create them manually.
 		@Inject(WorkerChatRepository)
 		private readonly workerChatRepository: WorkerChatRepository,
-		@Inject(WorkerCreditsService)
-		private readonly workerCreditsService: WorkerCreditsService,
 		@Inject(ChatEventsPublisher)
 		private readonly chatEventsPublisher: ChatEventsPublisher,
+		@Inject(MeteringService)
+		private readonly meteringService: MeteringService,
 	) {
 		super();
 	}
@@ -67,6 +85,10 @@ export class AiGenerationProcessor extends WorkerHost {
 		const data = job.data;
 		const jobId = data.jobId;
 		const assistantMessageId = assistantMessageIdForJob(jobId);
+		let assistantSaved = false;
+		let generationCaptured = false;
+		let meteringReservationVerified = false;
+		let providerStreamStarted = false;
 		// Some AI SDK errors arrive through callbacks/stream parts, not thrown.
 		// Keep the first one so we can publish one clear error event.
 		let hasStreamError = false;
@@ -81,6 +103,7 @@ export class AiGenerationProcessor extends WorkerHost {
 		try {
 			// Mark chat as busy and publish "started".
 			await this.chatEventsPublisher.markStarted(data.chatId, jobId);
+			meteringReservationVerified = await this.assertMeteringReservation(data);
 			this.assertGatewayConfigured();
 			await this.chatEventsPublisher.publishThinking(data.chatId);
 
@@ -91,15 +114,28 @@ export class AiGenerationProcessor extends WorkerHost {
 			const modelMessages = await convertToModelMessages(
 				context.messages.map(({ id: _id, ...message }) => message),
 			);
+			// Loading a large history can take long enough to cross the safe-start
+			// boundary after the queue preflight. Re-read the durable event at the
+			// final possible moment before the provider call so the 40-minute sweep
+			// can never refund work that starts late.
+			meteringReservationVerified = await this.assertMeteringReservation(data);
 			// Start the model request and receive an async stream of parts.
 			const result = streamText({
+				abortSignal: AbortSignal.timeout(LEGACY_CHAT_PROVIDER_TIMEOUT_MS),
+				maxOutputTokens: LEGACY_CHAT_MAX_OUTPUT_TOKENS,
 				messages: modelMessages,
 				model: env.AI_CHAT_MODEL,
 				onError: ({ error }) => {
 					captureStreamError(error);
 				},
+				providerOptions: withGatewayAttribution(
+					{},
+					{ operation: "chat", userId: data.userId },
+				),
+				stopWhen: stepCountIs(LEGACY_CHAT_MAX_STEPS),
 				system: buildSystemPrompt(data.composer),
 			});
+			providerStreamStarted = true;
 			let text = "";
 
 			try {
@@ -134,10 +170,46 @@ export class AiGenerationProcessor extends WorkerHost {
 			}
 
 			// Store usage/finish metadata with the assistant message.
-			const [usage, finishReason] = await Promise.all([
+			const [usage, finishReason, providerMetadata] = await Promise.all([
 				result.usage,
 				result.finishReason,
+				result.providerMetadata,
 			]);
+			if (data.usageEventId) {
+				const usageEventId = data.usageEventId;
+				try {
+					await retryMeteringWrite(async () => {
+						const captured = await this.meteringService.captureGeneration(
+							usageEventId,
+							{
+								providerMetadata,
+								stepUsage: usage,
+							},
+						);
+
+						if (!captured) {
+							throw new Error(
+								`Legacy generation ${jobId} did not expose a gateway generation id`,
+							);
+						}
+
+						return captured;
+					});
+
+					generationCaptured = true;
+				} catch (error) {
+					// Generation-ref persistence is diagnostic/reconciliation state. Once
+					// the stream completed, do not let it block the durable assistant save
+					// and token settlement that prevent delivered text from becoming free.
+					Sentry.captureException(error, {
+						tags: { chatId: data.chatId, jobId, userId: data.userId },
+					});
+					this.logger.error(
+						`Failed to capture legacy generation reference for ${jobId}`,
+						error instanceof Error ? error.stack : String(error),
+					);
+				}
+			}
 			// Save before publishing completion, so reload can fetch the final message.
 			const assistantMessage =
 				await this.workerChatRepository.insertAssistantMessage({
@@ -151,8 +223,20 @@ export class AiGenerationProcessor extends WorkerHost {
 					},
 					text,
 				});
+			assistantSaved = true;
 
-			await this.consumeCreditsAfterPersist(data, jobId);
+			if (data.usageEventId) {
+				const usageEventId = data.usageEventId;
+				await retryMeteringWrite(() =>
+					this.meteringService.settle(usageEventId, {
+						modelId: env.AI_CHAT_MODEL,
+						pricing: "token",
+						provider: "gateway",
+						rawUsage: usage,
+						usage,
+					}),
+				);
+			}
 			// Send final message, then send "done" so UI clears busy state.
 			await this.chatEventsPublisher.publishMessageCompleted(
 				data.chatId,
@@ -165,6 +249,36 @@ export class AiGenerationProcessor extends WorkerHost {
 				processed: true,
 			};
 		} catch (error) {
+			const expiredBeforeProvider =
+				error instanceof LegacyChatStartWindowExpiredError;
+			if (
+				!expiredBeforeProvider &&
+				!generationCaptured &&
+				data.usageEventId &&
+				meteringReservationVerified
+			) {
+				generationCaptured = await this.captureGatewayErrorSafely(
+					data.usageEventId,
+					error,
+					data,
+				);
+			}
+			if (expiredBeforeProvider) {
+				await this.refundFailedReservationSafely(
+					error.eventId,
+					"legacy_chat_generation_expired_before_start",
+				);
+			}
+			if (
+				!expiredBeforeProvider &&
+				!assistantSaved &&
+				!generationCaptured &&
+				!providerStreamStarted &&
+				data.usageEventId &&
+				meteringReservationVerified
+			) {
+				await this.refundFailedReservationSafely(data.usageEventId);
+			}
 			// BullMQ records the failure but nothing reports it — the original
 			// provider error used to vanish here (UI only gets a truncated copy).
 			Sentry.captureException(error, {
@@ -179,25 +293,65 @@ export class AiGenerationProcessor extends WorkerHost {
 		}
 	}
 
-	// Spend credits after the assistant message is saved.
-	private async consumeCreditsAfterPersist(
+	private async captureGatewayErrorSafely(
+		eventId: string,
+		error: unknown,
 		data: AiGenerationJobData,
-		jobId: string,
+	): Promise<boolean> {
+		const capture = gatewayGenerationCaptureFromError(error);
+
+		if (!capture) {
+			return false;
+		}
+
+		try {
+			await retryMeteringWrite(async () => {
+				const generationRef = await this.meteringService.captureGeneration(
+					eventId,
+					capture,
+				);
+
+				if (!generationRef) {
+					throw new Error(
+						`Legacy generation ${data.jobId} gateway error did not expose a valid generation id`,
+					);
+				}
+
+				return generationRef;
+			});
+
+			return true;
+		} catch (captureError) {
+			Sentry.captureException(captureError, {
+				tags: {
+					chatId: data.chatId,
+					jobId: data.jobId,
+					meteringPhase: "capture_gateway_error",
+					userId: data.userId,
+				},
+			});
+			this.logger.error(
+				`Failed to capture legacy gateway error for ${data.jobId}`,
+				captureError instanceof Error
+					? captureError.stack
+					: String(captureError),
+			);
+
+			return false;
+		}
+	}
+
+	private async refundFailedReservationSafely(
+		eventId: string,
+		reason = "legacy_chat_generation_failed",
 	): Promise<void> {
 		try {
-			await this.workerCreditsService.consumeForGeneration(
-				data.userId,
-				data.action,
-				jobId,
-			);
+			await this.meteringService.refund(eventId, reason);
 		} catch (error) {
-			if (error instanceof InsufficientCreditsError) {
-				// The answer is already saved, so deliver it and log the credit mismatch.
-				this.logger.warn(error.message);
-				return;
-			}
-
-			throw error;
+			this.logger.error(
+				`Failed to refund AI usage reservation ${eventId}`,
+				error instanceof Error ? error.stack : String(error),
+			);
 		}
 	}
 
@@ -253,6 +407,88 @@ export class AiGenerationProcessor extends WorkerHost {
 			throw new Error("AI_GATEWAY_API_KEY is required for generation");
 		}
 	}
+
+	private async assertMeteringReservation(
+		data: AiGenerationJobData,
+	): Promise<boolean> {
+		if (data.billingMode === "off") {
+			if (data.usageEventId !== null) {
+				throw new Error(
+					"Billing-off generation job must not carry an AI usage reservation",
+				);
+			}
+
+			return false;
+		}
+
+		// usageEventId was already required when billingMode was introduced.
+		// Therefore a pre-field payload carrying an explicit null is itself a
+		// durable billing-off admission snapshot, independent of today's switch.
+		if (data.billingMode === undefined && data.usageEventId === null) {
+			return false;
+		}
+
+		if (!data.usageEventId) {
+			// Payloads queued before billingMode was introduced retain the old
+			// runtime-switch behavior only if both billing fields are absent. Every
+			// new payload carries an explicit durable admission snapshot.
+			if (
+				data.billingMode === undefined &&
+				env.GENERATION_BILLING_MODE === "off"
+			) {
+				return false;
+			}
+
+			throw new Error("Enforced generation job has no AI usage reservation");
+		}
+
+		const event = await this.meteringService.findByIdempotencyKey(
+			`legacy-chat:${data.jobId}`,
+			data.userId,
+		);
+		const matchesJob =
+			event?.id === data.usageEventId &&
+			event.operation === "chat" &&
+			event.status === "reserved" &&
+			event.attemptRef === data.jobId &&
+			event.chatId === data.chatId &&
+			event.messageId === data.messageId;
+
+		if (!matchesJob) {
+			throw new Error(
+				`Legacy generation job ${data.jobId} has no matching active AI usage reservation`,
+			);
+		}
+
+		if (
+			Date.now() - event.createdAt.getTime() >=
+			LEGACY_CHAT_MAX_START_AGE_MS
+		) {
+			throw new LegacyChatStartWindowExpiredError(event.id, data.jobId);
+		}
+
+		return true;
+	}
+}
+
+async function retryMeteringWrite<T>(write: () => Promise<T>): Promise<T> {
+	let lastError: unknown;
+
+	for (
+		let attempt = 0;
+		attempt < LEGACY_METERING_WRITE_ATTEMPTS;
+		attempt += 1
+	) {
+		try {
+			return await write();
+		} catch (error) {
+			lastError = error;
+		}
+	}
+
+	throw lastError instanceof Error
+		? lastError
+		: new Error("Legacy generation metering write failed");
 }
 
 // Use job id to make assistant message id stable across retries.

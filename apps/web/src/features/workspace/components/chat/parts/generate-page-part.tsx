@@ -19,6 +19,7 @@ import { cn } from "@wandit/ui/lib/utils";
 import { AlertTriangle, Check, Code, ExternalLink } from "lucide-react";
 import { useState } from "react";
 
+import { creditsKeys } from "@/features/credits";
 import { pageKeys } from "../../../api/pages.queries";
 import { useWorkspace } from "../../../lib/store";
 import type { WanditUIMessage } from "../../../lib/use-ai-chat";
@@ -115,6 +116,9 @@ function PageBuildCard({
 		enabled: !settled,
 		onSettled: () => {
 			setSettled(true);
+			void queryClient.invalidateQueries({
+				queryKey: creditsKeys.balance(),
+			});
 			// The Page tab's overview poll also notices on its own — this just
 			// makes the switch instant.
 			void queryClient.invalidateQueries({

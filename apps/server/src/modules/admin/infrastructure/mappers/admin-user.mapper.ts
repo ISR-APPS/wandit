@@ -6,6 +6,7 @@ import {
 	type AdminUserRole,
 	type AdminUserSubscription,
 	type AdminUserSummary,
+	billingPlanIdSchema,
 	billingPlanIds,
 	isAdminRole,
 } from "@wandit/contracts";
@@ -58,7 +59,7 @@ function mapAdminUserSubscription(
 	row: AdminSubscriptionRow,
 ): AdminUserSubscription {
 	return {
-		plan: row.plan,
+		plan: billingPlanIdSchema.parse(row.plan),
 		status: row.status,
 		interval: row.interval,
 		currentPeriodEnd: row.currentPeriodEnd ? toIso(row.currentPeriodEnd) : null,

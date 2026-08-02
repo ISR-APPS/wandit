@@ -3,13 +3,15 @@ import { HttpException, HttpStatus } from "@nestjs/common";
 export const INSUFFICIENT_CREDITS_ERROR_CODE = "INSUFFICIENT_CREDITS";
 
 export class InsufficientCreditsError extends HttpException {
-	constructor(required: number, available: number) {
+	constructor(
+		readonly requiredCredits: number,
+		readonly availableCredits: number,
+	) {
 		super(
 			{
-				available,
 				code: INSUFFICIENT_CREDITS_ERROR_CODE,
-				message: `Insufficient credits: required ${required}, available ${available}`,
-				required,
+				details: { availableCredits, requiredCredits },
+				message: `Insufficient credits: required ${requiredCredits}, available ${availableCredits}`,
 			},
 			HttpStatus.PAYMENT_REQUIRED,
 		);

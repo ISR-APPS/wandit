@@ -24,16 +24,24 @@ export const creditKindSchema = z.enum(creditKinds);
 
 export type CreditKind = z.infer<typeof creditKindSchema>;
 
-export const creditBuckets = ["plan", "topup"] as const;
+export const CREDIT_SPEND_ORDER = ["plan", "promo", "topup"] as const;
 
-export const creditBucketSchema = z.enum(creditBuckets);
+export const creditBuckets = CREDIT_SPEND_ORDER;
+
+export const creditBucketSchema = z.enum(CREDIT_SPEND_ORDER);
 
 export type CreditBucket = z.infer<typeof creditBucketSchema>;
 
+export const PURCHASED_CREDIT_BUCKETS = [
+	"plan",
+	"topup",
+] as const satisfies ReadonlyArray<CreditBucket>;
+
 export const creditBalanceResponseSchema = z.object({
-	balance: z.int(),
 	plan: z.int(),
+	promo: z.int(),
 	topup: z.int(),
+	balance: z.int(),
 });
 
 export type CreditBalanceResponse = z.infer<typeof creditBalanceResponseSchema>;
@@ -68,12 +76,7 @@ export const CREDIT_COSTS = {
 	videoGeneration: 25,
 } as const;
 
-export const SIGNUP_GRANT_CREDITS = 100;
-
-/** Shared ledger key for an image-to-video credit reservation/refund pair. */
-export function mediaGenerationReservationKey(attemptId: string): string {
-	return `media-generation:${attemptId}`;
-}
+export const SIGNUP_GRANT_CREDITS = 20;
 
 export const creditsRoutes = {
 	balance: "/api/v1/credits/balance",

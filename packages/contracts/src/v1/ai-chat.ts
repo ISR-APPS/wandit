@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { paymentRequiredDetailsSchema } from "../http/error-codes";
 import { attachmentMediaTypeSchema } from "./attachments";
 import { composerMetadataSchema } from "./chats";
 import {
@@ -18,6 +19,25 @@ import { PAGE_TOKEN_NAMES } from "./page-theme";
 // The nested detail names deliberately follow v7: the old top-level
 // cachedInputTokens/reasoningTokens fields no longer exist in the SDK.
 const aiChatTokenCountSchema = z.number().int().nonnegative();
+
+/**
+ * Typed in-stream counterpart of the HTTP 402 response. The AI SDK prefixes
+ * the data-part key, so `billing-error` is sent on the wire as
+ * `data-billing-error`.
+ */
+export const aiChatBillingErrorDataSchema = z.object({
+	code: z.literal("INSUFFICIENT_CREDITS"),
+	details: paymentRequiredDetailsSchema,
+	statusCode: z.literal(402),
+});
+
+export type AiChatBillingErrorData = z.infer<
+	typeof aiChatBillingErrorDataSchema
+>;
+
+export type AiChatDataParts = {
+	"billing-error": AiChatBillingErrorData;
+};
 
 export const aiChatMessageUsageSchema = z.object({
 	inputTokens: aiChatTokenCountSchema.optional(),

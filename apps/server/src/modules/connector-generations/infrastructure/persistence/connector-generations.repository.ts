@@ -6,7 +6,7 @@
  * Nest and talks to the same table through createDb(), like the other tasks.
  */
 import { Inject, Injectable } from "@nestjs/common";
-import { and, eq, inArray, lt } from "@wandit/db";
+import { and, eq, inArray, isNull, lt, sql } from "@wandit/db";
 import { connectorGenerationAttempts } from "@wandit/db/schema/connector-generation-attempts";
 
 import { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
@@ -29,9 +29,10 @@ export type ConnectorGenerationAttemptRow = {
 	completedAt: Date | null;
 };
 
-// A run past this age can no longer be live (task maxDuration is shorter):
-// reads self-heal the row to failed so cards never hang forever.
-const STALE_ATTEMPT_MS = 35 * 60 * 1000;
+// Trigger can wait five minutes before starting a 30-minute task. Keep three
+// minutes for final billing + DB commit so polling cannot fail a live run at
+// the exact queue/runtime boundary.
+export const CONNECTOR_ATTEMPT_STALE_MS = 38 * 60 * 1000;
 
 @Injectable()
 export class ConnectorGenerationsRepository {
@@ -123,6 +124,41 @@ export class ConnectorGenerationsRepository {
 		return row ?? null;
 	}
 
+	async listRunningCompletionCheckpoints(
+		limit = 100,
+	): Promise<ConnectorGenerationAttemptRow[]> {
+		if (!Number.isInteger(limit) || limit <= 0) {
+			throw new Error("Connector recovery limit must be a positive integer");
+		}
+
+		return this.db
+			.select()
+			.from(connectorGenerationAttempts)
+			.where(
+				and(
+					eq(connectorGenerationAttempts.status, "running"),
+					sql`${connectorGenerationAttempts.media} is not null`,
+				),
+			)
+			.limit(limit);
+	}
+
+	async markRunningAttemptSucceeded(attemptId: string): Promise<boolean> {
+		const [completed] = await this.db
+			.update(connectorGenerationAttempts)
+			.set({ completedAt: new Date(), error: null, status: "succeeded" })
+			.where(
+				and(
+					eq(connectorGenerationAttempts.id, attemptId),
+					eq(connectorGenerationAttempts.status, "running"),
+					sql`${connectorGenerationAttempts.media} is not null`,
+				),
+			)
+			.returning({ id: connectorGenerationAttempts.id });
+
+		return completed !== undefined;
+	}
+
 	// Read-time janitor: a queued/running row this old is an orphaned run
 	// (worker crash, lost handoff) — settle it so the card can conclude.
 	private async settleStaleAttempt(attemptId: string): Promise<void> {
@@ -137,9 +173,10 @@ export class ConnectorGenerationsRepository {
 				and(
 					eq(connectorGenerationAttempts.id, attemptId),
 					inArray(connectorGenerationAttempts.status, ["queued", "running"]),
+					isNull(connectorGenerationAttempts.media),
 					lt(
 						connectorGenerationAttempts.createdAt,
-						new Date(Date.now() - STALE_ATTEMPT_MS),
+						new Date(Date.now() - CONNECTOR_ATTEMPT_STALE_MS),
 					),
 				),
 			);

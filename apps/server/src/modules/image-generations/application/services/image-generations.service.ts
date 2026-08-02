@@ -2,6 +2,7 @@ import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { ImageGenerationAttempt } from "@wandit/contracts";
 import { and, eq, lt } from "@wandit/db";
 import { imageGenerationAttempts } from "@wandit/db/schema/image-generation-attempts";
+import { env } from "@wandit/env/server";
 import { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
 import {
 	captureGenerationCompleted,
@@ -18,11 +19,12 @@ import {
 	publicAssetKeyFromUrl,
 	publicAssetUrl,
 } from "../../../../infrastructure/storage/r2";
-import { GenerationPolicyService } from "../../../generation/application/services/generation-policy.service";
+import { MeteringService } from "../../../metering/application/services/metering.service";
 import {
 	type ImageGenerationAttemptRow,
 	ImageGenerationsRepository,
 } from "../../infrastructure/persistence/image-generations.repository";
+import { createImageGenerationBilling } from "./image-generation-billing";
 
 const GENERATION_STALE_AFTER_MS = 15 * 60 * 1_000;
 const QUEUED_STALE_AFTER_MS = 30 * 60 * 1_000;
@@ -42,8 +44,8 @@ export class ImageGenerationsService {
 	constructor(
 		@Inject(ImageGenerationsRepository)
 		private readonly imageGenerationsRepository: ImageGenerationsRepository,
-		@Inject(GenerationPolicyService)
-		private readonly generationPolicyService: GenerationPolicyService,
+		@Inject(MeteringService)
+		private readonly meteringService: MeteringService,
 		// Direct database access ONLY for the stale-generating settlement below —
 		// the repository stays the single reader/writer for everything else.
 		@Inject(DATABASE) private readonly db: Database,
@@ -102,10 +104,10 @@ export class ImageGenerationsService {
 		// All failure paths converge here; the refund is idempotent so a
 		// transient failure is retried by the next poll without double-refunding.
 		if (row.status === "failed") {
-			await this.generationPolicyService.refundGenerationReservation(
-				userId,
-				row.id,
-			);
+			await createImageGenerationBilling({
+				isBillingDisabled: () => env.GENERATION_BILLING_MODE === "off",
+				meteringService: this.meteringService,
+			}).refund(userId, row.id);
 		}
 
 		return mapAttemptRow(row);
@@ -181,6 +183,14 @@ export class ImageGenerationsService {
 		const recovered = await this.recoverStoredImages(row);
 
 		if (recovered) {
+			// The deterministic upload proves provider work completed. Repair the
+			// existing hold before publishing success; lookup avoids inventing an
+			// unknown parent relationship for legacy/billing-off rows.
+			await createImageGenerationBilling({
+				isBillingDisabled: () => env.GENERATION_BILLING_MODE === "off",
+				meteringService: this.meteringService,
+			}).settleExisting(userId, row.id, recovered.length);
+
 			const [completed] = await this.db
 				.update(imageGenerationAttempts)
 				.set({
@@ -275,13 +285,13 @@ export class ImageGenerationsService {
 			}
 
 			if (!found) {
-				return null;
+				break;
 			}
 
 			images.push(found);
 		}
 
-		return images;
+		return images.length > 0 ? images : null;
 	}
 }
 

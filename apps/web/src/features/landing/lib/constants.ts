@@ -26,12 +26,6 @@ export const FEATURES_CONFIG = {
 	publishUrl: { slug: "montre-vintage", domain: ".wandit.app" },
 } as const;
 
-/** Non-copy pricing config: slider bounds + the business contact address. */
-export const PRICING_CONFIG = {
-	proSlider: { min: 500, max: 5000, step: 250, initial: 1000 },
-	businessContactHref: "mailto:hello@wandit.dev",
-} as const;
-
 /** Footer columns: link `key` keys landing.footer.linkLabels.<key>; scrollId drives anchors. */
 export const FOOTER_COLUMNS = [
 	{

@@ -19,6 +19,12 @@ type RevokeOptions = {
 	meta?: CreditMeta;
 };
 
+type GrantOptions = {
+	bucket: CreditBucket;
+	idempotencyKey?: string;
+	meta?: CreditMeta;
+};
+
 type SeedRow = {
 	bucket: CreditBucket;
 	chargeId?: string;
@@ -41,7 +47,13 @@ class InMemoryBillingCreditLedgerRepository {
 		paymentIntentId: string | null;
 	}> = [];
 	readonly lockCalls: string[] = [];
+	readonly canceledSlotCalls: Array<{
+		chargeId: string;
+		transaction: unknown;
+	}> = [];
+	readonly userLockCalls: string[] = [];
 	readonly transactionClient = { kind: "charge-lock-transaction" };
+	private readonly pendingSlotsByCharge = new Map<string, number>();
 
 	private lock: Promise<void> = Promise.resolve();
 	private nextId = 1;
@@ -77,6 +89,7 @@ class InMemoryBillingCreditLedgerRepository {
 			(row) =>
 				(row.kind === "grant" || row.kind === "topup") &&
 				row.delta > 0 &&
+				(row.meta as CreditMeta).billingAdjustment !== "clawback_restore" &&
 				this.matchesPayment(row, input),
 		);
 	}
@@ -93,6 +106,42 @@ class InMemoryBillingCreditLedgerRepository {
 				row.delta < 0 &&
 				this.matchesPayment(row, input),
 		);
+	}
+
+	async findRestorationRowsForPayment(input: {
+		chargeId: string;
+		paymentIntentId: string | null;
+	}) {
+		return this.rows.filter(
+			(row) =>
+				row.kind === "grant" &&
+				row.delta > 0 &&
+				(row.meta as CreditMeta).billingAdjustment === "clawback_restore" &&
+				this.matchesPayment(row, input),
+		);
+	}
+
+	async acquireUserLock(userId: string) {
+		this.userLockCalls.push(userId);
+	}
+
+	async findPendingRefillSlotUserIdsForCharge(chargeId: string) {
+		return (this.pendingSlotsByCharge.get(chargeId) ?? 0) > 0 ? ["user_1"] : [];
+	}
+
+	async cancelPendingRefillSlotsForCharge(
+		chargeId: string,
+		transaction: unknown,
+	) {
+		this.canceledSlotCalls.push({ chargeId, transaction });
+		const count = this.pendingSlotsByCharge.get(chargeId) ?? 0;
+		this.pendingSlotsByCharge.set(chargeId, 0);
+
+		return count;
+	}
+
+	seedPendingSlots(chargeId: string, count: number) {
+		this.pendingSlotsByCharge.set(chargeId, count);
 	}
 
 	seed(input: SeedRow): BillingCreditLedgerRow {
@@ -140,6 +189,34 @@ class InMemoryBillingCreditLedgerRepository {
 }
 
 class InMemoryCreditsService {
+	readonly grant = vi.fn(
+		async (
+			userId: string,
+			amount: number,
+			options: GrantOptions,
+			_transaction?: object,
+		): Promise<BillingCreditLedgerRow> => {
+			const existing = options.idempotencyKey
+				? this.repository.rows.find(
+						(row) => row.idempotencyKey === options.idempotencyKey,
+					)
+				: undefined;
+
+			if (existing) {
+				return existing;
+			}
+
+			return this.repository.seed({
+				bucket: options.bucket,
+				delta: amount,
+				idempotencyKey: options.idempotencyKey,
+				kind: "grant",
+				meta: options.meta,
+				userId,
+			});
+		},
+	);
+
 	readonly revoke = vi.fn(
 		async (
 			userId: string,
@@ -697,6 +774,29 @@ describe("PaymentRefundsService", () => {
 		).toBe(300);
 	});
 
+	it("cancels pending refill slots inside the charge lock even when no delivered grant exists", async () => {
+		const { repository, service } = setup();
+		repository.seedPendingSlots("ch_slots_refund", 2);
+
+		await expect(
+			service.handleChargeRefunded(
+				charge({
+					amountCaptured: 1_000,
+					amountRefunded: 500,
+					id: "ch_slots_refund",
+					paymentIntent: "pi_slots_refund",
+				}),
+			),
+		).resolves.toBe(true);
+
+		expect(repository.canceledSlotCalls).toEqual([
+			{
+				chargeId: "ch_slots_refund",
+				transaction: repository.transactionClient,
+			},
+		]);
+	});
+
 	it("uses integer floor math and revokes from the original plan bucket", async () => {
 		const { credits, repository, service } = setup();
 		repository.seed({
@@ -796,6 +896,29 @@ describe("PaymentRefundsService", () => {
 			},
 			repository.transactionClient,
 		);
+	});
+
+	it("fails loudly when a payment reference is attached to promo credits", async () => {
+		const { credits, repository, service } = setup();
+		repository.seed({
+			bucket: "promo",
+			chargeId: "ch_promo_invariant",
+			delta: 20,
+			kind: "grant",
+			paymentIntentId: "pi_promo_invariant",
+		});
+
+		await expect(
+			service.handleChargeRefunded(
+				charge({
+					amountCaptured: 2_000,
+					amountRefunded: 2_000,
+					id: "ch_promo_invariant",
+					paymentIntent: "pi_promo_invariant",
+				}),
+			),
+		).rejects.toThrow("Payment-linked promo credit row");
+		expect(credits.revoke).not.toHaveBeenCalled();
 	});
 
 	it("falls back to legacy payment-intent rows without matching modern rows for another charge", async () => {
@@ -908,6 +1031,33 @@ describe("PaymentRefundsService", () => {
 		);
 	});
 
+	it("cancels pending refill slots inside the charge lock for a dispute", async () => {
+		const { repository, service } = setup();
+		const disputedCharge = charge({
+			amountCaptured: 1_000,
+			id: "ch_slots_dispute",
+			paymentIntent: "pi_slots_dispute",
+		});
+		repository.seedPendingSlots(disputedCharge.id, 3);
+
+		await expect(
+			service.handleChargeDisputeCreated(
+				dispute({
+					charge: disputedCharge,
+					id: "dp_slots",
+					paymentIntent: "pi_slots_dispute",
+				}),
+			),
+		).resolves.toBe(true);
+
+		expect(repository.canceledSlotCalls).toEqual([
+			{
+				chargeId: disputedCharge.id,
+				transaction: repository.transactionClient,
+			},
+		]);
+	});
+
 	it("adds multiple partial disputes while capping cumulative clawback at the original grant", async () => {
 		const { credits, repository, service } = setup();
 		const disputedCharge = charge({
@@ -954,6 +1104,231 @@ describe("PaymentRefundsService", () => {
 				.filter((row) => row.kind === "revoke")
 				.reduce((sum, row) => sum + Math.abs(row.delta), 0),
 		).toBe(400);
+	});
+
+	it("restores only the excess over valid refunds when a dispute is won, idempotently", async () => {
+		const { credits, repository, service, stripe } = setup();
+		const freshCharge = charge({
+			amountCaptured: 1_000,
+			amountRefunded: 250,
+			id: "ch_dispute_won",
+			paymentIntent: "pi_dispute_won",
+		});
+		repository.seed({
+			bucket: "plan",
+			chargeId: freshCharge.id,
+			delta: 400,
+			kind: "grant",
+			paymentIntentId: "pi_dispute_won",
+		});
+		repository.seed({
+			bucket: "plan",
+			chargeId: freshCharge.id,
+			delta: -400,
+			kind: "revoke",
+			paymentIntentId: "pi_dispute_won",
+		});
+		stripe.seedCharge(freshCharge);
+		stripe.seedDisputes(freshCharge.id, [
+			dispute({
+				charge: freshCharge.id,
+				id: "dp_won_restore",
+				paymentIntent: "pi_dispute_won",
+				status: "won",
+			}),
+		]);
+		const closed = dispute({
+			charge: freshCharge.id,
+			id: "dp_won_restore",
+			paymentIntent: "pi_dispute_won",
+			status: "won",
+		});
+
+		await expect(service.handleChargeDisputeClosed(closed)).resolves.toBe(true);
+		await expect(service.handleChargeDisputeClosed(closed)).resolves.toBe(true);
+
+		expect(credits.grant).toHaveBeenCalledOnce();
+		expect(credits.grant).toHaveBeenCalledWith(
+			"user_1",
+			300,
+			{
+				bucket: "plan",
+				idempotencyKey: "dispute-restore:dp_won_restore",
+				meta: {
+					billingAdjustment: "clawback_restore",
+					chargeId: freshCharge.id,
+					disputeId: "dp_won_restore",
+					paymentIntentId: "pi_dispute_won",
+					reason: "charge_dispute_closed_restore",
+				},
+			},
+			repository.transactionClient,
+		);
+		await expect(
+			repository.findPositiveRowsForPayment({
+				chargeId: freshCharge.id,
+				paymentIntentId: "pi_dispute_won",
+			}),
+		).resolves.toHaveLength(1);
+	});
+
+	it("preserves refunds and another adverse dispute when a warning closes", async () => {
+		const { credits, repository, service, stripe } = setup();
+		const freshCharge = charge({
+			amountCaptured: 1_000,
+			amountRefunded: 250,
+			id: "ch_warning_closed",
+			paymentIntent: "pi_warning_closed",
+		});
+		repository.seed({
+			bucket: "topup",
+			chargeId: freshCharge.id,
+			delta: 400,
+			kind: "topup",
+			paymentIntentId: "pi_warning_closed",
+		});
+		repository.seed({
+			bucket: "topup",
+			chargeId: freshCharge.id,
+			delta: -400,
+			kind: "revoke",
+			paymentIntentId: "pi_warning_closed",
+		});
+		stripe.seedCharge(freshCharge);
+		stripe.seedDisputes(freshCharge.id, [
+			dispute({
+				amount: 1_000,
+				charge: freshCharge.id,
+				id: "dp_prevented_non_adverse",
+				paymentIntent: "pi_warning_closed",
+				status: "prevented",
+			}),
+			dispute({
+				amount: 500,
+				charge: freshCharge.id,
+				id: "dp_still_under_review",
+				paymentIntent: "pi_warning_closed",
+				status: "under_review",
+			}),
+		]);
+
+		await expect(
+			service.handleChargeDisputeClosed(
+				dispute({
+					charge: freshCharge.id,
+					id: "dp_warning_closed",
+					paymentIntent: "pi_warning_closed",
+					status: "warning_closed",
+				}),
+			),
+		).resolves.toBe(true);
+
+		expect(credits.grant).toHaveBeenCalledWith(
+			"user_1",
+			100,
+			expect.objectContaining({
+				bucket: "topup",
+				idempotencyKey: "dispute-restore:dp_warning_closed",
+			}),
+			repository.transactionClient,
+		);
+	});
+
+	it("restores a prevented dispute as a terminal non-adverse outcome", async () => {
+		const { credits, repository, service, stripe } = setup();
+		const freshCharge = charge({
+			amountCaptured: 1_000,
+			id: "ch_dispute_prevented",
+			paymentIntent: "pi_dispute_prevented",
+		});
+		repository.seed({
+			bucket: "topup",
+			chargeId: freshCharge.id,
+			delta: 500,
+			kind: "topup",
+			paymentIntentId: "pi_dispute_prevented",
+		});
+		repository.seed({
+			bucket: "topup",
+			chargeId: freshCharge.id,
+			delta: -500,
+			kind: "revoke",
+			paymentIntentId: "pi_dispute_prevented",
+		});
+		stripe.seedCharge(freshCharge);
+		stripe.seedDisputes(freshCharge.id, []);
+		const prevented = dispute({
+			charge: freshCharge.id,
+			id: "dp_prevented_restore",
+			paymentIntent: "pi_dispute_prevented",
+			status: "prevented",
+		});
+
+		await expect(service.handleChargeDisputeClosed(prevented)).resolves.toBe(
+			true,
+		);
+		expect(credits.grant).toHaveBeenCalledWith(
+			"user_1",
+			500,
+			expect.objectContaining({
+				bucket: "topup",
+				idempotencyKey: "dispute-restore:dp_prevented_restore",
+			}),
+			repository.transactionClient,
+		);
+	});
+
+	it("uses prior restorations when a later refund raises the cumulative target", async () => {
+		const { credits, repository, service, stripe } = setup();
+		const freshCharge = charge({
+			amountCaptured: 1_000,
+			amountRefunded: 250,
+			id: "ch_restore_then_refund",
+			paymentIntent: "pi_restore_then_refund",
+		});
+		repository.seed({
+			bucket: "plan",
+			chargeId: freshCharge.id,
+			delta: 400,
+			kind: "grant",
+			paymentIntentId: "pi_restore_then_refund",
+		});
+		repository.seed({
+			bucket: "plan",
+			chargeId: freshCharge.id,
+			delta: -400,
+			kind: "revoke",
+			paymentIntentId: "pi_restore_then_refund",
+		});
+		stripe.seedCharge(freshCharge);
+
+		await service.handleChargeDisputeClosed(
+			dispute({
+				charge: freshCharge.id,
+				id: "dp_restore_then_refund",
+				paymentIntent: "pi_restore_then_refund",
+				status: "won",
+			}),
+		);
+		await service.handleChargeRefunded(
+			charge({
+				amountCaptured: 1_000,
+				amountRefunded: 500,
+				id: freshCharge.id,
+				paymentIntent: "pi_restore_then_refund",
+			}),
+		);
+
+		expect(credits.grant).toHaveBeenCalledOnce();
+		expect(credits.revoke).toHaveBeenCalledOnce();
+		expect(credits.revoke).toHaveBeenCalledWith(
+			"user_1",
+			100,
+			expect.objectContaining({
+				idempotencyKey: `refund:${freshCharge.id}:500`,
+			}),
+			repository.transactionClient,
+		);
 	});
 
 	it.each([
@@ -1267,7 +1642,7 @@ describe("PaymentRefundsService", () => {
 		);
 	});
 
-	it("does not replay won or withdrawn disputes during post-grant reconciliation", async () => {
+	it("does not replay any terminal non-adverse dispute during post-grant reconciliation", async () => {
 		const { credits, repository, service, stripe } = setup();
 		const disputedCharge = charge({
 			amountCaptured: 1_000,
@@ -1286,8 +1661,14 @@ describe("PaymentRefundsService", () => {
 			dispute({
 				amount: 500,
 				charge: disputedCharge.id,
-				id: "dp_withdrawn",
-				status: "withdrawn",
+				id: "dp_warning_closed",
+				status: "warning_closed",
+			}),
+			dispute({
+				amount: 500,
+				charge: disputedCharge.id,
+				id: "dp_prevented",
+				status: "prevented",
 			}),
 			dispute({
 				amount: 500,

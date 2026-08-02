@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import type { MarketingAssetReservation } from "./marketing-asset-billing";
 import {
 	MARKETING_ASSET_STALE_GENERATING_MS,
 	type MarketingAssetDocument,
@@ -14,19 +15,45 @@ import {
 const ASSET_ID = "11111111-1111-4111-8111-111111111111";
 const PROJECT_ID = "22222222-2222-4222-8222-222222222222";
 const USER_ID = "user_123";
+const PARENT_EVENT_ID = "44444444-4444-4444-8444-444444444444";
 const R2_KEY = `marketing/${PROJECT_ID}/${ASSET_ID}/index.html`;
 const NOW = new Date("2026-07-25T12:00:00.000Z");
+const RESERVATION: MarketingAssetReservation = {
+	credits: 5,
+	eventId: "33333333-3333-4333-8333-333333333333",
+	operation: "marketing" as const,
+	referenceId: ASSET_ID,
+	replay: "none" as const,
+	units: 1,
+};
 
 describe("parseMarketingAssetPayload", () => {
 	it("accepts only the exact handoff payload", () => {
 		expect(
 			parseMarketingAssetPayload({
 				assetId: ASSET_ID,
+				billingMode: "enforce",
 				projectId: PROJECT_ID,
 				userId: USER_ID,
 			}),
 		).toEqual({
 			assetId: ASSET_ID,
+			billingMode: "enforce",
+			projectId: PROJECT_ID,
+			userId: USER_ID,
+		});
+		expect(
+			parseMarketingAssetPayload({
+				assetId: ASSET_ID,
+				billingMode: "enforce",
+				parentEventId: PARENT_EVENT_ID,
+				projectId: PROJECT_ID,
+				userId: USER_ID,
+			}),
+		).toEqual({
+			assetId: ASSET_ID,
+			billingMode: "enforce",
+			parentEventId: PARENT_EVENT_ID,
 			projectId: PROJECT_ID,
 			userId: USER_ID,
 		});
@@ -34,14 +61,16 @@ describe("parseMarketingAssetPayload", () => {
 		expect(() =>
 			parseMarketingAssetPayload({
 				assetId: ASSET_ID,
+				billingMode: "enforce",
 				extra: true,
 				projectId: PROJECT_ID,
 				userId: USER_ID,
 			}),
-		).toThrow(/only assetId, projectId, and userId/);
+		).toThrow(/only assetId, optional billingMode, optional parentEventId/);
 		expect(() =>
 			parseMarketingAssetPayload({
 				assetId: "not-a-uuid",
+				billingMode: "enforce",
 				projectId: PROJECT_ID,
 				userId: USER_ID,
 			}),
@@ -84,23 +113,46 @@ function makeDependencies(
 	};
 
 	return {
+		capture: vi.fn(async () => undefined),
 		claimQueued: vi.fn(async () => claimed),
 		fail: vi.fn(async () => true),
 		generate: vi.fn(
-			async (): Promise<MarketingAssetProviderResult> =>
-				options.generated ?? { r2Key: R2_KEY, status: "generated" },
+			async (
+				_asset,
+				_signal,
+				onProviderGeneration,
+			): Promise<MarketingAssetProviderResult> => {
+				const generated = options.generated ?? {
+					model: "google/gemini-2.5-pro",
+					providerMetadata: { gateway: { generationId: "generation_1" } },
+					r2Key: R2_KEY,
+					status: "generated",
+					usage: { inputTokens: 10, outputTokens: 20 },
+				};
+				if (generated.status === "generated") {
+					await onProviderGeneration?.(generated);
+				}
+				return generated;
+			},
 		),
 		loadAsset: vi.fn(async () => asset),
 		markSucceeded: vi.fn(async () => true),
 		now: vi.fn(() => NOW),
 		recoverStoredDocument: vi.fn(async () => options.recovered ?? null),
 		refund: vi.fn(async () => undefined),
-		reserve: vi.fn(async () => undefined),
+		reserve: vi.fn(async () => RESERVATION),
+		settle: vi.fn(async () => undefined),
+		settleExisting: vi.fn(async () => true),
 	};
 }
 
 function payload() {
-	return { assetId: ASSET_ID, projectId: PROJECT_ID, userId: USER_ID };
+	return {
+		assetId: ASSET_ID,
+		billingMode: "enforce" as const,
+		projectId: PROJECT_ID,
+		userId: USER_ID,
+	};
 }
 
 describe("runMarketingAssetGeneration", () => {
@@ -122,9 +174,66 @@ describe("runMarketingAssetGeneration", () => {
 			runId: "run_123",
 			startedAt: NOW,
 		});
-		expect(dependencies.reserve).toHaveBeenCalledWith(USER_ID, ASSET_ID);
+		expect(dependencies.reserve).toHaveBeenCalledWith(
+			USER_ID,
+			ASSET_ID,
+			undefined,
+			"enforce",
+		);
+		expect(dependencies.capture).toHaveBeenCalledTimes(1);
 		expect(dependencies.generate).toHaveBeenCalledTimes(1);
 		expect(dependencies.markSucceeded).toHaveBeenCalledTimes(1);
+		expect(dependencies.settle).toHaveBeenCalledWith(RESERVATION);
+		expect(dependencies.settle.mock.invocationCallOrder[0]).toBeLessThan(
+			dependencies.markSucceeded.mock.invocationCallOrder[0] ??
+				Number.MAX_SAFE_INTEGER,
+		);
+	});
+
+	it("does not refund after settlement when deletion wins the success CAS", async () => {
+		const queued = makeAsset();
+		const deletedGenerating = makeAsset({
+			projectDeletedAt: NOW,
+			startedAt: NOW,
+			status: "generating",
+		});
+		const dependencies = makeDependencies(queued);
+		dependencies.loadAsset
+			.mockResolvedValueOnce(queued)
+			.mockResolvedValueOnce(deletedGenerating);
+		dependencies.markSucceeded.mockResolvedValueOnce(false);
+
+		await expect(
+			runMarketingAssetGeneration(payload(), {
+				dependencies,
+				runId: "run_deleted_after_settle",
+			}),
+		).resolves.toEqual({ reason: "project_deleted", status: "failed" });
+		expect(dependencies.settle).toHaveBeenCalledWith(RESERVATION);
+		expect(dependencies.fail).toHaveBeenCalledOnce();
+		expect(dependencies.refund).not.toHaveBeenCalled();
+	});
+
+	it("fails without refund or provider replay after reconcile_failed", async () => {
+		const dependencies = makeDependencies(makeAsset());
+		dependencies.reserve.mockResolvedValue({
+			...RESERVATION,
+			replay: "reconcile_failed",
+		});
+
+		await expect(
+			runMarketingAssetGeneration(payload(), {
+				dependencies,
+				runId: "run_replay",
+			}),
+		).resolves.toEqual({ reason: "generation_failed", status: "failed" });
+		expect(dependencies.generate).not.toHaveBeenCalled();
+		expect(dependencies.markSucceeded).not.toHaveBeenCalled();
+		expect(dependencies.refund).not.toHaveBeenCalled();
+		expect(dependencies.fail).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({ reason: "terminal_billing" }),
+		);
 	});
 
 	it("fails and refunds when the generator reports failure", async () => {
@@ -149,6 +258,46 @@ describe("runMarketingAssetGeneration", () => {
 			},
 		);
 		expect(dependencies.refund).toHaveBeenCalledWith(USER_ID, ASSET_ID);
+	});
+
+	it("charges a captured provider-completed document when R2 storage fails", async () => {
+		const asset = makeAsset();
+		const dependencies = makeDependencies(asset);
+		dependencies.generate.mockImplementationOnce(
+			async (_asset, _signal, onProviderGeneration) => {
+				const generation = {
+					model: "google/gemini-2.5-pro",
+					providerMetadata: {
+						gateway: { generationId: "generation-storage-failure" },
+					},
+					usage: { inputTokens: 10, outputTokens: 20 },
+				};
+				await onProviderGeneration?.(generation);
+				return {
+					...generation,
+					message: "R2 unavailable",
+					providerUnits: 1,
+					status: "failed" as const,
+				};
+			},
+		);
+
+		await expect(
+			runMarketingAssetGeneration(payload(), {
+				dependencies,
+				runId: "run_storage_failure",
+			}),
+		).resolves.toEqual({ reason: "generation_failed", status: "failed" });
+		expect(dependencies.capture).toHaveBeenCalledWith(
+			RESERVATION,
+			expect.objectContaining({
+				stepUsage: expect.objectContaining({
+					metering: { fixedUnits: 1 },
+				}),
+			}),
+		);
+		expect(dependencies.settle).toHaveBeenCalledWith(RESERVATION, 1);
+		expect(dependencies.refund).not.toHaveBeenCalled();
 	});
 
 	it("fails and refunds when the reservation is rejected", async () => {
@@ -206,7 +355,7 @@ describe("runMarketingAssetGeneration", () => {
 		expect(dependencies.generate).not.toHaveBeenCalled();
 	});
 
-	it("recovers a generating row from its deterministic stored document", async () => {
+	it("publishes a stored document after reconcile_failed without repricing", async () => {
 		const generating = makeAsset({
 			startedAt: new Date(NOW.getTime() - 60_000),
 			status: "generating",
@@ -227,6 +376,35 @@ describe("runMarketingAssetGeneration", () => {
 		});
 		expect(dependencies.generate).not.toHaveBeenCalled();
 		expect(dependencies.markSucceeded).toHaveBeenCalledTimes(1);
+		expect(dependencies.settleExisting).toHaveBeenCalledWith(USER_ID, ASSET_ID);
+		expect(dependencies.reserve).not.toHaveBeenCalled();
+		expect(dependencies.settle).not.toHaveBeenCalled();
+		expect(
+			dependencies.settleExisting.mock.invocationCallOrder[0],
+		).toBeLessThan(
+			dependencies.markSucceeded.mock.invocationCallOrder[0] ??
+				Number.MAX_SAFE_INTEGER,
+		);
+	});
+
+	it("fails closed when enforced stored-document recovery has no metering event", async () => {
+		const generating = makeAsset({
+			startedAt: new Date(NOW.getTime() - 60_000),
+			status: "generating",
+		});
+		const dependencies = makeDependencies(generating, {
+			recovered: { r2Key: R2_KEY },
+		});
+		dependencies.settleExisting.mockResolvedValueOnce(false);
+
+		await expect(
+			runMarketingAssetGeneration(payload(), {
+				dependencies,
+				runId: "run_missing_metering",
+			}),
+		).rejects.toThrow("no enforced metering event");
+		expect(dependencies.markSucceeded).not.toHaveBeenCalled();
+		expect(dependencies.generate).not.toHaveBeenCalled();
 	});
 
 	it("keeps retrying a fresh generating row without a stored document", async () => {

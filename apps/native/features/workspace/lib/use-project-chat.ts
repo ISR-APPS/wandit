@@ -4,9 +4,11 @@ import type {
 	ChatMessagesResponse,
 	ChatStreamEvent,
 } from "@wandit/contracts";
+import { paymentRequiredDetailsSchema } from "@wandit/contracts";
 import { useTranslation } from "@wandit/internationalization/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { creditsKeys } from "@/features/credits/api/credits.keys";
 import { chatKeys } from "@/features/workspace/api/chat.keys";
 import { useSendChatMessage as useSendChatMessageMutation } from "@/features/workspace/api/chat.mutations";
 import {
@@ -142,6 +144,10 @@ export function useProjectChat(projectId?: string) {
 		[queryClient],
 	);
 
+	const invalidateCreditBalance = useCallback(() => {
+		void queryClient.invalidateQueries({ queryKey: creditsKeys.balance() });
+	}, [queryClient]);
+
 	const handleStreamEvent = useCallback(
 		(id: string, event: ChatStreamEvent, meta: ChatStreamEventMeta) => {
 			if (!isMountedRef.current) {
@@ -194,19 +200,21 @@ export function useProjectChat(projectId?: string) {
 				setErrorMessage(
 					event.message || tRef.current("native.workspace.chat.errors.stream"),
 				);
+				invalidateCreditBalance();
 				clearGeneration(id);
 				streamRef.current = null;
 				streamChatIdRef.current = null;
 				return "close";
 			}
 
+			invalidateCreditBalance();
 			clearGeneration(id);
 			void queryClient.invalidateQueries({ queryKey: chatKeys.messages(id) });
 			streamRef.current = null;
 			streamChatIdRef.current = null;
 			return "close";
 		},
-		[clearGeneration, queryClient, upsertMessage],
+		[clearGeneration, invalidateCreditBalance, queryClient, upsertMessage],
 	);
 
 	const handleMalformedStreamEvent = useCallback(
@@ -219,11 +227,12 @@ export function useProjectChat(projectId?: string) {
 
 			if (frame.event === "error") {
 				setErrorMessage(tRef.current("native.workspace.chat.errors.stream"));
+				invalidateCreditBalance();
 				clearGeneration(id);
 				closeStream();
 			}
 		},
-		[clearGeneration, closeStream, queryClient],
+		[clearGeneration, closeStream, invalidateCreditBalance, queryClient],
 	);
 
 	const handleConnectionError = useCallback(
@@ -239,6 +248,14 @@ export function useProjectChat(projectId?: string) {
 					return;
 				}
 
+				if (error.status === 402) {
+					setErrorMessage(tRef.current("native.workspace.chat.errors.credits"));
+					invalidateCreditBalance();
+					clearGeneration(id);
+					closeStream();
+					return;
+				}
+
 				if (error.status >= 400 && error.status < 500) {
 					setErrorMessage(tRef.current("native.workspace.chat.errors.stream"));
 					clearGeneration(id);
@@ -250,7 +267,7 @@ export function useProjectChat(projectId?: string) {
 			// Network-level stream interruptions are retried silently. Server-sent
 			// "error" frames are handled above and become visible to the user.
 		},
-		[clearGeneration, closeStream],
+		[clearGeneration, closeStream, invalidateCreditBalance],
 	);
 
 	const handleStreamInactivity = useCallback(
@@ -396,6 +413,9 @@ export function useProjectChat(projectId?: string) {
 							(message) => message.id !== optimisticId,
 						),
 					}));
+					if (isPaymentRequiredError(error)) {
+						invalidateCreditBalance();
+					}
 					setErrorMessage(sendErrorMessage(error, tRef.current));
 					if (generationStillActive) {
 						generationActiveRef.current = true;
@@ -426,6 +446,7 @@ export function useProjectChat(projectId?: string) {
 			closeStream,
 			ensureStreamReady,
 			isSending,
+			invalidateCreditBalance,
 			patchMessages,
 			queryClient,
 			sendChatMessageAsync,
@@ -440,6 +461,7 @@ export function useProjectChat(projectId?: string) {
 		};
 	}, [closeStream]);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: chatId intentionally resets transient state when switching chats
 	useEffect(() => {
 		setActiveOverride(null);
 		generationActiveRef.current = false;
@@ -490,16 +512,34 @@ export function useProjectChat(projectId?: string) {
 }
 
 function sendErrorMessage(error: unknown, t: Translate) {
+	if (isChatStreamHttpError(error) && error.status === 402) {
+		return t("native.workspace.chat.errors.credits");
+	}
+
 	if (isApiClientError(error)) {
 		if (error.statusCode === 409) {
 			return t("native.workspace.chat.errors.busy");
 		}
 		if (error.statusCode === 402) {
+			const details = paymentRequiredDetailsSchema.safeParse(error.details);
+			if (details.success) {
+				return t("native.workspace.chat.errors.creditsDetails", {
+					requiredCredits: details.data.requiredCredits,
+					availableCredits: details.data.availableCredits,
+				});
+			}
 			return t("native.workspace.chat.errors.credits");
 		}
 	}
 
 	return t("native.workspace.chat.errors.send");
+}
+
+function isPaymentRequiredError(error: unknown) {
+	return (
+		(isApiClientError(error) && error.statusCode === 402) ||
+		(isChatStreamHttpError(error) && error.status === 402)
+	);
 }
 
 function isGenerationActiveError(error: unknown) {

@@ -125,6 +125,102 @@ export class SubscriptionsRepository {
 		return row ?? null;
 	}
 
+	async findById(
+		id: string,
+		client: SubscriptionsClient = this.db,
+	): Promise<SubscriptionRow | null> {
+		const [row] = await client
+			.select()
+			.from(subscriptions)
+			.where(eq(subscriptions.id, id))
+			.limit(1);
+
+		return row ?? null;
+	}
+
+	async setPendingTierCredits(
+		providerSubscriptionId: string,
+		pendingTierCredits: CreditTier | null,
+		client: SubscriptionsClient = this.db,
+	): Promise<SubscriptionRow | null> {
+		const [row] = await client
+			.update(subscriptions)
+			.set({
+				pendingAppliedBy: null,
+				pendingTierCredits,
+				updatedAt: new Date(),
+			})
+			.where(eq(subscriptions.providerSubscriptionId, providerSubscriptionId))
+			.returning();
+
+		return row ?? null;
+	}
+
+	async markPendingTierApplied(
+		providerSubscriptionId: string,
+		appliedBy: string,
+		client: SubscriptionsClient = this.db,
+	): Promise<SubscriptionRow | null> {
+		const [row] = await client
+			.update(subscriptions)
+			.set({ pendingAppliedBy: appliedBy, updatedAt: new Date() })
+			.where(
+				and(
+					eq(subscriptions.providerSubscriptionId, providerSubscriptionId),
+					sql`${subscriptions.pendingTierCredits} IS NOT NULL`,
+					sql`${subscriptions.pendingAppliedBy} IS NULL`,
+				),
+			)
+			.returning();
+
+		return row ?? null;
+	}
+
+	async clearAppliedPendingTier(
+		providerSubscriptionId: string,
+		client: SubscriptionsClient = this.db,
+	): Promise<SubscriptionRow | null> {
+		const [row] = await client
+			.update(subscriptions)
+			.set({
+				pendingAppliedBy: null,
+				pendingTierCredits: null,
+				updatedAt: new Date(),
+			})
+			.where(
+				and(
+					eq(subscriptions.providerSubscriptionId, providerSubscriptionId),
+					sql`${subscriptions.pendingAppliedBy} IS NOT NULL`,
+				),
+			)
+			.returning();
+
+		return row ?? null;
+	}
+
+	async clearMatchingPendingTier(
+		providerSubscriptionId: string,
+		tierCredits: number,
+		client: SubscriptionsClient = this.db,
+	): Promise<SubscriptionRow | null> {
+		const [row] = await client
+			.update(subscriptions)
+			.set({
+				pendingAppliedBy: null,
+				pendingTierCredits: null,
+				updatedAt: new Date(),
+			})
+			.where(
+				and(
+					eq(subscriptions.providerSubscriptionId, providerSubscriptionId),
+					eq(subscriptions.pendingTierCredits, tierCredits),
+				),
+			)
+			.returning();
+
+		return row ?? null;
+	}
+
 	async updateStatus(
 		providerSubscriptionId: string,
 		status: string,

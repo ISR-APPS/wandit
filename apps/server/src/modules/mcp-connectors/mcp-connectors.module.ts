@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 
 import { DatabaseModule } from "../../infrastructure/database/database.module";
 import { ConnectorGenerationsModule } from "../connector-generations/connector-generations.module";
+import { MeteringModule } from "../metering/metering.module";
 import { McpChatToolsService } from "./application/services/mcp-chat-tools.service";
 import { McpConnectionsService } from "./application/services/mcp-connections.service";
 import { McpOauthService } from "./application/services/mcp-oauth.service";
@@ -15,7 +16,7 @@ import { McpConnectorsController } from "./presentation/http/controllers/mcp-con
 @Module({
 	controllers: [McpConnectorsController],
 	exports: [McpChatToolsService, McpConnectionsService],
-	imports: [ConnectorGenerationsModule, DatabaseModule],
+	imports: [ConnectorGenerationsModule, DatabaseModule, MeteringModule],
 	providers: [
 		McpChatToolsService,
 		McpConnectionsRepository,

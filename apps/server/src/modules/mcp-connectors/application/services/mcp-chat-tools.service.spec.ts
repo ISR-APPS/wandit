@@ -5,6 +5,7 @@ import {
 	type MCPClient,
 } from "@ai-sdk/mcp";
 import { ConflictException, Logger } from "@nestjs/common";
+import { env } from "@wandit/env/server";
 import type { Tool, ToolExecutionOptions } from "ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -12,7 +13,21 @@ vi.mock("@ai-sdk/mcp", () => ({
 	createMCPClient: vi.fn(),
 }));
 
+const triggerMocks = vi.hoisted(() => ({
+	createPublicToken: vi.fn(),
+	createTriggerIdempotencyKey: vi.fn(),
+	trigger: vi.fn(),
+}));
+
+vi.mock("@trigger.dev/sdk", () => ({
+	auth: { createPublicToken: triggerMocks.createPublicToken },
+	idempotencyKeys: { create: triggerMocks.createTriggerIdempotencyKey },
+	tasks: { trigger: triggerMocks.trigger },
+}));
+
 import type { ConnectorGenerationsRepository } from "../../../connector-generations/infrastructure/persistence/connector-generations.repository";
+import { InsufficientCreditsError } from "../../../credits/domain/errors/insufficient-credits.error";
+import type { MeteringService } from "../../../metering/application/services/metering.service";
 import type {
 	McpConnectionRow,
 	McpConnectionsRepository,
@@ -46,6 +61,14 @@ const DISCOVERY_DOORS = [
 	"run_platform_tool",
 	"search_platform_tools",
 ] as const;
+const INITIAL_BILLING_MODE = env.GENERATION_BILLING_MODE;
+const INITIAL_TRIGGER_SECRET_KEY = env.TRIGGER_SECRET_KEY;
+
+function toolExecutionOptions(
+	toolCallId: string,
+): ToolExecutionOptions<unknown> {
+	return { context: undefined, messages: [], toolCallId };
+}
 
 type CapturedCreateOptions = {
 	initialInitializeResult?: InitializeResult;
@@ -229,12 +252,53 @@ function buildService({
 		markAttemptFailed: vi.fn().mockResolvedValue(true),
 		markAttemptTriggered: vi.fn().mockResolvedValue(undefined),
 	};
+	const meteringEvents = new Map<
+		string,
+		Awaited<ReturnType<MeteringService["reserve"]>>
+	>();
+	let meteringEventIndex = 0;
+	const meteringService = {
+		captureGeneration: vi.fn().mockResolvedValue({ id: "generation-ref" }),
+		findByIdempotencyKey: vi.fn(
+			async (idempotencyKey: string) =>
+				meteringEvents.get(idempotencyKey) ?? null,
+		),
+		refund: vi.fn(async (eventId: string) => ({ id: eventId })),
+		reserveWithReplay: vi.fn(
+			async (
+				_operation: string,
+				_userId: string,
+				input: { credits?: number; idempotencyKey: string },
+			): Promise<Awaited<ReturnType<MeteringService["reserveWithReplay"]>>> => {
+				meteringEventIndex += 1;
+				const event = {
+					id: `usage-event-${meteringEventIndex}`,
+					reservedCredits: input.credits ?? 1,
+				} as Awaited<ReturnType<MeteringService["reserve"]>>;
+				meteringEvents.set(input.idempotencyKey, event);
+				return { event, replay: "none", replayed: false } as const;
+			},
+		),
+		settle: vi.fn(async (eventId: string) => ({ id: eventId })),
+		settleDirectPairWithFixedEvidence: vi.fn(
+			async (
+				parent: { eventId: string },
+				child?: { eventId: string },
+				_evidence?: { completedUnits: number; eventId: string },
+			) => ({
+				child: child ? { id: child.eventId } : null,
+				parent: { id: parent.eventId },
+			}),
+		),
+		upgradeFixedGenerationUnits: vi.fn(async () => undefined),
+	};
 	const service = new McpChatToolsService(
 		connectionsRepository as unknown as McpConnectionsRepository,
 		connectorsRepository as unknown as McpConnectorsRepository,
 		connectionsService as unknown as McpConnectionsService,
 		runtimeCache,
 		connectorGenerationsRepository as unknown as ConnectorGenerationsRepository,
+		meteringService as unknown as MeteringService,
 	);
 
 	return {
@@ -242,12 +306,18 @@ function buildService({
 		connectionsService,
 		connectorGenerationsRepository,
 		connectorsRepository,
+		meteringEvents,
+		meteringService,
 		runtimeCache,
 		service,
 	};
 }
 
-async function executeTool(tool: Tool, input: unknown): Promise<unknown> {
+async function executeTool(
+	tool: Tool,
+	input: unknown,
+	options: ToolExecutionOptions<unknown> = TOOL_EXECUTION_OPTIONS,
+): Promise<unknown> {
 	const execute = (
 		tool as Tool & {
 			execute?: (
@@ -261,7 +331,7 @@ async function executeTool(tool: Tool, input: unknown): Promise<unknown> {
 		throw new Error("Expected an executable tool");
 	}
 
-	return execute(input, TOOL_EXECUTION_OPTIONS);
+	return execute(input, options);
 }
 
 function requiredTool(tools: Record<string, Tool>, name: string): Tool {
@@ -339,11 +409,26 @@ function deferred<T>() {
 describe("McpChatToolsService.resolveToolsForUser", () => {
 	beforeEach(() => {
 		vi.resetAllMocks();
+		(
+			env as typeof env & { GENERATION_BILLING_MODE: "enforce" | "off" }
+		).GENERATION_BILLING_MODE = "enforce";
+		(env as typeof env & { TRIGGER_SECRET_KEY?: string }).TRIGGER_SECRET_KEY =
+			undefined;
+		triggerMocks.createPublicToken.mockResolvedValue("public-token");
+		triggerMocks.createTriggerIdempotencyKey.mockResolvedValue(
+			"connector-idempotency-key",
+		);
+		triggerMocks.trigger.mockResolvedValue({ id: "trigger-run-1" });
 	});
 
 	afterEach(() => {
 		vi.restoreAllMocks();
 		vi.useRealTimers();
+		(
+			env as typeof env & { GENERATION_BILLING_MODE: "enforce" | "off" }
+		).GENERATION_BILLING_MODE = INITIAL_BILLING_MODE;
+		(env as typeof env & { TRIGGER_SECRET_KEY?: string }).TRIGGER_SECRET_KEY =
+			INITIAL_TRIGGER_SECRET_KEY;
 	});
 
 	describe("connection setup and existing behavior", () => {
@@ -1157,6 +1242,683 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				"user-approval",
 			);
 			expect(approval("garbage")).toBe("user-approval");
+		});
+	});
+
+	describe("connector generation metering", () => {
+		it("meters an inline image generation as connector plus per-image child and captures gateway ids", async () => {
+			const providerResult = {
+				content: [
+					{
+						text: JSON.stringify({
+							imageUrl: "https://cdn.example.com/generated-image.webp",
+							providerMetadata: {
+								gateway: { generationId: "gateway-generation-1" },
+							},
+						}),
+						type: "text",
+					},
+				],
+			};
+			queueClient(
+				mockClient({
+					definitions: [definition("generate_image")],
+					toolImplementations: {
+						generate_image: executableTool(() => providerResult),
+					},
+				}),
+			);
+			const { meteringService, service } = buildService({
+				connectors: [connector({ slug: "higgsfield" })],
+			});
+			const result = await service.resolveToolsForUser(USER_ID, "chat-event");
+
+			await expect(
+				executeTool(
+					requiredTool(result.tools, "mcp_higgsfield_generate_image"),
+					{ count: 2, prompt: "A product photo" },
+					toolExecutionOptions("call-image-1"),
+				),
+			).resolves.toBe(providerResult);
+
+			const referenceId =
+				"mcp:user-1:chat-event:higgsfield:generate_image:call-image-1";
+			expect(meteringService.reserveWithReplay).toHaveBeenNthCalledWith(
+				1,
+				"connector",
+				USER_ID,
+				{
+					attemptRef: referenceId,
+					credits: 5,
+					idempotencyKey: `connector:${referenceId}`,
+					parentEventId: "chat-event",
+				},
+			);
+			expect(meteringService.reserveWithReplay).toHaveBeenNthCalledWith(
+				2,
+				"image",
+				USER_ID,
+				{
+					attemptRef: referenceId,
+					credits: 10,
+					idempotencyKey: `image:${referenceId}`,
+					parentEventId: "usage-event-1",
+				},
+			);
+			expect(meteringService.settle).not.toHaveBeenCalled();
+			expect(
+				meteringService.settleDirectPairWithFixedEvidence,
+			).toHaveBeenCalledWith(
+				{
+					eventId: "usage-event-1",
+					settlement: expect.objectContaining({
+						finalCredits: 5,
+						pricing: "direct",
+						pricingSnapshot: expect.objectContaining({
+							operation: "connector",
+							units: 1,
+						}),
+					}),
+				},
+				{
+					eventId: "usage-event-2",
+					settlement: expect.objectContaining({
+						finalCredits: 5,
+						pricing: "direct",
+						pricingSnapshot: expect.objectContaining({
+							operation: "image",
+							units: 1,
+						}),
+					}),
+				},
+				{ completedUnits: 1, eventId: "usage-event-2" },
+			);
+			expect(meteringService.captureGeneration).toHaveBeenCalledWith(
+				"usage-event-2",
+				{
+					providerMetadata: {
+						gateway: { generationId: "gateway-generation-1" },
+					},
+					stepUsage: {
+						metering: { fixedUnits: 0 },
+						providerUsage: null,
+					},
+				},
+			);
+			const captureOrder =
+				meteringService.captureGeneration.mock.invocationCallOrder[0];
+			const settleOrder =
+				meteringService.settleDirectPairWithFixedEvidence.mock
+					.invocationCallOrder[0];
+			expect(captureOrder).toBeDefined();
+			expect(settleOrder).toBeDefined();
+			expect(captureOrder as number).toBeLessThan(settleOrder as number);
+		});
+
+		it("captures a thrown Gateway generation before refunding inline holds", async () => {
+			const providerError = Object.assign(new Error("gateway failed"), {
+				generationId: "gateway-generation-error",
+			});
+			const providerExecute = vi.fn().mockRejectedValue(providerError);
+			queueClient(
+				mockClient({
+					definitions: [definition("generate_image")],
+					toolImplementations: {
+						generate_image: executableTool(providerExecute),
+					},
+				}),
+			);
+			const { meteringService, service } = buildService({
+				connectors: [connector({ slug: "higgsfield" })],
+			});
+			const result = await service.resolveToolsForUser(USER_ID, "chat-event");
+
+			await expect(
+				executeTool(
+					requiredTool(result.tools, "mcp_higgsfield_generate_image"),
+					{ prompt: "Fail after gateway admission" },
+					toolExecutionOptions("call-image-gateway-error"),
+				),
+			).rejects.toBe(providerError);
+			expect(meteringService.captureGeneration).toHaveBeenCalledWith(
+				"usage-event-2",
+				{
+					providerMetadata: {
+						gateway: { generationId: "gateway-generation-error" },
+					},
+					stepUsage: {
+						metering: { fixedUnits: 0 },
+						providerUsage: null,
+					},
+				},
+			);
+			expect(meteringService.refund).toHaveBeenCalledTimes(2);
+			expect(
+				meteringService.captureGeneration.mock.invocationCallOrder[0],
+			).toBeLessThan(
+				meteringService.refund.mock.invocationCallOrder[0] ??
+					Number.MAX_SAFE_INTEGER,
+			);
+		});
+
+		it("captures Gateway evidence from an MCP error result before refunding", async () => {
+			const providerResult = {
+				content: [
+					{
+						text: JSON.stringify({
+							providerMetadata: {
+								gateway: { generationId: "gateway-mcp-error" },
+							},
+						}),
+						type: "text",
+					},
+				],
+				isError: true,
+			};
+			queueClient(
+				mockClient({
+					definitions: [definition("generate_image")],
+					toolImplementations: {
+						generate_image: executableTool(() => providerResult),
+					},
+				}),
+			);
+			const { meteringService, service } = buildService({
+				connectors: [connector({ slug: "higgsfield" })],
+			});
+			const result = await service.resolveToolsForUser(USER_ID, "chat-event");
+
+			await expect(
+				executeTool(
+					requiredTool(result.tools, "mcp_higgsfield_generate_image"),
+					{ prompt: "Provider rejects" },
+					toolExecutionOptions("call-image-mcp-error"),
+				),
+			).resolves.toBe(providerResult);
+			expect(meteringService.captureGeneration).toHaveBeenCalledWith(
+				"usage-event-2",
+				expect.objectContaining({
+					stepUsage: {
+						metering: { fixedUnits: 0 },
+						providerUsage: null,
+					},
+				}),
+			);
+			expect(
+				meteringService.captureGeneration.mock.invocationCallOrder[0],
+			).toBeLessThan(
+				meteringService.refund.mock.invocationCallOrder[0] ??
+					Number.MAX_SAFE_INTEGER,
+			);
+		});
+
+		it("retries mandatory inline generation-ref capture without repeating provider work", async () => {
+			const providerResult = {
+				providerMetadata: {
+					gateway: { generationId: "gateway-generation-retry" },
+				},
+			};
+			const providerExecute = vi.fn().mockResolvedValue(providerResult);
+			queueClient(
+				mockClient({
+					definitions: [definition("generate_image")],
+					toolImplementations: {
+						generate_image: executableTool(providerExecute),
+					},
+				}),
+			);
+			const { meteringService, service } = buildService({
+				connectors: [connector({ slug: "higgsfield" })],
+			});
+			meteringService.captureGeneration
+				.mockRejectedValueOnce(new Error("capture unavailable 1"))
+				.mockRejectedValueOnce(new Error("capture unavailable 2"))
+				.mockResolvedValue({ id: "generation-ref" });
+			const result = await service.resolveToolsForUser(USER_ID, "chat-event");
+
+			await expect(
+				executeTool(
+					requiredTool(result.tools, "mcp_higgsfield_generate_image"),
+					{ prompt: "Retry capture" },
+					toolExecutionOptions("call-image-capture-retry"),
+				),
+			).resolves.toBe(providerResult);
+			expect(providerExecute).toHaveBeenCalledTimes(1);
+			expect(meteringService.captureGeneration).toHaveBeenCalledTimes(3);
+			expect(meteringService.settle).not.toHaveBeenCalled();
+			expect(
+				meteringService.settleDirectPairWithFixedEvidence,
+			).toHaveBeenCalledTimes(1);
+			expect(meteringService.refund).not.toHaveBeenCalled();
+		});
+
+		it("does not deliver, settle, or refund after terminal inline generation-ref failure", async () => {
+			const providerResult = {
+				providerMetadata: {
+					gateway: { generationId: "gateway-generation-failed" },
+				},
+			};
+			const providerExecute = vi.fn().mockResolvedValue(providerResult);
+			queueClient(
+				mockClient({
+					definitions: [definition("generate_image")],
+					toolImplementations: {
+						generate_image: executableTool(providerExecute),
+					},
+				}),
+			);
+			const { meteringService, service } = buildService({
+				connectors: [connector({ slug: "higgsfield" })],
+			});
+			const persistenceError = new Error("generation ref unavailable");
+			meteringService.captureGeneration.mockRejectedValue(persistenceError);
+			const result = await service.resolveToolsForUser(USER_ID, "chat-event");
+
+			await expect(
+				executeTool(
+					requiredTool(result.tools, "mcp_higgsfield_generate_image"),
+					{ prompt: "Do not deliver" },
+					toolExecutionOptions("call-image-capture-failed"),
+				),
+			).rejects.toBe(persistenceError);
+			expect(providerExecute).toHaveBeenCalledTimes(1);
+			expect(meteringService.captureGeneration).toHaveBeenCalledTimes(3);
+			expect(meteringService.settle).not.toHaveBeenCalled();
+			expect(
+				meteringService.settleDirectPairWithFixedEvidence,
+			).not.toHaveBeenCalled();
+			expect(meteringService.refund).not.toHaveBeenCalled();
+		});
+
+		it("does not invoke an inline provider for a terminal metering replay", async () => {
+			const providerExecute = vi.fn();
+			queueClient(
+				mockClient({
+					definitions: [definition("generate_image")],
+					toolImplementations: {
+						generate_image: executableTool(providerExecute),
+					},
+				}),
+			);
+			const { meteringService, service } = buildService({
+				connectors: [connector({ slug: "higgsfield" })],
+			});
+			meteringService.reserveWithReplay.mockResolvedValueOnce({
+				event: { id: "settled-connector" } as Awaited<
+					ReturnType<MeteringService["reserve"]>
+				>,
+				replay: "settled",
+				replayed: true,
+			});
+			const result = await service.resolveToolsForUser(USER_ID, "chat-event");
+
+			await expect(
+				executeTool(
+					requiredTool(result.tools, "mcp_higgsfield_generate_image"),
+					{ prompt: "Do not repeat" },
+					toolExecutionOptions("call-image-terminal"),
+				),
+			).rejects.toMatchObject({
+				name: "MeteringStateConflictError",
+				status: "settled",
+			});
+			expect(providerExecute).not.toHaveBeenCalled();
+			expect(meteringService.refund).not.toHaveBeenCalled();
+		});
+
+		it("does not invoke an inline provider for a reserved metering replay", async () => {
+			const providerExecute = vi.fn();
+			queueClient(
+				mockClient({
+					definitions: [definition("generate_image")],
+					toolImplementations: {
+						generate_image: executableTool(providerExecute),
+					},
+				}),
+			);
+			const { meteringService, service } = buildService({
+				connectors: [connector({ slug: "higgsfield" })],
+			});
+			meteringService.reserveWithReplay.mockResolvedValueOnce({
+				event: { id: "reserved-connector" } as Awaited<
+					ReturnType<MeteringService["reserve"]>
+				>,
+				replay: "reserved",
+				replayed: true,
+			});
+			const result = await service.resolveToolsForUser(USER_ID, "chat-event");
+
+			await expect(
+				executeTool(
+					requiredTool(result.tools, "mcp_higgsfield_generate_image"),
+					{ prompt: "Do not repeat an ambiguous call" },
+					toolExecutionOptions("call-image-reserved"),
+				),
+			).rejects.toMatchObject({
+				name: "MeteringStateConflictError",
+				status: "reserved",
+			});
+			expect(providerExecute).not.toHaveBeenCalled();
+			expect(meteringService.refund).not.toHaveBeenCalled();
+		});
+
+		it("meters connector-only generation but leaves ordinary connector calls unmetered", async () => {
+			queueClient(
+				mockClient({
+					definitions: [
+						definition("generate_audio"),
+						definition("models_explore"),
+					],
+					toolImplementations: {
+						generate_audio: executableTool(),
+						models_explore: executableTool(),
+					},
+				}),
+			);
+			const { meteringService, service } = buildService({
+				connectors: [connector({ slug: "higgsfield" })],
+			});
+			const result = await service.resolveToolsForUser(USER_ID, "chat-event");
+
+			await executeTool(
+				requiredTool(result.tools, "mcp_higgsfield_models_explore"),
+				{},
+				toolExecutionOptions("call-read"),
+			);
+			expect(meteringService.reserveWithReplay).not.toHaveBeenCalled();
+
+			await executeTool(
+				requiredTool(result.tools, "mcp_higgsfield_generate_audio"),
+				{},
+				toolExecutionOptions("call-audio"),
+			);
+			expect(meteringService.reserveWithReplay).toHaveBeenCalledTimes(1);
+			expect(meteringService.reserveWithReplay).toHaveBeenCalledWith(
+				"connector",
+				USER_ID,
+				expect.objectContaining({ credits: 5, parentEventId: "chat-event" }),
+			);
+		});
+
+		it("propagates a typed 402 without calling an inline provider", async () => {
+			const execute = vi.fn();
+			queueClient(
+				mockClient({
+					definitions: [definition("generate_image")],
+					toolImplementations: {
+						generate_image: executableTool(execute),
+					},
+				}),
+			);
+			const { meteringService, service } = buildService({
+				connectors: [connector({ slug: "higgsfield" })],
+			});
+			const paymentRequired = new InsufficientCreditsError(5, 0);
+			meteringService.reserveWithReplay.mockRejectedValueOnce(paymentRequired);
+			const result = await service.resolveToolsForUser(USER_ID, "chat-event");
+
+			await expect(
+				executeTool(
+					requiredTool(result.tools, "mcp_higgsfield_generate_image"),
+					{},
+					toolExecutionOptions("call-no-credits"),
+				),
+			).rejects.toBe(paymentRequired);
+			expect(execute).not.toHaveBeenCalled();
+		});
+
+		it("reserves stable connector and video events before background enqueue", async () => {
+			(env as typeof env & { TRIGGER_SECRET_KEY?: string }).TRIGGER_SECRET_KEY =
+				"tr_test";
+			queueClient(mockClient({ definitions: [definition("generate_video")] }));
+			const { connectorGenerationsRepository, meteringService, service } =
+				buildService({ connectors: [connector({ slug: "higgsfield" })] });
+			const result = await service.resolveToolsForUser(USER_ID, "chat-event");
+
+			await expect(
+				executeTool(
+					requiredTool(result.tools, "mcp_higgsfield_generate_video"),
+					{ prompt: "Launch film" },
+					toolExecutionOptions("call-background"),
+				),
+			).resolves.toMatchObject({
+				attemptId: GENERATION_ATTEMPT_ID,
+				status: "queued",
+			});
+
+			expect(meteringService.reserveWithReplay).toHaveBeenNthCalledWith(
+				1,
+				"connector",
+				USER_ID,
+				expect.objectContaining({
+					credits: 5,
+					idempotencyKey: `connector:${GENERATION_ATTEMPT_ID}`,
+					parentEventId: "chat-event",
+				}),
+			);
+			expect(meteringService.reserveWithReplay).toHaveBeenNthCalledWith(
+				2,
+				"video",
+				USER_ID,
+				expect.objectContaining({
+					credits: 25,
+					idempotencyKey: `video:${GENERATION_ATTEMPT_ID}`,
+					parentEventId: "usage-event-1",
+				}),
+			);
+			expect(triggerMocks.trigger).toHaveBeenCalledWith(
+				"run-connector-generation",
+				{
+					attemptId: GENERATION_ATTEMPT_ID,
+					billing: {
+						child: {
+							credits: 25,
+							eventId: "usage-event-2",
+							operation: "video",
+							referenceId: GENERATION_ATTEMPT_ID,
+							replay: "none",
+							units: 1,
+						},
+						connector: {
+							credits: 5,
+							eventId: "usage-event-1",
+							operation: "connector",
+							referenceId: GENERATION_ATTEMPT_ID,
+							replay: "none",
+							units: 1,
+						},
+					},
+					billingMode: "enforce",
+				},
+				{
+					idempotencyKey: "connector-idempotency-key",
+					idempotencyKeyTTL: "14d",
+					tags: [
+						`connector-attempt:${GENERATION_ATTEMPT_ID}`,
+						"connector:higgsfield",
+					],
+					ttl: "5m",
+				},
+			);
+			expect(triggerMocks.createTriggerIdempotencyKey).toHaveBeenCalledWith(
+				`connector-generation:${GENERATION_ATTEMPT_ID}`,
+				{ scope: "global" },
+			);
+			expect(
+				connectorGenerationsRepository.markAttemptTriggered,
+			).toHaveBeenCalledWith(GENERATION_ATTEMPT_ID, "trigger-run-1");
+			expect(meteringService.settle).not.toHaveBeenCalled();
+		});
+
+		it("dispatches enforced reservations after the runtime switch turns off", async () => {
+			(env as typeof env & { TRIGGER_SECRET_KEY?: string }).TRIGGER_SECRET_KEY =
+				"tr_test";
+			queueClient(mockClient({ definitions: [definition("generate_video")] }));
+			const { service } = buildService({
+				connectors: [connector({ slug: "higgsfield" })],
+			});
+			triggerMocks.createTriggerIdempotencyKey.mockImplementationOnce(
+				async () => {
+					(
+						env as typeof env & {
+							GENERATION_BILLING_MODE: "enforce" | "off";
+						}
+					).GENERATION_BILLING_MODE = "off";
+					return "connector-idempotency-key";
+				},
+			);
+			const result = await service.resolveToolsForUser(USER_ID, "chat-event");
+
+			await executeTool(
+				requiredTool(result.tools, "mcp_higgsfield_generate_video"),
+				{ prompt: "Launch film" },
+				toolExecutionOptions("call-switch"),
+			);
+
+			expect(triggerMocks.trigger).toHaveBeenCalledWith(
+				"run-connector-generation",
+				expect.objectContaining({ billingMode: "enforce" }),
+				expect.any(Object),
+			);
+		});
+
+		it("does not enqueue a background provider for a terminal metering replay", async () => {
+			(env as typeof env & { TRIGGER_SECRET_KEY?: string }).TRIGGER_SECRET_KEY =
+				"tr_test";
+			queueClient(mockClient({ definitions: [definition("generate_video")] }));
+			const { connectorGenerationsRepository, meteringService, service } =
+				buildService({ connectors: [connector({ slug: "higgsfield" })] });
+			meteringService.reserveWithReplay.mockResolvedValueOnce({
+				event: { id: "reconciled-connector" } as Awaited<
+					ReturnType<MeteringService["reserve"]>
+				>,
+				replay: "reconciled",
+				replayed: true,
+			});
+			const result = await service.resolveToolsForUser(USER_ID, "chat-event");
+
+			await expect(
+				executeTool(
+					requiredTool(result.tools, "mcp_higgsfield_generate_video"),
+					{ prompt: "Do not enqueue" },
+					toolExecutionOptions("call-video-terminal"),
+				),
+			).rejects.toMatchObject({
+				name: "MeteringStateConflictError",
+				status: "reconciled",
+			});
+			expect(triggerMocks.trigger).not.toHaveBeenCalled();
+			expect(
+				connectorGenerationsRepository.markAttemptFailed,
+			).toHaveBeenCalledTimes(1);
+			expect(meteringService.refund).not.toHaveBeenCalled();
+		});
+
+		it("preserves reservations when an ambiguous Trigger handoff is not confirmed", async () => {
+			(env as typeof env & { TRIGGER_SECRET_KEY?: string }).TRIGGER_SECRET_KEY =
+				"tr_test";
+			triggerMocks.trigger.mockRejectedValue(new Error("Trigger unavailable"));
+			queueClient(mockClient({ definitions: [definition("generate_video")] }));
+			const { meteringService, service } = buildService({
+				connectors: [connector({ slug: "higgsfield" })],
+			});
+			const result = await service.resolveToolsForUser(USER_ID, "chat-event");
+
+			await expect(
+				executeTool(
+					requiredTool(result.tools, "mcp_higgsfield_generate_video"),
+					{},
+					toolExecutionOptions("call-background-failed"),
+				),
+			).resolves.toMatchObject({
+				attemptId: GENERATION_ATTEMPT_ID,
+				status: "queued",
+			});
+			expect(triggerMocks.trigger).toHaveBeenCalledTimes(3);
+			expect(meteringService.refund).not.toHaveBeenCalled();
+		});
+
+		it("retries an ambiguous Trigger handoff with the same idempotency key", async () => {
+			(env as typeof env & { TRIGGER_SECRET_KEY?: string }).TRIGGER_SECRET_KEY =
+				"tr_test";
+			triggerMocks.trigger
+				.mockRejectedValueOnce(new Error("response lost"))
+				.mockResolvedValueOnce({ id: "trigger-run-recovered" });
+			queueClient(mockClient({ definitions: [definition("generate_video")] }));
+			const { meteringService, service } = buildService({
+				connectors: [connector({ slug: "higgsfield" })],
+			});
+			const result = await service.resolveToolsForUser(USER_ID, "chat-event");
+
+			await expect(
+				executeTool(
+					requiredTool(result.tools, "mcp_higgsfield_generate_video"),
+					{},
+					toolExecutionOptions("call-background-retry"),
+				),
+			).resolves.toMatchObject({ status: "queued" });
+			expect(triggerMocks.trigger).toHaveBeenCalledTimes(2);
+			expect(
+				triggerMocks.trigger.mock.calls.map((call) => call[2]?.idempotencyKey),
+			).toEqual(["connector-idempotency-key", "connector-idempotency-key"]);
+			expect(meteringService.refund).not.toHaveBeenCalled();
+		});
+
+		it("refunds both holds only after a definitive Trigger rejection", async () => {
+			(env as typeof env & { TRIGGER_SECRET_KEY?: string }).TRIGGER_SECRET_KEY =
+				"tr_test";
+			triggerMocks.trigger.mockRejectedValueOnce(
+				Object.assign(new Error("Invalid task"), {
+					name: "TriggerApiError",
+					status: 422,
+				}),
+			);
+			queueClient(mockClient({ definitions: [definition("generate_video")] }));
+			const { connectorGenerationsRepository, meteringService, service } =
+				buildService({ connectors: [connector({ slug: "higgsfield" })] });
+			const result = await service.resolveToolsForUser(USER_ID, "chat-event");
+
+			await expect(
+				executeTool(
+					requiredTool(result.tools, "mcp_higgsfield_generate_video"),
+					{},
+					toolExecutionOptions("call-background-rejected"),
+				),
+			).resolves.toMatchObject({ isError: true });
+			expect(triggerMocks.trigger).toHaveBeenCalledTimes(1);
+			expect(
+				connectorGenerationsRepository.markAttemptFailed,
+			).toHaveBeenCalledWith(GENERATION_ATTEMPT_ID, "Invalid task");
+			expect(meteringService.refund.mock.calls).toEqual([
+				["usage-event-2", "connector_generation_failed"],
+				["usage-event-1", "connector_generation_failed"],
+			]);
+		});
+
+		it("keeps generation execution unmetered when billing is off", async () => {
+			(
+				env as typeof env & { GENERATION_BILLING_MODE: "enforce" | "off" }
+			).GENERATION_BILLING_MODE = "off";
+			queueClient(
+				mockClient({
+					definitions: [definition("generate_audio")],
+					toolImplementations: {
+						generate_audio: executableTool(),
+					},
+				}),
+			);
+			const { meteringService, service } = buildService({
+				connectors: [connector({ slug: "higgsfield" })],
+			});
+			const result = await service.resolveToolsForUser(USER_ID, "chat-event");
+
+			await executeTool(
+				requiredTool(result.tools, "mcp_higgsfield_generate_audio"),
+				{},
+				toolExecutionOptions("call-billing-off"),
+			);
+			expect(meteringService.reserveWithReplay).not.toHaveBeenCalled();
+			expect(meteringService.settle).not.toHaveBeenCalled();
 		});
 	});
 

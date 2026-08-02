@@ -27,8 +27,13 @@ import {
 // Type-only import: importing the task value would pull the Trigger worker
 // (and its database pool) into the Nest API process.
 import type { generateImageTask } from "../../../../trigger/generate-image.task";
-import type { GenerationPolicyService } from "../../../generation/application/services/generation-policy.service";
+import {
+	createImageGenerationBilling,
+	type ImageGenerationBilling,
+} from "../../../image-generations/application/services/image-generation-billing";
 import type { ImageGenerationsRepository } from "../../../image-generations/infrastructure/persistence/image-generations.repository";
+import { assertFixedOperationProviderExecutionAllowed } from "../../../metering/application/services/fixed-operation-billing";
+import type { MeteringService } from "../../../metering/application/services/metering.service";
 import type { AvailableImage } from "./animate-image.tool";
 
 const logger = new Logger("generate-image");
@@ -38,8 +43,9 @@ const TRIGGER_IDEMPOTENCY_TTL = "14d";
 export type GenerateImageToolDeps = {
 	availableImages: readonly AvailableImage[];
 	chatId: string;
-	generationPolicyService: GenerationPolicyService;
 	imageGenerationsRepository: ImageGenerationsRepository;
+	meteringService: MeteringService;
+	parentEventId?: string;
 	projectId: string;
 	// Composer quality tier, snapshotted for later model swapping — the
 	// generator does not read it yet.
@@ -51,6 +57,11 @@ export type GenerateImageToolDeps = {
 export function createGenerateImageTool(
 	deps: GenerateImageToolDeps,
 ): Tool<GenerateImageInput, GenerateImageOutput> {
+	const billing = createImageGenerationBilling({
+		isBillingDisabled: () => env.GENERATION_BILLING_MODE === "off",
+		meteringService: deps.meteringService,
+	});
+
 	return tool({
 		description:
 			"Queue a standalone image generation (1-4 images) that runs in the " +
@@ -107,21 +118,6 @@ export function createGenerateImageTool(
 				}
 			}
 
-			try {
-				await deps.generationPolicyService.assertCanGenerate(
-					deps.userId,
-					"imageGeneration",
-				);
-			} catch {
-				return {
-					message:
-						"The user needs an active subscription or 5 credits for " +
-						"image generation. Explain that clearly and do not claim the " +
-						"images were queued.",
-					status: "unavailable",
-				};
-			}
-
 			let attempt: {
 				created: boolean;
 				id: string;
@@ -167,7 +163,7 @@ export function createGenerateImageTool(
 			}
 
 			if (!attempt.created && attempt.status === "failed") {
-				await refundReservation(deps, attempt.id);
+				await refundReservation(deps, billing, attempt.id);
 
 				return {
 					message:
@@ -190,9 +186,22 @@ export function createGenerateImageTool(
 				};
 			}
 
+			// The attempt id is durable before money moves. A repeated tool call or
+			// Trigger delivery replays this exact reservation fingerprint.
+			const reservation = await billing.reserve(
+				deps.userId,
+				attempt.id,
+				input.count,
+				deps.parentEventId,
+			);
+
+			assertFixedOperationProviderExecutionAllowed(reservation);
+
 			try {
 				const handle = await triggerGenerateImageTask({
 					attemptId: attempt.id,
+					billingMode: reservation.eventId ? "enforce" : "off",
+					...(deps.parentEventId ? { parentEventId: deps.parentEventId } : {}),
 					projectId: deps.projectId,
 					userId: deps.userId,
 				});
@@ -227,7 +236,7 @@ export function createGenerateImageTool(
 							);
 
 						if (closed) {
-							await refundReservation(deps, attempt.id);
+							await refundReservation(deps, billing, attempt.id);
 
 							return {
 								message:
@@ -273,6 +282,8 @@ export function createGenerateImageTool(
 
 async function triggerGenerateImageTask(payload: {
 	attemptId: string;
+	billingMode: "enforce" | "off";
+	parentEventId?: string;
 	projectId: string;
 	userId: string;
 }): Promise<Awaited<ReturnType<typeof tasks.trigger>>> {
@@ -334,13 +345,11 @@ function isDefinitiveTriggerRejection(error: unknown): boolean {
 
 async function refundReservation(
 	deps: GenerateImageToolDeps,
+	billing: ImageGenerationBilling,
 	attemptId: string,
 ): Promise<void> {
 	try {
-		await deps.generationPolicyService.refundGenerationReservation(
-			deps.userId,
-			attemptId,
-		);
+		await billing.refund(deps.userId, attemptId);
 	} catch (error) {
 		logger.error(
 			`Refunding image generation reservation ${attemptId} failed`,

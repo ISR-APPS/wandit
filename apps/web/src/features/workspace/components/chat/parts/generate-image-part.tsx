@@ -12,6 +12,7 @@ import { cn } from "@wandit/ui/lib/utils";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 import { type ReactNode, useEffect } from "react";
 
+import { invalidateBalanceAfterGenerationTerminal } from "@/features/credits/lib/terminal-balance-invalidation";
 import { useTranslation } from "@/lib/i18n";
 import { useImageGenerationAttemptQuery } from "../../../api/image-generations.queries";
 import { imageGenerationDownloadUrl } from "../../../api/image-generations.services";
@@ -82,6 +83,15 @@ function ImageGenerationCard({ attemptId }: { attemptId: string }) {
 	// Once the images exist, the Assets tab should show them without a manual
 	// refresh.
 	const succeeded = attempt?.status === "succeeded";
+	const terminalStatus =
+		attempt?.status === "succeeded" || attempt?.status === "failed"
+			? attempt.status
+			: null;
+	useEffect(() => {
+		if (!terminalStatus) return;
+		invalidateBalanceAfterGenerationTerminal(queryClient, terminalStatus);
+	}, [queryClient, terminalStatus]);
+
 	useEffect(() => {
 		if (!succeeded) return;
 		void queryClient.invalidateQueries({

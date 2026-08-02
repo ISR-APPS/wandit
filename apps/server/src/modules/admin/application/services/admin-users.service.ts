@@ -6,6 +6,7 @@ import {
 	NotFoundException,
 } from "@nestjs/common";
 import {
+	type AdminBetaEnrollInput,
 	type AdminGrantCreditsInput,
 	type AdminListUsersQuery,
 	type AdminListUsersResponse,
@@ -22,6 +23,7 @@ import {
 	mapAdminUserSummary,
 } from "../../infrastructure/mappers/admin-user.mapper";
 import { AdminRepository } from "../../infrastructure/persistence/admin.repository";
+import { BetaAccessService } from "./beta-access.service";
 
 const RECENT_PROJECTS_LIMIT = 25;
 const RECENT_LEDGER_LIMIT = 50;
@@ -35,6 +37,8 @@ export class AdminUsersService {
 		private readonly adminRepository: AdminRepository,
 		@Inject(CreditsService)
 		private readonly creditsService: CreditsService,
+		@Inject(BetaAccessService)
+		private readonly betaAccessService: BetaAccessService,
 	) {}
 
 	async listUsers(query: AdminListUsersQuery): Promise<AdminListUsersResponse> {
@@ -72,11 +76,8 @@ export class AdminUsersService {
 		await this.ensureUserExists(userId);
 
 		await this.creditsService.grant(userId, input.amount, {
-			// "topup", not "plan": SubscriptionCreditsService.expirePlanRemainder
-			// zeroes the plan bucket on every renewal, cancellation and interval
-			// change, which would silently wipe an admin grant.
-			bucket: "topup",
-			idempotencyKey: `admin-grant:${input.requestId}`,
+			bucket: "promo",
+			idempotencyKey: `admin-grant:${userId}:${input.requestId}`,
 			meta: {
 				reason: "admin_grant",
 				grantedBy: actingAdminId,
@@ -86,6 +87,20 @@ export class AdminUsersService {
 
 		this.logger.log(
 			`admin_grant_credits admin=${actingAdminId} target=${userId} amount=${input.amount}`,
+		);
+
+		return this.getUserDetail(userId);
+	}
+
+	async betaEnroll(
+		actingAdminId: string,
+		userId: string,
+		input: AdminBetaEnrollInput,
+	): Promise<AdminUserDetail> {
+		await this.betaAccessService.enroll(actingAdminId, userId, input);
+
+		this.logger.log(
+			`admin_beta_enroll admin=${actingAdminId} target=${userId} credits=${input.credits}`,
 		);
 
 		return this.getUserDetail(userId);
@@ -115,8 +130,11 @@ export class AdminUsersService {
 		userId: string,
 		input: AdminSetAccessInput,
 	): Promise<AdminUserDetail> {
-		await this.ensureUserExists(userId);
-		await this.adminRepository.setUserEarlyAccess(userId, input.granted);
+		await this.betaAccessService.setAccess(
+			actingAdminId,
+			userId,
+			input.granted,
+		);
 
 		this.logger.log(
 			`admin_set_access admin=${actingAdminId} target=${userId} granted=${input.granted}`,

@@ -4,47 +4,75 @@ import {
 	billingPlanIds,
 	billingRoutes,
 	CREDIT_COSTS,
+	CREDIT_SPEND_ORDER,
 	CREDIT_TIERS,
 	changeBillingSubscriptionBodySchema,
 	ENTITLED_SUBSCRIPTION_STATUSES,
+	PURCHASED_CREDIT_BUCKETS,
 	parsePriceLookupKey,
+	paymentRequiredDetailsSchema,
+	previewBillingSubscriptionChangeBodySchema,
 	priceLookupKey,
 	priceUsdFor,
 	SIGNUP_GRANT_CREDITS,
 	subscriptionSchema,
+	TOPUP_PACKS,
+	topupPackIds,
 } from "@wandit/contracts";
 import { describe, expect, it } from "vitest";
 
+const PRO_ECONOMICS = [
+	{ monthlyUsd: 25, tierCredits: 100, yearlyUsd: 250 },
+	{ monthlyUsd: 50, tierCredits: 200, yearlyUsd: 500 },
+	{ monthlyUsd: 100, tierCredits: 400, yearlyUsd: 1000 },
+	{ monthlyUsd: 200, tierCredits: 800, yearlyUsd: 2000 },
+	{ monthlyUsd: 294, tierCredits: 1200, yearlyUsd: 2940 },
+	{ monthlyUsd: 480, tierCredits: 2000, yearlyUsd: 4800 },
+	{ monthlyUsd: 705, tierCredits: 3000, yearlyUsd: 7050 },
+	{ monthlyUsd: 920, tierCredits: 4000, yearlyUsd: 9200 },
+	{ monthlyUsd: 1125, tierCredits: 5000, yearlyUsd: 11250 },
+] as const;
+
 describe("billing catalog", () => {
-	it("calculates monthly, annual, and volume-boundary prices", () => {
-		expect(priceUsdFor("pro", 100, "month")).toBe(25);
-		expect(priceUsdFor("business", 100, "month")).toBe(50);
-		expect(priceUsdFor("pro", 10_000, "month")).toBe(
-			Math.ceil(25 * 100 * 0.85),
+	it("publishes the exact single-plan economics table", () => {
+		expect(billingPlanIds).toEqual(["pro"]);
+		expect(CREDIT_TIERS).toEqual(
+			PRO_ECONOMICS.map(({ tierCredits }) => tierCredits),
 		);
-		expect(priceUsdFor("pro", 100, "year")).toBe(25 * 12 * 0.8);
-		expect(priceUsdFor("pro", 400, "month")).toBe(100);
-		expect(priceUsdFor("pro", 800, "month")).toBe(190);
+
+		for (const row of PRO_ECONOMICS) {
+			expect(priceUsdFor("pro", row.tierCredits, "month")).toBe(row.monthlyUsd);
+			expect(priceUsdFor("pro", row.tierCredits, "year")).toBe(row.yearlyUsd);
+			expect(row.yearlyUsd).toBe(row.monthlyUsd * 10);
+		}
 	});
 
-	it("round-trips every plan, tier, and interval lookup key", () => {
-		for (const plan of billingPlanIds) {
-			for (const tierCredits of CREDIT_TIERS) {
-				for (const interval of billingIntervals) {
-					const lookupKey = priceLookupKey(plan, tierCredits, interval);
+	it("publishes the exact top-up economics", () => {
+		expect(topupPackIds).toEqual(["topup_100", "topup_500", "topup_1000"]);
+		expect(TOPUP_PACKS).toEqual({
+			topup_100: { credits: 100, usd: 25 },
+			topup_500: { credits: 500, usd: 125 },
+			topup_1000: { credits: 1000, usd: 250 },
+		});
+	});
 
-					expect(parsePriceLookupKey(lookupKey)).toEqual({
-						interval,
-						plan,
-						tierCredits,
-					});
-				}
+	it("round-trips every public price lookup key", () => {
+		for (const tierCredits of CREDIT_TIERS) {
+			for (const interval of billingIntervals) {
+				const lookupKey = priceLookupKey("pro", tierCredits, interval);
+
+				expect(parsePriceLookupKey(lookupKey)).toEqual({
+					interval,
+					plan: "pro",
+					tierCredits,
+				});
 			}
 		}
 	});
 
-	it("rejects invalid price lookup keys", () => {
+	it("rejects unknown and malformed price lookup keys", () => {
 		for (const lookupKey of [
+			"enterprise_100_month",
 			"pro_150_month",
 			"free_100_month",
 			"pro_100_weekly",
@@ -55,7 +83,7 @@ describe("billing catalog", () => {
 		}
 	});
 
-	it("exports exact credit costs and signup grant values", () => {
+	it("exports exact credit costs, signup grant, and bucket policies", () => {
 		expect(CREDIT_COSTS).toEqual({
 			chatMessage: 1,
 			imageGeneration: 5,
@@ -63,7 +91,9 @@ describe("billing catalog", () => {
 			marketingAssetGeneration: 5,
 			videoGeneration: 25,
 		});
-		expect(SIGNUP_GRANT_CREDITS).toBe(100);
+		expect(SIGNUP_GRANT_CREDITS).toBe(20);
+		expect(CREDIT_SPEND_ORDER).toEqual(["plan", "promo", "topup"]);
+		expect(PURCHASED_CREDIT_BUCKETS).toEqual(["plan", "topup"]);
 	});
 
 	it("limits subscription entitlement to active and trialing", () => {
@@ -71,10 +101,23 @@ describe("billing catalog", () => {
 		expect(ENTITLED_SUBSCRIPTION_STATUSES).not.toContain("past_due");
 	});
 
-	it("publishes the past-due checkout code in the API error contract", () => {
-		expect(apiErrorCodeSchema.parse("PAYMENT_PAST_DUE")).toBe(
+	it("publishes all billing error codes", () => {
+		for (const code of [
 			"PAYMENT_PAST_DUE",
-		);
+			"INSUFFICIENT_CREDITS",
+			"GENERATION_PAYMENT_REQUIRED",
+			"SUBSCRIPTIONS_DISABLED",
+			"TOPUPS_DISABLED",
+		] as const) {
+			expect(apiErrorCodeSchema.parse(code)).toBe(code);
+		}
+
+		expect(
+			paymentRequiredDetailsSchema.parse({
+				availableCredits: -4,
+				requiredCredits: 5,
+			}),
+		).toEqual({ availableCredits: -4, requiredCredits: 5 });
 	});
 
 	it("requires the explicit entitled flag in subscription responses", () => {
@@ -87,6 +130,7 @@ describe("billing catalog", () => {
 			id: "11111111-1111-4111-8111-111111111111",
 			interval: "month",
 			organizationId: null,
+			pendingTierCredits: null,
 			plan: "pro",
 			priceLookupKey: "pro_100_month",
 			provider: "stripe",
@@ -102,9 +146,9 @@ describe("billing catalog", () => {
 		expect(subscriptionSchema.safeParse(withoutEntitled).success).toBe(false);
 	});
 
-	it("accepts an optional plan when changing a subscription", () => {
+	it("accepts only the Pro plan when previewing a subscription change", () => {
 		expect(
-			changeBillingSubscriptionBodySchema.parse({
+			previewBillingSubscriptionChangeBodySchema.parse({
 				interval: "month",
 				tierCredits: 400,
 			}),
@@ -113,23 +157,34 @@ describe("billing catalog", () => {
 			tierCredits: 400,
 		});
 		expect(
-			changeBillingSubscriptionBodySchema.parse({
+			previewBillingSubscriptionChangeBodySchema.parse({
 				interval: "year",
-				plan: "business",
+				plan: "pro",
 				tierCredits: 1200,
 			}),
 		).toEqual({
 			interval: "year",
-			plan: "business",
+			plan: "pro",
 			tierCredits: 1200,
 		});
 		expect(
-			changeBillingSubscriptionBodySchema.safeParse({
+			previewBillingSubscriptionChangeBodySchema.safeParse({
 				interval: "month",
 				plan: "free",
 				tierCredits: 100,
 			}).success,
 		).toBe(false);
+	});
+
+	it("consumes subscription changes by persisted intent id", () => {
+		const intentId = "11111111-1111-4111-8111-111111111111";
+
+		expect(changeBillingSubscriptionBodySchema.parse({ intentId })).toEqual({
+			intentId,
+		});
+		expect(changeBillingSubscriptionBodySchema.safeParse({}).success).toBe(
+			false,
+		);
 	});
 
 	it("exports the authenticated subscription sync route", () => {

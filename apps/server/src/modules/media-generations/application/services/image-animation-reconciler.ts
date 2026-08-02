@@ -1,3 +1,4 @@
+import type { ImageAnimationBilling } from "./image-animation-billing";
 import {
 	type ImageAnimationAttempt,
 	type ImageAnimationAttemptStatus,
@@ -49,7 +50,8 @@ export type ImageAnimationReconcilerDependencies = {
 	recoverStoredVideo: (
 		attempt: Pick<ImageAnimationAttempt, "id" | "projectId">,
 	) => Promise<ImageAnimationVideo | null>;
-	refund: (userId: string, attemptId: string) => Promise<void>;
+	refund: ImageAnimationBilling["refund"];
+	settleExisting: ImageAnimationBilling["settleExisting"];
 };
 
 export type ImageAnimationReconciliationResult = {
@@ -118,6 +120,11 @@ export async function reconcileImageAnimations(
 			const recovered = await dependencies.recoverStoredVideo(candidate);
 
 			if (recovered) {
+				// Never consult the current kill switch or create a new hold here.
+				// The admission-time event is authoritative; billing-off jobs have
+				// nothing to settle and must remain free during later recovery.
+				await dependencies.settleExisting(candidate.userId, candidate.id);
+				// Settlement must precede the user-visible succeeded transition.
 				const persisted = await dependencies.markSucceeded(
 					candidate,
 					recovered,

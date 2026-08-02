@@ -15,6 +15,7 @@
 // Failure-state strings are hardcoded English this pass (same temporary rule
 // as the request-tray chrome); they move to the dictionary later.
 
+import { useQueryClient } from "@tanstack/react-query";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -35,6 +36,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Spark } from "@/components/logo";
+import { creditsKeys } from "@/features/credits";
 import { useDictionary, useTranslation } from "@/lib/i18n";
 import { useVersionHtmlQuery } from "../../api/pages.queries";
 import { useAiChatControls } from "../../lib/ai-chat-context";
@@ -319,6 +321,7 @@ function ConflictDialog() {
 
 function PreviewStage({ reloadKey }: { reloadKey: number }) {
 	const { t } = useTranslation();
+	const queryClient = useQueryClient();
 	const {
 		project,
 		viewport,
@@ -329,12 +332,22 @@ function PreviewStage({ reloadKey }: { reloadKey: number }) {
 		isGenerating,
 		pendingVersionNumber,
 	} = useWorkspace();
+	const attempt = pageOverview?.latestAttempt ?? null;
+	const terminalAttemptId =
+		attempt?.status === "succeeded" || attempt?.status === "failed"
+			? attempt.id
+			: null;
 	const editor = usePageEditor();
 	const { aiTargets, sendText, status: chatStatus } = useAiChatControls();
 	// Immutable HTML, fetched once per version (staleTime Infinity).
 	const htmlQuery = useVersionHtmlQuery(previewVersion?.id);
 	const html = htmlQuery.data?.html ?? "";
 	const previewMode = isPreviewingHistorical ? "browse" : editor.mode;
+
+	useEffect(() => {
+		if (!terminalAttemptId) return;
+		void queryClient.invalidateQueries({ queryKey: creditsKeys.balance() });
+	}, [queryClient, terminalAttemptId]);
 
 	// A historical canvas is strictly read-only. Pending edits made against the
 	// active version are preserved, but its selection and mode are cleared.
@@ -489,8 +502,6 @@ function PreviewStage({ reloadKey }: { reloadKey: number }) {
 		);
 		return result;
 	};
-
-	const attempt = pageOverview?.latestAttempt ?? null;
 
 	if (pageOverviewPending || (previewVersion && htmlQuery.isPending)) {
 		return (

@@ -24,6 +24,17 @@ import type { Queue } from "bullmq";
 
 type EnqueueInput = AiGenerationJobData;
 
+/** The Redis outcome could not be proven after queue.add rejected. */
+export class GenerationQueueOutcomeUnknownError extends ServiceUnavailableException {
+	constructor() {
+		super({
+			code: "GENERATION_QUEUE_OUTCOME_UNKNOWN",
+			message:
+				"Generation queue acceptance could not be confirmed; retry after checking status",
+		});
+	}
+}
+
 // `@Injectable()` lets services inject this queue helper.
 @Injectable()
 export class GenerationQueueService {
@@ -39,12 +50,30 @@ export class GenerationQueueService {
 		// `satisfies` is only a TypeScript check. It changes nothing at runtime.
 		const data = input satisfies AiGenerationJobData;
 		// Use our jobId so Redis, BullMQ, and stream events all refer to the same job.
-		const job = await queue.add("generate-copy", data, {
-			attempts: 1,
-			jobId: input.jobId,
-			removeOnComplete: 1000,
-			removeOnFail: 5000,
-		});
+		let job: Awaited<ReturnType<typeof queue.add>>;
+
+		try {
+			job = await queue.add("generate-copy", data, {
+				attempts: 1,
+				jobId: input.jobId,
+				removeOnComplete: 1000,
+				removeOnFail: 5000,
+			});
+		} catch (error) {
+			try {
+				const existing = await queue.getJob(input.jobId);
+
+				if (existing) {
+					return { jobId: String(existing.id ?? input.jobId) };
+				}
+			} catch {
+				throw new GenerationQueueOutcomeUnknownError();
+			}
+
+			// Redis answered the follow-up and proved the stable job id absent.
+			// The caller may now safely refund/delete its durable pre-enqueue work.
+			throw error;
+		}
 
 		return { jobId: String(job.id ?? input.jobId) };
 	}

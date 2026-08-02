@@ -24,14 +24,19 @@ import type {
 	SendChatMessageBody,
 	SendChatMessageResponse,
 } from "@wandit/contracts";
+import { env } from "@wandit/env/server";
 
+import { MeteringService } from "../../../metering/application/services/metering.service";
+import { operationPricing } from "../../../metering/domain/operation-registry";
 import { GenerationActiveError } from "../../domain/errors/generation-active.error";
 import { mapMessageRow } from "../../infrastructure/mappers/chat-message.mapper";
 // Repository = database helper. The service uses it instead of writing SQL here.
 import { ChatsRepository } from "../../infrastructure/persistence/chats.repository";
 import { GenerationActivityService } from "./generation-activity.service";
-import { GenerationPolicyService } from "./generation-policy.service";
-import { GenerationQueueService } from "./generation-queue.service";
+import {
+	GenerationQueueOutcomeUnknownError,
+	GenerationQueueService,
+} from "./generation-queue.service";
 
 // `@Injectable()` means Nest can create this class and inject it into controllers.
 @Injectable()
@@ -45,10 +50,10 @@ export class ChatService {
 		private readonly chatsRepository: ChatsRepository,
 		@Inject(GenerationActivityService)
 		private readonly generationActivityService: GenerationActivityService,
-		@Inject(GenerationPolicyService)
-		private readonly generationPolicyService: GenerationPolicyService,
 		@Inject(GenerationQueueService)
 		private readonly generationQueueService: GenerationQueueService,
+		@Inject(MeteringService)
+		private readonly meteringService: MeteringService,
 	) {}
 
 	// The workspace knows `projectId`; chat endpoints need `chatId`.
@@ -99,9 +104,6 @@ export class ChatService {
 		// First make sure this chat belongs to this user.
 		const chat = await this.requireOwnedChat(userId, chatId);
 
-		// Then make sure the user is allowed to generate.
-		await this.generationPolicyService.assertCanGenerate(userId, "chatMessage");
-
 		// One id connects the Redis lock, BullMQ job, stream events, and assistant message.
 		const jobId = randomUUID();
 		// Reserve the chat so only one assistant answer is generated at a time.
@@ -115,7 +117,10 @@ export class ChatService {
 		}
 
 		let messageId: string | null = null;
-		let failureStage: "insert" | "enqueue" = "insert";
+		let usageEventId: string | null = null;
+		const billingMode =
+			env.GENERATION_BILLING_MODE === "off" ? "off" : "enforce";
+		let failureStage: "enqueue" | "insert" | "reserve" = "insert";
 
 		try {
 			// Save the user prompt before the worker starts.
@@ -125,17 +130,33 @@ export class ChatService {
 				text: body.text,
 			});
 			messageId = message.id;
+			failureStage = "reserve";
+
+			if (billingMode === "enforce") {
+				const reservation = await this.meteringService.reserve("chat", userId, {
+					attemptRef: jobId,
+					chatId: chat.id,
+					credits: operationPricing("chat").reserveFloorCredits,
+					idempotencyKey: `legacy-chat:${jobId}`,
+					messageId: message.id,
+					model: env.AI_CHAT_MODEL,
+				});
+				usageEventId = reservation.id;
+			}
+
 			failureStage = "enqueue";
 
 			// Add a BullMQ job. The worker will call the AI and stream the answer.
 			const queued = await this.generationQueueService.enqueueGenerateCopy({
 				action: "chatMessage",
+				billingMode,
 				chatId: chat.id,
 				composer: body.composer,
 				jobId,
 				messageId: message.id,
 				projectId: chat.projectId,
 				prompt: body.text,
+				usageEventId,
 				userId,
 			});
 
@@ -144,9 +165,19 @@ export class ChatService {
 				messageId: message.id,
 			};
 		} catch (error) {
+			const outcomeUnknown =
+				error instanceof GenerationQueueOutcomeUnknownError;
 			// DB, Redis, and BullMQ are different systems. If one step fails after
-			// another succeeded, clean up as much as possible.
-			await this.compensateFailedSend(chat.id, jobId, messageId);
+			// another succeeded, compensate only when BullMQ definitively did not
+			// accept the job. An unknown outcome may still deliver asynchronously.
+			if (!outcomeUnknown) {
+				await this.compensateFailedSend(
+					chat.id,
+					jobId,
+					messageId,
+					usageEventId,
+				);
+			}
 
 			// If the failure happened while queueing, return a stable 503 error.
 			if (failureStage === "enqueue") {
@@ -178,10 +209,19 @@ export class ChatService {
 		chatId: string,
 		jobId: string,
 		messageId: string | null,
+		usageEventId: string | null,
 	): Promise<void> {
 		// `allSettled` runs all cleanup attempts even if one of them fails.
 		const results = await Promise.allSettled([
 			...(messageId ? [this.chatsRepository.deleteMessageById(messageId)] : []),
+			...(usageEventId
+				? [
+						this.meteringService.refund(
+							usageEventId,
+							"legacy_chat_enqueue_failed",
+						),
+					]
+				: []),
 			this.generationActivityService.releaseActive(chatId, jobId),
 		]);
 

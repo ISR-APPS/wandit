@@ -60,6 +60,7 @@ export function ChatPane({ className }: { className?: string }) {
 		messages,
 		status,
 		error,
+		billingError,
 		isResolvingChat,
 		isLoadingMessages,
 		sendText,
@@ -337,7 +338,7 @@ export function ChatPane({ className }: { className?: string }) {
 							{showThinking ? (
 								<ThinkingIndicator label={t("workspace.chat.thinking")} />
 							) : null}
-							{error ? (
+							{error && !billingError ? (
 								<div>
 									<StatusMessageHeader
 										avatarClass="border-destructive/38 bg-destructive/14 text-destructive"

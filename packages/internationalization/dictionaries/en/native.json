@@ -71,7 +71,8 @@
 				"stream": "The reply stopped. Try again.",
 				"send": "Couldn't send that message. Try again.",
 				"busy": "Wandit is already working on a reply.",
-				"credits": "You are out of credits.",
+				"credits": "You don't have enough credits.",
+				"creditsDetails": "This needs {requiredCredits} credits; you have {availableCredits}.",
 				"unavailable": "Chat couldn't load. Try again."
 			},
 			"tray": {
@@ -126,7 +127,10 @@
 	"credits": {
 		"title": "Credits",
 		"left": "{count} left",
-		"betaNote": "Beta credits · Publishing & leads are always free"
+		"betaNote": "Plan, promo, and top-up credits combined",
+		"bucketPlan": "Plan",
+		"bucketPromo": "Promo",
+		"bucketTopup": "Top-up"
 	},
 	"projectSheet": {
 		"viewsLabel": "Project views",

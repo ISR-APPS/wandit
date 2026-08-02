@@ -2,6 +2,8 @@
 //
 // If you add a new table file and want it in the root schema, export it here.
 
+// Affiliate programs, attribution, commissions, and payouts.
+export * from "./affiliates";
 // Generated page/artifact tables.
 export * from "./artifacts";
 // Auth/user tables.

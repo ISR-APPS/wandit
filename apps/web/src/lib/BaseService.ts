@@ -24,6 +24,7 @@ import type {
 // lets the app define shared defaults and interceptors once for every request.
 import axios, { AxiosHeaders } from "axios";
 
+import { dispatchBillingError } from "@/features/billing/lib/billing-error-dispatch";
 import { redirectToLoginAfterUnauthorized } from "@/lib/auth-navigation";
 import { getCurrentDictionary } from "@/lib/i18n/locale-store";
 import { getServerUrl } from "@/lib/server-url";
@@ -51,7 +52,7 @@ export type ApiValidationErrorDetail = {
 // callers do not need to understand axios's nested error object.
 export class ApiClientError extends Error {
 	readonly code: string;
-	readonly details: unknown;
+	readonly details: ApiErrorPayload["details"];
 	readonly hasServerEnvelopeMessage: boolean;
 	readonly path: string;
 	readonly requestId: string;
@@ -105,6 +106,7 @@ BaseService.interceptors.response.use(
 	(response) => response,
 	(error: unknown) => {
 		const apiError = toApiClientError(error);
+		dispatchBillingError(apiError);
 
 		// A 401 usually means the session expired. Most calls should open the auth
 		// flow, but some callers can opt out with skipAuthRedirect for custom UX.

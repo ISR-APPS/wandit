@@ -56,6 +56,9 @@ export const env = createEnv({
 			.string()
 			.min(1)
 			.default("openai/gpt-4o-mini-transcribe"),
+		// Provider spend converted into whole customer credits at settlement.
+		// $0.05/credit is the product margin anchor from billing v2.
+		AI_USD_PER_CREDIT: z.coerce.number().positive().default(0.05),
 		// Page generation foundation (Trigger.dev queue + Cloudflare R2 storage).
 		// All optional: the server must boot before these creds exist; the
 		// generate_page tool checks at call time and answers gracefully when
@@ -124,6 +127,7 @@ export const env = createEnv({
 		GENERATION_BILLING_MODE: z.enum(["enforce", "off"]).default("enforce"),
 		// Stripe is optional at boot.
 		STRIPE_SECRET_KEY: z.string().startsWith("sk_").optional(),
+		STRIPE_PORTAL_CONFIGURATION_ID: z.string().startsWith("bpc_").optional(),
 		STRIPE_WEBHOOK_SECRET: z.string().startsWith("whsec_").optional(),
 		// Domain/Cloudflare settings are optional for chat-only flows.
 		// Sandbox is the safe default: switching to production requires one

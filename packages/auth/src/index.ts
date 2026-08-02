@@ -2,12 +2,13 @@ import { expo } from "@better-auth/expo";
 import { createDb } from "@wandit/db";
 import * as schema from "@wandit/db/schema/auth";
 import { env } from "@wandit/env/server";
-import { betterAuth, type User } from "better-auth";
+import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { admin } from "better-auth/plugins";
+import { createUserCreatedHook, type OnUserCreated } from "./user-created-hook";
 
 export type CreateAuthOptions = {
-	onUserCreated?: (user: User) => void | Promise<void>;
+	onUserCreated?: OnUserCreated;
 };
 
 export function createAuth(options: CreateAuthOptions = {}) {
@@ -101,9 +102,7 @@ export function createAuth(options: CreateAuthOptions = {}) {
 		databaseHooks: {
 			user: {
 				create: {
-					after: async (user) => {
-						await options.onUserCreated?.(user);
-					},
+					after: createUserCreatedHook(options.onUserCreated),
 				},
 			},
 		},

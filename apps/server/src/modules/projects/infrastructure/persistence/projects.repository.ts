@@ -81,9 +81,12 @@ export class ProjectsRepository {
 	// Create project + chat + first user message together.
 	async createWithChatAndFirstMessage(input: {
 		attachments?: FileRef[];
+		chatId: string;
 		composer?: ComposerMetadata;
+		messageId: string;
 		name: string;
 		prompt: string;
+		projectId: string;
 		userId: string;
 	}): Promise<CreatedProjectChat> {
 		// Transaction means all writes succeed together or all roll back.
@@ -92,6 +95,7 @@ export class ProjectsRepository {
 			const [project] = await tx
 				.insert(projects)
 				.values({
+					id: input.projectId,
 					name: input.name,
 					userId: input.userId,
 				})
@@ -105,7 +109,7 @@ export class ProjectsRepository {
 			// Create the first chat for the project.
 			const [chat] = await tx
 				.insert(chats)
-				.values({ projectId: project.id })
+				.values({ id: input.chatId, projectId: project.id })
 				.returning({ id: chats.id });
 
 			// Defensive check: cannot continue without chat id.
@@ -118,6 +122,7 @@ export class ProjectsRepository {
 				.insert(messages)
 				.values({
 					chatId: chat.id,
+					id: input.messageId,
 					metadata: input.composer ?? null,
 					// Messages use AI SDK "parts". Uploaded attachments become file
 					// parts placed BEFORE the text part (contract §10.4), so the

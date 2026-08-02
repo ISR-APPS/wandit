@@ -19,6 +19,19 @@ import {
 	type Database,
 } from "../../../../infrastructure/database/database.constants";
 
+// A page task can wait up to 35 minutes in Trigger and then run for 30
+// minutes. Polling must not fail a healthy late-starting task, so generating
+// rows get the full wait + runtime + five-minute commit grace window.
+export const PAGE_ATTEMPT_TRIGGER_TTL_MS = 35 * 60 * 1000;
+export const PAGE_ATTEMPT_MAX_RUNTIME_MS = 30 * 60 * 1000;
+export const PAGE_ATTEMPT_STALE_GRACE_MS = 5 * 60 * 1000;
+export const PAGE_ATTEMPT_STALE_QUEUED_MS =
+	PAGE_ATTEMPT_TRIGGER_TTL_MS + PAGE_ATTEMPT_STALE_GRACE_MS;
+export const PAGE_ATTEMPT_STALE_GENERATING_MS =
+	PAGE_ATTEMPT_TRIGGER_TTL_MS +
+	PAGE_ATTEMPT_MAX_RUNTIME_MS +
+	PAGE_ATTEMPT_STALE_GRACE_MS;
+
 // Small explicit shapes; services map these to contract types.
 export type LandingArtifactRow = {
 	activeVersionId: string | null;
@@ -154,11 +167,22 @@ export class PagesRepository {
 	}
 
 	// Link the attempt to its Trigger.dev run once the queue accepted it.
-	async markAttemptTriggered(attemptId: string, runId: string): Promise<void> {
-		await this.db
+	async markAttemptTriggered(
+		attemptId: string,
+		runId: string,
+	): Promise<boolean> {
+		const [linked] = await this.db
 			.update(pageGenerationAttempts)
 			.set({ triggerRunId: runId })
-			.where(eq(pageGenerationAttempts.id, attemptId));
+			.where(
+				and(
+					eq(pageGenerationAttempts.id, attemptId),
+					eq(pageGenerationAttempts.status, "queued"),
+				),
+			)
+			.returning({ id: pageGenerationAttempts.id });
+
+		return linked !== undefined;
 	}
 
 	// Used when queueing itself failed — the background task never ran, so
@@ -238,12 +262,12 @@ export class PagesRepository {
 		}
 
 		// Self-heal on read: a "queued" run nobody picked up expires after
-		// Trigger.dev's dev TTL (10 min) and will never execute; a "generating"
+		// Trigger.dev's task TTL and will never execute; a "generating"
 		// row can strand the same way if the worker is killed mid-run. Left
 		// alone, either would keep the Page tab polling forever — flip stale
 		// rows to failed so the UI stops waiting and says what happened. The
-		// cutoff must exceed the task's maxDuration (30 min), or a slow but
-		// healthy build would be flagged failed while still running.
+		// generating cutoff includes the maximum queue wait because this schema
+		// has only createdAt (not claimedAt), plus task runtime and commit grace.
 		const staleQueued = await this.db
 			.update(pageGenerationAttempts)
 			.set({
@@ -258,7 +282,7 @@ export class PagesRepository {
 					eq(pageGenerationAttempts.status, "queued"),
 					lt(
 						pageGenerationAttempts.createdAt,
-						new Date(Date.now() - 35 * 60 * 1000),
+						new Date(Date.now() - PAGE_ATTEMPT_STALE_QUEUED_MS),
 					),
 				),
 			)
@@ -292,7 +316,7 @@ export class PagesRepository {
 					eq(pageGenerationAttempts.status, "generating"),
 					lt(
 						pageGenerationAttempts.createdAt,
-						new Date(Date.now() - 35 * 60 * 1000),
+						new Date(Date.now() - PAGE_ATTEMPT_STALE_GENERATING_MS),
 					),
 				),
 			)

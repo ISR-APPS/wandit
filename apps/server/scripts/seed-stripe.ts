@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import {
 	billingPlanIds,
 	CREDIT_TIERS,
@@ -8,6 +10,8 @@ import {
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import Stripe from "stripe";
+
+import { replaceStripePriceSafely } from "../src/modules/billing/infrastructure/stripe/stripe-price-replacement";
 
 const STRIPE_API_VERSION = "2026-02-25.clover";
 const CURRENCY = "usd";
@@ -62,6 +66,7 @@ async function main() {
 				await ensurePrice({
 					lookupKey,
 					metadata: {
+						credits: String(tierCredits),
 						interval,
 						plan: planId,
 						tierCredits: String(tierCredits),
@@ -97,7 +102,7 @@ async function main() {
 
 async function ensureProduct(planId: string, name: string) {
 	for await (const product of stripe.products.list({ limit: 100 })) {
-		if (product.metadata.planId === planId) {
+		if (product.active && product.metadata.planId === planId) {
 			summary.push({
 				action: "existing",
 				id: product.id,
@@ -134,14 +139,9 @@ async function ensurePrice(input: {
 	recurring?: Stripe.PriceCreateParams.Recurring;
 	unitAmount: number;
 }) {
-	const [existingPrice] = (
-		await stripe.prices.list({
-			limit: 1,
-			lookup_keys: [input.lookupKey],
-		})
-	).data;
+	const existingPrice = await findPriceByLookupKey(input.lookupKey);
 
-	if (existingPrice?.unit_amount === input.unitAmount) {
+	if (existingPrice && existingPriceMatches(existingPrice, input)) {
 		summary.push({
 			action: "existing",
 			amountUsd: dollars(input.unitAmount),
@@ -153,16 +153,23 @@ async function ensurePrice(input: {
 		return existingPrice;
 	}
 
-	const price = await stripe.prices.create({
+	const createParams: Stripe.PriceCreateParams = {
 		currency: CURRENCY,
 		lookup_key: input.lookupKey,
 		metadata: input.metadata,
 		nickname: input.nickname,
 		product: input.productId,
 		...(input.recurring ? { recurring: input.recurring } : {}),
-		transfer_lookup_key: !!existingPrice,
 		unit_amount: input.unitAmount,
-	});
+	};
+	const price = existingPrice
+		? await replaceStripePriceSafely(
+				stripe,
+				existingPrice,
+				createParams,
+				replacementIdempotencyKey(existingPrice.id, input),
+			)
+		: await stripe.prices.create(createParams);
 
 	summary.push({
 		action: existingPrice ? "replaced" : "created",
@@ -173,6 +180,82 @@ async function ensurePrice(input: {
 	});
 
 	return price;
+}
+
+async function findPriceByLookupKey(lookupKey: string) {
+	for (const active of [true, false]) {
+		const [price] = (
+			await stripe.prices.list({
+				active,
+				expand: ["data.product"],
+				limit: 1,
+				lookup_keys: [lookupKey],
+			})
+		).data;
+
+		if (price) {
+			return price;
+		}
+	}
+
+	return undefined;
+}
+
+function replacementIdempotencyKey(
+	existingPriceId: string,
+	input: {
+		lookupKey: string;
+		metadata: Stripe.MetadataParam;
+		productId: string;
+		recurring?: Stripe.PriceCreateParams.Recurring;
+		unitAmount: number;
+	},
+) {
+	const fingerprint = createHash("sha256")
+		.update(
+			JSON.stringify({
+				interval: input.recurring?.interval ?? null,
+				lookupKey: input.lookupKey,
+				metadata: Object.fromEntries(Object.entries(input.metadata).sort()),
+				productId: input.productId,
+				unitAmount: input.unitAmount,
+			}),
+		)
+		.digest("hex");
+
+	return `billing-seed:replace:${existingPriceId}:${fingerprint}`;
+}
+
+function existingPriceMatches(
+	price: Stripe.Price,
+	input: {
+		metadata: Stripe.MetadataParam;
+		productId: string;
+		recurring?: Stripe.PriceCreateParams.Recurring;
+		unitAmount: number;
+	},
+) {
+	const productMatches =
+		typeof price.product !== "string" &&
+		"active" in price.product &&
+		price.product.active &&
+		price.product.id === input.productId;
+	const recurringInterval = price.recurring?.interval ?? null;
+	const expectedInterval = input.recurring?.interval ?? null;
+	const recurringIntervalCount = price.recurring?.interval_count ?? null;
+	const expectedIntervalCount = input.recurring ? 1 : null;
+
+	return (
+		price.active === true &&
+		price.unit_amount === input.unitAmount &&
+		price.currency.toLowerCase() === CURRENCY &&
+		productMatches &&
+		recurringInterval === expectedInterval &&
+		recurringIntervalCount === expectedIntervalCount &&
+		Object.entries(input.metadata).every(
+			([key, value]) => price.metadata[key] === String(value),
+		)
+	);
 }
 
 function dollars(cents: number) {

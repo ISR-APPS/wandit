@@ -19,7 +19,6 @@ const RECOVERED_VIDEO: ImageAnimationVideo = {
 	mediaType: "video/mp4",
 	url: "https://assets.example.com/sites/project_1/assets/attempt_1/vid-1.mp4",
 };
-
 const BASE_ATTEMPT: ImageAnimationAttempt = {
 	aspect: "9:16",
 	completedAt: null,
@@ -70,6 +69,9 @@ function setup(candidates: ImageAnimationReconciliationCandidate[]) {
 	const refund = vi
 		.fn<ImageAnimationReconcilerDependencies["refund"]>()
 		.mockResolvedValue(undefined);
+	const settleExisting = vi
+		.fn<ImageAnimationReconcilerDependencies["settleExisting"]>()
+		.mockResolvedValue(true);
 	const dependencies: ImageAnimationReconcilerDependencies = {
 		failFromStatus,
 		listCandidates,
@@ -77,6 +79,7 @@ function setup(candidates: ImageAnimationReconciliationCandidate[]) {
 		now,
 		recoverStoredVideo,
 		refund,
+		settleExisting,
 	};
 
 	return {
@@ -86,6 +89,7 @@ function setup(candidates: ImageAnimationReconciliationCandidate[]) {
 		markSucceeded,
 		recoverStoredVideo,
 		refund,
+		settleExisting,
 	};
 }
 
@@ -135,6 +139,7 @@ describe("reconcileImageAnimations", () => {
 			markSucceeded,
 			recoverStoredVideo,
 			refund,
+			settleExisting,
 		} = setup([staleGenerating]);
 		recoverStoredVideo.mockResolvedValue(RECOVERED_VIDEO);
 
@@ -153,6 +158,30 @@ describe("reconcileImageAnimations", () => {
 		);
 		expect(failFromStatus).not.toHaveBeenCalled();
 		expect(refund).not.toHaveBeenCalled();
+		expect(settleExisting).toHaveBeenCalledWith("user_1", "attempt_1");
+		expect(settleExisting.mock.invocationCallOrder[0]).toBeLessThan(
+			markSucceeded.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
+		);
+	});
+
+	it("recovers a billing-off attempt without creating a hold later", async () => {
+		const staleGenerating = candidate("stale_generating");
+		const { dependencies, markSucceeded, recoverStoredVideo, settleExisting } =
+			setup([staleGenerating]);
+		recoverStoredVideo.mockResolvedValue(RECOVERED_VIDEO);
+		settleExisting.mockResolvedValue(false);
+
+		await expect(reconcileImageAnimations(dependencies)).resolves.toMatchObject(
+			{
+				recovered: 1,
+			},
+		);
+		expect(settleExisting).toHaveBeenCalledWith("user_1", "attempt_1");
+		expect(markSucceeded).toHaveBeenCalledWith(
+			staleGenerating,
+			RECOVERED_VIDEO,
+			NOW,
+		);
 	});
 
 	it("fails and refunds a stale generating attempt with no stored video", async () => {

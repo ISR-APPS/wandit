@@ -10,8 +10,9 @@
  * brief into an attempt row and hands off to the Trigger.dev task; its
  * return value is only the "queued"/"unavailable" answer the model relays.
  */
+import { setTimeout as delay } from "node:timers/promises";
 import { Logger } from "@nestjs/common";
-import { auth, tasks } from "@trigger.dev/sdk";
+import { auth, idempotencyKeys, tasks } from "@trigger.dev/sdk";
 import {
 	type GeneratePageInput,
 	type GeneratePageOutput,
@@ -33,6 +34,8 @@ import { getWorld } from "../worlds";
 // Static Nest logger (no DI needed): queue-side events land in the API
 // server terminal; the build itself logs in the Trigger worker terminal.
 const logger = new Logger("generate-page");
+const TRIGGER_HANDOFF_ATTEMPTS = 3;
+const TRIGGER_IDEMPOTENCY_TTL = "14d";
 
 export type GeneratePageToolDeps = {
 	// Per-request builder override from the composer's model picker (already
@@ -41,6 +44,7 @@ export type GeneratePageToolDeps = {
 	builderModel?: string;
 	chatId: string;
 	pagesRepository: PagesRepository;
+	parentEventId?: string;
 	projectId: string;
 	userId: string;
 };
@@ -113,62 +117,186 @@ export function createGeneratePageTool(
 				`Brief for attempt ${attempt.id} (${brief.length} chars): ${brief.slice(0, 200)}${brief.length > 200 ? "…" : ""}`,
 			);
 
-			let realtime: GeneratePageOutput["realtime"];
+			let handle: Awaited<ReturnType<typeof tasks.trigger>>;
 
 			try {
-				const handle = await tasks.trigger<typeof generatePageTask>(
-					"generate-page",
-					{ attemptId: attempt.id },
-				);
-
-				await deps.pagesRepository.markAttemptTriggered(attempt.id, handle.id);
-				logger.log(
-					`Trigger.dev accepted the build — run ${handle.id}. Follow the ` +
-						"live logs in the worker terminal (npx trigger.dev@latest dev).",
-				);
-				realtime = await mintRealtimeHandle(handle.id);
+				handle = await triggerGeneratePageTask({
+					attemptId: attempt.id,
+					...(deps.parentEventId ? { parentEventId: deps.parentEventId } : {}),
+					projectId: deps.projectId,
+				});
 			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
 				logger.error(
-					`Queueing attempt ${attempt.id} failed: ` +
-						(error instanceof Error ? error.message : String(error)),
-				);
-				// Queueing failed (Trigger down, bad key…): close the attempt and
-				// answer honestly — NEVER throw raw, the model needs something to
-				// relay instead of an opaque tool error.
-				await deps.pagesRepository.markAttemptFailed(
-					attempt.id,
-					error instanceof Error ? error.message : String(error),
-					deps.userId,
+					`Trigger.dev did not confirm page build ${attempt.id}: ${message}`,
 				);
 
+				if (isDefinitiveTriggerRejection(error)) {
+					try {
+						const closed = await deps.pagesRepository.markAttemptFailed(
+							attempt.id,
+							"The background page builder rejected this request. Please try again.",
+							deps.userId,
+						);
+
+						if (closed) {
+							return {
+								message:
+									"Trigger.dev rejected the page build. Tell the user it " +
+									"was not queued and offer to retry after the server " +
+									"configuration is fixed.",
+								status: "unavailable",
+							};
+						}
+					} catch (closeError) {
+						logger.error(
+							`Closing rejected page build ${attempt.id} failed: ${
+								closeError instanceof Error
+									? closeError.message
+									: String(closeError)
+							}`,
+						);
+					}
+				}
+
+				// A timeout or lost response may happen after Trigger.dev accepted
+				// the task. Preserve the queued row; the attempt-scoped global key
+				// makes each bounded handoff retry refer to that same run.
 				return {
+					attemptId: attempt.id,
+					builderModel,
 					message:
-						"Queueing the page build failed on the server. The brief is " +
-						"safe in this conversation — tell the user and offer to retry " +
-						"in a moment.",
-					status: "unavailable",
+						"The page build is saved, but Trigger.dev did not confirm the " +
+						"handoff yet. Its Page card will keep checking; do not start a " +
+						"second build unless this attempt reaches a failed state.",
+					status: "queued",
 				};
 			}
 
-			// Advisory number for the human-facing message; the task assigns
-			// the real one inside its transaction.
-			const versionNumber = await deps.pagesRepository.nextVersionNumber(
-				artifact.id,
+			// Trigger acceptance is authoritative. The task may claim the queued
+			// row before this diagnostic write, and a DB error cannot revoke work
+			// that is already running.
+			try {
+				const linked = await deps.pagesRepository.markAttemptTriggered(
+					attempt.id,
+					handle.id,
+				);
+
+				if (!linked) {
+					logger.warn(
+						`Page build ${attempt.id} was accepted but its queued run-id CAS lost`,
+					);
+				}
+			} catch (error) {
+				logger.warn(
+					`Could not persist Trigger.dev run id for page build ${attempt.id}: ${
+						error instanceof Error ? error.message : String(error)
+					}`,
+				);
+			}
+
+			logger.log(
+				`Trigger.dev accepted the build — run ${handle.id}. Follow the ` +
+					"live logs in the worker terminal (npx trigger.dev@latest dev).",
 			);
+			const realtime = await mintRealtimeHandle(handle.id);
+
+			// Advisory number for the human-facing message; the task assigns
+			// the real one inside its transaction. This read is also best-effort:
+			// accepted provider work must not surface as a failed tool call.
+			let versionNumber: number | undefined;
+
+			try {
+				versionNumber = await deps.pagesRepository.nextVersionNumber(
+					artifact.id,
+				);
+			} catch (error) {
+				logger.warn(
+					`Could not read advisory version for page build ${attempt.id}: ${
+						error instanceof Error ? error.message : String(error)
+					}`,
+				);
+			}
 
 			return {
 				attemptId: attempt.id,
 				builderModel,
 				message:
-					`Queued: version ${versionNumber} is being generated in the ` +
-					"background. It will appear in the Page tab when ready — " +
-					"usually a few minutes.",
+					`Queued: ${versionNumber ? `version ${versionNumber}` : "the next version"} ` +
+					"is being generated in the background. It will appear in the " +
+					"Page tab when ready — usually a few minutes.",
 				...(realtime ? { realtime } : {}),
 				status: "queued",
-				versionNumber,
+				...(versionNumber ? { versionNumber } : {}),
 			};
 		},
 	});
+}
+
+async function triggerGeneratePageTask(payload: {
+	attemptId: string;
+	parentEventId?: string;
+	projectId: string;
+}): Promise<Awaited<ReturnType<typeof tasks.trigger>>> {
+	const idempotencyKey = await idempotencyKeys.create(
+		`page-build:${payload.attemptId}`,
+		{ scope: "global" },
+	);
+	let lastError: unknown;
+
+	for (let attempt = 0; attempt < TRIGGER_HANDOFF_ATTEMPTS; attempt += 1) {
+		try {
+			return await tasks.trigger<typeof generatePageTask>(
+				"generate-page",
+				{
+					attemptId: payload.attemptId,
+					...(payload.parentEventId
+						? { parentEventId: payload.parentEventId }
+						: {}),
+				},
+				{
+					idempotencyKey,
+					idempotencyKeyTTL: TRIGGER_IDEMPOTENCY_TTL,
+					tags: [
+						`page-build-attempt:${payload.attemptId}`,
+						`project:${payload.projectId}`,
+					],
+					ttl: "35m",
+				},
+			);
+		} catch (error) {
+			lastError = error;
+
+			if (isDefinitiveTriggerRejection(error)) {
+				break;
+			}
+
+			if (attempt < TRIGGER_HANDOFF_ATTEMPTS - 1) {
+				await delay(100 * 2 ** attempt);
+			}
+		}
+	}
+
+	throw lastError instanceof Error
+		? lastError
+		: new Error("Trigger.dev handoff failed");
+}
+
+function isDefinitiveTriggerRejection(error: unknown): boolean {
+	if (typeof error !== "object" || error === null) {
+		return false;
+	}
+
+	const candidate = error as { name?: unknown; status?: unknown };
+
+	return (
+		candidate.name === "TriggerApiError" &&
+		(candidate.status === 400 ||
+			candidate.status === 401 ||
+			candidate.status === 403 ||
+			candidate.status === 404 ||
+			candidate.status === 422)
+	);
 }
 
 /**

@@ -1,4 +1,4 @@
-import { auth, tasks } from "@trigger.dev/sdk";
+import { auth, idempotencyKeys, tasks } from "@trigger.dev/sdk";
 import { env } from "@wandit/env/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -23,6 +23,7 @@ vi.mock("../../../../infrastructure/storage/r2", () => ({
 
 vi.mock("@trigger.dev/sdk", () => ({
 	auth: { createPublicToken: vi.fn() },
+	idempotencyKeys: { create: vi.fn() },
 	tasks: { trigger: vi.fn() },
 }));
 
@@ -48,8 +49,8 @@ function setup() {
 	const pagesRepository = {
 		findOrCreateLandingArtifact: vi.fn(),
 		insertAttempt: vi.fn(),
-		markAttemptFailed: vi.fn(),
-		markAttemptTriggered: vi.fn(),
+		markAttemptFailed: vi.fn().mockResolvedValue(true),
+		markAttemptTriggered: vi.fn().mockResolvedValue(true),
 		nextVersionNumber: vi.fn(),
 	};
 	const generatePageTool = createGeneratePageTool({
@@ -81,6 +82,12 @@ beforeEach(() => {
 	mutableEnv.AI_PAGE_BUILDER_MODEL = "test-provider/test-builder-model";
 	vi.mocked(isR2Configured).mockReset();
 	vi.mocked(tasks.trigger).mockReset();
+	vi.mocked(idempotencyKeys.create).mockReset();
+	vi.mocked(idempotencyKeys.create).mockResolvedValue(
+		"global-page-build-key" as Awaited<
+			ReturnType<typeof idempotencyKeys.create>
+		>,
+	);
 	vi.mocked(auth.createPublicToken).mockReset();
 	// Default: minting fails softly, like a server without Realtime access.
 	vi.mocked(auth.createPublicToken).mockRejectedValue(new Error("no realtime"));
@@ -125,9 +132,20 @@ describe("generate_page tool", () => {
 				title: INPUT.title,
 			},
 		});
-		expect(tasks.trigger).toHaveBeenCalledWith("generate-page", {
-			attemptId: "attempt_1",
-		});
+		expect(idempotencyKeys.create).toHaveBeenCalledWith(
+			"page-build:attempt_1",
+			{ scope: "global" },
+		);
+		expect(tasks.trigger).toHaveBeenCalledWith(
+			"generate-page",
+			{ attemptId: "attempt_1" },
+			{
+				idempotencyKey: "global-page-build-key",
+				idempotencyKeyTTL: "14d",
+				tags: ["page-build-attempt:attempt_1", "project:project_1"],
+				ttl: "35m",
+			},
+		);
 		expect(pagesRepository.markAttemptTriggered).toHaveBeenCalledWith(
 			"attempt_1",
 			"run_123",
@@ -244,7 +262,7 @@ describe("generate_page tool", () => {
 		);
 	});
 
-	it("marks the attempt failed and answers unavailable when queueing throws", async () => {
+	it("keeps an ambiguous handoff queued across three stable-key retries", async () => {
 		const { execute, pagesRepository } = setup();
 		vi.mocked(isR2Configured).mockReturnValue(true);
 		pagesRepository.findOrCreateLandingArtifact.mockResolvedValue({
@@ -256,12 +274,97 @@ describe("generate_page tool", () => {
 
 		const output = await execute(INPUT);
 
+		expect(tasks.trigger).toHaveBeenCalledTimes(3);
+		expect(idempotencyKeys.create).toHaveBeenCalledOnce();
+		for (const call of vi.mocked(tasks.trigger).mock.calls) {
+			expect(call[2]).toMatchObject({
+				idempotencyKey: "global-page-build-key",
+			});
+		}
+		expect(pagesRepository.markAttemptFailed).not.toHaveBeenCalled();
+		expect(output).toMatchObject({
+			attemptId: "attempt_1",
+			status: "queued",
+		});
+		expect(pagesRepository.nextVersionNumber).not.toHaveBeenCalled();
+	});
+
+	it("closes a still-queued attempt after definitive Trigger rejection", async () => {
+		const { execute, pagesRepository } = setup();
+		vi.mocked(isR2Configured).mockReturnValue(true);
+		pagesRepository.findOrCreateLandingArtifact.mockResolvedValue({
+			activeVersionId: null,
+			id: "artifact_1",
+		});
+		pagesRepository.insertAttempt.mockResolvedValue({ id: "attempt_1" });
+		vi.mocked(tasks.trigger).mockRejectedValue(
+			Object.assign(new Error("invalid credentials"), {
+				name: "TriggerApiError",
+				status: 401,
+			}),
+		);
+
+		const output = await execute(INPUT);
+
+		expect(tasks.trigger).toHaveBeenCalledTimes(1);
 		expect(pagesRepository.markAttemptFailed).toHaveBeenCalledWith(
 			"attempt_1",
-			"trigger is down",
+			"The background page builder rejected this request. Please try again.",
 			"user_1",
 		);
 		expect(output).toMatchObject({ status: "unavailable" });
 		expect(pagesRepository.nextVersionNumber).not.toHaveBeenCalled();
+	});
+
+	it("preserves a live attempt when the definitive-rejection CAS loses", async () => {
+		const { execute, pagesRepository } = setup();
+		vi.mocked(isR2Configured).mockReturnValue(true);
+		pagesRepository.findOrCreateLandingArtifact.mockResolvedValue({
+			activeVersionId: null,
+			id: "artifact_1",
+		});
+		pagesRepository.insertAttempt.mockResolvedValue({ id: "attempt_1" });
+		pagesRepository.markAttemptFailed.mockResolvedValue(false);
+		vi.mocked(tasks.trigger).mockRejectedValue(
+			Object.assign(new Error("invalid request"), {
+				name: "TriggerApiError",
+				status: 422,
+			}),
+		);
+
+		const output = await execute(INPUT);
+
+		expect(output).toMatchObject({
+			attemptId: "attempt_1",
+			status: "queued",
+		});
+		expect(pagesRepository.nextVersionNumber).not.toHaveBeenCalled();
+	});
+
+	it("does not fail accepted work when the queued run-id CAS loses", async () => {
+		const { execute, pagesRepository } = setup();
+		vi.mocked(isR2Configured).mockReturnValue(true);
+		pagesRepository.findOrCreateLandingArtifact.mockResolvedValue({
+			activeVersionId: null,
+			id: "artifact_1",
+		});
+		pagesRepository.insertAttempt.mockResolvedValue({ id: "attempt_1" });
+		pagesRepository.markAttemptTriggered.mockResolvedValue(false);
+		pagesRepository.nextVersionNumber.mockResolvedValue(1);
+		vi.mocked(tasks.trigger).mockResolvedValue({
+			id: "run_accepted",
+		} as Awaited<ReturnType<typeof tasks.trigger>>);
+
+		const output = await execute(INPUT);
+
+		expect(pagesRepository.markAttemptFailed).not.toHaveBeenCalled();
+		expect(auth.createPublicToken).toHaveBeenCalledWith({
+			expirationTime: "2h",
+			scopes: { read: { runs: ["run_accepted"] } },
+		});
+		expect(output).toMatchObject({
+			attemptId: "attempt_1",
+			status: "queued",
+		});
 	});
 });

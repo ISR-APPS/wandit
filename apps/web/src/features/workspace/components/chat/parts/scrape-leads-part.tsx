@@ -23,6 +23,8 @@ import {
 	FileSpreadsheet,
 } from "lucide-react";
 import { useEffect, useState } from "react";
+
+import { creditsKeys } from "@/features/credits";
 import {
 	leadScrapeKeys,
 	useLeadScrapeAttemptQuery,
@@ -125,6 +127,12 @@ function LeadScrapeCard({
 	);
 	const attemptSettled =
 		attempt?.status === "succeeded" || attempt?.status === "failed";
+	const terminalStatus = attemptSettled ? attempt.status : null;
+
+	useEffect(() => {
+		if (!terminalStatus) return;
+		void queryClient.invalidateQueries({ queryKey: creditsKeys.balance() });
+	}, [queryClient, terminalStatus]);
 
 	const live = useLiveRun({
 		handle: realtime,

@@ -1,12 +1,17 @@
 import { Inject, Injectable, Optional } from "@nestjs/common";
-import { CHECKOUT_PURPOSE } from "@wandit/contracts";
+import { CHECKOUT_PURPOSE, parsePriceLookupKey } from "@wandit/contracts";
 import type Stripe from "stripe";
+
+import { AffiliateClawbackService } from "../../../affiliates/application/services/affiliate-clawback.service";
+import { AffiliateCommissionService } from "../../../affiliates/application/services/affiliate-commission.service";
 
 import {
 	type CheckoutSessionOrderOutcome,
 	WEBHOOK_ORDER_RECONCILER,
 	type WebhookOrderReconciler,
 } from "../../domain/ports/webhook-order-reconciler.port";
+import { isNonAdverseDisputeStatus } from "../../domain/stripe-dispute-status";
+import { BillingCheckoutAttemptsRepository } from "../../infrastructure/persistence/billing-checkout-attempts.repository";
 import { BillingCustomersRepository } from "../../infrastructure/persistence/billing-customers.repository";
 import type { SubscriptionRow } from "../../infrastructure/persistence/subscriptions.repository";
 import { PaymentRefundsService } from "./payment-refunds.service";
@@ -33,9 +38,17 @@ export class StripeEventRouter {
 		private readonly subscriptionCreditsService: SubscriptionCreditsService,
 		@Inject(PaymentRefundsService)
 		private readonly paymentRefundsService: PaymentRefundsService,
+		@Inject(BillingCheckoutAttemptsRepository)
+		private readonly checkoutAttemptsRepository: BillingCheckoutAttemptsRepository,
 		@Optional()
 		@Inject(WEBHOOK_ORDER_RECONCILER)
 		private readonly orderReconciler?: WebhookOrderReconciler,
+		@Optional()
+		@Inject(AffiliateCommissionService)
+		private readonly affiliateCommissionService?: AffiliateCommissionService,
+		@Optional()
+		@Inject(AffiliateClawbackService)
+		private readonly affiliateClawbackService?: AffiliateClawbackService,
 	) {}
 
 	async route(event: Stripe.Event): Promise<StripeEventRouteResult> {
@@ -63,10 +76,11 @@ export class StripeEventRouter {
 				return this.routeDeletedSubscription(event.data.object);
 			case "invoice.paid":
 				return this.routePaidInvoice(event.data.object);
+			case "invoice.upcoming":
+				return this.routeUpcomingInvoice(event.data.object);
 			case "invoice.payment_failed":
 			case "invoice.payment_action_required":
 			case "invoice.marked_uncollectible":
-			case "invoice.upcoming":
 				return this.routeInvoiceSync(event.data.object);
 			case "payment_intent.succeeded":
 				return this.routePaymentIntentToOrderReconciler(
@@ -91,6 +105,8 @@ export class StripeEventRouter {
 				return this.routeRefundUpdated(event.data.object);
 			case "charge.dispute.created":
 				return this.routeChargeDisputeCreated(event.data.object);
+			case "charge.dispute.closed":
+				return this.routeChargeDisputeClosed(event.data.object);
 			default:
 				return this.skipped(
 					`Stripe event type ${event.type} is not allowlisted`,
@@ -143,11 +159,16 @@ export class StripeEventRouter {
 			return this.routeCheckoutSessionToOrderReconciler(session, "expired");
 		}
 
-		if (
-			session.metadata?.purpose === CHECKOUT_PURPOSE.subscription ||
-			(session.metadata?.purpose === undefined &&
-				session.mode === "subscription")
-		) {
+		if (this.isBillingCheckout(session)) {
+			const attempt = await this.findOrAttachTerminalBillingAttempt(session);
+
+			if (!attempt) {
+				throw new Error(
+					`Stripe billing checkout session ${session.id} expired without a persisted attempt`,
+				);
+			}
+
+			await this.checkoutAttemptsRepository.markExpired(attempt.id);
 			await this.billingCustomersRepository.clearOpenCheckoutSessionId(
 				session.id,
 			);
@@ -156,11 +177,11 @@ export class StripeEventRouter {
 		}
 
 		return this.skipped(
-			`Stripe checkout session ${session.id} expiration is not subscription or order-related`,
+			`Stripe checkout session ${session.id} expiration is not billing or order-related`,
 		);
 	}
 
-	private routeFailedCheckout(
+	private async routeFailedCheckout(
 		session: Stripe.Checkout.Session,
 	): Promise<StripeEventRouteResult> {
 		if (session.metadata?.purpose === CHECKOUT_PURPOSE.order) {
@@ -170,10 +191,22 @@ export class StripeEventRouter {
 			);
 		}
 
-		return Promise.resolve(
-			this.skipped(
-				`Stripe checkout session ${session.id} failure is not order-related`,
-			),
+		if (this.isBillingCheckout(session)) {
+			const attempt = await this.findOrAttachTerminalBillingAttempt(session);
+
+			if (!attempt) {
+				throw new Error(
+					`Stripe billing checkout session ${session.id} failed without a persisted attempt`,
+				);
+			}
+
+			await this.checkoutAttemptsRepository.markExpired(attempt.id);
+
+			return PROCESSED;
+		}
+
+		return this.skipped(
+			`Stripe checkout session ${session.id} failure is not billing or order-related`,
 		);
 	}
 
@@ -212,25 +245,113 @@ export class StripeEventRouter {
 			);
 		}
 
+		const attemptId = this.requiredString(
+			session.metadata?.attemptId,
+			`checkout session ${session.id} attempt`,
+		);
+		let attempt = await this.checkoutAttemptsRepository.findByProviderSessionId(
+			session.id,
+		);
+
+		if (!attempt) {
+			const unattached =
+				await this.checkoutAttemptsRepository.findById(attemptId);
+
+			if (
+				unattached?.purpose === CHECKOUT_PURPOSE.subscription &&
+				unattached.status === "created" &&
+				unattached.providerSessionId === null
+			) {
+				attempt = await this.checkoutAttemptsRepository.withUserLock(
+					unattached.userId,
+					(tx) =>
+						this.checkoutAttemptsRepository.attachSession(
+							unattached.id,
+							session.id,
+							tx,
+						),
+				);
+			}
+		}
+
+		if (!attempt) {
+			throw new Error(
+				`Stripe subscription checkout session ${session.id} has no persisted checkout attempt`,
+			);
+		}
+
+		if (
+			attempt.purpose !== CHECKOUT_PURPOSE.subscription ||
+			(attempt.status !== "session_attached" &&
+				attempt.status !== "completed") ||
+			!attempt.priceLookupKey ||
+			attempt.packId !== null
+		) {
+			throw new Error(
+				`Billing checkout attempt ${attempt.id} is not a fulfillable subscription attempt`,
+			);
+		}
+
+		if (attemptId !== attempt.id) {
+			throw new Error(
+				`Stripe checkout session ${session.id} does not match persisted attempt ${attempt.id}`,
+			);
+		}
+
+		const attemptedPrice = parsePriceLookupKey(attempt.priceLookupKey);
+
+		if (
+			!attemptedPrice ||
+			session.metadata?.plan !== attemptedPrice.plan ||
+			session.metadata?.interval !== attemptedPrice.interval ||
+			session.metadata?.tierCredits !== String(attemptedPrice.tierCredits)
+		) {
+			throw new Error(
+				`Stripe checkout session ${session.id} price metadata does not match checkout attempt ${attempt.id}`,
+			);
+		}
+
 		const userId = this.requiredString(
 			session.client_reference_id ?? session.metadata?.userId,
 			`checkout session ${session.id} user`,
 		);
+
+		if (userId !== attempt.userId || session.metadata?.userId !== userId) {
+			throw new Error(
+				`Stripe checkout session ${session.id} user does not match checkout attempt ${attempt.id}`,
+			);
+		}
+
 		const providerCustomerId = this.requiredCustomerId(
 			session.customer,
 			`checkout session ${session.id}`,
 		);
+		const customer = await this.billingCustomersRepository.findByUserId(userId);
 
-		await this.billingCustomersRepository.upsertByUserId({
-			provider: "stripe",
-			providerCustomerId,
-			userId,
-		});
+		if (!customer || customer.providerCustomerId !== providerCustomerId) {
+			throw new Error(
+				`Stripe checkout session ${session.id} customer does not match user ${userId}`,
+			);
+		}
+
 		await this.billingCustomersRepository.clearOpenCheckoutSessionId(
 			session.id,
 		);
 		const mirroredSubscriptions =
 			await this.subscriptionSyncService.syncFromStripe(providerCustomerId);
+
+		if (attempt.status !== "completed") {
+			const completed =
+				await this.checkoutAttemptsRepository.markCompletedBySession(
+					session.id,
+				);
+
+			if (!completed) {
+				throw new Error(
+					`Billing checkout attempt ${attempt.id} could not be completed after subscription sync`,
+				);
+			}
+		}
 
 		return { mirroredSubscriptions, status: "processed" };
 	}
@@ -269,7 +390,16 @@ export class StripeEventRouter {
 	): Promise<StripeEventRouteResult> {
 		await this.syncInvoiceCustomer(invoice);
 		await this.subscriptionCreditsService.grantForPaidInvoice(invoice);
+		await this.affiliateCommissionService?.handlePaidInvoice(invoice);
 
+		return PROCESSED;
+	}
+
+	private async routeUpcomingInvoice(
+		_invoice: Stripe.Invoice,
+	): Promise<StripeEventRouteResult> {
+		// Downgrades use Stripe Subscription Schedules. Upcoming invoices are
+		// informational; changing the live item here opens a double-grant window.
 		return PROCESSED;
 	}
 
@@ -293,10 +423,13 @@ export class StripeEventRouter {
 	private async routeChargeRefunded(
 		charge: Stripe.Charge,
 	): Promise<StripeEventRouteResult> {
-		const handled =
+		const billingHandled =
 			await this.paymentRefundsService.handleChargeRefunded(charge);
+		const affiliateHandled =
+			(await this.affiliateClawbackService?.handleChargeRefunded(charge)) ??
+			false;
 
-		return handled
+		return billingHandled || affiliateHandled
 			? PROCESSED
 			: this.skipped(
 					`Stripe charge ${charge.id} has no matching payment order or purchased credits`,
@@ -306,23 +439,50 @@ export class StripeEventRouter {
 	private async routeChargeDisputeCreated(
 		dispute: Stripe.Dispute,
 	): Promise<StripeEventRouteResult> {
-		const handled =
+		const billingHandled =
 			await this.paymentRefundsService.handleChargeDisputeCreated(dispute);
+		const affiliateHandled =
+			(await this.affiliateClawbackService?.handleDisputeCreated(dispute)) ??
+			false;
 
-		return handled
+		return billingHandled || affiliateHandled
 			? PROCESSED
 			: this.skipped(
 					`Stripe dispute ${dispute.id} has no purchased credits to revoke`,
 				);
 	}
 
+	private async routeChargeDisputeClosed(
+		dispute: Stripe.Dispute,
+	): Promise<StripeEventRouteResult> {
+		if (!isNonAdverseDisputeStatus(dispute.status)) {
+			return this.skipped(
+				`Stripe dispute ${dispute.id} closed with non-restorable status ${dispute.status}`,
+			);
+		}
+
+		const billingHandled =
+			await this.paymentRefundsService.handleChargeDisputeClosed(dispute);
+		const affiliateHandled =
+			(await this.affiliateClawbackService?.handleDisputeWon(dispute)) ?? false;
+
+		return billingHandled || affiliateHandled
+			? PROCESSED
+			: this.skipped(
+					`Stripe dispute ${dispute.id} has no purchased credits to restore`,
+				);
+	}
+
 	private async routeRefundUpdated(
 		refund: Stripe.Refund,
 	): Promise<StripeEventRouteResult> {
-		const handled =
+		const billingHandled =
 			await this.paymentRefundsService.handleRefundUpdated(refund);
+		const affiliateHandled =
+			(await this.affiliateClawbackService?.handleRefundUpdated(refund)) ??
+			false;
 
-		return handled
+		return billingHandled || affiliateHandled
 			? PROCESSED
 			: this.skipped(
 					`Stripe refund ${refund.id} has no matching payment order`,
@@ -388,6 +548,62 @@ export class StripeEventRouter {
 		}
 
 		return value;
+	}
+
+	private isBillingCheckout(session: Stripe.Checkout.Session): boolean {
+		return (
+			session.metadata?.purpose === CHECKOUT_PURPOSE.subscription ||
+			session.metadata?.purpose === CHECKOUT_PURPOSE.topup ||
+			(session.metadata?.purpose === undefined &&
+				(session.mode === "subscription" ||
+					(session.mode === "payment" &&
+						(session.metadata?.packId !== undefined ||
+							session.metadata?.credits !== undefined))))
+		);
+	}
+
+	private async findOrAttachTerminalBillingAttempt(
+		session: Stripe.Checkout.Session,
+	) {
+		const direct =
+			await this.checkoutAttemptsRepository.findByProviderSessionId(session.id);
+
+		if (direct) {
+			return direct;
+		}
+
+		const attemptId = session.metadata?.attemptId;
+		const purpose = session.metadata?.purpose;
+
+		if (
+			!attemptId ||
+			(purpose !== CHECKOUT_PURPOSE.subscription &&
+				purpose !== CHECKOUT_PURPOSE.topup)
+		) {
+			return null;
+		}
+
+		const unattached =
+			await this.checkoutAttemptsRepository.findById(attemptId);
+
+		if (
+			!unattached ||
+			unattached.purpose !== purpose ||
+			unattached.status !== "created" ||
+			unattached.providerSessionId !== null
+		) {
+			return null;
+		}
+
+		return this.checkoutAttemptsRepository.withUserLock(
+			unattached.userId,
+			(tx) =>
+				this.checkoutAttemptsRepository.attachSession(
+					unattached.id,
+					session.id,
+					tx,
+				),
+		);
 	}
 
 	private skipped(reason: string): StripeEventRouteResult {

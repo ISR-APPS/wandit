@@ -26,8 +26,13 @@ import {
 // Type-only import: importing the task value would pull the Trigger worker
 // (and its database pool) into the Nest API process.
 import type { animateImageTask } from "../../../../trigger/animate-image.task";
-import type { GenerationPolicyService } from "../../../generation/application/services/generation-policy.service";
+import {
+	createImageAnimationBilling,
+	type ImageAnimationBilling,
+} from "../../../media-generations/application/services/image-animation-billing";
 import type { MediaGenerationsRepository } from "../../../media-generations/infrastructure/persistence/media-generations.repository";
+import { assertFixedOperationProviderExecutionAllowed } from "../../../metering/application/services/fixed-operation-billing";
+import type { MeteringService } from "../../../metering/application/services/metering.service";
 
 const logger = new Logger("animate-image");
 const TRIGGER_HANDOFF_ATTEMPTS = 3;
@@ -41,8 +46,9 @@ export type AvailableImage = {
 export type AnimateImageToolDeps = {
 	availableImages: readonly AvailableImage[];
 	chatId: string;
-	generationPolicyService: GenerationPolicyService;
 	mediaGenerationsRepository: MediaGenerationsRepository;
+	meteringService: MeteringService;
+	parentEventId?: string;
 	projectId: string;
 	requireSelectedSource?: boolean;
 	requestKeySeed?: string;
@@ -53,6 +59,11 @@ export type AnimateImageToolDeps = {
 export function createAnimateImageTool(
 	deps: AnimateImageToolDeps,
 ): Tool<AnimateImageInput, AnimateImageOutput> {
+	const billing = createImageAnimationBilling({
+		isBillingDisabled: () => env.GENERATION_BILLING_MODE === "off",
+		meteringService: deps.meteringService,
+	});
+
 	return tool({
 		description:
 			"Animate exactly one uploaded JPEG, PNG, or WebP into a silent " +
@@ -106,21 +117,6 @@ export function createAnimateImageTool(
 				};
 			}
 
-			try {
-				await deps.generationPolicyService.assertCanGenerate(
-					deps.userId,
-					"videoGeneration",
-				);
-			} catch {
-				return {
-					message:
-						"The user needs an active subscription or 25 credits for " +
-						"image animation. Explain that clearly and do not claim the " +
-						"video was queued.",
-					status: "unavailable",
-				};
-			}
-
 			let attempt: {
 				created: boolean;
 				id: string;
@@ -165,7 +161,7 @@ export function createAnimateImageTool(
 			}
 
 			if (!attempt.created && attempt.status === "failed") {
-				await refundReservation(deps, attempt.id);
+				await refundReservation(deps, billing, attempt.id);
 
 				return {
 					message:
@@ -188,11 +184,21 @@ export function createAnimateImageTool(
 				};
 			}
 
+			const reservation = await billing.reserve(
+				deps.userId,
+				attempt.id,
+				deps.parentEventId,
+			);
+
+			assertFixedOperationProviderExecutionAllowed(reservation);
+
 			let handle: Awaited<ReturnType<typeof tasks.trigger>>;
 
 			try {
 				handle = await triggerAnimateImageTask({
 					attemptId: attempt.id,
+					billingMode: reservation.eventId ? "enforce" : "off",
+					...(deps.parentEventId ? { parentEventId: deps.parentEventId } : {}),
 					projectId: deps.projectId,
 					userId: deps.userId,
 				});
@@ -213,7 +219,7 @@ export function createAnimateImageTool(
 							);
 
 						if (closed) {
-							await refundReservation(deps, attempt.id);
+							await refundReservation(deps, billing, attempt.id);
 
 							return {
 								message:
@@ -276,6 +282,8 @@ export function createAnimateImageTool(
 
 async function triggerAnimateImageTask(payload: {
 	attemptId: string;
+	billingMode: "enforce" | "off";
+	parentEventId?: string;
 	projectId: string;
 	userId: string;
 }): Promise<Awaited<ReturnType<typeof tasks.trigger>>> {
@@ -340,13 +348,11 @@ function isDefinitiveTriggerRejection(error: unknown): boolean {
 
 async function refundReservation(
 	deps: AnimateImageToolDeps,
+	billing: ImageAnimationBilling,
 	attemptId: string,
 ): Promise<void> {
 	try {
-		await deps.generationPolicyService.refundGenerationReservation(
-			deps.userId,
-			attemptId,
-		);
+		await billing.refund(deps.userId, attemptId);
 	} catch (error) {
 		logger.error(
 			`Refunding image animation reservation ${attemptId} failed`,

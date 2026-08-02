@@ -1,4 +1,5 @@
 import enAuth from "../dictionaries/en/auth.json";
+import enBilling from "../dictionaries/en/billing.json";
 import enCommon from "../dictionaries/en/common.json";
 import enCredits from "../dictionaries/en/credits.json";
 import enErrors from "../dictionaries/en/errors.json";
@@ -14,6 +15,7 @@ const en = {
 	common: enCommon,
 	landing: enLanding,
 	auth: enAuth,
+	billing: enBilling,
 	projects: enProjects,
 	credits: enCredits,
 	workspace: enWorkspace,
@@ -82,6 +84,7 @@ async function loadFrenchDictionary(): Promise<Dictionary> {
 		common,
 		landing,
 		auth,
+		billing,
 		projects,
 		credits,
 		workspace,
@@ -93,6 +96,7 @@ async function loadFrenchDictionary(): Promise<Dictionary> {
 		import("../dictionaries/fr/common.json"),
 		import("../dictionaries/fr/landing.json"),
 		import("../dictionaries/fr/auth.json"),
+		import("../dictionaries/fr/billing.json"),
 		import("../dictionaries/fr/projects.json"),
 		import("../dictionaries/fr/credits.json"),
 		import("../dictionaries/fr/workspace.json"),
@@ -106,6 +110,7 @@ async function loadFrenchDictionary(): Promise<Dictionary> {
 		common: common.default,
 		landing: landing.default,
 		auth: auth.default,
+		billing: billing.default,
 		projects: projects.default,
 		credits: credits.default,
 		workspace: workspace.default,
@@ -121,6 +126,7 @@ async function loadArabicDictionary(): Promise<Dictionary> {
 		common,
 		landing,
 		auth,
+		billing,
 		projects,
 		credits,
 		workspace,
@@ -132,6 +138,7 @@ async function loadArabicDictionary(): Promise<Dictionary> {
 		import("../dictionaries/ar/common.json"),
 		import("../dictionaries/ar/landing.json"),
 		import("../dictionaries/ar/auth.json"),
+		import("../dictionaries/ar/billing.json"),
 		import("../dictionaries/ar/projects.json"),
 		import("../dictionaries/ar/credits.json"),
 		import("../dictionaries/ar/workspace.json"),
@@ -145,6 +152,7 @@ async function loadArabicDictionary(): Promise<Dictionary> {
 		common: common.default,
 		landing: landing.default,
 		auth: auth.default,
+		billing: billing.default,
 		projects: projects.default,
 		credits: credits.default,
 		workspace: workspace.default,

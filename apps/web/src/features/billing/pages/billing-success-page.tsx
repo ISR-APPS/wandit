@@ -22,6 +22,7 @@ import {
 	shouldPollOrder,
 } from "@/features/billing/lib/order-return-state";
 import { subscriptionReturnStateFor } from "@/features/billing/lib/subscription-return-state";
+import { creditsKeys } from "@/features/credits/api/credits.queries";
 import { domainKeys } from "@/features/domains/api/domains.queries";
 import { useReconcileSession } from "@/features/orders/api/orders.mutations";
 import { useOrderQuery } from "@/features/orders/api/orders.queries";
@@ -54,14 +55,7 @@ export default function BillingSuccessPage({
 	}
 
 	if (purpose === "topup") {
-		return (
-			<BillingReturnShell
-				tone="success"
-				title={copy.topup.updatedTitle}
-				body={copy.topup.updatedBody}
-				actions={<DashboardButton label={copy.backToDashboard} />}
-			/>
-		);
+		return <TopupSuccessFlow />;
 	}
 
 	if (purpose === "order" && sessionId?.trim()) {
@@ -84,22 +78,46 @@ export default function BillingSuccessPage({
 	);
 }
 
+function TopupSuccessFlow() {
+	const { locale } = useTranslation();
+	const copy = getBillingReturnCopy(locale);
+	const queryClient = useQueryClient();
+
+	useEffect(() => {
+		void queryClient.invalidateQueries({ queryKey: creditsKeys.balance() });
+		void queryClient.invalidateQueries({ queryKey: creditsKeys.ledgers() });
+	}, [queryClient]);
+
+	return (
+		<BillingReturnShell
+			tone="success"
+			title={copy.topup.updatedTitle}
+			body={copy.topup.updatedBody}
+			actions={<DashboardButton label={copy.backToDashboard} />}
+		/>
+	);
+}
+
 function SubscriptionSuccessFlow({ onRetry }: { onRetry: () => void }) {
 	const { locale } = useTranslation();
 	const copy = getBillingReturnCopy(locale);
+	const queryClient = useQueryClient();
 	const sync = useSyncBillingSubscription();
 	const portal = useCreateBillingPortal();
 	const syncStarted = useRef(false);
 	const { mutate } = sync;
 
 	useEffect(() => {
+		void queryClient.invalidateQueries({ queryKey: creditsKeys.balance() });
+		void queryClient.invalidateQueries({ queryKey: creditsKeys.ledgers() });
+
 		if (syncStarted.current) {
 			return;
 		}
 
 		syncStarted.current = true;
 		mutate();
-	}, [mutate]);
+	}, [mutate, queryClient]);
 
 	if (sync.isError) {
 		return (

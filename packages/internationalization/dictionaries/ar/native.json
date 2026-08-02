@@ -71,7 +71,8 @@
 				"stream": "توقفت الإجابة. حاول مرة أخرى.",
 				"send": "تعذّر إرسال هذه الرسالة. حاول مرة أخرى.",
 				"busy": "Wandit يعمل على إجابة بالفعل.",
-				"credits": "نفد رصيدك.",
+				"credits": "ليس لديك رصيد كافٍ.",
+				"creditsDetails": "يحتاج هذا الإجراء إلى {requiredCredits} من الرصيد؛ لديك {availableCredits}.",
 				"unavailable": "تعذّر تحميل المحادثة. حاول مرة أخرى."
 			},
 			"tray": {
@@ -126,7 +127,10 @@
 	"credits": {
 		"title": "الرصيد",
 		"left": "{count} متبقّية",
-		"betaNote": "رصيد تجريبي · النشر والعملاء المحتملون مجانًا دائمًا"
+		"betaNote": "إجمالي رصيد الخطة والعروض والشحن",
+		"bucketPlan": "الخطة",
+		"bucketPromo": "العروض",
+		"bucketTopup": "الشحن"
 	},
 	"projectSheet": {
 		"viewsLabel": "عروض المشروع",

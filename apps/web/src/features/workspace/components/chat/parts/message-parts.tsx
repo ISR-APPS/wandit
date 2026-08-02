@@ -33,6 +33,7 @@ const TRANSPARENT_PART_TYPES = new Set([
 	"tool-read_theme",
 	"tool-read_section",
 	"tool-replace_section",
+	"data-billing-error",
 ]);
 
 export function isTransparentMessagePart(part: MessagePart): boolean {

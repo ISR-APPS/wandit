@@ -21,6 +21,13 @@ import {
 	putSiteFile,
 	siteVideoKey,
 } from "../../../../infrastructure/storage/r2";
+import {
+	type GatewayGenerationFailure,
+	type GatewayGenerationMetadata,
+	type GatewayMeteringContext,
+	gatewayGenerationCaptureFromError,
+	withGatewayAttribution,
+} from "../../../metering/domain/gateway-metering";
 
 // Hard budget per build: video is the most expensive asset the builder can
 // make, and the prompt says most pages need zero.
@@ -43,8 +50,13 @@ const EXTENSION_BY_MEDIA_TYPE: Record<string, string> = {
 const VIDEO_TIMEOUT_MS = 5 * 60_000;
 
 export type GenerateBuildVideoResult =
-	| { message: string; status: "failed" | "unavailable" }
-	| { mediaType: string; status: "generated"; url: string };
+	| GatewayGenerationFailure
+	| { message: string; status: "unavailable" }
+	| ({
+			mediaType: string;
+			status: "generated";
+			url: string;
+	  } & GatewayGenerationMetadata);
 
 export async function generateBuildVideo(params: {
 	abortSignal?: AbortSignal;
@@ -54,6 +66,11 @@ export async function generateBuildVideo(params: {
 	imageUrl: string;
 	/** 1-based position in the build, used for the R2 object name. */
 	index: number;
+	metering: GatewayMeteringContext<"video">;
+	/** Persist Gateway evidence before bytes become recoverable in R2. */
+	onProviderGeneration?: (
+		generation: GatewayGenerationMetadata,
+	) => Promise<void>;
 	/** Defaults to the Builder's restrained ambient-loop behavior. */
 	profile?: ImageVideoProfile;
 	/** Standalone image-animation motion strength. Ignored for ambient loops. */
@@ -80,11 +97,21 @@ export async function generateBuildVideo(params: {
 		};
 	}
 
+	let providerEvidence: GatewayGenerationMetadata | null = null;
+
 	try {
 		const timeoutSignal = AbortSignal.timeout(VIDEO_TIMEOUT_MS);
 		const abortSignal = params.abortSignal
 			? AbortSignal.any([params.abortSignal, timeoutSignal])
 			: timeoutSignal;
+		const providerOptions: NonNullable<
+			Parameters<typeof generateVideo>[0]["providerOptions"]
+		> = withGatewayAttribution({}, params.metering);
+
+		if (env.AI_VIDEO_MODEL.startsWith("klingai/")) {
+			providerOptions.klingai = { mode: "std" };
+		}
+
 		const result = await generateVideo({
 			abortSignal,
 			aspectRatio: params.aspect,
@@ -102,12 +129,13 @@ export async function generateBuildVideo(params: {
 			// visual state" instruction instead — good enough for slow ambient
 			// motion. Upgrading to a clean anchored loop = mode "pro" + imageTail
 			// at roughly double the cost.
-			providerOptions: env.AI_VIDEO_MODEL.startsWith("klingai/")
-				? {
-						klingai: { mode: "std" },
-					}
-				: undefined,
+			providerOptions,
 		});
+		providerEvidence = {
+			model: env.AI_VIDEO_MODEL,
+			providerMetadata: result.providerMetadata,
+		};
+		await params.onProviderGeneration?.(providerEvidence);
 
 		const mediaType = result.video.mediaType;
 		const extension = EXTENSION_BY_MEDIA_TYPE[mediaType] ?? "mp4";
@@ -122,12 +150,26 @@ export async function generateBuildVideo(params: {
 
 		return {
 			mediaType,
+			model: env.AI_VIDEO_MODEL,
+			providerMetadata: result.providerMetadata,
 			status: "generated",
 			url: publicAssetUrl(key),
 		};
 	} catch (error) {
+		const errorCapture = gatewayGenerationCaptureFromError(error);
+		const evidence =
+			providerEvidence ??
+			(errorCapture
+				? {
+						model: env.AI_VIDEO_MODEL,
+						providerMetadata: errorCapture.providerMetadata,
+					}
+				: null);
+
 		return {
+			...(evidence ?? {}),
 			message: error instanceof Error ? error.message : String(error),
+			...(evidence ? { providerUnits: providerEvidence ? 1 : 0 } : {}),
 			status: "failed",
 		};
 	}

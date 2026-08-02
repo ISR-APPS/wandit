@@ -1,5 +1,13 @@
-import { Inject, Injectable, Logger } from "@nestjs/common";
 import {
+	ConflictException,
+	HttpException,
+	HttpStatus,
+	Inject,
+	Injectable,
+	Logger,
+} from "@nestjs/common";
+import {
+	type AiChatBillingErrorData,
 	type AiChatMessageMetadata,
 	type AiChatMessageUsage,
 	type AiChatRequestMetadata,
@@ -9,6 +17,7 @@ import {
 	type ApplyElementOpsOutput,
 	type AskUserInput,
 	type AskUserOutput,
+	aiChatBillingErrorDataSchema,
 	animateImageInputSchema,
 	applyElementOpsInputSchema,
 	askUserInputSchema,
@@ -57,7 +66,6 @@ import {
 import type { FastifyReply } from "fastify";
 
 import { isUserUploadUrl } from "../../../../infrastructure/storage/r2";
-import { GenerationPolicyService } from "../../../generation/application/services/generation-policy.service";
 import { ChatsRepository } from "../../../generation/infrastructure/persistence/chats.repository";
 import { ImageGenerationsRepository } from "../../../image-generations/infrastructure/persistence/image-generations.repository";
 // Value imports (not `import type`): Nest needs the classes at runtime for @Inject.
@@ -68,10 +76,29 @@ import {
 	McpChatToolsService,
 } from "../../../mcp-connectors/application/services/mcp-chat-tools.service";
 import { MediaGenerationsRepository } from "../../../media-generations/infrastructure/persistence/media-generations.repository";
+import { MeteringService } from "../../../metering/application/services/metering.service";
+import { ModelPricingService } from "../../../metering/application/services/model-pricing.service";
+import { gatewayGenerationCaptureFromError } from "../../../metering/domain/gateway-metering";
+import {
+	type CapturedGeneration,
+	gatewayGenerationId,
+	MeteringStateConflictError,
+} from "../../../metering/domain/metering";
+import {
+	type MeteredTokenUsage,
+	ModelPriceUnavailableError,
+} from "../../../metering/domain/model-pricing";
+import { operationPricing } from "../../../metering/domain/operation-registry";
 import { PageEditsService } from "../../../pages/application/services/page-edits.service";
 import { PagesRepository } from "../../../pages/infrastructure/persistence/pages.repository";
 import { annotateUserFileParts } from "../../agent/annotate-file-parts";
 import { createChatAgent, type WanditUIMessage } from "../../agent/chat-agent";
+import {
+	estimateAiChatTokenUsage,
+	projectCreationMeteringKey,
+	projectCreationReservationAttemptRef,
+	projectCreationStreamClaimAttemptRef,
+} from "../../agent/chat-metering";
 import {
 	buildChatRequestContext,
 	resolveVideoRequestKeySeed,
@@ -79,9 +106,19 @@ import {
 import type { AvailableImage } from "../../agent/tools/animate-image.tool";
 import { resolveBuilderModelOption } from "../../agent/tools/builder-model-options";
 
+const MAX_IN_FLIGHT_STREAMS_PER_USER = 3;
+const AI_CHAT_GENERATION_CAPTURE_ATTEMPTS = 3;
+const AI_CHAT_MAX_STREAM_DURATION_MS = 35 * 60 * 1_000;
+
+export type PreparedAiChatStream = {
+	readonly eventId: string | null;
+	readonly release: () => void;
+};
+
 @Injectable()
 export class AiChatService {
 	private readonly logger = new Logger(AiChatService.name);
+	private readonly inFlightStreamsByUser = new Map<string, number>();
 
 	constructor(
 		@Inject(ChatsRepository)
@@ -92,8 +129,6 @@ export class AiChatService {
 		private readonly pageEditsService: PageEditsService,
 		@Inject(LeadScrapesRepository)
 		private readonly leadScrapesRepository: LeadScrapesRepository,
-		@Inject(GenerationPolicyService)
-		private readonly generationPolicyService: GenerationPolicyService,
 		@Inject(MediaGenerationsRepository)
 		private readonly mediaGenerationsRepository: MediaGenerationsRepository,
 		@Inject(MarketingAssetsRepository)
@@ -102,7 +137,122 @@ export class AiChatService {
 		private readonly imageGenerationsRepository: ImageGenerationsRepository,
 		@Inject(McpChatToolsService)
 		private readonly mcpChatToolsService: McpChatToolsService,
+		@Inject(MeteringService)
+		private readonly meteringService: MeteringService,
+		@Inject(ModelPricingService)
+		private readonly modelPricingService: ModelPricingService,
 	) {}
+
+	async prepareStream(options: {
+		chatId: string;
+		messages: WanditUIMessage[];
+		projectId: string;
+		requestId?: string;
+		userId: string;
+	}): Promise<PreparedAiChatStream> {
+		const release = this.acquireStreamSlot(options.userId);
+
+		try {
+			const modelBoundMessages = annotateUserFileParts(
+				elideRetiredToolOutputs(completeDanglingToolCalls(options.messages)),
+			);
+			const messageId = findFinalUserMessage(options.messages)?.id ?? null;
+			const requestId =
+				options.requestId ?? options.messages.at(-1)?.id ?? messageId;
+
+			if (!requestId || !messageId) {
+				throw new Error("AI chat reservation requires a stable request id");
+			}
+
+			try {
+				const creationEvent =
+					await this.meteringService.claimBundledReservation({
+						chatId: options.chatId,
+						claimAttemptRef: projectCreationStreamClaimAttemptRef(
+							options.projectId,
+							requestId,
+						),
+						expectedAttemptRef: projectCreationReservationAttemptRef(
+							options.projectId,
+						),
+						idempotencyKey: projectCreationMeteringKey(options.projectId),
+						messageId,
+						operation: "chat",
+						userId: options.userId,
+					});
+
+				if (creationEvent) {
+					return { eventId: creationEvent.id, release };
+				}
+			} catch (error) {
+				if (error instanceof MeteringStateConflictError) {
+					throw this.chatReplayConflict();
+				}
+
+				throw error;
+			}
+
+			const operationKey = `ai-chat:${options.chatId}:${requestId}`;
+
+			if (env.GENERATION_BILLING_MODE === "off") {
+				// The kill switch suppresses new holds only. A hold accepted before a
+				// config change remains an at-most-once provider admission boundary.
+				const existing = await this.meteringService.findByIdempotencyKey(
+					operationKey,
+					options.userId,
+				);
+
+				if (existing) {
+					throw this.chatReplayConflict();
+				}
+
+				return { eventId: null, release };
+			}
+
+			const estimate = await this.estimateReservation(modelBoundMessages);
+
+			let reservation: Awaited<
+				ReturnType<MeteringService["reserveWithReplay"]>
+			>;
+
+			try {
+				reservation = await this.meteringService.reserveWithReplay(
+					"chat",
+					options.userId,
+					{
+						chatId: options.chatId,
+						credits: estimate.credits,
+						estimatedCostUsdMicros: estimate.costUsdMicros,
+						idempotencyKey: operationKey,
+						messageId,
+						model: env.AI_CHAT_MODEL,
+					},
+				);
+			} catch (error) {
+				if (error instanceof MeteringStateConflictError) {
+					throw this.chatReplayConflict();
+				}
+
+				throw error;
+			}
+
+			if (reservation.replay !== "none") {
+				throw this.chatReplayConflict();
+			}
+
+			return { eventId: reservation.event.id, release };
+		} catch (error) {
+			release();
+			throw error;
+		}
+	}
+
+	private chatReplayConflict(): ConflictException {
+		return new ConflictException({
+			code: "AI_CHAT_OPERATION_REPLAYED",
+			message: "This AI chat operation was already accepted",
+		});
+	}
 
 	async stream(options: {
 		abortSignal: AbortSignal;
@@ -110,25 +260,71 @@ export class AiChatService {
 		messages: WanditUIMessage[];
 		metadata?: AiChatRequestMetadata;
 		origin?: string;
+		prepared: PreparedAiChatStream;
 		projectId: string;
 		reply: FastifyReply;
 		requestCountryCode?: string | null;
 		userId: string;
 	}): Promise<void> {
 		const {
-			abortSignal,
+			abortSignal: clientAbortSignal,
 			chatId,
 			messages,
 			metadata,
 			origin,
+			prepared,
 			projectId,
 			reply,
 			requestCountryCode,
 			userId,
 		} = options;
-		const mcpResultPromise =
-			this.mcpChatToolsService.resolveToolsForUser(userId);
+		const abortSignal = AbortSignal.any([
+			clientAbortSignal,
+			AbortSignal.timeout(AI_CHAT_MAX_STREAM_DURATION_MS),
+		]);
+		const releaseStream = this.releaseOnAbort(abortSignal, prepared.release);
+		const mcpResultPromise = this.mcpChatToolsService.resolveToolsForUser(
+			userId,
+			prepared.eventId ?? undefined,
+		);
 		let resolvedMcpResult: McpChatToolsResult | undefined;
+		const pendingGatewayErrorCaptures = new Map<string, Promise<void>>();
+		const queueGatewayErrorCapture = (error: unknown): void => {
+			if (!prepared.eventId) {
+				return;
+			}
+
+			const capture = gatewayGenerationCaptureFromError(error);
+			const generationId = capture
+				? gatewayGenerationId(capture.providerMetadata)
+				: null;
+
+			if (
+				!capture ||
+				!generationId ||
+				pendingGatewayErrorCaptures.has(generationId)
+			) {
+				return;
+			}
+
+			const capturePromise = this.captureGeneration(
+				prepared.eventId,
+				capture,
+			).catch((captureError) => {
+				// The provider error remains the stream's authority. Capture already
+				// retried three times; report persistence failure without replacing it.
+				this.logger.error(
+					`Failed to capture AI chat gateway error ${generationId}`,
+					captureError instanceof Error
+						? captureError.stack
+						: String(captureError),
+				);
+			});
+			pendingGatewayErrorCaptures.set(generationId, capturePromise);
+		};
+		const flushGatewayErrorCaptures = async (): Promise<void> => {
+			await Promise.all(pendingGatewayErrorCaptures.values());
+		};
 
 		try {
 			// Per-request context and connector discovery are independent. Start
@@ -177,13 +373,14 @@ export class AiChatService {
 						metadata?.composer?.options?.builderModel,
 					),
 					chatId,
-					generationPolicyService: this.generationPolicyService,
 					imageGenerationsRepository: this.imageGenerationsRepository,
 					leadScrapesRepository: this.leadScrapesRepository,
 					marketingAssetsRepository: this.marketingAssetsRepository,
 					mediaGenerationsRepository: this.mediaGenerationsRepository,
+					meteringService: this.meteringService,
 					pageEditsService: this.pageEditsService,
 					pagesRepository: this.pagesRepository,
+					parentEventId: prepared.eventId ?? undefined,
 					projectId,
 					// Snapshotted into generation specs for later model swapping; no
 					// generator reads it yet.
@@ -210,19 +407,66 @@ export class AiChatService {
 			const agentMessages = annotateUserFileParts(
 				elideRetiredToolOutputs(completeDanglingToolCalls(messages)),
 			);
-			// Capture happens in exactly ONE place per failure: the agent stream's
-			// onError (real errors, with stacks) or the execute catch below. The
-			// outer createUIMessageStream onError must stay map-only — the SDK
-			// re-invokes it with a synthetic Error(errorText) built from the error
-			// CHUNK of an already-handled failure, so capturing there would
-			// double-report every stream error and destroy issue grouping.
-			const onAgentStreamError = (error: unknown) =>
-				this.handleStreamError(error, { chatId, projectId, userId });
-
-			// TODO(billing): gate like GenerationPolicyService before public launch
+			let finalUsage: LanguageModelUsage | null = null;
+			const pendingGenerationCaptures: CapturedGeneration[] = [];
+			const stepUsages: MeteredTokenUsage[] = [];
 			const stream = createUIMessageStream<WanditUIMessage>({
 				execute: async ({ writer }) => {
+					let wroteBillingError = false;
+					const writeBillingError = (error: unknown): boolean => {
+						const data = this.billingErrorData(error);
+
+						if (!data) {
+							return false;
+						}
+
+						if (!wroteBillingError) {
+							wroteBillingError = true;
+							writer.write({ type: "data-billing-error", data });
+						}
+
+						return true;
+					};
+					// The agent stream sees provider/tool failures first. Expected 402s
+					// become a typed data part; other failures keep the existing capture-
+					// once behavior and generic client message.
+					const onAgentStreamError = (error: unknown): string => {
+						queueGatewayErrorCapture(error);
+
+						if (writeBillingError(error)) {
+							return "Insufficient credits.";
+						}
+
+						return this.handleStreamError(error, {
+							chatId,
+							projectId,
+							userId,
+						});
+					};
+
 					try {
+						const stopOnBillingError = ({
+							stopStream,
+						}: {
+							stopStream: () => void;
+						}) =>
+							new TransformStream({
+								transform: (part, controller) => {
+									if (
+										part.type === "tool-error" &&
+										writeBillingError(part.error)
+									) {
+										// AI SDK v7 normally converts a thrown tool error into
+										// model-visible text and continues the tool loop. Billing
+										// refusals are terminal: emit the typed UI part above,
+										// suppress the tool-error chunk, and prevent another step.
+										stopStream();
+										return;
+									}
+
+									controller.enqueue(part);
+								},
+							});
 						const agentStream = await createAgentUIStream({
 							abortSignal,
 							agent,
@@ -230,7 +474,10 @@ export class AiChatService {
 							// "snapping" blocks. smoothStream re-slices the deltas into
 							// words with a small delay so the UI reads like typing.
 							// Word chunking splits on whitespace — fine for FR/AR alike.
-							experimental_transform: smoothStream({ delayInMs: 15 }),
+							experimental_transform: [
+								stopOnBillingError,
+								smoothStream({ delayInMs: 15 }),
+							],
 							messageMetadata: ({
 								part,
 							}): AiChatMessageMetadata | undefined => {
@@ -239,6 +486,7 @@ export class AiChatService {
 								}
 
 								if (part.type === "finish") {
+									finalUsage = part.totalUsage;
 									return {
 										model: env.AI_CHAT_MODEL,
 										usage: toAiChatMessageUsage(part.totalUsage),
@@ -248,6 +496,56 @@ export class AiChatService {
 								return undefined;
 							},
 							onError: onAgentStreamError,
+							onEnd: async () => {
+								await flushGatewayErrorCaptures();
+
+								if (!prepared.eventId) {
+									return;
+								}
+
+								for (const capture of pendingGenerationCaptures) {
+									await this.captureGeneration(prepared.eventId, capture);
+								}
+
+								const usage =
+									finalUsage ?? aggregateMeteredTokenUsage(stepUsages);
+
+								if (!usage) {
+									return;
+								}
+
+								try {
+									await this.meteringService.settle(prepared.eventId, {
+										modelId: env.AI_CHAT_MODEL,
+										pricing: "token",
+										rawUsage: finalUsage ?? stepUsages,
+										usage,
+									});
+								} catch (error) {
+									if (!writeBillingError(error)) {
+										throw error;
+									}
+								}
+							},
+							onStepEnd: async (step) => {
+								stepUsages.push(step.usage);
+
+								if (prepared.eventId) {
+									const capture = {
+										providerMetadata: step.providerMetadata,
+										stepUsage: step.usage,
+									};
+
+									try {
+										await this.captureGeneration(prepared.eventId, capture);
+									} catch {
+										// AI SDK intentionally swallows onStepEnd callback errors.
+										// Retain the exact capture and retry it in onEnd before the
+										// event can settle, rather than silently losing this step.
+										pendingGenerationCaptures.push(capture);
+									}
+								}
+							},
 							uiMessages: agentMessages,
 						});
 						// The live agent's tool set is a strict SUBSET of WanditUIMessage's
@@ -259,6 +557,13 @@ export class AiChatService {
 							>,
 						);
 					} catch (error) {
+						queueGatewayErrorCapture(error);
+						await flushGatewayErrorCaptures();
+
+						if (writeBillingError(error)) {
+							return;
+						}
+
 						// Setup failures never reach the agent stream's onError —
 						// capture here, then rethrow so the SDK still emits an error
 						// chunk for the client.
@@ -268,9 +573,14 @@ export class AiChatService {
 						throw error;
 					}
 				},
-				onError: (error: unknown) => this.streamErrorMessage(error),
+				onError: (error: unknown) => {
+					queueGatewayErrorCapture(error);
+					return this.streamErrorMessage(error);
+				},
 				onEnd: async ({ isContinuation, responseMessage }) => {
 					try {
+						await flushGatewayErrorCaptures();
+
 						// A tray answer CONTINUES the previous assistant message: the SDK
 						// keeps its id and hands back the original row extended with the
 						// answer + everything the model did after it. The insert-if-absent
@@ -301,7 +611,11 @@ export class AiChatService {
 							messagesToInsert,
 						);
 					} finally {
-						await mcpResult.close();
+						try {
+							await mcpResult.close();
+						} finally {
+							releaseStream();
+						}
 					}
 				},
 				originalMessages: messages,
@@ -320,14 +634,156 @@ export class AiChatService {
 				stream,
 			});
 		} catch (error) {
+			queueGatewayErrorCapture(error);
+			await flushGatewayErrorCaptures();
+
 			// The controller hijacked the reply before calling us, so the global
 			// exception filter sees reply.sent and skips — capture here or lose it.
 			Sentry.captureException(error, { tags: { chatId, projectId, userId } });
 			const mcpResult =
 				resolvedMcpResult ?? (await mcpResultPromise.catch(() => undefined));
-			await mcpResult?.close();
+			try {
+				await mcpResult?.close();
+			} finally {
+				releaseStream();
+			}
 			throw error;
 		}
+	}
+
+	private acquireStreamSlot(userId: string): () => void {
+		const active = this.inFlightStreamsByUser.get(userId) ?? 0;
+
+		if (active >= MAX_IN_FLIGHT_STREAMS_PER_USER) {
+			throw new HttpException(
+				{
+					code: "RATE_LIMITED",
+					message: `At most ${MAX_IN_FLIGHT_STREAMS_PER_USER} AI streams may run at once`,
+				},
+				HttpStatus.TOO_MANY_REQUESTS,
+			);
+		}
+
+		this.inFlightStreamsByUser.set(userId, active + 1);
+		let released = false;
+
+		return () => {
+			if (released) {
+				return;
+			}
+
+			released = true;
+			const current = this.inFlightStreamsByUser.get(userId) ?? 0;
+
+			if (current <= 1) {
+				this.inFlightStreamsByUser.delete(userId);
+				return;
+			}
+
+			this.inFlightStreamsByUser.set(userId, current - 1);
+		};
+	}
+
+	private releaseOnAbort(
+		abortSignal: AbortSignal,
+		release: () => void,
+	): () => void {
+		const releaseAndDetach = () => {
+			abortSignal.removeEventListener("abort", releaseAndDetach);
+			release();
+		};
+
+		if (abortSignal.aborted) {
+			releaseAndDetach();
+		} else {
+			abortSignal.addEventListener("abort", releaseAndDetach, { once: true });
+		}
+
+		return releaseAndDetach;
+	}
+
+	private async captureGeneration(
+		eventId: string,
+		capture: CapturedGeneration,
+	): Promise<void> {
+		let lastError: unknown;
+
+		for (
+			let attempt = 1;
+			attempt <= AI_CHAT_GENERATION_CAPTURE_ATTEMPTS;
+			attempt += 1
+		) {
+			try {
+				const generationRef = await this.meteringService.captureGeneration(
+					eventId,
+					capture,
+				);
+
+				if (!generationRef) {
+					throw new Error("AI Gateway generation id is missing");
+				}
+
+				return;
+			} catch (error) {
+				lastError = error;
+			}
+		}
+
+		Sentry.captureException(lastError, {
+			tags: { eventId, meteringPhase: "capture_generation" },
+		});
+		throw lastError;
+	}
+
+	private async estimateReservation(
+		modelBoundMessages: readonly WanditUIMessage[],
+	): Promise<{ costUsdMicros: number | null; credits: number }> {
+		try {
+			const quote = await this.modelPricingService.quoteTokenUsage(
+				env.AI_CHAT_MODEL,
+				estimateAiChatTokenUsage(modelBoundMessages),
+			);
+
+			return {
+				costUsdMicros: quote.costUsdMicros,
+				credits: Math.max(
+					operationPricing("chat").reserveFloorCredits,
+					quote.credits,
+				),
+			};
+		} catch (error) {
+			if (!(error instanceof ModelPriceUnavailableError)) {
+				throw error;
+			}
+
+			this.logger.warn(
+				`Chat pricing unavailable for ${env.AI_CHAT_MODEL}; reserving the registry floor`,
+			);
+
+			return {
+				costUsdMicros: null,
+				credits: operationPricing("chat").reserveFloorCredits,
+			};
+		}
+	}
+
+	private billingErrorData(error: unknown): AiChatBillingErrorData | null {
+		if (!(error instanceof HttpException) || error.getStatus() !== 402) {
+			return null;
+		}
+
+		const response = error.getResponse();
+		const details =
+			typeof response === "object" && response !== null && "details" in response
+				? response.details
+				: null;
+		const parsed = aiChatBillingErrorDataSchema.safeParse({
+			code: "INSUFFICIENT_CREDITS",
+			details,
+			statusCode: 402,
+		});
+
+		return parsed.success ? parsed.data : null;
 	}
 
 	private handleStreamError(
@@ -363,6 +819,37 @@ function toAiChatMessageUsage(usage: LanguageModelUsage): AiChatMessageUsage {
 			textTokens: usage.outputTokenDetails.textTokens,
 		},
 		totalTokens: usage.totalTokens,
+	};
+}
+
+function aggregateMeteredTokenUsage(
+	usages: readonly MeteredTokenUsage[],
+): MeteredTokenUsage | null {
+	if (usages.length === 0) {
+		return null;
+	}
+
+	const inputTokens = usages.reduce(
+		(total, usage) => total + (usage.inputTokens ?? 0),
+		0,
+	);
+	const outputTokens = usages.reduce(
+		(total, usage) => total + (usage.outputTokens ?? 0),
+		0,
+	);
+	const cacheReadTokens = usages.reduce(
+		(total, usage) => total + (usage.inputTokenDetails?.cacheReadTokens ?? 0),
+		0,
+	);
+	const cacheWriteTokens = usages.reduce(
+		(total, usage) => total + (usage.inputTokenDetails?.cacheWriteTokens ?? 0),
+		0,
+	);
+
+	return {
+		inputTokenDetails: { cacheReadTokens, cacheWriteTokens },
+		inputTokens,
+		outputTokens,
 	};
 }
 

@@ -254,6 +254,14 @@ export type AdminGrantCreditsInput = z.infer<
 	typeof adminGrantCreditsInputSchema
 >;
 
+export const adminBetaEnrollInputSchema = z.object({
+	credits: z.int().positive().max(1_000_000),
+	reason: z.string().trim().min(1).max(500),
+	idempotencyKey: uuidSchema,
+});
+
+export type AdminBetaEnrollInput = z.infer<typeof adminBetaEnrollInputSchema>;
+
 export const adminSetRoleInputSchema = z.object({
 	role: adminUserRoleSchema,
 });
@@ -298,13 +306,25 @@ export const adminSignupStatsSchema = z.object({
 
 export type AdminSignupStats = z.infer<typeof adminSignupStatsSchema>;
 
+export const adminWebhookReplayResponseSchema = z.object({
+	accepted: z.literal(true),
+	eventId: z.string().min(1),
+});
+
+export type AdminWebhookReplayResponse = z.infer<
+	typeof adminWebhookReplayResponseSchema
+>;
+
 export const adminRoutes = {
 	users: "/api/v1/admin/users",
 	user: (userId: string) => `/api/v1/admin/users/${userId}`,
 	project: (projectId: string) => `/api/v1/admin/projects/${projectId}`,
 	grantCredits: (userId: string) => `/api/v1/admin/users/${userId}/credits`,
+	betaEnroll: (userId: string) => `/api/v1/admin/users/${userId}/beta-enroll`,
 	setAccess: (userId: string) => `/api/v1/admin/users/${userId}/access`,
 	setRole: (userId: string) => `/api/v1/admin/users/${userId}/role`,
 	setBanned: (userId: string) => `/api/v1/admin/users/${userId}/banned`,
 	signupStats: "/api/v1/admin/stats/signups",
+	webhookReplay: (eventId: string) =>
+		`/api/v1/admin/webhooks/${encodeURIComponent(eventId)}/replay`,
 } as const;

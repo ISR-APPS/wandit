@@ -6,6 +6,7 @@ import type {
 } from "@wandit/contracts";
 import { and, eq, lt } from "@wandit/db";
 import { marketingAssets } from "@wandit/db/schema/marketing-assets";
+import { env } from "@wandit/env/server";
 import { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
 import {
 	captureGenerationCompleted,
@@ -20,11 +21,12 @@ import {
 	getPageHtml,
 	marketingAssetKey,
 } from "../../../../infrastructure/storage/r2";
-import { GenerationPolicyService } from "../../../generation/application/services/generation-policy.service";
+import { MeteringService } from "../../../metering/application/services/metering.service";
 import {
 	type MarketingAssetRow,
 	MarketingAssetsRepository,
 } from "../../infrastructure/persistence/marketing-assets.repository";
+import { createMarketingAssetBilling } from "./marketing-asset-billing";
 
 const GENERATION_STALE_AFTER_MS = 15 * 60 * 1_000;
 const QUEUED_STALE_AFTER_MS = 30 * 60 * 1_000;
@@ -38,8 +40,8 @@ export class MarketingAssetsService {
 	constructor(
 		@Inject(MarketingAssetsRepository)
 		private readonly marketingAssetsRepository: MarketingAssetsRepository,
-		@Inject(GenerationPolicyService)
-		private readonly generationPolicyService: GenerationPolicyService,
+		@Inject(MeteringService)
+		private readonly meteringService: MeteringService,
 		// Direct database access ONLY for read-time stale settlement (the
 		// repository stays the tool-facing surface; these guarded updates are a
 		// polling concern of this service).
@@ -69,10 +71,10 @@ export class MarketingAssetsService {
 		// granting the same reservation twice.
 		for (const row of rows) {
 			if (row.status === "failed") {
-				await this.generationPolicyService.refundGenerationReservation(
-					userId,
-					row.id,
-				);
+				await createMarketingAssetBilling({
+					isBillingDisabled: () => env.GENERATION_BILLING_MODE === "off",
+					meteringService: this.meteringService,
+				}).refund(userId, row.id);
 			}
 		}
 
@@ -188,6 +190,13 @@ export class MarketingAssetsService {
 			const stored = await getObjectContentType(key);
 
 			if (stored) {
+				// The deterministic document is proof that generation completed.
+				// Settle an existing hold before exposing the recovered asset.
+				await createMarketingAssetBilling({
+					isBillingDisabled: () => env.GENERATION_BILLING_MODE === "off",
+					meteringService: this.meteringService,
+				}).settleExisting(userId, row.id);
+
 				const [completed] = await this.db
 					.update(marketingAssets)
 					.set({

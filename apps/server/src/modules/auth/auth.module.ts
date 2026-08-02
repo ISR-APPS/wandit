@@ -18,9 +18,15 @@ import {
 	type Database,
 } from "../../infrastructure/database/database.constants";
 import { DatabaseModule } from "../../infrastructure/database/database.module";
-import { CreditsService } from "../credits/application/services/credits.service";
+import { QueuesModule } from "../../infrastructure/queues/queues.module";
+import { AffiliatesModule } from "../affiliates/affiliates.module";
+import { AffiliateAttributionService } from "../affiliates/application/services/affiliate-attribution.service";
 import { CreditsModule } from "../credits/credits.module";
+import { SettingsModule } from "../settings/settings.module";
+import { SignupGrantOutboxService } from "./application/services/signup-grant-outbox.service";
+import { SignupGrantsService } from "./application/services/signup-grants.service";
 import { AUTH_INSTANCE } from "./auth.constants";
+import { SignupGrantOutboxRepository } from "./infrastructure/persistence/signup-grant-outbox.repository";
 import { AuthController } from "./presentation/http/controllers/auth.controller";
 import { AuthMeController } from "./presentation/http/controllers/me.controller";
 import { AuthGuard } from "./presentation/http/guards/auth.guard";
@@ -39,18 +45,30 @@ function parseAdminEmails(raw: string | undefined): string[] {
 
 const authProvider: Provider<Auth> = {
 	provide: AUTH_INSTANCE,
-	inject: [CreditsService, DATABASE, AnalyticsService],
+	inject: [
+		AffiliateAttributionService,
+		SignupGrantsService,
+		DATABASE,
+		AnalyticsService,
+	],
 	useFactory: (
-		creditsService: CreditsService,
+		affiliateAttributionService: AffiliateAttributionService,
+		signupGrantsService: SignupGrantsService,
 		db: Database,
 		analytics: AnalyticsService,
 	) =>
 		createAuth({
-			onUserCreated: async (newUser) => {
+			onUserCreated: async (newUser, ctx) => {
+				try {
+					await affiliateAttributionService.lockForCreatedUser(newUser, ctx);
+				} catch (error) {
+					logger.error("Affiliate attribution lock failed", error);
+				}
+
 				analytics.capture(newUser.id, "user_signed_up");
 
 				try {
-					await creditsService.grantSignupCredits(newUser.id);
+					await signupGrantsService.handleUserCreated(newUser.id);
 				} catch (error) {
 					logger.error("Signup credit grant failed", error);
 				}
@@ -78,11 +96,20 @@ const authProvider: Provider<Auth> = {
 @Module({
 	controllers: [AuthController, AuthMeController],
 	exports: [AUTH_INSTANCE, AuthGuard, EarlyAccessGuard],
-	imports: [CreditsModule, DatabaseModule],
+	imports: [
+		AffiliatesModule,
+		CreditsModule,
+		DatabaseModule,
+		QueuesModule,
+		SettingsModule,
+	],
 	providers: [
 		authProvider,
 		AuthGuard,
 		EarlyAccessGuard,
+		SignupGrantOutboxRepository,
+		SignupGrantOutboxService,
+		SignupGrantsService,
 		{
 			provide: APP_GUARD,
 			useExisting: AuthGuard,

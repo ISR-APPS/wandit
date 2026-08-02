@@ -32,6 +32,7 @@ const PARAMS = {
 	aspect: "16:9" as const,
 	attemptId: "attempt_1",
 	index: 2,
+	metering: { operation: "image" as const, userId: "user_1" },
 	projectId: "project_1",
 	prompt:
 		"editorial photography of a ceramic tagine in a sunlit riad, warm side " +
@@ -45,7 +46,9 @@ function mockGeneratedImage(mediaType = "image/png") {
 			mediaType,
 			uint8Array: new Uint8Array([1, 2, 3]),
 		},
-	} as Awaited<ReturnType<typeof generateImage>>);
+		providerMetadata: { gateway: { generationId: "generation_1" } },
+		usage: { inputTokens: 10, outputTokens: 0 },
+	} as unknown as Awaited<ReturnType<typeof generateImage>>);
 }
 
 beforeEach(() => {
@@ -92,6 +95,13 @@ describe("generateBuildImage", () => {
 		expect(generateImage).toHaveBeenCalledWith({
 			model: "openai/gpt-image-2",
 			prompt: PARAMS.prompt,
+			providerOptions: {
+				gateway: {
+					quotaEntityId: "user_1",
+					tags: ["op:image"],
+					user: "user_1",
+				},
+			},
 			size: "1536x1024",
 		});
 		expect(putSiteFile).toHaveBeenCalledWith(
@@ -104,9 +114,29 @@ describe("generateBuildImage", () => {
 			// bucket can never disagree.
 			imageBase64: "AQID",
 			mediaType: "image/png",
+			model: "openai/gpt-image-2",
+			providerMetadata: { gateway: { generationId: "generation_1" } },
 			status: "generated",
+			usage: { inputTokens: 10, outputTokens: 0 },
 			url: "https://assets.example.com/sites/project_1/assets/attempt_1/img-2.png",
 		});
+	});
+
+	it("persists provider evidence before uploading builder image bytes", async () => {
+		mockGeneratedImage();
+		const onProviderGeneration = vi.fn(async () => undefined);
+
+		await generateBuildImage({ ...PARAMS, onProviderGeneration });
+
+		expect(onProviderGeneration).toHaveBeenCalledWith(
+			expect.objectContaining({
+				providerMetadata: { gateway: { generationId: "generation_1" } },
+			}),
+		);
+		expect(onProviderGeneration.mock.invocationCallOrder[0]).toBeLessThan(
+			vi.mocked(putSiteFile).mock.invocationCallOrder[0] ??
+				Number.MAX_SAFE_INTEGER,
+		);
 	});
 
 	it("joins the public URL cleanly when the base has a trailing slash", async () => {
@@ -170,6 +200,11 @@ describe("generateBuildImage", () => {
 
 		const result = await generateBuildImage(PARAMS);
 
-		expect(result).toEqual({ message: "R2 said no", status: "failed" });
+		expect(result).toMatchObject({
+			message: "R2 said no",
+			providerMetadata: { gateway: { generationId: "generation_1" } },
+			providerUnits: 1,
+			status: "failed",
+		});
 	});
 });

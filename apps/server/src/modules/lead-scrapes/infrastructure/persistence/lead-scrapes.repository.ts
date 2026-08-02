@@ -19,7 +19,10 @@ import {
 import type { LeadScrapeSpec } from "../../domain/lead-scrape-spec";
 
 const PROJECT_LIST_LIMIT = 20;
-const STALE_ATTEMPT_AFTER_MS = 35 * 60 * 1000;
+// Trigger admission is bounded to five minutes and the task itself to 30.
+// Leave settlement/CAS grace after that 35-minute live-work ceiling, while
+// still closing the UI row before metering recovers the hold at minute 40.
+const STALE_ATTEMPT_AFTER_MS = 38 * 60 * 1000;
 const STALE_ATTEMPT_ERROR =
 	"The scrape never finished — most likely no Trigger.dev dev worker " +
 	"was running (`npx trigger.dev@latest dev`). Start it and ask for " +
@@ -90,20 +93,39 @@ export class LeadScrapesRepository {
 	}
 
 	// Link the attempt to its Trigger.dev run once the queue accepted it.
-	async markAttemptTriggered(attemptId: string, runId: string): Promise<void> {
-		await this.db
+	async markAttemptTriggered(
+		attemptId: string,
+		runId: string,
+	): Promise<boolean> {
+		const [linked] = await this.db
 			.update(leadScrapeAttempts)
 			.set({ triggerRunId: runId })
-			.where(eq(leadScrapeAttempts.id, attemptId));
+			.where(
+				and(
+					eq(leadScrapeAttempts.id, attemptId),
+					eq(leadScrapeAttempts.status, "queued"),
+				),
+			)
+			.returning({ id: leadScrapeAttempts.id });
+
+		return linked !== undefined;
 	}
 
-	// Used when queueing itself failed — the background task never ran, so
-	// somebody has to move the row to a terminal state.
-	async markAttemptFailed(attemptId: string, error: string): Promise<void> {
-		await this.db
+	// Close only a still-queued attempt after Trigger.dev definitively rejects
+	// it. If a task already claimed the row, the CAS loses and preserves it.
+	async markAttemptFailed(attemptId: string, error: string): Promise<boolean> {
+		const [failed] = await this.db
 			.update(leadScrapeAttempts)
 			.set({ completedAt: new Date(), error, status: "failed" })
-			.where(eq(leadScrapeAttempts.id, attemptId));
+			.where(
+				and(
+					eq(leadScrapeAttempts.id, attemptId),
+					eq(leadScrapeAttempts.status, "queued"),
+				),
+			)
+			.returning({ id: leadScrapeAttempts.id });
+
+		return failed !== undefined;
 	}
 
 	// The chat card's polled read, or null when the attempt's project is not
@@ -116,7 +138,7 @@ export class LeadScrapesRepository {
 		// Self-heal on read: a "queued" run nobody picked up expires after
 		// Trigger.dev's dev TTL, and a "running" row can strand if the worker
 		// dies mid-run. Flip stale rows to failed so the card stops polling —
-		// the cutoff must exceed the task's maxDuration (30 min).
+		// the cutoff must exceed admission TTL + task maxDuration (35 min).
 		await this.settleStaleAttempts({ attemptId, userId });
 
 		const [row] = await this.db

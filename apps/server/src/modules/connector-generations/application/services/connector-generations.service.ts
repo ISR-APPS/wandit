@@ -11,6 +11,7 @@ import {
 	type ConnectorGenerationAttemptRow,
 	ConnectorGenerationsRepository,
 } from "../../infrastructure/persistence/connector-generations.repository";
+import { ConnectorGenerationRecoveryService } from "./connector-generation-recovery.service";
 
 const mediaListSchema = z.array(connectorGenerationMediaSchema);
 
@@ -19,13 +20,15 @@ export class ConnectorGenerationsService {
 	constructor(
 		@Inject(ConnectorGenerationsRepository)
 		private readonly connectorGenerationsRepository: ConnectorGenerationsRepository,
+		@Inject(ConnectorGenerationRecoveryService)
+		private readonly connectorGenerationRecovery: ConnectorGenerationRecoveryService,
 	) {}
 
 	async attempt(
 		userId: string,
 		attemptId: string,
 	): Promise<ConnectorGenerationAttempt> {
-		const row = await this.connectorGenerationsRepository.findOwnedAttempt(
+		let row = await this.connectorGenerationsRepository.findOwnedAttempt(
 			userId,
 			attemptId,
 		);
@@ -33,6 +36,18 @@ export class ConnectorGenerationsService {
 		// Missing and not-owned both become 404 — never reveal which.
 		if (!row) {
 			throw new NotFoundException();
+		}
+
+		if (row.status === "running" && row.media !== null) {
+			await this.connectorGenerationRecovery.recoverCheckpoint(row);
+			row = await this.connectorGenerationsRepository.findOwnedAttempt(
+				userId,
+				attemptId,
+			);
+
+			if (!row) {
+				throw new NotFoundException();
+			}
 		}
 
 		return mapAttemptRow(row);
@@ -50,7 +65,7 @@ function mapAttemptRow(
 		createdAt: row.createdAt.toISOString(),
 		error: row.error,
 		id: row.id,
-		media: media.success ? media.data : [],
+		media: row.status === "succeeded" && media.success ? media.data : [],
 		status: row.status,
 		toolName: row.toolName,
 	};

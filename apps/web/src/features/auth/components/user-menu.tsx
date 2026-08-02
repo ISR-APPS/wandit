@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import {
 	Avatar,
 	AvatarFallback,
@@ -15,7 +15,7 @@ import {
 	DropdownMenuTrigger,
 } from "@wandit/ui/components/dropdown-menu";
 import { Skeleton } from "@wandit/ui/components/skeleton";
-import { LogOut } from "lucide-react";
+import { CreditCard, LogOut } from "lucide-react";
 
 import { LanguageSwitcherMenuItems } from "@/components/language-switcher";
 import { useTranslation } from "@/lib/i18n";
@@ -81,6 +81,13 @@ export function UserMenu() {
 						{user.email}
 					</span>
 				</DropdownMenuLabel>
+				<DropdownMenuSeparator />
+				<DropdownMenuItem asChild>
+					<Link to="/billing">
+						<CreditCard />
+						{t("billing.page.title")}
+					</Link>
+				</DropdownMenuItem>
 				<DropdownMenuSeparator />
 				<DropdownMenuLabel className="pb-0 text-[10px] text-muted-foreground uppercase tracking-widest">
 					{t("common.language")}

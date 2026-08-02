@@ -1,11 +1,16 @@
 import { Inject, Injectable } from "@nestjs/common";
-import type {
-	CreditBucket,
-	CreditKind,
-	PaginationQuery,
+import {
+	CREDIT_SPEND_ORDER,
+	type CreditBucket,
+	type CreditKind,
+	type PaginationQuery,
 } from "@wandit/contracts";
-import { and, desc, eq, inArray, sql } from "@wandit/db";
-import { creditLedger } from "@wandit/db/schema/credits";
+import { and, asc, desc, eq, gt, inArray, sql } from "@wandit/db";
+import {
+	creditLedger,
+	creditPlanHoldPools,
+	creditPlanHolds,
+} from "@wandit/db/schema/credits";
 
 import {
 	DATABASE,
@@ -13,10 +18,13 @@ import {
 } from "../../../../infrastructure/database/database.constants";
 
 export type CreditLedgerRow = typeof creditLedger.$inferSelect;
+export type CreditPlanHoldRow = typeof creditPlanHolds.$inferSelect;
+export type CreditPlanHoldPoolRow = typeof creditPlanHoldPools.$inferSelect;
 
 export type CreditBalance = {
 	balance: number;
 	plan: number;
+	promo: number;
 	topup: number;
 };
 
@@ -34,7 +42,10 @@ export type CreditsTransaction = Parameters<
 	Parameters<Database["transaction"]>[0]
 >[0];
 
-type CreditsDbClient = Pick<Database, "execute" | "insert" | "select">;
+type CreditsDbClient = Pick<
+	Database,
+	"execute" | "insert" | "select" | "update"
+>;
 
 @Injectable()
 export class CreditsRepository {
@@ -165,6 +176,303 @@ export class CreditsRepository {
 		return row ?? null;
 	}
 
+	async findPlanHold(
+		consumeIdempotencyKey: string,
+		client: CreditsDbClient = this.db,
+	): Promise<CreditPlanHoldRow | null> {
+		const [row] = await client
+			.select()
+			.from(creditPlanHolds)
+			.where(eq(creditPlanHolds.consumeIdempotencyKey, consumeIdempotencyKey))
+			.limit(1);
+
+		return row ?? null;
+	}
+
+	async insertPlanHold(
+		input: {
+			active: boolean;
+			consumeIdempotencyKey: string;
+			consumeLedgerId: string;
+			originalCredits: number;
+			userId: string;
+		},
+		client: CreditsDbClient = this.db,
+	): Promise<CreditPlanHoldRow> {
+		const [inserted] = await client
+			.insert(creditPlanHolds)
+			.values({
+				active: input.active,
+				consumeIdempotencyKey: input.consumeIdempotencyKey,
+				consumeLedgerId: input.consumeLedgerId,
+				originalCredits: input.originalCredits,
+				refundableCredits: input.originalCredits,
+				userId: input.userId,
+			})
+			.onConflictDoNothing({
+				target: creditPlanHolds.consumeIdempotencyKey,
+			})
+			.returning();
+
+		if (inserted) {
+			return inserted;
+		}
+
+		const existing = await this.findPlanHold(
+			input.consumeIdempotencyKey,
+			client,
+		);
+
+		if (!existing) {
+			throw new Error(
+				`Credit plan hold ${input.consumeIdempotencyKey} disappeared after conflict`,
+			);
+		}
+
+		return existing;
+	}
+
+	listRefundablePlanHolds(
+		userId: string,
+		client: CreditsDbClient = this.db,
+	): Promise<CreditPlanHoldRow[]> {
+		return client
+			.select()
+			.from(creditPlanHolds)
+			.where(
+				and(
+					eq(creditPlanHolds.userId, userId),
+					gt(creditPlanHolds.refundableCredits, 0),
+				),
+			)
+			.orderBy(
+				asc(creditPlanHolds.createdAt),
+				asc(creditPlanHolds.consumeIdempotencyKey),
+			);
+	}
+
+	async findPlanHoldPools(
+		poolIds: string[],
+		client: CreditsDbClient = this.db,
+	): Promise<CreditPlanHoldPoolRow[]> {
+		if (poolIds.length === 0) {
+			return [];
+		}
+
+		return client
+			.select()
+			.from(creditPlanHoldPools)
+			.where(inArray(creditPlanHoldPools.id, poolIds));
+	}
+
+	async insertPlanHoldPool(
+		input: {
+			boundaryIdempotencyKey: string;
+			remainingCredits: number;
+			userId: string;
+		},
+		client: CreditsDbClient = this.db,
+	): Promise<CreditPlanHoldPoolRow> {
+		const [inserted] = await client
+			.insert(creditPlanHoldPools)
+			.values(input)
+			.onConflictDoNothing({
+				target: creditPlanHoldPools.boundaryIdempotencyKey,
+			})
+			.returning();
+
+		if (inserted) {
+			return inserted;
+		}
+
+		const [existing] = await client
+			.select()
+			.from(creditPlanHoldPools)
+			.where(
+				eq(
+					creditPlanHoldPools.boundaryIdempotencyKey,
+					input.boundaryIdempotencyKey,
+				),
+			)
+			.limit(1);
+
+		if (!existing) {
+			throw new Error(
+				`Credit plan hold pool ${input.boundaryIdempotencyKey} disappeared after conflict`,
+			);
+		}
+
+		return existing;
+	}
+
+	async updatePlanHoldRefundable(
+		consumeIdempotencyKey: string,
+		userId: string,
+		expectedCredits: number,
+		refundableCredits: number,
+		client: CreditsDbClient = this.db,
+	): Promise<CreditPlanHoldRow | null> {
+		const [updated] = await client
+			.update(creditPlanHolds)
+			.set({ refundableCredits, updatedAt: new Date() })
+			.where(
+				and(
+					eq(creditPlanHolds.consumeIdempotencyKey, consumeIdempotencyKey),
+					eq(creditPlanHolds.userId, userId),
+					eq(creditPlanHolds.refundableCredits, expectedCredits),
+				),
+			)
+			.returning();
+
+		return updated ?? null;
+	}
+
+	async updatePlanHoldPoolRemaining(
+		poolId: string,
+		userId: string,
+		expectedCredits: number,
+		remainingCredits: number,
+		client: CreditsDbClient = this.db,
+	): Promise<CreditPlanHoldPoolRow | null> {
+		const [updated] = await client
+			.update(creditPlanHoldPools)
+			.set({ remainingCredits, updatedAt: new Date() })
+			.where(
+				and(
+					eq(creditPlanHoldPools.id, poolId),
+					eq(creditPlanHoldPools.userId, userId),
+					eq(creditPlanHoldPools.remainingCredits, expectedCredits),
+				),
+			)
+			.returning();
+
+		return updated ?? null;
+	}
+
+	async markPlanHoldInactive(
+		consumeIdempotencyKey: string,
+		userId: string,
+		client: CreditsDbClient = this.db,
+	): Promise<CreditPlanHoldRow | null> {
+		const [updated] = await client
+			.update(creditPlanHolds)
+			.set({ active: false, updatedAt: new Date() })
+			.where(
+				and(
+					eq(creditPlanHolds.consumeIdempotencyKey, consumeIdempotencyKey),
+					eq(creditPlanHolds.userId, userId),
+				),
+			)
+			.returning();
+
+		return updated ?? null;
+	}
+
+	async closePlanHold(
+		consumeIdempotencyKey: string,
+		userId: string,
+		client: CreditsDbClient = this.db,
+	): Promise<CreditPlanHoldRow | null> {
+		const [updated] = await client
+			.update(creditPlanHolds)
+			.set({
+				active: false,
+				poolId: null,
+				refundableCredits: 0,
+				updatedAt: new Date(),
+			})
+			.where(
+				and(
+					eq(creditPlanHolds.consumeIdempotencyKey, consumeIdempotencyKey),
+					eq(creditPlanHolds.userId, userId),
+				),
+			)
+			.returning();
+
+		return updated ?? null;
+	}
+
+	async applyPlanHoldBoundary(
+		userId: string,
+		poolId: string | null,
+		client: CreditsDbClient = this.db,
+	): Promise<void> {
+		await client
+			.update(creditPlanHolds)
+			.set({ poolId: null, refundableCredits: 0, updatedAt: new Date() })
+			.where(
+				and(
+					eq(creditPlanHolds.userId, userId),
+					eq(creditPlanHolds.active, false),
+					gt(creditPlanHolds.refundableCredits, 0),
+				),
+			);
+
+		await client
+			.update(creditPlanHolds)
+			.set(
+				poolId
+					? { poolId, updatedAt: new Date() }
+					: { poolId: null, refundableCredits: 0, updatedAt: new Date() },
+			)
+			.where(
+				and(
+					eq(creditPlanHolds.userId, userId),
+					eq(creditPlanHolds.active, true),
+					gt(creditPlanHolds.refundableCredits, 0),
+				),
+			);
+	}
+
+	async closePlanHoldPools(
+		userId: string,
+		poolIds: string[],
+		client: CreditsDbClient = this.db,
+	): Promise<void> {
+		if (poolIds.length === 0) {
+			return;
+		}
+
+		await client
+			.update(creditPlanHoldPools)
+			.set({
+				closedAt: new Date(),
+				remainingCredits: 0,
+				updatedAt: new Date(),
+			})
+			.where(
+				and(
+					eq(creditPlanHoldPools.userId, userId),
+					inArray(creditPlanHoldPools.id, poolIds),
+				),
+			);
+	}
+
+	async forfeitAllPlanHolds(
+		userId: string,
+		client: CreditsDbClient = this.db,
+	): Promise<void> {
+		const holds = await this.listRefundablePlanHolds(userId, client);
+		const poolIds = [...new Set(holds.flatMap((hold) => hold.poolId ?? []))];
+
+		await client
+			.update(creditPlanHolds)
+			.set({
+				active: false,
+				poolId: null,
+				refundableCredits: 0,
+				updatedAt: new Date(),
+			})
+			.where(
+				and(
+					eq(creditPlanHolds.userId, userId),
+					gt(creditPlanHolds.refundableCredits, 0),
+				),
+			);
+
+		await this.closePlanHoldPools(userId, poolIds, client);
+	}
+
 	private async sumBalances(
 		userId: string,
 		client: CreditsDbClient,
@@ -181,6 +489,7 @@ export class CreditsRepository {
 		const balance: CreditBalance = {
 			balance: 0,
 			plan: 0,
+			promo: 0,
 			topup: 0,
 		};
 
@@ -188,7 +497,10 @@ export class CreditsRepository {
 			balance[row.bucket] = Number(row.total);
 		}
 
-		balance.balance = balance.plan + balance.topup;
+		balance.balance = CREDIT_SPEND_ORDER.reduce(
+			(sum, bucket) => sum + balance[bucket],
+			0,
+		);
 
 		return balance;
 	}

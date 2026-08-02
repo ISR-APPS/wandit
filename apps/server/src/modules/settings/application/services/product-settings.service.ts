@@ -1,0 +1,89 @@
+import { Inject, Injectable, Logger } from "@nestjs/common";
+import type {
+	PatchProductSettingsBody,
+	ProductSettings,
+	PublicSettings,
+} from "@wandit/contracts";
+
+import { SettingsVersionConflictError } from "../../domain/errors/settings-version-conflict.error";
+import { PRODUCT_SETTINGS_CACHE_TTL_MS } from "../../domain/product-settings.constants";
+import { mapProductSettingsRow } from "../../infrastructure/mappers/product-settings.mapper";
+import { ProductSettingsRepository } from "../../infrastructure/persistence/product-settings.repository";
+
+type CachedProductSettings = {
+	expiresAt: number;
+	settings: ProductSettings;
+};
+
+@Injectable()
+export class ProductSettingsService {
+	private readonly logger = new Logger(ProductSettingsService.name);
+	private cached: CachedProductSettings | null = null;
+	private cacheGeneration = 0;
+
+	constructor(
+		@Inject(ProductSettingsRepository)
+		private readonly settingsRepository: ProductSettingsRepository,
+	) {}
+
+	async get(): Promise<ProductSettings> {
+		const now = Date.now();
+
+		if (this.cached && now < this.cached.expiresAt) {
+			return this.cached.settings;
+		}
+
+		const readGeneration = this.cacheGeneration;
+		const settings = mapProductSettingsRow(
+			await this.settingsRepository.getOrCreate(),
+		);
+
+		if (readGeneration === this.cacheGeneration) {
+			this.cached = {
+				expiresAt: now + PRODUCT_SETTINGS_CACHE_TTL_MS,
+				settings,
+			};
+		}
+
+		return settings;
+	}
+
+	async getPublic(): Promise<PublicSettings> {
+		const settings = await this.get();
+
+		return {
+			paidSubscriptionsEnabled: settings.paidSubscriptionsEnabled,
+			signupGrantEnabled: settings.signupGrantEnabled,
+			topupsEnabled: settings.topupsEnabled,
+		};
+	}
+
+	async update(
+		input: PatchProductSettingsBody,
+		updatedByUserId: string,
+	): Promise<ProductSettings> {
+		const { version: expectedVersion, ...changes } = input;
+		const updated = await this.settingsRepository.updateIfVersion({
+			changes,
+			expectedVersion,
+			updatedByUserId,
+		});
+
+		this.invalidate();
+
+		if (!updated) {
+			throw new SettingsVersionConflictError();
+		}
+
+		this.logger.log(
+			`product_settings_updated admin=${updatedByUserId} version=${updated.version} fields=${Object.keys(changes).sort().join(",")}`,
+		);
+
+		return mapProductSettingsRow(updated);
+	}
+
+	invalidate(): void {
+		this.cached = null;
+		this.cacheGeneration += 1;
+	}
+}

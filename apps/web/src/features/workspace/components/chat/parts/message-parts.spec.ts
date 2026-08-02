@@ -451,6 +451,21 @@ describe("MessageParts turn block", () => {
 		expect(html).not.toContain(">Wandit<");
 	});
 
+	it("silently ignores the billing data part owned by the upgrade modal", () => {
+		const html = renderMessage("assistant", [
+			{
+				type: "data-billing-error",
+				data: {
+					code: "INSUFFICIENT_CREDITS",
+					statusCode: 402,
+					details: { requiredCredits: 10, availableCredits: 2 },
+				},
+			},
+		]);
+
+		expect(html).toBe("");
+	});
+
 	it("renders a persisted target chip above a targeted user message", () => {
 		const html = renderMessage(
 			"user",

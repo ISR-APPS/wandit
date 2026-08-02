@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { z } from "zod";
 
+import type { MeteringService } from "../../../metering/application/services/metering.service";
 import type { BuildProgressEvent } from "./build-progress";
 import { buildSiteBuilderSystemPrompt } from "./builder-prompt";
 import { generateBuildImage, MAX_IMAGES } from "./generate-image";
@@ -95,9 +96,11 @@ function fakeCapture(): ScreenshotCapture {
 
 function setup(config?: {
 	abortSignal?: AbortSignal;
+	meteringService?: MeteringService;
 	onEvent?: (event: BuildProgressEvent) => void;
 	screenshotRequired?: boolean;
 	screenshots?: ScreenshotSession;
+	usageEventId?: string;
 }) {
 	const {
 		screenshotRequired = true,
@@ -115,6 +118,7 @@ function setup(config?: {
 		projectId: "project_1",
 		screenshots,
 		state,
+		userId: "user_1",
 		vfs,
 	});
 
@@ -1373,6 +1377,142 @@ describe("brand-marker finish gate", () => {
 });
 
 describe("generate_image tool", () => {
+	it("creates and settles an image child event under the page-build event", async () => {
+		const metering = {
+			captureGeneration: vi.fn(async () => ({ id: "image_ref_1" })),
+			reserve: vi.fn(async () => ({ id: "image_event_1" })),
+			settle: vi.fn(async () => undefined),
+		};
+		const { options, tools } = setup({
+			meteringService: metering as unknown as MeteringService,
+			usageEventId: "page_event_1",
+		});
+		const providerMetadata = {
+			gateway: { generationId: "generation_image_1" },
+		};
+		const usage = { inputTokens: 9, outputTokens: 2 };
+		vi.mocked(generateBuildImage).mockResolvedValue({
+			imageBase64: "aW1n",
+			mediaType: "image/png",
+			model: "test/image-model",
+			providerMetadata,
+			status: "generated",
+			url: "https://assets.example.com/img-1.png",
+			usage,
+		});
+
+		await tools.generate_image.execute?.(IMAGE_INPUT, options("img_1"));
+
+		expect(metering.reserve).toHaveBeenCalledWith(
+			"image",
+			"user_1",
+			expect.objectContaining({
+				attemptRef: "attempt_1:image:1",
+				credits: 5,
+				idempotencyKey: "page-build-image:page_event_1:1",
+				parentEventId: "page_event_1",
+			}),
+		);
+		expect(metering.captureGeneration).toHaveBeenCalledWith("image_event_1", {
+			providerMetadata,
+			stepUsage: {
+				metering: { fixedUnits: 1 },
+				providerUsage: usage,
+			},
+		});
+		expect(metering.settle).toHaveBeenCalledWith(
+			"image_event_1",
+			expect.objectContaining({ finalCredits: 5, pricing: "direct" }),
+		);
+	});
+
+	it("charges a provider-completed image when direct R2 storage fails", async () => {
+		const metering = {
+			captureGeneration: vi.fn(async () => ({ id: "image_ref_1" })),
+			refund: vi.fn(async () => undefined),
+			reserve: vi.fn(async () => ({ id: "image_event_1" })),
+			settle: vi.fn(async () => undefined),
+		};
+		const { options, state, tools } = setup({
+			meteringService: metering as unknown as MeteringService,
+			usageEventId: "page_event_1",
+		});
+		vi.mocked(generateBuildImage).mockResolvedValue({
+			message: "R2 unavailable",
+			model: "test/image-model",
+			providerMetadata: {
+				gateway: { generationId: "generation_image_storage_failure" },
+			},
+			providerUnits: 1,
+			status: "failed",
+			usage: { inputTokens: 9, outputTokens: 2 },
+		});
+
+		await expect(
+			tools.generate_image.execute?.(IMAGE_INPUT, options("img_storage")),
+		).resolves.toEqual({ message: "R2 unavailable", status: "failed" });
+		expect(state.imagesGenerated).toBe(0);
+		expect(metering.captureGeneration).toHaveBeenCalledWith(
+			"image_event_1",
+			expect.objectContaining({
+				stepUsage: expect.objectContaining({
+					metering: { fixedUnits: 1 },
+				}),
+			}),
+		);
+		expect(metering.settle).toHaveBeenCalledWith(
+			"image_event_1",
+			expect.objectContaining({
+				finalCredits: 5,
+				pricingSnapshot: expect.objectContaining({ units: 1 }),
+			}),
+		);
+		expect(metering.refund).not.toHaveBeenCalled();
+	});
+
+	it("does not settle an image child without a durable gateway reference", async () => {
+		const metering = {
+			captureGeneration: vi.fn(async () => null),
+			reserve: vi.fn(async () => ({ id: "image_event_1" })),
+			settle: vi.fn(async () => undefined),
+		};
+		const { options, tools } = setup({
+			meteringService: metering as unknown as MeteringService,
+			usageEventId: "page_event_1",
+		});
+		vi.mocked(generateBuildImage).mockResolvedValue({
+			imageBase64: "aW1n",
+			mediaType: "image/png",
+			model: "test/image-model",
+			providerMetadata: {},
+			status: "generated",
+			url: "https://assets.example.com/img-1.png",
+			usage: { inputTokens: 9, outputTokens: 2 },
+		});
+
+		await expect(
+			tools.generate_image.execute?.(IMAGE_INPUT, options("img_1")),
+		).rejects.toThrow("AI Gateway generation id is missing");
+		expect(metering.captureGeneration).toHaveBeenCalledTimes(3);
+		expect(metering.settle).not.toHaveBeenCalled();
+	});
+
+	it("propagates a child reservation refusal before calling the image provider", async () => {
+		const refusal = new Error("payment required");
+		const metering = {
+			reserve: vi.fn(async () => Promise.reject(refusal)),
+		};
+		const { options, tools } = setup({
+			meteringService: metering as unknown as MeteringService,
+			usageEventId: "page_event_1",
+		});
+
+		await expect(
+			tools.generate_image.execute?.(IMAGE_INPUT, options("img_1")),
+		).rejects.toBe(refusal);
+		expect(generateBuildImage).not.toHaveBeenCalled();
+	});
+
 	it("refuses once the image budget is exhausted", async () => {
 		const { options, state, tools } = setup();
 		state.imageSequence = MAX_IMAGES;
@@ -1393,6 +1533,8 @@ describe("generate_image tool", () => {
 		vi.mocked(generateBuildImage).mockResolvedValue({
 			imageBase64: "aW1nLWJ5dGVz",
 			mediaType: "image/png",
+			model: "test/image-model",
+			providerMetadata: {},
 			status: "generated",
 			url,
 		});
@@ -1405,6 +1547,7 @@ describe("generate_image tool", () => {
 			aspect: "16:9",
 			attemptId: "attempt_1",
 			index: 1,
+			metering: { operation: "image", userId: "user_1" },
 			projectId: "project_1",
 			prompt: IMAGE_INPUT.prompt,
 		});
@@ -1459,6 +1602,8 @@ describe("generate_image tool", () => {
 		vi.mocked(generateBuildImage).mockResolvedValue({
 			imageBase64: "aW1nLWJ5dGVz",
 			mediaType: "image/png",
+			model: "test/image-model",
+			providerMetadata: {},
 			status: "generated",
 			url: "https://assets.example.com/sites/project_1/assets/attempt_1/img-2.png",
 		});
@@ -1475,6 +1620,8 @@ describe("generate_image tool", () => {
 		vi.mocked(generateBuildImage).mockImplementation(async ({ index }) => ({
 			imageBase64: "aW1nLWJ5dGVz",
 			mediaType: "image/png",
+			model: "test/image-model",
+			providerMetadata: {},
 			status: "generated",
 			url: `https://assets.example.com/img-${index}.png`,
 		}));
@@ -1504,6 +1651,95 @@ describe("generate_image tool", () => {
 });
 
 describe("animate_image tool", () => {
+	it("creates and settles a video child event under the page-build event", async () => {
+		const metering = {
+			captureGeneration: vi.fn(async () => ({ id: "video_ref_1" })),
+			reserve: vi.fn(async () => ({ id: "video_event_1" })),
+			settle: vi.fn(async () => undefined),
+		};
+		const { options, tools } = setup({
+			meteringService: metering as unknown as MeteringService,
+			usageEventId: "page_event_1",
+		});
+		const providerMetadata = {
+			gateway: { generationId: "generation_video_1" },
+		};
+		vi.mocked(generateBuildVideo).mockResolvedValue({
+			mediaType: "video/mp4",
+			model: "test/video-model",
+			providerMetadata,
+			status: "generated",
+			url: "https://assets.example.com/vid-1.mp4",
+		});
+
+		await tools.animate_image.execute?.(VIDEO_INPUT, options("vid_1"));
+
+		expect(metering.reserve).toHaveBeenCalledWith(
+			"video",
+			"user_1",
+			expect.objectContaining({
+				attemptRef: "attempt_1:video:1",
+				credits: 25,
+				idempotencyKey: "page-build-video:page_event_1:1",
+				parentEventId: "page_event_1",
+			}),
+		);
+		expect(metering.captureGeneration).toHaveBeenCalledWith("video_event_1", {
+			providerMetadata,
+			stepUsage: {
+				metering: { fixedUnits: 1 },
+				providerUsage: null,
+			},
+		});
+		expect(metering.settle).toHaveBeenCalledWith(
+			"video_event_1",
+			expect.objectContaining({ finalCredits: 25, pricing: "direct" }),
+		);
+	});
+
+	it("charges a provider-completed video when direct R2 storage fails", async () => {
+		const metering = {
+			captureGeneration: vi.fn(async () => ({ id: "video_ref_1" })),
+			refund: vi.fn(async () => undefined),
+			reserve: vi.fn(async () => ({ id: "video_event_1" })),
+			settle: vi.fn(async () => undefined),
+		};
+		const { options, state, tools } = setup({
+			meteringService: metering as unknown as MeteringService,
+			usageEventId: "page_event_1",
+		});
+		vi.mocked(generateBuildVideo).mockResolvedValue({
+			message: "R2 unavailable",
+			model: "test/video-model",
+			providerMetadata: {
+				gateway: { generationId: "generation_video_storage_failure" },
+			},
+			providerUnits: 1,
+			status: "failed",
+		});
+
+		await expect(
+			tools.animate_image.execute?.(VIDEO_INPUT, options("vid_storage")),
+		).resolves.toEqual({ message: "R2 unavailable", status: "failed" });
+		expect(state.videosGenerated).toBe(0);
+		expect(metering.captureGeneration).toHaveBeenCalledWith(
+			"video_event_1",
+			expect.objectContaining({
+				stepUsage: expect.objectContaining({
+					metering: { fixedUnits: 1 },
+				}),
+			}),
+		);
+		expect(metering.settle).toHaveBeenCalledWith(
+			"video_event_1",
+			expect.objectContaining({
+				finalCredits: 25,
+				pricingSnapshot: expect.objectContaining({ units: 1 }),
+			}),
+		);
+		expect(metering.refund).not.toHaveBeenCalled();
+	});
+
 	it("refuses once the video budget is exhausted", async () => {
 		const { options, state, tools } = setup();
 		state.videoSequence = MAX_VIDEOS;
@@ -1523,6 +1759,8 @@ describe("animate_image tool", () => {
 			"https://assets.example.com/sites/project_1/assets/attempt_1/vid-1.mp4";
 		vi.mocked(generateBuildVideo).mockResolvedValue({
 			mediaType: "video/mp4",
+			model: "test/video-model",
+			providerMetadata: {},
 			status: "generated",
 			url,
 		});
@@ -1536,6 +1774,7 @@ describe("animate_image tool", () => {
 			attemptId: "attempt_1",
 			imageUrl: VIDEO_INPUT.imageUrl,
 			index: 1,
+			metering: { operation: "video", userId: "user_1" },
 			motionPrompt: VIDEO_INPUT.motionPrompt,
 			projectId: "project_1",
 		});
@@ -1579,6 +1818,8 @@ describe("animate_image tool", () => {
 		// collide with a video a concurrent call may have uploaded meanwhile.
 		vi.mocked(generateBuildVideo).mockResolvedValue({
 			mediaType: "video/mp4",
+			model: "test/video-model",
+			providerMetadata: {},
 			status: "generated",
 			url: "https://assets.example.com/sites/project_1/assets/attempt_1/vid-2.mp4",
 		});
@@ -1637,6 +1878,8 @@ describe("progress events", () => {
 		vi.mocked(generateBuildImage).mockResolvedValue({
 			imageBase64: "aW1n",
 			mediaType: "image/png",
+			model: "test/image-model",
+			providerMetadata: {},
 			status: "generated",
 			url: "https://assets.example.com/sites/project_1/assets/attempt_1/img-1.png",
 		});
@@ -1704,6 +1947,8 @@ describe("progress events", () => {
 		});
 		vi.mocked(generateBuildVideo).mockResolvedValue({
 			mediaType: "video/mp4",
+			model: "test/video-model",
+			providerMetadata: {},
 			status: "generated",
 			url: "https://assets.example.com/sites/project_1/assets/attempt_1/vid-1.mp4",
 		});

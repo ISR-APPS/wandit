@@ -4,9 +4,11 @@ import {
 } from "@wandit/contracts";
 import { describe, expect, it } from "vitest";
 
+import { toUpgradeModalIntent } from "@/features/billing/lib/billing-error-dispatch";
 import {
 	hydrateAiChatMessages,
 	isAppliedPageEditPart,
+	nextBillingErrorInTurn,
 	type WanditUIMessage,
 } from "./use-ai-chat";
 
@@ -98,6 +100,27 @@ describe("AI chat target metadata", () => {
 		]);
 
 		expect(message?.metadata?.selectedTarget).toBeUndefined();
+	});
+});
+
+describe("billing error turn state", () => {
+	it("stays set when a billing data part is followed by a generic error", () => {
+		const billingPartIntent = toUpgradeModalIntent({
+			type: "data-billing-error",
+			data: {
+				code: "INSUFFICIENT_CREDITS",
+				statusCode: 402,
+				details: { requiredCredits: 25, availableCredits: 7 },
+			},
+		});
+		const afterBillingPart = nextBillingErrorInTurn(false, billingPartIntent);
+		const afterGenericError = nextBillingErrorInTurn(
+			afterBillingPart,
+			toUpgradeModalIntent(new Error("Insufficient credits.")),
+		);
+
+		expect(afterBillingPart).toBe(true);
+		expect(afterGenericError).toBe(true);
 	});
 });
 

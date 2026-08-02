@@ -4,6 +4,8 @@ import {
 	type BillingCheckoutResponse,
 	type BillingPlansResponse,
 	type BillingPortalResponse,
+	type BillingSubscriptionChangeOutcomeResponse,
+	type BillingSubscriptionChangePreviewResponse,
 	type BillingSubscriptionViewResponse,
 	type ChangeBillingSubscriptionBody,
 	type CreateBillingCheckoutBody,
@@ -11,10 +13,16 @@ import {
 	changeBillingSubscriptionBodySchema,
 	createBillingCheckoutBodySchema,
 	createBillingTopupBodySchema,
+	type PreviewBillingSubscriptionChangeBody,
+	previewBillingSubscriptionChangeBodySchema,
 } from "@wandit/contracts";
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { CurrentUser, EarlyAccessGuard, Public } from "../../../../auth";
+import {
+	SubscriptionsEnabledGuard,
+	TopupsEnabledGuard,
+} from "../../../../settings";
 import { BillingService } from "../../../application/services/billing.service";
 
 @Controller("v1/billing")
@@ -37,7 +45,7 @@ export class BillingController {
 		return this.billingService.getSubscriptionView(user.id);
 	}
 
-	@UseGuards(EarlyAccessGuard)
+	@UseGuards(SubscriptionsEnabledGuard, EarlyAccessGuard)
 	@Post("checkout")
 	checkout(
 		@CurrentUser() user: AuthUser,
@@ -47,7 +55,7 @@ export class BillingController {
 		return this.billingService.checkout(user, body);
 	}
 
-	@UseGuards(EarlyAccessGuard)
+	@UseGuards(TopupsEnabledGuard, EarlyAccessGuard)
 	@Post("topup")
 	topup(
 		@CurrentUser() user: AuthUser,
@@ -62,13 +70,23 @@ export class BillingController {
 		return this.billingService.portal(user);
 	}
 
-	@UseGuards(EarlyAccessGuard)
+	@UseGuards(SubscriptionsEnabledGuard, EarlyAccessGuard)
+	@Post("change/preview")
+	previewChange(
+		@CurrentUser() user: AuthUser,
+		@Body(new ZodValidationPipe(previewBillingSubscriptionChangeBodySchema))
+		body: PreviewBillingSubscriptionChangeBody,
+	): Promise<BillingSubscriptionChangePreviewResponse> {
+		return this.billingService.previewChange(user, body);
+	}
+
+	@UseGuards(SubscriptionsEnabledGuard, EarlyAccessGuard)
 	@Post("change")
 	change(
 		@CurrentUser() user: AuthUser,
 		@Body(new ZodValidationPipe(changeBillingSubscriptionBodySchema))
 		body: ChangeBillingSubscriptionBody,
-	): Promise<BillingSubscriptionViewResponse> {
+	): Promise<BillingSubscriptionChangeOutcomeResponse> {
 		return this.billingService.change(user, body);
 	}
 
@@ -79,7 +97,7 @@ export class BillingController {
 		return this.billingService.cancel(user);
 	}
 
-	@UseGuards(EarlyAccessGuard)
+	@UseGuards(SubscriptionsEnabledGuard, EarlyAccessGuard)
 	@Post("resume")
 	resume(
 		@CurrentUser() user: AuthUser,

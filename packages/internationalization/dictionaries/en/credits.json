@@ -1,16 +1,29 @@
 {
 	"chipAriaLabel": "Credits balance",
 	"balanceLabel": "Credits",
-	"usageOf": "{balance} of {grant} left",
+	"balanceUnavailableShort": "Credits —",
+	"balanceLoadError": "Your credit balance could not load. Try again.",
 	"recentActivity": "Recent activity",
 	"emptyLedger": "No activity yet.",
-	"topUpChip": "Top up — coming soon",
-	"topUpDialog": "Top-up coming soon",
+	"ledgerLoadError": "Credit activity could not load.",
+	"topUpChip": "Top up credits",
+	"manageBilling": "View billing",
+	"topUpDialog": "See plans and top-ups",
 	"insufficientTitle": "Not enough credits",
-	"insufficientBody": "This action costs more than you have left. Top-ups are on the way.",
+	"insufficientBody": "This action costs more credits than you currently have.",
 	"costLabel": "Cost",
-	"balanceRowLabel": "Your balance",
-	"seedGrantLabel": "Welcome grant",
+	"buckets": {
+		"plan": "Plan",
+		"promo": "Promotional",
+		"topup": "Top-up"
+	},
+	"ledgerKinds": {
+		"grant": "Credits granted",
+		"consume": "Credits used",
+		"topup": "Credits purchased",
+		"expire": "Credits expired",
+		"revoke": "Credits reversed"
+	},
 	"creditUnit": {
 		"zero": "{count} credits",
 		"one": "{count} credit",

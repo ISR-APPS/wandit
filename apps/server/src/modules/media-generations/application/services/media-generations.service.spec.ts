@@ -6,7 +6,7 @@ import {
 	publicAssetUrl,
 	siteVideoKey,
 } from "../../../../infrastructure/storage/r2";
-import type { GenerationPolicyService } from "../../../generation/application/services/generation-policy.service";
+import type { MeteringService } from "../../../metering/application/services/metering.service";
 import type {
 	MediaGenerationAttemptRow,
 	MediaGenerationsRepository,
@@ -54,15 +54,20 @@ function setup() {
 		markStaleGeneratingAttemptFailed: vi.fn(),
 		markStaleQueuedAttemptFailed: vi.fn(),
 	};
-	const generationPolicyService = {
-		refundGenerationReservation: vi.fn().mockResolvedValue([]),
+	const usageEvent = { id: "usage_event_1", operation: "video" } as Awaited<
+		ReturnType<MeteringService["reserve"]>
+	>;
+	const meteringService = {
+		findByIdempotencyKey: vi.fn().mockResolvedValue(usageEvent),
+		refund: vi.fn().mockResolvedValue(usageEvent),
+		settleFixedFromEvidence: vi.fn().mockResolvedValue(usageEvent),
 	};
 	const service = new MediaGenerationsService(
 		repository as unknown as MediaGenerationsRepository,
-		generationPolicyService as unknown as GenerationPolicyService,
+		meteringService as unknown as MeteringService,
 	);
 
-	return { generationPolicyService, repository, service };
+	return { meteringService, repository, service };
 }
 
 beforeEach(() => {
@@ -74,7 +79,7 @@ beforeEach(() => {
 
 describe("MediaGenerationsService", () => {
 	it("leaves a recently queued Trigger handoff active", async () => {
-		const { generationPolicyService, repository, service } = setup();
+		const { meteringService, repository, service } = setup();
 		repository.findOwnedAttempt.mockResolvedValue({
 			...BASE_ROW,
 			createdAt: new Date(Date.now() - 5 * 60 * 1_000),
@@ -88,13 +93,11 @@ describe("MediaGenerationsService", () => {
 		);
 		expect(repository.markStaleQueuedAttemptFailed).not.toHaveBeenCalled();
 		expect(repository.markStaleGeneratingAttemptFailed).not.toHaveBeenCalled();
-		expect(
-			generationPolicyService.refundGenerationReservation,
-		).not.toHaveBeenCalled();
+		expect(meteringService.refund).not.toHaveBeenCalled();
 	});
 
 	it("fails an abandoned queued Trigger handoff after the grace window", async () => {
-		const { generationPolicyService, repository, service } = setup();
+		const { meteringService, repository, service } = setup();
 		const staleRow = {
 			...BASE_ROW,
 			createdAt: new Date(Date.now() - 45 * 60 * 1_000),
@@ -124,13 +127,14 @@ describe("MediaGenerationsService", () => {
 			failedRow.error,
 			"user_1",
 		);
-		expect(
-			generationPolicyService.refundGenerationReservation,
-		).toHaveBeenCalledWith("user_1", BASE_ROW.id);
+		expect(meteringService.refund).toHaveBeenCalledWith(
+			"usage_event_1",
+			"image_animation_failed",
+		);
 	});
 
 	it("fails and refunds only a generation whose worker start is stale", async () => {
-		const { generationPolicyService, repository, service } = setup();
+		const { meteringService, repository, service } = setup();
 		const staleStartedAt = new Date(Date.now() - 20 * 60 * 1_000);
 		const staleRow = {
 			...BASE_ROW,
@@ -161,13 +165,14 @@ describe("MediaGenerationsService", () => {
 			failedRow.error,
 			"user_1",
 		);
-		expect(
-			generationPolicyService.refundGenerationReservation,
-		).toHaveBeenCalledWith("user_1", BASE_ROW.id);
+		expect(meteringService.refund).toHaveBeenCalledWith(
+			"usage_event_1",
+			"image_animation_failed",
+		);
 	});
 
 	it("leaves a recently claimed generation active", async () => {
-		const { generationPolicyService, repository, service } = setup();
+		const { meteringService, repository, service } = setup();
 		repository.findOwnedAttempt.mockResolvedValue({
 			...BASE_ROW,
 			startedAt: new Date(Date.now() - 60 * 1_000),
@@ -181,13 +186,11 @@ describe("MediaGenerationsService", () => {
 			},
 		);
 		expect(repository.markStaleGeneratingAttemptFailed).not.toHaveBeenCalled();
-		expect(
-			generationPolicyService.refundGenerationReservation,
-		).not.toHaveBeenCalled();
+		expect(meteringService.refund).not.toHaveBeenCalled();
 	});
 
 	it("recovers a stored video before expiring a stale generation", async () => {
-		const { generationPolicyService, repository, service } = setup();
+		const { meteringService, repository, service } = setup();
 		const staleRow = {
 			...BASE_ROW,
 			startedAt: new Date(Date.now() - 20 * 60 * 1_000),
@@ -219,14 +222,79 @@ describe("MediaGenerationsService", () => {
 			"video/mp4",
 			"user_1",
 		);
-		expect(repository.markStaleGeneratingAttemptFailed).not.toHaveBeenCalled();
+		expect(meteringService.findByIdempotencyKey).toHaveBeenCalledWith(
+			`video:${BASE_ROW.id}`,
+			"user_1",
+		);
+		expect(meteringService.settleFixedFromEvidence).toHaveBeenCalledWith(
+			"usage_event_1",
+			1,
+		);
 		expect(
-			generationPolicyService.refundGenerationReservation,
-		).not.toHaveBeenCalled();
+			meteringService.settleFixedFromEvidence.mock
+				.invocationCallOrder[0] as number,
+		).toBeLessThan(
+			repository.markGeneratingAttemptSucceeded.mock
+				.invocationCallOrder[0] as number,
+		);
+		expect(repository.markStaleGeneratingAttemptFailed).not.toHaveBeenCalled();
+		expect(meteringService.refund).not.toHaveBeenCalled();
+	});
+
+	it("does not publish a recovered video when existing settlement fails", async () => {
+		const { meteringService, repository, service } = setup();
+		const staleRow = {
+			...BASE_ROW,
+			startedAt: new Date(Date.now() - 20 * 60 * 1_000),
+			status: "generating" as const,
+		};
+		const settlementError = new Error("settlement unavailable");
+		repository.findOwnedAttempt.mockResolvedValue(staleRow);
+		vi.mocked(getObjectContentType).mockResolvedValueOnce("video/mp4");
+		meteringService.settleFixedFromEvidence.mockRejectedValueOnce(
+			settlementError,
+		);
+
+		await expect(service.attempt("user_1", BASE_ROW.id)).rejects.toBe(
+			settlementError,
+		);
+		expect(repository.markGeneratingAttemptSucceeded).not.toHaveBeenCalled();
+		expect(repository.markStaleGeneratingAttemptFailed).not.toHaveBeenCalled();
+		expect(meteringService.refund).not.toHaveBeenCalled();
+	});
+
+	it("recovers a legacy stored video without fabricating a new reservation", async () => {
+		const { meteringService, repository, service } = setup();
+		const staleRow = {
+			...BASE_ROW,
+			startedAt: new Date(Date.now() - 20 * 60 * 1_000),
+			status: "generating" as const,
+		};
+		const succeededRow = {
+			...staleRow,
+			completedAt: new Date(),
+			status: "succeeded" as const,
+			videoMediaType: "video/mp4",
+			videoUrl: "https://assets.example.com/recovered.mp4",
+		};
+		repository.findOwnedAttempt
+			.mockResolvedValueOnce(staleRow)
+			.mockResolvedValueOnce(succeededRow);
+		repository.markGeneratingAttemptSucceeded.mockResolvedValue(true);
+		vi.mocked(getObjectContentType).mockResolvedValueOnce("video/mp4");
+		meteringService.findByIdempotencyKey.mockResolvedValueOnce(null);
+
+		await expect(service.attempt("user_1", BASE_ROW.id)).resolves.toMatchObject(
+			{
+				status: "succeeded",
+			},
+		);
+		expect(meteringService.settleFixedFromEvidence).not.toHaveBeenCalled();
+		expect(repository.markGeneratingAttemptSucceeded).toHaveBeenCalledTimes(1);
 	});
 
 	it("retries the idempotent refund whenever a failed attempt is polled", async () => {
-		const { generationPolicyService, repository, service } = setup();
+		const { meteringService, repository, service } = setup();
 		repository.findOwnedAttempt.mockResolvedValue({
 			...BASE_ROW,
 			completedAt: new Date(),
@@ -236,9 +304,10 @@ describe("MediaGenerationsService", () => {
 
 		await service.attempt("user_1", BASE_ROW.id);
 
-		expect(
-			generationPolicyService.refundGenerationReservation,
-		).toHaveBeenCalledWith("user_1", BASE_ROW.id);
+		expect(meteringService.refund).toHaveBeenCalledWith(
+			"usage_event_1",
+			"image_animation_failed",
+		);
 	});
 
 	it("does not reveal an unknown or unowned attempt", async () => {

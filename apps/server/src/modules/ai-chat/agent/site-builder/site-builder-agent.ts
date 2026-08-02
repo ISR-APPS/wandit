@@ -12,10 +12,23 @@
  */
 import { PAGE_TOKEN_NAMES } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
-import { isStepCount, type Tool, ToolLoopAgent, tool } from "ai";
+import {
+	isStepCount,
+	type LanguageModelUsage,
+	type Tool,
+	ToolLoopAgent,
+	tool,
+} from "ai";
 import * as cheerio from "cheerio";
 import { z } from "zod";
-
+import type { MeteringService } from "../../../metering/application/services/metering.service";
+import {
+	fixedGenerationStepUsage,
+	type GatewayGenerationMetadata,
+	hasGatewayGenerationMetadata,
+	withGatewayAttribution,
+} from "../../../metering/domain/gateway-metering";
+import { fixedOperationCredits } from "../../../metering/domain/operation-registry";
 // Plain module (no Nest), safe in the Trigger bundle — cheerio bundles fine.
 import {
 	isStampableContainer,
@@ -61,13 +74,29 @@ export type SiteBuildParams = {
 	brief: string;
 	/** Gateway model string, snapshotted on the attempt (e.g. anthropic/claude-fable-5). */
 	model: string;
+	/** Present only while billing enforcement is enabled. */
+	meteringService?: MeteringService;
 	/** Live-progress sink (chat card via run metadata). Best-effort. */
 	onEvent?: (event: BuildProgressEvent) => void;
+	/** Failed Gateway call evidence, emitted before the provider error escapes. */
+	onGenerationError?: (error: unknown) => Promise<void> | void;
+	/** Durable per-step metering sink; awaited before the next agent step. */
+	onStepEnd?: (step: SiteBuildMeteringStep) => Promise<void> | void;
 	/** Generated images upload under this project's R2 prefix. */
 	projectId: string;
 	/** System prompt snapshotted at queue time — see builder-prompt.ts. */
 	system: string;
 	title: string;
+	/** Parent page-build event for direct image/video child operations. */
+	usageEventId?: string;
+	/** Gateway attribution owner for every builder model step. */
+	userId: string;
+};
+
+export type SiteBuildMeteringStep = {
+	model: { modelId: string; provider: string };
+	providerMetadata: unknown;
+	usage: LanguageModelUsage;
 };
 
 export type SiteBuildResult = {
@@ -272,10 +301,13 @@ function assertMutationAllowed(
 type BuilderToolsParams = {
 	abortSignal?: AbortSignal;
 	attemptId: string;
+	meteringService?: MeteringService;
 	onEvent?: (event: BuildProgressEvent) => void;
 	projectId: string;
 	screenshots: ScreenshotSession;
 	state: BuildLoopState;
+	usageEventId?: string;
+	userId: string;
 	vfs: VirtualFileSystem;
 };
 
@@ -397,6 +429,17 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 				state.videosGenerated += 1;
 				state.videoSequence += 1;
 				const index = state.videoSequence;
+				const childEvent =
+					params.meteringService && params.usageEventId
+						? await params.meteringService.reserve("video", params.userId, {
+								attemptRef: `${params.attemptId}:video:${index}`,
+								credits: fixedOperationCredits("video"),
+								idempotencyKey: `page-build-video:${params.usageEventId}:${index}`,
+								model: env.AI_VIDEO_MODEL ?? null,
+								parentEventId: params.usageEventId,
+							})
+						: null;
+				let generationCapturedBeforeDelivery = false;
 
 				const result = await generateBuildVideo({
 					...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
@@ -404,15 +447,90 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 					attemptId: params.attemptId,
 					imageUrl,
 					index,
+					metering: { operation: "video", userId: params.userId },
 					motionPrompt,
+					...(childEvent && params.meteringService
+						? {
+								onProviderGeneration: async (
+									generation: GatewayGenerationMetadata,
+								) => {
+									await captureRequiredGeneration(
+										params.meteringService as MeteringService,
+										childEvent.id,
+										{
+											providerMetadata: generation.providerMetadata,
+											stepUsage: fixedGenerationStepUsage(generation.usage, 1),
+										},
+									);
+									generationCapturedBeforeDelivery = true;
+								},
+							}
+						: {}),
 					projectId: params.projectId,
 				});
 
 				if (result.status !== "generated") {
 					state.videosGenerated -= 1;
+					if (childEvent && params.meteringService) {
+						if (hasGatewayGenerationMetadata(result)) {
+							const providerUnits =
+								"providerUnits" in result && result.providerUnits === 1 ? 1 : 0;
+							if (!generationCapturedBeforeDelivery) {
+								await captureRequiredGeneration(
+									params.meteringService,
+									childEvent.id,
+									{
+										providerMetadata: result.providerMetadata,
+										stepUsage: fixedGenerationStepUsage(
+											result.usage,
+											providerUnits,
+										),
+									},
+								);
+							}
+							await params.meteringService.settle(childEvent.id, {
+								finalCredits:
+									providerUnits === 0
+										? 0
+										: fixedOperationCredits("video", providerUnits),
+								model: result.model,
+								pricing: "direct",
+								pricingSnapshot: {
+									...fixedPricingSnapshot("video"),
+									units: providerUnits,
+								},
+								rawUsage: result.usage ?? null,
+							});
+						} else {
+							await params.meteringService.refund(
+								childEvent.id,
+								"page_build_video_failed",
+							);
+						}
+					}
 					log(`animate_image ${result.status}: ${result.message}`);
 
 					return { message: result.message, status: result.status };
+				}
+
+				if (childEvent && params.meteringService) {
+					if (!generationCapturedBeforeDelivery) {
+						await captureRequiredGeneration(
+							params.meteringService,
+							childEvent.id,
+							{
+								providerMetadata: result.providerMetadata,
+								stepUsage: fixedGenerationStepUsage(result.usage, 1),
+							},
+						);
+					}
+					await params.meteringService.settle(childEvent.id, {
+						finalCredits: fixedOperationCredits("video"),
+						model: result.model,
+						pricing: "direct",
+						pricingSnapshot: fixedPricingSnapshot("video"),
+						rawUsage: result.usage ?? null,
+					});
 				}
 
 				log(`animated image ${index}/${MAX_VIDEOS} → ${result.url}`);
@@ -689,12 +807,44 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 				state.imageSequence += 1;
 				const index = state.imageSequence;
 				emitEvent({ role, type: "image-start" });
+				const childEvent =
+					params.meteringService && params.usageEventId
+						? await params.meteringService.reserve("image", params.userId, {
+								attemptRef: `${params.attemptId}:image:${index}`,
+								credits: fixedOperationCredits("image"),
+								idempotencyKey: `page-build-image:${params.usageEventId}:${index}`,
+								model:
+									sourceImageUrls?.length && env.AI_IMAGE_EDIT_MODEL
+										? env.AI_IMAGE_EDIT_MODEL
+										: (env.AI_IMAGE_MODEL ?? null),
+								parentEventId: params.usageEventId,
+							})
+						: null;
+				let generationCapturedBeforeDelivery = false;
 
 				const result = await generateBuildImage({
 					...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
 					aspect,
 					attemptId: params.attemptId,
 					index,
+					metering: { operation: "image", userId: params.userId },
+					...(childEvent && params.meteringService
+						? {
+								onProviderGeneration: async (
+									generation: GatewayGenerationMetadata,
+								) => {
+									await captureRequiredGeneration(
+										params.meteringService as MeteringService,
+										childEvent.id,
+										{
+											providerMetadata: generation.providerMetadata,
+											stepUsage: fixedGenerationStepUsage(generation.usage, 1),
+										},
+									);
+									generationCapturedBeforeDelivery = true;
+								},
+							}
+						: {}),
 					projectId: params.projectId,
 					prompt,
 					...(sourceImageUrls?.length ? { sourceImageUrls } : {}),
@@ -702,9 +852,66 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 
 				if (result.status !== "generated") {
 					state.imagesGenerated -= 1;
+					if (childEvent && params.meteringService) {
+						if (hasGatewayGenerationMetadata(result)) {
+							const providerUnits =
+								"providerUnits" in result && result.providerUnits === 1 ? 1 : 0;
+							if (!generationCapturedBeforeDelivery) {
+								await captureRequiredGeneration(
+									params.meteringService,
+									childEvent.id,
+									{
+										providerMetadata: result.providerMetadata,
+										stepUsage: fixedGenerationStepUsage(
+											result.usage,
+											providerUnits,
+										),
+									},
+								);
+							}
+							await params.meteringService.settle(childEvent.id, {
+								finalCredits:
+									providerUnits === 0
+										? 0
+										: fixedOperationCredits("image", providerUnits),
+								model: result.model,
+								pricing: "direct",
+								pricingSnapshot: {
+									...fixedPricingSnapshot("image"),
+									units: providerUnits,
+								},
+								rawUsage: result.usage ?? null,
+							});
+						} else {
+							await params.meteringService.refund(
+								childEvent.id,
+								"page_build_image_failed",
+							);
+						}
+					}
 					log(`generate_image ${result.status}: ${result.message}`);
 
 					return { message: result.message, status: result.status };
+				}
+
+				if (childEvent && params.meteringService) {
+					if (!generationCapturedBeforeDelivery) {
+						await captureRequiredGeneration(
+							params.meteringService,
+							childEvent.id,
+							{
+								providerMetadata: result.providerMetadata,
+								stepUsage: fixedGenerationStepUsage(result.usage, 1),
+							},
+						);
+					}
+					await params.meteringService.settle(childEvent.id, {
+						finalCredits: fixedOperationCredits("image"),
+						model: result.model,
+						pricing: "direct",
+						pricingSnapshot: fixedPricingSnapshot("image"),
+						rawUsage: result.usage ?? null,
+					});
 				}
 
 				imageByCall.set(toolCallId, {
@@ -979,6 +1186,43 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 	};
 }
 
+function fixedPricingSnapshot(operation: "image" | "video") {
+	return {
+		creditsPerUnit: fixedOperationCredits(operation),
+		mode: "fixed",
+		operation,
+		source: "operation_registry",
+		unit: operation === "image" ? "image" : "operation",
+	};
+}
+
+async function captureRequiredGeneration(
+	meteringService: MeteringService,
+	eventId: string,
+	capture: Parameters<MeteringService["captureGeneration"]>[1],
+): Promise<void> {
+	let lastError: unknown;
+
+	for (let attempt = 0; attempt < 3; attempt += 1) {
+		try {
+			const generationRef = await meteringService.captureGeneration(
+				eventId,
+				capture,
+			);
+
+			if (!generationRef) {
+				throw new Error("AI Gateway generation id is missing");
+			}
+
+			return;
+		} catch (error) {
+			lastError = error;
+		}
+	}
+
+	throw lastError;
+}
+
 export async function runSiteBuild(
 	params: SiteBuildParams,
 ): Promise<SiteBuildResult> {
@@ -1005,43 +1249,46 @@ export async function runSiteBuild(
 		configuredReasoningEffort === "auto"
 			? undefined
 			: configuredReasoningEffort;
-	const providerOptions = {
-		...(reasoningEffort
-			? {
-					// Gemini 3 knows exactly two thinking levels — medium+ → high.
-					google: {
-						thinkingConfig: {
-							thinkingLevel:
-								reasoningEffort === "minimal" || reasoningEffort === "low"
-									? ("low" as const)
-									: ("high" as const),
+	const providerOptions = withGatewayAttribution(
+		{
+			...(reasoningEffort
+				? {
+						// Gemini 3 knows exactly two thinking levels — medium+ → high.
+						google: {
+							thinkingConfig: {
+								thinkingLevel:
+									reasoningEffort === "minimal" || reasoningEffort === "low"
+										? ("low" as const)
+										: ("high" as const),
+							},
 						},
-					},
-					openai: { reasoningEffort },
-					// Grok knows exactly three efforts — clamp both ends.
-					xai: {
-						reasoningEffort:
-							reasoningEffort === "minimal"
-								? ("low" as const)
-								: reasoningEffort === "xhigh"
-									? ("high" as const)
-									: reasoningEffort,
-					},
-				}
-			: {}),
-		// Novita-first was a fix for Kimi K2's launch congestion (6s+ TTFT on
-		// Moonshot). K3 measured faster on official Moonshot routing, so the
-		// preference stays scoped to K2-era models.
-		...(params.model.startsWith("moonshotai/kimi-k2")
-			? { gateway: { order: ["novita"] } }
-			: {}),
-		// Qwen's default routing lands on Alibaba Cloud/Together at ~55 tps;
-		// Fireworks serves the same models at ~330 tps (gateway P50 chart,
-		// 2026-07-26). The others stay as fallback.
-		...(params.model.startsWith("alibaba/")
-			? { gateway: { order: ["fireworks"] } }
-			: {}),
-	};
+						openai: { reasoningEffort },
+						// Grok knows exactly three efforts — clamp both ends.
+						xai: {
+							reasoningEffort:
+								reasoningEffort === "minimal"
+									? ("low" as const)
+									: reasoningEffort === "xhigh"
+										? ("high" as const)
+										: reasoningEffort,
+						},
+					}
+				: {}),
+			// Novita-first was a fix for Kimi K2's launch congestion (6s+ TTFT on
+			// Moonshot). K3 measured faster on official Moonshot routing, so the
+			// preference stays scoped to K2-era models.
+			...(params.model.startsWith("moonshotai/kimi-k2")
+				? { gateway: { order: ["novita"] } }
+				: {}),
+			// Qwen's default routing lands on Alibaba Cloud/Together at ~55 tps;
+			// Fireworks serves the same models at ~330 tps (gateway P50 chart,
+			// 2026-07-26). The others stay as fallback.
+			...(params.model.startsWith("alibaba/")
+				? { gateway: { order: ["fireworks"] } }
+				: {}),
+		},
+		{ operation: "page_build", userId: params.userId },
+	);
 
 	log(
 		`starting build of "${params.title}" with model ${params.model}` +
@@ -1060,7 +1307,8 @@ export async function runSiteBuild(
 			instructions: params.system,
 			maxOutputTokens: MAX_OUTPUT_TOKENS,
 			model: params.model,
-			...(Object.keys(providerOptions).length > 0 ? { providerOptions } : {}),
+			...(params.onStepEnd ? { onStepEnd: params.onStepEnd } : {}),
+			providerOptions,
 			// Kimi/Moonshot rejects image parts inside tool results (they fall
 			// through as base64 TEXT and blow the context) but reads images fine
 			// from user messages — so relocate them there before every step.
@@ -1093,10 +1341,15 @@ export async function runSiteBuild(
 			tools: createBuilderTools({
 				abortSignal: params.abortSignal,
 				attemptId: params.attemptId,
+				...(params.meteringService
+					? { meteringService: params.meteringService }
+					: {}),
 				...(params.onEvent ? { onEvent: params.onEvent } : {}),
 				projectId: params.projectId,
 				screenshots,
 				state,
+				...(params.usageEventId ? { usageEventId: params.usageEventId } : {}),
+				userId: params.userId,
 				vfs,
 			}),
 		});
@@ -1130,6 +1383,20 @@ export async function runSiteBuild(
 		}
 
 		if (streamError !== undefined) {
+			try {
+				await params.onGenerationError?.(streamError);
+			} catch (captureError) {
+				// Generation capture has its own durable retry path. Never replace the
+				// provider failure that the attempt row and Trigger run must retain.
+				log(
+					`failed to buffer gateway error evidence: ${
+						captureError instanceof Error
+							? captureError.message
+							: String(captureError)
+					}`,
+				);
+			}
+
 			throw streamError instanceof Error
 				? streamError
 				: new Error(String(streamError));

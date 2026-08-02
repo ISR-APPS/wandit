@@ -1,87 +1,59 @@
-export function formatAffiliateCurrency(
-	amountUsdMinor: number,
-	locale = "en-US",
+const affiliateDateFormatter = new Intl.DateTimeFormat("en-US", {
+	day: "numeric",
+	month: "short",
+	year: "numeric",
+});
+
+const affiliateDateTimeFormatter = new Intl.DateTimeFormat("en-US", {
+	day: "numeric",
+	month: "short",
+	year: "numeric",
+	hour: "numeric",
+	minute: "2-digit",
+});
+
+export function formatAffiliateMoney(
+	cents: number,
+	currency: string,
+	compact = false,
 ) {
-	return new Intl.NumberFormat(locale, {
+	return new Intl.NumberFormat("en-US", {
 		style: "currency",
-		currency: "USD",
+		currency: currency.toUpperCase(),
 		currencyDisplay: "narrowSymbol",
-		maximumFractionDigits: amountUsdMinor % 100 === 0 ? 0 : 2,
-	}).format(amountUsdMinor / 100);
+		notation: compact ? "compact" : "standard",
+		maximumFractionDigits: compact ? 1 : cents % 100 === 0 ? 0 : 2,
+	}).format(cents / 100);
 }
 
-export function formatAffiliateCompactCurrency(
-	amountUsdMinor: number,
-	locale = "en-US",
-) {
-	return new Intl.NumberFormat(locale, {
-		style: "currency",
-		currency: "USD",
-		currencyDisplay: "narrowSymbol",
-		notation: "compact",
-		maximumFractionDigits: 1,
-	}).format(amountUsdMinor / 100);
-}
-
-export function formatAffiliateCompactNumber(value: number, locale = "en-US") {
-	return new Intl.NumberFormat(locale, {
-		notation: "compact",
-		maximumFractionDigits: 1,
+export function formatAffiliateNumber(value: number, compact = false) {
+	return new Intl.NumberFormat("en-US", {
+		notation: compact ? "compact" : "standard",
+		maximumFractionDigits: compact ? 1 : 0,
 	}).format(value);
 }
 
-export function formatAffiliateWholeNumber(value: number, locale = "en-US") {
-	return new Intl.NumberFormat(locale, {
-		maximumFractionDigits: 0,
-	}).format(value);
-}
-
-export const formatAffiliateNumber = formatAffiliateWholeNumber;
-
-export function formatAffiliatePercent(
-	value: number,
-	maximumFractionDigits = 1,
-	locale = "en-US",
-) {
-	return new Intl.NumberFormat(locale, {
-		style: "percent",
-		maximumFractionDigits,
-	}).format(value / 100);
-}
-
-export function formatAffiliateDate(
-	value: string | null,
-	locale = "en-US",
-	options: Intl.DateTimeFormatOptions = {
-		day: "numeric",
-		month: "short",
-		year: "numeric",
-	},
-) {
+export function formatAffiliateDate(value: string | null) {
 	if (!value) {
 		return "—";
 	}
-
-	return new Intl.DateTimeFormat(locale, options).format(new Date(value));
+	return affiliateDateFormatter.format(new Date(value));
 }
 
 export function formatAffiliateDateTime(value: string | null) {
-	return formatAffiliateDate(value, "en-US", {
-		day: "numeric",
-		hour: "numeric",
-		minute: "2-digit",
-		month: "short",
-	});
+	if (!value) {
+		return "—";
+	}
+	return affiliateDateTimeFormatter.format(new Date(value));
 }
 
-export function getAffiliateInitials(name: string) {
-	return name
-		.trim()
-		.split(/\s+/)
-		.slice(0, 2)
-		.map((part) => part.charAt(0))
-		.join("")
-		.toUpperCase();
+export function formatAffiliateRateBps(value: number | null) {
+	if (value === null) {
+		return "—";
+	}
+	return `${new Intl.NumberFormat("en-US", {
+		maximumFractionDigits: value % 100 === 0 ? 0 : 2,
+	}).format(value / 100)}%`;
 }
 
 export function titleCaseAffiliateValue(value: string) {

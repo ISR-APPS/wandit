@@ -1,5 +1,7 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Optional } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
+
+import { AffiliatesRepository } from "../../../affiliates/infrastructure/persistence/affiliates.repository";
 
 import {
 	PAYMENT_PROVIDER,
@@ -24,6 +26,9 @@ export class BillingCustomerService {
 		private readonly billingCustomersRepository: BillingCustomersRepository,
 		@Inject(PAYMENT_PROVIDER)
 		private readonly paymentProvider: PaymentProvider,
+		@Optional()
+		@Inject(AffiliatesRepository)
+		private readonly affiliatesRepository?: AffiliatesRepository,
 	) {}
 
 	ensureCustomer(
@@ -39,10 +44,16 @@ export class BillingCustomerService {
 				return existing;
 			}
 
-			const providerCustomerId = await this.paymentProvider.ensureCustomer(
-				user.id,
-				user.email,
-			);
+			const affiliateCode =
+				(await this.affiliatesRepository?.affiliateCodeForUser(user.id)) ??
+				null;
+			const providerCustomerId = affiliateCode
+				? await this.paymentProvider.ensureCustomer(
+						user.id,
+						user.email,
+						affiliateCode,
+					)
+				: await this.paymentProvider.ensureCustomer(user.id, user.email);
 
 			return this.billingCustomersRepository.upsertByUserId(
 				{

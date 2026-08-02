@@ -12,6 +12,7 @@ import {
 } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
+	aiChatBillingErrorDataSchema,
 	aiChatMessageMetadataSchema,
 	aiChatRequestMetadataSchema,
 	uuidSchema,
@@ -83,25 +84,38 @@ export class AiChatController {
 		}
 
 		const messages = await this.validateMessages(body.messages, user.id);
+		const prepared = await this.aiChatService.prepareStream({
+			chatId: chat.id,
+			messages,
+			projectId: chat.projectId,
+			requestId: body.id ?? body.messageId,
+			userId: user.id,
+		});
 		const abortController = new AbortController();
 
 		request.raw.once("close", () => abortController.abort());
 
 		// The AI SDK owns this raw SSE response and its UI-message protocol.
-		reply.hijack();
-		await this.aiChatService.stream({
-			abortSignal: abortController.signal,
-			chatId: chat.id,
-			messages,
-			metadata: body.metadata,
-			origin: request.headers.origin,
-			// The generate_page and page-edit tools act on the chat's project;
-			// the ownership query above already proved this user owns it.
-			projectId: chat.projectId,
-			reply,
-			requestCountryCode: readRequestCountryCode(request.headers),
-			userId: user.id,
-		});
+		try {
+			reply.hijack();
+			await this.aiChatService.stream({
+				abortSignal: abortController.signal,
+				chatId: chat.id,
+				messages,
+				metadata: body.metadata,
+				origin: request.headers.origin,
+				prepared,
+				// The generate_page and page-edit tools act on the chat's project;
+				// the ownership query above already proved this user owns it.
+				projectId: chat.projectId,
+				reply,
+				requestCountryCode: readRequestCountryCode(request.headers),
+				userId: user.id,
+			});
+		} catch (error) {
+			prepared.release();
+			throw error;
+		}
 	}
 
 	private async validateMessages(
@@ -118,6 +132,7 @@ export class AiChatController {
 
 		try {
 			validated = await validateUIMessages<WanditUIMessage>({
+				dataSchemas: { "billing-error": aiChatBillingErrorDataSchema },
 				messages: nonEmptyMessages,
 				metadataSchema: aiChatValidationMetadataSchema,
 				tools: aiChatToolsForValidation,

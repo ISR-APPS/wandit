@@ -34,30 +34,79 @@ export function apiPost<T>(path: string, body?: unknown): Promise<T> {
 	return request<T>(path, { method: "POST", body });
 }
 
-type RequestOptions = {
-	method: "GET" | "POST";
-	body?: unknown;
-	params?: ApiQueryParams;
-};
+export function apiPatch<T>(path: string, body?: unknown): Promise<T> {
+	return request<T>(path, { method: "PATCH", body });
+}
 
-async function request<T>(
+export function apiDelete<T>(path: string, body?: unknown): Promise<T> {
+	return request<T>(path, { method: "DELETE", body });
+}
+
+/**
+ * Authenticated GET for endpoints that intentionally bypass the JSON envelope,
+ * such as CSV exports. The caller owns reading the successful response body.
+ */
+export async function apiGetRaw(
 	path: string,
-	{ method, body, params }: RequestOptions,
-): Promise<T> {
-	const headers: Record<string, string> = { Accept: "application/json" };
-	let bodyInit: string | undefined;
+	params?: ApiQueryParams,
+	accept = "*/*",
+): Promise<Response> {
+	const response = await fetchResponse(path, {
+		method: "GET",
+		params,
+		accept,
+	});
 
-	if (body !== undefined) {
-		headers["Content-Type"] = "application/json";
-		bodyInit = JSON.stringify(body);
+	if (!response.ok) {
+		throw toApiClientError(response, await parseJson(response));
 	}
 
-	let response: Response;
+	return response;
+}
+
+type RequestOptions = {
+	method: "GET" | "POST" | "PATCH" | "DELETE";
+	body?: unknown;
+	params?: ApiQueryParams;
+	accept?: string;
+};
+
+async function request<T>(path: string, options: RequestOptions): Promise<T> {
+	const response = await fetchResponse(path, options);
+
+	const payload = await parseJson(response);
+
+	if (!response.ok) {
+		throw toApiClientError(response, payload);
+	}
+
+	if (!isRecord(payload) || !("data" in payload)) {
+		throw new ApiClientError({
+			status: response.status,
+			code: "INVALID_RESPONSE",
+			message: "The server returned an invalid response.",
+		});
+	}
+
+	return payload.data as T;
+}
+
+async function fetchResponse(
+	path: string,
+	{ method, body, params, accept = "application/json" }: RequestOptions,
+): Promise<Response> {
+	const headers: Record<string, string> = { Accept: accept };
+	const isWrite = method !== "GET";
+
+	if (isWrite) {
+		headers["Content-Type"] = "application/json";
+	}
+
 	try {
-		response = await fetch(buildUrl(path, params), {
+		return await fetch(buildUrl(path, params), {
 			method,
 			headers,
-			body: bodyInit,
+			body: isWrite ? JSON.stringify(body ?? {}) : undefined,
 			credentials: "include",
 		});
 	} catch (cause) {
@@ -70,14 +119,6 @@ async function request<T>(
 					: "The server could not be reached.",
 		});
 	}
-
-	const payload = await parseJson(response);
-
-	if (!response.ok) {
-		throw toApiClientError(response, payload);
-	}
-
-	return (payload as { data: T }).data;
 }
 
 function buildUrl(path: string, params?: ApiQueryParams): string {
@@ -106,7 +147,10 @@ async function parseJson(response: Response): Promise<unknown> {
 	}
 }
 
-function toApiClientError(response: Response, payload: unknown): ApiClientError {
+function toApiClientError(
+	response: Response,
+	payload: unknown,
+): ApiClientError {
 	const envelopeError =
 		typeof payload === "object" && payload !== null && "error" in payload
 			? (payload as { error?: Record<string, unknown> }).error
@@ -126,4 +170,8 @@ function toApiClientError(response: Response, payload: unknown): ApiClientError 
 				? envelopeError.message
 				: response.statusText || "The request failed.",
 	});
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null;
 }

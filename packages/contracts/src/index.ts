@@ -13,6 +13,8 @@ export * from "./http/error-codes";
 export * from "./http/pagination";
 // Admin dashboard contracts.
 export * from "./v1/admin";
+// Affiliate capture and admin contracts.
+export * from "./v1/affiliates";
 // AI SDK chat tool and stream contracts.
 export * from "./v1/ai-chat";
 // Artifact/page contracts.
@@ -58,6 +60,8 @@ export * from "./v1/pages";
 export * from "./v1/project-assets";
 // Project contracts.
 export * from "./v1/projects";
+// Product settings contracts.
+export * from "./v1/settings";
 // Shared id/date validators.
 export * from "./v1/shared/primitives";
 // Audio transcription contract.
