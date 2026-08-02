@@ -28,6 +28,7 @@ import { isR2Configured } from "../../../../infrastructure/storage/r2";
 import type { generatePageTask } from "../../../../trigger/generate-page.task";
 import type { PagesRepository } from "../../../pages/infrastructure/persistence/pages.repository";
 import { buildSiteBuilderSystemPrompt } from "../site-builder/builder-prompt";
+import { buildCodSiteBuilderSystemPrompt } from "../site-builder/cod-builder-prompt";
 import { getWorld } from "../worlds";
 import { COD_GENRE_DOC, FUSION_CONTRACT } from "../worlds/cod/genre";
 
@@ -106,7 +107,9 @@ export function createGeneratePageTool(
 			const isCod =
 				pageKind === "cod" ||
 				resolvedWorlds.some((world) => world.kind === "cod");
-			const basePrompt = await buildSiteBuilderSystemPrompt();
+			const basePrompt = isCod
+				? await buildCodSiteBuilderSystemPrompt()
+				: await buildSiteBuilderSystemPrompt();
 			const designerSystemPrompt = isCod
 				? [
 						basePrompt,
@@ -133,7 +136,7 @@ export function createGeneratePageTool(
 				spec: {
 					brief,
 					designerSystemPrompt,
-					...(pageKind ? { pageKind } : {}),
+					pageKind: isCod ? "cod" : "website",
 					title,
 				},
 			});

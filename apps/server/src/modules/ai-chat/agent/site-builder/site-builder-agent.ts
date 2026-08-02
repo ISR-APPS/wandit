@@ -8,7 +8,7 @@
  * AI SDK's default Vercel AI Gateway provider.
  *
  * The loop is ONE deliberate build pass → code review → rendered review →
- * finish. The finish guard refuses an unreviewed edit.
+ * finish. Successful writes and edits count as their own source review.
  */
 import { PAGE_TOKEN_NAMES } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
@@ -23,7 +23,6 @@ import {
 	stampHtml,
 } from "../../../pages/domain/stamp";
 import { BUILDER_REASONING_EFFORT_BY_MODEL } from "../tools/builder-model-options";
-
 import type { BuildProgressEvent } from "./build-progress";
 import {
 	BUILD_IMAGE_ASPECTS,
@@ -63,6 +62,8 @@ export type SiteBuildParams = {
 	model: string;
 	/** Live-progress sink (chat card via run metadata). Best-effort. */
 	onEvent?: (event: BuildProgressEvent) => void;
+	/** Selects the validation contract for the generated landing page. */
+	pageKind?: "cod" | "website";
 	/** Generated images upload under this project's R2 prefix. */
 	projectId: string;
 	/** System prompt snapshotted at queue time — see builder-prompt.ts. */
@@ -74,8 +75,14 @@ export type SiteBuildResult = {
 	files: SiteFile[];
 	/** How many agent steps the build took (dashboard visibility only). */
 	steps: number;
-	/** The builder's own description of what it made, from the finish tool. */
+	/** Builder description, or the deterministic step-budget fallback. */
 	summary: string | null;
+	/** Aggregate language-model tokens consumed across every builder step. */
+	usage: {
+		inputTokens: number;
+		outputTokens: number;
+		totalTokens: number;
+	};
 };
 
 // Generous but bounded: one build pass + image generations + rendered review
@@ -88,18 +95,46 @@ const MAX_STEPS = 64;
 const MAX_OUTPUT_TOKENS = 64_000;
 
 // Two rendered review passes minimum — one correctness/structure hunt, one
-// design-quality hunt with final verification. Counted only on successful
-// captures and enforced TOGETHER with the final-revision gate, so re-shooting
-// one draft twice cannot replace re-verifying the latest write. Exported for
-// tests. (3 originally; tuned through 1 and 5 during the 2026-07-26
+// design-quality hunt. Counted only on successful captures. Once both passes
+// are recorded, targeted edits are reviewed through edit_file's returned
+// context and may finish without another screenshot; passes 3-4 are optional
+// for risky or structural changes the builder needs to see rendered. Exported
+// for tests. (3 originally; tuned through 1 and 5 during the 2026-07-26
 // experiments — 2 is the speed/quality compromise.)
 export const REQUIRED_SCREENSHOT_PASSES = 2;
+
+/** Hard visual-review budget. Successful captures alone consume a pass. */
+export const MAX_SCREENSHOT_PASSES = 4;
+
+const MAX_FAILED_EDIT_ATTEMPTS = 5;
+const EDIT_CONTEXT_LINES = 8;
+const STEP_BUDGET_SUMMARY =
+	"Build reached its step budget; publishing the last valid revision.";
+const EARLY_STOP_SUMMARY =
+	"The builder ended without an explicit finish; publishing the last valid revision.";
+
+export function fallbackBuildSummary(stepCount: number): string {
+	return stepCount >= MAX_STEPS ? STEP_BUDGET_SUMMARY : EARLY_STOP_SUMMARY;
+}
+
+export function resolveBuilderReasoningEffort(model: string) {
+	const configuredReasoningEffort =
+		BUILDER_REASONING_EFFORT_BY_MODEL[model] ?? env.AI_PAGE_DESIGN_REASONING;
+
+	if (configuredReasoningEffort === "auto") {
+		return undefined;
+	}
+
+	return configuredReasoningEffort;
+}
 
 /**
  * Mutable loop state shared between the tools and the stop condition. A
  * plain object (not closure variables) so the guards are unit-testable.
  */
 export type BuildLoopState = {
+	/** All failed edit_file calls across the build; successful edits do not reset it. */
+	failedEditAttempts: number;
 	failedEditRepeats: number;
 	finishAccepted: boolean;
 	/** R2 key sequence — monotonic, never reused even after a failed call. */
@@ -122,6 +157,7 @@ export function createBuildLoopState(
 	screenshotRequired = true,
 ): BuildLoopState {
 	return {
+		failedEditAttempts: 0,
 		failedEditRepeats: 0,
 		finishAccepted: false,
 		imageSequence: 0,
@@ -273,6 +309,7 @@ type BuilderToolsParams = {
 	abortSignal?: AbortSignal;
 	attemptId: string;
 	onEvent?: (event: BuildProgressEvent) => void;
+	pageKind?: "cod" | "website";
 	projectId: string;
 	screenshots: ScreenshotSession;
 	state: BuildLoopState;
@@ -314,6 +351,19 @@ type ScreenshotPageOutput =
 			unavailable: false;
 	  };
 
+type EditFileOutput = {
+	bytes: number;
+	context: string;
+	path: string;
+	revision: number;
+};
+
+type WriteFileOutput = {
+	bytes: number;
+	path: string;
+	unchanged?: true;
+};
+
 // Explicit (declaration-emit friendly) tool map; same alias-over-Record
 // pattern as AiChatToolSet in chat-agent.ts.
 export type BuilderTools = {
@@ -323,7 +373,7 @@ export type BuilderTools = {
 	>;
 	edit_file: Tool<
 		{ path: string; replace: string; search: string },
-		{ bytes: number; path: string }
+		EditFileOutput
 	>;
 	finish: Tool<{ summary: string }, FinishOutput>;
 	generate_image: Tool<
@@ -336,11 +386,28 @@ export type BuilderTools = {
 	>;
 	read_file: Tool<{ path: string }, { content: string; path: string }>;
 	screenshot_page: Tool<EmptyInput, ScreenshotPageOutput>;
-	write_file: Tool<
-		{ content: string; path: string },
-		{ bytes: number; path: string }
-	>;
+	write_file: Tool<{ content: string; path: string }, WriteFileOutput>;
 };
+
+function createEditContext(
+	content: string,
+	matchStart: number,
+	replaceLength: number,
+): string {
+	const lines = content.split("\n");
+	const startLine = content.slice(0, matchStart).split("\n").length;
+	const endOffset =
+		replaceLength > 0 ? matchStart + replaceLength - 1 : matchStart;
+	const endLine = content.slice(0, endOffset).split("\n").length;
+	const contextStartLine = Math.max(1, startLine - EDIT_CONTEXT_LINES);
+	const contextEndLine = Math.min(lines.length, endLine + EDIT_CONTEXT_LINES);
+	const context = lines.slice(contextStartLine - 1, contextEndLine).join("\n");
+
+	return (
+		`Lines ${contextStartLine}-${contextEndLine} of index.html after the edit:` +
+		`\n${context}`
+	);
+}
 
 /**
  * The builder's tool set. Exported for tests: the guards (single-file
@@ -348,12 +415,13 @@ export type BuilderTools = {
  * prose, and must stay verifiable without a model.
  */
 export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
-	const { screenshots, state, vfs } = params;
+	const { pageKind = "website", screenshots, state, vfs } = params;
 
 	// toModelOutput must show the model images that the transcript output must
 	// NOT carry — raw bytes are stashed per tool call and looked up by id.
 	const imageByCall = new Map<string, { base64: string; mediaType: string }>();
 	const shotsByCall = new Map<string, CapturedShot[]>();
+	let screenshotPassesInFlight = 0;
 
 	// Progress events feed the chat card; a listener bug must never be able
 	// to fail a tool call, so every emission goes through this shield.
@@ -448,135 +516,169 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 					),
 			}),
 			execute: async ({ path, replace, search }) => {
-				assertMutationAllowed(state, path, "edit");
+				try {
+					assertMutationAllowed(state, path, "edit");
 
-				const current = vfs.read("index.html");
+					const current = vfs.read("index.html");
 
-				if (current === null) {
-					throw new Error(
-						"index.html does not exist yet — write the complete first " +
-							"draft with write_file before editing.",
-					);
-				}
-
-				if (search === replace) {
-					throw new Error(
-						"search and replace are identical — nothing would change.",
-					);
-				}
-
-				// indexOf stepping by ONE, not by search.length: split-based
-				// counting misses overlapping occurrences (e.g. "</div></div>"
-				// occurs twice inside "</div></div></div>"), silently accepting
-				// an ambiguous edit this guard exists to refuse.
-				let matchEnd = -1;
-				let matchStart = -1;
-				let occurrences = 0;
-				for (
-					let index = current.indexOf(search);
-					index !== -1;
-					index = current.indexOf(search, index + 1)
-				) {
-					if (occurrences === 0) {
-						matchStart = index;
-						matchEnd = index + search.length;
-					}
-
-					occurrences += 1;
-				}
-
-				// Fallback tiers slide across complete logical lines only. A
-				// partial-line fragment can succeed through the exact tier, but is
-				// never whitespace-normalized inside a larger line.
-				if (occurrences === 0) {
-					const trimEndMatches = findWholeLineMatches(current, search, (line) =>
-						line.trimEnd(),
-					);
-
-					if (trimEndMatches.length > 0) {
-						occurrences = trimEndMatches.length;
-						matchStart = trimEndMatches[0]?.start ?? -1;
-						matchEnd = trimEndMatches[0]?.end ?? -1;
-					}
-				}
-
-				if (occurrences === 0) {
-					const trimMatches = findWholeLineMatches(current, search, (line) =>
-						line.trim(),
-					);
-
-					if (trimMatches.length > 0) {
-						occurrences = trimMatches.length;
-						matchStart = trimMatches[0]?.start ?? -1;
-						matchEnd = trimMatches[0]?.end ?? -1;
-					}
-				}
-
-				if (occurrences === 0) {
-					if (state.lastFailedEditSearch === search) {
-						state.failedEditRepeats += 1;
-					} else {
-						state.failedEditRepeats = 1;
-						state.lastFailedEditSearch = search;
-					}
-
-					if (state.failedEditRepeats >= 2) {
+					if (current === null) {
 						throw new Error(
-							"search text not found in index.html again. STOP retrying " +
-								"this snippet. Call read_file to see the current file and " +
-								"copy a snippet verbatim from it — or rewrite the section " +
-								"with write_file if the edit keeps failing.",
+							"index.html does not exist yet — write the complete first " +
+								"draft with write_file before editing.",
 						);
 					}
 
-					throw new Error(
-						"search text not found in index.html. It must match the " +
-							"CURRENT file exactly, including whitespace and " +
-							"indentation — re-read the file with read_file and copy " +
-							"the snippet verbatim.",
+					if (search === replace) {
+						throw new Error(
+							"search and replace are identical — nothing would change.",
+						);
+					}
+
+					// indexOf stepping by ONE, not by search.length: split-based
+					// counting misses overlapping occurrences (e.g. "</div></div>"
+					// occurs twice inside "</div></div></div>"), silently accepting
+					// an ambiguous edit this guard exists to refuse.
+					let matchEnd = -1;
+					let matchStart = -1;
+					let occurrences = 0;
+					for (
+						let index = current.indexOf(search);
+						index !== -1;
+						index = current.indexOf(search, index + 1)
+					) {
+						if (occurrences === 0) {
+							matchStart = index;
+							matchEnd = index + search.length;
+						}
+
+						occurrences += 1;
+					}
+
+					// Fallback tiers slide across complete logical lines only. A
+					// partial-line fragment can succeed through the exact tier, but is
+					// never whitespace-normalized inside a larger line.
+					if (occurrences === 0) {
+						const trimEndMatches = findWholeLineMatches(
+							current,
+							search,
+							(line) => line.trimEnd(),
+						);
+
+						if (trimEndMatches.length > 0) {
+							occurrences = trimEndMatches.length;
+							matchStart = trimEndMatches[0]?.start ?? -1;
+							matchEnd = trimEndMatches[0]?.end ?? -1;
+						}
+					}
+
+					if (occurrences === 0) {
+						const trimMatches = findWholeLineMatches(current, search, (line) =>
+							line.trim(),
+						);
+
+						if (trimMatches.length > 0) {
+							occurrences = trimMatches.length;
+							matchStart = trimMatches[0]?.start ?? -1;
+							matchEnd = trimMatches[0]?.end ?? -1;
+						}
+					}
+
+					if (occurrences === 0) {
+						if (state.lastFailedEditSearch === search) {
+							state.failedEditRepeats += 1;
+						} else {
+							state.failedEditRepeats = 1;
+							state.lastFailedEditSearch = search;
+						}
+
+						if (state.failedEditRepeats >= 2) {
+							throw new Error(
+								"search text not found in index.html again. STOP retrying " +
+									"this snippet. Call read_file to see the current file and " +
+									"copy a snippet verbatim from it — or rewrite the section " +
+									"with write_file if the edit keeps failing.",
+							);
+						}
+
+						throw new Error(
+							"search text not found in index.html. It must match the " +
+								"CURRENT file exactly, including whitespace and " +
+								"indentation — re-read the file with read_file and copy " +
+								"the snippet verbatim.",
+						);
+					}
+
+					if (occurrences > 1) {
+						throw new Error(
+							`search text appears ${occurrences} times in index.html — ` +
+								"extend it with surrounding lines until it matches " +
+								"exactly once.",
+						);
+					}
+
+					// Slice assembly avoids String.replace expanding $-patterns ($&,
+					// $', $$…) and replaces the original whitespace-bearing span found
+					// by the line tiers, not the model's normalized search text.
+					const matched = current.slice(matchStart, matchEnd);
+					const content =
+						current.slice(0, matchStart) + replace + current.slice(matchEnd);
+					// Batched edit_file calls in one step serialize only because this
+					// execute body has zero awaits before the write. Adding one above
+					// breaks the promised in-order semantics.
+					const written = vfs.write("index.html", content);
+					state.failedEditRepeats = 0;
+					state.lastFailedEditSearch = null;
+					state.writeRevision += 1;
+					state.reviewedRevision = state.writeRevision;
+					const bytes = Buffer.byteLength(content, "utf-8");
+					const context = createEditContext(
+						content,
+						matchStart,
+						replace.length,
 					);
-				}
+					emitEvent({
+						bytes,
+						html: content,
+						kind: "edit",
+						type: "page-written",
+					});
+					const delta =
+						Buffer.byteLength(replace, "utf-8") -
+						Buffer.byteLength(matched, "utf-8");
 
-				if (occurrences > 1) {
-					throw new Error(
-						`search text appears ${occurrences} times in index.html — ` +
-							"extend it with surrounding lines until it matches " +
-							"exactly once.",
+					log(
+						`edited ${written} (${delta >= 0 ? "+" : ""}${delta} bytes → ` +
+							`${Math.round(bytes / 1024)} KB, revision ${state.writeRevision})`,
 					);
+
+					return {
+						bytes,
+						context,
+						path: written,
+						revision: state.writeRevision,
+					};
+				} catch (error) {
+					state.failedEditAttempts += 1;
+
+					if (state.failedEditAttempts >= MAX_FAILED_EDIT_ATTEMPTS) {
+						throw new Error(
+							"stop snippet-editing; rewrite the affected section with " +
+								"write_file, or screenshot and finish.",
+						);
+					}
+
+					throw error;
 				}
-
-				// Slice assembly avoids String.replace expanding $-patterns ($&,
-				// $', $$…) and replaces the original whitespace-bearing span found
-				// by the line tiers, not the model's normalized search text.
-				const matched = current.slice(matchStart, matchEnd);
-				const content =
-					current.slice(0, matchStart) + replace + current.slice(matchEnd);
-				const written = vfs.write("index.html", content);
-				state.failedEditRepeats = 0;
-				state.lastFailedEditSearch = null;
-				state.writeRevision += 1;
-				const bytes = Buffer.byteLength(content, "utf-8");
-				emitEvent({ bytes, html: content, kind: "edit", type: "page-written" });
-				const delta =
-					Buffer.byteLength(replace, "utf-8") -
-					Buffer.byteLength(matched, "utf-8");
-
-				log(
-					`edited ${written} (${delta >= 0 ? "+" : ""}${delta} bytes → ` +
-						`${Math.round(bytes / 1024)} KB, revision ${state.writeRevision})`,
-				);
-
-				return { bytes, path: written };
 			},
 		}),
 		finish: tool({
 			description:
 				"Declare the site complete. Call this ONCE, only after the " +
 				"required screenshot_page review (minimum " +
-				`${REQUIRED_SCREENSHOT_PASSES} per build) and a ` +
-				"visual review of the final index.html. A full write_file is " +
-				"source-reviewed automatically; after edit_file, re-read the " +
-				"file with read_file before finishing.",
+				`${REQUIRED_SCREENSHOT_PASSES} per build). After those passes, ` +
+				"edit_file's updated surrounding context reviews each targeted " +
+				"fix, so finish directly unless a risky or structural change needs " +
+				"an optional third or fourth rendered review.",
 			inputSchema: z.object({
 				summary: z
 					.string()
@@ -592,18 +694,6 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 						reason:
 							"index.html has not been written yet. Write the complete " +
 							"page, then finish.",
-					};
-				}
-
-				if (state.reviewedRevision !== state.writeRevision) {
-					log("finish refused — the final edit has not been re-read");
-
-					return {
-						accepted: false as const,
-						reason:
-							"Re-read the current index.html with read_file after the " +
-							"latest edit_file, review it, then finish. A full " +
-							"write_file is reviewed automatically.",
 					};
 				}
 
@@ -627,22 +717,7 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 					};
 				}
 
-				if (
-					state.screenshotRequired &&
-					state.screenshotRevision !== state.writeRevision
-				) {
-					log(
-						"finish refused — the final index.html has not been screenshot-reviewed",
-					);
-
-					return {
-						accepted: false as const,
-						reason:
-							"Call screenshot_page on the current index.html after the latest write or edit, review its desktop/mobile renders and diagnostics, then finish.",
-					};
-				}
-
-				assertValidSite(vfs);
+				assertValidSite(vfs, pageKind);
 
 				state.summary = input.summary;
 				state.finishAccepted = true;
@@ -762,9 +837,9 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 		}),
 		read_file: tool({
 			description:
-				"Read back one file you wrote, to review and improve it. This " +
-				"is required after edit_file before finish, but not solely " +
-				"because write_file wrote the complete file.",
+				"Read back one file only when you genuinely lost track of its " +
+				"current contents. write_file is source-reviewed automatically, " +
+				"and edit_file already returns updated surrounding context.",
 			inputSchema: z.object({
 				path: z.string().min(1),
 			}),
@@ -788,12 +863,26 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 			description:
 				"Render the current index.html in a real browser for one required " +
 				`review pass (minimum ${REQUIRED_SCREENSHOT_PASSES} per ` +
-				"build). Returns desktop (1440×900) and mobile (390×844) " +
+				`build, maximum ${MAX_SCREENSHOT_PASSES}). Returns desktop ` +
+				"(1440×900) and mobile (390×844) " +
 				"screenshots from top to bottom, console/page errors, failed " +
-				"asset requests, and horizontal-overflow measurements. After " +
-				"any subsequent write_file or edit_file, call this again.",
+				"asset requests, and horizontal-overflow measurements. After the " +
+				"two required passes, use a third or fourth only for risky or " +
+				"structural changes that need another rendered review.",
 			inputSchema: emptyInputSchema,
 			execute: async (_input, { toolCallId }) => {
+				if (
+					state.screenshotPasses + screenshotPassesInFlight >=
+					MAX_SCREENSHOT_PASSES
+				) {
+					return {
+						message:
+							`screenshot budget exhausted (${MAX_SCREENSHOT_PASSES} per ` +
+							"build) — finish now with the current page",
+						refused: true as const,
+					};
+				}
+
 				const html = vfs.read("index.html");
 
 				if (html === null) {
@@ -812,6 +901,7 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 					type: "screenshot-start",
 				});
 				let capture: ScreenshotCapture;
+				screenshotPassesInFlight += 1;
 
 				try {
 					capture = await screenshots.capture(html);
@@ -830,10 +920,12 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 						message:
 							`${error.message}. Visual review is unavailable in this ` +
 							"runtime; continue with a rigorous source review, using " +
-							"read_file after any edit.",
+							"edit_file's returned context for targeted changes.",
 						refused: false as const,
 						unavailable: true as const,
 					};
+				} finally {
+					screenshotPassesInFlight -= 1;
 				}
 
 				if (capture.shots.length === 0) {
@@ -940,7 +1032,9 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 				"structure — never to consolidate, reformat, or clean up (a " +
 				"rewrite streams the entire file again and costs minutes). " +
 				"The complete content is marked source-reviewed automatically; " +
-				"do not call read_file solely because you wrote it.",
+				"do not call read_file solely because you wrote it. Resubmitting " +
+				"byte-identical content is reported unchanged and does not create " +
+				"a new revision.",
 			inputSchema: z.object({
 				content: z.string().min(1),
 				path: z.string().min(1).describe('Relative path, e.g. "index.html".'),
@@ -950,6 +1044,21 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 				// the preview cannot serve sibling assets, so any other path is
 				// rejected before it ever lands in the VFS.
 				assertMutationAllowed(state, path, "write");
+
+				const current = vfs.read("index.html");
+
+				if (current === content) {
+					log(
+						"write_file unchanged — index.html is byte-identical; " +
+							`revision ${state.writeRevision} retained`,
+					);
+
+					return {
+						bytes: Buffer.byteLength(content, "utf-8"),
+						path: "index.html",
+						unchanged: true as const,
+					};
+				}
 
 				const written = vfs.write(path, content);
 				state.writeRevision += 1;
@@ -991,24 +1100,12 @@ export async function runSiteBuild(
 	);
 	const startedAt = Date.now();
 
-	// Read at BUILD time (not snapshotted like the model): a knob for quick
-	// reasoning experiments across builder models. Every provider reads only
-	// its own providerOptions key, so both are always safe to send. Merged
-	// into ONE providerOptions object with the gateway ordering below — two
-	// separate spreads would overwrite each other.
-	// Per-model overrides win over the env knob; resolve "auto" afterward so an
-	// override still applies when the env defers to the provider.
-	const configuredReasoningEffort =
-		BUILDER_REASONING_EFFORT_BY_MODEL[params.model] ??
-		env.AI_PAGE_DESIGN_REASONING;
-	const reasoningEffort =
-		configuredReasoningEffort === "auto"
-			? undefined
-			: configuredReasoningEffort;
+	// Read at BUILD time (not snapshotted like the model): per-model overrides
+	// win over the env knob, and "auto" defers to the provider.
+	const reasoningEffort = resolveBuilderReasoningEffort(params.model);
 	const providerOptions = {
 		...(reasoningEffort
 			? {
-					// Gemini 3 knows exactly two thinking levels — medium+ → high.
 					google: {
 						thinkingConfig: {
 							thinkingLevel:
@@ -1018,14 +1115,11 @@ export async function runSiteBuild(
 						},
 					},
 					openai: { reasoningEffort },
-					// Grok knows exactly three efforts — clamp both ends.
 					xai: {
 						reasoningEffort:
 							reasoningEffort === "minimal"
 								? ("low" as const)
-								: reasoningEffort === "xhigh"
-									? ("high" as const)
-									: reasoningEffort,
+								: reasoningEffort,
 					},
 				}
 			: {}),
@@ -1094,6 +1188,7 @@ export async function runSiteBuild(
 				abortSignal: params.abortSignal,
 				attemptId: params.attemptId,
 				...(params.onEvent ? { onEvent: params.onEvent } : {}),
+				pageKind: params.pageKind ?? "website",
 				projectId: params.projectId,
 				screenshots,
 				state,
@@ -1115,9 +1210,9 @@ export async function runSiteBuild(
 
 		// Model-call failures don't throw while draining: the SDK enqueues them
 		// as {type:"error"} stream parts (consumeStream's onError only fires
-		// when reading itself fails). Drain fullStream and capture the first
-		// real cause — it must land in the attempt row instead of a misleading
-		// generic "stopped without an accepted finish".
+		// when reading itself fails). Capture the first cause for diagnostics,
+		// but still attempt the best-effort publish path below: once a valid page
+		// exists, a late provider failure must not discard it.
 		let streamError: unknown;
 		try {
 			for await (const part of stream.fullStream) {
@@ -1129,25 +1224,37 @@ export async function runSiteBuild(
 			streamError ??= error;
 		}
 
+		const steps = await Promise.resolve(stream.steps).catch((error) => {
+			streamError ??= error;
+
+			return [];
+		});
+
 		if (streamError !== undefined) {
-			throw streamError instanceof Error
-				? streamError
-				: new Error(String(streamError));
-		}
-
-		const steps = await stream.steps;
-		const summary = state.summary;
-
-		// An accepted finish is the ONLY valid exit: a natural stop or the step
-		// backstop means the model abandoned the protocol mid-build, and an
-		// interim draft must never be published as a succeeded version.
-		if (summary === null) {
-			throw new Error(
-				"The builder stopped without an accepted finish " +
-					`(${steps.length} steps) — refusing to publish an ` +
-					"unfinished build",
+			log(
+				"stream ended with an error; evaluating the last page revision — " +
+					(streamError instanceof Error
+						? streamError.message
+						: String(streamError)),
 			);
 		}
+
+		const usage = steps.reduce(
+			(total, step) => ({
+				inputTokens: total.inputTokens + (step.usage?.inputTokens ?? 0),
+				outputTokens: total.outputTokens + (step.usage?.outputTokens ?? 0),
+				totalTokens: total.totalTokens + (step.usage?.totalTokens ?? 0),
+			}),
+			{ inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+		);
+		log(
+			`usage: in=${usage.inputTokens} out=${usage.outputTokens} ` +
+				`total=${usage.totalTokens} steps=${steps.length}`,
+		);
+		const reachedStepBudget = steps.length >= MAX_STEPS;
+		const summary = state.finishAccepted
+			? state.summary
+			: fallbackBuildSummary(steps.length);
 
 		// Deterministic stamping pass (spec §4): every editable leaf gets a
 		// stable data-wid before upload, so every version's canonical HTML in
@@ -1158,7 +1265,15 @@ export async function runSiteBuild(
 			vfs.write("index.html", stampHtml(rawHtml));
 		}
 
-		assertValidSite(vfs);
+		assertValidSite(vfs, params.pageKind ?? "website");
+
+		if (!state.finishAccepted) {
+			log(
+				reachedStepBudget
+					? "shipping best-effort page at step budget"
+					: "shipping best-effort page after builder ended without an explicit finish",
+			);
+		}
 
 		const reviewMode = state.screenshotRequired
 			? `${state.screenshotPasses} screenshot passes ` +
@@ -1174,6 +1289,7 @@ export async function runSiteBuild(
 			files: vfs.toFiles(),
 			steps: steps.length,
 			summary,
+			usage,
 		};
 	} finally {
 		// The Trigger worker process may be reused for the next build.
@@ -1194,7 +1310,10 @@ export async function runSiteBuild(
 const BRAND_MARKER_WRAPPER_SELECTOR = "a, figure, article";
 const BRAND_SECTION_SCOPE_SELECTOR = "nav, header, section, footer, aside";
 
-function assertValidBrandMarkers(html: string): void {
+function assertValidBrandMarkers(
+	html: string,
+	pageKind: "cod" | "website" = "website",
+): void {
 	const $ = cheerio.load(html);
 	const brandMarkers = $("[data-brand]");
 
@@ -1222,10 +1341,17 @@ function assertValidBrandMarkers(html: string): void {
 			: isStampableContainer($, node);
 
 		if (!isStampable) {
+			const placementAdvice =
+				pageKind === "cod" && role === "nav"
+					? "keep it outside SVG/form content in the hero <header> or hero " +
+						'<section> scope, or use the endorsed <a href="#order-form" ' +
+						'data-brand="nav"> hero badge'
+					: "keep it outside SVG/form content and inside the recognized " +
+						"nav/header/footer chassis";
+
 			throw new Error(
 				`data-brand="${role}" is on <${node.tagName}>, but that wrapper ` +
-					"is not stampable in this location — keep it outside SVG/form " +
-					"content and inside the recognized nav/header/footer chassis",
+					`is not stampable in this location — ${placementAdvice}`,
 			);
 		}
 
@@ -1258,10 +1384,17 @@ function assertValidBrandMarkers(html: string): void {
 		.closest(BRAND_SECTION_SCOPE_SELECTOR)
 		.first();
 
-	if (
-		!navScope.is("nav, header") ||
-		navMarkers.first().closest("footer").length > 0
-	) {
+	const navMarkerIsInFooter = navMarkers.first().closest("footer").length > 0;
+
+	if (pageKind === "cod") {
+		if (!navScope.is("header, section") || navMarkerIsInFooter) {
+			throw new Error(
+				'data-brand="nav" must be inside the COD hero chassis, with its ' +
+					"nearest section scope being <header> or <section>, and never " +
+					"inside <footer>",
+			);
+		}
+	} else if (!navScope.is("nav, header") || navMarkerIsInFooter) {
 		throw new Error(
 			'data-brand="nav" must be inside the nav/header chassis, with its ' +
 				"nearest section scope being <nav> or <header>",
@@ -1287,7 +1420,10 @@ function assertValidBrandMarkers(html: string): void {
 	}
 }
 
-function assertValidSite(vfs: VirtualFileSystem): void {
+function assertValidSite(
+	vfs: VirtualFileSystem,
+	pageKind: "cod" | "website" = "website",
+): void {
 	const html = vfs.read("index.html");
 
 	if (html === null) {
@@ -1333,7 +1469,48 @@ function assertValidSite(vfs: VirtualFileSystem): void {
 		);
 	}
 
-	assertValidBrandMarkers(html);
+	if (pageKind === "cod") {
+		const $ = cheerio.load(html);
+
+		if ($("nav").length !== 0) {
+			throw new Error(
+				`COD index.html must contain zero <nav> elements (found ${$("nav").length})`,
+			);
+		}
+
+		const forms = $("form");
+
+		if (forms.length !== 1) {
+			throw new Error(
+				`COD index.html must contain exactly one <form> (found ${forms.length})`,
+			);
+		}
+
+		const telInputs = $("input").filter(
+			(_, node) => ($(node).attr("type") ?? "").trim().toLowerCase() === "tel",
+		);
+
+		if (telInputs.length === 0) {
+			throw new Error(
+				"COD index.html must contain at least one input[type=tel]",
+			);
+		}
+
+		if (!html.includes("wandit:lead")) {
+			throw new Error('COD index.html must contain the string "wandit:lead"');
+		}
+
+		const honeypots = $("[data-wandit-hp]");
+
+		if (honeypots.length !== 1) {
+			throw new Error(
+				"COD index.html must contain exactly one data-wandit-hp " +
+					`honeypot (found ${honeypots.length})`,
+			);
+		}
+	}
+
+	assertValidBrandMarkers(html, pageKind);
 
 	const firstStyle = /<style\b[^>]*>([\s\S]*?)<\/style\s*>/i.exec(html);
 

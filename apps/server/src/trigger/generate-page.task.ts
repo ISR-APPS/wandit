@@ -46,13 +46,14 @@ import { triggerAnalytics } from "./init";
 const attemptSpecSchema = z.object({
 	brief: z.string().min(1),
 	designerSystemPrompt: z.string().min(1),
-	pageKind: z.enum(["website", "cod"]).optional(),
+	// Legacy rows already use "website"; older rows may omit the field.
+	pageKind: z.enum(["cod", "website"]).optional(),
 	title: z.string().min(1),
 });
 
 export const generatePageTask = task({
 	id: "generate-page",
-	// One Builder tool loop with three screenshot review passes; typically a
+	// One Builder tool loop with two screenshot review passes; typically a
 	// few minutes. The generous ceiling is a safety net, not an estimate.
 	maxDuration: 1800,
 	retry: { maxAttempts: 1 },
@@ -130,7 +131,7 @@ export const generatePageTask = task({
 				);
 
 				logger.info(
-					"🧠 The Builder is writing the page now — three screenshot " +
+					"🧠 The Builder is writing the page now — two screenshot " +
 						"review passes when vision and Playwright are available",
 				);
 
@@ -165,6 +166,7 @@ export const generatePageTask = task({
 						}
 						progress.emit(event);
 					},
+					pageKind: spec.pageKind ?? "website",
 					projectId: attempt.projectId,
 					system: spec.designerSystemPrompt,
 					title: spec.title,
@@ -173,6 +175,7 @@ export const generatePageTask = task({
 				// Terminal shot uploads may still be in flight — settle them so
 				// the final metadata push (done + 100%) lands before completion.
 				await progress.idle();
+				metadata.set("usage", build.usage);
 
 				signal.throwIfAborted();
 				const versionId = crypto.randomUUID();
@@ -255,7 +258,7 @@ export const generatePageTask = task({
 							},
 							// Contract §9: absent source means LEGACY builder rows.
 							source: "builder",
-							...(spec.pageKind ? { pageKind: spec.pageKind } : {}),
+							pageKind: spec.pageKind ?? "website",
 							title: spec.title,
 						},
 						number: nextNumber,
@@ -325,13 +328,16 @@ export const generatePageTask = task({
 					attempt.id,
 				);
 
+				const completionMessage = activated
+					? `🎉 Version ${number} is live — it should now appear in the ` +
+						`Page tab (versionId ${versionId})`
+					: `📦 Version ${number} recorded (versionId ${versionId}) — a ` +
+						"newer build already finished, so the active pointer was " +
+						"left on its version";
 				logger.info(
-					activated
-						? `🎉 Version ${number} is live — it should now appear in the ` +
-								`Page tab (versionId ${versionId})`
-						: `📦 Version ${number} recorded (versionId ${versionId}) — a ` +
-								"newer build already finished, so the active pointer was " +
-								"left on its version",
+					`${completionMessage} — usage: in=${build.usage.inputTokens} ` +
+						`out=${build.usage.outputTokens} total=${build.usage.totalTokens} ` +
+						`steps=${build.steps}`,
 				);
 
 				// Returned for Trigger dashboard visibility only.

@@ -37,6 +37,12 @@ vi.mock("../site-builder/builder-prompt", () => ({
 		.mockResolvedValue("builder prompt (test)"),
 }));
 
+vi.mock("../site-builder/cod-builder-prompt", () => ({
+	buildCodSiteBuilderSystemPrompt: vi
+		.fn()
+		.mockResolvedValue("COD builder prompt (test)"),
+}));
+
 const INPUT = {
 	brief:
 		"Arabic RTL landing page for handmade kabyle jewelry, Bazar Heat direction, " +
@@ -149,6 +155,7 @@ describe("generate_page tool", () => {
 			spec: {
 				brief: INPUT.brief,
 				designerSystemPrompt: "builder prompt (test)",
+				pageKind: "website",
 				title: INPUT.title,
 			},
 		});
@@ -215,6 +222,7 @@ describe("generate_page tool", () => {
 				spec: {
 					brief: INPUT.brief,
 					designerSystemPrompt: `builder prompt (test)\n\n${monographe.doc}`,
+					pageKind: "website",
 					title: INPUT.title,
 				},
 			}),
@@ -235,13 +243,14 @@ describe("generate_page tool", () => {
 				spec: {
 					brief: INPUT.brief,
 					designerSystemPrompt: [
-						"builder prompt (test)",
+						"COD builder prompt (test)",
 						COD_GENRE_DOC,
 						FUSION_CONTRACT([argan, hammam, atay]),
 						argan.doc,
 						hammam.doc,
 						atay.doc,
 					].join("\n\n"),
+					pageKind: "cod",
 					title: INPUT.title,
 				},
 			}),
@@ -258,7 +267,7 @@ describe("generate_page tool", () => {
 			expect.objectContaining({
 				spec: {
 					brief: INPUT.brief,
-					designerSystemPrompt: `builder prompt (test)\n\n${COD_GENRE_DOC}`,
+					designerSystemPrompt: `COD builder prompt (test)\n\n${COD_GENRE_DOC}`,
 					pageKind: "cod",
 					title: INPUT.title,
 				},
@@ -285,12 +294,13 @@ describe("generate_page tool", () => {
 			expect.objectContaining({
 				spec: expect.objectContaining({
 					designerSystemPrompt: [
-						"builder prompt (test)",
+						"COD builder prompt (test)",
 						COD_GENRE_DOC,
 						FUSION_CONTRACT([argan, atay]),
 						argan.doc,
 						atay.doc,
 					].join("\n\n"),
+					pageKind: "cod",
 				}),
 			}),
 		);
@@ -318,6 +328,7 @@ describe("generate_page tool", () => {
 				spec: {
 					brief: INPUT.brief,
 					designerSystemPrompt: "builder prompt (test)",
+					pageKind: "website",
 					title: INPUT.title,
 				},
 			}),
