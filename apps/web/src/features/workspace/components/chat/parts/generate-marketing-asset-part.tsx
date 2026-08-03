@@ -16,7 +16,7 @@ import {
 	marketingAssetKeys,
 	useMarketingAssetsQuery,
 } from "../../../api/marketing-assets.queries";
-import { useWorkspace } from "../../../lib/store";
+import { useWorkspace, useWorkspaceProjectId } from "../../../lib/store";
 import type { WanditUIMessage } from "../../../lib/use-ai-chat";
 import { useLiveRun } from "../../../lib/use-live-run";
 import { SpinnerArc } from "../request-tray/tray-signals";
@@ -33,7 +33,7 @@ export function GenerateMarketingAssetPart({
 	part: GenerateMarketingAssetToolPart;
 }) {
 	const { t } = useTranslation();
-	const { projectId } = useWorkspace();
+	const projectId = useWorkspaceProjectId();
 	const queryClient = useQueryClient();
 
 	const queued =

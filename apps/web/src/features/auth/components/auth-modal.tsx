@@ -32,7 +32,11 @@ import {
 import { useTranslation } from "@/lib/i18n";
 import { authClient } from "../lib/auth-client";
 import { promptStash } from "../lib/prompt-stash";
-import { invalidateSessionCache, useSession } from "../lib/session";
+import {
+	invalidateSessionCache,
+	refreshSession,
+	useSession,
+} from "../lib/session";
 
 type AuthModalOpenOptions = {
 	next?: string;
@@ -41,7 +45,6 @@ type AuthModalOpenOptions = {
 
 type AuthModalContextValue = {
 	open: (opts?: AuthModalOpenOptions) => void;
-	requireAuth: (then: () => void) => void;
 };
 
 const AuthModalContext = createContext<AuthModalContextValue | null>(null);
@@ -55,23 +58,15 @@ export function useAuthModal(): {
 	return { open: ctx.open };
 }
 
-/**
- * Returns a `requireAuth(then)` continuation runner: with a session, `then`
- * runs immediately; without one, the modal starts Google redirect auth and any
- * cross-page prompt handoff is handled through promptStash.
- */
-export function useRequireAuth(): (then: () => void) => void {
-	const ctx = useContext(AuthModalContext);
-	if (!ctx)
-		throw new Error("useRequireAuth must be used within AuthModalProvider");
-	return ctx.requireAuth;
-}
-
 export function AuthModalProvider({ children }: { children: React.ReactNode }) {
 	const [isOpen, setIsOpen] = useState(false);
 	const [nextPath, setNextPath] = useState<string | undefined>();
 	const [redirectError, setRedirectError] = useState(false);
 	const googleRedirectStartedRef = useRef(false);
+	// Only auto-close after we observed "logged out" while the modal was open,
+	// then a real session appeared. Prevents a stale Better Auth atom from
+	// instantly closing a 401-triggered modal.
+	const sawSignedOutWhileOpenRef = useRef(false);
 	const { data: session, isPending: isSessionPending } = useSession();
 	const sessionRef = useRef(session);
 	sessionRef.current = session;
@@ -84,25 +79,21 @@ export function AuthModalProvider({ children }: { children: React.ReactNode }) {
 		setNextPath(sanitizeAuthRedirectPath(opts?.next));
 		setRedirectError(opts?.redirectError ?? false);
 		googleRedirectStartedRef.current = false;
+		sawSignedOutWhileOpenRef.current = !sessionRef.current;
 		setIsOpen(true);
-	}, []);
-
-	const requireAuth = useCallback(
-		(then: () => void) => {
-			if (sessionRef.current) {
-				then();
-				return;
+		// Drop stale "still signed in" memory from Better Auth after a 401.
+		void refreshSession().then((fresh) => {
+			if (!fresh) {
+				sawSignedOutWhileOpenRef.current = true;
 			}
-
-			open();
-		},
-		[open],
-	);
+		});
+	}, []);
 
 	const handleSignedIn = useCallback(() => {
 		invalidateSessionCache();
-		promptStash.consume();
+		// Dashboard owns prompt-stash restore after OAuth — do not consume here.
 		googleRedirectStartedRef.current = false;
+		sawSignedOutWhileOpenRef.current = false;
 		setNextPath(undefined);
 		setRedirectError(false);
 		setIsOpen(false);
@@ -116,6 +107,7 @@ export function AuthModalProvider({ children }: { children: React.ReactNode }) {
 				promptStash.consume();
 			}
 			googleRedirectStartedRef.current = false;
+			sawSignedOutWhileOpenRef.current = false;
 			setNextPath(undefined);
 			setRedirectError(false);
 		}
@@ -161,17 +153,25 @@ export function AuthModalProvider({ children }: { children: React.ReactNode }) {
 	}, [isSessionPending, userEmail, userId, userName]);
 
 	useEffect(() => {
-		if (isOpen && session) {
+		if (!isOpen) return;
+
+		if (!session) {
+			sawSignedOutWhileOpenRef.current = true;
+			return;
+		}
+
+		if (sawSignedOutWhileOpenRef.current) {
 			handleSignedIn();
 		}
 	}, [handleSignedIn, isOpen, session]);
 
-	const value = useMemo(() => ({ open, requireAuth }), [open, requireAuth]);
+	const value = useMemo(() => ({ open }), [open]);
 
 	return (
 		<AuthModalContext.Provider value={value}>
 			{children}
 			<AuthModalDialog
+				key={isOpen ? "open" : "closed"}
 				open={isOpen}
 				nextPath={nextPath}
 				redirectError={redirectError}
@@ -200,19 +200,9 @@ function AuthModalDialog({
 }) {
 	const { t } = useTranslation();
 	const [isGoogleLoading, setIsGoogleLoading] = useState(false);
-	const [error, setError] = useState<string | null>(null);
-
-	useEffect(() => {
-		if (!open) {
-			setIsGoogleLoading(false);
-			setError(null);
-			return;
-		}
-
-		if (redirectError) {
-			setError(t("auth.redirectError"));
-		}
-	}, [open, redirectError, t]);
+	const [error, setError] = useState<string | null>(() =>
+		redirectError ? t("auth.redirectError") : null,
+	);
 
 	const handleGoogle = async () => {
 		if (isGoogleLoading) return;
@@ -233,6 +223,7 @@ function AuthModalDialog({
 				provider: "google",
 				callbackURL,
 				errorCallbackURL,
+				disableRedirect: true,
 			});
 
 			if (result.error) {
@@ -244,7 +235,12 @@ function AuthModalDialog({
 
 			if (result.data?.url) {
 				window.location.assign(result.data.url);
+				return;
 			}
+
+			onGoogleRedirectEnd();
+			setError(t("auth.googleError"));
+			setIsGoogleLoading(false);
 		} catch (err) {
 			onGoogleRedirectEnd();
 			setError(err instanceof Error ? err.message : t("auth.googleError"));

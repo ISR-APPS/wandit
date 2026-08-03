@@ -5,6 +5,7 @@ import {
 import { describe, expect, it } from "vitest";
 
 import {
+	collectNewAppliedPageEditIds,
 	hydrateAiChatMessages,
 	isAppliedPageEditPart,
 	type WanditUIMessage,
@@ -153,5 +154,42 @@ describe("page edit invalidation", () => {
 				}),
 			),
 		).toBe(false);
+	});
+
+	it("collects only new applied edit ids from the unscanned tail", () => {
+		const messages = [
+			{
+				id: "a1",
+				role: "assistant",
+				parts: [
+					part({
+						type: "tool-replace_section",
+						toolCallId: "replace-1",
+						state: "output-available",
+						input: {},
+						output: { status: "applied", message: "Done" },
+					}),
+				],
+			},
+			{
+				id: "a2",
+				role: "assistant",
+				parts: [
+					part({
+						type: "tool-apply_element_ops",
+						toolCallId: "ops-2",
+						state: "output-available",
+						input: {},
+						output: { status: "applied", message: "Done" },
+					}),
+				],
+			},
+		] as WanditUIMessage[];
+
+		const handled = new Set(["replace-1"]);
+		expect(collectNewAppliedPageEditIds(messages, handled, 1)).toEqual({
+			ids: ["ops-2"],
+			nextIndex: 2,
+		});
 	});
 });

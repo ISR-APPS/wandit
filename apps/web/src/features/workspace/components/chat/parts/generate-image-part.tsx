@@ -18,7 +18,7 @@ import {
 	useImageGenerationAttemptQuery,
 } from "../../../api/image-generations.queries";
 import { imageGenerationDownloadUrl } from "../../../api/image-generations.services";
-import { useWorkspace } from "../../../lib/store";
+import { useWorkspaceProjectId } from "../../../lib/store";
 import type { WanditUIMessage } from "../../../lib/use-ai-chat";
 import { SpinnerArc } from "../request-tray/tray-signals";
 import { StatusMessageHeader } from "../status-message-header";
@@ -72,7 +72,7 @@ export function GenerateImagePart({ part }: { part: GenerateImageToolPart }) {
 
 function ImageGenerationCard({ attemptId }: { attemptId: string }) {
 	const { t } = useTranslation();
-	const { projectId } = useWorkspace();
+	const projectId = useWorkspaceProjectId();
 	const queryClient = useQueryClient();
 	const {
 		data: attempt,

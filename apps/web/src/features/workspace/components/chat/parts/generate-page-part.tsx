@@ -19,7 +19,7 @@ import { cn } from "@wandit/ui/lib/utils";
 import { AlertTriangle, Check, Code, ExternalLink } from "lucide-react";
 
 import { pageKeys } from "../../../api/pages.queries";
-import { useWorkspace } from "../../../lib/store";
+import { useWorkspace, useWorkspaceProjectId } from "../../../lib/store";
 import type { WanditUIMessage } from "../../../lib/use-ai-chat";
 import { useLiveRun } from "../../../lib/use-live-run";
 import { SpinnerArc } from "../request-tray/tray-signals";
@@ -105,7 +105,7 @@ function PageBuildCard({
 	realtime: TriggerRealtimeHandle;
 	versionNumber: number | undefined;
 }) {
-	const { projectId } = useWorkspace();
+	const projectId = useWorkspaceProjectId();
 	const queryClient = useQueryClient();
 
 	const live = useLiveRun({

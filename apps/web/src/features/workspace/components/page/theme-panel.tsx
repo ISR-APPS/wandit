@@ -28,7 +28,7 @@ import {
 	parsePageTokens,
 	tokensEqual,
 } from "../../lib/preview-editor/parse-tokens";
-import { useWorkspace } from "../../lib/store";
+import { useWorkspaceProjectId } from "../../lib/store";
 import { usePageEditor } from "../../lib/use-page-editor";
 import { ColorField, FontSelect } from "./inspector-controls";
 import { PresetGrid } from "./preset-grid";
@@ -111,7 +111,7 @@ export function ThemePanel({
 	colorScheme?: PageColorScheme;
 }) {
 	const { t } = useTranslation();
-	const { projectId } = useWorkspace();
+	const projectId = useWorkspaceProjectId();
 	const editor = usePageEditor();
 	const themeEnabled = hasCompletePageTheme(baseTokens);
 	const originalTheme = useOriginalTheme(projectId);

@@ -219,9 +219,8 @@ export function useRequestTray({
 	// always names the LIVE active call, so a stale closure invoked from that
 	// tray no-ops instead of overwriting an answer that already settled.
 	const activeToolCallIdRef = useRef(toolCallId);
-	useEffect(() => {
-		activeToolCallIdRef.current = toolCallId;
-	}, [toolCallId]);
+	activeToolCallIdRef.current = toolCallId;
+	const answeringRef = useRef(false);
 
 	// Choice drafts live above the bodies so the PromptBox CTA can validate and
 	// confirm them. Keying by toolCallId prevents a queued ask from inheriting
@@ -256,9 +255,7 @@ export function useRequestTray({
 			: NO_ATTACH_ITEMS;
 
 	const attachDraftsRef = useRef(attachDrafts);
-	useEffect(() => {
-		attachDraftsRef.current = attachDrafts;
-	}, [attachDrafts]);
+	attachDraftsRef.current = attachDrafts;
 	useEffect(
 		() => () => {
 			for (const item of attachDraftsRef.current?.items ?? []) {
@@ -353,10 +350,15 @@ export function useRequestTray({
 			// A closure captured before a stepper advance targets the PREVIOUS
 			// ask — addToolOutput would silently replace its answer.
 			if (toolCallId !== activeToolCallIdRef.current) return;
-			onAnswer(toolCallId, output);
+			if (answeringRef.current) return;
+			answeringRef.current = true;
+			const answeredId = toolCallId;
+			activeToolCallIdRef.current = undefined;
+			onAnswer(answeredId, output);
 			setSinglePick(null);
 			setMultiPicks(null);
 			clearAttachDrafts();
+			answeringRef.current = false;
 		},
 		[toolCallId, active, onAnswer, clearAttachDrafts],
 	);

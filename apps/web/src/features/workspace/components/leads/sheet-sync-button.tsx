@@ -21,11 +21,11 @@ import { useTranslation } from "@/lib/i18n";
 import { relativeTime } from "@/lib/relative-time";
 import { useSyncSheetNow } from "../../api/lead-sheet-sync.mutations";
 import { useSheetSyncQuery } from "../../api/lead-sheet-sync.queries";
-import { useWorkspace } from "../../lib/store";
+import { useWorkspaceProjectId } from "../../lib/store";
 
 export function SheetSyncButton() {
 	const { t } = useTranslation();
-	const { projectId } = useWorkspace();
+	const projectId = useWorkspaceProjectId();
 	const syncState = useSheetSyncQuery(projectId);
 	const syncNow = useSyncSheetNow(projectId);
 	const [connecting, setConnecting] = useState(false);

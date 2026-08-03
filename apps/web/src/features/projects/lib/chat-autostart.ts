@@ -30,6 +30,17 @@ export const chatAutostart = {
 			// Storage may be unavailable in hardened/private contexts.
 		}
 	},
+	/** True when a stash exists for this exact chat (does not clear). */
+	matches(projectId: string, chatId: string): boolean {
+		try {
+			const raw = window.sessionStorage.getItem(STASH_KEY);
+			if (raw === null) return false;
+			const value = JSON.parse(raw) as Partial<ChatAutostart>;
+			return value.projectId === projectId && value.chatId === chatId;
+		} catch {
+			return false;
+		}
+	},
 	/**
 	 * Read-and-clear, but only when the stash targets this exact chat.
 	 * Returns true when the caller should kick off the first AI turn.
@@ -46,6 +57,13 @@ export const chatAutostart = {
 			return true;
 		} catch {
 			return false;
+		}
+	},
+	clear(): void {
+		try {
+			window.sessionStorage.removeItem(STASH_KEY);
+		} catch {
+			// Storage may be unavailable in hardened/private contexts.
 		}
 	},
 };

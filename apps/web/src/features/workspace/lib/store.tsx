@@ -13,7 +13,7 @@
 //   • components/chat/generation-card.tsx reads `activeVersion` /
 //     `selectVersion` so clicking a finished generation card focuses that
 //     page version in the Page tab.
-//   • The actual chat messages + SSE streaming live in use-project-chat.tsx;
+//   • The actual chat messages + streaming live in use-ai-chat.ts;
 //     this file deliberately knows nothing about them.
 // NOTE: despite the "store.tsx" filename this is NOT a Zustand/Redux store —
 // it is a plain React Context provider (house rule: no state library).
@@ -131,6 +131,24 @@ type WorkspaceContextValue = {
 };
 
 const WorkspaceContext = createContext<WorkspaceContextValue | null>(null);
+
+/** Stable identity — projectId never changes for a mounted provider. */
+const WorkspaceIdentityContext = createContext<string | null>(null);
+
+/** Shell UI only (tab/chat/viewport) — avoids chat re-renders on poll ticks. */
+type WorkspaceShellContextValue = {
+	tab: WorkspaceTab;
+	setTab: (tab: WorkspaceTab) => void;
+	chatOpen: boolean;
+	toggleChat: () => void;
+	setChatOpenState: (open: boolean) => void;
+	viewport: Viewport;
+	setViewport: (viewport: Viewport) => void;
+};
+
+const WorkspaceShellContext = createContext<WorkspaceShellContextValue | null>(
+	null,
+);
 
 function readChatOpen(): boolean {
 	try {
@@ -436,6 +454,27 @@ export function WorkspaceProvider({
 		unpublishMutation.isPending ||
 		rollbackMutation.isPending;
 
+	const shellValue = useMemo<WorkspaceShellContextValue>(
+		() => ({
+			tab,
+			setTab,
+			chatOpen,
+			toggleChat,
+			setChatOpenState,
+			viewport,
+			setViewport,
+		}),
+		[
+			tab,
+			setTab,
+			chatOpen,
+			toggleChat,
+			setChatOpenState,
+			viewport,
+			setViewport,
+		],
+	);
+
 	const value = useMemo<WorkspaceContextValue>(
 		() => ({
 			projectId,
@@ -520,9 +559,13 @@ export function WorkspaceProvider({
 	);
 
 	return (
-		<WorkspaceContext.Provider value={value}>
-			{children}
-		</WorkspaceContext.Provider>
+		<WorkspaceIdentityContext.Provider value={projectId}>
+			<WorkspaceShellContext.Provider value={shellValue}>
+				<WorkspaceContext.Provider value={value}>
+					{children}
+				</WorkspaceContext.Provider>
+			</WorkspaceShellContext.Provider>
+		</WorkspaceIdentityContext.Provider>
 	);
 }
 
@@ -530,6 +573,28 @@ export function useWorkspace(): WorkspaceContextValue {
 	const context = useContext(WorkspaceContext);
 	if (!context) {
 		throw new Error("useWorkspace must be used inside <WorkspaceProvider>");
+	}
+	return context;
+}
+
+/** Stable project id — does not re-render on overview/deployment polls. */
+export function useWorkspaceProjectId(): string {
+	const projectId = useContext(WorkspaceIdentityContext);
+	if (!projectId) {
+		throw new Error(
+			"useWorkspaceProjectId must be used inside <WorkspaceProvider>",
+		);
+	}
+	return projectId;
+}
+
+/** Tab / chat open / viewport only. */
+export function useWorkspaceShell(): WorkspaceShellContextValue {
+	const context = useContext(WorkspaceShellContext);
+	if (!context) {
+		throw new Error(
+			"useWorkspaceShell must be used inside <WorkspaceProvider>",
+		);
 	}
 	return context;
 }

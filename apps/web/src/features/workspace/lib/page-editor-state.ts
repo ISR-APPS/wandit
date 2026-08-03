@@ -10,6 +10,17 @@ export function nextBaseVersionAfterOwnSave(
 	return dirtyCount > 0 ? activeVersionId : null;
 }
 
+/**
+ * Overview polling can observe our committed version before save() finishes
+ * marking it in ownVersionIds. While a save promise is in flight, defer
+ * foreign/own classification until that promise settles.
+ */
+export function shouldDeferVersionChangeWhileSaving(
+	saveInFlight: boolean,
+): boolean {
+	return saveInFlight;
+}
+
 /** Pending changes belong to latest and must not act on an unseen canvas. */
 export function shouldShowSaveBar(
 	dirtyCount: number,

@@ -28,7 +28,7 @@ import { useTranslation } from "@/lib/i18n";
 import { relativeTime } from "@/lib/relative-time";
 import { useProjectAssetsQuery } from "../../api/project-assets.queries";
 import { projectAssetDownloadUrl } from "../../api/project-assets.services";
-import { useWorkspace } from "../../lib/store";
+import { useWorkspaceProjectId } from "../../lib/store";
 import { SpinnerArc } from "../chat/request-tray/tray-signals";
 
 type AssetFilter = "all" | "image" | "video";
@@ -48,7 +48,7 @@ const SKELETON_KEYS = ["a", "b", "c", "d", "e", "f", "g", "h"];
 
 export function AssetsTab() {
 	const { t } = useTranslation();
-	const { projectId } = useWorkspace();
+	const projectId = useWorkspaceProjectId();
 	const assetsQuery = useProjectAssetsQuery(projectId);
 	const [filter, setFilter] = useState<AssetFilter>("all");
 	const [openAssetId, setOpenAssetId] = useState<string | null>(null);

@@ -15,7 +15,7 @@ import { PanelLeftOpen } from "lucide-react";
 
 import { useTranslation } from "@/lib/i18n";
 import type { WorkspaceTab } from "../../api/dto";
-import { useWorkspace } from "../../lib/store";
+import { useWorkspaceShell } from "../../lib/store";
 import { MarketingControls } from "../marketing/marketing-controls";
 import { PageControls } from "../page/page-toolbar";
 import { WorkspaceTabs } from "./workspace-tabs";
@@ -28,7 +28,7 @@ export function MainPaneHeader({
 	onReloadPage: () => void;
 }) {
 	const { t } = useTranslation();
-	const { chatOpen, toggleChat } = useWorkspace();
+	const { chatOpen, toggleChat } = useWorkspaceShell();
 
 	return (
 		<div className="flex h-12 shrink-0 items-center gap-2 border-b px-3.5">

@@ -74,6 +74,10 @@ function releaseRedirectLock() {
 	}, REDIRECT_LOCK_MS);
 }
 
+/**
+ * Only same-origin relative paths. Rejects protocol-relative URLs, backslash
+ * open-redirect tricks ("/\\evil.example"), and control characters.
+ */
 export function sanitizeAuthRedirectPath(
 	next: string | undefined,
 ): string | undefined {
@@ -81,7 +85,25 @@ export function sanitizeAuthRedirectPath(
 		return undefined;
 	}
 
-	return next;
+	if (next.includes("\\")) {
+		return undefined;
+	}
+	for (let i = 0; i < next.length; i += 1) {
+		const code = next.charCodeAt(i);
+		if (code < 32 || code === 127) {
+			return undefined;
+		}
+	}
+
+	try {
+		const url = new URL(next, "https://wandit.invalid");
+		if (url.origin !== "https://wandit.invalid") {
+			return undefined;
+		}
+		return `${url.pathname}${url.search}${url.hash}`;
+	} catch {
+		return undefined;
+	}
 }
 
 export function buildAuthCallbackUrls(

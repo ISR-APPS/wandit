@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
 	isKeyKShortcut,
 	nextBaseVersionAfterOwnSave,
+	shouldDeferVersionChangeWhileSaving,
 	shouldHandleWindowEscape,
 	shouldShowSaveBar,
 } from "./page-editor-state";
@@ -14,6 +15,13 @@ describe("nextBaseVersionAfterOwnSave", () => {
 
 	it("leaves a clean editor without a pinned base version", () => {
 		expect(nextBaseVersionAfterOwnSave("v6", 0)).toBeNull();
+	});
+});
+
+describe("shouldDeferVersionChangeWhileSaving", () => {
+	it("defers classification while a save promise is in flight", () => {
+		expect(shouldDeferVersionChangeWhileSaving(true)).toBe(true);
+		expect(shouldDeferVersionChangeWhileSaving(false)).toBe(false);
 	});
 });
 

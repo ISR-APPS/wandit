@@ -1,6 +1,6 @@
 // Settings → General card: rename the project and manage Meta/TikTok ad
-// pixel IDs. Local input state resyncs from the project; both the name and
-// the pixels save through real project mutations.
+// pixel IDs. Local input state is keyed by project id and only resyncs from
+// the server when the user has not dirtied the field.
 
 import { Button } from "@wandit/ui/components/button";
 import {
@@ -14,39 +14,65 @@ import { Input } from "@wandit/ui/components/input";
 import { Label } from "@wandit/ui/components/label";
 import { Separator } from "@wandit/ui/components/separator";
 import { Loader2 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 
 import { PROJECT_NAME_MAX_LENGTH, useRenameProject } from "@/features/projects";
 import { useTranslation } from "@/lib/i18n";
 import { useWorkspace } from "../../lib/store";
 
+function useServerSyncedDraft(
+	projectKey: string,
+	serverValue: string,
+): [string, (value: string) => void] {
+	const [draft, setDraft] = useState({
+		projectKey,
+		serverValue,
+		value: serverValue,
+		dirty: false,
+	});
+	if (draft.projectKey !== projectKey) {
+		setDraft({ projectKey, serverValue, value: serverValue, dirty: false });
+	} else if (!draft.dirty && draft.serverValue !== serverValue) {
+		setDraft({ projectKey, serverValue, value: serverValue, dirty: false });
+	}
+
+	return [
+		draft.value,
+		(value: string) => {
+			setDraft({
+				projectKey,
+				serverValue,
+				value,
+				dirty: value !== serverValue,
+			});
+		},
+	];
+}
+
 export function GeneralSection() {
 	const { t } = useTranslation();
 	const { project, projectId, updatePixels } = useWorkspace();
 	const rename = useRenameProject();
 
-	const [name, setName] = useState(project?.name ?? "");
-	useEffect(() => {
-		setName(project?.name ?? "");
-	}, [project?.name]);
+	const savedName = project?.name ?? "";
+	const savedMeta = project?.metaPixelId ?? "";
+	const savedTiktok = project?.tiktokPixelId ?? "";
 
-	const savedMeta = project?.metaPixelId ?? null;
-	const savedTiktok = project?.tiktokPixelId ?? null;
-	const [metaValue, setMetaValue] = useState(savedMeta ?? "");
-	const [tiktokValue, setTiktokValue] = useState(savedTiktok ?? "");
-	useEffect(() => {
-		setMetaValue(savedMeta ?? "");
-		setTiktokValue(savedTiktok ?? "");
-	}, [savedMeta, savedTiktok]);
+	const [name, setName] = useServerSyncedDraft(projectId, savedName);
+	const [metaValue, setMetaValue] = useServerSyncedDraft(projectId, savedMeta);
+	const [tiktokValue, setTiktokValue] = useServerSyncedDraft(
+		projectId,
+		savedTiktok,
+	);
 
 	const trimmedName = name.trim();
 	const nameDisabled =
 		!trimmedName || trimmedName === project?.name || rename.isPending;
 
 	const pixelsUnchanged =
-		(metaValue.trim() || null) === savedMeta &&
-		(tiktokValue.trim() || null) === savedTiktok;
+		(metaValue.trim() || null) === (project?.metaPixelId ?? null) &&
+		(tiktokValue.trim() || null) === (project?.tiktokPixelId ?? null);
 
 	const handleNameSave = () => {
 		if (nameDisabled) return;
@@ -61,7 +87,7 @@ export function GeneralSection() {
 			metaPixelId: metaValue.trim() || null,
 			tiktokPixelId: tiktokValue.trim() || null,
 		});
-		toast.success(t("settings.pixelsSaved"));
+		// Success toast comes from WorkspaceProvider.updatePixels onSuccess.
 	};
 
 	return (

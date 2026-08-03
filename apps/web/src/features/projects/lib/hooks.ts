@@ -99,6 +99,7 @@ export function useCreateProjectWithPrompt(): UseCreateProjectWithPromptResult {
 					params: { projectId: created.projectId },
 				});
 			} catch (error) {
+				chatAutostart.clear();
 				toast.error(getApiErrorMessage(error));
 			}
 

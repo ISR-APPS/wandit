@@ -58,10 +58,13 @@ export function PublishSection() {
 
 	const [slug, setSlug] = useState(savedSlug);
 	const [slugDirty, setSlugDirty] = useState(false);
-	useEffect(() => {
+	const [syncedSlug, setSyncedSlug] = useState(savedSlug);
+	// Only adopt server/display slug changes when the field is clean — never
+	// clobber an in-progress edit from a background deployment refresh.
+	if (!slugDirty && syncedSlug !== savedSlug) {
+		setSyncedSlug(savedSlug);
 		setSlug(savedSlug);
-		setSlugDirty(false);
-	}, [savedSlug]);
+	}
 
 	// Let typing settle before asking the server about a candidate slug.
 	const [settledSlug, setSettledSlug] = useState(slug);

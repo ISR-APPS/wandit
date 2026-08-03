@@ -61,6 +61,7 @@ import {
 import {
 	isKeyKShortcut,
 	nextBaseVersionAfterOwnSave,
+	shouldDeferVersionChangeWhileSaving,
 	shouldHandleWindowEscape,
 } from "./page-editor-state";
 import {
@@ -264,6 +265,18 @@ type PageEditorContextValue = TargetCommentsState & {
 
 const PageEditorContext = createContext<PageEditorContextValue | null>(null);
 
+/** High-churn pending edits stay out of consumers that only need mode/selection. */
+export type PageEditorModeContextValue = {
+	mode: EditorMode;
+	selection: PreviewSelection | null;
+	clearSelection: () => void;
+	requestMode: (mode: EditorMode) => void;
+};
+
+const PageEditorModeContext = createContext<PageEditorModeContextValue | null>(
+	null,
+);
+
 export function PageEditorProvider({
 	children,
 }: {
@@ -358,9 +371,7 @@ export function PageEditorProvider({
 	const pendingTokensResetRef = useRef(pendingTokensReset);
 	pendingTokensResetRef.current = pendingTokensReset;
 	const baseVersionIdRef = useRef(baseVersionId);
-	useEffect(() => {
-		baseVersionIdRef.current = baseVersionId;
-	}, [baseVersionId]);
+	baseVersionIdRef.current = baseVersionId;
 	const resetPreviewRef = useRef<{
 		values: Record<string, string>;
 		fontStylesheetHrefs: string[];
@@ -454,30 +465,52 @@ export function PageEditorProvider({
 	// warning. Our OWN saves are recognized via ownVersionIds: save()
 	// already pruned exactly what it persisted and rebased the leftovers, so
 	// dropping here would erase edits made while the request was in flight.
+	//
+	// Overview polling can observe our committed version BEFORE save() adds it
+	// to ownVersionIds. While a save is in flight we defer classification and
+	// flush after the promise settles (see saveOnce).
 	const previousVersionRef = useRef<string | null>(activeVersionId);
+	const deferredActiveVersionRef = useRef<string | null | undefined>(undefined);
+
+	const applyActiveVersionChange = useCallback(
+		(nextActiveVersionId: string | null) => {
+			if (previousVersionRef.current === nextActiveVersionId) return;
+			previousVersionRef.current = nextActiveVersionId;
+			setSelectionState(null);
+			if (
+				nextActiveVersionId !== null &&
+				ownVersionIds.delete(nextActiveVersionId)
+			) {
+				const nextBase = nextBaseVersionAfterOwnSave(
+					nextActiveVersionId,
+					dirtyRef.current,
+				);
+				baseVersionIdRef.current = nextBase;
+				setBaseVersionId(nextBase);
+				return;
+			}
+			ownVersionIds.clear();
+			clearTargetComments();
+			if (dirtyRef.current > 0) {
+				resetPending();
+				toast.warning(t("workspace.page.editor.versionSuperseded"));
+			} else {
+				baseVersionIdRef.current = null;
+				setBaseVersionId(null);
+			}
+		},
+		[clearTargetComments, ownVersionIds, resetPending, t],
+	);
+
 	useEffect(() => {
 		if (previousVersionRef.current === activeVersionId) return;
-		previousVersionRef.current = activeVersionId;
-		setSelectionState(null);
-		if (activeVersionId !== null && ownVersionIds.delete(activeVersionId)) {
-			const nextBase = nextBaseVersionAfterOwnSave(
-				activeVersionId,
-				dirtyRef.current,
-			);
-			baseVersionIdRef.current = nextBase;
-			setBaseVersionId(nextBase);
+		if (shouldDeferVersionChangeWhileSaving(Boolean(saveInFlightRef.current))) {
+			deferredActiveVersionRef.current = activeVersionId;
 			return;
 		}
-		ownVersionIds.clear();
-		clearTargetComments();
-		if (dirtyRef.current > 0) {
-			resetPending();
-			toast.warning(t("workspace.page.editor.versionSuperseded"));
-		} else {
-			baseVersionIdRef.current = null;
-			setBaseVersionId(null);
-		}
-	}, [activeVersionId, clearTargetComments, ownVersionIds, resetPending, t]);
+		deferredActiveVersionRef.current = undefined;
+		applyActiveVersionChange(activeVersionId);
+	}, [activeVersionId, applyActiveVersionChange]);
 
 	useEffect(() => {
 		if (isPreviewingHistorical) clearTargetComments();
@@ -827,6 +860,13 @@ export function PageEditorProvider({
 		setDiscardCount((count) => count + 1);
 	}, [resetPending]);
 
+	const flushDeferredActiveVersionChange = useCallback(() => {
+		const deferred = deferredActiveVersionRef.current;
+		if (deferred === undefined) return;
+		deferredActiveVersionRef.current = undefined;
+		applyActiveVersionChange(deferred);
+	}, [applyActiveVersionChange]);
+
 	const saveOnce = useCallback((): Promise<PageEditorSaveResult> => {
 		return joinPageEditorSave(saveInFlightRef, async () => {
 			// Snapshot from refs at the instant this request actually starts. An
@@ -1022,8 +1062,18 @@ export function PageEditorProvider({
 				}
 				setIsSaving(false);
 			}
+		}).finally(() => {
+			// joinPageEditorSave clears saveInFlightRef in its own then(); flush
+			// any overview update that arrived while ownVersionIds was incomplete.
+			flushDeferredActiveVersionChange();
 		});
-	}, [ownVersionIds, projectId, queryClient, t]);
+	}, [
+		flushDeferredActiveVersionChange,
+		ownVersionIds,
+		projectId,
+		queryClient,
+		t,
+	]);
 
 	const save = useCallback(
 		(): Promise<PageEditorSaveResult> =>
@@ -1136,6 +1186,16 @@ export function PageEditorProvider({
 		});
 	}, [discard, projectId, queryClient]);
 
+	const modeValue = useMemo<PageEditorModeContextValue>(
+		() => ({
+			mode,
+			selection,
+			clearSelection,
+			requestMode,
+		}),
+		[mode, selection, clearSelection, requestMode],
+	);
+
 	const value = useMemo<PageEditorContextValue>(
 		() => ({
 			...targetCommentState,
@@ -1242,9 +1302,11 @@ export function PageEditorProvider({
 	);
 
 	return (
-		<PageEditorContext.Provider value={value}>
-			{children}
-		</PageEditorContext.Provider>
+		<PageEditorModeContext.Provider value={modeValue}>
+			<PageEditorContext.Provider value={value}>
+				{children}
+			</PageEditorContext.Provider>
+		</PageEditorModeContext.Provider>
 	);
 }
 
@@ -1252,6 +1314,18 @@ export function usePageEditor(): PageEditorContextValue {
 	const context = useContext(PageEditorContext);
 	if (!context) {
 		throw new Error("usePageEditor must be used inside <PageEditorProvider>");
+	}
+	return context;
+}
+
+/** Mode/selection only — safe for chat and other surfaces that must not
+ *  re-render on every pending keystroke. */
+export function usePageEditorMode(): PageEditorModeContextValue {
+	const context = useContext(PageEditorModeContext);
+	if (!context) {
+		throw new Error(
+			"usePageEditorMode must be used inside <PageEditorProvider>",
+		);
 	}
 	return context;
 }

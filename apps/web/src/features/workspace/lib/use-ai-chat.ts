@@ -66,6 +66,26 @@ export function hydrateAiChatMessages(
 	});
 }
 
+/** Scan only newly appended assistant parts for applied page edits. */
+export function collectNewAppliedPageEditIds(
+	messages: readonly WanditUIMessage[],
+	handledIds: ReadonlySet<string>,
+	fromMessageIndex: number,
+): { ids: string[]; nextIndex: number } {
+	const ids: string[] = [];
+	const start = Math.max(0, Math.min(fromMessageIndex, messages.length));
+	for (let index = start; index < messages.length; index += 1) {
+		const message = messages[index];
+		if (!message || message.role !== "assistant") continue;
+		for (const part of message.parts) {
+			if (!isAppliedPageEditPart(part)) continue;
+			if (handledIds.has(part.toolCallId)) continue;
+			ids.push(part.toolCallId);
+		}
+	}
+	return { ids, nextIndex: messages.length };
+}
+
 export function useAiChat(projectId: string) {
 	const chatByProjectQuery = useChatByProjectQuery(projectId);
 	const chatId = chatByProjectQuery.data?.chatId;
@@ -117,6 +137,7 @@ export function useAiChat(projectId: string) {
 	// authoritative outcome arrives through onFinish. PromptBox uses this
 	// result to clear only drafts that were actually accepted and completed.
 	const lastSendSucceededRef = useRef(false);
+	const sendInFlightRef = useRef(false);
 	// Targets belong to the live AI turn, not the mutable editor selection.
 	// Keeping them here lets the preview replay its pulses after iframe remounts.
 	const [aiTargets, setAiTargets] = useState<AiChatSelectedTarget[]>([]);
@@ -179,6 +200,10 @@ export function useAiChat(projectId: string) {
 	});
 
 	const seededChatId = useRef<string | null>(null);
+	const autostartStartedRef = useRef<string | null>(null);
+	const watchingGenerationRef = useRef(false);
+	const handledPageEditIdsRef = useRef(new Set<string>());
+	const scannedMessageCountRef = useRef(0);
 
 	useEffect(() => {
 		if (!chatId || !messagesQuery.data || seededChatId.current === chatId) {
@@ -189,6 +214,12 @@ export function useAiChat(projectId: string) {
 		// its persisted history becomes available without replacing later live turns.
 		setMessages(initialMessages);
 		seededChatId.current = chatId;
+		handledPageEditIdsRef.current = new Set();
+		scannedMessageCountRef.current = initialMessages.length;
+
+		if (messagesQuery.data.generationActive) {
+			watchingGenerationRef.current = true;
+		}
 
 		// A project fresh from the dashboard arrives with its prompt already
 		// persisted as the last user message but no assistant reply yet. When the
@@ -197,8 +228,11 @@ export function useAiChat(projectId: string) {
 		// duplicate user message.
 		if (
 			initialMessages.at(-1)?.role === "user" &&
-			chatAutostart.consume(projectId, chatId)
+			autostartStartedRef.current !== chatId &&
+			chatAutostart.matches(projectId, chatId)
 		) {
+			autostartStartedRef.current = chatId;
+			chatAutostart.consume(projectId, chatId);
 			// Prime the per-turn metadata from the initiating message's persisted
 			// composer so the dashboard's mode/output/goal reach the agent
 			// (contract §10.1 — this closes the first-message metadata gap).
@@ -217,7 +251,12 @@ export function useAiChat(projectId: string) {
 			if (nested.success) {
 				metaRef.current = { composer: nested.data };
 			}
-			void regenerate();
+			void regenerate().catch(() => {
+				// Transport failed before a turn started — put the flag back so a
+				// reload/retry can kick the first reply again.
+				chatAutostart.stash({ projectId, chatId });
+				autostartStartedRef.current = null;
+			});
 		}
 	}, [
 		chatId,
@@ -228,6 +267,30 @@ export function useAiChat(projectId: string) {
 		setMessages,
 	]);
 
+	// Mid-turn reload recovery: while generationActive polls true, wait; when
+	// it clears and we are not on a live stream, sync the final transcript.
+	useEffect(() => {
+		if (!chatId || !messagesQuery.data) return;
+		if (messagesQuery.data.generationActive) {
+			watchingGenerationRef.current = true;
+			return;
+		}
+		if (!watchingGenerationRef.current) return;
+		if (status === "submitted" || status === "streaming") return;
+
+		watchingGenerationRef.current = false;
+		const next = hydrateAiChatMessages(messagesQuery.data.messages);
+		setMessages(next);
+		scannedMessageCountRef.current = next.length;
+		invalidateFinishedTurnData();
+	}, [
+		chatId,
+		invalidateFinishedTurnData,
+		messagesQuery.data,
+		setMessages,
+		status,
+	]);
+
 	// A page edit landing mid-turn: invalidate as soon as a NEW applied
 	// output shows up, so the preview updates before the turn finishes. Only
 	// an ACTIVE turn may invalidate — historical applied parts arrive with
@@ -235,19 +298,27 @@ export function useAiChat(projectId: string) {
 	// and are recorded silently: their versions are already reflected by the
 	// queries' own initial fetches. A part that lands exactly on the ready
 	// flip is covered by the onFinish refetch above either way.
-	const handledPageEditIdsRef = useRef<Set<string>>(new Set());
 	useEffect(() => {
-		let sawNew = false;
-		for (const message of messages) {
-			if (message.role !== "assistant") continue;
-			for (const part of message.parts) {
-				if (!isAppliedPageEditPart(part)) continue;
-				if (handledPageEditIdsRef.current.has(part.toolCallId)) continue;
-				handledPageEditIdsRef.current.add(part.toolCallId);
-				sawNew = true;
-			}
+		const { ids, nextIndex } = collectNewAppliedPageEditIds(
+			messages,
+			handledPageEditIdsRef.current,
+			scannedMessageCountRef.current,
+		);
+		// Also rescan the previous tail message: streaming mutates its parts
+		// in place without growing the message list.
+		const tailStart = Math.max(0, scannedMessageCountRef.current - 1);
+		const { ids: tailIds } = collectNewAppliedPageEditIds(
+			messages,
+			handledPageEditIdsRef.current,
+			tailStart,
+		);
+		const newIds = [...new Set([...ids, ...tailIds])];
+		scannedMessageCountRef.current = nextIndex;
+		if (newIds.length === 0) return;
+		for (const id of newIds) {
+			handledPageEditIdsRef.current.add(id);
 		}
-		if (sawNew && (status === "submitted" || status === "streaming")) {
+		if (status === "submitted" || status === "streaming") {
 			invalidatePageData();
 		}
 	}, [messages, status, invalidatePageData]);
@@ -258,6 +329,9 @@ export function useAiChat(projectId: string) {
 			if (!chatId || !messagesQuery.data) return false;
 			// Attachments alone are a valid message; empty text with no files is not.
 			if (!trimmed && !options?.files?.length) return false;
+			if (sendInFlightRef.current) return false;
+			sendInFlightRef.current = true;
+
 			const selectedWids = options?.selectedWids?.length
 				? options.selectedWids
 				: undefined;
@@ -288,6 +362,7 @@ export function useAiChat(projectId: string) {
 				// transport errors normally resolve through onFinish.
 				return false;
 			} finally {
+				sendInFlightRef.current = false;
 				// AI SDK invokes onFinish before deciding whether a completed tool step
 				// should automatically continue. sendMessage resolves only after that
 				// whole chain, so clear the pulse here rather than between tool steps.

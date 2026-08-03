@@ -1,4 +1,5 @@
 import { resetAnalytics } from "@wandit/analytics/browser";
+import { useMemo } from "react";
 
 import { authClient } from "./auth-client";
 
@@ -11,10 +12,16 @@ type SessionResult = {
 
 type SessionSnapshot = SessionResult["data"];
 
-const SESSION_CACHE_TTL_MS = 30_000;
-
-let cachedSession: { value: SessionSnapshot; expiresAt: number } | null = null;
-let inFlightSession: Promise<SessionSnapshot> | null = null;
+/**
+ * Generation token for in-flight getSession() calls. invalidateSessionCache()
+ * bumps this so a response started before invalidation cannot keep winning
+ * the in-flight slot over a newer request.
+ */
+let sessionGeneration = 0;
+let inFlightSession: {
+	generation: number;
+	promise: Promise<SessionSnapshot>;
+} | null = null;
 
 function toSessionSnapshot(
 	session: (typeof authClient)["$Infer"]["Session"] | null | undefined,
@@ -24,40 +31,56 @@ function toSessionSnapshot(
 
 export function useSession(): SessionResult {
 	const { data, isPending } = authClient.useSession();
-	return { data: toSessionSnapshot(data), isPending };
+	// Prefer the Better Auth user object identity (nanostore) so consumers
+	// don't see a fresh `{ user }` wrapper on every parent render.
+	const user = data?.user ?? null;
+
+	return useMemo(
+		() => ({
+			data: user ? { user } : null,
+			isPending,
+		}),
+		[user, isPending],
+	);
 }
 
+/**
+ * Route-guard session read. Dedupes concurrent callers, but does not keep a
+ * TTL cache — Better Auth's atom + an explicit invalidate are the source of
+ * truth after login/logout/401.
+ */
 export async function getSession(): Promise<SessionSnapshot> {
-	const now = Date.now();
-
-	if (cachedSession && cachedSession.expiresAt > now) {
-		return cachedSession.value;
+	if (inFlightSession && inFlightSession.generation === sessionGeneration) {
+		return inFlightSession.promise;
 	}
 
-	if (inFlightSession) {
-		return inFlightSession;
-	}
-
-	inFlightSession = authClient
+	const generation = sessionGeneration;
+	const promise = authClient
 		.getSession()
-		.then((result) => {
-			const value = toSessionSnapshot(result.data);
-			cachedSession = {
-				value,
-				expiresAt: Date.now() + SESSION_CACHE_TTL_MS,
-			};
-			return value;
-		})
+		.then((result) => toSessionSnapshot(result.data))
 		.finally(() => {
-			inFlightSession = null;
+			if (
+				inFlightSession?.promise === promise &&
+				inFlightSession.generation === generation
+			) {
+				inFlightSession = null;
+			}
 		});
 
-	return inFlightSession;
+	inFlightSession = { generation, promise };
+	return promise;
 }
 
 export function invalidateSessionCache(): void {
-	cachedSession = null;
+	sessionGeneration += 1;
 	inFlightSession = null;
+}
+
+/** Force a fresh server session read after 401 / pre-login. */
+export async function refreshSession(): Promise<SessionSnapshot> {
+	invalidateSessionCache();
+	const result = await authClient.getSession();
+	return toSessionSnapshot(result.data);
 }
 
 export async function signOut(): Promise<void> {

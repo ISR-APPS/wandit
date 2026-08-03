@@ -15,7 +15,7 @@ import { useTranslation } from "@/lib/i18n";
 import type { Lead, LeadStatus } from "../../api/dto";
 import { useUpdateLeadStatus } from "../../api/leads.mutations";
 import { LEAD_STATUS_META, LEAD_STATUS_ORDER } from "../../lib/constants";
-import { useWorkspace } from "../../lib/store";
+import { useWorkspaceProjectId } from "../../lib/store";
 
 /** Pill tint per status — border/bg/text tuned for light and dark. */
 const STATUS_TINT: Record<LeadStatus, string> = {
@@ -35,7 +35,7 @@ const STATUS_TINT: Record<LeadStatus, string> = {
 
 export function LeadStatusSelect({ lead }: { lead: Lead }) {
 	const { t } = useTranslation();
-	const { projectId } = useWorkspace();
+	const projectId = useWorkspaceProjectId();
 	const updateStatus = useUpdateLeadStatus(projectId);
 
 	const handleChange = (value: string) => {

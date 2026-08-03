@@ -38,8 +38,12 @@ import { useDictionary, useTranslation } from "@/lib/i18n";
 import { readStoredBuilderGatewayModel } from "@/lib/model-labels";
 import { pageKeys } from "../../api/pages.queries";
 import { useSharedAiChat } from "../../lib/ai-chat-context";
-import { useWorkspace } from "../../lib/store";
-import { usePageEditor } from "../../lib/use-page-editor";
+import {
+	useWorkspace,
+	useWorkspaceProjectId,
+	useWorkspaceShell,
+} from "../../lib/store";
+import { usePageEditorMode } from "../../lib/use-page-editor";
 import { ThinkingIndicator } from "./chat-message";
 import { MOCK_CHAT_THREAD_ENABLED, MockChatThread } from "./mock-thread";
 import { ConversationModelIndicator } from "./model-indicator";
@@ -55,7 +59,9 @@ import { ConversationContextMeter } from "./token-usage";
 export function ChatPane({ className }: { className?: string }) {
 	const { t, dir } = useTranslation();
 	const dictionary = useDictionary();
-	const { chatOpen, toggleChat, project, projectId } = useWorkspace();
+	const { project } = useWorkspace();
+	const projectId = useWorkspaceProjectId();
+	const { chatOpen, toggleChat } = useWorkspaceShell();
 	const {
 		messages,
 		status,
@@ -66,7 +72,7 @@ export function ChatPane({ className }: { className?: string }) {
 		answerAskUser,
 		addToolApprovalResponse,
 	} = useSharedAiChat();
-	const editor = usePageEditor();
+	const editor = usePageEditorMode();
 
 	// Mirror of the PromptBox draft (via onValueChange) — the tray needs to
 	// know when typed text should override its chips (design 10n state 2).

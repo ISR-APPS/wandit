@@ -7,11 +7,11 @@ import { Loader2, RefreshCw } from "lucide-react";
 
 import { useTranslation } from "@/lib/i18n";
 import { useMarketingAssetsQuery } from "../../api/marketing-assets.queries";
-import { useWorkspace } from "../../lib/store";
+import { useWorkspaceProjectId } from "../../lib/store";
 
 export function MarketingControls() {
 	const { t } = useTranslation();
-	const { projectId } = useWorkspace();
+	const projectId = useWorkspaceProjectId();
 	const assetsQuery = useMarketingAssetsQuery(projectId);
 	const count = assetsQuery.data?.length ?? 0;
 
