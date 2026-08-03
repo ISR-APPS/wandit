@@ -13,15 +13,24 @@
  * No NestJS imports here on purpose: the Trigger CLI bundles this file on
  * its own; the Nest DI container does not exist in this process.
  */
+import type { MeteringSubject } from "../modules/credits/domain/credit-owner";
 import { logger, metadata, task } from "@trigger.dev/sdk";
 import { and, createDb, eq, inArray } from "@wandit/db";
 import { leadScrapeAttempts } from "@wandit/db/schema/lead-scrape-attempts";
+import { projects } from "@wandit/db/schema/projects";
+import { env } from "@wandit/env/server";
 
 import {
 	contentTypeFor,
 	leadScrapeFileKey,
 	putSiteFile,
 } from "../infrastructure/storage/r2";
+import {
+	ensureLeadScrapeUsageSettled,
+	refundLeadScrapeUsageIfReserved,
+	reserveLeadScrapeUsageForExecution,
+	settleLeadScrapeUsage,
+} from "../modules/lead-scrapes/application/services/lead-scrape-billing";
 import {
 	type LeadRecord,
 	leadScrapeSpecSchema,
@@ -34,6 +43,10 @@ import {
 	buildLeadsWorkbook,
 	leadsWorkbookFilename,
 } from "../modules/lead-scrapes/scraper/xlsx-export";
+import type { BillingAdmissionMode } from "../modules/metering/application/services/fixed-operation-billing";
+import type { AiUsageEvent } from "../modules/metering/domain/metering";
+import { createTriggerMetering } from "./metering.runtime";
+import { recoverSettledLeadScrapeCompletion } from "./settled-completion-recovery";
 
 // How many business websites are crawled at once for emails. Modest on
 // purpose: these are other people's small servers.
@@ -45,26 +58,62 @@ export const scrapeLeadsTask = task({
 	id: "scrape-leads",
 	// A 200-record scrape is minutes of work (search pages + site crawls);
 	// the ceiling is a safety net. The repository's stale-row self-heal
-	// (35 min) must stay ABOVE this.
+	// (38 min) must stay above the five-minute admission TTL plus this.
 	maxDuration: 1800,
 	retry: { maxAttempts: 1 },
-	run: async (payload: { attemptId: string }, { ctx, signal }) => {
+	run: async (
+		payload: {
+			/**
+			 * Acting member at queue time — may differ from the project creator in
+			 * an org workspace. Optional for in-flight pre-teams payloads, which
+			 * fall back to the project creator (correct for personal projects).
+			 */
+			actorUserId?: string;
+			attemptId: string;
+			billingMode?: BillingAdmissionMode;
+			parentEventId?: string;
+		},
+		{ ctx, signal },
+	) => {
 		// Fresh pool per run; ended in `finally` so the worker process can be
 		// reused without leaking Postgres connections.
 		const db = createDb();
 
 		try {
-			const [attempt] = await db
-				.select()
+			const [loaded] = await db
+				.select({
+					attempt: leadScrapeAttempts,
+					organizationId: projects.organizationId,
+					userId: projects.userId,
+				})
 				.from(leadScrapeAttempts)
+				.innerJoin(projects, eq(projects.id, leadScrapeAttempts.projectId))
 				.where(eq(leadScrapeAttempts.id, payload.attemptId))
 				.limit(1);
 
-			if (!attempt) {
+			if (!loaded) {
 				throw new Error(`Lead scrape attempt ${payload.attemptId} not found`);
 			}
 
+			const { attempt, userId } = loaded;
+			// The project's owner entity pays: org projects debit the org pool.
+			// The ACTOR is the queue-time member (who reserved at the tool
+			// boundary), not the project creator the durable row points at.
+			const subject: MeteringSubject = {
+				actorUserId: payload.actorUserId ?? userId,
+				...(loaded.organizationId
+					? { organizationId: loaded.organizationId }
+					: {}),
+			};
+			const meteringService = createTriggerMetering(db);
+
 			if (attempt.status === "succeeded") {
+				await ensureLeadScrapeUsageSettled(meteringService, {
+					attemptId: attempt.id,
+					resultCount: attempt.rowCount ?? attempt.foundCount,
+					subject,
+				});
+
 				logger.info(
 					`Attempt ${attempt.id} already succeeded; duplicate task run skipped`,
 				);
@@ -98,6 +147,9 @@ export const scrapeLeadsTask = task({
 				);
 			}
 
+			let usageEvent: AiUsageEvent | null = null;
+			let meteringClosed = false;
+
 			const setProgress = async (input: {
 				stage?: Stage;
 				progress: number;
@@ -125,6 +177,14 @@ export const scrapeLeadsTask = task({
 			};
 
 			try {
+				usageEvent = await reserveLeadScrapeUsageForExecution(meteringService, {
+					attemptId: attempt.id,
+					billingMode: payload.billingMode,
+					parentEventId: payload.parentEventId,
+					runtimeBillingDisabled: env.GENERATION_BILLING_MODE === "off",
+					subject,
+				});
+
 				const spec = leadScrapeSpecSchema.parse(attempt.spec);
 
 				logger.info(
@@ -255,7 +315,16 @@ export const scrapeLeadsTask = task({
 				// but it must never publish a cancelled attempt as succeeded.
 				signal.throwIfAborted();
 
-				await db
+				if (usageEvent) {
+					await settleLeadScrapeUsage(
+						meteringService,
+						usageEvent.id,
+						workbook.rowCount,
+					);
+					meteringClosed = true;
+				}
+
+				const [completed] = await db
 					.update(leadScrapeAttempts)
 					.set({
 						columnCount: workbook.columnCount,
@@ -269,7 +338,34 @@ export const scrapeLeadsTask = task({
 						rowCount: workbook.rowCount,
 						status: "succeeded",
 					})
-					.where(eq(leadScrapeAttempts.id, attempt.id));
+					.where(
+						and(
+							eq(leadScrapeAttempts.id, attempt.id),
+							eq(leadScrapeAttempts.status, "running"),
+							eq(leadScrapeAttempts.triggerRunId, ctx.run.id),
+						),
+					)
+					.returning({ id: leadScrapeAttempts.id });
+
+				if (!completed) {
+					const [current] = await db
+						.select({
+							rowCount: leadScrapeAttempts.rowCount,
+							status: leadScrapeAttempts.status,
+						})
+						.from(leadScrapeAttempts)
+						.where(eq(leadScrapeAttempts.id, attempt.id))
+						.limit(1);
+					const replay = recoverSettledLeadScrapeCompletion(
+						attempt.id,
+						current ?? null,
+					);
+
+					logger.warn(
+						`Attempt ${attempt.id} was already finalized after billing settlement`,
+					);
+					return replay;
+				}
 
 				logger.info(
 					`🎉 Lead list ready — ${workbook.rowCount} rows, ` +
@@ -284,6 +380,23 @@ export const scrapeLeadsTask = task({
 					skipped: false,
 				};
 			} catch (error) {
+				if (usageEvent && !meteringClosed) {
+					try {
+						meteringClosed = await refundLeadScrapeUsageIfReserved(
+							meteringService,
+							{
+								attemptId: attempt.id,
+								eventId: usageEvent.id,
+								subject,
+							},
+						);
+					} catch (refundError) {
+						logger.error(
+							`Lead scrape refund failed: ${refundError instanceof Error ? refundError.message : String(refundError)}`,
+						);
+					}
+				}
+
 				logger.error(
 					`❌ Scrape failed: ${error instanceof Error ? error.message : String(error)}`,
 				);
@@ -297,7 +410,13 @@ export const scrapeLeadsTask = task({
 						error: error instanceof Error ? error.message : String(error),
 						status: "failed",
 					})
-					.where(eq(leadScrapeAttempts.id, attempt.id));
+					.where(
+						and(
+							eq(leadScrapeAttempts.id, attempt.id),
+							eq(leadScrapeAttempts.status, "running"),
+							eq(leadScrapeAttempts.triggerRunId, ctx.run.id),
+						),
+					);
 
 				throw error;
 			}

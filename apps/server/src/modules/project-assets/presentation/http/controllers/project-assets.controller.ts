@@ -7,6 +7,9 @@ import { z } from "zod";
 import { SkipResponseEnvelope } from "../../../../../infrastructure/http/skip-envelope.decorator";
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { CurrentUser } from "../../../../auth";
+import { projectScopeFrom } from "../../../../projects/domain/project-scope";
+import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
+import { CurrentWorkspace } from "../../../../workspaces/presentation/http/decorators/workspace.decorators";
 import { ProjectAssetsService } from "../../../application/services/project-assets.service";
 
 // R2 object keys are path-ish strings; the service re-validates the prefix
@@ -25,9 +28,13 @@ export class ProjectAssetsController {
 		@Param("projectId", new ZodValidationPipe(uuidSchema))
 		projectId: string,
 		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
 	): Promise<ProjectAssetsResponse> {
 		return {
-			assets: await this.projectAssetsService.listAssets(user.id, projectId),
+			assets: await this.projectAssetsService.listAssets(
+				projectScopeFrom(workspace, user.id),
+				projectId,
+			),
 		};
 	}
 
@@ -39,10 +46,11 @@ export class ProjectAssetsController {
 		@Query("key", new ZodValidationPipe(downloadKeySchema))
 		key: string,
 		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
 		@Res() reply: FastifyReply,
 	): Promise<void> {
 		const download = await this.projectAssetsService.download(
-			user.id,
+			projectScopeFrom(workspace, user.id),
 			projectId,
 			key,
 		);

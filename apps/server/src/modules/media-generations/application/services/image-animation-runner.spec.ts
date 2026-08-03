@@ -13,18 +13,47 @@ import {
 const ATTEMPT_ID = "11111111-1111-4111-8111-111111111111";
 const PROJECT_ID = "22222222-2222-4222-8222-222222222222";
 const USER_ID = "user_123";
+const SUBJECT = { actorUserId: USER_ID };
+const PARENT_EVENT_ID = "44444444-4444-4444-8444-444444444444";
 const NOW = new Date("2026-07-24T12:00:00.000Z");
+const RESERVATION = {
+	credits: 25,
+	eventId: "33333333-3333-4333-8333-333333333333",
+	operation: "video" as const,
+	referenceId: ATTEMPT_ID,
+	replay: "none" as const,
+	units: 1,
+};
 
 describe("parseImageAnimationPayload", () => {
 	it("accepts only the exact handoff payload", () => {
 		expect(
 			parseImageAnimationPayload({
 				attemptId: ATTEMPT_ID,
+				billingMode: "enforce",
 				projectId: PROJECT_ID,
 				userId: USER_ID,
 			}),
 		).toEqual({
 			attemptId: ATTEMPT_ID,
+			billingMode: "enforce",
+			organizationId: null,
+			projectId: PROJECT_ID,
+			userId: USER_ID,
+		});
+		expect(
+			parseImageAnimationPayload({
+				attemptId: ATTEMPT_ID,
+				billingMode: "enforce",
+				parentEventId: PARENT_EVENT_ID,
+				projectId: PROJECT_ID,
+				userId: USER_ID,
+			}),
+		).toEqual({
+			attemptId: ATTEMPT_ID,
+			billingMode: "enforce",
+			organizationId: null,
+			parentEventId: PARENT_EVENT_ID,
 			projectId: PROJECT_ID,
 			userId: USER_ID,
 		});
@@ -32,14 +61,18 @@ describe("parseImageAnimationPayload", () => {
 		expect(() =>
 			parseImageAnimationPayload({
 				attemptId: ATTEMPT_ID,
+				billingMode: "enforce",
 				extra: true,
 				projectId: PROJECT_ID,
 				userId: USER_ID,
 			}),
-		).toThrow(/only attemptId, projectId, and userId/);
+		).toThrow(
+			/only attemptId, optional billingMode, optional organizationId, optional parentEventId/,
+		);
 		expect(() =>
 			parseImageAnimationPayload({
 				attemptId: "not-a-uuid",
+				billingMode: "enforce",
 				projectId: PROJECT_ID,
 				userId: USER_ID,
 			}),
@@ -67,9 +100,44 @@ describe("runImageAnimation", () => {
 			runId: "run_123",
 			startedAt: NOW,
 		});
-		expect(dependencies.reserve).toHaveBeenCalledWith(USER_ID, ATTEMPT_ID);
+		expect(dependencies.reserve).toHaveBeenCalledWith(
+			SUBJECT,
+			ATTEMPT_ID,
+			undefined,
+			"enforce",
+		);
 		expect(dependencies.generate).toHaveBeenCalledTimes(1);
+		expect(dependencies.capture).toHaveBeenCalledTimes(1);
 		expect(dependencies.markSucceeded).toHaveBeenCalledTimes(1);
+		expect(dependencies.settle).toHaveBeenCalledWith(RESERVATION);
+		expect(
+			vi.mocked(dependencies.settle).mock.invocationCallOrder[0],
+		).toBeLessThan(
+			vi.mocked(dependencies.markSucceeded).mock.invocationCallOrder[0] ??
+				Number.MAX_SAFE_INTEGER,
+		);
+	});
+
+	it("fails without refund or provider replay after reconcile_failed", async () => {
+		const dependencies = makeDependencies(makeAttempt());
+		vi.mocked(dependencies.reserve).mockResolvedValue({
+			...RESERVATION,
+			replay: "reconcile_failed",
+		});
+
+		await expect(
+			runImageAnimation(payload(), {
+				dependencies,
+				runId: "run_replay",
+			}),
+		).resolves.toEqual({ reason: "generation_failed", status: "failed" });
+		expect(dependencies.generate).not.toHaveBeenCalled();
+		expect(dependencies.markSucceeded).not.toHaveBeenCalled();
+		expect(dependencies.refund).not.toHaveBeenCalled();
+		expect(dependencies.fail).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.objectContaining({ reason: "terminal_billing" }),
+		);
 	});
 
 	it("fails and refunds exact queued work when its project was soft-deleted", async () => {
@@ -91,7 +159,7 @@ describe("runImageAnimation", () => {
 			expectedStatus: "queued",
 			reason: "project_deleted",
 		});
-		expect(dependencies.refund).toHaveBeenCalledWith(USER_ID, ATTEMPT_ID);
+		expect(dependencies.refund).toHaveBeenCalledWith(SUBJECT, ATTEMPT_ID);
 		expect(dependencies.claimQueued).not.toHaveBeenCalled();
 		expect(dependencies.reserve).not.toHaveBeenCalled();
 		expect(dependencies.generate).not.toHaveBeenCalled();
@@ -126,7 +194,7 @@ describe("runImageAnimation", () => {
 			expectedStatus: "generating",
 			reason: "project_deleted",
 		});
-		expect(dependencies.refund).toHaveBeenCalledWith(USER_ID, ATTEMPT_ID);
+		expect(dependencies.refund).toHaveBeenCalledWith(SUBJECT, ATTEMPT_ID);
 		expect(dependencies.recoverStoredVideo).not.toHaveBeenCalled();
 		expect(dependencies.generate).not.toHaveBeenCalled();
 	});
@@ -151,7 +219,7 @@ describe("runImageAnimation", () => {
 		expect(dependencies.refund).not.toHaveBeenCalled();
 	});
 
-	it("settles deletion that wins the direct provider success CAS", async () => {
+	it("preserves the settled charge when deletion wins the provider success CAS", async () => {
 		const queued = makeAttempt();
 		const deletedGenerating = makeAttempt({
 			projectDeletedAt: NOW,
@@ -181,10 +249,10 @@ describe("runImageAnimation", () => {
 			expectedStatus: "generating",
 			reason: "project_deleted",
 		});
-		expect(dependencies.refund).toHaveBeenCalledWith(USER_ID, ATTEMPT_ID);
+		expect(dependencies.refund).not.toHaveBeenCalled();
 	});
 
-	it("settles deletion that wins the deterministic R2 recovery CAS", async () => {
+	it("preserves the settled charge when deletion wins the R2 recovery CAS", async () => {
 		const generating = makeAttempt({
 			startedAt: new Date(NOW.getTime() - 60_000),
 			status: "generating",
@@ -223,7 +291,7 @@ describe("runImageAnimation", () => {
 			expectedStatus: "generating",
 			reason: "project_deleted",
 		});
-		expect(dependencies.refund).toHaveBeenCalledWith(USER_ID, ATTEMPT_ID);
+		expect(dependencies.refund).not.toHaveBeenCalled();
 	});
 
 	it("never invokes the provider for a duplicate generating delivery", async () => {
@@ -251,6 +319,33 @@ describe("runImageAnimation", () => {
 		});
 		expect(dependencies.claimQueued).not.toHaveBeenCalled();
 		expect(dependencies.reserve).not.toHaveBeenCalled();
+		expect(dependencies.settleExisting).toHaveBeenCalledWith(
+			SUBJECT,
+			ATTEMPT_ID,
+		);
+		expect(dependencies.generate).not.toHaveBeenCalled();
+	});
+
+	it("fails closed when enforced stored-video recovery has no metering event", async () => {
+		const attempt = makeAttempt({
+			startedAt: new Date(NOW.getTime() - 60_000),
+			status: "generating",
+		});
+		const dependencies = makeDependencies(attempt, {
+			recovered: {
+				mediaType: "video/mp4",
+				url: "https://assets.test/video.mp4",
+			},
+		});
+		vi.mocked(dependencies.settleExisting).mockResolvedValueOnce(false);
+
+		await expect(
+			runImageAnimation(payload(), {
+				dependencies,
+				runId: "run_missing_metering",
+			}),
+		).rejects.toThrow("no enforced metering event");
+		expect(dependencies.markSucceeded).not.toHaveBeenCalled();
 		expect(dependencies.generate).not.toHaveBeenCalled();
 	});
 
@@ -279,6 +374,10 @@ describe("runImageAnimation", () => {
 			}),
 		).resolves.toMatchObject({ recovered: true, status: "succeeded" });
 		expect(dependencies.reserve).not.toHaveBeenCalled();
+		expect(dependencies.settleExisting).toHaveBeenCalledWith(
+			SUBJECT,
+			ATTEMPT_ID,
+		);
 		expect(dependencies.generate).not.toHaveBeenCalled();
 	});
 
@@ -341,7 +440,7 @@ describe("runImageAnimation", () => {
 			expectedStatus: "generating",
 			reason: "stale_generation",
 		});
-		expect(dependencies.refund).toHaveBeenCalledWith(USER_ID, ATTEMPT_ID);
+		expect(dependencies.refund).toHaveBeenCalledWith(SUBJECT, ATTEMPT_ID);
 	});
 
 	it("settles a failed reservation and never calls the provider", async () => {
@@ -390,7 +489,46 @@ describe("runImageAnimation", () => {
 			expect.anything(),
 			expect.objectContaining({ error: "raw provider secret" }),
 		);
-		expect(dependencies.refund).toHaveBeenCalledWith(USER_ID, ATTEMPT_ID);
+		expect(dependencies.refund).toHaveBeenCalledWith(SUBJECT, ATTEMPT_ID);
+	});
+
+	it("charges a provider-completed video when storage fails after capture", async () => {
+		const dependencies = makeDependencies(makeAttempt());
+		vi.mocked(dependencies.generate).mockImplementationOnce(
+			async (_attempt, _subject, _signal, onProviderGeneration) => {
+				const generation = {
+					model: "klingai/kling-v2.1",
+					providerMetadata: {
+						gateway: { generationId: "generation-storage-failure" },
+					},
+					usage: { inputTokens: 1 },
+				};
+				await onProviderGeneration?.(generation);
+				return {
+					...generation,
+					message: "R2 unavailable",
+					providerUnits: 1,
+					status: "failed" as const,
+				};
+			},
+		);
+
+		await expect(
+			runImageAnimation(payload(), {
+				dependencies,
+				runId: "run_storage_failure",
+			}),
+		).resolves.toEqual({ reason: "generation_failed", status: "failed" });
+		expect(dependencies.capture).toHaveBeenCalledWith(
+			RESERVATION,
+			expect.objectContaining({
+				stepUsage: expect.objectContaining({
+					metering: { fixedUnits: 1 },
+				}),
+			}),
+		);
+		expect(dependencies.settle).toHaveBeenCalledWith(RESERVATION, 1);
+		expect(dependencies.refund).not.toHaveBeenCalled();
 	});
 
 	it("recovers an upload after a completion write failure without a second provider call", async () => {
@@ -414,11 +552,19 @@ describe("runImageAnimation", () => {
 				mediaType: "video/mp4",
 				url: "https://assets.test/video.mp4",
 			};
-			return { ...storedVideo, status: "generated" };
+			return {
+				...storedVideo,
+				model: "klingai/kling-v2.1",
+				providerMetadata: { gateway: { generationId: "generation_1" } },
+				status: "generated",
+			};
 		});
 		vi.mocked(dependencies.recoverStoredVideo).mockImplementation(
 			async () => storedVideo,
 		);
+		vi.mocked(dependencies.reserve)
+			.mockResolvedValueOnce(RESERVATION)
+			.mockResolvedValueOnce({ ...RESERVATION, replay: "settled" });
 		vi.mocked(dependencies.markSucceeded)
 			.mockRejectedValueOnce(new Error("database connection lost"))
 			.mockImplementationOnce(async (_attempt, video) => {
@@ -447,6 +593,12 @@ describe("runImageAnimation", () => {
 			}),
 		).resolves.toMatchObject({ recovered: true, status: "succeeded" });
 		expect(dependencies.generate).toHaveBeenCalledTimes(1);
+		expect(
+			vi.mocked(dependencies.settle).mock.invocationCallOrder[0],
+		).toBeLessThan(
+			vi.mocked(dependencies.markSucceeded).mock.invocationCallOrder[0] ??
+				Number.MAX_SAFE_INTEGER,
+		);
 	});
 
 	it("propagates transient R2 and refund errors for Trigger retry", async () => {
@@ -499,7 +651,7 @@ describe("runImageAnimation", () => {
 			reason: "ownership_mismatch",
 			status: "failed",
 		});
-		expect(dependencies.refund).toHaveBeenCalledWith(USER_ID, ATTEMPT_ID);
+		expect(dependencies.refund).toHaveBeenCalledWith(SUBJECT, ATTEMPT_ID);
 		expect(dependencies.claimQueued).not.toHaveBeenCalled();
 		expect(dependencies.generate).not.toHaveBeenCalled();
 	});
@@ -508,6 +660,7 @@ describe("runImageAnimation", () => {
 function payload() {
 	return {
 		attemptId: ATTEMPT_ID,
+		billingMode: "enforce" as const,
 		projectId: PROJECT_ID,
 		userId: USER_ID,
 	};
@@ -522,6 +675,7 @@ function makeAttempt(
 		error: null,
 		id: ATTEMPT_ID,
 		motion: "balanced",
+		organizationId: null,
 		projectDeletedAt: null,
 		projectId: PROJECT_ID,
 		prompt: "A gentle camera move",
@@ -550,10 +704,13 @@ function makeDependencies(
 	});
 
 	return {
+		capture: vi.fn(async () => undefined),
 		claimQueued: vi.fn(async () => claimed),
 		fail: vi.fn(async () => true),
 		generate: vi.fn(async () => ({
 			mediaType: "video/mp4",
+			model: "klingai/kling-v2.1",
+			providerMetadata: { gateway: { generationId: "generation_1" } },
 			status: "generated" as const,
 			url: "https://assets.test/video.mp4",
 		})),
@@ -562,6 +719,8 @@ function makeDependencies(
 		now: vi.fn(() => NOW),
 		recoverStoredVideo: vi.fn(async () => options.recovered ?? null),
 		refund: vi.fn(async () => undefined),
-		reserve: vi.fn(async () => undefined),
+		reserve: vi.fn(async () => RESERVATION),
+		settle: vi.fn(async () => undefined),
+		settleExisting: vi.fn(async () => true),
 	};
 }

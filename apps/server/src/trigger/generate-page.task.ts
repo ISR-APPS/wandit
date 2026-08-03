@@ -13,6 +13,7 @@
  */
 // FIRST import on purpose: raises the process-wide fetch idle timeouts
 // before any AI/storage SDK can issue a request.
+import type { MeteringSubject } from "../modules/credits/domain/credit-owner";
 import "./undici-timeouts";
 
 import { logger, metadata, task } from "@trigger.dev/sdk";
@@ -36,9 +37,22 @@ import {
 	siteFileKey,
 } from "../infrastructure/storage/r2";
 import { createBuildProgressTracker } from "../modules/ai-chat/agent/site-builder/build-progress";
-import { runSiteBuild } from "../modules/ai-chat/agent/site-builder/site-builder-agent";
+import {
+	captureGatewayGenerationError,
+	createGenerationCaptureBuffer,
+	type GenerationCaptureBuffer,
+} from "../modules/ai-chat/agent/site-builder/generation-capture-buffer";
+import {
+	runSiteBuild,
+	type SiteBuildMeteringStep,
+} from "../modules/ai-chat/agent/site-builder/site-builder-agent";
+import type { MeteringService } from "../modules/metering/application/services/metering.service";
+import type { AiUsageEvent } from "../modules/metering/domain/metering";
+import { OPERATION_REGISTRY } from "../modules/metering/domain/operation-registry";
 import { appendProjectBrandAsset } from "./generate-page-brand";
+import { flushPageBuildGenerationsForSettlement } from "./generate-page-metering";
 import { triggerAnalytics } from "./init";
+import { createTriggerMetering } from "./metering.runtime";
 
 // The queue tool snapshots exactly this shape. Non-strict on purpose: rows
 // queued by the retired art-director pipeline carry extra fields (art prompts,
@@ -57,14 +71,28 @@ export const generatePageTask = task({
 	// few minutes. The generous ceiling is a safety net, not an estimate.
 	maxDuration: 1800,
 	retry: { maxAttempts: 1 },
-	run: async (payload: { attemptId: string }, { ctx, signal }) => {
+	run: async (
+		payload: {
+			/** Role snapshot at queue time: owner/admin bypass the default limit. */
+			actorIsLimitExempt?: boolean;
+			/** Acting member (org builds); absent = pre-teams payload. */
+			actorUserId?: string;
+			attemptId: string;
+			parentEventId?: string;
+		},
+		{ ctx, signal },
+	) => {
 		// Fresh pool per run; ended in `finally` so the worker process can be
 		// reused without leaking Postgres connections.
 		const db = createDb();
 
 		try {
 			const [loaded] = await db
-				.select({ attempt: pageGenerationAttempts, userId: projects.userId })
+				.select({
+					attempt: pageGenerationAttempts,
+					organizationId: projects.organizationId,
+					userId: projects.userId,
+				})
 				.from(pageGenerationAttempts)
 				.innerJoin(projects, eq(projects.id, pageGenerationAttempts.projectId))
 				.where(eq(pageGenerationAttempts.id, payload.attemptId))
@@ -74,7 +102,15 @@ export const generatePageTask = task({
 				throw new Error(`Attempt ${payload.attemptId} not found`);
 			}
 
-			const { attempt, userId } = loaded;
+			// The PROJECT's owner entity pays for page builds. The recorded actor
+			// is the queueing member when the payload carries one (org builds),
+			// falling back to the project creator for pre-teams payloads.
+			const { attempt, organizationId, userId } = loaded;
+			const subject: MeteringSubject = {
+				actorUserId: payload.actorUserId ?? userId,
+				organizationId,
+				...(payload.actorIsLimitExempt ? { actorIsLimitExempt: true } : {}),
+			};
 
 			if (attempt.status === "succeeded") {
 				logger.info(
@@ -113,7 +149,31 @@ export const generatePageTask = task({
 				);
 			}
 
+			const meteringService =
+				env.GENERATION_BILLING_MODE === "off"
+					? null
+					: createTriggerMetering(db);
+			let usageEvent: AiUsageEvent | null = null;
+			const meteredSteps: SiteBuildMeteringStep[] = [];
+			let meteringClosed = false;
+			let generationCaptureBuffer: GenerationCaptureBuffer | null = null;
+			let failedProviderGenerationObserved = false;
+
 			try {
+				if (meteringService) {
+					usageEvent = await meteringService.reserve(
+						"page_build",
+						subject,
+						{
+							attemptRef: attempt.id,
+							credits: OPERATION_REGISTRY.page_build.reserveFloorCredits,
+							idempotencyKey: `page-build:${attempt.id}:${ctx.run.id}`,
+							model: attempt.model,
+							parentEventId: payload.parentEventId,
+						},
+					);
+				}
+
 				const spec = attemptSpecSchema.parse(attempt.spec);
 				const [projectBrand] = await db
 					.select({ logoUrl: projects.logoUrl })
@@ -149,6 +209,14 @@ export const generatePageTask = task({
 					},
 				});
 				let heroShotBase64: string | null = null;
+				const usageEventId = usageEvent?.id;
+				generationCaptureBuffer =
+					meteringService && usageEventId
+						? createGenerationCaptureBuffer((capture) =>
+								meteringService.captureGeneration(usageEventId, capture),
+							)
+						: null;
+				const activeGenerationCaptureBuffer = generationCaptureBuffer;
 
 				// The build brain: a tool-loop agent writing into a virtual FS.
 				// It validates its own output (index.html present, complete,
@@ -167,10 +235,47 @@ export const generatePageTask = task({
 						progress.emit(event);
 					},
 					pageKind: spec.pageKind ?? "website",
+					...(meteringService && usageEventId && activeGenerationCaptureBuffer
+						? {
+								meteringService,
+								onGenerationError: async (error: unknown) => {
+									failedProviderGenerationObserved =
+										(await captureGatewayGenerationError(
+											activeGenerationCaptureBuffer,
+											error,
+										)) || failedProviderGenerationObserved;
+								},
+								onStepEnd: async (step: SiteBuildMeteringStep) => {
+									meteredSteps.push(step);
+									await activeGenerationCaptureBuffer.capture({
+										providerMetadata: step.providerMetadata,
+										stepUsage: step.usage,
+									});
+								},
+								usageEventId,
+							}
+						: {}),
 					projectId: attempt.projectId,
 					system: spec.designerSystemPrompt,
 					title: spec.title,
+					subject,
 				});
+
+				// AI SDK swallows onStepEnd errors. Flush every exact metadata/usage
+				// pair that could not be confirmed in the callback before settlement
+				// or any R2/version publication is allowed to begin.
+				await generationCaptureBuffer?.flush();
+
+				if (meteringService && usageEvent) {
+					await closeBuilderMetering(
+						meteringService,
+						usageEvent,
+						attempt.model,
+						meteredSteps,
+						failedProviderGenerationObserved,
+					);
+					meteringClosed = true;
+				}
 
 				// Terminal shot uploads may still be in flight — settle them so
 				// the final metadata push (done + 100%) lands before completion.
@@ -322,7 +427,7 @@ export const generatePageTask = task({
 
 				captureGenerationCompleted(
 					triggerAnalytics,
-					userId,
+					subject.actorUserId,
 					"page",
 					attempt.projectId,
 					attempt.id,
@@ -349,8 +454,45 @@ export const generatePageTask = task({
 					versionId,
 				};
 			} catch (error) {
+				let terminalError = error;
+				const generationsReadyForSettlement =
+					await flushPageBuildGenerationsForSettlement(
+						generationCaptureBuffer,
+						(captureError) => {
+							// A known provider call must never be refunded just because its
+							// generation reference could not be persisted during this run. Keep
+							// the original provider error and leave the hold for recovery.
+							logger.error(
+								`Gateway generation capture failed: ${captureError instanceof Error ? captureError.message : String(captureError)}`,
+							);
+						},
+					);
+
+				if (
+					generationsReadyForSettlement &&
+					meteringService &&
+					usageEvent &&
+					!meteringClosed
+				) {
+					try {
+						await closeBuilderMetering(
+							meteringService,
+							usageEvent,
+							attempt.model,
+							meteredSteps,
+							failedProviderGenerationObserved,
+						);
+						meteringClosed = true;
+					} catch (meteringError) {
+						terminalError = meteringError;
+						logger.error(
+							`Metering settlement failed: ${meteringError instanceof Error ? meteringError.message : String(meteringError)}`,
+						);
+					}
+				}
+
 				logger.error(
-					`❌ Build failed: ${error instanceof Error ? error.message : String(error)}`,
+					`❌ Build failed: ${terminalError instanceof Error ? terminalError.message : String(terminalError)}`,
 				);
 
 				// Record the failure for the Page tab, then rethrow so the run
@@ -359,7 +501,10 @@ export const generatePageTask = task({
 					.update(pageGenerationAttempts)
 					.set({
 						completedAt: new Date(),
-						error: error instanceof Error ? error.message : String(error),
+						error:
+							terminalError instanceof Error
+								? terminalError.message
+								: String(terminalError),
 						status: "failed",
 					})
 					.where(
@@ -374,18 +519,80 @@ export const generatePageTask = task({
 				if (failed) {
 					captureGenerationFailed(
 						triggerAnalytics,
-						userId,
+						subject.actorUserId,
 						"page",
 						attempt.projectId,
 						attempt.id,
-						machineFailureReason(error),
+						machineFailureReason(terminalError),
 					);
 				}
 
-				throw error;
+				throw terminalError;
 			}
 		} finally {
 			await db.$client.end();
 		}
 	},
 });
+
+async function closeBuilderMetering(
+	meteringService: MeteringService,
+	event: AiUsageEvent,
+	model: string,
+	steps: readonly SiteBuildMeteringStep[],
+	failedProviderGenerationObserved = false,
+): Promise<void> {
+	if (steps.length === 0) {
+		// A failed Gateway call has real provider evidence but no AI SDK usage
+		// step. Keep the reservation open so the reconciliation sweep can fetch
+		// authoritative usage from the captured generation reference.
+		if (failedProviderGenerationObserved) {
+			return;
+		}
+
+		await meteringService.refund(event.id, "page_build_no_provider_usage");
+		return;
+	}
+
+	const usage = steps.reduce(
+		(total, step) => {
+			const inputTokens = step.usage.inputTokens ?? 0;
+			const cacheReadTokens = step.usage.inputTokenDetails.cacheReadTokens ?? 0;
+			const cacheWriteTokens =
+				step.usage.inputTokenDetails.cacheWriteTokens ?? 0;
+			const noCacheTokens =
+				step.usage.inputTokenDetails.noCacheTokens ??
+				Math.max(0, inputTokens - cacheReadTokens - cacheWriteTokens);
+
+			return {
+				inputTokenDetails: {
+					cacheReadTokens:
+						total.inputTokenDetails.cacheReadTokens + cacheReadTokens,
+					cacheWriteTokens:
+						total.inputTokenDetails.cacheWriteTokens + cacheWriteTokens,
+					noCacheTokens: total.inputTokenDetails.noCacheTokens + noCacheTokens,
+				},
+				inputTokens: total.inputTokens + inputTokens,
+				outputTokens: total.outputTokens + (step.usage.outputTokens ?? 0),
+			};
+		},
+		{
+			inputTokenDetails: {
+				cacheReadTokens: 0,
+				cacheWriteTokens: 0,
+				noCacheTokens: 0,
+			},
+			inputTokens: 0,
+			outputTokens: 0,
+		},
+	);
+	const providers = new Set(steps.map((step) => step.model.provider));
+
+	await meteringService.settle(event.id, {
+		modelId: model,
+		pricing: "token",
+		provider: providers.size === 1 ? steps[0]?.model.provider : "multiple",
+		rawUsage: { steps: steps.map((step) => step.usage) },
+		usage,
+	});
+}

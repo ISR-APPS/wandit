@@ -16,6 +16,9 @@ export const env = createEnv({
 		VITE_POSTHOG_KEY: z.string().startsWith("phc_").optional(),
 		// Defaults to the EU cloud in the package when unset.
 		VITE_POSTHOG_HOST: z.url().optional(),
+		// Cloudflare Turnstile site key. Unset = no captcha widget; must match
+		// the server's TURNSTILE_SECRET_KEY pair when email auth is live.
+		VITE_TURNSTILE_SITE_KEY: z.string().min(1).optional(),
 	},
 	runtimeEnv: (import.meta as any).env,
 	skipValidation: !!process.env.SKIP_ENV_VALIDATION,

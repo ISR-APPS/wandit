@@ -38,6 +38,9 @@ export type PublishJobName = "publish-site";
 export interface AiGenerationJobData {
 	// Used by credit code to choose the price.
 	action: "landingPageGeneration" | "chatMessage";
+	// Admission-time billing decision. Optional only for jobs queued before this
+	// field existed; workers use their runtime switch for those legacy payloads.
+	billingMode?: "enforce" | "off";
 	// Worker uses these ids to verify ownership before generating.
 	chatId: string;
 	// Prompt-box settings from the UI.
@@ -49,6 +52,10 @@ export interface AiGenerationJobData {
 	// Original user text.
 	prompt: string;
 	projectId: string;
+	// Null only when the explicit local GENERATION_BILLING_MODE=off bypass was
+	// active at enqueue time. Enforced jobs must carry their durable reservation.
+	// Optional: jobs enqueued before the metering rollout carry no field at all.
+	usageEventId?: string | null;
 	userId: string;
 }
 

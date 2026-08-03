@@ -4,6 +4,7 @@ import { apiGet, apiPost } from "@/lib/api-client";
 
 import type {
 	AdminListUsersResponse,
+	BetaEnrollUserInput,
 	ChangeUserRoleInput,
 	GrantUserCreditsInput,
 	ListUsersParams,
@@ -37,6 +38,19 @@ export function grantUserCredits({
 		amount,
 		reason,
 		requestId,
+	});
+}
+
+export function betaEnrollUser({
+	userId,
+	credits,
+	reason,
+	idempotencyKey,
+}: BetaEnrollUserInput): Promise<UserDetail> {
+	return apiPost<UserDetail>(adminRoutes.betaEnroll(userId), {
+		credits,
+		reason,
+		idempotencyKey,
 	});
 }
 

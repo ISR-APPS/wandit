@@ -23,10 +23,14 @@ export async function createTranscription(
 	};
 
 	form.append("file", file as unknown as Blob);
+	const operationId = `native-${Date.now().toString(36)}-${Math.random()
+		.toString(36)
+		.slice(2)}`;
 
 	const data = await apiClient.post<TranscriptionResponse, FormData>(
 		transcriptionsRoutes.create,
 		form,
+		{ headers: { "X-Operation-Id": operationId } },
 	);
 
 	return transcriptionResponseSchema.parse(data);

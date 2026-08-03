@@ -148,6 +148,29 @@ export function parseChatStreamEventFrame(
 	}
 }
 
+/**
+ * The web AI stream can include this typed data part. Native has no purchase
+ * flow, so it deliberately ignores the part instead of reporting it as a
+ * malformed legacy chat event.
+ */
+export function isBillingErrorDataFrame(frame: SseEventFrame): boolean {
+	if (frame.event === "data-billing-error") {
+		return true;
+	}
+
+	try {
+		const payload = frame.data ? (JSON.parse(frame.data) as unknown) : null;
+		return (
+			payload !== null &&
+			typeof payload === "object" &&
+			"type" in payload &&
+			(payload as { type?: unknown }).type === "data-billing-error"
+		);
+	} catch {
+		return false;
+	}
+}
+
 function readFrameId(rawFrame: string) {
 	for (const line of normalizeLineEndings(rawFrame).split("\n")) {
 		if (!line || line.startsWith(":")) {

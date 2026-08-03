@@ -18,6 +18,12 @@ export type ChatRequestContext = {
 	requestCountryCode?: string | null;
 	// Exact, ownership-checked source selected in the dedicated video picker.
 	selectedSourceImage?: AvailableImage;
+	// Set when the chat runs inside a shared team workspace. Informational for
+	// the model — enforcement lives in the tools/guards, never in the prompt.
+	workspace?: {
+		/** true for owner/admin actors, false for plain members. */
+		actorCanManage: boolean;
+	} | null;
 };
 
 const PAGE_GOALS = ["cod", "leads", "service", "promo"] as const;
@@ -304,6 +310,21 @@ export function buildChatRequestContext(
 				"intentional. Never overwrite or regenerate those elements — and " +
 				"prefer surgical edit tools over full rebuilds while such edits " +
 				"exist — unless the user explicitly asks to redo them.",
+		);
+	}
+
+	if (context.workspace) {
+		const roleNote = context.workspace.actorCanManage
+			? ""
+			: " As a member they can build, edit, and publish, but cannot delete " +
+				"projects, manage custom domains, or touch billing — if they ask " +
+				"for one of those, tell them a workspace owner or admin must do it.";
+
+		paragraphs.push(
+			"This chat runs inside a shared TEAM workspace: the project belongs " +
+				"to the team, generations spend the team's shared credit pool, and " +
+				"teammates can see this project." +
+				roleNote,
 		);
 	}
 

@@ -1,4 +1,5 @@
 import {
+	aiChatBillingErrorDataSchema,
 	aiChatMessageMetadataSchema,
 	aiChatRequestMetadataSchema,
 	aiChatSelectedTargetSchema,
@@ -8,6 +9,24 @@ import {
 	imageGenerationAttemptSchema,
 } from "@wandit/contracts";
 import { describe, expect, it } from "vitest";
+
+describe("AI chat billing-error data contract", () => {
+	it("locks the typed 402 stream payload", () => {
+		const data = {
+			code: "INSUFFICIENT_CREDITS",
+			details: { availableCredits: 2, requiredCredits: 5 },
+			statusCode: 402,
+		};
+
+		expect(aiChatBillingErrorDataSchema.parse(data)).toEqual(data);
+		expect(
+			aiChatBillingErrorDataSchema.safeParse({
+				...data,
+				statusCode: 400,
+			}).success,
+		).toBe(false);
+	});
+});
 
 describe("AI chat selected-target contract", () => {
 	it("accepts the exact client boundary without changing the clean shape", () => {

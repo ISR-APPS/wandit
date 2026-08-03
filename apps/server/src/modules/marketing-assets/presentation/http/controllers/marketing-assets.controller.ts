@@ -14,6 +14,9 @@ import type { FastifyReply } from "fastify";
 import { SkipResponseEnvelope } from "../../../../../infrastructure/http/skip-envelope.decorator";
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { CurrentUser } from "../../../../auth";
+import { projectScopeFrom } from "../../../../projects/domain/project-scope";
+import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
+import { CurrentWorkspace } from "../../../../workspaces/presentation/http/decorators/workspace.decorators";
 import { MarketingAssetsService } from "../../../application/services/marketing-assets.service";
 
 @Controller("v1")
@@ -29,8 +32,12 @@ export class MarketingAssetsController {
 		@Param("projectId", new ZodValidationPipe(uuidSchema))
 		projectId: string,
 		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
 	): Promise<MarketingAssetsResponse> {
-		return this.marketingAssetsService.list(user.id, projectId);
+		return this.marketingAssetsService.list(
+			projectScopeFrom(workspace, user.id),
+			projectId,
+		);
 	}
 
 	@Get("marketing-assets/:assetId/html")
@@ -38,8 +45,12 @@ export class MarketingAssetsController {
 		@Param("assetId", new ZodValidationPipe(uuidSchema))
 		assetId: string,
 		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
 	): Promise<MarketingAssetHtmlResponse> {
-		return this.marketingAssetsService.html(user.id, assetId);
+		return this.marketingAssetsService.html(
+			projectScopeFrom(workspace, user.id),
+			assetId,
+		);
 	}
 
 	@Get("marketing-assets/:assetId/download")
@@ -48,10 +59,11 @@ export class MarketingAssetsController {
 		@Param("assetId", new ZodValidationPipe(uuidSchema))
 		assetId: string,
 		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
 		@Res() reply: FastifyReply,
 	): Promise<void> {
 		const download = await this.marketingAssetsService.download(
-			user.id,
+			projectScopeFrom(workspace, user.id),
 			assetId,
 		);
 

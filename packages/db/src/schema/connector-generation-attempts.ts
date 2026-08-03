@@ -9,6 +9,7 @@ import {
 	uuid,
 } from "drizzle-orm/pg-core";
 import { user } from "./auth";
+import { organization } from "./organizations";
 
 // Lifecycle of one background connector generation (e.g. a Higgsfield
 // generate_video call). The chat agent queues the row and answers
@@ -31,6 +32,13 @@ export const connectorGenerationAttempts = pgTable(
 		userId: text("user_id")
 			.notNull()
 			.references(() => user.id, { onDelete: "cascade" }),
+		// Payer snapshot: set when the generation was queued from an org
+		// workspace (the org pool paid), NULL for personal work. Recovery and
+		// settlement rebuild the metering subject from this column.
+		organizationId: text("organization_id").references(
+			() => organization.id,
+			{ onDelete: "set null" },
+		),
 		// Connector slug + tool exactly as the agent called them, plus the raw
 		// arguments snapshot — the task replays this call verbatim.
 		connectorSlug: text("connector_slug").notNull(),

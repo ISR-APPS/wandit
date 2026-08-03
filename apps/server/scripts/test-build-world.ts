@@ -83,6 +83,7 @@ async function main() {
 		projectId: "design-baselines",
 		system,
 		title,
+		subject: { actorUserId: "dev:test-build-world" },
 	});
 
 	const outDir = join(

@@ -7,8 +7,9 @@
  * returns only the "queued"/"unavailable" answer the model relays. The chat
  * card polls the attempt endpoint for live progress and the download.
  */
+import { setTimeout as delay } from "node:timers/promises";
 import { Logger } from "@nestjs/common";
-import { auth, tasks } from "@trigger.dev/sdk";
+import { auth, idempotencyKeys, tasks } from "@trigger.dev/sdk";
 import {
 	type ScrapeLeadsInput,
 	type ScrapeLeadsOutput,
@@ -18,28 +19,43 @@ import {
 import { env } from "@wandit/env/server";
 import { type Tool, tool } from "ai";
 
+import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import { isR2Configured } from "../../../../infrastructure/storage/r2";
 // Type-only import: pulling the task VALUE here would drag the Trigger task
 // (and its DB pool) into the Nest process. The type is enough to make
 // tasks.trigger() check the payload shape.
 import type { scrapeLeadsTask } from "../../../../trigger/scrape-leads.task";
+import {
+	refundLeadScrapeUsageIfReserved,
+	reserveLeadScrapeUsage,
+} from "../../../lead-scrapes/application/services/lead-scrape-billing";
 import type { LeadScrapeSpec } from "../../../lead-scrapes/domain/lead-scrape-spec";
 import type { LeadScrapesRepository } from "../../../lead-scrapes/infrastructure/persistence/lead-scrapes.repository";
 import { isLeadSearchConfigured } from "../../../lead-scrapes/scraper/google-maps-search";
+import type { BillingAdmissionMode } from "../../../metering/application/services/fixed-operation-billing";
+import type { MeteringService } from "../../../metering/application/services/metering.service";
+import type { AiUsageEvent } from "../../../metering/domain/metering";
 
 // Static Nest logger (no DI needed): queue-side events land in the API
 // server terminal; the scrape itself logs in the Trigger worker terminal.
 const logger = new Logger("scrape-leads");
 
 const DEFAULT_LIMIT = 100;
+const TRIGGER_HANDOFF_ATTEMPTS = 3;
+const TRIGGER_IDEMPOTENCY_TTL = "14d";
 
 export type ScrapeLeadsToolDeps = {
 	chatId: string;
 	leadScrapesRepository: LeadScrapesRepository;
+	meteringService: MeteringService;
+	parentEventId?: string;
 	projectId: string;
 	// ISO alpha-2 country from the request IP (trusted server-side context,
 	// not model input), or null when the edge sent none.
 	requestCountryCode: string | null;
+	/** Pays for the scrape: the org pool in an org workspace. */
+	subject: MeteringSubject;
+	userId: string;
 };
 
 // Explicit return type: composite-project declaration emit cannot name the
@@ -103,43 +119,134 @@ export function createScrapeLeadsTool(
 				`Queued lead scrape "${spec.query}" in ${spec.location ?? spec.countryCode ?? "anywhere"} ` +
 					`(limit ${spec.limit}) — attempt ${attempt.id}`,
 			);
+			let usageEvent: AiUsageEvent | null = null;
+			const billingMode: BillingAdmissionMode =
+				env.GENERATION_BILLING_MODE === "off" ? "off" : "enforce";
 
-			let realtime: ScrapeLeadsOutput["realtime"];
+			// The hold belongs at the chat-tool boundary: an insufficient balance must
+			// escape tool execution as the typed mid-stream 402 before the model can
+			// tell the user that work was queued. The Trigger task replays this exact
+			// fingerprint before touching an external provider.
+			if (billingMode === "enforce") {
+				try {
+					usageEvent = await reserveLeadScrapeUsage(deps.meteringService, {
+						attemptId: attempt.id,
+						parentEventId: deps.parentEventId,
+						subject: deps.subject,
+					});
+				} catch (error) {
+					try {
+						await deps.leadScrapesRepository.markAttemptFailed(
+							attempt.id,
+							"The lead scrape could not reserve its required credits.",
+						);
+					} catch (markError) {
+						logger.error(
+							`Closing unreserved lead scrape ${attempt.id} failed`,
+							markError instanceof Error ? markError.stack : String(markError),
+						);
+					}
+
+					throw error;
+				}
+			}
+
+			let handle: Awaited<ReturnType<typeof tasks.trigger>>;
+
 			try {
-				const handle = await tasks.trigger<typeof scrapeLeadsTask>(
-					"scrape-leads",
-					{ attemptId: attempt.id },
+				handle = await triggerScrapeLeadsTask({
+					actorUserId: deps.userId,
+					attemptId: attempt.id,
+					billingMode,
+					...(deps.parentEventId ? { parentEventId: deps.parentEventId } : {}),
+					projectId: deps.projectId,
+				});
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+
+				logger.error(
+					`Trigger.dev did not confirm lead scrape ${attempt.id}: ${message}`,
 				);
 
+				if (isDefinitiveTriggerRejection(error)) {
+					try {
+						const closed = await deps.leadScrapesRepository.markAttemptFailed(
+							attempt.id,
+							"The background scraper rejected this request. Please try again.",
+						);
+
+						if (closed) {
+							if (usageEvent) {
+								try {
+									await refundLeadScrapeUsageIfReserved(deps.meteringService, {
+										attemptId: attempt.id,
+										eventId: usageEvent.id,
+										subject: deps.subject,
+									});
+								} catch (refundError) {
+									// The event remains reserved and the metering sweep is the
+									// durable backstop. Do not misreport the already-closed row.
+									logger.error(
+										`Refunding rejected lead scrape ${attempt.id} failed`,
+										refundError instanceof Error
+											? refundError.stack
+											: String(refundError),
+									);
+								}
+							}
+
+							return {
+								message:
+									"Trigger.dev rejected the lead scrape. Tell the user it " +
+									"was not queued and offer to retry after the server " +
+									"configuration is fixed.",
+								status: "unavailable",
+							};
+						}
+					} catch (settlementError) {
+						logger.error(
+							`Closing rejected lead scrape ${attempt.id} failed`,
+							settlementError instanceof Error
+								? settlementError.stack
+								: String(settlementError),
+						);
+					}
+				}
+
+				// A timeout or lost response can happen after Trigger.dev accepted
+				// the task. Preserve the queued row; the global attempt key makes a
+				// subsequent handoff safe and the task claim prevents duplicate work.
+				return {
+					attemptId: attempt.id,
+					message:
+						"The lead scrape is saved, but Trigger.dev did not confirm " +
+						"the handoff yet. Its card will keep checking, and the same " +
+						"request can be retried safely.",
+					status: "queued",
+				};
+			}
+
+			// Queue acceptance is authoritative. Persisting the diagnostic run id
+			// is best-effort because the task may already have claimed the row and
+			// written its own run id before this request resumes.
+			try {
 				await deps.leadScrapesRepository.markAttemptTriggered(
 					attempt.id,
 					handle.id,
 				);
-				logger.log(
-					`Trigger.dev accepted the scrape — run ${handle.id}. Follow the ` +
-						"live logs in the worker terminal (npx trigger.dev@latest dev).",
-				);
-				realtime = await mintRealtimeHandle(handle.id);
 			} catch (error) {
-				logger.error(
-					`Queueing attempt ${attempt.id} failed: ` +
-						(error instanceof Error ? error.message : String(error)),
+				logger.warn(
+					`Could not persist Trigger.dev run id for lead scrape ${attempt.id}: ${
+						error instanceof Error ? error.message : String(error)
+					}`,
 				);
-				// Queueing failed (Trigger down, bad key…): close the attempt and
-				// answer honestly — NEVER throw raw, the model needs something to
-				// relay instead of an opaque tool error.
-				await deps.leadScrapesRepository.markAttemptFailed(
-					attempt.id,
-					error instanceof Error ? error.message : String(error),
-				);
-
-				return {
-					message:
-						"Queueing the lead scrape failed on the server. Tell the user " +
-						"and offer to retry in a moment.",
-					status: "unavailable",
-				};
 			}
+
+			logger.log(
+				`Trigger.dev accepted the scrape — run ${handle.id}. Follow the ` +
+					"live logs in the worker terminal (npx trigger.dev@latest dev).",
+			);
+			const realtime = await mintRealtimeHandle(handle.id);
 
 			return {
 				attemptId: attempt.id,
@@ -152,6 +259,79 @@ export function createScrapeLeadsTool(
 			};
 		},
 	});
+}
+
+async function triggerScrapeLeadsTask(payload: {
+	actorUserId: string;
+	attemptId: string;
+	billingMode: BillingAdmissionMode;
+	parentEventId?: string;
+	projectId: string;
+}): Promise<Awaited<ReturnType<typeof tasks.trigger>>> {
+	const idempotencyKey = await idempotencyKeys.create(
+		`lead-scrape:${payload.attemptId}`,
+		{ scope: "global" },
+	);
+	let lastError: unknown;
+
+	for (let attempt = 0; attempt < TRIGGER_HANDOFF_ATTEMPTS; attempt += 1) {
+		try {
+			return await tasks.trigger<typeof scrapeLeadsTask>(
+				"scrape-leads",
+				{
+					actorUserId: payload.actorUserId,
+					attemptId: payload.attemptId,
+					billingMode: payload.billingMode,
+					...(payload.parentEventId
+						? { parentEventId: payload.parentEventId }
+						: {}),
+				},
+				{
+					idempotencyKey,
+					idempotencyKeyTTL: TRIGGER_IDEMPOTENCY_TTL,
+					tags: [
+						`lead-scrape-attempt:${payload.attemptId}`,
+						`project:${payload.projectId}`,
+					],
+					// Reservation recovery starts at 40 minutes. Starting within five
+					// minutes leaves the full 30-minute task ceiling plus settlement
+					// grace without ever making a live hold look stranded.
+					ttl: "5m",
+				},
+			);
+		} catch (error) {
+			lastError = error;
+
+			if (isDefinitiveTriggerRejection(error)) {
+				break;
+			}
+
+			if (attempt < TRIGGER_HANDOFF_ATTEMPTS - 1) {
+				await delay(100 * 2 ** attempt);
+			}
+		}
+	}
+
+	throw lastError instanceof Error
+		? lastError
+		: new Error("Trigger.dev handoff failed");
+}
+
+function isDefinitiveTriggerRejection(error: unknown): boolean {
+	if (typeof error !== "object" || error === null) {
+		return false;
+	}
+
+	const candidate = error as { name?: unknown; status?: unknown };
+
+	return (
+		candidate.name === "TriggerApiError" &&
+		(candidate.status === 400 ||
+			candidate.status === 401 ||
+			candidate.status === 403 ||
+			candidate.status === 404 ||
+			candidate.status === 422)
+	);
 }
 
 /**

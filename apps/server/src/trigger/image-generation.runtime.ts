@@ -1,4 +1,3 @@
-import { ENTITLED_SUBSCRIPTION_STATUSES } from "@wandit/contracts";
 import { and, type createDb, eq, sql } from "@wandit/db";
 import { imageGenerationAttempts } from "@wandit/db/schema/image-generation-attempts";
 import { projects } from "@wandit/db/schema/projects";
@@ -14,9 +13,6 @@ import {
 	imageGenerationKey,
 	publicAssetUrl,
 } from "../infrastructure/storage/r2";
-import { SubscriptionsRepository } from "../modules/billing/infrastructure/persistence/subscriptions.repository";
-import { CreditsService } from "../modules/credits/application/services/credits.service";
-import { CreditsRepository } from "../modules/credits/infrastructure/persistence/credits.repository";
 import {
 	createImageGenerationBilling,
 	type ImageGenerationBilling,
@@ -31,6 +27,7 @@ import { generateStandaloneImage } from "../modules/image-generations/applicatio
 import { ImageGenerationsRepository } from "../modules/image-generations/infrastructure/persistence/image-generations.repository";
 import { PageEditsService } from "../modules/pages/application/services/page-edits.service";
 import { PagesRepository } from "../modules/pages/infrastructure/persistence/pages.repository";
+import { createTriggerMetering } from "./metering.runtime";
 
 type TriggerDatabase = ReturnType<typeof createDb>;
 
@@ -41,6 +38,7 @@ const ATTEMPT_COLUMNS = {
 	error: imageGenerationAttempts.error,
 	id: imageGenerationAttempts.id,
 	images: imageGenerationAttempts.images,
+	organizationId: projects.organizationId,
 	projectDeletedAt: projects.deletedAt,
 	projectId: imageGenerationAttempts.projectId,
 	prompt: imageGenerationAttempts.prompt,
@@ -59,7 +57,7 @@ export type ImageGenerationRuntime = {
 
 /**
  * Concrete Trigger runtime adapter — the only place that knows about
- * Drizzle, R2, the provider helper, and the credit/subscription services.
+ * Drizzle, R2, the provider helper, metering, and placement services.
  * Orchestration itself stays in the pure runner.
  */
 export function createImageGenerationRuntime(
@@ -82,14 +80,23 @@ export function createImageGenerationRuntime(
 
 	return {
 		runner: {
+			capture: billing.capture,
 			claimQueued: persistence.claimQueued,
 			fail: persistence.failFromStatus,
-			generateOne: (attempt, index, signal) =>
+			generateOne: (attempt, subject, index, signal, onProviderGeneration) =>
 				generateStandaloneImage({
 					...(signal ? { abortSignal: signal } : {}),
 					aspect: attempt.aspect,
 					attemptId: attempt.id,
 					index,
+					// Metering identity comes from the queue-time subject: the acting
+					// member (not the project creator) with the paying entity.
+					metering: {
+						operation: "image",
+						organizationId: subject.organizationId ?? null,
+						userId: subject.actorUserId,
+					},
+					...(onProviderGeneration ? { onProviderGeneration } : {}),
 					projectId: attempt.projectId,
 					prompt: attempt.prompt,
 					sourceImageUrls: attempt.sourceImageUrls,
@@ -100,6 +107,8 @@ export function createImageGenerationRuntime(
 			recoverStoredImages: createStoredImagesRecovery(),
 			refund: billing.refund,
 			reserve: billing.reserve,
+			settle: billing.settle,
+			settleExisting: billing.settleExisting,
 			settlePlacement: async (attempt, images) => {
 				await placementService.settle(attempt, images);
 			},
@@ -108,26 +117,9 @@ export function createImageGenerationRuntime(
 }
 
 function createBilling(db: TriggerDatabase): ImageGenerationBilling {
-	const creditsService = new CreditsService(new CreditsRepository(db));
-	const subscriptionsRepository = new SubscriptionsRepository(db);
-
 	return createImageGenerationBilling({
-		consumeCredits: (userId, amount, options) =>
-			creditsService.consume(userId, amount, options),
-		hasActiveSubscription: async (userId) => {
-			const subscription =
-				await subscriptionsRepository.findActiveByUserId(userId);
-
-			return (
-				subscription !== null &&
-				(ENTITLED_SUBSCRIPTION_STATUSES as readonly string[]).includes(
-					subscription.status,
-				)
-			);
-		},
 		isBillingDisabled: () => env.GENERATION_BILLING_MODE === "off",
-		refundCredits: (userId, consumeIdempotencyKey, meta) =>
-			creditsService.refundConsume(userId, consumeIdempotencyKey, meta),
+		meteringService: createTriggerMetering(db),
 	});
 }
 
@@ -293,15 +285,16 @@ function createStoredImagesRecovery() {
 				break;
 			}
 
-			// All-or-nothing: a partially uploaded attempt is not recoverable —
-			// the stale-generation path settles and refunds it instead.
+			// Provider calls are sequential, so the first gap ends the durable
+			// prefix. Return that prefix instead of discarding billable/deliverable
+			// images after a process crash between calls.
 			if (!found) {
-				return null;
+				break;
 			}
 
 			images.push(found);
 		}
 
-		return images;
+		return images.length > 0 ? images : null;
 	};
 }

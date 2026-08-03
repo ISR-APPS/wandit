@@ -268,6 +268,25 @@ export function isUserUploadUrl(url: string, userId: string): boolean {
 	);
 }
 
+/**
+ * Any authenticated user's R2 upload, owner unchecked. Only for re-validating
+ * PERSISTED chat history, where a shared org chat legitimately carries other
+ * members' attachments that passed the strict per-user check when their
+ * author submitted them. New content must always use isUserUploadUrl.
+ */
+export function isWanditUploadUrl(url: string): boolean {
+	const key = publicAssetKeyFromUrl(url);
+	if (!key) return false;
+
+	const [root, owner, uploadId, filename] = key.split("/");
+	return (
+		root === "uploads" &&
+		Boolean(owner) &&
+		Boolean(uploadId) &&
+		Boolean(filename)
+	);
+}
+
 const CONTENT_TYPES: Record<string, string> = {
 	css: "text/css; charset=utf-8",
 	html: "text/html; charset=utf-8",

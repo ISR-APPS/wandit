@@ -6,6 +6,7 @@ import {
 	NotFoundException,
 } from "@nestjs/common";
 import {
+	type AdminBetaEnrollInput,
 	type AdminGrantCreditsInput,
 	type AdminListUsersQuery,
 	type AdminListUsersResponse,
@@ -17,11 +18,14 @@ import {
 } from "@wandit/contracts";
 
 import { CreditsService } from "../../../credits/application/services/credits.service";
+import { userOwner } from "../../../credits/domain/credit-owner";
 import {
 	mapAdminUserDetail,
 	mapAdminUserSummary,
 } from "../../infrastructure/mappers/admin-user.mapper";
+import { AdminOrganizationsRepository } from "../../infrastructure/persistence/admin-organizations.repository";
 import { AdminRepository } from "../../infrastructure/persistence/admin.repository";
+import { BetaAccessService } from "./beta-access.service";
 
 const RECENT_PROJECTS_LIMIT = 25;
 const RECENT_LEDGER_LIMIT = 50;
@@ -33,8 +37,12 @@ export class AdminUsersService {
 	constructor(
 		@Inject(AdminRepository)
 		private readonly adminRepository: AdminRepository,
+		@Inject(AdminOrganizationsRepository)
+		private readonly adminOrganizationsRepository: AdminOrganizationsRepository,
 		@Inject(CreditsService)
 		private readonly creditsService: CreditsService,
+		@Inject(BetaAccessService)
+		private readonly betaAccessService: BetaAccessService,
 	) {}
 
 	async listUsers(query: AdminListUsersQuery): Promise<AdminListUsersResponse> {
@@ -55,13 +63,24 @@ export class AdminUsersService {
 			throw new NotFoundException();
 		}
 
-		const [subscription, projects, creditLedger] = await Promise.all([
-			this.adminRepository.findLatestSubscription(userId),
-			this.adminRepository.listRecentProjects(userId, RECENT_PROJECTS_LIMIT),
-			this.adminRepository.listRecentCreditLedger(userId, RECENT_LEDGER_LIMIT),
-		]);
+		const [subscription, projects, creditLedger, memberships] =
+			await Promise.all([
+				this.adminRepository.findLatestSubscription(userId),
+				this.adminRepository.listRecentProjects(userId, RECENT_PROJECTS_LIMIT),
+				this.adminRepository.listRecentCreditLedger(
+					userId,
+					RECENT_LEDGER_LIMIT,
+				),
+				this.adminOrganizationsRepository.listUserMemberships(userId),
+			]);
 
-		return mapAdminUserDetail(row, subscription, projects, creditLedger);
+		return mapAdminUserDetail(
+			row,
+			subscription,
+			projects,
+			creditLedger,
+			memberships,
+		);
 	}
 
 	async grantCredits(
@@ -71,12 +90,9 @@ export class AdminUsersService {
 	): Promise<AdminUserDetail> {
 		await this.ensureUserExists(userId);
 
-		await this.creditsService.grant(userId, input.amount, {
-			// "topup", not "plan": SubscriptionCreditsService.expirePlanRemainder
-			// zeroes the plan bucket on every renewal, cancellation and interval
-			// change, which would silently wipe an admin grant.
-			bucket: "topup",
-			idempotencyKey: `admin-grant:${input.requestId}`,
+		await this.creditsService.grant(userOwner(userId), input.amount, {
+			bucket: "promo",
+			idempotencyKey: `admin-grant:${userId}:${input.requestId}`,
 			meta: {
 				reason: "admin_grant",
 				grantedBy: actingAdminId,
@@ -86,6 +102,20 @@ export class AdminUsersService {
 
 		this.logger.log(
 			`admin_grant_credits admin=${actingAdminId} target=${userId} amount=${input.amount}`,
+		);
+
+		return this.getUserDetail(userId);
+	}
+
+	async betaEnroll(
+		actingAdminId: string,
+		userId: string,
+		input: AdminBetaEnrollInput,
+	): Promise<AdminUserDetail> {
+		await this.betaAccessService.enroll(actingAdminId, userId, input);
+
+		this.logger.log(
+			`admin_beta_enroll admin=${actingAdminId} target=${userId} credits=${input.credits}`,
 		);
 
 		return this.getUserDetail(userId);
@@ -115,8 +145,11 @@ export class AdminUsersService {
 		userId: string,
 		input: AdminSetAccessInput,
 	): Promise<AdminUserDetail> {
-		await this.ensureUserExists(userId);
-		await this.adminRepository.setUserEarlyAccess(userId, input.granted);
+		await this.betaAccessService.setAccess(
+			actingAdminId,
+			userId,
+			input.granted,
+		);
 
 		this.logger.log(
 			`admin_set_access admin=${actingAdminId} target=${userId} granted=${input.granted}`,

@@ -1,9 +1,15 @@
-import type { AiChatMessageMetadata, AiChatTools } from "@wandit/contracts";
+import type {
+	AiChatDataParts,
+	AiChatMessageMetadata,
+	AiChatTools,
+} from "@wandit/contracts";
 import { env } from "@wandit/env/server";
-import { type Tool, ToolLoopAgent, type UIMessage } from "ai";
+import { isStepCount, type Tool, ToolLoopAgent, type UIMessage } from "ai";
 
 import type { McpToolApprovalMap } from "../../mcp-connectors/domain/mcp-tool-policy";
 import type { PageEditsService } from "../../pages/application/services/page-edits.service";
+import { withGatewayAttribution } from "../../metering/domain/gateway-metering";
+import { AI_CHAT_MAX_OUTPUT_TOKENS, AI_CHAT_MAX_STEPS } from "./chat-metering";
 import { WANDIT_SYSTEM_PROMPT } from "./system-prompt";
 import {
 	type AnimateImageTool,
@@ -70,7 +76,7 @@ type McpToolSet = Record<string, Tool>;
 
 export type WanditUIMessage = UIMessage<
 	AiChatMessageMetadata,
-	never,
+	AiChatDataParts,
 	AiChatTools
 >;
 
@@ -102,65 +108,86 @@ export function createChatAgent(
 			? `${WANDIT_SYSTEM_PROMPT}\n\n${contextBlock}`
 			: WANDIT_SYSTEM_PROMPT,
 		model: env.AI_CHAT_MODEL,
-		providerOptions: {
-			// Anthropic's fine-grained tool streaming can emit unvalidated JSON.
-			anthropic: { toolStreaming: false },
-			// Gemini thinking level — only Google models read this key; every
-			// other provider ignores it. MEDIUM: the launch-window compromise
-			// between snappy chat replies and brief quality (2026-07-26).
-			google: { thinkingConfig: { thinkingLevel: "medium" } },
-			// The brief IS the product: the brain must reason hard when it
-			// composes one. Only OpenAI models read this key.
-			openai: { reasoningEffort: "high" },
-		},
+		maxOutputTokens: AI_CHAT_MAX_OUTPUT_TOKENS,
+		providerOptions: withGatewayAttribution(
+			{
+				// Anthropic's fine-grained tool streaming can emit unvalidated JSON.
+				anthropic: { toolStreaming: false },
+				// Gemini thinking level — only Google models read this key; every
+				// other provider ignores it. MEDIUM: the launch-window compromise
+				// between snappy chat replies and brief quality (2026-07-26).
+				google: { thinkingConfig: { thinkingLevel: "medium" } },
+				// The brief IS the product: the brain must reason hard when it
+				// composes one. Only OpenAI models read this key.
+				openai: { reasoningEffort: "high" },
+			},
+			{
+				operation: "chat",
+				organizationId: deps.subject.organizationId ?? null,
+				userId: deps.userId,
+			},
+		),
+		stopWhen: isStepCount(AI_CHAT_MAX_STEPS),
 		// ToolLoopAgentSettings does not expose experimental_toolApprovalSecret.
 		toolApproval: approvalMap,
 		tools: {
 			animate_image: createAnimateImageTool({
 				availableImages: deps.availableImages,
 				chatId: deps.chatId,
-				generationPolicyService: deps.generationPolicyService,
 				mediaGenerationsRepository: deps.mediaGenerationsRepository,
+				meteringService: deps.meteringService,
+				parentEventId: deps.parentEventId,
 				projectId: deps.projectId,
 				requireSelectedSource: deps.requireSelectedSource,
 				requestKeySeed: deps.requestKeySeed,
 				selectedSourceImage: deps.selectedSourceImage,
+				subject: deps.subject,
 				userId: deps.userId,
 			}),
 			ask_user: askUserTool,
 			generate_image: createGenerateImageTool({
 				availableImages: deps.availableImages,
 				chatId: deps.chatId,
-				generationPolicyService: deps.generationPolicyService,
 				imageGenerationsRepository: deps.imageGenerationsRepository,
+				meteringService: deps.meteringService,
+				parentEventId: deps.parentEventId,
 				pagesRepository: deps.pagesRepository,
 				projectId: deps.projectId,
 				quality: deps.quality,
 				requestKeySeed: deps.requestKeySeed,
+				subject: deps.subject,
 				userId: deps.userId,
 			}),
 			generate_marketing_asset: createGenerateMarketingAssetTool({
 				chatId: deps.chatId,
-				generationPolicyService: deps.generationPolicyService,
 				marketingAssetsRepository: deps.marketingAssetsRepository,
+				meteringService: deps.meteringService,
+				parentEventId: deps.parentEventId,
 				projectId: deps.projectId,
 				quality: deps.quality,
 				requestKeySeed: deps.requestKeySeed,
+				subject: deps.subject,
 				userId: deps.userId,
 			}),
 			generate_page: createGeneratePageTool({
 				builderModel: deps.builderModel,
 				chatId: deps.chatId,
 				pagesRepository: deps.pagesRepository,
+				parentEventId: deps.parentEventId,
 				projectId: deps.projectId,
+				subject: deps.subject,
 				userId: deps.userId,
 			}),
 			get_direction_candidates: getDirectionCandidatesTool,
 			scrape_leads: createScrapeLeadsTool({
 				chatId: deps.chatId,
 				leadScrapesRepository: deps.leadScrapesRepository,
+				meteringService: deps.meteringService,
+				parentEventId: deps.parentEventId,
 				projectId: deps.projectId,
 				requestCountryCode: deps.requestCountryCode,
+				subject: deps.subject,
+				userId: deps.userId,
 			}),
 			...createPageEditTools({
 				pageEditsService: deps.pageEditsService,

@@ -9,6 +9,7 @@ vi.mock("@wandit/env/server", () => ({ env: mockEnv }));
 import {
 	isUserUploadUrl,
 	isWanditHostedUrl,
+	isWanditUploadUrl,
 	publicAssetKeyFromUrl,
 } from "./r2";
 
@@ -56,5 +57,20 @@ describe("public R2 URL guards", () => {
 		expect(isUserUploadUrl(own, "user_1")).toBe(true);
 		expect(isUserUploadUrl(anotherUser, "user_1")).toBe(false);
 		expect(isUserUploadUrl(generated, "user_1")).toBe(false);
+	});
+
+	it("accepts any user's upload key shape for owner-agnostic history checks", () => {
+		const anotherUser =
+			"https://assets.example.com/public/uploads/user_2/upload_1/photo.webp";
+		const generated =
+			"https://assets.example.com/public/sites/project_1/assets/a/img-1.webp";
+		const truncated = "https://assets.example.com/public/uploads/user_2";
+
+		expect(isWanditUploadUrl(anotherUser)).toBe(true);
+		expect(isWanditUploadUrl(generated)).toBe(false);
+		expect(isWanditUploadUrl(truncated)).toBe(false);
+		expect(isWanditUploadUrl("https://evil.example.net/uploads/u/i/f.png")).toBe(
+			false,
+		);
 	});
 });

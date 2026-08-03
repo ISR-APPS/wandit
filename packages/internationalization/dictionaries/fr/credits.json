@@ -1,16 +1,29 @@
 {
 	"chipAriaLabel": "Solde de crédits",
 	"balanceLabel": "Crédits",
-	"usageOf": "{balance} sur {grant} restants",
+	"balanceUnavailableShort": "Crédits —",
+	"balanceLoadError": "Impossible de charger ton solde de crédits. Réessaie.",
 	"recentActivity": "Activité récente",
 	"emptyLedger": "Aucune activité pour l'instant.",
-	"topUpChip": "Recharger — bientôt",
-	"topUpDialog": "Recharge bientôt disponible",
+	"ledgerLoadError": "Impossible de charger l’activité des crédits.",
+	"topUpChip": "Recharger les crédits",
+	"manageBilling": "Voir la facturation",
+	"topUpDialog": "Voir les offres et recharges",
 	"insufficientTitle": "Crédits insuffisants",
-	"insufficientBody": "Cette action coûte plus que ce qu'il te reste. Les recharges arrivent bientôt.",
+	"insufficientBody": "Cette action coûte plus de crédits que ton solde actuel.",
 	"costLabel": "Coût",
-	"balanceRowLabel": "Ton solde",
-	"seedGrantLabel": "Crédits de bienvenue",
+	"buckets": {
+		"plan": "Offre",
+		"promo": "Promotionnels",
+		"topup": "Recharge"
+	},
+	"ledgerKinds": {
+		"grant": "Crédits attribués",
+		"consume": "Crédits utilisés",
+		"topup": "Crédits achetés",
+		"expire": "Crédits expirés",
+		"revoke": "Crédits annulés"
+	},
 	"creditUnit": {
 		"zero": "{count} crédit",
 		"one": "{count} crédit",

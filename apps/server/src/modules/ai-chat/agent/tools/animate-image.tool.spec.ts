@@ -6,8 +6,10 @@ import {
 	isR2Configured,
 	isUserUploadUrl,
 } from "../../../../infrastructure/storage/r2";
-import type { GenerationPolicyService } from "../../../generation/application/services/generation-policy.service";
+import { InsufficientCreditsError } from "../../../credits/domain/errors/insufficient-credits.error";
 import type { MediaGenerationsRepository } from "../../../media-generations/infrastructure/persistence/media-generations.repository";
+import type { MeteringService } from "../../../metering/application/services/metering.service";
+import { MeteringStateConflictError } from "../../../metering/domain/metering";
 import {
 	type AvailableImage,
 	createAnimateImageTool,
@@ -66,20 +68,30 @@ function setup(
 		markAttemptTriggered: vi.fn(),
 		markAttemptFailed: vi.fn().mockResolvedValue(true),
 	};
-	const generationPolicyService = {
-		assertCanGenerate: vi.fn().mockResolvedValue(undefined),
-		refundGenerationReservation: vi.fn().mockResolvedValue([]),
+	const usageEvent = { id: "usage_event_1" } as Awaited<
+		ReturnType<MeteringService["reserve"]>
+	>;
+	const meteringService = {
+		captureGeneration: vi.fn().mockResolvedValue(null),
+		findByIdempotencyKey: vi.fn().mockResolvedValue(usageEvent),
+		refund: vi.fn().mockResolvedValue(usageEvent),
+		reserveWithReplay: vi.fn().mockResolvedValue({
+			event: usageEvent,
+			replay: "none",
+			replayed: false,
+		}),
+		settle: vi.fn().mockResolvedValue(usageEvent),
 	};
 	const animateImageTool = createAnimateImageTool({
 		availableImages,
 		chatId: "chat_1",
-		generationPolicyService:
-			generationPolicyService as unknown as GenerationPolicyService,
 		mediaGenerationsRepository:
 			mediaGenerationsRepository as unknown as MediaGenerationsRepository,
+		meteringService: meteringService as unknown as MeteringService,
 		projectId: "project_1",
 		requestKeySeed: VIDEO_SUBMISSION_ID,
 		selectedSourceImage,
+		subject: { actorUserId: "user_1" },
 		userId: "user_1",
 	});
 	const run = animateImageTool.execute;
@@ -96,8 +108,8 @@ function setup(
 
 	return {
 		execute,
-		generationPolicyService,
 		mediaGenerationsRepository,
+		meteringService,
 	};
 }
 
@@ -178,21 +190,47 @@ describe("animate_image tool", () => {
 		expect(mediaGenerationsRepository.insertAttempt).not.toHaveBeenCalled();
 	});
 
-	it("does not persist or queue when the user cannot afford video generation", async () => {
-		const { execute, generationPolicyService, mediaGenerationsRepository } =
-			setup();
-		generationPolicyService.assertCanGenerate.mockRejectedValue(
-			new Error("insufficient credits"),
-		);
+	it("persists first, then propagates a typed 402 without queueing", async () => {
+		const { execute, mediaGenerationsRepository, meteringService } = setup();
+		mediaGenerationsRepository.insertAttempt.mockResolvedValue({
+			created: true,
+			id: "b48dfa65-13a2-4bd8-af89-d01c4bbdb1e3",
+			status: "queued",
+		});
+		const paymentRequired = new InsufficientCreditsError(25, 0);
+		meteringService.reserveWithReplay.mockRejectedValue(paymentRequired);
 
-		const output = await execute();
+		await expect(execute()).rejects.toBe(paymentRequired);
 
-		expect(generationPolicyService.assertCanGenerate).toHaveBeenCalledWith(
-			"user_1",
-			"videoGeneration",
+		expect(mediaGenerationsRepository.insertAttempt).toHaveBeenCalledTimes(1);
+		expect(meteringService.reserveWithReplay).toHaveBeenCalledWith(
+			"video",
+			{ actorUserId: "user_1" },
+			{
+				attemptRef: "b48dfa65-13a2-4bd8-af89-d01c4bbdb1e3",
+				credits: 25,
+				idempotencyKey: "video:b48dfa65-13a2-4bd8-af89-d01c4bbdb1e3",
+				parentEventId: undefined,
+			},
 		);
-		expect(output).toMatchObject({ status: "unavailable" });
-		expect(mediaGenerationsRepository.insertAttempt).not.toHaveBeenCalled();
+		expect(tasks.trigger).not.toHaveBeenCalled();
+	});
+
+	it("does not queue a new attempt when its reservation already reconciled", async () => {
+		const { execute, mediaGenerationsRepository, meteringService } = setup();
+		mediaGenerationsRepository.insertAttempt.mockResolvedValue({
+			created: true,
+			id: "b48dfa65-13a2-4bd8-af89-d01c4bbdb1e3",
+			status: "queued",
+		});
+		meteringService.reserveWithReplay.mockResolvedValueOnce({
+			event: { id: "usage_event_1", status: "reconciled" },
+			replay: "reconciled",
+			replayed: true,
+		});
+
+		await expect(execute()).rejects.toBeInstanceOf(MeteringStateConflictError);
+		expect(tasks.trigger).not.toHaveBeenCalled();
 	});
 
 	it("persists the exact request, queues it once, and returns the attempt", async () => {
@@ -226,6 +264,8 @@ describe("animate_image tool", () => {
 			"animate-image",
 			{
 				attemptId: "b48dfa65-13a2-4bd8-af89-d01c4bbdb1e3",
+				billingMode: "enforce",
+				organizationId: null,
 				projectId: "project_1",
 				userId: "user_1",
 			},
@@ -249,7 +289,7 @@ describe("animate_image tool", () => {
 	});
 
 	it("returns an existing result without enqueueing the provider job again", async () => {
-		const { execute, mediaGenerationsRepository } = setup();
+		const { execute, mediaGenerationsRepository, meteringService } = setup();
 		mediaGenerationsRepository.insertAttempt.mockResolvedValue({
 			created: false,
 			id: "b48dfa65-13a2-4bd8-af89-d01c4bbdb1e3",
@@ -263,6 +303,7 @@ describe("animate_image tool", () => {
 			status: "queued",
 		});
 		expect(tasks.trigger).not.toHaveBeenCalled();
+		expect(meteringService.reserveWithReplay).not.toHaveBeenCalled();
 	});
 
 	it("reuses the attempt and stable Trigger key after a lost-stream retry", async () => {
@@ -304,8 +345,7 @@ describe("animate_image tool", () => {
 	});
 
 	it("keeps an ambiguous Trigger handoff queued without refunding", async () => {
-		const { execute, generationPolicyService, mediaGenerationsRepository } =
-			setup();
+		const { execute, mediaGenerationsRepository, meteringService } = setup();
 		mediaGenerationsRepository.insertAttempt.mockResolvedValue({
 			created: true,
 			id: "b48dfa65-13a2-4bd8-af89-d01c4bbdb1e3",
@@ -319,9 +359,7 @@ describe("animate_image tool", () => {
 
 		expect(tasks.trigger).toHaveBeenCalledTimes(3);
 		expect(mediaGenerationsRepository.markAttemptFailed).not.toHaveBeenCalled();
-		expect(
-			generationPolicyService.refundGenerationReservation,
-		).not.toHaveBeenCalled();
+		expect(meteringService.refund).not.toHaveBeenCalled();
 		expect(output).toMatchObject({
 			attemptId: "b48dfa65-13a2-4bd8-af89-d01c4bbdb1e3",
 			status: "queued",
@@ -329,8 +367,7 @@ describe("animate_image tool", () => {
 	});
 
 	it("closes and refunds a definitive Trigger rejection immediately", async () => {
-		const { execute, generationPolicyService, mediaGenerationsRepository } =
-			setup();
+		const { execute, mediaGenerationsRepository, meteringService } = setup();
 		mediaGenerationsRepository.insertAttempt.mockResolvedValue({
 			created: true,
 			id: "b48dfa65-13a2-4bd8-af89-d01c4bbdb1e3",
@@ -350,9 +387,14 @@ describe("animate_image tool", () => {
 			"The background generator rejected this request. Please try again.",
 			"user_1",
 		);
-		expect(
-			generationPolicyService.refundGenerationReservation,
-		).toHaveBeenCalledWith("user_1", "b48dfa65-13a2-4bd8-af89-d01c4bbdb1e3");
+		expect(meteringService.findByIdempotencyKey).toHaveBeenCalledWith(
+			"video:b48dfa65-13a2-4bd8-af89-d01c4bbdb1e3",
+			{ actorUserId: "user_1" },
+		);
+		expect(meteringService.refund).toHaveBeenCalledWith(
+			"usage_event_1",
+			"image_animation_failed",
+		);
 		expect(output).toMatchObject({ status: "unavailable" });
 	});
 

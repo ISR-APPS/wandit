@@ -24,6 +24,7 @@ import {
 } from "react";
 
 import { Logo } from "@/components/logo";
+import { usePublicSettingsQuery } from "@/features/settings/api/settings.queries";
 import {
 	buildAuthCallbackUrls,
 	registerAuthRedirectHandler,
@@ -33,6 +34,7 @@ import { useTranslation } from "@/lib/i18n";
 import { authClient } from "../lib/auth-client";
 import { promptStash } from "../lib/prompt-stash";
 import { invalidateSessionCache, useSession } from "../lib/session";
+import { EmailAuthSection } from "./email-auth-section";
 
 type AuthModalOpenOptions = {
 	next?: string;
@@ -201,6 +203,10 @@ function AuthModalDialog({
 	const { t } = useTranslation();
 	const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+	// Dark until the emailAuthEnabled product setting is flipped: without it
+	// the dialog renders exactly the pre-email (Google-only) modal.
+	const settingsQuery = usePublicSettingsQuery();
+	const emailAuthEnabled = settingsQuery.data?.emailAuthEnabled === true;
 
 	useEffect(() => {
 		if (!open) {
@@ -285,6 +291,14 @@ function AuthModalDialog({
 								? t("auth.googleLoading")
 								: t("auth.googleButton")}
 						</Button>
+
+						{emailAuthEnabled ? (
+							<EmailAuthSection
+								nextPath={nextPath}
+								onError={setError}
+								onClearError={() => setError(null)}
+							/>
+						) : null}
 
 						{error ? (
 							<p

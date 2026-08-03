@@ -37,6 +37,7 @@ import {
 	extractRootTokens,
 } from "../../domain/ops";
 import { stampHtml } from "../../domain/stamp";
+import type { ProjectScope } from "../../../projects/domain/project-scope";
 import {
 	PagesRepository,
 	VersionConflictError,
@@ -71,12 +72,12 @@ export class PageEditsService {
 	// HTTP path (ownership-checked). Throws Nest exceptions the global filter
 	// maps to the error envelope.
 	async applyClientOps(
-		userId: string,
+		scope: ProjectScope,
 		projectId: string,
 		body: ApplyPageOpsBody,
 	): Promise<ApplyPageOpsResponse> {
 		const page = await this.pagesRepository.findActivePageByProject(
-			userId,
+			scope,
 			projectId,
 		);
 
@@ -186,13 +187,13 @@ export class PageEditsService {
 	// Restoring is copy-forward, never a pointer rewind: read the selected
 	// historical version, then append its stamped HTML as a brand-new version.
 	async restoreVersion(
-		userId: string,
+		scope: ProjectScope,
 		projectId: string,
 		versionId: string,
 		body: RestorePageVersionBody,
 	): Promise<RestorePageVersionResponse> {
 		const page = await this.pagesRepository.findActivePageByProject(
-			userId,
+			scope,
 			projectId,
 		);
 
@@ -200,8 +201,8 @@ export class PageEditsService {
 			throw new NotFoundException();
 		}
 
-		const version = await this.pagesRepository.findOwnedVersionById(
-			userId,
+		const version = await this.pagesRepository.findAccessibleVersionById(
+			scope,
 			versionId,
 		);
 

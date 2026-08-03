@@ -7,17 +7,30 @@ import {
 	type CanActivate,
 	type ExecutionContext,
 	ForbiddenException,
+	Inject,
 	Injectable,
 } from "@nestjs/common";
 import { isAdminRole } from "@wandit/contracts";
 
+import { ProductSettingsService } from "../../../../settings/application/services/product-settings.service";
 import type { MaybeAuthenticatedRequest } from "../types/authenticated-request";
 
 export const EARLY_ACCESS_REQUIRED_ERROR_CODE = "EARLY_ACCESS_REQUIRED";
 
 @Injectable()
 export class EarlyAccessGuard implements CanActivate {
-	canActivate(context: ExecutionContext): boolean {
+	constructor(
+		@Inject(ProductSettingsService)
+		private readonly settingsService: ProductSettingsService,
+	) {}
+
+	async canActivate(context: ExecutionContext): Promise<boolean> {
+		const settings = await this.settingsService.get();
+
+		if (!settings.earlyAccessRequired) {
+			return true;
+		}
+
 		const request = context
 			.switchToHttp()
 			.getRequest<MaybeAuthenticatedRequest>();

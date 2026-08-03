@@ -3,7 +3,10 @@ import { ENTITLED_SUBSCRIPTION_STATUSES } from "@wandit/contracts";
 import type Stripe from "stripe";
 
 import { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
-import { BillingWebhookEventsRepository } from "../../infrastructure/persistence/billing-webhook-events.repository";
+import {
+	type BillingWebhookClaimOptions,
+	BillingWebhookEventsRepository,
+} from "../../infrastructure/persistence/billing-webhook-events.repository";
 import {
 	type StripeEventRouteResult,
 	StripeEventRouter,
@@ -20,7 +23,10 @@ export class StripeWebhookProcessor {
 		private readonly analyticsService: AnalyticsService,
 	) {}
 
-	async process(event: Stripe.Event): Promise<{ received: true }> {
+	async process(
+		event: Stripe.Event,
+		claimOptions: BillingWebhookClaimOptions = {},
+	): Promise<{ received: true }> {
 		const inserted =
 			await this.billingWebhookEventsRepository.tryInsertReceived(event);
 
@@ -36,6 +42,7 @@ export class StripeWebhookProcessor {
 
 		const claimedAt = await this.billingWebhookEventsRepository.tryClaim(
 			event.id,
+			claimOptions,
 		);
 
 		if (!claimedAt) {

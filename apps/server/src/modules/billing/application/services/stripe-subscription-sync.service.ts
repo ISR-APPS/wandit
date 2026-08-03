@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import {
+	ENTITLED_SUBSCRIPTION_STATUSES,
 	type ParsedPriceLookupKey,
 	parsePriceLookupKey,
 } from "@wandit/contracts";
@@ -9,7 +10,14 @@ import {
 	PAYMENT_PROVIDER,
 	type PaymentProvider,
 } from "../../domain/ports/payment-provider.port";
+import {
+	type CreditOwner,
+	creditOwnerKey,
+	orgOwner,
+	userOwner,
+} from "../../../credits/domain/credit-owner";
 import { BillingCustomersRepository } from "../../infrastructure/persistence/billing-customers.repository";
+import { OrganizationBillingCustomersRepository } from "../../infrastructure/persistence/organization-billing-customers.repository";
 import {
 	type SubscriptionRow,
 	SubscriptionsRepository,
@@ -35,19 +43,38 @@ export class StripeSubscriptionSyncService {
 		private readonly subscriptionsRepository: SubscriptionsRepository,
 		@Inject(PAYMENT_PROVIDER)
 		private readonly paymentProvider: PaymentProvider,
+		@Inject(OrganizationBillingCustomersRepository)
+		private readonly organizationBillingCustomersRepository: OrganizationBillingCustomersRepository,
 	) {}
 
 	async syncFromStripe(providerCustomerId: string): Promise<SubscriptionRow[]> {
+		// Personal table first, then org customers — the two tables partition
+		// Stripe customer ids, so exactly one owner can match (design §5.1).
 		const customer =
 			await this.billingCustomersRepository.findByProviderCustomerId(
 				providerCustomerId,
 			);
+		const orgCustomer = customer
+			? null
+			: await this.organizationBillingCustomersRepository.findByProviderCustomerId(
+					providerCustomerId,
+				);
 
-		if (!customer) {
+		if (!customer && !orgCustomer) {
 			throw new Error(
 				`Could not resolve billing customer for Stripe customer ${providerCustomerId}`,
 			);
 		}
+
+		const owner: CreditOwner = customer
+			? userOwner(customer.userId)
+			: orgOwner((orgCustomer as { organizationId: string }).organizationId);
+		// Mirror rows keep a NOT NULL provenance userId even for org
+		// subscriptions: the purchasing/creating admin. No money path reads it.
+		const ownerIds = {
+			organizationId: customer ? null : (orgCustomer?.organizationId ?? null),
+			userId: customer ? customer.userId : (orgCustomer?.createdByUserId ?? ""),
+		};
 
 		return this.subscriptionsRepository.withStripeCustomerSyncLock(
 			providerCustomerId,
@@ -77,7 +104,7 @@ export class StripeSubscriptionSyncService {
 				for (const candidate of terminal) {
 					const row = await this.mirrorPreparedSubscription(
 						candidate,
-						customer.userId,
+						ownerIds,
 						tx,
 					);
 
@@ -89,6 +116,14 @@ export class StripeSubscriptionSyncService {
 				const nonTerminal = prepared
 					.filter(({ subscription }) => !this.isTerminal(subscription.status))
 					.sort((left, right) => {
+						const entitledDifference =
+							Number(this.isEntitled(right.subscription.status)) -
+							Number(this.isEntitled(left.subscription.status));
+
+						if (entitledDifference !== 0) {
+							return entitledDifference;
+						}
+
 						const createdDifference =
 							right.subscription.created - left.subscription.created;
 
@@ -98,10 +133,7 @@ export class StripeSubscriptionSyncService {
 					});
 				const [canonical, ...duplicates] = nonTerminal;
 				const localNonTerminal =
-					await this.subscriptionsRepository.findActiveByUserId(
-						customer.userId,
-						tx,
-					);
+					await this.subscriptionsRepository.findActiveByOwner(owner, tx);
 
 				if (
 					localNonTerminal &&
@@ -121,7 +153,7 @@ export class StripeSubscriptionSyncService {
 				if (canonical) {
 					const row = await this.mirrorPreparedSubscription(
 						canonical,
-						customer.userId,
+						ownerIds,
 						tx,
 					);
 
@@ -131,7 +163,7 @@ export class StripeSubscriptionSyncService {
 
 					for (const duplicate of duplicates) {
 						this.logger.error(
-							`Duplicate active subscription detected for user ${customer.userId}: mirroring ${canonical.subscription.id}, leaving ${duplicate.subscription.id} in Stripe for manual remediation`,
+							`Duplicate active subscription detected for owner ${creditOwnerKey(owner)}: mirroring ${canonical.subscription.id}, leaving ${duplicate.subscription.id} in Stripe for manual remediation`,
 						);
 					}
 				}
@@ -188,7 +220,7 @@ export class StripeSubscriptionSyncService {
 
 	private mirrorPreparedSubscription(
 		prepared: PreparedSubscription,
-		userId: string,
+		ownerIds: { organizationId: string | null; userId: string },
 		tx: SubscriptionsTransaction,
 	): Promise<SubscriptionRow | null> {
 		const { existing, item, lookupKey, parsed, subscription } = prepared;
@@ -214,22 +246,53 @@ export class StripeSubscriptionSyncService {
 			);
 		}
 
-		return this.subscriptionsRepository.upsertByProviderSubscriptionId(
-			{
-				cancelAtPeriodEnd: subscription.cancel_at_period_end,
-				currentPeriodEnd: this.dateFromSeconds(item.current_period_end),
-				currentPeriodStart: this.dateFromSeconds(item.current_period_start),
-				interval: parsed.interval,
-				organizationId: null,
-				plan: parsed.plan,
-				priceLookupKey: lookupKey,
-				provider: "stripe",
-				providerSubscriptionId: subscription.id,
-				status: subscription.status,
-				tierCredits: parsed.tierCredits,
-				userId,
-			},
+		return this.upsertRecognizedSubscription(
+			{ ...prepared, item, lookupKey, parsed },
+			ownerIds,
 			tx,
+		);
+	}
+
+	private async upsertRecognizedSubscription(
+		prepared: PreparedSubscription & {
+			item: Stripe.SubscriptionItem;
+			lookupKey: string;
+			parsed: ParsedPriceLookupKey;
+		},
+		ownerIds: { organizationId: string | null; userId: string },
+		tx: SubscriptionsTransaction,
+	): Promise<SubscriptionRow> {
+		const { item, lookupKey, parsed, subscription } = prepared;
+		const mirrored =
+			await this.subscriptionsRepository.upsertByProviderSubscriptionId(
+				{
+					cancelAtPeriodEnd: subscription.cancel_at_period_end,
+					currentPeriodEnd: this.dateFromSeconds(item.current_period_end),
+					currentPeriodStart: this.dateFromSeconds(item.current_period_start),
+					interval: parsed.interval,
+					organizationId: ownerIds.organizationId,
+					plan: parsed.plan,
+					priceLookupKey: lookupKey,
+					provider: "stripe",
+					providerSubscriptionId: subscription.id,
+					status: subscription.status,
+					tierCredits: parsed.tierCredits,
+					userId: ownerIds.userId,
+				},
+				tx,
+			);
+		const cleared = await this.subscriptionsRepository.clearMatchingPendingTier(
+			subscription.id,
+			parsed.tierCredits,
+			tx,
+		);
+
+		return cleared ?? mirrored;
+	}
+
+	private isEntitled(status: Stripe.Subscription.Status) {
+		return (ENTITLED_SUBSCRIPTION_STATUSES as readonly string[]).includes(
+			status,
 		);
 	}
 

@@ -1,3 +1,4 @@
+import { useQueryClient } from "@tanstack/react-query";
 import { localeMeta, locales } from "@wandit/internationalization";
 import {
 	useDictionary,
@@ -6,12 +7,12 @@ import {
 import { router } from "expo-router";
 import { cn, useThemeColor } from "heroui-native";
 import {
+	type ReactNode,
 	useCallback,
 	useEffect,
 	useMemo,
 	useRef,
 	useState,
-	type ReactNode,
 } from "react";
 import {
 	ActivityIndicator,
@@ -47,6 +48,7 @@ type ProjectsDrawerProps = {
 
 /** Custom drawer content: search/filter row, create row, projects, account. */
 export function ProjectsDrawer({ navigation }: ProjectsDrawerProps) {
+	const queryClient = useQueryClient();
 	const insets = useSafeAreaInsets();
 	const { data: session } = authClient.useSession();
 	const { t } = useTranslation();
@@ -62,7 +64,10 @@ export function ProjectsDrawer({ navigation }: ProjectsDrawerProps) {
 	const searchInputRef = useRef<TextInput>(null);
 	const projectsQuery = useProjects();
 	const projects = projectsQuery.data ?? [];
-	const normalizedSearchQuery = foldProjectSearchText(searchQuery.trim(), locale);
+	const normalizedSearchQuery = foldProjectSearchText(
+		searchQuery.trim(),
+		locale,
+	);
 	const visibleProjects = useMemo(() => {
 		if (!normalizedSearchQuery) {
 			return projects;
@@ -288,7 +293,10 @@ export function ProjectsDrawer({ navigation }: ProjectsDrawerProps) {
 						onPress={() => {
 							// Also clears the dev auth bypass so we land back on Welcome.
 							disableAuthBypass();
-							authClient.signOut();
+							// Authenticated query keys are intentionally user-agnostic. Clear
+							// them before another account can mount and see fresh cached data.
+							queryClient.clear();
+							void authClient.signOut();
 						}}
 						className="items-center rounded-full bg-surface-secondary py-2 active:opacity-80 dark:bg-surface-tertiary"
 					>

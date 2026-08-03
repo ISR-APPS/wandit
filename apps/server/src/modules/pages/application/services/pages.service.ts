@@ -13,6 +13,7 @@ import type {
 import { pageVersionSourceSchema } from "@wandit/contracts";
 
 import { getPageHtml } from "../../../../infrastructure/storage/r2";
+import type { ProjectScope } from "../../../projects/domain/project-scope";
 import { stampHtml } from "../../domain/stamp";
 import { PagesRepository } from "../../infrastructure/persistence/pages.repository";
 
@@ -24,9 +25,9 @@ export class PagesService {
 	) {}
 
 	// One request answers "what should the Page tab show right now?".
-	async overview(userId: string, projectId: string): Promise<PageOverview> {
+	async overview(scope: ProjectScope, projectId: string): Promise<PageOverview> {
 		const rows = await this.pagesRepository.findOverviewByProject(
-			userId,
+			scope,
 			projectId,
 		);
 
@@ -59,11 +60,11 @@ export class PagesService {
 
 	// Full version history (Settings history, version switcher, rollback).
 	async listVersions(
-		userId: string,
+		scope: ProjectScope,
 		projectId: string,
 	): Promise<ListPageVersionsResponse> {
 		const rows = await this.pagesRepository.listVersionsForProject(
-			userId,
+			scope,
 			projectId,
 		);
 
@@ -86,11 +87,11 @@ export class PagesService {
 
 	// Full HTML of one immutable version, fetched from R2.
 	async versionHtml(
-		userId: string,
+		scope: ProjectScope,
 		versionId: string,
 	): Promise<PageVersionHtml> {
-		const version = await this.pagesRepository.findOwnedVersionById(
-			userId,
+		const version = await this.pagesRepository.findAccessibleVersionById(
+			scope,
 			versionId,
 		);
 

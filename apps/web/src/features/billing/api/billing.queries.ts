@@ -3,12 +3,17 @@
 
 import { useQuery } from "@tanstack/react-query";
 
+import { getActiveWorkspaceId } from "@/features/workspaces/lib/workspace-scope";
+
 import { getBillingPlans, getBillingSubscription } from "./billing.services";
 
+// The subscription view is workspace-scoped (the header selects whose money);
+// the public plan catalog is global and keeps an unscoped key.
 export const billingKeys = {
 	all: ["billing"] as const,
+	scope: () => [...billingKeys.all, getActiveWorkspaceId()] as const,
 	plans: () => [...billingKeys.all, "plans"] as const,
-	subscription: () => [...billingKeys.all, "subscription"] as const,
+	subscription: () => [...billingKeys.scope(), "subscription"] as const,
 };
 
 export function useBillingPlansQuery() {

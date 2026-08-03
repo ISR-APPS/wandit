@@ -15,6 +15,7 @@ import {
 import type * as React from "react";
 
 import { Spark } from "@/components/logo";
+import { WorkspaceSwitcher } from "@/features/workspaces/components/workspace-switcher";
 import { useTranslation } from "@/lib/i18n";
 import { NAV_GROUPS, type NavItem } from "../../lib/nav-config";
 
@@ -85,6 +86,9 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
 								</span>
 							</Link>
 						</SidebarMenuButton>
+					</SidebarMenuItem>
+					<SidebarMenuItem className="group-data-[collapsible=icon]:hidden">
+						<WorkspaceSwitcher />
 					</SidebarMenuItem>
 				</SidebarMenu>
 			</SidebarHeader>

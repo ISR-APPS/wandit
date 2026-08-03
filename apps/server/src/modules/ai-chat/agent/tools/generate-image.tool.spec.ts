@@ -8,8 +8,10 @@ import {
 	isR2Configured,
 	isUserUploadUrl,
 } from "../../../../infrastructure/storage/r2";
-import type { GenerationPolicyService } from "../../../generation/application/services/generation-policy.service";
+import { InsufficientCreditsError } from "../../../credits/domain/errors/insufficient-credits.error";
 import type { ImageGenerationsRepository } from "../../../image-generations/infrastructure/persistence/image-generations.repository";
+import type { MeteringService } from "../../../metering/application/services/metering.service";
+import { MeteringStateConflictError } from "../../../metering/domain/metering";
 import type { PagesRepository } from "../../../pages/infrastructure/persistence/pages.repository";
 import { createGenerateImageTool } from "./generate-image.tool";
 
@@ -17,6 +19,7 @@ const mockEnv = vi.hoisted(() => ({
 	AI_GATEWAY_API_KEY: "gateway_test",
 	AI_IMAGE_EDIT_MODEL: "test/image-edit",
 	AI_IMAGE_MODEL: "test/image",
+	GENERATION_BILLING_MODE: "enforce",
 	R2_PUBLIC_BASE_URL: "https://assets.example.com",
 	TRIGGER_SECRET_KEY: "tr_dev_test",
 }));
@@ -42,23 +45,35 @@ const PLACEMENT = {
 	wid: "hero-image",
 };
 const INPUT = {
-	aspect: "3:2" as const,
+	aspect: "3:2",
 	count: 2,
 	placement: PLACEMENT,
 	prompt: "Editorial product photograph with warm directional studio light.",
 	sourceImageUrls: [],
 	title: "Hero product image",
-};
+} satisfies GenerateImageInput;
 
-function setup(options: { quality?: string } = {}) {
+function setup(options: { parentEventId?: string; quality?: string } = {}) {
 	const imageGenerationsRepository = {
 		insertAttempt: vi.fn(),
 		markAttemptFailed: vi.fn().mockResolvedValue(true),
-		markAttemptTriggered: vi.fn(),
+		markAttemptTriggered: vi.fn().mockResolvedValue(true),
 	};
-	const generationPolicyService = {
-		assertCanGenerate: vi.fn().mockResolvedValue(undefined),
-		refundGenerationReservation: vi.fn().mockResolvedValue([]),
+	const meteringService = {
+		captureGeneration: vi.fn(),
+		findByIdempotencyKey: vi.fn().mockResolvedValue(null),
+		refund: vi.fn(),
+		reserveWithReplay: vi.fn().mockResolvedValue({
+			event: {
+				id: "usage_event_1",
+				reservedCredits: 10,
+				status: "reserved",
+			},
+			replay: "none",
+			replayed: false,
+		}),
+		settle: vi.fn(),
+		settleFixedFromEvidence: vi.fn(),
 	};
 	const pagesRepository = {
 		findActivePageByProjectUnchecked: vi.fn().mockResolvedValue({
@@ -69,14 +84,15 @@ function setup(options: { quality?: string } = {}) {
 	const imageTool = createGenerateImageTool({
 		availableImages: [],
 		chatId: "chat_1",
-		generationPolicyService:
-			generationPolicyService as unknown as GenerationPolicyService,
 		imageGenerationsRepository:
 			imageGenerationsRepository as unknown as ImageGenerationsRepository,
+		meteringService: meteringService as unknown as MeteringService,
 		pagesRepository: pagesRepository as unknown as PagesRepository,
+		parentEventId: options.parentEventId ?? "parent_event_1",
 		projectId: "project_1",
 		quality: options.quality,
 		requestKeySeed: REQUEST_KEY_SEED,
+		subject: { actorUserId: "user_1" },
 		userId: "user_1",
 	});
 	const run = imageTool.execute;
@@ -93,8 +109,8 @@ function setup(options: { quality?: string } = {}) {
 
 	return {
 		execute,
-		generationPolicyService,
 		imageGenerationsRepository,
+		meteringService,
 		pagesRepository,
 	};
 }
@@ -103,6 +119,7 @@ beforeEach(() => {
 	mockEnv.AI_GATEWAY_API_KEY = "gateway_test";
 	mockEnv.AI_IMAGE_EDIT_MODEL = "test/image-edit";
 	mockEnv.AI_IMAGE_MODEL = "test/image";
+	mockEnv.GENERATION_BILLING_MODE = "enforce";
 	mockEnv.R2_PUBLIC_BASE_URL = "https://assets.example.com";
 	mockEnv.TRIGGER_SECRET_KEY = "tr_dev_test";
 	vi.mocked(getPageHtml).mockReset();
@@ -123,9 +140,8 @@ beforeEach(() => {
 });
 
 describe("generate_image placement", () => {
-	it("rejects a missing target before policy checks or persistence", async () => {
-		const { execute, generationPolicyService, imageGenerationsRepository } =
-			setup();
+	it("rejects a missing target before billing or persistence", async () => {
+		const { execute, imageGenerationsRepository, meteringService } = setup();
 		vi.mocked(getPageHtml).mockResolvedValue(
 			'<html><body><img data-wid="another-image"></body></html>',
 		);
@@ -138,7 +154,7 @@ describe("generate_image placement", () => {
 			),
 			status: "unavailable",
 		});
-		expect(generationPolicyService.assertCanGenerate).not.toHaveBeenCalled();
+		expect(meteringService.reserveWithReplay).not.toHaveBeenCalled();
 		expect(imageGenerationsRepository.insertAttempt).not.toHaveBeenCalled();
 	});
 
@@ -211,8 +227,10 @@ describe("generate_image placement", () => {
 		expect(imageGenerationsRepository.insertAttempt).not.toHaveBeenCalled();
 	});
 
-	it("persists pending placement and includes it in the request hash", async () => {
-		const { execute, imageGenerationsRepository } = setup({ quality: "high" });
+	it("persists placement, reserves the image count, and triggers the billed child run", async () => {
+		const { execute, imageGenerationsRepository, meteringService } = setup({
+			quality: "high",
+		});
 		imageGenerationsRepository.insertAttempt.mockResolvedValue({
 			created: true,
 			id: ATTEMPT_ID,
@@ -250,6 +268,34 @@ describe("generate_image placement", () => {
 			},
 			title: INPUT.title,
 		});
+		expect(meteringService.reserveWithReplay).toHaveBeenCalledWith(
+			"image",
+			{ actorUserId: "user_1" },
+			{
+				attemptRef: ATTEMPT_ID,
+				credits: 10,
+				idempotencyKey: `image:${ATTEMPT_ID}`,
+				parentEventId: "parent_event_1",
+			},
+		);
+		expect(idempotencyKeys.create).toHaveBeenCalledWith(
+			`image-generation:${ATTEMPT_ID}`,
+			{ scope: "global" },
+		);
+		expect(tasks.trigger).toHaveBeenCalledWith(
+			"generate-image",
+			{
+				attemptId: ATTEMPT_ID,
+				billingMode: "enforce",
+				organizationId: null,
+				parentEventId: "parent_event_1",
+				projectId: "project_1",
+				userId: "user_1",
+			},
+			expect.objectContaining({
+				idempotencyKey: "global-image-generation-key",
+			}),
+		);
 		expect(output).toMatchObject({ attemptId: ATTEMPT_ID, status: "queued" });
 	});
 
@@ -272,5 +318,60 @@ describe("generate_image placement", () => {
 		expect(imageGenerationsRepository.insertAttempt).toHaveBeenCalledWith(
 			expect.objectContaining({ spec: undefined }),
 		);
+	});
+});
+
+describe("generate_image billing", () => {
+	it("prices every requested image and propagates a typed 402 before queueing", async () => {
+		const { execute, imageGenerationsRepository, meteringService } = setup();
+		imageGenerationsRepository.insertAttempt.mockResolvedValue({
+			created: true,
+			id: ATTEMPT_ID,
+			status: "queued",
+		});
+		const paymentRequired = new InsufficientCreditsError(15, 2);
+		meteringService.reserveWithReplay.mockRejectedValue(paymentRequired);
+		const { placement: _, ...standaloneInput } = INPUT;
+
+		await expect(execute({ ...standaloneInput, count: 3 })).rejects.toBe(
+			paymentRequired,
+		);
+
+		expect(meteringService.reserveWithReplay).toHaveBeenCalledWith(
+			"image",
+			{ actorUserId: "user_1" },
+			{
+				attemptRef: ATTEMPT_ID,
+				credits: 15,
+				idempotencyKey: `image:${ATTEMPT_ID}`,
+				parentEventId: "parent_event_1",
+			},
+		);
+		expect(tasks.trigger).not.toHaveBeenCalled();
+	});
+
+	it("does not queue a new attempt when its reservation already settled", async () => {
+		const { execute, imageGenerationsRepository, meteringService } = setup();
+		imageGenerationsRepository.insertAttempt.mockResolvedValue({
+			created: true,
+			id: ATTEMPT_ID,
+			status: "queued",
+		});
+		meteringService.reserveWithReplay.mockResolvedValue({
+			event: {
+				id: "usage_event_1",
+				reservedCredits: 5,
+				status: "settled",
+			},
+			replay: "settled",
+			replayed: true,
+		});
+		const { placement: _, ...standaloneInput } = INPUT;
+
+		await expect(
+			execute({ ...standaloneInput, count: 1 }),
+		).rejects.toBeInstanceOf(MeteringStateConflictError);
+
+		expect(tasks.trigger).not.toHaveBeenCalled();
 	});
 });

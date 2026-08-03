@@ -33,7 +33,14 @@ export async function transcribeAudio(blob: Blob, fileName: string) {
 	const form = new FormData();
 	form.append("file", blob, fileName);
 	// Let axios set the multipart boundary itself — do not force Content-Type.
-	const data = await apiClient.post<unknown>(transcriptionsRoutes.create, form);
+	const operationId = globalThis.crypto.randomUUID();
+	const data = await apiClient.post<unknown>(
+		transcriptionsRoutes.create,
+		form,
+		{
+			headers: { "X-Operation-Id": operationId },
+		},
+	);
 	// Validate the server response before handing text back to PromptBox.
 	return transcriptionResponseSchema.parse(data);
 }

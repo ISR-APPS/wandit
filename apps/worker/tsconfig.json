@@ -6,9 +6,25 @@
 		"experimentalDecorators": true,
 		"noEmit": true,
 		"outDir": "dist",
+		"rootDir": "../..",
 		"paths": {
 			"@/*": ["./src/*"]
 		}
 	},
-	"include": ["src/**/*.ts"]
+	"include": [
+		"src/**/*.ts",
+		"../server/src/infrastructure/database/database.constants.ts",
+		"../server/src/modules/credits/application/services/credits.service.ts",
+		"../server/src/modules/credits/domain/errors/insufficient-credits.error.ts",
+		"../server/src/modules/credits/infrastructure/persistence/credits.repository.ts",
+		"../server/src/modules/metering/application/services/metering.service.ts",
+		"../server/src/modules/metering/application/services/model-pricing.service.ts",
+		"../server/src/modules/metering/domain/metering.ts",
+		"../server/src/modules/metering/domain/gateway-metering.ts",
+		"../server/src/modules/metering/domain/model-pricing.ts",
+		"../server/src/modules/metering/domain/operation-registry.ts",
+		"../server/src/modules/metering/infrastructure/persistence/metering.repository.ts",
+		"../server/src/modules/metering/infrastructure/persistence/model-prices.repository.ts",
+		"../server/src/modules/metering/**/*.json"
+	]
 }

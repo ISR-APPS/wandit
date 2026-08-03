@@ -39,6 +39,7 @@ const PARAMS = {
 	imageUrl:
 		"https://assets.example.com/sites/project_1/assets/attempt_1/img-1.png",
 	index: 2,
+	metering: { operation: "video" as const, userId: "user_1" },
 	motionPrompt: "steam drifts slowly off the tagine, warm light breathes",
 	projectId: "project_1",
 };
@@ -49,7 +50,8 @@ function mockGeneratedVideo(mediaType = "video/mp4") {
 			mediaType,
 			uint8Array: new Uint8Array([9, 9, 9]),
 		},
-	} as Awaited<ReturnType<typeof generateVideo>>);
+		providerMetadata: { gateway: { generationId: "generation_1" } },
+	} as unknown as Awaited<ReturnType<typeof generateVideo>>);
 }
 
 beforeEach(() => {
@@ -120,6 +122,11 @@ describe("generateBuildVideo", () => {
 					text: expect.stringContaining(PARAMS.motionPrompt),
 				},
 				providerOptions: {
+					gateway: {
+						quotaEntityId: "user_1",
+						tags: ["op:video", "ws:personal"],
+						user: "user_1",
+					},
 					klingai: { mode: "std" },
 				},
 			}),
@@ -131,9 +138,28 @@ describe("generateBuildVideo", () => {
 		);
 		expect(result).toEqual({
 			mediaType: "video/mp4",
+			model: "klingai/kling-v2.6-i2v",
+			providerMetadata: { gateway: { generationId: "generation_1" } },
 			status: "generated",
 			url: "https://assets.example.com/sites/project_1/assets/attempt_1/vid-2.mp4",
 		});
+	});
+
+	it("persists provider evidence before uploading builder video bytes", async () => {
+		mockGeneratedVideo();
+		const onProviderGeneration = vi.fn(async () => undefined);
+
+		await generateBuildVideo({ ...PARAMS, onProviderGeneration });
+
+		expect(onProviderGeneration).toHaveBeenCalledWith(
+			expect.objectContaining({
+				providerMetadata: { gateway: { generationId: "generation_1" } },
+			}),
+		);
+		expect(onProviderGeneration.mock.invocationCallOrder[0]).toBeLessThan(
+			vi.mocked(putSiteFile).mock.invocationCallOrder[0] ??
+				Number.MAX_SAFE_INTEGER,
+		);
 	});
 
 	it("uses the standalone preservation prompt and requested motion strength", async () => {
@@ -168,7 +194,15 @@ describe("generateBuildVideo", () => {
 
 		expect(gateway.video).toHaveBeenCalledWith("google/veo-test");
 		expect(generateVideo).toHaveBeenCalledWith(
-			expect.objectContaining({ providerOptions: undefined }),
+			expect.objectContaining({
+				providerOptions: {
+					gateway: {
+						quotaEntityId: "user_1",
+						tags: ["op:video", "ws:personal"],
+						user: "user_1",
+					},
+				},
+			}),
 		);
 	});
 
@@ -211,6 +245,12 @@ describe("generateBuildVideo", () => {
 
 		const result = await generateBuildVideo(PARAMS);
 
-		expect(result).toEqual({ message: "R2 said no", status: "failed" });
+		expect(result).toEqual({
+			message: "R2 said no",
+			model: "klingai/kling-v2.6-i2v",
+			providerMetadata: { gateway: { generationId: "generation_1" } },
+			providerUnits: 1,
+			status: "failed",
+		});
 	});
 });

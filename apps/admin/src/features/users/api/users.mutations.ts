@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import type {
+	BetaEnrollUserInput,
 	ChangeUserRoleInput,
 	GrantUserCreditsInput,
 	SetUserAccessInput,
@@ -9,11 +10,21 @@ import type {
 } from "./users.dto";
 import { userKeys } from "./users.queries";
 import {
+	betaEnrollUser,
 	changeUserRole,
 	grantUserCredits,
 	setUserAccess,
 	setUserBanned,
 } from "./users.services";
+
+export function useBetaEnrollUserMutation() {
+	const queryClient = useQueryClient();
+
+	return useMutation({
+		mutationFn: (input: BetaEnrollUserInput) => betaEnrollUser(input),
+		onSuccess: (user) => syncUserQueries(queryClient, user),
+	});
+}
 
 export function useGrantCreditsMutation() {
 	const queryClient = useQueryClient();

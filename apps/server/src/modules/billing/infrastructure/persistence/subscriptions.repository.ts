@@ -4,8 +4,10 @@ import type {
 	BillingPlanId,
 	CreditTier,
 } from "@wandit/contracts";
-import { and, desc, eq, sql } from "@wandit/db";
+import { and, desc, eq, isNull, sql } from "@wandit/db";
 import { subscriptions } from "@wandit/db/schema/billing";
+
+import type { CreditOwner } from "../../../credits/domain/credit-owner";
 
 import {
 	DATABASE,
@@ -93,16 +95,26 @@ export class SubscriptionsRepository {
 		return this.expectRow(row);
 	}
 
-	async findActiveByUserId(
-		userId: string,
+	async findActiveByOwner(
+		owner: CreditOwner,
 		client: SubscriptionsClient = this.db,
 	): Promise<SubscriptionRow | null> {
+		// Owner-keyed on purpose: an org creator's userId appears on BOTH their
+		// personal subscription and (as provenance) the org's — a bare user
+		// predicate would cross-talk between the two pools.
+		const ownerPredicate =
+			owner.type === "user"
+				? and(
+						eq(subscriptions.userId, owner.userId),
+						isNull(subscriptions.organizationId),
+					)
+				: eq(subscriptions.organizationId, owner.organizationId);
 		const [row] = await client
 			.select()
 			.from(subscriptions)
 			.where(
 				and(
-					eq(subscriptions.userId, userId),
+					ownerPredicate,
 					sql`${subscriptions.status} NOT IN ('canceled', 'incomplete_expired')`,
 				),
 			)
@@ -121,6 +133,102 @@ export class SubscriptionsRepository {
 			.from(subscriptions)
 			.where(eq(subscriptions.providerSubscriptionId, providerSubscriptionId))
 			.limit(1);
+
+		return row ?? null;
+	}
+
+	async findById(
+		id: string,
+		client: SubscriptionsClient = this.db,
+	): Promise<SubscriptionRow | null> {
+		const [row] = await client
+			.select()
+			.from(subscriptions)
+			.where(eq(subscriptions.id, id))
+			.limit(1);
+
+		return row ?? null;
+	}
+
+	async setPendingTierCredits(
+		providerSubscriptionId: string,
+		pendingTierCredits: CreditTier | null,
+		client: SubscriptionsClient = this.db,
+	): Promise<SubscriptionRow | null> {
+		const [row] = await client
+			.update(subscriptions)
+			.set({
+				pendingAppliedBy: null,
+				pendingTierCredits,
+				updatedAt: new Date(),
+			})
+			.where(eq(subscriptions.providerSubscriptionId, providerSubscriptionId))
+			.returning();
+
+		return row ?? null;
+	}
+
+	async markPendingTierApplied(
+		providerSubscriptionId: string,
+		appliedBy: string,
+		client: SubscriptionsClient = this.db,
+	): Promise<SubscriptionRow | null> {
+		const [row] = await client
+			.update(subscriptions)
+			.set({ pendingAppliedBy: appliedBy, updatedAt: new Date() })
+			.where(
+				and(
+					eq(subscriptions.providerSubscriptionId, providerSubscriptionId),
+					sql`${subscriptions.pendingTierCredits} IS NOT NULL`,
+					sql`${subscriptions.pendingAppliedBy} IS NULL`,
+				),
+			)
+			.returning();
+
+		return row ?? null;
+	}
+
+	async clearAppliedPendingTier(
+		providerSubscriptionId: string,
+		client: SubscriptionsClient = this.db,
+	): Promise<SubscriptionRow | null> {
+		const [row] = await client
+			.update(subscriptions)
+			.set({
+				pendingAppliedBy: null,
+				pendingTierCredits: null,
+				updatedAt: new Date(),
+			})
+			.where(
+				and(
+					eq(subscriptions.providerSubscriptionId, providerSubscriptionId),
+					sql`${subscriptions.pendingAppliedBy} IS NOT NULL`,
+				),
+			)
+			.returning();
+
+		return row ?? null;
+	}
+
+	async clearMatchingPendingTier(
+		providerSubscriptionId: string,
+		tierCredits: number,
+		client: SubscriptionsClient = this.db,
+	): Promise<SubscriptionRow | null> {
+		const [row] = await client
+			.update(subscriptions)
+			.set({
+				pendingAppliedBy: null,
+				pendingTierCredits: null,
+				updatedAt: new Date(),
+			})
+			.where(
+				and(
+					eq(subscriptions.providerSubscriptionId, providerSubscriptionId),
+					eq(subscriptions.pendingTierCredits, tierCredits),
+				),
+			)
+			.returning();
 
 		return row ?? null;
 	}

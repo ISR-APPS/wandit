@@ -3,6 +3,7 @@
 // decides the steps, and the repository talks to the database. R2 access
 // goes through the plain storage module (no Nest wrapper) because the
 // Trigger.dev task shares it.
+import type { ProjectScope } from "../../../projects/domain/project-scope";
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import {
 	type LeadScrapeAttempt,
@@ -33,9 +34,12 @@ export class LeadScrapesService {
 	) {}
 
 	// One request answers "what should the chat card show right now?".
-	async attempt(userId: string, attemptId: string): Promise<LeadScrapeAttempt> {
-		const row = await this.leadScrapesRepository.findOwnedAttempt(
-			userId,
+	async attempt(
+		scope: ProjectScope,
+		attemptId: string,
+	): Promise<LeadScrapeAttempt> {
+		const row = await this.leadScrapesRepository.findAccessibleAttempt(
+			scope,
 			attemptId,
 		);
 
@@ -48,11 +52,11 @@ export class LeadScrapesService {
 	}
 
 	async listByProject(
-		userId: string,
+		scope: ProjectScope,
 		projectId: string,
 	): Promise<LeadScrapeAttempt[]> {
-		const rows = await this.leadScrapesRepository.listByProject(
-			userId,
+		const rows = await this.leadScrapesRepository.listForProject(
+			scope,
 			projectId,
 			PROJECT_LIST_LIMIT,
 		);
@@ -60,18 +64,18 @@ export class LeadScrapesService {
 		return rows.map(mapAttemptRow);
 	}
 
-	countByProject(userId: string, projectId: string): Promise<number> {
-		return this.leadScrapesRepository.countByProject(userId, projectId);
+	countByProject(scope: ProjectScope, projectId: string): Promise<number> {
+		return this.leadScrapesRepository.countForProject(scope, projectId);
 	}
 
 	// The finished workbook, ownership-checked. Only a succeeded attempt has
 	// an object to serve; anything else is a 404, not an error payload.
 	async download(
-		userId: string,
+		scope: ProjectScope,
 		attemptId: string,
 	): Promise<LeadScrapeDownload> {
-		const row = await this.leadScrapesRepository.findOwnedAttempt(
-			userId,
+		const row = await this.leadScrapesRepository.findAccessibleAttempt(
+			scope,
 			attemptId,
 		);
 

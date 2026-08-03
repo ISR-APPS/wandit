@@ -71,7 +71,8 @@
 				"stream": "La réponse s'est arrêtée. Réessaie.",
 				"send": "Impossible d'envoyer ce message. Réessaie.",
 				"busy": "Wandit travaille déjà sur une réponse.",
-				"credits": "Tu n'as plus de crédits.",
+				"credits": "Tu n'as pas assez de crédits.",
+				"creditsDetails": "Il faut {requiredCredits} crédits ; tu en as {availableCredits}.",
 				"unavailable": "Le chat n'a pas pu charger. Réessaie."
 			},
 			"tray": {
@@ -126,7 +127,10 @@
 	"credits": {
 		"title": "Crédits",
 		"left": "{count} restants",
-		"betaNote": "Crédits bêta · Publication & leads toujours gratuits"
+		"betaNote": "Crédits de forfait, promo et recharges cumulés",
+		"bucketPlan": "Forfait",
+		"bucketPromo": "Promo",
+		"bucketTopup": "Recharge"
 	},
 	"projectSheet": {
 		"viewsLabel": "Vues du projet",

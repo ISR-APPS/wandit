@@ -6,7 +6,7 @@
  * Nest and talks to the same table through createDb(), like the other tasks.
  */
 import { Inject, Injectable } from "@nestjs/common";
-import { and, eq, inArray, lt } from "@wandit/db";
+import { and, eq, inArray, isNull, lt, sql } from "@wandit/db";
 import { connectorGenerationAttempts } from "@wandit/db/schema/connector-generation-attempts";
 
 import { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
@@ -15,10 +15,13 @@ import {
 	DATABASE,
 	type Database,
 } from "../../../../infrastructure/database/database.constants";
+import type { ProjectScope } from "../../../projects/domain/project-scope";
 
 export type ConnectorGenerationAttemptRow = {
 	id: string;
 	userId: string;
+	/** Payer snapshot: org pool when queued from an org workspace. */
+	organizationId: string | null;
 	connectorSlug: string;
 	toolName: string;
 	args: unknown;
@@ -29,9 +32,10 @@ export type ConnectorGenerationAttemptRow = {
 	completedAt: Date | null;
 };
 
-// A run past this age can no longer be live (task maxDuration is shorter):
-// reads self-heal the row to failed so cards never hang forever.
-const STALE_ATTEMPT_MS = 35 * 60 * 1000;
+// Trigger can wait five minutes before starting a 30-minute task. Keep three
+// minutes for final billing + DB commit so polling cannot fail a live run at
+// the exact queue/runtime boundary.
+export const CONNECTOR_ATTEMPT_STALE_MS = 38 * 60 * 1000;
 
 @Injectable()
 export class ConnectorGenerationsRepository {
@@ -44,6 +48,7 @@ export class ConnectorGenerationsRepository {
 	// One attempt row per intercepted generation call, born "queued".
 	async insertAttempt(input: {
 		userId: string;
+		organizationId: string | null;
 		connectorSlug: string;
 		toolName: string;
 		args: unknown;
@@ -103,24 +108,66 @@ export class ConnectorGenerationsRepository {
 
 	// Ownership is by user id (the MCP connection is per-user). Missing and
 	// not-owned are indistinguishable to the caller on purpose.
-	async findOwnedAttempt(
-		userId: string,
+	// Mirrors projectScopePredicate semantics on the attempt's own payer
+	// snapshot: personal = creator equality, org = workspace membership (the
+	// guard proved it) — so a teammate polling a shared org chat's card is
+	// not 404'd just because another member queued the generation.
+	async findAccessibleAttempt(
+		scope: ProjectScope,
 		attemptId: string,
 	): Promise<ConnectorGenerationAttemptRow | null> {
 		await this.settleStaleAttempt(attemptId);
 
+		const scopePredicate =
+			scope.kind === "personal"
+				? and(
+						eq(connectorGenerationAttempts.userId, scope.userId),
+						isNull(connectorGenerationAttempts.organizationId),
+					)
+				: eq(connectorGenerationAttempts.organizationId, scope.organizationId);
+
 		const [row] = await this.db
+			.select()
+			.from(connectorGenerationAttempts)
+			.where(and(eq(connectorGenerationAttempts.id, attemptId), scopePredicate))
+			.limit(1);
+
+		return row ?? null;
+	}
+
+	async listRunningCompletionCheckpoints(
+		limit = 100,
+	): Promise<ConnectorGenerationAttemptRow[]> {
+		if (!Number.isInteger(limit) || limit <= 0) {
+			throw new Error("Connector recovery limit must be a positive integer");
+		}
+
+		return this.db
 			.select()
 			.from(connectorGenerationAttempts)
 			.where(
 				and(
-					eq(connectorGenerationAttempts.id, attemptId),
-					eq(connectorGenerationAttempts.userId, userId),
+					eq(connectorGenerationAttempts.status, "running"),
+					sql`${connectorGenerationAttempts.media} is not null`,
 				),
 			)
-			.limit(1);
+			.limit(limit);
+	}
 
-		return row ?? null;
+	async markRunningAttemptSucceeded(attemptId: string): Promise<boolean> {
+		const [completed] = await this.db
+			.update(connectorGenerationAttempts)
+			.set({ completedAt: new Date(), error: null, status: "succeeded" })
+			.where(
+				and(
+					eq(connectorGenerationAttempts.id, attemptId),
+					eq(connectorGenerationAttempts.status, "running"),
+					sql`${connectorGenerationAttempts.media} is not null`,
+				),
+			)
+			.returning({ id: connectorGenerationAttempts.id });
+
+		return completed !== undefined;
 	}
 
 	// Read-time janitor: a queued/running row this old is an orphaned run
@@ -137,9 +184,10 @@ export class ConnectorGenerationsRepository {
 				and(
 					eq(connectorGenerationAttempts.id, attemptId),
 					inArray(connectorGenerationAttempts.status, ["queued", "running"]),
+					isNull(connectorGenerationAttempts.media),
 					lt(
 						connectorGenerationAttempts.createdAt,
-						new Date(Date.now() - STALE_ATTEMPT_MS),
+						new Date(Date.now() - CONNECTOR_ATTEMPT_STALE_MS),
 					),
 				),
 			);

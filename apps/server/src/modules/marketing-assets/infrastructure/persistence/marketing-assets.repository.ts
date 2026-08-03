@@ -5,6 +5,10 @@
  * Trigger task advances that same row through generating -> succeeded/failed,
  * and the Marketing tab reads it through an ownership-checked project join.
  */
+import {
+	type ProjectScope,
+	projectScopePredicate,
+} from "../../../projects/domain/project-scope";
 import { Inject, Injectable } from "@nestjs/common";
 import type {
 	MarketingAssetStatus,
@@ -143,8 +147,8 @@ export class MarketingAssetsRepository {
 		return true;
 	}
 
-	async findOwnedAsset(
-		userId: string,
+	async findAccessibleAsset(
+		scope: ProjectScope,
 		assetId: string,
 	): Promise<MarketingAssetRow | null> {
 		const [row] = await this.db
@@ -154,7 +158,7 @@ export class MarketingAssetsRepository {
 			.where(
 				and(
 					eq(marketingAssets.id, assetId),
-					eq(projects.userId, userId),
+					projectScopePredicate(scope),
 					isNull(projects.deletedAt),
 				),
 			)
@@ -163,8 +167,8 @@ export class MarketingAssetsRepository {
 		return row ?? null;
 	}
 
-	async listOwnedByProject(
-		userId: string,
+	async listForProject(
+		scope: ProjectScope,
 		projectId: string,
 	): Promise<MarketingAssetRow[]> {
 		return this.db
@@ -174,7 +178,7 @@ export class MarketingAssetsRepository {
 			.where(
 				and(
 					eq(marketingAssets.projectId, projectId),
-					eq(projects.userId, userId),
+					projectScopePredicate(scope),
 					isNull(projects.deletedAt),
 				),
 			)

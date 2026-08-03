@@ -1,4 +1,6 @@
 import { z } from "zod";
+import { paymentRequiredDetailsSchema } from "../http/error-codes";
+import { memberCreditLimitDetailsSchema } from "./workspaces";
 import { attachmentMediaTypeSchema } from "./attachments";
 import { composerMetadataSchema } from "./chats";
 import {
@@ -18,6 +20,35 @@ import { PAGE_TOKEN_NAMES } from "./page-theme";
 // The nested detail names deliberately follow v7: the old top-level
 // cachedInputTokens/reasoningTokens fields no longer exist in the SDK.
 const aiChatTokenCountSchema = z.number().int().nonnegative();
+
+/**
+ * Typed in-stream counterpart of the HTTP 402 response. The AI SDK prefixes
+ * the data-part key, so `billing-error` is sent on the wire as
+ * `data-billing-error`.
+ */
+// Discriminated union: the classic out-of-credits 402, plus the org
+// member-limit 403 (the pool could pay, the member's monthly cap could not —
+// buying credits is not the fix, so it is a distinct code/status).
+export const aiChatBillingErrorDataSchema = z.discriminatedUnion("code", [
+	z.object({
+		code: z.literal("INSUFFICIENT_CREDITS"),
+		details: paymentRequiredDetailsSchema,
+		statusCode: z.literal(402),
+	}),
+	z.object({
+		code: z.literal("MEMBER_CREDIT_LIMIT_REACHED"),
+		details: memberCreditLimitDetailsSchema,
+		statusCode: z.literal(403),
+	}),
+]);
+
+export type AiChatBillingErrorData = z.infer<
+	typeof aiChatBillingErrorDataSchema
+>;
+
+export type AiChatDataParts = {
+	"billing-error": AiChatBillingErrorData;
+};
 
 export const aiChatMessageUsageSchema = z.object({
 	inputTokens: aiChatTokenCountSchema.optional(),

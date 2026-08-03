@@ -1,12 +1,20 @@
-import { Injectable, Logger } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { FileRef } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import { generateText } from "ai";
+
+import { MeteringService } from "../../../metering/application/services/metering.service";
+import {
+	gatewayGenerationCaptureFromError,
+	withGatewayAttribution,
+} from "../../../metering/domain/gateway-metering";
+import { bundledUnmeteredStepUsage } from "../../../metering/domain/metering";
 
 const DEFAULT_PROJECT_TITLE_MODEL = "deepseek/deepseek-v4-flash";
 const PROJECT_TITLE_MAX_LENGTH = 60;
 const PROJECT_TITLE_SOURCE_MAX_LENGTH = 600;
 const PROJECT_TITLE_TIMEOUT_MS = 10_000;
+const PROJECT_TITLE_CAPTURE_ATTEMPTS = 3;
 const BIDI_FORMAT_MARKS = /[\u061C\u200E\u200F\u202A-\u202E\u2066-\u2069]/gu;
 
 export const PROJECT_TITLE_PROMPT = `Generate a short project title from the user's request or attachment filenames.
@@ -22,14 +30,35 @@ Requirements:
 type ProjectTitleInput = {
 	attachments?: FileRef[];
 	fallbackTitle: string;
+	/** Set when the project lives in an org workspace: the org is the payer. */
+	organizationId?: string | null;
 	prompt: string;
+	usageEventId?: string;
+	userId: string;
 };
 
 @Injectable()
 export class ProjectTitleService {
 	private readonly logger = new Logger(ProjectTitleService.name);
 
+	constructor(
+		@Inject(MeteringService)
+		private readonly meteringService: MeteringService,
+	) {}
+
 	async generate(input: ProjectTitleInput): Promise<string> {
+		try {
+			return await this.generateTitle(input);
+		} finally {
+			if (input.usageEventId) {
+				await this.meteringService.completeBundledReservation(
+					input.usageEventId,
+				);
+			}
+		}
+	}
+
+	private async generateTitle(input: ProjectTitleInput): Promise<string> {
 		const generationPrompt = buildGenerationPrompt(input);
 
 		if (!generationPrompt) {
@@ -49,7 +78,7 @@ export class ProjectTitleService {
 		}
 
 		try {
-			const { text } = await generateText({
+			const result = await generateText({
 				abortSignal: AbortSignal.timeout(PROJECT_TITLE_TIMEOUT_MS),
 				// Generous on purpose: a reasoning model configured via
 				// AI_TITLE_MODEL spends thinking tokens from this same budget, and
@@ -59,10 +88,25 @@ export class ProjectTitleService {
 				prompt: generationPrompt,
 				// A title needs no deliberation. Only OpenAI models read this key;
 				// every other provider ignores it.
-				providerOptions: { openai: { reasoningEffort: "low" } },
+				providerOptions: withGatewayAttribution(
+					{ openai: { reasoningEffort: "low" } },
+					{
+						operation: "chat",
+						organizationId: input.organizationId ?? null,
+						userId: input.userId,
+					},
+				),
 				system: PROJECT_TITLE_PROMPT,
 			});
-			const title = sanitizeProjectTitle(text);
+
+			if (input.usageEventId) {
+				await this.captureGeneration(input.usageEventId, {
+					providerMetadata: result.providerMetadata,
+					stepUsage: bundledUnmeteredStepUsage("project_title", result.usage),
+				});
+			}
+
+			const title = sanitizeProjectTitle(result.text);
 
 			if (!title) {
 				throw new Error("Model returned an empty project title");
@@ -70,10 +114,59 @@ export class ProjectTitleService {
 
 			return title;
 		} catch (error) {
+			const errorCapture = gatewayGenerationCaptureFromError(error);
+
+			if (input.usageEventId && errorCapture) {
+				try {
+					await this.captureGeneration(input.usageEventId, {
+						providerMetadata: errorCapture.providerMetadata,
+						stepUsage: bundledUnmeteredStepUsage("project_title", null),
+					});
+				} catch (captureError) {
+					this.logger.warn(
+						`Project title generation-reference capture failed: ${
+							captureError instanceof Error
+								? captureError.message
+								: String(captureError)
+						}`,
+					);
+				}
+			}
+
 			const message = error instanceof Error ? error.message : String(error);
 			this.logger.warn(`Project title generation failed: ${message}`);
 			return input.fallbackTitle;
 		}
+	}
+
+	private async captureGeneration(
+		usageEventId: string,
+		capture: Parameters<MeteringService["captureGeneration"]>[1],
+	): Promise<void> {
+		let lastError: unknown;
+
+		for (
+			let attempt = 1;
+			attempt <= PROJECT_TITLE_CAPTURE_ATTEMPTS;
+			attempt += 1
+		) {
+			try {
+				const generationRef = await this.meteringService.captureGeneration(
+					usageEventId,
+					capture,
+				);
+
+				if (!generationRef) {
+					throw new Error("AI Gateway generation id is missing");
+				}
+
+				return;
+			} catch (error) {
+				lastError = error;
+			}
+		}
+
+		throw lastError;
 	}
 }
 

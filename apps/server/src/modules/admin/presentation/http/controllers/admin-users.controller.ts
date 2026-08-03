@@ -11,6 +11,7 @@ import {
 } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
+	type AdminBetaEnrollInput,
 	type AdminGrantCreditsInput,
 	type AdminListUsersQuery,
 	type AdminListUsersResponse,
@@ -18,6 +19,7 @@ import {
 	type AdminSetBannedInput,
 	type AdminSetRoleInput,
 	type AdminUserDetail,
+	adminBetaEnrollInputSchema,
 	adminGrantCreditsInputSchema,
 	adminListUsersQuerySchema,
 	adminSetAccessInputSchema,
@@ -49,6 +51,17 @@ export class AdminUsersController {
 	@Get(":userId")
 	detail(@Param("userId") userId: string): Promise<AdminUserDetail> {
 		return this.adminUsersService.getUserDetail(userId);
+	}
+
+	@Post(":userId/beta-enroll")
+	@HttpCode(200)
+	betaEnroll(
+		@Param("userId") userId: string,
+		@Body(new ZodValidationPipe(adminBetaEnrollInputSchema))
+		body: AdminBetaEnrollInput,
+		@CurrentUser() admin: AuthUser,
+	): Promise<AdminUserDetail> {
+		return this.adminUsersService.betaEnroll(admin.id, userId, body);
 	}
 
 	@Post(":userId/credits")

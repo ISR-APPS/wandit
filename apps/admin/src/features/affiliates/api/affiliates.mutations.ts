@@ -1,64 +1,77 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-import type {
-	Affiliate,
-	CreateAffiliateCodeInput,
-	CreateAffiliateInput,
-	SetAffiliateCodeStatusInput,
-	SetAffiliateStatusInput,
-} from "./affiliates.dto";
 import { affiliateKeys } from "./affiliates.queries";
 import {
+	archiveAffiliateProgram,
+	buildAffiliatePayout,
 	createAffiliate,
-	createAffiliateCode,
-	setAffiliateCodeStatus,
-	setAffiliateStatus,
+	createAffiliateLink,
+	createAffiliateProgram,
+	deactivateAffiliateLink,
+	markAffiliatePayoutFailed,
+	markAffiliatePayoutPaid,
+	updateAffiliate,
+	updateAffiliateLink,
+	updateAffiliateProgram,
 } from "./affiliates.services";
 
-export function useCreateAffiliateMutation() {
-	const queryClient = useQueryClient();
-
-	return useMutation({
-		mutationFn: (input: CreateAffiliateInput) => createAffiliate(input),
-		onSuccess: (affiliate) => syncAffiliateQueries(queryClient, affiliate),
-	});
-}
-
-export function useCreateAffiliateCodeMutation() {
-	const queryClient = useQueryClient();
-
-	return useMutation({
-		mutationFn: (input: CreateAffiliateCodeInput) => createAffiliateCode(input),
-		onSuccess: (affiliate) => syncAffiliateQueries(queryClient, affiliate),
-	});
-}
-
-export function useSetAffiliateStatusMutation() {
-	const queryClient = useQueryClient();
-
-	return useMutation({
-		mutationFn: (input: SetAffiliateStatusInput) => setAffiliateStatus(input),
-		onSuccess: (affiliate) => syncAffiliateQueries(queryClient, affiliate),
-	});
-}
-
-export function useSetAffiliateCodeStatusMutation() {
-	const queryClient = useQueryClient();
-
-	return useMutation({
-		mutationFn: (input: SetAffiliateCodeStatusInput) =>
-			setAffiliateCodeStatus(input),
-		onSuccess: (affiliate) => syncAffiliateQueries(queryClient, affiliate),
-	});
-}
-
-function syncAffiliateQueries(
-	queryClient: ReturnType<typeof useQueryClient>,
-	affiliate: Affiliate,
+/**
+ * Affiliate writes change aggregates and embedded identities across several
+ * resources. Invalidating the domain prefix avoids displaying a fresh detail
+ * beside stale programs, commissions, attributions, or payouts.
+ */
+function useDomainMutation<TVariables, TResult>(
+	mutationFn: (variables: TVariables) => Promise<TResult>,
 ) {
-	queryClient.setQueryData(affiliateKeys.detail(affiliate.id), affiliate);
-	void queryClient.invalidateQueries({ queryKey: affiliateKeys.lists() });
-	void queryClient.invalidateQueries({
-		queryKey: affiliateKeys.detail(affiliate.id),
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn,
+		onSuccess: async () => {
+			await queryClient.invalidateQueries({ queryKey: affiliateKeys.all });
+		},
 	});
+}
+
+export function useCreateAffiliateProgramMutation() {
+	return useDomainMutation(createAffiliateProgram);
+}
+
+export function useUpdateAffiliateProgramMutation() {
+	return useDomainMutation(updateAffiliateProgram);
+}
+
+export function useArchiveAffiliateProgramMutation() {
+	return useDomainMutation(archiveAffiliateProgram);
+}
+
+export function useCreateAffiliateMutation() {
+	return useDomainMutation(createAffiliate);
+}
+
+export function useUpdateAffiliateMutation() {
+	return useDomainMutation(updateAffiliate);
+}
+
+export function useCreateAffiliateLinkMutation() {
+	return useDomainMutation(createAffiliateLink);
+}
+
+export function useUpdateAffiliateLinkMutation() {
+	return useDomainMutation(updateAffiliateLink);
+}
+
+export function useDeactivateAffiliateLinkMutation() {
+	return useDomainMutation(deactivateAffiliateLink);
+}
+
+export function useBuildAffiliatePayoutMutation() {
+	return useDomainMutation(buildAffiliatePayout);
+}
+
+export function useMarkAffiliatePayoutPaidMutation() {
+	return useDomainMutation(markAffiliatePayoutPaid);
+}
+
+export function useMarkAffiliatePayoutFailedMutation() {
+	return useDomainMutation(markAffiliatePayoutFailed);
 }

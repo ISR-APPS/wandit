@@ -7,7 +7,7 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@wandit/ui/components/dialog";
-
+import { useBillingModal } from "@/features/billing/components/billing-modal-provider";
 import { useTranslation } from "@/lib/i18n";
 
 type InsufficientCreditsDialogProps = {
@@ -22,6 +22,11 @@ export function InsufficientCreditsDialog({
 	cost,
 }: InsufficientCreditsDialogProps) {
 	const { t } = useTranslation();
+	const { openPlanPicker } = useBillingModal();
+	const handleUpgrade = () => {
+		onOpenChange(false);
+		openPlanPicker();
+	};
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
@@ -41,7 +46,7 @@ export function InsufficientCreditsDialog({
 					</div>
 				</div>
 				<DialogFooter>
-					<Button type="button" disabled className="w-full">
+					<Button type="button" onClick={handleUpgrade} className="w-full">
 						{t("credits.topUpDialog")}
 					</Button>
 				</DialogFooter>

@@ -4,6 +4,7 @@
 // doubles as the final video's poster, so the card remains useful before the
 // first frame loads and after a chat-history reload.
 
+import { useQueryClient } from "@tanstack/react-query";
 import type { MediaGenerationAttempt } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import { Skeleton } from "@wandit/ui/components/skeleton";
@@ -15,8 +16,9 @@ import {
 	Film,
 	RefreshCw,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useEffect } from "react";
 
+import { invalidateBalanceAfterGenerationTerminal } from "@/features/credits/lib/terminal-balance-invalidation";
 import { useTranslation } from "@/lib/i18n";
 import { useMediaGenerationAttemptQuery } from "../../../api/media-generations.queries";
 import { mediaGenerationDownloadUrl } from "../../../api/media-generations.services";
@@ -81,12 +83,22 @@ export function AnimateImagePart({ part }: { part: AnimateImageToolPart }) {
 
 function MediaGenerationCard({ attemptId }: { attemptId: string }) {
 	const { t } = useTranslation();
+	const queryClient = useQueryClient();
 	const {
 		data: attempt,
 		error,
 		refetch,
 		isFetching,
 	} = useMediaGenerationAttemptQuery(attemptId);
+	const terminalStatus =
+		attempt?.status === "succeeded" || attempt?.status === "failed"
+			? attempt.status
+			: null;
+
+	useEffect(() => {
+		if (!terminalStatus) return;
+		invalidateBalanceAfterGenerationTerminal(queryClient, terminalStatus);
+	}, [queryClient, terminalStatus]);
 
 	if (error) {
 		return (

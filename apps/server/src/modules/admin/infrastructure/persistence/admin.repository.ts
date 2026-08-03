@@ -16,7 +16,7 @@ import {
 	sql,
 } from "@wandit/db";
 import { session, user } from "@wandit/db/schema/auth";
-import { subscriptions } from "@wandit/db/schema/billing";
+import { betaAccessEvents, subscriptions } from "@wandit/db/schema/billing";
 import { creditLedger } from "@wandit/db/schema/credits";
 import { projects } from "@wandit/db/schema/projects";
 
@@ -65,6 +65,7 @@ export type AdminProjectDetailRow = {
 	name: string;
 	createdAt: Date;
 	updatedAt: Date;
+	organizationId: string | null;
 	ownerId: string;
 	ownerName: string;
 	ownerEmail: string;
@@ -84,6 +85,12 @@ export type AdminSignupPointRow = {
 	count: number;
 };
 
+export type AdminTransaction = Parameters<
+	Parameters<Database["transaction"]>[0]
+>[0];
+
+type AdminDbClient = Pick<Database, "insert" | "select" | "update">;
+
 const entitledStatuses = [...ENTITLED_SUBSCRIPTION_STATUSES];
 
 // Same terminal set as the subscriptions_userId_nonTerminal_uq partial index
@@ -94,6 +101,17 @@ const TERMINAL_SUBSCRIPTION_STATUSES = ["canceled", "incomplete_expired"];
 @Injectable()
 export class AdminRepository {
 	constructor(@Inject(DATABASE) private readonly db: Database) {}
+
+	withUserTransaction<T>(
+		userId: string,
+		fn: (tx: AdminTransaction) => Promise<T>,
+	): Promise<T> {
+		return this.db.transaction(async (tx) => {
+			await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${userId}))`);
+
+			return fn(tx);
+		});
+	}
 
 	async listUsers(
 		query: AdminListUsersQuery,
@@ -138,8 +156,9 @@ export class AdminRepository {
 
 	async findUserAccess(
 		userId: string,
+		client: AdminDbClient = this.db,
 	): Promise<{ id: string; role: string } | null> {
-		const [row] = await this.db
+		const [row] = await client
 			.select({ id: user.id, role: user.role })
 			.from(user)
 			.where(eq(user.id, userId))
@@ -171,6 +190,9 @@ export class AdminRepository {
 			.where(
 				and(
 					eq(subscriptions.userId, userId),
+					// Personal rows only: org subscriptions carry the purchasing
+					// admin's userId as provenance and belong to the org pages.
+					isNull(subscriptions.organizationId),
 					notInArray(subscriptions.status, TERMINAL_SUBSCRIPTION_STATUSES),
 				),
 			)
@@ -204,6 +226,7 @@ export class AdminRepository {
 				createdAt: projects.createdAt,
 				id: projects.id,
 				name: projects.name,
+				organizationId: projects.organizationId,
 				ownerEmail: user.email,
 				ownerId: user.id,
 				ownerName: user.name,
@@ -231,7 +254,14 @@ export class AdminRepository {
 				createdAt: creditLedger.createdAt,
 			})
 			.from(creditLedger)
-			.where(eq(creditLedger.userId, userId))
+			// Personal rows only: org consume rows record the acting member in
+			// userId but the ORG pool paid — mixing them corrupts the money view.
+			.where(
+				and(
+					eq(creditLedger.userId, userId),
+					isNull(creditLedger.organizationId),
+				),
+			)
 			.orderBy(desc(creditLedger.createdAt), desc(creditLedger.id))
 			.limit(limit);
 	}
@@ -243,8 +273,21 @@ export class AdminRepository {
 	async setUserEarlyAccess(
 		userId: string,
 		earlyAccess: boolean,
+		client: AdminDbClient = this.db,
 	): Promise<void> {
-		await this.db.update(user).set({ earlyAccess }).where(eq(user.id, userId));
+		await client.update(user).set({ earlyAccess }).where(eq(user.id, userId));
+	}
+
+	async insertBetaAccessEvent(
+		input: {
+			action: "granted" | "revoked";
+			actorUserId: string;
+			reason: string | null;
+			userId: string;
+		},
+		client: AdminDbClient = this.db,
+	): Promise<void> {
+		await client.insert(betaAccessEvents).values(input);
 	}
 
 	async setUserBanned(
@@ -327,6 +370,7 @@ export class AdminRepository {
 				select "subscriptions"."plan"
 				from "subscriptions"
 				where "subscriptions"."user_id" = "user"."id"
+					and "subscriptions"."organization_id" is null
 					and "subscriptions"."status" in (${sql.join(
 						entitledStatuses.map((status) => sql`${status}`),
 						sql`, `,
@@ -338,6 +382,7 @@ export class AdminRepository {
 				select sum("credit_ledger"."delta")
 				from "credit_ledger"
 				where "credit_ledger"."user_id" = "user"."id"
+					and "credit_ledger"."organization_id" is null
 			), 0)::int`,
 			projectsCount: sql<number>`(
 				select count(*)

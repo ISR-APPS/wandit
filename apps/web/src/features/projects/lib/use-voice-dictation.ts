@@ -19,9 +19,12 @@
 // and getUserMedia are native. Permission denial and API failures surface as
 // toasts via the i18n messages the caller passes in.
 
+import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { toUpgradeModalIntent } from "@/features/billing/lib/billing-error-dispatch";
+import { creditsKeys } from "@/features/credits";
 import { transcribeAudio } from "../api/transcriptions.services";
 
 // Text shown by the caller when browser permission fails or transcription fails.
@@ -62,6 +65,7 @@ export function useVoiceDictation(
 	onTranscript: (text: string) => void,
 	messages: VoiceMessages,
 ): UseVoiceDictation {
+	const queryClient = useQueryClient();
 	// isRecording tracks the local recorder state; isTranscribing tracks the
 	// network request after recording has stopped.
 	const [isRecording, setIsRecording] = useState(false);
@@ -144,10 +148,17 @@ export function useVoiceDictation(
 						// silence or failed speech detection.
 						if (text) onTranscriptRef.current(text);
 					})
-					.catch(() => {
-						toast.error(messagesRef.current.transcribeError);
+					.catch((error: unknown) => {
+						if (!toUpgradeModalIntent(error)) {
+							toast.error(messagesRef.current.transcribeError);
+						}
 					})
-					.finally(() => setIsTranscribing(false));
+					.finally(() => {
+						void queryClient.invalidateQueries({
+							queryKey: creditsKeys.balance(),
+						});
+						setIsTranscribing(false);
+					});
 			});
 
 			recorderRef.current = recorder;
@@ -160,7 +171,7 @@ export function useVoiceDictation(
 			setIsRecording(false);
 			toast.error(messagesRef.current.permissionDenied);
 		}
-	}, [supported, stopStream]);
+	}, [queryClient, supported, stopStream]);
 
 	// Stop the active recorder. The actual transcription work runs in the
 	// recorder's "stop" event handler above.

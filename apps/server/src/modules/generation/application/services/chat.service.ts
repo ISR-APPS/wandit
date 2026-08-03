@@ -8,6 +8,7 @@
  * saves the user message, reserves the chat in Redis, and puts a job in BullMQ.
  * The worker app later reads that job and calls the model.
  */
+import type { ProjectScope } from "../../../projects/domain/project-scope";
 import { randomUUID } from "node:crypto";
 import {
 	type HttpException,
@@ -24,14 +25,19 @@ import type {
 	SendChatMessageBody,
 	SendChatMessageResponse,
 } from "@wandit/contracts";
+import { env } from "@wandit/env/server";
 
+import { MeteringService } from "../../../metering/application/services/metering.service";
+import { operationPricing } from "../../../metering/domain/operation-registry";
 import { GenerationActiveError } from "../../domain/errors/generation-active.error";
 import { mapMessageRow } from "../../infrastructure/mappers/chat-message.mapper";
 // Repository = database helper. The service uses it instead of writing SQL here.
 import { ChatsRepository } from "../../infrastructure/persistence/chats.repository";
 import { GenerationActivityService } from "./generation-activity.service";
-import { GenerationPolicyService } from "./generation-policy.service";
-import { GenerationQueueService } from "./generation-queue.service";
+import {
+	GenerationQueueOutcomeUnknownError,
+	GenerationQueueService,
+} from "./generation-queue.service";
 
 // `@Injectable()` means Nest can create this class and inject it into controllers.
 @Injectable()
@@ -45,20 +51,21 @@ export class ChatService {
 		private readonly chatsRepository: ChatsRepository,
 		@Inject(GenerationActivityService)
 		private readonly generationActivityService: GenerationActivityService,
-		@Inject(GenerationPolicyService)
-		private readonly generationPolicyService: GenerationPolicyService,
 		@Inject(GenerationQueueService)
 		private readonly generationQueueService: GenerationQueueService,
+		@Inject(MeteringService)
+		private readonly meteringService: MeteringService,
 	) {}
 
 	// The workspace knows `projectId`; chat endpoints need `chatId`.
+	// LIVE read (used by the current editor): workspace-scoped.
 	async getByProject(
-		userId: string,
+		scope: ProjectScope,
 		projectId: string,
 	): Promise<ChatByProjectResponse> {
-		// If no row is found, either it does not exist or it belongs to another user.
-		const chat = await this.chatsRepository.findOwnedChatByProjectId(
-			userId,
+		// If no row is found, either it does not exist or it is out of scope.
+		const chat = await this.chatsRepository.findAccessibleChatByProjectId(
+			scope,
 			projectId,
 		);
 
@@ -73,11 +80,12 @@ export class ChatService {
 	}
 
 	// Load saved messages and ask Redis if a generation is currently running.
+	// LIVE read (used by the current editor): workspace-scoped.
 	async listMessages(
-		userId: string,
+		scope: ProjectScope,
 		chatId: string,
 	): Promise<ChatMessagesResponse> {
-		const chat = await this.requireOwnedChat(userId, chatId);
+		const chat = await this.requireAccessibleChat(scope, chatId);
 		// Postgres stores history. Redis stores temporary "busy" state.
 		const [messages, activeJobId] = await Promise.all([
 			this.chatsRepository.listMessages(chat.id),
@@ -96,11 +104,9 @@ export class ChatService {
 		chatId: string,
 		body: SendChatMessageBody,
 	): Promise<SendChatMessageResponse> {
-		// First make sure this chat belongs to this user.
+		// First make sure this chat belongs to this user. The legacy BullMQ send
+		// path stays personal-only by design (teams-workspaces.md §0).
 		const chat = await this.requireOwnedChat(userId, chatId);
-
-		// Then make sure the user is allowed to generate.
-		await this.generationPolicyService.assertCanGenerate(userId, "chatMessage");
 
 		// One id connects the Redis lock, BullMQ job, stream events, and assistant message.
 		const jobId = randomUUID();
@@ -115,7 +121,10 @@ export class ChatService {
 		}
 
 		let messageId: string | null = null;
-		let failureStage: "insert" | "enqueue" = "insert";
+		let usageEventId: string | null = null;
+		const billingMode =
+			env.GENERATION_BILLING_MODE === "off" ? "off" : "enforce";
+		let failureStage: "enqueue" | "insert" | "reserve" = "insert";
 
 		try {
 			// Save the user prompt before the worker starts.
@@ -125,17 +134,37 @@ export class ChatService {
 				text: body.text,
 			});
 			messageId = message.id;
+			failureStage = "reserve";
+
+			if (billingMode === "enforce") {
+				const reservation = await this.meteringService.reserve(
+					"chat",
+					// Legacy path is personal-only by design (teams-workspaces.md §0).
+					{ actorUserId: userId },
+					{
+					attemptRef: jobId,
+					chatId: chat.id,
+					credits: operationPricing("chat").reserveFloorCredits,
+					idempotencyKey: `legacy-chat:${jobId}`,
+					messageId: message.id,
+					model: env.AI_CHAT_MODEL,
+				});
+				usageEventId = reservation.id;
+			}
+
 			failureStage = "enqueue";
 
 			// Add a BullMQ job. The worker will call the AI and stream the answer.
 			const queued = await this.generationQueueService.enqueueGenerateCopy({
 				action: "chatMessage",
+				billingMode,
 				chatId: chat.id,
 				composer: body.composer,
 				jobId,
 				messageId: message.id,
 				projectId: chat.projectId,
 				prompt: body.text,
+				usageEventId,
 				userId,
 			});
 
@@ -144,9 +173,19 @@ export class ChatService {
 				messageId: message.id,
 			};
 		} catch (error) {
+			const outcomeUnknown =
+				error instanceof GenerationQueueOutcomeUnknownError;
 			// DB, Redis, and BullMQ are different systems. If one step fails after
-			// another succeeded, clean up as much as possible.
-			await this.compensateFailedSend(chat.id, jobId, messageId);
+			// another succeeded, compensate only when BullMQ definitively did not
+			// accept the job. An unknown outcome may still deliver asynchronously.
+			if (!outcomeUnknown) {
+				await this.compensateFailedSend(
+					chat.id,
+					jobId,
+					messageId,
+					usageEventId,
+				);
+			}
 
 			// If the failure happened while queueing, return a stable 503 error.
 			if (failureStage === "enqueue") {
@@ -162,9 +201,17 @@ export class ChatService {
 		await this.requireOwnedChat(userId, chatId);
 	}
 
-	// Shared "does this user own this chat?" check.
+	// Shared "does this user own this chat?" check. Legacy generation stays
+	// personal-only by design (teams-workspaces.md §0).
 	private async requireOwnedChat(userId: string, chatId: string) {
-		const chat = await this.chatsRepository.findOwnedChatById(userId, chatId);
+		return this.requireAccessibleChat({ kind: "personal", userId }, chatId);
+	}
+
+	private async requireAccessibleChat(scope: ProjectScope, chatId: string) {
+		const chat = await this.chatsRepository.findAccessibleChatById(
+			scope,
+			chatId,
+		);
 
 		if (!chat) {
 			throw new NotFoundException();
@@ -178,10 +225,19 @@ export class ChatService {
 		chatId: string,
 		jobId: string,
 		messageId: string | null,
+		usageEventId: string | null,
 	): Promise<void> {
 		// `allSettled` runs all cleanup attempts even if one of them fails.
 		const results = await Promise.allSettled([
 			...(messageId ? [this.chatsRepository.deleteMessageById(messageId)] : []),
+			...(usageEventId
+				? [
+						this.meteringService.refund(
+							usageEventId,
+							"legacy_chat_enqueue_failed",
+						),
+					]
+				: []),
 			this.generationActivityService.releaseActive(chatId, jobId),
 		]);
 

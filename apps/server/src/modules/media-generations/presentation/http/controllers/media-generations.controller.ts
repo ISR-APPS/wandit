@@ -6,6 +6,9 @@ import type { FastifyReply } from "fastify";
 import { SkipResponseEnvelope } from "../../../../../infrastructure/http/skip-envelope.decorator";
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { CurrentUser } from "../../../../auth";
+import { projectScopeFrom } from "../../../../projects/domain/project-scope";
+import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
+import { CurrentWorkspace } from "../../../../workspaces/presentation/http/decorators/workspace.decorators";
 import { MediaGenerationsService } from "../../../application/services/media-generations.service";
 
 @Controller("v1/media-generations")
@@ -20,8 +23,12 @@ export class MediaGenerationsController {
 		@Param("attemptId", new ZodValidationPipe(uuidSchema))
 		attemptId: string,
 		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
 	): Promise<MediaGenerationAttempt> {
-		return this.mediaGenerationsService.attempt(user.id, attemptId);
+		return this.mediaGenerationsService.attempt(
+			projectScopeFrom(workspace, user.id),
+			attemptId,
+		);
 	}
 
 	@Get(":attemptId/download")
@@ -30,10 +37,11 @@ export class MediaGenerationsController {
 		@Param("attemptId", new ZodValidationPipe(uuidSchema))
 		attemptId: string,
 		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
 		@Res() reply: FastifyReply,
 	): Promise<void> {
 		const download = await this.mediaGenerationsService.download(
-			user.id,
+			projectScopeFrom(workspace, user.id),
 			attemptId,
 		);
 

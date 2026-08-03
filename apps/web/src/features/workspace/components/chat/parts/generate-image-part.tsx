@@ -12,6 +12,7 @@ import { cn } from "@wandit/ui/lib/utils";
 import { AlertTriangle, RefreshCw } from "lucide-react";
 import { type ReactNode, useEffect } from "react";
 
+import { invalidateBalanceAfterGenerationTerminal } from "@/features/credits/lib/terminal-balance-invalidation";
 import { useTranslation } from "@/lib/i18n";
 import {
 	invalidateCompletedImageGeneration,
@@ -85,6 +86,15 @@ function ImageGenerationCard({ attemptId }: { attemptId: string }) {
 	// refresh. Placement stays pending briefly after image success, so this
 	// effect runs again when the worker records its final outcome.
 	const succeeded = attempt?.status === "succeeded";
+	const terminalStatus =
+		attempt?.status === "succeeded" || attempt?.status === "failed"
+			? attempt.status
+			: null;
+	useEffect(() => {
+		if (!terminalStatus) return;
+		invalidateBalanceAfterGenerationTerminal(queryClient, terminalStatus);
+	}, [queryClient, terminalStatus]);
+
 	useEffect(() => {
 		if (!succeeded) return;
 		invalidateCompletedImageGeneration(

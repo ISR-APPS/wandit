@@ -1,60 +1,124 @@
+import type { CreditKind, CreditLedgerRow } from "@wandit/contracts";
+import { formatNumber } from "@wandit/internationalization";
+import { Skeleton } from "@wandit/ui/components/skeleton";
 import { cn } from "@wandit/ui/lib/utils";
-import { CreditCard, Gift, Hourglass, Zap } from "lucide-react";
+import {
+	CircleMinus,
+	CreditCard,
+	Gift,
+	Hourglass,
+	type LucideIcon,
+	Zap,
+} from "lucide-react";
 
 import { useTranslation } from "@/lib/i18n";
 import { relativeTime } from "@/lib/relative-time";
-import { useCredits } from "../lib/hooks";
-import type { LedgerKind } from "../lib/store";
 
-const KIND_ICONS: Record<LedgerKind, typeof Gift> = {
+const KIND_ICONS: Record<CreditKind, LucideIcon> = {
 	grant: Gift,
 	consume: Zap,
 	topup: CreditCard,
 	expire: Hourglass,
+	revoke: CircleMinus,
 };
 
+const LEDGER_SKELETON_KEYS = ["one", "two", "three", "four", "five"];
+
 type LedgerListProps = {
-	limit?: number;
+	entries: readonly CreditLedgerRow[];
+	isError?: boolean;
+	isPending?: boolean;
+	compact?: boolean;
 	className?: string;
 };
 
-export function LedgerList({ limit, className }: LedgerListProps) {
-	const { t } = useTranslation();
-	const { ledger } = useCredits();
-	const rows = limit === undefined ? ledger : ledger.slice(0, limit);
+export function LedgerList({
+	entries,
+	isError = false,
+	isPending = false,
+	compact = false,
+	className,
+}: LedgerListProps) {
+	const { locale, t } = useTranslation();
 
-	if (rows.length === 0) {
+	if (isPending) {
 		return (
-			<p className={cn("px-2 py-1.5 text-muted-foreground text-xs", className)}>
+			<div className={cn("flex flex-col", className)} aria-hidden>
+				{LEDGER_SKELETON_KEYS.slice(0, compact ? 3 : 5).map((key) => (
+					<div key={key} className="flex items-center gap-3 px-2 py-2">
+						<Skeleton className="size-7 shrink-0 rounded-full" />
+						<div className="min-w-0 flex-1 space-y-1.5">
+							<Skeleton className="h-3 w-28" />
+							<Skeleton className="h-2.5 w-16" />
+						</div>
+						<Skeleton className="h-3 w-10" />
+					</div>
+				))}
+			</div>
+		);
+	}
+
+	if (isError) {
+		return (
+			<p
+				role="alert"
+				className={cn("px-2 py-3 text-muted-foreground text-xs", className)}
+			>
+				{t("credits.ledgerLoadError")}
+			</p>
+		);
+	}
+
+	if (entries.length === 0) {
+		return (
+			<p className={cn("px-2 py-3 text-muted-foreground text-xs", className)}>
 				{t("credits.emptyLedger")}
 			</p>
 		);
 	}
 
 	return (
-		<ul className={cn("flex flex-col", className)}>
-			{rows.map((entry) => {
+		<ul className={cn("flex flex-col divide-y divide-border/65", className)}>
+			{entries.map((entry) => {
 				const Icon = KIND_ICONS[entry.kind];
-				const label = entry.labelKey
-					? t(entry.labelKey, entry.labelParams)
-					: entry.label;
+				const positive = entry.delta > 0;
+
 				return (
 					<li
 						key={entry.id}
-						className="flex items-center gap-2 rounded-md px-2 py-1.5"
+						className={cn(
+							"flex items-center gap-3 px-2",
+							compact ? "py-2" : "py-3",
+						)}
 					>
-						<Icon className="size-3.5 shrink-0 text-muted-foreground" />
-						<span className="min-w-0 flex-1 truncate text-xs">{label}</span>
 						<span
 							className={cn(
-								"font-mono text-xs tabular-nums",
-								entry.amount > 0 ? "text-success" : "text-muted-foreground",
+								"grid size-7 shrink-0 place-items-center rounded-full border",
+								positive
+									? "border-success/25 bg-success/8 text-success"
+									: "border-border bg-muted/55 text-muted-foreground",
 							)}
 						>
-							{entry.amount > 0 ? `+${entry.amount}` : entry.amount}
+							<Icon className="size-3.5" aria-hidden />
 						</span>
-						<span className="w-12 text-end font-mono text-[10px] text-muted-foreground/70">
-							{relativeTime(entry.createdAt)}
+						<div className="min-w-0 flex-1">
+							<p className="truncate text-xs">
+								{t(`credits.ledgerKinds.${entry.kind}`)}
+							</p>
+							<p className="mt-0.5 text-[10px] text-muted-foreground">
+								{t(`credits.buckets.${entry.bucket}`)} ·{" "}
+								{relativeTime(entry.createdAt)}
+							</p>
+						</div>
+						<span
+							dir="ltr"
+							className={cn(
+								"shrink-0 font-mono text-xs tabular-nums",
+								positive ? "text-success" : "text-muted-foreground",
+							)}
+						>
+							{positive ? "+" : ""}
+							{formatNumber(entry.delta, locale)}
 						</span>
 					</li>
 				);

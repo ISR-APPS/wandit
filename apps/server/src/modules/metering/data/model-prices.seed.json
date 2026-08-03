@@ -1,0 +1,6143 @@
+{
+	"data": [
+		{
+			"id": "alibaba/qwen-3-14b",
+			"owned_by": "alibaba",
+			"pricing": {
+				"input": "0.00000012",
+				"output": "0.00000024"
+			},
+			"type": "language"
+		},
+		{
+			"id": "alibaba/qwen-3-235b",
+			"owned_by": "alibaba",
+			"pricing": {
+				"input": "0.00000022",
+				"output": "0.00000088"
+			},
+			"type": "language"
+		},
+		{
+			"id": "alibaba/qwen-3-30b",
+			"owned_by": "alibaba",
+			"pricing": {
+				"input": "0.00000012",
+				"output": "0.0000005"
+			},
+			"type": "language"
+		},
+		{
+			"id": "alibaba/qwen-3-32b",
+			"owned_by": "alibaba",
+			"pricing": {
+				"input": "0.00000016",
+				"output": "0.00000064"
+			},
+			"type": "language"
+		},
+		{
+			"id": "alibaba/qwen-3.6-max-preview",
+			"owned_by": "alibaba",
+			"pricing": {
+				"input": "0.0000013",
+				"input_cache_read": "0.00000026",
+				"input_cache_write": "0.000001625",
+				"output": "0.0000078",
+				"input_tiers": [
+					{
+						"cost": "0.0000013",
+						"min": 0,
+						"max": 128000
+					},
+					{
+						"cost": "0.000002",
+						"min": 128000
+					}
+				],
+				"output_tiers": [
+					{
+						"cost": "0.0000078",
+						"min": 0,
+						"max": 128000
+					},
+					{
+						"cost": "0.000012",
+						"min": 128000
+					}
+				],
+				"input_cache_read_tiers": [
+					{
+						"cost": "0.00000026",
+						"min": 0,
+						"max": 128000
+					},
+					{
+						"cost": "0.0000002",
+						"min": 128000
+					}
+				],
+				"input_cache_write_tiers": [
+					{
+						"cost": "0.000001625",
+						"min": 0,
+						"max": 128000
+					},
+					{
+						"cost": "0.0000025",
+						"min": 128000
+					}
+				]
+			},
+			"type": "language"
+		},
+		{
+			"id": "alibaba/qwen3-235b-a22b-thinking",
+			"owned_by": "alibaba",
+			"pricing": {
+				"input": "0.0000004",
+				"output": "0.000004"
+			},
+			"type": "language"
+		},
+		{
+			"id": "alibaba/qwen3-coder",
+			"owned_by": "alibaba",
+			"pricing": {
+				"input": "0.0000015",
+				"input_cache_read": "0.0000003",
+				"output": "0.0000075",
+				"input_tiers": [
+					{
+						"cost": "0.0000015",
+						"min": 0,
+						"max": 32001
+					},
+					{
+						"cost": "0.0000027",
+						"min": 32001,
+						"max": 128001
+					},
+					{
+						"cost": "0.0000045",
+						"min": 128001
+					}
+				],
+				"output_tiers": [
+					{
+						"cost": "0.0000075",
+						"min": 0,
+						"max": 32001
+					},
+					{
+						"cost": "0.0000135",
+						"min": 32001,
+						"max": 128001
+					},
+					{
+						"cost": "0.0000225",
+						"min": 128001
+					}
+				],
+				"input_cache_read_tiers": [
+					{
+						"cost": "0.0000003",
+						"min": 0,
+						"max": 32001
+					},
+					{
+						"cost": "0.00000054",
+						"min": 32001,
+						"max": 128001
+					},
+					{
+						"cost": "0.0000009",
+						"min": 128001
+					}
+				]
+			},
+			"type": "language"
+		},
+		{
+			"id": "alibaba/qwen3-coder-30b-a3b",
+			"owned_by": "alibaba",
+			"pricing": {
+				"input": "0.00000015",
+				"output": "0.0000006"
+			},
+			"type": "language"
+		},
+		{
+			"id": "alibaba/qwen3-coder-next",
+			"owned_by": "alibaba",
+			"pricing": {
+				"input": "0.0000005",
+				"output": "0.0000012"
+			},
+			"type": "language"
+		},
+		{
+			"id": "alibaba/qwen3-coder-plus",
+			"owned_by": "alibaba",
+			"pricing": {
+				"input": "0.000001",
+				"input_cache_read": "0.0000002",
+				"output": "0.000005",
+				"input_tiers": [
+					{
+						"cost": "0.000001",
+						"min": 0,
+						"max": 32001
+					},
+					{
+						"cost": "0.0000018",
+						"min": 32001,
+						"max": 128001
+					},
+					{
+						"cost": "0.000003",
+						"min": 128001,
+						"max": 256001
+					},
+					{
+						"cost": "0.000006",
+						"min": 256001
+					}
+				],
+				"output_tiers": [
+					{
+						"cost": "0.000005",
+						"min": 0,
+						"max": 32001
+					},
+					{
+						"cost": "0.000009",
+						"min": 32001,
+						"max": 128001
+					},
+					{
+						"cost": "0.000015",
+						"min": 128001,
+						"max": 256001
+					},
+					{
+						"cost": "0.00006",
+						"min": 256001
+					}
+				],
+				"input_cache_read_tiers": [
+					{
+						"cost": "0.0000002",
+						"min": 0,
+						"max": 32001
+					},
+					{
+						"cost": "0.00000036",
+						"min": 32001,
+						"max": 128001
+					},
+					{
+						"cost": "0.0000006",
+						"min": 128001,
+						"max": 256001
+					},
+					{
+						"cost": "0.0000012",
+						"min": 256001
+					}
+				]
+			},
+			"type": "language"
+		},
+		{
+			"id": "alibaba/qwen3-embedding-0.6b",
+			"owned_by": "alibaba",
+			"pricing": {
+				"input": "0.00000001"
+			},
+			"type": "embedding"
+		},
+		{
+			"id": "alibaba/qwen3-embedding-4b",
+			"owned_by": "alibaba",
+			"pricing": {
+				"input": "0.00000002"
+			},
+			"type": "embedding"
+		},
+		{
+			"id": "alibaba/qwen3-embedding-8b",
+			"owned_by": "alibaba",
+			"pricing": {
+				"input": "0.00000005"
+			},
+			"type": "embedding"
+		},
+		{
+			"id": "alibaba/qwen3-max",
+			"owned_by": "alibaba",
+			"pricing": {
+				"input": "0.0000012",
+				"input_cache_read": "0.00000024",
+				"output": "0.000006",
+				"input_tiers": [
+					{
+						"cost": "0.0000012",
+						"min": 0,
+						"max": 32001
+					},
+					{
+						"cost": "0.0000024",
+						"min": 32001,
+						"max": 128001
+					},
+					{
+						"cost": "0.000003",
+						"min": 128001
+					}
+				],
+				"output_tiers": [
+					{
+						"cost": "0.000006",
+						"min": 0,
+						"max": 32001
+					},
+					{
+						"cost": "0.000012",
+						"min": 32001,
+						"max": 128001
+					},
+					{
+						"cost": "0.000015",
+						"min": 128001
+					}
+				],
+				"input_cache_read_tiers": [
+					{
+						"cost": "0.00000024",
+						"min": 0,
+						"max": 32001
+					},
+					{
+						"cost": "0.00000048",
+						"min": 32001,
+						"max": 128001
+					},
+					{
+						"cost": "0.0000006",
+						"min": 128001
+					}
+				]
+			},
+			"type": "language"
+		},
+		{
+			"id": "alibaba/qwen3-max-preview",
+			"owned_by": "alibaba",
+			"pricing": {
+				"input": "0.0000012",
+				"input_cache_read": "0.00000024",
+				"output": "0.000006",
+				"input_tiers": [
+					{
+						"cost": "0.0000012",
+						"min": 0,
+						"max": 32001
+					},
+					{
+						"cost": "0.0000024",
+						"min": 32001,
+						"max": 128001
+					},
+					{
+						"cost": "0.000003",
+						"min": 128001
+					}
+				],
+				"output_tiers": [
+					{
+						"cost": "0.000006",
+						"min": 0,
+						"max": 32001
+					},
+					{
+						"cost": "0.000012",
+						"min": 32001,
+						"max": 128001
+					},
+					{
+						"cost": "0.000015",
+						"min": 128001
+					}
+				],
+				"input_cache_read_tiers": [
+					{
+						"cost": "0.00000024",
+						"min": 0,
+						"max": 32001
+					},
+					{
+						"cost": "0.00000048",
+						"min": 32001,
+						"max": 128001
+					},
+					{
+						"cost": "0.0000006",
+						"min": 128001
+					}
+				]
+			},
+			"type": "language"
+		},
+		{
+			"id": "alibaba/qwen3-max-thinking",
+			"owned_by": "alibaba",
+			"pricing": {
+				"input": "0.0000012",
+				"input_cache_read": "0.00000024",
+				"output": "0.000006",
+				"input_tiers": [
+					{
+						"cost": "0.0000012",
+						"min": 0,
+						"max": 32001
+					},
+					{
+						"cost": "0.0000024",
+						"min": 32001,
+						"max": 128001
+					},
+					{
+						"cost": "0.000003",
+						"min": 128001
+					}
+				],
+				"output_tiers": [
+					{
+						"cost": "0.000006",
+						"min": 0,
+						"max": 32001
+					},
+					{
+						"cost": "0.000012",
+						"min": 32001,
+						"max": 128001
+					},
+					{
+						"cost": "0.000015",
+						"min": 128001
+					}
+				],
+				"input_cache_read_tiers": [
+					{
+						"cost": "0.00000024",
+						"min": 0,
+						"max": 32001
+					},
+					{
+						"cost": "0.00000048",
+						"min": 32001,
+						"max": 128001
+					},
+					{
+						"cost": "0.0000006",
+						"min": 128001
+					}
+				]
+			},
+			"type": "language"
+		},
+		{
+			"id": "alibaba/qwen3-next-80b-a3b-instruct",
+			"owned_by": "alibaba",
+			"pricing": {
+				"input": "0.00000015",
+				"output": "0.0000012"
+			},
+			"type": "language"
+		},
+		{
+			"id": "alibaba/qwen3-next-80b-a3b-thinking",
+			"owned_by": "alibaba",
+			"pricing": {
+				"input": "0.00000015",
+				"output": "0.0000012"
+			},
+			"type": "language"
+		},
+		{
+			"id": "alibaba/qwen3-vl-235b-a22b-instruct",
+			"owned_by": "alibaba",
+			"pricing": {
+				"input": "0.0000004",
+				"output": "0.0000016"
+			},
+			"type": "language"
+		},
+		{
+			"id": "alibaba/qwen3-vl-instruct",
+			"owned_by": "alibaba",
+			"pricing": {
+				"input": "0.0000004",
+				"output": "0.0000016"
+			},
+			"type": "language"
+		},
+		{
+			"id": "alibaba/qwen3-vl-thinking",
+			"owned_by": "alibaba",
+			"pricing": {
+				"input": "0.0000004",
+				"output": "0.000004"
+			},
+			"type": "language"
+		},
+		{
+			"id": "alibaba/qwen3.5-flash",
+			"owned_by": "alibaba",
+			"pricing": {
+				"input": "0.0000001",
+				"input_cache_read": "0.000000001",
+				"input_cache_write": "0.000000125",
+				"output": "0.0000004"
+			},
+			"type": "language"
+		},
+		{
+			"id": "alibaba/qwen3.5-plus",
+			"owned_by": "alibaba",
+			"pricing": {
+				"input": "0.0000004",
+				"input_cache_read": "0.00000004",
+				"input_cache_write": "0.0000005",
+				"output": "0.0000024",
+				"input_tiers": [
+					{
+						"cost": "0.0000004",
+						"min": 0,
+						"max": 256001
+					},
+					{
+						"cost": "0.0000012",
+						"min": 256001
+					}
+				],
+				"output_tiers": [
+					{
+						"cost": "0.0000024",
+						"min": 0,
+						"max": 256001
+					},
+					{
+						"cost": "0.0000072",
+						"min": 256001
+					}
+				],
+				"input_cache_read_tiers": [
+					{
+						"cost": "0.00000004",
+						"min": 0,
+						"max": 256001
+					},
+					{
+						"cost": "0.00000012",
+						"min": 256001
+					}
+				],
+				"input_cache_write_tiers": [
+					{
+						"cost": "0.0000005",
+						"min": 0,
+						"max": 256001
+					},
+					{
+						"cost": "0.0000015",
+						"min": 256001
+					}
+				]
+			},
+			"type": "language"
+		},
+		{
+			"id": "alibaba/qwen3.6-27b",
+			"owned_by": "alibaba",
+			"pricing": {
+				"input": "0.0000006",
+				"output": "0.0000036"
+			},
+			"type": "language"
+		},
+		{
+			"id": "alibaba/qwen3.6-plus",
+			"owned_by": "alibaba",
+			"pricing": {
+				"input": "0.0000005",
+				"input_cache_read": "0.0000001",
+				"input_cache_write": "0.000000625",
+				"output": "0.000003",
+				"input_tiers": [
+					{
+						"cost": "0.0000005",
+						"min": 0,
+						"max": 256000
+					},
+					{
+						"cost": "0.000002",
+						"min": 256000
+					}
+				],
+				"output_tiers": [
+					{
+						"cost": "0.000003",
+						"min": 0,
+						"max": 256000
+					},
+					{
+						"cost": "0.000006",
+						"min": 256000
+					}
+				],
+				"input_cache_read_tiers": [
+					{
+						"cost": "0.0000001",
+						"min": 0,
+						"max": 256000
+					},
+					{
+						"cost": "0.0000002",
+						"min": 256000
+					}
+				],
+				"input_cache_write_tiers": [
+					{
+						"cost": "0.000000625",
+						"min": 0,
+						"max": 256000
+					},
+					{
+						"cost": "0.0000025",
+						"min": 256000
+					}
+				]
+			},
+			"type": "language"
+		},
+		{
+			"id": "alibaba/qwen3.7-flash",
+			"owned_by": "alibaba",
+			"pricing": {
+				"input": "0.00000003",
+				"input_cache_read": "0.000000006",
+				"input_cache_write": "0.000000038",
+				"output": "0.00000013",
+				"input_tiers": [
+					{
+						"cost": "0.00000003",
+						"min": 0,
+						"max": 32000
+					},
+					{
+						"cost": "0.0000001",
+						"min": 32000,
+						"max": 256000
+					},
+					{
+						"cost": "0.0000002",
+						"min": 256000
+					}
+				],
+				"output_tiers": [
+					{
+						"cost": "0.00000013",
+						"min": 0,
+						"max": 32000
+					},
+					{
+						"cost": "0.0000004",
+						"min": 32000,
+						"max": 256000
+					},
+					{
+						"cost": "0.0000008",
+						"min": 256000
+					}
+				],
+				"input_cache_read_tiers": [
+					{
+						"cost": "0.000000006",
+						"min": 0,
+						"max": 32000
+					},
+					{
+						"cost": "0.00000002",
+						"min": 32000,
+						"max": 256000
+					},
+					{
+						"cost": "0.00000004",
+						"min": 256000
+					}
+				],
+				"input_cache_write_tiers": [
+					{
+						"cost": "0.000000038",
+						"min": 0,
+						"max": 32000
+					},
+					{
+						"cost": "0.000000125",
+						"min": 32000,
+						"max": 256000
+					},
+					{
+						"cost": "0.00000025",
+						"min": 256000
+					}
+				]
+			},
+			"type": "language"
+		},
+		{
+			"id": "alibaba/qwen3.7-max",
+			"owned_by": "alibaba",
+			"pricing": {
+				"input": "0.0000025",
+				"input_cache_read": "0.0000005",
+				"input_cache_write": "0.000003125",
+				"output": "0.0000075"
+			},
+			"type": "language"
+		},
+		{
+			"id": "alibaba/qwen3.7-plus",
+			"owned_by": "alibaba",
+			"pricing": {
+				"input": "0.0000004",
+				"input_cache_read": "0.00000008",
+				"input_cache_write": "0.0000005",
+				"output": "0.0000016",
+				"input_tiers": [
+					{
+						"cost": "0.0000004",
+						"min": 0,
+						"max": 256000
+					},
+					{
+						"cost": "0.0000012",
+						"min": 256000
+					}
+				],
+				"output_tiers": [
+					{
+						"cost": "0.0000016",
+						"min": 0,
+						"max": 256000
+					},
+					{
+						"cost": "0.0000048",
+						"min": 256000
+					}
+				],
+				"input_cache_read_tiers": [
+					{
+						"cost": "0.00000008",
+						"min": 0,
+						"max": 256000
+					},
+					{
+						"cost": "0.00000024",
+						"min": 256000
+					}
+				],
+				"input_cache_write_tiers": [
+					{
+						"cost": "0.0000005",
+						"min": 0,
+						"max": 256000
+					},
+					{
+						"cost": "0.0000015",
+						"min": 256000
+					}
+				]
+			},
+			"type": "language"
+		},
+		{
+			"id": "alibaba/wan-v2.5-t2v-preview",
+			"owned_by": "alibaba",
+			"pricing": {
+				"video_duration_pricing": [
+					{
+						"resolution": "480p",
+						"cost_per_second": "0.05"
+					},
+					{
+						"resolution": "720p",
+						"cost_per_second": "0.1"
+					},
+					{
+						"resolution": "1080p",
+						"cost_per_second": "0.15"
+					}
+				]
+			},
+			"type": "video"
+		},
+		{
+			"id": "alibaba/wan-v2.6-i2v",
+			"owned_by": "alibaba",
+			"pricing": {
+				"video_duration_pricing": [
+					{
+						"resolution": "720p",
+						"cost_per_second": "0.1"
+					},
+					{
+						"resolution": "1080p",
+						"cost_per_second": "0.15"
+					}
+				]
+			},
+			"type": "video"
+		},
+		{
+			"id": "alibaba/wan-v2.6-i2v-flash",
+			"owned_by": "alibaba",
+			"pricing": {
+				"video_duration_pricing": [
+					{
+						"resolution": "720p",
+						"cost_per_second": "0.05"
+					},
+					{
+						"resolution": "1080p",
+						"cost_per_second": "0.075"
+					}
+				]
+			},
+			"type": "video"
+		},
+		{
+			"id": "alibaba/wan-v2.6-r2v",
+			"owned_by": "alibaba",
+			"pricing": {
+				"video_duration_pricing": [
+					{
+						"resolution": "720p",
+						"cost_per_second": "0.1"
+					},
+					{
+						"resolution": "1080p",
+						"cost_per_second": "0.15"
+					}
+				]
+			},
+			"type": "video"
+		},
+		{
+			"id": "alibaba/wan-v2.6-r2v-flash",
+			"owned_by": "alibaba",
+			"pricing": {
+				"video_duration_pricing": [
+					{
+						"resolution": "720p",
+						"cost_per_second": "0.05"
+					},
+					{
+						"resolution": "1080p",
+						"cost_per_second": "0.075"
+					}
+				]
+			},
+			"type": "video"
+		},
+		{
+			"id": "alibaba/wan-v2.6-t2v",
+			"owned_by": "alibaba",
+			"pricing": {
+				"video_duration_pricing": [
+					{
+						"resolution": "720p",
+						"cost_per_second": "0.1"
+					},
+					{
+						"resolution": "1080p",
+						"cost_per_second": "0.15"
+					}
+				]
+			},
+			"type": "video"
+		},
+		{
+			"id": "alibaba/wan-v2.7-r2v",
+			"owned_by": "alibaba",
+			"pricing": {
+				"video_duration_pricing": [
+					{
+						"resolution": "720p",
+						"cost_per_second": "0.1"
+					},
+					{
+						"resolution": "1080p",
+						"cost_per_second": "0.15"
+					}
+				]
+			},
+			"type": "video"
+		},
+		{
+			"id": "alibaba/wan-v2.7-t2v",
+			"owned_by": "alibaba",
+			"pricing": {
+				"video_duration_pricing": [
+					{
+						"resolution": "720p",
+						"cost_per_second": "0.1"
+					},
+					{
+						"resolution": "1080p",
+						"cost_per_second": "0.15"
+					}
+				]
+			},
+			"type": "video"
+		},
+		{
+			"id": "amazon/nova-2-lite",
+			"owned_by": "amazon",
+			"pricing": {
+				"input": "0.0000003",
+				"input_cache_read": "0.000000075",
+				"output": "0.0000025",
+				"regional": {
+					"eu": {
+						"input": "0.00000039",
+						"output": "0.00000327",
+						"input_cache_read": "0.000000075"
+					},
+					"us": {
+						"input": "0.0000003",
+						"output": "0.0000025",
+						"input_cache_read": "0.000000075"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "amazon/nova-lite",
+			"owned_by": "amazon",
+			"pricing": {
+				"input": "0.00000006",
+				"output": "0.00000024",
+				"regional": {
+					"eu": {
+						"input": "0.000000078",
+						"output": "0.000000312"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "amazon/nova-micro",
+			"owned_by": "amazon",
+			"pricing": {
+				"input": "0.000000035",
+				"output": "0.00000014",
+				"regional": {
+					"eu": {
+						"input": "0.000000046",
+						"output": "0.000000184"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "amazon/nova-pro",
+			"owned_by": "amazon",
+			"pricing": {
+				"input": "0.0000008",
+				"output": "0.0000032",
+				"regional": {
+					"eu": {
+						"input": "0.00000105",
+						"output": "0.0000042"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "amazon/titan-embed-text-v2",
+			"owned_by": "amazon",
+			"pricing": {
+				"input": "0.00000002"
+			},
+			"type": "embedding"
+		},
+		{
+			"id": "anthropic/claude-3-haiku",
+			"owned_by": "anthropic",
+			"pricing": {
+				"input": "0.00000025",
+				"input_cache_read": "0.00000003",
+				"input_cache_write": "0.0000003",
+				"output": "0.00000125"
+			},
+			"type": "language"
+		},
+		{
+			"id": "anthropic/claude-fable-5",
+			"owned_by": "anthropic",
+			"pricing": {
+				"input": "0.00001",
+				"input_cache_read": "0.000001",
+				"input_cache_write": "0.0000125",
+				"output": "0.00005",
+				"web_search": "10",
+				"regional": {
+					"us": {
+						"input": "0.000011",
+						"output": "0.000055",
+						"input_cache_read": "0.0000011",
+						"input_cache_write": "0.00001375"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "anthropic/claude-haiku-4.5",
+			"owned_by": "anthropic",
+			"pricing": {
+				"input": "0.000001",
+				"input_cache_read": "0.0000001",
+				"input_cache_write": "0.00000125",
+				"output": "0.000005",
+				"web_search": "10",
+				"regional": {
+					"eu": {
+						"input": "0.0000011",
+						"output": "0.0000055",
+						"input_cache_read": "0.00000011",
+						"input_cache_write": "0.000001375"
+					},
+					"us": {
+						"input": "0.0000011",
+						"output": "0.0000055",
+						"input_cache_read": "0.00000011",
+						"input_cache_write": "0.000001375"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "anthropic/claude-opus-4",
+			"owned_by": "anthropic",
+			"pricing": {
+				"input": "0.000015",
+				"input_cache_read": "0.0000015",
+				"input_cache_write": "0.00001875",
+				"output": "0.000075",
+				"web_search": "10"
+			},
+			"type": "language"
+		},
+		{
+			"id": "anthropic/claude-opus-4.1",
+			"owned_by": "anthropic",
+			"pricing": {
+				"input": "0.000015",
+				"input_cache_read": "0.0000015",
+				"input_cache_write": "0.00001875",
+				"output": "0.000075",
+				"web_search": "10"
+			},
+			"type": "language"
+		},
+		{
+			"id": "anthropic/claude-opus-4.5",
+			"owned_by": "anthropic",
+			"pricing": {
+				"input": "0.000005",
+				"input_cache_read": "0.0000005",
+				"input_cache_write": "0.00000625",
+				"output": "0.000025",
+				"web_search": "10",
+				"regional": {
+					"eu": {
+						"input": "0.0000055",
+						"output": "0.0000275",
+						"input_cache_read": "0.00000055",
+						"input_cache_write": "0.000006875"
+					},
+					"us": {
+						"input": "0.0000055",
+						"output": "0.0000275",
+						"input_cache_read": "0.00000055",
+						"input_cache_write": "0.000006875"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "anthropic/claude-opus-4.6",
+			"owned_by": "anthropic",
+			"pricing": {
+				"input": "0.000005",
+				"input_cache_read": "0.0000005",
+				"input_cache_write": "0.00000625",
+				"output": "0.000025",
+				"web_search": "10",
+				"regional": {
+					"eu": {
+						"input": "0.0000055",
+						"output": "0.0000275",
+						"input_cache_read": "0.00000055",
+						"input_cache_write": "0.000006875"
+					},
+					"us": {
+						"input": "0.0000055",
+						"output": "0.0000275",
+						"input_cache_read": "0.00000055",
+						"input_cache_write": "0.000006875",
+						"fast": {
+							"input": "0.000033",
+							"output": "0.000165",
+							"input_cache_read": "0.0000033",
+							"input_cache_write": "0.00004125"
+						}
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "anthropic/claude-opus-4.7",
+			"owned_by": "anthropic",
+			"pricing": {
+				"input": "0.000005",
+				"input_cache_read": "0.0000005",
+				"input_cache_write": "0.00000625",
+				"output": "0.000025",
+				"web_search": "10",
+				"regional": {
+					"eu": {
+						"input": "0.0000055",
+						"output": "0.0000275",
+						"input_cache_read": "0.00000055",
+						"input_cache_write": "0.000006875"
+					},
+					"us": {
+						"input": "0.0000055",
+						"output": "0.0000275",
+						"input_cache_read": "0.00000055",
+						"input_cache_write": "0.000006875",
+						"fast": {
+							"input": "0.000033",
+							"output": "0.000165",
+							"input_cache_read": "0.0000033",
+							"input_cache_write": "0.00004125"
+						}
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "anthropic/claude-opus-4.8",
+			"owned_by": "anthropic",
+			"pricing": {
+				"input": "0.000005",
+				"input_cache_read": "0.0000005",
+				"input_cache_write": "0.00000625",
+				"output": "0.000025",
+				"web_search": "10",
+				"fast": {
+					"input": "0.00001",
+					"output": "0.00005",
+					"input_cache_read": "0.000001",
+					"input_cache_write": "0.0000125"
+				},
+				"regional": {
+					"eu": {
+						"input": "0.0000055",
+						"output": "0.0000275",
+						"input_cache_read": "0.00000055",
+						"input_cache_write": "0.000006875"
+					},
+					"us": {
+						"input": "0.0000055",
+						"output": "0.0000275",
+						"input_cache_read": "0.00000055",
+						"input_cache_write": "0.000006875",
+						"fast": {
+							"input": "0.000011",
+							"output": "0.000055",
+							"input_cache_read": "0.0000011",
+							"input_cache_write": "0.00001375"
+						}
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "anthropic/claude-opus-4.8-fast",
+			"owned_by": "anthropic",
+			"pricing": {
+				"input": "0.00001",
+				"input_cache_read": "0.000001",
+				"input_cache_write": "0.0000125",
+				"output": "0.00005",
+				"web_search": "10",
+				"regional": {
+					"us": {
+						"input": "0.000011",
+						"output": "0.000055",
+						"input_cache_read": "0.0000011",
+						"input_cache_write": "0.00001375"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "anthropic/claude-opus-5",
+			"owned_by": "anthropic",
+			"pricing": {
+				"input": "0.000005",
+				"input_cache_read": "0.0000005",
+				"input_cache_write": "0.00000625",
+				"output": "0.000025",
+				"web_search": "10",
+				"fast": {
+					"input": "0.00001",
+					"output": "0.00005",
+					"input_cache_read": "0.000001",
+					"input_cache_write": "0.0000125"
+				},
+				"regional": {
+					"eu": {
+						"input": "0.0000055",
+						"output": "0.0000275",
+						"input_cache_read": "0.00000055",
+						"input_cache_write": "0.000006875"
+					},
+					"us": {
+						"input": "0.0000055",
+						"output": "0.0000275",
+						"input_cache_read": "0.00000055",
+						"input_cache_write": "0.000006875",
+						"fast": {
+							"input": "0.000011",
+							"output": "0.000055",
+							"input_cache_read": "0.0000011",
+							"input_cache_write": "0.00001375"
+						}
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "anthropic/claude-opus-5-fast",
+			"owned_by": "anthropic",
+			"pricing": {
+				"input": "0.00001",
+				"input_cache_read": "0.000001",
+				"input_cache_write": "0.0000125",
+				"output": "0.00005",
+				"web_search": "10",
+				"regional": {
+					"us": {
+						"input": "0.000011",
+						"output": "0.000055",
+						"input_cache_read": "0.0000011",
+						"input_cache_write": "0.00001375"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "anthropic/claude-sonnet-4",
+			"owned_by": "anthropic",
+			"pricing": {
+				"input": "0.000003",
+				"input_cache_read": "0.0000003",
+				"input_cache_write": "0.00000375",
+				"output": "0.000015",
+				"input_tiers": [
+					{
+						"cost": "0.000003",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.000006",
+						"min": 200001
+					}
+				],
+				"output_tiers": [
+					{
+						"cost": "0.000015",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.0000225",
+						"min": 200001
+					}
+				],
+				"input_cache_read_tiers": [
+					{
+						"cost": "0.0000003",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.0000006",
+						"min": 200001
+					}
+				],
+				"input_cache_write_tiers": [
+					{
+						"cost": "0.00000375",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.0000075",
+						"min": 200001
+					}
+				]
+			},
+			"type": "language"
+		},
+		{
+			"id": "anthropic/claude-sonnet-4.5",
+			"owned_by": "anthropic",
+			"pricing": {
+				"input": "0.000003",
+				"input_cache_read": "0.0000003",
+				"input_cache_write": "0.00000375",
+				"output": "0.000015",
+				"input_tiers": [
+					{
+						"cost": "0.000003",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.000006",
+						"min": 200001
+					}
+				],
+				"output_tiers": [
+					{
+						"cost": "0.000015",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.0000225",
+						"min": 200001
+					}
+				],
+				"input_cache_read_tiers": [
+					{
+						"cost": "0.0000003",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.0000006",
+						"min": 200001
+					}
+				],
+				"input_cache_write_tiers": [
+					{
+						"cost": "0.00000375",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.0000075",
+						"min": 200001
+					}
+				],
+				"web_search": "10",
+				"regional": {
+					"eu": {
+						"input": "0.0000033",
+						"input_tiers": [
+							{
+								"cost": "0.0000033",
+								"min": 0,
+								"max": 200001
+							},
+							{
+								"cost": "0.0000066",
+								"min": 200001
+							}
+						],
+						"output": "0.0000165",
+						"output_tiers": [
+							{
+								"cost": "0.0000165",
+								"min": 0,
+								"max": 200001
+							},
+							{
+								"cost": "0.00002475",
+								"min": 200001
+							}
+						],
+						"input_cache_read": "0.00000033",
+						"input_cache_read_tiers": [
+							{
+								"cost": "0.00000033",
+								"min": 0,
+								"max": 200001
+							},
+							{
+								"cost": "0.00000066",
+								"min": 200001
+							}
+						],
+						"input_cache_write": "0.000004125",
+						"input_cache_write_tiers": [
+							{
+								"cost": "0.000004125",
+								"min": 0,
+								"max": 200001
+							},
+							{
+								"cost": "0.00000825",
+								"min": 200001
+							}
+						]
+					},
+					"us": {
+						"input": "0.0000033",
+						"input_tiers": [
+							{
+								"cost": "0.0000033",
+								"min": 0,
+								"max": 200001
+							},
+							{
+								"cost": "0.0000066",
+								"min": 200001
+							}
+						],
+						"output": "0.0000165",
+						"output_tiers": [
+							{
+								"cost": "0.0000165",
+								"min": 0,
+								"max": 200001
+							},
+							{
+								"cost": "0.00002475",
+								"min": 200001
+							}
+						],
+						"input_cache_read": "0.00000033",
+						"input_cache_read_tiers": [
+							{
+								"cost": "0.00000033",
+								"min": 0,
+								"max": 200001
+							},
+							{
+								"cost": "0.00000066",
+								"min": 200001
+							}
+						],
+						"input_cache_write": "0.000004125",
+						"input_cache_write_tiers": [
+							{
+								"cost": "0.000004125",
+								"min": 0,
+								"max": 200001
+							},
+							{
+								"cost": "0.00000825",
+								"min": 200001
+							}
+						]
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "anthropic/claude-sonnet-4.6",
+			"owned_by": "anthropic",
+			"pricing": {
+				"input": "0.000003",
+				"input_cache_read": "0.0000003",
+				"input_cache_write": "0.00000375",
+				"output": "0.000015",
+				"web_search": "10",
+				"regional": {
+					"eu": {
+						"input": "0.0000033",
+						"output": "0.0000165",
+						"input_cache_read": "0.00000033",
+						"input_cache_write": "0.000004125"
+					},
+					"us": {
+						"input": "0.0000033",
+						"output": "0.0000165",
+						"input_cache_read": "0.00000033",
+						"input_cache_write": "0.000004125"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "anthropic/claude-sonnet-5",
+			"owned_by": "anthropic",
+			"pricing": {
+				"input": "0.000002",
+				"input_cache_read": "0.0000002",
+				"input_cache_write": "0.0000025",
+				"output": "0.00001",
+				"web_search": "10",
+				"regional": {
+					"eu": {
+						"input": "0.0000022",
+						"output": "0.000011",
+						"input_cache_read": "0.00000022",
+						"input_cache_write": "0.00000275"
+					},
+					"us": {
+						"input": "0.0000022",
+						"output": "0.000011",
+						"input_cache_read": "0.00000022",
+						"input_cache_write": "0.00000275"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "arcee-ai/trinity-large-thinking",
+			"owned_by": "arcee-ai",
+			"pricing": {
+				"input": "0.00000025",
+				"output": "0.0000009"
+			},
+			"type": "language"
+		},
+		{
+			"id": "arcee-ai/trinity-mini",
+			"owned_by": "arcee-ai",
+			"pricing": {
+				"input": "0.000000045",
+				"output": "0.00000015"
+			},
+			"type": "language"
+		},
+		{
+			"id": "bfl/flux-2-flex",
+			"owned_by": "bfl",
+			"pricing": {},
+			"type": "image"
+		},
+		{
+			"id": "bfl/flux-2-klein-4b",
+			"owned_by": "bfl",
+			"pricing": {},
+			"type": "image"
+		},
+		{
+			"id": "bfl/flux-2-klein-9b",
+			"owned_by": "bfl",
+			"pricing": {},
+			"type": "image"
+		},
+		{
+			"id": "bfl/flux-2-max",
+			"owned_by": "bfl",
+			"pricing": {},
+			"type": "image"
+		},
+		{
+			"id": "bfl/flux-2-pro",
+			"owned_by": "bfl",
+			"pricing": {},
+			"type": "image"
+		},
+		{
+			"id": "bfl/flux-kontext-max",
+			"owned_by": "bfl",
+			"pricing": {
+				"image": "0.08"
+			},
+			"type": "image"
+		},
+		{
+			"id": "bfl/flux-kontext-pro",
+			"owned_by": "bfl",
+			"pricing": {
+				"image": "0.04"
+			},
+			"type": "image"
+		},
+		{
+			"id": "bfl/flux-pro-1.0-fill",
+			"owned_by": "bfl",
+			"pricing": {
+				"image": "0.05"
+			},
+			"type": "image"
+		},
+		{
+			"id": "bfl/flux-pro-1.1",
+			"owned_by": "bfl",
+			"pricing": {
+				"image": "0.04"
+			},
+			"type": "image"
+		},
+		{
+			"id": "bfl/flux-pro-1.1-ultra",
+			"owned_by": "bfl",
+			"pricing": {
+				"image": "0.06"
+			},
+			"type": "image"
+		},
+		{
+			"id": "bytedance/seed-1.6",
+			"owned_by": "bytedance",
+			"pricing": {
+				"input": "0.00000025",
+				"input_cache_read": "0.00000005",
+				"output": "0.000002",
+				"input_tiers": [
+					{
+						"cost": "0.00000025",
+						"min": 0,
+						"max": 128001
+					},
+					{
+						"cost": "0.0000005",
+						"min": 128001
+					}
+				],
+				"output_tiers": [
+					{
+						"cost": "0.000002",
+						"min": 0,
+						"max": 128001
+					},
+					{
+						"cost": "0.000004",
+						"min": 128001
+					}
+				]
+			},
+			"type": "language"
+		},
+		{
+			"id": "bytedance/seed-1.8",
+			"owned_by": "bytedance",
+			"pricing": {
+				"input": "0.00000025",
+				"input_cache_read": "0.00000005",
+				"output": "0.000002",
+				"input_tiers": [
+					{
+						"cost": "0.00000025",
+						"min": 0,
+						"max": 128001
+					},
+					{
+						"cost": "0.0000005",
+						"min": 128001
+					}
+				],
+				"output_tiers": [
+					{
+						"cost": "0.000002",
+						"min": 0,
+						"max": 128001
+					},
+					{
+						"cost": "0.000004",
+						"min": 128001
+					}
+				]
+			},
+			"type": "language"
+		},
+		{
+			"id": "bytedance/seedance-2.0",
+			"owned_by": "bytedance",
+			"pricing": {
+				"video_token_pricing": {
+					"no_video_input": {
+						"cost_per_million_tokens": "7"
+					},
+					"with_video_input": {
+						"cost_per_million_tokens": "4.3"
+					},
+					"notes": "Pricing varies based on whether the input contains video. When video is included in the input, all tokens are billed at the reduced rate. Token count includes both input and output video and is subject to minimum token floors based on output duration."
+				}
+			},
+			"type": "video"
+		},
+		{
+			"id": "bytedance/seedance-2.0-fast",
+			"owned_by": "bytedance",
+			"pricing": {
+				"video_token_pricing": {
+					"no_video_input": {
+						"cost_per_million_tokens": "5.6"
+					},
+					"with_video_input": {
+						"cost_per_million_tokens": "3.3"
+					},
+					"notes": "Pricing varies based on whether the input contains video. When video is included in the input, all tokens are billed at the reduced rate. Token count includes both input and output video and is subject to minimum token floors based on output duration."
+				}
+			},
+			"type": "video"
+		},
+		{
+			"id": "bytedance/seedance-v1.0-pro",
+			"owned_by": "bytedance",
+			"pricing": {
+				"video_duration_pricing": [
+					{
+						"resolution": "480p",
+						"cost_per_second": "0.0243"
+					},
+					{
+						"resolution": "720p",
+						"cost_per_second": "0.0515"
+					},
+					{
+						"resolution": "1080p",
+						"cost_per_second": "0.1224"
+					}
+				]
+			},
+			"type": "video"
+		},
+		{
+			"id": "bytedance/seedance-v1.0-pro-fast",
+			"owned_by": "bytedance",
+			"pricing": {
+				"video_duration_pricing": [
+					{
+						"resolution": "480p",
+						"cost_per_second": "0.0097"
+					},
+					{
+						"resolution": "720p",
+						"cost_per_second": "0.0206"
+					},
+					{
+						"resolution": "1080p",
+						"cost_per_second": "0.049"
+					}
+				]
+			},
+			"type": "video"
+		},
+		{
+			"id": "bytedance/seedance-v1.5-pro",
+			"owned_by": "bytedance",
+			"pricing": {
+				"video_duration_pricing": [
+					{
+						"resolution": "480p",
+						"audio": false,
+						"cost_per_second": "0.0121"
+					},
+					{
+						"resolution": "480p",
+						"audio": true,
+						"cost_per_second": "0.0241"
+					},
+					{
+						"resolution": "720p",
+						"audio": false,
+						"cost_per_second": "0.0259"
+					},
+					{
+						"resolution": "720p",
+						"audio": true,
+						"cost_per_second": "0.0518"
+					},
+					{
+						"resolution": "1080p",
+						"audio": false,
+						"cost_per_second": "0.0583"
+					},
+					{
+						"resolution": "1080p",
+						"audio": true,
+						"cost_per_second": "0.1166"
+					}
+				]
+			},
+			"type": "video"
+		},
+		{
+			"id": "bytedance/seedream-4.0",
+			"owned_by": "bytedance",
+			"pricing": {
+				"image": "0.03"
+			},
+			"type": "image"
+		},
+		{
+			"id": "bytedance/seedream-4.5",
+			"owned_by": "bytedance",
+			"pricing": {
+				"image": "0.04"
+			},
+			"type": "image"
+		},
+		{
+			"id": "bytedance/seedream-5.0-lite",
+			"owned_by": "bytedance",
+			"pricing": {
+				"image": "0.035"
+			},
+			"type": "image"
+		},
+		{
+			"id": "bytedance/seedream-5.0-pro",
+			"owned_by": "bytedance",
+			"pricing": {
+				"image": "0.035",
+				"input": "0.000000003"
+			},
+			"type": "image"
+		},
+		{
+			"id": "cohere/command-a",
+			"owned_by": "cohere",
+			"pricing": {
+				"input": "0.0000025",
+				"output": "0.00001"
+			},
+			"type": "language"
+		},
+		{
+			"id": "cohere/embed-v4.0",
+			"owned_by": "cohere",
+			"pricing": {
+				"input": "0.00000012",
+				"regional": {
+					"us": {
+						"input": "0.00000012"
+					}
+				}
+			},
+			"type": "embedding"
+		},
+		{
+			"id": "cohere/rerank-v3.5",
+			"owned_by": "cohere",
+			"pricing": {},
+			"type": "reranking"
+		},
+		{
+			"id": "cohere/rerank-v4-fast",
+			"owned_by": "cohere",
+			"pricing": {},
+			"type": "reranking"
+		},
+		{
+			"id": "cohere/rerank-v4-pro",
+			"owned_by": "cohere",
+			"pricing": {},
+			"type": "reranking"
+		},
+		{
+			"id": "deepseek/deepseek-r1",
+			"owned_by": "deepseek",
+			"pricing": {
+				"input": "0.00000135",
+				"output": "0.0000054"
+			},
+			"type": "language"
+		},
+		{
+			"id": "deepseek/deepseek-v3",
+			"owned_by": "deepseek",
+			"pricing": {
+				"input": "0.00000027",
+				"input_cache_read": "0.000000135",
+				"output": "0.00000112"
+			},
+			"type": "language"
+		},
+		{
+			"id": "deepseek/deepseek-v3.1",
+			"owned_by": "deepseek",
+			"pricing": {
+				"input": "0.00000025",
+				"input_cache_read": "0.00000013",
+				"output": "0.00000095"
+			},
+			"type": "language"
+		},
+		{
+			"id": "deepseek/deepseek-v3.1-terminus",
+			"owned_by": "deepseek",
+			"pricing": {
+				"input": "0.00000027",
+				"input_cache_read": "0.000000135",
+				"output": "0.000001"
+			},
+			"type": "language"
+		},
+		{
+			"id": "deepseek/deepseek-v3.2",
+			"owned_by": "deepseek",
+			"pricing": {
+				"input": "0.00000028",
+				"input_cache_read": "0.000000028",
+				"output": "0.00000042"
+			},
+			"type": "language"
+		},
+		{
+			"id": "deepseek/deepseek-v3.2-thinking",
+			"owned_by": "deepseek",
+			"pricing": {
+				"input": "0.00000062",
+				"output": "0.00000185"
+			},
+			"type": "language"
+		},
+		{
+			"id": "deepseek/deepseek-v4-flash",
+			"owned_by": "deepseek",
+			"pricing": {
+				"input": "0.00000014",
+				"input_cache_read": "0.0000000028",
+				"output": "0.00000028"
+			},
+			"type": "language"
+		},
+		{
+			"id": "deepseek/deepseek-v4-flash-0731",
+			"owned_by": "deepseek",
+			"pricing": {
+				"input": "0.00000013",
+				"input_cache_read": "0.000000028",
+				"output": "0.00000026"
+			},
+			"type": "language"
+		},
+		{
+			"id": "deepseek/deepseek-v4-pro",
+			"owned_by": "deepseek",
+			"pricing": {
+				"input": "0.000000435",
+				"input_cache_read": "0.0000000036",
+				"output": "0.00000087",
+				"regional": {
+					"us": {
+						"input": "0.00000174",
+						"output": "0.00000348",
+						"input_cache_read": "0.00000015"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "google/gemini-2.5-flash",
+			"owned_by": "google",
+			"pricing": {
+				"input": "0.0000003",
+				"input_cache_read": "0.00000003",
+				"output": "0.0000025",
+				"web_search": "35",
+				"maps_search": "25",
+				"service_tiers": {
+					"priority": {
+						"input": "0.00000054",
+						"output": "0.0000045",
+						"input_cache_read": "0.000000054"
+					},
+					"flex": {
+						"input": "0.00000015",
+						"output": "0.00000125"
+					}
+				},
+				"regional": {
+					"eu": {
+						"input": "0.0000003",
+						"output": "0.0000025",
+						"input_cache_read": "0.00000003"
+					},
+					"us": {
+						"input": "0.0000003",
+						"output": "0.0000025",
+						"input_cache_read": "0.00000003"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "google/gemini-2.5-flash-image",
+			"owned_by": "google",
+			"pricing": {
+				"image_dimension_quality_pricing": [
+					{
+						"cost": "0.039",
+						"size": "default"
+					}
+				],
+				"input": "0.0000003",
+				"input_cache_read": "0.00000003",
+				"output": "0.0000025",
+				"maps_search": "25",
+				"service_tiers": {
+					"flex": {
+						"input": "0.00000015",
+						"output": "0.00000125"
+					}
+				},
+				"regional": {
+					"eu": {
+						"input": "0.0000003",
+						"output": "0.0000025",
+						"input_cache_read": "0.00000003"
+					},
+					"us": {
+						"input": "0.0000003",
+						"output": "0.0000025",
+						"input_cache_read": "0.00000003"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "google/gemini-2.5-flash-lite",
+			"owned_by": "google",
+			"pricing": {
+				"input": "0.0000001",
+				"input_cache_read": "0.00000001",
+				"output": "0.0000004",
+				"web_search": "35",
+				"maps_search": "25",
+				"service_tiers": {
+					"priority": {
+						"input": "0.00000018",
+						"output": "0.00000072",
+						"input_cache_read": "0.000000018"
+					},
+					"flex": {
+						"input": "0.00000005",
+						"output": "0.0000002"
+					}
+				},
+				"regional": {
+					"eu": {
+						"input": "0.0000001",
+						"output": "0.0000004",
+						"input_cache_read": "0.00000001"
+					},
+					"us": {
+						"input": "0.0000001",
+						"output": "0.0000004",
+						"input_cache_read": "0.00000001"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "google/gemini-2.5-pro",
+			"owned_by": "google",
+			"pricing": {
+				"input": "0.00000125",
+				"input_cache_read": "0.000000125",
+				"output": "0.00001",
+				"input_tiers": [
+					{
+						"cost": "0.00000125",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.0000025",
+						"min": 200001
+					}
+				],
+				"output_tiers": [
+					{
+						"cost": "0.00001",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.000015",
+						"min": 200001
+					}
+				],
+				"input_cache_read_tiers": [
+					{
+						"cost": "0.000000125",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.00000025",
+						"min": 200001
+					}
+				],
+				"web_search": "35",
+				"maps_search": "25",
+				"service_tiers": {
+					"priority": {
+						"input": "0.00000225",
+						"output": "0.000018",
+						"input_cache_read": "0.000000225",
+						"long_context": {
+							"threshold": 200000,
+							"input": "0.0000045",
+							"output": "0.000027",
+							"input_cache_read": "0.00000045"
+						}
+					},
+					"flex": {
+						"input": "0.000000625",
+						"output": "0.000005",
+						"long_context": {
+							"threshold": 200000,
+							"input": "0.00000125",
+							"output": "0.0000075"
+						}
+					}
+				},
+				"regional": {
+					"eu": {
+						"input": "0.00000125",
+						"input_tiers": [
+							{
+								"cost": "0.00000125",
+								"min": 0,
+								"max": 200001
+							},
+							{
+								"cost": "0.0000025",
+								"min": 200001
+							}
+						],
+						"output": "0.00001",
+						"output_tiers": [
+							{
+								"cost": "0.00001",
+								"min": 0,
+								"max": 200001
+							},
+							{
+								"cost": "0.000015",
+								"min": 200001
+							}
+						],
+						"input_cache_read": "0.000000125",
+						"input_cache_read_tiers": [
+							{
+								"cost": "0.000000125",
+								"min": 0,
+								"max": 200001
+							},
+							{
+								"cost": "0.00000025",
+								"min": 200001
+							}
+						]
+					},
+					"us": {
+						"input": "0.00000125",
+						"input_tiers": [
+							{
+								"cost": "0.00000125",
+								"min": 0,
+								"max": 200001
+							},
+							{
+								"cost": "0.0000025",
+								"min": 200001
+							}
+						],
+						"output": "0.00001",
+						"output_tiers": [
+							{
+								"cost": "0.00001",
+								"min": 0,
+								"max": 200001
+							},
+							{
+								"cost": "0.000015",
+								"min": 200001
+							}
+						],
+						"input_cache_read": "0.000000125",
+						"input_cache_read_tiers": [
+							{
+								"cost": "0.000000125",
+								"min": 0,
+								"max": 200001
+							},
+							{
+								"cost": "0.00000025",
+								"min": 200001
+							}
+						]
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "google/gemini-3-flash",
+			"owned_by": "google",
+			"pricing": {
+				"input": "0.0000005",
+				"input_cache_read": "0.00000005",
+				"output": "0.000003",
+				"input_tiers": [
+					{
+						"cost": "0.0000005",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.0000005",
+						"min": 200001
+					}
+				],
+				"output_tiers": [
+					{
+						"cost": "0.000003",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.000003",
+						"min": 200001
+					}
+				],
+				"input_cache_read_tiers": [
+					{
+						"cost": "0.00000005",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.00000005",
+						"min": 200001
+					}
+				],
+				"web_search": "14",
+				"maps_search": "14",
+				"service_tiers": {
+					"priority": {
+						"input": "0.0000009",
+						"output": "0.0000054",
+						"input_cache_read": "0.00000009"
+					},
+					"flex": {
+						"input": "0.00000025",
+						"output": "0.0000015"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "google/gemini-3-pro-image",
+			"owned_by": "google",
+			"pricing": {
+				"image_dimension_quality_pricing": [
+					{
+						"cost": "0.1344",
+						"size": "1K"
+					},
+					{
+						"cost": "0.1344",
+						"size": "2K"
+					},
+					{
+						"cost": "0.24",
+						"size": "4K"
+					},
+					{
+						"cost": "0.1344",
+						"size": "default"
+					}
+				],
+				"input": "0.000002",
+				"input_cache_read": "0.0000002",
+				"output": "0.000012",
+				"web_search": "14",
+				"maps_search": "14",
+				"service_tiers": {
+					"flex": {
+						"input": "0.000001",
+						"output": "0.000006"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "google/gemini-3.1-flash-image",
+			"owned_by": "google",
+			"pricing": {
+				"image_dimension_quality_pricing": [
+					{
+						"cost": "0.045",
+						"size": "512"
+					},
+					{
+						"cost": "0.067",
+						"size": "1K"
+					},
+					{
+						"cost": "0.101",
+						"size": "2K"
+					},
+					{
+						"cost": "0.151",
+						"size": "4K"
+					},
+					{
+						"cost": "0.067",
+						"size": "default"
+					}
+				],
+				"input": "0.0000005",
+				"input_cache_read": "0.00000005",
+				"output": "0.000003",
+				"web_search": "14",
+				"maps_search": "14"
+			},
+			"type": "language"
+		},
+		{
+			"id": "google/gemini-3.1-flash-image-preview",
+			"owned_by": "google",
+			"pricing": {
+				"image_dimension_quality_pricing": [
+					{
+						"cost": "0.045",
+						"size": "512"
+					},
+					{
+						"cost": "0.067",
+						"size": "1K"
+					},
+					{
+						"cost": "0.101",
+						"size": "2K"
+					},
+					{
+						"cost": "0.151",
+						"size": "4K"
+					},
+					{
+						"cost": "0.067",
+						"size": "default"
+					}
+				],
+				"input": "0.0000005",
+				"input_cache_read": "0.00000005",
+				"output": "0.000003",
+				"web_search": "14",
+				"service_tiers": {
+					"flex": {
+						"input": "0.00000025",
+						"output": "0.0000015"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "google/gemini-3.1-flash-lite",
+			"owned_by": "google",
+			"pricing": {
+				"input": "0.00000025",
+				"input_cache_read": "0.00000003",
+				"output": "0.0000015",
+				"web_search": "14",
+				"maps_search": "14",
+				"service_tiers": {
+					"priority": {
+						"input": "0.00000045",
+						"output": "0.0000027",
+						"input_cache_read": "0.000000045"
+					},
+					"flex": {
+						"input": "0.000000125",
+						"output": "0.00000075",
+						"input_cache_read": "0.0000000125"
+					}
+				},
+				"regional": {
+					"eu": {
+						"input": "0.000000275",
+						"output": "0.00000165",
+						"input_cache_read": "0.0000000275"
+					},
+					"us": {
+						"input": "0.000000275",
+						"output": "0.00000165",
+						"input_cache_read": "0.0000000275"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "google/gemini-3.1-flash-lite-image",
+			"owned_by": "google",
+			"pricing": {
+				"image_dimension_quality_pricing": [
+					{
+						"cost": "0.034",
+						"size": "default"
+					},
+					{
+						"cost": "0.034",
+						"size": "1K"
+					}
+				],
+				"input": "0.00000025",
+				"input_cache_read": "0.00000003",
+				"output": "0.0000015",
+				"web_search": "14",
+				"maps_search": "14"
+			},
+			"type": "language"
+		},
+		{
+			"id": "google/gemini-3.1-pro-preview",
+			"owned_by": "google",
+			"pricing": {
+				"input": "0.000002",
+				"input_cache_read": "0.0000002",
+				"output": "0.000012",
+				"input_tiers": [
+					{
+						"cost": "0.000002",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.000004",
+						"min": 200001
+					}
+				],
+				"output_tiers": [
+					{
+						"cost": "0.000012",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.000018",
+						"min": 200001
+					}
+				],
+				"input_cache_read_tiers": [
+					{
+						"cost": "0.0000002",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.0000004",
+						"min": 200001
+					}
+				],
+				"web_search": "14",
+				"maps_search": "14",
+				"service_tiers": {
+					"priority": {
+						"input": "0.0000036",
+						"output": "0.0000216",
+						"input_cache_read": "0.00000036",
+						"long_context": {
+							"threshold": 200000,
+							"input": "0.0000072",
+							"output": "0.0000324",
+							"input_cache_read": "0.00000072"
+						}
+					},
+					"flex": {
+						"input": "0.000001",
+						"output": "0.000006",
+						"long_context": {
+							"threshold": 200000,
+							"input": "0.000002",
+							"output": "0.000009"
+						}
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "google/gemini-3.5-flash",
+			"owned_by": "google",
+			"pricing": {
+				"input": "0.0000015",
+				"input_cache_read": "0.00000015",
+				"output": "0.000009",
+				"web_search": "14",
+				"maps_search": "14",
+				"service_tiers": {
+					"priority": {
+						"input": "0.0000027",
+						"output": "0.0000162",
+						"input_cache_read": "0.00000027"
+					},
+					"flex": {
+						"input": "0.00000075",
+						"output": "0.0000045",
+						"input_cache_read": "0.00000008"
+					}
+				},
+				"regional": {
+					"eu": {
+						"input": "0.00000165",
+						"output": "0.0000099",
+						"input_cache_read": "0.000000165"
+					},
+					"us": {
+						"input": "0.00000165",
+						"output": "0.0000099",
+						"input_cache_read": "0.000000165"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "google/gemini-3.5-flash-lite",
+			"owned_by": "google",
+			"pricing": {
+				"input": "0.0000003",
+				"input_cache_read": "0.00000003",
+				"output": "0.0000025",
+				"web_search": "14",
+				"maps_search": "14",
+				"service_tiers": {
+					"priority": {
+						"input": "0.00000054",
+						"output": "0.0000045",
+						"input_cache_read": "0.000000054"
+					},
+					"flex": {
+						"input": "0.00000015",
+						"output": "0.00000125",
+						"input_cache_read": "0.000000015"
+					}
+				},
+				"regional": {
+					"eu": {
+						"input": "0.00000033",
+						"output": "0.00000275",
+						"input_cache_read": "0.000000033"
+					},
+					"us": {
+						"input": "0.00000033",
+						"output": "0.00000275",
+						"input_cache_read": "0.000000033"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "google/gemini-3.6-flash",
+			"owned_by": "google",
+			"pricing": {
+				"input": "0.0000015",
+				"input_cache_read": "0.00000015",
+				"output": "0.0000075",
+				"web_search": "14",
+				"maps_search": "14",
+				"service_tiers": {
+					"priority": {
+						"input": "0.0000027",
+						"output": "0.0000135",
+						"input_cache_read": "0.00000027"
+					},
+					"flex": {
+						"input": "0.00000075",
+						"output": "0.00000375",
+						"input_cache_read": "0.00000008"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "google/gemini-embedding-001",
+			"owned_by": "google",
+			"pricing": {
+				"input": "0.00000015",
+				"regional": {
+					"us": {
+						"input": "0.00000015"
+					}
+				}
+			},
+			"type": "embedding"
+		},
+		{
+			"id": "google/gemini-embedding-2",
+			"owned_by": "google",
+			"pricing": {
+				"input": "0.0000002",
+				"audio_input_token_cost": "0.0000065"
+			},
+			"type": "embedding"
+		},
+		{
+			"id": "google/gemini-omni-flash-preview",
+			"owned_by": "google",
+			"pricing": {
+				"input": "0.0000015",
+				"output": "0.000009",
+				"audio_input_token_cost": "0.0000015"
+			},
+			"type": "language"
+		},
+		{
+			"id": "google/gemma-4-26b-a4b-it",
+			"owned_by": "google",
+			"pricing": {
+				"input": "0.00000015",
+				"input_cache_read": "0.000000015",
+				"output": "0.0000006"
+			},
+			"type": "language"
+		},
+		{
+			"id": "google/gemma-4-31b-it",
+			"owned_by": "google",
+			"pricing": {
+				"input": "0.00000014",
+				"output": "0.0000004"
+			},
+			"type": "language"
+		},
+		{
+			"id": "google/imagen-4.0-fast-generate-001",
+			"owned_by": "google",
+			"pricing": {
+				"image": "0.02"
+			},
+			"type": "image"
+		},
+		{
+			"id": "google/imagen-4.0-generate-001",
+			"owned_by": "google",
+			"pricing": {
+				"image": "0.04"
+			},
+			"type": "image"
+		},
+		{
+			"id": "google/imagen-4.0-ultra-generate-001",
+			"owned_by": "google",
+			"pricing": {
+				"image": "0.06"
+			},
+			"type": "image"
+		},
+		{
+			"id": "google/text-embedding-005",
+			"owned_by": "google",
+			"pricing": {
+				"input": "0.000000025"
+			},
+			"type": "embedding"
+		},
+		{
+			"id": "google/text-multilingual-embedding-002",
+			"owned_by": "google",
+			"pricing": {
+				"input": "0.000000025"
+			},
+			"type": "embedding"
+		},
+		{
+			"id": "google/veo-3.0-fast-generate-001",
+			"owned_by": "google",
+			"pricing": {
+				"video_duration_pricing": [
+					{
+						"resolution": "720p",
+						"audio": false,
+						"cost_per_second": "0.1"
+					},
+					{
+						"resolution": "720p",
+						"audio": true,
+						"cost_per_second": "0.15"
+					},
+					{
+						"resolution": "1080p",
+						"audio": false,
+						"cost_per_second": "0.1"
+					},
+					{
+						"resolution": "1080p",
+						"audio": true,
+						"cost_per_second": "0.15"
+					}
+				]
+			},
+			"type": "video"
+		},
+		{
+			"id": "google/veo-3.0-generate-001",
+			"owned_by": "google",
+			"pricing": {
+				"video_duration_pricing": [
+					{
+						"resolution": "720p",
+						"audio": false,
+						"cost_per_second": "0.2"
+					},
+					{
+						"resolution": "720p",
+						"audio": true,
+						"cost_per_second": "0.4"
+					},
+					{
+						"resolution": "1080p",
+						"audio": false,
+						"cost_per_second": "0.2"
+					},
+					{
+						"resolution": "1080p",
+						"audio": true,
+						"cost_per_second": "0.4"
+					}
+				]
+			},
+			"type": "video"
+		},
+		{
+			"id": "google/veo-3.1-fast-generate-001",
+			"owned_by": "google",
+			"pricing": {
+				"video_duration_pricing": [
+					{
+						"resolution": "720p",
+						"audio": false,
+						"cost_per_second": "0.1"
+					},
+					{
+						"resolution": "720p",
+						"audio": true,
+						"cost_per_second": "0.15"
+					},
+					{
+						"resolution": "1080p",
+						"audio": false,
+						"cost_per_second": "0.1"
+					},
+					{
+						"resolution": "1080p",
+						"audio": true,
+						"cost_per_second": "0.15"
+					},
+					{
+						"resolution": "4k",
+						"audio": false,
+						"cost_per_second": "0.3"
+					},
+					{
+						"resolution": "4k",
+						"audio": true,
+						"cost_per_second": "0.35"
+					}
+				]
+			},
+			"type": "video"
+		},
+		{
+			"id": "google/veo-3.1-generate-001",
+			"owned_by": "google",
+			"pricing": {
+				"video_duration_pricing": [
+					{
+						"resolution": "720p",
+						"audio": false,
+						"cost_per_second": "0.2"
+					},
+					{
+						"resolution": "720p",
+						"audio": true,
+						"cost_per_second": "0.4"
+					},
+					{
+						"resolution": "1080p",
+						"audio": false,
+						"cost_per_second": "0.2"
+					},
+					{
+						"resolution": "1080p",
+						"audio": true,
+						"cost_per_second": "0.4"
+					},
+					{
+						"resolution": "4k",
+						"audio": false,
+						"cost_per_second": "0.4"
+					},
+					{
+						"resolution": "4k",
+						"audio": true,
+						"cost_per_second": "0.6"
+					}
+				]
+			},
+			"type": "video"
+		},
+		{
+			"id": "google/veo-3.1-lite-generate-001",
+			"owned_by": "google",
+			"pricing": {
+				"video_duration_pricing": [
+					{
+						"resolution": "720p",
+						"audio": false,
+						"cost_per_second": "0.03"
+					},
+					{
+						"resolution": "720p",
+						"audio": true,
+						"cost_per_second": "0.05"
+					},
+					{
+						"resolution": "1080p",
+						"audio": false,
+						"cost_per_second": "0.05"
+					},
+					{
+						"resolution": "1080p",
+						"audio": true,
+						"cost_per_second": "0.08"
+					}
+				]
+			},
+			"type": "video"
+		},
+		{
+			"id": "inception/mercury-2",
+			"owned_by": "inception",
+			"pricing": {
+				"input": "0.00000025",
+				"input_cache_read": "0.000000025",
+				"output": "0.00000075"
+			},
+			"type": "language"
+		},
+		{
+			"id": "inception/mercury-coder-small",
+			"owned_by": "inception",
+			"pricing": {
+				"input": "0.00000025",
+				"output": "0.000001"
+			},
+			"type": "language"
+		},
+		{
+			"id": "inclusionai/ling-3.0-flash-free",
+			"owned_by": "inclusionai",
+			"pricing": {
+				"input": "0",
+				"output": "0"
+			},
+			"type": "language"
+		},
+		{
+			"id": "interfaze/interfaze-beta",
+			"owned_by": "interfaze",
+			"pricing": {
+				"input": "0.0000015",
+				"output": "0.0000035"
+			},
+			"type": "language"
+		},
+		{
+			"id": "klingai/kling-v2.5-turbo-i2v",
+			"owned_by": "klingai",
+			"pricing": {
+				"video_duration_pricing": [
+					{
+						"mode": "std",
+						"cost_per_second": "0.042"
+					},
+					{
+						"mode": "pro",
+						"cost_per_second": "0.07"
+					}
+				]
+			},
+			"type": "video"
+		},
+		{
+			"id": "klingai/kling-v2.5-turbo-t2v",
+			"owned_by": "klingai",
+			"pricing": {
+				"video_duration_pricing": [
+					{
+						"mode": "std",
+						"cost_per_second": "0.042"
+					},
+					{
+						"mode": "pro",
+						"cost_per_second": "0.07"
+					}
+				]
+			},
+			"type": "video"
+		},
+		{
+			"id": "klingai/kling-v2.6-i2v",
+			"owned_by": "klingai",
+			"pricing": {
+				"video_duration_pricing": [
+					{
+						"mode": "std",
+						"cost_per_second": "0.042"
+					},
+					{
+						"audio": false,
+						"mode": "pro",
+						"cost_per_second": "0.07"
+					},
+					{
+						"audio": true,
+						"mode": "pro",
+						"cost_per_second": "0.14"
+					}
+				]
+			},
+			"type": "video"
+		},
+		{
+			"id": "klingai/kling-v2.6-motion-control",
+			"owned_by": "klingai",
+			"pricing": {
+				"video_duration_pricing": [
+					{
+						"mode": "std",
+						"cost_per_second": "0.07"
+					},
+					{
+						"mode": "pro",
+						"cost_per_second": "0.112"
+					}
+				]
+			},
+			"type": "video"
+		},
+		{
+			"id": "klingai/kling-v2.6-t2v",
+			"owned_by": "klingai",
+			"pricing": {
+				"video_duration_pricing": [
+					{
+						"mode": "std",
+						"cost_per_second": "0.042"
+					},
+					{
+						"audio": false,
+						"mode": "pro",
+						"cost_per_second": "0.07"
+					},
+					{
+						"audio": true,
+						"mode": "pro",
+						"cost_per_second": "0.14"
+					}
+				]
+			},
+			"type": "video"
+		},
+		{
+			"id": "klingai/kling-v3.0-i2v",
+			"owned_by": "klingai",
+			"pricing": {
+				"video_duration_pricing": [
+					{
+						"audio": false,
+						"mode": "std",
+						"cost_per_second": "0.168"
+					},
+					{
+						"audio": true,
+						"mode": "std",
+						"cost_per_second": "0.252"
+					},
+					{
+						"audio": true,
+						"mode": "std",
+						"voice_control": true,
+						"cost_per_second": "0.308"
+					},
+					{
+						"audio": false,
+						"mode": "pro",
+						"cost_per_second": "0.224"
+					},
+					{
+						"audio": true,
+						"mode": "pro",
+						"cost_per_second": "0.336"
+					},
+					{
+						"audio": true,
+						"mode": "pro",
+						"voice_control": true,
+						"cost_per_second": "0.392"
+					}
+				]
+			},
+			"type": "video"
+		},
+		{
+			"id": "klingai/kling-v3.0-motion-control",
+			"owned_by": "klingai",
+			"pricing": {
+				"video_duration_pricing": [
+					{
+						"mode": "std",
+						"cost_per_second": "0.126"
+					},
+					{
+						"mode": "pro",
+						"cost_per_second": "0.168"
+					}
+				]
+			},
+			"type": "video"
+		},
+		{
+			"id": "klingai/kling-v3.0-t2v",
+			"owned_by": "klingai",
+			"pricing": {
+				"video_duration_pricing": [
+					{
+						"audio": false,
+						"mode": "std",
+						"cost_per_second": "0.168"
+					},
+					{
+						"audio": true,
+						"mode": "std",
+						"cost_per_second": "0.252"
+					},
+					{
+						"audio": true,
+						"mode": "std",
+						"voice_control": true,
+						"cost_per_second": "0.308"
+					},
+					{
+						"audio": false,
+						"mode": "pro",
+						"cost_per_second": "0.224"
+					},
+					{
+						"audio": true,
+						"mode": "pro",
+						"cost_per_second": "0.336"
+					},
+					{
+						"audio": true,
+						"mode": "pro",
+						"voice_control": true,
+						"cost_per_second": "0.392"
+					}
+				]
+			},
+			"type": "video"
+		},
+		{
+			"id": "kwaipilot/kat-coder-air-v2.5",
+			"owned_by": "kwaipilot",
+			"pricing": {
+				"input": "0.00000015",
+				"input_cache_read": "0.00000003",
+				"output": "0.0000006"
+			},
+			"type": "language"
+		},
+		{
+			"id": "kwaipilot/kat-coder-pro-v1",
+			"owned_by": "kwaipilot",
+			"pricing": {
+				"input": "0.0000003",
+				"input_cache_read": "0.00000006",
+				"output": "0.0000012"
+			},
+			"type": "language"
+		},
+		{
+			"id": "kwaipilot/kat-coder-pro-v2",
+			"owned_by": "kwaipilot",
+			"pricing": {
+				"input": "0.0000003",
+				"input_cache_read": "0.00000006",
+				"output": "0.0000012"
+			},
+			"type": "language"
+		},
+		{
+			"id": "kwaipilot/kat-coder-pro-v2.5",
+			"owned_by": "kwaipilot",
+			"pricing": {
+				"input": "0.00000074",
+				"input_cache_read": "0.00000015",
+				"output": "0.00000296"
+			},
+			"type": "language"
+		},
+		{
+			"id": "meta/llama-3.1-70b",
+			"owned_by": "meta",
+			"pricing": {
+				"input": "0.00000072",
+				"output": "0.00000072"
+			},
+			"type": "language"
+		},
+		{
+			"id": "meta/llama-3.1-8b",
+			"owned_by": "meta",
+			"pricing": {
+				"input": "0.00000022",
+				"output": "0.00000022"
+			},
+			"type": "language"
+		},
+		{
+			"id": "meta/llama-3.3-70b",
+			"owned_by": "meta",
+			"pricing": {
+				"input": "0.00000072",
+				"output": "0.00000072"
+			},
+			"type": "language"
+		},
+		{
+			"id": "meta/llama-4-maverick",
+			"owned_by": "meta",
+			"pricing": {
+				"input": "0.00000024",
+				"output": "0.00000097"
+			},
+			"type": "language"
+		},
+		{
+			"id": "meta/llama-4-scout",
+			"owned_by": "meta",
+			"pricing": {
+				"input": "0.00000017",
+				"output": "0.00000066"
+			},
+			"type": "language"
+		},
+		{
+			"id": "meta/muse-spark-1.1",
+			"owned_by": "meta",
+			"pricing": {
+				"input": "0.00000125",
+				"input_cache_read": "0.00000015",
+				"output": "0.00000425"
+			},
+			"type": "language"
+		},
+		{
+			"id": "minimax/minimax-h3",
+			"owned_by": "minimax",
+			"pricing": {
+				"video_duration_pricing": [
+					{
+						"resolution": "2k",
+						"cost_per_second": "0.13"
+					},
+					{
+						"cost_per_second": "0.13"
+					}
+				]
+			},
+			"type": "video"
+		},
+		{
+			"id": "minimax/minimax-m2",
+			"owned_by": "minimax",
+			"pricing": {
+				"input": "0.0000003",
+				"input_cache_read": "0.00000003",
+				"input_cache_write": "0.000000375",
+				"output": "0.0000012"
+			},
+			"type": "language"
+		},
+		{
+			"id": "minimax/minimax-m2.1",
+			"owned_by": "minimax",
+			"pricing": {
+				"input": "0.0000003",
+				"input_cache_read": "0.00000003",
+				"input_cache_write": "0.000000375",
+				"output": "0.0000012"
+			},
+			"type": "language"
+		},
+		{
+			"id": "minimax/minimax-m2.1-lightning",
+			"owned_by": "minimax",
+			"pricing": {
+				"input": "0.0000003",
+				"input_cache_read": "0.00000003",
+				"input_cache_write": "0.000000375",
+				"output": "0.0000024"
+			},
+			"type": "language"
+		},
+		{
+			"id": "minimax/minimax-m2.5",
+			"owned_by": "minimax",
+			"pricing": {
+				"input": "0.0000003",
+				"input_cache_read": "0.00000003",
+				"input_cache_write": "0.000000375",
+				"output": "0.0000012",
+				"fast": {
+					"input": "0.0000006",
+					"output": "0.0000024",
+					"input_cache_read": "0.00000003",
+					"input_cache_write": "0.000000375"
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "minimax/minimax-m2.5-highspeed",
+			"owned_by": "minimax",
+			"pricing": {
+				"input": "0.0000006",
+				"input_cache_read": "0.00000003",
+				"input_cache_write": "0.000000375",
+				"output": "0.0000024"
+			},
+			"type": "language"
+		},
+		{
+			"id": "minimax/minimax-m2.7",
+			"owned_by": "minimax",
+			"pricing": {
+				"input": "0.0000003",
+				"input_cache_read": "0.00000006",
+				"input_cache_write": "0.000000375",
+				"output": "0.0000012",
+				"fast": {
+					"input": "0.0000006",
+					"output": "0.0000024",
+					"input_cache_read": "0.00000006",
+					"input_cache_write": "0.000000375"
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "minimax/minimax-m2.7-highspeed",
+			"owned_by": "minimax",
+			"pricing": {
+				"input": "0.0000006",
+				"input_cache_read": "0.00000006",
+				"input_cache_write": "0.000000375",
+				"output": "0.0000024"
+			},
+			"type": "language"
+		},
+		{
+			"id": "minimax/minimax-m3",
+			"owned_by": "minimax",
+			"pricing": {
+				"input": "0.0000003",
+				"input_cache_read": "0.00000006",
+				"output": "0.0000012",
+				"input_tiers": [
+					{
+						"cost": "0.0000003",
+						"min": 0,
+						"max": 512000
+					},
+					{
+						"cost": "0.0000012",
+						"min": 512000
+					}
+				],
+				"output_tiers": [
+					{
+						"cost": "0.0000012",
+						"min": 0,
+						"max": 512000
+					},
+					{
+						"cost": "0.0000048",
+						"min": 512000
+					}
+				],
+				"input_cache_read_tiers": [
+					{
+						"cost": "0.00000006",
+						"min": 0,
+						"max": 512000
+					},
+					{
+						"cost": "0.00000024",
+						"min": 512000
+					}
+				]
+			},
+			"type": "language"
+		},
+		{
+			"id": "mistral/codestral",
+			"owned_by": "mistral",
+			"pricing": {
+				"input": "0.0000003",
+				"output": "0.0000009"
+			},
+			"type": "language"
+		},
+		{
+			"id": "mistral/codestral-embed",
+			"owned_by": "mistral",
+			"pricing": {
+				"input": "0.00000015"
+			},
+			"type": "embedding"
+		},
+		{
+			"id": "mistral/devstral-2",
+			"owned_by": "mistral",
+			"pricing": {
+				"input": "0.0000004",
+				"output": "0.000002"
+			},
+			"type": "language"
+		},
+		{
+			"id": "mistral/devstral-small-2",
+			"owned_by": "mistral",
+			"pricing": {
+				"input": "0.0000001",
+				"output": "0.0000003"
+			},
+			"type": "language"
+		},
+		{
+			"id": "mistral/magistral-medium",
+			"owned_by": "mistral",
+			"pricing": {
+				"input": "0.000002",
+				"output": "0.000005"
+			},
+			"type": "language"
+		},
+		{
+			"id": "mistral/magistral-small",
+			"owned_by": "mistral",
+			"pricing": {
+				"input": "0.0000005",
+				"output": "0.0000015"
+			},
+			"type": "language"
+		},
+		{
+			"id": "mistral/ministral-14b",
+			"owned_by": "mistral",
+			"pricing": {
+				"input": "0.0000002",
+				"output": "0.0000002"
+			},
+			"type": "language"
+		},
+		{
+			"id": "mistral/ministral-3b",
+			"owned_by": "mistral",
+			"pricing": {
+				"input": "0.0000001",
+				"output": "0.0000001"
+			},
+			"type": "language"
+		},
+		{
+			"id": "mistral/ministral-8b",
+			"owned_by": "mistral",
+			"pricing": {
+				"input": "0.00000015",
+				"output": "0.00000015"
+			},
+			"type": "language"
+		},
+		{
+			"id": "mistral/mistral-embed",
+			"owned_by": "mistral",
+			"pricing": {
+				"input": "0.0000001"
+			},
+			"type": "embedding"
+		},
+		{
+			"id": "mistral/mistral-large-3",
+			"owned_by": "mistral",
+			"pricing": {
+				"input": "0.0000005",
+				"output": "0.0000015"
+			},
+			"type": "language"
+		},
+		{
+			"id": "mistral/mistral-medium",
+			"owned_by": "mistral",
+			"pricing": {
+				"input": "0.0000004",
+				"output": "0.000002"
+			},
+			"type": "language"
+		},
+		{
+			"id": "mistral/mistral-medium-3.5",
+			"owned_by": "mistral",
+			"pricing": {
+				"input": "0.0000015",
+				"output": "0.0000075"
+			},
+			"type": "language"
+		},
+		{
+			"id": "mistral/mistral-nemo",
+			"owned_by": "mistral",
+			"pricing": {
+				"input": "0.00000015",
+				"output": "0.00000015"
+			},
+			"type": "language"
+		},
+		{
+			"id": "mistral/mistral-small",
+			"owned_by": "mistral",
+			"pricing": {
+				"input": "0.0000001",
+				"output": "0.0000003"
+			},
+			"type": "language"
+		},
+		{
+			"id": "mistral/pixtral-12b",
+			"owned_by": "mistral",
+			"pricing": {
+				"input": "0.00000015",
+				"output": "0.00000015"
+			},
+			"type": "language"
+		},
+		{
+			"id": "moonshotai/kimi-k2",
+			"owned_by": "moonshotai",
+			"pricing": {
+				"input": "0.00000057",
+				"output": "0.0000023"
+			},
+			"type": "language"
+		},
+		{
+			"id": "moonshotai/kimi-k2-thinking",
+			"owned_by": "moonshotai",
+			"pricing": {
+				"input": "0.00000047",
+				"input_cache_read": "0.000000141",
+				"output": "0.000002"
+			},
+			"type": "language"
+		},
+		{
+			"id": "moonshotai/kimi-k2.5",
+			"owned_by": "moonshotai",
+			"pricing": {
+				"input": "0.0000006",
+				"input_cache_read": "0.0000001",
+				"output": "0.000003"
+			},
+			"type": "language"
+		},
+		{
+			"id": "moonshotai/kimi-k2.6",
+			"owned_by": "moonshotai",
+			"pricing": {
+				"input": "0.00000095",
+				"input_cache_read": "0.00000016",
+				"output": "0.000004",
+				"regional": {
+					"us": {
+						"input": "0.00000095",
+						"output": "0.000004",
+						"input_cache_read": "0.00000016"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "moonshotai/kimi-k2.7-code",
+			"owned_by": "moonshotai",
+			"pricing": {
+				"input": "0.00000095",
+				"input_cache_read": "0.00000019",
+				"output": "0.000004",
+				"fast": {
+					"input": "0.0000019",
+					"output": "0.000008",
+					"input_cache_read": "0.00000038"
+				},
+				"regional": {
+					"us": {
+						"input": "0.00000095",
+						"output": "0.000004",
+						"input_cache_read": "0.00000016"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "moonshotai/kimi-k2.7-code-highspeed",
+			"owned_by": "moonshotai",
+			"pricing": {
+				"input": "0.0000019",
+				"input_cache_read": "0.00000038",
+				"output": "0.000008"
+			},
+			"type": "language"
+		},
+		{
+			"id": "moonshotai/kimi-k3",
+			"owned_by": "moonshotai",
+			"pricing": {
+				"input": "0.000003",
+				"input_cache_read": "0.0000003",
+				"output": "0.000015",
+				"fast": {
+					"input": "0.0000045",
+					"output": "0.0000225",
+					"input_cache_read": "0.00000045"
+				},
+				"regional": {
+					"us": {
+						"input": "0.0000033",
+						"output": "0.0000165",
+						"input_cache_read": "0.00000033"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "moonshotai/kimi-k3-fast",
+			"owned_by": "moonshotai",
+			"pricing": {
+				"input": "0.0000045",
+				"input_cache_read": "0.00000045",
+				"output": "0.0000225"
+			},
+			"type": "language"
+		},
+		{
+			"id": "morph/morph-v3-fast",
+			"owned_by": "morph",
+			"pricing": {
+				"input": "0.0000008",
+				"output": "0.0000012"
+			},
+			"type": "language"
+		},
+		{
+			"id": "morph/morph-v3-large",
+			"owned_by": "morph",
+			"pricing": {
+				"input": "0.0000009",
+				"output": "0.0000019"
+			},
+			"type": "language"
+		},
+		{
+			"id": "nvidia/nemotron-3-nano-30b-a3b",
+			"owned_by": "nvidia",
+			"pricing": {
+				"input": "0.00000005",
+				"output": "0.00000024"
+			},
+			"type": "language"
+		},
+		{
+			"id": "nvidia/nemotron-3-super-120b-a12b",
+			"owned_by": "nvidia",
+			"pricing": {
+				"input": "0.00000015",
+				"output": "0.00000065"
+			},
+			"type": "language"
+		},
+		{
+			"id": "nvidia/nemotron-3-ultra-550b-a55b",
+			"owned_by": "nvidia",
+			"pricing": {
+				"input": "0.0000006",
+				"input_cache_read": "0.00000012",
+				"output": "0.0000024",
+				"regional": {
+					"us": {
+						"input": "0.0000006",
+						"output": "0.0000024",
+						"input_cache_read": "0.00000012"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "nvidia/nemotron-nano-12b-v2-vl",
+			"owned_by": "nvidia",
+			"pricing": {
+				"input": "0.0000002",
+				"output": "0.0000006"
+			},
+			"type": "language"
+		},
+		{
+			"id": "nvidia/nemotron-nano-9b-v2",
+			"owned_by": "nvidia",
+			"pricing": {
+				"input": "0.00000006",
+				"output": "0.00000023"
+			},
+			"type": "language"
+		},
+		{
+			"id": "openai/gpt-3.5-turbo",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.0000005",
+				"output": "0.0000015"
+			},
+			"type": "language"
+		},
+		{
+			"id": "openai/gpt-4-turbo",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.00001",
+				"output": "0.00003"
+			},
+			"type": "language"
+		},
+		{
+			"id": "openai/gpt-4.1",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.000002",
+				"input_cache_read": "0.0000005",
+				"output": "0.000008",
+				"web_search": "10",
+				"service_tiers": {
+					"priority": {
+						"input": "0.0000035",
+						"output": "0.000014",
+						"input_cache_read": "0.000000875"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "openai/gpt-4.1-mini",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.0000004",
+				"input_cache_read": "0.0000001",
+				"output": "0.0000016",
+				"web_search": "10",
+				"service_tiers": {
+					"priority": {
+						"input": "0.0000007",
+						"output": "0.0000028",
+						"input_cache_read": "0.000000175"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "openai/gpt-4.1-nano",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.0000001",
+				"input_cache_read": "0.000000025",
+				"output": "0.0000004",
+				"web_search": "10",
+				"service_tiers": {
+					"priority": {
+						"input": "0.0000002",
+						"output": "0.0000008",
+						"input_cache_read": "0.00000005"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "openai/gpt-4o",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.0000025",
+				"input_cache_read": "0.00000125",
+				"output": "0.00001",
+				"web_search": "10",
+				"service_tiers": {
+					"priority": {
+						"input": "0.00000425",
+						"output": "0.000017",
+						"input_cache_read": "0.000002125"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "openai/gpt-4o-mini",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.00000015",
+				"input_cache_read": "0.000000075",
+				"output": "0.0000006",
+				"web_search": "10",
+				"service_tiers": {
+					"priority": {
+						"input": "0.00000025",
+						"output": "0.000001",
+						"input_cache_read": "0.000000125"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "openai/gpt-4o-mini-search-preview",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.00000015",
+				"output": "0.0000006",
+				"web_search": "10"
+			},
+			"type": "language"
+		},
+		{
+			"id": "openai/gpt-4o-mini-transcribe",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.00000125",
+				"output": "0.000005",
+				"audio_input_token_cost": "0.00000125"
+			},
+			"type": "transcription"
+		},
+		{
+			"id": "openai/gpt-4o-transcribe",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.0000025",
+				"output": "0.00001",
+				"audio_input_token_cost": "0.0000025"
+			},
+			"type": "transcription"
+		},
+		{
+			"id": "openai/gpt-5",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.00000125",
+				"input_cache_read": "0.000000125",
+				"output": "0.00001",
+				"web_search": "10",
+				"service_tiers": {
+					"priority": {
+						"input": "0.0000025",
+						"output": "0.00002",
+						"input_cache_read": "0.00000025"
+					},
+					"flex": {
+						"input": "0.000000625",
+						"output": "0.000005",
+						"input_cache_read": "0.0000000625"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "openai/gpt-5-codex",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.00000125",
+				"input_cache_read": "0.00000013",
+				"output": "0.00001",
+				"web_search": "14"
+			},
+			"type": "language"
+		},
+		{
+			"id": "openai/gpt-5-mini",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.00000025",
+				"input_cache_read": "0.000000025",
+				"output": "0.000002",
+				"web_search": "10",
+				"service_tiers": {
+					"priority": {
+						"input": "0.00000045",
+						"output": "0.0000036",
+						"input_cache_read": "0.000000045"
+					},
+					"flex": {
+						"input": "0.000000125",
+						"output": "0.000001",
+						"input_cache_read": "0.0000000125"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "openai/gpt-5-nano",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.00000005",
+				"input_cache_read": "0.000000005",
+				"output": "0.0000004",
+				"web_search": "10",
+				"service_tiers": {
+					"flex": {
+						"input": "0.000000025",
+						"output": "0.0000002",
+						"input_cache_read": "0.0000000025"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "openai/gpt-5-pro",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.000015",
+				"output": "0.00012",
+				"web_search": "10"
+			},
+			"type": "language"
+		},
+		{
+			"id": "openai/gpt-5.1-codex",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.00000125",
+				"input_cache_read": "0.00000013",
+				"output": "0.00001",
+				"web_search": "14"
+			},
+			"type": "language"
+		},
+		{
+			"id": "openai/gpt-5.1-codex-max",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.00000125",
+				"input_cache_read": "0.000000125",
+				"output": "0.00001",
+				"web_search": "14"
+			},
+			"type": "language"
+		},
+		{
+			"id": "openai/gpt-5.1-codex-mini",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.00000025",
+				"input_cache_read": "0.00000003",
+				"output": "0.000002",
+				"web_search": "14"
+			},
+			"type": "language"
+		},
+		{
+			"id": "openai/gpt-5.1-instant",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.00000125",
+				"input_cache_read": "0.00000013",
+				"output": "0.00001",
+				"web_search": "14"
+			},
+			"type": "language"
+		},
+		{
+			"id": "openai/gpt-5.1-thinking",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.00000125",
+				"input_cache_read": "0.000000125",
+				"output": "0.00001",
+				"web_search": "10",
+				"service_tiers": {
+					"priority": {
+						"input": "0.0000025",
+						"output": "0.00002",
+						"input_cache_read": "0.00000025"
+					},
+					"flex": {
+						"input": "0.000000625",
+						"output": "0.000005",
+						"input_cache_read": "0.0000000625"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "openai/gpt-5.2",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.00000175",
+				"input_cache_read": "0.000000175",
+				"output": "0.000014",
+				"web_search": "10",
+				"service_tiers": {
+					"priority": {
+						"input": "0.0000035",
+						"output": "0.000028",
+						"input_cache_read": "0.00000035"
+					},
+					"flex": {
+						"input": "0.000000875",
+						"output": "0.000007",
+						"input_cache_read": "0.0000000875"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "openai/gpt-5.2-codex",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.00000175",
+				"input_cache_read": "0.000000175",
+				"output": "0.000014",
+				"web_search": "14"
+			},
+			"type": "language"
+		},
+		{
+			"id": "openai/gpt-5.2-pro",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.000021",
+				"output": "0.000168",
+				"web_search": "10"
+			},
+			"type": "language"
+		},
+		{
+			"id": "openai/gpt-5.3-chat",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.00000175",
+				"input_cache_read": "0.000000175",
+				"output": "0.000014",
+				"web_search": "10"
+			},
+			"type": "language"
+		},
+		{
+			"id": "openai/gpt-5.3-codex",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.00000175",
+				"input_cache_read": "0.000000175",
+				"output": "0.000014",
+				"web_search": "10",
+				"service_tiers": {
+					"priority": {
+						"input": "0.0000035",
+						"output": "0.000028",
+						"input_cache_read": "0.00000035"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "openai/gpt-5.4",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.0000025",
+				"input_cache_read": "0.00000025",
+				"output": "0.000015",
+				"input_tiers": [
+					{
+						"cost": "0.0000025",
+						"min": 0,
+						"max": 272000
+					},
+					{
+						"cost": "0.000005",
+						"min": 272000
+					}
+				],
+				"output_tiers": [
+					{
+						"cost": "0.000015",
+						"min": 0,
+						"max": 272000
+					},
+					{
+						"cost": "0.0000225",
+						"min": 272000
+					}
+				],
+				"input_cache_read_tiers": [
+					{
+						"cost": "0.00000025",
+						"min": 0,
+						"max": 272000
+					},
+					{
+						"cost": "0.0000005",
+						"min": 272000
+					}
+				],
+				"web_search": "10",
+				"service_tiers": {
+					"priority": {
+						"input": "0.000005",
+						"output": "0.00003",
+						"input_cache_read": "0.0000005"
+					},
+					"flex": {
+						"input": "0.00000125",
+						"output": "0.0000075",
+						"input_cache_read": "0.00000013",
+						"long_context": {
+							"threshold": 272000,
+							"input": "0.0000025",
+							"output": "0.00001125",
+							"input_cache_read": "0.00000025"
+						}
+					}
+				},
+				"regional": {
+					"us": {
+						"input": "0.00000275",
+						"input_tiers": [
+							{
+								"cost": "0.00000275",
+								"min": 0,
+								"max": 272000
+							},
+							{
+								"cost": "0.0000055",
+								"min": 272000
+							}
+						],
+						"output": "0.0000165",
+						"output_tiers": [
+							{
+								"cost": "0.0000165",
+								"min": 0,
+								"max": 272000
+							},
+							{
+								"cost": "0.00002475",
+								"min": 272000
+							}
+						],
+						"input_cache_read": "0.000000275",
+						"input_cache_read_tiers": [
+							{
+								"cost": "0.000000275",
+								"min": 0,
+								"max": 272000
+							},
+							{
+								"cost": "0.00000055",
+								"min": 272000
+							}
+						]
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "openai/gpt-5.4-mini",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.00000075",
+				"input_cache_read": "0.000000075",
+				"output": "0.0000045",
+				"web_search": "10",
+				"service_tiers": {
+					"priority": {
+						"input": "0.0000015",
+						"output": "0.000009",
+						"input_cache_read": "0.00000015"
+					},
+					"flex": {
+						"input": "0.000000375",
+						"output": "0.00000225",
+						"input_cache_read": "0.0000000375"
+					}
+				},
+				"regional": {
+					"us": {
+						"input": "0.000000825",
+						"output": "0.00000495",
+						"input_cache_read": "0.0000000825"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "openai/gpt-5.4-nano",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.0000002",
+				"input_cache_read": "0.00000002",
+				"output": "0.00000125",
+				"web_search": "10",
+				"service_tiers": {
+					"flex": {
+						"input": "0.0000001",
+						"output": "0.000000625",
+						"input_cache_read": "0.00000001"
+					}
+				},
+				"regional": {
+					"us": {
+						"input": "0.00000022",
+						"output": "0.000001375",
+						"input_cache_read": "0.000000022"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "openai/gpt-5.4-pro",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.00003",
+				"output": "0.00018",
+				"input_tiers": [
+					{
+						"cost": "0.00003",
+						"min": 0,
+						"max": 272000
+					},
+					{
+						"cost": "0.00006",
+						"min": 272000
+					}
+				],
+				"output_tiers": [
+					{
+						"cost": "0.00018",
+						"min": 0,
+						"max": 272000
+					},
+					{
+						"cost": "0.00027",
+						"min": 272000
+					}
+				],
+				"web_search": "10",
+				"service_tiers": {
+					"flex": {
+						"input": "0.000015",
+						"output": "0.00009",
+						"long_context": {
+							"threshold": 272000,
+							"input": "0.00003",
+							"output": "0.000135"
+						}
+					}
+				},
+				"regional": {
+					"us": {
+						"input": "0.000033",
+						"input_tiers": [
+							{
+								"cost": "0.000033",
+								"min": 0,
+								"max": 272000
+							},
+							{
+								"cost": "0.000066",
+								"min": 272000
+							}
+						],
+						"output": "0.000198",
+						"output_tiers": [
+							{
+								"cost": "0.000198",
+								"min": 0,
+								"max": 272000
+							},
+							{
+								"cost": "0.000297",
+								"min": 272000
+							}
+						]
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "openai/gpt-5.5",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.000005",
+				"input_cache_read": "0.0000005",
+				"output": "0.00003",
+				"input_tiers": [
+					{
+						"cost": "0.000005",
+						"min": 0,
+						"max": 272000
+					},
+					{
+						"cost": "0.00001",
+						"min": 272000
+					}
+				],
+				"output_tiers": [
+					{
+						"cost": "0.00003",
+						"min": 0,
+						"max": 272000
+					},
+					{
+						"cost": "0.000045",
+						"min": 272000
+					}
+				],
+				"input_cache_read_tiers": [
+					{
+						"cost": "0.0000005",
+						"min": 0,
+						"max": 272000
+					},
+					{
+						"cost": "0.000001",
+						"min": 272000
+					}
+				],
+				"web_search": "10",
+				"service_tiers": {
+					"priority": {
+						"input": "0.0000125",
+						"output": "0.000075",
+						"input_cache_read": "0.00000125"
+					},
+					"flex": {
+						"input": "0.0000025",
+						"output": "0.000015",
+						"input_cache_read": "0.00000025",
+						"long_context": {
+							"threshold": 272000,
+							"input": "0.000005",
+							"output": "0.0000225",
+							"input_cache_read": "0.0000005"
+						}
+					}
+				},
+				"regional": {
+					"us": {
+						"input": "0.0000055",
+						"input_tiers": [
+							{
+								"cost": "0.0000055",
+								"min": 0,
+								"max": 272000
+							},
+							{
+								"cost": "0.000011",
+								"min": 272000
+							}
+						],
+						"output": "0.000033",
+						"output_tiers": [
+							{
+								"cost": "0.000033",
+								"min": 0,
+								"max": 272000
+							},
+							{
+								"cost": "0.0000495",
+								"min": 272000
+							}
+						],
+						"input_cache_read": "0.00000055",
+						"input_cache_read_tiers": [
+							{
+								"cost": "0.00000055",
+								"min": 0,
+								"max": 272000
+							},
+							{
+								"cost": "0.0000011",
+								"min": 272000
+							}
+						]
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "openai/gpt-5.5-pro",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.00003",
+				"output": "0.00018",
+				"input_tiers": [
+					{
+						"cost": "0.00003",
+						"min": 0,
+						"max": 272000
+					},
+					{
+						"cost": "0.00006",
+						"min": 272000
+					}
+				],
+				"output_tiers": [
+					{
+						"cost": "0.00018",
+						"min": 0,
+						"max": 272000
+					},
+					{
+						"cost": "0.00027",
+						"min": 272000
+					}
+				],
+				"web_search": "14",
+				"service_tiers": {
+					"flex": {
+						"input": "0.000015",
+						"output": "0.00009"
+					}
+				},
+				"regional": {
+					"us": {
+						"input": "0.000033",
+						"input_tiers": [
+							{
+								"cost": "0.000033",
+								"min": 0,
+								"max": 272000
+							},
+							{
+								"cost": "0.000066",
+								"min": 272000
+							}
+						],
+						"output": "0.000198",
+						"output_tiers": [
+							{
+								"cost": "0.000198",
+								"min": 0,
+								"max": 272000
+							},
+							{
+								"cost": "0.000297",
+								"min": 272000
+							}
+						]
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "openai/gpt-5.6-luna",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.0000002",
+				"input_cache_read": "0.00000002",
+				"input_cache_write": "0.00000025",
+				"output": "0.0000012",
+				"input_tiers": [
+					{
+						"cost": "0.0000002",
+						"min": 0,
+						"max": 272000
+					},
+					{
+						"cost": "0.0000004",
+						"min": 272000
+					}
+				],
+				"output_tiers": [
+					{
+						"cost": "0.0000012",
+						"min": 0,
+						"max": 272000
+					},
+					{
+						"cost": "0.0000018",
+						"min": 272000
+					}
+				],
+				"input_cache_read_tiers": [
+					{
+						"cost": "0.00000002",
+						"max": 272000
+					},
+					{
+						"cost": "0.00000004",
+						"min": 272000
+					}
+				],
+				"input_cache_write_tiers": [
+					{
+						"cost": "0.00000025",
+						"min": 0,
+						"max": 272000
+					},
+					{
+						"cost": "0.0000005",
+						"min": 272000
+					}
+				],
+				"web_search": "10",
+				"service_tiers": {
+					"priority": {
+						"input": "0.0000004",
+						"output": "0.0000024",
+						"input_cache_read": "0.00000004"
+					},
+					"flex": {
+						"input": "0.0000001",
+						"output": "0.0000006",
+						"input_cache_read": "0.00000001",
+						"long_context": {
+							"threshold": 272000,
+							"input": "0.0000002",
+							"output": "0.0000009",
+							"input_cache_read": "0.00000002"
+						}
+					}
+				},
+				"regional": {
+					"us": {
+						"input": "0.00000022",
+						"input_tiers": [
+							{
+								"cost": "0.00000022",
+								"min": 0,
+								"max": 272000
+							},
+							{
+								"cost": "0.00000044",
+								"min": 272000
+							}
+						],
+						"output": "0.00000132",
+						"output_tiers": [
+							{
+								"cost": "0.00000132",
+								"min": 0,
+								"max": 272000
+							},
+							{
+								"cost": "0.00000198",
+								"min": 272000
+							}
+						],
+						"input_cache_read": "0.000000022",
+						"input_cache_read_tiers": [
+							{
+								"cost": "0.000000022",
+								"min": 0,
+								"max": 272000
+							},
+							{
+								"cost": "0.000000044",
+								"min": 272000
+							}
+						],
+						"input_cache_write": "0.000000275",
+						"input_cache_write_tiers": [
+							{
+								"cost": "0.000000275",
+								"min": 0,
+								"max": 272000
+							},
+							{
+								"cost": "0.00000055",
+								"min": 272000
+							}
+						]
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "openai/gpt-5.6-sol",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.000005",
+				"input_cache_read": "0.0000005",
+				"input_cache_write": "0.00000625",
+				"output": "0.00003",
+				"input_tiers": [
+					{
+						"cost": "0.000005",
+						"min": 0,
+						"max": 272000
+					},
+					{
+						"cost": "0.00001",
+						"min": 272000
+					}
+				],
+				"output_tiers": [
+					{
+						"cost": "0.00003",
+						"min": 0,
+						"max": 272000
+					},
+					{
+						"cost": "0.000045",
+						"min": 272000
+					}
+				],
+				"input_cache_read_tiers": [
+					{
+						"cost": "0.0000005",
+						"min": 0,
+						"max": 272000
+					},
+					{
+						"cost": "0.000001",
+						"min": 272000
+					}
+				],
+				"input_cache_write_tiers": [
+					{
+						"cost": "0.00000625",
+						"min": 0,
+						"max": 272000
+					},
+					{
+						"cost": "0.0000125",
+						"min": 272000
+					}
+				],
+				"web_search": "10",
+				"service_tiers": {
+					"priority": {
+						"input": "0.00001",
+						"output": "0.00006",
+						"input_cache_read": "0.000001"
+					},
+					"flex": {
+						"input": "0.0000025",
+						"output": "0.000015",
+						"input_cache_read": "0.00000025",
+						"long_context": {
+							"threshold": 272000,
+							"input": "0.000005",
+							"output": "0.0000225",
+							"input_cache_read": "0.0000005"
+						}
+					}
+				},
+				"regional": {
+					"us": {
+						"input": "0.0000055",
+						"input_tiers": [
+							{
+								"cost": "0.0000055",
+								"min": 0,
+								"max": 272000
+							},
+							{
+								"cost": "0.000011",
+								"min": 272000
+							}
+						],
+						"output": "0.000033",
+						"output_tiers": [
+							{
+								"cost": "0.000033",
+								"min": 0,
+								"max": 272000
+							},
+							{
+								"cost": "0.0000495",
+								"min": 272000
+							}
+						],
+						"input_cache_read": "0.00000055",
+						"input_cache_read_tiers": [
+							{
+								"cost": "0.00000055",
+								"min": 0,
+								"max": 272000
+							},
+							{
+								"cost": "0.0000011",
+								"min": 272000
+							}
+						],
+						"input_cache_write": "0.000006875",
+						"input_cache_write_tiers": [
+							{
+								"cost": "0.000006875",
+								"min": 0,
+								"max": 272000
+							},
+							{
+								"cost": "0.00001375",
+								"min": 272000
+							}
+						]
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "openai/gpt-5.6-terra",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.000002",
+				"input_cache_read": "0.0000002",
+				"input_cache_write": "0.0000025",
+				"output": "0.000012",
+				"input_tiers": [
+					{
+						"cost": "0.000002",
+						"min": 0,
+						"max": 272000
+					},
+					{
+						"cost": "0.000004",
+						"min": 272000
+					}
+				],
+				"output_tiers": [
+					{
+						"cost": "0.000012",
+						"min": 0,
+						"max": 272000
+					},
+					{
+						"cost": "0.000018",
+						"min": 272000
+					}
+				],
+				"input_cache_read_tiers": [
+					{
+						"cost": "0.0000002",
+						"min": 0,
+						"max": 272000
+					},
+					{
+						"cost": "0.0000004",
+						"min": 272000
+					}
+				],
+				"input_cache_write_tiers": [
+					{
+						"cost": "0.0000025",
+						"min": 0,
+						"max": 272000
+					},
+					{
+						"cost": "0.000005",
+						"min": 272000
+					}
+				],
+				"web_search": "10",
+				"service_tiers": {
+					"priority": {
+						"input": "0.000004",
+						"output": "0.000024",
+						"input_cache_read": "0.0000004"
+					},
+					"flex": {
+						"input": "0.000001",
+						"output": "0.000006",
+						"input_cache_read": "0.0000001",
+						"long_context": {
+							"threshold": 272000,
+							"input": "0.000002",
+							"output": "0.000009",
+							"input_cache_read": "0.0000002"
+						}
+					}
+				},
+				"regional": {
+					"us": {
+						"input": "0.0000022",
+						"input_tiers": [
+							{
+								"cost": "0.0000022",
+								"min": 0,
+								"max": 272000
+							},
+							{
+								"cost": "0.0000044",
+								"min": 272000
+							}
+						],
+						"output": "0.0000132",
+						"output_tiers": [
+							{
+								"cost": "0.0000132",
+								"min": 0,
+								"max": 272000
+							},
+							{
+								"cost": "0.0000198",
+								"min": 272000
+							}
+						],
+						"input_cache_read": "0.00000022",
+						"input_cache_read_tiers": [
+							{
+								"cost": "0.00000022",
+								"min": 0,
+								"max": 272000
+							},
+							{
+								"cost": "0.00000044",
+								"min": 272000
+							}
+						],
+						"input_cache_write": "0.00000275",
+						"input_cache_write_tiers": [
+							{
+								"cost": "0.00000275",
+								"min": 0,
+								"max": 272000
+							},
+							{
+								"cost": "0.0000055",
+								"min": 272000
+							}
+						]
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "openai/gpt-image-1",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.000005",
+				"input_cache_read": "0.00000125",
+				"output": "0.00004"
+			},
+			"type": "image"
+		},
+		{
+			"id": "openai/gpt-image-1-mini",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.000002",
+				"input_cache_read": "0.0000002",
+				"output": "0.000008"
+			},
+			"type": "image"
+		},
+		{
+			"id": "openai/gpt-image-1.5",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.000005",
+				"input_cache_read": "0.00000125",
+				"output": "0.000032"
+			},
+			"type": "image"
+		},
+		{
+			"id": "openai/gpt-image-2",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.000005",
+				"input_cache_read": "0.00000125",
+				"output": "0.00003"
+			},
+			"type": "image"
+		},
+		{
+			"id": "openai/gpt-oss-120b",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.0000001",
+				"output": "0.0000005",
+				"regional": {
+					"us": {
+						"input": "0.0000001",
+						"output": "0.0000005"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "openai/gpt-oss-20b",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.00000005",
+				"output": "0.0000002"
+			},
+			"type": "language"
+		},
+		{
+			"id": "openai/gpt-oss-safeguard-20b",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.000000075",
+				"input_cache_read": "0.000000037",
+				"output": "0.0000003"
+			},
+			"type": "language"
+		},
+		{
+			"id": "openai/gpt-realtime-1.5",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.000004",
+				"input_cache_read": "0.0000004",
+				"output": "0.000016",
+				"web_search": "10",
+				"audio_input_token_cost": "0.000032",
+				"audio_output_token_cost": "0.000064"
+			},
+			"type": "realtime"
+		},
+		{
+			"id": "openai/gpt-realtime-2",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.000004",
+				"input_cache_read": "0.0000004",
+				"output": "0.000024",
+				"web_search": "10",
+				"audio_input_token_cost": "0.000032",
+				"audio_output_token_cost": "0.000064"
+			},
+			"type": "realtime"
+		},
+		{
+			"id": "openai/gpt-realtime-2.1",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.000004",
+				"input_cache_read": "0.0000004",
+				"output": "0.000024",
+				"web_search": "10",
+				"audio_input_token_cost": "0.000032",
+				"audio_output_token_cost": "0.000064"
+			},
+			"type": "realtime"
+		},
+		{
+			"id": "openai/gpt-realtime-mini",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.0000006",
+				"input_cache_read": "0.00000006",
+				"output": "0.0000024",
+				"web_search": "10"
+			},
+			"type": "realtime"
+		},
+		{
+			"id": "openai/gpt-realtime-whisper",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.0000000002",
+				"transcription_duration_cost_per_second": "0.000284"
+			},
+			"type": "transcription"
+		},
+		{
+			"id": "openai/o1",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.000015",
+				"input_cache_read": "0.0000075",
+				"output": "0.00006"
+			},
+			"type": "language"
+		},
+		{
+			"id": "openai/o3",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.000002",
+				"input_cache_read": "0.0000005",
+				"output": "0.000008",
+				"web_search": "10",
+				"service_tiers": {
+					"priority": {
+						"input": "0.0000035",
+						"output": "0.000014",
+						"input_cache_read": "0.000000875"
+					},
+					"flex": {
+						"input": "0.000001",
+						"output": "0.000004",
+						"input_cache_read": "0.00000025"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "openai/o3-deep-research",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.00001",
+				"input_cache_read": "0.0000025",
+				"output": "0.00004",
+				"web_search": "10"
+			},
+			"type": "language"
+		},
+		{
+			"id": "openai/o3-mini",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.0000011",
+				"input_cache_read": "0.00000055",
+				"output": "0.0000044"
+			},
+			"type": "language"
+		},
+		{
+			"id": "openai/o3-pro",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.00002",
+				"output": "0.00008",
+				"web_search": "10"
+			},
+			"type": "language"
+		},
+		{
+			"id": "openai/o4-mini",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.0000011",
+				"input_cache_read": "0.000000275",
+				"output": "0.0000044",
+				"web_search": "10",
+				"service_tiers": {
+					"priority": {
+						"input": "0.000002",
+						"output": "0.000008",
+						"input_cache_read": "0.0000005"
+					},
+					"flex": {
+						"input": "0.00000055",
+						"output": "0.0000022",
+						"input_cache_read": "0.000000138"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "openai/text-embedding-3-large",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.00000013"
+			},
+			"type": "embedding"
+		},
+		{
+			"id": "openai/text-embedding-3-small",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.00000002"
+			},
+			"type": "embedding"
+		},
+		{
+			"id": "openai/text-embedding-ada-002",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.0000001"
+			},
+			"type": "embedding"
+		},
+		{
+			"id": "openai/tts-1",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.000015",
+				"speech_input_character_cost": "0.000015"
+			},
+			"type": "speech"
+		},
+		{
+			"id": "openai/tts-1-hd",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.00003",
+				"speech_input_character_cost": "0.00003"
+			},
+			"type": "speech"
+		},
+		{
+			"id": "openai/whisper-1",
+			"owned_by": "openai",
+			"pricing": {
+				"input": "0.0000000001",
+				"transcription_duration_cost_per_second": "0.0001"
+			},
+			"type": "transcription"
+		},
+		{
+			"id": "perplexity/sonar",
+			"owned_by": "perplexity",
+			"pricing": {},
+			"type": "language"
+		},
+		{
+			"id": "perplexity/sonar-pro",
+			"owned_by": "perplexity",
+			"pricing": {},
+			"type": "language"
+		},
+		{
+			"id": "perplexity/sonar-reasoning-pro",
+			"owned_by": "perplexity",
+			"pricing": {},
+			"type": "language"
+		},
+		{
+			"id": "poolside/laguna-s-2.1",
+			"owned_by": "poolside",
+			"pricing": {
+				"input": "0.0000001",
+				"input_cache_read": "0.00000001",
+				"output": "0.0000002"
+			},
+			"type": "language"
+		},
+		{
+			"id": "poolside/laguna-s-2.1-free",
+			"owned_by": "poolside",
+			"pricing": {
+				"input": "0",
+				"output": "0"
+			},
+			"type": "language"
+		},
+		{
+			"id": "prodia/flux-fast-schnell",
+			"owned_by": "prodia",
+			"pricing": {},
+			"type": "image"
+		},
+		{
+			"id": "quiverai/arrow-1.1",
+			"owned_by": "quiverai",
+			"pricing": {
+				"image_dimension_quality_pricing": [
+					{
+						"cost": "0.2",
+						"operation": "generate"
+					},
+					{
+						"cost": "0.15",
+						"operation": "vectorize"
+					}
+				]
+			},
+			"type": "image"
+		},
+		{
+			"id": "recraft/recraft-v2",
+			"owned_by": "recraft",
+			"pricing": {
+				"image": "0.022",
+				"image_dimension_quality_pricing": [
+					{
+						"cost": "0.044",
+						"style": "vector_illustration"
+					}
+				]
+			},
+			"type": "image"
+		},
+		{
+			"id": "recraft/recraft-v3",
+			"owned_by": "recraft",
+			"pricing": {
+				"image": "0.04",
+				"image_dimension_quality_pricing": [
+					{
+						"cost": "0.08",
+						"style": "vector_illustration"
+					}
+				]
+			},
+			"type": "image"
+		},
+		{
+			"id": "recraft/recraft-v4",
+			"owned_by": "recraft",
+			"pricing": {
+				"image": "0.04",
+				"image_dimension_quality_pricing": [
+					{
+						"cost": "0.08",
+						"style": "vector_illustration"
+					}
+				]
+			},
+			"type": "image"
+		},
+		{
+			"id": "recraft/recraft-v4-pro",
+			"owned_by": "recraft",
+			"pricing": {
+				"image": "0.25",
+				"image_dimension_quality_pricing": [
+					{
+						"cost": "0.3",
+						"style": "vector_illustration"
+					}
+				]
+			},
+			"type": "image"
+		},
+		{
+			"id": "recraft/recraft-v4.1",
+			"owned_by": "recraft",
+			"pricing": {
+				"image": "0.035",
+				"image_dimension_quality_pricing": [
+					{
+						"cost": "0.08",
+						"style": "vector_illustration"
+					}
+				]
+			},
+			"type": "image"
+		},
+		{
+			"id": "recraft/recraft-v4.1-pro",
+			"owned_by": "recraft",
+			"pricing": {
+				"image": "0.21",
+				"image_dimension_quality_pricing": [
+					{
+						"cost": "0.3",
+						"style": "vector_illustration"
+					}
+				]
+			},
+			"type": "image"
+		},
+		{
+			"id": "recraft/recraft-v4.1-utility",
+			"owned_by": "recraft",
+			"pricing": {
+				"image": "0.035",
+				"image_dimension_quality_pricing": [
+					{
+						"cost": "0.08",
+						"style": "vector_illustration"
+					}
+				]
+			},
+			"type": "image"
+		},
+		{
+			"id": "recraft/recraft-v4.1-utility-pro",
+			"owned_by": "recraft",
+			"pricing": {
+				"image": "0.21",
+				"image_dimension_quality_pricing": [
+					{
+						"cost": "0.3",
+						"style": "vector_illustration"
+					}
+				]
+			},
+			"type": "image"
+		},
+		{
+			"id": "sakana/fugu-ultra",
+			"owned_by": "sakana",
+			"pricing": {
+				"input": "0.000005",
+				"input_cache_read": "0.0000005",
+				"output": "0.00003",
+				"input_tiers": [
+					{
+						"cost": "0.000005",
+						"min": 0,
+						"max": 272001
+					},
+					{
+						"cost": "0.00001",
+						"min": 272001
+					}
+				],
+				"output_tiers": [
+					{
+						"cost": "0.00003",
+						"min": 0,
+						"max": 272001
+					},
+					{
+						"cost": "0.000045",
+						"min": 272001
+					}
+				],
+				"input_cache_read_tiers": [
+					{
+						"cost": "0.0000005",
+						"min": 0,
+						"max": 272001
+					},
+					{
+						"cost": "0.000001",
+						"min": 272001
+					}
+				]
+			},
+			"type": "language"
+		},
+		{
+			"id": "stepfun/step-3.5-flash",
+			"owned_by": "stepfun",
+			"pricing": {
+				"input": "0.00000009",
+				"input_cache_read": "0.00000002",
+				"output": "0.0000003"
+			},
+			"type": "language"
+		},
+		{
+			"id": "stepfun/step-3.7-flash",
+			"owned_by": "stepfun",
+			"pricing": {
+				"input": "0.0000002",
+				"input_cache_read": "0.00000004",
+				"output": "0.00000115"
+			},
+			"type": "language"
+		},
+		{
+			"id": "tencent/hy3",
+			"owned_by": "tencent",
+			"pricing": {
+				"input": "0.00000014",
+				"input_cache_read": "0.000000035",
+				"output": "0.00000058"
+			},
+			"type": "language"
+		},
+		{
+			"id": "thinkingmachines/inkling",
+			"owned_by": "thinkingmachines",
+			"pricing": {
+				"input": "0.000001",
+				"input_cache_read": "0.00000017",
+				"output": "0.00000405",
+				"regional": {
+					"us": {
+						"input": "0.000001",
+						"output": "0.00000405",
+						"input_cache_read": "0.00000017"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "thinkingmachines/inkling-small",
+			"owned_by": "thinkingmachines",
+			"pricing": {
+				"input": "0.0000005",
+				"input_cache_read": "0.0000001",
+				"output": "0.0000012"
+			},
+			"type": "language"
+		},
+		{
+			"id": "voyage/rerank-2.5",
+			"owned_by": "voyage",
+			"pricing": {
+				"input": "0.00000005"
+			},
+			"type": "reranking"
+		},
+		{
+			"id": "voyage/rerank-2.5-lite",
+			"owned_by": "voyage",
+			"pricing": {
+				"input": "0.00000002"
+			},
+			"type": "reranking"
+		},
+		{
+			"id": "voyage/voyage-3-large",
+			"owned_by": "voyage",
+			"pricing": {
+				"input": "0.00000018"
+			},
+			"type": "embedding"
+		},
+		{
+			"id": "voyage/voyage-3.5",
+			"owned_by": "voyage",
+			"pricing": {
+				"input": "0.00000006"
+			},
+			"type": "embedding"
+		},
+		{
+			"id": "voyage/voyage-3.5-lite",
+			"owned_by": "voyage",
+			"pricing": {
+				"input": "0.00000002"
+			},
+			"type": "embedding"
+		},
+		{
+			"id": "voyage/voyage-4",
+			"owned_by": "voyage",
+			"pricing": {
+				"input": "0.00000006"
+			},
+			"type": "embedding"
+		},
+		{
+			"id": "voyage/voyage-4-large",
+			"owned_by": "voyage",
+			"pricing": {
+				"input": "0.00000012"
+			},
+			"type": "embedding"
+		},
+		{
+			"id": "voyage/voyage-4-lite",
+			"owned_by": "voyage",
+			"pricing": {
+				"input": "0.00000002"
+			},
+			"type": "embedding"
+		},
+		{
+			"id": "voyage/voyage-code-2",
+			"owned_by": "voyage",
+			"pricing": {
+				"input": "0.00000012"
+			},
+			"type": "embedding"
+		},
+		{
+			"id": "voyage/voyage-code-3",
+			"owned_by": "voyage",
+			"pricing": {
+				"input": "0.00000018"
+			},
+			"type": "embedding"
+		},
+		{
+			"id": "voyage/voyage-finance-2",
+			"owned_by": "voyage",
+			"pricing": {
+				"input": "0.00000012"
+			},
+			"type": "embedding"
+		},
+		{
+			"id": "voyage/voyage-law-2",
+			"owned_by": "voyage",
+			"pricing": {
+				"input": "0.00000012"
+			},
+			"type": "embedding"
+		},
+		{
+			"id": "xai/grok-4.1-fast-non-reasoning",
+			"owned_by": "xai",
+			"pricing": {
+				"input": "0.0000002",
+				"input_cache_read": "0.00000005",
+				"output": "0.0000005"
+			},
+			"type": "language"
+		},
+		{
+			"id": "xai/grok-4.1-fast-reasoning",
+			"owned_by": "xai",
+			"pricing": {
+				"input": "0.0000002",
+				"input_cache_read": "0.00000005",
+				"output": "0.0000005"
+			},
+			"type": "language"
+		},
+		{
+			"id": "xai/grok-4.20-multi-agent",
+			"owned_by": "xai",
+			"pricing": {
+				"input": "0.00000125",
+				"input_cache_read": "0.0000002",
+				"output": "0.0000025",
+				"input_tiers": [
+					{
+						"cost": "0.00000125",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.0000025",
+						"min": 200001
+					}
+				],
+				"output_tiers": [
+					{
+						"cost": "0.0000025",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.000005",
+						"min": 200001
+					}
+				],
+				"input_cache_read_tiers": [
+					{
+						"cost": "0.0000002",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.0000004",
+						"min": 200001
+					}
+				],
+				"web_search": "5"
+			},
+			"type": "language"
+		},
+		{
+			"id": "xai/grok-4.20-multi-agent-beta",
+			"owned_by": "xai",
+			"pricing": {
+				"input": "0.00000125",
+				"input_cache_read": "0.0000002",
+				"output": "0.0000025",
+				"input_tiers": [
+					{
+						"cost": "0.00000125",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.0000025",
+						"min": 200001
+					}
+				],
+				"output_tiers": [
+					{
+						"cost": "0.0000025",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.000005",
+						"min": 200001
+					}
+				],
+				"input_cache_read_tiers": [
+					{
+						"cost": "0.0000002",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.0000004",
+						"min": 200001
+					}
+				],
+				"web_search": "5"
+			},
+			"type": "language"
+		},
+		{
+			"id": "xai/grok-4.20-non-reasoning",
+			"owned_by": "xai",
+			"pricing": {
+				"input": "0.00000125",
+				"input_cache_read": "0.0000002",
+				"output": "0.0000025",
+				"input_tiers": [
+					{
+						"cost": "0.00000125",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.0000025",
+						"min": 200001
+					}
+				],
+				"output_tiers": [
+					{
+						"cost": "0.0000025",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.000005",
+						"min": 200001
+					}
+				],
+				"input_cache_read_tiers": [
+					{
+						"cost": "0.0000002",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.0000004",
+						"min": 200001
+					}
+				],
+				"web_search": "5"
+			},
+			"type": "language"
+		},
+		{
+			"id": "xai/grok-4.20-non-reasoning-beta",
+			"owned_by": "xai",
+			"pricing": {
+				"input": "0.00000125",
+				"input_cache_read": "0.0000002",
+				"output": "0.0000025",
+				"input_tiers": [
+					{
+						"cost": "0.00000125",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.0000025",
+						"min": 200001
+					}
+				],
+				"output_tiers": [
+					{
+						"cost": "0.0000025",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.000005",
+						"min": 200001
+					}
+				],
+				"input_cache_read_tiers": [
+					{
+						"cost": "0.0000004",
+						"min": 200001
+					}
+				],
+				"web_search": "5"
+			},
+			"type": "language"
+		},
+		{
+			"id": "xai/grok-4.20-reasoning",
+			"owned_by": "xai",
+			"pricing": {
+				"input": "0.00000125",
+				"input_cache_read": "0.0000002",
+				"output": "0.0000025",
+				"input_tiers": [
+					{
+						"cost": "0.00000125",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.0000025",
+						"min": 200001
+					}
+				],
+				"output_tiers": [
+					{
+						"cost": "0.0000025",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.000005",
+						"min": 200001
+					}
+				],
+				"input_cache_read_tiers": [
+					{
+						"cost": "0.0000002",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.0000004",
+						"min": 200001
+					}
+				],
+				"web_search": "5"
+			},
+			"type": "language"
+		},
+		{
+			"id": "xai/grok-4.20-reasoning-beta",
+			"owned_by": "xai",
+			"pricing": {
+				"input": "0.00000125",
+				"input_cache_read": "0.0000002",
+				"output": "0.0000025",
+				"input_tiers": [
+					{
+						"cost": "0.00000125",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.0000025",
+						"min": 200001
+					}
+				],
+				"output_tiers": [
+					{
+						"cost": "0.0000025",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.000005",
+						"min": 200001
+					}
+				],
+				"input_cache_read_tiers": [
+					{
+						"cost": "0.0000002",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.0000004",
+						"min": 200001
+					}
+				],
+				"web_search": "5"
+			},
+			"type": "language"
+		},
+		{
+			"id": "xai/grok-4.3",
+			"owned_by": "xai",
+			"pricing": {
+				"input": "0.00000125",
+				"input_cache_read": "0.0000002",
+				"output": "0.0000025",
+				"input_tiers": [
+					{
+						"cost": "0.00000125",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.0000025",
+						"min": 200001
+					}
+				],
+				"output_tiers": [
+					{
+						"cost": "0.0000025",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.000005",
+						"min": 200001
+					}
+				],
+				"input_cache_read_tiers": [
+					{
+						"cost": "0.0000002",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.0000004",
+						"min": 200001
+					}
+				],
+				"web_search": "5"
+			},
+			"type": "language"
+		},
+		{
+			"id": "xai/grok-4.5",
+			"owned_by": "xai",
+			"pricing": {
+				"input": "0.000002",
+				"input_cache_read": "0.0000003",
+				"output": "0.000006",
+				"input_tiers": [
+					{
+						"cost": "0.000002",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.000004",
+						"min": 200001
+					}
+				],
+				"output_tiers": [
+					{
+						"cost": "0.000006",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.000012",
+						"min": 200001
+					}
+				],
+				"input_cache_read_tiers": [
+					{
+						"cost": "0.0000003",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.0000006",
+						"min": 200001
+					}
+				],
+				"web_search": "5"
+			},
+			"type": "language"
+		},
+		{
+			"id": "xai/grok-build-0.1",
+			"owned_by": "xai",
+			"pricing": {
+				"input": "0.000001",
+				"input_cache_read": "0.0000002",
+				"output": "0.000002",
+				"input_tiers": [
+					{
+						"cost": "0.000001",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.000002",
+						"min": 200001
+					}
+				],
+				"output_tiers": [
+					{
+						"cost": "0.000002",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.000004",
+						"min": 200001
+					}
+				],
+				"input_cache_read_tiers": [
+					{
+						"cost": "0.0000002",
+						"min": 0,
+						"max": 200001
+					},
+					{
+						"cost": "0.0000004",
+						"min": 200001
+					}
+				],
+				"web_search": "5"
+			},
+			"type": "language"
+		},
+		{
+			"id": "xai/grok-imagine-image",
+			"owned_by": "xai",
+			"pricing": {
+				"image": "0.02"
+			},
+			"type": "image"
+		},
+		{
+			"id": "xai/grok-imagine-video",
+			"owned_by": "xai",
+			"pricing": {
+				"video_duration_pricing": [
+					{
+						"resolution": "480p",
+						"cost_per_second": "0.05"
+					},
+					{
+						"resolution": "720p",
+						"cost_per_second": "0.07"
+					}
+				]
+			},
+			"type": "video"
+		},
+		{
+			"id": "xai/grok-imagine-video-1.5",
+			"owned_by": "xai",
+			"pricing": {
+				"video_duration_pricing": [
+					{
+						"resolution": "480p",
+						"cost_per_second": "0.08"
+					},
+					{
+						"resolution": "720p",
+						"cost_per_second": "0.14"
+					},
+					{
+						"resolution": "1080p",
+						"cost_per_second": "0.25"
+					}
+				]
+			},
+			"type": "video"
+		},
+		{
+			"id": "xai/grok-imagine-video-1.5-preview",
+			"owned_by": "xai",
+			"pricing": {
+				"video_duration_pricing": [
+					{
+						"resolution": "480p",
+						"cost_per_second": "0.08"
+					},
+					{
+						"resolution": "720p",
+						"cost_per_second": "0.14"
+					},
+					{
+						"resolution": "1080p",
+						"cost_per_second": "0.25"
+					}
+				]
+			},
+			"type": "video"
+		},
+		{
+			"id": "xai/grok-stt",
+			"owned_by": "xai",
+			"pricing": {
+				"input": "0",
+				"transcription_duration_cost_per_second": "0.000028"
+			},
+			"type": "transcription"
+		},
+		{
+			"id": "xai/grok-tts",
+			"owned_by": "xai",
+			"pricing": {
+				"input": "0.000015",
+				"speech_input_character_cost": "0.000015"
+			},
+			"type": "speech"
+		},
+		{
+			"id": "xai/grok-voice-think-fast-1.0",
+			"owned_by": "xai",
+			"pricing": {
+				"realtime_client_message_cost": "0.004",
+				"realtime_session_duration_cost_per_second": "0.000834"
+			},
+			"type": "realtime"
+		},
+		{
+			"id": "xai/grok-voice-think-fast-2.0",
+			"owned_by": "xai",
+			"pricing": {
+				"realtime_client_message_cost": "0.004",
+				"realtime_session_duration_cost_per_second": "0.001334"
+			},
+			"type": "realtime"
+		},
+		{
+			"id": "xiaomi/mimo-v2.5",
+			"owned_by": "xiaomi",
+			"pricing": {
+				"input": "0.00000014",
+				"input_cache_read": "0.0000000028",
+				"output": "0.00000028"
+			},
+			"type": "language"
+		},
+		{
+			"id": "xiaomi/mimo-v2.5-pro",
+			"owned_by": "xiaomi",
+			"pricing": {
+				"input": "0.000000435",
+				"input_cache_read": "0.0000000036",
+				"output": "0.00000087"
+			},
+			"type": "language"
+		},
+		{
+			"id": "zai/glm-4.5",
+			"owned_by": "zai",
+			"pricing": {
+				"input": "0.0000006",
+				"input_cache_read": "0.00000011",
+				"output": "0.0000022"
+			},
+			"type": "language"
+		},
+		{
+			"id": "zai/glm-4.5-air",
+			"owned_by": "zai",
+			"pricing": {
+				"input": "0.0000002",
+				"input_cache_read": "0.00000003",
+				"output": "0.0000011"
+			},
+			"type": "language"
+		},
+		{
+			"id": "zai/glm-4.5v",
+			"owned_by": "zai",
+			"pricing": {
+				"input": "0.0000006",
+				"input_cache_read": "0.00000011",
+				"output": "0.0000018"
+			},
+			"type": "language"
+		},
+		{
+			"id": "zai/glm-4.6",
+			"owned_by": "zai",
+			"pricing": {
+				"input": "0.0000006",
+				"input_cache_read": "0.00000011",
+				"output": "0.0000022"
+			},
+			"type": "language"
+		},
+		{
+			"id": "zai/glm-4.6v",
+			"owned_by": "zai",
+			"pricing": {
+				"input": "0.0000003",
+				"input_cache_read": "0.00000005",
+				"output": "0.0000009"
+			},
+			"type": "language"
+		},
+		{
+			"id": "zai/glm-4.6v-flash",
+			"owned_by": "zai",
+			"pricing": {
+				"input": "0",
+				"output": "0"
+			},
+			"type": "language"
+		},
+		{
+			"id": "zai/glm-4.7",
+			"owned_by": "zai",
+			"pricing": {
+				"input": "0.0000006",
+				"input_cache_read": "0.00000012",
+				"output": "0.0000022",
+				"regional": {
+					"us": {
+						"input": "0.0000006",
+						"output": "0.0000022",
+						"input_cache_read": "0.00000012"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "zai/glm-4.7-flash",
+			"owned_by": "zai",
+			"pricing": {
+				"input": "0.00000007",
+				"output": "0.0000004"
+			},
+			"type": "language"
+		},
+		{
+			"id": "zai/glm-4.7-flashx",
+			"owned_by": "zai",
+			"pricing": {
+				"input": "0.00000006",
+				"input_cache_read": "0.00000001",
+				"output": "0.0000004"
+			},
+			"type": "language"
+		},
+		{
+			"id": "zai/glm-5",
+			"owned_by": "zai",
+			"pricing": {
+				"input": "0.000001",
+				"output": "0.0000032"
+			},
+			"type": "language"
+		},
+		{
+			"id": "zai/glm-5-turbo",
+			"owned_by": "zai",
+			"pricing": {
+				"input": "0.0000012",
+				"input_cache_read": "0.00000024",
+				"output": "0.000004"
+			},
+			"type": "language"
+		},
+		{
+			"id": "zai/glm-5.1",
+			"owned_by": "zai",
+			"pricing": {
+				"input": "0.0000014",
+				"input_cache_read": "0.00000026",
+				"output": "0.0000044"
+			},
+			"type": "language"
+		},
+		{
+			"id": "zai/glm-5.2",
+			"owned_by": "zai",
+			"pricing": {
+				"input": "0.0000011",
+				"input_cache_read": "0.000000275",
+				"output": "0.000003851",
+				"fast": {
+					"input": "0.0000021",
+					"output": "0.0000066",
+					"input_cache_read": "0.00000021"
+				},
+				"regional": {
+					"us": {
+						"input": "0.0000015",
+						"output": "0.0000045",
+						"input_cache_read": "0.0000003"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "zai/glm-5.2-fast",
+			"owned_by": "zai",
+			"pricing": {
+				"input": "0.0000021",
+				"input_cache_read": "0.00000021",
+				"output": "0.0000066",
+				"regional": {
+					"us": {
+						"input": "0.0000021",
+						"output": "0.0000066",
+						"input_cache_read": "0.00000021"
+					}
+				}
+			},
+			"type": "language"
+		},
+		{
+			"id": "zai/glm-5v-turbo",
+			"owned_by": "zai",
+			"pricing": {
+				"input": "0.0000012",
+				"input_cache_read": "0.00000024",
+				"output": "0.000004"
+			},
+			"type": "language"
+		}
+	],
+	"generatedAt": "2026-08-01T22:49:27.767Z",
+	"object": "list",
+	"source": "https://ai-gateway.vercel.sh/v1/models"
+}

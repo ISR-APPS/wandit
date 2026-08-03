@@ -16,6 +16,7 @@ import {
 	PremiumDomainBlockedError,
 } from "../../../domains/domain/errors/domain.errors";
 import type { DomainsRepository } from "../../../domains/infrastructure/persistence/domains.repository";
+import type { ProjectScope } from "../../../projects/domain/project-scope";
 import {
 	OrderInvariantViolationError,
 	OrderNotFoundError,
@@ -41,6 +42,8 @@ const user = {
 	email: "buyer@example.com",
 	id: userId,
 } as AuthUser;
+
+const scope: ProjectScope = { kind: "personal", userId };
 
 const registrant = {
 	firstName: "Zack",
@@ -290,7 +293,7 @@ class FakePaymentOrdersRepository {
 
 class FakeDomainsService {
 	readonly preparePurchase = vi.fn(
-		async (_userId: string, domain: string, _projectId?: string) => ({
+		async (_scope: ProjectScope, domain: string, _projectId?: string) => ({
 			name: domain.trim().toLowerCase(),
 			quotedWholesaleUsd: 11.06,
 			tld: "com" as const,
@@ -595,12 +598,16 @@ describe("OrdersService", () => {
 	it("creates a server-priced domain order and checkout session", async () => {
 		const { customerService, orders, payments, service } = setup();
 
-		const result = await service.createDomainOrder(user, {
-			domain: "example.com",
-			projectId,
-			registrant,
-			whoisPrivacy: false,
-		});
+		const result = await service.createDomainOrder(
+			user,
+			{
+				domain: "example.com",
+				projectId,
+				registrant,
+				whoisPrivacy: false,
+			},
+			scope,
+		);
 
 		expect(result.order).toMatchObject({
 			amountCents: DOMAIN_REGISTRATION_USD_CENTS.com,
@@ -642,11 +649,15 @@ describe("OrdersService", () => {
 	it("defaults WHOIS privacy to off when the body omits it", async () => {
 		const { orders, service } = setup();
 
-		await service.createDomainOrder(user, {
-			domain: "example.com",
-			projectId,
-			registrant,
-		});
+		await service.createDomainOrder(
+			user,
+			{
+				domain: "example.com",
+				projectId,
+				registrant,
+			},
+			scope,
+		);
 
 		expect(orders.rows.get(orderId)?.metadata).toMatchObject({
 			whoisPrivacy: false,
@@ -663,11 +674,15 @@ describe("OrdersService", () => {
 		});
 
 		await expect(
-			service.createDomainOrder(user, {
-				domain: "example.com",
-				projectId,
-				registrant,
-			}),
+			service.createDomainOrder(
+				user,
+				{
+					domain: "example.com",
+					projectId,
+					registrant,
+				},
+				scope,
+			),
 		).rejects.toBeInstanceOf(PremiumDomainBlockedError);
 
 		expect(payments.createOrderCheckout).not.toHaveBeenCalled();

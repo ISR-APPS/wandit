@@ -7,6 +7,10 @@
  * download). The Trigger.dev task does NOT use this class: it runs outside
  * Nest and talks to the same table through createDb(), like the page task.
  */
+import {
+	type ProjectScope,
+	projectScopePredicate,
+} from "../../../projects/domain/project-scope";
 import { Inject, Injectable } from "@nestjs/common";
 import { and, desc, eq, inArray, isNull, lt, sql } from "@wandit/db";
 import { leadScrapeAttempts } from "@wandit/db/schema/lead-scrape-attempts";
@@ -19,7 +23,10 @@ import {
 import type { LeadScrapeSpec } from "../../domain/lead-scrape-spec";
 
 const PROJECT_LIST_LIMIT = 20;
-const STALE_ATTEMPT_AFTER_MS = 35 * 60 * 1000;
+// Trigger admission is bounded to five minutes and the task itself to 30.
+// Leave settlement/CAS grace after that 35-minute live-work ceiling, while
+// still closing the UI row before metering recovers the hold at minute 40.
+const STALE_ATTEMPT_AFTER_MS = 38 * 60 * 1000;
 const STALE_ATTEMPT_ERROR =
 	"The scrape never finished — most likely no Trigger.dev dev worker " +
 	"was running (`npx trigger.dev@latest dev`). Start it and ask for " +
@@ -90,34 +97,53 @@ export class LeadScrapesRepository {
 	}
 
 	// Link the attempt to its Trigger.dev run once the queue accepted it.
-	async markAttemptTriggered(attemptId: string, runId: string): Promise<void> {
-		await this.db
+	async markAttemptTriggered(
+		attemptId: string,
+		runId: string,
+	): Promise<boolean> {
+		const [linked] = await this.db
 			.update(leadScrapeAttempts)
 			.set({ triggerRunId: runId })
-			.where(eq(leadScrapeAttempts.id, attemptId));
+			.where(
+				and(
+					eq(leadScrapeAttempts.id, attemptId),
+					eq(leadScrapeAttempts.status, "queued"),
+				),
+			)
+			.returning({ id: leadScrapeAttempts.id });
+
+		return linked !== undefined;
 	}
 
-	// Used when queueing itself failed — the background task never ran, so
-	// somebody has to move the row to a terminal state.
-	async markAttemptFailed(attemptId: string, error: string): Promise<void> {
-		await this.db
+	// Close only a still-queued attempt after Trigger.dev definitively rejects
+	// it. If a task already claimed the row, the CAS loses and preserves it.
+	async markAttemptFailed(attemptId: string, error: string): Promise<boolean> {
+		const [failed] = await this.db
 			.update(leadScrapeAttempts)
 			.set({ completedAt: new Date(), error, status: "failed" })
-			.where(eq(leadScrapeAttempts.id, attemptId));
+			.where(
+				and(
+					eq(leadScrapeAttempts.id, attemptId),
+					eq(leadScrapeAttempts.status, "queued"),
+				),
+			)
+			.returning({ id: leadScrapeAttempts.id });
+
+		return failed !== undefined;
 	}
 
 	// The chat card's polled read, or null when the attempt's project is not
 	// owned by this user (the service turns that into a 404). The join proves
 	// ownership, same pattern as PagesRepository.findOwnedVersionById.
-	async findOwnedAttempt(
-		userId: string,
+	async findAccessibleAttempt(
+		scope: ProjectScope,
 		attemptId: string,
 	): Promise<LeadScrapeAttemptRow | null> {
 		// Self-heal on read: a "queued" run nobody picked up expires after
 		// Trigger.dev's dev TTL, and a "running" row can strand if the worker
 		// dies mid-run. Flip stale rows to failed so the card stops polling —
-		// the cutoff must exceed the task's maxDuration (30 min).
-		await this.settleStaleAttempts({ attemptId, userId });
+		// the cutoff must exceed admission TTL + task maxDuration (35 min).
+		await this.settleStaleAttempts(scope, { attemptId });
 
 		const [row] = await this.db
 			.select(ATTEMPT_COLUMNS)
@@ -126,7 +152,7 @@ export class LeadScrapesRepository {
 			.where(
 				and(
 					eq(leadScrapeAttempts.id, attemptId),
-					eq(projects.userId, userId),
+					projectScopePredicate(scope),
 					isNull(projects.deletedAt),
 				),
 			)
@@ -135,12 +161,12 @@ export class LeadScrapesRepository {
 		return row ?? null;
 	}
 
-	async listByProject(
-		userId: string,
+	async listForProject(
+		scope: ProjectScope,
 		projectId: string,
 		limit = PROJECT_LIST_LIMIT,
 	): Promise<LeadScrapeAttemptRow[]> {
-		await this.settleStaleAttempts({ projectId, userId });
+		await this.settleStaleAttempts(scope, { projectId });
 
 		return this.db
 			.select(ATTEMPT_COLUMNS)
@@ -149,7 +175,7 @@ export class LeadScrapesRepository {
 			.where(
 				and(
 					eq(leadScrapeAttempts.projectId, projectId),
-					eq(projects.userId, userId),
+					projectScopePredicate(scope),
 					isNull(projects.deletedAt),
 				),
 			)
@@ -157,7 +183,10 @@ export class LeadScrapesRepository {
 			.limit(Math.min(PROJECT_LIST_LIMIT, Math.max(1, Math.floor(limit))));
 	}
 
-	async countByProject(userId: string, projectId: string): Promise<number> {
+	async countForProject(
+		scope: ProjectScope,
+		projectId: string,
+	): Promise<number> {
 		const [row] = await this.db
 			.select({ total: sql<number>`count(*)::int` })
 			.from(leadScrapeAttempts)
@@ -165,7 +194,7 @@ export class LeadScrapesRepository {
 			.where(
 				and(
 					eq(leadScrapeAttempts.projectId, projectId),
-					eq(projects.userId, userId),
+					projectScopePredicate(scope),
 					isNull(projects.deletedAt),
 				),
 			);
@@ -174,20 +203,17 @@ export class LeadScrapesRepository {
 	}
 
 	private async settleStaleAttempts(
-		scope:
-			| { attemptId: string; userId: string }
-			| { projectId: string; userId: string },
+		scope: ProjectScope,
+		target: { attemptId: string } | { projectId: string },
 	): Promise<void> {
 		const attemptScope =
-			"attemptId" in scope
-				? eq(leadScrapeAttempts.id, scope.attemptId)
-				: eq(leadScrapeAttempts.projectId, scope.projectId);
+			"attemptId" in target
+				? eq(leadScrapeAttempts.id, target.attemptId)
+				: eq(leadScrapeAttempts.projectId, target.projectId);
 		const ownedProjectIds = this.db
 			.select({ id: projects.id })
 			.from(projects)
-			.where(
-				and(eq(projects.userId, scope.userId), isNull(projects.deletedAt)),
-			);
+			.where(and(projectScopePredicate(scope), isNull(projects.deletedAt)));
 
 		await this.db
 			.update(leadScrapeAttempts)

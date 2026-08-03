@@ -9,16 +9,18 @@ import type { MultipartFile } from "@fastify/multipart";
 import {
 	BadRequestException,
 	Controller,
+	Headers,
 	Inject,
 	PayloadTooLargeException,
 	Post,
 	Req,
 	UseGuards,
 } from "@nestjs/common";
+import type { AuthUser } from "@wandit/auth";
 import type { TranscriptionResponse } from "@wandit/contracts";
 import type { FastifyRequest } from "fastify";
 
-import { EarlyAccessGuard } from "../../../../auth";
+import { CurrentUser, EarlyAccessGuard } from "../../../../auth";
 import { TranscriptionService } from "../../../application/services/transcription.service";
 
 // The multipart plugin adds `request.file()` at runtime.
@@ -38,7 +40,11 @@ export class TranscriptionsController {
 	// Accept one uploaded audio file and return recognized text.
 	@UseGuards(EarlyAccessGuard)
 	@Post()
-	async create(@Req() request: FastifyRequest): Promise<TranscriptionResponse> {
+	async create(
+		@Req() request: FastifyRequest,
+		@CurrentUser() user: AuthUser,
+		@Headers("x-operation-id") operationId: string | undefined,
+	): Promise<TranscriptionResponse> {
 		const file = await this.readFile(request as MultipartRequest);
 
 		// Basic check from upload metadata. This is not a deep file scan.
@@ -50,11 +56,26 @@ export class TranscriptionsController {
 		}
 
 		const audio = await this.readAudioBuffer(file);
+		const stableOperationId = operationId?.trim();
+
+		if (
+			!stableOperationId ||
+			stableOperationId.length < 16 ||
+			stableOperationId.length > 128 ||
+			!/^[A-Za-z0-9._:-]+$/u.test(stableOperationId)
+		) {
+			throw new BadRequestException({
+				code: "TRANSCRIPTION_OPERATION_ID_REQUIRED",
+				message: "A stable transcription operation id is required",
+			});
+		}
 
 		// Service owns the AI SDK call.
 		return this.transcriptionService.transcribeAudio({
 			audio,
 			mimeType: file.mimetype,
+			operationId: stableOperationId,
+			userId: user.id,
 		});
 	}
 

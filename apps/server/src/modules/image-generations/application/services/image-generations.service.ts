@@ -5,7 +5,12 @@ import {
 } from "@wandit/contracts";
 import { and, eq, lt } from "@wandit/db";
 import { imageGenerationAttempts } from "@wandit/db/schema/image-generation-attempts";
+import { env } from "@wandit/env/server";
 import { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
+import {
+	meteringSubjectFrom,
+	type ProjectScope,
+} from "../../../projects/domain/project-scope";
 import {
 	captureGenerationCompleted,
 	captureGenerationFailed,
@@ -21,11 +26,12 @@ import {
 	publicAssetKeyFromUrl,
 	publicAssetUrl,
 } from "../../../../infrastructure/storage/r2";
-import { GenerationPolicyService } from "../../../generation/application/services/generation-policy.service";
+import { MeteringService } from "../../../metering/application/services/metering.service";
 import {
 	type ImageGenerationAttemptRow,
 	ImageGenerationsRepository,
 } from "../../infrastructure/persistence/image-generations.repository";
+import { createImageGenerationBilling } from "./image-generation-billing";
 import { ImageGenerationPlacementService } from "./image-generation-placement.service";
 
 const GENERATION_STALE_AFTER_MS = 15 * 60 * 1_000;
@@ -48,8 +54,8 @@ export class ImageGenerationsService {
 		private readonly imageGenerationsRepository: ImageGenerationsRepository,
 		@Inject(ImageGenerationPlacementService)
 		private readonly imageGenerationPlacementService: ImageGenerationPlacementService,
-		@Inject(GenerationPolicyService)
-		private readonly generationPolicyService: GenerationPolicyService,
+		@Inject(MeteringService)
+		private readonly meteringService: MeteringService,
 		// Direct database access ONLY for the stale-generating settlement below —
 		// the repository stays the single reader/writer for everything else.
 		@Inject(DATABASE) private readonly db: Database,
@@ -58,11 +64,11 @@ export class ImageGenerationsService {
 	) {}
 
 	async attempt(
-		userId: string,
+		scope: ProjectScope,
 		attemptId: string,
 	): Promise<ImageGenerationAttempt> {
-		let row = await this.imageGenerationsRepository.findOwnedAttempt(
-			userId,
+		let row = await this.imageGenerationsRepository.findAccessibleAttempt(
+			scope,
 			attemptId,
 		);
 
@@ -77,11 +83,11 @@ export class ImageGenerationsService {
 			await this.imageGenerationsRepository.markAttemptFailed(
 				row.id,
 				STALE_QUEUED_ERROR,
-				userId,
+				scope.userId,
 				"stale_queued",
 			);
-			row = await this.imageGenerationsRepository.findOwnedAttempt(
-				userId,
+			row = await this.imageGenerationsRepository.findAccessibleAttempt(
+				scope,
 				attemptId,
 			);
 
@@ -93,10 +99,10 @@ export class ImageGenerationsService {
 		if (
 			row.status === "generating" &&
 			row.completedAt === null &&
-			(await this.settleStaleGenerating(row, staleCutoff, userId))
+			(await this.settleStaleGenerating(row, staleCutoff, scope))
 		) {
-			row = await this.imageGenerationsRepository.findOwnedAttempt(
-				userId,
+			row = await this.imageGenerationsRepository.findAccessibleAttempt(
+				scope,
 				attemptId,
 			);
 
@@ -109,8 +115,8 @@ export class ImageGenerationsService {
 			row.status === "succeeded" &&
 			(await this.imageGenerationPlacementService.settle(row, row.images ?? []))
 		) {
-			row = await this.imageGenerationsRepository.findOwnedAttempt(
-				userId,
+			row = await this.imageGenerationsRepository.findAccessibleAttempt(
+				scope,
 				attemptId,
 			);
 
@@ -122,22 +128,22 @@ export class ImageGenerationsService {
 		// All failure paths converge here; the refund is idempotent so a
 		// transient failure is retried by the next poll without double-refunding.
 		if (row.status === "failed") {
-			await this.generationPolicyService.refundGenerationReservation(
-				userId,
-				row.id,
-			);
+			await createImageGenerationBilling({
+				isBillingDisabled: () => env.GENERATION_BILLING_MODE === "off",
+				meteringService: this.meteringService,
+			}).refund(meteringSubjectFrom(scope), row.id);
 		}
 
 		return mapAttemptRow(row);
 	}
 
 	async download(
-		userId: string,
+		scope: ProjectScope,
 		attemptId: string,
 		index: number,
 	): Promise<{ bytes: Uint8Array; fileName: string; mediaType: string }> {
-		const row = await this.imageGenerationsRepository.findOwnedAttempt(
-			userId,
+		const row = await this.imageGenerationsRepository.findAccessibleAttempt(
+			scope,
 			attemptId,
 		);
 
@@ -180,7 +186,7 @@ export class ImageGenerationsService {
 	private async settleStaleGenerating(
 		row: ImageGenerationAttemptRow,
 		staleCutoff: Date,
-		userId: string,
+		scope: ProjectScope,
 	): Promise<boolean> {
 		const [stale] = await this.db
 			.select({ startedAt: imageGenerationAttempts.startedAt })
@@ -201,6 +207,14 @@ export class ImageGenerationsService {
 		const recovered = await this.recoverStoredImages(row);
 
 		if (recovered) {
+			// The deterministic upload proves provider work completed. Repair the
+			// existing hold before publishing success; lookup avoids inventing an
+			// unknown parent relationship for legacy/billing-off rows.
+			await createImageGenerationBilling({
+				isBillingDisabled: () => env.GENERATION_BILLING_MODE === "off",
+				meteringService: this.meteringService,
+			}).settleExisting(meteringSubjectFrom(scope), row.id, recovered.length);
+
 			const [completed] = await this.db
 				.update(imageGenerationAttempts)
 				.set({
@@ -220,7 +234,7 @@ export class ImageGenerationsService {
 			if (completed) {
 				captureGenerationCompleted(
 					this.analyticsService,
-					userId,
+					scope.userId,
 					"image",
 					completed.projectId,
 					row.id,
@@ -249,7 +263,7 @@ export class ImageGenerationsService {
 		if (failed) {
 			captureGenerationFailed(
 				this.analyticsService,
-				userId,
+				scope.userId,
 				"image",
 				failed.projectId,
 				row.id,
@@ -295,13 +309,13 @@ export class ImageGenerationsService {
 			}
 
 			if (!found) {
-				return null;
+				break;
 			}
 
 			images.push(found);
 		}
 
-		return images;
+		return images.length > 0 ? images : null;
 	}
 }
 

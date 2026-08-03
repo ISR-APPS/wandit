@@ -120,6 +120,41 @@
       "when": 1785575752314,
       "tag": "0016_yellow_venus",
       "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1785675351916,
+      "tag": "0017_flashy_satana",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1785752638185,
+      "tag": "0018_far_payback",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1785773637121,
+      "tag": "0019_flat_killer_shrike",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1785790669106,
+      "tag": "0020_moaning_whiplash",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1785794959709,
+      "tag": "0021_motionless_bill_hollister",
+      "breakpoints": true
     }
   ]
 }

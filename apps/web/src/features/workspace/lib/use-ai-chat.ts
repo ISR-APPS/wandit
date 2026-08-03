@@ -1,10 +1,13 @@
 import { useChat } from "@ai-sdk/react";
+import { workspaceScopeHeaders } from "@/features/workspaces/lib/workspace-scope";
 import { useQueryClient } from "@tanstack/react-query";
 import {
+	type AiChatDataParts,
 	type AiChatMessageMetadata,
 	type AiChatSelectedTarget,
 	type AiChatTools,
 	type AskUserOutput,
+	aiChatBillingErrorDataSchema,
 	aiChatMessageMetadataSchema,
 	aiChatRoutes,
 	type ChatMessage,
@@ -20,6 +23,8 @@ import {
 } from "ai";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { dispatchBillingError } from "@/features/billing/lib/billing-error-dispatch";
+import { creditsKeys } from "@/features/credits/api/credits.queries";
 import { chatAutostart, projectKeys } from "@/features/projects";
 import { getServerUrl } from "@/lib/server-url";
 import {
@@ -27,10 +32,11 @@ import {
 	useChatMessagesQuery,
 } from "../api/chat.queries";
 import { pageKeys } from "../api/pages.queries";
+import { createStatusPreservingChatFetch } from "./status-preserving-chat-transport";
 
 export type WanditUIMessage = UIMessage<
 	AiChatMessageMetadata,
-	never,
+	AiChatDataParts,
 	AiChatTools
 >;
 
@@ -97,6 +103,7 @@ export function useAiChat(projectId: string) {
 	}, [queryClient, projectId]);
 	const invalidateFinishedTurnData = useCallback(() => {
 		invalidatePageData();
+		void queryClient.invalidateQueries({ queryKey: creditsKeys.all });
 		void queryClient.invalidateQueries({
 			queryKey: projectKeys.lists(),
 		});
@@ -107,7 +114,9 @@ export function useAiChat(projectId: string) {
 	// Ref so the Chat instance (created once per chat id) never holds a stale
 	// turn-end invalidation closure.
 	const invalidateFinishedTurnDataRef = useRef(invalidateFinishedTurnData);
-	invalidateFinishedTurnDataRef.current = invalidateFinishedTurnData;
+	useEffect(() => {
+		invalidateFinishedTurnDataRef.current = invalidateFinishedTurnData;
+	}, [invalidateFinishedTurnData]);
 
 	const initialMessages = useMemo(
 		() => hydrateAiChatMessages(messagesQuery.data?.messages ?? []),
@@ -120,16 +129,22 @@ export function useAiChat(projectId: string) {
 	// Targets belong to the live AI turn, not the mutable editor selection.
 	// Keeping them here lets the preview replay its pulses after iframe remounts.
 	const [aiTargets, setAiTargets] = useState<AiChatSelectedTarget[]>([]);
+	const [billingError, setBillingError] = useState(false);
+	const billingErrorInCurrentTurnRef = useRef(false);
 
 	const transport = useMemo(
 		() =>
 			new DefaultChatTransport<WanditUIMessage>({
 				api: chatId ? buildStreamUrl(chatId) : undefined,
 				credentials: "include",
+				fetch: createStatusPreservingChatFetch(),
 				// The returned body REPLACES the default assembly entirely
 				// (http-chat-transport.ts uses it verbatim when defined), so it must
 				// carry the complete default fields plus our optional metadata.
 				prepareSendMessagesRequest: ({ id, messages, trigger, messageId }) => ({
+					// Workspace scoping (§2): the AI stream bypasses axios, so the
+					// active-workspace header must ride this transport explicitly.
+					headers: workspaceScopeHeaders(),
 					body: {
 						id,
 						messages,
@@ -165,6 +180,9 @@ export function useAiChat(projectId: string) {
 	} = useChat<WanditUIMessage>({
 		id: chatId ?? `project:${projectId}`,
 		messageMetadataSchema: aiChatMessageMetadataSchema,
+		dataPartSchemas: {
+			"billing-error": aiChatBillingErrorDataSchema,
+		},
 		messages: initialMessages,
 		transport,
 		sendAutomaticallyWhen: (options) =>
@@ -173,8 +191,26 @@ export function useAiChat(projectId: string) {
 		// Unconditional turn-end refetch — harmless after aborted/failed turns
 		// and covers partial turns that already applied a section.
 		onFinish: ({ isAbort, isError }) => {
-			lastSendSucceededRef.current = !isAbort && !isError;
+			lastSendSucceededRef.current =
+				!isAbort && !isError && !billingErrorInCurrentTurnRef.current;
 			invalidateFinishedTurnDataRef.current();
+		},
+		onError: (chatError) => {
+			const intent = dispatchBillingError(chatError);
+			billingErrorInCurrentTurnRef.current = nextBillingErrorInTurn(
+				billingErrorInCurrentTurnRef.current,
+				intent,
+			);
+			if (billingErrorInCurrentTurnRef.current) {
+				setBillingError(true);
+			}
+		},
+		onData: (part) => {
+			const intent = dispatchBillingError(part);
+			if (intent) {
+				billingErrorInCurrentTurnRef.current = true;
+				setBillingError(true);
+			}
 		},
 	});
 
@@ -269,6 +305,8 @@ export function useAiChat(projectId: string) {
 				composer: options?.composer,
 				selectedWids,
 			};
+			billingErrorInCurrentTurnRef.current = false;
+			setBillingError(false);
 			if (selectedTargets) setAiTargets(selectedTargets);
 			lastSendSucceededRef.current = false;
 			try {
@@ -317,6 +355,7 @@ export function useAiChat(projectId: string) {
 		messages,
 		status,
 		error,
+		billingError,
 		aiTargets,
 		sendText,
 		answerAskUser,
@@ -324,6 +363,18 @@ export function useAiChat(projectId: string) {
 		isResolvingChat: chatByProjectQuery.isPending,
 		isLoadingMessages: Boolean(chatId) && messagesQuery.isPending,
 	};
+}
+
+/**
+ * Billing is a monotonic condition within one chat turn. The server can emit a
+ * typed billing data part and then a generic AI SDK error chunk; that later
+ * chunk must not restore the generic error UI.
+ */
+export function nextBillingErrorInTurn(
+	current: boolean,
+	intent: ReturnType<typeof dispatchBillingError>,
+) {
+	return current || intent !== null;
 }
 
 function buildStreamUrl(chatId: string) {

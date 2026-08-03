@@ -18,8 +18,13 @@ import {
 	DATABASE,
 	type Database,
 } from "../../../../infrastructure/database/database.constants";
+import {
+	type ProjectScope,
+	projectScopePredicate,
+} from "../../../projects/domain/project-scope";
 
-// Small shape returned after ownership checks.
+// Small shape returned after access checks. userId is the project creator
+// (provenance) — in org scope it may differ from the acting member.
 export type OwnedChatRow = {
 	id: string;
 	projectId: string;
@@ -42,12 +47,12 @@ export class ChatsRepository {
 	// DATABASE is the Nest token for the Drizzle database connection.
 	constructor(@Inject(DATABASE) private readonly db: Database) {}
 
-	// Find a chat only if it belongs to this user.
-	async findOwnedChatById(
-		userId: string,
+	// Find a chat only if its project is accessible in this workspace scope.
+	async findAccessibleChatById(
+		scope: ProjectScope,
 		chatId: string,
 	): Promise<OwnedChatRow | null> {
-		// chats -> projects -> userId. This join proves ownership.
+		// chats -> projects -> scope predicate. This join proves access.
 		const [row] = await this.db
 			.select({
 				id: chats.id,
@@ -59,7 +64,7 @@ export class ChatsRepository {
 			.where(
 				and(
 					eq(chats.id, chatId),
-					eq(projects.userId, userId),
+					projectScopePredicate(scope),
 					isNull(projects.deletedAt),
 				),
 			)
@@ -69,9 +74,9 @@ export class ChatsRepository {
 		return row ?? null;
 	}
 
-	// Find the first chat for a project owned by this user.
-	async findOwnedChatByProjectId(
-		userId: string,
+	// Find the first chat for a project accessible in this workspace scope.
+	async findAccessibleChatByProjectId(
+		scope: ProjectScope,
 		projectId: string,
 	): Promise<OwnedChatRow | null> {
 		// projectId is not unique, so choose the oldest chat if there are many.
@@ -86,7 +91,7 @@ export class ChatsRepository {
 			.where(
 				and(
 					eq(chats.projectId, projectId),
-					eq(projects.userId, userId),
+					projectScopePredicate(scope),
 					isNull(projects.deletedAt),
 				),
 			)
@@ -103,6 +108,17 @@ export class ChatsRepository {
 			.from(messages)
 			.where(eq(messages.chatId, chatId))
 			.orderBy(asc(messages.seq));
+	}
+
+	// Ids of already-persisted messages: server-hydrated history, as opposed
+	// to new content the current request is submitting for the first time.
+	async listMessageIds(chatId: string): Promise<Set<string>> {
+		const rows = await this.db
+			.select({ id: messages.id })
+			.from(messages)
+			.where(eq(messages.chatId, chatId));
+
+		return new Set(rows.map((row) => row.id));
 	}
 
 	// Save the user's prompt before queueing the worker job.

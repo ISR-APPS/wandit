@@ -6,6 +6,10 @@
  * the workspace endpoints prove ownership in SQL through the projects join
  * (misses read as 404, never 403 — docs/api-security.md).
  */
+import {
+	type ProjectScope,
+	projectScopePredicate,
+} from "../../../projects/domain/project-scope";
 import { Inject, Injectable } from "@nestjs/common";
 import type { LeadStatus } from "@wandit/contracts";
 import { and, desc, eq, gt, isNull, sql } from "@wandit/db";
@@ -123,20 +127,20 @@ export class LeadsRepository {
 		await this.db.insert(leads).values(input);
 	}
 
-	async listOwnedByProject(
-		userId: string,
+	async listForProject(
+		scope: ProjectScope,
 		projectId: string,
 		limit = LIST_LIMIT,
 	): Promise<LeadRow[]> {
-		return this.listOwned(
-			userId,
+		return this.listAccessible(
+			scope,
 			projectId,
 			Math.min(LIST_LIMIT, Math.max(1, Math.floor(limit))),
 		);
 	}
 
-	async countOwnedByProject(
-		userId: string,
+	async countForProject(
+		scope: ProjectScope,
 		projectId: string,
 	): Promise<number> {
 		const [row] = await this.db
@@ -146,7 +150,7 @@ export class LeadsRepository {
 			.where(
 				and(
 					eq(leads.projectId, projectId),
-					eq(projects.userId, userId),
+					projectScopePredicate(scope),
 					isNull(projects.deletedAt),
 				),
 			);
@@ -154,15 +158,15 @@ export class LeadsRepository {
 		return row?.total ?? 0;
 	}
 
-	async listOwnedByProjectForSync(
-		userId: string,
+	async listForProjectSync(
+		scope: ProjectScope,
 		projectId: string,
 	): Promise<LeadRow[]> {
-		return this.listOwned(userId, projectId, SYNC_LIST_LIMIT);
+		return this.listAccessible(scope, projectId, SYNC_LIST_LIMIT);
 	}
 
-	private listOwned(
-		userId: string,
+	private listAccessible(
+		scope: ProjectScope,
 		projectId: string,
 		limit: number,
 	): Promise<LeadRow[]> {
@@ -173,7 +177,7 @@ export class LeadsRepository {
 			.where(
 				and(
 					eq(leads.projectId, projectId),
-					eq(projects.userId, userId),
+					projectScopePredicate(scope),
 					isNull(projects.deletedAt),
 				),
 			)
@@ -181,8 +185,8 @@ export class LeadsRepository {
 			.limit(limit);
 	}
 
-	async updateOwnedLeadStatus(
-		userId: string,
+	async updateAccessibleLeadStatus(
+		scope: ProjectScope,
 		projectId: string,
 		leadId: string,
 		status: LeadStatus,
@@ -195,7 +199,7 @@ export class LeadsRepository {
 				and(
 					eq(leads.id, leadId),
 					eq(leads.projectId, projectId),
-					eq(projects.userId, userId),
+					projectScopePredicate(scope),
 					isNull(projects.deletedAt),
 				),
 			)

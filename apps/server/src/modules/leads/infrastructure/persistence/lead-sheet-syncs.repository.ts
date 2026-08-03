@@ -4,6 +4,10 @@
  * miss reads as 404 — docs/api-security.md) and the user's Google account
  * row (whose stored scope decides whether Sheets sync is connected).
  */
+import {
+	type ProjectScope,
+	projectScopePredicate,
+} from "../../../projects/domain/project-scope";
 import { Inject, Injectable } from "@nestjs/common";
 import { and, desc, eq, isNull } from "@wandit/db";
 import { account } from "@wandit/db/schema/auth";
@@ -38,8 +42,8 @@ const SYNC_COLUMNS = {
 export class LeadSheetSyncsRepository {
 	constructor(@Inject(DATABASE) private readonly db: Database) {}
 
-	async findOwnedProject(
-		userId: string,
+	async findAccessibleProject(
+		scope: ProjectScope,
 		projectId: string,
 	): Promise<{ id: string; name: string } | null> {
 		const [row] = await this.db
@@ -48,7 +52,7 @@ export class LeadSheetSyncsRepository {
 			.where(
 				and(
 					eq(projects.id, projectId),
-					eq(projects.userId, userId),
+					projectScopePredicate(scope),
 					isNull(projects.deletedAt),
 				),
 			)

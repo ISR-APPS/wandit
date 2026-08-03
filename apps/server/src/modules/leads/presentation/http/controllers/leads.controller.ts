@@ -12,6 +12,9 @@ import {
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { CurrentUser } from "../../../../auth";
+import { projectScopeFrom } from "../../../../projects/domain/project-scope";
+import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
+import { CurrentWorkspace } from "../../../../workspaces/presentation/http/decorators/workspace.decorators";
 import { LeadsService } from "../../../application/services/leads.service";
 
 @Controller("v1")
@@ -27,8 +30,12 @@ export class LeadsController {
 		@Param("projectId", new ZodValidationPipe(uuidSchema))
 		projectId: string,
 		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
 	): Promise<LeadsResponse> {
-		return this.leadsService.list(user.id, projectId);
+		return this.leadsService.list(
+			projectScopeFrom(workspace, user.id),
+			projectId,
+		);
 	}
 
 	@Patch("projects/:projectId/leads/:leadId/status")
@@ -40,9 +47,10 @@ export class LeadsController {
 		@Body(new ZodValidationPipe(leadStatusUpdateBodySchema))
 		body: LeadStatusUpdateBody,
 		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
 	): Promise<LeadResponse> {
 		return this.leadsService.updateStatus(
-			user.id,
+			projectScopeFrom(workspace, user.id),
 			projectId,
 			leadId,
 			body.status,

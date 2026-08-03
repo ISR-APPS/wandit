@@ -7,6 +7,7 @@
  * changes made in the Leads tab flow through. better-auth owns the tokens:
  * getAccessToken refreshes silently off the stored refresh token.
  */
+import type { ProjectScope } from "../../../projects/domain/project-scope";
 import {
 	BadGatewayException,
 	ConflictException,
@@ -49,13 +50,14 @@ export class LeadSheetSyncService {
 	) {}
 
 	async getState(
-		userId: string,
+		scope: ProjectScope,
 		projectId: string,
 	): Promise<LeadSheetSyncState> {
-		await this.getOwnedProject(userId, projectId);
+		await this.getAccessibleProject(scope, projectId);
 
+		// The Google Sheets identity is the ACTING member's, never the org's.
 		const [account, sync] = await Promise.all([
-			this.syncsRepository.findGoogleAccount(userId),
+			this.syncsRepository.findGoogleAccount(scope.userId),
 			this.syncsRepository.findByProject(projectId),
 		]);
 
@@ -63,21 +65,21 @@ export class LeadSheetSyncService {
 	}
 
 	async syncNow(
-		userId: string,
+		scope: ProjectScope,
 		projectId: string,
 	): Promise<LeadSheetSyncState> {
-		const project = await this.getOwnedProject(userId, projectId);
+		const project = await this.getAccessibleProject(scope, projectId);
 
-		const account = await this.syncsRepository.findGoogleAccount(userId);
+		const account = await this.syncsRepository.findGoogleAccount(scope.userId);
 		if (!isSheetsConnected(account)) {
 			throw new ConflictException(
 				"Google Sheets access is not connected for this account",
 			);
 		}
 
-		const accessToken = await this.mintAccessToken(userId);
-		const rows = await this.leadsRepository.listOwnedByProjectForSync(
-			userId,
+		const accessToken = await this.mintAccessToken(scope.userId);
+		const rows = await this.leadsRepository.listForProjectSync(
+			scope,
 			projectId,
 		);
 		const values = buildLeadSheetValues(rows.map(toLeadDto));
@@ -136,12 +138,12 @@ export class LeadSheetSyncService {
 		return { connected: true, sheet: toSheetDto(updated) };
 	}
 
-	private async getOwnedProject(
-		userId: string,
+	private async getAccessibleProject(
+		scope: ProjectScope,
 		projectId: string,
 	): Promise<{ id: string; name: string }> {
-		const project = await this.syncsRepository.findOwnedProject(
-			userId,
+		const project = await this.syncsRepository.findAccessibleProject(
+			scope,
 			projectId,
 		);
 

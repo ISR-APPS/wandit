@@ -12,6 +12,7 @@ import { AlertTriangle } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useRef, useState } from "react";
 
+import { invalidateBalanceAfterGenerationTerminal } from "@/features/credits/lib/terminal-balance-invalidation";
 import { useTranslation } from "@/lib/i18n";
 import {
 	connectorGenerationKeys,
@@ -51,6 +52,12 @@ export function ConnectorGenerationCard({
 	);
 	const attemptSettled =
 		attempt?.status === "succeeded" || attempt?.status === "failed";
+	const terminalStatus = attemptSettled ? attempt.status : null;
+
+	useEffect(() => {
+		if (!terminalStatus) return;
+		invalidateBalanceAfterGenerationTerminal(queryClient, terminalStatus);
+	}, [queryClient, terminalStatus]);
 
 	const live = useLiveRun({
 		handle: realtime,
@@ -59,6 +66,7 @@ export function ConnectorGenerationCard({
 			void queryClient.invalidateQueries({
 				queryKey: connectorGenerationKeys.attempt(attemptId),
 			});
+			invalidateBalanceAfterGenerationTerminal(queryClient, "settled");
 			setPollFallback(true);
 		},
 	});

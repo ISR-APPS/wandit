@@ -6,6 +6,7 @@ import {
 import type { Auth } from "@wandit/auth";
 import { GOOGLE_SHEETS_SCOPE } from "@wandit/contracts";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { ProjectScope } from "../../../projects/domain/project-scope";
 import {
 	GoogleSheetsApiError,
 	type GoogleSheetsClient,
@@ -18,6 +19,7 @@ import type {
 import { LeadSheetSyncService } from "./lead-sheet-sync.service";
 
 const USER_ID = "user-1";
+const SCOPE: ProjectScope = { kind: "personal", userId: USER_ID };
 const PROJECT_ID = "22222222-2222-4222-8222-222222222222";
 const SHEET = {
 	spreadsheetId: "sheet-abc",
@@ -51,7 +53,7 @@ function buildService() {
 	const syncsRepository = {
 		findByProject: vi.fn().mockResolvedValue(null),
 		findGoogleAccount: vi.fn().mockResolvedValue(connectedAccount()),
-		findOwnedProject: vi
+		findAccessibleProject: vi
 			.fn()
 			.mockResolvedValue({ id: PROJECT_ID, name: "Parfums d'Alger" }),
 		recordSyncResult: vi.fn().mockResolvedValue({
@@ -71,7 +73,7 @@ function buildService() {
 		appendValues: vi.fn().mockResolvedValue(undefined),
 	};
 	const leadsRepository = {
-		listOwnedByProjectForSync: vi.fn().mockResolvedValue([leadRow()]),
+		listForProjectSync: vi.fn().mockResolvedValue([leadRow()]),
 	};
 	const auth = {
 		api: {
@@ -96,9 +98,9 @@ describe("LeadSheetSyncService", () => {
 	describe("getState", () => {
 		it("404s when the project is not owned", async () => {
 			const { service, syncsRepository } = buildService();
-			syncsRepository.findOwnedProject.mockResolvedValue(null);
+			syncsRepository.findAccessibleProject.mockResolvedValue(null);
 
-			await expect(service.getState(USER_ID, PROJECT_ID)).rejects.toThrow(
+			await expect(service.getState(SCOPE, PROJECT_ID)).rejects.toThrow(
 				NotFoundException,
 			);
 		});
@@ -109,7 +111,7 @@ describe("LeadSheetSyncService", () => {
 				connectedAccount({ scope: "openid,email,profile" }),
 			);
 
-			await expect(service.getState(USER_ID, PROJECT_ID)).resolves.toEqual({
+			await expect(service.getState(SCOPE, PROJECT_ID)).resolves.toEqual({
 				connected: false,
 				sheet: null,
 			});
@@ -124,7 +126,7 @@ describe("LeadSheetSyncService", () => {
 				}),
 			);
 
-			const state = await service.getState(USER_ID, PROJECT_ID);
+			const state = await service.getState(SCOPE, PROJECT_ID);
 
 			expect(state.connected).toBe(false);
 		});
@@ -137,7 +139,7 @@ describe("LeadSheetSyncService", () => {
 				syncedLeadCount: 3,
 			});
 
-			await expect(service.getState(USER_ID, PROJECT_ID)).resolves.toEqual({
+			await expect(service.getState(SCOPE, PROJECT_ID)).resolves.toEqual({
 				connected: true,
 				sheet: {
 					lastSyncedAt: "2026-07-25T14:00:00.000Z",
@@ -152,7 +154,7 @@ describe("LeadSheetSyncService", () => {
 		it("creates the spreadsheet on first sync, then writes header + leads", async () => {
 			const { service, sheetsClient, syncsRepository } = buildService();
 
-			const state = await service.syncNow(USER_ID, PROJECT_ID);
+			const state = await service.syncNow(SCOPE, PROJECT_ID);
 
 			expect(sheetsClient.createSpreadsheet).toHaveBeenCalledWith(
 				"token-1",
@@ -201,7 +203,7 @@ describe("LeadSheetSyncService", () => {
 				syncedLeadCount: 5,
 			});
 
-			await service.syncNow(USER_ID, PROJECT_ID);
+			await service.syncNow(SCOPE, PROJECT_ID);
 
 			expect(sheetsClient.createSpreadsheet).not.toHaveBeenCalled();
 			expect(sheetsClient.clearValues).toHaveBeenCalledWith(
@@ -224,7 +226,7 @@ describe("LeadSheetSyncService", () => {
 				new GoogleSheetsApiError(404, "Requested entity was not found."),
 			);
 
-			await service.syncNow(USER_ID, PROJECT_ID);
+			await service.syncNow(SCOPE, PROJECT_ID);
 
 			expect(sheetsClient.createSpreadsheet).toHaveBeenCalledTimes(1);
 			expect(sheetsClient.appendValues).toHaveBeenCalledWith(
@@ -241,7 +243,7 @@ describe("LeadSheetSyncService", () => {
 				connectedAccount({ scope: "openid,email" }),
 			);
 
-			await expect(service.syncNow(USER_ID, PROJECT_ID)).rejects.toThrow(
+			await expect(service.syncNow(SCOPE, PROJECT_ID)).rejects.toThrow(
 				ConflictException,
 			);
 			expect(sheetsClient.createSpreadsheet).not.toHaveBeenCalled();
@@ -253,7 +255,7 @@ describe("LeadSheetSyncService", () => {
 				new Error("Failed to refresh access token"),
 			);
 
-			await expect(service.syncNow(USER_ID, PROJECT_ID)).rejects.toThrow(
+			await expect(service.syncNow(SCOPE, PROJECT_ID)).rejects.toThrow(
 				ConflictException,
 			);
 		});
@@ -267,7 +269,7 @@ describe("LeadSheetSyncService", () => {
 				),
 			);
 
-			await expect(service.syncNow(USER_ID, PROJECT_ID)).rejects.toThrow(
+			await expect(service.syncNow(SCOPE, PROJECT_ID)).rejects.toThrow(
 				/Google Sheets API has not been used/,
 			);
 		});
@@ -283,7 +285,7 @@ describe("LeadSheetSyncService", () => {
 				new GoogleSheetsApiError(500, "Internal error"),
 			);
 
-			await expect(service.syncNow(USER_ID, PROJECT_ID)).rejects.toThrow(
+			await expect(service.syncNow(SCOPE, PROJECT_ID)).rejects.toThrow(
 				BadGatewayException,
 			);
 			expect(syncsRepository.recordSyncResult).not.toHaveBeenCalled();
@@ -291,9 +293,9 @@ describe("LeadSheetSyncService", () => {
 
 		it("404s when the project is not owned, before touching Google", async () => {
 			const { auth, service, syncsRepository } = buildService();
-			syncsRepository.findOwnedProject.mockResolvedValue(null);
+			syncsRepository.findAccessibleProject.mockResolvedValue(null);
 
-			await expect(service.syncNow(USER_ID, PROJECT_ID)).rejects.toThrow(
+			await expect(service.syncNow(SCOPE, PROJECT_ID)).rejects.toThrow(
 				NotFoundException,
 			);
 			expect(auth.api.getAccessToken).not.toHaveBeenCalled();

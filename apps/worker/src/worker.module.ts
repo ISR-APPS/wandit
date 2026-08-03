@@ -1,16 +1,23 @@
-// Root module for the worker process.
+// Root module for the remaining Redis/BullMQ worker process.
 //
-// This is the worker version of AppModule. It wires together config, database,
-// queues, processors, Redis publishing, and reused services.
-//
-// Important chat path:
-// API queues job -> AiGenerationProcessor runs job -> worker writes DB/Redis.
+// Billing maintenance, domain fulfillment, and order refunds run in
+// Trigger.dev. This worker now owns only AI chat generation plus the
+// media-generation, lead-processing, and publishing queue contracts.
+import { gateway } from "@ai-sdk/gateway";
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
+
+import { CreditsService } from "../../server/src/modules/credits/application/services/credits.service";
+import { CreditsRepository } from "../../server/src/modules/credits/infrastructure/persistence/credits.repository";
+import { MeteringService } from "../../server/src/modules/metering/application/services/metering.service";
+import { ModelPricingService } from "../../server/src/modules/metering/application/services/model-pricing.service";
+import { METERING_GATEWAY } from "../../server/src/modules/metering/domain/metering";
+import { MeteringRepository } from "../../server/src/modules/metering/infrastructure/persistence/metering.repository";
+import { ModelPricesRepository } from "../../server/src/modules/metering/infrastructure/persistence/model-prices.repository";
 import { queueConfig } from "./config/queue.config";
 import { WorkerDatabaseModule } from "./infrastructure/database/database.module";
+import { databaseProvider } from "./infrastructure/database/database-alias.provider";
 import { WorkerChatRepository } from "./infrastructure/persistence/worker-chat.repository";
-import { WorkerCreditsService } from "./infrastructure/persistence/worker-credits.service";
 import { WorkerQueuesModule } from "./infrastructure/queues/worker-queues.module";
 import { ChatEventsPublisher } from "./infrastructure/redis/chat-events.publisher";
 import { AiGenerationProcessor } from "./processors/ai-generation.processor";
@@ -18,10 +25,8 @@ import { LeadProcessingProcessor } from "./processors/lead-processing.processor"
 import { MediaGenerationProcessor } from "./processors/media-generation.processor";
 import { PublishProcessor } from "./processors/publish.processor";
 
-// `@Module()` tells Nest what this worker process imports and can inject.
 @Module({
 	imports: [
-		// Load environment-backed config once.
 		ConfigModule.forRoot({
 			cache: true,
 			isGlobal: true,
@@ -31,16 +36,23 @@ import { PublishProcessor } from "./processors/publish.processor";
 		WorkerQueuesModule,
 	],
 	providers: [
-		// Providers are classes or values Nest can create/inject. Processors are
-		// providers too, so registering them starts their BullMQ listeners.
+		databaseProvider,
 		AiGenerationProcessor,
 		ChatEventsPublisher,
-		MediaGenerationProcessor,
+		CreditsRepository,
+		CreditsService,
 		LeadProcessingProcessor,
+		MediaGenerationProcessor,
+		MeteringRepository,
+		MeteringService,
+		ModelPricesRepository,
+		ModelPricingService,
 		PublishProcessor,
 		WorkerChatRepository,
-		WorkerCreditsService,
+		{
+			provide: METERING_GATEWAY,
+			useValue: gateway,
+		},
 	],
 })
-// Empty class: the @Module metadata above is the important part.
 export class WorkerModule {}

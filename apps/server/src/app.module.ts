@@ -11,6 +11,7 @@ import { ApiExceptionFilter } from "./infrastructure/http/api-exception.filter";
 import { ApiResponseEnvelopeInterceptor } from "./infrastructure/http/api-response-envelope.interceptor";
 import { QueuesModule } from "./infrastructure/queues/queues.module";
 import { AdminModule } from "./modules/admin/admin.module";
+import { AffiliatesModule } from "./modules/affiliates/affiliates.module";
 import { AiChatModule } from "./modules/ai-chat/ai-chat.module";
 import { AuthModule } from "./modules/auth/auth.module";
 import { BillingModule } from "./modules/billing/billing.module";
@@ -31,6 +32,7 @@ import { ProjectsModule } from "./modules/projects/projects.module";
 import { SitesModule } from "./modules/sites/sites.module";
 import { StorageModule } from "./modules/storage/storage.module";
 import { UploadsModule } from "./modules/uploads/uploads.module";
+import { WorkspacesModule } from "./modules/workspaces/workspaces.module";
 
 @Module({
 	imports: [
@@ -46,7 +48,11 @@ import { UploadsModule } from "./modules/uploads/uploads.module";
 		AnalyticsModule,
 		DatabaseModule,
 		QueuesModule,
+		AffiliatesModule,
 		AuthModule,
+		// After AuthModule ON PURPOSE: its global WorkspaceContextGuard reads
+		// request.user, and Nest runs global guards in registration order.
+		WorkspacesModule,
 		AdminModule,
 		AiChatModule,
 		HealthModule,

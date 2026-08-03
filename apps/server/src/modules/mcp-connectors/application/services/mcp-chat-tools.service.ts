@@ -1,10 +1,13 @@
+import { setTimeout as delay } from "node:timers/promises";
+
+import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import {
 	createMCPClient,
 	type ListToolsResult,
 	type MCPClient,
 } from "@ai-sdk/mcp";
 import { ConflictException, Inject, Injectable, Logger } from "@nestjs/common";
-import { auth, tasks } from "@trigger.dev/sdk";
+import { auth, idempotencyKeys, tasks } from "@trigger.dev/sdk";
 import {
 	CONNECTOR_GENERATION_OUTPUT_KIND,
 	type TriggerRealtimeHandle,
@@ -17,7 +20,20 @@ import { z } from "zod";
 // Type-only import: pulling the task VALUE here would drag the Trigger task
 // (and its DB pool) into the Nest process.
 import type { runConnectorGenerationTask } from "../../../../trigger/run-connector-generation.task";
+import { extractMediaUrls } from "../../../connector-generations/domain/extract-media-urls";
 import { ConnectorGenerationsRepository } from "../../../connector-generations/infrastructure/persistence/connector-generations.repository";
+import { MeteringService } from "../../../metering/application/services/metering.service";
+import {
+	fixedGenerationStepUsage,
+	gatewayGenerationCaptureFromError,
+} from "../../../metering/domain/gateway-metering";
+import { MeteringStateConflictError } from "../../../metering/domain/metering";
+import {
+	connectorGatewayCaptures,
+	connectorGenerationPlan,
+	connectorGenerationReference,
+	normalizeConnectorToolName,
+} from "../../domain/connector-generation-metering";
 import {
 	type McpToolApprovalMap,
 	mcpToolPolicySchema,
@@ -26,6 +42,14 @@ import type { McpConnectionRow } from "../../infrastructure/persistence/mcp-conn
 import { McpConnectionsRepository } from "../../infrastructure/persistence/mcp-connections.repository";
 import type { McpConnectorRow } from "../../infrastructure/persistence/mcp-connectors.repository";
 import { McpConnectorsRepository } from "../../infrastructure/persistence/mcp-connectors.repository";
+import {
+	type ConnectorGenerationBilling,
+	type ConnectorGenerationReservations,
+	captureConnectorGenerationResult,
+	connectorBillingAdmissionMode,
+	createConnectorGenerationBilling,
+	finalizeConnectorGenerationBilling,
+} from "./connector-generation-billing";
 import { McpConnectionsService } from "./mcp-connections.service";
 import {
 	type McpCatalogTool,
@@ -36,6 +60,8 @@ import {
 
 const MCP_CONNECT_TIMEOUT_MS = 10_000;
 const READ_RETRY_DELAYS_MS = [250, 1_000] as const;
+const TRIGGER_HANDOFF_ATTEMPTS = 3;
+const TRIGGER_IDEMPOTENCY_TTL = "14d";
 const VALID_TOOL_NAME_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 const PLATFORM_TOOL_RESULT_LIMIT = 12;
 const PLATFORM_TOOL_SUMMARY_LENGTH = 160;
@@ -282,9 +308,17 @@ export class McpChatToolsService {
 		private readonly runtimeCache: McpRuntimeCacheService,
 		@Inject(ConnectorGenerationsRepository)
 		private readonly connectorGenerationsRepository: ConnectorGenerationsRepository,
+		@Inject(MeteringService)
+		private readonly meteringService: MeteringService,
 	) {}
 
-	async resolveToolsForUser(userId: string): Promise<McpChatToolsResult> {
+	async resolveToolsForUser(
+		subject: MeteringSubject,
+		parentEventId?: string,
+	): Promise<McpChatToolsResult> {
+		// Connections belong to the acting member; the subject's payer (org pool
+		// in an org workspace) funds connector generations.
+		const userId = subject.actorUserId;
 		const connections = (
 			await this.connectionsRepository.listByUser(userId)
 		).filter(hasStoredToken);
@@ -321,7 +355,8 @@ export class McpChatToolsService {
 
 				try {
 					return await this.resolveConnectorTools(
-						userId,
+						subject,
+						parentEventId,
 						connection,
 						connector,
 						registerCloser,
@@ -369,7 +404,10 @@ export class McpChatToolsService {
 		}
 
 		if (runtimes.length > 0) {
-			Object.assign(tools, this.createDiscoveryDoors(userId, runtimes));
+			Object.assign(
+				tools,
+				this.createDiscoveryDoors(subject, parentEventId, runtimes),
+			);
 			approvalMap.run_platform_tool = classifyPlatformToolApproval;
 		}
 
@@ -384,7 +422,8 @@ export class McpChatToolsService {
 	}
 
 	private async resolveConnectorTools(
-		userId: string,
+		subject: MeteringSubject,
+		parentEventId: string | undefined,
 		connection: McpConnectionRow,
 		connector: McpConnectorRow,
 		registerCloser: (client: MCPClient) => RegisteredCloser,
@@ -421,7 +460,7 @@ export class McpChatToolsService {
 
 		try {
 			accessToken = await this.connectionsService.getValidAccessToken(
-				userId,
+				subject.actorUserId,
 				connector.slug,
 			);
 		} catch (error) {
@@ -485,11 +524,18 @@ export class McpChatToolsService {
 			)
 				? this.wrapBackgroundGenerationTool(
 						tool,
-						userId,
+						subject,
+						parentEventId,
 						connector.slug,
 						toolName,
 					)
-				: wrapToolWithReadRetry(tool, toolName);
+				: this.wrapConnectorTool(
+						tool,
+						subject,
+						parentEventId,
+						connector.slug,
+						toolName,
+					);
 
 			const normalizedToolName = normalizeToolName(toolName);
 			const autoTools =
@@ -712,7 +758,8 @@ export class McpChatToolsService {
 	}
 
 	private createDiscoveryDoors(
-		userId: string,
+		subject: MeteringSubject,
+		parentEventId: string | undefined,
 		runtimes: ConnectorRuntimeContext[],
 	): Record<string, Tool> {
 		const runtimesBySlug = new Map<string, ConnectorRuntimeContext>();
@@ -755,7 +802,8 @@ export class McpChatToolsService {
 					}
 
 					return this.runPlatformTool(
-						userId,
+						subject,
+						parentEventId,
 						runtimesBySlug,
 						parsed.data,
 						options,
@@ -992,7 +1040,8 @@ export class McpChatToolsService {
 	}
 
 	private async runPlatformTool(
-		userId: string,
+		subject: MeteringSubject,
+		parentEventId: string | undefined,
 		runtimesBySlug: Map<string, ConnectorRuntimeContext>,
 		input: z.infer<typeof runPlatformToolInputSchema>,
 		options: ToolExecutionOptions<unknown>,
@@ -1030,7 +1079,8 @@ export class McpChatToolsService {
 
 			if (canonical) {
 				return this.queueBackgroundGeneration(
-					userId,
+					subject,
+					parentEventId,
 					runtime.connector.slug,
 					canonical.name,
 					input.params,
@@ -1040,13 +1090,22 @@ export class McpChatToolsService {
 
 		const catalogTool = catalog.find((tool) => tool.name === input.tool_name);
 		if (catalogTool) {
-			return callMcpTool(
-				runtime.client,
-				catalogTool.name,
-				input.params,
+			return this.executeInlineConnectorTool({
+				connectorSlug: runtime.connector.slug,
+				input: input.params,
+				invoke: () =>
+					callMcpTool(
+						runtime.client,
+						catalogTool.name,
+						input.params,
+						options,
+						classifyToolName(catalogTool.name) === "read",
+					),
 				options,
-				classifyToolName(catalogTool.name) === "read",
-			);
+				parentEventId,
+				subject,
+				toolName: catalogTool.name,
+			});
 		}
 
 		if (runtime.connector.slug === "tiktok-ads") {
@@ -1059,16 +1118,25 @@ export class McpChatToolsService {
 			);
 
 			if (hiddenOperation) {
-				return callMcpTool(
-					runtime.client,
-					"tool_execute",
-					{
-						params: input.params,
-						tool_name: hiddenOperation.name,
-					},
+				return this.executeInlineConnectorTool({
+					connectorSlug: runtime.connector.slug,
+					input: input.params,
+					invoke: () =>
+						callMcpTool(
+							runtime.client,
+							"tool_execute",
+							{
+								params: input.params,
+								tool_name: hiddenOperation.name,
+							},
+							options,
+							classifyToolName(hiddenOperation.name) === "read",
+						),
 					options,
-					classifyToolName(hiddenOperation.name) === "read",
-				);
+					parentEventId,
+					subject,
+					toolName: hiddenOperation.name,
+				});
 			}
 		}
 
@@ -1077,13 +1145,155 @@ export class McpChatToolsService {
 		);
 	}
 
+	private wrapConnectorTool(
+		tool: Tool,
+		subject: MeteringSubject,
+		parentEventId: string | undefined,
+		connectorSlug: string,
+		toolName: string,
+	): Tool {
+		const executable = tool as Tool & { execute?: UnknownToolExecute };
+		if (typeof executable.execute !== "function") {
+			return tool;
+		}
+
+		const execute = executable.execute;
+		return {
+			...executable,
+			execute: (input, options) => {
+				const effectiveToolName = GENERIC_WRAPPER_TOOLS.has(
+					normalizeToolName(toolName),
+				)
+					? (readStringProperty(input, "tool_name") ?? toolName)
+					: toolName;
+				const shouldRetry = GENERIC_WRAPPER_TOOLS.has(
+					normalizeToolName(toolName),
+				)
+					? classifyNestedToolName(input) === "read"
+					: classifyToolName(toolName) === "read";
+				const invoke = () => Promise.resolve(execute(input, options));
+
+				return this.executeInlineConnectorTool({
+					connectorSlug,
+					input,
+					invoke: () => (shouldRetry ? withReadRetry(invoke) : invoke()),
+					options,
+					parentEventId,
+					subject,
+					toolName: effectiveToolName,
+				});
+			},
+		} as Tool;
+	}
+
+	private async executeInlineConnectorTool(input: {
+		connectorSlug: string;
+		input: unknown;
+		invoke: () => Promise<unknown>;
+		options: ToolExecutionOptions<unknown>;
+		parentEventId?: string;
+		subject: MeteringSubject;
+		toolName: string;
+	}): Promise<unknown> {
+		const plan = connectorGenerationPlan(input.toolName, input.input);
+		if (!plan) {
+			return input.invoke();
+		}
+
+		const referenceId = connectorGenerationReference({
+			connectorSlug: input.connectorSlug,
+			parentEventId: input.parentEventId,
+			toolCallId: input.options.toolCallId,
+			toolName: input.toolName,
+			userId: input.subject.actorUserId,
+		});
+		const billing = this.createGenerationBilling();
+		const reservations = await billing.reserve(input.subject, referenceId, {
+			...plan,
+			parentEventId: input.parentEventId,
+		});
+		assertFreshInlineConnectorReservations(reservations);
+		let result: unknown;
+
+		try {
+			result = await input.invoke();
+		} catch (error) {
+			const capture = gatewayGenerationCaptureFromError(error);
+
+			if (capture) {
+				try {
+					await billing.capture(reservations, {
+						...capture,
+						stepUsage: fixedGenerationStepUsage(capture.stepUsage, 0),
+					});
+				} catch (captureError) {
+					// Preserve the exact provider error while leaving both holds open.
+					// Refunding after provider evidence failed to persist could create a
+					// free-generation race; the stale sweep remains the backstop.
+					Sentry.captureException(captureError, {
+						tags: {
+							connectorSlug: input.connectorSlug,
+							referenceId,
+							toolName: input.toolName,
+						},
+					});
+					throw error;
+				}
+			}
+
+			await this.refundGenerationWithoutMasking(
+				billing,
+				input.subject,
+				referenceId,
+				plan.childOperation,
+				input.connectorSlug,
+				input.toolName,
+			);
+			throw error;
+		}
+
+		if (isMcpErrorResult(result)) {
+			// MCP transports return many provider failures as successful protocol
+			// responses with isError=true. Capture any Gateway evidence before the
+			// terminal-aware refund decides whether provider work occurred.
+			await captureConnectorGenerationResult(billing, reservations, result);
+			await this.refundGenerationWithoutMasking(
+				billing,
+				input.subject,
+				referenceId,
+				plan.childOperation,
+				input.connectorSlug,
+				input.toolName,
+			);
+			return result;
+		}
+
+		// Provider work has completed, so failures below propagate without a
+		// refund. Persist every discovered gateway id before settling and before
+		// the result can be delivered to the caller.
+		const childUnits = deliveredInlineConnectorChildUnits(
+			plan.childOperation,
+			plan.childUnits,
+			result,
+		);
+		await finalizeConnectorGenerationBilling(
+			billing,
+			reservations,
+			connectorGatewayCaptures(result),
+			{ childUnits },
+		);
+
+		return result;
+	}
+
 	// Same schema and description as the provider tool, but execute queues a
 	// durable attempt + Trigger.dev run instead of blocking the chat stream.
 	// Without a Trigger key the legacy inline call is kept — degraded but
 	// functional, exactly like the other queue-backed tools.
 	private wrapBackgroundGenerationTool(
 		tool: Tool,
-		userId: string,
+		subject: MeteringSubject,
+		parentEventId: string | undefined,
 		connectorSlug: string,
 		toolName: string,
 	): Tool {
@@ -1094,15 +1304,26 @@ export class McpChatToolsService {
 			...executable,
 			execute: async (input, options) => {
 				if (!env.TRIGGER_SECRET_KEY) {
-					return typeof inlineExecute === "function"
-						? inlineExecute(input, options)
-						: platformToolError(
-								`Tool "${toolName}" is not executable on this server.`,
-							);
+					if (typeof inlineExecute !== "function") {
+						return platformToolError(
+							`Tool "${toolName}" is not executable on this server.`,
+						);
+					}
+
+					return this.executeInlineConnectorTool({
+						connectorSlug,
+						input,
+						invoke: () => Promise.resolve(inlineExecute(input, options)),
+						options,
+						parentEventId,
+						subject,
+						toolName,
+					});
 				}
 
 				return this.queueBackgroundGeneration(
-					userId,
+					subject,
+					parentEventId,
 					connectorSlug,
 					toolName,
 					input,
@@ -1112,7 +1333,8 @@ export class McpChatToolsService {
 	}
 
 	private async queueBackgroundGeneration(
-		userId: string,
+		subject: MeteringSubject,
+		parentEventId: string | undefined,
 		connectorSlug: string,
 		toolName: string,
 		args: unknown,
@@ -1120,48 +1342,166 @@ export class McpChatToolsService {
 		const attempt = await this.connectorGenerationsRepository.insertAttempt({
 			args: args !== null && typeof args === "object" ? args : {},
 			connectorSlug,
+			organizationId: subject.organizationId ?? null,
 			toolName,
-			userId,
+			userId: subject.actorUserId,
 		});
 
-		try {
-			const handle = await tasks.trigger<typeof runConnectorGenerationTask>(
-				"run-connector-generation",
-				{ attemptId: attempt.id },
-				// A generation that cannot START within 5 minutes expires instead
-				// of running later: the repository's stale-row janitor assumes
-				// "created 35 min ago and still not settled" cannot be live.
-				{ ttl: "5m" },
+		const plan = connectorGenerationPlan(toolName, args);
+		if (!plan) {
+			const error = new Error(
+				`${connectorSlug}/${toolName} is not a registered connector generation`,
 			);
-			await this.connectorGenerationsRepository.markAttemptTriggered(
-				attempt.id,
-				handle.id,
+			await this.markAttemptFailedWithoutMasking(attempt.id, error);
+			throw error;
+		}
+
+		const billing = this.createGenerationBilling();
+		let reservations: ConnectorGenerationReservations;
+
+		try {
+			reservations = await billing.reserve(subject, attempt.id, {
+				...plan,
+				parentEventId,
+			});
+		} catch (error) {
+			await this.markAttemptFailedWithoutMasking(attempt.id, error);
+			// Typed 402s deliberately escape tool execution unchanged.
+			throw error;
+		}
+
+		let handle: { id: string };
+
+		try {
+			handle = await triggerConnectorGenerationTask({
+				attemptId: attempt.id,
+				billing: reservations,
+				billingMode: connectorBillingAdmissionMode(reservations),
+				connectorSlug,
+			});
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			this.logger.error(
+				`Trigger.dev did not confirm connector generation ${attempt.id}: ${message}`,
 			);
 
+			if (isDefinitiveTriggerRejection(error)) {
+				let closed = false;
+
+				try {
+					closed = await this.connectorGenerationsRepository.markAttemptFailed(
+						attempt.id,
+						message,
+					);
+				} catch (markError) {
+					Sentry.captureException(markError, {
+						tags: { attemptId: attempt.id },
+					});
+				}
+
+				if (closed) {
+					await this.refundGenerationWithoutMasking(
+						billing,
+						subject,
+						attempt.id,
+						plan.childOperation,
+						connectorSlug,
+						toolName,
+					);
+
+					return platformToolError(
+						`Starting the background generation was rejected by Trigger.dev: ${message}. Tell the user and offer to retry after the server configuration is fixed.`,
+					);
+				}
+			}
+
+			// The request may have been accepted even when its HTTP response was
+			// lost. Preserve both queued row and holds; the global attempt-key makes
+			// a same-request handoff retry safe and the stale sweep is the backstop.
 			return {
 				attemptId: attempt.id,
 				connector: connectorSlug,
 				kind: CONNECTOR_GENERATION_OUTPUT_KIND,
 				note:
-					"Generation started in the background on the user's connected " +
-					"account. Progress and the finished media render automatically " +
-					"in the conversation — do NOT poll job_status and do NOT wait. " +
-					"Confirm the launch to the user in one short sentence and end " +
-					"your turn.",
-				realtime: await this.mintRealtimeHandle(handle.id),
+					"The generation request is saved, but the background handoff was " +
+					"not confirmed. Its card will keep checking; do not start a second " +
+					"generation unless the current attempt reaches a failed state.",
 				status: "queued",
 				tool: toolName,
 			};
-		} catch (error) {
-			const message = error instanceof Error ? error.message : String(error);
-			await this.connectorGenerationsRepository.markAttemptFailed(
-				attempt.id,
-				message,
-			);
+		}
 
-			return platformToolError(
-				`Starting the background generation failed on the server: ${message}. Tell the user and offer to retry.`,
+		try {
+			await this.connectorGenerationsRepository.markAttemptTriggered(
+				attempt.id,
+				handle.id,
 			);
+		} catch (error) {
+			// The Trigger run owns the durable attempt now. Refunding here would
+			// race live provider work; its task claim also writes triggerRunId.
+			Sentry.captureException(error, {
+				tags: {
+					attemptId: attempt.id,
+					connectorSlug,
+					toolName,
+				},
+			});
+			this.logger.warn(
+				`Connector generation ${attempt.id} was triggered but its handle was not persisted`,
+			);
+		}
+
+		return {
+			attemptId: attempt.id,
+			connector: connectorSlug,
+			kind: CONNECTOR_GENERATION_OUTPUT_KIND,
+			note:
+				"Generation started in the background on the user's connected " +
+				"account. Progress and the finished media render automatically " +
+				"in the conversation — do NOT poll job_status and do NOT wait. " +
+				"Confirm the launch to the user in one short sentence and end " +
+				"your turn.",
+			realtime: await this.mintRealtimeHandle(handle.id),
+			status: "queued",
+			tool: toolName,
+		};
+	}
+
+	private createGenerationBilling(): ConnectorGenerationBilling {
+		return createConnectorGenerationBilling({
+			isBillingDisabled: () => env.GENERATION_BILLING_MODE === "off",
+			meteringService: this.meteringService,
+		});
+	}
+
+	private async refundGenerationWithoutMasking(
+		billing: ConnectorGenerationBilling,
+		subject: MeteringSubject,
+		referenceId: string,
+		childOperation: "image" | "video" | undefined,
+		connectorSlug: string,
+		toolName: string,
+	): Promise<void> {
+		try {
+			await billing.refund(subject, referenceId, childOperation);
+		} catch (error) {
+			Sentry.captureException(error, {
+				tags: { connectorSlug, referenceId, toolName },
+			});
+		}
+	}
+
+	private async markAttemptFailedWithoutMasking(
+		attemptId: string,
+		error: unknown,
+	): Promise<void> {
+		try {
+			await this.connectorGenerationsRepository.markAttemptFailed(
+				attemptId,
+				error instanceof Error ? error.message : String(error),
+			);
+		} catch (markError) {
+			Sentry.captureException(markError, { tags: { attemptId } });
 		}
 	}
 
@@ -1186,6 +1526,75 @@ export class McpChatToolsService {
 			return undefined;
 		}
 	}
+}
+
+async function triggerConnectorGenerationTask(input: {
+	attemptId: string;
+	billing: ConnectorGenerationReservations;
+	billingMode: "enforce" | "off";
+	connectorSlug: string;
+}): Promise<Awaited<ReturnType<typeof tasks.trigger>>> {
+	const idempotencyKey = await idempotencyKeys.create(
+		`connector-generation:${input.attemptId}`,
+		{ scope: "global" },
+	);
+	let lastError: unknown;
+
+	for (let attempt = 0; attempt < TRIGGER_HANDOFF_ATTEMPTS; attempt += 1) {
+		try {
+			return await tasks.trigger<typeof runConnectorGenerationTask>(
+				"run-connector-generation",
+				{
+					attemptId: input.attemptId,
+					billing: input.billing,
+					billingMode: input.billingMode,
+				},
+				{
+					idempotencyKey,
+					idempotencyKeyTTL: TRIGGER_IDEMPOTENCY_TTL,
+					tags: [
+						`connector-attempt:${input.attemptId}`,
+						`connector:${input.connectorSlug}`,
+					],
+					// A generation that cannot START within 5 minutes expires instead
+					// of running later: the repository's 35-minute stale-row janitor
+					// can then safely close a stranded card.
+					ttl: "5m",
+				},
+			);
+		} catch (error) {
+			lastError = error;
+
+			if (isDefinitiveTriggerRejection(error)) {
+				break;
+			}
+
+			if (attempt < TRIGGER_HANDOFF_ATTEMPTS - 1) {
+				await delay(100 * 2 ** attempt);
+			}
+		}
+	}
+
+	throw lastError instanceof Error
+		? lastError
+		: new Error("Trigger.dev connector handoff failed");
+}
+
+function isDefinitiveTriggerRejection(error: unknown): boolean {
+	if (typeof error !== "object" || error === null) {
+		return false;
+	}
+
+	const candidate = error as { name?: unknown; status?: unknown };
+
+	return (
+		candidate.name === "TriggerApiError" &&
+		(candidate.status === 400 ||
+			candidate.status === 401 ||
+			candidate.status === 403 ||
+			candidate.status === 404 ||
+			candidate.status === 422)
+	);
 }
 
 export async function withReadRetry<T>(fn: () => Promise<T>): Promise<T> {
@@ -1226,32 +1635,8 @@ function asListToolsResult(tools: McpCatalogTool[]): ListToolsResult {
 	};
 }
 
-function wrapToolWithReadRetry(tool: Tool, toolName: string): Tool {
-	const executable = tool as Tool & { execute?: UnknownToolExecute };
-	if (typeof executable.execute !== "function") {
-		return tool;
-	}
-
-	const execute = executable.execute;
-	return {
-		...executable,
-		execute: (input, options) => {
-			const shouldRetry = GENERIC_WRAPPER_TOOLS.has(normalizeToolName(toolName))
-				? classifyNestedToolName(input) === "read"
-				: classifyToolName(toolName) === "read";
-			const invoke = () => Promise.resolve(execute(input, options));
-
-			return shouldRetry ? withReadRetry(invoke) : invoke();
-		},
-	} as Tool;
-}
-
 function normalizeToolName(toolName: string): string {
-	return toolName
-		.replace(/([a-z0-9])([A-Z])/g, "$1_$2")
-		.replace(/[^A-Za-z0-9]+/g, "_")
-		.replace(/^_+|_+$/g, "")
-		.toLowerCase();
+	return normalizeConnectorToolName(toolName);
 }
 
 function classifyToolName(toolName: string): "read" | "write" {
@@ -1389,6 +1774,41 @@ function isMcpErrorResult(result: unknown): boolean {
 		"isError" in result &&
 		result.isError === true
 	);
+}
+
+function assertFreshInlineConnectorReservations(
+	reservations: ConnectorGenerationReservations,
+): void {
+	for (const reservation of [reservations.connector, reservations.child]) {
+		if (!reservation || reservation.replay === "none") {
+			continue;
+		}
+
+		throw new MeteringStateConflictError(
+			reservation.eventId ?? reservation.referenceId,
+			reservation.replay,
+			"replay inline connector provider execution for",
+		);
+	}
+}
+
+function deliveredInlineConnectorChildUnits(
+	childOperation: "image" | "video" | undefined,
+	reservedUnits: number | undefined,
+	result: unknown,
+): number | undefined {
+	if (childOperation === undefined) {
+		return undefined;
+	}
+
+	if (childOperation === "video") {
+		return 1;
+	}
+
+	const imageCount = extractMediaUrls(result).filter(
+		(media) => media.kind === "image",
+	).length;
+	return Math.min(reservedUnits ?? 1, imageCount);
 }
 
 function platformToolError(message: string) {

@@ -6,6 +6,10 @@
  * Two very different callers share it — the pages HTTP endpoints (reads)
  * and the generate_page chat tool (queue-time writes).
  */
+import {
+	type ProjectScope,
+	projectScopePredicate,
+} from "../../../projects/domain/project-scope";
 import { Inject, Injectable } from "@nestjs/common";
 import { and, desc, eq, isNull, lt, sql } from "@wandit/db";
 import { artifacts, versions } from "@wandit/db/schema/artifacts";
@@ -21,6 +25,19 @@ import {
 	DATABASE,
 	type Database,
 } from "../../../../infrastructure/database/database.constants";
+
+// A page task can wait up to 35 minutes in Trigger and then run for 30
+// minutes. Polling must not fail a healthy late-starting task, so generating
+// rows get the full wait + runtime + five-minute commit grace window.
+export const PAGE_ATTEMPT_TRIGGER_TTL_MS = 35 * 60 * 1000;
+export const PAGE_ATTEMPT_MAX_RUNTIME_MS = 30 * 60 * 1000;
+export const PAGE_ATTEMPT_STALE_GRACE_MS = 5 * 60 * 1000;
+export const PAGE_ATTEMPT_STALE_QUEUED_MS =
+	PAGE_ATTEMPT_TRIGGER_TTL_MS + PAGE_ATTEMPT_STALE_GRACE_MS;
+export const PAGE_ATTEMPT_STALE_GENERATING_MS =
+	PAGE_ATTEMPT_TRIGGER_TTL_MS +
+	PAGE_ATTEMPT_MAX_RUNTIME_MS +
+	PAGE_ATTEMPT_STALE_GRACE_MS;
 
 // Small explicit shapes; services map these to contract types.
 export type LandingArtifactRow = {
@@ -158,11 +175,22 @@ export class PagesRepository {
 	}
 
 	// Link the attempt to its Trigger.dev run once the queue accepted it.
-	async markAttemptTriggered(attemptId: string, runId: string): Promise<void> {
-		await this.db
+	async markAttemptTriggered(
+		attemptId: string,
+		runId: string,
+	): Promise<boolean> {
+		const [linked] = await this.db
 			.update(pageGenerationAttempts)
 			.set({ triggerRunId: runId })
-			.where(eq(pageGenerationAttempts.id, attemptId));
+			.where(
+				and(
+					eq(pageGenerationAttempts.id, attemptId),
+					eq(pageGenerationAttempts.status, "queued"),
+				),
+			)
+			.returning({ id: pageGenerationAttempts.id });
+
+		return linked !== undefined;
 	}
 
 	// Used when queueing itself failed — the background task never ran, so
@@ -202,17 +230,18 @@ export class PagesRepository {
 	// Everything the Page tab polls for, or null when the project is not
 	// owned by this user (the service turns that into a 404).
 	async findOverviewByProject(
-		userId: string,
+		scope: ProjectScope,
 		projectId: string,
 	): Promise<PageOverviewRows | null> {
-		// Ownership first: project must belong to the user and not be deleted.
+		// Access first: the project must be reachable in this workspace scope
+		// and not deleted.
 		const [project] = await this.db
 			.select({ id: projects.id })
 			.from(projects)
 			.where(
 				and(
 					eq(projects.id, projectId),
-					eq(projects.userId, userId),
+					projectScopePredicate(scope),
 					isNull(projects.deletedAt),
 				),
 			)
@@ -242,12 +271,12 @@ export class PagesRepository {
 		}
 
 		// Self-heal on read: a "queued" run nobody picked up expires after
-		// Trigger.dev's dev TTL (10 min) and will never execute; a "generating"
+		// Trigger.dev's task TTL and will never execute; a "generating"
 		// row can strand the same way if the worker is killed mid-run. Left
 		// alone, either would keep the Page tab polling forever — flip stale
 		// rows to failed so the UI stops waiting and says what happened. The
-		// cutoff must exceed the task's maxDuration (30 min), or a slow but
-		// healthy build would be flagged failed while still running.
+		// generating cutoff includes the maximum queue wait because this schema
+		// has only createdAt (not claimedAt), plus task runtime and commit grace.
 		const staleQueued = await this.db
 			.update(pageGenerationAttempts)
 			.set({
@@ -262,7 +291,7 @@ export class PagesRepository {
 					eq(pageGenerationAttempts.status, "queued"),
 					lt(
 						pageGenerationAttempts.createdAt,
-						new Date(Date.now() - 35 * 60 * 1000),
+						new Date(Date.now() - PAGE_ATTEMPT_STALE_QUEUED_MS),
 					),
 				),
 			)
@@ -274,7 +303,7 @@ export class PagesRepository {
 		for (const failed of staleQueued) {
 			captureGenerationFailed(
 				this.analyticsService,
-				userId,
+				scope.userId,
 				"page",
 				failed.projectId,
 				failed.id,
@@ -296,7 +325,7 @@ export class PagesRepository {
 					eq(pageGenerationAttempts.status, "generating"),
 					lt(
 						pageGenerationAttempts.createdAt,
-						new Date(Date.now() - 35 * 60 * 1000),
+						new Date(Date.now() - PAGE_ATTEMPT_STALE_GENERATING_MS),
 					),
 				),
 			)
@@ -308,7 +337,7 @@ export class PagesRepository {
 		for (const failed of staleGenerating) {
 			captureGenerationFailed(
 				this.analyticsService,
-				userId,
+				scope.userId,
 				"page",
 				failed.projectId,
 				failed.id,
@@ -338,8 +367,8 @@ export class PagesRepository {
 
 	// Find a version only if its project belongs to this user — the join
 	// proves ownership, same pattern as ChatsRepository.findOwnedChatById.
-	async findOwnedVersionById(
-		userId: string,
+	async findAccessibleVersionById(
+		scope: ProjectScope,
 		versionId: string,
 	): Promise<OwnedVersionRow | null> {
 		const [row] = await this.db
@@ -354,7 +383,7 @@ export class PagesRepository {
 			.where(
 				and(
 					eq(versions.id, versionId),
-					eq(projects.userId, userId),
+					projectScopePredicate(scope),
 					isNull(projects.deletedAt),
 				),
 			)
@@ -367,7 +396,7 @@ export class PagesRepository {
 	// with the live (published) version marked. Returns null when the project
 	// is missing or not owned — the caller answers 404.
 	async listVersionsForProject(
-		userId: string,
+		scope: ProjectScope,
 		projectId: string,
 	): Promise<VersionListRow[] | null> {
 		const [project] = await this.db
@@ -376,7 +405,7 @@ export class PagesRepository {
 			.where(
 				and(
 					eq(projects.id, projectId),
-					eq(projects.userId, userId),
+					projectScopePredicate(scope),
 					isNull(projects.deletedAt),
 				),
 			)
@@ -489,7 +518,7 @@ export class PagesRepository {
 	// Landing artifact + its active version for an OWNED project, or null when
 	// the project is missing/not owned (the service turns that into a 404).
 	async findActivePageByProject(
-		userId: string,
+		scope: ProjectScope,
 		projectId: string,
 	): Promise<ActivePageRow | null> {
 		const [project] = await this.db
@@ -498,7 +527,7 @@ export class PagesRepository {
 			.where(
 				and(
 					eq(projects.id, projectId),
-					eq(projects.userId, userId),
+					projectScopePredicate(scope),
 					isNull(projects.deletedAt),
 				),
 			)

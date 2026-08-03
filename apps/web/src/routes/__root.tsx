@@ -9,7 +9,10 @@ import { DirectionProvider } from "@wandit/ui/components/direction";
 import { Toaster } from "@wandit/ui/components/sonner";
 
 import { ThemeProvider } from "@/components/theme-provider";
+import { AffiliateCapture } from "@/features/affiliates/lib/use-affiliate-capture";
 import { AuthModalProvider } from "@/features/auth";
+import { WorkspaceProvider } from "@/features/workspaces/lib/workspace-provider";
+import { BillingModalProvider } from "@/features/billing/components/billing-modal-provider";
 import { useConnectReturnToast } from "@/features/connectors/components/connect-return-toast";
 import { AppI18nProvider, pageTitle, useI18n } from "@/lib/i18n";
 import { queryClient } from "@/lib/query-client";
@@ -68,7 +71,12 @@ function RootProviders() {
 		>
 			<DirectionProvider dir={dir}>
 				<AuthModalProvider>
-					<Outlet />
+					<WorkspaceProvider>
+						<BillingModalProvider>
+							<AffiliateCapture />
+							<Outlet />
+						</BillingModalProvider>
+					</WorkspaceProvider>
 				</AuthModalProvider>
 				<Toaster richColors dir={dir} />
 			</DirectionProvider>

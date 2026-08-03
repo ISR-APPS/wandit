@@ -7,10 +7,12 @@ import {
 } from "@wandit/contracts";
 import { z } from "zod";
 
+import type { ProjectScope } from "../../../projects/domain/project-scope";
 import {
 	type ConnectorGenerationAttemptRow,
 	ConnectorGenerationsRepository,
 } from "../../infrastructure/persistence/connector-generations.repository";
+import { ConnectorGenerationRecoveryService } from "./connector-generation-recovery.service";
 
 const mediaListSchema = z.array(connectorGenerationMediaSchema);
 
@@ -19,20 +21,34 @@ export class ConnectorGenerationsService {
 	constructor(
 		@Inject(ConnectorGenerationsRepository)
 		private readonly connectorGenerationsRepository: ConnectorGenerationsRepository,
+		@Inject(ConnectorGenerationRecoveryService)
+		private readonly connectorGenerationRecovery: ConnectorGenerationRecoveryService,
 	) {}
 
 	async attempt(
-		userId: string,
+		scope: ProjectScope,
 		attemptId: string,
 	): Promise<ConnectorGenerationAttempt> {
-		const row = await this.connectorGenerationsRepository.findOwnedAttempt(
-			userId,
+		let row = await this.connectorGenerationsRepository.findAccessibleAttempt(
+			scope,
 			attemptId,
 		);
 
-		// Missing and not-owned both become 404 — never reveal which.
+		// Missing and out-of-scope both become 404 — never reveal which.
 		if (!row) {
 			throw new NotFoundException();
+		}
+
+		if (row.status === "running" && row.media !== null) {
+			await this.connectorGenerationRecovery.recoverCheckpoint(row);
+			row = await this.connectorGenerationsRepository.findAccessibleAttempt(
+				scope,
+				attemptId,
+			);
+
+			if (!row) {
+				throw new NotFoundException();
+			}
 		}
 
 		return mapAttemptRow(row);
@@ -50,7 +66,7 @@ function mapAttemptRow(
 		createdAt: row.createdAt.toISOString(),
 		error: row.error,
 		id: row.id,
-		media: media.success ? media.data : [],
+		media: row.status === "succeeded" && media.success ? media.data : [],
 		status: row.status,
 		toolName: row.toolName,
 	};

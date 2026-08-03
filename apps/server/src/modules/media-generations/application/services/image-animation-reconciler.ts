@@ -1,3 +1,5 @@
+import type { ImageAnimationBilling } from "./image-animation-billing";
+import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import {
 	type ImageAnimationAttempt,
 	type ImageAnimationAttemptStatus,
@@ -49,7 +51,8 @@ export type ImageAnimationReconcilerDependencies = {
 	recoverStoredVideo: (
 		attempt: Pick<ImageAnimationAttempt, "id" | "projectId">,
 	) => Promise<ImageAnimationVideo | null>;
-	refund: (userId: string, attemptId: string) => Promise<void>;
+	refund: ImageAnimationBilling["refund"];
+	settleExisting: ImageAnimationBilling["settleExisting"];
 };
 
 export type ImageAnimationReconciliationResult = {
@@ -65,6 +68,19 @@ export type ImageAnimationReconciliationResult = {
  * a status for which Trigger's onFailure hook is not called. Every operation
  * is CAS/idempotent, so a scheduled-task retry can safely replay the batch.
  */
+
+/** The payer for this attempt: the project's org pool when org-owned. */
+function candidateSubject(
+	candidate: Pick<ImageAnimationAttempt, "organizationId" | "userId">,
+): MeteringSubject {
+	return {
+		actorUserId: candidate.userId,
+		...(candidate.organizationId
+			? { organizationId: candidate.organizationId }
+			: {}),
+	};
+}
+
 export async function reconcileImageAnimations(
 	dependencies: ImageAnimationReconcilerDependencies,
 ): Promise<ImageAnimationReconciliationResult> {
@@ -86,7 +102,7 @@ export async function reconcileImageAnimations(
 
 	for (const candidate of candidates) {
 		if (candidate.reconciliationReason === "failed_refund") {
-			await dependencies.refund(candidate.userId, candidate.id);
+			await dependencies.refund(candidateSubject(candidate), candidate.id);
 			result.refunded += 1;
 			continue;
 		}
@@ -109,7 +125,7 @@ export async function reconcileImageAnimations(
 			}
 
 			result.failed += 1;
-			await dependencies.refund(candidate.userId, candidate.id);
+			await dependencies.refund(candidateSubject(candidate), candidate.id);
 			result.refunded += 1;
 			continue;
 		}
@@ -118,6 +134,14 @@ export async function reconcileImageAnimations(
 			const recovered = await dependencies.recoverStoredVideo(candidate);
 
 			if (recovered) {
+				// Never consult the current kill switch or create a new hold here.
+				// The admission-time event is authoritative; billing-off jobs have
+				// nothing to settle and must remain free during later recovery.
+				await dependencies.settleExisting(
+				candidateSubject(candidate),
+				candidate.id,
+			);
+				// Settlement must precede the user-visible succeeded transition.
 				const persisted = await dependencies.markSucceeded(
 					candidate,
 					recovered,
@@ -153,7 +177,7 @@ export async function reconcileImageAnimations(
 		}
 
 		result.failed += 1;
-		await dependencies.refund(candidate.userId, candidate.id);
+		await dependencies.refund(candidateSubject(candidate), candidate.id);
 		result.refunded += 1;
 	}
 

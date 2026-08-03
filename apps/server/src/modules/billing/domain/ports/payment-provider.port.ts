@@ -10,9 +10,12 @@ import type Stripe from "stripe";
 export const PAYMENT_PROVIDER = Symbol("PAYMENT_PROVIDER");
 
 export type CreateSubscriptionCheckoutParams = {
+	attemptId: string;
 	customerId: string;
 	email: string;
 	interval: BillingInterval;
+	/** Set for org (Business) checkouts: the paying pool's identity. */
+	organizationId?: string | null;
 	plan: BillingPlanId;
 	tierCredits: CreditTier;
 	userId: string;
@@ -46,17 +49,51 @@ export type CreateRefundParams = {
 };
 
 export type CreateTopupCheckoutParams = {
+	attemptId: string;
 	credits: number;
 	customerId: string;
+	/** Set for org top-ups: the pool that receives the credits. */
+	organizationId?: string | null;
 	packId: TopupPackId;
 	userId: string;
 };
 
+export type PreviewSubscriptionChangeParams = {
+	billingCycleAnchorNow: boolean;
+	newPriceLookupKey: string;
+	prorationDate: Date;
+	providerSubscriptionId: string;
+};
+
+export type ApplySubscriptionChangeParams = PreviewSubscriptionChangeParams & {
+	idempotencyKey: string;
+};
+
+export type SubscriptionChangeProviderResult = {
+	hostedInvoiceUrl?: string;
+	outcome: "applied" | "failed" | "payment_required";
+	pendingExpiresAt?: Date;
+};
+
+export type ScheduleSubscriptionDowngradeParams = {
+	idempotencyKey: string;
+	newPriceLookupKey: string;
+	providerSubscriptionId: string;
+};
+
+export type SubscriptionChangePreviewProviderResult = {
+	amountDueMinor: number;
+	currency: string;
+};
+
 export interface PaymentProvider {
-	changeSubscription(
+	cancelScheduledSubscriptionDowngrade(
 		providerSubscriptionId: string,
-		newPriceLookupKey: string,
+		idempotencyKey: string,
 	): Promise<void>;
+	changeSubscription(
+		params: ApplySubscriptionChangeParams,
+	): Promise<SubscriptionChangeProviderResult>;
 	createOrderCheckout(
 		params: CreateOrderCheckoutParams,
 	): Promise<CreateOrderCheckoutResult>;
@@ -65,15 +102,40 @@ export interface PaymentProvider {
 	createSubscriptionCheckout(
 		params: CreateSubscriptionCheckoutParams,
 	): Promise<CreateSubscriptionCheckoutResult>;
-	createTopupCheckout(params: CreateTopupCheckoutParams): Promise<string>;
-	ensureCustomer(userId: string, email: string): Promise<string>;
-	expireCheckoutSession(sessionId: string): Promise<void>;
+	createTopupCheckout(
+		params: CreateTopupCheckoutParams,
+	): Promise<CreateSubscriptionCheckoutResult>;
+	ensureCustomer(
+		userId: string,
+		email: string,
+		affiliateCode?: string | null,
+	): Promise<string>;
+	ensureOrganizationCustomer(params: {
+		affiliateCode?: string | null;
+		attributionUserId: string;
+		billingEmail: string;
+		createdByUserId: string;
+		organizationId: string;
+		organizationName: string;
+	}): Promise<string>;
+	expireCheckoutSession(
+		sessionId: string,
+	): Promise<Stripe.Checkout.Session["status"]>;
 	listSubscriptionsForCustomer(
 		providerCustomerId: string,
 	): Promise<Stripe.Subscription[]>;
+	hasPendingSubscriptionUpdate(
+		providerSubscriptionId: string,
+	): Promise<boolean>;
+	previewSubscriptionChange(
+		params: PreviewSubscriptionChangeParams,
+	): Promise<SubscriptionChangePreviewProviderResult>;
 	retrieveCharge(chargeId: string): Promise<Stripe.Charge>;
 	retrieveCheckoutSession(sessionId: string): Promise<Stripe.Checkout.Session>;
 	retrievePaymentIntent(paymentIntentId: string): Promise<Stripe.PaymentIntent>;
+	scheduleSubscriptionDowngrade(
+		params: ScheduleSubscriptionDowngradeParams,
+	): Promise<string>;
 	setCancelAtPeriodEnd(
 		providerSubscriptionId: string,
 		flag: boolean,

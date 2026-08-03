@@ -11,6 +11,7 @@ export {
 	desc,
 	eq,
 	gt,
+	gte,
 	ilike,
 	inArray,
 	isNull,
@@ -19,6 +20,7 @@ export {
 	notInArray,
 	or,
 	sql,
+	type SQL,
 } from "drizzle-orm";
 
 import { drizzle } from "drizzle-orm/node-postgres";

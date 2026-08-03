@@ -28,6 +28,10 @@ import {
 	DATABASE,
 	type Database,
 } from "../../../../infrastructure/database/database.constants";
+import {
+	type ProjectScope,
+	projectScopePredicate,
+} from "../../../projects/domain/project-scope";
 
 export type ImageGenerationAttemptRow = {
 	aspect: ImageGenerationAspect;
@@ -218,8 +222,8 @@ export class ImageGenerationsRepository {
 		return true;
 	}
 
-	async findOwnedAttempt(
-		userId: string,
+	async findAccessibleAttempt(
+		scope: ProjectScope,
 		attemptId: string,
 	): Promise<ImageGenerationAttemptRow | null> {
 		const [row] = await this.db
@@ -229,7 +233,7 @@ export class ImageGenerationsRepository {
 			.where(
 				and(
 					eq(imageGenerationAttempts.id, attemptId),
-					eq(projects.userId, userId),
+					projectScopePredicate(scope),
 					isNull(projects.deletedAt),
 				),
 			)
@@ -238,8 +242,8 @@ export class ImageGenerationsRepository {
 		return row ?? null;
 	}
 
-	async listOwnedByProject(
-		userId: string,
+	async listForProject(
+		scope: ProjectScope,
 		projectId: string,
 	): Promise<ImageGenerationAttemptRow[]> {
 		return this.db
@@ -249,7 +253,7 @@ export class ImageGenerationsRepository {
 			.where(
 				and(
 					eq(imageGenerationAttempts.projectId, projectId),
-					eq(projects.userId, userId),
+					projectScopePredicate(scope),
 					isNull(projects.deletedAt),
 				),
 			)

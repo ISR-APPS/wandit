@@ -134,46 +134,60 @@
 	},
 	"pricing": {
 		"kicker": "Pricing",
-		"title": "Start free. Scale when you sell.",
-		"note": "Publishing and lead collection are always free.",
+		"title": "One plan. Pick your pace.",
+		"note": "Publishing is always free. AI actions, including lead collection, use credits.",
 		"free": {
 			"name": "Free",
-			"tagline": "For your first pages",
+			"tagline": "For beta access and first projects",
 			"price": "Free",
-			"creditsLine": "100 credits included",
+			"creditsLine": "Signup credits when available",
 			"features": [
-				"Enough credits for ~10 pages",
 				"Publishing always free",
-				"Lead collection always free",
-				"Pages in AR, FR & EN"
+				"Lead collection uses credits",
+				"Pages in AR, FR & EN",
+				"Upgrade when you need more AI work"
 			],
 			"cta": "Start free"
 		},
 		"pro": {
 			"name": "Pro",
 			"badge": "Popular",
-			"tagline": "For sellers running ads",
-			"priceNote": "Early-bird pricing — soon",
-			"sliderLabel": "Credits per pack",
+			"tagline": "For sellers building and iterating every month",
+			"loading": "Loading live prices",
+			"catalogUnavailable": "Live pricing is temporarily unavailable.",
+			"intervalLabel": "Billing interval",
+			"monthly": "Monthly",
+			"yearly": "Yearly",
+			"twoMonthsFree": "2 months free",
+			"tierLabel": "Monthly credit allowance",
 			"creditsUnit": "credits",
+			"perMonth": "/ month",
+			"perYear": "/ year",
+			"savings": "Save {percent}%",
 			"features": [
-				"Everything in Free",
-				"Bigger credit packs",
-				"Priority generation",
-				"Remove the Wandit badge"
+				"Fresh plan credits every month",
+				"Nine credit tiers as your workload grows",
+				"Monthly or yearly billing",
+				"Publishing stays free"
 			],
-			"cta": "Get early access"
+			"cta": "Choose Pro"
 		},
 		"business": {
 			"name": "Business",
-			"tagline": "For agencies & teams",
-			"price": "Custom",
+			"tagline": "For teams sharing one credit pool",
+			"fromPrice": "From {price}",
+			"perMonth": "/ month",
 			"features": [
-				"Seats for your team",
-				"Client workspaces",
-				"White-label pages"
+				"Everything in Pro",
+				"One shared credit pool for the whole team",
+				"Roles, invites & per-member credit limits",
+				"Unlimited seats — pay for credits, not people"
 			],
-			"cta": "Contact us"
+			"cta": "Create a team workspace"
+		},
+		"beta": {
+			"badge": "Beta",
+			"cta": "Join the beta"
 		}
 	},
 	"faq": {

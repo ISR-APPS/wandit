@@ -1,6 +1,14 @@
 import { MODULE_METADATA } from "@nestjs/common/constants";
 import { describe, expect, it, vi } from "vitest";
 
+import { CreditsService } from "../../server/src/modules/credits/application/services/credits.service";
+import { CreditsRepository } from "../../server/src/modules/credits/infrastructure/persistence/credits.repository";
+import { MeteringService } from "../../server/src/modules/metering/application/services/metering.service";
+import { ModelPricingService } from "../../server/src/modules/metering/application/services/model-pricing.service";
+import { METERING_GATEWAY } from "../../server/src/modules/metering/domain/metering";
+import { MeteringRepository } from "../../server/src/modules/metering/infrastructure/persistence/metering.repository";
+import { ModelPricesRepository } from "../../server/src/modules/metering/infrastructure/persistence/model-prices.repository";
+
 vi.mock("@wandit/env/server", () => ({
 	env: {
 		QUEUE_PREFIX: "test-worker",
@@ -9,8 +17,8 @@ vi.mock("@wandit/env/server", () => ({
 }));
 
 import { WorkerDatabaseModule } from "./infrastructure/database/database.module";
+import { databaseProvider } from "./infrastructure/database/database-alias.provider";
 import { WorkerChatRepository } from "./infrastructure/persistence/worker-chat.repository";
-import { WorkerCreditsService } from "./infrastructure/persistence/worker-credits.service";
 import { WorkerQueuesModule } from "./infrastructure/queues/worker-queues.module";
 import { ChatEventsPublisher } from "./infrastructure/redis/chat-events.publisher";
 import { AiGenerationProcessor } from "./processors/ai-generation.processor";
@@ -27,13 +35,20 @@ describe("WorkerModule", () => {
 		);
 
 		expect(providers).toEqual([
+			databaseProvider,
 			AiGenerationProcessor,
 			ChatEventsPublisher,
-			MediaGenerationProcessor,
+			CreditsRepository,
+			CreditsService,
 			LeadProcessingProcessor,
+			MediaGenerationProcessor,
+			MeteringRepository,
+			MeteringService,
+			ModelPricesRepository,
+			ModelPricingService,
 			PublishProcessor,
 			WorkerChatRepository,
-			WorkerCreditsService,
+			expect.objectContaining({ provide: METERING_GATEWAY }),
 		]);
 	});
 

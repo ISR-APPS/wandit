@@ -26,27 +26,33 @@ import type {
 	DomainRow,
 	DomainsRepository,
 } from "../../infrastructure/persistence/domains.repository";
+import type { ProjectScope } from "../../../projects/domain/project-scope";
 import { DomainsService } from "./domains.service";
 
 const userId = "user_1";
 const projectId = "11111111-1111-4111-8111-111111111111";
+const scope: ProjectScope = { kind: "personal", userId };
 
 class FakeDomainsRepository {
 	readonly projects = new Set([`${userId}:${projectId}`]);
 	readonly rows = new Map<string, DomainRow>();
 	private nextId = 1;
 
-	async assertProjectOwned(inputUserId: string, inputProjectId: string) {
-		if (!this.projects.has(`${inputUserId}:${inputProjectId}`)) {
+	async assertProjectAccessible(
+		inputScope: ProjectScope,
+		inputProjectId: string,
+	) {
+		if (!this.projects.has(`${inputScope.userId}:${inputProjectId}`)) {
 			throw new Error("Project not found");
 		}
 	}
 
-	async listByProject(inputProjectId: string, inputUserId: string) {
-		await this.assertProjectOwned(inputUserId, inputProjectId);
+	async listByProject(inputProjectId: string, inputScope: ProjectScope) {
+		await this.assertProjectAccessible(inputScope, inputProjectId);
 
 		return [...this.rows.values()].filter(
-			(row) => row.projectId === inputProjectId && row.userId === inputUserId,
+			(row) =>
+				row.projectId === inputProjectId && row.userId === inputScope.userId,
 		);
 	}
 
@@ -58,6 +64,10 @@ class FakeDomainsRepository {
 		}
 
 		return row;
+	}
+
+	async getByIdForScope(id: string, inputScope: ProjectScope) {
+		return this.getByIdForUser(id, inputScope.userId);
 	}
 
 	async createExternal(input: {
@@ -128,18 +138,15 @@ class FakeDomainsRepository {
 		return this.updateById(id, patch);
 	}
 
-	async setPrimary(id: string, inputUserId: string) {
-		const row = await this.getByIdForUser(id, inputUserId);
+	async setPrimary(id: string, inputScope: ProjectScope) {
+		const row = await this.getByIdForScope(id, inputScope);
 
 		if (!row.projectId) {
 			throw new Error("Detached");
 		}
 
 		for (const sibling of this.rows.values()) {
-			if (
-				sibling.userId === inputUserId &&
-				sibling.projectId === row.projectId
-			) {
+			if (sibling.projectId === row.projectId) {
 				this.rows.set(sibling.id, { ...sibling, isPrimary: false });
 			}
 		}
@@ -147,8 +154,8 @@ class FakeDomainsRepository {
 		return this.updateById(id, { isPrimary: true });
 	}
 
-	async detach(id: string, inputUserId: string) {
-		await this.getByIdForUser(id, inputUserId);
+	async detach(id: string, inputScope: ProjectScope) {
+		await this.getByIdForScope(id, inputScope);
 
 		return this.updateById(id, { isPrimary: false, projectId: null });
 	}
@@ -451,10 +458,10 @@ describe("DomainsService", () => {
 	it("prepares a purchase with the validated wholesale quote and ceiling", async () => {
 		const { dispatcher, provider, repository, service } = setup();
 		vi.stubEnv("QUEUE_ENABLED", "false");
-		const assertProjectOwned = vi.spyOn(repository, "assertProjectOwned");
+		const assertProjectAccessible = vi.spyOn(repository, "assertProjectAccessible");
 
 		const prepared = await service.preparePurchase(
-			userId,
+			scope,
 			"Example.COM",
 			projectId,
 		);
@@ -467,7 +474,7 @@ describe("DomainsService", () => {
 		});
 		expect(dispatcher.assertAvailable).toHaveBeenCalledOnce();
 		expect(provider.checkAvailability).toHaveBeenCalledWith(["example.com"]);
-		expect(assertProjectOwned.mock.invocationCallOrder[0]).toBeLessThan(
+		expect(assertProjectAccessible.mock.invocationCallOrder[0]).toBeLessThan(
 			dispatcher.assertAvailable.mock.invocationCallOrder[0] ?? 0,
 		);
 		expect(dispatcher.assertAvailable.mock.invocationCallOrder[0]).toBeLessThan(
@@ -479,10 +486,10 @@ describe("DomainsService", () => {
 	it("keeps the existing 503 contract before the registrar when Trigger is unavailable", async () => {
 		const { dispatcher, provider, repository, service } = setup();
 		vi.stubEnv("TRIGGER_SECRET_KEY", "   ");
-		const assertProjectOwned = vi.spyOn(repository, "assertProjectOwned");
+		const assertProjectAccessible = vi.spyOn(repository, "assertProjectAccessible");
 
 		const error = await service
-			.preparePurchase(userId, "example.com", projectId)
+			.preparePurchase(scope, "example.com", projectId)
 			.catch((caught: unknown) => caught);
 
 		expect(error).toBeInstanceOf(DomainsUnavailableError);
@@ -493,9 +500,9 @@ describe("DomainsService", () => {
 			},
 			status: 503,
 		});
-		expect(assertProjectOwned).toHaveBeenCalledWith(userId, projectId);
+		expect(assertProjectAccessible).toHaveBeenCalledWith(scope, projectId);
 		expect(dispatcher.assertAvailable).toHaveBeenCalledOnce();
-		expect(assertProjectOwned.mock.invocationCallOrder[0]).toBeLessThan(
+		expect(assertProjectAccessible.mock.invocationCallOrder[0]).toBeLessThan(
 			dispatcher.assertAvailable.mock.invocationCallOrder[0] ?? 0,
 		);
 		expect(provider.checkAvailability).not.toHaveBeenCalled();
@@ -508,7 +515,7 @@ describe("DomainsService", () => {
 		];
 
 		await expect(
-			service.preparePurchase(userId, "taken.com", projectId),
+			service.preparePurchase(scope, "taken.com", projectId),
 		).rejects.toBeInstanceOf(DomainNotAvailableError);
 	});
 
@@ -529,7 +536,7 @@ describe("DomainsService", () => {
 		provider.availability = [{ ...availability, name: "unsafe.com" }];
 
 		await expect(
-			service.preparePurchase(userId, "unsafe.com", projectId),
+			service.preparePurchase(scope, "unsafe.com", projectId),
 		).rejects.toBeInstanceOf(PremiumDomainBlockedError);
 	});
 
@@ -538,7 +545,7 @@ describe("DomainsService", () => {
 
 		await expect(
 			service.preparePurchase(
-				userId,
+				scope,
 				"example.com",
 				"99999999-9999-4999-8999-999999999999",
 			),
@@ -594,7 +601,7 @@ describe("DomainsService", () => {
 	it("attaches BYO domains with required records and verifies only once Cloudflare is active", async () => {
 		const { cloudflare, dispatcher, repository, routing, service } = setup();
 
-		const attached = await service.attachExternal(userId, projectId, {
+		const attached = await service.attachExternal(scope, projectId, {
 			name: "brand.com",
 		});
 		const row = [...repository.rows.values()][0];
@@ -631,7 +638,7 @@ describe("DomainsService", () => {
 			]),
 		);
 
-		await expect(service.verify(row.id, userId)).resolves.toMatchObject({
+		await expect(service.verify(row.id, scope)).resolves.toMatchObject({
 			domain: { status: "configuring" },
 		});
 		expect(routing.pointers).toHaveLength(0);
@@ -645,14 +652,14 @@ describe("DomainsService", () => {
 			),
 		});
 
-		await service.verify(row.id, userId);
+		await service.verify(row.id, scope);
 		const secondManualPayload =
 			dispatcher.triggerConfiguration.mock.calls[2]?.[0];
 		expect(secondManualPayload?.nonce).toMatch(/^manual:/);
 		expect(secondManualPayload?.nonce).not.toBe(firstManualPayload?.nonce);
 
 		cloudflare.status = "active";
-		await expect(service.verify(row.id, userId)).resolves.toMatchObject({
+		await expect(service.verify(row.id, scope)).resolves.toMatchObject({
 			domain: { status: "active" },
 		});
 		expect(routing.pointers).toEqual([
@@ -666,7 +673,7 @@ describe("DomainsService", () => {
 		cloudflare.createCustomHostname.mockRejectedValueOnce(new Error("cf down"));
 
 		await expect(
-			service.attachExternal(userId, projectId, { name: "broken.dz" }),
+			service.attachExternal(scope, projectId, { name: "broken.dz" }),
 		).rejects.toThrow("cf down");
 
 		expect(repository.rows.size).toBe(0);
@@ -684,7 +691,7 @@ describe("DomainsService", () => {
 		});
 		cloudflare.status = "active";
 
-		await expect(service.verify(row.id, userId)).rejects.toThrow(
+		await expect(service.verify(row.id, scope)).rejects.toThrow(
 			"Only configuring domains can be verified",
 		);
 		expect(repository.rows.get(row.id)?.status).toBe("failed");
@@ -699,7 +706,7 @@ describe("DomainsService", () => {
 		);
 
 		await expect(
-			service.attachExternal(userId, projectId, { name: "rollback.org" }),
+			service.attachExternal(scope, projectId, { name: "rollback.org" }),
 		).rejects.toThrow("trigger down");
 
 		expect(repository.rows.size).toBe(0);
@@ -723,11 +730,11 @@ describe("DomainsService", () => {
 			status: "active",
 		});
 
-		await service.setPrimary(second.id, userId);
+		await service.setPrimary(second.id, scope);
 		expect(repository.rows.get(first.id)?.isPrimary).toBe(false);
 		expect(repository.rows.get(second.id)?.isPrimary).toBe(true);
 
-		const detached = await service.detach(second.id, userId);
+		const detached = await service.detach(second.id, scope);
 		expect(detached.domain.projectId).toBeNull();
 		expect(detached.domain.isPrimary).toBe(false);
 		expect(repository.rows.get(second.id)?.providerDomainId).toBeNull();

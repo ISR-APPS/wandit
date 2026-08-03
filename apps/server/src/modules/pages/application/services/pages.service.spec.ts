@@ -2,6 +2,7 @@ import { NotFoundException } from "@nestjs/common";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getPageHtml } from "../../../../infrastructure/storage/r2";
+import type { ProjectScope } from "../../../projects/domain/project-scope";
 import type { PagesRepository } from "../../infrastructure/persistence/pages.repository";
 import { PagesService } from "./pages.service";
 
@@ -15,10 +16,12 @@ vi.mock("../../../../infrastructure/analytics/analytics.service", () => ({
 	AnalyticsService: class AnalyticsService {},
 }));
 
+const SCOPE: ProjectScope = { kind: "personal", userId: "user_1" };
+
 function setup() {
 	const pagesRepository = {
+		findAccessibleVersionById: vi.fn(),
 		findOverviewByProject: vi.fn(),
-		findOwnedVersionById: vi.fn(),
 		listVersionsForProject: vi.fn(),
 	};
 	const service = new PagesService(
@@ -51,7 +54,7 @@ describe("PagesService", () => {
 			},
 		});
 
-		await expect(service.overview("user_1", "project_1")).resolves.toEqual({
+		await expect(service.overview(SCOPE, "project_1")).resolves.toEqual({
 			activeVersion: {
 				createdAt: "2026-07-11T10:00:00.000Z",
 				id: "22222222-2222-4222-8222-222222222222",
@@ -73,13 +76,13 @@ describe("PagesService", () => {
 		pagesRepository.findOverviewByProject.mockResolvedValue(null);
 
 		await expect(
-			service.overview("user_1", "project_x"),
+			service.overview(SCOPE, "project_x"),
 		).rejects.toBeInstanceOf(NotFoundException);
 	});
 
 	it("returns the version html from storage", async () => {
 		const { pagesRepository, service } = setup();
-		pagesRepository.findOwnedVersionById.mockResolvedValue({
+		pagesRepository.findAccessibleVersionById.mockResolvedValue({
 			id: "44444444-4444-4444-8444-444444444444",
 			r2Key: "sites/project_1/version_1/index.html",
 		});
@@ -87,7 +90,7 @@ describe("PagesService", () => {
 			'<!doctype html><html><body><section data-wid="hero"><span>Price: <em>now</em></span></section></body></html>',
 		);
 
-		const response = await service.versionHtml("user_1", "version_1");
+		const response = await service.versionHtml(SCOPE, "version_1");
 
 		expect(response.versionId).toBe("44444444-4444-4444-8444-444444444444");
 		expect(response.html).toMatch(
@@ -124,7 +127,7 @@ describe("PagesService", () => {
 			},
 		]);
 
-		const response = await service.listVersions("user_1", "project_1");
+		const response = await service.listVersions(SCOPE, "project_1");
 
 		expect(response.versions.map((version) => version.source)).toEqual([
 			"builder",
@@ -138,24 +141,24 @@ describe("PagesService", () => {
 
 	it("404s the version html when the version is unknown or not owned", async () => {
 		const { pagesRepository, service } = setup();
-		pagesRepository.findOwnedVersionById.mockResolvedValue(null);
+		pagesRepository.findAccessibleVersionById.mockResolvedValue(null);
 
 		await expect(
-			service.versionHtml("user_1", "version_x"),
+			service.versionHtml(SCOPE, "version_x"),
 		).rejects.toBeInstanceOf(NotFoundException);
 		expect(getPageHtml).not.toHaveBeenCalled();
 	});
 
 	it("404s the version html when the object is missing in storage", async () => {
 		const { pagesRepository, service } = setup();
-		pagesRepository.findOwnedVersionById.mockResolvedValue({
+		pagesRepository.findAccessibleVersionById.mockResolvedValue({
 			id: "44444444-4444-4444-8444-444444444444",
 			r2Key: "sites/project_1/version_1/index.html",
 		});
 		vi.mocked(getPageHtml).mockResolvedValue(null);
 
 		await expect(
-			service.versionHtml("user_1", "version_1"),
+			service.versionHtml(SCOPE, "version_1"),
 		).rejects.toBeInstanceOf(NotFoundException);
 	});
 });

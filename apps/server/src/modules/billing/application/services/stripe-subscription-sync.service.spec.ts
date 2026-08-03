@@ -2,6 +2,7 @@ import { Logger } from "@nestjs/common";
 import type Stripe from "stripe";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { CreditOwner } from "../../../credits/domain/credit-owner";
 import type { PaymentProvider } from "../../domain/ports/payment-provider.port";
 import type {
 	BillingCustomerRow,
@@ -31,6 +32,11 @@ class FakeBillingCustomersRepository {
 }
 
 class FakeSubscriptionsRepository {
+	readonly clearMatchingPendingTierCalls: Array<{
+		client: SubscriptionsTransaction;
+		providerSubscriptionId: string;
+		tierCredits: number;
+	}> = [];
 	readonly lockCustomerIds: string[] = [];
 	readonly transaction = {} as SubscriptionsTransaction;
 	readonly writes: string[] = [];
@@ -72,6 +78,8 @@ class FakeSubscriptionsRepository {
 			createdAt: existing?.createdAt ?? new Date(0),
 			id: existing?.id ?? `row_${input.providerSubscriptionId}`,
 			organizationId: input.organizationId ?? null,
+			pendingAppliedBy: existing?.pendingAppliedBy ?? null,
+			pendingTierCredits: existing?.pendingTierCredits ?? null,
 			updatedAt: new Date(0),
 		} satisfies SubscriptionRow;
 		this.rowsByProviderId.set(input.providerSubscriptionId, row);
@@ -80,13 +88,17 @@ class FakeSubscriptionsRepository {
 		return row;
 	}
 
-	async findActiveByUserId(
-		userId: string,
+	async findActiveByOwner(
+		owner: CreditOwner,
 		_client: SubscriptionsTransaction,
 	): Promise<SubscriptionRow | null> {
 		return (
 			this.rows().find(
-				(row) => row.userId === userId && !this.isTerminal(row.status),
+				(row) =>
+					(owner.type === "user"
+						? row.userId === owner.userId && row.organizationId === null
+						: row.organizationId === owner.organizationId) &&
+					!this.isTerminal(row.status),
 			) ?? null
 		);
 	}
@@ -96,6 +108,36 @@ class FakeSubscriptionsRepository {
 		_client: SubscriptionsTransaction,
 	): Promise<SubscriptionRow | null> {
 		return this.rowsByProviderId.get(providerSubscriptionId) ?? null;
+	}
+
+	async clearMatchingPendingTier(
+		providerSubscriptionId: string,
+		tierCredits: number,
+		client: SubscriptionsTransaction,
+	): Promise<SubscriptionRow | null> {
+		this.clearMatchingPendingTierCalls.push({
+			client,
+			providerSubscriptionId,
+			tierCredits,
+		});
+		const existing = this.rowsByProviderId.get(providerSubscriptionId);
+
+		if (!existing || existing.pendingTierCredits !== tierCredits) {
+			return null;
+		}
+
+		const cleared = {
+			...existing,
+			pendingAppliedBy: null,
+			pendingTierCredits: null,
+			updatedAt: new Date(0),
+		};
+		this.rowsByProviderId.set(providerSubscriptionId, cleared);
+		this.writes.push(
+			`pending-cleared:${providerSubscriptionId}:${tierCredits}`,
+		);
+
+		return cleared;
 	}
 
 	async updateStatus(
@@ -164,6 +206,8 @@ class FakeSubscriptionsRepository {
 			id: `row_${input.providerSubscriptionId}`,
 			interval: "month",
 			organizationId: null,
+			pendingAppliedBy: null,
+			pendingTierCredits: null,
 			plan: "pro",
 			priceLookupKey: "pro_100_month",
 			provider: "stripe",
@@ -281,6 +325,7 @@ function setup(customer: BillingCustomerRow | null = billingCustomer()) {
 		billingCustomers as unknown as BillingCustomersRepository,
 		subscriptions as unknown as SubscriptionsRepository,
 		paymentProvider as unknown as PaymentProvider,
+		{ findByProviderCustomerId: async () => null } as never,
 	);
 
 	return {
@@ -333,8 +378,8 @@ describe("StripeSubscriptionSyncService", () => {
 				cancelAtPeriodEnd: true,
 				currentPeriodEnd: 1_731_536_000,
 				currentPeriodStart: 1_700_000_000,
-				id: "sub_business",
-				lookupKey: "business_1200_year",
+				id: "sub_pro_yearly",
+				lookupKey: "pro_1200_year",
 				status: "past_due",
 			}),
 		];
@@ -348,10 +393,10 @@ describe("StripeSubscriptionSyncService", () => {
 			currentPeriodStart: new Date(1_700_000_000 * 1000),
 			interval: "year",
 			organizationId: null,
-			plan: "business",
-			priceLookupKey: "business_1200_year",
+			plan: "pro",
+			priceLookupKey: "pro_1200_year",
 			provider: "stripe",
-			providerSubscriptionId: "sub_business",
+			providerSubscriptionId: "sub_pro_yearly",
 			status: "past_due",
 			tierCredits: 1200,
 			userId: "user_1",
@@ -376,7 +421,7 @@ describe("StripeSubscriptionSyncService", () => {
 			stripeSubscription({
 				created: 200,
 				id: "sub_newest",
-				lookupKey: "business_200_year",
+				lookupKey: "pro_200_year",
 			}),
 		];
 
@@ -398,6 +443,76 @@ describe("StripeSubscriptionSyncService", () => {
 		);
 	});
 
+	it("prioritizes an older entitled subscription over newer incomplete, past-due, and unpaid duplicates", async () => {
+		const duplicateAlert = vi
+			.spyOn(Logger.prototype, "error")
+			.mockImplementation(() => undefined);
+		const { paymentProvider, service, subscriptions } = setup();
+		paymentProvider.subscriptions = [
+			stripeSubscription({
+				created: 100,
+				id: "sub_active",
+				lookupKey: "pro_100_month",
+				status: "active",
+			}),
+			...(["incomplete", "past_due", "unpaid"] as const).map((status, index) =>
+				stripeSubscription({
+					created: 200 + index,
+					id: `sub_${status}`,
+					lookupKey: "pro_200_month",
+					status,
+				}),
+			),
+		];
+
+		const result = await service.syncFromStripe("cus_1");
+
+		expect(result).toMatchObject([
+			{ providerSubscriptionId: "sub_active", status: "active" },
+		]);
+		expect(
+			subscriptions.upsertCalls.map(
+				(call) => call.input.providerSubscriptionId,
+			),
+		).toEqual(["sub_active"]);
+		expect(duplicateAlert).toHaveBeenCalledTimes(3);
+	});
+
+	it("clears the scheduled tier marker in the same sync transaction once Stripe reaches it", async () => {
+		const { paymentProvider, service, subscriptions } = setup();
+		subscriptions.seed({
+			pendingAppliedBy: "sub_sched_1",
+			pendingTierCredits: 100,
+			priceLookupKey: "pro_200_month",
+			providerSubscriptionId: "sub_scheduled",
+			status: "active",
+			userId: "user_1",
+		});
+		paymentProvider.subscriptions = [
+			stripeSubscription({
+				id: "sub_scheduled",
+				lookupKey: "pro_100_month",
+				status: "active",
+			}),
+		];
+
+		await service.syncFromStripe("cus_1");
+
+		expect(subscriptions.row("sub_scheduled")).toMatchObject({
+			pendingAppliedBy: null,
+			pendingTierCredits: null,
+			priceLookupKey: "pro_100_month",
+			tierCredits: 100,
+		});
+		expect(subscriptions.clearMatchingPendingTierCalls).toEqual([
+			{
+				client: subscriptions.transaction,
+				providerSubscriptionId: "sub_scheduled",
+				tierCredits: 100,
+			},
+		]);
+	});
+
 	it("cancels an older local mirror before inserting the newest duplicate", async () => {
 		const duplicateAlert = vi
 			.spyOn(Logger.prototype, "error")
@@ -417,7 +532,7 @@ describe("StripeSubscriptionSyncService", () => {
 			stripeSubscription({
 				created: 200,
 				id: "sub_newest",
-				lookupKey: "business_200_year",
+				lookupKey: "pro_200_year",
 			}),
 		];
 
@@ -450,7 +565,7 @@ describe("StripeSubscriptionSyncService", () => {
 			stripeSubscription({
 				created: 200,
 				id: "sub_current",
-				lookupKey: "business_200_year",
+				lookupKey: "pro_200_year",
 			}),
 		];
 
@@ -524,8 +639,8 @@ describe("StripeSubscriptionSyncService", () => {
 		const { paymentProvider, service, subscriptions } = setup();
 		subscriptions.seed({
 			interval: "year",
-			plan: "business",
-			priceLookupKey: "business_1200_year",
+			plan: "pro",
+			priceLookupKey: "pro_1200_year",
 			providerSubscriptionId: "sub_tracked_foreign",
 			status: "active",
 			tierCredits: 1200,
@@ -552,8 +667,8 @@ describe("StripeSubscriptionSyncService", () => {
 			currentPeriodEnd: new Date(900_000),
 			currentPeriodStart: new Date(800_000),
 			interval: "year",
-			plan: "business",
-			priceLookupKey: "business_1200_year",
+			plan: "pro",
+			priceLookupKey: "pro_1200_year",
 			status: "canceled",
 			tierCredits: 1200,
 		});

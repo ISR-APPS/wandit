@@ -138,46 +138,60 @@
 	},
 	"pricing": {
 		"kicker": "Tarifs",
-		"title": "Commence gratuitement. Passe à l'échelle quand tu vends.",
-		"note": "La publication et la collecte de leads sont toujours gratuites.",
+		"title": "Un seul plan. Choisis ton rythme.",
+		"note": "La publication reste gratuite. Les actions IA, dont la collecte de leads, utilisent des crédits.",
 		"free": {
 			"name": "Gratuit",
-			"tagline": "Pour tes premières pages",
+			"tagline": "Pour la bêta et tes premiers projets",
 			"price": "Gratuit",
-			"creditsLine": "100 crédits inclus",
+			"creditsLine": "Crédits d’inscription lorsqu’ils sont disponibles",
 			"features": [
-				"Assez de crédits pour ~10 pages",
 				"Publication toujours gratuite",
-				"Collecte de leads toujours gratuite",
-				"Pages en AR, FR & EN"
+				"La collecte de leads utilise des crédits",
+				"Pages en AR, FR & EN",
+				"Passe à Pro quand tu as besoin de plus d’IA"
 			],
 			"cta": "Commencer gratuitement"
 		},
 		"pro": {
 			"name": "Pro",
 			"badge": "Populaire",
-			"tagline": "Pour les vendeurs qui font de la pub",
-			"priceNote": "Tarif early-bird — bientôt",
-			"sliderLabel": "Crédits par pack",
+			"tagline": "Pour les vendeurs qui créent et améliorent chaque mois",
+			"loading": "Chargement des tarifs en direct",
+			"catalogUnavailable": "Les tarifs en direct sont temporairement indisponibles.",
+			"intervalLabel": "Période de facturation",
+			"monthly": "Mensuel",
+			"yearly": "Annuel",
+			"twoMonthsFree": "2 mois offerts",
+			"tierLabel": "Crédits mensuels inclus",
 			"creditsUnit": "crédits",
+			"perMonth": "/ mois",
+			"perYear": "/ an",
+			"savings": "Économise {percent} %",
 			"features": [
-				"Tout ce qu'il y a dans Gratuit",
-				"Packs de crédits plus grands",
-				"Génération prioritaire",
-				"Retire le badge Wandit"
+				"De nouveaux crédits chaque mois",
+				"Neuf paliers adaptés à ta charge de travail",
+				"Facturation mensuelle ou annuelle",
+				"La publication reste gratuite"
 			],
-			"cta": "Accès anticipé"
+			"cta": "Choisir Pro"
 		},
 		"business": {
 			"name": "Business",
-			"tagline": "Pour les agences & équipes",
-			"price": "Sur mesure",
+			"tagline": "Pour les équipes qui partagent un pool de crédits",
+			"fromPrice": "À partir de {price}",
+			"perMonth": "/ mois",
 			"features": [
-				"Des sièges pour ton équipe",
-				"Espaces de travail clients",
-				"Pages en marque blanche"
+				"Tout ce qui est inclus dans Pro",
+				"Un pool de crédits partagé pour toute l'équipe",
+				"Rôles, invitations et limites par membre",
+				"Sièges illimités — payez les crédits, pas les personnes"
 			],
-			"cta": "Nous contacter"
+			"cta": "Créer un espace d'équipe"
+		},
+		"beta": {
+			"badge": "Bêta",
+			"cta": "Rejoindre la bêta"
 		}
 	},
 	"faq": {
