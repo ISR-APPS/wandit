@@ -24,12 +24,11 @@ export function hasTransitionalDomains(domains: Domain[] | undefined) {
 	);
 }
 
-export function purchasedDomainLiveUrl(name: string) {
-	return `https://www.${name}`;
-}
+export function domainLiveUrl(domain: Pick<Domain, "name" | "source">) {
+	const hostname =
+		domain.source === "external" ? `www.${domain.name}` : domain.name;
 
-export function externalDomainLiveUrl(name: string) {
-	return `https://${name}`;
+	return `https://${hostname}`;
 }
 
 export function normalizeDomainInput(value: string) {

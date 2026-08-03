@@ -1,7 +1,8 @@
 // Leads tab — the mini order-CRM: counters, search + status filter, a
 // desktop table / mobile card list with call & WhatsApp shortcuts, inline
-// status pipeline and CSV export, paginated client-side.
+// status pipeline and complete CSV export, paginated server-side.
 
+import type { LeadsQuery } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import {
 	Empty,
@@ -42,13 +43,14 @@ import {
 	SearchX,
 	Users,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useDeferredValue, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { formatDate, useDictionary, useTranslation } from "@/lib/i18n";
 import { relativeTime } from "@/lib/relative-time";
 import type { Lead, LeadStatus } from "../../api/dto";
 import { useLeadsQuery } from "../../api/leads.queries";
+import { listAllLeads } from "../../api/leads.services";
 import {
 	LEAD_STATUS_META,
 	LEAD_STATUS_ORDER,
@@ -62,6 +64,7 @@ import {
 	waHref,
 } from "../../lib/helpers";
 import { useWorkspace } from "../../lib/store";
+import { LeadOrderDetails } from "./lead-order-details";
 import { LeadStatusSelect } from "./lead-status-select";
 import { LeadsCounters } from "./leads-counters";
 import { SheetSyncButton } from "./sheet-sync-button";
@@ -152,58 +155,64 @@ export function LeadsTab() {
 	const { t, locale } = useTranslation();
 	const dictionary = useDictionary();
 	const { projectId, projectPending, setTab } = useWorkspace();
-	const leadsQuery = useLeadsQuery(projectId);
 
 	const [search, setSearch] = useState("");
 	const [statusFilter, setStatusFilter] = useState<LeadStatus | "all">("all");
-	const [page, setPage] = useState(1);
-
-	const leads = leadsQuery.data ?? [];
-
-	const filtered = useMemo(() => {
-		const query = search.trim().toLowerCase();
-		const digitsQuery = query.replace(/\D/g, "").replace(/^0/, "");
-		return leads.filter((lead) => {
-			if (statusFilter !== "all" && lead.status !== statusFilter) {
-				return false;
-			}
-			if (!query) return true;
-			if (lead.name.toLowerCase().includes(query)) return true;
-			return (
-				digitsQuery.length > 0 &&
-				lead.phone.replace(/\D/g, "").includes(digitsQuery)
-			);
-		});
-	}, [leads, search, statusFilter]);
-
-	const pageCount = Math.max(1, Math.ceil(filtered.length / LEADS_PAGE_SIZE));
-	const currentPage = Math.min(page, pageCount);
-	const from = (currentPage - 1) * LEADS_PAGE_SIZE;
-	const pageLeads = filtered.slice(from, from + LEADS_PAGE_SIZE);
+	const [cursorHistory, setCursorHistory] = useState<string[]>([]);
+	const [isExporting, setIsExporting] = useState(false);
+	const deferredSearch = useDeferredValue(search.trim());
+	const searchPending = search.trim() !== deferredSearch;
+	const cursor = searchPending ? undefined : cursorHistory.at(-1);
+	const listQuery = useMemo<LeadsQuery>(
+		() => ({
+			cursor,
+			pageSize: LEADS_PAGE_SIZE,
+			q: deferredSearch || undefined,
+			status: statusFilter === "all" ? undefined : statusFilter,
+		}),
+		[cursor, deferredSearch, statusFilter],
+	);
+	const leadsQuery = useLeadsQuery(projectId, listQuery);
+	const response = leadsQuery.data;
+	const leads = response?.leads ?? [];
+	const matchingTotal = response?.total ?? 0;
+	const currentPage = cursorHistory.length + 1;
+	const from = cursorHistory.length * LEADS_PAGE_SIZE;
 
 	const handleSearchChange = (value: string) => {
 		setSearch(value);
-		setPage(1);
+		setCursorHistory([]);
 	};
 
 	const handleStatusChange = (value: string) => {
 		setStatusFilter(value as LeadStatus | "all");
-		setPage(1);
+		setCursorHistory([]);
 	};
 
 	const handleClearFilters = () => {
 		setSearch("");
 		setStatusFilter("all");
-		setPage(1);
+		setCursorHistory([]);
 	};
 
-	const handleExport = () => {
-		if (filtered.length === 0) return;
-		downloadTextFile(
-			`leads-${projectId}.csv`,
-			buildLeadsCsv(filtered, dictionary.leads.csvHeaders),
-		);
-		toast.success(t("leads.exportedToast", { count: filtered.length }));
+	const handleExport = async () => {
+		if (matchingTotal === 0 || isExporting) return;
+		setIsExporting(true);
+		try {
+			const exportLeads = await listAllLeads(projectId, {
+				q: search.trim() || undefined,
+				status: statusFilter === "all" ? undefined : statusFilter,
+			});
+			downloadTextFile(
+				`leads-${projectId}.csv`,
+				buildLeadsCsv(exportLeads, dictionary.leads.csvHeaders),
+			);
+			toast.success(t("leads.exportedToast", { count: exportLeads.length }));
+		} catch {
+			toast.error("Could not export leads. Please try again.");
+		} finally {
+			setIsExporting(false);
+		}
 	};
 
 	if (projectPending || leadsQuery.isPending) {
@@ -233,8 +242,8 @@ export function LeadsTab() {
 						<Button
 							variant="outline"
 							size="sm"
-							onClick={handleExport}
-							disabled={filtered.length === 0}
+							onClick={() => void handleExport()}
+							disabled={matchingTotal === 0 || isExporting}
 						>
 							<Download />
 							{t("leads.exportCsv")}
@@ -242,7 +251,7 @@ export function LeadsTab() {
 					</div>
 				</div>
 
-				{leads.length === 0 ? (
+				{response?.totals.total === 0 ? (
 					<Empty className="mt-5 rounded-xl border border-dashed">
 						<EmptyHeader>
 							<EmptyMedia variant="icon" className="rounded-xl">
@@ -262,7 +271,7 @@ export function LeadsTab() {
 				) : (
 					<>
 						<div className="mt-5">
-							<LeadsCounters leads={leads} />
+							{response ? <LeadsCounters totals={response.totals} /> : null}
 						</div>
 
 						{/* Toolbar: search + status filter */}
@@ -298,7 +307,7 @@ export function LeadsTab() {
 							</Select>
 						</div>
 
-						{filtered.length === 0 ? (
+						{matchingTotal === 0 ? (
 							<Empty className="mt-4 rounded-xl border border-dashed">
 								<EmptyHeader>
 									<EmptyMedia variant="icon" className="rounded-xl">
@@ -340,7 +349,7 @@ export function LeadsTab() {
 											</TableRow>
 										</TableHeader>
 										<TableBody>
-											{pageLeads.map((lead) => (
+											{leads.map((lead) => (
 												<TableRow key={lead.id} className="group/row">
 													<TableCell className="ps-4">
 														<div
@@ -349,6 +358,7 @@ export function LeadsTab() {
 														>
 															{lead.name}
 														</div>
+														<LeadOrderDetails extras={lead.extras} />
 													</TableCell>
 													<TableCell>
 														<div className="flex items-center gap-1">
@@ -388,7 +398,7 @@ export function LeadsTab() {
 
 								{/* Mobile: card list */}
 								<div className="mt-4 space-y-2 md:hidden">
-									{pageLeads.map((lead) => (
+									{leads.map((lead) => (
 										<div
 											key={lead.id}
 											className="rounded-xl border bg-card p-3.5"
@@ -417,34 +427,53 @@ export function LeadsTab() {
 													.filter((part) => part !== null)
 													.join(" · ")}
 											</div>
+											<LeadOrderDetails extras={lead.extras} />
 										</div>
 									))}
 								</div>
 
 								{/* Pagination */}
-								{filtered.length > LEADS_PAGE_SIZE ? (
+								{cursorHistory.length > 0 || response?.nextCursor ? (
 									<div className="mt-4 flex items-center justify-between gap-3">
 										<span className="font-mono text-muted-foreground text-xs">
 											{t("leads.pageInfo", {
 												from: from + 1,
-												to: Math.min(from + LEADS_PAGE_SIZE, filtered.length),
-												total: filtered.length,
+												to: Math.min(from + leads.length, matchingTotal),
+												total: matchingTotal,
 											})}
 										</span>
 										<div className="flex items-center gap-2">
 											<Button
 												variant="outline"
 												size="sm"
-												disabled={currentPage <= 1}
-												onClick={() => setPage(currentPage - 1)}
+												disabled={
+													currentPage <= 1 ||
+													searchPending ||
+													leadsQuery.isPlaceholderData
+												}
+												onClick={() =>
+													setCursorHistory((history) => history.slice(0, -1))
+												}
 											>
 												{t("leads.previous")}
 											</Button>
 											<Button
 												variant="outline"
 												size="sm"
-												disabled={currentPage >= pageCount}
-												onClick={() => setPage(currentPage + 1)}
+												disabled={
+													!response?.nextCursor ||
+													searchPending ||
+													leadsQuery.isPlaceholderData
+												}
+												onClick={() => {
+													const nextCursor = response?.nextCursor;
+													if (nextCursor) {
+														setCursorHistory((history) => [
+															...history,
+															nextCursor,
+														]);
+													}
+												}}
 											>
 												{t("leads.next")}
 											</Button>

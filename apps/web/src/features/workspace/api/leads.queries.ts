@@ -3,21 +3,26 @@
 // new leads arrive from outside the app (published-page form posts), so a
 // gentle poll + refetch-on-focus is their arrival path into the UI.
 
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import type { LeadsQuery } from "@wandit/contracts";
 
 import { listLeads } from "./leads.services";
 
 export const leadKeys = {
 	all: ["leads"] as const,
 	lists: () => [...leadKeys.all, "list"] as const,
-	list: (projectId: string) => [...leadKeys.lists(), projectId] as const,
+	projectLists: (projectId: string) =>
+		[...leadKeys.lists(), projectId] as const,
+	list: (projectId: string, query: LeadsQuery) =>
+		[...leadKeys.projectLists(projectId), query] as const,
 };
 
-export function useLeadsQuery(projectId: string) {
+export function useLeadsQuery(projectId: string, query: LeadsQuery) {
 	return useQuery({
-		queryKey: leadKeys.list(projectId),
-		queryFn: () => listLeads(projectId),
+		queryKey: leadKeys.list(projectId, query),
+		queryFn: () => listLeads(projectId, query),
 		enabled: projectId !== "",
+		placeholderData: keepPreviousData,
 		refetchInterval: 15_000,
 		refetchOnWindowFocus: true,
 	});

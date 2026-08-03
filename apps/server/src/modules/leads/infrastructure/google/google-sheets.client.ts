@@ -1,17 +1,13 @@
 /**
- * Thin fetch wrapper over the Google Sheets REST API — the three calls the
- * leads sync needs, no googleapis dependency. The caller supplies a fresh
- * access token per call (better-auth mints and refreshes them); this client
- * holds no credentials or state.
- *
- * Ranges are given without a sheet name on purpose: bare A1 notation targets
- * the first visible sheet, so the sync keeps working even if the merchant
- * renames the tab.
+ * Thin fetch wrapper over the Google Sheets REST API. Rewrites use a hidden
+ * staging tab: bounded batches fill that tab while the merchant's live tab is
+ * untouched, then one atomic spreadsheets.batchUpdate swaps the tabs.
  */
 import { Injectable } from "@nestjs/common";
 
 const SHEETS_API_BASE = "https://sheets.googleapis.com/v4/spreadsheets";
 const REQUEST_TIMEOUT_MS = 15_000;
+const STAGING_SHEET_PREFIX = "__wandit_sync_";
 
 export class GoogleSheetsApiError extends Error {
 	constructor(
@@ -26,6 +22,30 @@ export class GoogleSheetsApiError extends Error {
 export type CreatedSpreadsheet = {
 	spreadsheetId: string;
 	spreadsheetUrl: string;
+};
+
+export type StagedSheetRewrite = {
+	liveSheet: {
+		index: number;
+		sheetId: number;
+		title: string;
+	};
+	stagingSheet: {
+		columnCount: number;
+		rowCount: number;
+		sheetId: number;
+	};
+};
+
+type SheetProperties = {
+	gridProperties?: {
+		columnCount?: number;
+		rowCount?: number;
+	};
+	hidden?: boolean;
+	index?: number;
+	sheetId?: number;
+	title?: string;
 };
 
 @Injectable()
@@ -53,43 +73,208 @@ export class GoogleSheetsClient {
 		return { spreadsheetId, spreadsheetUrl };
 	}
 
-	async clearValues(
+	/**
+	 * Capture the first visible (live) tab and add a hidden staging tab. The
+	 * staging tab is deliberately tiny; each write grows it in the same atomic
+	 * request that writes the new rows.
+	 */
+	async beginStagedRewrite(
 		accessToken: string,
 		spreadsheetId: string,
-		range: string,
-	): Promise<void> {
-		await this.request(
+		columnCount: number,
+	): Promise<StagedSheetRewrite> {
+		const spreadsheet = (await this.request(
 			accessToken,
-			`${SHEETS_API_BASE}/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(range)}:clear`,
-			"POST",
+			`${SHEETS_API_BASE}/${encodeURIComponent(spreadsheetId)}?fields=sheets.properties(sheetId,title,index,hidden,gridProperties(rowCount,columnCount))`,
+			"GET",
+		)) as { sheets?: Array<{ properties?: SheetProperties }> };
+
+		const liveSheet = (spreadsheet.sheets ?? [])
+			.map((sheet) => sheet.properties)
+			.filter(isUsableSheetProperties)
+			.sort((left, right) => left.index - right.index)
+			.find((sheet) => !sheet.hidden);
+
+		if (!liveSheet) {
+			throw new GoogleSheetsApiError(
+				502,
+				"Spreadsheet has no visible sheet to replace",
+			);
+		}
+
+		const stageTitle = `${STAGING_SHEET_PREFIX}${crypto.randomUUID()}`;
+		const response = (await this.batchUpdate(accessToken, spreadsheetId, [
+			{
+				addSheet: {
+					properties: {
+						gridProperties: {
+							columnCount: Math.max(1, Math.floor(columnCount)),
+							rowCount: 1,
+						},
+						hidden: true,
+						title: stageTitle,
+					},
+				},
+			},
+		])) as {
+			replies?: Array<{
+				addSheet?: { properties?: { sheetId?: number } };
+			}>;
+		};
+		const stagingSheetId = response.replies?.[0]?.addSheet?.properties?.sheetId;
+
+		if (typeof stagingSheetId !== "number") {
+			throw new GoogleSheetsApiError(
+				502,
+				"Staging sheet response missing sheet id",
+			);
+		}
+
+		return {
+			liveSheet: {
+				index: liveSheet.index,
+				sheetId: liveSheet.sheetId,
+				title: liveSheet.title,
+			},
+			stagingSheet: {
+				columnCount: Math.max(1, Math.floor(columnCount)),
+				rowCount: 1,
+				sheetId: stagingSheetId,
+			},
+		};
+	}
+
+	/** Write one bounded row chunk without exposing it on the live tab. */
+	async writeStagedValues(
+		accessToken: string,
+		spreadsheetId: string,
+		rewrite: StagedSheetRewrite,
+		startRowIndex: number,
+		values: string[][],
+	): Promise<void> {
+		if (values.length === 0) {
+			return;
+		}
+
+		const rowIndex = Math.max(0, Math.floor(startRowIndex));
+		const requiredRowCount = rowIndex + values.length;
+		const requiredColumnCount = Math.max(1, ...values.map((row) => row.length));
+		const gridProperties: { columnCount?: number; rowCount?: number } = {};
+		const gridFields: string[] = [];
+
+		if (requiredRowCount > rewrite.stagingSheet.rowCount) {
+			gridProperties.rowCount = requiredRowCount;
+			gridFields.push("gridProperties.rowCount");
+		}
+
+		if (requiredColumnCount > rewrite.stagingSheet.columnCount) {
+			gridProperties.columnCount = requiredColumnCount;
+			gridFields.push("gridProperties.columnCount");
+		}
+
+		const requests: unknown[] = [];
+		if (gridFields.length > 0) {
+			requests.push({
+				updateSheetProperties: {
+					fields: gridFields.join(","),
+					properties: {
+						gridProperties,
+						sheetId: rewrite.stagingSheet.sheetId,
+					},
+				},
+			});
+		}
+
+		requests.push({
+			updateCells: {
+				fields: "userEnteredValue",
+				rows: values.map((row) => ({
+					values: row.map((value) => ({
+						userEnteredValue: { stringValue: value },
+					})),
+				})),
+				start: {
+					columnIndex: 0,
+					rowIndex,
+					sheetId: rewrite.stagingSheet.sheetId,
+				},
+			},
+		});
+
+		await this.batchUpdate(accessToken, spreadsheetId, requests);
+
+		rewrite.stagingSheet.rowCount = Math.max(
+			rewrite.stagingSheet.rowCount,
+			requiredRowCount,
+		);
+		rewrite.stagingSheet.columnCount = Math.max(
+			rewrite.stagingSheet.columnCount,
+			requiredColumnCount,
 		);
 	}
 
 	/**
-	 * Write rows starting at `range` via values:append — NOT values:update.
-	 * A created spreadsheet has a fixed 1000-row grid and update cannot grow
-	 * it (a 1001-row write 400s with "exceeds grid limits"); append expands
-	 * the grid as needed, and on a just-cleared (empty) sheet it starts at
-	 * the top of the range.
+	 * The only operation that touches the live tab. Google validates and
+	 * applies all requests atomically: reveal staging, delete old live, then
+	 * restore the old tab's title and position.
 	 */
-	async appendValues(
+	async commitStagedRewrite(
 		accessToken: string,
 		spreadsheetId: string,
-		range: string,
-		values: string[][],
+		rewrite: StagedSheetRewrite,
 	): Promise<void> {
-		await this.request(
+		await this.batchUpdate(accessToken, spreadsheetId, [
+			{
+				updateSheetProperties: {
+					fields: "hidden",
+					properties: {
+						hidden: false,
+						sheetId: rewrite.stagingSheet.sheetId,
+					},
+				},
+			},
+			{ deleteSheet: { sheetId: rewrite.liveSheet.sheetId } },
+			{
+				updateSheetProperties: {
+					fields: "title,index",
+					properties: {
+						index: rewrite.liveSheet.index,
+						sheetId: rewrite.stagingSheet.sheetId,
+						title: rewrite.liveSheet.title,
+					},
+				},
+			},
+		]);
+	}
+
+	/** Best-effort cleanup for a failed pre-commit staging run. */
+	async discardStagedRewrite(
+		accessToken: string,
+		spreadsheetId: string,
+		rewrite: StagedSheetRewrite,
+	): Promise<void> {
+		await this.batchUpdate(accessToken, spreadsheetId, [
+			{ deleteSheet: { sheetId: rewrite.stagingSheet.sheetId } },
+		]);
+	}
+
+	private batchUpdate(
+		accessToken: string,
+		spreadsheetId: string,
+		requests: unknown[],
+	): Promise<unknown> {
+		return this.request(
 			accessToken,
-			`${SHEETS_API_BASE}/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(range)}:append?valueInputOption=RAW&insertDataOption=OVERWRITE`,
+			`${SHEETS_API_BASE}/${encodeURIComponent(spreadsheetId)}:batchUpdate`,
 			"POST",
-			{ values },
+			{ requests },
 		);
 	}
 
 	private async request(
 		accessToken: string,
 		url: string,
-		method: "POST" | "PUT",
+		method: "GET" | "POST",
 		body?: unknown,
 	): Promise<unknown> {
 		const response = await fetch(url, {
@@ -111,6 +296,21 @@ export class GoogleSheetsClient {
 
 		return response.json().catch(() => ({}));
 	}
+}
+
+function isUsableSheetProperties(
+	properties: SheetProperties | undefined,
+): properties is SheetProperties & {
+	index: number;
+	sheetId: number;
+	title: string;
+} {
+	return Boolean(
+		properties &&
+			typeof properties.index === "number" &&
+			typeof properties.sheetId === "number" &&
+			typeof properties.title === "string",
+	);
 }
 
 // Google error bodies are {error: {message, ...}} — surface the message so a

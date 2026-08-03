@@ -1600,6 +1600,172 @@ export async function runSiteBuild(
  */
 const BRAND_MARKER_WRAPPER_SELECTOR = "a, figure, article";
 const BRAND_SECTION_SCOPE_SELECTOR = "nav, header, section, footer, aside";
+const JAVASCRIPT_IDENTIFIER_SOURCE = String.raw`[$A-Z_a-z][$\w]*`;
+const LEAD_EVENT_LITERAL_SOURCE =
+	"(?:\"wandit:lead\"|'wandit:lead'|`wandit:lead`)";
+const CUSTOM_EVENT_CONSTRUCTOR_SOURCE = String.raw`new\s+(?:(?:window|globalThis|self)\s*\.\s*)?CustomEvent\s*\(\s*`;
+const NAME_AUTOCOMPLETE_TOKENS = new Set([
+	"additional-name",
+	"family-name",
+	"given-name",
+	"name",
+	"nickname",
+]);
+const NAME_ATTRIBUTE_QUALIFIERS = new Set([
+	"buyer",
+	"client",
+	"contact",
+	"customer",
+	"family",
+	"first",
+	"full",
+	"given",
+	"last",
+	"recipient",
+]);
+const NON_PERSON_NAME_TOKENS = new Set([
+	"business",
+	"company",
+	"file",
+	"product",
+	"username",
+]);
+const COMPACT_NAME_ATTRIBUTE_VALUES = new Set([
+	"buyername",
+	"clientname",
+	"contactname",
+	"customername",
+	"familyname",
+	"firstname",
+	"fullname",
+	"givenname",
+	"lastname",
+	"nomcomplet",
+	"prenom",
+	"recipientname",
+	"surname",
+]);
+const NON_TEXT_NAME_INPUT_TYPES = new Set([
+	"button",
+	"checkbox",
+	"email",
+	"file",
+	"hidden",
+	"image",
+	"number",
+	"password",
+	"radio",
+	"reset",
+	"submit",
+	"tel",
+]);
+
+function escapeRegExp(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Accepted zero-parser patterns, within one <script>:
+ * - target.dispatchEvent(new CustomEvent("wandit:lead", ...))
+ * - const event = new CustomEvent("wandit:lead", ...); dispatchEvent(event)
+ *
+ * Quote style, whitespace/minification, window/globalThis/self.CustomEvent,
+ * and a simple const/let/var event-name literal are all tolerated. Computed
+ * event names and event objects passed through helpers are intentionally not.
+ */
+function scriptDispatchesLeadCustomEvent(script: string): boolean {
+	const eventNameArguments = new Set([LEAD_EVENT_LITERAL_SOURCE]);
+	const eventNameDeclaration = new RegExp(
+		String.raw`\b(?:const|let|var)\s+(${JAVASCRIPT_IDENTIFIER_SOURCE})\s*=\s*${LEAD_EVENT_LITERAL_SOURCE}`,
+		"g",
+	);
+
+	for (const match of script.matchAll(eventNameDeclaration)) {
+		const identifier = match[1];
+
+		if (identifier) {
+			eventNameArguments.add(`${escapeRegExp(identifier)}(?![$\\w])`);
+		}
+	}
+
+	for (const eventNameArgument of eventNameArguments) {
+		const customEventConstructor = `${CUSTOM_EVENT_CONSTRUCTOR_SOURCE}${eventNameArgument}`;
+		const directDispatch = new RegExp(
+			String.raw`\bdispatchEvent\s*\(\s*${customEventConstructor}`,
+		);
+
+		if (directDispatch.test(script)) {
+			return true;
+		}
+
+		const assignedEvent = new RegExp(
+			String.raw`\b(?:const|let|var)\s+(${JAVASCRIPT_IDENTIFIER_SOURCE})\s*=\s*${customEventConstructor}`,
+			"g",
+		);
+
+		for (const match of script.matchAll(assignedEvent)) {
+			const identifier = match[1];
+
+			if (!identifier) {
+				continue;
+			}
+
+			const followingScript = script.slice(
+				(match.index ?? 0) + match[0].length,
+			);
+			const variableDispatch = new RegExp(
+				String.raw`\bdispatchEvent\s*\(\s*${escapeRegExp(identifier)}(?![$\w])`,
+			);
+
+			if (variableDispatch.test(followingScript)) {
+				return true;
+			}
+		}
+	}
+
+	return false;
+}
+
+function attributeIndicatesPersonName(value: string | undefined): boolean {
+	if (!value) {
+		return false;
+	}
+
+	const normalized = value
+		.replace(/([a-z\d])([A-Z])/g, "$1 $2")
+		.trim()
+		.toLowerCase();
+
+	if (normalized.includes("اسم")) {
+		return true;
+	}
+
+	const tokens = normalized.split(/[^a-z0-9]+/).filter(Boolean);
+
+	if (tokens.some((token) => NON_PERSON_NAME_TOKENS.has(token))) {
+		return false;
+	}
+
+	if (tokens.some((token) => COMPACT_NAME_ATTRIBUTE_VALUES.has(token))) {
+		return true;
+	}
+
+	return tokens.some((token, index) => {
+		if (token === "nom") {
+			return true;
+		}
+
+		if (token !== "name") {
+			return false;
+		}
+
+		return (
+			tokens.length === 1 ||
+			index === 0 ||
+			NAME_ATTRIBUTE_QUALIFIERS.has(tokens[index - 1] ?? "")
+		);
+	});
+}
 
 function assertValidBrandMarkers(
 	html: string,
@@ -1787,8 +1953,49 @@ function assertValidSite(
 			);
 		}
 
-		if (!html.includes("wandit:lead")) {
-			throw new Error('COD index.html must contain the string "wandit:lead"');
+		const nameInputs = forms
+			.first()
+			.find("input")
+			.filter((_, node) => {
+				const input = $(node);
+				const type = (input.attr("type") ?? "text").trim().toLowerCase();
+
+				if (
+					input.is("[data-wandit-hp], [disabled], [readonly]") ||
+					NON_TEXT_NAME_INPUT_TYPES.has(type)
+				) {
+					return false;
+				}
+
+				const autocomplete = (input.attr("autocomplete") ?? "")
+					.trim()
+					.toLowerCase()
+					.split(/\s+/)
+					.filter(Boolean);
+
+				return (
+					autocomplete.some((token) => NAME_AUTOCOMPLETE_TOKENS.has(token)) ||
+					attributeIndicatesPersonName(input.attr("name")) ||
+					attributeIndicatesPersonName(input.attr("id"))
+				);
+			});
+
+		if (nameInputs.length === 0) {
+			throw new Error(
+				"COD index.html capture <form> must contain at least one " +
+					"name-capable <input> (identified by name, id, or autocomplete)",
+			);
+		}
+
+		const dispatchesLeadEvent = $("script")
+			.toArray()
+			.some((node) => scriptDispatchesLeadCustomEvent($(node).html() ?? ""));
+
+		if (!dispatchesLeadEvent) {
+			throw new Error(
+				'COD index.html must dispatch a "wandit:lead" CustomEvent from ' +
+					"a <script> element",
+			);
 		}
 
 		const honeypots = $("[data-wandit-hp]");

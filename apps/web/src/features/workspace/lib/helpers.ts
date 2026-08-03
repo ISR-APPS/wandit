@@ -12,6 +12,8 @@
  */
 // Pure functions for the workspace feature.
 
+import { serializeLeadOrderDetails } from "@wandit/contracts";
+
 import { pageTitleDynamic } from "@/lib/i18n";
 import type { Lead, WorkspaceTab } from "../api/dto";
 import { WORKSPACE_PANELS_STORAGE_ID, WORKSPACE_TAB_VALUES } from "./constants";
@@ -128,11 +130,18 @@ export function hashString(value: string): number {
  * `headers` is the localized header row (leads.csvHeaders); the status cell is
  * localized from the current dictionary snapshot (leads.status.<enum_value>).
  */
-export function buildLeadsCsv(leads: Lead[], headers: string[]): string {
+export const ORDER_DETAILS_LABEL = "Order details";
+
+export function buildLeadsCsv(
+	leads: Lead[],
+	headers: string[],
+	orderDetailsHeader = ORDER_DETAILS_LABEL,
+): string {
 	// CSV cells containing commas, quotes, or newlines must be wrapped in quotes;
 	// doubled quotes are the CSV escape sequence for a literal quote.
 	const escapeCell = (cell: string) =>
 		/[",\n]/.test(cell) ? `"${cell.replace(/"/g, '""')}"` : cell;
+	const csvHeaders = [...headers, orderDetailsHeader].map(escapeCell).join(",");
 	const rows = leads.map((lead) =>
 		[
 			lead.name,
@@ -142,11 +151,12 @@ export function buildLeadsCsv(leads: Lead[], headers: string[]): string {
 			pageTitleDynamic(`leads.status.${lead.status}`),
 			lead.source,
 			lead.createdAt,
+			serializeLeadOrderDetails(lead.extras),
 		]
 			.map(escapeCell)
 			.join(","),
 	);
-	return `\uFEFF${[headers.join(","), ...rows].join("\n")}`;
+	return `\uFEFF${[csvHeaders, ...rows].join("\n")}`;
 }
 
 // Trigger a browser download for generated text. Blob is the browser object for
