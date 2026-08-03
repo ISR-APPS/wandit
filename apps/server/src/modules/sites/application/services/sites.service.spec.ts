@@ -8,6 +8,7 @@ import {
 	putPageHtml,
 } from "../../../../infrastructure/storage/r2";
 import type { DomainRoutingService } from "../../../domains/infrastructure/cloudflare/domain-routing.service";
+import type { ProjectScope } from "../../../projects/domain/project-scope";
 import {
 	NoVersionToPublishError,
 	PublishFailedError,
@@ -42,6 +43,7 @@ const PROJECT_ID = "11111111-1111-4111-8111-111111111111";
 const FORM_ID = "44444444-4444-4444-8444-444444444444";
 const VERSION_ID = "22222222-2222-4222-8222-222222222222";
 const USER_ID = "user-1";
+const SCOPE: ProjectScope = { kind: "personal", userId: USER_ID };
 
 function deploymentRow(overrides: Partial<DeploymentRow> = {}): DeploymentRow {
 	return {
@@ -71,7 +73,7 @@ function setup(options: { kvConfigured?: boolean } = {}) {
 			.fn()
 			.mockResolvedValue({ id: VERSION_ID, r2Key: "sites/p/v/index.html" }),
 		findVersionForProject: vi.fn(),
-		getOwnedProject: vi.fn().mockResolvedValue({
+		getAccessibleProject: vi.fn().mockResolvedValue({
 			id: PROJECT_ID,
 			metaPixelId: null,
 			name: "Smoke Project",
@@ -127,7 +129,7 @@ describe("SitesService.publish", () => {
 			return deploymentRow({ status: "active" });
 		});
 
-		const result = await service.publish(USER_ID, PROJECT_ID, {});
+		const result = await service.publish(SCOPE, PROJECT_ID, {});
 
 		expect(result.deployment.status).toBe("active");
 		expect(calls).toEqual([
@@ -144,7 +146,7 @@ describe("SitesService.publish", () => {
 	it("skips the KV pointer with a warning when Cloudflare is unconfigured", async () => {
 		const { routing, service } = setup({ kvConfigured: false });
 
-		await service.publish(USER_ID, PROJECT_ID, {});
+		await service.publish(SCOPE, PROJECT_ID, {});
 
 		expect(routing.putHostPointer).not.toHaveBeenCalled();
 	});
@@ -152,7 +154,7 @@ describe("SitesService.publish", () => {
 	it("writes the slug pointer on first publish when KV is configured", async () => {
 		const { routing, service } = setup({ kvConfigured: true });
 
-		await service.publish(USER_ID, PROJECT_ID, {});
+		await service.publish(SCOPE, PROJECT_ID, {});
 
 		expect(routing.putHostPointer).toHaveBeenCalledWith(
 			"smoke-project.wandit.app",
@@ -169,7 +171,7 @@ describe("SitesService.publish", () => {
 			deploymentRow({ slug: "smoke-project", status: "active" }),
 		);
 
-		await service.publish(USER_ID, PROJECT_ID, {});
+		await service.publish(SCOPE, PROJECT_ID, {});
 
 		expect(routing.putHostPointer).toHaveBeenCalledWith(
 			"smoke-project.wandit.app",
@@ -190,7 +192,7 @@ describe("SitesService.publish", () => {
 			deploymentRow({ slug: "new-slug", status: "active" }),
 		);
 
-		await service.publish(USER_ID, PROJECT_ID, { slug: "new-slug" });
+		await service.publish(SCOPE, PROJECT_ID, { slug: "new-slug" });
 
 		expect(routing.putHostPointer).toHaveBeenCalledWith(
 			"new-slug.wandit.app",
@@ -206,7 +208,7 @@ describe("SitesService.publish", () => {
 		repository.isSlugTakenByOther.mockResolvedValue(true);
 
 		await expect(
-			service.publish(USER_ID, PROJECT_ID, { slug: "taken" }),
+			service.publish(SCOPE, PROJECT_ID, { slug: "taken" }),
 		).rejects.toBeInstanceOf(SlugTakenError);
 		expect(putPageHtml).not.toHaveBeenCalled();
 		expect(repository.insertPending).not.toHaveBeenCalled();
@@ -216,7 +218,7 @@ describe("SitesService.publish", () => {
 		const { repository, service } = setup();
 
 		await expect(
-			service.publish(USER_ID, PROJECT_ID, { slug: "customers" }),
+			service.publish(SCOPE, PROJECT_ID, { slug: "customers" }),
 		).rejects.toBeInstanceOf(SlugReservedError);
 		expect(repository.insertPending).not.toHaveBeenCalled();
 	});
@@ -226,7 +228,7 @@ describe("SitesService.publish", () => {
 		repository.findDraftVersion.mockResolvedValue(null);
 
 		await expect(
-			service.publish(USER_ID, PROJECT_ID, {}),
+			service.publish(SCOPE, PROJECT_ID, {}),
 		).rejects.toBeInstanceOf(NoVersionToPublishError);
 	});
 
@@ -235,7 +237,7 @@ describe("SitesService.publish", () => {
 		vi.mocked(isR2Configured).mockReturnValue(false);
 
 		await expect(
-			service.publish(USER_ID, PROJECT_ID, {}),
+			service.publish(SCOPE, PROJECT_ID, {}),
 		).rejects.toBeInstanceOf(PublishUnavailableError);
 	});
 
@@ -244,7 +246,7 @@ describe("SitesService.publish", () => {
 		vi.mocked(putPageHtml).mockRejectedValue(new Error("R2 exploded"));
 
 		await expect(
-			service.publish(USER_ID, PROJECT_ID, {}),
+			service.publish(SCOPE, PROJECT_ID, {}),
 		).rejects.toBeInstanceOf(PublishFailedError);
 		expect(repository.markFailed).toHaveBeenCalledWith(
 			"33333333-3333-4333-8333-333333333333",
@@ -255,7 +257,7 @@ describe("SitesService.publish", () => {
 
 	it("injects pixels into the published bytes when the project has them", async () => {
 		const { repository, service } = setup();
-		repository.getOwnedProject.mockResolvedValue({
+		repository.getAccessibleProject.mockResolvedValue({
 			id: PROJECT_ID,
 			metaPixelId: "1234567890",
 			name: "Smoke Project",
@@ -267,7 +269,7 @@ describe("SitesService.publish", () => {
 			bodies.push(html);
 		});
 
-		await service.publish(USER_ID, PROJECT_ID, {});
+		await service.publish(SCOPE, PROJECT_ID, {});
 
 		expect(bodies).toHaveLength(2);
 		expect(bodies[0]).toContain('data-wandit-pixel="meta"');
@@ -281,7 +283,7 @@ describe("SitesService.publish", () => {
 			bodies.push(html);
 		});
 
-		await service.publish(USER_ID, PROJECT_ID, {});
+		await service.publish(SCOPE, PROJECT_ID, {});
 
 		expect(bodies[0]).toContain('id="wandit-leads-runtime"');
 		expect(bodies[0]).toContain(`/api/public/leads/${FORM_ID}`);
@@ -295,7 +297,7 @@ describe("SitesService.unpublish", () => {
 			deploymentRow({ slug: "smoke-project", status: "unpublished" }),
 		);
 
-		await service.unpublish(USER_ID, PROJECT_ID);
+		await service.unpublish(SCOPE, PROJECT_ID);
 
 		expect(deleteObject).toHaveBeenCalledWith(
 			`published/${PROJECT_ID}/current.html`,
@@ -308,7 +310,7 @@ describe("SitesService.unpublish", () => {
 	it("is a no-op when nothing is live", async () => {
 		const { routing, service } = setup({ kvConfigured: true });
 
-		await service.unpublish(USER_ID, PROJECT_ID);
+		await service.unpublish(SCOPE, PROJECT_ID);
 
 		expect(deleteObject).not.toHaveBeenCalled();
 		expect(routing.deleteHostPointer).not.toHaveBeenCalled();
@@ -331,7 +333,7 @@ describe("SitesService.rollback", () => {
 			bodies.push(html);
 		});
 
-		await service.rollback(USER_ID, PROJECT_ID, {
+		await service.rollback(SCOPE, PROJECT_ID, {
 			deploymentId: target.id,
 		});
 
@@ -354,7 +356,7 @@ describe("SitesService.rollback", () => {
 			id: VERSION_ID,
 			r2Key: "sites/p/v/index.html",
 		});
-		repository.getOwnedProject.mockResolvedValue({
+		repository.getAccessibleProject.mockResolvedValue({
 			id: PROJECT_ID,
 			metaPixelId: "777",
 			name: "Smoke Project",
@@ -369,7 +371,7 @@ describe("SitesService.rollback", () => {
 			bodies.push(html);
 		});
 
-		await service.rollback(USER_ID, PROJECT_ID, {
+		await service.rollback(SCOPE, PROJECT_ID, {
 			deploymentId: target.id,
 		});
 
@@ -381,7 +383,7 @@ describe("SitesService.rollback", () => {
 		repository.findById.mockResolvedValue(null);
 
 		await expect(
-			service.rollback(USER_ID, PROJECT_ID, {
+			service.rollback(SCOPE, PROJECT_ID, {
 				deploymentId: "44444444-4444-4444-8444-444444444444",
 			}),
 		).rejects.toBeInstanceOf(NotFoundException);
@@ -442,7 +444,7 @@ describe("SitesService.current uiState mapping", () => {
 			const { repository, service } = setup();
 			repository.findCurrent.mockResolvedValue(rows);
 
-			const { current } = await service.current(USER_ID, PROJECT_ID);
+			const { current } = await service.current(SCOPE, PROJECT_ID);
 
 			expect(current.uiState).toBe(expected);
 
@@ -465,7 +467,7 @@ describe("SitesService.slugAvailability", () => {
 		const { repository, service } = setup();
 
 		await expect(
-			service.slugAvailability(USER_ID, PROJECT_ID, "customers"),
+			service.slugAvailability(SCOPE, PROJECT_ID, "customers"),
 		).resolves.toEqual({
 			available: false,
 			reason: "reserved",
@@ -474,12 +476,12 @@ describe("SitesService.slugAvailability", () => {
 
 		repository.isSlugTakenByOther.mockResolvedValue(true);
 		await expect(
-			service.slugAvailability(USER_ID, PROJECT_ID, "acme"),
+			service.slugAvailability(SCOPE, PROJECT_ID, "acme"),
 		).resolves.toEqual({ available: false, reason: "taken", slug: "acme" });
 
 		repository.isSlugTakenByOther.mockResolvedValue(false);
 		await expect(
-			service.slugAvailability(USER_ID, PROJECT_ID, "acme"),
+			service.slugAvailability(SCOPE, PROJECT_ID, "acme"),
 		).resolves.toEqual({ available: true, reason: null, slug: "acme" });
 	});
 });

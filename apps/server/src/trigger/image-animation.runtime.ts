@@ -39,6 +39,7 @@ const ATTEMPT_COLUMNS = {
 	error: mediaGenerationAttempts.error,
 	id: mediaGenerationAttempts.id,
 	motion: mediaGenerationAttempts.motion,
+	organizationId: projects.organizationId,
 	projectDeletedAt: projects.deletedAt,
 	projectId: mediaGenerationAttempts.projectId,
 	prompt: mediaGenerationAttempts.prompt,
@@ -83,14 +84,20 @@ export function createImageAnimationRuntime(
 			capture: billing.capture,
 			claimQueued: persistence.claimQueued,
 			fail: persistence.failFromStatus,
-			generate: (attempt, signal, onProviderGeneration) =>
+			generate: (attempt, subject, signal, onProviderGeneration) =>
 				generateBuildVideo({
 					abortSignal: signal,
 					aspect: attempt.aspect,
 					attemptId: attempt.id,
 					imageUrl: attempt.sourceImageUrl,
 					index: 1,
-					metering: { operation: "video", userId: attempt.userId },
+					// Metering identity comes from the queue-time subject: the acting
+					// member (not the project creator) with the paying entity.
+					metering: {
+						operation: "video",
+						organizationId: subject.organizationId ?? null,
+						userId: subject.actorUserId,
+					},
 					motion: attempt.motion,
 					motionPrompt: attempt.prompt,
 					...(onProviderGeneration ? { onProviderGeneration } : {}),
@@ -328,12 +335,21 @@ function createPersistence(db: TriggerDatabase, analytics: AnalyticsCapture) {
  * terminal rows forever while still recovering refunds missed by crashes.
  */
 function missingImageAnimationRefund() {
+	// Payer-aware: org attempts match the org pool's event (the reserving
+	// member may differ from the project creator); personal attempts keep the
+	// strict user match.
 	return sql<boolean>`exists (
 		select 1
 		from ${aiUsageEvents} as usage_event
-		where usage_event.user_id = ${projects.userId}
-			and usage_event.idempotency_key = ('video:' || ${mediaGenerationAttempts.id}::text)
+		where usage_event.idempotency_key = ('video:' || ${mediaGenerationAttempts.id}::text)
 			and usage_event.status = 'reserved'
+			and (
+				(${projects.organizationId} is not null
+					and usage_event.organization_id = ${projects.organizationId})
+				or (${projects.organizationId} is null
+					and usage_event.organization_id is null
+					and usage_event.user_id = ${projects.userId})
+			)
 	)`;
 }
 

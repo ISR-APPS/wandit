@@ -52,6 +52,8 @@ export class ProductSettingsService {
 		const settings = await this.get();
 
 		return {
+			emailAuthEnabled: settings.emailAuthEnabled,
+			organizationsEnabled: settings.organizationsEnabled,
 			paidSubscriptionsEnabled: settings.paidSubscriptionsEnabled,
 			signupGrantEnabled: settings.signupGrantEnabled,
 			topupsEnabled: settings.topupsEnabled,

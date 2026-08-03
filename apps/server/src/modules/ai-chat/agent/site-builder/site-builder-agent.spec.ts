@@ -132,7 +132,7 @@ function setup(config?: {
 		projectId: "project_1",
 		screenshots,
 		state,
-		userId: "user_1",
+		subject: { actorUserId: "user_1" },
 		vfs,
 	});
 
@@ -1732,7 +1732,7 @@ describe("generate_image tool", () => {
 
 		expect(metering.reserve).toHaveBeenCalledWith(
 			"image",
-			"user_1",
+			{ actorUserId: "user_1" },
 			expect.objectContaining({
 				attemptRef: "attempt_1:image:1",
 				credits: 5,
@@ -1874,7 +1874,7 @@ describe("generate_image tool", () => {
 			aspect: "16:9",
 			attemptId: "attempt_1",
 			index: 1,
-			metering: { operation: "image", userId: "user_1" },
+			metering: { operation: "image", organizationId: null, userId: "user_1" },
 			projectId: "project_1",
 			prompt: IMAGE_INPUT.prompt,
 		});
@@ -2003,7 +2003,7 @@ describe("animate_image tool", () => {
 
 		expect(metering.reserve).toHaveBeenCalledWith(
 			"video",
-			"user_1",
+			{ actorUserId: "user_1" },
 			expect.objectContaining({
 				attemptRef: "attempt_1:video:1",
 				credits: 25,
@@ -2101,7 +2101,7 @@ describe("animate_image tool", () => {
 			attemptId: "attempt_1",
 			imageUrl: VIDEO_INPUT.imageUrl,
 			index: 1,
-			metering: { operation: "video", userId: "user_1" },
+			metering: { operation: "video", organizationId: null, userId: "user_1" },
 			motionPrompt: VIDEO_INPUT.motionPrompt,
 			projectId: "project_1",
 		});
@@ -2224,9 +2224,9 @@ describe("runSiteBuild", () => {
 				brief: "Build a substantial warm editorial landing page.",
 				model: "deepseek/test",
 				projectId: "project_1",
+				subject: { actorUserId: "user_1" },
 				system: "Build the page with the supplied tools.",
 				title: "Budget page",
-				userId: "user_1",
 			});
 			const index = build.files.find((file) => file.path === "index.html");
 

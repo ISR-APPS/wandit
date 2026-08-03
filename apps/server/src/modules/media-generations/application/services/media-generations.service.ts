@@ -1,5 +1,9 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import {
+	meteringSubjectFrom,
+	type ProjectScope,
+} from "../../../projects/domain/project-scope";
+import {
 	IMAGE_TO_VIDEO_DURATION_SECONDS,
 	type MediaGenerationAttempt,
 } from "@wandit/contracts";
@@ -36,11 +40,12 @@ export class MediaGenerationsService {
 	) {}
 
 	async attempt(
-		userId: string,
+		scope: ProjectScope,
 		attemptId: string,
 	): Promise<MediaGenerationAttempt> {
-		let row = await this.mediaGenerationsRepository.findOwnedAttempt(
-			userId,
+		const userId = scope.userId;
+		let row = await this.mediaGenerationsRepository.findAccessibleAttempt(
+			scope,
 			attemptId,
 		);
 
@@ -58,8 +63,8 @@ export class MediaGenerationsService {
 				STALE_QUEUED_ERROR,
 				userId,
 			);
-			row = await this.mediaGenerationsRepository.findOwnedAttempt(
-				userId,
+			row = await this.mediaGenerationsRepository.findAccessibleAttempt(
+				scope,
 				attemptId,
 			);
 
@@ -73,7 +78,7 @@ export class MediaGenerationsService {
 			row.startedAt !== null &&
 			row.startedAt < staleCutoff
 		) {
-			const recovered = await this.recoverStoredVideo(row, userId);
+			const recovered = await this.recoverStoredVideo(row, scope);
 
 			if (!recovered) {
 				await this.mediaGenerationsRepository.markStaleGeneratingAttemptFailed(
@@ -83,8 +88,8 @@ export class MediaGenerationsService {
 					userId,
 				);
 			}
-			row = await this.mediaGenerationsRepository.findOwnedAttempt(
-				userId,
+			row = await this.mediaGenerationsRepository.findAccessibleAttempt(
+				scope,
 				attemptId,
 			);
 
@@ -100,7 +105,7 @@ export class MediaGenerationsService {
 			await createImageAnimationBilling({
 				isBillingDisabled: () => env.GENERATION_BILLING_MODE === "off",
 				meteringService: this.meteringService,
-			}).refund(userId, row.id);
+			}).refund(meteringSubjectFrom(scope), row.id);
 		}
 
 		return mapAttemptRow(row);
@@ -108,8 +113,9 @@ export class MediaGenerationsService {
 
 	private async recoverStoredVideo(
 		row: MediaGenerationAttemptRow,
-		userId: string,
+		scope: ProjectScope,
 	): Promise<boolean> {
+		const userId = scope.userId;
 		for (const candidate of [
 			{ extension: "mp4", mediaType: "video/mp4" },
 			{ extension: "webm", mediaType: "video/webm" },
@@ -126,7 +132,7 @@ export class MediaGenerationsService {
 			await createImageAnimationBilling({
 				isBillingDisabled: () => env.GENERATION_BILLING_MODE === "off",
 				meteringService: this.meteringService,
-			}).settleExisting(userId, row.id);
+			}).settleExisting(meteringSubjectFrom(scope), row.id);
 
 			await this.mediaGenerationsRepository.markGeneratingAttemptSucceeded(
 				row.id,
@@ -144,11 +150,11 @@ export class MediaGenerationsService {
 	}
 
 	async download(
-		userId: string,
+		scope: ProjectScope,
 		attemptId: string,
 	): Promise<{ bytes: Uint8Array; fileName: string; mediaType: string }> {
-		const row = await this.mediaGenerationsRepository.findOwnedAttempt(
-			userId,
+		const row = await this.mediaGenerationsRepository.findAccessibleAttempt(
+			scope,
 			attemptId,
 		);
 		const key = row?.videoUrl ? publicAssetKeyFromUrl(row.videoUrl) : null;

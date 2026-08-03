@@ -8,6 +8,12 @@ import {
 import { creditLedger } from "@wandit/db/schema/credits";
 
 import {
+	type CreditOwner,
+	creditOwnerKey,
+	creditOwnerLockValue,
+	ownerFromIds,
+} from "../../../credits/domain/credit-owner";
+import {
 	DATABASE,
 	type Database,
 } from "../../../../infrastructure/database/database.constants";
@@ -95,21 +101,32 @@ export class BillingCreditLedgerRepository {
 		return rows;
 	}
 
-	async acquireUserLock(
-		userId: string,
+	async acquireOwnerLock(
+		owner: CreditOwner,
 		client: BillingCreditLedgerClient,
 	): Promise<void> {
+		// Byte-compatible with CreditsRepository's balance lock via the shared
+		// creditOwnerLockValue helper (personal = raw user id).
 		await client.execute(
-			sql`select pg_advisory_xact_lock(hashtext(${userId}))`,
+			sql`select pg_advisory_xact_lock(hashtext(${creditOwnerLockValue(owner)}))`,
 		);
 	}
 
-	async findPendingRefillSlotUserIdsForCharge(
+	/**
+	 * OWNER-derived on purpose: an org slot's subscription carries a provenance
+	 * userId (the purchasing admin) that must never be compared against
+	 * org-resolved grant rows — that mismatch would abort the clawback and
+	 * leave refunded org credits unrevoked (confirmed review finding).
+	 */
+	async findPendingRefillSlotOwnersForCharge(
 		chargeId: string,
 		client: BillingCreditLedgerClient = this.db,
-	): Promise<string[]> {
+	): Promise<CreditOwner[]> {
 		const rows = await client
-			.select({ userId: subscriptions.userId })
+			.select({
+				organizationId: subscriptions.organizationId,
+				userId: subscriptions.userId,
+			})
 			.from(subscriptionRefillSlots)
 			.innerJoin(
 				subscriptions,
@@ -121,8 +138,14 @@ export class BillingCreditLedgerRepository {
 					eq(subscriptionRefillSlots.status, "pending"),
 				),
 			);
+		const byKey = new Map<string, CreditOwner>();
 
-		return [...new Set(rows.map((row) => row.userId))];
+		for (const row of rows) {
+			const owner = ownerFromIds(row.userId, row.organizationId);
+			byKey.set(creditOwnerKey(owner), owner);
+		}
+
+		return [...byKey.values()];
 	}
 
 	async cancelPendingRefillSlotsForCharge(

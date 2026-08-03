@@ -25,6 +25,13 @@
 		"HTTP_403": "Tu n’as pas l’autorisation de faire ça.",
 		"HTTP_404": "Impossible de trouver ce que tu cherches.",
 		"HTTP_429": "Trop de requêtes. Attends un moment puis réessaie.",
-		"HTTP_500": "Le serveur a rencontré un souci. Réessaie."
+		"HTTP_500": "Le serveur a rencontré un souci. Réessaie.",
+		"ORGANIZATIONS_DISABLED": "Les espaces de travail d'équipe sont actuellement suspendus.",
+		"MEMBER_CREDIT_LIMIT_REACHED": "Vous avez atteint votre limite mensuelle de crédits dans cet espace de travail. Demandez à un propriétaire de l'augmenter.",
+		"WORKSPACE_PERMISSION_DENIED": "Votre rôle dans l'espace de travail ne permet pas cette action.",
+		"WORKSPACE_NOT_SUPPORTED": "Cette action n'est pas disponible dans un espace de travail d'équipe.",
+		"EMAIL_AUTH_DISABLED": "La connexion par e-mail est indisponible pour le moment.",
+		"EMAIL_DOMAIN_BLOCKED": "Ce domaine e-mail n'est pas pris en charge.",
+		"EMAIL_SEND_RATE_LIMITED": "Trop d'e-mails demandés. Patiente avant de réessayer."
 	}
 }

@@ -38,6 +38,7 @@ const ATTEMPT_COLUMNS = {
 	error: imageGenerationAttempts.error,
 	id: imageGenerationAttempts.id,
 	images: imageGenerationAttempts.images,
+	organizationId: projects.organizationId,
 	projectDeletedAt: projects.deletedAt,
 	projectId: imageGenerationAttempts.projectId,
 	prompt: imageGenerationAttempts.prompt,
@@ -82,13 +83,19 @@ export function createImageGenerationRuntime(
 			capture: billing.capture,
 			claimQueued: persistence.claimQueued,
 			fail: persistence.failFromStatus,
-			generateOne: (attempt, index, signal, onProviderGeneration) =>
+			generateOne: (attempt, subject, index, signal, onProviderGeneration) =>
 				generateStandaloneImage({
 					...(signal ? { abortSignal: signal } : {}),
 					aspect: attempt.aspect,
 					attemptId: attempt.id,
 					index,
-					metering: { operation: "image", userId: attempt.userId },
+					// Metering identity comes from the queue-time subject: the acting
+					// member (not the project creator) with the paying entity.
+					metering: {
+						operation: "image",
+						organizationId: subject.organizationId ?? null,
+						userId: subject.actorUserId,
+					},
 					...(onProviderGeneration ? { onProviderGeneration } : {}),
 					projectId: attempt.projectId,
 					prompt: attempt.prompt,

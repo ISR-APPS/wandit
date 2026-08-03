@@ -34,6 +34,7 @@ import {
 	createImageGenerationBilling,
 	type ImageGenerationBilling,
 } from "../../../image-generations/application/services/image-generation-billing";
+import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import type { ImageGenerationsRepository } from "../../../image-generations/infrastructure/persistence/image-generations.repository";
 import { assertFixedOperationProviderExecutionAllowed } from "../../../metering/application/services/fixed-operation-billing";
 import type { MeteringService } from "../../../metering/application/services/metering.service";
@@ -57,6 +58,8 @@ export type GenerateImageToolDeps = {
 	// generator does not read it yet.
 	quality?: string;
 	requestKeySeed?: string;
+	/** Pays for the generation: the org pool in an org workspace. */
+	subject: MeteringSubject;
 	userId: string;
 };
 
@@ -236,7 +239,7 @@ export function createGenerateImageTool(
 			// The attempt id is durable before money moves. A repeated tool call or
 			// Trigger delivery replays this exact reservation fingerprint.
 			const reservation = await billing.reserve(
-				deps.userId,
+				deps.subject,
 				attempt.id,
 				input.count,
 				deps.parentEventId,
@@ -248,6 +251,7 @@ export function createGenerateImageTool(
 				const handle = await triggerGenerateImageTask({
 					attemptId: attempt.id,
 					billingMode: reservation.eventId ? "enforce" : "off",
+					organizationId: deps.subject.organizationId ?? null,
 					...(deps.parentEventId ? { parentEventId: deps.parentEventId } : {}),
 					projectId: deps.projectId,
 					userId: deps.userId,
@@ -381,6 +385,7 @@ async function validatePlacementTarget(
 async function triggerGenerateImageTask(payload: {
 	attemptId: string;
 	billingMode: "enforce" | "off";
+	organizationId: string | null;
 	parentEventId?: string;
 	projectId: string;
 	userId: string;
@@ -447,7 +452,7 @@ async function refundReservation(
 	attemptId: string,
 ): Promise<void> {
 	try {
-		await billing.refund(deps.userId, attemptId);
+		await billing.refund(deps.subject, attemptId);
 	} catch (error) {
 		logger.error(
 			`Refunding image generation reservation ${attemptId} failed`,

@@ -34,6 +34,7 @@ const ASSET_COLUMNS = {
 	error: marketingAssets.error,
 	id: marketingAssets.id,
 	name: marketingAssets.name,
+	organizationId: projects.organizationId,
 	projectDeletedAt: projects.deletedAt,
 	projectId: marketingAssets.projectId,
 	r2Key: marketingAssets.r2Key,
@@ -64,7 +65,7 @@ export function createMarketingAssetRuntime(
 			capture: billing.capture,
 			claimQueued: persistence.claimQueued,
 			fail: persistence.failFromStatus,
-			generate: async (asset, signal, onProviderGeneration) => {
+			generate: async (asset, subject, signal, onProviderGeneration) => {
 				const generated = await generateMarketingAssetHtml(
 					{
 						assetType: asset.assetType,
@@ -74,7 +75,13 @@ export function createMarketingAssetRuntime(
 						}).format(new Date()),
 						name: asset.name,
 					},
-					{ operation: "marketing", userId: asset.userId },
+					// Metering identity comes from the queue-time subject: the acting
+					// member (not the project creator) with the paying entity.
+					{
+						operation: "marketing",
+						organizationId: subject.organizationId ?? null,
+						userId: subject.actorUserId,
+					},
 					signal,
 					onProviderGeneration,
 				);

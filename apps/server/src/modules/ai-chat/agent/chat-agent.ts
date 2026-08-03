@@ -8,6 +8,7 @@ import { isStepCount, type Tool, ToolLoopAgent, type UIMessage } from "ai";
 
 import type { McpToolApprovalMap } from "../../mcp-connectors/domain/mcp-tool-policy";
 import type { PageEditsService } from "../../pages/application/services/page-edits.service";
+import { withGatewayAttribution } from "../../metering/domain/gateway-metering";
 import { AI_CHAT_MAX_OUTPUT_TOKENS, AI_CHAT_MAX_STEPS } from "./chat-metering";
 import { WANDIT_SYSTEM_PROMPT } from "./system-prompt";
 import {
@@ -108,22 +109,24 @@ export function createChatAgent(
 			: WANDIT_SYSTEM_PROMPT,
 		model: env.AI_CHAT_MODEL,
 		maxOutputTokens: AI_CHAT_MAX_OUTPUT_TOKENS,
-		providerOptions: {
-			// Anthropic's fine-grained tool streaming can emit unvalidated JSON.
-			anthropic: { toolStreaming: false },
-			// Gemini thinking level — only Google models read this key; every
-			// other provider ignores it. MEDIUM: the launch-window compromise
-			// between snappy chat replies and brief quality (2026-07-26).
-			google: { thinkingConfig: { thinkingLevel: "medium" } },
-			gateway: {
-				quotaEntityId: deps.userId,
-				tags: ["op:chat"],
-				user: deps.userId,
+		providerOptions: withGatewayAttribution(
+			{
+				// Anthropic's fine-grained tool streaming can emit unvalidated JSON.
+				anthropic: { toolStreaming: false },
+				// Gemini thinking level — only Google models read this key; every
+				// other provider ignores it. MEDIUM: the launch-window compromise
+				// between snappy chat replies and brief quality (2026-07-26).
+				google: { thinkingConfig: { thinkingLevel: "medium" } },
+				// The brief IS the product: the brain must reason hard when it
+				// composes one. Only OpenAI models read this key.
+				openai: { reasoningEffort: "high" },
 			},
-			// The brief IS the product: the brain must reason hard when it
-			// composes one. Only OpenAI models read this key.
-			openai: { reasoningEffort: "high" },
-		},
+			{
+				operation: "chat",
+				organizationId: deps.subject.organizationId ?? null,
+				userId: deps.userId,
+			},
+		),
 		stopWhen: isStepCount(AI_CHAT_MAX_STEPS),
 		// ToolLoopAgentSettings does not expose experimental_toolApprovalSecret.
 		toolApproval: approvalMap,
@@ -138,6 +141,7 @@ export function createChatAgent(
 				requireSelectedSource: deps.requireSelectedSource,
 				requestKeySeed: deps.requestKeySeed,
 				selectedSourceImage: deps.selectedSourceImage,
+				subject: deps.subject,
 				userId: deps.userId,
 			}),
 			ask_user: askUserTool,
@@ -151,6 +155,7 @@ export function createChatAgent(
 				projectId: deps.projectId,
 				quality: deps.quality,
 				requestKeySeed: deps.requestKeySeed,
+				subject: deps.subject,
 				userId: deps.userId,
 			}),
 			generate_marketing_asset: createGenerateMarketingAssetTool({
@@ -161,6 +166,7 @@ export function createChatAgent(
 				projectId: deps.projectId,
 				quality: deps.quality,
 				requestKeySeed: deps.requestKeySeed,
+				subject: deps.subject,
 				userId: deps.userId,
 			}),
 			generate_page: createGeneratePageTool({
@@ -169,6 +175,7 @@ export function createChatAgent(
 				pagesRepository: deps.pagesRepository,
 				parentEventId: deps.parentEventId,
 				projectId: deps.projectId,
+				subject: deps.subject,
 				userId: deps.userId,
 			}),
 			get_direction_candidates: getDirectionCandidatesTool,
@@ -179,6 +186,7 @@ export function createChatAgent(
 				parentEventId: deps.parentEventId,
 				projectId: deps.projectId,
 				requestCountryCode: deps.requestCountryCode,
+				subject: deps.subject,
 				userId: deps.userId,
 			}),
 			...createPageEditTools({

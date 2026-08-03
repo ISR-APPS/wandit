@@ -11,7 +11,7 @@ export const CHECKOUT_PURPOSE = {
 export type CheckoutPurpose =
 	(typeof CHECKOUT_PURPOSE)[keyof typeof CHECKOUT_PURPOSE];
 
-export const billingPlanIds = ["pro"] as const;
+export const billingPlanIds = ["pro", "business"] as const;
 
 export const billingPlanIdSchema = z.enum(billingPlanIds);
 
@@ -65,6 +65,7 @@ export const BILLING_CATALOG = {
 	plans: {
 		pro: {
 			basePer100Usd: 25,
+			features: { seats: false, teamWorkspace: false },
 			monthlyPricesUsd: {
 				100: 25,
 				200: 50,
@@ -75,6 +76,23 @@ export const BILLING_CATALOG = {
 				3000: 705,
 				4000: 920,
 				5000: 1125,
+			},
+		},
+		// Org workspaces: exactly 2× Pro per tier, unlimited seats — the POOL is
+		// what's priced. Purchasable only with org workspace scope (pairing rule).
+		business: {
+			basePer100Usd: 50,
+			features: { seats: true, teamWorkspace: true },
+			monthlyPricesUsd: {
+				100: 50,
+				200: 100,
+				400: 200,
+				800: 400,
+				1200: 588,
+				2000: 960,
+				3000: 1410,
+				4000: 1840,
+				5000: 2250,
 			},
 		},
 	},

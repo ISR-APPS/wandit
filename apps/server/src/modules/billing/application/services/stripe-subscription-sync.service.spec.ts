@@ -2,6 +2,7 @@ import { Logger } from "@nestjs/common";
 import type Stripe from "stripe";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { CreditOwner } from "../../../credits/domain/credit-owner";
 import type { PaymentProvider } from "../../domain/ports/payment-provider.port";
 import type {
 	BillingCustomerRow,
@@ -87,13 +88,17 @@ class FakeSubscriptionsRepository {
 		return row;
 	}
 
-	async findActiveByUserId(
-		userId: string,
+	async findActiveByOwner(
+		owner: CreditOwner,
 		_client: SubscriptionsTransaction,
 	): Promise<SubscriptionRow | null> {
 		return (
 			this.rows().find(
-				(row) => row.userId === userId && !this.isTerminal(row.status),
+				(row) =>
+					(owner.type === "user"
+						? row.userId === owner.userId && row.organizationId === null
+						: row.organizationId === owner.organizationId) &&
+					!this.isTerminal(row.status),
 			) ?? null
 		);
 	}
@@ -320,6 +325,7 @@ function setup(customer: BillingCustomerRow | null = billingCustomer()) {
 		billingCustomers as unknown as BillingCustomersRepository,
 		subscriptions as unknown as SubscriptionsRepository,
 		paymentProvider as unknown as PaymentProvider,
+		{ findByProviderCustomerId: async () => null } as never,
 	);
 
 	return {

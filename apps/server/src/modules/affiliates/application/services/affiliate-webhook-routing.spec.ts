@@ -77,6 +77,10 @@ function setup(input: { affiliateClawbackHandled?: boolean } = {}) {
 	} as unknown as AffiliateClawbackService;
 	const router = new StripeEventRouter(
 		customers,
+		{
+			findByOrganizationId: async () => null,
+			setOpenCheckoutSessionId: async () => undefined,
+		} as never,
 		sync,
 		credits,
 		refunds,

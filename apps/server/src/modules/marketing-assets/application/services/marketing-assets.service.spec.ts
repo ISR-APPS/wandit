@@ -5,6 +5,7 @@ import {
 	marketingAssetKey,
 } from "../../../../infrastructure/storage/r2";
 import type { MeteringService } from "../../../metering/application/services/metering.service";
+import type { ProjectScope } from "../../../projects/domain/project-scope";
 import type {
 	MarketingAssetRow,
 	MarketingAssetsRepository,
@@ -23,6 +24,8 @@ vi.mock("../../../../infrastructure/storage/r2", () => ({
 vi.mock("../../../../infrastructure/analytics/analytics.service", () => ({
 	AnalyticsService: class AnalyticsService {},
 }));
+
+const SCOPE: ProjectScope = { kind: "personal", userId: "user_1" };
 
 const BASE_ROW: MarketingAssetRow = {
 	assetType: "ad-copy",
@@ -44,7 +47,7 @@ function setup() {
 		status: "succeeded",
 	};
 	const repository = {
-		listOwnedByProject: vi
+		listForProject: vi
 			.fn()
 			.mockResolvedValueOnce([BASE_ROW])
 			.mockResolvedValueOnce([succeededRow]),
@@ -97,13 +100,13 @@ describe("MarketingAssetsService stale recovery billing", () => {
 		const { db, meteringService, service, updateSet } = setup();
 
 		await expect(
-			service.list("user_1", BASE_ROW.projectId),
+			service.list(SCOPE, BASE_ROW.projectId),
 		).resolves.toMatchObject({
 			assets: [{ id: BASE_ROW.id, status: "succeeded" }],
 		});
 		expect(meteringService.findByIdempotencyKey).toHaveBeenCalledWith(
 			`marketing:${BASE_ROW.id}`,
-			"user_1",
+			{ actorUserId: "user_1" },
 		);
 		expect(meteringService.settleFixedFromEvidence).toHaveBeenCalledWith(
 			"usage_event_marketing",
@@ -125,7 +128,7 @@ describe("MarketingAssetsService stale recovery billing", () => {
 			settlementError,
 		);
 
-		await expect(service.list("user_1", BASE_ROW.projectId)).rejects.toBe(
+		await expect(service.list(SCOPE, BASE_ROW.projectId)).rejects.toBe(
 			settlementError,
 		);
 		expect(db.update).not.toHaveBeenCalled();

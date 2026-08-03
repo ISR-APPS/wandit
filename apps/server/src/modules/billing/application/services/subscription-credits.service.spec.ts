@@ -1,6 +1,10 @@
 import type Stripe from "stripe";
 import { describe, expect, it, vi } from "vitest";
 import { CreditsService } from "../../../credits/application/services/credits.service";
+import {
+	type CreditOwner,
+	userOwner,
+} from "../../../credits/domain/credit-owner";
 import type {
 	CreditLedgerRow,
 	CreditsRepository,
@@ -25,6 +29,7 @@ import { SubscriptionCreditsService } from "./subscription-credits.service";
 import { SubscriptionRefillService } from "./subscription-refill.service";
 
 const USER_ID = "user_1";
+const OWNER = userOwner(USER_ID);
 const PERIOD_START = new Date("2026-01-31T12:00:00.000Z");
 const PERIOD_END = new Date("2027-01-31T12:00:00.000Z");
 
@@ -36,8 +41,8 @@ class MemoryCreditsRepository {
 	private nextId = 1;
 	private readonly tx = {} as CreditsTransaction;
 
-	async withUserLock<T>(
-		_userId: string,
+	async withOwnerLock<T>(
+		_owner: CreditOwner,
 		fn: (tx: CreditsTransaction) => Promise<T>,
 		transaction?: CreditsTransaction,
 	): Promise<T> {
@@ -62,10 +67,24 @@ class MemoryCreditsRepository {
 		}
 	}
 
-	async getBalance(userId: string) {
+	async withLockValue<T>(
+		_lockValue: string,
+		fn: (tx: CreditsTransaction) => Promise<T>,
+		transaction?: CreditsTransaction,
+	): Promise<T> {
+		if (transaction) {
+			return fn(transaction);
+		}
+
+		return fn(this.tx);
+	}
+
+	async getBalance(owner: CreditOwner) {
 		const result = { balance: 0, plan: 0, promo: 0, topup: 0 };
 
-		for (const row of this.rows.filter((entry) => entry.userId === userId)) {
+		for (const row of this.rows.filter((entry) =>
+			this.ownerMatches(entry, owner),
+		)) {
 			result[row.bucket] += row.delta;
 		}
 		result.balance = result.plan + result.promo + result.topup;
@@ -77,13 +96,19 @@ class MemoryCreditsRepository {
 		return this.rows.find((row) => row.idempotencyKey === key) ?? null;
 	}
 
-	async findByIdempotencyKeys(userId: string, keys: string[]) {
+	async findByIdempotencyKeys(owner: CreditOwner, keys: string[]) {
 		return this.rows.filter(
 			(row) =>
-				row.userId === userId &&
+				this.ownerMatches(row, owner) &&
 				row.idempotencyKey !== null &&
 				keys.includes(row.idempotencyKey),
 		);
+	}
+
+	private ownerMatches(row: CreditLedgerRow, owner: CreditOwner): boolean {
+		return owner.type === "user"
+			? row.userId === owner.userId && row.organizationId === null
+			: row.organizationId === owner.organizationId;
 	}
 
 	async listRefundablePlanHolds() {
@@ -165,8 +190,8 @@ class MemorySubscriptionCreditsRepository {
 		this.subscriptions.set(canonical.id, canonical);
 	}
 
-	async withUserLock<T>(
-		_userId: string,
+	async withOwnerLock<T>(
+		_owner: CreditOwner,
 		fn: (tx: SubscriptionCreditsTransaction) => Promise<T>,
 	): Promise<T> {
 		const previous = this.lock;
@@ -191,7 +216,7 @@ class MemorySubscriptionCreditsRepository {
 		}
 	}
 
-	async findCanonicalEntitledByUserId() {
+	async findCanonicalEntitledByOwner() {
 		return this.canonical;
 	}
 
@@ -209,10 +234,12 @@ class MemorySubscriptionCreditsRepository {
 		);
 	}
 
-	async hasGrossGrant(userId: string, idempotencyKey: string) {
+	async hasGrossGrant(owner: CreditOwner, idempotencyKey: string) {
 		return this.credits.rows.some(
 			(row) =>
-				row.userId === userId &&
+				(owner.type === "user"
+					? row.userId === owner.userId && row.organizationId === null
+					: row.organizationId === owner.organizationId) &&
 				row.idempotencyKey === idempotencyKey &&
 				row.kind === "grant" &&
 				row.delta > 0,
@@ -550,6 +577,7 @@ function setup(initial = subscription()) {
 		repository as unknown as SubscriptionCreditsRepository,
 		refill,
 		{} as BillingCheckoutAttemptsRepository,
+		{ findByProviderCustomerId: async () => null } as never,
 	);
 
 	return {
@@ -575,7 +603,7 @@ describe("Subscription credit policy", () => {
 	it("applies capped refill math below and above the rollover cap", async () => {
 		const below = setup();
 		below.creditRepository.seedPlan(60);
-		const belowResult = await below.credits.applyCappedRefill(USER_ID, 100, {
+		const belowResult = await below.credits.applyCappedRefill(OWNER, 100, {
 			idempotencyKey: "refill:below",
 		});
 		expect(belowResult).toMatchObject({
@@ -583,11 +611,11 @@ describe("Subscription credit policy", () => {
 			expiredCredits: 0,
 			preRefillPlanBalance: 60,
 		});
-		expect((await below.credits.getBalance(USER_ID)).plan).toBe(160);
+		expect((await below.credits.getBalance(OWNER)).plan).toBe(160);
 
 		const above = setup();
 		above.creditRepository.seedPlan(150);
-		const aboveResult = await above.credits.applyCappedRefill(USER_ID, 100, {
+		const aboveResult = await above.credits.applyCappedRefill(OWNER, 100, {
 			idempotencyKey: "refill:above",
 		});
 		expect(aboveResult).toMatchObject({
@@ -595,7 +623,7 @@ describe("Subscription credit policy", () => {
 			expiredCredits: 50,
 			preRefillPlanBalance: 150,
 		});
-		expect((await above.credits.getBalance(USER_ID)).plan).toBe(200);
+		expect((await above.credits.getBalance(OWNER)).plan).toBe(200);
 	});
 
 	it("rolls back a crash between expiration and grant, then replays once", async () => {
@@ -604,22 +632,22 @@ describe("Subscription credit policy", () => {
 		context.creditRepository.failGrantKeyOnce = "refill:crash";
 
 		await expect(
-			context.credits.applyCappedRefill(USER_ID, 100, {
+			context.credits.applyCappedRefill(OWNER, 100, {
 				idempotencyKey: "refill:crash",
 			}),
 		).rejects.toThrow("simulated crash");
 		expect(context.creditRepository.rows).toHaveLength(1);
 
-		await context.credits.applyCappedRefill(USER_ID, 100, {
+		await context.credits.applyCappedRefill(OWNER, 100, {
 			idempotencyKey: "refill:crash",
 		});
 		const rowCount = context.creditRepository.rows.length;
-		const replay = await context.credits.applyCappedRefill(USER_ID, 100, {
+		const replay = await context.credits.applyCappedRefill(OWNER, 100, {
 			idempotencyKey: "refill:crash",
 		});
 		expect(replay.replayed).toBe(true);
 		expect(context.creditRepository.rows).toHaveLength(rowCount);
-		expect((await context.credits.getBalance(USER_ID)).plan).toBe(200);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(200);
 	});
 
 	it("rolls back both executed writes when commit crashes, then replays exactly once", async () => {
@@ -628,7 +656,7 @@ describe("Subscription credit policy", () => {
 		context.creditRepository.failAfterCallbackOnce = true;
 
 		await expect(
-			context.credits.applyCappedRefill(USER_ID, 100, {
+			context.credits.applyCappedRefill(OWNER, 100, {
 				idempotencyKey: "refill:atomic",
 			}),
 		).rejects.toThrow("simulated crash before transaction commit");
@@ -636,12 +664,12 @@ describe("Subscription credit policy", () => {
 			expect.arrayContaining(["refill:atomic:expire", "refill:atomic"]),
 		);
 		expect(context.creditRepository.rows).toHaveLength(1);
-		expect((await context.credits.getBalance(USER_ID)).plan).toBe(150);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(150);
 
-		await context.credits.applyCappedRefill(USER_ID, 100, {
+		await context.credits.applyCappedRefill(OWNER, 100, {
 			idempotencyKey: "refill:atomic",
 		});
-		const replay = await context.credits.applyCappedRefill(USER_ID, 100, {
+		const replay = await context.credits.applyCappedRefill(OWNER, 100, {
 			idempotencyKey: "refill:atomic",
 		});
 		expect(replay.replayed).toBe(true);
@@ -650,7 +678,7 @@ describe("Subscription credit policy", () => {
 				(row) => row.idempotencyKey === "refill:atomic",
 			),
 		).toHaveLength(1);
-		expect((await context.credits.getBalance(USER_ID)).plan).toBe(200);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(200);
 	});
 
 	it("grants only month one for a yearly create and creates eleven funded slots", async () => {
@@ -669,7 +697,7 @@ describe("Subscription credit policy", () => {
 
 		await context.service.grantForPaidInvoice(value);
 
-		expect((await context.credits.getBalance(USER_ID)).plan).toBe(100);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(100);
 		expect(context.repository.slots).toHaveLength(11);
 		expect(context.repository.slots.map((slot) => slot.periodOrdinal)).toEqual([
 			2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
@@ -693,7 +721,7 @@ describe("Subscription credit policy", () => {
 		});
 		addInvoice(upgrade, upInvoice);
 		await upgrade.service.grantForPaidInvoice(upInvoice);
-		expect((await upgrade.credits.getBalance(USER_ID)).plan).toBe(120);
+		expect((await upgrade.credits.getBalance(OWNER)).plan).toBe(120);
 		expect(upgrade.repository.slots).toHaveLength(0);
 
 		const downgrade = setup(subscription({ priceLookupKey: "pro_100_month" }));
@@ -707,7 +735,7 @@ describe("Subscription credit policy", () => {
 		});
 		addInvoice(downgrade, downInvoice);
 		await downgrade.service.grantForPaidInvoice(downInvoice);
-		expect((await downgrade.credits.getBalance(USER_ID)).plan).toBe(180);
+		expect((await downgrade.credits.getBalance(OWNER)).plan).toBe(180);
 		expect(downgrade.repository.applications[0]?.creditsDelta).toBe(0);
 
 		const renewal = invoice({
@@ -719,7 +747,7 @@ describe("Subscription credit policy", () => {
 		});
 		addInvoice(downgrade, renewal);
 		await downgrade.service.grantForPaidInvoice(renewal);
-		expect((await downgrade.credits.getBalance(USER_ID)).plan).toBe(200);
+		expect((await downgrade.credits.getBalance(OWNER)).plan).toBe(200);
 	});
 
 	it("changes monthly to yearly with a capped month-one refill and eleven slots", async () => {
@@ -742,7 +770,7 @@ describe("Subscription credit policy", () => {
 		addInvoice(context, value);
 		await context.service.grantForPaidInvoice(value);
 
-		expect((await context.credits.getBalance(USER_ID)).plan).toBe(400);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(400);
 		expect(context.repository.slots).toHaveLength(11);
 		expect(
 			context.repository.applications.find(
@@ -773,7 +801,7 @@ describe("Subscription credit policy", () => {
 				(row) => row.stripeInvoiceId === renewal.id,
 			)?.creditsDelta,
 		).toBe(-50);
-		expect((await context.credits.getBalance(USER_ID)).plan).toBe(200);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(200);
 
 		await expect(context.service.grantForPaidInvoice(renewal)).resolves.toBe(
 			true,
@@ -814,7 +842,7 @@ describe("Subscription credit policy", () => {
 		await expect(context.service.grantForPaidInvoice(update)).rejects.toThrow(
 			"predecessor for the same paid period",
 		);
-		expect((await context.credits.getBalance(USER_ID)).plan).toBe(0);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(0);
 	});
 
 	it("derives a delayed cycle refill and yearly slots only from that paid invoice", async () => {
@@ -834,7 +862,7 @@ describe("Subscription credit policy", () => {
 
 		await context.service.grantForPaidInvoice(delayedOldTierRenewal);
 
-		expect((await context.credits.getBalance(USER_ID)).plan).toBe(100);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(100);
 		expect(
 			context.repository.slots
 				.filter((slot) => slot.status === "pending")
@@ -878,7 +906,7 @@ describe("Subscription credit policy", () => {
 		await context.service.grantForPaidInvoice(intervalChange);
 		await context.service.grantForPaidInvoice(laterTierUpgrade);
 
-		expect((await context.credits.getBalance(USER_ID)).plan).toBe(600);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(600);
 		expect(
 			context.repository.slots.filter((slot) => slot.status === "pending"),
 		).toHaveLength(11);
@@ -932,7 +960,7 @@ describe("Subscription credit policy", () => {
 		expect(
 			context.repository.slots.filter((slot) => slot.status === "pending"),
 		).toHaveLength(8);
-		expect((await context.credits.getBalance(USER_ID)).plan).toBe(300);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(300);
 
 		const renewal = invoice({
 			id: "in_year_cycle",
@@ -949,7 +977,7 @@ describe("Subscription credit policy", () => {
 		expect(
 			context.repository.slots.filter((slot) => slot.status === "granted"),
 		).toHaveLength(11);
-		expect((await context.credits.getBalance(USER_ID)).plan).toBe(400);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(400);
 	});
 
 	it("sweeps missed slots exactly once with CAS, canonical admission, and stable refill keys", async () => {
@@ -1084,7 +1112,7 @@ describe("Subscription credit policy", () => {
 			id: "sub_remote",
 			metadata: { userId: USER_ID },
 		} as unknown as Stripe.Subscription);
-		expect((await context.credits.getBalance(USER_ID)).plan).toBe(75);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(75);
 		expect(context.repository.slots[0]?.status).toBe("canceled");
 
 		context.repository.canonical = null;
@@ -1093,7 +1121,7 @@ describe("Subscription credit policy", () => {
 			id: "sub_remote",
 			metadata: { userId: USER_ID },
 		} as unknown as Stripe.Subscription);
-		expect((await context.credits.getBalance(USER_ID)).plan).toBe(0);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(0);
 	});
 
 	it("keeps unresolved entitled invoice mirrors retryable and cycle staleness scoped away from updates", async () => {
@@ -1112,7 +1140,7 @@ describe("Subscription credit policy", () => {
 		await expect(
 			noncanonical.service.grantForPaidInvoice(rejected),
 		).rejects.toThrow("cannot resolve subscription sub_remote");
-		expect((await noncanonical.credits.getBalance(USER_ID)).plan).toBe(10);
+		expect((await noncanonical.credits.getBalance(OWNER)).plan).toBe(10);
 		expect(noncanonical.repository.applications).toHaveLength(0);
 
 		const context = setup(
@@ -1162,6 +1190,6 @@ describe("Subscription credit policy", () => {
 				(row) => row.billingReason === "subscription_update",
 			),
 		).toHaveLength(2);
-		expect((await context.credits.getBalance(USER_ID)).plan).toBe(400);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(400);
 	});
 });

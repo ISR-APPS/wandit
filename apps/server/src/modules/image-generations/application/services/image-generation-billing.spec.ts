@@ -26,7 +26,7 @@ describe("createImageGenerationBilling", () => {
 		});
 
 		const reservation = await billing.reserve(
-			"user_1",
+			{ actorUserId: "user_1" },
 			"attempt_1",
 			4,
 			"parent_1",
@@ -35,7 +35,7 @@ describe("createImageGenerationBilling", () => {
 
 		expect(meteringService.reserveWithReplay).toHaveBeenCalledWith(
 			"image",
-			"user_1",
+			{ actorUserId: "user_1" },
 			{
 				attemptRef: "attempt_1",
 				credits: 20,

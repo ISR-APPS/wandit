@@ -1,5 +1,6 @@
 import { setTimeout as delay } from "node:timers/promises";
 
+import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import {
 	createMCPClient,
 	type ListToolsResult,
@@ -312,9 +313,12 @@ export class McpChatToolsService {
 	) {}
 
 	async resolveToolsForUser(
-		userId: string,
+		subject: MeteringSubject,
 		parentEventId?: string,
 	): Promise<McpChatToolsResult> {
+		// Connections belong to the acting member; the subject's payer (org pool
+		// in an org workspace) funds connector generations.
+		const userId = subject.actorUserId;
 		const connections = (
 			await this.connectionsRepository.listByUser(userId)
 		).filter(hasStoredToken);
@@ -351,7 +355,7 @@ export class McpChatToolsService {
 
 				try {
 					return await this.resolveConnectorTools(
-						userId,
+						subject,
 						parentEventId,
 						connection,
 						connector,
@@ -402,7 +406,7 @@ export class McpChatToolsService {
 		if (runtimes.length > 0) {
 			Object.assign(
 				tools,
-				this.createDiscoveryDoors(userId, parentEventId, runtimes),
+				this.createDiscoveryDoors(subject, parentEventId, runtimes),
 			);
 			approvalMap.run_platform_tool = classifyPlatformToolApproval;
 		}
@@ -418,7 +422,7 @@ export class McpChatToolsService {
 	}
 
 	private async resolveConnectorTools(
-		userId: string,
+		subject: MeteringSubject,
 		parentEventId: string | undefined,
 		connection: McpConnectionRow,
 		connector: McpConnectorRow,
@@ -456,7 +460,7 @@ export class McpChatToolsService {
 
 		try {
 			accessToken = await this.connectionsService.getValidAccessToken(
-				userId,
+				subject.actorUserId,
 				connector.slug,
 			);
 		} catch (error) {
@@ -520,14 +524,14 @@ export class McpChatToolsService {
 			)
 				? this.wrapBackgroundGenerationTool(
 						tool,
-						userId,
+						subject,
 						parentEventId,
 						connector.slug,
 						toolName,
 					)
 				: this.wrapConnectorTool(
 						tool,
-						userId,
+						subject,
 						parentEventId,
 						connector.slug,
 						toolName,
@@ -754,7 +758,7 @@ export class McpChatToolsService {
 	}
 
 	private createDiscoveryDoors(
-		userId: string,
+		subject: MeteringSubject,
 		parentEventId: string | undefined,
 		runtimes: ConnectorRuntimeContext[],
 	): Record<string, Tool> {
@@ -798,7 +802,7 @@ export class McpChatToolsService {
 					}
 
 					return this.runPlatformTool(
-						userId,
+						subject,
 						parentEventId,
 						runtimesBySlug,
 						parsed.data,
@@ -1036,7 +1040,7 @@ export class McpChatToolsService {
 	}
 
 	private async runPlatformTool(
-		userId: string,
+		subject: MeteringSubject,
 		parentEventId: string | undefined,
 		runtimesBySlug: Map<string, ConnectorRuntimeContext>,
 		input: z.infer<typeof runPlatformToolInputSchema>,
@@ -1075,7 +1079,7 @@ export class McpChatToolsService {
 
 			if (canonical) {
 				return this.queueBackgroundGeneration(
-					userId,
+					subject,
 					parentEventId,
 					runtime.connector.slug,
 					canonical.name,
@@ -1099,8 +1103,8 @@ export class McpChatToolsService {
 					),
 				options,
 				parentEventId,
+				subject,
 				toolName: catalogTool.name,
-				userId,
 			});
 		}
 
@@ -1130,8 +1134,8 @@ export class McpChatToolsService {
 						),
 					options,
 					parentEventId,
+					subject,
 					toolName: hiddenOperation.name,
-					userId,
 				});
 			}
 		}
@@ -1143,7 +1147,7 @@ export class McpChatToolsService {
 
 	private wrapConnectorTool(
 		tool: Tool,
-		userId: string,
+		subject: MeteringSubject,
 		parentEventId: string | undefined,
 		connectorSlug: string,
 		toolName: string,
@@ -1175,8 +1179,8 @@ export class McpChatToolsService {
 					invoke: () => (shouldRetry ? withReadRetry(invoke) : invoke()),
 					options,
 					parentEventId,
+					subject,
 					toolName: effectiveToolName,
-					userId,
 				});
 			},
 		} as Tool;
@@ -1188,8 +1192,8 @@ export class McpChatToolsService {
 		invoke: () => Promise<unknown>;
 		options: ToolExecutionOptions<unknown>;
 		parentEventId?: string;
+		subject: MeteringSubject;
 		toolName: string;
-		userId: string;
 	}): Promise<unknown> {
 		const plan = connectorGenerationPlan(input.toolName, input.input);
 		if (!plan) {
@@ -1201,10 +1205,10 @@ export class McpChatToolsService {
 			parentEventId: input.parentEventId,
 			toolCallId: input.options.toolCallId,
 			toolName: input.toolName,
-			userId: input.userId,
+			userId: input.subject.actorUserId,
 		});
 		const billing = this.createGenerationBilling();
-		const reservations = await billing.reserve(input.userId, referenceId, {
+		const reservations = await billing.reserve(input.subject, referenceId, {
 			...plan,
 			parentEventId: input.parentEventId,
 		});
@@ -1239,7 +1243,7 @@ export class McpChatToolsService {
 
 			await this.refundGenerationWithoutMasking(
 				billing,
-				input.userId,
+				input.subject,
 				referenceId,
 				plan.childOperation,
 				input.connectorSlug,
@@ -1255,7 +1259,7 @@ export class McpChatToolsService {
 			await captureConnectorGenerationResult(billing, reservations, result);
 			await this.refundGenerationWithoutMasking(
 				billing,
-				input.userId,
+				input.subject,
 				referenceId,
 				plan.childOperation,
 				input.connectorSlug,
@@ -1288,7 +1292,7 @@ export class McpChatToolsService {
 	// functional, exactly like the other queue-backed tools.
 	private wrapBackgroundGenerationTool(
 		tool: Tool,
-		userId: string,
+		subject: MeteringSubject,
 		parentEventId: string | undefined,
 		connectorSlug: string,
 		toolName: string,
@@ -1312,13 +1316,13 @@ export class McpChatToolsService {
 						invoke: () => Promise.resolve(inlineExecute(input, options)),
 						options,
 						parentEventId,
+						subject,
 						toolName,
-						userId,
 					});
 				}
 
 				return this.queueBackgroundGeneration(
-					userId,
+					subject,
 					parentEventId,
 					connectorSlug,
 					toolName,
@@ -1329,7 +1333,7 @@ export class McpChatToolsService {
 	}
 
 	private async queueBackgroundGeneration(
-		userId: string,
+		subject: MeteringSubject,
 		parentEventId: string | undefined,
 		connectorSlug: string,
 		toolName: string,
@@ -1338,8 +1342,9 @@ export class McpChatToolsService {
 		const attempt = await this.connectorGenerationsRepository.insertAttempt({
 			args: args !== null && typeof args === "object" ? args : {},
 			connectorSlug,
+			organizationId: subject.organizationId ?? null,
 			toolName,
-			userId,
+			userId: subject.actorUserId,
 		});
 
 		const plan = connectorGenerationPlan(toolName, args);
@@ -1355,7 +1360,7 @@ export class McpChatToolsService {
 		let reservations: ConnectorGenerationReservations;
 
 		try {
-			reservations = await billing.reserve(userId, attempt.id, {
+			reservations = await billing.reserve(subject, attempt.id, {
 				...plan,
 				parentEventId,
 			});
@@ -1397,7 +1402,7 @@ export class McpChatToolsService {
 				if (closed) {
 					await this.refundGenerationWithoutMasking(
 						billing,
-						userId,
+						subject,
 						attempt.id,
 						plan.childOperation,
 						connectorSlug,
@@ -1471,14 +1476,14 @@ export class McpChatToolsService {
 
 	private async refundGenerationWithoutMasking(
 		billing: ConnectorGenerationBilling,
-		userId: string,
+		subject: MeteringSubject,
 		referenceId: string,
 		childOperation: "image" | "video" | undefined,
 		connectorSlug: string,
 		toolName: string,
 	): Promise<void> {
 		try {
-			await billing.refund(userId, referenceId, childOperation);
+			await billing.refund(subject, referenceId, childOperation);
 		} catch (error) {
 			Sentry.captureException(error, {
 				tags: { connectorSlug, referenceId, toolName },

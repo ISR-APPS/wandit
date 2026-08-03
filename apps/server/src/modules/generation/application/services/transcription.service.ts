@@ -96,12 +96,13 @@ export class TranscriptionService {
 		// Billing-off disables new holds, but it must not erase a stable-key event
 		// admitted before an operator flipped the switch. That event remains the
 		// authority for replay/provider execution across process restarts.
+		// Transcription stays personal-paid by design: the idempotency key embeds
+		// the actor and voice input is a per-user convenience, not org work.
 		const existingWhileDisabled = billingEnabled
 			? null
-			: await this.meteringService.findByIdempotencyKey(
-					idempotencyKey,
-					input.userId,
-				);
+			: await this.meteringService.findByIdempotencyKey(idempotencyKey, {
+					actorUserId: input.userId,
+				});
 
 		// Reading an existing event is the only safe exception to the config
 		// preflight: it lets a settled transport retry return its stored response.
@@ -109,10 +110,9 @@ export class TranscriptionService {
 		// neither create a hold nor strand one between reserve and provider setup.
 		if (!env.AI_GATEWAY_API_KEY) {
 			const existing = billingEnabled
-				? await this.meteringService.findByIdempotencyKey(
-						idempotencyKey,
-						input.userId,
-					)
+				? await this.meteringService.findByIdempotencyKey(idempotencyKey, {
+						actorUserId: input.userId,
+					})
 				: existingWhileDisabled;
 
 			if (existing) {
@@ -137,7 +137,7 @@ export class TranscriptionService {
 				billingEnabled || existingWhileDisabled
 					? await this.meteringService.reserveWithReplay(
 							"transcription",
-							input.userId,
+							{ actorUserId: input.userId },
 							{
 								attemptRef: input.operationId,
 								credits,

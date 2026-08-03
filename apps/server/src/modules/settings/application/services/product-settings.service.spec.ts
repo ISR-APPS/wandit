@@ -69,7 +69,9 @@ describe("ProductSettingsService", () => {
 
 		await expect(service.get()).resolves.toEqual({
 			earlyAccessRequired: true,
+			emailAuthEnabled: false,
 			id: 1,
+			organizationsEnabled: false,
 			paidSubscriptionsEnabled: false,
 			signupGrantCredits: 20,
 			signupGrantEnabled: false,
@@ -179,6 +181,8 @@ describe("ProductSettingsService", () => {
 		});
 
 		await expect(service.getPublic()).resolves.toEqual({
+			emailAuthEnabled: false,
+			organizationsEnabled: false,
 			paidSubscriptionsEnabled: true,
 			signupGrantEnabled: true,
 			topupsEnabled: false,

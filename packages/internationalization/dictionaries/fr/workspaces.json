@@ -1,0 +1,106 @@
+{
+	"switcher": {
+		"label": "Espace de travail",
+		"personal": "Personnel",
+		"personalDescription": "Vos projets privés",
+		"create": "Créer un espace d'équipe",
+		"roleOwner": "Propriétaire",
+		"roleAdmin": "Admin",
+		"roleMember": "Membre"
+	},
+	"create": {
+		"title": "Nommez votre espace de travail",
+		"description": "Votre espace d'équipe a besoin d'un nom. Vous pourrez inviter vos coéquipiers juste après le paiement.",
+		"nameLabel": "Nom de l'espace",
+		"namePlaceholder": "ex. Acme Marketing",
+		"submit": "Continuer vers le paiement",
+		"creating": "Création de l'espace…",
+		"errors": {
+			"nameRequired": "Donnez un nom à votre espace",
+			"disabled": "Les espaces d'équipe ne sont pas encore disponibles",
+			"failed": "La création de l'espace a échoué. Veuillez réessayer.",
+			"checkoutFailed": "Votre espace de travail a été créé, mais la page de paiement n'a pas pu s'ouvrir. Appuyez sur le bouton pour réessayer le paiement."
+		},
+		"retryCheckout": "Réessayer le paiement"
+	},
+	"members": {
+		"title": "Membres",
+		"description": "Les personnes ayant accès à cet espace de travail.",
+		"invite": "Inviter un coéquipier",
+		"inviteEmailLabel": "Adresse e-mail",
+		"inviteEmailPlaceholder": "collegue@entreprise.com",
+		"inviteRoleLabel": "Rôle",
+		"inviteSubmit": "Envoyer l'invitation",
+		"inviteSending": "Envoi…",
+		"inviteSent": "Invitation envoyée",
+		"inviteFailed": "L'envoi de l'invitation a échoué. Veuillez réessayer.",
+		"inviteLinkCopy": "Copier le lien d'invitation",
+		"inviteLinkCopied": "Lien d'invitation copié",
+		"pendingTitle": "Invitations en attente",
+		"cancelInvite": "Annuler l'invitation",
+		"resendInvite": "Renvoyer",
+		"removeMember": "Retirer de l'espace",
+		"removeConfirmTitle": "Retirer {name} ?",
+		"removeConfirmBody": "Cette personne perd immédiatement l'accès à tous les projets de cet espace.",
+		"leave": "Quitter l'espace",
+		"leaveConfirmTitle": "Quitter cet espace de travail ?",
+		"leaveConfirmBody": "Vous perdrez l'accès à ses projets jusqu'à ce qu'on vous réinvite.",
+		"lastOwnerBlocked": "Vous êtes le seul propriétaire. Transférez la propriété avant de partir.",
+		"changeRole": "Changer le rôle",
+		"you": "Vous",
+		"memberCount": {
+			"one": "{count} membre",
+			"other": "{count} membres"
+		}
+	},
+	"limits": {
+		"title": "Limites de crédits des membres",
+		"description": "Plafonnez les crédits que chaque membre peut dépenser du pool partagé par mois calendaire. Les propriétaires et admins ne sont jamais limités par le plafond par défaut.",
+		"defaultLabel": "Limite mensuelle par défaut par membre",
+		"noLimit": "Aucune limite",
+		"customLimit": "Limite personnalisée",
+		"spentThisMonth": "Dépensé ce mois-ci",
+		"save": "Enregistrer les limites",
+		"saving": "Enregistrement…",
+		"saved": "Limites enregistrées",
+		"saveFailed": "L'enregistrement des limites a échoué. Veuillez réessayer."
+	},
+	"invite": {
+		"title": "Invitation à un espace de travail",
+		"invitedTo": "Vous avez été invité à rejoindre {workspace}.",
+		"accept": "Rejoindre l'espace",
+		"accepting": "Connexion…",
+		"reject": "Refuser",
+		"accepted": "C'est fait ! Passage à {workspace}…",
+		"alreadyMember": "Vous êtes déjà membre de cet espace de travail.",
+		"invalid": "Cette invitation est invalide ou a expiré.",
+		"signInFirst": "Connectez-vous pour accepter cette invitation.",
+		"pendingBanner": {
+			"one": "Vous avez {count} invitation d'espace en attente",
+			"other": "Vous avez {count} invitations d'espace en attente"
+		},
+		"pendingBannerCta": "Voir"
+	},
+	"billing": {
+		"ownerOnlyTitle": "La facturation est gérée par le propriétaire",
+		"ownerOnlyBody": "Seul le propriétaire de cet espace peut changer le plan, acheter des crédits ou gérer le paiement.",
+		"workspaceLabel": "Facturation de l'espace",
+		"personalLabel": "Facturation personnelle",
+		"teamTeaserTitle": "Vous travaillez en équipe ?",
+		"teamTeaserBody": "Le plan Business offre à toute votre équipe un pool de crédits partagé.",
+		"teamTeaserCta": "Créer un espace d'équipe"
+	},
+	"errors": {
+		"memberLimitTitle": "Limite mensuelle atteinte",
+		"memberLimitBody": "Vous avez utilisé votre limite de crédits pour ce mois ({limit} crédits). Demandez à un propriétaire ou admin de l'augmenter.",
+		"memberLimitCta": "Compris",
+		"poolEmptyTitle": "L'espace n'a plus de crédits",
+		"poolEmptyBodyManager": "Le pool partagé est vide. Améliorez le plan ou achetez une recharge pour que l'équipe continue.",
+		"poolEmptyBodyMember": "Le pool partagé est vide. Prévenez un propriétaire pour qu'il ajoute des crédits.",
+		"permissionDenied": "Vous n'avez pas la permission de faire cela dans cet espace."
+	},
+	"credits": {
+		"poolLabel": "Crédits {workspace}",
+		"personalPoolLabel": "Crédits personnels"
+	}
+}

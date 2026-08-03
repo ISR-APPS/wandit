@@ -5,9 +5,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { isUserUploadUrl } from "../../../../infrastructure/storage/r2";
 import type { MeteringService } from "../../../metering/application/services/metering.service";
 import type { ModelPricingService } from "../../../metering/application/services/model-pricing.service";
+import type { ProjectScope } from "../../domain/project-scope";
 import type { ProjectsRepository } from "../../infrastructure/persistence/projects.repository";
 import type { ProjectTitleService } from "./project-title.service";
 import { deriveProjectName, ProjectsService } from "./projects.service";
+
+const personalScope: ProjectScope = { kind: "personal", userId: "user_1" };
 
 vi.mock("../../../../infrastructure/storage/r2", () => ({
 	isUserUploadUrl: vi.fn(),
@@ -30,10 +33,10 @@ function setup() {
 					projectId: input.projectId,
 				}),
 		),
-		findByIdForUser: vi.fn(),
-		listByUser: vi.fn(),
-		softDeleteByIdForUser: vi.fn(),
-		updateByIdForUser: vi.fn(),
+		findByIdForScope: vi.fn(),
+		listForScope: vi.fn(),
+		softDeleteByIdForScope: vi.fn(),
+		updateByIdForScope: vi.fn(),
 	};
 	const meteringService = {
 		refund: vi.fn(),
@@ -79,7 +82,7 @@ describe("ProjectsService", () => {
 			output: "landing page",
 			quality: "standard" as const,
 		};
-		const created = await service.create("user_1", {
+		const created = await service.create(personalScope, {
 			composer,
 			prompt:
 				"Create a fast landing page for a launch campaign with proof and pricing",
@@ -94,23 +97,28 @@ describe("ProjectsService", () => {
 				name: "Create a fast landing page for a launch",
 				prompt:
 					"Create a fast landing page for a launch campaign with proof and pricing",
-				userId: "user_1",
+				scope: personalScope,
 			}),
 		);
 		const persistenceInput =
 			projectsRepository.createWithChatAndFirstMessage.mock.calls[0]?.[0];
-		expect(meteringService.reserve).toHaveBeenCalledWith("chat", "user_1", {
-			attemptRef: `bundled-pending:project:${persistenceInput?.projectId}`,
-			chatId: persistenceInput?.chatId,
-			credits: 2,
-			estimatedCostUsdMicros: 60_000,
-			idempotencyKey: `project-create:${persistenceInput?.projectId}`,
-			messageId: persistenceInput?.messageId,
-			model: expect.any(String),
-		});
+		expect(meteringService.reserve).toHaveBeenCalledWith(
+			"chat",
+			{ actorUserId: "user_1" },
+			{
+				attemptRef: `bundled-pending:project:${persistenceInput?.projectId}`,
+				chatId: persistenceInput?.chatId,
+				credits: 2,
+				estimatedCostUsdMicros: 60_000,
+				idempotencyKey: `project-create:${persistenceInput?.projectId}`,
+				messageId: persistenceInput?.messageId,
+				model: expect.any(String),
+			},
+		);
 		expect(projectTitleService.generate).toHaveBeenCalledWith({
 			attachments: undefined,
 			fallbackTitle: "Create a fast landing page for a launch",
+			organizationId: null,
 			prompt:
 				"Create a fast landing page for a launch campaign with proof and pricing",
 			usageEventId: "usage_event_1",
@@ -118,11 +126,36 @@ describe("ProjectsService", () => {
 		});
 	});
 
+	it("meters org-scoped creation against the org pool with the acting member", async () => {
+		const { meteringService, projectsRepository, service } = setup();
+		const orgScope: ProjectScope = {
+			actorIsLimitExempt: false,
+			kind: "org",
+			organizationId: "org_1",
+			userId: "user_1",
+		};
+
+		await service.create(orgScope, { prompt: "Build a team storefront" });
+
+		expect(meteringService.reserve).toHaveBeenCalledWith(
+			"chat",
+			{
+				actorIsLimitExempt: false,
+				actorUserId: "user_1",
+				organizationId: "org_1",
+			},
+			expect.any(Object),
+		);
+		expect(
+			projectsRepository.createWithChatAndFirstMessage,
+		).toHaveBeenCalledWith(expect.objectContaining({ scope: orgScope }));
+	});
+
 	it("persists a generated title only while the derived name is unchanged", async () => {
 		const { projectsRepository, projectTitleService, service } = setup();
 		projectTitleService.generate.mockResolvedValue("Maison Lila Summer Launch");
 
-		await service.create("user_1", {
+		await service.create(personalScope, {
 			prompt:
 				"Create a fast landing page for a launch campaign with proof and pricing",
 		});
@@ -131,8 +164,8 @@ describe("ProjectsService", () => {
 			const projectId =
 				projectsRepository.createWithChatAndFirstMessage.mock.calls[0]?.[0]
 					?.projectId;
-			expect(projectsRepository.updateByIdForUser).toHaveBeenCalledWith(
-				"user_1",
+			expect(projectsRepository.updateByIdForScope).toHaveBeenCalledWith(
+				personalScope,
 				projectId,
 				{ name: "Maison Lila Summer Launch" },
 				{ expectedName: "Create a fast landing page for a launch" },
@@ -148,7 +181,7 @@ describe("ProjectsService", () => {
 		projectTitleService.generate.mockRejectedValue(new Error("title failure"));
 
 		await expect(
-			service.create("user_1", { prompt: "Build Maison Lila's website" }),
+			service.create(personalScope, { prompt: "Build Maison Lila's website" }),
 		).resolves.toEqual({
 			chatId: expect.any(String),
 			projectId: expect.any(String),
@@ -158,7 +191,7 @@ describe("ProjectsService", () => {
 				"Background project title update failed: title failure",
 			);
 		});
-		expect(projectsRepository.updateByIdForUser).not.toHaveBeenCalled();
+		expect(projectsRepository.updateByIdForScope).not.toHaveBeenCalled();
 		warn.mockRestore();
 	});
 
@@ -175,7 +208,7 @@ describe("ProjectsService", () => {
 		);
 
 		await expect(
-			service.create("user_1", { prompt: "Build a storefront" }),
+			service.create(personalScope, { prompt: "Build a storefront" }),
 		).rejects.toBe(transactionError);
 
 		expect(meteringService.refund).toHaveBeenCalledWith(
@@ -192,7 +225,7 @@ describe("ProjectsService", () => {
 		const { meteringService, modelPricingService, service } = setup();
 
 		await expect(
-			service.create("user_1", { prompt: "Build a storefront" }),
+			service.create(personalScope, { prompt: "Build a storefront" }),
 		).resolves.toEqual({
 			chatId: expect.any(String),
 			projectId: expect.any(String),
@@ -215,16 +248,16 @@ describe("ProjectsService", () => {
 		const logoUrl =
 			"https://assets.example.com/uploads/user_1/upload_1/brand.WEBP?download=1";
 		vi.mocked(isUserUploadUrl).mockReturnValue(true);
-		projectsRepository.updateByIdForUser.mockResolvedValue(
+		projectsRepository.updateByIdForScope.mockResolvedValue(
 			projectRow({ logoUrl }),
 		);
 
 		await expect(
-			service.update("user_1", "project_1", { logoUrl }),
+			service.update(personalScope, "project_1", { logoUrl }),
 		).resolves.toMatchObject({ logoUrl });
 		expect(isUserUploadUrl).toHaveBeenCalledWith(logoUrl, "user_1");
-		expect(projectsRepository.updateByIdForUser).toHaveBeenCalledWith(
-			"user_1",
+		expect(projectsRepository.updateByIdForScope).toHaveBeenCalledWith(
+			personalScope,
 			"project_1",
 			{ logoUrl },
 		);
@@ -246,7 +279,7 @@ describe("ProjectsService", () => {
 		vi.mocked(isUserUploadUrl).mockReturnValue(isOwnedUpload);
 
 		const error = await service
-			.update("user_1", "project_1", { logoUrl })
+			.update(personalScope, "project_1", { logoUrl })
 			.catch((caught: unknown) => caught);
 
 		expect(error).toBeInstanceOf(BadRequestException);
@@ -255,17 +288,17 @@ describe("ProjectsService", () => {
 			message:
 				"Project logo must be a Wandit-uploaded JPEG, PNG, WebP, GIF, or AVIF image",
 		});
-		expect(projectsRepository.updateByIdForUser).not.toHaveBeenCalled();
+		expect(projectsRepository.updateByIdForScope).not.toHaveBeenCalled();
 	});
 
 	it("allows null to remove the project logo", async () => {
 		const { projectsRepository, service } = setup();
-		projectsRepository.updateByIdForUser.mockResolvedValue(
+		projectsRepository.updateByIdForScope.mockResolvedValue(
 			projectRow({ logoUrl: null }),
 		);
 
 		await expect(
-			service.update("user_1", "project_1", { logoUrl: null }),
+			service.update(personalScope, "project_1", { logoUrl: null }),
 		).resolves.toMatchObject({ logoUrl: null });
 		expect(isUserUploadUrl).not.toHaveBeenCalled();
 	});

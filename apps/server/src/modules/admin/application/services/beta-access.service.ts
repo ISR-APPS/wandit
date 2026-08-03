@@ -2,6 +2,7 @@ import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type { AdminBetaEnrollInput } from "@wandit/contracts";
 
 import { CreditsService } from "../../../credits/application/services/credits.service";
+import { userOwner } from "../../../credits/domain/credit-owner";
 import { AdminRepository } from "../../infrastructure/persistence/admin.repository";
 
 @Injectable()
@@ -22,7 +23,7 @@ export class BetaAccessService {
 			await this.requireUser(userId, tx);
 
 			const grant = await this.creditsService.grantWithReplayStatus(
-				userId,
+				userOwner(userId),
 				input.credits,
 				{
 					bucket: "promo",

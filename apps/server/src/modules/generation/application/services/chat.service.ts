@@ -8,6 +8,7 @@
  * saves the user message, reserves the chat in Redis, and puts a job in BullMQ.
  * The worker app later reads that job and calls the model.
  */
+import type { ProjectScope } from "../../../projects/domain/project-scope";
 import { randomUUID } from "node:crypto";
 import {
 	type HttpException,
@@ -57,13 +58,14 @@ export class ChatService {
 	) {}
 
 	// The workspace knows `projectId`; chat endpoints need `chatId`.
+	// LIVE read (used by the current editor): workspace-scoped.
 	async getByProject(
-		userId: string,
+		scope: ProjectScope,
 		projectId: string,
 	): Promise<ChatByProjectResponse> {
-		// If no row is found, either it does not exist or it belongs to another user.
-		const chat = await this.chatsRepository.findOwnedChatByProjectId(
-			userId,
+		// If no row is found, either it does not exist or it is out of scope.
+		const chat = await this.chatsRepository.findAccessibleChatByProjectId(
+			scope,
 			projectId,
 		);
 
@@ -78,11 +80,12 @@ export class ChatService {
 	}
 
 	// Load saved messages and ask Redis if a generation is currently running.
+	// LIVE read (used by the current editor): workspace-scoped.
 	async listMessages(
-		userId: string,
+		scope: ProjectScope,
 		chatId: string,
 	): Promise<ChatMessagesResponse> {
-		const chat = await this.requireOwnedChat(userId, chatId);
+		const chat = await this.requireAccessibleChat(scope, chatId);
 		// Postgres stores history. Redis stores temporary "busy" state.
 		const [messages, activeJobId] = await Promise.all([
 			this.chatsRepository.listMessages(chat.id),
@@ -101,7 +104,8 @@ export class ChatService {
 		chatId: string,
 		body: SendChatMessageBody,
 	): Promise<SendChatMessageResponse> {
-		// First make sure this chat belongs to this user.
+		// First make sure this chat belongs to this user. The legacy BullMQ send
+		// path stays personal-only by design (teams-workspaces.md §0).
 		const chat = await this.requireOwnedChat(userId, chatId);
 
 		// One id connects the Redis lock, BullMQ job, stream events, and assistant message.
@@ -133,7 +137,11 @@ export class ChatService {
 			failureStage = "reserve";
 
 			if (billingMode === "enforce") {
-				const reservation = await this.meteringService.reserve("chat", userId, {
+				const reservation = await this.meteringService.reserve(
+					"chat",
+					// Legacy path is personal-only by design (teams-workspaces.md §0).
+					{ actorUserId: userId },
+					{
 					attemptRef: jobId,
 					chatId: chat.id,
 					credits: operationPricing("chat").reserveFloorCredits,
@@ -193,9 +201,17 @@ export class ChatService {
 		await this.requireOwnedChat(userId, chatId);
 	}
 
-	// Shared "does this user own this chat?" check.
+	// Shared "does this user own this chat?" check. Legacy generation stays
+	// personal-only by design (teams-workspaces.md §0).
 	private async requireOwnedChat(userId: string, chatId: string) {
-		const chat = await this.chatsRepository.findOwnedChatById(userId, chatId);
+		return this.requireAccessibleChat({ kind: "personal", userId }, chatId);
+	}
+
+	private async requireAccessibleChat(scope: ProjectScope, chatId: string) {
+		const chat = await this.chatsRepository.findAccessibleChatById(
+			scope,
+			chatId,
+		);
 
 		if (!chat) {
 			throw new NotFoundException();

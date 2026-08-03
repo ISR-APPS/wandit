@@ -92,6 +92,7 @@ function setup(options: { parentEventId?: string; quality?: string } = {}) {
 		projectId: "project_1",
 		quality: options.quality,
 		requestKeySeed: REQUEST_KEY_SEED,
+		subject: { actorUserId: "user_1" },
 		userId: "user_1",
 	});
 	const run = imageTool.execute;
@@ -269,7 +270,7 @@ describe("generate_image placement", () => {
 		});
 		expect(meteringService.reserveWithReplay).toHaveBeenCalledWith(
 			"image",
-			"user_1",
+			{ actorUserId: "user_1" },
 			{
 				attemptRef: ATTEMPT_ID,
 				credits: 10,
@@ -286,6 +287,7 @@ describe("generate_image placement", () => {
 			{
 				attemptId: ATTEMPT_ID,
 				billingMode: "enforce",
+				organizationId: null,
 				parentEventId: "parent_event_1",
 				projectId: "project_1",
 				userId: "user_1",
@@ -337,7 +339,7 @@ describe("generate_image billing", () => {
 
 		expect(meteringService.reserveWithReplay).toHaveBeenCalledWith(
 			"image",
-			"user_1",
+			{ actorUserId: "user_1" },
 			{
 				attemptRef: ATTEMPT_ID,
 				credits: 15,

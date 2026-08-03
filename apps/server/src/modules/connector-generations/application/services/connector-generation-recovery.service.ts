@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 
+import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
 import { captureGenerationCompleted } from "../../../../infrastructure/analytics/generation-events";
 import { createConnectorGenerationBilling } from "../../../mcp-connectors/application/services/connector-generation-billing";
@@ -85,7 +86,7 @@ export class ConnectorGenerationRecoveryService {
 			meteringService: this.meteringService,
 		});
 
-		await billing.settleExisting(row.userId, row.id, {
+		await billing.settleExisting(attemptSubject(row), row.id, {
 			...plan,
 			childOperation: plan.childOperation,
 			completedChildUnits: childUnits,
@@ -120,4 +121,15 @@ function completedChildUnits(
 
 	const imageCount = media.filter((item) => item.kind === "image").length;
 	return Math.min(plan.childUnits ?? 1, imageCount);
+}
+
+/** The payer snapshotted when the attempt was queued. */
+function attemptSubject(row: {
+	organizationId: string | null;
+	userId: string;
+}): MeteringSubject {
+	return {
+		actorUserId: row.userId,
+		...(row.organizationId ? { organizationId: row.organizationId } : {}),
+	};
 }

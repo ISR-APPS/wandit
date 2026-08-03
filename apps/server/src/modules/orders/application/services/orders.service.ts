@@ -1,4 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
+import type { ProjectScope } from "../../../projects/domain/project-scope";
 import type { AuthUser } from "@wandit/auth";
 import {
 	CHECKOUT_PURPOSE,
@@ -89,9 +90,12 @@ export class OrdersService implements WebhookOrderReconciler {
 	async createDomainOrder(
 		user: AuthUser,
 		body: CreateDomainOrderBody,
+		scope: ProjectScope,
 	): Promise<CreateOrderResponse> {
+		// The purchase itself stays PERSONAL money (the buyer's card and
+		// customer); only the target-project access check is workspace-aware.
 		const prepared = await this.domainsService.preparePurchase(
-			user.id,
+			scope,
 			body.domain,
 			body.projectId,
 		);

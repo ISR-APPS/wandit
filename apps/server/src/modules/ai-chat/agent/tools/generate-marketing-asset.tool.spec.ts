@@ -54,6 +54,7 @@ describe("generate_marketing_asset billing", () => {
 				marketingAssetsRepository as unknown as MarketingAssetsRepository,
 			meteringService: meteringService as unknown as MeteringService,
 			projectId: "project_1",
+			subject: { actorUserId: "user_1" },
 			userId: "user_1",
 		});
 		const run = marketingTool.execute;

@@ -14,6 +14,8 @@ export type CreateSubscriptionCheckoutParams = {
 	customerId: string;
 	email: string;
 	interval: BillingInterval;
+	/** Set for org (Business) checkouts: the paying pool's identity. */
+	organizationId?: string | null;
 	plan: BillingPlanId;
 	tierCredits: CreditTier;
 	userId: string;
@@ -50,6 +52,8 @@ export type CreateTopupCheckoutParams = {
 	attemptId: string;
 	credits: number;
 	customerId: string;
+	/** Set for org top-ups: the pool that receives the credits. */
+	organizationId?: string | null;
 	packId: TopupPackId;
 	userId: string;
 };
@@ -106,6 +110,14 @@ export interface PaymentProvider {
 		email: string,
 		affiliateCode?: string | null,
 	): Promise<string>;
+	ensureOrganizationCustomer(params: {
+		affiliateCode?: string | null;
+		attributionUserId: string;
+		billingEmail: string;
+		createdByUserId: string;
+		organizationId: string;
+		organizationName: string;
+	}): Promise<string>;
 	expireCheckoutSession(
 		sessionId: string,
 	): Promise<Stripe.Checkout.Session["status"]>;

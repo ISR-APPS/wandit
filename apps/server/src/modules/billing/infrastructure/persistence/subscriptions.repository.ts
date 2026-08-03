@@ -4,8 +4,10 @@ import type {
 	BillingPlanId,
 	CreditTier,
 } from "@wandit/contracts";
-import { and, desc, eq, sql } from "@wandit/db";
+import { and, desc, eq, isNull, sql } from "@wandit/db";
 import { subscriptions } from "@wandit/db/schema/billing";
+
+import type { CreditOwner } from "../../../credits/domain/credit-owner";
 
 import {
 	DATABASE,
@@ -93,16 +95,26 @@ export class SubscriptionsRepository {
 		return this.expectRow(row);
 	}
 
-	async findActiveByUserId(
-		userId: string,
+	async findActiveByOwner(
+		owner: CreditOwner,
 		client: SubscriptionsClient = this.db,
 	): Promise<SubscriptionRow | null> {
+		// Owner-keyed on purpose: an org creator's userId appears on BOTH their
+		// personal subscription and (as provenance) the org's — a bare user
+		// predicate would cross-talk between the two pools.
+		const ownerPredicate =
+			owner.type === "user"
+				? and(
+						eq(subscriptions.userId, owner.userId),
+						isNull(subscriptions.organizationId),
+					)
+				: eq(subscriptions.organizationId, owner.organizationId);
 		const [row] = await client
 			.select()
 			.from(subscriptions)
 			.where(
 				and(
-					eq(subscriptions.userId, userId),
+					ownerPredicate,
 					sql`${subscriptions.status} NOT IN ('canceled', 'incomplete_expired')`,
 				),
 			)

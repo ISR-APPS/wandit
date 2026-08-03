@@ -4,7 +4,7 @@ import type { AiUsageOperation } from "./operation-registry";
 
 export type GatewayAttribution = {
 	quotaEntityId: string;
-	tags: [string];
+	tags: [string, string];
 	user: string;
 };
 
@@ -12,7 +12,10 @@ export type GatewayMeteringContext<
 	TOperation extends AiUsageOperation = AiUsageOperation,
 > = {
 	operation: TOperation;
+	/** Acting member — always a user id, even inside an org workspace. */
 	userId: string;
+	/** Set when the org pool pays; drives quotaEntityId (the payer). */
+	organizationId?: string | null;
 };
 
 export type GatewayGenerationMetadata = {
@@ -99,8 +102,15 @@ export function withGatewayAttribution<T extends Record<string, unknown>>(
 		...providerOptions,
 		gateway: {
 			...asRecord(providerOptions.gateway),
-			quotaEntityId: input.userId,
-			tags: [`op:${input.operation}`],
+			// quotaEntityId identifies the PAYING pool; `user` stays the acting
+			// member for per-person observability.
+			quotaEntityId: input.organizationId
+				? `org:${input.organizationId}`
+				: input.userId,
+			tags: [
+				`op:${input.operation}`,
+				input.organizationId ? "ws:org" : "ws:personal",
+			],
 			user: input.userId,
 		},
 	};

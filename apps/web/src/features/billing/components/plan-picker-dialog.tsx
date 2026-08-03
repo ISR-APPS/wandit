@@ -61,6 +61,8 @@ import {
 	tierSavingsPercent,
 } from "@/features/billing/lib/plan-pricing";
 import { usePublicSettingsQuery } from "@/features/settings/api/settings.queries";
+import { CreateWorkspaceDialog } from "@/features/workspaces/components/create-workspace-dialog";
+import { useWorkspace } from "@/features/workspaces/lib/workspace-provider";
 import { getApiErrorMessage, isApiClientError } from "@/lib/api-client";
 import { useDictionary, useTranslation } from "@/lib/i18n";
 
@@ -89,35 +91,48 @@ export function PlanPickerDialog({
 	availableCredits,
 }: PlanPickerDialogProps) {
 	const { t } = useTranslation();
+	const [createTeamOpen, setCreateTeamOpen] = useState(false);
 
 	return (
-		<Dialog open={open} onOpenChange={onOpenChange}>
-			{open ? (
-				<DialogContent
-					className="max-h-[min(760px,calc(100dvh-2rem))] overflow-y-auto sm:max-w-[620px]"
-					closeLabel={t("common.close")}
-				>
-					<PlanPickerContent
-						initialInterval={initialInterval}
-						initialTierCredits={initialTierCredits}
-						onClose={() => onOpenChange(false)}
-						requiredCredits={requiredCredits}
-						availableCredits={availableCredits}
-					/>
-				</DialogContent>
-			) : null}
-		</Dialog>
+		<>
+			<Dialog open={open} onOpenChange={onOpenChange}>
+				{open ? (
+					<DialogContent
+						className="max-h-[min(760px,calc(100dvh-2rem))] overflow-y-auto sm:max-w-[620px]"
+						closeLabel={t("common.close")}
+					>
+						<PlanPickerContent
+							initialInterval={initialInterval}
+							initialTierCredits={initialTierCredits}
+							onClose={() => onOpenChange(false)}
+							onCreateTeam={() => {
+								onOpenChange(false);
+								setCreateTeamOpen(true);
+							}}
+							requiredCredits={requiredCredits}
+							availableCredits={availableCredits}
+						/>
+					</DialogContent>
+				) : null}
+			</Dialog>
+			<CreateWorkspaceDialog
+				open={createTeamOpen}
+				onOpenChange={setCreateTeamOpen}
+			/>
+		</>
 	);
 }
 
 function PlanPickerContent({
 	onClose,
+	onCreateTeam,
 	initialInterval,
 	initialTierCredits,
 	requiredCredits,
 	availableCredits,
 }: {
 	onClose: () => void;
+	onCreateTeam: () => void;
 	initialInterval?: BillingInterval;
 	initialTierCredits?: CreditTier;
 	requiredCredits?: number;
@@ -125,6 +140,10 @@ function PlanPickerContent({
 }) {
 	const { locale, t } = useTranslation();
 	const copy = useDictionary().billing.planPicker;
+	// Personal workspaces buy Pro; org workspaces buy Business — the server
+	// rejects any other pairing (billing.service assertPlanMatchesScope).
+	const { isPersonal } = useWorkspace();
+	const planId = isPersonal ? ("pro" as const) : ("business" as const);
 	const plansQuery = useBillingPlansQuery();
 	const subscriptionQuery = useBillingSubscriptionQuery();
 	const settingsQuery = usePublicSettingsQuery();
@@ -359,7 +378,7 @@ function PlanPickerContent({
 		);
 	}
 
-	const plan = catalog.plans.find((item) => item.id === "pro");
+	const plan = catalog.plans.find((item) => item.id === planId);
 
 	if (!plan || plan.tiers.length === 0) {
 		return (
@@ -405,7 +424,7 @@ function PlanPickerContent({
 		if (!subscription) {
 			void checkout
 				.mutateAsync({
-					plan: "pro",
+					plan: planId,
 					tierCredits: tier.tierCredits,
 					interval,
 				})
@@ -415,7 +434,7 @@ function PlanPickerContent({
 
 		const nextTarget = {
 			interval,
-			plan: "pro" as const,
+			plan: planId,
 			tierCredits: tier.tierCredits,
 		};
 		void previewChange
@@ -580,6 +599,24 @@ function PlanPickerContent({
 							.catch((error) => setErrorMessage(getApiErrorMessage(error)));
 					}}
 				/>
+			) : null}
+
+			{isPersonal &&
+			settings.organizationsEnabled &&
+			catalog.plans.some((item) => item.id === "business") ? (
+				<section className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card/70 p-4">
+					<div className="min-w-0">
+						<h3 className="font-medium text-sm">
+							{t("workspaces.billing.teamTeaserTitle")}
+						</h3>
+						<p className="mt-1 text-muted-foreground text-xs">
+							{t("workspaces.billing.teamTeaserBody")}
+						</p>
+					</div>
+					<Button type="button" variant="outline" onClick={onCreateTeam}>
+						{t("workspaces.billing.teamTeaserCta")}
+					</Button>
+				</section>
 			) : null}
 
 			{errorMessage ? <InlineError message={errorMessage} /> : null}

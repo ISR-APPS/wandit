@@ -1,12 +1,17 @@
 import { useQuery } from "@tanstack/react-query";
 
 import type { CreditLedgerQuery } from "./credits.dto";
+import { getActiveWorkspaceId } from "@/features/workspaces/lib/workspace-scope";
+
 import { getCreditBalance, getCreditLedger } from "./credits.services";
 
+// Workspace-scoped keys (teams-workspaces.md §9): the balance/ledger shown are
+// the ACTIVE workspace's pool, so the key carries the workspace segment.
 export const creditsKeys = {
 	all: ["credits"] as const,
-	balance: () => [...creditsKeys.all, "balance"] as const,
-	ledgers: () => [...creditsKeys.all, "ledger"] as const,
+	scope: () => [...creditsKeys.all, getActiveWorkspaceId()] as const,
+	balance: () => [...creditsKeys.scope(), "balance"] as const,
+	ledgers: () => [...creditsKeys.scope(), "ledger"] as const,
 	ledger: ({ page, pageSize }: CreditLedgerQuery) =>
 		[...creditsKeys.ledgers(), page, pageSize] as const,
 };

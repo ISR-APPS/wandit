@@ -53,6 +53,7 @@ function RoleBadge({ role }: { role: AdminUserRole }) {
 }
 
 const planClasses: Record<AdminUserPlan, string> = {
+	business: "border-chart-2/25 bg-chart-2/8 text-chart-2",
 	free: "text-muted-foreground",
 	pro: "border-primary/25 bg-primary/8 text-primary",
 };

@@ -34,6 +34,9 @@ export * from "./mcp-connectors";
 export * from "./media-generation-attempts";
 // Payment order tables.
 export * from "./orders";
+// Organization (Teams/Workspaces) tables — Better Auth org plugin models +
+// application-owned org billing settings/limits.
+export * from "./organizations";
 // Page generation attempt tables.
 export * from "./page-attempts";
 // Project tables.

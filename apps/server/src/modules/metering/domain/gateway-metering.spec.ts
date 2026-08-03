@@ -21,7 +21,7 @@ describe("withGatewayAttribution", () => {
 			gateway: {
 				order: ["anthropic"],
 				quotaEntityId: "user_123",
-				tags: ["op:page_build"],
+				tags: ["op:page_build", "ws:personal"],
 				user: "user_123",
 			},
 		});

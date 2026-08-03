@@ -1,4 +1,7 @@
-import type { PaymentRequiredDetails } from "@wandit/contracts";
+import type {
+	MemberCreditLimitDetails,
+	PaymentRequiredDetails,
+} from "@wandit/contracts";
 
 const BILLING_ERROR_CODES = new Set([
 	"INSUFFICIENT_CREDITS",
@@ -9,9 +12,20 @@ export type UpgradeModalIntent = PaymentRequiredDetails & {
 	code: "INSUFFICIENT_CREDITS" | "GENERATION_PAYMENT_REQUIRED";
 };
 
-type UpgradeModalListener = (intent: UpgradeModalIntent) => void;
+/**
+ * The org member-limit refusal (403): the workspace pool could pay, but the
+ * acting member's monthly cap could not. Buying credits is not the fix, so
+ * it opens a dedicated notice instead of the plan picker.
+ */
+export type MemberLimitModalIntent = MemberCreditLimitDetails & {
+	code: "MEMBER_CREDIT_LIMIT_REACHED";
+};
 
-const listeners = new Set<UpgradeModalListener>();
+export type BillingErrorIntent = UpgradeModalIntent | MemberLimitModalIntent;
+
+type BillingErrorListener = (intent: BillingErrorIntent) => void;
+
+const listeners = new Set<BillingErrorListener>();
 
 /**
  * Normalize both billing error sources used by the app:
@@ -20,9 +34,27 @@ const listeners = new Set<UpgradeModalListener>();
  */
 export function toUpgradeModalIntent(
 	source: unknown,
-): UpgradeModalIntent | null {
+): BillingErrorIntent | null {
 	const candidate = unwrapBillingErrorSource(source);
-	if (candidate?.statusCode !== 402) {
+
+	if (!candidate) {
+		return null;
+	}
+
+	if (
+		candidate.statusCode === 403 &&
+		candidate.code === "MEMBER_CREDIT_LIMIT_REACHED" &&
+		isMemberLimitDetails(candidate.details)
+	) {
+		return {
+			code: "MEMBER_CREDIT_LIMIT_REACHED",
+			limitCredits: candidate.details.limitCredits,
+			spentCredits: candidate.details.spentCredits,
+			requiredCredits: candidate.details.requiredCredits,
+		};
+	}
+
+	if (candidate.statusCode !== 402) {
 		return null;
 	}
 
@@ -44,7 +76,7 @@ export function toUpgradeModalIntent(
 /** Returns the normalized intent and notifies the mounted billing modal. */
 export function dispatchBillingError(
 	source: unknown,
-): UpgradeModalIntent | null {
+): BillingErrorIntent | null {
 	const intent = toUpgradeModalIntent(source);
 	if (!intent) {
 		return null;
@@ -57,7 +89,7 @@ export function dispatchBillingError(
 	return intent;
 }
 
-export function subscribeToBillingErrors(listener: UpgradeModalListener) {
+export function subscribeToBillingErrors(listener: BillingErrorListener) {
 	listeners.add(listener);
 	return () => {
 		listeners.delete(listener);
@@ -86,6 +118,17 @@ function isPaymentRequiredDetails(
 		Number.isInteger(value.requiredCredits) &&
 		(value.requiredCredits as number) > 0 &&
 		Number.isInteger(value.availableCredits)
+	);
+}
+
+function isMemberLimitDetails(
+	value: unknown,
+): value is MemberCreditLimitDetails {
+	return (
+		isRecord(value) &&
+		Number.isInteger(value.limitCredits) &&
+		Number.isInteger(value.spentCredits) &&
+		Number.isInteger(value.requiredCredits)
 	);
 }
 

@@ -1,0 +1,106 @@
+{
+	"switcher": {
+		"label": "Workspace",
+		"personal": "Personal",
+		"personalDescription": "Your private projects",
+		"create": "Create a team workspace",
+		"roleOwner": "Owner",
+		"roleAdmin": "Admin",
+		"roleMember": "Member"
+	},
+	"create": {
+		"title": "Name your workspace",
+		"description": "Your team workspace needs a name. You can invite teammates right after checkout.",
+		"nameLabel": "Workspace name",
+		"namePlaceholder": "e.g. Acme Marketing",
+		"submit": "Continue to checkout",
+		"creating": "Creating workspace…",
+		"errors": {
+			"nameRequired": "Give your workspace a name",
+			"disabled": "Team workspaces are not available yet",
+			"failed": "Creating the workspace failed. Please try again.",
+			"checkoutFailed": "Your workspace was created, but the payment page could not open. Press the button to retry checkout."
+		},
+		"retryCheckout": "Retry checkout"
+	},
+	"members": {
+		"title": "Members",
+		"description": "People with access to this workspace.",
+		"invite": "Invite a teammate",
+		"inviteEmailLabel": "Email address",
+		"inviteEmailPlaceholder": "teammate@company.com",
+		"inviteRoleLabel": "Role",
+		"inviteSubmit": "Send invite",
+		"inviteSending": "Sending…",
+		"inviteSent": "Invitation sent",
+		"inviteFailed": "Sending the invitation failed. Please try again.",
+		"inviteLinkCopy": "Copy invite link",
+		"inviteLinkCopied": "Invite link copied",
+		"pendingTitle": "Pending invitations",
+		"cancelInvite": "Cancel invitation",
+		"resendInvite": "Re-send",
+		"removeMember": "Remove from workspace",
+		"removeConfirmTitle": "Remove {name}?",
+		"removeConfirmBody": "They lose access to every project in this workspace immediately.",
+		"leave": "Leave workspace",
+		"leaveConfirmTitle": "Leave this workspace?",
+		"leaveConfirmBody": "You lose access to its projects until someone invites you again.",
+		"lastOwnerBlocked": "You are the only owner. Transfer ownership before leaving.",
+		"changeRole": "Change role",
+		"you": "You",
+		"memberCount": {
+			"one": "{count} member",
+			"other": "{count} members"
+		}
+	},
+	"limits": {
+		"title": "Member credit limits",
+		"description": "Cap how many credits each member can spend from the shared pool per calendar month. Owners and admins are never limited by the default cap.",
+		"defaultLabel": "Default monthly limit per member",
+		"noLimit": "No limit",
+		"customLimit": "Custom limit",
+		"spentThisMonth": "Spent this month",
+		"save": "Save limits",
+		"saving": "Saving…",
+		"saved": "Limits saved",
+		"saveFailed": "Saving the limits failed. Please try again."
+	},
+	"invite": {
+		"title": "Workspace invitation",
+		"invitedTo": "You have been invited to join {workspace}.",
+		"accept": "Join workspace",
+		"accepting": "Joining…",
+		"reject": "Decline",
+		"accepted": "You are in! Switching to {workspace}…",
+		"alreadyMember": "You are already a member of this workspace.",
+		"invalid": "This invitation is invalid or has expired.",
+		"signInFirst": "Sign in to accept this invitation.",
+		"pendingBanner": {
+			"one": "You have {count} pending workspace invitation",
+			"other": "You have {count} pending workspace invitations"
+		},
+		"pendingBannerCta": "View"
+	},
+	"billing": {
+		"ownerOnlyTitle": "Billing is managed by the workspace owner",
+		"ownerOnlyBody": "Only the owner of this workspace can change the plan, buy credits, or manage payment details.",
+		"workspaceLabel": "Workspace billing",
+		"personalLabel": "Personal billing",
+		"teamTeaserTitle": "Building with a team?",
+		"teamTeaserBody": "The Business plan gives your whole team one shared credit pool.",
+		"teamTeaserCta": "Create a team workspace"
+	},
+	"errors": {
+		"memberLimitTitle": "Monthly limit reached",
+		"memberLimitBody": "You have used your workspace credit limit for this month ({limit} credits). Ask a workspace owner or admin to raise it.",
+		"memberLimitCta": "Got it",
+		"poolEmptyTitle": "Workspace is out of credits",
+		"poolEmptyBodyManager": "The shared pool is empty. Upgrade the plan or buy a top-up to keep the team building.",
+		"poolEmptyBodyMember": "The shared pool is empty. Tell a workspace owner so they can add credits.",
+		"permissionDenied": "You do not have permission to do that in this workspace."
+	},
+	"credits": {
+		"poolLabel": "{workspace} credits",
+		"personalPoolLabel": "Personal credits"
+	}
+}

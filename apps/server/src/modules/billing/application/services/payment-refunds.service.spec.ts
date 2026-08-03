@@ -3,6 +3,10 @@ import type Stripe from "stripe";
 import { describe, expect, it, vi } from "vitest";
 
 import type { CreditsService } from "../../../credits/application/services/credits.service";
+import {
+	type CreditOwner,
+	userOwner,
+} from "../../../credits/domain/credit-owner";
 import type { WebhookOrderRefundHandler } from "../../domain/ports/webhook-order-refund-handler.port";
 import type {
 	BillingCreditLedgerRepository,
@@ -51,7 +55,7 @@ class InMemoryBillingCreditLedgerRepository {
 		chargeId: string;
 		transaction: unknown;
 	}> = [];
-	readonly userLockCalls: string[] = [];
+	readonly ownerLockCalls: CreditOwner[] = [];
 	readonly transactionClient = { kind: "charge-lock-transaction" };
 	private readonly pendingSlotsByCharge = new Map<string, number>();
 
@@ -121,12 +125,16 @@ class InMemoryBillingCreditLedgerRepository {
 		);
 	}
 
-	async acquireUserLock(userId: string) {
-		this.userLockCalls.push(userId);
+	async acquireOwnerLock(owner: CreditOwner, _client: unknown) {
+		this.ownerLockCalls.push(owner);
 	}
 
-	async findPendingRefillSlotUserIdsForCharge(chargeId: string) {
-		return (this.pendingSlotsByCharge.get(chargeId) ?? 0) > 0 ? ["user_1"] : [];
+	async findPendingRefillSlotOwnersForCharge(
+		chargeId: string,
+	): Promise<CreditOwner[]> {
+		return (this.pendingSlotsByCharge.get(chargeId) ?? 0) > 0
+			? [userOwner("user_1")]
+			: [];
 	}
 
 	async cancelPendingRefillSlotsForCharge(
@@ -191,7 +199,7 @@ class InMemoryBillingCreditLedgerRepository {
 class InMemoryCreditsService {
 	readonly grant = vi.fn(
 		async (
-			userId: string,
+			owner: CreditOwner,
 			amount: number,
 			options: GrantOptions,
 			_transaction?: object,
@@ -212,14 +220,14 @@ class InMemoryCreditsService {
 				idempotencyKey: options.idempotencyKey,
 				kind: "grant",
 				meta: options.meta,
-				userId,
+				userId: ownerUserId(owner),
 			});
 		},
 	);
 
 	readonly revoke = vi.fn(
 		async (
-			userId: string,
+			owner: CreditOwner,
 			amount: number,
 			options: RevokeOptions = {},
 			_transaction?: object,
@@ -240,7 +248,7 @@ class InMemoryCreditsService {
 				idempotencyKey: options.idempotencyKey,
 				kind: "revoke",
 				meta: options.meta,
-				userId,
+				userId: ownerUserId(owner),
 			});
 		},
 	);
@@ -294,6 +302,14 @@ class FakeStripeProvider {
 	seedPaymentIntent(value: Stripe.PaymentIntent) {
 		this.paymentIntents.set(value.id, value);
 	}
+}
+
+function ownerUserId(owner: CreditOwner): string {
+	if (owner.type !== "user") {
+		throw new Error("test expects a personal credit owner");
+	}
+
+	return owner.userId;
 }
 
 function setup(input: { orderHandled?: boolean } = {}) {
@@ -739,7 +755,7 @@ describe("PaymentRefundsService", () => {
 		expect(credits.revoke).toHaveBeenCalledTimes(2);
 		expect(credits.revoke).toHaveBeenNthCalledWith(
 			1,
-			"user_1",
+			userOwner("user_1"),
 			125,
 			{
 				bucket: "topup",
@@ -754,7 +770,7 @@ describe("PaymentRefundsService", () => {
 		);
 		expect(credits.revoke).toHaveBeenNthCalledWith(
 			2,
-			"user_1",
+			userOwner("user_1"),
 			175,
 			{
 				bucket: "topup",
@@ -774,7 +790,10 @@ describe("PaymentRefundsService", () => {
 		).toBe(300);
 	});
 
-	it("cancels pending refill slots inside the charge lock even when no delivered grant exists", async () => {
+	it("preserves pending refill slots on a PARTIAL refund while still acking the webhook", async () => {
+		// Pending slots are prepaid future months: a partial (e.g. goodwill)
+		// refund must never destroy them (money-review finding). The webhook is
+		// still acked because the charge is recognized via its slots.
 		const { repository, service } = setup();
 		repository.seedPendingSlots("ch_slots_refund", 2);
 
@@ -783,6 +802,24 @@ describe("PaymentRefundsService", () => {
 				charge({
 					amountCaptured: 1_000,
 					amountRefunded: 500,
+					id: "ch_slots_refund",
+					paymentIntent: "pi_slots_refund",
+				}),
+			),
+		).resolves.toBe(true);
+
+		expect(repository.canceledSlotCalls).toEqual([]);
+	});
+
+	it("cancels pending refill slots inside the charge lock on a FULL refund", async () => {
+		const { repository, service } = setup();
+		repository.seedPendingSlots("ch_slots_refund", 2);
+
+		await expect(
+			service.handleChargeRefunded(
+				charge({
+					amountCaptured: 1_000,
+					amountRefunded: 1_000,
 					id: "ch_slots_refund",
 					paymentIntent: "pi_slots_refund",
 				}),
@@ -817,7 +854,7 @@ describe("PaymentRefundsService", () => {
 		);
 
 		expect(credits.revoke).toHaveBeenCalledWith(
-			"user_1",
+			userOwner("user_1"),
 			166,
 			{
 				bucket: "plan",
@@ -868,7 +905,7 @@ describe("PaymentRefundsService", () => {
 
 		expect(credits.revoke).toHaveBeenNthCalledWith(
 			1,
-			"user_1",
+			userOwner("user_1"),
 			1,
 			{
 				bucket: "plan",
@@ -883,7 +920,7 @@ describe("PaymentRefundsService", () => {
 		);
 		expect(credits.revoke).toHaveBeenNthCalledWith(
 			2,
-			"user_1",
+			userOwner("user_1"),
 			1,
 			{
 				bucket: "topup",
@@ -948,7 +985,7 @@ describe("PaymentRefundsService", () => {
 
 		expect(credits.revoke).toHaveBeenCalledOnce();
 		expect(credits.revoke).toHaveBeenCalledWith(
-			"user_1",
+			userOwner("user_1"),
 			200,
 			expect.objectContaining({
 				bucket: "topup",
@@ -979,7 +1016,7 @@ describe("PaymentRefundsService", () => {
 		expect(credits.revoke).toHaveBeenCalledTimes(2);
 		expect(credits.revoke).toHaveBeenNthCalledWith(
 			2,
-			"user_1",
+			userOwner("user_1"),
 			375,
 			expect.objectContaining({
 				bucket: "topup",
@@ -1021,7 +1058,7 @@ describe("PaymentRefundsService", () => {
 		).resolves.toBe(true);
 
 		expect(credits.revoke).toHaveBeenCalledWith(
-			"user_1",
+			userOwner("user_1"),
 			100,
 			expect.objectContaining({
 				bucket: "topup",
@@ -1087,14 +1124,14 @@ describe("PaymentRefundsService", () => {
 		expect(credits.revoke).toHaveBeenCalledTimes(2);
 		expect(credits.revoke).toHaveBeenNthCalledWith(
 			1,
-			"user_1",
+			userOwner("user_1"),
 			300,
 			expect.objectContaining({ idempotencyKey: "dispute:dp_partial_1" }),
 			repository.transactionClient,
 		);
 		expect(credits.revoke).toHaveBeenNthCalledWith(
 			2,
-			"user_1",
+			userOwner("user_1"),
 			100,
 			expect.objectContaining({ idempotencyKey: "dispute:dp_partial_2" }),
 			repository.transactionClient,
@@ -1149,7 +1186,7 @@ describe("PaymentRefundsService", () => {
 
 		expect(credits.grant).toHaveBeenCalledOnce();
 		expect(credits.grant).toHaveBeenCalledWith(
-			"user_1",
+			userOwner("user_1"),
 			300,
 			{
 				bucket: "plan",
@@ -1224,7 +1261,7 @@ describe("PaymentRefundsService", () => {
 		).resolves.toBe(true);
 
 		expect(credits.grant).toHaveBeenCalledWith(
-			"user_1",
+			userOwner("user_1"),
 			100,
 			expect.objectContaining({
 				bucket: "topup",
@@ -1268,7 +1305,7 @@ describe("PaymentRefundsService", () => {
 			true,
 		);
 		expect(credits.grant).toHaveBeenCalledWith(
-			"user_1",
+			userOwner("user_1"),
 			500,
 			expect.objectContaining({
 				bucket: "topup",
@@ -1322,7 +1359,7 @@ describe("PaymentRefundsService", () => {
 		expect(credits.grant).toHaveBeenCalledOnce();
 		expect(credits.revoke).toHaveBeenCalledOnce();
 		expect(credits.revoke).toHaveBeenCalledWith(
-			"user_1",
+			userOwner("user_1"),
 			100,
 			expect.objectContaining({
 				idempotencyKey: `refund:${freshCharge.id}:500`,
@@ -1386,7 +1423,7 @@ describe("PaymentRefundsService", () => {
 		);
 
 		expect(credits.revoke).toHaveBeenCalledWith(
-			"user_1",
+			userOwner("user_1"),
 			120,
 			expect.objectContaining({ idempotencyKey: "dispute:dp_fallback" }),
 			repository.transactionClient,
@@ -1415,7 +1452,7 @@ describe("PaymentRefundsService", () => {
 
 		expect(credits.revoke).toHaveBeenCalledOnce();
 		expect(credits.revoke).toHaveBeenCalledWith(
-			"user_1",
+			userOwner("user_1"),
 			500,
 			expect.objectContaining({
 				bucket: "plan",
@@ -1453,7 +1490,7 @@ describe("PaymentRefundsService", () => {
 		);
 
 		expect(credits.revoke).toHaveBeenCalledWith(
-			"user_1",
+			userOwner("user_1"),
 			150,
 			expect.objectContaining({
 				bucket: "plan",
@@ -1593,7 +1630,7 @@ describe("PaymentRefundsService", () => {
 		expect(stripe.retrieveCharge).toHaveBeenCalledTimes(2);
 		expect(credits.revoke).toHaveBeenCalledOnce();
 		expect(credits.revoke).toHaveBeenCalledWith(
-			"user_1",
+			userOwner("user_1"),
 			200,
 			expect.objectContaining({
 				bucket: "topup",
@@ -1632,7 +1669,7 @@ describe("PaymentRefundsService", () => {
 			disputedCharge.id,
 		);
 		expect(credits.revoke).toHaveBeenCalledWith(
-			"user_1",
+			userOwner("user_1"),
 			300,
 			expect.objectContaining({
 				bucket: "plan",
@@ -1689,7 +1726,7 @@ describe("PaymentRefundsService", () => {
 
 		expect(credits.revoke).toHaveBeenCalledOnce();
 		expect(credits.revoke).toHaveBeenCalledWith(
-			"user_1",
+			userOwner("user_1"),
 			100,
 			expect.objectContaining({ idempotencyKey: "dispute:dp_open" }),
 			repository.transactionClient,
@@ -1814,7 +1851,7 @@ describe("PaymentRefundsService", () => {
 			orderRefundHandler.handleChargeRefundedByPaymentIntent,
 		).not.toHaveBeenCalled();
 		expect(credits.revoke).toHaveBeenCalledWith(
-			"user_1",
+			userOwner("user_1"),
 			100,
 			expect.objectContaining({
 				bucket: "plan",
@@ -1876,7 +1913,7 @@ describe("PaymentRefundsService", () => {
 				}),
 			),
 		).rejects.toThrow(
-			"Purchased credit grants for Stripe charge ch_owners span multiple users",
+			"Purchased credit grants for Stripe charge ch_owners span multiple owners",
 		);
 
 		const second = setup();
@@ -1905,7 +1942,7 @@ describe("PaymentRefundsService", () => {
 				}),
 			),
 		).rejects.toThrow(
-			"Credit revocations for Stripe charge ch_revocation_owner span multiple users",
+			"Credit revocations for Stripe charge ch_revocation_owner span multiple owners",
 		);
 	});
 

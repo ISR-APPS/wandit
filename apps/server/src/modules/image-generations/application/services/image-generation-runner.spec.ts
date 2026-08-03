@@ -12,6 +12,7 @@ import {
 const ATTEMPT_ID = "11111111-1111-1111-8111-911111111111";
 const PROJECT_ID = "22222222-2222-4222-8222-922222222222";
 const USER_ID = "user_1";
+const SUBJECT = { actorUserId: USER_ID };
 const PARENT_EVENT_ID = "44444444-4444-4444-8444-944444444444";
 
 const PAYLOAD = {
@@ -40,6 +41,7 @@ function makeAttempt(
 		error: null,
 		id: ATTEMPT_ID,
 		images: null,
+		organizationId: null,
 		projectDeletedAt: null,
 		projectId: PROJECT_ID,
 		prompt: "a product on a bench",
@@ -74,7 +76,7 @@ function makeDependencies(
 		capture: vi.fn().mockResolvedValue(undefined),
 		claimQueued: vi.fn().mockResolvedValue(generating),
 		fail: vi.fn().mockResolvedValue(true),
-		generateOne: vi.fn().mockImplementation((_attempt, index: number) =>
+		generateOne: vi.fn().mockImplementation((_attempt, _subject, index: number) =>
 			Promise.resolve({
 				mediaType: "image/png",
 				model: "openai/gpt-image-2",
@@ -101,19 +103,29 @@ function makeDependencies(
 
 describe("parseImageGenerationPayload", () => {
 	it("accepts the exact payload shape", () => {
-		expect(parseImageGenerationPayload(PAYLOAD)).toEqual(PAYLOAD);
+		expect(parseImageGenerationPayload(PAYLOAD)).toEqual({
+			...PAYLOAD,
+			organizationId: null,
+		});
 		expect(
 			parseImageGenerationPayload({
 				...PAYLOAD,
 				parentEventId: PARENT_EVENT_ID,
 			}),
-		).toEqual({ ...PAYLOAD, parentEventId: PARENT_EVENT_ID });
+		).toEqual({
+			...PAYLOAD,
+			organizationId: null,
+			parentEventId: PARENT_EVENT_ID,
+		});
 	});
 
 	it("accepts a pre-deploy payload without an admission snapshot", () => {
 		const { billingMode: _billingMode, ...legacyPayload } = PAYLOAD;
 
-		expect(parseImageGenerationPayload(legacyPayload)).toEqual(legacyPayload);
+		expect(parseImageGenerationPayload(legacyPayload)).toEqual({
+			...legacyPayload,
+			organizationId: null,
+		});
 	});
 
 	it("rejects extra keys and bad ids", () => {
@@ -139,7 +151,7 @@ describe("runImageGeneration", () => {
 		);
 
 		expect(dependencies.reserve).toHaveBeenCalledWith(
-			USER_ID,
+			SUBJECT,
 			ATTEMPT_ID,
 			2,
 			PARENT_EVENT_ID,
@@ -151,6 +163,7 @@ describe("runImageGeneration", () => {
 		expect(dependencies.generateOne).toHaveBeenNthCalledWith(
 			1,
 			expect.objectContaining({ id: ATTEMPT_ID }),
+			SUBJECT,
 			1,
 			undefined,
 			expect.any(Function),
@@ -158,6 +171,7 @@ describe("runImageGeneration", () => {
 		expect(dependencies.generateOne).toHaveBeenNthCalledWith(
 			2,
 			expect.objectContaining({ id: ATTEMPT_ID }),
+			SUBJECT,
 			2,
 			undefined,
 			expect.any(Function),
@@ -184,6 +198,78 @@ describe("runImageGeneration", () => {
 		});
 	});
 
+	it("meters an org attempt with the acting member, not the project creator", async () => {
+		const organizationId = "org_1";
+		const actingMemberId = "user_member_2";
+		const queued = makeAttempt({ organizationId });
+		const generating = makeAttempt({
+			organizationId,
+			startedAt: new Date("2026-01-01T00:00:00Z"),
+			status: "generating",
+		});
+		const orgSubject = { actorUserId: actingMemberId, organizationId };
+		const dependencies = makeDependencies({
+			claimQueued: vi.fn().mockResolvedValue(generating),
+			loadAttempt: vi.fn().mockResolvedValue(queued),
+		});
+
+		const result = await runImageGeneration(
+			// The acting member differs from attempt.userId (the creator): the
+			// tool-side hold was reserved by them, so the replay must match them.
+			{ ...PAYLOAD, organizationId, userId: actingMemberId },
+			{ dependencies, runId: "run_org_actor" },
+		);
+
+		expect(dependencies.reserve).toHaveBeenCalledWith(
+			orgSubject,
+			ATTEMPT_ID,
+			2,
+			undefined,
+			"enforce",
+		);
+		expect(dependencies.generateOne).toHaveBeenNthCalledWith(
+			1,
+			expect.objectContaining({ id: ATTEMPT_ID, userId: USER_ID }),
+			orgSubject,
+			1,
+			undefined,
+			expect.any(Function),
+		);
+		expect(result).toEqual({
+			images: makeImages(2),
+			recovered: false,
+			status: "succeeded",
+		});
+	});
+
+	it("refunds an org attempt to the pool under the acting member", async () => {
+		const organizationId = "org_1";
+		const actingMemberId = "user_member_2";
+		const generating = makeAttempt({
+			organizationId,
+			startedAt: new Date("2026-01-01T00:00:00Z"),
+			status: "generating",
+		});
+		const dependencies = makeDependencies({
+			claimQueued: vi.fn().mockResolvedValue(generating),
+			generateOne: vi
+				.fn()
+				.mockResolvedValueOnce({ message: "quota", status: "failed" }),
+			loadAttempt: vi.fn().mockResolvedValue(makeAttempt({ organizationId })),
+		});
+
+		await expect(
+			runImageGeneration(
+				{ ...PAYLOAD, organizationId, userId: actingMemberId },
+				{ dependencies, runId: "run_org_refund" },
+			),
+		).resolves.toEqual({ reason: "generation_failed", status: "failed" });
+		expect(dependencies.refund).toHaveBeenCalledWith(
+			{ actorUserId: actingMemberId, organizationId },
+			ATTEMPT_ID,
+		);
+	});
+
 	it("publishes a stored partial prefix after reconcile_failed without repricing", async () => {
 		const generating = makeAttempt({
 			count: 4,
@@ -208,7 +294,7 @@ describe("runImageGeneration", () => {
 		});
 		expect(dependencies.generateOne).not.toHaveBeenCalled();
 		expect(dependencies.settleExisting).toHaveBeenCalledWith(
-			USER_ID,
+			SUBJECT,
 			ATTEMPT_ID,
 			1,
 		);
@@ -250,7 +336,7 @@ describe("runImageGeneration", () => {
 		});
 		expect(dependencies.recoverStoredImages).toHaveBeenCalledTimes(2);
 		expect(dependencies.settleExisting).toHaveBeenCalledWith(
-			USER_ID,
+			SUBJECT,
 			ATTEMPT_ID,
 			1,
 		);
@@ -530,7 +616,7 @@ describe("runImageGeneration", () => {
 
 		expect(dependencies.generateOne).not.toHaveBeenCalled();
 		expect(dependencies.settleExisting).toHaveBeenCalledWith(
-			USER_ID,
+			SUBJECT,
 			ATTEMPT_ID,
 			2,
 		);
@@ -642,14 +728,14 @@ describe("runImageGeneration", () => {
 		expect(dependencies.generateOne).not.toHaveBeenCalled();
 		expect(dependencies.markSucceeded).not.toHaveBeenCalled();
 		expect(dependencies.reserve).toHaveBeenCalledWith(
-			USER_ID,
+			SUBJECT,
 			ATTEMPT_ID,
 			4,
 			undefined,
 			"enforce",
 		);
 		expect(dependencies.settleExisting).toHaveBeenCalledWith(
-			USER_ID,
+			SUBJECT,
 			ATTEMPT_ID,
 			1,
 		);
@@ -703,6 +789,6 @@ describe("runImageGeneration", () => {
 		});
 
 		expect(result).toEqual({ reason: "ownership_mismatch", status: "failed" });
-		expect(dependencies.refund).toHaveBeenCalledWith(USER_ID, ATTEMPT_ID);
+		expect(dependencies.refund).toHaveBeenCalledWith(SUBJECT, ATTEMPT_ID);
 	});
 });

@@ -1,6 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { ENTITLED_SUBSCRIPTION_STATUSES } from "@wandit/contracts";
-import { and, asc, desc, eq, gt, inArray, or, sql } from "@wandit/db";
+import { and, asc, desc, eq, gt, inArray, isNull, or, sql } from "@wandit/db";
 import {
 	billingInvoiceApplications,
 	subscriptionRefillSlots,
@@ -8,6 +8,10 @@ import {
 } from "@wandit/db/schema/billing";
 import { creditLedger } from "@wandit/db/schema/credits";
 
+import {
+	type CreditOwner,
+	creditOwnerLockValue,
+} from "../../../credits/domain/credit-owner";
 import {
 	DATABASE,
 	type Database,
@@ -35,29 +39,46 @@ export type InsertRefillSlot = typeof subscriptionRefillSlots.$inferInsert;
 export class SubscriptionCreditsRepository {
 	constructor(@Inject(DATABASE) private readonly db: Database) {}
 
-	withUserLock<T>(
-		userId: string,
+	withOwnerLock<T>(
+		owner: CreditOwner,
 		fn: (tx: SubscriptionCreditsTransaction) => Promise<T>,
 	): Promise<T> {
 		return this.db.transaction(async (tx) => {
 			// This must remain byte-for-byte compatible with CreditsRepository's
-			// lock key so policy rows and ledger rows serialize together.
-			await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${userId}))`);
+			// lock key so policy rows and ledger rows serialize together —
+			// creditOwnerLockValue is that single source of truth.
+			await tx.execute(
+				sql`select pg_advisory_xact_lock(hashtext(${creditOwnerLockValue(owner)}))`,
+			);
 
 			return fn(tx);
 		});
 	}
 
-	async findCanonicalEntitledByUserId(
-		userId: string,
+	/**
+	 * The resolution authority for grant/expiry/refill decisions. OWNER-keyed:
+	 * a creator with a personal Pro AND an org Business shares one userId
+	 * across two entitled rows, and a user-keyed lookup silently cross-talks
+	 * between them (confirmed review critical — dead-lettered invoices,
+	 * skipped expiry, canceled refills).
+	 */
+	async findCanonicalEntitledByOwner(
+		owner: CreditOwner,
 		client: SubscriptionCreditsClient = this.db,
 	): Promise<SubscriptionCreditRow | null> {
+		const ownerPredicate =
+			owner.type === "user"
+				? and(
+						eq(subscriptions.userId, owner.userId),
+						isNull(subscriptions.organizationId),
+					)
+				: eq(subscriptions.organizationId, owner.organizationId);
 		const [row] = await client
 			.select()
 			.from(subscriptions)
 			.where(
 				and(
-					eq(subscriptions.userId, userId),
+					ownerPredicate,
 					inArray(
 						subscriptions.status,
 						ENTITLED_SUBSCRIPTION_STATUSES as unknown as string[],
@@ -97,16 +118,23 @@ export class SubscriptionCreditsRepository {
 	}
 
 	async hasGrossGrant(
-		userId: string,
+		owner: CreditOwner,
 		idempotencyKey: string,
 		client: SubscriptionCreditsClient = this.db,
 	): Promise<boolean> {
+		const ownerPredicate =
+			owner.type === "user"
+				? and(
+						eq(creditLedger.userId, owner.userId),
+						isNull(creditLedger.organizationId),
+					)
+				: eq(creditLedger.organizationId, owner.organizationId);
 		const [row] = await client
 			.select({ id: creditLedger.id })
 			.from(creditLedger)
 			.where(
 				and(
-					eq(creditLedger.userId, userId),
+					ownerPredicate,
 					eq(creditLedger.idempotencyKey, idempotencyKey),
 					eq(creditLedger.kind, "grant"),
 					gt(creditLedger.delta, 0),

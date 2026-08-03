@@ -25,6 +25,7 @@ import type {
 import axios, { AxiosHeaders } from "axios";
 
 import { dispatchBillingError } from "@/features/billing/lib/billing-error-dispatch";
+import { workspaceScopeHeaders } from "@/features/workspaces/lib/workspace-scope";
 import { redirectToLoginAfterUnauthorized } from "@/lib/auth-navigation";
 import { getCurrentDictionary } from "@/lib/i18n/locale-store";
 import { getServerUrl } from "@/lib/server-url";
@@ -183,6 +184,13 @@ function applyDefaultHeaders(config: InternalAxiosRequestConfig) {
 
 	if (!headers.get("Accept")) {
 		headers.set("Accept", "application/json");
+	}
+
+	// Workspace scoping (teams-workspaces.md §2): every API request carries the
+	// active workspace. Personal adds no header — requests stay byte-identical
+	// to pre-teams clients.
+	for (const [name, value] of Object.entries(workspaceScopeHeaders())) {
+		headers.set(name, value);
 	}
 
 	config.headers = headers;

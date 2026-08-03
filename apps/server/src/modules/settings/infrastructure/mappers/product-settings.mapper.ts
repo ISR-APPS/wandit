@@ -12,7 +12,9 @@ export function mapProductSettingsRow(
 
 	return {
 		earlyAccessRequired: row.earlyAccessRequired,
+		emailAuthEnabled: row.emailAuthEnabled,
 		id: PRODUCT_SETTINGS_ID,
+		organizationsEnabled: row.organizationsEnabled,
 		paidSubscriptionsEnabled: row.paidSubscriptionsEnabled,
 		signupGrantCredits: row.signupGrantCredits,
 		signupGrantEnabled: row.signupGrantEnabled,

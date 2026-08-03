@@ -1,4 +1,8 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import {
+	meteringSubjectFrom,
+	type ProjectScope,
+} from "../../../projects/domain/project-scope";
 import type {
 	MarketingAsset,
 	MarketingAssetHtmlResponse,
@@ -51,17 +55,17 @@ export class MarketingAssetsService {
 	) {}
 
 	async list(
-		userId: string,
+		scope: ProjectScope,
 		projectId: string,
 	): Promise<MarketingAssetsResponse> {
-		let rows = await this.marketingAssetsRepository.listOwnedByProject(
-			userId,
+		let rows = await this.marketingAssetsRepository.listForProject(
+			scope,
 			projectId,
 		);
 
-		if (await this.settleStaleRows(rows, userId)) {
-			rows = await this.marketingAssetsRepository.listOwnedByProject(
-				userId,
+		if (await this.settleStaleRows(rows, scope)) {
+			rows = await this.marketingAssetsRepository.listForProject(
+				scope,
 				projectId,
 			);
 		}
@@ -74,7 +78,7 @@ export class MarketingAssetsService {
 				await createMarketingAssetBilling({
 					isBillingDisabled: () => env.GENERATION_BILLING_MODE === "off",
 					meteringService: this.meteringService,
-				}).refund(userId, row.id);
+				}).refund(meteringSubjectFrom(scope), row.id);
 			}
 		}
 
@@ -82,19 +86,19 @@ export class MarketingAssetsService {
 	}
 
 	async html(
-		userId: string,
+		scope: ProjectScope,
 		assetId: string,
 	): Promise<MarketingAssetHtmlResponse> {
-		const document = await this.loadFinishedDocument(userId, assetId);
+		const document = await this.loadFinishedDocument(scope, assetId);
 
 		return { html: document.html };
 	}
 
 	async download(
-		userId: string,
+		scope: ProjectScope,
 		assetId: string,
 	): Promise<{ fileName: string; html: string }> {
-		const document = await this.loadFinishedDocument(userId, assetId);
+		const document = await this.loadFinishedDocument(scope, assetId);
 
 		return {
 			fileName: `${sanitizeFileName(document.row.name)}.html`,
@@ -103,11 +107,11 @@ export class MarketingAssetsService {
 	}
 
 	private async loadFinishedDocument(
-		userId: string,
+		scope: ProjectScope,
 		assetId: string,
 	): Promise<{ html: string; row: MarketingAssetRow }> {
-		const row = await this.marketingAssetsRepository.findOwnedAsset(
-			userId,
+		const row = await this.marketingAssetsRepository.findAccessibleAsset(
+			scope,
 			assetId,
 		);
 
@@ -131,8 +135,9 @@ export class MarketingAssetsService {
 	 */
 	private async settleStaleRows(
 		rows: MarketingAssetRow[],
-		userId: string,
+		scope: ProjectScope,
 	): Promise<boolean> {
+		const userId = scope.userId;
 		const queuedCutoff = new Date(Date.now() - QUEUED_STALE_AFTER_MS);
 		const generatingCutoff = new Date(Date.now() - GENERATION_STALE_AFTER_MS);
 		let changed = false;
@@ -195,7 +200,7 @@ export class MarketingAssetsService {
 				await createMarketingAssetBilling({
 					isBillingDisabled: () => env.GENERATION_BILLING_MODE === "off",
 					meteringService: this.meteringService,
-				}).settleExisting(userId, row.id);
+				}).settleExisting(meteringSubjectFrom(scope), row.id);
 
 				const [completed] = await this.db
 					.update(marketingAssets)

@@ -64,7 +64,7 @@ export const runConnectorGenerationTask = task({
 		// Only the run that WON the claim may settle the row on error — a
 		// duplicate run losing the race must not fail the live attempt.
 		let claimed = false;
-		let claimedAttempt: { userId: string } | undefined;
+		let claimedAttempt: { organizationId: string | null; userId: string } | undefined;
 		let providerCompleted = false;
 		let completionCheckpointed = false;
 		const generationBilling = createConnectorGenerationBilling({
@@ -126,7 +126,10 @@ export const runConnectorGenerationTask = task({
 				);
 			}
 			claimed = true;
-			claimedAttempt = { userId: attempt.userId };
+			claimedAttempt = {
+				organizationId: attempt.organizationId,
+				userId: attempt.userId,
+			};
 			// A terminal replay proves provider work already completed in an older
 			// delivery. Reject the payload below, but never refund that prior work.
 			providerCompleted = hasTerminalConnectorGenerationReplay(payload.billing);
@@ -399,7 +402,12 @@ export const runConnectorGenerationTask = task({
 				if (!providerCompleted && claimedAttempt) {
 					try {
 						await generationBilling.refund(
-							claimedAttempt.userId,
+							{
+								actorUserId: claimedAttempt.userId,
+								...(claimedAttempt.organizationId
+									? { organizationId: claimedAttempt.organizationId }
+									: {}),
+							},
 							payload.attemptId,
 							payload.billing.child?.operation,
 						);

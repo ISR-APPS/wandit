@@ -2,6 +2,7 @@ import type { AdminBetaEnrollInput, CreditBucket } from "@wandit/contracts";
 import { describe, expect, it } from "vitest";
 
 import type { CreditsService } from "../../../credits/application/services/credits.service";
+import type { CreditOwner } from "../../../credits/domain/credit-owner";
 import type {
 	AdminRepository,
 	AdminTransaction,
@@ -78,14 +79,18 @@ class InMemoryCreditsService {
 	constructor(private readonly repository: InMemoryAdminRepository) {}
 
 	async grantWithReplayStatus(
-		userId: string,
+		owner: CreditOwner,
 		amount: number,
 		options: { bucket: CreditBucket; idempotencyKey?: string },
 	) {
+		if (owner.type !== "user") {
+			throw new Error("test expects a personal credit owner");
+		}
 		if (!options.idempotencyKey) {
 			throw new Error("test expects an idempotency key");
 		}
 
+		const userId = owner.userId;
 		const existing = this.repository.grants.find(
 			(grant) => grant.idempotencyKey === options.idempotencyKey,
 		);

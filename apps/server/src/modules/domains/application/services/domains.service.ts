@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import type { ProjectScope } from "../../../projects/domain/project-scope";
 import { Inject, Injectable, type Logger } from "@nestjs/common";
 import {
 	type AttachExternalDomainBody,
@@ -119,14 +120,17 @@ export class DomainsService {
 		};
 	}
 
-	async list(projectId: string, userId: string): Promise<ListDomainsResponse> {
-		const rows = await this.domainsRepository.listByProject(projectId, userId);
+	async list(
+		projectId: string,
+		scope: ProjectScope,
+	): Promise<ListDomainsResponse> {
+		const rows = await this.domainsRepository.listByProject(projectId, scope);
 
 		return { domains: rows.map(mapDomain) };
 	}
 
 	async preparePurchase(
-		userId: string,
+		scope: ProjectScope,
 		name: string,
 		projectId?: string,
 	): Promise<PreparedDomainPurchase> {
@@ -134,7 +138,7 @@ export class DomainsService {
 		const catalog = DOMAIN_TLD_CATALOG[parsed.tld];
 
 		if (projectId) {
-			await this.domainsRepository.assertProjectOwned(userId, projectId);
+			await this.domainsRepository.assertProjectAccessible(scope, projectId);
 		}
 		this.domainTaskDispatcher.assertAvailable();
 
@@ -160,19 +164,20 @@ export class DomainsService {
 	}
 
 	async attachExternal(
-		userId: string,
+		scope: ProjectScope,
 		projectId: string,
 		body: AttachExternalDomainBody,
 	): Promise<AttachExternalDomainResponse> {
 		const parsed = this.parseSafeExternalDomainName(body.name);
 
-		await this.domainsRepository.assertProjectOwned(userId, projectId);
+		await this.domainsRepository.assertProjectAccessible(scope, projectId);
 
 		const row = await this.domainsRepository.createExternalReplacingTerminal({
 			name: parsed.name,
 			projectId,
 			tld: parsed.tld,
-			userId,
+			// Provenance: the acting member is recorded as the attacher.
+			userId: scope.userId,
 		});
 		let customHostnameId: string | null = null;
 
@@ -211,8 +216,8 @@ export class DomainsService {
 		}
 	}
 
-	async verify(id: string, userId: string): Promise<VerifyDomainResponse> {
-		const row = await this.domainsRepository.getByIdForUser(id, userId);
+	async verify(id: string, scope: ProjectScope): Promise<VerifyDomainResponse> {
+		const row = await this.domainsRepository.getByIdForScope(id, scope);
 
 		if (row.status !== "configuring" && row.status !== "active") {
 			throw new InvalidDomainStateError(
@@ -275,15 +280,15 @@ export class DomainsService {
 
 	async setPrimary(
 		id: string,
-		userId: string,
+		scope: ProjectScope,
 	): Promise<SetPrimaryDomainResponse> {
-		const updated = await this.domainsRepository.setPrimary(id, userId);
+		const updated = await this.domainsRepository.setPrimary(id, scope);
 
 		return { domain: mapDomain(updated) };
 	}
 
-	async detach(id: string, userId: string): Promise<DetachDomainResponse> {
-		const row = await this.domainsRepository.getByIdForUser(id, userId);
+	async detach(id: string, scope: ProjectScope): Promise<DetachDomainResponse> {
+		const row = await this.domainsRepository.getByIdForScope(id, scope);
 
 		if (row.status === "active") {
 			await this.domainRoutingService.deleteDomainPointer(row.name);
@@ -293,7 +298,7 @@ export class DomainsService {
 			await this.bestEffortDeleteCustomHostname(row.cfCustomHostnameId, row.id);
 		}
 
-		const updated = await this.domainsRepository.detach(id, userId);
+		const updated = await this.domainsRepository.detach(id, scope);
 
 		return { domain: mapDomain(updated) };
 	}

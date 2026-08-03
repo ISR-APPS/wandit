@@ -1,6 +1,7 @@
 import { ConflictException, NotFoundException } from "@nestjs/common";
 import { describe, expect, it, vi } from "vitest";
 
+import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
 import type { PageEditsService } from "../../../application/services/page-edits.service";
 import type { PagesService } from "../../../application/services/pages.service";
 import { PagesController } from "./pages.controller";
@@ -31,6 +32,8 @@ const user = {
 	id: "user_1",
 } as Parameters<PagesController["restoreVersion"]>[3];
 
+const workspace = { kind: "personal" } as WorkspaceContext;
+
 describe("PagesController.restoreVersion", () => {
 	it("delegates a copy-forward restore with the authenticated user", async () => {
 		const { controller, pageEditsService } = setup();
@@ -49,10 +52,11 @@ describe("PagesController.restoreVersion", () => {
 				VERSION_ID,
 				{ expectedActiveVersionId: ACTIVE_VERSION_ID },
 				user,
+				workspace,
 			),
 		).resolves.toEqual(response);
 		expect(pageEditsService.restoreVersion).toHaveBeenCalledWith(
-			"user_1",
+			{ kind: "personal", userId: "user_1" },
 			PROJECT_ID,
 			VERSION_ID,
 			{ expectedActiveVersionId: ACTIVE_VERSION_ID },
@@ -75,6 +79,7 @@ describe("PagesController.restoreVersion", () => {
 				VERSION_ID,
 				{ expectedActiveVersionId: ACTIVE_VERSION_ID },
 				user,
+				workspace,
 			),
 		).rejects.toBe(error);
 	});

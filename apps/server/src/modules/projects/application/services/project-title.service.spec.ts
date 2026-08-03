@@ -77,7 +77,7 @@ describe("ProjectTitleService", () => {
 				providerOptions: {
 					gateway: {
 						quotaEntityId: "user_1",
-						tags: ["op:chat"],
+						tags: ["op:chat", "ws:personal"],
 						user: "user_1",
 					},
 					openai: { reasoningEffort: "low" },

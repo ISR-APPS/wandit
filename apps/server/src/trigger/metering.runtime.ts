@@ -12,6 +12,7 @@ import {
 	ModelPricingService,
 } from "../modules/metering/application/services/model-pricing.service";
 import { MeteringRepository } from "../modules/metering/infrastructure/persistence/metering.repository";
+import { OrganizationLimitsRepository } from "../modules/workspaces/infrastructure/persistence/organization-limits.repository";
 import { ModelPricesRepository } from "../modules/metering/infrastructure/persistence/model-prices.repository";
 
 type TriggerDatabase = ReturnType<typeof createDb>;
@@ -29,6 +30,7 @@ export function createTriggerMetering(db: TriggerDatabase): MeteringService {
 		credits,
 		pricing,
 		gateway,
+		new OrganizationLimitsRepository(db),
 	);
 }
 

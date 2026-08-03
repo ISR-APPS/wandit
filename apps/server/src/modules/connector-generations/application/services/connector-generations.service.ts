@@ -7,6 +7,7 @@ import {
 } from "@wandit/contracts";
 import { z } from "zod";
 
+import type { ProjectScope } from "../../../projects/domain/project-scope";
 import {
 	type ConnectorGenerationAttemptRow,
 	ConnectorGenerationsRepository,
@@ -25,23 +26,23 @@ export class ConnectorGenerationsService {
 	) {}
 
 	async attempt(
-		userId: string,
+		scope: ProjectScope,
 		attemptId: string,
 	): Promise<ConnectorGenerationAttempt> {
-		let row = await this.connectorGenerationsRepository.findOwnedAttempt(
-			userId,
+		let row = await this.connectorGenerationsRepository.findAccessibleAttempt(
+			scope,
 			attemptId,
 		);
 
-		// Missing and not-owned both become 404 — never reveal which.
+		// Missing and out-of-scope both become 404 — never reveal which.
 		if (!row) {
 			throw new NotFoundException();
 		}
 
 		if (row.status === "running" && row.media !== null) {
 			await this.connectorGenerationRecovery.recoverCheckpoint(row);
-			row = await this.connectorGenerationsRepository.findOwnedAttempt(
-				userId,
+			row = await this.connectorGenerationsRepository.findAccessibleAttempt(
+				scope,
 				attemptId,
 			);
 

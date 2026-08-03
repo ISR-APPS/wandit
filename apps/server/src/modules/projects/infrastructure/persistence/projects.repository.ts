@@ -21,6 +21,11 @@ import {
 	DATABASE,
 	type Database,
 } from "../../../../infrastructure/database/database.constants";
+import {
+	type ProjectScope,
+	projectOwnerColumns,
+	projectScopePredicate,
+} from "../../domain/project-scope";
 
 // Raw DB row shape before mapping to the API Project shape.
 export type ProjectQueryRow = {
@@ -51,24 +56,23 @@ export class ProjectsRepository {
 	// DATABASE is a Symbol token, so `@Inject(DATABASE)` tells Nest what to pass.
 	constructor(@Inject(DATABASE) private readonly db: Database) {}
 
-	// List this user's non-deleted projects.
-	listByUser(userId: string): Promise<ProjectQueryRow[]> {
-		// Add user and deleted filters to the shared select.
+	// List the scope's non-deleted projects (personal or org workspace).
+	listForScope(scope: ProjectScope): Promise<ProjectQueryRow[]> {
 		return this.projectSelect()
-			.where(and(eq(projects.userId, userId), isNull(projects.deletedAt)))
+			.where(and(projectScopePredicate(scope), isNull(projects.deletedAt)))
 			.orderBy(desc(projects.updatedAt), desc(projects.createdAt));
 	}
 
-	// Find one non-deleted project owned by this user.
-	async findByIdForUser(
-		userId: string,
+	// Find one non-deleted project accessible in this scope.
+	async findByIdForScope(
+		scope: ProjectScope,
 		projectId: string,
 	): Promise<ProjectQueryRow | null> {
 		// Drizzle returns an array even with limit(1).
 		const [row] = await this.projectSelect()
 			.where(
 				and(
-					eq(projects.userId, userId),
+					projectScopePredicate(scope),
 					eq(projects.id, projectId),
 					isNull(projects.deletedAt),
 				),
@@ -87,7 +91,7 @@ export class ProjectsRepository {
 		name: string;
 		prompt: string;
 		projectId: string;
-		userId: string;
+		scope: ProjectScope;
 	}): Promise<CreatedProjectChat> {
 		// Transaction means all writes succeed together or all roll back.
 		return this.db.transaction(async (tx) => {
@@ -97,7 +101,9 @@ export class ProjectsRepository {
 				.values({
 					id: input.projectId,
 					name: input.name,
-					userId: input.userId,
+					// Org projects record the creator in userId (provenance) and the
+					// workspace in organizationId (authorization).
+					...projectOwnerColumns(input.scope),
 				})
 				.returning({ id: projects.id });
 
@@ -165,8 +171,8 @@ export class ProjectsRepository {
 	}
 
 	// Update editable fields, then re-read the full project row.
-	async updateByIdForUser(
-		userId: string,
+	async updateByIdForScope(
+		scope: ProjectScope,
 		projectId: string,
 		body: UpdateProjectBody,
 		options: { expectedName?: string } = {},
@@ -189,7 +195,7 @@ export class ProjectsRepository {
 			.where(
 				and(
 					eq(projects.id, projectId),
-					eq(projects.userId, userId),
+					projectScopePredicate(scope),
 					isNull(projects.deletedAt),
 					options.expectedName === undefined
 						? undefined
@@ -198,18 +204,18 @@ export class ProjectsRepository {
 			)
 			.returning({ id: projects.id });
 
-		// No row means missing, deleted, or not owned.
+		// No row means missing, deleted, or outside this scope.
 		if (!row) {
 			return null;
 		}
 
 		// Return the same full shape used by get/list.
-		return this.findByIdForUser(userId, row.id);
+		return this.findByIdForScope(scope, row.id);
 	}
 
 	// Soft-delete: mark deletedAt instead of deleting the row.
-	async softDeleteByIdForUser(
-		userId: string,
+	async softDeleteByIdForScope(
+		scope: ProjectScope,
 		projectId: string,
 	): Promise<boolean> {
 		// Use the same timestamp for deletedAt and updatedAt.
@@ -223,13 +229,13 @@ export class ProjectsRepository {
 			.where(
 				and(
 					eq(projects.id, projectId),
-					eq(projects.userId, userId),
+					projectScopePredicate(scope),
 					isNull(projects.deletedAt),
 				),
 			)
 			.returning({ id: projects.id });
 
-		// Returned row means a live owned project was updated.
+		// Returned row means a live in-scope project was updated.
 		return row !== undefined;
 	}
 

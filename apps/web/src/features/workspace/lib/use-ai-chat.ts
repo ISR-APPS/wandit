@@ -1,4 +1,5 @@
 import { useChat } from "@ai-sdk/react";
+import { workspaceScopeHeaders } from "@/features/workspaces/lib/workspace-scope";
 import { useQueryClient } from "@tanstack/react-query";
 import {
 	type AiChatDataParts,
@@ -141,6 +142,9 @@ export function useAiChat(projectId: string) {
 				// (http-chat-transport.ts uses it verbatim when defined), so it must
 				// carry the complete default fields plus our optional metadata.
 				prepareSendMessagesRequest: ({ id, messages, trigger, messageId }) => ({
+					// Workspace scoping (§2): the AI stream bypasses axios, so the
+					// active-workspace header must ride this transport explicitly.
+					headers: workspaceScopeHeaders(),
 					body: {
 						id,
 						messages,

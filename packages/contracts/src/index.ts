@@ -66,3 +66,5 @@ export * from "./v1/settings";
 export * from "./v1/shared/primitives";
 // Audio transcription contract.
 export * from "./v1/transcriptions";
+// Workspace (organization) contracts.
+export * from "./v1/workspaces";

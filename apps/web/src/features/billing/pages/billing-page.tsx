@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import { useWorkspace } from "@/features/workspaces/lib/workspace-provider";
 import type { BillingTopupPack, Subscription } from "@wandit/contracts";
 import {
 	formatDate,
@@ -63,7 +64,8 @@ import { useDictionary, useTranslation } from "@/lib/i18n";
 const LEDGER_PAGE_SIZE = 10;
 
 export default function BillingPage() {
-	const { locale } = useTranslation();
+	const { locale, t } = useTranslation();
+	const { actorCanManageBilling } = useWorkspace();
 	const copy = useDictionary().billing;
 	const { openPlanPicker } = useBillingModal();
 	const [ledgerPage, setLedgerPage] = useState(1);
@@ -97,6 +99,26 @@ export default function BillingPage() {
 			settingsQuery.refetch(),
 		]);
 	};
+
+	// Billing is owner-only in org workspaces (Zack's decision): admins and
+	// members get a notice, never money controls.
+	if (!actorCanManageBilling) {
+		return (
+			<div className="min-h-[100dvh] bg-background">
+				<BillingHeader />
+				<main className="mx-auto w-full max-w-2xl px-4 py-16 sm:px-6">
+					<div className="rounded-xl border bg-card p-8 text-center">
+						<h1 className="font-display text-xl tracking-tight">
+							{t("workspaces.billing.ownerOnlyTitle")}
+						</h1>
+						<p className="mt-2 text-muted-foreground text-sm">
+							{t("workspaces.billing.ownerOnlyBody")}
+						</p>
+					</div>
+				</main>
+			</div>
+		);
+	}
 
 	return (
 		<div className="min-h-[100dvh] bg-background">

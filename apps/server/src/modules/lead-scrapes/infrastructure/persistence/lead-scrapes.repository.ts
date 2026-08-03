@@ -7,6 +7,10 @@
  * download). The Trigger.dev task does NOT use this class: it runs outside
  * Nest and talks to the same table through createDb(), like the page task.
  */
+import {
+	type ProjectScope,
+	projectScopePredicate,
+} from "../../../projects/domain/project-scope";
 import { Inject, Injectable } from "@nestjs/common";
 import { and, desc, eq, inArray, isNull, lt, sql } from "@wandit/db";
 import { leadScrapeAttempts } from "@wandit/db/schema/lead-scrape-attempts";
@@ -131,15 +135,15 @@ export class LeadScrapesRepository {
 	// The chat card's polled read, or null when the attempt's project is not
 	// owned by this user (the service turns that into a 404). The join proves
 	// ownership, same pattern as PagesRepository.findOwnedVersionById.
-	async findOwnedAttempt(
-		userId: string,
+	async findAccessibleAttempt(
+		scope: ProjectScope,
 		attemptId: string,
 	): Promise<LeadScrapeAttemptRow | null> {
 		// Self-heal on read: a "queued" run nobody picked up expires after
 		// Trigger.dev's dev TTL, and a "running" row can strand if the worker
 		// dies mid-run. Flip stale rows to failed so the card stops polling —
 		// the cutoff must exceed admission TTL + task maxDuration (35 min).
-		await this.settleStaleAttempts({ attemptId, userId });
+		await this.settleStaleAttempts(scope, { attemptId });
 
 		const [row] = await this.db
 			.select(ATTEMPT_COLUMNS)
@@ -148,7 +152,7 @@ export class LeadScrapesRepository {
 			.where(
 				and(
 					eq(leadScrapeAttempts.id, attemptId),
-					eq(projects.userId, userId),
+					projectScopePredicate(scope),
 					isNull(projects.deletedAt),
 				),
 			)
@@ -157,12 +161,12 @@ export class LeadScrapesRepository {
 		return row ?? null;
 	}
 
-	async listByProject(
-		userId: string,
+	async listForProject(
+		scope: ProjectScope,
 		projectId: string,
 		limit = PROJECT_LIST_LIMIT,
 	): Promise<LeadScrapeAttemptRow[]> {
-		await this.settleStaleAttempts({ projectId, userId });
+		await this.settleStaleAttempts(scope, { projectId });
 
 		return this.db
 			.select(ATTEMPT_COLUMNS)
@@ -171,7 +175,7 @@ export class LeadScrapesRepository {
 			.where(
 				and(
 					eq(leadScrapeAttempts.projectId, projectId),
-					eq(projects.userId, userId),
+					projectScopePredicate(scope),
 					isNull(projects.deletedAt),
 				),
 			)
@@ -179,7 +183,10 @@ export class LeadScrapesRepository {
 			.limit(Math.min(PROJECT_LIST_LIMIT, Math.max(1, Math.floor(limit))));
 	}
 
-	async countByProject(userId: string, projectId: string): Promise<number> {
+	async countForProject(
+		scope: ProjectScope,
+		projectId: string,
+	): Promise<number> {
 		const [row] = await this.db
 			.select({ total: sql<number>`count(*)::int` })
 			.from(leadScrapeAttempts)
@@ -187,7 +194,7 @@ export class LeadScrapesRepository {
 			.where(
 				and(
 					eq(leadScrapeAttempts.projectId, projectId),
-					eq(projects.userId, userId),
+					projectScopePredicate(scope),
 					isNull(projects.deletedAt),
 				),
 			);
@@ -196,20 +203,17 @@ export class LeadScrapesRepository {
 	}
 
 	private async settleStaleAttempts(
-		scope:
-			| { attemptId: string; userId: string }
-			| { projectId: string; userId: string },
+		scope: ProjectScope,
+		target: { attemptId: string } | { projectId: string },
 	): Promise<void> {
 		const attemptScope =
-			"attemptId" in scope
-				? eq(leadScrapeAttempts.id, scope.attemptId)
-				: eq(leadScrapeAttempts.projectId, scope.projectId);
+			"attemptId" in target
+				? eq(leadScrapeAttempts.id, target.attemptId)
+				: eq(leadScrapeAttempts.projectId, target.projectId);
 		const ownedProjectIds = this.db
 			.select({ id: projects.id })
 			.from(projects)
-			.where(
-				and(eq(projects.userId, scope.userId), isNull(projects.deletedAt)),
-			);
+			.where(and(projectScopePredicate(scope), isNull(projects.deletedAt)));
 
 		await this.db
 			.update(leadScrapeAttempts)

@@ -91,6 +91,7 @@ function setup(
 		projectId: "project_1",
 		requestKeySeed: VIDEO_SUBMISSION_ID,
 		selectedSourceImage,
+		subject: { actorUserId: "user_1" },
 		userId: "user_1",
 	});
 	const run = animateImageTool.execute;
@@ -204,7 +205,7 @@ describe("animate_image tool", () => {
 		expect(mediaGenerationsRepository.insertAttempt).toHaveBeenCalledTimes(1);
 		expect(meteringService.reserveWithReplay).toHaveBeenCalledWith(
 			"video",
-			"user_1",
+			{ actorUserId: "user_1" },
 			{
 				attemptRef: "b48dfa65-13a2-4bd8-af89-d01c4bbdb1e3",
 				credits: 25,
@@ -264,6 +265,7 @@ describe("animate_image tool", () => {
 			{
 				attemptId: "b48dfa65-13a2-4bd8-af89-d01c4bbdb1e3",
 				billingMode: "enforce",
+				organizationId: null,
 				projectId: "project_1",
 				userId: "user_1",
 			},
@@ -387,7 +389,7 @@ describe("animate_image tool", () => {
 		);
 		expect(meteringService.findByIdempotencyKey).toHaveBeenCalledWith(
 			"video:b48dfa65-13a2-4bd8-af89-d01c4bbdb1e3",
-			"user_1",
+			{ actorUserId: "user_1" },
 		);
 		expect(meteringService.refund).toHaveBeenCalledWith(
 			"usage_event_1",

@@ -1,3 +1,4 @@
+import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import {
 	type BillingAdmissionMode,
 	createFixedOperationBilling,
@@ -15,9 +16,9 @@ export type ImageGenerationBilling = {
 		reservation: ImageGenerationReservation,
 		capture: CapturedGeneration,
 	) => Promise<void>;
-	refund: (userId: string, attemptId: string) => Promise<void>;
+	refund: (subject: MeteringSubject, attemptId: string) => Promise<void>;
 	reserve: (
-		userId: string,
+		subject: MeteringSubject,
 		attemptId: string,
 		count: number,
 		parentEventId?: string,
@@ -28,7 +29,7 @@ export type ImageGenerationBilling = {
 		units?: number,
 	) => Promise<void>;
 	settleExisting: (
-		userId: string,
+		subject: MeteringSubject,
 		attemptId: string,
 		count: number,
 	) => Promise<boolean>;
@@ -42,17 +43,17 @@ export function createImageGenerationBilling(
 
 	return {
 		capture: (reservation, capture) => billing.capture(reservation, capture),
-		refund: (userId, attemptId) =>
-			billing.refund(userId, attemptId, "image_generation_failed"),
-		reserve: async (userId, attemptId, count, parentEventId, billingMode) =>
-			(await billing.reserve(userId, attemptId, {
+		refund: (subject, attemptId) =>
+			billing.refund(subject, attemptId, "image_generation_failed"),
+		reserve: async (subject, attemptId, count, parentEventId, billingMode) =>
+			(await billing.reserve(subject, attemptId, {
 				billingMode,
 				parentEventId,
 				units: count,
 			})) as ImageGenerationReservation,
 		settle: (reservation, units = reservation.units) =>
 			billing.settle(reservation, units),
-		settleExisting: (userId, attemptId, count) =>
-			billing.settleExisting(userId, attemptId, count),
+		settleExisting: (subject, attemptId, count) =>
+			billing.settleExisting(subject, attemptId, count),
 	};
 }

@@ -28,6 +28,7 @@ function makeAttempt(
 		error: null,
 		id: ATTEMPT_ID,
 		images: makeImages(),
+		organizationId: null,
 		projectDeletedAt: null,
 		projectId: PROJECT_ID,
 		prompt: "A studio product photograph",

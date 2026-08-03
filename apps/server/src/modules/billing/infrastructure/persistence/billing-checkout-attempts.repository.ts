@@ -1,7 +1,12 @@
 import { Inject, Injectable } from "@nestjs/common";
 import type { CheckoutPurpose } from "@wandit/contracts";
-import { and, asc, eq, inArray, sql } from "@wandit/db";
+import { and, asc, eq, inArray, isNull, sql } from "@wandit/db";
 import { billingCheckoutAttempts } from "@wandit/db/schema/billing";
+
+import {
+	type CreditOwner,
+	creditOwnerLockValue,
+} from "../../../credits/domain/credit-owner";
 
 import {
 	DATABASE,
@@ -36,9 +41,24 @@ export class BillingCheckoutAttemptsRepository {
 		});
 	}
 
+	/** Owner-scoped variant: personal keys stay the raw user id (byte-compat). */
+	withOwnerLock<T>(
+		owner: CreditOwner,
+		fn: (tx: BillingCheckoutAttemptTransaction) => Promise<T>,
+	): Promise<T> {
+		return this.db.transaction(async (tx) => {
+			await tx.execute(
+				sql`select pg_advisory_xact_lock(hashtext(${creditOwnerLockValue(owner)}))`,
+			);
+
+			return fn(tx);
+		});
+	}
+
 	async create(
 		input: {
 			id: string;
+			organizationId?: string | null;
 			packId?: string;
 			priceLookupKey?: string;
 			purpose: PersistedCheckoutPurpose;
@@ -51,6 +71,7 @@ export class BillingCheckoutAttemptsRepository {
 			.insert(billingCheckoutAttempts)
 			.values({
 				id: input.id,
+				organizationId: input.organizationId ?? null,
 				packId: input.packId ?? null,
 				priceLookupKey: input.priceLookupKey ?? null,
 				purpose: input.purpose,
@@ -121,12 +142,32 @@ export class BillingCheckoutAttemptsRepository {
 		purpose: PersistedCheckoutPurpose,
 		client: BillingCheckoutAttemptClient = this.db,
 	): Promise<BillingCheckoutAttemptRow[]> {
+		return this.findOpenForOwner({ type: "user", userId }, purpose, client);
+	}
+
+	/**
+	 * Open attempts are serialized PER OWNER: an org's open checkout must block
+	 * another org checkout, but never the same owner's personal checkout.
+	 */
+	async findOpenForOwner(
+		owner: CreditOwner,
+		purpose: PersistedCheckoutPurpose,
+		client: BillingCheckoutAttemptClient = this.db,
+	): Promise<BillingCheckoutAttemptRow[]> {
+		const ownerPredicate =
+			owner.type === "user"
+				? and(
+						eq(billingCheckoutAttempts.userId, owner.userId),
+						isNull(billingCheckoutAttempts.organizationId),
+					)
+				: eq(billingCheckoutAttempts.organizationId, owner.organizationId);
+
 		return client
 			.select()
 			.from(billingCheckoutAttempts)
 			.where(
 				and(
-					eq(billingCheckoutAttempts.userId, userId),
+					ownerPredicate,
 					eq(billingCheckoutAttempts.purpose, purpose),
 					inArray(billingCheckoutAttempts.status, [
 						"created",

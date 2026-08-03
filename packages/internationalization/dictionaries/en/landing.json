@@ -172,6 +172,19 @@
 			],
 			"cta": "Choose Pro"
 		},
+		"business": {
+			"name": "Business",
+			"tagline": "For teams sharing one credit pool",
+			"fromPrice": "From {price}",
+			"perMonth": "/ month",
+			"features": [
+				"Everything in Pro",
+				"One shared credit pool for the whole team",
+				"Roles, invites & per-member credit limits",
+				"Unlimited seats — pay for credits, not people"
+			],
+			"cta": "Create a team workspace"
+		},
 		"beta": {
 			"badge": "Beta",
 			"cta": "Join the beta"

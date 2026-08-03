@@ -6,6 +6,10 @@
  * Two very different callers share it — the pages HTTP endpoints (reads)
  * and the generate_page chat tool (queue-time writes).
  */
+import {
+	type ProjectScope,
+	projectScopePredicate,
+} from "../../../projects/domain/project-scope";
 import { Inject, Injectable } from "@nestjs/common";
 import { and, desc, eq, isNull, lt, sql } from "@wandit/db";
 import { artifacts, versions } from "@wandit/db/schema/artifacts";
@@ -226,17 +230,18 @@ export class PagesRepository {
 	// Everything the Page tab polls for, or null when the project is not
 	// owned by this user (the service turns that into a 404).
 	async findOverviewByProject(
-		userId: string,
+		scope: ProjectScope,
 		projectId: string,
 	): Promise<PageOverviewRows | null> {
-		// Ownership first: project must belong to the user and not be deleted.
+		// Access first: the project must be reachable in this workspace scope
+		// and not deleted.
 		const [project] = await this.db
 			.select({ id: projects.id })
 			.from(projects)
 			.where(
 				and(
 					eq(projects.id, projectId),
-					eq(projects.userId, userId),
+					projectScopePredicate(scope),
 					isNull(projects.deletedAt),
 				),
 			)
@@ -298,7 +303,7 @@ export class PagesRepository {
 		for (const failed of staleQueued) {
 			captureGenerationFailed(
 				this.analyticsService,
-				userId,
+				scope.userId,
 				"page",
 				failed.projectId,
 				failed.id,
@@ -332,7 +337,7 @@ export class PagesRepository {
 		for (const failed of staleGenerating) {
 			captureGenerationFailed(
 				this.analyticsService,
-				userId,
+				scope.userId,
 				"page",
 				failed.projectId,
 				failed.id,
@@ -362,8 +367,8 @@ export class PagesRepository {
 
 	// Find a version only if its project belongs to this user — the join
 	// proves ownership, same pattern as ChatsRepository.findOwnedChatById.
-	async findOwnedVersionById(
-		userId: string,
+	async findAccessibleVersionById(
+		scope: ProjectScope,
 		versionId: string,
 	): Promise<OwnedVersionRow | null> {
 		const [row] = await this.db
@@ -378,7 +383,7 @@ export class PagesRepository {
 			.where(
 				and(
 					eq(versions.id, versionId),
-					eq(projects.userId, userId),
+					projectScopePredicate(scope),
 					isNull(projects.deletedAt),
 				),
 			)
@@ -391,7 +396,7 @@ export class PagesRepository {
 	// with the live (published) version marked. Returns null when the project
 	// is missing or not owned — the caller answers 404.
 	async listVersionsForProject(
-		userId: string,
+		scope: ProjectScope,
 		projectId: string,
 	): Promise<VersionListRow[] | null> {
 		const [project] = await this.db
@@ -400,7 +405,7 @@ export class PagesRepository {
 			.where(
 				and(
 					eq(projects.id, projectId),
-					eq(projects.userId, userId),
+					projectScopePredicate(scope),
 					isNull(projects.deletedAt),
 				),
 			)
@@ -513,7 +518,7 @@ export class PagesRepository {
 	// Landing artifact + its active version for an OWNED project, or null when
 	// the project is missing/not owned (the service turns that into a 404).
 	async findActivePageByProject(
-		userId: string,
+		scope: ProjectScope,
 		projectId: string,
 	): Promise<ActivePageRow | null> {
 		const [project] = await this.db
@@ -522,7 +527,7 @@ export class PagesRepository {
 			.where(
 				and(
 					eq(projects.id, projectId),
-					eq(projects.userId, userId),
+					projectScopePredicate(scope),
 					isNull(projects.deletedAt),
 				),
 			)

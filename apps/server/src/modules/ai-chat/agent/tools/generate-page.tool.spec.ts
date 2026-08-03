@@ -69,6 +69,7 @@ function setup(options: { parentEventId?: string } = {}) {
 		pagesRepository: pagesRepository as unknown as PagesRepository,
 		...(options.parentEventId ? { parentEventId: options.parentEventId } : {}),
 		projectId: "project_1",
+		subject: { actorUserId: "user_1" },
 		userId: "user_1",
 	});
 
@@ -173,7 +174,7 @@ describe("generate_page tool", () => {
 		);
 		expect(tasks.trigger).toHaveBeenCalledWith(
 			"generate-page",
-			{ attemptId: "attempt_1" },
+			{ actorUserId: "user_1", attemptId: "attempt_1" },
 			{
 				idempotencyKey: "global-page-build-key",
 				idempotencyKeyTTL: "14d",
@@ -232,6 +233,7 @@ describe("generate_page tool", () => {
 		expect(tasks.trigger).toHaveBeenCalledWith(
 			"generate-page",
 			{
+				actorUserId: "user_1",
 				attemptId: "attempt_1",
 				parentEventId: "44444444-4444-4444-8444-444444444444",
 			},

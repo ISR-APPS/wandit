@@ -26,6 +26,15 @@ import {
 } from "@wandit/contracts";
 
 import { CreditsService } from "../../../credits/application/services/credits.service";
+import {
+	type CreditOwner,
+	orgOwner,
+	userOwner,
+} from "../../../credits/domain/credit-owner";
+import { OrganizationsDisabledError } from "../../../settings/domain/errors/organizations-disabled.error";
+import { ProductSettingsService } from "../../../settings/application/services/product-settings.service";
+import { WorkspaceNotSupportedError } from "../../../workspaces/domain/errors/workspace.errors";
+import type { WorkspaceContext } from "../../../workspaces/domain/workspace-context";
 import { ActiveSubscriptionExistsError } from "../../domain/errors/active-subscription-exists.error";
 import { AmbiguousPaymentProviderWriteError } from "../../domain/errors/ambiguous-payment-provider-write.error";
 import { BillingNotConfiguredError } from "../../domain/errors/billing-not-configured.error";
@@ -52,6 +61,7 @@ import {
 	BillingCheckoutAttemptsRepository,
 } from "../../infrastructure/persistence/billing-checkout-attempts.repository";
 import { BillingCustomersRepository } from "../../infrastructure/persistence/billing-customers.repository";
+import { OrganizationBillingCustomersRepository } from "../../infrastructure/persistence/organization-billing-customers.repository";
 import {
 	type SubscriptionRow,
 	SubscriptionsRepository,
@@ -80,16 +90,62 @@ export class BillingService {
 		private readonly checkoutAttemptsRepository: BillingCheckoutAttemptsRepository,
 		@Inject(BillingChangeIntentsRepository)
 		private readonly changeIntentsRepository: BillingChangeIntentsRepository,
+		@Inject(OrganizationBillingCustomersRepository)
+		private readonly organizationBillingCustomersRepository: OrganizationBillingCustomersRepository,
+		@Inject(ProductSettingsService)
+		private readonly productSettingsService: ProductSettingsService,
 	) {}
+
+	/**
+	 * Resolves the request's billing scope from the workspace header context.
+	 * Personal scope (no workspace / omitted) is byte-identical to pre-teams.
+	 * Org scope additionally enforces the organizationsEnabled kill switch —
+	 * only for admissions; webhooks always honor paid org money regardless.
+	 */
+	private async resolveBillingScope(
+		user: Pick<AuthUser, "id">,
+		workspace: WorkspaceContext | undefined,
+		options: { admission: boolean },
+	): Promise<{ organizationId: string | null; owner: CreditOwner }> {
+		if (!workspace || workspace.kind !== "org") {
+			return { organizationId: null, owner: userOwner(user.id) };
+		}
+
+		if (options.admission) {
+			const settings = await this.productSettingsService.get();
+
+			if (!settings.organizationsEnabled) {
+				throw new OrganizationsDisabledError();
+			}
+		}
+
+		return {
+			organizationId: workspace.organizationId,
+			owner: orgOwner(workspace.organizationId),
+		};
+	}
+
+	/** Org workspaces buy Business; personal buys Pro. Never the other pairing. */
+	private assertPlanMatchesScope(
+		plan: "pro" | "business",
+		organizationId: string | null,
+	): void {
+		const required = organizationId ? "business" : "pro";
+
+		if (plan !== required) {
+			throw new WorkspaceNotSupportedError(
+				organizationId
+					? "Team workspaces use the Business plan"
+					: "The Business plan requires a team workspace",
+			);
+		}
+	}
 
 	plans(): BillingPlansResponse {
 		return {
 			plans: billingPlanIds.map((plan) => ({
 				basePer100Usd: BILLING_CATALOG.plans[plan].basePer100Usd,
-				features: {
-					seats: false,
-					teamWorkspace: false,
-				},
+				features: BILLING_CATALOG.plans[plan].features,
 				id: plan,
 				tiers: CREDIT_TIERS.map((tierCredits) => ({
 					annualLookupKey: priceLookupKey(plan, tierCredits, "year"),
@@ -110,10 +166,14 @@ export class BillingService {
 
 	async getSubscriptionView(
 		userId: string,
+		workspace?: WorkspaceContext,
 	): Promise<BillingSubscriptionViewResponse> {
+		const scope = await this.resolveBillingScope({ id: userId }, workspace, {
+			admission: false,
+		});
 		const [subscription, balance] = await Promise.all([
-			this.subscriptionsRepository.findActiveByUserId(userId),
-			this.creditsService.getBalance(userId),
+			this.subscriptionsRepository.findActiveByOwner(scope.owner),
+			this.creditsService.getBalance(scope.owner),
 		]);
 
 		return {
@@ -124,7 +184,7 @@ export class BillingService {
 
 	async hasActiveSubscription(userId: string): Promise<boolean> {
 		const subscription =
-			await this.subscriptionsRepository.findActiveByUserId(userId);
+			await this.subscriptionsRepository.findActiveByOwner(userOwner(userId));
 
 		return subscription !== null && this.isEntitled(subscription.status);
 	}
@@ -132,16 +192,26 @@ export class BillingService {
 	async checkout(
 		user: AuthUser,
 		body: CreateBillingCheckoutBody,
+		workspace?: WorkspaceContext,
 	): Promise<BillingCheckoutResponse> {
+		const scope = await this.resolveBillingScope(user, workspace, {
+			admission: true,
+		});
+		this.assertPlanMatchesScope(body.plan, scope.organizationId);
 		const visibleSubscription =
-			await this.subscriptionsRepository.findActiveByUserId(user.id);
+			await this.subscriptionsRepository.findActiveByOwner(scope.owner);
 
 		if (visibleSubscription) {
 			this.throwCheckoutBlocked(visibleSubscription.status);
 		}
 
-		const customer = await this.billingCustomerService.ensureCustomer(user);
-		await this.expireStaleCheckoutAttempts(user.id, "subscription");
+		const customer = scope.organizationId
+			? await this.billingCustomerService.ensureOrgCustomer(
+					scope.organizationId,
+					user,
+				)
+			: await this.billingCustomerService.ensureCustomer(user);
+		await this.expireStaleCheckoutAttempts(scope.owner, "subscription");
 		const attemptId = randomUUID();
 		const lookupKey = priceLookupKey(
 			body.plan,
@@ -149,9 +219,11 @@ export class BillingService {
 			body.interval,
 		);
 
-		await this.checkoutAttemptsRepository.withUserLock(user.id, async (tx) => {
-			const open = await this.checkoutAttemptsRepository.findOpenForUser(
-				user.id,
+		await this.checkoutAttemptsRepository.withOwnerLock(
+			scope.owner,
+			async (tx) => {
+			const open = await this.checkoutAttemptsRepository.findOpenForOwner(
+				scope.owner,
 				"subscription",
 				tx,
 			);
@@ -180,13 +252,15 @@ export class BillingService {
 			await this.checkoutAttemptsRepository.create(
 				{
 					id: attemptId,
+					organizationId: scope.organizationId,
 					priceLookupKey: lookupKey,
 					purpose: "subscription",
 					userId: user.id,
 				},
 				tx,
 			);
-		});
+			},
+		);
 
 		let checkout: Awaited<
 			ReturnType<PaymentProvider["createSubscriptionCheckout"]>
@@ -198,6 +272,7 @@ export class BillingService {
 				customerId: customer.providerCustomerId,
 				email: user.email,
 				interval: body.interval,
+				organizationId: scope.organizationId,
 				plan: body.plan,
 				tierCredits: body.tierCredits,
 				userId: user.id,
@@ -225,10 +300,17 @@ export class BillingService {
 		}
 
 		try {
-			await this.billingCustomersRepository.setOpenCheckoutSessionId(
-				user.id,
-				checkout.id,
-			);
+			if (scope.organizationId) {
+				await this.organizationBillingCustomersRepository.setOpenCheckoutSessionId(
+					scope.organizationId,
+					checkout.id,
+				);
+			} else {
+				await this.billingCustomersRepository.setOpenCheckoutSessionId(
+					user.id,
+					checkout.id,
+				);
+			}
 		} catch (error) {
 			this.logger.warn(
 				`Checkout attempt ${attemptId} attached but legacy customer session pointer could not be updated: ${this.errorMessage(error)}`,
@@ -241,14 +323,25 @@ export class BillingService {
 	async topup(
 		user: AuthUser,
 		body: CreateBillingTopupBody,
+		workspace?: WorkspaceContext,
 	): Promise<BillingCheckoutResponse> {
-		const customer = await this.billingCustomerService.ensureCustomer(user);
-		await this.expireStaleCheckoutAttempts(user.id, "topup");
+		const scope = await this.resolveBillingScope(user, workspace, {
+			admission: true,
+		});
+		const customer = scope.organizationId
+			? await this.billingCustomerService.ensureOrgCustomer(
+					scope.organizationId,
+					user,
+				)
+			: await this.billingCustomerService.ensureCustomer(user);
+		await this.expireStaleCheckoutAttempts(scope.owner, "topup");
 		const attemptId = randomUUID();
 
-		await this.checkoutAttemptsRepository.withUserLock(user.id, async (tx) => {
-			const open = await this.checkoutAttemptsRepository.findOpenForUser(
-				user.id,
+		await this.checkoutAttemptsRepository.withOwnerLock(
+			scope.owner,
+			async (tx) => {
+			const open = await this.checkoutAttemptsRepository.findOpenForOwner(
+				scope.owner,
 				"topup",
 				tx,
 			);
@@ -260,13 +353,15 @@ export class BillingService {
 			await this.checkoutAttemptsRepository.create(
 				{
 					id: attemptId,
+					organizationId: scope.organizationId,
 					packId: body.packId,
 					purpose: "topup",
 					userId: user.id,
 				},
 				tx,
 			);
-		});
+			},
+		);
 
 		const pack = TOPUP_PACKS[body.packId];
 		let checkout: Awaited<ReturnType<PaymentProvider["createTopupCheckout"]>>;
@@ -276,6 +371,7 @@ export class BillingService {
 				attemptId,
 				credits: pack.credits,
 				customerId: customer.providerCustomerId,
+				organizationId: scope.organizationId,
 				packId: body.packId,
 				userId: user.id,
 			});
@@ -304,10 +400,21 @@ export class BillingService {
 		return { url: checkout.url };
 	}
 
-	async portal(user: AuthUser): Promise<BillingPortalResponse> {
-		const customer = await this.billingCustomersRepository.findByUserId(
-			user.id,
-		);
+	async portal(
+		user: AuthUser,
+		workspace?: WorkspaceContext,
+	): Promise<BillingPortalResponse> {
+		const scope = await this.resolveBillingScope(user, workspace, {
+			admission: false,
+		});
+		// Structural isolation: personal scope can only ever reach the personal
+		// customer, org scope only the org's — the two tables partition Stripe
+		// customer ids (design §5.1/§5.4).
+		const customer = scope.organizationId
+			? await this.organizationBillingCustomersRepository.findByOrganizationId(
+					scope.organizationId,
+				)
+			: await this.billingCustomersRepository.findByUserId(user.id);
 
 		if (!customer) {
 			throw new NoActiveSubscriptionError();
@@ -323,8 +430,12 @@ export class BillingService {
 	async previewChange(
 		user: AuthUser,
 		body: PreviewBillingSubscriptionChangeBody,
+		workspace?: WorkspaceContext,
 	): Promise<BillingSubscriptionChangePreviewResponse> {
-		const subscription = await this.requireActiveSubscription(user.id);
+		const scope = await this.resolveBillingScope(user, workspace, {
+			admission: true,
+		});
+		const subscription = await this.requireActiveSubscription(scope.owner);
 		this.assertSupportedIntervalChange(subscription.interval, body.interval);
 
 		if (
@@ -336,6 +447,7 @@ export class BillingService {
 		}
 
 		const plan = body.plan ?? billingPlanIdSchema.parse(subscription.plan);
+		this.assertPlanMatchesScope(plan, scope.organizationId);
 		const targetLookupKey = priceLookupKey(
 			plan,
 			body.tierCredits,
@@ -362,7 +474,7 @@ export class BillingService {
 					prorationDate,
 					providerSubscriptionId: subscription.providerSubscriptionId,
 				});
-		const balance = await this.creditsService.getBalance(user.id);
+		const balance = await this.creditsService.getBalance(scope.owner);
 		const isDowngrade =
 			subscription.interval === body.interval &&
 			body.tierCredits < subscription.tierCredits;
@@ -371,6 +483,7 @@ export class BillingService {
 			currency: preview.currency.toLowerCase(),
 			currentPriceLookupKey: subscription.priceLookupKey,
 			expiresAt,
+			organizationId: scope.organizationId,
 			previewTotalMinor: isDowngrade ? 0 : Math.max(0, preview.amountDueMinor),
 			prorationDate,
 			status: "open",
@@ -391,10 +504,16 @@ export class BillingService {
 	async change(
 		user: AuthUser,
 		body: ChangeBillingSubscriptionBody,
+		workspace?: WorkspaceContext,
 	): Promise<BillingSubscriptionChangeOutcomeResponse> {
-		const customer = await this.billingCustomersRepository.findByUserId(
-			user.id,
-		);
+		const scope = await this.resolveBillingScope(user, workspace, {
+			admission: true,
+		});
+		const customer = scope.organizationId
+			? await this.organizationBillingCustomersRepository.findByOrganizationId(
+					scope.organizationId,
+				)
+			: await this.billingCustomersRepository.findByUserId(user.id);
 
 		if (!customer) {
 			throw new NoActiveSubscriptionError();
@@ -404,7 +523,13 @@ export class BillingService {
 			body.intentId,
 		);
 
-		if (!initialIntent || initialIntent.userId !== user.id) {
+		// The intent must belong to BOTH this actor and this workspace scope: an
+		// org intent consumed from personal scope (or vice versa) is invalid.
+		if (
+			!initialIntent ||
+			initialIntent.userId !== user.id ||
+			(initialIntent.organizationId ?? null) !== scope.organizationId
+		) {
 			throw new BillingChangeIntentInvalidError();
 		}
 
@@ -413,7 +538,7 @@ export class BillingService {
 			initialIntent.expiresAt > new Date()
 		) {
 			const initialSubscription =
-				await this.subscriptionsRepository.findActiveByUserId(user.id);
+				await this.subscriptionsRepository.findActiveByOwner(scope.owner);
 
 			if (
 				initialSubscription?.id === initialIntent.subscriptionId &&
@@ -427,8 +552,8 @@ export class BillingService {
 			}
 		}
 
-		const operation = await this.changeIntentsRepository.withUserLock(
-			user.id,
+		const operation = await this.changeIntentsRepository.withOwnerLock(
+			scope.owner,
 			async (tx) => {
 				const now = new Date();
 				const intent = await this.changeIntentsRepository.findById(
@@ -436,7 +561,11 @@ export class BillingService {
 					tx,
 				);
 
-				if (!intent || intent.userId !== user.id) {
+				if (
+					!intent ||
+					intent.userId !== user.id ||
+					(intent.organizationId ?? null) !== scope.organizationId
+				) {
 					return { error: "invalid" as const };
 				}
 
@@ -479,7 +608,7 @@ export class BillingService {
 				}
 
 				const subscription =
-					await this.subscriptionsRepository.findActiveByUserId(user.id, tx);
+					await this.subscriptionsRepository.findActiveByOwner(scope.owner, tx);
 
 				if (
 					!subscription ||
@@ -551,7 +680,9 @@ export class BillingService {
 		if (operation.kind === "replay") {
 			completedIntent = operation.intent;
 		} else {
-			const idempotencyKey = `sub-change:${user.id}:${operation.intent.id}`;
+			const idempotencyKey = scope.organizationId
+				? `sub-change:org:${scope.organizationId}:${operation.intent.id}`
+				: `sub-change:${user.id}:${operation.intent.id}`;
 			let scheduleId: string | null = null;
 			let providerResult: SubscriptionChangeProviderResult | null = null;
 			const releasesPendingDowngrade =
@@ -579,7 +710,7 @@ export class BillingService {
 					// following price update times out or is rejected, a retry cannot
 					// resurrect a local downgrade whose remote schedule is already gone.
 					providerResult = await this.clearPendingDowngradeForProcessingChange(
-						user.id,
+						scope.owner,
 						operation.intent.id,
 						operation.subscription.providerSubscriptionId,
 					);
@@ -630,8 +761,8 @@ export class BillingService {
 				);
 			}
 
-			completedIntent = await this.changeIntentsRepository.withUserLock(
-				user.id,
+			completedIntent = await this.changeIntentsRepository.withOwnerLock(
+				scope.owner,
 				async (tx) => {
 					const currentIntent = await this.changeIntentsRepository.findById(
 						operation.intent.id,
@@ -736,7 +867,7 @@ export class BillingService {
 			);
 		}
 
-		const view = await this.getSubscriptionView(user.id);
+		const view = await this.getSubscriptionView(user.id, workspace);
 
 		if (!view.subscription) {
 			throw new NoActiveSubscriptionError();
@@ -755,13 +886,21 @@ export class BillingService {
 		};
 	}
 
-	async sync(user: AuthUser): Promise<BillingSubscriptionViewResponse> {
-		const customer = await this.billingCustomersRepository.findByUserId(
-			user.id,
-		);
+	async sync(
+		user: AuthUser,
+		workspace?: WorkspaceContext,
+	): Promise<BillingSubscriptionViewResponse> {
+		const scope = await this.resolveBillingScope(user, workspace, {
+			admission: false,
+		});
+		const customer = scope.organizationId
+			? await this.organizationBillingCustomersRepository.findByOrganizationId(
+					scope.organizationId,
+				)
+			: await this.billingCustomersRepository.findByUserId(user.id);
 
 		if (!customer) {
-			return this.getSubscriptionView(user.id);
+			return this.getSubscriptionView(user.id, workspace);
 		}
 
 		try {
@@ -774,11 +913,17 @@ export class BillingService {
 			}
 		}
 
-		return this.getSubscriptionView(user.id);
+		return this.getSubscriptionView(user.id, workspace);
 	}
 
-	async cancel(user: AuthUser): Promise<BillingSubscriptionViewResponse> {
-		const subscription = await this.requireActiveSubscription(user.id);
+	async cancel(
+		user: AuthUser,
+		workspace?: WorkspaceContext,
+	): Promise<BillingSubscriptionViewResponse> {
+		const scope = await this.resolveBillingScope(user, workspace, {
+			admission: false,
+		});
+		const subscription = await this.requireActiveSubscription(scope.owner);
 
 		await this.paymentProvider.setCancelAtPeriodEnd(
 			subscription.providerSubscriptionId,
@@ -789,11 +934,17 @@ export class BillingService {
 			true,
 		);
 
-		return this.getSubscriptionView(user.id);
+		return this.getSubscriptionView(user.id, workspace);
 	}
 
-	async resume(user: AuthUser): Promise<BillingSubscriptionViewResponse> {
-		const subscription = await this.requireActiveSubscription(user.id);
+	async resume(
+		user: AuthUser,
+		workspace?: WorkspaceContext,
+	): Promise<BillingSubscriptionViewResponse> {
+		const scope = await this.resolveBillingScope(user, workspace, {
+			admission: false,
+		});
+		const subscription = await this.requireActiveSubscription(scope.owner);
 
 		await this.paymentProvider.setCancelAtPeriodEnd(
 			subscription.providerSubscriptionId,
@@ -804,12 +955,12 @@ export class BillingService {
 			false,
 		);
 
-		return this.getSubscriptionView(user.id);
+		return this.getSubscriptionView(user.id, workspace);
 	}
 
-	private async requireActiveSubscription(userId: string) {
+	private async requireActiveSubscription(owner: CreditOwner) {
 		const subscription =
-			await this.subscriptionsRepository.findActiveByUserId(userId);
+			await this.subscriptionsRepository.findActiveByOwner(owner);
 
 		if (!subscription) {
 			throw new NoActiveSubscriptionError();
@@ -837,11 +988,11 @@ export class BillingService {
 	}
 
 	private async expireStaleCheckoutAttempts(
-		userId: string,
+		owner: CreditOwner,
 		purpose: "subscription" | "topup",
 	): Promise<void> {
-		const attempts = await this.checkoutAttemptsRepository.findOpenForUser(
-			userId,
+		const attempts = await this.checkoutAttemptsRepository.findOpenForOwner(
+			owner,
 			purpose,
 		);
 		const staleBefore = Date.now() - 30 * 60 * 1000;
@@ -892,7 +1043,7 @@ export class BillingService {
 					continue;
 				}
 
-				await this.checkoutAttemptsRepository.withUserLock(userId, (tx) =>
+				await this.checkoutAttemptsRepository.withOwnerLock(owner, (tx) =>
 					this.checkoutAttemptsRepository.markExpired(attempt.id, tx),
 				);
 			} catch (error) {
@@ -906,9 +1057,20 @@ export class BillingService {
 	private async recoverUnattachedCheckoutAttempt(
 		attempt: BillingCheckoutAttemptRow,
 	): Promise<string | null> {
-		const customer = await this.billingCustomersRepository.findByUserId(
-			attempt.userId,
-		);
+		// Recovery must replay the ORIGINAL owner's provider call byte-for-byte:
+		// the org customer + org idempotency key for org attempts, personal for
+		// personal. Resolving via the actor's personal customer here minted a
+		// session on the WRONG Stripe customer and, for org-first owners with no
+		// personal customer row, permanently locked the org out of checkout
+		// (confirmed money-review finding).
+		const attemptOwner = attempt.organizationId
+			? orgOwner(attempt.organizationId)
+			: userOwner(attempt.userId);
+		const customer = attempt.organizationId
+			? await this.organizationBillingCustomersRepository.findByOrganizationId(
+					attempt.organizationId,
+				)
+			: await this.billingCustomersRepository.findByUserId(attempt.userId);
 
 		if (!customer) {
 			throw new Error(
@@ -936,6 +1098,7 @@ export class BillingService {
 				customerId: customer.providerCustomerId,
 				email: "",
 				interval: parsed.interval,
+				organizationId: attempt.organizationId,
 				plan: parsed.plan,
 				tierCredits: parsed.tierCredits,
 				userId: attempt.userId,
@@ -954,13 +1117,14 @@ export class BillingService {
 				attemptId: attempt.id,
 				credits: pack.credits,
 				customerId: customer.providerCustomerId,
+				organizationId: attempt.organizationId,
 				packId: packId.data,
 				userId: attempt.userId,
 			});
 		}
 
-		const attached = await this.checkoutAttemptsRepository.withUserLock(
-			attempt.userId,
+		const attached = await this.checkoutAttemptsRepository.withOwnerLock(
+			attemptOwner,
 			(tx) =>
 				this.checkoutAttemptsRepository.attachSession(
 					attempt.id,
@@ -1094,11 +1258,13 @@ export class BillingService {
 	}
 
 	private async clearPendingDowngradeForProcessingChange(
-		userId: string,
+		owner: CreditOwner,
 		intentId: string,
 		providerSubscriptionId: string,
 	): Promise<SubscriptionChangeProviderResult | null> {
-		return this.changeIntentsRepository.withUserLock(userId, async (tx) => {
+		// Same owner lock as the change execution: this saga step must never
+		// interleave with another owner's concurrent change on the same pool.
+		return this.changeIntentsRepository.withOwnerLock(owner, async (tx) => {
 			const intent = await this.changeIntentsRepository.findById(intentId, tx);
 
 			if (intent?.status !== "processing" && intent?.status !== "consumed") {

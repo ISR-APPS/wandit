@@ -33,9 +33,22 @@ const PRO_ECONOMICS = [
 	{ monthlyUsd: 1125, tierCredits: 5000, yearlyUsd: 11250 },
 ] as const;
 
+// Business is exactly 2x Pro per tier: unlimited seats, the pool is priced.
+const BUSINESS_ECONOMICS = [
+	{ monthlyUsd: 50, tierCredits: 100, yearlyUsd: 500 },
+	{ monthlyUsd: 100, tierCredits: 200, yearlyUsd: 1000 },
+	{ monthlyUsd: 200, tierCredits: 400, yearlyUsd: 2000 },
+	{ monthlyUsd: 400, tierCredits: 800, yearlyUsd: 4000 },
+	{ monthlyUsd: 588, tierCredits: 1200, yearlyUsd: 5880 },
+	{ monthlyUsd: 960, tierCredits: 2000, yearlyUsd: 9600 },
+	{ monthlyUsd: 1410, tierCredits: 3000, yearlyUsd: 14100 },
+	{ monthlyUsd: 1840, tierCredits: 4000, yearlyUsd: 18400 },
+	{ monthlyUsd: 2250, tierCredits: 5000, yearlyUsd: 22500 },
+] as const;
+
 describe("billing catalog", () => {
-	it("publishes the exact single-plan economics table", () => {
-		expect(billingPlanIds).toEqual(["pro"]);
+	it("publishes the exact plan economics tables", () => {
+		expect(billingPlanIds).toEqual(["pro", "business"]);
 		expect(CREDIT_TIERS).toEqual(
 			PRO_ECONOMICS.map(({ tierCredits }) => tierCredits),
 		);
@@ -44,6 +57,21 @@ describe("billing catalog", () => {
 			expect(priceUsdFor("pro", row.tierCredits, "month")).toBe(row.monthlyUsd);
 			expect(priceUsdFor("pro", row.tierCredits, "year")).toBe(row.yearlyUsd);
 			expect(row.yearlyUsd).toBe(row.monthlyUsd * 10);
+		}
+
+		for (const [index, row] of BUSINESS_ECONOMICS.entries()) {
+			const proRow = PRO_ECONOMICS[index];
+
+			expect(row.tierCredits).toBe(proRow?.tierCredits);
+			expect(priceUsdFor("business", row.tierCredits, "month")).toBe(
+				row.monthlyUsd,
+			);
+			expect(priceUsdFor("business", row.tierCredits, "year")).toBe(
+				row.yearlyUsd,
+			);
+			expect(row.yearlyUsd).toBe(row.monthlyUsd * 10);
+			// The 2x-Pro ratio is product policy, not a coincidence.
+			expect(row.monthlyUsd).toBe((proRow?.monthlyUsd ?? 0) * 2);
 		}
 	});
 
@@ -57,15 +85,17 @@ describe("billing catalog", () => {
 	});
 
 	it("round-trips every public price lookup key", () => {
-		for (const tierCredits of CREDIT_TIERS) {
-			for (const interval of billingIntervals) {
-				const lookupKey = priceLookupKey("pro", tierCredits, interval);
+		for (const plan of billingPlanIds) {
+			for (const tierCredits of CREDIT_TIERS) {
+				for (const interval of billingIntervals) {
+					const lookupKey = priceLookupKey(plan, tierCredits, interval);
 
-				expect(parsePriceLookupKey(lookupKey)).toEqual({
-					interval,
-					plan: "pro",
-					tierCredits,
-				});
+					expect(parsePriceLookupKey(lookupKey)).toEqual({
+						interval,
+						plan,
+						tierCredits,
+					});
+				}
 			}
 		}
 	});

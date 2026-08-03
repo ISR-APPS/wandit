@@ -20,6 +20,10 @@ import {
 	captureGenerationFailed,
 } from "../../../../infrastructure/analytics/generation-events";
 import {
+	type ProjectScope,
+	projectScopePredicate,
+} from "../../../projects/domain/project-scope";
+import {
 	DATABASE,
 	type Database,
 } from "../../../../infrastructure/database/database.constants";
@@ -178,11 +182,24 @@ export class MediaGenerationsRepository {
 		return true;
 	}
 
-	async findOwnedAttempt(
-		userId: string,
+	async findAccessibleAttempt(
+		scope: ProjectScope,
 		attemptId: string,
 	): Promise<MediaGenerationAttemptRow | null> {
-		return this.selectOwnedAttempt(userId, attemptId);
+		const [row] = await this.db
+			.select(ATTEMPT_COLUMNS)
+			.from(mediaGenerationAttempts)
+			.innerJoin(projects, eq(projects.id, mediaGenerationAttempts.projectId))
+			.where(
+				and(
+					eq(mediaGenerationAttempts.id, attemptId),
+					projectScopePredicate(scope),
+					isNull(projects.deletedAt),
+				),
+			)
+			.limit(1);
+
+		return row ?? null;
 	}
 
 	async markStaleGeneratingAttemptFailed(
@@ -300,8 +317,8 @@ export class MediaGenerationsRepository {
 	}
 
 	// Assets tab: every finished animation of one owned project, newest first.
-	async listOwnedSucceededByProject(
-		userId: string,
+	async listSucceededForProject(
+		scope: ProjectScope,
 		projectId: string,
 	): Promise<SucceededMediaGenerationRow[]> {
 		return this.db
@@ -319,30 +336,10 @@ export class MediaGenerationsRepository {
 				and(
 					eq(mediaGenerationAttempts.projectId, projectId),
 					eq(mediaGenerationAttempts.status, "succeeded"),
-					eq(projects.userId, userId),
+					projectScopePredicate(scope),
 					isNull(projects.deletedAt),
 				),
 			)
 			.orderBy(desc(mediaGenerationAttempts.createdAt));
-	}
-
-	private async selectOwnedAttempt(
-		userId: string,
-		attemptId: string,
-	): Promise<MediaGenerationAttemptRow | null> {
-		const [row] = await this.db
-			.select(ATTEMPT_COLUMNS)
-			.from(mediaGenerationAttempts)
-			.innerJoin(projects, eq(projects.id, mediaGenerationAttempts.projectId))
-			.where(
-				and(
-					eq(mediaGenerationAttempts.id, attemptId),
-					eq(projects.userId, userId),
-					isNull(projects.deletedAt),
-				),
-			)
-			.limit(1);
-
-		return row ?? null;
 	}
 }

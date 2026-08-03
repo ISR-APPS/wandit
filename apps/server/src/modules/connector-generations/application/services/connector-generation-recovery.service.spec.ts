@@ -19,6 +19,7 @@ const BASE_ROW: ConnectorGenerationAttemptRow = {
 		{ kind: "image", url: "https://assets.test/one.webp" },
 		{ kind: "image", url: "https://assets.test/two.webp" },
 	],
+	organizationId: null,
 	status: "running",
 	toolName: "generate_image",
 	userId: "user-1",

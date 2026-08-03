@@ -14,6 +14,7 @@ import {
 	uuid,
 } from "drizzle-orm/pg-core";
 import { user } from "./auth";
+import { organization } from "./organizations";
 
 // Payment-provider-agnostic by design: Stripe, CIB, admin grants — every
 // writer just inserts rows. Refunds are compensating `grant` rows meta-linked
@@ -55,13 +56,18 @@ export const creditLedger = pgTable(
 	"credit_ledger",
 	{
 		id: uuid("id").primaryKey().defaultRandom(),
+		// Owner semantics (teams-workspaces.md §3.2):
+		//   personal row — userId set, organizationId NULL (every pre-org row).
+		//   org row      — organizationId set; userId = acting member on
+		//                  consumption rows (provenance), NULL on grants/refills/
+		//                  topups/revokes that originate from invoices.
 		userId: text("user_id")
-			.notNull()
 			// restrict, not cascade: financial history must survive account rows —
 			// user deletion is soft/anonymize at the app layer, never a DB cascade.
 			.references(() => user.id, { onDelete: "restrict" }),
-		// Reserved for Business org credits; no FK until org mechanics land.
-		organizationId: text("organization_id"),
+		organizationId: text("organization_id").references(() => organization.id, {
+			onDelete: "restrict",
+		}),
 		bucket: creditBucket("bucket").notNull().default("plan"),
 		// Signed: grant/topup positive, consume/expire/revoke negative.
 		// UNIT: whole credits — 1 is the minimum billable amount, forever
@@ -91,9 +97,20 @@ export const creditLedger = pgTable(
 		uniqueIndex("credit_ledger_idempotencyKey_uq")
 			.on(table.idempotencyKey)
 			.where(sql`${table.idempotencyKey} IS NOT NULL`),
+		// Org pool balance + history.
+		index("credit_ledger_orgId_createdAt_idx")
+			.on(table.organizationId, table.createdAt)
+			.where(sql`${table.organizationId} IS NOT NULL`),
+		index("credit_ledger_orgId_bucket_idx")
+			.on(table.organizationId, table.bucket)
+			.where(sql`${table.organizationId} IS NOT NULL`),
 		check(
 			"credit_ledger_delta_sign_chk",
 			sql`(${table.kind} IN ('grant', 'topup') AND ${table.delta} > 0) OR (${table.kind} IN ('consume', 'expire', 'revoke') AND ${table.delta} < 0)`,
+		),
+		check(
+			"credit_ledger_owner_present_ck",
+			sql`${table.userId} IS NOT NULL OR ${table.organizationId} IS NOT NULL`,
 		),
 	],
 );
@@ -116,9 +133,12 @@ export const creditPlanHoldPools = pgTable(
 	"credit_plan_hold_pools",
 	{
 		id: uuid("id").primaryKey().defaultRandom(),
-		userId: text("user_id")
-			.notNull()
-			.references(() => user.id, { onDelete: "restrict" }),
+		// Pool owner: personal → userId set / org NULL; org → organizationId set /
+		// userId NULL. Same owner semantics as credit_ledger.
+		userId: text("user_id").references(() => user.id, { onDelete: "restrict" }),
+		organizationId: text("organization_id").references(() => organization.id, {
+			onDelete: "restrict",
+		}),
 		boundaryIdempotencyKey: text("boundary_idempotency_key").notNull(),
 		remainingCredits: integer("remaining_credits").notNull(),
 		closedAt: timestamp("closed_at", { withTimezone: true }),
@@ -134,9 +154,16 @@ export const creditPlanHoldPools = pgTable(
 			table.boundaryIdempotencyKey,
 		),
 		index("credit_plan_hold_pools_userId_idx").on(table.userId),
+		index("credit_plan_hold_pools_orgId_idx")
+			.on(table.organizationId)
+			.where(sql`${table.organizationId} IS NOT NULL`),
 		check(
 			"credit_plan_hold_pools_remaining_nonnegative_ck",
 			sql`${table.remainingCredits} >= 0`,
+		),
+		check(
+			"credit_plan_hold_pools_owner_present_ck",
+			sql`${table.userId} IS NOT NULL OR ${table.organizationId} IS NOT NULL`,
 		),
 	],
 );
@@ -155,9 +182,11 @@ export const creditPlanHolds = pgTable(
 		consumeLedgerId: uuid("consume_ledger_id")
 			.notNull()
 			.references(() => creditLedger.id, { onDelete: "restrict" }),
-		userId: text("user_id")
-			.notNull()
-			.references(() => user.id, { onDelete: "restrict" }),
+		// Hold owner: same personal/org semantics as credit_ledger.
+		userId: text("user_id").references(() => user.id, { onDelete: "restrict" }),
+		organizationId: text("organization_id").references(() => organization.id, {
+			onDelete: "restrict",
+		}),
 		poolId: uuid("pool_id").references(() => creditPlanHoldPools.id, {
 			onDelete: "restrict",
 		}),
@@ -176,6 +205,13 @@ export const creditPlanHolds = pgTable(
 			table.consumeLedgerId,
 		),
 		index("credit_plan_holds_userId_active_idx").on(table.userId, table.active),
+		index("credit_plan_holds_orgId_active_idx")
+			.on(table.organizationId, table.active)
+			.where(sql`${table.organizationId} IS NOT NULL`),
+		check(
+			"credit_plan_holds_owner_present_ck",
+			sql`${table.userId} IS NOT NULL OR ${table.organizationId} IS NOT NULL`,
+		),
 		check(
 			"credit_plan_holds_original_positive_ck",
 			sql`${table.originalCredits} > 0`,
@@ -220,9 +256,15 @@ export const aiUsageEvents = pgTable(
 	"ai_usage_events",
 	{
 		id: uuid("id").primaryKey().defaultRandom(),
+		// ALWAYS the acting member — actor attribution is never lost. The payer
+		// pool is organizationId ?? userId (teams-workspaces.md §4.1).
 		userId: text("user_id")
 			.notNull()
 			.references(() => user.id, { onDelete: "restrict" }),
+		// Set when the work was done in an org workspace: the org pool pays.
+		organizationId: text("organization_id").references(() => organization.id, {
+			onDelete: "restrict",
+		}),
 		operation: aiUsageOperation("operation").notNull(),
 		parentEventId: uuid("parent_event_id").references(
 			(): AnyPgColumn => aiUsageEvents.id,
@@ -256,6 +298,10 @@ export const aiUsageEvents = pgTable(
 			table.userId,
 			table.createdAt,
 		),
+		// Per-member spend aggregation inside an org (calendar-month limits).
+		index("ai_usage_events_orgId_userId_createdAt_idx")
+			.on(table.organizationId, table.userId, table.createdAt)
+			.where(sql`${table.organizationId} IS NOT NULL`),
 		index("ai_usage_events_reserved_status_idx")
 			.on(table.status)
 			.where(sql`${table.status} = 'reserved'`),

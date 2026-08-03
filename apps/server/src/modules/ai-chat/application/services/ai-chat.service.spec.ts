@@ -66,6 +66,7 @@ type CapturedStreamOptions = {
 const CHAT_ID = "chat-1";
 const PROJECT_ID = "project-1";
 const USER_ID = "user-1";
+const PERSONAL_SCOPE = { kind: "personal", userId: USER_ID } as const;
 
 let capturedStreamOptions: CapturedStreamOptions | undefined;
 
@@ -79,11 +80,12 @@ function buildService({
 	pricingOverrides?: Record<string, unknown>;
 } = {}) {
 	const chatsRepository = {
-		findOwnedChatById: vi.fn().mockResolvedValue({
+		findAccessibleChatById: vi.fn().mockResolvedValue({
 			id: CHAT_ID,
 			projectId: PROJECT_ID,
 		}),
 		insertUiMessagesIfAbsent: vi.fn().mockResolvedValue(undefined),
+		listMessageIds: vi.fn().mockResolvedValue(new Set<string>()),
 		upsertUiMessage: vi.fn().mockResolvedValue(undefined),
 	};
 	const pagesRepository = {
@@ -166,6 +168,7 @@ async function streamThroughController(
 		CHAT_ID,
 		{ messages },
 		{ id: USER_ID } as never,
+		{ kind: "personal" } as never,
 		request,
 		reply,
 	);
@@ -193,7 +196,7 @@ function streamOptions(messages: WanditUIMessage[] = [userMessage()]) {
 		prepared: { eventId: "usage-event-1", release: vi.fn() },
 		projectId: PROJECT_ID,
 		reply: { raw: {} } as FastifyReply,
-		userId: USER_ID,
+		scope: PERSONAL_SCOPE,
 	};
 }
 
@@ -290,7 +293,7 @@ describe("AiChatService MCP lifecycle", () => {
 			chatId: CHAT_ID,
 			messages: [userMessage()],
 			projectId: PROJECT_ID,
-			userId: USER_ID,
+			scope: PERSONAL_SCOPE,
 		});
 
 		expect(prepared.eventId).toBe("project-usage-event");
@@ -301,7 +304,7 @@ describe("AiChatService MCP lifecycle", () => {
 			idempotencyKey: `project-create:${PROJECT_ID}`,
 			messageId: "user-message",
 			operation: "chat",
-			userId: USER_ID,
+			subject: { actorUserId: USER_ID },
 		});
 		expect(meteringService.reserveWithReplay).not.toHaveBeenCalled();
 		prepared.release();
@@ -326,7 +329,7 @@ describe("AiChatService MCP lifecycle", () => {
 				messages: [userMessage()],
 				projectId: PROJECT_ID,
 				requestId: "claim-replay",
-				userId: USER_ID,
+				scope: PERSONAL_SCOPE,
 			})
 			.catch((caught: unknown) => caught);
 
@@ -354,7 +357,7 @@ describe("AiChatService MCP lifecycle", () => {
 				messages: [userMessage()],
 				projectId: PROJECT_ID,
 				requestId: "accepted-creation",
-				userId: USER_ID,
+				scope: PERSONAL_SCOPE,
 			});
 			expect(claimedPrepared.eventId).toBe("project-usage-event");
 			expect(
@@ -375,7 +378,7 @@ describe("AiChatService MCP lifecycle", () => {
 					messages: [userMessage()],
 					projectId: PROJECT_ID,
 					requestId: "accepted-ordinary",
-					userId: USER_ID,
+					scope: PERSONAL_SCOPE,
 				}),
 			).rejects.toMatchObject({ status: 409 });
 			expect(
@@ -388,7 +391,7 @@ describe("AiChatService MCP lifecycle", () => {
 				messages: [userMessage()],
 				projectId: PROJECT_ID,
 				requestId: "new-unmetered-operation",
-				userId: USER_ID,
+				scope: PERSONAL_SCOPE,
 			});
 			expect(prepared.eventId).toBeNull();
 			expect(
@@ -422,7 +425,7 @@ describe("AiChatService MCP lifecycle", () => {
 				messages: [userMessage()],
 				projectId: PROJECT_ID,
 				requestId: "ordinary-replay",
-				userId: USER_ID,
+				scope: PERSONAL_SCOPE,
 			})
 			.catch((caught: unknown) => caught);
 
@@ -446,7 +449,7 @@ describe("AiChatService MCP lifecycle", () => {
 				messages: [userMessage()],
 				projectId: PROJECT_ID,
 				requestId: "terminal-replay",
-				userId: USER_ID,
+				scope: PERSONAL_SCOPE,
 			})
 			.catch((caught: unknown) => caught);
 
@@ -466,7 +469,7 @@ describe("AiChatService MCP lifecycle", () => {
 					messages: [userMessage()],
 					projectId: PROJECT_ID,
 					requestId: `request-${index}`,
-					userId: USER_ID,
+					scope: PERSONAL_SCOPE,
 				}),
 			);
 		}
@@ -477,7 +480,7 @@ describe("AiChatService MCP lifecycle", () => {
 				messages: [userMessage()],
 				projectId: PROJECT_ID,
 				requestId: "request-4",
-				userId: USER_ID,
+				scope: PERSONAL_SCOPE,
 			})
 			.catch((caught: unknown) => caught);
 
@@ -491,7 +494,7 @@ describe("AiChatService MCP lifecycle", () => {
 			messages: [userMessage()],
 			projectId: PROJECT_ID,
 			requestId: "replacement",
-			userId: USER_ID,
+			scope: PERSONAL_SCOPE,
 		});
 
 		for (const item of [...prepared.slice(1), replacement]) {
@@ -1017,7 +1020,7 @@ describe("AiChatService MCP lifecycle", () => {
 		const pendingStream = service.stream(streamOptions());
 
 		expect(mcpChatToolsService.resolveToolsForUser).toHaveBeenCalledWith(
-			USER_ID,
+			{ actorUserId: USER_ID },
 			"usage-event-1",
 		);
 		expect(pagesRepository.collectManualEditTrail).toHaveBeenCalledWith(

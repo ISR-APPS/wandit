@@ -8,6 +8,12 @@ import type Stripe from "stripe";
 
 import { CreditsService } from "../../../credits/application/services/credits.service";
 import {
+	type CreditOwner,
+	creditOwnerKey,
+	ownerFromIds,
+	sameCreditOwner,
+} from "../../../credits/domain/credit-owner";
+import {
 	WEBHOOK_ORDER_REFUND_HANDLER,
 	type WebhookOrderRefundHandler,
 } from "../../domain/ports/webhook-order-refund-handler.port";
@@ -493,7 +499,7 @@ export class PaymentRefundsService {
 					chargeId: input.chargeId,
 					paymentIntentId: input.paymentIntentId,
 				};
-				const [grantRows, revocationRows, restorationRows, slotUserIds] =
+				const [grantRows, revocationRows, restorationRows, slotOwners] =
 					await Promise.all([
 						this.billingCreditLedgerRepository.findPositiveRowsForPayment(
 							paymentReference,
@@ -507,7 +513,7 @@ export class PaymentRefundsService {
 							paymentReference,
 							tx,
 						),
-						this.billingCreditLedgerRepository.findPendingRefillSlotUserIdsForCharge(
+						this.billingCreditLedgerRepository.findPendingRefillSlotOwnersForCharge(
 							input.chargeId,
 							tx,
 						),
@@ -518,45 +524,63 @@ export class PaymentRefundsService {
 					...restorationRows,
 				]);
 
-				if (slotUserIds.length > 1) {
+				if (slotOwners.length > 1) {
 					throw new Error(
-						`Stripe charge ${input.chargeId} funds refill slots for multiple users`,
+						`Stripe charge ${input.chargeId} funds refill slots for multiple owners`,
 					);
 				}
 
-				const grantUserId =
+				const grantOwner =
 					grantRows.length > 0
 						? this.singleOwner(grantRows, input.chargeId)
 						: null;
-				const slotUserId = slotUserIds[0] ?? null;
+				const slotOwner = slotOwners[0] ?? null;
 
-				if (grantUserId && slotUserId && grantUserId !== slotUserId) {
+				if (
+					grantOwner &&
+					slotOwner &&
+					!sameCreditOwner(grantOwner, slotOwner)
+				) {
 					throw new Error(
 						`Stripe charge ${input.chargeId} grant and refill slots have different owners`,
 					);
 				}
 
-				const userId = grantUserId ?? slotUserId;
+				const owner = grantOwner ?? slotOwner;
 
-				if (userId) {
-					// Lock order is charge -> user -> refill rows on every clawback.
-					await this.billingCreditLedgerRepository.acquireUserLock(userId, tx);
+				if (owner) {
+					// Lock order is charge -> owner -> refill rows on every clawback.
+					await this.billingCreditLedgerRepository.acquireOwnerLock(owner, tx);
 				}
 
-				const canceledSlots =
-					await this.billingCreditLedgerRepository.cancelPendingRefillSlotsForCharge(
-						input.chargeId,
-						tx,
-					);
+				// Pending yearly refill slots are FUTURE months the customer already
+				// paid for. Only a FULL refund of the funding charge may cancel them:
+				// a $10 goodwill refund on a yearly Business tier must not destroy
+				// 11 months of prepaid credits (money-review finding; pre-existing,
+				// amplified by Business pricing). Partial-refund slot policy is
+				// documented as manual-review in the billing runbook.
+				const refundCoversFullCharge =
+					input.fraction.numerator >= input.fraction.denominator;
+				const canceledSlots = refundCoversFullCharge
+					? await this.billingCreditLedgerRepository.cancelPendingRefillSlotsForCharge(
+							input.chargeId,
+							tx,
+						)
+					: 0;
 
-				if (!grantUserId) {
-					return canceledSlots > 0;
+				if (!grantOwner) {
+					// The charge is recognized (it funds refill slots) even when a
+					// partial refund deliberately preserves them — ack the webhook
+					// either way so it does not dead-letter.
+					return refundCoversFullCharge
+						? canceledSlots > 0
+						: slotOwners.length > 0;
 				}
 
-				this.assertRevocationOwner(revocationRows, grantUserId, input.chargeId);
+				this.assertRevocationOwner(revocationRows, grantOwner, input.chargeId);
 				this.assertRevocationOwner(
 					restorationRows,
-					grantUserId,
+					grantOwner,
 					input.chargeId,
 				);
 				const allocations = this.allocateByOriginalBucket(
@@ -574,7 +598,7 @@ export class PaymentRefundsService {
 					}
 
 					await this.creditsService.revoke(
-						grantUserId,
+						grantOwner,
 						allocation.delta,
 						{
 							bucket: allocation.bucket,
@@ -754,9 +778,9 @@ export class PaymentRefundsService {
 			return false;
 		}
 
-		const userId = this.singleOwner(grantRows, input.chargeId);
-		this.assertRevocationOwner(revocationRows, userId, input.chargeId);
-		this.assertRevocationOwner(restorationRows, userId, input.chargeId);
+		const owner = this.singleOwner(grantRows, input.chargeId);
+		this.assertRevocationOwner(revocationRows, owner, input.chargeId);
+		this.assertRevocationOwner(restorationRows, owner, input.chargeId);
 		const allocations = this.restorationAllocations(
 			grantRows,
 			revocationRows,
@@ -772,7 +796,7 @@ export class PaymentRefundsService {
 			}
 
 			await this.creditsService.grant(
-				userId,
+				owner,
 				allocation.delta,
 				{
 					bucket: allocation.bucket,
@@ -1092,34 +1116,47 @@ export class PaymentRefundsService {
 		return this.stripeProvider.retrieveCharge(chargeId);
 	}
 
-	private singleOwner(rows: BillingCreditLedgerRow[], chargeId: string) {
-		const userIds = new Set(rows.map((row) => row.userId));
+	private singleOwner(
+		rows: BillingCreditLedgerRow[],
+		chargeId: string,
+	): CreditOwner {
+		const byKey = new Map<string, CreditOwner>();
 
-		if (userIds.size !== 1) {
+		for (const row of rows) {
+			const owner = ownerFromIds(row.userId, row.organizationId);
+			byKey.set(creditOwnerKey(owner), owner);
+		}
+
+		if (byKey.size !== 1) {
 			throw new Error(
-				`Purchased credit grants for Stripe charge ${chargeId} span multiple users`,
+				`Purchased credit grants for Stripe charge ${chargeId} span multiple owners`,
 			);
 		}
 
-		const [userId] = userIds;
+		const [owner] = byKey.values();
 
-		if (!userId) {
+		if (!owner) {
 			throw new Error(
 				`Purchased credit grants for Stripe charge ${chargeId} have no owner`,
 			);
 		}
 
-		return userId;
+		return owner;
 	}
 
 	private assertRevocationOwner(
 		rows: BillingCreditLedgerRow[],
-		userId: string,
+		owner: CreditOwner,
 		chargeId: string,
 	) {
-		if (rows.some((row) => row.userId !== userId)) {
+		const mismatch = rows.some(
+			(row) =>
+				!sameCreditOwner(ownerFromIds(row.userId, row.organizationId), owner),
+		);
+
+		if (mismatch) {
 			throw new Error(
-				`Credit revocations for Stripe charge ${chargeId} span multiple users`,
+				`Credit revocations for Stripe charge ${chargeId} span multiple owners`,
 			);
 		}
 	}

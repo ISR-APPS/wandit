@@ -41,12 +41,12 @@ describe("lead scrape billing", () => {
 			reserveLeadScrapeUsage(meteringService, {
 				attemptId: "attempt-1",
 				parentEventId: "chat-event-1",
-				userId: "user-1",
+				subject: { actorUserId: "user-1" },
 			}),
 		).resolves.toBe(event);
 		expect(meteringService.reserveWithReplay).toHaveBeenCalledWith(
 			"lead_scrape",
-			"user-1",
+			{ actorUserId: "user-1" },
 			{
 				attemptRef: "attempt-1",
 				credits: 5,
@@ -65,7 +65,7 @@ describe("lead scrape billing", () => {
 		await expect(
 			reserveLeadScrapeUsage(meteringService, {
 				attemptId: "attempt-1",
-				userId: "user-1",
+				subject: { actorUserId: "user-1" },
 			}),
 		).rejects.toThrow(`cannot execute with ${status} metering`);
 	});
@@ -76,7 +76,7 @@ describe("lead scrape billing", () => {
 		await expect(
 			reserveLeadScrapeUsage(meteringService, {
 				attemptId: "attempt-1",
-				userId: "user-1",
+				subject: { actorUserId: "user-1" },
 			}),
 		).rejects.toThrow("core rejected refunded replay");
 	});
@@ -89,12 +89,12 @@ describe("lead scrape billing", () => {
 				attemptId: "attempt-1",
 				parentEventId: "chat-event-1",
 				runtimeBillingDisabled: true,
-				userId: "user-1",
+				subject: { actorUserId: "user-1" },
 			}),
 		).resolves.toBe(event);
 		expect(meteringService.findByIdempotencyKey).toHaveBeenCalledWith(
 			"lead-scrape:attempt-1",
-			"user-1",
+			{ actorUserId: "user-1" },
 		);
 		expect(meteringService.reserveWithReplay).toHaveBeenCalledOnce();
 	});
@@ -107,7 +107,7 @@ describe("lead scrape billing", () => {
 			reserveLeadScrapeUsageForExecution(meteringService, {
 				attemptId: "attempt-off",
 				runtimeBillingDisabled: true,
-				userId: "user-1",
+				subject: { actorUserId: "user-1" },
 			}),
 		).resolves.toBeNull();
 		expect(meteringService.reserveWithReplay).not.toHaveBeenCalled();
@@ -121,7 +121,7 @@ describe("lead scrape billing", () => {
 				attemptId: "attempt-enforced",
 				billingMode: "enforce",
 				runtimeBillingDisabled: true,
-				userId: "user-1",
+				subject: { actorUserId: "user-1" },
 			}),
 		).resolves.toBe(event);
 		expect(meteringService.findByIdempotencyKey).not.toHaveBeenCalled();
@@ -137,7 +137,7 @@ describe("lead scrape billing", () => {
 				attemptId: "attempt-off",
 				billingMode: "off",
 				runtimeBillingDisabled: false,
-				userId: "user-1",
+				subject: { actorUserId: "user-1" },
 			}),
 		).resolves.toBeNull();
 		expect(meteringService.reserveWithReplay).not.toHaveBeenCalled();
@@ -150,12 +150,12 @@ describe("lead scrape billing", () => {
 			ensureLeadScrapeUsageSettled(meteringService, {
 				attemptId: "attempt-1",
 				resultCount: 27,
-				userId: "user-1",
+				subject: { actorUserId: "user-1" },
 			}),
 		).resolves.toBe(true);
 		expect(meteringService.findByIdempotencyKey).toHaveBeenCalledWith(
 			"lead-scrape:attempt-1",
-			"user-1",
+			{ actorUserId: "user-1" },
 		);
 		expect(meteringService.settle).toHaveBeenCalledWith("usage-event-1", {
 			finalCredits: 5,
@@ -177,7 +177,7 @@ describe("lead scrape billing", () => {
 			ensureLeadScrapeUsageSettled(meteringService, {
 				attemptId: "legacy-attempt",
 				resultCount: 10,
-				userId: "user-1",
+				subject: { actorUserId: "user-1" },
 			}),
 		).resolves.toBe(false);
 		expect(meteringService.settle).not.toHaveBeenCalled();
@@ -190,7 +190,7 @@ describe("lead scrape billing", () => {
 			refundLeadScrapeUsageIfReserved(reserved.meteringService, {
 				attemptId: "attempt-1",
 				eventId: "usage-event-1",
-				userId: "user-1",
+				subject: { actorUserId: "user-1" },
 			}),
 		).resolves.toBe(true);
 		expect(reserved.meteringService.refund).toHaveBeenCalledWith(
@@ -203,7 +203,7 @@ describe("lead scrape billing", () => {
 			refundLeadScrapeUsageIfReserved(settled.meteringService, {
 				attemptId: "attempt-1",
 				eventId: "usage-event-1",
-				userId: "user-1",
+				subject: { actorUserId: "user-1" },
 			}),
 		).resolves.toBe(false);
 		expect(settled.meteringService.refund).not.toHaveBeenCalled();

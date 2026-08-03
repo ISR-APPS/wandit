@@ -40,6 +40,7 @@ describe("chat agent cost bounds and gateway attribution", () => {
 			pagesRepository: {},
 			projectId: "project-1",
 			requestCountryCode: null,
+			subject: { actorUserId: "user-1" },
 			userId: "user-1",
 		} as never);
 
@@ -48,7 +49,7 @@ describe("chat agent cost bounds and gateway attribution", () => {
 			providerOptions: {
 				gateway: {
 					quotaEntityId: "user-1",
-					tags: ["op:chat"],
+					tags: ["op:chat", "ws:personal"],
 					user: "user-1",
 				},
 			},

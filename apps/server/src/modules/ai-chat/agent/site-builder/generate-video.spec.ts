@@ -124,7 +124,7 @@ describe("generateBuildVideo", () => {
 				providerOptions: {
 					gateway: {
 						quotaEntityId: "user_1",
-						tags: ["op:video"],
+						tags: ["op:video", "ws:personal"],
 						user: "user_1",
 					},
 					klingai: { mode: "std" },
@@ -198,7 +198,7 @@ describe("generateBuildVideo", () => {
 				providerOptions: {
 					gateway: {
 						quotaEntityId: "user_1",
-						tags: ["op:video"],
+						tags: ["op:video", "ws:personal"],
 						user: "user_1",
 					},
 				},

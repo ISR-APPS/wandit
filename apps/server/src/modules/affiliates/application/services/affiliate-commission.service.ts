@@ -2,6 +2,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import type Stripe from "stripe";
 
 import { BillingCustomersRepository } from "../../../billing/infrastructure/persistence/billing-customers.repository";
+import { OrganizationBillingCustomersRepository } from "../../../billing/infrastructure/persistence/organization-billing-customers.repository";
 import { StripeProvider } from "../../../billing/infrastructure/stripe/stripe.provider";
 import {
 	addDays,
@@ -24,6 +25,8 @@ export class AffiliateCommissionService {
 		private readonly affiliatesRepository: AffiliatesRepository,
 		@Inject(BillingCustomersRepository)
 		private readonly billingCustomersRepository: BillingCustomersRepository,
+		@Inject(OrganizationBillingCustomersRepository)
+		private readonly organizationBillingCustomersRepository: OrganizationBillingCustomersRepository,
 		@Inject(StripeProvider)
 		private readonly stripeProvider: StripeProvider,
 		@Inject(AffiliateClawbackService)
@@ -47,13 +50,28 @@ export class AffiliateCommissionService {
 				customerId,
 			);
 
-		if (!customer) {
+		if (customer) {
+			return this.processInvoiceAndReconcile(invoice, customer.userId);
+		}
+
+		// Org invoices attribute to the SNAPSHOTTED creator (attributionUserId),
+		// never the checkout actor — a referred invited admin must not capture
+		// lifetime commissions on the org's revenue (design §8).
+		const orgCustomer =
+			await this.organizationBillingCustomersRepository.findByProviderCustomerId(
+				customerId,
+			);
+
+		if (!orgCustomer) {
 			throw new Error(
 				`Stripe invoice ${invoice.id} customer ${customerId} has no local owner`,
 			);
 		}
 
-		return this.processInvoiceAndReconcile(invoice, customer.userId);
+		return this.processInvoiceAndReconcile(
+			invoice,
+			orgCustomer.attributionUserId,
+		);
 	}
 
 	async reconcileCandidatesForUser(userId: string): Promise<number> {

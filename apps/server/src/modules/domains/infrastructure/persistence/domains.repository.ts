@@ -1,4 +1,8 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import {
+	type ProjectScope,
+	projectScopePredicate,
+} from "../../../projects/domain/project-scope";
 import type {
 	DomainDns,
 	DomainPriceSnapshot,
@@ -99,14 +103,17 @@ type DomainUpdate = Partial<
 export class DomainsRepository {
 	constructor(@Inject(DATABASE) private readonly db: Database) {}
 
-	async assertProjectOwned(userId: string, projectId: string): Promise<void> {
+	async assertProjectAccessible(
+		scope: ProjectScope,
+		projectId: string,
+	): Promise<void> {
 		const [project] = await this.db
 			.select({ id: projects.id })
 			.from(projects)
 			.where(
 				and(
 					eq(projects.id, projectId),
-					eq(projects.userId, userId),
+					projectScopePredicate(scope),
 					sql`${projects.deletedAt} IS NULL`,
 				),
 			)
@@ -117,14 +124,48 @@ export class DomainsRepository {
 		}
 	}
 
-	async listByProject(projectId: string, userId: string): Promise<DomainRow[]> {
-		await this.assertProjectOwned(userId, projectId);
+	async listByProject(projectId: string, scope: ProjectScope): Promise<DomainRow[]> {
+		await this.assertProjectAccessible(scope, projectId);
+
+		// Personal keeps the purchaser filter (byte-compat). Org projects list
+		// every attached domain regardless of which member bought it — project
+		// access is already proven above and mutations are role-gated.
+		const purchaserFilter =
+			scope.kind === "personal" ? [eq(domains.userId, scope.userId)] : [];
 
 		return this.db
 			.select()
 			.from(domains)
-			.where(and(eq(domains.projectId, projectId), eq(domains.userId, userId)))
+			.where(and(eq(domains.projectId, projectId), ...purchaserFilter))
 			.orderBy(desc(domains.createdAt), desc(domains.id));
+	}
+
+	/**
+	 * Scope-aware access for PROJECT-side domain management (verify, primary,
+	 * detach). Personal: purchaser equality, byte-compat. Org: the domain must
+	 * be attached to a project of this org — which member bought it does not
+	 * matter (asset-side ops like auto-renew stay purchaser-only elsewhere).
+	 */
+	async getByIdForScope(id: string, scope: ProjectScope): Promise<DomainRow> {
+		if (scope.kind === "personal") {
+			return this.getByIdForUser(id, scope.userId);
+		}
+
+		const [row] = await this.db
+			.select({ domains })
+			.from(domains)
+			.innerJoin(
+				projects,
+				and(
+					eq(projects.id, domains.projectId),
+					projectScopePredicate(scope),
+					sql`${projects.deletedAt} IS NULL`,
+				),
+			)
+			.where(eq(domains.id, id))
+			.limit(1);
+
+		return this.expectRow(row?.domains);
 	}
 
 	async getByIdForUser(id: string, userId: string): Promise<DomainRow> {
@@ -444,12 +485,15 @@ export class DomainsRepository {
 		return row ?? null;
 	}
 
-	async setPrimary(id: string, userId: string): Promise<DomainRow> {
+	async setPrimary(id: string, scope: ProjectScope): Promise<DomainRow> {
+		// Access checked scope-aware BEFORE the transaction narrows to the id.
+		await this.getByIdForScope(id, scope);
+
 		return this.db.transaction(async (tx) => {
 			const [target] = await tx
 				.select()
 				.from(domains)
-				.where(and(eq(domains.id, id), eq(domains.userId, userId)))
+				.where(eq(domains.id, id))
 				.limit(1);
 
 			const row = this.expectRow(target);
@@ -460,25 +504,25 @@ export class DomainsRepository {
 				);
 			}
 
+			// One primary per PROJECT: clear every attached domain's flag, not just
+			// the same purchaser's — org projects can hold several buyers' domains.
 			await tx
 				.update(domains)
 				.set({ isPrimary: false })
-				.where(
-					and(eq(domains.userId, userId), eq(domains.projectId, row.projectId)),
-				);
+				.where(eq(domains.projectId, row.projectId));
 
 			const [updated] = await tx
 				.update(domains)
 				.set({ isPrimary: true })
-				.where(and(eq(domains.id, id), eq(domains.userId, userId)))
+				.where(eq(domains.id, id))
 				.returning();
 
 			return this.expectRow(updated);
 		});
 	}
 
-	async detach(id: string, userId: string): Promise<DomainRow> {
-		const row = await this.getByIdForUser(id, userId);
+	async detach(id: string, scope: ProjectScope): Promise<DomainRow> {
+		const row = await this.getByIdForScope(id, scope);
 
 		if (row.projectId === null && !row.isPrimary) {
 			return row;

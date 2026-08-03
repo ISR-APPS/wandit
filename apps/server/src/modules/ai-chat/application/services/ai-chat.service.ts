@@ -91,6 +91,10 @@ import {
 import { operationPricing } from "../../../metering/domain/operation-registry";
 import { PageEditsService } from "../../../pages/application/services/page-edits.service";
 import { PagesRepository } from "../../../pages/infrastructure/persistence/pages.repository";
+import {
+	meteringSubjectFrom,
+	type ProjectScope,
+} from "../../../projects/domain/project-scope";
 import { annotateUserFileParts } from "../../agent/annotate-file-parts";
 import { createChatAgent, type WanditUIMessage } from "../../agent/chat-agent";
 import {
@@ -148,9 +152,12 @@ export class AiChatService {
 		messages: WanditUIMessage[];
 		projectId: string;
 		requestId?: string;
-		userId: string;
+		scope: ProjectScope;
 	}): Promise<PreparedAiChatStream> {
-		const release = this.acquireStreamSlot(options.userId);
+		const subject = meteringSubjectFrom(options.scope);
+		// Concurrency is per ACTOR, not per payer: one org member streaming must
+		// not block another member's slot.
+		const release = this.acquireStreamSlot(options.scope.userId);
 
 		try {
 			const modelBoundMessages = annotateUserFileParts(
@@ -178,7 +185,7 @@ export class AiChatService {
 						idempotencyKey: projectCreationMeteringKey(options.projectId),
 						messageId,
 						operation: "chat",
-						userId: options.userId,
+						subject,
 					});
 
 				if (creationEvent) {
@@ -199,7 +206,7 @@ export class AiChatService {
 				// config change remains an at-most-once provider admission boundary.
 				const existing = await this.meteringService.findByIdempotencyKey(
 					operationKey,
-					options.userId,
+					subject,
 				);
 
 				if (existing) {
@@ -218,7 +225,7 @@ export class AiChatService {
 			try {
 				reservation = await this.meteringService.reserveWithReplay(
 					"chat",
-					options.userId,
+					subject,
 					{
 						chatId: options.chatId,
 						credits: estimate.credits,
@@ -264,7 +271,7 @@ export class AiChatService {
 		projectId: string;
 		reply: FastifyReply;
 		requestCountryCode?: string | null;
-		userId: string;
+		scope: ProjectScope;
 	}): Promise<void> {
 		const {
 			abortSignal: clientAbortSignal,
@@ -276,15 +283,19 @@ export class AiChatService {
 			projectId,
 			reply,
 			requestCountryCode,
-			userId,
+			scope,
 		} = options;
+		// The acting member: upload ownership, MCP connections, and stream slots
+		// are actor-scoped even when the org pool pays.
+		const userId = scope.userId;
+		const subject = meteringSubjectFrom(scope);
 		const abortSignal = AbortSignal.any([
 			clientAbortSignal,
 			AbortSignal.timeout(AI_CHAT_MAX_STREAM_DURATION_MS),
 		]);
 		const releaseStream = this.releaseOnAbort(abortSignal, prepared.release);
 		const mcpResultPromise = this.mcpChatToolsService.resolveToolsForUser(
-			userId,
+			subject,
 			prepared.eventId ?? undefined,
 		);
 		let resolvedMcpResult: McpChatToolsResult | undefined;
@@ -352,6 +363,10 @@ export class AiChatService {
 				metadata,
 				requestCountryCode,
 				selectedSourceImage,
+				workspace:
+					scope.kind === "org"
+						? { actorCanManage: scope.actorIsLimitExempt }
+						: null,
 			});
 			const mcpNoticeBlock =
 				mcpResult.notices.length > 0
@@ -389,6 +404,7 @@ export class AiChatService {
 					requestKeySeed,
 					requestCountryCode: requestCountryCode ?? null,
 					selectedSourceImage,
+					subject,
 					userId,
 				},
 				contextWithMcpNotices || null,
@@ -768,20 +784,36 @@ export class AiChatService {
 	}
 
 	private billingErrorData(error: unknown): AiChatBillingErrorData | null {
-		if (!(error instanceof HttpException) || error.getStatus() !== 402) {
+		if (!(error instanceof HttpException)) {
 			return null;
 		}
 
+		const status = error.getStatus();
 		const response = error.getResponse();
 		const details =
 			typeof response === "object" && response !== null && "details" in response
 				? response.details
 				: null;
-		const parsed = aiChatBillingErrorDataSchema.safeParse({
-			code: "INSUFFICIENT_CREDITS",
-			details,
-			statusCode: 402,
-		});
+		const responseCode =
+			typeof response === "object" && response !== null && "code" in response
+				? response.code
+				: null;
+
+		// Two expected billing refusals become typed parts: out-of-credits
+		// (402) and the org member's monthly cap (403, distinct code — buying
+		// credits is not the fix, raising the limit is).
+		const candidate =
+			status === 402
+				? { code: "INSUFFICIENT_CREDITS", details, statusCode: 402 }
+				: status === 403 && responseCode === "MEMBER_CREDIT_LIMIT_REACHED"
+					? { code: "MEMBER_CREDIT_LIMIT_REACHED", details, statusCode: 403 }
+					: null;
+
+		if (!candidate) {
+			return null;
+		}
+
+		const parsed = aiChatBillingErrorDataSchema.safeParse(candidate);
 
 		return parsed.success ? parsed.data : null;
 	}

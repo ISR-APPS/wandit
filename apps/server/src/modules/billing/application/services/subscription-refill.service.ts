@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 
 import { CreditsService } from "../../../credits/application/services/credits.service";
+import { ownerFromIds } from "../../../credits/domain/credit-owner";
 import {
 	type InsertRefillSlot,
 	type SubscriptionCreditRow,
@@ -84,7 +85,7 @@ export class SubscriptionRefillService {
 			}
 
 			await this.creditsService.applyCappedRefill(
-				subscription.userId,
+				ownerFromIds(subscription.userId, subscription.organizationId),
 				claimed.credits,
 				{
 					capMultiplier: 1,
@@ -182,9 +183,16 @@ export class SubscriptionRefillService {
 			);
 		}
 
-		let fundingChargeId: string | null = null;
-		const outcome = await this.repository.withUserLock(
+		// The slot's OWNER is its subscription's owner entity — an org slot must
+		// never resolve canonicality (or grant) through the provenance userId,
+		// which may also carry a personal subscription (confirmed review finding).
+		const slotOwner = ownerFromIds(
 			candidate.subscription.userId,
+			candidate.subscription.organizationId,
+		);
+		let fundingChargeId: string | null = null;
+		const outcome = await this.repository.withOwnerLock(
+			slotOwner,
 			async (tx) => {
 				const current = await this.repository.findSlotWithSubscription(
 					slotId,
@@ -198,8 +206,11 @@ export class SubscriptionRefillService {
 					return "skipped" as const;
 				}
 
-				const canonical = await this.repository.findCanonicalEntitledByUserId(
-					current.subscription.userId,
+				const canonical = await this.repository.findCanonicalEntitledByOwner(
+					ownerFromIds(
+						current.subscription.userId,
+						current.subscription.organizationId,
+					),
 					tx,
 				);
 
@@ -217,7 +228,7 @@ export class SubscriptionRefillService {
 
 				fundingChargeId = claimed.fundingChargeId;
 				await this.creditsService.applyCappedRefill(
-					canonical.userId,
+					ownerFromIds(canonical.userId, canonical.organizationId),
 					claimed.credits,
 					{
 						capMultiplier: 1,

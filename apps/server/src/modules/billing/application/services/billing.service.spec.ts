@@ -4,6 +4,7 @@ import type Stripe from "stripe";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { CreditsService } from "../../../credits/application/services/credits.service";
+import type { CreditOwner } from "../../../credits/domain/credit-owner";
 import { ActiveSubscriptionExistsError } from "../../domain/errors/active-subscription-exists.error";
 import { AmbiguousPaymentProviderWriteError } from "../../domain/errors/ambiguous-payment-provider-write.error";
 import { BillingNotConfiguredError } from "../../domain/errors/billing-not-configured.error";
@@ -93,6 +94,7 @@ function checkoutAttempt(
 	return {
 		createdAt: new Date(NOW),
 		id: "44444444-4444-4444-8444-444444444444",
+		organizationId: null,
 		packId: null,
 		priceLookupKey: "pro_100_month",
 		providerSessionId: null,
@@ -114,6 +116,7 @@ function changeIntent(
 		currentPriceLookupKey: "pro_100_month",
 		expiresAt: new Date(NOW.getTime() + 15 * 60 * 1000),
 		id: INTENT_ID,
+		organizationId: null,
 		previewTotalMinor: 2_500,
 		prorationDate: new Date(PRORATION_DATE),
 		providerAttemptedAt: null,
@@ -151,8 +154,14 @@ class FakeSubscriptionsRepository {
 	} as unknown as SubscriptionsTransaction;
 	row: SubscriptionRow | null;
 
-	readonly findActiveByUserId = vi.fn(
-		async (_userId: string, _client?: unknown) => this.row,
+	readonly findActiveByOwner = vi.fn(
+		async (owner: CreditOwner, _client?: unknown) =>
+			this.row &&
+			(owner.type === "user"
+				? this.row.userId === owner.userId && this.row.organizationId === null
+				: this.row.organizationId === owner.organizationId)
+				? this.row
+				: null,
 	);
 	readonly findByProviderSubscriptionId = vi.fn(async () => this.row);
 	readonly markPendingTierApplied = vi.fn(
@@ -259,6 +268,7 @@ class FakeSubscriptionSyncService {
 
 type CreateAttemptInput = {
 	id: string;
+	organizationId?: string | null;
 	packId?: string;
 	priceLookupKey?: string;
 	purpose: "subscription" | "topup";
@@ -273,11 +283,13 @@ class FakeCheckoutAttemptsRepository {
 	rows: BillingCheckoutAttemptRow[] = [];
 	attachSucceeds = true;
 
-	readonly findOpenForUser = vi.fn(
-		async (userId: string, purpose: "subscription" | "topup") =>
+	readonly findOpenForOwner = vi.fn(
+		async (owner: CreditOwner, purpose: "subscription" | "topup") =>
 			this.rows.filter(
 				(row) =>
-					row.userId === userId &&
+					(owner.type === "user"
+						? row.userId === owner.userId && row.organizationId === null
+						: row.organizationId === owner.organizationId) &&
 					row.purpose === purpose &&
 					(row.status === "created" || row.status === "session_attached"),
 			),
@@ -290,6 +302,7 @@ class FakeCheckoutAttemptsRepository {
 		this.assertPurposeInvariant(input);
 		const row = checkoutAttempt({
 			id: input.id,
+			organizationId: input.organizationId ?? null,
 			packId: input.packId ?? null,
 			priceLookupKey: input.priceLookupKey ?? null,
 			purpose: input.purpose,
@@ -342,6 +355,13 @@ class FakeCheckoutAttemptsRepository {
 
 	withUserLock<T>(
 		_userId: string,
+		operation: (tx: BillingCheckoutAttemptTransaction) => Promise<T>,
+	): Promise<T> {
+		return operation(this.transaction);
+	}
+
+	withOwnerLock<T>(
+		_owner: CreditOwner,
 		operation: (tx: BillingCheckoutAttemptTransaction) => Promise<T>,
 	): Promise<T> {
 		return operation(this.transaction);
@@ -452,6 +472,20 @@ class FakeChangeIntentsRepository {
 			throw error;
 		}
 	}
+
+	async withOwnerLock<T>(
+		_owner: unknown,
+		operation: (tx: BillingChangeIntentTransaction) => Promise<T>,
+	): Promise<T> {
+		const snapshot = structuredClone(this.intent);
+
+		try {
+			return await operation(this.transaction);
+		} catch (error) {
+			this.intent = snapshot;
+			throw error;
+		}
+	}
 }
 
 function setup(row: SubscriptionRow | null = subscriptionRow()) {
@@ -473,6 +507,13 @@ function setup(row: SubscriptionRow | null = subscriptionRow()) {
 		subscriptionSync as unknown as StripeSubscriptionSyncService,
 		checkoutAttempts as unknown as BillingCheckoutAttemptsRepository,
 		changeIntents as unknown as BillingChangeIntentsRepository,
+		{
+			findByOrganizationId: async () => null,
+			setOpenCheckoutSessionId: async () => undefined,
+		} as never,
+		{
+			get: async () => ({ organizationsEnabled: false }),
+		} as never,
 	);
 
 	return {
@@ -634,6 +675,7 @@ describe("BillingService checkout attempts", () => {
 			customerId: "cus_1",
 			email: user.email,
 			interval: "year",
+			organizationId: null,
 			plan: "pro",
 			tierCredits: 1200,
 			userId: user.id,
@@ -666,6 +708,7 @@ describe("BillingService checkout attempts", () => {
 			attemptId: created?.id,
 			credits: 500,
 			customerId: "cus_1",
+			organizationId: null,
 			packId: "topup_500",
 			userId: user.id,
 		});
@@ -819,6 +862,7 @@ describe("BillingService checkout attempts", () => {
 				customerId: "cus_1",
 				email: "",
 				interval: "month",
+				organizationId: null,
 				plan: "pro",
 				tierCredits: 100,
 				userId: user.id,
@@ -873,6 +917,7 @@ describe("BillingService subscription change intents", () => {
 			currency: "usd",
 			currentPriceLookupKey: "pro_100_month",
 			expiresAt: new Date("2026-08-01T12:49:56.000Z"),
+			organizationId: null,
 			previewTotalMinor: 2_500,
 			prorationDate: PRORATION_DATE,
 			status: "open",

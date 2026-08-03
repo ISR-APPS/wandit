@@ -8,6 +8,8 @@ export const productSettingsSchema = z.object({
 	signupGrantCredits: z.int().positive(),
 	paidSubscriptionsEnabled: z.boolean(),
 	topupsEnabled: z.boolean(),
+	organizationsEnabled: z.boolean(),
+	emailAuthEnabled: z.boolean(),
 	version: z.int().positive(),
 	updatedByUserId: z.string().nullable(),
 	updatedAt: isoDateTimeSchema,
@@ -19,6 +21,10 @@ export const publicSettingsSchema = productSettingsSchema.pick({
 	paidSubscriptionsEnabled: true,
 	topupsEnabled: true,
 	signupGrantEnabled: true,
+	// Public: the web shows/hides workspace creation and the Business plan.
+	organizationsEnabled: true,
+	// Public: the web shows/hides the email sign-in form in the auth modal.
+	emailAuthEnabled: true,
 });
 
 export type PublicSettings = z.infer<typeof publicSettingsSchema>;
@@ -30,6 +36,8 @@ export const patchProductSettingsBodySchema = z
 		signupGrantCredits: z.int().positive().optional(),
 		paidSubscriptionsEnabled: z.boolean().optional(),
 		topupsEnabled: z.boolean().optional(),
+		organizationsEnabled: z.boolean().optional(),
+		emailAuthEnabled: z.boolean().optional(),
 		version: z.int().positive(),
 	})
 	.refine(
@@ -38,7 +46,9 @@ export const patchProductSettingsBodySchema = z
 			settings.signupGrantEnabled !== undefined ||
 			settings.signupGrantCredits !== undefined ||
 			settings.paidSubscriptionsEnabled !== undefined ||
-			settings.topupsEnabled !== undefined,
+			settings.topupsEnabled !== undefined ||
+			settings.organizationsEnabled !== undefined ||
+			settings.emailAuthEnabled !== undefined,
 		{ message: "At least one setting must be provided" },
 	);
 

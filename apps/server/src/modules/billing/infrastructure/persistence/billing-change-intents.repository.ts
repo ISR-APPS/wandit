@@ -1,5 +1,10 @@
 import { Inject, Injectable } from "@nestjs/common";
 import { and, eq, ne, sql } from "@wandit/db";
+
+import {
+	type CreditOwner,
+	creditOwnerLockValue,
+} from "../../../credits/domain/credit-owner";
 import { billingChangeIntents } from "@wandit/db/schema/billing";
 
 import {
@@ -27,6 +32,25 @@ export class BillingChangeIntentsRepository {
 	): Promise<T> {
 		return this.db.transaction(async (tx) => {
 			await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${userId}))`);
+
+			return fn(tx);
+		});
+	}
+
+	/**
+	 * Owner-scoped variant (creditOwnerLockValue; personal = raw user id).
+	 * Change EXECUTION must serialize on the SUBSCRIPTION'S owner: an org can
+	 * have several owners, and per-actor locks let two of them race conflicting
+	 * Stripe changes (confirmed money-review finding).
+	 */
+	withOwnerLock<T>(
+		owner: CreditOwner,
+		fn: (tx: BillingChangeIntentTransaction) => Promise<T>,
+	): Promise<T> {
+		return this.db.transaction(async (tx) => {
+			await tx.execute(
+				sql`select pg_advisory_xact_lock(hashtext(${creditOwnerLockValue(owner)}))`,
+			);
 
 			return fn(tx);
 		});

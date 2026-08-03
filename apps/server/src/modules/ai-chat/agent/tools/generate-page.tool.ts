@@ -10,6 +10,7 @@
  * brief into an attempt row and hands off to the Trigger.dev task; its
  * return value is only the "queued"/"unavailable" answer the model relays.
  */
+import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import { setTimeout as delay } from "node:timers/promises";
 import { Logger } from "@nestjs/common";
 import { auth, idempotencyKeys, tasks } from "@trigger.dev/sdk";
@@ -48,6 +49,8 @@ export type GeneratePageToolDeps = {
 	pagesRepository: PagesRepository;
 	parentEventId?: string;
 	projectId: string;
+	/** Payer + acting member; the build task meters against this subject. */
+	subject: MeteringSubject;
 	userId: string;
 };
 
@@ -163,6 +166,10 @@ export function createGeneratePageTool(
 			try {
 				handle = await triggerGeneratePageTask({
 					attemptId: attempt.id,
+					...(deps.subject.actorIsLimitExempt
+						? { actorIsLimitExempt: true }
+						: {}),
+					actorUserId: deps.subject.actorUserId,
 					...(deps.parentEventId ? { parentEventId: deps.parentEventId } : {}),
 					projectId: deps.projectId,
 				});
@@ -275,6 +282,8 @@ export function createGeneratePageTool(
 }
 
 async function triggerGeneratePageTask(payload: {
+	actorIsLimitExempt?: boolean;
+	actorUserId: string;
 	attemptId: string;
 	parentEventId?: string;
 	projectId: string;
@@ -290,6 +299,8 @@ async function triggerGeneratePageTask(payload: {
 			return await tasks.trigger<typeof generatePageTask>(
 				"generate-page",
 				{
+					...(payload.actorIsLimitExempt ? { actorIsLimitExempt: true } : {}),
+					actorUserId: payload.actorUserId,
 					attemptId: payload.attemptId,
 					...(payload.parentEventId
 						? { parentEventId: payload.parentEventId }

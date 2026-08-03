@@ -59,6 +59,37 @@ export class StripeProvider implements PaymentProvider {
 		return customer.id;
 	}
 
+	async ensureOrganizationCustomer(params: {
+		affiliateCode?: string | null;
+		attributionUserId: string;
+		billingEmail: string;
+		createdByUserId: string;
+		organizationId: string;
+		organizationName: string;
+	}): Promise<string> {
+		const customer = await this.stripe().customers.create(
+			{
+				email: params.billingEmail,
+				name: params.organizationName,
+				metadata: {
+					...(params.affiliateCode
+						? { affiliateCode: params.affiliateCode }
+						: {}),
+					// Affiliate commissions on this org's invoices follow the
+					// attribution user (the org's creator), never the checkout actor.
+					attributionUserId: params.attributionUserId,
+					createdByUserId: params.createdByUserId,
+					organizationId: params.organizationId,
+				},
+			},
+			{
+				idempotencyKey: `customer:org:${params.organizationId}`,
+			},
+		);
+
+		return customer.id;
+	}
+
 	async createOrderCheckout(
 		params: CreateOrderCheckoutParams,
 	): Promise<CreateOrderCheckoutResult> {
@@ -117,6 +148,7 @@ export class StripeProvider implements PaymentProvider {
 			params.plan,
 			params.tierCredits,
 			params.interval,
+			params.organizationId ?? null,
 		);
 		const attemptMetadata = { ...metadata, attemptId: params.attemptId };
 		const session = await this.createCheckoutSession(
@@ -138,7 +170,11 @@ export class StripeProvider implements PaymentProvider {
 				success_url: `${env.CORS_ORIGIN}/billing/success?purpose=subscription`,
 			},
 			{
-				idempotencyKey: `sub-checkout:${params.userId}:${params.attemptId}`,
+				// Org checkouts key on the pool, not the actor: a different owner
+				// retrying the same attempt must replay, never duplicate.
+				idempotencyKey: params.organizationId
+					? `sub-checkout:org:${params.organizationId}:${params.attemptId}`
+					: `sub-checkout:${params.userId}:${params.attemptId}`,
 			},
 		);
 
@@ -155,6 +191,9 @@ export class StripeProvider implements PaymentProvider {
 		const metadata = {
 			attemptId: params.attemptId,
 			credits: String(params.credits),
+			...(params.organizationId
+				? { organizationId: params.organizationId }
+				: {}),
 			packId: params.packId,
 			purpose: CHECKOUT_PURPOSE.topup,
 			userId: params.userId,
@@ -177,7 +216,9 @@ export class StripeProvider implements PaymentProvider {
 				success_url: `${env.CORS_ORIGIN}/billing/success?purpose=topup`,
 			},
 			{
-				idempotencyKey: `topup-checkout:${params.userId}:${params.attemptId}`,
+				idempotencyKey: params.organizationId
+					? `topup-checkout:org:${params.organizationId}:${params.attemptId}`
+					: `topup-checkout:${params.userId}:${params.attemptId}`,
 			},
 		);
 
@@ -883,9 +924,14 @@ export class StripeProvider implements PaymentProvider {
 		plan: BillingPlanId,
 		tierCredits: CreditTier,
 		interval: BillingInterval,
+		organizationId: string | null,
 	) {
 		return {
 			interval,
+			// Org checkouts carry the paying pool's identity; webhook routing and
+			// the ownership cross-checks compare it against the attempt and the
+			// org customer mapping.
+			...(organizationId ? { organizationId } : {}),
 			plan,
 			purpose: CHECKOUT_PURPOSE.subscription,
 			tierCredits: String(tierCredits),

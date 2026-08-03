@@ -21,6 +21,7 @@ import { UserDetailSkeleton } from "@/features/users/components/detail/user-deta
 import { UserMetrics } from "@/features/users/components/detail/user-metrics";
 import { UserProjectsCard } from "@/features/users/components/detail/user-projects-card";
 import { UserSubscriptionCard } from "@/features/users/components/detail/user-subscription-card";
+import { UserWorkspacesCard } from "@/features/users/components/detail/user-workspaces-card";
 import { EarlyAccessDialog } from "@/features/users/components/early-access-dialog";
 import { GrantCreditsDialog } from "@/features/users/components/grant-credits-dialog";
 import { isApiClientError } from "@/lib/api-client";
@@ -119,6 +120,8 @@ export function UserDetailPage({ userId }: UserDetailPageProps) {
 					className={user.subscription ? undefined : "xl:col-span-2"}
 				/>
 			</div>
+
+			<UserWorkspacesCard workspaces={user.workspaces} />
 
 			<UserCreditLedger entries={user.creditLedger} />
 

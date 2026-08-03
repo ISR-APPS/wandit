@@ -65,6 +65,7 @@ export type AdminProjectDetailRow = {
 	name: string;
 	createdAt: Date;
 	updatedAt: Date;
+	organizationId: string | null;
 	ownerId: string;
 	ownerName: string;
 	ownerEmail: string;
@@ -189,6 +190,9 @@ export class AdminRepository {
 			.where(
 				and(
 					eq(subscriptions.userId, userId),
+					// Personal rows only: org subscriptions carry the purchasing
+					// admin's userId as provenance and belong to the org pages.
+					isNull(subscriptions.organizationId),
 					notInArray(subscriptions.status, TERMINAL_SUBSCRIPTION_STATUSES),
 				),
 			)
@@ -222,6 +226,7 @@ export class AdminRepository {
 				createdAt: projects.createdAt,
 				id: projects.id,
 				name: projects.name,
+				organizationId: projects.organizationId,
 				ownerEmail: user.email,
 				ownerId: user.id,
 				ownerName: user.name,
@@ -249,7 +254,14 @@ export class AdminRepository {
 				createdAt: creditLedger.createdAt,
 			})
 			.from(creditLedger)
-			.where(eq(creditLedger.userId, userId))
+			// Personal rows only: org consume rows record the acting member in
+			// userId but the ORG pool paid — mixing them corrupts the money view.
+			.where(
+				and(
+					eq(creditLedger.userId, userId),
+					isNull(creditLedger.organizationId),
+				),
+			)
 			.orderBy(desc(creditLedger.createdAt), desc(creditLedger.id))
 			.limit(limit);
 	}
@@ -358,6 +370,7 @@ export class AdminRepository {
 				select "subscriptions"."plan"
 				from "subscriptions"
 				where "subscriptions"."user_id" = "user"."id"
+					and "subscriptions"."organization_id" is null
 					and "subscriptions"."status" in (${sql.join(
 						entitledStatuses.map((status) => sql`${status}`),
 						sql`, `,
@@ -369,6 +382,7 @@ export class AdminRepository {
 				select sum("credit_ledger"."delta")
 				from "credit_ledger"
 				where "credit_ledger"."user_id" = "user"."id"
+					and "credit_ledger"."organization_id" is null
 			), 0)::int`,
 			projectsCount: sql<number>`(
 				select count(*)

@@ -35,6 +35,10 @@ import { MeteringService } from "../../../metering/application/services/metering
 import { ModelPricingService } from "../../../metering/application/services/model-pricing.service";
 import { ModelPriceUnavailableError } from "../../../metering/domain/model-pricing";
 import { operationPricing } from "../../../metering/domain/operation-registry";
+import {
+	meteringSubjectFrom,
+	type ProjectScope,
+} from "../../domain/project-scope";
 import { mapProjectRow } from "../../infrastructure/mappers/project.mapper";
 import { ProjectsRepository } from "../../infrastructure/persistence/projects.repository";
 import { ProjectTitleService } from "./project-title.service";
@@ -56,18 +60,18 @@ export class ProjectsService {
 		private readonly projectTitleService: ProjectTitleService,
 	) {}
 
-	// List projects for the dashboard.
-	async list(userId: string): Promise<ListProjectsResponse> {
+	// List the workspace's projects for the dashboard.
+	async list(scope: ProjectScope): Promise<ListProjectsResponse> {
 		// Map DB rows into API response objects.
-		const rows = await this.projectsRepository.listByUser(userId);
+		const rows = await this.projectsRepository.listForScope(scope);
 
 		return rows.map(mapProjectRow);
 	}
 
-	// Load one project if it belongs to this user.
-	async get(userId: string, projectId: string): Promise<Project> {
-		const row = await this.projectsRepository.findByIdForUser(
-			userId,
+	// Load one project if it is accessible in this workspace scope.
+	async get(scope: ProjectScope, projectId: string): Promise<Project> {
+		const row = await this.projectsRepository.findByIdForScope(
+			scope,
 			projectId,
 		);
 
@@ -81,13 +85,13 @@ export class ProjectsService {
 
 	// Create the project, its first chat, and the first user message.
 	async create(
-		userId: string,
+		scope: ProjectScope,
 		body: CreateProjectBody,
 	): Promise<CreateProjectResponse> {
 		// Attachment URLs must be Wandit-hosted assets (contract §10.4) — the
 		// composer uploads through /api/v1/attachments first, so anything else
-		// is a forged reference.
-		this.assertWanditHostedAttachments(userId, body.attachments);
+		// is a forged reference. Uploads are actor-owned even in org scope.
+		this.assertWanditHostedAttachments(scope.userId, body.attachments);
 
 		const derivedName = deriveProjectName(body.prompt);
 		const projectId = randomUUID();
@@ -101,7 +105,7 @@ export class ProjectsService {
 						chatId,
 						messageId,
 						projectId,
-						userId,
+						scope,
 					});
 
 		// Create project + chat + first message in one DB transaction.
@@ -118,7 +122,7 @@ export class ProjectsService {
 				name: derivedName,
 				prompt: body.prompt,
 				projectId,
-				userId,
+				scope,
 			});
 		} catch (error) {
 			try {
@@ -148,8 +152,8 @@ export class ProjectsService {
 			derivedName,
 			projectId: created.projectId,
 			prompt: body.prompt,
+			scope,
 			usageEventId: usageEvent?.id,
-			userId,
 		}).catch((error) => {
 			const message = error instanceof Error ? error.message : String(error);
 			this.logger.warn(`Background project title update failed: ${message}`);
@@ -167,14 +171,17 @@ export class ProjectsService {
 		chatId: string;
 		messageId: string;
 		projectId: string;
-		userId: string;
+		scope: ProjectScope;
 	}) {
 		const estimate = await this.estimateCreationCredits(
 			input.body,
 			input.messageId,
 		);
 
-		return this.meteringService.reserve("chat", input.userId, {
+		return this.meteringService.reserve(
+			"chat",
+			meteringSubjectFrom(input.scope),
+			{
 			attemptRef: projectCreationReservationAttemptRef(input.projectId),
 			chatId: input.chatId,
 			credits: estimate.credits,
@@ -239,15 +246,17 @@ export class ProjectsService {
 		derivedName: string;
 		projectId: string;
 		prompt: string;
+		scope: ProjectScope;
 		usageEventId?: string;
-		userId: string;
 	}): Promise<void> {
 		const generatedTitle = await this.projectTitleService.generate({
 			attachments: input.attachments,
 			fallbackTitle: input.derivedName,
+			organizationId:
+				input.scope.kind === "org" ? input.scope.organizationId : null,
 			prompt: input.prompt,
 			usageEventId: input.usageEventId,
-			userId: input.userId,
+			userId: input.scope.userId,
 		});
 
 		if (generatedTitle === input.derivedName) {
@@ -256,8 +265,8 @@ export class ProjectsService {
 
 		// expectedName makes this a single atomic guard: a manual rename that lands
 		// first wins, and the background title update becomes a no-op.
-		await this.projectsRepository.updateByIdForUser(
-			input.userId,
+		await this.projectsRepository.updateByIdForScope(
+			input.scope,
 			input.projectId,
 			{ name: generatedTitle },
 			{ expectedName: input.derivedName },
@@ -266,16 +275,17 @@ export class ProjectsService {
 
 	// Update editable project fields.
 	async update(
-		userId: string,
+		scope: ProjectScope,
 		projectId: string,
 		body: UpdateProjectBody,
 	): Promise<Project> {
 		if (body.logoUrl !== undefined && body.logoUrl !== null) {
-			this.assertValidLogoUrl(userId, body.logoUrl);
+			// Logo uploads are actor-owned even in org scope.
+			this.assertValidLogoUrl(scope.userId, body.logoUrl);
 		}
 
-		const row = await this.projectsRepository.updateByIdForUser(
-			userId,
+		const row = await this.projectsRepository.updateByIdForScope(
+			scope,
 			projectId,
 			body,
 		);
@@ -327,9 +337,9 @@ export class ProjectsService {
 	}
 
 	// Soft-delete: mark as deleted, do not physically remove the row.
-	async delete(userId: string, projectId: string): Promise<void> {
-		const deleted = await this.projectsRepository.softDeleteByIdForUser(
-			userId,
+	async delete(scope: ProjectScope, projectId: string): Promise<void> {
+		const deleted = await this.projectsRepository.softDeleteByIdForScope(
+			scope,
 			projectId,
 		);
 

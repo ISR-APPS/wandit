@@ -166,6 +166,7 @@ function setup(freshInvoice = invoice()) {
 	const service = new AffiliateCommissionService(
 		repository as unknown as AffiliatesRepository,
 		customers as unknown as BillingCustomersRepository,
+		{ findByProviderCustomerId: async () => null } as never,
 		stripe as unknown as StripeProvider,
 		clawbacks as unknown as AffiliateClawbackService,
 	);
@@ -458,6 +459,7 @@ describe("AffiliateCommissionService", () => {
 		const service = new AffiliateCommissionService(
 			repository as unknown as AffiliatesRepository,
 			customers as unknown as BillingCustomersRepository,
+			{ findByProviderCustomerId: async () => null } as never,
 			stripe as unknown as StripeProvider,
 			clawbacks as unknown as AffiliateClawbackService,
 		);

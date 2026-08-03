@@ -15,6 +15,7 @@ import {
 const ASSET_ID = "11111111-1111-4111-8111-111111111111";
 const PROJECT_ID = "22222222-2222-4222-8222-222222222222";
 const USER_ID = "user_123";
+const SUBJECT = { actorUserId: USER_ID };
 const PARENT_EVENT_ID = "44444444-4444-4444-8444-444444444444";
 const R2_KEY = `marketing/${PROJECT_ID}/${ASSET_ID}/index.html`;
 const NOW = new Date("2026-07-25T12:00:00.000Z");
@@ -39,6 +40,7 @@ describe("parseMarketingAssetPayload", () => {
 		).toEqual({
 			assetId: ASSET_ID,
 			billingMode: "enforce",
+			organizationId: null,
 			projectId: PROJECT_ID,
 			userId: USER_ID,
 		});
@@ -53,6 +55,7 @@ describe("parseMarketingAssetPayload", () => {
 		).toEqual({
 			assetId: ASSET_ID,
 			billingMode: "enforce",
+			organizationId: null,
 			parentEventId: PARENT_EVENT_ID,
 			projectId: PROJECT_ID,
 			userId: USER_ID,
@@ -66,7 +69,9 @@ describe("parseMarketingAssetPayload", () => {
 				projectId: PROJECT_ID,
 				userId: USER_ID,
 			}),
-		).toThrow(/only assetId, optional billingMode, optional parentEventId/);
+		).toThrow(
+			/only assetId, optional billingMode, optional organizationId, optional parentEventId/,
+		);
 		expect(() =>
 			parseMarketingAssetPayload({
 				assetId: "not-a-uuid",
@@ -88,6 +93,7 @@ function makeAsset(
 		error: null,
 		id: ASSET_ID,
 		name: "Ads Meta — Lancement PulseBuds",
+		organizationId: null,
 		projectDeletedAt: null,
 		projectId: PROJECT_ID,
 		r2Key: null,
@@ -119,6 +125,7 @@ function makeDependencies(
 		generate: vi.fn(
 			async (
 				_asset,
+				_subject,
 				_signal,
 				onProviderGeneration,
 			): Promise<MarketingAssetProviderResult> => {
@@ -175,7 +182,7 @@ describe("runMarketingAssetGeneration", () => {
 			startedAt: NOW,
 		});
 		expect(dependencies.reserve).toHaveBeenCalledWith(
-			USER_ID,
+			SUBJECT,
 			ASSET_ID,
 			undefined,
 			"enforce",
@@ -257,7 +264,7 @@ describe("runMarketingAssetGeneration", () => {
 				reason: "generation_failed",
 			},
 		);
-		expect(dependencies.refund).toHaveBeenCalledWith(USER_ID, ASSET_ID);
+		expect(dependencies.refund).toHaveBeenCalledWith(SUBJECT, ASSET_ID);
 	});
 
 	it("charges a captured provider-completed document when R2 storage fails", async () => {
@@ -312,7 +319,7 @@ describe("runMarketingAssetGeneration", () => {
 			}),
 		).resolves.toEqual({ reason: "reservation_failed", status: "failed" });
 		expect(dependencies.generate).not.toHaveBeenCalled();
-		expect(dependencies.refund).toHaveBeenCalledWith(USER_ID, ASSET_ID);
+		expect(dependencies.refund).toHaveBeenCalledWith(SUBJECT, ASSET_ID);
 	});
 
 	it("settles an already-failed row with a refund and no generation", async () => {
@@ -330,7 +337,7 @@ describe("runMarketingAssetGeneration", () => {
 			}),
 		).resolves.toEqual({ reason: "already_failed", status: "failed" });
 		expect(dependencies.generate).not.toHaveBeenCalled();
-		expect(dependencies.refund).toHaveBeenCalledWith(USER_ID, ASSET_ID);
+		expect(dependencies.refund).toHaveBeenCalledWith(SUBJECT, ASSET_ID);
 	});
 
 	it("returns a succeeded row untouched", async () => {
@@ -376,7 +383,7 @@ describe("runMarketingAssetGeneration", () => {
 		});
 		expect(dependencies.generate).not.toHaveBeenCalled();
 		expect(dependencies.markSucceeded).toHaveBeenCalledTimes(1);
-		expect(dependencies.settleExisting).toHaveBeenCalledWith(USER_ID, ASSET_ID);
+		expect(dependencies.settleExisting).toHaveBeenCalledWith(SUBJECT, ASSET_ID);
 		expect(dependencies.reserve).not.toHaveBeenCalled();
 		expect(dependencies.settle).not.toHaveBeenCalled();
 		expect(
@@ -439,7 +446,7 @@ describe("runMarketingAssetGeneration", () => {
 				runId: "run_stale",
 			}),
 		).resolves.toEqual({ reason: "stale_generation", status: "failed" });
-		expect(dependencies.refund).toHaveBeenCalledWith(USER_ID, ASSET_ID);
+		expect(dependencies.refund).toHaveBeenCalledWith(SUBJECT, ASSET_ID);
 	});
 
 	it("fails and refunds queued work when its project was soft-deleted", async () => {
@@ -472,7 +479,7 @@ describe("runMarketingAssetGeneration", () => {
 				runId: "run_missing",
 			}),
 		).resolves.toEqual({ reason: "ownership_mismatch", status: "failed" });
-		expect(dependencies.refund).toHaveBeenCalledWith(USER_ID, ASSET_ID);
+		expect(dependencies.refund).toHaveBeenCalledWith(SUBJECT, ASSET_ID);
 		expect(dependencies.claimQueued).not.toHaveBeenCalled();
 	});
 });

@@ -110,6 +110,27 @@ export const env = createEnv({
 		CORS_ORIGIN: z.url(),
 		GOOGLE_CLIENT_ID: z.string().min(1),
 		GOOGLE_CLIENT_SECRET: z.string().min(1),
+		// Email auth + invitation delivery (Resend). All optional: without a
+		// key, non-production logs magic links/OTPs to the server console and
+		// production refuses email sends with a loud error. The feature is
+		// additionally dark behind the emailAuthEnabled product setting.
+		RESEND_API_KEY: z.string().min(1).optional(),
+		// RFC 5322 From for outgoing auth/invite mail. The resend.dev sender
+		// only delivers to the Resend account owner's inbox — set a verified
+		// domain sender before enabling email auth for real users.
+		EMAIL_FROM: z.string().min(1).default("Wandit <onboarding@resend.dev>"),
+		// Cloudflare Turnstile server secret. Unset = captcha plugin not
+		// registered (local dev); set in any env that exposes email auth.
+		TURNSTILE_SECRET_KEY: z.string().min(1).optional(),
+		// Comma-separated CIDRs of the proxies in front of this API (the
+		// platform edge, Cloudflare, a load balancer). REQUIRED in any
+		// deployment that terminates behind a proxy: Better Auth refuses to
+		// trust a multi-hop X-Forwarded-For without it, and an unresolvable
+		// client IP makes every caller share ONE rate-limit bucket — which a
+		// single client can then exhaust for everybody, Google sign-in
+		// included. With it set, the address is taken from the last hop the
+		// proxy actually appended, so a spoofed header cannot shift it.
+		TRUSTED_PROXY_CIDRS: z.string().optional(),
 		META_APP_ID: z.string().min(1).optional(),
 		META_APP_SECRET: z.string().min(1).optional(),
 		NODE_ENV: z

@@ -4,6 +4,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
 import type { CreditsService } from "../../../credits/application/services/credits.service";
+import {
+	type CreditOwner,
+	userOwner,
+} from "../../../credits/domain/credit-owner";
 import type { PaymentProvider } from "../../domain/ports/payment-provider.port";
 import type { WebhookOrderReconciler } from "../../domain/ports/webhook-order-reconciler.port";
 import type { WebhookOrderRefundHandler } from "../../domain/ports/webhook-order-refund-handler.port";
@@ -392,11 +396,13 @@ class FakeSubscriptionsRepository {
 		return cleared;
 	}
 
-	async findActiveByUserId(userId: string) {
+	async findActiveByOwner(owner: CreditOwner) {
 		return (
 			[...this.rows.values()].find(
 				(row) =>
-					row.userId === userId &&
+					(owner.type === "user"
+						? row.userId === owner.userId && row.organizationId === null
+						: row.organizationId === owner.organizationId) &&
 					row.status !== "canceled" &&
 					row.status !== "incomplete_expired",
 			) ?? null
@@ -594,6 +600,7 @@ class FakeCheckoutAttemptsRepository {
 		const row = {
 			createdAt: new Date(0),
 			id: input.id,
+			organizationId: null,
 			packId: input.packId ?? null,
 			priceLookupKey: input.priceLookupKey ?? null,
 			providerSessionId: input.providerSessionId ?? null,
@@ -619,18 +626,20 @@ class FakeSubscriptionCreditsRepository {
 
 	constructor(private readonly subscriptions: FakeSubscriptionsRepository) {}
 
-	readonly withUserLock = vi.fn(
-		async <T>(_userId: string, fn: (tx: unknown) => Promise<T>) =>
+	readonly withOwnerLock = vi.fn(
+		async <T>(_owner: CreditOwner, fn: (tx: unknown) => Promise<T>) =>
 			fn(this.transactionClient),
 	);
 
-	readonly findCanonicalEntitledByUserId = vi.fn(async (userId: string) => {
+	readonly findCanonicalEntitledByOwner = vi.fn(async (owner: CreditOwner) => {
 		return (
 			this.subscriptions
 				.allRows()
 				.filter(
 					(row) =>
-						row.userId === userId &&
+						(owner.type === "user"
+							? row.userId === owner.userId && row.organizationId === null
+							: row.organizationId === owner.organizationId) &&
 						["active", "trialing"].includes(row.status),
 				)
 				.sort(
@@ -821,8 +830,10 @@ class FakeBillingCreditLedgerRepository {
 			),
 	);
 
-	readonly acquireUserLock = vi.fn(async () => undefined);
-	readonly findPendingRefillSlotUserIdsForCharge = vi.fn(async () => []);
+	readonly acquireOwnerLock = vi.fn(async () => undefined);
+	readonly findPendingRefillSlotOwnersForCharge = vi.fn(
+		async (): Promise<CreditOwner[]> => [],
+	);
 
 	readonly cancelPendingRefillSlotsForCharge = vi.fn(async () => 0);
 
@@ -1049,6 +1060,7 @@ function setup(
 		billingCustomers as unknown as BillingCustomersRepository,
 		subscriptions as unknown as SubscriptionsRepository,
 		paymentProvider as unknown as PaymentProvider,
+		{ findByProviderCustomerId: async () => null } as never,
 	);
 	const paymentRefunds = new PaymentRefundsService(
 		billingCreditLedger as unknown as BillingCreditLedgerRepository,
@@ -1070,6 +1082,7 @@ function setup(
 		subscriptionCreditsRepository as unknown as SubscriptionCreditsRepository,
 		subscriptionRefill,
 		checkoutAttempts as unknown as BillingCheckoutAttemptsRepository,
+		{ findByProviderCustomerId: async () => null } as never,
 	);
 	const billingService = new BillingService(
 		billingCustomers as unknown as BillingCustomersRepository,
@@ -1080,9 +1093,20 @@ function setup(
 		subscriptionSync,
 		checkoutAttempts as unknown as BillingCheckoutAttemptsRepository,
 		changeIntents as unknown as BillingChangeIntentsRepository,
+		{
+			findByOrganizationId: async () => null,
+			setOpenCheckoutSessionId: async () => undefined,
+		} as never,
+		{
+			get: async () => ({ organizationsEnabled: false }),
+		} as never,
 	);
 	const router = new StripeEventRouter(
 		billingCustomers as unknown as BillingCustomersRepository,
+		{
+			findByOrganizationId: async () => null,
+			setOpenCheckoutSessionId: async () => undefined,
+		} as never,
 		subscriptionSync,
 		subscriptionCredits,
 		paymentRefunds,
@@ -1347,7 +1371,7 @@ describe("StripeWebhookProcessor claim lifecycle", () => {
 		await processor.process(paidInvoiceEvent(invoice.id, `evt_${status}`));
 
 		expect(credits.grant).toHaveBeenCalledWith(
-			"user_1",
+			userOwner("user_1"),
 			100,
 			expect.objectContaining({
 				idempotencyKey: `inv:${invoice.id}:grant`,
@@ -1636,7 +1660,7 @@ describe("StripeEventRouter checkout routing", () => {
 			),
 		);
 
-		expect(credits.topup).toHaveBeenCalledWith("user_1", 500, {
+		expect(credits.topup).toHaveBeenCalledWith(userOwner("user_1"), 500, {
 			idempotencyKey: "topup:cs_1",
 			meta: {
 				chargeId: "ch_pi_1",
@@ -1679,7 +1703,7 @@ describe("StripeEventRouter checkout routing", () => {
 			),
 		);
 
-		expect(credits.topup).toHaveBeenCalledWith("user_1", 1000, {
+		expect(credits.topup).toHaveBeenCalledWith(userOwner("user_1"), 1000, {
 			idempotencyKey: "topup:cs_async",
 			meta: {
 				chargeId: "ch_pi_async",
@@ -2207,7 +2231,7 @@ describe("StripeEventRouter subscription synchronization", () => {
 
 		if (eventType === "customer.subscription.deleted") {
 			expect(credits.expirePlanRemainder).toHaveBeenCalledWith(
-				"user_1",
+				userOwner("user_1"),
 				{
 					idempotencyKey: `subdel:${providerSubscription.id}`,
 					meta: {
@@ -2307,7 +2331,7 @@ describe("StripeEventRouter invoice allowlist", () => {
 
 		if (eventType === "invoice.paid") {
 			expect(credits.grant).toHaveBeenCalledWith(
-				"user_1",
+				userOwner("user_1"),
 				100,
 				expect.objectContaining({
 					idempotencyKey: `inv:${invoiceId}:grant`,
@@ -2404,7 +2428,7 @@ describe("SubscriptionCreditsService invoice policy", () => {
 		await processor.process(paidInvoiceEvent(invoice.id, "evt_create"));
 
 		expect(credits.grant).toHaveBeenCalledWith(
-			"user_1",
+			userOwner("user_1"),
 			100,
 			expect.objectContaining({
 				bucket: "plan",
@@ -2458,7 +2482,7 @@ describe("SubscriptionCreditsService invoice policy", () => {
 		expect(stripe.retrievePaymentIntent).toHaveBeenCalledOnce();
 		expect(stripe.retrievePaymentIntent).toHaveBeenCalledWith("pi_paid");
 		expect(credits.grant).toHaveBeenCalledWith(
-			"user_1",
+			userOwner("user_1"),
 			100,
 			expect.objectContaining({
 				bucket: "plan",
@@ -2529,7 +2553,7 @@ describe("SubscriptionCreditsService invoice policy", () => {
 		await processor.process(paidInvoiceEvent(invoice.id, "evt_cycle"));
 
 		expect(credits.applyCappedRefill).toHaveBeenCalledWith(
-			"user_1",
+			userOwner("user_1"),
 			200,
 			expect.objectContaining({
 				idempotencyKey: "inv:in_cycle:grant",
@@ -2621,7 +2645,7 @@ describe("SubscriptionCreditsService invoice policy", () => {
 		await processor.process(paidInvoiceEvent(invoice.id, "evt_upgrade"));
 
 		expect(credits.grant).toHaveBeenCalledWith(
-			"user_1",
+			userOwner("user_1"),
 			800,
 			expect.objectContaining({
 				bucket: "plan",
@@ -2728,7 +2752,7 @@ describe("SubscriptionCreditsService invoice policy", () => {
 		await processor.process(paidInvoiceEvent(invoice.id, "evt_interval"));
 
 		expect(credits.applyCappedRefill).toHaveBeenCalledWith(
-			"user_1",
+			userOwner("user_1"),
 			100,
 			expect.objectContaining({
 				idempotencyKey: "inv:in_interval:grant",
@@ -2763,7 +2787,7 @@ describe("SubscriptionCreditsService invoice policy", () => {
 		);
 
 		expect(credits.expirePlanRemainder).toHaveBeenCalledWith(
-			"user_1",
+			userOwner("user_1"),
 			{
 				idempotencyKey: "subdel:sub_deleted",
 				meta: {
@@ -2848,7 +2872,7 @@ describe("PaymentRefundsService routing", () => {
 		);
 
 		expect(credits.revoke).toHaveBeenCalledWith(
-			"user_1",
+			userOwner("user_1"),
 			375,
 			{
 				bucket: "topup",
@@ -2882,7 +2906,7 @@ describe("PaymentRefundsService routing", () => {
 		);
 
 		expect(credits.revoke).toHaveBeenCalledWith(
-			"user_1",
+			userOwner("user_1"),
 			500,
 			{
 				bucket: "topup",
@@ -2941,7 +2965,7 @@ describe("PaymentRefundsService routing", () => {
 		);
 
 		expect(credits.grant).toHaveBeenCalledWith(
-			"user_1",
+			userOwner("user_1"),
 			300,
 			expect.objectContaining({
 				bucket: "topup",
@@ -3000,7 +3024,7 @@ describe("PaymentRefundsService routing", () => {
 		);
 
 		expect(credits.grant).toHaveBeenCalledWith(
-			"user_1",
+			userOwner("user_1"),
 			500,
 			expect.objectContaining({
 				idempotencyKey: "dispute-restore:dp_prevented",
@@ -3081,7 +3105,7 @@ describe("PaymentRefundsService routing", () => {
 		expect(webhookEvents.attemptCountOf("evt_delayed_grant")).toBe(2);
 		expect(credits.revoke).toHaveBeenCalledOnce();
 		expect(credits.revoke).toHaveBeenCalledWith(
-			"user_1",
+			userOwner("user_1"),
 			250,
 			{
 				bucket: "topup",

@@ -36,6 +36,7 @@ import {
 	tierSavingsPercent,
 } from "@/features/billing/lib/plan-pricing";
 import { usePublicSettingsQuery } from "@/features/settings/api/settings.queries";
+import { CreateWorkspaceDialog } from "@/features/workspaces/components/create-workspace-dialog";
 
 import { scrollToTop } from "../lib/scroll";
 import { Reveal } from "./reveal";
@@ -83,6 +84,7 @@ export function Pricing() {
 	const settingsQuery = usePublicSettingsQuery();
 	const [interval, setBillingInterval] = useState<BillingInterval>("month");
 	const [selectedCredits, setSelectedCredits] = useState<CreditTier>();
+	const [createTeamOpen, setCreateTeamOpen] = useState(false);
 	const proPlan = plansQuery.data?.plans.find((plan) => plan.id === "pro");
 	const selectedTier =
 		proPlan?.tiers.find((tier) => tier.tierCredits === selectedCredits) ??
@@ -92,6 +94,21 @@ export function Pricing() {
 	const showBetaPosture = settingsQuery.isSuccess && !paidSubscriptionsEnabled;
 	const catalogUnavailable =
 		plansQuery.isError || (plansQuery.isSuccess && (!proPlan || !selectedTier));
+	// The Business card ships dark with the rest of teams: it appears only once
+	// organizations are enabled and the catalog carries the business plan.
+	const businessPlan = plansQuery.data?.plans.find(
+		(plan) => plan.id === "business",
+	);
+	const showBusiness =
+		settingsQuery.data?.organizationsEnabled === true &&
+		paidSubscriptionsEnabled &&
+		businessPlan !== undefined &&
+		businessPlan.tiers.length > 0;
+	const businessFromUsd = businessPlan?.tiers.length
+		? Math.min(
+				...businessPlan.tiers.map((tier) => tierPriceUsd(tier, "month")),
+			)
+		: null;
 
 	const startBuilding = () => {
 		if (session) {
@@ -106,7 +123,14 @@ export function Pricing() {
 		<section id="pricing" className="scroll-mt-20 px-4 py-16 md:py-24">
 			<div className="mx-auto max-w-5xl">
 				<SectionHeader kicker={pricing.kicker} title={pricing.title} />
-				<div className="grid gap-4 md:grid-cols-[0.82fr_1.18fr] md:gap-5">
+				<div
+					className={cn(
+						"grid gap-4 md:gap-5",
+						showBusiness
+							? "md:grid-cols-2 lg:grid-cols-[0.75fr_1.05fr_0.9fr]"
+							: "md:grid-cols-[0.82fr_1.18fr]",
+					)}
+				>
 					<Reveal>
 						<PlanCard>
 							<h3 className="font-display font-semibold text-lg">
@@ -285,6 +309,49 @@ export function Pricing() {
 							) : null}
 						</PlanCard>
 					</Reveal>
+
+					{showBusiness && businessFromUsd !== null ? (
+						<Reveal delay={0.12}>
+							<PlanCard>
+								<h3 className="font-display font-semibold text-lg">
+									{pricing.business.name}
+								</h3>
+								<p className="mt-1 text-muted-foreground text-sm">
+									{pricing.business.tagline}
+								</p>
+								<div className="mt-5 flex flex-wrap items-baseline gap-x-2 gap-y-1">
+									<bdi className="font-bold font-mono text-3xl tabular-nums tracking-[-0.02em]">
+										{pricing.business.fromPrice.replace(
+											"{price}",
+											formatUsd(businessFromUsd, locale),
+										)}
+									</bdi>
+									<span className="font-mono text-muted-foreground text-xs">
+										{pricing.business.perMonth}
+									</span>
+								</div>
+								<ul className="mt-6 flex flex-1 flex-col gap-2.5">
+									{pricing.business.features.map((feature) => (
+										<FeatureRow key={feature} label={feature} />
+									))}
+								</ul>
+								<Button
+									variant="outline"
+									className="mt-8 active:translate-y-px"
+									onClick={() => {
+										if (!session) {
+											openAuth();
+											return;
+										}
+
+										setCreateTeamOpen(true);
+									}}
+								>
+									{pricing.business.cta}
+								</Button>
+							</PlanCard>
+						</Reveal>
+					) : null}
 				</div>
 				<Reveal className="mt-8 text-center">
 					<p className="font-mono text-muted-foreground text-xs">
@@ -292,6 +359,10 @@ export function Pricing() {
 					</p>
 				</Reveal>
 			</div>
+			<CreateWorkspaceDialog
+				open={createTeamOpen}
+				onOpenChange={setCreateTeamOpen}
+			/>
 		</section>
 	);
 }

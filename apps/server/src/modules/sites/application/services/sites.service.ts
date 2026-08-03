@@ -10,6 +10,7 @@
  * row is promoted — an active deployment must never point at bytes that do
  * not exist.
  */
+import type { ProjectScope } from "../../../projects/domain/project-scope";
 import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import {
 	type Deployment,
@@ -74,20 +75,20 @@ export class SitesService {
 	) {}
 
 	async current(
-		userId: string,
+		scope: ProjectScope,
 		projectId: string,
 	): Promise<DeploymentCurrentResponse> {
-		await this.deploymentsRepository.getOwnedProject(userId, projectId);
+		await this.deploymentsRepository.getAccessibleProject(scope, projectId);
 		await this.deploymentsRepository.healStalePending(projectId);
 
 		return { current: await this.buildCurrent(projectId) };
 	}
 
 	async list(
-		userId: string,
+		scope: ProjectScope,
 		projectId: string,
 	): Promise<ListDeploymentsResponse> {
-		await this.deploymentsRepository.getOwnedProject(userId, projectId);
+		await this.deploymentsRepository.getAccessibleProject(scope, projectId);
 
 		const rows = await this.deploymentsRepository.listByProject(projectId);
 
@@ -95,11 +96,11 @@ export class SitesService {
 	}
 
 	async slugAvailability(
-		userId: string,
+		scope: ProjectScope,
 		projectId: string,
 		slug: string,
 	): Promise<SlugAvailabilityResponse> {
-		await this.deploymentsRepository.getOwnedProject(userId, projectId);
+		await this.deploymentsRepository.getAccessibleProject(scope, projectId);
 
 		if (isReservedSlug(slug)) {
 			return { available: false, reason: "reserved", slug };
@@ -114,12 +115,12 @@ export class SitesService {
 	}
 
 	async publish(
-		userId: string,
+		scope: ProjectScope,
 		projectId: string,
 		body: PublishDeploymentBody,
 	): Promise<PublishDeploymentResponse> {
-		const project = await this.deploymentsRepository.getOwnedProject(
-			userId,
+		const project = await this.deploymentsRepository.getAccessibleProject(
+			scope,
 			projectId,
 		);
 
@@ -134,7 +135,7 @@ export class SitesService {
 			requestedSlug: body.slug,
 			versionId: version.id,
 		});
-		this.analyticsService.capture(userId, "site_published", {
+		this.analyticsService.capture(scope.userId, "site_published", {
 			projectId: project.id,
 		});
 
@@ -145,12 +146,12 @@ export class SitesService {
 	}
 
 	async rollback(
-		userId: string,
+		scope: ProjectScope,
 		projectId: string,
 		body: RollbackDeploymentBody,
 	): Promise<PublishDeploymentResponse> {
-		const project = await this.deploymentsRepository.getOwnedProject(
-			userId,
+		const project = await this.deploymentsRepository.getAccessibleProject(
+			scope,
 			projectId,
 		);
 
@@ -202,10 +203,10 @@ export class SitesService {
 	}
 
 	async unpublish(
-		userId: string,
+		scope: ProjectScope,
 		projectId: string,
 	): Promise<DeploymentCurrentResponse> {
-		await this.deploymentsRepository.getOwnedProject(userId, projectId);
+		await this.deploymentsRepository.getAccessibleProject(scope, projectId);
 
 		const unpublished =
 			await this.deploymentsRepository.unpublishActive(projectId);

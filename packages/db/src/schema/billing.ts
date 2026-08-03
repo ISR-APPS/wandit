@@ -13,6 +13,7 @@ import {
 	uuid,
 } from "drizzle-orm/pg-core";
 import { user } from "./auth";
+import { organization } from "./organizations";
 
 export const billingPlan = pgEnum("billing_plan", ["pro", "business"]);
 
@@ -72,6 +73,15 @@ export const productSettings = pgTable(
 			.notNull()
 			.default(false),
 		topupsEnabled: boolean("topups_enabled").notNull().default(false),
+		// Teams/Workspaces kill switch: gates workspace creation and Business
+		// checkout admission. Webhooks always honor paid org money regardless.
+		organizationsEnabled: boolean("organizations_enabled")
+			.notNull()
+			.default(false),
+		// Email auth kill switch: gates magic-link/OTP email SENDS (no send ⇒
+		// no token ⇒ verify can never succeed; ≤10-min token tail after a
+		// flip-off). Google sign-in is never affected.
+		emailAuthEnabled: boolean("email_auth_enabled").notNull().default(false),
 		version: integer("version").notNull().default(1),
 		updatedByUserId: text("updated_by_user_id").references(() => user.id, {
 			onDelete: "restrict",
@@ -123,8 +133,12 @@ export const subscriptions = pgTable(
 		id: uuid("id").primaryKey().defaultRandom(),
 		userId: text("user_id")
 			.notNull()
+			// For org subscriptions this mirrors the purchasing admin — provenance
+			// only; NO money path reads it. Owner identity = organizationId ?? userId.
 			.references(() => user.id, { onDelete: "restrict" }),
-		organizationId: text("organization_id"),
+		organizationId: text("organization_id").references(() => organization.id, {
+			onDelete: "restrict",
+		}),
 		provider: text("provider").notNull(),
 		providerSubscriptionId: text("provider_subscription_id").notNull(),
 		plan: billingPlan("plan").notNull(),
@@ -153,9 +167,61 @@ export const subscriptions = pgTable(
 		uniqueIndex("subscriptions_providerSubscriptionId_uq").on(
 			table.providerSubscriptionId,
 		),
+		// One live PERSONAL subscription per user. Org subscriptions are exempt:
+		// the same user may administer several org subscriptions.
 		uniqueIndex("subscriptions_userId_nonTerminal_uq")
 			.on(table.userId)
-			.where(sql`${table.status} NOT IN ('canceled', 'incomplete_expired')`),
+			.where(
+				sql`${table.status} NOT IN ('canceled', 'incomplete_expired') AND ${table.organizationId} IS NULL`,
+			),
+		// One live subscription per organization.
+		uniqueIndex("subscriptions_orgId_nonTerminal_uq")
+			.on(table.organizationId)
+			.where(
+				sql`${table.status} NOT IN ('canceled', 'incomplete_expired') AND ${table.organizationId} IS NOT NULL`,
+			),
+	],
+);
+
+// Org Stripe customers live in their OWN table so the personal
+// billing_customers invariants (one row per user, ON CONFLICT (user_id)
+// upsert, findByUserId) stay byte-identical — relaxing them was reviewed and
+// rejected as a personal-money-path outage (teams-workspaces.md §5.1).
+export const organizationBillingCustomers = pgTable(
+	"organization_billing_customers",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		organizationId: text("organization_id")
+			.notNull()
+			.references(() => organization.id, { onDelete: "restrict" }),
+		provider: text("provider").notNull(),
+		providerCustomerId: text("provider_customer_id").notNull(),
+		// Affiliate policy snapshot: the org's earliest owner-role member at
+		// customer-creation time. Org invoices attribute to THIS user's affiliate
+		// attribution — never the checkout actor.
+		attributionUserId: text("attribution_user_id")
+			.notNull()
+			.references(() => user.id, { onDelete: "restrict" }),
+		createdByUserId: text("created_by_user_id")
+			.notNull()
+			.references(() => user.id, { onDelete: "restrict" }),
+		openCheckoutSessionId: text("open_checkout_session_id"),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+		updatedAt: timestamp("updated_at", { withTimezone: true })
+			.defaultNow()
+			.$onUpdate(() => /* @__PURE__ */ new Date())
+			.notNull(),
+	},
+	(table) => [
+		uniqueIndex("organization_billing_customers_orgId_uq").on(
+			table.organizationId,
+		),
+		uniqueIndex("organization_billing_customers_provider_customerId_uq").on(
+			table.provider,
+			table.providerCustomerId,
+		),
 	],
 );
 
@@ -187,6 +253,11 @@ export const billingCheckoutAttempts = pgTable(
 		userId: text("user_id")
 			.notNull()
 			.references(() => user.id, { onDelete: "restrict" }),
+		// NULL = personal checkout. Set = checkout on behalf of this org
+		// (userId is then the acting billing manager).
+		organizationId: text("organization_id").references(() => organization.id, {
+			onDelete: "restrict",
+		}),
 		purpose: billingCheckoutPurpose("purpose").notNull(),
 		priceLookupKey: text("price_lookup_key"),
 		packId: text("pack_id"),
@@ -286,6 +357,11 @@ export const billingChangeIntents = pgTable(
 		userId: text("user_id")
 			.notNull()
 			.references(() => user.id, { onDelete: "restrict" }),
+		// NULL = change on a personal subscription. Set = change on this org's
+		// subscription (userId is then the acting billing manager).
+		organizationId: text("organization_id").references(() => organization.id, {
+			onDelete: "restrict",
+		}),
 		subscriptionId: uuid("subscription_id")
 			.notNull()
 			.references(() => subscriptions.id, { onDelete: "restrict" }),

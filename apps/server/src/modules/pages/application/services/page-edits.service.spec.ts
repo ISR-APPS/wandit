@@ -14,6 +14,7 @@ import {
 	pageHtmlKey,
 	putPageHtml,
 } from "../../../../infrastructure/storage/r2";
+import type { ProjectScope } from "../../../projects/domain/project-scope";
 import {
 	type PagesRepository,
 	VersionConflictError,
@@ -33,6 +34,7 @@ vi.mock("../../../../infrastructure/storage/r2", () => ({
 }));
 
 const USER_ID = "user_1";
+const SCOPE: ProjectScope = { kind: "personal", userId: USER_ID };
 const PROJECT_ID = "11111111-1111-4111-8111-111111111111";
 const OTHER_PROJECT_ID = "22222222-2222-4222-8222-222222222222";
 const ARTIFACT_ID = "33333333-3333-4333-8333-333333333333";
@@ -48,7 +50,7 @@ function setup() {
 		findActivePageByProject: vi.fn(),
 		findActivePageByProjectUnchecked: vi.fn(),
 		findLatestBuilderVersion: vi.fn(),
-		findOwnedVersionById: vi.fn(),
+		findAccessibleVersionById: vi.fn(),
 		insertVersionAndActivate: vi.fn(),
 	};
 	const service = new PageEditsService(
@@ -116,7 +118,7 @@ function mockRestorableVersion(
 			r2Key: `sites/${PROJECT_ID}/${ACTIVE_VERSION_ID}/index.html`,
 		},
 	});
-	pagesRepository.findOwnedVersionById.mockResolvedValue({
+	pagesRepository.findAccessibleVersionById.mockResolvedValue({
 		artifactId: ARTIFACT_ID,
 		id: RESTORED_VERSION_ID,
 		projectId: PROJECT_ID,
@@ -143,7 +145,7 @@ describe("PageEditsService.restoreVersion", () => {
 		});
 
 		const response = await service.restoreVersion(
-			USER_ID,
+			SCOPE,
 			PROJECT_ID,
 			RESTORED_VERSION_ID,
 			{ expectedActiveVersionId: ACTIVE_VERSION_ID },
@@ -151,11 +153,11 @@ describe("PageEditsService.restoreVersion", () => {
 
 		expect(getPageHtml).toHaveBeenCalledWith(RESTORED_R2_KEY);
 		expect(pagesRepository.findActivePageByProject).toHaveBeenCalledWith(
-			USER_ID,
+			SCOPE,
 			PROJECT_ID,
 		);
-		expect(pagesRepository.findOwnedVersionById).toHaveBeenCalledWith(
-			USER_ID,
+		expect(pagesRepository.findAccessibleVersionById).toHaveBeenCalledWith(
+			SCOPE,
 			RESTORED_VERSION_ID,
 		);
 		const insert = pagesRepository.insertVersionAndActivate.mock.calls[0]?.[0];
@@ -196,7 +198,7 @@ describe("PageEditsService.restoreVersion", () => {
 		mockRestorableVersion(pagesRepository);
 
 		const error = await service
-			.restoreVersion(USER_ID, PROJECT_ID, RESTORED_VERSION_ID, {
+			.restoreVersion(SCOPE, PROJECT_ID, RESTORED_VERSION_ID, {
 				expectedActiveVersionId: RACED_VERSION_ID,
 			})
 			.catch((caught: unknown) => caught);
@@ -222,7 +224,7 @@ describe("PageEditsService.restoreVersion", () => {
 		);
 
 		const error = await service
-			.restoreVersion(USER_ID, PROJECT_ID, RESTORED_VERSION_ID, {
+			.restoreVersion(SCOPE, PROJECT_ID, RESTORED_VERSION_ID, {
 				expectedActiveVersionId: ACTIVE_VERSION_ID,
 			})
 			.catch((caught: unknown) => caught);
@@ -253,7 +255,7 @@ describe("PageEditsService.restoreVersion", () => {
 		vi.mocked(deleteObject).mockRejectedValue(cleanupError);
 
 		const error = await service
-			.restoreVersion(USER_ID, PROJECT_ID, RESTORED_VERSION_ID, {
+			.restoreVersion(SCOPE, PROJECT_ID, RESTORED_VERSION_ID, {
 				expectedActiveVersionId: ACTIVE_VERSION_ID,
 			})
 			.catch((caught: unknown) => caught);
@@ -276,10 +278,10 @@ describe("PageEditsService.restoreVersion", () => {
 	it("returns 404 for an unknown or foreign historical version", async () => {
 		const { pagesRepository, service } = setup();
 		mockRestorableVersion(pagesRepository);
-		pagesRepository.findOwnedVersionById.mockResolvedValue(null);
+		pagesRepository.findAccessibleVersionById.mockResolvedValue(null);
 
 		await expect(
-			service.restoreVersion(USER_ID, PROJECT_ID, RESTORED_VERSION_ID, {
+			service.restoreVersion(SCOPE, PROJECT_ID, RESTORED_VERSION_ID, {
 				expectedActiveVersionId: ACTIVE_VERSION_ID,
 			}),
 		).rejects.toBeInstanceOf(NotFoundException);
@@ -292,7 +294,7 @@ describe("PageEditsService.restoreVersion", () => {
 		vi.mocked(getPageHtml).mockResolvedValue(null);
 
 		await expect(
-			service.restoreVersion(USER_ID, PROJECT_ID, RESTORED_VERSION_ID, {
+			service.restoreVersion(SCOPE, PROJECT_ID, RESTORED_VERSION_ID, {
 				expectedActiveVersionId: ACTIVE_VERSION_ID,
 			}),
 		).rejects.toBeInstanceOf(NotFoundException);
@@ -305,18 +307,18 @@ describe("PageEditsService.restoreVersion", () => {
 		pagesRepository.findActivePageByProject.mockResolvedValue(null);
 
 		await expect(
-			service.restoreVersion(USER_ID, PROJECT_ID, RESTORED_VERSION_ID, {
+			service.restoreVersion(SCOPE, PROJECT_ID, RESTORED_VERSION_ID, {
 				expectedActiveVersionId: ACTIVE_VERSION_ID,
 			}),
 		).rejects.toBeInstanceOf(NotFoundException);
-		expect(pagesRepository.findOwnedVersionById).not.toHaveBeenCalled();
+		expect(pagesRepository.findAccessibleVersionById).not.toHaveBeenCalled();
 		expect(getPageHtml).not.toHaveBeenCalled();
 	});
 
 	it("returns 404 when an owned version belongs to another project", async () => {
 		const { pagesRepository, service } = setup();
 		mockRestorableVersion(pagesRepository);
-		pagesRepository.findOwnedVersionById.mockResolvedValue({
+		pagesRepository.findAccessibleVersionById.mockResolvedValue({
 			artifactId: ARTIFACT_ID,
 			id: RESTORED_VERSION_ID,
 			projectId: OTHER_PROJECT_ID,
@@ -324,7 +326,7 @@ describe("PageEditsService.restoreVersion", () => {
 		});
 
 		await expect(
-			service.restoreVersion(USER_ID, PROJECT_ID, RESTORED_VERSION_ID, {
+			service.restoreVersion(SCOPE, PROJECT_ID, RESTORED_VERSION_ID, {
 				expectedActiveVersionId: ACTIVE_VERSION_ID,
 			}),
 		).rejects.toBeInstanceOf(NotFoundException);
@@ -334,7 +336,7 @@ describe("PageEditsService.restoreVersion", () => {
 	it("returns 404 when an owned version belongs to another artifact", async () => {
 		const { pagesRepository, service } = setup();
 		mockRestorableVersion(pagesRepository);
-		pagesRepository.findOwnedVersionById.mockResolvedValue({
+		pagesRepository.findAccessibleVersionById.mockResolvedValue({
 			artifactId: OTHER_ARTIFACT_ID,
 			id: RESTORED_VERSION_ID,
 			projectId: PROJECT_ID,
@@ -342,7 +344,7 @@ describe("PageEditsService.restoreVersion", () => {
 		});
 
 		await expect(
-			service.restoreVersion(USER_ID, PROJECT_ID, RESTORED_VERSION_ID, {
+			service.restoreVersion(SCOPE, PROJECT_ID, RESTORED_VERSION_ID, {
 				expectedActiveVersionId: ACTIVE_VERSION_ID,
 			}),
 		).rejects.toBeInstanceOf(NotFoundException);
@@ -511,7 +513,7 @@ describe("PageEditsService.applyClientOps", () => {
 		});
 		vi.mocked(getPageHtml).mockResolvedValue(stored);
 
-		await service.applyClientOps(USER_ID, PROJECT_ID, {
+		await service.applyClientOps(SCOPE, PROJECT_ID, {
 			baseVersionId: ACTIVE_VERSION_ID,
 			ops: [
 				{
@@ -543,7 +545,7 @@ describe("PageEditsService.applyClientOps", () => {
 		vi.mocked(isWanditHostedUrl).mockReturnValue(false);
 
 		const error = await service
-			.applyClientOps(USER_ID, PROJECT_ID, {
+			.applyClientOps(SCOPE, PROJECT_ID, {
 				baseVersionId: ACTIVE_VERSION_ID,
 				ops: [
 					{
@@ -585,7 +587,7 @@ describe("PageEditsService.applyClientOps", () => {
 				: completeThemeHtml().replace("oklch(0.96 0.02 210)", "#ffffff"),
 		);
 
-		await service.applyClientOps(USER_ID, PROJECT_ID, {
+		await service.applyClientOps(SCOPE, PROJECT_ID, {
 			baseVersionId: ACTIVE_VERSION_ID,
 			ops: [{ kind: "reset-tokens" }],
 			source: "theme",
@@ -628,7 +630,7 @@ describe("PageEditsService.applyClientOps", () => {
 				: completeThemeHtml().replace("Copy", "Current copy"),
 		);
 
-		await service.applyClientOps(USER_ID, PROJECT_ID, {
+		await service.applyClientOps(SCOPE, PROJECT_ID, {
 			baseVersionId: ACTIVE_VERSION_ID,
 			ops: [
 				{ kind: "text", wid: "e-1", value: "Updated copy" },
@@ -654,7 +656,7 @@ describe("PageEditsService.applyClientOps", () => {
 		pagesRepository.findLatestBuilderVersion.mockResolvedValue(null);
 
 		const error = await service
-			.applyClientOps(USER_ID, PROJECT_ID, {
+			.applyClientOps(SCOPE, PROJECT_ID, {
 				baseVersionId: ACTIVE_VERSION_ID,
 				ops: [{ kind: "reset-tokens" }],
 				source: "theme",
@@ -680,7 +682,7 @@ describe("PageEditsService.applyClientOps", () => {
 		vi.mocked(getPageHtml).mockResolvedValue(null);
 
 		const error = await service
-			.applyClientOps(USER_ID, PROJECT_ID, {
+			.applyClientOps(SCOPE, PROJECT_ID, {
 				baseVersionId: ACTIVE_VERSION_ID,
 				ops: [{ kind: "reset-tokens" }],
 				source: "theme",
@@ -708,7 +710,7 @@ describe("PageEditsService.applyClientOps", () => {
 		);
 
 		const error = await service
-			.applyClientOps(USER_ID, PROJECT_ID, {
+			.applyClientOps(SCOPE, PROJECT_ID, {
 				baseVersionId: ACTIVE_VERSION_ID,
 				ops: [{ kind: "reset-tokens" }],
 				source: "theme",
@@ -729,7 +731,7 @@ describe("PageEditsService.applyClientOps", () => {
 		const stored =
 			'<!doctype html><html><body><section data-wid="hero"><p data-wid="e-7">Existing</p><span id="first">Price <em>now</em></span><span id="second">Open <strong>daily</strong></span></section></body></html>';
 		mockActivePage(pagesRepository);
-		pagesRepository.findOwnedVersionById.mockResolvedValue({
+		pagesRepository.findAccessibleVersionById.mockResolvedValue({
 			id: ACTIVE_VERSION_ID,
 			r2Key: `sites/${PROJECT_ID}/${ACTIVE_VERSION_ID}/index.html`,
 		});
@@ -742,8 +744,8 @@ describe("PageEditsService.applyClientOps", () => {
 			pagesRepository as unknown as PagesRepository,
 		);
 
-		const served = await readService.versionHtml(USER_ID, ACTIVE_VERSION_ID);
-		await service.applyClientOps(USER_ID, PROJECT_ID, {
+		const served = await readService.versionHtml(SCOPE, ACTIVE_VERSION_ID);
+		await service.applyClientOps(SCOPE, PROJECT_ID, {
 			baseVersionId: ACTIVE_VERSION_ID,
 			ops: [{ kind: "element-style", wid: "e-7", value: { color: "#123456" } }],
 			source: "inline",

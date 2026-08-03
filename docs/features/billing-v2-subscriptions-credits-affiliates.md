@@ -244,7 +244,7 @@ transaction (§4.2).
 | yearly renewal (cycle) | month-1 refill via capped-refill | cancel any stale pending slots; create 11 new |
 | yearly canceled at period end | keep granting already-paid slots through period end | slots stay pending until dueAt |
 | deleted (terminal) | expire plan bucket IFF no other entitled sub | cancel all pending slots |
-| refund/dispute on funding charge | existing clawback revokes purchased credits | cancel pending slots funded by that invoice/charge |
+| refund/dispute on funding charge | existing clawback revokes purchased credits | **full** refund/dispute of the charge: cancel pending slots funded by that invoice/charge. **Partial** refund: slots are PRESERVED (`payment-refunds.service.ts` `refundCoversFullCharge`) — a $10 goodwill refund on a yearly tier must not destroy 11 months of prepaid credits. Partial refunds on slot-funded charges are a manual-review case: if the intent is to revoke future months, cancel the remaining slots by hand (or refund the full charge). |
 
 For `subscription_update`, target/predecessor prices come from the paid invoice lines: positive
 proration lines first, then positive non-proration new-period lines for anchor-reset invoices.
@@ -467,6 +467,14 @@ fakes; Zack must seed test-mode Stripe + set
 also deploy the complete `apps/server/src/trigger` task set and configure Trigger.dev's runtime
 environment before enabling billing admissions. The Redis drain and affiliate-token translation
 gates in `docs/features/billing.md` are mandatory before deploying the final consumer removal.
+
+Teams (organizations) refunds: a refund or dispute on an ORG invoice claws back from the ORG
+credit pool, and any pending-refill-slot clawback derives the slot's owner from the slot's
+subscription row (`organizationId ?? userId`) — never from `subscriptions.userId`, which on org
+rows is purchase provenance only (teams-workspaces.md §5.4). When investigating a partial refund
+on an org subscription, expect the revoke rows in the org's ledger (admin → Organizations →
+detail), not in the purchasing owner's personal ledger; the personal ledger view deliberately
+filters org rows out.
 
 ## 12. Grandfathering appendix (activates ONLY if the zero-live-subs assertion fails)
 

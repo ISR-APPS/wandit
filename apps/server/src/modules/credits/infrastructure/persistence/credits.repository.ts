@@ -5,7 +5,7 @@ import {
 	type CreditKind,
 	type PaginationQuery,
 } from "@wandit/contracts";
-import { and, asc, desc, eq, gt, inArray, sql } from "@wandit/db";
+import { and, asc, desc, eq, gt, inArray, isNull, sql } from "@wandit/db";
 import {
 	creditLedger,
 	creditPlanHoldPools,
@@ -16,6 +16,11 @@ import {
 	DATABASE,
 	type Database,
 } from "../../../../infrastructure/database/database.constants";
+import {
+	type CreditOwner,
+	creditOwnerLockValue,
+	ownerColumns,
+} from "../../domain/credit-owner";
 
 export type CreditLedgerRow = typeof creditLedger.$inferSelect;
 export type CreditPlanHoldRow = typeof creditPlanHolds.$inferSelect;
@@ -35,7 +40,7 @@ export type InsertCreditLedgerEntry = {
 	kind: CreditKind;
 	meta: Record<string, unknown>;
 	organizationId?: string | null;
-	userId: string;
+	userId: string | null;
 };
 
 export type CreditsTransaction = Parameters<
@@ -51,30 +56,48 @@ type CreditsDbClient = Pick<
 export class CreditsRepository {
 	constructor(@Inject(DATABASE) private readonly db: Database) {}
 
-	async withUserLock<T>(
-		userId: string,
+	/**
+	 * Serializes every balance mutation for one pool owner.
+	 * Lock-value rules live in creditOwnerLockValue — personal keys stay the
+	 * raw user id for byte-compatibility with the four sibling repositories.
+	 */
+	async withOwnerLock<T>(
+		owner: CreditOwner,
+		fn: (tx: CreditsTransaction) => Promise<T>,
+		transaction?: CreditsTransaction,
+	): Promise<T> {
+		return this.withLockValue(creditOwnerLockValue(owner), fn, transaction);
+	}
+
+	/**
+	 * Raw advisory-lock variant for non-owner serialization points (the global
+	 * consume/refund operation locks keyed by idempotency key). Shares the
+	 * hashtext namespace with owner locks on purpose — key shapes are disjoint.
+	 */
+	async withLockValue<T>(
+		lockValue: string,
 		fn: (tx: CreditsTransaction) => Promise<T>,
 		transaction?: CreditsTransaction,
 	): Promise<T> {
 		if (transaction) {
-			await this.acquireUserLock(userId, transaction);
+			await this.acquireLock(lockValue, transaction);
 
 			return fn(transaction);
 		}
 
 		return this.db.transaction(async (tx) => {
-			await this.acquireUserLock(userId, tx);
+			await this.acquireLock(lockValue, tx);
 
 			return fn(tx);
 		});
 	}
 
-	getBalance(userId: string, client: CreditsDbClient = this.db) {
-		return this.sumBalances(userId, client);
+	getBalance(owner: CreditOwner, client: CreditsDbClient = this.db) {
+		return this.sumBalances(owner, client);
 	}
 
-	async listByUser(userId: string, pagination: PaginationQuery) {
-		const where = eq(creditLedger.userId, userId);
+	async listByOwner(owner: CreditOwner, pagination: PaginationQuery) {
+		const where = this.ledgerOwnerPredicate(owner);
 		const offset = (pagination.page - 1) * pagination.pageSize;
 
 		const [totalRow] = await this.db
@@ -143,7 +166,7 @@ export class CreditsRepository {
 	}
 
 	async findByIdempotencyKeys(
-		userId: string,
+		owner: CreditOwner,
 		idempotencyKeys: string[],
 		client: CreditsDbClient = this.db,
 	): Promise<CreditLedgerRow[]> {
@@ -156,7 +179,7 @@ export class CreditsRepository {
 			.from(creditLedger)
 			.where(
 				and(
-					eq(creditLedger.userId, userId),
+					this.ledgerOwnerPredicate(owner),
 					inArray(creditLedger.idempotencyKey, idempotencyKeys),
 				),
 			)
@@ -195,7 +218,7 @@ export class CreditsRepository {
 			consumeIdempotencyKey: string;
 			consumeLedgerId: string;
 			originalCredits: number;
-			userId: string;
+			owner: CreditOwner;
 		},
 		client: CreditsDbClient = this.db,
 	): Promise<CreditPlanHoldRow> {
@@ -207,7 +230,7 @@ export class CreditsRepository {
 				consumeLedgerId: input.consumeLedgerId,
 				originalCredits: input.originalCredits,
 				refundableCredits: input.originalCredits,
-				userId: input.userId,
+				...ownerColumns(input.owner),
 			})
 			.onConflictDoNothing({
 				target: creditPlanHolds.consumeIdempotencyKey,
@@ -233,7 +256,7 @@ export class CreditsRepository {
 	}
 
 	listRefundablePlanHolds(
-		userId: string,
+		owner: CreditOwner,
 		client: CreditsDbClient = this.db,
 	): Promise<CreditPlanHoldRow[]> {
 		return client
@@ -241,7 +264,7 @@ export class CreditsRepository {
 			.from(creditPlanHolds)
 			.where(
 				and(
-					eq(creditPlanHolds.userId, userId),
+					this.holdOwnerPredicate(owner),
 					gt(creditPlanHolds.refundableCredits, 0),
 				),
 			)
@@ -269,13 +292,17 @@ export class CreditsRepository {
 		input: {
 			boundaryIdempotencyKey: string;
 			remainingCredits: number;
-			userId: string;
+			owner: CreditOwner;
 		},
 		client: CreditsDbClient = this.db,
 	): Promise<CreditPlanHoldPoolRow> {
 		const [inserted] = await client
 			.insert(creditPlanHoldPools)
-			.values(input)
+			.values({
+				boundaryIdempotencyKey: input.boundaryIdempotencyKey,
+				remainingCredits: input.remainingCredits,
+				...ownerColumns(input.owner),
+			})
 			.onConflictDoNothing({
 				target: creditPlanHoldPools.boundaryIdempotencyKey,
 			})
@@ -307,7 +334,7 @@ export class CreditsRepository {
 
 	async updatePlanHoldRefundable(
 		consumeIdempotencyKey: string,
-		userId: string,
+		owner: CreditOwner,
 		expectedCredits: number,
 		refundableCredits: number,
 		client: CreditsDbClient = this.db,
@@ -318,7 +345,7 @@ export class CreditsRepository {
 			.where(
 				and(
 					eq(creditPlanHolds.consumeIdempotencyKey, consumeIdempotencyKey),
-					eq(creditPlanHolds.userId, userId),
+					this.holdOwnerPredicate(owner),
 					eq(creditPlanHolds.refundableCredits, expectedCredits),
 				),
 			)
@@ -329,7 +356,7 @@ export class CreditsRepository {
 
 	async updatePlanHoldPoolRemaining(
 		poolId: string,
-		userId: string,
+		owner: CreditOwner,
 		expectedCredits: number,
 		remainingCredits: number,
 		client: CreditsDbClient = this.db,
@@ -340,7 +367,7 @@ export class CreditsRepository {
 			.where(
 				and(
 					eq(creditPlanHoldPools.id, poolId),
-					eq(creditPlanHoldPools.userId, userId),
+					this.poolOwnerPredicate(owner),
 					eq(creditPlanHoldPools.remainingCredits, expectedCredits),
 				),
 			)
@@ -351,7 +378,7 @@ export class CreditsRepository {
 
 	async markPlanHoldInactive(
 		consumeIdempotencyKey: string,
-		userId: string,
+		owner: CreditOwner,
 		client: CreditsDbClient = this.db,
 	): Promise<CreditPlanHoldRow | null> {
 		const [updated] = await client
@@ -360,7 +387,7 @@ export class CreditsRepository {
 			.where(
 				and(
 					eq(creditPlanHolds.consumeIdempotencyKey, consumeIdempotencyKey),
-					eq(creditPlanHolds.userId, userId),
+					this.holdOwnerPredicate(owner),
 				),
 			)
 			.returning();
@@ -370,7 +397,7 @@ export class CreditsRepository {
 
 	async closePlanHold(
 		consumeIdempotencyKey: string,
-		userId: string,
+		owner: CreditOwner,
 		client: CreditsDbClient = this.db,
 	): Promise<CreditPlanHoldRow | null> {
 		const [updated] = await client
@@ -384,7 +411,7 @@ export class CreditsRepository {
 			.where(
 				and(
 					eq(creditPlanHolds.consumeIdempotencyKey, consumeIdempotencyKey),
-					eq(creditPlanHolds.userId, userId),
+					this.holdOwnerPredicate(owner),
 				),
 			)
 			.returning();
@@ -393,7 +420,7 @@ export class CreditsRepository {
 	}
 
 	async applyPlanHoldBoundary(
-		userId: string,
+		owner: CreditOwner,
 		poolId: string | null,
 		client: CreditsDbClient = this.db,
 	): Promise<void> {
@@ -402,7 +429,7 @@ export class CreditsRepository {
 			.set({ poolId: null, refundableCredits: 0, updatedAt: new Date() })
 			.where(
 				and(
-					eq(creditPlanHolds.userId, userId),
+					this.holdOwnerPredicate(owner),
 					eq(creditPlanHolds.active, false),
 					gt(creditPlanHolds.refundableCredits, 0),
 				),
@@ -417,7 +444,7 @@ export class CreditsRepository {
 			)
 			.where(
 				and(
-					eq(creditPlanHolds.userId, userId),
+					this.holdOwnerPredicate(owner),
 					eq(creditPlanHolds.active, true),
 					gt(creditPlanHolds.refundableCredits, 0),
 				),
@@ -425,7 +452,7 @@ export class CreditsRepository {
 	}
 
 	async closePlanHoldPools(
-		userId: string,
+		owner: CreditOwner,
 		poolIds: string[],
 		client: CreditsDbClient = this.db,
 	): Promise<void> {
@@ -442,17 +469,17 @@ export class CreditsRepository {
 			})
 			.where(
 				and(
-					eq(creditPlanHoldPools.userId, userId),
+					this.poolOwnerPredicate(owner),
 					inArray(creditPlanHoldPools.id, poolIds),
 				),
 			);
 	}
 
 	async forfeitAllPlanHolds(
-		userId: string,
+		owner: CreditOwner,
 		client: CreditsDbClient = this.db,
 	): Promise<void> {
-		const holds = await this.listRefundablePlanHolds(userId, client);
+		const holds = await this.listRefundablePlanHolds(owner, client);
 		const poolIds = [...new Set(holds.flatMap((hold) => hold.poolId ?? []))];
 
 		await client
@@ -465,16 +492,45 @@ export class CreditsRepository {
 			})
 			.where(
 				and(
-					eq(creditPlanHolds.userId, userId),
+					this.holdOwnerPredicate(owner),
 					gt(creditPlanHolds.refundableCredits, 0),
 				),
 			);
 
-		await this.closePlanHoldPools(userId, poolIds, client);
+		await this.closePlanHoldPools(owner, poolIds, client);
+	}
+
+	// Personal predicates require organization_id IS NULL so an org row whose
+	// userId records the acting member can never leak into a personal balance.
+	private ledgerOwnerPredicate(owner: CreditOwner) {
+		return owner.type === "user"
+			? and(
+					eq(creditLedger.userId, owner.userId),
+					isNull(creditLedger.organizationId),
+				)
+			: eq(creditLedger.organizationId, owner.organizationId);
+	}
+
+	private holdOwnerPredicate(owner: CreditOwner) {
+		return owner.type === "user"
+			? and(
+					eq(creditPlanHolds.userId, owner.userId),
+					isNull(creditPlanHolds.organizationId),
+				)
+			: eq(creditPlanHolds.organizationId, owner.organizationId);
+	}
+
+	private poolOwnerPredicate(owner: CreditOwner) {
+		return owner.type === "user"
+			? and(
+					eq(creditPlanHoldPools.userId, owner.userId),
+					isNull(creditPlanHoldPools.organizationId),
+				)
+			: eq(creditPlanHoldPools.organizationId, owner.organizationId);
 	}
 
 	private async sumBalances(
-		userId: string,
+		owner: CreditOwner,
 		client: CreditsDbClient,
 	): Promise<CreditBalance> {
 		const rows = await client
@@ -483,7 +539,7 @@ export class CreditsRepository {
 				total: sql<number>`coalesce(sum(${creditLedger.delta}), 0)::int`,
 			})
 			.from(creditLedger)
-			.where(eq(creditLedger.userId, userId))
+			.where(this.ledgerOwnerPredicate(owner))
 			.groupBy(creditLedger.bucket);
 
 		const balance: CreditBalance = {
@@ -505,12 +561,12 @@ export class CreditsRepository {
 		return balance;
 	}
 
-	private async acquireUserLock(
-		userId: string,
+	private async acquireLock(
+		lockValue: string,
 		transaction: CreditsTransaction,
 	): Promise<void> {
 		await transaction.execute(
-			sql`select pg_advisory_xact_lock(hashtext(${userId}))`,
+			sql`select pg_advisory_xact_lock(hashtext(${lockValue}))`,
 		);
 	}
 

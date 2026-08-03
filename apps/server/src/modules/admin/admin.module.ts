@@ -12,12 +12,15 @@ import { PagesModule } from "../pages/pages.module";
 import { ProjectAssetsModule } from "../project-assets/project-assets.module";
 import { SitesModule } from "../sites/sites.module";
 import { AdminSecurityModule } from "./admin-security.module";
+import { AdminOrganizationsService } from "./application/services/admin-organizations.service";
 import { AdminProjectsService } from "./application/services/admin-projects.service";
 import { AdminStatsService } from "./application/services/admin-stats.service";
 import { AdminUsersService } from "./application/services/admin-users.service";
 import { AdminWebhookReplayService } from "./application/services/admin-webhook-replay.service";
 import { BetaAccessService } from "./application/services/beta-access.service";
+import { AdminOrganizationsRepository } from "./infrastructure/persistence/admin-organizations.repository";
 import { AdminRepository } from "./infrastructure/persistence/admin.repository";
+import { AdminOrganizationsController } from "./presentation/http/controllers/admin-organizations.controller";
 import { AdminProjectsController } from "./presentation/http/controllers/admin-projects.controller";
 import { AdminStatsController } from "./presentation/http/controllers/admin-stats.controller";
 import { AdminUsersController } from "./presentation/http/controllers/admin-users.controller";
@@ -25,6 +28,7 @@ import { AdminWebhooksController } from "./presentation/http/controllers/admin-w
 
 @Module({
 	controllers: [
+		AdminOrganizationsController,
 		AdminProjectsController,
 		AdminUsersController,
 		AdminStatsController,
@@ -43,6 +47,8 @@ import { AdminWebhooksController } from "./presentation/http/controllers/admin-w
 		SitesModule,
 	],
 	providers: [
+		AdminOrganizationsRepository,
+		AdminOrganizationsService,
 		AdminRepository,
 		AdminProjectsService,
 		AdminStatsService,

@@ -56,6 +56,8 @@ const BOOLEAN_SETTING_KEYS = [
 	"signupGrantEnabled",
 	"paidSubscriptionsEnabled",
 	"topupsEnabled",
+	"organizationsEnabled",
+	"emailAuthEnabled",
 ] as const;
 
 type BooleanSettingKey = (typeof BOOLEAN_SETTING_KEYS)[number];
@@ -106,6 +108,24 @@ const TOGGLE_DETAILS: Record<BooleanSettingKey, ToggleDetails> = {
 			nextValue
 				? "Users will be able to purchase new credit top-ups. Previously paid top-ups are fulfilled either way."
 				: "New credit top-up purchases will be blocked. Top-ups that were already paid will still be fulfilled.",
+	},
+	organizationsEnabled: {
+		label: "Team workspaces",
+		description:
+			"Control whether users can create team workspaces and see the Business plan.",
+		consequence: (nextValue) =>
+			nextValue
+				? "Users will see the workspace switcher, can create team workspaces, and can buy the Business plan."
+				: "New team creation and new Business checkouts will be blocked. Existing teams keep working — members, invitations, projects, and paid renewals are unaffected.",
+	},
+	emailAuthEnabled: {
+		label: "Email sign-in",
+		description:
+			"Control whether users can sign in with a magic link or email code (in addition to Google).",
+		consequence: (nextValue) =>
+			nextValue
+				? "The auth dialog will offer email sign-in: users receive a magic link or 6-digit code, and any verified email address can create an account. Requires a configured email provider (RESEND_API_KEY)."
+				: "The email form disappears from the auth dialog and sign-in emails stop being sent (already-sent links/codes stay valid for up to 10 minutes). Google sign-in is unaffected. Accounts created via email stay intact but cannot sign in again until this is re-enabled — unless their address is also a Google account.",
 	},
 };
 

@@ -10,9 +10,18 @@ import {
 import type Stripe from "stripe";
 
 import { CreditsService } from "../../../credits/application/services/credits.service";
+import {
+	type CreditOwner,
+	creditOwnerKey,
+	ownerFromIds,
+	orgOwner,
+	sameCreditOwner,
+	userOwner,
+} from "../../../credits/domain/credit-owner";
 import type { CreditsTransaction } from "../../../credits/infrastructure/persistence/credits.repository";
 import { BillingCheckoutAttemptsRepository } from "../../infrastructure/persistence/billing-checkout-attempts.repository";
 import { BillingCustomersRepository } from "../../infrastructure/persistence/billing-customers.repository";
+import { OrganizationBillingCustomersRepository } from "../../infrastructure/persistence/organization-billing-customers.repository";
 import {
 	type InvoiceApplicationRow,
 	type SubscriptionCreditRow,
@@ -66,6 +75,8 @@ export class SubscriptionCreditsService {
 		private readonly subscriptionRefillService: SubscriptionRefillService,
 		@Inject(BillingCheckoutAttemptsRepository)
 		private readonly checkoutAttemptsRepository: BillingCheckoutAttemptsRepository,
+		@Inject(OrganizationBillingCustomersRepository)
+		private readonly organizationBillingCustomersRepository: OrganizationBillingCustomersRepository,
 	) {}
 
 	async grantTopup(session: Stripe.Checkout.Session): Promise<void> {
@@ -197,24 +208,57 @@ export class SubscriptionCreditsService {
 			);
 		}
 
-		const customer = await this.billingCustomersRepository.findByUserId(userId);
-		const providerCustomerId = this.expandableId(session.customer);
+		// Owner resolution: org top-ups carry organizationId in the session
+		// metadata AND on the attempt; both must agree, and the Stripe customer
+		// must be the org's. Personal path is byte-identical to pre-teams.
+		const metadataOrganizationId = session.metadata?.organizationId ?? null;
 
-		if (
-			customer?.provider !== "stripe" ||
-			!providerCustomerId ||
-			customer.providerCustomerId !== providerCustomerId
-		) {
+		if ((attempt.organizationId ?? null) !== metadataOrganizationId) {
 			throw new Error(
-				`Stripe checkout session ${session.id} customer does not match the billing customer for user ${userId}`,
+				`Stripe checkout session ${session.id} workspace does not match checkout attempt ${attempt.id}`,
 			);
 		}
 
+		const providerCustomerId = this.expandableId(session.customer);
+
+		if (metadataOrganizationId) {
+			const orgCustomer =
+				await this.organizationBillingCustomersRepository.findByOrganizationId(
+					metadataOrganizationId,
+				);
+
+			if (
+				orgCustomer?.provider !== "stripe" ||
+				!providerCustomerId ||
+				orgCustomer.providerCustomerId !== providerCustomerId
+			) {
+				throw new Error(
+					`Stripe checkout session ${session.id} customer does not match the billing customer for organization ${metadataOrganizationId}`,
+				);
+			}
+		} else {
+			const customer =
+				await this.billingCustomersRepository.findByUserId(userId);
+
+			if (
+				customer?.provider !== "stripe" ||
+				!providerCustomerId ||
+				customer.providerCustomerId !== providerCustomerId
+			) {
+				throw new Error(
+					`Stripe checkout session ${session.id} customer does not match the billing customer for user ${userId}`,
+				);
+			}
+		}
+
+		const owner = metadataOrganizationId
+			? orgOwner(metadataOrganizationId)
+			: userOwner(userId);
 		const paymentReferences = await this.paymentReferences(
 			session.payment_intent,
 		);
 
-		await this.creditsService.topup(userId, credits, {
+		await this.creditsService.topup(owner, credits, {
 			idempotencyKey: `topup:${session.id}`,
 			meta: this.withPaymentReferences(
 				{
@@ -266,11 +310,15 @@ export class SubscriptionCreditsService {
 			return;
 		}
 
-		await this.assertSubscriptionOwnership(subscription, tracked.userId);
-		const userId = tracked.userId;
+		await this.assertSubscriptionOwnership(subscription, tracked);
+		// The OWNER pool expires — org subscriptions expire the org pool, and
+		// "another entitled subscription" only counts within the SAME owner
+		// (an org sub must never keep a deleted personal sub's credits alive,
+		// or vice versa — confirmed review critical).
+		const owner = ownerFromIds(tracked.userId, tracked.organizationId);
 
-		await this.subscriptionCreditsRepository.withUserLock(
-			userId,
+		await this.subscriptionCreditsRepository.withOwnerLock(
+			owner,
 			async (tx) => {
 				const deleted =
 					await this.subscriptionCreditsRepository.findSubscriptionByProviderId(
@@ -291,8 +339,8 @@ export class SubscriptionCreditsService {
 					tx,
 				);
 				const anotherEntitled =
-					await this.subscriptionCreditsRepository.findCanonicalEntitledByUserId(
-						userId,
+					await this.subscriptionCreditsRepository.findCanonicalEntitledByOwner(
+						owner,
 						tx,
 					);
 
@@ -305,7 +353,7 @@ export class SubscriptionCreditsService {
 				}
 
 				await this.creditsService.expirePlanRemainder(
-					userId,
+					owner,
 					{
 						idempotencyKey: `subdel:${subscription.id}`,
 						meta: {
@@ -350,7 +398,7 @@ export class SubscriptionCreditsService {
 			return false;
 		}
 
-		const userId = await this.requiredUserIdForInvoice(invoice);
+		const owner = await this.requiredOwnerForInvoice(invoice);
 		const providerSubscriptionId = this.subscriptionIdFromInvoice(invoice);
 
 		if (!providerSubscriptionId) {
@@ -359,12 +407,12 @@ export class SubscriptionCreditsService {
 
 		const paymentReferences = await this.paymentReferencesFromInvoice(invoice);
 		let replayHasGrossGrant = false;
-		const applied = await this.subscriptionCreditsRepository.withUserLock(
-			userId,
+		const applied = await this.subscriptionCreditsRepository.withOwnerLock(
+			owner,
 			async (tx) => {
 				const canonical =
-					await this.subscriptionCreditsRepository.findCanonicalEntitledByUserId(
-						userId,
+					await this.subscriptionCreditsRepository.findCanonicalEntitledByOwner(
+						owner,
 						tx,
 					);
 
@@ -373,7 +421,7 @@ export class SubscriptionCreditsService {
 					canonical.providerSubscriptionId !== providerSubscriptionId
 				) {
 					throw new Error(
-						`Stripe invoice ${invoice.id} cannot resolve subscription ${providerSubscriptionId} as the canonical entitled mirror for user ${userId}`,
+						`Stripe invoice ${invoice.id} cannot resolve subscription ${providerSubscriptionId} as the canonical entitled mirror for owner ${creditOwnerKey(owner)}`,
 					);
 				}
 
@@ -393,7 +441,7 @@ export class SubscriptionCreditsService {
 					// the fresh-charge reconciliation. Replays must finish that step.
 					replayHasGrossGrant =
 						await this.subscriptionCreditsRepository.hasGrossGrant(
-							userId,
+							owner,
 							`inv:${invoice.id}:grant`,
 							tx,
 						);
@@ -537,7 +585,7 @@ export class SubscriptionCreditsService {
 		tx: CreditsTransaction,
 	): Promise<number> {
 		await this.creditsService.grant(
-			subscription.userId,
+			ownerFromIds(subscription.userId, subscription.organizationId),
 			this.allotment(currentPlan),
 			{
 				bucket: "plan",
@@ -585,7 +633,7 @@ export class SubscriptionCreditsService {
 		}
 
 		const refill = await this.creditsService.applyCappedRefill(
-			subscription.userId,
+			ownerFromIds(subscription.userId, subscription.organizationId),
 			this.allotment(currentPlan),
 			{
 				idempotencyKey: `inv:${invoice.id}:grant`,
@@ -658,7 +706,7 @@ export class SubscriptionCreditsService {
 			}
 
 			await this.creditsService.grant(
-				subscription.userId,
+				ownerFromIds(subscription.userId, subscription.organizationId),
 				delta,
 				{
 					bucket: "plan",
@@ -694,7 +742,7 @@ export class SubscriptionCreditsService {
 		}
 
 		const refill = await this.creditsService.applyCappedRefill(
-			subscription.userId,
+			ownerFromIds(subscription.userId, subscription.organizationId),
 			currentPlan.tierCredits,
 			{
 				idempotencyKey: `inv:${invoice.id}:grant`,
@@ -729,17 +777,117 @@ export class SubscriptionCreditsService {
 
 	private async assertSubscriptionOwnership(
 		subscription: Stripe.Subscription,
-		expectedUserId: string,
+		tracked: { organizationId: string | null; userId: string },
 	): Promise<void> {
+		// OWNER identity, never actor identity: an org subscription's metadata
+		// userId is the purchasing admin, which may legitimately differ from the
+		// mirror's provenance userId (confirmed review finding). The pool —
+		// organizationId, or the user for personal — is what must match.
+		const trackedOwner = ownerFromIds(tracked.userId, tracked.organizationId);
+		const metadataOrganizationId = subscription.metadata.organizationId;
 		const metadataUserId = subscription.metadata.userId;
+		const metadataOwner = metadataOrganizationId
+			? orgOwner(metadataOrganizationId)
+			: metadataUserId
+				? userOwner(metadataUserId)
+				: null;
 
-		if (metadataUserId && metadataUserId !== expectedUserId) {
+		if (metadataOwner && !sameCreditOwner(metadataOwner, trackedOwner)) {
 			throw new Error(
 				`Stripe subscription ${subscription.id} metadata owner does not match its local mirror`,
 			);
 		}
 
 		const customerId = this.expandableId(subscription.customer);
+
+		if (!customerId) {
+			return;
+		}
+
+		if (trackedOwner.type === "org") {
+			const orgCustomer =
+				await this.organizationBillingCustomersRepository.findByProviderCustomerId(
+					customerId,
+				);
+
+			if (
+				orgCustomer &&
+				orgCustomer.organizationId !== trackedOwner.organizationId
+			) {
+				throw new Error(
+					`Stripe subscription ${subscription.id} customer owner does not match its local mirror`,
+				);
+			}
+
+			return;
+		}
+
+		const customer =
+			await this.billingCustomersRepository.findByProviderCustomerId(
+				customerId,
+			);
+
+		if (customer && customer.userId !== tracked.userId) {
+			throw new Error(
+				`Stripe subscription ${subscription.id} customer owner does not match its local mirror`,
+			);
+		}
+	}
+
+	private async requiredOwnerForInvoice(
+		invoice: Stripe.Invoice,
+	): Promise<CreditOwner> {
+		const owner = await this.ownerForInvoice(invoice);
+
+		if (!owner) {
+			throw new Error(
+				`Could not resolve owner for Stripe invoice ${invoice.id}`,
+			);
+		}
+
+		return owner;
+	}
+
+	/**
+	 * Rung precedence (teams-workspaces.md §5.4): (1) subscription metadata —
+	 * organizationId (the pool) wins over userId (the purchasing actor);
+	 * (2) the local subscription mirror's owner; (3) the customer mapping —
+	 * personal table first, then org customers.
+	 *
+	 * Every rung that resolves must agree on the owner. A disagreement means
+	 * our own records contradict each other about which pool this money
+	 * belongs to — dead-letter (throw) instead of silently granting the
+	 * highest-precedence answer, same posture as assertSubscriptionOwnership.
+	 * Like there, this compares OWNER identity (the pool), never the
+	 * purchasing actor.
+	 */
+	private async ownerForInvoice(
+		invoice: Stripe.Invoice,
+	): Promise<CreditOwner | null> {
+		const metadataOrganizationId =
+			invoice.parent?.subscription_details?.metadata?.organizationId ??
+			this.expandedSubscriptionFromInvoice(invoice)?.metadata.organizationId;
+		const metadataUserId =
+			invoice.parent?.subscription_details?.metadata?.userId ??
+			this.expandedSubscriptionFromInvoice(invoice)?.metadata.userId;
+		const metadataOwner = metadataOrganizationId
+			? orgOwner(metadataOrganizationId)
+			: metadataUserId
+				? userOwner(metadataUserId)
+				: null;
+
+		const providerSubscriptionId = this.subscriptionIdFromInvoice(invoice);
+		const mirror = providerSubscriptionId
+			? await this.subscriptionsRepository.findByProviderSubscriptionId(
+					providerSubscriptionId,
+				)
+			: null;
+		const mirrorOwner = mirror
+			? ownerFromIds(mirror.userId, mirror.organizationId)
+			: null;
+
+		const customerId = this.expandableId(invoice.customer);
+		let customerOwner: CreditOwner | null = null;
 
 		if (customerId) {
 			const customer =
@@ -748,67 +896,32 @@ export class SubscriptionCreditsService {
 				);
 
 			if (customer) {
-				if (customer.userId !== expectedUserId) {
-					throw new Error(
-						`Stripe subscription ${subscription.id} customer owner does not match its local mirror`,
+				customerOwner = userOwner(customer.userId);
+			} else {
+				const orgCustomer =
+					await this.organizationBillingCustomersRepository.findByProviderCustomerId(
+						customerId,
 					);
-				}
-
-				return;
+				customerOwner = orgCustomer
+					? orgOwner(orgCustomer.organizationId)
+					: null;
 			}
 		}
-	}
 
-	private async requiredUserIdForInvoice(
-		invoice: Stripe.Invoice,
-	): Promise<string> {
-		const userId = await this.userIdForInvoice(invoice);
+		const resolved = [metadataOwner, mirrorOwner, customerOwner].filter(
+			(owner): owner is CreditOwner => owner !== null,
+		);
 
-		if (!userId) {
-			throw new Error(
-				`Could not resolve user for Stripe invoice ${invoice.id}`,
-			);
-		}
-
-		return userId;
-	}
-
-	private async userIdForInvoice(
-		invoice: Stripe.Invoice,
-	): Promise<string | null> {
-		const metadataUserId =
-			invoice.parent?.subscription_details?.metadata?.userId ??
-			this.expandedSubscriptionFromInvoice(invoice)?.metadata.userId;
-
-		if (metadataUserId) {
-			return metadataUserId;
-		}
-
-		const providerSubscriptionId = this.subscriptionIdFromInvoice(invoice);
-
-		if (providerSubscriptionId) {
-			const subscription =
-				await this.subscriptionsRepository.findByProviderSubscriptionId(
-					providerSubscriptionId,
+		for (const owner of resolved) {
+			if (!sameCreditOwner(owner, resolved[0] as CreditOwner)) {
+				throw new Error(
+					`Stripe invoice ${invoice.id} owner rungs disagree: ` +
+						resolved.map(creditOwnerKey).join(" vs "),
 				);
-
-			if (subscription) {
-				return subscription.userId;
 			}
 		}
 
-		const customerId = this.expandableId(invoice.customer);
-
-		if (!customerId) {
-			return null;
-		}
-
-		const customer =
-			await this.billingCustomersRepository.findByProviderCustomerId(
-				customerId,
-			);
-
-		return customer?.userId ?? null;
+		return metadataOwner ?? mirrorOwner ?? customerOwner;
 	}
 
 	private async currentPlanFromInvoice(

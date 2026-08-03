@@ -6,6 +6,7 @@ import { ProductSettingsService } from "./application/services/product-settings.
 import { ProductSettingsRepository } from "./infrastructure/persistence/product-settings.repository";
 import { AdminSettingsController } from "./presentation/http/controllers/admin-settings.controller";
 import { PublicSettingsController } from "./presentation/http/controllers/public-settings.controller";
+import { OrganizationsEnabledGuard } from "./presentation/http/guards/organizations-enabled.guard";
 import { SubscriptionsEnabledGuard } from "./presentation/http/guards/subscriptions-enabled.guard";
 import { TopupsEnabledGuard } from "./presentation/http/guards/topups-enabled.guard";
 
@@ -16,12 +17,14 @@ import { TopupsEnabledGuard } from "./presentation/http/guards/topups-enabled.gu
 @Module({
 	controllers: [AdminSettingsController, PublicSettingsController],
 	exports: [
+		OrganizationsEnabledGuard,
 		ProductSettingsService,
 		SubscriptionsEnabledGuard,
 		TopupsEnabledGuard,
 	],
 	imports: [AdminSecurityModule, DatabaseModule],
 	providers: [
+		OrganizationsEnabledGuard,
 		ProductSettingsRepository,
 		ProductSettingsService,
 		SubscriptionsEnabledGuard,

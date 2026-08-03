@@ -10,6 +10,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Spark } from "@/components/logo";
 import { promptStash, useSession } from "@/features/auth";
 import { InsufficientCreditsDialog } from "@/features/credits";
+import { PendingInvitesBanner } from "@/features/workspaces/components/pending-invites-banner";
 import { isEarlyAccessUser } from "@/lib/early-access";
 import { useTranslation } from "@/lib/i18n";
 import type { Project } from "../api/dto";
@@ -163,6 +164,7 @@ export default function DashboardPage() {
 	return (
 		<DashboardShell>
 			<div className="mx-auto w-full max-w-6xl px-4 pb-16 md:px-6">
+				<PendingInvitesBanner className="mt-6" />
 				{/* Prompt section */}
 				<section className="relative py-10 md:py-14">
 					<div

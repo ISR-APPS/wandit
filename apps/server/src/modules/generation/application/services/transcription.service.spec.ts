@@ -94,7 +94,7 @@ describe("TranscriptionService", () => {
 		).rejects.toBeInstanceOf(AiGatewayNotConfiguredError);
 		expect(metering.findByIdempotencyKey).toHaveBeenCalledWith(
 			"transcription:user-1:operation-unconfigured",
-			"user-1",
+			{ actorUserId: "user-1" },
 		);
 		expect(metering.reserveWithReplay).not.toHaveBeenCalled();
 		expect(gatewayMocks.doGenerate).not.toHaveBeenCalled();
@@ -147,7 +147,7 @@ describe("TranscriptionService", () => {
 
 		expect(metering.reserveWithReplay).toHaveBeenCalledWith(
 			"transcription",
-			"user-1",
+			{ actorUserId: "user-1" },
 			expect.objectContaining({
 				credits: 2,
 				idempotencyKey: "transcription:user-1:operation-123456",
@@ -160,7 +160,7 @@ describe("TranscriptionService", () => {
 				providerOptions: {
 					gateway: {
 						quotaEntityId: "user-1",
-						tags: ["op:transcription"],
+						tags: ["op:transcription", "ws:personal"],
 						user: "user-1",
 					},
 				},
@@ -214,7 +214,7 @@ describe("TranscriptionService", () => {
 		).rejects.toBeInstanceOf(ConflictException);
 		expect(metering.findByIdempotencyKey).toHaveBeenCalledWith(
 			"transcription:user-1:operation-toggle",
-			"user-1",
+			{ actorUserId: "user-1" },
 		);
 		expect(metering.reserveWithReplay).toHaveBeenCalledOnce();
 		expect(gatewayMocks.doGenerate).not.toHaveBeenCalled();
@@ -262,7 +262,7 @@ describe("TranscriptionService", () => {
 		});
 		expect(metering.reserveWithReplay).toHaveBeenCalledWith(
 			"transcription",
-			"user-1",
+			{ actorUserId: "user-1" },
 			expect.objectContaining({ credits: 1 }),
 		);
 		expect(metering.settle).toHaveBeenCalledWith(

@@ -19,6 +19,7 @@ import {
 import { env } from "@wandit/env/server";
 import { type Tool, tool } from "ai";
 
+import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import { isR2Configured } from "../../../../infrastructure/storage/r2";
 // Type-only import: pulling the task VALUE here would drag the Trigger task
 // (and its DB pool) into the Nest process. The type is enough to make
@@ -52,6 +53,8 @@ export type ScrapeLeadsToolDeps = {
 	// ISO alpha-2 country from the request IP (trusted server-side context,
 	// not model input), or null when the edge sent none.
 	requestCountryCode: string | null;
+	/** Pays for the scrape: the org pool in an org workspace. */
+	subject: MeteringSubject;
 	userId: string;
 };
 
@@ -129,7 +132,7 @@ export function createScrapeLeadsTool(
 					usageEvent = await reserveLeadScrapeUsage(deps.meteringService, {
 						attemptId: attempt.id,
 						parentEventId: deps.parentEventId,
-						userId: deps.userId,
+						subject: deps.subject,
 					});
 				} catch (error) {
 					try {
@@ -152,6 +155,7 @@ export function createScrapeLeadsTool(
 
 			try {
 				handle = await triggerScrapeLeadsTask({
+					actorUserId: deps.userId,
 					attemptId: attempt.id,
 					billingMode,
 					...(deps.parentEventId ? { parentEventId: deps.parentEventId } : {}),
@@ -177,7 +181,7 @@ export function createScrapeLeadsTool(
 									await refundLeadScrapeUsageIfReserved(deps.meteringService, {
 										attemptId: attempt.id,
 										eventId: usageEvent.id,
-										userId: deps.userId,
+										subject: deps.subject,
 									});
 								} catch (refundError) {
 									// The event remains reserved and the metering sweep is the
@@ -258,6 +262,7 @@ export function createScrapeLeadsTool(
 }
 
 async function triggerScrapeLeadsTask(payload: {
+	actorUserId: string;
 	attemptId: string;
 	billingMode: BillingAdmissionMode;
 	parentEventId?: string;
@@ -274,6 +279,7 @@ async function triggerScrapeLeadsTask(payload: {
 			return await tasks.trigger<typeof scrapeLeadsTask>(
 				"scrape-leads",
 				{
+					actorUserId: payload.actorUserId,
 					attemptId: payload.attemptId,
 					billingMode: payload.billingMode,
 					...(payload.parentEventId

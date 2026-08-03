@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import { useWorkspace } from "@/features/workspaces/lib/workspace-provider";
 import { formatNumber } from "@wandit/internationalization";
 import { Button } from "@wandit/ui/components/button";
 import {
@@ -22,6 +23,8 @@ import { LedgerList } from "./ledger-list";
 
 export function CreditsChip({ className }: { className?: string }) {
 	const { locale, t } = useTranslation();
+	const { activeWorkspace, actorCanManageBilling, isPersonal } =
+		useWorkspace();
 	const { openPlanPicker } = useBillingModal();
 	const balanceQuery = useCreditBalanceQuery();
 	const ledgerQuery = useCreditLedgerQuery({ page: 1, pageSize: 3 });
@@ -59,7 +62,11 @@ export function CreditsChip({ className }: { className?: string }) {
 			<DropdownMenuContent align="end" className="w-72 p-0">
 				<div className="px-4 pt-4 pb-3">
 					<p className="text-muted-foreground text-xs">
-						{t("credits.balanceLabel")}
+						{isPersonal
+							? t("credits.balanceLabel")
+							: t("workspaces.credits.poolLabel", {
+									workspace: activeWorkspace?.name ?? "",
+								})}
 					</p>
 					{balanceQuery.isPending ? (
 						<Skeleton className="mt-2 h-8 w-24" />
@@ -105,7 +112,11 @@ export function CreditsChip({ className }: { className?: string }) {
 					<>
 						<DropdownMenuSeparator />
 						<div className="p-2">
-							{topupsAvailable ? (
+							{!actorCanManageBilling ? (
+								<p className="px-2 py-1 text-muted-foreground text-xs">
+									{t("workspaces.billing.ownerOnlyBody")}
+								</p>
+							) : topupsAvailable ? (
 								<Button
 									type="button"
 									variant="secondary"

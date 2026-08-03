@@ -26,7 +26,7 @@ function setup() {
 	// Fake database helper.
 	const chatsRepository = {
 		deleteMessageById: vi.fn(),
-		findOwnedChatById: vi.fn(),
+		findAccessibleChatById: vi.fn(),
 		insertUserMessage: vi.fn(),
 		listMessages: vi.fn(),
 	};
@@ -61,7 +61,7 @@ describe("ChatService", () => {
 	it("returns 404 when the chat is not owned by the caller", async () => {
 		const { chatsRepository, service } = setup();
 		// No owned chat found.
-		chatsRepository.findOwnedChatById.mockResolvedValue(null);
+		chatsRepository.findAccessibleChatById.mockResolvedValue(null);
 
 		await expect(
 			service.sendMessage("user_1", "chat_1", { text: "Hello" }),
@@ -71,7 +71,7 @@ describe("ChatService", () => {
 	// If Redis says busy, do not save or enqueue anything.
 	it("rejects when active generation reservation is not acquired", async () => {
 		const { activity, chatsRepository, metering, queue, service } = setup();
-		chatsRepository.findOwnedChatById.mockResolvedValue({
+		chatsRepository.findAccessibleChatById.mockResolvedValue({
 			id: "chat_1",
 			projectId: "project_1",
 			userId: "user_1",
@@ -97,7 +97,7 @@ describe("ChatService", () => {
 			quality: "standard" as const,
 			skills: ["hooks"],
 		};
-		chatsRepository.findOwnedChatById.mockResolvedValue({
+		chatsRepository.findAccessibleChatById.mockResolvedValue({
 			id: "chat_1",
 			projectId: "project_1",
 			userId: "user_1",
@@ -129,14 +129,18 @@ describe("ChatService", () => {
 			composer,
 			text: "Write copy",
 		});
-		expect(metering.reserve).toHaveBeenCalledWith("chat", "user_1", {
-			attemptRef: response.jobId,
-			chatId: "chat_1",
-			credits: 1,
-			idempotencyKey: `legacy-chat:${response.jobId}`,
-			messageId: "message_1",
-			model: env.AI_CHAT_MODEL,
-		});
+		expect(metering.reserve).toHaveBeenCalledWith(
+			"chat",
+			{ actorUserId: "user_1" },
+			{
+				attemptRef: response.jobId,
+				chatId: "chat_1",
+				credits: 1,
+				idempotencyKey: `legacy-chat:${response.jobId}`,
+				messageId: "message_1",
+				model: env.AI_CHAT_MODEL,
+			},
+		);
 		expect(metering.reserve.mock.invocationCallOrder[0]).toBeLessThan(
 			queue.enqueueGenerateCopy.mock.invocationCallOrder[0] ?? Number.MAX_VALUE,
 		);
@@ -160,7 +164,7 @@ describe("ChatService", () => {
 	// If queueing fails after save, clean up the saved message and Redis flag.
 	it("deletes the inserted message and releases the lock when enqueue fails", async () => {
 		const { activity, chatsRepository, metering, queue, service } = setup();
-		chatsRepository.findOwnedChatById.mockResolvedValue({
+		chatsRepository.findAccessibleChatById.mockResolvedValue({
 			id: "chat_1",
 			projectId: "project_1",
 			userId: "user_1",
@@ -189,7 +193,7 @@ describe("ChatService", () => {
 		(
 			env as { GENERATION_BILLING_MODE: "enforce" | "off" }
 		).GENERATION_BILLING_MODE = "off";
-		chatsRepository.findOwnedChatById.mockResolvedValue({
+		chatsRepository.findAccessibleChatById.mockResolvedValue({
 			id: "chat_1",
 			projectId: "project_1",
 			userId: "user_1",
@@ -210,7 +214,7 @@ describe("ChatService", () => {
 
 	it("does not refund when queue acceptance is unknown", async () => {
 		const { activity, chatsRepository, metering, queue, service } = setup();
-		chatsRepository.findOwnedChatById.mockResolvedValue({
+		chatsRepository.findAccessibleChatById.mockResolvedValue({
 			id: "chat_1",
 			projectId: "project_1",
 			userId: "user_1",

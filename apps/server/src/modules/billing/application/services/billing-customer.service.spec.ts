@@ -72,6 +72,12 @@ function setup() {
 	const service = new BillingCustomerService(
 		billingCustomers as unknown as BillingCustomersRepository,
 		paymentProvider as unknown as PaymentProvider,
+		{
+			findByOrganizationId: async () => null,
+			withOrganizationLock: async (_id: string, fn: (tx: unknown) => unknown) =>
+				fn({}),
+		} as never,
+		{ findEarliestOwnerUserId: async () => null, findOrganization: async () => null } as never,
 	);
 
 	return { billingCustomers, paymentProvider, service };
@@ -144,6 +150,17 @@ describe("BillingCustomerService", () => {
 		const service = new BillingCustomerService(
 			billingCustomers as unknown as BillingCustomersRepository,
 			paymentProvider as unknown as PaymentProvider,
+			{
+				findByOrganizationId: async () => null,
+				withOrganizationLock: async (
+					_id: string,
+					fn: (tx: unknown) => unknown,
+				) => fn({}),
+			} as never,
+			{
+				findEarliestOwnerUserId: async () => null,
+				findOrganization: async () => null,
+			} as never,
 			affiliates as unknown as AffiliatesRepository,
 		);
 

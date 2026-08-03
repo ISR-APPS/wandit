@@ -87,6 +87,14 @@ async function bootstrap() {
 			// Missing from this whitelist = failed preflight = blocked request.
 			"sentry-trace",
 			"baggage",
+			// Workspace scoping: the web injects this on every API call once
+			// workspaces ship. Must be whitelisted BEFORE any web bundle sends it
+			// or every cross-origin preflight fails.
+			"x-wandit-workspace",
+			// Cloudflare Turnstile token on the email-auth send endpoints. The
+			// captcha plugin reads it from this header, so omitting it here
+			// fails the preflight and blocks every email sign-in attempt.
+			"x-captcha-response",
 		],
 		maxAge: 86400,
 	});

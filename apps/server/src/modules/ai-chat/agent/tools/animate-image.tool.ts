@@ -26,6 +26,7 @@ import {
 // Type-only import: importing the task value would pull the Trigger worker
 // (and its database pool) into the Nest API process.
 import type { animateImageTask } from "../../../../trigger/animate-image.task";
+import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import {
 	createImageAnimationBilling,
 	type ImageAnimationBilling,
@@ -53,6 +54,8 @@ export type AnimateImageToolDeps = {
 	requireSelectedSource?: boolean;
 	requestKeySeed?: string;
 	selectedSourceImage?: AvailableImage;
+	/** Pays for the animation: the org pool in an org workspace. */
+	subject: MeteringSubject;
 	userId: string;
 };
 
@@ -185,7 +188,7 @@ export function createAnimateImageTool(
 			}
 
 			const reservation = await billing.reserve(
-				deps.userId,
+				deps.subject,
 				attempt.id,
 				deps.parentEventId,
 			);
@@ -198,6 +201,7 @@ export function createAnimateImageTool(
 				handle = await triggerAnimateImageTask({
 					attemptId: attempt.id,
 					billingMode: reservation.eventId ? "enforce" : "off",
+					organizationId: deps.subject.organizationId ?? null,
 					...(deps.parentEventId ? { parentEventId: deps.parentEventId } : {}),
 					projectId: deps.projectId,
 					userId: deps.userId,
@@ -283,6 +287,7 @@ export function createAnimateImageTool(
 async function triggerAnimateImageTask(payload: {
 	attemptId: string;
 	billingMode: "enforce" | "off";
+	organizationId: string | null;
 	parentEventId?: string;
 	projectId: string;
 	userId: string;
@@ -352,7 +357,7 @@ async function refundReservation(
 	attemptId: string,
 ): Promise<void> {
 	try {
-		await billing.refund(deps.userId, attemptId);
+		await billing.refund(deps.subject, attemptId);
 	} catch (error) {
 		logger.error(
 			`Refunding image animation reservation ${attemptId} failed`,

@@ -7,9 +7,15 @@ import {
 	SIGNUP_GRANT_CREDITS,
 } from "@wandit/contracts";
 
+import {
+	type CreditOwner,
+	ownerColumns,
+	userOwner,
+} from "../../domain/credit-owner";
 import { InsufficientCreditsError } from "../../domain/errors/insufficient-credits.error";
 import {
 	type CreditLedgerRow,
+	type CreditPlanHoldPoolRow,
 	type CreditPlanHoldRow,
 	CreditsRepository,
 	type CreditsTransaction,
@@ -22,6 +28,11 @@ type CreditMeta = Record<string, unknown> & {
 type CreditWriteOptions = {
 	/** Metering-only escape hatch for post-provider settlement debt. */
 	allowOverdraft?: boolean;
+	/**
+	 * The acting member for ORG consumption rows (ledger provenance). Ignored
+	 * for personal owners — their rows already carry the user.
+	 */
+	actorUserId?: string;
 	idempotencyKey?: string;
 	meta?: CreditMeta;
 	/**
@@ -73,16 +84,16 @@ export class CreditsService {
 		private readonly creditsRepository: CreditsRepository,
 	) {}
 
-	getBalance(userId: string): Promise<CreditBalanceResponse> {
-		return this.creditsRepository.getBalance(userId);
+	getBalance(owner: CreditOwner): Promise<CreditBalanceResponse> {
+		return this.creditsRepository.getBalance(owner);
 	}
 
-	listLedger(userId: string, query: CreditLedgerQuery) {
-		return this.creditsRepository.listByUser(userId, query);
+	listLedger(owner: CreditOwner, query: CreditLedgerQuery) {
+		return this.creditsRepository.listByOwner(owner, query);
 	}
 
 	async consume(
-		userId: string,
+		owner: CreditOwner,
 		amount: number,
 		options: CreditWriteOptions = {},
 		transaction?: CreditsTransaction,
@@ -102,7 +113,7 @@ export class CreditsService {
 			if (existingRows.length > 0) {
 				this.assertConsumeReplayMatches(
 					existingRows,
-					userId,
+					owner,
 					amount,
 					action,
 					options.allowOverdraft === true,
@@ -111,7 +122,7 @@ export class CreditsService {
 				);
 				await this.assertPlanHoldReplayMatches(
 					existingRows,
-					userId,
+					owner,
 					options.idempotencyKey,
 					options.planHold,
 					tx,
@@ -120,7 +131,7 @@ export class CreditsService {
 				return existingRows;
 			}
 
-			const balance = await this.creditsRepository.getBalance(userId, tx);
+			const balance = await this.creditsRepository.getBalance(owner, tx);
 
 			if (!options.allowOverdraft && balance.balance < amount) {
 				throw new InsufficientCreditsError(amount, balance.balance);
@@ -152,14 +163,15 @@ export class CreditsService {
 							kind: "consume",
 							meta: this.withConsumeFingerprint(
 								options.meta,
-								userId,
+								owner,
+								options.actorUserId ?? null,
 								amount,
 								action,
 								options.allowOverdraft === true,
 								bucketSplit,
 								options.planHold ?? null,
 							),
-							userId,
+							...this.consumeRowColumns(owner, options.actorUserId ?? null),
 						},
 						tx,
 					),
@@ -169,7 +181,7 @@ export class CreditsService {
 			if (options.idempotencyKey) {
 				this.assertConsumeReplayMatches(
 					rows,
-					userId,
+					owner,
 					amount,
 					action,
 					options.allowOverdraft === true,
@@ -180,7 +192,7 @@ export class CreditsService {
 
 			await this.ensurePlanHold(
 				rows,
-				userId,
+				owner,
 				options.idempotencyKey,
 				options.planHold,
 				tx,
@@ -190,15 +202,15 @@ export class CreditsService {
 		};
 
 		if (!options.idempotencyKey) {
-			return this.creditsRepository.withUserLock(userId, consume, transaction);
+			return this.creditsRepository.withOwnerLock(owner, consume, transaction);
 		}
 
-		// A ledger key is global while the normal balance lock is per user. Take
+		// A ledger key is global while the normal balance lock is per owner. Take
 		// the operation lock first so two owners cannot race disjoint bucket rows
 		// under the same base key.
-		return this.creditsRepository.withUserLock(
+		return this.creditsRepository.withLockValue(
 			this.consumeOperationLockKey(options.idempotencyKey),
-			(tx) => this.creditsRepository.withUserLock(userId, consume, tx),
+			(tx) => this.creditsRepository.withOwnerLock(owner, consume, tx),
 			transaction,
 		);
 	}
@@ -208,16 +220,16 @@ export class CreditsService {
 	 * split. Replays return the same refund rows and never credit twice.
 	 */
 	async refundConsume(
-		userId: string,
+		owner: CreditOwner,
 		consumeIdempotencyKey: string,
 		meta: CreditMeta = {},
 		transaction?: CreditsTransaction,
 	): Promise<CreditLedgerRow[]> {
-		return this.creditsRepository.withUserLock(
-			userId,
+		return this.creditsRepository.withOwnerLock(
+			owner,
 			async (tx) => {
 				const consumedRows = await this.creditsRepository.findByIdempotencyKeys(
-					userId,
+					owner,
 					CREDIT_SPEND_ORDER.map((bucket) =>
 						this.consumeIdempotencyKey(consumeIdempotencyKey, bucket),
 					),
@@ -244,7 +256,7 @@ export class CreditsService {
 									},
 									"generation_refund",
 								),
-								userId,
+								...ownerColumns(owner),
 							},
 							tx,
 						),
@@ -263,7 +275,7 @@ export class CreditsService {
 	 * unwind topup -> promo -> plan and use one stable key per restored bucket.
 	 */
 	async refundConsumeAmount(
-		userId: string,
+		owner: CreditOwner,
 		consumeIdempotencyKey: string,
 		options: RefundConsumeAmountOptions,
 		transaction?: CreditsTransaction,
@@ -301,7 +313,7 @@ export class CreditsService {
 
 			this.assertConsumeReplayMatches(
 				consumedRows,
-				userId,
+				owner,
 				fingerprintAmount,
 				fingerprintAction,
 				fingerprint?.allowOverdraft === true,
@@ -322,7 +334,11 @@ export class CreditsService {
 			};
 
 			for (const row of consumedRows) {
-				if (row.userId !== userId || row.kind !== "consume" || row.delta >= 0) {
+				if (
+					!this.rowOwnerMatches(row, owner) ||
+					row.kind !== "consume" ||
+					row.delta >= 0
+				) {
 					throw new Error(
 						`Credit consume replay conflict for key ${consumeIdempotencyKey}`,
 					);
@@ -333,7 +349,7 @@ export class CreditsService {
 
 			const existingRefundRows =
 				await this.creditsRepository.findByIdempotencyKeys(
-					userId,
+					owner,
 					CREDIT_SPEND_ORDER.map(
 						(bucket) => `${options.idempotencyKey}:${bucket}`,
 					),
@@ -343,7 +359,7 @@ export class CreditsService {
 			if (existingRefundRows.length > 0) {
 				return this.assertRefundReplaySetMatches(
 					existingRefundRows,
-					userId,
+					owner,
 					consumeIdempotencyKey,
 					options,
 				);
@@ -371,7 +387,7 @@ export class CreditsService {
 			if (planHold) {
 				this.assertPlanHoldMatches(
 					planHold,
-					userId,
+					owner,
 					consumeIdempotencyKey,
 					consumedSplit.plan,
 				);
@@ -386,7 +402,11 @@ export class CreditsService {
 						tx,
 					);
 
-					if (!pool || pool.userId !== userId || pool.closedAt !== null) {
+					if (
+						!pool ||
+						!this.poolOwnerMatches(pool, owner) ||
+						pool.closedAt !== null
+					) {
 						throw new Error(
 							`Credit plan hold ${consumeIdempotencyKey} references an invalid carry pool`,
 						);
@@ -433,19 +453,19 @@ export class CreditsService {
 									forfeitedPlanCredits,
 									grantedAmount,
 									refundSplit,
-									userId,
+									...this.ownerFingerprintFields(owner, null),
 								},
 							},
 							"generation_settlement_refund",
 						),
-						userId,
+						...ownerColumns(owner),
 					},
 					tx,
 				);
 
 				this.assertRefundReplayMatches(
 					row,
-					userId,
+					owner,
 					consumeIdempotencyKey,
 					options,
 					refundSplit,
@@ -457,7 +477,7 @@ export class CreditsService {
 				const updatedHold =
 					await this.creditsRepository.updatePlanHoldRefundable(
 						consumeIdempotencyKey,
-						userId,
+						owner,
 						planHold.refundableCredits,
 						planHold.refundableCredits - refundSplit.plan,
 						tx,
@@ -473,7 +493,7 @@ export class CreditsService {
 					const updatedPool =
 						await this.creditsRepository.updatePlanHoldPoolRemaining(
 							planHold.poolId,
-							userId,
+							owner,
 							holdPoolRemaining,
 							holdPoolRemaining - refundSplit.plan,
 							tx,
@@ -490,20 +510,20 @@ export class CreditsService {
 			return rows;
 		};
 
-		return this.creditsRepository.withUserLock(
+		return this.creditsRepository.withLockValue(
 			this.refundOperationLockKey(options.idempotencyKey),
-			(tx) => this.creditsRepository.withUserLock(userId, refund, tx),
+			(tx) => this.creditsRepository.withOwnerLock(owner, refund, tx),
 			transaction,
 		);
 	}
 
 	async markPlanHoldInactive(
-		userId: string,
+		owner: CreditOwner,
 		consumeIdempotencyKey: string,
 		transaction?: CreditsTransaction,
 	): Promise<void> {
-		await this.creditsRepository.withUserLock(
-			userId,
+		await this.creditsRepository.withOwnerLock(
+			owner,
 			async (tx) => {
 				const hold = await this.creditsRepository.findPlanHold(
 					consumeIdempotencyKey,
@@ -514,15 +534,15 @@ export class CreditsService {
 					return;
 				}
 
-				if (hold.userId !== userId) {
+				if (!this.holdOwnerMatches(hold, owner)) {
 					throw new Error(
-						`Credit plan hold ${consumeIdempotencyKey} belongs to another user`,
+						`Credit plan hold ${consumeIdempotencyKey} belongs to another owner`,
 					);
 				}
 
 				await this.creditsRepository.markPlanHoldInactive(
 					consumeIdempotencyKey,
-					userId,
+					owner,
 					tx,
 				);
 			},
@@ -531,12 +551,12 @@ export class CreditsService {
 	}
 
 	async closePlanHold(
-		userId: string,
+		owner: CreditOwner,
 		consumeIdempotencyKey: string,
 		transaction?: CreditsTransaction,
 	): Promise<void> {
-		await this.creditsRepository.withUserLock(
-			userId,
+		await this.creditsRepository.withOwnerLock(
+			owner,
 			async (tx) => {
 				const hold = await this.creditsRepository.findPlanHold(
 					consumeIdempotencyKey,
@@ -547,15 +567,15 @@ export class CreditsService {
 					return;
 				}
 
-				if (hold.userId !== userId) {
+				if (!this.holdOwnerMatches(hold, owner)) {
 					throw new Error(
-						`Credit plan hold ${consumeIdempotencyKey} belongs to another user`,
+						`Credit plan hold ${consumeIdempotencyKey} belongs to another owner`,
 					);
 				}
 
 				await this.creditsRepository.closePlanHold(
 					consumeIdempotencyKey,
-					userId,
+					owner,
 					tx,
 				);
 			},
@@ -564,13 +584,13 @@ export class CreditsService {
 	}
 
 	async grant(
-		userId: string,
+		owner: CreditOwner,
 		amount: number,
 		options: GrantCreditOptions,
 		transaction?: CreditsTransaction,
 	): Promise<CreditLedgerRow> {
 		const result = await this.grantWithReplayStatus(
-			userId,
+			owner,
 			amount,
 			options,
 			transaction,
@@ -580,15 +600,15 @@ export class CreditsService {
 	}
 
 	async grantWithReplayStatus(
-		userId: string,
+		owner: CreditOwner,
 		amount: number,
 		options: GrantCreditOptions,
 		transaction?: CreditsTransaction,
 	): Promise<GrantCreditResult> {
 		this.assertPositiveCreditAmount(amount);
 
-		return this.creditsRepository.withUserLock(
-			userId,
+		return this.creditsRepository.withOwnerLock(
+			owner,
 			async (tx) => {
 				if (options.idempotencyKey) {
 					const existing = await this.creditsRepository.findByIdempotencyKey(
@@ -599,7 +619,7 @@ export class CreditsService {
 					if (existing) {
 						this.assertGrantReplayMatches(
 							existing,
-							userId,
+							owner,
 							amount,
 							options.bucket,
 						);
@@ -614,16 +634,16 @@ export class CreditsService {
 						delta: amount,
 						idempotencyKey: options.idempotencyKey,
 						kind: "grant",
-						meta: this.withGrantFingerprint(options.meta, userId, amount),
-						userId,
+						meta: this.withGrantFingerprint(options.meta, owner, amount),
+						...ownerColumns(owner),
 					},
 					tx,
 				);
 
-				// A globally reused key can race across two different user locks. The
+				// A globally reused key can race across two different owner locks. The
 				// repository returns the winning row after ON CONFLICT; verify it before
 				// treating that conflict as a successful replay.
-				this.assertGrantReplayMatches(row, userId, amount, options.bucket);
+				this.assertGrantReplayMatches(row, owner, amount, options.bucket);
 
 				return { replayed: false, row };
 			},
@@ -632,14 +652,14 @@ export class CreditsService {
 	}
 
 	/**
-	 * Apply one rollover-capped plan refill under the user's advisory lock.
+	 * Apply one rollover-capped plan refill under the owner's advisory lock.
 	 *
 	 * The pre-refill snapshot, excess expiration, and grant share one database
 	 * transaction. The grant key is the durable completion marker: a replay
 	 * never takes a new balance snapshot after the refill has already landed.
 	 */
 	async applyCappedRefill(
-		userId: string,
+		owner: CreditOwner,
 		allotment: number,
 		options: CappedRefillOptions,
 		transaction?: CreditsTransaction,
@@ -654,8 +674,8 @@ export class CreditsService {
 			);
 		}
 
-		return this.creditsRepository.withUserLock(
-			userId,
+		return this.creditsRepository.withOwnerLock(
+			owner,
 			async (tx) => {
 				const existingGrant = await this.creditsRepository.findByIdempotencyKey(
 					options.idempotencyKey,
@@ -663,12 +683,7 @@ export class CreditsService {
 				);
 
 				if (existingGrant) {
-					this.assertGrantReplayMatches(
-						existingGrant,
-						userId,
-						allotment,
-						"plan",
-					);
+					this.assertGrantReplayMatches(existingGrant, owner, allotment, "plan");
 					this.assertCappedRefillReplayMatches(
 						existingGrant,
 						allotment,
@@ -684,7 +699,7 @@ export class CreditsService {
 
 				if (
 					existingExpiration &&
-					(existingExpiration.userId !== userId ||
+					(!this.rowOwnerMatches(existingExpiration, owner) ||
 						existingExpiration.bucket !== "plan" ||
 						existingExpiration.kind !== "expire" ||
 						existingExpiration.delta >= 0)
@@ -694,12 +709,12 @@ export class CreditsService {
 					);
 				}
 
-				const balance = await this.creditsRepository.getBalance(userId, tx);
+				const balance = await this.creditsRepository.getBalance(owner, tx);
 				const previouslyExpired = existingExpiration
 					? Math.abs(existingExpiration.delta)
 					: 0;
 				const planHolds = await this.creditsRepository.listRefundablePlanHolds(
-					userId,
+					owner,
 					tx,
 				);
 				const oldPoolIds = [
@@ -737,7 +752,11 @@ export class CreditsService {
 				for (const [poolId, memberCredits] of pooledActiveCredits) {
 					const pool = poolById.get(poolId);
 
-					if (!pool || pool.userId !== userId || pool.closedAt !== null) {
+					if (
+						!pool ||
+						!this.poolOwnerMatches(pool, owner) ||
+						pool.closedAt !== null
+					) {
 						throw new Error(
 							`Credit plan hold pool ${poolId} is invalid at refill`,
 						);
@@ -785,7 +804,7 @@ export class CreditsService {
 								},
 								"subscription_refill_rollover_expiration",
 							),
-							userId,
+							...ownerColumns(owner),
 						},
 						tx,
 					);
@@ -797,14 +816,14 @@ export class CreditsService {
 					const pool = await this.creditsRepository.insertPlanHoldPool(
 						{
 							boundaryIdempotencyKey: options.idempotencyKey,
+							owner,
 							remainingCredits: carriedHeldCredits,
-							userId,
 						},
 						tx,
 					);
 
 					if (
-						pool.userId !== userId ||
+						!this.poolOwnerMatches(pool, owner) ||
 						pool.remainingCredits !== carriedHeldCredits ||
 						pool.closedAt !== null
 					) {
@@ -816,13 +835,9 @@ export class CreditsService {
 					newPoolId = pool.id;
 				}
 
-				await this.creditsRepository.applyPlanHoldBoundary(
-					userId,
-					newPoolId,
-					tx,
-				);
+				await this.creditsRepository.applyPlanHoldBoundary(owner, newPoolId, tx);
 				await this.creditsRepository.closePlanHoldPools(
-					userId,
+					owner,
 					oldPoolIds.filter((poolId) => poolId !== newPoolId),
 					tx,
 				);
@@ -848,14 +863,14 @@ export class CreditsService {
 									preRefillPlanBalance,
 								},
 							},
-							userId,
+							owner,
 							allotment,
 						),
-						userId,
+						...ownerColumns(owner),
 					},
 					tx,
 				);
-				this.assertGrantReplayMatches(grant, userId, allotment, "plan");
+				this.assertGrantReplayMatches(grant, owner, allotment, "plan");
 
 				return {
 					carriedCredits,
@@ -870,13 +885,13 @@ export class CreditsService {
 	}
 
 	async topup(
-		userId: string,
+		owner: CreditOwner,
 		amount: number,
 		options: CreditWriteOptions = {},
 	): Promise<CreditLedgerRow> {
 		this.assertPositiveCreditAmount(amount);
 
-		return this.creditsRepository.withUserLock(userId, (tx) =>
+		return this.creditsRepository.withOwnerLock(owner, (tx) =>
 			this.creditsRepository.insertLedgerEntry(
 				{
 					bucket: "topup",
@@ -884,7 +899,7 @@ export class CreditsService {
 					idempotencyKey: options.idempotencyKey,
 					kind: "topup",
 					meta: this.withReason(options.meta, "topup"),
-					userId,
+					...ownerColumns(owner),
 				},
 				tx,
 			),
@@ -892,20 +907,20 @@ export class CreditsService {
 	}
 
 	async expirePlanRemainder(
-		userId: string,
+		owner: CreditOwner,
 		options: CreditWriteOptions = {},
 		transaction?: CreditsTransaction,
 	): Promise<number> {
-		return this.creditsRepository.withUserLock(
-			userId,
+		return this.creditsRepository.withOwnerLock(
+			owner,
 			async (tx) => {
 				// A terminal subscription boundary invalidates both unresolved holds
 				// and same-cycle reconciliation rights before any delayed refund can
 				// reintroduce subscription-funded credits.
-				await this.creditsRepository.forfeitAllPlanHolds(userId, tx);
+				await this.creditsRepository.forfeitAllPlanHolds(owner, tx);
 
 				const existingAmount = await this.findExistingNegativeAmount(
-					userId,
+					owner,
 					options.idempotencyKey,
 					tx,
 				);
@@ -914,7 +929,7 @@ export class CreditsService {
 					return existingAmount;
 				}
 
-				const balance = await this.creditsRepository.getBalance(userId, tx);
+				const balance = await this.creditsRepository.getBalance(owner, tx);
 				const amountToExpire = Math.max(balance.plan, 0);
 
 				if (amountToExpire === 0) {
@@ -928,7 +943,7 @@ export class CreditsService {
 						idempotencyKey: options.idempotencyKey,
 						kind: "expire",
 						meta: this.withReason(options.meta, "plan_expiration"),
-						userId,
+						...ownerColumns(owner),
 					},
 					tx,
 				);
@@ -940,18 +955,18 @@ export class CreditsService {
 	}
 
 	async expireAmount(
-		userId: string,
+		owner: CreditOwner,
 		amount: number,
 		options: CreditWriteOptions = {},
 		transaction?: CreditsTransaction,
 	): Promise<number> {
 		this.assertPositiveCreditAmount(amount);
 
-		return this.creditsRepository.withUserLock(
-			userId,
+		return this.creditsRepository.withOwnerLock(
+			owner,
 			async (tx) => {
 				const existingAmount = await this.findExistingNegativeAmount(
-					userId,
+					owner,
 					options.idempotencyKey,
 					tx,
 				);
@@ -960,7 +975,7 @@ export class CreditsService {
 					return existingAmount;
 				}
 
-				const balance = await this.creditsRepository.getBalance(userId, tx);
+				const balance = await this.creditsRepository.getBalance(owner, tx);
 				const amountToExpire = Math.min(amount, Math.max(balance.plan, 0));
 
 				if (amountToExpire === 0) {
@@ -974,7 +989,7 @@ export class CreditsService {
 						idempotencyKey: options.idempotencyKey,
 						kind: "expire",
 						meta: this.withReason(options.meta, "plan_expiration"),
-						userId,
+						...ownerColumns(owner),
 					},
 					tx,
 				);
@@ -986,15 +1001,15 @@ export class CreditsService {
 	}
 
 	async revoke(
-		userId: string,
+		owner: CreditOwner,
 		amount: number,
 		options: RevokeCreditOptions = {},
 		transaction?: CreditsTransaction,
 	): Promise<CreditLedgerRow> {
 		this.assertPositiveCreditAmount(amount);
 
-		return this.creditsRepository.withUserLock(
-			userId,
+		return this.creditsRepository.withOwnerLock(
+			owner,
 			(tx) =>
 				this.creditsRepository.insertLedgerEntry(
 					{
@@ -1004,7 +1019,7 @@ export class CreditsService {
 						idempotencyKey: options.idempotencyKey,
 						kind: "revoke",
 						meta: this.withReason(options.meta, "revoke"),
-						userId,
+						...ownerColumns(owner),
 					},
 					tx,
 				),
@@ -1018,7 +1033,7 @@ export class CreditsService {
 		transaction?: CreditsTransaction,
 	): Promise<CreditLedgerRow> {
 		return this.grant(
-			userId,
+			userOwner(userId),
 			amount,
 			{
 				bucket: "promo",
@@ -1052,7 +1067,7 @@ export class CreditsService {
 	}
 
 	private async findExistingNegativeAmount(
-		userId: string,
+		owner: CreditOwner,
 		idempotencyKey: string | undefined,
 		tx: CreditsTransaction,
 	) {
@@ -1061,7 +1076,7 @@ export class CreditsService {
 		}
 
 		const existing = await this.creditsRepository.findByIdempotencyKeys(
-			userId,
+			owner,
 			[idempotencyKey],
 			tx,
 		);
@@ -1104,14 +1119,86 @@ export class CreditsService {
 		};
 	}
 
+	/**
+	 * Fingerprint identity fields per owner type.
+	 *
+	 * COMPATIBILITY INVARIANT: personal fingerprints keep the exact pre-teams
+	 * shape ({ userId } and nothing else) so replays of rows written before
+	 * this deploy keep validating. Org fingerprints carry the pool identity
+	 * plus the acting member (informational).
+	 */
+	private ownerFingerprintFields(
+		owner: CreditOwner,
+		actorUserId: string | null,
+	): Record<string, unknown> {
+		return owner.type === "user"
+			? { userId: owner.userId }
+			: {
+					actorUserId,
+					organizationId: owner.organizationId,
+				};
+	}
+
+	/**
+	 * Owner identity match against a fingerprint. Personal fingerprints must
+	 * not carry an organizationId (an org row can never replay as personal);
+	 * org matching ignores the recorded actor — the POOL is the identity.
+	 */
+	private fingerprintOwnerMatches(
+		fingerprint: Record<string, unknown>,
+		owner: CreditOwner,
+	): boolean {
+		return owner.type === "user"
+			? fingerprint.userId === owner.userId &&
+					fingerprint.organizationId === undefined
+			: fingerprint.organizationId === owner.organizationId;
+	}
+
+	private rowOwnerMatches(row: CreditLedgerRow, owner: CreditOwner): boolean {
+		return owner.type === "user"
+			? row.userId === owner.userId && row.organizationId === null
+			: row.organizationId === owner.organizationId;
+	}
+
+	private holdOwnerMatches(
+		hold: CreditPlanHoldRow,
+		owner: CreditOwner,
+	): boolean {
+		return owner.type === "user"
+			? hold.userId === owner.userId && hold.organizationId === null
+			: hold.organizationId === owner.organizationId;
+	}
+
+	private poolOwnerMatches(
+		pool: CreditPlanHoldPoolRow,
+		owner: CreditOwner,
+	): boolean {
+		return owner.type === "user"
+			? pool.userId === owner.userId && pool.organizationId === null
+			: pool.organizationId === owner.organizationId;
+	}
+
+	/** Ledger columns for a CONSUME row: org rows record the acting member. */
+	private consumeRowColumns(
+		owner: CreditOwner,
+		actorUserId: string | null,
+	): { organizationId: string | null; userId: string | null } {
+		return owner.type === "user"
+			? { organizationId: null, userId: owner.userId }
+			: { organizationId: owner.organizationId, userId: actorUserId };
+	}
+
 	private withGrantFingerprint(
 		meta: CreditMeta | undefined,
-		userId: string,
+		owner: CreditOwner,
 		amount: number,
 	) {
 		return {
 			...this.withReason(meta, "grant"),
-			idempotencyFingerprint: { amount, userId },
+			idempotencyFingerprint: {
+				amount,
+				...this.ownerFingerprintFields(owner, null),
+			},
 		};
 	}
 
@@ -1143,7 +1230,7 @@ export class CreditsService {
 
 	private async ensurePlanHold(
 		rows: CreditLedgerRow[],
-		userId: string,
+		owner: CreditOwner,
 		consumeIdempotencyKey: string | undefined,
 		mode: "active" | "inactive" | undefined,
 		tx: CreditsTransaction,
@@ -1171,14 +1258,14 @@ export class CreditsService {
 				consumeIdempotencyKey,
 				consumeLedgerId: planRow.id,
 				originalCredits,
-				userId,
+				owner,
 			},
 			tx,
 		);
 
 		this.assertPlanHoldMatches(
 			hold,
-			userId,
+			owner,
 			consumeIdempotencyKey,
 			originalCredits,
 		);
@@ -1196,7 +1283,7 @@ export class CreditsService {
 
 	private async assertPlanHoldReplayMatches(
 		rows: CreditLedgerRow[],
-		userId: string,
+		owner: CreditOwner,
 		consumeIdempotencyKey: string | undefined,
 		mode: "active" | "inactive" | undefined,
 		tx: CreditsTransaction,
@@ -1230,7 +1317,7 @@ export class CreditsService {
 
 		this.assertPlanHoldMatches(
 			hold,
-			userId,
+			owner,
 			consumeIdempotencyKey,
 			Math.abs(planRow.delta),
 		);
@@ -1238,12 +1325,12 @@ export class CreditsService {
 
 	private assertPlanHoldMatches(
 		hold: CreditPlanHoldRow,
-		userId: string,
+		owner: CreditOwner,
 		consumeIdempotencyKey: string,
 		originalCredits: number,
 	): void {
 		if (
-			hold.userId !== userId ||
+			!this.holdOwnerMatches(hold, owner) ||
 			hold.consumeIdempotencyKey !== consumeIdempotencyKey ||
 			hold.originalCredits !== originalCredits ||
 			hold.refundableCredits < 0 ||
@@ -1270,7 +1357,8 @@ export class CreditsService {
 
 	private withConsumeFingerprint(
 		meta: CreditMeta | undefined,
-		userId: string,
+		owner: CreditOwner,
+		actorUserId: string | null,
 		amount: number,
 		action: string | null,
 		allowOverdraft: boolean,
@@ -1285,7 +1373,7 @@ export class CreditsService {
 				amount,
 				bucketSplit,
 				planHold,
-				userId,
+				...this.ownerFingerprintFields(owner, actorUserId),
 			},
 		};
 	}
@@ -1345,7 +1433,7 @@ export class CreditsService {
 
 	private assertConsumeReplayMatches(
 		rows: CreditLedgerRow[],
-		userId: string,
+		owner: CreditOwner,
 		amount: number,
 		action: string | null,
 		allowOverdraft: boolean,
@@ -1357,7 +1445,7 @@ export class CreditsService {
 
 		if (
 			firstFingerprint === null ||
-			firstFingerprint.userId !== userId ||
+			!this.fingerprintOwnerMatches(firstFingerprint, owner) ||
 			firstFingerprint.amount !== amount ||
 			firstFingerprint.action !== action ||
 			(firstFingerprint.allowOverdraft === true) !== allowOverdraft ||
@@ -1388,13 +1476,13 @@ export class CreditsService {
 
 				return (
 					row !== undefined &&
-					row.userId === userId &&
+					this.rowOwnerMatches(row, owner) &&
 					row.kind === "consume" &&
 					row.bucket === bucket &&
 					row.delta === -bucketSplit[bucket] &&
 					this.consumeFingerprintMatches(
 						row,
-						userId,
+						owner,
 						amount,
 						action,
 						allowOverdraft,
@@ -1421,7 +1509,7 @@ export class CreditsService {
 
 	private consumeFingerprintMatches(
 		row: CreditLedgerRow,
-		userId: string,
+		owner: CreditOwner,
 		amount: number,
 		action: string | null,
 		allowOverdraft: boolean,
@@ -1433,7 +1521,7 @@ export class CreditsService {
 
 		return (
 			fingerprint !== null &&
-			fingerprint.userId === userId &&
+			this.fingerprintOwnerMatches(fingerprint, owner) &&
 			fingerprint.amount === amount &&
 			fingerprint.action === action &&
 			(fingerprint.allowOverdraft === true) === allowOverdraft &&
@@ -1447,7 +1535,7 @@ export class CreditsService {
 
 	private assertRefundReplaySetMatches(
 		rows: CreditLedgerRow[],
-		userId: string,
+		owner: CreditOwner,
 		consumeIdempotencyKey: string,
 		options: RefundConsumeAmountOptions,
 	): CreditLedgerRow[] {
@@ -1490,7 +1578,7 @@ export class CreditsService {
 
 			this.assertRefundReplayMatches(
 				row,
-				userId,
+				owner,
 				consumeIdempotencyKey,
 				options,
 				refundSplit,
@@ -1502,7 +1590,7 @@ export class CreditsService {
 
 	private assertRefundReplayMatches(
 		row: CreditLedgerRow,
-		userId: string,
+		owner: CreditOwner,
 		consumeIdempotencyKey: string,
 		options: RefundConsumeAmountOptions,
 		refundSplit: CreditBucketSplit,
@@ -1519,16 +1607,17 @@ export class CreditsService {
 		);
 
 		if (
-			row.userId !== userId ||
+			!this.rowOwnerMatches(row, owner) ||
 			row.kind !== "grant" ||
 			row.delta !== expectedAmount ||
 			row.idempotencyKey !== `${options.idempotencyKey}:${row.bucket}` ||
-			fingerprint?.userId !== userId ||
-			fingerprint?.amount !== options.amount ||
-			fingerprint?.consumeIdempotencyKey !== consumeIdempotencyKey ||
-			fingerprint?.grantedAmount !== grantedAmount ||
-			!Number.isInteger(fingerprint?.forfeitedPlanCredits) ||
-			Number(fingerprint?.forfeitedPlanCredits) < 0 ||
+			fingerprint === null ||
+			!this.fingerprintOwnerMatches(fingerprint, owner) ||
+			fingerprint.amount !== options.amount ||
+			fingerprint.consumeIdempotencyKey !== consumeIdempotencyKey ||
+			fingerprint.grantedAmount !== grantedAmount ||
+			!Number.isInteger(fingerprint.forfeitedPlanCredits) ||
+			Number(fingerprint.forfeitedPlanCredits) < 0 ||
 			rowSplit === null ||
 			CREDIT_SPEND_ORDER.some(
 				(bucket) => rowSplit[bucket] !== refundSplit[bucket],
@@ -1568,7 +1657,7 @@ export class CreditsService {
 
 	private assertGrantReplayMatches(
 		row: CreditLedgerRow,
-		userId: string,
+		owner: CreditOwner,
 		amount: number,
 		bucket: CreditBucket,
 	): void {
@@ -1578,11 +1667,11 @@ export class CreditsService {
 			: null;
 		const fingerprintMatches =
 			fingerprint !== null &&
-			fingerprint.userId === userId &&
+			this.fingerprintOwnerMatches(fingerprint, owner) &&
 			fingerprint.amount === amount;
 
 		if (
-			row.userId !== userId ||
+			!this.rowOwnerMatches(row, owner) ||
 			row.delta !== amount ||
 			row.kind !== "grant" ||
 			row.bucket !== bucket ||

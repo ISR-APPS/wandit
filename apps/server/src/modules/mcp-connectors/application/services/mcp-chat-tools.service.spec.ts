@@ -26,6 +26,7 @@ vi.mock("@trigger.dev/sdk", () => ({
 }));
 
 import type { ConnectorGenerationsRepository } from "../../../connector-generations/infrastructure/persistence/connector-generations.repository";
+import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import { InsufficientCreditsError } from "../../../credits/domain/errors/insufficient-credits.error";
 import type { MeteringService } from "../../../metering/application/services/metering.service";
 import type {
@@ -267,7 +268,7 @@ function buildService({
 		reserveWithReplay: vi.fn(
 			async (
 				_operation: string,
-				_userId: string,
+				_subject: MeteringSubject,
 				input: { credits?: number; idempotencyKey: string },
 			): Promise<Awaited<ReturnType<MeteringService["reserveWithReplay"]>>> => {
 				meteringEventIndex += 1;
@@ -440,7 +441,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				service,
 			} = buildService({ connections: [] });
 
-			const result = await service.resolveToolsForUser(USER_ID);
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
 
 			expect(connectionsRepository.listByUser).toHaveBeenCalledWith(USER_ID);
 			expect(connectorsRepository.listEnabled).not.toHaveBeenCalled();
@@ -460,7 +461,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				new Error("invalid bearer secret-provider-token"),
 			);
 
-			const result = await service.resolveToolsForUser(USER_ID);
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
 
 			expect(createMCPClient).not.toHaveBeenCalled();
 			expect(result.tools).toEqual({});
@@ -477,7 +478,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				new ConflictException("refresh rejected"),
 			);
 
-			const result = await service.resolveToolsForUser(USER_ID);
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
 
 			expect(createMCPClient).not.toHaveBeenCalled();
 			expect(result.notices).toEqual([
@@ -500,7 +501,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				],
 			});
 
-			const result = await service.resolveToolsForUser(USER_ID);
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
 
 			expect(connectionsService.getValidAccessToken).not.toHaveBeenCalled();
 			expect(createMCPClient).not.toHaveBeenCalled();
@@ -532,7 +533,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				connectors: [connector({ name: "Future", slug: "future-connector" })],
 			});
 
-			const result = await service.resolveToolsForUser(USER_ID);
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
 
 			expect(result.tools["mcp_future-connector_get_campaigns"]).toBe(
 				firstTool,
@@ -578,7 +579,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				],
 			});
 
-			const result = await service.resolveToolsForUser(USER_ID);
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
 
 			expect(result.tools.mcp_future_ads_get_campaigns).toBe(firstTool);
 			expect(result.tools.mcp_future_ads_get_campaigns).not.toBe(laterTool);
@@ -604,7 +605,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				],
 			});
 
-			const metaResult = await meta.service.resolveToolsForUser(USER_ID);
+			const metaResult = await meta.service.resolveToolsForUser({ actorUserId: USER_ID });
 
 			expect(metaResult.approvalMap).toMatchObject({
 				"mcp_meta-ads_frobnicate_widget": "user-approval",
@@ -634,7 +635,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			});
 
 			const higgsfieldResult =
-				await higgsfield.service.resolveToolsForUser(USER_ID);
+				await higgsfield.service.resolveToolsForUser({ actorUserId: USER_ID });
 
 			expect(higgsfieldResult.approvalMap).toMatchObject({
 				mcp_higgsfield_publish_website: "user-approval",
@@ -663,7 +664,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			);
 			const { service } = buildService();
 
-			const result = await service.resolveToolsForUser(USER_ID);
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
 
 			expect(result.tools["mcp_meta-ads_ads_get_ad_accounts"]).toBe(visible);
 			expect(result.tools).not.toHaveProperty(
@@ -696,7 +697,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				],
 			});
 
-			const result = await service.resolveToolsForUser(USER_ID);
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
 
 			expect(result.tools).toHaveProperty(
 				"mcp_meta-ads_campaign_budget_update",
@@ -738,7 +739,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				],
 			});
 
-			const result = await service.resolveToolsForUser(USER_ID);
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
 
 			expect(result.tools).toHaveProperty("mcp_meta-ads_ads_get_ad_accounts");
 			expect(result.tools).not.toHaveProperty(
@@ -767,7 +768,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				],
 			});
 
-			const result = await service.resolveToolsForUser(USER_ID);
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
 
 			expect(result.tools).toHaveProperty("mcp_tiktok-ads_tool_execute");
 			expect(result.tools).not.toHaveProperty("mcp_tiktok-ads_tool_get");
@@ -784,7 +785,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				connectors: [connector({ name: "Future", slug: "future-connector" })],
 			});
 
-			const result = await service.resolveToolsForUser(USER_ID);
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
 
 			expect(result.tools).toHaveProperty("mcp_future-connector_alpha_get");
 			expect(result.tools).toHaveProperty("mcp_future-connector_omega_create");
@@ -811,7 +812,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				],
 			});
 
-			const result = await service.resolveToolsForUser(USER_ID);
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
 			const names = Object.keys(result.tools);
 
 			for (const door of DISCOVERY_DOORS) {
@@ -835,7 +836,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				connectors: [connector({ slug: "future-connector" })],
 			});
 
-			const result = await service.resolveToolsForUser(USER_ID);
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
 			const names = Object.keys(result.tools);
 
 			expect(names).toEqual([...names].sort());
@@ -873,7 +874,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				],
 			});
 
-			const result = await service.resolveToolsForUser(USER_ID);
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
 			expect(result.tools).not.toHaveProperty("mcp_tiktok-ads_tool_execute");
 			expect(result.tools).not.toHaveProperty("mcp_tiktok-ads_tool_get");
 			expect(result.tools).not.toHaveProperty("mcp_tiktok-ads_tool_list");
@@ -921,7 +922,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				connectors: [connector({ slug: "tiktok-ads" })],
 			});
 
-			const result = await service.resolveToolsForUser(USER_ID);
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
 			const search = await executeTool(
 				requiredTool(result.tools, "search_platform_tools"),
 				{
@@ -978,7 +979,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			);
 			const { service } = buildService();
 
-			const result = await service.resolveToolsForUser(USER_ID);
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
 			const visible = await executeTool(
 				requiredTool(result.tools, "describe_platform_tool"),
 				{
@@ -1053,7 +1054,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				connectors: [connector({ slug: "tiktok-ads" })],
 			});
 
-			const result = await service.resolveToolsForUser(USER_ID);
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
 			const described = await executeTool(
 				requiredTool(result.tools, "describe_platform_tool"),
 				{
@@ -1091,7 +1092,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			);
 			const { service } = buildService();
 
-			const result = await service.resolveToolsForUser(USER_ID);
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
 			const described = await executeTool(
 				requiredTool(result.tools, "describe_platform_tool"),
 				{
@@ -1131,7 +1132,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			const { service } = buildService({
 				connectors: [connector({ slug: "tiktok-ads" })],
 			});
-			const result = await service.resolveToolsForUser(USER_ID);
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
 
 			const described = await executeTool(
 				requiredTool(result.tools, "describe_platform_tool"),
@@ -1169,7 +1170,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				connectors: [connector({ slug: "tiktok-ads" })],
 			});
 
-			const result = await service.resolveToolsForUser(USER_ID);
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
 			await executeTool(requiredTool(result.tools, "run_platform_tool"), {
 				connector: "tiktok-ads",
 				params: { advertiser_id: "adv-1" },
@@ -1203,7 +1204,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				mockClient({ definitions: [definition("ads_get_ad_accounts")] }),
 			);
 			const { service } = buildService();
-			const result = await service.resolveToolsForUser(USER_ID);
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
 			const approval = result.approvalMap.run_platform_tool;
 
 			expect(approval).toBeTypeOf("function");
@@ -1271,7 +1272,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			const { meteringService, service } = buildService({
 				connectors: [connector({ slug: "higgsfield" })],
 			});
-			const result = await service.resolveToolsForUser(USER_ID, "chat-event");
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID }, "chat-event");
 
 			await expect(
 				executeTool(
@@ -1286,7 +1287,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			expect(meteringService.reserveWithReplay).toHaveBeenNthCalledWith(
 				1,
 				"connector",
-				USER_ID,
+				{ actorUserId: USER_ID },
 				{
 					attemptRef: referenceId,
 					credits: 5,
@@ -1297,7 +1298,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			expect(meteringService.reserveWithReplay).toHaveBeenNthCalledWith(
 				2,
 				"image",
-				USER_ID,
+				{ actorUserId: USER_ID },
 				{
 					attemptRef: referenceId,
 					credits: 10,
@@ -1371,7 +1372,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			const { meteringService, service } = buildService({
 				connectors: [connector({ slug: "higgsfield" })],
 			});
-			const result = await service.resolveToolsForUser(USER_ID, "chat-event");
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID }, "chat-event");
 
 			await expect(
 				executeTool(
@@ -1426,7 +1427,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			const { meteringService, service } = buildService({
 				connectors: [connector({ slug: "higgsfield" })],
 			});
-			const result = await service.resolveToolsForUser(USER_ID, "chat-event");
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID }, "chat-event");
 
 			await expect(
 				executeTool(
@@ -1474,7 +1475,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				.mockRejectedValueOnce(new Error("capture unavailable 1"))
 				.mockRejectedValueOnce(new Error("capture unavailable 2"))
 				.mockResolvedValue({ id: "generation-ref" });
-			const result = await service.resolveToolsForUser(USER_ID, "chat-event");
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID }, "chat-event");
 
 			await expect(
 				executeTool(
@@ -1512,7 +1513,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			});
 			const persistenceError = new Error("generation ref unavailable");
 			meteringService.captureGeneration.mockRejectedValue(persistenceError);
-			const result = await service.resolveToolsForUser(USER_ID, "chat-event");
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID }, "chat-event");
 
 			await expect(
 				executeTool(
@@ -1550,7 +1551,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				replay: "settled",
 				replayed: true,
 			});
-			const result = await service.resolveToolsForUser(USER_ID, "chat-event");
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID }, "chat-event");
 
 			await expect(
 				executeTool(
@@ -1586,7 +1587,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				replay: "reserved",
 				replayed: true,
 			});
-			const result = await service.resolveToolsForUser(USER_ID, "chat-event");
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID }, "chat-event");
 
 			await expect(
 				executeTool(
@@ -1618,7 +1619,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			const { meteringService, service } = buildService({
 				connectors: [connector({ slug: "higgsfield" })],
 			});
-			const result = await service.resolveToolsForUser(USER_ID, "chat-event");
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID }, "chat-event");
 
 			await executeTool(
 				requiredTool(result.tools, "mcp_higgsfield_models_explore"),
@@ -1635,7 +1636,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			expect(meteringService.reserveWithReplay).toHaveBeenCalledTimes(1);
 			expect(meteringService.reserveWithReplay).toHaveBeenCalledWith(
 				"connector",
-				USER_ID,
+				{ actorUserId: USER_ID },
 				expect.objectContaining({ credits: 5, parentEventId: "chat-event" }),
 			);
 		});
@@ -1655,7 +1656,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			});
 			const paymentRequired = new InsufficientCreditsError(5, 0);
 			meteringService.reserveWithReplay.mockRejectedValueOnce(paymentRequired);
-			const result = await service.resolveToolsForUser(USER_ID, "chat-event");
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID }, "chat-event");
 
 			await expect(
 				executeTool(
@@ -1673,7 +1674,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			queueClient(mockClient({ definitions: [definition("generate_video")] }));
 			const { connectorGenerationsRepository, meteringService, service } =
 				buildService({ connectors: [connector({ slug: "higgsfield" })] });
-			const result = await service.resolveToolsForUser(USER_ID, "chat-event");
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID }, "chat-event");
 
 			await expect(
 				executeTool(
@@ -1689,7 +1690,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			expect(meteringService.reserveWithReplay).toHaveBeenNthCalledWith(
 				1,
 				"connector",
-				USER_ID,
+				{ actorUserId: USER_ID },
 				expect.objectContaining({
 					credits: 5,
 					idempotencyKey: `connector:${GENERATION_ATTEMPT_ID}`,
@@ -1699,7 +1700,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			expect(meteringService.reserveWithReplay).toHaveBeenNthCalledWith(
 				2,
 				"video",
-				USER_ID,
+				{ actorUserId: USER_ID },
 				expect.objectContaining({
 					credits: 25,
 					idempotencyKey: `video:${GENERATION_ATTEMPT_ID}`,
@@ -1767,7 +1768,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 					return "connector-idempotency-key";
 				},
 			);
-			const result = await service.resolveToolsForUser(USER_ID, "chat-event");
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID }, "chat-event");
 
 			await executeTool(
 				requiredTool(result.tools, "mcp_higgsfield_generate_video"),
@@ -1795,7 +1796,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				replay: "reconciled",
 				replayed: true,
 			});
-			const result = await service.resolveToolsForUser(USER_ID, "chat-event");
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID }, "chat-event");
 
 			await expect(
 				executeTool(
@@ -1822,7 +1823,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			const { meteringService, service } = buildService({
 				connectors: [connector({ slug: "higgsfield" })],
 			});
-			const result = await service.resolveToolsForUser(USER_ID, "chat-event");
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID }, "chat-event");
 
 			await expect(
 				executeTool(
@@ -1848,7 +1849,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			const { meteringService, service } = buildService({
 				connectors: [connector({ slug: "higgsfield" })],
 			});
-			const result = await service.resolveToolsForUser(USER_ID, "chat-event");
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID }, "chat-event");
 
 			await expect(
 				executeTool(
@@ -1876,7 +1877,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			queueClient(mockClient({ definitions: [definition("generate_video")] }));
 			const { connectorGenerationsRepository, meteringService, service } =
 				buildService({ connectors: [connector({ slug: "higgsfield" })] });
-			const result = await service.resolveToolsForUser(USER_ID, "chat-event");
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID }, "chat-event");
 
 			await expect(
 				executeTool(
@@ -1910,7 +1911,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			const { meteringService, service } = buildService({
 				connectors: [connector({ slug: "higgsfield" })],
 			});
-			const result = await service.resolveToolsForUser(USER_ID, "chat-event");
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID }, "chat-event");
 
 			await executeTool(
 				requiredTool(result.tools, "mcp_higgsfield_generate_audio"),
@@ -1939,7 +1940,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			queueClient(client);
 			const { service } = buildService();
 
-			const resultPromise = service.resolveToolsForUser(USER_ID);
+			const resultPromise = service.resolveToolsForUser({ actorUserId: USER_ID });
 			await vi.advanceTimersByTimeAsync(249);
 			expect(client.listTools).toHaveBeenCalledTimes(1);
 			await vi.advanceTimersByTimeAsync(1);
@@ -1983,7 +1984,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 					}),
 				],
 			});
-			const result = await service.resolveToolsForUser(USER_ID);
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
 			vi.useFakeTimers();
 
 			const readPromise = executeTool(
@@ -2024,7 +2025,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 					}),
 				],
 			});
-			const result = await service.resolveToolsForUser(USER_ID);
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
 
 			await expect(
 				executeTool(
@@ -2053,7 +2054,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 					}),
 				],
 			});
-			const result = await service.resolveToolsForUser(USER_ID);
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
 
 			await expect(
 				executeTool(
@@ -2086,7 +2087,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 					}),
 				],
 			});
-			const result = await service.resolveToolsForUser(USER_ID);
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
 			const approval = result.approvalMap["mcp_tiktok-ads_tool_execute"];
 
 			expect(approval).toBeTypeOf("function");
@@ -2135,7 +2136,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 					}),
 				],
 			});
-			const result = await service.resolveToolsForUser(USER_ID);
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
 			vi.useFakeTimers();
 
 			const readPromise = executeTool(
@@ -2213,7 +2214,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			const { service } = buildService({
 				connectors: [connector({ slug: "tiktok-ads" })],
 			});
-			const result = await service.resolveToolsForUser(USER_ID);
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
 			vi.useFakeTimers();
 
 			const readPromise = executeTool(
@@ -2257,7 +2258,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			});
 			const { runtimeCache, service } = buildService();
 
-			const result = await service.resolveToolsForUser(USER_ID);
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
 
 			expect(options).toBeDefined();
 			expect(options).not.toHaveProperty("initialInitializeResult");
@@ -2305,7 +2306,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			});
 			const { service } = buildService({ runtimeCache });
 
-			await service.resolveToolsForUser(USER_ID);
+			await service.resolveToolsForUser({ actorUserId: USER_ID });
 
 			expect(options?.initialInitializeResult).toBe(INITIALIZE_RESULT);
 			expect(options?.transport).toMatchObject({
@@ -2342,7 +2343,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			});
 			const { service } = buildService({ runtimeCache });
 
-			const result = await service.resolveToolsForUser(USER_ID);
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
 
 			expect(createMCPClient).toHaveBeenCalledTimes(2);
 			expect(options[0]?.transport.initialSessionId).toBe("session-stale");
@@ -2375,7 +2376,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			queueClient(freshClient);
 			const { service } = buildService({ runtimeCache });
 
-			const result = await service.resolveToolsForUser(USER_ID);
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
 
 			expect(staleClient.listTools).toHaveBeenCalledTimes(1);
 			expect(freshClient.listTools).not.toHaveBeenCalled();
@@ -2413,7 +2414,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			queueClient(freshClient, { sessionId: "session-fresh" });
 			const { service } = buildService({ runtimeCache });
 
-			const result = await service.resolveToolsForUser(USER_ID);
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
 
 			expect(createMCPClient).toHaveBeenCalledTimes(2);
 			expect(staleClient.listTools).not.toHaveBeenCalled();
@@ -2435,9 +2436,9 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			queueClient(secondClient);
 			const { service } = buildService({ runtimeCache });
 
-			const firstResult = await service.resolveToolsForUser(USER_ID);
+			const firstResult = await service.resolveToolsForUser({ actorUserId: USER_ID });
 			await firstResult.close();
-			const currentResult = await service.resolveToolsForUser(USER_ID);
+			const currentResult = await service.resolveToolsForUser({ actorUserId: USER_ID });
 			await executeTool(
 				requiredTool(currentResult.tools, "run_platform_tool"),
 				{
@@ -2466,8 +2467,8 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			queueClient(secondClient);
 			const { service } = buildService({ runtimeCache });
 
-			await service.resolveToolsForUser(USER_ID);
-			const secondResult = await service.resolveToolsForUser(USER_ID);
+			await service.resolveToolsForUser({ actorUserId: USER_ID });
+			const secondResult = await service.resolveToolsForUser({ actorUserId: USER_ID });
 
 			expect(firstClient.listTools).toHaveBeenCalledTimes(1);
 			expect(secondClient.listTools).not.toHaveBeenCalled();
@@ -2487,7 +2488,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			const pendingClient = deferred<MCPClient>();
 			vi.mocked(createMCPClient).mockReturnValueOnce(pendingClient.promise);
 			const { service } = buildService();
-			const resultPromise = service.resolveToolsForUser(USER_ID);
+			const resultPromise = service.resolveToolsForUser({ actorUserId: USER_ID });
 
 			await vi.advanceTimersByTimeAsync(10_000);
 			const result = await resultPromise;

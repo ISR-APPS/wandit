@@ -1,3 +1,4 @@
+import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import type { BillingAdmissionMode } from "../../../metering/application/services/fixed-operation-billing";
 import type { MeteringService } from "../../../metering/application/services/metering.service";
 import type {
@@ -20,12 +21,12 @@ export async function reserveLeadScrapeUsage(
 	input: {
 		attemptId: string;
 		parentEventId?: string;
-		userId: string;
+		subject: MeteringSubject;
 	},
 ): Promise<AiUsageEvent> {
 	const reservation = await meteringService.reserveWithReplay(
 		"lead_scrape",
-		input.userId,
+		input.subject,
 		{
 			attemptRef: input.attemptId,
 			credits: fixedOperationCredits("lead_scrape"),
@@ -57,7 +58,7 @@ export async function reserveLeadScrapeUsageForExecution(
 		billingMode?: BillingAdmissionMode;
 		parentEventId?: string;
 		runtimeBillingDisabled: boolean;
-		userId: string;
+		subject: MeteringSubject;
 	},
 ): Promise<AiUsageEvent | null> {
 	const billingDisabled =
@@ -67,7 +68,7 @@ export async function reserveLeadScrapeUsageForExecution(
 	if (billingDisabled) {
 		const existing = await meteringService.findByIdempotencyKey(
 			leadScrapeMeteringKey(input.attemptId),
-			input.userId,
+			input.subject,
 		);
 
 		if (!existing) {
@@ -93,11 +94,11 @@ export async function settleLeadScrapeUsage(
  */
 export async function ensureLeadScrapeUsageSettled(
 	meteringService: LeadScrapeMeteringService,
-	input: { attemptId: string; resultCount: number; userId: string },
+	input: { attemptId: string; resultCount: number; subject: MeteringSubject },
 ): Promise<boolean> {
 	const event = await meteringService.findByIdempotencyKey(
 		leadScrapeMeteringKey(input.attemptId),
-		input.userId,
+		input.subject,
 	);
 
 	if (!event) {
@@ -110,11 +111,11 @@ export async function ensureLeadScrapeUsageSettled(
 
 export async function refundLeadScrapeUsageIfReserved(
 	meteringService: LeadScrapeMeteringService,
-	input: { attemptId: string; eventId: string; userId: string },
+	input: { attemptId: string; eventId: string; subject: MeteringSubject },
 ): Promise<boolean> {
 	const event = await meteringService.findByIdempotencyKey(
 		leadScrapeMeteringKey(input.attemptId),
-		input.userId,
+		input.subject,
 	);
 
 	if (event?.id !== input.eventId || event.status !== "reserved") {

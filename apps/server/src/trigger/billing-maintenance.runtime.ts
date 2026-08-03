@@ -19,6 +19,8 @@ import { StripeWebhookProcessor } from "../modules/billing/application/services/
 import { SubscriptionCreditsService } from "../modules/billing/application/services/subscription-credits.service";
 import { SubscriptionRefillService } from "../modules/billing/application/services/subscription-refill.service";
 import { BillingCheckoutAttemptsRepository } from "../modules/billing/infrastructure/persistence/billing-checkout-attempts.repository";
+import { OrganizationBillingCustomersRepository } from "../modules/billing/infrastructure/persistence/organization-billing-customers.repository";
+import { WorkspaceMembersRepository } from "../modules/workspaces/infrastructure/persistence/members.repository";
 import { BillingCreditLedgerRepository } from "../modules/billing/infrastructure/persistence/billing-credit-ledger.repository";
 import { BillingCustomersRepository } from "../modules/billing/infrastructure/persistence/billing-customers.repository";
 import { BillingWebhookEventsRepository } from "../modules/billing/infrastructure/persistence/billing-webhook-events.repository";
@@ -123,19 +125,23 @@ export function createBillingWebhookRuntime(
 		subscriptionCreditsRepository,
 		refills,
 		checkoutAttempts,
+		new OrganizationBillingCustomersRepository(db),
 	);
 	const subscriptionSync = new StripeSubscriptionSyncService(
 		billingCustomers,
 		subscriptions,
 		payment.stripe,
+		new OrganizationBillingCustomersRepository(db),
 	);
 	const orderReconciler = createOrderReconciler(
+		db,
 		payment,
 		billingCustomers,
 		affiliate.affiliates,
 	);
 	const router = new StripeEventRouter(
 		billingCustomers,
+		new OrganizationBillingCustomersRepository(db),
 		subscriptionSync,
 		subscriptionCredits,
 		payment.paymentRefunds,
@@ -187,6 +193,7 @@ function createAffiliateCore(
 	const commission = new AffiliateCommissionService(
 		affiliates,
 		billingCustomers,
+		new OrganizationBillingCustomersRepository(db),
 		stripe,
 		clawback,
 	);
@@ -199,6 +206,7 @@ function createCredits(db: TriggerDatabase): CreditsService {
 }
 
 function createOrderReconciler(
+	db: TriggerDatabase,
 	payment: ReturnType<typeof createPaymentCore>,
 	billingCustomers: BillingCustomersRepository,
 	affiliates: AffiliatesRepository,
@@ -238,6 +246,8 @@ function createOrderReconciler(
 	const billingCustomer = new BillingCustomerService(
 		billingCustomers,
 		payment.stripe,
+		new OrganizationBillingCustomersRepository(db),
+		new WorkspaceMembersRepository(db),
 		affiliates,
 	);
 

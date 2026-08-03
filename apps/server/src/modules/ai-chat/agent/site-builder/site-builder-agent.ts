@@ -10,6 +10,7 @@
  * The loop is ONE deliberate build pass → code review → rendered review →
  * finish. Successful writes and edits count as their own source review.
  */
+import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import { PAGE_TOKEN_NAMES } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import {
@@ -90,8 +91,8 @@ export type SiteBuildParams = {
 	title: string;
 	/** Parent page-build event for direct image/video child operations. */
 	usageEventId?: string;
-	/** Gateway attribution owner for every builder model step. */
-	userId: string;
+	/** Payer + acting member for metering and gateway attribution. */
+	subject: MeteringSubject;
 };
 
 export type SiteBuildMeteringStep = {
@@ -343,8 +344,8 @@ type BuilderToolsParams = {
 	projectId: string;
 	screenshots: ScreenshotSession;
 	state: BuildLoopState;
+	subject: MeteringSubject;
 	usageEventId?: string;
-	userId: string;
 	vfs: VirtualFileSystem;
 };
 
@@ -499,7 +500,10 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 				const index = state.videoSequence;
 				const childEvent =
 					params.meteringService && params.usageEventId
-						? await params.meteringService.reserve("video", params.userId, {
+						? await params.meteringService.reserve(
+								"video",
+								params.subject,
+								{
 								attemptRef: `${params.attemptId}:video:${index}`,
 								credits: fixedOperationCredits("video"),
 								idempotencyKey: `page-build-video:${params.usageEventId}:${index}`,
@@ -515,7 +519,11 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 					attemptId: params.attemptId,
 					imageUrl,
 					index,
-					metering: { operation: "video", userId: params.userId },
+					metering: {
+						operation: "video",
+						organizationId: params.subject.organizationId ?? null,
+						userId: params.subject.actorUserId,
+					},
 					motionPrompt,
 					...(childEvent && params.meteringService
 						? {
@@ -884,7 +892,10 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 				emitEvent({ role, type: "image-start" });
 				const childEvent =
 					params.meteringService && params.usageEventId
-						? await params.meteringService.reserve("image", params.userId, {
+						? await params.meteringService.reserve(
+								"image",
+								params.subject,
+								{
 								attemptRef: `${params.attemptId}:image:${index}`,
 								credits: fixedOperationCredits("image"),
 								idempotencyKey: `page-build-image:${params.usageEventId}:${index}`,
@@ -902,7 +913,11 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 					aspect,
 					attemptId: params.attemptId,
 					index,
-					metering: { operation: "image", userId: params.userId },
+					metering: {
+						operation: "image",
+						organizationId: params.subject.organizationId ?? null,
+						userId: params.subject.actorUserId,
+					},
 					...(childEvent && params.meteringService
 						? {
 								onProviderGeneration: async (
@@ -1386,7 +1401,11 @@ export async function runSiteBuild(
 				? { gateway: { order: ["fireworks"] } }
 				: {}),
 		},
-		{ operation: "page_build", userId: params.userId },
+		{
+			operation: "page_build",
+			organizationId: params.subject.organizationId ?? null,
+			userId: params.subject.actorUserId,
+		},
 	);
 
 	log(
@@ -1449,7 +1468,7 @@ export async function runSiteBuild(
 				screenshots,
 				state,
 				...(params.usageEventId ? { usageEventId: params.usageEventId } : {}),
-				userId: params.userId,
+				subject: params.subject,
 				vfs,
 			}),
 		});

@@ -18,6 +18,7 @@ vi.mock("../../../../infrastructure/analytics/analytics.service", () => ({
 
 const PROJECT_ID = "11111111-1111-4111-8111-111111111111";
 const OWNER_ID = "owner_1";
+const OWNER_SCOPE = { kind: "personal", userId: OWNER_ID } as const;
 
 const PROJECT = {
 	createdAt: new Date("2026-07-01T10:00:00.000Z"),
@@ -130,38 +131,38 @@ describe("AdminProjectsService", () => {
 			name: "Owner",
 		});
 		expect(projectAssetsService.listAssets).toHaveBeenCalledWith(
-			OWNER_ID,
+			OWNER_SCOPE,
 			PROJECT_ID,
 		);
-		expect(pagesService.overview).toHaveBeenCalledWith(OWNER_ID, PROJECT_ID);
+		expect(pagesService.overview).toHaveBeenCalledWith(OWNER_SCOPE, PROJECT_ID);
 		expect(pagesService.listVersions).toHaveBeenCalledWith(
-			OWNER_ID,
+			OWNER_SCOPE,
 			PROJECT_ID,
 		);
-		expect(sitesService.current).toHaveBeenCalledWith(OWNER_ID, PROJECT_ID);
-		expect(sitesService.list).toHaveBeenCalledWith(OWNER_ID, PROJECT_ID);
+		expect(sitesService.current).toHaveBeenCalledWith(OWNER_SCOPE, PROJECT_ID);
+		expect(sitesService.list).toHaveBeenCalledWith(OWNER_SCOPE, PROJECT_ID);
 		expect(marketingAssetsService.list).toHaveBeenCalledWith(
-			OWNER_ID,
+			OWNER_SCOPE,
 			PROJECT_ID,
 		);
-		expect(leadsService.list).toHaveBeenCalledWith(OWNER_ID, PROJECT_ID, 50);
+		expect(leadsService.list).toHaveBeenCalledWith(OWNER_SCOPE, PROJECT_ID, 50);
 		expect(leadsService.countByProject).toHaveBeenCalledWith(
-			OWNER_ID,
+			OWNER_SCOPE,
 			PROJECT_ID,
 		);
 		expect(leadScrapesService.listByProject).toHaveBeenCalledWith(
-			OWNER_ID,
+			OWNER_SCOPE,
 			PROJECT_ID,
 		);
 		expect(leadScrapesService.countByProject).toHaveBeenCalledWith(
-			OWNER_ID,
+			OWNER_SCOPE,
 			PROJECT_ID,
 		);
 		expect(leadSheetSyncService.getState).toHaveBeenCalledWith(
-			OWNER_ID,
+			OWNER_SCOPE,
 			PROJECT_ID,
 		);
-		expect(domainsService.list).toHaveBeenCalledWith(PROJECT_ID, OWNER_ID);
+		expect(domainsService.list).toHaveBeenCalledWith(PROJECT_ID, OWNER_SCOPE);
 		expect(detail.leads).toEqual({ recent: [], total: 1_234 });
 		expect(detail.leadScrapeExports).toEqual({
 			recent: [],

@@ -1,3 +1,4 @@
+import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import {
 	createFixedOperationBilling,
 	type FixedOperationBilling,
@@ -43,12 +44,12 @@ export type ConnectorGenerationBilling = {
 		capture: CapturedGeneration,
 	) => Promise<void>;
 	refund: (
-		userId: string,
+		subject: MeteringSubject,
 		referenceId: string,
 		childOperation?: ConnectorChildOperation,
 	) => Promise<void>;
 	reserve: (
-		userId: string,
+		subject: MeteringSubject,
 		referenceId: string,
 		input: ConnectorGenerationPlan & { parentEventId?: string },
 	) => Promise<ConnectorGenerationReservations>;
@@ -57,7 +58,7 @@ export type ConnectorGenerationBilling = {
 		input?: { childUnits?: number },
 	) => Promise<void>;
 	settleExisting: (
-		userId: string,
+		subject: MeteringSubject,
 		referenceId: string,
 		input: ConnectorGenerationPlan & { completedChildUnits?: number },
 	) => Promise<boolean>;
@@ -172,13 +173,13 @@ export function createConnectorGenerationBilling(
 			const target = reservations.child ?? reservations.connector;
 			await billingFor(target.operation).capture(target, capture);
 		},
-		async refund(userId, referenceId, childOperation) {
+		async refund(subject, referenceId, childOperation) {
 			const failures: unknown[] = [];
 
 			if (childOperation) {
 				try {
 					await billingFor(childOperation).refund(
-						userId,
+						subject,
 						referenceId,
 						"connector_generation_failed",
 					);
@@ -189,7 +190,7 @@ export function createConnectorGenerationBilling(
 
 			try {
 				await connectorBilling.refund(
-					userId,
+					subject,
 					referenceId,
 					"connector_generation_failed",
 				);
@@ -201,8 +202,8 @@ export function createConnectorGenerationBilling(
 				throw failures[0];
 			}
 		},
-		async reserve(userId, referenceId, input) {
-			const connector = (await connectorBilling.reserve(userId, referenceId, {
+		async reserve(subject, referenceId, input) {
+			const connector = (await connectorBilling.reserve(subject, referenceId, {
 				parentEventId: input.parentEventId,
 			})) as ConnectorGenerationReservations["connector"];
 			assertExecutableReservation(connector);
@@ -214,7 +215,7 @@ export function createConnectorGenerationBilling(
 			let child: NonNullable<ConnectorGenerationReservations["child"]>;
 			try {
 				child = (await billingFor(input.childOperation).reserve(
-					userId,
+					subject,
 					referenceId,
 					{
 						parentEventId: connector.eventId ?? undefined,
@@ -226,7 +227,7 @@ export function createConnectorGenerationBilling(
 				// compensating refund remains recoverable by the metering sweep.
 				await Promise.allSettled([
 					connectorBilling.refund(
-						userId,
+						subject,
 						referenceId,
 						"connector_child_reserve_failed",
 					),
@@ -243,16 +244,16 @@ export function createConnectorGenerationBilling(
 
 			return { child, connector };
 		},
-		async settleExisting(userId, referenceId, input) {
+		async settleExisting(subject, referenceId, input) {
 			const connectorEvent =
 				await dependencies.meteringService.findByIdempotencyKey(
 					`connector:${referenceId}`,
-					userId,
+					subject,
 				);
 			const childEvent = input.childOperation
 				? await dependencies.meteringService.findByIdempotencyKey(
 						`${input.childOperation}:${referenceId}`,
-						userId,
+						subject,
 					)
 				: null;
 

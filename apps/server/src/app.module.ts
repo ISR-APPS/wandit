@@ -32,6 +32,7 @@ import { ProjectsModule } from "./modules/projects/projects.module";
 import { SitesModule } from "./modules/sites/sites.module";
 import { StorageModule } from "./modules/storage/storage.module";
 import { UploadsModule } from "./modules/uploads/uploads.module";
+import { WorkspacesModule } from "./modules/workspaces/workspaces.module";
 
 @Module({
 	imports: [
@@ -49,6 +50,9 @@ import { UploadsModule } from "./modules/uploads/uploads.module";
 		QueuesModule,
 		AffiliatesModule,
 		AuthModule,
+		// After AuthModule ON PURPOSE: its global WorkspaceContextGuard reads
+		// request.user, and Nest runs global guards in registration order.
+		WorkspacesModule,
 		AdminModule,
 		AiChatModule,
 		HealthModule,

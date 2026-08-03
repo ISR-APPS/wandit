@@ -15,6 +15,9 @@ import { type LeadSheetSyncState, uuidSchema } from "@wandit/contracts";
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { CurrentUser, EarlyAccessGuard } from "../../../../auth";
+import { projectScopeFrom } from "../../../../projects/domain/project-scope";
+import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
+import { CurrentWorkspace } from "../../../../workspaces/presentation/http/decorators/workspace.decorators";
 import { LeadSheetSyncService } from "../../../application/services/lead-sheet-sync.service";
 
 @Controller("v1")
@@ -29,8 +32,12 @@ export class LeadSheetSyncController {
 		@Param("projectId", new ZodValidationPipe(uuidSchema))
 		projectId: string,
 		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
 	): Promise<LeadSheetSyncState> {
-		return this.leadSheetSyncService.getState(user.id, projectId);
+		return this.leadSheetSyncService.getState(
+			projectScopeFrom(workspace, user.id),
+			projectId,
+		);
 	}
 
 	// Sync is idempotent (full rewrite), so a repeat POST is safe — 200, not 201.
@@ -41,7 +48,11 @@ export class LeadSheetSyncController {
 		@Param("projectId", new ZodValidationPipe(uuidSchema))
 		projectId: string,
 		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
 	): Promise<LeadSheetSyncState> {
-		return this.leadSheetSyncService.syncNow(user.id, projectId);
+		return this.leadSheetSyncService.syncNow(
+			projectScopeFrom(workspace, user.id),
+			projectId,
+		);
 	}
 }

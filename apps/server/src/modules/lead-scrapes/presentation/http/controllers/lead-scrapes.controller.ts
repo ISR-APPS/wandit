@@ -9,6 +9,9 @@ import type { FastifyReply } from "fastify";
 import { SkipResponseEnvelope } from "../../../../../infrastructure/http/skip-envelope.decorator";
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { CurrentUser } from "../../../../auth";
+import { projectScopeFrom } from "../../../../projects/domain/project-scope";
+import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
+import { CurrentWorkspace } from "../../../../workspaces/presentation/http/decorators/workspace.decorators";
 import { LeadScrapesService } from "../../../application/services/lead-scrapes.service";
 
 const XLSX_CONTENT_TYPE =
@@ -27,8 +30,12 @@ export class LeadScrapesController {
 		@Param("attemptId", new ZodValidationPipe(uuidSchema))
 		attemptId: string,
 		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
 	): Promise<LeadScrapeAttempt> {
-		return this.leadScrapesService.attempt(user.id, attemptId);
+		return this.leadScrapesService.attempt(
+			projectScopeFrom(workspace, user.id),
+			attemptId,
+		);
 	}
 
 	// Raw attachment response on purpose (NOT the JSON envelope): the browser
@@ -39,9 +46,13 @@ export class LeadScrapesController {
 		@Param("attemptId", new ZodValidationPipe(uuidSchema))
 		attemptId: string,
 		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
 		@Res() reply: FastifyReply,
 	): Promise<void> {
-		const download = await this.leadScrapesService.download(user.id, attemptId);
+		const download = await this.leadScrapesService.download(
+			projectScopeFrom(workspace, user.id),
+			attemptId,
+		);
 
 		await reply
 			.header("Content-Type", XLSX_CONTENT_TYPE)

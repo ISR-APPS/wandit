@@ -4,7 +4,10 @@ import { env } from "@wandit/env/server";
 import { generateText } from "ai";
 
 import { MeteringService } from "../../../metering/application/services/metering.service";
-import { gatewayGenerationCaptureFromError } from "../../../metering/domain/gateway-metering";
+import {
+	gatewayGenerationCaptureFromError,
+	withGatewayAttribution,
+} from "../../../metering/domain/gateway-metering";
 import { bundledUnmeteredStepUsage } from "../../../metering/domain/metering";
 
 const DEFAULT_PROJECT_TITLE_MODEL = "deepseek/deepseek-v4-flash";
@@ -27,6 +30,8 @@ Requirements:
 type ProjectTitleInput = {
 	attachments?: FileRef[];
 	fallbackTitle: string;
+	/** Set when the project lives in an org workspace: the org is the payer. */
+	organizationId?: string | null;
 	prompt: string;
 	usageEventId?: string;
 	userId: string;
@@ -83,14 +88,14 @@ export class ProjectTitleService {
 				prompt: generationPrompt,
 				// A title needs no deliberation. Only OpenAI models read this key;
 				// every other provider ignores it.
-				providerOptions: {
-					gateway: {
-						quotaEntityId: input.userId,
-						tags: ["op:chat"],
-						user: input.userId,
+				providerOptions: withGatewayAttribution(
+					{ openai: { reasoningEffort: "low" } },
+					{
+						operation: "chat",
+						organizationId: input.organizationId ?? null,
+						userId: input.userId,
 					},
-					openai: { reasoningEffort: "low" },
-				},
+				),
 				system: PROJECT_TITLE_PROMPT,
 			});
 

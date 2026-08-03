@@ -13,6 +13,7 @@
  */
 // FIRST import on purpose: raises the process-wide fetch idle timeouts
 // before any AI/storage SDK can issue a request.
+import type { MeteringSubject } from "../modules/credits/domain/credit-owner";
 import "./undici-timeouts";
 
 import { logger, metadata, task } from "@trigger.dev/sdk";
@@ -71,7 +72,14 @@ export const generatePageTask = task({
 	maxDuration: 1800,
 	retry: { maxAttempts: 1 },
 	run: async (
-		payload: { attemptId: string; parentEventId?: string },
+		payload: {
+			/** Role snapshot at queue time: owner/admin bypass the default limit. */
+			actorIsLimitExempt?: boolean;
+			/** Acting member (org builds); absent = pre-teams payload. */
+			actorUserId?: string;
+			attemptId: string;
+			parentEventId?: string;
+		},
 		{ ctx, signal },
 	) => {
 		// Fresh pool per run; ended in `finally` so the worker process can be
@@ -80,7 +88,11 @@ export const generatePageTask = task({
 
 		try {
 			const [loaded] = await db
-				.select({ attempt: pageGenerationAttempts, userId: projects.userId })
+				.select({
+					attempt: pageGenerationAttempts,
+					organizationId: projects.organizationId,
+					userId: projects.userId,
+				})
 				.from(pageGenerationAttempts)
 				.innerJoin(projects, eq(projects.id, pageGenerationAttempts.projectId))
 				.where(eq(pageGenerationAttempts.id, payload.attemptId))
@@ -90,7 +102,15 @@ export const generatePageTask = task({
 				throw new Error(`Attempt ${payload.attemptId} not found`);
 			}
 
-			const { attempt, userId } = loaded;
+			// The PROJECT's owner entity pays for page builds. The recorded actor
+			// is the queueing member when the payload carries one (org builds),
+			// falling back to the project creator for pre-teams payloads.
+			const { attempt, organizationId, userId } = loaded;
+			const subject: MeteringSubject = {
+				actorUserId: payload.actorUserId ?? userId,
+				organizationId,
+				...(payload.actorIsLimitExempt ? { actorIsLimitExempt: true } : {}),
+			};
 
 			if (attempt.status === "succeeded") {
 				logger.info(
@@ -141,13 +161,17 @@ export const generatePageTask = task({
 
 			try {
 				if (meteringService) {
-					usageEvent = await meteringService.reserve("page_build", userId, {
-						attemptRef: attempt.id,
-						credits: OPERATION_REGISTRY.page_build.reserveFloorCredits,
-						idempotencyKey: `page-build:${attempt.id}:${ctx.run.id}`,
-						model: attempt.model,
-						parentEventId: payload.parentEventId,
-					});
+					usageEvent = await meteringService.reserve(
+						"page_build",
+						subject,
+						{
+							attemptRef: attempt.id,
+							credits: OPERATION_REGISTRY.page_build.reserveFloorCredits,
+							idempotencyKey: `page-build:${attempt.id}:${ctx.run.id}`,
+							model: attempt.model,
+							parentEventId: payload.parentEventId,
+						},
+					);
 				}
 
 				const spec = attemptSpecSchema.parse(attempt.spec);
@@ -234,7 +258,7 @@ export const generatePageTask = task({
 					projectId: attempt.projectId,
 					system: spec.designerSystemPrompt,
 					title: spec.title,
-					userId,
+					subject,
 				});
 
 				// AI SDK swallows onStepEnd errors. Flush every exact metadata/usage
@@ -403,7 +427,7 @@ export const generatePageTask = task({
 
 				captureGenerationCompleted(
 					triggerAnalytics,
-					userId,
+					subject.actorUserId,
 					"page",
 					attempt.projectId,
 					attempt.id,
@@ -495,7 +519,7 @@ export const generatePageTask = task({
 				if (failed) {
 					captureGenerationFailed(
 						triggerAnalytics,
-						userId,
+						subject.actorUserId,
 						"page",
 						attempt.projectId,
 						attempt.id,

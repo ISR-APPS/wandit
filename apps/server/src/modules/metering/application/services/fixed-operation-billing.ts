@@ -1,3 +1,4 @@
+import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import type {
 	AiUsageEvent,
 	CapturedGeneration,
@@ -110,12 +111,12 @@ export type FixedOperationBilling = {
 		capture: CapturedGeneration,
 	) => Promise<void>;
 	refund: (
-		userId: string,
+		subject: MeteringSubject,
 		referenceId: string,
 		reason: string,
 	) => Promise<void>;
 	reserve: (
-		userId: string,
+		subject: MeteringSubject,
 		referenceId: string,
 		input: {
 			billingMode?: BillingAdmissionMode;
@@ -128,7 +129,7 @@ export type FixedOperationBilling = {
 		units?: number,
 	) => Promise<void>;
 	settleExisting: (
-		userId: string,
+		subject: MeteringSubject,
 		referenceId: string,
 		units?: number,
 	) => Promise<boolean>;
@@ -182,12 +183,12 @@ export function createFixedOperationBilling(
 				? lastError
 				: new Error(`${operation} generation capture failed`);
 		},
-		async refund(userId, referenceId, reason) {
+		async refund(subject, referenceId, reason) {
 			// Refund an existing reservation even if an operator disabled billing
 			// after it was created. The lookup is read-only when no event exists.
 			const event = await dependencies.meteringService.findByIdempotencyKey(
 				idempotencyKey(referenceId),
-				userId,
+				subject,
 			);
 
 			if (!event) {
@@ -208,13 +209,13 @@ export function createFixedOperationBilling(
 
 			await dependencies.meteringService.refund(event.id, reason);
 		},
-		async reserve(userId, referenceId, input) {
+		async reserve(subject, referenceId, input) {
 			const units = input.units ?? 1;
 			const currentCredits = fixedOperationCredits(operation, units);
 			const key = idempotencyKey(referenceId);
 			let existing = await dependencies.meteringService.findByIdempotencyKey(
 				key,
-				userId,
+				subject,
 			);
 			const credits = existing
 				? fixedReservationCredits(existing, operation, units, currentCredits)
@@ -255,7 +256,7 @@ export function createFixedOperationBilling(
 			try {
 				outcome = await dependencies.meteringService.reserveWithReplay(
 					operation,
-					userId,
+					subject,
 					estimate,
 				);
 			} catch (error) {
@@ -270,7 +271,7 @@ export function createFixedOperationBilling(
 
 				existing ??= await dependencies.meteringService.findByIdempotencyKey(
 					estimate.idempotencyKey,
-					userId,
+					subject,
 				);
 				if (!existing) {
 					throw error;
@@ -304,10 +305,10 @@ export function createFixedOperationBilling(
 				fixedOperationSettlementFromReservation(reservation, units),
 			);
 		},
-		async settleExisting(userId, referenceId, units = 1) {
+		async settleExisting(subject, referenceId, units = 1) {
 			const event = await dependencies.meteringService.findByIdempotencyKey(
 				idempotencyKey(referenceId),
-				userId,
+				subject,
 			);
 
 			if (!event) {

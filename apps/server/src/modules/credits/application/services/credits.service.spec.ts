@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
 
+import {
+	type CreditOwner,
+	ownerColumns,
+	userOwner,
+} from "../../domain/credit-owner";
 import { InsufficientCreditsError } from "../../domain/errors/insufficient-credits.error";
 import type {
 	CreditLedgerRow,
@@ -30,8 +35,8 @@ class InMemoryCreditsRepository {
 	private nextPoolId = 1;
 	private readonly tx = {} as CreditsTransaction;
 
-	async withUserLock<T>(
-		_userId: string,
+	async withOwnerLock<T>(
+		_owner: CreditOwner,
 		fn: (tx: CreditsTransaction) => Promise<T>,
 		transaction?: CreditsTransaction,
 	): Promise<T> {
@@ -41,23 +46,22 @@ class InMemoryCreditsRepository {
 			return fn(transaction);
 		}
 
-		const previousLock = this.lock;
-		let releaseLock!: () => void;
-
-		this.lock = new Promise((resolve) => {
-			releaseLock = resolve;
-		});
-
-		await previousLock;
-
-		try {
-			return await fn(this.tx);
-		} finally {
-			releaseLock();
-		}
+		return this.runLocked(fn);
 	}
 
-	async getBalance(userId: string, _client?: unknown) {
+	async withLockValue<T>(
+		_lockValue: string,
+		fn: (tx: CreditsTransaction) => Promise<T>,
+		transaction?: CreditsTransaction,
+	): Promise<T> {
+		if (transaction) {
+			return fn(transaction);
+		}
+
+		return this.runLocked(fn);
+	}
+
+	async getBalance(owner: CreditOwner, _client?: unknown) {
 		const balance = {
 			balance: 0,
 			plan: 0,
@@ -66,7 +70,7 @@ class InMemoryCreditsRepository {
 		};
 
 		for (const row of this.rows) {
-			if (row.userId !== userId) {
+			if (!this.ownerMatches(row, owner)) {
 				continue;
 			}
 
@@ -101,13 +105,13 @@ class InMemoryCreditsRepository {
 	}
 
 	async findByIdempotencyKeys(
-		userId: string,
+		owner: CreditOwner,
 		idempotencyKeys: string[],
 		_client?: unknown,
 	): Promise<CreditLedgerRow[]> {
 		return this.rows.filter(
 			(row) =>
-				row.userId === userId &&
+				this.ownerMatches(row, owner) &&
 				row.idempotencyKey !== null &&
 				idempotencyKeys.includes(row.idempotencyKey),
 		);
@@ -134,7 +138,7 @@ class InMemoryCreditsRepository {
 		consumeIdempotencyKey: string;
 		consumeLedgerId: string;
 		originalCredits: number;
-		userId: string;
+		owner: CreditOwner;
 	}): Promise<CreditPlanHoldRow> {
 		const existing = this.planHolds.get(input.consumeIdempotencyKey);
 
@@ -152,7 +156,7 @@ class InMemoryCreditsRepository {
 			poolId: null,
 			refundableCredits: input.originalCredits,
 			updatedAt: now,
-			userId: input.userId,
+			...ownerColumns(input.owner),
 		} satisfies CreditPlanHoldRow;
 
 		this.planHolds.set(input.consumeIdempotencyKey, row);
@@ -160,11 +164,13 @@ class InMemoryCreditsRepository {
 	}
 
 	async listRefundablePlanHolds(
-		userId: string,
+		owner: CreditOwner,
 		_client?: unknown,
 	): Promise<CreditPlanHoldRow[]> {
 		return [...this.planHolds.values()]
-			.filter((hold) => hold.userId === userId && hold.refundableCredits > 0)
+			.filter(
+				(hold) => this.ownerMatches(hold, owner) && hold.refundableCredits > 0,
+			)
 			.sort(
 				(left, right) =>
 					left.createdAt.getTime() - right.createdAt.getTime() ||
@@ -185,7 +191,7 @@ class InMemoryCreditsRepository {
 	async insertPlanHoldPool(input: {
 		boundaryIdempotencyKey: string;
 		remainingCredits: number;
-		userId: string;
+		owner: CreditOwner;
 	}): Promise<CreditPlanHoldPoolRow> {
 		const existing = [...this.planHoldPools.values()].find(
 			(pool) => pool.boundaryIdempotencyKey === input.boundaryIdempotencyKey,
@@ -197,11 +203,13 @@ class InMemoryCreditsRepository {
 
 		const now = new Date(this.nextId * 1000);
 		const pool = {
-			...input,
+			boundaryIdempotencyKey: input.boundaryIdempotencyKey,
 			closedAt: null,
 			createdAt: now,
 			id: `hold_pool_${this.nextPoolId}`,
+			remainingCredits: input.remainingCredits,
 			updatedAt: now,
+			...ownerColumns(input.owner),
 		} satisfies CreditPlanHoldPoolRow;
 
 		this.nextPoolId += 1;
@@ -211,7 +219,7 @@ class InMemoryCreditsRepository {
 
 	async updatePlanHoldRefundable(
 		consumeIdempotencyKey: string,
-		userId: string,
+		owner: CreditOwner,
 		expectedCredits: number,
 		refundableCredits: number,
 	): Promise<CreditPlanHoldRow | null> {
@@ -219,7 +227,7 @@ class InMemoryCreditsRepository {
 
 		if (
 			!hold ||
-			hold.userId !== userId ||
+			!this.ownerMatches(hold, owner) ||
 			hold.refundableCredits !== expectedCredits
 		) {
 			return null;
@@ -232,7 +240,7 @@ class InMemoryCreditsRepository {
 
 	async updatePlanHoldPoolRemaining(
 		poolId: string,
-		userId: string,
+		owner: CreditOwner,
 		expectedCredits: number,
 		remainingCredits: number,
 	): Promise<CreditPlanHoldPoolRow | null> {
@@ -240,7 +248,7 @@ class InMemoryCreditsRepository {
 
 		if (
 			!pool ||
-			pool.userId !== userId ||
+			!this.ownerMatches(pool, owner) ||
 			pool.remainingCredits !== expectedCredits
 		) {
 			return null;
@@ -253,11 +261,11 @@ class InMemoryCreditsRepository {
 
 	async markPlanHoldInactive(
 		consumeIdempotencyKey: string,
-		userId: string,
+		owner: CreditOwner,
 	): Promise<CreditPlanHoldRow | null> {
 		const hold = this.planHolds.get(consumeIdempotencyKey);
 
-		if (!hold || hold.userId !== userId) {
+		if (!hold || !this.ownerMatches(hold, owner)) {
 			return null;
 		}
 
@@ -268,11 +276,11 @@ class InMemoryCreditsRepository {
 
 	async closePlanHold(
 		consumeIdempotencyKey: string,
-		userId: string,
+		owner: CreditOwner,
 	): Promise<CreditPlanHoldRow | null> {
 		const hold = this.planHolds.get(consumeIdempotencyKey);
 
-		if (!hold || hold.userId !== userId) {
+		if (!hold || !this.ownerMatches(hold, owner)) {
 			return null;
 		}
 
@@ -288,11 +296,11 @@ class InMemoryCreditsRepository {
 	}
 
 	async applyPlanHoldBoundary(
-		userId: string,
+		owner: CreditOwner,
 		poolId: string | null,
 	): Promise<void> {
 		for (const [key, hold] of this.planHolds) {
-			if (hold.userId !== userId || hold.refundableCredits === 0) {
+			if (!this.ownerMatches(hold, owner) || hold.refundableCredits === 0) {
 				continue;
 			}
 
@@ -310,11 +318,11 @@ class InMemoryCreditsRepository {
 		}
 	}
 
-	async closePlanHoldPools(userId: string, poolIds: string[]): Promise<void> {
+	async closePlanHoldPools(owner: CreditOwner, poolIds: string[]): Promise<void> {
 		for (const poolId of poolIds) {
 			const pool = this.planHoldPools.get(poolId);
 
-			if (pool?.userId === userId) {
+			if (pool && this.ownerMatches(pool, owner)) {
 				this.planHoldPools.set(poolId, {
 					...pool,
 					closedAt: new Date(),
@@ -325,11 +333,11 @@ class InMemoryCreditsRepository {
 		}
 	}
 
-	async forfeitAllPlanHolds(userId: string): Promise<void> {
+	async forfeitAllPlanHolds(owner: CreditOwner): Promise<void> {
 		const poolIds = new Set<string>();
 
 		for (const [key, hold] of this.planHolds) {
-			if (hold.userId !== userId || hold.refundableCredits === 0) {
+			if (!this.ownerMatches(hold, owner) || hold.refundableCredits === 0) {
 				continue;
 			}
 
@@ -346,7 +354,7 @@ class InMemoryCreditsRepository {
 			});
 		}
 
-		await this.closePlanHoldPools(userId, [...poolIds]);
+		await this.closePlanHoldPools(owner, [...poolIds]);
 	}
 
 	seed(input: SeedLedgerEntry) {
@@ -357,6 +365,34 @@ class InMemoryCreditsRepository {
 		this.rows.push(row);
 
 		return row;
+	}
+
+	private async runLocked<T>(
+		fn: (tx: CreditsTransaction) => Promise<T>,
+	): Promise<T> {
+		const previousLock = this.lock;
+		let releaseLock!: () => void;
+
+		this.lock = new Promise((resolve) => {
+			releaseLock = resolve;
+		});
+
+		await previousLock;
+
+		try {
+			return await fn(this.tx);
+		} finally {
+			releaseLock();
+		}
+	}
+
+	private ownerMatches(
+		row: { organizationId: string | null; userId: string | null },
+		owner: CreditOwner,
+	): boolean {
+		return owner.type === "user"
+			? row.userId === owner.userId && row.organizationId === null
+			: row.organizationId === owner.organizationId;
 	}
 
 	private makeRow(input: InsertCreditLedgerEntry): CreditLedgerRow {
@@ -410,7 +446,7 @@ describe("CreditsService", () => {
 			userId: "user_1",
 		});
 
-		const rows = await service.consume("user_1", 7, {
+		const rows = await service.consume(userOwner("user_1"), 7, {
 			idempotencyKey: "consume:job_1",
 		});
 
@@ -434,7 +470,7 @@ describe("CreditsService", () => {
 				kind: "consume",
 			},
 		]);
-		expect(await service.getBalance("user_1")).toEqual({
+		expect(await service.getBalance(userOwner("user_1"))).toEqual({
 			balance: 8,
 			plan: 0,
 			promo: 0,
@@ -452,7 +488,7 @@ describe("CreditsService", () => {
 			userId: "user_1",
 		});
 
-		const rows = await service.consume("user_1", 3, {
+		const rows = await service.consume(userOwner("user_1"), 3, {
 			allowOverdraft: true,
 			idempotencyKey: "settle:event_1",
 			meta: { action: "chat" },
@@ -470,13 +506,13 @@ describe("CreditsService", () => {
 				idempotencyKey: "settle:event_1:topup",
 			},
 		]);
-		expect(await service.getBalance("user_1")).toMatchObject({
+		expect(await service.getBalance(userOwner("user_1"))).toMatchObject({
 			balance: -2,
 			plan: 0,
 			topup: -2,
 		});
 		await expect(
-			service.consume("user_1", 3, {
+			service.consume(userOwner("user_1"), 3, {
 				idempotencyKey: "settle:event_1",
 				meta: { action: "chat" },
 			}),
@@ -499,12 +535,12 @@ describe("CreditsService", () => {
 			userId: "user_1",
 		});
 
-		await expect(service.consume("user_1", 8)).rejects.toBeInstanceOf(
+		await expect(service.consume(userOwner("user_1"), 8)).rejects.toBeInstanceOf(
 			InsufficientCreditsError,
 		);
 		expect(repository.rows).toHaveLength(2);
 
-		const rows = await service.consume("user_1", 5);
+		const rows = await service.consume(userOwner("user_1"), 5);
 
 		expect(rows).toMatchObject([
 			{
@@ -513,7 +549,7 @@ describe("CreditsService", () => {
 				kind: "consume",
 			},
 		]);
-		expect(await service.getBalance("user_1")).toEqual({
+		expect(await service.getBalance(userOwner("user_1"))).toEqual({
 			balance: 0,
 			plan: 10,
 			promo: 0,
@@ -532,10 +568,10 @@ describe("CreditsService", () => {
 		});
 
 		const results = await Promise.allSettled([
-			service.consume("user_1", 25, {
+			service.consume(userOwner("user_1"), 25, {
 				idempotencyKey: "media-generation:attempt_1",
 			}),
-			service.consume("user_1", 25, {
+			service.consume(userOwner("user_1"), 25, {
 				idempotencyKey: "media-generation:attempt_2",
 			}),
 		]);
@@ -549,7 +585,7 @@ describe("CreditsService", () => {
 		expect(
 			repository.rows.filter((row) => row.kind === "consume"),
 		).toHaveLength(1);
-		expect(await service.getBalance("user_1")).toEqual({
+		expect(await service.getBalance(userOwner("user_1"))).toEqual({
 			balance: 0,
 			plan: 0,
 			promo: 0,
@@ -573,12 +609,12 @@ describe("CreditsService", () => {
 			userId: "user_1",
 		});
 
-		const firstRows = await service.consume("user_1", 8, {
+		const firstRows = await service.consume(userOwner("user_1"), 8, {
 			idempotencyKey: "consume:job_1",
 			meta: { action: "chatMessage" },
 		});
 		const rowCount = repository.rows.length;
-		const secondRows = await service.consume("user_1", 8, {
+		const secondRows = await service.consume(userOwner("user_1"), 8, {
 			idempotencyKey: "consume:job_1",
 			meta: { action: "chatMessage" },
 		});
@@ -614,14 +650,14 @@ describe("CreditsService", () => {
 			userId: "user_1",
 		});
 
-		await service.consume("user_1", 8, {
+		await service.consume(userOwner("user_1"), 8, {
 			idempotencyKey: "consume:job_1",
 			meta: { action: "chatMessage" },
 		});
 		const rowCount = repository.rows.length;
 
 		await expect(
-			service.consume("user_1", 9, {
+			service.consume(userOwner("user_1"), 9, {
 				idempotencyKey: "consume:job_1",
 				meta: { action: "chatMessage" },
 			}),
@@ -638,13 +674,13 @@ describe("CreditsService", () => {
 			kind: "grant",
 			userId: "user_1",
 		});
-		await service.consume("user_1", 5, {
+		await service.consume(userOwner("user_1"), 5, {
 			idempotencyKey: "consume:job_1",
 			meta: { action: "imageGeneration" },
 		});
 
 		await expect(
-			service.consume("user_1", 5, {
+			service.consume(userOwner("user_1"), 5, {
 				idempotencyKey: "consume:job_1",
 				meta: { action: "marketingAssetGeneration" },
 			}),
@@ -662,13 +698,13 @@ describe("CreditsService", () => {
 				userId,
 			});
 		}
-		await service.consume("user_1", 5, {
+		await service.consume(userOwner("user_1"), 5, {
 			idempotencyKey: "consume:job_1",
 			meta: { action: "imageGeneration" },
 		});
 
 		await expect(
-			service.consume("user_2", 5, {
+			service.consume(userOwner("user_2"), 5, {
 				idempotencyKey: "consume:job_1",
 				meta: { action: "imageGeneration" },
 			}),
@@ -696,7 +732,7 @@ describe("CreditsService", () => {
 		});
 
 		await expect(
-			service.consume("user_1", 8, {
+			service.consume(userOwner("user_1"), 8, {
 				idempotencyKey: "consume:job_1",
 				meta: { action: "chatMessage" },
 			}),
@@ -724,18 +760,18 @@ describe("CreditsService", () => {
 			kind: "topup",
 			userId: "user_1",
 		});
-		await service.consume("user_1", 8, {
+		await service.consume(userOwner("user_1"), 8, {
 			idempotencyKey: "media-generation:attempt_1",
 		});
 
 		const firstRefund = await service.refundConsume(
-			"user_1",
+			userOwner("user_1"),
 			"media-generation:attempt_1",
 			{ attemptId: "attempt_1" },
 		);
 		const rowCount = repository.rows.length;
 		const replayedRefund = await service.refundConsume(
-			"user_1",
+			userOwner("user_1"),
 			"media-generation:attempt_1",
 			{ attemptId: "attempt_1" },
 		);
@@ -777,7 +813,7 @@ describe("CreditsService", () => {
 		]);
 		expect(replayedRefund).toEqual(firstRefund);
 		expect(repository.rows).toHaveLength(rowCount);
-		expect(await service.getBalance("user_1")).toEqual({
+		expect(await service.getBalance(userOwner("user_1"))).toEqual({
 			balance: 15,
 			plan: 2,
 			promo: 3,
@@ -795,12 +831,12 @@ describe("CreditsService", () => {
 		] as const) {
 			repository.seed({ bucket, delta, kind, userId: "user_1" });
 		}
-		await service.consume("user_1", 8, {
+		await service.consume(userOwner("user_1"), 8, {
 			idempotencyKey: "reserve:event_1",
 		});
 
 		const first = await service.refundConsumeAmount(
-			"user_1",
+			userOwner("user_1"),
 			"reserve:event_1",
 			{
 				amount: 4,
@@ -809,7 +845,7 @@ describe("CreditsService", () => {
 		);
 		const rowCount = repository.rows.length;
 		const replay = await service.refundConsumeAmount(
-			"user_1",
+			userOwner("user_1"),
 			"reserve:event_1",
 			{
 				amount: 4,
@@ -831,7 +867,7 @@ describe("CreditsService", () => {
 		]);
 		expect(replay).toEqual(first);
 		expect(repository.rows).toHaveLength(rowCount);
-		expect(await service.getBalance("user_1")).toEqual({
+		expect(await service.getBalance(userOwner("user_1"))).toEqual({
 			balance: 11,
 			plan: 0,
 			promo: 1,
@@ -848,14 +884,14 @@ describe("CreditsService", () => {
 			kind: "grant",
 			userId: "user_1",
 		});
-		await service.consume("user_1", 200, {
+		await service.consume(userOwner("user_1"), 200, {
 			idempotencyKey: "reserve:event_1",
 			meta: { action: "chat" },
 			planHold: "active",
 		});
 
 		await expect(
-			service.applyCappedRefill("user_1", 100, {
+			service.applyCappedRefill(userOwner("user_1"), 100, {
 				idempotencyKey: "inv:in_renewal:grant",
 			}),
 		).resolves.toMatchObject({
@@ -864,10 +900,10 @@ describe("CreditsService", () => {
 			preRefillPlanBalance: 200,
 			replayed: false,
 		});
-		expect(await service.getBalance("user_1")).toMatchObject({ plan: 100 });
+		expect(await service.getBalance(userOwner("user_1"))).toMatchObject({ plan: 100 });
 
 		const refund = await service.refundConsumeAmount(
-			"user_1",
+			userOwner("user_1"),
 			"reserve:event_1",
 			{
 				amount: 200,
@@ -888,7 +924,7 @@ describe("CreditsService", () => {
 				},
 			},
 		]);
-		expect(await service.getBalance("user_1")).toEqual({
+		expect(await service.getBalance(userOwner("user_1"))).toEqual({
 			balance: 200,
 			plan: 200,
 			promo: 0,
@@ -896,7 +932,7 @@ describe("CreditsService", () => {
 		});
 
 		await expect(
-			service.refundConsumeAmount("user_1", "reserve:event_1", {
+			service.refundConsumeAmount(userOwner("user_1"), "reserve:event_1", {
 				amount: 200,
 				idempotencyKey: "settle-refund:event_1",
 			}),
@@ -919,20 +955,20 @@ describe("CreditsService", () => {
 			kind: "topup",
 			userId: "user_1",
 		});
-		await service.consume("user_1", 125, {
+		await service.consume(userOwner("user_1"), 125, {
 			idempotencyKey: "reserve:event_deleted",
 			meta: { action: "chat" },
 			planHold: "active",
 		});
 
 		await expect(
-			service.expirePlanRemainder("user_1", {
+			service.expirePlanRemainder(userOwner("user_1"), {
 				idempotencyKey: "sub-delete:sub_1:expire",
 			}),
 		).resolves.toBe(0);
 
 		await expect(
-			service.refundConsumeAmount("user_1", "reserve:event_deleted", {
+			service.refundConsumeAmount(userOwner("user_1"), "reserve:event_deleted", {
 				amount: 125,
 				idempotencyKey: "settle-refund:event_deleted",
 			}),
@@ -948,7 +984,7 @@ describe("CreditsService", () => {
 				},
 			},
 		]);
-		expect(await service.getBalance("user_1")).toEqual({
+		expect(await service.getBalance(userOwner("user_1"))).toEqual({
 			balance: 25,
 			plan: 0,
 			promo: 0,
@@ -978,11 +1014,11 @@ describe("CreditsService", () => {
 		});
 
 		await expect(
-			service.expirePlanRemainder("user_1", {
+			service.expirePlanRemainder(userOwner("user_1"), {
 				idempotencyKey: "expire:cycle_1",
 			}),
 		).resolves.toBe(7);
-		expect(await service.getBalance("user_1")).toEqual({
+		expect(await service.getBalance(userOwner("user_1"))).toEqual({
 			balance: 4,
 			plan: 0,
 			promo: 0,
@@ -991,12 +1027,12 @@ describe("CreditsService", () => {
 		const rowCount = repository.rows.length;
 
 		await expect(
-			service.expirePlanRemainder("user_1", {
+			service.expirePlanRemainder(userOwner("user_1"), {
 				idempotencyKey: "expire:cycle_2",
 			}),
 		).resolves.toBe(0);
 		await expect(
-			service.expirePlanRemainder("user_1", {
+			service.expirePlanRemainder(userOwner("user_1"), {
 				idempotencyKey: "expire:cycle_1",
 			}),
 		).resolves.toBe(7);
@@ -1014,7 +1050,7 @@ describe("CreditsService", () => {
 		});
 
 		await expect(
-			service.expireAmount("user_1", 10, {
+			service.expireAmount(userOwner("user_1"), 10, {
 				idempotencyKey: "expire:amount_1",
 			}),
 		).resolves.toBe(4);
@@ -1029,7 +1065,7 @@ describe("CreditsService", () => {
 	it("revokes from top-up by default and replays the idempotency key without a new row", async () => {
 		const { repository, service } = setup();
 
-		const first = await service.revoke("user_1", 25, {
+		const first = await service.revoke(userOwner("user_1"), 25, {
 			idempotencyKey: "refund:ch_1:250",
 			meta: {
 				chargeId: "ch_1",
@@ -1037,7 +1073,7 @@ describe("CreditsService", () => {
 			},
 		});
 		const rowCount = repository.rows.length;
-		const replay = await service.revoke("user_1", 25, {
+		const replay = await service.revoke(userOwner("user_1"), 25, {
 			idempotencyKey: "refund:ch_1:250",
 			meta: {
 				chargeId: "ch_1",
@@ -1062,7 +1098,7 @@ describe("CreditsService", () => {
 	it("revokes from an explicitly selected original bucket", async () => {
 		const { repository, service } = setup();
 
-		const row = await service.revoke("user_1", 40, {
+		const row = await service.revoke(userOwner("user_1"), 40, {
 			bucket: "plan",
 			idempotencyKey: "refund:ch_plan:400",
 			meta: {
@@ -1087,7 +1123,7 @@ describe("CreditsService", () => {
 		} as unknown as CreditsTransaction;
 
 		await service.revoke(
-			"user_1",
+			userOwner("user_1"),
 			40,
 			{
 				bucket: "plan",
@@ -1108,7 +1144,7 @@ describe("CreditsService", () => {
 		} as unknown as CreditsTransaction;
 
 		await service.grant(
-			"user_1",
+			userOwner("user_1"),
 			20,
 			{
 				bucket: "promo",
@@ -1127,13 +1163,13 @@ describe("CreditsService", () => {
 		const idempotencyKey =
 			"beta-enroll:user_1:11111111-1111-4111-8111-111111111111";
 
-		await service.grant("user_1", 20, {
+		await service.grant(userOwner("user_1"), 20, {
 			bucket: "promo",
 			idempotencyKey,
 		});
 
 		await expect(
-			service.grant("user_1", 21, {
+			service.grant(userOwner("user_1"), 21, {
 				bucket: "promo",
 				idempotencyKey,
 			}),
@@ -1145,13 +1181,13 @@ describe("CreditsService", () => {
 		const idempotencyKey =
 			"admin-grant:user_1:11111111-1111-4111-8111-111111111111";
 
-		await service.grant("user_1", 20, {
+		await service.grant(userOwner("user_1"), 20, {
 			bucket: "promo",
 			idempotencyKey,
 		});
 
 		await expect(
-			service.grant("user_2", 20, {
+			service.grant(userOwner("user_2"), 20, {
 				bucket: "promo",
 				idempotencyKey,
 			}),
@@ -1171,7 +1207,7 @@ describe("CreditsService", () => {
 		});
 
 		await expect(
-			service.grant("user_legacy", 20, {
+			service.grant(userOwner("user_legacy"), 20, {
 				bucket: "promo",
 				idempotencyKey,
 			}),
@@ -1196,7 +1232,7 @@ describe("CreditsService", () => {
 		const { service } = setup();
 
 		for (const amount of [0, -1, 1.5]) {
-			await expect(service.consume("user_1", amount)).rejects.toThrow(
+			await expect(service.consume(userOwner("user_1"), amount)).rejects.toThrow(
 				"Credit amount must be a positive integer",
 			);
 		}

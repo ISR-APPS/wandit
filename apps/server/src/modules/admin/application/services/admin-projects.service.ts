@@ -9,6 +9,9 @@ import { MarketingAssetsService } from "../../../marketing-assets/application/se
 import { PagesService } from "../../../pages/application/services/pages.service";
 import { ProjectAssetsService } from "../../../project-assets/application/services/project-assets.service";
 import { SitesService } from "../../../sites/application/services/sites.service";
+import {
+	type ProjectScope,
+} from "../../../projects/domain/project-scope";
 import { AdminRepository } from "../../infrastructure/persistence/admin.repository";
 
 const RECENT_LEADS_LIMIT = 50;
@@ -45,7 +48,17 @@ export class AdminProjectsService {
 			throw new NotFoundException();
 		}
 
-		const ownerId = project.ownerId;
+		// Admin reads impersonate the project's owner entity: an org project is
+		// read through its org scope (creator as recorded actor), a personal
+		// project through the creator's personal scope.
+		const scope: ProjectScope = project.organizationId
+			? {
+					actorIsLimitExempt: true,
+					kind: "org",
+					organizationId: project.organizationId,
+					userId: project.ownerId,
+				}
+			: { kind: "personal", userId: project.ownerId };
 		const [
 			projectAssets,
 			pageOverview,
@@ -61,32 +74,32 @@ export class AdminProjectsService {
 			sheets,
 		] = await Promise.all([
 			this.sectionOrNull(() =>
-				this.projectAssetsService.listAssets(ownerId, projectId),
+				this.projectAssetsService.listAssets(scope, projectId),
 			),
-			this.sectionOrNull(() => this.pagesService.overview(ownerId, projectId)),
+			this.sectionOrNull(() => this.pagesService.overview(scope, projectId)),
 			this.sectionOrNull(() =>
-				this.pagesService.listVersions(ownerId, projectId),
+				this.pagesService.listVersions(scope, projectId),
 			),
-			this.sectionOrNull(() => this.sitesService.current(ownerId, projectId)),
-			this.sectionOrNull(() => this.sitesService.list(ownerId, projectId)),
+			this.sectionOrNull(() => this.sitesService.current(scope, projectId)),
+			this.sectionOrNull(() => this.sitesService.list(scope, projectId)),
 			this.sectionOrNull(() =>
-				this.marketingAssetsService.list(ownerId, projectId),
-			),
-			this.sectionOrNull(() =>
-				this.leadsService.list(ownerId, projectId, RECENT_LEADS_LIMIT),
+				this.marketingAssetsService.list(scope, projectId),
 			),
 			this.sectionOrNull(() =>
-				this.leadsService.countByProject(ownerId, projectId),
+				this.leadsService.list(scope, projectId, RECENT_LEADS_LIMIT),
 			),
 			this.sectionOrNull(() =>
-				this.leadScrapesService.listByProject(ownerId, projectId),
+				this.leadsService.countByProject(scope, projectId),
 			),
 			this.sectionOrNull(() =>
-				this.leadScrapesService.countByProject(ownerId, projectId),
+				this.leadScrapesService.listByProject(scope, projectId),
 			),
-			this.sectionOrNull(() => this.domainsService.list(projectId, ownerId)),
 			this.sectionOrNull(() =>
-				this.leadSheetSyncService.getState(ownerId, projectId),
+				this.leadScrapesService.countByProject(scope, projectId),
+			),
+			this.sectionOrNull(() => this.domainsService.list(projectId, scope)),
+			this.sectionOrNull(() =>
+				this.leadSheetSyncService.getState(scope, projectId),
 			),
 		]);
 

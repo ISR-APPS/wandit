@@ -13,6 +13,7 @@
  * No NestJS imports here on purpose: the Trigger CLI bundles this file on
  * its own; the Nest DI container does not exist in this process.
  */
+import type { MeteringSubject } from "../modules/credits/domain/credit-owner";
 import { logger, metadata, task } from "@trigger.dev/sdk";
 import { and, createDb, eq, inArray } from "@wandit/db";
 import { leadScrapeAttempts } from "@wandit/db/schema/lead-scrape-attempts";
@@ -62,6 +63,12 @@ export const scrapeLeadsTask = task({
 	retry: { maxAttempts: 1 },
 	run: async (
 		payload: {
+			/**
+			 * Acting member at queue time — may differ from the project creator in
+			 * an org workspace. Optional for in-flight pre-teams payloads, which
+			 * fall back to the project creator (correct for personal projects).
+			 */
+			actorUserId?: string;
 			attemptId: string;
 			billingMode?: BillingAdmissionMode;
 			parentEventId?: string;
@@ -74,7 +81,11 @@ export const scrapeLeadsTask = task({
 
 		try {
 			const [loaded] = await db
-				.select({ attempt: leadScrapeAttempts, userId: projects.userId })
+				.select({
+					attempt: leadScrapeAttempts,
+					organizationId: projects.organizationId,
+					userId: projects.userId,
+				})
 				.from(leadScrapeAttempts)
 				.innerJoin(projects, eq(projects.id, leadScrapeAttempts.projectId))
 				.where(eq(leadScrapeAttempts.id, payload.attemptId))
@@ -85,13 +96,22 @@ export const scrapeLeadsTask = task({
 			}
 
 			const { attempt, userId } = loaded;
+			// The project's owner entity pays: org projects debit the org pool.
+			// The ACTOR is the queue-time member (who reserved at the tool
+			// boundary), not the project creator the durable row points at.
+			const subject: MeteringSubject = {
+				actorUserId: payload.actorUserId ?? userId,
+				...(loaded.organizationId
+					? { organizationId: loaded.organizationId }
+					: {}),
+			};
 			const meteringService = createTriggerMetering(db);
 
 			if (attempt.status === "succeeded") {
 				await ensureLeadScrapeUsageSettled(meteringService, {
 					attemptId: attempt.id,
 					resultCount: attempt.rowCount ?? attempt.foundCount,
-					userId,
+					subject,
 				});
 
 				logger.info(
@@ -162,7 +182,7 @@ export const scrapeLeadsTask = task({
 					billingMode: payload.billingMode,
 					parentEventId: payload.parentEventId,
 					runtimeBillingDisabled: env.GENERATION_BILLING_MODE === "off",
-					userId,
+					subject,
 				});
 
 				const spec = leadScrapeSpecSchema.parse(attempt.spec);
@@ -367,7 +387,7 @@ export const scrapeLeadsTask = task({
 							{
 								attemptId: attempt.id,
 								eventId: usageEvent.id,
-								userId,
+								subject,
 							},
 						);
 					} catch (refundError) {

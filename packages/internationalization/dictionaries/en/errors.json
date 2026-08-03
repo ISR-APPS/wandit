@@ -25,6 +25,13 @@
 		"HTTP_403": "You do not have permission to do that.",
 		"HTTP_404": "We could not find what you were looking for.",
 		"HTTP_429": "Too many requests. Please wait a moment and try again.",
-		"HTTP_500": "The server ran into a problem. Please try again."
+		"HTTP_500": "The server ran into a problem. Please try again.",
+		"ORGANIZATIONS_DISABLED": "Team workspaces are currently paused.",
+		"MEMBER_CREDIT_LIMIT_REACHED": "You have reached your monthly credit limit in this workspace. Ask a workspace owner to raise it.",
+		"WORKSPACE_PERMISSION_DENIED": "Your workspace role does not allow this action.",
+		"WORKSPACE_NOT_SUPPORTED": "This action is not available in a team workspace.",
+		"EMAIL_AUTH_DISABLED": "Email sign-in is currently unavailable.",
+		"EMAIL_DOMAIN_BLOCKED": "This email domain is not supported.",
+		"EMAIL_SEND_RATE_LIMITED": "Too many emails requested. Please wait before trying again."
 	}
 }

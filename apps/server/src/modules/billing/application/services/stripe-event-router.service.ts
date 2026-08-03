@@ -13,6 +13,7 @@ import {
 import { isNonAdverseDisputeStatus } from "../../domain/stripe-dispute-status";
 import { BillingCheckoutAttemptsRepository } from "../../infrastructure/persistence/billing-checkout-attempts.repository";
 import { BillingCustomersRepository } from "../../infrastructure/persistence/billing-customers.repository";
+import { OrganizationBillingCustomersRepository } from "../../infrastructure/persistence/organization-billing-customers.repository";
 import type { SubscriptionRow } from "../../infrastructure/persistence/subscriptions.repository";
 import { PaymentRefundsService } from "./payment-refunds.service";
 import { StripeSubscriptionSyncService } from "./stripe-subscription-sync.service";
@@ -32,6 +33,8 @@ export class StripeEventRouter {
 	constructor(
 		@Inject(BillingCustomersRepository)
 		private readonly billingCustomersRepository: BillingCustomersRepository,
+		@Inject(OrganizationBillingCustomersRepository)
+		private readonly organizationBillingCustomersRepository: OrganizationBillingCustomersRepository,
 		@Inject(StripeSubscriptionSyncService)
 		private readonly subscriptionSyncService: StripeSubscriptionSyncService,
 		@Inject(SubscriptionCreditsService)
@@ -322,21 +325,52 @@ export class StripeEventRouter {
 			);
 		}
 
+		// Owner identity must agree on all three sides: session metadata, the
+		// persisted attempt, and the (personal|org) customer mapping. Any
+		// disagreement dead-letters instead of granting (design §5.2).
+		const metadataOrganizationId = session.metadata?.organizationId ?? null;
+
+		if ((attempt.organizationId ?? null) !== metadataOrganizationId) {
+			throw new Error(
+				`Stripe checkout session ${session.id} workspace does not match checkout attempt ${attempt.id}`,
+			);
+		}
+
 		const providerCustomerId = this.requiredCustomerId(
 			session.customer,
 			`checkout session ${session.id}`,
 		);
-		const customer = await this.billingCustomersRepository.findByUserId(userId);
 
-		if (!customer || customer.providerCustomerId !== providerCustomerId) {
-			throw new Error(
-				`Stripe checkout session ${session.id} customer does not match user ${userId}`,
+		if (metadataOrganizationId) {
+			const orgCustomer =
+				await this.organizationBillingCustomersRepository.findByOrganizationId(
+					metadataOrganizationId,
+				);
+
+			if (!orgCustomer || orgCustomer.providerCustomerId !== providerCustomerId) {
+				throw new Error(
+					`Stripe checkout session ${session.id} customer does not match organization ${metadataOrganizationId}`,
+				);
+			}
+
+			await this.organizationBillingCustomersRepository.setOpenCheckoutSessionId(
+				metadataOrganizationId,
+				null,
+			);
+		} else {
+			const customer =
+				await this.billingCustomersRepository.findByUserId(userId);
+
+			if (!customer || customer.providerCustomerId !== providerCustomerId) {
+				throw new Error(
+					`Stripe checkout session ${session.id} customer does not match user ${userId}`,
+				);
+			}
+
+			await this.billingCustomersRepository.clearOpenCheckoutSessionId(
+				session.id,
 			);
 		}
-
-		await this.billingCustomersRepository.clearOpenCheckoutSessionId(
-			session.id,
-		);
 		const mirroredSubscriptions =
 			await this.subscriptionSyncService.syncFromStripe(providerCustomerId);
 

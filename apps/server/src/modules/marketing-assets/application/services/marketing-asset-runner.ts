@@ -1,4 +1,5 @@
 // /node, not /nestjs: this code also runs inside Trigger tasks and the worker.
+import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import { Sentry } from "@wandit/observability/node";
 
 import { isTerminalFixedOperationReplay } from "../../../metering/application/services/fixed-operation-billing";
@@ -27,6 +28,8 @@ const UUID_PATTERN =
 export type MarketingAssetPayload = {
 	assetId: string;
 	billingMode?: "enforce" | "off";
+	/** Org workspace payer; null/absent = personal (pre-teams payloads). */
+	organizationId?: string | null;
 	parentEventId?: string;
 	projectId: string;
 	userId: string;
@@ -50,6 +53,7 @@ export type MarketingAssetJob = {
 	error: string | null;
 	id: string;
 	name: string;
+	organizationId: string | null;
 	projectDeletedAt: Date | null;
 	projectId: string;
 	r2Key: string | null;
@@ -85,6 +89,7 @@ export type MarketingAssetRunnerDependencies = {
 	) => Promise<boolean>;
 	generate: (
 		asset: MarketingAssetJob,
+		subject: MeteringSubject,
 		signal?: AbortSignal,
 		onProviderGeneration?: (
 			generation: GatewayGenerationMetadata,
@@ -155,6 +160,7 @@ export function parseMarketingAssetPayload(
 	const expectedKeys = [
 		"assetId",
 		...(input.billingMode === undefined ? [] : ["billingMode"]),
+		...(input.organizationId === undefined ? [] : ["organizationId"]),
 		...(input.parentEventId === undefined ? [] : ["parentEventId"]),
 		"projectId",
 		"userId",
@@ -165,7 +171,7 @@ export function parseMarketingAssetPayload(
 		keys.some((key, index) => key !== expectedKeys[index])
 	) {
 		throw new TypeError(
-			"Marketing asset payload must contain only assetId, optional billingMode, optional parentEventId, projectId, and userId",
+			"Marketing asset payload must contain only assetId, optional billingMode, optional organizationId, optional parentEventId, projectId, and userId",
 		);
 	}
 
@@ -189,6 +195,17 @@ export function parseMarketingAssetPayload(
 	}
 
 	if (
+		input.organizationId !== undefined &&
+		input.organizationId !== null &&
+		(typeof input.organizationId !== "string" ||
+			input.organizationId.length === 0 ||
+			input.organizationId.length > 255 ||
+			input.organizationId.trim() !== input.organizationId)
+	) {
+		throw new TypeError("organizationId must be a non-empty identifier");
+	}
+
+	if (
 		(input.billingMode !== undefined &&
 			input.billingMode !== "enforce" &&
 			input.billingMode !== "off") ||
@@ -205,6 +222,8 @@ export function parseMarketingAssetPayload(
 		...(input.billingMode === "enforce" || input.billingMode === "off"
 			? { billingMode: input.billingMode }
 			: {}),
+		organizationId:
+			typeof input.organizationId === "string" ? input.organizationId : null,
 		...(typeof input.parentEventId === "string"
 			? { parentEventId: input.parentEventId }
 			: {}),
@@ -221,6 +240,21 @@ export function parseMarketingAssetPayload(
  * and refund. There is deliberately no path from generating back to the
  * model.
  */
+/**
+ * The metering subject for this run: the queue-time ACTING member (who may
+ * differ from the project creator in an org workspace) paying from the
+ * project's owner entity — the org pool when org-owned. The durable row's
+ * userId is the project creator and must never be used as the actor.
+ */
+function payloadSubject(payload: MarketingAssetPayload): MeteringSubject {
+	return {
+		actorUserId: payload.userId,
+		...(payload.organizationId
+			? { organizationId: payload.organizationId }
+			: {}),
+	};
+}
+
 export async function runMarketingAssetGeneration(
 	payload: MarketingAssetPayload,
 	input: {
@@ -232,21 +266,29 @@ export async function runMarketingAssetGeneration(
 	const { dependencies } = input;
 	const loaded = await dependencies.loadAsset(payload.assetId);
 
+	// Owner-entity assert: org assets require the same org (the acting member
+	// may differ from the project creator); personal assets keep strict user
+	// equality.
 	if (
 		!loaded ||
 		loaded.projectId !== payload.projectId ||
-		loaded.userId !== payload.userId
+		loaded.organizationId !== (payload.organizationId ?? null) ||
+		(loaded.organizationId === null && loaded.userId !== payload.userId)
 	) {
 		// The payload is retained precisely so deleted/mismatched handoffs can
 		// settle a prior reservation without trusting it for model inputs.
-		await dependencies.refund(payload.userId, payload.assetId);
+		await dependencies.refund(payloadSubject(payload), payload.assetId);
 
 		return { reason: "ownership_mismatch", status: "failed" };
 	}
 
+	// The ownership assert above guarantees the payload and the durable row
+	// agree on the paying entity; the payload adds the true acting member.
+	const subject = payloadSubject(payload);
+
 	if (loaded.status === "succeeded") {
 		const reservation = await dependencies.reserve(
-			loaded.userId,
+			subject,
 			loaded.id,
 			payload.parentEventId,
 			payload.billingMode,
@@ -256,17 +298,18 @@ export async function runMarketingAssetGeneration(
 	}
 
 	if (loaded.projectDeletedAt !== null) {
-		return settleDeletedProject(loaded, dependencies);
+		return settleDeletedProject(loaded, subject, dependencies);
 	}
 
 	if (loaded.status === "failed") {
-		await dependencies.refund(loaded.userId, loaded.id);
+		await dependencies.refund(subject, loaded.id);
 		return { reason: "already_failed", status: "failed" };
 	}
 
 	if (loaded.status === "generating") {
 		const recovered = await recoverStoredDocumentWithExistingSettlement(
 			loaded,
+			subject,
 			dependencies,
 			payload.billingMode,
 		);
@@ -274,12 +317,12 @@ export async function runMarketingAssetGeneration(
 			return recovered;
 		}
 		const reservation = await dependencies.reserve(
-			loaded.userId,
+			subject,
 			loaded.id,
 			payload.parentEventId,
 			payload.billingMode,
 		);
-		return recoverOrSettleGenerating(loaded, dependencies, reservation);
+		return recoverOrSettleGenerating(loaded, subject, dependencies, reservation);
 	}
 
 	const claimed = await dependencies.claimQueued(loaded, {
@@ -300,7 +343,7 @@ export async function runMarketingAssetGeneration(
 
 		if (raced.status === "succeeded") {
 			const reservation = await dependencies.reserve(
-				raced.userId,
+				subject,
 				raced.id,
 				payload.parentEventId,
 				payload.billingMode,
@@ -310,17 +353,18 @@ export async function runMarketingAssetGeneration(
 		}
 
 		if (raced.projectDeletedAt !== null) {
-			return settleDeletedProject(raced, dependencies);
+			return settleDeletedProject(raced, subject, dependencies);
 		}
 
 		if (raced.status === "failed") {
-			await dependencies.refund(raced.userId, raced.id);
+			await dependencies.refund(subject, raced.id);
 			return { reason: "already_failed", status: "failed" };
 		}
 
 		if (raced.status === "generating") {
 			const recovered = await recoverStoredDocumentWithExistingSettlement(
 				raced,
+				subject,
 				dependencies,
 				payload.billingMode,
 			);
@@ -328,12 +372,12 @@ export async function runMarketingAssetGeneration(
 				return recovered;
 			}
 			const reservation = await dependencies.reserve(
-				raced.userId,
+				subject,
 				raced.id,
 				payload.parentEventId,
 				payload.billingMode,
 			);
-			return recoverOrSettleGenerating(raced, dependencies, reservation);
+			return recoverOrSettleGenerating(raced, subject, dependencies, reservation);
 		}
 
 		throw new Error(
@@ -342,14 +386,14 @@ export async function runMarketingAssetGeneration(
 	}
 
 	if (claimed.projectDeletedAt !== null) {
-		return settleDeletedProject(claimed, dependencies);
+		return settleDeletedProject(claimed, subject, dependencies);
 	}
 
 	let reservation: MarketingAssetReservation;
 
 	try {
 		reservation = await dependencies.reserve(
-			claimed.userId,
+			subject,
 			claimed.id,
 			payload.parentEventId,
 			payload.billingMode,
@@ -364,12 +408,12 @@ export async function runMarketingAssetGeneration(
 				tags: { assetId: claimed.id, userId: claimed.userId },
 			});
 		}
-		await failAndRefund(claimed, dependencies, "reservation_failed");
+		await failAndRefund(claimed, subject, dependencies, "reservation_failed");
 		return { reason: "reservation_failed", status: "failed" };
 	}
 
 	if (isTerminalFixedOperationReplay(reservation)) {
-		return recoverOrSettleGenerating(claimed, dependencies, reservation);
+		return recoverOrSettleGenerating(claimed, subject, dependencies, reservation);
 	}
 
 	let generated: MarketingAssetProviderResult;
@@ -378,6 +422,7 @@ export async function runMarketingAssetGeneration(
 	try {
 		generated = await dependencies.generate(
 			claimed,
+			subject,
 			input.signal,
 			async (generation) => {
 				await dependencies.capture(reservation, {
@@ -394,7 +439,7 @@ export async function runMarketingAssetGeneration(
 				tags: { assetId: claimed.id, userId: claimed.userId },
 			});
 		}
-		await failAndRefund(claimed, dependencies, "generation_failed");
+		await failAndRefund(claimed, subject, dependencies, "generation_failed");
 		return { reason: "generation_failed", status: "failed" };
 	}
 
@@ -418,6 +463,7 @@ export async function runMarketingAssetGeneration(
 		}
 		await failAndRefund(
 			claimed,
+			subject,
 			dependencies,
 			"generation_failed",
 			!hasGatewayGenerationMetadata(generated),
@@ -437,6 +483,7 @@ export async function runMarketingAssetGeneration(
 			});
 			await failAndRefund(
 				claimed,
+				subject,
 				dependencies,
 				"generation_capture_failed",
 				false,
@@ -457,6 +504,7 @@ export async function runMarketingAssetGeneration(
 	if (!persisted) {
 		return resolveSuccessCasLoss(
 			claimed,
+			subject,
 			dependencies,
 			reservation,
 			"direct generation completion",
@@ -472,6 +520,7 @@ export async function runMarketingAssetGeneration(
 
 async function recoverOrSettleGenerating(
 	asset: MarketingAssetJob,
+	subject: MeteringSubject,
 	dependencies: MarketingAssetRunnerDependencies,
 	reservation: MarketingAssetReservation,
 ): Promise<MarketingAssetRunResult> {
@@ -491,6 +540,7 @@ async function recoverOrSettleGenerating(
 		if (!persisted) {
 			return resolveSuccessCasLoss(
 				asset,
+				subject,
 				dependencies,
 				reservation,
 				"stored-document recovery",
@@ -505,7 +555,7 @@ async function recoverOrSettleGenerating(
 	}
 
 	if (isTerminalFixedOperationReplay(reservation)) {
-		await failAndRefund(asset, dependencies, "terminal_billing", false);
+		await failAndRefund(asset, subject, dependencies, "terminal_billing", false);
 		return { reason: "generation_failed", status: "failed" };
 	}
 
@@ -513,12 +563,13 @@ async function recoverOrSettleGenerating(
 		throw new MarketingAssetSettlementPendingError(asset.id);
 	}
 
-	await failAndRefund(asset, dependencies, "stale_generation");
+	await failAndRefund(asset, subject, dependencies, "stale_generation");
 	return { reason: "stale_generation", status: "failed" };
 }
 
 async function recoverStoredDocumentWithExistingSettlement(
 	asset: MarketingAssetJob,
+	subject: MeteringSubject,
 	dependencies: MarketingAssetRunnerDependencies,
 	billingMode: MarketingAssetPayload["billingMode"],
 ): Promise<MarketingAssetRunResult | null> {
@@ -528,7 +579,7 @@ async function recoverStoredDocumentWithExistingSettlement(
 		return null;
 	}
 
-	const settled = await dependencies.settleExisting(asset.userId, asset.id);
+	const settled = await dependencies.settleExisting(subject, asset.id);
 	if (!settled && billingMode === "enforce") {
 		throw new Error(
 			`Marketing asset ${asset.id} has stored output but no enforced metering event`,
@@ -551,7 +602,7 @@ async function recoverStoredDocumentWithExistingSettlement(
 			current.userId === asset.userId &&
 			current.projectDeletedAt !== null
 		) {
-			return settleDeletedProject(current, dependencies, false);
+			return settleDeletedProject(current, subject, dependencies, false);
 		}
 		if (current?.status === "failed") {
 			return { reason: "already_failed", status: "failed" };
@@ -566,6 +617,7 @@ async function recoverStoredDocumentWithExistingSettlement(
 
 async function failAndRefund(
 	asset: MarketingAssetJob,
+	subject: MeteringSubject,
 	dependencies: MarketingAssetRunnerDependencies,
 	reason: string,
 	shouldRefund = true,
@@ -592,12 +644,13 @@ async function failAndRefund(
 	}
 
 	if (shouldRefund) {
-		await dependencies.refund(asset.userId, asset.id);
+		await dependencies.refund(subject, asset.id);
 	}
 }
 
 async function settleDeletedProject(
 	asset: MarketingAssetJob,
+	subject: MeteringSubject,
 	dependencies: MarketingAssetRunnerDependencies,
 	shouldRefund = true,
 ): Promise<MarketingAssetRunResult> {
@@ -609,7 +662,7 @@ async function settleDeletedProject(
 
 	if (asset.status === "failed") {
 		if (shouldRefund) {
-			await dependencies.refund(asset.userId, asset.id);
+			await dependencies.refund(subject, asset.id);
 		}
 		return { reason: "already_failed", status: "failed" };
 	}
@@ -636,13 +689,14 @@ async function settleDeletedProject(
 	}
 
 	if (shouldRefund) {
-		await dependencies.refund(asset.userId, asset.id);
+		await dependencies.refund(subject, asset.id);
 	}
 	return { reason: "project_deleted", status: "failed" };
 }
 
 async function resolveSuccessCasLoss(
 	asset: MarketingAssetJob,
+	subject: MeteringSubject,
 	dependencies: MarketingAssetRunnerDependencies,
 	reservation: MarketingAssetReservation,
 	operation: string,
@@ -660,7 +714,7 @@ async function resolveSuccessCasLoss(
 		current.userId === asset.userId &&
 		current.projectDeletedAt !== null
 	) {
-		return settleDeletedProject(current, dependencies, false);
+		return settleDeletedProject(current, subject, dependencies, false);
 	}
 
 	if (current?.status === "failed") {

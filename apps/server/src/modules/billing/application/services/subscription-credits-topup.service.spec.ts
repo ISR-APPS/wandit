@@ -2,6 +2,7 @@ import type Stripe from "stripe";
 import { describe, expect, it, vi } from "vitest";
 
 import type { CreditsService } from "../../../credits/application/services/credits.service";
+import { userOwner } from "../../../credits/domain/credit-owner";
 import type {
 	BillingCheckoutAttemptRow,
 	BillingCheckoutAttemptsRepository,
@@ -22,6 +23,7 @@ function checkoutAttempt(
 	return {
 		createdAt: new Date(0),
 		id: "11111111-1111-4111-8111-111111111111",
+		organizationId: null,
 		packId: "topup_100",
 		priceLookupKey: null,
 		providerSessionId: "cs_topup",
@@ -153,6 +155,7 @@ function setup(
 		{} as never,
 		{} as never,
 		attempts as unknown as BillingCheckoutAttemptsRepository,
+		{ findByProviderCustomerId: async () => null } as never,
 	);
 
 	return { attempts, credits, customers, order, refunds, service, stripe };
@@ -164,7 +167,7 @@ describe("SubscriptionCreditsService top-up fulfillment", () => {
 
 		await service.grantTopup(checkoutSession());
 
-		expect(credits.topup).toHaveBeenCalledWith("user_1", 100, {
+		expect(credits.topup).toHaveBeenCalledWith(userOwner("user_1"), 100, {
 			idempotencyKey: "topup:cs_topup",
 			meta: {
 				chargeId: "ch_topup",

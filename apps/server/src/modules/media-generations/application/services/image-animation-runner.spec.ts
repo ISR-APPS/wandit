@@ -13,6 +13,7 @@ import {
 const ATTEMPT_ID = "11111111-1111-4111-8111-111111111111";
 const PROJECT_ID = "22222222-2222-4222-8222-222222222222";
 const USER_ID = "user_123";
+const SUBJECT = { actorUserId: USER_ID };
 const PARENT_EVENT_ID = "44444444-4444-4444-8444-444444444444";
 const NOW = new Date("2026-07-24T12:00:00.000Z");
 const RESERVATION = {
@@ -36,6 +37,7 @@ describe("parseImageAnimationPayload", () => {
 		).toEqual({
 			attemptId: ATTEMPT_ID,
 			billingMode: "enforce",
+			organizationId: null,
 			projectId: PROJECT_ID,
 			userId: USER_ID,
 		});
@@ -50,6 +52,7 @@ describe("parseImageAnimationPayload", () => {
 		).toEqual({
 			attemptId: ATTEMPT_ID,
 			billingMode: "enforce",
+			organizationId: null,
 			parentEventId: PARENT_EVENT_ID,
 			projectId: PROJECT_ID,
 			userId: USER_ID,
@@ -63,7 +66,9 @@ describe("parseImageAnimationPayload", () => {
 				projectId: PROJECT_ID,
 				userId: USER_ID,
 			}),
-		).toThrow(/only attemptId, optional billingMode, optional parentEventId/);
+		).toThrow(
+			/only attemptId, optional billingMode, optional organizationId, optional parentEventId/,
+		);
 		expect(() =>
 			parseImageAnimationPayload({
 				attemptId: "not-a-uuid",
@@ -96,7 +101,7 @@ describe("runImageAnimation", () => {
 			startedAt: NOW,
 		});
 		expect(dependencies.reserve).toHaveBeenCalledWith(
-			USER_ID,
+			SUBJECT,
 			ATTEMPT_ID,
 			undefined,
 			"enforce",
@@ -154,7 +159,7 @@ describe("runImageAnimation", () => {
 			expectedStatus: "queued",
 			reason: "project_deleted",
 		});
-		expect(dependencies.refund).toHaveBeenCalledWith(USER_ID, ATTEMPT_ID);
+		expect(dependencies.refund).toHaveBeenCalledWith(SUBJECT, ATTEMPT_ID);
 		expect(dependencies.claimQueued).not.toHaveBeenCalled();
 		expect(dependencies.reserve).not.toHaveBeenCalled();
 		expect(dependencies.generate).not.toHaveBeenCalled();
@@ -189,7 +194,7 @@ describe("runImageAnimation", () => {
 			expectedStatus: "generating",
 			reason: "project_deleted",
 		});
-		expect(dependencies.refund).toHaveBeenCalledWith(USER_ID, ATTEMPT_ID);
+		expect(dependencies.refund).toHaveBeenCalledWith(SUBJECT, ATTEMPT_ID);
 		expect(dependencies.recoverStoredVideo).not.toHaveBeenCalled();
 		expect(dependencies.generate).not.toHaveBeenCalled();
 	});
@@ -315,7 +320,7 @@ describe("runImageAnimation", () => {
 		expect(dependencies.claimQueued).not.toHaveBeenCalled();
 		expect(dependencies.reserve).not.toHaveBeenCalled();
 		expect(dependencies.settleExisting).toHaveBeenCalledWith(
-			USER_ID,
+			SUBJECT,
 			ATTEMPT_ID,
 		);
 		expect(dependencies.generate).not.toHaveBeenCalled();
@@ -370,7 +375,7 @@ describe("runImageAnimation", () => {
 		).resolves.toMatchObject({ recovered: true, status: "succeeded" });
 		expect(dependencies.reserve).not.toHaveBeenCalled();
 		expect(dependencies.settleExisting).toHaveBeenCalledWith(
-			USER_ID,
+			SUBJECT,
 			ATTEMPT_ID,
 		);
 		expect(dependencies.generate).not.toHaveBeenCalled();
@@ -435,7 +440,7 @@ describe("runImageAnimation", () => {
 			expectedStatus: "generating",
 			reason: "stale_generation",
 		});
-		expect(dependencies.refund).toHaveBeenCalledWith(USER_ID, ATTEMPT_ID);
+		expect(dependencies.refund).toHaveBeenCalledWith(SUBJECT, ATTEMPT_ID);
 	});
 
 	it("settles a failed reservation and never calls the provider", async () => {
@@ -484,13 +489,13 @@ describe("runImageAnimation", () => {
 			expect.anything(),
 			expect.objectContaining({ error: "raw provider secret" }),
 		);
-		expect(dependencies.refund).toHaveBeenCalledWith(USER_ID, ATTEMPT_ID);
+		expect(dependencies.refund).toHaveBeenCalledWith(SUBJECT, ATTEMPT_ID);
 	});
 
 	it("charges a provider-completed video when storage fails after capture", async () => {
 		const dependencies = makeDependencies(makeAttempt());
 		vi.mocked(dependencies.generate).mockImplementationOnce(
-			async (_attempt, _signal, onProviderGeneration) => {
+			async (_attempt, _subject, _signal, onProviderGeneration) => {
 				const generation = {
 					model: "klingai/kling-v2.1",
 					providerMetadata: {
@@ -646,7 +651,7 @@ describe("runImageAnimation", () => {
 			reason: "ownership_mismatch",
 			status: "failed",
 		});
-		expect(dependencies.refund).toHaveBeenCalledWith(USER_ID, ATTEMPT_ID);
+		expect(dependencies.refund).toHaveBeenCalledWith(SUBJECT, ATTEMPT_ID);
 		expect(dependencies.claimQueued).not.toHaveBeenCalled();
 		expect(dependencies.generate).not.toHaveBeenCalled();
 	});
@@ -670,6 +675,7 @@ function makeAttempt(
 		error: null,
 		id: ATTEMPT_ID,
 		motion: "balanced",
+		organizationId: null,
 		projectDeletedAt: null,
 		projectId: PROJECT_ID,
 		prompt: "A gentle camera move",

@@ -21,6 +21,7 @@ import { isR2Configured } from "../../../../infrastructure/storage/r2";
 // Type-only import: importing the task value would pull the Trigger worker
 // (and its database pool) into the Nest API process.
 import type { generateMarketingAssetTask } from "../../../../trigger/generate-marketing-asset.task";
+import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import {
 	createMarketingAssetBilling,
 	type MarketingAssetBilling,
@@ -43,6 +44,8 @@ export type GenerateMarketingAssetToolDeps = {
 	// generator does not read it yet.
 	quality?: string;
 	requestKeySeed?: string;
+	/** Pays for the asset: the org pool in an org workspace. */
+	subject: MeteringSubject;
 	userId: string;
 };
 
@@ -146,7 +149,7 @@ export function createGenerateMarketingAssetTool(
 			}
 
 			const reservation = await billing.reserve(
-				deps.userId,
+				deps.subject,
 				asset.id,
 				deps.parentEventId,
 			);
@@ -158,6 +161,7 @@ export function createGenerateMarketingAssetTool(
 				const handle = await triggerMarketingAssetTask({
 					assetId: asset.id,
 					billingMode: reservation.eventId ? "enforce" : "off",
+					organizationId: deps.subject.organizationId ?? null,
 					...(deps.parentEventId ? { parentEventId: deps.parentEventId } : {}),
 					projectId: deps.projectId,
 					userId: deps.userId,
@@ -268,6 +272,7 @@ async function mintRealtimeHandle(
 async function triggerMarketingAssetTask(payload: {
 	assetId: string;
 	billingMode: "enforce" | "off";
+	organizationId: string | null;
 	parentEventId?: string;
 	projectId: string;
 	userId: string;
@@ -334,7 +339,7 @@ async function refundReservation(
 	assetId: string,
 ): Promise<void> {
 	try {
-		await billing.refund(deps.userId, assetId);
+		await billing.refund(deps.subject, assetId);
 	} catch (error) {
 		logger.error(
 			`Refunding marketing asset reservation ${assetId} failed`,

@@ -1,3 +1,4 @@
+import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import {
 	type BillingAdmissionMode,
 	createFixedOperationBilling,
@@ -15,9 +16,9 @@ export type MarketingAssetBilling = {
 		reservation: MarketingAssetReservation,
 		capture: CapturedGeneration,
 	) => Promise<void>;
-	refund: (userId: string, assetId: string) => Promise<void>;
+	refund: (subject: MeteringSubject, assetId: string) => Promise<void>;
 	reserve: (
-		userId: string,
+		subject: MeteringSubject,
 		assetId: string,
 		parentEventId?: string,
 		billingMode?: BillingAdmissionMode,
@@ -26,7 +27,7 @@ export type MarketingAssetBilling = {
 		reservation: MarketingAssetReservation,
 		units?: 0 | 1,
 	) => Promise<void>;
-	settleExisting: (userId: string, assetId: string) => Promise<boolean>;
+	settleExisting: (subject: MeteringSubject, assetId: string) => Promise<boolean>;
 };
 
 export function createMarketingAssetBilling(
@@ -36,15 +37,15 @@ export function createMarketingAssetBilling(
 
 	return {
 		capture: (reservation, capture) => billing.capture(reservation, capture),
-		refund: (userId, assetId) =>
-			billing.refund(userId, assetId, "marketing_asset_failed"),
-		reserve: async (userId, assetId, parentEventId, billingMode) =>
-			(await billing.reserve(userId, assetId, {
+		refund: (subject, assetId) =>
+			billing.refund(subject, assetId, "marketing_asset_failed"),
+		reserve: async (subject, assetId, parentEventId, billingMode) =>
+			(await billing.reserve(subject, assetId, {
 				billingMode,
 				parentEventId,
 			})) as MarketingAssetReservation,
 		settle: (reservation, units = 1) => billing.settle(reservation, units),
-		settleExisting: (userId, assetId) =>
-			billing.settleExisting(userId, assetId),
+		settleExisting: (subject, assetId) =>
+			billing.settleExisting(subject, assetId),
 	};
 }

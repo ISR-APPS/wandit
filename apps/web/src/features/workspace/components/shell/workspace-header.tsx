@@ -15,6 +15,7 @@ import { Spark } from "@/components/logo";
 import { UserMenu } from "@/features/auth";
 import { CreditsChip } from "@/features/credits";
 import { useTranslation } from "@/lib/i18n";
+import { WorkspaceSwitcher } from "@/features/workspaces/components/workspace-switcher";
 import { ProjectSwitcher } from "./project-switcher";
 import { PublishButton } from "./publish-button";
 
@@ -42,6 +43,7 @@ export function WorkspaceHeader() {
 				</TooltipContent>
 			</Tooltip>
 			<span aria-hidden className="mx-[5px] h-[18px] w-px bg-border" />
+			<WorkspaceSwitcher className="hidden w-44 md:flex" />
 			<ProjectSwitcher />
 
 			<div className="ms-auto flex items-center gap-2.5">

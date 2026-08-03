@@ -15,10 +15,13 @@ import {
 	DATABASE,
 	type Database,
 } from "../../../../infrastructure/database/database.constants";
+import type { ProjectScope } from "../../../projects/domain/project-scope";
 
 export type ConnectorGenerationAttemptRow = {
 	id: string;
 	userId: string;
+	/** Payer snapshot: org pool when queued from an org workspace. */
+	organizationId: string | null;
 	connectorSlug: string;
 	toolName: string;
 	args: unknown;
@@ -45,6 +48,7 @@ export class ConnectorGenerationsRepository {
 	// One attempt row per intercepted generation call, born "queued".
 	async insertAttempt(input: {
 		userId: string;
+		organizationId: string | null;
 		connectorSlug: string;
 		toolName: string;
 		args: unknown;
@@ -104,21 +108,28 @@ export class ConnectorGenerationsRepository {
 
 	// Ownership is by user id (the MCP connection is per-user). Missing and
 	// not-owned are indistinguishable to the caller on purpose.
-	async findOwnedAttempt(
-		userId: string,
+	// Mirrors projectScopePredicate semantics on the attempt's own payer
+	// snapshot: personal = creator equality, org = workspace membership (the
+	// guard proved it) — so a teammate polling a shared org chat's card is
+	// not 404'd just because another member queued the generation.
+	async findAccessibleAttempt(
+		scope: ProjectScope,
 		attemptId: string,
 	): Promise<ConnectorGenerationAttemptRow | null> {
 		await this.settleStaleAttempt(attemptId);
 
+		const scopePredicate =
+			scope.kind === "personal"
+				? and(
+						eq(connectorGenerationAttempts.userId, scope.userId),
+						isNull(connectorGenerationAttempts.organizationId),
+					)
+				: eq(connectorGenerationAttempts.organizationId, scope.organizationId);
+
 		const [row] = await this.db
 			.select()
 			.from(connectorGenerationAttempts)
-			.where(
-				and(
-					eq(connectorGenerationAttempts.id, attemptId),
-					eq(connectorGenerationAttempts.userId, userId),
-				),
-			)
+			.where(and(eq(connectorGenerationAttempts.id, attemptId), scopePredicate))
 			.limit(1);
 
 		return row ?? null;

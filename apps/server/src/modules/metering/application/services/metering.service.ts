@@ -5,6 +5,14 @@ import { Inject, Injectable, Logger } from "@nestjs/common";
 
 import { CreditsService } from "../../../credits/application/services/credits.service";
 import {
+	type CreditOwner,
+	type MeteringSubject,
+	ownerFromIds,
+	subjectPayer,
+} from "../../../credits/domain/credit-owner";
+import { MemberCreditLimitError } from "../../../credits/domain/errors/member-credit-limit.error";
+import { OrganizationLimitsRepository } from "../../../workspaces/infrastructure/persistence/organization-limits.repository";
+import {
 	type AiUsageEvent,
 	type AiUsageGenerationRef,
 	bundledReservationCompletedAttemptRef,
@@ -96,18 +104,26 @@ export class MeteringService {
 		private readonly modelPricing: ModelPricingService,
 		@Inject(METERING_GATEWAY)
 		private readonly gateway: MeteringGateway,
+		@Inject(OrganizationLimitsRepository)
+		private readonly organizationLimits: OrganizationLimitsRepository,
 	) {}
 
 	async findByIdempotencyKey(
 		idempotencyKey: string,
-		userId: string,
+		subject: MeteringSubject,
 	): Promise<AiUsageEvent | null> {
 		const event =
 			await this.repository.findEventByIdempotencyKey(idempotencyKey);
 
-		if (event && event.userId !== userId) {
+		// Payer equality, not actor equality: in an org workspace any member may
+		// legitimately observe/replay an operation another member started, as
+		// long as the same pool pays for it.
+		if (
+			event &&
+			this.eventPayerKey(event) !== this.payerKey(subjectPayer(subject))
+		) {
 			throw new Error(
-				`AI usage event ${idempotencyKey} belongs to another user`,
+				`AI usage event ${idempotencyKey} belongs to another payer`,
 			);
 		}
 
@@ -128,7 +144,7 @@ export class MeteringService {
 		idempotencyKey: string;
 		messageId: string;
 		operation: MeteredOperation;
-		userId: string;
+		subject: MeteringSubject;
 	}): Promise<AiUsageEvent | null> {
 		this.assertNonEmpty(input.idempotencyKey, "claim idempotency key");
 		this.assertNonEmpty(input.expectedAttemptRef, "expected attempt ref");
@@ -166,9 +182,13 @@ export class MeteringService {
 			await this.lockEvent(found.id, transaction);
 			const event = await this.requireEvent(found.id, transaction);
 
+			// Same-PAYER check (like parent/child holds): in an org chat a different
+			// member than the project creator may send the first stream — the org
+			// pool paid for the bundled hold either way.
 			if (
 				event.idempotencyKey !== input.idempotencyKey ||
-				event.userId !== input.userId ||
+				this.eventPayerKey(event) !==
+					this.payerKey(subjectPayer(input.subject)) ||
 				event.operation !== input.operation ||
 				event.chatId !== input.chatId
 			) {
@@ -298,10 +318,10 @@ export class MeteringService {
 
 	async reserve(
 		operation: MeteredOperation,
-		userId: string,
+		subject: MeteringSubject,
 		estimate: MeteringReserveEstimate,
 	): Promise<AiUsageEvent> {
-		const outcome = await this.reserveWithReplay(operation, userId, estimate);
+		const outcome = await this.reserveWithReplay(operation, subject, estimate);
 
 		if (outcome.replay === "settled" || outcome.replay === "reconciled") {
 			throw new MeteringStateConflictError(
@@ -316,7 +336,7 @@ export class MeteringService {
 
 	async reserveWithReplay(
 		operation: MeteredOperation,
-		userId: string,
+		subject: MeteringSubject,
 		estimate: MeteringReserveEstimate,
 	): Promise<MeteringReserveOutcome> {
 		this.assertPositiveCredits(estimate.credits, "reserve credits");
@@ -332,6 +352,8 @@ export class MeteringService {
 		}
 
 		const eventId = estimate.eventId ?? randomUUID();
+		const payer = subjectPayer(subject);
+		const organizationId = subject.organizationId ?? null;
 
 		return this.repository.transaction(async (transaction) => {
 			await this.repository.acquireOperationLock(
@@ -345,7 +367,7 @@ export class MeteringService {
 			);
 
 			if (existing) {
-				this.assertReserveReplay(existing, operation, userId, estimate);
+				this.assertReserveReplay(existing, operation, subject, estimate);
 				return {
 					event: existing,
 					replay: this.reserveReplay(existing),
@@ -359,9 +381,11 @@ export class MeteringService {
 					transaction,
 				);
 
-				if (parent.userId !== userId) {
+				// Same-PAYER, not same-actor: a second member continuing a chat in
+				// the same org workspace is legal; a cross-pool child is never.
+				if (this.eventPayerKey(parent) !== this.payerKey(payer)) {
 					throw new Error(
-						`AI usage parent ${parent.id} belongs to another user`,
+						`AI usage parent ${parent.id} belongs to another owner`,
 					);
 				}
 
@@ -371,12 +395,13 @@ export class MeteringService {
 			}
 
 			// CreditsService deliberately takes its consume-idempotency lock before
-			// the user lock. The event insert follows the debit in this same DB
+			// the owner lock. The event insert follows the debit in this same DB
 			// transaction, so both commit or both roll back before provider work.
 			await this.credits.consume(
-				userId,
+				payer,
 				estimate.credits,
 				{
+					actorUserId: subject.actorUserId,
 					idempotencyKey: this.reserveLedgerKey(eventId),
 					meta: {
 						action: operation,
@@ -388,6 +413,13 @@ export class MeteringService {
 				transaction,
 			);
 
+			// Member-limit gate AFTER the debit, inside the same transaction: the
+			// owner lock consume() just took serializes concurrent member reserves,
+			// and a limit breach rolls the debit back atomically. Checking before
+			// consume would need the owner lock first and deadlock a same-key
+			// replay race against the consume-op lock ordering.
+			await this.enforceMemberLimit(subject, estimate.credits, transaction);
+
 			const inserted = await this.repository.insertEvent(
 				{
 					attemptRef: estimate.attemptRef ?? null,
@@ -398,12 +430,13 @@ export class MeteringService {
 					messageId: estimate.messageId ?? null,
 					model: estimate.model ?? null,
 					operation,
+					organizationId,
 					parentEventId: estimate.parentEventId ?? null,
 					provider: estimate.provider ?? null,
 					pricingSnapshot: this.reservationPricingSnapshot(operation, pricing),
 					reservedCredits: estimate.credits,
 					status: "reserved",
-					userId,
+					userId: subject.actorUserId,
 				},
 				transaction,
 			);
@@ -416,6 +449,60 @@ export class MeteringService {
 
 			return { event: inserted, replay: "none", replayed: false };
 		});
+	}
+
+	/**
+	 * Calendar-month member limit inside an org workspace. Runs under the org
+	 * balance lock (already held by the reserve debit in this transaction);
+	 * the spend sum excludes the current event, which is inserted after.
+	 */
+	private async enforceMemberLimit(
+		subject: MeteringSubject,
+		requiredCredits: number,
+		transaction: MeteringTransaction,
+	): Promise<void> {
+		if (!subject.organizationId) {
+			return;
+		}
+
+		const resolved = await this.organizationLimits.resolveMemberLimit(
+			subject.organizationId,
+			subject.actorUserId,
+			subject.actorIsLimitExempt === true,
+			transaction,
+		);
+
+		if (resolved.limitCredits === null) {
+			return;
+		}
+
+		const spent = await this.organizationLimits.sumMemberSpendThisMonth(
+			subject.organizationId,
+			subject.actorUserId,
+			new Date(),
+			transaction,
+		);
+
+		if (spent + requiredCredits > resolved.limitCredits) {
+			throw new MemberCreditLimitError(
+				resolved.limitCredits,
+				spent,
+				requiredCredits,
+			);
+		}
+	}
+
+	/** The pool that pays for an event: its org when set, else its actor. */
+	private eventPayer(event: AiUsageEvent): CreditOwner {
+		return ownerFromIds(event.userId, event.organizationId);
+	}
+
+	private eventPayerKey(event: AiUsageEvent): string {
+		return event.organizationId ? `org:${event.organizationId}` : event.userId;
+	}
+
+	private payerKey(owner: CreditOwner): string {
+		return owner.type === "org" ? `org:${owner.organizationId}` : owner.userId;
 	}
 
 	async settle(
@@ -607,7 +694,7 @@ export class MeteringService {
 			if (
 				childEvent &&
 				(childEvent.parentEventId !== parentEvent.id ||
-					childEvent.userId !== parentEvent.userId)
+					this.eventPayerKey(childEvent) !== this.eventPayerKey(parentEvent))
 			) {
 				throw new Error(
 					`AI usage event ${childEvent.id} is not a child of ${parentEvent.id}`,
@@ -692,7 +779,7 @@ export class MeteringService {
 			if (
 				initialChild &&
 				(initialChild.parentEventId !== initialParent.id ||
-					initialChild.userId !== initialParent.userId)
+					this.eventPayerKey(initialChild) !== this.eventPayerKey(initialParent))
 			) {
 				throw new Error(
 					`AI usage event ${initialChild.id} is not a child of ${initialParent.id}`,
@@ -1268,9 +1355,10 @@ export class MeteringService {
 
 			if (targetCredits > currentCredits) {
 				await this.credits.consume(
-					event.userId,
+					this.eventPayer(event),
 					targetCredits - currentCredits,
 					{
+						actorUserId: event.userId,
 						allowOverdraft: true,
 						idempotencyKey: `completion:${event.id}:${targetCredits}`,
 						meta: {
@@ -1465,9 +1553,10 @@ export class MeteringService {
 
 		if (delta > 0) {
 			await this.credits.consume(
-				event.userId,
+				this.eventPayer(event),
 				delta,
 				{
+					actorUserId: event.userId,
 					allowOverdraft: true,
 					idempotencyKey: `${phase}:${event.id}`,
 					meta: {
@@ -1488,7 +1577,7 @@ export class MeteringService {
 					currentCredits - event.reservedCredits,
 				);
 				await this.credits.refundConsumeAmount(
-					event.userId,
+					this.eventPayer(event),
 					`settle:${event.id}`,
 					{
 						amount: settleAmount,
@@ -1505,7 +1594,7 @@ export class MeteringService {
 
 			if (remaining > 0) {
 				await this.credits.refundConsumeAmount(
-					event.userId,
+					this.eventPayer(event),
 					this.reserveLedgerKey(event.id),
 					{
 						amount: remaining,
@@ -1525,18 +1614,18 @@ export class MeteringService {
 
 		if (phase === "settle") {
 			await this.credits.markPlanHoldInactive(
-				event.userId,
+				this.eventPayer(event),
 				this.reserveLedgerKey(event.id),
 				transaction,
 			);
 		} else {
 			await this.credits.closePlanHold(
-				event.userId,
+				this.eventPayer(event),
 				this.reserveLedgerKey(event.id),
 				transaction,
 			);
 			await this.credits.closePlanHold(
-				event.userId,
+				this.eventPayer(event),
 				`settle:${event.id}`,
 				transaction,
 			);
@@ -1572,7 +1661,7 @@ export class MeteringService {
 			}
 
 			await this.credits.refundConsumeAmount(
-				event.userId,
+				this.eventPayer(event),
 				this.reserveLedgerKey(event.id),
 				{
 					amount: event.reservedCredits,
@@ -1582,7 +1671,7 @@ export class MeteringService {
 				transaction,
 			);
 			await this.credits.closePlanHold(
-				event.userId,
+				this.eventPayer(event),
 				this.reserveLedgerKey(event.id),
 				transaction,
 			);
@@ -1621,12 +1710,12 @@ export class MeteringService {
 			}
 
 			await this.credits.markPlanHoldInactive(
-				event.userId,
+				this.eventPayer(event),
 				this.reserveLedgerKey(event.id),
 				transaction,
 			);
 			await this.credits.markPlanHoldInactive(
-				event.userId,
+				this.eventPayer(event),
 				`settle:${event.id}`,
 				transaction,
 			);
@@ -2151,11 +2240,14 @@ export class MeteringService {
 	private assertReserveReplay(
 		event: AiUsageEvent,
 		operation: MeteredOperation,
-		userId: string,
+		subject: MeteringSubject,
 		estimate: MeteringReserveEstimate,
 	): void {
+		// Same-PAYER, not same-actor (like findByIdempotencyKey and the bundled
+		// claim): in an org workspace a different member may legally replay a
+		// reservation another member created — same key, same pool, new actor.
 		if (
-			event.userId !== userId ||
+			this.eventPayerKey(event) !== this.payerKey(subjectPayer(subject)) ||
 			event.operation !== operation ||
 			event.reservedCredits !== estimate.credits ||
 			event.estimatedCostUsdMicros !==

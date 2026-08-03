@@ -69,6 +69,7 @@ function setup(requestCountryCode: string | null = "DZ") {
 		parentEventId: "chat-event-1",
 		projectId: "project_1",
 		requestCountryCode,
+		subject: { actorUserId: "user-1" },
 		userId: "user-1",
 	});
 
@@ -150,6 +151,7 @@ describe("scrape_leads tool", () => {
 		expect(tasks.trigger).toHaveBeenCalledWith(
 			"scrape-leads",
 			{
+				actorUserId: "user-1",
 				attemptId: "attempt_1",
 				billingMode: "enforce",
 				parentEventId: "chat-event-1",
@@ -204,7 +206,7 @@ describe("scrape_leads tool", () => {
 		await expect(execute(INPUT)).rejects.toBe(paymentRequired);
 		expect(meteringService.reserveWithReplay).toHaveBeenCalledWith(
 			"lead_scrape",
-			"user-1",
+			{ actorUserId: "user-1" },
 			{
 				attemptRef: "attempt_1",
 				credits: 5,

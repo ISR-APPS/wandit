@@ -4,7 +4,11 @@ import {
 	paginationQuerySchema,
 } from "../http/pagination";
 import { billingPlanIdSchema } from "./billing";
-import { creditBucketSchema, creditKindSchema } from "./credits";
+import {
+	creditBalanceResponseSchema,
+	creditBucketSchema,
+	creditKindSchema,
+} from "./credits";
 import { deploymentSlugSchema, deploymentUiStateSchema } from "./deployments";
 import { domainStatusSchema } from "./domains";
 import { leadScrapeAttemptSchema } from "./lead-scrapes";
@@ -119,12 +123,25 @@ export type AdminCreditLedgerEntry = z.infer<
 	typeof adminCreditLedgerEntrySchema
 >;
 
+// Team workspaces the user belongs to (teams-workspaces.md §10).
+export const adminUserWorkspaceSchema = z.object({
+	organizationId: z.string(),
+	name: z.string(),
+	slug: z.string(),
+	// Comma-joined multi-role string as Better Auth stores it.
+	role: z.string(),
+	joinedAt: isoDateTimeSchema,
+});
+
+export type AdminUserWorkspace = z.infer<typeof adminUserWorkspaceSchema>;
+
 export const adminUserDetailSchema = adminUserSummarySchema.extend({
 	updatedAt: isoDateTimeSchema,
 	banReason: z.string().nullable(),
 	subscription: adminUserSubscriptionSchema.nullable(),
 	projects: z.array(adminUserProjectSchema),
 	creditLedger: z.array(adminCreditLedgerEntrySchema),
+	workspaces: z.array(adminUserWorkspaceSchema),
 });
 
 export type AdminUserDetail = z.infer<typeof adminUserDetailSchema>;
@@ -281,6 +298,117 @@ export const adminSetBannedInputSchema = z.object({
 
 export type AdminSetBannedInput = z.infer<typeof adminSetBannedInputSchema>;
 
+// --- Organizations (teams/workspaces, teams-workspaces.md §10) ---
+
+export const adminWorkspaceRoles = ["owner", "admin", "member"] as const;
+
+export const adminWorkspaceRoleSchema = z.enum(adminWorkspaceRoles);
+
+export type AdminWorkspaceRole = z.infer<typeof adminWorkspaceRoleSchema>;
+
+export const adminOrganizationSummarySchema = z.object({
+	id: z.string(),
+	name: z.string(),
+	slug: z.string(),
+	logo: z.string().nullable(),
+	createdAt: isoDateTimeSchema,
+	membersCount: z.int(),
+	projectsCount: z.int(),
+	plan: adminUserPlanSchema,
+	creditsBalance: z.int(),
+});
+
+export type AdminOrganizationSummary = z.infer<
+	typeof adminOrganizationSummarySchema
+>;
+
+export const adminListOrganizationsSorts = ["newest", "oldest", "name"] as const;
+
+export const adminListOrganizationsQuerySchema = paginationQuerySchema.extend({
+	q: z.string().trim().min(1).max(200).optional(),
+	sort: z.enum(adminListOrganizationsSorts).default("newest"),
+});
+
+export type AdminListOrganizationsQuery = z.infer<
+	typeof adminListOrganizationsQuerySchema
+>;
+
+export const adminListOrganizationsResponseSchema = paginatedResultSchema(
+	adminOrganizationSummarySchema,
+);
+
+export type AdminListOrganizationsResponse = z.infer<
+	typeof adminListOrganizationsResponseSchema
+>;
+
+export const adminOrganizationMemberSchema = z.object({
+	userId: z.string(),
+	name: z.string(),
+	email: z.email(),
+	image: z.string().nullable(),
+	// Comma-joined multi-role string as Better Auth stores it; check membership
+	// with the role helpers, never string equality.
+	role: z.string(),
+	joinedAt: isoDateTimeSchema,
+	monthlyCreditLimit: z.int().nullable(),
+	spentThisMonth: z.int(),
+});
+
+export type AdminOrganizationMember = z.infer<
+	typeof adminOrganizationMemberSchema
+>;
+
+export const adminOrganizationSubscriptionSchema =
+	adminUserSubscriptionSchema.extend({
+		tierCredits: z.int(),
+		// Purchase provenance: the owner whose checkout created the subscription.
+		purchasedByUserId: z.string().nullable(),
+	});
+
+export type AdminOrganizationSubscription = z.infer<
+	typeof adminOrganizationSubscriptionSchema
+>;
+
+export const adminOrganizationLedgerEntrySchema =
+	adminCreditLedgerEntrySchema.extend({
+		// Acting member on consumption rows; null on pool-owned rows (grants,
+		// plan holds) — the pool paid, no single member acted.
+		actorUserId: z.string().nullable(),
+		actorName: z.string().nullable(),
+	});
+
+export type AdminOrganizationLedgerEntry = z.infer<
+	typeof adminOrganizationLedgerEntrySchema
+>;
+
+export const adminOrganizationDetailSchema =
+	adminOrganizationSummarySchema.extend({
+		members: z.array(adminOrganizationMemberSchema),
+		pendingInvitationsCount: z.int(),
+		subscription: adminOrganizationSubscriptionSchema.nullable(),
+		balance: creditBalanceResponseSchema,
+		creditLedger: z.array(adminOrganizationLedgerEntrySchema),
+		defaultMemberMonthlyCreditLimit: z.int().nullable(),
+		// Affiliate policy snapshot from the org's Stripe customer; null until
+		// the first checkout creates that customer.
+		attributionUserId: z.string().nullable(),
+	});
+
+export type AdminOrganizationDetail = z.infer<
+	typeof adminOrganizationDetailSchema
+>;
+
+// Direct member-row write — the zero-owner repair tool (§1.1/§10). Deliberately
+// unguarded against demoting the last owner: repairing broken states needs the
+// unrestricted write; the service logs a warning when an org ends up ownerless.
+export const adminSetMemberRoleInputSchema = z.object({
+	role: adminWorkspaceRoleSchema,
+});
+
+export type AdminSetMemberRoleInput = z.infer<
+	typeof adminSetMemberRoleInputSchema
+>;
+
 export const adminSignupStatsRanges = ["7d", "30d", "90d"] as const;
 
 export const adminSignupStatsQuerySchema = z.object({
@@ -318,6 +446,13 @@ export type AdminWebhookReplayResponse = z.infer<
 export const adminRoutes = {
 	users: "/api/v1/admin/users",
 	user: (userId: string) => `/api/v1/admin/users/${userId}`,
+	organizations: "/api/v1/admin/organizations",
+	organization: (organizationId: string) =>
+		`/api/v1/admin/organizations/${organizationId}`,
+	organizationGrantCredits: (organizationId: string) =>
+		`/api/v1/admin/organizations/${organizationId}/credits`,
+	organizationSetMemberRole: (organizationId: string, userId: string) =>
+		`/api/v1/admin/organizations/${organizationId}/members/${userId}/role`,
 	project: (projectId: string) => `/api/v1/admin/projects/${projectId}`,
 	grantCredits: (userId: string) => `/api/v1/admin/users/${userId}/credits`,
 	betaEnroll: (userId: string) => `/api/v1/admin/users/${userId}/beta-enroll`,

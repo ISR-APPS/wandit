@@ -33,7 +33,7 @@ describe("createImageAnimationBilling", () => {
 		const { billing, meteringService } = setup({ billingDisabled: true });
 		meteringService.findByIdempotencyKey.mockResolvedValueOnce(null);
 
-		const reservation = await billing.reserve("user_1", "attempt_1");
+		const reservation = await billing.reserve({ actorUserId: "user_1" }, "attempt_1");
 
 		expect(reservation).toEqual({
 			credits: 25,
@@ -50,7 +50,7 @@ describe("createImageAnimationBilling", () => {
 		expect(meteringService.reserveWithReplay).not.toHaveBeenCalled();
 		expect(meteringService.findByIdempotencyKey).toHaveBeenCalledWith(
 			"video:attempt_1",
-			"user_1",
+			{ actorUserId: "user_1" },
 		);
 		expect(meteringService.captureGeneration).not.toHaveBeenCalled();
 		expect(meteringService.settle).not.toHaveBeenCalled();
@@ -62,18 +62,18 @@ describe("createImageAnimationBilling", () => {
 		});
 
 		const reservation = await billing.reserve(
-			"user_1",
+			{ actorUserId: "user_1" },
 			"attempt_1",
 			"parent_1",
 		);
 
 		expect(meteringService.findByIdempotencyKey).toHaveBeenCalledWith(
 			"video:attempt_1",
-			"user_1",
+			{ actorUserId: "user_1" },
 		);
 		expect(meteringService.reserveWithReplay).toHaveBeenCalledWith(
 			"video",
-			"user_1",
+			{ actorUserId: "user_1" },
 			{
 				attemptRef: "attempt_1",
 				credits: 25,
@@ -87,11 +87,11 @@ describe("createImageAnimationBilling", () => {
 	it("honors an enforced admission snapshot after the runtime switch turns off", async () => {
 		const { billing, meteringService } = setup({ billingDisabled: true });
 
-		await billing.reserve("user_1", "attempt_1", "parent_1", "enforce");
+		await billing.reserve({ actorUserId: "user_1" }, "attempt_1", "parent_1", "enforce");
 
 		expect(meteringService.findByIdempotencyKey).toHaveBeenCalledWith(
 			"video:attempt_1",
-			"user_1",
+			{ actorUserId: "user_1" },
 		);
 		expect(meteringService.reserveWithReplay).toHaveBeenCalledOnce();
 	});
@@ -101,7 +101,7 @@ describe("createImageAnimationBilling", () => {
 		meteringService.findByIdempotencyKey.mockResolvedValueOnce(null);
 
 		const reservation = await billing.reserve(
-			"user_1",
+			{ actorUserId: "user_1" },
 			"attempt_1",
 			undefined,
 			"off",
@@ -116,7 +116,7 @@ describe("createImageAnimationBilling", () => {
 		const { billing, event, meteringService } = setup();
 
 		const reservation = await billing.reserve(
-			"user_1",
+			{ actorUserId: "user_1" },
 			"attempt_1",
 			"parent_1",
 		);
@@ -124,7 +124,7 @@ describe("createImageAnimationBilling", () => {
 		expect(reservation).toMatchObject({ credits: 25, eventId: event.id });
 		expect(meteringService.reserveWithReplay).toHaveBeenCalledWith(
 			"video",
-			"user_1",
+			{ actorUserId: "user_1" },
 			{
 				attemptRef: "attempt_1",
 				credits: 25,
@@ -136,7 +136,7 @@ describe("createImageAnimationBilling", () => {
 
 	it("captures the gateway generation and settles the registry price", async () => {
 		const { billing, meteringService } = setup();
-		const reservation = await billing.reserve("user_1", "attempt_1");
+		const reservation = await billing.reserve({ actorUserId: "user_1" }, "attempt_1");
 		const capture = {
 			providerMetadata: { gateway: { generationId: "generation_1" } },
 		};
@@ -164,7 +164,7 @@ describe("createImageAnimationBilling", () => {
 
 	it("settles zero delivered video units after a controlled storage failure", async () => {
 		const { billing, meteringService } = setup();
-		const reservation = await billing.reserve("user_1", "attempt_1");
+		const reservation = await billing.reserve({ actorUserId: "user_1" }, "attempt_1");
 
 		await billing.settle(reservation, 0);
 
@@ -179,7 +179,7 @@ describe("createImageAnimationBilling", () => {
 
 	it("fails capture when the gateway omits its generation id", async () => {
 		const { billing, meteringService } = setup();
-		const reservation = await billing.reserve("user_1", "attempt_1");
+		const reservation = await billing.reserve({ actorUserId: "user_1" }, "attempt_1");
 		meteringService.captureGeneration.mockResolvedValue(null);
 
 		await expect(
@@ -191,7 +191,7 @@ describe("createImageAnimationBilling", () => {
 
 	it("retries transient generation-ref writes before returning", async () => {
 		const { billing, meteringService } = setup();
-		const reservation = await billing.reserve("user_1", "attempt_1");
+		const reservation = await billing.reserve({ actorUserId: "user_1" }, "attempt_1");
 		meteringService.captureGeneration
 			.mockRejectedValueOnce(new Error("capture timeout 1"))
 			.mockRejectedValueOnce(new Error("capture timeout 2"));
@@ -207,11 +207,11 @@ describe("createImageAnimationBilling", () => {
 	it("refunds a prior event even when billing is now disabled", async () => {
 		const { billing, meteringService } = setup({ billingDisabled: true });
 
-		await billing.refund("user_1", "attempt_1");
+		await billing.refund({ actorUserId: "user_1" }, "attempt_1");
 
 		expect(meteringService.findByIdempotencyKey).toHaveBeenCalledWith(
 			"video:attempt_1",
-			"user_1",
+			{ actorUserId: "user_1" },
 		);
 		expect(meteringService.refund).toHaveBeenCalledWith(
 			"event_1",
@@ -227,7 +227,7 @@ describe("createImageAnimationBilling", () => {
 		} as never);
 
 		await expect(
-			billing.refund("user_1", "attempt_1"),
+			billing.refund({ actorUserId: "user_1" }, "attempt_1"),
 		).resolves.toBeUndefined();
 		expect(meteringService.refund).not.toHaveBeenCalled();
 	});
@@ -257,13 +257,13 @@ describe("createImageAnimationBilling", () => {
 		);
 		meteringService.findByIdempotencyKey.mockResolvedValue(terminal);
 
-		await expect(billing.reserve("user_1", "attempt_1")).resolves.toMatchObject(
+		await expect(billing.reserve({ actorUserId: "user_1" }, "attempt_1")).resolves.toMatchObject(
 			{
 				eventId: "event_1",
 				replay: "reconcile_failed",
 			},
 		);
-		await expect(billing.settleExisting("user_1", "attempt_1")).resolves.toBe(
+		await expect(billing.settleExisting({ actorUserId: "user_1" }, "attempt_1")).resolves.toBe(
 			true,
 		);
 		expect(meteringService.settle).not.toHaveBeenCalled();
@@ -301,7 +301,7 @@ describe("createImageAnimationBilling", () => {
 		);
 		meteringService.findByIdempotencyKey.mockResolvedValueOnce(terminal);
 
-		await expect(billing.reserve("user_1", "attempt_1")).resolves.toMatchObject(
+		await expect(billing.reserve({ actorUserId: "user_1" }, "attempt_1")).resolves.toMatchObject(
 			{
 				credits: 20,
 				eventId: "event_old_price",

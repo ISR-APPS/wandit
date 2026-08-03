@@ -7,6 +7,7 @@ import {
 	siteVideoKey,
 } from "../../../../infrastructure/storage/r2";
 import type { MeteringService } from "../../../metering/application/services/metering.service";
+import type { ProjectScope } from "../../../projects/domain/project-scope";
 import type {
 	MediaGenerationAttemptRow,
 	MediaGenerationsRepository,
@@ -27,6 +28,8 @@ vi.mock("../../../../infrastructure/storage/r2", () => ({
 vi.mock("../../../../infrastructure/analytics/analytics.service", () => ({
 	AnalyticsService: class AnalyticsService {},
 }));
+
+const SCOPE: ProjectScope = { kind: "personal", userId: "user_1" };
 
 const BASE_ROW: MediaGenerationAttemptRow = {
 	aspect: "9:16",
@@ -49,7 +52,7 @@ const BASE_ROW: MediaGenerationAttemptRow = {
 
 function setup() {
 	const repository = {
-		findOwnedAttempt: vi.fn(),
+		findAccessibleAttempt: vi.fn(),
 		markGeneratingAttemptSucceeded: vi.fn(),
 		markStaleGeneratingAttemptFailed: vi.fn(),
 		markStaleQueuedAttemptFailed: vi.fn(),
@@ -80,12 +83,12 @@ beforeEach(() => {
 describe("MediaGenerationsService", () => {
 	it("leaves a recently queued Trigger handoff active", async () => {
 		const { meteringService, repository, service } = setup();
-		repository.findOwnedAttempt.mockResolvedValue({
+		repository.findAccessibleAttempt.mockResolvedValue({
 			...BASE_ROW,
 			createdAt: new Date(Date.now() - 5 * 60 * 1_000),
 		});
 
-		await expect(service.attempt("user_1", BASE_ROW.id)).resolves.toMatchObject(
+		await expect(service.attempt(SCOPE, BASE_ROW.id)).resolves.toMatchObject(
 			{
 				id: BASE_ROW.id,
 				status: "queued",
@@ -109,12 +112,12 @@ describe("MediaGenerationsService", () => {
 				"The video request did not reach the background generator. Please try again.",
 			status: "failed" as const,
 		};
-		repository.findOwnedAttempt
+		repository.findAccessibleAttempt
 			.mockResolvedValueOnce(staleRow)
 			.mockResolvedValueOnce(failedRow);
 		repository.markStaleQueuedAttemptFailed.mockResolvedValue(true);
 
-		await expect(service.attempt("user_1", BASE_ROW.id)).resolves.toMatchObject(
+		await expect(service.attempt(SCOPE, BASE_ROW.id)).resolves.toMatchObject(
 			{
 				error: failedRow.error,
 				id: BASE_ROW.id,
@@ -147,12 +150,12 @@ describe("MediaGenerationsService", () => {
 			error: "The video did not finish. Please try animating the image again.",
 			status: "failed" as const,
 		};
-		repository.findOwnedAttempt
+		repository.findAccessibleAttempt
 			.mockResolvedValueOnce(staleRow)
 			.mockResolvedValueOnce(failedRow);
 		repository.markStaleGeneratingAttemptFailed.mockResolvedValue(true);
 
-		await expect(service.attempt("user_1", BASE_ROW.id)).resolves.toMatchObject(
+		await expect(service.attempt(SCOPE, BASE_ROW.id)).resolves.toMatchObject(
 			{
 				error: failedRow.error,
 				id: BASE_ROW.id,
@@ -173,13 +176,13 @@ describe("MediaGenerationsService", () => {
 
 	it("leaves a recently claimed generation active", async () => {
 		const { meteringService, repository, service } = setup();
-		repository.findOwnedAttempt.mockResolvedValue({
+		repository.findAccessibleAttempt.mockResolvedValue({
 			...BASE_ROW,
 			startedAt: new Date(Date.now() - 60 * 1_000),
 			status: "generating",
 		});
 
-		await expect(service.attempt("user_1", BASE_ROW.id)).resolves.toMatchObject(
+		await expect(service.attempt(SCOPE, BASE_ROW.id)).resolves.toMatchObject(
 			{
 				id: BASE_ROW.id,
 				status: "generating",
@@ -204,13 +207,13 @@ describe("MediaGenerationsService", () => {
 			videoUrl:
 				"https://assets.example.com/sites/project/assets/attempt/vid-1.mp4",
 		};
-		repository.findOwnedAttempt
+		repository.findAccessibleAttempt
 			.mockResolvedValueOnce(staleRow)
 			.mockResolvedValueOnce(succeededRow);
 		repository.markGeneratingAttemptSucceeded.mockResolvedValue(true);
 		vi.mocked(getObjectContentType).mockResolvedValueOnce("video/mp4");
 
-		await expect(service.attempt("user_1", BASE_ROW.id)).resolves.toMatchObject(
+		await expect(service.attempt(SCOPE, BASE_ROW.id)).resolves.toMatchObject(
 			{
 				status: "succeeded",
 				videoMediaType: "video/mp4",
@@ -224,7 +227,7 @@ describe("MediaGenerationsService", () => {
 		);
 		expect(meteringService.findByIdempotencyKey).toHaveBeenCalledWith(
 			`video:${BASE_ROW.id}`,
-			"user_1",
+			{ actorUserId: "user_1" },
 		);
 		expect(meteringService.settleFixedFromEvidence).toHaveBeenCalledWith(
 			"usage_event_1",
@@ -249,13 +252,13 @@ describe("MediaGenerationsService", () => {
 			status: "generating" as const,
 		};
 		const settlementError = new Error("settlement unavailable");
-		repository.findOwnedAttempt.mockResolvedValue(staleRow);
+		repository.findAccessibleAttempt.mockResolvedValue(staleRow);
 		vi.mocked(getObjectContentType).mockResolvedValueOnce("video/mp4");
 		meteringService.settleFixedFromEvidence.mockRejectedValueOnce(
 			settlementError,
 		);
 
-		await expect(service.attempt("user_1", BASE_ROW.id)).rejects.toBe(
+		await expect(service.attempt(SCOPE, BASE_ROW.id)).rejects.toBe(
 			settlementError,
 		);
 		expect(repository.markGeneratingAttemptSucceeded).not.toHaveBeenCalled();
@@ -277,14 +280,14 @@ describe("MediaGenerationsService", () => {
 			videoMediaType: "video/mp4",
 			videoUrl: "https://assets.example.com/recovered.mp4",
 		};
-		repository.findOwnedAttempt
+		repository.findAccessibleAttempt
 			.mockResolvedValueOnce(staleRow)
 			.mockResolvedValueOnce(succeededRow);
 		repository.markGeneratingAttemptSucceeded.mockResolvedValue(true);
 		vi.mocked(getObjectContentType).mockResolvedValueOnce("video/mp4");
 		meteringService.findByIdempotencyKey.mockResolvedValueOnce(null);
 
-		await expect(service.attempt("user_1", BASE_ROW.id)).resolves.toMatchObject(
+		await expect(service.attempt(SCOPE, BASE_ROW.id)).resolves.toMatchObject(
 			{
 				status: "succeeded",
 			},
@@ -295,14 +298,14 @@ describe("MediaGenerationsService", () => {
 
 	it("retries the idempotent refund whenever a failed attempt is polled", async () => {
 		const { meteringService, repository, service } = setup();
-		repository.findOwnedAttempt.mockResolvedValue({
+		repository.findAccessibleAttempt.mockResolvedValue({
 			...BASE_ROW,
 			completedAt: new Date(),
 			error: "Generation failed.",
 			status: "failed",
 		});
 
-		await service.attempt("user_1", BASE_ROW.id);
+		await service.attempt(SCOPE, BASE_ROW.id);
 
 		expect(meteringService.refund).toHaveBeenCalledWith(
 			"usage_event_1",
@@ -312,9 +315,9 @@ describe("MediaGenerationsService", () => {
 
 	it("does not reveal an unknown or unowned attempt", async () => {
 		const { repository, service } = setup();
-		repository.findOwnedAttempt.mockResolvedValue(null);
+		repository.findAccessibleAttempt.mockResolvedValue(null);
 
-		await expect(service.attempt("user_1", "unknown")).rejects.toBeInstanceOf(
+		await expect(service.attempt(SCOPE, "unknown")).rejects.toBeInstanceOf(
 			NotFoundException,
 		);
 	});

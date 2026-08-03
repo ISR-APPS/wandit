@@ -21,6 +21,7 @@ function usageEvent(overrides: Partial<AiUsageEvent> = {}): AiUsageEvent {
 		messageId: null,
 		model: null,
 		operation: "image",
+		organizationId: null,
 		outputTokens: null,
 		parentEventId: null,
 		pricingSnapshot: {
@@ -70,14 +71,16 @@ describe("createFixedOperationBilling", () => {
 		const event = usageEvent();
 		const { billing, meteringService } = setup(event);
 
-		const reservation = await billing.reserve("user_1", "attempt_1", {
-			units: 4,
-		});
+		const reservation = await billing.reserve(
+			{ actorUserId: "user_1" },
+			"attempt_1",
+			{ units: 4 },
+		);
 
 		expect(reservation).toMatchObject({ credits: 16, replay: "reserved" });
 		expect(meteringService.reserveWithReplay).toHaveBeenCalledWith(
 			"image",
-			"user_1",
+			{ actorUserId: "user_1" },
 			{
 				attemptRef: "attempt_1",
 				credits: 16,
@@ -95,7 +98,7 @@ describe("createFixedOperationBilling", () => {
 		const { billing, meteringService } = setup(event);
 
 		await expect(
-			billing.reserve("user_1", "attempt_1", { units: 4 }),
+			billing.reserve({ actorUserId: "user_1" }, "attempt_1", { units: 4 }),
 		).resolves.toMatchObject({
 			credits: 16,
 			eventId: event.id,
@@ -109,7 +112,7 @@ describe("createFixedOperationBilling", () => {
 		const { billing, meteringService } = setup(event);
 
 		await expect(
-			billing.settleExisting("user_1", "attempt_1", 3),
+			billing.settleExisting({ actorUserId: "user_1" }, "attempt_1", 3),
 		).resolves.toBe(true);
 		expect(meteringService.settleFixedFromEvidence).toHaveBeenCalledWith(
 			event.id,
@@ -125,7 +128,7 @@ describe("createFixedOperationBilling", () => {
 		const { billing, meteringService } = setup(event);
 
 		await expect(
-			billing.settleExisting("user_1", "attempt_1", 2),
+			billing.settleExisting({ actorUserId: "user_1" }, "attempt_1", 2),
 		).resolves.toBe(true);
 		expect(meteringService.settleFixedFromEvidence).toHaveBeenCalledWith(
 			event.id,
@@ -143,7 +146,7 @@ describe("createFixedOperationBilling", () => {
 		const { billing, meteringService } = setup(event);
 
 		await expect(
-			billing.settleExisting("user_1", "attempt_1", 3),
+			billing.settleExisting({ actorUserId: "user_1" }, "attempt_1", 3),
 		).resolves.toBe(true);
 		expect(meteringService.settleFixedFromEvidence).not.toHaveBeenCalled();
 	});
@@ -152,7 +155,7 @@ describe("createFixedOperationBilling", () => {
 		const { billing, meteringService } = setup(null);
 
 		await expect(
-			billing.settleExisting("user_1", "attempt_1", 1),
+			billing.settleExisting({ actorUserId: "user_1" }, "attempt_1", 1),
 		).resolves.toBe(false);
 		expect(meteringService.settleFixedFromEvidence).not.toHaveBeenCalled();
 	});

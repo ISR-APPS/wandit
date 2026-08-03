@@ -43,7 +43,7 @@ describe("generateMarketingAssetHtml", () => {
 				providerOptions: {
 					gateway: {
 						quotaEntityId: "user_1",
-						tags: ["op:marketing"],
+						tags: ["op:marketing", "ws:personal"],
 						user: "user_1",
 					},
 					google: { thinkingConfig: { thinkingLevel: "high" } },

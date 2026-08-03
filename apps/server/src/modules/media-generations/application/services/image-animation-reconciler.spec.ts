@@ -25,6 +25,7 @@ const BASE_ATTEMPT: ImageAnimationAttempt = {
 	error: null,
 	id: "attempt_1",
 	motion: "balanced",
+	organizationId: null,
 	projectDeletedAt: null,
 	projectId: "project_1",
 	prompt: "A slow camera push.",
@@ -128,7 +129,7 @@ describe("reconcileImageAnimations", () => {
 			expectedStatus: "queued",
 			reason: "stale_queued",
 		});
-		expect(refund).toHaveBeenCalledWith("user_1", "attempt_1");
+		expect(refund).toHaveBeenCalledWith({ actorUserId: "user_1" }, "attempt_1");
 	});
 
 	it("recovers a stale generating attempt from its deterministic stored video", async () => {
@@ -158,7 +159,7 @@ describe("reconcileImageAnimations", () => {
 		);
 		expect(failFromStatus).not.toHaveBeenCalled();
 		expect(refund).not.toHaveBeenCalled();
-		expect(settleExisting).toHaveBeenCalledWith("user_1", "attempt_1");
+		expect(settleExisting).toHaveBeenCalledWith({ actorUserId: "user_1" }, "attempt_1");
 		expect(settleExisting.mock.invocationCallOrder[0]).toBeLessThan(
 			markSucceeded.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
 		);
@@ -176,7 +177,7 @@ describe("reconcileImageAnimations", () => {
 				recovered: 1,
 			},
 		);
-		expect(settleExisting).toHaveBeenCalledWith("user_1", "attempt_1");
+		expect(settleExisting).toHaveBeenCalledWith({ actorUserId: "user_1" }, "attempt_1");
 		expect(markSucceeded).toHaveBeenCalledWith(
 			staleGenerating,
 			RECOVERED_VIDEO,
@@ -209,7 +210,7 @@ describe("reconcileImageAnimations", () => {
 			expectedStatus: "generating",
 			reason: "stale_generation",
 		});
-		expect(refund).toHaveBeenCalledWith("user_1", "attempt_1");
+		expect(refund).toHaveBeenCalledWith({ actorUserId: "user_1" }, "attempt_1");
 	});
 
 	it("fails and refunds a deleted stale generation before checking recoverable R2", async () => {
@@ -240,7 +241,7 @@ describe("reconcileImageAnimations", () => {
 			expectedStatus: "generating",
 			reason: "project_deleted",
 		});
-		expect(refund).toHaveBeenCalledWith("user_1", "attempt_1");
+		expect(refund).toHaveBeenCalledWith({ actorUserId: "user_1" }, "attempt_1");
 	});
 
 	it("settles an outstanding refund for an already failed attempt", async () => {
@@ -260,7 +261,7 @@ describe("reconcileImageAnimations", () => {
 			scanned: 1,
 			skipped: 0,
 		});
-		expect(refund).toHaveBeenCalledWith("user_1", "attempt_1");
+		expect(refund).toHaveBeenCalledWith({ actorUserId: "user_1" }, "attempt_1");
 		expect(recoverStoredVideo).not.toHaveBeenCalled();
 		expect(failFromStatus).not.toHaveBeenCalled();
 	});

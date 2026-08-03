@@ -176,6 +176,19 @@
 			],
 			"cta": "Choisir Pro"
 		},
+		"business": {
+			"name": "Business",
+			"tagline": "Pour les équipes qui partagent un pool de crédits",
+			"fromPrice": "À partir de {price}",
+			"perMonth": "/ mois",
+			"features": [
+				"Tout ce qui est inclus dans Pro",
+				"Un pool de crédits partagé pour toute l'équipe",
+				"Rôles, invitations et limites par membre",
+				"Sièges illimités — payez les crédits, pas les personnes"
+			],
+			"cta": "Créer un espace d'équipe"
+		},
 		"beta": {
 			"badge": "Bêta",
 			"cta": "Rejoindre la bêta"
