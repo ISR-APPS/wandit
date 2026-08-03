@@ -1,6 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 import type { PaymentOrderKind, PaymentOrderStatus } from "@wandit/contracts";
-import { and, eq, inArray, sql } from "@wandit/db";
+import { and, asc, eq, inArray, isNull, or, sql } from "@wandit/db";
+import { domains } from "@wandit/db/schema/domains";
 import { paymentOrders } from "@wandit/db/schema/orders";
 
 import {
@@ -37,6 +38,17 @@ type PendingTerminalPaymentStateInput = {
 	sessionId?: string;
 };
 
+export type RefundReconciliationCandidate = {
+	id: string;
+};
+
+export type FindRefundReconciliationCandidatesInput = {
+	limit: number;
+	staleBefore: Date;
+};
+
+export const MAX_REFUND_RECONCILIATION_ROWS = 100;
+
 @Injectable()
 export class PaymentOrdersRepository {
 	constructor(@Inject(DATABASE) private readonly db: Database) {}
@@ -62,6 +74,46 @@ export class PaymentOrdersRepository {
 			.limit(1);
 
 		return row ?? null;
+	}
+
+	/**
+	 * Bounded recovery scan for captured domain orders whose durable refund
+	 * handoff may have been lost, plus stale paid orders that never created a
+	 * domain row. The reconciler reloads and fences each paid row before dispatch
+	 * so a concurrent refund or fulfillment change wins.
+	 */
+	findRefundReconciliationCandidates(
+		input: FindRefundReconciliationCandidatesInput,
+	): Promise<RefundReconciliationCandidate[]> {
+		const boundedLimit = Math.min(
+			MAX_REFUND_RECONCILIATION_ROWS,
+			Math.max(1, Math.floor(input.limit)),
+		);
+
+		return this.db
+			.select({ id: paymentOrders.id })
+			.from(paymentOrders)
+			.where(
+				and(
+					eq(paymentOrders.kind, "domain_registration"),
+					sql`${paymentOrders.paidAt} IS NOT NULL`,
+					sql`${paymentOrders.providerPaymentIntentId} IS NOT NULL`,
+					isNull(paymentOrders.providerRefundId),
+					or(
+						eq(paymentOrders.status, "failed"),
+						and(
+							eq(paymentOrders.status, "paid"),
+							sql`${paymentOrders.updatedAt} <= ${input.staleBefore}`,
+							sql`not exists (
+								select 1 from ${domains}
+								where ${domains.paymentOrderId} = ${paymentOrders.id}
+							)`,
+						),
+					),
+				),
+			)
+			.orderBy(asc(paymentOrders.updatedAt), asc(paymentOrders.id))
+			.limit(boundedLimit);
 	}
 
 	async findByIdForUser(id: string, userId: string): Promise<PaymentOrderRow> {

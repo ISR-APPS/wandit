@@ -44,6 +44,7 @@ function makeAttempt(
 		projectId: PROJECT_ID,
 		prompt: "a product on a bench",
 		sourceImageUrls: [],
+		spec: null,
 		startedAt: null,
 		status: "queued",
 		title: "Product shots",
@@ -93,6 +94,7 @@ function makeDependencies(
 		reserve: vi.fn().mockResolvedValue(RESERVATION),
 		settle: vi.fn().mockResolvedValue(undefined),
 		settleExisting: vi.fn().mockResolvedValue(true),
+		settlePlacement: vi.fn().mockResolvedValue(undefined),
 		...overrides,
 	};
 }
@@ -128,16 +130,19 @@ describe("runImageGeneration", () => {
 	it("claims, reserves, generates every image sequentially, and persists", async () => {
 		const dependencies = makeDependencies();
 
-		const result = await runImageGeneration(PAYLOAD, {
-			dependencies,
-			runId: "run_1",
-		});
+		const result = await runImageGeneration(
+			{ ...PAYLOAD, parentEventId: PARENT_EVENT_ID },
+			{
+				dependencies,
+				runId: "run_1",
+			},
+		);
 
 		expect(dependencies.reserve).toHaveBeenCalledWith(
 			USER_ID,
 			ATTEMPT_ID,
 			2,
-			undefined,
+			PARENT_EVENT_ID,
 			"enforce",
 		);
 		expect(dependencies.generateOne).toHaveBeenCalledTimes(2);
@@ -167,6 +172,10 @@ describe("runImageGeneration", () => {
 		).toBeLessThan(
 			vi.mocked(dependencies.markSucceeded).mock.invocationCallOrder[0] ??
 				Number.MAX_SAFE_INTEGER,
+		);
+		expect(dependencies.settlePlacement).toHaveBeenCalledWith(
+			expect.objectContaining({ id: ATTEMPT_ID }),
+			makeImages(2),
 		);
 		expect(result).toEqual({
 			images: makeImages(2),
@@ -208,6 +217,48 @@ describe("runImageGeneration", () => {
 		expect(dependencies.markSucceeded).toHaveBeenCalledOnce();
 	});
 
+	it("repairs terminal billing when storage appears during reservation replay", async () => {
+		const generating = makeAttempt({
+			count: 4,
+			startedAt: new Date("2026-01-01T00:04:00Z"),
+			status: "generating",
+		});
+		const recovered = makeImages(1);
+		const dependencies = makeDependencies({
+			loadAttempt: vi.fn().mockResolvedValue(generating),
+			recoverStoredImages: vi
+				.fn()
+				.mockResolvedValueOnce(null)
+				.mockResolvedValueOnce(recovered),
+			reserve: vi.fn().mockResolvedValue({
+				...RESERVATION,
+				credits: 20,
+				replay: "reconcile_failed",
+				units: 4,
+			}),
+		});
+
+		await expect(
+			runImageGeneration(PAYLOAD, {
+				dependencies,
+				runId: "run_terminal_storage_race",
+			}),
+		).resolves.toEqual({
+			images: recovered,
+			recovered: true,
+			status: "succeeded",
+		});
+		expect(dependencies.recoverStoredImages).toHaveBeenCalledTimes(2);
+		expect(dependencies.settleExisting).toHaveBeenCalledWith(
+			USER_ID,
+			ATTEMPT_ID,
+			1,
+		);
+		expect(dependencies.settle).not.toHaveBeenCalled();
+		expect(dependencies.generateOne).not.toHaveBeenCalled();
+		expect(dependencies.markSucceeded).toHaveBeenCalledOnce();
+	});
+
 	it("does not refund after settlement when deletion wins the success CAS", async () => {
 		const queued = makeAttempt();
 		const deletedGenerating = makeAttempt({
@@ -232,6 +283,38 @@ describe("runImageGeneration", () => {
 		expect(dependencies.refund).not.toHaveBeenCalled();
 	});
 
+	it("does not settle twice when another success wins the persistence CAS", async () => {
+		const queued = makeAttempt();
+		const succeeded = makeAttempt({
+			completedAt: new Date("2026-01-01T00:05:00Z"),
+			images: makeImages(2),
+			startedAt: new Date("2026-01-01T00:00:00Z"),
+			status: "succeeded",
+		});
+		const dependencies = makeDependencies();
+		vi.mocked(dependencies.loadAttempt)
+			.mockResolvedValueOnce(queued)
+			.mockResolvedValueOnce(succeeded);
+		vi.mocked(dependencies.markSucceeded).mockResolvedValueOnce(false);
+
+		await expect(
+			runImageGeneration(PAYLOAD, {
+				dependencies,
+				runId: "run_success_cas_loss",
+			}),
+		).resolves.toEqual({
+			images: makeImages(2),
+			recovered: true,
+			status: "succeeded",
+		});
+		expect(dependencies.settle).toHaveBeenCalledOnce();
+		expect(dependencies.settle).toHaveBeenCalledWith(RESERVATION);
+		expect(dependencies.settlePlacement).toHaveBeenCalledWith(
+			succeeded,
+			makeImages(2),
+		);
+	});
+
 	it("fails once and refunds when the provider fails before any image exists", async () => {
 		const dependencies = makeDependencies({
 			generateOne: vi
@@ -248,6 +331,7 @@ describe("runImageGeneration", () => {
 		expect(dependencies.fail).toHaveBeenCalledTimes(1);
 		expect(dependencies.refund).toHaveBeenCalledTimes(1);
 		expect(dependencies.markSucceeded).not.toHaveBeenCalled();
+		expect(dependencies.settlePlacement).not.toHaveBeenCalled();
 	});
 
 	it("delivers and charges one uploaded image when request four fails later", async () => {
@@ -405,6 +489,7 @@ describe("runImageGeneration", () => {
 
 		expect(result).toEqual({ reason: "reservation_failed", status: "failed" });
 		expect(dependencies.generateOne).not.toHaveBeenCalled();
+		expect(dependencies.settlePlacement).not.toHaveBeenCalled();
 		expect(dependencies.refund).toHaveBeenCalled();
 	});
 
@@ -460,6 +545,10 @@ describe("runImageGeneration", () => {
 			recovered: true,
 			status: "succeeded",
 		});
+		expect(dependencies.settlePlacement).toHaveBeenCalledWith(
+			generating,
+			makeImages(2),
+		);
 	});
 
 	it("fails closed when enforced stored-image recovery has no metering event", async () => {
@@ -524,6 +613,81 @@ describe("runImageGeneration", () => {
 			recovered: false,
 			status: "succeeded",
 		});
+		expect(dependencies.settlePlacement).toHaveBeenCalledWith(
+			succeeded,
+			makeImages(2),
+		);
+	});
+
+	it("resumes placement without repricing a partially succeeded attempt", async () => {
+		const succeeded = makeAttempt({
+			completedAt: new Date("2026-01-01T00:04:00Z"),
+			count: 4,
+			images: makeImages(1),
+			startedAt: new Date("2026-01-01T00:03:00Z"),
+			status: "succeeded",
+		});
+		const reservation = { ...RESERVATION, credits: 20, units: 4 };
+		const dependencies = makeDependencies({
+			loadAttempt: vi.fn().mockResolvedValue(succeeded),
+			reserve: vi.fn().mockResolvedValue(reservation),
+		});
+
+		await runImageGeneration(PAYLOAD, {
+			dependencies,
+			runId: "run_2",
+		});
+
+		expect(dependencies.claimQueued).not.toHaveBeenCalled();
+		expect(dependencies.generateOne).not.toHaveBeenCalled();
+		expect(dependencies.markSucceeded).not.toHaveBeenCalled();
+		expect(dependencies.reserve).toHaveBeenCalledWith(
+			USER_ID,
+			ATTEMPT_ID,
+			4,
+			undefined,
+			"enforce",
+		);
+		expect(dependencies.settleExisting).toHaveBeenCalledWith(
+			USER_ID,
+			ATTEMPT_ID,
+			1,
+		);
+		expect(dependencies.settle).not.toHaveBeenCalled();
+		expect(dependencies.settlePlacement).toHaveBeenCalledOnce();
+		expect(dependencies.settlePlacement).toHaveBeenCalledWith(
+			succeeded,
+			makeImages(1),
+		);
+	});
+
+	it("propagates placement failure without failing or refunding durable output", async () => {
+		const placementError = new Error("placement database unavailable");
+		const succeeded = makeAttempt({
+			completedAt: new Date("2026-01-01T00:04:00Z"),
+			images: makeImages(2),
+			startedAt: new Date("2026-01-01T00:03:00Z"),
+			status: "succeeded",
+		});
+		const dependencies = makeDependencies({
+			loadAttempt: vi.fn().mockResolvedValue(succeeded),
+			settlePlacement: vi.fn().mockRejectedValue(placementError),
+		});
+
+		await expect(
+			runImageGeneration(PAYLOAD, {
+				dependencies,
+				runId: "run_2",
+			}),
+		).rejects.toBe(placementError);
+
+		expect(dependencies.settlePlacement).toHaveBeenCalledWith(
+			succeeded,
+			makeImages(2),
+		);
+		expect(dependencies.fail).not.toHaveBeenCalled();
+		expect(dependencies.refund).not.toHaveBeenCalled();
+		expect(dependencies.markSucceeded).not.toHaveBeenCalled();
 	});
 
 	it("refunds and fails on ownership mismatch", async () => {

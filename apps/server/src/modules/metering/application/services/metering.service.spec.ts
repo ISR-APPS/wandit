@@ -12,7 +12,6 @@ import {
 	GatewayUsagePendingError,
 	isBundledUnmeteredStepUsage,
 	type MeteringGateway,
-	type MeteringReconciliationScheduler,
 	MeteringStateConflictError,
 } from "../../domain/metering";
 import {
@@ -459,35 +458,20 @@ class FakeMeteringGateway implements MeteringGateway {
 	}
 }
 
-class FakeReconciliationScheduler implements MeteringReconciliationScheduler {
-	readonly eventIds: string[] = [];
-	error: Error | null = null;
-
-	async schedule(eventId: string): Promise<void> {
-		if (this.error) {
-			throw this.error;
-		}
-
-		this.eventIds.push(eventId);
-	}
-}
-
 function setup(balance = 100) {
 	const repository = new InMemoryMeteringRepository();
 	const credits = new InMemoryCreditsService();
 	const pricing = new FakeModelPricingService();
 	const gateway = new FakeMeteringGateway();
-	const scheduler = new FakeReconciliationScheduler();
 	credits.setBalance(USER_ID, balance);
 	const service = new MeteringService(
 		repository as unknown as MeteringRepository,
 		credits as unknown as CreditsService,
 		pricing as unknown as ModelPricingService,
 		gateway,
-		scheduler,
 	);
 
-	return { credits, gateway, pricing, repository, scheduler, service };
+	return { credits, gateway, pricing, repository, service };
 }
 
 describe("MeteringService", () => {
@@ -722,7 +706,7 @@ describe("MeteringService", () => {
 	});
 
 	it("holds reconciliation until bundled title capture is complete", async () => {
-		const { gateway, repository, scheduler, service } = setup();
+		const { gateway, repository, service } = setup();
 		await service.reserve("chat", USER_ID, {
 			attemptRef: PROJECT_PENDING_ATTEMPT_REF,
 			chatId: "chat-1",
@@ -767,7 +751,6 @@ describe("MeteringService", () => {
 			generationInfo("chat-generation", 0.05),
 		);
 
-		expect(scheduler.eventIds).toEqual([]);
 		await expect(service.reconcile(CHAT_EVENT_ID)).rejects.toBeInstanceOf(
 			GatewayUsagePendingError,
 		);
@@ -777,7 +760,6 @@ describe("MeteringService", () => {
 		expect(completed.attemptRef).toBe(
 			"bundled-complete:project-stream:project-1:request-1",
 		);
-		expect(scheduler.eventIds).toEqual([CHAT_EVENT_ID]);
 		await expect(service.reconcile(CHAT_EVENT_ID)).resolves.toMatchObject({
 			event: {
 				finalCredits: 1,
@@ -1344,8 +1326,8 @@ describe("MeteringService", () => {
 		expect(repository.refs).toHaveLength(1);
 	});
 
-	it("schedules reconciliation only after capture and settlement are both durable", async () => {
-		const { scheduler, service } = setup();
+	it("batch-reconciles only after capture and settlement are both durable", async () => {
+		const { gateway, repository, service } = setup();
 		await service.reserve("chat", USER_ID, {
 			credits: 1,
 			eventId: CHAT_EVENT_ID,
@@ -1355,18 +1337,21 @@ describe("MeteringService", () => {
 			providerMetadata: { gateway: { generationId: "gen_1" } },
 		});
 
-		expect(scheduler.eventIds).toEqual([]);
 		await service.settle(CHAT_EVENT_ID, {
 			finalCredits: 1,
 			pricing: "direct",
 			pricingSnapshot: { source: "test" },
 		});
+		gateway.results.set("gen_1", generationInfo("gen_1", 0.05));
 
-		expect(scheduler.eventIds).toEqual([CHAT_EVENT_ID]);
+		await expect(
+			service.recoverUnreconciledSettled(new Date("2100-01-01")),
+		).resolves.toMatchObject({ reconciled: 1, scanned: 1 });
+		expect(repository.events.get(CHAT_EVENT_ID)?.status).toBe("reconciled");
 	});
 
-	it("schedules after a late capture and never rolls back settlement on queue failure", async () => {
-		const { repository, scheduler, service } = setup();
+	it("keeps a late capture batch-selectable without any per-event handoff", async () => {
+		const { gateway, repository, service } = setup();
 		await service.reserve("chat", USER_ID, {
 			credits: 1,
 			eventId: CHAT_EVENT_ID,
@@ -1377,8 +1362,6 @@ describe("MeteringService", () => {
 			pricing: "direct",
 			pricingSnapshot: { source: "test" },
 		});
-		scheduler.error = new Error("redis unavailable");
-
 		await expect(
 			service.captureGeneration(CHAT_EVENT_ID, {
 				providerMetadata: { gateway: { generationId: "gen_late" } },
@@ -1386,6 +1369,10 @@ describe("MeteringService", () => {
 		).resolves.toMatchObject({ gatewayGenerationId: "gen_late" });
 		expect(repository.events.get(CHAT_EVENT_ID)?.status).toBe("settled");
 		expect(repository.refs).toHaveLength(1);
+		gateway.results.set("gen_late", generationInfo("gen_late", 0.05));
+		await expect(
+			service.recoverUnreconciledSettled(new Date("2100-01-01")),
+		).resolves.toMatchObject({ reconciled: 1, scanned: 1 });
 	});
 
 	it("reconciles authoritative multi-generation cost and token totals", async () => {
@@ -2408,10 +2395,11 @@ describe("MeteringService", () => {
 		);
 	});
 
-	it("moves a full pending recovery page into finite per-event retries so later rows are reachable", async () => {
-		const { gateway, repository, scheduler, service } = setup(101);
-		const eventIds: string[] = [];
+	it("terminalizes a full pending recovery page on a durable age budget so later rows are reachable", async () => {
+		const { gateway, repository, service } = setup(101);
 		const staleAt = new Date("2026-08-01T00:00:00.000Z");
+		const beforeBudget = new Date("2026-08-01T00:03:00.000Z");
+		const afterBudget = new Date("2026-08-01T00:05:00.000Z");
 		const pending = Object.assign(new Error("Usage event not found"), {
 			statusCode: 404,
 		});
@@ -2419,7 +2407,6 @@ describe("MeteringService", () => {
 		for (let index = 0; index < 101; index += 1) {
 			const eventId = randomUUID();
 			const generationId = `gen_pending_${index}`;
-			eventIds.push(eventId);
 			await service.reserve("chat", USER_ID, {
 				credits: 1,
 				eventId,
@@ -2437,12 +2424,12 @@ describe("MeteringService", () => {
 
 			repository.events.set(eventId, {
 				...event,
-				createdAt: new Date("2026-07-31T00:00:00.000Z"),
+				createdAt: new Date("2026-07-31T23:19:00.000Z"),
 			});
 		}
 
 		await expect(
-			service.recoverStaleReservations(staleAt, 100),
+			service.recoverStaleReservations(staleAt, 100, beforeBudget),
 		).resolves.toEqual({
 			failed: 0,
 			pending: 100,
@@ -2450,26 +2437,29 @@ describe("MeteringService", () => {
 			refunded: 0,
 			scanned: 100,
 		});
-		expect(scheduler.eventIds).toEqual(eventIds.slice(0, 100));
-
-		for (const eventId of eventIds.slice(0, 100)) {
-			await service.terminalizeReconciliationFailure(eventId);
-		}
 
 		await expect(
-			service.recoverStaleReservations(staleAt, 100),
+			service.recoverStaleReservations(staleAt, 100, afterBudget),
 		).resolves.toEqual({
-			failed: 0,
-			pending: 1,
+			failed: 100,
+			pending: 0,
+			reconciled: 0,
+			refunded: 0,
+			scanned: 100,
+		});
+		await expect(
+			service.recoverStaleReservations(staleAt, 100, afterBudget),
+		).resolves.toEqual({
+			failed: 1,
+			pending: 0,
 			reconciled: 0,
 			refunded: 0,
 			scanned: 1,
 		});
-		expect(scheduler.eventIds.at(-1)).toBe(eventIds[100]);
 	});
 
-	it("leaves pending recovery selectable when reconciliation enqueue fails", async () => {
-		const { gateway, repository, scheduler, service } = setup();
+	it("leaves pending recovery selectable before its age budget, then terminalizes it", async () => {
+		const { gateway, repository, service } = setup();
 		const staleAt = new Date("2026-08-01T00:00:00.000Z");
 		await service.reserve("chat", USER_ID, {
 			credits: 1,
@@ -2491,20 +2481,28 @@ describe("MeteringService", () => {
 
 		repository.events.set(CHAT_EVENT_ID, {
 			...event,
-			createdAt: new Date("2026-07-31T00:00:00.000Z"),
+			createdAt: new Date("2026-07-31T23:19:00.000Z"),
 		});
-		scheduler.error = new Error("redis unavailable");
 
 		await expect(
-			service.recoverStaleReservations(staleAt),
+			service.recoverStaleReservations(
+				staleAt,
+				100,
+				new Date("2026-08-01T00:03:00.000Z"),
+			),
 		).resolves.toMatchObject({ pending: 1, scanned: 1 });
 		expect(repository.events.get(CHAT_EVENT_ID)?.status).toBe("reserved");
 
-		scheduler.error = null;
 		await expect(
-			service.recoverStaleReservations(staleAt),
-		).resolves.toMatchObject({ pending: 1, scanned: 1 });
-		expect(scheduler.eventIds).toEqual([CHAT_EVENT_ID]);
+			service.recoverStaleReservations(
+				staleAt,
+				100,
+				new Date("2026-08-01T00:05:00.000Z"),
+			),
+		).resolves.toMatchObject({ failed: 1, pending: 0, scanned: 1 });
+		expect(repository.events.get(CHAT_EVENT_ID)?.status).toBe(
+			"reconcile_failed",
+		);
 	});
 
 	it("terminalizes non-pending sweep failures so malformed rows cannot starve later pages", async () => {
@@ -2615,7 +2613,7 @@ describe("MeteringService", () => {
 		).resolves.toMatchObject({ failed: 1, scanned: 1 });
 	});
 
-	it("sweep-reconciles settled events when queue delivery was missed", async () => {
+	it("batch-reconciles settled events without per-event delivery", async () => {
 		const { gateway, repository, service } = setup();
 		await service.reserve("chat", USER_ID, {
 			credits: 1,
@@ -2653,6 +2651,59 @@ describe("MeteringService", () => {
 			scanned: 1,
 		});
 		expect(repository.events.get(CHAT_EVENT_ID)?.status).toBe("reconciled");
+	});
+
+	it("terminalizes gateway-pending settled events from their durable settledAt budget", async () => {
+		const { gateway, repository, service } = setup();
+		await service.reserve("chat", USER_ID, {
+			credits: 1,
+			eventId: CHAT_EVENT_ID,
+			idempotencyKey: "chat:settled-pending-budget",
+		});
+		await service.captureGeneration(CHAT_EVENT_ID, {
+			providerMetadata: { gateway: { generationId: "gen_pending_settled" } },
+		});
+		await service.settle(CHAT_EVENT_ID, {
+			finalCredits: 1,
+			pricing: "direct",
+			pricingSnapshot: { source: "test" },
+		});
+		const settled = repository.events.get(CHAT_EVENT_ID);
+
+		if (!settled) {
+			throw new Error("missing pending settled event");
+		}
+
+		repository.events.set(CHAT_EVENT_ID, {
+			...settled,
+			createdAt: new Date("2026-07-31T00:00:00.000Z"),
+			settledAt: new Date("2026-08-01T00:00:00.000Z"),
+		});
+		gateway.results.set(
+			"gen_pending_settled",
+			Object.assign(new Error("Usage event not found"), { statusCode: 404 }),
+		);
+		const cutoff = new Date("2026-08-02T00:00:00.000Z");
+
+		await expect(
+			service.recoverUnreconciledSettled(
+				cutoff,
+				100,
+				new Date("2026-08-01T00:04:00.000Z"),
+			),
+		).resolves.toMatchObject({ failed: 0, pending: 1, scanned: 1 });
+		expect(repository.events.get(CHAT_EVENT_ID)?.status).toBe("settled");
+
+		await expect(
+			service.recoverUnreconciledSettled(
+				cutoff,
+				100,
+				new Date("2026-08-01T00:30:00.000Z"),
+			),
+		).resolves.toMatchObject({ failed: 1, pending: 0, scanned: 1 });
+		expect(repository.events.get(CHAT_EVENT_ID)?.status).toBe(
+			"reconcile_failed",
+		);
 	});
 });
 

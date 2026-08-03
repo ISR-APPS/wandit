@@ -1,4 +1,3 @@
-import { InjectQueue } from "@nestjs/bullmq";
 import {
 	ConflictException,
 	Inject,
@@ -9,14 +8,9 @@ import {
 	ServiceUnavailableException,
 } from "@nestjs/common";
 import type { AdminWebhookReplayResponse } from "@wandit/contracts";
-import {
-	BILLING_WEBHOOK_RETRY_EVENT_JOB,
-	BILLING_WEBHOOKS_QUEUE,
-	type BillingWebhookRetryEventJobData,
-} from "@wandit/jobs";
-import type { Queue } from "bullmq";
 
 import { BillingWebhookEventsRepository } from "../../../billing/infrastructure/persistence/billing-webhook-events.repository";
+import { TriggerBillingWebhookDispatcherService } from "../../../billing/infrastructure/trigger/trigger-billing-webhook-dispatcher.service";
 
 @Injectable()
 export class AdminWebhookReplayService {
@@ -26,8 +20,8 @@ export class AdminWebhookReplayService {
 		@Inject(BillingWebhookEventsRepository)
 		private readonly repository: BillingWebhookEventsRepository,
 		@Optional()
-		@InjectQueue(BILLING_WEBHOOKS_QUEUE)
-		private readonly queue?: Queue<BillingWebhookRetryEventJobData>,
+		@Inject(TriggerBillingWebhookDispatcherService)
+		private readonly dispatcher?: TriggerBillingWebhookDispatcherService,
 	) {}
 
 	async enqueue(
@@ -53,29 +47,20 @@ export class AdminWebhookReplayService {
 			);
 		}
 
-		if (!this.queue) {
+		if (!this.dispatcher) {
 			throw new ServiceUnavailableException(
-				"Billing webhook replay queue is unavailable",
+				"Billing webhook replay task is unavailable",
 			);
 		}
 
 		try {
-			await this.queue.add(
-				BILLING_WEBHOOK_RETRY_EVENT_JOB,
-				{ eventId },
-				{
-					attempts: 1,
-					jobId: `billing-webhook-replay-${encodeURIComponent(eventId)}-${event.attemptCount}`,
-					removeOnComplete: true,
-					removeOnFail: true,
-				},
-			);
+			await this.dispatcher.triggerRetry(eventId, event.attemptCount);
 			this.logger.log(
-				`admin_webhook_replay_queued admin=${actingAdminId} event=${eventId} attempt=${event.attemptCount}`,
+				`admin_webhook_replay_triggered admin=${actingAdminId} event=${eventId} attempt=${event.attemptCount}`,
 			);
 		} catch (error) {
 			this.logger.error(
-				`admin_webhook_replay_enqueue_failed admin=${actingAdminId} event=${eventId}`,
+				`admin_webhook_replay_trigger_failed admin=${actingAdminId} event=${eventId}`,
 				error instanceof Error ? error.stack : String(error),
 			);
 			throw error;

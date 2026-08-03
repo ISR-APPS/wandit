@@ -33,6 +33,7 @@ import {
 	SaveBar,
 	selectionRectAfterSelect,
 	syncPreviewSuspension,
+	targetCommentChromeVisibility,
 	targetCommentDraftVersionAfterDispatch,
 } from "./page-tab";
 
@@ -206,9 +207,17 @@ describe("SaveBar", () => {
 		expect(selectionRectAfterSelect(distantReclickRect, "hero-cta")).toBeNull();
 	});
 
-	it("keeps an empty-queue popover Send as an immediate single comment", async () => {
-		const enqueue = vi.fn(() => true);
-		const dispatch = vi.fn(async () => "sent" as const);
+	it("persists an empty-queue popover comment before immediate dispatch", async () => {
+		let persistedQueue: TargetCommentEntry[] = [];
+		const enqueue = vi.fn((entry: TargetCommentEntry) => {
+			persistedQueue = [entry];
+			return true;
+		});
+		const dispatch = vi.fn(async (comments: readonly TargetCommentEntry[]) => {
+			expect(comments).toEqual(persistedQueue);
+			persistedQueue = [];
+			return "sent" as const;
+		});
 
 		await expect(
 			dispatchPopoverTargetComment({
@@ -218,8 +227,34 @@ describe("SaveBar", () => {
 				dispatch,
 			}),
 		).resolves.toBe("sent");
-		expect(enqueue).not.toHaveBeenCalled();
+		expect(enqueue).toHaveBeenCalledWith(currentComment);
 		expect(dispatch).toHaveBeenCalledWith([currentComment]);
+		expect(persistedQueue).toEqual([]);
+	});
+
+	it("restores the exact first-comment draft after a failed dispatch", async () => {
+		const draftText = "Keep this exact first-comment draft";
+		const entry = { ...currentComment, comment: draftText };
+		let persistedQueue: TargetCommentEntry[] = [];
+		const enqueue = vi.fn((comment: TargetCommentEntry) => {
+			persistedQueue = [comment];
+			return true;
+		});
+
+		await expect(
+			dispatchPopoverTargetComment({
+				entry,
+				queuedComments: [],
+				enqueue,
+				dispatch: async (comments) => {
+					expect(comments).toEqual(persistedQueue);
+					return "failed";
+				},
+			}),
+		).resolves.toBe("failed");
+
+		const remountedDraft = persistedQueue.find(({ wid }) => wid === entry.wid);
+		expect(remountedDraft?.comment).toBe(draftText);
 	});
 
 	it("queues the current comment last before sending the whole ordered queue", async () => {
@@ -266,6 +301,37 @@ describe("SaveBar", () => {
 		).resolves.toBe("failed");
 		expect(persistedQueue).toEqual([firstComment, currentComment]);
 		expect(targetCommentDraftVersionAfterDispatch(4, "failed")).toBe(4);
+	});
+
+	it("hides target chrome during dispatch and restores retained state after failure", () => {
+		const retainedState = {
+			previewMode: "select" as const,
+			selectionWid: currentComment.wid,
+			selectionRectWid: currentComment.wid,
+			queuedCount: 2,
+			isPreviewingHistorical: false,
+		};
+
+		expect(
+			targetCommentChromeVisibility({
+				...retainedState,
+				isAskAiDispatching: true,
+			}),
+		).toEqual({
+			showTargetPopover: false,
+			showTargetReviewBar: false,
+		});
+
+		expect(targetCommentDraftVersionAfterDispatch(4, "failed")).toBe(4);
+		expect(
+			targetCommentChromeVisibility({
+				...retainedState,
+				isAskAiDispatching: false,
+			}),
+		).toEqual({
+			showTargetPopover: true,
+			showTargetReviewBar: true,
+		});
 	});
 
 	it("resets the popover draft identity after any successful dispatch", () => {

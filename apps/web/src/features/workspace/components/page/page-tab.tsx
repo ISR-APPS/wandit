@@ -102,6 +102,32 @@ export function selectionRectAfterSelect(
 	return current?.wid === wid ? current : null;
 }
 
+export function targetCommentChromeVisibility({
+	previewMode,
+	selectionWid,
+	selectionRectWid,
+	queuedCount,
+	isPreviewingHistorical,
+	isAskAiDispatching,
+}: {
+	previewMode: EditorMode;
+	selectionWid: string | null;
+	selectionRectWid: string | null;
+	queuedCount: number;
+	isPreviewingHistorical: boolean;
+	isAskAiDispatching: boolean;
+}) {
+	const showTargetPopover =
+		!isAskAiDispatching &&
+		previewMode === "select" &&
+		selectionWid !== null &&
+		selectionRectWid === selectionWid;
+	const showTargetReviewBar =
+		!isAskAiDispatching && queuedCount > 0 && !isPreviewingHistorical;
+
+	return { showTargetPopover, showTargetReviewBar };
+}
+
 export async function dispatchPopoverTargetComment({
 	entry,
 	queuedComments,
@@ -115,7 +141,10 @@ export async function dispatchPopoverTargetComment({
 		comments: readonly TargetCommentEntry[],
 	) => Promise<TargetCommentDispatchResult>;
 }): Promise<TargetCommentDispatchResult> {
-	if (queuedComments.length === 0) return dispatch([entry]);
+	if (queuedComments.length === 0) {
+		if (!enqueue(entry)) return "blocked";
+		return dispatch([entry]);
+	}
 	if (!enqueue(entry)) return "blocked";
 	return dispatch([...queuedComments, entry]);
 }
@@ -535,10 +564,15 @@ function PreviewStage({ reloadKey }: { reloadKey: number }) {
 		editor.isSaving ||
 		chatStatus === "submitted" ||
 		chatStatus === "streaming";
-	const showTargetPopover =
-		previewMode === "select" &&
-		selection !== null &&
-		selectionRect?.wid === selection.wid;
+	const { showTargetPopover, showTargetReviewBar } =
+		targetCommentChromeVisibility({
+			previewMode,
+			selectionWid: selection?.wid ?? null,
+			selectionRectWid: selectionRect?.wid ?? null,
+			queuedCount: editor.targetComments.length,
+			isPreviewingHistorical,
+			isAskAiDispatching: editor.isAskAiDispatching,
+		});
 
 	return (
 		<div
@@ -634,7 +668,7 @@ function PreviewStage({ reloadKey }: { reloadKey: number }) {
 					onRemove={() => editor.removeTargetComment(selection.wid)}
 				/>
 			) : null}
-			{editor.targetComments.length > 0 && !isPreviewingHistorical ? (
+			{showTargetReviewBar ? (
 				<TargetCommentReviewBar
 					count={editor.targetComments.length}
 					disabled={dispatchDisabled}

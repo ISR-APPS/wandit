@@ -1,10 +1,5 @@
 import { Logger } from "@nestjs/common";
 import type { ProductSettings } from "@wandit/contracts";
-import {
-	SIGNUP_GRANT_SWEEP_JOB,
-	type SignupGrantSweepJobData,
-} from "@wandit/jobs";
-import type { Queue } from "bullmq";
 import { describe, expect, it, vi } from "vitest";
 import type { CreditsService } from "../../../credits/application/services/credits.service";
 import type { ProductSettingsService } from "../../../settings/application/services/product-settings.service";
@@ -12,6 +7,7 @@ import type {
 	SignupGrantOutboxRepository,
 	SignupGrantOutboxRow,
 } from "../../infrastructure/persistence/signup-grant-outbox.repository";
+import type { TriggerSignupGrantDispatcherService } from "../../infrastructure/trigger/trigger-signup-grant-dispatcher.service";
 import { SignupGrantOutboxService } from "./signup-grant-outbox.service";
 import { SignupGrantsService } from "./signup-grants.service";
 
@@ -137,7 +133,7 @@ class InMemorySignupCreditsService {
 function setup(
 	input: {
 		creditsFailures?: number;
-		queue?: Queue<SignupGrantSweepJobData>;
+		dispatcher?: TriggerSignupGrantDispatcherService;
 		settings?: ProductSettings;
 	} = {},
 ) {
@@ -150,7 +146,11 @@ function setup(
 	const settingsService = {
 		get: vi.fn(async () => input.settings ?? settings()),
 	} as unknown as ProductSettingsService;
-	const signup = new SignupGrantsService(settingsService, outbox, input.queue);
+	const signup = new SignupGrantsService(
+		settingsService,
+		outbox,
+		input.dispatcher,
+	);
 
 	return { credits, outbox, repository, signup };
 }
@@ -177,9 +177,11 @@ describe("signup grant outbox", () => {
 	});
 
 	it("logs a distinctive error and does not abort signup when outbox insertion fails", async () => {
-		const add = vi.fn().mockResolvedValue(undefined);
-		const queue = { add } as unknown as Queue<SignupGrantSweepJobData>;
-		const { credits, repository, signup } = setup({ queue });
+		const triggerDelivery = vi.fn().mockResolvedValue(undefined);
+		const dispatcher = {
+			triggerDelivery,
+		} as unknown as TriggerSignupGrantDispatcherService;
+		const { credits, repository, signup } = setup({ dispatcher });
 		repository.createError = new Error("database unavailable");
 		const errorSpy = vi
 			.spyOn(Logger.prototype, "error")
@@ -193,7 +195,7 @@ describe("signup grant outbox", () => {
 		);
 		expect(repository.rows.size).toBe(0);
 		expect(credits.grantSignupCredits).not.toHaveBeenCalled();
-		expect(add).not.toHaveBeenCalled();
+		expect(triggerDelivery).not.toHaveBeenCalled();
 
 		errorSpy.mockRestore();
 	});
@@ -213,20 +215,35 @@ describe("signup grant outbox", () => {
 		expect(credits.ledger.size).toBe(0);
 	});
 
-	it("queues a BullMQ-safe retry id when inline delivery fails", async () => {
-		const add = vi.fn().mockResolvedValue(undefined);
-		const queue = { add } as unknown as Queue<SignupGrantSweepJobData>;
-		const { signup } = setup({ creditsFailures: 1, queue });
+	it("triggers an on-demand retry when inline delivery fails", async () => {
+		const triggerDelivery = vi.fn().mockResolvedValue(undefined);
+		const dispatcher = {
+			triggerDelivery,
+		} as unknown as TriggerSignupGrantDispatcherService;
+		const { signup } = setup({ creditsFailures: 1, dispatcher });
 
 		await signup.handleUserCreated("user:1");
 
-		expect(add).toHaveBeenCalledWith(
-			SIGNUP_GRANT_SWEEP_JOB,
-			{ userId: "user:1" },
-			{
-				jobId: "signup-grant-user%3A1",
-				removeOnComplete: true,
-			},
+		expect(triggerDelivery).toHaveBeenCalledWith("user:1");
+	});
+
+	it("keeps the durable row pending when the optional Trigger handoff fails", async () => {
+		const triggerDelivery = vi
+			.fn()
+			.mockRejectedValue(new Error("Trigger unavailable"));
+		const dispatcher = {
+			triggerDelivery,
+		} as unknown as TriggerSignupGrantDispatcherService;
+		const { repository, signup } = setup({ creditsFailures: 1, dispatcher });
+		const warning = vi
+			.spyOn(Logger.prototype, "warn")
+			.mockImplementation(() => undefined);
+
+		await expect(signup.handleUserCreated("user_1")).resolves.toBeUndefined();
+
+		expect(repository.rows.get("user_1")?.status).toBe("pending");
+		expect(warning).toHaveBeenCalledWith(
+			expect.stringContaining("scheduled sweep remains authoritative"),
 		);
 	});
 

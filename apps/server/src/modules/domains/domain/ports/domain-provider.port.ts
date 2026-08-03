@@ -34,8 +34,8 @@ export type DomainProviderInfo = {
 };
 
 export type DomainRegistrationOptions = {
-	// Name.com replays the original result when this key is reused. The worker
-	// derives it from our durable domain id so retries cannot buy twice.
+	// Name.com replays the original result when this key is reused. The registration
+	// task derives it from our durable domain id so retries cannot buy twice.
 	idempotencyKey: string;
 	privacy: boolean;
 	years: number;

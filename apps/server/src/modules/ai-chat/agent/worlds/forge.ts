@@ -254,7 +254,7 @@ This world fails in one direction: it goes SOFT. Radii creep back to 12px, plate
 		"workwear",
 		"services",
 	],
-	kind: "cod",
+	kind: "product",
 	mood: ["rugged", "engineered", "utilitarian", "high-contrast", "no-nonsense"],
 	name: "Forge",
 	priceFeel: "accessible",

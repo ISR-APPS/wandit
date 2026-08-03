@@ -18,7 +18,6 @@ import {
 	type Database,
 } from "../../infrastructure/database/database.constants";
 import { DatabaseModule } from "../../infrastructure/database/database.module";
-import { QueuesModule } from "../../infrastructure/queues/queues.module";
 import { AffiliatesModule } from "../affiliates/affiliates.module";
 import { AffiliateAttributionService } from "../affiliates/application/services/affiliate-attribution.service";
 import { CreditsModule } from "../credits/credits.module";
@@ -27,6 +26,7 @@ import { SignupGrantOutboxService } from "./application/services/signup-grant-ou
 import { SignupGrantsService } from "./application/services/signup-grants.service";
 import { AUTH_INSTANCE } from "./auth.constants";
 import { SignupGrantOutboxRepository } from "./infrastructure/persistence/signup-grant-outbox.repository";
+import { TriggerSignupGrantDispatcherService } from "./infrastructure/trigger/trigger-signup-grant-dispatcher.service";
 import { AuthController } from "./presentation/http/controllers/auth.controller";
 import { AuthMeController } from "./presentation/http/controllers/me.controller";
 import { AuthGuard } from "./presentation/http/guards/auth.guard";
@@ -96,13 +96,7 @@ const authProvider: Provider<Auth> = {
 @Module({
 	controllers: [AuthController, AuthMeController],
 	exports: [AUTH_INSTANCE, AuthGuard, EarlyAccessGuard],
-	imports: [
-		AffiliatesModule,
-		CreditsModule,
-		DatabaseModule,
-		QueuesModule,
-		SettingsModule,
-	],
+	imports: [AffiliatesModule, CreditsModule, DatabaseModule, SettingsModule],
 	providers: [
 		authProvider,
 		AuthGuard,
@@ -110,6 +104,7 @@ const authProvider: Provider<Auth> = {
 		SignupGrantOutboxRepository,
 		SignupGrantOutboxService,
 		SignupGrantsService,
+		TriggerSignupGrantDispatcherService,
 		{
 			provide: APP_GUARD,
 			useExisting: AuthGuard,

@@ -267,7 +267,7 @@ Executed at 100 percent — a room made of two drifting pastel radials, a textur
 		"baby",
 		"ecommerce",
 	],
-	kind: "cod",
+	kind: "product",
 	mood: ["soft", "dewy", "ritual", "botanical", "tender"],
 	name: "Cocon",
 	priceFeel: "accessible",

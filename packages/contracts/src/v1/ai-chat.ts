@@ -193,6 +193,9 @@ export const getDirectionCandidatesInputSchema = z.object({
 	// Short free-text business descriptor (e.g. "candles", "streetwear"),
 	// matched against the library's avoidFor/industries tags.
 	business: z.string().min(1),
+	// Optional build genre. Omitted by legacy rows and callers, which keeps the
+	// original website + product-dossier menu behavior.
+	pageKind: z.enum(["website", "product", "cod"]).optional(),
 	// 2-4 lowercase English industry keywords (canonical list lives in the
 	// system prompt; matching is fuzzy + accent-folded server-side). Free
 	// strings, NOT an enum, on purpose: an enum violation kills the run, while
@@ -231,6 +234,12 @@ export const generatePageInputSchema = z.object({
 	// system prompt snapshot. Free string (not an enum) so an off-list id
 	// degrades to a world-less build instead of killing the run.
 	worldId: z.string().min(1).optional(),
+	// Ordered design-world ids for COD fusion: base first, then donors. When
+	// present this wins over the legacy single worldId field.
+	worldIds: z.array(z.string().min(1)).min(1).max(4).optional(),
+	// Durable page classification. Optional so historical tool calls continue
+	// to validate unchanged.
+	pageKind: z.enum(["website", "cod"]).optional(),
 });
 
 /**
@@ -423,11 +432,22 @@ export type GenerateMarketingAssetOutput = z.infer<
 	typeof generateMarketingAssetOutputSchema
 >;
 
+export const generateImagePlacementSchema = z.object({
+	kind: z.literal("image-src"),
+	wid: widSchema,
+	imageIndex: z.number().int().min(1).max(MAX_IMAGES_PER_GENERATION).default(1),
+});
+
+export type GenerateImagePlacement = z.infer<
+	typeof generateImagePlacementSchema
+>;
+
 /**
- * generate_image — queues one standalone image generation (1-4 images). Can
- * start from text alone or EDIT user-uploaded source images (product photo,
- * logo) so outputs stay faithful to the real product. Distinct from the
- * builder's in-build image tool.
+ * generate_image — queues one image generation (1-4 images). Can start from
+ * text alone or EDIT user-uploaded source images (product photo, logo) so
+ * outputs stay faithful to the real product. A bounded optional placement
+ * replaces one existing page image when generation finishes. Distinct from
+ * the builder's in-build image tool.
  */
 export const generateImageInputSchema = z.object({
 	// Display name for the chat card and the Assets tab, in the user's
@@ -441,6 +461,7 @@ export const generateImageInputSchema = z.object({
 	// URLs of images the user attached in this conversation to edit or stay
 	// faithful to. Each MUST exactly match a user-provided attachment.
 	sourceImageUrls: z.array(z.url()).max(3).default([]),
+	placement: generateImagePlacementSchema.optional(),
 });
 
 export const generateImageOutputSchema = z.object({

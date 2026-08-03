@@ -17,6 +17,11 @@ describe("mapDomain", () => {
 							value: "customers.wandit.app",
 						},
 					],
+					triggerConfiguration: {
+						nextAttempt: 4,
+						nextProbeAt: "2026-07-04T00:15:00.000Z",
+						nonce: "manual:private",
+					},
 				},
 			}),
 		);
@@ -32,6 +37,8 @@ describe("mapDomain", () => {
 			],
 		});
 		expect(JSON.stringify(mapped.dns)).not.toContain("purchaseDnsConfigured");
+		expect(JSON.stringify(mapped.dns)).not.toContain("triggerConfiguration");
+		expect(JSON.stringify(mapped.dns)).not.toContain("manual:private");
 	});
 
 	it("never exposes the internal price snapshot", () => {

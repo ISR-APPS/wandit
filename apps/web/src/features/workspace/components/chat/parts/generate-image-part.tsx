@@ -14,9 +14,11 @@ import { type ReactNode, useEffect } from "react";
 
 import { invalidateBalanceAfterGenerationTerminal } from "@/features/credits/lib/terminal-balance-invalidation";
 import { useTranslation } from "@/lib/i18n";
-import { useImageGenerationAttemptQuery } from "../../../api/image-generations.queries";
+import {
+	invalidateCompletedImageGeneration,
+	useImageGenerationAttemptQuery,
+} from "../../../api/image-generations.queries";
 import { imageGenerationDownloadUrl } from "../../../api/image-generations.services";
-import { projectAssetKeys } from "../../../api/project-assets.queries";
 import { useWorkspace } from "../../../lib/store";
 import type { WanditUIMessage } from "../../../lib/use-ai-chat";
 import { SpinnerArc } from "../request-tray/tray-signals";
@@ -81,7 +83,8 @@ function ImageGenerationCard({ attemptId }: { attemptId: string }) {
 	} = useImageGenerationAttemptQuery(attemptId);
 
 	// Once the images exist, the Assets tab should show them without a manual
-	// refresh.
+	// refresh. Placement stays pending briefly after image success, so this
+	// effect runs again when the worker records its final outcome.
 	const succeeded = attempt?.status === "succeeded";
 	const terminalStatus =
 		attempt?.status === "succeeded" || attempt?.status === "failed"
@@ -94,10 +97,12 @@ function ImageGenerationCard({ attemptId }: { attemptId: string }) {
 
 	useEffect(() => {
 		if (!succeeded) return;
-		void queryClient.invalidateQueries({
-			queryKey: projectAssetKeys.list(projectId),
-		});
-	}, [succeeded, projectId, queryClient]);
+		invalidateCompletedImageGeneration(
+			queryClient,
+			projectId,
+			attempt.placement?.status,
+		);
+	}, [attempt?.placement?.status, projectId, queryClient, succeeded]);
 
 	if (error) {
 		return (
@@ -185,7 +190,7 @@ function ImageGenerationCard({ attemptId }: { attemptId: string }) {
 	);
 }
 
-function ImageGenerationResult({
+export function ImageGenerationResult({
 	attempt,
 }: {
 	attempt: ImageGenerationAttempt;
@@ -213,6 +218,11 @@ function ImageGenerationResult({
 			<p className="mt-2 font-mono text-[10px] text-muted-foreground">
 				{t("workspace.chat.generateImage.inAssetsTab")}
 			</p>
+			{attempt.placement?.status === "failed" ? (
+				<p dir="auto" className="mt-1.5 text-[11px] text-muted-foreground">
+					{t("workspace.chat.generateImage.placementFailed")}
+				</p>
+			) : null}
 		</div>
 	);
 }

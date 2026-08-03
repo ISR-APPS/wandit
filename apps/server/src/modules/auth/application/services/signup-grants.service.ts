@@ -1,13 +1,7 @@
-import { InjectQueue } from "@nestjs/bullmq";
 import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
-import {
-	SIGNUP_GRANT_SWEEP_JOB,
-	SIGNUP_GRANTS_QUEUE,
-	type SignupGrantSweepJobData,
-} from "@wandit/jobs";
-import type { Queue } from "bullmq";
 
 import { ProductSettingsService } from "../../../settings/application/services/product-settings.service";
+import { TriggerSignupGrantDispatcherService } from "../../infrastructure/trigger/trigger-signup-grant-dispatcher.service";
 import { SignupGrantOutboxService } from "./signup-grant-outbox.service";
 
 @Injectable()
@@ -20,8 +14,8 @@ export class SignupGrantsService {
 		@Inject(SignupGrantOutboxService)
 		private readonly outboxService: SignupGrantOutboxService,
 		@Optional()
-		@InjectQueue(SIGNUP_GRANTS_QUEUE)
-		private readonly signupGrantsQueue?: Queue<SignupGrantSweepJobData>,
+		@Inject(TriggerSignupGrantDispatcherService)
+		private readonly dispatcher?: TriggerSignupGrantDispatcherService,
 	) {}
 
 	async handleUserCreated(userId: string): Promise<void> {
@@ -48,21 +42,24 @@ export class SignupGrantsService {
 			return;
 		}
 
-		if (!this.signupGrantsQueue) {
+		if (!this.dispatcher) {
 			this.logger.warn(
-				`Signup grant for user ${userId} remains pending because the queue is disabled`,
+				`Signup grant for user ${userId} remains pending; the scheduled Trigger sweep will retry it`,
 			);
 
 			return;
 		}
 
-		await this.signupGrantsQueue.add(
-			SIGNUP_GRANT_SWEEP_JOB,
-			{ userId },
-			{
-				jobId: `signup-grant-${encodeURIComponent(userId)}`,
-				removeOnComplete: true,
-			},
-		);
+		try {
+			await this.dispatcher.triggerDelivery(userId);
+		} catch (error) {
+			// The row is already durable and the scheduled sweep is authoritative.
+			// Treat this low-latency Trigger handoff as an optional accelerator.
+			this.logger.warn(
+				`Signup grant on-demand Trigger handoff failed for user ${userId}; scheduled sweep remains authoritative: ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+			);
+		}
 	}
 }

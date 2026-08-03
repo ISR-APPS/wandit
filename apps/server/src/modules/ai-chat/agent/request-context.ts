@@ -25,7 +25,9 @@ const PAGE_GOALS = ["cod", "leads", "service", "promo"] as const;
 type PageGoal = (typeof PAGE_GOALS)[number];
 
 const GOAL_LINES: Record<PageGoal, string> = {
-	cod: "  Objectif: Vente COD — the page converts through an Algerian COD order form.",
+	cod:
+		"  Objectif: Vente COD — this is a COD funnel build; run the COD intake, including the optional block question.\n" +
+		'  Sample COD worlds, then pass the chosen worldIds (base first) and pageKind: "cod" to generate_page. This setting is cargo, never law; the user\'s words still win.',
 	leads:
 		"  Objectif: Capture de leads — the page converts through a lead form (name + phone).",
 	promo:

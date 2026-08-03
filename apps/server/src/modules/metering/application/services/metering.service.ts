@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 
-import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 
 import { CreditsService } from "../../../credits/application/services/credits.service";
 import {
@@ -18,11 +18,9 @@ import {
 	isBundledUnmeteredStepUsage,
 	isGatewayUsagePending,
 	METERING_GATEWAY,
-	METERING_RECONCILIATION_SCHEDULER,
 	type MeteredOperation,
 	type MeteringGateway,
 	type MeteringReconcileOutcome,
-	type MeteringReconciliationScheduler,
 	type MeteringReconciliationSweepOutcome,
 	type MeteringRecoveryOutcome,
 	type MeteringReserveEstimate,
@@ -49,6 +47,18 @@ import {
 import { ModelPricingService } from "./model-pricing.service";
 
 const POSTGRES_INTEGER_MAX = 2_147_483_647;
+
+// The retired BullMQ path made eight attempts after a 10-second delay with a
+// 2-second exponential backoff (about 4.5 minutes total). Minute-batched
+// Trigger reconciliation uses durable event timestamps for the equivalent
+// finite budget, so restarts cannot reset it and pending provider rows cannot
+// retain holds or starve a scan page forever.
+// Age budget is anchored to settlement time, not first observation: a Trigger
+// schedule outage longer than this window terminalizes still-pending events on
+// the first resumed sweep. 30 min tolerates realistic schedule gaps; the cost
+// of a late terminalization is provider-cost drift only (customer charges stand).
+export const SETTLED_RECONCILIATION_PENDING_MAX_AGE_MS = 30 * 60_000;
+export const RESERVED_RECONCILIATION_PENDING_MAX_AGE_MS = 45 * 60_000;
 
 type PerMinuteDurationEvidence = {
 	authoritativeDurationSeconds: number;
@@ -86,9 +96,6 @@ export class MeteringService {
 		private readonly modelPricing: ModelPricingService,
 		@Inject(METERING_GATEWAY)
 		private readonly gateway: MeteringGateway,
-		@Optional()
-		@Inject(METERING_RECONCILIATION_SCHEDULER)
-		private readonly reconciliationScheduler?: MeteringReconciliationScheduler,
 	) {}
 
 	async findByIdempotencyKey(
@@ -286,7 +293,6 @@ export class MeteringService {
 			return updated;
 		});
 
-		await this.scheduleReconciliationIfReady(completed);
 		return completed;
 	}
 
@@ -426,13 +432,11 @@ export class MeteringService {
 
 			if (existing.status === "settled") {
 				this.assertTokenSettlementReplay(existing, settlement);
-				await this.scheduleReconciliationIfReady(existing);
 				return existing;
 			}
 
 			if (existing.status === "reconciled") {
 				this.assertReconciledTokenSettlementReplay(existing, settlement);
-				await this.scheduleReconciliationIfReady(existing);
 				return existing;
 			}
 
@@ -457,7 +461,6 @@ export class MeteringService {
 			),
 		);
 
-		await this.scheduleReconciliationIfReady(settled);
 		return settled;
 	}
 
@@ -558,7 +561,6 @@ export class MeteringService {
 			return this.settleLockedEvent(event, settlement, prepared, transaction);
 		});
 
-		await this.scheduleReconciliationIfReady(settled);
 		return settled;
 	}
 
@@ -630,11 +632,6 @@ export class MeteringService {
 
 			return { child: settledChild, parent: settledParent };
 		});
-
-		await this.scheduleReconciliationIfReady(outcome.parent);
-		if (outcome.child) {
-			await this.scheduleReconciliationIfReady(outcome.child);
-		}
 
 		return outcome;
 	}
@@ -742,11 +739,6 @@ export class MeteringService {
 			return { child: settledChild, parent: settledParent };
 		});
 
-		await this.scheduleReconciliationIfReady(outcome.parent);
-		if (outcome.child) {
-			await this.scheduleReconciliationIfReady(outcome.child);
-		}
-
 		return outcome;
 	}
 
@@ -803,7 +795,6 @@ export class MeteringService {
 			return { event, ref };
 		});
 
-		await this.scheduleReconciliationIfReady(captured.event);
 		return captured.ref;
 	}
 
@@ -1061,6 +1052,7 @@ export class MeteringService {
 	async recoverStaleReservations(
 		createdBefore: Date,
 		limit = 100,
+		now = new Date(),
 	): Promise<MeteringRecoveryOutcome> {
 		if (!Number.isInteger(limit) || limit <= 0) {
 			throw new Error("Metering recovery limit must be a positive integer");
@@ -1093,7 +1085,6 @@ export class MeteringService {
 				} else if (recovered.status === "reserved") {
 					// A generation ref landed between the sweep read and the locked
 					// refund check. Leave the hold intact and retry reconciliation.
-					await this.schedulePendingReconciliation(event.id);
 					outcome.pending += 1;
 				}
 
@@ -1109,8 +1100,16 @@ export class MeteringService {
 				outcome.reconciled += 1;
 			} catch (error) {
 				if (error instanceof GatewayUsagePendingError) {
-					await this.schedulePendingReconciliation(event.id);
-					outcome.pending += 1;
+					if (
+						event.createdAt.getTime() +
+							RESERVED_RECONCILIATION_PENDING_MAX_AGE_MS <=
+						now.getTime()
+					) {
+						await this.terminalizeRecoveryFailure(event.id, error);
+						outcome.failed += 1;
+					} else {
+						outcome.pending += 1;
+					}
 				} else {
 					await this.terminalizeRecoveryFailure(event.id, error);
 					outcome.failed += 1;
@@ -1124,6 +1123,7 @@ export class MeteringService {
 	async recoverUnreconciledSettled(
 		createdBefore: Date,
 		limit = 100,
+		now = new Date(),
 	): Promise<MeteringReconciliationSweepOutcome> {
 		if (!Number.isInteger(limit) || limit <= 0) {
 			throw new Error("Metering recovery limit must be a positive integer");
@@ -1150,8 +1150,18 @@ export class MeteringService {
 				outcome.reconciled += 1;
 			} catch (error) {
 				if (error instanceof GatewayUsagePendingError) {
-					await this.schedulePendingReconciliation(event.id);
-					outcome.pending += 1;
+					const pendingSince = event.settledAt ?? event.createdAt;
+
+					if (
+						pendingSince.getTime() +
+							SETTLED_RECONCILIATION_PENDING_MAX_AGE_MS <=
+						now.getTime()
+					) {
+						await this.terminalizeRecoveryFailure(event.id, error);
+						outcome.failed += 1;
+					} else {
+						outcome.pending += 1;
+					}
 				} else {
 					await this.terminalizeRecoveryFailure(event.id, error);
 					outcome.failed += 1;
@@ -1369,52 +1379,6 @@ export class MeteringService {
 		}
 
 		return updated;
-	}
-
-	private async scheduleReconciliationIfReady(
-		event: AiUsageEvent,
-	): Promise<void> {
-		if (
-			!this.reconciliationScheduler ||
-			event.status !== "settled" ||
-			isBundledReservationPending(event.attemptRef)
-		) {
-			return;
-		}
-
-		try {
-			const refs = await this.repository.listGenerationRefs(event.id);
-
-			if (refs.length > 0) {
-				await this.reconciliationScheduler.schedule(event.id);
-			}
-		} catch (error) {
-			// Provider output and the financial settlement are already durable.
-			// Queue unavailability is recovered by the periodic settled-event sweep.
-			this.logger.warn(
-				`Failed to schedule AI usage reconciliation for ${event.id}: ${
-					error instanceof Error ? error.message : String(error)
-				}`,
-			);
-		}
-	}
-
-	private async schedulePendingReconciliation(eventId: string): Promise<void> {
-		if (!this.reconciliationScheduler) {
-			return;
-		}
-
-		try {
-			await this.reconciliationScheduler.schedule(eventId);
-		} catch (error) {
-			// Keep the event selectable by the periodic sweep. A later sweep can
-			// enqueue the same stable per-event job after Redis recovers.
-			this.logger.warn(
-				`Failed to schedule pending AI usage reconciliation for ${eventId}: ${
-					error instanceof Error ? error.message : String(error)
-				}`,
-			);
-		}
 	}
 
 	private async terminalizeRecoveryFailure(

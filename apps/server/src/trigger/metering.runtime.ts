@@ -1,14 +1,9 @@
 import { gateway } from "@ai-sdk/gateway";
 import type { createDb } from "@wandit/db";
-import { env } from "@wandit/env/server";
-import {
-	METERING_QUEUE,
-	type MeteringJobData,
-	type MeteringJobName,
-} from "@wandit/jobs";
-import { Queue } from "bullmq";
 
-import { createRedisConnectionOptions } from "../infrastructure/redis/redis-connection";
+import type { AnalyticsService } from "../infrastructure/analytics/analytics.service";
+import { ConnectorGenerationRecoveryService } from "../modules/connector-generations/application/services/connector-generation-recovery.service";
+import { ConnectorGenerationsRepository } from "../modules/connector-generations/infrastructure/persistence/connector-generations.repository";
 import { CreditsService } from "../modules/credits/application/services/credits.service";
 import { CreditsRepository } from "../modules/credits/infrastructure/persistence/credits.repository";
 import { MeteringService } from "../modules/metering/application/services/metering.service";
@@ -18,42 +13,50 @@ import {
 } from "../modules/metering/application/services/model-pricing.service";
 import { MeteringRepository } from "../modules/metering/infrastructure/persistence/metering.repository";
 import { ModelPricesRepository } from "../modules/metering/infrastructure/persistence/model-prices.repository";
-import { enqueueMeteringReconciliation } from "../modules/metering/infrastructure/queues/bullmq-metering-reconciliation.scheduler";
 
 type TriggerDatabase = ReturnType<typeof createDb>;
 const triggerModelPricingCache: ModelPricingCache = new Map();
 
+type TriggerAnalytics = Pick<AnalyticsService, "capture">;
+
 /** Hand-wires the same metering graph for Trigger.dev's non-Nest runtime. */
 export function createTriggerMetering(db: TriggerDatabase): MeteringService {
 	const credits = new CreditsService(new CreditsRepository(db));
-	const pricing = new ModelPricingService(new ModelPricesRepository(db), {
-		cache: triggerModelPricingCache,
-	});
-	const reconciliationScheduler = env.QUEUE_ENABLED
-		? {
-				schedule: async (eventId: string) => {
-					const queue = new Queue<MeteringJobData, unknown, MeteringJobName>(
-						METERING_QUEUE,
-						{
-							connection: createRedisConnectionOptions(env.REDIS_URL),
-							prefix: env.QUEUE_PREFIX,
-						},
-					);
-
-					try {
-						await enqueueMeteringReconciliation(queue, eventId);
-					} finally {
-						await queue.close();
-					}
-				},
-			}
-		: undefined;
+	const pricing = createTriggerModelPricing(db);
 
 	return new MeteringService(
 		new MeteringRepository(db),
 		credits,
 		pricing,
 		gateway,
-		reconciliationScheduler,
 	);
+}
+
+export function createTriggerModelPricing(
+	db: TriggerDatabase,
+): ModelPricingService {
+	return new ModelPricingService(new ModelPricesRepository(db), {
+		cache: triggerModelPricingCache,
+	});
+}
+
+/** Hand-wires checkpoint repair ahead of generic stranded-hold recovery. */
+export function createTriggerMeteringRecovery(
+	db: TriggerDatabase,
+	analytics: TriggerAnalytics,
+) {
+	const metering = createTriggerMetering(db);
+	const connectorRepository = new ConnectorGenerationsRepository(
+		db,
+		analytics as AnalyticsService,
+	);
+
+	return {
+		connectorRecovery: new ConnectorGenerationRecoveryService(
+			connectorRepository,
+			metering,
+			analytics as AnalyticsService,
+		),
+		metering,
+	};
 }

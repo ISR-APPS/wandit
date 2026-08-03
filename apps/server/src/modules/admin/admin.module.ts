@@ -1,8 +1,8 @@
 import { Module } from "@nestjs/common";
 
 import { DatabaseModule } from "../../infrastructure/database/database.module";
-import { QueuesModule } from "../../infrastructure/queues/queues.module";
 import { BillingWebhookEventsRepository } from "../billing/infrastructure/persistence/billing-webhook-events.repository";
+import { TriggerBillingWebhookDispatcherService } from "../billing/infrastructure/trigger/trigger-billing-webhook-dispatcher.service";
 import { CreditsModule } from "../credits/credits.module";
 import { DomainsModule } from "../domains/domains.module";
 import { LeadScrapesModule } from "../lead-scrapes/lead-scrapes.module";
@@ -40,7 +40,6 @@ import { AdminWebhooksController } from "./presentation/http/controllers/admin-w
 		MarketingAssetsModule,
 		PagesModule,
 		ProjectAssetsModule,
-		QueuesModule,
 		SitesModule,
 	],
 	providers: [
@@ -51,6 +50,7 @@ import { AdminWebhooksController } from "./presentation/http/controllers/admin-w
 		AdminWebhookReplayService,
 		BetaAccessService,
 		BillingWebhookEventsRepository,
+		TriggerBillingWebhookDispatcherService,
 	],
 })
 export class AdminModule {}

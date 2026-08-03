@@ -17,7 +17,6 @@ import {
 } from "@wandit/contracts";
 import { cn } from "@wandit/ui/lib/utils";
 import { AlertTriangle, Check, Code, ExternalLink } from "lucide-react";
-import { useState } from "react";
 
 import { creditsKeys } from "@/features/credits";
 import { pageKeys } from "../../../api/pages.queries";
@@ -109,13 +108,11 @@ function PageBuildCard({
 }) {
 	const { projectId } = useWorkspace();
 	const queryClient = useQueryClient();
-	const [settled, setSettled] = useState(false);
 
 	const live = useLiveRun({
 		handle: realtime,
-		enabled: !settled,
+		enabled: true,
 		onSettled: () => {
-			setSettled(true);
 			void queryClient.invalidateQueries({
 				queryKey: creditsKeys.balance(),
 			});

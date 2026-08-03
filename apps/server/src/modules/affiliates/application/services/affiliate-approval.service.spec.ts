@@ -23,7 +23,7 @@ describe("AffiliateApprovalService", () => {
 		expect(affiliatesRepository.approveEligible).toHaveBeenCalledWith();
 	});
 
-	it("propagates repository failures so BullMQ can retry the sweep", async () => {
+	it("propagates repository failures so Trigger.dev can retry the sweep", async () => {
 		const { affiliatesRepository, service } = setup();
 		affiliatesRepository.approveEligible.mockRejectedValueOnce(
 			new Error("database unavailable"),

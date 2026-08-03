@@ -323,7 +323,7 @@ Executed at 60 percent — dark background, gold accent, rounded cards, a produc
 		"photography",
 		"optical",
 	],
-	kind: "cod",
+	kind: "product",
 	mood: ["dark", "precious", "hushed", "curated", "exacting"],
 	name: "Vitrine",
 	priceFeel: "premium",

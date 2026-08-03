@@ -1,7 +1,6 @@
 import { Module } from "@nestjs/common";
 
 import { DatabaseModule } from "../../infrastructure/database/database.module";
-import { QueuesModule } from "../../infrastructure/queues/queues.module";
 import { AdminSecurityModule } from "../admin/admin-security.module";
 import { BillingPaymentsModule } from "../billing/billing-payments.module";
 import { AffiliateAdminService } from "./application/services/affiliate-admin.service";
@@ -15,6 +14,7 @@ import { AffiliatePayoutService } from "./application/services/affiliate-payout.
 import { AffiliateSelfReferralService } from "./application/services/affiliate-self-referral.service";
 import { AffiliateTokenService } from "./application/services/affiliate-token.service";
 import { AffiliateAdminRepository } from "./infrastructure/persistence/affiliate-admin.repository";
+import { TriggerAffiliateAttributionDispatcherService } from "./infrastructure/trigger/trigger-affiliate-attribution-dispatcher.service";
 import { AffiliateAdminController } from "./presentation/http/controllers/affiliate-admin.controller";
 import { AffiliateClickController } from "./presentation/http/controllers/affiliate-click.controller";
 
@@ -28,12 +28,7 @@ import { AffiliateClickController } from "./presentation/http/controllers/affili
 		AffiliatePayoutService,
 		AffiliateSelfReferralService,
 	],
-	imports: [
-		AdminSecurityModule,
-		BillingPaymentsModule,
-		DatabaseModule,
-		QueuesModule,
-	],
+	imports: [AdminSecurityModule, BillingPaymentsModule, DatabaseModule],
 	providers: [
 		AffiliateAdminRepository,
 		AffiliateAdminService,
@@ -46,6 +41,7 @@ import { AffiliateClickController } from "./presentation/http/controllers/affili
 		AffiliatePayoutService,
 		AffiliateSelfReferralService,
 		AffiliateTokenService,
+		TriggerAffiliateAttributionDispatcherService,
 	],
 })
 export class AffiliatesModule {}

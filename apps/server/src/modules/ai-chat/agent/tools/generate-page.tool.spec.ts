@@ -1,9 +1,14 @@
+import { Logger } from "@nestjs/common";
 import { auth, idempotencyKeys, tasks } from "@trigger.dev/sdk";
 import { env } from "@wandit/env/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { isR2Configured } from "../../../../infrastructure/storage/r2";
 import type { PagesRepository } from "../../../pages/infrastructure/persistence/pages.repository";
+import { argan } from "../worlds/cod/argan";
+import { atay } from "../worlds/cod/atay";
+import { COD_GENRE_DOC, FUSION_CONTRACT } from "../worlds/cod/genre";
+import { hammam } from "../worlds/cod/hammam";
 import { monographe } from "../worlds/monographe";
 import { createGeneratePageTool } from "./generate-page.tool";
 
@@ -33,9 +38,15 @@ vi.mock("../site-builder/builder-prompt", () => ({
 		.mockResolvedValue("builder prompt (test)"),
 }));
 
+vi.mock("../site-builder/cod-builder-prompt", () => ({
+	buildCodSiteBuilderSystemPrompt: vi
+		.fn()
+		.mockResolvedValue("COD builder prompt (test)"),
+}));
+
 const INPUT = {
 	brief:
-		"Arabic RTL landing page for handmade kabyle jewelry, Souk Heat direction, " +
+		"Arabic RTL landing page for handmade kabyle jewelry, Bazar Heat direction, " +
 		"COD form phone-first, prices in DZD, WhatsApp CTA.",
 	title: "Kabyle jewelry page",
 };
@@ -45,7 +56,7 @@ const mutableEnv = env as {
 	AI_PAGE_DESIGN_MODEL: string;
 };
 
-function setup() {
+function setup(options: { parentEventId?: string } = {}) {
 	const pagesRepository = {
 		findOrCreateLandingArtifact: vi.fn(),
 		insertAttempt: vi.fn(),
@@ -56,13 +67,20 @@ function setup() {
 	const generatePageTool = createGeneratePageTool({
 		chatId: "chat_1",
 		pagesRepository: pagesRepository as unknown as PagesRepository,
+		...(options.parentEventId ? { parentEventId: options.parentEventId } : {}),
 		projectId: "project_1",
 		userId: "user_1",
 	});
 
 	// The AI SDK calls execute with (input, callOptions); the tool ignores
 	// the call options, so a stub second argument is enough here.
-	const execute = (input: typeof INPUT & { worldId?: string }) => {
+	const execute = (
+		input: typeof INPUT & {
+			pageKind?: "cod" | "website";
+			worldId?: string;
+			worldIds?: string[];
+		},
+	) => {
 		const run = generatePageTool.execute;
 
 		if (!run) {
@@ -76,6 +94,22 @@ function setup() {
 	};
 
 	return { execute, pagesRepository };
+}
+
+function prepareSuccessfulQueue(
+	pagesRepository: ReturnType<typeof setup>["pagesRepository"],
+) {
+	vi.mocked(isR2Configured).mockReturnValue(true);
+	pagesRepository.findOrCreateLandingArtifact.mockResolvedValue({
+		activeVersionId: null,
+		id: "artifact_1",
+	});
+	pagesRepository.insertAttempt.mockResolvedValue({ id: "attempt_1" });
+	pagesRepository.nextVersionNumber.mockResolvedValue(1);
+	vi.mocked(tasks.trigger).mockResolvedValue({
+		id: "run_123",
+	} as Awaited<ReturnType<typeof tasks.trigger>>);
+	vi.mocked(auth.createPublicToken).mockResolvedValue("tok_read");
 }
 
 beforeEach(() => {
@@ -129,6 +163,7 @@ describe("generate_page tool", () => {
 			spec: {
 				brief: INPUT.brief,
 				designerSystemPrompt: "builder prompt (test)",
+				pageKind: "website",
 				title: INPUT.title,
 			},
 		});
@@ -186,6 +221,26 @@ describe("generate_page tool", () => {
 		expect(pagesRepository.markAttemptFailed).not.toHaveBeenCalled();
 	});
 
+	it("forwards the parent metering event to the background build", async () => {
+		const { execute, pagesRepository } = setup({
+			parentEventId: "44444444-4444-4444-8444-444444444444",
+		});
+		prepareSuccessfulQueue(pagesRepository);
+
+		await execute(INPUT);
+
+		expect(tasks.trigger).toHaveBeenCalledWith(
+			"generate-page",
+			{
+				attemptId: "attempt_1",
+				parentEventId: "44444444-4444-4444-8444-444444444444",
+			},
+			expect.objectContaining({
+				idempotencyKey: "global-page-build-key",
+			}),
+		);
+	});
+
 	it("appends the chosen design world's doc to the prompt snapshot", async () => {
 		const { execute, pagesRepository } = setup();
 		vi.mocked(isR2Configured).mockReturnValue(true);
@@ -206,10 +261,90 @@ describe("generate_page tool", () => {
 				spec: {
 					brief: INPUT.brief,
 					designerSystemPrompt: `builder prompt (test)\n\n${monographe.doc}`,
+					pageKind: "website",
 					title: INPUT.title,
 				},
 			}),
 		);
+	});
+
+	it("assembles COD worldIds as genre law, fusion contract, base, then donors", async () => {
+		const { execute, pagesRepository } = setup();
+		prepareSuccessfulQueue(pagesRepository);
+
+		await execute({
+			...INPUT,
+			worldIds: [argan.id, hammam.id, atay.id],
+		});
+
+		expect(pagesRepository.insertAttempt).toHaveBeenCalledWith(
+			expect.objectContaining({
+				spec: {
+					brief: INPUT.brief,
+					designerSystemPrompt: [
+						"COD builder prompt (test)",
+						COD_GENRE_DOC,
+						FUSION_CONTRACT([argan, hammam, atay]),
+						argan.doc,
+						hammam.doc,
+						atay.doc,
+					].join("\n\n"),
+					pageKind: "cod",
+					title: INPUT.title,
+				},
+			}),
+		);
+	});
+
+	it("builds with COD genre law alone and persists pageKind", async () => {
+		const { execute, pagesRepository } = setup();
+		prepareSuccessfulQueue(pagesRepository);
+
+		await execute({ ...INPUT, pageKind: "cod" });
+
+		expect(pagesRepository.insertAttempt).toHaveBeenCalledWith(
+			expect.objectContaining({
+				spec: {
+					brief: INPUT.brief,
+					designerSystemPrompt: `COD builder prompt (test)\n\n${COD_GENRE_DOC}`,
+					pageKind: "cod",
+					title: INPUT.title,
+				},
+			}),
+		);
+	});
+
+	it("warns and drops unknown ids while preserving resolved fusion order", async () => {
+		const warn = vi
+			.spyOn(Logger.prototype, "warn")
+			.mockImplementation(() => undefined);
+		const { execute, pagesRepository } = setup();
+		prepareSuccessfulQueue(pagesRepository);
+
+		await execute({
+			...INPUT,
+			worldIds: [argan.id, "no-such-world", atay.id],
+		});
+
+		expect(warn).toHaveBeenCalledWith(
+			expect.stringContaining('Unknown worldId "no-such-world"'),
+		);
+		expect(pagesRepository.insertAttempt).toHaveBeenCalledWith(
+			expect.objectContaining({
+				spec: expect.objectContaining({
+					designerSystemPrompt: [
+						"COD builder prompt (test)",
+						COD_GENRE_DOC,
+						FUSION_CONTRACT([argan, atay]),
+						argan.doc,
+						atay.doc,
+					].join("\n\n"),
+					pageKind: "cod",
+				}),
+			}),
+		);
+
+		warn.mockRestore();
 	});
 
 	it("falls back to a world-less snapshot on an unknown worldId", async () => {
@@ -232,6 +367,7 @@ describe("generate_page tool", () => {
 				spec: {
 					brief: INPUT.brief,
 					designerSystemPrompt: "builder prompt (test)",
+					pageKind: "website",
 					title: INPUT.title,
 				},
 			}),

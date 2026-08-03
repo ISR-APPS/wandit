@@ -267,7 +267,7 @@ describe("ElementPanel", () => {
 		expect(html).toContain("https://example.com/hero.jpg");
 	});
 
-	it("replaces the frozen edit controls with the localized AI working state", () => {
+	it("keeps manual controls inert without owning the shared working visuals", () => {
 		mocks.editor.isAskAiDispatching = true;
 		const html = renderTag("p");
 		const fieldset = html.match(/<fieldset[^>]*>[\s\S]*<\/fieldset>/)?.[0];
@@ -277,36 +277,28 @@ describe("ElementPanel", () => {
 		expect(fieldset).toContain('inert=""');
 		expect(fieldset).toContain('aria-disabled="true"');
 		expect(fieldset).toContain("pointer-events-none");
-		expect(fieldset).toContain('data-slot="element-panel-skeleton"');
-		expect(fieldset).toContain('data-slot="skeleton"');
-		expect(fieldset).toContain("animate-shimmer");
-		expect(fieldset).toContain("motion-reduce:animate-none");
-		expect(fieldset).toContain('data-slot="element-panel-controls" hidden=""');
+		expect(fieldset).toContain('data-slot="element-panel-controls"');
+		expect(fieldset).not.toContain('data-slot="editor-panel-skeleton"');
+		expect(fieldset).not.toContain("animate-shimmer");
 		expect(fieldset).toContain("fontWeight");
-		expect(html).toContain('role="status"');
-		expect(html).toContain('aria-live="polite"');
-		expect(html).toContain("aiApplying");
-		expect(html).toContain("animate-pulse-soft");
-		expect(html).not.toContain("opacity-45");
-		// The selection path stays outside the frozen manual controls.
+		expect(html).not.toContain('role="status"');
+		expect(html).not.toContain("aiApplying");
+		// The selection path stays outside the defensively frozen manual controls.
 		expect(html.indexOf("selectionPath")).toBeLessThan(
 			html.indexOf("<fieldset"),
 		);
 	});
 
-	it("restores the controls immediately after scoped AI finishes", () => {
-		mocks.editor.isAskAiDispatching = true;
-		expect(renderTag("p")).toContain("aiApplying");
-
+	it("restores direct control interactivity after scoped AI finishes", () => {
 		mocks.editor.isAskAiDispatching = false;
 		const html = renderTag("p");
 
 		expect(html).not.toContain("aiApplying");
-		expect(html).not.toContain('data-slot="element-panel-skeleton"');
+		expect(html).not.toContain('data-slot="editor-panel-skeleton"');
 		expect(html).not.toContain("animate-shimmer");
 		expect(html).not.toContain('disabled=""');
 		expect(html).not.toContain('inert=""');
-		expect(html).not.toContain('data-slot="element-panel-controls" hidden=""');
+		expect(html).toContain('data-slot="element-panel-controls"');
 		expect(html).toContain("fontWeight");
 	});
 });

@@ -3,7 +3,6 @@ import {
 	AFFILIATE_ATTRIBUTION_COOKIE_NAME,
 	AFFILIATE_SIGNUP_TOKEN_FIELD,
 } from "@wandit/contracts";
-import { AFFILIATE_ATTRIBUTION_RETRY_JOB } from "@wandit/jobs";
 import type { GenericEndpointContext } from "better-auth";
 import { describe, expect, it, vi } from "vitest";
 
@@ -15,6 +14,7 @@ import type {
 	AffiliateTransaction,
 	InsertAttributionInput,
 } from "../../infrastructure/persistence/affiliates.repository";
+import type { TriggerAffiliateAttributionDispatcherService } from "../../infrastructure/trigger/trigger-affiliate-attribution-dispatcher.service";
 import { AffiliateAttributionService } from "./affiliate-attribution.service";
 import type { AffiliateCommissionService } from "./affiliate-commission.service";
 import type { AffiliateTokenService } from "./affiliate-token.service";
@@ -92,7 +92,7 @@ function signupContext(input: { bodyToken?: unknown; cookieToken?: string }) {
 	};
 }
 
-function setup(options: { queueEnabled?: boolean } = {}) {
+function setup(options: { dispatcherEnabled?: boolean } = {}) {
 	const order: string[] = [];
 	const tx = {
 		kind: "affiliate-transaction",
@@ -155,17 +155,18 @@ function setup(options: { queueEnabled?: boolean } = {}) {
 			async (_userId: string): Promise<number> => 0,
 		),
 	};
-	const queue = {
-		add: vi.fn(async () => {
-			order.push("enqueue");
-			return undefined;
+	const dispatcher = {
+		triggerRetry: vi.fn(async () => {
+			order.push("trigger");
 		}),
 	};
 	const service = new AffiliateAttributionService(
 		affiliatesRepository as unknown as AffiliatesRepository,
 		tokenService as unknown as AffiliateTokenService,
 		commissionService as unknown as AffiliateCommissionService,
-		options.queueEnabled === false ? undefined : (queue as never),
+		options.dispatcherEnabled === false
+			? undefined
+			: (dispatcher as unknown as TriggerAffiliateAttributionDispatcherService),
 	);
 
 	return {
@@ -173,7 +174,7 @@ function setup(options: { queueEnabled?: boolean } = {}) {
 		commissionService,
 		existingAttribution,
 		order,
-		queue,
+		dispatcher,
 		service,
 		tokenService,
 		tx,
@@ -433,35 +434,27 @@ describe("AffiliateAttributionService", () => {
 		);
 	});
 
-	it("persists a signed retry job before attempting the inline attribution lock", async () => {
-		const { order, queue, service } = setup();
+	it("triggers a signed durable retry before attempting the inline attribution lock", async () => {
+		const { dispatcher, order, service } = setup();
 		const { ctx } = signupContext({ cookieToken: "valid-token" });
 
 		await service.lockForCreatedUser(USER, ctx, NOW);
 
-		expect(order.slice(0, 2)).toEqual(["enqueue", "attribution-lock"]);
-		expect(queue.add).toHaveBeenCalledWith(
-			AFFILIATE_ATTRIBUTION_RETRY_JOB,
-			{
-				source: "signup_cookie",
-				token: "valid-token",
-				userId: USER.id,
-			},
-			expect.objectContaining({
-				attempts: 12,
-				jobId: "affiliate-attribution-user_1",
-				removeOnComplete: true,
-			}),
-		);
+		expect(order.slice(0, 2)).toEqual(["trigger", "attribution-lock"]);
+		expect(dispatcher.triggerRetry).toHaveBeenCalledWith({
+			source: "signup_cookie",
+			token: "valid-token",
+			userId: USER.id,
+		});
 	});
 
-	it("warns and continues inline when queues are intentionally disabled", async () => {
+	it("warns and continues inline when the dispatcher is unavailable", async () => {
 		const warn = vi
 			.spyOn(Logger.prototype, "warn")
 			.mockImplementation(() => {});
 		try {
-			const { affiliatesRepository, queue, service } = setup({
-				queueEnabled: false,
+			const { affiliatesRepository, dispatcher, service } = setup({
+				dispatcherEnabled: false,
 			});
 			const { ctx } = signupContext({ cookieToken: "valid-token" });
 
@@ -470,20 +463,20 @@ describe("AffiliateAttributionService", () => {
 			);
 
 			expect(warn).toHaveBeenCalledWith(
-				"Affiliate attribution retry skipped for user user_1: queue is disabled",
+				"Affiliate attribution retry skipped for user user_1: Trigger dispatcher is unavailable",
 			);
-			expect(queue.add).not.toHaveBeenCalled();
+			expect(dispatcher.triggerRetry).not.toHaveBeenCalled();
 			expect(affiliatesRepository.withAttributionLock).toHaveBeenCalledOnce();
 		} finally {
 			warn.mockRestore();
 		}
 	});
 
-	it("replays a queued signed token without enqueuing another job", async () => {
-		const { affiliatesRepository, queue, service } = setup();
+	it("replays a signed token without triggering another task", async () => {
+		const { affiliatesRepository, dispatcher, service } = setup();
 
 		await expect(
-			service.retryLockFromJob(
+			service.retryLock(
 				{
 					source: "signup_body",
 					token: "queued-token",
@@ -494,13 +487,15 @@ describe("AffiliateAttributionService", () => {
 		).resolves.toEqual(expect.objectContaining({ id: "attribution_1" }));
 
 		expect(affiliatesRepository.findUserIdentity).toHaveBeenCalledWith(USER.id);
-		expect(queue.add).not.toHaveBeenCalled();
+		expect(dispatcher.triggerRetry).not.toHaveBeenCalled();
 	});
 
 	it("reports when neither the inline lock nor durable retry is available", async () => {
-		const { affiliatesRepository, queue, service } = setup();
+		const { affiliatesRepository, dispatcher, service } = setup();
 		const { ctx } = signupContext({ cookieToken: "valid-token" });
-		queue.add.mockRejectedValueOnce(new Error("Redis unavailable"));
+		dispatcher.triggerRetry.mockRejectedValueOnce(
+			new Error("Trigger unavailable"),
+		);
 		affiliatesRepository.withAttributionLock.mockRejectedValueOnce(
 			new Error("Postgres unavailable"),
 		);

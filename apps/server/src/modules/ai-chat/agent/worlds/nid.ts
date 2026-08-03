@@ -259,7 +259,7 @@ Executed at 100 percent — milk paper with pastel weather drifting behind it, p
 		"photography",
 		"ecommerce",
 	],
-	kind: "cod",
+	kind: "product",
 	mood: ["soft", "reassuring", "tender", "rounded", "careful"],
 	name: "Nid",
 	priceFeel: "accessible",

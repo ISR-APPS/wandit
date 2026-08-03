@@ -57,8 +57,8 @@ transaction (§4.2).
 ## 2. Schema (packages/db) — all additive, migrations via db:generate
 
 1. **`credit_bucket` + `'promo'`.** Spend order `plan → promo → topup` defined ONCE as a shared
-   exported constant; every consumer (credits.service consume + refund-lookup, worker-credits,
-   contracts zod enums, balance/ledger repos, web/admin DTOs) uses it. Clawback code paths keep a
+   exported constant; every consumer (credits.service consume + refund-lookup, legacy worker
+   metering, contracts zod enums, balance/ledger repos, web/admin DTOs) uses it. Clawback code paths keep a
    separate `PURCHASED_CREDIT_BUCKETS = ['plan','topup']` and **fail loudly** if a payment-linked
    `promo` row is ever encountered (promo is never payment-funded, by construction).
    Metering consumes that touch the plan bucket also create a durable `credit_plan_holds` row.
@@ -116,15 +116,17 @@ transaction (§4.2).
    `subscription_details.proration_date` on preview — verified in installed stripe-node v20).
 8. **`signup_grant_outbox`** — durable free-credit delivery: `userId PK, credits,
    settingsVersion, status (pending|done|skipped), attempts, lastError, createdAt, doneAt`.
-   Inline grant attempted first; on failure the outbox row (already written) is swept by
-   worker/API interval; ledger idempotency stays `signup:{userId}`.
+   Inline grant attempted first; on failure the outbox row (already written) is swept by a
+   Trigger.dev scheduled task. The API also makes a best-effort on-demand Trigger handoff so
+   recovery can start sooner; the schedule remains the durable backstop and ledger idempotency
+   stays `signup:{userId}`.
 9. **`beta_access_events`**: `id, userId, action (granted|revoked), actorUserId, reason,
    createdAt`.
 10. **`model_prices`**: `modelId unique, provider, modelType, inputUsdMicrosPerMTok,
     outputUsdMicrosPerMTok, cacheReadUsdMicrosPerMTok, cacheWriteUsdMicrosPerMTok,
     imageUsdMicros, raw jsonb, refreshedAt` — DB-persisted (API/worker/Trigger.dev are separate
-    processes); each process reads through a ~1h TTL cache; worker job refreshes from gateway
-    `GET /v1/models`; checked-in seed JSON = cold-start fallback.
+    processes); each process reads through a ~1h TTL cache; an hourly Trigger.dev task refreshes
+    from gateway `GET /v1/models`; checked-in seed JSON = cold-start fallback.
 11. **Affiliates** (all tables: uuid PKs default gen_random_uuid, createdAt/updatedAt
     timestamptz, FKs restrict, money integer cents + currency text, rates int bps with
     `CHECK (rate BETWEEN 0 AND 10000)`, amount sign checks; indexes as noted):
@@ -178,8 +180,9 @@ transaction (§4.2).
   method, invoice history, cancel only — NO plan switching; our own UI owns changes so portal
   can't bypass kill switches or the change-intent flow).
 - Signup grant: settings-gated, `promo` bucket, inline attempt + `signup_grant_outbox` fallback
-  sweep (§2.8). Queue optional everywhere (`@Optional()` injection, logged no-op fallback —
-  API must boot with `QUEUE_ENABLED=false`).
+  sweep (§2.8). Trigger dispatch is best-effort and never substitutes for the persisted outbox;
+  the API boots without Redis/BullMQ and a missing Trigger key only delays work until the
+  deployed schedule runs.
 - Atomic beta enroll `POST /admin/users/:userId/beta-enroll {credits, reason, idempotencyKey}`:
   one transaction = earlyAccess flag + promo grant + `beta_access_events` row. Requires
   `CreditsService.grant` to become **transaction-aware** (accept an external tx/conn), ledger
@@ -253,7 +256,7 @@ remote subscription mirror.
   charge refund/dispute state, recompute ONE cumulative revocation target (refunds remain
   valid!), restore only the excess over that target (compensating grants, idempotent per
   dispute) — never blanket-restore.
-- **Webhook dead-lettering**: worker sweep retries `failed` events with capped backoff;
+- **Webhook dead-lettering**: a scheduled Trigger.dev sweep retries `failed` events with capped backoff;
   `POST /admin/webhooks/:id/replay` (audited) for events Stripe no longer redelivers; alert log
   on dead-letter.
 - Checkout intent nonce (Stripe idempotency key `sub-checkout:{userId}:{nonce}` persisted
@@ -276,14 +279,16 @@ remote subscription mirror.
    pricing snapshot. Usage-detail fallback: uncached input = `inputTokens − cacheRead −
    cacheWrite` (clamped ≥0) when `inputTokenDetails` absent — never bill zero input on missing
    details.
-4. **Stranded recovery**: worker sweep finds `reserved` events older than T (crash mid-stream):
+4. **Stranded recovery**: a scheduled Trigger.dev sweep finds `reserved` events older than T (crash mid-stream):
    attempt gateway reconciliation by any captured generation refs; else refund the hold and
    mark `refunded`.
 5. **Reconcile**: `ai_usage_generation_refs` (§2.4) captures EVERY generationId (ToolLoop = many
-   per op; providerMetadata is generically typed — runtime narrowing). Worker job (~10s later)
-   calls `gateway.getGenerationInfo(id)` per ref → aggregate authoritative cost; adjust ≥1-credit
-   deltas with compensating rows; statuses `reconciled`/`reconcile_failed`. Retry on
-   "Usage event not found" (async ingestion).
+   per op; providerMetadata is generically typed — runtime narrowing). One scheduled Trigger.dev
+   run per minute claims and processes a bounded batch of all pending refs; there is deliberately
+   no per-event Trigger run. It calls `gateway.getGenerationInfo(id)` per ref → aggregates
+   authoritative cost; adjusts ≥1-credit deltas with compensating rows; and writes
+   `reconciled`/`reconcile_failed`. "Usage event not found" remains retryable because provider
+   ingestion is asynchronous.
 6. **Operation registry** (single module): operation type → pricing mode (token|fixed|per-minute)
    + reserve floor + parent/child rules. EXHAUSTIVE coverage, verified by a spec that walks
    every AI invocation site: chat, builder steps, **builder's direct image (≤6) and video (≤2)
@@ -334,7 +339,7 @@ remote subscription mirror.
   targeting under an invoice/charge lock (mirror the payment-refunds pattern); dispute won →
   compensating positive adjustment. Post-payout clawbacks = negative affiliate balance carried
   forward.
-- **Approval sweep** (worker, daily): pending → approved when `holdUntil` passes AND
+- **Approval sweep** (Trigger.dev, daily at 04:00 UTC): pending → approved when `holdUntil` passes AND
   attribution not voided AND no unresolved fraud flags (**flagged rows are excluded from
   approval/payout, not just decorated**). Self-referral checks run at lock AND re-run when an
   affiliate later links a userId.
@@ -382,8 +387,8 @@ remote subscription mirror.
   sweep, error codes + 402 details end-to-end plumbing, settings module + guards +
   public endpoint, signup grant rework (promo/outbox/toggle), spend-order promo everywhere
   (+ PURCHASED_CREDIT_BUCKETS guard), transaction-aware grant + namespaced idempotency +
-  replay fingerprint, beta-enroll + audit events, jobs contract entries for new queues,
-  `@Optional()` queue pattern.
+  replay fingerprint, beta-enroll + audit events, Trigger.dev task contracts and best-effort
+  API handoffs backed by persisted sweep state.
   *Tests*: catalog spec rewrite; settings spec; early-access passthrough; promo spend-order +
   refund-with-promo cases; beta-enroll atomicity/idempotency/replay-mismatch; 402 filter
   details; outbox sweep.
@@ -426,12 +431,42 @@ table (version + updatedBy + logs suffice).
 
 ## 11. Dev/prod operational contract
 
-`QUEUE_ENABLED=false` (dev default): no refill sweeps, no reconciliation, no approval sweeps,
-no outbox/webhook retries, and no durable affiliate-attribution retries — admission metering
-still fully works on estimates and signup attribution is attempted inline only. Prod REQUIRES
-worker + Redis; deployment note in README section of the PR. Stripe unconfigured locally →
-billing endpoints 503 (`BILLING_NOT_CONFIGURED`), specs run on fakes; Zack must seed test-mode
-Stripe + set STRIPE_SECRET_KEY/STRIPE_WEBHOOK_SECRET (+ portal configuration) before E2E.
+Billing maintenance is Trigger.dev-native and independent of `QUEUE_ENABLED`, Redis, and
+`apps/worker`. The production schedules are declarative and UTC:
+
+| Task | Cron | Notes |
+|---|---|---|
+| Subscription refill slot sweep | `*/10 * * * *` | CAS-claims due slots; entitlement is rechecked under the existing charge → user → refill-row lock order. |
+| Batched metering reconciliation | `* * * * *` | One bounded batch run handles all pending generation refs; never one Trigger run per event. |
+| Stranded reservation/checkpoint recovery | `*/15 * * * *` | Reconciles captured provider work before deciding whether a reservation is refundable. |
+| Affiliate commission approval | `0 4 * * *` | Rechecks attribution, fraud, and hold eligibility before approval. |
+| Billing webhook dead-letter retry | `*/10 * * * *` | Claim leases and persisted attempts preserve exactly-once terminal transitions. |
+| Signup-grant outbox | `*/5 * * * *` | Persisted outbox is authoritative; failed inline grants may also request an on-demand run. |
+| Model-price refresh | `0 * * * *` | Refreshes the shared DB catalog used by API, worker, and Trigger processes. |
+
+Frequent tasks use bounded-concurrency financial, metering, and model-pricing queues, finite
+`maxDuration`, and a TTL shorter than the schedule interval so stale runs cannot accumulate.
+Payment- or user-scoped on-demand handoffs use globally scoped hashed idempotency keys. The API
+imports task types only and triggers by task id; it does not bundle task implementations.
+
+`QUEUE_ENABLED=false` now disables only the remaining non-billing BullMQ paths. `apps/worker`'s
+AI queue performs `generate-copy` chat streaming and settles the reservation carried by that job;
+`generate-site` and `revise-site` remain reserved job names. The media-generation,
+lead-processing, and publishing consumers are currently scaffolds that return `processed: false`
+without product or billing side effects. The worker runs no refill, reconciliation, recovery,
+affiliate, webhook, signup-grant, or pricing schedule. Consequently worker + Redis are not
+billing-maintenance dependencies.
+
+The API must boot without Redis and without `TRIGGER_SECRET_KEY`. Without a Trigger key,
+signup-grant and admin-replay handoffs can fall back to persisted outbox/inbox state and deployed
+schedules. Affiliate attribution has only its inline attempt because its signed token is not
+persisted locally, so production must configure the Trigger key before attributed signups.
+Stripe unconfigured locally → billing endpoints 503 (`BILLING_NOT_CONFIGURED`), specs run on
+fakes; Zack must seed test-mode Stripe + set
+`STRIPE_SECRET_KEY`/`STRIPE_WEBHOOK_SECRET` (+ portal configuration) before E2E. Production must
+also deploy the complete `apps/server/src/trigger` task set and configure Trigger.dev's runtime
+environment before enabling billing admissions. The Redis drain and affiliate-token translation
+gates in `docs/features/billing.md` are mandatory before deploying the final consumer removal.
 
 ## 12. Grandfathering appendix (activates ONLY if the zero-live-subs assertion fails)
 

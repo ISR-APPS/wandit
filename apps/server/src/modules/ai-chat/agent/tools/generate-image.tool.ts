@@ -1,5 +1,6 @@
 /**
- * generate_image — queues one standalone image generation (1-4 images).
+ * generate_image — queues one image generation (1-4 images), optionally
+ * placing one result into a current page image when it finishes.
  *
  * Two paths share one attempt: pure text-to-image, and EDIT mode when the
  * model passes user-attached source images (product photo, logo) so outputs
@@ -19,8 +20,10 @@ import {
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import { type Tool, tool } from "ai";
+import * as cheerio from "cheerio";
 
 import {
+	getPageHtml,
 	isR2Configured,
 	isUserUploadUrl,
 } from "../../../../infrastructure/storage/r2";
@@ -34,6 +37,8 @@ import {
 import type { ImageGenerationsRepository } from "../../../image-generations/infrastructure/persistence/image-generations.repository";
 import { assertFixedOperationProviderExecutionAllowed } from "../../../metering/application/services/fixed-operation-billing";
 import type { MeteringService } from "../../../metering/application/services/metering.service";
+import { stampHtml } from "../../../pages/domain/stamp";
+import type { PagesRepository } from "../../../pages/infrastructure/persistence/pages.repository";
 import type { AvailableImage } from "./animate-image.tool";
 
 const logger = new Logger("generate-image");
@@ -46,6 +51,7 @@ export type GenerateImageToolDeps = {
 	imageGenerationsRepository: ImageGenerationsRepository;
 	meteringService: MeteringService;
 	parentEventId?: string;
+	pagesRepository: PagesRepository;
 	projectId: string;
 	// Composer quality tier, snapshotted for later model swapping — the
 	// generator does not read it yet.
@@ -64,9 +70,13 @@ export function createGenerateImageTool(
 
 	return tool({
 		description:
-			"Queue a standalone image generation (1-4 images) that runs in the " +
-			"background; results appear in the conversation and in the user's " +
-			"Assets tab. To feature the user's REAL product or logo, pass the " +
+			"Queue an image generation (1-4 images) that runs in the background; " +
+			"results appear in the conversation and in the user's Assets tab. " +
+			"When replacing an existing page image, pass placement with that " +
+			"image's verified data-wid; the selected generated result is applied " +
+			"to the page automatically when ready. Do not ask for an attachment " +
+			"just to place a generated image. To feature the user's REAL product " +
+			"or logo faithfully, pass the " +
 			"exact URLs of images they attached as sourceImageUrls — the " +
 			"generator edits/stays faithful to them. Without sources it " +
 			"generates from the prompt alone. Call once per requested set.",
@@ -118,6 +128,30 @@ export function createGenerateImageTool(
 				}
 			}
 
+			if (input.placement) {
+				if (input.placement.imageIndex > input.count) {
+					return {
+						message:
+							`Placement requests generated image ${input.placement.imageIndex}, ` +
+							`but this request only generates ${input.count}. Choose an imageIndex ` +
+							"within the requested count.",
+						status: "unavailable",
+					};
+				}
+
+				const rejection = await validatePlacementTarget(
+					deps,
+					input.placement.wid,
+				);
+
+				if (rejection) {
+					return {
+						message: rejection,
+						status: "unavailable",
+					};
+				}
+			}
+
 			let attempt: {
 				created: boolean;
 				id: string;
@@ -131,11 +165,24 @@ export function createGenerateImageTool(
 							aspect: input.aspect,
 							count: input.count,
 							prompt: input.prompt,
+							placement: input.placement,
 							request: deps.requestKeySeed ?? options.toolCallId,
 							sourceImageUrls,
 						}),
 					)
 					.digest("hex");
+
+				const spec = {
+					...(deps.quality ? { quality: deps.quality } : {}),
+					...(input.placement
+						? {
+								placement: {
+									...input.placement,
+									status: "pending" as const,
+								},
+							}
+						: {}),
+				};
 
 				attempt = await deps.imageGenerationsRepository.insertAttempt({
 					aspect: input.aspect,
@@ -145,7 +192,7 @@ export function createGenerateImageTool(
 					prompt: input.prompt.trim(),
 					requestKey,
 					sourceImageUrls,
-					spec: deps.quality ? { quality: deps.quality } : undefined,
+					spec: Object.keys(spec).length > 0 ? spec : undefined,
 					title: input.title.trim(),
 				});
 			} catch (error) {
@@ -270,14 +317,65 @@ export function createGenerateImageTool(
 
 			return {
 				attemptId: attempt.id,
-				message:
-					"Queued: the images are being generated in the background. " +
-					"Progress and the results appear here in the conversation and " +
-					"in the Assets tab.",
+				message: input.placement
+					? "Queued: the images are being generated in the background, and " +
+						"the selected result will replace the page image when ready. " +
+						"Progress and the results appear here and in the Assets tab."
+					: "Queued: the images are being generated in the background. " +
+						"Progress and the results appear here in the conversation and " +
+						"in the Assets tab.",
 				status: "queued",
 			};
 		},
 	});
+}
+
+async function validatePlacementTarget(
+	deps: Pick<GenerateImageToolDeps, "pagesRepository" | "projectId">,
+	wid: string,
+): Promise<string | null> {
+	try {
+		const page = await deps.pagesRepository.findActivePageByProjectUnchecked(
+			deps.projectId,
+		);
+
+		if (!page?.version) {
+			return "The page image could not be targeted because no active page exists. Inspect the current page before trying another edit.";
+		}
+
+		const html = await getPageHtml(page.version.r2Key);
+
+		if (html === null) {
+			return "The current page HTML could not be loaded, so the image placement was not queued. Re-read the page and try again.";
+		}
+
+		const raw = cheerio.load(html);
+		let matches = raw(`[data-wid="${wid}"]`);
+
+		// Current versions are stored stamped, but legacy versions may gain a
+		// deterministic wid only in the preview/read pipeline. Preserve raw
+		// duplicate detection, then fall back to that canonical stamped shape.
+		if (matches.length === 0) {
+			const stamped = cheerio.load(stampHtml(html));
+			matches = stamped(`[data-wid="${wid}"]`);
+		}
+
+		if (matches.length === 0) {
+			return `No element with data-wid="${wid}" exists on the current page. Re-read the target and fall back to another edit if needed.`;
+		}
+
+		if (matches.length !== 1) {
+			return `The data-wid "${wid}" is not unique on the current page. Re-read the target before trying another edit.`;
+		}
+
+		if (!matches.is("img")) {
+			return `The element with data-wid="${wid}" is not an <img>, so image placement was not queued. Use the appropriate page edit instead.`;
+		}
+
+		return null;
+	} catch {
+		return "The current page could not be loaded, so the image placement was not queued. Re-read the page and try again.";
+	}
 }
 
 async function triggerGenerateImageTask(payload: {

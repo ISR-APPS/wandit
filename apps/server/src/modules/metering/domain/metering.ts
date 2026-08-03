@@ -11,9 +11,6 @@ import type {
 } from "./model-pricing";
 
 export const METERING_GATEWAY = Symbol("METERING_GATEWAY");
-export const METERING_RECONCILIATION_SCHEDULER = Symbol(
-	"METERING_RECONCILIATION_SCHEDULER",
-);
 
 const BUNDLED_RESERVATION_PENDING_PREFIX = "bundled-pending:";
 const BUNDLED_RESERVATION_COMPLETE_PREFIX = "bundled-complete:";
@@ -167,10 +164,6 @@ export type MeteringReconciliationSweepOutcome = {
 
 export interface MeteringGateway {
 	getGenerationInfo(params: { id: string }): Promise<GatewayGenerationInfo>;
-}
-
-export interface MeteringReconciliationScheduler {
-	schedule(eventId: string): Promise<void>;
 }
 
 export type PreparedMeteringSettlement = {

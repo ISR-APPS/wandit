@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
+import type { Database } from "../../../../infrastructure/database/database.constants";
 import {
 	getObjectContentType,
 	imageGenerationKey,
@@ -10,6 +12,7 @@ import type {
 	ImageGenerationAttemptRow,
 	ImageGenerationsRepository,
 } from "../../infrastructure/persistence/image-generations.repository";
+import type { ImageGenerationPlacementService } from "./image-generation-placement.service";
 import { ImageGenerationsService } from "./image-generations.service";
 
 vi.mock("../../../../infrastructure/storage/r2", () => ({
@@ -27,24 +30,47 @@ vi.mock("../../../../infrastructure/analytics/analytics.service", () => ({
 	AnalyticsService: class AnalyticsService {},
 }));
 
-const BASE_ROW: ImageGenerationAttemptRow = {
-	aspect: "1:1",
+const ATTEMPT_ID = "11111111-1111-4111-8111-111111111111";
+const PROJECT_ID = "22222222-2222-4222-8222-222222222222";
+
+function attemptRow(
+	overrides: Partial<ImageGenerationAttemptRow> = {},
+): ImageGenerationAttemptRow {
+	return {
+		aspect: "1:1",
+		completedAt: new Date("2026-08-01T10:01:00.000Z"),
+		count: 1,
+		createdAt: new Date("2026-08-01T10:00:00.000Z"),
+		error: null,
+		id: ATTEMPT_ID,
+		images: [
+			{
+				mediaType: "image/png",
+				url: "https://assets.example.com/images/result.png",
+			},
+		],
+		projectId: PROJECT_ID,
+		prompt: "Editorial product image",
+		sourceImageUrls: [],
+		spec: null,
+		status: "succeeded",
+		title: "Product image",
+		...overrides,
+	};
+}
+
+const STALE_ROW = attemptRow({
 	completedAt: null,
-	count: 1,
 	createdAt: new Date("2026-07-24T10:00:00.000Z"),
-	error: null,
-	id: "11111111-1111-4111-8111-111111111111",
 	images: null,
-	projectId: "22222222-2222-4222-8222-222222222222",
 	prompt: "A product photo.",
-	sourceImageUrls: [],
 	status: "generating",
 	title: "Product photo",
-};
+});
 
-function setup() {
-	const staleRow = { ...BASE_ROW };
-	const succeededRow: ImageGenerationAttemptRow = {
+function setupStaleRecovery() {
+	const staleRow = { ...STALE_ROW };
+	const succeededRow = attemptRow({
 		...staleRow,
 		completedAt: new Date(),
 		images: [
@@ -54,7 +80,7 @@ function setup() {
 			},
 		],
 		status: "succeeded",
-	};
+	});
 	const repository = {
 		findOwnedAttempt: vi
 			.fn()
@@ -65,18 +91,20 @@ function setup() {
 	const usageEvent = {
 		id: "usage_event_image",
 		operation: "image",
+		status: "reserved",
 	} as Awaited<ReturnType<MeteringService["reserve"]>>;
 	const meteringService = {
 		findByIdempotencyKey: vi.fn().mockResolvedValue(usageEvent),
 		refund: vi.fn(),
 		settleFixedFromEvidence: vi.fn().mockResolvedValue(usageEvent),
 	};
+	const settlePlacement = vi.fn().mockResolvedValue(false);
 	const selectLimit = vi
 		.fn()
 		.mockResolvedValue([{ startedAt: new Date(Date.now() - 20 * 60 * 1_000) }]);
 	const updateReturning = vi
 		.fn()
-		.mockResolvedValue([{ projectId: BASE_ROW.projectId }]);
+		.mockResolvedValue([{ projectId: PROJECT_ID }]);
 	const updateSet = vi.fn(() => ({
 		where: vi.fn(() => ({ returning: updateReturning })),
 	}));
@@ -91,12 +119,20 @@ function setup() {
 	const analytics = { capture: vi.fn() };
 	const service = new ImageGenerationsService(
 		repository as unknown as ImageGenerationsRepository,
+		{ settle: settlePlacement } as unknown as ImageGenerationPlacementService,
 		meteringService as unknown as MeteringService,
-		db as never,
-		analytics as never,
+		db as unknown as Database,
+		analytics as unknown as AnalyticsService,
 	);
 
-	return { db, meteringService, repository, service, updateSet };
+	return {
+		db,
+		meteringService,
+		repository,
+		service,
+		settlePlacement,
+		updateSet,
+	};
 }
 
 beforeEach(() => {
@@ -108,16 +144,16 @@ beforeEach(() => {
 
 describe("ImageGenerationsService stale recovery billing", () => {
 	it("settles an existing per-image hold before publishing recovered images", async () => {
-		const { db, meteringService, service, updateSet } = setup();
+		const { db, meteringService, service, updateSet } = setupStaleRecovery();
 
-		await expect(service.attempt("user_1", BASE_ROW.id)).resolves.toMatchObject(
-			{
-				id: BASE_ROW.id,
-				status: "succeeded",
-			},
-		);
+		await expect(
+			service.attempt("user_1", STALE_ROW.id),
+		).resolves.toMatchObject({
+			id: STALE_ROW.id,
+			status: "succeeded",
+		});
 		expect(meteringService.findByIdempotencyKey).toHaveBeenCalledWith(
-			`image:${BASE_ROW.id}`,
+			`image:${STALE_ROW.id}`,
 			"user_1",
 		);
 		expect(meteringService.settleFixedFromEvidence).toHaveBeenCalledWith(
@@ -134,13 +170,13 @@ describe("ImageGenerationsService stale recovery billing", () => {
 	});
 
 	it("does not publish recovered images when existing settlement fails", async () => {
-		const { db, meteringService, service } = setup();
+		const { db, meteringService, service } = setupStaleRecovery();
 		const settlementError = new Error("settlement unavailable");
 		meteringService.settleFixedFromEvidence.mockRejectedValueOnce(
 			settlementError,
 		);
 
-		await expect(service.attempt("user_1", BASE_ROW.id)).rejects.toBe(
+		await expect(service.attempt("user_1", STALE_ROW.id)).rejects.toBe(
 			settlementError,
 		);
 		expect(db.update).not.toHaveBeenCalled();
@@ -148,32 +184,35 @@ describe("ImageGenerationsService stale recovery billing", () => {
 	});
 
 	it("publishes the durable partial prefix and settles against durable completion evidence", async () => {
-		const { meteringService, repository, service, updateSet } = setup();
-		const partialRow = { ...BASE_ROW, count: 4 };
+		const { meteringService, repository, service, updateSet } =
+			setupStaleRecovery();
+		const partialRow = { ...STALE_ROW, count: 4 };
 		repository.findOwnedAttempt
 			.mockReset()
 			.mockResolvedValueOnce(partialRow)
-			.mockResolvedValueOnce({
-				...partialRow,
-				completedAt: new Date(),
-				images: [
-					{
-						mediaType: "image/png",
-						url: "https://assets.example.com/recovered-1.png",
-					},
-				],
-				status: "succeeded",
-			});
+			.mockResolvedValueOnce(
+				attemptRow({
+					...partialRow,
+					completedAt: new Date(),
+					images: [
+						{
+							mediaType: "image/png",
+							url: "https://assets.example.com/recovered-1.png",
+						},
+					],
+					status: "succeeded",
+				}),
+			);
 		vi.mocked(getObjectContentType).mockImplementation(async (key) =>
 			key.endsWith("img-1.png") ? "image/png" : null,
 		);
 
-		await expect(service.attempt("user_1", BASE_ROW.id)).resolves.toMatchObject(
-			{
-				images: [expect.objectContaining({ mediaType: "image/png" })],
-				status: "succeeded",
-			},
-		);
+		await expect(
+			service.attempt("user_1", STALE_ROW.id),
+		).resolves.toMatchObject({
+			images: [expect.objectContaining({ mediaType: "image/png" })],
+			status: "succeeded",
+		});
 		expect(meteringService.settleFixedFromEvidence).toHaveBeenCalledWith(
 			"usage_event_image",
 			1,
@@ -184,5 +223,186 @@ describe("ImageGenerationsService stale recovery billing", () => {
 				status: "succeeded",
 			}),
 		);
+	});
+});
+
+describe("ImageGenerationsService attempt placement", () => {
+	const findOwnedAttempt = vi.fn();
+	const findByIdempotencyKey = vi.fn();
+	const refund = vi.fn();
+	const settlePlacement = vi.fn();
+	let service: ImageGenerationsService;
+
+	beforeEach(() => {
+		vi.clearAllMocks();
+		findByIdempotencyKey.mockResolvedValue(null);
+		settlePlacement.mockResolvedValue(false);
+		service = new ImageGenerationsService(
+			{ findOwnedAttempt } as unknown as ImageGenerationsRepository,
+			{
+				settle: settlePlacement,
+			} as unknown as ImageGenerationPlacementService,
+			{
+				findByIdempotencyKey,
+				refund,
+			} as unknown as MeteringService,
+			{} as Database,
+			{} as AnalyticsService,
+		);
+	});
+
+	it.each([
+		"applied",
+		"failed",
+	] as const)("exposes only a %s placement status", async (status) => {
+		findOwnedAttempt.mockResolvedValue(
+			attemptRow({
+				spec: {
+					placement: {
+						imageIndex: 1,
+						kind: "image-src",
+						status,
+						wid: "hero-image",
+					},
+				},
+			}),
+		);
+
+		const attempt = await service.attempt("user-1", ATTEMPT_ID);
+
+		expect(attempt.placement).toEqual({ status });
+	});
+
+	it("repairs a succeeded pending placement while the client polls", async () => {
+		const pending = attemptRow({
+			spec: {
+				placement: {
+					imageIndex: 1,
+					kind: "image-src",
+					status: "pending",
+					wid: "e-3",
+				},
+			},
+		});
+		const applied = attemptRow({
+			spec: {
+				placement: {
+					imageIndex: 1,
+					kind: "image-src",
+					status: "applied",
+					versionNumber: 4,
+					wid: "e-3",
+				},
+			},
+		});
+		findOwnedAttempt
+			.mockResolvedValueOnce(pending)
+			.mockResolvedValueOnce(applied);
+		settlePlacement.mockResolvedValueOnce(true);
+
+		const attempt = await service.attempt("user-1", ATTEMPT_ID);
+
+		expect(settlePlacement).toHaveBeenCalledWith(pending, pending.images);
+		expect(findOwnedAttempt).toHaveBeenCalledTimes(2);
+		expect(attempt.placement).toEqual({ status: "applied" });
+	});
+
+	it("repairs placement after poll-time stale generation recovery", async () => {
+		const generating = attemptRow({
+			completedAt: null,
+			images: null,
+			spec: {
+				placement: {
+					imageIndex: 1,
+					kind: "image-src",
+					status: "pending",
+					wid: "e-3",
+				},
+			},
+			status: "generating",
+		});
+		const recovered = attemptRow({ spec: generating.spec });
+		const applied = attemptRow({
+			spec: {
+				placement: {
+					imageIndex: 1,
+					kind: "image-src",
+					status: "applied",
+					versionNumber: 5,
+					wid: "e-3",
+				},
+			},
+		});
+		findOwnedAttempt
+			.mockResolvedValueOnce(generating)
+			.mockResolvedValueOnce(recovered)
+			.mockResolvedValueOnce(applied);
+		const staleSettlement = vi
+			.spyOn(
+				service as unknown as {
+					settleStaleGenerating: (
+						row: ImageGenerationAttemptRow,
+						cutoff: Date,
+						userId: string,
+					) => Promise<boolean>;
+				},
+				"settleStaleGenerating",
+			)
+			.mockResolvedValue(true);
+		settlePlacement.mockResolvedValueOnce(true);
+
+		const attempt = await service.attempt("user-1", ATTEMPT_ID);
+
+		expect(staleSettlement).toHaveBeenCalledWith(
+			generating,
+			expect.any(Date),
+			"user-1",
+		);
+		expect(settlePlacement).toHaveBeenCalledWith(recovered, recovered.images);
+		expect(findOwnedAttempt).toHaveBeenCalledTimes(3);
+		expect(attempt.placement).toEqual({ status: "applied" });
+	});
+
+	it("derives failed placement and refunds through metering", async () => {
+		findOwnedAttempt.mockResolvedValue(
+			attemptRow({
+				error: "Provider failed",
+				images: null,
+				spec: {
+					placement: {
+						imageIndex: 1,
+						kind: "image-src",
+						status: "pending",
+						wid: "hero-image",
+					},
+				},
+				status: "failed",
+			}),
+		);
+		findByIdempotencyKey.mockResolvedValueOnce({
+			id: "usage_event_image",
+			operation: "image",
+			status: "reserved",
+		});
+
+		const attempt = await service.attempt("user-1", ATTEMPT_ID);
+
+		expect(attempt.placement).toEqual({ status: "failed" });
+		expect(findByIdempotencyKey).toHaveBeenCalledWith(
+			`image:${ATTEMPT_ID}`,
+			"user-1",
+		);
+		expect(refund).toHaveBeenCalledWith(
+			"usage_event_image",
+			"image_generation_failed",
+		);
+	});
+
+	it("omits placement for standalone attempts", async () => {
+		findOwnedAttempt.mockResolvedValue(attemptRow());
+
+		const attempt = await service.attempt("user-1", ATTEMPT_ID);
+
+		expect(attempt.placement).toBeUndefined();
 	});
 });

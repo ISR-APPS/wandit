@@ -8,17 +8,22 @@
  */
 import { Inject, Injectable } from "@nestjs/common";
 import type {
+	GenerateImagePlacement,
 	ImageGenerationAspect,
 	MediaGenerationStatus,
 } from "@wandit/contracts";
-import { and, desc, eq, isNull } from "@wandit/db";
+import { and, desc, eq, isNull, sql } from "@wandit/db";
+import { versions } from "@wandit/db/schema/artifacts";
 import {
 	type GeneratedImageRef,
 	imageGenerationAttempts,
 } from "@wandit/db/schema/image-generation-attempts";
 import { projects } from "@wandit/db/schema/projects";
 import { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
-import { captureGenerationFailed } from "../../../../infrastructure/analytics/generation-events";
+import {
+	type AnalyticsCapture,
+	captureGenerationFailed,
+} from "../../../../infrastructure/analytics/generation-events";
 import {
 	DATABASE,
 	type Database,
@@ -35,8 +40,15 @@ export type ImageGenerationAttemptRow = {
 	projectId: string;
 	prompt: string;
 	sourceImageUrls: string[];
+	spec: Record<string, unknown> | null;
 	status: MediaGenerationStatus;
 	title: string;
+};
+
+export type PersistedImagePlacement = GenerateImagePlacement & {
+	reason?: string;
+	status: "applied" | "failed" | "pending";
+	versionNumber?: number;
 };
 
 const ATTEMPT_COLUMNS = {
@@ -50,6 +62,7 @@ const ATTEMPT_COLUMNS = {
 	projectId: imageGenerationAttempts.projectId,
 	prompt: imageGenerationAttempts.prompt,
 	sourceImageUrls: imageGenerationAttempts.sourceImageUrls,
+	spec: imageGenerationAttempts.spec,
 	status: imageGenerationAttempts.status,
 	title: imageGenerationAttempts.title,
 } as const;
@@ -59,7 +72,7 @@ export class ImageGenerationsRepository {
 	constructor(
 		@Inject(DATABASE) private readonly db: Database,
 		@Inject(AnalyticsService)
-		private readonly analyticsService: AnalyticsService,
+		private readonly analyticsService: AnalyticsCapture,
 	) {}
 
 	async insertAttempt(input: {
@@ -126,6 +139,46 @@ export class ImageGenerationsRepository {
 			.update(imageGenerationAttempts)
 			.set({ triggerRunId })
 			.where(eq(imageGenerationAttempts.id, attemptId));
+	}
+
+	async updatePlacement(
+		attemptId: string,
+		projectId: string,
+		placement: PersistedImagePlacement,
+	): Promise<void> {
+		const canSettle =
+			placement.status === "applied"
+				? sql`(
+					${imageGenerationAttempts.spec}->'placement'->>'status' = 'pending'
+					or exists (
+						select 1
+						from ${versions}
+						where ${versions.projectId} = ${projectId}
+							and ${versions.meta}->>'source' = 'ai-edit'
+							and ${versions.meta}->'receipt'->>'kind' = 'image-generation-placement'
+							and ${versions.meta}->'receipt'->>'attemptId' = ${attemptId}
+					)
+				)`
+				: sql`${imageGenerationAttempts.spec}->'placement'->>'status' = 'pending'`;
+
+		await this.db
+			.update(imageGenerationAttempts)
+			.set({
+				spec: sql`jsonb_set(
+					coalesce(${imageGenerationAttempts.spec}, '{}'::jsonb),
+					'{placement}',
+					${JSON.stringify(placement)}::jsonb,
+					true
+				)`,
+			})
+			.where(
+				and(
+					eq(imageGenerationAttempts.id, attemptId),
+					eq(imageGenerationAttempts.projectId, projectId),
+					eq(imageGenerationAttempts.status, "succeeded"),
+					canSettle,
+				),
+			);
 	}
 
 	async markAttemptFailed(

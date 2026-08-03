@@ -4,14 +4,13 @@ import {
 	NotFoundException,
 	ServiceUnavailableException,
 } from "@nestjs/common";
-import { BILLING_WEBHOOK_RETRY_EVENT_JOB } from "@wandit/jobs";
-import type { Queue } from "bullmq";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
 	BillingWebhookEventRow,
 	BillingWebhookEventsRepository,
 } from "../../../billing/infrastructure/persistence/billing-webhook-events.repository";
+import type { TriggerBillingWebhookDispatcherService } from "../../../billing/infrastructure/trigger/trigger-billing-webhook-dispatcher.service";
 import { AdminWebhookReplayService } from "./admin-webhook-replay.service";
 
 function event(
@@ -34,19 +33,21 @@ function event(
 	};
 }
 
-function setup(row: BillingWebhookEventRow | null, queueEnabled = true) {
+function setup(row: BillingWebhookEventRow | null, dispatcherEnabled = true) {
 	const repository = {
 		findById: vi.fn(async () => row),
 	};
-	const queue = {
-		add: vi.fn(async () => ({ id: "job_1" })),
+	const dispatcher = {
+		triggerRetry: vi.fn(async () => undefined),
 	};
 	const service = new AdminWebhookReplayService(
 		repository as unknown as BillingWebhookEventsRepository,
-		queueEnabled ? (queue as unknown as Queue) : undefined,
+		dispatcherEnabled
+			? (dispatcher as unknown as TriggerBillingWebhookDispatcherService)
+			: undefined,
 	);
 
-	return { queue, repository, service };
+	return { dispatcher, repository, service };
 }
 
 describe("AdminWebhookReplayService", () => {
@@ -54,8 +55,8 @@ describe("AdminWebhookReplayService", () => {
 		vi.restoreAllMocks();
 	});
 
-	it("queues one failed event with an attempt-scoped deduplication key and audit log", async () => {
-		const { queue, service } = setup(event());
+	it("triggers one failed event with its current attempt and an audit log", async () => {
+		const { dispatcher, service } = setup(event());
 		const auditLog = vi
 			.spyOn(Logger.prototype, "log")
 			.mockImplementation((_message: unknown) => undefined);
@@ -64,18 +65,9 @@ describe("AdminWebhookReplayService", () => {
 			accepted: true,
 			eventId: "evt_123",
 		});
-		expect(queue.add).toHaveBeenCalledWith(
-			BILLING_WEBHOOK_RETRY_EVENT_JOB,
-			{ eventId: "evt_123" },
-			{
-				attempts: 1,
-				jobId: "billing-webhook-replay-evt_123-8",
-				removeOnComplete: true,
-				removeOnFail: true,
-			},
-		);
+		expect(dispatcher.triggerRetry).toHaveBeenCalledWith("evt_123", 8);
 		expect(auditLog).toHaveBeenCalledWith(
-			"admin_webhook_replay_queued admin=admin_1 event=evt_123 attempt=8",
+			"admin_webhook_replay_triggered admin=admin_1 event=evt_123 attempt=8",
 		);
 	});
 
@@ -89,11 +81,11 @@ describe("AdminWebhookReplayService", () => {
 		await expect(
 			processed.service.enqueue("admin_1", "evt_123"),
 		).rejects.toBeInstanceOf(ConflictException);
-		expect(missing.queue.add).not.toHaveBeenCalled();
-		expect(processed.queue.add).not.toHaveBeenCalled();
+		expect(missing.dispatcher.triggerRetry).not.toHaveBeenCalled();
+		expect(processed.dispatcher.triggerRetry).not.toHaveBeenCalled();
 	});
 
-	it("fails clearly when queues are disabled", async () => {
+	it("fails clearly when the Trigger dispatcher is unavailable", async () => {
 		const { service } = setup(event(), false);
 
 		await expect(service.enqueue("admin_1", "evt_123")).rejects.toBeInstanceOf(
@@ -102,16 +94,16 @@ describe("AdminWebhookReplayService", () => {
 	});
 
 	it("audits enqueue failures and preserves the queue error", async () => {
-		const { queue, service } = setup(event());
-		const failure = new Error("redis unavailable");
-		queue.add.mockRejectedValueOnce(failure);
+		const { dispatcher, service } = setup(event());
+		const failure = new Error("trigger unavailable");
+		dispatcher.triggerRetry.mockRejectedValueOnce(failure);
 		const errorLog = vi
 			.spyOn(Logger.prototype, "error")
 			.mockImplementation((_message: unknown) => undefined);
 
 		await expect(service.enqueue("admin_1", "evt_123")).rejects.toBe(failure);
 		expect(errorLog.mock.calls[0]?.[0]).toBe(
-			"admin_webhook_replay_enqueue_failed admin=admin_1 event=evt_123",
+			"admin_webhook_replay_trigger_failed admin=admin_1 event=evt_123",
 		);
 	});
 });

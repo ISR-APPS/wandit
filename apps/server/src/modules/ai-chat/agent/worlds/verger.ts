@@ -254,7 +254,7 @@ Executed at 60 percent — cream background, gold button, rounded cards, a stock
 		"beauty",
 		"bakery",
 	],
-	kind: "cod",
+	kind: "product",
 	mood: ["sunlit", "rooted", "unhurried", "wholesome", "documentary"],
 	name: "Verger",
 	priceFeel: "premium",

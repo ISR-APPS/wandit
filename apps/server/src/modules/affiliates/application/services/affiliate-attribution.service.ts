@@ -1,16 +1,9 @@
-import { InjectQueue } from "@nestjs/bullmq";
 import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import {
 	AFFILIATE_ATTRIBUTION_COOKIE_NAME,
 	AFFILIATE_SIGNUP_TOKEN_FIELD,
 } from "@wandit/contracts";
-import {
-	AFFILIATE_ATTRIBUTION_RETRY_JOB,
-	AFFILIATE_MAINTENANCE_QUEUE,
-	type AffiliateAttributionRetryJobData,
-} from "@wandit/jobs";
 import type { GenericEndpointContext, User } from "better-auth";
-import type { Queue } from "bullmq";
 
 import { normalizeAffiliateEmail } from "../../domain/affiliate-email";
 import type { AffiliateFraudFlag } from "../../domain/affiliate-fraud";
@@ -20,6 +13,8 @@ import {
 	type AffiliateLinkTerms,
 	AffiliatesRepository,
 } from "../../infrastructure/persistence/affiliates.repository";
+import { TriggerAffiliateAttributionDispatcherService } from "../../infrastructure/trigger/trigger-affiliate-attribution-dispatcher.service";
+import type { AffiliateAttributionRetryPayload } from "./affiliate-attribution-retry";
 import { AffiliateCommissionService } from "./affiliate-commission.service";
 import { AffiliateTokenService } from "./affiliate-token.service";
 
@@ -37,12 +32,8 @@ export class AffiliateAttributionService {
 		@Inject(AffiliateCommissionService)
 		private readonly commissionService: AffiliateCommissionService,
 		@Optional()
-		@InjectQueue(AFFILIATE_MAINTENANCE_QUEUE)
-		private readonly maintenanceQueue?: Queue<
-			AffiliateAttributionRetryJobData,
-			unknown,
-			string
-		>,
+		@Inject(TriggerAffiliateAttributionDispatcherService)
+		private readonly retryDispatcher?: TriggerAffiliateAttributionDispatcherService,
 	) {}
 
 	async lockForCreatedUser(
@@ -64,19 +55,19 @@ export class AffiliateAttributionService {
 			return null;
 		}
 
-		let enqueueError: unknown;
-		let retryQueued = false;
+		let dispatchError: unknown;
+		let retryTriggered = false;
 
 		try {
-			retryQueued = await this.enqueueRetry({
+			retryTriggered = await this.triggerRetry({
 				source,
 				token,
 				userId: newUser.id,
 			});
 		} catch (error) {
-			enqueueError = error;
+			dispatchError = error;
 			this.logger.error(
-				`Affiliate attribution retry enqueue failed for user ${newUser.id}`,
+				`Affiliate attribution Trigger handoff failed for user ${newUser.id}`,
 				error instanceof Error ? error.stack : String(error),
 			);
 		}
@@ -89,25 +80,25 @@ export class AffiliateAttributionService {
 				nowOverride,
 			);
 		} catch (lockError) {
-			if (enqueueError) {
+			if (dispatchError) {
 				throw new AggregateError(
-					[enqueueError, lockError],
+					[dispatchError, lockError],
 					`Affiliate attribution lock and durable retry both failed for user ${newUser.id}`,
 				);
 			}
 
 			this.logger.error(
-				retryQueued
-					? `Inline affiliate attribution failed for user ${newUser.id}; durable retry is queued`
-					: `Inline affiliate attribution failed for user ${newUser.id}; no durable retry queue is available`,
+				retryTriggered
+					? `Inline affiliate attribution failed for user ${newUser.id}; durable Trigger retry is active`
+					: `Inline affiliate attribution failed for user ${newUser.id}; no on-demand retry dispatcher is available`,
 				lockError instanceof Error ? lockError.stack : String(lockError),
 			);
 			return null;
 		}
 	}
 
-	async retryLockFromJob(
-		input: AffiliateAttributionRetryJobData,
+	async retryLock(
+		input: AffiliateAttributionRetryPayload,
 		nowOverride?: Date,
 	): Promise<AffiliateAttributionRow | null> {
 		const newUser = await this.affiliatesRepository.findUserIdentity(
@@ -222,23 +213,17 @@ export class AffiliateAttributionService {
 		return attribution;
 	}
 
-	private async enqueueRetry(
-		data: AffiliateAttributionRetryJobData,
+	private async triggerRetry(
+		data: AffiliateAttributionRetryPayload,
 	): Promise<boolean> {
-		if (!this.maintenanceQueue) {
+		if (!this.retryDispatcher) {
 			this.logger.warn(
-				`Affiliate attribution retry skipped for user ${data.userId}: queue is disabled`,
+				`Affiliate attribution retry skipped for user ${data.userId}: Trigger dispatcher is unavailable`,
 			);
 			return false;
 		}
 
-		await this.maintenanceQueue.add(AFFILIATE_ATTRIBUTION_RETRY_JOB, data, {
-			attempts: 12,
-			backoff: { delay: 60_000, type: "exponential" },
-			jobId: `affiliate-attribution-${encodeURIComponent(data.userId)}`,
-			removeOnComplete: true,
-			removeOnFail: 1_000,
-		});
+		await this.retryDispatcher.triggerRetry(data);
 
 		return true;
 	}

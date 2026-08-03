@@ -1,9 +1,11 @@
+import { ToolLoopAgent } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { z } from "zod";
 
 import type { MeteringService } from "../../../metering/application/services/metering.service";
 import type { BuildProgressEvent } from "./build-progress";
 import { buildSiteBuilderSystemPrompt } from "./builder-prompt";
+import { buildCodSiteBuilderSystemPrompt } from "./cod-builder-prompt";
 import { generateBuildImage, MAX_IMAGES } from "./generate-image";
 import { generateBuildVideo, MAX_VIDEOS } from "./generate-video";
 import {
@@ -15,7 +17,11 @@ import {
 	buildStopConditions,
 	createBuilderTools,
 	createBuildLoopState,
+	fallbackBuildSummary,
+	MAX_SCREENSHOT_PASSES,
 	REQUIRED_SCREENSHOT_PASSES,
+	resolveBuilderReasoningEffort,
+	runSiteBuild,
 } from "./site-builder-agent";
 import { VirtualFileSystem } from "./virtual-files";
 
@@ -64,6 +70,13 @@ button { border-radius: var(--radius); }
 )}</p></main></body>
 </html>`;
 
+const COD_FORM =
+	'<form data-wandit-event="wandit:lead"><label>Phone<input type="tel" name="phone"></label><input type="text" name="company" data-wandit-hp><button type="submit">Order now</button></form>';
+
+const COD_HTML = HTML.replace("<header><nav>", '<header><section class="hero">')
+	.replace("</nav></header>", "</section></header>")
+	.replace("</main>", `${COD_FORM}</main>`);
+
 const DESKTOP_SHOT = "ZGVza3RvcC1zaG90";
 const MOBILE_SHOT = "bW9iaWxlLXNob3Q=";
 
@@ -98,6 +111,7 @@ function setup(config?: {
 	abortSignal?: AbortSignal;
 	meteringService?: MeteringService;
 	onEvent?: (event: BuildProgressEvent) => void;
+	pageKind?: "cod" | "website";
 	screenshotRequired?: boolean;
 	screenshots?: ScreenshotSession;
 	usageEventId?: string;
@@ -187,6 +201,39 @@ describe("write_file guard", () => {
 		expect(vfs.read("index.html")).toBe(HTML);
 		expect(state.reviewedRevision).toBe(1);
 		expect(state.writeRevision).toBe(1);
+	});
+
+	it("reports a byte-identical rewrite without changing review gates", async () => {
+		const { options, screenshots, state, tools } = setup();
+		await tools.write_file.execute?.(
+			{ content: HTML, path: "index.html" },
+			options(),
+		);
+		await completeRequiredPasses(tools, options);
+		const before = {
+			reviewedRevision: state.reviewedRevision,
+			screenshotPasses: state.screenshotPasses,
+			screenshotRevision: state.screenshotRevision,
+			writeRevision: state.writeRevision,
+		};
+
+		await expect(
+			tools.write_file.execute?.(
+				{ content: HTML, path: "./index.html" },
+				options(),
+			),
+		).resolves.toEqual({
+			bytes: Buffer.byteLength(HTML, "utf-8"),
+			path: "index.html",
+			unchanged: true,
+		});
+		expect(state).toMatchObject(before);
+		expect(screenshots.capture).toHaveBeenCalledTimes(
+			REQUIRED_SCREENSHOT_PASSES,
+		);
+		await expect(
+			tools.finish.execute?.({ summary: "Nothing changed." }, options()),
+		).resolves.toEqual({ accepted: true });
 	});
 });
 
@@ -409,6 +456,41 @@ describe("screenshot_page", () => {
 		});
 	});
 
+	it("refuses captures at the hard cap and lets a later edit finish", async () => {
+		const { options, screenshots, state, tools } = setup();
+		await tools.write_file.execute?.(
+			{ content: HTML, path: "index.html" },
+			options(),
+		);
+
+		for (let pass = 1; pass <= MAX_SCREENSHOT_PASSES; pass += 1) {
+			await expect(
+				tools.screenshot_page.execute?.({}, options(`shot_${pass}`)),
+			).resolves.toMatchObject({ refused: false, unavailable: false });
+		}
+
+		await tools.edit_file.execute?.(
+			{ path: "index.html", replace: "Improved", search: "page" },
+			options("edit_after_cap"),
+		);
+		expect(state.screenshotRevision).toBe(1);
+		expect(state.writeRevision).toBe(2);
+
+		await expect(
+			tools.screenshot_page.execute?.({}, options("shot_refused")),
+		).resolves.toEqual({
+			message:
+				"screenshot budget exhausted (4 per build) — finish now with the current page",
+			refused: true,
+		});
+		expect(screenshots.capture).toHaveBeenCalledTimes(MAX_SCREENSHOT_PASSES);
+		expect(state.screenshotPasses).toBe(MAX_SCREENSHOT_PASSES);
+
+		await expect(
+			tools.finish.execute?.({ summary: "Finished at the cap." }, options()),
+		).resolves.toEqual({ accepted: true });
+	});
+
 	it("degrades to code review when Playwright/Chromium is unavailable", async () => {
 		const screenshots: ScreenshotSession = {
 			capture: vi
@@ -543,6 +625,55 @@ describe("edit_file guard", () => {
 		expect(state.failedEditRepeats).toBe(0);
 	});
 
+	it("stops snippet editing after five total failures across the build", async () => {
+		const { options, state, tools } = setup();
+		await tools.write_file.execute?.(
+			{ content: HTML, path: "index.html" },
+			options(),
+		);
+
+		await expect(
+			tools.edit_file.execute?.(
+				{ path: "index.html", replace: "x", search: "missing" },
+				options(),
+			),
+		).rejects.toThrow(/not found/);
+		await expect(
+			tools.edit_file.execute?.(
+				{ path: "index.html", replace: "page", search: "page" },
+				options(),
+			),
+		).rejects.toThrow(/identical/);
+		await expect(
+			tools.edit_file.execute?.(
+				{ path: "index.html", replace: "[", search: "<" },
+				options(),
+			),
+		).rejects.toThrow(/appears .* times/);
+
+		await tools.edit_file.execute?.(
+			{ path: "index.html", replace: "site", search: "page" },
+			options(),
+		);
+		expect(state.failedEditAttempts).toBe(3);
+
+		await expect(
+			tools.edit_file.execute?.(
+				{ path: "styles.css", replace: "x", search: "missing" },
+				options(),
+			),
+		).rejects.toThrow(/exactly ONE file/);
+		await expect(
+			tools.edit_file.execute?.(
+				{ path: "index.html", replace: "x", search: "still missing" },
+				options(),
+			),
+		).rejects.toThrow(
+			"stop snippet-editing; rewrite the affected section with write_file, or screenshot and finish.",
+		);
+		expect(state.failedEditAttempts).toBe(5);
+	});
+
 	it("refuses an identical search and replace, without any side effect", async () => {
 		const { options, state, tools, vfs } = setup();
 		await tools.write_file.execute?.(
@@ -636,7 +767,7 @@ describe("edit_file guard", () => {
 		const expected = ["<main>", replace, "</main>"].join("\n");
 		expect(output.bytes).toBe(Buffer.byteLength(expected, "utf-8"));
 		expect(vfs.read("index.html")).toBe(expected);
-		expect(state.reviewedRevision).toBe(1);
+		expect(state.reviewedRevision).toBe(2);
 		expect(state.writeRevision).toBe(2);
 	});
 
@@ -865,6 +996,56 @@ describe("edit_file guard", () => {
 		expect(state.writeRevision).toBe(2);
 	});
 
+	it("returns updated whole-line context and marks the edited revision reviewed", async () => {
+		const { options, state, tools } = setup();
+		const lines = Array.from({ length: 30 }, (_, index) => `line ${index + 1}`);
+		const content = lines.join("\n");
+		const replace = ["updated 15", "updated 16", "updated 17"].join("\n");
+		await tools.write_file.execute?.(
+			{ content, path: "index.html" },
+			options(),
+		);
+
+		const output = materialize(
+			await tools.edit_file.execute?.(
+				{
+					path: "index.html",
+					replace,
+					search: ["line 15", "line 16"].join("\n"),
+				},
+				options(),
+			),
+		);
+		const expectedContext = [
+			"Lines 7-25 of index.html after the edit:",
+			...lines.slice(6, 14),
+			"updated 15",
+			"updated 16",
+			"updated 17",
+			...lines.slice(16, 24),
+		].join("\n");
+
+		expect(output).toMatchObject({
+			bytes: Buffer.byteLength(
+				[
+					...lines.slice(0, 14),
+					"updated 15",
+					"updated 16",
+					"updated 17",
+					...lines.slice(16),
+				].join("\n"),
+				"utf-8",
+			),
+			context: expectedContext,
+			path: "index.html",
+			revision: 2,
+		});
+		expect(output.context).not.toContain("line 15");
+		expect(output.context).not.toContain("line 16");
+		expect(state.reviewedRevision).toBe(2);
+		expect(state.writeRevision).toBe(2);
+	});
+
 	it("deletes a snippet when replace is empty — and the schema allows it", async () => {
 		const { options, state, tools, vfs } = setup();
 		await tools.write_file.execute?.(
@@ -918,40 +1099,33 @@ describe("edit_file guard", () => {
 		expect(state.writeRevision).toBe(1);
 	});
 
-	it("an edit invalidates the review: finish demands a fresh re-read and screenshot", async () => {
-		const { options, state, tools } = setup();
+	it("accepts pass-2 edits from their contexts without a third screenshot", async () => {
+		const { options, screenshots, state, tools } = setup();
 		await tools.write_file.execute?.(
 			{ content: HTML, path: "index.html" },
 			options(),
 		);
-		await completeRequiredPasses(tools, options);
+		await tools.screenshot_page.execute?.({}, options("shot_1"));
 
 		await tools.edit_file.execute?.(
 			{ path: "index.html", replace: "Improved", search: "page" },
-			options(),
+			options("pass_1_edit"),
 		);
-		expect(state.reviewedRevision).toBe(1);
-		expect(state.writeRevision).toBe(2);
-
-		await expect(
-			tools.finish.execute?.({ summary: "Edited but unreviewed." }, options()),
-		).resolves.toMatchObject({
-			accepted: false,
-			reason: expect.stringContaining("Re-read"),
-		});
-
-		await tools.read_file.execute?.({ path: "index.html" }, options());
-		await expect(
-			tools.finish.execute?.({ summary: "Still not rendered." }, options()),
-		).resolves.toMatchObject({
-			accepted: false,
-			reason: expect.stringContaining("on the current index.html"),
-		});
-
 		await tools.screenshot_page.execute?.({}, options("shot_2"));
+		await tools.edit_file.execute?.(
+			{ path: "index.html", replace: "Polished", search: "Improved" },
+			options("pass_2_edit"),
+		);
+
+		expect(state.screenshotPasses).toBe(REQUIRED_SCREENSHOT_PASSES);
+		expect(state.screenshotRevision).toBe(2);
+		expect(state.reviewedRevision).toBe(3);
+		expect(state.writeRevision).toBe(3);
+		expect(screenshots.capture).toHaveBeenCalledTimes(2);
 		await expect(
-			tools.finish.execute?.({ summary: "Freshly reviewed." }, options()),
+			tools.finish.execute?.({ summary: "Pass-2 fixes applied." }, options()),
 		).resolves.toEqual({ accepted: true });
+		expect(screenshots.capture).toHaveBeenCalledTimes(2);
 	});
 });
 
@@ -978,7 +1152,7 @@ describe("finish guard", () => {
 		expect(state.reviewedRevision).toBe(state.writeRevision);
 
 		// A full write is already source-reviewed, so zero screenshot passes
-		// must hit the pass-count branch rather than the re-read branch.
+		// must hit the pass-count branch rather than any source-review concern.
 		await expect(
 			tools.finish.execute?.({ summary: "Too early." }, options()),
 		).resolves.toMatchObject({
@@ -990,14 +1164,14 @@ describe("finish guard", () => {
 
 		await completeRequiredPasses(tools, options);
 		const accepted = await tools.finish.execute?.(
-			{ summary: "Souk Heat direction, warm editorial." },
+			{ summary: "Bazar Heat direction, warm editorial." },
 			options(),
 		);
 
 		expect(accepted).toEqual({ accepted: true });
 		expect(state.finishAccepted).toBe(true);
 		expect(state.screenshotPasses).toBe(REQUIRED_SCREENSHOT_PASSES);
-		expect(state.summary).toBe("Souk Heat direction, warm editorial.");
+		expect(state.summary).toBe("Bazar Heat direction, warm editorial.");
 	});
 
 	it("a refused finish does not stop the loop; an accepted one does", async () => {
@@ -1025,7 +1199,7 @@ describe("finish guard", () => {
 		expect(await finishStop({ steps: [] })).toBe(true);
 	});
 
-	it("requires only a fresh screenshot review after a full rewrite", async () => {
+	it("accepts a valid rewrite after the two required review passes", async () => {
 		const { options, state, tools } = setup();
 		await tools.write_file.execute?.(
 			{ content: HTML, path: "index.html" },
@@ -1039,15 +1213,7 @@ describe("finish guard", () => {
 		expect(state.reviewedRevision).toBe(state.writeRevision);
 
 		await expect(
-			tools.finish.execute?.({ summary: "Not rendered yet." }, options()),
-		).resolves.toMatchObject({
-			accepted: false,
-			reason: expect.stringContaining("on the current index.html"),
-		});
-
-		await tools.screenshot_page.execute?.({}, options("shot_final"));
-		await expect(
-			tools.finish.execute?.({ summary: "Freshly reviewed." }, options()),
+			tools.finish.execute?.({ summary: "Rewritten after review." }, options()),
 		).resolves.toEqual({ accepted: true });
 	});
 
@@ -1062,6 +1228,23 @@ describe("finish guard", () => {
 			tools.finish.execute?.({ summary: "Code reviewed." }, options()),
 		).resolves.toEqual({ accepted: true });
 		expect(state.screenshotRevision).toBe(0);
+	});
+});
+
+describe("COD builder prompt", () => {
+	it("pins post-pass-2 finishing, world price exceptions, and genre wids", async () => {
+		const prompt = await buildCodSiteBuilderSystemPrompt();
+
+		expect(prompt).toContain(
+			"After the second screenshot pass, apply the batch of fixes and call finish directly",
+		);
+		expect(
+			prompt.match(
+				/unless the base world explicitly puts first price in the sticky bar/g,
+			),
+		).toHaveLength(2);
+		expect(prompt).toContain('"trust-footer" for the trust footer');
+		expect(prompt).not.toContain('"site-footer" for the trust footer');
 	});
 });
 
@@ -1373,6 +1556,150 @@ describe("brand-marker finish gate", () => {
 		await expect(
 			tools.finish.execute?.({ summary: "Unstampable marker." }, options()),
 		).rejects.toThrow(message);
+	});
+});
+
+describe("COD finish gate", () => {
+	it("accepts a hero-scoped brand marker and the complete lead form pack", async () => {
+		const { options, tools } = setup({
+			pageKind: "cod",
+			screenshotRequired: false,
+		});
+		await tools.write_file.execute?.(
+			{ content: COD_HTML, path: "index.html" },
+			options(),
+		);
+
+		await expect(
+			tools.finish.execute?.({ summary: "COD order page." }, options()),
+		).resolves.toEqual({ accepted: true });
+	});
+
+	it("gives COD-safe placement advice for an unstamplable hero badge", async () => {
+		const marker = '<a data-brand="nav" href="/">Wandit</a>';
+		const formWithMarker = COD_FORM.replace(
+			"<label>",
+			'<article data-brand="nav">Wandit</article><label>',
+		);
+		const html = COD_HTML.replace(COD_FORM, "").replace(marker, formWithMarker);
+		const { options, tools } = setup({
+			pageKind: "cod",
+			screenshotRequired: false,
+		});
+		await tools.write_file.execute?.(
+			{ content: html, path: "index.html" },
+			options(),
+		);
+
+		let error: unknown;
+
+		try {
+			await tools.finish.execute?.(
+				{ summary: "Invalid hero badge." },
+				options(),
+			);
+		} catch (caught) {
+			error = caught;
+		}
+
+		expect(error).toBeInstanceOf(Error);
+		expect((error as Error).message).toContain(
+			"hero <header> or hero <section> scope",
+		);
+		expect((error as Error).message).toContain(
+			'<a href="#order-form" data-brand="nav"> hero badge',
+		);
+		expect((error as Error).message).not.toContain(
+			"recognized nav/header/footer chassis",
+		);
+	});
+
+	it.each([
+		{
+			html: COD_HTML.replace("<main>", "<nav>Forbidden</nav><main>"),
+			label: "a nav element",
+			message: /must contain zero <nav> elements \(found 1\)/,
+		},
+		{
+			html: COD_HTML.replace(COD_FORM, ""),
+			label: "no lead form",
+			message: /exactly one <form> \(found 0\)/,
+		},
+		{
+			html: COD_HTML.replace("</main>", `${COD_FORM}</main>`),
+			label: "multiple lead forms",
+			message: /exactly one <form> \(found 2\)/,
+		},
+		{
+			html: COD_HTML.replace('type="tel"', 'type="text"'),
+			label: "no telephone input",
+			message: /at least one input\[type=tel\]/,
+		},
+		{
+			html: COD_HTML.replace("wandit:lead", "wandit:other"),
+			label: "no lead event marker",
+			message: /must contain the string "wandit:lead"/,
+		},
+		{
+			html: COD_HTML.replace(" data-wandit-hp", ""),
+			label: "no honeypot",
+			message: /exactly one data-wandit-hp honeypot \(found 0\)/,
+		},
+		{
+			html: COD_HTML.replace('name="phone"', 'name="phone" data-wandit-hp'),
+			label: "multiple honeypots",
+			message: /exactly one data-wandit-hp honeypot \(found 2\)/,
+		},
+	])("rejects $label", async ({ html, message }) => {
+		const { options, tools } = setup({
+			pageKind: "cod",
+			screenshotRequired: false,
+		});
+		await tools.write_file.execute?.(
+			{ content: html, path: "index.html" },
+			options(),
+		);
+
+		await expect(
+			tools.finish.execute?.({ summary: "Invalid COD page." }, options()),
+		).rejects.toThrow(message);
+	});
+
+	it("still forbids the nav brand marker inside a footer", async () => {
+		const marker = '<a data-brand="nav" href="/">Wandit</a>';
+		const inFooter = COD_HTML.replace(marker, "").replace(
+			"</body>",
+			`<footer><section>${marker}</section></footer></body>`,
+		);
+		const { options, tools } = setup({
+			pageKind: "cod",
+			screenshotRequired: false,
+		});
+		await tools.write_file.execute?.(
+			{ content: inFooter, path: "index.html" },
+			options(),
+		);
+
+		await expect(
+			tools.finish.execute?.({ summary: "Wrong marker scope." }, options()),
+		).rejects.toThrow(
+			/nearest section scope being <header> or <section>.*never/,
+		);
+	});
+
+	it("keeps the website validator unchanged", async () => {
+		const { options, tools } = setup({
+			pageKind: "website",
+			screenshotRequired: false,
+		});
+		await tools.write_file.execute?.(
+			{ content: HTML, path: "index.html" },
+			options(),
+		);
+
+		await expect(
+			tools.finish.execute?.({ summary: "Website page." }, options()),
+		).resolves.toEqual({ accepted: true });
 	});
 });
 
@@ -1828,6 +2155,98 @@ describe("animate_image tool", () => {
 			expect.objectContaining({ index: 2 }),
 		);
 		expect(state.videosGenerated).toBe(1);
+	});
+});
+
+describe("runSiteBuild", () => {
+	it("uses truthful fallback provenance for early and step-limit exits", () => {
+		expect(fallbackBuildSummary(3)).toBe(
+			"The builder ended without an explicit finish; publishing the last valid revision.",
+		);
+		expect(fallbackBuildSummary(64)).toBe(
+			"Build reached its step budget; publishing the last valid revision.",
+		);
+	});
+
+	it("uses the per-model override for luna", () => {
+		expect(resolveBuilderReasoningEffort("openai/gpt-5.6-luna")).toBe("xhigh");
+	});
+
+	it("ships a valid step-limit revision and aggregates usage", async () => {
+		const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+		const streamSpy = vi
+			.spyOn(ToolLoopAgent.prototype, "stream")
+			.mockImplementation(async function (this: ToolLoopAgent) {
+				const tools = this.tools as unknown as ReturnType<
+					typeof setup
+				>["tools"];
+				await tools.write_file.execute?.(
+					{ content: HTML, path: "index.html" },
+					{ messages: [], toolCallId: "budget_write" } as never,
+				);
+
+				return {
+					fullStream: (async function* () {
+						yield {
+							error: new Error("gateway failed after the write"),
+							type: "error",
+						};
+					})(),
+					steps: Promise.resolve([
+						{
+							usage: {
+								inputTokens: 100,
+								outputTokens: 25,
+								totalTokens: 125,
+							},
+						},
+						{
+							usage: {
+								inputTokens: 10,
+								outputTokens: 5,
+								totalTokens: 15,
+							},
+						},
+						...Array.from({ length: 62 }, () => ({
+							usage: {
+								inputTokens: undefined,
+								outputTokens: undefined,
+								totalTokens: undefined,
+							},
+						})),
+					]),
+				} as never;
+			});
+
+		try {
+			const build = await runSiteBuild({
+				attemptId: "attempt_budget",
+				brief: "Build a substantial warm editorial landing page.",
+				model: "deepseek/test",
+				projectId: "project_1",
+				system: "Build the page with the supplied tools.",
+				title: "Budget page",
+				userId: "user_1",
+			});
+			const index = build.files.find((file) => file.path === "index.html");
+
+			expect(build).toMatchObject({
+				steps: 64,
+				summary:
+					"Build reached its step budget; publishing the last valid revision.",
+				usage: { inputTokens: 110, outputTokens: 30, totalTokens: 140 },
+			});
+			expect(index?.content).toContain("data-wid=");
+			const logs = consoleSpy.mock.calls.flat().join("\n");
+			expect(logs).toContain(
+				"stream ended with an error; evaluating the last page revision",
+			);
+			expect(logs).toContain("usage: in=110 out=30 total=140 steps=64");
+			expect(logs).toContain("shipping best-effort page at step budget");
+		} finally {
+			streamSpy.mockRestore();
+			consoleSpy.mockRestore();
+		}
 	});
 });
 

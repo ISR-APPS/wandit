@@ -35,10 +35,13 @@ import {
 	type GeneratePageToolDeps,
 	generatePageToolSchemaOnly,
 } from "./tools/generate-page.tool";
-// EXPERIMENT (2026-07-27): worlds OFF again — the live tool is unplugged and
-// the brain invents the whole art direction itself. The schema-only twin
-// stays so chats that used the tool still validate.
-import { getDirectionCandidatesToolSchemaOnly } from "./tools/get-direction-candidates.tool";
+// EXPERIMENT (2026-07-27): worlds stay OFF for websites — the brain invents
+// website art direction itself. The live sampler is available only for COD
+// builds; the schema-only twin keeps historical tool calls valid.
+import {
+	getDirectionCandidatesTool,
+	getDirectionCandidatesToolSchemaOnly,
+} from "./tools/get-direction-candidates.tool";
 import {
 	createPageEditTools,
 	type PageEditTools,
@@ -58,6 +61,7 @@ type AiChatToolSet = {
 	generate_image: GenerateImageTool;
 	generate_marketing_asset: GenerateMarketingAssetTool;
 	generate_page: GeneratePageTool;
+	get_direction_candidates: typeof getDirectionCandidatesTool;
 	scrape_leads: ScrapeLeadsTool;
 	get_page_outline: PageEditTools["get_page_outline"];
 	apply_element_ops: PageEditTools["apply_element_ops"];
@@ -143,6 +147,7 @@ export function createChatAgent(
 				imageGenerationsRepository: deps.imageGenerationsRepository,
 				meteringService: deps.meteringService,
 				parentEventId: deps.parentEventId,
+				pagesRepository: deps.pagesRepository,
 				projectId: deps.projectId,
 				quality: deps.quality,
 				requestKeySeed: deps.requestKeySeed,
@@ -166,6 +171,7 @@ export function createChatAgent(
 				projectId: deps.projectId,
 				userId: deps.userId,
 			}),
+			get_direction_candidates: getDirectionCandidatesTool,
 			scrape_leads: createScrapeLeadsTool({
 				chatId: deps.chatId,
 				leadScrapesRepository: deps.leadScrapesRepository,
