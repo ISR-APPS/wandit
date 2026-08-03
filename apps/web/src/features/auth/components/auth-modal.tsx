@@ -67,6 +67,7 @@ export function AuthModalProvider({ children }: { children: React.ReactNode }) {
 	// then a real session appeared. Prevents a stale Better Auth atom from
 	// instantly closing a 401-triggered modal.
 	const sawSignedOutWhileOpenRef = useRef(false);
+	const openAttemptRef = useRef(0);
 	const { data: session, isPending: isSessionPending } = useSession();
 	const sessionRef = useRef(session);
 	sessionRef.current = session;
@@ -80,9 +81,12 @@ export function AuthModalProvider({ children }: { children: React.ReactNode }) {
 		setRedirectError(opts?.redirectError ?? false);
 		googleRedirectStartedRef.current = false;
 		sawSignedOutWhileOpenRef.current = !sessionRef.current;
+		const attempt = openAttemptRef.current + 1;
+		openAttemptRef.current = attempt;
 		setIsOpen(true);
 		// Drop stale "still signed in" memory from Better Auth after a 401.
 		void refreshSession().then((fresh) => {
+			if (openAttemptRef.current !== attempt) return;
 			if (!fresh) {
 				sawSignedOutWhileOpenRef.current = true;
 			}

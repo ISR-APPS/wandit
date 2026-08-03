@@ -33,16 +33,12 @@ import { AnimatePresence } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Spark } from "@/components/logo";
-import { PromptBox } from "@/features/projects";
+import { PromptBox, useProjectQuery } from "@/features/projects";
 import { useDictionary, useTranslation } from "@/lib/i18n";
 import { readStoredBuilderGatewayModel } from "@/lib/model-labels";
 import { pageKeys } from "../../api/pages.queries";
 import { useSharedAiChat } from "../../lib/ai-chat-context";
-import {
-	useWorkspace,
-	useWorkspaceProjectId,
-	useWorkspaceShell,
-} from "../../lib/store";
+import { useWorkspaceProjectId, useWorkspaceShell } from "../../lib/store";
 import { usePageEditorMode } from "../../lib/use-page-editor";
 import { ThinkingIndicator } from "./chat-message";
 import { MOCK_CHAT_THREAD_ENABLED, MockChatThread } from "./mock-thread";
@@ -59,9 +55,9 @@ import { ConversationContextMeter } from "./token-usage";
 export function ChatPane({ className }: { className?: string }) {
 	const { t, dir } = useTranslation();
 	const dictionary = useDictionary();
-	const { project } = useWorkspace();
 	const projectId = useWorkspaceProjectId();
 	const { chatOpen, toggleChat } = useWorkspaceShell();
+	const { data: project } = useProjectQuery(projectId);
 	const {
 		messages,
 		status,

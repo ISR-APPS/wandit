@@ -64,6 +64,11 @@ export function PublishSection() {
 	if (!slugDirty && syncedSlug !== savedSlug) {
 		setSyncedSlug(savedSlug);
 		setSlug(savedSlug);
+	} else if (slugDirty && slug === savedSlug) {
+		// User (or a save) landed back on the server value — clear dirty so
+		// later external renames/rollbacks can sync again.
+		setSlugDirty(false);
+		setSyncedSlug(savedSlug);
 	}
 
 	// Let typing settle before asking the server about a candidate slug.

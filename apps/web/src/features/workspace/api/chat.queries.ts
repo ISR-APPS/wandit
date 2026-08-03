@@ -89,9 +89,5 @@ export function useChatMessagesQuery(chatId: string | undefined) {
 		// This is TanStack Query's standard idiom for dependent queries:
 		// "only fetch B after A has resolved".
 		enabled: Boolean(chatId),
-		// After a mid-turn reload the AI SDK stream is gone; poll until the
-		// server reports generationActive=false so the UI can catch up.
-		refetchInterval: (query) =>
-			query.state.data?.generationActive ? 2_000 : false,
 	});
 }
