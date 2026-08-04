@@ -1,4 +1,5 @@
 import { HistoryIcon } from "lucide-react";
+import { useEffect, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import {
@@ -30,7 +31,10 @@ import {
 } from "@/features/users/lib/formatters";
 import { cn } from "@/lib/utils";
 
+import { DetailPagination } from "./detail-pagination";
 import { titleCase } from "./user-detail-helpers";
+
+export const LEDGER_PAGE_SIZE = 10;
 
 type UserCreditLedgerProps = {
 	entries: AdminCreditLedgerEntry[];
@@ -50,6 +54,101 @@ function getEntryReason(entry: AdminCreditLedgerEntry): string | null {
 		: null;
 }
 
+export function UserCreditLedgerTable({ entries }: UserCreditLedgerProps) {
+	const [page, setPage] = useState(1);
+	const pageCount = Math.max(1, Math.ceil(entries.length / LEDGER_PAGE_SIZE));
+
+	useEffect(() => {
+		if (page > pageCount) {
+			setPage(pageCount);
+		}
+	}, [page, pageCount]);
+
+	if (entries.length === 0) {
+		return (
+			<Empty className="min-h-64 border-0">
+				<EmptyHeader>
+					<EmptyMedia variant="icon">
+						<HistoryIcon aria-hidden="true" />
+					</EmptyMedia>
+					<EmptyTitle>No credit activity</EmptyTitle>
+					<EmptyDescription>
+						Credit grants and charges will appear here.
+					</EmptyDescription>
+				</EmptyHeader>
+			</Empty>
+		);
+	}
+
+	const pageItems = entries.slice(
+		(page - 1) * LEDGER_PAGE_SIZE,
+		page * LEDGER_PAGE_SIZE,
+	);
+
+	return (
+		<div className="flex flex-col">
+			<Table>
+				<TableHeader>
+					<TableRow>
+						<TableHead className="pl-6">Date</TableHead>
+						<TableHead>Kind</TableHead>
+						<TableHead>Bucket</TableHead>
+						<TableHead>Reason</TableHead>
+						<TableHead className="pr-6 text-right">Delta</TableHead>
+					</TableRow>
+				</TableHeader>
+				<TableBody>
+					{pageItems.map((entry) => {
+						const reason = getEntryReason(entry);
+
+						return (
+							<TableRow key={entry.id}>
+								<TableCell className="pl-6">
+									<time dateTime={entry.createdAt}>
+										{formatAdminDateTime(entry.createdAt)}
+									</time>
+								</TableCell>
+								<TableCell>
+									<Badge variant="outline">{titleCase(entry.kind)}</Badge>
+								</TableCell>
+								<TableCell>
+									<Badge variant="secondary">{titleCase(entry.bucket)}</Badge>
+								</TableCell>
+								<TableCell>
+									{reason ? (
+										<span className="block max-w-72 truncate" title={reason}>
+											{reason}
+										</span>
+									) : (
+										<span className="text-muted-foreground">—</span>
+									)}
+								</TableCell>
+								<TableCell
+									className={cn(
+										"pr-6 text-right font-medium tabular-nums",
+										entry.delta < 0 ? "text-destructive" : "text-foreground",
+									)}
+								>
+									{entry.delta > 0 ? "+" : ""}
+									{formatWholeNumber(entry.delta)}
+								</TableCell>
+							</TableRow>
+						);
+					})}
+				</TableBody>
+			</Table>
+			<div className="px-6">
+				<DetailPagination
+					page={page}
+					pageSize={LEDGER_PAGE_SIZE}
+					total={entries.length}
+					onPageChange={setPage}
+				/>
+			</div>
+		</div>
+	);
+}
+
 export function UserCreditLedger({ entries }: UserCreditLedgerProps) {
 	return (
 		<Card className="shadow-none">
@@ -60,77 +159,7 @@ export function UserCreditLedger({ entries }: UserCreditLedgerProps) {
 				</CardDescription>
 			</CardHeader>
 			<CardContent className={entries.length > 0 ? "px-0" : undefined}>
-				{entries.length > 0 ? (
-					<Table>
-						<TableHeader>
-							<TableRow>
-								<TableHead className="pl-6">Date</TableHead>
-								<TableHead>Kind</TableHead>
-								<TableHead>Bucket</TableHead>
-								<TableHead>Reason</TableHead>
-								<TableHead className="pr-6 text-right">Delta</TableHead>
-							</TableRow>
-						</TableHeader>
-						<TableBody>
-							{entries.map((entry) => {
-								const reason = getEntryReason(entry);
-
-								return (
-									<TableRow key={entry.id}>
-										<TableCell className="pl-6">
-											<time dateTime={entry.createdAt}>
-												{formatAdminDateTime(entry.createdAt)}
-											</time>
-										</TableCell>
-										<TableCell>
-											<Badge variant="outline">{titleCase(entry.kind)}</Badge>
-										</TableCell>
-										<TableCell>
-											<Badge variant="secondary">
-												{titleCase(entry.bucket)}
-											</Badge>
-										</TableCell>
-										<TableCell>
-											{reason ? (
-												<span
-													className="block max-w-72 truncate"
-													title={reason}
-												>
-													{reason}
-												</span>
-											) : (
-												<span className="text-muted-foreground">—</span>
-											)}
-										</TableCell>
-										<TableCell
-											className={cn(
-												"pr-6 text-right font-medium tabular-nums",
-												entry.delta < 0
-													? "text-destructive"
-													: "text-foreground",
-											)}
-										>
-											{entry.delta > 0 ? "+" : ""}
-											{formatWholeNumber(entry.delta)}
-										</TableCell>
-									</TableRow>
-								);
-							})}
-						</TableBody>
-					</Table>
-				) : (
-					<Empty className="min-h-64 border-0">
-						<EmptyHeader>
-							<EmptyMedia variant="icon">
-								<HistoryIcon aria-hidden="true" />
-							</EmptyMedia>
-							<EmptyTitle>No credit activity</EmptyTitle>
-							<EmptyDescription>
-								Credit grants and charges will appear here.
-							</EmptyDescription>
-						</EmptyHeader>
-					</Empty>
-				)}
+				<UserCreditLedgerTable entries={entries} />
 			</CardContent>
 		</Card>
 	);
