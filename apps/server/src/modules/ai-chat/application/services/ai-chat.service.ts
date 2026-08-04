@@ -69,6 +69,7 @@ import {
 import type { FastifyReply } from "fastify";
 
 import { isUserUploadUrl } from "../../../../infrastructure/storage/r2";
+import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import { ChatsRepository } from "../../../generation/infrastructure/persistence/chats.repository";
 import { ImageGenerationsRepository } from "../../../image-generations/infrastructure/persistence/image-generations.repository";
 // Value imports (not `import type`): Nest needs the classes at runtime for @Inject.
@@ -83,8 +84,10 @@ import { MeteringService } from "../../../metering/application/services/metering
 import { ModelPricingService } from "../../../metering/application/services/model-pricing.service";
 import { gatewayGenerationCaptureFromError } from "../../../metering/domain/gateway-metering";
 import {
+	type AiUsageEvent,
 	type CapturedGeneration,
 	gatewayGenerationId,
+	type MeteringReserveOutcome,
 	MeteringStateConflictError,
 } from "../../../metering/domain/metering";
 import {
@@ -117,6 +120,19 @@ import type { AvailableDocument } from "../../agent/tools/read-attachment.tool";
 const MAX_IN_FLIGHT_STREAMS_PER_USER = 3;
 const AI_CHAT_GENERATION_CAPTURE_ATTEMPTS = 3;
 const AI_CHAT_MAX_STREAM_DURATION_MS = 35 * 60 * 1_000;
+// A refunded event's idempotency key can never be reserved again, so retries
+// of a turn whose earlier attempts were voided walk "#2".."#4" key
+// generations. Four crashed-and-refunded attempts of one transcript is past
+// the point where letting the client keep trying helps anyone.
+const AI_CHAT_TURN_KEY_GENERATIONS = 4;
+// Adopting a stale hold keeps its original createdAt, the stranded recovery
+// sweep refunds reserved holds older than 40 minutes by createdAt, and an
+// adopted stream may itself run up to AI_CHAT_MAX_STREAM_DURATION_MS (35
+// minutes) — so the hold's age at adoption plus 35 minutes must stay under
+// the 40-minute sweep line or the sweep can void the hold mid-stream. That
+// bounds adoption at 5 minutes; use 4 for margin. Older holds are superseded
+// (refunded + re-reserved), which restarts the recovery clock.
+const AI_CHAT_STALE_HOLD_ADOPTION_MAX_AGE_MS = 4 * 60_000;
 
 export type PreparedAiChatStream = {
 	readonly eventId: string | null;
@@ -127,6 +143,7 @@ export type PreparedAiChatStream = {
 export class AiChatService {
 	private readonly logger = new Logger(AiChatService.name);
 	private readonly inFlightStreamsByUser = new Map<string, number>();
+	private readonly activeTurnKeys = new Set<string>();
 
 	constructor(
 		@Inject(ChatsRepository)
@@ -161,7 +178,8 @@ export class AiChatService {
 		const subject = meteringSubjectFrom(options.scope);
 		// Concurrency is per ACTOR, not per payer: one org member streaming must
 		// not block another member's slot.
-		const release = this.acquireStreamSlot(options.scope.userId);
+		const releaseSlot = this.acquireStreamSlot(options.scope.userId);
+		let release = releaseSlot;
 
 		try {
 			const modelBoundMessages = annotateUserFileParts(
@@ -174,6 +192,9 @@ export class AiChatService {
 			if (!requestId || !messageId) {
 				throw new Error("AI chat reservation requires a stable request id");
 			}
+
+			const operationKey = `ai-chat:${options.chatId}:${requestId}`;
+			release = this.claimTurnKey(operationKey, releaseSlot);
 
 			try {
 				const creationEvent =
@@ -203,55 +224,50 @@ export class AiChatService {
 				throw error;
 			}
 
-			const operationKey = `ai-chat:${options.chatId}:${requestId}`;
-
 			if (env.GENERATION_BILLING_MODE === "off") {
-				// The kill switch suppresses new holds only. A hold accepted before a
-				// config change remains an at-most-once provider admission boundary.
-				const existing = await this.meteringService.findByIdempotencyKey(
-					operationKey,
-					subject,
-				);
+				// The kill switch suppresses new holds only. Holds accepted before a
+				// config change remain an at-most-once provider admission boundary —
+				// but only for turns that COMPLETED (settled/reconciled). A hold that
+				// is merely reserved or already refunded belongs to an attempt that
+				// died mid-stream (claimTurnKey above proves it is not live in this
+				// process), and a retry of it must run, not 409 forever. Every key
+				// generation is checked: a turn whose first hold was refunded may
+				// have COMPLETED under "#2".."#4" while billing was on.
+				for (
+					let generation = 1;
+					generation <= AI_CHAT_TURN_KEY_GENERATIONS;
+					generation += 1
+				) {
+					const existing = await this.meteringService.findByIdempotencyKey(
+						generation === 1 ? operationKey : `${operationKey}#${generation}`,
+						subject,
+					);
 
-				if (existing) {
-					throw this.chatReplayConflict();
+					if (!existing) {
+						// Generations are minted in order — nothing beyond this one.
+						break;
+					}
+
+					if (
+						existing.status !== "reserved" &&
+						existing.status !== "refunded"
+					) {
+						throw this.chatReplayConflict();
+					}
 				}
 
 				return { eventId: null, release };
 			}
 
 			const estimate = await this.estimateReservation(modelBoundMessages);
+			const event = await this.admitTurnReservation(subject, operationKey, {
+				chatId: options.chatId,
+				credits: estimate.credits,
+				estimatedCostUsdMicros: estimate.costUsdMicros,
+				messageId,
+			});
 
-			let reservation: Awaited<
-				ReturnType<MeteringService["reserveWithReplay"]>
-			>;
-
-			try {
-				reservation = await this.meteringService.reserveWithReplay(
-					"chat",
-					subject,
-					{
-						chatId: options.chatId,
-						credits: estimate.credits,
-						estimatedCostUsdMicros: estimate.costUsdMicros,
-						idempotencyKey: operationKey,
-						messageId,
-						model: env.AI_CHAT_MODEL,
-					},
-				);
-			} catch (error) {
-				if (error instanceof MeteringStateConflictError) {
-					throw this.chatReplayConflict();
-				}
-
-				throw error;
-			}
-
-			if (reservation.replay !== "none") {
-				throw this.chatReplayConflict();
-			}
-
-			return { eventId: reservation.event.id, release };
+			return { eventId: event.id, release };
 		} catch (error) {
 			release();
 			throw error;
@@ -263,6 +279,176 @@ export class AiChatService {
 			code: "AI_CHAT_OPERATION_REPLAYED",
 			message: "This AI chat operation was already accepted",
 		});
+	}
+
+	/**
+	 * In-process liveness marker for one chat turn. While a key is claimed the
+	 * turn's stream is actually running here, so a duplicate POST of the same
+	 * transcript must 409 rather than adopt the running stream's reservation.
+	 * Like the stream slots, this is per-process state: it cannot see another
+	 * replica's streams, so cross-replica duplicates keep a small adoption
+	 * race window instead of a closed one — the trade accepted throughout this
+	 * service for in-memory admission state. Similarly accepted: the abort
+	 * listener frees this key before the aborted stream's onEnd settle lands,
+	 * so a Stop followed by an instant identical resubmit can adopt the hold
+	 * and later lose its settle to the aborted attempt's partial one — the
+	 * turn still delivers, and the gateway reconciliation sweep reprices the
+	 * event from all captured generations. Holding the key until onEnd would
+	 * close that window but leak the key (bricking the turn in-process) if
+	 * onEnd ever failed to run after an abort.
+	 */
+	private claimTurnKey(
+		operationKey: string,
+		releaseSlot: () => void,
+	): () => void {
+		if (this.activeTurnKeys.has(operationKey)) {
+			// Distinct from the replay conflict on purpose: this turn is running
+			// RIGHT NOW, so the right user guidance is "wait", not "send a new
+			// message" — the web pane maps this code to the busy copy.
+			throw new ConflictException({
+				code: "AI_CHAT_TURN_ACTIVE",
+				message: "This AI chat turn is currently streaming",
+			});
+		}
+
+		this.activeTurnKeys.add(operationKey);
+		// Released-once guard: the abort listener and the stream's onEnd finally
+		// both call release for one attempt. Without the guard the late second
+		// call would delete a RETRY's freshly claimed key and reopen the
+		// in-process duplicate window this marker exists to close.
+		let released = false;
+
+		return () => {
+			if (released) {
+				return;
+			}
+
+			released = true;
+			this.activeTurnKeys.delete(operationKey);
+			releaseSlot();
+		};
+	}
+
+	/**
+	 * Reserve the turn's hold, re-admitting retries of attempts that died
+	 * mid-stream. A client retry resubmits the identical transcript, so it
+	 * recomputes the identical operation key — historically that made ONE
+	 * crashed attempt brick its turn behind a 409 forever. Admission now
+	 * distinguishes the prior hold's state: still-reserved holds from a dead
+	 * attempt are adopted outright (same event, already debited) unless they
+	 * are close to the stranded-recovery refund deadline, in which case they
+	 * are voided here and the next key generation takes a fresh hold; holds
+	 * already refunded (their key is permanently spent) advance to the next
+	 * "#n" key generation. Completed turns (settled/reconciled) remain hard
+	 * 409 replays — that double-fire is what the key exists to reject.
+	 */
+	private async admitTurnReservation(
+		subject: MeteringSubject,
+		operationKey: string,
+		reservation: {
+			chatId: string;
+			credits: number;
+			estimatedCostUsdMicros: number | null;
+			messageId: string;
+		},
+	): Promise<AiUsageEvent> {
+		for (
+			let generation = 1;
+			generation <= AI_CHAT_TURN_KEY_GENERATIONS;
+			generation += 1
+		) {
+			const idempotencyKey =
+				generation === 1 ? operationKey : `${operationKey}#${generation}`;
+
+			let outcome: MeteringReserveOutcome;
+
+			try {
+				outcome = await this.meteringService.reserveWithReplay(
+					"chat",
+					subject,
+					{
+						chatId: reservation.chatId,
+						credits: reservation.credits,
+						estimatedCostUsdMicros: reservation.estimatedCostUsdMicros,
+						idempotencyKey,
+						messageId: reservation.messageId,
+						model: env.AI_CHAT_MODEL,
+					},
+				);
+			} catch (error) {
+				if (
+					error instanceof MeteringStateConflictError &&
+					error.status === "refunded"
+				) {
+					// This generation's hold was voided (stranded recovery or the
+					// supersede below) without the turn completing — admit the retry
+					// under the next generation.
+					continue;
+				}
+
+				if (
+					error instanceof MeteringStateConflictError &&
+					error.status === "reserved"
+				) {
+					// Shape mismatch on a crashed hold: the retry's re-estimate no
+					// longer matches what the dead attempt reserved (model pricing
+					// refreshed, or AI_CHAT_MODEL changed between attempts). The
+					// turn never completed and is not live in this process (the
+					// turn key is ours), so void the stale hold and walk on rather
+					// than reproduce the bricked-turn 409.
+					await this.supersedeStaleHold(error.eventId);
+					continue;
+				}
+
+				if (error instanceof MeteringStateConflictError) {
+					throw this.chatReplayConflict();
+				}
+
+				throw error;
+			}
+
+			if (outcome.replay === "none") {
+				return outcome.event;
+			}
+
+			if (outcome.replay === "reserved") {
+				const heldForMs = Date.now() - outcome.event.createdAt.getTime();
+
+				if (heldForMs <= AI_CHAT_STALE_HOLD_ADOPTION_MAX_AGE_MS) {
+					return outcome.event;
+				}
+
+				// Too old to trust for a whole stream (see the adoption-ceiling
+				// arithmetic above): void it and take a fresh hold under the next
+				// generation.
+				await this.supersedeStaleHold(outcome.event.id);
+				continue;
+			}
+
+			throw this.chatReplayConflict();
+		}
+
+		throw this.chatReplayConflict();
+	}
+
+	/**
+	 * Void a crashed attempt's hold so the next key generation can reserve
+	 * fresh. refund() keeps events with durable generation refs reserved for
+	 * reconciliation instead of voiding paid provider work — the fresh hold
+	 * then simply coexists with the old one until the sweep prices it.
+	 */
+	private async supersedeStaleHold(eventId: string): Promise<void> {
+		try {
+			await this.meteringService.refund(eventId, "ai_chat_retry_supersede");
+		} catch (error) {
+			if (error instanceof MeteringStateConflictError) {
+				// The hold completed (settled/reconciled) between the replay read
+				// and this refund — that is a finished turn: hard replay.
+				throw this.chatReplayConflict();
+			}
+
+			throw error;
+		}
 	}
 
 	async stream(options: {

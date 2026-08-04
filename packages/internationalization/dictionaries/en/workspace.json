@@ -663,6 +663,7 @@
 		"errors": {
 			"busy": "A generation is already running. Wait for it to finish before sending another message.",
 			"credits": "You don't have enough credits for this generation. Top up to continue.",
+			"replayed": "This request already ran. Send a new message to continue.",
 			"stream": "The generation stream was interrupted. Please try again."
 		},
 		"versionCardKind": "Landing page",

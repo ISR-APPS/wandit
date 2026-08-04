@@ -201,6 +201,23 @@ export class MeteringService {
 				event.attemptRef === input.claimAttemptRef ||
 				event.attemptRef === completedClaimAttemptRef
 			) {
+				// This request already claimed the bundle once. What that means
+				// depends on how that attempt ended: a still-reserved hold belongs
+				// to a stream that died before settling (an actively-running
+				// duplicate is refused upstream by the caller's in-process turn
+				// guard), so the retry adopts it; a refunded hold was voided by
+				// stranded recovery without the turn completing, so the retry
+				// falls through to a normal hold; a settled/reconciled hold means
+				// the turn COMPLETED and an identical resubmit is the replay this
+				// ref exists to reject.
+				if (event.status === "reserved") {
+					return event;
+				}
+
+				if (event.status === "refunded") {
+					return null;
+				}
+
 				throw new MeteringStateConflictError(
 					event.id,
 					event.status,
@@ -221,11 +238,12 @@ export class MeteringService {
 			}
 
 			if (event.messageId !== input.messageId) {
-				throw new MeteringStateConflictError(
-					event.id,
-					event.status,
-					"claim bundled reservation for",
-				);
+				// A different turn of this conversation reached the pristine
+				// bundle first (or the bundle is stuck under a crashed claim).
+				// That turn simply pays with a normal hold; conflicting here
+				// bricked the whole chat until stranded recovery released the
+				// bundle.
+				return null;
 			}
 
 			const claimAttemptRef =
@@ -236,11 +254,12 @@ export class MeteringService {
 						: null;
 
 			if (!claimAttemptRef || !event.attemptRef) {
-				throw new MeteringStateConflictError(
-					event.id,
-					event.status,
-					"claim bundled reservation for",
-				);
+				// The hold is claimed by a DIFFERENT request's stream — either one
+				// racing right now or one that crashed without settling. Do not
+				// steal it (a live cross-instance stream may be using it) and do
+				// not conflict (that bricked crashed chats): this request takes a
+				// normal hold, and a dead claim is released by stranded recovery.
+				return null;
 			}
 
 			const claimed = await this.repository.transitionEventAttemptRef(
@@ -771,7 +790,8 @@ export class MeteringService {
 			if (
 				initialChild &&
 				(initialChild.parentEventId !== initialParent.id ||
-					this.eventPayerKey(initialChild) !== this.eventPayerKey(initialParent))
+					this.eventPayerKey(initialChild) !==
+						this.eventPayerKey(initialParent))
 			) {
 				throw new Error(
 					`AI usage event ${initialChild.id} is not a child of ${initialParent.id}`,

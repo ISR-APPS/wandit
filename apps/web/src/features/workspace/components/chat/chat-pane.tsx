@@ -39,6 +39,7 @@ import { readStoredBuilderGatewayModel } from "@/lib/model-labels";
 import { pageKeys } from "../../api/pages.queries";
 import { useSharedAiChat } from "../../lib/ai-chat-context";
 import { useWorkspace } from "../../lib/store";
+import { chatStreamErrorKey } from "../../lib/use-ai-chat";
 import { usePageEditor } from "../../lib/use-page-editor";
 import { ThinkingIndicator } from "./chat-message";
 import { MOCK_CHAT_THREAD_ENABLED, MockChatThread } from "./mock-thread";
@@ -68,6 +69,10 @@ export function ChatPane({ className }: { className?: string }) {
 		addToolApprovalResponse,
 	} = useSharedAiChat();
 	const editor = usePageEditor();
+
+	// A replay/busy refusal must not be answered with "try again" copy:
+	// retrying resubmits the identical transcript and reproduces the refusal.
+	const streamErrorKey = chatStreamErrorKey(error);
 
 	// Mirror of the PromptBox draft (via onValueChange) — the tray needs to
 	// know when typed text should override its chips (design 10n state 2).
@@ -343,7 +348,7 @@ export function ChatPane({ className }: { className?: string }) {
 									<StatusMessageHeader
 										avatarClass="border-destructive/38 bg-destructive/14 text-destructive"
 										kickerClass="text-destructive"
-										kicker={t("workspace.chat.errors.stream")}
+										kicker={t(streamErrorKey)}
 									>
 										<AlertTriangle className="size-3" aria-hidden />
 									</StatusMessageHeader>
@@ -351,7 +356,7 @@ export function ChatPane({ className }: { className?: string }) {
 										dir="auto"
 										className="text-[13px] text-muted-foreground leading-[1.5]"
 									>
-										{t("workspace.chat.errors.stream")}
+										{t(streamErrorKey)}
 									</p>
 								</div>
 							) : null}

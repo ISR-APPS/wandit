@@ -107,9 +107,14 @@ function buildService({
 		captureGeneration: vi.fn().mockResolvedValue({ id: "generation-ref" }),
 		claimBundledReservation: vi.fn().mockResolvedValue(null),
 		findByIdempotencyKey: vi.fn().mockResolvedValue(null),
+		refund: vi.fn().mockResolvedValue({
+			id: "usage-event-1",
+			status: "refunded",
+		}),
 		reserveWithReplay: vi.fn().mockResolvedValue({
 			event: {
 				chatId: CHAT_ID,
+				createdAt: new Date(),
 				id: "usage-event-1",
 				operation: "chat",
 				status: "reserved",
@@ -379,7 +384,7 @@ describe("AiChatService MCP lifecycle", () => {
 			ordinaryReplay.meteringService.findByIdempotencyKey.mockResolvedValueOnce(
 				{
 					id: "ordinary-usage-event",
-					status: "reserved",
+					status: "settled",
 				},
 			);
 			await expect(
@@ -394,6 +399,46 @@ describe("AiChatService MCP lifecycle", () => {
 			expect(
 				ordinaryReplay.meteringService.reserveWithReplay,
 			).not.toHaveBeenCalled();
+
+			// A merely reserved hold is a crashed attempt, not a completed turn:
+			// the retry must run (still without a new hold — billing is off).
+			const crashedRetry = buildService();
+			crashedRetry.meteringService.findByIdempotencyKey.mockResolvedValueOnce({
+				id: "crashed-usage-event",
+				status: "reserved",
+			});
+			const retried = await crashedRetry.service.prepareStream({
+				chatId: CHAT_ID,
+				messages: [userMessage()],
+				projectId: PROJECT_ID,
+				requestId: "accepted-ordinary",
+				scope: PERSONAL_SCOPE,
+			});
+			expect(retried.eventId).toBeNull();
+			retried.release();
+
+			// A turn whose first hold was refunded may have COMPLETED under a
+			// later key generation while billing was on — the walk must find it.
+			const laterGeneration = buildService();
+			laterGeneration.meteringService.findByIdempotencyKey
+				.mockResolvedValueOnce({ id: "gen-1", status: "refunded" })
+				.mockResolvedValueOnce({ id: "gen-2", status: "settled" });
+			await expect(
+				laterGeneration.service.prepareStream({
+					chatId: CHAT_ID,
+					messages: [userMessage()],
+					projectId: PROJECT_ID,
+					requestId: "completed-under-gen-2",
+					scope: PERSONAL_SCOPE,
+				}),
+			).rejects.toMatchObject({ status: 409 });
+			expect(
+				laterGeneration.meteringService.findByIdempotencyKey,
+			).toHaveBeenNthCalledWith(
+				2,
+				`ai-chat:${CHAT_ID}:completed-under-gen-2#2`,
+				{ actorUserId: USER_ID },
+			);
 
 			const newOperation = buildService();
 			const prepared = await newOperation.service.prepareStream({
@@ -418,13 +463,12 @@ describe("AiChatService MCP lifecycle", () => {
 	});
 
 	it.each([
-		"reserved",
 		"settled",
 		"reconciled",
-	] as const)("returns 409 before provider streaming for an ordinary %s replay", async (replay) => {
+	] as const)("returns 409 before provider streaming for a completed-turn %s replay", async (replay) => {
 		const { meteringService, service } = buildService();
 		meteringService.reserveWithReplay.mockResolvedValueOnce({
-			event: { id: "usage-event-1", status: replay },
+			event: { createdAt: new Date(), id: "usage-event-1", status: replay },
 			replay,
 			replayed: true,
 		});
@@ -444,13 +488,14 @@ describe("AiChatService MCP lifecycle", () => {
 		expect(aiMocks.createAgentUIStream).not.toHaveBeenCalled();
 	});
 
-	it.each([
-		"refunded",
-		"reconcile_failed",
-	] as const)("returns 409 for a terminal ordinary %s replay", async (status) => {
+	it("returns 409 for a reconcile_failed replay", async () => {
 		const { meteringService, service } = buildService();
 		meteringService.reserveWithReplay.mockRejectedValueOnce(
-			new MeteringStateConflictError("usage-event-1", status, "replay"),
+			new MeteringStateConflictError(
+				"usage-event-1",
+				"reconcile_failed",
+				"replay",
+			),
 		);
 
 		const error = await service
@@ -465,7 +510,228 @@ describe("AiChatService MCP lifecycle", () => {
 
 		expect(error).toBeInstanceOf(HttpException);
 		expect((error as HttpException).getStatus()).toBe(409);
+		expect((error as HttpException).getResponse()).toMatchObject({
+			code: "AI_CHAT_OPERATION_REPLAYED",
+		});
 		expect(aiMocks.createAgentUIStream).not.toHaveBeenCalled();
+	});
+
+	it("adopts the still-open hold of a crashed attempt instead of replay-409ing the retry", async () => {
+		const { meteringService, service } = buildService();
+		meteringService.reserveWithReplay.mockResolvedValueOnce({
+			event: {
+				// Recent enough to be trusted for a full stream (well under the
+				// stranded-recovery deadline).
+				createdAt: new Date(Date.now() - 60_000),
+				id: "crashed-hold",
+				status: "reserved",
+			},
+			replay: "reserved",
+			replayed: true,
+		});
+
+		const prepared = await service.prepareStream({
+			chatId: CHAT_ID,
+			messages: [userMessage()],
+			projectId: PROJECT_ID,
+			requestId: "retry-of-crashed-turn",
+			scope: PERSONAL_SCOPE,
+		});
+
+		expect(prepared.eventId).toBe("crashed-hold");
+		expect(meteringService.refund).not.toHaveBeenCalled();
+		prepared.release();
+	});
+
+	it("409s a duplicate of a turn that is actively streaming in this process", async () => {
+		const { meteringService, service } = buildService();
+
+		const running = await service.prepareStream({
+			chatId: CHAT_ID,
+			messages: [userMessage()],
+			projectId: PROJECT_ID,
+			requestId: "live-turn",
+			scope: PERSONAL_SCOPE,
+		});
+
+		const error = await service
+			.prepareStream({
+				chatId: CHAT_ID,
+				messages: [userMessage()],
+				projectId: PROJECT_ID,
+				requestId: "live-turn",
+				scope: PERSONAL_SCOPE,
+			})
+			.catch((caught: unknown) => caught);
+
+		expect(error).toBeInstanceOf(HttpException);
+		expect((error as HttpException).getStatus()).toBe(409);
+		// The BUSY code, not the replay code: the client maps this to "wait for
+		// it to finish", while the replay code says "send a new message".
+		expect((error as HttpException).getResponse()).toMatchObject({
+			code: "AI_CHAT_TURN_ACTIVE",
+		});
+		// The duplicate is refused before touching metering a second time.
+		expect(meteringService.reserveWithReplay).toHaveBeenCalledTimes(1);
+
+		running.release();
+
+		// Once the stream ended, the same transcript admits again (the metering
+		// replay outcome then decides — here a fresh reserve).
+		const rerun = await service.prepareStream({
+			chatId: CHAT_ID,
+			messages: [userMessage()],
+			projectId: PROJECT_ID,
+			requestId: "live-turn",
+			scope: PERSONAL_SCOPE,
+		});
+		expect(rerun.eventId).toBe("usage-event-1");
+		rerun.release();
+	});
+
+	it("re-admits under the next key generation after a refunded hold", async () => {
+		const { meteringService, service } = buildService();
+		meteringService.reserveWithReplay
+			.mockRejectedValueOnce(
+				new MeteringStateConflictError("voided-hold", "refunded", "replay"),
+			)
+			.mockResolvedValueOnce({
+				event: { createdAt: new Date(), id: "fresh-hold", status: "reserved" },
+				replay: "none",
+				replayed: false,
+			});
+
+		const prepared = await service.prepareStream({
+			chatId: CHAT_ID,
+			messages: [userMessage()],
+			projectId: PROJECT_ID,
+			requestId: "retry-after-refund",
+			scope: PERSONAL_SCOPE,
+		});
+
+		expect(prepared.eventId).toBe("fresh-hold");
+		expect(meteringService.reserveWithReplay).toHaveBeenCalledTimes(2);
+		expect(
+			meteringService.reserveWithReplay.mock.calls[0]?.[2]?.idempotencyKey,
+		).toBe(`ai-chat:${CHAT_ID}:retry-after-refund`);
+		expect(
+			meteringService.reserveWithReplay.mock.calls[1]?.[2]?.idempotencyKey,
+		).toBe(`ai-chat:${CHAT_ID}:retry-after-refund#2`);
+		prepared.release();
+	});
+
+	it("supersedes a hold too close to the recovery deadline and reserves fresh", async () => {
+		const { meteringService, service } = buildService();
+		meteringService.reserveWithReplay
+			.mockResolvedValueOnce({
+				event: {
+					// Past the 4-minute adoption ceiling: an adopted stream may run 35
+					// minutes on the hold's original createdAt, so anything older
+					// could cross the 40-minute stranded-recovery line mid-stream.
+					createdAt: new Date(Date.now() - 5 * 60_000),
+					id: "near-deadline-hold",
+					status: "reserved",
+				},
+				replay: "reserved",
+				replayed: true,
+			})
+			.mockResolvedValueOnce({
+				event: { createdAt: new Date(), id: "fresh-hold", status: "reserved" },
+				replay: "none",
+				replayed: false,
+			});
+
+		const prepared = await service.prepareStream({
+			chatId: CHAT_ID,
+			messages: [userMessage()],
+			projectId: PROJECT_ID,
+			requestId: "retry-near-deadline",
+			scope: PERSONAL_SCOPE,
+		});
+
+		expect(prepared.eventId).toBe("fresh-hold");
+		expect(meteringService.refund).toHaveBeenCalledWith(
+			"near-deadline-hold",
+			"ai_chat_retry_supersede",
+		);
+		expect(
+			meteringService.reserveWithReplay.mock.calls[1]?.[2]?.idempotencyKey,
+		).toBe(`ai-chat:${CHAT_ID}:retry-near-deadline#2`);
+		prepared.release();
+	});
+
+	it("supersedes a crashed hold whose stored estimate no longer matches (pricing drift)", async () => {
+		const { meteringService, service } = buildService();
+		meteringService.reserveWithReplay
+			// assertReserveReplay shape mismatch throws with the RESERVED status.
+			.mockRejectedValueOnce(
+				new MeteringStateConflictError(
+					"drifted-hold",
+					"reserved",
+					"replay a mismatched reserve",
+				),
+			)
+			.mockResolvedValueOnce({
+				event: { createdAt: new Date(), id: "fresh-hold", status: "reserved" },
+				replay: "none",
+				replayed: false,
+			});
+
+		const prepared = await service.prepareStream({
+			chatId: CHAT_ID,
+			messages: [userMessage()],
+			projectId: PROJECT_ID,
+			requestId: "retry-after-price-change",
+			scope: PERSONAL_SCOPE,
+		});
+
+		expect(prepared.eventId).toBe("fresh-hold");
+		expect(meteringService.refund).toHaveBeenCalledWith(
+			"drifted-hold",
+			"ai_chat_retry_supersede",
+		);
+		prepared.release();
+	});
+
+	it("keeps a stale second release from freeing a retry's live turn claim", async () => {
+		const { meteringService, service } = buildService();
+
+		const attemptA = await service.prepareStream({
+			chatId: CHAT_ID,
+			messages: [userMessage()],
+			projectId: PROJECT_ID,
+			requestId: "same-turn",
+			scope: PERSONAL_SCOPE,
+		});
+		attemptA.release();
+
+		// Retry B claims the same turn key after A's first release.
+		const attemptB = await service.prepareStream({
+			chatId: CHAT_ID,
+			messages: [userMessage()],
+			projectId: PROJECT_ID,
+			requestId: "same-turn",
+			scope: PERSONAL_SCOPE,
+		});
+
+		// A's abort listener and its stream onEnd both call release; the late
+		// second call must NOT free B's claim.
+		attemptA.release();
+
+		const error = await service
+			.prepareStream({
+				chatId: CHAT_ID,
+				messages: [userMessage()],
+				projectId: PROJECT_ID,
+				requestId: "same-turn",
+				scope: PERSONAL_SCOPE,
+			})
+			.catch((caught: unknown) => caught);
+
+		expect(error).toBeInstanceOf(HttpException);
+		expect((error as HttpException).getStatus()).toBe(409);
+		expect(meteringService.reserveWithReplay).toHaveBeenCalledTimes(2);
+		attemptB.release();
 	});
 
 	it("caps one user's concurrently active streams at three and releases exactly once", async () => {
@@ -1311,10 +1577,17 @@ function deferred<T>() {
 
 describe("turnRequestId", () => {
 	const askPart = (state: string) =>
-		({ type: "tool-ask_user", state }) as unknown as WanditUIMessage["parts"][number];
+		({
+			type: "tool-ask_user",
+			state,
+		}) as unknown as WanditUIMessage["parts"][number];
 	const assistant = (parts: WanditUIMessage["parts"]) =>
 		({ id: "assistant-1", role: "assistant", parts }) as WanditUIMessage;
-	const user = { id: "user-msg-1", role: "user", parts: [] } as unknown as WanditUIMessage;
+	const user = {
+		id: "user-msg-1",
+		role: "user",
+		parts: [],
+	} as unknown as WanditUIMessage;
 
 	it("is deterministic for an exact retry of the same round", () => {
 		const messages = [user, assistant([askPart("output-available")])];

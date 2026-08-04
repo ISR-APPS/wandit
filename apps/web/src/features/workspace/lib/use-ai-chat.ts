@@ -1,5 +1,4 @@
 import { useChat } from "@ai-sdk/react";
-import { workspaceScopeHeaders } from "@/features/workspaces/lib/workspace-scope";
 import { useQueryClient } from "@tanstack/react-query";
 import {
 	type AiChatDataParts,
@@ -22,10 +21,11 @@ import {
 	type UIMessage,
 } from "ai";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-
 import { dispatchBillingError } from "@/features/billing/lib/billing-error-dispatch";
 import { creditsKeys } from "@/features/credits/api/credits.queries";
 import { chatAutostart, projectKeys } from "@/features/projects";
+import { workspaceScopeHeaders } from "@/features/workspaces/lib/workspace-scope";
+import { isApiClientError } from "@/lib/api-client";
 import { getServerUrl } from "@/lib/server-url";
 import {
 	useChatByProjectQuery,
@@ -363,6 +363,31 @@ export function useAiChat(projectId: string) {
 		isResolvingChat: chatByProjectQuery.isPending,
 		isLoadingMessages: Boolean(chatId) && messagesQuery.isPending,
 	};
+}
+
+/**
+ * The generic stream-error copy says "try again", which is exactly wrong for
+ * two server refusals: 409 AI_CHAT_OPERATION_REPLAYED means the identical
+ * transcript already COMPLETED (retrying reproduces the identical idempotency
+ * key — the user must send a new message), and 409 AI_CHAT_TURN_ACTIVE means
+ * this turn is streaming RIGHT NOW (the user must wait, not fork the chat).
+ * The pane maps each to its own copy; everything else keeps the generic text.
+ */
+export function chatStreamErrorKey(
+	error: unknown,
+):
+	| "workspace.chat.errors.busy"
+	| "workspace.chat.errors.replayed"
+	| "workspace.chat.errors.stream" {
+	if (isApiClientError(error) && error.code === "AI_CHAT_OPERATION_REPLAYED") {
+		return "workspace.chat.errors.replayed";
+	}
+
+	if (isApiClientError(error) && error.code === "AI_CHAT_TURN_ACTIVE") {
+		return "workspace.chat.errors.busy";
+	}
+
+	return "workspace.chat.errors.stream";
 }
 
 /**
