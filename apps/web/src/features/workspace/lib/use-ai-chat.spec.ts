@@ -5,7 +5,9 @@ import {
 import { describe, expect, it } from "vitest";
 
 import { toUpgradeModalIntent } from "@/features/billing/lib/billing-error-dispatch";
+import { ApiClientError } from "@/lib/api-client";
 import {
+	chatStreamErrorKey,
 	hydrateAiChatMessages,
 	isAppliedPageEditPart,
 	nextBillingErrorInTurn,
@@ -121,6 +123,35 @@ describe("billing error turn state", () => {
 
 		expect(afterBillingPart).toBe(true);
 		expect(afterGenericError).toBe(true);
+	});
+});
+
+describe("replay conflict detection", () => {
+	function apiError(code: string, statusCode: number) {
+		return new ApiClientError({
+			code,
+			message: "conflict",
+			path: "/v1/chats/chat-1/ai-stream",
+			requestId: "req-1",
+			statusCode,
+			timestamp: "2026-08-04T19:16:58.000Z",
+		});
+	}
+
+	it("maps each server refusal to its own copy and everything else to generic", () => {
+		expect(
+			chatStreamErrorKey(apiError("AI_CHAT_OPERATION_REPLAYED", 409)),
+		).toBe("workspace.chat.errors.replayed");
+		expect(chatStreamErrorKey(apiError("AI_CHAT_TURN_ACTIVE", 409))).toBe(
+			"workspace.chat.errors.busy",
+		);
+		expect(chatStreamErrorKey(apiError("INSUFFICIENT_CREDITS", 402))).toBe(
+			"workspace.chat.errors.stream",
+		);
+		expect(chatStreamErrorKey(new Error("stream died"))).toBe(
+			"workspace.chat.errors.stream",
+		);
+		expect(chatStreamErrorKey(undefined)).toBe("workspace.chat.errors.stream");
 	});
 });
 
