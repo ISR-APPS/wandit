@@ -7,7 +7,7 @@ const mockEnv = vi.hoisted(() => ({
 vi.mock("@wandit/env/server", () => ({ env: mockEnv }));
 
 import type { WanditUIMessage } from "../../../agent/chat-agent";
-import { assertOwnedFileParts } from "./ai-chat.controller";
+import { assertOwnedFileParts, streamRequestId } from "./ai-chat.controller";
 
 const OWN_UPLOAD =
 	"https://assets.example.com/public/uploads/user_1/upload-1/photo.png";
@@ -108,5 +108,22 @@ describe("assertOwnedFileParts", () => {
 				new Set(),
 			),
 		).toThrow("Attachments must be uploaded through Wandit");
+	});
+});
+
+describe("streamRequestId", () => {
+	it("ignores body.id — the transport sends the constant chat id there", () => {
+		// Regression: using body.id as the idempotency key 409'd every turn
+		// after the first (chat id never changes), so answering ask_user
+		// questions or sending a second message always failed as a replay.
+		expect(
+			streamRequestId({ id: "chat-uuid-constant", messageId: undefined }),
+		).toBeUndefined();
+	});
+
+	it("uses messageId when the client regenerates a specific message", () => {
+		expect(
+			streamRequestId({ id: "chat-uuid-constant", messageId: "msg-7" }),
+		).toBe("msg-7");
 	});
 });
