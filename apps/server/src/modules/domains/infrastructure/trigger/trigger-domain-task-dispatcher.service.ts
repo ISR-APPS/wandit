@@ -15,6 +15,7 @@ import type {
 
 const DOMAIN_PURCHASE_TASK_ID = "domain-purchase";
 const DOMAIN_CONFIGURATION_TASK_ID = "domain-configure";
+const RESETTABLE_CONFIGURATION_STATUSES = new Set(["CANCELED", "COMPLETED"]);
 const RESETTABLE_PURCHASE_STATUSES = new Set(["CANCELED", "COMPLETED"]);
 
 /** Trigger-context handoff: the SDK supplies task-run authentication. */
@@ -30,19 +31,29 @@ export async function triggerDomainPurchaseTask(
 export async function triggerDomainConfigurationTask(
 	payload: DomainConfigurationPayload,
 ): Promise<DomainTaskHandle> {
-	const idempotencyKey = await idempotencyKeys.create(
-		`domain-configure:${payload.domainId}:${payload.nonce}`,
-		{ scope: "global" },
-	);
+	const idempotencyKey = await configurationKey(payload);
 
-	return tasks.trigger<typeof domainConfigurationTask>(
-		DOMAIN_CONFIGURATION_TASK_ID,
-		payload,
-		{
-			idempotencyKey,
-			tags: [`domain:${payload.domainId}`],
-		},
-	);
+	return triggerConfigurationWithKey(payload, idempotencyKey);
+}
+
+/**
+ * Trigger-context recovery, called only after a DB-backed reconciler has
+ * selected a stale row. It never resets a live or failed run.
+ */
+export async function recoverDomainConfigurationTask(
+	payload: DomainConfigurationPayload,
+): Promise<DomainTaskHandle> {
+	const idempotencyKey = await configurationKey(payload);
+	const handle = await triggerConfigurationWithKey(payload, idempotencyKey);
+	const run = await runs.retrieve(handle.id);
+
+	if (!RESETTABLE_CONFIGURATION_STATUSES.has(run.status)) {
+		return handle;
+	}
+
+	await idempotencyKeys.reset(DOMAIN_CONFIGURATION_TASK_ID, idempotencyKey);
+
+	return triggerConfigurationWithKey(payload, idempotencyKey);
 }
 
 /**
@@ -102,12 +113,41 @@ export class TriggerDomainTaskDispatcherService
 
 		return recoverDomainPurchaseTask(payload);
 	}
+
+	async recoverConfiguration(
+		payload: DomainConfigurationPayload,
+	): Promise<DomainTaskHandle> {
+		this.assertAvailable();
+
+		return recoverDomainConfigurationTask(payload);
+	}
+}
+
+function configurationKey(payload: DomainConfigurationPayload) {
+	return idempotencyKeys.create(
+		`domain-configure:${payload.domainId}:${payload.nonce}`,
+		{ scope: "global" },
+	);
 }
 
 function purchaseKey(orderId: string) {
 	return idempotencyKeys.create(`domain-purchase:${orderId}`, {
 		scope: "global",
 	});
+}
+
+function triggerConfigurationWithKey(
+	payload: DomainConfigurationPayload,
+	idempotencyKey: Awaited<ReturnType<typeof idempotencyKeys.create>>,
+): Promise<DomainTaskHandle> {
+	return tasks.trigger<typeof domainConfigurationTask>(
+		DOMAIN_CONFIGURATION_TASK_ID,
+		payload,
+		{
+			idempotencyKey,
+			tags: [`domain:${payload.domainId}`],
+		},
+	);
 }
 
 function triggerPurchaseWithKey(

@@ -21,6 +21,7 @@ import {
 	type Database,
 } from "../../../../infrastructure/database/database.constants";
 import {
+	DOMAIN_CONFIGURATION_MAX_ATTEMPT,
 	type DomainConfigurationCursor,
 	parseDomainConfigurationCursor,
 } from "../../application/fulfillment/domain-fulfillment.contracts";
@@ -41,7 +42,18 @@ export type StaleDomainPurchaseCandidate = {
 	updatedAt: Date;
 };
 
+export type StaleDomainConfigurationCandidate = {
+	domainId: string;
+	nonce: string;
+	updatedAt: Date;
+};
+
 export type FindStaleDomainPurchaseCandidatesInput = {
+	limit: number;
+	staleBefore: Date;
+};
+
+export type FindStaleDomainConfigurationCandidatesInput = {
 	limit: number;
 	staleBefore: Date;
 };
@@ -240,6 +252,45 @@ export class DomainsRepository {
 			)
 			.orderBy(asc(domains.updatedAt), asc(domains.id))
 			.limit(boundedRepositoryLimit(input.limit));
+	}
+
+	async findStaleConfigurationCandidates(
+		input: FindStaleDomainConfigurationCandidatesInput,
+	): Promise<StaleDomainConfigurationCandidate[]> {
+		const rows = await this.db
+			.select({
+				dns: domains.dns,
+				domainId: domains.id,
+				updatedAt: domains.updatedAt,
+			})
+			.from(domains)
+			.where(
+				and(
+					sql`${domains.updatedAt} <= ${input.staleBefore}`,
+					eq(domains.source, "external"),
+					eq(domains.status, "configuring"),
+					sql`${domains.cfCustomHostnameId} IS NOT NULL`,
+					sql`COALESCE((${domains.dns} -> 'triggerConfiguration') @> jsonb_build_object('nextAttempt', ${DOMAIN_CONFIGURATION_MAX_ATTEMPT}::integer), false) = false`,
+				),
+			)
+			.orderBy(asc(domains.updatedAt), asc(domains.id))
+			.limit(boundedRepositoryLimit(input.limit));
+
+		return rows.flatMap((row) => {
+			const cursor = cursorFromDns(row.dns);
+
+			if (cursor?.nextAttempt === DOMAIN_CONFIGURATION_MAX_ATTEMPT) {
+				return [];
+			}
+
+			return [
+				{
+					domainId: row.domainId,
+					nonce: cursor?.nonce ?? String(row.updatedAt.getTime()),
+					updatedAt: row.updatedAt,
+				},
+			];
+		});
 	}
 
 	async initializeCursor(
