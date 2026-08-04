@@ -40,5 +40,6 @@ export {
 	getApiFieldError,
 	getApiValidationErrors,
 	isApiClientError,
+	isConnectivityApiError,
 	isUnauthorizedApiError,
 } from "@/lib/BaseService";

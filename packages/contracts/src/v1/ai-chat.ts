@@ -143,7 +143,7 @@ export const askUserInputSchema = z.object({
 	// Optional exact MIME allowlist. This narrows a broad category such as
 	// "image" when a workflow only supports still JPEG/PNG/WebP sources.
 	// Kept optional so persisted asks from before this field remain valid.
-	mediaTypes: z.array(attachmentMediaTypeSchema).min(1).max(7).optional(),
+	mediaTypes: z.array(attachmentMediaTypeSchema).min(1).max(10).optional(),
 	maxFiles: z.number().int().min(1).max(6).optional(),
 });
 
@@ -194,6 +194,35 @@ export const readSkillOutputSchema = z.object({
 export type SkillSlug = z.infer<typeof skillSlugSchema>;
 export type ReadSkillInput = z.infer<typeof readSkillInputSchema>;
 export type ReadSkillOutput = z.infer<typeof readSkillOutputSchema>;
+
+/**
+ * read_attachment — the text content of a document the user attached (PDF,
+ * Word, Excel, CSV, plain text), extracted server-side on demand. The url
+ * must be the exact one carried by the attachment marker; anything else is
+ * refused, so the model can never point the server at an invented URL.
+ */
+export const readAttachmentInputSchema = z.object({ url: z.url() }).strict();
+
+export const readAttachmentOutputSchema = z.discriminatedUnion("status", [
+	z.object({
+		status: z.literal("ok"),
+		filename: z.string().min(1).optional(),
+		mediaType: z.string().min(1),
+		text: z.string(),
+		// True when the document was longer than the extraction budget.
+		truncated: z.boolean(),
+	}),
+	z.object({
+		// "unavailable" = not an attachment of this conversation, storage could
+		// not serve it, or the document could not be parsed; the model relays
+		// that honestly instead of inventing the contents.
+		status: z.literal("unavailable"),
+		message: z.string().min(1),
+	}),
+]);
+
+export type ReadAttachmentInput = z.infer<typeof readAttachmentInputSchema>;
+export type ReadAttachmentOutput = z.infer<typeof readAttachmentOutputSchema>;
 
 /**
  * get_direction_candidates — the Brain samples a bounded random menu of
@@ -586,6 +615,10 @@ export type ReplaceSectionOutput = z.infer<typeof replaceSectionOutputSchema>;
 export type AiChatTools = {
 	ask_user: { input: AskUserInput; output: AskUserOutput };
 	read_skill: { input: ReadSkillInput; output: ReadSkillOutput };
+	read_attachment: {
+		input: ReadAttachmentInput;
+		output: ReadAttachmentOutput;
+	};
 	get_direction_candidates: {
 		input: GetDirectionCandidatesInput;
 		output: GetDirectionCandidatesOutput;

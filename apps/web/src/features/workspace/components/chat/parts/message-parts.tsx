@@ -27,6 +27,7 @@ const TRANSPARENT_PART_TYPES = new Set([
 	"step-start",
 	"reasoning",
 	"tool-read_skill",
+	"tool-read_attachment",
 	"tool-get_direction_candidates",
 	"tool-get_page_outline",
 	"tool-apply_element_ops",
@@ -272,6 +273,7 @@ export function MessageParts({
 			case "tool-animate_image":
 				return <AnimateImagePart key={part.toolCallId} part={part} />;
 			case "tool-read_skill":
+			case "tool-read_attachment":
 			case "tool-get_direction_candidates":
 				// Server-side context tools — deliberately invisible in the thread
 				// (the model narrates what it did in prose when it matters).

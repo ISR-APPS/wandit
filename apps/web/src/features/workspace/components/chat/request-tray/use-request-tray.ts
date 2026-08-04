@@ -8,10 +8,11 @@
 // shape built here. The X is intentionally different: it only hides the
 // current round locally, leaving the pending call for next-send repair.
 
-import type {
-	AskUserOption,
-	AskUserOutput,
-	UploadAttachmentResponse,
+import {
+	type AskUserOption,
+	type AskUserOutput,
+	ATTACHMENT_MEDIA_TYPES,
+	type UploadAttachmentResponse,
 } from "@wandit/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -42,15 +43,14 @@ export type AttachDraftItem = {
 
 const NO_ATTACH_ITEMS: AttachDraftItem[] = [];
 
-// Contract §7.2 allowlist split by the ask's accept kinds.
-const IMAGE_MEDIA_TYPES = [
-	"image/jpeg",
-	"image/png",
-	"image/webp",
-	"image/gif",
-	"image/avif",
-];
-const DOCUMENT_MEDIA_TYPES = ["application/pdf", "text/plain"];
+// Contract §7.2 allowlist split by the ask's accept kinds — derived from the
+// contract so a new attachment type never needs a hand-maintained copy here.
+const IMAGE_MEDIA_TYPES = ATTACHMENT_MEDIA_TYPES.filter((mediaType) =>
+	mediaType.startsWith("image/"),
+);
+const DOCUMENT_MEDIA_TYPES = ATTACHMENT_MEDIA_TYPES.filter(
+	(mediaType) => !mediaType.startsWith("image/"),
+);
 
 function acceptedMediaTypes(
 	accept: readonly ("image" | "document")[],

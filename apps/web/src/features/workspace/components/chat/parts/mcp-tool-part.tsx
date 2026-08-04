@@ -973,7 +973,9 @@ function ApprovalBlock({
 		genericLabels,
 	);
 	const connector = connectorSlug
-		? connectorDisplayName(connectorSlug)
+		? isHiggsfieldTikTokTool(connectorSlug, part.toolName, part.input)
+			? "TikTok"
+			: connectorDisplayName(connectorSlug)
 		: t("workspace.chat.mcpTool.workingWith");
 	const argumentsPreview = isPlatformToolWrapper(part.toolName)
 		? isRecord(part.input) && isRecord(part.input.params)
@@ -1242,6 +1244,23 @@ function connectorDisplayName(connectorSlug: string): string {
 		CONNECTOR_DISPLAY_NAMES[connectorSlug] ??
 		prettifyTokens(tokenizeToolName(connectorSlug))
 	);
+}
+
+// The TikTok publishing tools are served by the Higgsfield connector, but the
+// approval card must name the platform the user recognizes.
+function isHiggsfieldTikTokTool(
+	connectorSlug: string,
+	toolName: string,
+	input: unknown,
+): boolean {
+	if (connectorSlug !== "higgsfield") return false;
+
+	const operationName = parseMcpToolName(toolName)?.toolName ?? toolName;
+	const effectiveName = isPlatformToolWrapper(toolName)
+		? (getNestedToolName(input) ?? operationName)
+		: operationName;
+
+	return tokenizeToolName(effectiveName)[0] === "tiktok";
 }
 
 function tokenizeToolName(value: string): string[] {

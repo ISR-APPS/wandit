@@ -1,5 +1,6 @@
 import * as Sentry from "@sentry/nestjs";
 
+import { normalizeSentryRelease } from "./internal/release";
 import {
 	dropHealthchecks,
 	isEnabled,
@@ -32,7 +33,7 @@ export function initNestSentry(options: InitNestSentryOptions): void {
 	Sentry.init({
 		dsn: options.dsn,
 		environment: options.environment,
-		release: options.release,
+		release: normalizeSentryRelease(options.release, "server"),
 		sendDefaultPii: false,
 		// Nest's Logger writes to console — warn/error become Sentry logs
 		// with zero call-site changes. Never widen to log/info: 5GB/mo quota.

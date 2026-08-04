@@ -48,6 +48,8 @@ export type RunConnectorGenerationPayload = {
 	attemptId: string;
 	billing: ConnectorGenerationReservations;
 	billingMode: "enforce" | "off";
+	// Read by the shared tasks.onFailure hook to attribute Sentry events.
+	userId?: string;
 };
 
 export const runConnectorGenerationTask = task({
@@ -525,6 +527,12 @@ function assertBillingPayload(
 // background task — the chat stream, the model, and the browser never poll.
 const STATUS_TOOL_NAME = "job_status";
 const FOLLOW_POLL_INTERVAL_MS = 5_000;
+// A status-endpoint hiccup (gateway 5xx, "Something went wrong. Please try
+// again.") is indistinguishable in shape from a job verdict, but a hiccup
+// heals on the next poll while a verdict repeats — one bad poll must not
+// sink (and refund) a job that is still rendering. 12 polls ≈ one minute of
+// continuous errors before the job's fate is declared unknowable.
+const MAX_CONSECUTIVE_STATUS_ERRORS = 12;
 // Below maxDuration (1800s) so a stuck provider fails THIS way, with a
 // readable error, instead of via the duration kill.
 const FOLLOW_DEADLINE_MS = 25 * 60 * 1000;
@@ -596,6 +604,7 @@ async function followProviderJob(
 	const deadline = Date.now() + FOLLOW_DEADLINE_MS;
 	let settledSince: number | null = null;
 	let lastSettledStatus: unknown = null;
+	let consecutiveStatusErrors = 0;
 
 	while (Date.now() < deadline) {
 		await sleepMs(FOLLOW_POLL_INTERVAL_MS, signal);
@@ -608,10 +617,27 @@ async function followProviderJob(
 		await onResult(status);
 
 		if (isMcpToolError(status)) {
+			consecutiveStatusErrors += 1;
+			const errorText = mcpErrorText(status);
+
+			if (consecutiveStatusErrors < MAX_CONSECUTIVE_STATUS_ERRORS) {
+				logger.warn("Provider status poll errored — retrying", {
+					consecutiveStatusErrors,
+					error: errorText,
+				});
+				continue;
+			}
+
+			// A minute of back-to-back errors means the job's fate cannot be
+			// read: fail hard (and refund). Never fall through to the receipt-
+			// media fallback here — the receipt can embed catalog garnish that
+			// is not the render, and settling on it would charge the user for
+			// media they never got.
 			throw new ProviderJobFailedError(
-				mcpErrorText(status) ?? "The provider reported a job error",
+				errorText ?? "The provider reported a job error",
 			);
 		}
+		consecutiveStatusErrors = 0;
 
 		// A payload can carry SEVERAL states at once (a job set lists every
 		// item) — deciding on the first one settles while a sibling item, the

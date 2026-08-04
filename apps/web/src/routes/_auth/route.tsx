@@ -6,7 +6,15 @@ import { sanitizeAuthRedirectPath } from "@/lib/auth-navigation";
 export const Route = createFileRoute("/_auth")({
 	component: AuthLayout,
 	beforeLoad: async ({ location }) => {
-		const session = await getSession();
+		// A failed session CHECK is not a signed-out user: swallowing it here
+		// would eject a logged-in user to the landing page and drop their deep
+		// link + stashed prompt. Rethrow with a readable message so the route
+		// error screen (retryable) shows instead of a raw "Failed to fetch".
+		const session = await getSession().catch((error) => {
+			throw new Error("We could not check your session. Please retry.", {
+				cause: error,
+			});
+		});
 		if (!session) {
 			throw redirect({
 				to: "/",

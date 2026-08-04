@@ -13,6 +13,9 @@ export const ATTACHMENT_MEDIA_TYPES = [
 	"image/avif",
 	"application/pdf",
 	"text/plain",
+	"text/csv",
+	"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 ] as const;
 
 export const attachmentMediaTypeSchema = z.enum(ATTACHMENT_MEDIA_TYPES);

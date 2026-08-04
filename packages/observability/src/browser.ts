@@ -44,9 +44,17 @@ export function initBrowserSentry(options: InitBrowserSentryOptions): void {
 	Sentry.init({
 		dsn: options.dsn,
 		environment: options.environment,
-		release: options.release,
+		// Only override when explicitly configured: an undefined release here
+		// would clobber the `wandit-web@<sha>` the Sentry vite plugin injects
+		// into the bundle (window.SENTRY_RELEASE), which is the default path.
+		...(options.release ? { release: options.release } : {}),
 		sendDefaultPii: false,
 		tunnel: options.tunnel,
+		// Vendor-internal control flow from @electric-sql/client (pulled in by
+		// @trigger.dev/react-hooks): stream teardown rejects with a bare
+		// "pause-stream" sentinel or a reasonless AbortError. Never actionable
+		// in app code.
+		ignoreErrors: ["pause-stream", "signal is aborted without reason"],
 		integrations: [
 			Sentry.tanstackRouterBrowserTracingIntegration(options.router),
 			...(options.extraIntegrations ?? []),

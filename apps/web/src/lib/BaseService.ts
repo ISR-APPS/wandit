@@ -129,6 +129,25 @@ export function isUnauthorizedApiError(error: unknown) {
 	return isApiClientError(error) && error.statusCode === 401;
 }
 
+/**
+ * True connectivity failures: the request never got a response because the
+ * server was unreachable or the browser canceled it. Deliberately excludes
+ * timeouts (ECONNABORTED) — a chronically slow endpoint is a real regression
+ * signal that must stay in telemetry.
+ */
+export function isConnectivityApiError(error: unknown): boolean {
+	if (!isApiClientError(error) || error.statusCode !== 0) {
+		return false;
+	}
+
+	const cause = error.cause;
+
+	return (
+		axios.isAxiosError(cause) &&
+		(cause.code === "ERR_NETWORK" || cause.code === "ERR_CANCELED")
+	);
+}
+
 // Convert any thrown value into a human-facing message. Prefer translated error
 // codes over raw server text so users see localized copy when possible.
 export function getApiErrorMessage(error: unknown) {

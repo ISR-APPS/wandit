@@ -109,7 +109,7 @@
 		"addMenuLabel": "Ajouter du contexte",
 		"addSkillLabel": "Ajouter une compétence",
 		"attachLabel": "Joindre",
-		"attachHint": "Joindre des images ou des fichiers",
+		"attachHint": "Joindre des images, PDF, documents ou tableurs",
 		"connectApps": "Connecter des applications",
 		"attachments": {
 			"uploading": "Envoi…",

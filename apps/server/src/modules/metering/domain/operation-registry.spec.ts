@@ -28,6 +28,7 @@ const REQUIRED_WORKFLOW_IDS = [
 	"transcription",
 	"legacy-worker-chat",
 	"project-title-bundled",
+	"higgsfield-prompt-refine-bundled",
 ] as const;
 
 const PROVIDER_CALL_PATTERNS = [
@@ -92,6 +93,12 @@ const EXPECTED_PROVIDER_CALLS = [
 		name: "generateText",
 		source:
 			"apps/server/src/modules/marketing-assets/application/services/marketing-html.ts",
+	},
+	{
+		count: 1,
+		name: "generateText",
+		source:
+			"apps/server/src/modules/mcp-connectors/application/services/higgsfield-prompt-refiner.service.ts",
 	},
 	{
 		count: 1,

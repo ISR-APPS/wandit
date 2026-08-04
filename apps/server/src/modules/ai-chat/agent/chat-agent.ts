@@ -48,6 +48,12 @@ import {
 	type PageEditTools,
 	pageEditToolsSchemaOnly,
 } from "./tools/page-edit.tools";
+import {
+	createReadAttachmentTool,
+	type ReadAttachmentTool,
+	type ReadAttachmentToolDeps,
+	readAttachmentToolSchemaOnly,
+} from "./tools/read-attachment.tool";
 import { readSkillToolSchemaOnly } from "./tools/read-skill.tool";
 import {
 	createScrapeLeadsTool,
@@ -63,6 +69,7 @@ type AiChatToolSet = {
 	generate_marketing_asset: GenerateMarketingAssetTool;
 	generate_page: GeneratePageTool;
 	get_direction_candidates: typeof getDirectionCandidatesTool;
+	read_attachment: ReadAttachmentTool;
 	scrape_leads: ScrapeLeadsTool;
 	get_page_outline: PageEditTools["get_page_outline"];
 	apply_element_ops: PageEditTools["apply_element_ops"];
@@ -87,7 +94,8 @@ export type ChatAgentDeps = GeneratePageToolDeps &
 		pageEditsService: PageEditsService;
 	} & Omit<AnimateImageToolDeps, "chatId" | "projectId"> &
 	Omit<GenerateMarketingAssetToolDeps, "chatId" | "projectId"> &
-	Omit<GenerateImageToolDeps, "chatId" | "projectId">;
+	Omit<GenerateImageToolDeps, "chatId" | "projectId"> &
+	ReadAttachmentToolDeps;
 
 /**
  * The agent is built PER REQUEST now (it used to be a module singleton):
@@ -179,6 +187,9 @@ export function createChatAgent(
 				userId: deps.userId,
 			}),
 			get_direction_candidates: getDirectionCandidatesTool,
+			read_attachment: createReadAttachmentTool({
+				availableDocuments: deps.availableDocuments,
+			}),
 			scrape_leads: createScrapeLeadsTool({
 				chatId: deps.chatId,
 				leadScrapesRepository: deps.leadScrapesRepository,
@@ -213,6 +224,7 @@ export const aiChatToolsForValidation = {
 	generate_page: generatePageToolSchemaOnly,
 	scrape_leads: scrapeLeadsToolSchemaOnly,
 	get_direction_candidates: getDirectionCandidatesToolSchemaOnly,
+	read_attachment: readAttachmentToolSchemaOnly,
 	...pageEditToolsSchemaOnly,
 	// read_skill was retired from the live agent; the schema stays so chats
 	// that used it still validate.
