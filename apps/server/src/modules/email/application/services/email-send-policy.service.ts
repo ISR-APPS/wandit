@@ -1,9 +1,19 @@
 import { createHmac } from "node:crypto";
+import { createRequire } from "node:module";
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { env } from "@wandit/env/server";
 import { APIError } from "better-auth/api";
-import blocklist from "disposable-email-domains";
-import wildcardBlocklist from "disposable-email-domains/wildcard.json";
+
+// disposable-email-domains resolves to bare .json files, and this package
+// stays external in the production bundle — a static ESM import of it needs
+// `with { type: "json" }`, which the toolchain (tsdown → Node loader with
+// import-in-the-middle) does not carry through. require() sidesteps the
+// JSON-module rule entirely and works identically in dev, tests, and dist.
+const requireJson = createRequire(import.meta.url);
+const blocklist = requireJson("disposable-email-domains") as string[];
+const wildcardBlocklist = requireJson(
+	"disposable-email-domains/wildcard.json",
+) as string[];
 
 import {
 	AuthEmailSendsRepository,
