@@ -1,32 +1,17 @@
 // Stat tiles over the full (unfiltered) lead book: today, this week, total,
 // and confirmation rate with an ember meter.
 
+import type { LeadTotals } from "@wandit/contracts";
+
 import { useTranslation } from "@/lib/i18n";
-import type { Lead } from "../../api/dto";
 
-const DAY_MS = 86_400_000;
-
-export function LeadsCounters({ leads }: { leads: Lead[] }) {
+export function LeadsCounters({ totals }: { totals: LeadTotals }) {
 	const { t } = useTranslation();
-	const now = new Date();
-	const startOfToday = new Date(
-		now.getFullYear(),
-		now.getMonth(),
-		now.getDate(),
-	).getTime();
-	const weekAgo = now.getTime() - 7 * DAY_MS;
-
-	const today = leads.filter(
-		(lead) => Date.parse(lead.createdAt) >= startOfToday,
-	).length;
-	const week = leads.filter(
-		(lead) => Date.parse(lead.createdAt) >= weekAgo,
-	).length;
-	const confirmed = leads.filter((lead) => lead.status === "confirmed").length;
-	const cancelled = leads.filter((lead) => lead.status === "cancelled").length;
-	const denominator = confirmed + cancelled;
+	const denominator = totals.confirmed + totals.cancelled;
 	const rate =
-		denominator === 0 ? null : Math.round((confirmed / denominator) * 100);
+		denominator === 0
+			? null
+			: Math.round((totals.confirmed / denominator) * 100);
 
 	return (
 		<div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -35,7 +20,7 @@ export function LeadsCounters({ leads }: { leads: Lead[] }) {
 					{t("leads.counterToday")}
 				</div>
 				<div className="mt-1 font-medium font-mono text-2xl tabular-nums">
-					{today}
+					{totals.today}
 				</div>
 			</div>
 			<div className="rounded-xl border bg-card p-4">
@@ -43,7 +28,7 @@ export function LeadsCounters({ leads }: { leads: Lead[] }) {
 					{t("leads.counterWeek")}
 				</div>
 				<div className="mt-1 font-medium font-mono text-2xl tabular-nums">
-					{week}
+					{totals.last7Days}
 				</div>
 			</div>
 			<div className="rounded-xl border bg-card p-4">
@@ -51,7 +36,7 @@ export function LeadsCounters({ leads }: { leads: Lead[] }) {
 					{t("leads.counterTotal")}
 				</div>
 				<div className="mt-1 font-medium font-mono text-2xl tabular-nums">
-					{leads.length}
+					{totals.total}
 				</div>
 			</div>
 			<div

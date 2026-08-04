@@ -9,6 +9,7 @@
  * canonical E.164 (+213…) before insert and keeps the raw value in extras.
  */
 import { z } from "zod";
+import { cursorPaginationQuerySchema } from "../http/pagination";
 import { isoDateTimeSchema, uuidSchema } from "./shared/primitives";
 
 // The COD phone-confirmation pipeline. Mirrors lead_status in
@@ -67,6 +68,49 @@ export const leadExtrasSchema = z
 
 export type LeadExtras = z.infer<typeof leadExtrasSchema>;
 
+export type LeadExtraScalar = string | number | boolean | null;
+
+/**
+ * Public order fields suitable for owner-facing UI and exports.
+ *
+ * Capture-only metadata uses underscore-prefixed keys (for example
+ * `_rawPhone`) and must not leak into order details. Sorting with direct
+ * code-unit comparison makes the result stable across server and browser
+ * locales.
+ */
+export function publicLeadExtraEntries(
+	extras: unknown,
+): Array<[string, LeadExtraScalar]> {
+	if (!extras || typeof extras !== "object" || Array.isArray(extras)) {
+		return [];
+	}
+
+	return Object.entries(extras)
+		.filter(
+			(entry): entry is [string, LeadExtraScalar] =>
+				!entry[0].startsWith("_") &&
+				(entry[1] === null ||
+					typeof entry[1] === "string" ||
+					typeof entry[1] === "number" ||
+					typeof entry[1] === "boolean"),
+		)
+		.sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0));
+}
+
+/** Compact deterministic JSON for the single Order details export column. */
+export function serializeLeadOrderDetails(extras: unknown): string {
+	const entries = publicLeadExtraEntries(extras);
+	if (entries.length === 0) {
+		return "";
+	}
+
+	// Building the object JSON directly preserves code-unit order even for
+	// integer-like keys, which JSON.stringify(object) is allowed to reorder.
+	return `{${entries
+		.map(([key, value]) => `${JSON.stringify(key)}:${JSON.stringify(value)}`)
+		.join(",")}}`;
+}
+
 // Body of the public capture POST. `_hp` is the honeypot decoy: humans never
 // see the field, so a non-empty value means a bot — the server answers 200 and
 // silently discards, indistinguishable from success.
@@ -88,8 +132,7 @@ export const leadCaptureResponseSchema = z.object({ ok: z.literal(true) });
 
 export type LeadCaptureResponse = z.infer<typeof leadCaptureResponseSchema>;
 
-// Everything the Leads tab needs for one row. Counters, filtering, search,
-// pagination, and the CSV export are all client-side over the full list.
+// Everything the Leads tab needs for one row.
 export const leadSchema = z.object({
 	commune: z.string().nullable(),
 	createdAt: isoDateTimeSchema,
@@ -104,8 +147,28 @@ export const leadSchema = z.object({
 
 export type Lead = z.infer<typeof leadSchema>;
 
+export const leadsQuerySchema = cursorPaginationQuerySchema.extend({
+	q: z.string().trim().max(200).optional(),
+	status: leadStatusSchema.optional(),
+});
+
+export type LeadsQuery = z.infer<typeof leadsQuerySchema>;
+
+export const leadTotalsSchema = z.object({
+	cancelled: z.number().int().nonnegative(),
+	confirmed: z.number().int().nonnegative(),
+	last7Days: z.number().int().nonnegative(),
+	today: z.number().int().nonnegative(),
+	total: z.number().int().nonnegative(),
+});
+
+export type LeadTotals = z.infer<typeof leadTotalsSchema>;
+
 export const leadsResponseSchema = z.object({
 	leads: z.array(leadSchema),
+	nextCursor: z.string().nullable(),
+	total: z.number().int().nonnegative(),
+	totals: leadTotalsSchema,
 });
 
 export type LeadsResponse = z.infer<typeof leadsResponseSchema>;

@@ -70,12 +70,40 @@ button { border-radius: var(--radius); }
 )}</p></main></body>
 </html>`;
 
-const COD_FORM =
+const BROKEN_COD_FORM =
 	'<form data-wandit-event="wandit:lead"><label>Phone<input type="tel" name="phone"></label><input type="text" name="company" data-wandit-hp><button type="submit">Order now</button></form>';
+
+const BROKEN_COD_HTML = HTML.replace(
+	"<header><nav>",
+	'<header><section class="hero">',
+)
+	.replace("</nav></header>", "</section></header>")
+	.replace("</main>", `${BROKEN_COD_FORM}</main>`);
+
+const COD_FORM = `<form id="order-form">
+	<label>Name<input type="text" name="name" autocomplete="name"></label>
+	<label>Phone<input type="tel" name="phone" autocomplete="tel"></label>
+	<input type="text" name="company" data-wandit-hp>
+	<button type="submit">Order now</button>
+</form>`;
+
+const COD_LEAD_SCRIPT = `<script>
+	const orderForm = document.getElementById("order-form");
+	orderForm.addEventListener("submit", function (event) {
+		event.preventDefault();
+		const fields = new FormData(orderForm);
+		document.dispatchEvent(new CustomEvent("wandit:lead", {
+			detail: {
+				name: fields.get("name"),
+				phone: fields.get("phone"),
+			},
+		}));
+	});
+</script>`;
 
 const COD_HTML = HTML.replace("<header><nav>", '<header><section class="hero">')
 	.replace("</nav></header>", "</section></header>")
-	.replace("</main>", `${COD_FORM}</main>`);
+	.replace("</main>", `${COD_FORM}${COD_LEAD_SCRIPT}</main>`);
 
 const DESKTOP_SHOT = "ZGVza3RvcC1zaG90";
 const MOBILE_SHOT = "bW9iaWxlLXNob3Q=";
@@ -1560,6 +1588,42 @@ describe("brand-marker finish gate", () => {
 });
 
 describe("COD finish gate", () => {
+	it("rejects the legacy form with no name-capable input", async () => {
+		const { options, tools } = setup({
+			pageKind: "cod",
+			screenshotRequired: false,
+		});
+		await tools.write_file.execute?.(
+			{ content: BROKEN_COD_HTML, path: "index.html" },
+			options(),
+		);
+
+		await expect(
+			tools.finish.execute?.({ summary: "Broken COD order page." }, options()),
+		).rejects.toThrow(/capture <form>.*name-capable <input>/);
+	});
+
+	it("rejects an attribute-only lead marker after the name field is fixed", async () => {
+		const { options, tools } = setup({
+			pageKind: "cod",
+			screenshotRequired: false,
+		});
+		const html = BROKEN_COD_HTML.replace(
+			"<label>Phone",
+			'<label>Name<input name="name" autocomplete="name"></label><label>Phone',
+		);
+		await tools.write_file.execute?.(
+			{ content: html, path: "index.html" },
+			options(),
+		);
+
+		await expect(
+			tools.finish.execute?.({ summary: "Inert COD order page." }, options()),
+		).rejects.toThrow(
+			/must dispatch a "wandit:lead" CustomEvent from a <script>/,
+		);
+	});
+
 	it("accepts a hero-scoped brand marker and the complete lead form pack", async () => {
 		const { options, tools } = setup({
 			pageKind: "cod",
@@ -1636,9 +1700,20 @@ describe("COD finish gate", () => {
 			message: /at least one input\[type=tel\]/,
 		},
 		{
-			html: COD_HTML.replace("wandit:lead", "wandit:other"),
-			label: "no lead event marker",
-			message: /must contain the string "wandit:lead"/,
+			html: COD_HTML.replace(
+				'<label>Name<input type="text" name="name" autocomplete="name"></label>',
+				"",
+			),
+			label: "no name-capable input",
+			message: /capture <form>.*name-capable <input>/,
+		},
+		{
+			html: COD_HTML.replace(
+				COD_LEAD_SCRIPT,
+				'<div data-wandit-event="wandit:lead"></div>',
+			),
+			label: "only an inert lead event marker",
+			message: /must dispatch a "wandit:lead" CustomEvent from a <script>/,
 		},
 		{
 			html: COD_HTML.replace(" data-wandit-hp", ""),

@@ -1,11 +1,10 @@
-import {
-	BadRequestException,
-	HttpException,
-	NotFoundException,
-} from "@nestjs/common";
+import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { LeadsRepository } from "../../infrastructure/persistence/leads.repository";
-import { LeadsCaptureService } from "./leads-capture.service";
+import {
+	LeadsCaptureRateLimitException,
+	LeadsCaptureService,
+} from "./leads-capture.service";
 import type { LeadsCaptureThrottle } from "./leads-capture-throttle";
 
 const FORM_ID = "0b0e8b1e-4a6f-4a5e-9a34-2f4dfd7f2c11";
@@ -18,7 +17,9 @@ function buildService() {
 		hasRecentLeadWithPhone: vi.fn().mockResolvedValue(false),
 		insertLead: vi.fn().mockResolvedValue(undefined),
 	};
-	const throttle = { allow: vi.fn().mockReturnValue(true) };
+	const throttle = {
+		consume: vi.fn().mockReturnValue({ allowed: true }),
+	};
 	const service = new LeadsCaptureService(
 		repository as unknown as LeadsRepository,
 		throttle as unknown as LeadsCaptureThrottle,
@@ -42,11 +43,12 @@ describe("LeadsCaptureService", () => {
 	});
 
 	it("inserts a normalized lead from a text/plain JSON body", async () => {
-		const { repository, service } = buildService();
+		const { repository, service, throttle } = buildService();
 
 		const result = await service.capture(FORM_ID, validBody(), "1.2.3.4");
 
 		expect(result).toEqual({ ok: true });
+		expect(throttle.consume).toHaveBeenCalledWith(FORM_ID, "1.2.3.4");
 		expect(repository.insertLead).toHaveBeenCalledWith(
 			expect.objectContaining({
 				commune: null,
@@ -86,7 +88,7 @@ describe("LeadsCaptureService", () => {
 	});
 
 	it("answers ok without inserting when the honeypot is filled", async () => {
-		const { repository, service } = buildService();
+		const { repository, service, throttle } = buildService();
 
 		const result = await service.capture(
 			FORM_ID,
@@ -95,47 +97,65 @@ describe("LeadsCaptureService", () => {
 		);
 
 		expect(result).toEqual({ ok: true });
+		expect(throttle.consume).not.toHaveBeenCalled();
 		expect(repository.insertLead).not.toHaveBeenCalled();
 	});
 
 	it("answers ok without inserting on a recent duplicate phone", async () => {
-		const { repository, service } = buildService();
+		const { repository, service, throttle } = buildService();
 		repository.hasRecentLeadWithPhone.mockResolvedValue(true);
 
 		const result = await service.capture(FORM_ID, validBody(), "1.2.3.4");
 
 		expect(result).toEqual({ ok: true });
+		expect(throttle.consume).toHaveBeenCalledWith(FORM_ID, "1.2.3.4");
 		expect(repository.insertLead).not.toHaveBeenCalled();
 	});
 
 	it("404s on an unknown form id", async () => {
-		const { repository, service } = buildService();
+		const { repository, service, throttle } = buildService();
 		repository.findProjectByPublicFormId.mockResolvedValue(null);
 
 		await expect(
 			service.capture(FORM_ID, validBody(), "1.2.3.4"),
 		).rejects.toBeInstanceOf(NotFoundException);
+		expect(throttle.consume).not.toHaveBeenCalled();
 	});
 
-	it("429s when the IP is over budget — before touching the DB", async () => {
+	it("429s with a retry delay only after resolution and validation", async () => {
 		const { repository, service, throttle } = buildService();
-		throttle.allow.mockReturnValue(false);
+		throttle.consume.mockReturnValue({
+			allowed: false,
+			retryAfterSeconds: 17,
+		});
 
-		await expect(
-			service.capture(FORM_ID, validBody(), "1.2.3.4"),
-		).rejects.toBeInstanceOf(HttpException);
-		expect(repository.findProjectByPublicFormId).not.toHaveBeenCalled();
+		const error = await service
+			.capture(FORM_ID, validBody(), "1.2.3.4")
+			.catch((reason: unknown) => reason);
+
+		expect(error).toBeInstanceOf(LeadsCaptureRateLimitException);
+		expect(error).toMatchObject({ retryAfterSeconds: 17 });
+		if (!(error instanceof LeadsCaptureRateLimitException)) {
+			throw new Error("Expected a lead capture rate-limit exception");
+		}
+		expect(error.getStatus()).toBe(429);
+		expect(repository.findProjectByPublicFormId).toHaveBeenCalledWith(FORM_ID);
+		expect(throttle.consume).toHaveBeenCalledWith(FORM_ID, "1.2.3.4");
+		expect(repository.hasRecentLeadWithPhone).not.toHaveBeenCalled();
+		expect(repository.insertLead).not.toHaveBeenCalled();
 	});
 
 	it("400s on malformed JSON and on an unusable phone", async () => {
-		const { service } = buildService();
+		const { service, throttle } = buildService();
 
 		await expect(
 			service.capture(FORM_ID, "not json {", "1.2.3.4"),
 		).rejects.toBeInstanceOf(BadRequestException);
+		expect(throttle.consume).not.toHaveBeenCalled();
 		await expect(
 			service.capture(FORM_ID, validBody({ phone: "hello" }), "1.2.3.4"),
 		).rejects.toBeInstanceOf(BadRequestException);
+		expect(throttle.consume).not.toHaveBeenCalled();
 	});
 
 	it("strips unknown attribution keys via the contract whitelist", async () => {

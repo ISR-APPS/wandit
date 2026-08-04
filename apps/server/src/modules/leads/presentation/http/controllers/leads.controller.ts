@@ -1,12 +1,22 @@
 // Workspace Leads tab endpoints. All behind the global AuthGuard; ownership
 // is proven in repository joins.
-import { Body, Controller, Get, Inject, Param, Patch } from "@nestjs/common";
+import {
+	Body,
+	Controller,
+	Get,
+	Inject,
+	Param,
+	Patch,
+	Query,
+} from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
 	type LeadResponse,
 	type LeadStatusUpdateBody,
+	type LeadsQuery,
 	type LeadsResponse,
 	leadStatusUpdateBodySchema,
+	leadsQuerySchema,
 	uuidSchema,
 } from "@wandit/contracts";
 
@@ -24,17 +34,20 @@ export class LeadsController {
 		private readonly leadsService: LeadsService,
 	) {}
 
-	// Full list, newest first — the tab filters/paginates client-side.
+	// Stable keyset page, newest first. Search/status filtering and aggregate
+	// counters are evaluated over the complete owned lead book in SQL.
 	@Get("projects/:projectId/leads")
 	list(
 		@Param("projectId", new ZodValidationPipe(uuidSchema))
 		projectId: string,
+		@Query(new ZodValidationPipe(leadsQuerySchema)) query: LeadsQuery,
 		@CurrentUser() user: AuthUser,
 		@CurrentWorkspace() workspace: WorkspaceContext,
 	): Promise<LeadsResponse> {
 		return this.leadsService.list(
 			projectScopeFrom(workspace, user.id),
 			projectId,
+			query,
 		);
 	}
 

@@ -37,7 +37,13 @@ export function buildLeadsRuntimeScript(options: {
 		var captureUrl = ${captureUrl};
 		var DEDUPE_WINDOW_MS = 120000;
 		var HEURISTIC_DELAY_MS = 2500;
+		var MAX_PAYLOAD_BYTES = 12 * 1024;
+		var MAX_RETRY_AFTER_MS = 2000;
+		var RETRY_DELAYS_MS = [250, 750];
 		var sentAt = {};
+		var inFlight = {};
+		var pendingPayloads = {};
+		var beaconedPayloads = {};
 		var pendingSend = null;
 
 		// Arabic-Indic (U+0660-0669) and Eastern Arabic-Indic (U+06F0-06F9)
@@ -113,13 +119,125 @@ export function buildLeadsRuntimeScript(options: {
 			return "";
 		}
 
+		function utf8Size(value) {
+			var size = 0;
+			for (var i = 0; i < value.length; i++) {
+				var code = value.charCodeAt(i);
+				if (code < 128) {
+					size += 1;
+				} else if (code < 2048) {
+					size += 2;
+				} else if (
+					code >= 55296 &&
+					code <= 56319 &&
+					i + 1 < value.length
+				) {
+					var next = value.charCodeAt(i + 1);
+					if (next >= 56320 && next <= 57343) {
+						size += 4;
+						i += 1;
+					} else {
+						size += 3;
+					}
+				} else {
+					size += 3;
+				}
+			}
+			return size;
+		}
+
+		// Preserve the canonical lead fields. Extras are lowest priority, then
+		// optional attribution fields, so both fetch and beacon stay below the
+		// public endpoint's tight text-body limit.
+		function serializeWithinLimit(body) {
+			var payload = JSON.stringify(body);
+			var keys;
+			while (utf8Size(payload) > MAX_PAYLOAD_BYTES && body.extras) {
+				keys = Object.keys(body.extras);
+				if (keys.length === 0) {
+					delete body.extras;
+				} else {
+					delete body.extras[keys[keys.length - 1]];
+				}
+				payload = JSON.stringify(body);
+			}
+			while (utf8Size(payload) > MAX_PAYLOAD_BYTES && body.attribution) {
+				keys = Object.keys(body.attribution);
+				if (keys.length === 0) {
+					delete body.attribution;
+				} else {
+					delete body.attribution[keys[keys.length - 1]];
+				}
+				payload = JSON.stringify(body);
+			}
+			return payload;
+		}
+
+		function wait(ms) {
+			return new Promise(function (resolve) {
+				setTimeout(resolve, ms);
+			});
+		}
+
+		function retryDelay(response, attempt) {
+			var fallback = RETRY_DELAYS_MS[attempt] || RETRY_DELAYS_MS[RETRY_DELAYS_MS.length - 1];
+			try {
+				var header = response && response.headers && response.headers.get("Retry-After");
+				if (!header) return fallback;
+				var seconds = Number(header);
+				if (isFinite(seconds) && seconds >= 0) {
+					return Math.min(seconds * 1000, MAX_RETRY_AFTER_MS);
+				}
+				var dateMs = Date.parse(header);
+				if (!isNaN(dateMs)) {
+					return Math.min(Math.max(0, dateMs - Date.now()), MAX_RETRY_AFTER_MS);
+				}
+			} catch (ignored) {}
+			return fallback;
+		}
+
+		function postWithRetry(payload, attempt) {
+			var request;
+			try {
+				request = fetch(captureUrl, {
+					method: "POST",
+					mode: "cors",
+					credentials: "omit",
+					keepalive: true,
+					headers: { "Content-Type": "application/json" },
+					body: payload
+				});
+			} catch (error) {
+				request = Promise.reject(error);
+			}
+			return Promise.resolve(request).then(function (response) {
+				var status = response && response.status;
+				if (status >= 200 && status < 300) return true;
+				var retryable = status === 429 || (status >= 500 && status < 600);
+				if (!retryable || attempt >= RETRY_DELAYS_MS.length) return false;
+				return wait(retryDelay(response, attempt)).then(function () {
+					return postWithRetry(payload, attempt + 1);
+				});
+			}, function () {
+				if (attempt >= RETRY_DELAYS_MS.length) return false;
+				return wait(RETRY_DELAYS_MS[attempt]).then(function () {
+					return postWithRetry(payload, attempt + 1);
+				});
+			});
+		}
+
 		function send(lead) {
 			var phone = clip(lead.phone, 40);
-			if (!phone) return;
+			if (!phone) return Promise.resolve(false);
 			var digits = phoneDigits(phone);
 			var now = Date.now();
-			if (sentAt[digits] && now - sentAt[digits] < DEDUPE_WINDOW_MS) return;
-			sentAt[digits] = now;
+			if (
+				typeof sentAt[digits] === "number" &&
+				now - sentAt[digits] < DEDUPE_WINDOW_MS
+			) {
+				return Promise.resolve(true);
+			}
+			if (inFlight[digits]) return inFlight[digits];
 			var body = { phone: phone };
 			var name = clip(lead.name, 200);
 			if (name) body.name = name;
@@ -127,30 +245,69 @@ export function buildLeadsRuntimeScript(options: {
 			if (wilaya) body.wilaya = wilaya;
 			var commune = clip(lead.commune, 120);
 			if (commune) body.commune = commune;
-			if (lead.extras && Object.keys(lead.extras).length > 0) body.extras = lead.extras;
-			body.attribution = collectAttribution();
+			if (lead.extras && Object.keys(lead.extras).length > 0) {
+				body.extras = {};
+				var extraKeys = Object.keys(lead.extras);
+				for (var i = 0; i < extraKeys.length; i++) {
+					body.extras[extraKeys[i]] = lead.extras[extraKeys[i]];
+				}
+			}
+			var attribution = collectAttribution();
+			if (Object.keys(attribution).length > 0) body.attribution = attribution;
 			var hp = readHoneypot();
 			if (hp) body._hp = hp;
-			var payload = JSON.stringify(body);
-			// A bare string body posts as text/plain — a CORS simple request
-			// with no preflight, which the capture endpoint parses. Never
-			// "fix" this by adding a JSON content type.
-			var delivered = false;
+			var payload = serializeWithinLimit(body);
+			pendingPayloads[digits] = payload;
+			delete beaconedPayloads[digits];
+			var request = postWithRetry(payload, 0).then(function (ok) {
+				if (ok) sentAt[digits] = Date.now();
+				return ok;
+			}, function () {
+				return false;
+			});
+			inFlight[digits] = request;
+			request.then(function (ok) {
+				if (inFlight[digits] === request) delete inFlight[digits];
+				if (ok && pendingPayloads[digits] === payload) {
+					delete pendingPayloads[digits];
+				}
+			});
+			return request;
+		}
+
+		function dispatchResult(ok) {
 			try {
-				if (navigator.sendBeacon) delivered = navigator.sendBeacon(captureUrl, payload);
+				document.dispatchEvent(new CustomEvent("wandit:lead:result", {
+					detail: { ok: ok === true }
+				}));
+			} catch (ignored) {}
+		}
+
+		function sendAndReport(lead) {
+			try {
+				send(lead).then(function (ok) {
+					dispatchResult(ok);
+				}, function () {
+					dispatchResult(false);
+				});
 			} catch (ignored) {
-				delivered = false;
+				dispatchResult(false);
 			}
-			if (!delivered) {
-				try {
-					fetch(captureUrl, {
-						method: "POST",
-						mode: "no-cors",
-						keepalive: true,
-						body: payload
-					}).catch(function () {});
-				} catch (ignored) {}
-			}
+		}
+
+		function sendPendingWithBeacon() {
+			try {
+				if (!navigator.sendBeacon) return;
+				var keys = Object.keys(pendingPayloads);
+				for (var i = 0; i < keys.length; i++) {
+					var key = keys[i];
+					var payload = pendingPayloads[key];
+					if (beaconedPayloads[key] === payload) continue;
+					if (navigator.sendBeacon(captureUrl, payload)) {
+						beaconedPayloads[key] = payload;
+					}
+				}
+			} catch (ignored) {}
 		}
 
 		function cancelPendingSend() {
@@ -175,7 +332,7 @@ export function buildLeadsRuntimeScript(options: {
 						addExtra(lead.extras, key, detail[key]);
 					}
 				}
-				send(lead);
+				sendAndReport(lead);
 			} catch (ignored) {}
 		});
 
@@ -232,11 +389,15 @@ export function buildLeadsRuntimeScript(options: {
 				pendingSend = setTimeout(function () {
 					pendingSend = null;
 					try {
-						send(lead);
+						sendAndReport(lead);
 					} catch (ignored) {}
 				}, HEURISTIC_DELAY_MS);
 			} catch (ignored) {}
 		}, true);
+
+		if (typeof window !== "undefined" && window.addEventListener) {
+			window.addEventListener("pagehide", sendPendingWithBeacon);
+		}
 	} catch (ignored) {}
 })();`;
 }

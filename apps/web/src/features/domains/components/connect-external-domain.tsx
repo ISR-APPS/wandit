@@ -8,13 +8,13 @@ import { toast } from "sonner";
 
 import { getApiErrorMessage } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n";
-import type { RequiredDomainRecord } from "../api/domains.dto";
+import type { Domain, RequiredDomainRecord } from "../api/domains.dto";
 import {
 	useAttachExternalDomain,
 	useVerifyDomain,
 } from "../api/domains.mutations";
 import { useDomainsQuery } from "../api/domains.queries";
-import { externalDomainLiveUrl, normalizeDomainInput } from "../lib/helpers";
+import { domainLiveUrl, normalizeDomainInput } from "../lib/helpers";
 import { useCopyToClipboard } from "../lib/hooks";
 import { externalDomainFormSchema } from "../lib/schemas";
 import type { ExternalDomainStep } from "../lib/store";
@@ -46,9 +46,6 @@ export function ConnectExternalDomain({
 		() => (domains.data ?? []).find((domain) => domain.id === domainId) ?? null,
 		[domainId, domains.data],
 	);
-	const liveUrl = currentDomain
-		? externalDomainLiveUrl(currentDomain.name)
-		: "";
 
 	useEffect(() => {
 		if (currentDomain?.status === "active") {
@@ -187,55 +184,75 @@ export function ConnectExternalDomain({
 			) : null}
 
 			{step === "success" && currentDomain ? (
-				<div className="flex flex-col gap-3 rounded-lg border border-success/40 bg-success/5 px-4 py-3">
-					<div className="flex items-center gap-2 text-sm text-success">
-						<Check className="size-4" />
-						{t("settings.domains.externalSuccess")}
-					</div>
-					<div className="flex items-center gap-2">
-						<a
-							href={liveUrl}
-							target="_blank"
-							rel="noreferrer"
-							dir="ltr"
-							className="min-w-0 flex-1 truncate font-mono text-primary text-sm hover:underline"
-						>
-							{liveUrl}
-						</a>
-						<Button
-							type="button"
-							variant="ghost"
-							size="icon-xs"
-							aria-label={t("settings.domains.copy")}
-							onClick={() => void copy(liveUrl)}
-						>
-							<Copy />
-						</Button>
-						<Button
-							type="button"
-							variant="ghost"
-							size="icon-xs"
-							aria-label={t("settings.domains.openLiveUrl")}
-							asChild
-						>
-							<a href={liveUrl} target="_blank" rel="noreferrer">
-								<ExternalLink />
-							</a>
-						</Button>
-					</div>
-					<Button
-						type="button"
-						variant="ghost"
-						size="sm"
-						className="self-start"
-						onClick={reset}
-					>
-						{t("settings.domains.useAnotherDomain")}
-					</Button>
-				</div>
+				<ExternalDomainSuccess
+					domain={currentDomain}
+					onCopy={copy}
+					onReset={reset}
+				/>
 			) : null}
 
 			{error ? <p className="text-destructive text-sm">{error}</p> : null}
+		</div>
+	);
+}
+
+export function ExternalDomainSuccess({
+	domain,
+	onCopy,
+	onReset,
+}: {
+	domain: Pick<Domain, "name" | "source">;
+	onCopy: (url: string) => Promise<void>;
+	onReset: () => void;
+}) {
+	const { t } = useTranslation();
+	const liveUrl = domainLiveUrl(domain);
+
+	return (
+		<div className="flex flex-col gap-3 rounded-lg border border-success/40 bg-success/5 px-4 py-3">
+			<div className="flex items-center gap-2 text-sm text-success">
+				<Check className="size-4" />
+				{t("settings.domains.externalSuccess")}
+			</div>
+			<div className="flex items-center gap-2">
+				<a
+					href={liveUrl}
+					target="_blank"
+					rel="noreferrer"
+					dir="ltr"
+					className="min-w-0 flex-1 truncate font-mono text-primary text-sm hover:underline"
+				>
+					{liveUrl}
+				</a>
+				<Button
+					type="button"
+					variant="ghost"
+					size="icon-xs"
+					aria-label={t("settings.domains.copy")}
+					onClick={() => void onCopy(liveUrl)}
+				>
+					<Copy />
+				</Button>
+				<Button type="button" variant="ghost" size="icon-xs" asChild>
+					<a
+						href={liveUrl}
+						target="_blank"
+						rel="noreferrer"
+						aria-label={t("settings.domains.openLiveUrl")}
+					>
+						<ExternalLink />
+					</a>
+				</Button>
+			</div>
+			<Button
+				type="button"
+				variant="ghost"
+				size="sm"
+				className="self-start"
+				onClick={onReset}
+			>
+				{t("settings.domains.useAnotherDomain")}
+			</Button>
 		</div>
 	);
 }

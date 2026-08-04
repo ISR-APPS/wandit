@@ -2,7 +2,12 @@
 // Every sync is a full rewrite, so this is the single place that decides what
 // the merchant's spreadsheet looks like. French labels and Algiers-local
 // times on purpose — the sheet is for Algerian merchants, not for the API.
-import type { Lead, LeadSource, LeadStatus } from "@wandit/contracts";
+import {
+	type Lead,
+	type LeadSource,
+	type LeadStatus,
+	serializeLeadOrderDetails,
+} from "@wandit/contracts";
 
 export const LEAD_SHEET_HEADER = [
 	"Nom",
@@ -12,6 +17,7 @@ export const LEAD_SHEET_HEADER = [
 	"Statut",
 	"Source",
 	"Date",
+	"Order details",
 ] as const;
 
 const STATUS_LABELS: Record<LeadStatus, string> = {
@@ -39,16 +45,18 @@ const dateFormatter = new Intl.DateTimeFormat("fr-FR", {
 });
 
 export function buildLeadSheetValues(leads: Lead[]): string[][] {
-	return [
-		[...LEAD_SHEET_HEADER],
-		...leads.map((lead) => [
-			lead.name,
-			lead.phone,
-			lead.wilaya ?? "",
-			lead.commune ?? "",
-			STATUS_LABELS[lead.status],
-			SOURCE_LABELS[lead.source],
-			dateFormatter.format(new Date(lead.createdAt)),
-		]),
-	];
+	return [[...LEAD_SHEET_HEADER], ...buildLeadSheetRows(leads)];
+}
+
+export function buildLeadSheetRows(leads: Lead[]): string[][] {
+	return leads.map((lead) => [
+		lead.name,
+		lead.phone,
+		lead.wilaya ?? "",
+		lead.commune ?? "",
+		STATUS_LABELS[lead.status],
+		SOURCE_LABELS[lead.source],
+		dateFormatter.format(new Date(lead.createdAt)),
+		serializeLeadOrderDetails(lead.extras),
+	]);
 }
