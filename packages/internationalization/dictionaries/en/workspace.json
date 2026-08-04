@@ -28,6 +28,7 @@
 		"failed": "Publish failed",
 		"retryCta": "Try again",
 		"failedHint": "Something went wrong. Your last live version is unaffected — try again.",
+		"earlyAccessRequired": "Your account does not have early access yet. Publishing is limited to early-access users.",
 		"copyLink": "Copy link",
 		"openLive": "Open live site",
 		"unpublish": "Unpublish",

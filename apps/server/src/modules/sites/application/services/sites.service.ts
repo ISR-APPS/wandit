@@ -10,7 +10,7 @@
  * row is promoted — an active deployment must never point at bytes that do
  * not exist.
  */
-import type { ProjectScope } from "../../../projects/domain/project-scope";
+
 import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import {
 	type Deployment,
@@ -26,7 +26,6 @@ import {
 	type SlugAvailabilityResponse,
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
-
 import { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
 import {
 	deleteObject,
@@ -41,6 +40,7 @@ import {
 	buildLeadsCaptureUrl,
 	injectLeadsRuntime,
 } from "../../../leads/runtime/inject-leads-runtime";
+import type { ProjectScope } from "../../../projects/domain/project-scope";
 import {
 	NoVersionToPublishError,
 	PublishFailedError,
@@ -239,6 +239,7 @@ export class SitesService {
 		if (!isR2Configured()) {
 			throw new PublishUnavailableError();
 		}
+		const kvConfigured = this.assertKvAvailableForPublish();
 
 		const active = await this.deploymentsRepository.findActiveByProject(
 			input.project.id,
@@ -286,7 +287,7 @@ export class SitesService {
 			// Always write the host pointer: it is one idempotent PUT, and
 			// skipping it when the slug "already exists" strands sites whose
 			// first publish ran before Cloudflare credentials were configured.
-			await this.writeSlugPointer(input.project.id, slug);
+			await this.writeSlugPointer(input.project.id, slug, kvConfigured);
 
 			const promoted = await this.deploymentsRepository.promoteToActive(
 				pending.id,
@@ -419,13 +420,26 @@ export class SitesService {
 		return `${slug}.${env.SITES_DOMAIN}`;
 	}
 
-	// KV degrades to log-and-skip without Cloudflare credentials (mirrors the
-	// isR2Configured contract) so local dev still publishes.
+	private assertKvAvailableForPublish(): boolean {
+		const configured = this.domainRoutingService.isKvConfigured();
+
+		if (!configured && !env.ALLOW_PUBLISH_WITHOUT_KV) {
+			throw new PublishUnavailableError(
+				"Cloudflare KV is not configured; publishing cannot make the site reachable",
+			);
+		}
+
+		return configured;
+	}
+
+	// The explicit override is for API-only local development, where no edge
+	// worker consumes the pointer. Hosted environments must fail the preflight.
 	private async writeSlugPointer(
 		projectId: string,
 		slug: string,
+		kvConfigured: boolean,
 	): Promise<void> {
-		if (!this.domainRoutingService.isKvConfigured()) {
+		if (!kvConfigured) {
 			this.logger.warn(
 				`Cloudflare KV not configured; skipping slug pointer for ${this.slugHost(slug)}`,
 			);

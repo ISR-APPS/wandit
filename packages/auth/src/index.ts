@@ -2,6 +2,7 @@ import { expo } from "@better-auth/expo";
 import { createDb } from "@wandit/db";
 import * as authSchema from "@wandit/db/schema/auth";
 import * as orgSchema from "@wandit/db/schema/organizations";
+import { corsWebOrigins } from "@wandit/env/cors-origins";
 import { env } from "@wandit/env/server";
 import { betterAuth } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
@@ -72,9 +73,7 @@ export type CreateAuthOptions = {
 	 * `organizationsEnabled` product setting by the server. Defaults to
 	 * closed: without the server wiring, nobody can create organizations.
 	 */
-	canCreateOrganization?: (user: {
-		id: string;
-	}) => Promise<boolean> | boolean;
+	canCreateOrganization?: (user: { id: string }) => Promise<boolean> | boolean;
 	/**
 	 * Invitation delivery hook. No email infra exists yet: the web surfaces a
 	 * copyable invite link and in-app pending invitations; this callback only
@@ -145,14 +144,13 @@ export function createAuth(options: CreateAuthOptions = {}) {
 		return emailAuth;
 	};
 
-	// Staging serves the web (vercel.app) and the API (railway.app) from two
-	// DIFFERENT sites, so every auth cookie (OAuth state, session) must be
+	// Staging serves the web (vercel.app) and API (api-staging.wandit.dev) from
+	// different sites, so every auth cookie (OAuth state, session) must be
 	// SameSite=None;Secure or browsers drop it on the cross-site hop — the
 	// symptom is "State mismatch: State not persisted correctly" on the
 	// Google callback. Local dev is same-site localhost over plain http,
 	// where None+Secure would itself be rejected — keep defaults there.
-	// Real production should put both on one apex (app./api.wandit…) and
-	// switch to crossSubDomainCookies instead.
+	// Production uses wandit.dev and api.wandit.dev, which are the same site.
 	const crossSiteCookies = env.BETTER_AUTH_URL.startsWith("https://");
 
 	return betterAuth({
@@ -226,7 +224,7 @@ export function createAuth(options: CreateAuthOptions = {}) {
 			"/email-otp/check-verification-otp",
 		],
 		trustedOrigins: [
-			env.CORS_ORIGIN,
+			...corsWebOrigins(env.CORS_ORIGIN, env.CORS_EXTRA_ORIGINS),
 			// Admin dashboard origin (apps/admin); only set where the admin runs.
 			...(env.ADMIN_ORIGIN ? [env.ADMIN_ORIGIN] : []),
 			"wandit://",

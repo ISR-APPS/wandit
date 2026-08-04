@@ -8,6 +8,7 @@ import { ModelPricingService } from "../../server/src/modules/metering/applicati
 import { METERING_GATEWAY } from "../../server/src/modules/metering/domain/metering";
 import { MeteringRepository } from "../../server/src/modules/metering/infrastructure/persistence/metering.repository";
 import { ModelPricesRepository } from "../../server/src/modules/metering/infrastructure/persistence/model-prices.repository";
+import { OrganizationLimitsRepository } from "../../server/src/modules/workspaces/infrastructure/persistence/organization-limits.repository";
 
 vi.mock("@wandit/env/server", () => ({
 	env: {
@@ -46,6 +47,7 @@ describe("WorkerModule", () => {
 			MeteringService,
 			ModelPricesRepository,
 			ModelPricingService,
+			OrganizationLimitsRepository,
 			PublishProcessor,
 			WorkerChatRepository,
 			expect.objectContaining({ provide: METERING_GATEWAY }),

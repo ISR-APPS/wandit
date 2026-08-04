@@ -1,4 +1,5 @@
 import { NotFoundException } from "@nestjs/common";
+import { env } from "@wandit/env/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
 import {
@@ -92,7 +93,7 @@ function setup(options: { kvConfigured?: boolean } = {}) {
 	};
 	const routing = {
 		deleteHostPointer: vi.fn().mockResolvedValue(undefined),
-		isKvConfigured: vi.fn().mockReturnValue(options.kvConfigured ?? false),
+		isKvConfigured: vi.fn().mockReturnValue(options.kvConfigured ?? true),
 		putHostPointer: vi.fn().mockResolvedValue(undefined),
 	};
 	const analytics = {
@@ -108,6 +109,8 @@ function setup(options: { kvConfigured?: boolean } = {}) {
 }
 
 beforeEach(() => {
+	delete (env as { ALLOW_PUBLISH_WITHOUT_KV?: boolean })
+		.ALLOW_PUBLISH_WITHOUT_KV;
 	vi.mocked(deleteObject).mockReset().mockResolvedValue(undefined);
 	vi.mocked(getPageHtml)
 		.mockReset()
@@ -143,16 +146,47 @@ describe("SitesService.publish", () => {
 		});
 	});
 
-	it("skips the KV pointer with a warning when Cloudflare is unconfigured", async () => {
-		const { routing, service } = setup({ kvConfigured: false });
+	it("503s before publish mutation when Cloudflare KV is unconfigured", async () => {
+		const { analytics, repository, routing, service } = setup({
+			kvConfigured: false,
+		});
+		let thrown: unknown;
 
-		await service.publish(SCOPE, PROJECT_ID, {});
+		try {
+			await service.publish(SCOPE, PROJECT_ID, {});
+		} catch (error) {
+			thrown = error;
+		}
 
+		expect(thrown).toBeInstanceOf(PublishUnavailableError);
+		expect((thrown as PublishUnavailableError).getStatus()).toBe(503);
+		expect((thrown as PublishUnavailableError).getResponse()).toEqual({
+			code: "PUBLISH_UNAVAILABLE",
+			message:
+				"Cloudflare KV is not configured; publishing cannot make the site reachable",
+		});
+		expect(repository.insertPending).not.toHaveBeenCalled();
+		expect(putPageHtml).not.toHaveBeenCalled();
+		expect(repository.promoteToActive).not.toHaveBeenCalled();
+		expect(repository.markFailed).not.toHaveBeenCalled();
 		expect(routing.putHostPointer).not.toHaveBeenCalled();
+		expect(analytics.capture).not.toHaveBeenCalled();
+	});
+
+	it("allows API-only local publish without KV when explicitly enabled", async () => {
+		(env as { ALLOW_PUBLISH_WITHOUT_KV: boolean }).ALLOW_PUBLISH_WITHOUT_KV =
+			true;
+		const { repository, routing, service } = setup({ kvConfigured: false });
+
+		const result = await service.publish(SCOPE, PROJECT_ID, {});
+
+		expect(result.deployment.status).toBe("active");
+		expect(routing.putHostPointer).not.toHaveBeenCalled();
+		expect(repository.promoteToActive).toHaveBeenCalledOnce();
 	});
 
 	it("writes the slug pointer on first publish when KV is configured", async () => {
-		const { routing, service } = setup({ kvConfigured: true });
+		const { repository, routing, service } = setup({ kvConfigured: true });
 
 		await service.publish(SCOPE, PROJECT_ID, {});
 
@@ -160,6 +194,7 @@ describe("SitesService.publish", () => {
 			"smoke-project.wandit.app",
 			{ projectId: PROJECT_ID, slug: "smoke-project", source: "slug" },
 		);
+		expect(repository.promoteToActive).toHaveBeenCalledOnce();
 	});
 
 	it("rewrites the slug pointer even when republishing under the same slug", async () => {
@@ -227,27 +262,27 @@ describe("SitesService.publish", () => {
 		const { repository, service } = setup();
 		repository.findDraftVersion.mockResolvedValue(null);
 
-		await expect(
-			service.publish(SCOPE, PROJECT_ID, {}),
-		).rejects.toBeInstanceOf(NoVersionToPublishError);
+		await expect(service.publish(SCOPE, PROJECT_ID, {})).rejects.toBeInstanceOf(
+			NoVersionToPublishError,
+		);
 	});
 
 	it("503s when R2 is unconfigured", async () => {
 		const { service } = setup();
 		vi.mocked(isR2Configured).mockReturnValue(false);
 
-		await expect(
-			service.publish(SCOPE, PROJECT_ID, {}),
-		).rejects.toBeInstanceOf(PublishUnavailableError);
+		await expect(service.publish(SCOPE, PROJECT_ID, {})).rejects.toBeInstanceOf(
+			PublishUnavailableError,
+		);
 	});
 
 	it("marks the pending row failed and rethrows typed when R2 write fails", async () => {
 		const { analytics, repository, service } = setup();
 		vi.mocked(putPageHtml).mockRejectedValue(new Error("R2 exploded"));
 
-		await expect(
-			service.publish(SCOPE, PROJECT_ID, {}),
-		).rejects.toBeInstanceOf(PublishFailedError);
+		await expect(service.publish(SCOPE, PROJECT_ID, {})).rejects.toBeInstanceOf(
+			PublishFailedError,
+		);
 		expect(repository.markFailed).toHaveBeenCalledWith(
 			"33333333-3333-4333-8333-333333333333",
 			expect.stringContaining("R2 exploded"),
@@ -313,6 +348,21 @@ describe("SitesService.unpublish", () => {
 		await service.unpublish(SCOPE, PROJECT_ID);
 
 		expect(deleteObject).not.toHaveBeenCalled();
+		expect(routing.deleteHostPointer).not.toHaveBeenCalled();
+	});
+
+	it("still unpublishes when missing KV prevents pointer cleanup", async () => {
+		const { repository, routing, service } = setup({ kvConfigured: false });
+		repository.unpublishActive.mockResolvedValue(
+			deploymentRow({ slug: "smoke-project", status: "unpublished" }),
+		);
+
+		await expect(service.unpublish(SCOPE, PROJECT_ID)).resolves.toEqual({
+			current: expect.objectContaining({ uiState: "draft" }),
+		});
+		expect(deleteObject).toHaveBeenCalledWith(
+			`published/${PROJECT_ID}/current.html`,
+		);
 		expect(routing.deleteHostPointer).not.toHaveBeenCalled();
 	});
 });

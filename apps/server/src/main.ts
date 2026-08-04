@@ -16,6 +16,7 @@ import {
 	FastifyAdapter,
 	type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
+import { corsWebOrigins } from "@wandit/env/cors-origins";
 import { env } from "@wandit/env/server";
 import { SentryNestLogger } from "@wandit/observability/nestjs-setup";
 
@@ -74,9 +75,12 @@ async function bootstrap() {
 	// Allow the web app to call this API with cookies. `Last-Event-ID` is needed
 	// so the SSE chat stream can reconnect and resume.
 	const applicationCorsOptions = {
-		origin: [env.CORS_ORIGIN, env.ADMIN_ORIGIN].filter(
-			(origin): origin is string => Boolean(origin),
-		),
+		// Production legitimately has two web origins: wandit.dev and
+		// www.wandit.dev. CORS_ORIGIN stays canonical; extras add web aliases.
+		origin: [
+			...corsWebOrigins(env.CORS_ORIGIN, env.CORS_EXTRA_ORIGINS),
+			env.ADMIN_ORIGIN,
+		].filter((origin): origin is string => Boolean(origin)),
 		credentials: true,
 		methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 		allowedHeaders: [

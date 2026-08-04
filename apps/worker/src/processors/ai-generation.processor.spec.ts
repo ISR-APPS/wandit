@@ -101,7 +101,7 @@ describe("AiGenerationProcessor metering", () => {
 				providerOptions: {
 					gateway: {
 						quotaEntityId: "user_1",
-						tags: ["op:chat"],
+						tags: ["op:chat", "ws:personal"],
 						user: "user_1",
 					},
 				},
@@ -277,7 +277,7 @@ describe("AiGenerationProcessor metering", () => {
 
 		expect(metering.findByIdempotencyKey).toHaveBeenCalledWith(
 			"legacy-chat:job_1",
-			"user_1",
+			{ actorUserId: "user_1" },
 		);
 		expect(streamText).not.toHaveBeenCalled();
 		expect(metering.refund).not.toHaveBeenCalled();

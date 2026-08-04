@@ -15,7 +15,9 @@
 		"src/**/*.ts",
 		"../server/src/infrastructure/database/database.constants.ts",
 		"../server/src/modules/credits/application/services/credits.service.ts",
+		"../server/src/modules/credits/domain/credit-owner.ts",
 		"../server/src/modules/credits/domain/errors/insufficient-credits.error.ts",
+		"../server/src/modules/credits/domain/errors/member-credit-limit.error.ts",
 		"../server/src/modules/credits/infrastructure/persistence/credits.repository.ts",
 		"../server/src/modules/metering/application/services/metering.service.ts",
 		"../server/src/modules/metering/application/services/model-pricing.service.ts",
@@ -25,6 +27,7 @@
 		"../server/src/modules/metering/domain/operation-registry.ts",
 		"../server/src/modules/metering/infrastructure/persistence/metering.repository.ts",
 		"../server/src/modules/metering/infrastructure/persistence/model-prices.repository.ts",
-		"../server/src/modules/metering/**/*.json"
+		"../server/src/modules/metering/**/*.json",
+		"../server/src/modules/workspaces/infrastructure/persistence/organization-limits.repository.ts"
 	]
 }
