@@ -47,7 +47,11 @@ import type { McpChatToolsResult } from "../../../mcp-connectors/application/ser
 import { MeteringStateConflictError } from "../../../metering/domain/metering";
 import type { WanditUIMessage } from "../../agent/chat-agent";
 import { AiChatController } from "../../presentation/http/controllers/ai-chat.controller";
-import { AiChatService, completeDanglingToolCalls } from "./ai-chat.service";
+import {
+	AiChatService,
+	completeDanglingToolCalls,
+	turnRequestId,
+} from "./ai-chat.service";
 
 type AiChatServiceDependencies = ConstructorParameters<typeof AiChatService>;
 type CapturedStreamOptions = {
@@ -299,7 +303,13 @@ describe("AiChatService MCP lifecycle", () => {
 		expect(prepared.eventId).toBe("project-usage-event");
 		expect(meteringService.claimBundledReservation).toHaveBeenCalledWith({
 			chatId: CHAT_ID,
-			claimAttemptRef: `bundled-pending:project-stream:${PROJECT_ID}:user-message`,
+			// The request id is the last message id plus a part-state
+			// fingerprint (turnRequestId) so resumed rounds get distinct keys.
+			claimAttemptRef: expect.stringMatching(
+				new RegExp(
+					`^bundled-pending:project-stream:${PROJECT_ID}:user-message:[0-9a-f]{16}$`,
+				),
+			),
 			expectedAttemptRef: `bundled-pending:project:${PROJECT_ID}`,
 			idempotencyKey: `project-create:${PROJECT_ID}`,
 			messageId: "user-message",
@@ -1298,3 +1308,37 @@ function deferred<T>() {
 
 	return { promise, reject, resolve };
 }
+
+describe("turnRequestId", () => {
+	const askPart = (state: string) =>
+		({ type: "tool-ask_user", state }) as unknown as WanditUIMessage["parts"][number];
+	const assistant = (parts: WanditUIMessage["parts"]) =>
+		({ id: "assistant-1", role: "assistant", parts }) as WanditUIMessage;
+	const user = { id: "user-msg-1", role: "user", parts: [] } as unknown as WanditUIMessage;
+
+	it("is deterministic for an exact retry of the same round", () => {
+		const messages = [user, assistant([askPart("output-available")])];
+		expect(turnRequestId(messages)).toBe(turnRequestId([...messages]));
+	});
+
+	it("changes when answering questions advances the same assistant message", () => {
+		// Regression: resumed rounds append parts to the SAME assistant message
+		// (same id), so keying on the id alone 409'd every ask_user resume.
+		const roundTwo = [user, assistant([askPart("input-available")])];
+		const roundThree = [
+			user,
+			assistant([askPart("output-available"), askPart("input-available")]),
+		];
+		expect(turnRequestId(roundTwo)).not.toBe(turnRequestId(roundThree));
+	});
+
+	it("changes when a new message arrives", () => {
+		const turnOne = [user];
+		const turnTwo = [user, assistant([])];
+		expect(turnRequestId(turnOne)).not.toBe(turnRequestId(turnTwo));
+	});
+
+	it("returns null for an empty conversation", () => {
+		expect(turnRequestId([])).toBeNull();
+	});
+});

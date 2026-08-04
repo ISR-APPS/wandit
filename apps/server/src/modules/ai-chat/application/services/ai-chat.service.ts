@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
 	ConflictException,
 	HttpException,
@@ -166,7 +167,7 @@ export class AiChatService {
 			);
 			const messageId = findFinalUserMessage(options.messages)?.id ?? null;
 			const requestId =
-				options.requestId ?? options.messages.at(-1)?.id ?? messageId;
+				options.requestId ?? turnRequestId(options.messages) ?? messageId;
 
 			if (!requestId || !messageId) {
 				throw new Error("AI chat reservation requires a stable request id");
@@ -1511,6 +1512,43 @@ function elideRetiredToolOutputs(
 
 		return changed ? { ...message, parts } : message;
 	});
+}
+
+/**
+ * Stable id for one stream TURN, used as the at-most-once reservation key.
+ * The last message's id alone is not turn-unique: resumed rounds (ask_user
+ * answers, tool approvals) append parts to the SAME assistant message, so its
+ * id repeats while the conversation advances — keying on it alone made every
+ * resume a "replay" and capped chats at one exchange. Fingerprinting the last
+ * message's part states makes each answered round a distinct operation while
+ * an exact retry of the same round still maps to the same key.
+ */
+export function turnRequestId(
+	messages: readonly WanditUIMessage[],
+): string | null {
+	const last = messages.at(-1);
+
+	if (!last) {
+		return null;
+	}
+
+	const signature = createHash("sha256")
+		.update(String(messages.length))
+		.update(":")
+		.update(last.id)
+		.update(":")
+		.update(
+			JSON.stringify(
+				(last.parts ?? []).map((part) => [
+					part.type,
+					(part as { state?: string }).state ?? null,
+				]),
+			),
+		)
+		.digest("hex")
+		.slice(0, 16);
+
+	return `${last.id}:${signature}`;
 }
 
 function findFinalUserMessage(
