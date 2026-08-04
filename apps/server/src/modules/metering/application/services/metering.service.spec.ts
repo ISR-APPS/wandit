@@ -748,6 +748,9 @@ describe("MeteringService", () => {
 		await expect(service.claimBundledReservation(input)).rejects.toBeInstanceOf(
 			MeteringStateConflictError,
 		);
+		// A DIFFERENT attempt after settlement is a new turn, not a replay —
+		// even with the same final user message: ask_user resumes re-stream
+		// without adding a user message. It falls through to a normal hold.
 		await expect(
 			service.claimBundledReservation({
 				...input,
@@ -755,7 +758,7 @@ describe("MeteringService", () => {
 					"project-stream:project-1:request-2",
 				),
 			}),
-		).rejects.toBeInstanceOf(MeteringStateConflictError);
+		).resolves.toBeNull();
 		await expect(
 			service.claimBundledReservation({
 				...input,

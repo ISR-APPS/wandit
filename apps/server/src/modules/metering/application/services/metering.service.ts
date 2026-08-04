@@ -208,27 +208,19 @@ export class MeteringService {
 				);
 			}
 
-			const sameMessage = event.messageId === input.messageId;
-
 			if (event.status !== "reserved") {
-				// A claim marker plus the same message is a durable replay signal even
-				// after settlement/refund. A genuinely new message gets a new hold.
-				if (
-					sameMessage &&
-					event.attemptRef !== input.expectedAttemptRef &&
-					event.attemptRef !== completedExpectedAttemptRef
-				) {
-					throw new MeteringStateConflictError(
-						event.id,
-						event.status,
-						"replay bundled reservation claim for",
-					);
-				}
-
+				// The bundle is spent. Replays of the SAME attempt were already
+				// rejected above via the attempt-ref match; any other claim after
+				// settlement/refund is a NEW turn of this conversation and takes a
+				// normal hold instead. The final user message is NOT a turn
+				// discriminator here: answering ask_user questions resumes the
+				// stream without adding a user message, so "same message,
+				// different attempt" is the shape of every legitimate resume —
+				// treating it as a replay capped chats at one exchange.
 				return null;
 			}
 
-			if (!sameMessage) {
+			if (event.messageId !== input.messageId) {
 				throw new MeteringStateConflictError(
 					event.id,
 					event.status,

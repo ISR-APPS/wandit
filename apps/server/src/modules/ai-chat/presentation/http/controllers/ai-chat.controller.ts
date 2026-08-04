@@ -55,6 +55,20 @@ const aiChatValidationMetadataSchema = z.preprocess(
 
 type AiChatRequestBody = z.infer<typeof aiChatRequestBodySchema>;
 
+/**
+ * Idempotency id for one stream turn. NEVER body.id: the AI SDK transport
+ * sends the CHAT id there, which is constant across turns — using it as the
+ * at-most-once key marks every turn after the first as a replay (409) and
+ * caps chats at a single exchange. body.messageId (set on regenerate) varies
+ * per regenerated message; for plain sends this returns undefined and the
+ * service falls back to the last message's id, which changes every turn.
+ */
+export function streamRequestId(
+	body: Pick<AiChatRequestBody, "id" | "messageId">,
+): string | undefined {
+	return body.messageId;
+}
+
 @Controller("v1/chats")
 export class AiChatController {
 	constructor(
@@ -109,7 +123,7 @@ export class AiChatController {
 			chatId: chat.id,
 			messages,
 			projectId: chat.projectId,
-			requestId: body.id ?? body.messageId,
+			requestId: streamRequestId(body),
 			scope,
 		});
 		const abortController = new AbortController();
