@@ -584,7 +584,7 @@ describe("MeteringService", () => {
 		});
 		await expect(
 			service.reserve("chat", USER_SUBJECT, { ...estimate, credits: 3 }),
-		).rejects.toThrow("reserve idempotency replay conflict");
+		).rejects.toBeInstanceOf(MeteringStateConflictError);
 	});
 
 	it("replays an org reserve for a different acting member of the same pool", async () => {
@@ -625,7 +625,7 @@ describe("MeteringService", () => {
 				{ actorUserId: "user_member_2" },
 				estimate,
 			),
-		).rejects.toThrow("reserve idempotency replay conflict");
+		).rejects.toBeInstanceOf(MeteringStateConflictError);
 	});
 
 	it("atomically admits only one bundled-reservation claim across concurrent instances", async () => {
