@@ -21,7 +21,7 @@ export function UserMetrics({ user }: UserMetricsProps) {
 		{
 			label: "Projects",
 			value: formatWholeNumber(user.projectsCount),
-			detail: `${formatWholeNumber(user.projects.length)} listed below`,
+			detail: `${formatWholeNumber(user.projects.length)} in activity`,
 			icon: FolderKanbanIcon,
 		},
 		{
