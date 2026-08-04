@@ -567,8 +567,16 @@ describe("MeteringService", () => {
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "chat:message_1",
 		};
-		const first = await service.reserveWithReplay("chat", USER_SUBJECT, estimate);
-		const replay = await service.reserveWithReplay("chat", USER_SUBJECT, estimate);
+		const first = await service.reserveWithReplay(
+			"chat",
+			USER_SUBJECT,
+			estimate,
+		);
+		const replay = await service.reserveWithReplay(
+			"chat",
+			USER_SUBJECT,
+			estimate,
+		);
 
 		expect(first).toMatchObject({ replay: "none", replayed: false });
 		expect(replay).toEqual({
@@ -656,13 +664,16 @@ describe("MeteringService", () => {
 			claim("request-2"),
 		]);
 		const fulfilled = results.filter((result) => result.status === "fulfilled");
-		const rejected = results.filter((result) => result.status === "rejected");
 
-		expect(fulfilled).toHaveLength(1);
-		expect(rejected).toHaveLength(1);
-		expect(rejected[0]).toMatchObject({
-			reason: expect.any(MeteringStateConflictError),
-		});
+		// Exactly one request wins the bundle; the loser resolves null and takes
+		// a NORMAL hold instead (conflicting here used to brick the loser's turn
+		// behind a 409 whenever the winner's stream later crashed).
+		expect(fulfilled).toHaveLength(2);
+		const values = fulfilled.map(
+			(result) => (result as PromiseFulfilledResult<unknown>).value,
+		);
+		expect(values.filter((value) => value === null)).toHaveLength(1);
+		expect(values.filter((value) => value !== null)).toHaveLength(1);
 		expect(repository.events.get(CHAT_EVENT_ID)?.attemptRef).toMatch(
 			/^bundled-pending:project-stream:project-1:request-[12]$/,
 		);
@@ -673,6 +684,69 @@ describe("MeteringService", () => {
 		expect(repository.operationLocks).toContain(
 			`metering-event:${CHAT_EVENT_ID}`,
 		);
+	});
+
+	it("hands a crashed claim back to the identical retry and releases refunded ones", async () => {
+		const { repository, service } = setup();
+		await service.reserve("chat", USER_SUBJECT, {
+			attemptRef: PROJECT_PENDING_ATTEMPT_REF,
+			chatId: "chat-1",
+			credits: 1,
+			eventId: CHAT_EVENT_ID,
+			idempotencyKey: "project-create:project-1",
+			messageId: "message-1",
+		});
+		const input = {
+			chatId: "chat-1",
+			claimAttemptRef: bundledReservationPendingAttemptRef(
+				"project-stream:project-1:request-1",
+			),
+			expectedAttemptRef: PROJECT_PENDING_ATTEMPT_REF,
+			idempotencyKey: "project-create:project-1",
+			messageId: "message-1",
+			operation: "chat" as const,
+			subject: USER_SUBJECT,
+		};
+
+		await service.claimBundledReservation(input);
+
+		// The claimed stream died before settling (hold still reserved): the
+		// identical retry ADOPTS the claim instead of replay-conflicting — this
+		// was the turn-1 variant of the bricked-chat 409.
+		await expect(service.claimBundledReservation(input)).resolves.toMatchObject(
+			{
+				attemptRef: input.claimAttemptRef,
+				id: CHAT_EVENT_ID,
+			},
+		);
+
+		// A NEW turn while the bundle is stuck under the crashed claim takes a
+		// normal hold instead of bricking the chat.
+		await expect(
+			service.claimBundledReservation({
+				...input,
+				claimAttemptRef: bundledReservationPendingAttemptRef(
+					"project-stream:project-1:request-2",
+				),
+				messageId: "message-2",
+			}),
+		).resolves.toBeNull();
+
+		// Once stranded recovery refunds the crashed claim, the identical retry
+		// falls through to a normal hold — never a permanent 409.
+		const claimed = repository.events.get(CHAT_EVENT_ID);
+
+		if (!claimed) {
+			throw new Error("missing claimed event");
+		}
+
+		repository.events.set(CHAT_EVENT_ID, {
+			...claimed,
+			finalCredits: 0,
+			settledAt: new Date(),
+			status: "refunded",
+		});
+		await expect(service.claimBundledReservation(input)).resolves.toBeNull();
 	});
 
 	it("preserves title-complete state when completion wins before the stream claim", async () => {
@@ -900,7 +974,11 @@ describe("MeteringService", () => {
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "chat:terminal-replay",
 		};
-		const first = await service.reserveWithReplay("chat", USER_SUBJECT, estimate);
+		const first = await service.reserveWithReplay(
+			"chat",
+			USER_SUBJECT,
+			estimate,
+		);
 		repository.events.set(CHAT_EVENT_ID, {
 			...first.event,
 			status,
@@ -925,7 +1003,11 @@ describe("MeteringService", () => {
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "chat:failed-replay",
 		};
-		const first = await service.reserveWithReplay("chat", USER_SUBJECT, estimate);
+		const first = await service.reserveWithReplay(
+			"chat",
+			USER_SUBJECT,
+			estimate,
+		);
 		repository.events.set(CHAT_EVENT_ID, {
 			...first.event,
 			status,

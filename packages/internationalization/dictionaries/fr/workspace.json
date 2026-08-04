@@ -663,6 +663,7 @@
 		"errors": {
 			"busy": "Une génération est déjà en cours. Attends qu'elle se termine avant d'envoyer un autre message.",
 			"credits": "Tu n'as pas assez de crédits pour cette génération. Recharge pour continuer.",
+			"replayed": "Cette requête a déjà été traitée. Envoie un nouveau message pour continuer.",
 			"stream": "Le flux de génération a été interrompu. Réessaie."
 		},
 		"versionCardKind": "Landing page",
