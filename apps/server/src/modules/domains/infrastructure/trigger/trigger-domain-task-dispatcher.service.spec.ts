@@ -114,6 +114,59 @@ describe("TriggerDomainTaskDispatcherService", () => {
 		});
 	});
 
+	it.each([
+		"CANCELED",
+		"COMPLETED",
+	])("resets and retriggers a stale %s configuration with the same nonce", async (status) => {
+		vi.mocked(tasks.trigger)
+			.mockResolvedValueOnce(taskHandle("run_terminal_configuration"))
+			.mockResolvedValueOnce(taskHandle("run_recovered_configuration"));
+		vi.mocked(runs.retrieve).mockResolvedValue(retrievedRun(status));
+		const dispatcher = new TriggerDomainTaskDispatcherService();
+		const payload = { domainId: DOMAIN_ID, nonce: "manual:nonce-1" };
+
+		await expect(dispatcher.recoverConfiguration(payload)).resolves.toEqual({
+			id: "run_recovered_configuration",
+		});
+		expect(idempotencyKeys.create).toHaveBeenCalledWith(
+			`domain-configure:${DOMAIN_ID}:manual:nonce-1`,
+			{ scope: "global" },
+		);
+		expect(runs.retrieve).toHaveBeenCalledWith("run_terminal_configuration");
+		expect(idempotencyKeys.reset).toHaveBeenCalledWith(
+			"domain-configure",
+			GLOBAL_KEY,
+		);
+		expect(tasks.trigger).toHaveBeenCalledTimes(2);
+		expect(tasks.trigger).toHaveBeenNthCalledWith(
+			2,
+			"domain-configure",
+			payload,
+			{
+				idempotencyKey: GLOBAL_KEY,
+				tags: [`domain:${DOMAIN_ID}`],
+			},
+		);
+	});
+
+	it("leaves an executing configuration run alone", async () => {
+		vi.mocked(tasks.trigger).mockResolvedValue(
+			taskHandle("run_executing_configuration"),
+		);
+		vi.mocked(runs.retrieve).mockResolvedValue(retrievedRun("EXECUTING"));
+		const dispatcher = new TriggerDomainTaskDispatcherService();
+
+		await expect(
+			dispatcher.recoverConfiguration({
+				domainId: DOMAIN_ID,
+				nonce: "manual:nonce-1",
+			}),
+		).resolves.toEqual({ id: "run_executing_configuration" });
+		expect(runs.retrieve).toHaveBeenCalledWith("run_executing_configuration");
+		expect(idempotencyKeys.reset).not.toHaveBeenCalled();
+		expect(tasks.trigger).toHaveBeenCalledTimes(1);
+	});
+
 	it("returns the duplicate live handle without resetting or retriggering it", async () => {
 		vi.mocked(tasks.trigger).mockResolvedValue(taskHandle("run_live"));
 		vi.mocked(runs.retrieve).mockResolvedValue(retrievedRun("WAITING"));

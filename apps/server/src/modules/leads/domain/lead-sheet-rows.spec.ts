@@ -34,7 +34,28 @@ describe("buildLeadSheetValues", () => {
 			"À confirmer",
 			"Facebook",
 			"25/07/2026 14:30",
+			"",
 		]);
+	});
+
+	it("serializes every public scalar order extra into one deterministic column", () => {
+		const values = buildLeadSheetValues([
+			lead({
+				extras: {
+					_rawPhone: "0550 00 00 00",
+					bundle: "Duo",
+					color: "Noir",
+					delivery: "Domicile",
+					quantity: 2,
+					size: "XL",
+					variant: "Menthe",
+				},
+			}),
+		]);
+
+		expect(values[1]?.[7]).toBe(
+			'{"bundle":"Duo","color":"Noir","delivery":"Domicile","quantity":2,"size":"XL","variant":"Menthe"}',
+		);
 	});
 
 	it("renders missing wilaya/commune as empty cells", () => {

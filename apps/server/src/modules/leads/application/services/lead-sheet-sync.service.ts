@@ -7,7 +7,7 @@
  * changes made in the Leads tab flow through. better-auth owns the tokens:
  * getAccessToken refreshes silently off the stored refresh token.
  */
-import type { ProjectScope } from "../../../projects/domain/project-scope";
+
 import {
 	BadGatewayException,
 	ConflictException,
@@ -21,12 +21,16 @@ import {
 	GOOGLE_SHEETS_SCOPE,
 	type LeadSheetSyncState,
 } from "@wandit/contracts";
-
 import { AUTH_INSTANCE } from "../../../auth";
-import { buildLeadSheetValues } from "../../domain/lead-sheet-rows";
+import type { ProjectScope } from "../../../projects/domain/project-scope";
+import {
+	buildLeadSheetRows,
+	LEAD_SHEET_HEADER,
+} from "../../domain/lead-sheet-rows";
 import {
 	GoogleSheetsApiError,
 	GoogleSheetsClient,
+	type StagedSheetRewrite,
 } from "../../infrastructure/google/google-sheets.client";
 import { toLeadDto } from "../../infrastructure/mappers/lead.mapper";
 import {
@@ -34,6 +38,12 @@ import {
 	LeadSheetSyncsRepository,
 } from "../../infrastructure/persistence/lead-sheet-syncs.repository";
 import { LeadsRepository } from "../../infrastructure/persistence/leads.repository";
+
+const SYNC_PAGE_SIZE = 1_000;
+// Google recommends keeping Sheets API requests around 2 MB. Leave room for
+// the batchUpdate wrapper while avoiding an arbitrary row cap that burns the
+// per-user write quota on large exports.
+const MAX_WRITE_PAYLOAD_BYTES = 1_500_000;
 
 @Injectable()
 export class LeadSheetSyncService {
@@ -78,12 +88,8 @@ export class LeadSheetSyncService {
 		}
 
 		const accessToken = await this.mintAccessToken(scope.userId);
-		const rows = await this.leadsRepository.listForProjectSync(
-			scope,
-			projectId,
-		);
-		const values = buildLeadSheetValues(rows.map(toLeadDto));
 		const title = `Wandit Leads — ${project.name}`;
+		let syncedLeadCount: number;
 
 		try {
 			let sync = await this.syncsRepository.findByProject(projectId);
@@ -93,33 +99,26 @@ export class LeadSheetSyncService {
 			}
 
 			try {
-				// Full rewrite: clear everything, then append header + all leads
-				// into the now-empty sheet (append grows the grid; update can't).
-				await this.sheetsClient.clearValues(
+				syncedLeadCount = await this.rewriteSpreadsheet(
 					accessToken,
 					sync.spreadsheetId,
-					"A:ZZ",
-				);
-				await this.sheetsClient.appendValues(
-					accessToken,
-					sync.spreadsheetId,
-					"A1",
-					values,
+					scope,
+					projectId,
 				);
 			} catch (error) {
 				// 404 = the merchant deleted our spreadsheet in Drive. The pointer
-				// is stale, not the sync — recreate once and write into the fresh
-				// (already empty) sheet.
+				// is stale, not the sync — recreate once and stage the full rewrite
+				// in the fresh spreadsheet.
 				if (!(error instanceof GoogleSheetsApiError) || error.status !== 404) {
 					throw error;
 				}
 
 				sync = await this.createSpreadsheet(accessToken, projectId, title);
-				await this.sheetsClient.appendValues(
+				syncedLeadCount = await this.rewriteSpreadsheet(
 					accessToken,
 					sync.spreadsheetId,
-					"A1",
-					values,
+					scope,
+					projectId,
 				);
 			}
 		} catch (error) {
@@ -128,7 +127,7 @@ export class LeadSheetSyncService {
 
 		const updated = await this.syncsRepository.recordSyncResult(
 			projectId,
-			rows.length,
+			syncedLeadCount,
 		);
 
 		if (!updated) {
@@ -136,6 +135,123 @@ export class LeadSheetSyncService {
 		}
 
 		return { connected: true, sheet: toSheetDto(updated) };
+	}
+
+	private async rewriteSpreadsheet(
+		accessToken: string,
+		spreadsheetId: string,
+		scope: ProjectScope,
+		projectId: string,
+	): Promise<number> {
+		let rewrite: StagedSheetRewrite | undefined;
+		let commitStarted = false;
+
+		try {
+			rewrite = await this.sheetsClient.beginStagedRewrite(
+				accessToken,
+				spreadsheetId,
+				LEAD_SHEET_HEADER.length,
+			);
+			await this.sheetsClient.writeStagedValues(
+				accessToken,
+				spreadsheetId,
+				rewrite,
+				0,
+				[[...LEAD_SHEET_HEADER]],
+			);
+
+			let cursor: string | undefined;
+			let leadCount = 0;
+			let pendingRows: string[][] = [];
+			let pendingPayloadBytes = 0;
+			const seenCursors = new Set<string>();
+			do {
+				const page = await this.leadsRepository.listForProjectSync(
+					scope,
+					projectId,
+					{ cursor, pageSize: SYNC_PAGE_SIZE },
+				);
+				const rows = buildLeadSheetRows(page.rows.map(toLeadDto));
+
+				for (const row of rows) {
+					const rowPayloadBytes = stagedRowPayloadBytes(row);
+					if (
+						pendingRows.length > 0 &&
+						pendingPayloadBytes + rowPayloadBytes > MAX_WRITE_PAYLOAD_BYTES
+					) {
+						await this.sheetsClient.writeStagedValues(
+							accessToken,
+							spreadsheetId,
+							rewrite,
+							leadCount + 1,
+							pendingRows,
+						);
+						leadCount += pendingRows.length;
+						pendingRows = [];
+						pendingPayloadBytes = 0;
+					}
+
+					pendingRows.push(row);
+					pendingPayloadBytes += rowPayloadBytes;
+				}
+
+				const nextCursor = page.nextCursor ?? undefined;
+				if (nextCursor) {
+					if (seenCursors.has(nextCursor)) {
+						throw new Error("The leads repository returned a repeated cursor");
+					}
+
+					seenCursors.add(nextCursor);
+				}
+				cursor = nextCursor;
+			} while (cursor);
+
+			if (pendingRows.length > 0) {
+				await this.sheetsClient.writeStagedValues(
+					accessToken,
+					spreadsheetId,
+					rewrite,
+					leadCount + 1,
+					pendingRows,
+				);
+				leadCount += pendingRows.length;
+			}
+
+			commitStarted = true;
+			await this.sheetsClient.commitStagedRewrite(
+				accessToken,
+				spreadsheetId,
+				rewrite,
+			);
+
+			return leadCount;
+		} catch (error) {
+			// Do not clean up once the atomic commit has started: a lost HTTP
+			// response is ambiguous and the staging id may already be the live tab.
+			if (rewrite && !commitStarted) {
+				await this.discardStaging(accessToken, spreadsheetId, rewrite);
+			}
+
+			throw error;
+		}
+	}
+
+	private async discardStaging(
+		accessToken: string,
+		spreadsheetId: string,
+		rewrite: StagedSheetRewrite,
+	): Promise<void> {
+		try {
+			await this.sheetsClient.discardStagedRewrite(
+				accessToken,
+				spreadsheetId,
+				rewrite,
+			);
+		} catch (cleanupError) {
+			this.logger.warn(
+				`Could not clean up failed Sheets staging tab: ${String(cleanupError)}`,
+			);
+		}
 	}
 
 	private async getAccessibleProject(
@@ -206,6 +322,17 @@ export class LeadSheetSyncService {
 		this.logger.error(`Sheets sync failed for project ${projectId}`, error);
 		return new BadGatewayException("Google Sheets sync failed");
 	}
+}
+
+function stagedRowPayloadBytes(row: string[]): number {
+	const payload = {
+		values: row.map((value) => ({
+			userEnteredValue: { stringValue: value },
+		})),
+	};
+
+	// One comma separates this row from the next in updateCells.rows.
+	return Buffer.byteLength(JSON.stringify(payload), "utf8") + 1;
 }
 
 // connected = the drive.file grant is on the account AND we can still mint a

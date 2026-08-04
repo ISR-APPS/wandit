@@ -27,7 +27,10 @@ import {
 	DomainsRepository,
 	type DomainTransaction,
 } from "../modules/domains/infrastructure/persistence/domains.repository";
-import { recoverDomainPurchaseTask } from "../modules/domains/infrastructure/trigger/trigger-domain-task-dispatcher.service";
+import {
+	recoverDomainConfigurationTask,
+	recoverDomainPurchaseTask,
+} from "../modules/domains/infrastructure/trigger/trigger-domain-task-dispatcher.service";
 import {
 	PaymentOrdersRepository,
 	type PaymentOrderTransaction,
@@ -111,9 +114,12 @@ export function createDomainReconciliationRuntime(db: Database) {
 
 	return {
 		reconciler: new DomainFulfillmentReconcilerService({
+			findStaleConfigurationCandidates: (input) =>
+				domains.findStaleConfigurationCandidates(input),
 			findStalePurchaseCandidates: (input) =>
 				domains.findStalePurchaseCandidates(input),
 			now: () => new Date(),
+			recoverConfiguration: recoverDomainConfigurationTask,
 			recoverPurchase: recoverDomainPurchaseTask,
 		}),
 	};

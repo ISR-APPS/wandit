@@ -24,7 +24,9 @@ import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
 import { Spark } from "@/components/logo";
+import type { Domain } from "@/features/domains/api/domains.dto";
 import { useDomainsQuery } from "@/features/domains/api/domains.queries";
+import { domainLiveUrl } from "@/features/domains/lib/helpers";
 import { useTranslation } from "@/lib/i18n";
 import { PUBLISHED_DOMAIN } from "../../lib/constants";
 import { isValidSlug } from "../../lib/helpers";
@@ -158,8 +160,7 @@ export function PublishPopover() {
 					<PopoverArrow className="size-3" />
 					{customDomain && published ? (
 						<CustomDomainLiveContent
-							domain={customDomain.name}
-							primary={customDomain.isPrimary}
+							domain={customDomain}
 							subdomain={subdomain}
 							subdomainPublishing={publishing}
 							historicalVersionNumber={historicalVersionNumber}
@@ -468,17 +469,15 @@ function SubdomainContent({
 	);
 }
 
-function CustomDomainLiveContent({
+export function CustomDomainLiveContent({
 	domain,
-	primary,
 	subdomain,
 	subdomainPublishing,
 	historicalVersionNumber,
 	onCopy,
 	onPublish,
 }: {
-	domain: string;
-	primary: boolean;
+	domain: Pick<Domain, "isPrimary" | "name" | "source">;
 	subdomain: string;
 	subdomainPublishing: boolean;
 	historicalVersionNumber: number | null;
@@ -486,7 +485,7 @@ function CustomDomainLiveContent({
 	onPublish: () => void;
 }) {
 	const { t } = useTranslation();
-	const domainUrl = `https://${domain}`;
+	const domainUrl = domainLiveUrl(domain);
 
 	return (
 		<>
@@ -506,9 +505,9 @@ function CustomDomainLiveContent({
 						dir="ltr"
 						className="min-w-0 flex-1 truncate font-semibold text-sm"
 					>
-						{domain}
+						{domainUrl}
 					</span>
-					{primary ? (
+					{domain.isPrimary ? (
 						<Badge variant="outline">
 							{t("workspace.publish.popover.primary")}
 						</Badge>
@@ -544,7 +543,7 @@ function CustomDomainLiveContent({
 						{subdomainPublishing
 							? t("workspace.publish.popover.stillPublishing")
 							: t(
-									primary
+									domain.isPrimary
 										? "workspace.publish.popover.alsoLive"
 										: "workspace.publish.popover.primary",
 								)}

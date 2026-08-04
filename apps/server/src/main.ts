@@ -21,6 +21,7 @@ import { env } from "@wandit/env/server";
 import { SentryNestLogger } from "@wandit/observability/nestjs-setup";
 
 import { AppModule } from "./app.module";
+import { publicLeadCaptureCorsOptions } from "./modules/leads/presentation/http/public-leads-cors";
 
 // Runs once when the API process starts.
 async function bootstrap() {
@@ -54,10 +55,10 @@ async function bootstrap() {
 			},
 		},
 	);
-	// Published-page lead capture posts JSON as text/plain: a bare-string
-	// sendBeacon body is a CORS simple request, so cross-origin merchant sites
-	// need no preflight and no CORS changes. Parse it as a raw string with a
-	// tight cap — the capture endpoint is the only text/plain consumer.
+	// The last-resort pagehide sendBeacon posts JSON as text/plain, capped by
+	// the runtime below this parser's 16 KiB limit. The normal application/json
+	// fetch is CORS-readable through the route-scoped policy below; lead capture
+	// remains the only text/plain consumer.
 	adapter
 		.getInstance()
 		.addContentTypeParser(
@@ -73,7 +74,7 @@ async function bootstrap() {
 	});
 	// Allow the web app to call this API with cookies. `Last-Event-ID` is needed
 	// so the SSE chat stream can reconnect and resume.
-	app.enableCors({
+	const applicationCorsOptions = {
 		// Production legitimately has two web origins: wandit.dev and
 		// www.wandit.dev. CORS_ORIGIN stays canonical; extras add web aliases.
 		origin: [
@@ -101,6 +102,17 @@ async function bootstrap() {
 			"x-captcha-response",
 		],
 		maxAge: 86400,
+	};
+	// Published pages may live on any merchant origin. Fastify's delegator sees
+	// both the POST and its OPTIONS preflight; every other URL receives the
+	// application/admin policy above unchanged.
+	app.enableCors({
+		delegator(request, callback) {
+			callback(
+				null,
+				publicLeadCaptureCorsOptions(request.url) ?? applicationCorsOptions,
+			);
+		},
 	});
 	// Global validation for DTO classes. Some routes also use ZodValidationPipe.
 	app.useGlobalPipes(

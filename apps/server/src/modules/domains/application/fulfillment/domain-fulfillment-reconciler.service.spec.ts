@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	DOMAIN_FULFILLMENT_RECONCILIATION_BATCH_SIZE,
 	DOMAIN_FULFILLMENT_RECONCILIATION_STALE_MS,
+	type DomainConfigurationReconciliationCandidate,
 	type DomainFulfillmentReconcilerDependencies,
 	DomainFulfillmentReconcilerService,
 	type DomainFulfillmentReconciliationCandidate,
@@ -26,7 +27,26 @@ function candidate(
 	};
 }
 
-function setup(candidates: DomainFulfillmentReconciliationCandidate[]) {
+function configurationCandidate(
+	overrides: Partial<DomainConfigurationReconciliationCandidate> = {},
+): DomainConfigurationReconciliationCandidate {
+	return {
+		domainId: "77777777-7777-4777-8777-777777777777",
+		nonce: "manual:persisted-nonce",
+		updatedAt: STALE,
+		...overrides,
+	};
+}
+
+function setup(
+	candidates: DomainFulfillmentReconciliationCandidate[],
+	configurationCandidates: DomainConfigurationReconciliationCandidate[] = [],
+) {
+	const findStaleConfigurationCandidates = vi
+		.fn<
+			DomainFulfillmentReconcilerDependencies["findStaleConfigurationCandidates"]
+		>()
+		.mockResolvedValue(configurationCandidates);
 	const findStalePurchaseCandidates = vi
 		.fn<
 			DomainFulfillmentReconcilerDependencies["findStalePurchaseCandidates"]
@@ -35,16 +55,27 @@ function setup(candidates: DomainFulfillmentReconciliationCandidate[]) {
 	const now = vi
 		.fn<DomainFulfillmentReconcilerDependencies["now"]>()
 		.mockReturnValue(NOW);
+	const recoverConfiguration = vi
+		.fn<DomainFulfillmentReconcilerDependencies["recoverConfiguration"]>()
+		.mockResolvedValue({ id: "run_configuration" });
 	const recoverPurchase = vi
 		.fn<DomainFulfillmentReconcilerDependencies["recoverPurchase"]>()
 		.mockResolvedValue({ id: "run_1" });
 	const service = new DomainFulfillmentReconcilerService({
+		findStaleConfigurationCandidates,
 		findStalePurchaseCandidates,
 		now,
+		recoverConfiguration,
 		recoverPurchase,
 	});
 
-	return { findStalePurchaseCandidates, recoverPurchase, service };
+	return {
+		findStaleConfigurationCandidates,
+		findStalePurchaseCandidates,
+		recoverConfiguration,
+		recoverPurchase,
+		service,
+	};
 }
 
 describe("DomainFulfillmentReconcilerService", () => {
@@ -62,11 +93,12 @@ describe("DomainFulfillmentReconcilerService", () => {
 			orderId: "66666666-6666-4666-8666-666666666666",
 			orderStatus: "fulfilling",
 		});
-		const { findStalePurchaseCandidates, recoverPurchase, service } = setup([
-			registering,
-			configuring,
-			activeNeedsHealing,
-		]);
+		const {
+			findStaleConfigurationCandidates,
+			findStalePurchaseCandidates,
+			recoverPurchase,
+			service,
+		} = setup([registering, configuring, activeNeedsHealing]);
 
 		await expect(service.execute()).resolves.toEqual({
 			ensured: 3,
@@ -75,6 +107,10 @@ describe("DomainFulfillmentReconcilerService", () => {
 			skipped: 0,
 		});
 		expect(findStalePurchaseCandidates).toHaveBeenCalledWith({
+			limit: DOMAIN_FULFILLMENT_RECONCILIATION_BATCH_SIZE,
+			staleBefore: STALE,
+		});
+		expect(findStaleConfigurationCandidates).toHaveBeenCalledWith({
 			limit: DOMAIN_FULFILLMENT_RECONCILIATION_BATCH_SIZE,
 			staleBefore: STALE,
 		});
@@ -90,6 +126,48 @@ describe("DomainFulfillmentReconcilerService", () => {
 			domainId: activeNeedsHealing.domainId,
 			orderId: activeNeedsHealing.orderId,
 		});
+	});
+
+	it("recovers stale configurations with their selected nonce", async () => {
+		const persisted = configurationCandidate();
+		const preCursor = configurationCandidate({
+			domainId: "88888888-8888-4888-8888-888888888888",
+			nonce: String(STALE.getTime()),
+		});
+		const { recoverConfiguration, service } = setup([], [persisted, preCursor]);
+
+		await expect(service.execute()).resolves.toEqual({
+			ensured: 2,
+			processed: true,
+			scanned: 2,
+			skipped: 0,
+		});
+		expect(recoverConfiguration).toHaveBeenNthCalledWith(1, {
+			domainId: persisted.domainId,
+			nonce: persisted.nonce,
+		});
+		expect(recoverConfiguration).toHaveBeenNthCalledWith(2, {
+			domainId: preCursor.domainId,
+			nonce: preCursor.nonce,
+		});
+	});
+
+	it("defensively skips fresh or malformed configuration candidates", async () => {
+		const { recoverConfiguration, service } = setup(
+			[],
+			[
+				configurationCandidate({ updatedAt: new Date(STALE.getTime() + 1) }),
+				configurationCandidate({ nonce: "" }),
+			],
+		);
+
+		await expect(service.execute()).resolves.toEqual({
+			ensured: 0,
+			processed: true,
+			scanned: 2,
+			skipped: 2,
+		});
+		expect(recoverConfiguration).not.toHaveBeenCalled();
 	});
 
 	it("defensively skips fresh, terminal, and already-healed DB-shaped rows", async () => {
