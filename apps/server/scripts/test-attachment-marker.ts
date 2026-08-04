@@ -10,6 +10,7 @@ import { annotateUserFileParts } from "../src/modules/ai-chat/agent/annotate-fil
 import type { WanditUIMessage } from "../src/modules/ai-chat/agent/chat-agent";
 import { aiChatToolsForValidation } from "../src/modules/ai-chat/agent/chat-agent";
 import { WANDIT_SYSTEM_PROMPT } from "../src/modules/ai-chat/agent/system-prompt";
+import { withGatewayAttribution } from "../src/modules/metering/domain/gateway-metering";
 
 const IMAGE_URL =
 	"https://pub-c02c83400014443282b2beb4b919831d.r2.dev/images/media-tests/harness-text-1784978616424/img-1.png";
@@ -41,6 +42,13 @@ for (const [label, messages] of cases) {
 	const result = await generateText({
 		messages: await convertToModelMessages(messages),
 		model: env.AI_CHAT_MODEL,
+		providerOptions: withGatewayAttribution(
+			{},
+			{
+				operation: "chat",
+				userId: "diagnostic:test-attachment-marker",
+			},
+		),
 		system: WANDIT_SYSTEM_PROMPT,
 		tools: aiChatToolsForValidation,
 	});

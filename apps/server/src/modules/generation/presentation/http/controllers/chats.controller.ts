@@ -18,6 +18,7 @@ import {
 	Query,
 	Req,
 	Res,
+	UseGuards,
 } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
@@ -34,7 +35,13 @@ import { z } from "zod";
 
 import { SkipResponseEnvelope } from "../../../../../infrastructure/http/skip-envelope.decorator";
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
-import { CurrentUser } from "../../../../auth";
+import { CurrentUser, EarlyAccessGuard } from "../../../../auth";
+import { projectScopeFrom } from "../../../../projects/domain/project-scope";
+import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
+import {
+	CurrentWorkspace,
+	PersonalWorkspaceOnly,
+} from "../../../../workspaces/presentation/http/decorators/workspace.decorators";
 import { ChatService } from "../../../application/services/chat.service";
 import { ChatStreamRelayService } from "../../../application/services/chat-stream-relay.service";
 
@@ -60,8 +67,12 @@ export class ChatsController {
 		projectId: string,
 		// `@CurrentUser()` reads the logged-in user from the request.
 		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
 	): Promise<ChatByProjectResponse> {
-		return this.chatService.getByProject(user.id, projectId);
+		return this.chatService.getByProject(
+			projectScopeFrom(workspace, user.id),
+			projectId,
+		);
 	}
 
 	// Load saved messages and current busy state.
@@ -70,11 +81,18 @@ export class ChatsController {
 		@Param("chatId", new ZodValidationPipe(uuidSchema))
 		chatId: string,
 		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
 	): Promise<ChatMessagesResponse> {
-		return this.chatService.listMessages(user.id, chatId);
+		return this.chatService.listMessages(
+			projectScopeFrom(workspace, user.id),
+			chatId,
+		);
 	}
 
 	// Save the user's prompt and enqueue generation. The answer streams later.
+	// Legacy BullMQ path: personal workspaces only (teams-workspaces.md §0).
+	@PersonalWorkspaceOnly()
+	@UseGuards(EarlyAccessGuard)
 	@Post(":chatId/messages")
 	sendMessage(
 		@Param("chatId", new ZodValidationPipe(uuidSchema))
@@ -88,6 +106,8 @@ export class ChatsController {
 	}
 
 	// Open the SSE stream used for live assistant text.
+	// Legacy relay path: personal workspaces only (teams-workspaces.md §0).
+	@PersonalWorkspaceOnly()
 	@Get(":chatId/stream")
 	// Do not wrap this response as JSON; SSE must be raw text.
 	@SkipResponseEnvelope()

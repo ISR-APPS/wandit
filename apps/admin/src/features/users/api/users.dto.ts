@@ -2,9 +2,11 @@
 // re-exports (plus thin aliases) are the only user types feature code should
 // import — the contract in @wandit/contracts is the source of truth.
 import type {
+	AdminBetaEnrollInput,
 	AdminCreditLedgerEntry,
 	AdminGrantCreditsInput,
 	AdminListUsersResponse,
+	AdminSetAccessInput,
 	AdminSetBannedInput,
 	AdminSetRoleInput,
 	AdminUserDetail,
@@ -14,12 +16,16 @@ import type {
 	AdminUserSubscription,
 	AdminUserSummary,
 	adminListUsersSorts,
+	CreditBalanceResponse,
+	CreditBucket,
 } from "@wandit/contracts";
 
 export type {
+	AdminBetaEnrollInput,
 	AdminCreditLedgerEntry,
 	AdminGrantCreditsInput,
 	AdminListUsersResponse,
+	AdminSetAccessInput,
 	AdminSetBannedInput,
 	AdminSetRoleInput,
 	AdminUserDetail,
@@ -28,6 +34,8 @@ export type {
 	AdminUserRole,
 	AdminUserSubscription,
 	AdminUserSummary,
+	CreditBalanceResponse,
+	CreditBucket,
 };
 
 export type AdminListUsersSort = (typeof adminListUsersSorts)[number];
@@ -53,7 +61,15 @@ export type GrantUserCreditsInput = AdminGrantCreditsInput & {
 	userId: string;
 };
 
+export type BetaEnrollUserInput = AdminBetaEnrollInput & {
+	userId: string;
+};
+
 export type ChangeUserRoleInput = AdminSetRoleInput & {
+	userId: string;
+};
+
+export type SetUserAccessInput = AdminSetAccessInput & {
 	userId: string;
 };
 

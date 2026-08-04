@@ -1,22 +1,20 @@
-import {
-	ENTITLED_SUBSCRIPTION_STATUSES,
-	mediaGenerationReservationKey,
-} from "@wandit/contracts";
 import { and, asc, type createDb, eq, lt, sql } from "@wandit/db";
-import { creditLedger } from "@wandit/db/schema/credits";
+import { aiUsageEvents } from "@wandit/db/schema/credits";
 import { mediaGenerationAttempts } from "@wandit/db/schema/media-generation-attempts";
 import { projects } from "@wandit/db/schema/projects";
 import { env } from "@wandit/env/server";
 
+import {
+	type AnalyticsCapture,
+	captureGenerationCompleted,
+	captureGenerationFailed,
+} from "../infrastructure/analytics/generation-events";
 import {
 	getObjectContentType,
 	publicAssetUrl,
 	siteVideoKey,
 } from "../infrastructure/storage/r2";
 import { generateBuildVideo } from "../modules/ai-chat/agent/site-builder/generate-video";
-import { SubscriptionsRepository } from "../modules/billing/infrastructure/persistence/subscriptions.repository";
-import { CreditsService } from "../modules/credits/application/services/credits.service";
-import { CreditsRepository } from "../modules/credits/infrastructure/persistence/credits.repository";
 import {
 	createImageAnimationBilling,
 	type ImageAnimationBilling,
@@ -31,6 +29,7 @@ import type {
 	ImageAnimationRunnerDependencies,
 	ImageAnimationVideo,
 } from "../modules/media-generations/application/services/image-animation-runner";
+import { createTriggerMetering } from "./metering.runtime";
 
 type TriggerDatabase = ReturnType<typeof createDb>;
 
@@ -40,6 +39,7 @@ const ATTEMPT_COLUMNS = {
 	error: mediaGenerationAttempts.error,
 	id: mediaGenerationAttempts.id,
 	motion: mediaGenerationAttempts.motion,
+	organizationId: projects.organizationId,
 	projectDeletedAt: projects.deletedAt,
 	projectId: mediaGenerationAttempts.projectId,
 	prompt: mediaGenerationAttempts.prompt,
@@ -64,9 +64,10 @@ export type ImageAnimationRuntime = {
  */
 export function createImageAnimationRuntime(
 	db: TriggerDatabase,
+	analytics: AnalyticsCapture,
 ): ImageAnimationRuntime {
 	const billing = createBilling(db);
-	const persistence = createPersistence(db);
+	const persistence = createPersistence(db, analytics);
 	const recoverStoredVideo = createStoredVideoRecovery();
 
 	return {
@@ -77,19 +78,29 @@ export function createImageAnimationRuntime(
 			now: () => new Date(),
 			recoverStoredVideo,
 			refund: billing.refund,
+			settleExisting: billing.settleExisting,
 		},
 		runner: {
+			capture: billing.capture,
 			claimQueued: persistence.claimQueued,
 			fail: persistence.failFromStatus,
-			generate: (attempt, signal) =>
+			generate: (attempt, subject, signal, onProviderGeneration) =>
 				generateBuildVideo({
 					abortSignal: signal,
 					aspect: attempt.aspect,
 					attemptId: attempt.id,
 					imageUrl: attempt.sourceImageUrl,
 					index: 1,
+					// Metering identity comes from the queue-time subject: the acting
+					// member (not the project creator) with the paying entity.
+					metering: {
+						operation: "video",
+						organizationId: subject.organizationId ?? null,
+						userId: subject.actorUserId,
+					},
 					motion: attempt.motion,
 					motionPrompt: attempt.prompt,
+					...(onProviderGeneration ? { onProviderGeneration } : {}),
 					profile: "image-animation",
 					projectId: attempt.projectId,
 				}),
@@ -99,35 +110,20 @@ export function createImageAnimationRuntime(
 			recoverStoredVideo,
 			refund: billing.refund,
 			reserve: billing.reserve,
+			settle: billing.settle,
+			settleExisting: billing.settleExisting,
 		},
 	};
 }
 
 function createBilling(db: TriggerDatabase): ImageAnimationBilling {
-	const creditsService = new CreditsService(new CreditsRepository(db));
-	const subscriptionsRepository = new SubscriptionsRepository(db);
-
 	return createImageAnimationBilling({
-		consumeCredits: (userId, amount, options) =>
-			creditsService.consume(userId, amount, options),
-		hasActiveSubscription: async (userId) => {
-			const subscription =
-				await subscriptionsRepository.findActiveByUserId(userId);
-
-			return (
-				subscription !== null &&
-				(ENTITLED_SUBSCRIPTION_STATUSES as readonly string[]).includes(
-					subscription.status,
-				)
-			);
-		},
 		isBillingDisabled: () => env.GENERATION_BILLING_MODE === "off",
-		refundCredits: (userId, consumeIdempotencyKey, meta) =>
-			creditsService.refundConsume(userId, consumeIdempotencyKey, meta),
+		meteringService: createTriggerMetering(db),
 	});
 }
 
-function createPersistence(db: TriggerDatabase) {
+function createPersistence(db: TriggerDatabase, analytics: AnalyticsCapture) {
 	const loadAttempt = async (
 		attemptId: string,
 	): Promise<ImageAnimationAttempt | null> => {
@@ -195,6 +191,16 @@ function createPersistence(db: TriggerDatabase) {
 			)
 			.returning({ id: mediaGenerationAttempts.id });
 
+		if (updated) {
+			captureGenerationCompleted(
+				analytics,
+				attempt.userId,
+				"animation",
+				attempt.projectId,
+				attempt.id,
+			);
+		}
+
 		return Boolean(updated);
 	};
 
@@ -204,6 +210,7 @@ function createPersistence(db: TriggerDatabase) {
 			completedAt: Date;
 			error: string;
 			expectedStatus: "queued" | "generating";
+			reason: string;
 		},
 	): Promise<boolean> => {
 		const [updated] = await db
@@ -221,6 +228,17 @@ function createPersistence(db: TriggerDatabase) {
 				),
 			)
 			.returning({ id: mediaGenerationAttempts.id });
+
+		if (updated) {
+			captureGenerationFailed(
+				analytics,
+				attempt.userId,
+				"animation",
+				attempt.projectId,
+				attempt.id,
+				input.reason,
+			);
+		}
 
 		return Boolean(updated);
 	};
@@ -317,21 +335,20 @@ function createPersistence(db: TriggerDatabase) {
  * terminal rows forever while still recovering refunds missed by crashes.
  */
 function missingImageAnimationRefund() {
-	const baseKey = sql`(${mediaGenerationReservationKey("")} || ${mediaGenerationAttempts.id}::text)`;
-
+	// Payer-aware: org attempts match the org pool's event (the reserving
+	// member may differ from the project creator); personal attempts keep the
+	// strict user match.
 	return sql<boolean>`exists (
 		select 1
-		from ${creditLedger} as consumed
-		where consumed.user_id = ${projects.userId}
-			and consumed.idempotency_key in (
-				${baseKey} || ':plan',
-				${baseKey} || ':topup'
-			)
-			and not exists (
-				select 1
-				from ${creditLedger} as refunded
-				where refunded.user_id = consumed.user_id
-					and refunded.idempotency_key = ('refund:' || consumed.idempotency_key)
+		from ${aiUsageEvents} as usage_event
+		where usage_event.idempotency_key = ('video:' || ${mediaGenerationAttempts.id}::text)
+			and usage_event.status = 'reserved'
+			and (
+				(${projects.organizationId} is not null
+					and usage_event.organization_id = ${projects.organizationId})
+				or (${projects.organizationId} is null
+					and usage_event.organization_id is null
+					and usage_event.user_id = ${projects.userId})
 			)
 	)`;
 }

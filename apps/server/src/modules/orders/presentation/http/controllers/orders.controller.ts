@@ -19,11 +19,17 @@ import {
 } from "@wandit/contracts";
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
-import { CurrentUser } from "../../../../auth";
+import { CurrentUser, EarlyAccessGuard } from "../../../../auth";
 import {
 	DomainRateLimit,
 	DomainRateLimitGuard,
 } from "../../../../domains/presentation/http/guards/rate-limit.guard";
+import { projectScopeFrom } from "../../../../projects/domain/project-scope";
+import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
+import {
+	CurrentWorkspace,
+	RequireWorkspacePermission,
+} from "../../../../workspaces/presentation/http/decorators/workspace.decorators";
 import { OrdersService } from "../../../application/services/orders.service";
 
 @Controller("v1/orders")
@@ -35,17 +41,26 @@ export class OrdersController {
 
 	// Each call creates a Stripe customer + checkout session and a registrar
 	// availability request, so it gets the same budget as domain purchase had.
-	@UseGuards(DomainRateLimitGuard)
+	// Buy-with-attach on an org project requires domain:manage (the guard is
+	// a no-op in personal scope); the charge itself stays the buyer's money.
+	@UseGuards(EarlyAccessGuard, DomainRateLimitGuard)
 	@DomainRateLimit({ limit: 5, windowMs: 60_000 })
+	@RequireWorkspacePermission("domain", "manage")
 	@Post("domain")
 	createDomain(
 		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
 		@Body(new ZodValidationPipe(createDomainOrderBodySchema))
 		body: CreateDomainOrderBody,
 	): Promise<CreateOrderResponse> {
-		return this.ordersService.createDomainOrder(user, body);
+		return this.ordersService.createDomainOrder(
+			user,
+			body,
+			projectScopeFrom(workspace, user.id),
+		);
 	}
 
+	@UseGuards(EarlyAccessGuard)
 	@Post("reconcile-session")
 	reconcileSession(
 		@CurrentUser() user: AuthUser,

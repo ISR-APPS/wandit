@@ -1,8 +1,180 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { buildLeadsRuntimeScript } from "./leads-runtime-script";
 
 const CAPTURE_URL = "https://api.wandit.example/api/public/leads/pf_123";
+const MAX_PAYLOAD_BYTES = 12 * 1024;
+
+type RuntimeEvent = {
+	detail?: unknown;
+	target?: unknown;
+	type?: string;
+};
+
+type RuntimeHandler = (event: RuntimeEvent) => void;
+
+type RuntimeFetchInit = {
+	body: string;
+	credentials: string;
+	headers: Record<string, string>;
+	keepalive: boolean;
+	method: string;
+	mode: string;
+};
+
+type RuntimeResponse = {
+	headers: { get: (name: string) => null | string };
+	status: number;
+};
+
+type RuntimeFetch = (
+	url: string,
+	init: RuntimeFetchInit,
+) => Promise<RuntimeResponse>;
+
+function response(status: number, retryAfter?: string): RuntimeResponse {
+	return {
+		headers: {
+			get: (name) =>
+				name.toLowerCase() === "retry-after" ? (retryAfter ?? null) : null,
+		},
+		status,
+	};
+}
+
+function deferred<T>() {
+	let resolve!: (value: T) => void;
+	let reject!: (reason?: unknown) => void;
+	const promise = new Promise<T>((promiseResolve, promiseReject) => {
+		resolve = promiseResolve;
+		reject = promiseReject;
+	});
+
+	return { promise, reject, resolve };
+}
+
+async function flushMicrotasks(): Promise<void> {
+	for (let index = 0; index < 8; index += 1) {
+		await Promise.resolve();
+	}
+}
+
+function createRuntimeHarness(
+	options: {
+		fetch?: RuntimeFetch;
+		honeypot?: string;
+		href?: string;
+		referrer?: string;
+		search?: string;
+	} = {},
+) {
+	const script = buildLeadsRuntimeScript({ captureUrl: CAPTURE_URL });
+	const documentListeners = new Map<string, RuntimeHandler[]>();
+	const windowListeners = new Map<string, RuntimeHandler[]>();
+	const beacons: Array<{ body: string; url: string }> = [];
+	const results: Array<{ ok: boolean }> = [];
+	const fetchMock = vi.fn(
+		options.fetch ??
+			(async () => {
+				return response(200);
+			}),
+	);
+
+	function addListener(
+		listeners: Map<string, RuntimeHandler[]>,
+		type: string,
+		handler: RuntimeHandler,
+	) {
+		const handlers = listeners.get(type) ?? [];
+		handlers.push(handler);
+		listeners.set(type, handlers);
+	}
+
+	function emit(
+		listeners: Map<string, RuntimeHandler[]>,
+		type: string,
+		event: RuntimeEvent,
+	) {
+		for (const handler of listeners.get(type) ?? []) {
+			handler(event);
+		}
+	}
+
+	const documentStub = {
+		addEventListener: (type: string, handler: RuntimeHandler) => {
+			addListener(documentListeners, type, handler);
+		},
+		dispatchEvent: (event: RuntimeEvent) => {
+			if (event.type === "wandit:lead:result") {
+				results.push(event.detail as { ok: boolean });
+			}
+			if (event.type) emit(documentListeners, event.type, event);
+			return true;
+		},
+		querySelector: () =>
+			options.honeypot === undefined ? null : { value: options.honeypot },
+		referrer: options.referrer ?? "https://facebook.com/",
+	};
+	const navigatorStub = {
+		sendBeacon: (url: string, body: string) => {
+			beacons.push({ body, url });
+			return true;
+		},
+	};
+	const locationStub = {
+		href:
+			options.href ??
+			"https://shop.example/landing?utm_source=facebook&fbclid=abc",
+		search: options.search ?? "?utm_source=facebook&fbclid=abc",
+	};
+	const windowStub = {
+		addEventListener: (type: string, handler: RuntimeHandler) => {
+			addListener(windowListeners, type, handler);
+		},
+	};
+	class CustomEventStub {
+		detail: unknown;
+		type: string;
+
+		constructor(type: string, init: { detail: unknown }) {
+			this.detail = init.detail;
+			this.type = type;
+		}
+	}
+
+	new Function(
+		"document",
+		"navigator",
+		"location",
+		"window",
+		"fetch",
+		"CustomEvent",
+		script,
+	)(
+		documentStub,
+		navigatorStub,
+		locationStub,
+		windowStub,
+		fetchMock,
+		CustomEventStub,
+	);
+
+	return {
+		beacons,
+		emitLead: (detail: Record<string, unknown>) => {
+			emit(documentListeners, "wandit:lead", { detail });
+		},
+		fetchMock,
+		pagehide: () => {
+			emit(windowListeners, "pagehide", {});
+		},
+		results,
+	};
+}
+
+afterEach(() => {
+	vi.useRealTimers();
+});
 
 describe("buildLeadsRuntimeScript", () => {
 	const script = buildLeadsRuntimeScript({ captureUrl: CAPTURE_URL });
@@ -25,13 +197,18 @@ describe("buildLeadsRuntimeScript", () => {
 		expect(() => new Function(hostile)).not.toThrow();
 	});
 
-	it("wires the event path, heuristic fallback, honeypot, and transport", () => {
+	it("wires CORS fetch acknowledgement and pagehide-only beacon fallback", () => {
 		expect(script).toContain('document.addEventListener("wandit:lead"');
 		expect(script).toContain('document.addEventListener("submit"');
+		expect(script).toContain('window.addEventListener("pagehide"');
+		expect(script).toContain('new CustomEvent("wandit:lead:result"');
 		expect(script).toContain("[data-wandit-hp]");
 		expect(script).toContain("navigator.sendBeacon");
-		expect(script).toContain('mode: "no-cors"');
+		expect(script).toContain('mode: "cors"');
+		expect(script).toContain('credentials: "omit"');
+		expect(script).toContain('headers: { "Content-Type": "application/json" }');
 		expect(script).toContain("keepalive: true");
+		expect(script).not.toContain('mode: "no-cors"');
 	});
 
 	it("has no script-close, backtick, or interpolation breakage", () => {
@@ -44,61 +221,40 @@ describe("buildLeadsRuntimeScript", () => {
 		expect(() => new Function(script)).not.toThrow();
 	});
 
-	// vitest.config.ts pins environment: "node", so the one behavioral test
-	// runs the IIFE against minimal DOM stubs instead of jsdom.
-	it("sends a wandit:lead event via sendBeacon, splitting extras out and deduping repeats", () => {
-		type Handler = (event: { detail?: unknown }) => void;
-		const listeners = new Map<string, Handler>();
-		const beacons: Array<{ body: string; url: string }> = [];
-		const documentStub = {
-			addEventListener: (type: string, handler: Handler) => {
-				listeners.set(type, handler);
-			},
-			querySelector: () => null,
-			referrer: "https://facebook.com/",
-		};
-		const navigatorStub = {
-			sendBeacon: (url: string, body: string) => {
-				beacons.push({ body, url });
-				return true;
-			},
-		};
-		const locationStub = {
-			href: "https://shop.example/landing?utm_source=facebook&fbclid=abc",
-			search: "?utm_source=facebook&fbclid=abc",
-		};
-
-		new Function("document", "navigator", "location", script)(
-			documentStub,
-			navigatorStub,
-			locationStub,
-		);
-
-		const emit = listeners.get("wandit:lead");
-
-		expect(emit).toBeDefined();
-		expect(listeners.get("submit")).toBeDefined();
-
-		// Arabic-Indic phone digits: dedupe must fold them to ASCII.
-		emit?.({
-			detail: {
-				commune: "Bab El Oued",
-				name: "Amine",
-				phone: "٠٥٥٥١٢٣٤٥٦",
-				quantity: 2,
-				wilaya: "Alger",
-			},
+	it("waits for a 2xx acknowledgement before reporting success and deduping", async () => {
+		const pending = deferred<RuntimeResponse>();
+		const harness = createRuntimeHarness({
+			fetch: () => pending.promise,
 		});
 
-		expect(beacons).toHaveLength(1);
-		expect(beacons[0]?.url).toBe(CAPTURE_URL);
+		harness.emitLead({
+			commune: "Bab El Oued",
+			name: "Amine",
+			phone: "٠٥٥٥١٢٣٤٥٦",
+			quantity: 2,
+			wilaya: "Alger",
+		});
 
-		const body = JSON.parse(beacons[0]?.body ?? "{}");
+		expect(harness.fetchMock).toHaveBeenCalledTimes(1);
+		expect(harness.beacons).toHaveLength(0);
+		expect(harness.results).toEqual([]);
 
+		const [url, init] = harness.fetchMock.mock.calls[0] ?? [];
+		expect(url).toBe(CAPTURE_URL);
+		expect(init).toMatchObject({
+			credentials: "omit",
+			headers: { "Content-Type": "application/json" },
+			keepalive: true,
+			method: "POST",
+			mode: "cors",
+		});
+
+		const body = JSON.parse(init?.body ?? "{}");
 		expect(body).toMatchObject({
 			attribution: {
 				fbclid: "abc",
-				landing_url: locationStub.href,
+				landing_url:
+					"https://shop.example/landing?utm_source=facebook&fbclid=abc",
 				referrer: "https://facebook.com/",
 				utm_source: "facebook",
 			},
@@ -110,8 +266,128 @@ describe("buildLeadsRuntimeScript", () => {
 		});
 		expect(body._hp).toBeUndefined();
 
-		// Same phone (ASCII digits this time) inside the dedupe window: dropped.
-		emit?.({ detail: { name: "Amine", phone: "0555123456" } });
-		expect(beacons).toHaveLength(1);
+		pending.resolve(response(201));
+		await flushMicrotasks();
+		expect(harness.results).toEqual([{ ok: true }]);
+
+		// The acknowledged phone is deduped even when its digits use another script.
+		harness.emitLead({ name: "Amine", phone: "0555123456" });
+		await flushMicrotasks();
+		expect(harness.fetchMock).toHaveBeenCalledTimes(1);
+		expect(harness.results).toEqual([{ ok: true }, { ok: true }]);
+	});
+
+	it("retries 429 and 5xx responses with bounded backoff", async () => {
+		vi.useFakeTimers();
+		const replies = [response(429, "120"), response(503), response(204)];
+		const harness = createRuntimeHarness({
+			fetch: async () => replies.shift() ?? response(500),
+		});
+
+		harness.emitLead({ name: "Nadia", phone: "0555000001" });
+		await flushMicrotasks();
+		expect(harness.fetchMock).toHaveBeenCalledTimes(1);
+
+		// A large Retry-After value is honored, but capped at two seconds.
+		await vi.advanceTimersByTimeAsync(1_999);
+		expect(harness.fetchMock).toHaveBeenCalledTimes(1);
+		await vi.advanceTimersByTimeAsync(1);
+		expect(harness.fetchMock).toHaveBeenCalledTimes(2);
+
+		await vi.advanceTimersByTimeAsync(749);
+		expect(harness.fetchMock).toHaveBeenCalledTimes(2);
+		await vi.advanceTimersByTimeAsync(1);
+		await flushMicrotasks();
+		expect(harness.fetchMock).toHaveBeenCalledTimes(3);
+		expect(harness.results).toEqual([{ ok: true }]);
+	});
+
+	it("bounds network retries, reports failure, and permits a later retry", async () => {
+		vi.useFakeTimers();
+		const harness = createRuntimeHarness({
+			fetch: async () => {
+				throw new Error("offline");
+			},
+		});
+
+		harness.emitLead({ name: "Lina", phone: "0555000002" });
+		await vi.runAllTimersAsync();
+		expect(harness.fetchMock).toHaveBeenCalledTimes(3);
+		expect(harness.results).toEqual([{ ok: false }]);
+
+		// A failed transport did not write sentAt, so the same lead can try again.
+		harness.emitLead({ name: "Lina", phone: "0555000002" });
+		await vi.runAllTimersAsync();
+		expect(harness.fetchMock).toHaveBeenCalledTimes(6);
+		expect(harness.results).toEqual([{ ok: false }, { ok: false }]);
+
+		// Exhausted fetches remain eligible for the last-resort lifecycle beacon.
+		harness.pagehide();
+		expect(harness.beacons).toHaveLength(1);
+	});
+
+	it("uses sendBeacon only for an unacknowledged payload on pagehide", async () => {
+		const pending = deferred<RuntimeResponse>();
+		const harness = createRuntimeHarness({
+			fetch: () => pending.promise,
+		});
+
+		harness.emitLead({ name: "Sofiane", phone: "0555000003" });
+		expect(harness.beacons).toHaveLength(0);
+
+		harness.pagehide();
+		expect(harness.beacons).toHaveLength(1);
+		expect(harness.beacons[0]?.url).toBe(CAPTURE_URL);
+		expect(JSON.parse(harness.beacons[0]?.body ?? "{}")).toMatchObject({
+			name: "Sofiane",
+			phone: "0555000003",
+		});
+
+		// Repeated lifecycle events do not queue the same payload twice.
+		harness.pagehide();
+		expect(harness.beacons).toHaveLength(1);
+
+		pending.resolve(response(202));
+		await flushMicrotasks();
+		harness.pagehide();
+		expect(harness.beacons).toHaveLength(1);
+		expect(harness.results).toEqual([{ ok: true }]);
+	});
+
+	it("keeps UTF-8 payloads below 12 KiB while preserving canonical fields", () => {
+		const largeValue = '"😀\\n'.repeat(400);
+		const search = new URLSearchParams({
+			fbclid: largeValue,
+			ttclid: largeValue,
+			utm_campaign: largeValue,
+			utm_content: largeValue,
+			utm_medium: largeValue,
+			utm_source: largeValue,
+			utm_term: largeValue,
+		}).toString();
+		const harness = createRuntimeHarness({
+			href: `https://shop.example/landing?${search}`,
+			referrer: `https://referrer.example/${largeValue}`,
+			search: `?${search}`,
+		});
+		const detail: Record<string, unknown> = {
+			commune: largeValue,
+			name: largeValue,
+			phone: "0555000004",
+			wilaya: largeValue,
+		};
+		for (let index = 0; index < 25; index += 1) {
+			detail[`extra-${index}-${"ض".repeat(80)}`] = largeValue;
+		}
+
+		harness.emitLead(detail);
+
+		const payload = harness.fetchMock.mock.calls[0]?.[1]?.body ?? "";
+		const body = JSON.parse(payload);
+		expect(new TextEncoder().encode(payload).byteLength).toBeLessThanOrEqual(
+			MAX_PAYLOAD_BYTES,
+		);
+		expect(body.phone).toBe("0555000004");
+		expect(body.name).toBe(largeValue.trim().slice(0, 200));
 	});
 });

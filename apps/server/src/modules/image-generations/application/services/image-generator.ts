@@ -18,6 +18,13 @@ import {
 	publicAssetUrl,
 	putSiteFile,
 } from "../../../../infrastructure/storage/r2";
+import {
+	type GatewayGenerationFailure,
+	type GatewayGenerationMetadata,
+	type GatewayMeteringContext,
+	gatewayGenerationCaptureFromError,
+	withGatewayAttribution,
+} from "../../../metering/domain/gateway-metering";
 
 // gpt-image-class models accept exact canvases, not free aspect ratios —
 // every contract aspect maps onto the nearest supported canvas.
@@ -49,8 +56,12 @@ export const SOURCE_FIDELITY_INSTRUCTION =
 	"everything else according to this direction: ";
 
 export type EditImageResult =
-	| { message: string; status: "failed" }
-	| { mediaType: string; status: "generated"; uint8Array: Uint8Array };
+	| GatewayGenerationFailure
+	| ({
+			mediaType: string;
+			status: "generated";
+			uint8Array: Uint8Array;
+	  } & GatewayGenerationMetadata);
 
 /**
  * Low-level edit call, shared with the site builder's in-build image tool.
@@ -59,6 +70,7 @@ export type EditImageResult =
 export async function editImageFromSources(params: {
 	abortSignal?: AbortSignal;
 	aspect: string;
+	metering: GatewayMeteringContext<"image">;
 	prompt: string;
 	sourceImageUrls: readonly string[];
 }): Promise<EditImageResult> {
@@ -68,6 +80,8 @@ export async function editImageFromSources(params: {
 			status: "failed",
 		};
 	}
+
+	let providerEvidence: GatewayGenerationMetadata | null = null;
 
 	try {
 		const result = await generateText({
@@ -95,10 +109,16 @@ export async function editImageFromSources(params: {
 			model: env.AI_IMAGE_EDIT_MODEL,
 			// Best-effort aspect steering for Gemini image models; unknown
 			// provider options are forwarded and ignored by other providers.
-			providerOptions: {
-				google: { imageConfig: { aspectRatio: params.aspect } },
-			},
+			providerOptions: withGatewayAttribution(
+				{ google: { imageConfig: { aspectRatio: params.aspect } } },
+				params.metering,
+			),
 		});
+		providerEvidence = {
+			model: env.AI_IMAGE_EDIT_MODEL,
+			providerMetadata: result.providerMetadata,
+			usage: result.usage,
+		};
 
 		const file = result.files.find((candidate) =>
 			candidate.mediaType.startsWith("image/"),
@@ -106,19 +126,36 @@ export async function editImageFromSources(params: {
 
 		if (!file) {
 			return {
+				...providerEvidence,
 				message: "the edit model returned no image",
+				providerUnits: 0,
 				status: "failed",
 			};
 		}
 
 		return {
 			mediaType: file.mediaType,
+			model: env.AI_IMAGE_EDIT_MODEL,
+			providerMetadata: result.providerMetadata,
 			status: "generated",
 			uint8Array: file.uint8Array,
+			usage: result.usage,
 		};
 	} catch (error) {
+		const errorCapture = gatewayGenerationCaptureFromError(error);
+		const evidence =
+			providerEvidence ??
+			(errorCapture
+				? {
+						model: env.AI_IMAGE_EDIT_MODEL,
+						providerMetadata: errorCapture.providerMetadata,
+					}
+				: null);
+
 		return {
+			...(evidence ?? {}),
 			message: error instanceof Error ? error.message : String(error),
+			...(evidence ? { providerUnits: 0 } : {}),
 			status: "failed",
 		};
 	}
@@ -144,21 +181,30 @@ export async function generateImageFromPrompt(params: {
 	abortSignal?: AbortSignal;
 	/** Free aspect ratio for language image models (e.g. "2:3"). */
 	aspect: string;
+	metering: GatewayMeteringContext<"image">;
 	model: string;
 	prompt: string;
 	/** Exact canvas for gpt-image-class models (e.g. "1024x1536"). */
 	size: "1024x1024" | "1024x1536" | "1536x1024";
 }): Promise<EditImageResult> {
+	let providerEvidence: GatewayGenerationMetadata | null = null;
+
 	try {
 		if (isLanguageImageModel(params.model)) {
 			const result = await generateText({
 				...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
 				model: params.model,
 				prompt: params.prompt,
-				providerOptions: {
-					google: { imageConfig: { aspectRatio: params.aspect } },
-				},
+				providerOptions: withGatewayAttribution(
+					{ google: { imageConfig: { aspectRatio: params.aspect } } },
+					params.metering,
+				),
 			});
+			providerEvidence = {
+				model: params.model,
+				providerMetadata: result.providerMetadata,
+				usage: result.usage,
+			};
 
 			const file = result.files.find((candidate) =>
 				candidate.mediaType.startsWith("image/"),
@@ -166,41 +212,72 @@ export async function generateImageFromPrompt(params: {
 
 			if (!file) {
 				return {
+					...providerEvidence,
 					message: "the image model returned no image",
+					providerUnits: 0,
 					status: "failed",
 				};
 			}
 
 			return {
 				mediaType: file.mediaType,
+				model: params.model,
+				providerMetadata: result.providerMetadata,
 				status: "generated",
 				uint8Array: file.uint8Array,
+				usage: result.usage,
 			};
 		}
 
-		const { image } = await generateImage({
+		const result = await generateImage({
 			...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
 			model: params.model,
 			prompt: params.prompt,
+			providerOptions: withGatewayAttribution({}, params.metering),
 			size: params.size,
 		});
+		providerEvidence = {
+			model: params.model,
+			providerMetadata: result.providerMetadata,
+			usage: result.usage,
+		};
 
 		return {
-			mediaType: image.mediaType,
+			mediaType: result.image.mediaType,
+			model: params.model,
+			providerMetadata: result.providerMetadata,
 			status: "generated",
-			uint8Array: image.uint8Array,
+			uint8Array: result.image.uint8Array,
+			usage: result.usage,
 		};
 	} catch (error) {
+		const errorCapture = gatewayGenerationCaptureFromError(error);
+		const evidence =
+			providerEvidence ??
+			(errorCapture
+				? {
+						model: params.model,
+						providerMetadata: errorCapture.providerMetadata,
+					}
+				: null);
+
 		return {
+			...(evidence ?? {}),
 			message: error instanceof Error ? error.message : String(error),
+			...(evidence ? { providerUnits: 0 } : {}),
 			status: "failed",
 		};
 	}
 }
 
 export type GeneratedStandaloneImage =
-	| { message: string; status: "failed" | "unavailable" }
-	| { mediaType: string; status: "generated"; url: string };
+	| GatewayGenerationFailure
+	| { message: string; status: "unavailable" }
+	| ({
+			mediaType: string;
+			status: "generated";
+			url: string;
+	  } & GatewayGenerationMetadata);
 
 /**
  * Execute ONE image of a standalone attempt: generate (or edit), upload to
@@ -213,6 +290,11 @@ export async function generateStandaloneImage(params: {
 	attemptId: string;
 	/** 1-based position in the attempt, used for the R2 object name. */
 	index: number;
+	metering: GatewayMeteringContext<"image">;
+	/** Persist Gateway evidence before bytes become recoverable in R2. */
+	onProviderGeneration?: (
+		generation: GatewayGenerationMetadata,
+	) => Promise<void>;
 	projectId: string;
 	prompt: string;
 	sourceImageUrls: readonly string[];
@@ -224,6 +306,8 @@ export async function generateStandaloneImage(params: {
 		};
 	}
 
+	let metadata: GatewayGenerationMetadata | null = null;
+
 	try {
 		let mediaType: string;
 		let bytes: Uint8Array;
@@ -232,27 +316,32 @@ export async function generateStandaloneImage(params: {
 			const edited = await editImageFromSources(params);
 
 			if (edited.status !== "generated") {
-				return { message: edited.message, status: "failed" };
+				return edited;
 			}
 
 			mediaType = edited.mediaType;
 			bytes = edited.uint8Array;
+			metadata = edited;
 		} else {
 			const generated = await generateImageFromPrompt({
 				...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
 				aspect: params.aspect,
+				metering: params.metering,
 				model: env.AI_IMAGE_MODEL,
 				prompt: params.prompt,
 				size: STANDALONE_SIZE_BY_ASPECT[params.aspect],
 			});
 
 			if (generated.status !== "generated") {
-				return { message: generated.message, status: "failed" };
+				return generated;
 			}
 
 			mediaType = generated.mediaType;
 			bytes = generated.uint8Array;
+			metadata = generated;
 		}
+
+		await params.onProviderGeneration?.(metadata);
 
 		const extension = EXTENSION_BY_MEDIA_TYPE[mediaType] ?? "png";
 		const key = imageGenerationKey(
@@ -266,12 +355,18 @@ export async function generateStandaloneImage(params: {
 
 		return {
 			mediaType,
+			model: metadata.model,
+			...(metadata.provider ? { provider: metadata.provider } : {}),
+			providerMetadata: metadata.providerMetadata,
 			status: "generated",
 			url: publicAssetUrl(key),
+			...(metadata.usage === undefined ? {} : { usage: metadata.usage }),
 		};
 	} catch (error) {
 		return {
+			...(metadata ?? {}),
 			message: error instanceof Error ? error.message : String(error),
+			...(metadata ? { providerUnits: 1 } : {}),
 			status: "failed",
 		};
 	}

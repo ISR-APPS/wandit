@@ -1,8 +1,10 @@
 import { useNavigate, useSearch } from "@tanstack/react-router";
+import { isAdminRole } from "@wandit/contracts";
 import { Loader2Icon, ShieldAlertIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { LoginVisualPanel } from "@/features/auth/components/login-visual-panel";
 import { authClient } from "@/features/auth/lib/auth-client";
 import { getSession, signOut } from "@/features/auth/lib/session";
 
@@ -17,7 +19,7 @@ export function LoginPage() {
 		let cancelled = false;
 
 		void getSession().then((session) => {
-			if (!cancelled && session?.user.role === "admin") {
+			if (!cancelled && isAdminRole(session?.user.role)) {
 				void navigate({ to: "/dashboard" });
 			}
 		});
@@ -74,14 +76,8 @@ export function LoginPage() {
 			: localError;
 
 	return (
-		<main className="flex pb-8 lg:h-screen lg:pb-0">
-			<div className="hidden w-1/2 bg-gray-100 lg:block">
-				<img
-					src="/images/extra/image4.jpg"
-					alt="Wandit administrator login"
-					className="h-full w-full object-cover"
-				/>
-			</div>
+		<main className="flex min-h-[100dvh] pb-8 lg:pb-0">
+			<LoginVisualPanel />
 
 			<div className="flex w-full items-center justify-center lg:w-1/2">
 				<div className="w-full max-w-md space-y-8 px-4">

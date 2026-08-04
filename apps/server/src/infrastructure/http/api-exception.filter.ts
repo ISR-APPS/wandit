@@ -6,6 +6,11 @@ import {
 	HttpStatus,
 	Logger,
 } from "@nestjs/common";
+import {
+	type PaymentRequiredDetails,
+	paymentRequiredDetailsSchema,
+} from "@wandit/contracts";
+import { Sentry } from "@wandit/observability/nestjs";
 import type { FastifyReply, FastifyRequest } from "fastify";
 
 import type { ZodValidationIssue } from "./zod-validation.pipe";
@@ -17,16 +22,19 @@ type ValidationErrorDetail = {
 
 type NormalizedError = {
 	code: string;
-	details?: ValidationErrorDetail[];
+	details?: PaymentRequiredDetails | ValidationErrorDetail[];
 	message: string;
 	statusCode: number;
 };
 
 type HttpExceptionResponse = {
+	availableCredits?: unknown;
 	code?: unknown;
+	details?: unknown;
 	error?: unknown;
 	issues?: unknown;
 	message?: unknown;
+	requiredCredits?: unknown;
 	statusCode?: unknown;
 };
 
@@ -47,6 +55,8 @@ export class ApiExceptionFilter implements ExceptionFilter {
 		const timestamp = new Date().toISOString();
 
 		if (error.statusCode >= 500) {
+			// Expected 4xx responses stay out of Sentry — only real failures.
+			Sentry.captureException(exception);
 			this.logger.error(
 				`Unhandled exception on ${request.method} ${request.url} (${request.id})`,
 				exception instanceof Error ? exception.stack : String(exception),
@@ -77,21 +87,48 @@ export class ApiExceptionFilter implements ExceptionFilter {
 
 		const statusCode = exception.getStatus();
 		const response = exception.getResponse();
-		const details =
+		const validationDetails =
 			statusCode === HttpStatus.BAD_REQUEST
 				? this.extractValidationDetails(response)
 				: undefined;
+		const paymentRequiredDetails =
+			statusCode === HttpStatus.PAYMENT_REQUIRED
+				? this.extractPaymentRequiredDetails(response)
+				: undefined;
+		const details = paymentRequiredDetails ?? validationDetails;
 
 		return {
-			code: details
+			code: validationDetails
 				? "VALIDATION_ERROR"
 				: this.codeForExceptionResponse(response, statusCode),
 			...(details ? { details } : {}),
-			message: details
+			message: validationDetails
 				? "Validation failed"
 				: this.messageForException(exception, response, statusCode),
 			statusCode,
 		};
+	}
+
+	private extractPaymentRequiredDetails(
+		response: string | object,
+	): PaymentRequiredDetails | undefined {
+		if (typeof response === "string") {
+			return undefined;
+		}
+
+		const body = response as HttpExceptionResponse;
+		const nested = paymentRequiredDetailsSchema.safeParse(body.details);
+
+		if (nested.success) {
+			return nested.data;
+		}
+
+		const legacy = paymentRequiredDetailsSchema.safeParse({
+			availableCredits: body.availableCredits,
+			requiredCredits: body.requiredCredits,
+		});
+
+		return legacy.success ? legacy.data : undefined;
 	}
 
 	private codeForExceptionResponse(

@@ -1,12 +1,17 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
+import {
+	type ProjectScope,
+	projectScopePredicate,
+} from "../../../projects/domain/project-scope";
 import type {
 	DomainDns,
 	DomainPriceSnapshot,
 	DomainStatus,
 	DomainTld,
+	PaymentOrderStatus,
 	Registrant,
 } from "@wandit/contracts";
-import { and, desc, eq, inArray, sql } from "@wandit/db";
+import { and, asc, desc, eq, inArray, or, sql } from "@wandit/db";
 import { domains } from "@wandit/db/schema/domains";
 import { paymentOrders } from "@wandit/db/schema/orders";
 import { projects } from "@wandit/db/schema/projects";
@@ -16,11 +21,42 @@ import {
 	type Database,
 } from "../../../../infrastructure/database/database.constants";
 import {
+	DOMAIN_CONFIGURATION_MAX_ATTEMPT,
+	type DomainConfigurationCursor,
+	parseDomainConfigurationCursor,
+} from "../../application/fulfillment/domain-fulfillment.contracts";
+import {
 	DomainAlreadyExistsError,
 	InvalidDomainStateError,
 } from "../../domain/errors/domain.errors";
 
 export type DomainRow = typeof domains.$inferSelect;
+
+export const DOMAIN_REPOSITORY_MAX_BATCH_SIZE = 100;
+
+export type StaleDomainPurchaseCandidate = {
+	domainId: string;
+	domainStatus: DomainStatus;
+	orderId: string;
+	orderStatus: PaymentOrderStatus;
+	updatedAt: Date;
+};
+
+export type StaleDomainConfigurationCandidate = {
+	domainId: string;
+	nonce: string;
+	updatedAt: Date;
+};
+
+export type FindStaleDomainPurchaseCandidatesInput = {
+	limit: number;
+	staleBefore: Date;
+};
+
+export type FindStaleDomainConfigurationCandidatesInput = {
+	limit: number;
+	staleBefore: Date;
+};
 
 export type DomainTransaction = Parameters<
 	Parameters<Database["transaction"]>[0]
@@ -79,14 +115,17 @@ type DomainUpdate = Partial<
 export class DomainsRepository {
 	constructor(@Inject(DATABASE) private readonly db: Database) {}
 
-	async assertProjectOwned(userId: string, projectId: string): Promise<void> {
+	async assertProjectAccessible(
+		scope: ProjectScope,
+		projectId: string,
+	): Promise<void> {
 		const [project] = await this.db
 			.select({ id: projects.id })
 			.from(projects)
 			.where(
 				and(
 					eq(projects.id, projectId),
-					eq(projects.userId, userId),
+					projectScopePredicate(scope),
 					sql`${projects.deletedAt} IS NULL`,
 				),
 			)
@@ -97,14 +136,48 @@ export class DomainsRepository {
 		}
 	}
 
-	async listByProject(projectId: string, userId: string): Promise<DomainRow[]> {
-		await this.assertProjectOwned(userId, projectId);
+	async listByProject(projectId: string, scope: ProjectScope): Promise<DomainRow[]> {
+		await this.assertProjectAccessible(scope, projectId);
+
+		// Personal keeps the purchaser filter (byte-compat). Org projects list
+		// every attached domain regardless of which member bought it — project
+		// access is already proven above and mutations are role-gated.
+		const purchaserFilter =
+			scope.kind === "personal" ? [eq(domains.userId, scope.userId)] : [];
 
 		return this.db
 			.select()
 			.from(domains)
-			.where(and(eq(domains.projectId, projectId), eq(domains.userId, userId)))
+			.where(and(eq(domains.projectId, projectId), ...purchaserFilter))
 			.orderBy(desc(domains.createdAt), desc(domains.id));
+	}
+
+	/**
+	 * Scope-aware access for PROJECT-side domain management (verify, primary,
+	 * detach). Personal: purchaser equality, byte-compat. Org: the domain must
+	 * be attached to a project of this org — which member bought it does not
+	 * matter (asset-side ops like auto-renew stay purchaser-only elsewhere).
+	 */
+	async getByIdForScope(id: string, scope: ProjectScope): Promise<DomainRow> {
+		if (scope.kind === "personal") {
+			return this.getByIdForUser(id, scope.userId);
+		}
+
+		const [row] = await this.db
+			.select({ domains })
+			.from(domains)
+			.innerJoin(
+				projects,
+				and(
+					eq(projects.id, domains.projectId),
+					projectScopePredicate(scope),
+					sql`${projects.deletedAt} IS NULL`,
+				),
+			)
+			.where(eq(domains.id, id))
+			.limit(1);
+
+		return this.expectRow(row?.domains);
 	}
 
 	async getByIdForUser(id: string, userId: string): Promise<DomainRow> {
@@ -147,6 +220,207 @@ export class DomainsRepository {
 			.limit(1);
 
 		return row ?? null;
+	}
+
+	async findStalePurchaseCandidates(
+		input: FindStaleDomainPurchaseCandidatesInput,
+	): Promise<StaleDomainPurchaseCandidate[]> {
+		return this.db
+			.select({
+				domainId: domains.id,
+				domainStatus: domains.status,
+				orderId: paymentOrders.id,
+				orderStatus: paymentOrders.status,
+				updatedAt: domains.updatedAt,
+			})
+			.from(domains)
+			.innerJoin(paymentOrders, eq(paymentOrders.id, domains.paymentOrderId))
+			.where(
+				and(
+					sql`${domains.updatedAt} <= ${input.staleBefore}`,
+					or(
+						and(
+							inArray(domains.status, ["registering", "configuring"]),
+							inArray(paymentOrders.status, ["paid", "fulfilling"]),
+						),
+						and(
+							eq(domains.status, "active"),
+							eq(paymentOrders.status, "fulfilling"),
+						),
+					),
+				),
+			)
+			.orderBy(asc(domains.updatedAt), asc(domains.id))
+			.limit(boundedRepositoryLimit(input.limit));
+	}
+
+	async findStaleConfigurationCandidates(
+		input: FindStaleDomainConfigurationCandidatesInput,
+	): Promise<StaleDomainConfigurationCandidate[]> {
+		const rows = await this.db
+			.select({
+				dns: domains.dns,
+				domainId: domains.id,
+				updatedAt: domains.updatedAt,
+			})
+			.from(domains)
+			.where(
+				and(
+					sql`${domains.updatedAt} <= ${input.staleBefore}`,
+					eq(domains.source, "external"),
+					eq(domains.status, "configuring"),
+					sql`${domains.cfCustomHostnameId} IS NOT NULL`,
+					sql`COALESCE((${domains.dns} -> 'triggerConfiguration') @> jsonb_build_object('nextAttempt', ${DOMAIN_CONFIGURATION_MAX_ATTEMPT}::integer), false) = false`,
+				),
+			)
+			.orderBy(asc(domains.updatedAt), asc(domains.id))
+			.limit(boundedRepositoryLimit(input.limit));
+
+		return rows.flatMap((row) => {
+			const cursor = cursorFromDns(row.dns);
+
+			if (cursor?.nextAttempt === DOMAIN_CONFIGURATION_MAX_ATTEMPT) {
+				return [];
+			}
+
+			return [
+				{
+					domainId: row.domainId,
+					nonce: cursor?.nonce ?? String(row.updatedAt.getTime()),
+					updatedAt: row.updatedAt,
+				},
+			];
+		});
+	}
+
+	async initializeCursor(
+		domainId: string,
+		input: { adoptExistingNonce: boolean; nonce: string },
+	): Promise<DomainConfigurationCursor | null> {
+		const result = await this.db.$client.query<{ dns: unknown }>(
+			`UPDATE domains
+			 SET dns = CASE
+			   WHEN jsonb_typeof(
+			     (CASE WHEN jsonb_typeof(dns) = 'object' THEN dns ELSE '{}'::jsonb END)
+			       -> 'triggerConfiguration'
+			   ) = 'object'
+			   AND (
+			     $3::boolean
+			     OR (CASE WHEN jsonb_typeof(dns) = 'object' THEN dns ELSE '{}'::jsonb END)
+			       -> 'triggerConfiguration' ->> 'nonce' = $2::text
+			   )
+			   THEN CASE WHEN jsonb_typeof(dns) = 'object' THEN dns ELSE '{}'::jsonb END
+			   ELSE (CASE WHEN jsonb_typeof(dns) = 'object' THEN dns ELSE '{}'::jsonb END)
+			     || jsonb_build_object(
+			       'triggerConfiguration',
+			       jsonb_build_object(
+			         'nonce', $2::text,
+			         'nextAttempt', 0,
+			         'nextProbeAt', NULL
+			       )
+			     )
+			 END,
+			 updated_at = updated_at
+			 WHERE id = $1::uuid
+			   AND status = 'configuring'
+			 RETURNING dns`,
+			[domainId, input.nonce, input.adoptExistingNonce],
+		);
+
+		return cursorFromDns(result.rows[0]?.dns);
+	}
+
+	async readCursor(
+		domainId: string,
+	): Promise<DomainConfigurationCursor | null> {
+		// Reads remain available after activation/failure so the runner can remove
+		// the matching private cursor after the lifecycle CAS changes status.
+		const result = await this.db.$client.query<{ dns: unknown }>(
+			`SELECT dns
+			 FROM domains
+			 WHERE id = $1::uuid
+			 LIMIT 1`,
+			[domainId],
+		);
+
+		return cursorFromDns(result.rows[0]?.dns);
+	}
+
+	async advanceCursor(
+		domainId: string,
+		input: {
+			expectedAttempt: number;
+			nextAttempt: number;
+			nextProbeAt: Date;
+			nonce: string;
+		},
+	): Promise<boolean> {
+		const nextProbeAt = input.nextProbeAt.toISOString();
+		const persisted = parseDomainConfigurationCursor({
+			nextAttempt: input.nextAttempt,
+			nextProbeAt,
+			nonce: input.nonce,
+		});
+		parseDomainConfigurationCursor({
+			nextAttempt: input.expectedAttempt,
+			nextProbeAt: null,
+			nonce: input.nonce,
+		});
+
+		const result = await this.db.$client.query<{ id: string }>(
+			`UPDATE domains
+			 SET dns = (CASE WHEN jsonb_typeof(dns) = 'object' THEN dns ELSE '{}'::jsonb END)
+			     || jsonb_build_object(
+			       'triggerConfiguration',
+			       jsonb_build_object(
+			         'nonce', $2::text,
+			         'nextAttempt', $4::integer,
+			         'nextProbeAt', $5::text
+			       )
+			     ),
+			 updated_at = updated_at
+			 WHERE id = $1::uuid
+			   AND status = 'configuring'
+			   AND (dns -> 'triggerConfiguration') @> jsonb_build_object(
+			     'nonce', $2::text,
+			     'nextAttempt', $3::integer
+			   )
+			 RETURNING id`,
+			[
+				domainId,
+				persisted.nonce,
+				input.expectedAttempt,
+				persisted.nextAttempt,
+				nextProbeAt,
+			],
+		);
+
+		return result.rows.length === 1;
+	}
+
+	async clearCursor(domainId: string, nonce: string): Promise<boolean> {
+		parseDomainConfigurationCursor({
+			nextAttempt: 0,
+			nextProbeAt: null,
+			nonce,
+		});
+
+		const result = await this.db.$client.query<{ id: string }>(
+			`UPDATE domains
+			 SET dns = (CASE WHEN jsonb_typeof(dns) = 'object' THEN dns ELSE '{}'::jsonb END)
+			     - 'triggerConfiguration',
+			 updated_at = updated_at
+			 WHERE id = $1::uuid
+			   AND (dns -> 'triggerConfiguration') @> jsonb_build_object(
+			     'nonce', $2::text
+			   )
+			 RETURNING id`,
+			[domainId, nonce],
+		);
+
+		// Activation and terminalization change the domain status before cleanup,
+		// so nonce matching, rather than a configuring-only predicate, owns clear.
+		return result.rows.length === 1;
 	}
 
 	async findByPaymentOrderIdForUpdate(
@@ -262,12 +536,15 @@ export class DomainsRepository {
 		return row ?? null;
 	}
 
-	async setPrimary(id: string, userId: string): Promise<DomainRow> {
+	async setPrimary(id: string, scope: ProjectScope): Promise<DomainRow> {
+		// Access checked scope-aware BEFORE the transaction narrows to the id.
+		await this.getByIdForScope(id, scope);
+
 		return this.db.transaction(async (tx) => {
 			const [target] = await tx
 				.select()
 				.from(domains)
-				.where(and(eq(domains.id, id), eq(domains.userId, userId)))
+				.where(eq(domains.id, id))
 				.limit(1);
 
 			const row = this.expectRow(target);
@@ -278,25 +555,25 @@ export class DomainsRepository {
 				);
 			}
 
+			// One primary per PROJECT: clear every attached domain's flag, not just
+			// the same purchaser's — org projects can hold several buyers' domains.
 			await tx
 				.update(domains)
 				.set({ isPrimary: false })
-				.where(
-					and(eq(domains.userId, userId), eq(domains.projectId, row.projectId)),
-				);
+				.where(eq(domains.projectId, row.projectId));
 
 			const [updated] = await tx
 				.update(domains)
 				.set({ isPrimary: true })
-				.where(and(eq(domains.id, id), eq(domains.userId, userId)))
+				.where(eq(domains.id, id))
 				.returning();
 
 			return this.expectRow(updated);
 		});
 	}
 
-	async detach(id: string, userId: string): Promise<DomainRow> {
-		const row = await this.getByIdForUser(id, userId);
+	async detach(id: string, scope: ProjectScope): Promise<DomainRow> {
+		const row = await this.getByIdForScope(id, scope);
 
 		if (row.projectId === null && !row.isPrimary) {
 			return row;
@@ -320,25 +597,35 @@ export class DomainsRepository {
 
 	// Expiry-notice sweep input: every purchased domain nearing expiry, whether
 	// or not auto-renew is set — renewal is not wired yet, only notices are.
-	async findExpiringPurchased(now = new Date()): Promise<DomainRow[]> {
+	async findExpiringPurchased(
+		now = new Date(),
+		limit = DOMAIN_REPOSITORY_MAX_BATCH_SIZE,
+	): Promise<DomainRow[]> {
 		const expiringBy = new Date(now);
 		expiringBy.setUTCDate(expiringBy.getUTCDate() + 30);
 
-		return this.db
-			.select()
-			.from(domains)
-			.where(
-				and(
-					eq(domains.source, "purchased"),
-					inArray(domains.status, ["active", "expired"]),
-					sql`${domains.expiresAt} IS NOT NULL`,
-					sql`${domains.expiresAt} <= ${expiringBy}`,
-				),
-			)
-			.orderBy(domains.expiresAt, domains.id);
+		return (
+			this.db
+				.select()
+				.from(domains)
+				.where(
+					and(
+						eq(domains.source, "purchased"),
+						inArray(domains.status, ["active", "expired"]),
+						sql`${domains.expiresAt} IS NOT NULL`,
+						sql`${domains.expiresAt} <= ${expiringBy}`,
+					),
+				)
+				// Notice writes advance updatedAt, so oldest-first ordering lets later
+				// rows make progress across bounded daily batches.
+				.orderBy(asc(domains.updatedAt), domains.expiresAt, domains.id)
+				.limit(boundedRepositoryLimit(limit))
+		);
 	}
 
-	async findPurchasedForSync(): Promise<DomainRow[]> {
+	async findPurchasedForSync(
+		limit = DOMAIN_REPOSITORY_MAX_BATCH_SIZE,
+	): Promise<DomainRow[]> {
 		return this.db
 			.select()
 			.from(domains)
@@ -350,7 +637,8 @@ export class DomainsRepository {
 					sql`${domains.status} NOT IN ('failed', 'transferred_out')`,
 				),
 			)
-			.orderBy(desc(domains.updatedAt));
+			.orderBy(asc(domains.updatedAt), asc(domains.id))
+			.limit(boundedRepositoryLimit(limit));
 	}
 
 	recordRenewalNotice(id: string, message: string): Promise<DomainRow> {
@@ -460,4 +748,30 @@ export class DomainsRepository {
 
 export function isTerminalDomainStatus(status: DomainStatus) {
 	return status === "failed" || status === "transferred_out";
+}
+
+function boundedRepositoryLimit(limit: number): number {
+	if (!Number.isFinite(limit)) {
+		return DOMAIN_REPOSITORY_MAX_BATCH_SIZE;
+	}
+
+	return Math.min(
+		DOMAIN_REPOSITORY_MAX_BATCH_SIZE,
+		Math.max(1, Math.floor(limit)),
+	);
+}
+
+function cursorFromDns(dns: unknown): DomainConfigurationCursor | null {
+	if (typeof dns !== "object" || dns === null || Array.isArray(dns)) {
+		return null;
+	}
+
+	const triggerConfiguration = (dns as { triggerConfiguration?: unknown })
+		.triggerConfiguration;
+
+	if (triggerConfiguration === undefined) {
+		return null;
+	}
+
+	return parseDomainConfigurationCursor(triggerConfiguration);
 }

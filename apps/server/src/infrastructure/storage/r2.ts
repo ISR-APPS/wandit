@@ -124,6 +124,17 @@ export function siteShotKey(
 	return `sites/${projectId}/shots/${attemptId}/p${pass}-${index}.jpg`;
 }
 
+// Dashboard card cover — the final build's hero screenshot. Versioned key
+// (immutable, cache-safe: a new build writes a NEW key, so no cache-buster
+// is needed). Deliberately NOT under sites/{id}/assets/ (Assets tab) nor
+// sites/{id}/shots/ (chat-card strips).
+export function projectThumbnailKey(
+	projectId: string,
+	versionId: string,
+): string {
+	return `sites/${projectId}/thumbnails/${versionId}.jpg`;
+}
+
 // Standalone images from the chat's generate_image tool live under their own
 // root — NOT under sites/{id}/assets/, so the Assets tab's build-asset prefix
 // listing never double-counts them:
@@ -252,6 +263,25 @@ export function isUserUploadUrl(url: string, userId: string): boolean {
 	return (
 		root === "uploads" &&
 		owner === userId &&
+		Boolean(uploadId) &&
+		Boolean(filename)
+	);
+}
+
+/**
+ * Any authenticated user's R2 upload, owner unchecked. Only for re-validating
+ * PERSISTED chat history, where a shared org chat legitimately carries other
+ * members' attachments that passed the strict per-user check when their
+ * author submitted them. New content must always use isUserUploadUrl.
+ */
+export function isWanditUploadUrl(url: string): boolean {
+	const key = publicAssetKeyFromUrl(url);
+	if (!key) return false;
+
+	const [root, owner, uploadId, filename] = key.split("/");
+	return (
+		root === "uploads" &&
+		Boolean(owner) &&
 		Boolean(uploadId) &&
 		Boolean(filename)
 	);

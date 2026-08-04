@@ -1,7 +1,7 @@
 import { Module } from "@nestjs/common";
 
 import { DatabaseModule } from "../../infrastructure/database/database.module";
-import { GenerationModule } from "../generation/generation.module";
+import { MeteringModule } from "../metering/metering.module";
 import { MediaGenerationsService } from "./application/services/media-generations.service";
 import { MediaGenerationsRepository } from "./infrastructure/persistence/media-generations.repository";
 import { MediaGenerationsController } from "./presentation/http/controllers/media-generations.controller";
@@ -9,7 +9,7 @@ import { MediaGenerationsController } from "./presentation/http/controllers/medi
 @Module({
 	controllers: [MediaGenerationsController],
 	exports: [MediaGenerationsRepository],
-	imports: [DatabaseModule, GenerationModule],
+	imports: [DatabaseModule, MeteringModule],
 	providers: [MediaGenerationsRepository, MediaGenerationsService],
 })
 export class MediaGenerationsModule {}

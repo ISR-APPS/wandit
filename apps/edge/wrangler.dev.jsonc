@@ -7,6 +7,13 @@
 	"name": "wandit-edge",
 	"main": "src/index.ts",
 	"compatibility_date": "2025-10-11",
+	// @sentry/cloudflare needs AsyncLocalStorage; nodejs_als is the minimal flag.
+	"compatibility_flags": ["nodejs_als"],
+	// Lets the Sentry SDK auto-derive the release from the Worker version.
+	"version_metadata": { "binding": "CF_VERSION_METADATA" },
+	"upload_source_maps": true,
+	// No SENTRY_DSN locally — Sentry stays disabled in dev.
+	"vars": { "SENTRY_ENVIRONMENT": "development" },
 	"kv_namespaces": [{ "binding": "PTR", "id": "TODO-kv-namespace-id" }],
 	"r2_buckets": [{ "binding": "SITES", "bucket_name": "wandit-pages-dev" }],
 	"observability": { "enabled": true }

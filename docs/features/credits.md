@@ -1,5 +1,14 @@
 # Credits & Usage (fake in MVP)
 
+> **SUPERSEDED (billing v2):** this document describes the pre-v2 slice and no
+> longer matches the shipped system. Current truth:
+> `docs/features/billing.md` and
+> `docs/features/billing-v2-subscriptions-credits-affiliates.md`.
+> Key differences: signup grant is 20 credits (promo bucket, disabled by
+> default via product_settings, delivered through the signup-grant outbox +
+> Trigger.dev sweep — not an unconditional 100); consumption uses the
+> reserve→settle→reconcile metering flow, not consume-at-job-start.
+
 ## Purpose
 
 Usage metering with a real ledger but no payments yet: hardcoded signup grant, real consumption on generation, visible price tags. Stripe (then CIB) later slot in as ledger writers — no refactor.

@@ -1,6 +1,6 @@
 import { Link } from "@tanstack/react-router";
 import { AlertCircleIcon, ArrowLeftIcon, UserRoundXIcon } from "lucide-react";
-import { useState } from "react";
+import { type PropsWithChildren, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -21,6 +21,8 @@ import { UserDetailSkeleton } from "@/features/users/components/detail/user-deta
 import { UserMetrics } from "@/features/users/components/detail/user-metrics";
 import { UserProjectsCard } from "@/features/users/components/detail/user-projects-card";
 import { UserSubscriptionCard } from "@/features/users/components/detail/user-subscription-card";
+import { UserWorkspacesCard } from "@/features/users/components/detail/user-workspaces-card";
+import { EarlyAccessDialog } from "@/features/users/components/early-access-dialog";
 import { GrantCreditsDialog } from "@/features/users/components/grant-credits-dialog";
 import { isApiClientError } from "@/lib/api-client";
 
@@ -28,7 +30,7 @@ type UserDetailPageProps = {
 	userId: string;
 };
 
-type OpenDialog = "credits" | "role" | "ban" | null;
+type OpenDialog = "credits" | "access" | "role" | "ban" | null;
 
 export function UserDetailPage({ userId }: UserDetailPageProps) {
 	const [openDialog, setOpenDialog] = useState<OpenDialog>(null);
@@ -36,7 +38,11 @@ export function UserDetailPage({ userId }: UserDetailPageProps) {
 	const { data: session } = useSession();
 
 	if (userQuery.isLoading) {
-		return <UserDetailSkeleton />;
+		return (
+			<UserDetailContainer>
+				<UserDetailSkeleton />
+			</UserDetailContainer>
+		);
 	}
 
 	if (userQuery.isError) {
@@ -46,59 +52,76 @@ export function UserDetailPage({ userId }: UserDetailPageProps) {
 			isApiClientError(userQuery.error) && userQuery.error.status === 404;
 
 		if (isMissing) {
-			return <MissingUserState />;
+			return (
+				<UserDetailContainer>
+					<MissingUserState />
+				</UserDetailContainer>
+			);
 		}
 
 		return (
-			<Empty className="min-h-(--content-full-height) border bg-background">
-				<EmptyHeader>
-					<EmptyMedia variant="icon">
-						<AlertCircleIcon aria-hidden="true" />
-					</EmptyMedia>
-					<EmptyTitle>Could not load this user</EmptyTitle>
-					<EmptyDescription>
-						The user record could not be read. Try the request again.
-					</EmptyDescription>
-				</EmptyHeader>
-				<EmptyContent>
-					<Button type="button" onClick={() => userQuery.refetch()}>
-						Try again
-					</Button>
-					<Button asChild variant="outline">
-						<Link to="/users">
-							<ArrowLeftIcon data-icon="inline-start" aria-hidden="true" />
-							Back to users
-						</Link>
-					</Button>
-				</EmptyContent>
-			</Empty>
+			<UserDetailContainer>
+				<Empty className="min-h-(--content-full-height) border bg-background">
+					<EmptyHeader>
+						<EmptyMedia variant="icon">
+							<AlertCircleIcon aria-hidden="true" />
+						</EmptyMedia>
+						<EmptyTitle>Could not load this user</EmptyTitle>
+						<EmptyDescription>
+							The user record could not be read. Try the request again.
+						</EmptyDescription>
+					</EmptyHeader>
+					<EmptyContent>
+						<Button type="button" onClick={() => userQuery.refetch()}>
+							Try again
+						</Button>
+						<Button asChild variant="outline">
+							<Link to="/users">
+								<ArrowLeftIcon data-icon="inline-start" aria-hidden="true" />
+								Back to users
+							</Link>
+						</Button>
+					</EmptyContent>
+				</Empty>
+			</UserDetailContainer>
 		);
 	}
 
 	if (!userQuery.data) {
-		return <MissingUserState />;
+		return (
+			<UserDetailContainer>
+				<MissingUserState />
+			</UserDetailContainer>
+		);
 	}
 
 	const user = userQuery.data;
 	const canManageAccess = session?.user.id !== user.id;
 
 	return (
-		<div className="flex flex-col gap-6">
+		<UserDetailContainer>
 			<UserDetailHeader
 				user={user}
 				canManageAccess={canManageAccess}
 				onGrantCredits={() => setOpenDialog("credits")}
+				onToggleEarlyAccess={() => setOpenDialog("access")}
 				onChangeRole={() => setOpenDialog("role")}
 				onToggleBanned={() => setOpenDialog("ban")}
 			/>
 			<UserMetrics user={user} />
 
-			<div className="grid gap-4 xl:grid-cols-2">
+			<div className="grid gap-6 xl:grid-cols-2">
 				{user.subscription ? (
 					<UserSubscriptionCard subscription={user.subscription} />
 				) : null}
-				<UserProjectsCard projects={user.projects} />
+				<UserProjectsCard
+					userId={user.id}
+					projects={user.projects}
+					className={user.subscription ? undefined : "xl:col-span-2"}
+				/>
 			</div>
+
+			<UserWorkspacesCard workspaces={user.workspaces} />
 
 			<UserCreditLedger entries={user.creditLedger} />
 
@@ -109,6 +132,11 @@ export function UserDetailPage({ userId }: UserDetailPageProps) {
 			/>
 			{canManageAccess ? (
 				<>
+					<EarlyAccessDialog
+						user={user}
+						open={openDialog === "access"}
+						onOpenChange={(open) => setOpenDialog(open ? "access" : null)}
+					/>
 					<ChangeRoleDialog
 						user={user}
 						open={openDialog === "role"}
@@ -121,6 +149,14 @@ export function UserDetailPage({ userId }: UserDetailPageProps) {
 					/>
 				</>
 			) : null}
+		</UserDetailContainer>
+	);
+}
+
+function UserDetailContainer({ children }: PropsWithChildren) {
+	return (
+		<div className="mx-auto flex w-full max-w-[1600px] flex-col gap-6">
+			{children}
 		</div>
 	);
 }

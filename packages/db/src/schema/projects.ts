@@ -18,6 +18,7 @@ import { user } from "./auth";
 import { chats } from "./chats";
 import { deployments } from "./deployments";
 import { leads } from "./leads";
+import { organization } from "./organizations";
 
 // Main workspace table.
 export const projects = pgTable(
@@ -27,7 +28,14 @@ export const projects = pgTable(
 		userId: text("user_id")
 			.notNull()
 			// Do not hard-delete projects automatically when a user is deleted.
+			// For org projects this is the creating member — provenance only;
+			// authorization goes through workspace membership, never this column.
 			.references(() => user.id, { onDelete: "restrict" }),
+		// NULL = personal project (authorized by userId). Set = org project
+		// (authorized by org membership + role).
+		organizationId: text("organization_id").references(() => organization.id, {
+			onDelete: "restrict",
+		}),
 		// Name shown in dashboard/workspace.
 		name: text("name").notNull(),
 		// Public id used by generated lead forms.
@@ -36,6 +44,11 @@ export const projects = pgTable(
 		previewToken: uuid("preview_token").notNull().defaultRandom(),
 		metaPixelId: text("meta_pixel_id"),
 		tiktokPixelId: text("tiktok_pixel_id"),
+		// Hero-viewport screenshot of the latest activated build (dashboard card
+		// cover). Null until a build succeeds.
+		previewImageUrl: text("preview_image_url"),
+		// User-uploaded brand logo reused by page rebuilds. Null until selected.
+		logoUrl: text("logo_url"),
 		// Soft delete marker.
 		deletedAt: timestamp("deleted_at", { withTimezone: true }),
 		// Timestamps used for dashboard sorting.
@@ -54,6 +67,12 @@ export const projects = pgTable(
 		index("projects_dashboard_idx")
 			.on(table.userId, table.updatedAt)
 			.where(sql`${table.deletedAt} IS NULL`),
+		// Org workspace dashboard listing.
+		index("projects_org_dashboard_idx")
+			.on(table.organizationId, table.updatedAt)
+			.where(
+				sql`${table.deletedAt} IS NULL AND ${table.organizationId} IS NOT NULL`,
+			),
 		// Public tokens must be unique.
 		uniqueIndex("projects_publicFormId_uq").on(table.publicFormId),
 		uniqueIndex("projects_previewToken_uq").on(table.previewToken),

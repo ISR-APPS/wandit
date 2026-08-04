@@ -2,6 +2,8 @@
 //
 // If you add a new table file and want it in the root schema, export it here.
 
+// Affiliate programs, attribution, commissions, and payouts.
+export * from "./affiliates";
 // Generated page/artifact tables.
 export * from "./artifacts";
 // Auth/user tables.
@@ -32,6 +34,9 @@ export * from "./mcp-connectors";
 export * from "./media-generation-attempts";
 // Payment order tables.
 export * from "./orders";
+// Organization (Teams/Workspaces) tables — Better Auth org plugin models +
+// application-owned org billing settings/limits.
+export * from "./organizations";
 // Page generation attempt tables.
 export * from "./page-attempts";
 // Project tables.

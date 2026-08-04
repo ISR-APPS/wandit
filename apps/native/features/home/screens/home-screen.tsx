@@ -10,7 +10,7 @@ import { DottedGrid } from "@/components/dotted-grid";
 import { IconCircleButton } from "@/components/icon-circle-button";
 import { Wordmark } from "@/components/wordmark";
 import { useAppTheme } from "@/contexts/app-theme-context";
-import { CreditsChip, MOCK_CREDITS } from "@/features/credits";
+import { CreditsChip } from "@/features/credits";
 import { PromptBox, useCreateProject } from "@/features/projects";
 import { authClient } from "@/lib/auth-client";
 
@@ -109,7 +109,7 @@ export function HomeScreen() {
 					accessibilityLabel={t("common.sidebarToggle")}
 				/>
 				<Wordmark />
-				<CreditsChip balance={MOCK_CREDITS.balance} />
+				<CreditsChip />
 			</View>
 
 			<ScrollView

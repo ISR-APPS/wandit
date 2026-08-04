@@ -11,19 +11,26 @@ import {
 	DATABASE,
 	type Database,
 } from "../../../../infrastructure/database/database.constants";
+import {
+	type ProjectScope,
+	projectScopePredicate,
+} from "../../../projects/domain/project-scope";
 
 @Injectable()
 export class ProjectAssetsRepository {
 	constructor(@Inject(DATABASE) private readonly db: Database) {}
 
-	async isProjectOwned(userId: string, projectId: string): Promise<boolean> {
+	async isProjectAccessible(
+		scope: ProjectScope,
+		projectId: string,
+	): Promise<boolean> {
 		const [row] = await this.db
 			.select({ id: projects.id })
 			.from(projects)
 			.where(
 				and(
 					eq(projects.id, projectId),
-					eq(projects.userId, userId),
+					projectScopePredicate(scope),
 					isNull(projects.deletedAt),
 				),
 			)

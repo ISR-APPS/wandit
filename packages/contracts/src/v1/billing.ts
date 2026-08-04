@@ -31,7 +31,7 @@ export type EntitledSubscriptionStatus =
 	(typeof ENTITLED_SUBSCRIPTION_STATUSES)[number];
 
 export const CREDIT_TIERS = [
-	100, 200, 400, 800, 1200, 2000, 3000, 4000, 5000, 7500, 10000,
+	100, 200, 400, 800, 1200, 2000, 3000, 4000, 5000,
 ] as const;
 
 export type CreditTier = (typeof CREDIT_TIERS)[number];
@@ -46,66 +46,73 @@ export const creditTierSchema = z.union([
 	z.literal(3000),
 	z.literal(4000),
 	z.literal(5000),
-	z.literal(7500),
-	z.literal(10000),
 ]);
 
-export const topupPackIds = ["topup_500", "topup_1000", "topup_2500"] as const;
+export const topupPackIds = ["topup_100", "topup_500", "topup_1000"] as const;
 
 export const topupPackIdSchema = z.enum(topupPackIds);
 
 export type TopupPackId = z.infer<typeof topupPackIdSchema>;
 
 export const TOPUP_PACKS = {
-	topup_500: { credits: 500, usd: 15 },
-	topup_1000: { credits: 1000, usd: 28 },
-	topup_2500: { credits: 2500, usd: 65 },
+	topup_100: { credits: 100, usd: 25 },
+	topup_500: { credits: 500, usd: 125 },
+	topup_1000: { credits: 1000, usd: 250 },
 } as const;
 
 export const BILLING_CATALOG = {
 	creditTiers: CREDIT_TIERS,
-	topupPacks: TOPUP_PACKS,
 	plans: {
-		pro: { basePer100Usd: 25 },
-		business: { basePer100Usd: 50 },
+		pro: {
+			basePer100Usd: 25,
+			features: { seats: false, teamWorkspace: false },
+			monthlyPricesUsd: {
+				100: 25,
+				200: 50,
+				400: 100,
+				800: 200,
+				1200: 294,
+				2000: 480,
+				3000: 705,
+				4000: 920,
+				5000: 1125,
+			},
+		},
+		// Org workspaces: exactly 2× Pro per tier, unlimited seats — the POOL is
+		// what's priced. Purchasable only with org workspace scope (pairing rule).
+		business: {
+			basePer100Usd: 50,
+			features: { seats: true, teamWorkspace: true },
+			monthlyPricesUsd: {
+				100: 50,
+				200: 100,
+				400: 200,
+				800: 400,
+				1200: 588,
+				2000: 960,
+				3000: 1410,
+				4000: 1840,
+				5000: 2250,
+			},
+		},
 	},
-	annualDiscount: 0.2,
-	volumeDiscounts: [
-		{ minCredits: 0, maxCredits: 400, discount: 0 },
-		{ minCredits: 800, maxCredits: 2000, discount: 0.05 },
-		{ minCredits: 3000, maxCredits: 5000, discount: 0.1 },
-		{ minCredits: 7500, maxCredits: 10000, discount: 0.15 },
-	],
+	topupPacks: TOPUP_PACKS,
+	yearlyPriceMultiplier: 10,
 } as const;
-
-function volumeDiscountFor(tierCredits: CreditTier) {
-	const volumeDiscount = BILLING_CATALOG.volumeDiscounts.find(
-		(discount) =>
-			tierCredits >= discount.minCredits && tierCredits <= discount.maxCredits,
-	);
-
-	return volumeDiscount?.discount ?? 0;
-}
 
 export function priceUsdFor(
 	plan: BillingPlanId,
 	tierCredits: CreditTier,
 	interval: BillingInterval,
 ) {
-	const basePer100Usd = BILLING_CATALOG.plans[plan].basePer100Usd;
-	const monthlyPriceUsd = Math.ceil(
-		basePer100Usd * (tierCredits / 100) * (1 - volumeDiscountFor(tierCredits)),
-	);
+	const monthlyPriceUsd =
+		BILLING_CATALOG.plans[plan].monthlyPricesUsd[tierCredits];
 
 	if (interval === "month") {
 		return monthlyPriceUsd;
 	}
 
-	return (
-		Math.round(
-			monthlyPriceUsd * 12 * (1 - BILLING_CATALOG.annualDiscount) * 100,
-		) / 100
-	);
+	return monthlyPriceUsd * BILLING_CATALOG.yearlyPriceMultiplier;
 }
 
 export function priceLookupKey(
@@ -169,6 +176,7 @@ export const subscriptionSchema = z.object({
 	providerSubscriptionId: z.string(),
 	plan: billingPlanIdSchema,
 	tierCredits: creditTierSchema,
+	pendingTierCredits: creditTierSchema.nullable(),
 	interval: billingIntervalSchema,
 	status: z.string(),
 	priceLookupKey: z.string(),
@@ -248,14 +256,53 @@ export type CreateBillingTopupBody = z.infer<
 	typeof createBillingTopupBodySchema
 >;
 
-export const changeBillingSubscriptionBodySchema = z.object({
+export const billingSubscriptionChangeTargetSchema = z.object({
 	interval: billingIntervalSchema,
 	plan: billingPlanIdSchema.optional(),
 	tierCredits: creditTierSchema,
 });
 
+export type BillingSubscriptionChangeTarget = z.infer<
+	typeof billingSubscriptionChangeTargetSchema
+>;
+
+export const previewBillingSubscriptionChangeBodySchema =
+	billingSubscriptionChangeTargetSchema;
+
+export type PreviewBillingSubscriptionChangeBody = z.infer<
+	typeof previewBillingSubscriptionChangeBodySchema
+>;
+
+export const billingSubscriptionChangePreviewResponseSchema = z.object({
+	intentId: uuidSchema,
+	amountDueMinor: z.int(),
+	currency: z.string().min(1),
+	creditsDelta: z.int(),
+	expiresAt: isoDateTimeSchema,
+});
+
+export type BillingSubscriptionChangePreviewResponse = z.infer<
+	typeof billingSubscriptionChangePreviewResponseSchema
+>;
+
+export const changeBillingSubscriptionBodySchema = z.object({
+	intentId: uuidSchema,
+});
+
 export type ChangeBillingSubscriptionBody = z.infer<
 	typeof changeBillingSubscriptionBodySchema
+>;
+
+export const billingSubscriptionChangeOutcomeResponseSchema = z.object({
+	outcome: z.enum(["applied", "payment_required", "failed"]),
+	hostedInvoiceUrl: z.url().optional(),
+	pendingExpiresAt: isoDateTimeSchema.optional(),
+	subscription: subscriptionSchema,
+	balance: creditBalanceResponseSchema,
+});
+
+export type BillingSubscriptionChangeOutcomeResponse = z.infer<
+	typeof billingSubscriptionChangeOutcomeResponseSchema
 >;
 
 export const billingCheckoutResponseSchema = z.object({
@@ -278,6 +325,7 @@ export const billingRoutes = {
 	checkout: "/api/v1/billing/checkout",
 	topup: "/api/v1/billing/topup",
 	portal: "/api/v1/billing/portal",
+	changePreview: "/api/v1/billing/change/preview",
 	change: "/api/v1/billing/change",
 	cancel: "/api/v1/billing/cancel",
 	resume: "/api/v1/billing/resume",

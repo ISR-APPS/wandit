@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { and, eq, sql } from "@wandit/db";
+import { and, asc, eq, isNull, lt, or, sql } from "@wandit/db";
 import { billingWebhookEvents } from "@wandit/db/schema/billing";
 import type Stripe from "stripe";
 
@@ -9,6 +9,9 @@ import {
 } from "../../../../infrastructure/database/database.constants";
 
 export type BillingWebhookEventRow = typeof billingWebhookEvents.$inferSelect;
+export type BillingWebhookClaimOptions = {
+	maxAttempts?: number;
+};
 
 @Injectable()
 export class BillingWebhookEventsRepository {
@@ -33,7 +36,10 @@ export class BillingWebhookEventsRepository {
 		return !!row;
 	}
 
-	async tryClaim(eventId: string): Promise<Date | null> {
+	async tryClaim(
+		eventId: string,
+		options: BillingWebhookClaimOptions = {},
+	): Promise<Date | null> {
 		const [row] = await this.db
 			.update(billingWebhookEvents)
 			.set({
@@ -49,6 +55,9 @@ export class BillingWebhookEventsRepository {
 			.where(
 				and(
 					eq(billingWebhookEvents.id, eventId),
+					options.maxAttempts === undefined
+						? undefined
+						: lt(billingWebhookEvents.attemptCount, options.maxAttempts),
 					sql`(${billingWebhookEvents.status} IN ('received', 'failed') OR (${billingWebhookEvents.status} = 'processing' AND ${billingWebhookEvents.claimedAt} < now() - interval '5 minutes'))`,
 				),
 			)
@@ -63,6 +72,106 @@ export class BillingWebhookEventsRepository {
 			.from(billingWebhookEvents)
 			.where(eq(billingWebhookEvents.id, id))
 			.limit(1);
+
+		return row ?? null;
+	}
+
+	listRetryableBelowAttemptLimit(input: {
+		limit: number;
+		maxAttempts: number;
+	}): Promise<BillingWebhookEventRow[]> {
+		return this.db
+			.select()
+			.from(billingWebhookEvents)
+			.where(
+				and(
+					lt(billingWebhookEvents.attemptCount, input.maxAttempts),
+					sql`(${billingWebhookEvents.status} IN ('received', 'failed') OR (${billingWebhookEvents.status} = 'processing' AND ${billingWebhookEvents.claimedAt} < now() - interval '5 minutes'))`,
+				),
+			)
+			.orderBy(
+				asc(
+					sql`coalesce(${billingWebhookEvents.processedAt}, ${billingWebhookEvents.claimedAt}, ${billingWebhookEvents.createdAt})`,
+				),
+				asc(billingWebhookEvents.id),
+			)
+			.limit(input.limit);
+	}
+
+	listDeadLetterCandidates(input: {
+		limit: number;
+		maxAttempts: number;
+	}): Promise<BillingWebhookEventRow[]> {
+		return this.db
+			.select()
+			.from(billingWebhookEvents)
+			.where(
+				and(
+					sql`${billingWebhookEvents.attemptCount} >= ${input.maxAttempts}`,
+					isNull(billingWebhookEvents.deadLetteredAt),
+					or(
+						eq(billingWebhookEvents.status, "failed"),
+						and(
+							eq(billingWebhookEvents.status, "processing"),
+							sql`${billingWebhookEvents.claimedAt} < now() - interval '5 minutes'`,
+						),
+					),
+				),
+			)
+			.orderBy(
+				asc(billingWebhookEvents.processedAt),
+				asc(billingWebhookEvents.id),
+			)
+			.limit(input.limit);
+	}
+
+	async markDeadLettered(
+		eventId: string,
+		maxAttempts: number,
+	): Promise<BillingWebhookEventRow | null> {
+		const [row] = await this.db
+			.update(billingWebhookEvents)
+			.set({ deadLetteredAt: new Date() })
+			.where(
+				and(
+					eq(billingWebhookEvents.id, eventId),
+					sql`${billingWebhookEvents.attemptCount} >= ${maxAttempts}`,
+					isNull(billingWebhookEvents.deadLetteredAt),
+					or(
+						eq(billingWebhookEvents.status, "failed"),
+						and(
+							eq(billingWebhookEvents.status, "processing"),
+							sql`${billingWebhookEvents.claimedAt} < now() - interval '5 minutes'`,
+						),
+					),
+				),
+			)
+			.returning();
+
+		return row ?? null;
+	}
+
+	async recordRetryFailure(input: {
+		error: string;
+		eventId: string;
+		expectedAttemptCount: number;
+	}): Promise<BillingWebhookEventRow | null> {
+		const [row] = await this.db
+			.update(billingWebhookEvents)
+			.set({
+				attemptCount: sql<number>`${billingWebhookEvents.attemptCount} + 1`,
+				error: input.error,
+				processedAt: new Date(),
+				status: "failed",
+			})
+			.where(
+				and(
+					eq(billingWebhookEvents.id, input.eventId),
+					eq(billingWebhookEvents.attemptCount, input.expectedAttemptCount),
+					sql`(${billingWebhookEvents.status} IN ('received', 'failed') OR (${billingWebhookEvents.status} = 'processing' AND ${billingWebhookEvents.claimedAt} < now() - interval '5 minutes'))`,
+				),
+			)
+			.returning();
 
 		return row ?? null;
 	}

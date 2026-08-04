@@ -1,5 +1,5 @@
 /**
- * Error used when the user needs subscription/credits to generate.
+ * Error used when the user needs credits to generate.
  *
  * This is thrown before we save a message or enqueue a job.
  */
@@ -10,16 +10,18 @@ import { HttpException, HttpStatus } from "@nestjs/common";
 export const GENERATION_PAYMENT_REQUIRED_ERROR_CODE =
 	"GENERATION_PAYMENT_REQUIRED";
 
-// HTTP 402 is used here as "you need payment or credits".
+// HTTP 402 is used here as "you need more credits".
 export class GenerationPaymentRequiredError extends HttpException {
-	constructor(requiredCredits: number, availableCredits: number) {
+	constructor(
+		readonly requiredCredits: number,
+		readonly availableCredits: number,
+	) {
 		// Include numbers so the UI can explain the problem.
 		super(
 			{
-				availableCredits,
 				code: GENERATION_PAYMENT_REQUIRED_ERROR_CODE,
-				message: "An active subscription or enough credits are required",
-				requiredCredits,
+				details: { availableCredits, requiredCredits },
+				message: "Enough credits are required",
 			},
 			HttpStatus.PAYMENT_REQUIRED,
 		);

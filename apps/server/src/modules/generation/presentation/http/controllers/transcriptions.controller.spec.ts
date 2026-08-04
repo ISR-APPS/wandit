@@ -44,7 +44,11 @@ describe("TranscriptionsController", () => {
 		};
 
 		await expect(
-			controller.create(request as unknown as FastifyRequest),
+			controller.create(
+				request as unknown as FastifyRequest,
+				{ id: "user-1" } as never,
+				"operation-123456",
+			),
 		).rejects.toBeInstanceOf(PayloadTooLargeException);
 		// Do not call the AI service if upload reading failed.
 		expect(transcriptionService.transcribeAudio).not.toHaveBeenCalled();

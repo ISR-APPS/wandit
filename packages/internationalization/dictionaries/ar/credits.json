@@ -1,16 +1,29 @@
 {
 	"chipAriaLabel": "رصيدك الحالي",
 	"balanceLabel": "الرصيد",
-	"usageOf": "{balance} من {grant} متبقٍّ",
+	"balanceUnavailableShort": "الأرصدة —",
+	"balanceLoadError": "تعذر تحميل رصيدك. حاول مرة أخرى.",
 	"recentActivity": "النشاط الأخير",
 	"emptyLedger": "لا يوجد نشاط بعد.",
-	"topUpChip": "إعادة الشحن — قريبًا",
-	"topUpDialog": "إعادة الشحن قريبًا",
+	"ledgerLoadError": "تعذر تحميل نشاط الأرصدة.",
+	"topUpChip": "شحن الأرصدة",
+	"manageBilling": "عرض الفوترة",
+	"topUpDialog": "عرض الخطط وحزم الشحن",
 	"insufficientTitle": "الرصيد غير كافٍ",
-	"insufficientBody": "تكلفة هذا الإجراء أكبر من رصيدك المتبقي. عمليات الشحن في الطريق.",
+	"insufficientBody": "يتطلب هذا الإجراء أرصدة أكثر من رصيدك الحالي.",
 	"costLabel": "التكلفة",
-	"balanceRowLabel": "رصيدك",
-	"seedGrantLabel": "رصيد الترحيب",
+	"buckets": {
+		"plan": "الخطة",
+		"promo": "ترويجية",
+		"topup": "الشحن"
+	},
+	"ledgerKinds": {
+		"grant": "أرصدة ممنوحة",
+		"consume": "أرصدة مستخدمة",
+		"topup": "أرصدة مشتراة",
+		"expire": "أرصدة منتهية",
+		"revoke": "أرصدة مسترجعة"
+	},
 	"creditUnit": {
 		"zero": "{count} رصيد",
 		"one": "رصيد واحد",

@@ -15,6 +15,7 @@
 // Failure-state strings are hardcoded English this pass (same temporary rule
 // as the request-tray chrome); they move to the dictionary later.
 
+import { useQueryClient } from "@tanstack/react-query";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -32,23 +33,134 @@ import { AlertTriangle, Loader2 } from "lucide-react";
 import { motion } from "motion/react";
 import type * as React from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 
 import { Spark } from "@/components/logo";
+import { creditsKeys } from "@/features/credits";
 import { useDictionary, useTranslation } from "@/lib/i18n";
-import {
-	usePageOverviewQuery,
-	useVersionHtmlQuery,
-} from "../../api/pages.queries";
+import { useVersionHtmlQuery } from "../../api/pages.queries";
+import { useAiChatControls } from "../../lib/ai-chat-context";
+import { shouldShowSaveBar } from "../../lib/page-editor-state";
 import { injectPreviewEditor } from "../../lib/preview-editor/inject";
-import { setModeMessage } from "../../lib/preview-editor/messages";
+import {
+	type EditorMode,
+	type PreviewCommentPin,
+	type PreviewSelectionRect,
+	setAiTargetsMessage,
+	setCommentPinsMessage,
+	setModeMessage,
+	setSuspendedMessage,
+} from "../../lib/preview-editor/messages";
 import { usePreviewBridge } from "../../lib/preview-editor/use-preview-bridge";
 import { useWorkspace } from "../../lib/store";
+import {
+	dispatchTargetComments,
+	type TargetCommentDispatchResult,
+} from "../../lib/target-comment-dispatch";
 import { usePageEditor } from "../../lib/use-page-editor";
+import type { TargetCommentEntry } from "../../lib/use-target-comments";
+import {
+	TargetCommentPopover,
+	targetCommentEntry,
+} from "./target-comment-popover";
+import { TargetCommentReviewBar } from "./target-comment-review-bar";
+
+export function previewReadyMessages(
+	mode: EditorMode,
+	pins: readonly PreviewCommentPin[],
+	aiWids: readonly string[],
+	suspended: boolean,
+) {
+	return [
+		setModeMessage(mode),
+		setCommentPinsMessage(pins),
+		setAiTargetsMessage(aiWids),
+		setSuspendedMessage(suspended),
+	] as const;
+}
+
+export function syncPreviewSuspension(
+	post: (message: ReturnType<typeof setSuspendedMessage>) => void,
+	suspended: boolean,
+): void {
+	post(setSuspendedMessage(suspended));
+}
+
+export function routePreviewAskAiShortcut(
+	mode: EditorMode,
+	focus: () => void,
+): boolean {
+	if (mode !== "select") return false;
+	focus();
+	return true;
+}
+
+export function selectionRectAfterSelect(
+	current: PreviewSelectionRect | null,
+	wid: string,
+): PreviewSelectionRect | null {
+	return current?.wid === wid ? current : null;
+}
+
+export function targetCommentChromeVisibility({
+	previewMode,
+	selectionWid,
+	selectionRectWid,
+	queuedCount,
+	isPreviewingHistorical,
+	isAskAiDispatching,
+}: {
+	previewMode: EditorMode;
+	selectionWid: string | null;
+	selectionRectWid: string | null;
+	queuedCount: number;
+	isPreviewingHistorical: boolean;
+	isAskAiDispatching: boolean;
+}) {
+	const showTargetPopover =
+		!isAskAiDispatching &&
+		previewMode === "select" &&
+		selectionWid !== null &&
+		selectionRectWid === selectionWid;
+	const showTargetReviewBar =
+		!isAskAiDispatching && queuedCount > 0 && !isPreviewingHistorical;
+
+	return { showTargetPopover, showTargetReviewBar };
+}
+
+export async function dispatchPopoverTargetComment({
+	entry,
+	queuedComments,
+	enqueue,
+	dispatch,
+}: {
+	entry: TargetCommentEntry;
+	queuedComments: readonly TargetCommentEntry[];
+	enqueue: (entry: TargetCommentEntry) => boolean;
+	dispatch: (
+		comments: readonly TargetCommentEntry[],
+	) => Promise<TargetCommentDispatchResult>;
+}): Promise<TargetCommentDispatchResult> {
+	if (queuedComments.length === 0) {
+		if (!enqueue(entry)) return "blocked";
+		return dispatch([entry]);
+	}
+	if (!enqueue(entry)) return "blocked";
+	return dispatch([...queuedComments, entry]);
+}
+
+export function targetCommentDraftVersionAfterDispatch(
+	current: number,
+	result: TargetCommentDispatchResult,
+): number {
+	return result === "sent" ? current + 1 : current;
+}
 
 export function PageTab({ reloadKey }: { reloadKey: number }) {
 	return (
 		<div className="flex h-full min-h-0 flex-col">
 			<SaveBar />
+			<HistoricalVersionBanner />
 			<div className="flex min-h-0 flex-1">
 				{/* The stage floor is plain parchment (3a reference) — one step
 				    lighter than the sand card that hosts it. The stage keeps the
@@ -65,12 +177,84 @@ export function PageTab({ reloadKey }: { reloadKey: number }) {
 	);
 }
 
+function HistoricalVersionBanner() {
+	const { t } = useTranslation();
+	const {
+		previewVersion,
+		serverActiveVersion,
+		isPreviewingHistorical,
+		backToLatest,
+		restorePreviewVersion,
+		restorePending,
+	} = useWorkspace();
+
+	if (!isPreviewingHistorical || !previewVersion) return null;
+
+	return (
+		<div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-amber-500/25 border-b bg-amber-500/8 px-3.5 py-2">
+			<p className="text-amber-900 text-xs dark:text-amber-100">
+				<VersionMessage
+					message={t("workspace.page.viewingReadOnly", {
+						n: previewVersion.number,
+					})}
+					number={previewVersion.number}
+				/>
+			</p>
+			<div className="flex items-center gap-1.5">
+				<Button
+					variant="outline"
+					size="sm"
+					className="h-7 bg-background/70"
+					disabled={restorePending || !serverActiveVersion}
+					onClick={restorePreviewVersion}
+				>
+					{restorePending
+						? t("workspace.page.restoring")
+						: t("workspace.page.restoreVersion")}
+				</Button>
+				<Button
+					variant="ghost"
+					size="sm"
+					className="h-7"
+					disabled={restorePending}
+					onClick={backToLatest}
+				>
+					{t("workspace.page.backToLatest")}
+				</Button>
+			</div>
+		</div>
+	);
+}
+
+/** Keeps the compact vN marker isolated inside RTL translated sentences. */
+function VersionMessage({
+	message,
+	number,
+}: {
+	message: string;
+	number: number;
+}) {
+	const marker = `v${number}`;
+	const index = message.indexOf(marker);
+	if (index === -1) return <span dir="auto">{message}</span>;
+
+	return (
+		<span dir="auto">
+			{message.slice(0, index)}
+			<bdi dir="ltr">{marker}</bdi>
+			{message.slice(index + marker.length)}
+		</span>
+	);
+}
+
 /** Slim pending-changes strip above the stage — appears with the first
     recorded op, persists ONE new version per Save (contract §7.1). */
-function SaveBar() {
+export function SaveBar() {
 	const { t } = useTranslation();
+	const { isPreviewingHistorical } = useWorkspace();
 	const editor = usePageEditor();
-	if (editor.dirtyCount === 0) return null;
+	if (!shouldShowSaveBar(editor.dirtyCount, isPreviewingHistorical))
+		return null;
 	return (
 		<div className="flex shrink-0 items-center justify-between gap-3 border-b bg-card px-3.5 py-2">
 			<span className="text-muted-foreground text-xs">
@@ -166,15 +350,39 @@ function ConflictDialog() {
 
 function PreviewStage({ reloadKey }: { reloadKey: number }) {
 	const { t } = useTranslation();
-	const { project, projectId, viewport } = useWorkspace();
+	const queryClient = useQueryClient();
+	const {
+		project,
+		viewport,
+		pageOverview,
+		pageOverviewPending,
+		previewVersion,
+		isPreviewingHistorical,
+		isGenerating,
+		pendingVersionNumber,
+	} = useWorkspace();
+	const attempt = pageOverview?.latestAttempt ?? null;
+	const terminalAttemptId =
+		attempt?.status === "succeeded" || attempt?.status === "failed"
+			? attempt.id
+			: null;
 	const editor = usePageEditor();
-
-	const overviewQuery = usePageOverviewQuery(projectId);
-	const overview = overviewQuery.data;
-	const activeVersion = overview?.activeVersion ?? null;
+	const { aiTargets, sendText, status: chatStatus } = useAiChatControls();
 	// Immutable HTML, fetched once per version (staleTime Infinity).
-	const htmlQuery = useVersionHtmlQuery(activeVersion?.id);
+	const htmlQuery = useVersionHtmlQuery(previewVersion?.id);
 	const html = htmlQuery.data?.html ?? "";
+	const previewMode = isPreviewingHistorical ? "browse" : editor.mode;
+
+	useEffect(() => {
+		if (!terminalAttemptId) return;
+		void queryClient.invalidateQueries({ queryKey: creditsKeys.balance() });
+	}, [queryClient, terminalAttemptId]);
+
+	// A historical canvas is strictly read-only. Pending edits made against the
+	// active version are preserved, but its selection and mode are cleared.
+	useEffect(() => {
+		if (isPreviewingHistorical) editor.forceBrowse();
+	}, [editor.forceBrowse, isPreviewingHistorical]);
 
 	// The cache keeps the CANONICAL html; the editor script is injected at
 	// render time only (contract §11 — never part of published output).
@@ -183,9 +391,17 @@ function PreviewStage({ reloadKey }: { reloadKey: number }) {
 		[html],
 	);
 
+	const stageRef = useRef<HTMLDivElement>(null);
 	const iframeRef = useRef<HTMLIFrameElement>(null);
-	const modeRef = useRef(editor.mode);
-	modeRef.current = editor.mode;
+	const [selectionRect, setSelectionRect] =
+		useState<PreviewSelectionRect | null>(null);
+	const [targetCommentDraftVersion, setTargetCommentDraftVersion] = useState(0);
+	const modeRef = useRef(previewMode);
+	modeRef.current = previewMode;
+	const aiTargetWids = useMemo(
+		() => aiTargets.map(({ wid }) => wid),
+		[aiTargets],
+	);
 	// The wid of the LAST select the user produced in this document — the
 	// only element a text-edited message may target. Deliberately not
 	// cleared on deselect/chip-clear (the editor script emits text-edited
@@ -207,14 +423,36 @@ function PreviewStage({ reloadKey }: { reloadKey: number }) {
 		iframeRef,
 		onSelect: (selection) => {
 			if (modeRef.current === "browse") return;
+			setSelectionRect((current) =>
+				selectionRectAfterSelect(current, selection.wid),
+			);
 			lastSelectWidRef.current = selection.wid;
 			editor.setSelection(selection);
 		},
-		onDeselect: () => editor.setSelection(null),
-		onTextEdited: (wid, value) => {
+		onDeselect: () => {
+			setSelectionRect(null);
+			editor.setSelection(null);
+		},
+		onSelectionRect: (rect) => {
+			if (rect === null) {
+				setSelectionRect(null);
+				return;
+			}
+			if (
+				modeRef.current === "select" &&
+				lastSelectWidRef.current === rect.wid
+			) {
+				setSelectionRect(rect);
+			}
+		},
+		onEscape: editor.handleEscape,
+		onAskAiShortcut: () => {
+			routePreviewAskAiShortcut(modeRef.current, editor.focusTargetComment);
+		},
+		onTextEdited: (wid, value, flattenedWids) => {
 			if (modeRef.current === "browse") return;
 			if (lastSelectWidRef.current !== wid) return;
-			editor.recordText(wid, value);
+			editor.recordText(wid, value, flattenedWids);
 		},
 		// The iframe remounts per version/reload/discard — sync the mode as
 		// soon as its editor script boots, then re-apply any pending live
@@ -222,11 +460,16 @@ function PreviewStage({ reloadKey }: { reloadKey: number }) {
 		// as pending state and must stay visible).
 		onReady: () => {
 			lastSelectWidRef.current = null;
-			iframeRef.current?.contentWindow?.postMessage(
-				setModeMessage(modeRef.current),
-				"*",
-			);
-			editor.replayPending();
+			setSelectionRect(null);
+			for (const message of previewReadyMessages(
+				modeRef.current,
+				editor.targetCommentPins,
+				aiTargetWids,
+				editor.isAskAiDispatching,
+			)) {
+				iframeRef.current?.contentWindow?.postMessage(message, "*");
+			}
+			if (!isPreviewingHistorical) editor.replayPending();
 		},
 	});
 
@@ -238,16 +481,58 @@ function PreviewStage({ reloadKey }: { reloadKey: number }) {
 
 	// Mode toggles arrive from the toolbar — mirror them into the iframe.
 	useEffect(() => {
-		post(setModeMessage(editor.mode));
-	}, [editor.mode, post]);
+		post(setModeMessage(previewMode));
+		if (previewMode !== "select") setSelectionRect(null);
+	}, [post, previewMode]);
 
-	const attempt = overview?.latestAttempt ?? null;
-	const isBuilding =
-		attempt?.status === "queued" || attempt?.status === "generating";
-	// The number the running build will produce: one past what's showing.
-	const pendingVersionNumber = (activeVersion?.number ?? 0) + 1;
+	useEffect(() => {
+		post(setCommentPinsMessage(editor.targetCommentPins));
+	}, [editor.targetCommentPins, post]);
 
-	if (overviewQuery.isPending || (activeVersion && htmlQuery.isPending)) {
+	useEffect(() => {
+		post(setAiTargetsMessage(aiTargetWids));
+	}, [aiTargetWids, post]);
+
+	// Freeze direct iframe edits for the whole scoped Ask-AI dispatch: the
+	// auto-save, the AI turn, and its ready/error completion. onReady above
+	// mirrors the same state when a version refresh remounts the iframe mid-turn.
+	useEffect(() => {
+		syncPreviewSuspension(post, editor.isAskAiDispatching);
+	}, [editor.isAskAiDispatching, post]);
+
+	useEffect(() => {
+		if (editor.prunedTargetCommentCount === 0) return;
+		toast.info(
+			t("workspace.page.editor.targetRemoved", {
+				count: editor.prunedTargetCommentCount,
+			}),
+		);
+		editor.acknowledgeTargetCommentsPruned();
+	}, [
+		editor.acknowledgeTargetCommentsPruned,
+		editor.prunedTargetCommentCount,
+		t,
+	]);
+
+	const dispatchComments = async (
+		comments: Parameters<typeof dispatchTargetComments>[0]["comments"],
+	) => {
+		const result = await dispatchTargetComments({
+			comments,
+			begin: editor.beginAskAiDispatch,
+			end: editor.endAskAiDispatch,
+			save: editor.save,
+			send: sendText,
+			onSendFailure: () => toast.error(t("workspace.page.editor.askAiFailed")),
+			onSuccess: editor.clearTargetComments,
+		});
+		setTargetCommentDraftVersion((current) =>
+			targetCommentDraftVersionAfterDispatch(current, result),
+		);
+		return result;
+	};
+
+	if (pageOverviewPending || (previewVersion && htmlQuery.isPending)) {
 		return (
 			<div className="relative flex h-full items-center justify-center p-6">
 				<Skeleton className="h-full max-h-[720px] w-[390px] max-w-full rounded-[2rem]" />
@@ -255,10 +540,10 @@ function PreviewStage({ reloadKey }: { reloadKey: number }) {
 		);
 	}
 
-	if (!activeVersion) {
+	if (!previewVersion) {
 		return (
 			<div className="relative flex h-full items-center justify-center p-6">
-				{isBuilding ? (
+				{isGenerating ? (
 					<GeneratingPanel pendingVersionNumber={pendingVersionNumber} />
 				) : attempt?.status === "failed" ? (
 					<FailedPanel error={attempt.error} />
@@ -270,9 +555,30 @@ function PreviewStage({ reloadKey }: { reloadKey: number }) {
 	}
 
 	const mobile = viewport === "mobile";
+	const selection = editor.selection;
+	const selectedComment = selection
+		? (editor.targetComments.find(({ wid }) => wid === selection.wid) ?? null)
+		: null;
+	const dispatchDisabled =
+		editor.isAskAiDispatching ||
+		editor.isSaving ||
+		chatStatus === "submitted" ||
+		chatStatus === "streaming";
+	const { showTargetPopover, showTargetReviewBar } =
+		targetCommentChromeVisibility({
+			previewMode,
+			selectionWid: selection?.wid ?? null,
+			selectionRectWid: selectionRect?.wid ?? null,
+			queuedCount: editor.targetComments.length,
+			isPreviewingHistorical,
+			isAskAiDispatching: editor.isAskAiDispatching,
+		});
 
 	return (
-		<div className="relative flex h-full items-center justify-center p-4 md:p-6">
+		<div
+			ref={stageRef}
+			className="relative flex h-full items-center justify-center p-4 md:p-6"
+		>
 			<span className="absolute start-4 top-3.5 z-10 text-muted-foreground text-xs">
 				{mobile
 					? t("workspace.page.viewportMobile")
@@ -309,9 +615,9 @@ function PreviewStage({ reloadKey }: { reloadKey: number }) {
 					)}
 				>
 					<PreviewFrame
-						key={`${activeVersion.id}-${reloadKey}-${viewport}-${editor.discardCount}`}
+						key={`${previewVersion.id}-${reloadKey}-${viewport}-${editor.discardCount}`}
 						html={previewHtml}
-						title={`${project?.name ?? t("workspace.page.previewFallback")} — v${activeVersion.number}`}
+						title={`${project?.name ?? t("workspace.page.previewFallback")} — v${previewVersion.number}`}
 						frameRef={iframeRef}
 					/>
 					{/* Bezel handle bar — physically centered; no reading direction. */}
@@ -324,12 +630,52 @@ function PreviewStage({ reloadKey }: { reloadKey: number }) {
 				</div>
 				{/* While editing, the overlay would swallow the editor's clicks —
 				    keep it browse-only (the toolbar still shows build status). */}
-				{isBuilding && editor.mode === "browse" ? (
+				{isGenerating && !isPreviewingHistorical && previewMode === "browse" ? (
 					<div className="absolute inset-0 z-10 grid place-items-center bg-background/55 backdrop-blur-[2px]">
 						<GeneratingPanel pendingVersionNumber={pendingVersionNumber} />
 					</div>
 				) : null}
 			</motion.div>
+			{showTargetPopover && selection && selectionRect ? (
+				<TargetCommentPopover
+					key={`${selection.wid}:${selectedComment?.comment ?? "new"}:${targetCommentDraftVersion}`}
+					selectionRect={selectionRect}
+					queuedComment={selectedComment}
+					queuedCount={editor.targetComments.length}
+					queueFull={editor.isTargetCommentQueueFull}
+					disabled={dispatchDisabled}
+					stageRef={stageRef}
+					iframeRef={iframeRef}
+					registerFocus={editor.registerTargetCommentFocus}
+					onSend={(comment) => {
+						const entry = targetCommentEntry(selection, comment);
+						if (!entry) return;
+						void dispatchPopoverTargetComment({
+							entry,
+							queuedComments: editor.targetComments,
+							enqueue: editor.upsertTargetComment,
+							dispatch: dispatchComments,
+						});
+					}}
+					onAdd={(comment) => {
+						const entry = targetCommentEntry(selection, comment);
+						if (entry) editor.upsertTargetComment(entry);
+					}}
+					onUpdate={(comment) => {
+						const entry = targetCommentEntry(selection, comment);
+						if (entry) editor.upsertTargetComment(entry);
+					}}
+					onRemove={() => editor.removeTargetComment(selection.wid)}
+				/>
+			) : null}
+			{showTargetReviewBar ? (
+				<TargetCommentReviewBar
+					count={editor.targetComments.length}
+					disabled={dispatchDisabled}
+					onClear={editor.clearTargetComments}
+					onSend={() => void dispatchComments([...editor.targetComments])}
+				/>
+			) : null}
 		</div>
 	);
 }

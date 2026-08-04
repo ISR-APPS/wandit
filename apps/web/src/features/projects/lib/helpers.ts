@@ -4,8 +4,11 @@
  * Flow position:
  * - useCreateProjectWithPrompt() uses deriveProjectName() before creating a
  *   project so the dashboard can show a readable temporary name immediately.
- * - Project cards use thumbGradient() to render deterministic placeholder art.
- * - Neither helper calls the API; they only turn local inputs into display data.
+ * - Project cards use thumbGradient() to render deterministic placeholder art
+ *   and shouldShowProjectPreview() to recover when a newer thumbnail replaces
+ *   one that failed.
+ * - These helpers do not call the API; they only turn local inputs into display
+ *   data.
  *
  * Gotchas:
  * - Project naming is intentionally simple MVP logic, not AI-generated naming.
@@ -127,4 +130,12 @@ export function thumbGradient(seed: number): string {
 	const l1 = (52 + ((h >>> 6) % 12)) / 100; // 0.52–0.63
 	const l2 = (32 + ((h >>> 9) % 10)) / 100; // 0.32–0.41
 	return `linear-gradient(135deg, oklch(${l1} 0.13 ${hue1}), oklch(${l2} 0.12 ${hue2}))`;
+}
+
+/** A failed thumbnail only suppresses the exact URL whose request failed. */
+export function shouldShowProjectPreview(
+	previewImageUrl: string | null,
+	failedPreviewImageUrl: string | null,
+): boolean {
+	return Boolean(previewImageUrl) && previewImageUrl !== failedPreviewImageUrl;
 }

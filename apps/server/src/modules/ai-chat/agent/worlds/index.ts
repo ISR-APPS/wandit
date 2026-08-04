@@ -14,11 +14,13 @@
  */
 
 import { atelier } from "./atelier";
+import { bazar } from "./bazar";
 import { beton } from "./beton";
 import { cargo } from "./cargo";
 import { cinetique } from "./cinetique";
 import { clarte } from "./clarte";
 import { cocon } from "./cocon";
+import { codWorlds } from "./cod";
 import { forge } from "./forge";
 import { fournil } from "./fournil";
 import { heritage } from "./heritage";
@@ -32,7 +34,6 @@ import { precis } from "./precis";
 import { ribambelle } from "./ribambelle";
 import { riviera } from "./riviera";
 import { sillage } from "./sillage";
-import { souk } from "./souk";
 import type { DesignWorld } from "./types";
 import { verger } from "./verger";
 import { vitrine } from "./vitrine";
@@ -42,6 +43,7 @@ export type { DesignWorld } from "./types";
 
 export const designWorlds: DesignWorld[] = [
 	atelier,
+	bazar,
 	beton,
 	cargo,
 	cinetique,
@@ -60,10 +62,10 @@ export const designWorlds: DesignWorld[] = [
 	ribambelle,
 	riviera,
 	sillage,
-	souk,
 	verger,
 	vitrine,
 	zellige,
+	...codWorlds,
 ];
 
 export function getWorld(id: string): DesignWorld | undefined {
@@ -108,6 +110,9 @@ const MENU_SIZE = 6;
 // crowds out the surprising pick.
 const MAX_AFFINE_SEATS = 3;
 
+const COD_MENU_SIZE = 8;
+const COD_MAX_AFFINE_SEATS = 4;
+
 function sampleSection(pool: DesignWorld[], hints: string[]): DesignWorld[] {
 	const eligible = pool.filter((world) => !matchesAny(world.avoidFor, hints));
 	const usable = eligible.length > 0 ? eligible : pool;
@@ -115,6 +120,80 @@ function sampleSection(pool: DesignWorld[], hints: string[]): DesignWorld[] {
 	const seated = affine.slice(0, MAX_AFFINE_SEATS);
 	const rest = shuffle(usable.filter((w) => !seated.includes(w)));
 	return shuffle([...seated, ...rest.slice(0, MENU_SIZE - seated.length)]);
+}
+
+function worldsFuse(left: DesignWorld, right: DesignWorld): boolean {
+	return (
+		left.fusesWith?.includes(right.id) === true ||
+		right.fusesWith?.includes(left.id) === true
+	);
+}
+
+function countFusablePairs(worlds: DesignWorld[]): number {
+	let count = 0;
+	for (let leftIndex = 0; leftIndex < worlds.length; leftIndex++) {
+		for (
+			let rightIndex = leftIndex + 1;
+			rightIndex < worlds.length;
+			rightIndex++
+		) {
+			const left = worlds[leftIndex];
+			const right = worlds[rightIndex];
+			if (left && right && worldsFuse(left, right)) count++;
+		}
+	}
+	return count;
+}
+
+function sampleCodSection(pool: DesignWorld[], hints: string[]): DesignWorld[] {
+	const eligible = pool.filter((world) => !matchesAny(world.avoidFor, hints));
+	const usable = eligible.length > 0 ? eligible : pool;
+	const affine = shuffle(usable.filter((w) => matchesAny(w.industries, hints)));
+	const seated = affine.slice(0, COD_MAX_AFFINE_SEATS);
+	const remaining = shuffle(usable.filter((w) => !seated.includes(w)));
+
+	// Fill the non-affine seats with compatible donors first. If the seated
+	// worlds have no partner left, seed a compatible pair from the remainder.
+	// Four open seats are enough to guarantee two pairs whenever the eligible
+	// pool contains them, even when none of the affine worlds participate.
+	while (seated.length < COD_MENU_SIZE && countFusablePairs(seated) < 2) {
+		const partnerIndex = remaining.findIndex((candidate) =>
+			seated.some((world) => worldsFuse(world, candidate)),
+		);
+		if (partnerIndex >= 0) {
+			const [partner] = remaining.splice(partnerIndex, 1);
+			if (partner) seated.push(partner);
+			continue;
+		}
+
+		if (COD_MENU_SIZE - seated.length < 2) break;
+		let pairIndexes: readonly [number, number] | undefined;
+		for (let leftIndex = 0; leftIndex < remaining.length; leftIndex++) {
+			for (
+				let rightIndex = leftIndex + 1;
+				rightIndex < remaining.length;
+				rightIndex++
+			) {
+				const left = remaining[leftIndex];
+				const right = remaining[rightIndex];
+				if (left && right && worldsFuse(left, right)) {
+					pairIndexes = [leftIndex, rightIndex];
+					break;
+				}
+			}
+			if (pairIndexes) break;
+		}
+
+		if (!pairIndexes) break;
+		const [leftIndex, rightIndex] = pairIndexes;
+		const [right] = remaining.splice(rightIndex, 1);
+		const [left] = remaining.splice(leftIndex, 1);
+		if (left) seated.push(left);
+		if (right) seated.push(right);
+	}
+
+	seated.push(...remaining.slice(0, COD_MENU_SIZE - seated.length));
+	return shuffle(seated);
 }
 
 function formatWorld(world: DesignWorld, hints: string[]): string {
@@ -127,6 +206,20 @@ function formatWorld(world: DesignWorld, hints: string[]): string {
 	);
 }
 
+function formatCodWorld(world: DesignWorld, hints: string[]): string {
+	const fit = matchesAny(world.industries, hints)
+		? " · STRONG FIT for this business"
+		: "";
+	const fusesWith = world.fusesWith?.join(", ") || "none listed";
+	const skin = world.preview
+		? `${world.preview.ground}/${world.preview.ink}/${world.preview.accent}, ${world.preview.fontFamily}`
+		: "not specified";
+	return (
+		`- ${world.id} — "${world.name}" (${world.energy}, ${world.priceFeel}; ` +
+		`mood: ${world.mood.join(", ")}) · fuses with: ${fusesWith} · skin: ${skin}${fit}\n  ${world.tagline}`
+	);
+}
+
 /**
  * Format the sampled world menu for the Brain's candidate tool result: one
  * section per build type. The sampling randomness lives HERE, never in the
@@ -135,20 +228,31 @@ function formatWorld(world: DesignWorld, hints: string[]): string {
 export function formatWorldCandidates(params: {
 	business: string;
 	industryHints?: string[];
+	pageKind?: "website" | "product" | "cod";
 }): string {
 	const hints = [params.business, ...(params.industryHints ?? [])];
+	if (params.pageKind === "cod") {
+		const worlds = sampleCodSection(
+			designWorlds.filter((world) => world.kind === "cod"),
+			hints,
+		);
+		return `## COD FUNNEL WORLDS — one coherent visual universe, freshly sampled
+Pick ONE BASE + 2-3 DONORS from this menu. Prefer donors from the base's fuses with list or worlds sharing its mood. Pass the ids to generate_page.worldIds in base-first order and set pageKind: "cod".
+${worlds.map((world) => formatCodWorld(world, hints)).join("\n")}`;
+	}
+
 	const websiteWorlds = sampleSection(
-		designWorlds.filter((w) => w.kind !== "cod"),
+		designWorlds.filter((w) => w.kind === "website" || w.kind === "both"),
 		hints,
 	);
-	const codWorlds = sampleSection(
-		designWorlds.filter((w) => w.kind !== "website"),
+	const productWorlds = sampleSection(
+		designWorlds.filter((w) => w.kind === "product" || w.kind === "both"),
 		hints,
 	);
 
-	return `## DESIGN WORLDS — the page's visual universe (freshly sampled; the builder receives the chosen world's full design bible automatically — you never restate it; pass its id as worldId to generate_page and INSTANTIATE it: your palette hexes, fonts and content live inside its physics)
+	return `## DESIGN WORLDS — the page's visual universe (freshly sampled; the builder receives the chosen world's full design bible automatically — you never restate it: your palette hexes, fonts and content live inside its physics)
 WEBSITE WORLDS (a multi-section website picks EXACTLY ONE):
 ${websiteWorlds.map((w) => formatWorld(w, hints)).join("\n")}
-PRODUCT-PAGE WORLDS (a single-product/COD page picks ONE when it fits — or none for the classic skeleton path):
-${codWorlds.map((w) => formatWorld(w, hints)).join("\n")}`;
+PRODUCT-PAGE WORLDS (a single-product presentation page picks ONE when it fits — or none for the classic skeleton path):
+${productWorlds.map((w) => formatWorld(w, hints)).join("\n")}`;
 }

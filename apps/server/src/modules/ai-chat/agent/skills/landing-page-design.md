@@ -107,10 +107,20 @@ micro-animations everywhere.
 Before describing or building any section, fix the system as named tokens —
 and then use ONLY the tokens:
 
-- **Color tokens:** `--bg`, `--surface`, `--ink`, `--ink-muted`, `--accent`,
-  `--accent-ink` (text on accent). Dominant ground + ONE accent reserved for
-  actions (order button, WhatsApp) outperforms evenly-spread color. If a color
-  is not a token, it does not appear on the page.
+- **Reserved contract (all 11, no aliases):** `--background`, `--foreground`,
+  `--primary`, `--primary-foreground`, `--secondary`, `--accent`, `--muted`,
+  `--border`, `--radius`, `--font-heading`, `--font-body`. Every brief maps its
+  named palette poles and font pairing onto these exact names; never propose a
+  parallel token vocabulary.
+- **Color roles:** `--background` is the dominant ground, `--foreground` its
+  ink, `--primary` the principal action or emphasis, `--primary-foreground`
+  the ink on primary, and `--secondary`, `--accent`, `--muted`, and `--border`
+  carry the remaining palette roles. Derived alpha steps use `color-mix()` over
+  these tokens. If a rendered color does not resolve from one of them, it does
+  not appear on the page.
+- **Type and shape:** `--font-heading` and `--font-body` hold the real family
+  stacks; `--radius` is the page's CSS length for corners. Briefs specify their
+  values rather than inventing replacement custom properties.
 - **Type scale:** a real scale (e.g. 1.25–1.333 ratio), ~4–5 sizes, mobile
   values first. Body ≥ 16px on mobile. One display size must be genuinely
   large — hierarchy comes from size contrast, not from bolding everything.

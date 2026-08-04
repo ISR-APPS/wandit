@@ -10,6 +10,7 @@ import type {
 	ImageGenerationsRepository,
 } from "../../../image-generations/infrastructure/persistence/image-generations.repository";
 import type { MediaGenerationsRepository } from "../../../media-generations/infrastructure/persistence/media-generations.repository";
+import type { ProjectScope } from "../../../projects/domain/project-scope";
 import type { ProjectAssetsRepository } from "../../infrastructure/persistence/project-assets.repository";
 import { ProjectAssetsService } from "./project-assets.service";
 
@@ -36,8 +37,13 @@ vi.mock("../../../../infrastructure/storage/r2", () => ({
 	publicAssetUrl: (key: string) => `https://assets.example.com/${key}`,
 }));
 
+vi.mock("../../../../infrastructure/analytics/analytics.service", () => ({
+	AnalyticsService: class AnalyticsService {},
+}));
+
 const PROJECT_ID = "22222222-2222-4222-8222-222222222222";
 const USER_ID = "user_1";
+const SCOPE: ProjectScope = { kind: "personal", userId: USER_ID };
 
 const IMAGE_ATTEMPT: ImageGenerationAttemptRow = {
 	aspect: "1:1",
@@ -59,6 +65,7 @@ const IMAGE_ATTEMPT: ImageGenerationAttemptRow = {
 	projectId: PROJECT_ID,
 	prompt: "studio shot",
 	sourceImageUrls: [],
+	spec: null,
 	status: "succeeded",
 	title: "Photo produit",
 };
@@ -69,15 +76,15 @@ function setup(overrides?: {
 	videos?: unknown[];
 }) {
 	const projectAssetsRepository = {
-		isProjectOwned: vi.fn().mockResolvedValue(overrides?.owned ?? true),
+		isProjectAccessible: vi.fn().mockResolvedValue(overrides?.owned ?? true),
 	};
 	const imageGenerationsRepository = {
-		listOwnedByProject: vi
+		listForProject: vi
 			.fn()
 			.mockResolvedValue(overrides?.imageAttempts ?? []),
 	};
 	const mediaGenerationsRepository = {
-		listOwnedSucceededByProject: vi
+		listSucceededForProject: vi
 			.fn()
 			.mockResolvedValue(overrides?.videos ?? []),
 	};
@@ -100,7 +107,7 @@ describe("ProjectAssetsService.listAssets", () => {
 	it("fans a multi-image attempt out into numbered entries", async () => {
 		const { service } = setup({ imageAttempts: [IMAGE_ATTEMPT] });
 
-		const assets = await service.listAssets(USER_ID, PROJECT_ID);
+		const assets = await service.listAssets(SCOPE, PROJECT_ID);
 
 		expect(assets).toHaveLength(2);
 		expect(assets.map((asset) => asset.name)).toEqual([
@@ -128,7 +135,7 @@ describe("ProjectAssetsService.listAssets", () => {
 			],
 		});
 
-		const assets = await service.listAssets(USER_ID, PROJECT_ID);
+		const assets = await service.listAssets(SCOPE, PROJECT_ID);
 
 		expect(assets).toHaveLength(1);
 		expect(assets[0]?.kind).toBe("video");
@@ -159,7 +166,7 @@ describe("ProjectAssetsService.listAssets", () => {
 		]);
 		const { service } = setup();
 
-		const assets = await service.listAssets(USER_ID, PROJECT_ID);
+		const assets = await service.listAssets(SCOPE, PROJECT_ID);
 
 		expect(assets).toHaveLength(2);
 		expect(assets.map((asset) => asset.kind).sort()).toEqual([
@@ -193,7 +200,7 @@ describe("ProjectAssetsService.listAssets", () => {
 			],
 		});
 
-		const assets = await service.listAssets(USER_ID, PROJECT_ID);
+		const assets = await service.listAssets(SCOPE, PROJECT_ID);
 
 		expect(assets).toHaveLength(1);
 		expect(assets[0]?.source).toBe("image-animation");
@@ -202,7 +209,7 @@ describe("ProjectAssetsService.listAssets", () => {
 	it("throws NotFound for an unowned project", async () => {
 		const { service } = setup({ owned: false });
 
-		await expect(service.listAssets(USER_ID, PROJECT_ID)).rejects.toThrow(
+		await expect(service.listAssets(SCOPE, PROJECT_ID)).rejects.toThrow(
 			NotFoundException,
 		);
 	});
@@ -211,7 +218,7 @@ describe("ProjectAssetsService.listAssets", () => {
 		vi.mocked(isR2Configured).mockReturnValue(false);
 		const { service } = setup({ imageAttempts: [IMAGE_ATTEMPT] });
 
-		const assets = await service.listAssets(USER_ID, PROJECT_ID);
+		const assets = await service.listAssets(SCOPE, PROJECT_ID);
 
 		expect(assets).toHaveLength(2);
 		expect(vi.mocked(listObjectsByPrefix)).not.toHaveBeenCalled();
@@ -223,11 +230,11 @@ describe("ProjectAssetsService.download", () => {
 		const { service } = setup();
 
 		await expect(
-			service.download(USER_ID, PROJECT_ID, "uploads/other-user/x/y.png"),
+			service.download(SCOPE, PROJECT_ID, "uploads/other-user/x/y.png"),
 		).rejects.toThrow(NotFoundException);
 		await expect(
 			service.download(
-				USER_ID,
+				SCOPE,
 				PROJECT_ID,
 				"sites/99999999-9999-4999-8999-999999999999/assets/a/img-1.png",
 			),

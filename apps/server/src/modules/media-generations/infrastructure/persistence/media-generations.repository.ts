@@ -14,6 +14,15 @@ import type {
 import { and, desc, eq, isNull, lt } from "@wandit/db";
 import { mediaGenerationAttempts } from "@wandit/db/schema/media-generation-attempts";
 import { projects } from "@wandit/db/schema/projects";
+import { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
+import {
+	captureGenerationCompleted,
+	captureGenerationFailed,
+} from "../../../../infrastructure/analytics/generation-events";
+import {
+	type ProjectScope,
+	projectScopePredicate,
+} from "../../../projects/domain/project-scope";
 import {
 	DATABASE,
 	type Database,
@@ -66,7 +75,11 @@ const ATTEMPT_COLUMNS = {
 
 @Injectable()
 export class MediaGenerationsRepository {
-	constructor(@Inject(DATABASE) private readonly db: Database) {}
+	constructor(
+		@Inject(DATABASE) private readonly db: Database,
+		@Inject(AnalyticsService)
+		private readonly analyticsService: AnalyticsService,
+	) {}
 
 	async insertAttempt(input: {
 		aspect: ImageToVideoAspect;
@@ -133,7 +146,11 @@ export class MediaGenerationsRepository {
 			.where(eq(mediaGenerationAttempts.id, attemptId));
 	}
 
-	async markAttemptFailed(attemptId: string, error: string): Promise<boolean> {
+	async markAttemptFailed(
+		attemptId: string,
+		error: string,
+		userId: string,
+	): Promise<boolean> {
 		const [row] = await this.db
 			.update(mediaGenerationAttempts)
 			.set({
@@ -147,22 +164,49 @@ export class MediaGenerationsRepository {
 					eq(mediaGenerationAttempts.status, "queued"),
 				),
 			)
-			.returning({ id: mediaGenerationAttempts.id });
+			.returning({ projectId: mediaGenerationAttempts.projectId });
 
-		return Boolean(row);
+		if (!row) {
+			return false;
+		}
+
+		captureGenerationFailed(
+			this.analyticsService,
+			userId,
+			"animation",
+			row.projectId,
+			attemptId,
+			"trigger_rejected",
+		);
+
+		return true;
 	}
 
-	async findOwnedAttempt(
-		userId: string,
+	async findAccessibleAttempt(
+		scope: ProjectScope,
 		attemptId: string,
 	): Promise<MediaGenerationAttemptRow | null> {
-		return this.selectOwnedAttempt(userId, attemptId);
+		const [row] = await this.db
+			.select(ATTEMPT_COLUMNS)
+			.from(mediaGenerationAttempts)
+			.innerJoin(projects, eq(projects.id, mediaGenerationAttempts.projectId))
+			.where(
+				and(
+					eq(mediaGenerationAttempts.id, attemptId),
+					projectScopePredicate(scope),
+					isNull(projects.deletedAt),
+				),
+			)
+			.limit(1);
+
+		return row ?? null;
 	}
 
 	async markStaleGeneratingAttemptFailed(
 		attemptId: string,
 		startedBefore: Date,
 		error: string,
+		userId: string,
 	): Promise<boolean> {
 		const [row] = await this.db
 			.update(mediaGenerationAttempts)
@@ -178,15 +222,29 @@ export class MediaGenerationsRepository {
 					lt(mediaGenerationAttempts.startedAt, startedBefore),
 				),
 			)
-			.returning({ id: mediaGenerationAttempts.id });
+			.returning({ projectId: mediaGenerationAttempts.projectId });
 
-		return Boolean(row);
+		if (!row) {
+			return false;
+		}
+
+		captureGenerationFailed(
+			this.analyticsService,
+			userId,
+			"animation",
+			row.projectId,
+			attemptId,
+			"stale_generation",
+		);
+
+		return true;
 	}
 
 	async markStaleQueuedAttemptFailed(
 		attemptId: string,
 		createdBefore: Date,
 		error: string,
+		userId: string,
 	): Promise<boolean> {
 		const [row] = await this.db
 			.update(mediaGenerationAttempts)
@@ -202,15 +260,29 @@ export class MediaGenerationsRepository {
 					lt(mediaGenerationAttempts.createdAt, createdBefore),
 				),
 			)
-			.returning({ id: mediaGenerationAttempts.id });
+			.returning({ projectId: mediaGenerationAttempts.projectId });
 
-		return Boolean(row);
+		if (!row) {
+			return false;
+		}
+
+		captureGenerationFailed(
+			this.analyticsService,
+			userId,
+			"animation",
+			row.projectId,
+			attemptId,
+			"stale_queued",
+		);
+
+		return true;
 	}
 
 	async markGeneratingAttemptSucceeded(
 		attemptId: string,
 		videoUrl: string,
 		videoMediaType: string,
+		userId: string,
 	): Promise<boolean> {
 		const [row] = await this.db
 			.update(mediaGenerationAttempts)
@@ -227,14 +299,26 @@ export class MediaGenerationsRepository {
 					eq(mediaGenerationAttempts.status, "generating"),
 				),
 			)
-			.returning({ id: mediaGenerationAttempts.id });
+			.returning({ projectId: mediaGenerationAttempts.projectId });
 
-		return Boolean(row);
+		if (!row) {
+			return false;
+		}
+
+		captureGenerationCompleted(
+			this.analyticsService,
+			userId,
+			"animation",
+			row.projectId,
+			attemptId,
+		);
+
+		return true;
 	}
 
 	// Assets tab: every finished animation of one owned project, newest first.
-	async listOwnedSucceededByProject(
-		userId: string,
+	async listSucceededForProject(
+		scope: ProjectScope,
 		projectId: string,
 	): Promise<SucceededMediaGenerationRow[]> {
 		return this.db
@@ -252,30 +336,10 @@ export class MediaGenerationsRepository {
 				and(
 					eq(mediaGenerationAttempts.projectId, projectId),
 					eq(mediaGenerationAttempts.status, "succeeded"),
-					eq(projects.userId, userId),
+					projectScopePredicate(scope),
 					isNull(projects.deletedAt),
 				),
 			)
 			.orderBy(desc(mediaGenerationAttempts.createdAt));
-	}
-
-	private async selectOwnedAttempt(
-		userId: string,
-		attemptId: string,
-	): Promise<MediaGenerationAttemptRow | null> {
-		const [row] = await this.db
-			.select(ATTEMPT_COLUMNS)
-			.from(mediaGenerationAttempts)
-			.innerJoin(projects, eq(projects.id, mediaGenerationAttempts.projectId))
-			.where(
-				and(
-					eq(mediaGenerationAttempts.id, attemptId),
-					eq(projects.userId, userId),
-					isNull(projects.deletedAt),
-				),
-			)
-			.limit(1);
-
-		return row ?? null;
 	}
 }

@@ -57,12 +57,25 @@ export const pageVersionHtmlSchema = z.object({
 
 export type PageVersionHtml = z.infer<typeof pageVersionHtmlSchema>;
 
+export const pageVersionSourceSchema = z.enum([
+	"builder",
+	"ai-edit",
+	"inline",
+	"theme",
+	"restore",
+]);
+
+export type PageVersionSource = z.infer<typeof pageVersionSourceSchema>;
+
 // One row of the version-history list (Settings history, version switcher,
 // rollback picker). `label` is a human summary derived from the version's
 // build metadata; `isLive` marks the currently published version.
 export const pageVersionListItemSchema = pageVersionSummarySchema.extend({
 	label: z.string().nullable(),
 	isLive: z.boolean(),
+	source: pageVersionSourceSchema.nullable().default(null),
+	/** Server-derived because source=null also covers invalid/future metadata. */
+	isBuilderOrigin: z.boolean().default(false),
 });
 
 export type PageVersionListItem = z.infer<typeof pageVersionListItemSchema>;
@@ -73,6 +86,22 @@ export const listPageVersionsResponseSchema = z.object({
 
 export type ListPageVersionsResponse = z.infer<
 	typeof listPageVersionsResponseSchema
+>;
+
+export const restorePageVersionBodySchema = z.object({
+	expectedActiveVersionId: uuidSchema,
+});
+
+export type RestorePageVersionBody = z.infer<
+	typeof restorePageVersionBodySchema
+>;
+
+export const restorePageVersionResponseSchema = z.object({
+	version: pageVersionSummarySchema,
+});
+
+export type RestorePageVersionResponse = z.infer<
+	typeof restorePageVersionResponseSchema
 >;
 
 // Route path builders. These return strings; they do not make network calls.
@@ -87,4 +116,7 @@ export const pagesRoutes = {
 	// GET — full version history for the project (newest first).
 	versions: (projectId: string) =>
 		`/api/v1/projects/${projectId}/page/versions`,
+	// POST — copy an old immutable version forward as the new active version.
+	restoreVersion: (projectId: string, versionId: string) =>
+		`/api/v1/projects/${projectId}/page/versions/${versionId}/restore`,
 } as const;

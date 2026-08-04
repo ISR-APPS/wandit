@@ -10,8 +10,11 @@ import type {
 	PageOverview,
 	PageVersionHtml,
 } from "@wandit/contracts";
+import { pageVersionSourceSchema } from "@wandit/contracts";
 
 import { getPageHtml } from "../../../../infrastructure/storage/r2";
+import type { ProjectScope } from "../../../projects/domain/project-scope";
+import { stampHtml } from "../../domain/stamp";
 import { PagesRepository } from "../../infrastructure/persistence/pages.repository";
 
 @Injectable()
@@ -22,9 +25,9 @@ export class PagesService {
 	) {}
 
 	// One request answers "what should the Page tab show right now?".
-	async overview(userId: string, projectId: string): Promise<PageOverview> {
+	async overview(scope: ProjectScope, projectId: string): Promise<PageOverview> {
 		const rows = await this.pagesRepository.findOverviewByProject(
-			userId,
+			scope,
 			projectId,
 		);
 
@@ -57,11 +60,11 @@ export class PagesService {
 
 	// Full version history (Settings history, version switcher, rollback).
 	async listVersions(
-		userId: string,
+		scope: ProjectScope,
 		projectId: string,
 	): Promise<ListPageVersionsResponse> {
 		const rows = await this.pagesRepository.listVersionsForProject(
-			userId,
+			scope,
 			projectId,
 		);
 
@@ -73,20 +76,22 @@ export class PagesService {
 			versions: rows.map((row) => ({
 				createdAt: row.createdAt.toISOString(),
 				id: row.id,
+				isBuilderOrigin: versionIsBuilderOrigin(row.meta),
 				isLive: row.isLive,
 				label: versionLabel(row.meta),
 				number: row.number,
+				source: versionSource(row.meta),
 			})),
 		};
 	}
 
 	// Full HTML of one immutable version, fetched from R2.
 	async versionHtml(
-		userId: string,
+		scope: ProjectScope,
 		versionId: string,
 	): Promise<PageVersionHtml> {
-		const version = await this.pagesRepository.findOwnedVersionById(
-			userId,
+		const version = await this.pagesRepository.findAccessibleVersionById(
+			scope,
 			versionId,
 		);
 
@@ -102,8 +107,29 @@ export class PagesService {
 			throw new NotFoundException();
 		}
 
-		return { html, versionId: version.id };
+		return { html: stampHtml(html), versionId: version.id };
 	}
+}
+
+function versionIsBuilderOrigin(meta: unknown): boolean {
+	const source =
+		typeof meta === "object" && meta !== null
+			? (meta as Record<string, unknown>).source
+			: undefined;
+
+	return source === "builder" || source === undefined || source === null;
+}
+
+function versionSource(meta: unknown) {
+	if (typeof meta !== "object" || meta === null) {
+		return null;
+	}
+
+	const parsed = pageVersionSourceSchema.safeParse(
+		(meta as Record<string, unknown>).source,
+	);
+
+	return parsed.success ? parsed.data : null;
 }
 
 // Human summary from a version's build metadata: the builder's own summary

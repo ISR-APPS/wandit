@@ -5,6 +5,10 @@
  * Trigger task advances that same row through generating -> succeeded/failed,
  * and the Marketing tab reads it through an ownership-checked project join.
  */
+import {
+	type ProjectScope,
+	projectScopePredicate,
+} from "../../../projects/domain/project-scope";
 import { Inject, Injectable } from "@nestjs/common";
 import type {
 	MarketingAssetStatus,
@@ -13,6 +17,8 @@ import type {
 import { and, desc, eq, isNull } from "@wandit/db";
 import { marketingAssets } from "@wandit/db/schema/marketing-assets";
 import { projects } from "@wandit/db/schema/projects";
+import { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
+import { captureGenerationFailed } from "../../../../infrastructure/analytics/generation-events";
 import {
 	DATABASE,
 	type Database,
@@ -44,7 +50,11 @@ const ASSET_COLUMNS = {
 
 @Injectable()
 export class MarketingAssetsRepository {
-	constructor(@Inject(DATABASE) private readonly db: Database) {}
+	constructor(
+		@Inject(DATABASE) private readonly db: Database,
+		@Inject(AnalyticsService)
+		private readonly analyticsService: AnalyticsService,
+	) {}
 
 	async insertAsset(input: {
 		assetType: MarketingAssetType;
@@ -101,7 +111,11 @@ export class MarketingAssetsRepository {
 			.where(eq(marketingAssets.id, assetId));
 	}
 
-	async markAssetFailed(assetId: string, error: string): Promise<boolean> {
+	async markAssetFailed(
+		assetId: string,
+		error: string,
+		userId: string,
+	): Promise<boolean> {
 		const [row] = await this.db
 			.update(marketingAssets)
 			.set({
@@ -115,13 +129,26 @@ export class MarketingAssetsRepository {
 					eq(marketingAssets.status, "queued"),
 				),
 			)
-			.returning({ id: marketingAssets.id });
+			.returning({ projectId: marketingAssets.projectId });
 
-		return Boolean(row);
+		if (!row) {
+			return false;
+		}
+
+		captureGenerationFailed(
+			this.analyticsService,
+			userId,
+			"marketing_asset",
+			row.projectId,
+			assetId,
+			"trigger_rejected",
+		);
+
+		return true;
 	}
 
-	async findOwnedAsset(
-		userId: string,
+	async findAccessibleAsset(
+		scope: ProjectScope,
 		assetId: string,
 	): Promise<MarketingAssetRow | null> {
 		const [row] = await this.db
@@ -131,7 +158,7 @@ export class MarketingAssetsRepository {
 			.where(
 				and(
 					eq(marketingAssets.id, assetId),
-					eq(projects.userId, userId),
+					projectScopePredicate(scope),
 					isNull(projects.deletedAt),
 				),
 			)
@@ -140,8 +167,8 @@ export class MarketingAssetsRepository {
 		return row ?? null;
 	}
 
-	async listOwnedByProject(
-		userId: string,
+	async listForProject(
+		scope: ProjectScope,
 		projectId: string,
 	): Promise<MarketingAssetRow[]> {
 		return this.db
@@ -151,7 +178,7 @@ export class MarketingAssetsRepository {
 			.where(
 				and(
 					eq(marketingAssets.projectId, projectId),
-					eq(projects.userId, userId),
+					projectScopePredicate(scope),
 					isNull(projects.deletedAt),
 				),
 			)

@@ -1,17 +1,18 @@
-import { ENTITLED_SUBSCRIPTION_STATUSES } from "@wandit/contracts";
 import { and, type createDb, eq, sql } from "@wandit/db";
 import { marketingAssets } from "@wandit/db/schema/marketing-assets";
 import { projects } from "@wandit/db/schema/projects";
 import { env } from "@wandit/env/server";
 
 import {
+	type AnalyticsCapture,
+	captureGenerationCompleted,
+	captureGenerationFailed,
+} from "../infrastructure/analytics/generation-events";
+import {
 	getObjectContentType,
 	marketingAssetKey,
 	putPageHtml,
 } from "../infrastructure/storage/r2";
-import { SubscriptionsRepository } from "../modules/billing/infrastructure/persistence/subscriptions.repository";
-import { CreditsService } from "../modules/credits/application/services/credits.service";
-import { CreditsRepository } from "../modules/credits/infrastructure/persistence/credits.repository";
 import {
 	createMarketingAssetBilling,
 	type MarketingAssetBilling,
@@ -22,6 +23,7 @@ import type {
 	MarketingAssetRunnerDependencies,
 } from "../modules/marketing-assets/application/services/marketing-asset-runner";
 import { generateMarketingAssetHtml } from "../modules/marketing-assets/application/services/marketing-html";
+import { createTriggerMetering } from "./metering.runtime";
 
 type TriggerDatabase = ReturnType<typeof createDb>;
 
@@ -32,6 +34,7 @@ const ASSET_COLUMNS = {
 	error: marketingAssets.error,
 	id: marketingAssets.id,
 	name: marketingAssets.name,
+	organizationId: projects.organizationId,
 	projectDeletedAt: projects.deletedAt,
 	projectId: marketingAssets.projectId,
 	r2Key: marketingAssets.r2Key,
@@ -52,15 +55,17 @@ export type MarketingAssetRuntime = {
  */
 export function createMarketingAssetRuntime(
 	db: TriggerDatabase,
+	analytics: AnalyticsCapture,
 ): MarketingAssetRuntime {
 	const billing = createBilling(db);
-	const persistence = createPersistence(db);
+	const persistence = createPersistence(db, analytics);
 
 	return {
 		runner: {
+			capture: billing.capture,
 			claimQueued: persistence.claimQueued,
 			fail: persistence.failFromStatus,
-			generate: async (asset, signal) => {
+			generate: async (asset, subject, signal, onProviderGeneration) => {
 				const generated = await generateMarketingAssetHtml(
 					{
 						assetType: asset.assetType,
@@ -70,7 +75,15 @@ export function createMarketingAssetRuntime(
 						}).format(new Date()),
 						name: asset.name,
 					},
+					// Metering identity comes from the queue-time subject: the acting
+					// member (not the project creator) with the paying entity.
+					{
+						operation: "marketing",
+						organizationId: subject.organizationId ?? null,
+						userId: subject.actorUserId,
+					},
 					signal,
+					onProviderGeneration,
 				);
 
 				if (generated.status !== "generated") {
@@ -81,9 +94,30 @@ export function createMarketingAssetRuntime(
 				// exact object and settles without a second model call.
 				const key = marketingAssetKey(asset.projectId, asset.id);
 
-				await putPageHtml(key, generated.html);
+				try {
+					await putPageHtml(key, generated.html);
+				} catch (error) {
+					return {
+						model: generated.model,
+						...(generated.provider ? { provider: generated.provider } : {}),
+						providerMetadata: generated.providerMetadata,
+						message: error instanceof Error ? error.message : String(error),
+						providerUnits: 1,
+						status: "failed" as const,
+						...(generated.usage === undefined
+							? {}
+							: { usage: generated.usage }),
+					};
+				}
 
-				return { r2Key: key, status: "generated" };
+				return {
+					model: generated.model,
+					...(generated.provider ? { provider: generated.provider } : {}),
+					providerMetadata: generated.providerMetadata,
+					r2Key: key,
+					status: "generated",
+					...(generated.usage === undefined ? {} : { usage: generated.usage }),
+				};
 			},
 			loadAsset: persistence.loadAsset,
 			markSucceeded: persistence.markSucceeded,
@@ -91,35 +125,20 @@ export function createMarketingAssetRuntime(
 			recoverStoredDocument: createStoredDocumentRecovery(),
 			refund: billing.refund,
 			reserve: billing.reserve,
+			settle: billing.settle,
+			settleExisting: billing.settleExisting,
 		},
 	};
 }
 
 function createBilling(db: TriggerDatabase): MarketingAssetBilling {
-	const creditsService = new CreditsService(new CreditsRepository(db));
-	const subscriptionsRepository = new SubscriptionsRepository(db);
-
 	return createMarketingAssetBilling({
-		consumeCredits: (userId, amount, options) =>
-			creditsService.consume(userId, amount, options),
-		hasActiveSubscription: async (userId) => {
-			const subscription =
-				await subscriptionsRepository.findActiveByUserId(userId);
-
-			return (
-				subscription !== null &&
-				(ENTITLED_SUBSCRIPTION_STATUSES as readonly string[]).includes(
-					subscription.status,
-				)
-			);
-		},
 		isBillingDisabled: () => env.GENERATION_BILLING_MODE === "off",
-		refundCredits: (userId, consumeIdempotencyKey, meta) =>
-			creditsService.refundConsume(userId, consumeIdempotencyKey, meta),
+		meteringService: createTriggerMetering(db),
 	});
 }
 
-function createPersistence(db: TriggerDatabase) {
+function createPersistence(db: TriggerDatabase, analytics: AnalyticsCapture) {
 	const loadAsset = async (
 		assetId: string,
 	): Promise<MarketingAssetJob | null> => {
@@ -186,6 +205,16 @@ function createPersistence(db: TriggerDatabase) {
 			)
 			.returning({ id: marketingAssets.id });
 
+		if (updated) {
+			captureGenerationCompleted(
+				analytics,
+				asset.userId,
+				"marketing_asset",
+				asset.projectId,
+				asset.id,
+			);
+		}
+
 		return Boolean(updated);
 	};
 
@@ -195,6 +224,7 @@ function createPersistence(db: TriggerDatabase) {
 			completedAt: Date;
 			error: string;
 			expectedStatus: "queued" | "generating";
+			reason: string;
 		},
 	): Promise<boolean> => {
 		const [updated] = await db
@@ -212,6 +242,17 @@ function createPersistence(db: TriggerDatabase) {
 				),
 			)
 			.returning({ id: marketingAssets.id });
+
+		if (updated) {
+			captureGenerationFailed(
+				analytics,
+				asset.userId,
+				"marketing_asset",
+				asset.projectId,
+				asset.id,
+				input.reason,
+			);
+		}
 
 		return Boolean(updated);
 	};

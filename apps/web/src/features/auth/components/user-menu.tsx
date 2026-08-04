@@ -1,5 +1,5 @@
 import { useQueryClient } from "@tanstack/react-query";
-import { useNavigate } from "@tanstack/react-router";
+import { Link, useNavigate } from "@tanstack/react-router";
 import {
 	Avatar,
 	AvatarFallback,
@@ -15,7 +15,7 @@ import {
 	DropdownMenuTrigger,
 } from "@wandit/ui/components/dropdown-menu";
 import { Skeleton } from "@wandit/ui/components/skeleton";
-import { LogOut } from "lucide-react";
+import { CreditCard, LogOut } from "lucide-react";
 
 import { LanguageSwitcherMenuItems } from "@/components/language-switcher";
 import { useTranslation } from "@/lib/i18n";
@@ -61,7 +61,7 @@ export function UserMenu() {
 				<button
 					type="button"
 					aria-label={user.name}
-					className="rounded-full transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+					className="ph-no-capture rounded-full transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
 				>
 					<Avatar className="size-7">
 						{user.image ? (
@@ -75,12 +75,19 @@ export function UserMenu() {
 				</button>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="end" className="w-64">
-				<DropdownMenuLabel className="flex flex-col gap-0.5 font-normal">
+				<DropdownMenuLabel className="ph-no-capture flex flex-col gap-0.5 font-normal">
 					<span className="font-medium text-sm">{user.name}</span>
 					<span className="font-mono text-muted-foreground text-xs">
 						{user.email}
 					</span>
 				</DropdownMenuLabel>
+				<DropdownMenuSeparator />
+				<DropdownMenuItem asChild>
+					<Link to="/billing">
+						<CreditCard />
+						{t("billing.page.title")}
+					</Link>
+				</DropdownMenuItem>
 				<DropdownMenuSeparator />
 				<DropdownMenuLabel className="pb-0 text-[10px] text-muted-foreground uppercase tracking-widest">
 					{t("common.language")}

@@ -1,8 +1,13 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import {
+	meteringSubjectFrom,
+	type ProjectScope,
+} from "../../../projects/domain/project-scope";
+import {
 	IMAGE_TO_VIDEO_DURATION_SECONDS,
 	type MediaGenerationAttempt,
 } from "@wandit/contracts";
+import { env } from "@wandit/env/server";
 
 import {
 	getObjectBytes,
@@ -11,11 +16,12 @@ import {
 	publicAssetUrl,
 	siteVideoKey,
 } from "../../../../infrastructure/storage/r2";
-import { GenerationPolicyService } from "../../../generation/application/services/generation-policy.service";
+import { MeteringService } from "../../../metering/application/services/metering.service";
 import {
 	type MediaGenerationAttemptRow,
 	MediaGenerationsRepository,
 } from "../../infrastructure/persistence/media-generations.repository";
+import { createImageAnimationBilling } from "./image-animation-billing";
 
 const GENERATION_STALE_AFTER_MS = 15 * 60 * 1_000;
 const QUEUED_STALE_AFTER_MS = 30 * 60 * 1_000;
@@ -29,16 +35,17 @@ export class MediaGenerationsService {
 	constructor(
 		@Inject(MediaGenerationsRepository)
 		private readonly mediaGenerationsRepository: MediaGenerationsRepository,
-		@Inject(GenerationPolicyService)
-		private readonly generationPolicyService: GenerationPolicyService,
+		@Inject(MeteringService)
+		private readonly meteringService: MeteringService,
 	) {}
 
 	async attempt(
-		userId: string,
+		scope: ProjectScope,
 		attemptId: string,
 	): Promise<MediaGenerationAttempt> {
-		let row = await this.mediaGenerationsRepository.findOwnedAttempt(
-			userId,
+		const userId = scope.userId;
+		let row = await this.mediaGenerationsRepository.findAccessibleAttempt(
+			scope,
 			attemptId,
 		);
 
@@ -54,9 +61,10 @@ export class MediaGenerationsService {
 				row.id,
 				queuedStaleCutoff,
 				STALE_QUEUED_ERROR,
-			);
-			row = await this.mediaGenerationsRepository.findOwnedAttempt(
 				userId,
+			);
+			row = await this.mediaGenerationsRepository.findAccessibleAttempt(
+				scope,
 				attemptId,
 			);
 
@@ -70,17 +78,18 @@ export class MediaGenerationsService {
 			row.startedAt !== null &&
 			row.startedAt < staleCutoff
 		) {
-			const recovered = await this.recoverStoredVideo(row);
+			const recovered = await this.recoverStoredVideo(row, scope);
 
 			if (!recovered) {
 				await this.mediaGenerationsRepository.markStaleGeneratingAttemptFailed(
 					row.id,
 					staleCutoff,
 					STALE_GENERATION_ERROR,
+					userId,
 				);
 			}
-			row = await this.mediaGenerationsRepository.findOwnedAttempt(
-				userId,
+			row = await this.mediaGenerationsRepository.findAccessibleAttempt(
+				scope,
 				attemptId,
 			);
 
@@ -93,10 +102,10 @@ export class MediaGenerationsService {
 		// transient refund failure is retried by the next poll without ever
 		// granting the same reservation twice.
 		if (row.status === "failed") {
-			await this.generationPolicyService.refundGenerationReservation(
-				userId,
-				row.id,
-			);
+			await createImageAnimationBilling({
+				isBillingDisabled: () => env.GENERATION_BILLING_MODE === "off",
+				meteringService: this.meteringService,
+			}).refund(meteringSubjectFrom(scope), row.id);
 		}
 
 		return mapAttemptRow(row);
@@ -104,7 +113,9 @@ export class MediaGenerationsService {
 
 	private async recoverStoredVideo(
 		row: MediaGenerationAttemptRow,
+		scope: ProjectScope,
 	): Promise<boolean> {
+		const userId = scope.userId;
 		for (const candidate of [
 			{ extension: "mp4", mediaType: "video/mp4" },
 			{ extension: "webm", mediaType: "video/webm" },
@@ -116,12 +127,20 @@ export class MediaGenerationsService {
 				continue;
 			}
 
+			// Storage is durable proof that provider work completed. Settle any
+			// existing hold before making the recovered video visible.
+			await createImageAnimationBilling({
+				isBillingDisabled: () => env.GENERATION_BILLING_MODE === "off",
+				meteringService: this.meteringService,
+			}).settleExisting(meteringSubjectFrom(scope), row.id);
+
 			await this.mediaGenerationsRepository.markGeneratingAttemptSucceeded(
 				row.id,
 				publicAssetUrl(key),
 				storedMediaType.startsWith("video/")
 					? storedMediaType
 					: candidate.mediaType,
+				userId,
 			);
 
 			return true;
@@ -131,11 +150,11 @@ export class MediaGenerationsService {
 	}
 
 	async download(
-		userId: string,
+		scope: ProjectScope,
 		attemptId: string,
 	): Promise<{ bytes: Uint8Array; fileName: string; mediaType: string }> {
-		const row = await this.mediaGenerationsRepository.findOwnedAttempt(
-			userId,
+		const row = await this.mediaGenerationsRepository.findAccessibleAttempt(
+			scope,
 			attemptId,
 		);
 		const key = row?.videoUrl ? publicAssetKeyFromUrl(row.videoUrl) : null;

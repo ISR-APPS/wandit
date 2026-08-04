@@ -1,5 +1,7 @@
-import { InjectQueue } from "@nestjs/bullmq";
-import { Inject, Injectable, type Logger, Optional } from "@nestjs/common";
+import { randomUUID } from "node:crypto";
+
+import type { ProjectScope } from "../../../projects/domain/project-scope";
+import { Inject, Injectable, type Logger } from "@nestjs/common";
 import {
 	type AttachExternalDomainBody,
 	type AttachExternalDomainResponse,
@@ -26,16 +28,14 @@ import {
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import {
-	DOMAIN_PURCHASE_JOB_ATTEMPTS,
-	DOMAINS_QUEUE,
-	type DomainJobName,
-} from "@wandit/jobs";
-import type { JobsOptions, Queue } from "bullmq";
-
+	mergeRequiredDomainRecords,
+	validationRequiredDomainRecords,
+	wholesaleQuoteBlockReason,
+	wwwCnameTrafficRecord,
+} from "../../domain/domain-provisioning-rules";
 import {
 	DomainBlockedError,
 	DomainNotAvailableError,
-	DomainsUnavailableError,
 	InvalidDomainStateError,
 	PremiumDomainBlockedError,
 } from "../../domain/errors/domain.errors";
@@ -44,6 +44,10 @@ import {
 	type DomainAvailability,
 	type DomainProvider,
 } from "../../domain/ports/domain-provider.port";
+import {
+	DOMAIN_TASK_DISPATCHER,
+	type DomainTaskDispatcher,
+} from "../../domain/ports/domain-task-dispatcher.port";
 import { CustomHostnameService } from "../../infrastructure/cloudflare/custom-hostname.service";
 import { DomainRoutingService } from "../../infrastructure/cloudflare/domain-routing.service";
 import { mapDomain } from "../../infrastructure/mappers/domain.mapper";
@@ -65,11 +69,6 @@ export type PreparedDomainPurchase = {
 	wholesaleCeilingUsd: number;
 };
 
-type DomainJobData =
-	| { domainId: string }
-	| { attempt?: number; domainId: string; nonce?: string }
-	| Record<string, never>;
-
 @Injectable()
 export class DomainsService {
 	constructor(
@@ -83,9 +82,8 @@ export class DomainsService {
 		private readonly domainRoutingService: DomainRoutingService,
 		@Inject(DOMAINS_LOGGER)
 		private readonly logger: DomainLogger,
-		@Optional()
-		@InjectQueue(DOMAINS_QUEUE)
-		private readonly domainsQueue?: Queue,
+		@Inject(DOMAIN_TASK_DISPATCHER)
+		private readonly domainTaskDispatcher: DomainTaskDispatcher,
 	) {}
 
 	async search(_userId: string, q: string): Promise<SearchDomainsResponse> {
@@ -122,14 +120,17 @@ export class DomainsService {
 		};
 	}
 
-	async list(projectId: string, userId: string): Promise<ListDomainsResponse> {
-		const rows = await this.domainsRepository.listByProject(projectId, userId);
+	async list(
+		projectId: string,
+		scope: ProjectScope,
+	): Promise<ListDomainsResponse> {
+		const rows = await this.domainsRepository.listByProject(projectId, scope);
 
 		return { domains: rows.map(mapDomain) };
 	}
 
 	async preparePurchase(
-		userId: string,
+		scope: ProjectScope,
 		name: string,
 		projectId?: string,
 	): Promise<PreparedDomainPurchase> {
@@ -137,9 +138,9 @@ export class DomainsService {
 		const catalog = DOMAIN_TLD_CATALOG[parsed.tld];
 
 		if (projectId) {
-			await this.domainsRepository.assertProjectOwned(userId, projectId);
+			await this.domainsRepository.assertProjectAccessible(scope, projectId);
 		}
-		this.assertDomainQueueAvailable();
+		this.domainTaskDispatcher.assertAvailable();
 
 		const [availability] = await this.domainProvider.checkAvailability([
 			parsed.name,
@@ -163,19 +164,20 @@ export class DomainsService {
 	}
 
 	async attachExternal(
-		userId: string,
+		scope: ProjectScope,
 		projectId: string,
 		body: AttachExternalDomainBody,
 	): Promise<AttachExternalDomainResponse> {
 		const parsed = this.parseSafeExternalDomainName(body.name);
 
-		await this.domainsRepository.assertProjectOwned(userId, projectId);
+		await this.domainsRepository.assertProjectAccessible(scope, projectId);
 
 		const row = await this.domainsRepository.createExternalReplacingTerminal({
 			name: parsed.name,
 			projectId,
 			tld: parsed.tld,
-			userId,
+			// Provenance: the acting member is recorded as the attacher.
+			userId: scope.userId,
 		});
 		let customHostnameId: string | null = null;
 
@@ -196,11 +198,10 @@ export class DomainsService {
 
 			const nonce = String(updated.updatedAt.getTime());
 
-			await this.enqueueDomainJob(
-				"domain-configure",
-				{ attempt: 0, domainId: row.id, nonce },
-				`domain-configure-${row.id}-${nonce}-0`,
-			);
+			await this.domainTaskDispatcher.triggerConfiguration({
+				domainId: updated.id,
+				nonce,
+			});
 
 			return {
 				domain: mapDomain(updated),
@@ -215,8 +216,8 @@ export class DomainsService {
 		}
 	}
 
-	async verify(id: string, userId: string): Promise<VerifyDomainResponse> {
-		const row = await this.domainsRepository.getByIdForUser(id, userId);
+	async verify(id: string, scope: ProjectScope): Promise<VerifyDomainResponse> {
+		const row = await this.domainsRepository.getByIdForScope(id, scope);
 
 		if (row.status !== "configuring" && row.status !== "active") {
 			throw new InvalidDomainStateError(
@@ -245,11 +246,10 @@ export class DomainsService {
 			return { domain: mapDomain(active), requiredRecords };
 		}
 
-		await this.enqueueDomainJob(
-			"domain-configure",
-			{ attempt: 0, domainId: row.id },
-			`domain-configure-${row.id}-manual-${Date.now()}`,
-		);
+		await this.domainTaskDispatcher.triggerConfiguration({
+			domainId: row.id,
+			nonce: `manual:${randomUUID()}`,
+		});
 
 		return {
 			domain: mapDomain(row),
@@ -280,15 +280,15 @@ export class DomainsService {
 
 	async setPrimary(
 		id: string,
-		userId: string,
+		scope: ProjectScope,
 	): Promise<SetPrimaryDomainResponse> {
-		const updated = await this.domainsRepository.setPrimary(id, userId);
+		const updated = await this.domainsRepository.setPrimary(id, scope);
 
 		return { domain: mapDomain(updated) };
 	}
 
-	async detach(id: string, userId: string): Promise<DetachDomainResponse> {
-		const row = await this.domainsRepository.getByIdForUser(id, userId);
+	async detach(id: string, scope: ProjectScope): Promise<DetachDomainResponse> {
+		const row = await this.domainsRepository.getByIdForScope(id, scope);
 
 		if (row.status === "active") {
 			await this.domainRoutingService.deleteDomainPointer(row.name);
@@ -298,7 +298,7 @@ export class DomainsService {
 			await this.bestEffortDeleteCustomHostname(row.cfCustomHostnameId, row.id);
 		}
 
-		const updated = await this.domainsRepository.detach(id, userId);
+		const updated = await this.domainsRepository.detach(id, scope);
 
 		return { domain: mapDomain(updated) };
 	}
@@ -334,6 +334,9 @@ export class DomainsService {
 	}
 
 	async activateDomain(row: DomainRow): Promise<DomainRow> {
+		// Keep the API path aligned with DomainActivationStep: publish the pointer
+		// before the configuring->active CAS, accept an active CAS winner, and
+		// remove the pointer after any other race.
 		if (!row.projectId) {
 			throw new InvalidDomainStateError(
 				"Domain must be attached to a project before activation",
@@ -460,7 +463,13 @@ export class DomainsService {
 			return "unavailable";
 		}
 
-		if (availability.premium) {
+		const quoteBlockReason = wholesaleQuoteBlockReason(
+			availability,
+			catalog.wholesaleCeilingUsd,
+			{ rejectNonPositive: true },
+		);
+
+		if (quoteBlockReason === "premium") {
 			return "premium_blocked";
 		}
 
@@ -470,12 +479,7 @@ export class DomainsService {
 
 		// Fail closed: a missing, non-finite, or over-ceiling wholesale quote
 		// means the purchase could lose money, so it is never shown as buyable.
-		if (
-			typeof availability.wholesalePriceUsd !== "number" ||
-			!Number.isFinite(availability.wholesalePriceUsd) ||
-			availability.wholesalePriceUsd <= 0 ||
-			availability.wholesalePriceUsd > catalog.wholesaleCeilingUsd
-		) {
+		if (quoteBlockReason) {
 			return "premium_blocked";
 		}
 
@@ -493,28 +497,13 @@ export class DomainsService {
 	): RequiredDomainRecord[] {
 		const dns = row ? domainDnsSchema.safeParse(row.dns) : null;
 		const existingRecords = dns?.success ? (dns.data.records ?? []) : [];
-		const validation = validationRecords.map((record) => ({
-			name: record.name,
-			purpose: "ownership_or_ssl_validation",
-			type: record.type,
-			value: record.value,
-		}));
+		const validation = validationRequiredDomainRecords(validationRecords);
 		const records = [
-			{
-				name: "www",
-				purpose: "traffic",
-				type: "CNAME",
-				value: env.DOMAINS_FALLBACK_ORIGIN,
-			},
+			wwwCnameTrafficRecord(env.DOMAINS_FALLBACK_ORIGIN),
 			...validation,
 		] satisfies RequiredDomainRecord[];
-		const byKey = new Map<string, RequiredDomainRecord>();
 
-		for (const record of [...existingRecords, ...records]) {
-			byKey.set(`${record.type}:${record.name}:${record.value}`, record);
-		}
-
-		return [...byKey.values()];
+		return mergeRequiredDomainRecords(existingRecords, records);
 	}
 
 	private dnsWithRequiredRecords(records: RequiredDomainRecord[]): DomainDns {
@@ -532,15 +521,6 @@ export class DomainsService {
 		return lockedUntil > new Date() ? lockedUntil : null;
 	}
 
-	private assertDomainQueueAvailable(): void {
-		if (!isDomainQueueEnabled()) {
-			this.logger.warn(
-				"Domain purchase rejected because QUEUE_ENABLED is false",
-			);
-			throw new DomainsUnavailableError();
-		}
-	}
-
 	private async bestEffortDeleteCustomHostname(
 		customHostnameId: string,
 		domainId: string,
@@ -555,59 +535,6 @@ export class DomainsService {
 		}
 	}
 
-	private async enqueueDomainJob(
-		name: DomainJobName,
-		data: DomainJobData,
-		jobId: string,
-		delay?: number,
-	): Promise<void> {
-		if (!isDomainQueueEnabled()) {
-			this.logger.warn(
-				`Domains queue disabled; ${name} for ${"domainId" in data ? data.domainId : "scheduler"} must be kicked later`,
-			);
-			return;
-		}
-
-		if (!this.domainsQueue) {
-			this.logger.error(`Domains queue provider missing for ${name}`);
-			return;
-		}
-
-		const options: JobsOptions = {
-			...(delay ? { delay } : {}),
-			...this.jobOptions(name),
-			jobId,
-		};
-
-		await this.domainsQueue.add(name, data, {
-			...options,
-		});
-	}
-
-	private jobOptions(name: DomainJobName): JobsOptions {
-		if (name === "domain-purchase") {
-			return {
-				attempts: DOMAIN_PURCHASE_JOB_ATTEMPTS,
-				backoff: {
-					delay: 60_000,
-					type: "exponential",
-				},
-			};
-		}
-
-		if (name === "domain-configure") {
-			return {
-				attempts: 3,
-				backoff: {
-					delay: 60_000,
-					type: "exponential",
-				},
-			};
-		}
-
-		return {};
-	}
-
 	assertDomainAvailable(
 		name: string,
 		availability: DomainAvailability | undefined,
@@ -620,19 +547,11 @@ export class DomainsService {
 		const catalog = DOMAIN_TLD_CATALOG[parsed.tld];
 
 		if (
-			availability.premium ||
-			typeof availability.wholesalePriceUsd !== "number" ||
-			!Number.isFinite(availability.wholesalePriceUsd) ||
-			availability.wholesalePriceUsd <= 0 ||
-			availability.wholesalePriceUsd > catalog.wholesaleCeilingUsd
+			wholesaleQuoteBlockReason(availability, catalog.wholesaleCeilingUsd, {
+				rejectNonPositive: true,
+			})
 		) {
 			throw new PremiumDomainBlockedError(name);
 		}
 	}
-}
-
-function isDomainQueueEnabled(): boolean {
-	return process.env.QUEUE_ENABLED === undefined
-		? env.QUEUE_ENABLED
-		: process.env.QUEUE_ENABLED === "true";
 }

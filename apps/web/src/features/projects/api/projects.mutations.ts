@@ -10,6 +10,7 @@ import {
 	createProject,
 	deleteProject,
 	renameProject,
+	updateProjectLogo,
 	updateProjectPixels,
 } from "./projects.services";
 
@@ -56,6 +57,20 @@ export function useUpdateProjectPixels() {
 			queryClient.setQueryData(projectKeys.detail(project.id), project);
 			queryClient.setQueryData<Project[]>(projectKeys.list(), (old) =>
 				old?.map((p) => (p.id === project.id ? project : p)),
+			);
+		},
+	});
+}
+
+export function useUpdateProjectLogo() {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: ({ id, logoUrl }: { id: string; logoUrl: string | null }) =>
+			updateProjectLogo(id, logoUrl),
+		onSuccess: (project) => {
+			queryClient.setQueryData(projectKeys.detail(project.id), project);
+			queryClient.setQueryData<Project[]>(projectKeys.list(), (old) =>
+				old?.map((item) => (item.id === project.id ? project : item)),
 			);
 		},
 	});

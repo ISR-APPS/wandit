@@ -6,6 +6,8 @@ import {
 	billingPlansResponseSchema,
 	billingPortalResponseSchema,
 	billingRoutes,
+	billingSubscriptionChangeOutcomeResponseSchema,
+	billingSubscriptionChangePreviewResponseSchema,
 	billingSubscriptionViewResponseSchema,
 } from "@wandit/contracts";
 
@@ -14,10 +16,13 @@ import type {
 	BillingCheckoutResponse,
 	BillingPlansResponse,
 	BillingPortalResponse,
+	BillingSubscriptionChangeOutcomeResponse,
+	BillingSubscriptionChangePreviewResponse,
 	BillingSubscriptionViewResponse,
 	ChangeBillingSubscriptionBody,
 	CreateBillingCheckoutBody,
 	CreateBillingTopupBody,
+	PreviewBillingSubscriptionChangeBody,
 } from "./billing.dto";
 
 export async function getBillingPlans(): Promise<BillingPlansResponse> {
@@ -60,15 +65,26 @@ export async function createBillingPortal(): Promise<BillingPortalResponse> {
 	return billingPortalResponseSchema.parse(payload);
 }
 
+export async function previewBillingSubscriptionChange(
+	body: PreviewBillingSubscriptionChangeBody,
+): Promise<BillingSubscriptionChangePreviewResponse> {
+	const payload = await ApiService.post<
+		unknown,
+		PreviewBillingSubscriptionChangeBody
+	>(billingRoutes.changePreview, body);
+
+	return billingSubscriptionChangePreviewResponseSchema.parse(payload);
+}
+
 export async function changeBillingSubscription(
 	body: ChangeBillingSubscriptionBody,
-): Promise<BillingSubscriptionViewResponse> {
+): Promise<BillingSubscriptionChangeOutcomeResponse> {
 	const payload = await ApiService.post<unknown, ChangeBillingSubscriptionBody>(
 		billingRoutes.change,
 		body,
 	);
 
-	return billingSubscriptionViewResponseSchema.parse(payload);
+	return billingSubscriptionChangeOutcomeResponseSchema.parse(payload);
 }
 
 export async function cancelBillingSubscription(): Promise<BillingSubscriptionViewResponse> {

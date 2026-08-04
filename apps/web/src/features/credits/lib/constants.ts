@@ -7,11 +7,6 @@ import {
 	translate,
 } from "@/lib/i18n";
 
-// Dev-sized grant so the mock ledger never blocks local testing (was 100).
-// TODO(credits): delete the whole mock ledger once the UI reads the real
-// server balance (credit_ledger table — sum per bucket).
-export const SIGNUP_GRANT = 100_000;
-
 export const CREDIT_COSTS = {
 	generation: CONTRACT_CREDIT_COSTS.landingPageGeneration,
 	chatMessage: CONTRACT_CREDIT_COSTS.chatMessage,

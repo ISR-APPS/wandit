@@ -1,5 +1,6 @@
 // Feature hooks that aren't queries/mutations.
 
+import { useQueryClient } from "@tanstack/react-query";
 import { useNavigate } from "@tanstack/react-router";
 import type {
 	ComposerMetadata,
@@ -9,8 +10,12 @@ import { useCallback, useState } from "react";
 import { toast } from "sonner";
 
 import { promptStash, useAuthModal, useSession } from "@/features/auth";
-import { CREDIT_COSTS, useCredits } from "@/features/credits";
-import { getApiErrorMessage } from "@/lib/api-client";
+import {
+	CREDIT_COSTS,
+	creditsKeys,
+	useCreditBalanceQuery,
+} from "@/features/credits";
+import { getApiErrorMessage, isApiClientError } from "@/lib/api-client";
 import { useTranslation } from "@/lib/i18n";
 import { useCreateProject } from "../api/projects.mutations";
 import { chatAutostart } from "./chat-autostart";
@@ -40,8 +45,9 @@ export function useCreateProjectWithPrompt(): UseCreateProjectWithPromptResult {
 	const { t } = useTranslation();
 	const { data: session, isPending: isSessionPending } = useSession();
 	const { open } = useAuthModal();
-	const { canAfford, consume } = useCredits();
+	const balanceQuery = useCreditBalanceQuery({ enabled: Boolean(session) });
 	const createProject = useCreateProject();
+	const queryClient = useQueryClient();
 	const navigate = useNavigate();
 	const [insufficientOpen, setInsufficientOpen] = useState(false);
 	const [cost, setCost] = useState<number>(CREDIT_COSTS.generation);
@@ -58,9 +64,19 @@ export function useCreateProjectWithPrompt(): UseCreateProjectWithPromptResult {
 					? CREDIT_COSTS.videoGeneration
 					: CREDIT_COSTS.generation;
 			setCost(generationCost);
-			// Affordability gate BEFORE the request, charge AFTER it succeeds —
-			// a failed creation must never leave a consumed-credit ledger entry.
-			if (!canAfford(generationCost)) {
+			// This is a convenience precheck only. The server performs the atomic
+			// reservation and remains authoritative if this cached balance is stale.
+			const availableCredits = balanceQuery.data?.balance;
+			if (availableCredits === undefined) {
+				toast.error(
+					balanceQuery.error
+						? getApiErrorMessage(balanceQuery.error)
+						: t("credits.balanceLoadError"),
+				);
+				return false;
+			}
+
+			if (availableCredits < generationCost) {
 				setInsufficientOpen(true);
 				return false;
 			}
@@ -82,11 +98,31 @@ export function useCreateProjectWithPrompt(): UseCreateProjectWithPromptResult {
 						: undefined,
 				});
 			} catch (error) {
+				if (
+					isApiClientError(error) &&
+					error.statusCode === 402 &&
+					(error.code === "INSUFFICIENT_CREDITS" ||
+						error.code === "GENERATION_PAYMENT_REQUIRED")
+				) {
+					void queryClient.invalidateQueries({
+						queryKey: creditsKeys.balance(),
+					});
+					void queryClient.invalidateQueries({
+						queryKey: creditsKeys.ledgers(),
+					});
+					return false;
+				}
+
 				toast.error(getApiErrorMessage(error));
 				return false;
 			}
 
-			consume(generationCost, name);
+			void queryClient.invalidateQueries({
+				queryKey: creditsKeys.balance(),
+			});
+			void queryClient.invalidateQueries({
+				queryKey: creditsKeys.ledgers(),
+			});
 			toast.success(t("projects.createSuccess", { name }));
 			// The prompt is already persisted as the chat's first message
 			// server-side; this one-shot flag tells the workspace to start
@@ -106,7 +142,14 @@ export function useCreateProjectWithPrompt(): UseCreateProjectWithPromptResult {
 			// navigation failed, so a second submit must not duplicate it.
 			return true;
 		},
-		[canAfford, consume, createProject, navigate, t],
+		[
+			balanceQuery.data?.balance,
+			balanceQuery.error,
+			createProject,
+			navigate,
+			queryClient,
+			t,
+		],
 	);
 
 	const create = useCallback(
@@ -130,7 +173,10 @@ export function useCreateProjectWithPrompt(): UseCreateProjectWithPromptResult {
 
 	return {
 		create,
-		isCreating: createProject.isPending || isSessionPending,
+		isCreating:
+			createProject.isPending ||
+			isSessionPending ||
+			(Boolean(session) && balanceQuery.isPending),
 		insufficientOpen,
 		setInsufficientOpen,
 		cost,

@@ -1,14 +1,9 @@
-import { InjectQueue } from "@nestjs/bullmq";
-import { Inject, Injectable, Optional } from "@nestjs/common";
-import { env } from "@wandit/env/server";
-import {
-	DOMAIN_PURCHASE_JOB_ATTEMPTS,
-	DOMAINS_QUEUE,
-	type DomainPurchaseJobData,
-} from "@wandit/jobs";
-import type { Queue } from "bullmq";
+import { Inject, Injectable } from "@nestjs/common";
 
-import { DomainsUnavailableError } from "../../../domains/domain/errors/domain.errors";
+import {
+	DOMAIN_TASK_DISPATCHER,
+	type DomainTaskDispatcher,
+} from "../../../domains/domain/ports/domain-task-dispatcher.port";
 import { DomainsRepository } from "../../../domains/infrastructure/persistence/domains.repository";
 import { OrderInvariantViolationError } from "../../domain/errors/payment-order.errors";
 import {
@@ -24,13 +19,8 @@ export class DomainRegistrationFulfillment implements OrderFulfillmentHandler {
 	constructor(
 		@Inject(DomainsRepository)
 		private readonly domainsRepository: DomainsRepository,
-		@Optional()
-		@InjectQueue(DOMAINS_QUEUE)
-		private readonly domainsQueue?: Queue<
-			DomainPurchaseJobData,
-			unknown,
-			"domain-purchase"
-		>,
+		@Inject(DOMAIN_TASK_DISPATCHER)
+		private readonly domainTaskDispatcher: DomainTaskDispatcher,
 	) {}
 
 	async fulfill(order: PaymentOrderRow): Promise<void> {
@@ -65,33 +55,9 @@ export class DomainRegistrationFulfillment implements OrderFulfillmentHandler {
 			);
 		}
 
-		if (!isDomainQueueEnabled() || !this.domainsQueue) {
-			throw new DomainsUnavailableError(
-				"Domain fulfillment queue is temporarily unavailable",
-			);
-		}
-
-		await this.domainsQueue.add(
-			"domain-purchase",
-			{
-				domainId: domain.id,
-				orderId: order.id,
-				paymentSource: "order",
-			},
-			{
-				attempts: DOMAIN_PURCHASE_JOB_ATTEMPTS,
-				backoff: {
-					delay: 60_000,
-					type: "exponential",
-				},
-				jobId: `order-fulfill-${order.id}`,
-			},
-		);
+		await this.domainTaskDispatcher.triggerPurchase({
+			domainId: domain.id,
+			orderId: order.id,
+		});
 	}
-}
-
-function isDomainQueueEnabled(): boolean {
-	return process.env.QUEUE_ENABLED === undefined
-		? env.QUEUE_ENABLED
-		: process.env.QUEUE_ENABLED === "true";
 }

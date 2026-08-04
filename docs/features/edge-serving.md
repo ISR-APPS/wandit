@@ -97,3 +97,11 @@ breaks `wrangler dev`). A spoofed
 pointers + a published object, so the full host-routing matrix is testable
 with curl and in `@cloudflare/vitest-pool-workers` tests without a Cloudflare
 account.
+
+The Nest API fails publish and rollback with HTTP 503 when any of
+`CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_KV_NAMESPACE_ID`, or
+`CLOUDFLARE_ZONE_ID_WANDIT_APP` is absent. API-only local development that
+runs no edge worker may set `ALLOW_PUBLISH_WITHOUT_KV=true`; this records the
+deployment while warning and skipping the slug pointer, so its public URL will
+not resolve through the edge worker. The variable defaults to `false` and must
+remain false in hosted or edge-serving environments.

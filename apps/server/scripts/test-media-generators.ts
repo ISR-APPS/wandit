@@ -45,12 +45,15 @@ const EDIT_PROMPT =
 async function testMarketing(): Promise<boolean> {
 	console.log("→ marketing ad-copy (live model call)…");
 	const started = Date.now();
-	const result = await generateMarketingAssetHtml({
-		assetType: "ad-copy",
-		brief: MARKETING_BRIEF,
-		dateLabel: "25 juillet 2026",
-		name: "Ads Meta — Lancement PulseBuds Pro",
-	});
+	const result = await generateMarketingAssetHtml(
+		{
+			assetType: "ad-copy",
+			brief: MARKETING_BRIEF,
+			dateLabel: "25 juillet 2026",
+			name: "Ads Meta — Lancement PulseBuds Pro",
+		},
+		{ operation: "marketing", userId: "media-generator-harness" },
+	);
 
 	if (result.status !== "generated") {
 		console.error(`  FAILED (${result.status}): ${result.message}`);
@@ -86,6 +89,7 @@ async function testImageText(): Promise<boolean> {
 		aspect: "1:1",
 		attemptId: `harness-text-${started}`,
 		index: 1,
+		metering: { operation: "image", userId: "media-generator-harness" },
 		projectId: "media-tests",
 		prompt: IMAGE_PROMPT,
 		sourceImageUrls: [],
@@ -113,6 +117,7 @@ async function testImageEdit(sourceUrl: string): Promise<boolean> {
 		aspect: "4:5",
 		attemptId: `harness-edit-${started}`,
 		index: 1,
+		metering: { operation: "image", userId: "media-generator-harness" },
 		projectId: "media-tests",
 		prompt: EDIT_PROMPT,
 		sourceImageUrls: [sourceUrl],

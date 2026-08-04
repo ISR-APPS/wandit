@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
 import type { AdminUserSummary } from "@/features/users/api/users.dto";
+import { EarlyAccessBadge } from "@/features/users/components/early-access-badge";
 import {
 	formatAdminDate,
 	formatAdminDateTime,
@@ -54,10 +55,13 @@ function UsersMobileList({ users }: { users: AdminUserSummary[] }) {
 
 					<div className="grid grid-cols-2 divide-x border-b">
 						<MobileDatum label="Status">
-							<StatusBadge user={user} />
+							<div className="flex flex-wrap items-center gap-1.5">
+								<StatusBadge user={user} />
+								<EarlyAccessBadge user={user} />
+							</div>
 						</MobileDatum>
 						<MobileDatum label="Last seen">
-							<p className="tabular-nums text-muted-foreground">
+							<p className="text-muted-foreground tabular-nums">
 								{formatAdminDateTime(user.lastSeenAt)}
 							</p>
 						</MobileDatum>

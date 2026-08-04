@@ -8,8 +8,20 @@ allowBuilds:
   msgpackr-extract: true
   sharp: false
   workerd: false
+  "@sentry/cli": true
+  core-js: false
+  protobufjs: false
 catalog:
   dotenv: ^17.2.2
+  # Sentry SDKs must stay in version lockstep — bump all five together.
+  "@sentry/nestjs": 10.69.0
+  "@sentry/node": 10.69.0
+  "@sentry/react": 10.69.0
+  "@sentry/cloudflare": 10.69.0
+  "@sentry/vite-plugin": 5.4.0
+  "@sentry/esbuild-plugin": 5.4.0
+  posthog-js: 1.359.1
+  posthog-node: 5.28.0
   zod: ^4.1.13
   typescript: ^6
   better-auth: 1.6.22

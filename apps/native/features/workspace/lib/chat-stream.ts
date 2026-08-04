@@ -6,6 +6,7 @@ import { getServerUrl } from "@/shared/lib/server-url";
 
 import {
 	createSseParser,
+	isBillingErrorDataFrame,
 	isValidLastEventId,
 	parseChatStreamEventFrame,
 	type SseEventFrame,
@@ -18,7 +19,7 @@ export type ChatStreamEventMeta = {
 	lastEventId?: string;
 };
 
-export type ChatStreamEventResult = "close" | void;
+export type ChatStreamEventResult = "close" | undefined;
 
 export type ChatStreamConnection = {
 	ready: Promise<void>;
@@ -122,6 +123,10 @@ export function openChatStream(
 
 	const dispatchFrames = (frames: SseEventFrame[]) => {
 		for (const frame of frames) {
+			if (isBillingErrorDataFrame(frame)) {
+				continue;
+			}
+
 			const event = parseChatStreamEventFrame(frame);
 			if (!event) {
 				options.onMalformedEvent?.(frame);

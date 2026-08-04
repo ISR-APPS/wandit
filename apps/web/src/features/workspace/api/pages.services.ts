@@ -14,6 +14,9 @@ import {
 	pageOverviewSchema,
 	pagesRoutes,
 	pageVersionHtmlSchema,
+	type RestorePageVersionBody,
+	type RestorePageVersionResponse,
+	restorePageVersionResponseSchema,
 } from "@wandit/contracts";
 
 import { apiClient, isApiClientError } from "@/lib/api-client";
@@ -64,6 +67,22 @@ export async function getPageVersions(
 }
 
 // ── Edit ops (contract §7.1) ───────────────────────────────────────────────
+
+/** Copy an immutable historical version forward as the new active version.
+ * The expected id is a CAS guard against restoring over a concurrently
+ * generated or edited page. */
+export async function restorePageVersion(
+	projectId: string,
+	versionId: string,
+	body: RestorePageVersionBody,
+): Promise<RestorePageVersionResponse> {
+	const data = await apiClient.post<unknown>(
+		pagesRoutes.restoreVersion(projectId, versionId),
+		body,
+	);
+
+	return restorePageVersionResponseSchema.parse(data);
+}
 
 /** 409 VERSION_CONFLICT — the base version is no longer active. The UI's
  *  only sane recovery is discard + refetch, so the payload is optional. */

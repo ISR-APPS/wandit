@@ -1,4 +1,18 @@
 import type { ImageGenerationAspect } from "@wandit/contracts";
+// /node, not /nestjs: this code also runs inside Trigger tasks and the worker.
+import type { MeteringSubject } from "../../../credits/domain/credit-owner";
+import { Sentry } from "@wandit/observability/node";
+import { isTerminalFixedOperationReplay } from "../../../metering/application/services/fixed-operation-billing";
+import {
+	fixedGenerationStepUsage,
+	type GatewayGenerationFailure,
+	type GatewayGenerationMetadata,
+	hasGatewayGenerationMetadata,
+} from "../../../metering/domain/gateway-metering";
+import type {
+	ImageGenerationBilling,
+	ImageGenerationReservation,
+} from "./image-generation-billing";
 
 export const USER_SAFE_IMAGE_GENERATION_ERROR =
 	"We couldn't generate these images. Please try again in a moment.";
@@ -15,6 +29,10 @@ const UUID_PATTERN =
 
 export type ImageGenerationPayload = {
 	attemptId: string;
+	billingMode?: "enforce" | "off";
+	/** Org workspace payer; null/absent = personal (pre-teams payloads). */
+	organizationId?: string | null;
+	parentEventId?: string;
 	projectId: string;
 	userId: string;
 };
@@ -32,10 +50,12 @@ export type ImageGenerationAttemptState = {
 	error: string | null;
 	id: string;
 	images: GeneratedImageResult[] | null;
+	organizationId: string | null;
 	projectDeletedAt: Date | null;
 	projectId: string;
 	prompt: string;
 	sourceImageUrls: string[];
+	spec: Record<string, unknown> | null;
 	startedAt: Date | null;
 	status: ImageGenerationAttemptStatus;
 	title: string;
@@ -49,8 +69,9 @@ export type GeneratedImageResult = {
 };
 
 export type ImageGenerationProviderResult =
-	| ({ status: "generated" } & GeneratedImageResult)
-	| { message: string; status: "failed" | "unavailable" };
+	| ({ status: "generated" } & GeneratedImageResult & GatewayGenerationMetadata)
+	| GatewayGenerationFailure
+	| { message: string; status: "unavailable" };
 
 export type ImageGenerationRunnerDependencies = {
 	claimQueued: (
@@ -66,12 +87,17 @@ export type ImageGenerationRunnerDependencies = {
 				ImageGenerationAttemptStatus,
 				"queued" | "generating"
 			>;
+			reason: string;
 		},
 	) => Promise<boolean>;
 	generateOne: (
 		attempt: ImageGenerationAttemptState,
+		subject: MeteringSubject,
 		index: number,
 		signal?: AbortSignal,
+		onProviderGeneration?: (
+			generation: GatewayGenerationMetadata,
+		) => Promise<void>,
 	) => Promise<ImageGenerationProviderResult>;
 	loadAttempt: (
 		attemptId: string,
@@ -85,8 +111,15 @@ export type ImageGenerationRunnerDependencies = {
 	recoverStoredImages: (
 		attempt: Pick<ImageGenerationAttemptState, "count" | "id" | "projectId">,
 	) => Promise<GeneratedImageResult[] | null>;
-	refund: (userId: string, attemptId: string) => Promise<void>;
-	reserve: (userId: string, attemptId: string) => Promise<void>;
+	capture: ImageGenerationBilling["capture"];
+	refund: ImageGenerationBilling["refund"];
+	reserve: ImageGenerationBilling["reserve"];
+	settle: ImageGenerationBilling["settle"];
+	settleExisting: ImageGenerationBilling["settleExisting"];
+	settlePlacement: (
+		attempt: ImageGenerationAttemptState,
+		images: GeneratedImageResult[],
+	) => Promise<void>;
 };
 
 export type ImageGenerationRunResult =
@@ -134,14 +167,21 @@ export function parseImageGenerationPayload(
 	const input = value as Record<string, unknown>;
 	const keys = Object.keys(input).sort();
 
+	const expectedKeys = [
+		"attemptId",
+		...(input.billingMode === undefined ? [] : ["billingMode"]),
+		...(input.organizationId === undefined ? [] : ["organizationId"]),
+		...(input.parentEventId === undefined ? [] : ["parentEventId"]),
+		"projectId",
+		"userId",
+	].sort();
+
 	if (
-		keys.length !== 3 ||
-		keys[0] !== "attemptId" ||
-		keys[1] !== "projectId" ||
-		keys[2] !== "userId"
+		keys.length !== expectedKeys.length ||
+		keys.some((key, index) => key !== expectedKeys[index])
 	) {
 		throw new TypeError(
-			"Image generation payload must contain only attemptId, projectId, and userId",
+			"Image generation payload must contain only attemptId, optional billingMode, optional organizationId, optional parentEventId, projectId, and userId",
 		);
 	}
 
@@ -160,6 +200,28 @@ export function parseImageGenerationPayload(
 	}
 
 	if (
+		input.parentEventId !== undefined &&
+		(typeof input.parentEventId !== "string" ||
+			!UUID_PATTERN.test(input.parentEventId))
+	) {
+		throw new TypeError("parentEventId must be a UUID");
+	}
+
+	if (
+		input.organizationId !== undefined &&
+		input.organizationId !== null &&
+		(typeof input.organizationId !== "string" ||
+			input.organizationId.length === 0 ||
+			input.organizationId.length > 255 ||
+			input.organizationId.trim() !== input.organizationId)
+	) {
+		throw new TypeError("organizationId must be a non-empty identifier");
+	}
+
+	if (
+		(input.billingMode !== undefined &&
+			input.billingMode !== "enforce" &&
+			input.billingMode !== "off") ||
 		typeof input.userId !== "string" ||
 		input.userId.length === 0 ||
 		input.userId.length > 255 ||
@@ -170,6 +232,14 @@ export function parseImageGenerationPayload(
 
 	return {
 		attemptId: input.attemptId,
+		...(input.billingMode === "enforce" || input.billingMode === "off"
+			? { billingMode: input.billingMode }
+			: {}),
+		organizationId:
+			typeof input.organizationId === "string" ? input.organizationId : null,
+		...(typeof input.parentEventId === "string"
+			? { parentEventId: input.parentEventId }
+			: {}),
 		projectId: input.projectId,
 		userId: input.userId,
 	};
@@ -179,9 +249,25 @@ export function parseImageGenerationPayload(
  * Pure image-generation state machine — same shape as image animation: the
  * database CAS is the provider-call authority; once an attempt is generating,
  * every duplicate delivery and Trigger retry is recovery-only. The provider
- * loop is all-or-nothing: an attempt succeeds only when EVERY requested image
- * uploaded, otherwise it fails once and refunds once.
+ * loop is prefix-durable: every provider-completed image is captured before
+ * storage, and any uploaded prefix is settled and published proportionally.
+ * An attempt with no durable output fails once and refunds once.
  */
+/**
+ * The metering subject for this run: the queue-time ACTING member (who may
+ * differ from the project creator in an org workspace) paying from the
+ * project's owner entity — the org pool when org-owned. The durable row's
+ * userId is the project creator and must never be used as the actor.
+ */
+function payloadSubject(payload: ImageGenerationPayload): MeteringSubject {
+	return {
+		actorUserId: payload.userId,
+		...(payload.organizationId
+			? { organizationId: payload.organizationId }
+			: {}),
+	};
+}
+
 export async function runImageGeneration(
 	payload: ImageGenerationPayload,
 	input: {
@@ -193,31 +279,56 @@ export async function runImageGeneration(
 	const { dependencies } = input;
 	const loaded = await dependencies.loadAttempt(payload.attemptId);
 
+	// Owner-entity assert: the durable row's owner must match the queue-time
+	// payload. Org attempts require the same org (the acting member may differ
+	// from the project creator); personal attempts keep strict user equality.
 	if (
 		!loaded ||
 		loaded.projectId !== payload.projectId ||
-		loaded.userId !== payload.userId
+		loaded.organizationId !== (payload.organizationId ?? null) ||
+		(loaded.organizationId === null && loaded.userId !== payload.userId)
 	) {
-		await dependencies.refund(payload.userId, payload.attemptId);
+		await dependencies.refund(payloadSubject(payload), payload.attemptId);
 
 		return { reason: "ownership_mismatch", status: "failed" };
 	}
 
+	// The ownership assert above guarantees the payload and the durable row
+	// agree on the paying entity; the payload adds the true acting member.
+	const subject = payloadSubject(payload);
+
 	if (loaded.status === "succeeded") {
-		return succeededResult(loaded, false);
+		await settleSucceededBillingReplay(loaded, payload, dependencies);
+		return settleSucceeded(loaded, loaded.images, false, dependencies);
 	}
 
 	if (loaded.projectDeletedAt !== null) {
-		return settleDeletedProject(loaded, dependencies);
+		return settleDeletedProject(loaded, subject, dependencies);
 	}
 
 	if (loaded.status === "failed") {
-		await dependencies.refund(loaded.userId, loaded.id);
+		await dependencies.refund(subject, loaded.id);
 		return { reason: "already_failed", status: "failed" };
 	}
 
 	if (loaded.status === "generating") {
-		return recoverOrSettleGenerating(loaded, dependencies);
+		const recovered = await recoverStoredWithExistingSettlement(
+			loaded,
+			subject,
+			dependencies,
+			payload.billingMode,
+		);
+		if (recovered) {
+			return recovered;
+		}
+		const reservation = await dependencies.reserve(
+			subject,
+			loaded.id,
+			loaded.count,
+			payload.parentEventId,
+			payload.billingMode,
+		);
+		return recoverOrSettleGenerating(loaded, subject, dependencies, reservation);
 	}
 
 	const claimed = await dependencies.claimQueued(loaded, {
@@ -237,20 +348,37 @@ export async function runImageGeneration(
 		}
 
 		if (raced.status === "succeeded") {
-			return succeededResult(raced, false);
+			await settleSucceededBillingReplay(raced, payload, dependencies);
+			return settleSucceeded(raced, raced.images, false, dependencies);
 		}
 
 		if (raced.projectDeletedAt !== null) {
-			return settleDeletedProject(raced, dependencies);
+			return settleDeletedProject(raced, subject, dependencies);
 		}
 
 		if (raced.status === "failed") {
-			await dependencies.refund(raced.userId, raced.id);
+			await dependencies.refund(subject, raced.id);
 			return { reason: "already_failed", status: "failed" };
 		}
 
 		if (raced.status === "generating") {
-			return recoverOrSettleGenerating(raced, dependencies);
+			const recovered = await recoverStoredWithExistingSettlement(
+				raced,
+				subject,
+				dependencies,
+				payload.billingMode,
+			);
+			if (recovered) {
+				return recovered;
+			}
+			const reservation = await dependencies.reserve(
+				subject,
+				raced.id,
+				raced.count,
+				payload.parentEventId,
+				payload.billingMode,
+			);
+			return recoverOrSettleGenerating(raced, subject, dependencies, reservation);
 		}
 
 		throw new Error(
@@ -259,35 +387,150 @@ export async function runImageGeneration(
 	}
 
 	if (claimed.projectDeletedAt !== null) {
-		return settleDeletedProject(claimed, dependencies);
+		return settleDeletedProject(claimed, subject, dependencies);
 	}
 
+	let reservation: ImageGenerationReservation;
+
 	try {
-		await dependencies.reserve(claimed.userId, claimed.id);
-	} catch {
-		await failAndRefund(claimed, dependencies);
+		reservation = await dependencies.reserve(
+			subject,
+			claimed.id,
+			claimed.count,
+			payload.parentEventId,
+			payload.billingMode,
+		);
+	} catch (error) {
+		// Insufficient credits is an expected outcome; anything else here is
+		// billing/DB infrastructure failing and must be visible.
+		if (
+			!(error instanceof Error && error.name === "InsufficientCreditsError")
+		) {
+			Sentry.captureException(error, {
+				tags: { generationId: claimed.id, userId: claimed.userId },
+			});
+		}
+		await failAndRefund(claimed, subject, dependencies, "reservation_failed");
 		return { reason: "reservation_failed", status: "failed" };
+	}
+
+	if (isTerminalFixedOperationReplay(reservation)) {
+		return recoverOrSettleGenerating(claimed, subject, dependencies, reservation);
 	}
 
 	const images: GeneratedImageResult[] = [];
 
 	for (let index = 1; index <= claimed.count; index += 1) {
 		let generated: ImageGenerationProviderResult;
+		let generationCapturedBeforeDelivery = false;
 
 		try {
-			generated = await dependencies.generateOne(claimed, index, input.signal);
-		} catch {
-			await failAndRefund(claimed, dependencies);
-			return { reason: "generation_failed", status: "failed" };
+			generated = await dependencies.generateOne(
+				claimed,
+				subject,
+				index,
+				input.signal,
+				async (generation) => {
+					await dependencies.capture(reservation, {
+						providerMetadata: generation.providerMetadata,
+						// Provider returned one complete image. Record the unit before R2
+						// upload so a later reconciler cannot terminalize a completed provider
+						// image as zero, even if delivery/storage later fails.
+						stepUsage: fixedGenerationStepUsage(generation.usage, 1),
+					});
+					generationCapturedBeforeDelivery = true;
+				},
+			);
+		} catch (error) {
+			// User aborts are expected; anything else was previously invisible.
+			if (!input.signal?.aborted) {
+				Sentry.captureException(error, {
+					tags: { generationId: claimed.id, userId: claimed.userId },
+				});
+			}
+			return completePartialOrFailure(
+				claimed,
+				subject,
+				dependencies,
+				reservation,
+				images,
+				images.length + (generationCapturedBeforeDelivery ? 1 : 0),
+				generationCapturedBeforeDelivery,
+				"generation_failed",
+			);
 		}
 
 		if (generated.status !== "generated") {
-			await failAndRefund(claimed, dependencies);
-			return { reason: "generation_failed", status: "failed" };
+			// The provider's message is about to be replaced by a generic
+			// "generation_failed" — keep the original reason.
+			Sentry.captureMessage(`Image generation failed: ${generated.message}`, {
+				level: "error",
+				tags: { generationId: claimed.id, userId: claimed.userId },
+			});
+			const providerUnits =
+				"providerUnits" in generated && generated.providerUnits === 1 ? 1 : 0;
+			let providerEvidenceCaptured = generationCapturedBeforeDelivery;
+			if (
+				hasGatewayGenerationMetadata(generated) &&
+				!generationCapturedBeforeDelivery
+			) {
+				try {
+					await dependencies.capture(reservation, {
+						providerMetadata: generated.providerMetadata,
+						stepUsage: fixedGenerationStepUsage(generated.usage, providerUnits),
+					});
+					providerEvidenceCaptured = true;
+				} catch (error) {
+					Sentry.captureException(error, {
+						tags: { generationId: claimed.id, userId: claimed.userId },
+					});
+				}
+			}
+			return completePartialOrFailure(
+				claimed,
+				subject,
+				dependencies,
+				reservation,
+				images,
+				images.length + (providerEvidenceCaptured ? providerUnits : 0),
+				providerEvidenceCaptured,
+				"generation_failed",
+			);
 		}
 
+		if (!generationCapturedBeforeDelivery) {
+			try {
+				await dependencies.capture(reservation, {
+					providerMetadata: generated.providerMetadata,
+					stepUsage: fixedGenerationStepUsage(generated.usage, 1),
+				});
+			} catch (error) {
+				Sentry.captureException(error, {
+					tags: { generationId: claimed.id, userId: claimed.userId },
+				});
+				return completePartialOrFailure(
+					claimed,
+					subject,
+					dependencies,
+					reservation,
+					images,
+					images.length,
+					false,
+					"generation_capture_failed",
+				);
+			}
+		}
+
+		// The image becomes customer-visible only after its generation reference
+		// is durable. Real provider adapters capture before R2 upload; test/legacy
+		// adapters are still gated here before attempt publication.
 		images.push({ mediaType: generated.mediaType, url: generated.url });
 	}
+
+	// Financial state becomes durable before the attempt is made visible as
+	// succeeded. Pollers must never observe deliverable output in the gap before
+	// settlement.
+	await dependencies.settle(reservation);
 
 	const persisted = await dependencies.markSucceeded(
 		claimed,
@@ -298,21 +541,83 @@ export async function runImageGeneration(
 	if (!persisted) {
 		return resolveSuccessCasLoss(
 			claimed,
+			subject,
 			dependencies,
 			"direct generation completion",
 		);
 	}
 
-	return { images, recovered: false, status: "succeeded" };
+	return settleSucceeded(claimed, images, false, dependencies);
+}
+
+async function completePartialOrFailure(
+	attempt: ImageGenerationAttemptState,
+	subject: MeteringSubject,
+	dependencies: ImageGenerationRunnerDependencies,
+	reservation: ImageGenerationReservation,
+	images: readonly GeneratedImageResult[],
+	completedUnits: number,
+	hasProviderEvidence: boolean,
+	reason: string,
+): Promise<ImageGenerationRunResult> {
+	if (images.length > 0) {
+		// Partial provider output is still useful. Settle this completed prefix,
+		// then publish the durable R2 subset as the successful result.
+		await dependencies.settle(reservation, completedUnits);
+		const persisted = await dependencies.markSucceeded(
+			attempt,
+			[...images],
+			dependencies.now(),
+		);
+
+		if (!persisted) {
+			return resolveSuccessCasLoss(
+				attempt,
+				subject,
+				dependencies,
+				"partial generation completion",
+			);
+		}
+
+		return settleSucceeded(attempt, [...images], false, dependencies);
+	}
+
+	if (hasProviderEvidence || completedUnits > 0) {
+		// Provider-completed image units remain billable even when a later storage
+		// step fails. A no-image/error generation carries zero units and closes the
+		// hold at zero while retaining its ref for provider-cost audit.
+		await dependencies.settle(reservation, completedUnits);
+		await failAndRefund(attempt, subject, dependencies, reason, false);
+		return { reason: "generation_failed", status: "failed" };
+	}
+
+	await failAndRefund(attempt, subject, dependencies, reason);
+	return { reason: "generation_failed", status: "failed" };
 }
 
 async function recoverOrSettleGenerating(
 	attempt: ImageGenerationAttemptState,
+	subject: MeteringSubject,
 	dependencies: ImageGenerationRunnerDependencies,
+	reservation: ImageGenerationReservation,
 ): Promise<ImageGenerationRunResult> {
 	const recovered = await dependencies.recoverStoredImages(attempt);
 
 	if (recovered) {
+		if (isTerminalFixedOperationReplay(reservation)) {
+			// A terminal event is authoritative, but reconcile_failed may still need
+			// its fixed completion repaired from newly durable storage/evidence.
+			await settleExistingStoredOutput(
+				attempt,
+				subject,
+				recovered.length,
+				dependencies,
+				"enforce",
+			);
+		} else {
+			await dependencies.settle(reservation, recovered.length);
+		}
+
 		const persisted = await dependencies.markSucceeded(
 			attempt,
 			recovered,
@@ -322,36 +627,90 @@ async function recoverOrSettleGenerating(
 		if (!persisted) {
 			return resolveSuccessCasLoss(
 				attempt,
+				subject,
 				dependencies,
 				"stored-image recovery",
 			);
 		}
 
-		return { images: recovered, recovered: true, status: "succeeded" };
+		return settleSucceeded(attempt, recovered, true, dependencies);
+	}
+
+	if (isTerminalFixedOperationReplay(reservation)) {
+		// A terminal financial state cannot authorize another provider call. With
+		// no deterministic object to publish, close the domain row once and retain
+		// the charge/refund already chosen by metering.
+		await failAndRefund(attempt, subject, dependencies, "terminal_billing", false);
+		return { reason: "generation_failed", status: "failed" };
 	}
 
 	if (!isStaleGenerating(attempt, dependencies.now())) {
 		throw new ImageGenerationSettlementPendingError(attempt.id);
 	}
 
-	await failAndRefund(attempt, dependencies);
+	await failAndRefund(attempt, subject, dependencies, "stale_generation");
 	return { reason: "stale_generation", status: "failed" };
+}
+
+async function recoverStoredWithExistingSettlement(
+	attempt: ImageGenerationAttemptState,
+	subject: MeteringSubject,
+	dependencies: ImageGenerationRunnerDependencies,
+	billingMode: ImageGenerationPayload["billingMode"],
+): Promise<ImageGenerationRunResult | null> {
+	const recovered = await dependencies.recoverStoredImages(attempt);
+
+	if (!recovered) {
+		return null;
+	}
+
+	// This path deliberately avoids reserveWithReplay: reconcile_failed is a
+	// terminal core state, but already-stored provider output must still become
+	// visible without repricing or creating a new hold.
+	await settleExistingStoredOutput(
+		attempt,
+		subject,
+		recovered.length,
+		dependencies,
+		billingMode,
+	);
+	const persisted = await dependencies.markSucceeded(
+		attempt,
+		recovered,
+		dependencies.now(),
+	);
+
+	if (!persisted) {
+		return resolveSuccessCasLoss(
+			attempt,
+			subject,
+			dependencies,
+			"stored-image terminal recovery",
+		);
+	}
+
+	return settleSucceeded(attempt, recovered, true, dependencies);
 }
 
 async function failAndRefund(
 	attempt: ImageGenerationAttemptState,
+	subject: MeteringSubject,
 	dependencies: ImageGenerationRunnerDependencies,
+	reason: string,
+	shouldRefund = true,
 ): Promise<void> {
 	const failed = await dependencies.fail(attempt, {
 		completedAt: dependencies.now(),
 		error: USER_SAFE_IMAGE_GENERATION_ERROR,
 		expectedStatus: "generating",
+		reason,
 	});
 
 	if (!failed) {
 		const current = await dependencies.loadAttempt(attempt.id);
 
 		if (current?.status === "succeeded") {
+			await settleSucceeded(current, current.images, true, dependencies);
 			return;
 		}
 
@@ -362,20 +721,26 @@ async function failAndRefund(
 		}
 	}
 
-	await dependencies.refund(attempt.userId, attempt.id);
+	if (shouldRefund) {
+		await dependencies.refund(subject, attempt.id);
+	}
 }
 
 async function settleDeletedProject(
 	attempt: ImageGenerationAttemptState,
+	subject: MeteringSubject,
 	dependencies: ImageGenerationRunnerDependencies,
+	shouldRefund = true,
 ): Promise<ImageGenerationRunResult> {
 	if (attempt.status === "succeeded") {
 		// Deleting a project after delivery must not grant a free refund.
-		return succeededResult(attempt, false);
+		return settleSucceeded(attempt, attempt.images, false, dependencies);
 	}
 
 	if (attempt.status === "failed") {
-		await dependencies.refund(attempt.userId, attempt.id);
+		if (shouldRefund) {
+			await dependencies.refund(subject, attempt.id);
+		}
 		return { reason: "already_failed", status: "failed" };
 	}
 
@@ -383,13 +748,14 @@ async function settleDeletedProject(
 		completedAt: dependencies.now(),
 		error: USER_SAFE_IMAGE_GENERATION_ERROR,
 		expectedStatus: attempt.status,
+		reason: "project_deleted",
 	});
 
 	if (!failed) {
 		const current = await dependencies.loadAttempt(attempt.id);
 
 		if (current?.status === "succeeded") {
-			return succeededResult(current, false);
+			return settleSucceeded(current, current.images, false, dependencies);
 		}
 
 		if (current?.status !== "failed") {
@@ -399,19 +765,22 @@ async function settleDeletedProject(
 		}
 	}
 
-	await dependencies.refund(attempt.userId, attempt.id);
+	if (shouldRefund) {
+		await dependencies.refund(subject, attempt.id);
+	}
 	return { reason: "project_deleted", status: "failed" };
 }
 
 async function resolveSuccessCasLoss(
 	attempt: ImageGenerationAttemptState,
+	subject: MeteringSubject,
 	dependencies: ImageGenerationRunnerDependencies,
 	operation: string,
 ): Promise<ImageGenerationRunResult> {
 	const current = await dependencies.loadAttempt(attempt.id);
 
 	if (current?.status === "succeeded") {
-		return succeededResult(current, true);
+		return settleSucceeded(current, current.images, true, dependencies);
 	}
 
 	if (
@@ -420,17 +789,67 @@ async function resolveSuccessCasLoss(
 		current.userId === attempt.userId &&
 		current.projectDeletedAt !== null
 	) {
-		return settleDeletedProject(current, dependencies);
+		return settleDeletedProject(current, subject, dependencies, false);
 	}
 
 	if (current?.status === "failed") {
-		await dependencies.refund(attempt.userId, attempt.id);
 		return { reason: "already_failed", status: "failed" };
 	}
 
 	throw new Error(
 		`Image generation ${attempt.id} lost its ${operation} state transition`,
 	);
+}
+
+async function settleSucceededBillingReplay(
+	attempt: ImageGenerationAttemptState,
+	payload: ImageGenerationPayload,
+	dependencies: ImageGenerationRunnerDependencies,
+): Promise<void> {
+	if (!attempt.images || attempt.images.length === 0) {
+		throw new Error(
+			`Succeeded image generation ${attempt.id} has no persisted images`,
+		);
+	}
+
+	// Replay the original reservation fingerprint, but never settle its default
+	// requested count: a durable partial prefix can have fewer stored images,
+	// while captured provider evidence can prove more completed units than the
+	// stored prefix. The evidence-aware path preserves either terminal choice.
+	await dependencies.reserve(
+		payloadSubject(payload),
+		attempt.id,
+		attempt.count,
+		payload.parentEventId,
+		payload.billingMode,
+	);
+	await settleExistingStoredOutput(
+		attempt,
+		payloadSubject(payload),
+		attempt.images.length,
+		dependencies,
+		payload.billingMode,
+	);
+}
+
+async function settleExistingStoredOutput(
+	attempt: Pick<ImageGenerationAttemptState, "id">,
+	subject: MeteringSubject,
+	storedUnits: number,
+	dependencies: ImageGenerationRunnerDependencies,
+	billingMode: ImageGenerationPayload["billingMode"],
+): Promise<void> {
+	const settled = await dependencies.settleExisting(
+		subject,
+		attempt.id,
+		storedUnits,
+	);
+
+	if (!settled && billingMode === "enforce") {
+		throw new Error(
+			`Image generation ${attempt.id} has stored output but no enforced metering event`,
+		);
+	}
 }
 
 function isStaleGenerating(
@@ -444,15 +863,22 @@ function isStaleGenerating(
 	);
 }
 
-function succeededResult(
-	attempt: Pick<ImageGenerationAttemptState, "id" | "images">,
+async function settleSucceeded(
+	attempt: ImageGenerationAttemptState,
+	images: GeneratedImageResult[] | null,
 	recovered: boolean,
-): ImageGenerationRunResult {
-	if (!attempt.images || attempt.images.length === 0) {
+	dependencies: ImageGenerationRunnerDependencies,
+): Promise<ImageGenerationRunResult> {
+	if (!images || images.length === 0) {
 		throw new Error(
 			`Succeeded image generation ${attempt.id} has no persisted images`,
 		);
 	}
 
-	return { images: attempt.images, recovered, status: "succeeded" };
+	// Generation and its financial settlement are already durable here. If
+	// placement infrastructure fails, let Trigger retry this succeeded attempt;
+	// it must never regress or refund the generated asset.
+	await dependencies.settlePlacement(attempt, images);
+
+	return { images, recovered, status: "succeeded" };
 }

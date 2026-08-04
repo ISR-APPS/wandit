@@ -1,4 +1,6 @@
+import { sentryEsbuildPlugin } from "@sentry/esbuild-plugin";
 import type { BuildExtension } from "@trigger.dev/build";
+import { esbuildPlugin } from "@trigger.dev/build/extensions";
 import { defineConfig } from "@trigger.dev/sdk";
 
 /**
@@ -61,7 +63,21 @@ export default defineConfig({
 	// Playwright must resolve from node_modules at runtime (it locates its
 	// browser binaries relative to its own package) — never bundle it.
 	build: {
-		extensions: [playwrightChromium()],
+		extensions: [
+			playwrightChromium(),
+			// Uploads source maps to Sentry on `trigger.dev deploy` so task
+			// stack traces map to TS sources. No-op without SENTRY_AUTH_TOKEN
+			// (set it in the Trigger.dev dashboard env vars, not just Railway).
+			esbuildPlugin(
+				sentryEsbuildPlugin({
+					org: process.env.SENTRY_ORG,
+					project: "wandit-server",
+					authToken: process.env.SENTRY_AUTH_TOKEN,
+					disable: !process.env.SENTRY_AUTH_TOKEN,
+				}),
+				{ placement: "last", target: "deploy" },
+			),
+		],
 		external: ["playwright"],
 	},
 });

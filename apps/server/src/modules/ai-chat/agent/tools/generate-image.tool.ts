@@ -1,5 +1,6 @@
 /**
- * generate_image — queues one standalone image generation (1-4 images).
+ * generate_image — queues one image generation (1-4 images), optionally
+ * placing one result into a current page image when it finishes.
  *
  * Two paths share one attempt: pure text-to-image, and EDIT mode when the
  * model passes user-attached source images (product photo, logo) so outputs
@@ -19,16 +20,26 @@ import {
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import { type Tool, tool } from "ai";
+import * as cheerio from "cheerio";
 
 import {
+	getPageHtml,
 	isR2Configured,
 	isUserUploadUrl,
 } from "../../../../infrastructure/storage/r2";
 // Type-only import: importing the task value would pull the Trigger worker
 // (and its database pool) into the Nest API process.
 import type { generateImageTask } from "../../../../trigger/generate-image.task";
-import type { GenerationPolicyService } from "../../../generation/application/services/generation-policy.service";
+import {
+	createImageGenerationBilling,
+	type ImageGenerationBilling,
+} from "../../../image-generations/application/services/image-generation-billing";
+import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import type { ImageGenerationsRepository } from "../../../image-generations/infrastructure/persistence/image-generations.repository";
+import { assertFixedOperationProviderExecutionAllowed } from "../../../metering/application/services/fixed-operation-billing";
+import type { MeteringService } from "../../../metering/application/services/metering.service";
+import { stampHtml } from "../../../pages/domain/stamp";
+import type { PagesRepository } from "../../../pages/infrastructure/persistence/pages.repository";
 import type { AvailableImage } from "./animate-image.tool";
 
 const logger = new Logger("generate-image");
@@ -38,24 +49,37 @@ const TRIGGER_IDEMPOTENCY_TTL = "14d";
 export type GenerateImageToolDeps = {
 	availableImages: readonly AvailableImage[];
 	chatId: string;
-	generationPolicyService: GenerationPolicyService;
 	imageGenerationsRepository: ImageGenerationsRepository;
+	meteringService: MeteringService;
+	parentEventId?: string;
+	pagesRepository: PagesRepository;
 	projectId: string;
 	// Composer quality tier, snapshotted for later model swapping — the
 	// generator does not read it yet.
 	quality?: string;
 	requestKeySeed?: string;
+	/** Pays for the generation: the org pool in an org workspace. */
+	subject: MeteringSubject;
 	userId: string;
 };
 
 export function createGenerateImageTool(
 	deps: GenerateImageToolDeps,
 ): Tool<GenerateImageInput, GenerateImageOutput> {
+	const billing = createImageGenerationBilling({
+		isBillingDisabled: () => env.GENERATION_BILLING_MODE === "off",
+		meteringService: deps.meteringService,
+	});
+
 	return tool({
 		description:
-			"Queue a standalone image generation (1-4 images) that runs in the " +
-			"background; results appear in the conversation and in the user's " +
-			"Assets tab. To feature the user's REAL product or logo, pass the " +
+			"Queue an image generation (1-4 images) that runs in the background; " +
+			"results appear in the conversation and in the user's Assets tab. " +
+			"When replacing an existing page image, pass placement with that " +
+			"image's verified data-wid; the selected generated result is applied " +
+			"to the page automatically when ready. Do not ask for an attachment " +
+			"just to place a generated image. To feature the user's REAL product " +
+			"or logo faithfully, pass the " +
 			"exact URLs of images they attached as sourceImageUrls — the " +
 			"generator edits/stays faithful to them. Without sources it " +
 			"generates from the prompt alone. Call once per requested set.",
@@ -107,19 +131,28 @@ export function createGenerateImageTool(
 				}
 			}
 
-			try {
-				await deps.generationPolicyService.assertCanGenerate(
-					deps.userId,
-					"imageGeneration",
+			if (input.placement) {
+				if (input.placement.imageIndex > input.count) {
+					return {
+						message:
+							`Placement requests generated image ${input.placement.imageIndex}, ` +
+							`but this request only generates ${input.count}. Choose an imageIndex ` +
+							"within the requested count.",
+						status: "unavailable",
+					};
+				}
+
+				const rejection = await validatePlacementTarget(
+					deps,
+					input.placement.wid,
 				);
-			} catch {
-				return {
-					message:
-						"The user needs an active subscription or 5 credits for " +
-						"image generation. Explain that clearly and do not claim the " +
-						"images were queued.",
-					status: "unavailable",
-				};
+
+				if (rejection) {
+					return {
+						message: rejection,
+						status: "unavailable",
+					};
+				}
 			}
 
 			let attempt: {
@@ -135,11 +168,24 @@ export function createGenerateImageTool(
 							aspect: input.aspect,
 							count: input.count,
 							prompt: input.prompt,
+							placement: input.placement,
 							request: deps.requestKeySeed ?? options.toolCallId,
 							sourceImageUrls,
 						}),
 					)
 					.digest("hex");
+
+				const spec = {
+					...(deps.quality ? { quality: deps.quality } : {}),
+					...(input.placement
+						? {
+								placement: {
+									...input.placement,
+									status: "pending" as const,
+								},
+							}
+						: {}),
+				};
 
 				attempt = await deps.imageGenerationsRepository.insertAttempt({
 					aspect: input.aspect,
@@ -149,7 +195,7 @@ export function createGenerateImageTool(
 					prompt: input.prompt.trim(),
 					requestKey,
 					sourceImageUrls,
-					spec: deps.quality ? { quality: deps.quality } : undefined,
+					spec: Object.keys(spec).length > 0 ? spec : undefined,
 					title: input.title.trim(),
 				});
 			} catch (error) {
@@ -167,7 +213,7 @@ export function createGenerateImageTool(
 			}
 
 			if (!attempt.created && attempt.status === "failed") {
-				await refundReservation(deps, attempt.id);
+				await refundReservation(deps, billing, attempt.id);
 
 				return {
 					message:
@@ -190,9 +236,23 @@ export function createGenerateImageTool(
 				};
 			}
 
+			// The attempt id is durable before money moves. A repeated tool call or
+			// Trigger delivery replays this exact reservation fingerprint.
+			const reservation = await billing.reserve(
+				deps.subject,
+				attempt.id,
+				input.count,
+				deps.parentEventId,
+			);
+
+			assertFixedOperationProviderExecutionAllowed(reservation);
+
 			try {
 				const handle = await triggerGenerateImageTask({
 					attemptId: attempt.id,
+					billingMode: reservation.eventId ? "enforce" : "off",
+					organizationId: deps.subject.organizationId ?? null,
+					...(deps.parentEventId ? { parentEventId: deps.parentEventId } : {}),
 					projectId: deps.projectId,
 					userId: deps.userId,
 				});
@@ -222,10 +282,12 @@ export function createGenerateImageTool(
 							await deps.imageGenerationsRepository.markAttemptFailed(
 								attempt.id,
 								"The background generator rejected this request. Please try again.",
+								deps.userId,
+								"trigger_rejected",
 							);
 
 						if (closed) {
-							await refundReservation(deps, attempt.id);
+							await refundReservation(deps, billing, attempt.id);
 
 							return {
 								message:
@@ -259,18 +321,72 @@ export function createGenerateImageTool(
 
 			return {
 				attemptId: attempt.id,
-				message:
-					"Queued: the images are being generated in the background. " +
-					"Progress and the results appear here in the conversation and " +
-					"in the Assets tab.",
+				message: input.placement
+					? "Queued: the images are being generated in the background, and " +
+						"the selected result will replace the page image when ready. " +
+						"Progress and the results appear here and in the Assets tab."
+					: "Queued: the images are being generated in the background. " +
+						"Progress and the results appear here in the conversation and " +
+						"in the Assets tab.",
 				status: "queued",
 			};
 		},
 	});
 }
 
+async function validatePlacementTarget(
+	deps: Pick<GenerateImageToolDeps, "pagesRepository" | "projectId">,
+	wid: string,
+): Promise<string | null> {
+	try {
+		const page = await deps.pagesRepository.findActivePageByProjectUnchecked(
+			deps.projectId,
+		);
+
+		if (!page?.version) {
+			return "The page image could not be targeted because no active page exists. Inspect the current page before trying another edit.";
+		}
+
+		const html = await getPageHtml(page.version.r2Key);
+
+		if (html === null) {
+			return "The current page HTML could not be loaded, so the image placement was not queued. Re-read the page and try again.";
+		}
+
+		const raw = cheerio.load(html);
+		let matches = raw(`[data-wid="${wid}"]`);
+
+		// Current versions are stored stamped, but legacy versions may gain a
+		// deterministic wid only in the preview/read pipeline. Preserve raw
+		// duplicate detection, then fall back to that canonical stamped shape.
+		if (matches.length === 0) {
+			const stamped = cheerio.load(stampHtml(html));
+			matches = stamped(`[data-wid="${wid}"]`);
+		}
+
+		if (matches.length === 0) {
+			return `No element with data-wid="${wid}" exists on the current page. Re-read the target and fall back to another edit if needed.`;
+		}
+
+		if (matches.length !== 1) {
+			return `The data-wid "${wid}" is not unique on the current page. Re-read the target before trying another edit.`;
+		}
+
+		if (!matches.is("img")) {
+			return `The element with data-wid="${wid}" is not an <img>, so image placement was not queued. Use the appropriate page edit instead.`;
+		}
+
+		return null;
+	} catch {
+		return "The current page could not be loaded, so the image placement was not queued. Re-read the page and try again.";
+	}
+}
+
 async function triggerGenerateImageTask(payload: {
 	attemptId: string;
+	billingMode: "enforce" | "off";
+	organizationId: string | null;
+	parentEventId?: string;
 	projectId: string;
 	userId: string;
 }): Promise<Awaited<ReturnType<typeof tasks.trigger>>> {
@@ -332,13 +448,11 @@ function isDefinitiveTriggerRejection(error: unknown): boolean {
 
 async function refundReservation(
 	deps: GenerateImageToolDeps,
+	billing: ImageGenerationBilling,
 	attemptId: string,
 ): Promise<void> {
 	try {
-		await deps.generationPolicyService.refundGenerationReservation(
-			deps.userId,
-			attemptId,
-		);
+		await billing.refund(deps.subject, attemptId);
 	} catch (error) {
 		logger.error(
 			`Refunding image generation reservation ${attemptId} failed`,

@@ -9,6 +9,7 @@ import {
 	Param,
 	Post,
 	Query,
+	UseGuards,
 } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
@@ -26,7 +27,13 @@ import {
 } from "@wandit/contracts";
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
-import { CurrentUser } from "../../../../auth";
+import { CurrentUser, EarlyAccessGuard } from "../../../../auth";
+import { projectScopeFrom } from "../../../../projects/domain/project-scope";
+import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
+import {
+	CurrentWorkspace,
+	RequireWorkspacePermission,
+} from "../../../../workspaces/presentation/http/decorators/workspace.decorators";
 import { SitesService } from "../../../application/services/sites.service";
 
 @Controller("v1")
@@ -42,8 +49,12 @@ export class SitesController {
 		@Param("projectId", new ZodValidationPipe(uuidSchema))
 		projectId: string,
 		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
 	): Promise<DeploymentCurrentResponse> {
-		return this.sitesService.current(user.id, projectId);
+		return this.sitesService.current(
+			projectScopeFrom(workspace, user.id),
+			projectId,
+		);
 	}
 
 	@Get("projects/:projectId/deployments/slug-availability")
@@ -53,8 +64,13 @@ export class SitesController {
 		@Query(new ZodValidationPipe(slugAvailabilityQuerySchema))
 		query: SlugAvailabilityQuery,
 		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
 	): Promise<SlugAvailabilityResponse> {
-		return this.sitesService.slugAvailability(user.id, projectId, query.slug);
+		return this.sitesService.slugAvailability(
+			projectScopeFrom(workspace, user.id),
+			projectId,
+			query.slug,
+		);
 	}
 
 	@Get("projects/:projectId/deployments")
@@ -62,10 +78,16 @@ export class SitesController {
 		@Param("projectId", new ZodValidationPipe(uuidSchema))
 		projectId: string,
 		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
 	): Promise<ListDeploymentsResponse> {
-		return this.sitesService.list(user.id, projectId);
+		return this.sitesService.list(
+			projectScopeFrom(workspace, user.id),
+			projectId,
+		);
 	}
 
+	@UseGuards(EarlyAccessGuard)
+	@RequireWorkspacePermission("publish", "manage")
 	@Post("projects/:projectId/deployments")
 	publish(
 		@Param("projectId", new ZodValidationPipe(uuidSchema))
@@ -73,11 +95,18 @@ export class SitesController {
 		@Body(new ZodValidationPipe(publishDeploymentBodySchema))
 		body: PublishDeploymentBody,
 		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
 	): Promise<PublishDeploymentResponse> {
-		return this.sitesService.publish(user.id, projectId, body);
+		return this.sitesService.publish(
+			projectScopeFrom(workspace, user.id),
+			projectId,
+			body,
+		);
 	}
 
 	// A rollback is a normal publish of an older deployment's bytes.
+	@UseGuards(EarlyAccessGuard)
+	@RequireWorkspacePermission("publish", "manage")
 	@Post("projects/:projectId/deployments/rollback")
 	rollback(
 		@Param("projectId", new ZodValidationPipe(uuidSchema))
@@ -85,16 +114,26 @@ export class SitesController {
 		@Body(new ZodValidationPipe(rollbackDeploymentBodySchema))
 		body: RollbackDeploymentBody,
 		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
 	): Promise<PublishDeploymentResponse> {
-		return this.sitesService.rollback(user.id, projectId, body);
+		return this.sitesService.rollback(
+			projectScopeFrom(workspace, user.id),
+			projectId,
+			body,
+		);
 	}
 
+	@RequireWorkspacePermission("publish", "manage")
 	@Delete("projects/:projectId/deployments/active")
 	unpublish(
 		@Param("projectId", new ZodValidationPipe(uuidSchema))
 		projectId: string,
 		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
 	): Promise<DeploymentCurrentResponse> {
-		return this.sitesService.unpublish(user.id, projectId);
+		return this.sitesService.unpublish(
+			projectScopeFrom(workspace, user.id),
+			projectId,
+		);
 	}
 }

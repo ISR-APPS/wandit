@@ -1,68 +1,51 @@
-import { CREDIT_COSTS, mediaGenerationReservationKey } from "@wandit/contracts";
+import type { MeteringSubject } from "../../../credits/domain/credit-owner";
+import {
+	type BillingAdmissionMode,
+	createFixedOperationBilling,
+	type FixedOperationBillingDependencies,
+	type FixedOperationReservation,
+} from "../../../metering/application/services/fixed-operation-billing";
+import type { CapturedGeneration } from "../../../metering/domain/metering";
 
-export type ImageAnimationBillingDependencies = {
-	consumeCredits: (
-		userId: string,
-		amount: number,
-		options: {
-			idempotencyKey: string;
-			meta: Record<string, unknown>;
-		},
-	) => Promise<unknown>;
-	hasActiveSubscription: (userId: string) => Promise<boolean>;
-	isBillingDisabled: () => boolean;
-	refundCredits: (
-		userId: string,
-		consumeIdempotencyKey: string,
-		meta: Record<string, unknown>,
-	) => Promise<unknown>;
+export type ImageAnimationReservation = FixedOperationReservation & {
+	operation: "video";
 };
 
 export type ImageAnimationBilling = {
-	refund: (userId: string, attemptId: string) => Promise<void>;
-	reserve: (userId: string, attemptId: string) => Promise<void>;
+	capture: (
+		reservation: ImageAnimationReservation,
+		capture: CapturedGeneration,
+	) => Promise<void>;
+	refund: (subject: MeteringSubject, attemptId: string) => Promise<void>;
+	reserve: (
+		subject: MeteringSubject,
+		attemptId: string,
+		parentEventId?: string,
+		billingMode?: BillingAdmissionMode,
+	) => Promise<ImageAnimationReservation>;
+	settle: (
+		reservation: ImageAnimationReservation,
+		units?: 0 | 1,
+	) => Promise<void>;
+	settleExisting: (subject: MeteringSubject, attemptId: string) => Promise<boolean>;
 };
 
-/**
- * Billing policy shared by the Trigger task and its reconciler.
- *
- * Reservation is deliberately after the queued -> generating CAS in the
- * runner. The ledger key is stable across Trigger retries, so a lost database
- * response cannot consume twice. Refunds always consult the ledger even when
- * billing is currently disabled: an attempt may have reserved while billing
- * was enabled and failed after an operator changed the setting.
- */
 export function createImageAnimationBilling(
-	dependencies: ImageAnimationBillingDependencies,
+	dependencies: FixedOperationBillingDependencies,
 ): ImageAnimationBilling {
+	const billing = createFixedOperationBilling("video", dependencies);
+
 	return {
-		async refund(userId, attemptId) {
-			await dependencies.refundCredits(
-				userId,
-				mediaGenerationReservationKey(attemptId),
-				{
-					attemptId,
-					reason: "image_animation_failed",
-				},
-			);
-		},
-		async reserve(userId, attemptId) {
-			if (dependencies.isBillingDisabled()) {
-				return;
-			}
-
-			if (await dependencies.hasActiveSubscription(userId)) {
-				return;
-			}
-
-			await dependencies.consumeCredits(userId, CREDIT_COSTS.videoGeneration, {
-				idempotencyKey: mediaGenerationReservationKey(attemptId),
-				meta: {
-					action: "videoGeneration",
-					attemptId,
-					reason: "generation_reservation",
-				},
-			});
-		},
+		capture: (reservation, capture) => billing.capture(reservation, capture),
+		refund: (subject, attemptId) =>
+			billing.refund(subject, attemptId, "image_animation_failed"),
+		reserve: async (subject, attemptId, parentEventId, billingMode) =>
+			(await billing.reserve(subject, attemptId, {
+				billingMode,
+				parentEventId,
+			})) as ImageAnimationReservation,
+		settle: (reservation, units = 1) => billing.settle(reservation, units),
+		settleExisting: (subject, attemptId) =>
+			billing.settleExisting(subject, attemptId),
 	};
 }

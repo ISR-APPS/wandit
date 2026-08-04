@@ -7,8 +7,10 @@
 // - The client NEVER mutates canonical HTML — live tweaks go to the iframe
 //   via postMessage; persistence is ONE op batch → ONE new immutable version.
 // - Ops are keyed per wid and merged (last wins per property); Save orders
-//   them text → image-src → set-link-href → element-style → section-style →
-//   remove-element → one set-tokens (frozen batch order, inline-editor V3).
+//   them remove-element → text → image ops → brand-logo → set-link-href →
+//   set-placeholder → element-style → section-style → reset-tokens → one
+//   set-tokens. Brand swaps precede descendant-sensitive styles/links because
+//   replacing wrapper innerHTML deletes stamped descendants (frozen order).
 // - `baseVersionId` is captured on the FIRST dirty op; a FOREIGN version
 //   change while dirty drops the batch (it would 409 anyway) with a warning
 //   toast. Our own save only clears what it persisted — edits recorded while
@@ -18,12 +20,10 @@ import { useQueryClient } from "@tanstack/react-query";
 import {
 	type ClientEditOp,
 	type CuratedFont,
-	type CuratedFontId,
 	curatedFontById,
 	curatedFontStack,
 	type PageTokenName,
 	SECTION_PADDING_CSS,
-	type SectionPaddingStep,
 } from "@wandit/contracts";
 import type * as React from "react";
 import {
@@ -45,49 +45,132 @@ import {
 	PageOpsFailedError,
 } from "../api/pages.services";
 import {
+	buildPendingOps,
+	countPendingTokenSlot,
+	diffPendingPlaceholderImages,
+	fontStylesheetHrefsForResetPreview,
+	nextPendingTokensReset,
+	omitPendingRemovals,
+	omitPendingWids,
+	type PendingPlaceholderImage,
+	type SpeculativeTokenReset,
+	shouldClearSpeculativeTokenReset,
+	shouldQueueTokenReset,
+	sourceForPendingOps,
+} from "./page-editor-pending";
+import {
+	isKeyKShortcut,
+	nextBaseVersionAfterOwnSave,
+	shouldHandleWindowEscape,
+} from "./page-editor-state";
+import {
 	applySectionStyleMessage,
 	applyStyleMessage,
 	clearSelectionMessage,
 	type EditorMode,
+	type ElementStylePatch,
 	type PreviewParentMessage,
 	type PreviewSelection,
+	placeholderImageMessage,
 	removeElementMessage,
 	type SectionStylePatch,
+	setBrandLogoMessage,
 	setLinkHrefMessage,
+	setPlaceholderMessage,
 	setTextMessage,
 	setTokensMessage,
 	swapImageMessage,
 } from "./preview-editor/messages";
-import { buildFontsCss2Url } from "./preview-editor/parse-tokens";
+import { buildFontsCss2Url, tokensEqual } from "./preview-editor/parse-tokens";
 import { useWorkspace } from "./store";
+import {
+	type TargetCommentsState,
+	useTargetComments,
+} from "./use-target-comments";
 
 /** Element-style patch as PERSISTED: fontFamily is the curated id (the live
- *  postMessage resolves it to a full stack before sending). */
-export type PendingElementStyle = {
-	color?: string;
-	fontSize?: string;
-	fontFamily?: CuratedFontId;
-};
+ *  postMessage resolves it to a full stack before sending). Deriving the
+ *  shape from the contract keeps every newly allowlisted property in sync. */
+export type PendingElementStyle = Extract<
+	ClientEditOp,
+	{ kind: "element-style" }
+>["value"];
 
 /** Section-style patch as PERSISTED: padding STEPS + a raw https URL (or
  *  "none" = clear); the live postMessage resolves steps via
  *  SECTION_PADDING_CSS and wraps the URL in url("…") before sending. */
-export type PendingSectionStyle = {
-	paddingTop?: SectionPaddingStep;
-	paddingBottom?: SectionPaddingStep;
-	backgroundImage?: string;
-};
+export type PendingSectionStyle = Extract<
+	ClientEditOp,
+	{ kind: "section-style" }
+>["value"];
+
+export type PageEditorSaveResult = "saved" | "noop" | "failed";
+
+type MutableCell<T> = { current: T };
+
+/** Return the active save promise verbatim so concurrent callers wait for
+ * the same authoritative result instead of racing a stale base version. */
+export function joinPageEditorSave(
+	inFlight: MutableCell<Promise<PageEditorSaveResult> | null>,
+	run: () => Promise<PageEditorSaveResult>,
+): Promise<PageEditorSaveResult> {
+	if (inFlight.current) return inFlight.current;
+	const request = run();
+	inFlight.current = request;
+	const clear = () => {
+		if (inFlight.current === request) inFlight.current = null;
+	};
+	void request.then(clear, clear);
+	return request;
+}
+
+export function beginManualEditGuard(blocked: MutableCell<boolean>): boolean {
+	if (blocked.current) return false;
+	blocked.current = true;
+	return true;
+}
+
+export function endManualEditGuard(blocked: MutableCell<boolean>): void {
+	blocked.current = false;
+}
+
+/** Remove queued comments for descendants that a live parent edit destroys. */
+export function pruneDestroyedTargetComments(
+	destroyedWids: readonly string[],
+	pruneTargetComment: (wid: string) => boolean,
+): number {
+	let removedCount = 0;
+	for (const wid of new Set(destroyedWids)) {
+		if (pruneTargetComment(wid)) removedCount += 1;
+	}
+	return removedCount;
+}
+
+/** Ask-AI freezes recorders, so a save that joined an older request can safely
+ * drain every leftover snapshot before the foreign AI version is allowed. */
+export async function drainPageEditorSaves(
+	saveOnce: () => Promise<PageEditorSaveResult>,
+): Promise<PageEditorSaveResult> {
+	let result = await saveOnce();
+	while (result === "saved") result = await saveOnce();
+	return result;
+}
 
 type DiscardPrompt = {
 	/** Mode to switch to after a confirmed discard (null = stay). */
 	nextMode: EditorMode | null;
 };
 
-type PageEditorContextValue = {
+type PageEditorContextValue = TargetCommentsState & {
 	mode: EditorMode;
 	/** Mode switch with the dirty-state guard: leaving to browse while dirty
 	 *  opens the discard confirm instead of switching. */
 	requestMode: (mode: EditorMode) => void;
+	/** Unconditional read-only transition (historical previews/build starts):
+	 *  keeps pending ops, but clears selection and the iframe outline. */
+	forceBrowse: () => void;
+	/** Escape ladder shared by parent and iframe focus: deselect, then browse. */
+	handleEscape: () => void;
 	selection: PreviewSelection | null;
 	/** Bridge writes (select / deselect events). */
 	setSelection: (selection: PreviewSelection | null) => void;
@@ -96,22 +179,44 @@ type PageEditorContextValue = {
 	pendingText: Record<string, string>;
 	pendingStyles: Record<string, PendingElementStyle>;
 	pendingImages: Record<string, string>;
+	pendingPlaceholderImages: Record<string, PendingPlaceholderImage>;
+	pendingBrandLogos: Record<string, string | null>;
 	pendingLinks: Record<string, string>;
+	pendingPlaceholders: Record<string, string>;
 	pendingRemovals: string[];
 	pendingSectionStyles: Record<string, PendingSectionStyle>;
 	pendingTokens: Partial<Record<PageTokenName, string>>;
+	pendingTokensReset: boolean;
 	dirtyCount: number;
 	isSaving: boolean;
 	/** Folded into the iframe key — discarding remounts the canonical HTML. */
 	discardCount: number;
-	recordText: (wid: string, value: string) => void;
+	recordText: (
+		wid: string,
+		value: string,
+		flattenedDescendantWids?: readonly string[],
+	) => void;
 	/** Record + live-apply an element style patch. */
 	applyStyle: (wid: string, style: PendingElementStyle) => void;
 	/** Record + live-apply an image swap (url = uploaded R2 url). */
 	applyImage: (wid: string, url: string) => void;
+	/** Swap an image in place for the neutral placeholder. */
+	applyImagePlaceholder: (
+		wid: string,
+		dimensions: PendingPlaceholderImage,
+	) => void;
+	/** Replace a stamped nav/footer brand wrapper's inner content. Descendant
+	 * pending ops are pruned because the swap removes those nodes. */
+	applyBrandLogo: (
+		wid: string,
+		value: string | null,
+		descendantWids?: readonly string[],
+	) => void;
 	/** Record + live-apply a link href (already isSafeLinkHref-validated). */
 	applyLinkHref: (wid: string, href: string) => void;
-	/** Record an element removal (server restricts to <img>), live-remove it
+	/** Record + live-apply an input/textarea placeholder. */
+	applyPlaceholder: (wid: string, value: string) => void;
+	/** Record an editable-leaf removal, live-remove it
 	 *  and drop the wid's other pending entries — they became moot. */
 	removeElement: (wid: string) => void;
 	/** Record + live-apply a section spacing/background patch (steps + raw
@@ -124,7 +229,17 @@ type PageEditorContextValue = {
 		patch: Partial<Record<PageTokenName, string>>,
 		effective: Partial<Record<PageTokenName, string>>,
 	) => void;
-	save: () => Promise<void>;
+	/** Restore the newest builder-origin token set without touching elements. */
+	resetTokens: (
+		originalTokens: Partial<Record<PageTokenName, string>>,
+		baseTokens: Partial<Record<PageTokenName, string>>,
+		originalFontStylesheetHrefs?: readonly string[],
+	) => void;
+	save: () => Promise<PageEditorSaveResult>;
+	/** Freeze manual recorders across the inspector's auto-save → AI send. */
+	beginAskAiDispatch: () => boolean;
+	endAskAiDispatch: () => void;
+	isAskAiDispatching: boolean;
 	discard: () => void;
 	/** Re-post every pending live tweak into a freshly mounted iframe — the
 	 *  preview remounts per version/reload, and edits recorded during an
@@ -143,6 +258,8 @@ type PageEditorContextValue = {
 		post: ((message: PreviewParentMessage) => void) | null,
 	) => void;
 	postToPreview: (message: PreviewParentMessage) => void;
+	registerTargetCommentFocus: (focus: (() => void) | null) => void;
+	focusTargetComment: () => void;
 };
 
 const PageEditorContext = createContext<PageEditorContextValue | null>(null);
@@ -152,9 +269,11 @@ export function PageEditorProvider({
 }: {
 	children: React.ReactNode;
 }) {
-	const { projectId } = useWorkspace();
+	const { isPreviewingHistorical, projectId } = useWorkspace();
 	const { t } = useTranslation();
 	const queryClient = useQueryClient();
+	const targetCommentState = useTargetComments();
+	const { clearTargetComments, pruneTargetComment } = targetCommentState;
 
 	const overviewQuery = usePageOverviewQuery(projectId);
 	const activeVersionId = overviewQuery.data?.activeVersion?.id ?? null;
@@ -172,7 +291,16 @@ export function PageEditorProvider({
 	const [pendingImages, setPendingImages] = useState<Record<string, string>>(
 		{},
 	);
+	const [pendingPlaceholderImages, setPendingPlaceholderImages] = useState<
+		Record<string, PendingPlaceholderImage>
+	>({});
+	const [pendingBrandLogos, setPendingBrandLogos] = useState<
+		Record<string, string | null>
+	>({});
 	const [pendingLinks, setPendingLinks] = useState<Record<string, string>>({});
+	const [pendingPlaceholders, setPendingPlaceholders] = useState<
+		Record<string, string>
+	>({});
 	const [pendingRemovals, setPendingRemovals] = useState<string[]>([]);
 	const [pendingSectionStyles, setPendingSectionStyles] = useState<
 		Record<string, PendingSectionStyle>
@@ -180,9 +308,11 @@ export function PageEditorProvider({
 	const [pendingTokens, setPendingTokens] = useState<
 		Partial<Record<PageTokenName, string>>
 	>({});
+	const [pendingTokensReset, setPendingTokensReset] = useState(false);
 	const [baseVersionId, setBaseVersionId] = useState<string | null>(null);
 	const [discardCount, setDiscardCount] = useState(0);
 	const [isSaving, setIsSaving] = useState(false);
+	const [isAskAiDispatching, setIsAskAiDispatching] = useState(false);
 	const [discardPrompt, setDiscardPrompt] = useState<DiscardPrompt | null>(
 		null,
 	);
@@ -192,10 +322,13 @@ export function PageEditorProvider({
 		Object.keys(pendingText).length +
 		Object.keys(pendingStyles).length +
 		Object.keys(pendingImages).length +
+		Object.keys(pendingPlaceholderImages).length +
+		Object.keys(pendingBrandLogos).length +
 		Object.keys(pendingLinks).length +
+		Object.keys(pendingPlaceholders).length +
 		pendingRemovals.length +
 		Object.keys(pendingSectionStyles).length +
-		(Object.keys(pendingTokens).length > 0 ? 1 : 0);
+		countPendingTokenSlot(pendingTokensReset, pendingTokens);
 	const dirtyRef = useRef(dirtyCount);
 	dirtyRef.current = dirtyCount;
 
@@ -208,19 +341,51 @@ export function PageEditorProvider({
 	pendingStylesRef.current = pendingStyles;
 	const pendingImagesRef = useRef(pendingImages);
 	pendingImagesRef.current = pendingImages;
+	const pendingPlaceholderImagesRef = useRef(pendingPlaceholderImages);
+	pendingPlaceholderImagesRef.current = pendingPlaceholderImages;
+	const pendingBrandLogosRef = useRef(pendingBrandLogos);
+	pendingBrandLogosRef.current = pendingBrandLogos;
 	const pendingLinksRef = useRef(pendingLinks);
 	pendingLinksRef.current = pendingLinks;
+	const pendingPlaceholdersRef = useRef(pendingPlaceholders);
+	pendingPlaceholdersRef.current = pendingPlaceholders;
 	const pendingRemovalsRef = useRef(pendingRemovals);
 	pendingRemovalsRef.current = pendingRemovals;
 	const pendingSectionStylesRef = useRef(pendingSectionStyles);
 	pendingSectionStylesRef.current = pendingSectionStyles;
 	const pendingTokensRef = useRef(pendingTokens);
 	pendingTokensRef.current = pendingTokens;
+	const pendingTokensResetRef = useRef(pendingTokensReset);
+	pendingTokensResetRef.current = pendingTokensReset;
+	const baseVersionIdRef = useRef(baseVersionId);
+	useEffect(() => {
+		baseVersionIdRef.current = baseVersionId;
+	}, [baseVersionId]);
+	const resetPreviewRef = useRef<{
+		values: Record<string, string>;
+		fontStylesheetHrefs: string[];
+	} | null>(null);
+	const tokensResetRevisionRef = useRef(0);
+	const tokenSaveAttemptCounterRef = useRef(0);
+	const tokenSaveInFlightAttemptRef = useRef<number | null>(null);
+	const speculativeTokenResetRef = useRef<SpeculativeTokenReset | null>(null);
+	const saveInFlightRef = useRef<Promise<PageEditorSaveResult> | null>(null);
+	const manualRecordingBlockedRef = useRef(false);
+
+	const beginAskAiDispatch = useCallback(() => {
+		if (!beginManualEditGuard(manualRecordingBlockedRef)) return false;
+		setIsAskAiDispatching(true);
+		return true;
+	}, []);
+	const endAskAiDispatch = useCallback(() => {
+		endManualEditGuard(manualRecordingBlockedRef);
+		setIsAskAiDispatching(false);
+	}, []);
 
 	// Version id produced by OUR OWN save — lets the version-change watcher
 	// tell a save landing apart from a foreign version (AI edit, other tab)
 	// and preserve edits recorded while the save was in flight.
-	const expectedVersionRef = useRef<string | null>(null);
+	const ownVersionIds = useMemo(() => new Set<string>(), []);
 
 	// The iframe poster, registered by PreviewStage (remounts per version).
 	const postRef = useRef<((message: PreviewParentMessage) => void) | null>(
@@ -235,26 +400,58 @@ export function PageEditorProvider({
 	const postToPreview = useCallback((message: PreviewParentMessage) => {
 		postRef.current?.(message);
 	}, []);
+	const targetCommentFocusRef = useRef<(() => void) | null>(null);
+	const registerTargetCommentFocus = useCallback(
+		(focus: (() => void) | null) => {
+			targetCommentFocusRef.current = focus;
+		},
+		[],
+	);
+	const focusTargetComment = useCallback(
+		() => targetCommentFocusRef.current?.(),
+		[],
+	);
 
 	// Every recorder pins the batch to the version it was made against.
 	const touchBase = useCallback(() => {
-		setBaseVersionId((current) => current ?? activeVersionRef.current);
+		const base = baseVersionIdRef.current ?? activeVersionRef.current;
+		baseVersionIdRef.current = base;
+		setBaseVersionId((current) => current ?? base);
 	}, []);
 
 	const resetPending = useCallback(() => {
+		pendingTextRef.current = {};
+		pendingStylesRef.current = {};
+		pendingImagesRef.current = {};
+		pendingPlaceholderImagesRef.current = {};
+		pendingBrandLogosRef.current = {};
+		pendingLinksRef.current = {};
+		pendingPlaceholdersRef.current = {};
+		pendingRemovalsRef.current = [];
+		pendingSectionStylesRef.current = {};
+		pendingTokensRef.current = {};
+		pendingTokensResetRef.current = false;
+		baseVersionIdRef.current = null;
 		setPendingText({});
 		setPendingStyles({});
 		setPendingImages({});
+		setPendingPlaceholderImages({});
+		setPendingBrandLogos({});
 		setPendingLinks({});
+		setPendingPlaceholders({});
 		setPendingRemovals([]);
 		setPendingSectionStyles({});
 		setPendingTokens({});
+		setPendingTokensReset(false);
+		resetPreviewRef.current = null;
+		tokensResetRevisionRef.current = 0;
+		speculativeTokenResetRef.current = null;
 		setBaseVersionId(null);
 	}, []);
 
 	// A FOREIGN new active version supersedes any in-flight edits: the ops
 	// were made against the old DOM and would 409 — drop them with an honest
-	// warning. Our OWN save is recognized via expectedVersionRef: save()
+	// warning. Our OWN saves are recognized via ownVersionIds: save()
 	// already pruned exactly what it persisted and rebased the leftovers, so
 	// dropping here would erase edits made while the request was in flight.
 	const previousVersionRef = useRef<string | null>(activeVersionId);
@@ -262,21 +459,29 @@ export function PageEditorProvider({
 		if (previousVersionRef.current === activeVersionId) return;
 		previousVersionRef.current = activeVersionId;
 		setSelectionState(null);
-		if (
-			activeVersionId !== null &&
-			expectedVersionRef.current === activeVersionId
-		) {
-			expectedVersionRef.current = null;
+		if (activeVersionId !== null && ownVersionIds.delete(activeVersionId)) {
+			const nextBase = nextBaseVersionAfterOwnSave(
+				activeVersionId,
+				dirtyRef.current,
+			);
+			baseVersionIdRef.current = nextBase;
+			setBaseVersionId(nextBase);
 			return;
 		}
-		expectedVersionRef.current = null;
+		ownVersionIds.clear();
+		clearTargetComments();
 		if (dirtyRef.current > 0) {
 			resetPending();
 			toast.warning(t("workspace.page.editor.versionSuperseded"));
 		} else {
+			baseVersionIdRef.current = null;
 			setBaseVersionId(null);
 		}
-	}, [activeVersionId, resetPending, t]);
+	}, [activeVersionId, clearTargetComments, ownVersionIds, resetPending, t]);
+
+	useEffect(() => {
+		if (isPreviewingHistorical) clearTargetComments();
+	}, [clearTargetComments, isPreviewingHistorical]);
 
 	// A build kicking off mid-edit force-exits the editor (lane 3.3): the page
 	// is about to be replaced, so keeping the surface editable is a dead end.
@@ -306,6 +511,12 @@ export function PageEditorProvider({
 		postToPreview(clearSelectionMessage());
 	}, [postToPreview]);
 
+	const forceBrowse = useCallback(() => {
+		setModeState("browse");
+		setSelectionState(null);
+		postToPreview(clearSelectionMessage());
+	}, [postToPreview]);
+
 	const requestMode = useCallback(
 		(next: EditorMode) => {
 			if (next === "browse" && dirtyRef.current > 0) {
@@ -314,66 +525,157 @@ export function PageEditorProvider({
 			}
 			if (next === mode) return;
 			setModeState(next);
-			// EVERY effective mode change drops the selection — a select-mode
-			// target must not leak into the inspector nor the other way around
-			// (contract §4) — and clears the iframe outline with it.
+			// EVERY effective mode change drops the selection. Edit-mode selection
+			// never IMPLICITLY rides the main composer; only the inspector's explicit
+			// Ask AI action may attach it (contract §4). Clear the iframe outline too.
 			setSelectionState(null);
 			postToPreview(clearSelectionMessage());
 		},
 		[mode, postToPreview],
 	);
 
-	// Escape at the APP level (the iframe already handles its own — contract
-	// §11) leaves targeting mode (lane 3.3). Scoped to "select": edit mode
-	// keeps Escape free for dialogs and in-iframe contentEditable.
+	const handleEscape = useCallback(() => {
+		if (selection !== null) {
+			clearSelection();
+			return;
+		}
+		requestMode("browse");
+	}, [clearSelection, requestMode, selection]);
+
+	// Parent shortcuts mirror iframe focus: Cmd/Ctrl+K focuses the selected
+	// target's comment popover; Escape deselects before leaving the mode.
 	useEffect(() => {
-		if (mode !== "select") return;
+		if (mode === "browse") return;
 		const onKeyDown = (event: KeyboardEvent) => {
-			if (event.key === "Escape") requestMode("browse");
+			if (
+				mode === "select" &&
+				selection !== null &&
+				(event.metaKey || event.ctrlKey) &&
+				isKeyKShortcut(event)
+			) {
+				event.preventDefault();
+				focusTargetComment();
+				return;
+			}
+			if (shouldHandleWindowEscape(event)) handleEscape();
 		};
-		window.addEventListener("keydown", onKeyDown);
-		return () => window.removeEventListener("keydown", onKeyDown);
-	}, [mode, requestMode]);
+		window.addEventListener("keydown", onKeyDown, true);
+		return () => window.removeEventListener("keydown", onKeyDown, true);
+	}, [focusTargetComment, handleEscape, mode, selection]);
 
 	const recordText = useCallback(
-		(wid: string, value: string) => {
+		(
+			wid: string,
+			value: string,
+			flattenedDescendantWids: readonly string[] = [],
+		) => {
+			if (manualRecordingBlockedRef.current) return;
 			touchBase();
-			setPendingText((prev) => ({ ...prev, [wid]: value }));
+			// The iframe flattens every inline descendant when it records a parent
+			// text edit. Drop operations for those now-gone wids or the ordered
+			// server batch would later fail with "no element matches wid".
+			setPendingText((prev) => ({
+				...omitPendingWids(prev, flattenedDescendantWids),
+				[wid]: value,
+			}));
+			setPendingStyles((prev) =>
+				omitPendingWids(prev, flattenedDescendantWids),
+			);
+			setPendingImages((prev) =>
+				omitPendingWids(prev, flattenedDescendantWids),
+			);
+			setPendingPlaceholderImages((prev) =>
+				omitPendingWids(prev, flattenedDescendantWids),
+			);
+			setPendingBrandLogos((prev) =>
+				omitPendingWids(prev, flattenedDescendantWids),
+			);
+			setPendingLinks((prev) => omitPendingWids(prev, flattenedDescendantWids));
+			setPendingPlaceholders((prev) =>
+				omitPendingWids(prev, flattenedDescendantWids),
+			);
+			setPendingRemovals((prev) =>
+				omitPendingRemovals(prev, flattenedDescendantWids),
+			);
+			setPendingSectionStyles((prev) =>
+				omitPendingWids(prev, flattenedDescendantWids),
+			);
+			pruneDestroyedTargetComments(flattenedDescendantWids, pruneTargetComment);
 		},
-		[touchBase],
+		[pruneTargetComment, touchBase],
 	);
 
 	const applyStyle = useCallback(
 		(wid: string, style: PendingElementStyle) => {
+			if (manualRecordingBlockedRef.current) return;
 			touchBase();
 			setPendingStyles((prev) => ({
 				...prev,
 				[wid]: { ...prev[wid], ...style },
 			}));
-			postToPreview(
-				applyStyleMessage(wid, {
-					...(style.color ? { color: style.color } : {}),
-					...(style.fontSize ? { fontSize: style.fontSize } : {}),
-					...(style.fontFamily
-						? { fontFamily: curatedFontStack(style.fontFamily) }
-						: {}),
-				}),
-			);
+			postToPreview(applyStyleMessage(wid, resolveElementStylePatch(style)));
 		},
 		[postToPreview, touchBase],
 	);
 
 	const applyImage = useCallback(
 		(wid: string, url: string) => {
+			if (manualRecordingBlockedRef.current) return;
 			touchBase();
 			setPendingImages((prev) => ({ ...prev, [wid]: url }));
+			setPendingPlaceholderImages((prev) => omitWid(prev, wid));
 			postToPreview(swapImageMessage(wid, url));
 		},
 		[postToPreview, touchBase],
 	);
 
+	const applyImagePlaceholder = useCallback(
+		(wid: string, dimensions: PendingPlaceholderImage) => {
+			if (manualRecordingBlockedRef.current) return;
+			touchBase();
+			setPendingPlaceholderImages((prev) => ({
+				...prev,
+				[wid]: dimensions,
+			}));
+			setPendingImages((prev) => omitWid(prev, wid));
+			postToPreview(placeholderImageMessage(wid, dimensions ?? undefined));
+		},
+		[postToPreview, touchBase],
+	);
+
+	const applyBrandLogo = useCallback(
+		(
+			wid: string,
+			value: string | null,
+			descendantWids: readonly string[] = [],
+		) => {
+			if (manualRecordingBlockedRef.current) return;
+			touchBase();
+			setPendingBrandLogos((prev) => ({
+				...omitPendingWids(prev, descendantWids),
+				[wid]: value,
+			}));
+			// The wrapper remains stable, but every stamped descendant disappears
+			// when its innerHTML becomes the logo (or restored fallback).
+			setPendingText((prev) => omitPendingWids(prev, descendantWids));
+			setPendingStyles((prev) => omitPendingWids(prev, descendantWids));
+			setPendingImages((prev) => omitPendingWids(prev, descendantWids));
+			setPendingPlaceholderImages((prev) =>
+				omitPendingWids(prev, descendantWids),
+			);
+			setPendingLinks((prev) => omitPendingWids(prev, descendantWids));
+			setPendingPlaceholders((prev) => omitPendingWids(prev, descendantWids));
+			setPendingRemovals((prev) => omitPendingRemovals(prev, descendantWids));
+			setPendingSectionStyles((prev) => omitPendingWids(prev, descendantWids));
+			pruneDestroyedTargetComments(descendantWids, pruneTargetComment);
+			postToPreview(setBrandLogoMessage(wid, value));
+		},
+		[postToPreview, pruneTargetComment, touchBase],
+	);
+
 	const applyLinkHref = useCallback(
 		(wid: string, href: string) => {
+			if (manualRecordingBlockedRef.current) return;
 			touchBase();
 			setPendingLinks((prev) => ({ ...prev, [wid]: href }));
 			postToPreview(setLinkHrefMessage(wid, href));
@@ -381,8 +683,19 @@ export function PageEditorProvider({
 		[postToPreview, touchBase],
 	);
 
+	const applyPlaceholder = useCallback(
+		(wid: string, value: string) => {
+			if (manualRecordingBlockedRef.current) return;
+			touchBase();
+			setPendingPlaceholders((prev) => ({ ...prev, [wid]: value }));
+			postToPreview(setPlaceholderMessage(wid, value));
+		},
+		[postToPreview, touchBase],
+	);
+
 	const removeElement = useCallback(
 		(wid: string) => {
+			if (manualRecordingBlockedRef.current) return;
 			touchBase();
 			setPendingRemovals((prev) =>
 				prev.includes(wid) ? prev : [...prev, wid],
@@ -392,14 +705,19 @@ export function PageEditorProvider({
 			setPendingText((prev) => omitWid(prev, wid));
 			setPendingStyles((prev) => omitWid(prev, wid));
 			setPendingImages((prev) => omitWid(prev, wid));
+			setPendingPlaceholderImages((prev) => omitWid(prev, wid));
+			setPendingBrandLogos((prev) => omitWid(prev, wid));
 			setPendingLinks((prev) => omitWid(prev, wid));
+			setPendingPlaceholders((prev) => omitWid(prev, wid));
+			pruneTargetComment(wid);
 			postToPreview(removeElementMessage(wid));
 		},
-		[postToPreview, touchBase],
+		[postToPreview, pruneTargetComment, touchBase],
 	);
 
 	const applySectionStyle = useCallback(
 		(wid: string, patch: PendingSectionStyle) => {
+			if (manualRecordingBlockedRef.current) return;
 			touchBase();
 			setPendingSectionStyles((prev) => ({
 				...prev,
@@ -417,6 +735,7 @@ export function PageEditorProvider({
 			patch: Partial<Record<PageTokenName, string>>,
 			effective: Partial<Record<PageTokenName, string>>,
 		) => {
+			if (manualRecordingBlockedRef.current) return;
 			touchBase();
 			setPendingTokens((prev) => ({ ...prev, ...patch }));
 			// Live message: fonts become full stacks; curated families also get a
@@ -441,7 +760,60 @@ export function PageEditorProvider({
 				setTokensMessage(
 					values,
 					fonts.length > 0 ? buildFontsCss2Url(fonts) : undefined,
+					fontStylesheetHrefsForResetPreview(
+						resetPreviewRef.current,
+						effective,
+						false,
+					),
 				),
+			);
+		},
+		[postToPreview, touchBase],
+	);
+
+	const resetTokens = useCallback(
+		(
+			originalTokens: Partial<Record<PageTokenName, string>>,
+			baseTokens: Partial<Record<PageTokenName, string>>,
+			originalFontStylesheetHrefs: readonly string[] = [],
+		) => {
+			if (manualRecordingBlockedRef.current) return;
+			setPendingTokens({});
+			const baseIsOriginal = tokensEqual(baseTokens, originalTokens);
+			const values = tokenValuesForPreview(
+				baseIsOriginal ? baseTokens : originalTokens,
+			);
+
+			if (
+				!shouldQueueTokenReset(
+					baseIsOriginal,
+					tokenSaveInFlightAttemptRef.current !== null,
+				)
+			) {
+				setPendingTokensReset(false);
+				resetPreviewRef.current = null;
+				postToPreview(
+					setTokensMessage(values, undefined, originalFontStylesheetHrefs),
+				);
+				return;
+			}
+
+			touchBase();
+			setPendingTokensReset(true);
+			tokensResetRevisionRef.current += 1;
+			speculativeTokenResetRef.current =
+				baseIsOriginal && tokenSaveInFlightAttemptRef.current !== null
+					? {
+							attempt: tokenSaveInFlightAttemptRef.current,
+							revision: tokensResetRevisionRef.current,
+						}
+					: null;
+			resetPreviewRef.current = {
+				values,
+				fontStylesheetHrefs: [...originalFontStylesheetHrefs],
+			};
+			postToPreview(
+				setTokensMessage(values, undefined, originalFontStylesheetHrefs),
 			);
 		},
 		[postToPreview, touchBase],
@@ -455,132 +827,211 @@ export function PageEditorProvider({
 		setDiscardCount((count) => count + 1);
 	}, [resetPending]);
 
-	const save = useCallback(async () => {
-		if (isSaving) return;
-		const ops: ClientEditOp[] = [];
-		for (const [wid, value] of Object.entries(pendingText)) {
-			ops.push({ kind: "text", wid, value });
-		}
-		for (const [wid, value] of Object.entries(pendingImages)) {
-			ops.push({ kind: "image-src", wid, value });
-		}
-		for (const [wid, value] of Object.entries(pendingLinks)) {
-			ops.push({ kind: "set-link-href", wid, value });
-		}
-		for (const [wid, value] of Object.entries(pendingStyles)) {
-			ops.push({ kind: "element-style", wid, value });
-		}
-		for (const [wid, value] of Object.entries(pendingSectionStyles)) {
-			ops.push({ kind: "section-style", wid, value });
-		}
-		// Removals go LAST (frozen batch order) — every other op targeting the
-		// wid was already dropped when the removal was recorded.
-		for (const wid of pendingRemovals) {
-			ops.push({ kind: "remove-element", wid });
-		}
-		const hasTokens = Object.keys(pendingTokens).length > 0;
-		if (hasTokens) ops.push({ kind: "set-tokens", value: pendingTokens });
-		const base = baseVersionId ?? activeVersionRef.current;
-		if (ops.length === 0 || !base) return;
+	const saveOnce = useCallback((): Promise<PageEditorSaveResult> => {
+		return joinPageEditorSave(saveInFlightRef, async () => {
+			// Snapshot from refs at the instant this request actually starts. An
+			// Ask-AI submit may first join an older manual save, then invoke save()
+			// again to flush the leftovers that older snapshot deliberately kept.
+			const sentText = pendingTextRef.current;
+			const sentStyles = pendingStylesRef.current;
+			const sentImages = pendingImagesRef.current;
+			const sentPlaceholderImages = pendingPlaceholderImagesRef.current;
+			const sentBrandLogos = pendingBrandLogosRef.current;
+			const sentLinks = pendingLinksRef.current;
+			const sentPlaceholders = pendingPlaceholdersRef.current;
+			const sentRemovals = [...pendingRemovalsRef.current];
+			const sentSectionStyles = pendingSectionStylesRef.current;
+			const sentTokens = pendingTokensRef.current;
+			const sentReset = pendingTokensResetRef.current;
+			const sentResetRevision = tokensResetRevisionRef.current;
+			// Removals lead the frozen batch order: removing nested inline targets
+			// first lets a later parent text edit pass the descendant-shape guard.
+			// Same-wid edits are safe because removeElement prunes them immediately.
+			const ops = buildPendingOps({
+				text: sentText,
+				styles: sentStyles,
+				images: sentImages,
+				placeholderImages: sentPlaceholderImages,
+				brandLogos: sentBrandLogos,
+				links: sentLinks,
+				placeholders: sentPlaceholders,
+				removals: sentRemovals,
+				sectionStyles: sentSectionStyles,
+				tokens: sentTokens,
+				tokensReset: sentReset,
+			});
+			const base = baseVersionIdRef.current ?? activeVersionRef.current;
+			if (ops.length === 0 || !base) return "noop";
 
-		setIsSaving(true);
-		try {
-			const response = await applyPageOps(projectId, {
-				baseVersionId: base,
-				// Tokens-only batches are theme saves; anything element-level makes
-				// the whole batch "inline" (contract §7.1 source semantics).
-				source: hasTokens && ops.length === 1 ? "theme" : "inline",
-				ops,
-			});
-			// Prune EXACTLY what this batch persisted (the closure snapshots
-			// below are what the ops were built from). Edits recorded while the
-			// request was in flight stay pending, rebased onto the new version —
-			// wids are stable across versions, and the new version already
-			// contains everything the batch saved. Mark the version as our own
-			// BEFORE invalidating so the watcher above does not drop them.
-			expectedVersionRef.current = response.version.id;
-			const nextText = diffPendingValues(pendingTextRef.current, pendingText);
-			const nextImages = diffPendingValues(
-				pendingImagesRef.current,
-				pendingImages,
+			const savesTokens = ops.some(
+				(op) => op.kind === "reset-tokens" || op.kind === "set-tokens",
 			);
-			const nextLinks = diffPendingValues(
-				pendingLinksRef.current,
-				pendingLinks,
-			);
-			const nextStyles = diffPendingStyles(
-				pendingStylesRef.current,
-				pendingStyles,
-			);
-			const nextSectionStyles = diffPendingSectionStyles(
-				pendingSectionStylesRef.current,
-				pendingSectionStyles,
-			);
-			// Removals are idempotent flags — everything in the saved snapshot
-			// is gone from the new version, only later removals stay pending.
-			const nextRemovals = pendingRemovalsRef.current.filter(
-				(wid) => !pendingRemovals.includes(wid),
-			);
-			const nextTokens = diffPendingTokens(
-				pendingTokensRef.current,
-				pendingTokens,
-			);
-			const leftover =
-				Object.keys(nextText).length +
-				Object.keys(nextImages).length +
-				Object.keys(nextLinks).length +
-				Object.keys(nextStyles).length +
-				Object.keys(nextSectionStyles).length +
-				nextRemovals.length +
-				Object.keys(nextTokens).length;
-			setPendingText(nextText);
-			setPendingImages(nextImages);
-			setPendingLinks(nextLinks);
-			setPendingStyles(nextStyles);
-			setPendingSectionStyles(nextSectionStyles);
-			setPendingRemovals(nextRemovals);
-			setPendingTokens(nextTokens);
-			setBaseVersionId(leftover > 0 ? response.version.id : null);
-			await queryClient.invalidateQueries({
-				queryKey: pageKeys.overview(projectId),
-			});
-			// Honest confirmation only — the AI-side "user edited these wids" note
-			// is server context injection; the client NEVER injects fake chat
-			// messages (lane 3.2).
-			toast.success(
-				t("workspace.page.editor.saved", { n: response.version.number }),
-			);
-		} catch (error) {
-			if (error instanceof PageOpsConflictError) {
-				setConflictOpen(true);
-			} else if (error instanceof PageOpsFailedError) {
-				toast.error(
-					t("workspace.page.editor.saveFailed", { reason: error.reason }),
-				);
-			} else {
-				toast.error(
-					t("workspace.page.editor.saveFailed", {
-						reason: error instanceof Error ? error.message : String(error),
-					}),
-				);
+			let tokenSaveAttempt: number | null = null;
+			if (savesTokens) {
+				tokenSaveAttemptCounterRef.current += 1;
+				tokenSaveAttempt = tokenSaveAttemptCounterRef.current;
 			}
-		} finally {
-			setIsSaving(false);
-		}
-	}, [
-		isSaving,
-		pendingText,
-		pendingImages,
-		pendingLinks,
-		pendingStyles,
-		pendingSectionStyles,
-		pendingRemovals,
-		pendingTokens,
-		baseVersionId,
-		projectId,
-		queryClient,
-		t,
-	]);
+			tokenSaveInFlightAttemptRef.current = tokenSaveAttempt;
+			setIsSaving(true);
+			try {
+				const response = await applyPageOps(projectId, {
+					baseVersionId: base,
+					// Token-only batches are theme saves; anything element-level makes
+					// the whole batch "inline" (contract §7.1 source semantics).
+					source: sourceForPendingOps(ops),
+					ops,
+				});
+				// Prune EXACTLY what this batch persisted (the closure snapshots
+				// below are what the ops were built from). Edits recorded while the
+				// request was in flight stay pending, rebased onto the new version —
+				// wids are stable across versions, and the new version already
+				// contains everything the batch saved. Mark the version as our own
+				// BEFORE invalidating so the watcher above does not drop them.
+				ownVersionIds.add(response.version.id);
+				const nextText = diffPendingValues(pendingTextRef.current, sentText);
+				const nextImages = diffPendingValues(
+					pendingImagesRef.current,
+					sentImages,
+				);
+				const nextPlaceholderImages = diffPendingPlaceholderImages(
+					pendingPlaceholderImagesRef.current,
+					sentPlaceholderImages,
+				);
+				const nextBrandLogos = diffPendingValues(
+					pendingBrandLogosRef.current,
+					sentBrandLogos,
+				);
+				const nextLinks = diffPendingValues(pendingLinksRef.current, sentLinks);
+				const nextPlaceholders = diffPendingValues(
+					pendingPlaceholdersRef.current,
+					sentPlaceholders,
+				);
+				const nextStyles = diffPendingStyles(
+					pendingStylesRef.current,
+					sentStyles,
+				);
+				const nextSectionStyles = diffPendingSectionStyles(
+					pendingSectionStylesRef.current,
+					sentSectionStyles,
+				);
+				// Removals are idempotent flags — everything in the saved snapshot
+				// is gone from the new version, only later removals stay pending.
+				const savedRemovals = new Set(sentRemovals);
+				const nextRemovals = pendingRemovalsRef.current.filter(
+					(wid) => !savedRemovals.has(wid),
+				);
+				const nextTokens = diffPendingTokens(
+					pendingTokensRef.current,
+					sentTokens,
+				);
+				const nextTokensReset = nextPendingTokensReset(
+					pendingTokensResetRef.current,
+					sentReset,
+					tokensResetRevisionRef.current,
+					sentResetRevision,
+				);
+
+				if (sentReset && !nextTokensReset) {
+					resetPreviewRef.current = null;
+				}
+				if (speculativeTokenResetRef.current?.attempt === tokenSaveAttempt) {
+					speculativeTokenResetRef.current = null;
+				}
+				const leftover =
+					Object.keys(nextText).length +
+					Object.keys(nextImages).length +
+					Object.keys(nextPlaceholderImages).length +
+					Object.keys(nextBrandLogos).length +
+					Object.keys(nextLinks).length +
+					Object.keys(nextPlaceholders).length +
+					Object.keys(nextStyles).length +
+					Object.keys(nextSectionStyles).length +
+					nextRemovals.length +
+					countPendingTokenSlot(nextTokensReset, nextTokens);
+				pendingTextRef.current = nextText;
+				pendingImagesRef.current = nextImages;
+				pendingPlaceholderImagesRef.current = nextPlaceholderImages;
+				pendingBrandLogosRef.current = nextBrandLogos;
+				pendingLinksRef.current = nextLinks;
+				pendingPlaceholdersRef.current = nextPlaceholders;
+				pendingStylesRef.current = nextStyles;
+				pendingSectionStylesRef.current = nextSectionStyles;
+				pendingRemovalsRef.current = nextRemovals;
+				pendingTokensRef.current = nextTokens;
+				pendingTokensResetRef.current = nextTokensReset;
+				baseVersionIdRef.current = leftover > 0 ? response.version.id : null;
+				setPendingText(nextText);
+				setPendingImages(nextImages);
+				setPendingPlaceholderImages(nextPlaceholderImages);
+				setPendingBrandLogos(nextBrandLogos);
+				setPendingLinks(nextLinks);
+				setPendingPlaceholders(nextPlaceholders);
+				setPendingStyles(nextStyles);
+				setPendingSectionStyles(nextSectionStyles);
+				setPendingRemovals(nextRemovals);
+				setPendingTokens(nextTokens);
+				setPendingTokensReset(nextTokensReset);
+				setBaseVersionId(leftover > 0 ? response.version.id : null);
+				await Promise.all([
+					queryClient.invalidateQueries({
+						queryKey: pageKeys.overview(projectId),
+					}),
+					queryClient.invalidateQueries({
+						queryKey: pageKeys.versions(projectId),
+					}),
+				]);
+				// Honest confirmation only — the AI-side "user edited these wids" note
+				// is server context injection; the client NEVER injects fake chat
+				// messages (lane 3.2).
+				toast.success(
+					t("workspace.page.editor.saved", { n: response.version.number }),
+				);
+				return "saved";
+			} catch (error) {
+				if (
+					(error instanceof PageOpsConflictError ||
+						error instanceof PageOpsFailedError) &&
+					shouldClearSpeculativeTokenReset(
+						speculativeTokenResetRef.current,
+						tokenSaveAttempt,
+						tokensResetRevisionRef.current,
+					)
+				) {
+					pendingTokensResetRef.current = false;
+					setPendingTokensReset(false);
+					resetPreviewRef.current = null;
+					speculativeTokenResetRef.current = null;
+				}
+				if (error instanceof PageOpsConflictError) {
+					setConflictOpen(true);
+				} else if (error instanceof PageOpsFailedError) {
+					toast.error(
+						t("workspace.page.editor.saveFailed", { reason: error.reason }),
+					);
+				} else {
+					toast.error(
+						t("workspace.page.editor.saveFailed", {
+							reason: error instanceof Error ? error.message : String(error),
+						}),
+					);
+				}
+				return "failed";
+			} finally {
+				if (tokenSaveInFlightAttemptRef.current === tokenSaveAttempt) {
+					tokenSaveInFlightAttemptRef.current = null;
+				}
+				setIsSaving(false);
+			}
+		});
+	}, [ownVersionIds, projectId, queryClient, t]);
+
+	const save = useCallback(
+		(): Promise<PageEditorSaveResult> =>
+			manualRecordingBlockedRef.current
+				? drainPageEditorSaves(saveOnce)
+				: saveOnce(),
+		[saveOnce],
+	);
 
 	// Re-post pending live tweaks after any iframe remount (own-save version
 	// change, manual reload): the fresh document is canonical HTML, so the
@@ -593,19 +1044,22 @@ export function PageEditorProvider({
 		for (const [wid, url] of Object.entries(pendingImagesRef.current)) {
 			postToPreview(swapImageMessage(wid, url));
 		}
+		for (const [wid, dimensions] of Object.entries(
+			pendingPlaceholderImagesRef.current,
+		)) {
+			postToPreview(placeholderImageMessage(wid, dimensions ?? undefined));
+		}
+		for (const [wid, value] of Object.entries(pendingBrandLogosRef.current)) {
+			postToPreview(setBrandLogoMessage(wid, value));
+		}
 		for (const [wid, style] of Object.entries(pendingStylesRef.current)) {
-			postToPreview(
-				applyStyleMessage(wid, {
-					...(style.color ? { color: style.color } : {}),
-					...(style.fontSize ? { fontSize: style.fontSize } : {}),
-					...(style.fontFamily
-						? { fontFamily: curatedFontStack(style.fontFamily) }
-						: {}),
-				}),
-			);
+			postToPreview(applyStyleMessage(wid, resolveElementStylePatch(style)));
 		}
 		for (const [wid, href] of Object.entries(pendingLinksRef.current)) {
 			postToPreview(setLinkHrefMessage(wid, href));
+		}
+		for (const [wid, value] of Object.entries(pendingPlaceholdersRef.current)) {
+			postToPreview(setPlaceholderMessage(wid, value));
 		}
 		for (const [wid, patch] of Object.entries(
 			pendingSectionStylesRef.current,
@@ -618,6 +1072,15 @@ export function PageEditorProvider({
 		// Removals last — nothing above may target an already-removed node.
 		for (const wid of pendingRemovalsRef.current) {
 			postToPreview(removeElementMessage(wid));
+		}
+		if (resetPreviewRef.current) {
+			postToPreview(
+				setTokensMessage(
+					resetPreviewRef.current.values,
+					undefined,
+					resetPreviewRef.current.fontStylesheetHrefs,
+				),
+			);
 		}
 		const tokens = pendingTokensRef.current;
 		if (Object.keys(tokens).length > 0) {
@@ -643,6 +1106,11 @@ export function PageEditorProvider({
 				setTokensMessage(
 					values,
 					fonts.length > 0 ? buildFontsCss2Url(fonts) : undefined,
+					fontStylesheetHrefsForResetPreview(
+						resetPreviewRef.current,
+						tokens,
+						true,
+					),
 				),
 			);
 		}
@@ -653,12 +1121,10 @@ export function PageEditorProvider({
 	}, []);
 
 	const confirmDiscardPrompt = useCallback(() => {
-		setDiscardPrompt((prompt) => {
-			if (prompt?.nextMode) setModeState(prompt.nextMode);
-			return null;
-		});
+		if (discardPrompt?.nextMode) setModeState(discardPrompt.nextMode);
+		setDiscardPrompt(null);
 		discard();
-	}, [discard]);
+	}, [discard, discardPrompt?.nextMode]);
 
 	const cancelDiscardPrompt = useCallback(() => setDiscardPrompt(null), []);
 
@@ -672,29 +1138,43 @@ export function PageEditorProvider({
 
 	const value = useMemo<PageEditorContextValue>(
 		() => ({
+			...targetCommentState,
 			mode,
 			requestMode,
+			forceBrowse,
+			handleEscape,
 			selection,
 			setSelection,
 			clearSelection,
 			pendingText,
 			pendingStyles,
 			pendingImages,
+			pendingPlaceholderImages,
+			pendingBrandLogos,
 			pendingLinks,
+			pendingPlaceholders,
 			pendingRemovals,
 			pendingSectionStyles,
 			pendingTokens,
+			pendingTokensReset,
 			dirtyCount,
 			isSaving,
+			isAskAiDispatching,
 			discardCount,
 			recordText,
 			applyStyle,
 			applyImage,
+			applyImagePlaceholder,
+			applyBrandLogo,
 			applyLinkHref,
+			applyPlaceholder,
 			removeElement,
 			applySectionStyle,
 			applyTokens,
+			resetTokens,
 			save,
+			beginAskAiDispatch,
+			endAskAiDispatch,
 			discard,
 			replayPending,
 			discardPrompt,
@@ -705,31 +1185,47 @@ export function PageEditorProvider({
 			resolveConflict,
 			registerPost,
 			postToPreview,
+			registerTargetCommentFocus,
+			focusTargetComment,
 		}),
 		[
+			targetCommentState,
 			mode,
 			requestMode,
+			forceBrowse,
+			handleEscape,
 			selection,
 			setSelection,
 			clearSelection,
 			pendingText,
 			pendingStyles,
 			pendingImages,
+			pendingPlaceholderImages,
+			pendingBrandLogos,
 			pendingLinks,
+			pendingPlaceholders,
 			pendingRemovals,
 			pendingSectionStyles,
 			pendingTokens,
+			pendingTokensReset,
 			dirtyCount,
 			isSaving,
+			isAskAiDispatching,
 			discardCount,
 			recordText,
 			applyStyle,
 			applyImage,
+			applyImagePlaceholder,
+			applyBrandLogo,
 			applyLinkHref,
+			applyPlaceholder,
 			removeElement,
 			applySectionStyle,
 			applyTokens,
+			resetTokens,
 			save,
+			beginAskAiDispatch,
+			endAskAiDispatch,
 			discard,
 			replayPending,
 			discardPrompt,
@@ -740,6 +1236,8 @@ export function PageEditorProvider({
 			resolveConflict,
 			registerPost,
 			postToPreview,
+			registerTargetCommentFocus,
+			focusTargetComment,
 		],
 	);
 
@@ -768,6 +1266,39 @@ function omitWid<T>(record: Record<string, T>, wid: string): Record<string, T> {
 	return rest;
 }
 
+/** Persisted element style → ready-to-apply CSS for the iframe. Curated font
+ *  ids are the sole property whose wire value differs from the saved op. */
+function resolveElementStylePatch(
+	style: PendingElementStyle,
+): ElementStylePatch {
+	return {
+		...(style.backgroundColor !== undefined
+			? { backgroundColor: style.backgroundColor }
+			: {}),
+		...(style.borderRadius !== undefined
+			? { borderRadius: style.borderRadius }
+			: {}),
+		...(style.color !== undefined ? { color: style.color } : {}),
+		...(style.fontFamily !== undefined
+			? { fontFamily: curatedFontStack(style.fontFamily) }
+			: {}),
+		...(style.fontSize !== undefined ? { fontSize: style.fontSize } : {}),
+		...(style.fontStyle !== undefined ? { fontStyle: style.fontStyle } : {}),
+		...(style.fontWeight !== undefined
+			? { fontWeight: String(style.fontWeight) }
+			: {}),
+		...(style.letterSpacing !== undefined
+			? { letterSpacing: style.letterSpacing }
+			: {}),
+		...(style.lineHeight !== undefined
+			? { lineHeight: String(style.lineHeight) }
+			: {}),
+		...(style.objectFit !== undefined ? { objectFit: style.objectFit } : {}),
+		...(style.textAlign !== undefined ? { textAlign: style.textAlign } : {}),
+		...(style.width !== undefined ? { width: style.width } : {}),
+	};
+}
+
 /** Pending section patch → READY CSS for the live message: steps through the
  *  frozen SECTION_PADDING_CSS scale, url wrapped in url("…") with the same
  *  escaping rule the server applies (backslash first, then quote), "none"
@@ -788,7 +1319,24 @@ function resolveSectionStylePatch(
 				? "none"
 				: `url("${patch.backgroundImage.replaceAll("\\", "\\\\").replaceAll('"', '\\"')}")`;
 	}
+	if (patch.backgroundColor !== undefined) {
+		resolved.backgroundColor = patch.backgroundColor;
+	}
 	return resolved;
+}
+
+function tokenValuesForPreview(
+	tokens: Partial<Record<PageTokenName, string>>,
+): Record<string, string> {
+	const values: Record<string, string> = {};
+
+	for (const [name, value] of Object.entries(tokens)) {
+		if (value !== undefined) {
+			values[name] = value;
+		}
+	}
+
+	return values;
 }
 
 // ── Save pruning helpers ────────────────────────────────────────────────────
@@ -796,11 +1344,11 @@ function resolveSectionStylePatch(
 // cleared: anything recorded while the request was in flight differs from
 // the saved snapshot and stays pending (rebased onto the new version).
 
-function diffPendingValues(
-	current: Record<string, string>,
-	saved: Record<string, string>,
-): Record<string, string> {
-	const next: Record<string, string> = {};
+function diffPendingValues<T>(
+	current: Record<string, T>,
+	saved: Record<string, T>,
+): Record<string, T> {
+	const next: Record<string, T> = {};
 	for (const [wid, value] of Object.entries(current)) {
 		if (saved[wid] !== value) next[wid] = value;
 	}
@@ -818,30 +1366,22 @@ function diffPendingStyles(
 			next[wid] = style;
 			continue;
 		}
-		// Styles merge per property — keep only the properties that changed
-		// after the snapshot was taken.
+		// Styles merge per property — keep only properties changed after the
+		// snapshot. Iterate the contract-derived shape so new allowlisted fields
+		// cannot be accidentally pruned while an earlier save is in flight.
 		const leftover: PendingElementStyle = {};
-		if (style.color !== undefined && style.color !== savedStyle.color) {
-			leftover.color = style.color;
-		}
-		if (
-			style.fontSize !== undefined &&
-			style.fontSize !== savedStyle.fontSize
-		) {
-			leftover.fontSize = style.fontSize;
-		}
-		if (
-			style.fontFamily !== undefined &&
-			style.fontFamily !== savedStyle.fontFamily
-		) {
-			leftover.fontFamily = style.fontFamily;
+		for (const [property, value] of Object.entries(style)) {
+			const key = property as keyof PendingElementStyle;
+			if (value !== undefined && value !== savedStyle[key]) {
+				Object.assign(leftover, { [key]: value });
+			}
 		}
 		if (Object.keys(leftover).length > 0) next[wid] = leftover;
 	}
 	return next;
 }
 
-function diffPendingSectionStyles(
+export function diffPendingSectionStyles(
 	current: Record<string, PendingSectionStyle>,
 	saved: Record<string, PendingSectionStyle>,
 ): Record<string, PendingSectionStyle> {
@@ -852,26 +1392,14 @@ function diffPendingSectionStyles(
 			next[wid] = patch;
 			continue;
 		}
-		// Section styles merge per property too — keep only what changed after
-		// the snapshot was taken.
+		// Section styles merge per property too. Iterate the contract-derived
+		// shape so a newly allowlisted property cannot be silently pruned.
 		const leftover: PendingSectionStyle = {};
-		if (
-			patch.paddingTop !== undefined &&
-			patch.paddingTop !== savedPatch.paddingTop
-		) {
-			leftover.paddingTop = patch.paddingTop;
-		}
-		if (
-			patch.paddingBottom !== undefined &&
-			patch.paddingBottom !== savedPatch.paddingBottom
-		) {
-			leftover.paddingBottom = patch.paddingBottom;
-		}
-		if (
-			patch.backgroundImage !== undefined &&
-			patch.backgroundImage !== savedPatch.backgroundImage
-		) {
-			leftover.backgroundImage = patch.backgroundImage;
+		for (const [property, value] of Object.entries(patch)) {
+			const key = property as keyof PendingSectionStyle;
+			if (value !== undefined && value !== savedPatch[key]) {
+				Object.assign(leftover, { [key]: value });
+			}
 		}
 		if (Object.keys(leftover).length > 0) next[wid] = leftover;
 	}

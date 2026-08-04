@@ -62,3 +62,8 @@ _heroui-example
 
 # Claude Code worktrees
 .claude/worktrees/
+
+_cc-harness
+
+# Third-party references
+references/

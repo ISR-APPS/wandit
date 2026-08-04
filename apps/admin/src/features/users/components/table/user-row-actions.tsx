@@ -6,7 +6,9 @@ import {
 	CreditCardIcon,
 	EllipsisIcon,
 	ExternalLinkIcon,
+	FlaskConicalIcon,
 	ShieldCheckIcon,
+	ShieldOffIcon,
 	UserCogIcon,
 } from "lucide-react";
 import { useState } from "react";
@@ -30,10 +32,12 @@ import {
 import { useSession } from "@/features/auth/lib/session";
 import type { AdminUserSummary } from "@/features/users/api/users.dto";
 import { BanUserDialog } from "@/features/users/components/ban-user-dialog";
+import { BetaEnrollDialog } from "@/features/users/components/beta-enroll-dialog";
 import { ChangeRoleDialog } from "@/features/users/components/change-role-dialog";
+import { EarlyAccessDialog } from "@/features/users/components/early-access-dialog";
 import { GrantCreditsDialog } from "@/features/users/components/grant-credits-dialog";
 
-type ActiveDialog = "credits" | "role" | "ban" | null;
+type ActiveDialog = "beta" | "credits" | "access" | "role" | "ban" | null;
 
 function UserRowActions({ user }: { user: AdminUserSummary }) {
 	const [activeDialog, setActiveDialog] = useState<ActiveDialog>(null);
@@ -41,7 +45,10 @@ function UserRowActions({ user }: { user: AdminUserSummary }) {
 	const isSelf = session?.user.id === user.id;
 	// The server rejects banning an admin (restoring one is still allowed), so
 	// banning an admin has to go through "Change role" first.
-	const canToggleAccess = !isSelf && (user.banned || !isAdminRole(user.role));
+	const canToggleBanned = !isSelf && (user.banned || !isAdminRole(user.role));
+	// Admins always have beta access through their role, so changing the stored
+	// early-access flag for them would not change their effective access.
+	const canToggleEarlyAccess = !isAdminRole(user.role);
 
 	async function copyUserId() {
 		try {
@@ -94,6 +101,18 @@ function UserRowActions({ user }: { user: AdminUserSummary }) {
 							<CreditCardIcon />
 							Grant credits
 						</DropdownMenuItem>
+						{canToggleEarlyAccess && !user.earlyAccess ? (
+							<DropdownMenuItem onSelect={() => setActiveDialog("beta")}>
+								<FlaskConicalIcon />
+								Enroll in beta
+							</DropdownMenuItem>
+						) : null}
+						{canToggleEarlyAccess ? (
+							<DropdownMenuItem onSelect={() => setActiveDialog("access")}>
+								{user.earlyAccess ? <ShieldOffIcon /> : <ShieldCheckIcon />}
+								{user.earlyAccess ? "Revoke access" : "Grant access"}
+							</DropdownMenuItem>
+						) : null}
 						{!isSelf && (
 							<DropdownMenuItem onSelect={() => setActiveDialog("role")}>
 								<UserCogIcon />
@@ -105,7 +124,7 @@ function UserRowActions({ user }: { user: AdminUserSummary }) {
 							Copy user ID
 						</DropdownMenuItem>
 					</DropdownMenuGroup>
-					{canToggleAccess && (
+					{canToggleBanned && (
 						<>
 							<DropdownMenuSeparator />
 							<DropdownMenuGroup>
@@ -127,6 +146,18 @@ function UserRowActions({ user }: { user: AdminUserSummary }) {
 				open={activeDialog === "credits"}
 				onOpenChange={(open) => setActiveDialog(open ? "credits" : null)}
 			/>
+			<BetaEnrollDialog
+				user={user}
+				open={activeDialog === "beta"}
+				onOpenChange={(open) => setActiveDialog(open ? "beta" : null)}
+			/>
+			{canToggleEarlyAccess ? (
+				<EarlyAccessDialog
+					user={user}
+					open={activeDialog === "access"}
+					onOpenChange={(open) => setActiveDialog(open ? "access" : null)}
+				/>
+			) : null}
 			<ChangeRoleDialog
 				user={user}
 				open={activeDialog === "role"}

@@ -6,10 +6,13 @@ import {
 	type AdminUserRole,
 	type AdminUserSubscription,
 	type AdminUserSummary,
+	type AdminUserWorkspace,
+	billingPlanIdSchema,
 	billingPlanIds,
 	isAdminRole,
 } from "@wandit/contracts";
 
+import type { AdminUserMembershipRow } from "../persistence/admin-organizations.repository";
 import type {
 	AdminCreditLedgerRow,
 	AdminProjectRow,
@@ -28,6 +31,7 @@ export function mapAdminUserSummary(
 		emailVerified: row.emailVerified,
 		image: row.image,
 		role: normalizeRole(row.role),
+		earlyAccess: row.earlyAccess,
 		banned: row.banned ?? false,
 		createdAt: toIso(row.createdAt),
 		lastSeenAt: row.lastSeenAt === null ? null : toIso(row.lastSeenAt),
@@ -42,6 +46,7 @@ export function mapAdminUserDetail(
 	subscription: AdminSubscriptionRow | null,
 	projects: AdminProjectRow[],
 	creditLedger: AdminCreditLedgerRow[],
+	memberships: AdminUserMembershipRow[],
 ): AdminUserDetail {
 	return {
 		...mapAdminUserSummary(row),
@@ -50,6 +55,19 @@ export function mapAdminUserDetail(
 		subscription: subscription ? mapAdminUserSubscription(subscription) : null,
 		projects: projects.map(mapAdminUserProject),
 		creditLedger: creditLedger.map(mapAdminCreditLedgerEntry),
+		workspaces: memberships.map(mapAdminUserWorkspace),
+	};
+}
+
+function mapAdminUserWorkspace(
+	row: AdminUserMembershipRow,
+): AdminUserWorkspace {
+	return {
+		organizationId: row.organizationId,
+		name: row.name,
+		slug: row.slug,
+		role: row.role,
+		joinedAt: toIso(row.joinedAt),
 	};
 }
 
@@ -57,7 +75,7 @@ function mapAdminUserSubscription(
 	row: AdminSubscriptionRow,
 ): AdminUserSubscription {
 	return {
-		plan: row.plan,
+		plan: billingPlanIdSchema.parse(row.plan),
 		status: row.status,
 		interval: row.interval,
 		currentPeriodEnd: row.currentPeriodEnd ? toIso(row.currentPeriodEnd) : null,

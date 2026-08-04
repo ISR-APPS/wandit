@@ -64,9 +64,7 @@ async function main() {
 	const world = worldIdArg ? getWorld(worldId) : monographe;
 	if (!world) throw new Error(`unknown world "${worldId}"`);
 
-	const brief = briefPathArg
-		? await readFile(briefPathArg, "utf-8")
-		: BRIEF;
+	const brief = briefPathArg ? await readFile(briefPathArg, "utf-8") : BRIEF;
 	const outName = outNameArg ?? `dental-${world.id}`;
 	const title = brief.match(/^BUSINESS: ([^\n·—]+)/mu)?.[1]?.trim() ?? outName;
 
@@ -75,7 +73,9 @@ async function main() {
 	const model = env.AI_PAGE_BUILDER_MODEL ?? env.AI_PAGE_DESIGN_MODEL;
 	const attemptId = `baseline-${outName}-${Date.now()}`;
 
-	console.log(`building with ${model}, world ${world.id}, attempt ${attemptId}`);
+	console.log(
+		`building with ${model}, world ${world.id}, attempt ${attemptId}`,
+	);
 	const result = await runSiteBuild({
 		attemptId,
 		brief,
@@ -83,6 +83,7 @@ async function main() {
 		projectId: "design-baselines",
 		system,
 		title,
+		subject: { actorUserId: "dev:test-build-world" },
 	});
 
 	const outDir = join(

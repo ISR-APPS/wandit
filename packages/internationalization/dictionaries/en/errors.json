@@ -9,7 +9,15 @@
 		"NOT_FOUND": "We could not find what you were looking for.",
 		"FORBIDDEN": "You do not have permission to do that.",
 		"INSUFFICIENT_CREDITS": "Not enough credits for this action.",
+		"GENERATION_PAYMENT_REQUIRED": "More credits are required to finish this generation.",
 		"PAYMENT_PAST_DUE": "Your subscription payment needs attention. Update it in the billing portal.",
+		"SUBSCRIPTIONS_DISABLED": "New subscriptions and plan changes are currently paused.",
+		"TOPUPS_DISABLED": "Credit top-ups are currently paused.",
+		"BILLING_CHECKOUT_PENDING": "A billing checkout is already in progress.",
+		"SUBSCRIPTION_CHANGE_PENDING": "A plan change is already waiting for payment.",
+		"BILLING_CHANGE_INTENT_EXPIRED": "This plan-change preview has expired. Create a new preview.",
+		"BILLING_CHANGE_INTENT_INVALID": "This plan-change preview is no longer valid.",
+		"YEARLY_TO_MONTHLY_UNSUPPORTED": "Yearly-to-monthly changes are not available in this release.",
 		"RATE_LIMITED": "Too many requests. Please wait a moment and try again.",
 		"INTERNAL_ERROR": "The server ran into a problem. Please try again.",
 		"HTTP_400": "The request could not be completed. Check the details and try again.",
@@ -17,6 +25,13 @@
 		"HTTP_403": "You do not have permission to do that.",
 		"HTTP_404": "We could not find what you were looking for.",
 		"HTTP_429": "Too many requests. Please wait a moment and try again.",
-		"HTTP_500": "The server ran into a problem. Please try again."
+		"HTTP_500": "The server ran into a problem. Please try again.",
+		"ORGANIZATIONS_DISABLED": "Team workspaces are currently paused.",
+		"MEMBER_CREDIT_LIMIT_REACHED": "You have reached your monthly credit limit in this workspace. Ask a workspace owner to raise it.",
+		"WORKSPACE_PERMISSION_DENIED": "Your workspace role does not allow this action.",
+		"WORKSPACE_NOT_SUPPORTED": "This action is not available in a team workspace.",
+		"EMAIL_AUTH_DISABLED": "Email sign-in is currently unavailable.",
+		"EMAIL_DOMAIN_BLOCKED": "This email domain is not supported.",
+		"EMAIL_SEND_RATE_LIMITED": "Too many emails requested. Please wait before trying again."
 	}
 }

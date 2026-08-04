@@ -10,6 +10,8 @@ export { AUTH_INSTANCE } from "./auth.constants";
 export { CurrentUser } from "./presentation/http/decorators/current-user.decorator";
 // Lets a route skip the global auth guard on purpose.
 export { Public } from "./presentation/http/decorators/public.decorator";
+// Gates product creation/generation/publishing/purchase routes during beta.
+export { EarlyAccessGuard } from "./presentation/http/guards/early-access.guard";
 // Request types used by the guard/decorator.
 export type {
 	AuthenticatedRequest,

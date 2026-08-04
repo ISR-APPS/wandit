@@ -4,9 +4,11 @@ import { apiGet, apiPost } from "@/lib/api-client";
 
 import type {
 	AdminListUsersResponse,
+	BetaEnrollUserInput,
 	ChangeUserRoleInput,
 	GrantUserCreditsInput,
 	ListUsersParams,
+	SetUserAccessInput,
 	SetUserBannedInput,
 	UserDetail,
 } from "./users.dto";
@@ -39,11 +41,31 @@ export function grantUserCredits({
 	});
 }
 
+export function betaEnrollUser({
+	userId,
+	credits,
+	reason,
+	idempotencyKey,
+}: BetaEnrollUserInput): Promise<UserDetail> {
+	return apiPost<UserDetail>(adminRoutes.betaEnroll(userId), {
+		credits,
+		reason,
+		idempotencyKey,
+	});
+}
+
 export function changeUserRole({
 	userId,
 	role,
 }: ChangeUserRoleInput): Promise<UserDetail> {
 	return apiPost<UserDetail>(adminRoutes.setRole(userId), { role });
+}
+
+export function setUserAccess({
+	userId,
+	granted,
+}: SetUserAccessInput): Promise<UserDetail> {
+	return apiPost<UserDetail>(adminRoutes.setAccess(userId), { granted });
 }
 
 export function setUserBanned({

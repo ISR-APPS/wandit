@@ -91,6 +91,14 @@ export function suspendedPage(): string {
 	);
 }
 
+export function errorPage(): string {
+	return shell(
+		"Something went wrong",
+		"Something went wrong",
+		"This site couldn’t be loaded right now. Please try again in a moment.",
+	);
+}
+
 export function healthPage(): string {
 	return "wandit-edge: ok\n";
 }

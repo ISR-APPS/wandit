@@ -1,6 +1,6 @@
 import type { AuthUser } from "@wandit/auth";
 import { describe, expect, it, vi } from "vitest";
-
+import type { AffiliatesRepository } from "../../../affiliates/infrastructure/persistence/affiliates.repository";
 import type { PaymentProvider } from "../../domain/ports/payment-provider.port";
 import type {
 	BillingCustomerRow,
@@ -72,6 +72,12 @@ function setup() {
 	const service = new BillingCustomerService(
 		billingCustomers as unknown as BillingCustomersRepository,
 		paymentProvider as unknown as PaymentProvider,
+		{
+			findByOrganizationId: async () => null,
+			withOrganizationLock: async (_id: string, fn: (tx: unknown) => unknown) =>
+				fn({}),
+		} as never,
+		{ findEarliestOwnerUserId: async () => null, findOrganization: async () => null } as never,
 	);
 
 	return { billingCustomers, paymentProvider, service };
@@ -133,5 +139,37 @@ describe("BillingCustomerService", () => {
 		);
 		expect(paymentProvider.ensureCustomer).not.toHaveBeenCalled();
 		expect(billingCustomers.upsertByUserId).not.toHaveBeenCalled();
+	});
+
+	it("mirrors the locked affiliate code into new Stripe customer metadata", async () => {
+		const billingCustomers = new FakeBillingCustomersRepository();
+		const paymentProvider = new FakePaymentProvider();
+		const affiliates = {
+			affiliateCodeForUser: vi.fn(async () => "partner_2026"),
+		};
+		const service = new BillingCustomerService(
+			billingCustomers as unknown as BillingCustomersRepository,
+			paymentProvider as unknown as PaymentProvider,
+			{
+				findByOrganizationId: async () => null,
+				withOrganizationLock: async (
+					_id: string,
+					fn: (tx: unknown) => unknown,
+				) => fn({}),
+			} as never,
+			{
+				findEarliestOwnerUserId: async () => null,
+				findOrganization: async () => null,
+			} as never,
+			affiliates as unknown as AffiliatesRepository,
+		);
+
+		await service.ensureCustomer(user);
+
+		expect(paymentProvider.ensureCustomer).toHaveBeenCalledWith(
+			user.id,
+			user.email,
+			"partner_2026",
+		);
 	});
 });

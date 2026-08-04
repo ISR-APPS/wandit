@@ -8,12 +8,14 @@ import {
 	Post,
 	Req,
 	Res,
+	UseGuards,
 } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
-	composerMetadataSchema,
+	aiChatBillingErrorDataSchema,
+	aiChatMessageMetadataSchema,
+	aiChatRequestMetadataSchema,
 	uuidSchema,
-	widSchema,
 } from "@wandit/contracts";
 import { validateUIMessages } from "ai";
 import type { FastifyReply, FastifyRequest } from "fastify";
@@ -21,24 +23,20 @@ import { z } from "zod";
 
 import { SkipResponseEnvelope } from "../../../../../infrastructure/http/skip-envelope.decorator";
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
-import { isUserUploadUrl } from "../../../../../infrastructure/storage/r2";
-import { CurrentUser } from "../../../../auth";
+import {
+	isUserUploadUrl,
+	isWanditUploadUrl,
+} from "../../../../../infrastructure/storage/r2";
+import { CurrentUser, EarlyAccessGuard } from "../../../../auth";
 import { ChatsRepository } from "../../../../generation/infrastructure/persistence/chats.repository";
+import { projectScopeFrom } from "../../../../projects/domain/project-scope";
+import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
+import { CurrentWorkspace } from "../../../../workspaces/presentation/http/decorators/workspace.decorators";
 import {
 	aiChatToolsForValidation,
 	type WanditUIMessage,
 } from "../../../agent/chat-agent";
 import { AiChatService } from "../../../application/services/ai-chat.service";
-
-// Per-request app metadata (contract §10.1): the prompt-box settings and the
-// preview selection. Exported so the service and request-context module can
-// import the type (type-only — no runtime cycle).
-export const aiChatRequestMetadataSchema = z.object({
-	composer: composerMetadataSchema.optional(),
-	selectedWid: widSchema.optional(),
-});
-
-export type AiChatRequestMetadata = z.infer<typeof aiChatRequestMetadataSchema>;
 
 const aiChatRequestBodySchema = z.object({
 	id: z.string().min(1).optional(),
@@ -47,6 +45,13 @@ const aiChatRequestBodySchema = z.object({
 	metadata: aiChatRequestMetadataSchema.optional(),
 	trigger: z.enum(["submit-message", "regenerate-message"]).optional(),
 });
+
+// validateUIMessages invokes the metadata schema even when metadata is absent.
+// Normalize historical null/absent values to an empty optional-field object.
+const aiChatValidationMetadataSchema = z.preprocess(
+	(value) => value ?? {},
+	aiChatMessageMetadataSchema,
+);
 
 type AiChatRequestBody = z.infer<typeof aiChatRequestBodySchema>;
 
@@ -59,6 +64,7 @@ export class AiChatController {
 		private readonly chatsRepository: ChatsRepository,
 	) {}
 
+	@UseGuards(EarlyAccessGuard)
 	@Post(":chatId/ai-stream")
 	@SkipResponseEnvelope()
 	async stream(
@@ -67,10 +73,15 @@ export class AiChatController {
 		@Body(new ZodValidationPipe(aiChatRequestBodySchema))
 		body: AiChatRequestBody,
 		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
 		@Req() request: FastifyRequest,
 		@Res() reply: FastifyReply,
 	): Promise<void> {
-		const chat = await this.chatsRepository.findOwnedChatById(user.id, chatId);
+		const scope = projectScopeFrom(workspace, user.id);
+		const chat = await this.chatsRepository.findAccessibleChatById(
+			scope,
+			chatId,
+		);
 
 		if (!chat) {
 			throw new NotFoundException();
@@ -83,31 +94,55 @@ export class AiChatController {
 			});
 		}
 
-		const messages = await this.validateMessages(body.messages, user.id);
+		// Which submitted messages are server-hydrated history vs new content:
+		// history in a shared org chat legitimately carries other members'
+		// attachments, so only NEW messages get the strict per-user file check.
+		const persistedMessageIds = await this.chatsRepository.listMessageIds(
+			chat.id,
+		);
+		const messages = await this.validateMessages(
+			body.messages,
+			user.id,
+			persistedMessageIds,
+		);
+		const prepared = await this.aiChatService.prepareStream({
+			chatId: chat.id,
+			messages,
+			projectId: chat.projectId,
+			requestId: body.id ?? body.messageId,
+			scope,
+		});
 		const abortController = new AbortController();
 
 		request.raw.once("close", () => abortController.abort());
 
 		// The AI SDK owns this raw SSE response and its UI-message protocol.
-		reply.hijack();
-		await this.aiChatService.stream({
-			abortSignal: abortController.signal,
-			chatId: chat.id,
-			messages,
-			metadata: body.metadata,
-			origin: request.headers.origin,
-			// The generate_page and page-edit tools act on the chat's project;
-			// the ownership query above already proved this user owns it.
-			projectId: chat.projectId,
-			reply,
-			requestCountryCode: readRequestCountryCode(request.headers),
-			userId: user.id,
-		});
+		try {
+			reply.hijack();
+			await this.aiChatService.stream({
+				abortSignal: abortController.signal,
+				chatId: chat.id,
+				messages,
+				metadata: body.metadata,
+				origin: request.headers.origin,
+				prepared,
+				// The generate_page and page-edit tools act on the chat's project;
+				// the access query above already proved this scope may reach it.
+				projectId: chat.projectId,
+				reply,
+				requestCountryCode: readRequestCountryCode(request.headers),
+				scope,
+			});
+		} catch (error) {
+			prepared.release();
+			throw error;
+		}
 	}
 
 	private async validateMessages(
 		messages: unknown[],
 		userId: string,
+		persistedMessageIds: ReadonlySet<string>,
 	): Promise<WanditUIMessage[]> {
 		// Historical failed streams could persist empty assistant messages. They carry
 		// no transcript information, so discard them here as a defensive safeguard.
@@ -119,7 +154,9 @@ export class AiChatController {
 
 		try {
 			validated = await validateUIMessages<WanditUIMessage>({
+				dataSchemas: { "billing-error": aiChatBillingErrorDataSchema },
 				messages: nonEmptyMessages,
+				metadataSchema: aiChatValidationMetadataSchema,
 				tools: aiChatToolsForValidation,
 			});
 		} catch {
@@ -129,47 +166,56 @@ export class AiChatController {
 			});
 		}
 
-		this.assertOwnedFileParts(validated, userId);
+		assertOwnedFileParts(validated, userId, persistedMessageIds);
 
 		return validated;
 	}
+}
 
-	// Attachments ride user messages as AI SDK file parts (contract §10.4),
-	// and ask_user "attachments" answers carry uploaded files in the tool
-	// output. Every such URL must be an R2 upload beneath this authenticated
-	// user's prefix — foreign hosts, generated-site assets, and another user's
-	// otherwise-public upload are all rejected.
-	private assertOwnedFileParts(
-		messages: readonly WanditUIMessage[],
-		userId: string,
-	): void {
-		const reject = (): never => {
-			throw new BadRequestException({
-				code: "INVALID_FILE_PART",
-				message: "Attachments must be uploaded through Wandit",
-			});
-		};
+/**
+ * Attachments ride user messages as AI SDK file parts (contract §10.4), and
+ * ask_user "attachments" answers carry uploaded files in the tool output.
+ *
+ * NEW messages (not yet persisted) must carry only R2 uploads beneath the
+ * ACTING user's own prefix. PERSISTED history is re-validated as "some Wandit
+ * upload" without owner binding: the web transport resubmits the full
+ * transcript on every turn, and in a shared org chat that history
+ * legitimately contains other members' attachments — each already passed the
+ * strict check when its author submitted it. Foreign hosts and
+ * generated-site assets are rejected in both modes.
+ */
+export function assertOwnedFileParts(
+	messages: readonly WanditUIMessage[],
+	userId: string,
+	persistedMessageIds: ReadonlySet<string>,
+): void {
+	const reject = (): never => {
+		throw new BadRequestException({
+			code: "INVALID_FILE_PART",
+			message: "Attachments must be uploaded through Wandit",
+		});
+	};
 
-		for (const message of messages) {
-			for (const part of message.parts) {
-				if (message.role === "user" && part.type === "file") {
-					if (!isUserUploadUrl(part.url, userId)) {
-						reject();
-					}
+	for (const message of messages) {
+		const isPersisted = persistedMessageIds.has(message.id);
+		const isAllowedUrl = (url: string): boolean =>
+			isPersisted ? isWanditUploadUrl(url) : isUserUploadUrl(url, userId);
 
-					continue;
+		for (const part of message.parts) {
+			if (message.role === "user" && part.type === "file") {
+				if (!isAllowedUrl(part.url)) {
+					reject();
 				}
 
-				// ask_user outputs are client-supplied (addToolResult) — their
-				// uploaded-file URLs need the same ownership validation as file parts.
-				if (
-					part.type === "tool-ask_user" &&
-					part.state === "output-available"
-				) {
-					for (const file of part.output.files ?? []) {
-						if (!isUserUploadUrl(file.url, userId)) {
-							reject();
-						}
+				continue;
+			}
+
+			// ask_user outputs are client-supplied (addToolResult) — their
+			// uploaded-file URLs need the same ownership validation as file parts.
+			if (part.type === "tool-ask_user" && part.state === "output-available") {
+				for (const file of part.output.files ?? []) {
+					if (!isAllowedUrl(file.url)) {
+						reject();
 					}
 				}
 			}

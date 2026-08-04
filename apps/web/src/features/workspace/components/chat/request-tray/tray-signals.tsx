@@ -29,9 +29,10 @@ export function SpinnerArc({ className }: { className?: string }) {
 	);
 }
 
-/** Pane-header pill: pulsing ember dot + what the tray is waiting for.
-    `solid` stops the pulse — the design's cue that the build is BLOCKED on
-    this answer (10o), not just enrichable. */
+/** Pane-header signal: a pulsing ember dot while the tray waits. The label is
+    assistive/hover-only — the header is too tight for text next to the project
+    name. `solid` stops the pulse — the design's cue that the build is BLOCKED
+    on this answer (10o), not just enrichable. */
 export function TrayStatusPill({
 	label,
 	solid = false,
@@ -42,12 +43,7 @@ export function TrayStatusPill({
 	className?: string;
 }) {
 	return (
-		<span
-			className={cn(
-				"inline-flex items-center gap-1.5 text-[12.5px] text-ember-text",
-				className,
-			)}
-		>
+		<span title={label} className={cn("inline-flex items-center", className)}>
 			<span
 				aria-hidden
 				className={cn(
@@ -55,7 +51,7 @@ export function TrayStatusPill({
 					!solid && "animate-pulse-soft",
 				)}
 			/>
-			{label}
+			<span className="sr-only">{label}</span>
 		</span>
 	);
 }

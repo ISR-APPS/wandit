@@ -8,15 +8,35 @@
  * AI SDK's default Vercel AI Gateway provider.
  *
  * The loop is ONE deliberate build pass → code review → rendered review →
- * finish. The finish guard refuses an unreviewed write.
+ * finish. Successful writes and edits count as their own source review.
  */
+import type { MeteringSubject } from "../../../credits/domain/credit-owner";
+import { PAGE_TOKEN_NAMES } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
-import { isStepCount, type Tool, ToolLoopAgent, tool } from "ai";
+import {
+	isStepCount,
+	type LanguageModelUsage,
+	type Tool,
+	ToolLoopAgent,
+	tool,
+} from "ai";
+import * as cheerio from "cheerio";
 import { z } from "zod";
-
+import type { MeteringService } from "../../../metering/application/services/metering.service";
+import {
+	fixedGenerationStepUsage,
+	type GatewayGenerationMetadata,
+	hasGatewayGenerationMetadata,
+	withGatewayAttribution,
+} from "../../../metering/domain/gateway-metering";
+import { fixedOperationCredits } from "../../../metering/domain/operation-registry";
 // Plain module (no Nest), safe in the Trigger bundle — cheerio bundles fine.
-import { stampHtml } from "../../../pages/domain/stamp";
-
+import {
+	isStampableContainer,
+	isStampableLeaf,
+	stampHtml,
+} from "../../../pages/domain/stamp";
+import { BUILDER_REASONING_EFFORT_BY_MODEL } from "../tools/builder-model-options";
 import type { BuildProgressEvent } from "./build-progress";
 import {
 	BUILD_IMAGE_ASPECTS,
@@ -54,21 +74,45 @@ export type SiteBuildParams = {
 	brief: string;
 	/** Gateway model string, snapshotted on the attempt (e.g. anthropic/claude-fable-5). */
 	model: string;
+	/** Present only while billing enforcement is enabled. */
+	meteringService?: MeteringService;
 	/** Live-progress sink (chat card via run metadata). Best-effort. */
 	onEvent?: (event: BuildProgressEvent) => void;
+	/** Failed Gateway call evidence, emitted before the provider error escapes. */
+	onGenerationError?: (error: unknown) => Promise<void> | void;
+	/** Durable per-step metering sink; awaited before the next agent step. */
+	onStepEnd?: (step: SiteBuildMeteringStep) => Promise<void> | void;
+	/** Selects the validation contract for the generated landing page. */
+	pageKind?: "cod" | "website";
 	/** Generated images upload under this project's R2 prefix. */
 	projectId: string;
 	/** System prompt snapshotted at queue time — see builder-prompt.ts. */
 	system: string;
 	title: string;
+	/** Parent page-build event for direct image/video child operations. */
+	usageEventId?: string;
+	/** Payer + acting member for metering and gateway attribution. */
+	subject: MeteringSubject;
+};
+
+export type SiteBuildMeteringStep = {
+	model: { modelId: string; provider: string };
+	providerMetadata: unknown;
+	usage: LanguageModelUsage;
 };
 
 export type SiteBuildResult = {
 	files: SiteFile[];
 	/** How many agent steps the build took (dashboard visibility only). */
 	steps: number;
-	/** The builder's own description of what it made, from the finish tool. */
+	/** Builder description, or the deterministic step-budget fallback. */
 	summary: string | null;
+	/** Aggregate language-model tokens consumed across every builder step. */
+	usage: {
+		inputTokens: number;
+		outputTokens: number;
+		totalTokens: number;
+	};
 };
 
 // Generous but bounded: one build pass + image generations + rendered review
@@ -81,22 +125,52 @@ const MAX_STEPS = 64;
 const MAX_OUTPUT_TOKENS = 64_000;
 
 // Two rendered review passes minimum — one correctness/structure hunt, one
-// design-quality hunt with final verification. Counted only on successful
-// captures and enforced TOGETHER with the final-revision gate, so re-shooting
-// one draft twice cannot replace re-verifying the latest write. Exported for
-// tests. (3 originally; tuned through 1 and 5 during the 2026-07-26
+// design-quality hunt. Counted only on successful captures. Once both passes
+// are recorded, targeted edits are reviewed through edit_file's returned
+// context and may finish without another screenshot; passes 3-4 are optional
+// for risky or structural changes the builder needs to see rendered. Exported
+// for tests. (3 originally; tuned through 1 and 5 during the 2026-07-26
 // experiments — 2 is the speed/quality compromise.)
 export const REQUIRED_SCREENSHOT_PASSES = 2;
+
+/** Hard visual-review budget. Successful captures alone consume a pass. */
+export const MAX_SCREENSHOT_PASSES = 4;
+
+const MAX_FAILED_EDIT_ATTEMPTS = 5;
+const EDIT_CONTEXT_LINES = 8;
+const STEP_BUDGET_SUMMARY =
+	"Build reached its step budget; publishing the last valid revision.";
+const EARLY_STOP_SUMMARY =
+	"The builder ended without an explicit finish; publishing the last valid revision.";
+
+export function fallbackBuildSummary(stepCount: number): string {
+	return stepCount >= MAX_STEPS ? STEP_BUDGET_SUMMARY : EARLY_STOP_SUMMARY;
+}
+
+export function resolveBuilderReasoningEffort(model: string) {
+	const configuredReasoningEffort =
+		BUILDER_REASONING_EFFORT_BY_MODEL[model] ?? env.AI_PAGE_DESIGN_REASONING;
+
+	if (configuredReasoningEffort === "auto") {
+		return undefined;
+	}
+
+	return configuredReasoningEffort;
+}
 
 /**
  * Mutable loop state shared between the tools and the stop condition. A
  * plain object (not closure variables) so the guards are unit-testable.
  */
 export type BuildLoopState = {
+	/** All failed edit_file calls across the build; successful edits do not reset it. */
+	failedEditAttempts: number;
+	failedEditRepeats: number;
 	finishAccepted: boolean;
 	/** R2 key sequence — monotonic, never reused even after a failed call. */
 	imageSequence: number;
 	imagesGenerated: number;
+	lastFailedEditSearch: string | null;
 	reviewedRevision: number;
 	/** Successful screenshot_page captures — refused/unavailable calls do not count. */
 	screenshotPasses: number;
@@ -113,9 +187,12 @@ export function createBuildLoopState(
 	screenshotRequired = true,
 ): BuildLoopState {
 	return {
+		failedEditAttempts: 0,
+		failedEditRepeats: 0,
 		finishAccepted: false,
 		imageSequence: 0,
 		imagesGenerated: 0,
+		lastFailedEditSearch: null,
 		reviewedRevision: 0,
 		screenshotPasses: 0,
 		screenshotRequired,
@@ -146,12 +223,97 @@ function log(message: string): void {
 	console.log(`[site-builder] ${message}`);
 }
 
+type CharacterSpan = { end: number; start: number };
+
+function findWholeLineMatches(
+	content: string,
+	search: string,
+	normalize: (line: string) => string,
+): CharacterSpan[] {
+	const contentEndsWithLineBreak = content.endsWith("\n");
+	const contentLines = content.split("\n");
+	const searchEndsWithLineBreak = search.endsWith("\n");
+	const searchLines = search.split("\n");
+
+	if (contentEndsWithLineBreak) {
+		contentLines.pop();
+	}
+
+	if (searchEndsWithLineBreak) {
+		searchLines.pop();
+	}
+
+	const lineStarts: number[] = [];
+	let offset = 0;
+
+	for (const line of contentLines) {
+		lineStarts.push(offset);
+		offset += line.length + 1;
+	}
+
+	const matches: CharacterSpan[] = [];
+
+	for (
+		let lineIndex = 0;
+		lineIndex <= contentLines.length - searchLines.length;
+		lineIndex += 1
+	) {
+		const matchesWindow = searchLines.every(
+			(line, searchIndex) =>
+				normalize(contentLines[lineIndex + searchIndex] ?? "") ===
+				normalize(line),
+		);
+
+		if (!matchesWindow) {
+			continue;
+		}
+
+		const lastLineIndex = lineIndex + searchLines.length - 1;
+		const lastLine = contentLines[lastLineIndex] ?? "";
+		const hasLineBreak =
+			lastLineIndex < contentLines.length - 1 || contentEndsWithLineBreak;
+
+		if (searchEndsWithLineBreak && !hasLineBreak) {
+			continue;
+		}
+
+		const lastLineStart = lineStarts[lastLineIndex] ?? content.length;
+		// Keep CRLF intact when the search does not include its final newline.
+		const contentEnd =
+			lastLineStart +
+			lastLine.length -
+			(hasLineBreak && lastLine.endsWith("\r") ? 1 : 0);
+		const end = searchEndsWithLineBreak
+			? lastLineStart + lastLine.length + 1
+			: contentEnd;
+
+		matches.push({ end, start: lineStarts[lineIndex] ?? 0 });
+	}
+
+	return matches;
+}
+
+const MAX_SCREENSHOT_DIAGNOSTICS = 5;
+
+function compactScreenshotDiagnostics(entries: string[]): string[] {
+	const unique = [...new Set(entries)];
+
+	if (unique.length <= MAX_SCREENSHOT_DIAGNOSTICS) {
+		return unique;
+	}
+
+	return [
+		...unique.slice(0, MAX_SCREENSHOT_DIAGNOSTICS),
+		`…and ${unique.length - MAX_SCREENSHOT_DIAGNOSTICS} more`,
+	];
+}
+
 /**
  * Shared guard for both mutating tools (write_file, edit_file). Enforces the
  * one-file contract, and seals the build once finish is accepted: the SDK
  * runs a step's tool calls together, so a [finish, edit_file] step would
- * otherwise mutate the VFS AFTER the gates passed and publish content that
- * was never re-read or screenshot-reviewed.
+ * otherwise mutate the VFS AFTER the gates passed and publish a later
+ * revision that never passed them.
  */
 function assertMutationAllowed(
 	state: BuildLoopState,
@@ -176,10 +338,14 @@ function assertMutationAllowed(
 type BuilderToolsParams = {
 	abortSignal?: AbortSignal;
 	attemptId: string;
+	meteringService?: MeteringService;
 	onEvent?: (event: BuildProgressEvent) => void;
+	pageKind?: "cod" | "website";
 	projectId: string;
 	screenshots: ScreenshotSession;
 	state: BuildLoopState;
+	subject: MeteringSubject;
+	usageEventId?: string;
 	vfs: VirtualFileSystem;
 };
 
@@ -218,6 +384,19 @@ type ScreenshotPageOutput =
 			unavailable: false;
 	  };
 
+type EditFileOutput = {
+	bytes: number;
+	context: string;
+	path: string;
+	revision: number;
+};
+
+type WriteFileOutput = {
+	bytes: number;
+	path: string;
+	unchanged?: true;
+};
+
 // Explicit (declaration-emit friendly) tool map; same alias-over-Record
 // pattern as AiChatToolSet in chat-agent.ts.
 export type BuilderTools = {
@@ -227,7 +406,7 @@ export type BuilderTools = {
 	>;
 	edit_file: Tool<
 		{ path: string; replace: string; search: string },
-		{ bytes: number; path: string }
+		EditFileOutput
 	>;
 	finish: Tool<{ summary: string }, FinishOutput>;
 	generate_image: Tool<
@@ -240,11 +419,28 @@ export type BuilderTools = {
 	>;
 	read_file: Tool<{ path: string }, { content: string; path: string }>;
 	screenshot_page: Tool<EmptyInput, ScreenshotPageOutput>;
-	write_file: Tool<
-		{ content: string; path: string },
-		{ bytes: number; path: string }
-	>;
+	write_file: Tool<{ content: string; path: string }, WriteFileOutput>;
 };
+
+function createEditContext(
+	content: string,
+	matchStart: number,
+	replaceLength: number,
+): string {
+	const lines = content.split("\n");
+	const startLine = content.slice(0, matchStart).split("\n").length;
+	const endOffset =
+		replaceLength > 0 ? matchStart + replaceLength - 1 : matchStart;
+	const endLine = content.slice(0, endOffset).split("\n").length;
+	const contextStartLine = Math.max(1, startLine - EDIT_CONTEXT_LINES);
+	const contextEndLine = Math.min(lines.length, endLine + EDIT_CONTEXT_LINES);
+	const context = lines.slice(contextStartLine - 1, contextEndLine).join("\n");
+
+	return (
+		`Lines ${contextStartLine}-${contextEndLine} of index.html after the edit:` +
+		`\n${context}`
+	);
+}
 
 /**
  * The builder's tool set. Exported for tests: the guards (single-file
@@ -252,12 +448,13 @@ export type BuilderTools = {
  * prose, and must stay verifiable without a model.
  */
 export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
-	const { screenshots, state, vfs } = params;
+	const { pageKind = "website", screenshots, state, vfs } = params;
 
 	// toModelOutput must show the model images that the transcript output must
 	// NOT carry — raw bytes are stashed per tool call and looked up by id.
 	const imageByCall = new Map<string, { base64: string; mediaType: string }>();
 	const shotsByCall = new Map<string, CapturedShot[]>();
+	let screenshotPassesInFlight = 0;
 
 	// Progress events feed the chat card; a listener bug must never be able
 	// to fail a tool call, so every emission goes through this shield.
@@ -301,6 +498,20 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 				state.videosGenerated += 1;
 				state.videoSequence += 1;
 				const index = state.videoSequence;
+				const childEvent =
+					params.meteringService && params.usageEventId
+						? await params.meteringService.reserve(
+								"video",
+								params.subject,
+								{
+								attemptRef: `${params.attemptId}:video:${index}`,
+								credits: fixedOperationCredits("video"),
+								idempotencyKey: `page-build-video:${params.usageEventId}:${index}`,
+								model: env.AI_VIDEO_MODEL ?? null,
+								parentEventId: params.usageEventId,
+							})
+						: null;
+				let generationCapturedBeforeDelivery = false;
 
 				const result = await generateBuildVideo({
 					...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
@@ -308,15 +519,94 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 					attemptId: params.attemptId,
 					imageUrl,
 					index,
+					metering: {
+						operation: "video",
+						organizationId: params.subject.organizationId ?? null,
+						userId: params.subject.actorUserId,
+					},
 					motionPrompt,
+					...(childEvent && params.meteringService
+						? {
+								onProviderGeneration: async (
+									generation: GatewayGenerationMetadata,
+								) => {
+									await captureRequiredGeneration(
+										params.meteringService as MeteringService,
+										childEvent.id,
+										{
+											providerMetadata: generation.providerMetadata,
+											stepUsage: fixedGenerationStepUsage(generation.usage, 1),
+										},
+									);
+									generationCapturedBeforeDelivery = true;
+								},
+							}
+						: {}),
 					projectId: params.projectId,
 				});
 
 				if (result.status !== "generated") {
 					state.videosGenerated -= 1;
+					if (childEvent && params.meteringService) {
+						if (hasGatewayGenerationMetadata(result)) {
+							const providerUnits =
+								"providerUnits" in result && result.providerUnits === 1 ? 1 : 0;
+							if (!generationCapturedBeforeDelivery) {
+								await captureRequiredGeneration(
+									params.meteringService,
+									childEvent.id,
+									{
+										providerMetadata: result.providerMetadata,
+										stepUsage: fixedGenerationStepUsage(
+											result.usage,
+											providerUnits,
+										),
+									},
+								);
+							}
+							await params.meteringService.settle(childEvent.id, {
+								finalCredits:
+									providerUnits === 0
+										? 0
+										: fixedOperationCredits("video", providerUnits),
+								model: result.model,
+								pricing: "direct",
+								pricingSnapshot: {
+									...fixedPricingSnapshot("video"),
+									units: providerUnits,
+								},
+								rawUsage: result.usage ?? null,
+							});
+						} else {
+							await params.meteringService.refund(
+								childEvent.id,
+								"page_build_video_failed",
+							);
+						}
+					}
 					log(`animate_image ${result.status}: ${result.message}`);
 
 					return { message: result.message, status: result.status };
+				}
+
+				if (childEvent && params.meteringService) {
+					if (!generationCapturedBeforeDelivery) {
+						await captureRequiredGeneration(
+							params.meteringService,
+							childEvent.id,
+							{
+								providerMetadata: result.providerMetadata,
+								stepUsage: fixedGenerationStepUsage(result.usage, 1),
+							},
+						);
+					}
+					await params.meteringService.settle(childEvent.id, {
+						finalCredits: fixedOperationCredits("video"),
+						model: result.model,
+						pricing: "direct",
+						pricingSnapshot: fixedPricingSnapshot("video"),
+						rawUsage: result.usage ?? null,
+					});
 				}
 
 				log(`animated image ${index}/${MAX_VIDEOS} → ${result.url}`);
@@ -352,79 +642,169 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 					),
 			}),
 			execute: async ({ path, replace, search }) => {
-				assertMutationAllowed(state, path, "edit");
+				try {
+					assertMutationAllowed(state, path, "edit");
 
-				const current = vfs.read("index.html");
+					const current = vfs.read("index.html");
 
-				if (current === null) {
-					throw new Error(
-						"index.html does not exist yet — write the complete first " +
-							"draft with write_file before editing.",
+					if (current === null) {
+						throw new Error(
+							"index.html does not exist yet — write the complete first " +
+								"draft with write_file before editing.",
+						);
+					}
+
+					if (search === replace) {
+						throw new Error(
+							"search and replace are identical — nothing would change.",
+						);
+					}
+
+					// indexOf stepping by ONE, not by search.length: split-based
+					// counting misses overlapping occurrences (e.g. "</div></div>"
+					// occurs twice inside "</div></div></div>"), silently accepting
+					// an ambiguous edit this guard exists to refuse.
+					let matchEnd = -1;
+					let matchStart = -1;
+					let occurrences = 0;
+					for (
+						let index = current.indexOf(search);
+						index !== -1;
+						index = current.indexOf(search, index + 1)
+					) {
+						if (occurrences === 0) {
+							matchStart = index;
+							matchEnd = index + search.length;
+						}
+
+						occurrences += 1;
+					}
+
+					// Fallback tiers slide across complete logical lines only. A
+					// partial-line fragment can succeed through the exact tier, but is
+					// never whitespace-normalized inside a larger line.
+					if (occurrences === 0) {
+						const trimEndMatches = findWholeLineMatches(
+							current,
+							search,
+							(line) => line.trimEnd(),
+						);
+
+						if (trimEndMatches.length > 0) {
+							occurrences = trimEndMatches.length;
+							matchStart = trimEndMatches[0]?.start ?? -1;
+							matchEnd = trimEndMatches[0]?.end ?? -1;
+						}
+					}
+
+					if (occurrences === 0) {
+						const trimMatches = findWholeLineMatches(current, search, (line) =>
+							line.trim(),
+						);
+
+						if (trimMatches.length > 0) {
+							occurrences = trimMatches.length;
+							matchStart = trimMatches[0]?.start ?? -1;
+							matchEnd = trimMatches[0]?.end ?? -1;
+						}
+					}
+
+					if (occurrences === 0) {
+						if (state.lastFailedEditSearch === search) {
+							state.failedEditRepeats += 1;
+						} else {
+							state.failedEditRepeats = 1;
+							state.lastFailedEditSearch = search;
+						}
+
+						if (state.failedEditRepeats >= 2) {
+							throw new Error(
+								"search text not found in index.html again. STOP retrying " +
+									"this snippet. Call read_file to see the current file and " +
+									"copy a snippet verbatim from it — or rewrite the section " +
+									"with write_file if the edit keeps failing.",
+							);
+						}
+
+						throw new Error(
+							"search text not found in index.html. It must match the " +
+								"CURRENT file exactly, including whitespace and " +
+								"indentation — re-read the file with read_file and copy " +
+								"the snippet verbatim.",
+						);
+					}
+
+					if (occurrences > 1) {
+						throw new Error(
+							`search text appears ${occurrences} times in index.html — ` +
+								"extend it with surrounding lines until it matches " +
+								"exactly once.",
+						);
+					}
+
+					// Slice assembly avoids String.replace expanding $-patterns ($&,
+					// $', $$…) and replaces the original whitespace-bearing span found
+					// by the line tiers, not the model's normalized search text.
+					const matched = current.slice(matchStart, matchEnd);
+					const content =
+						current.slice(0, matchStart) + replace + current.slice(matchEnd);
+					// Batched edit_file calls in one step serialize only because this
+					// execute body has zero awaits before the write. Adding one above
+					// breaks the promised in-order semantics.
+					const written = vfs.write("index.html", content);
+					state.failedEditRepeats = 0;
+					state.lastFailedEditSearch = null;
+					state.writeRevision += 1;
+					state.reviewedRevision = state.writeRevision;
+					const bytes = Buffer.byteLength(content, "utf-8");
+					const context = createEditContext(
+						content,
+						matchStart,
+						replace.length,
 					);
-				}
+					emitEvent({
+						bytes,
+						html: content,
+						kind: "edit",
+						type: "page-written",
+					});
+					const delta =
+						Buffer.byteLength(replace, "utf-8") -
+						Buffer.byteLength(matched, "utf-8");
 
-				if (search === replace) {
-					throw new Error(
-						"search and replace are identical — nothing would change.",
+					log(
+						`edited ${written} (${delta >= 0 ? "+" : ""}${delta} bytes → ` +
+							`${Math.round(bytes / 1024)} KB, revision ${state.writeRevision})`,
 					);
+
+					return {
+						bytes,
+						context,
+						path: written,
+						revision: state.writeRevision,
+					};
+				} catch (error) {
+					state.failedEditAttempts += 1;
+
+					if (state.failedEditAttempts >= MAX_FAILED_EDIT_ATTEMPTS) {
+						throw new Error(
+							"stop snippet-editing; rewrite the affected section with " +
+								"write_file, or screenshot and finish.",
+						);
+					}
+
+					throw error;
 				}
-
-				// indexOf stepping by ONE, not by search.length: split-based
-				// counting misses overlapping occurrences (e.g. "</div></div>"
-				// occurs twice inside "</div></div></div>"), silently accepting
-				// an ambiguous edit this guard exists to refuse.
-				let occurrences = 0;
-				for (
-					let index = current.indexOf(search);
-					index !== -1;
-					index = current.indexOf(search, index + 1)
-				) {
-					occurrences += 1;
-				}
-
-				if (occurrences === 0) {
-					throw new Error(
-						"search text not found in index.html. It must match the " +
-							"CURRENT file exactly, including whitespace and " +
-							"indentation — re-read the file with read_file and copy " +
-							"the snippet verbatim.",
-					);
-				}
-
-				if (occurrences > 1) {
-					throw new Error(
-						`search text appears ${occurrences} times in index.html — ` +
-							"extend it with surrounding lines until it matches " +
-							"exactly once.",
-					);
-				}
-
-				// Replacement via callback: String.replace would otherwise expand
-				// $-patterns ($&, $', $$…) inside `replace`, silently corrupting
-				// pages that contain template literals or prices.
-				const content = current.replace(search, () => replace);
-				const written = vfs.write("index.html", content);
-				state.writeRevision += 1;
-				const bytes = Buffer.byteLength(content, "utf-8");
-				emitEvent({ bytes, html: content, kind: "edit", type: "page-written" });
-				const delta =
-					Buffer.byteLength(replace, "utf-8") -
-					Buffer.byteLength(search, "utf-8");
-
-				log(
-					`edited ${written} (${delta >= 0 ? "+" : ""}${delta} bytes → ` +
-						`${Math.round(bytes / 1024)} KB, revision ${state.writeRevision})`,
-				);
-
-				return { bytes, path: written };
 			},
 		}),
 		finish: tool({
 			description:
 				"Declare the site complete. Call this ONCE, only after the " +
 				"required screenshot_page review (minimum " +
-				`${REQUIRED_SCREENSHOT_PASSES} per build) and a ` +
-				"re-read plus visual review of the final index.html.",
+				`${REQUIRED_SCREENSHOT_PASSES} per build). After those passes, ` +
+				"edit_file's updated surrounding context reviews each targeted " +
+				"fix, so finish directly unless a risky or structural change needs " +
+				"an optional third or fourth rendered review.",
 			inputSchema: z.object({
 				summary: z
 					.string()
@@ -440,16 +820,6 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 						reason:
 							"index.html has not been written yet. Write the complete " +
 							"page, then finish.",
-					};
-				}
-
-				if (state.reviewedRevision !== state.writeRevision) {
-					log("finish refused — the final index.html has not been re-read");
-
-					return {
-						accepted: false as const,
-						reason:
-							"Re-read the current index.html with read_file after the latest write or edit, review it, then finish.",
 					};
 				}
 
@@ -473,20 +843,7 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 					};
 				}
 
-				if (
-					state.screenshotRequired &&
-					state.screenshotRevision !== state.writeRevision
-				) {
-					log(
-						"finish refused — the final index.html has not been screenshot-reviewed",
-					);
-
-					return {
-						accepted: false as const,
-						reason:
-							"Call screenshot_page on the current index.html after the latest write or edit, review its desktop/mobile renders and diagnostics, then finish.",
-					};
-				}
+				assertValidSite(vfs, pageKind);
 
 				state.summary = input.summary;
 				state.finishAccepted = true;
@@ -533,12 +890,51 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 				state.imageSequence += 1;
 				const index = state.imageSequence;
 				emitEvent({ role, type: "image-start" });
+				const childEvent =
+					params.meteringService && params.usageEventId
+						? await params.meteringService.reserve(
+								"image",
+								params.subject,
+								{
+								attemptRef: `${params.attemptId}:image:${index}`,
+								credits: fixedOperationCredits("image"),
+								idempotencyKey: `page-build-image:${params.usageEventId}:${index}`,
+								model:
+									sourceImageUrls?.length && env.AI_IMAGE_EDIT_MODEL
+										? env.AI_IMAGE_EDIT_MODEL
+										: (env.AI_IMAGE_MODEL ?? null),
+								parentEventId: params.usageEventId,
+							})
+						: null;
+				let generationCapturedBeforeDelivery = false;
 
 				const result = await generateBuildImage({
 					...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
 					aspect,
 					attemptId: params.attemptId,
 					index,
+					metering: {
+						operation: "image",
+						organizationId: params.subject.organizationId ?? null,
+						userId: params.subject.actorUserId,
+					},
+					...(childEvent && params.meteringService
+						? {
+								onProviderGeneration: async (
+									generation: GatewayGenerationMetadata,
+								) => {
+									await captureRequiredGeneration(
+										params.meteringService as MeteringService,
+										childEvent.id,
+										{
+											providerMetadata: generation.providerMetadata,
+											stepUsage: fixedGenerationStepUsage(generation.usage, 1),
+										},
+									);
+									generationCapturedBeforeDelivery = true;
+								},
+							}
+						: {}),
 					projectId: params.projectId,
 					prompt,
 					...(sourceImageUrls?.length ? { sourceImageUrls } : {}),
@@ -546,9 +942,66 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 
 				if (result.status !== "generated") {
 					state.imagesGenerated -= 1;
+					if (childEvent && params.meteringService) {
+						if (hasGatewayGenerationMetadata(result)) {
+							const providerUnits =
+								"providerUnits" in result && result.providerUnits === 1 ? 1 : 0;
+							if (!generationCapturedBeforeDelivery) {
+								await captureRequiredGeneration(
+									params.meteringService,
+									childEvent.id,
+									{
+										providerMetadata: result.providerMetadata,
+										stepUsage: fixedGenerationStepUsage(
+											result.usage,
+											providerUnits,
+										),
+									},
+								);
+							}
+							await params.meteringService.settle(childEvent.id, {
+								finalCredits:
+									providerUnits === 0
+										? 0
+										: fixedOperationCredits("image", providerUnits),
+								model: result.model,
+								pricing: "direct",
+								pricingSnapshot: {
+									...fixedPricingSnapshot("image"),
+									units: providerUnits,
+								},
+								rawUsage: result.usage ?? null,
+							});
+						} else {
+							await params.meteringService.refund(
+								childEvent.id,
+								"page_build_image_failed",
+							);
+						}
+					}
 					log(`generate_image ${result.status}: ${result.message}`);
 
 					return { message: result.message, status: result.status };
+				}
+
+				if (childEvent && params.meteringService) {
+					if (!generationCapturedBeforeDelivery) {
+						await captureRequiredGeneration(
+							params.meteringService,
+							childEvent.id,
+							{
+								providerMetadata: result.providerMetadata,
+								stepUsage: fixedGenerationStepUsage(result.usage, 1),
+							},
+						);
+					}
+					await params.meteringService.settle(childEvent.id, {
+						finalCredits: fixedOperationCredits("image"),
+						model: result.model,
+						pricing: "direct",
+						pricingSnapshot: fixedPricingSnapshot("image"),
+						rawUsage: result.usage ?? null,
+					});
 				}
 
 				imageByCall.set(toolCallId, {
@@ -605,7 +1058,10 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 			execute: async () => ({ files: vfs.list() }),
 		}),
 		read_file: tool({
-			description: "Read back one file you wrote, to review and improve it.",
+			description:
+				"Read back one file only when you genuinely lost track of its " +
+				"current contents. write_file is source-reviewed automatically, " +
+				"and edit_file already returns updated surrounding context.",
 			inputSchema: z.object({
 				path: z.string().min(1),
 			}),
@@ -629,12 +1085,26 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 			description:
 				"Render the current index.html in a real browser for one required " +
 				`review pass (minimum ${REQUIRED_SCREENSHOT_PASSES} per ` +
-				"build). Returns desktop (1440×900) and mobile (390×844) " +
+				`build, maximum ${MAX_SCREENSHOT_PASSES}). Returns desktop ` +
+				"(1440×900) and mobile (390×844) " +
 				"screenshots from top to bottom, console/page errors, failed " +
-				"asset requests, and horizontal-overflow measurements. After " +
-				"any subsequent write_file or edit_file, call this again.",
+				"asset requests, and horizontal-overflow measurements. After the " +
+				"two required passes, use a third or fourth only for risky or " +
+				"structural changes that need another rendered review.",
 			inputSchema: emptyInputSchema,
 			execute: async (_input, { toolCallId }) => {
+				if (
+					state.screenshotPasses + screenshotPassesInFlight >=
+					MAX_SCREENSHOT_PASSES
+				) {
+					return {
+						message:
+							`screenshot budget exhausted (${MAX_SCREENSHOT_PASSES} per ` +
+							"build) — finish now with the current page",
+						refused: true as const,
+					};
+				}
+
 				const html = vfs.read("index.html");
 
 				if (html === null) {
@@ -653,6 +1123,7 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 					type: "screenshot-start",
 				});
 				let capture: ScreenshotCapture;
+				screenshotPassesInFlight += 1;
 
 				try {
 					capture = await screenshots.capture(html);
@@ -670,10 +1141,13 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 					return {
 						message:
 							`${error.message}. Visual review is unavailable in this ` +
-							"runtime; continue with a rigorous read_file code review.",
+							"runtime; continue with a rigorous source review, using " +
+							"edit_file's returned context for targeted changes.",
 						refused: false as const,
 						unavailable: true as const,
 					};
+				} finally {
+					screenshotPassesInFlight -= 1;
 				}
 
 				if (capture.shots.length === 0) {
@@ -708,10 +1182,19 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 						`${capture.failedRequests.length} failed requests`,
 				);
 
+				// The progress card keeps full diagnostics; only the tool result is
+				// bounded because it is copied into every later model step.
+				const consoleErrors = compactScreenshotDiagnostics(
+					capture.consoleErrors,
+				);
+				const failedRequests = compactScreenshotDiagnostics(
+					capture.failedRequests,
+				);
+
 				return {
-					consoleErrors: capture.consoleErrors,
+					consoleErrors,
 					desktopShots,
-					failedRequests: capture.failedRequests,
+					failedRequests,
 					mobileShots,
 					overflow: capture.overflow,
 					refused: false as const,
@@ -769,7 +1252,11 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 				"file; for targeted fixes use edit_file instead. After the first " +
 				"draft, a rewrite is ONLY for changing the page's fundamental " +
 				"structure — never to consolidate, reformat, or clean up (a " +
-				"rewrite streams the entire file again and costs minutes).",
+				"rewrite streams the entire file again and costs minutes). " +
+				"The complete content is marked source-reviewed automatically; " +
+				"do not call read_file solely because you wrote it. Resubmitting " +
+				"byte-identical content is reported unchanged and does not create " +
+				"a new revision.",
 			inputSchema: z.object({
 				content: z.string().min(1),
 				path: z.string().min(1).describe('Relative path, e.g. "index.html".'),
@@ -780,8 +1267,27 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 				// rejected before it ever lands in the VFS.
 				assertMutationAllowed(state, path, "write");
 
+				const current = vfs.read("index.html");
+
+				if (current === content) {
+					log(
+						"write_file unchanged — index.html is byte-identical; " +
+							`revision ${state.writeRevision} retained`,
+					);
+
+					return {
+						bytes: Buffer.byteLength(content, "utf-8"),
+						path: "index.html",
+						unchanged: true as const,
+					};
+				}
+
 				const written = vfs.write(path, content);
 				state.writeRevision += 1;
+
+				// The model just supplied every byte, so reading the same full file
+				// back would add context tokens without revealing new information.
+				state.reviewedRevision = state.writeRevision;
 				const bytes = Buffer.byteLength(content, "utf-8");
 
 				log(`wrote ${written} (${Math.round(bytes / 1024)} KB)`);
@@ -804,6 +1310,43 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 	};
 }
 
+function fixedPricingSnapshot(operation: "image" | "video") {
+	return {
+		creditsPerUnit: fixedOperationCredits(operation),
+		mode: "fixed",
+		operation,
+		source: "operation_registry",
+		unit: operation === "image" ? "image" : "operation",
+	};
+}
+
+async function captureRequiredGeneration(
+	meteringService: MeteringService,
+	eventId: string,
+	capture: Parameters<MeteringService["captureGeneration"]>[1],
+): Promise<void> {
+	let lastError: unknown;
+
+	for (let attempt = 0; attempt < 3; attempt += 1) {
+		try {
+			const generationRef = await meteringService.captureGeneration(
+				eventId,
+				capture,
+			);
+
+			if (!generationRef) {
+				throw new Error("AI Gateway generation id is missing");
+			}
+
+			return;
+		} catch (error) {
+			lastError = error;
+		}
+	}
+
+	throw lastError;
+}
+
 export async function runSiteBuild(
 	params: SiteBuildParams,
 ): Promise<SiteBuildResult> {
@@ -816,53 +1359,54 @@ export async function runSiteBuild(
 	);
 	const startedAt = Date.now();
 
-	// Read at BUILD time (not snapshotted like the model): a knob for quick
-	// reasoning experiments across builder models. Every provider reads only
-	// its own providerOptions key, so both are always safe to send. Merged
-	// into ONE providerOptions object with the gateway ordering below — two
-	// separate spreads would overwrite each other.
-	// "auto" = send nothing and let the provider pick its default effort.
-	const reasoningEffort =
-		env.AI_PAGE_DESIGN_REASONING === "auto"
-			? undefined
-			: env.AI_PAGE_DESIGN_REASONING;
-	const providerOptions = {
-		...(reasoningEffort
-			? {
-					// Gemini 3 knows exactly two thinking levels — medium+ → high.
-					google: {
-						thinkingConfig: {
-							thinkingLevel:
-								reasoningEffort === "minimal" || reasoningEffort === "low"
-									? ("low" as const)
-									: ("high" as const),
+	// Read at BUILD time (not snapshotted like the model): per-model overrides
+	// win over the env knob, and "auto" defers to the provider. Gateway
+	// attribution is merged with (and preserves) model-specific routing.
+	const reasoningEffort = resolveBuilderReasoningEffort(params.model);
+	const providerOptions = withGatewayAttribution(
+		{
+			...(reasoningEffort
+				? {
+						// Gemini 3 knows exactly two thinking levels — medium+ → high.
+						google: {
+							thinkingConfig: {
+								thinkingLevel:
+									reasoningEffort === "minimal" || reasoningEffort === "low"
+										? ("low" as const)
+										: ("high" as const),
+							},
 						},
-					},
-					openai: { reasoningEffort },
-					// Grok knows exactly three efforts — clamp both ends.
-					xai: {
-						reasoningEffort:
-							reasoningEffort === "minimal"
-								? ("low" as const)
-								: reasoningEffort === "xhigh"
-									? ("high" as const)
-									: reasoningEffort,
-					},
-				}
-			: {}),
-		// Novita-first was a fix for Kimi K2's launch congestion (6s+ TTFT on
-		// Moonshot). K3 measured faster on official Moonshot routing, so the
-		// preference stays scoped to K2-era models.
-		...(params.model.startsWith("moonshotai/kimi-k2")
-			? { gateway: { order: ["novita"] } }
-			: {}),
-		// Qwen's default routing lands on Alibaba Cloud/Together at ~55 tps;
-		// Fireworks serves the same models at ~330 tps (gateway P50 chart,
-		// 2026-07-26). The others stay as fallback.
-		...(params.model.startsWith("alibaba/")
-			? { gateway: { order: ["fireworks"] } }
-			: {}),
-	};
+						openai: { reasoningEffort },
+						// Grok knows exactly three efforts — clamp both ends.
+						xai: {
+							reasoningEffort:
+								reasoningEffort === "minimal"
+									? ("low" as const)
+									: reasoningEffort === "xhigh"
+										? ("high" as const)
+										: reasoningEffort,
+						},
+					}
+				: {}),
+			// Novita-first was a fix for Kimi K2's launch congestion (6s+ TTFT on
+			// Moonshot). K3 measured faster on official Moonshot routing, so the
+			// preference stays scoped to K2-era models.
+			...(params.model.startsWith("moonshotai/kimi-k2")
+				? { gateway: { order: ["novita"] } }
+				: {}),
+			// Qwen's default routing lands on Alibaba Cloud/Together at ~55 tps;
+			// Fireworks serves the same models at ~330 tps (gateway P50 chart,
+			// 2026-07-26). The others stay as fallback.
+			...(params.model.startsWith("alibaba/")
+				? { gateway: { order: ["fireworks"] } }
+				: {}),
+		},
+		{
+			operation: "page_build",
+			organizationId: params.subject.organizationId ?? null,
+			userId: params.subject.actorUserId,
+		},
+	);
 
 	log(
 		`starting build of "${params.title}" with model ${params.model}` +
@@ -881,7 +1425,8 @@ export async function runSiteBuild(
 			instructions: params.system,
 			maxOutputTokens: MAX_OUTPUT_TOKENS,
 			model: params.model,
-			...(Object.keys(providerOptions).length > 0 ? { providerOptions } : {}),
+			...(params.onStepEnd ? { onStepEnd: params.onStepEnd } : {}),
+			providerOptions,
 			// Kimi/Moonshot rejects image parts inside tool results (they fall
 			// through as base64 TEXT and blow the context) but reads images fine
 			// from user messages — so relocate them there before every step.
@@ -914,10 +1459,16 @@ export async function runSiteBuild(
 			tools: createBuilderTools({
 				abortSignal: params.abortSignal,
 				attemptId: params.attemptId,
+				...(params.meteringService
+					? { meteringService: params.meteringService }
+					: {}),
 				...(params.onEvent ? { onEvent: params.onEvent } : {}),
+				pageKind: params.pageKind ?? "website",
 				projectId: params.projectId,
 				screenshots,
 				state,
+				...(params.usageEventId ? { usageEventId: params.usageEventId } : {}),
+				subject: params.subject,
 				vfs,
 			}),
 		});
@@ -936,9 +1487,9 @@ export async function runSiteBuild(
 
 		// Model-call failures don't throw while draining: the SDK enqueues them
 		// as {type:"error"} stream parts (consumeStream's onError only fires
-		// when reading itself fails). Drain fullStream and capture the first
-		// real cause — it must land in the attempt row instead of a misleading
-		// generic "stopped without an accepted finish".
+		// when reading itself fails). Capture the first cause for diagnostics,
+		// but still attempt the best-effort publish path below: once a valid page
+		// exists, a late provider failure must not discard it.
 		let streamError: unknown;
 		try {
 			for await (const part of stream.fullStream) {
@@ -950,25 +1501,51 @@ export async function runSiteBuild(
 			streamError ??= error;
 		}
 
+		const steps = await Promise.resolve(stream.steps).catch((error) => {
+			streamError ??= error;
+
+			return [];
+		});
+
 		if (streamError !== undefined) {
-			throw streamError instanceof Error
-				? streamError
-				: new Error(String(streamError));
-		}
+			try {
+				await params.onGenerationError?.(streamError);
+			} catch (captureError) {
+				// Generation capture has its own durable retry path. Never replace the
+				// provider failure that the attempt row and Trigger run must retain.
+				log(
+					`failed to buffer gateway error evidence: ${
+						captureError instanceof Error
+							? captureError.message
+							: String(captureError)
+					}`,
+				);
+			}
 
-		const steps = await stream.steps;
-		const summary = state.summary;
-
-		// An accepted finish is the ONLY valid exit: a natural stop or the step
-		// backstop means the model abandoned the protocol mid-build, and an
-		// interim draft must never be published as a succeeded version.
-		if (summary === null) {
-			throw new Error(
-				"The builder stopped without an accepted finish " +
-					`(${steps.length} steps) — refusing to publish an ` +
-					"unfinished build",
+			log(
+				"stream ended with an error; evaluating the last page revision — " +
+					(streamError instanceof Error
+						? streamError.message
+						: String(streamError)),
 			);
 		}
+
+		const usage = steps.reduce(
+			(total, step) => ({
+				inputTokens: total.inputTokens + (step.usage?.inputTokens ?? 0),
+				outputTokens: total.outputTokens + (step.usage?.outputTokens ?? 0),
+				totalTokens: total.totalTokens + (step.usage?.totalTokens ?? 0),
+			}),
+			{ inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+		);
+		log(
+			`usage: in=${usage.inputTokens} out=${usage.outputTokens} ` +
+				`total=${usage.totalTokens} steps=${steps.length}`,
+		);
+		const reachedStepBudget = steps.length >= MAX_STEPS;
+		const summary = state.finishAccepted
+			? state.summary
+			: fallbackBuildSummary(steps.length);
 
 		// Deterministic stamping pass (spec §4): every editable leaf gets a
 		// stable data-wid before upload, so every version's canonical HTML in
@@ -979,7 +1556,15 @@ export async function runSiteBuild(
 			vfs.write("index.html", stampHtml(rawHtml));
 		}
 
-		assertValidSite(vfs);
+		assertValidSite(vfs, params.pageKind ?? "website");
+
+		if (!state.finishAccepted) {
+			log(
+				reachedStepBudget
+					? "shipping best-effort page at step budget"
+					: "shipping best-effort page after builder ended without an explicit finish",
+			);
+		}
 
 		const reviewMode = state.screenshotRequired
 			? `${state.screenshotPasses} screenshot passes ` +
@@ -995,6 +1580,7 @@ export async function runSiteBuild(
 			files: vfs.toFiles(),
 			steps: steps.length,
 			summary,
+			usage,
 		};
 	} finally {
 		// The Trigger worker process may be reused for the next build.
@@ -1012,7 +1598,289 @@ export async function runSiteBuild(
  * upload fine yet 404 at view time — better to fail the build than to
  * record a succeeded version that renders broken.
  */
-function assertValidSite(vfs: VirtualFileSystem): void {
+const BRAND_MARKER_WRAPPER_SELECTOR = "a, figure, article";
+const BRAND_SECTION_SCOPE_SELECTOR = "nav, header, section, footer, aside";
+const JAVASCRIPT_IDENTIFIER_SOURCE = String.raw`[$A-Z_a-z][$\w]*`;
+const LEAD_EVENT_LITERAL_SOURCE =
+	"(?:\"wandit:lead\"|'wandit:lead'|`wandit:lead`)";
+const CUSTOM_EVENT_CONSTRUCTOR_SOURCE = String.raw`new\s+(?:(?:window|globalThis|self)\s*\.\s*)?CustomEvent\s*\(\s*`;
+const NAME_AUTOCOMPLETE_TOKENS = new Set([
+	"additional-name",
+	"family-name",
+	"given-name",
+	"name",
+	"nickname",
+]);
+const NAME_ATTRIBUTE_QUALIFIERS = new Set([
+	"buyer",
+	"client",
+	"contact",
+	"customer",
+	"family",
+	"first",
+	"full",
+	"given",
+	"last",
+	"recipient",
+]);
+const NON_PERSON_NAME_TOKENS = new Set([
+	"business",
+	"company",
+	"file",
+	"product",
+	"username",
+]);
+const COMPACT_NAME_ATTRIBUTE_VALUES = new Set([
+	"buyername",
+	"clientname",
+	"contactname",
+	"customername",
+	"familyname",
+	"firstname",
+	"fullname",
+	"givenname",
+	"lastname",
+	"nomcomplet",
+	"prenom",
+	"recipientname",
+	"surname",
+]);
+const NON_TEXT_NAME_INPUT_TYPES = new Set([
+	"button",
+	"checkbox",
+	"email",
+	"file",
+	"hidden",
+	"image",
+	"number",
+	"password",
+	"radio",
+	"reset",
+	"submit",
+	"tel",
+]);
+
+function escapeRegExp(value: string): string {
+	return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Accepted zero-parser patterns, within one <script>:
+ * - target.dispatchEvent(new CustomEvent("wandit:lead", ...))
+ * - const event = new CustomEvent("wandit:lead", ...); dispatchEvent(event)
+ *
+ * Quote style, whitespace/minification, window/globalThis/self.CustomEvent,
+ * and a simple const/let/var event-name literal are all tolerated. Computed
+ * event names and event objects passed through helpers are intentionally not.
+ */
+function scriptDispatchesLeadCustomEvent(script: string): boolean {
+	const eventNameArguments = new Set([LEAD_EVENT_LITERAL_SOURCE]);
+	const eventNameDeclaration = new RegExp(
+		String.raw`\b(?:const|let|var)\s+(${JAVASCRIPT_IDENTIFIER_SOURCE})\s*=\s*${LEAD_EVENT_LITERAL_SOURCE}`,
+		"g",
+	);
+
+	for (const match of script.matchAll(eventNameDeclaration)) {
+		const identifier = match[1];
+
+		if (identifier) {
+			eventNameArguments.add(`${escapeRegExp(identifier)}(?![$\\w])`);
+		}
+	}
+
+	for (const eventNameArgument of eventNameArguments) {
+		const customEventConstructor = `${CUSTOM_EVENT_CONSTRUCTOR_SOURCE}${eventNameArgument}`;
+		const directDispatch = new RegExp(
+			String.raw`\bdispatchEvent\s*\(\s*${customEventConstructor}`,
+		);
+
+		if (directDispatch.test(script)) {
+			return true;
+		}
+
+		const assignedEvent = new RegExp(
+			String.raw`\b(?:const|let|var)\s+(${JAVASCRIPT_IDENTIFIER_SOURCE})\s*=\s*${customEventConstructor}`,
+			"g",
+		);
+
+		for (const match of script.matchAll(assignedEvent)) {
+			const identifier = match[1];
+
+			if (!identifier) {
+				continue;
+			}
+
+			const followingScript = script.slice(
+				(match.index ?? 0) + match[0].length,
+			);
+			const variableDispatch = new RegExp(
+				String.raw`\bdispatchEvent\s*\(\s*${escapeRegExp(identifier)}(?![$\w])`,
+			);
+
+			if (variableDispatch.test(followingScript)) {
+				return true;
+			}
+		}
+	}
+
+	return false;
+}
+
+function attributeIndicatesPersonName(value: string | undefined): boolean {
+	if (!value) {
+		return false;
+	}
+
+	const normalized = value
+		.replace(/([a-z\d])([A-Z])/g, "$1 $2")
+		.trim()
+		.toLowerCase();
+
+	if (normalized.includes("اسم")) {
+		return true;
+	}
+
+	const tokens = normalized.split(/[^a-z0-9]+/).filter(Boolean);
+
+	if (tokens.some((token) => NON_PERSON_NAME_TOKENS.has(token))) {
+		return false;
+	}
+
+	if (tokens.some((token) => COMPACT_NAME_ATTRIBUTE_VALUES.has(token))) {
+		return true;
+	}
+
+	return tokens.some((token, index) => {
+		if (token === "nom") {
+			return true;
+		}
+
+		if (token !== "name") {
+			return false;
+		}
+
+		return (
+			tokens.length === 1 ||
+			index === 0 ||
+			NAME_ATTRIBUTE_QUALIFIERS.has(tokens[index - 1] ?? "")
+		);
+	});
+}
+
+function assertValidBrandMarkers(
+	html: string,
+	pageKind: "cod" | "website" = "website",
+): void {
+	const $ = cheerio.load(html);
+	const brandMarkers = $("[data-brand]");
+
+	brandMarkers.each((_, node) => {
+		const marker = $(node);
+		const role = marker.attr("data-brand");
+
+		if (role !== "nav" && role !== "footer") {
+			throw new Error(
+				`index.html has unsupported data-brand role "${role ?? ""}" — ` +
+					'brand markers must use exactly data-brand="nav" or data-brand="footer"',
+			);
+		}
+
+		if (!marker.is(BRAND_MARKER_WRAPPER_SELECTOR)) {
+			throw new Error(
+				`data-brand="${role}" must be on a stampable <a>, <figure>, or ` +
+					`<article> wrapper (found <${node.tagName}>) — never put the ` +
+					"marker on a div, image, SVG, or decorative child",
+			);
+		}
+
+		const isStampable = marker.is("a")
+			? isStampableLeaf($, node)
+			: isStampableContainer($, node);
+
+		if (!isStampable) {
+			const placementAdvice =
+				pageKind === "cod" && role === "nav"
+					? "keep it outside SVG/form content in the hero <header> or hero " +
+						'<section> scope, or use the endorsed <a href="#order-form" ' +
+						'data-brand="nav"> hero badge'
+					: "keep it outside SVG/form content and inside the recognized " +
+						"nav/header/footer chassis";
+
+			throw new Error(
+				`data-brand="${role}" is on <${node.tagName}>, but that wrapper ` +
+					`is not stampable in this location — ${placementAdvice}`,
+			);
+		}
+
+		const hasTextContent = marker.text().trim().length > 0;
+		const hasAriaLabel = (marker.attr("aria-label") ?? "").trim().length > 0;
+		const hasImageAlt = marker
+			.find("img")
+			.toArray()
+			.some((image) => ($(image).attr("alt") ?? "").trim().length > 0);
+
+		if (!hasTextContent && !hasAriaLabel && !hasImageAlt) {
+			throw new Error(
+				`data-brand="${role}" must include restorable brand text: non-empty ` +
+					"text content, aria-label, or an inner <img> with non-empty alt",
+			);
+		}
+	});
+
+	const navMarkers = $('[data-brand="nav"]');
+
+	if (navMarkers.length !== 1) {
+		throw new Error(
+			'index.html must contain exactly one data-brand="nav" marker on ' +
+				`the replaceable nav/header brand wrapper (found ${navMarkers.length})`,
+		);
+	}
+
+	const navScope = navMarkers
+		.first()
+		.closest(BRAND_SECTION_SCOPE_SELECTOR)
+		.first();
+
+	const navMarkerIsInFooter = navMarkers.first().closest("footer").length > 0;
+
+	if (pageKind === "cod") {
+		if (!navScope.is("header, section") || navMarkerIsInFooter) {
+			throw new Error(
+				'data-brand="nav" must be inside the COD hero chassis, with its ' +
+					"nearest section scope being <header> or <section>, and never " +
+					"inside <footer>",
+			);
+		}
+	} else if (!navScope.is("nav, header") || navMarkerIsInFooter) {
+		throw new Error(
+			'data-brand="nav" must be inside the nav/header chassis, with its ' +
+				"nearest section scope being <nav> or <header>",
+		);
+	}
+
+	const footerMarkers = $('[data-brand="footer"]');
+
+	if (footerMarkers.length > 1) {
+		throw new Error(
+			'index.html may contain at most one data-brand="footer" marker ' +
+				`(found ${footerMarkers.length})`,
+		);
+	}
+
+	if (
+		footerMarkers.length === 1 &&
+		footerMarkers.first().closest("footer").length === 0
+	) {
+		throw new Error(
+			'data-brand="footer" must be inside the page footer wordmark',
+		);
+	}
+}
+
+function assertValidSite(
+	vfs: VirtualFileSystem,
+	pageKind: "cod" | "website" = "website",
+): void {
 	const html = vfs.read("index.html");
 
 	if (html === null) {
@@ -1055,6 +1923,155 @@ function assertValidSite(vfs: VirtualFileSystem): void {
 		throw new Error(
 			`index.html is suspiciously short (${trimmed.length} chars) — ` +
 				"a real landing page never is; refusing to publish it",
+		);
+	}
+
+	if (pageKind === "cod") {
+		const $ = cheerio.load(html);
+
+		if ($("nav").length !== 0) {
+			throw new Error(
+				`COD index.html must contain zero <nav> elements (found ${$("nav").length})`,
+			);
+		}
+
+		const forms = $("form");
+
+		if (forms.length !== 1) {
+			throw new Error(
+				`COD index.html must contain exactly one <form> (found ${forms.length})`,
+			);
+		}
+
+		const telInputs = $("input").filter(
+			(_, node) => ($(node).attr("type") ?? "").trim().toLowerCase() === "tel",
+		);
+
+		if (telInputs.length === 0) {
+			throw new Error(
+				"COD index.html must contain at least one input[type=tel]",
+			);
+		}
+
+		const nameInputs = forms
+			.first()
+			.find("input")
+			.filter((_, node) => {
+				const input = $(node);
+				const type = (input.attr("type") ?? "text").trim().toLowerCase();
+
+				if (
+					input.is("[data-wandit-hp], [disabled], [readonly]") ||
+					NON_TEXT_NAME_INPUT_TYPES.has(type)
+				) {
+					return false;
+				}
+
+				const autocomplete = (input.attr("autocomplete") ?? "")
+					.trim()
+					.toLowerCase()
+					.split(/\s+/)
+					.filter(Boolean);
+
+				return (
+					autocomplete.some((token) => NAME_AUTOCOMPLETE_TOKENS.has(token)) ||
+					attributeIndicatesPersonName(input.attr("name")) ||
+					attributeIndicatesPersonName(input.attr("id"))
+				);
+			});
+
+		if (nameInputs.length === 0) {
+			throw new Error(
+				"COD index.html capture <form> must contain at least one " +
+					"name-capable <input> (identified by name, id, or autocomplete)",
+			);
+		}
+
+		const dispatchesLeadEvent = $("script")
+			.toArray()
+			.some((node) => scriptDispatchesLeadCustomEvent($(node).html() ?? ""));
+
+		if (!dispatchesLeadEvent) {
+			throw new Error(
+				'COD index.html must dispatch a "wandit:lead" CustomEvent from ' +
+					"a <script> element",
+			);
+		}
+
+		const honeypots = $("[data-wandit-hp]");
+
+		if (honeypots.length !== 1) {
+			throw new Error(
+				"COD index.html must contain exactly one data-wandit-hp " +
+					`honeypot (found ${honeypots.length})`,
+			);
+		}
+	}
+
+	assertValidBrandMarkers(html, pageKind);
+
+	const firstStyle = /<style\b[^>]*>([\s\S]*?)<\/style\s*>/i.exec(html);
+
+	if (!firstStyle) {
+		throw new Error(
+			"index.html is missing a <style> block — its first <style> must " +
+				"contain the required :root page-theme token block",
+		);
+	}
+
+	const firstStyleCss = firstStyle[1] ?? "";
+	const firstStyleCssWithoutComments = firstStyleCss.replace(
+		/\/\*[\s\S]*?\*\//g,
+		(comment) => " ".repeat(comment.length),
+	);
+	const root = /:root\s*\{([^}]*)\}/.exec(firstStyleCssWithoutComments);
+
+	if (!root) {
+		throw new Error(
+			"index.html's first <style> must contain a :root block declaring " +
+				"all required page-theme tokens",
+		);
+	}
+
+	const rootDeclarations = root[1] ?? "";
+	const missingTokens = PAGE_TOKEN_NAMES.filter(
+		(token) => !new RegExp(`(?:^|;)\\s*--${token}\\s*:`).test(rootDeclarations),
+	);
+
+	if (missingTokens.length > 0) {
+		throw new Error(
+			"index.html's first <style> :root is missing required page-theme " +
+				`tokens (${missingTokens.map((token) => `--${token}`).join(", ")}) — ` +
+				"declare every contract token before finishing",
+		);
+	}
+
+	const styleOpenEnd = (firstStyle.index ?? 0) + firstStyle[0].indexOf(">") + 1;
+	const rootStart = styleOpenEnd + root.index;
+	const rootEnd = rootStart + root[0].length;
+	const outsideOpeningRoot = html.slice(0, rootStart) + html.slice(rootEnd);
+	const outsideRootDeclarations = outsideOpeningRoot
+		.replace(/\/\*[\s\S]*?\*\//g, "")
+		.replace(/<!--[\s\S]*?-->/g, "")
+		.replace(/:root\s*\{[^}]*\}/gi, "");
+	const requiredConsumptions = [
+		"background",
+		"foreground",
+		"primary",
+		"font-body",
+		"radius",
+	] as const;
+	const unconsumedTokens = requiredConsumptions.filter(
+		(token) =>
+			!new RegExp(`var\\(\\s*--${token}\\s*[,)]`).test(outsideRootDeclarations),
+	);
+
+	if (unconsumedTokens.length > 0) {
+		throw new Error(
+			"index.html declares but does not consume required page-theme tokens " +
+				`outside :root (${unconsumedTokens
+					.map((token) => `--${token}`)
+					.join(", ")}) — reference each with var(--token) in the page styles`,
 		);
 	}
 }

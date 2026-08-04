@@ -9,6 +9,7 @@ import {
 	parseMarketingAssetPayload,
 	runMarketingAssetGeneration,
 } from "../modules/marketing-assets/application/services/marketing-asset-runner";
+import { triggerAnalytics } from "./init";
 import { createMarketingAssetRuntime } from "./marketing-asset.runtime";
 
 const marketingAssetQueue = queue({
@@ -47,7 +48,7 @@ export const generateMarketingAssetTask = schemaTask({
 				.set("projectId", payload.projectId)
 				.set("stage", "settling");
 
-			const runtime = createMarketingAssetRuntime(db);
+			const runtime = createMarketingAssetRuntime(db, triggerAnalytics);
 			const result = await runMarketingAssetGeneration(payload, {
 				dependencies: runtime.runner,
 				runId: ctx.run.id,

@@ -1,9 +1,7 @@
 /**
  * The public lead capture endpoint — the first route in the /api/public
  * namespace. No auth, no cookies, addressed by the project's unguessable
- * publicFormId; published pages post here cross-origin as a CORS simple
- * request (text/plain body, parsed by the raw-string parser in main.ts), so
- * no preflight ever fires and the global CORS config stays untouched.
+ * publicFormId; published pages post here cross-origin without credentials.
  */
 import {
 	Body,
@@ -13,13 +11,17 @@ import {
 	Param,
 	Post,
 	Req,
+	Res,
 } from "@nestjs/common";
 import { type LeadCaptureResponse, uuidSchema } from "@wandit/contracts";
-import type { FastifyRequest } from "fastify";
+import type { FastifyReply, FastifyRequest } from "fastify";
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { Public } from "../../../../auth";
-import { LeadsCaptureService } from "../../../application/services/leads-capture.service";
+import {
+	LeadsCaptureRateLimitException,
+	LeadsCaptureService,
+} from "../../../application/services/leads-capture.service";
 
 @Public()
 @Controller("public/leads")
@@ -33,17 +35,25 @@ export class LeadsCaptureController {
 	// must be indistinguishable to the caller.
 	@Post(":publicFormId")
 	@HttpCode(200)
-	capture(
+	async capture(
 		@Param("publicFormId", new ZodValidationPipe(uuidSchema))
 		publicFormId: string,
 		@Body() body: unknown,
 		@Req() request: FastifyRequest,
+		@Res({ passthrough: true }) reply: FastifyReply,
 	): Promise<LeadCaptureResponse> {
-		return this.leadsCaptureService.capture(
-			publicFormId,
-			body,
-			clientIp(request),
-		);
+		try {
+			return await this.leadsCaptureService.capture(
+				publicFormId,
+				body,
+				clientIp(request),
+			);
+		} catch (error) {
+			if (error instanceof LeadsCaptureRateLimitException) {
+				reply.header("Retry-After", String(error.retryAfterSeconds));
+			}
+			throw error;
+		}
 	}
 }
 

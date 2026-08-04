@@ -1,4 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
+import type { ProjectScope } from "../../../projects/domain/project-scope";
 import type { AuthUser } from "@wandit/auth";
 import {
 	CHECKOUT_PURPOSE,
@@ -34,11 +35,14 @@ import {
 	type PaymentOrderRow,
 } from "../../domain/payment-order.types";
 import {
+	ORDER_REFUND_DISPATCHER,
+	type OrderRefundDispatcher,
+} from "../../domain/ports/order-refund-dispatcher.port";
+import {
 	PaymentOrdersRepository,
 	type PaymentOrderTransaction,
 } from "../../infrastructure/persistence/payment-orders.repository";
 import { OrderFulfillmentRegistry } from "./order-fulfillment.registry";
-import { OrderRefundQueueService } from "./order-refund-queue.service";
 import { OrderRefundsService } from "./order-refunds.service";
 
 type ReconcileResult = {
@@ -79,16 +83,19 @@ export class OrdersService implements WebhookOrderReconciler {
 		private readonly fulfillmentRegistry: OrderFulfillmentRegistry,
 		@Inject(OrderRefundsService)
 		private readonly orderRefundsService: OrderRefundsService,
-		@Inject(OrderRefundQueueService)
-		private readonly orderRefundQueueService: OrderRefundQueueService,
+		@Inject(ORDER_REFUND_DISPATCHER)
+		private readonly orderRefundDispatcher: OrderRefundDispatcher,
 	) {}
 
 	async createDomainOrder(
 		user: AuthUser,
 		body: CreateDomainOrderBody,
+		scope: ProjectScope,
 	): Promise<CreateOrderResponse> {
+		// The purchase itself stays PERSONAL money (the buyer's card and
+		// customer); only the target-project access check is workspace-aware.
 		const prepared = await this.domainsService.preparePurchase(
-			user.id,
+			scope,
 			body.domain,
 			body.projectId,
 		);
@@ -326,10 +333,11 @@ export class OrdersService implements WebhookOrderReconciler {
 		);
 
 		if (result.shouldRefund) {
-			await this.orderRefundQueueService.enqueue(
-				result.order.id,
-				result.order.fulfillmentError ?? "Domain registration failed",
-			);
+			await this.orderRefundDispatcher.triggerRefund({
+				failureReason:
+					result.order.fulfillmentError ?? "Domain registration failed",
+				orderId: result.order.id,
+			});
 		} else if (result.inspectCharge) {
 			const paymentIntentId = result.order.providerPaymentIntentId;
 
@@ -559,7 +567,10 @@ export class OrdersService implements WebhookOrderReconciler {
 			}
 
 			const failureReason = this.httpErrorMessage(error);
-			await this.orderRefundQueueService.enqueue(order.id, failureReason);
+			await this.orderRefundDispatcher.triggerRefund({
+				failureReason,
+				orderId: order.id,
+			});
 			await this.paymentOrdersRepository.markFailed(order.id, failureReason);
 
 			return;

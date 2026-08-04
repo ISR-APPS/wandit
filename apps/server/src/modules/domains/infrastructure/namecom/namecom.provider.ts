@@ -50,8 +50,8 @@ type NamecomUrlForwarding = {
 /**
  * The only code in the domain feature that knows Name.com's HTTP contract.
  *
- * Application and worker code talk to DomainProvider instead. Registrar changes
- * stay inside an adapter plus the explicit server and worker DI bindings.
+ * Application orchestration talks to DomainProvider instead. Registrar changes
+ * stay inside this adapter and its composition roots.
  */
 @Injectable()
 export class NamecomProvider implements DomainProvider {
@@ -108,7 +108,7 @@ export class NamecomProvider implements DomainProvider {
 	 * Registration spends money from our Name.com account.
 	 *
 	 * The caller must supply a stable idempotency key. Name.com then returns the
-	 * original result if BullMQ retries after a timeout.
+	 * original result if a task retries after a timeout.
 	 */
 	async register(
 		name: string,

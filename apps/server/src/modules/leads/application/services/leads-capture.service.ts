@@ -1,11 +1,10 @@
 /**
- * The public capture flow: anonymous, cross-origin, fire-and-forget.
+ * The public capture flow: anonymous and cross-origin.
  *
- * The page's injected runtime posts JSON as text/plain (a CORS simple request
- * — no preflight), so the body arrives as a raw string; curl/tests may send
- * application/json, which arrives pre-parsed. Every quiet-discard path
- * (honeypot, duplicate) answers the same { ok: true } as a real insert so
- * bots learn nothing from the response.
+ * The page's primary transport posts application/json, while the unload
+ * fallback may arrive as a raw text/plain string. Every quiet-discard path
+ * (honeypot, duplicate) answers the same { ok: true } as a real insert so bots
+ * learn nothing from the response.
  */
 import {
 	BadRequestException,
@@ -29,6 +28,18 @@ import { LeadsCaptureThrottle } from "./leads-capture-throttle";
 // (page retries, impatient double click, heuristic + event both firing).
 const DUPLICATE_WINDOW_MS = 2 * 60_000;
 
+export class LeadsCaptureRateLimitException extends HttpException {
+	constructor(public readonly retryAfterSeconds: number) {
+		super(
+			{
+				code: "LEAD_CAPTURE_RATE_LIMITED",
+				message: "Too many submissions",
+			},
+			HttpStatus.TOO_MANY_REQUESTS,
+		);
+	}
+}
+
 @Injectable()
 export class LeadsCaptureService {
 	private readonly logger = new Logger(LeadsCaptureService.name);
@@ -45,13 +56,6 @@ export class LeadsCaptureService {
 		rawBody: unknown,
 		ip: string,
 	): Promise<LeadCaptureResponse> {
-		if (!this.throttle.allow(ip)) {
-			throw new HttpException(
-				"Too many submissions",
-				HttpStatus.TOO_MANY_REQUESTS,
-			);
-		}
-
 		const project =
 			await this.leadsRepository.findProjectByPublicFormId(publicFormId);
 		if (!project) {
@@ -68,6 +72,13 @@ export class LeadsCaptureService {
 		const phone = normalizeLeadPhone(body.phone);
 		if (!phone) {
 			throw new BadRequestException("Invalid phone number");
+		}
+
+		const throttleDecision = this.throttle.consume(publicFormId, ip);
+		if (!throttleDecision.allowed) {
+			throw new LeadsCaptureRateLimitException(
+				throttleDecision.retryAfterSeconds,
+			);
 		}
 
 		const isDuplicate = await this.leadsRepository.hasRecentLeadWithPhone(

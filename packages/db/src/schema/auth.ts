@@ -1,11 +1,14 @@
 import { relations } from "drizzle-orm";
 import {
+	bigint,
 	boolean,
 	index,
+	integer,
 	pgTable,
 	text,
 	timestamp,
 	uniqueIndex,
+	uuid,
 } from "drizzle-orm/pg-core";
 
 export const user = pgTable(
@@ -20,6 +23,9 @@ export const user = pgTable(
 		// property names must match the plugin's schema so the drizzle adapter
 		// maps them.
 		role: text("role").default("user").notNull(),
+		// Server-owned Better Auth additional field. The auth config exposes it
+		// on session users but rejects it from signup/update input.
+		earlyAccess: boolean("early_access").default(false).notNull(),
 		banned: boolean("banned").default(false).notNull(),
 		banReason: text("ban_reason"),
 		banExpires: timestamp("ban_expires", { withTimezone: true }),
@@ -61,6 +67,10 @@ export const session = pgTable(
 			.references(() => user.id, { onDelete: "cascade" }),
 		// Better Auth admin plugin: id of the admin impersonating this session.
 		impersonatedBy: text("impersonated_by"),
+		// Better Auth organization plugin writes this on org create/setActive.
+		// The API NEVER reads it for scoping — workspace scope comes exclusively
+		// from the x-wandit-workspace request header (docs/features/teams-workspaces.md §2).
+		activeOrganizationId: text("active_organization_id"),
 	},
 	(table) => [index("session_userId_idx").on(table.userId)],
 );
@@ -120,6 +130,63 @@ export const verification = pgTable(
 			.notNull(),
 	},
 	(table) => [index("verification_identifier_idx").on(table.identifier)],
+);
+
+// Better Auth rate limiter storage (rateLimit.storage: "database"). One row
+// per limiter key (IP+path bucket); Better Auth reads/creates/updates it via
+// the drizzle adapter — the model name "rateLimit" resolves to this export by
+// name — and deletes expired rows opportunistically. Durable across restarts
+// and instances, unlike the default in-memory store.
+export const rateLimit = pgTable(
+	"rate_limit",
+	{
+		id: text("id").primaryKey(),
+		key: text("key").notNull(),
+		count: integer("count").notNull(),
+		// Milliseconds since epoch; Better Auth compares numerically.
+		lastRequest: bigint("last_request", { mode: "number" }).notNull(),
+	},
+	(table) => [
+		// consume() races INSERTs for a fresh key and relies on the duplicate
+		// failing so the loser re-reads — this unique index is load-bearing.
+		uniqueIndex("rate_limit_key_uq").on(table.key),
+	],
+);
+
+// Audit trail + per-recipient caps for auth email sends (magic link, OTP).
+// Better Auth's limiter above is IP-keyed; this table is what lets the server
+// cap sends per EMAIL across IPs (burner farming / inbox-bombing protection).
+export const authEmailSends = pgTable(
+	"auth_email_sends",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		emailCanonical: text("email_canonical").notNull(),
+		// Keyed HMAC of the client IP — correlation without raw PII at rest.
+		ipHash: text("ip_hash"),
+		kind: text("kind").notNull(),
+		// Who caused the send, when that is someone other than the recipient:
+		// the inviter's user id on invitation mail. Null for sign-in sends,
+		// where the recipient IS the actor. No FK — these rows are throwaway
+		// abuse-accounting and must not block user deletion.
+		actorId: text("actor_id"),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+	},
+	(table) => [
+		index("auth_email_sends_email_createdAt_idx").on(
+			table.emailCanonical,
+			table.createdAt,
+		),
+		index("auth_email_sends_ipHash_createdAt_idx").on(
+			table.ipHash,
+			table.createdAt,
+		),
+		index("auth_email_sends_actorId_createdAt_idx").on(
+			table.actorId,
+			table.createdAt,
+		),
+	],
 );
 
 export const userRelations = relations(user, ({ many }) => ({

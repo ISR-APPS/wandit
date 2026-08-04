@@ -2,6 +2,7 @@ import type { ColumnDef } from "@tanstack/react-table";
 
 import { DataTableColumnHeader } from "@/components/data-table";
 import type { AdminUserSummary } from "@/features/users/api/users.dto";
+import { EarlyAccessBadge } from "@/features/users/components/early-access-badge";
 import {
 	formatAdminDate,
 	formatAdminDateTime,
@@ -74,7 +75,12 @@ const usersTableColumns: ColumnDef<AdminUserSummary>[] = [
 		header: ({ column }) => (
 			<DataTableColumnHeader column={column} title="Status" />
 		),
-		cell: ({ row }) => <StatusBadge user={row.original} />,
+		cell: ({ row }) => (
+			<div className="flex flex-wrap items-center gap-1.5">
+				<StatusBadge user={row.original} />
+				<EarlyAccessBadge user={row.original} />
+			</div>
+		),
 	},
 	{
 		accessorKey: "createdAt",
@@ -91,7 +97,7 @@ const usersTableColumns: ColumnDef<AdminUserSummary>[] = [
 			<DataTableColumnHeader column={column} title="Last seen" />
 		),
 		cell: ({ row }) => (
-			<p className="tabular-nums text-muted-foreground">
+			<p className="text-muted-foreground tabular-nums">
 				{formatAdminDateTime(row.original.lastSeenAt)}
 			</p>
 		),

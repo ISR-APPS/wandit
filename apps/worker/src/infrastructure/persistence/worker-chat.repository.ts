@@ -118,6 +118,32 @@ export class WorkerChatRepository {
 
 		return row;
 	}
+
+	/**
+	 * Loads the deterministic assistant row used by a legacy generation job.
+	 *
+	 * A worker can crash after settling the usage event but before publishing the
+	 * completion event. In that state the provider must not be called again; the
+	 * already-saved assistant row is the durable replay source.
+	 */
+	async findAssistantMessageById(input: {
+		chatId: string;
+		id: string;
+	}): Promise<WorkerMessageRow | null> {
+		const [row] = await this.db
+			.select()
+			.from(messages)
+			.where(
+				and(
+					eq(messages.id, input.id),
+					eq(messages.chatId, input.chatId),
+					eq(messages.role, "assistant"),
+				),
+			)
+			.limit(1);
+
+		return row ?? null;
+	}
 }
 
 // Convert a DB row into the shared chat message shape.

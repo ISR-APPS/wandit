@@ -4,6 +4,17 @@
 	"main": "src/index.ts",
 	"account_id": "6b421048e434497bce142970530e4eb1",
 	"compatibility_date": "2025-10-11",
+	// @sentry/cloudflare needs AsyncLocalStorage; nodejs_als is the minimal flag.
+	"compatibility_flags": ["nodejs_als"],
+	// Lets the Sentry SDK auto-derive the release from the Worker version.
+	"version_metadata": { "binding": "CF_VERSION_METADATA" },
+	// Uploads maps to CLOUDFLARE (Workers Logs / dashboard stack mapping).
+	// Sentry needs its own artifact upload (sentry-cli) — a later increment;
+	// until then wandit-edge stacks in Sentry show bundled positions.
+	"upload_source_maps": true,
+	// SENTRY_DSN is intentionally NOT here — set it as a secret/dashboard var
+	// (`wrangler secret put SENTRY_DSN`). Unset = Sentry disabled.
+	"vars": { "SENTRY_ENVIRONMENT": "production" },
 	// One route catches every request entering the wandit.app zone — including
 	// Cloudflare-for-SaaS custom hostnames (their Host header is the customer
 	// domain, so a *.wandit.app pattern would MISS them). The app hostnames
@@ -16,9 +27,11 @@
 	// Fill the real namespace id (CLOUDFLARE_KV_NAMESPACE_ID) at deploy time;
 	// local dev and tests simulate the binding and ignore the id.
 	"kv_namespaces": [{ "binding": "PTR", "id": "10d1db8c7def488ba5397727c1e4ef6d" }],
-	// Published bytes live in the same bucket the API writes:
-	// published/{projectId}/current.html (see r2.ts publishedCurrentKey).
-	"r2_buckets": [{ "binding": "SITES", "bucket_name": "wandit-pages-dev" }],
+	// Published bytes live in the same bucket the production API writes
+	// (R2_BUCKET): published/{projectId}/current.html (see r2.ts
+	// publishedCurrentKey). Staging and local dev use their own buckets,
+	// which this deployed worker deliberately does not serve.
+	"r2_buckets": [{ "binding": "SITES", "bucket_name": "wandit-production" }],
 	// Deliberately NOT enabling the new Workers Cache ("cache": {...}): it is
 	// host-blind (same path on different customer domains shares one entry),
 	// which for multi-tenant serving means cross-tenant content leaks. We use

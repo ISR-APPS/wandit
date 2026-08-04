@@ -14,12 +14,13 @@ import {
 	PayloadTooLargeException,
 	Post,
 	Req,
+	UseGuards,
 } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import type { UploadAttachmentResponse } from "@wandit/contracts";
 import type { FastifyRequest } from "fastify";
 
-import { CurrentUser } from "../../../../auth";
+import { CurrentUser, EarlyAccessGuard } from "../../../../auth";
 import { UploadsService } from "../../../application/services/uploads.service";
 
 // The multipart plugin adds `request.file()` at runtime.
@@ -37,6 +38,7 @@ export class UploadsController {
 
 	// Accept ONE uploaded file and return its hosted reference. Clients loop
 	// over this endpoint for several files (contract §7.2).
+	@UseGuards(EarlyAccessGuard)
 	@Post("attachments")
 	async upload(
 		@Req() request: FastifyRequest,

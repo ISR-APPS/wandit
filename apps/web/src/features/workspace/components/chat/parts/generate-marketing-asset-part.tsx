@@ -11,6 +11,7 @@ import { Button } from "@wandit/ui/components/button";
 import { AlertTriangle, ArrowRight, Check } from "lucide-react";
 import { useEffect, useRef } from "react";
 
+import { invalidateBalanceAfterGenerationTerminal } from "@/features/credits/lib/terminal-balance-invalidation";
 import { useTranslation } from "@/lib/i18n";
 import {
 	marketingAssetKeys,
@@ -124,6 +125,7 @@ function MarketingAssetLiveCard({
 	} = useMarketingAssetsQuery(projectId);
 	const asset = assets?.find((row) => row.id === assetId);
 	const settled = asset?.status === "succeeded" || asset?.status === "failed";
+	const terminalStatus = settled ? asset.status : null;
 	// A cached list from BEFORE this card mounted may legitimately miss a
 	// just-inserted row — only a fetch completed after mount proves absence.
 	const mountedAtRef = useRef(Date.now());
@@ -132,6 +134,11 @@ function MarketingAssetLiveCard({
 		!asset &&
 		!isFetching &&
 		dataUpdatedAt >= mountedAtRef.current;
+
+	useEffect(() => {
+		if (!terminalStatus) return;
+		invalidateBalanceAfterGenerationTerminal(queryClient, terminalStatus);
+	}, [queryClient, terminalStatus]);
 
 	useLiveRun({
 		handle: realtime,

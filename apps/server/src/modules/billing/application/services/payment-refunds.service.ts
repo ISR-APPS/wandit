@@ -1,19 +1,29 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
-import { CHECKOUT_PURPOSE, type CreditBucket } from "@wandit/contracts";
+import {
+	CHECKOUT_PURPOSE,
+	type CreditBucket,
+	PURCHASED_CREDIT_BUCKETS,
+} from "@wandit/contracts";
 import type Stripe from "stripe";
 
 import { CreditsService } from "../../../credits/application/services/credits.service";
 import {
+	type CreditOwner,
+	creditOwnerKey,
+	ownerFromIds,
+	sameCreditOwner,
+} from "../../../credits/domain/credit-owner";
+import {
 	WEBHOOK_ORDER_REFUND_HANDLER,
 	type WebhookOrderRefundHandler,
 } from "../../domain/ports/webhook-order-refund-handler.port";
+import { isNonAdverseDisputeStatus } from "../../domain/stripe-dispute-status";
 import {
 	BillingCreditLedgerRepository,
 	type BillingCreditLedgerRow,
+	type BillingCreditLedgerTransaction,
 } from "../../infrastructure/persistence/billing-credit-ledger.repository";
 import { StripeProvider } from "../../infrastructure/stripe/stripe.provider";
-
-const BUCKET_ORDER: CreditBucket[] = ["plan", "topup"];
 
 type ClawbackFraction = {
 	denominator: number;
@@ -22,13 +32,20 @@ type ClawbackFraction = {
 
 type ClawbackMode = "cumulative" | "incremental";
 
+type PurchasedCreditBucket = (typeof PURCHASED_CREDIT_BUCKETS)[number];
+
 type BucketAllocation = {
 	alreadyRevoked: number;
-	bucket: CreditBucket;
+	bucket: PurchasedCreditBucket;
 	delta: number;
 	originalGranted: number;
 	remainder: bigint;
 	target: number;
+};
+
+type RestorationAllocation = {
+	bucket: PurchasedCreditBucket;
+	delta: number;
 };
 
 type FullChargeRefundState = {
@@ -137,46 +154,61 @@ export class PaymentRefundsService {
 
 		const paymentIntentId = refundPaymentIntentId ?? chargePaymentIntentId;
 
-		if (!paymentIntentId) {
-			return false;
+		if (paymentIntentId) {
+			if (amounts.amountRefunded >= amounts.amountCaptured) {
+				const orderHandled = await this.handleFullOrderChargeRefunded({
+					...amounts,
+					additionalRefunds: [refund],
+					charge,
+					paymentIntentId,
+				});
+
+				if (orderHandled) {
+					return true;
+				}
+			} else {
+				const orderHandled =
+					await this.orderRefundHandler.handleChargeRefundedByPaymentIntent({
+						...amounts,
+						chargeId: charge.id,
+						paymentIntentId,
+					});
+
+				if (orderHandled) {
+					const persisted = await this.orderRefundHandler.updateRefundStatus({
+						paymentIntentId,
+						providerRefundId: refund.id,
+						refundStatus: "partial",
+					});
+
+					if (!persisted) {
+						throw new Error(
+							`Stripe refund ${refund.id} matched an order but its lifecycle state could not be persisted`,
+						);
+					}
+
+					return true;
+				}
+			}
 		}
 
-		if (amounts.amountRefunded >= amounts.amountCaptured) {
-			return this.handleFullOrderChargeRefunded({
-				...amounts,
-				additionalRefunds: [refund],
-				charge,
-				paymentIntentId,
-			});
-		}
-
-		const handled =
-			await this.orderRefundHandler.handleChargeRefundedByPaymentIntent({
-				...amounts,
-				chargeId: charge.id,
-				paymentIntentId,
-			});
-
-		if (!handled) {
-			return false;
-		}
-
-		const persisted = await this.orderRefundHandler.updateRefundStatus({
+		const handled = await this.revokePurchasedCredits({
+			chargeId: charge.id,
+			fraction: {
+				denominator: amounts.amountCaptured,
+				numerator: amounts.amountRefunded,
+			},
+			idempotencyKey: this.refundIdempotencyKey(charge),
+			mode: "cumulative",
 			paymentIntentId,
-			providerRefundId: refund.id,
-			refundStatus:
-				amounts.amountRefunded < amounts.amountCaptured
-					? "partial"
-					: "succeeded",
+			reason: "refund_updated",
 		});
 
-		if (!persisted) {
-			throw new Error(
-				`Stripe refund ${refund.id} matched an order but its lifecycle state could not be persisted`,
-			);
+		if (!handled) {
+			await this.deferRecognizedCheckoutUntilItsPaymentMappingExists(charge);
 		}
 
-		return true;
+		return handled;
 	}
 
 	private async handleFullOrderChargeRefunded(input: {
@@ -331,6 +363,10 @@ export class PaymentRefundsService {
 	}
 
 	async handleChargeDisputeCreated(dispute: Stripe.Dispute): Promise<boolean> {
+		if (isNonAdverseDisputeStatus(dispute.status)) {
+			return false;
+		}
+
 		const charge = await this.resolveDisputeCharge(dispute.charge);
 		const chargeId = charge?.id ?? this.expandableId(dispute.charge);
 
@@ -370,6 +406,50 @@ export class PaymentRefundsService {
 		return handled;
 	}
 
+	async handleChargeDisputeClosed(dispute: Stripe.Dispute): Promise<boolean> {
+		if (!isNonAdverseDisputeStatus(dispute.status)) {
+			return false;
+		}
+
+		const chargeId = this.expandableId(dispute.charge);
+
+		if (!chargeId) {
+			return false;
+		}
+
+		return this.billingCreditLedgerRepository.withChargeLock(
+			chargeId,
+			async (tx) => {
+				const charge = await this.stripeProvider.retrieveCharge(chargeId);
+
+				if (charge.id !== chargeId) {
+					throw new Error(
+						`Stripe charge refresh for dispute ${dispute.id} returned ${charge.id}`,
+					);
+				}
+
+				const paymentIntentId =
+					this.expandableId(dispute.payment_intent) ??
+					this.expandableId(charge.payment_intent);
+				const disputes =
+					await this.stripeProvider.listDisputesForCharge(chargeId);
+				const adverseFraction = this.cumulativeAdverseFraction(
+					charge,
+					disputes.filter((candidate) => candidate.id !== dispute.id),
+				);
+				return this.restoreExcessPurchasedCredits(
+					{
+						chargeId,
+						disputeId: dispute.id,
+						fraction: adverseFraction,
+						paymentIntentId,
+					},
+					tx,
+				);
+			},
+		);
+	}
+
 	/**
 	 * Closes the webhook-ordering window where a refund/dispute is received before
 	 * its top-up or invoice grant. Grant handlers call this immediately after the
@@ -395,7 +475,7 @@ export class PaymentRefundsService {
 		}
 
 		for (const dispute of disputes) {
-			if (["won", "withdrawn"].includes(dispute.status as string)) {
+			if (isNonAdverseDisputeStatus(dispute.status)) {
 				continue;
 			}
 
@@ -419,26 +499,94 @@ export class PaymentRefundsService {
 					chargeId: input.chargeId,
 					paymentIntentId: input.paymentIntentId,
 				};
-				const [grantRows, revocationRows] = await Promise.all([
-					this.billingCreditLedgerRepository.findPositiveRowsForPayment(
-						paymentReference,
-						tx,
-					),
-					this.billingCreditLedgerRepository.findRevocationRowsForPayment(
-						paymentReference,
-						tx,
-					),
+				const [grantRows, revocationRows, restorationRows, slotOwners] =
+					await Promise.all([
+						this.billingCreditLedgerRepository.findPositiveRowsForPayment(
+							paymentReference,
+							tx,
+						),
+						this.billingCreditLedgerRepository.findRevocationRowsForPayment(
+							paymentReference,
+							tx,
+						),
+						this.billingCreditLedgerRepository.findRestorationRowsForPayment(
+							paymentReference,
+							tx,
+						),
+						this.billingCreditLedgerRepository.findPendingRefillSlotOwnersForCharge(
+							input.chargeId,
+							tx,
+						),
+					]);
+				this.assertPurchasedCreditRows([
+					...grantRows,
+					...revocationRows,
+					...restorationRows,
 				]);
 
-				if (grantRows.length === 0) {
-					return false;
+				if (slotOwners.length > 1) {
+					throw new Error(
+						`Stripe charge ${input.chargeId} funds refill slots for multiple owners`,
+					);
 				}
 
-				const userId = this.singleOwner(grantRows, input.chargeId);
-				this.assertRevocationOwner(revocationRows, userId, input.chargeId);
+				const grantOwner =
+					grantRows.length > 0
+						? this.singleOwner(grantRows, input.chargeId)
+						: null;
+				const slotOwner = slotOwners[0] ?? null;
+
+				if (
+					grantOwner &&
+					slotOwner &&
+					!sameCreditOwner(grantOwner, slotOwner)
+				) {
+					throw new Error(
+						`Stripe charge ${input.chargeId} grant and refill slots have different owners`,
+					);
+				}
+
+				const owner = grantOwner ?? slotOwner;
+
+				if (owner) {
+					// Lock order is charge -> owner -> refill rows on every clawback.
+					await this.billingCreditLedgerRepository.acquireOwnerLock(owner, tx);
+				}
+
+				// Pending yearly refill slots are FUTURE months the customer already
+				// paid for. Only a FULL refund of the funding charge may cancel them:
+				// a $10 goodwill refund on a yearly Business tier must not destroy
+				// 11 months of prepaid credits (money-review finding; pre-existing,
+				// amplified by Business pricing). Partial-refund slot policy is
+				// documented as manual-review in the billing runbook.
+				const refundCoversFullCharge =
+					input.fraction.numerator >= input.fraction.denominator;
+				const canceledSlots = refundCoversFullCharge
+					? await this.billingCreditLedgerRepository.cancelPendingRefillSlotsForCharge(
+							input.chargeId,
+							tx,
+						)
+					: 0;
+
+				if (!grantOwner) {
+					// The charge is recognized (it funds refill slots) even when a
+					// partial refund deliberately preserves them — ack the webhook
+					// either way so it does not dead-letter.
+					return refundCoversFullCharge
+						? canceledSlots > 0
+						: slotOwners.length > 0;
+				}
+
+				this.assertRevocationOwner(revocationRows, grantOwner, input.chargeId);
+				this.assertRevocationOwner(
+					restorationRows,
+					grantOwner,
+					input.chargeId,
+				);
 				const allocations = this.allocateByOriginalBucket(
 					grantRows,
 					revocationRows,
+					restorationRows,
 					input.fraction,
 					input.mode,
 				);
@@ -450,7 +598,7 @@ export class PaymentRefundsService {
 					}
 
 					await this.creditsService.revoke(
-						userId,
+						grantOwner,
 						allocation.delta,
 						{
 							bucket: allocation.bucket,
@@ -483,17 +631,25 @@ export class PaymentRefundsService {
 	private allocateByOriginalBucket(
 		grantRows: BillingCreditLedgerRow[],
 		revocationRows: BillingCreditLedgerRow[],
+		restorationRows: BillingCreditLedgerRow[],
 		fraction: ClawbackFraction,
 		mode: ClawbackMode,
 	): BucketAllocation[] {
 		const originalByBucket = this.sumByBucket(grantRows, false);
 		const revokedByBucket = this.sumByBucket(revocationRows, true);
+		const restoredByBucket = this.sumByBucket(restorationRows, false);
 		const originalGranted = [...originalByBucket.values()].reduce(
 			(sum, amount) => sum + amount,
 			0,
 		);
-		const alreadyRevoked = [...revokedByBucket.values()].reduce(
-			(sum, amount) => sum + amount,
+		const alreadyRevoked = PURCHASED_CREDIT_BUCKETS.reduce(
+			(sum, bucket) =>
+				sum +
+				Math.max(
+					0,
+					(revokedByBucket.get(bucket) ?? 0) -
+						(restoredByBucket.get(bucket) ?? 0),
+				),
 			0,
 		);
 		const globalTarget = Math.min(
@@ -505,7 +661,7 @@ export class PaymentRefundsService {
 			mode === "cumulative"
 				? Math.max(0, globalTarget - alreadyRevoked)
 				: Math.min(globalTarget, remainingGrant);
-		const allocations = BUCKET_ORDER.flatMap((bucket) => {
+		const allocations = PURCHASED_CREDIT_BUCKETS.flatMap((bucket) => {
 			const bucketGranted = originalByBucket.get(bucket) ?? 0;
 
 			if (bucketGranted === 0) {
@@ -516,7 +672,11 @@ export class PaymentRefundsService {
 
 			return [
 				{
-					alreadyRevoked: revokedByBucket.get(bucket) ?? 0,
+					alreadyRevoked: Math.max(
+						0,
+						(revokedByBucket.get(bucket) ?? 0) -
+							(restoredByBucket.get(bucket) ?? 0),
+					),
 					bucket,
 					delta: 0,
 					originalGranted: bucketGranted,
@@ -532,7 +692,8 @@ export class PaymentRefundsService {
 		for (const allocation of [...allocations].sort((left, right) => {
 			if (left.remainder === right.remainder) {
 				return (
-					BUCKET_ORDER.indexOf(left.bucket) - BUCKET_ORDER.indexOf(right.bucket)
+					PURCHASED_CREDIT_BUCKETS.indexOf(left.bucket) -
+					PURCHASED_CREDIT_BUCKETS.indexOf(right.bucket)
 				);
 			}
 
@@ -578,6 +739,164 @@ export class PaymentRefundsService {
 		}
 
 		return allocations;
+	}
+
+	private async restoreExcessPurchasedCredits(
+		input: {
+			chargeId: string;
+			disputeId: string;
+			fraction: ClawbackFraction;
+			paymentIntentId: string | null;
+		},
+		tx: BillingCreditLedgerTransaction,
+	): Promise<boolean> {
+		const paymentReference = {
+			chargeId: input.chargeId,
+			paymentIntentId: input.paymentIntentId,
+		};
+		const [grantRows, revocationRows, restorationRows] = await Promise.all([
+			this.billingCreditLedgerRepository.findPositiveRowsForPayment(
+				paymentReference,
+				tx,
+			),
+			this.billingCreditLedgerRepository.findRevocationRowsForPayment(
+				paymentReference,
+				tx,
+			),
+			this.billingCreditLedgerRepository.findRestorationRowsForPayment(
+				paymentReference,
+				tx,
+			),
+		]);
+		this.assertPurchasedCreditRows([
+			...grantRows,
+			...revocationRows,
+			...restorationRows,
+		]);
+
+		if (grantRows.length === 0) {
+			return false;
+		}
+
+		const owner = this.singleOwner(grantRows, input.chargeId);
+		this.assertRevocationOwner(revocationRows, owner, input.chargeId);
+		this.assertRevocationOwner(restorationRows, owner, input.chargeId);
+		const allocations = this.restorationAllocations(
+			grantRows,
+			revocationRows,
+			restorationRows,
+			input.fraction,
+		);
+		const multipleBuckets =
+			allocations.filter(({ delta }) => delta > 0).length > 1;
+
+		for (const allocation of allocations) {
+			if (allocation.delta === 0) {
+				continue;
+			}
+
+			await this.creditsService.grant(
+				owner,
+				allocation.delta,
+				{
+					bucket: allocation.bucket,
+					idempotencyKey: multipleBuckets
+						? `dispute-restore:${input.disputeId}:${allocation.bucket}`
+						: `dispute-restore:${input.disputeId}`,
+					meta: {
+						billingAdjustment: "clawback_restore",
+						chargeId: input.chargeId,
+						disputeId: input.disputeId,
+						...(input.paymentIntentId
+							? { paymentIntentId: input.paymentIntentId }
+							: {}),
+						reason: "charge_dispute_closed_restore",
+					},
+				},
+				tx,
+			);
+		}
+
+		return true;
+	}
+
+	private restorationAllocations(
+		grantRows: BillingCreditLedgerRow[],
+		revocationRows: BillingCreditLedgerRow[],
+		restorationRows: BillingCreditLedgerRow[],
+		fraction: ClawbackFraction,
+	): RestorationAllocation[] {
+		const originalByBucket = this.sumByBucket(grantRows, false);
+		const revokedByBucket = this.sumByBucket(revocationRows, true);
+		const restoredByBucket = this.sumByBucket(restorationRows, false);
+		const originalGranted = [...originalByBucket.values()].reduce(
+			(sum, amount) => sum + amount,
+			0,
+		);
+		const globalTarget = Math.min(
+			originalGranted,
+			this.floorRatio(originalGranted, fraction),
+		);
+		const targets = PURCHASED_CREDIT_BUCKETS.flatMap((bucket) => {
+			const original = originalByBucket.get(bucket) ?? 0;
+
+			if (original === 0) {
+				return [];
+			}
+
+			const product = BigInt(original) * BigInt(fraction.numerator);
+
+			return [
+				{
+					bucket,
+					remainder: product % BigInt(fraction.denominator),
+					target: Number(product / BigInt(fraction.denominator)),
+				},
+			];
+		});
+		let targetRemainder =
+			globalTarget -
+			targets.reduce((sum, allocation) => sum + allocation.target, 0);
+
+		for (const allocation of [...targets].sort((left, right) => {
+			if (left.remainder === right.remainder) {
+				return (
+					PURCHASED_CREDIT_BUCKETS.indexOf(left.bucket) -
+					PURCHASED_CREDIT_BUCKETS.indexOf(right.bucket)
+				);
+			}
+
+			return left.remainder > right.remainder ? -1 : 1;
+		})) {
+			if (targetRemainder === 0) {
+				break;
+			}
+
+			allocation.target += 1;
+			targetRemainder -= 1;
+		}
+
+		return targets.map(({ bucket, target }) => ({
+			bucket,
+			delta: Math.max(
+				0,
+				(revokedByBucket.get(bucket) ?? 0) -
+					(restoredByBucket.get(bucket) ?? 0) -
+					target,
+			),
+		}));
+	}
+
+	private assertPurchasedCreditRows(rows: BillingCreditLedgerRow[]): void {
+		for (const row of rows) {
+			if (
+				!(PURCHASED_CREDIT_BUCKETS as readonly string[]).includes(row.bucket)
+			) {
+				throw new Error(
+					`Payment-linked ${row.bucket} credit row ${row.id} cannot be clawed back as purchased credits`,
+				);
+			}
+		}
 	}
 
 	private sumByBucket(
@@ -662,6 +981,49 @@ export class PaymentRefundsService {
 		return {
 			denominator: amountCaptured ?? 1,
 			numerator: disputeAmount,
+		};
+	}
+
+	private cumulativeAdverseFraction(
+		charge: Stripe.Charge,
+		disputes: Stripe.Dispute[],
+	): ClawbackFraction {
+		const amounts = this.validatedRefundAmounts(charge);
+
+		if (!amounts) {
+			return { denominator: 1, numerator: 1 };
+		}
+
+		const chargeCurrency = charge.currency?.toLowerCase();
+		let adverseAmount = amounts.amountRefunded;
+
+		for (const dispute of disputes) {
+			if (isNonAdverseDisputeStatus(dispute.status)) {
+				continue;
+			}
+
+			const disputeCurrency = dispute.currency?.toLowerCase();
+
+			if (
+				!Number.isSafeInteger(dispute.amount) ||
+				dispute.amount < 0 ||
+				!chargeCurrency ||
+				!disputeCurrency ||
+				chargeCurrency !== disputeCurrency
+			) {
+				this.logger.error(
+					`Stripe dispute ${dispute.id} cannot be included safely in the cumulative clawback target for charge ${charge.id}; retaining a full clawback`,
+				);
+
+				return { denominator: 1, numerator: 1 };
+			}
+
+			adverseAmount += dispute.amount;
+		}
+
+		return {
+			denominator: amounts.amountCaptured,
+			numerator: Math.min(amounts.amountCaptured, adverseAmount),
 		};
 	}
 
@@ -754,34 +1116,47 @@ export class PaymentRefundsService {
 		return this.stripeProvider.retrieveCharge(chargeId);
 	}
 
-	private singleOwner(rows: BillingCreditLedgerRow[], chargeId: string) {
-		const userIds = new Set(rows.map((row) => row.userId));
+	private singleOwner(
+		rows: BillingCreditLedgerRow[],
+		chargeId: string,
+	): CreditOwner {
+		const byKey = new Map<string, CreditOwner>();
 
-		if (userIds.size !== 1) {
+		for (const row of rows) {
+			const owner = ownerFromIds(row.userId, row.organizationId);
+			byKey.set(creditOwnerKey(owner), owner);
+		}
+
+		if (byKey.size !== 1) {
 			throw new Error(
-				`Purchased credit grants for Stripe charge ${chargeId} span multiple users`,
+				`Purchased credit grants for Stripe charge ${chargeId} span multiple owners`,
 			);
 		}
 
-		const [userId] = userIds;
+		const [owner] = byKey.values();
 
-		if (!userId) {
+		if (!owner) {
 			throw new Error(
 				`Purchased credit grants for Stripe charge ${chargeId} have no owner`,
 			);
 		}
 
-		return userId;
+		return owner;
 	}
 
 	private assertRevocationOwner(
 		rows: BillingCreditLedgerRow[],
-		userId: string,
+		owner: CreditOwner,
 		chargeId: string,
 	) {
-		if (rows.some((row) => row.userId !== userId)) {
+		const mismatch = rows.some(
+			(row) =>
+				!sameCreditOwner(ownerFromIds(row.userId, row.organizationId), owner),
+		);
+
+		if (mismatch) {
 			throw new Error(
-				`Credit revocations for Stripe charge ${chargeId} span multiple users`,
+				`Credit revocations for Stripe charge ${chargeId} span multiple owners`,
 			);
 		}
 	}

@@ -1,4 +1,5 @@
 import {
+	billingPlanIdSchema,
 	creditTierSchema,
 	ENTITLED_SUBSCRIPTION_STATUSES,
 	type Subscription,
@@ -18,7 +19,11 @@ export function mapSubscriptionRow(row: SubscriptionRow): Subscription {
 		id: row.id,
 		interval: row.interval,
 		organizationId: row.organizationId,
-		plan: row.plan,
+		pendingTierCredits:
+			row.pendingTierCredits === null
+				? null
+				: creditTierSchema.parse(row.pendingTierCredits),
+		plan: billingPlanIdSchema.parse(row.plan),
 		priceLookupKey: row.priceLookupKey,
 		provider: row.provider,
 		providerSubscriptionId: row.providerSubscriptionId,

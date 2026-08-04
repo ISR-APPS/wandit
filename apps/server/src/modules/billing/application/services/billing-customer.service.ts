@@ -1,5 +1,8 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Optional } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
+
+import { AffiliatesRepository } from "../../../affiliates/infrastructure/persistence/affiliates.repository";
+import { WorkspaceMembersRepository } from "../../../workspaces/infrastructure/persistence/members.repository";
 
 import {
 	PAYMENT_PROVIDER,
@@ -9,6 +12,10 @@ import {
 	type BillingCustomerRow,
 	BillingCustomersRepository,
 } from "../../infrastructure/persistence/billing-customers.repository";
+import {
+	type OrganizationBillingCustomerRow,
+	OrganizationBillingCustomersRepository,
+} from "../../infrastructure/persistence/organization-billing-customers.repository";
 
 /**
  * The single local get-or-create path for Stripe customers.
@@ -24,6 +31,13 @@ export class BillingCustomerService {
 		private readonly billingCustomersRepository: BillingCustomersRepository,
 		@Inject(PAYMENT_PROVIDER)
 		private readonly paymentProvider: PaymentProvider,
+		@Inject(OrganizationBillingCustomersRepository)
+		private readonly organizationBillingCustomersRepository: OrganizationBillingCustomersRepository,
+		@Inject(WorkspaceMembersRepository)
+		private readonly workspaceMembersRepository: WorkspaceMembersRepository,
+		@Optional()
+		@Inject(AffiliatesRepository)
+		private readonly affiliatesRepository?: AffiliatesRepository,
 	) {}
 
 	ensureCustomer(
@@ -39,10 +53,16 @@ export class BillingCustomerService {
 				return existing;
 			}
 
-			const providerCustomerId = await this.paymentProvider.ensureCustomer(
-				user.id,
-				user.email,
-			);
+			const affiliateCode =
+				(await this.affiliatesRepository?.affiliateCodeForUser(user.id)) ??
+				null;
+			const providerCustomerId = affiliateCode
+				? await this.paymentProvider.ensureCustomer(
+						user.id,
+						user.email,
+						affiliateCode,
+					)
+				: await this.paymentProvider.ensureCustomer(user.id, user.email);
 
 			return this.billingCustomersRepository.upsertByUserId(
 				{
@@ -53,5 +73,74 @@ export class BillingCustomerService {
 				tx,
 			);
 		});
+	}
+
+	/**
+	 * Get-or-create the ORG's Stripe customer (its own table — the personal
+	 * path above is byte-identical to pre-teams). The affiliate attribution
+	 * human is snapshotted here, permanently: the org's earliest owner-role
+	 * member (its creator), NEVER the checkout actor. Only owners can reach
+	 * checkout at all (billing is owner-only), but the snapshot keeps the rule
+	 * structural rather than incidental.
+	 */
+	ensureOrgCustomer(
+		organizationId: string,
+		actor: Pick<AuthUser, "email" | "id">,
+	): Promise<OrganizationBillingCustomerRow> {
+		return this.organizationBillingCustomersRepository.withOrganizationLock(
+			organizationId,
+			async (tx) => {
+				const existing =
+					await this.organizationBillingCustomersRepository.findByOrganizationId(
+						organizationId,
+						tx,
+					);
+
+				if (existing) {
+					return existing;
+				}
+
+				const organization =
+					await this.workspaceMembersRepository.findOrganization(
+						organizationId,
+					);
+
+				if (!organization) {
+					throw new Error(
+						`Cannot create a billing customer for unknown organization ${organizationId}`,
+					);
+				}
+
+				const attributionUserId =
+					(await this.workspaceMembersRepository.findEarliestOwnerUserId(
+						organizationId,
+					)) ?? actor.id;
+				// The affiliate code follows the attribution user — commissions do too.
+				const affiliateCode =
+					(await this.affiliatesRepository?.affiliateCodeForUser(
+						attributionUserId,
+					)) ?? null;
+				const providerCustomerId =
+					await this.paymentProvider.ensureOrganizationCustomer({
+						affiliateCode,
+						attributionUserId,
+						billingEmail: actor.email,
+						createdByUserId: actor.id,
+						organizationId,
+						organizationName: organization.name,
+					});
+
+				return this.organizationBillingCustomersRepository.upsertByOrganizationId(
+					{
+						attributionUserId,
+						createdByUserId: actor.id,
+						organizationId,
+						provider: "stripe",
+						providerCustomerId,
+					},
+					tx,
+				);
+			},
+		);
 	}
 }

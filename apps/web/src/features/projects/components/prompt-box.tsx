@@ -68,6 +68,13 @@ import { ConnectorsDialog } from "@/features/connectors";
 import { PriceTag } from "@/features/credits";
 import { useDictionary, useTranslation } from "@/lib/i18n";
 import {
+	BUILDER_MODEL_STORAGE_KEY,
+	BUILDER_MODELS,
+	DEFAULT_BUILDER_MODEL,
+	getBuilderModelOption,
+	readStoredBuilderModel,
+} from "@/lib/model-labels";
+import {
 	ATTACHMENT_ACCEPT,
 	ATTACHMENT_MAX_BYTES,
 	AttachmentUploadError,
@@ -78,41 +85,6 @@ import { useVoiceDictation } from "../lib/use-voice-dictation";
 
 type RouteMode = "auto" | "page" | "marketing" | "image" | "video";
 type ConcreteMode = Exclude<RouteMode, "auto">;
-
-// Dev-only builder model picker: ids are slugs the server maps to gateway
-// model ids (see apps/server .../tools/builder-model-options.ts — the two
-// lists must stay in sync). "default" sends nothing and the server env
-// decides. Labels are model names, so no i18n copy.
-const DEFAULT_BUILDER_MODEL = { id: "default", label: "Builder: default" };
-const BUILDER_MODELS: Array<{ id: string; label: string }> = [
-	DEFAULT_BUILDER_MODEL,
-	{ id: "grok-4-5", label: "Grok 4.5" },
-	{ id: "gemini-3-5-flash", label: "Gemini 3.5 Flash" },
-	{ id: "gemini-3-5-flash-lite", label: "Gemini 3.5 Flash Lite" },
-	{ id: "gemini-3-6-flash", label: "Gemini 3.6 Flash" },
-	{ id: "gemini-3-1-pro", label: "Gemini 3.1 Pro" },
-	{ id: "kimi-k3-fast", label: "Kimi K3 Fast" },
-	{ id: "gpt-5-6-sol", label: "GPT-5.6 Sol" },
-	{ id: "gpt-5-6-luna", label: "GPT-5.6 Luna" },
-	{ id: "sonnet-5", label: "Claude Sonnet 5" },
-	{ id: "muse-spark-1-1", label: "Muse Spark 1.1" },
-];
-
-// The prompt box remounts on hero→chat transitions and navigation, so the
-// dev picker persists its choice in localStorage — picking once holds until
-// changed, across messages and reloads.
-const BUILDER_MODEL_STORAGE_KEY = "wandit:dev-builder-model";
-
-function readStoredBuilderModel(fromComposer: unknown): string {
-	const candidate =
-		typeof fromComposer === "string"
-			? fromComposer
-			: window.localStorage.getItem(BUILDER_MODEL_STORAGE_KEY);
-
-	return BUILDER_MODELS.some((model) => model.id === candidate) && candidate
-		? candidate
-		: DEFAULT_BUILDER_MODEL.id;
-}
 
 // Non-copy option config: ids + layout. Group labels and choice labels live in
 // the `projects.promptBox.outputs.<id>.options` dictionary namespace.
@@ -1357,8 +1329,7 @@ function BuilderModelPicker({
 	onValueChange: (id: string) => void;
 	isHero: boolean;
 }) {
-	const selected =
-		BUILDER_MODELS.find((model) => model.id === value) ?? DEFAULT_BUILDER_MODEL;
+	const selected = getBuilderModelOption(value);
 
 	return (
 		<DropdownMenu>
@@ -1737,6 +1708,9 @@ export type PromptBoxProps = {
 	 * the chat pane derive tray states like "typing overrides the chips"
 	 * without taking over this component's own value state. */
 	onValueChange?: (value: string) => void;
+	/** Reports the dev builder pick as a gateway model id (or "default") so
+	 * chat chrome can use it only when the transcript has no build truth yet. */
+	onBuilderModelChange?: (modelId: string) => void;
 	className?: string;
 };
 
@@ -1754,6 +1728,7 @@ export function PromptBox({
 	topSlot,
 	submitOverride,
 	onValueChange,
+	onBuilderModelChange,
 	className,
 }: PromptBoxProps) {
 	const { t } = useTranslation();
@@ -1784,14 +1759,19 @@ export function PromptBox({
 	const [builderModel, setBuilderModelState] = useState(() =>
 		readStoredBuilderModel(initialComposer?.options?.builderModel),
 	);
-	const setBuilderModel = useCallback((id: string) => {
-		setBuilderModelState(id);
-		try {
-			window.localStorage.setItem(BUILDER_MODEL_STORAGE_KEY, id);
-		} catch {
-			// Private-mode storage failures just lose persistence, not the pick.
-		}
-	}, []);
+	const setBuilderModel = useCallback(
+		(id: string) => {
+			const selection = getBuilderModelOption(id);
+			setBuilderModelState(selection.id);
+			try {
+				window.localStorage.setItem(BUILDER_MODEL_STORAGE_KEY, selection.id);
+			} catch {
+				// Private-mode storage failures just lose persistence, not the pick.
+			}
+			onBuilderModelChange?.(selection.gatewayModelId);
+		},
+		[onBuilderModelChange],
+	);
 	const [selectedSkillIds, setSelectedSkillIds] = useState<SkillFileId[]>(() =>
 		(initialComposer?.skills ?? []).filter((id): id is SkillFileId =>
 			Boolean(getSkillFile(id as SkillFileId)),

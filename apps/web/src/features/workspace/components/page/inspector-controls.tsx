@@ -53,16 +53,27 @@ export function ColorField({
 			<span className="min-w-0 flex-1 truncate text-foreground/80 text-xs">
 				{label}
 			</span>
-			<input
-				type="color"
-				aria-label={label}
-				value={hex ?? "#000000"}
-				onChange={(event) => {
-					setDraft(null);
-					onChange(event.target.value);
-				}}
-				className="size-7 shrink-0 cursor-pointer rounded-md border border-border bg-transparent p-0.5"
-			/>
+			<span className="relative size-7 shrink-0 rounded-md border border-border bg-transparent focus-within:ring-2 focus-within:ring-ring/50">
+				<input
+					type="color"
+					aria-label={label}
+					value={hex ?? "#000000"}
+					onChange={(event) => {
+						setDraft(null);
+						onChange(event.target.value);
+					}}
+					className={cn(
+						"absolute inset-0 size-full cursor-pointer rounded-md bg-transparent p-0.5",
+						hex === null && "opacity-0",
+					)}
+				/>
+				{hex === null ? (
+					<span
+						aria-hidden
+						className="pointer-events-none absolute inset-1 rounded-sm bg-muted"
+					/>
+				) : null}
+			</span>
 			<Input
 				dir="ltr"
 				value={draft ?? hex ?? value}

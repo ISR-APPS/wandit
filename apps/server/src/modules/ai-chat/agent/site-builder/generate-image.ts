@@ -18,6 +18,11 @@ import {
 	editImageFromSources,
 	generateImageFromPrompt,
 } from "../../../image-generations/application/services/image-generator";
+import type {
+	GatewayGenerationFailure,
+	GatewayGenerationMetadata,
+	GatewayMeteringContext,
+} from "../../../metering/domain/gateway-metering";
 
 // Hard budget per build: images are the most expensive tool call the builder
 // has, and the brief's SHOT LIST is capped at 6 shots anyway.
@@ -49,14 +54,15 @@ const EXTENSION_BY_MEDIA_TYPE: Record<string, string> = {
 };
 
 export type GeneratedBuildImage =
-	| { message: string; status: "failed" | "unavailable" }
-	| {
+	| GatewayGenerationFailure
+	| { message: string; status: "unavailable" }
+	| ({
 			/** Raw bytes for toModelOutput only — never stored in the transcript. */
 			imageBase64: string;
 			mediaType: string;
 			status: "generated";
 			url: string;
-	  };
+	  } & GatewayGenerationMetadata);
 
 export async function generateBuildImage(params: {
 	abortSignal?: AbortSignal;
@@ -64,6 +70,11 @@ export async function generateBuildImage(params: {
 	attemptId: string;
 	/** 1-based position in the build, used for the R2 object name. */
 	index: number;
+	metering: GatewayMeteringContext<"image">;
+	/** Persist Gateway evidence before bytes become recoverable in R2. */
+	onProviderGeneration?: (
+		generation: GatewayGenerationMetadata,
+	) => Promise<void>;
 	projectId: string;
 	prompt: string;
 	/**
@@ -80,6 +91,8 @@ export async function generateBuildImage(params: {
 		};
 	}
 
+	let metadata: GatewayGenerationMetadata | null = null;
+
 	try {
 		let mediaType: string;
 		let bytes: Uint8Array;
@@ -94,32 +107,38 @@ export async function generateBuildImage(params: {
 			const edited = await editImageFromSources({
 				...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
 				aspect: params.aspect,
+				metering: params.metering,
 				prompt: params.prompt,
 				sourceImageUrls: params.sourceImageUrls,
 			});
 
 			if (edited.status !== "generated") {
-				return { message: edited.message, status: "failed" };
+				return edited;
 			}
 
 			mediaType = edited.mediaType;
 			bytes = edited.uint8Array;
+			metadata = edited;
 		} else {
 			const generated = await generateImageFromPrompt({
 				...(params.abortSignal ? { abortSignal: params.abortSignal } : {}),
 				aspect: params.aspect,
+				metering: params.metering,
 				model: env.AI_IMAGE_MODEL,
 				prompt: params.prompt,
 				size: SIZE_BY_ASPECT[params.aspect],
 			});
 
 			if (generated.status !== "generated") {
-				return { message: generated.message, status: "failed" };
+				return generated;
 			}
 
 			mediaType = generated.mediaType;
 			bytes = generated.uint8Array;
+			metadata = generated;
 		}
+
+		await params.onProviderGeneration?.(metadata);
 
 		const extension = EXTENSION_BY_MEDIA_TYPE[mediaType] ?? "png";
 		const key = siteAssetKey(
@@ -134,12 +153,18 @@ export async function generateBuildImage(params: {
 		return {
 			imageBase64: Buffer.from(bytes).toString("base64"),
 			mediaType,
+			model: metadata.model,
+			...(metadata.provider ? { provider: metadata.provider } : {}),
+			providerMetadata: metadata.providerMetadata,
 			status: "generated",
 			url: publicAssetUrl(key),
+			...(metadata.usage === undefined ? {} : { usage: metadata.usage }),
 		};
 	} catch (error) {
 		return {
+			...(metadata ?? {}),
 			message: error instanceof Error ? error.message : String(error),
+			...(metadata ? { providerUnits: 1 } : {}),
 			status: "failed",
 		};
 	}

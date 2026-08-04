@@ -9,7 +9,7 @@ import { LeadScrapesController } from "./presentation/http/controllers/lead-scra
 	controllers: [LeadScrapesController],
 	// LeadScrapesRepository is exported because the ai-chat module's
 	// scrape_leads tool writes attempt rows through it at queue time.
-	exports: [LeadScrapesRepository],
+	exports: [LeadScrapesRepository, LeadScrapesService],
 	imports: [DatabaseModule],
 	providers: [LeadScrapesRepository, LeadScrapesService],
 })

@@ -5,7 +5,22 @@
 		"build": {
 			"dependsOn": ["^build"],
 			"inputs": ["$TURBO_DEFAULT$", ".env*"],
-			"outputs": ["dist/**"]
+			"outputs": ["dist/**"],
+			"env": [
+				"SENTRY_DSN",
+				"SENTRY_ENVIRONMENT",
+				"SENTRY_RELEASE",
+				"SENTRY_ORG",
+				"SENTRY_AUTH_TOKEN",
+				"VITE_SENTRY_DSN",
+				"VITE_SENTRY_ENVIRONMENT",
+				"RAILWAY_GIT_COMMIT_SHA",
+				"VERCEL_GIT_COMMIT_SHA",
+				"POSTHOG_KEY",
+				"POSTHOG_HOST",
+				"VITE_POSTHOG_KEY",
+				"VITE_POSTHOG_HOST"
+			]
 		},
 		"lint": {
 			"dependsOn": ["^lint"]

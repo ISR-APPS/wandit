@@ -1,14 +1,17 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 import { APP_FILTER, APP_INTERCEPTOR } from "@nestjs/core";
+import { SentryModule } from "@wandit/observability/nestjs-setup";
 
 import { appConfig } from "./config/app.config";
 import { queueConfig } from "./config/queue.config";
+import { AnalyticsModule } from "./infrastructure/analytics/analytics.module";
 import { DatabaseModule } from "./infrastructure/database/database.module";
 import { ApiExceptionFilter } from "./infrastructure/http/api-exception.filter";
 import { ApiResponseEnvelopeInterceptor } from "./infrastructure/http/api-response-envelope.interceptor";
 import { QueuesModule } from "./infrastructure/queues/queues.module";
 import { AdminModule } from "./modules/admin/admin.module";
+import { AffiliatesModule } from "./modules/affiliates/affiliates.module";
 import { AiChatModule } from "./modules/ai-chat/ai-chat.module";
 import { AuthModule } from "./modules/auth/auth.module";
 import { BillingModule } from "./modules/billing/billing.module";
@@ -29,17 +32,27 @@ import { ProjectsModule } from "./modules/projects/projects.module";
 import { SitesModule } from "./modules/sites/sites.module";
 import { StorageModule } from "./modules/storage/storage.module";
 import { UploadsModule } from "./modules/uploads/uploads.module";
+import { WorkspacesModule } from "./modules/workspaces/workspaces.module";
 
 @Module({
 	imports: [
+		// First so Sentry's request-scope wiring wraps everything below.
+		// Error capture stays explicit in ApiExceptionFilter (5xx branch) —
+		// SentryGlobalFilter is intentionally not registered.
+		SentryModule.forRoot(),
 		ConfigModule.forRoot({
 			cache: true,
 			isGlobal: true,
 			load: [appConfig, queueConfig],
 		}),
+		AnalyticsModule,
 		DatabaseModule,
 		QueuesModule,
+		AffiliatesModule,
 		AuthModule,
+		// After AuthModule ON PURPOSE: its global WorkspaceContextGuard reads
+		// request.user, and Nest runs global guards in registration order.
+		WorkspacesModule,
 		AdminModule,
 		AiChatModule,
 		HealthModule,

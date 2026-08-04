@@ -4,7 +4,7 @@ import { Pressable, Text, View } from "react-native";
 
 import { WanditIcon, type WanditIconName } from "@/components/wandit-icon";
 import { useAppTheme } from "@/contexts/app-theme-context";
-import { CreditsCard, MOCK_CREDITS } from "@/features/credits";
+import { CreditsCard } from "@/features/credits";
 import { ICON_FAINT, ICON_STROKE } from "@/shared/lib/brand";
 import { AppBottomSheet } from "@/shared/ui/bottom-sheet";
 
@@ -75,10 +75,7 @@ export function ProjectSheet({
 					handleIndicatorClassName="w-[42px] bg-foreground/15"
 					contentContainerClassName="px-4 pb-12"
 				>
-					<CreditsCard
-						balance={MOCK_CREDITS.balance}
-						grant={MOCK_CREDITS.grant}
-					/>
+					<CreditsCard />
 
 					<Text className="mx-0.5 mt-4 mb-2 font-mono text-[10px] text-muted uppercase tracking-[1.4px]">
 						{t("native.projectSheet.viewsLabel")}

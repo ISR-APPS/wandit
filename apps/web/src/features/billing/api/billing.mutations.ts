@@ -2,12 +2,19 @@
 // browser to the validated provider URL; subscription writes refresh the
 // canonical subscription cache with the server response.
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+	type QueryClient,
+	useMutation,
+	useQueryClient,
+} from "@tanstack/react-query";
 
+import { creditsKeys } from "@/features/credits/api/credits.queries";
 import type {
+	BillingSubscriptionViewResponse,
 	ChangeBillingSubscriptionBody,
 	CreateBillingCheckoutBody,
 	CreateBillingTopupBody,
+	PreviewBillingSubscriptionChangeBody,
 } from "./billing.dto";
 import { billingKeys } from "./billing.queries";
 import {
@@ -16,6 +23,7 @@ import {
 	createBillingCheckout,
 	createBillingPortal,
 	createBillingTopupCheckout,
+	previewBillingSubscriptionChange,
 	resumeBillingSubscription,
 	syncBillingSubscription,
 } from "./billing.services";
@@ -49,14 +57,26 @@ export function useCreateBillingPortal() {
 	});
 }
 
+export function usePreviewBillingSubscriptionChange() {
+	return useMutation({
+		mutationFn: (body: PreviewBillingSubscriptionChangeBody) =>
+			previewBillingSubscriptionChange(body),
+	});
+}
+
 export function useChangeBillingSubscription() {
 	const queryClient = useQueryClient();
 
 	return useMutation({
 		mutationFn: (body: ChangeBillingSubscriptionBody) =>
 			changeBillingSubscription(body),
-		onSuccess: (subscriptionView) => {
+		onSuccess: ({ balance, subscription }) => {
+			const subscriptionView = {
+				balance,
+				subscription,
+			};
 			queryClient.setQueryData(billingKeys.subscription(), subscriptionView);
+			refreshCreditCaches(queryClient, subscriptionView, true);
 		},
 	});
 }
@@ -68,6 +88,7 @@ export function useCancelBillingSubscription() {
 		mutationFn: cancelBillingSubscription,
 		onSuccess: (subscriptionView) => {
 			queryClient.setQueryData(billingKeys.subscription(), subscriptionView);
+			refreshCreditCaches(queryClient, subscriptionView, false);
 		},
 	});
 }
@@ -79,6 +100,7 @@ export function useResumeBillingSubscription() {
 		mutationFn: resumeBillingSubscription,
 		onSuccess: (subscriptionView) => {
 			queryClient.setQueryData(billingKeys.subscription(), subscriptionView);
+			refreshCreditCaches(queryClient, subscriptionView, false);
 		},
 	});
 }
@@ -90,6 +112,20 @@ export function useSyncBillingSubscription() {
 		mutationFn: syncBillingSubscription,
 		onSuccess: (subscriptionView) => {
 			queryClient.setQueryData(billingKeys.subscription(), subscriptionView);
+			refreshCreditCaches(queryClient, subscriptionView, true);
 		},
 	});
+}
+
+function refreshCreditCaches(
+	queryClient: QueryClient,
+	view: BillingSubscriptionViewResponse,
+	invalidateLedger: boolean,
+) {
+	queryClient.setQueryData(creditsKeys.balance(), view.balance);
+	void queryClient.invalidateQueries({ queryKey: creditsKeys.balance() });
+
+	if (invalidateLedger) {
+		void queryClient.invalidateQueries({ queryKey: creditsKeys.ledgers() });
+	}
 }

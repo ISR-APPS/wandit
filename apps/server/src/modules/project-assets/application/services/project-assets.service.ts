@@ -15,6 +15,7 @@ import {
 	publicAssetKeyFromUrl,
 	publicAssetUrl,
 } from "../../../../infrastructure/storage/r2";
+import type { ProjectScope } from "../../../projects/domain/project-scope";
 import { ImageGenerationsRepository } from "../../../image-generations/infrastructure/persistence/image-generations.repository";
 import { MediaGenerationsRepository } from "../../../media-generations/infrastructure/persistence/media-generations.repository";
 import { ProjectAssetsRepository } from "../../infrastructure/persistence/project-assets.repository";
@@ -34,13 +35,16 @@ export class ProjectAssetsService {
 		private readonly mediaGenerationsRepository: MediaGenerationsRepository,
 	) {}
 
-	async listAssets(userId: string, projectId: string): Promise<ProjectAsset[]> {
-		await this.assertOwnedProject(userId, projectId);
+	async listAssets(
+		scope: ProjectScope,
+		projectId: string,
+	): Promise<ProjectAsset[]> {
+		await this.assertAccessibleProject(scope, projectId);
 
 		const [imageAttempts, videoAttempts] = await Promise.all([
-			this.imageGenerationsRepository.listOwnedByProject(userId, projectId),
-			this.mediaGenerationsRepository.listOwnedSucceededByProject(
-				userId,
+			this.imageGenerationsRepository.listForProject(scope, projectId),
+			this.mediaGenerationsRepository.listSucceededForProject(
+				scope,
 				projectId,
 			),
 		]);
@@ -139,11 +143,11 @@ export class ProjectAssetsService {
 	}
 
 	async download(
-		userId: string,
+		scope: ProjectScope,
 		projectId: string,
 		key: string,
 	): Promise<{ bytes: Uint8Array; fileName: string; mediaType: string }> {
-		await this.assertOwnedProject(userId, projectId);
+		await this.assertAccessibleProject(scope, projectId);
 
 		// Only this project's asset prefixes are downloadable; anything else is
 		// a plain 404 so the route never leaks which keys exist.
@@ -165,16 +169,16 @@ export class ProjectAssetsService {
 		return { bytes, fileName, mediaType: contentTypeFor(key) };
 	}
 
-	private async assertOwnedProject(
-		userId: string,
+	private async assertAccessibleProject(
+		scope: ProjectScope,
 		projectId: string,
 	): Promise<void> {
-		const owned = await this.projectAssetsRepository.isProjectOwned(
-			userId,
+		const accessible = await this.projectAssetsRepository.isProjectAccessible(
+			scope,
 			projectId,
 		);
 
-		if (!owned) {
+		if (!accessible) {
 			throw new NotFoundException();
 		}
 	}

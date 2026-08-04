@@ -22,11 +22,33 @@ import { logger, metadata, task } from "@trigger.dev/sdk";
 import { and, createDb, eq, inArray } from "@wandit/db";
 import { connectorGenerationAttempts } from "@wandit/db/schema/connector-generation-attempts";
 
+import {
+	captureGenerationCompleted,
+	captureGenerationFailed,
+	machineFailureReason,
+} from "../infrastructure/analytics/generation-events";
 import { extractMediaUrls } from "../modules/connector-generations/domain/extract-media-urls";
+import {
+	type ConnectorGenerationReservations,
+	captureConnectorGenerationResult,
+	createConnectorGenerationBilling,
+	finalizeConnectorGenerationBilling,
+	hasTerminalConnectorGenerationReplay,
+} from "../modules/mcp-connectors/application/services/connector-generation-billing";
 import { McpConnectionsService } from "../modules/mcp-connectors/application/services/mcp-connections.service";
+import { connectorGatewayCaptures } from "../modules/mcp-connectors/domain/connector-generation-metering";
 import { McpDcrClient } from "../modules/mcp-connectors/infrastructure/oauth/mcp-dcr.client";
 import { McpConnectionsRepository } from "../modules/mcp-connectors/infrastructure/persistence/mcp-connections.repository";
 import { McpConnectorsRepository } from "../modules/mcp-connectors/infrastructure/persistence/mcp-connectors.repository";
+import { triggerAnalytics } from "./init";
+import { createTriggerMetering } from "./metering.runtime";
+import { recoverSettledConnectorCompletion } from "./settled-completion-recovery";
+
+export type RunConnectorGenerationPayload = {
+	attemptId: string;
+	billing: ConnectorGenerationReservations;
+	billingMode: "enforce" | "off";
+};
 
 export const runConnectorGenerationTask = task({
 	id: "run-connector-generation",
@@ -34,7 +56,7 @@ export const runConnectorGenerationTask = task({
 	// repository's stale-row self-heal (35 min) must stay ABOVE this.
 	maxDuration: 1800,
 	retry: { maxAttempts: 1 },
-	run: async (payload: { attemptId: string }, { ctx, signal }) => {
+	run: async (payload: RunConnectorGenerationPayload, { ctx, signal }) => {
 		// Fresh pool per run; ended in `finally` so the worker process can be
 		// reused without leaking Postgres connections.
 		const db = createDb();
@@ -42,6 +64,15 @@ export const runConnectorGenerationTask = task({
 		// Only the run that WON the claim may settle the row on error — a
 		// duplicate run losing the race must not fail the live attempt.
 		let claimed = false;
+		let claimedAttempt: { organizationId: string | null; userId: string } | undefined;
+		let providerCompleted = false;
+		let completionCheckpointed = false;
+		const generationBilling = createConnectorGenerationBilling({
+			// Reservations were created by the API before this task was enqueued.
+			// Their null/non-null event ids preserve that queue-time billing mode.
+			isBillingDisabled: () => true,
+			meteringService: createTriggerMetering(db),
+		});
 
 		try {
 			const [attempt] = await db
@@ -64,6 +95,13 @@ export const runConnectorGenerationTask = task({
 				return { skipped: true };
 			}
 
+			if (attempt.status === "failed") {
+				logger.info(
+					`Attempt ${attempt.id} already failed; refunded attempt cannot be replayed`,
+				);
+				return { skipped: true };
+			}
+
 			// Atomically claim queued work — concurrent duplicate runs cannot
 			// both call the provider (a generation costs the user credits).
 			const [claim] = await db
@@ -77,7 +115,7 @@ export const runConnectorGenerationTask = task({
 				.where(
 					and(
 						eq(connectorGenerationAttempts.id, attempt.id),
-						inArray(connectorGenerationAttempts.status, ["queued", "failed"]),
+						eq(connectorGenerationAttempts.status, "queued"),
 					),
 				)
 				.returning({ id: connectorGenerationAttempts.id });
@@ -88,6 +126,14 @@ export const runConnectorGenerationTask = task({
 				);
 			}
 			claimed = true;
+			claimedAttempt = {
+				organizationId: attempt.organizationId,
+				userId: attempt.userId,
+			};
+			// A terminal replay proves provider work already completed in an older
+			// delivery. Reject the payload below, but never refund that prior work.
+			providerCompleted = hasTerminalConnectorGenerationReplay(payload.billing);
+			assertBillingPayload(payload.billing, payload.billingMode, attempt.id);
 
 			metadata.set("stage", "generating");
 
@@ -134,6 +180,12 @@ export const runConnectorGenerationTask = task({
 				name: attempt.toolName,
 				options: { signal },
 			});
+			providerCompleted =
+				(await captureConnectorGenerationResult(
+					generationBilling,
+					payload.billing,
+					result,
+				)) || providerCompleted;
 
 			// MCP reports tool failures as a RESULT with isError, not a thrown
 			// error — settling that as "succeeded" would show a dead card.
@@ -144,6 +196,7 @@ export const runConnectorGenerationTask = task({
 				);
 			}
 
+			const providerResults: unknown[] = [result];
 			let media = extractMediaUrls(result);
 
 			// Higgsfield's generate tools are SUBMIT-style: they return a job
@@ -160,8 +213,21 @@ export const runConnectorGenerationTask = task({
 					{ result: safeJsonPreview(result) },
 				);
 
-				const followed = await followProviderJob(client, result, signal);
+				const followed = await followProviderJob(
+					client,
+					result,
+					signal,
+					async (providerResult) => {
+						providerCompleted =
+							(await captureConnectorGenerationResult(
+								generationBilling,
+								payload.billing,
+								providerResult,
+							)) || providerCompleted;
+					},
+				);
 				if (followed) {
+					providerResults.push(followed);
 					const followedMedia = extractMediaUrls(followed);
 					media = followedMedia.length > 0 ? followedMedia : [];
 				}
@@ -186,9 +252,45 @@ export const runConnectorGenerationTask = task({
 				);
 			}
 
-			metadata.set("stage", "done");
+			providerCompleted = true;
+			metadata.set("stage", "settling");
 
-			await db
+			// Reuse the existing media column as a provider-completion checkpoint.
+			// The status remains running, so the card cannot publish these URLs until
+			// billing settles. API/worker recovery can finish this exact output after
+			// a process crash without invoking the provider again.
+			const [checkpoint] = await db
+				.update(connectorGenerationAttempts)
+				.set({ media })
+				.where(
+					and(
+						eq(connectorGenerationAttempts.id, attempt.id),
+						eq(connectorGenerationAttempts.status, "running"),
+						eq(connectorGenerationAttempts.triggerRunId, ctx.run.id),
+					),
+				)
+				.returning({ id: connectorGenerationAttempts.id });
+
+			if (!checkpoint) {
+				throw new Error(
+					`Connector attempt ${attempt.id} lost its completion checkpoint transition`,
+				);
+			}
+			completionCheckpointed = true;
+
+			await finalizeConnectorGenerationBilling(
+				generationBilling,
+				payload.billing,
+				connectorGatewayCaptures(providerResults),
+				{
+					childUnits: deliveredConnectorChildUnits(
+						payload.billing,
+						media.length,
+					),
+				},
+			);
+
+			const [completed] = await db
 				.update(connectorGenerationAttempts)
 				.set({
 					completedAt: new Date(),
@@ -199,8 +301,39 @@ export const runConnectorGenerationTask = task({
 					and(
 						eq(connectorGenerationAttempts.id, attempt.id),
 						eq(connectorGenerationAttempts.status, "running"),
+						eq(connectorGenerationAttempts.triggerRunId, ctx.run.id),
 					),
+				)
+				.returning({ id: connectorGenerationAttempts.id });
+
+			if (!completed) {
+				const [current] = await db
+					.select({
+						media: connectorGenerationAttempts.media,
+						status: connectorGenerationAttempts.status,
+					})
+					.from(connectorGenerationAttempts)
+					.where(eq(connectorGenerationAttempts.id, attempt.id))
+					.limit(1);
+				const replay = recoverSettledConnectorCompletion(
+					attempt.id,
+					current ?? null,
 				);
+
+				logger.warn(
+					`Attempt ${attempt.id} was already finalized after billing settlement`,
+				);
+				return replay;
+			}
+
+			captureGenerationCompleted(
+				triggerAnalytics,
+				attempt.userId,
+				"connector",
+				null,
+				completed.id,
+			);
+			metadata.set("stage", "done");
 
 			logger.info(
 				`Attempt ${attempt.id} succeeded with ${media.length} media URL(s)`,
@@ -210,8 +343,33 @@ export const runConnectorGenerationTask = task({
 		} catch (error) {
 			if (claimed) {
 				const message = error instanceof Error ? error.message : String(error);
+				let durableCheckpoint = completionCheckpointed;
 
-				await db
+				if (!durableCheckpoint) {
+					try {
+						durableCheckpoint = await hasCompletionCheckpoint(
+							db,
+							payload.attemptId,
+						);
+					} catch (checkpointError) {
+						logger.error(
+							`Connector completion checkpoint lookup failed for ${payload.attemptId}`,
+							{ error: checkpointError },
+						);
+					}
+				}
+
+				if (durableCheckpoint) {
+					// Keep the row running: the metering sweep or the next card poll
+					// replays settlement from the checkpoint and publishes it.
+					logger.error(
+						`Connector attempt ${payload.attemptId} failed after its completion checkpoint; recovery will finish it`,
+						{ error },
+					);
+					throw error;
+				}
+
+				const [failed] = await db
 					.update(connectorGenerationAttempts)
 					.set({
 						completedAt: new Date(),
@@ -221,12 +379,45 @@ export const runConnectorGenerationTask = task({
 					.where(
 						and(
 							eq(connectorGenerationAttempts.id, payload.attemptId),
+							eq(connectorGenerationAttempts.triggerRunId, ctx.run.id),
 							inArray(connectorGenerationAttempts.status, [
 								"queued",
 								"running",
 							]),
 						),
+					)
+					.returning({ id: connectorGenerationAttempts.id });
+
+				if (failed && claimedAttempt) {
+					captureGenerationFailed(
+						triggerAnalytics,
+						claimedAttempt.userId,
+						"connector",
+						null,
+						failed.id,
+						machineFailureReason(error),
 					);
+				}
+
+				if (!providerCompleted && claimedAttempt) {
+					try {
+						await generationBilling.refund(
+							{
+								actorUserId: claimedAttempt.userId,
+								...(claimedAttempt.organizationId
+									? { organizationId: claimedAttempt.organizationId }
+									: {}),
+							},
+							payload.attemptId,
+							payload.billing.child?.operation,
+						);
+					} catch (refundError) {
+						logger.error(
+							`Connector metering refund failed for attempt ${payload.attemptId}`,
+							{ error: refundError },
+						);
+					}
+				}
 			}
 
 			throw error;
@@ -236,6 +427,99 @@ export const runConnectorGenerationTask = task({
 		}
 	},
 });
+
+async function hasCompletionCheckpoint(
+	db: ReturnType<typeof createDb>,
+	attemptId: string,
+): Promise<boolean> {
+	const [attempt] = await db
+		.select({
+			media: connectorGenerationAttempts.media,
+			status: connectorGenerationAttempts.status,
+		})
+		.from(connectorGenerationAttempts)
+		.where(eq(connectorGenerationAttempts.id, attemptId))
+		.limit(1);
+
+	return (
+		attempt?.media !== null &&
+		(attempt?.status === "running" || attempt?.status === "succeeded")
+	);
+}
+
+function deliveredConnectorChildUnits(
+	billing: ConnectorGenerationReservations,
+	mediaCount: number,
+): number | undefined {
+	if (!billing.child) {
+		return undefined;
+	}
+
+	if (billing.child.operation === "video") {
+		return 1;
+	}
+
+	return Math.min(billing.child.units, mediaCount);
+}
+
+function assertBillingPayload(
+	billing: ConnectorGenerationReservations,
+	billingMode: "enforce" | "off",
+	attemptId: string,
+): void {
+	if (hasTerminalConnectorGenerationReplay(billing)) {
+		throw new Error(
+			`Connector billing for attempt ${attemptId} is already terminal`,
+		);
+	}
+
+	if (
+		billing.connector.operation !== "connector" ||
+		billing.connector.referenceId !== attemptId ||
+		billing.connector.units !== 1
+	) {
+		throw new Error(
+			`Invalid connector billing payload for attempt ${attemptId}`,
+		);
+	}
+
+	if (
+		billing.child &&
+		(billing.child.referenceId !== attemptId ||
+			!(["image", "video"] as const).includes(billing.child.operation))
+	) {
+		throw new Error(`Invalid connector child billing for attempt ${attemptId}`);
+	}
+
+	if (
+		billing.connector.eventId === null &&
+		billing.child?.eventId !== null &&
+		billing.child?.eventId !== undefined
+	) {
+		throw new Error(
+			`Connector child billing cannot outlive its parent for attempt ${attemptId}`,
+		);
+	}
+
+	if (
+		billingMode === "enforce" &&
+		(billing.connector.eventId === null || billing.child?.eventId === null)
+	) {
+		throw new Error(
+			`Enforced connector billing is missing an event for attempt ${attemptId}`,
+		);
+	}
+
+	if (
+		billingMode === "off" &&
+		(billing.connector.eventId !== null ||
+			(billing.child !== undefined && billing.child.eventId !== null))
+	) {
+		throw new Error(
+			`Billing-off connector attempt ${attemptId} unexpectedly has a hold`,
+		);
+	}
+}
 
 // How the provider job is followed. The status checks live INSIDE this
 // background task — the chat stream, the model, and the browser never poll.
@@ -273,6 +557,7 @@ async function followProviderJob(
 	client: MCPClient,
 	submitResult: unknown,
 	signal: AbortSignal,
+	onResult: (result: unknown) => Promise<void>,
 ): Promise<unknown | null> {
 	const ids = collectIdCandidates(submitResult);
 	if (ids.size === 0) return null;
@@ -320,6 +605,7 @@ async function followProviderJob(
 			name: STATUS_TOOL_NAME,
 			options: { signal },
 		});
+		await onResult(status);
 
 		if (isMcpToolError(status)) {
 			throw new ProviderJobFailedError(

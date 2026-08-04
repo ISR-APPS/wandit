@@ -16,10 +16,22 @@ export interface DesignWorld {
 	id: string;
 	/** Soft affinity — a hint for sampling, never a lock. */
 	industries?: string[];
-	/** Which build type this world serves: multi-section websites, single-product COD pages, or both. */
-	kind: "both" | "cod" | "website";
+	/** Related visual family, used to keep COD world fusion coherent. */
+	family?: string;
+	/** COD worlds whose signatures combine cleanly with this one. */
+	fusesWith?: string[];
+	/** Which build type this world serves: websites, product dossiers, COD funnels, or both. */
+	kind: "both" | "cod" | "product" | "website";
 	mood: string[];
 	name: string;
+	/** Compact skin swatch used in COD candidate menus. */
+	preview?: {
+		ground: string;
+		ink: string;
+		accent: string;
+		fontFamily: string;
+		sampleWord: string;
+	};
 	priceFeel: "accessible" | "premium";
 	/** One vivid sentence for candidate menus and user-facing taste questions. */
 	tagline: string;

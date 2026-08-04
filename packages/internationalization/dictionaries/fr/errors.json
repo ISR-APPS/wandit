@@ -9,7 +9,15 @@
 		"NOT_FOUND": "Impossible de trouver ce que tu cherches.",
 		"FORBIDDEN": "Tu n’as pas l’autorisation de faire ça.",
 		"INSUFFICIENT_CREDITS": "Tu n'as pas assez de crédits pour cette action.",
+		"GENERATION_PAYMENT_REQUIRED": "Des crédits supplémentaires sont nécessaires pour terminer cette génération.",
 		"PAYMENT_PAST_DUE": "Le paiement de ton abonnement doit être corrigé dans le portail de facturation.",
+		"SUBSCRIPTIONS_DISABLED": "Les nouveaux abonnements et changements d’offre sont temporairement suspendus.",
+		"TOPUPS_DISABLED": "Les recharges de crédits sont temporairement suspendues.",
+		"BILLING_CHECKOUT_PENDING": "Un paiement est déjà en cours.",
+		"SUBSCRIPTION_CHANGE_PENDING": "Un changement d’offre est déjà en attente de paiement.",
+		"BILLING_CHANGE_INTENT_EXPIRED": "Cet aperçu de changement d’offre a expiré. Crée un nouvel aperçu.",
+		"BILLING_CHANGE_INTENT_INVALID": "Cet aperçu de changement d’offre n’est plus valide.",
+		"YEARLY_TO_MONTHLY_UNSUPPORTED": "Le passage d’une offre annuelle à une offre mensuelle n’est pas disponible dans cette version.",
 		"RATE_LIMITED": "Trop de requêtes. Attends un moment puis réessaie.",
 		"INTERNAL_ERROR": "Le serveur a rencontré un souci. Réessaie.",
 		"HTTP_400": "La requête n’a pas pu aboutir. Vérifie les détails puis réessaie.",
@@ -17,6 +25,13 @@
 		"HTTP_403": "Tu n’as pas l’autorisation de faire ça.",
 		"HTTP_404": "Impossible de trouver ce que tu cherches.",
 		"HTTP_429": "Trop de requêtes. Attends un moment puis réessaie.",
-		"HTTP_500": "Le serveur a rencontré un souci. Réessaie."
+		"HTTP_500": "Le serveur a rencontré un souci. Réessaie.",
+		"ORGANIZATIONS_DISABLED": "Les espaces de travail d'équipe sont actuellement suspendus.",
+		"MEMBER_CREDIT_LIMIT_REACHED": "Vous avez atteint votre limite mensuelle de crédits dans cet espace de travail. Demandez à un propriétaire de l'augmenter.",
+		"WORKSPACE_PERMISSION_DENIED": "Votre rôle dans l'espace de travail ne permet pas cette action.",
+		"WORKSPACE_NOT_SUPPORTED": "Cette action n'est pas disponible dans un espace de travail d'équipe.",
+		"EMAIL_AUTH_DISABLED": "La connexion par e-mail est indisponible pour le moment.",
+		"EMAIL_DOMAIN_BLOCKED": "Ce domaine e-mail n'est pas pris en charge.",
+		"EMAIL_SEND_RATE_LIMITED": "Trop d'e-mails demandés. Patiente avant de réessayer."
 	}
 }

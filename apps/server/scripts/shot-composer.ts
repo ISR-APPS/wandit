@@ -22,10 +22,7 @@ const step = async (name: string, fn: () => Promise<void>) => {
 
 // Mode picker shows the current mode ("Auto") — open it and pick Image.
 await step("open mode picker", () =>
-	page
-		.getByRole("button", { name: /auto/i })
-		.first()
-		.click({ timeout: 5_000 }),
+	page.getByRole("button", { name: /auto/i }).first().click({ timeout: 5_000 }),
 );
 await step("choose Image mode", () =>
 	page

@@ -24,7 +24,9 @@ import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
 import { Spark } from "@/components/logo";
+import type { Domain } from "@/features/domains/api/domains.dto";
 import { useDomainsQuery } from "@/features/domains/api/domains.queries";
+import { domainLiveUrl } from "@/features/domains/lib/helpers";
 import { useTranslation } from "@/lib/i18n";
 import { PUBLISHED_DOMAIN } from "../../lib/constants";
 import { isValidSlug } from "../../lib/helpers";
@@ -43,6 +45,8 @@ export function PublishPopover() {
 		draftSlug,
 		project,
 		projectId,
+		previewVersion,
+		isPreviewingHistorical,
 		publish,
 		publishPending,
 		updateSlug,
@@ -76,7 +80,13 @@ export function PublishPopover() {
 	const publishing = deployment.uiState === "publishing" || publishPending;
 	const published = deployment.uiState === "published";
 	const failed = deployment.uiState === "failed";
-	const canPublish = canPublishFor(deployment) && !publishPending;
+	const canPublish =
+		Boolean(previewVersion) &&
+		(canPublishFor(deployment) || isPreviewingHistorical) &&
+		!publishPending;
+	const historicalVersionNumber = isPreviewingHistorical
+		? (previewVersion?.number ?? null)
+		: null;
 
 	const saveSlug = () => {
 		const normalized = isValidSlug(slugDraft) ? slugDraft : slug;
@@ -93,6 +103,11 @@ export function PublishPopover() {
 	const openPurchase = () => {
 		setPopoverOpen(false);
 		setPurchaseOpen(true);
+	};
+
+	const requestPublish = () => {
+		setPopoverOpen(false);
+		publish();
 	};
 
 	const handlePurchaseOpenChange = (nextOpen: boolean) => {
@@ -145,11 +160,12 @@ export function PublishPopover() {
 					<PopoverArrow className="size-3" />
 					{customDomain && published ? (
 						<CustomDomainLiveContent
-							domain={customDomain.name}
-							primary={customDomain.isPrimary}
+							domain={customDomain}
 							subdomain={subdomain}
 							subdomainPublishing={publishing}
+							historicalVersionNumber={historicalVersionNumber}
 							onCopy={copyUrl}
+							onPublish={requestPublish}
 						/>
 					) : (
 						<SubdomainContent
@@ -171,7 +187,8 @@ export function PublishPopover() {
 							onSaveSlug={saveSlug}
 							onCopy={copyUrl}
 							onOpenPurchase={openPurchase}
-							onPublish={publish}
+							historicalVersionNumber={historicalVersionNumber}
+							onPublish={requestPublish}
 						/>
 					)}
 				</PopoverContent>
@@ -247,6 +264,7 @@ function SubdomainContent({
 	onSaveSlug,
 	onCopy,
 	onOpenPurchase,
+	historicalVersionNumber,
 	onPublish,
 }: {
 	slug: string;
@@ -264,6 +282,7 @@ function SubdomainContent({
 	onSaveSlug: () => void;
 	onCopy: (url: string) => Promise<void>;
 	onOpenPurchase: () => void;
+	historicalVersionNumber: number | null;
 	onPublish: () => void;
 }) {
 	const { t } = useTranslation();
@@ -392,7 +411,7 @@ function SubdomainContent({
 				</button>
 			</div>
 
-			<footer className="flex items-center gap-3 border-t bg-secondary px-4 py-[13px]">
+			<footer className="flex flex-wrap items-center gap-3 border-t bg-secondary px-4 py-[13px]">
 				<span
 					className={cn(
 						"min-w-0 flex-1 text-xs",
@@ -406,12 +425,27 @@ function SubdomainContent({
 							: t("workspace.publish.popover.freeTiming")}
 				</span>
 				{live ? (
-					<Button size="lg" asChild>
-						<a href={href} target="_blank" rel="noreferrer">
-							<ExternalLink data-icon="inline-start" />
-							{t("workspace.publish.popover.openLivePage")}
-						</a>
-					</Button>
+					<div className="flex shrink-0 items-center gap-1.5">
+						<Button size="lg" variant="outline" asChild>
+							<a href={href} target="_blank" rel="noreferrer">
+								<ExternalLink data-icon="inline-start" />
+								{t("workspace.publish.popover.openLivePage")}
+							</a>
+						</Button>
+						{historicalVersionNumber !== null ? (
+							<Button
+								size="lg"
+								onClick={onPublish}
+								disabled={!canPublish || publishing}
+								dir="auto"
+							>
+								<ArrowUp data-icon="inline-start" />
+								{t("workspace.publish.confirmVersion", {
+									n: historicalVersionNumber,
+								})}
+							</Button>
+						) : null}
+					</div>
 				) : (
 					<Button
 						size="lg"
@@ -435,21 +469,23 @@ function SubdomainContent({
 	);
 }
 
-function CustomDomainLiveContent({
+export function CustomDomainLiveContent({
 	domain,
-	primary,
 	subdomain,
 	subdomainPublishing,
+	historicalVersionNumber,
 	onCopy,
+	onPublish,
 }: {
-	domain: string;
-	primary: boolean;
+	domain: Pick<Domain, "isPrimary" | "name" | "source">;
 	subdomain: string;
 	subdomainPublishing: boolean;
+	historicalVersionNumber: number | null;
 	onCopy: (url: string) => Promise<void>;
+	onPublish: () => void;
 }) {
 	const { t } = useTranslation();
-	const domainUrl = `https://${domain}`;
+	const domainUrl = domainLiveUrl(domain);
 
 	return (
 		<>
@@ -469,9 +505,9 @@ function CustomDomainLiveContent({
 						dir="ltr"
 						className="min-w-0 flex-1 truncate font-semibold text-sm"
 					>
-						{domain}
+						{domainUrl}
 					</span>
-					{primary ? (
+					{domain.isPrimary ? (
 						<Badge variant="outline">
 							{t("workspace.publish.popover.primary")}
 						</Badge>
@@ -507,7 +543,7 @@ function CustomDomainLiveContent({
 						{subdomainPublishing
 							? t("workspace.publish.popover.stillPublishing")
 							: t(
-									primary
+									domain.isPrimary
 										? "workspace.publish.popover.alsoLive"
 										: "workspace.publish.popover.primary",
 								)}
@@ -522,16 +558,31 @@ function CustomDomainLiveContent({
 				</div>
 			</div>
 
-			<footer className="flex items-center gap-3 border-t bg-secondary px-4 py-[13px]">
+			<footer className="flex flex-wrap items-center gap-3 border-t bg-secondary px-4 py-[13px]">
 				<span className="min-w-0 flex-1 text-muted-foreground text-xs">
 					{t("workspace.publish.popover.customConnectedHint")}
 				</span>
-				<Button size="lg" asChild>
-					<a href={domainUrl} target="_blank" rel="noreferrer">
-						<ExternalLink data-icon="inline-start" />
-						{t("workspace.publish.popover.openDomain")}
-					</a>
-				</Button>
+				<div className="flex shrink-0 items-center gap-1.5">
+					<Button size="lg" variant="outline" asChild>
+						<a href={domainUrl} target="_blank" rel="noreferrer">
+							<ExternalLink data-icon="inline-start" />
+							{t("workspace.publish.popover.openDomain")}
+						</a>
+					</Button>
+					{historicalVersionNumber !== null ? (
+						<Button
+							size="lg"
+							onClick={onPublish}
+							disabled={subdomainPublishing}
+							dir="auto"
+						>
+							<ArrowUp data-icon="inline-start" />
+							{t("workspace.publish.confirmVersion", {
+								n: historicalVersionNumber,
+							})}
+						</Button>
+					) : null}
+				</div>
 			</footer>
 		</>
 	);

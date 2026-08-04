@@ -14,17 +14,20 @@
 	"include": [
 		"src/**/*.ts",
 		"../server/src/infrastructure/database/database.constants.ts",
-		"../server/src/modules/billing/domain/**/*.ts",
-		"../server/src/modules/billing/infrastructure/stripe/stripe.provider.ts",
 		"../server/src/modules/credits/application/services/credits.service.ts",
+		"../server/src/modules/credits/domain/credit-owner.ts",
 		"../server/src/modules/credits/domain/errors/insufficient-credits.error.ts",
+		"../server/src/modules/credits/domain/errors/member-credit-limit.error.ts",
 		"../server/src/modules/credits/infrastructure/persistence/credits.repository.ts",
-		"../server/src/modules/domains/domain/**/*.ts",
-		"../server/src/modules/domains/infrastructure/**/*.ts",
-		"../server/src/modules/orders/application/services/order-refund-executor.service.ts",
-		"../server/src/modules/orders/application/services/order-refund-queue.service.ts",
-		"../server/src/modules/orders/application/services/order-refunds.service.ts",
-		"../server/src/modules/orders/domain/**/*.ts",
-		"../server/src/modules/orders/infrastructure/persistence/payment-orders.repository.ts"
+		"../server/src/modules/metering/application/services/metering.service.ts",
+		"../server/src/modules/metering/application/services/model-pricing.service.ts",
+		"../server/src/modules/metering/domain/metering.ts",
+		"../server/src/modules/metering/domain/gateway-metering.ts",
+		"../server/src/modules/metering/domain/model-pricing.ts",
+		"../server/src/modules/metering/domain/operation-registry.ts",
+		"../server/src/modules/metering/infrastructure/persistence/metering.repository.ts",
+		"../server/src/modules/metering/infrastructure/persistence/model-prices.repository.ts",
+		"../server/src/modules/metering/**/*.json",
+		"../server/src/modules/workspaces/infrastructure/persistence/organization-limits.repository.ts"
 	]
 }

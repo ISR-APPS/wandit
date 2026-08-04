@@ -41,6 +41,7 @@ const PARAMS = {
 	aspect: "1:1" as const,
 	attemptId: "attempt_1",
 	index: 1,
+	metering: { operation: "image" as const, userId: "user_1" },
 	projectId: "project_1",
 	prompt: "editorial photography of a ceramic tagine in warm light",
 	sourceImageUrls: [] as string[],
@@ -53,6 +54,8 @@ function mockGeneratedImage(mediaType = "image/png") {
 			mediaType,
 			uint8Array: new Uint8Array([1, 2, 3]),
 		},
+		providerMetadata: { gateway: { generationId: "gen_image_1" } },
+		usage: { inputTokens: 10, outputTokens: 0 },
 	} as unknown as Awaited<ReturnType<typeof generateImage>>);
 }
 
@@ -62,6 +65,8 @@ function mockEditedImage(mediaType = "image/png") {
 			{ mediaType: "text/plain", uint8Array: new Uint8Array([0]) },
 			{ mediaType, uint8Array: new Uint8Array([7, 7]) },
 		],
+		providerMetadata: { gateway: { generationId: "gen_edit_1" } },
+		usage: { inputTokens: 10, outputTokens: 20 },
 	} as unknown as Awaited<ReturnType<typeof generateText>>);
 }
 
@@ -112,9 +117,29 @@ describe("generateStandaloneImage", () => {
 		);
 		expect(result).toEqual({
 			mediaType: "image/webp",
+			model: "openai/gpt-image-2",
+			providerMetadata: { gateway: { generationId: "gen_image_1" } },
 			status: "generated",
+			usage: { inputTokens: 10, outputTokens: 0 },
 			url: "https://assets.example.com/images/project_1/attempt_1/img-1.webp",
 		});
+	});
+
+	it("persists provider evidence before making uploaded bytes recoverable", async () => {
+		mockGeneratedImage();
+		const onProviderGeneration = vi.fn(async () => undefined);
+
+		await generateStandaloneImage({ ...PARAMS, onProviderGeneration });
+
+		expect(onProviderGeneration).toHaveBeenCalledWith(
+			expect.objectContaining({
+				providerMetadata: { gateway: { generationId: "gen_image_1" } },
+			}),
+		);
+		expect(onProviderGeneration.mock.invocationCallOrder[0]).toBeLessThan(
+			vi.mocked(putSiteFile).mock.invocationCallOrder[0] ??
+				Number.MAX_SAFE_INTEGER,
+		);
 	});
 
 	it("routes source-image requests through the edit model", async () => {
@@ -137,11 +162,45 @@ describe("generateStandaloneImage", () => {
 
 		expect(result).toMatchObject({ message: "quota", status: "failed" });
 	});
+
+	it("preserves a top-level gateway generation id from a provider error", async () => {
+		vi.mocked(generateImage).mockRejectedValue(
+			Object.assign(new Error("provider failed after accepting work"), {
+				generationId: "generation_error_1",
+			}),
+		);
+
+		const result = await generateStandaloneImage(PARAMS);
+
+		expect(result).toMatchObject({
+			model: "openai/gpt-image-2",
+			providerMetadata: {
+				gateway: { generationId: "generation_error_1" },
+			},
+			providerUnits: 0,
+			status: "failed",
+		});
+	});
+
+	it("preserves provider evidence when R2 storage fails", async () => {
+		mockGeneratedImage();
+		vi.mocked(putSiteFile).mockRejectedValueOnce(new Error("R2 unavailable"));
+
+		const result = await generateStandaloneImage(PARAMS);
+
+		expect(result).toMatchObject({
+			model: "openai/gpt-image-2",
+			providerMetadata: { gateway: { generationId: "gen_image_1" } },
+			providerUnits: 1,
+			status: "failed",
+		});
+	});
 });
 
 describe("editImageFromSources", () => {
 	const EDIT_PARAMS = {
 		aspect: "4:5",
+		metering: { operation: "image" as const, userId: "user_1" },
 		prompt: "restage on a marble bench",
 		sourceImageUrls: [
 			"https://assets.example.com/uploads/u1/a/photo-1.jpg",
@@ -186,6 +245,13 @@ describe("editImageFromSources", () => {
 		expect(content[2]).toMatchObject({
 			data: EDIT_PARAMS.sourceImageUrls[1],
 			type: "file",
+		});
+		expect(call?.providerOptions).toMatchObject({
+			gateway: {
+				quotaEntityId: "user_1",
+				tags: ["op:image", "ws:personal"],
+				user: "user_1",
+			},
 		});
 	});
 

@@ -6,6 +6,10 @@
  * status='active'), so every promotion is demote-then-promote inside one
  * transaction — never a bare insert or update.
  */
+import {
+	type ProjectScope,
+	projectScopePredicate,
+} from "../../../projects/domain/project-scope";
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import { and, desc, eq, lt, ne, sql } from "@wandit/db";
 import { artifacts, versions } from "@wandit/db/schema/artifacts";
@@ -53,8 +57,8 @@ const STALE_PENDING_MS = 35 * 60 * 1000;
 export class DeploymentsRepository {
 	constructor(@Inject(DATABASE) private readonly db: Database) {}
 
-	async getOwnedProject(
-		userId: string,
+	async getAccessibleProject(
+		scope: ProjectScope,
 		projectId: string,
 	): Promise<OwnedProjectRow> {
 		const [project] = await this.db
@@ -69,13 +73,13 @@ export class DeploymentsRepository {
 			.where(
 				and(
 					eq(projects.id, projectId),
-					eq(projects.userId, userId),
+					projectScopePredicate(scope),
 					sql`${projects.deletedAt} IS NULL`,
 				),
 			)
 			.limit(1);
 
-		// Missing and not-owned both become 404 — never reveal which.
+		// Missing and not-accessible both become 404 — never reveal which.
 		if (!project) {
 			throw new NotFoundException("Project not found");
 		}

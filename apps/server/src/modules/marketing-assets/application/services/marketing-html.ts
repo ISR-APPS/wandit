@@ -10,6 +10,14 @@
 import { env } from "@wandit/env/server";
 import { generateText } from "ai";
 
+import {
+	type GatewayGenerationFailure,
+	type GatewayGenerationMetadata,
+	type GatewayMeteringContext,
+	gatewayGenerationCaptureFromError,
+	withGatewayAttribution,
+} from "../../../metering/domain/gateway-metering";
+
 export type MarketingHtmlInput = {
 	assetType:
 		| "ad-copy"
@@ -24,8 +32,9 @@ export type MarketingHtmlInput = {
 };
 
 export type MarketingHtmlResult =
-	| { html: string; status: "generated" }
-	| { message: string; status: "failed" | "unavailable" };
+	| ({ html: string; status: "generated" } & GatewayGenerationMetadata)
+	| GatewayGenerationFailure
+	| { message: string; status: "unavailable" };
 
 const ASSET_TYPE_LABELS: Record<MarketingHtmlInput["assetType"], string> = {
 	"ad-copy": "Ad copy set",
@@ -97,7 +106,11 @@ CUSTOM HTML ASSET ("html-asset")
 
 export async function generateMarketingAssetHtml(
 	input: MarketingHtmlInput,
+	metering: GatewayMeteringContext<"marketing">,
 	abortSignal?: AbortSignal,
+	onProviderGeneration?: (
+		generation: GatewayGenerationMetadata,
+	) => Promise<void>,
 ): Promise<MarketingHtmlResult> {
 	const model = env.AI_MARKETING_MODEL ?? env.AI_CHAT_MODEL;
 
@@ -108,14 +121,19 @@ export async function generateMarketingAssetHtml(
 		};
 	}
 
+	let providerEvidence: GatewayGenerationMetadata | null = null;
+
 	try {
-		const { text } = await generateText({
+		const result = await generateText({
 			...(abortSignal ? { abortSignal } : {}),
 			model,
-			providerOptions: {
-				google: { thinkingConfig: { thinkingLevel: "high" } },
-				openai: { reasoningEffort: "high" },
-			},
+			providerOptions: withGatewayAttribution(
+				{
+					google: { thinkingConfig: { thinkingLevel: "high" } },
+					openai: { reasoningEffort: "high" },
+				},
+				metering,
+			),
 			prompt:
 				`DELIVERABLE KIND: ${ASSET_TYPE_LABELS[input.assetType]} (${input.assetType})\n` +
 				`ASSET NAME (document title): ${input.name}\n` +
@@ -123,13 +141,37 @@ export async function generateMarketingAssetHtml(
 				`MARKETING BRIEF:\n${input.brief}`,
 			system: MARKETING_DOCUMENT_PROMPT,
 		});
+		providerEvidence = {
+			model,
+			providerMetadata: result.providerMetadata,
+			usage: result.usage,
+		};
+		await onProviderGeneration?.(providerEvidence);
 
-		const html = extractHtmlDocument(text, input.name);
+		const html = extractHtmlDocument(result.text, input.name);
 
-		return { html, status: "generated" };
-	} catch (error) {
 		return {
+			html,
+			model,
+			providerMetadata: result.providerMetadata,
+			status: "generated",
+			usage: result.usage,
+		};
+	} catch (error) {
+		const errorCapture = gatewayGenerationCaptureFromError(error);
+		const evidence =
+			providerEvidence ??
+			(errorCapture
+				? {
+						model,
+						providerMetadata: errorCapture.providerMetadata,
+					}
+				: null);
+
+		return {
+			...(evidence ?? {}),
 			message: error instanceof Error ? error.message : String(error),
+			...(evidence ? { providerUnits: providerEvidence ? 1 : 0 } : {}),
 			status: "failed",
 		};
 	}
