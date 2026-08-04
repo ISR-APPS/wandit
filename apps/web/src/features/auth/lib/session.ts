@@ -1,4 +1,5 @@
 import { resetAnalytics } from "@wandit/analytics/browser";
+import { Sentry } from "@wandit/observability/browser";
 
 import { authClient } from "./auth-client";
 
@@ -16,10 +17,26 @@ const SESSION_CACHE_TTL_MS = 30_000;
 let cachedSession: { value: SessionSnapshot; expiresAt: number } | null = null;
 let inFlightSession: Promise<SessionSnapshot> | null = null;
 
+// Keep Sentry's user in lockstep with the session so every browser event
+// shows who it happened to. Identity-change guard: useSession calls this on
+// every render, and Sentry should only be touched on actual transitions.
+let sentryUserId: string | null = null;
+
+function syncSentryUser(user: SessionUser | null): void {
+	const id = user?.id ?? null;
+	if (id === sentryUserId) {
+		return;
+	}
+	sentryUserId = id;
+	Sentry.setUser(user ? { id: user.id, email: user.email } : null);
+}
+
 function toSessionSnapshot(
 	session: (typeof authClient)["$Infer"]["Session"] | null | undefined,
 ): SessionSnapshot {
-	return session?.user ? { user: session.user } : null;
+	const snapshot = session?.user ? { user: session.user } : null;
+	syncSentryUser(snapshot?.user ?? null);
+	return snapshot;
 }
 
 export function useSession(): SessionResult {
@@ -66,5 +83,6 @@ export async function signOut(): Promise<void> {
 	} finally {
 		resetAnalytics();
 		invalidateSessionCache();
+		syncSentryUser(null);
 	}
 }

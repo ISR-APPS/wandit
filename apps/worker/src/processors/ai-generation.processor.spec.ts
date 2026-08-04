@@ -100,7 +100,6 @@ describe("AiGenerationProcessor metering", () => {
 				model: "openai/test",
 				providerOptions: {
 					gateway: {
-						quotaEntityId: "user_1",
 						tags: ["op:chat", "ws:personal"],
 						user: "user_1",
 					},

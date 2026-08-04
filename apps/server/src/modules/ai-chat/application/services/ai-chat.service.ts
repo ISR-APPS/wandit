@@ -431,6 +431,7 @@ export class AiChatService {
 			const stream = createUIMessageStream<WanditUIMessage>({
 				execute: async ({ writer }) => {
 					let wroteBillingError = false;
+					let streamErrorCaptured = false;
 					const writeBillingError = (error: unknown): boolean => {
 						const data = this.billingErrorData(error);
 
@@ -452,8 +453,21 @@ export class AiChatService {
 						queueGatewayErrorCapture(error);
 
 						if (writeBillingError(error)) {
+							// The SDK's synthetic second invocation (see below) must
+							// not be captured for an expected refusal either.
+							streamErrorCaptured = true;
 							return "Insufficient credits.";
 						}
+
+						// The SDK invokes onError twice per failure: first with the
+						// real error, then with a synthetic Error built from the
+						// sanitized errorText while the finish wrapper replays the
+						// chunk stream. Only the first carries signal — capture that
+						// one and keep answering with the client-safe message.
+						if (streamErrorCaptured) {
+							return this.streamErrorMessage(error);
+						}
+						streamErrorCaptured = true;
 
 						return this.handleStreamError(error, {
 							chatId,

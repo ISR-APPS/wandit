@@ -1,6 +1,7 @@
 import * as Sentry from "@sentry/node";
 import { tasks } from "@trigger.dev/sdk";
 
+import { normalizeSentryRelease } from "./internal/release";
 import { isEnabled, type WanditSentryOptions } from "./internal/shared";
 
 /**
@@ -29,13 +30,26 @@ export function initTriggerSentry(options: WanditSentryOptions): void {
 		skipOpenTelemetrySetup: true,
 		dsn: options.dsn,
 		environment: options.environment,
-		release: options.release,
+		// Same artifact as the API — share the "server@<sha>" release so task
+		// failures correlate with the deploy that shipped them.
+		release: normalizeSentryRelease(options.release, "server"),
 		sendDefaultPii: false,
 	});
 	tasks.onFailure(({ payload, error, ctx }) => {
 		Sentry.withScope((scope) => {
 			scope.setTag("runtime", "trigger");
 			scope.setTag("trigger.task", ctx.task.id);
+			// Most task payloads carry the requesting user (as userId, or
+			// actorUserId in generate-page/scrape-leads) — surface it so the
+			// issue shows who the failure happened to.
+			const p = payload as
+				| { userId?: unknown; actorUserId?: unknown }
+				| null
+				| undefined;
+			const userId = p?.userId ?? p?.actorUserId;
+			if (typeof userId === "string" && userId.length > 0) {
+				scope.setUser({ id: userId });
+			}
 			scope.setContext("trigger", {
 				runId: ctx.run.id,
 				taskId: ctx.task.id,

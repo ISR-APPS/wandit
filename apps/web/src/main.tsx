@@ -64,6 +64,7 @@ const posthogSentryIntegration = analyticsSentryIntegration();
 initBrowserSentry({
 	dsn: env.VITE_SENTRY_DSN,
 	environment,
+	release: env.VITE_SENTRY_RELEASE,
 	router,
 	apiOrigin: env.VITE_SERVER_URL,
 	extraIntegrations: posthogSentryIntegration ? [posthogSentryIntegration] : [],
