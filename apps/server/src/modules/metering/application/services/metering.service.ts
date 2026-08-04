@@ -2251,8 +2251,14 @@ export class MeteringService {
 			event.model !== (estimate.model ?? null) ||
 			event.provider !== (estimate.provider ?? null)
 		) {
-			throw new Error(
-				`AI usage reserve idempotency replay conflict for key ${estimate.idempotencyKey}`,
+			// Typed so callers can surface a graceful 409 replay instead of a 500:
+			// a double-fired request whose stored event has since mutated (e.g.
+			// attempt ref rewritten at settlement) lands here, and that is a
+			// duplicate to reject politely, not an internal error.
+			throw new MeteringStateConflictError(
+				event.id,
+				event.status,
+				`replay a mismatched reserve (key ${estimate.idempotencyKey}) for`,
 			);
 		}
 	}
