@@ -1730,6 +1730,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 						},
 					},
 					billingMode: "enforce",
+					userId: USER_ID,
 				},
 				{
 					idempotencyKey: "connector-idempotency-key",

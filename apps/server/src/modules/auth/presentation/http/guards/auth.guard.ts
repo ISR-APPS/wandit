@@ -18,6 +18,7 @@ import {
 import { Reflector } from "@nestjs/core";
 import type { Auth, AuthUser } from "@wandit/auth";
 import { sql } from "@wandit/db";
+import { Sentry } from "@wandit/observability/nestjs";
 
 import {
 	DATABASE,
@@ -80,6 +81,10 @@ export class AuthGuard implements CanActivate {
 		}
 
 		this.touchLastSeen(session.user.id);
+
+		// Attribute every Sentry capture on this request to the signed-in user.
+		// The SDK's request isolation scopes this per request — no leakage.
+		Sentry.setUser({ id: session.user.id, email: session.user.email });
 
 		// Save the logged-in identity on the request for later code.
 		request.session = session.session;

@@ -1378,6 +1378,7 @@ export class McpChatToolsService {
 				billing: reservations,
 				billingMode: connectorBillingAdmissionMode(reservations),
 				connectorSlug,
+				userId: subject.actorUserId,
 			});
 		} catch (error) {
 			const message = error instanceof Error ? error.message : String(error);
@@ -1533,6 +1534,7 @@ async function triggerConnectorGenerationTask(input: {
 	billing: ConnectorGenerationReservations;
 	billingMode: "enforce" | "off";
 	connectorSlug: string;
+	userId: string;
 }): Promise<Awaited<ReturnType<typeof tasks.trigger>>> {
 	const idempotencyKey = await idempotencyKeys.create(
 		`connector-generation:${input.attemptId}`,
@@ -1548,6 +1550,7 @@ async function triggerConnectorGenerationTask(input: {
 					attemptId: input.attemptId,
 					billing: input.billing,
 					billingMode: input.billingMode,
+					userId: input.userId,
 				},
 				{
 					idempotencyKey,

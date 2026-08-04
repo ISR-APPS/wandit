@@ -1,5 +1,6 @@
 import * as Sentry from "@sentry/node";
 
+import { normalizeSentryRelease } from "./internal/release";
 import {
 	dropHealthchecks,
 	isEnabled,
@@ -30,7 +31,7 @@ export function initNodeSentry(options: InitNodeSentryOptions): void {
 	Sentry.init({
 		dsn: options.dsn,
 		environment: options.environment,
-		release: options.release,
+		release: normalizeSentryRelease(options.release, options.runtime),
 		sendDefaultPii: false,
 		enableLogs: true,
 		integrations: [

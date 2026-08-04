@@ -12,6 +12,16 @@ export const env = createEnv({
 		VITE_SENTRY_ENVIRONMENT: z
 			.enum(["production", "preview", "development"])
 			.optional(),
+		// Optional override for the browser release. Must match the sourcemap
+		// upload name exactly — "wandit-web@<full-sha>" — or stacks stay
+		// minified. Unset = the Sentry vite plugin's injected release is used.
+		VITE_SENTRY_RELEASE: z
+			.string()
+			.min(1)
+			.refine((value) => !value.endsWith("@"), {
+				message: "must include a version after '@'",
+			})
+			.optional(),
 		// PostHog product analytics. Unset = analytics disabled (local dev).
 		VITE_POSTHOG_KEY: z.string().startsWith("phc_").optional(),
 		// Defaults to the EU cloud in the package when unset.
