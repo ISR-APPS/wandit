@@ -1,6 +1,9 @@
 import type { DomainStatus, PaymentOrderStatus } from "@wandit/contracts";
 
-import type { DomainPurchasePayload } from "./domain-fulfillment.contracts";
+import type {
+	DomainConfigurationPayload,
+	DomainPurchasePayload,
+} from "./domain-fulfillment.contracts";
 
 export const DOMAIN_FULFILLMENT_RECONCILIATION_STALE_MS = 30 * 60_000;
 export const DOMAIN_FULFILLMENT_RECONCILIATION_BATCH_SIZE = 100;
@@ -13,12 +16,25 @@ export type DomainFulfillmentReconciliationCandidate = {
 	updatedAt: Date;
 };
 
+export type DomainConfigurationReconciliationCandidate = {
+	domainId: string;
+	nonce: string;
+	updatedAt: Date;
+};
+
 export type DomainFulfillmentReconcilerDependencies = {
+	findStaleConfigurationCandidates(input: {
+		limit: number;
+		staleBefore: Date;
+	}): Promise<readonly DomainConfigurationReconciliationCandidate[]>;
 	findStalePurchaseCandidates(input: {
 		limit: number;
 		staleBefore: Date;
 	}): Promise<readonly DomainFulfillmentReconciliationCandidate[]>;
 	now(): Date;
+	recoverConfiguration(
+		payload: DomainConfigurationPayload,
+	): Promise<{ id: string }>;
 	recoverPurchase(payload: DomainPurchasePayload): Promise<{ id: string }>;
 };
 
@@ -48,10 +64,15 @@ export class DomainFulfillmentReconcilerService {
 			limit: DOMAIN_FULFILLMENT_RECONCILIATION_BATCH_SIZE,
 			staleBefore,
 		});
+		const configurationCandidates =
+			await this.dependencies.findStaleConfigurationCandidates({
+				limit: DOMAIN_FULFILLMENT_RECONCILIATION_BATCH_SIZE,
+				staleBefore,
+			});
 		const result: DomainFulfillmentReconciliationResult = {
 			ensured: 0,
 			processed: true,
-			scanned: candidates.length,
+			scanned: candidates.length + configurationCandidates.length,
 			skipped: 0,
 		};
 
@@ -68,8 +89,32 @@ export class DomainFulfillmentReconcilerService {
 			result.ensured += 1;
 		}
 
+		for (const candidate of configurationCandidates) {
+			if (!isEligibleConfigurationCandidate(candidate, staleBefore)) {
+				result.skipped += 1;
+				continue;
+			}
+
+			await this.dependencies.recoverConfiguration({
+				domainId: candidate.domainId,
+				nonce: candidate.nonce,
+			});
+			result.ensured += 1;
+		}
+
 		return result;
 	}
+}
+
+function isEligibleConfigurationCandidate(
+	candidate: DomainConfigurationReconciliationCandidate,
+	staleBefore: Date,
+): boolean {
+	return (
+		candidate.updatedAt.getTime() <= staleBefore.getTime() &&
+		candidate.domainId.length > 0 &&
+		candidate.nonce.length > 0
+	);
 }
 
 function isEligibleCandidate(

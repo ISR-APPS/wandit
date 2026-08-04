@@ -16,6 +16,9 @@ export type DomainTaskHandle = {
  */
 export interface DomainTaskDispatcher {
 	assertAvailable(): void;
+	recoverConfiguration?(
+		payload: DomainConfigurationPayload,
+	): Promise<DomainTaskHandle>;
 	recoverPurchase(payload: DomainPurchasePayload): Promise<DomainTaskHandle>;
 	triggerConfiguration(
 		payload: DomainConfigurationPayload,
