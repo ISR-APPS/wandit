@@ -45,7 +45,7 @@ export function isBundledReservationComplete(
 }
 
 export function bundledUnmeteredStepUsage(
-	operation: "project_title",
+	operation: "project_title" | "prompt_refine",
 	providerUsage: unknown,
 ): Record<string, unknown> {
 	return {
@@ -64,7 +64,8 @@ export function isBundledUnmeteredStepUsage(stepUsage: unknown): boolean {
 
 	return (
 		stepUsage.metering.customerBilling === BUNDLED_UNMETERED_CUSTOMER_BILLING &&
-		stepUsage.metering.operation === "project_title"
+		(stepUsage.metering.operation === "project_title" ||
+			stepUsage.metering.operation === "prompt_refine")
 	);
 }
 

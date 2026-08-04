@@ -37,6 +37,7 @@ import type {
 	McpConnectorRow,
 	McpConnectorsRepository,
 } from "../../infrastructure/persistence/mcp-connectors.repository";
+import type { HiggsfieldPromptRefinerService } from "./higgsfield-prompt-refiner.service";
 import { McpChatToolsService } from "./mcp-chat-tools.service";
 import type { McpConnectionsService } from "./mcp-connections.service";
 import { McpRuntimeCacheService } from "./mcp-runtime-cache.service";
@@ -293,6 +294,11 @@ function buildService({
 		),
 		upgradeFixedGenerationUnits: vi.fn(async () => undefined),
 	};
+	const promptRefiner = {
+		refineGenerationArgs: vi.fn(
+			async (input: { args: unknown }): Promise<unknown> => input.args,
+		),
+	};
 	const service = new McpChatToolsService(
 		connectionsRepository as unknown as McpConnectionsRepository,
 		connectorsRepository as unknown as McpConnectorsRepository,
@@ -300,6 +306,7 @@ function buildService({
 		runtimeCache,
 		connectorGenerationsRepository as unknown as ConnectorGenerationsRepository,
 		meteringService as unknown as MeteringService,
+		promptRefiner as unknown as HiggsfieldPromptRefinerService,
 	);
 
 	return {
@@ -309,6 +316,7 @@ function buildService({
 		connectorsRepository,
 		meteringEvents,
 		meteringService,
+		promptRefiner,
 		runtimeCache,
 		service,
 	};
@@ -644,6 +652,41 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				"mcp_higgsfield_generate_video",
 			);
 		});
+
+		it("keeps the namespaced TikTok publish gated while its supporting steps run automatically", async () => {
+			const names = [
+				"tiktok_accounts",
+				"tiktok_prepare_publish",
+				"tiktok_publish",
+				"tiktok_publish_status",
+			];
+			queueClient(
+				mockClient({ definitions: names.map((name) => definition(name)) }),
+			);
+			const { service } = buildService({
+				connectors: [
+					connector({
+						slug: "higgsfield",
+						toolPolicy: { allowlist: names },
+					}),
+				],
+			});
+
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
+
+			expect(result.approvalMap).toMatchObject({
+				mcp_higgsfield_tiktok_publish: "user-approval",
+			});
+			expect(result.approvalMap).not.toHaveProperty(
+				"mcp_higgsfield_tiktok_prepare_publish",
+			);
+			expect(result.approvalMap).not.toHaveProperty(
+				"mcp_higgsfield_tiktok_accounts",
+			);
+			expect(result.approvalMap).not.toHaveProperty(
+				"mcp_higgsfield_tiktok_publish_status",
+			);
+		});
 	});
 
 	describe("visibility and registration", () => {
@@ -899,6 +942,45 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			expect(search).toMatchObject({
 				hint: expect.stringContaining("describe_platform_tool"),
 			});
+		});
+
+		it("reports approval only for the final TikTok publish in search results", async () => {
+			queueClient(
+				mockClient({
+					definitions: [
+						definition("tiktok_prepare_publish"),
+						definition("tiktok_publish"),
+					],
+				}),
+			);
+			const { service } = buildService({
+				connectors: [connector({ slug: "higgsfield" })],
+			});
+
+			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
+			const search = await executeTool(
+				requiredTool(result.tools, "search_platform_tools"),
+				{
+					connector: "higgsfield",
+					query: "tiktok publish",
+				},
+			);
+			const matches = searchResults(search);
+
+			expect(matches).toContainEqual(
+				expect.objectContaining({
+					connector: "higgsfield",
+					requires_approval: false,
+					tool_name: "tiktok_prepare_publish",
+				}),
+			);
+			expect(matches).toContainEqual(
+				expect.objectContaining({
+					connector: "higgsfield",
+					requires_approval: true,
+					tool_name: "tiktok_publish",
+				}),
+			);
 		});
 
 		it("parses TikTok's hidden catalog lazily, scores campaign creation first, and excludes native gateway tools", async () => {
@@ -1231,6 +1313,34 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 					connector: "tiktok-ads",
 					params: {},
 					tool_name: "campaign_create",
+				}),
+			).toBe("user-approval");
+			expect(
+				approval({
+					connector: "higgsfield",
+					params: {},
+					tool_name: "tiktok_prepare_publish",
+				}),
+			).toBe("not-applicable");
+			expect(
+				approval({
+					connector: "higgsfield",
+					params: {},
+					tool_name: "tiktok_accounts",
+				}),
+			).toBe("not-applicable");
+			expect(
+				approval({
+					connector: "higgsfield",
+					params: {},
+					tool_name: "tiktok_publish",
+				}),
+			).toBe("user-approval");
+			expect(
+				approval({
+					connector: "higgsfield",
+					params: {},
+					tool_name: "tiktok_delete_account",
 				}),
 			).toBe("user-approval");
 			expect(
@@ -1921,6 +2031,198 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			);
 			expect(meteringService.reserveWithReplay).not.toHaveBeenCalled();
 			expect(meteringService.settle).not.toHaveBeenCalled();
+		});
+	});
+
+	describe("higgsfield prompt refinement", () => {
+		it("sends the refined arguments to the provider for an inline image generation", async () => {
+			const providerExecute = vi.fn((_input: unknown) => ({
+				content: [{ text: "ok", type: "text" }],
+			}));
+			queueClient(
+				mockClient({
+					definitions: [definition("generate_image")],
+					toolImplementations: {
+						generate_image: executableTool(providerExecute),
+					},
+				}),
+			);
+			const { promptRefiner, service } = buildService({
+				connectors: [connector({ slug: "higgsfield" })],
+			});
+			promptRefiner.refineGenerationArgs.mockResolvedValue({
+				params: { model: "seedream", prompt: "refined prompt" },
+			});
+
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+			);
+			await executeTool(
+				requiredTool(result.tools, "mcp_higgsfield_generate_image"),
+				{ params: { model: "seedream", prompt: "a vase" } },
+				toolExecutionOptions("call-refined-image"),
+			);
+
+			expect(promptRefiner.refineGenerationArgs).toHaveBeenCalledWith({
+				args: { params: { model: "seedream", prompt: "a vase" } },
+				organizationId: null,
+				parentEventId: "chat-event",
+				toolName: "generate_image",
+				userId: USER_ID,
+			});
+			expect(providerExecute.mock.calls[0]?.[0]).toEqual({
+				params: { model: "seedream", prompt: "refined prompt" },
+			});
+		});
+
+		it("persists the refined arguments when a video generation is queued", async () => {
+			(env as typeof env & { TRIGGER_SECRET_KEY?: string }).TRIGGER_SECRET_KEY =
+				"tr_test";
+			queueClient(mockClient({ definitions: [definition("generate_video")] }));
+			const { connectorGenerationsRepository, promptRefiner, service } =
+				buildService({ connectors: [connector({ slug: "higgsfield" })] });
+			promptRefiner.refineGenerationArgs.mockResolvedValue({
+				params: { prompt: "refined film" },
+			});
+
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+			);
+			await executeTool(
+				requiredTool(result.tools, "mcp_higgsfield_generate_video"),
+				{ params: { prompt: "a launch film" } },
+				toolExecutionOptions("call-refined-video"),
+			);
+
+			expect(promptRefiner.refineGenerationArgs).toHaveBeenCalledWith(
+				expect.objectContaining({ toolName: "generate_video" }),
+			);
+			expect(connectorGenerationsRepository.insertAttempt).toHaveBeenCalledWith(
+				expect.objectContaining({
+					args: { params: { prompt: "refined film" } },
+				}),
+			);
+		});
+
+		it("refines a generation reached through run_platform_tool", async () => {
+			const client = mockClient({ definitions: [definition("generate_image")] });
+			queueClient(client);
+			const { promptRefiner, service } = buildService({
+				connectors: [connector({ slug: "higgsfield" })],
+			});
+			promptRefiner.refineGenerationArgs.mockResolvedValue({
+				params: { model: "seedream", prompt: "refined prompt" },
+			});
+
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+			);
+			await executeTool(
+				requiredTool(result.tools, "run_platform_tool"),
+				{
+					connector: "higgsfield",
+					params: { params: { model: "seedream", prompt: "a vase" } },
+					tool_name: "generate_image",
+				},
+				toolExecutionOptions("call-door-image"),
+			);
+
+			expect(promptRefiner.refineGenerationArgs).toHaveBeenCalledWith({
+				args: { params: { model: "seedream", prompt: "a vase" } },
+				organizationId: null,
+				parentEventId: "chat-event",
+				toolName: "generate_image",
+				userId: USER_ID,
+			});
+			expect(client.callTool).toHaveBeenCalledWith({
+				arguments: { params: { model: "seedream", prompt: "refined prompt" } },
+				name: "generate_image",
+			});
+		});
+
+		it("leaves other connectors' generations unrefined through the door", async () => {
+			queueClient(mockClient({ definitions: [definition("generate_image")] }));
+			queueClient(mockClient({ definitions: [definition("generate_image")] }));
+			const { promptRefiner, service } = buildService({
+				connections: [
+					connection(),
+					connection({
+						connectorId: OTHER_CONNECTOR_ID,
+						id: OTHER_CONNECTION_ID,
+					}),
+				],
+				connectors: [
+					connector({ slug: "tiktok-ads" }),
+					connector({
+						id: OTHER_CONNECTOR_ID,
+						name: "Meta Ads",
+						slug: "meta-ads",
+					}),
+				],
+			});
+
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+			);
+			await executeTool(
+				requiredTool(result.tools, "run_platform_tool"),
+				{
+					connector: "tiktok-ads",
+					params: { params: { prompt: "a vase" } },
+					tool_name: "generate_image",
+				},
+				toolExecutionOptions("call-door-tiktok"),
+			);
+			await executeTool(
+				requiredTool(result.tools, "run_platform_tool"),
+				{
+					connector: "meta-ads",
+					params: { params: { prompt: "a vase" } },
+					tool_name: "generate_image",
+				},
+				toolExecutionOptions("call-door-meta"),
+			);
+
+			expect(promptRefiner.refineGenerationArgs).not.toHaveBeenCalled();
+		});
+
+		it("leaves other Higgsfield tools unrefined", async () => {
+			queueClient(
+				mockClient({
+					definitions: [
+						definition("generate_audio"),
+						definition("models_explore"),
+					],
+					toolImplementations: {
+						generate_audio: executableTool(),
+						models_explore: executableTool(),
+					},
+				}),
+			);
+			const { promptRefiner, service } = buildService({
+				connectors: [connector({ slug: "higgsfield" })],
+			});
+
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+			);
+			await executeTool(
+				requiredTool(result.tools, "mcp_higgsfield_models_explore"),
+				{ query: "video models" },
+				toolExecutionOptions("call-models-explore"),
+			);
+			await executeTool(
+				requiredTool(result.tools, "mcp_higgsfield_generate_audio"),
+				{ params: { prompt: "a jingle" } },
+				toolExecutionOptions("call-audio"),
+			);
+
+			expect(promptRefiner.refineGenerationArgs).not.toHaveBeenCalled();
 		});
 	});
 

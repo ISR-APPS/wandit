@@ -428,6 +428,23 @@ describe("McpActivityCard", () => {
 		expect(html).not.toContain("Run Platform");
 	});
 
+	it("names TikTok, not Higgsfield, on a TikTok publish approval", () => {
+		const html = renderActivity([
+			{
+				...approvalPart,
+				toolName: "run_platform_tool",
+				input: {
+					connector: "higgsfield",
+					tool_name: "tiktok_publish",
+					params: { caption: "New drop" },
+				},
+			},
+		]);
+
+		expect(html).toContain("· TikTok");
+		expect(html).not.toContain("· Higgsfield");
+	});
+
 	it("shows only nested run_platform_tool arguments in approvals", () => {
 		const html = renderActivity([
 			{

@@ -184,13 +184,40 @@ const MAX_ATTACHMENTS = 6;
 
 type SourceImageValidationError = "unsupported" | "too-large" | "limit";
 
+/** Browsers report CSV and Office documents inconsistently (empty type,
+ *  octet-stream, or the legacy Excel type) — fall back to the extension. */
+const AMBIGUOUS_FILE_TYPES = new Set([
+	"",
+	"application/octet-stream",
+	"application/vnd.ms-excel",
+]);
+
+const EXTENSION_MEDIA_TYPES: Record<string, string> = {
+	csv: "text/csv",
+	docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+	xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+};
+
+function effectiveMediaType(file: File): string {
+	if (!AMBIGUOUS_FILE_TYPES.has(file.type)) {
+		return file.type;
+	}
+
+	const dotIndex = file.name.lastIndexOf(".");
+	const extension =
+		dotIndex > 0 ? file.name.slice(dotIndex + 1).toLowerCase() : "";
+
+	return EXTENSION_MEDIA_TYPES[extension] ?? file.type;
+}
+
 function toComposerAttachment(file: File): ComposerAttachment {
-	const unsupported = !ALLOWED_ATTACHMENT_TYPES.has(file.type);
+	const mediaType = effectiveMediaType(file);
+	const unsupported = !ALLOWED_ATTACHMENT_TYPES.has(mediaType);
 	const tooLarge = file.size > ATTACHMENT_MAX_BYTES;
 	return {
 		id: crypto.randomUUID(),
 		filename: file.name,
-		mediaType: file.type,
+		mediaType,
 		previewUrl: file.type.startsWith("image/")
 			? URL.createObjectURL(file)
 			: null,

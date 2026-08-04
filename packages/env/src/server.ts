@@ -53,6 +53,13 @@ export const env = createEnv({
 		// Optional override for marketing HTML documents; falls back to
 		// AI_CHAT_MODEL when unset.
 		AI_MARKETING_MODEL: z.string().min(1).optional(),
+		// Rewrites the brain's Higgsfield image/video intent into a polished
+		// generation prompt before the MCP call. Falls back to the raw prompt
+		// when it cannot run (no gateway key, timeout, error).
+		AI_PROMPT_REFINER_MODEL: z
+			.string()
+			.min(1)
+			.default("openai/gpt-5.6-luna"),
 		AI_TRANSCRIPTION_MODEL: z
 			.string()
 			.min(1)

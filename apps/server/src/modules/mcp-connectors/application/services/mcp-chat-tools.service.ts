@@ -50,6 +50,7 @@ import {
 	createConnectorGenerationBilling,
 	finalizeConnectorGenerationBilling,
 } from "./connector-generation-billing";
+import { HiggsfieldPromptRefinerService } from "./higgsfield-prompt-refiner.service";
 import { McpConnectionsService } from "./mcp-connections.service";
 import {
 	type McpCatalogTool,
@@ -143,6 +144,16 @@ function isBackgroundGenerationTool(slug: string, toolName: string): boolean {
 		BACKGROUND_GENERATION_TOOLS[slug]?.has(normalizeToolName(toolName)) ?? false
 	);
 }
+
+// Creative generations whose prompt is rewritten by the refiner model before
+// the provider call. Names are normalized (normalizeToolName).
+const PROMPT_REFINED_TOOLS: Record<string, ReadonlySet<string>> = {
+	higgsfield: new Set(["generate_image", "generate_video"]),
+};
+
+function isPromptRefinedTool(slug: string, toolName: string): boolean {
+	return PROMPT_REFINED_TOOLS[slug]?.has(normalizeToolName(toolName)) ?? false;
+}
 const HIGGSFIELD_AUTO_TOOLS = [
 	"media_upload",
 	"media_upload_widget",
@@ -163,11 +174,21 @@ const HIGGSFIELD_AUTO_TOOLS = [
 	"voice_change",
 	"dubbing",
 ] as const;
+const HIGGSFIELD_TIKTOK_AUTO_TOOLS = [
+	"tiktok_accounts",
+	"tiktok_connect",
+	"tiktok_music_trending",
+	"tiktok_music_tune",
+	"tiktok_prepare_publish",
+	"tiktok_publish_status",
+	"tiktok_reconnect",
+] as const;
 const CONNECTOR_TOOL_OVERRIDES: Record<
 	string,
-	{ autoTools: readonly string[] }
+	{ autoTools: readonly string[]; autoApproveTools?: readonly string[] }
 > = {
 	higgsfield: {
+		autoApproveTools: HIGGSFIELD_TIKTOK_AUTO_TOOLS,
 		autoTools: HIGGSFIELD_AUTO_TOOLS,
 	},
 };
@@ -310,6 +331,8 @@ export class McpChatToolsService {
 		private readonly connectorGenerationsRepository: ConnectorGenerationsRepository,
 		@Inject(MeteringService)
 		private readonly meteringService: MeteringService,
+		@Inject(HiggsfieldPromptRefinerService)
+		private readonly promptRefiner: HiggsfieldPromptRefinerService,
 	) {}
 
 	async resolveToolsForUser(
@@ -542,6 +565,13 @@ export class McpChatToolsService {
 				CONNECTOR_TOOL_OVERRIDES[connector.slug]?.autoTools ?? [];
 
 			if (autoTools.includes(normalizedToolName)) {
+				continue;
+			}
+
+			const autoApproveTools =
+				CONNECTOR_TOOL_OVERRIDES[connector.slug]?.autoApproveTools ?? [];
+
+			if (autoApproveTools.includes(normalizedToolName)) {
 				continue;
 			}
 
@@ -1083,21 +1113,35 @@ export class McpChatToolsService {
 					parentEventId,
 					runtime.connector.slug,
 					canonical.name,
-					input.params,
+					await this.refinePromptedGenerationArgs(
+						subject,
+						parentEventId,
+						runtime.connector.slug,
+						canonical.name,
+						input.params,
+					),
 				);
 			}
 		}
 
 		const catalogTool = catalog.find((tool) => tool.name === input.tool_name);
 		if (catalogTool) {
+			const refinedParams = await this.refinePromptedGenerationArgs(
+				subject,
+				parentEventId,
+				runtime.connector.slug,
+				catalogTool.name,
+				input.params,
+			);
+
 			return this.executeInlineConnectorTool({
 				connectorSlug: runtime.connector.slug,
-				input: input.params,
+				input: refinedParams,
 				invoke: () =>
 					callMcpTool(
 						runtime.client,
 						catalogTool.name,
-						input.params,
+						refinedParams,
 						options,
 						classifyToolName(catalogTool.name) === "read",
 					),
@@ -1160,7 +1204,7 @@ export class McpChatToolsService {
 		const execute = executable.execute;
 		return {
 			...executable,
-			execute: (input, options) => {
+			execute: async (input, options) => {
 				const effectiveToolName = GENERIC_WRAPPER_TOOLS.has(
 					normalizeToolName(toolName),
 				)
@@ -1171,11 +1215,18 @@ export class McpChatToolsService {
 				)
 					? classifyNestedToolName(input) === "read"
 					: classifyToolName(toolName) === "read";
-				const invoke = () => Promise.resolve(execute(input, options));
+				const refinedInput = await this.refinePromptedGenerationArgs(
+					subject,
+					parentEventId,
+					connectorSlug,
+					toolName,
+					input,
+				);
+				const invoke = () => Promise.resolve(execute(refinedInput, options));
 
 				return this.executeInlineConnectorTool({
 					connectorSlug,
-					input,
+					input: refinedInput,
 					invoke: () => (shouldRetry ? withReadRetry(invoke) : invoke()),
 					options,
 					parentEventId,
@@ -1184,6 +1235,34 @@ export class McpChatToolsService {
 				});
 			},
 		} as Tool;
+	}
+
+	// Rewrites the generation prompt before any metering reservation or attempt
+	// insert, so a refiner failure costs nothing and the persisted args are the
+	// durable record of what was actually sent.
+	private async refinePromptedGenerationArgs<TArgs>(
+		subject: MeteringSubject,
+		parentEventId: string | undefined,
+		connectorSlug: string,
+		toolName: string,
+		args: TArgs,
+	): Promise<TArgs> {
+		if (!isPromptRefinedTool(connectorSlug, toolName)) {
+			return args;
+		}
+
+		const refined = await this.promptRefiner.refineGenerationArgs({
+			args,
+			organizationId: subject.organizationId ?? null,
+			parentEventId,
+			toolName:
+				normalizeToolName(toolName) === "generate_video"
+					? "generate_video"
+					: "generate_image",
+			userId: subject.actorUserId,
+		});
+
+		return refined as TArgs;
 	}
 
 	private async executeInlineConnectorTool(input: {
@@ -1303,6 +1382,14 @@ export class McpChatToolsService {
 		return {
 			...executable,
 			execute: async (input, options) => {
+				const refinedInput = await this.refinePromptedGenerationArgs(
+					subject,
+					parentEventId,
+					connectorSlug,
+					toolName,
+					input,
+				);
+
 				if (!env.TRIGGER_SECRET_KEY) {
 					if (typeof inlineExecute !== "function") {
 						return platformToolError(
@@ -1312,8 +1399,8 @@ export class McpChatToolsService {
 
 					return this.executeInlineConnectorTool({
 						connectorSlug,
-						input,
-						invoke: () => Promise.resolve(inlineExecute(input, options)),
+						input: refinedInput,
+						invoke: () => Promise.resolve(inlineExecute(refinedInput, options)),
 						options,
 						parentEventId,
 						subject,
@@ -1326,7 +1413,7 @@ export class McpChatToolsService {
 					parentEventId,
 					connectorSlug,
 					toolName,
-					input,
+					refinedInput,
 				);
 			},
 		} as Tool;
@@ -1680,6 +1767,12 @@ function classifyPlatformToolApproval(
 		return "not-applicable";
 	}
 
+	const autoApproveTools =
+		CONNECTOR_TOOL_OVERRIDES[connector]?.autoApproveTools ?? [];
+	if (autoApproveTools.includes(normalizeToolName(nestedToolName))) {
+		return "not-applicable";
+	}
+
 	return classifyToolName(nestedToolName) === "read"
 		? "not-applicable"
 		: "user-approval";
@@ -1687,8 +1780,12 @@ function classifyPlatformToolApproval(
 
 function requiresApproval(connector: string, toolName: string): boolean {
 	const autoTools = CONNECTOR_TOOL_OVERRIDES[connector]?.autoTools ?? [];
+	const autoApproveTools =
+		CONNECTOR_TOOL_OVERRIDES[connector]?.autoApproveTools ?? [];
+	const normalizedToolName = normalizeToolName(toolName);
 	return (
-		!autoTools.includes(normalizeToolName(toolName)) &&
+		!autoTools.includes(normalizedToolName) &&
+		!autoApproveTools.includes(normalizedToolName) &&
 		classifyToolName(toolName) === "write"
 	);
 }

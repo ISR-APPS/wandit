@@ -3,7 +3,12 @@
 // R2 asset. Images show as a small rounded thumbnail; everything else as a
 // quiet filename chip. Display-only — the canonical file lives in R2.
 
-import { FileText } from "lucide-react";
+import { FileSpreadsheet, FileText } from "lucide-react";
+
+const SPREADSHEET_MEDIA_TYPES = new Set([
+	"text/csv",
+	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+]);
 
 type FilePartData = {
 	type: "file";
@@ -78,6 +83,10 @@ export function FilePart({ part }: { part: FilePartData }) {
 		return <ImageFileGrid parts={[part]} />;
 	}
 
+	const Icon = SPREADSHEET_MEDIA_TYPES.has(part.mediaType)
+		? FileSpreadsheet
+		: FileText;
+
 	return (
 		<div className="flex justify-end">
 			<a
@@ -86,7 +95,7 @@ export function FilePart({ part }: { part: FilePartData }) {
 				rel="noreferrer"
 				className="inline-flex h-8 max-w-64 items-center gap-2 rounded-full border border-border bg-muted/60 px-3 text-muted-foreground text-xs transition-colors hover:text-foreground"
 			>
-				<FileText className="size-3.5 shrink-0" />
+				<Icon className="size-3.5 shrink-0" />
 				<span dir="auto" className="min-w-0 truncate">
 					{part.filename ?? part.url.split("/").at(-1) ?? "file"}
 				</span>

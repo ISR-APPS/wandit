@@ -311,4 +311,11 @@ export const AI_INVOCATION_COVERAGE = [
 		source:
 			"apps/server/src/modules/projects/application/services/project-title.service.ts",
 	},
+	{
+		billing: { bundledInto: "chat", kind: "bundled" },
+		id: "higgsfield-prompt-refine-bundled",
+		marker: "const result = await generateText({",
+		source:
+			"apps/server/src/modules/mcp-connectors/application/services/higgsfield-prompt-refiner.service.ts",
+	},
 ] as const satisfies readonly AiInvocationCoverage[];

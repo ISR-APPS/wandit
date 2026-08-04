@@ -31,20 +31,36 @@ const EXTENSIONS: Record<
 	{ accepted: string[]; canonical: string }
 > = {
 	"application/pdf": { accepted: ["pdf"], canonical: "pdf" },
+	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": {
+		accepted: ["xlsx"],
+		canonical: "xlsx",
+	},
+	"application/vnd.openxmlformats-officedocument.wordprocessingml.document": {
+		accepted: ["docx"],
+		canonical: "docx",
+	},
 	"image/avif": { accepted: ["avif"], canonical: "avif" },
 	"image/gif": { accepted: ["gif"], canonical: "gif" },
 	"image/jpeg": { accepted: ["jpeg", "jpg"], canonical: "jpg" },
 	"image/png": { accepted: ["png"], canonical: "png" },
 	"image/webp": { accepted: ["webp"], canonical: "webp" },
+	"text/csv": { accepted: ["csv"], canonical: "csv" },
 	"text/plain": { accepted: ["log", "md", "text", "txt"], canonical: "txt" },
 };
 
-// First-bytes signatures for the binary types (contract §7.2). text/plain has
-// no signature — the declared type is trusted for it.
+// First-bytes signatures for the binary types (contract §7.2). text/plain and
+// text/csv have no signature — the declared type is trusted for them.
 const MAGIC_BYTES: Partial<
 	Record<AttachmentMediaType, (bytes: Buffer) => boolean>
 > = {
 	"application/pdf": (bytes) => ascii(bytes, 0, 4) === "%PDF",
+	// docx and xlsx are OOXML: ZIP containers, so both carry the PK signature.
+	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": (
+		bytes,
+	) => startsWithBytes(bytes, [0x50, 0x4b, 0x03, 0x04]),
+	"application/vnd.openxmlformats-officedocument.wordprocessingml.document": (
+		bytes,
+	) => startsWithBytes(bytes, [0x50, 0x4b, 0x03, 0x04]),
 	"image/avif": (bytes) =>
 		ascii(bytes, 4, 8) === "ftyp" &&
 		["avif", "avis"].includes(ascii(bytes, 8, 12)),
@@ -79,14 +95,14 @@ export class UploadsService {
 			});
 		}
 
-		const mediaType = this.resolveMediaType(file.mimetype);
+		const mediaType = this.resolveMediaType(file.mimetype, file.filename);
 
 		if (!mediaType) {
 			throw new UnsupportedMediaTypeException({
 				code: "UNSUPPORTED_ATTACHMENT_TYPE",
 				message:
-					"Only images (JPEG, PNG, WebP, GIF, AVIF), PDF and plain text " +
-					"files are accepted",
+					"Only images (JPEG, PNG, WebP, GIF, AVIF), PDF, Word, Excel, CSV " +
+					"and plain text files are accepted",
 			});
 		}
 
@@ -116,11 +132,46 @@ export class UploadsService {
 	}
 
 	// "image/png; charset=binary" → "image/png"; null when not allowlisted.
-	private resolveMediaType(mimetype: string): AttachmentMediaType | null {
+	private resolveMediaType(
+		mimetype: string,
+		filename: string,
+	): AttachmentMediaType | null {
 		const normalized = (mimetype.split(";")[0] ?? "").trim().toLowerCase();
+		const declared =
+			ATTACHMENT_MEDIA_TYPES.find((type) => type === normalized) ?? null;
 
-		return ATTACHMENT_MEDIA_TYPES.find((type) => type === normalized) ?? null;
+		if (declared) {
+			return declared;
+		}
+
+		return AMBIGUOUS_DECLARED_TYPES.has(normalized)
+			? mediaTypeFromFilename(filename)
+			: null;
 	}
+}
+
+// Browsers report CSV and Office documents inconsistently — an empty type,
+// application/octet-stream, or the legacy Excel type depending on the OS and
+// whether Office is installed. Only those three declarations fall back to the
+// filename extension, and only for these three types; everything else is 415.
+const AMBIGUOUS_DECLARED_TYPES = new Set([
+	"",
+	"application/octet-stream",
+	"application/vnd.ms-excel",
+]);
+
+const EXTENSION_MEDIA_TYPES: Record<string, AttachmentMediaType> = {
+	csv: "text/csv",
+	docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+	xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+};
+
+function mediaTypeFromFilename(filename: string): AttachmentMediaType | null {
+	const dotIndex = filename.lastIndexOf(".");
+	const extension =
+		dotIndex > 0 ? filename.slice(dotIndex + 1).toLowerCase() : "";
+
+	return EXTENSION_MEDIA_TYPES[extension] ?? null;
 }
 
 // Contract §7.2: keep [a-zA-Z0-9._-], collapse the rest to "-", max 80 chars,
