@@ -97,7 +97,6 @@ describe("generateBuildImage", () => {
 			prompt: PARAMS.prompt,
 			providerOptions: {
 				gateway: {
-					quotaEntityId: "user_1",
 					tags: ["op:image", "ws:personal"],
 					user: "user_1",
 				},

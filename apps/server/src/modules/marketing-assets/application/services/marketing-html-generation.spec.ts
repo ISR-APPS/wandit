@@ -42,7 +42,6 @@ describe("generateMarketingAssetHtml", () => {
 				model: "google/gemini-2.5-pro",
 				providerOptions: {
 					gateway: {
-						quotaEntityId: "user_1",
 						tags: ["op:marketing", "ws:personal"],
 						user: "user_1",
 					},

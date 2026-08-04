@@ -123,7 +123,6 @@ describe("generateBuildVideo", () => {
 				},
 				providerOptions: {
 					gateway: {
-						quotaEntityId: "user_1",
 						tags: ["op:video", "ws:personal"],
 						user: "user_1",
 					},
@@ -197,7 +196,6 @@ describe("generateBuildVideo", () => {
 			expect.objectContaining({
 				providerOptions: {
 					gateway: {
-						quotaEntityId: "user_1",
 						tags: ["op:video", "ws:personal"],
 						user: "user_1",
 					},

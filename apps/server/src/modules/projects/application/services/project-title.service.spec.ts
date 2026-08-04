@@ -76,7 +76,6 @@ describe("ProjectTitleService", () => {
 					"User message:\nBuild a landing page for Maison Lila's summer collection",
 				providerOptions: {
 					gateway: {
-						quotaEntityId: "user_1",
 						tags: ["op:chat", "ws:personal"],
 						user: "user_1",
 					},

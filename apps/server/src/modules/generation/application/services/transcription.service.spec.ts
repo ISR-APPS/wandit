@@ -159,7 +159,6 @@ describe("TranscriptionService", () => {
 				mediaType: "audio/wav",
 				providerOptions: {
 					gateway: {
-						quotaEntityId: "user-1",
 						tags: ["op:transcription", "ws:personal"],
 						user: "user-1",
 					},
