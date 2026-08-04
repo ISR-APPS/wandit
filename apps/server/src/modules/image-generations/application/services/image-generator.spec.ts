@@ -248,7 +248,6 @@ describe("editImageFromSources", () => {
 		});
 		expect(call?.providerOptions).toMatchObject({
 			gateway: {
-				quotaEntityId: "user_1",
 				tags: ["op:image", "ws:personal"],
 				user: "user_1",
 			},

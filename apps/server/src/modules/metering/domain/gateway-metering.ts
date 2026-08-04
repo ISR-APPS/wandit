@@ -3,7 +3,6 @@ import type { CapturedGeneration } from "./metering";
 import type { AiUsageOperation } from "./operation-registry";
 
 export type GatewayAttribution = {
-	quotaEntityId: string;
 	tags: [string, string];
 	user: string;
 };
@@ -102,11 +101,11 @@ export function withGatewayAttribution<T extends Record<string, unknown>>(
 		...providerOptions,
 		gateway: {
 			...asRecord(providerOptions.gateway),
-			// quotaEntityId identifies the PAYING pool; `user` stays the acting
-			// member for per-person observability.
-			quotaEntityId: input.organizationId
-				? `org:${input.organizationId}`
-				: input.userId,
+			// No quotaEntityId here: the gateway hard-rejects any request naming
+			// an entity that has no quota registered on the gateway account, so
+			// sending it unconditionally broke every generation. Credits are
+			// enforced by our own metering; the paying pool remains identifiable
+			// through the ws:org/ws:personal tag plus `user`.
 			tags: [
 				`op:${input.operation}`,
 				input.organizationId ? "ws:org" : "ws:personal",

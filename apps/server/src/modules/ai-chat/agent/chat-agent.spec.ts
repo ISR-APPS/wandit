@@ -48,7 +48,6 @@ describe("chat agent cost bounds and gateway attribution", () => {
 			maxOutputTokens: AI_CHAT_MAX_OUTPUT_TOKENS,
 			providerOptions: {
 				gateway: {
-					quotaEntityId: "user-1",
 					tags: ["op:chat", "ws:personal"],
 					user: "user-1",
 				},
