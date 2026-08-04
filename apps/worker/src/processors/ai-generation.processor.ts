@@ -444,7 +444,7 @@ export class AiGenerationProcessor extends WorkerHost {
 
 		const event = await this.meteringService.findByIdempotencyKey(
 			`legacy-chat:${data.jobId}`,
-			data.userId,
+			{ actorUserId: data.userId },
 		);
 		const matchesJob =
 			event?.id === data.usageEventId &&

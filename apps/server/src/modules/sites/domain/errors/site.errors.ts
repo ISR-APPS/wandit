@@ -37,12 +37,8 @@ export class NoVersionToPublishError extends SiteHttpError {
 }
 
 export class PublishUnavailableError extends SiteHttpError {
-	constructor() {
-		super(
-			"PUBLISH_UNAVAILABLE",
-			"Publishing is not configured",
-			HttpStatus.SERVICE_UNAVAILABLE,
-		);
+	constructor(message = "Publishing is not configured") {
+		super("PUBLISH_UNAVAILABLE", message, HttpStatus.SERVICE_UNAVAILABLE);
 	}
 }
 

@@ -8,6 +8,13 @@ import { EventEmitter } from "node:events";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { describe, expect, it, vi } from "vitest";
 
+vi.mock("@wandit/env/server", () => ({
+	env: {
+		CORS_EXTRA_ORIGINS: ["http://extra-web.test"],
+		CORS_ORIGIN: "http://web.test",
+	},
+}));
+
 import type { ChatEventsRepository } from "../../infrastructure/redis/chat-events.repository";
 import { ChatStreamRelayService } from "./chat-stream-relay.service";
 
@@ -106,7 +113,10 @@ describe("ChatStreamRelayService", () => {
 	});
 
 	// SSE bypasses normal JSON handling, so it must write its own CORS headers.
-	it("adds CORS headers to the hijacked reply for the allowed origin", async () => {
+	it.each([
+		"http://web.test",
+		"http://extra-web.test",
+	])("adds CORS headers to the hijacked reply for allowed origin %s", async (origin) => {
 		const requestRaw = new EventEmitter();
 		// Fake response only needs enough fields to inspect headers.
 		const raw = {
@@ -144,7 +154,7 @@ describe("ChatStreamRelayService", () => {
 			} as unknown as FastifyReply,
 			request: {
 				headers: {
-					origin: "http://web.test",
+					origin,
 				},
 				raw: requestRaw,
 			} as unknown as FastifyRequest,
@@ -155,7 +165,7 @@ describe("ChatStreamRelayService", () => {
 			200,
 			expect.objectContaining({
 				"Access-Control-Allow-Credentials": "true",
-				"Access-Control-Allow-Origin": "http://web.test",
+				"Access-Control-Allow-Origin": origin,
 				Vary: "Origin",
 			}),
 		);

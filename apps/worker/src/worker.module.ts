@@ -14,6 +14,7 @@ import { ModelPricingService } from "../../server/src/modules/metering/applicati
 import { METERING_GATEWAY } from "../../server/src/modules/metering/domain/metering";
 import { MeteringRepository } from "../../server/src/modules/metering/infrastructure/persistence/metering.repository";
 import { ModelPricesRepository } from "../../server/src/modules/metering/infrastructure/persistence/model-prices.repository";
+import { OrganizationLimitsRepository } from "../../server/src/modules/workspaces/infrastructure/persistence/organization-limits.repository";
 import { queueConfig } from "./config/queue.config";
 import { WorkerDatabaseModule } from "./infrastructure/database/database.module";
 import { databaseProvider } from "./infrastructure/database/database-alias.provider";
@@ -47,6 +48,7 @@ import { PublishProcessor } from "./processors/publish.processor";
 		MeteringService,
 		ModelPricesRepository,
 		ModelPricingService,
+		OrganizationLimitsRepository,
 		PublishProcessor,
 		WorkerChatRepository,
 		{

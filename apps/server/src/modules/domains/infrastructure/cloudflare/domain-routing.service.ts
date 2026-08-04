@@ -65,11 +65,7 @@ export class DomainRoutingService {
 		);
 	}
 
-	/**
-	 * True when the Cloudflare KV credentials exist. Publishing degrades to
-	 * log-and-skip when they are absent (mirrors the isR2Configured contract)
-	 * so local dev without Cloudflare still publishes.
-	 */
+	/** True when every credential required for Cloudflare KV writes exists. */
 	isKvConfigured(): boolean {
 		return Boolean(
 			env.CLOUDFLARE_API_TOKEN &&

@@ -52,6 +52,7 @@ import {
 	type ScrapeLeadsOutput,
 	scrapeLeadsInputSchema,
 } from "@wandit/contracts";
+import { allowedCorsWebOrigin } from "@wandit/env/cors-origins";
 import { env } from "@wandit/env/server";
 import { Sentry } from "@wandit/observability/nestjs";
 import {
@@ -637,15 +638,19 @@ export class AiChatService {
 				originalMessages: messages,
 			});
 
+			const corsOrigin = allowedCorsWebOrigin(
+				origin,
+				env.CORS_ORIGIN,
+				env.CORS_EXTRA_ORIGINS,
+			);
 			pipeUIMessageStreamToResponse({
-				headers:
-					origin === env.CORS_ORIGIN
-						? {
-								"Access-Control-Allow-Credentials": "true",
-								"Access-Control-Allow-Origin": origin,
-								Vary: "Origin",
-							}
-						: undefined,
+				headers: corsOrigin
+					? {
+							"Access-Control-Allow-Credentials": "true",
+							"Access-Control-Allow-Origin": corsOrigin,
+							Vary: "Origin",
+						}
+					: undefined,
 				response: reply.raw,
 				stream,
 			});

@@ -11,6 +11,7 @@ import { fileURLToPath } from "node:url";
 import { createEnv } from "@t3-oss/env-core";
 import { config } from "dotenv";
 import { z } from "zod";
+import { corsExtraOriginsSchema } from "./cors-origins";
 
 // Build paths from this file location so loading works from different cwd values.
 const currentDir = dirname(fileURLToPath(import.meta.url));
@@ -107,7 +108,10 @@ export const env = createEnv({
 		DATABASE_URL: z.string().min(1),
 		BETTER_AUTH_SECRET: z.string().min(32),
 		BETTER_AUTH_URL: z.url(),
+		// The single canonical web origin used as a URL base by server features.
 		CORS_ORIGIN: z.url(),
+		// Optional aliases that can call the API but are never canonical URL bases.
+		CORS_EXTRA_ORIGINS: corsExtraOriginsSchema,
 		GOOGLE_CLIENT_ID: z.string().min(1),
 		GOOGLE_CLIENT_SECRET: z.string().min(1),
 		// Email auth + invitation delivery (Resend). All optional: without a
@@ -159,6 +163,12 @@ export const env = createEnv({
 		CLOUDFLARE_API_TOKEN: z.string().min(1).optional(),
 		CLOUDFLARE_KV_NAMESPACE_ID: z.string().min(1).optional(),
 		CLOUDFLARE_ZONE_ID_WANDIT_APP: z.string().min(1).optional(),
+		// Local API-only escape hatch. Hosted publishing must keep this false so
+		// a missing edge-routing pointer cannot be reported as live.
+		ALLOW_PUBLISH_WITHOUT_KV: z
+			.enum(["true", "false"])
+			.default("false")
+			.transform((value) => value === "true"),
 		DOMAINS_FALLBACK_ORIGIN: z.string().min(1).default("customers.wandit.app"),
 		// Zone serving published customer sites: {slug}.SITES_DOMAIN.
 		SITES_DOMAIN: z.string().min(1).default("wandit.app"),

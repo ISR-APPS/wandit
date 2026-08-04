@@ -10,6 +10,7 @@
 import { once } from "node:events";
 import type { ServerResponse } from "node:http";
 import { Inject, Injectable, Logger } from "@nestjs/common";
+import { allowedCorsWebOrigin } from "@wandit/env/cors-origins";
 import { env } from "@wandit/env/server";
 import type { FastifyReply, FastifyRequest } from "fastify";
 
@@ -190,12 +191,10 @@ export class ChatStreamRelayService {
 
 	// If EventSource sends cookies, CORS must echo the exact allowed origin.
 	private allowedCorsOrigin(request: FastifyRequest): string | undefined {
-		const origin = request.headers.origin;
-
-		return typeof origin === "string" &&
-			typeof env.CORS_ORIGIN === "string" &&
-			origin === env.CORS_ORIGIN
-			? origin
-			: undefined;
+		return allowedCorsWebOrigin(
+			request.headers.origin,
+			env.CORS_ORIGIN,
+			env.CORS_EXTRA_ORIGINS,
+		);
 	}
 }
