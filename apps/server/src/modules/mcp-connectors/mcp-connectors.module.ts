@@ -3,6 +3,7 @@ import { Module } from "@nestjs/common";
 import { DatabaseModule } from "../../infrastructure/database/database.module";
 import { ConnectorGenerationsModule } from "../connector-generations/connector-generations.module";
 import { MeteringModule } from "../metering/metering.module";
+import { HiggsfieldPromptRefinerService } from "./application/services/higgsfield-prompt-refiner.service";
 import { McpChatToolsService } from "./application/services/mcp-chat-tools.service";
 import { McpConnectionsService } from "./application/services/mcp-connections.service";
 import { McpOauthService } from "./application/services/mcp-oauth.service";
@@ -18,6 +19,7 @@ import { McpConnectorsController } from "./presentation/http/controllers/mcp-con
 	exports: [McpChatToolsService, McpConnectionsService],
 	imports: [ConnectorGenerationsModule, DatabaseModule, MeteringModule],
 	providers: [
+		HiggsfieldPromptRefinerService,
 		McpChatToolsService,
 		McpConnectionsRepository,
 		McpConnectionsService,

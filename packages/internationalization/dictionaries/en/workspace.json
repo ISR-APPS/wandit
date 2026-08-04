@@ -348,6 +348,38 @@
 					"active": "Loading your creations",
 					"past": "Loaded your creations"
 				},
+				"tiktok_accounts": {
+					"active": "Checking TikTok accounts",
+					"past": "Checked TikTok accounts"
+				},
+				"tiktok_connect": {
+					"active": "Connecting your TikTok account",
+					"past": "Connected your TikTok account"
+				},
+				"tiktok_music_trending": {
+					"active": "Browsing trending TikTok music",
+					"past": "Browsed trending TikTok music"
+				},
+				"tiktok_music_tune": {
+					"active": "Tuning the TikTok music",
+					"past": "Tuned the TikTok music"
+				},
+				"tiktok_prepare_publish": {
+					"active": "Preparing TikTok post",
+					"past": "Prepared TikTok post"
+				},
+				"tiktok_publish": {
+					"active": "Publishing to TikTok",
+					"past": "Published to TikTok"
+				},
+				"tiktok_publish_status": {
+					"active": "Checking the TikTok post status",
+					"past": "Checked the TikTok post status"
+				},
+				"tiktok_reconnect": {
+					"active": "Reconnecting your TikTok account",
+					"past": "Reconnected your TikTok account"
+				},
 				"ads_get_ad_accounts": {
 					"active": "Fetching ad accounts",
 					"past": "Fetched ad accounts"

@@ -18,6 +18,7 @@ import {
 	type ApplyElementOpsOutput,
 	type AskUserInput,
 	type AskUserOutput,
+	ATTACHMENT_MEDIA_TYPES,
 	aiChatBillingErrorDataSchema,
 	animateImageInputSchema,
 	applyElementOpsInputSchema,
@@ -111,6 +112,7 @@ import {
 } from "../../agent/request-context";
 import type { AvailableImage } from "../../agent/tools/animate-image.tool";
 import { resolveBuilderModelOption } from "../../agent/tools/builder-model-options";
+import type { AvailableDocument } from "../../agent/tools/read-attachment.tool";
 
 const MAX_IN_FLIGHT_STREAMS_PER_USER = 3;
 const AI_CHAT_GENERATION_CAPTURE_ATTEMPTS = 3;
@@ -348,6 +350,7 @@ export class AiChatService {
 			]);
 			resolvedMcpResult = mcpResult;
 			const availableImages = collectAvailableImages(messages);
+			const availableDocuments = collectAvailableDocuments(messages);
 			const selectedSourceImage = resolveSelectedSourceImage(
 				metadata,
 				availableImages,
@@ -383,6 +386,7 @@ export class AiChatService {
 			// tools need to know which project/chat they act for (see chat-agent.ts).
 			const agent = createChatAgent(
 				{
+					availableDocuments,
 					availableImages,
 					// Composer's model picker: per-message builder override, validated
 					// against the allow-list; undefined = env default.
@@ -1607,6 +1611,50 @@ function collectAvailableImages(
 	}
 
 	return [...images.values()];
+}
+
+const DOCUMENT_MEDIA_TYPE_SET = new Set<string>(
+	ATTACHMENT_MEDIA_TYPES.filter((mediaType) => !mediaType.startsWith("image/")),
+);
+
+/**
+ * Document twin of collectAvailableImages: read_attachment's URL allowlist,
+ * derived from validated transcript parts (user file parts plus ask_user
+ * attachment answers), never from model input.
+ */
+function collectAvailableDocuments(
+	messages: readonly WanditUIMessage[],
+): AvailableDocument[] {
+	const documents = new Map<string, AvailableDocument>();
+
+	const add = (url: string, mediaType: string, filename?: string) => {
+		if (!DOCUMENT_MEDIA_TYPE_SET.has(mediaType)) {
+			return;
+		}
+
+		documents.set(url, {
+			...(filename ? { filename } : {}),
+			mediaType,
+			url,
+		});
+	};
+
+	for (const message of messages) {
+		for (const part of message.parts) {
+			if (message.role === "user" && part.type === "file") {
+				add(part.url, part.mediaType, part.filename);
+				continue;
+			}
+
+			if (part.type === "tool-ask_user" && part.state === "output-available") {
+				for (const file of part.output.files ?? []) {
+					add(file.url, file.mediaType, file.filename);
+				}
+			}
+		}
+	}
+
+	return [...documents.values()];
 }
 
 /**

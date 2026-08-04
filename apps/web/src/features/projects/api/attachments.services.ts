@@ -14,6 +14,7 @@
  *   upload before a project exists.
  */
 import {
+	ATTACHMENT_MEDIA_TYPES,
 	attachmentsRoutes,
 	type UploadAttachmentResponse,
 	uploadAttachmentResponseSchema,
@@ -21,9 +22,15 @@ import {
 
 import { apiClient, isApiClientError } from "@/lib/api-client";
 
-/** Client-side pre-check mirror of the server allowlist (contract §7.2). */
-export const ATTACHMENT_ACCEPT =
-	"image/jpeg,image/png,image/webp,image/gif,image/avif,application/pdf,text/plain";
+/** Client-side pre-check mirror of the server allowlist (contract §7.2). The
+ *  three extensions ride along because Windows/macOS browsers often report an
+ *  unreliable mime for CSV and Office documents. */
+export const ATTACHMENT_ACCEPT = [
+	...ATTACHMENT_MEDIA_TYPES,
+	".csv",
+	".docx",
+	".xlsx",
+].join(",");
 
 /** Server-enforced cap (@fastify/multipart fileSize) — pre-checked client-side. */
 export const ATTACHMENT_MAX_BYTES = 15 * 1024 * 1024;

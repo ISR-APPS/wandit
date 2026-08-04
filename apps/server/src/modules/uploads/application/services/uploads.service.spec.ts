@@ -33,6 +33,14 @@ const PNG_BYTES = Buffer.from([
 
 const JPEG_BYTES = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00]);
 
+// docx and xlsx are OOXML ZIP containers — both start with the PK signature.
+const ZIP_BYTES = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00]);
+
+const DOCX_MEDIA_TYPE =
+	"application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+const XLSX_MEDIA_TYPE =
+	"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
 function pngUpload() {
 	return { buffer: PNG_BYTES, filename: "product.png", mimetype: "image/png" };
 }
@@ -112,6 +120,75 @@ describe("UploadsService.uploadAttachment", () => {
 		});
 
 		expect(result.mediaType).toBe("text/plain");
+	});
+
+	it("accepts an xlsx whose bytes carry the ZIP signature", async () => {
+		const result = await service.uploadAttachment("user_1", {
+			buffer: ZIP_BYTES,
+			filename: "stock.xlsx",
+			mimetype: XLSX_MEDIA_TYPE,
+		});
+
+		expect(putSiteFile).toHaveBeenCalledWith(
+			expect.stringMatching(/^uploads\/user_1\/[0-9a-f-]{36}\/stock\.xlsx$/),
+			ZIP_BYTES,
+			XLSX_MEDIA_TYPE,
+		);
+		expect(result.mediaType).toBe(XLSX_MEDIA_TYPE);
+		expect(result.filename).toBe("stock.xlsx");
+	});
+
+	it("accepts a docx whose bytes carry the ZIP signature", async () => {
+		const result = await service.uploadAttachment("user_1", {
+			buffer: ZIP_BYTES,
+			filename: "tarifs.docx",
+			mimetype: DOCX_MEDIA_TYPE,
+		});
+
+		expect(result.mediaType).toBe(DOCX_MEDIA_TYPE);
+		expect(result.filename).toBe("tarifs.docx");
+	});
+
+	it("rejects a PNG declared as a docx with 415", async () => {
+		await expect(
+			service.uploadAttachment("user_1", {
+				buffer: PNG_BYTES,
+				filename: "fake.docx",
+				mimetype: DOCX_MEDIA_TYPE,
+			}),
+		).rejects.toThrow(UnsupportedMediaTypeException);
+		expect(putSiteFile).not.toHaveBeenCalled();
+	});
+
+	it("trusts a declared text/csv without a signature sniff", async () => {
+		const result = await service.uploadAttachment("user_1", {
+			buffer: Buffer.from("name,phone\nSalon Lila,0555"),
+			filename: "leads.csv",
+			mimetype: "text/csv",
+		});
+
+		expect(result.mediaType).toBe("text/csv");
+		expect(result.filename).toBe("leads.csv");
+	});
+
+	it("resolves a csv declared as the legacy Excel type from its filename", async () => {
+		const result = await service.uploadAttachment("user_1", {
+			buffer: Buffer.from("name,phone"),
+			filename: "leads.csv",
+			mimetype: "application/vnd.ms-excel",
+		});
+
+		expect(result.mediaType).toBe("text/csv");
+	});
+
+	it("resolves an empty declared type from an .xlsx filename", async () => {
+		const result = await service.uploadAttachment("user_1", {
+			buffer: ZIP_BYTES,
+			filename: "report.xlsx",
+			mimetype: "",
+		});
+
+		expect(result.mediaType).toBe(XLSX_MEDIA_TYPE);
 	});
 });
 
