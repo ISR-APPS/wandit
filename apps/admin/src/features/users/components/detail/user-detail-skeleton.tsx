@@ -8,16 +8,16 @@ const METRIC_SKELETON_KEYS = [
 	"assets",
 ] as const;
 
-const DETAIL_SKELETONS = [
-	{
-		key: "account",
-		rows: ["role", "email", "country", "locale", "signup", "activity"],
-	},
-	{
-		key: "subscription",
-		rows: ["plan", "status", "provider", "amount", "renewal", "cost"],
-	},
+const SUBSCRIPTION_ROWS = [
+	"plan",
+	"status",
+	"provider",
+	"amount",
+	"renewal",
+	"cost",
 ] as const;
+
+const ACTIVITY_ROWS = ["row-1", "row-2", "row-3", "row-4", "row-5"] as const;
 
 export function UserDetailSkeleton() {
 	return (
@@ -49,22 +49,31 @@ export function UserDetailSkeleton() {
 					))}
 				</CardContent>
 			</Card>
-			<Skeleton className="h-9 w-96 max-w-full" />
-			<div className="grid gap-6 xl:grid-cols-2">
-				{DETAIL_SKELETONS.map((section) => (
-					<Card key={section.key} className="shadow-none">
-						<CardHeader>
-							<Skeleton className="h-5 w-32" />
-							<Skeleton className="h-4 w-52" />
-						</CardHeader>
-						<CardContent className="grid grid-cols-2 gap-4">
-							{section.rows.map((row) => (
-								<Skeleton key={row} className="h-10 w-full" />
-							))}
-						</CardContent>
-					</Card>
-				))}
-			</div>
+			<Card className="shadow-none">
+				<CardHeader>
+					<Skeleton className="h-5 w-32" />
+					<Skeleton className="h-4 w-52" />
+				</CardHeader>
+				<CardContent className="grid grid-cols-2 gap-4">
+					{SUBSCRIPTION_ROWS.map((row) => (
+						<Skeleton key={row} className="h-10 w-full" />
+					))}
+				</CardContent>
+			</Card>
+			<Card className="shadow-none">
+				<CardHeader className="gap-4">
+					<div className="space-y-2">
+						<Skeleton className="h-5 w-24" />
+						<Skeleton className="h-4 w-64" />
+					</div>
+					<Skeleton className="h-9 w-72 max-w-full" />
+				</CardHeader>
+				<CardContent className="flex flex-col gap-3">
+					{ACTIVITY_ROWS.map((row) => (
+						<Skeleton key={row} className="h-12 w-full" />
+					))}
+				</CardContent>
+			</Card>
 		</div>
 	);
 }

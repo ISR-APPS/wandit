@@ -15,11 +15,10 @@ import { useSession } from "@/features/auth/lib/session";
 import { useUserQuery } from "@/features/users/api/users.queries";
 import { BanUserDialog } from "@/features/users/components/ban-user-dialog";
 import { ChangeRoleDialog } from "@/features/users/components/change-role-dialog";
-import { UserCreditLedger } from "@/features/users/components/detail/user-credit-ledger";
+import { UserActivityPanel } from "@/features/users/components/detail/user-activity-panel";
 import { UserDetailHeader } from "@/features/users/components/detail/user-detail-header";
 import { UserDetailSkeleton } from "@/features/users/components/detail/user-detail-skeleton";
 import { UserMetrics } from "@/features/users/components/detail/user-metrics";
-import { UserProjectsCard } from "@/features/users/components/detail/user-projects-card";
 import { UserSubscriptionCard } from "@/features/users/components/detail/user-subscription-card";
 import { UserWorkspacesCard } from "@/features/users/components/detail/user-workspaces-card";
 import { EarlyAccessDialog } from "@/features/users/components/early-access-dialog";
@@ -110,20 +109,17 @@ export function UserDetailPage({ userId }: UserDetailPageProps) {
 			/>
 			<UserMetrics user={user} />
 
-			<div className="grid gap-6 xl:grid-cols-2">
-				{user.subscription ? (
-					<UserSubscriptionCard subscription={user.subscription} />
-				) : null}
-				<UserProjectsCard
-					userId={user.id}
-					projects={user.projects}
-					className={user.subscription ? undefined : "xl:col-span-2"}
-				/>
-			</div>
+			{user.subscription ? (
+				<UserSubscriptionCard subscription={user.subscription} />
+			) : null}
 
 			<UserWorkspacesCard workspaces={user.workspaces} />
 
-			<UserCreditLedger entries={user.creditLedger} />
+			<UserActivityPanel
+				userId={user.id}
+				projects={user.projects}
+				creditLedger={user.creditLedger}
+			/>
 
 			<GrantCreditsDialog
 				user={user}
