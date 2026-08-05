@@ -112,18 +112,35 @@ describe("assertOwnedFileParts", () => {
 });
 
 describe("streamRequestId", () => {
-	it("ignores body.id — the transport sends the constant chat id there", () => {
+	it("ignores messageId on plain submits — the SDK sends the last message's id", () => {
 		// Regression: using body.id as the idempotency key 409'd every turn
 		// after the first (chat id never changes), so answering ask_user
 		// questions or sending a second message always failed as a replay.
 		expect(
-			streamRequestId({ id: "chat-uuid-constant", messageId: undefined }),
+			streamRequestId({ messageId: undefined, trigger: "submit-message" }),
+		).toBeUndefined();
+	});
+
+	it("ignores messageId on auto-resubmits and retries — it repeats the assistant row id across rounds", () => {
+		// Regression: ask_user answers and post-failure retries auto-resubmit
+		// with messageId = the extended assistant message's id, which is
+		// CONSTANT for the whole turn. Honoring it welded every retry to the
+		// failed attempt's idempotency key, so one mid-stream failure turned
+		// the turn into a permanent 409 AI_CHAT_OPERATION_REPLAYED.
+		expect(
+			streamRequestId({ messageId: "assistant-msg-1", trigger: "submit-message" }),
+		).toBeUndefined();
+		expect(
+			streamRequestId({ messageId: "assistant-msg-1", trigger: undefined }),
 		).toBeUndefined();
 	});
 
 	it("uses messageId when the client regenerates a specific message", () => {
 		expect(
-			streamRequestId({ id: "chat-uuid-constant", messageId: "msg-7" }),
+			streamRequestId({
+				messageId: "msg-7",
+				trigger: "regenerate-message",
+			}),
 		).toBe("msg-7");
 	});
 });

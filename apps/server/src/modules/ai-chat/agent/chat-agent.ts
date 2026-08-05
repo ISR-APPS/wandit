@@ -3,8 +3,10 @@ import type {
 	AiChatMessageMetadata,
 	AiChatTools,
 } from "@wandit/contracts";
+import { createGateway } from "@ai-sdk/gateway";
 import { env } from "@wandit/env/server";
 import { isStepCount, type Tool, ToolLoopAgent, type UIMessage } from "ai";
+import { Agent as UndiciAgent } from "undici";
 
 import type { McpToolApprovalMap } from "../../mcp-connectors/domain/mcp-tool-policy";
 import type { PageEditsService } from "../../pages/application/services/page-edits.service";
@@ -98,6 +100,30 @@ export type ChatAgentDeps = GeneratePageToolDeps &
 	ReadAttachmentToolDeps;
 
 /**
+ * High reasoning effort keeps the model silent for minutes between streamed
+ * chunks while it composes a brief, and Node's fetch kills any socket that
+ * idles past undici's default 5-minute body timeout ("TypeError:
+ * terminated" mid-turn). Trigger workers raise that ceiling process-wide
+ * (trigger/undici-timeouts.ts); the API process must not — webhooks, auth
+ * and storage keep the defaults — so only the chat model's gateway leg gets
+ * the long-idle dispatcher.
+ */
+const chatGatewayDispatcher = new UndiciAgent({
+	bodyTimeout: 3_600_000,
+	headersTimeout: 3_600_000,
+});
+
+const chatGateway = createGateway({
+	fetch: ((input, init) =>
+		fetch(input, {
+			...init,
+			dispatcher: chatGatewayDispatcher,
+			// Node's fetch accepts undici's dispatcher extension; lib.dom's
+			// RequestInit does not know it.
+		} as unknown as RequestInit)) as typeof fetch,
+});
+
+/**
  * The agent is built PER REQUEST now (it used to be a module singleton):
  * generate_page and the page-edit tools must know which project/chat they act
  * for, and those ids only exist once the controller has loaded the owned
@@ -115,7 +141,7 @@ export function createChatAgent(
 		instructions: contextBlock
 			? `${WANDIT_SYSTEM_PROMPT}\n\n${contextBlock}`
 			: WANDIT_SYSTEM_PROMPT,
-		model: env.AI_CHAT_MODEL,
+		model: chatGateway(env.AI_CHAT_MODEL),
 		maxOutputTokens: AI_CHAT_MAX_OUTPUT_TOKENS,
 		providerOptions: withGatewayAttribution(
 			{
