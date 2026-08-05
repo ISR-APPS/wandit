@@ -6,12 +6,12 @@ import type {
 import { createGateway } from "@ai-sdk/gateway";
 import { env } from "@wandit/env/server";
 import { isStepCount, type Tool, ToolLoopAgent, type UIMessage } from "ai";
-import { Agent as UndiciAgent } from "undici";
 
 import type { McpToolApprovalMap } from "../../mcp-connectors/domain/mcp-tool-policy";
 import type { PageEditsService } from "../../pages/application/services/page-edits.service";
 import { withGatewayAttribution } from "../../metering/domain/gateway-metering";
 import { AI_CHAT_MAX_OUTPUT_TOKENS, AI_CHAT_MAX_STEPS } from "./chat-metering";
+import { chatGatewayFetch } from "./gateway-fetch";
 import { WANDIT_SYSTEM_PROMPT } from "./system-prompt";
 import {
 	type AnimateImageTool,
@@ -99,29 +99,7 @@ export type ChatAgentDeps = GeneratePageToolDeps &
 	Omit<GenerateImageToolDeps, "chatId" | "projectId"> &
 	ReadAttachmentToolDeps;
 
-/**
- * High reasoning effort keeps the model silent for minutes between streamed
- * chunks while it composes a brief, and Node's fetch kills any socket that
- * idles past undici's default 5-minute body timeout ("TypeError:
- * terminated" mid-turn). Trigger workers raise that ceiling process-wide
- * (trigger/undici-timeouts.ts); the API process must not — webhooks, auth
- * and storage keep the defaults — so only the chat model's gateway leg gets
- * the long-idle dispatcher.
- */
-const chatGatewayDispatcher = new UndiciAgent({
-	bodyTimeout: 3_600_000,
-	headersTimeout: 3_600_000,
-});
-
-const chatGateway = createGateway({
-	fetch: ((input, init) =>
-		fetch(input, {
-			...init,
-			dispatcher: chatGatewayDispatcher,
-			// Node's fetch accepts undici's dispatcher extension; lib.dom's
-			// RequestInit does not know it.
-		} as unknown as RequestInit)) as typeof fetch,
-});
+const chatGateway = createGateway({ fetch: chatGatewayFetch });
 
 /**
  * The agent is built PER REQUEST now (it used to be a module singleton):
