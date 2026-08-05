@@ -59,14 +59,21 @@ type AiChatRequestBody = z.infer<typeof aiChatRequestBodySchema>;
  * Idempotency id for one stream turn. NEVER body.id: the AI SDK transport
  * sends the CHAT id there, which is constant across turns — using it as the
  * at-most-once key marks every turn after the first as a replay (409) and
- * caps chats at a single exchange. body.messageId (set on regenerate) varies
- * per regenerated message; for plain sends this returns undefined and the
- * service falls back to the last message's id, which changes every turn.
+ * caps chats at a single exchange. body.messageId is trusted only on
+ * "regenerate-message", where it names the message being regenerated. On
+ * "submit-message" the SDK fills messageId with the LAST message's id for
+ * every no-arg retry and ask_user/approval auto-resubmit — that is the
+ * assistant row the turn keeps extending, so the id repeats while the
+ * conversation advances, and keying on it welded each failed continuation to
+ * all of its retries (one mid-stream failure then 409'd the turn forever).
+ * Returning undefined lets the service key the turn on the turnRequestId
+ * transcript fingerprint, which tells an answered round or a
+ * retry-with-progress apart from the attempt it replaces.
  */
 export function streamRequestId(
-	body: Pick<AiChatRequestBody, "id" | "messageId">,
+	body: Pick<AiChatRequestBody, "messageId" | "trigger">,
 ): string | undefined {
-	return body.messageId;
+	return body.trigger === "regenerate-message" ? body.messageId : undefined;
 }
 
 @Controller("v1/chats")
