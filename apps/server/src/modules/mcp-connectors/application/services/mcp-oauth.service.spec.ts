@@ -255,7 +255,7 @@ describe("McpOauthService.handleCallback", () => {
 
 		expect(redirect.origin).toBe("http://web.test");
 		expect(redirect.pathname).toBe("/connect/complete");
-		expect(redirect.searchParams.get("mcp_error")).toBe("invalid_state");
+		expect(redirect.searchParams.get("app_error")).toBe("invalid_state");
 		expect(connectionsRepository.clearPendingState).not.toHaveBeenCalled();
 		expect(auth.api.getSession).not.toHaveBeenCalled();
 	});
@@ -278,8 +278,8 @@ describe("McpOauthService.handleCallback", () => {
 			"http://web.test/p/project-1",
 		);
 		expect(redirect.searchParams.get("tab")).toBe("chat");
-		expect(redirect.searchParams.get("mcp_error")).toBe("access_denied");
-		expect(redirect.searchParams.get("mcp_connector")).toBe("future-oauth");
+		expect(redirect.searchParams.get("app_error")).toBe("access_denied");
+		expect(redirect.searchParams.get("app_connector")).toBe("future-oauth");
 	});
 
 	it("accepts a standard DCR code, persists tokens, and consumes transient state", async () => {
@@ -325,7 +325,7 @@ describe("McpOauthService.handleCallback", () => {
 		expect(redirect.origin + redirect.pathname).toBe(
 			"http://web.test/p/project-1",
 		);
-		expect(redirect.searchParams.get("mcp_connected")).toBe("tiktok-ads");
+		expect(redirect.searchParams.get("app_connected")).toBe("tiktok-ads");
 		expect(redirect.searchParams.has("access_token")).toBe(false);
 	});
 
@@ -347,7 +347,7 @@ describe("McpOauthService.handleCallback", () => {
 			CONNECTION_ID,
 			{ clearClientInfo: true },
 		);
-		expect(redirect.searchParams.get("mcp_error")).toBe("exchange_failed");
+		expect(redirect.searchParams.get("app_error")).toBe("exchange_failed");
 	});
 
 	it("keeps prereg cleanup unchanged when no adapter is available", async () => {
@@ -387,8 +387,8 @@ describe("McpOauthService.handleCallback", () => {
 		expect(preregClient.exchangeCode).not.toHaveBeenCalled();
 		expect(dcrClient.exchangeCode).not.toHaveBeenCalled();
 		expect(connectionsRepository.saveTokens).not.toHaveBeenCalled();
-		expect(redirect.searchParams.get("mcp_error")).toBe("invalid_state");
-		expect(redirect.searchParams.has("mcp_connected")).toBe(false);
+		expect(redirect.searchParams.get("app_error")).toBe("invalid_state");
+		expect(redirect.searchParams.has("app_connected")).toBe(false);
 	});
 
 	it("clears and rejects a callback state older than ten minutes", async () => {
@@ -415,7 +415,7 @@ describe("McpOauthService.handleCallback", () => {
 			"http://web.test/p/project-1",
 		);
 		expect(redirect.searchParams.get("tab")).toBe("chat");
-		expect(redirect.searchParams.get("mcp_error")).toBe("invalid_state");
+		expect(redirect.searchParams.get("app_error")).toBe("invalid_state");
 	});
 });
 

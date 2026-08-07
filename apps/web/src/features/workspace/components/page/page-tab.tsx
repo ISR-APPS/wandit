@@ -579,11 +579,6 @@ function PreviewStage({ reloadKey }: { reloadKey: number }) {
 			ref={stageRef}
 			className="relative flex h-full items-center justify-center p-4 md:p-6"
 		>
-			<span className="absolute start-4 top-3.5 z-10 text-muted-foreground text-xs">
-				{mobile
-					? t("workspace.page.viewportMobile")
-					: t("workspace.page.viewportDesktop")}
-			</span>
 			{attempt?.status === "failed" ? (
 				// A later build failed but this version still stands — quiet note
 				// instead of hijacking the whole stage.

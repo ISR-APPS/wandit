@@ -715,7 +715,10 @@ describe("MessageParts turn block", () => {
 		]);
 
 		expect(html.match(/>Wandit</g)).toHaveLength(1);
-		expect(html).toContain("Quel budget ?");
+		// The ask card itself starts collapsed: its summary row is present, the
+		// question text stays behind the toggle.
+		expect(html).toContain('aria-expanded="false"');
+		expect(html).not.toContain("Quel budget ?");
 	});
 
 	it("folds the settled receipt below the closing text once the turn ends", () => {
