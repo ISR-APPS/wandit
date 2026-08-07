@@ -5,13 +5,14 @@ import type {
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import { generateText } from "ai";
-
 import { VIDEO_NEGATIVE_PROMPT } from "../../../ai-chat/agent/site-builder/generate-video";
-import { MeteringService } from "../../../metering/application/services/metering.service";
 import {
-	gatewayGenerationCaptureFromError,
-	withGatewayAttribution,
-} from "../../../metering/domain/gateway-metering";
+	createLlmModel,
+	hasLlmProviderKey,
+	withLlmAttribution,
+} from "../../../ai-provider/domain/llm-provider";
+import { MeteringService } from "../../../metering/application/services/metering.service";
+import { llmGenerationCaptureFromError } from "../../../metering/domain/gateway-metering";
 import { bundledUnmeteredStepUsage } from "../../../metering/domain/metering";
 
 const DIRECTOR_CAPTURE_ATTEMPTS = 3;
@@ -94,23 +95,35 @@ export class VideoDirectorService {
 	async craftVideoPrompt(
 		input: CraftVideoPromptInput,
 	): Promise<CraftedVideoPrompt> {
-		if (!env.AI_GATEWAY_API_KEY) {
-			this.logger.warn("Video director skipped: AI gateway is not configured");
+		// Routed with the prompt_refine task: same job (a cheap prompt-rewriting
+		// brain) and the same default model as the Higgsfield refiner.
+		if (!hasLlmProviderKey("prompt_refine")) {
+			this.logger.warn("Video director skipped: no key for its LLM provider");
 			return fallbackPrompt(input);
 		}
+
+		const meteringContext = {
+			operation: "chat" as const,
+			organizationId: input.organizationId,
+			userId: input.userId,
+		};
 
 		try {
 			const result = await generateText({
 				maxOutputTokens: DIRECTOR_MAX_OUTPUT_TOKENS,
-				model: env.AI_VIDEO_DIRECTOR_MODEL ?? env.AI_PROMPT_REFINER_MODEL,
-				prompt: buildDirectorRequest(input),
-				providerOptions: withGatewayAttribution(
-					{ openai: { reasoningEffort: "medium" } },
+				model: createLlmModel(
+					env.AI_VIDEO_DIRECTOR_MODEL ?? env.AI_PROMPT_REFINER_MODEL,
 					{
-						operation: "chat",
-						organizationId: input.organizationId,
-						userId: input.userId,
+						context: meteringContext,
+						reasoningEffort: "medium",
+						task: "prompt_refine",
 					},
+				),
+				prompt: buildDirectorRequest(input),
+				providerOptions: withLlmAttribution(
+					{ openai: { reasoningEffort: "medium" } },
+					meteringContext,
+					"prompt_refine",
 				),
 				system: VIDEO_DIRECTOR_PROMPT,
 			});
@@ -156,7 +169,7 @@ export class VideoDirectorService {
 				prompt,
 			};
 		} catch (error) {
-			const errorCapture = gatewayGenerationCaptureFromError(error);
+			const errorCapture = llmGenerationCaptureFromError(error);
 
 			if (input.parentEventId && errorCapture) {
 				try {
