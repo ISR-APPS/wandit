@@ -64,6 +64,8 @@ function createRuntimeHarness(
 		fetch?: RuntimeFetch;
 		honeypot?: string;
 		href?: string;
+		/** Install fbq/ttq spies on the window stub (published-page pixels). */
+		pixels?: boolean;
 		referrer?: string;
 		search?: string;
 	} = {},
@@ -127,10 +129,24 @@ function createRuntimeHarness(
 			"https://shop.example/landing?utm_source=facebook&fbclid=abc",
 		search: options.search ?? "?utm_source=facebook&fbclid=abc",
 	};
+	const fbqCalls: unknown[][] = [];
+	const ttqCalls: unknown[][] = [];
 	const windowStub = {
 		addEventListener: (type: string, handler: RuntimeHandler) => {
 			addListener(windowListeners, type, handler);
 		},
+		...(options.pixels
+			? {
+					fbq: (...args: unknown[]) => {
+						fbqCalls.push(args);
+					},
+					ttq: {
+						track: (...args: unknown[]) => {
+							ttqCalls.push(args);
+						},
+					},
+				}
+			: {}),
 	};
 	class CustomEventStub {
 		detail: unknown;
@@ -164,11 +180,13 @@ function createRuntimeHarness(
 		emitLead: (detail: Record<string, unknown>) => {
 			emit(documentListeners, "wandit:lead", { detail });
 		},
+		fbqCalls,
 		fetchMock,
 		pagehide: () => {
 			emit(windowListeners, "pagehide", {});
 		},
 		results,
+		ttqCalls,
 	};
 }
 
@@ -389,5 +407,70 @@ describe("buildLeadsRuntimeScript", () => {
 		);
 		expect(body.phone).toBe("0555000004");
 		expect(body.name).toBe(largeValue.trim().slice(0, 200));
+	});
+
+	// Ad-pixel Lead conversions (fbq/ttq are injected at publish time by
+	// pixel-injector.ts; the runtime only fires the event).
+	it("fires one Lead conversion per accepted capture on both pixels", async () => {
+		const harness = createRuntimeHarness({ pixels: true });
+
+		harness.emitLead({ phone: "0555000010" });
+		await flushMicrotasks();
+
+		expect(harness.results).toEqual([{ ok: true }]);
+		expect(harness.fbqCalls).toEqual([["track", "Lead"]]);
+		expect(harness.ttqCalls).toEqual([["Lead"]]);
+	});
+
+	it("fires no conversion when the capture endpoint rejects the lead", async () => {
+		const harness = createRuntimeHarness({
+			fetch: async () => response(400),
+			pixels: true,
+		});
+
+		harness.emitLead({ phone: "0555000011" });
+		await flushMicrotasks();
+
+		expect(harness.results).toEqual([{ ok: false }]);
+		expect(harness.fbqCalls).toEqual([]);
+		expect(harness.ttqCalls).toEqual([]);
+	});
+
+	it("does not fire a second conversion on the same-phone dedupe path", async () => {
+		const harness = createRuntimeHarness({ pixels: true });
+
+		harness.emitLead({ phone: "0555000012" });
+		await flushMicrotasks();
+		harness.emitLead({ phone: "0555000012" });
+		await flushMicrotasks();
+
+		expect(harness.fetchMock).toHaveBeenCalledTimes(1);
+		expect(harness.fbqCalls).toEqual([["track", "Lead"]]);
+		expect(harness.ttqCalls).toEqual([["Lead"]]);
+	});
+
+	it("fires no conversion for a honeypot-trapped send (server 200s but drops it)", async () => {
+		const harness = createRuntimeHarness({
+			honeypot: "gotcha",
+			pixels: true,
+		});
+
+		harness.emitLead({ phone: "0555000014" });
+		await flushMicrotasks();
+
+		expect(harness.results).toEqual([{ ok: true }]);
+		expect(harness.fbqCalls).toEqual([]);
+		expect(harness.ttqCalls).toEqual([]);
+	});
+
+	it("stays silent and still reports success when no pixels are installed", async () => {
+		const harness = createRuntimeHarness();
+
+		harness.emitLead({ phone: "0555000013" });
+		await flushMicrotasks();
+
+		expect(harness.results).toEqual([{ ok: true }]);
+		expect(harness.fbqCalls).toEqual([]);
+		expect(harness.ttqCalls).toEqual([]);
 	});
 });

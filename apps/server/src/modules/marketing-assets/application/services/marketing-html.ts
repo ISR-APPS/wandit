@@ -63,6 +63,7 @@ const MARKETING_DOCUMENT_PROMPT = `You are the senior brand designer and direct-
 - Every fact, number, price, phone, link, and name comes from the brief — above all its FACTS section. NOTHING may be invented: no fake statistics, no invented testimonials, no imaginary discounts, no placeholder phone numbers. If a useful fact is absent, write around it; never fabricate it.
 - The document's language is the brief's LANGUAGE. French briefs produce French documents; Arabic briefs produce Arabic documents with dir="rtl" on <html>, lang="ar", and an Arabic-capable font pairing (e.g. "Cairo" for display + "Noto Naskh Arabic" or "IBM Plex Sans Arabic" for text). Mixed-language ad variants are allowed only when the brief asks for them (darija in Arabic script or Latin script as specified).
 - Prices are typeset with their currency exactly as given (DZD amounts use a narrow no-break space as thousands separator: "8 900 DZD").
+- Currency discipline: product/offer prices keep the currency the brief gives (usually DZD). PAID-MEDIA BUDGETS are different — ad platforms charge in US dollars, so any ad-spend amount is written with "USD" ("20 USD/jour"), and a budget given without a currency is never assumed to be DZD or converted; write it exactly as the brief states it.
 
 ## The Wandit dossier — visual system
 This is a DOCUMENT, not a website: editorial calm, generous whitespace, zero conversion pressure. Think of a beautifully set A4 dossier.
@@ -87,7 +88,7 @@ AD COPY ("ad-copy")
 - Variants must genuinely differ in angle or hook mechanics — never the same sentence reworded.
 
 MARKETING STRATEGY ("marketing-strategy")
-- Sections, numbered: 01 Objectifs (2-3 measurable objectives grounded in the brief's OBJECTIVE), 02 Audience (insight in prose: who, the trigger, the objection to disarm), 03 Canaux (a table: channel · role · format · cadence), 04 Piliers de contenu (3-4 pillars, each one line of promise + one example hook), 05 Calendrier — 2 semaines (a 14-slot table: day · channel · content idea · goal), 06 Logique budget (how to split and when to scale; use only amounts from the brief, otherwise reason in percentages), 07 KPIs (a table: metric · target direction · why it matters).
+- Sections, numbered: 01 Objectifs (2-3 measurable objectives grounded in the brief's OBJECTIVE), 02 Audience (insight in prose: who, the trigger, the objection to disarm), 03 Canaux (a table: channel · role · format · cadence), 04 Piliers de contenu (3-4 pillars, each one line of promise + one example hook), 05 Calendrier — 2 semaines (a 14-slot table: day · channel · content idea · goal), 06 Logique budget (how to split and when to scale; use only amounts from the brief, otherwise reason in percentages — ad-platform spend is denominated in USD, never DZD), 07 KPIs (a table: metric · target direction · why it matters).
 - Depth follows the brief's depth setting: "quick" = tighter prose, calendar may be 1 week; "detailed" = full anatomy.
 
 VIDEO SCRIPT ("video-script")

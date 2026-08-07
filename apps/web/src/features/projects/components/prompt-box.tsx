@@ -1723,39 +1723,25 @@ function OutputSettings({
 			<Tooltip>
 				<TooltipTrigger asChild>
 					<PopoverTrigger asChild>
-						{OutputIcon && outputCopy ? (
-							// The trigger doubles as the "what you'll get" chip the old
-							// output picker used to be — one pill instead of two.
-							<Button
-								type="button"
-								variant="outline"
-								size="sm"
-								aria-label={`${settingsLabel}: ${outputCopy.label}`}
-								className={cn(
-									"rounded-full border-primary/30 bg-primary/10 text-foreground shadow-none transition-colors hover:bg-primary/15 data-[state=open]:bg-primary/15",
-									isHero ? "h-9" : "h-[30px] text-[13px]",
-								)}
-							>
-								<OutputIcon className="size-3.5 text-primary" />
-								<span className="max-w-32 truncate font-medium">
-									{outputCopy.shortLabel}
-								</span>
-								<SlidersHorizontal className="size-3 opacity-60" />
-							</Button>
-						) : (
-							<Button
-								type="button"
-								variant="outline"
-								size="icon-sm"
-								aria-label={settingsLabel}
-								className={cn(
-									"rounded-full border-border bg-transparent text-muted-foreground shadow-none transition-colors hover:border-primary/25 hover:bg-accent/70 hover:text-foreground data-[state=open]:border-primary/30 data-[state=open]:bg-primary/10 data-[state=open]:text-foreground",
-									isHero ? "size-9" : "size-[30px]",
-								)}
-							>
-								<SlidersHorizontal className="size-4" />
-							</Button>
-						)}
+						{/* Quiet icon-only trigger — the chosen output stays inside the
+						    settings panel (and in the aria-label for screen readers)
+						    instead of crowding the composer with a labeled pill. */}
+						<Button
+							type="button"
+							variant="outline"
+							size="icon-sm"
+							aria-label={
+								outputCopy
+									? `${settingsLabel}: ${outputCopy.label}`
+									: settingsLabel
+							}
+							className={cn(
+								"rounded-full border-border bg-transparent text-muted-foreground shadow-none transition-colors hover:border-primary/25 hover:bg-accent/70 hover:text-foreground data-[state=open]:border-primary/30 data-[state=open]:bg-primary/10 data-[state=open]:text-foreground",
+								isHero ? "size-9" : "size-[30px]",
+							)}
+						>
+							<SlidersHorizontal className="size-4" />
+						</Button>
 					</PopoverTrigger>
 				</TooltipTrigger>
 				<TooltipContent>{settingsLabel}</TooltipContent>

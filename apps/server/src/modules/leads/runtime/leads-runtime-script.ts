@@ -45,6 +45,7 @@ export function buildLeadsRuntimeScript(options: {
 		var pendingPayloads = {};
 		var beaconedPayloads = {};
 		var pendingSend = null;
+		var converted = {};
 
 		// Arabic-Indic (U+0660-0669) and Eastern Arabic-Indic (U+06F0-06F9)
 		// digits fold to ASCII; every other non-digit character is dropped.
@@ -226,6 +227,35 @@ export function buildLeadsRuntimeScript(options: {
 			});
 		}
 
+		// Ad-pixel conversion: fired ONCE per accepted lead send, only after
+		// the capture endpoint answered 2xx — never on the raw submit, never
+		// on the same-phone dedupe path, and never for a honeypot-trapped
+		// send (the server answers 200 to keep bots blind, but stores no
+		// lead). A localStorage stamp extends the dedupe across reloads so a
+		// resubmit-after-refresh cannot double-count. The base codes
+		// (fbq/ttq) are injected at publish time by pixel-injector.ts;
+		// feature-detect so pages without pixels stay silent.
+		function fireLeadConversion(digits) {
+			if (converted[digits]) return;
+			converted[digits] = true;
+			try {
+				var storageKey = "wandit:lead:conv:" + digits;
+				var last = Number(localStorage.getItem(storageKey));
+				if (isFinite(last) && Date.now() - last < DEDUPE_WINDOW_MS) return;
+				localStorage.setItem(storageKey, String(Date.now()));
+			} catch (ignored) {}
+			try {
+				if (typeof window.fbq === "function") {
+					window.fbq("track", "Lead");
+				}
+			} catch (ignored) {}
+			try {
+				if (window.ttq && typeof window.ttq.track === "function") {
+					window.ttq.track("Lead");
+				}
+			} catch (ignored) {}
+		}
+
 		function send(lead) {
 			var phone = clip(lead.phone, 40);
 			if (!phone) return Promise.resolve(false);
@@ -260,7 +290,12 @@ export function buildLeadsRuntimeScript(options: {
 			pendingPayloads[digits] = payload;
 			delete beaconedPayloads[digits];
 			var request = postWithRetry(payload, 0).then(function (ok) {
-				if (ok) sentAt[digits] = Date.now();
+				if (ok) {
+					sentAt[digits] = Date.now();
+					// A filled honeypot means the server accepted the request but
+					// silently dropped the lead — no conversion for a trapped bot.
+					if (!hp) fireLeadConversion(digits);
+				}
 				return ok;
 			}, function () {
 				return false;

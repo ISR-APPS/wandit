@@ -17,14 +17,7 @@ import type {
 import { videoBuildProgressSchema } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import { cn } from "@wandit/ui/lib/utils";
-import {
-	AlertTriangle,
-	Check,
-	Code,
-	Download,
-	FolderOpen,
-	Play,
-} from "lucide-react";
+import { AlertTriangle, Check, Download, FolderOpen, Play } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 
@@ -358,10 +351,6 @@ function VideoProgressCard({
 							? "Publishing…"
 							: "Publish"}
 				</StepRow>
-				<div className="mt-0.5 inline-flex w-fit items-center gap-[7px] rounded-full border border-border bg-background px-2.5 py-1 font-mono text-[11px] text-muted-foreground">
-					<Code className="size-3 text-primary" aria-hidden />
-					tool · generate_video
-				</div>
 			</div>
 			<span
 				role="status"

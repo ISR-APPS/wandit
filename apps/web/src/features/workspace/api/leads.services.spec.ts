@@ -15,6 +15,7 @@ function response(id: string, nextCursor: string | null): LeadsResponse {
 	return {
 		leads: [
 			{
+				campaign: null,
 				commune: null,
 				createdAt: "2026-08-02T10:00:00.000Z",
 				extras: { bundle: id },

@@ -68,6 +68,7 @@ describe("LeadsService", () => {
 		await expect(service.list(SCOPE, PROJECT_ID, query)).resolves.toEqual({
 			leads: [
 				{
+					campaign: null,
 					commune: "Bab Ezzouar",
 					createdAt: "2026-08-02T10:00:00.000Z",
 					extras: { bundle: "Duo" },

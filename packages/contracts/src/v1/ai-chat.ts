@@ -16,6 +16,7 @@ import {
 } from "./media-generations";
 import { aiElementOpSchema, widSchema } from "./page-edits";
 import { PAGE_TOKEN_NAMES } from "./page-theme";
+import { triggerRealtimeHandleSchema } from "./shared/trigger-realtime";
 import { memberCreditLimitDetailsSchema } from "./workspaces";
 
 // AI SDK v7 LanguageModelUsage-compatible fields kept on assistant messages.
@@ -284,19 +285,13 @@ export const generatePageInputSchema = z.object({
 	pageKind: z.enum(["website", "cod"]).optional(),
 });
 
-/**
- * Live-progress subscription handle for a queued background job: the
- * Trigger.dev run id plus a read-scoped public access token the chat card
- * uses with Realtime (no polling). Absent when Realtime is unavailable
- * (missing credentials, token minting failure, or messages persisted before
- * this field existed) — cards fall back to polling the attempt endpoint.
- */
-export const triggerRealtimeHandleSchema = z.object({
-	runId: z.string().min(1),
-	publicAccessToken: z.string().min(1),
-});
-
-export type TriggerRealtimeHandle = z.infer<typeof triggerRealtimeHandleSchema>;
+// Definition moved to shared/trigger-realtime.ts (leaf module) so pages.ts
+// can use it without closing an ESM import cycle; re-exported here to keep
+// every existing "@wandit/contracts" consumer working unchanged.
+export {
+	type TriggerRealtimeHandle,
+	triggerRealtimeHandleSchema,
+} from "./shared/trigger-realtime";
 
 export const generatePageOutputSchema = z.object({
 	// "unavailable" = server missing R2/Trigger credentials; the model relays

@@ -150,6 +150,7 @@ export function buildLeadsCsv(
 			lead.commune ?? "",
 			pageTitleDynamic(`leads.status.${lead.status}`),
 			lead.source,
+			lead.campaign ?? "",
 			lead.createdAt,
 			serializeLeadOrderDetails(lead.extras),
 		]

@@ -21,6 +21,7 @@
 	"colLocation": "الولاية / البلدية",
 	"colDate": "التاريخ",
 	"colStatus": "الحالة",
+	"colSource": "المصدر",
 	"call": "اتصال",
 	"whatsapp": "WhatsApp",
 	"emptyTitle": "لا عملاء محتملين بعد",
@@ -65,6 +66,13 @@
 		"البلدية",
 		"الحالة",
 		"المصدر",
+		"الحملة",
 		"التاريخ"
-	]
+	],
+	"source": {
+		"facebook": "فيسبوك",
+		"tiktok": "تيك توك",
+		"direct": "مباشر"
+	},
+	"campaignTooltip": "الحملة: {campaign}"
 }

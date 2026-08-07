@@ -65,6 +65,7 @@ import {
 } from "../../lib/helpers";
 import { useWorkspace } from "../../lib/store";
 import { LeadOrderDetails } from "./lead-order-details";
+import { LeadSourceBadge } from "./lead-source-badge";
 import { LeadStatusSelect } from "./lead-status-select";
 import { LeadsCounters } from "./leads-counters";
 import { SheetSyncButton } from "./sheet-sync-button";
@@ -342,6 +343,7 @@ export function LeadsTab() {
 												</TableHead>
 												<TableHead>{t("leads.colPhone")}</TableHead>
 												<TableHead>{t("leads.colLocation")}</TableHead>
+												<TableHead>{t("leads.colSource")}</TableHead>
 												<TableHead>{t("leads.colDate")}</TableHead>
 												<TableHead className="pe-4 text-end">
 													{t("leads.colStatus")}
@@ -375,6 +377,12 @@ export function LeadsTab() {
 																{lead.commune}
 															</div>
 														) : null}
+													</TableCell>
+													<TableCell>
+														<LeadSourceBadge
+															campaign={lead.campaign}
+															source={lead.source}
+														/>
 													</TableCell>
 													<TableCell
 														className="font-mono text-muted-foreground text-xs"
@@ -418,14 +426,20 @@ export function LeadsTab() {
 												</span>
 												<ContactLinks lead={lead} />
 											</div>
-											<div className="mt-2 text-muted-foreground text-xs">
-												{[
-													lead.wilaya,
-													lead.commune,
-													relativeTime(lead.createdAt),
-												]
-													.filter((part) => part !== null)
-													.join(" · ")}
+											<div className="mt-2 flex items-center justify-between gap-2">
+												<span className="min-w-0 truncate text-muted-foreground text-xs">
+													{[
+														lead.wilaya,
+														lead.commune,
+														relativeTime(lead.createdAt),
+													]
+														.filter((part) => part !== null)
+														.join(" · ")}
+												</span>
+												<LeadSourceBadge
+													campaign={lead.campaign}
+													source={lead.source}
+												/>
 											</div>
 											<LeadOrderDetails extras={lead.extras} />
 										</div>

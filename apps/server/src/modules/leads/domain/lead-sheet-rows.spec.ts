@@ -4,6 +4,7 @@ import { buildLeadSheetValues, LEAD_SHEET_HEADER } from "./lead-sheet-rows";
 
 function lead(overrides: Partial<Lead> = {}): Lead {
 	return {
+		campaign: null,
 		commune: "Bab Ezzouar",
 		createdAt: "2026-07-25T13:30:00.000Z",
 		extras: null,
