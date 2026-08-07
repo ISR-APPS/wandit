@@ -208,7 +208,7 @@ describe("HiggsfieldPromptRefinerService", () => {
 		await expect(refineImage(service, args)).resolves.toBe(args);
 		expect(generateText).not.toHaveBeenCalled();
 		expect(warn).toHaveBeenCalledWith(
-			"Higgsfield prompt refinement skipped: AI gateway is not configured",
+			"Higgsfield prompt refinement skipped: AI provider is not configured",
 		);
 	});
 

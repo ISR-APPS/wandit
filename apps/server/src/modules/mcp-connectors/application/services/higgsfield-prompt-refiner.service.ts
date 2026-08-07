@@ -1,12 +1,13 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { env } from "@wandit/env/server";
 import { generateText } from "ai";
-
-import { MeteringService } from "../../../metering/application/services/metering.service";
 import {
-	gatewayGenerationCaptureFromError,
-	withGatewayAttribution,
-} from "../../../metering/domain/gateway-metering";
+	createLlmModel,
+	hasLlmProviderKey,
+	withLlmAttribution,
+} from "../../../ai-provider/domain/llm-provider";
+import { MeteringService } from "../../../metering/application/services/metering.service";
+import { llmGenerationCaptureFromError } from "../../../metering/domain/gateway-metering";
 import { bundledUnmeteredStepUsage } from "../../../metering/domain/metering";
 
 const PROMPT_REFINER_CAPTURE_ATTEMPTS = 3;
@@ -61,25 +62,32 @@ export class HiggsfieldPromptRefinerService {
 			return input.args;
 		}
 
-		if (!env.AI_GATEWAY_API_KEY) {
+		if (!hasLlmProviderKey("prompt_refine")) {
 			this.logger.warn(
-				"Higgsfield prompt refinement skipped: AI gateway is not configured",
+				"Higgsfield prompt refinement skipped: AI provider is not configured",
 			);
 			return input.args;
 		}
 
+		const meteringContext = {
+			operation: "chat" as const,
+			organizationId: input.organizationId,
+			userId: input.userId,
+		};
+
 		try {
 			const result = await generateText({
 				maxOutputTokens: 600,
-				model: env.AI_PROMPT_REFINER_MODEL,
+				model: createLlmModel(env.AI_PROMPT_REFINER_MODEL, {
+					context: meteringContext,
+					reasoningEffort: "medium",
+					task: "prompt_refine",
+				}),
 				prompt: buildRefinementPrompt(input.toolName, target),
-				providerOptions: withGatewayAttribution(
+				providerOptions: withLlmAttribution(
 					{ openai: { reasoningEffort: "medium" } },
-					{
-						operation: "chat",
-						organizationId: input.organizationId,
-						userId: input.userId,
-					},
+					meteringContext,
+					"prompt_refine",
 				),
 				system: HIGGSFIELD_PROMPT_REFINER_PROMPT,
 			});
@@ -99,7 +107,7 @@ export class HiggsfieldPromptRefinerService {
 
 			return target.withRefinedPrompt(refined);
 		} catch (error) {
-			const errorCapture = gatewayGenerationCaptureFromError(error);
+			const errorCapture = llmGenerationCaptureFromError(error);
 
 			if (input.parentEventId && errorCapture) {
 				try {

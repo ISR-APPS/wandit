@@ -82,11 +82,11 @@ import {
 import { MediaGenerationsRepository } from "../../../media-generations/infrastructure/persistence/media-generations.repository";
 import { MeteringService } from "../../../metering/application/services/metering.service";
 import { ModelPricingService } from "../../../metering/application/services/model-pricing.service";
-import { gatewayGenerationCaptureFromError } from "../../../metering/domain/gateway-metering";
+import { llmGenerationCaptureFromError } from "../../../metering/domain/gateway-metering";
 import {
 	type AiUsageEvent,
 	type CapturedGeneration,
-	gatewayGenerationId,
+	capturedGenerationRef,
 	type MeteringReserveOutcome,
 	MeteringStateConflictError,
 } from "../../../metering/domain/metering";
@@ -495,9 +495,10 @@ export class AiChatService {
 				return;
 			}
 
-			const capture = gatewayGenerationCaptureFromError(error);
+			const capture = llmGenerationCaptureFromError(error);
 			const generationId = capture
-				? gatewayGenerationId(capture.providerMetadata)
+				? (capturedGenerationRef(capture.providerMetadata)?.generationId ??
+					null)
 				: null;
 
 			if (

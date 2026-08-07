@@ -1,0 +1,1 @@
+ALTER TABLE "ai_usage_generation_refs" ADD COLUMN IF NOT EXISTS "provider_source" text DEFAULT 'vercel' NOT NULL;

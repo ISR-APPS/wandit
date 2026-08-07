@@ -3,13 +3,14 @@ import type {
 	AiChatMessageMetadata,
 	AiChatTools,
 } from "@wandit/contracts";
-import { createGateway } from "@ai-sdk/gateway";
 import { env } from "@wandit/env/server";
 import { isStepCount, type Tool, ToolLoopAgent, type UIMessage } from "ai";
-
+import {
+	createLlmModel,
+	withLlmAttribution,
+} from "../../ai-provider/domain/llm-provider";
 import type { McpToolApprovalMap } from "../../mcp-connectors/domain/mcp-tool-policy";
 import type { PageEditsService } from "../../pages/application/services/page-edits.service";
-import { withGatewayAttribution } from "../../metering/domain/gateway-metering";
 import { AI_CHAT_MAX_OUTPUT_TOKENS, AI_CHAT_MAX_STEPS } from "./chat-metering";
 import { chatGatewayFetch } from "./gateway-fetch";
 import { WANDIT_SYSTEM_PROMPT } from "./system-prompt";
@@ -99,8 +100,6 @@ export type ChatAgentDeps = GeneratePageToolDeps &
 	Omit<GenerateImageToolDeps, "chatId" | "projectId"> &
 	ReadAttachmentToolDeps;
 
-const chatGateway = createGateway({ fetch: chatGatewayFetch });
-
 /**
  * The agent is built PER REQUEST now (it used to be a module singleton):
  * generate_page and the page-edit tools must know which project/chat they act
@@ -115,13 +114,27 @@ export function createChatAgent(
 	mcpTools: McpToolSet = {},
 	approvalMap: McpToolApprovalMap = {},
 ): ToolLoopAgent<never, AiChatToolSet & McpToolSet> {
+	const meteringContext = {
+		operation: "chat" as const,
+		organizationId: deps.subject.organizationId ?? null,
+		userId: deps.userId,
+	};
+
 	return new ToolLoopAgent({
 		instructions: contextBlock
 			? `${WANDIT_SYSTEM_PROMPT}\n\n${contextBlock}`
 			: WANDIT_SYSTEM_PROMPT,
-		model: chatGateway(env.AI_CHAT_MODEL),
+		// The long-idle fetch travels with the model on either provider; on
+		// OpenRouter the "high" effort maps to unified reasoning instead of the
+		// openai providerOptions key below.
+		model: createLlmModel(env.AI_CHAT_MODEL, {
+			context: meteringContext,
+			fetch: chatGatewayFetch,
+			reasoningEffort: "high",
+			task: "chat",
+		}),
 		maxOutputTokens: AI_CHAT_MAX_OUTPUT_TOKENS,
-		providerOptions: withGatewayAttribution(
+		providerOptions: withLlmAttribution(
 			{
 				// Anthropic's fine-grained tool streaming can emit unvalidated JSON.
 				anthropic: { toolStreaming: false },
@@ -133,11 +146,8 @@ export function createChatAgent(
 				// composes one. Only OpenAI models read this key.
 				openai: { reasoningEffort: "high" },
 			},
-			{
-				operation: "chat",
-				organizationId: deps.subject.organizationId ?? null,
-				userId: deps.userId,
-			},
+			meteringContext,
+			"chat",
 		),
 		stopWhen: isStepCount(AI_CHAT_MAX_STEPS),
 		// ToolLoopAgentSettings does not expose experimental_toolApprovalSecret.

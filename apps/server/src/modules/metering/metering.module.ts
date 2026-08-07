@@ -1,7 +1,7 @@
-import { gateway } from "@ai-sdk/gateway";
 import { Module } from "@nestjs/common";
 
 import { DatabaseModule } from "../../infrastructure/database/database.module";
+import { createProviderMeteringGateway } from "../ai-provider/infrastructure/metering-provider-gateway";
 import { CreditsModule } from "../credits/credits.module";
 import { MeteringService } from "./application/services/metering.service";
 import { ModelPricingService } from "./application/services/model-pricing.service";
@@ -17,7 +17,7 @@ import { ModelPricesRepository } from "./infrastructure/persistence/model-prices
 		ModelPricesRepository,
 		ModelPricingService,
 		MeteringService,
-		{ provide: METERING_GATEWAY, useValue: gateway },
+		{ provide: METERING_GATEWAY, useValue: createProviderMeteringGateway() },
 	],
 })
 export class MeteringModule {}

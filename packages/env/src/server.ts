@@ -12,6 +12,7 @@ import { createEnv } from "@t3-oss/env-core";
 import { config } from "dotenv";
 import { z } from "zod";
 import { corsExtraOriginsSchema } from "./cors-origins";
+import { parseLlmProviderOverrides } from "./llm-routing";
 
 // Build paths from this file location so loading works from different cwd values.
 const currentDir = dirname(fileURLToPath(import.meta.url));
@@ -42,6 +43,25 @@ export const env = createEnv({
 		AI_CHAT_MODEL: z.string().min(1).default("openai/gpt-4o-mini"),
 		AI_TITLE_MODEL: z.string().min(1).default("openai/gpt-5.6-luna"),
 		AI_GATEWAY_API_KEY: z.string().min(1).optional(),
+		// Default provider for TEXT-model traffic (chat, page builds, titles,
+		// marketing, prompt refinement). Media models (image/video/transcription)
+		// always stay on the Vercel gateway. "openrouter" needs
+		// OPENROUTER_API_KEY; model ids keep the Vercel `creator/model` form and
+		// are translated at the provider boundary.
+		AI_PROVIDER: z.enum(["openrouter", "vercel"]).default("vercel"),
+		// Per-task exceptions to AI_PROVIDER, e.g.
+		// "page_build=openrouter,project_title=openrouter". Tasks: chat,
+		// marketing, page_build, project_title, prompt_refine. A task named here
+		// runs on the given provider; every other task follows AI_PROVIDER.
+		AI_PROVIDER_OVERRIDES: z
+			.string()
+			.optional()
+			.superRefine((value, ctx) => {
+				for (const error of parseLlmProviderOverrides(value).errors) {
+					ctx.addIssue({ code: "custom", message: error });
+				}
+			}),
+		OPENROUTER_API_KEY: z.string().min(1).optional(),
 		// Optional: the builder's generate_image tool. Needs R2 plus
 		// R2_PUBLIC_BASE_URL too; unset means the tool answers "unavailable".
 		AI_IMAGE_MODEL: z.string().min(1).optional(),
@@ -56,10 +76,7 @@ export const env = createEnv({
 		// Rewrites the brain's Higgsfield image/video intent into a polished
 		// generation prompt before the MCP call. Falls back to the raw prompt
 		// when it cannot run (no gateway key, timeout, error).
-		AI_PROMPT_REFINER_MODEL: z
-			.string()
-			.min(1)
-			.default("openai/gpt-5.6-luna"),
+		AI_PROMPT_REFINER_MODEL: z.string().min(1).default("openai/gpt-5.6-luna"),
 		AI_TRANSCRIPTION_MODEL: z
 			.string()
 			.min(1)

@@ -21,6 +21,7 @@ import { isR2Configured } from "../../../../infrastructure/storage/r2";
 // Type-only import: importing the task value would pull the Trigger worker
 // (and its database pool) into the Nest API process.
 import type { generateMarketingAssetTask } from "../../../../trigger/generate-marketing-asset.task";
+import { hasLlmProviderKey } from "../../../ai-provider/domain/llm-provider";
 import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import {
 	createMarketingAssetBilling,
@@ -69,7 +70,7 @@ export function createGenerateMarketingAssetTool(
 		outputSchema: generateMarketingAssetOutputSchema,
 		execute: async (input, options): Promise<GenerateMarketingAssetOutput> => {
 			if (
-				!env.AI_GATEWAY_API_KEY ||
+				!hasLlmProviderKey("marketing") ||
 				!env.R2_PUBLIC_BASE_URL ||
 				!isR2Configured() ||
 				!env.TRIGGER_SECRET_KEY

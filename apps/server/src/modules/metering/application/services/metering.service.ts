@@ -17,10 +17,11 @@ import {
 	type AiUsageGenerationRef,
 	bundledReservationCompletedAttemptRef,
 	type CapturedGeneration,
+	capturedGenerationRef,
 	type DirectMeteringSettlementPairOutcome,
 	type DirectMeteringSettlementRequest,
 	GatewayUsagePendingError,
-	gatewayGenerationId,
+	type GenerationRefSource,
 	isBundledReservationComplete,
 	isBundledReservationPending,
 	isBundledUnmeteredStepUsage,
@@ -852,11 +853,13 @@ export class MeteringService {
 		eventId: string,
 		capture: CapturedGeneration,
 	): Promise<AiUsageGenerationRef | null> {
-		const generationId = gatewayGenerationId(capture.providerMetadata);
+		const capturedRef = capturedGenerationRef(capture.providerMetadata);
 
-		if (!generationId) {
+		if (!capturedRef) {
 			return null;
 		}
+
+		const { generationId } = capturedRef;
 
 		const captured = await this.repository.transaction(async (transaction) => {
 			await this.lockEvent(eventId, transaction);
@@ -873,6 +876,7 @@ export class MeteringService {
 			const ref = await this.repository.insertGenerationRef(
 				{
 					gatewayGenerationId: generationId,
+					providerSource: capturedRef.source,
 					stepUsage: capture.stepUsage ?? null,
 					usageEventId: eventId,
 				},
@@ -958,7 +962,10 @@ export class MeteringService {
 
 		const results = await Promise.allSettled(
 			refs.map((ref) =>
-				this.gateway.getGenerationInfo({ id: ref.gatewayGenerationId }),
+				this.gateway.getGenerationInfo({
+					id: ref.gatewayGenerationId,
+					source: generationRefSource(ref),
+				}),
 			),
 		);
 		const pendingIds = results.flatMap((result, index) =>
@@ -2568,6 +2575,11 @@ export class MeteringService {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** Rows from before the provider column default to the Vercel gateway. */
+function generationRefSource(ref: AiUsageGenerationRef): GenerationRefSource {
+	return ref.providerSource === "openrouter" ? "openrouter" : "vercel";
 }
 
 function fixedUnitsFromStepUsage(stepUsage: unknown): number | null {
