@@ -10,6 +10,7 @@ import { FilePart, ImageFileGrid } from "./file-part";
 import { GenerateImagePart } from "./generate-image-part";
 import { GenerateMarketingAssetPart } from "./generate-marketing-asset-part";
 import { GeneratePagePart } from "./generate-page-part";
+import { GenerateVideoPart } from "./generate-video-part";
 import {
 	isMcpRunFullySettled,
 	McpActivityCard,
@@ -67,6 +68,7 @@ const ASYNC_CARD_PART_TYPES = new Set([
 	"tool-generate_image",
 	"tool-scrape_leads",
 	"tool-animate_image",
+	"tool-generate_video",
 ]);
 
 function isAsyncCardEntry(entry: MessagePartRenderEntry): boolean {
@@ -272,6 +274,8 @@ export function MessageParts({
 				return <ScrapeLeadsPart key={part.toolCallId} part={part} />;
 			case "tool-animate_image":
 				return <AnimateImagePart key={part.toolCallId} part={part} />;
+			case "tool-generate_video":
+				return <GenerateVideoPart key={part.toolCallId} part={part} />;
 			case "tool-read_skill":
 			case "tool-read_attachment":
 			case "tool-get_direction_candidates":

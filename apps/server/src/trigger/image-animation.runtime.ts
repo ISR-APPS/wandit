@@ -1,3 +1,5 @@
+// This runtime is imported only by Trigger tasks, so the SDK logger is safe.
+import { logger } from "@trigger.dev/sdk";
 import { and, asc, type createDb, eq, lt, sql } from "@wandit/db";
 import { aiUsageEvents } from "@wandit/db/schema/credits";
 import { mediaGenerationAttempts } from "@wandit/db/schema/media-generation-attempts";
@@ -14,7 +16,11 @@ import {
 	publicAssetUrl,
 	siteVideoKey,
 } from "../infrastructure/storage/r2";
-import { generateBuildVideo } from "../modules/ai-chat/agent/site-builder/generate-video";
+import {
+	generateBuildVideo,
+	generateTextToVideo,
+	VIDEO_NEGATIVE_PROMPT,
+} from "../modules/ai-chat/agent/site-builder/generate-video";
 import {
 	createImageAnimationBilling,
 	type ImageAnimationBilling,
@@ -36,8 +42,10 @@ type TriggerDatabase = ReturnType<typeof createDb>;
 const ATTEMPT_COLUMNS = {
 	aspect: mediaGenerationAttempts.aspect,
 	completedAt: mediaGenerationAttempts.completedAt,
+	durationSeconds: mediaGenerationAttempts.durationSeconds,
 	error: mediaGenerationAttempts.error,
 	id: mediaGenerationAttempts.id,
+	kind: mediaGenerationAttempts.kind,
 	motion: mediaGenerationAttempts.motion,
 	organizationId: projects.organizationId,
 	projectDeletedAt: projects.deletedAt,
@@ -84,26 +92,61 @@ export function createImageAnimationRuntime(
 			capture: billing.capture,
 			claimQueued: persistence.claimQueued,
 			fail: persistence.failFromStatus,
-			generate: (attempt, subject, signal, onProviderGeneration) =>
-				generateBuildVideo({
+			generate: (attempt, subject, signal, onProviderGeneration) => {
+				// Metering identity comes from the queue-time subject: the acting
+				// member (not the project creator) with the paying entity.
+				const metering = {
+					operation: "video" as const,
+					organizationId: subject.organizationId ?? null,
+					userId: subject.actorUserId,
+				};
+
+				if (attempt.kind === "text-to-video") {
+					return generateTextToVideo({
+						abortSignal: signal,
+						aspect: attempt.aspect,
+						attemptId: attempt.id,
+						durationSeconds: attempt.durationSeconds === 10 ? 10 : 5,
+						index: 1,
+						metering,
+						negativePrompt: VIDEO_NEGATIVE_PROMPT,
+						...(onProviderGeneration ? { onProviderGeneration } : {}),
+						prompt: attempt.prompt,
+						projectId: attempt.projectId,
+					}).then((result) => {
+						if (result.status === "generated" && result.warnings?.length) {
+							logger.warn(
+								`Text-to-video ${attempt.id}: provider ignored settings`,
+								{ warnings: result.warnings },
+							);
+						}
+						return result;
+					});
+				}
+
+				if (attempt.sourceImageUrl === null) {
+					// The DB kind CHECK makes this unreachable; guard anyway so a
+					// broken row fails cleanly instead of hitting the provider.
+					return Promise.resolve({
+						message: "image animation row is missing its source image",
+						status: "failed" as const,
+					});
+				}
+
+				return generateBuildVideo({
 					abortSignal: signal,
 					aspect: attempt.aspect,
 					attemptId: attempt.id,
 					imageUrl: attempt.sourceImageUrl,
 					index: 1,
-					// Metering identity comes from the queue-time subject: the acting
-					// member (not the project creator) with the paying entity.
-					metering: {
-						operation: "video",
-						organizationId: subject.organizationId ?? null,
-						userId: subject.actorUserId,
-					},
-					motion: attempt.motion,
+					metering,
+					motion: attempt.motion ?? "balanced",
 					motionPrompt: attempt.prompt,
 					...(onProviderGeneration ? { onProviderGeneration } : {}),
 					profile: "image-animation",
 					projectId: attempt.projectId,
-				}),
+				});
+			},
 			loadAttempt: persistence.loadAttempt,
 			markSucceeded: persistence.markSucceeded,
 			now: () => new Date(),
@@ -195,7 +238,7 @@ function createPersistence(db: TriggerDatabase, analytics: AnalyticsCapture) {
 			captureGenerationCompleted(
 				analytics,
 				attempt.userId,
-				"animation",
+				attempt.kind === "text-to-video" ? "video" : "animation",
 				attempt.projectId,
 				attempt.id,
 			);
@@ -233,7 +276,7 @@ function createPersistence(db: TriggerDatabase, analytics: AnalyticsCapture) {
 			captureGenerationFailed(
 				analytics,
 				attempt.userId,
-				"animation",
+				attempt.kind === "text-to-video" ? "video" : "animation",
 				attempt.projectId,
 				attempt.id,
 				input.reason,

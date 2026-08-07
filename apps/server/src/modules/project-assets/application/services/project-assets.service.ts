@@ -15,9 +15,9 @@ import {
 	publicAssetKeyFromUrl,
 	publicAssetUrl,
 } from "../../../../infrastructure/storage/r2";
-import type { ProjectScope } from "../../../projects/domain/project-scope";
 import { ImageGenerationsRepository } from "../../../image-generations/infrastructure/persistence/image-generations.repository";
 import { MediaGenerationsRepository } from "../../../media-generations/infrastructure/persistence/media-generations.repository";
+import type { ProjectScope } from "../../../projects/domain/project-scope";
 import { ProjectAssetsRepository } from "../../infrastructure/persistence/project-assets.repository";
 
 // A video prompt doubles as the animation's display name, cut on a word
@@ -43,10 +43,7 @@ export class ProjectAssetsService {
 
 		const [imageAttempts, videoAttempts] = await Promise.all([
 			this.imageGenerationsRepository.listForProject(scope, projectId),
-			this.mediaGenerationsRepository.listSucceededForProject(
-				scope,
-				projectId,
-			),
+			this.mediaGenerationsRepository.listSucceededForProject(scope, projectId),
 		]);
 
 		const assets: ProjectAsset[] = [];
@@ -103,9 +100,12 @@ export class ProjectAssetsService {
 				key,
 				kind: "video",
 				mediaType: row.videoMediaType ?? "video/mp4",
-				name: animationLabel(row.prompt),
+				// Text-to-video rows carry a user-facing title; animations fall
+				// back to a slice of the motion prompt.
+				name: row.title ?? animationLabel(row.prompt),
 				sizeBytes: null,
-				source: "image-animation",
+				source:
+					row.kind === "text-to-video" ? "video-generation" : "image-animation",
 				url: row.videoUrl,
 			});
 		}

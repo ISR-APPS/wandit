@@ -3,6 +3,7 @@ import {
 	check,
 	index,
 	integer,
+	jsonb,
 	pgEnum,
 	pgTable,
 	text,
@@ -37,9 +38,23 @@ export const imageToVideoMotion = pgEnum("image_to_video_motion", [
 	"dynamic",
 ]);
 
-// Mutable lifecycle row for one five-second image-to-video request. Trigger.dev
-// receives only this row's id plus ownership ids; every generation parameter
-// is snapshotted here before work starts.
+export const mediaGenerationKind = pgEnum("media_generation_kind", [
+	"image-animation",
+	"text-to-video",
+]);
+
+// Voiceover request captured with a text-to-video attempt. Audio generation
+// is stubbed until the audio provider lands; the future pipeline reads the
+// language + Brain-written script from here.
+export type MediaGenerationVoiceover = {
+	language: "en" | "fr" | "ar";
+	script?: string;
+};
+
+// Mutable lifecycle row for one video generation request (image animation or
+// text-to-video, discriminated by `kind`). Trigger.dev receives only this
+// row's id plus ownership ids; every generation parameter — including the
+// director-crafted prompt — is snapshotted here before work starts.
 export const mediaGenerationAttempts = pgTable(
 	"media_generation_attempts",
 	{
@@ -56,12 +71,19 @@ export const mediaGenerationAttempts = pgTable(
 		// both a repeated tool call and a new tool call after a lost stream.
 		requestKey: text("request_key").notNull(),
 		status: mediaGenerationStatus("status").notNull().default("queued"),
-		sourceImageUrl: text("source_image_url").notNull(),
-		sourceMediaType: imageToVideoSourceMediaType("source_media_type").notNull(),
+		kind: mediaGenerationKind("kind").notNull().default("image-animation"),
+		// Required for image animation, always null for text-to-video — the
+		// kind CHECK below enforces the pairing.
+		sourceImageUrl: text("source_image_url"),
+		sourceMediaType: imageToVideoSourceMediaType("source_media_type"),
 		aspect: imageToVideoAspect("aspect").notNull(),
-		motion: imageToVideoMotion("motion").notNull(),
+		motion: imageToVideoMotion("motion"),
 		prompt: text("prompt").notNull(),
 		durationSeconds: integer("duration_seconds").notNull().default(5),
+		// User-facing display name for cards and the Assets tab (text-to-video
+		// only today; animation rows predate it and stay null).
+		title: text("title"),
+		voiceover: jsonb("voiceover").$type<MediaGenerationVoiceover>(),
 		// Trigger.dev run id for operations/debugging; not exposed to the client.
 		triggerRunId: text("trigger_run_id"),
 		videoUrl: text("video_url"),
@@ -96,7 +118,24 @@ export const mediaGenerationAttempts = pgTable(
 		),
 		check(
 			"media_generation_attempts_duration_ck",
-			sql`${table.durationSeconds} = 5`,
+			sql`${table.durationSeconds} IN (5, 10)`,
+		),
+		check(
+			"media_generation_attempts_kind_ck",
+			sql`(
+				(
+					${table.kind} = 'image-animation'
+					AND ${table.sourceImageUrl} IS NOT NULL
+					AND ${table.sourceMediaType} IS NOT NULL
+					AND ${table.motion} IS NOT NULL
+					AND ${table.durationSeconds} = 5
+				)
+				OR (
+					${table.kind} = 'text-to-video'
+					AND ${table.sourceImageUrl} IS NULL
+					AND ${table.sourceMediaType} IS NULL
+				)
+			)`,
 		),
 		check(
 			"media_generation_attempts_lifecycle_ck",

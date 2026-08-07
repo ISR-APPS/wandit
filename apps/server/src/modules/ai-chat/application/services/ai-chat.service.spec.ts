@@ -135,17 +135,25 @@ function buildService({
 		}),
 		...pricingOverrides,
 	};
+	const videoDirector = {
+		craftVideoPrompt: vi.fn().mockResolvedValue({
+			directed: false,
+			negativePrompt: "",
+			prompt: "One continuous shot.",
+		}),
+	};
 	const service = new AiChatService(
 		chatsRepository as unknown as AiChatServiceDependencies[0],
 		pagesRepository as unknown as AiChatServiceDependencies[1],
 		pageEditsService as unknown as AiChatServiceDependencies[2],
 		leadScrapesRepository as unknown as AiChatServiceDependencies[3],
 		mediaGenerationsRepository as unknown as AiChatServiceDependencies[4],
-		marketingAssetsRepository as unknown as AiChatServiceDependencies[5],
-		imageGenerationsRepository as unknown as AiChatServiceDependencies[6],
-		mcpChatToolsService as unknown as AiChatServiceDependencies[7],
-		meteringService as unknown as AiChatServiceDependencies[8],
-		modelPricingService as unknown as AiChatServiceDependencies[9],
+		videoDirector as unknown as AiChatServiceDependencies[5],
+		marketingAssetsRepository as unknown as AiChatServiceDependencies[6],
+		imageGenerationsRepository as unknown as AiChatServiceDependencies[7],
+		mcpChatToolsService as unknown as AiChatServiceDependencies[8],
+		meteringService as unknown as AiChatServiceDependencies[9],
+		modelPricingService as unknown as AiChatServiceDependencies[10],
 	);
 
 	return {

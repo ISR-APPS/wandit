@@ -1,16 +1,20 @@
 /**
- * Shared image-to-video primitive.
+ * Shared video generation primitives.
  *
- * The page Builder uses the ambient-loop profile for optional hero motion.
- * Standalone chat generation uses the image-animation profile for a general
- * five-second product/social clip. Both profiles keep the same provider,
- * timeout, hosted-source guard and R2 upload path so there is only one media
- * integration to secure and maintain.
+ * Image-to-video (generateBuildVideo): the page Builder uses the ambient-loop
+ * profile for optional hero motion; standalone chat generation uses the
+ * image-animation profile for a general five-second product/social clip.
+ *
+ * Text-to-video (generateTextToVideo): renders a clip from a director-crafted
+ * prompt alone — no source still. It shares the provider, metering, and R2
+ * upload path with the image path so there is only one media integration to
+ * secure and maintain.
  *
  * Deliberately never throws: callers receive generated/failed/unavailable and
  * decide how to present or persist the failure.
  */
 import { gateway } from "@ai-sdk/gateway";
+import type { VideoDurationSeconds } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import { experimental_generateVideo as generateVideo } from "ai";
 
@@ -49,6 +53,24 @@ const EXTENSION_BY_MEDIA_TYPE: Record<string, string> = {
 // hung gateway call cannot eat the build's whole step budget.
 const VIDEO_TIMEOUT_MS = 5 * 60_000;
 
+// Ten-second text-to-video renders run longer than five-second animations,
+// but this ceiling MUST stay below IMAGE_ANIMATION_STALE_GENERATING_MS
+// (7 min) or the reconciler declares a live render stale mid-flight.
+export const TEXT_VIDEO_TIMEOUT_MS = 6 * 60_000;
+
+/**
+ * Artifact and text-overlay exclusions sent as the provider's negativePrompt
+ * (Kling/Veo/Wan have a real field for it). Deliberately a fixed house
+ * string, not model-written: parsing a second model output would add a
+ * failure mode for zero creative gain. Lives here (plain module) so both the
+ * Nest director service and the Trigger runtime can import it.
+ */
+export const VIDEO_NEGATIVE_PROMPT =
+	"blur, distortion, warping, watermark, text overlay, subtitles, captions, " +
+	"low quality, compression artifacts, flickering, inconsistent lighting, " +
+	"morphing faces, extra limbs, unnatural physics, jittery motion, " +
+	"deformed hands, glitching logos";
+
 export type GenerateBuildVideoResult =
 	| GatewayGenerationFailure
 	| { message: string; status: "unavailable" }
@@ -56,6 +78,8 @@ export type GenerateBuildVideoResult =
 			mediaType: string;
 			status: "generated";
 			url: string;
+			/** Provider warnings about ignored/unsupported settings, for logging. */
+			warnings?: string[];
 	  } & GatewayGenerationMetadata);
 
 export async function generateBuildVideo(params: {
@@ -208,4 +232,158 @@ function buildVideoPrompt(params: {
 		`${motionDirection[params.motion ?? "balanced"]} ` +
 		`Motion direction: ${params.motionPrompt}`
 	);
+}
+
+/**
+ * The text-to-video model id: explicit env var first, else the image model
+ * with Kling's "-i2v" suffix swapped for "-t2v" (that is how Kling pairs
+ * them), else the image model as-is (Veo/Seedance/Wan ids do both modes).
+ */
+export function resolveTextToVideoModel(): string | null {
+	if (env.AI_VIDEO_TEXT_MODEL) {
+		return env.AI_VIDEO_TEXT_MODEL;
+	}
+	if (!env.AI_VIDEO_MODEL) {
+		return null;
+	}
+	return env.AI_VIDEO_MODEL.replace("-i2v", "-t2v");
+}
+
+// Veo renders only 4/6/8-second clips; map the house durations (5/10) onto
+// the nearest legal value rather than failing the render on a model swap.
+// KNOWN TRADE-OFF: the attempt row (whose CHECK only allows 5/10) and the
+// cards keep showing the requested duration, so a Veo swap renders 6s/8s
+// files labeled 5s/10s. A real Veo migration must migrate the duration
+// vocabulary (contract + CHECK + composer choices) — same caveat as the
+// original hardcoded duration.
+function clampDurationForModel(
+	model: string,
+	duration: VideoDurationSeconds,
+): number {
+	if (model.startsWith("google/veo")) {
+		return duration === 5 ? 6 : 8;
+	}
+	return duration;
+}
+
+export async function generateTextToVideo(params: {
+	abortSignal?: AbortSignal;
+	aspect: BuildVideoAspect;
+	attemptId: string;
+	durationSeconds: VideoDurationSeconds;
+	/** 1-based clip index, used for the R2 object name (recovery probes 1). */
+	index: number;
+	metering: GatewayMeteringContext<"video">;
+	/** Persist Gateway evidence before bytes become recoverable in R2. */
+	onProviderGeneration?: (
+		generation: GatewayGenerationMetadata,
+	) => Promise<void>;
+	/** Director-crafted final provider prompt — sent verbatim. */
+	prompt: string;
+	/** Director-crafted artifact/motion exclusions, when the model has a field for them. */
+	negativePrompt?: string;
+	projectId: string;
+}): Promise<GenerateBuildVideoResult> {
+	const model = resolveTextToVideoModel();
+	if (!model || !env.R2_PUBLIC_BASE_URL || !isR2Configured()) {
+		return {
+			message: "text-to-video generation is not configured on this server",
+			status: "unavailable",
+		};
+	}
+
+	let providerEvidence: GatewayGenerationMetadata | null = null;
+
+	try {
+		const timeoutSignal = AbortSignal.timeout(TEXT_VIDEO_TIMEOUT_MS);
+		const abortSignal = params.abortSignal
+			? AbortSignal.any([params.abortSignal, timeoutSignal])
+			: timeoutSignal;
+		const providerOptions: NonNullable<
+			Parameters<typeof generateVideo>[0]["providerOptions"]
+		> = withGatewayAttribution({}, params.metering);
+
+		if (model.startsWith("klingai/")) {
+			// std keeps cost predictable (same trade-off as the image path).
+			providerOptions.klingai = {
+				mode: "std",
+				...(params.negativePrompt
+					? { negativePrompt: params.negativePrompt }
+					: {}),
+			};
+		} else if (model.startsWith("google/veo")) {
+			// Veo's providerOptions key is "vertex" despite the google/ model id.
+			// enhancePrompt defaults to TRUE — Gemini silently rewrites the
+			// prompt — and the director already owns it, so switch that off.
+			providerOptions.vertex = {
+				enhancePrompt: false,
+				...(params.negativePrompt
+					? { negativePrompt: params.negativePrompt }
+					: {}),
+			};
+		}
+
+		const result = await generateVideo({
+			abortSignal,
+			aspectRatio: params.aspect,
+			duration: clampDurationForModel(model, params.durationSeconds),
+			fps: 30,
+			// Native model audio stays off: the voiceover pipeline (stubbed until
+			// the audio provider lands) will own the soundtrack, and silent
+			// renders are roughly half the cost on audio-capable models.
+			generateAudio: false,
+			model: gateway.video(model),
+			n: 1,
+			prompt: params.prompt,
+			providerOptions,
+		});
+		providerEvidence = {
+			model,
+			providerMetadata: result.providerMetadata,
+		};
+		await params.onProviderGeneration?.(providerEvidence);
+
+		const mediaType = result.video.mediaType;
+		const extension = EXTENSION_BY_MEDIA_TYPE[mediaType] ?? "mp4";
+		const key = siteVideoKey(
+			params.projectId,
+			params.attemptId,
+			params.index,
+			extension,
+		);
+
+		await putSiteFile(key, result.video.uint8Array, mediaType);
+
+		return {
+			mediaType,
+			model,
+			providerMetadata: result.providerMetadata,
+			status: "generated",
+			// Unsupported-setting warnings (e.g. an aspect this model cannot do)
+			// surface here instead of vanishing — the Trigger runtime logs them.
+			...(result.warnings.length > 0
+				? {
+						warnings: result.warnings.map((warning) => JSON.stringify(warning)),
+					}
+				: {}),
+			url: publicAssetUrl(key),
+		};
+	} catch (error) {
+		const errorCapture = gatewayGenerationCaptureFromError(error);
+		const evidence =
+			providerEvidence ??
+			(errorCapture
+				? {
+						model,
+						providerMetadata: errorCapture.providerMetadata,
+					}
+				: null);
+
+		return {
+			...(evidence ?? {}),
+			message: error instanceof Error ? error.message : String(error),
+			...(evidence ? { providerUnits: providerEvidence ? 1 : 0 } : {}),
+			status: "failed",
+		};
+	}
 }

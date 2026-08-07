@@ -1,15 +1,15 @@
+import { createGateway } from "@ai-sdk/gateway";
 import type {
 	AiChatDataParts,
 	AiChatMessageMetadata,
 	AiChatTools,
 } from "@wandit/contracts";
-import { createGateway } from "@ai-sdk/gateway";
 import { env } from "@wandit/env/server";
 import { isStepCount, type Tool, ToolLoopAgent, type UIMessage } from "ai";
 
 import type { McpToolApprovalMap } from "../../mcp-connectors/domain/mcp-tool-policy";
-import type { PageEditsService } from "../../pages/application/services/page-edits.service";
 import { withGatewayAttribution } from "../../metering/domain/gateway-metering";
+import type { PageEditsService } from "../../pages/application/services/page-edits.service";
 import { AI_CHAT_MAX_OUTPUT_TOKENS, AI_CHAT_MAX_STEPS } from "./chat-metering";
 import { chatGatewayFetch } from "./gateway-fetch";
 import { WANDIT_SYSTEM_PROMPT } from "./system-prompt";
@@ -38,6 +38,12 @@ import {
 	type GeneratePageToolDeps,
 	generatePageToolSchemaOnly,
 } from "./tools/generate-page.tool";
+import {
+	createGenerateVideoTool,
+	type GenerateVideoTool,
+	type GenerateVideoToolDeps,
+	generateVideoToolSchemaOnly,
+} from "./tools/generate-video.tool";
 // EXPERIMENT (2026-07-27): worlds stay OFF for websites — the brain invents
 // website art direction itself. The live sampler is available only for COD
 // builds; the schema-only twin keeps historical tool calls valid.
@@ -70,6 +76,7 @@ type AiChatToolSet = {
 	generate_image: GenerateImageTool;
 	generate_marketing_asset: GenerateMarketingAssetTool;
 	generate_page: GeneratePageTool;
+	generate_video: GenerateVideoTool;
 	get_direction_candidates: typeof getDirectionCandidatesTool;
 	read_attachment: ReadAttachmentTool;
 	scrape_leads: ScrapeLeadsTool;
@@ -97,6 +104,7 @@ export type ChatAgentDeps = GeneratePageToolDeps &
 	} & Omit<AnimateImageToolDeps, "chatId" | "projectId"> &
 	Omit<GenerateMarketingAssetToolDeps, "chatId" | "projectId"> &
 	Omit<GenerateImageToolDeps, "chatId" | "projectId"> &
+	Omit<GenerateVideoToolDeps, "chatId" | "projectId"> &
 	ReadAttachmentToolDeps;
 
 const chatGateway = createGateway({ fetch: chatGatewayFetch });
@@ -190,6 +198,17 @@ export function createChatAgent(
 				subject: deps.subject,
 				userId: deps.userId,
 			}),
+			generate_video: createGenerateVideoTool({
+				chatId: deps.chatId,
+				mediaGenerationsRepository: deps.mediaGenerationsRepository,
+				meteringService: deps.meteringService,
+				parentEventId: deps.parentEventId,
+				projectId: deps.projectId,
+				requestKeySeed: deps.requestKeySeed,
+				subject: deps.subject,
+				userId: deps.userId,
+				videoDirector: deps.videoDirector,
+			}),
 			get_direction_candidates: getDirectionCandidatesTool,
 			read_attachment: createReadAttachmentTool({
 				availableDocuments: deps.availableDocuments,
@@ -226,6 +245,7 @@ export const aiChatToolsForValidation = {
 	generate_image: generateImageToolSchemaOnly,
 	generate_marketing_asset: generateMarketingAssetToolSchemaOnly,
 	generate_page: generatePageToolSchemaOnly,
+	generate_video: generateVideoToolSchemaOnly,
 	scrape_leads: scrapeLeadsToolSchemaOnly,
 	get_direction_candidates: getDirectionCandidatesToolSchemaOnly,
 	read_attachment: readAttachmentToolSchemaOnly,

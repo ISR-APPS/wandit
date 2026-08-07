@@ -911,6 +911,7 @@
 		"filterVideos": "Videos",
 		"sourceGeneration": "Generated",
 		"sourceAnimation": "Animation",
+		"sourceVideo": "Video",
 		"sourceBuild": "Site",
 		"download": "Download",
 		"refresh": "Refresh",

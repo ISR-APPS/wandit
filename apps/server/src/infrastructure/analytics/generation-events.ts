@@ -11,7 +11,8 @@ export type GenerationKind =
 	| "connector"
 	| "image"
 	| "marketing_asset"
-	| "page";
+	| "page"
+	| "video";
 
 export function captureGenerationCompleted(
 	analytics: AnalyticsCapture,
