@@ -19,11 +19,15 @@ import {
 	type ApplyPageOpsResponse,
 	applyPageOpsBodySchema,
 	type ListPageVersionsResponse,
+	type PageAttemptDetail,
 	type PageOverview,
 	type PageVersionHtml,
 	type RestorePageVersionBody,
 	type RestorePageVersionResponse,
+	type RetryPageAttemptResponse,
 	restorePageVersionBodySchema,
+	type StopPageAttemptBody,
+	stopPageAttemptBodySchema,
 	uuidSchema,
 } from "@wandit/contracts";
 
@@ -79,6 +83,85 @@ export class PagesController {
 		return this.pagesService.overview(
 			projectScopeFrom(workspace, user.id),
 			projectId,
+		);
+	}
+
+	// Durable state of one build attempt: the chat card's polling fallback
+	// and its terminal source of truth (status, failure code, frozen percent).
+	@Get("projects/:projectId/page/attempts/:attemptId")
+	attemptDetail(
+		@Param("projectId", new ZodValidationPipe(uuidSchema))
+		projectId: string,
+		@Param("attemptId", new ZodValidationPipe(uuidSchema))
+		attemptId: string,
+		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
+	): Promise<PageAttemptDetail> {
+		return this.pagesService.attemptDetail(
+			projectScopeFrom(workspace, user.id),
+			projectId,
+			attemptId,
+		);
+	}
+
+	// User Stop: flips the attempt to canceled and cancels the Trigger run.
+	@UseGuards(EarlyAccessGuard)
+	@RequireWorkspacePermission("project", "update")
+	@Post("projects/:projectId/page/attempts/:attemptId/stop")
+	stopAttempt(
+		@Param("projectId", new ZodValidationPipe(uuidSchema))
+		projectId: string,
+		@Param("attemptId", new ZodValidationPipe(uuidSchema))
+		attemptId: string,
+		@Body(new ZodValidationPipe(stopPageAttemptBodySchema))
+		body: StopPageAttemptBody,
+		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
+	): Promise<PageAttemptDetail> {
+		return this.pagesService.stopAttempt(
+			projectScopeFrom(workspace, user.id),
+			projectId,
+			attemptId,
+			body,
+		);
+	}
+
+	// Retry a failed build / resume a stopped one — same attempt row, new
+	// Trigger run, fresh Realtime handle for the chat card.
+	@UseGuards(EarlyAccessGuard)
+	@RequireWorkspacePermission("project", "update")
+	@Post("projects/:projectId/page/attempts/:attemptId/retry")
+	retryAttempt(
+		@Param("projectId", new ZodValidationPipe(uuidSchema))
+		projectId: string,
+		@Param("attemptId", new ZodValidationPipe(uuidSchema))
+		attemptId: string,
+		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
+	): Promise<RetryPageAttemptResponse> {
+		return this.pagesService.retryAttempt(
+			projectScopeFrom(workspace, user.id),
+			projectId,
+			attemptId,
+		);
+	}
+
+	// Discard/Dismiss the terminal chat card (design card 16's "Discard").
+	@UseGuards(EarlyAccessGuard)
+	@RequireWorkspacePermission("project", "update")
+	@Post("projects/:projectId/page/attempts/:attemptId/dismiss")
+	dismissAttempt(
+		@Param("projectId", new ZodValidationPipe(uuidSchema))
+		projectId: string,
+		@Param("attemptId", new ZodValidationPipe(uuidSchema))
+		attemptId: string,
+		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
+	): Promise<PageAttemptDetail> {
+		return this.pagesService.dismissAttempt(
+			projectScopeFrom(workspace, user.id),
+			projectId,
+			attemptId,
 		);
 	}
 

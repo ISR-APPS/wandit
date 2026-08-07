@@ -37,6 +37,7 @@
 		"next-themes": "catalog:",
 		"react": "^19.2.7",
 		"react-dom": "^19.2.7",
+		"react-timer-hook": "^4.0.6",
 		"remark-breaks": "^4.0.0",
 		"sonner": "catalog:",
 		"streamdown": "^2.5.0",

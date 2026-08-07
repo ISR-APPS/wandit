@@ -6,12 +6,9 @@
  * Two very different callers share it — the pages HTTP endpoints (reads)
  * and the generate_page chat tool (queue-time writes).
  */
-import {
-	type ProjectScope,
-	projectScopePredicate,
-} from "../../../projects/domain/project-scope";
+
 import { Inject, Injectable } from "@nestjs/common";
-import { and, desc, eq, isNull, lt, sql } from "@wandit/db";
+import { and, desc, eq, inArray, isNull, lt, sql } from "@wandit/db";
 import { artifacts, versions } from "@wandit/db/schema/artifacts";
 import { deployments } from "@wandit/db/schema/deployments";
 import { pageGenerationAttempts } from "@wandit/db/schema/page-attempts";
@@ -25,6 +22,10 @@ import {
 	DATABASE,
 	type Database,
 } from "../../../../infrastructure/database/database.constants";
+import {
+	type ProjectScope,
+	projectScopePredicate,
+} from "../../../projects/domain/project-scope";
 
 // A page task can wait up to 35 minutes in Trigger and then run for 30
 // minutes. Polling must not fail a healthy late-starting task, so generating
@@ -65,6 +66,13 @@ export type BuilderVersionRow = {
 	r2Key: string;
 };
 
+export type PageAttemptStatusRow =
+	| "queued"
+	| "generating"
+	| "succeeded"
+	| "failed"
+	| "canceled";
+
 export type PageOverviewRows = {
 	artifactId: string | null;
 	activeVersion: {
@@ -75,10 +83,25 @@ export type PageOverviewRows = {
 	latestAttempt: {
 		createdAt: Date;
 		error: string | null;
+		failureCode: string | null;
 		id: string;
-		status: "queued" | "generating" | "succeeded" | "failed";
+		status: PageAttemptStatusRow;
 		versionId: string | null;
 	} | null;
+};
+
+/** Durable per-attempt state for the chat card (+ triggerRunId for cancels). */
+export type PageAttemptDetailRow = {
+	completedAt: Date | null;
+	createdAt: Date;
+	dismissedAt: Date | null;
+	error: string | null;
+	failureCode: string | null;
+	id: string;
+	lastProgressPercent: number | null;
+	status: PageAttemptStatusRow;
+	triggerRunId: string | null;
+	versionId: string | null;
 };
 
 // What generate_page snapshots into the attempt's jsonb spec.
@@ -227,6 +250,124 @@ export class PagesRepository {
 		return true;
 	}
 
+	// One attempt's durable state, ownership proven by the project join.
+	// Null covers missing, deleted, and not-owned alike — the service 404s.
+	async findAttemptDetail(
+		scope: ProjectScope,
+		projectId: string,
+		attemptId: string,
+	): Promise<PageAttemptDetailRow | null> {
+		const [row] = await this.db
+			.select({
+				completedAt: pageGenerationAttempts.completedAt,
+				createdAt: pageGenerationAttempts.createdAt,
+				dismissedAt: pageGenerationAttempts.dismissedAt,
+				error: pageGenerationAttempts.error,
+				failureCode: pageGenerationAttempts.failureCode,
+				id: pageGenerationAttempts.id,
+				lastProgressPercent: pageGenerationAttempts.lastProgressPercent,
+				status: pageGenerationAttempts.status,
+				triggerRunId: pageGenerationAttempts.triggerRunId,
+				versionId: pageGenerationAttempts.versionId,
+			})
+			.from(pageGenerationAttempts)
+			.innerJoin(projects, eq(projects.id, pageGenerationAttempts.projectId))
+			.where(
+				and(
+					eq(pageGenerationAttempts.id, attemptId),
+					eq(pageGenerationAttempts.projectId, projectId),
+					projectScopePredicate(scope),
+					isNull(projects.deletedAt),
+				),
+			)
+			.limit(1);
+
+		return row ?? null;
+	}
+
+	/**
+	 * User Stop: CAS queued/generating → canceled. Returns the run id to
+	 * cancel, or null when the attempt was already terminal (the caller then
+	 * re-reads and answers with current truth — stopping twice is not an
+	 * error). observedPercent is the percent the card last SAW; it freezes
+	 * the stopped card even when the worker dies before writing its own.
+	 */
+	async cancelAttempt(
+		attemptId: string,
+		observedPercent: number | undefined,
+	): Promise<{ triggerRunId: string | null } | null> {
+		const [row] = await this.db
+			.update(pageGenerationAttempts)
+			.set({
+				completedAt: new Date(),
+				status: "canceled",
+				...(observedPercent !== undefined
+					? { lastProgressPercent: observedPercent }
+					: {}),
+			})
+			.where(
+				and(
+					eq(pageGenerationAttempts.id, attemptId),
+					inArray(pageGenerationAttempts.status, ["queued", "generating"]),
+				),
+			)
+			.returning({ triggerRunId: pageGenerationAttempts.triggerRunId });
+
+		return row ?? null;
+	}
+
+	/**
+	 * Retry/Resume: CAS failed/canceled → queued on the SAME row, clearing
+	 * the previous outcome. The same-row reuse keeps every persisted chat
+	 * card pointing at a live attempt id across reloads. Returns false when
+	 * the attempt was not retryable (already queued/generating/succeeded).
+	 */
+	async resetAttemptForRetry(attemptId: string): Promise<boolean> {
+		const [row] = await this.db
+			.update(pageGenerationAttempts)
+			.set({
+				completedAt: null,
+				// The row now represents its LATEST queue, so its clock restarts:
+				// the stale self-heal above times out queued/generating rows by
+				// createdAt (a 2h-old retried row would be re-failed on the very
+				// next overview poll otherwise), and the task's newer-succeeded
+				// check keys off it too (an explicit retry IS the newest work).
+				createdAt: new Date(),
+				dismissedAt: null,
+				error: null,
+				failureCode: null,
+				lastProgressPercent: null,
+				status: "queued",
+				triggerRunId: null,
+				versionId: null,
+			})
+			.where(
+				and(
+					eq(pageGenerationAttempts.id, attemptId),
+					inArray(pageGenerationAttempts.status, ["failed", "canceled"]),
+				),
+			)
+			.returning({ id: pageGenerationAttempts.id });
+
+		return row !== undefined;
+	}
+
+	/** Discard/Dismiss the terminal chat card — pure UI bookkeeping. */
+	async dismissAttempt(attemptId: string): Promise<boolean> {
+		const [row] = await this.db
+			.update(pageGenerationAttempts)
+			.set({ dismissedAt: new Date() })
+			.where(
+				and(
+					eq(pageGenerationAttempts.id, attemptId),
+					inArray(pageGenerationAttempts.status, ["failed", "canceled"]),
+				),
+			)
+			.returning({ id: pageGenerationAttempts.id });
+
+		return row !== undefined;
+	}
+
 	// Everything the Page tab polls for, or null when the project is not
 	// owned by this user (the service turns that into a 404).
 	async findOverviewByProject(
@@ -349,6 +490,7 @@ export class PagesRepository {
 			.select({
 				createdAt: pageGenerationAttempts.createdAt,
 				error: pageGenerationAttempts.error,
+				failureCode: pageGenerationAttempts.failureCode,
 				id: pageGenerationAttempts.id,
 				status: pageGenerationAttempts.status,
 				versionId: pageGenerationAttempts.versionId,

@@ -176,6 +176,13 @@
       "when": 1786103746464,
       "tag": "0024_provider-source",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1786109384818,
+      "tag": "0025_attempt-lifecycle",
+      "breakpoints": true
     }
   ]
 }

@@ -3,23 +3,43 @@
 // the worker's metadata "progress" object into a live checklist — art
 // generated (thumbnails), page written (section chips), screenshot review
 // passes (shot thumbnails + findings), fixes, handover — prototype-14 style.
-// Messages without a realtime handle (old history, minting failure) or with
-// a dead subscription keep the original static status line; the Page tab's
-// own overview poll remains the source of truth for the finished page.
+// The durable attempt row (polled through usePageAttemptQuery) is the card's
+// terminal source of truth: it carries the bounded failure code, the frozen
+// percent for a stopped build, and it keeps working when the Realtime handle
+// is absent (old history) or dead. Stop/Retry/Resume/Discard act on that
+// same attempt row, so the card survives reloads without transcript edits.
 // Chrome strings hardcoded English this pass, same rule as the tray files.
 
 import { useQueryClient } from "@tanstack/react-query";
 import {
+	type PageAttemptDetail,
+	type PageBuildFailureCode,
 	type PageBuildPhase,
 	type PageBuildProgress,
 	pageBuildProgressSchema,
 	type TriggerRealtimeHandle,
 } from "@wandit/contracts";
+import { Button } from "@wandit/ui/components/button";
 import { cn } from "@wandit/ui/lib/utils";
-import { AlertTriangle, Check, Code, ExternalLink } from "lucide-react";
+import {
+	AlertTriangle,
+	Check,
+	ExternalLink,
+	RotateCcw,
+	Square,
+} from "lucide-react";
+import { useState } from "react";
+import { useStopwatch } from "react-timer-hook";
 
+import { useBillingModal } from "@/features/billing/components/billing-modal-provider";
 import { creditsKeys } from "@/features/credits";
-import { pageKeys } from "../../../api/pages.queries";
+import {
+	pageKeys,
+	useDismissPageAttempt,
+	usePageAttemptQuery,
+	useRetryPageAttempt,
+} from "../../../api/pages.queries";
+import { buildFailureCopy } from "../../../lib/build-failure-copy";
 import { useWorkspace } from "../../../lib/store";
 import type { WanditUIMessage } from "../../../lib/use-ai-chat";
 import { useLiveRun } from "../../../lib/use-live-run";
@@ -68,16 +88,17 @@ export function GeneratePagePart({ part }: { part: GeneratePageToolPart }) {
 	if (part.state !== "output-available") return null;
 
 	if (part.output.status === "queued") {
-		if (part.output.realtime) {
+		if (part.output.attemptId || part.output.realtime) {
 			return (
 				<PageBuildCard
+					attemptId={part.output.attemptId}
 					realtime={part.output.realtime}
 					versionNumber={part.output.versionNumber}
 				/>
 			);
 		}
 
-		// Old messages (or a failed token mint): the original static line.
+		// Very old messages without even an attempt id: the static line.
 		return <StaticBuildingLine versionNumber={part.output.versionNumber} />;
 	}
 
@@ -98,20 +119,34 @@ export type PageBuildRunState =
 	| "failed"
 	| "disconnected";
 
-/** Subscribes to the build run and renders the live checklist. */
+/** Subscribes to the run + polls the durable attempt row, and renders the
+ *  right card: live checklist, success, failed (classified), or stopped. */
 function PageBuildCard({
-	realtime,
+	attemptId,
+	realtime: transcriptRealtime,
 	versionNumber,
 }: {
-	realtime: TriggerRealtimeHandle;
+	attemptId: string | undefined;
+	realtime: TriggerRealtimeHandle | undefined;
 	versionNumber: number | undefined;
 }) {
 	const { projectId } = useWorkspace();
 	const queryClient = useQueryClient();
+	// A Retry/Resume replaces the transcript's dead handle for the rest of
+	// this mount: with the new run's handle when the server minted one, or
+	// with null (drop the old handle entirely) when it did not — the old
+	// run's stream must never keep narrating a superseded build.
+	const [handleOverride, setHandleOverride] = useState<
+		TriggerRealtimeHandle | null | undefined
+	>(undefined);
+	const realtime =
+		handleOverride === undefined
+			? transcriptRealtime
+			: (handleOverride ?? undefined);
 
 	const live = useLiveRun({
 		handle: realtime,
-		enabled: true,
+		enabled: Boolean(realtime),
 		onSettled: () => {
 			void queryClient.invalidateQueries({
 				queryKey: creditsKeys.balance(),
@@ -124,32 +159,145 @@ function PageBuildCard({
 			void queryClient.invalidateQueries({
 				queryKey: pageKeys.versions(projectId),
 			});
+
+			if (attemptId) {
+				void queryClient.invalidateQueries({
+					queryKey: pageKeys.attempt(projectId, attemptId),
+				});
+			}
 		},
 	});
 
-	const parsed = pageBuildProgressSchema.safeParse(live.metadata?.progress);
+	const attemptQuery = usePageAttemptQuery(projectId, attemptId);
+	const attempt = attemptQuery.data;
+
+	const retryMutation = useRetryPageAttempt(projectId);
+	const dismissMutation = useDismissPageAttempt(projectId);
+
+	// The Realtime handle only speaks for the attempt's CURRENT run. After a
+	// retry, the transcript still carries the OLD run's handle (persisted in
+	// the tool output, 2h token) — its latched FAILED/CANCELED must never
+	// paint terminal state over the live rebuild after a reload. When the
+	// attempt row is unknown (fetch pending, legacy 404) the handle is all
+	// we have, so it is trusted as before. A NULL run id while GENERATING is
+	// trusted too: it means the row link was never written (older server, a
+	// lost link CAS) and muting the only live signal would freeze the card on
+	// the static line for the whole build. Null while QUEUED stays muted —
+	// that is the post-retry window where the old handle must not narrate.
+	const liveIsCurrentRun =
+		attempt === undefined ||
+		(realtime !== undefined &&
+			(attempt.triggerRunId === realtime.runId ||
+				(attempt.triggerRunId === null && attempt.status === "generating")));
+	const parsed = pageBuildProgressSchema.safeParse(
+		liveIsCurrentRun ? live.metadata?.progress : undefined,
+	);
 	const progress = parsed.success ? parsed.data : undefined;
 
-	const runState: PageBuildRunState = live.settled
-		? live.status === "COMPLETED"
-			? "succeeded"
-			: "failed"
-		: live.failed
-			? "disconnected"
-			: "building";
+	// Durable terminal truth wins; a settled CURRENT run covers the polling
+	// gap until the row catches up.
+	const liveTerminal: PageAttemptDetail["status"] | undefined =
+		liveIsCurrentRun && live.settled
+			? live.status === "COMPLETED"
+				? "succeeded"
+				: live.status === "CANCELED"
+					? "canceled"
+					: "failed"
+			: undefined;
+	const attemptTerminal =
+		attempt && attempt.status !== "queued" && attempt.status !== "generating"
+			? attempt.status
+			: undefined;
+	const status = attemptTerminal ?? liveTerminal ?? attempt?.status;
 
-	// No metadata yet (worker cold start, expired token after a reload, dead
-	// subscription): the static line says everything an empty card would,
-	// without flashing a bogus 2% checklist. The card appears with the first
-	// real snapshot — or on settle, which needs the final states.
-	if (!progress && !live.settled) {
-		return <StaticBuildingLine versionNumber={versionNumber} />;
+	const frozenPercent =
+		attempt?.lastProgressPercent ??
+		(progress ? Math.round(progress.percent) : undefined);
+
+	const retry =
+		attemptId === undefined
+			? undefined
+			: () => {
+					retryMutation.mutate(
+						{ attemptId },
+						{
+							onSuccess: (response) =>
+								setHandleOverride(response.realtime ?? null),
+						},
+					);
+				};
+	const dismiss =
+		attemptId === undefined
+			? undefined
+			: () => dismissMutation.mutate({ attemptId });
+
+	if (status === "canceled") {
+		if (attempt?.dismissed) {
+			return (
+				<ReceiptLine
+					text={`Build stopped${frozenPercent !== undefined ? ` at ${frozenPercent}%` : ""} — discarded.`}
+				/>
+			);
+		}
+
+		return (
+			<StoppedBuildCard
+				discarding={dismissMutation.isPending}
+				onDiscard={dismiss}
+				onResume={retry}
+				percent={frozenPercent ?? 0}
+				resuming={retryMutation.isPending}
+				versionNumber={versionNumber}
+			/>
+		);
+	}
+
+	if (status === "failed") {
+		if (attempt?.dismissed) {
+			return <ReceiptLine text="Failed build dismissed." />;
+		}
+
+		return (
+			<FailedBuildCard
+				dismissing={dismissMutation.isPending}
+				failureCode={attempt?.failureCode ?? null}
+				onDismiss={dismiss}
+				onRetry={retry}
+				retrying={retryMutation.isPending}
+			/>
+		);
+	}
+
+	if (status === "succeeded") {
+		return (
+			<PageBuildProgressView
+				progress={progress}
+				runState="succeeded"
+				versionNumber={versionNumber}
+			/>
+		);
+	}
+
+	// No metadata yet (worker cold start, no realtime handle, expired token
+	// after a reload, dead subscription): the static line says everything an
+	// empty card would, without flashing a bogus 2% checklist.
+	// No onStop on purpose — user-initiated stopping is disabled for now
+	// (product decision); the stopped card itself stays, because a run can
+	// still be canceled from the Trigger dashboard.
+	if (!progress && !(liveIsCurrentRun && live.settled)) {
+		return (
+			<StaticBuildingLine
+				startedAt={attempt?.createdAt}
+				versionNumber={versionNumber}
+			/>
+		);
 	}
 
 	return (
 		<PageBuildProgressView
 			progress={progress}
-			runState={runState}
+			runState={liveIsCurrentRun && live.failed ? "disconnected" : "building"}
+			startedAt={attempt?.createdAt}
 			versionNumber={versionNumber}
 		/>
 	);
@@ -172,10 +320,18 @@ export function PageBuildProgressView({
 	progress,
 	runState,
 	versionNumber,
+	onStop,
+	startedAt,
+	stopping = false,
 }: {
 	progress: PageBuildProgress | undefined;
 	runState: PageBuildRunState;
 	versionNumber: number | undefined;
+	/** Present while the build can still be stopped — renders the Stop chip. */
+	onStop?: () => void;
+	/** Attempt creation time — renders the running elapsed clock. */
+	startedAt?: string;
+	stopping?: boolean;
 }) {
 	const { setTab } = useWorkspace();
 
@@ -280,8 +436,28 @@ export function PageBuildProgressView({
 						aria-hidden
 					/>
 				) : (
-					<span className="shrink-0 font-mono text-ember-text text-xs">
-						{Math.round(percent)}%
+					<span className="flex shrink-0 items-center gap-2">
+						{onStop && !ended ? (
+							<button
+								type="button"
+								onClick={onStop}
+								disabled={stopping}
+								className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:border-destructive/40 hover:text-destructive disabled:opacity-60"
+							>
+								<Square
+									className="size-2.5 fill-current"
+									strokeWidth={0}
+									aria-hidden
+								/>
+								{stopping ? "Stopping…" : "Stop"}
+							</button>
+						) : null}
+						{startedAt && !ended ? (
+							<ElapsedTimer key={startedAt} since={startedAt} />
+						) : null}
+						<span className="font-mono text-ember-text text-xs">
+							{Math.round(percent)}%
+						</span>
 					</span>
 				)}
 			</div>
@@ -455,13 +631,217 @@ export function PageBuildProgressView({
 					<ExternalLink className="size-3.5" aria-hidden />
 					Open the Page tab
 				</button>
-			) : ended ? null : (
-				<div className="mt-[11px] inline-flex items-center gap-[7px] rounded-full border border-border bg-background px-2.5 py-1 font-mono text-[11px] text-muted-foreground">
-					<Code className="size-3 text-primary" aria-hidden />
-					tool · generate_page
-				</div>
-			)}
+			) : null}
 		</div>
+	);
+}
+
+/**
+ * Live elapsed clock for a running build — "how long has this been going"
+ * is the question every waiting merchant actually has. react-timer-hook's
+ * stopwatch, seeded with the time already elapsed since the attempt was
+ * queued so a page reload keeps the true age instead of restarting at 0:00.
+ * Call sites key this by `since` — the offset is read once at mount, and a
+ * Retry (which restarts the attempt clock) must remount it.
+ */
+function ElapsedTimer({ since }: { since: string }) {
+	const [offset] = useState(() => {
+		const alreadyElapsedMs = Math.max(
+			0,
+			Date.now() - new Date(since).getTime(),
+		);
+
+		return new Date(Date.now() + alreadyElapsedMs);
+	});
+	const { hours, minutes, seconds } = useStopwatch({
+		autoStart: true,
+		offsetTimestamp: offset,
+	});
+	const totalMinutes = hours * 60 + minutes;
+
+	return (
+		<span className="font-mono text-[11px] text-muted-foreground tabular-nums">
+			{totalMinutes}:{seconds.toString().padStart(2, "0")}
+		</span>
+	);
+}
+
+/* ---------- terminal cards (design gallery 12 / 16 / 09) ---------- */
+
+/** Design card 12 — classified failure with Retry (or Top up for credits). */
+export function FailedBuildCard({
+	dismissing = false,
+	failureCode,
+	onDismiss,
+	onRetry,
+	retrying = false,
+}: {
+	/** Each action owns its pending label — a dismiss must never read "Retrying…". */
+	dismissing?: boolean;
+	failureCode: PageBuildFailureCode | null;
+	onDismiss: (() => void) | undefined;
+	onRetry: (() => void) | undefined;
+	retrying?: boolean;
+}) {
+	const { openPlanPicker } = useBillingModal();
+	const copy = buildFailureCopy(failureCode);
+	const outOfCredits = failureCode === "insufficient_credits";
+	const retryable = failureCode !== "member_limit";
+	const busy = retrying || dismissing;
+
+	return (
+		<div>
+			<StatusMessageHeader
+				avatarClass="border-destructive/38 bg-destructive/14 text-destructive"
+				kickerClass="text-destructive"
+				kicker={copy.kicker}
+			>
+				<AlertTriangle className="size-3" aria-hidden />
+			</StatusMessageHeader>
+			<div className="rounded-[14px] border border-destructive/30 bg-destructive/5 p-[14px]">
+				<p className="mb-1 font-medium text-foreground text-sm">{copy.title}</p>
+				<p className="mb-2 text-[13px] text-muted-foreground leading-[1.5]">
+					{copy.message}
+				</p>
+				{failureCode ? (
+					<p className="mb-[13px] font-mono text-[10.5px] text-muted-foreground/70">
+						error · {failureCode}
+					</p>
+				) : (
+					<span className="mb-[13px] block" />
+				)}
+				<div className="flex gap-2">
+					{outOfCredits ? (
+						<Button
+							size="sm"
+							className="h-8 flex-1 text-[13px]"
+							disabled={busy}
+							onClick={() => openPlanPicker()}
+						>
+							Top up wallet
+						</Button>
+					) : retryable && onRetry ? (
+						<Button
+							size="sm"
+							className="h-8 flex-1 text-[13px]"
+							disabled={busy}
+							onClick={onRetry}
+						>
+							<RotateCcw className="size-3.5" aria-hidden />
+							{retrying ? "Retrying…" : "Retry"}
+						</Button>
+					) : null}
+					{outOfCredits && onRetry ? (
+						<Button
+							size="sm"
+							variant="outline"
+							className="h-8 text-[13px]"
+							disabled={busy}
+							onClick={onRetry}
+						>
+							Retry
+						</Button>
+					) : onDismiss ? (
+						<Button
+							size="sm"
+							variant="outline"
+							className="h-8 text-[13px]"
+							disabled={busy}
+							onClick={onDismiss}
+						>
+							{dismissing ? "Dismissing…" : "Dismiss"}
+						</Button>
+					) : null}
+				</div>
+			</div>
+		</div>
+	);
+}
+
+/** Design card 16 — stopped mid-build: frozen percent, Resume, Discard. */
+export function StoppedBuildCard({
+	discarding = false,
+	onDiscard,
+	onResume,
+	percent,
+	resuming = false,
+	versionNumber,
+}: {
+	/** Each action owns its pending label — a discard must never read "Resuming…". */
+	discarding?: boolean;
+	onDiscard: (() => void) | undefined;
+	onResume: (() => void) | undefined;
+	percent: number;
+	resuming?: boolean;
+	versionNumber: number | undefined;
+}) {
+	const clamped = Math.min(100, Math.max(0, Math.round(percent)));
+	const busy = resuming || discarding;
+
+	return (
+		<div>
+			<StatusMessageHeader
+				avatarClass="border-border bg-muted text-muted-foreground"
+				kickerClass="text-muted-foreground"
+				kicker="Stopped"
+			>
+				<Square className="size-2.5 fill-current" strokeWidth={0} aria-hidden />
+			</StatusMessageHeader>
+			<div className="rounded-[14px] border border-border bg-background p-[14px]">
+				<div className="mb-2 flex items-center justify-between gap-3">
+					<span className="min-w-0 truncate font-medium text-foreground text-sm">
+						{versionNumber ? `Landing page · v${versionNumber}` : "Your page"}
+					</span>
+					<span className="shrink-0 font-mono text-muted-foreground text-xs">
+						{clamped}%
+					</span>
+				</div>
+				<div className="mb-[11px] h-[5px] overflow-hidden rounded-full bg-border">
+					<div
+						className="h-full rounded-full bg-stone"
+						style={{ width: `${clamped}%` }}
+					/>
+				</div>
+				<p className="mb-[13px] flex items-center gap-[7px] text-[13px] text-muted-foreground leading-[1.5]">
+					<Square
+						className="size-3 shrink-0 fill-current text-muted-foreground"
+						strokeWidth={0}
+						aria-hidden
+					/>
+					You stopped this build.
+				</p>
+				<div className="flex gap-2">
+					{onResume ? (
+						<Button
+							size="sm"
+							className="h-8 flex-1 text-[13px]"
+							disabled={busy}
+							onClick={onResume}
+						>
+							{resuming ? "Resuming…" : "Resume"}
+						</Button>
+					) : null}
+					{onDiscard ? (
+						<Button
+							size="sm"
+							variant="outline"
+							className="h-8 text-[13px]"
+							disabled={busy}
+							onClick={onDiscard}
+						>
+							{discarding ? "Discarding…" : "Discard"}
+						</Button>
+					) : null}
+				</div>
+			</div>
+		</div>
+	);
+}
+
+/** The quiet one-liner a dismissed terminal card collapses into. */
+function ReceiptLine({ text }: { text: string }) {
+	return (
+		<p className="text-[13px] text-muted-foreground leading-[1.5]">{text}</p>
 	);
 }
 
@@ -528,10 +908,18 @@ function PendingRing() {
 	);
 }
 
-/** The pre-Realtime static state — also the fallback for old messages. */
+/** The pre-Realtime static state — also the fallback for old messages.
+ *  Still stoppable: the durable attempt row is what a Stop acts on, so the
+ *  control must not depend on a live progress stream existing. */
 function StaticBuildingLine({
+	onStop,
+	startedAt,
+	stopping = false,
 	versionNumber,
 }: {
+	onStop?: () => void;
+	startedAt?: string;
+	stopping?: boolean;
 	versionNumber: number | undefined;
 }) {
 	return (
@@ -543,11 +931,32 @@ function StaticBuildingLine({
 			>
 				<SpinnerArc className="size-3" />
 			</StatusMessageHeader>
-			<p dir="auto" className="text-[13px] text-muted-foreground leading-[1.5]">
-				{versionNumber
-					? `Building v${versionNumber} — it will appear in the Page tab.`
-					: "Building your page — it will appear in the Page tab."}
-			</p>
+			<div className="flex min-w-0 items-center gap-2">
+				<p
+					dir="auto"
+					className="min-w-0 flex-1 text-[13px] text-muted-foreground leading-[1.5]"
+				>
+					{versionNumber
+						? `Building v${versionNumber} — it will appear in the Page tab.`
+						: "Building your page — it will appear in the Page tab."}
+				</p>
+				{startedAt ? <ElapsedTimer key={startedAt} since={startedAt} /> : null}
+				{onStop ? (
+					<button
+						type="button"
+						onClick={onStop}
+						disabled={stopping}
+						className="inline-flex shrink-0 items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground transition-colors hover:border-destructive/40 hover:text-destructive disabled:opacity-60"
+					>
+						<Square
+							className="size-2.5 fill-current"
+							strokeWidth={0}
+							aria-hidden
+						/>
+						{stopping ? "Stopping…" : "Stop"}
+					</button>
+				) : null}
+			</div>
 		</div>
 	);
 }

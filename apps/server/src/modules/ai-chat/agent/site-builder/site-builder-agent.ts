@@ -1562,7 +1562,24 @@ export async function runSiteBuild(
 			vfs.write("index.html", stampHtml(rawHtml));
 		}
 
-		assertValidSite(vfs, params.pageKind ?? "website");
+		try {
+			assertValidSite(vfs, params.pageKind ?? "website");
+		} catch (error) {
+			// Name-tag for classifyBuildFailure, and keep the provider failure
+			// that interrupted the build as the cause — "no index.html" because
+			// the model's provider 429'd mid-write is a PROVIDER failure, and
+			// replacing that evidence with a bare validation string would make
+			// the chat card blame Wandit for it.
+			if (error instanceof Error) {
+				error.name = "PageValidationError";
+
+				if (streamError !== undefined && error.cause === undefined) {
+					error.cause = streamError;
+				}
+			}
+
+			throw error;
+		}
 
 		if (!state.finishAccepted) {
 			log(
