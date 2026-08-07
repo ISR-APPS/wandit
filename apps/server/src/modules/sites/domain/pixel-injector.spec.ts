@@ -12,26 +12,72 @@ describe("injectPixels", () => {
 		);
 	});
 
-	it("injects the Meta pixel before </body>", () => {
+	it("puts the Meta script in <head> and its noscript image in <body>", () => {
 		const html = injectPixels(PAGE, {
 			metaPixelId: "1234567890",
 			tiktokPixelId: null,
 		});
+		const head = html.slice(0, html.indexOf("</head>"));
+		const body = html.slice(html.indexOf("<body"));
 
-		expect(html).toContain('data-wandit-pixel="meta"');
-		expect(html).toContain("fbq('init','1234567890')");
+		expect(head).toContain('data-wandit-pixel="meta"');
+		expect(head).toContain("fbq('init','1234567890')");
+		expect(head).toContain("fbq('track','PageView')");
+		expect(body).toContain("<noscript>");
+		expect(body).toContain("facebook.com/tr?id=1234567890");
 		expect(html).not.toContain("tiktok");
 	});
 
-	it("injects the TikTok pixel alone", () => {
+	it("puts the TikTok pixel alone in <head>", () => {
 		const html = injectPixels(PAGE, {
 			metaPixelId: null,
 			tiktokPixelId: "CABC123",
 		});
+		const head = html.slice(0, html.indexOf("</head>"));
 
-		expect(html).toContain('data-wandit-pixel="tiktok"');
-		expect(html).toContain("ttq.load('CABC123')");
+		expect(head).toContain('data-wandit-pixel="tiktok"');
+		expect(head).toContain("ttq.load('CABC123')");
+		expect(head).toContain("ttq.page()");
 		expect(html).not.toContain("fbq");
+	});
+
+	it("executes the TikTok snippet: loader assigned, SDK injected, page() queued", () => {
+		// Regression: an earlier snippet immediately invoked the loader, so
+		// ttq.load was undefined and the pixel never registered anything.
+		const html = injectPixels(PAGE, {
+			metaPixelId: null,
+			tiktokPixelId: "CABC123",
+		});
+		const script =
+			/<script data-wandit-pixel="tiktok">(.*?)<\/script>/s.exec(html)?.[1] ??
+			"";
+		const created: Array<{ src?: string }> = [];
+		const firstScript = {
+			parentNode: {
+				insertBefore: (node: unknown) => {
+					created.push(node as { src?: string });
+				},
+			},
+		};
+		const documentStub = {
+			createElement: () => ({}) as { async?: boolean; src?: string },
+			getElementsByTagName: () => [firstScript],
+		};
+		const windowStub: Record<string, unknown> = {};
+
+		expect(() =>
+			new Function("window", "document", script)(windowStub, documentStub),
+		).not.toThrow();
+
+		const ttq = windowStub.ttq as unknown[] & {
+			_i?: Record<string, unknown>;
+		};
+		expect(created).toHaveLength(1);
+		expect(created[0]?.src).toContain("sdkid=CABC123");
+		expect(ttq._i?.CABC123).toBeDefined();
+		expect(
+			ttq.some((entry) => Array.isArray(entry) && entry[0] === "page"),
+		).toBe(true);
 	});
 
 	it("injects both pixels", () => {
