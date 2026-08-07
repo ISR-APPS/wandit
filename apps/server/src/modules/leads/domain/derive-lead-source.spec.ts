@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deriveLeadSource } from "./derive-lead-source";
+import { deriveLeadCampaign, deriveLeadSource } from "./derive-lead-source";
 
 describe("deriveLeadSource", () => {
 	it("prefers platform click ids over utm_source", () => {
@@ -22,5 +22,27 @@ describe("deriveLeadSource", () => {
 		expect(deriveLeadSource({ utm_source: "google" })).toBe("direct");
 		expect(deriveLeadSource({ fbclid: "" })).toBe("direct");
 		expect(deriveLeadSource("facebook")).toBe("direct");
+	});
+});
+
+describe("deriveLeadCampaign", () => {
+	it("returns the trimmed utm_campaign", () => {
+		expect(deriveLeadCampaign({ utm_campaign: "  Ramadan Promo " })).toBe(
+			"Ramadan Promo",
+		);
+	});
+
+	it("caps very long campaign names", () => {
+		const campaign = deriveLeadCampaign({ utm_campaign: "x".repeat(500) });
+
+		expect(campaign).toHaveLength(200);
+	});
+
+	it("is null without a usable utm_campaign", () => {
+		expect(deriveLeadCampaign(null)).toBeNull();
+		expect(deriveLeadCampaign({})).toBeNull();
+		expect(deriveLeadCampaign({ utm_campaign: "   " })).toBeNull();
+		expect(deriveLeadCampaign({ utm_campaign: 42 })).toBeNull();
+		expect(deriveLeadCampaign({ fbclid: "abc" })).toBeNull();
 	});
 });

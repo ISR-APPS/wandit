@@ -14,11 +14,13 @@ const HEADERS = [
 	"Commune",
 	"Status",
 	"Source",
+	"Campaign",
 	"Created at",
 ];
 
 function leadWithExtras(extras: Lead["extras"]): Lead {
 	return {
+		campaign: "Ramadan Promo",
 		commune: "Bab Ezzouar",
 		createdAt: "2026-08-02T10:00:00.000Z",
 		extras,
@@ -53,8 +55,9 @@ describe("buildLeadsCsv", () => {
 		);
 
 		expect(csv).toContain(
-			"Name,Phone,Wilaya,Commune,Status,Source,Created at,Order details",
+			"Name,Phone,Wilaya,Commune,Status,Source,Campaign,Created at,Order details",
 		);
+		expect(csv).toContain("direct,Ramadan Promo,");
 		expect(csv.match(/Order details/g)).toHaveLength(1);
 		expect(csv).toContain(
 			'"{""bundle"":""Family pack"",""color"":""Blue"",""delivery"":""Home"",""quantity"":3,""size"":""XL"",""variant"":""Premium""}"',
