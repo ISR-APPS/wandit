@@ -84,7 +84,7 @@ export class ModelPricingService {
 		this.now = options.now ?? (() => new Date());
 		this.usdMicrosPerCredit =
 			options.usdMicrosPerCredit ??
-			dollarsStringToUsdMicros(String(env.AI_USD_PER_CREDIT ?? 0.05));
+			dollarsStringToUsdMicros(String(env.AI_USD_PER_CREDIT ?? 0.04));
 		this.seedByModelId = buildSeedMap(options.seedResponse ?? modelPriceSeed);
 	}
 

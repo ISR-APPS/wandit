@@ -13,11 +13,11 @@ must be 0 at first prod deploy of this branch; otherwise the grandfathering appe
 
 ## 0. Product model
 
-- **One paid plan ("Pro")**, Lovable-style: $25/mo = 100 monthly credits; credit-tier variants;
+- **One paid plan ("Pro")**, Lovable-style: $30/mo = 200 monthly credits; credit-tier variants;
   monthly + yearly (yearly = exactly 2 months free = 10× monthly).
 - **Credits fuel every AI action.** Zero balance ⇒ refuse + upgrade modal. Paid users consume
   credits like everyone else (subscription = refill, never a bypass).
-- **Free plan**: 20 credits (= $5 retail) at signup, toggleable, default OFF (beta posture).
+- **Free plan**: 50 credits (= $2 of AI-provider value) at signup, toggleable, default OFF (beta posture).
 - **Beta**: admins grant access + credits; kill switches keep free/paid off; ending beta = flip
   settings; testers keep leftover granted credits.
 - **Affiliates**: links can expire; attributions locked before expiry earn for the user's paying
@@ -27,10 +27,10 @@ must be 0 at first prod deploy of this branch; otherwise the grandfathering appe
 
 | Constant | Value |
 |---|---|
-| Retail credit value | $0.25/credit (base tier anchor) |
-| Metering conversion `usdPerCredit` | $0.05/credit (config) |
+| Retail credit value | $0.15/credit (base tier anchor: 200 credits = $30) |
+| Metering conversion `usdPerCredit` | $0.04/credit (config: $8 of AI value per 200-credit base tier) |
 | Debit formula (token-metered) | `max(1, ceil(rawUsd / usdPerCredit))` — min-1 is deliberate Lovable-style pricing |
-| Signup grant | 20 credits, configurable, `promo` bucket |
+| Signup grant | 50 credits, configurable, `promo` bucket |
 
 Fixed action costs (config-owned registry, §5.6): image **5/image**, video 25 (including
 video generated inside builder/connector flows — the operation registry decides by operation
@@ -42,9 +42,9 @@ credit for the creation flow covers it; it can only run once per creation).
 
 ### Catalog (single Pro plan)
 
-Monthly: 100/$25, 200/$50, 400/$100, 800/$200, 1200/$294 (2%), 2000/$480 (4%), 3000/$705 (6%),
-4000/$920 (8%), 5000/$1,125 (10%). **Yearly = 10 × monthly.** Top-ups: 100/$25, 500/$125,
-1,000/$250. Remove `business` + 7,500/10,000 tiers from contracts/seed/UI/specs (DB enum value
+Monthly: 200/$30, 400/$60, 800/$120, 1600/$240, 2400/$353 (2%), 4000/$576 (4%), 6000/$846 (6%),
+8000/$1,104 (8%), 10000/$1,350 (10%). **Yearly = 10 × monthly.** Top-ups: 200/$30, 1,000/$150,
+2,000/$300. Remove `business` + 7,500/10,000 tiers from contracts/seed/UI/specs (DB enum value
 stays). `billing-catalog.spec.ts` is rewritten to lock the new economics. Seed script validates
 product/currency/interval/metadata of existing lookup-key prices; sync/fulfillment parse unknown
 lookup keys tolerantly (log + skip grant, never crash) — with the zero-live-subs assertion this
