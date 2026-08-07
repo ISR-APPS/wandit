@@ -1,3 +1,5 @@
+Only report to me in ASD-STE100 Simplified Technical English
+
 ## Worktrees
 
 - **Create new worktrees under `.claude/worktrees/<name>` inside the repo, never as sibling directories** (no more `../ISR-AI-<name>`). Existing sibling worktrees stay where they are until their branches land.
