@@ -183,6 +183,13 @@
       "when": 1786109384818,
       "tag": "0025_attempt-lifecycle",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1786128168365,
+      "tag": "0026_signup-grant-50",
+      "breakpoints": true
     }
   ]
 }

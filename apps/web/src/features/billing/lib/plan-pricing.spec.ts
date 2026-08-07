@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 import { tierPriceUsd, tierSavingsPercent } from "./plan-pricing";
 
 const EXPECTED_MONTHLY_PRICES = [
-	25, 50, 100, 200, 294, 480, 705, 920, 1125,
+	30, 60, 120, 240, 353, 576, 846, 1104, 1350,
 ] as const;
 const EXPECTED_SAVINGS = [0, 0, 0, 0, 2, 4, 6, 8, 10] as const;
 
@@ -34,9 +34,26 @@ describe("plan picker pricing", () => {
 		const tiers = catalogTiers();
 
 		expect(tiers.map((tier) => tier.tierCredits)).toEqual([
-			100, 200, 400, 800, 1200, 2000, 3000, 4000, 5000,
+			200, 400, 800, 1600, 2400, 4000, 6000, 8000, 10000,
 		]);
-		expect(tiers.map(tierSavingsPercent)).toEqual(EXPECTED_SAVINGS);
+		expect(tiers.map((tier) => tierSavingsPercent(tier))).toEqual(
+			EXPECTED_SAVINGS,
+		);
+	});
+
+	it("computes Business savings against the Business base rate, not Pro's", () => {
+		const businessSavings = CREDIT_TIERS.map((tierCredits) =>
+			tierSavingsPercent(
+				{
+					monthlyUsd:
+						BILLING_CATALOG.plans.business.monthlyPricesUsd[tierCredits],
+					tierCredits,
+				},
+				BILLING_CATALOG.plans.business.basePer100Usd,
+			),
+		);
+
+		expect(businessSavings).toEqual(EXPECTED_SAVINGS);
 	});
 
 	it("prices yearly plans at exactly ten monthly payments", () => {

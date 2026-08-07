@@ -73,7 +73,7 @@ describe("ProductSettingsService", () => {
 			id: 1,
 			organizationsEnabled: false,
 			paidSubscriptionsEnabled: false,
-			signupGrantCredits: 20,
+			signupGrantCredits: 50,
 			signupGrantEnabled: false,
 			topupsEnabled: false,
 			updatedAt: INITIAL_DATE.toISOString(),

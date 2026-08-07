@@ -11,7 +11,7 @@ Everything needed for a user to subscribe to **Pro** (choosing a monthly credit 
 
 - **Hand-rolled billing, not the Better Auth Stripe plugin** — we own the schema, the ledger semantics, and the provider port; the plugin would fight all three.
 - **Plan catalog is code**: one config file in `@wandit/contracts` is the single source of truth for plans, tiers, prices, credit costs. The Stripe seed script, API responses, and the future pricing UI all derive from it. Zack tunes numbers in ONE place.
-- **Stripe Prices resolved by `lookup_key`** (`pro_1200_month`, `pro_100_year`, `topup_1000` — format = `priceLookupKey()` in `@wandit/contracts`) — never hardcoded price IDs. The seed script creates Products and safely creates or replaces Prices.
+- **Stripe Prices resolved by `lookup_key`** (`pro_2400_month`, `pro_200_year`, `topup_1000` — format = `priceLookupKey()` in `@wandit/contracts`) — never hardcoded price IDs. The seed script creates Products and safely creates or replaces Prices.
 - **Annual = ten monthly payments**, with month 1 granted on the paid invoice and eleven paid refill slots delivered by a scheduled Trigger.dev task over the annual period.
 - **Upgrades are immediate** (proration `always_invoice`, with credit policy derived from the paid invoice). Tier downgrades apply at renewal without proration; yearly→monthly is not offered in v2.
 - **Webhooks are the source of truth** for subscription state; API responses update the mirror opportunistically but never skip the inbox.
@@ -23,23 +23,25 @@ There is one paid plan, **Pro**, with nine monthly credit tiers. Yearly prices a
 
 | Credits / month | Monthly | Yearly | Volume discount |
 |---:|---:|---:|---:|
-| 100 | $25 | $250 | 0% |
-| 200 | $50 | $500 | 0% |
-| 400 | $100 | $1,000 | 0% |
-| 800 | $200 | $2,000 | 0% |
-| 1,200 | $294 | $2,940 | 2% |
-| 2,000 | $480 | $4,800 | 4% |
-| 3,000 | $705 | $7,050 | 6% |
-| 4,000 | $920 | $9,200 | 8% |
-| 5,000 | $1,125 | $11,250 | 10% |
+| 200 | $30 | $300 | 0% |
+| 400 | $60 | $600 | 0% |
+| 800 | $120 | $1,200 | 0% |
+| 1,600 | $240 | $2,400 | 0% |
+| 2,400 | $353 | $3,530 | 2% |
+| 4,000 | $576 | $5,760 | 4% |
+| 6,000 | $846 | $8,460 | 6% |
+| 8,000 | $1,104 | $11,040 | 8% |
+| 10,000 | $1,350 | $13,500 | 10% |
 
-Top-up packs (never expire, burn after plan and promo credits): `topup_100` $25 · `topup_500` $125 · `topup_1000` $250.
+Business is exactly 2× Pro per tier (the pooled workspace allowance is what's priced).
 
-The configurable signup grant is 20 promo credits and is disabled by default. Retail value is anchored at $0.25 per credit; token-metered actions use `max(1, ceil(rawUsd / usdPerCredit))` with `usdPerCredit = $0.05`. Fixed costs are image 5/image, video 25, marketing 5, connector generation 5 (plus inline child operations at their own rates), lead scrape 5, and transcription by minute with a 1-credit minimum. Chat and page-builder usage are token-metered.
+Top-up packs (never expire, burn after plan and promo credits): `topup_200` $30 · `topup_1000` $150 · `topup_2000` $300.
+
+The configurable signup grant is 50 promo credits and is disabled by default. Retail value is anchored at $0.15 per credit (200 credits = $30 base tier); token-metered actions use `max(1, ceil(rawUsd / usdPerCredit))` with `usdPerCredit = $0.04` ($8 of AI value per 200-credit base tier). Fixed costs are image 5/image, video 25, marketing 5, connector generation 5 (plus inline child operations at their own rates), lead scrape 5, and transcription by minute with a 1-credit minimum. Chat and page-builder usage are token-metered.
 
 ### Credit ↔ token costing: starting point + how to tune
 
-Every metered operation records usage and the pricing snapshot used for its debit. After launch: compare Gateway invoice vs credits burned, target model COGS ≤ ~30% of retail credit value (1 credit retail ≈ $0.25 at base tier), and tune the operation registry or `usdPerCredit` without changing the ledger schema.
+Every metered operation records usage and the pricing snapshot used for its debit. After launch: compare Gateway invoice vs credits burned, target model COGS ≤ ~30% of retail credit value (1 credit retail ≈ $0.15 at base tier), and tune the operation registry or `usdPerCredit` without changing the ledger schema.
 
 ## Data model (packages/db)
 
