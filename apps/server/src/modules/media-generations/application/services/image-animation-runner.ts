@@ -1,6 +1,7 @@
 // /node, not /nestjs: this code also runs inside Trigger tasks and the worker.
-import type { MeteringSubject } from "../../../credits/domain/credit-owner";
+
 import { Sentry } from "@wandit/observability/node";
+import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 
 import { isTerminalFixedOperationReplay } from "../../../metering/application/services/fixed-operation-billing";
 import {
@@ -16,6 +17,18 @@ import type {
 
 export const USER_SAFE_IMAGE_ANIMATION_ERROR =
 	"We couldn't animate this image. Please try again in a moment.";
+
+export const USER_SAFE_TEXT_TO_VIDEO_ERROR =
+	"We couldn't finish this video. Please try again in a moment.";
+
+/** The persisted failure copy is user-facing — pick it per attempt kind. */
+export function userSafeGenerationError(
+	kind: ImageAnimationAttempt["kind"],
+): string {
+	return kind === "text-to-video"
+		? USER_SAFE_TEXT_TO_VIDEO_ERROR
+		: USER_SAFE_IMAGE_ANIMATION_ERROR;
+}
 
 export const IMAGE_ANIMATION_PROVIDER_TIMEOUT_MS = 5 * 60_000;
 export const IMAGE_ANIMATION_RECOVERY_GRACE_MS = 2 * 60_000;
@@ -44,14 +57,17 @@ export type ImageAnimationAttemptStatus =
 export type ImageAnimationAttempt = {
 	aspect: "16:9" | "9:16" | "1:1";
 	completedAt: Date | null;
+	durationSeconds: number;
 	error: string | null;
 	id: string;
-	motion: "subtle" | "balanced" | "dynamic";
+	kind: "image-animation" | "text-to-video";
+	// Null only for kind "text-to-video" (enforced by the DB kind CHECK).
+	motion: "subtle" | "balanced" | "dynamic" | null;
 	organizationId: string | null;
 	projectDeletedAt: Date | null;
 	projectId: string;
 	prompt: string;
-	sourceImageUrl: string;
+	sourceImageUrl: string | null;
 	startedAt: Date | null;
 	status: ImageAnimationAttemptStatus;
 	triggerRunId: string | null;
@@ -327,7 +343,12 @@ export async function runImageAnimation(
 			payload.parentEventId,
 			payload.billingMode,
 		);
-		return recoverOrSettleGenerating(loaded, subject, dependencies, reservation);
+		return recoverOrSettleGenerating(
+			loaded,
+			subject,
+			dependencies,
+			reservation,
+		);
 	}
 
 	const claimed = await dependencies.claimQueued(loaded, {
@@ -382,7 +403,12 @@ export async function runImageAnimation(
 				payload.parentEventId,
 				payload.billingMode,
 			);
-			return recoverOrSettleGenerating(raced, subject, dependencies, reservation);
+			return recoverOrSettleGenerating(
+				raced,
+				subject,
+				dependencies,
+				reservation,
+			);
 		}
 
 		throw new Error(
@@ -418,7 +444,12 @@ export async function runImageAnimation(
 	}
 
 	if (isTerminalFixedOperationReplay(reservation)) {
-		return recoverOrSettleGenerating(claimed, subject, dependencies, reservation);
+		return recoverOrSettleGenerating(
+			claimed,
+			subject,
+			dependencies,
+			reservation,
+		);
 	}
 
 	let generated: ImageAnimationProviderResult;
@@ -562,7 +593,13 @@ async function recoverOrSettleGenerating(
 	}
 
 	if (isTerminalFixedOperationReplay(reservation)) {
-		await failAndRefund(attempt, subject, dependencies, "terminal_billing", false);
+		await failAndRefund(
+			attempt,
+			subject,
+			dependencies,
+			"terminal_billing",
+			false,
+		);
 		return { reason: "generation_failed", status: "failed" };
 	}
 
@@ -636,7 +673,7 @@ async function failAndRefund(
 ): Promise<void> {
 	const failed = await dependencies.fail(attempt, {
 		completedAt: dependencies.now(),
-		error: USER_SAFE_IMAGE_ANIMATION_ERROR,
+		error: userSafeGenerationError(attempt.kind),
 		expectedStatus: "generating",
 		reason,
 	});
@@ -681,7 +718,7 @@ async function settleDeletedProject(
 
 	const failed = await dependencies.fail(attempt, {
 		completedAt: dependencies.now(),
-		error: USER_SAFE_IMAGE_ANIMATION_ERROR,
+		error: userSafeGenerationError(attempt.kind),
 		expectedStatus: attempt.status,
 		reason: "project_deleted",
 	});

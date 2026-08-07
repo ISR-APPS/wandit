@@ -1,6 +1,5 @@
 import { z } from "zod";
 import { paymentRequiredDetailsSchema } from "../http/error-codes";
-import { memberCreditLimitDetailsSchema } from "./workspaces";
 import { attachmentMediaTypeSchema } from "./attachments";
 import { composerMetadataSchema } from "./chats";
 import {
@@ -12,9 +11,12 @@ import {
 	imageToVideoAspectSchema,
 	imageToVideoMotionSchema,
 	imageToVideoSourceMediaTypeSchema,
+	videoDurationSecondsSchema,
+	videoVoiceoverSchema,
 } from "./media-generations";
 import { aiElementOpSchema, widSchema } from "./page-edits";
 import { PAGE_TOKEN_NAMES } from "./page-theme";
+import { memberCreditLimitDetailsSchema } from "./workspaces";
 
 // AI SDK v7 LanguageModelUsage-compatible fields kept on assistant messages.
 // The nested detail names deliberately follow v7: the old top-level
@@ -440,6 +442,78 @@ export type AnimateImageInput = z.infer<typeof animateImageInputSchema>;
 export type AnimateImageOutput = z.infer<typeof animateImageOutputSchema>;
 
 /**
+ * generate_video — queues a text-to-video generation from a creative brief.
+ * The Brain gathers the brief (video type, subject, mood, format, voiceover)
+ * in conversation; the server's video director rewrites it into one
+ * domain-language provider prompt at queue time and snapshots it on the
+ * durable attempt. No source image involved — that is animate_image's job.
+ */
+export const generateVideoInputSchema = z.object({
+	// Display name for the chat card and the Assets tab, in the user's
+	// language (e.g. "Pub 9:16 — Lancement PulseBuds").
+	title: z.string().min(1).max(120),
+	// The complete creative brief composed from the conversation: subject,
+	// video type (commercial, UGC, cinematic…), audience, key moment/action,
+	// setting, mood, brand colors, every real fact the clip may use. The
+	// director sees ONLY this.
+	brief: z.string().min(30).max(4_000),
+	aspect: imageToVideoAspectSchema,
+	durationSeconds: videoDurationSecondsSchema.default(10),
+	// Present only when the user asked for a voiceover. The Brain writes the
+	// short script in the requested language; audio generation itself is
+	// stubbed until the audio provider lands — the clip renders silent and
+	// the request is stored with the attempt.
+	voiceover: videoVoiceoverSchema.optional(),
+});
+
+export const generateVideoOutputSchema = z.object({
+	// "unavailable" means the server is missing video-provider or storage
+	// configuration; the model must say so instead of promising a result.
+	status: z.enum(["queued", "unavailable"]),
+	attemptId: z.string().uuid().optional(),
+	realtime: triggerRealtimeHandleSchema.optional(),
+	message: z.string().min(1),
+});
+
+export type GenerateVideoInput = z.infer<typeof generateVideoInputSchema>;
+export type GenerateVideoOutput = z.infer<typeof generateVideoOutputSchema>;
+
+/**
+ * Live video-generation progress the worker pushes over Trigger Realtime
+ * (metadata key "progress"). Same wire-tolerance rule as
+ * pageBuildProgressSchema: every field carries .catch() so one bad field
+ * degrades alone instead of blanking the card mid-render.
+ */
+export const videoBuildPhaseSchema = z.enum([
+	"starting",
+	"rendering",
+	"publishing",
+	"finishing",
+]);
+
+export type VideoBuildPhase = z.infer<typeof videoBuildPhaseSchema>;
+
+export const videoBuildProgressSchema = z.object({
+	// 0-100, monotonically non-decreasing (the tracker clamps regressions).
+	percent: z.number().min(0).max(100).catch(2),
+	phase: videoBuildPhaseSchema.catch("starting"),
+	// One short present-tense line for the card header. English chrome, same
+	// rule as the page-build card.
+	headline: z.string().min(1).catch("Working on the video…"),
+	// Leading slice of the director-crafted provider prompt — the card shows
+	// the "director's cut" that is actually rendering.
+	promptExcerpt: z.string().max(400).optional().catch(undefined),
+	aspect: imageToVideoAspectSchema.catch("16:9"),
+	durationSeconds: z.number().int().min(1).catch(10),
+	voiceoverLanguage: z.string().max(8).optional().catch(undefined),
+	// Milliseconds spent inside the provider render so far — the card clock.
+	elapsedMs: z.number().int().min(0).catch(0),
+	done: z.boolean().catch(false),
+});
+
+export type VideoBuildProgress = z.infer<typeof videoBuildProgressSchema>;
+
+/**
  * generate_marketing_asset — the Brain queues one named marketing deliverable
  * (HTML document) built from a complete marketing brief. The tool answers
  * immediately; the finished card appears in the Marketing tab.
@@ -631,6 +705,7 @@ export type AiChatTools = {
 	generate_image: { input: GenerateImageInput; output: GenerateImageOutput };
 	scrape_leads: { input: ScrapeLeadsInput; output: ScrapeLeadsOutput };
 	animate_image: { input: AnimateImageInput; output: AnimateImageOutput };
+	generate_video: { input: GenerateVideoInput; output: GenerateVideoOutput };
 	get_page_outline: {
 		input: GetPageOutlineInput;
 		output: GetPageOutlineOutput;

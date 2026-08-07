@@ -20,6 +20,7 @@ export type ProjectAssetKind = z.infer<typeof projectAssetKindSchema>;
 export const projectAssetSourceSchema = z.enum([
 	"image-generation",
 	"image-animation",
+	"video-generation",
 	"page-build",
 ]);
 

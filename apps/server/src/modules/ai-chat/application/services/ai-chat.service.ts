@@ -29,12 +29,15 @@ import {
 	type GenerateMarketingAssetOutput,
 	type GeneratePageInput,
 	type GeneratePageOutput,
+	type GenerateVideoInput,
+	type GenerateVideoOutput,
 	type GetDirectionCandidatesInput,
 	type GetDirectionCandidatesOutput,
 	type GetPageOutlineOutput,
 	generateImageInputSchema,
 	generateMarketingAssetInputSchema,
 	generatePageInputSchema,
+	generateVideoInputSchema,
 	getDirectionCandidatesInputSchema,
 	IMAGE_TO_VIDEO_SOURCE_MEDIA_TYPES,
 	type ReadElementsInput,
@@ -79,6 +82,7 @@ import {
 	type McpChatToolsResult,
 	McpChatToolsService,
 } from "../../../mcp-connectors/application/services/mcp-chat-tools.service";
+import { VideoDirectorService } from "../../../media-generations/application/services/video-director";
 import { MediaGenerationsRepository } from "../../../media-generations/infrastructure/persistence/media-generations.repository";
 import { MeteringService } from "../../../metering/application/services/metering.service";
 import { ModelPricingService } from "../../../metering/application/services/model-pricing.service";
@@ -156,6 +160,8 @@ export class AiChatService {
 		private readonly leadScrapesRepository: LeadScrapesRepository,
 		@Inject(MediaGenerationsRepository)
 		private readonly mediaGenerationsRepository: MediaGenerationsRepository,
+		@Inject(VideoDirectorService)
+		private readonly videoDirector: VideoDirectorService,
 		@Inject(MarketingAssetsRepository)
 		private readonly marketingAssetsRepository: MarketingAssetsRepository,
 		@Inject(ImageGenerationsRepository)
@@ -592,12 +598,20 @@ export class AiChatService {
 					// Snapshotted into generation specs for later model swapping; no
 					// generator reads it yet.
 					quality: metadata?.composer?.quality,
-					requireSelectedSource: metadata?.composer?.mode === "video",
+					// Only the image-animation output hard-requires a validated source
+					// still. Video mode's other output (video-creator) is
+					// text-to-video; a missing output means a legacy client where
+					// image-animation was the only video output.
+					requireSelectedSource:
+						metadata?.composer?.mode === "video" &&
+						(metadata.composer.output ?? "image-animation") ===
+							"image-animation",
 					requestKeySeed,
 					requestCountryCode: requestCountryCode ?? null,
 					selectedSourceImage,
 					subject,
 					userId,
+					videoDirector: this.videoDirector,
 				},
 				contextWithMcpNotices || null,
 				mcpResult.tools,
@@ -1193,6 +1207,20 @@ const INCOMPLETE_ANIMATE_IMAGE_INPUT: AnimateImageInput = {
 	sourceMediaType: "image/jpeg",
 };
 
+const INTERRUPTED_GENERATE_VIDEO_OUTPUT: GenerateVideoOutput = {
+	message:
+		"The video request was interrupted before it could be queued. If the " +
+		"user still wants it, call generate_video again with the brief.",
+	status: "unavailable",
+};
+
+const INCOMPLETE_GENERATE_VIDEO_INPUT: GenerateVideoInput = {
+	aspect: "16:9",
+	brief: "The creative brief was lost when the request stream was interrupted.",
+	durationSeconds: 10,
+	title: "Interrupted video request",
+};
+
 const INTERRUPTED_READ_SKILL_MARKDOWN =
 	"[skill load was interrupted — call read_skill again if needed]";
 
@@ -1463,6 +1491,28 @@ export function completeDanglingToolCalls(
 						? parsedInput.data
 						: INCOMPLETE_ANIMATE_IMAGE_INPUT,
 					output: INTERRUPTED_ANIMATE_IMAGE_OUTPUT,
+					state: "output-available" as const,
+				};
+			}
+
+			if (part.type === "tool-generate_video") {
+				if (
+					part.state !== "input-available" &&
+					part.state !== "input-streaming"
+				) {
+					return part;
+				}
+
+				changed = true;
+
+				const parsedInput = generateVideoInputSchema.safeParse(part.input);
+
+				return {
+					...part,
+					input: parsedInput.success
+						? parsedInput.data
+						: INCOMPLETE_GENERATE_VIDEO_INPUT,
+					output: INTERRUPTED_GENERATE_VIDEO_OUTPUT,
 					state: "output-available" as const,
 				};
 			}

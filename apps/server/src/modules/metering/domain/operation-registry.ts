@@ -266,6 +266,13 @@ export const AI_INVOCATION_COVERAGE = [
 			"apps/server/src/modules/media-generations/application/services/image-animation-runner.ts",
 	},
 	{
+		billing: { kind: "metered", operation: "video" },
+		id: "standalone-text-to-video",
+		marker: "export async function generateTextToVideo",
+		source:
+			"apps/server/src/modules/ai-chat/agent/site-builder/generate-video.ts",
+	},
+	{
 		billing: { kind: "metered", operation: "marketing" },
 		id: "marketing",
 		marker: "generateMarketingAssetHtml",
@@ -317,5 +324,12 @@ export const AI_INVOCATION_COVERAGE = [
 		marker: "const result = await generateText({",
 		source:
 			"apps/server/src/modules/mcp-connectors/application/services/higgsfield-prompt-refiner.service.ts",
+	},
+	{
+		billing: { bundledInto: "chat", kind: "bundled" },
+		id: "video-director-bundled",
+		marker: "const result = await generateText({",
+		source:
+			"apps/server/src/modules/media-generations/application/services/video-director.ts",
 	},
 ] as const satisfies readonly AiInvocationCoverage[];

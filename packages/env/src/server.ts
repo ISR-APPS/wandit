@@ -56,10 +56,7 @@ export const env = createEnv({
 		// Rewrites the brain's Higgsfield image/video intent into a polished
 		// generation prompt before the MCP call. Falls back to the raw prompt
 		// when it cannot run (no gateway key, timeout, error).
-		AI_PROMPT_REFINER_MODEL: z
-			.string()
-			.min(1)
-			.default("openai/gpt-5.6-luna"),
+		AI_PROMPT_REFINER_MODEL: z.string().min(1).default("openai/gpt-5.6-luna"),
 		AI_TRANSCRIPTION_MODEL: z
 			.string()
 			.min(1)
@@ -94,6 +91,16 @@ export const env = createEnv({
 		// Needs R2 + R2_PUBLIC_BASE_URL too; unset means the tool answers
 		// "unavailable".
 		AI_VIDEO_MODEL: z.string().min(1).optional(),
+		// Optional: text-to-video model for the generate_video chat tool. Unset
+		// falls back to AI_VIDEO_MODEL with its "-i2v" suffix swapped for
+		// "-t2v" (Kling ids pair that way); if neither yields a usable id the
+		// tool answers "unavailable".
+		AI_VIDEO_TEXT_MODEL: z.string().min(1).optional(),
+		// Optional: the "creative director" that rewrites a video brief into one
+		// domain-language provider prompt at queue time. Falls back to
+		// AI_PROMPT_REFINER_MODEL; failures degrade to a deterministic prompt,
+		// never blocking a paid generation.
+		AI_VIDEO_DIRECTOR_MODEL: z.string().min(1).optional(),
 		TRIGGER_SECRET_KEY: z.string().min(1).optional(),
 		// Lead scraping (scrape_leads chat tool). Serper.dev key for the Google
 		// Maps business search. Optional: the tool checks at call time and

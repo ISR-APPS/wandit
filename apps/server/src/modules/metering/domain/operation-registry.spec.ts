@@ -21,6 +21,7 @@ const REQUIRED_WORKFLOW_IDS = [
 	"site-builder-video-child",
 	"standalone-image",
 	"standalone-animation",
+	"standalone-text-to-video",
 	"marketing",
 	"connector-inline",
 	"connector-background",
@@ -29,6 +30,7 @@ const REQUIRED_WORKFLOW_IDS = [
 	"legacy-worker-chat",
 	"project-title-bundled",
 	"higgsfield-prompt-refine-bundled",
+	"video-director-bundled",
 ] as const;
 
 const PROVIDER_CALL_PATTERNS = [
@@ -65,7 +67,8 @@ const EXPECTED_PROVIDER_CALLS = [
 			"apps/server/src/modules/ai-chat/agent/site-builder/site-builder-agent.ts",
 	},
 	{
-		count: 1,
+		// One call per pipeline: generateBuildVideo (image) + generateTextToVideo.
+		count: 2,
 		name: "generateVideo",
 		source:
 			"apps/server/src/modules/ai-chat/agent/site-builder/generate-video.ts",
@@ -99,6 +102,12 @@ const EXPECTED_PROVIDER_CALLS = [
 		name: "generateText",
 		source:
 			"apps/server/src/modules/mcp-connectors/application/services/higgsfield-prompt-refiner.service.ts",
+	},
+	{
+		count: 1,
+		name: "generateText",
+		source:
+			"apps/server/src/modules/media-generations/application/services/video-director.ts",
 	},
 	{
 		count: 1,

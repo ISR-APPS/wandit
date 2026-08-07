@@ -92,7 +92,9 @@ export function ChatMediaGallery({ items }: { items: ChatMediaGalleryItem[] }) {
 	);
 }
 
-function ChatMediaLightbox({
+// Exported for cards that open one media item full screen from their own
+// chrome (generate_video's stage) — same overlay, focus and download rules.
+export function ChatMediaLightbox({
 	items,
 	index,
 	onNavigate,

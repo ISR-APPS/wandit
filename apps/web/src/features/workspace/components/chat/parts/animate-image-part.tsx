@@ -236,7 +236,7 @@ function MediaGenerationResult({
 		<div className="overflow-hidden rounded-[14px] border border-border bg-background">
 			<video
 				src={videoUrl}
-				poster={attempt.sourceImageUrl}
+				poster={attempt.sourceImageUrl ?? undefined}
 				controls
 				muted
 				playsInline

@@ -22,8 +22,10 @@ const RECOVERED_VIDEO: ImageAnimationVideo = {
 const BASE_ATTEMPT: ImageAnimationAttempt = {
 	aspect: "9:16",
 	completedAt: null,
+	durationSeconds: 5,
 	error: null,
 	id: "attempt_1",
+	kind: "image-animation",
 	motion: "balanced",
 	organizationId: null,
 	projectDeletedAt: null,
@@ -159,7 +161,10 @@ describe("reconcileImageAnimations", () => {
 		);
 		expect(failFromStatus).not.toHaveBeenCalled();
 		expect(refund).not.toHaveBeenCalled();
-		expect(settleExisting).toHaveBeenCalledWith({ actorUserId: "user_1" }, "attempt_1");
+		expect(settleExisting).toHaveBeenCalledWith(
+			{ actorUserId: "user_1" },
+			"attempt_1",
+		);
 		expect(settleExisting.mock.invocationCallOrder[0]).toBeLessThan(
 			markSucceeded.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
 		);
@@ -177,7 +182,10 @@ describe("reconcileImageAnimations", () => {
 				recovered: 1,
 			},
 		);
-		expect(settleExisting).toHaveBeenCalledWith({ actorUserId: "user_1" }, "attempt_1");
+		expect(settleExisting).toHaveBeenCalledWith(
+			{ actorUserId: "user_1" },
+			"attempt_1",
+		);
 		expect(markSucceeded).toHaveBeenCalledWith(
 			staleGenerating,
 			RECOVERED_VIDEO,

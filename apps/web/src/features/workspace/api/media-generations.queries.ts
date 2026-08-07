@@ -12,7 +12,13 @@ export const mediaGenerationKeys = {
 		[...mediaGenerationKeys.all, "attempt", attemptId] as const,
 };
 
-export function useMediaGenerationAttemptQuery(attemptId: string) {
+export function useMediaGenerationAttemptQuery(
+	attemptId: string,
+	// Cards with a Realtime subscription pass a slow safety-net interval and
+	// flip to a fast one when the subscription dies (generate_video); the
+	// legacy animate_image card keeps the fast default.
+	intervalMs = 1500,
+) {
 	return useQuery({
 		queryKey: mediaGenerationKeys.attempt(attemptId),
 		queryFn: () => getMediaGenerationAttempt(attemptId),
@@ -25,7 +31,7 @@ export function useMediaGenerationAttemptQuery(attemptId: string) {
 			return status === undefined ||
 				status === "queued" ||
 				status === "generating"
-				? 1500
+				? intervalMs
 				: false;
 		},
 	});
