@@ -196,7 +196,7 @@ describe("ProjectTitleService", () => {
 		await expect(service.generate(INPUT)).resolves.toBe(INPUT.fallbackTitle);
 		expect(generateText).not.toHaveBeenCalled();
 		expect(warn).toHaveBeenCalledWith(
-			"Project title generation skipped: AI gateway is not configured",
+			"Project title generation skipped: AI provider is not configured",
 		);
 	});
 

@@ -9,13 +9,16 @@
  */
 import { env } from "@wandit/env/server";
 import { generateText } from "ai";
-
+import {
+	createLlmModel,
+	hasLlmProviderKey,
+	withLlmAttribution,
+} from "../../../ai-provider/domain/llm-provider";
 import {
 	type GatewayGenerationFailure,
 	type GatewayGenerationMetadata,
 	type GatewayMeteringContext,
-	gatewayGenerationCaptureFromError,
-	withGatewayAttribution,
+	llmGenerationCaptureFromError,
 } from "../../../metering/domain/gateway-metering";
 
 export type MarketingHtmlInput = {
@@ -114,7 +117,7 @@ export async function generateMarketingAssetHtml(
 ): Promise<MarketingHtmlResult> {
 	const model = env.AI_MARKETING_MODEL ?? env.AI_CHAT_MODEL;
 
-	if (!env.AI_GATEWAY_API_KEY || !model) {
+	if (!hasLlmProviderKey("marketing") || !model) {
 		return {
 			message: "marketing generation not configured",
 			status: "unavailable",
@@ -126,13 +129,18 @@ export async function generateMarketingAssetHtml(
 	try {
 		const result = await generateText({
 			...(abortSignal ? { abortSignal } : {}),
-			model,
-			providerOptions: withGatewayAttribution(
+			model: createLlmModel(model, {
+				context: metering,
+				reasoningEffort: "high",
+				task: "marketing",
+			}),
+			providerOptions: withLlmAttribution(
 				{
 					google: { thinkingConfig: { thinkingLevel: "high" } },
 					openai: { reasoningEffort: "high" },
 				},
 				metering,
+				"marketing",
 			),
 			prompt:
 				`DELIVERABLE KIND: ${ASSET_TYPE_LABELS[input.assetType]} (${input.assetType})\n` +
@@ -158,7 +166,7 @@ export async function generateMarketingAssetHtml(
 			usage: result.usage,
 		};
 	} catch (error) {
-		const errorCapture = gatewayGenerationCaptureFromError(error);
+		const errorCapture = llmGenerationCaptureFromError(error);
 		const evidence =
 			providerEvidence ??
 			(errorCapture

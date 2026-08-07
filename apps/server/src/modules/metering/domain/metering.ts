@@ -163,8 +163,14 @@ export type MeteringReconciliationSweepOutcome = {
 	scanned: number;
 };
 
+/** Which provider produced (and can reconcile) a generation ref. */
+export type GenerationRefSource = "openrouter" | "vercel";
+
 export interface MeteringGateway {
-	getGenerationInfo(params: { id: string }): Promise<GatewayGenerationInfo>;
+	getGenerationInfo(params: {
+		id: string;
+		source: GenerationRefSource;
+	}): Promise<GatewayGenerationInfo>;
 }
 
 export type PreparedMeteringSettlement = {
@@ -222,6 +228,43 @@ export function gatewayGenerationId(providerMetadata: unknown): string | null {
 		: null;
 }
 
+export type CapturedGenerationRef = {
+	generationId: string;
+	source: GenerationRefSource;
+};
+
+/**
+ * Provider-aware generation-ref extraction. The Vercel gateway writes
+ * providerMetadata.gateway.generationId; the OpenRouter model wrapper writes
+ * providerMetadata.openrouter.generationId. Everything downstream (refs,
+ * reconciliation routing) keys off the returned source.
+ */
+export function capturedGenerationRef(
+	providerMetadata: unknown,
+): CapturedGenerationRef | null {
+	const vercelGenerationId = gatewayGenerationId(providerMetadata);
+
+	if (vercelGenerationId) {
+		return { generationId: vercelGenerationId, source: "vercel" };
+	}
+
+	if (!isRecord(providerMetadata)) {
+		return null;
+	}
+
+	const openrouterMetadata = providerMetadata.openrouter;
+
+	if (!isRecord(openrouterMetadata)) {
+		return null;
+	}
+
+	const generationId = openrouterMetadata.generationId;
+
+	return typeof generationId === "string" && generationId.length > 0
+		? { generationId, source: "openrouter" }
+		: null;
+}
+
 export function isGatewayUsagePending(error: unknown): boolean {
 	if (error instanceof GatewayUsagePendingError) {
 		return true;
@@ -234,7 +277,12 @@ export function isGatewayUsagePending(error: unknown): boolean {
 	const statusCode = error.statusCode;
 	const message = typeof error.message === "string" ? error.message : "";
 
+	// `retryable` lets a lookup gateway mark failures that must NOT
+	// terminalize the event (e.g. the reconciler is deployed without the
+	// OpenRouter key while openrouter-sourced refs are still outstanding)
+	// without pretending to be a provider 404.
 	return (
+		error.retryable === true ||
 		statusCode === 404 ||
 		/usage event not found|no usage event found/iu.test(message)
 	);

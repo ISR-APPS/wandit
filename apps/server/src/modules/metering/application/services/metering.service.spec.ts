@@ -189,6 +189,7 @@ class InMemoryMeteringRepository {
 		const ref: AiUsageGenerationRef = {
 			gatewayGenerationId: input.gatewayGenerationId,
 			id: randomUUID(),
+			providerSource: input.providerSource ?? "vercel",
 			reconciledAt: null,
 			reconciledCostUsdMicros: null,
 			stepUsage: input.stepUsage ?? null,
@@ -451,12 +452,14 @@ class FakeModelPricingService {
 }
 
 class FakeMeteringGateway implements MeteringGateway {
+	readonly calls: { id: string; source: string }[] = [];
 	readonly results = new Map<
 		string,
 		Awaited<ReturnType<MeteringGateway["getGenerationInfo"]>> | Error
 	>();
 
-	async getGenerationInfo({ id }: { id: string }) {
+	async getGenerationInfo({ id, source }: { id: string; source: string }) {
+		this.calls.push({ id, source });
 		const result = this.results.get(id);
 
 		if (!result) {
@@ -1495,6 +1498,37 @@ describe("MeteringService", () => {
 			service.recoverUnreconciledSettled(new Date("2100-01-01")),
 		).resolves.toMatchObject({ reconciled: 1, scanned: 1 });
 		expect(repository.events.get(CHAT_EVENT_ID)?.status).toBe("reconciled");
+	});
+
+	it("routes OpenRouter captures to reconciliation under their own source", async () => {
+		const { gateway, service } = setup();
+		await service.reserve("chat", USER_SUBJECT, {
+			credits: 1,
+			eventId: CHAT_EVENT_ID,
+			idempotencyKey: "chat:message_1",
+		});
+		// The OpenRouter model wrapper writes the id under `openrouter`, not
+		// `gateway`; capture must record the ref with its provider source.
+		await expect(
+			service.captureGeneration(CHAT_EVENT_ID, {
+				providerMetadata: { openrouter: { generationId: "gen-or-1" } },
+			}),
+		).resolves.toMatchObject({
+			gatewayGenerationId: "gen-or-1",
+			providerSource: "openrouter",
+		});
+
+		await service.settle(CHAT_EVENT_ID, {
+			finalCredits: 1,
+			pricing: "direct",
+			pricingSnapshot: { source: "test" },
+		});
+		gateway.results.set("gen-or-1", generationInfo("gen-or-1", 0.05));
+
+		await expect(service.reconcile(CHAT_EVENT_ID)).resolves.toMatchObject({
+			event: expect.objectContaining({ status: "reconciled" }),
+		});
+		expect(gateway.calls).toEqual([{ id: "gen-or-1", source: "openrouter" }]);
 	});
 
 	it("keeps a late capture batch-selectable without any per-event handoff", async () => {

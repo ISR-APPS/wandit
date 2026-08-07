@@ -58,6 +58,22 @@ const parts = [
 ] satisfies AskPart[];
 
 describe("AskUserGroupCard", () => {
+	it("starts collapsed: the summary row renders, the questions do not", () => {
+		const html = renderToStaticMarkup(
+			createElement(AskUserGroupCard, {
+				parts,
+				activeAskToolCallId: "ask-2",
+				ownsActiveAsk: true,
+				isAfterActiveAsk: false,
+			}),
+		);
+
+		expect(html).toContain("A few questions");
+		expect(html).toContain('aria-expanded="false"');
+		expect(html).not.toContain("Where is your audience?");
+		expect(html).not.toContain("What is your budget?");
+	});
+
 	it("renders one Wandit header with answered, active, queued, and delegated statuses", () => {
 		const html = renderToStaticMarkup(
 			createElement(AskUserGroupCard, {
@@ -65,6 +81,7 @@ describe("AskUserGroupCard", () => {
 				activeAskToolCallId: "ask-2",
 				ownsActiveAsk: true,
 				isAfterActiveAsk: false,
+				defaultOpen: true,
 			}),
 		);
 
@@ -83,6 +100,7 @@ describe("AskUserGroupCard", () => {
 				activeAskToolCallId: "ask-2",
 				ownsActiveAsk: true,
 				isAfterActiveAsk: false,
+				defaultOpen: true,
 			}),
 		);
 
@@ -107,6 +125,7 @@ describe("AskUserGroupCard", () => {
 				activeAskToolCallId: "ask-active",
 				ownsActiveAsk: true,
 				isAfterActiveAsk: false,
+				defaultOpen: true,
 			}),
 		);
 

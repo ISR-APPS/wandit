@@ -18,11 +18,14 @@ import {
 import { Sentry } from "@wandit/observability/node";
 import { convertToModelMessages, stepCountIs, streamText } from "ai";
 import type { Job } from "bullmq";
-import { MeteringService } from "../../../server/src/modules/metering/application/services/metering.service";
 import {
-	gatewayGenerationCaptureFromError,
-	withGatewayAttribution,
-} from "../../../server/src/modules/metering/domain/gateway-metering";
+	createLlmModel,
+	hasLlmProviderKey,
+	llmProviderKeyName,
+	withLlmAttribution,
+} from "../../../server/src/modules/ai-provider/domain/llm-provider";
+import { MeteringService } from "../../../server/src/modules/metering/application/services/metering.service";
+import { llmGenerationCaptureFromError } from "../../../server/src/modules/metering/domain/gateway-metering";
 import { buildSystemPrompt } from "../generation/system-prompt";
 import {
 	toChatMessage,
@@ -124,13 +127,17 @@ export class AiGenerationProcessor extends WorkerHost {
 				abortSignal: AbortSignal.timeout(LEGACY_CHAT_PROVIDER_TIMEOUT_MS),
 				maxOutputTokens: LEGACY_CHAT_MAX_OUTPUT_TOKENS,
 				messages: modelMessages,
-				model: env.AI_CHAT_MODEL,
+				model: createLlmModel(env.AI_CHAT_MODEL, {
+					context: { operation: "chat", userId: data.userId },
+					task: "chat",
+				}),
 				onError: ({ error }) => {
 					captureStreamError(error);
 				},
-				providerOptions: withGatewayAttribution(
+				providerOptions: withLlmAttribution(
 					{},
 					{ operation: "chat", userId: data.userId },
+					"chat",
 				),
 				stopWhen: stepCountIs(LEGACY_CHAT_MAX_STEPS),
 				system: buildSystemPrompt(data.composer),
@@ -298,7 +305,7 @@ export class AiGenerationProcessor extends WorkerHost {
 		error: unknown,
 		data: AiGenerationJobData,
 	): Promise<boolean> {
-		const capture = gatewayGenerationCaptureFromError(error);
+		const capture = llmGenerationCaptureFromError(error);
 
 		if (!capture) {
 			return false;
@@ -401,10 +408,12 @@ export class AiGenerationProcessor extends WorkerHost {
 		}
 	}
 
-	// Fail fast if the worker has no AI Gateway key.
+	// Fail fast if the worker has no key for the provider serving chat.
 	private assertGatewayConfigured() {
-		if (!env.AI_GATEWAY_API_KEY) {
-			throw new Error("AI_GATEWAY_API_KEY is required for generation");
+		if (!hasLlmProviderKey("chat")) {
+			throw new Error(
+				`${llmProviderKeyName("chat")} is required for generation`,
+			);
 		}
 	}
 

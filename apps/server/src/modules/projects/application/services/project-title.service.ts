@@ -2,12 +2,13 @@ import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { FileRef } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import { generateText } from "ai";
-
-import { MeteringService } from "../../../metering/application/services/metering.service";
 import {
-	gatewayGenerationCaptureFromError,
-	withGatewayAttribution,
-} from "../../../metering/domain/gateway-metering";
+	createLlmModel,
+	hasLlmProviderKey,
+	withLlmAttribution,
+} from "../../../ai-provider/domain/llm-provider";
+import { MeteringService } from "../../../metering/application/services/metering.service";
+import { llmGenerationCaptureFromError } from "../../../metering/domain/gateway-metering";
 import { bundledUnmeteredStepUsage } from "../../../metering/domain/metering";
 
 const DEFAULT_PROJECT_TITLE_MODEL = "deepseek/deepseek-v4-flash";
@@ -70,12 +71,18 @@ export class ProjectTitleService {
 
 		const model = env.AI_TITLE_MODEL ?? DEFAULT_PROJECT_TITLE_MODEL;
 
-		if (!env.AI_GATEWAY_API_KEY || !model) {
+		if (!hasLlmProviderKey("project_title") || !model) {
 			this.logger.warn(
-				"Project title generation skipped: AI gateway is not configured",
+				"Project title generation skipped: AI provider is not configured",
 			);
 			return input.fallbackTitle;
 		}
+
+		const meteringContext = {
+			operation: "chat" as const,
+			organizationId: input.organizationId ?? null,
+			userId: input.userId,
+		};
 
 		try {
 			const result = await generateText({
@@ -84,17 +91,18 @@ export class ProjectTitleService {
 				// AI_TITLE_MODEL spends thinking tokens from this same budget, and
 				// an exhausted budget returns an empty title (finish "length").
 				maxOutputTokens: 800,
-				model,
+				model: createLlmModel(model, {
+					context: meteringContext,
+					reasoningEffort: "low",
+					task: "project_title",
+				}),
 				prompt: generationPrompt,
 				// A title needs no deliberation. Only OpenAI models read this key;
 				// every other provider ignores it.
-				providerOptions: withGatewayAttribution(
+				providerOptions: withLlmAttribution(
 					{ openai: { reasoningEffort: "low" } },
-					{
-						operation: "chat",
-						organizationId: input.organizationId ?? null,
-						userId: input.userId,
-					},
+					meteringContext,
+					"project_title",
 				),
 				system: PROJECT_TITLE_PROMPT,
 			});
@@ -114,7 +122,7 @@ export class ProjectTitleService {
 
 			return title;
 		} catch (error) {
-			const errorCapture = gatewayGenerationCaptureFromError(error);
+			const errorCapture = llmGenerationCaptureFromError(error);
 
 			if (input.usageEventId && errorCapture) {
 				try {

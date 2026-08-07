@@ -46,9 +46,11 @@ export type McpConnectStartResponse = z.infer<
 >;
 
 // Return-redirect query params (read by the web app after the 302 back).
-export const MCP_CONNECTED_PARAM = "mcp_connected" as const;
-export const MCP_ERROR_PARAM = "mcp_error" as const;
-export const MCP_CONNECTOR_PARAM = "mcp_connector" as const;
+// Deliberately say "app", not "mcp": these land in the user's address bar,
+// and the product never says MCP anywhere a user can see.
+export const MCP_CONNECTED_PARAM = "app_connected" as const;
+export const MCP_ERROR_PARAM = "app_error" as const;
+export const MCP_CONNECTOR_PARAM = "app_connector" as const;
 
 export const mcpConnectorRoutes = {
 	callback: "/api/v1/mcp/connectors/callback",

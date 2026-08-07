@@ -61,6 +61,39 @@ describe("billing maintenance task configuration", () => {
 		);
 	});
 
+	it("additionally requires the OpenRouter key when it serves LLM traffic", () => {
+		setConfiguration(["AI_GATEWAY_API_KEY", "DATABASE_URL"]);
+		vi.stubEnv("AI_PROVIDER", "openrouter");
+
+		expect(() => assertMeteringConfiguration()).toThrow(
+			"OPENROUTER_API_KEY is required",
+		);
+
+		vi.stubEnv("OPENROUTER_API_KEY", "sk-or-task-key");
+
+		expect(() => assertMeteringConfiguration()).not.toThrow();
+	});
+
+	it("requires the OpenRouter key when only a task override routes there", () => {
+		setConfiguration(["AI_GATEWAY_API_KEY", "DATABASE_URL"]);
+		vi.stubEnv("AI_PROVIDER_OVERRIDES", "page_build=openrouter");
+
+		expect(() => assertMeteringConfiguration()).toThrow(
+			"OPENROUTER_API_KEY is required",
+		);
+
+		vi.stubEnv("OPENROUTER_API_KEY", "sk-or-task-key");
+
+		expect(() => assertMeteringConfiguration()).not.toThrow();
+	});
+
+	it("needs no OpenRouter key when overrides only name vercel", () => {
+		setConfiguration(["AI_GATEWAY_API_KEY", "DATABASE_URL"]);
+		vi.stubEnv("AI_PROVIDER_OVERRIDES", "page_build=vercel");
+
+		expect(() => assertMeteringConfiguration()).not.toThrow();
+	});
+
 	it.each([
 		[assertBillingDatabaseConfiguration, "DATABASE_URL"],
 		[assertBillingFinancialConfiguration, "STRIPE_SECRET_KEY"],

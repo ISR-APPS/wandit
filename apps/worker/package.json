@@ -15,10 +15,11 @@
 		"@nestjs/common": "^11.1.27",
 		"@nestjs/config": "^4.0.4",
 		"@nestjs/core": "^11.1.27",
+		"@openrouter/ai-sdk-provider": "^3.0.0",
+		"@sentry/node": "catalog:",
 		"@wandit/contracts": "workspace:*",
 		"@wandit/db": "workspace:*",
 		"@wandit/env": "workspace:*",
-		"@sentry/node": "catalog:",
 		"@wandit/jobs": "workspace:*",
 		"@wandit/observability": "workspace:*",
 		"ai": "^7.0.14",
@@ -28,6 +29,7 @@
 		"rxjs": "^7.8.2"
 	},
 	"devDependencies": {
+		"@ai-sdk/provider": "^4.0.3",
 		"@types/node": "^22.20.0",
 		"@wandit/config": "workspace:*",
 		"tsdown": "^0.21.10",

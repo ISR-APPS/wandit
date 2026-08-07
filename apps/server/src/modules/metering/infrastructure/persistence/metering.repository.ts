@@ -27,7 +27,7 @@ export type InsertAiUsageEvent = typeof aiUsageEvents.$inferInsert;
 
 export type InsertAiUsageGenerationRef = Pick<
 	typeof aiUsageGenerationRefs.$inferInsert,
-	"gatewayGenerationId" | "stepUsage" | "usageEventId"
+	"gatewayGenerationId" | "providerSource" | "stepUsage" | "usageEventId"
 >;
 
 export type AiUsageEventPatch = Partial<
@@ -191,6 +191,7 @@ export class MeteringRepository {
 			.insert(aiUsageGenerationRefs)
 			.values({
 				gatewayGenerationId: input.gatewayGenerationId,
+				providerSource: input.providerSource ?? "vercel",
 				stepUsage: input.stepUsage ?? null,
 				usageEventId: input.usageEventId,
 			})

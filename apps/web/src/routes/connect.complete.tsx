@@ -14,9 +14,9 @@ import {
 import { pageTitle, useTranslation } from "@/lib/i18n";
 
 type ConnectCompleteSearch = {
-	mcp_connected?: string;
-	mcp_connector?: string;
-	mcp_error?: string;
+	app_connected?: string;
+	app_connector?: string;
+	app_error?: string;
 };
 
 export const Route = createFileRoute("/connect/complete")({

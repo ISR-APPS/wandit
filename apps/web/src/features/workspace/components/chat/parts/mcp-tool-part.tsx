@@ -111,7 +111,9 @@ function connectorMonogram(connectorSlug: string): string {
 	);
 }
 
-const NOISE_TOKENS = new Set(["api", "tool"]);
+// "mcp" must never surface in a user-facing label, even from an unparseable
+// tool name — the product never says MCP anywhere in the UI.
+const NOISE_TOKENS = new Set(["api", "mcp", "tool"]);
 const CHECK_NOUNS = new Set([
 	"balance",
 	"health",

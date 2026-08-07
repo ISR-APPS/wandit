@@ -25,6 +25,7 @@
 		"@nestjs/config": "^4.0.4",
 		"@nestjs/core": "^11.1.27",
 		"@nestjs/platform-fastify": "^11.1.27",
+		"@openrouter/ai-sdk-provider": "^3.0.0",
 		"@opentelemetry/api": "^1.9.1",
 		"@sentry/nestjs": "catalog:",
 		"@sentry/node": "catalog:",
@@ -56,6 +57,7 @@
 		"unpdf": "^1.8.0"
 	},
 	"devDependencies": {
+		"@ai-sdk/provider": "^4.0.3",
 		"@sentry/esbuild-plugin": "catalog:",
 		"@trigger.dev/build": "4.5.3",
 		"@types/node": "^22.20.0",
