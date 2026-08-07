@@ -469,12 +469,48 @@ describe("McpActivityCard", () => {
 		expect(argumentsMarkup).toContain(">Objective</span>");
 		expect(argumentsMarkup).toContain(">SALES</span>");
 		expect(argumentsMarkup).toContain(">Budget</span>");
-		expect(argumentsMarkup).toContain(">50</span>");
+		// Ad budgets are USD by contract — the approval card must say so.
+		expect(argumentsMarkup).toContain(">50 USD</span>");
 		expect(argumentsMarkup).not.toContain(">Connector</span>");
 		expect(argumentsMarkup).not.toContain(">Tool Name</span>");
 		expect(argumentsMarkup).not.toContain(">Params</span>");
 		expect(argumentsMarkup).not.toContain("meta-ads");
 		expect(argumentsMarkup).not.toContain("ads_create_campaign");
+	});
+
+	it("labels numeric TikTok Ads budget arguments as USD too", () => {
+		const html = renderActivity([
+			{
+				...approvalPart,
+				toolName: "run_platform_tool",
+				input: {
+					connector: "tiktok-ads",
+					tool_name: "campaign_create",
+					params: { daily_budget: 20 },
+				},
+			},
+		]);
+		const argumentsMarkup = html.match(/<ul[^>]*>.*?<\/ul>/su)?.[0];
+
+		expect(argumentsMarkup).toContain(">20 USD</span>");
+	});
+
+	it("leaves budget-like arguments of non-ads connectors untouched", () => {
+		const html = renderActivity([
+			{
+				...approvalPart,
+				toolName: "run_platform_tool",
+				input: {
+					connector: "higgsfield",
+					tool_name: "generate_video",
+					params: { budget: 50 },
+				},
+			},
+		]);
+		const argumentsMarkup = html.match(/<ul[^>]*>.*?<\/ul>/su)?.[0];
+
+		expect(argumentsMarkup).toContain(">50</span>");
+		expect(argumentsMarkup).not.toContain("50 USD");
 	});
 
 	it("keeps historical approvals expired and non-actionable", () => {

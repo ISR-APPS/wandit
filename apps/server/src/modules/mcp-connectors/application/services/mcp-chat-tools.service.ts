@@ -1,6 +1,4 @@
 import { setTimeout as delay } from "node:timers/promises";
-
-import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import {
 	createMCPClient,
 	type ListToolsResult,
@@ -16,18 +14,19 @@ import { env } from "@wandit/env/server";
 import { Sentry } from "@wandit/observability/nestjs";
 import { dynamicTool, type Tool, type ToolExecutionOptions } from "ai";
 import { z } from "zod";
-
 // Type-only import: pulling the task VALUE here would drag the Trigger task
 // (and its DB pool) into the Nest process.
 import type { runConnectorGenerationTask } from "../../../../trigger/run-connector-generation.task";
 import { extractMediaUrls } from "../../../connector-generations/domain/extract-media-urls";
 import { ConnectorGenerationsRepository } from "../../../connector-generations/infrastructure/persistence/connector-generations.repository";
+import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import { MeteringService } from "../../../metering/application/services/metering.service";
 import {
 	fixedGenerationStepUsage,
 	gatewayGenerationCaptureFromError,
 } from "../../../metering/domain/gateway-metering";
 import { MeteringStateConflictError } from "../../../metering/domain/metering";
+import { assertUsdAdBudgetArgs } from "../../domain/ad-budget-guard";
 import {
 	connectorGatewayCaptures,
 	connectorGenerationPlan,
@@ -1274,6 +1273,12 @@ export class McpChatToolsService {
 		subject: MeteringSubject;
 		toolName: string;
 	}): Promise<unknown> {
+		// Money-safety backstop BEFORE any reservation or provider call: an ad
+		// budget written in dinars must never reach a platform that will spend
+		// the number as US dollars. Covers direct tools, run_platform_tool, and
+		// TikTok hidden operations alike — this is the one shared choke point.
+		assertUsdAdBudgetArgs(input.connectorSlug, input.input);
+
 		const plan = connectorGenerationPlan(input.toolName, input.input);
 		if (!plan) {
 			return input.invoke();
