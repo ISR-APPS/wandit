@@ -80,7 +80,7 @@ public R2 URLs cannot force a download cross-origin.
 "Image en vidéo" → **"Animer une image"**: the mode's real contract is
 animate-a-photo (source image required, text optional). The internal id
 stays `video`. When true text-to-video ships someday it becomes a second
-output of this mode; the composer's OutputPicker already supports that.
+output of this mode; the settings wizard's type step already supports that.
 
 ## Deliberately not here (yet)
 

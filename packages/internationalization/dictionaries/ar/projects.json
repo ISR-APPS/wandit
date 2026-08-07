@@ -156,6 +156,10 @@
 		},
 		"outputsHeading": "مُخرَجات {mode}",
 		"settingsSubtitle": "خيارات مُخرَج {mode}.",
+		"stepBack": "رجوع",
+		"stepNext": "التالي",
+		"stepDone": "تم",
+		"stepLabel": "الخطوة {current} من {total}",
 		"quality": {
 			"standard": {
 				"label": "قياسي",

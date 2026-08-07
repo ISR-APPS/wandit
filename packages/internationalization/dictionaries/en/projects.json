@@ -156,6 +156,10 @@
 		},
 		"outputsHeading": "{mode} outputs",
 		"settingsSubtitle": "Options for this {mode} output.",
+		"stepBack": "Back",
+		"stepNext": "Next",
+		"stepDone": "Done",
+		"stepLabel": "Step {current} of {total}",
 		"quality": {
 			"standard": {
 				"label": "Standard",

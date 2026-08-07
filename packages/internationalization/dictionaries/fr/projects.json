@@ -156,6 +156,10 @@
 		},
 		"outputsHeading": "Sorties {mode}",
 		"settingsSubtitle": "Options pour cette sortie {mode}.",
+		"stepBack": "Retour",
+		"stepNext": "Suivant",
+		"stepDone": "Terminé",
+		"stepLabel": "Étape {current} sur {total}",
 		"quality": {
 			"standard": {
 				"label": "Standard",

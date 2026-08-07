@@ -26,6 +26,11 @@ import {
 	InputGroupTextarea,
 } from "@wandit/ui/components/input-group";
 import {
+	Popover,
+	PopoverContent,
+	PopoverTrigger,
+} from "@wandit/ui/components/popover";
+import {
 	Tooltip,
 	TooltipContent,
 	TooltipProvider,
@@ -39,6 +44,8 @@ import {
 	Captions,
 	Check,
 	ChevronDown,
+	ChevronLeft,
+	ChevronRight,
 	Clapperboard,
 	FileText,
 	Gauge,
@@ -61,6 +68,7 @@ import {
 	WandSparkles,
 	X,
 } from "lucide-react";
+import { motion } from "motion/react";
 import type * as React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "@/features/auth";
@@ -1413,105 +1421,50 @@ function BuilderModelPicker({
 	);
 }
 
-function OutputPicker({
-	mode,
-	output,
-	onSelectOutput,
-	isHero,
-}: {
-	mode: RouteMode;
-	output: GenerationOutputDef | null;
-	onSelectOutput: (output: GenerationOutputDef) => void;
-	isHero: boolean;
-}) {
-	const { t } = useTranslation();
-	const pb = useDictionary().projects.promptBox;
-	if (mode === "auto" || !output) return null;
-	const OutputIcon = output.icon;
-	const outputs = OUTPUTS_BY_MODE[mode];
-	const outputCopy = pb.outputs[output.id];
+// Same calm, no-bounce ease as the chat tray's TRAY_EASE — the settings
+// wizard is composer chrome, so its motion stays quiet.
+const STEP_EASE = [0.32, 0.72, 0, 1] as const;
+const STEP_TRANSITION = { duration: 0.34, ease: STEP_EASE };
 
-	if (outputs.length === 1) {
-		return (
-			<span
-				className={cn(
-					"inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/10 px-3 font-medium text-foreground text-sm",
-					isHero ? "h-9" : "h-[30px]",
-				)}
-			>
-				<OutputIcon className="size-3.5 text-primary" aria-hidden />
-				<span className="max-w-32 truncate">{outputCopy.shortLabel}</span>
-			</span>
-		);
-	}
+type SettingsStep = "type" | "options";
+const SETTINGS_STEPS: readonly SettingsStep[] = ["type", "options"];
 
-	return (
-		<DropdownMenu>
-			<DropdownMenuTrigger asChild>
-				<Button
-					type="button"
-					variant="outline"
-					size="sm"
-					aria-label={`${t("projects.promptBox.outputLabel")}: ${outputCopy.label}`}
-					className={cn(
-						"group/trigger rounded-full border-primary/30 bg-primary/10 text-foreground shadow-none transition-colors hover:bg-primary/15 data-[state=open]:bg-primary/15",
-						isHero ? "h-9" : "h-[30px]",
-					)}
-				>
-					<OutputIcon className="size-3.5 text-primary" />
-					<span className="max-w-32 truncate font-medium">
-						{outputCopy.shortLabel}
-					</span>
-					<ChevronDown className="size-3.5 transition-transform duration-200 group-data-[state=open]/trigger:rotate-180" />
-				</Button>
-			</DropdownMenuTrigger>
-			<DropdownMenuContent
-				align="start"
-				sideOffset={8}
-				collisionPadding={12}
-				className="w-80 max-w-[calc(100vw-1.5rem)] rounded-2xl border-border p-1.5 shadow-[0_18px_50px_-24px_rgb(0_0_0/0.36)]"
-			>
-				<DropdownMenuLabel className="px-2 pt-1 pb-1.5 font-mono font-normal text-[10px] text-muted-foreground uppercase tracking-[0.14em]">
-					{t("projects.promptBox.outputsHeading", {
-						mode: pb.routeModes[mode].label,
-					})}
-				</DropdownMenuLabel>
-				<DropdownMenuRadioGroup
-					value={output.id}
-					onValueChange={(next) => {
-						const nextOutput = getOutput(next as GenerationOutputId);
-						if (nextOutput) onSelectOutput(nextOutput);
-					}}
-				>
-					{outputs.map((item) => {
-						const itemCopy = pb.outputs[item.id];
-						return (
-							<DropdownMenuRadioItemBare
-								key={item.id}
-								value={item.id}
-								className="data-[state=checked]:bg-primary/10"
-							>
-								<IconTile icon={item.icon} active={item.id === output.id} />
-								<span className="min-w-0">
-									<span className="block font-medium text-sm leading-tight">
-										{itemCopy.label}
-									</span>
-									<span className="mt-0.5 block text-muted-foreground text-xs leading-snug">
-										{itemCopy.description}
-									</span>
-								</span>
-								<Check className="ms-auto size-4 shrink-0 scale-90 text-primary opacity-0 transition-[opacity,transform] group-data-[state=checked]/row:scale-100 group-data-[state=checked]/row:opacity-100" />
-							</DropdownMenuRadioItemBare>
-						);
-					})}
-				</DropdownMenuRadioGroup>
-			</DropdownMenuContent>
-		</DropdownMenu>
-	);
+/**
+ * Height of a wizard panel, measured through a callback ref: Radix mounts the
+ * popover content one commit AFTER `open` flips, so a layout effect keyed on
+ * `open` sees null refs — a callback ref fires at the actual mount instead.
+ * A ResizeObserver keeps the value honest while the panel is on screen.
+ */
+function usePanelHeight(): [number, (el: HTMLDivElement | null) => void] {
+	const [height, setHeight] = useState(0);
+	const observerRef = useRef<ResizeObserver | null>(null);
+
+	const measureRef = useCallback((el: HTMLDivElement | null) => {
+		observerRef.current?.disconnect();
+		observerRef.current = null;
+		if (!el) return;
+		const measure = () => setHeight(el.offsetHeight);
+		measure();
+		const observer = new ResizeObserver(measure);
+		observer.observe(el);
+		observerRef.current = observer;
+	}, []);
+
+	return [height, measureRef];
 }
 
+/**
+ * The composer's one generation-config surface: a settings popover that walks
+ * two steps — 1) the output TYPE for the active mode, 2) that output's
+ * options (+ quality). Replaces the old standalone output chip so the footer
+ * stays to one pill. Panels slide horizontally (direction-aware for RTL) and
+ * the popover height glides between the two panels' heights. Modes with a
+ * single output (video) and auto mode (quality only) skip the type step.
+ */
 function OutputSettings({
+	outputs,
 	output,
+	onSelectOutput,
 	values,
 	onValueChange,
 	quality,
@@ -1520,7 +1473,11 @@ function OutputSettings({
 	isVideoMode,
 	isHero,
 }: {
+	/** Every output of the active mode — the wizard's type step. */
+	outputs: readonly GenerationOutputDef[];
 	output: GenerationOutputDef | null;
+	/** Applied live on the type step; must NOT steal focus from the popover. */
+	onSelectOutput: (output: GenerationOutputDef) => void;
 	values: Record<string, string>;
 	onValueChange: (groupId: string, choiceId: string) => void;
 	quality: ComposerQuality;
@@ -1531,154 +1488,356 @@ function OutputSettings({
 	isVideoMode: boolean;
 	isHero: boolean;
 }) {
-	const { t } = useTranslation();
+	const { t, dir } = useTranslation();
 	const pb = useDictionary().projects.promptBox;
+	const hasTypeStep = outputs.length > 1 && output !== null;
+	const [open, setOpen] = useState(false);
+	const [step, setStep] = useState<SettingsStep>("type");
+	// The popover height follows the ACTIVE panel's measured height so it
+	// glides between steps instead of holding the taller panel's size.
+	const [typeHeight, typePanelRef] = usePanelHeight();
+	const [optionsHeight, optionsPanelRef] = usePanelHeight();
+	const activeHeight = step === "type" ? typeHeight : optionsHeight;
+
 	if (!output && !showQuality) return null;
+
 	const OutputIcon = output?.icon;
 	const outputCopy = output ? pb.outputs[output.id] : null;
 	const optionsCopy = (outputCopy?.options ?? {}) as unknown as Record<
 		string,
 		OptionCopy
 	>;
-	const modeLabel = output ? pb.routeModes[output.mode].label : null;
+	const modeCopy = output ? pb.routeModes[output.mode] : null;
+	const settingsLabel = t("projects.promptBox.settingsLabel");
 
-	return (
-		<DropdownMenu>
-			<Tooltip>
-				<TooltipTrigger asChild>
-					<DropdownMenuTrigger asChild>
-						<Button
-							type="button"
-							variant="outline"
-							size="icon-sm"
-							aria-label={t("projects.promptBox.settingsLabel")}
-							className={cn(
-								"rounded-full border-border bg-transparent text-muted-foreground shadow-none transition-colors hover:border-primary/25 hover:bg-accent/70 hover:text-foreground data-[state=open]:border-primary/30 data-[state=open]:bg-primary/10 data-[state=open]:text-foreground",
-								isHero ? "size-9" : "size-[30px]",
-							)}
-						>
-							<SlidersHorizontal className="size-4" />
-						</Button>
-					</DropdownMenuTrigger>
-				</TooltipTrigger>
-				<TooltipContent>{t("projects.promptBox.settingsLabel")}</TooltipContent>
-			</Tooltip>
-			<DropdownMenuContent
-				align="start"
-				sideOffset={8}
-				collisionPadding={12}
-				className="w-[22rem] max-w-[calc(100vw-1.5rem)] rounded-2xl border-border p-0 shadow-[0_22px_70px_-28px_rgb(0_0_0/0.42)]"
-			>
-				{OutputIcon && outputCopy && modeLabel ? (
-					<div className="border-border border-b px-4 py-3">
-						<div className="flex items-center gap-2">
-							<IconTile icon={OutputIcon} active />
-							<div className="min-w-0">
-								<p className="font-medium text-sm leading-tight">
-									{outputCopy.label}
-								</p>
-								<p className="mt-0.5 text-muted-foreground text-xs">
-									{t("projects.promptBox.settingsSubtitle", {
-										mode: modeLabel.toLowerCase(),
-									})}
-								</p>
-							</div>
+	const handleOpenChange = (next: boolean) => {
+		setOpen(next);
+		if (next) {
+			setStep(hasTypeStep ? "type" : "options");
+		}
+	};
+
+	const typePanel =
+		hasTypeStep && output && modeCopy ? (
+			<>
+				<div className="border-border border-b px-4 py-3">
+					<div className="flex items-center gap-2">
+						<IconTile icon={getMode(output.mode).icon} active />
+						<div className="min-w-0">
+							<p className="font-medium text-sm leading-tight">
+								{t("projects.promptBox.outputsHeading", {
+									mode: modeCopy.label,
+								})}
+							</p>
+							<p className="mt-0.5 text-muted-foreground text-xs">
+								{modeCopy.description}
+							</p>
 						</div>
 					</div>
-				) : null}
-				<div className="space-y-4 p-4">
-					{(output?.options ?? []).map((group) => {
-						const groupCopy = optionsCopy[group.id];
+				</div>
+				<div className="p-1.5">
+					{outputs.map((item) => {
+						const itemCopy = pb.outputs[item.id];
+						const selected = item.id === output.id;
 						return (
-							<div key={group.id}>
-								<p className="mb-2 text-muted-foreground text-xs">
-									{groupCopy.label}
-								</p>
-								<div
+							<button
+								key={item.id}
+								type="button"
+								aria-pressed={selected}
+								onClick={() => onSelectOutput(item)}
+								className={cn(
+									"flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-start transition-colors",
+									selected ? "bg-primary/10" : "hover:bg-accent/70",
+								)}
+							>
+								<IconTile icon={item.icon} active={selected} />
+								<span className="min-w-0 flex-1">
+									<span className="block font-medium text-sm leading-tight">
+										{itemCopy.label}
+									</span>
+									<span className="mt-0.5 block text-muted-foreground text-xs leading-snug">
+										{itemCopy.description}
+									</span>
+								</span>
+								<Check
 									className={cn(
-										"grid gap-2",
-										group.layout === "grid"
-											? "grid-cols-3"
-											: group.layout === "compact"
-												? "grid-cols-4"
-												: "grid-cols-2",
+										"ms-auto size-4 shrink-0 text-primary transition-[opacity,transform]",
+										selected ? "scale-100 opacity-100" : "scale-90 opacity-0",
 									)}
-								>
-									{group.choices.map((choice) => {
-										const selected = values[group.id] === choice.id;
-										return (
-											<button
-												key={choice.id}
-												type="button"
-												onClick={() => onValueChange(group.id, choice.id)}
-												className={cn(
-													"min-h-9 rounded-xl border px-3 py-2 text-center text-xs transition-[transform,color,background-color,border-color] duration-200 active:translate-y-px",
-													selected
-														? "border-primary/35 bg-primary/10 text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.16)]"
-														: "border-border bg-background/60 text-muted-foreground hover:border-primary/25 hover:bg-accent/70 hover:text-foreground",
-													group.layout === "grid" && "min-h-14",
-												)}
-											>
-												{groupCopy.choices[choice.id]}
-											</button>
-										);
-									})}
-								</div>
-							</div>
+								/>
+							</button>
 						);
 					})}
-					{showQuality && !isVideoMode ? (
-						<div>
-							<p className="mb-2 text-muted-foreground text-xs">
-								{t("projects.promptBox.qualityLabel")}
+				</div>
+			</>
+		) : null;
+
+	const optionsPanel = (
+		<>
+			{OutputIcon && outputCopy && modeCopy ? (
+				<div className="border-border border-b px-4 py-3">
+					<div className="flex items-center gap-2">
+						<IconTile icon={OutputIcon} active />
+						<div className="min-w-0">
+							<p className="font-medium text-sm leading-tight">
+								{outputCopy.label}
 							</p>
-							<div className="grid grid-cols-2 gap-2">
-								{QUALITY_TIERS.map((tier) => {
-									const tierCopy = pb.quality[tier.id];
-									const selected = quality === tier.id;
+							<p className="mt-0.5 text-muted-foreground text-xs">
+								{t("projects.promptBox.settingsSubtitle", {
+									mode: modeCopy.label.toLowerCase(),
+								})}
+							</p>
+						</div>
+					</div>
+				</div>
+			) : null}
+			<div className="space-y-4 p-4">
+				{(output?.options ?? []).map((group) => {
+					const groupCopy = optionsCopy[group.id];
+					return (
+						<div key={group.id}>
+							<p className="mb-2 text-muted-foreground text-xs">
+								{groupCopy.label}
+							</p>
+							<div
+								className={cn(
+									"grid gap-2",
+									group.layout === "grid"
+										? "grid-cols-3"
+										: group.layout === "compact"
+											? "grid-cols-4"
+											: "grid-cols-2",
+								)}
+							>
+								{group.choices.map((choice) => {
+									const selected = values[group.id] === choice.id;
 									return (
 										<button
-											key={tier.id}
+											key={choice.id}
 											type="button"
-											onClick={() => onQualityChange(tier.id)}
+											onClick={() => onValueChange(group.id, choice.id)}
 											className={cn(
-												"min-h-14 rounded-xl border px-3 py-2 text-center text-xs transition-[transform,color,background-color,border-color] duration-200 active:translate-y-px",
+												"min-h-9 rounded-xl border px-3 py-2 text-center text-xs transition-[transform,color,background-color,border-color] duration-200 active:translate-y-px",
 												selected
 													? "border-primary/35 bg-primary/10 text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.16)]"
 													: "border-border bg-background/60 text-muted-foreground hover:border-primary/25 hover:bg-accent/70 hover:text-foreground",
+												group.layout === "grid" && "min-h-14",
 											)}
 										>
-											<span className="block font-medium">
-												{tierCopy.label}
-											</span>
-											<PriceTag
-												cost={QUALITY_CREDITS[tier.id]}
-												withIcon
-												showUnit={false}
-												className="mt-1 justify-center text-[11px]"
-											/>
+											{groupCopy.choices[choice.id]}
 										</button>
 									);
 								})}
 							</div>
 						</div>
-					) : null}
-					{showQuality && isVideoMode ? (
-						<div className="flex min-h-9 items-center justify-between rounded-xl border border-primary/35 bg-primary/10 px-3 py-2">
-							<span className="text-muted-foreground text-xs">
-								{t("projects.promptBox.qualityLabel")}
-							</span>
-							<PriceTag
-								cost={CREDIT_COSTS.videoGeneration}
-								withIcon
-								showUnit={false}
-								className="text-[11px] text-foreground"
-							/>
+					);
+				})}
+				{showQuality && !isVideoMode ? (
+					<div>
+						<p className="mb-2 text-muted-foreground text-xs">
+							{t("projects.promptBox.qualityLabel")}
+						</p>
+						<div className="grid grid-cols-2 gap-2">
+							{QUALITY_TIERS.map((tier) => {
+								const tierCopy = pb.quality[tier.id];
+								const selected = quality === tier.id;
+								return (
+									<button
+										key={tier.id}
+										type="button"
+										onClick={() => onQualityChange(tier.id)}
+										className={cn(
+											"min-h-14 rounded-xl border px-3 py-2 text-center text-xs transition-[transform,color,background-color,border-color] duration-200 active:translate-y-px",
+											selected
+												? "border-primary/35 bg-primary/10 text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.16)]"
+												: "border-border bg-background/60 text-muted-foreground hover:border-primary/25 hover:bg-accent/70 hover:text-foreground",
+										)}
+									>
+										<span className="block font-medium">{tierCopy.label}</span>
+										<PriceTag
+											cost={QUALITY_CREDITS[tier.id]}
+											withIcon
+											showUnit={false}
+											className="mt-1 justify-center text-[11px]"
+										/>
+									</button>
+								);
+							})}
 						</div>
-					) : null}
-				</div>
-			</DropdownMenuContent>
-		</DropdownMenu>
+					</div>
+				) : null}
+				{showQuality && isVideoMode ? (
+					<div className="flex min-h-9 items-center justify-between rounded-xl border border-primary/35 bg-primary/10 px-3 py-2">
+						<span className="text-muted-foreground text-xs">
+							{t("projects.promptBox.qualityLabel")}
+						</span>
+						<PriceTag
+							cost={CREDIT_COSTS.videoGeneration}
+							withIcon
+							showUnit={false}
+							className="text-[11px] text-foreground"
+						/>
+					</div>
+				) : null}
+			</div>
+		</>
+	);
+
+	return (
+		<Popover open={open} onOpenChange={handleOpenChange}>
+			<Tooltip>
+				<TooltipTrigger asChild>
+					<PopoverTrigger asChild>
+						{OutputIcon && outputCopy ? (
+							// The trigger doubles as the "what you'll get" chip the old
+							// output picker used to be — one pill instead of two.
+							<Button
+								type="button"
+								variant="outline"
+								size="sm"
+								aria-label={`${settingsLabel}: ${outputCopy.label}`}
+								className={cn(
+									"rounded-full border-primary/30 bg-primary/10 text-foreground shadow-none transition-colors hover:bg-primary/15 data-[state=open]:bg-primary/15",
+									isHero ? "h-9" : "h-[30px] text-[13px]",
+								)}
+							>
+								<OutputIcon className="size-3.5 text-primary" />
+								<span className="max-w-32 truncate font-medium">
+									{outputCopy.shortLabel}
+								</span>
+								<SlidersHorizontal className="size-3 opacity-60" />
+							</Button>
+						) : (
+							<Button
+								type="button"
+								variant="outline"
+								size="icon-sm"
+								aria-label={settingsLabel}
+								className={cn(
+									"rounded-full border-border bg-transparent text-muted-foreground shadow-none transition-colors hover:border-primary/25 hover:bg-accent/70 hover:text-foreground data-[state=open]:border-primary/30 data-[state=open]:bg-primary/10 data-[state=open]:text-foreground",
+									isHero ? "size-9" : "size-[30px]",
+								)}
+							>
+								<SlidersHorizontal className="size-4" />
+							</Button>
+						)}
+					</PopoverTrigger>
+				</TooltipTrigger>
+				<TooltipContent>{settingsLabel}</TooltipContent>
+			</Tooltip>
+			<PopoverContent
+				align="start"
+				sideOffset={8}
+				collisionPadding={12}
+				className="w-[22rem] max-w-[calc(100vw-1.5rem)] overflow-hidden rounded-2xl border-border p-0 shadow-[0_22px_70px_-28px_rgb(0_0_0/0.42)]"
+			>
+				{hasTypeStep ? (
+					<>
+						<motion.div
+							initial={false}
+							animate={{ height: activeHeight > 0 ? activeHeight : "auto" }}
+							transition={STEP_TRANSITION}
+							className="overflow-hidden"
+						>
+							<motion.div
+								initial={false}
+								// -50% of the 200%-wide track = one popover width. Flex
+								// order flips under dir="rtl", so the offset flips too.
+								animate={{
+									x: step === "type" ? "0%" : dir === "rtl" ? "50%" : "-50%",
+								}}
+								transition={STEP_TRANSITION}
+								className="flex w-[200%] items-start"
+							>
+								<div
+									ref={typePanelRef}
+									inert={step !== "type"}
+									className="w-1/2"
+								>
+									{typePanel}
+								</div>
+								<div
+									ref={optionsPanelRef}
+									inert={step !== "options"}
+									className="w-1/2"
+								>
+									{optionsPanel}
+								</div>
+							</motion.div>
+						</motion.div>
+						<div className="flex items-center gap-2 border-border border-t px-3 py-2.5">
+							<div aria-hidden className="flex items-center gap-1">
+								{SETTINGS_STEPS.map((id) => (
+									<span
+										key={id}
+										className={cn(
+											"h-1.5 rounded-full transition-all duration-300",
+											id === step ? "w-4 bg-primary" : "w-1.5 bg-border",
+										)}
+									/>
+								))}
+							</div>
+							<span aria-live="polite" className="sr-only">
+								{t("projects.promptBox.stepLabel", {
+									current: step === "type" ? 1 : 2,
+									total: SETTINGS_STEPS.length,
+								})}
+							</span>
+							<div className="ms-auto flex items-center gap-1.5">
+								{step === "options" ? (
+									<Button
+										type="button"
+										variant="ghost"
+										size="sm"
+										onClick={() => setStep("type")}
+										className="rounded-full text-muted-foreground hover:text-foreground"
+									>
+										<ChevronLeft className="size-3.5 rtl:rotate-180" />
+										{t("projects.promptBox.stepBack")}
+									</Button>
+								) : null}
+								{step === "type" ? (
+									<Button
+										type="button"
+										size="sm"
+										onClick={() => setStep("options")}
+										className="rounded-full"
+									>
+										{t("projects.promptBox.stepNext")}
+										<ChevronRight className="size-3.5 rtl:rotate-180" />
+									</Button>
+								) : (
+									<Button
+										type="button"
+										size="sm"
+										onClick={() => setOpen(false)}
+										className="rounded-full"
+									>
+										<Check className="size-3.5" />
+										{t("projects.promptBox.stepDone")}
+									</Button>
+								)}
+							</div>
+						</div>
+					</>
+				) : (
+					<>
+						{optionsPanel}
+						<div className="flex items-center justify-end border-border border-t px-3 py-2.5">
+							<Button
+								type="button"
+								size="sm"
+								onClick={() => setOpen(false)}
+								className="rounded-full"
+							>
+								<Check className="size-3.5" />
+								{t("projects.promptBox.stepDone")}
+							</Button>
+						</div>
+					</>
+				)}
+			</PopoverContent>
+		</Popover>
 	);
 }
 
@@ -2198,11 +2357,12 @@ export function PromptBox({
 		}
 	};
 
-	const selectOutput = (output: GenerationOutputDef) => {
-		setRouteMode(output.mode);
+	// Fired from the settings wizard's type step, which stays open — so no
+	// textarea refocus here, and re-picking the same output keeps its options.
+	const chooseOutput = (output: GenerationOutputDef) => {
+		if (output.id === selectedOutputId) return;
 		setSelectedOutputId(output.id);
 		setOutputOptions(createDefaultOptions(output));
-		textareaRef.current?.focus();
 	};
 
 	const handleModeChange = (mode: RouteMode) => {
@@ -2213,9 +2373,9 @@ export function PromptBox({
 		textareaRef.current?.focus();
 	};
 
+	// No textarea refocus: quality is picked inside the open settings popover.
 	const handleQualityChange = (next: ComposerQuality) => {
 		setQuality(next);
-		textareaRef.current?.focus();
 	};
 
 	const toggleSkillFile = (skill: SkillFileDef) => {
@@ -2370,14 +2530,10 @@ export function PromptBox({
 								isHero={isHero}
 							/>
 						) : null}
-						<OutputPicker
-							mode={routeMode}
-							output={selectedOutput}
-							onSelectOutput={selectOutput}
-							isHero={isHero}
-						/>
 						<OutputSettings
+							outputs={routeMode === "auto" ? [] : OUTPUTS_BY_MODE[routeMode]}
 							output={selectedOutput}
+							onSelectOutput={chooseOutput}
 							values={outputOptions}
 							onValueChange={updateOutputOption}
 							quality={quality}
