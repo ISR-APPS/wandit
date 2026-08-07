@@ -15,13 +15,7 @@ import type {
 } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import { cn } from "@wandit/ui/lib/utils";
-import {
-	AlertTriangle,
-	Check,
-	Code,
-	Download,
-	FileSpreadsheet,
-} from "lucide-react";
+import { AlertTriangle, Check, Download, FileSpreadsheet } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { creditsKeys } from "@/features/credits";
@@ -327,10 +321,6 @@ function LeadScrapeProgressCard({
 						</StepRow>
 					);
 				})}
-			</div>
-			<div className="mt-[11px] inline-flex items-center gap-[7px] rounded-full border border-border bg-background px-2.5 py-1 font-mono text-[11px] text-muted-foreground">
-				<Code className="size-3 text-primary" aria-hidden />
-				tool · scrape_leads
 			</div>
 		</div>
 	);
