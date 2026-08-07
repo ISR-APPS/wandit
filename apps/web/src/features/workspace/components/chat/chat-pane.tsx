@@ -111,6 +111,7 @@ export function ChatPane({ className }: { className?: string }) {
 				part.type === "tool-generate_image" ||
 				part.type === "tool-scrape_leads" ||
 				part.type === "tool-animate_image" ||
+				part.type === "tool-generate_video" ||
 				part.type === "dynamic-tool",
 		);
 	const showThinking = isSubmitting && !replyHasVisibleContent;

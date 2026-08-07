@@ -8,6 +8,8 @@ import {
 	parseImageAnimationPayload,
 	runImageAnimation,
 	USER_SAFE_IMAGE_ANIMATION_ERROR,
+	USER_SAFE_TEXT_TO_VIDEO_ERROR,
+	userSafeGenerationError,
 } from "./image-animation-runner";
 
 const ATTEMPT_ID = "11111111-1111-4111-8111-111111111111";
@@ -672,8 +674,10 @@ function makeAttempt(
 	return {
 		aspect: "16:9",
 		completedAt: null,
+		durationSeconds: 5,
 		error: null,
 		id: ATTEMPT_ID,
+		kind: "image-animation",
 		motion: "balanced",
 		organizationId: null,
 		projectDeletedAt: null,
@@ -724,3 +728,43 @@ function makeDependencies(
 		settleExisting: vi.fn(async () => true),
 	};
 }
+
+describe("userSafeGenerationError", () => {
+	it("keeps the animation copy for image-animation rows", () => {
+		expect(userSafeGenerationError("image-animation")).toBe(
+			USER_SAFE_IMAGE_ANIMATION_ERROR,
+		);
+	});
+
+	it("never mentions an image for text-to-video rows", () => {
+		expect(userSafeGenerationError("text-to-video")).toBe(
+			USER_SAFE_TEXT_TO_VIDEO_ERROR,
+		);
+		expect(userSafeGenerationError("text-to-video")).not.toMatch(/image/i);
+	});
+
+	it("persists the video copy when a text-to-video generation fails", async () => {
+		const attempt = makeAttempt({
+			durationSeconds: 10,
+			kind: "text-to-video",
+			motion: null,
+			sourceImageUrl: null,
+		});
+		const dependencies = makeDependencies(attempt);
+		dependencies.generate = vi.fn(async () => ({
+			message: "provider exploded",
+			status: "failed" as const,
+		}));
+
+		const result = await runImageAnimation(payload(), {
+			dependencies,
+			runId: "run_t2v",
+		});
+
+		expect(result.status).toBe("failed");
+		expect(dependencies.fail).toHaveBeenCalledWith(
+			expect.objectContaining({ kind: "text-to-video" }),
+			expect.objectContaining({ error: USER_SAFE_TEXT_TO_VIDEO_ERROR }),
+		);
+	});
+});

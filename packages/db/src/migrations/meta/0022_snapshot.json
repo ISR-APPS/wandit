@@ -1,5 +1,5 @@
 {
-	"id": "7d88842f-56d0-4c83-b566-2f62714dd89a",
+	"id": "1323e577-8a47-4877-a011-06aa6bc32f66",
 	"prevId": "637aec43-b99e-4d6e-9576-6495509ca8f5",
 	"version": "7",
 	"dialect": "postgresql",
@@ -4261,13 +4261,6 @@
 					"primaryKey": false,
 					"notNull": true
 				},
-				"provider_source": {
-					"name": "provider_source",
-					"type": "text",
-					"primaryKey": false,
-					"notNull": true,
-					"default": "'vercel'"
-				},
 				"step_usage": {
 					"name": "step_usage",
 					"type": "jsonb",
@@ -6619,18 +6612,26 @@
 					"notNull": true,
 					"default": "'queued'"
 				},
+				"kind": {
+					"name": "kind",
+					"type": "media_generation_kind",
+					"typeSchema": "public",
+					"primaryKey": false,
+					"notNull": true,
+					"default": "'image-animation'"
+				},
 				"source_image_url": {
 					"name": "source_image_url",
 					"type": "text",
 					"primaryKey": false,
-					"notNull": true
+					"notNull": false
 				},
 				"source_media_type": {
 					"name": "source_media_type",
 					"type": "image_to_video_source_media_type",
 					"typeSchema": "public",
 					"primaryKey": false,
-					"notNull": true
+					"notNull": false
 				},
 				"aspect": {
 					"name": "aspect",
@@ -6644,7 +6645,7 @@
 					"type": "image_to_video_motion",
 					"typeSchema": "public",
 					"primaryKey": false,
-					"notNull": true
+					"notNull": false
 				},
 				"prompt": {
 					"name": "prompt",
@@ -6658,6 +6659,12 @@
 					"primaryKey": false,
 					"notNull": true,
 					"default": 5
+				},
+				"voiceover": {
+					"name": "voiceover",
+					"type": "jsonb",
+					"primaryKey": false,
+					"notNull": false
 				},
 				"trigger_run_id": {
 					"name": "trigger_run_id",
@@ -6830,7 +6837,11 @@
 			"checkConstraints": {
 				"media_generation_attempts_duration_ck": {
 					"name": "media_generation_attempts_duration_ck",
-					"value": "\"media_generation_attempts\".\"duration_seconds\" = 5"
+					"value": "\"media_generation_attempts\".\"duration_seconds\" IN (5, 10)"
+				},
+				"media_generation_attempts_kind_ck": {
+					"name": "media_generation_attempts_kind_ck",
+					"value": "(\n\t\t\t\t(\n\t\t\t\t\t\"media_generation_attempts\".\"kind\" = 'image-animation'\n\t\t\t\t\tAND \"media_generation_attempts\".\"source_image_url\" IS NOT NULL\n\t\t\t\t\tAND \"media_generation_attempts\".\"source_media_type\" IS NOT NULL\n\t\t\t\t\tAND \"media_generation_attempts\".\"motion\" IS NOT NULL\n\t\t\t\t\tAND \"media_generation_attempts\".\"duration_seconds\" = 5\n\t\t\t\t)\n\t\t\t\tOR (\n\t\t\t\t\t\"media_generation_attempts\".\"kind\" = 'text-to-video'\n\t\t\t\t\tAND \"media_generation_attempts\".\"source_image_url\" IS NULL\n\t\t\t\t\tAND \"media_generation_attempts\".\"source_media_type\" IS NULL\n\t\t\t\t)\n\t\t\t)"
 				},
 				"media_generation_attempts_lifecycle_ck": {
 					"name": "media_generation_attempts_lifecycle_ck",
@@ -8148,6 +8159,11 @@
 			"name": "image_to_video_source_media_type",
 			"schema": "public",
 			"values": ["image/jpeg", "image/png", "image/webp"]
+		},
+		"public.media_generation_kind": {
+			"name": "media_generation_kind",
+			"schema": "public",
+			"values": ["image-animation", "text-to-video"]
 		},
 		"public.media_generation_status": {
 			"name": "media_generation_status",

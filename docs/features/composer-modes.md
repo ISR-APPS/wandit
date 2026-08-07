@@ -75,12 +75,28 @@ animation keys deduped. Downloads go through
 `/v1/projects/:id/assets/download?key=` which re-validates the key prefix —
 public R2 URLs cannot force a download cross-origin.
 
-## Video mode rename
+## Video mode: two outputs
 
-"Image en vidéo" → **"Animer une image"**: the mode's real contract is
-animate-a-photo (source image required, text optional). The internal id
-stays `video`. When true text-to-video ships someday it becomes a second
-output of this mode; the settings wizard's type step already supports that.
+The `video` mode now carries two outputs, exactly as planned when the mode
+was renamed:
+
+- **`video-creator` (default)** — true text-to-video via the `generate_video`
+  chat tool. No source image; the Brain runs a creative-director intake
+  (video type, format, duration, voiceover) with ask_user, composes a
+  CREATIVE BRIEF, and the server's VideoDirectorService rewrites it into one
+  domain-language provider prompt at queue time (snapshotted on the attempt).
+  Composer options: `ratio`, `duration` (5/10s), `voice`
+  (auto/none/en/fr/ar — "auto" lets the intake decide, a concrete pick
+  short-circuits the voiceover questions). Voiceover audio itself is stubbed
+  until the audio provider lands; the request + Brain-written script persist
+  in `media_generation_attempts.voiceover`.
+- **`image-animation`** — the original animate-a-photo contract (source image
+  required, text optional), unchanged.
+
+Both kinds share `media_generation_attempts` (discriminated by `kind`), the
+25-credit `video` operation, the runner state machine, R2 recovery, and the
+reconciler. The `generate-video` Trigger task adds staged `progress`
+metadata over Realtime for the chat card.
 
 ## Deliberately not here (yet)
 

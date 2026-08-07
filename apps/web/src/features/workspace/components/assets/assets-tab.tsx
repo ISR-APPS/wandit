@@ -36,11 +36,13 @@ type AssetFilter = "all" | "image" | "video";
 type SourceLabelKey =
 	| "workspace.assets.sourceGeneration"
 	| "workspace.assets.sourceAnimation"
+	| "workspace.assets.sourceVideo"
 	| "workspace.assets.sourceBuild";
 
 const SOURCE_LABEL_KEYS: Record<ProjectAsset["source"], SourceLabelKey> = {
 	"image-generation": "workspace.assets.sourceGeneration",
 	"image-animation": "workspace.assets.sourceAnimation",
+	"video-generation": "workspace.assets.sourceVideo",
 	"page-build": "workspace.assets.sourceBuild",
 };
 

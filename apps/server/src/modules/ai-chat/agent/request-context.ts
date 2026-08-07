@@ -49,8 +49,7 @@ const MODE_LINES: Record<string, string> = {
 	marketing:
 		"- Mode: Marketing — the user wants a marketing deliverable generated as a named HTML document with generate_marketing_asset (it appears as a card in their Marketing tab). Gather any missing facts first. Do not queue a page build unless they clearly ask for a page.",
 	page: "- Mode: Site web — the user wants a website built.",
-	video:
-		"- Mode: Animer une image — animate the single uploaded source image with animate_image. This is image-to-video, never text-to-video.",
+	video: "- Mode: Vidéo — the user wants a video made.",
 };
 
 const OUTPUT_LINES: Record<string, string> = {
@@ -228,9 +227,23 @@ export function buildChatRequestContext(
 		}
 
 		if (composer.mode === "video") {
-			if (composer.output === "image-animation") {
+			// A missing output means a legacy client where image animation was
+			// the only video output — keep its behavior byte-for-byte.
+			const isCreator = composer.output === "video-creator";
+
+			if (isCreator) {
 				lines.push(
-					'  Output: "Image animation" — one silent five-second clip.',
+					'  Output: "Video creator" — create a video from scratch with ' +
+						"generate_video (text-to-video). Run the creative-director " +
+						"intake for anything not settled below; never re-ask a " +
+						"setting this block supplies. Use animate_image only if the " +
+						"user explicitly asks to animate an uploaded image instead.",
+				);
+			} else {
+				lines.push(
+					'  Output: "Image animation" — animate the single uploaded ' +
+						"source image with animate_image. This is image-to-video: one " +
+						"silent five-second clip from the supplied still.",
 				);
 			}
 
@@ -254,6 +267,30 @@ export function buildChatRequestContext(
 
 			if (aspect) {
 				lines.push(`  Required video aspect ratio: ${aspect}.`);
+			}
+
+			if (isCreator) {
+				const duration = videoDurationFromOption(composer.options?.duration);
+
+				if (duration) {
+					lines.push(`  Required duration: ${duration} seconds.`);
+				}
+
+				const voice = composer.options?.voice;
+
+				if (voice === "none") {
+					lines.push(
+						"  Voiceover: none — the user chose no narration; do not ask.",
+					);
+				} else if (isVoiceLanguage(voice)) {
+					lines.push(
+						`  Voiceover: yes, in ${VOICE_LANGUAGE_NAMES[voice]} — write ` +
+							"the short script yourself and pass it in voiceover; do " +
+							"not ask about the voiceover again.",
+					);
+				}
+				// "auto" (or absent): the intake decides whether narration serves
+				// the video — no line on purpose.
 			}
 		}
 
@@ -346,6 +383,26 @@ function isVideoMotion(
 	value: unknown,
 ): value is "subtle" | "balanced" | "dynamic" {
 	return value === "subtle" || value === "balanced" || value === "dynamic";
+}
+
+const VOICE_LANGUAGE_NAMES = {
+	ar: "Arabic",
+	en: "English",
+	fr: "French",
+} as const;
+
+function isVoiceLanguage(
+	value: unknown,
+): value is keyof typeof VOICE_LANGUAGE_NAMES {
+	return value === "ar" || value === "en" || value === "fr";
+}
+
+function videoDurationFromOption(value: unknown): "5" | "10" | null {
+	if (value === "5" || value === "10") {
+		return value;
+	}
+
+	return null;
 }
 
 function videoAspectFromRatio(value: unknown): "9:16" | "1:1" | "16:9" | null {

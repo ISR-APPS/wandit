@@ -48,6 +48,7 @@ import {
 	ChevronRight,
 	Clapperboard,
 	FileText,
+	Film,
 	Gauge,
 	ImageIcon,
 	LayoutTemplate,
@@ -148,6 +149,7 @@ type GenerationOutputId =
 	| "image-creator"
 	| "product-shot"
 	| "ad-creative"
+	| "video-creator"
 	| "image-animation";
 
 // Non-copy output config: id + mode + icon + option groups. Label/shortLabel/
@@ -158,6 +160,8 @@ type GenerationOutputDef = {
 	mode: ConcreteMode;
 	icon: LucideIcon;
 	options: readonly OptionGroup[];
+	/** The mandatory SourceImageCard + source composer keys (image animation). */
+	requiresSourceImage?: boolean;
 };
 
 // Shape of the localized option copy read via useDictionary(); ids are matched
@@ -571,9 +575,39 @@ const OUTPUTS_BY_MODE: Record<ConcreteMode, readonly GenerationOutputDef[]> = {
 			],
 		},
 	],
-	// Mode "video" is reframed as image→video animation (spec §10) — the
-	// source still is mandatory and the motion description is optional.
+	// Mode "video": create a clip from scratch (video-creator, text-to-video,
+	// the default) or animate one uploaded still (image-animation, where the
+	// source image is mandatory).
 	video: [
+		{
+			id: "video-creator",
+			mode: "video",
+			icon: Film,
+			options: [
+				{
+					id: "ratio",
+					choices: [{ id: "9-16" }, { id: "1-1" }, { id: "16-9" }],
+				},
+				{
+					id: "duration",
+					choices: [{ id: "10" }, { id: "5" }],
+					layout: "compact",
+				},
+				{
+					// "auto" = the assistant decides whether to offer narration.
+					// A concrete pick short-circuits the voiceover questions.
+					id: "voice",
+					choices: [
+						{ id: "auto" },
+						{ id: "none" },
+						{ id: "en" },
+						{ id: "fr" },
+						{ id: "ar" },
+					],
+					layout: "grid",
+				},
+			],
+		},
 		{
 			id: "image-animation",
 			mode: "video",
@@ -588,6 +622,7 @@ const OUTPUTS_BY_MODE: Record<ConcreteMode, readonly GenerationOutputDef[]> = {
 					choices: [{ id: "9-16" }, { id: "1-1" }, { id: "16-9" }],
 				},
 			],
+			requiresSourceImage: true,
 		},
 	],
 };
@@ -2008,16 +2043,25 @@ export function PromptBox({
 		[attachments],
 	);
 	const isVideoMode = routeMode === "video";
+	const selectedOutput = useMemo(
+		() => getOutput(selectedOutputId),
+		[selectedOutputId],
+	);
+	// Only the image-animation output is source-first; video-creator is
+	// text-to-video and behaves like any prompt-driven output.
+	const requiresSourceImage =
+		isVideoMode && selectedOutput?.requiresSourceImage === true;
 	const readySourceImage = sourceImage?.status === "ready" ? sourceImage : null;
 	const hasUploadingAttachment = attachments.some(
 		(attachment) => attachment.status === "uploading",
 	);
-	const hasUploadingSource = isVideoMode && sourceImage?.status === "uploading";
+	const hasUploadingSource =
+		requiresSourceImage && sourceImage?.status === "uploading";
 	const submissionPending = isSubmitting || isLocallySubmitting;
 	// Image animation is source-first: once uploads are available, generic
 	// context never substitutes for the one required still image. Signed-out
 	// surfaces can still carry the motion draft through auth.
-	const hasRequiredInput = isVideoMode
+	const hasRequiredInput = requiresSourceImage
 		? attachmentsEnabled
 			? Boolean(readySourceImage)
 			: true
@@ -2028,10 +2072,6 @@ export function PromptBox({
 			!submissionPending &&
 			!hasUploadingAttachment &&
 			!hasUploadingSource;
-	const selectedOutput = useMemo(
-		() => getOutput(selectedOutputId),
-		[selectedOutputId],
-	);
 	const attachedSkills = useMemo(
 		() =>
 			selectedSkillIds
@@ -2235,9 +2275,11 @@ export function PromptBox({
 		}
 
 		if (isVideoMode) {
+			// Both video outputs carry the retry-proof idempotency token; only
+			// image animation sends the dedicated source keys.
 			options.videoSubmissionId = videoSubmissionIdRef.current;
 
-			if (readySourceImage?.uploaded) {
+			if (requiresSourceImage && readySourceImage?.uploaded) {
 				options.sourceImageUrl = readySourceImage.uploaded.url;
 				options.sourceMediaType = readySourceImage.uploaded.mediaType;
 			}
@@ -2289,10 +2331,11 @@ export function PromptBox({
 		}
 
 		const prompt = value.trim();
-		const sourceIsRequired = isVideoMode && attachmentsEnabled;
-		const videoDraftWithoutUploads = isVideoMode && !attachmentsEnabled;
+		const sourceIsRequired = requiresSourceImage && attachmentsEnabled;
+		const videoDraftWithoutUploads = requiresSourceImage && !attachmentsEnabled;
 		const genericUploadCanSubmit =
-			!isVideoMode && (prompt.length > 0 || readyAttachments.length > 0);
+			!requiresSourceImage &&
+			(prompt.length > 0 || readyAttachments.length > 0);
 		if (
 			submissionPending ||
 			hasUploadingAttachment ||
@@ -2308,7 +2351,7 @@ export function PromptBox({
 			attachment.uploaded ? [attachment.uploaded] : [],
 		);
 		const submittedAttachments =
-			isVideoMode && readySourceImage?.uploaded
+			requiresSourceImage && readySourceImage?.uploaded
 				? [readySourceImage.uploaded, ...uploadedAttachments].slice(
 						0,
 						MAX_ATTACHMENTS,
@@ -2422,7 +2465,7 @@ export function PromptBox({
 					// paints its own full-bleed background.
 					<div className="w-full overflow-hidden rounded-t-3xl">{topSlot}</div>
 				) : null}
-				{isVideoMode ? (
+				{requiresSourceImage ? (
 					<SourceImageCard
 						source={sourceImage}
 						validationError={sourceValidationError}
@@ -2496,7 +2539,9 @@ export function PromptBox({
 						isHero
 							? "min-h-[78px] px-5 pb-1 text-base"
 							: "min-h-[38px] px-4 pb-0 text-[15px] leading-[1.5]",
-						attachedSkills.length > 0 || attachments.length > 0 || isVideoMode
+						attachedSkills.length > 0 ||
+							attachments.length > 0 ||
+							requiresSourceImage
 							? "pt-2"
 							: "pt-4",
 					)}

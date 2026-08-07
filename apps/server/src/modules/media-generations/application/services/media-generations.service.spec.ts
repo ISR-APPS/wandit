@@ -38,6 +38,7 @@ const BASE_ROW: MediaGenerationAttemptRow = {
 	durationSeconds: 5,
 	error: null,
 	id: "11111111-1111-4111-8111-111111111111",
+	kind: "image-animation",
 	motion: "balanced",
 	projectId: "22222222-2222-4222-8222-222222222222",
 	prompt: "A slow camera push.",
@@ -46,8 +47,10 @@ const BASE_ROW: MediaGenerationAttemptRow = {
 	sourceMediaType: "image/png",
 	startedAt: null,
 	status: "queued",
+	title: null,
 	videoMediaType: null,
 	videoUrl: null,
+	voiceover: null,
 };
 
 function setup() {
@@ -88,12 +91,10 @@ describe("MediaGenerationsService", () => {
 			createdAt: new Date(Date.now() - 5 * 60 * 1_000),
 		});
 
-		await expect(service.attempt(SCOPE, BASE_ROW.id)).resolves.toMatchObject(
-			{
-				id: BASE_ROW.id,
-				status: "queued",
-			},
-		);
+		await expect(service.attempt(SCOPE, BASE_ROW.id)).resolves.toMatchObject({
+			id: BASE_ROW.id,
+			status: "queued",
+		});
 		expect(repository.markStaleQueuedAttemptFailed).not.toHaveBeenCalled();
 		expect(repository.markStaleGeneratingAttemptFailed).not.toHaveBeenCalled();
 		expect(meteringService.refund).not.toHaveBeenCalled();
@@ -117,13 +118,11 @@ describe("MediaGenerationsService", () => {
 			.mockResolvedValueOnce(failedRow);
 		repository.markStaleQueuedAttemptFailed.mockResolvedValue(true);
 
-		await expect(service.attempt(SCOPE, BASE_ROW.id)).resolves.toMatchObject(
-			{
-				error: failedRow.error,
-				id: BASE_ROW.id,
-				status: "failed",
-			},
-		);
+		await expect(service.attempt(SCOPE, BASE_ROW.id)).resolves.toMatchObject({
+			error: failedRow.error,
+			id: BASE_ROW.id,
+			status: "failed",
+		});
 		expect(repository.markStaleQueuedAttemptFailed).toHaveBeenCalledWith(
 			BASE_ROW.id,
 			expect.any(Date),
@@ -147,7 +146,7 @@ describe("MediaGenerationsService", () => {
 		const failedRow = {
 			...staleRow,
 			completedAt: new Date(),
-			error: "The video did not finish. Please try animating the image again.",
+			error: "The video did not finish. Please try again.",
 			status: "failed" as const,
 		};
 		repository.findAccessibleAttempt
@@ -155,13 +154,11 @@ describe("MediaGenerationsService", () => {
 			.mockResolvedValueOnce(failedRow);
 		repository.markStaleGeneratingAttemptFailed.mockResolvedValue(true);
 
-		await expect(service.attempt(SCOPE, BASE_ROW.id)).resolves.toMatchObject(
-			{
-				error: failedRow.error,
-				id: BASE_ROW.id,
-				status: "failed",
-			},
-		);
+		await expect(service.attempt(SCOPE, BASE_ROW.id)).resolves.toMatchObject({
+			error: failedRow.error,
+			id: BASE_ROW.id,
+			status: "failed",
+		});
 		expect(repository.markStaleGeneratingAttemptFailed).toHaveBeenCalledWith(
 			BASE_ROW.id,
 			expect.any(Date),
@@ -182,12 +179,10 @@ describe("MediaGenerationsService", () => {
 			status: "generating",
 		});
 
-		await expect(service.attempt(SCOPE, BASE_ROW.id)).resolves.toMatchObject(
-			{
-				id: BASE_ROW.id,
-				status: "generating",
-			},
-		);
+		await expect(service.attempt(SCOPE, BASE_ROW.id)).resolves.toMatchObject({
+			id: BASE_ROW.id,
+			status: "generating",
+		});
 		expect(repository.markStaleGeneratingAttemptFailed).not.toHaveBeenCalled();
 		expect(meteringService.refund).not.toHaveBeenCalled();
 	});
@@ -213,12 +208,10 @@ describe("MediaGenerationsService", () => {
 		repository.markGeneratingAttemptSucceeded.mockResolvedValue(true);
 		vi.mocked(getObjectContentType).mockResolvedValueOnce("video/mp4");
 
-		await expect(service.attempt(SCOPE, BASE_ROW.id)).resolves.toMatchObject(
-			{
-				status: "succeeded",
-				videoMediaType: "video/mp4",
-			},
-		);
+		await expect(service.attempt(SCOPE, BASE_ROW.id)).resolves.toMatchObject({
+			status: "succeeded",
+			videoMediaType: "video/mp4",
+		});
 		expect(repository.markGeneratingAttemptSucceeded).toHaveBeenCalledWith(
 			BASE_ROW.id,
 			expect.stringContaining("vid-1.mp4"),
@@ -287,11 +280,9 @@ describe("MediaGenerationsService", () => {
 		vi.mocked(getObjectContentType).mockResolvedValueOnce("video/mp4");
 		meteringService.findByIdempotencyKey.mockResolvedValueOnce(null);
 
-		await expect(service.attempt(SCOPE, BASE_ROW.id)).resolves.toMatchObject(
-			{
-				status: "succeeded",
-			},
-		);
+		await expect(service.attempt(SCOPE, BASE_ROW.id)).resolves.toMatchObject({
+			status: "succeeded",
+		});
 		expect(meteringService.settleFixedFromEvidence).not.toHaveBeenCalled();
 		expect(repository.markGeneratingAttemptSucceeded).toHaveBeenCalledTimes(1);
 	});

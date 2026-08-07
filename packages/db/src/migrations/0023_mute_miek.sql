@@ -1,0 +1,1 @@
+ALTER TABLE "media_generation_attempts" ADD COLUMN "title" text;
