@@ -239,6 +239,7 @@ Glassmorphism, backdrop-filter and translucent panels · box-shadow as a depth d
 ## Intensity
 This world fails in exactly the ways a dark tech page always fails: a purple gradient creeps in, panels grow 16px radii and drop shadows, the accent spreads to three hues, the specs become adjectives, the exploded view becomes a photo that fades up, and the comparison table becomes ticks and crosses. At 60 percent that is a dark SaaS template with a product photo on it, and it converts nothing, because it promises measurement and delivers mood. At 100 percent — a cool near-black bench under one lamp, one LED breathing at 4 seconds behind the object, the product flying apart into annotated parts as you scroll and clicking back together, three benchmark numbers counting up with their units, a ruled table you could argue with, a circuit trace routing you from scene to scene and soldering into the wordmark, and a checkout terminal that validates like a device — it looks like a page built by people who actually measured the thing they are selling. That is the entire sale. Push INTO the precision: every number above is load-bearing.`,
 	energy: "medium",
+	family: "laboratoire",
 	id: "laboratoire",
 	industries: [
 		"gadgets",
@@ -258,6 +259,13 @@ This world fails in exactly the ways a dark tech page always fails: a purple gra
 	kind: "product",
 	mood: ["technical", "engineered", "dark", "precise", "confident"],
 	name: "Laboratoire",
+	preview: {
+		ground: "#0E1116",
+		ink: "#E6EAF0",
+		accent: "#2CFF7A",
+		fontFamily: "Space Grotesk",
+		sampleWord: "Laboratoire",
+	},
 	priceFeel: "premium",
 	tagline:
 		"Your product on a near-black workbench under one glowing LED — it flies apart into its own parts as the visitor scrolls, every piece tagged with a real measured number, and the order form validates like the terminal at the till.",

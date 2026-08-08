@@ -29,7 +29,10 @@ import {
 	triggerGeneratePageTask,
 } from "../../../pages/application/page-build-handoff";
 import type { PagesRepository } from "../../../pages/infrastructure/persistence/pages.repository";
-import { buildSiteBuilderSystemPrompt } from "../site-builder/builder-prompt";
+import {
+	buildSiteBuilderSystemPrompt,
+	WORLD_DEPARTURE_POINT_HEADING,
+} from "../site-builder/builder-prompt";
 import { buildCodSiteBuilderSystemPrompt } from "../site-builder/cod-builder-prompt";
 import { getWorld } from "../worlds";
 import { COD_GENRE_DOC, FUSION_CONTRACT } from "../worlds/cod/genre";
@@ -127,7 +130,14 @@ export function createGeneratePageTool(
 							: []),
 					].join("\n\n")
 				: resolvedWorlds[0]
-					? `${basePrompt}\n\n${resolvedWorlds[0].doc}`
+					? // Product dossier docs stay bare — a bare world document is law.
+						// Website worlds ride behind the departure-point heading so the
+						// builder treats them as the brief's foundation, not a template.
+						`${basePrompt}\n\n${
+							resolvedWorlds[0].kind === "product"
+								? resolvedWorlds[0].doc
+								: `${WORLD_DEPARTURE_POINT_HEADING}\n\n${resolvedWorlds[0].doc}`
+						}`
 					: basePrompt;
 			const builderModel =
 				deps.builderModel ??

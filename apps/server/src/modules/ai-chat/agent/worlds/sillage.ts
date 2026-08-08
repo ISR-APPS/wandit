@@ -288,6 +288,7 @@ It fails UP into fog: blur on every panel, four ambient loops, a shimmer that ne
 
 Executed at 100 percent — three warm near-blacks cutting between chapters, three plumes drifting forever at 22, 27 and 31 seconds, a bottle breathing in its own light above a reflection cut at 46 percent, a gold tie drawn down through three ruled tiers of notes, two scenes that evaporate upward into the next, a price whispered in small caps and never the loudest thing on its screen, and an order slip of ruled lines that folds itself into a sealed envelope — a buyer scrolling on a phone in Algiers feels the room the merchant just walked out of. Push INTO the quiet. Every number above is load-bearing.`,
 	energy: "quiet",
+	family: "dark-luxury",
 	id: "sillage",
 	industries: [
 		"perfume",
@@ -308,6 +309,13 @@ Executed at 100 percent — three warm near-blacks cutting between chapters, thr
 	kind: "product",
 	mood: ["dark", "hushed", "sensual", "drifting", "opulent"],
 	name: "Sillage",
+	preview: {
+		ground: "#0B0908",
+		ink: "#EFE6D8",
+		accent: "#B9932F",
+		fontFamily: "Cormorant Garamond",
+		sampleWord: "Le sillage",
+	},
 	priceFeel: "premium",
 	tagline:
 		"Near-black velvet with gold that only catches the light when a finger comes near it, your bottle breathing above its own reflection while scent drifts up the page — and every scene evaporates into the next instead of simply ending.",

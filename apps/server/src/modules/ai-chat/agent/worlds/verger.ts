@@ -237,6 +237,7 @@ This world fails by being merely BEIGE. A cream page with a serif headline, a ho
 Executed at 60 percent — cream background, gold button, rounded cards, a stock honey photo, a made-up nutrition table — this is exactly the generic produit-naturel page it exists to replace, and the invented table makes it worse than generic. Executed at 100 percent, a buyer scrolling on a phone in Oran feels the low sun on a valley they could find on a map, understands in nine seconds what was picked, when, by whom, in what quantity and what it costs at their door, and orders because the page never once asked them to take anything on faith. Push INTO the specificity. Every number above is load-bearing.
 `,
 	energy: "medium",
+	family: "verger",
 	id: "verger",
 	industries: [
 		"food",
@@ -257,6 +258,13 @@ Executed at 60 percent — cream background, gold button, rounded cards, a stock
 	kind: "product",
 	mood: ["sunlit", "rooted", "unhurried", "wholesome", "documentary"],
 	name: "Verger",
+	preview: {
+		ground: "#F7F1E3",
+		ink: "#1E241A",
+		accent: "#C88A21",
+		fontFamily: "Newsreader",
+		sampleWord: "Le Verger",
+	},
 	priceFeel: "premium",
 	tagline:
 		"Unbleached paper under low golden light, a harvest date and a valley printed above everything like provenance on a bottle of oil, and your jar's outline drawn in one honey line that follows the buyer all the way down — until it draws itself, fills up, and stamps their order at the bottom.",

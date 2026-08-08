@@ -10,6 +10,7 @@ import { atay } from "../worlds/cod/atay";
 import { COD_GENRE_DOC, FUSION_CONTRACT } from "../worlds/cod/genre";
 import { hammam } from "../worlds/cod/hammam";
 import { monographe } from "../worlds/monographe";
+import { vitrine } from "../worlds/vitrine";
 import { createGeneratePageTool } from "./generate-page.tool";
 
 // Everything with side effects is replaced: env (credentials), storage
@@ -33,6 +34,7 @@ vi.mock("@trigger.dev/sdk", () => ({
 }));
 
 vi.mock("../site-builder/builder-prompt", () => ({
+	WORLD_DEPARTURE_POINT_HEADING: "departure-point heading (test)",
 	buildSiteBuilderSystemPrompt: vi
 		.fn()
 		.mockResolvedValue("builder prompt (test)"),
@@ -243,7 +245,7 @@ describe("generate_page tool", () => {
 		);
 	});
 
-	it("appends the chosen design world's doc to the prompt snapshot", async () => {
+	it("appends a website world behind the departure-point heading", async () => {
 		const { execute, pagesRepository } = setup();
 		vi.mocked(isR2Configured).mockReturnValue(true);
 		pagesRepository.findOrCreateLandingArtifact.mockResolvedValue({
@@ -262,10 +264,27 @@ describe("generate_page tool", () => {
 			expect.objectContaining({
 				spec: {
 					brief: INPUT.brief,
-					designerSystemPrompt: `builder prompt (test)\n\n${monographe.doc}`,
+					designerSystemPrompt:
+						"builder prompt (test)\n\n" +
+						`departure-point heading (test)\n\n${monographe.doc}`,
 					pageKind: "website",
 					title: INPUT.title,
 				},
+			}),
+		);
+	});
+
+	it("appends a product dossier world bare — a bare doc stays law", async () => {
+		const { execute, pagesRepository } = setup();
+		prepareSuccessfulQueue(pagesRepository);
+
+		await execute({ ...INPUT, worldId: "vitrine" });
+
+		expect(pagesRepository.insertAttempt).toHaveBeenCalledWith(
+			expect.objectContaining({
+				spec: expect.objectContaining({
+					designerSystemPrompt: `builder prompt (test)\n\n${vitrine.doc}`,
+				}),
 			}),
 		);
 	});

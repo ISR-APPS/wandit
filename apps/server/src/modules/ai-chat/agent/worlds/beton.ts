@@ -245,6 +245,7 @@ Any box-shadow, text-shadow or drop-shadow with a blur radius above 0 · border-
 ## Intensity
 This world fails in exactly one direction: TIMIDITY. A 1px border instead of 3px. A 12px radius that crept in from muscle memory. A soft shadow because a hard one felt aggressive. One small accent chip instead of a full accent field. A hover that fades instead of a button that travels six pixels and lands. Executed at 60 percent, BÉTON is a bootstrap page with borders drawn on it, and it is worse than doing nothing. Executed at 100 percent — cream paper under a graph grid, every object outlined and casting a hard block, two saturated fields cutting the page into chapters, a marquee that speeds up when you scroll, a seal hanging off a corner at 8 degrees, and buttons that PRESS — it looks like a wall you would stop in the street to photograph. Push INTO the loudness. Every number above is load-bearing, and the borders are the whole world.`,
 	energy: "loud",
+	family: "neobrutalism",
 	id: "beton",
 	industries: [
 		"gadgets",
@@ -265,6 +266,13 @@ This world fails in exactly one direction: TIMIDITY. A 1px border instead of 3px
 	kind: "website",
 	mood: ["loud", "punk", "playful", "graphic", "defiant"],
 	name: "Béton",
+	preview: {
+		ground: "#F5F1E6",
+		ink: "#121110",
+		accent: "#121110",
+		fontFamily: "Archivo Black",
+		sampleWord: "BÉTON",
+	},
 	priceFeel: "accessible",
 	tagline:
 		"Cream paper plastered with bordered stickers, two screaming colors, text marquees running edge to edge and buttons that physically press into the page — a shop window that shouts, and gets photographed.",

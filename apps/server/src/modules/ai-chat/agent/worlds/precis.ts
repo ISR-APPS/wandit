@@ -203,6 +203,7 @@ Box-shadow of any kind · backdrop-filter, glass, translucency · border-radius 
 ## Intensity
 This world fails by softening: every wrong decision is a comfortable default — a 12px radius instead of 2, a shadow instead of a hairline, a bold headline instead of 380, a fade-up instead of a rule draw, a card grid instead of a shared-border bento, an adjective instead of a number. At 60% it is a gray corporate template with a faint texture behind it, which is worse than nothing: it promises rigour and delivers wallpaper. At 100% — graph paper you have to hunt for, one accent doing eight jobs, a headline measured by its own callout, five ruled seams, a process drawn line by line as you scroll, a title-block footer signing the sheet — it looks like a page made by people who measure things for a living, which is exactly what its visitors are buying. Push INTO the precision. Every number above is load-bearing.`,
 	energy: "quiet",
+	family: "precis",
 	id: "precis",
 	industries: [
 		"tech",
@@ -223,6 +224,13 @@ This world fails by softening: every wrong decision is a comfortable default —
 	kind: "website",
 	mood: ["precise", "technical", "rigorous", "authoritative", "calm"],
 	name: "Précis",
+	preview: {
+		ground: "#F6F4EF",
+		ink: "#14171C",
+		accent: "#B0402E",
+		fontFamily: "Archivo",
+		sampleWord: "Précis",
+	},
 	priceFeel: "premium",
 	tagline:
 		"A technical drawing that sells: faint graph paper, one signal colour, enormous exact numbers, and hairline callouts that measure your own headline like a draughtsman — the page of a firm where nothing is approximate.",

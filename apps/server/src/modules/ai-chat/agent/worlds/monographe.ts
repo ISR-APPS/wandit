@@ -89,6 +89,7 @@ Box-shadows · rounded content containers · icon grids · bold display type · 
 ## Intensity
 This world lives or dies on nerve: hairline weights at huge sizes, near-empty columns, a hero with no button. Executed at 60% it looks broken; executed at 100% it looks like a house that has never needed to advertise. Push INTO the restraint, never back toward a template.`,
 	energy: "quiet",
+	family: "monographe",
 	id: "monographe",
 	industries: [
 		"real-estate",
@@ -106,6 +107,13 @@ This world lives or dies on nerve: hairline weights at huge sizes, near-empty co
 	kind: "website",
 	mood: ["hushed", "editorial", "cinematic", "exclusive"],
 	name: "Monographe",
+	preview: {
+		ground: "#12100E",
+		ink: "#EDE6DA",
+		accent: "#B08D57",
+		fontFamily: "Fraunces",
+		sampleWord: "Monographe",
+	},
 	priceFeel: "premium",
 	tagline:
 		"A dark architectural monograph: hairline serif type on near-black paper, plate captions and folio numbers, one bronze word glowing in each headline — the page of a house that introduces rather than advertises.",

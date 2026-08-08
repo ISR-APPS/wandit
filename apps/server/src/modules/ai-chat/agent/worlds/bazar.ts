@@ -229,6 +229,7 @@ This world fails in two directions and both are easy. Pull back and it becomes a
 
 The 100 percent version sits precisely between them and is unmistakable — warm paper with a real tooth, a stripe of saturated blocks reading down the page like an awning, a headline with one word slabbed in ink-bordered color, a price at 7rem with a crooked pen circle drawing itself around it as you arrive, offer stamps landing at four fixed angles with their ink shadows spreading out beneath them, ONE bundle physically larger than its neighbours and standing straight while they lean, a ticker of real offers running the page's width, thumb-sized pills, a printed order slip with stamped step numbers, and a hot total row that recomputes with a small confident pop. It looks like the best stall in the market: the one run by someone who knows their prices are good and prints their signs properly. Push INTO the specificity. Every number above is load-bearing.`,
 	energy: "loud",
+	family: "bazar",
 	id: "bazar",
 	industries: [
 		"ecommerce",
@@ -249,6 +250,13 @@ The 100 percent version sits precisely between them and is unmistakable — warm
 	kind: "product",
 	mood: ["loud", "saturated", "hand-stamped", "generous", "market-warm"],
 	name: "Bazar",
+	preview: {
+		ground: "#F8EEDA",
+		ink: "#241A0E",
+		accent: "#D63A1E",
+		fontFamily: "Archivo Black",
+		sampleWord: "BAZAR",
+	},
 	priceFeel: "accessible",
 	tagline:
 		"Spice-hot color blocks on warm paper, offer stamps slammed on at an angle like a stall's hand-painted signs, and your price so big it gets a crooked ink circle drawn around it — a page that shouts the deal and still looks made by hand.",

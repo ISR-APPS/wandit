@@ -20,7 +20,12 @@ A design world lives in
 `apps/server/src/modules/ai-chat/agent/worlds/`. Every world declares a `kind`:
 
 - `website` is for multi-purpose business sites; `both` can also enter the
-  legacy product-dossier pool.
+  legacy product-dossier pool. The original hand-built website worlds sit at
+  the top level; the 57-world landing factory batch lives under
+  `worlds/landing/` (same contract, merged into the same registry). Four
+  batch worlds were renamed at merge time because their ids collided with
+  different existing designs: `fournil`→`boulange`, `nocturne`→`generique`,
+  `riviera`→`promenade`, `vitrine`→`catalogue`.
 - `product` is a single-product **dossier**: an object presented for study,
   story or desire. The ten dossier worlds are `bazar`, `cargo`, `cocon`,
   `forge`, `heritage`, `laboratoire`, `nid`, `sillage`, `verger` and
@@ -55,13 +60,23 @@ flow.
 
 ## How it flows
 
-1. Website art direction remains model-authored: the 2026-07-27 experiment is
-   still off for websites, and the Brain does not pass a world id for them.
-   The legacy single-`worldId` assembly path remains supported.
+1. Websites use worlds in **departure-point mode**. The Brain samples a
+   website menu from `get_direction_candidates` (`pageKind: "website"`),
+   asks the taste question as THREE WORLD CARDS (below; the user may skip or
+   delegate), commits to exactly ONE world, and writes its ART DIRECTION as
+   kept-vs-changed divergences — the user's brand facts and answers drive at
+   least one divergence when present. `generate_page` receives that single
+   world id with `pageKind: "website"`; the queue tool prepends a
+   departure-point heading to the world doc, so the builder treats it as
+   foundation, not law: the brief's palette, fonts, and named divergences
+   win where they differ. Product dossier docs stay bare and remain law.
 2. In COD mode, after collecting the product and offer facts, the Brain asks
-   one optional funnel-block question and requests a fresh COD world menu. The
-   server samples eight candidates from the 46-world pool, limits obvious
-   industry matches and preserves compatible fusion choices.
+   the taste-card question and one optional funnel-block question, then
+   requests a fresh COD world menu. The server samples eight candidates from
+   the 46-world pool, limits obvious industry matches and preserves
+   compatible fusion choices. A card pick becomes the BASE world; the Brain
+   still chooses the donors around it. A skip or delegate hands the whole
+   base + donor choice back to the Brain, exactly as before.
 3. The Brain commits to one **base** world and two or three **donors**, menu
    choices only. It passes their ids base-first to `generate_page`, together
    with `pageKind: "cod"`.
@@ -79,9 +94,40 @@ The builder still receives the user's brief as content authority. World and
 genre documents govern presentation and funnel craft; they cannot invent
 prices, reviews, stock, deadlines or delivery claims.
 
+## The taste cards
+
+The taste question renders as tappable SPECIMEN CARDS in the composer tray —
+the world's `sampleWord` typed in its real display face on its real ground
+color, three color dots, the world's name, and the Brain's one-line caption.
+See `world-cards-demo.html` beside this document for the reference design.
+
+The data path keeps the model out of the pixel business:
+
+- Every world declares a five-field `preview` (`ground`, `ink`, `accent`,
+  `fontFamily`, `sampleWord`) and a `family`. The library contract test
+  enforces both on all worlds.
+- `get_direction_candidates` returns, next to the menu text, `cards` —
+  server-authored `{id, name, tagline, preview}` faces for every sampled
+  world. The design bible itself never leaves the backend.
+- The Brain's taste ask_user sets `worldId` on each option (exactly 3
+  options, 3 different families; the website menu is family-diverse by
+  construction and the COD menu prints each world's family). Labels are the
+  Brain's own one-liners in the user's language — never hexes or ids.
+- The web tray resolves each option's `worldId` against the transcript's
+  latest cards and renders `WorldPickBody`; the fonts arrive through one
+  dynamic Google Fonts css2 request per new batch of faces. An option whose
+  id does not resolve degrades to a neutral card, and a transcript with no
+  cards at all falls back to plain text chips — old chats stay valid because
+  both schema changes only relax.
+- A tap answers through the ordinary `{selectedId, label}` single-choice
+  path; skip and "Decide for me" behave exactly as before.
+
 ## Authoring a new world
 
 For a website or dossier world, copy `monographe.ts` as the format exemplar.
+Draw `industries` tags from the niche vocabulary in
+`worlds/landing/taxonomy.md` (14 categories and their niches) — sampling
+matches them fuzzily, but a shared vocabulary keeps affinity predictable.
 Describe a complete system, give every executable value a reason, keep
 backticks and `${` out of the document template literal, end with an intensity
 clause, and register the world in `worlds/index.ts`.
@@ -97,4 +143,5 @@ is merged into the global registry.
 - Persisted cooldown or memory of worlds served to a vertical. Sampling is
   fresh and server-side, but it has no cross-request history.
 - Generic brief validation and observability (`analyzeBrief`).
-- Re-enabling the world chooser for website builds.
+- Website fusion (base + donors). The website path deliberately takes one
+  world only; fusion stays a COD mechanism.

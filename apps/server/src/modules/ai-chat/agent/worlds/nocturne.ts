@@ -169,6 +169,7 @@ Pure #000 or #fff anywhere · a neutral, non-warm dark ground · a second warm k
 ## Intensity
 This world is a lighting plan or it is nothing. At 60 percent it becomes the most generic thing on the internet: a dark restaurant template with amber buttons and a photo of a steak. THREE things must be at 100 percent or do not choose it at all. (1) THE POOLS — real radial light with three-stop falloff, bleeding past scene edges, dissolving into each other on scrub, moving as you scroll; flat dark sections have failed before they start. (2) THE MENU AS VERSE — authored line breaks, runover indents, marginal prices in var(--primary), course-break ornaments; a menu set as a price table has failed. (3) THE MASKED PHOTOGRAPH — imagery that exists only where the light reaches it, so the frame holds real darkness rather than a dark overlay. Everything else (the flicker, the smoke, the roman numerals, the jewel's halo, the angle of a contact shadow) costs almost nothing and is what makes a visitor feel the temperature of the room. Push INTO the darkness. The braver the shadow, the more valuable the light.`,
 	energy: "quiet",
+	family: "dark-luxury",
 	id: "nocturne",
 	industries: [
 		"restaurant",
@@ -189,6 +190,13 @@ This world is a lighting plan or it is nothing. At 60 percent it becomes the mos
 	kind: "website",
 	mood: ["candlelit", "intimate", "chiaroscuro", "sensual", "ceremonious"],
 	name: "Nocturne",
+	preview: {
+		ground: "#100C09",
+		ink: "#F2E9DC",
+		accent: "#C8933F",
+		fontFamily: "Playfair Display",
+		sampleWord: "Nocturne",
+	},
 	priceFeel: "premium",
 	tagline:
 		"Your dining room after dark: one warm near-black page where each scene carries a single pool of candlelight — the dish, the menu set as verse with its prices in the margin, the reservation pill glowing like the last flame on the table — and the light dissolves from one course into the next as the visitor scrolls.",
