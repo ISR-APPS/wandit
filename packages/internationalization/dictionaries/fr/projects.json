@@ -148,6 +148,7 @@
 		"attachHint": "Joindre des images, PDF, documents ou tableurs",
 		"connectApps": "Connecter des applications",
 		"attachments": {
+			"dropHint": "Dépose tes fichiers pour les joindre",
 			"uploading": "Envoi…",
 			"remove": "Retirer",
 			"retry": "Réessayer",
