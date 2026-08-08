@@ -264,6 +264,53 @@ export class PagesRepository {
 		return true;
 	}
 
+	// A platform-killed run (OOM, worker crash, out-of-band cancel) never
+	// reaches the task's own terminal writes, so its row stays "queued" or
+	// "generating" with no terminal truth ("queued" when the run died before
+	// the task's claim CAS). CAS on the run id: a newer queue of the same row
+	// can never be clobbered. A dashboard cancel is a decision, not a failure
+	// — it records "canceled" and skips the failure analytics.
+	async settleStrandedAttempt(
+		attemptId: string,
+		runId: string,
+		outcome: { error: string; status: "canceled" | "failed" },
+		userId: string,
+	): Promise<boolean> {
+		const [settled] = await this.db
+			.update(pageGenerationAttempts)
+			.set({
+				completedAt: new Date(),
+				error: outcome.error,
+				failureCode: outcome.status === "failed" ? "internal_error" : null,
+				status: outcome.status,
+			})
+			.where(
+				and(
+					eq(pageGenerationAttempts.id, attemptId),
+					inArray(pageGenerationAttempts.status, ["queued", "generating"]),
+					eq(pageGenerationAttempts.triggerRunId, runId),
+				),
+			)
+			.returning({ projectId: pageGenerationAttempts.projectId });
+
+		if (!settled) {
+			return false;
+		}
+
+		if (outcome.status === "failed") {
+			captureGenerationFailed(
+				this.analyticsService,
+				userId,
+				"page",
+				settled.projectId,
+				attemptId,
+				"crashed_run",
+			);
+		}
+
+		return true;
+	}
+
 	// One attempt's durable state, ownership proven by the project join.
 	// Null covers missing, deleted, and not-owned alike — the service 404s.
 	async findAttemptDetail(

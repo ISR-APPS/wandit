@@ -179,10 +179,21 @@ export class PagesService {
 			throw new NotFoundException();
 		}
 
-		const reset = await this.pagesRepository.resetAttemptForRetry(attemptId);
+		let reset = await this.pagesRepository.resetAttemptForRetry(attemptId);
 
 		if (!reset) {
-			// Already running (double-click) or succeeded — answer with truth.
+			// An OOM/crash kill (or an out-of-band cancel) never reaches the
+			// task's own terminal writes, so the row can sit in "queued" or
+			// "generating" while its run is long dead — and the CAS above cannot
+			// claim it. Settle such a row from the run's terminal truth, then
+			// claim again UNCONDITIONALLY: a concurrent writer (self-heal, a
+			// second click) can flip the row between the two attempts.
+			await this.settleAttemptForDeadRun(scope, attemptId, existing);
+			reset = await this.pagesRepository.resetAttemptForRetry(attemptId);
+		}
+
+		if (!reset) {
+			// Run still alive (double-click) or already succeeded — answer truth.
 			return { attempt: await this.attemptDetail(scope, projectId, attemptId) };
 		}
 
@@ -242,6 +253,57 @@ export class PagesService {
 			attempt: await this.attemptDetail(scope, projectId, attemptId),
 			...(realtime ? { realtime } : {}),
 		};
+	}
+
+	/**
+	 * A platform-killed run (OOM, worker crash) or an out-of-band cancel dies
+	 * before the task's catch can write terminal state, so the row stays
+	 * "queued" or "generating" forever. Confirm the linked run really is
+	 * settled, then record the outcome so a retry can claim the row. A no-op
+	 * whenever the run may still be alive.
+	 */
+	private async settleAttemptForDeadRun(
+		scope: ProjectScope,
+		attemptId: string,
+		existing: PageAttemptDetailRow,
+	): Promise<void> {
+		if (
+			(existing.status !== "generating" && existing.status !== "queued") ||
+			!existing.triggerRunId ||
+			!env.TRIGGER_SECRET_KEY
+		) {
+			return;
+		}
+
+		try {
+			const run = await runs.retrieve(existing.triggerRunId);
+
+			if (!(run.isCompleted || run.isCancelled || run.finishedAt)) {
+				return;
+			}
+
+			await this.pagesRepository.settleStrandedAttempt(
+				attemptId,
+				existing.triggerRunId,
+				run.isCancelled
+					? {
+							error: "The build was canceled outside the app.",
+							status: "canceled",
+						}
+					: {
+							error: `The build machine stopped before finishing (run ${run.status.toLowerCase()}).`,
+							status: "failed",
+						},
+				scope.userId,
+			);
+		} catch (error) {
+			// Unknown run state — never settle a row that might still be building.
+			this.logger.warn(
+				`Run lookup for stuck attempt ${attemptId} failed: ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+			);
+		}
 	}
 
 	// Discard/Dismiss the terminal chat card. Idempotent by construction.
