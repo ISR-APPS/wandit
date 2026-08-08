@@ -15,7 +15,7 @@ const CONNECTOR_ONLY_GENERATION_TOOLS = new Set([
 	"voice_change",
 ]);
 
-const IMAGE_GENERATION_TOOLS = new Set([
+export const IMAGE_GENERATION_TOOLS: ReadonlySet<string> = new Set([
 	"generate_image",
 	"outpaint_image",
 	"reframe",
@@ -23,7 +23,7 @@ const IMAGE_GENERATION_TOOLS = new Set([
 	"upscale_image",
 ]);
 
-const VIDEO_GENERATION_TOOLS = new Set([
+export const VIDEO_GENERATION_TOOLS: ReadonlySet<string> = new Set([
 	"animation_actions",
 	"generate_video",
 	"motion_control",
@@ -143,19 +143,43 @@ export function normalizeConnectorToolName(toolName: string): string {
 }
 
 function requestedImageCount(input: unknown): number {
-	if (input === null || typeof input !== "object" || Array.isArray(input)) {
+	const record = asRecord(input);
+	if (!record) {
 		return 1;
 	}
 
-	const record = input as Record<string, unknown>;
-	for (const key of IMAGE_COUNT_KEYS) {
-		const count = record[key];
-		if (typeof count === "number" && Number.isSafeInteger(count) && count > 0) {
-			return count;
+	// Higgsfield nests the real arguments one level down as `params` (object
+	// or JSON string) — a top-level-only read under-bills every multi-image
+	// request as 1 unit.
+	const params = asRecord(record.params) ?? parseJsonObject(record.params);
+	for (const candidate of [params, record]) {
+		if (!candidate) {
+			continue;
+		}
+
+		for (const key of IMAGE_COUNT_KEYS) {
+			const count = candidate[key];
+			if (
+				typeof count === "number" &&
+				Number.isSafeInteger(count) &&
+				count > 0
+			) {
+				return count;
+			}
 		}
 	}
 
 	return 1;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+	return value !== null && typeof value === "object" && !Array.isArray(value)
+		? (value as Record<string, unknown>)
+		: null;
+}
+
+function parseJsonObject(value: unknown): Record<string, unknown> | null {
+	return typeof value === "string" ? asRecord(tryParseJson(value)) : null;
 }
 
 function tryParseJson(value: string): unknown | null {

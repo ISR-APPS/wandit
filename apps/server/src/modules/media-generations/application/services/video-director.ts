@@ -46,13 +46,13 @@ Non-negotiables, regardless of model:
 - Never ask for on-screen text, captions, subtitles, UI, or watermarks; logos only if physically printed on the product itself.
 - Translate the brief's VIDEO TYPE into craft: product commercial → studio or lifestyle lighting, hero product framing, macro detail, polished dolly/orbit moves; UGC/testimonial → handheld phone feel, natural window light, casual eye-level framing; cinematic brand film → anamorphic framing, film grain, dramatic key light, confident crane or tracking moves; social teaser → high-energy push-ins, bold color, fast but physically believable motion.
 
-Dialect: Kling (klingai/*)
+Dialect: Kling (any model id containing "kling")
 - Shape: Subject (specific) + Action (precise, with endpoint) + Scene (3-5 elements MAX) + Camera Language + Lighting + Atmosphere.
 - 30-60 words. Never exceed 90. Budget ≤ 7 concrete nouns — more makes the render fail.
 - Camera vocabulary: dolly in/out, lateral tracking shot, crane up/down, slow pan, tilt, 360 orbit, handheld, steadicam float, push-in, locked-off static; combos like "slow dolly-in with a subtle arc".
 - Motion adverbs: gracefully, swiftly, gradually, smoothly, rhythmically. Atmosphere adjectives: cinematic, ultra-detailed, photorealistic, studio-quality, moody, vibrant, serene, energetic.
 
-Dialect: Veo (google/veo*)
+Dialect: Veo (any model id containing "veo")
 - Shape: [Cinematography] + [Subject] + [Action] + [Context] + [Style & Ambiance], in that order — what comes first gets the most weight.
 - Up to 120 words, never more than 175. Name the shot (medium shot, extreme close-up, low angle…), the lens language (shallow depth of field, macro, anamorphic, 35mm film, slightly grainy), and the lighting (golden hour backlight, soft window light from camera left, practical neon glow, harsh fluorescent overhead).
 
@@ -76,6 +76,23 @@ export type CraftVideoPromptInput = {
 	voiceoverLanguage?: string;
 };
 
+/**
+ * Same director, connector-shaped input: a Higgsfield call carries free-form
+ * aspect/duration values (or none at all), so the typed gateway unions do not
+ * apply. The provider call keeps its own aspect/duration parameters — the
+ * director only needs them as context for the prompt.
+ */
+export type CraftConnectorVideoPromptInput = {
+	aspect?: string;
+	brief: string;
+	durationSeconds?: number;
+	/** Provider model id as passed to the connector (dialect selection). */
+	model: string;
+	organizationId: string | null;
+	parentEventId: string | undefined;
+	userId: string;
+};
+
 export type CraftedVideoPrompt = {
 	negativePrompt: string;
 	prompt: string;
@@ -95,6 +112,17 @@ export class VideoDirectorService {
 	async craftVideoPrompt(
 		input: CraftVideoPromptInput,
 	): Promise<CraftedVideoPrompt> {
+		return this.craft(input);
+	}
+
+	/** Connector door into the SAME director brain (one creative director). */
+	async craftConnectorVideoPrompt(
+		input: CraftConnectorVideoPromptInput,
+	): Promise<CraftedVideoPrompt> {
+		return this.craft(input);
+	}
+
+	private async craft(input: DirectorRequest): Promise<CraftedVideoPrompt> {
 		// Routed with the prompt_refine task: same job (a cheap prompt-rewriting
 		// brain) and the same default model as the Higgsfield refiner.
 		if (!hasLlmProviderKey("prompt_refine")) {
@@ -223,15 +251,30 @@ export class VideoDirectorService {
 	}
 }
 
-function buildDirectorRequest(input: CraftVideoPromptInput): string {
+// Loose union of the gateway and connector inputs — the director brain only
+// reads context strings, so unknown aspect/duration lines are simply omitted.
+type DirectorRequest = {
+	aspect?: string;
+	brief: string;
+	durationSeconds?: number;
+	model: string;
+	organizationId: string | null;
+	parentEventId: string | undefined;
+	userId: string;
+	voiceoverLanguage?: string;
+};
+
+function buildDirectorRequest(input: DirectorRequest): string {
 	const voiceoverLine = input.voiceoverLanguage
 		? `Voiceover: a ${input.voiceoverLanguage} voiceover will be added later — leave visual room for narration.`
 		: "Voiceover: none.";
 
 	return [
 		`Target model: ${input.model}`,
-		`Aspect ratio: ${input.aspect}`,
-		`Duration: ${input.durationSeconds} seconds`,
+		...(input.aspect ? [`Aspect ratio: ${input.aspect}`] : []),
+		...(input.durationSeconds
+			? [`Duration: ${input.durationSeconds} seconds`]
+			: []),
 		voiceoverLine,
 		"CREATIVE BRIEF:",
 		input.brief,
@@ -242,14 +285,17 @@ function buildDirectorRequest(input: CraftVideoPromptInput): string {
  * Deterministic degrade path: a serviceable prompt straight from the brief.
  * Worse than the director's cut, but it never blocks a paid generation.
  */
-function fallbackPrompt(input: CraftVideoPromptInput): CraftedVideoPrompt {
+function fallbackPrompt(input: DirectorRequest): CraftedVideoPrompt {
 	const brief = input.brief.replace(/\s+/g, " ").trim().slice(0, 500);
+	const shot = input.durationSeconds
+		? `One continuous ${input.durationSeconds}-second commercial shot.`
+		: "One continuous commercial shot.";
 
 	return {
 		directed: false,
 		negativePrompt: VIDEO_NEGATIVE_PROMPT,
 		prompt:
-			`One continuous ${input.durationSeconds}-second commercial shot. ${brief} ` +
+			`${shot} ${brief} ` +
 			"Cinematic, professional, ultra-detailed, photorealistic. Smooth " +
 			"controlled camera move with a clear endpoint. No text overlays, no " +
 			"captions, no watermarks.",

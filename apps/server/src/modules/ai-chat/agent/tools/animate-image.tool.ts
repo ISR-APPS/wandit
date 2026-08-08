@@ -115,7 +115,9 @@ export function createAnimateImageTool(
 				return {
 					message:
 						"The source is not an eligible image attached by this user. " +
-						"Ask for one JPEG, PNG, or WebP attachment before trying again.",
+						"Only a USER-uploaded JPEG, PNG, or WebP can be animated — " +
+						"generated assets are not valid sources. Ask for one " +
+						"attachment only when the user never sent an eligible photo.",
 					status: "unavailable",
 				};
 			}

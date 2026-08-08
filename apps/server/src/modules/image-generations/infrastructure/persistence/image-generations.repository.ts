@@ -12,7 +12,7 @@ import type {
 	ImageGenerationAspect,
 	MediaGenerationStatus,
 } from "@wandit/contracts";
-import { and, desc, eq, isNull, sql } from "@wandit/db";
+import { and, desc, eq, inArray, isNull, sql } from "@wandit/db";
 import { versions } from "@wandit/db/schema/artifacts";
 import {
 	type GeneratedImageRef,
@@ -78,6 +78,32 @@ export class ImageGenerationsRepository {
 		@Inject(AnalyticsService)
 		private readonly analyticsService: AnalyticsCapture,
 	) {}
+
+	// Generated-asset markers for the model-bound transcript: settled
+	// successes only, constrained to the chat's own project (the ids come
+	// from the chat's own tool parts — the filter is defense in depth).
+	async listSucceededByIdsForProject(
+		projectId: string,
+		attemptIds: readonly string[],
+	): Promise<Array<Pick<ImageGenerationAttemptRow, "id" | "images">>> {
+		if (attemptIds.length === 0) {
+			return [];
+		}
+
+		return this.db
+			.select({
+				id: imageGenerationAttempts.id,
+				images: imageGenerationAttempts.images,
+			})
+			.from(imageGenerationAttempts)
+			.where(
+				and(
+					inArray(imageGenerationAttempts.id, [...attemptIds]),
+					eq(imageGenerationAttempts.projectId, projectId),
+					eq(imageGenerationAttempts.status, "succeeded"),
+				),
+			);
+	}
 
 	async insertAttempt(input: {
 		aspect: ImageGenerationAspect;
