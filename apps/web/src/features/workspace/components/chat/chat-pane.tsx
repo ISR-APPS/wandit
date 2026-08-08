@@ -371,11 +371,15 @@ export function ChatPane({ className }: { className?: string }) {
 				</div>
 
 				<div className="shrink-0 px-4 pt-3.5 pb-4">
-					<ConversationContextMeter messages={messages} />
-					<ConversationModelIndicator
-						messages={messages}
-						pickerBuilderModel={pickerBuilderModel}
-					/>
+					{import.meta.env.DEV ? (
+						<>
+							<ConversationContextMeter messages={messages} />
+							<ConversationModelIndicator
+								messages={messages}
+								pickerBuilderModel={pickerBuilderModel}
+							/>
+						</>
+					) : null}
 					{/* Click-to-target chip (contract §12) — sibling of the tray slot
 					    on purpose: the tray owns topSlot. Edit-mode selection stays
 					    within the manual inspector. */}

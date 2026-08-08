@@ -239,6 +239,10 @@ function toComposerAttachment(file: File): ComposerAttachment {
 	};
 }
 
+function isFileDrag(dataTransfer: DataTransfer): boolean {
+	return dataTransfer.types.includes("Files");
+}
+
 function validateSourceImage(file: File): SourceImageValidationError | null {
 	if (!ALLOWED_SOURCE_IMAGE_TYPES.has(file.type)) return "unsupported";
 	if (file.size > ATTACHMENT_MAX_BYTES) return "too-large";
@@ -1990,6 +1994,7 @@ export function PromptBox({
 		),
 	);
 	const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+	const [isDraggingFiles, setIsDraggingFiles] = useState(false);
 	const [sourceImage, setSourceImage] = useState<ComposerAttachment | null>(
 		null,
 	);
@@ -2004,6 +2009,7 @@ export function PromptBox({
 	const fileInputRef = useRef<HTMLInputElement>(null);
 	const sourceImageInputRef = useRef<HTMLInputElement>(null);
 	const submitInFlightRef = useRef(false);
+	const fileDragDepthRef = useRef(0);
 	const videoSubmissionIdRef = useRef(initialVideoSubmissionId);
 
 	// Mirror for unmount cleanup — object URLs leak without an explicit revoke.
@@ -2049,6 +2055,13 @@ export function PromptBox({
 	const hasUploadingSource =
 		requiresSourceImage && sourceImage?.status === "uploading";
 	const submissionPending = isSubmitting || isLocallySubmitting;
+	const hasAttachmentCapacity =
+		attachments.length < MAX_ATTACHMENTS - (sourceImage ? 1 : 0);
+	const canAcceptDroppedFiles =
+		attachmentsEnabled &&
+		!disabled &&
+		!submissionPending &&
+		hasAttachmentCapacity;
 	// Image animation is source-first: once uploads are available, generic
 	// context never substitutes for the one required still image. Signed-out
 	// surfaces can still carry the motion draft through auth.
@@ -2146,6 +2159,67 @@ export function PromptBox({
 			}
 		},
 		[runUpload],
+	);
+
+	const handleFileDragEnter = useCallback(
+		(event: React.DragEvent<HTMLDivElement>) => {
+			if (!isFileDrag(event.dataTransfer)) return;
+			event.preventDefault();
+			fileDragDepthRef.current += 1;
+		},
+		[],
+	);
+
+	const handleFileDragOver = useCallback(
+		(event: React.DragEvent<HTMLDivElement>) => {
+			if (!isFileDrag(event.dataTransfer)) return;
+			const handledByChild = event.defaultPrevented;
+			event.preventDefault();
+
+			if (handledByChild) {
+				setIsDraggingFiles(false);
+				return;
+			}
+
+			event.dataTransfer.dropEffect = canAcceptDroppedFiles ? "copy" : "none";
+			setIsDraggingFiles(canAcceptDroppedFiles);
+		},
+		[canAcceptDroppedFiles],
+	);
+
+	const handleFileDragLeave = useCallback(() => {
+		fileDragDepthRef.current = Math.max(0, fileDragDepthRef.current - 1);
+		if (fileDragDepthRef.current === 0) {
+			setIsDraggingFiles(false);
+		}
+	}, []);
+
+	const handleFileDrop = useCallback(
+		(event: React.DragEvent<HTMLDivElement>) => {
+			if (
+				!isFileDrag(event.dataTransfer) &&
+				event.dataTransfer.files.length === 0
+			) {
+				return;
+			}
+
+			const handledByChild = event.defaultPrevented;
+			event.preventDefault();
+			fileDragDepthRef.current = 0;
+			setIsDraggingFiles(false);
+
+			if (
+				handledByChild ||
+				!canAcceptDroppedFiles ||
+				submitInFlightRef.current ||
+				event.dataTransfer.files.length === 0
+			) {
+				return;
+			}
+
+			handleFilesPicked(event.dataTransfer.files);
+		},
+		[canAcceptDroppedFiles, handleFilesPicked],
 	);
 
 	const handleSourceImagePicked = useCallback(
@@ -2442,7 +2516,14 @@ export function PromptBox({
 			(isHero ? pb.routeModes[routeMode].placeholder : pb.placeholderCompact));
 
 	const box = (
-		<div className="group/prompt relative">
+		// biome-ignore lint/a11y/noStaticElementInteractions: file drag-and-drop enhances the existing keyboard-accessible attachment picker
+		<div
+			className="group/prompt relative"
+			onDragEnter={handleFileDragEnter}
+			onDragOver={handleFileDragOver}
+			onDragLeave={handleFileDragLeave}
+			onDrop={handleFileDrop}
+		>
 			{/* Soft ember focus ring (DESIGN.md --wd-ring) — the composer itself is
 			    the one richly-shadowed surface, so focus stays quiet. */}
 			<div
@@ -2657,6 +2738,17 @@ export function PromptBox({
 					</TooltipProvider>
 				</InputGroupAddon>
 			</InputGroup>
+			{isDraggingFiles && canAcceptDroppedFiles ? (
+				<div
+					aria-hidden
+					className="pointer-events-none absolute inset-0 z-20 grid place-items-center rounded-3xl border-[1.5px] border-primary/45 border-dashed bg-primary/8 text-primary backdrop-blur-[2px]"
+				>
+					<span className="inline-flex items-center gap-2 rounded-full border border-primary/25 bg-background/90 px-3.5 py-2 font-medium text-sm shadow-sm">
+						<Paperclip className="size-4" />
+						{pb.attachments.dropHint}
+					</span>
+				</div>
+			) : null}
 		</div>
 	);
 
