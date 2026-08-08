@@ -410,6 +410,26 @@ export class MediaGenerationsRepository {
 			.orderBy(desc(mediaGenerationAttempts.createdAt));
 	}
 
+	// Dedupe support for the dashboard Assets page: EVERY succeeded video URL
+	// in scope, uncapped — animation files live under the same R2 prefix the
+	// build fan-out scans, and an animation whose row fell outside the display
+	// cap must still be recognized (else it re-appears as a "page-build" tile).
+	async listSucceededVideoUrlsForScope(scope: ProjectScope): Promise<string[]> {
+		const rows = await this.db
+			.select({ videoUrl: mediaGenerationAttempts.videoUrl })
+			.from(mediaGenerationAttempts)
+			.innerJoin(projects, eq(projects.id, mediaGenerationAttempts.projectId))
+			.where(
+				and(
+					eq(mediaGenerationAttempts.status, "succeeded"),
+					projectScopePredicate(scope),
+					isNull(projects.deletedAt),
+				),
+			);
+
+		return rows.flatMap((row) => (row.videoUrl ? [row.videoUrl] : []));
+	}
+
 	// Dashboard Assets page: newest finished videos across every project the
 	// scope can see, with the project attached for tile labels and download
 	// links. The limit bounds the aggregate payload.

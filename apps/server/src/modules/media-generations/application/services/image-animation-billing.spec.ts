@@ -33,7 +33,10 @@ describe("createImageAnimationBilling", () => {
 		const { billing, meteringService } = setup({ billingDisabled: true });
 		meteringService.findByIdempotencyKey.mockResolvedValueOnce(null);
 
-		const reservation = await billing.reserve({ actorUserId: "user_1" }, "attempt_1");
+		const reservation = await billing.reserve(
+			{ actorUserId: "user_1" },
+			"attempt_1",
+		);
 
 		expect(reservation).toEqual({
 			credits: 25,
@@ -87,7 +90,12 @@ describe("createImageAnimationBilling", () => {
 	it("honors an enforced admission snapshot after the runtime switch turns off", async () => {
 		const { billing, meteringService } = setup({ billingDisabled: true });
 
-		await billing.reserve({ actorUserId: "user_1" }, "attempt_1", "parent_1", "enforce");
+		await billing.reserve(
+			{ actorUserId: "user_1" },
+			"attempt_1",
+			"parent_1",
+			"enforce",
+		);
 
 		expect(meteringService.findByIdempotencyKey).toHaveBeenCalledWith(
 			"video:attempt_1",
@@ -136,7 +144,10 @@ describe("createImageAnimationBilling", () => {
 
 	it("captures the gateway generation and settles the registry price", async () => {
 		const { billing, meteringService } = setup();
-		const reservation = await billing.reserve({ actorUserId: "user_1" }, "attempt_1");
+		const reservation = await billing.reserve(
+			{ actorUserId: "user_1" },
+			"attempt_1",
+		);
 		const capture = {
 			providerMetadata: { gateway: { generationId: "generation_1" } },
 		};
@@ -164,7 +175,10 @@ describe("createImageAnimationBilling", () => {
 
 	it("settles zero delivered video units after a controlled storage failure", async () => {
 		const { billing, meteringService } = setup();
-		const reservation = await billing.reserve({ actorUserId: "user_1" }, "attempt_1");
+		const reservation = await billing.reserve(
+			{ actorUserId: "user_1" },
+			"attempt_1",
+		);
 
 		await billing.settle(reservation, 0);
 
@@ -179,7 +193,10 @@ describe("createImageAnimationBilling", () => {
 
 	it("fails capture when the gateway omits its generation id", async () => {
 		const { billing, meteringService } = setup();
-		const reservation = await billing.reserve({ actorUserId: "user_1" }, "attempt_1");
+		const reservation = await billing.reserve(
+			{ actorUserId: "user_1" },
+			"attempt_1",
+		);
 		meteringService.captureGeneration.mockResolvedValue(null);
 
 		await expect(
@@ -191,7 +208,10 @@ describe("createImageAnimationBilling", () => {
 
 	it("retries transient generation-ref writes before returning", async () => {
 		const { billing, meteringService } = setup();
-		const reservation = await billing.reserve({ actorUserId: "user_1" }, "attempt_1");
+		const reservation = await billing.reserve(
+			{ actorUserId: "user_1" },
+			"attempt_1",
+		);
 		meteringService.captureGeneration
 			.mockRejectedValueOnce(new Error("capture timeout 1"))
 			.mockRejectedValueOnce(new Error("capture timeout 2"));
@@ -257,15 +277,15 @@ describe("createImageAnimationBilling", () => {
 		);
 		meteringService.findByIdempotencyKey.mockResolvedValue(terminal);
 
-		await expect(billing.reserve({ actorUserId: "user_1" }, "attempt_1")).resolves.toMatchObject(
-			{
-				eventId: "event_1",
-				replay: "reconcile_failed",
-			},
-		);
-		await expect(billing.settleExisting({ actorUserId: "user_1" }, "attempt_1")).resolves.toBe(
-			true,
-		);
+		await expect(
+			billing.reserve({ actorUserId: "user_1" }, "attempt_1"),
+		).resolves.toMatchObject({
+			eventId: "event_1",
+			replay: "reconcile_failed",
+		});
+		await expect(
+			billing.settleExisting({ actorUserId: "user_1" }, "attempt_1"),
+		).resolves.toBe(true);
 		expect(meteringService.settle).not.toHaveBeenCalled();
 	});
 
@@ -301,13 +321,13 @@ describe("createImageAnimationBilling", () => {
 		);
 		meteringService.findByIdempotencyKey.mockResolvedValueOnce(terminal);
 
-		await expect(billing.reserve({ actorUserId: "user_1" }, "attempt_1")).resolves.toMatchObject(
-			{
-				credits: 20,
-				eventId: "event_old_price",
-				replay: "reconcile_failed",
-				units: 1,
-			},
-		);
+		await expect(
+			billing.reserve({ actorUserId: "user_1" }, "attempt_1"),
+		).resolves.toMatchObject({
+			credits: 20,
+			eventId: "event_old_price",
+			replay: "reconcile_failed",
+			units: 1,
+		});
 	});
 });

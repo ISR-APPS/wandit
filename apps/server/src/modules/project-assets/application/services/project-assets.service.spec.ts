@@ -75,6 +75,7 @@ function setup(overrides?: {
 	owned?: boolean;
 	projects?: Array<{ id: string; name: string }>;
 	scopeImageAttempts?: unknown[];
+	scopeVideoUrls?: string[];
 	scopeVideos?: unknown[];
 	videos?: unknown[];
 }) {
@@ -90,11 +91,20 @@ function setup(overrides?: {
 			.fn()
 			.mockResolvedValue(overrides?.scopeImageAttempts ?? []),
 	};
+	const scopeVideos = (overrides?.scopeVideos ?? []) as Array<{
+		videoUrl: string | null;
+	}>;
 	const mediaGenerationsRepository = {
 		listSucceededForProject: vi.fn().mockResolvedValue(overrides?.videos ?? []),
-		listSucceededForScope: vi
+		listSucceededForScope: vi.fn().mockResolvedValue(scopeVideos),
+		// Dedupe source: by default every succeeded scope video's URL, exactly
+		// what the real uncapped query would return for these fixtures.
+		listSucceededVideoUrlsForScope: vi
 			.fn()
-			.mockResolvedValue(overrides?.scopeVideos ?? []),
+			.mockResolvedValue(
+				overrides?.scopeVideoUrls ??
+					scopeVideos.flatMap((row) => (row.videoUrl ? [row.videoUrl] : [])),
+			),
 	};
 	const service = new ProjectAssetsService(
 		projectAssetsRepository as unknown as ProjectAssetsRepository,
@@ -102,7 +112,12 @@ function setup(overrides?: {
 		mediaGenerationsRepository as unknown as MediaGenerationsRepository,
 	);
 
-	return { projectAssetsRepository, service };
+	return {
+		imageGenerationsRepository,
+		mediaGenerationsRepository,
+		projectAssetsRepository,
+		service,
+	};
 }
 
 beforeEach(() => {
@@ -322,6 +337,75 @@ describe("ProjectAssetsService.listWorkspaceAssets", () => {
 
 		expect(result.assets).toHaveLength(1);
 		expect(result.assets[0]?.source).toBe("image-animation");
+	});
+
+	it("pins the DB row caps and reports truncation when a cap fills", async () => {
+		const cappedAttempts = Array.from({ length: 500 }, (_, index) => ({
+			...IMAGE_ATTEMPT,
+			id: `88888888-8888-4888-8888-${String(index).padStart(12, "0")}`,
+			images: null,
+		}));
+		const { imageGenerationsRepository, mediaGenerationsRepository, service } =
+			setup({
+				projects: [{ id: PROJECT_ID, name: "Sahara Serum" }],
+				scopeImageAttempts: cappedAttempts,
+			});
+
+		const result = await service.listWorkspaceAssets(SCOPE);
+
+		expect(
+			imageGenerationsRepository.listSucceededForScope,
+		).toHaveBeenCalledWith(SCOPE, 500);
+		expect(
+			mediaGenerationsRepository.listSucceededForScope,
+		).toHaveBeenCalledWith(SCOPE, 500);
+		// A full 500-row read means older rows may exist — the flag must say so.
+		expect(result.truncated).toBe(true);
+	});
+
+	it("reports truncation when a project's R2 prefix listing is cut", async () => {
+		vi.mocked(listObjectsByPrefix).mockResolvedValue(
+			Array.from({ length: 501 }, (_, index) => ({
+				key: `sites/${PROJECT_ID}/assets/b/img-${index}.webp`,
+				lastModified: new Date("2026-07-25T08:00:00.000Z"),
+				sizeBytes: 1,
+			})),
+		);
+		const { service } = setup({
+			projects: [{ id: PROJECT_ID, name: "Sahara Serum" }],
+		});
+
+		const result = await service.listWorkspaceAssets(SCOPE);
+
+		// The probe asks for cap+1; the response keeps the cap and flags the cut.
+		expect(vi.mocked(listObjectsByPrefix)).toHaveBeenCalledWith(
+			`sites/${PROJECT_ID}/assets/`,
+			501,
+		);
+		expect(result.assets).toHaveLength(500);
+		expect(result.truncated).toBe(true);
+	});
+
+	it("dedupes an animation whose row fell outside the display cap", async () => {
+		const videoKey = `sites/${PROJECT_ID}/assets/old/vid-1.mp4`;
+		vi.mocked(listObjectsByPrefix).mockResolvedValue([
+			{
+				key: videoKey,
+				lastModified: new Date("2026-07-25T08:00:00.000Z"),
+				sizeBytes: 5,
+			},
+		]);
+		const { service } = setup({
+			projects: [{ id: PROJECT_ID, name: "Sahara Serum" }],
+			// Display rows are empty (row aged out of the 500 cap), but the
+			// uncapped URL sweep still knows this file is an animation.
+			scopeVideoUrls: [`https://assets.example.com/${videoKey}`],
+			scopeVideos: [],
+		});
+
+		const result = await service.listWorkspaceAssets(SCOPE);
+
+		expect(result.assets).toHaveLength(0);
 	});
 
 	it("reports truncation when the project fan-out cap is exceeded", async () => {

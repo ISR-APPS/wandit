@@ -81,5 +81,8 @@
 	"allProjects": "All projects",
 	"allSources": "All sources",
 	"dashEmptyTitle": "No leads yet",
-	"dashEmptyBody": "Publish a page and every order it captures will land here, across all your projects."
+	"dashEmptyBody": "Publish a page and every order it captures will land here, across all your projects.",
+	"loadError": "Could not load your leads.",
+	"retry": "Retry",
+	"noResultsBodyFilters": "Try another search or clear the filters."
 }

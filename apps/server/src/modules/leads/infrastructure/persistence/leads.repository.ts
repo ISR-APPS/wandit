@@ -233,7 +233,12 @@ function escapedContainsPattern(value: string): string {
 // attribution-less leads count as direct instead of vanishing.
 const FB_CLICK = sql<boolean>`coalesce(jsonb_typeof(${leads.attribution} -> 'fbclid') = 'string' and ${leads.attribution} ->> 'fbclid' <> '', false)`;
 const TT_CLICK = sql<boolean>`coalesce(jsonb_typeof(${leads.attribution} -> 'ttclid') = 'string' and ${leads.attribution} ->> 'ttclid' <> '', false)`;
-const UTM_SOURCE = sql<string>`lower(btrim(coalesce(case when jsonb_typeof(${leads.attribution} -> 'utm_source') = 'string' then ${leads.attribution} ->> 'utm_source' end, '')))`;
+// btrim's default set is U+0020 only, but the JS derivation trims the full
+// ECMAScript whitespace set — pass that exact set so `utm_source=facebook%0A`
+// filters the same way it badges.
+const JS_TRIM_WHITESPACE =
+	"\u0009\u000A\u000B\u000C\u000D\u0020\u00A0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF";
+const UTM_SOURCE = sql<string>`lower(btrim(coalesce(case when jsonb_typeof(${leads.attribution} -> 'utm_source') = 'string' then ${leads.attribution} ->> 'utm_source' end, ''), ${JS_TRIM_WHITESPACE}))`;
 
 function utmSourceList(values: readonly string[]): SQL {
 	return sql.join(

@@ -77,7 +77,10 @@
 		"allProjects": "Tous les projets",
 		"truncatedNote": "Les fichiers les plus récents sont affichés — ouvre l'onglet Médias d'un projet pour tout son historique.",
 		"emptyTitle": "Aucun média",
-		"emptyBody": "Les images et vidéos générées par l'IA dans tous tes projets apparaissent ici, prêtes à télécharger."
+		"emptyBody": "Les images et vidéos générées par l'IA dans tous tes projets apparaissent ici, prêtes à télécharger.",
+		"noResultsTitle": "Aucun média correspondant",
+		"noResultsBody": "Rien ne correspond à ces filtres.",
+		"clearFilters": "Effacer les filtres"
 	},
 	"appsPage": {
 		"metaTitle": "Apps — Wandit",

@@ -77,7 +77,10 @@
 		"allProjects": "All projects",
 		"truncatedNote": "Showing the newest files — open a project's Assets tab for its full history.",
 		"emptyTitle": "No assets yet",
-		"emptyBody": "AI-generated images and videos from all your projects appear here, ready to download."
+		"emptyBody": "AI-generated images and videos from all your projects appear here, ready to download.",
+		"noResultsTitle": "No matching assets",
+		"noResultsBody": "Nothing matches these filters.",
+		"clearFilters": "Clear filters"
 	},
 	"appsPage": {
 		"metaTitle": "Apps — Wandit",

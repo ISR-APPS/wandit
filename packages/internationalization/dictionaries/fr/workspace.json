@@ -920,7 +920,8 @@
 		"loadError": "Impossible de charger les médias.",
 		"retry": "Réessayer",
 		"emptyTitle": "Aucun média",
-		"emptyBody": "Les images et vidéos générées par l’IA — pour ton site, tes pubs ou tes animations — apparaissent ici, prêtes à télécharger."
+		"emptyBody": "Les images et vidéos générées par l’IA — pour ton site, tes pubs ou tes animations — apparaissent ici, prêtes à télécharger.",
+		"downloadError": "Échec du téléchargement. Réessaie."
 	},
 	"marketing": {
 		"title": "Marketing",

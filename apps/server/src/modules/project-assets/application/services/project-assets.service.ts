@@ -33,9 +33,12 @@ const LABEL_MAX_CHARS = 40;
 const WORKSPACE_ASSETS_MAX = 1_000;
 const WORKSPACE_DB_ROWS_MAX = 500;
 // Page-build files have no DB rows — each project costs one R2 prefix
-// listing, so the fan-out is capped and lightly parallel.
+// listing, so the fan-out is capped and lightly parallel. Each listing asks
+// for one object beyond its own cap so a cut is observable and can flip the
+// aggregate's `truncated` flag.
 const WORKSPACE_BUILD_PROJECTS_MAX = 50;
 const BUILD_LIST_CONCURRENCY = 4;
+const BUILD_OBJECTS_MAX = 500;
 
 @Injectable()
 export class ProjectAssetsService {
@@ -164,7 +167,7 @@ export class ProjectAssetsService {
 	async listWorkspaceAssets(
 		scope: ProjectScope,
 	): Promise<WorkspaceAssetsResponse> {
-		const [accessibleProjects, imageAttempts, videoAttempts] =
+		const [accessibleProjects, imageAttempts, videoAttempts, allVideoUrls] =
 			await Promise.all([
 				this.projectAssetsRepository.listAccessibleProjects(scope),
 				this.imageGenerationsRepository.listSucceededForScope(
@@ -175,6 +178,7 @@ export class ProjectAssetsService {
 					scope,
 					WORKSPACE_DB_ROWS_MAX,
 				),
+				this.mediaGenerationsRepository.listSucceededVideoUrlsForScope(scope),
 			]);
 
 		const assets: WorkspaceAsset[] = [];
@@ -211,8 +215,19 @@ export class ProjectAssetsService {
 		}
 
 		// Same dedupe rule as the per-project list: animation videos live under
-		// the sites/{id}/assets/ prefix the build fan-out scans.
+		// the sites/{id}/assets/ prefix the build fan-out scans. The set is built
+		// from EVERY succeeded video in scope (uncapped) — an animation whose
+		// row fell outside the display cap must still never re-surface as a
+		// mislabelled page-build tile.
 		const animationKeys = new Set<string>();
+
+		for (const url of allVideoUrls) {
+			const key = publicAssetKeyFromUrl(url);
+
+			if (key) {
+				animationKeys.add(key);
+			}
+		}
 
 		for (const row of videoAttempts) {
 			if (!row.videoUrl) {
@@ -225,7 +240,6 @@ export class ProjectAssetsService {
 				continue;
 			}
 
-			animationKeys.add(key);
 			assets.push({
 				createdAt: (row.completedAt ?? row.createdAt).toISOString(),
 				id: row.id,
@@ -250,10 +264,11 @@ export class ProjectAssetsService {
 			buildProjects,
 			BUILD_LIST_CONCURRENCY,
 			async (project) => ({
-				objects: await this.listBuildObjects(project.id),
+				...(await this.listBuildObjectsProbed(project.id)),
 				project,
 			}),
 		);
+		const buildListingCut = buildLists.some((list) => list.cut);
 
 		for (const { objects, project } of buildLists) {
 			for (const object of objects) {
@@ -291,12 +306,14 @@ export class ProjectAssetsService {
 		assets.sort(byNewestFirst);
 
 		// Honest cut signal: true when the final slice or any of the upstream
-		// bounds could have dropped older files.
+		// bounds could have dropped files — including a per-project R2 prefix
+		// listing that hit its object cap.
 		const truncated =
 			assets.length > WORKSPACE_ASSETS_MAX ||
 			imageAttempts.length >= WORKSPACE_DB_ROWS_MAX ||
 			videoAttempts.length >= WORKSPACE_DB_ROWS_MAX ||
-			accessibleProjects.length > WORKSPACE_BUILD_PROJECTS_MAX;
+			accessibleProjects.length > WORKSPACE_BUILD_PROJECTS_MAX ||
+			buildListingCut;
 
 		return {
 			assets:
@@ -359,6 +376,33 @@ export class ProjectAssetsService {
 			return await listObjectsByPrefix(`sites/${projectId}/assets/`);
 		} catch {
 			return [];
+		}
+	}
+
+	// Workspace variant: ask for one object beyond the cap so a cut listing is
+	// observable — the aggregate's `truncated` flag must not claim completeness
+	// while a project's prefix was silently clipped.
+	private async listBuildObjectsProbed(projectId: string): Promise<{
+		cut: boolean;
+		objects: Awaited<ReturnType<typeof listObjectsByPrefix>>;
+	}> {
+		if (!isR2Configured()) {
+			return { cut: false, objects: [] };
+		}
+
+		try {
+			const objects = await listObjectsByPrefix(
+				`sites/${projectId}/assets/`,
+				BUILD_OBJECTS_MAX + 1,
+			);
+
+			if (objects.length > BUILD_OBJECTS_MAX) {
+				return { cut: true, objects: objects.slice(0, BUILD_OBJECTS_MAX) };
+			}
+
+			return { cut: false, objects };
+		} catch {
+			return { cut: false, objects: [] };
 		}
 	}
 }

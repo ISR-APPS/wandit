@@ -49,8 +49,13 @@ describe("listWorkspaceAssets", () => {
 		);
 	});
 
-	it("fails loudly on a drifted payload", async () => {
-		vi.mocked(apiClient.get).mockResolvedValueOnce({ assets: [{}] });
+	it("fails loudly on a drifted asset row", async () => {
+		// Valid envelope on purpose — the rejection must provably come from the
+		// per-asset schema, not from a missing `truncated`.
+		vi.mocked(apiClient.get).mockResolvedValueOnce({
+			assets: [{}],
+			truncated: false,
+		});
 
 		await expect(listWorkspaceAssets()).rejects.toThrowError();
 	});

@@ -81,5 +81,8 @@
 	"allProjects": "Tous les projets",
 	"allSources": "Toutes les sources",
 	"dashEmptyTitle": "Aucun lead",
-	"dashEmptyBody": "Publie une page et chaque commande capturée arrivera ici, pour tous tes projets."
+	"dashEmptyBody": "Publie une page et chaque commande capturée arrivera ici, pour tous tes projets.",
+	"loadError": "Impossible de charger tes leads.",
+	"retry": "Réessayer",
+	"noResultsBodyFilters": "Essaie une autre recherche ou efface les filtres."
 }

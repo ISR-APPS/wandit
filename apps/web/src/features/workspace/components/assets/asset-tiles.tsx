@@ -7,8 +7,10 @@ import type { ProjectAsset } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import { cn } from "@wandit/ui/lib/utils";
 import { AlertTriangle, Download, Play, RefreshCw, X } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
+import { toast } from "sonner";
 
+import { workspaceScopeHeaders } from "@/features/workspaces/lib/workspace-scope";
 import { useTranslation } from "@/lib/i18n";
 import { relativeTime } from "@/lib/relative-time";
 import { SpinnerArc } from "../chat/request-tray/tray-signals";
@@ -25,6 +27,95 @@ const SOURCE_LABEL_KEYS: Record<ProjectAsset["source"], SourceLabelKey> = {
 	"video-generation": "workspace.assets.sourceVideo",
 	"page-build": "workspace.assets.sourceBuild",
 };
+
+/**
+ * The forced-download route resolves its scope from the workspace header,
+ * which a plain <a href> navigation can never carry — org-workspace downloads
+ * would 404. Fetch with the header + cookies instead, then hand the bytes to
+ * the browser as a named blob.
+ */
+async function saveAsset(downloadHref: string, fileName: string) {
+	const response = await fetch(downloadHref, {
+		credentials: "include",
+		headers: workspaceScopeHeaders(),
+	});
+
+	if (!response.ok) {
+		throw new Error(`Download failed with ${response.status}`);
+	}
+
+	const blob = await response.blob();
+	const url = URL.createObjectURL(blob);
+	const anchor = document.createElement("a");
+	anchor.href = url;
+	anchor.download = fileName;
+	document.body.appendChild(anchor);
+	anchor.click();
+	anchor.remove();
+	URL.revokeObjectURL(url);
+}
+
+function AssetDownloadButton({
+	downloadHref,
+	fileName,
+	labeled = false,
+}: {
+	downloadHref: string;
+	fileName: string;
+	/** Lightbox header shows the label; tiles stay icon-only. */
+	labeled?: boolean;
+}) {
+	const { t } = useTranslation();
+	const [downloading, setDownloading] = useState(false);
+
+	const handleDownload = async () => {
+		if (downloading) return;
+		setDownloading(true);
+		try {
+			await saveAsset(downloadHref, fileName);
+		} catch {
+			toast.error(t("workspace.assets.downloadError"));
+		} finally {
+			setDownloading(false);
+		}
+	};
+
+	if (labeled) {
+		return (
+			<Button
+				size="sm"
+				variant="secondary"
+				className="h-8 rounded-lg"
+				disabled={downloading}
+				onClick={() => void handleDownload()}
+			>
+				{downloading ? (
+					<SpinnerArc className="size-3.5" />
+				) : (
+					<Download className="size-3.5" aria-hidden />
+				)}
+				{t("workspace.assets.download")}
+			</Button>
+		);
+	}
+
+	return (
+		<Button
+			variant="ghost"
+			size="icon-sm"
+			className="shrink-0 text-muted-foreground"
+			aria-label={t("workspace.assets.download")}
+			disabled={downloading}
+			onClick={() => void handleDownload()}
+		>
+			{downloading ? (
+				<SpinnerArc className="size-3.5" />
+			) : (
+				<Download className="size-3.5" aria-hidden />
+			)}
+		</Button>
+	);
+}
 
 export function TileGrid({ children }: { children: React.ReactNode }) {
 	return (
@@ -158,16 +249,10 @@ export function AssetTile({
 						{asset.createdAt ? ` · ${relativeTime(asset.createdAt)}` : null}
 					</p>
 				</div>
-				<Button
-					asChild
-					variant="ghost"
-					size="icon-sm"
-					className="shrink-0 text-muted-foreground"
-				>
-					<a href={downloadHref} aria-label={t("workspace.assets.download")}>
-						<Download className="size-3.5" aria-hidden />
-					</a>
-				</Button>
+				<AssetDownloadButton
+					downloadHref={downloadHref}
+					fileName={asset.key.split("/").pop() ?? asset.name}
+				/>
 			</div>
 		</div>
 	);
@@ -213,17 +298,11 @@ export function AssetLightbox({
 						{asset.name}
 					</p>
 					<div className="pointer-events-auto flex shrink-0 items-center gap-1.5">
-						<Button
-							asChild
-							size="sm"
-							variant="secondary"
-							className="h-8 rounded-lg"
-						>
-							<a href={downloadHref}>
-								<Download className="size-3.5" aria-hidden />
-								{t("workspace.assets.download")}
-							</a>
-						</Button>
+						<AssetDownloadButton
+							downloadHref={downloadHref}
+							fileName={asset.key.split("/").pop() ?? asset.name}
+							labeled
+						/>
 						<Button
 							size="sm"
 							variant="secondary"
