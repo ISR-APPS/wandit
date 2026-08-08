@@ -1,7 +1,7 @@
 // Static-markup tests for the page-build checklist card. The presentational
-// view is pure (progress object in, markup out), so renderToStaticMarkup
-// covers every lifecycle state without Realtime or a QueryClient; the
-// subscription wrapper (PageBuildCard) is exercised in the browser instead.
+// views are pure (props in, markup out), so renderToStaticMarkup covers
+// every lifecycle state without Realtime or a QueryClient; the subscription
+// wrapper (PageBuildCard) is exercised in the browser instead.
 
 import type { PageBuildProgress } from "@wandit/contracts";
 import { createElement } from "react";
@@ -15,10 +15,17 @@ vi.mock("../../../lib/store", () => ({
 	}),
 }));
 
+const openPlanPicker = vi.fn();
+vi.mock("@/features/billing/components/billing-modal-provider", () => ({
+	useBillingModal: () => ({ openPlanPicker }),
+}));
+
 import {
+	FailedBuildCard,
 	GeneratePagePart,
 	PageBuildProgressView,
 	type PageBuildRunState,
+	StoppedBuildCard,
 } from "./generate-page-part";
 
 function progressFixture(
@@ -202,14 +209,170 @@ describe("PageBuildProgressView", () => {
 		expect(html).toContain("Starting up…");
 		expect(html).toContain("Write the page");
 	});
+
+	it("never shows the internal tool chip, even while building", () => {
+		const html = renderView(progressFixture());
+
+		expect(html).not.toContain("tool · generate_page");
+		expect(html).not.toContain("tool ·");
+	});
+
+	it("runs the elapsed clock while building and hides it when ended", () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-08-07T10:01:05.000Z"));
+
+		const building = renderToStaticMarkup(
+			createElement(PageBuildProgressView, {
+				progress: progressFixture(),
+				runState: "building",
+				startedAt: "2026-08-07T10:00:00.000Z",
+				versionNumber: 3,
+			}),
+		);
+		const succeeded = renderToStaticMarkup(
+			createElement(PageBuildProgressView, {
+				progress: progressFixture({ done: true }),
+				runState: "succeeded",
+				startedAt: "2026-08-07T10:00:00.000Z",
+				versionNumber: 3,
+			}),
+		);
+
+		vi.useRealTimers();
+
+		expect(building).toContain("1:05");
+		expect(succeeded).not.toContain("1:05");
+	});
+});
+
+describe("StoppedBuildCard (design card 16)", () => {
+	it("renders the frozen percent, the stop line, and both actions", () => {
+		const html = renderToStaticMarkup(
+			createElement(StoppedBuildCard, {
+				onDiscard: () => undefined,
+				onResume: () => undefined,
+				percent: 62,
+				versionNumber: 4,
+			}),
+		);
+
+		expect(html).toContain("Stopped");
+		expect(html).toContain("Landing page · v4");
+		expect(html).toContain("62%");
+		expect(html).toContain("You stopped this build.");
+		expect(html).toContain("Resume");
+		expect(html).toContain("Discard");
+	});
+
+	it("clamps a wire percent above 100", () => {
+		const html = renderToStaticMarkup(
+			createElement(StoppedBuildCard, {
+				onDiscard: undefined,
+				onResume: undefined,
+				percent: 140,
+				versionNumber: undefined,
+			}),
+		);
+
+		expect(html).toContain("100%");
+		expect(html).toContain("Your page");
+		expect(html).not.toContain("Resume");
+	});
+});
+
+describe("FailedBuildCard (design card 12)", () => {
+	function renderFailed(
+		failureCode: Parameters<typeof FailedBuildCard>[0]["failureCode"],
+	) {
+		return renderToStaticMarkup(
+			createElement(FailedBuildCard, {
+				failureCode,
+				onDismiss: () => undefined,
+				onRetry: () => undefined,
+			}),
+		);
+	}
+
+	it("blames the provider — not Wandit — for a rate limit, with Retry", () => {
+		const html = renderFailed("provider_rate_limited");
+
+		expect(html).toContain("Provider issue");
+		expect(html).toContain("The AI provider is busy right now.");
+		expect(html).toContain("isn&#x27;t a Wandit problem");
+		expect(html).toContain("error · provider_rate_limited");
+		expect(html).toContain("Retry");
+		expect(html).toContain("Dismiss");
+	});
+
+	it("owns our-side failures honestly and keeps the last-version reassurance", () => {
+		const html = renderFailed("storage_failure");
+
+		expect(html).toContain("Saving the finished page failed.");
+		expect(html).toContain("on our side");
+		expect(html).toContain("Your last version is safe");
+		expect(html).toContain("Retry");
+	});
+
+	it("renders the wallet card for insufficient credits (design card 09)", () => {
+		const html = renderFailed("insufficient_credits");
+
+		expect(html).toContain("Can&#x27;t generate");
+		expect(html).toContain("You&#x27;re out of credits.");
+		expect(html).toContain("Top up wallet");
+		expect(html).toContain("Retry");
+	});
+
+	it("offers no retry for a member credit limit — only the admin can fix it", () => {
+		const html = renderFailed("member_limit");
+
+		expect(html).toContain("Your member credit limit was reached.");
+		expect(html).toContain("workspace admin");
+		expect(html).not.toContain("Retry");
+		expect(html).toContain("Dismiss");
+	});
+
+	it("degrades an unknown/legacy failure to the generic copy without a code line", () => {
+		const html = renderFailed(null);
+
+		expect(html).toContain("The build stopped unexpectedly.");
+		expect(html).not.toContain("error ·");
+		expect(html).toContain("Retry");
+	});
+});
+
+describe("PageBuildProgressView stop control", () => {
+	it("renders the Stop chip while building when onStop is provided", () => {
+		const html = renderToStaticMarkup(
+			createElement(PageBuildProgressView, {
+				onStop: () => undefined,
+				progress: progressFixture(),
+				runState: "building",
+				versionNumber: 3,
+			}),
+		);
+
+		expect(html).toContain(">Stop</button>");
+	});
+
+	it("hides the Stop chip once the run ended", () => {
+		const html = renderToStaticMarkup(
+			createElement(PageBuildProgressView, {
+				onStop: () => undefined,
+				progress: progressFixture({ done: true }),
+				runState: "succeeded",
+				versionNumber: 3,
+			}),
+		);
+
+		expect(html).not.toContain(">Stop</button>");
+	});
 });
 
 describe("GeneratePagePart fallbacks", () => {
-	it("keeps the static line for queued outputs without a realtime handle", () => {
+	it("keeps the static line for legacy outputs without attempt or realtime", () => {
 		const part = {
 			input: { brief: "b", title: "t" },
 			output: {
-				attemptId: "11111111-1111-4111-8111-111111111111",
 				message: "Queued",
 				status: "queued",
 				versionNumber: 2,

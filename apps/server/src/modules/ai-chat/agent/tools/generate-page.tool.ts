@@ -10,10 +10,9 @@
  * brief into an attempt row and hands off to the Trigger.dev task; its
  * return value is only the "queued"/"unavailable" answer the model relays.
  */
-import type { MeteringSubject } from "../../../credits/domain/credit-owner";
-import { setTimeout as delay } from "node:timers/promises";
+
 import { Logger } from "@nestjs/common";
-import { auth, idempotencyKeys, tasks } from "@trigger.dev/sdk";
+import type { tasks } from "@trigger.dev/sdk";
 import {
 	type GeneratePageInput,
 	type GeneratePageOutput,
@@ -22,14 +21,18 @@ import {
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import { type Tool, tool } from "ai";
-
 import { isR2Configured } from "../../../../infrastructure/storage/r2";
-// Type-only import: pulling the task VALUE here would drag the Trigger task
-// (and its DB pool) into the Nest process. The type is enough to make
-// tasks.trigger() check the payload shape.
-import type { generatePageTask } from "../../../../trigger/generate-page.task";
+import type { MeteringSubject } from "../../../credits/domain/credit-owner";
+import {
+	isDefinitiveTriggerRejection,
+	mintRealtimeHandle,
+	triggerGeneratePageTask,
+} from "../../../pages/application/page-build-handoff";
 import type { PagesRepository } from "../../../pages/infrastructure/persistence/pages.repository";
-import { buildSiteBuilderSystemPrompt } from "../site-builder/builder-prompt";
+import {
+	buildSiteBuilderSystemPrompt,
+	WORLD_DEPARTURE_POINT_HEADING,
+} from "../site-builder/builder-prompt";
 import { buildCodSiteBuilderSystemPrompt } from "../site-builder/cod-builder-prompt";
 import { getWorld } from "../worlds";
 import { COD_GENRE_DOC, FUSION_CONTRACT } from "../worlds/cod/genre";
@@ -37,8 +40,6 @@ import { COD_GENRE_DOC, FUSION_CONTRACT } from "../worlds/cod/genre";
 // Static Nest logger (no DI needed): queue-side events land in the API
 // server terminal; the build itself logs in the Trigger worker terminal.
 const logger = new Logger("generate-page");
-const TRIGGER_HANDOFF_ATTEMPTS = 3;
-const TRIGGER_IDEMPOTENCY_TTL = "14d";
 
 export type GeneratePageToolDeps = {
 	// Per-request builder override from the composer's model picker (already
@@ -129,7 +130,14 @@ export function createGeneratePageTool(
 							: []),
 					].join("\n\n")
 				: resolvedWorlds[0]
-					? `${basePrompt}\n\n${resolvedWorlds[0].doc}`
+					? // Product dossier docs stay bare — a bare world document is law.
+						// Website worlds ride behind the departure-point heading so the
+						// builder treats them as the brief's foundation, not a template.
+						`${basePrompt}\n\n${
+							resolvedWorlds[0].kind === "product"
+								? resolvedWorlds[0].doc
+								: `${WORLD_DEPARTURE_POINT_HEADING}\n\n${resolvedWorlds[0].doc}`
+						}`
 					: basePrompt;
 			const builderModel =
 				deps.builderModel ??
@@ -247,7 +255,9 @@ export function createGeneratePageTool(
 				`Trigger.dev accepted the build — run ${handle.id}. Follow the ` +
 					"live logs in the worker terminal (npx trigger.dev@latest dev).",
 			);
-			const realtime = await mintRealtimeHandle(handle.id);
+			const realtime = await mintRealtimeHandle(handle.id, (message) =>
+				logger.warn(message),
+			);
 
 			// Advisory number for the human-facing message; the task assigns
 			// the real one inside its transaction. This read is also best-effort:
@@ -279,103 +289,6 @@ export function createGeneratePageTool(
 			};
 		},
 	});
-}
-
-async function triggerGeneratePageTask(payload: {
-	actorIsLimitExempt?: boolean;
-	actorUserId: string;
-	attemptId: string;
-	parentEventId?: string;
-	projectId: string;
-}): Promise<Awaited<ReturnType<typeof tasks.trigger>>> {
-	const idempotencyKey = await idempotencyKeys.create(
-		`page-build:${payload.attemptId}`,
-		{ scope: "global" },
-	);
-	let lastError: unknown;
-
-	for (let attempt = 0; attempt < TRIGGER_HANDOFF_ATTEMPTS; attempt += 1) {
-		try {
-			return await tasks.trigger<typeof generatePageTask>(
-				"generate-page",
-				{
-					...(payload.actorIsLimitExempt ? { actorIsLimitExempt: true } : {}),
-					actorUserId: payload.actorUserId,
-					attemptId: payload.attemptId,
-					...(payload.parentEventId
-						? { parentEventId: payload.parentEventId }
-						: {}),
-				},
-				{
-					idempotencyKey,
-					idempotencyKeyTTL: TRIGGER_IDEMPOTENCY_TTL,
-					tags: [
-						`page-build-attempt:${payload.attemptId}`,
-						`project:${payload.projectId}`,
-					],
-					ttl: "35m",
-				},
-			);
-		} catch (error) {
-			lastError = error;
-
-			if (isDefinitiveTriggerRejection(error)) {
-				break;
-			}
-
-			if (attempt < TRIGGER_HANDOFF_ATTEMPTS - 1) {
-				await delay(100 * 2 ** attempt);
-			}
-		}
-	}
-
-	throw lastError instanceof Error
-		? lastError
-		: new Error("Trigger.dev handoff failed");
-}
-
-function isDefinitiveTriggerRejection(error: unknown): boolean {
-	if (typeof error !== "object" || error === null) {
-		return false;
-	}
-
-	const candidate = error as { name?: unknown; status?: unknown };
-
-	return (
-		candidate.name === "TriggerApiError" &&
-		(candidate.status === 400 ||
-			candidate.status === 401 ||
-			candidate.status === 403 ||
-			candidate.status === 404 ||
-			candidate.status === 422)
-	);
-}
-
-/**
- * Mint a read-scoped Realtime token so the chat card can follow the build
- * live instead of showing a static "building…" line. Best-effort: on failure
- * the card falls back to its static state, so the queue must never fail here.
- */
-async function mintRealtimeHandle(
-	runId: string,
-): Promise<GeneratePageOutput["realtime"]> {
-	try {
-		const publicAccessToken = await auth.createPublicToken({
-			// Long enough to outlive any build plus a same-session reload; an
-			// expired token just means the card shows the static line again.
-			expirationTime: "2h",
-			scopes: { read: { runs: [runId] } },
-		});
-
-		return { publicAccessToken, runId };
-	} catch (error) {
-		logger.warn(
-			`Realtime token minting failed for run ${runId} — the chat card ` +
-				`will show static progress: ${error instanceof Error ? error.message : String(error)}`,
-		);
-
-		return undefined;
-	}
 }
 
 export type GeneratePageTool = ReturnType<typeof createGeneratePageTool>;

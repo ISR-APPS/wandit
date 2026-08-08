@@ -191,6 +191,7 @@ Neutral grays of any kind · pure white text or a pure white ground · box-shado
 ## Intensity
 This world fails softly and invisibly: every wrong decision here is a small comfortable default. A gray border instead of ink-at-16-percent. A 16px radius instead of an arch. A card instead of a ledger row. A photo instead of a stage. A headline with one clause instead of a turn. Executed at 60 percent this is exactly the generic page it is meant to replace. Executed at 100 percent — grain over tinted paper, one accent doing fifteen jobs, an object lit by its own breathing glow with a seal hanging off its corner, ledgers and wall labels and a form that talks like a person — it looks like a workshop that has been selling to people who know, for years. Push INTO the specificity. Every single number above is load-bearing.`,
 	energy: "medium",
+	family: "atelier",
 	id: "atelier",
 	industries: [
 		"ecommerce",
@@ -211,6 +212,13 @@ This world fails softly and invisibly: every wrong decision here is a small comf
 	kind: "both",
 	mood: ["warm", "crafted", "tactile", "editorial", "collectible"],
 	name: "Atelier",
+	preview: {
+		ground: "#F4EEE3",
+		ink: "#211B15",
+		accent: "#A9834C",
+		fontFamily: "Space Grotesk",
+		sampleWord: "L'Atelier",
+	},
 	priceFeel: "premium",
 	tagline:
 		"Tinted paper with a grain you can almost feel, one brass thread running through everything, and your product lit like a museum piece with its own edition number — a shop that looks hand-made, right down to the order form.",

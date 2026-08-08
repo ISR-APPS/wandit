@@ -10,7 +10,7 @@
  * The loop is ONE deliberate build pass → code review → rendered review →
  * finish. Successful writes and edits count as their own source review.
  */
-import type { MeteringSubject } from "../../../credits/domain/credit-owner";
+
 import { PAGE_TOKEN_NAMES } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import {
@@ -22,12 +22,16 @@ import {
 } from "ai";
 import * as cheerio from "cheerio";
 import { z } from "zod";
+import {
+	createLlmModel,
+	withLlmAttribution,
+} from "../../../ai-provider/domain/llm-provider";
+import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import type { MeteringService } from "../../../metering/application/services/metering.service";
 import {
 	fixedGenerationStepUsage,
 	type GatewayGenerationMetadata,
 	hasGatewayGenerationMetadata,
-	withGatewayAttribution,
 } from "../../../metering/domain/gateway-metering";
 import { fixedOperationCredits } from "../../../metering/domain/operation-registry";
 // Plain module (no Nest), safe in the Trigger bundle — cheerio bundles fine.
@@ -500,10 +504,7 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 				const index = state.videoSequence;
 				const childEvent =
 					params.meteringService && params.usageEventId
-						? await params.meteringService.reserve(
-								"video",
-								params.subject,
-								{
+						? await params.meteringService.reserve("video", params.subject, {
 								attemptRef: `${params.attemptId}:video:${index}`,
 								credits: fixedOperationCredits("video"),
 								idempotencyKey: `page-build-video:${params.usageEventId}:${index}`,
@@ -892,10 +893,7 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 				emitEvent({ role, type: "image-start" });
 				const childEvent =
 					params.meteringService && params.usageEventId
-						? await params.meteringService.reserve(
-								"image",
-								params.subject,
-								{
+						? await params.meteringService.reserve("image", params.subject, {
 								attemptRef: `${params.attemptId}:image:${index}`,
 								credits: fixedOperationCredits("image"),
 								idempotencyKey: `page-build-image:${params.usageEventId}:${index}`,
@@ -1363,7 +1361,19 @@ export async function runSiteBuild(
 	// win over the env knob, and "auto" defers to the provider. Gateway
 	// attribution is merged with (and preserves) model-specific routing.
 	const reasoningEffort = resolveBuilderReasoningEffort(params.model);
-	const providerOptions = withGatewayAttribution(
+	const buildMeteringContext = {
+		operation: "page_build" as const,
+		organizationId: params.subject.organizationId ?? null,
+		userId: params.subject.actorUserId,
+	};
+	// The same routing preference feeds gateway.order (Vercel providerOptions
+	// below) and OpenRouter's provider.order model setting.
+	const routingOrder = params.model.startsWith("moonshotai/kimi-k2")
+		? ["novita"]
+		: params.model.startsWith("alibaba/")
+			? ["fireworks"]
+			: undefined;
+	const providerOptions = withLlmAttribution(
 		{
 			...(reasoningEffort
 				? {
@@ -1390,22 +1400,13 @@ export async function runSiteBuild(
 				: {}),
 			// Novita-first was a fix for Kimi K2's launch congestion (6s+ TTFT on
 			// Moonshot). K3 measured faster on official Moonshot routing, so the
-			// preference stays scoped to K2-era models.
-			...(params.model.startsWith("moonshotai/kimi-k2")
-				? { gateway: { order: ["novita"] } }
-				: {}),
-			// Qwen's default routing lands on Alibaba Cloud/Together at ~55 tps;
-			// Fireworks serves the same models at ~330 tps (gateway P50 chart,
-			// 2026-07-26). The others stay as fallback.
-			...(params.model.startsWith("alibaba/")
-				? { gateway: { order: ["fireworks"] } }
-				: {}),
+			// preference stays scoped to K2-era models. Qwen's default routing
+			// lands on Alibaba Cloud/Together at ~55 tps; Fireworks serves the
+			// same models at ~330 tps (gateway P50 chart, 2026-07-26).
+			...(routingOrder ? { gateway: { order: routingOrder } } : {}),
 		},
-		{
-			operation: "page_build",
-			organizationId: params.subject.organizationId ?? null,
-			userId: params.subject.actorUserId,
-		},
+		buildMeteringContext,
+		"page_build",
 	);
 
 	log(
@@ -1424,7 +1425,12 @@ export async function runSiteBuild(
 		const agent = new ToolLoopAgent({
 			instructions: params.system,
 			maxOutputTokens: MAX_OUTPUT_TOKENS,
-			model: params.model,
+			model: createLlmModel(params.model, {
+				context: buildMeteringContext,
+				reasoningEffort,
+				routingOrder,
+				task: "page_build",
+			}),
 			...(params.onStepEnd ? { onStepEnd: params.onStepEnd } : {}),
 			providerOptions,
 			// Kimi/Moonshot rejects image parts inside tool results (they fall
@@ -1556,7 +1562,24 @@ export async function runSiteBuild(
 			vfs.write("index.html", stampHtml(rawHtml));
 		}
 
-		assertValidSite(vfs, params.pageKind ?? "website");
+		try {
+			assertValidSite(vfs, params.pageKind ?? "website");
+		} catch (error) {
+			// Name-tag for classifyBuildFailure, and keep the provider failure
+			// that interrupted the build as the cause — "no index.html" because
+			// the model's provider 429'd mid-write is a PROVIDER failure, and
+			// replacing that evidence with a bare validation string would make
+			// the chat card blame Wandit for it.
+			if (error instanceof Error) {
+				error.name = "PageValidationError";
+
+				if (streamError !== undefined && error.cause === undefined) {
+					error.cause = streamError;
+				}
+			}
+
+			throw error;
+		}
 
 		if (!state.finishAccepted) {
 			log(

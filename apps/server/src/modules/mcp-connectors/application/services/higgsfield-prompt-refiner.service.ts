@@ -1,12 +1,14 @@
 import { Inject, Injectable, Logger } from "@nestjs/common";
 import { env } from "@wandit/env/server";
 import { generateText } from "ai";
-
-import { MeteringService } from "../../../metering/application/services/metering.service";
 import {
-	gatewayGenerationCaptureFromError,
-	withGatewayAttribution,
-} from "../../../metering/domain/gateway-metering";
+	createLlmModel,
+	hasLlmProviderKey,
+	withLlmAttribution,
+} from "../../../ai-provider/domain/llm-provider";
+import { VideoDirectorService } from "../../../media-generations/application/services/video-director";
+import { MeteringService } from "../../../metering/application/services/metering.service";
+import { llmGenerationCaptureFromError } from "../../../metering/domain/gateway-metering";
 import { bundledUnmeteredStepUsage } from "../../../metering/domain/metering";
 
 const PROMPT_REFINER_CAPTURE_ATTEMPTS = 3;
@@ -29,8 +31,11 @@ type HiggsfieldPromptRefinerInput = {
 };
 
 type PromptTarget = {
+	aspectRatio?: string;
+	durationSeconds?: number;
 	model: string;
 	prompt: string;
+	referenceMediaCount?: number;
 	withRefinedPrompt: (refined: string) => Record<string, unknown>;
 };
 
@@ -41,12 +46,19 @@ export class HiggsfieldPromptRefinerService {
 	constructor(
 		@Inject(MeteringService)
 		private readonly meteringService: MeteringService,
+		@Inject(VideoDirectorService)
+		private readonly videoDirector: VideoDirectorService,
 	) {}
 
 	/**
 	 * Rewrites the generation prompt inside the raw MCP arguments. Any failure
 	 * degrades to the original arguments: a refinement must never block or fail
 	 * a paid generation.
+	 *
+	 * Video prompts do NOT use the generic refiner below: they go through the
+	 * one creative director (VideoDirectorService) so a Higgsfield render and
+	 * a gateway render are prompted by the same brain, in the target model's
+	 * own dialect, from the same creative brief.
 	 */
 	async refineGenerationArgs(
 		input: HiggsfieldPromptRefinerInput,
@@ -61,25 +73,49 @@ export class HiggsfieldPromptRefinerService {
 			return input.args;
 		}
 
-		if (!env.AI_GATEWAY_API_KEY) {
+		if (input.toolName === "generate_video") {
+			// craftConnectorVideoPrompt never throws — it degrades to its own
+			// deterministic fallback, which still wraps the brief.
+			const crafted = await this.videoDirector.craftConnectorVideoPrompt({
+				aspect: target.aspectRatio,
+				brief: target.prompt,
+				durationSeconds: target.durationSeconds,
+				model: target.model,
+				organizationId: input.organizationId,
+				parentEventId: input.parentEventId,
+				referenceMediaCount: target.referenceMediaCount,
+				userId: input.userId,
+			});
+
+			return target.withRefinedPrompt(crafted.prompt);
+		}
+
+		if (!hasLlmProviderKey("prompt_refine")) {
 			this.logger.warn(
-				"Higgsfield prompt refinement skipped: AI gateway is not configured",
+				"Higgsfield prompt refinement skipped: AI provider is not configured",
 			);
 			return input.args;
 		}
 
+		const meteringContext = {
+			operation: "chat" as const,
+			organizationId: input.organizationId,
+			userId: input.userId,
+		};
+
 		try {
 			const result = await generateText({
 				maxOutputTokens: 600,
-				model: env.AI_PROMPT_REFINER_MODEL,
+				model: createLlmModel(env.AI_PROMPT_REFINER_MODEL, {
+					context: meteringContext,
+					reasoningEffort: "medium",
+					task: "prompt_refine",
+				}),
 				prompt: buildRefinementPrompt(input.toolName, target),
-				providerOptions: withGatewayAttribution(
+				providerOptions: withLlmAttribution(
 					{ openai: { reasoningEffort: "medium" } },
-					{
-						operation: "chat",
-						organizationId: input.organizationId,
-						userId: input.userId,
-					},
+					meteringContext,
+					"prompt_refine",
 				),
 				system: HIGGSFIELD_PROMPT_REFINER_PROMPT,
 			});
@@ -99,7 +135,7 @@ export class HiggsfieldPromptRefinerService {
 
 			return target.withRefinedPrompt(refined);
 		} catch (error) {
-			const errorCapture = gatewayGenerationCaptureFromError(error);
+			const errorCapture = llmGenerationCaptureFromError(error);
 
 			if (input.parentEventId && errorCapture) {
 				try {
@@ -174,6 +210,7 @@ function locatePromptTarget(
 		}
 
 		return {
+			...promptContext(params),
 			model: nonEmptyString(params.model) ?? PROMPT_REFINER_UNKNOWN_MODEL,
 			prompt,
 			withRefinedPrompt: (refined) => ({
@@ -197,6 +234,7 @@ function locatePromptTarget(
 		}
 
 		return {
+			...promptContext(parsed),
 			model: nonEmptyString(parsed.model) ?? PROMPT_REFINER_UNKNOWN_MODEL,
 			prompt,
 			withRefinedPrompt: (refined) => ({
@@ -217,9 +255,64 @@ function locatePromptTarget(
 	}
 
 	return {
+		...promptContext(args),
 		model: nonEmptyString(args.model) ?? PROMPT_REFINER_UNKNOWN_MODEL,
 		prompt,
 		withRefinedPrompt: (refined) => ({ ...args, prompt: refined }),
+	};
+}
+
+/**
+ * Read-only view of the generation prompt inside raw MCP arguments — the
+ * brief gate in mcp-chat-tools uses it to inspect a call before any LLM
+ * rewrite or reservation happens.
+ */
+export function locateGenerationPrompt(args: unknown): string | null {
+	if (!isRecord(args)) {
+		return null;
+	}
+
+	return locatePromptTarget(args)?.prompt ?? null;
+}
+
+// Media roles that carry sound or motion, not a visual frame: a call whose
+// only references are these has NO existing first frame, and the director
+// must not be told to "write motion-first from that frame".
+const FRAMELESS_MEDIA_ROLE = /audio|voice|sound|music|motion|video/i;
+
+/**
+ * Aspect/duration/reference-media context carried next to the prompt
+ * (free-form values). `referenceMediaCount` counts only frame-carrying
+ * `medias` entries (start_image, image, end_image…): those mean the call
+ * animates an existing frame, and the director must know, or it rewrites the
+ * brief as a from-scratch text-to-video scene. Audio/motion references never
+ * count — they add sound or movement to a render that still needs its scene
+ * described in full.
+ */
+function promptContext(record: Record<string, unknown>): {
+	aspectRatio?: string;
+	durationSeconds?: number;
+	referenceMediaCount?: number;
+} {
+	const aspectRatio = nonEmptyString(record.aspect_ratio);
+	const duration =
+		typeof record.duration === "number" && Number.isFinite(record.duration)
+			? record.duration
+			: typeof record.duration === "string" &&
+					Number.isFinite(Number(record.duration))
+				? Number(record.duration)
+				: undefined;
+	const referenceMediaCount = Array.isArray(record.medias)
+		? record.medias.filter((media) => {
+				const role = isRecord(media) ? media.role : undefined;
+				return typeof role !== "string" || !FRAMELESS_MEDIA_ROLE.test(role);
+			}).length
+		: 0;
+
+	return {
+		...(aspectRatio ? { aspectRatio } : {}),
+		...(duration && duration > 0 ? { durationSeconds: duration } : {}),
+		...(referenceMediaCount > 0 ? { referenceMediaCount } : {}),
 	};
 }
 

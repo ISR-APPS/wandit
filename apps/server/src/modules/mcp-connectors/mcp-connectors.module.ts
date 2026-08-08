@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 
 import { DatabaseModule } from "../../infrastructure/database/database.module";
 import { ConnectorGenerationsModule } from "../connector-generations/connector-generations.module";
+import { MediaGenerationsModule } from "../media-generations/media-generations.module";
 import { MeteringModule } from "../metering/metering.module";
 import { HiggsfieldPromptRefinerService } from "./application/services/higgsfield-prompt-refiner.service";
 import { McpChatToolsService } from "./application/services/mcp-chat-tools.service";
@@ -17,7 +18,14 @@ import { McpConnectorsController } from "./presentation/http/controllers/mcp-con
 @Module({
 	controllers: [McpConnectorsController],
 	exports: [McpChatToolsService, McpConnectionsService],
-	imports: [ConnectorGenerationsModule, DatabaseModule, MeteringModule],
+	// MediaGenerationsModule supplies the video director: Higgsfield video
+	// prompts are crafted by the SAME creative director as gateway renders.
+	imports: [
+		ConnectorGenerationsModule,
+		DatabaseModule,
+		MediaGenerationsModule,
+		MeteringModule,
+	],
 	providers: [
 		HiggsfieldPromptRefinerService,
 		McpChatToolsService,

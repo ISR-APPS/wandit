@@ -28,6 +28,33 @@ describe("connector generation metering", () => {
 		expect(connectorGenerationPlan("ads_get_ad_accounts", {})).toBeNull();
 	});
 
+	it("reads the requested image count from Higgsfield's nested params", () => {
+		expect(
+			connectorGenerationPlan("generate_image", { params: { count: 4 } }),
+		).toEqual({
+			childOperation: "image",
+			childUnits: 4,
+		});
+		expect(
+			connectorGenerationPlan("generate_image", {
+				params: JSON.stringify({ count: 3, prompt: "a vase" }),
+			}),
+		).toEqual({
+			childOperation: "image",
+			childUnits: 3,
+		});
+		// Top-level count still wins when no nested params carry one.
+		expect(
+			connectorGenerationPlan("generate_image", {
+				count: 2,
+				params: { prompt: "a vase" },
+			}),
+		).toEqual({
+			childOperation: "image",
+			childUnits: 2,
+		});
+	});
+
 	it("builds a stable operation reference from the tool-call identity", () => {
 		const input = {
 			connectorSlug: "higgsfield",

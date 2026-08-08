@@ -1,7 +1,6 @@
-import { gateway } from "@ai-sdk/gateway";
 import type { createDb } from "@wandit/db";
-
 import type { AnalyticsService } from "../infrastructure/analytics/analytics.service";
+import { createProviderMeteringGateway } from "../modules/ai-provider/infrastructure/metering-provider-gateway";
 import { ConnectorGenerationRecoveryService } from "../modules/connector-generations/application/services/connector-generation-recovery.service";
 import { ConnectorGenerationsRepository } from "../modules/connector-generations/infrastructure/persistence/connector-generations.repository";
 import { CreditsService } from "../modules/credits/application/services/credits.service";
@@ -12,8 +11,8 @@ import {
 	ModelPricingService,
 } from "../modules/metering/application/services/model-pricing.service";
 import { MeteringRepository } from "../modules/metering/infrastructure/persistence/metering.repository";
-import { OrganizationLimitsRepository } from "../modules/workspaces/infrastructure/persistence/organization-limits.repository";
 import { ModelPricesRepository } from "../modules/metering/infrastructure/persistence/model-prices.repository";
+import { OrganizationLimitsRepository } from "../modules/workspaces/infrastructure/persistence/organization-limits.repository";
 
 type TriggerDatabase = ReturnType<typeof createDb>;
 const triggerModelPricingCache: ModelPricingCache = new Map();
@@ -29,7 +28,7 @@ export function createTriggerMetering(db: TriggerDatabase): MeteringService {
 		new MeteringRepository(db),
 		credits,
 		pricing,
-		gateway,
+		createProviderMeteringGateway(),
 		new OrganizationLimitsRepository(db),
 	);
 }

@@ -3,13 +3,14 @@ import type {
 	AiChatMessageMetadata,
 	AiChatTools,
 } from "@wandit/contracts";
-import { createGateway } from "@ai-sdk/gateway";
 import { env } from "@wandit/env/server";
 import { isStepCount, type Tool, ToolLoopAgent, type UIMessage } from "ai";
-
+import {
+	createLlmModel,
+	withLlmAttribution,
+} from "../../ai-provider/domain/llm-provider";
 import type { McpToolApprovalMap } from "../../mcp-connectors/domain/mcp-tool-policy";
 import type { PageEditsService } from "../../pages/application/services/page-edits.service";
-import { withGatewayAttribution } from "../../metering/domain/gateway-metering";
 import { AI_CHAT_MAX_OUTPUT_TOKENS, AI_CHAT_MAX_STEPS } from "./chat-metering";
 import { chatGatewayFetch } from "./gateway-fetch";
 import { WANDIT_SYSTEM_PROMPT } from "./system-prompt";
@@ -38,9 +39,16 @@ import {
 	type GeneratePageToolDeps,
 	generatePageToolSchemaOnly,
 } from "./tools/generate-page.tool";
-// EXPERIMENT (2026-07-27): worlds stay OFF for websites — the brain invents
-// website art direction itself. The live sampler is available only for COD
-// builds; the schema-only twin keeps historical tool calls valid.
+import {
+	createGenerateVideoTool,
+	type GenerateVideoTool,
+	type GenerateVideoToolDeps,
+	generateVideoToolSchemaOnly,
+} from "./tools/generate-video.tool";
+// Worlds serve BOTH build kinds since the landing-batch merge: COD samples a
+// fusion menu (base + donors, law), websites sample a departure-point menu
+// (one world as inspiration; the brain writes its own divergences). The
+// schema-only twin keeps historical tool calls valid.
 import {
 	getDirectionCandidatesTool,
 	getDirectionCandidatesToolSchemaOnly,
@@ -70,6 +78,7 @@ type AiChatToolSet = {
 	generate_image: GenerateImageTool;
 	generate_marketing_asset: GenerateMarketingAssetTool;
 	generate_page: GeneratePageTool;
+	generate_video: GenerateVideoTool;
 	get_direction_candidates: typeof getDirectionCandidatesTool;
 	read_attachment: ReadAttachmentTool;
 	scrape_leads: ScrapeLeadsTool;
@@ -97,9 +106,8 @@ export type ChatAgentDeps = GeneratePageToolDeps &
 	} & Omit<AnimateImageToolDeps, "chatId" | "projectId"> &
 	Omit<GenerateMarketingAssetToolDeps, "chatId" | "projectId"> &
 	Omit<GenerateImageToolDeps, "chatId" | "projectId"> &
+	Omit<GenerateVideoToolDeps, "chatId" | "projectId"> &
 	ReadAttachmentToolDeps;
-
-const chatGateway = createGateway({ fetch: chatGatewayFetch });
 
 /**
  * The agent is built PER REQUEST now (it used to be a module singleton):
@@ -115,13 +123,27 @@ export function createChatAgent(
 	mcpTools: McpToolSet = {},
 	approvalMap: McpToolApprovalMap = {},
 ): ToolLoopAgent<never, AiChatToolSet & McpToolSet> {
+	const meteringContext = {
+		operation: "chat" as const,
+		organizationId: deps.subject.organizationId ?? null,
+		userId: deps.userId,
+	};
+
 	return new ToolLoopAgent({
 		instructions: contextBlock
 			? `${WANDIT_SYSTEM_PROMPT}\n\n${contextBlock}`
 			: WANDIT_SYSTEM_PROMPT,
-		model: chatGateway(env.AI_CHAT_MODEL),
+		// The long-idle fetch travels with the model on either provider; on
+		// OpenRouter the "high" effort maps to unified reasoning instead of the
+		// openai providerOptions key below.
+		model: createLlmModel(env.AI_CHAT_MODEL, {
+			context: meteringContext,
+			fetch: chatGatewayFetch,
+			reasoningEffort: "high",
+			task: "chat",
+		}),
 		maxOutputTokens: AI_CHAT_MAX_OUTPUT_TOKENS,
-		providerOptions: withGatewayAttribution(
+		providerOptions: withLlmAttribution(
 			{
 				// Anthropic's fine-grained tool streaming can emit unvalidated JSON.
 				anthropic: { toolStreaming: false },
@@ -133,11 +155,8 @@ export function createChatAgent(
 				// composes one. Only OpenAI models read this key.
 				openai: { reasoningEffort: "high" },
 			},
-			{
-				operation: "chat",
-				organizationId: deps.subject.organizationId ?? null,
-				userId: deps.userId,
-			},
+			meteringContext,
+			"chat",
 		),
 		stopWhen: isStepCount(AI_CHAT_MAX_STEPS),
 		// ToolLoopAgentSettings does not expose experimental_toolApprovalSecret.
@@ -190,6 +209,17 @@ export function createChatAgent(
 				subject: deps.subject,
 				userId: deps.userId,
 			}),
+			generate_video: createGenerateVideoTool({
+				chatId: deps.chatId,
+				mediaGenerationsRepository: deps.mediaGenerationsRepository,
+				meteringService: deps.meteringService,
+				parentEventId: deps.parentEventId,
+				projectId: deps.projectId,
+				requestKeySeed: deps.requestKeySeed,
+				subject: deps.subject,
+				userId: deps.userId,
+				videoDirector: deps.videoDirector,
+			}),
 			get_direction_candidates: getDirectionCandidatesTool,
 			read_attachment: createReadAttachmentTool({
 				availableDocuments: deps.availableDocuments,
@@ -226,6 +256,7 @@ export const aiChatToolsForValidation = {
 	generate_image: generateImageToolSchemaOnly,
 	generate_marketing_asset: generateMarketingAssetToolSchemaOnly,
 	generate_page: generatePageToolSchemaOnly,
+	generate_video: generateVideoToolSchemaOnly,
 	scrape_leads: scrapeLeadsToolSchemaOnly,
 	get_direction_candidates: getDirectionCandidatesToolSchemaOnly,
 	read_attachment: readAttachmentToolSchemaOnly,

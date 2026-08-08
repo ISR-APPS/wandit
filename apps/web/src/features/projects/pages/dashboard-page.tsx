@@ -9,7 +9,11 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Spark } from "@/components/logo";
 import { promptStash, useSession } from "@/features/auth";
-import { InsufficientCreditsDialog } from "@/features/credits";
+import {
+	InsufficientCreditsDialog,
+	OutOfCreditsBanner,
+	useOutOfCredits,
+} from "@/features/credits";
 import { PendingInvitesBanner } from "@/features/workspaces/components/pending-invites-banner";
 import { isEarlyAccessUser } from "@/lib/early-access";
 import { useTranslation } from "@/lib/i18n";
@@ -103,6 +107,9 @@ export default function DashboardPage() {
 	// generate — the rest land on the workspace-shaped Coming Soon teaser with
 	// their prompt echoed in the chat (see lib/early-access.ts).
 	const hasEarlyAccess = isEarlyAccessUser(session?.user);
+	// Only real generators get credit-locked; the Coming Soon teaser is free.
+	const { outOfCredits } = useOutOfCredits();
+	const promptLocked = hasEarlyAccess && outOfCredits;
 	const teaseComingSoon = (prompt: string) => {
 		void navigate({
 			to: "/preview",
@@ -176,12 +183,14 @@ export default function DashboardPage() {
 							{t("projects.promptHeading")}
 						</h2>
 						<div ref={promptSectionRef} className="mt-6">
+							{promptLocked ? <OutOfCreditsBanner className="mb-3" /> : null}
 							<PromptBox
 								key={promptPrefill.key}
 								variant="hero"
 								showPriceTag
 								showModes
 								attachmentsEnabled={hasEarlyAccess}
+								disabled={promptLocked}
 								initialValue={promptPrefill.value}
 								initialComposer={promptPrefill.composer}
 								onSubmit={hasEarlyAccess ? create : teaseComingSoon}

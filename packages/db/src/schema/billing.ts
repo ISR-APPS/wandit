@@ -68,7 +68,7 @@ export const productSettings = pgTable(
 		signupGrantEnabled: boolean("signup_grant_enabled")
 			.notNull()
 			.default(false),
-		signupGrantCredits: integer("signup_grant_credits").notNull().default(20),
+		signupGrantCredits: integer("signup_grant_credits").notNull().default(50),
 		paidSubscriptionsEnabled: boolean("paid_subscriptions_enabled")
 			.notNull()
 			.default(false),

@@ -77,7 +77,7 @@ export function CreateWorkspaceDialog({
 	const [tierCredits, setTierCredits] = useState<number | null>(null);
 	const selectedTier =
 		business?.tiers.find(
-			(tier) => tier.tierCredits === (tierCredits ?? 100),
+			(tier) => tier.tierCredits === (tierCredits ?? 200),
 		) ?? business?.tiers[0];
 
 	const submit = async () => {
@@ -126,7 +126,7 @@ export function CreateWorkspaceDialog({
 				await checkout.mutateAsync({
 					plan: "business",
 					tierCredits: (selectedTier?.tierCredits ??
-						100) as CreateBillingCheckoutBody["tierCredits"],
+						200) as CreateBillingCheckoutBody["tierCredits"],
 					interval,
 				});
 				// Success navigates to Stripe; no further UI state needed.
@@ -172,7 +172,7 @@ export function CreateWorkspaceDialog({
 							<div className="flex flex-col gap-2">
 								<Label>{t("billing.planPicker.creditTier")}</Label>
 								<Select
-									value={String(selectedTier?.tierCredits ?? 100)}
+									value={String(selectedTier?.tierCredits ?? 200)}
 									onValueChange={(value) => setTierCredits(Number(value))}
 								>
 									<SelectTrigger>

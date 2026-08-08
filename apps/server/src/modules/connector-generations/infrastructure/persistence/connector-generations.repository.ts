@@ -106,6 +106,43 @@ export class ConnectorGenerationsRepository {
 		return true;
 	}
 
+	// Generated-asset markers for the model-bound transcript: only settled,
+	// successful attempts with media, and only ids that came from the chat's
+	// own tool parts (the scope filter is defense in depth, not discovery).
+	// Same payer-snapshot semantics as findAccessibleAttempt below — in a
+	// shared org chat, a teammate's transcript must resolve the markers of an
+	// attempt another member queued.
+	async listSucceededByIdsForScope(
+		scope: ProjectScope,
+		attemptIds: readonly string[],
+	): Promise<Array<Pick<ConnectorGenerationAttemptRow, "id" | "media">>> {
+		if (attemptIds.length === 0) {
+			return [];
+		}
+
+		const scopePredicate =
+			scope.kind === "personal"
+				? and(
+						eq(connectorGenerationAttempts.userId, scope.userId),
+						isNull(connectorGenerationAttempts.organizationId),
+					)
+				: eq(connectorGenerationAttempts.organizationId, scope.organizationId);
+
+		return this.db
+			.select({
+				id: connectorGenerationAttempts.id,
+				media: connectorGenerationAttempts.media,
+			})
+			.from(connectorGenerationAttempts)
+			.where(
+				and(
+					inArray(connectorGenerationAttempts.id, [...attemptIds]),
+					scopePredicate,
+					eq(connectorGenerationAttempts.status, "succeeded"),
+				),
+			);
+	}
+
 	// Ownership is by user id (the MCP connection is per-user). Missing and
 	// not-owned are indistinguishable to the caller on purpose.
 	// Mirrors projectScopePredicate semantics on the attempt's own payer

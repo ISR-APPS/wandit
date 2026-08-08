@@ -1,14 +1,6 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
-import {
-	meteringSubjectFrom,
-	type ProjectScope,
-} from "../../../projects/domain/project-scope";
-import {
-	IMAGE_TO_VIDEO_DURATION_SECONDS,
-	type MediaGenerationAttempt,
-} from "@wandit/contracts";
+import type { MediaGenerationAttempt } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
-
 import {
 	getObjectBytes,
 	getObjectContentType,
@@ -18,6 +10,10 @@ import {
 } from "../../../../infrastructure/storage/r2";
 import { MeteringService } from "../../../metering/application/services/metering.service";
 import {
+	meteringSubjectFrom,
+	type ProjectScope,
+} from "../../../projects/domain/project-scope";
+import {
 	type MediaGenerationAttemptRow,
 	MediaGenerationsRepository,
 } from "../../infrastructure/persistence/media-generations.repository";
@@ -25,8 +21,7 @@ import { createImageAnimationBilling } from "./image-animation-billing";
 
 const GENERATION_STALE_AFTER_MS = 15 * 60 * 1_000;
 const QUEUED_STALE_AFTER_MS = 30 * 60 * 1_000;
-const STALE_GENERATION_ERROR =
-	"The video did not finish. Please try animating the image again.";
+const STALE_GENERATION_ERROR = "The video did not finish. Please try again.";
 const STALE_QUEUED_ERROR =
 	"The video request did not reach the background generator. Please try again.";
 
@@ -169,12 +164,15 @@ export class MediaGenerationsService {
 			throw new NotFoundException();
 		}
 
+		const baseName =
+			row.kind === "text-to-video" ? "wandit-video" : "wandit-animation";
+
 		return {
 			bytes,
 			fileName:
 				row.videoMediaType === "video/webm"
-					? "wandit-animation.webm"
-					: "wandit-animation.mp4",
+					? `${baseName}.webm`
+					: `${baseName}.mp4`,
 			mediaType: row.videoMediaType,
 		};
 	}
@@ -185,15 +183,18 @@ function mapAttemptRow(row: MediaGenerationAttemptRow): MediaGenerationAttempt {
 		aspect: row.aspect,
 		completedAt: row.completedAt?.toISOString() ?? null,
 		createdAt: row.createdAt.toISOString(),
-		durationSeconds: IMAGE_TO_VIDEO_DURATION_SECONDS,
+		durationSeconds: row.durationSeconds === 10 ? 10 : 5,
 		error: row.error,
 		id: row.id,
+		kind: row.kind,
 		motion: row.motion,
 		prompt: row.prompt,
 		sourceImageUrl: row.sourceImageUrl,
 		sourceMediaType: row.sourceMediaType,
 		status: row.status,
+		title: row.title,
 		videoMediaType: row.videoMediaType,
 		videoUrl: row.videoUrl,
+		voiceover: row.voiceover,
 	};
 }

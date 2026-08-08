@@ -179,6 +179,7 @@ This world is a working contact sheet or it is a photography template with a red
 (3) TYPOGRAPHIC NERVE — a 13px h1 under a full-bleed photograph, captions at 10px, a masthead 30px tall, and no button in the hero. The temptation to grow the type is the exact temptation to destroy the world.
 Everything else — the grain at 9%, the counters counting up, the chinagraph overshoot, the segmented hover-scrub bar, the margin note in grease pencil, the blank frames — costs almost nothing and is precisely what separates a page someone AUTHORED from a page something generated. Push INTO the smallness. The pictures are large; you should be invisible.`,
 	energy: "medium",
+	family: "pellicule",
 	id: "pellicule",
 	industries: [
 		"photography",
@@ -199,6 +200,13 @@ Everything else — the grain at 9%, the counters counting up, the chinagraph ov
 	kind: "website",
 	mood: ["analog", "photographic", "documentary", "grainy", "understated"],
 	name: "Pellicule",
+	preview: {
+		ground: "#F1EEE7",
+		ink: "#121212",
+		accent: "#C8341F",
+		fontFamily: "Archivo",
+		sampleWord: "PELLICULE",
+	},
 	priceFeel: "premium",
 	tagline:
 		"Your photographs laid out like a real contact sheet — perforated film edges, frame numbers under every shot, a red grease-pencil circle around the ones you chose, and a strip you can drag through with your finger.",

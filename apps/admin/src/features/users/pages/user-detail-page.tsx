@@ -117,7 +117,7 @@ export function UserDetailPage({ userId }: UserDetailPageProps) {
 
 			<UserActivityPanel
 				userId={user.id}
-				projects={user.projects}
+				projectsCount={user.projectsCount}
 				creditLedger={user.creditLedger}
 			/>
 

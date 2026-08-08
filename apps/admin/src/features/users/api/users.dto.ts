@@ -6,12 +6,18 @@ import type {
 	AdminCreditLedgerEntry,
 	AdminGrantCreditsInput,
 	AdminListUsersResponse,
+	AdminProjectVersionHtmlResponse,
 	AdminSetAccessInput,
 	AdminSetBannedInput,
 	AdminSetRoleInput,
 	AdminUserDetail,
+	AdminUserPage,
+	AdminUserPagesResponse,
+	AdminUserPagesSort,
 	AdminUserPlan,
 	AdminUserProject,
+	AdminUserProjectsResponse,
+	AdminUserProjectsSort,
 	AdminUserRole,
 	AdminUserSubscription,
 	AdminUserSummary,
@@ -25,12 +31,18 @@ export type {
 	AdminCreditLedgerEntry,
 	AdminGrantCreditsInput,
 	AdminListUsersResponse,
+	AdminProjectVersionHtmlResponse,
 	AdminSetAccessInput,
 	AdminSetBannedInput,
 	AdminSetRoleInput,
 	AdminUserDetail,
+	AdminUserPage,
+	AdminUserPagesResponse,
+	AdminUserPagesSort,
 	AdminUserPlan,
 	AdminUserProject,
+	AdminUserProjectsResponse,
+	AdminUserProjectsSort,
 	AdminUserRole,
 	AdminUserSubscription,
 	AdminUserSummary,
@@ -47,7 +59,10 @@ export type UserRole = AdminUserRole;
 export type UserPlan = AdminUserPlan;
 export type UserSubscription = AdminUserSubscription;
 export type UserProject = AdminUserProject;
+export type UserProjectsResponse = AdminUserProjectsResponse;
 export type CreditLedgerEntry = AdminCreditLedgerEntry;
+export type UserLandingPage = AdminUserPage;
+export type UserLandingPagesResponse = AdminUserPagesResponse;
 
 /** Query params the users list UI sends to GET /api/v1/admin/users. */
 export type ListUsersParams = {
@@ -55,6 +70,22 @@ export type ListUsersParams = {
 	pageSize: number;
 	q?: string;
 	sort: AdminListUsersSort;
+};
+
+/** Query params for one user's server-paginated landing pages. */
+export type ListUserPagesParams = {
+	userId: string;
+	page: number;
+	pageSize: number;
+	sort: AdminUserPagesSort;
+};
+
+/** Query params for one user's server-paginated projects. */
+export type ListUserProjectsParams = {
+	userId: string;
+	page: number;
+	pageSize: number;
+	sort: AdminUserProjectsSort;
 };
 
 export type GrantUserCreditsInput = AdminGrantCreditsInput & {

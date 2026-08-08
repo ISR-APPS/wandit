@@ -216,6 +216,7 @@ Mosaic clipart, lantern / camel / hamsa emoji, stock arabesque vectors · gold g
 ## Intensity
 This world fails by being timid. The failure mode is a beige page with a faint pattern, some rounded cards and a serif headline — which is worse than a generic page, because it also looks apologetic about its own heritage. Executed at 100 percent it is unmistakable: a giant arch inset in plaster, an image that opens like a star from its own centre, a glazed frieze drawing itself under every chapter head, a placard telling you the material and the region, a band of tile scrolling at its own speed, one dark green-black room in the middle of the house, and exactly one tile deliberately out of line so you know a person put it there. Push INTO the geometry — count the tiles, keep the symmetry, break it once, and let every reveal take its full 1.4 seconds. Nothing in a courtyard is in a hurry.`,
 	energy: "medium",
+	family: "zellige",
 	id: "zellige",
 	industries: [
 		"hotel",
@@ -236,6 +237,13 @@ This world fails by being timid. The failure mode is a beige page with a faint p
 	kind: "website",
 	mood: ["crafted", "serene", "ornamented", "heritage", "sunlit"],
 	name: "Zellige",
+	preview: {
+		ground: "#EFE7D9",
+		ink: "#241A12",
+		accent: "#14706A",
+		fontFamily: "Cormorant",
+		sampleWord: "La cour",
+	},
 	priceFeel: "premium",
 	tagline:
 		"A courtyard you walk into: bone plaster, a glazed tile band running under every chapter, photographs that open from an eight-point star out to the full frame, and one tile deliberately out of line so you know a person laid it.",

@@ -306,6 +306,7 @@ This world fails by being merely DARK. A near-black page with a product photo an
 
 Executed at 60 percent — dark background, gold accent, rounded cards, a product grid, a green WhatsApp button — this is exactly the generic dark landing page it exists to replace. Executed at 100 percent, a visitor scrolling on a phone in Algiers feels let into a closed room after hours to look at one thing properly, and then quietly told they can have it, and pay when it arrives. Push INTO the darkness and the discipline. Every number above is load-bearing.`,
 	energy: "quiet",
+	family: "mono-commerce",
 	id: "vitrine",
 	industries: [
 		"jewelry",
@@ -326,6 +327,13 @@ Executed at 60 percent — dark background, gold accent, rounded cards, a produc
 	kind: "product",
 	mood: ["dark", "precious", "hushed", "curated", "exacting"],
 	name: "Vitrine",
+	preview: {
+		ground: "#0B0A09",
+		ink: "#EDE7DC",
+		accent: "#C6A15B",
+		fontFamily: "Cormorant Garamond",
+		sampleWord: "La Vitrine",
+	},
 	priceFeel: "premium",
 	tagline:
 		"Your product alone in a dark room, standing in its own pool of light with a museum label underneath — the visitor walks around it as they scroll, and the price is set like a stone in four gold brackets.",

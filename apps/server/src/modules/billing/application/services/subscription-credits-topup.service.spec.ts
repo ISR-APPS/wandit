@@ -24,7 +24,7 @@ function checkoutAttempt(
 		createdAt: new Date(0),
 		id: "11111111-1111-4111-8111-111111111111",
 		organizationId: null,
-		packId: "topup_100",
+		packId: "topup_200",
 		priceLookupKey: null,
 		providerSessionId: "cs_topup",
 		purpose: "topup",
@@ -39,14 +39,14 @@ function checkoutSession(
 	overrides: Partial<Stripe.Checkout.Session> = {},
 ): Stripe.Checkout.Session {
 	return {
-		amount_total: 2_500,
+		amount_total: 3_000,
 		currency: "usd",
 		customer: "cus_1",
 		id: "cs_topup",
 		metadata: {
 			attemptId: "11111111-1111-4111-8111-111111111111",
-			credits: "100",
-			packId: "topup_100",
+			credits: "200",
+			packId: "topup_200",
 			purpose: "topup",
 			userId: "user_1",
 		},
@@ -167,11 +167,11 @@ describe("SubscriptionCreditsService top-up fulfillment", () => {
 
 		await service.grantTopup(checkoutSession());
 
-		expect(credits.topup).toHaveBeenCalledWith(userOwner("user_1"), 100, {
+		expect(credits.topup).toHaveBeenCalledWith(userOwner("user_1"), 200, {
 			idempotencyKey: "topup:cs_topup",
 			meta: {
 				chargeId: "ch_topup",
-				packId: "topup_100",
+				packId: "topup_200",
 				paymentIntentId: "pi_topup",
 				reason: "topup_purchase",
 				sessionId: "cs_topup",
@@ -257,7 +257,7 @@ describe("SubscriptionCreditsService top-up fulfillment", () => {
 			session: checkoutSession(),
 		},
 		{
-			attempt: checkoutAttempt({ priceLookupKey: "pro_100_month" }),
+			attempt: checkoutAttempt({ priceLookupKey: "pro_200_month" }),
 			expected: "unexpectedly has a subscription price",
 			name: "attempt shape",
 			session: checkoutSession(),
@@ -305,32 +305,32 @@ describe("SubscriptionCreditsService top-up fulfillment", () => {
 		},
 		{
 			attempt: checkoutAttempt(),
-			expected: "pack topup_500 does not match checkout attempt",
+			expected: "pack topup_1000 does not match checkout attempt",
 			name: "attempt pack",
 			session: checkoutSession({
 				metadata: {
 					...checkoutSession().metadata,
-					packId: "topup_500",
+					packId: "topup_1000",
 				},
 			}),
 		},
 		{
 			attempt: checkoutAttempt(),
-			expected: "credits 500 do not match top-up pack topup_100",
+			expected: "credits 1000 do not match top-up pack topup_200",
 			name: "credits",
 			session: checkoutSession({
-				metadata: { ...checkoutSession().metadata, credits: "500" },
+				metadata: { ...checkoutSession().metadata, credits: "1000" },
 			}),
 		},
 		{
 			attempt: checkoutAttempt(),
-			expected: "amount_total does not match top-up pack topup_100",
+			expected: "amount_total does not match top-up pack topup_200",
 			name: "amount",
 			session: checkoutSession({ amount_total: 2_499 }),
 		},
 		{
 			attempt: checkoutAttempt(),
-			expected: "currency does not match top-up pack topup_100",
+			expected: "currency does not match top-up pack topup_200",
 			name: "currency",
 			session: checkoutSession({ currency: "eur" }),
 		},

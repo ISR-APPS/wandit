@@ -4,7 +4,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { WanditUIMessage } from "../../../lib/use-ai-chat";
-import { collectAskStepper, useRequestTray } from "./use-request-tray";
+import {
+	collectAskStepper,
+	collectWorldCards,
+	useRequestTray,
+} from "./use-request-tray";
 
 const { uploadAttachmentMock } = vi.hoisted(() => ({
 	uploadAttachmentMock: vi.fn(),
@@ -110,6 +114,31 @@ function assistantMessages(
 			parts: parts as WanditUIMessage["parts"],
 		},
 	];
+}
+
+function worldCard(id: string, name = id) {
+	return {
+		id,
+		name,
+		tagline: `${name} tagline`,
+		preview: {
+			ground: "#F2EDE2",
+			ink: "#202723",
+			accent: "#C35A37",
+			fontFamily: "Cormorant Garamond",
+			sampleWord: name,
+		},
+	};
+}
+
+function menuPart(cards: unknown[], toolCallId = "menu-1") {
+	return {
+		type: "tool-get_direction_candidates",
+		toolCallId,
+		state: "output-available",
+		input: { business: "boutique", pageKind: "website" },
+		output: { candidates: "## DESIGN WORLDS (menu text)", cards },
+	};
 }
 
 beforeEach(() => {
@@ -270,6 +299,87 @@ describe("useRequestTray", () => {
 			selectedId: "new",
 			label: "New",
 		});
+	});
+
+	it("collects world cards across menus, latest menu winning per id", () => {
+		const early = worldCard("creme", "Crème ancienne");
+		const late = worldCard("creme", "Crème");
+		const other = worldCard("calque", "Calque");
+		const cards = collectWorldCards([
+			...assistantMessages([menuPart([early])], "assistant-1"),
+			...assistantMessages([menuPart([late, other], "menu-2")], "assistant-2"),
+		]);
+
+		expect(cards.size).toBe(2);
+		expect(cards.get("creme")?.name).toBe("Crème");
+		expect(cards.get("calque")?.name).toBe("Calque");
+	});
+
+	it("renders a taste ask as world cards and answers with the picked option", async () => {
+		const onAnswer =
+			vi.fn<(toolCallId: string, output: AskUserOutput) => void>();
+		const tray = await renderTrayHook({
+			messages: assistantMessages([
+				{ type: "step-start" },
+				menuPart([worldCard("creme", "Crème"), worldCard("ombre", "Ombre")]),
+				askPart("ask-taste", {
+					question: "Which feel fits your brand?",
+					kind: "single-choice",
+					options: [
+						{ id: "creme", label: "Morning-light softness", worldId: "creme" },
+						{ id: "ombre", label: "Deep evening calm", worldId: "ombre" },
+						{ id: "perdu", label: "A lost world", worldId: "no-such-world" },
+					],
+				}),
+			]),
+			composerText: "",
+			onAnswer,
+		});
+
+		const body = tray.result.state?.body;
+		expect(body?.kind).toBe("world-pick");
+		if (body?.kind !== "world-pick") throw new Error("Expected world cards");
+		expect(body.options).toHaveLength(3);
+		expect(body.options[0]?.card?.name).toBe("Crème");
+		expect(body.options[0]?.card?.preview.fontFamily).toBe(
+			"Cormorant Garamond",
+		);
+		// An unresolvable worldId keeps its seat as a neutral card.
+		expect(body.options[2]?.card).toBeUndefined();
+
+		await act(async () => {
+			tray.result.onPick({ id: "creme", label: "Morning-light softness" });
+		});
+		expect(tray.result.answerMode).toBe("single");
+		expect(tray.result.canConfirm).toBe(true);
+
+		await act(async () => {
+			tray.result.confirmDraft();
+		});
+		expect(onAnswer).toHaveBeenCalledWith("ask-taste", {
+			selectedId: "creme",
+			label: "Morning-light softness",
+		});
+	});
+
+	it("falls back to plain chips when no menu cards resolve", async () => {
+		const tray = await renderTrayHook({
+			messages: assistantMessages([
+				{ type: "step-start" },
+				askPart("ask-taste", {
+					question: "Which feel fits your brand?",
+					kind: "single-choice",
+					options: [
+						{ id: "a", label: "Soft", worldId: "creme" },
+						{ id: "b", label: "Dark", worldId: "ombre" },
+					],
+				}),
+			]),
+			composerText: "",
+			onAnswer: vi.fn(),
+		});
+
+		expect(tray.result.state?.body.kind).toBe("single-choice");
 	});
 
 	it("keeps delegation as a real tool answer", async () => {

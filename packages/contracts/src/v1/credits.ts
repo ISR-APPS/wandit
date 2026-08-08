@@ -76,7 +76,8 @@ export const CREDIT_COSTS = {
 	videoGeneration: 25,
 } as const;
 
-export const SIGNUP_GRANT_CREDITS = 20;
+// $2 of AI-provider value for free users: $2 / $0.04 per credit = 50 credits.
+export const SIGNUP_GRANT_CREDITS = 50;
 
 export const creditsRoutes = {
 	balance: "/api/v1/credits/balance",

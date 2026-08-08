@@ -317,6 +317,9 @@ export const aiUsageGenerationRefs = pgTable(
 			.notNull()
 			.references(() => aiUsageEvents.id, { onDelete: "restrict" }),
 		gatewayGenerationId: text("gateway_generation_id").notNull(),
+		// Which provider produced this generation: "vercel" (AI Gateway) or
+		// "openrouter". Reconciliation routes its cost lookup on this value.
+		providerSource: text("provider_source").notNull().default("vercel"),
 		stepUsage: jsonb("step_usage"),
 		reconciledCostUsdMicros: integer("reconciled_cost_usd_micros"),
 		reconciledAt: timestamp("reconciled_at", { withTimezone: true }),

@@ -251,6 +251,7 @@ This world dies of half-measures. Every wrong decision here is a comfortable def
 
 Executed at 100 percent — a room made of two drifting pastel radials, a texture macro condensing out of the page and evaporating back into it, an arch with a dew of texture hanging off its corner, provenance plates staggered like drops on glass, a matin/soir routine where the product changes as you read the gestures, badges that draw themselves, and an order form of soft ruled lines closing on a slowly drawn arch while the page exhales — it looks like a house that has been making this cream for years and would like you to use it properly. Every number above is load-bearing. Softness is not the absence of decisions; it is forty of them.`,
 	energy: "quiet",
+	family: "cocon",
 	id: "cocon",
 	industries: [
 		"beauty",
@@ -270,6 +271,13 @@ Executed at 100 percent — a room made of two drifting pastel radials, a textur
 	kind: "product",
 	mood: ["soft", "dewy", "ritual", "botanical", "tender"],
 	name: "Cocon",
+	preview: {
+		ground: "#FBF6F1",
+		ink: "#2E2422",
+		accent: "#C98B84",
+		fontFamily: "Cormorant Garamond",
+		sampleWord: "Cocon",
+	},
 	priceFeel: "accessible",
 	tagline:
 		"A page made of light instead of boxes — pastel dew drifting behind an arch of cream, texture photographed so close it dissolves into the paper, your ingredients named one by one, and a morning-and-evening ritual that ends in an order form as gentle as the product.",

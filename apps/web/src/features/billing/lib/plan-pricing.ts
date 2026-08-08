@@ -5,12 +5,15 @@ import type {
 	Subscription,
 } from "@wandit/contracts";
 
-const RETAIL_USD_PER_CREDIT = 0.25;
+// Pro base rate: $30 per 200 credits. Business passes its own basePer100Usd
+// (2× Pro) so its volume discounts surface instead of comparing against Pro.
+const DEFAULT_BASE_PER_100_USD = 15;
 
 export function tierSavingsPercent(
 	tier: Pick<BillingTierPrice, "monthlyUsd" | "tierCredits">,
+	basePer100Usd: number = DEFAULT_BASE_PER_100_USD,
 ): number {
-	const retailMonthlyUsd = tier.tierCredits * RETAIL_USD_PER_CREDIT;
+	const retailMonthlyUsd = (tier.tierCredits / 100) * basePer100Usd;
 
 	return Math.round((1 - tier.monthlyUsd / retailMonthlyUsd) * 100);
 }

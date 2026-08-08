@@ -21,6 +21,7 @@
 	"colLocation": "Wilaya / Commune",
 	"colDate": "Date",
 	"colStatus": "Status",
+	"colSource": "Source",
 	"call": "Call",
 	"whatsapp": "WhatsApp",
 	"emptyTitle": "No leads yet",
@@ -65,6 +66,13 @@
 		"Commune",
 		"Status",
 		"Source",
+		"Campaign",
 		"Date"
-	]
+	],
+	"source": {
+		"facebook": "Facebook",
+		"tiktok": "TikTok",
+		"direct": "Direct"
+	},
+	"campaignTooltip": "Campaign: {campaign}"
 }

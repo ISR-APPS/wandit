@@ -243,6 +243,7 @@ This world fails quietly, which is what makes it dangerous. Every wrong decision
 
 Executed at 100 percent — milk paper with pastel weather drifting behind it, plates laid over cloud seams, a mobile rocking 2.4 degrees forever over a cradle-shaped frame, the cotton photographed close enough to count the threads, age numerals big enough to read across a room and wired to the order form, seals drawn by hand carrying real certifications, a care table typeset like the label sewn into the collar, and a cash-on-delivery form that says four times over that nothing is paid today — it looks like the shop a mother recommends to another mother. Every number above is load-bearing. Softness here is not the absence of decisions; it is fifty of them, taken slowly.`,
 	energy: "quiet",
+	family: "nid",
 	id: "nid",
 	industries: [
 		"baby",
@@ -262,6 +263,13 @@ Executed at 100 percent — milk paper with pastel weather drifting behind it, p
 	kind: "product",
 	mood: ["soft", "reassuring", "tender", "rounded", "careful"],
 	name: "Nid",
+	preview: {
+		ground: "#FBF7F2",
+		ink: "#443A38",
+		accent: "#F5EFE7",
+		fontFamily: "Nunito",
+		sampleWord: "Le nid",
+	},
 	priceFeel: "accessible",
 	tagline:
 		"Milk-white paper with pastel weather drifting behind it: a little mobile rocking over a cradle-shaped frame, the cotton photographed thread by thread, ages printed big enough to read across the room, safety seals drawn by hand — and an order form that repeats four times that you pay only when the parcel is in your hands.",

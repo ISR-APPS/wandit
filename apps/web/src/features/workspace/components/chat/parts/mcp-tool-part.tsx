@@ -111,7 +111,9 @@ function connectorMonogram(connectorSlug: string): string {
 	);
 }
 
-const NOISE_TOKENS = new Set(["api", "tool"]);
+// "mcp" must never surface in a user-facing label, even from an unparseable
+// tool name — the product never says MCP anywhere in the UI.
+const NOISE_TOKENS = new Set(["api", "mcp", "tool"]);
 const CHECK_NOUNS = new Set([
 	"balance",
 	"health",
@@ -649,7 +651,9 @@ export function McpActivityCard({
 					{backgroundGenerations.map(({ output, part }) => (
 						<ConnectorGenerationCard
 							key={part.toolCallId}
+							args={part.input}
 							attemptId={output.attemptId}
+							connectorName={connectorDisplayName(output.connector)}
 							realtime={output.realtime}
 							title={humanizeMcpToolLabel(
 								part.toolName,
@@ -659,6 +663,7 @@ export function McpActivityCard({
 								toolLabels,
 								genericLabels,
 							)}
+							toolName={output.tool}
 						/>
 					))}
 				</>
@@ -977,7 +982,7 @@ function ApprovalBlock({
 			? "TikTok"
 			: connectorDisplayName(connectorSlug)
 		: t("workspace.chat.mcpTool.workingWith");
-	const argumentsPreview = isPlatformToolWrapper(part.toolName)
+	const rawArgumentsPreview = isPlatformToolWrapper(part.toolName)
 		? isRecord(part.input) && isRecord(part.input.params)
 			? summarizeTopLevelArguments(part.input.params).filter(
 					({ key }) =>
@@ -985,6 +990,9 @@ function ApprovalBlock({
 				)
 			: []
 		: summarizeTopLevelArguments(part.input);
+	const argumentsPreview = rawArgumentsPreview.map((entry) =>
+		withAdBudgetUnit(connectorSlug, entry),
+	);
 
 	return (
 		<div className="mt-3 border-border border-t pt-3">
@@ -1308,6 +1316,23 @@ function isInputEchoTool(toolName: string, input: unknown): boolean {
 	return tokenizeToolName(effectiveName).some((token) =>
 		INPUT_ECHO_TOKENS.has(token),
 	);
+}
+
+// Ad platforms charge in US dollars, so a bare "Budget 50" on the approval
+// card is dangerously ambiguous for merchants who think in DA — this is the
+// user's LAST look before money moves. Numbers only; text passes untouched.
+const AD_CONNECTOR_SLUGS = new Set(["meta-ads", "tiktok-ads"]);
+const MONEY_ARGUMENT_KEY_PATTERN = /budget|spend|bid/i;
+
+function withAdBudgetUnit(
+	connectorSlug: string | null,
+	entry: { key: string; value: string },
+): { key: string; value: string } {
+	if (!connectorSlug || !AD_CONNECTOR_SLUGS.has(connectorSlug)) return entry;
+	if (!MONEY_ARGUMENT_KEY_PATTERN.test(entry.key)) return entry;
+	if (!/^\d+(\.\d+)?$/.test(entry.value)) return entry;
+
+	return { ...entry, value: `${entry.value} USD` };
 }
 
 function summarizeTopLevelArguments(input: unknown) {

@@ -414,7 +414,7 @@ function PlanPickerContent({
 	const sameAsCurrent =
 		subscription?.interval === interval &&
 		subscription.tierCredits === tier.tierCredits;
-	const savings = tierSavingsPercent(tier);
+	const savings = tierSavingsPercent(tier, plan.basePer100Usd);
 	const visibleAvailableCredits =
 		availableCredits ?? subscriptionView.balance.balance;
 
@@ -534,7 +534,10 @@ function PlanPickerContent({
 						<SelectContent>
 							<SelectGroup>
 								{plan.tiers.map((option) => {
-									const optionSavings = tierSavingsPercent(option);
+									const optionSavings = tierSavingsPercent(
+										option,
+										plan.basePer100Usd,
+									);
 									return (
 										<SelectItem
 											key={option.tierCredits}
@@ -967,7 +970,7 @@ function suggestedTierCredits(
 	tiers: readonly BillingTierPrice[],
 	subscription: Subscription | null,
 ): CreditTier {
-	if (!subscription) return tiers[0]?.tierCredits ?? 100;
+	if (!subscription) return tiers[0]?.tierCredits ?? 200;
 
 	return (
 		tiers.find((tier) => tier.tierCredits > subscription.tierCredits)

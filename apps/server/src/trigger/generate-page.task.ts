@@ -49,6 +49,10 @@ import {
 import type { MeteringService } from "../modules/metering/application/services/metering.service";
 import type { AiUsageEvent } from "../modules/metering/domain/metering";
 import { OPERATION_REGISTRY } from "../modules/metering/domain/operation-registry";
+import {
+	classifyBuildFailure,
+	TaggedBuildError,
+} from "../modules/pages/domain/build-failure";
 import { appendProjectBrandAsset } from "./generate-page-brand";
 import { flushPageBuildGenerationsForSettlement } from "./generate-page-metering";
 import { triggerAnalytics } from "./init";
@@ -130,7 +134,10 @@ export const generatePageTask = task({
 				.update(pageGenerationAttempts)
 				.set({
 					completedAt: null,
+					dismissedAt: null,
 					error: null,
+					failureCode: null,
+					lastProgressPercent: null,
 					status: "generating",
 					triggerRunId: ctx.run.id,
 					versionId: null,
@@ -158,20 +165,19 @@ export const generatePageTask = task({
 			let meteringClosed = false;
 			let generationCaptureBuffer: GenerationCaptureBuffer | null = null;
 			let failedProviderGenerationObserved = false;
+			// Terminal snapshot for the chat card: the stopped/failed card shows
+			// the percent the build died at, even after a page reload.
+			let latestProgressPercent: number | null = null;
 
 			try {
 				if (meteringService) {
-					usageEvent = await meteringService.reserve(
-						"page_build",
-						subject,
-						{
-							attemptRef: attempt.id,
-							credits: OPERATION_REGISTRY.page_build.reserveFloorCredits,
-							idempotencyKey: `page-build:${attempt.id}:${ctx.run.id}`,
-							model: attempt.model,
-							parentEventId: payload.parentEventId,
-						},
-					);
+					usageEvent = await meteringService.reserve("page_build", subject, {
+						attemptRef: attempt.id,
+						credits: OPERATION_REGISTRY.page_build.reserveFloorCredits,
+						idempotencyKey: `page-build:${attempt.id}:${ctx.run.id}`,
+						model: attempt.model,
+						parentEventId: payload.parentEventId,
+					});
 				}
 
 				const spec = attemptSpecSchema.parse(attempt.spec);
@@ -205,6 +211,10 @@ export const generatePageTask = task({
 					attemptId: assetNamespace,
 					projectId: attempt.projectId,
 					publish: (snapshot) => {
+						if (typeof snapshot.percent === "number") {
+							latestProgressPercent = Math.round(snapshot.percent);
+						}
+
 						metadata.set("progress", snapshot);
 					},
 				});
@@ -290,15 +300,28 @@ export const generatePageTask = task({
 				// point at an object that does not exist. index.html keeps the
 				// canonical key the pages service reads; extra files (if any)
 				// land beside it.
-				for (const file of build.files) {
-					signal.throwIfAborted();
-					const fileKey =
-						file.path === "index.html"
-							? key
-							: siteFileKey(attempt.projectId, versionId, file.path);
+				try {
+					for (const file of build.files) {
+						signal.throwIfAborted();
+						const fileKey =
+							file.path === "index.html"
+								? key
+								: siteFileKey(attempt.projectId, versionId, file.path);
 
-					await putSiteFile(fileKey, file.content, contentTypeFor(file.path));
-					logger.info(`☁️ Uploaded ${file.path} to R2 → ${fileKey}`);
+						await putSiteFile(fileKey, file.content, contentTypeFor(file.path));
+						logger.info(`☁️ Uploaded ${file.path} to R2 → ${fileKey}`);
+					}
+				} catch (error) {
+					// An abort mid-upload is a cancellation, not a storage fault.
+					if (signal.aborted) {
+						throw error;
+					}
+
+					throw new TaggedBuildError(
+						"Uploading the finished page to storage failed",
+						"storage_failure",
+						error,
+					);
 				}
 
 				let previewImageUrl: string | null = null;
@@ -491,8 +514,37 @@ export const generatePageTask = task({
 					}
 				}
 
+				// A user Stop (or dashboard cancel) is a decision, not a failure:
+				// record "canceled" with the frozen percent and skip the failure
+				// analytics. The stop endpoint usually flips the row first — this
+				// CAS is the belt-and-suspenders for cancels it did not initiate.
+				if (signal.aborted) {
+					logger.info(
+						`⏹️ Build stopped by cancellation at ${latestProgressPercent ?? 0}%`,
+					);
+
+					await db
+						.update(pageGenerationAttempts)
+						.set({
+							completedAt: new Date(),
+							lastProgressPercent: latestProgressPercent,
+							status: "canceled",
+						})
+						.where(
+							and(
+								eq(pageGenerationAttempts.id, attempt.id),
+								eq(pageGenerationAttempts.status, "generating"),
+								eq(pageGenerationAttempts.triggerRunId, ctx.run.id),
+							),
+						);
+
+					throw terminalError;
+				}
+
+				const failureCode = classifyBuildFailure(terminalError);
+
 				logger.error(
-					`❌ Build failed: ${terminalError instanceof Error ? terminalError.message : String(terminalError)}`,
+					`❌ Build failed (${failureCode}): ${terminalError instanceof Error ? terminalError.message : String(terminalError)}`,
 				);
 
 				// Record the failure for the Page tab, then rethrow so the run
@@ -505,6 +557,8 @@ export const generatePageTask = task({
 							terminalError instanceof Error
 								? terminalError.message
 								: String(terminalError),
+						failureCode,
+						lastProgressPercent: latestProgressPercent,
 						status: "failed",
 					})
 					.where(

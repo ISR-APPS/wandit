@@ -595,7 +595,8 @@
 			"arguments": "Arguments",
 			"generation": {
 				"working": "Génération du média en cours…",
-				"workingHint": "Le fournisseur s'en occupe. Il n'annonce pas sa progression pendant le rendu — le résultat apparaîtra ici dès qu'il est prêt.",
+				"workingHint": "{connector} s'en occupe — le résultat apparaîtra ici dès qu'il est prêt.",
+				"sentTo": "Envoyé à {connector}",
 				"ready": "Média prêt",
 				"noMedia": "Génération terminée, mais aucun fichier à afficher ici — vérifie ton compte connecté.",
 				"failed": "La génération a échoué",
@@ -911,6 +912,7 @@
 		"filterVideos": "Vidéos",
 		"sourceGeneration": "Génération",
 		"sourceAnimation": "Animation",
+		"sourceVideo": "Vidéo",
 		"sourceBuild": "Site",
 		"download": "Télécharger",
 		"refresh": "Actualiser",

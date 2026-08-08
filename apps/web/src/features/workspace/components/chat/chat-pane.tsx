@@ -33,6 +33,7 @@ import { AnimatePresence } from "motion/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Spark } from "@/components/logo";
+import { OutOfCreditsBanner, useOutOfCredits } from "@/features/credits";
 import { PromptBox } from "@/features/projects";
 import { useDictionary, useTranslation } from "@/lib/i18n";
 import { readStoredBuilderGatewayModel } from "@/lib/model-labels";
@@ -69,6 +70,10 @@ export function ChatPane({ className }: { className?: string }) {
 		addToolApprovalResponse,
 	} = useSharedAiChat();
 	const editor = usePageEditor();
+	// Empty pool: the composer locks and the banner above it owns the upgrade
+	// CTA. Derived from the polled balance query, so a resubscribe or top-up
+	// unlocks it without any manual refresh.
+	const { outOfCredits } = useOutOfCredits();
 
 	// A replay/busy refusal must not be answered with "try again" copy:
 	// retrying resubmits the identical transcript and reproduces the refusal.
@@ -111,6 +116,7 @@ export function ChatPane({ className }: { className?: string }) {
 				part.type === "tool-generate_image" ||
 				part.type === "tool-scrape_leads" ||
 				part.type === "tool-animate_image" ||
+				part.type === "tool-generate_video" ||
 				part.type === "dynamic-tool",
 		);
 	const showThinking = isSubmitting && !replyHasVisibleContent;
@@ -393,12 +399,14 @@ export function ChatPane({ className }: { className?: string }) {
 							{t("workspace.page.editor.targetHint")}
 						</div>
 					) : null}
+					{outOfCredits ? <OutOfCreditsBanner className="mb-2" /> : null}
 					<PromptBox
 						variant="compact"
 						showEngines
 						showPriceTag
 						clearOnSubmit
 						attachmentsEnabled
+						disabled={outOfCredits}
 						placeholder={t("workspace.chat.placeholder")}
 						onSubmit={handleComposerSubmit}
 						onValueChange={setComposerText}

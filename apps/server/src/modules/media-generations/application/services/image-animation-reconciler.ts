@@ -1,10 +1,10 @@
-import type { ImageAnimationBilling } from "./image-animation-billing";
 import type { MeteringSubject } from "../../../credits/domain/credit-owner";
+import type { ImageAnimationBilling } from "./image-animation-billing";
 import {
 	type ImageAnimationAttempt,
 	type ImageAnimationAttemptStatus,
 	type ImageAnimationVideo,
-	USER_SAFE_IMAGE_ANIMATION_ERROR,
+	userSafeGenerationError,
 } from "./image-animation-runner";
 
 export const IMAGE_ANIMATION_STALE_QUEUED_MS = 30 * 60_000;
@@ -114,7 +114,7 @@ export async function reconcileImageAnimations(
 					: "generating";
 			const failed = await dependencies.failFromStatus(candidate, {
 				completedAt: now,
-				error: USER_SAFE_IMAGE_ANIMATION_ERROR,
+				error: userSafeGenerationError(candidate.kind),
 				expectedStatus,
 				reason: "project_deleted",
 			});
@@ -138,9 +138,9 @@ export async function reconcileImageAnimations(
 				// The admission-time event is authoritative; billing-off jobs have
 				// nothing to settle and must remain free during later recovery.
 				await dependencies.settleExisting(
-				candidateSubject(candidate),
-				candidate.id,
-			);
+					candidateSubject(candidate),
+					candidate.id,
+				);
 				// Settlement must precede the user-visible succeeded transition.
 				const persisted = await dependencies.markSucceeded(
 					candidate,
@@ -163,7 +163,7 @@ export async function reconcileImageAnimations(
 				: "generating";
 		const failed = await dependencies.failFromStatus(candidate, {
 			completedAt: now,
-			error: USER_SAFE_IMAGE_ANIMATION_ERROR,
+			error: userSafeGenerationError(candidate.kind),
 			expectedStatus,
 			reason:
 				candidate.reconciliationReason === "stale_queued"

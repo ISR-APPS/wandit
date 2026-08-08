@@ -19,12 +19,18 @@ import {
 	type AdminSetBannedInput,
 	type AdminSetRoleInput,
 	type AdminUserDetail,
+	type AdminUserPagesQuery,
+	type AdminUserPagesResponse,
+	type AdminUserProjectsQuery,
+	type AdminUserProjectsResponse,
 	adminBetaEnrollInputSchema,
 	adminGrantCreditsInputSchema,
 	adminListUsersQuerySchema,
 	adminSetAccessInputSchema,
 	adminSetBannedInputSchema,
 	adminSetRoleInputSchema,
+	adminUserPagesQuerySchema,
+	adminUserProjectsQuerySchema,
 } from "@wandit/contracts";
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
@@ -46,6 +52,24 @@ export class AdminUsersController {
 		query: AdminListUsersQuery,
 	): Promise<AdminListUsersResponse> {
 		return this.adminUsersService.listUsers(query);
+	}
+
+	@Get(":userId/pages")
+	pages(
+		@Param("userId") userId: string,
+		@Query(new ZodValidationPipe(adminUserPagesQuerySchema))
+		query: AdminUserPagesQuery,
+	): Promise<AdminUserPagesResponse> {
+		return this.adminUsersService.listUserPages(userId, query);
+	}
+
+	@Get(":userId/projects")
+	projects(
+		@Param("userId") userId: string,
+		@Query(new ZodValidationPipe(adminUserProjectsQuerySchema))
+		query: AdminUserProjectsQuery,
+	): Promise<AdminUserProjectsResponse> {
+		return this.adminUsersService.listUserProjects(userId, query);
 	}
 
 	@Get(":userId")

@@ -3,6 +3,7 @@ import {
 	CoinsIcon,
 	Globe2Icon,
 	ImagesIcon,
+	MinusIcon,
 	TrendingDownIcon,
 	TrendingUpIcon,
 	UserRoundPlusIcon,
@@ -37,19 +38,23 @@ type MetricItem = {
 };
 
 function MetricDelta({ value, label }: { value: number; label?: string }) {
-	const isPositive = value >= 0;
-
 	return (
 		<Badge
 			variant="outline"
 			className={cn(
 				"gap-1 border-transparent px-1.5 font-medium tabular-nums",
-				isPositive
-					? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
-					: "bg-destructive/10 text-destructive",
+				value > 0 && "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400",
+				value < 0 && "bg-destructive/10 text-destructive",
+				value === 0 && "bg-muted text-muted-foreground",
 			)}
 		>
-			{isPositive ? <TrendingUpIcon /> : <TrendingDownIcon />}
+			{value > 0 ? (
+				<TrendingUpIcon />
+			) : value < 0 ? (
+				<TrendingDownIcon />
+			) : (
+				<MinusIcon />
+			)}
 			{label ?? formatOverviewPercent(value)}
 		</Badge>
 	);
@@ -76,8 +81,8 @@ function OverviewMetrics({ snapshot }: OverviewMetricsProps) {
 			label: "Tokens used",
 			value: formatOverviewCompactNumber(totals.tokensUsed),
 			description: `${formatOverviewUsdMinor(
-				totals.estimatedTokenCostUsdMinor,
-			)} estimated model cost`,
+				totals.tokenCostUsdMinor,
+			)} recorded model cost`,
 			changePercent: totals.tokensChangePercent,
 			icon: CoinsIcon,
 		},
@@ -86,8 +91,8 @@ function OverviewMetrics({ snapshot }: OverviewMetricsProps) {
 			label: "Websites generated",
 			value: formatOverviewWholeNumber(totals.websitesGenerated),
 			description: `${formatOverviewWholeNumber(
-				snapshot.generation.successful,
-			)} successful generations`,
+				totals.websitesGenerated,
+			)} successful page generations`,
 			changePercent: totals.websitesChangePercent,
 			icon: Globe2Icon,
 		},
@@ -112,6 +117,8 @@ function OverviewMetrics({ snapshot }: OverviewMetricsProps) {
 			key: "images",
 			label: "Images generated",
 			value: formatOverviewCompactNumber(totals.imagesGenerated),
+			// MOCK DATA: Page-build R2 images lack a reliable database success marker,
+			// so this total currently covers persisted generation attempts only.
 			description: `${formatOverviewCompactNumber(
 				totals.assetsGenerated,
 			)} assets created`,
@@ -123,7 +130,7 @@ function OverviewMetrics({ snapshot }: OverviewMetricsProps) {
 	return (
 		<section aria-label="Platform headline metrics">
 			<div className="overflow-hidden rounded-xl border bg-background">
-				<div className="grid @[1180px]/main:grid-cols-6 @[860px]/main:grid-cols-3 sm:grid-cols-2">
+				<div className="grid @[1400px]/main:grid-cols-6 @[860px]/main:grid-cols-3 sm:grid-cols-2">
 					{metrics.map((metric, index) => (
 						<div
 							key={metric.key}
@@ -138,10 +145,10 @@ function OverviewMetrics({ snapshot }: OverviewMetricsProps) {
 								index % 3 === 2
 									? "@[860px]/main:border-r-0"
 									: "@[860px]/main:border-r",
-								"@[1180px]/main:border-b-0",
+								"@[1400px]/main:border-b-0",
 								index === metrics.length - 1
-									? "@[1180px]/main:border-r-0"
-									: "@[1180px]/main:border-r",
+									? "@[1400px]/main:border-r-0"
+									: "@[1400px]/main:border-r",
 							)}
 						>
 							<div className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-md border bg-muted/40 text-muted-foreground">

@@ -99,7 +99,7 @@
 	"promptBox": {
 		"placeholderHero": "Décris ce que tu veux que Wandit crée ou modifie…",
 		"placeholderCompact": "Demande une modif de page, un asset marketing, une image ou une vidéo…",
-		"banner": "Beta — tes 10 premières pages sont offertes, sans carte",
+		"banner": "Beta — tes 5 premières pages sont offertes, sans carte",
 		"submitLabel": "Générer",
 		"micLabel": "Saisie vocale",
 		"micStop": "Arrêter l'enregistrement",
@@ -156,6 +156,10 @@
 		},
 		"outputsHeading": "Sorties {mode}",
 		"settingsSubtitle": "Options pour cette sortie {mode}.",
+		"stepBack": "Retour",
+		"stepNext": "Suivant",
+		"stepDone": "Terminé",
+		"stepLabel": "Étape {current} sur {total}",
 		"quality": {
 			"standard": {
 				"label": "Standard",
@@ -188,9 +192,9 @@
 				"placeholder": "Décris l'image produit, le ratio, le style et le décor…"
 			},
 			"video": {
-				"label": "Animer une image",
-				"description": "Transforme une photo en courte vidéo animée.",
-				"placeholder": "Facultatif : décris le mouvement ou le déplacement de caméra…"
+				"label": "Vidéo",
+				"description": "Crée une vidéo ou anime une photo.",
+				"placeholder": "Décris la vidéo que tu veux — produit, style, moment clé…"
 			}
 		},
 		"skillGroups": {
@@ -508,9 +512,42 @@
 					}
 				}
 			},
+			"video-creator": {
+				"label": "Création vidéo",
+				"shortLabel": "Création vidéo",
+				"description": "Crée une courte vidéo à partir de ta description — pub, clip UGC ou teaser.",
+				"placeholder": "Décris la vidéo : le produit, l'ambiance, le moment à capturer…",
+				"options": {
+					"ratio": {
+						"label": "Ratio",
+						"choices": {
+							"9-16": "9:16",
+							"1-1": "1:1",
+							"16-9": "16:9"
+						}
+					},
+					"duration": {
+						"label": "Durée",
+						"choices": {
+							"10": "10 s",
+							"5": "5 s"
+						}
+					},
+					"voice": {
+						"label": "Voix off",
+						"choices": {
+							"auto": "Auto",
+							"none": "Aucune",
+							"en": "Anglais",
+							"fr": "Français",
+							"ar": "Arabe"
+						}
+					}
+				}
+			},
 			"image-animation": {
-				"label": "Animation d'image",
-				"shortLabel": "Animation d'image",
+				"label": "Image en vidéo",
+				"shortLabel": "Image en vidéo",
 				"description": "Anime une image fixe ; ne crée pas de vidéo à partir de zéro.",
 				"placeholder": "Facultatif : décris le mouvement, la caméra ou ce qui doit rester fixe…",
 				"options": {

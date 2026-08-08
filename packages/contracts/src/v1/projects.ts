@@ -94,14 +94,27 @@ export const createProjectResponseSchema = z.object({
 // TypeScript create response.
 export type CreateProjectResponse = z.infer<typeof createProjectResponseSchema>;
 
+// Pixel ids end up inside inline <script> on PUBLISHED pages, so the
+// contract rejects anything that is not a plain platform identifier instead
+// of silently stripping characters at publish time. Trimmed first: a pasted
+// id routinely carries whitespace.
+export const pixelIdSchema = z
+	.string()
+	.trim()
+	.min(1)
+	.max(64)
+	.regex(/^[A-Za-z0-9_-]+$/, {
+		message: "A pixel id may only contain letters, digits, _ and -",
+	});
+
 // Body for updating project settings.
 export const updateProjectBodySchema = z.object({
 	name: z.string().min(1).max(120).optional(),
 	// null removes the logo; undefined leaves it unchanged.
 	logoUrl: z.url().max(2048).nullable().optional(),
 	// null clears the pixel id; undefined leaves it unchanged.
-	metaPixelId: z.string().nullable().optional(),
-	tiktokPixelId: z.string().nullable().optional(),
+	metaPixelId: pixelIdSchema.nullable().optional(),
+	tiktokPixelId: pixelIdSchema.nullable().optional(),
 });
 
 // TypeScript update body.

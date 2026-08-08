@@ -29,12 +29,15 @@ import {
 	type GenerateMarketingAssetOutput,
 	type GeneratePageInput,
 	type GeneratePageOutput,
+	type GenerateVideoInput,
+	type GenerateVideoOutput,
 	type GetDirectionCandidatesInput,
 	type GetDirectionCandidatesOutput,
 	type GetPageOutlineOutput,
 	generateImageInputSchema,
 	generateMarketingAssetInputSchema,
 	generatePageInputSchema,
+	generateVideoInputSchema,
 	getDirectionCandidatesInputSchema,
 	IMAGE_TO_VIDEO_SOURCE_MEDIA_TYPES,
 	type ReadElementsInput,
@@ -69,6 +72,7 @@ import {
 import type { FastifyReply } from "fastify";
 
 import { isUserUploadUrl } from "../../../../infrastructure/storage/r2";
+import { ConnectorGenerationsRepository } from "../../../connector-generations/infrastructure/persistence/connector-generations.repository";
 import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import { ChatsRepository } from "../../../generation/infrastructure/persistence/chats.repository";
 import { ImageGenerationsRepository } from "../../../image-generations/infrastructure/persistence/image-generations.repository";
@@ -79,14 +83,15 @@ import {
 	type McpChatToolsResult,
 	McpChatToolsService,
 } from "../../../mcp-connectors/application/services/mcp-chat-tools.service";
+import { VideoDirectorService } from "../../../media-generations/application/services/video-director";
 import { MediaGenerationsRepository } from "../../../media-generations/infrastructure/persistence/media-generations.repository";
 import { MeteringService } from "../../../metering/application/services/metering.service";
 import { ModelPricingService } from "../../../metering/application/services/model-pricing.service";
-import { gatewayGenerationCaptureFromError } from "../../../metering/domain/gateway-metering";
+import { llmGenerationCaptureFromError } from "../../../metering/domain/gateway-metering";
 import {
 	type AiUsageEvent,
 	type CapturedGeneration,
-	gatewayGenerationId,
+	capturedGenerationRef,
 	type MeteringReserveOutcome,
 	MeteringStateConflictError,
 } from "../../../metering/domain/metering";
@@ -102,6 +107,7 @@ import {
 	type ProjectScope,
 } from "../../../projects/domain/project-scope";
 import { annotateUserFileParts } from "../../agent/annotate-file-parts";
+import { annotateGeneratedAssets } from "../../agent/annotate-generated-assets";
 import { createChatAgent, type WanditUIMessage } from "../../agent/chat-agent";
 import {
 	estimateAiChatTokenUsage,
@@ -148,6 +154,8 @@ export class AiChatService {
 	constructor(
 		@Inject(ChatsRepository)
 		private readonly chatsRepository: ChatsRepository,
+		@Inject(ConnectorGenerationsRepository)
+		private readonly connectorGenerationsRepository: ConnectorGenerationsRepository,
 		@Inject(PagesRepository)
 		private readonly pagesRepository: PagesRepository,
 		@Inject(PageEditsService)
@@ -156,6 +164,8 @@ export class AiChatService {
 		private readonly leadScrapesRepository: LeadScrapesRepository,
 		@Inject(MediaGenerationsRepository)
 		private readonly mediaGenerationsRepository: MediaGenerationsRepository,
+		@Inject(VideoDirectorService)
+		private readonly videoDirector: VideoDirectorService,
 		@Inject(MarketingAssetsRepository)
 		private readonly marketingAssetsRepository: MarketingAssetsRepository,
 		@Inject(ImageGenerationsRepository)
@@ -495,9 +505,10 @@ export class AiChatService {
 				return;
 			}
 
-			const capture = gatewayGenerationCaptureFromError(error);
+			const capture = llmGenerationCaptureFromError(error);
 			const generationId = capture
-				? gatewayGenerationId(capture.providerMetadata)
+				? (capturedGenerationRef(capture.providerMetadata)?.generationId ??
+					null)
 				: null;
 
 			if (
@@ -592,18 +603,26 @@ export class AiChatService {
 					// Snapshotted into generation specs for later model swapping; no
 					// generator reads it yet.
 					quality: metadata?.composer?.quality,
-					requireSelectedSource: metadata?.composer?.mode === "video",
+					// Only the image-animation output hard-requires a validated source
+					// still. Video mode's other output (video-creator) is
+					// text-to-video; a missing output means a legacy client where
+					// image-animation was the only video output.
+					requireSelectedSource:
+						metadata?.composer?.mode === "video" &&
+						(metadata.composer.output ?? "image-animation") ===
+							"image-animation",
 					requestKeySeed,
 					requestCountryCode: requestCountryCode ?? null,
 					selectedSourceImage,
 					subject,
 					userId,
+					videoDirector: this.videoDirector,
 				},
 				contextWithMcpNotices || null,
 				mcpResult.tools,
 				mcpResult.approvalMap,
 			);
-			// Three transforms on the MODEL-BOUND copy only (DB + UI keep the truth):
+			// Four transforms on the MODEL-BOUND copy only (DB + UI keep the truth):
 			// 1. complete tool calls that never got a result (typed-past ask_user,
 			//    or a stream aborted mid-execute) — providers reject a history that
 			//    carries a tool call without a matching result,
@@ -611,9 +630,22 @@ export class AiChatService {
 			//    guidance does not cost tokens on every request,
 			// 3. follow user file parts with a text marker exposing their URL —
 			//    without it the model sees the image but cannot reference it in
-			//    generate_image/animate_image and asks for an already-sent photo.
-			const agentMessages = annotateUserFileParts(
-				elideRetiredToolOutputs(completeDanglingToolCalls(messages)),
+			//    generate_image/animate_image and asks for an already-sent photo,
+			// 4. follow settled generation tool parts with a [Generated …] marker
+			//    exposing the finished asset's URL — without it the model never
+			//    learns any generated URL and asks the user to re-attach media
+			//    that Wandit itself produced.
+			const agentMessages = await annotateGeneratedAssets(
+				annotateUserFileParts(
+					elideRetiredToolOutputs(completeDanglingToolCalls(messages)),
+				),
+				{
+					connectorGenerationsRepository: this.connectorGenerationsRepository,
+					imageGenerationsRepository: this.imageGenerationsRepository,
+					mediaGenerationsRepository: this.mediaGenerationsRepository,
+					projectId,
+					scope,
+				},
 			);
 			let finalUsage: LanguageModelUsage | null = null;
 			const pendingGenerationCaptures: CapturedGeneration[] = [];
@@ -1193,6 +1225,20 @@ const INCOMPLETE_ANIMATE_IMAGE_INPUT: AnimateImageInput = {
 	sourceMediaType: "image/jpeg",
 };
 
+const INTERRUPTED_GENERATE_VIDEO_OUTPUT: GenerateVideoOutput = {
+	message:
+		"The video request was interrupted before it could be queued. If the " +
+		"user still wants it, call generate_video again with the brief.",
+	status: "unavailable",
+};
+
+const INCOMPLETE_GENERATE_VIDEO_INPUT: GenerateVideoInput = {
+	aspect: "16:9",
+	brief: "The creative brief was lost when the request stream was interrupted.",
+	durationSeconds: 10,
+	title: "Interrupted video request",
+};
+
 const INTERRUPTED_READ_SKILL_MARKDOWN =
 	"[skill load was interrupted — call read_skill again if needed]";
 
@@ -1463,6 +1509,28 @@ export function completeDanglingToolCalls(
 						? parsedInput.data
 						: INCOMPLETE_ANIMATE_IMAGE_INPUT,
 					output: INTERRUPTED_ANIMATE_IMAGE_OUTPUT,
+					state: "output-available" as const,
+				};
+			}
+
+			if (part.type === "tool-generate_video") {
+				if (
+					part.state !== "input-available" &&
+					part.state !== "input-streaming"
+				) {
+					return part;
+				}
+
+				changed = true;
+
+				const parsedInput = generateVideoInputSchema.safeParse(part.input);
+
+				return {
+					...part,
+					input: parsedInput.success
+						? parsedInput.data
+						: INCOMPLETE_GENERATE_VIDEO_INPUT,
+					output: INTERRUPTED_GENERATE_VIDEO_OUTPUT,
 					state: "output-available" as const,
 				};
 			}

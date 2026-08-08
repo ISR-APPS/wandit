@@ -99,7 +99,7 @@
 	"promptBox": {
 		"placeholderHero": "Describe what you want Wandit to create or change…",
 		"placeholderCompact": "Ask for a page edit, a marketing asset, an image or a video…",
-		"banner": "Beta — your first 10 pages are on us, no card needed",
+		"banner": "Beta — your first 5 pages are on us, no card needed",
 		"submitLabel": "Generate",
 		"micLabel": "Voice input",
 		"micStop": "Stop recording",
@@ -156,6 +156,10 @@
 		},
 		"outputsHeading": "{mode} outputs",
 		"settingsSubtitle": "Options for this {mode} output.",
+		"stepBack": "Back",
+		"stepNext": "Next",
+		"stepDone": "Done",
+		"stepLabel": "Step {current} of {total}",
 		"quality": {
 			"standard": {
 				"label": "Standard",
@@ -188,9 +192,9 @@
 				"placeholder": "Describe the product image, ratio, style and setting…"
 			},
 			"video": {
-				"label": "Animate an image",
-				"description": "Turn a photo into a short animated video.",
-				"placeholder": "Optional: describe the motion or camera movement…"
+				"label": "Video",
+				"description": "Create a video or animate a photo into motion.",
+				"placeholder": "Describe the video you want — product, style, key moment…"
 			}
 		},
 		"skillGroups": {
@@ -508,9 +512,42 @@
 					}
 				}
 			},
+			"video-creator": {
+				"label": "Video creator",
+				"shortLabel": "Video creator",
+				"description": "Creates a short video from your description — a commercial, UGC clip, or teaser.",
+				"placeholder": "Describe the video: the product, the vibe, the moment to capture…",
+				"options": {
+					"ratio": {
+						"label": "Ratio",
+						"choices": {
+							"9-16": "9:16",
+							"1-1": "1:1",
+							"16-9": "16:9"
+						}
+					},
+					"duration": {
+						"label": "Duration",
+						"choices": {
+							"10": "10s",
+							"5": "5s"
+						}
+					},
+					"voice": {
+						"label": "Voiceover",
+						"choices": {
+							"auto": "Auto",
+							"none": "None",
+							"en": "English",
+							"fr": "French",
+							"ar": "Arabic"
+						}
+					}
+				}
+			},
 			"image-animation": {
-				"label": "Image animation",
-				"shortLabel": "Image animation",
+				"label": "Image to video",
+				"shortLabel": "Image to video",
 				"description": "Animates one still image; it does not create a video from scratch.",
 				"placeholder": "Optional: describe motion, camera movement or what should stay still…",
 				"options": {

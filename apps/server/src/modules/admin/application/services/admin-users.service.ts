@@ -14,17 +14,28 @@ import {
 	type AdminSetBannedInput,
 	type AdminSetRoleInput,
 	type AdminUserDetail,
+	type AdminUserPage,
+	type AdminUserPagesQuery,
+	type AdminUserPagesResponse,
+	type AdminUserProjectsQuery,
+	type AdminUserProjectsResponse,
 	isAdminRole,
 } from "@wandit/contracts";
+import { env } from "@wandit/env/server";
 
 import { CreditsService } from "../../../credits/application/services/credits.service";
 import { userOwner } from "../../../credits/domain/credit-owner";
+import { canonicalDomainHost } from "../../../domains/domain/domain-hosts";
 import {
 	mapAdminUserDetail,
+	mapAdminUserProject,
 	mapAdminUserSummary,
 } from "../../infrastructure/mappers/admin-user.mapper";
+import {
+	AdminRepository,
+	type AdminUserPageRow,
+} from "../../infrastructure/persistence/admin.repository";
 import { AdminOrganizationsRepository } from "../../infrastructure/persistence/admin-organizations.repository";
-import { AdminRepository } from "../../infrastructure/persistence/admin.repository";
 import { BetaAccessService } from "./beta-access.service";
 
 const RECENT_PROJECTS_LIMIT = 25;
@@ -53,6 +64,43 @@ export class AdminUsersService {
 			page: page.page,
 			pageSize: page.pageSize,
 			total: page.total,
+		};
+	}
+
+	async listUserPages(
+		userId: string,
+		query: AdminUserPagesQuery,
+	): Promise<AdminUserPagesResponse> {
+		const page = await this.adminRepository.listUserPages(userId, query);
+
+		return {
+			items: page.items.map(mapAdminUserPage),
+			page: page.page,
+			pageSize: page.pageSize,
+			total: page.total,
+		};
+	}
+
+	async listUserProjects(
+		userId: string,
+		query: AdminUserProjectsQuery,
+	): Promise<AdminUserProjectsResponse> {
+		const offset = (query.page - 1) * query.pageSize;
+		const order = query.sort === "oldest" ? "asc" : "desc";
+		const [projects, total] = await Promise.all([
+			this.adminRepository.listUserProjects(userId, {
+				limit: query.pageSize,
+				offset,
+				order,
+			}),
+			this.adminRepository.countUserProjects(userId),
+		]);
+
+		return {
+			items: projects.map(mapAdminUserProject),
+			page: query.page,
+			pageSize: query.pageSize,
+			total,
 		};
 	}
 
@@ -198,4 +246,70 @@ export class AdminUsersService {
 			throw new NotFoundException();
 		}
 	}
+}
+
+export function mapAdminUserPage(row: AdminUserPageRow): AdminUserPage {
+	const published = row.activeDeploymentSlug !== null;
+	const liveUrl = published
+		? `https://${row.activeDeploymentSlug}.${env.SITES_DOMAIN}`
+		: null;
+	const primaryDomain =
+		row.primaryDomainName !== null && row.primaryDomainStatus !== null
+			? {
+					name: row.primaryDomainName,
+					status: row.primaryDomainStatus,
+				}
+			: null;
+
+	return {
+		project: {
+			id: row.projectId,
+			name: row.projectName,
+			organizationId: row.organizationId,
+			previewImageUrl: row.previewImageUrl,
+			createdAt: row.projectCreatedAt.toISOString(),
+			updatedAt: toIso(row.projectUpdatedAt),
+		},
+		page: {
+			activeVersion:
+				row.activeVersionId !== null &&
+				row.activeVersionNumber !== null &&
+				row.activeVersionCreatedAt !== null
+					? {
+							id: row.activeVersionId,
+							number: row.activeVersionNumber,
+							createdAt: row.activeVersionCreatedAt.toISOString(),
+						}
+					: null,
+			latestGeneration:
+				row.latestGenerationStatus !== null &&
+				row.latestGenerationCreatedAt !== null
+					? {
+							status: row.latestGenerationStatus,
+							createdAt: row.latestGenerationCreatedAt.toISOString(),
+							completedAt:
+								row.latestGenerationCompletedAt?.toISOString() ?? null,
+						}
+					: null,
+		},
+		deployment: {
+			published,
+			latestStatus: row.latestDeploymentStatus,
+			slug: row.activeDeploymentSlug,
+			liveUrl,
+			publicUrl:
+				published && primaryDomain
+					? `https://${canonicalDomainHost(primaryDomain.name)}`
+					: liveUrl,
+			publishedAt: row.activeDeploymentUpdatedAt?.toISOString() ?? null,
+		},
+		primaryDomain,
+	};
+}
+
+// Raw SQL expressions can surface as Date or string depending on pg parsers.
+function toIso(value: Date | string): string {
+	return value instanceof Date
+		? value.toISOString()
+		: new Date(value).toISOString();
 }

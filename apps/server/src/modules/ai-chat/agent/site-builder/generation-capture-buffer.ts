@@ -1,4 +1,4 @@
-import { gatewayGenerationCaptureFromError } from "../../../metering/domain/gateway-metering";
+import { llmGenerationCaptureFromError } from "../../../metering/domain/gateway-metering";
 import type { CapturedGeneration } from "../../../metering/domain/metering";
 
 const GENERATION_CAPTURE_ATTEMPTS = 3;
@@ -11,15 +11,16 @@ export type GenerationCaptureBuffer = {
 };
 
 /**
- * Failed AI Gateway calls expose their generation id on the error rather than
- * through `onStepEnd`. Put that evidence through the same durable retry buffer
+ * Failed provider calls expose their generation id on the error rather than
+ * through `onStepEnd` (Vercel puts it in the error body; the OpenRouter model
+ * wrapper tags it). Put that evidence through the same durable retry buffer
  * as successful steps before the caller decides whether a hold is refundable.
  */
 export async function captureGatewayGenerationError(
 	buffer: GenerationCaptureBuffer,
 	error: unknown,
 ): Promise<boolean> {
-	const capture = gatewayGenerationCaptureFromError(error);
+	const capture = llmGenerationCaptureFromError(error);
 
 	if (!capture) {
 		return false;

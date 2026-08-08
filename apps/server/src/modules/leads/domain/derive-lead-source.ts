@@ -17,6 +17,29 @@ const FACEBOOK_UTM_SOURCES = new Set([
 ]);
 const TIKTOK_UTM_SOURCES = new Set(["tiktok", "tt"]);
 
+/** Campaign name cap on the wire — matches the capture-side utm limit. */
+const MAX_CAMPAIGN_LENGTH = 200;
+
+/**
+ * The human campaign label for one lead: utm_campaign as the merchant (or
+ * the agent's UTM tagging) wrote it, trimmed and capped. Null when the ad
+ * link carried no utm_campaign — click ids alone cannot name a campaign.
+ */
+export function deriveLeadCampaign(attribution: unknown): string | null {
+	if (typeof attribution !== "object" || attribution === null) {
+		return null;
+	}
+
+	const campaign = (attribution as Record<string, unknown>).utm_campaign;
+	if (typeof campaign !== "string") {
+		return null;
+	}
+
+	const trimmed = campaign.trim().slice(0, MAX_CAMPAIGN_LENGTH);
+
+	return trimmed.length > 0 ? trimmed : null;
+}
+
 export function deriveLeadSource(attribution: unknown): LeadSource {
 	if (typeof attribution !== "object" || attribution === null) {
 		return "direct";

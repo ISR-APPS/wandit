@@ -219,6 +219,7 @@ A product, a price or a button in the first screen · a solid 1px rule anywhere 
 ## Intensity
 This world fails by warming up too fast. Every wrong decision here is an impatience: showing the product in scene one because "people want to see it", solid rules because dashed felt fussy, a 16px radius because 2px felt severe, .6s reveals because 1.3s felt slow, a pill button because plaques felt old. Executed at 60 percent, Héritage is a brown template with a nice photograph. Executed at 100 percent — a dark screen that says only "Trois générations. Un seul geste.", a thread that stitches its way down through every scene and crosses itself once at the moment the object finally appears, plates numbered like a museum's, a map with one point on it that breathes, a journey you scroll through at the pace of a hand, a price that explains itself, and a docket stamped with a seal at the end — it reads as a house that has been quietly right for forty years. The slowness IS the product. Push into it. Every number above is load-bearing.`,
 	energy: "medium",
+	family: "heritage",
 	id: "heritage",
 	industries: [
 		"crafts",
@@ -239,6 +240,13 @@ This world fails by warming up too fast. Every wrong decision here is an impatie
 	kind: "product",
 	mood: ["storied", "tactile", "earthen", "slow", "handmade"],
 	name: "Héritage",
+	preview: {
+		ground: "#DCCBB0",
+		ink: "#241E17",
+		accent: "#8F5C2C",
+		fontFamily: "Newsreader",
+		sampleWord: "Héritage",
+	},
 	priceFeel: "premium",
 	tagline:
 		"The page opens on your story in huge thin serif over dark kraft — no product yet — then a sewing thread stitches its way down the screen, joining scene to scene, until the object is finally revealed, priced honestly and ordered on a workshop docket stamped like a piece of leather.",

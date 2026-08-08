@@ -3,10 +3,10 @@
 // Billing maintenance, domain fulfillment, and order refunds run in
 // Trigger.dev. This worker now owns only AI chat generation plus the
 // media-generation, lead-processing, and publishing queue contracts.
-import { gateway } from "@ai-sdk/gateway";
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
 
+import { createProviderMeteringGateway } from "../../server/src/modules/ai-provider/infrastructure/metering-provider-gateway";
 import { CreditsService } from "../../server/src/modules/credits/application/services/credits.service";
 import { CreditsRepository } from "../../server/src/modules/credits/infrastructure/persistence/credits.repository";
 import { MeteringService } from "../../server/src/modules/metering/application/services/metering.service";
@@ -53,7 +53,7 @@ import { PublishProcessor } from "./processors/publish.processor";
 		WorkerChatRepository,
 		{
 			provide: METERING_GATEWAY,
-			useValue: gateway,
+			useValue: createProviderMeteringGateway(),
 		},
 	],
 })

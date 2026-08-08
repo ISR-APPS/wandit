@@ -23,6 +23,7 @@ export function AskUserGroupCard({
 	ownsActiveAsk,
 	isAfterActiveAsk,
 	showHeader = true,
+	defaultOpen = false,
 }: {
 	parts: AskUserToolPart[];
 	activeAskToolCallId?: string;
@@ -31,16 +32,17 @@ export function AskUserGroupCard({
 	/** MessageParts hoists one Wandit header per assistant turn — the card
 	 * must not repeat it inside the same turn. */
 	showHeader?: boolean;
+	/** Initial expansion only — the card never auto-opens after mount. */
+	defaultOpen?: boolean;
 }) {
 	const { t } = useTranslation();
 	const activeAskIndex = parts.findIndex(
 		(part) => part.toolCallId === activeAskToolCallId,
 	);
 
-	// Collapsible: open while the round still needs answers, folded into a
-	// one-line receipt once everything settled (long question lists otherwise
-	// dominate the thread). Manual toggle always wins until the next
-	// open/settled transition.
+	// Collapsible, CLOSED by default — the composer already carries the live
+	// question, so the card starts as a one-line summary and only expands by
+	// hand. It still folds back into the receipt when the round settles.
 	const hasOpenAsk = parts.some(
 		(part) =>
 			part.state === "input-streaming" || part.state === "input-available",
@@ -49,13 +51,13 @@ export function AskUserGroupCard({
 	const answeredCount = parts.filter(
 		(part) => part.state === "output-available" && !part.output.dismissed,
 	).length;
-	const [open, setOpen] = useState(hasOpenAsk);
+	const [open, setOpen] = useState(defaultOpen);
 	const previousHasOpenAsk = useRef(hasOpenAsk);
 
 	useEffect(() => {
 		if (previousHasOpenAsk.current !== hasOpenAsk) {
 			previousHasOpenAsk.current = hasOpenAsk;
-			setOpen(hasOpenAsk);
+			if (!hasOpenAsk) setOpen(false);
 		}
 	}, [hasOpenAsk]);
 

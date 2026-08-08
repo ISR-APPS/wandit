@@ -134,6 +134,9 @@ export type LeadCaptureResponse = z.infer<typeof leadCaptureResponseSchema>;
 
 // Everything the Leads tab needs for one row.
 export const leadSchema = z.object({
+	// utm_campaign as the ad link carried it — names WHICH campaign brought
+	// this order, next to source's WHERE. Defaulted for older servers.
+	campaign: z.string().nullable().default(null),
 	commune: z.string().nullable(),
 	createdAt: isoDateTimeSchema,
 	extras: z.record(z.string(), z.unknown()).nullable(),

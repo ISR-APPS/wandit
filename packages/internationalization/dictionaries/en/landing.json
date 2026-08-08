@@ -16,46 +16,71 @@
 		"backToTop": "Wandit — back to top"
 	},
 	"hero": {
-		"titleLine1": "Type it. Launch it.",
-		"titleLine2": "Sell it.",
-		"sub": "Wandit turns a prompt into a ready-to-run landing page — publish and collect COD orders in minutes.",
-		"chips": [
-			{
-				"label": "COD product page",
-				"prompt": "A COD product page for a vintage leather watch — hero shot, three benefit blocks, and an order form with wilaya and commune fields."
-			},
-			{
-				"label": "Site vitrine",
-				"prompt": "Un site vitrine élégant pour un cabinet dentaire à Alger — services, équipe, horaires et prise de rendez-vous."
-			},
-			{
-				"label": "Service page",
-				"prompt": "A landing page for a media-buying training program in French — curriculum, testimonials, and an enrollment form."
-			},
-			{
-				"label": "Promo page",
-				"prompt": "A limited-time promo page for a sneakers drop in Algiers — bold visuals, size picker, and COD checkout."
-			}
+		"eyebrow": "WANDIT — THE AI BUSINESS BUILDER",
+		"titleLine1": "Turn an idea into",
+		"titleLine2": "a business ready to sell.",
+		"sub": "Create your website, generate your ads, build your marketing strategy and launch your campaigns from one AI-powered platform.",
+		"trust": [
+			"Free credits to start",
+			"No code required",
+			"Domain and hosting included"
+		]
+	},
+	"proofBar": {
+		"title": "Everything you need to build, launch and grow your business.",
+		"items": [
+			"Websites",
+			"Landing pages",
+			"Ad images",
+			"AI videos",
+			"Marketing strategy",
+			"Ads analysis",
+			"Campaign launch"
+		]
+	},
+	"problem": {
+		"kicker": "The problem",
+		"title": "Launching a business should not take ten tools and a whole team.",
+		"intro": "Normally, you need:",
+		"roles": [
+			"a developer to build the site",
+			"a designer to produce the visuals",
+			"an editor to make the videos",
+			"a marketer to build the strategy",
+			"a media buyer to run the campaigns"
 		],
-		"trust": ["Pages in AR & FR", "COD order forms", "Publish in one click"]
+		"solution": "One AI",
+		"resolution": "With Wandit, you work with one AI that understands your business and orchestrates the whole process."
 	},
 	"howItWorks": {
 		"kicker": "How it works",
-		"title": "Three steps to your first order.",
+		"title": "See Wandit in action.",
 		"steps": [
 			{
-				"title": "Describe it",
-				"body": "Type what you sell in Arabic, French or English. Wandit drafts a complete landing page in seconds."
+				"title": "Describe your idea",
+				"body": "Explain what you sell — in French, Arabic or English. Wandit understands your market and your product."
 			},
 			{
-				"title": "Make it yours",
-				"body": "Iterate in chat — swap sections, colors and copy. Every change becomes a version you can roll back."
+				"title": "Watch the AI build",
+				"body": "Your website, ad visuals and strategy are generated in front of you. Change anything with a simple message."
 			},
 			{
-				"title": "Publish & sell",
-				"body": "Go live on your-page.wandit.app in one click. COD orders land straight in your leads inbox."
+				"title": "Launch and sell",
+				"body": "Publish in one click, launch your campaigns and receive orders straight in your leads inbox."
 			}
-		]
+		],
+		"demo": {
+			"prompt": "I sell mountain honey from the Aurès. Build my website, my ad visuals and my launch strategy.",
+			"artifacts": ["Website", "Ad visuals", "AI video", "Marketing strategy"],
+			"publishedToast": "Site published",
+			"campaignsLabel": "Campaigns",
+			"liveLabel": "Live",
+			"events": [
+				"New order — Algiers",
+				"New lead — Oran",
+				"TikTok campaign active"
+			]
+		}
 	},
 	"examples": {
 		"kicker": "Examples",

@@ -224,6 +224,7 @@ This world fails in exactly one way: half-cut. Two seams done properly and the r
 
 Executed at 100% — sheets overlapping with real shadows, cut edges drawing themselves as you arrive, a photograph punched into a pebble with a second sheet peeking behind it, one word underlined in wax, a paper-doll chain along the footer, and a small line in the margin saying that shoes come off at the door — the page feels like a room somebody prepared for your child. Push INTO the paper. Every number above is load-bearing, and the counts are as load-bearing as the numbers.`,
 	energy: "medium",
+	family: "ribambelle",
 	id: "ribambelle",
 	industries: [
 		"baby",
@@ -244,6 +245,13 @@ Executed at 100% — sheets overlapping with real shadows, cut edges drawing the
 	kind: "website",
 	mood: ["warm", "playful", "handmade", "gentle", "sunny"],
 	name: "Ribambelle",
+	preview: {
+		ground: "#FBF7F0",
+		ink: "#2A2018",
+		accent: "#F7E3DC",
+		fontFamily: "Bricolage Grotesque",
+		sampleWord: "Ribambelle",
+	},
 	priceFeel: "accessible",
 	tagline:
 		"Cut-paper warmth: pastel sheets laid over each other with real shadows and scalloped edges, photographs punched out in pebble shapes, one word underlined in wax crayon — the page of a place that prepared the room for your child.",

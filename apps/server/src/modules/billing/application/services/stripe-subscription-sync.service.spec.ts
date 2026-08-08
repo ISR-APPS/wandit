@@ -209,9 +209,9 @@ class FakeSubscriptionsRepository {
 			pendingAppliedBy: null,
 			pendingTierCredits: null,
 			plan: "pro",
-			priceLookupKey: "pro_100_month",
+			priceLookupKey: "pro_200_month",
 			provider: "stripe",
-			tierCredits: 100,
+			tierCredits: 200,
 			updatedAt: new Date(0),
 			...input,
 		} satisfies SubscriptionRow;
@@ -379,7 +379,7 @@ describe("StripeSubscriptionSyncService", () => {
 				currentPeriodEnd: 1_731_536_000,
 				currentPeriodStart: 1_700_000_000,
 				id: "sub_pro_yearly",
-				lookupKey: "pro_1200_year",
+				lookupKey: "pro_2400_year",
 				status: "past_due",
 			}),
 		];
@@ -394,11 +394,11 @@ describe("StripeSubscriptionSyncService", () => {
 			interval: "year",
 			organizationId: null,
 			plan: "pro",
-			priceLookupKey: "pro_1200_year",
+			priceLookupKey: "pro_2400_year",
 			provider: "stripe",
 			providerSubscriptionId: "sub_pro_yearly",
 			status: "past_due",
-			tierCredits: 1200,
+			tierCredits: 2400,
 			userId: "user_1",
 		});
 		expect(subscriptions.upsertCalls[0]?.client).toBe(
@@ -416,12 +416,12 @@ describe("StripeSubscriptionSyncService", () => {
 			stripeSubscription({
 				created: 100,
 				id: "sub_older",
-				lookupKey: "pro_100_month",
+				lookupKey: "pro_200_month",
 			}),
 			stripeSubscription({
 				created: 200,
 				id: "sub_newest",
-				lookupKey: "pro_200_year",
+				lookupKey: "pro_400_year",
 			}),
 		];
 
@@ -452,14 +452,14 @@ describe("StripeSubscriptionSyncService", () => {
 			stripeSubscription({
 				created: 100,
 				id: "sub_active",
-				lookupKey: "pro_100_month",
+				lookupKey: "pro_200_month",
 				status: "active",
 			}),
 			...(["incomplete", "past_due", "unpaid"] as const).map((status, index) =>
 				stripeSubscription({
 					created: 200 + index,
 					id: `sub_${status}`,
-					lookupKey: "pro_200_month",
+					lookupKey: "pro_400_month",
 					status,
 				}),
 			),
@@ -482,8 +482,8 @@ describe("StripeSubscriptionSyncService", () => {
 		const { paymentProvider, service, subscriptions } = setup();
 		subscriptions.seed({
 			pendingAppliedBy: "sub_sched_1",
-			pendingTierCredits: 100,
-			priceLookupKey: "pro_200_month",
+			pendingTierCredits: 200,
+			priceLookupKey: "pro_400_month",
 			providerSubscriptionId: "sub_scheduled",
 			status: "active",
 			userId: "user_1",
@@ -491,7 +491,7 @@ describe("StripeSubscriptionSyncService", () => {
 		paymentProvider.subscriptions = [
 			stripeSubscription({
 				id: "sub_scheduled",
-				lookupKey: "pro_100_month",
+				lookupKey: "pro_200_month",
 				status: "active",
 			}),
 		];
@@ -501,14 +501,14 @@ describe("StripeSubscriptionSyncService", () => {
 		expect(subscriptions.row("sub_scheduled")).toMatchObject({
 			pendingAppliedBy: null,
 			pendingTierCredits: null,
-			priceLookupKey: "pro_100_month",
-			tierCredits: 100,
+			priceLookupKey: "pro_200_month",
+			tierCredits: 200,
 		});
 		expect(subscriptions.clearMatchingPendingTierCalls).toEqual([
 			{
 				client: subscriptions.transaction,
 				providerSubscriptionId: "sub_scheduled",
-				tierCredits: 100,
+				tierCredits: 200,
 			},
 		]);
 	});
@@ -527,12 +527,12 @@ describe("StripeSubscriptionSyncService", () => {
 			stripeSubscription({
 				created: 100,
 				id: "sub_older",
-				lookupKey: "pro_100_month",
+				lookupKey: "pro_200_month",
 			}),
 			stripeSubscription({
 				created: 200,
 				id: "sub_newest",
-				lookupKey: "pro_200_year",
+				lookupKey: "pro_400_year",
 			}),
 		];
 
@@ -559,13 +559,13 @@ describe("StripeSubscriptionSyncService", () => {
 			stripeSubscription({
 				created: 100,
 				id: "sub_terminal",
-				lookupKey: "pro_100_month",
+				lookupKey: "pro_200_month",
 				status: "canceled",
 			}),
 			stripeSubscription({
 				created: 200,
 				id: "sub_current",
-				lookupKey: "pro_200_year",
+				lookupKey: "pro_400_year",
 			}),
 		];
 
@@ -603,11 +603,11 @@ describe("StripeSubscriptionSyncService", () => {
 			}),
 			stripeSubscription({
 				id: "sub_foreign_lookup",
-				lookupKey: "foreign_100_month",
+				lookupKey: "foreign_200_month",
 			}),
 			stripeSubscription({
 				id: "sub_valid",
-				lookupKey: "pro_400_month",
+				lookupKey: "pro_800_month",
 			}),
 		];
 
@@ -640,10 +640,10 @@ describe("StripeSubscriptionSyncService", () => {
 		subscriptions.seed({
 			interval: "year",
 			plan: "pro",
-			priceLookupKey: "pro_1200_year",
+			priceLookupKey: "pro_2400_year",
 			providerSubscriptionId: "sub_tracked_foreign",
 			status: "active",
-			tierCredits: 1200,
+			tierCredits: 2400,
 			userId: "user_1",
 		});
 		paymentProvider.subscriptions = [
@@ -652,7 +652,7 @@ describe("StripeSubscriptionSyncService", () => {
 				currentPeriodEnd: 900,
 				currentPeriodStart: 800,
 				id: "sub_tracked_foreign",
-				lookupKey: "foreign_1200_year",
+				lookupKey: "foreign_2400_year",
 				status: "canceled",
 			}),
 		];
@@ -668,9 +668,9 @@ describe("StripeSubscriptionSyncService", () => {
 			currentPeriodStart: new Date(800_000),
 			interval: "year",
 			plan: "pro",
-			priceLookupKey: "pro_1200_year",
+			priceLookupKey: "pro_2400_year",
 			status: "canceled",
-			tierCredits: 1200,
+			tierCredits: 2400,
 		});
 		expect(warning).toHaveBeenCalledWith(
 			expect.stringContaining("sub_tracked_foreign"),

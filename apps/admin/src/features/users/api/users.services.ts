@@ -1,12 +1,24 @@
-import { adminRoutes } from "@wandit/contracts";
+import {
+	adminProjectVersionHtmlResponseSchema,
+	adminRoutes,
+	adminUserPagesQuerySchema,
+	adminUserPagesResponseSchema,
+	adminUserProjectsQuerySchema,
+	adminUserProjectsResponseSchema,
+} from "@wandit/contracts";
 
 import { apiGet, apiPost } from "@/lib/api-client";
 
 import type {
 	AdminListUsersResponse,
+	AdminProjectVersionHtmlResponse,
+	AdminUserPagesResponse,
+	AdminUserProjectsResponse,
 	BetaEnrollUserInput,
 	ChangeUserRoleInput,
 	GrantUserCreditsInput,
+	ListUserPagesParams,
+	ListUserProjectsParams,
 	ListUsersParams,
 	SetUserAccessInput,
 	SetUserBannedInput,
@@ -26,6 +38,54 @@ export function listUsers(
 
 export function getUser(userId: string): Promise<UserDetail> {
 	return apiGet<UserDetail>(adminRoutes.user(userId));
+}
+
+export async function listUserPages(
+	params: ListUserPagesParams,
+): Promise<AdminUserPagesResponse> {
+	const query = adminUserPagesQuerySchema.parse({
+		page: params.page,
+		pageSize: params.pageSize,
+		sort: params.sort,
+	});
+	const payload = await apiGet<unknown>(adminRoutes.userPages(params.userId), {
+		page: query.page,
+		pageSize: query.pageSize,
+		sort: query.sort,
+	});
+
+	return adminUserPagesResponseSchema.parse(payload);
+}
+
+export async function listUserProjects(
+	params: ListUserProjectsParams,
+): Promise<AdminUserProjectsResponse> {
+	const query = adminUserProjectsQuerySchema.parse({
+		page: params.page,
+		pageSize: params.pageSize,
+		sort: params.sort,
+	});
+	const payload = await apiGet<unknown>(
+		adminRoutes.userProjects(params.userId),
+		{
+			page: query.page,
+			pageSize: query.pageSize,
+			sort: query.sort,
+		},
+	);
+
+	return adminUserProjectsResponseSchema.parse(payload);
+}
+
+export async function getProjectVersionHtml(
+	projectId: string,
+	versionId: string,
+): Promise<AdminProjectVersionHtmlResponse> {
+	const payload = await apiGet<unknown>(
+		adminRoutes.projectVersionHtml(projectId, versionId),
+	);
+
+	return adminProjectVersionHtmlResponseSchema.parse(payload);
 }
 
 export function grantUserCredits({

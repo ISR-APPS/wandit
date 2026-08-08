@@ -12,6 +12,7 @@ import { createEnv } from "@t3-oss/env-core";
 import { config } from "dotenv";
 import { z } from "zod";
 import { corsExtraOriginsSchema } from "./cors-origins";
+import { parseLlmProviderOverrides } from "./llm-routing";
 
 // Build paths from this file location so loading works from different cwd values.
 const currentDir = dirname(fileURLToPath(import.meta.url));
@@ -42,6 +43,25 @@ export const env = createEnv({
 		AI_CHAT_MODEL: z.string().min(1).default("openai/gpt-4o-mini"),
 		AI_TITLE_MODEL: z.string().min(1).default("openai/gpt-5.6-luna"),
 		AI_GATEWAY_API_KEY: z.string().min(1).optional(),
+		// Default provider for TEXT-model traffic (chat, page builds, titles,
+		// marketing, prompt refinement). Media models (image/video/transcription)
+		// always stay on the Vercel gateway. "openrouter" needs
+		// OPENROUTER_API_KEY; model ids keep the Vercel `creator/model` form and
+		// are translated at the provider boundary.
+		AI_PROVIDER: z.enum(["openrouter", "vercel"]).default("vercel"),
+		// Per-task exceptions to AI_PROVIDER, e.g.
+		// "page_build=openrouter,project_title=openrouter". Tasks: chat,
+		// marketing, page_build, project_title, prompt_refine. A task named here
+		// runs on the given provider; every other task follows AI_PROVIDER.
+		AI_PROVIDER_OVERRIDES: z
+			.string()
+			.optional()
+			.superRefine((value, ctx) => {
+				for (const error of parseLlmProviderOverrides(value).errors) {
+					ctx.addIssue({ code: "custom", message: error });
+				}
+			}),
+		OPENROUTER_API_KEY: z.string().min(1).optional(),
 		// Optional: the builder's generate_image tool. Needs R2 plus
 		// R2_PUBLIC_BASE_URL too; unset means the tool answers "unavailable".
 		AI_IMAGE_MODEL: z.string().min(1).optional(),
@@ -56,17 +76,15 @@ export const env = createEnv({
 		// Rewrites the brain's Higgsfield image/video intent into a polished
 		// generation prompt before the MCP call. Falls back to the raw prompt
 		// when it cannot run (no gateway key, timeout, error).
-		AI_PROMPT_REFINER_MODEL: z
-			.string()
-			.min(1)
-			.default("openai/gpt-5.6-luna"),
+		AI_PROMPT_REFINER_MODEL: z.string().min(1).default("openai/gpt-5.6-luna"),
 		AI_TRANSCRIPTION_MODEL: z
 			.string()
 			.min(1)
 			.default("openai/gpt-4o-mini-transcribe"),
 		// Provider spend converted into whole customer credits at settlement.
-		// $0.05/credit is the product margin anchor from billing v2.
-		AI_USD_PER_CREDIT: z.coerce.number().positive().default(0.05),
+		// $0.04/credit is the product margin anchor from pricing v2: 200 credits
+		// per $30 Pro month carry $8 of AI-provider value.
+		AI_USD_PER_CREDIT: z.coerce.number().positive().default(0.04),
 		// Page generation foundation (Trigger.dev queue + Cloudflare R2 storage).
 		// All optional: the server must boot before these creds exist; the
 		// generate_page tool checks at call time and answers gracefully when
@@ -94,6 +112,16 @@ export const env = createEnv({
 		// Needs R2 + R2_PUBLIC_BASE_URL too; unset means the tool answers
 		// "unavailable".
 		AI_VIDEO_MODEL: z.string().min(1).optional(),
+		// Optional: text-to-video model for the generate_video chat tool. Unset
+		// falls back to AI_VIDEO_MODEL with its "-i2v" suffix swapped for
+		// "-t2v" (Kling ids pair that way); if neither yields a usable id the
+		// tool answers "unavailable".
+		AI_VIDEO_TEXT_MODEL: z.string().min(1).optional(),
+		// Optional: the "creative director" that rewrites a video brief into one
+		// domain-language provider prompt at queue time. Falls back to
+		// AI_PROMPT_REFINER_MODEL; failures degrade to a deterministic prompt,
+		// never blocking a paid generation.
+		AI_VIDEO_DIRECTOR_MODEL: z.string().min(1).optional(),
 		TRIGGER_SECRET_KEY: z.string().min(1).optional(),
 		// Lead scraping (scrape_leads chat tool). Serper.dev key for the Google
 		// Maps business search. Optional: the tool checks at call time and

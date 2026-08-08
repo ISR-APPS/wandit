@@ -58,7 +58,7 @@ describe("COD worlds library", () => {
 	});
 
 	it("samples an eight-world COD fusion menu whose ids resolve", () => {
-		const menu = formatWorldCandidates({
+		const { candidates: menu, cards } = formatWorldCandidates({
 			business: "home appliance",
 			industryHints: ["home & kitchen", "electronics & gadgets"],
 			pageKind: "cod",
@@ -74,6 +74,24 @@ describe("COD worlds library", () => {
 			ids.slice(leftIndex + 1).some((rightId) => worldsFuse(leftId, rightId)),
 		);
 		expect(hasFusablePair).toBe(true);
+
+		// Every COD world ships a preview, so every sampled world has a card
+		// face for the taste question — same ids as the menu text.
+		expect(cards.map((card) => card.id).sort()).toEqual([...ids].sort());
+		for (const card of cards) {
+			expect(Object.keys(card.preview).sort()).toEqual(PREVIEW_KEYS);
+		}
+	});
+
+	it("prints each sampled world's family so the Brain can card 3 families", () => {
+		const { candidates: menu } = formatWorldCandidates({
+			business: "home appliance",
+			industryHints: [],
+			pageKind: "cod",
+		});
+		for (const id of listedIds(menu)) {
+			expect(menu).toContain(`· family: ${getWorld(id)?.family}`);
+		}
 	});
 
 	it("honors avoidFor exclusions across repeated hinted draws", () => {
@@ -84,7 +102,7 @@ describe("COD worlds library", () => {
 		expect(excluded.length).toBeGreaterThan(0);
 
 		for (let draw = 0; draw < 25; draw++) {
-			const menu = formatWorldCandidates({
+			const { candidates: menu } = formatWorldCandidates({
 				business: "beauty product",
 				industryHints: [hint],
 				pageKind: "cod",
@@ -103,7 +121,7 @@ describe("COD worlds library", () => {
 					business: "fitness accessory",
 					industryHints: ["fitness equipment"],
 					pageKind: "cod",
-				}),
+				}).candidates,
 			);
 		}
 		expect(draws.size).toBeGreaterThan(1);

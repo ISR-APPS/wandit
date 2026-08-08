@@ -439,11 +439,11 @@ function subscription(
 		pendingAppliedBy: null,
 		pendingTierCredits: null,
 		plan: "pro",
-		priceLookupKey: "pro_100_month",
+		priceLookupKey: "pro_200_month",
 		provider: "stripe",
 		providerSubscriptionId: "sub_remote",
 		status: "active",
-		tierCredits: 100,
+		tierCredits: 200,
 		updatedAt: new Date(0),
 		userId: USER_ID,
 		...overrides,
@@ -685,19 +685,19 @@ describe("Subscription credit policy", () => {
 		const context = setup(
 			subscription({
 				interval: "year",
-				priceLookupKey: "pro_100_year",
+				priceLookupKey: "pro_200_year",
 			}),
 		);
 		const value = invoice({
 			id: "in_year_create",
-			newKey: "pro_100_year",
+			newKey: "pro_200_year",
 			reason: "subscription_create",
 		});
 		addInvoice(context, value);
 
 		await context.service.grantForPaidInvoice(value);
 
-		expect((await context.credits.getBalance(OWNER)).plan).toBe(100);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(200);
 		expect(context.repository.slots).toHaveLength(11);
 		expect(context.repository.slots.map((slot) => slot.periodOrdinal)).toEqual([
 			2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
@@ -709,86 +709,86 @@ describe("Subscription credit policy", () => {
 
 	it("handles monthly upgrades immediately and leaves downgrades for renewal", async () => {
 		const upgrade = setup(
-			subscription({ priceLookupKey: "pro_200_month", tierCredits: 200 }),
+			subscription({ priceLookupKey: "pro_400_month", tierCredits: 400 }),
 		);
-		upgrade.repository.seedApplication("pro_100_month");
-		upgrade.creditRepository.seedPlan(20);
+		upgrade.repository.seedApplication("pro_200_month");
+		upgrade.creditRepository.seedPlan(40);
 		const upInvoice = invoice({
 			id: "in_month_up",
-			newKey: "pro_200_month",
-			oldKey: "pro_100_month",
+			newKey: "pro_400_month",
+			oldKey: "pro_200_month",
 			reason: "subscription_update",
 		});
 		addInvoice(upgrade, upInvoice);
 		await upgrade.service.grantForPaidInvoice(upInvoice);
-		expect((await upgrade.credits.getBalance(OWNER)).plan).toBe(120);
+		expect((await upgrade.credits.getBalance(OWNER)).plan).toBe(240);
 		expect(upgrade.repository.slots).toHaveLength(0);
 
-		const downgrade = setup(subscription({ priceLookupKey: "pro_100_month" }));
-		downgrade.repository.seedApplication("pro_200_month");
-		downgrade.creditRepository.seedPlan(180);
+		const downgrade = setup(subscription({ priceLookupKey: "pro_200_month" }));
+		downgrade.repository.seedApplication("pro_400_month");
+		downgrade.creditRepository.seedPlan(360);
 		const downInvoice = invoice({
 			id: "in_month_down",
-			newKey: "pro_100_month",
-			oldKey: "pro_200_month",
+			newKey: "pro_200_month",
+			oldKey: "pro_400_month",
 			reason: "subscription_update",
 		});
 		addInvoice(downgrade, downInvoice);
 		await downgrade.service.grantForPaidInvoice(downInvoice);
-		expect((await downgrade.credits.getBalance(OWNER)).plan).toBe(180);
+		expect((await downgrade.credits.getBalance(OWNER)).plan).toBe(360);
 		expect(downgrade.repository.applications[0]?.creditsDelta).toBe(0);
 
 		const renewal = invoice({
 			id: "in_month_down_renewal",
-			newKey: "pro_100_month",
+			newKey: "pro_200_month",
 			periodEnd: new Date("2027-02-28T12:00:00.000Z"),
 			periodStart: PERIOD_END,
 			reason: "subscription_cycle",
 		});
 		addInvoice(downgrade, renewal);
 		await downgrade.service.grantForPaidInvoice(renewal);
-		expect((await downgrade.credits.getBalance(OWNER)).plan).toBe(200);
+		expect((await downgrade.credits.getBalance(OWNER)).plan).toBe(400);
 	});
 
 	it("changes monthly to yearly with a capped month-one refill and eleven slots", async () => {
 		const context = setup(
 			subscription({
 				interval: "year",
-				priceLookupKey: "pro_200_year",
-				tierCredits: 200,
+				priceLookupKey: "pro_400_year",
+				tierCredits: 400,
 			}),
 		);
-		context.repository.seedApplication("pro_100_month");
-		context.creditRepository.seedPlan(250);
+		context.repository.seedApplication("pro_200_month");
+		context.creditRepository.seedPlan(500);
 		const value = invoice({
 			anchorReset: true,
 			id: "in_to_year",
-			newKey: "pro_200_year",
-			oldKey: "pro_100_month",
+			newKey: "pro_400_year",
+			oldKey: "pro_200_month",
 			reason: "subscription_update",
 		});
 		addInvoice(context, value);
 		await context.service.grantForPaidInvoice(value);
 
-		expect((await context.credits.getBalance(OWNER)).plan).toBe(400);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(800);
 		expect(context.repository.slots).toHaveLength(11);
 		expect(
 			context.repository.applications.find(
 				(row) => row.stripeInvoiceId === "in_to_year",
 			)?.creditsDelta,
-		).toBe(150);
+		).toBe(300);
 	});
 
 	it("reconciles a replayed gross cycle grant even when rollover expiry makes the journal delta non-positive", async () => {
 		const context = setup();
-		context.creditRepository.seedPlan(250);
+		context.creditRepository.seedPlan(500);
 		context.paymentRefunds.reconcileChargeAfterGrant.mockRejectedValueOnce(
 			new Error("simulated post-commit reconciliation outage"),
 		);
 		const renewal = invoice({
 			fundingChargeId: "ch_zero_net_cycle",
 			id: "in_zero_net_cycle",
-			newKey: "pro_100_month",
+			newKey: "pro_200_month",
 			reason: "subscription_cycle",
 		});
 		addInvoice(context, renewal);
@@ -800,8 +800,8 @@ describe("Subscription credit policy", () => {
 			context.repository.applications.find(
 				(row) => row.stripeInvoiceId === renewal.id,
 			)?.creditsDelta,
-		).toBe(-50);
-		expect((await context.credits.getBalance(OWNER)).plan).toBe(200);
+		).toBe(-100);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(400);
 
 		await expect(context.service.grantForPaidInvoice(renewal)).resolves.toBe(
 			true,
@@ -818,13 +818,13 @@ describe("Subscription credit policy", () => {
 
 	it("rejects an update whose same-price predecessor belongs to an older paid period", async () => {
 		const context = setup(
-			subscription({ priceLookupKey: "pro_200_month", tierCredits: 200 }),
+			subscription({ priceLookupKey: "pro_400_month", tierCredits: 400 }),
 		);
 		context.repository.applications.push({
 			appliedAt: new Date(),
 			billingReason: "subscription_cycle",
-			creditsDelta: 100,
-			newPriceLookupKey: "pro_100_month",
+			creditsDelta: 200,
+			newPriceLookupKey: "pro_200_month",
 			oldPriceLookupKey: null,
 			periodEnd: PERIOD_START,
 			periodStart: new Date("2025-12-31T12:00:00.000Z"),
@@ -833,8 +833,8 @@ describe("Subscription credit policy", () => {
 		});
 		const update = invoice({
 			id: "in_wrong_period_predecessor",
-			newKey: "pro_200_month",
-			oldKey: "pro_100_month",
+			newKey: "pro_400_month",
+			oldKey: "pro_200_month",
 			reason: "subscription_update",
 		});
 		addInvoice(context, update);
@@ -849,52 +849,52 @@ describe("Subscription credit policy", () => {
 		const context = setup(
 			subscription({
 				interval: "year",
-				priceLookupKey: "pro_400_year",
-				tierCredits: 400,
+				priceLookupKey: "pro_800_year",
+				tierCredits: 800,
 			}),
 		);
 		const delayedOldTierRenewal = invoice({
 			id: "in_delayed_old_tier_cycle",
-			newKey: "pro_100_year",
+			newKey: "pro_200_year",
 			reason: "subscription_cycle",
 		});
 		addInvoice(context, delayedOldTierRenewal);
 
 		await context.service.grantForPaidInvoice(delayedOldTierRenewal);
 
-		expect((await context.credits.getBalance(OWNER)).plan).toBe(100);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(200);
 		expect(
 			context.repository.slots
 				.filter((slot) => slot.status === "pending")
 				.map((slot) => slot.credits),
-		).toEqual(Array.from({ length: 11 }, () => 100));
+		).toEqual(Array.from({ length: 11 }, () => 200));
 		expect(
 			context.repository.applications.find(
 				(row) => row.stripeInvoiceId === delayedOldTierRenewal.id,
 			)?.newPriceLookupKey,
-		).toBe("pro_100_year");
+		).toBe("pro_200_year");
 	});
 
 	it("defers an out-of-order annual tier update until its interval-change predecessor", async () => {
 		const context = setup(
 			subscription({
 				interval: "year",
-				priceLookupKey: "pro_400_year",
-				tierCredits: 400,
+				priceLookupKey: "pro_800_year",
+				tierCredits: 800,
 			}),
 		);
-		context.repository.seedApplication("pro_100_month");
-		context.creditRepository.seedPlan(250);
+		context.repository.seedApplication("pro_200_month");
+		context.creditRepository.seedPlan(500);
 		const intervalChange = invoice({
 			id: "in_interval_first",
-			newKey: "pro_200_year",
-			oldKey: "pro_100_month",
+			newKey: "pro_400_year",
+			oldKey: "pro_200_month",
 			reason: "subscription_update",
 		});
 		const laterTierUpgrade = invoice({
 			id: "in_tier_second",
-			newKey: "pro_400_year",
-			oldKey: "pro_200_year",
+			newKey: "pro_800_year",
+			oldKey: "pro_400_year",
 			reason: "subscription_update",
 		});
 		addInvoice(context, intervalChange);
@@ -902,11 +902,11 @@ describe("Subscription credit policy", () => {
 
 		await expect(
 			context.service.grantForPaidInvoice(laterTierUpgrade),
-		).rejects.toThrow("arrived before its pro_200_year predecessor");
+		).rejects.toThrow("arrived before its pro_400_year predecessor");
 		await context.service.grantForPaidInvoice(intervalChange);
 		await context.service.grantForPaidInvoice(laterTierUpgrade);
 
-		expect((await context.credits.getBalance(OWNER)).plan).toBe(600);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(1200);
 		expect(
 			context.repository.slots.filter((slot) => slot.status === "pending"),
 		).toHaveLength(11);
@@ -921,15 +921,15 @@ describe("Subscription credit policy", () => {
 		const context = setup(
 			subscription({
 				interval: "year",
-				priceLookupKey: "pro_200_year",
-				tierCredits: 200,
+				priceLookupKey: "pro_400_year",
+				tierCredits: 400,
 			}),
 		);
-		context.repository.seedApplication("pro_100_year");
-		context.creditRepository.seedPlan(50);
+		context.repository.seedApplication("pro_200_year");
+		context.creditRepository.seedPlan(100);
 		await context.refill.createYearlySlots(
 			{
-				credits: 100,
+				credits: 200,
 				funding: {
 					chargeId: "ch_old",
 					invoiceId: "in_old",
@@ -942,8 +942,8 @@ describe("Subscription credit policy", () => {
 		);
 		const upgrade = invoice({
 			id: "in_year_up",
-			newKey: "pro_200_year",
-			oldKey: "pro_100_year",
+			newKey: "pro_400_year",
+			oldKey: "pro_200_year",
 			paidAt: new Date("2026-05-01T00:00:00.000Z"),
 			reason: "subscription_update",
 		});
@@ -960,11 +960,11 @@ describe("Subscription credit policy", () => {
 		expect(
 			context.repository.slots.filter((slot) => slot.status === "pending"),
 		).toHaveLength(8);
-		expect((await context.credits.getBalance(OWNER)).plan).toBe(300);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(600);
 
 		const renewal = invoice({
 			id: "in_year_cycle",
-			newKey: "pro_200_year",
+			newKey: "pro_400_year",
 			periodEnd: new Date("2028-01-31T12:00:00.000Z"),
 			periodStart: PERIOD_END,
 			reason: "subscription_cycle",
@@ -977,16 +977,16 @@ describe("Subscription credit policy", () => {
 		expect(
 			context.repository.slots.filter((slot) => slot.status === "granted"),
 		).toHaveLength(11);
-		expect((await context.credits.getBalance(OWNER)).plan).toBe(400);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(800);
 	});
 
 	it("sweeps missed slots exactly once with CAS, canonical admission, and stable refill keys", async () => {
 		const context = setup(
-			subscription({ interval: "year", priceLookupKey: "pro_100_year" }),
+			subscription({ interval: "year", priceLookupKey: "pro_200_year" }),
 		);
 		await context.refill.createYearlySlots(
 			{
-				credits: 100,
+				credits: 200,
 				funding: {
 					chargeId: "ch_1",
 					invoiceId: "in_1",
@@ -1053,12 +1053,12 @@ describe("Subscription credit policy", () => {
 			subscription({
 				cancelAtPeriodEnd: true,
 				interval: "year",
-				priceLookupKey: "pro_100_year",
+				priceLookupKey: "pro_200_year",
 			}),
 		);
 		await context.refill.createYearlySlots(
 			{
-				credits: 100,
+				credits: 200,
 				funding: {
 					chargeId: "ch_refund",
 					invoiceId: "in_refund",
@@ -1089,7 +1089,7 @@ describe("Subscription credit policy", () => {
 		const context = setup();
 		context.creditRepository.seedPlan(75);
 		context.repository.slots.push({
-			credits: 100,
+			credits: 200,
 			dueAt: new Date(),
 			fundingChargeId: "ch_1",
 			fundingInvoiceId: "in_1",
@@ -1133,7 +1133,7 @@ describe("Subscription credit policy", () => {
 		});
 		const rejected = invoice({
 			id: "in_noncanonical",
-			newKey: "pro_100_month",
+			newKey: "pro_200_month",
 			reason: "subscription_cycle",
 		});
 		addInvoice(noncanonical, rejected);
@@ -1144,13 +1144,13 @@ describe("Subscription credit policy", () => {
 		expect(noncanonical.repository.applications).toHaveLength(0);
 
 		const context = setup(
-			subscription({ priceLookupKey: "pro_400_month", tierCredits: 400 }),
+			subscription({ priceLookupKey: "pro_800_month", tierCredits: 800 }),
 		);
 		context.repository.applications.push({
 			appliedAt: new Date(),
 			billingReason: "subscription_cycle",
-			creditsDelta: 100,
-			newPriceLookupKey: "pro_100_month",
+			creditsDelta: 200,
+			newPriceLookupKey: "pro_200_month",
 			oldPriceLookupKey: null,
 			periodEnd: PERIOD_END,
 			periodStart: PERIOD_START,
@@ -1159,7 +1159,7 @@ describe("Subscription credit policy", () => {
 		});
 		const stale = invoice({
 			id: "in_stale",
-			newKey: "pro_200_month",
+			newKey: "pro_400_month",
 			reason: "subscription_cycle",
 		});
 		addInvoice(context, stale);
@@ -1170,11 +1170,11 @@ describe("Subscription credit policy", () => {
 			)?.creditsDelta,
 		).toBe(0);
 
-		context.repository.seedApplication("pro_100_month");
-		context.creditRepository.seedPlan(100);
+		context.repository.seedApplication("pro_200_month");
+		context.creditRepository.seedPlan(200);
 		for (const [id, oldKey, newKey] of [
-			["in_update_1", "pro_100_month", "pro_200_month"],
-			["in_update_2", "pro_200_month", "pro_400_month"],
+			["in_update_1", "pro_200_month", "pro_400_month"],
+			["in_update_2", "pro_400_month", "pro_800_month"],
 		] as const) {
 			const update = invoice({
 				id,
@@ -1190,6 +1190,6 @@ describe("Subscription credit policy", () => {
 				(row) => row.billingReason === "subscription_update",
 			),
 		).toHaveLength(2);
-		expect((await context.credits.getBalance(OWNER)).plan).toBe(400);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(800);
 	});
 });

@@ -20,6 +20,8 @@ vi.mock("ai", () => ({
 
 const REFINED_PROMPT =
 	"A sunlit studio product photo of a matte ceramic vase, soft rim light, shallow depth of field";
+const DIRECTED_PROMPT =
+	"Slow dolly-in on a matte ceramic vase as morning light sweeps across it, settling into a hero close-up";
 
 function setup() {
 	const meteringService = {
@@ -27,10 +29,21 @@ function setup() {
 			async (): Promise<{ id: string } | null> => ({ id: "generation_ref_1" }),
 		),
 	};
+	const videoDirector = {
+		craftConnectorVideoPrompt: vi.fn(async () => ({
+			directed: true,
+			negativePrompt: "no text",
+			prompt: DIRECTED_PROMPT,
+		})),
+	};
 
 	return {
 		meteringService,
-		service: new HiggsfieldPromptRefinerService(meteringService as never),
+		service: new HiggsfieldPromptRefinerService(
+			meteringService as never,
+			videoDirector as never,
+		),
+		videoDirector,
 	};
 }
 
@@ -106,31 +119,128 @@ describe("HiggsfieldPromptRefinerService", () => {
 		);
 	});
 
-	it("names the medium and target model of a video generation", async () => {
-		mockRefinement(REFINED_PROMPT);
-		const { service } = setup();
+	it("routes a video generation through the ONE creative director, never the generic refiner", async () => {
+		const { service, videoDirector } = setup();
+
+		await expect(
+			service.refineGenerationArgs({
+				args: {
+					params: {
+						aspect_ratio: "9:16",
+						duration: 6,
+						model: "kling3_0",
+						prompt: "SUBJECT: a serum bottle… KEY MOMENT: the drop lands…",
+					},
+				},
+				organizationId: "org_1",
+				parentEventId: "usage_event_1",
+				toolName: "generate_video",
+				userId: "user_1",
+			}),
+		).resolves.toEqual({
+			params: {
+				aspect_ratio: "9:16",
+				duration: 6,
+				model: "kling3_0",
+				prompt: DIRECTED_PROMPT,
+			},
+		});
+
+		expect(videoDirector.craftConnectorVideoPrompt).toHaveBeenCalledWith({
+			aspect: "9:16",
+			brief: "SUBJECT: a serum bottle… KEY MOMENT: the drop lands…",
+			durationSeconds: 6,
+			model: "kling3_0",
+			organizationId: "org_1",
+			parentEventId: "usage_event_1",
+			userId: "user_1",
+		});
+		expect(generateText).not.toHaveBeenCalled();
+	});
+
+	it("tells the director when the video call carries reference media", async () => {
+		const { service, videoDirector } = setup();
 
 		await service.refineGenerationArgs({
-			args: { params: { prompt: "a launch film" } },
-			organizationId: "org_1",
+			args: {
+				params: {
+					medias: [{ role: "start_image", value: "media-1" }],
+					model: "kling3_0",
+					prompt: "slow dolly push-in on the serum bottle as light blooms",
+				},
+			},
+			organizationId: null,
 			parentEventId: undefined,
 			toolName: "generate_video",
 			userId: "user_1",
 		});
 
-		expect(generateText).toHaveBeenCalledWith(
-			expect.objectContaining({
-				prompt:
-					"Medium: video\nTarget model: unknown\nUser request:\na launch film",
-				providerOptions: {
-					gateway: {
-						tags: ["op:chat", "ws:org"],
-						user: "user_1",
-					},
-					openai: { reasoningEffort: "medium" },
-				},
-			}),
+		expect(videoDirector.craftConnectorVideoPrompt).toHaveBeenCalledWith(
+			expect.objectContaining({ referenceMediaCount: 1 }),
 		);
+	});
+
+	it("carries the reference-media flag through a JSON-string params", async () => {
+		const { service, videoDirector } = setup();
+
+		await service.refineGenerationArgs({
+			args: {
+				params: JSON.stringify({
+					medias: [{ role: "start_image", value: "media-1" }],
+					model: "kling3_0",
+					prompt: "slow dolly push-in on the serum bottle as light blooms",
+				}),
+			},
+			organizationId: null,
+			parentEventId: undefined,
+			toolName: "generate_video",
+			userId: "user_1",
+		});
+
+		expect(videoDirector.craftConnectorVideoPrompt).toHaveBeenCalledWith(
+			expect.objectContaining({ referenceMediaCount: 1 }),
+		);
+	});
+
+	it("never counts audio or motion references as an existing first frame", async () => {
+		const { service, videoDirector } = setup();
+
+		// A voice/music reference adds sound to a from-scratch render: telling
+		// the director "the first frame already exists" would strip the scene
+		// description from a render that has no frame at all.
+		await service.refineGenerationArgs({
+			args: {
+				params: {
+					medias: [{ role: "audio", value: "media-9" }],
+					model: "seedance_2_5",
+					prompt: "SUBJECT: a serum bottle… KEY MOMENT: the drop lands…",
+				},
+			},
+			organizationId: null,
+			parentEventId: undefined,
+			toolName: "generate_video",
+			userId: "user_1",
+		});
+
+		expect(videoDirector.craftConnectorVideoPrompt).toHaveBeenCalledWith(
+			expect.not.objectContaining({ referenceMediaCount: expect.anything() }),
+		);
+	});
+
+	it("leaves video arguments without a prompt untouched and asks no director", async () => {
+		const { service, videoDirector } = setup();
+		const args = { params: { medias: ["https://cdn.example.com/still.png"] } };
+
+		await expect(
+			service.refineGenerationArgs({
+				args,
+				organizationId: null,
+				parentEventId: undefined,
+				toolName: "generate_video",
+				userId: "user_1",
+			}),
+		).resolves.toBe(args);
+		expect(videoDirector.craftConnectorVideoPrompt).not.toHaveBeenCalled();
 	});
 
 	it("rewrites through a JSON-string params and re-stringifies the other keys", async () => {
@@ -208,7 +318,7 @@ describe("HiggsfieldPromptRefinerService", () => {
 		await expect(refineImage(service, args)).resolves.toBe(args);
 		expect(generateText).not.toHaveBeenCalled();
 		expect(warn).toHaveBeenCalledWith(
-			"Higgsfield prompt refinement skipped: AI gateway is not configured",
+			"Higgsfield prompt refinement skipped: AI provider is not configured",
 		);
 	});
 

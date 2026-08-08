@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { ArrowUpRightIcon, UsersRoundIcon } from "lucide-react";
+import { ArrowUpRightIcon } from "lucide-react";
 import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
 
 import { Button } from "@/components/ui/button";
@@ -27,6 +27,7 @@ import {
 	formatOverviewPercentValue,
 	formatOverviewWholeNumber,
 } from "@/features/overview/lib/formatters";
+import { cn } from "@/lib/utils";
 
 type GrowthTrendCardProps = {
 	points: OverviewGrowthPoint[];
@@ -41,14 +42,14 @@ const growthChartConfig = {
 	},
 	websitesGenerated: {
 		label: "Websites",
-		color: "var(--chart-3)",
+		color: "var(--chart-2)",
 	},
 } satisfies ChartConfig;
 
 function GrowthTrendCard({ points, totals, rangeLabel }: GrowthTrendCardProps) {
 	return (
-		<Card className="h-full shadow-none">
-			<CardHeader className="border-b">
+		<Card className="h-full gap-0 overflow-hidden py-0 shadow-none">
+			<CardHeader className="border-b pt-6">
 				<div>
 					<CardTitle>
 						<h2>Growth momentum</h2>
@@ -67,7 +68,7 @@ function GrowthTrendCard({ points, totals, rangeLabel }: GrowthTrendCardProps) {
 				</CardAction>
 			</CardHeader>
 
-			<CardContent className="pt-5">
+			<CardContent className="flex min-h-0 flex-1 flex-col pt-5 pb-6">
 				<div className="mb-5 flex flex-wrap items-end gap-x-8 gap-y-3">
 					<div>
 						<p className="text-muted-foreground text-xs">New signups</p>
@@ -75,7 +76,15 @@ function GrowthTrendCard({ points, totals, rangeLabel }: GrowthTrendCardProps) {
 							<span className="font-semibold text-2xl tabular-nums tracking-tight">
 								{formatOverviewWholeNumber(totals.signups)}
 							</span>
-							<span className="font-medium text-emerald-700 text-xs tabular-nums dark:text-emerald-400">
+							<span
+								className={cn(
+									"font-medium text-xs tabular-nums",
+									totals.signupsChangePercent > 0 &&
+										"text-emerald-700 dark:text-emerald-400",
+									totals.signupsChangePercent < 0 && "text-destructive",
+									totals.signupsChangePercent === 0 && "text-muted-foreground",
+								)}
+							>
 								{formatOverviewPercent(totals.signupsChangePercent)}
 							</span>
 						</div>
@@ -92,16 +101,19 @@ function GrowthTrendCard({ points, totals, rangeLabel }: GrowthTrendCardProps) {
 							New users
 						</span>
 						<span className="flex items-center gap-1.5">
-							<span className="size-2 rounded-full bg-chart-3" />
+							<span className="size-2 rounded-full bg-chart-2" />
 							Websites
 						</span>
 					</div>
 				</div>
 
-				<figure>
+				{/* From lg the chart absorbs any extra height when the sibling
+				    Generation health card makes this row taller; on stacked
+				    layouts it keeps a fixed height. */}
+				<figure className="lg:flex lg:min-h-0 lg:flex-1 lg:flex-col">
 					<ChartContainer
 						config={growthChartConfig}
-						className="aspect-auto h-[250px] w-full lg:h-[290px]"
+						className="aspect-auto h-[250px] w-full lg:h-full lg:min-h-[290px] lg:flex-1"
 						role="img"
 						aria-label={`${rangeLabel} trend for user signups and generated websites`}
 					>
@@ -171,20 +183,11 @@ function GrowthTrendCard({ points, totals, rangeLabel }: GrowthTrendCardProps) {
 						{formatOverviewWholeNumber(totals.activeUsers)}
 					</p>
 				</div>
-				<div className="col-span-2 flex items-center gap-2 border-t px-5 py-3.5 sm:col-span-1 sm:border-t-0">
-					<div className="flex size-7 items-center justify-center rounded-md border bg-background text-muted-foreground">
-						<UsersRoundIcon className="size-3.5" />
-					</div>
-					<div>
-						<p className="text-muted-foreground text-xs">Activation</p>
-						<p className="mt-0.5 font-medium text-sm tabular-nums">
-							{formatOverviewPercentValue(
-								totals.totalUsers > 0
-									? (totals.activeUsers / totals.totalUsers) * 100
-									: 0,
-							)}
-						</p>
-					</div>
+				<div className="col-span-2 border-t px-5 py-3.5 sm:col-span-1 sm:border-t-0">
+					<p className="text-muted-foreground text-xs">Activation</p>
+					<p className="mt-1 font-medium tabular-nums">
+						{formatOverviewPercentValue(totals.activationPercent)}
+					</p>
 				</div>
 			</div>
 		</Card>
