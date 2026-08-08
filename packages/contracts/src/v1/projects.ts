@@ -48,6 +48,9 @@ export const projectSchema = z.object({
 	// Ad pixels injected into the published page at publish time.
 	metaPixelId: z.string().nullable(),
 	tiktokPixelId: z.string().nullable(),
+	// Publishing setting: hide the "Made with Wandit" badge on the published
+	// page. Anyone may store it; publish honours it only for entitled owners.
+	hideWanditBadge: z.boolean(),
 });
 
 // TypeScript project type.
@@ -115,6 +118,8 @@ export const updateProjectBodySchema = z.object({
 	// null clears the pixel id; undefined leaves it unchanged.
 	metaPixelId: pixelIdSchema.nullable().optional(),
 	tiktokPixelId: pixelIdSchema.nullable().optional(),
+	// Badge visibility on the published page; undefined leaves it unchanged.
+	hideWanditBadge: z.boolean().optional(),
 });
 
 // TypeScript update body.

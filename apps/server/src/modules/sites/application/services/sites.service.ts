@@ -41,6 +41,7 @@ import {
 	injectLeadsRuntime,
 } from "../../../leads/runtime/inject-leads-runtime";
 import type { ProjectScope } from "../../../projects/domain/project-scope";
+import { injectWanditBadge } from "../../domain/badge-injector";
 import {
 	NoVersionToPublishError,
 	PublishFailedError,
@@ -267,11 +268,19 @@ export class SitesService {
 			// Unconditional on purpose: the injector is idempotent (id marker),
 			// so fresh publishes gain the lead-capture runtime and rollbacks of
 			// pre-runtime archives gain it too instead of losing lead capture.
-			const published = injectLeadsRuntime(withPixels, {
+			const withRuntime = injectLeadsRuntime(withPixels, {
 				captureUrl: buildLeadsCaptureUrl(
 					env.BETTER_AUTH_URL,
 					input.project.publicFormId,
 				),
+			});
+
+			// Also unconditional and idempotent. The hide-toggle only counts for
+			// an entitled owner: a free publish always carries the badge, and a
+			// downgraded owner regains it on their next publish (never
+			// retroactively — archives and rollbacks keep their bytes).
+			const published = injectWanditBadge(withRuntime, {
+				hide: input.project.hideWanditBadge && input.project.ownerIsEntitled,
 			});
 
 			assertNoEditorArtifacts(published);

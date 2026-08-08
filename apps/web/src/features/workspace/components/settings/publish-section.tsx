@@ -15,10 +15,13 @@ import {
 import { Input } from "@wandit/ui/components/input";
 import { Label } from "@wandit/ui/components/label";
 import { Separator } from "@wandit/ui/components/separator";
+import { Switch } from "@wandit/ui/components/switch";
 import { Check, Copy, ExternalLink, Loader2 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { useBillingSubscriptionQuery } from "@/features/billing/api/billing.queries";
+import { useUpdateProjectBadge } from "@/features/projects";
 import { useTranslation } from "@/lib/i18n";
 import { relativeTime } from "@/lib/relative-time";
 import {
@@ -113,6 +116,26 @@ export function PublishSection() {
 		Boolean(previewVersion) &&
 		(canPublishFor(deployment) || isPreviewingHistorical) &&
 		!publishPending;
+
+	// "Made with Wandit" badge: shown on every published page; only an
+	// entitled (paid) owner can switch it off. The server enforces the same
+	// rule at publish time, so this gate is purely presentational.
+	const subscriptionQuery = useBillingSubscriptionQuery();
+	const badgeMutation = useUpdateProjectBadge();
+	const ownerIsEntitled =
+		subscriptionQuery.data?.subscription?.entitled ?? false;
+	// EFFECTIVE state, the exact server expression: a stored hide flag from a
+	// lapsed subscription no longer hides anything, and the switch must say so.
+	const badgeShown = !((project?.hideWanditBadge ?? false) && ownerIsEntitled);
+
+	const handleBadgeToggle = (checked: boolean) => {
+		badgeMutation.mutate(
+			{ id: projectId, hideWanditBadge: !checked },
+			{
+				onSuccess: () => toast.success(t("settings.badgeSaved")),
+			},
+		);
+	};
 
 	return (
 		<Card>
@@ -271,6 +294,25 @@ export function PublishSection() {
 							{t("settings.slugAvailable")}
 						</p>
 					) : null}
+				</div>
+
+				<div className="flex items-center justify-between gap-4">
+					<div className="space-y-1">
+						<Label htmlFor="settings-wandit-badge">
+							{t("settings.badgeTitle")}
+						</Label>
+						<p className="text-muted-foreground text-xs">
+							{ownerIsEntitled
+								? t("settings.badgeDescription")
+								: t("settings.badgePaidHint")}
+						</p>
+					</div>
+					<Switch
+						id="settings-wandit-badge"
+						checked={badgeShown}
+						disabled={!ownerIsEntitled || badgeMutation.isPending}
+						onCheckedChange={handleBadgeToggle}
+					/>
 				</div>
 
 				<Separator />

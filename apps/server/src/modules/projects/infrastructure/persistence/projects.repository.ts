@@ -31,6 +31,7 @@ import {
 export type ProjectQueryRow = {
 	activeSlug: string | null;
 	createdAt: Date;
+	hideWanditBadge: boolean;
 	id: string;
 	leadCount: number;
 	logoUrl: string | null;
@@ -190,6 +191,9 @@ export class ProjectsRepository {
 				...(body.tiktokPixelId !== undefined
 					? { tiktokPixelId: body.tiktokPixelId }
 					: {}),
+				...(body.hideWanditBadge !== undefined
+					? { hideWanditBadge: body.hideWanditBadge }
+					: {}),
 				updatedAt: new Date(),
 			})
 			.where(
@@ -294,6 +298,7 @@ export class ProjectsRepository {
 			.select({
 				activeSlug: deploymentAgg.activeSlug,
 				createdAt: projects.createdAt,
+				hideWanditBadge: projects.hideWanditBadge,
 				id: projects.id,
 				// coalesce turns missing joins into friendly default values.
 				leadCount: sql<number>`coalesce(${leadCounts.leadCount}, 0)::int`,

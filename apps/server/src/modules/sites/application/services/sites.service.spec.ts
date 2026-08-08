@@ -75,9 +75,11 @@ function setup(options: { kvConfigured?: boolean } = {}) {
 			.mockResolvedValue({ id: VERSION_ID, r2Key: "sites/p/v/index.html" }),
 		findVersionForProject: vi.fn(),
 		getAccessibleProject: vi.fn().mockResolvedValue({
+			hideWanditBadge: false,
 			id: PROJECT_ID,
 			metaPixelId: null,
 			name: "Smoke Project",
+			ownerIsEntitled: false,
 			publicFormId: FORM_ID,
 			tiktokPixelId: null,
 		}),
@@ -322,6 +324,64 @@ describe("SitesService.publish", () => {
 
 		expect(bodies[0]).toContain('id="wandit-leads-runtime"');
 		expect(bodies[0]).toContain(`/api/public/leads/${FORM_ID}`);
+	});
+
+	it("injects the Made with Wandit badge into every free publish", async () => {
+		const { service } = setup();
+		const bodies: string[] = [];
+		vi.mocked(putPageHtml).mockImplementation(async (_key, html) => {
+			bodies.push(html);
+		});
+
+		await service.publish(SCOPE, PROJECT_ID, {});
+
+		expect(bodies).toHaveLength(2);
+		expect(bodies[0]).toContain('id="wandit-badge"');
+		expect(bodies[1]).toContain('id="wandit-badge"');
+	});
+
+	it("keeps the badge when a FREE owner sets the hide toggle", async () => {
+		const { repository, service } = setup();
+		repository.getAccessibleProject.mockResolvedValue({
+			hideWanditBadge: true,
+			id: PROJECT_ID,
+			metaPixelId: null,
+			name: "Smoke Project",
+			ownerIsEntitled: false,
+			publicFormId: FORM_ID,
+			tiktokPixelId: null,
+		});
+		const bodies: string[] = [];
+		vi.mocked(putPageHtml).mockImplementation(async (_key, html) => {
+			bodies.push(html);
+		});
+
+		await service.publish(SCOPE, PROJECT_ID, {});
+
+		expect(bodies[0]).toContain('id="wandit-badge"');
+	});
+
+	it("hides the badge when an ENTITLED owner sets the hide toggle", async () => {
+		const { repository, service } = setup();
+		repository.getAccessibleProject.mockResolvedValue({
+			hideWanditBadge: true,
+			id: PROJECT_ID,
+			metaPixelId: null,
+			name: "Smoke Project",
+			ownerIsEntitled: true,
+			publicFormId: FORM_ID,
+			tiktokPixelId: null,
+		});
+		const bodies: string[] = [];
+		vi.mocked(putPageHtml).mockImplementation(async (_key, html) => {
+			bodies.push(html);
+		});
+
+		await service.publish(SCOPE, PROJECT_ID, {});
+
+		expect(bodies[0]).not.toContain('id="wandit-badge"');
+		// The rest of the publish transform chain is untouched.
+		expect(bodies[0]).toContain('id="wandit-leads-runtime"');
 	});
 });
 

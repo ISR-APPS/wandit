@@ -39,6 +39,16 @@ describe("injectLeadsRuntime", () => {
 		expect(once.indexOf(BLOCK_START)).toBe(once.lastIndexOf(BLOCK_START));
 	});
 
+	it("splices correctly when a Turkish İ precedes </body>", () => {
+		// toLowerCase("İ") is two code units — an index taken from a lowered
+		// copy would cut inside the closing tag and corrupt the publish.
+		const html = "<html><body><h1>İstanbul İ</h1></body></html>";
+		const result = injectLeadsRuntime(html, OPTIONS);
+
+		expect(result).toContain("</script></body></html>");
+		expect(result).toContain("<h1>İstanbul İ</h1>");
+	});
+
 	it("embeds the capture URL (quotes and ampersands intact) inside the wrapper", () => {
 		const captureUrl = 'https://api.wandit.example/capture?a=1&sig="q"';
 		const result = injectLeadsRuntime("<body></body>", { captureUrl });
