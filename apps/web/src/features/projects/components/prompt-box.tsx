@@ -1898,6 +1898,10 @@ export type PromptBoxProps = {
 	/** Legacy prop kept for call sites; model selection is not shown for pages. */
 	showEngines?: boolean;
 	isSubmitting?: boolean;
+	/** Hard-disable the composer (e.g. the workspace is out of credits).
+	 * Blocks typing, dictation and every submit path; the caller renders its
+	 * own notice above the box explaining why. */
+	disabled?: boolean;
 	initialValue?: string;
 	/** Restores the selected workflow after an auth redirect. Uploaded files are
 	 * intentionally not serialized; Video reopens on its source-image step. */
@@ -1929,6 +1933,7 @@ export function PromptBox({
 	showPriceTag = false,
 	showBanner = false,
 	isSubmitting = false,
+	disabled = false,
 	initialValue = "",
 	initialComposer,
 	clearOnSubmit = false,
@@ -2052,12 +2057,14 @@ export function PromptBox({
 			? Boolean(readySourceImage)
 			: true
 		: value.trim().length > 0 || readyAttachments.length > 0;
-	const canSubmit = submitOverride
-		? !submitOverride.disabled && !submissionPending
-		: hasRequiredInput &&
-			!submissionPending &&
-			!hasUploadingAttachment &&
-			!hasUploadingSource;
+	const canSubmit =
+		!disabled &&
+		(submitOverride
+			? !submitOverride.disabled && !submissionPending
+			: hasRequiredInput &&
+				!submissionPending &&
+				!hasUploadingAttachment &&
+				!hasUploadingSource);
 	const attachedSkills = useMemo(
 		() =>
 			selectedSkillIds
@@ -2291,7 +2298,7 @@ export function PromptBox({
 	};
 
 	const handleSubmit = async () => {
-		if (submitInFlightRef.current) return;
+		if (disabled || submitInFlightRef.current) return;
 
 		if (submitOverride) {
 			if (submitOverride.disabled || submissionPending) return;
@@ -2444,7 +2451,7 @@ export function PromptBox({
 			/>
 			<InputGroup
 				className="relative h-auto flex-col items-stretch rounded-3xl border-0 bg-background shadow-composer dark:bg-card dark:shadow-[inset_0_1px_0_0_oklch(1_0_0_/_0.04)]"
-				data-disabled={submissionPending}
+				data-disabled={submissionPending || disabled}
 			>
 				{topSlot ? (
 					// Clip the slot to the card's top radius — its content (the tray)
@@ -2519,7 +2526,7 @@ export function PromptBox({
 					placeholder={resolvedPlaceholder}
 					rows={1}
 					maxLength={projectPromptMaxLength}
-					disabled={submissionPending}
+					disabled={submissionPending || disabled}
 					className={cn(
 						"w-full overflow-y-auto py-0 text-foreground placeholder:text-muted-foreground disabled:opacity-60",
 						isHero
@@ -2584,7 +2591,10 @@ export function PromptBox({
 										aria-pressed={isRecording}
 										onClick={toggleRecording}
 										disabled={
-											!micSupported || submissionPending || isTranscribing
+											!micSupported ||
+											submissionPending ||
+											isTranscribing ||
+											disabled
 										}
 										className={cn(
 											"rounded-full text-muted-foreground hover:text-foreground",

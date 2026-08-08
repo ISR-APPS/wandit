@@ -12,6 +12,12 @@
 	"insufficientTitle": "Crédits insuffisants",
 	"insufficientBody": "Cette action coûte plus de crédits que ton solde actuel.",
 	"costLabel": "Coût",
+	"outOfCredits": {
+		"title": "Tu n'as plus de crédits",
+		"body": "Passe à une offre supérieure pour continuer à créer.",
+		"memberBody": "Cet espace de travail n'a plus de crédits. Demande à un propriétaire de mettre à niveau l'offre.",
+		"cta": "Mettre à niveau"
+	},
 	"buckets": {
 		"plan": "Offre",
 		"promo": "Promotionnels",
