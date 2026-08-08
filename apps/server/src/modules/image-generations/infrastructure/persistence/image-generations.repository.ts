@@ -285,4 +285,27 @@ export class ImageGenerationsRepository {
 			)
 			.orderBy(desc(imageGenerationAttempts.createdAt));
 	}
+
+	// Dashboard Assets page: newest finished image attempts across every
+	// project the scope can see, with the project name for tile labels. The
+	// limit bounds the aggregate payload — older files stay reachable from
+	// each project's own Assets tab.
+	async listSucceededForScope(
+		scope: ProjectScope,
+		limit: number,
+	): Promise<Array<ImageGenerationAttemptRow & { projectName: string }>> {
+		return this.db
+			.select({ ...ATTEMPT_COLUMNS, projectName: projects.name })
+			.from(imageGenerationAttempts)
+			.innerJoin(projects, eq(projects.id, imageGenerationAttempts.projectId))
+			.where(
+				and(
+					eq(imageGenerationAttempts.status, "succeeded"),
+					projectScopePredicate(scope),
+					isNull(projects.deletedAt),
+				),
+			)
+			.orderBy(desc(imageGenerationAttempts.createdAt))
+			.limit(limit);
+	}
 }

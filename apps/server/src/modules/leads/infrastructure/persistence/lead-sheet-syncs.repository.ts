@@ -4,10 +4,7 @@
  * miss reads as 404 — docs/api-security.md) and the user's Google account
  * row (whose stored scope decides whether Sheets sync is connected).
  */
-import {
-	type ProjectScope,
-	projectScopePredicate,
-} from "../../../projects/domain/project-scope";
+
 import { Inject, Injectable } from "@nestjs/common";
 import { and, desc, eq, isNull } from "@wandit/db";
 import { account } from "@wandit/db/schema/auth";
@@ -17,6 +14,10 @@ import {
 	DATABASE,
 	type Database,
 } from "../../../../infrastructure/database/database.constants";
+import {
+	type ProjectScope,
+	projectScopePredicate,
+} from "../../../projects/domain/project-scope";
 
 export type LeadSheetSyncRow = {
 	lastSyncedAt: Date | null;

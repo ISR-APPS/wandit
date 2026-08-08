@@ -12,9 +12,14 @@ import type {
 	LeadStatus,
 	LeadsQuery,
 	LeadsResponse,
+	WorkspaceLeadsQuery,
+	WorkspaceLeadsResponse,
 } from "@wandit/contracts";
 import type { ProjectScope } from "../../../projects/domain/project-scope";
-import { toLeadDto } from "../../infrastructure/mappers/lead.mapper";
+import {
+	toLeadDto,
+	toWorkspaceLeadDto,
+} from "../../infrastructure/mappers/lead.mapper";
 import {
 	InvalidLeadCursorError,
 	LeadsRepository,
@@ -73,6 +78,36 @@ export class LeadsService {
 				nextCursor: page.nextCursor,
 				total,
 				totals,
+			};
+		} catch (error) {
+			if (error instanceof InvalidLeadCursorError) {
+				throw new BadRequestException("Invalid lead cursor");
+			}
+
+			throw error;
+		}
+	}
+
+	/** Dashboard aggregate: one keyset page across every project in scope. */
+	async listForWorkspace(
+		scope: ProjectScope,
+		query: WorkspaceLeadsQuery,
+	): Promise<WorkspaceLeadsResponse> {
+		try {
+			const [page, total] = await Promise.all([
+				this.leadsRepository.listForWorkspacePage(scope, query),
+				this.leadsRepository.countForWorkspace(scope, {
+					projectId: query.projectId,
+					q: query.q,
+					source: query.source,
+					status: query.status,
+				}),
+			]);
+
+			return {
+				leads: page.rows.map(toWorkspaceLeadDto),
+				nextCursor: page.nextCursor,
+				total,
 			};
 		} catch (error) {
 			if (error instanceof InvalidLeadCursorError) {

@@ -920,7 +920,8 @@
 		"loadError": "Could not load assets.",
 		"retry": "Retry",
 		"emptyTitle": "No assets yet",
-		"emptyBody": "AI-generated images and videos — for your site, your ads and your animations — appear here, ready to download."
+		"emptyBody": "AI-generated images and videos — for your site, your ads and your animations — appear here, ready to download.",
+		"downloadError": "Download failed. Please try again."
 	},
 	"marketing": {
 		"title": "Marketing",

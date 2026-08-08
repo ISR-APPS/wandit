@@ -176,6 +176,38 @@ export const leadsResponseSchema = z.object({
 
 export type LeadsResponse = z.infer<typeof leadsResponseSchema>;
 
+// Dashboard-level aggregate list: every lead the caller's workspace can see,
+// across all of its projects. Same search/status semantics as the per-project
+// list, plus optional project and source narrowing. Source filtering runs in
+// SQL against the stored attribution and mirrors the read-time derivation.
+export const workspaceLeadsQuerySchema = cursorPaginationQuerySchema.extend({
+	projectId: uuidSchema.optional(),
+	q: z.string().trim().max(200).optional(),
+	source: leadSourceSchema.optional(),
+	status: leadStatusSchema.optional(),
+});
+
+export type WorkspaceLeadsQuery = z.infer<typeof workspaceLeadsQuerySchema>;
+
+// A lead row with its project attached — the aggregate table shows which
+// page captured each order and links back to it.
+export const workspaceLeadSchema = leadSchema.extend({
+	projectId: uuidSchema,
+	projectName: z.string(),
+});
+
+export type WorkspaceLead = z.infer<typeof workspaceLeadSchema>;
+
+export const workspaceLeadsResponseSchema = z.object({
+	leads: z.array(workspaceLeadSchema),
+	nextCursor: z.string().nullable(),
+	total: z.number().int().nonnegative(),
+});
+
+export type WorkspaceLeadsResponse = z.infer<
+	typeof workspaceLeadsResponseSchema
+>;
+
 export const leadStatusUpdateBodySchema = z.object({
 	status: leadStatusSchema,
 });
@@ -196,6 +228,10 @@ export const leadsRoutes = {
 	// published pages by the publish-time runtime injection.
 	capture: (publicFormId: string) => `/api/public/leads/${publicFormId}`,
 	listByProject: (projectId: string) => `/api/v1/projects/${projectId}/leads`,
+	// Aggregate list across every project the active workspace can see —
+	// the dashboard Leads page. No project id in the path: the workspace
+	// header (or its absence, for personal) is the only scope input.
+	listForWorkspace: "/api/v1/leads",
 	updateStatus: (projectId: string, leadId: string) =>
 		`/api/v1/projects/${projectId}/leads/${leadId}/status`,
 } as const;

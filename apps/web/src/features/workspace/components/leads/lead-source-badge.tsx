@@ -13,7 +13,8 @@ import { cn } from "@wandit/ui/lib/utils";
 
 import { useTranslation } from "@/lib/i18n";
 
-const SOURCE_DOT_CLASS: Record<Lead["source"], string> = {
+// Exported for the dashboard Leads page's source filter dots.
+export const SOURCE_DOT_CLASS: Record<Lead["source"], string> = {
 	// Meta's brand blue; TikTok reads as the strong neutral; direct stays calm.
 	direct: "bg-stone",
 	facebook: "bg-[#1877F2]",
