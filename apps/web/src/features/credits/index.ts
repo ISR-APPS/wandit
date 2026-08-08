@@ -13,5 +13,7 @@ export {
 export { CreditsChip } from "./components/credits-chip";
 export { InsufficientCreditsDialog } from "./components/insufficient-credits-dialog";
 export { LedgerList } from "./components/ledger-list";
+export { OutOfCreditsBanner } from "./components/out-of-credits-banner";
 export { PriceTag } from "./components/price-tag";
 export { CREDIT_COSTS, type CreditAction, priceTag } from "./lib/constants";
+export { useOutOfCredits } from "./lib/out-of-credits";

@@ -12,6 +12,12 @@
 	"insufficientTitle": "Not enough credits",
 	"insufficientBody": "This action costs more credits than you currently have.",
 	"costLabel": "Cost",
+	"outOfCredits": {
+		"title": "You're out of credits",
+		"body": "Upgrade your plan to keep building.",
+		"memberBody": "This workspace is out of credits. Ask a workspace owner to upgrade.",
+		"cta": "Upgrade plan"
+	},
 	"buckets": {
 		"plan": "Plan",
 		"promo": "Promotional",

@@ -13,7 +13,11 @@ import {
 import { useEffect, useRef } from "react";
 
 import { useSession } from "@/features/auth";
-import { InsufficientCreditsDialog } from "@/features/credits";
+import {
+	InsufficientCreditsDialog,
+	OutOfCreditsBanner,
+	useOutOfCredits,
+} from "@/features/credits";
 import { PromptBox, useCreateProjectWithPrompt } from "@/features/projects";
 
 import orbAnimation from "../assets/ai-sphere-animation.json";
@@ -38,6 +42,9 @@ export function Hero({ promptKey, promptInitial }: HeroProps) {
 	const { create, isCreating, insufficientOpen, setInsufficientOpen, cost } =
 		useCreateProjectWithPrompt();
 	const { data: session } = useSession();
+	// Session-gated: signed-out visitors are never blocked here — their submit
+	// goes through the auth flow, not a credit debit.
+	const { outOfCredits } = useOutOfCredits();
 	const { t } = useTranslation();
 	const hero = useDictionary().landing.hero;
 
@@ -143,12 +150,16 @@ export function Hero({ promptKey, promptInitial }: HeroProps) {
 						aria-hidden
 						className="absolute -inset-x-12 -inset-y-16 bg-[radial-gradient(ellipse_at_center,color-mix(in_oklab,var(--color-primary)_16%,transparent),transparent_70%)]"
 					/>
+					{outOfCredits ? (
+						<OutOfCreditsBanner className="relative mb-3 text-start" />
+					) : null}
 					<PromptBox
 						key={promptKey}
 						variant="hero"
 						showBanner
 						showModes
 						attachmentsEnabled={Boolean(session)}
+						disabled={outOfCredits}
 						initialValue={promptInitial}
 						onSubmit={create}
 						isSubmitting={isCreating}
