@@ -30,11 +30,11 @@ import {
 // Type-only import: importing the task value would pull the Trigger worker
 // (and its database pool) into the Nest API process.
 import type { generateImageTask } from "../../../../trigger/generate-image.task";
+import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import {
 	createImageGenerationBilling,
 	type ImageGenerationBilling,
 } from "../../../image-generations/application/services/image-generation-billing";
-import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import type { ImageGenerationsRepository } from "../../../image-generations/infrastructure/persistence/image-generations.repository";
 import { assertFixedOperationProviderExecutionAllowed } from "../../../metering/application/services/fixed-operation-billing";
 import type { MeteringService } from "../../../metering/application/services/metering.service";
@@ -125,7 +125,11 @@ export function createGenerateImageTool(
 						message:
 							"A source is not an eligible image attached by this user. " +
 							"Every sourceImageUrl must exactly match one of their " +
-							"JPEG, PNG, or WebP attachments. Ask for the photo first.",
+							"JPEG, PNG, or WebP attachments. Sources must be USER " +
+							"uploads: to place an already-generated asset somewhere, " +
+							"use its [Generated …] marker URL with the page-edit " +
+							"tools instead — only ask for a photo when the user " +
+							"never attached one.",
 						status: "unavailable",
 					};
 				}

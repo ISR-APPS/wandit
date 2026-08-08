@@ -72,6 +72,7 @@ import {
 import type { FastifyReply } from "fastify";
 
 import { isUserUploadUrl } from "../../../../infrastructure/storage/r2";
+import { ConnectorGenerationsRepository } from "../../../connector-generations/infrastructure/persistence/connector-generations.repository";
 import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import { ChatsRepository } from "../../../generation/infrastructure/persistence/chats.repository";
 import { ImageGenerationsRepository } from "../../../image-generations/infrastructure/persistence/image-generations.repository";
@@ -106,6 +107,7 @@ import {
 	type ProjectScope,
 } from "../../../projects/domain/project-scope";
 import { annotateUserFileParts } from "../../agent/annotate-file-parts";
+import { annotateGeneratedAssets } from "../../agent/annotate-generated-assets";
 import { createChatAgent, type WanditUIMessage } from "../../agent/chat-agent";
 import {
 	estimateAiChatTokenUsage,
@@ -152,6 +154,8 @@ export class AiChatService {
 	constructor(
 		@Inject(ChatsRepository)
 		private readonly chatsRepository: ChatsRepository,
+		@Inject(ConnectorGenerationsRepository)
+		private readonly connectorGenerationsRepository: ConnectorGenerationsRepository,
 		@Inject(PagesRepository)
 		private readonly pagesRepository: PagesRepository,
 		@Inject(PageEditsService)
@@ -618,7 +622,7 @@ export class AiChatService {
 				mcpResult.tools,
 				mcpResult.approvalMap,
 			);
-			// Three transforms on the MODEL-BOUND copy only (DB + UI keep the truth):
+			// Four transforms on the MODEL-BOUND copy only (DB + UI keep the truth):
 			// 1. complete tool calls that never got a result (typed-past ask_user,
 			//    or a stream aborted mid-execute) — providers reject a history that
 			//    carries a tool call without a matching result,
@@ -626,9 +630,22 @@ export class AiChatService {
 			//    guidance does not cost tokens on every request,
 			// 3. follow user file parts with a text marker exposing their URL —
 			//    without it the model sees the image but cannot reference it in
-			//    generate_image/animate_image and asks for an already-sent photo.
-			const agentMessages = annotateUserFileParts(
-				elideRetiredToolOutputs(completeDanglingToolCalls(messages)),
+			//    generate_image/animate_image and asks for an already-sent photo,
+			// 4. follow settled generation tool parts with a [Generated …] marker
+			//    exposing the finished asset's URL — without it the model never
+			//    learns any generated URL and asks the user to re-attach media
+			//    that Wandit itself produced.
+			const agentMessages = await annotateGeneratedAssets(
+				annotateUserFileParts(
+					elideRetiredToolOutputs(completeDanglingToolCalls(messages)),
+				),
+				{
+					connectorGenerationsRepository: this.connectorGenerationsRepository,
+					imageGenerationsRepository: this.imageGenerationsRepository,
+					mediaGenerationsRepository: this.mediaGenerationsRepository,
+					projectId,
+					scope,
+				},
 			);
 			let finalUsage: LanguageModelUsage | null = null;
 			const pendingGenerationCaptures: CapturedGeneration[] = [];

@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 
+import { ConnectorGenerationsModule } from "../connector-generations/connector-generations.module";
 import { GenerationModule } from "../generation/generation.module";
 import { ImageGenerationsModule } from "../image-generations/image-generations.module";
 import { LeadScrapesModule } from "../lead-scrapes/lead-scrapes.module";
@@ -19,6 +20,7 @@ import { AiChatController } from "./presentation/http/controllers/ai-chat.contro
 	// MarketingAssetsModule / ImageGenerationsModule export the repositories
 	// behind generate_marketing_asset and generate_image.
 	imports: [
+		ConnectorGenerationsModule,
 		GenerationModule,
 		ImageGenerationsModule,
 		LeadScrapesModule,

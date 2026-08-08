@@ -20,6 +20,8 @@ vi.mock("ai", () => ({
 
 const REFINED_PROMPT =
 	"A sunlit studio product photo of a matte ceramic vase, soft rim light, shallow depth of field";
+const DIRECTED_PROMPT =
+	"Slow dolly-in on a matte ceramic vase as morning light sweeps across it, settling into a hero close-up";
 
 function setup() {
 	const meteringService = {
@@ -27,10 +29,21 @@ function setup() {
 			async (): Promise<{ id: string } | null> => ({ id: "generation_ref_1" }),
 		),
 	};
+	const videoDirector = {
+		craftConnectorVideoPrompt: vi.fn(async () => ({
+			directed: true,
+			negativePrompt: "no text",
+			prompt: DIRECTED_PROMPT,
+		})),
+	};
 
 	return {
 		meteringService,
-		service: new HiggsfieldPromptRefinerService(meteringService as never),
+		service: new HiggsfieldPromptRefinerService(
+			meteringService as never,
+			videoDirector as never,
+		),
+		videoDirector,
 	};
 }
 
@@ -106,31 +119,59 @@ describe("HiggsfieldPromptRefinerService", () => {
 		);
 	});
 
-	it("names the medium and target model of a video generation", async () => {
-		mockRefinement(REFINED_PROMPT);
-		const { service } = setup();
+	it("routes a video generation through the ONE creative director, never the generic refiner", async () => {
+		const { service, videoDirector } = setup();
 
-		await service.refineGenerationArgs({
-			args: { params: { prompt: "a launch film" } },
-			organizationId: "org_1",
-			parentEventId: undefined,
-			toolName: "generate_video",
-			userId: "user_1",
+		await expect(
+			service.refineGenerationArgs({
+				args: {
+					params: {
+						aspect_ratio: "9:16",
+						duration: 6,
+						model: "kling3_0",
+						prompt: "SUBJECT: a serum bottle… KEY MOMENT: the drop lands…",
+					},
+				},
+				organizationId: "org_1",
+				parentEventId: "usage_event_1",
+				toolName: "generate_video",
+				userId: "user_1",
+			}),
+		).resolves.toEqual({
+			params: {
+				aspect_ratio: "9:16",
+				duration: 6,
+				model: "kling3_0",
+				prompt: DIRECTED_PROMPT,
+			},
 		});
 
-		expect(generateText).toHaveBeenCalledWith(
-			expect.objectContaining({
-				prompt:
-					"Medium: video\nTarget model: unknown\nUser request:\na launch film",
-				providerOptions: {
-					gateway: {
-						tags: ["op:chat", "ws:org"],
-						user: "user_1",
-					},
-					openai: { reasoningEffort: "medium" },
-				},
+		expect(videoDirector.craftConnectorVideoPrompt).toHaveBeenCalledWith({
+			aspect: "9:16",
+			brief: "SUBJECT: a serum bottle… KEY MOMENT: the drop lands…",
+			durationSeconds: 6,
+			model: "kling3_0",
+			organizationId: "org_1",
+			parentEventId: "usage_event_1",
+			userId: "user_1",
+		});
+		expect(generateText).not.toHaveBeenCalled();
+	});
+
+	it("leaves video arguments without a prompt untouched and asks no director", async () => {
+		const { service, videoDirector } = setup();
+		const args = { params: { medias: ["https://cdn.example.com/still.png"] } };
+
+		await expect(
+			service.refineGenerationArgs({
+				args,
+				organizationId: null,
+				parentEventId: undefined,
+				toolName: "generate_video",
+				userId: "user_1",
 			}),
-		);
+		).resolves.toBe(args);
+		expect(videoDirector.craftConnectorVideoPrompt).not.toHaveBeenCalled();
 	});
 
 	it("rewrites through a JSON-string params and re-stringifies the other keys", async () => {

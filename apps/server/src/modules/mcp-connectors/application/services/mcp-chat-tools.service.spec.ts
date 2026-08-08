@@ -421,8 +421,13 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 		(
 			env as typeof env & { GENERATION_BILLING_MODE: "enforce" | "off" }
 		).GENERATION_BILLING_MODE = "enforce";
-		(env as typeof env & { TRIGGER_SECRET_KEY?: string }).TRIGGER_SECRET_KEY =
-			undefined;
+		// The test env object can be process.env itself (skipValidation), where
+		// `= undefined` coerces to the TRUTHY string "undefined" — delete is the
+		// only reliable way to model a missing key.
+		Reflect.deleteProperty(
+			env as unknown as Record<string, unknown>,
+			"TRIGGER_SECRET_KEY",
+		);
 		triggerMocks.createPublicToken.mockResolvedValue("public-token");
 		triggerMocks.createTriggerIdempotencyKey.mockResolvedValue(
 			"connector-idempotency-key",
@@ -436,8 +441,15 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 		(
 			env as typeof env & { GENERATION_BILLING_MODE: "enforce" | "off" }
 		).GENERATION_BILLING_MODE = INITIAL_BILLING_MODE;
-		(env as typeof env & { TRIGGER_SECRET_KEY?: string }).TRIGGER_SECRET_KEY =
-			INITIAL_TRIGGER_SECRET_KEY;
+		if (INITIAL_TRIGGER_SECRET_KEY === undefined) {
+			Reflect.deleteProperty(
+				env as unknown as Record<string, unknown>,
+				"TRIGGER_SECRET_KEY",
+			);
+		} else {
+			(env as typeof env & { TRIGGER_SECRET_KEY?: string }).TRIGGER_SECRET_KEY =
+				INITIAL_TRIGGER_SECRET_KEY;
+		}
 	});
 
 	describe("connection setup and existing behavior", () => {
@@ -449,7 +461,9 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				service,
 			} = buildService({ connections: [] });
 
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
 
 			expect(connectionsRepository.listByUser).toHaveBeenCalledWith(USER_ID);
 			expect(connectorsRepository.listEnabled).not.toHaveBeenCalled();
@@ -469,13 +483,15 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				new Error("invalid bearer secret-provider-token"),
 			);
 
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
 
 			expect(createMCPClient).not.toHaveBeenCalled();
 			expect(result.tools).toEqual({});
 			expect(result.approvalMap).toEqual({});
 			expect(result.notices).toEqual([
-				"The user's Meta Ads connection could not be used (connector unreachable). Tell the user it is temporarily unavailable and to try again later if they ask for it.",
+				"The user's Meta Ads connection could not be used (connector unreachable). If the user asks for ANYTHING that needs this connector (a generation, a report…), say plainly that it is temporarily unavailable right now and to try again shortly — never announce or pretend to start that work.",
 			]);
 			expect(result.notices.join(" ")).not.toContain("secret-provider-token");
 		});
@@ -486,11 +502,13 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				new ConflictException("refresh rejected"),
 			);
 
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
 
 			expect(createMCPClient).not.toHaveBeenCalled();
 			expect(result.notices).toEqual([
-				"The user's Meta Ads connection could not be used (reconnect required). Tell the user to reconnect it in Settings → Connectors if they ask for it.",
+				"The user's Meta Ads connection could not be used (reconnect required). If the user asks for ANYTHING that needs this connector (a generation, a report…), tell them to reconnect it in Settings → Connectors — never announce or pretend to start that work.",
 			]);
 		});
 
@@ -509,7 +527,9 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				],
 			});
 
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
 
 			expect(connectionsService.getValidAccessToken).not.toHaveBeenCalled();
 			expect(createMCPClient).not.toHaveBeenCalled();
@@ -541,7 +561,9 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				connectors: [connector({ name: "Future", slug: "future-connector" })],
 			});
 
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
 
 			expect(result.tools["mcp_future-connector_get_campaigns"]).toBe(
 				firstTool,
@@ -587,7 +609,9 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				],
 			});
 
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
 
 			expect(result.tools.mcp_future_ads_get_campaigns).toBe(firstTool);
 			expect(result.tools.mcp_future_ads_get_campaigns).not.toBe(laterTool);
@@ -613,7 +637,9 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				],
 			});
 
-			const metaResult = await meta.service.resolveToolsForUser({ actorUserId: USER_ID });
+			const metaResult = await meta.service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
 
 			expect(metaResult.approvalMap).toMatchObject({
 				"mcp_meta-ads_frobnicate_widget": "user-approval",
@@ -642,8 +668,9 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				],
 			});
 
-			const higgsfieldResult =
-				await higgsfield.service.resolveToolsForUser({ actorUserId: USER_ID });
+			const higgsfieldResult = await higgsfield.service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
 
 			expect(higgsfieldResult.approvalMap).toMatchObject({
 				mcp_higgsfield_publish_website: "user-approval",
@@ -672,7 +699,9 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				],
 			});
 
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
 
 			expect(result.approvalMap).toMatchObject({
 				mcp_higgsfield_tiktok_publish: "user-approval",
@@ -707,7 +736,9 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			);
 			const { service } = buildService();
 
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
 
 			expect(result.tools["mcp_meta-ads_ads_get_ad_accounts"]).toBe(visible);
 			expect(result.tools).not.toHaveProperty(
@@ -740,7 +771,9 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				],
 			});
 
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
 
 			expect(result.tools).toHaveProperty(
 				"mcp_meta-ads_campaign_budget_update",
@@ -782,7 +815,9 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				],
 			});
 
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
 
 			expect(result.tools).toHaveProperty("mcp_meta-ads_ads_get_ad_accounts");
 			expect(result.tools).not.toHaveProperty(
@@ -811,7 +846,9 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				],
 			});
 
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
 
 			expect(result.tools).toHaveProperty("mcp_tiktok-ads_tool_execute");
 			expect(result.tools).not.toHaveProperty("mcp_tiktok-ads_tool_get");
@@ -828,7 +865,9 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				connectors: [connector({ name: "Future", slug: "future-connector" })],
 			});
 
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
 
 			expect(result.tools).toHaveProperty("mcp_future-connector_alpha_get");
 			expect(result.tools).toHaveProperty("mcp_future-connector_omega_create");
@@ -855,7 +894,9 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				],
 			});
 
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
 			const names = Object.keys(result.tools);
 
 			for (const door of DISCOVERY_DOORS) {
@@ -879,7 +920,9 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				connectors: [connector({ slug: "future-connector" })],
 			});
 
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
 			const names = Object.keys(result.tools);
 
 			expect(names).toEqual([...names].sort());
@@ -917,7 +960,9 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				],
 			});
 
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
 			expect(result.tools).not.toHaveProperty("mcp_tiktok-ads_tool_execute");
 			expect(result.tools).not.toHaveProperty("mcp_tiktok-ads_tool_get");
 			expect(result.tools).not.toHaveProperty("mcp_tiktok-ads_tool_list");
@@ -957,7 +1002,9 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				connectors: [connector({ slug: "higgsfield" })],
 			});
 
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
 			const search = await executeTool(
 				requiredTool(result.tools, "search_platform_tools"),
 				{
@@ -1004,7 +1051,9 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				connectors: [connector({ slug: "tiktok-ads" })],
 			});
 
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
 			const search = await executeTool(
 				requiredTool(result.tools, "search_platform_tools"),
 				{
@@ -1061,7 +1110,9 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			);
 			const { service } = buildService();
 
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
 			const visible = await executeTool(
 				requiredTool(result.tools, "describe_platform_tool"),
 				{
@@ -1136,7 +1187,9 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				connectors: [connector({ slug: "tiktok-ads" })],
 			});
 
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
 			const described = await executeTool(
 				requiredTool(result.tools, "describe_platform_tool"),
 				{
@@ -1174,7 +1227,9 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			);
 			const { service } = buildService();
 
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
 			const described = await executeTool(
 				requiredTool(result.tools, "describe_platform_tool"),
 				{
@@ -1214,7 +1269,9 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			const { service } = buildService({
 				connectors: [connector({ slug: "tiktok-ads" })],
 			});
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
 
 			const described = await executeTool(
 				requiredTool(result.tools, "describe_platform_tool"),
@@ -1252,7 +1309,9 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				connectors: [connector({ slug: "tiktok-ads" })],
 			});
 
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
 			await executeTool(requiredTool(result.tools, "run_platform_tool"), {
 				connector: "tiktok-ads",
 				params: { advertiser_id: "adv-1" },
@@ -1286,7 +1345,9 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				mockClient({ definitions: [definition("ads_get_ad_accounts")] }),
 			);
 			const { service } = buildService();
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
 			const approval = result.approvalMap.run_platform_tool;
 
 			expect(approval).toBeTypeOf("function");
@@ -1382,7 +1443,10 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			const { meteringService, service } = buildService({
 				connectors: [connector({ slug: "higgsfield" })],
 			});
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID }, "chat-event");
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+			);
 
 			await expect(
 				executeTool(
@@ -1482,7 +1546,10 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			const { meteringService, service } = buildService({
 				connectors: [connector({ slug: "higgsfield" })],
 			});
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID }, "chat-event");
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+			);
 
 			await expect(
 				executeTool(
@@ -1537,7 +1604,10 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			const { meteringService, service } = buildService({
 				connectors: [connector({ slug: "higgsfield" })],
 			});
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID }, "chat-event");
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+			);
 
 			await expect(
 				executeTool(
@@ -1585,7 +1655,10 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				.mockRejectedValueOnce(new Error("capture unavailable 1"))
 				.mockRejectedValueOnce(new Error("capture unavailable 2"))
 				.mockResolvedValue({ id: "generation-ref" });
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID }, "chat-event");
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+			);
 
 			await expect(
 				executeTool(
@@ -1623,7 +1696,10 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			});
 			const persistenceError = new Error("generation ref unavailable");
 			meteringService.captureGeneration.mockRejectedValue(persistenceError);
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID }, "chat-event");
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+			);
 
 			await expect(
 				executeTool(
@@ -1661,7 +1737,10 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				replay: "settled",
 				replayed: true,
 			});
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID }, "chat-event");
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+			);
 
 			await expect(
 				executeTool(
@@ -1697,7 +1776,10 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				replay: "reserved",
 				replayed: true,
 			});
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID }, "chat-event");
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+			);
 
 			await expect(
 				executeTool(
@@ -1729,7 +1811,10 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			const { meteringService, service } = buildService({
 				connectors: [connector({ slug: "higgsfield" })],
 			});
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID }, "chat-event");
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+			);
 
 			await executeTool(
 				requiredTool(result.tools, "mcp_higgsfield_models_explore"),
@@ -1766,7 +1851,10 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			});
 			const paymentRequired = new InsufficientCreditsError(5, 0);
 			meteringService.reserveWithReplay.mockRejectedValueOnce(paymentRequired);
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID }, "chat-event");
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+			);
 
 			await expect(
 				executeTool(
@@ -1784,12 +1872,18 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			queueClient(mockClient({ definitions: [definition("generate_video")] }));
 			const { connectorGenerationsRepository, meteringService, service } =
 				buildService({ connectors: [connector({ slug: "higgsfield" })] });
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID }, "chat-event");
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+			);
 
 			await expect(
 				executeTool(
 					requiredTool(result.tools, "mcp_higgsfield_generate_video"),
-					{ prompt: "Launch film" },
+					{
+						prompt:
+							"SUBJECT: PulseBuds earbuds. KEY MOMENT: the case snaps open in morning light.",
+					},
 					toolExecutionOptions("call-background"),
 				),
 			).resolves.toMatchObject({
@@ -1879,11 +1973,17 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 					return "connector-idempotency-key";
 				},
 			);
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID }, "chat-event");
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+			);
 
 			await executeTool(
 				requiredTool(result.tools, "mcp_higgsfield_generate_video"),
-				{ prompt: "Launch film" },
+				{
+					prompt:
+						"SUBJECT: PulseBuds earbuds. KEY MOMENT: the case snaps open in morning light.",
+				},
 				toolExecutionOptions("call-switch"),
 			);
 
@@ -1907,12 +2007,18 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				replay: "reconciled",
 				replayed: true,
 			});
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID }, "chat-event");
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+			);
 
 			await expect(
 				executeTool(
 					requiredTool(result.tools, "mcp_higgsfield_generate_video"),
-					{ prompt: "Do not enqueue" },
+					{
+						prompt:
+							"SUBJECT: a replayed request that must not enqueue provider work again.",
+					},
 					toolExecutionOptions("call-video-terminal"),
 				),
 			).rejects.toMatchObject({
@@ -1934,7 +2040,10 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			const { meteringService, service } = buildService({
 				connectors: [connector({ slug: "higgsfield" })],
 			});
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID }, "chat-event");
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+			);
 
 			await expect(
 				executeTool(
@@ -1960,7 +2069,10 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			const { meteringService, service } = buildService({
 				connectors: [connector({ slug: "higgsfield" })],
 			});
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID }, "chat-event");
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+			);
 
 			await expect(
 				executeTool(
@@ -1988,7 +2100,10 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			queueClient(mockClient({ definitions: [definition("generate_video")] }));
 			const { connectorGenerationsRepository, meteringService, service } =
 				buildService({ connectors: [connector({ slug: "higgsfield" })] });
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID }, "chat-event");
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+			);
 
 			await expect(
 				executeTool(
@@ -2022,7 +2137,10 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			const { meteringService, service } = buildService({
 				connectors: [connector({ slug: "higgsfield" })],
 			});
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID }, "chat-event");
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+			);
 
 			await executeTool(
 				requiredTool(result.tools, "mcp_higgsfield_generate_audio"),
@@ -2031,6 +2149,329 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			);
 			expect(meteringService.reserveWithReplay).not.toHaveBeenCalled();
 			expect(meteringService.settle).not.toHaveBeenCalled();
+		});
+	});
+
+	describe("creative-director gate, cost preflight, and batch guard", () => {
+		it("queues generate_image in the background when the Trigger key is set", async () => {
+			(env as typeof env & { TRIGGER_SECRET_KEY?: string }).TRIGGER_SECRET_KEY =
+				"tr_test";
+			queueClient(mockClient({ definitions: [definition("generate_image")] }));
+			const { connectorGenerationsRepository, meteringService, service } =
+				buildService({ connectors: [connector({ slug: "higgsfield" })] });
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+			);
+
+			await expect(
+				executeTool(
+					requiredTool(result.tools, "mcp_higgsfield_generate_image"),
+					{
+						params: { count: 2, model: "seedream", prompt: "A product photo" },
+					},
+					toolExecutionOptions("call-image-queued"),
+				),
+			).resolves.toMatchObject({
+				attemptId: GENERATION_ATTEMPT_ID,
+				kind: "wandit_background_generation",
+				status: "queued",
+				tool: "generate_image",
+			});
+			expect(
+				connectorGenerationsRepository.insertAttempt,
+			).toHaveBeenCalledTimes(1);
+			expect(meteringService.reserveWithReplay).toHaveBeenNthCalledWith(
+				2,
+				"image",
+				{ actorUserId: USER_ID },
+				expect.objectContaining({
+					idempotencyKey: `image:${GENERATION_ATTEMPT_ID}`,
+				}),
+			);
+			expect(triggerMocks.trigger).toHaveBeenCalledTimes(1);
+		});
+
+		it("rejects a one-line video prompt with intake guidance before any cost", async () => {
+			(env as typeof env & { TRIGGER_SECRET_KEY?: string }).TRIGGER_SECRET_KEY =
+				"tr_test";
+			queueClient(mockClient({ definitions: [definition("generate_video")] }));
+			const {
+				connectorGenerationsRepository,
+				meteringService,
+				promptRefiner,
+				service,
+			} = buildService({ connectors: [connector({ slug: "higgsfield" })] });
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+			);
+
+			const gateResult = (await executeTool(
+				requiredTool(result.tools, "mcp_higgsfield_generate_video"),
+				{ params: { prompt: "a serum ad" } },
+				toolExecutionOptions("call-video-gated"),
+			)) as { content: Array<{ text: string }>; isError: boolean };
+
+			expect(gateResult.isError).toBe(true);
+			expect(gateResult.content[0]?.text).toContain("creative-director intake");
+			expect(promptRefiner.refineGenerationArgs).not.toHaveBeenCalled();
+			expect(
+				connectorGenerationsRepository.insertAttempt,
+			).not.toHaveBeenCalled();
+			expect(meteringService.reserveWithReplay).not.toHaveBeenCalled();
+			expect(triggerMocks.trigger).not.toHaveBeenCalled();
+		});
+
+		it("gates the video door the same way through run_platform_tool", async () => {
+			(env as typeof env & { TRIGGER_SECRET_KEY?: string }).TRIGGER_SECRET_KEY =
+				"tr_test";
+			const client = mockClient({
+				definitions: [definition("generate_video")],
+			});
+			queueClient(client);
+			const { connectorGenerationsRepository, service } = buildService({
+				connectors: [connector({ slug: "higgsfield" })],
+			});
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+			);
+
+			const gateResult = (await executeTool(
+				requiredTool(result.tools, "run_platform_tool"),
+				{
+					connector: "higgsfield",
+					params: { params: { prompt: "a serum ad" } },
+					tool_name: "generate_video",
+				},
+				toolExecutionOptions("call-door-gated"),
+			)) as { isError: boolean };
+
+			expect(gateResult.isError).toBe(true);
+			expect(client.callTool).not.toHaveBeenCalled();
+			expect(
+				connectorGenerationsRepository.insertAttempt,
+			).not.toHaveBeenCalled();
+		});
+
+		it("runs a get_cost preflight inline, unbilled, and unrefined", async () => {
+			(env as typeof env & { TRIGGER_SECRET_KEY?: string }).TRIGGER_SECRET_KEY =
+				"tr_test";
+			const costResult = { content: [{ text: '{"cost": 25}', type: "text" }] };
+			const providerExecute = vi.fn(() => costResult);
+			queueClient(
+				mockClient({
+					definitions: [definition("generate_video")],
+					toolImplementations: {
+						generate_video: executableTool(providerExecute),
+					},
+				}),
+			);
+			const {
+				connectorGenerationsRepository,
+				meteringService,
+				promptRefiner,
+				service,
+			} = buildService({ connectors: [connector({ slug: "higgsfield" })] });
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+			);
+			const args = { params: { get_cost: true, prompt: "a serum ad" } };
+
+			await expect(
+				executeTool(
+					requiredTool(result.tools, "mcp_higgsfield_generate_video"),
+					args,
+					toolExecutionOptions("call-cost-preflight"),
+				),
+			).resolves.toBe(costResult);
+			expect(providerExecute).toHaveBeenCalledWith(args, expect.anything());
+			expect(promptRefiner.refineGenerationArgs).not.toHaveBeenCalled();
+			expect(
+				connectorGenerationsRepository.insertAttempt,
+			).not.toHaveBeenCalled();
+			expect(meteringService.reserveWithReplay).not.toHaveBeenCalled();
+			expect(triggerMocks.trigger).not.toHaveBeenCalled();
+		});
+
+		it("runs a get_cost preflight through run_platform_tool without queueing", async () => {
+			(env as typeof env & { TRIGGER_SECRET_KEY?: string }).TRIGGER_SECRET_KEY =
+				"tr_test";
+			const client = mockClient({
+				definitions: [definition("generate_video")],
+			});
+			queueClient(client);
+			const { connectorGenerationsRepository, meteringService, service } =
+				buildService({ connectors: [connector({ slug: "higgsfield" })] });
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+			);
+
+			await executeTool(
+				requiredTool(result.tools, "run_platform_tool"),
+				{
+					connector: "higgsfield",
+					params: { params: { get_cost: true, prompt: "a serum ad" } },
+					tool_name: "generate_video",
+				},
+				toolExecutionOptions("call-door-cost"),
+			);
+
+			expect(client.callTool).toHaveBeenCalledWith({
+				arguments: { params: { get_cost: true, prompt: "a serum ad" } },
+				name: "generate_video",
+			});
+			expect(
+				connectorGenerationsRepository.insertAttempt,
+			).not.toHaveBeenCalled();
+			expect(meteringService.reserveWithReplay).not.toHaveBeenCalled();
+			expect(triggerMocks.trigger).not.toHaveBeenCalled();
+		});
+
+		it("never gates an image-to-video call carrying reference media", async () => {
+			(env as typeof env & { TRIGGER_SECRET_KEY?: string }).TRIGGER_SECRET_KEY =
+				"tr_test";
+			queueClient(mockClient({ definitions: [definition("generate_video")] }));
+			const { connectorGenerationsRepository, service } = buildService({
+				connectors: [connector({ slug: "higgsfield" })],
+			});
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+			);
+
+			// A short motion hint next to a start_image is animate-an-asset
+			// territory — the creative-director gate must not demand a brief.
+			await expect(
+				executeTool(
+					requiredTool(result.tools, "mcp_higgsfield_generate_video"),
+					{
+						params: {
+							medias: [{ role: "start_image", value: "media-1" }],
+							model: "kling3_0",
+							prompt: "slow dolly push-in",
+						},
+					},
+					toolExecutionOptions("call-video-medias"),
+				),
+			).resolves.toMatchObject({
+				kind: "wandit_background_generation",
+				status: "queued",
+				tool: "generate_video",
+			});
+			expect(
+				connectorGenerationsRepository.insertAttempt,
+			).toHaveBeenCalledTimes(1);
+		});
+
+		it("skips billing for a get_cost preflight on an inline connector-only generation", async () => {
+			const costResult = { content: [{ text: '{"cost": 9}', type: "text" }] };
+			const providerExecute = vi.fn(() => costResult);
+			queueClient(
+				mockClient({
+					definitions: [definition("generate_audio")],
+					toolImplementations: {
+						generate_audio: executableTool(providerExecute),
+					},
+				}),
+			);
+			const { connectorGenerationsRepository, meteringService, service } =
+				buildService({ connectors: [connector({ slug: "higgsfield" })] });
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+			);
+			const args = { params: { get_cost: true, prompt: "an upbeat jingle" } };
+
+			await expect(
+				executeTool(
+					requiredTool(result.tools, "mcp_higgsfield_generate_audio"),
+					args,
+					toolExecutionOptions("call-audio-cost"),
+				),
+			).resolves.toBe(costResult);
+			expect(meteringService.reserveWithReplay).not.toHaveBeenCalled();
+			expect(
+				connectorGenerationsRepository.insertAttempt,
+			).not.toHaveBeenCalled();
+		});
+
+		it("routes batch tools to the single-shot generations instead of running inline", async () => {
+			const client = mockClient({
+				definitions: [definition("generate_video")],
+			});
+			queueClient(client);
+			const { service } = buildService({
+				connectors: [connector({ slug: "higgsfield" })],
+			});
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+			);
+
+			const batchResult = (await executeTool(
+				requiredTool(result.tools, "run_platform_tool"),
+				{
+					connector: "higgsfield",
+					params: { params: { prompts: ["a", "b"] } },
+					tool_name: "generate_video_batch",
+				},
+				toolExecutionOptions("call-door-batch"),
+			)) as { content: Array<{ text: string }>; isError: boolean };
+
+			expect(batchResult.isError).toBe(true);
+			expect(batchResult.content[0]?.text).toContain("generate_video");
+			expect(client.callTool).not.toHaveBeenCalled();
+		});
+
+		it("passes the provider descriptions of intercepted higgsfield generations through unchanged", async () => {
+			// DEMO-SAFE: Higgsfield's own descriptions carry the valid model
+			// ids — a Wandit rewrite that drops them makes the chat model
+			// invent ids and fail paid generations.
+			queueClient(
+				mockClient({
+					definitions: [
+						definition("generate_image"),
+						definition("generate_video"),
+					],
+					toolImplementations: {
+						generate_image: {
+							...staticTool("generate_image"),
+							description: "Provider description for generate_image",
+						} as Tool,
+						generate_video: {
+							...staticTool("generate_video"),
+							description: "Provider description for generate_video",
+						} as Tool,
+					},
+				}),
+			);
+			const { service } = buildService({
+				connectors: [connector({ slug: "higgsfield" })],
+			});
+
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+			);
+			const videoTool = requiredTool(
+				result.tools,
+				"mcp_higgsfield_generate_video",
+			) as Tool & { description?: string };
+			const imageTool = requiredTool(
+				result.tools,
+				"mcp_higgsfield_generate_image",
+			) as Tool & { description?: string };
+
+			expect(videoTool.description).toBe(
+				"Provider description for generate_video",
+			);
+			expect(imageTool.description).toBe(
+				"Provider description for generate_image",
+			);
 		});
 	});
 
@@ -2092,7 +2533,12 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			);
 			await executeTool(
 				requiredTool(result.tools, "mcp_higgsfield_generate_video"),
-				{ params: { prompt: "a launch film" } },
+				{
+					params: {
+						prompt:
+							"SUBJECT: a serum bottle on marble. KEY MOMENT: one drop lands and settles.",
+					},
+				},
 				toolExecutionOptions("call-refined-video"),
 			);
 
@@ -2107,7 +2553,9 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 		});
 
 		it("refines a generation reached through run_platform_tool", async () => {
-			const client = mockClient({ definitions: [definition("generate_image")] });
+			const client = mockClient({
+				definitions: [definition("generate_image")],
+			});
 			queueClient(client);
 			const { promptRefiner, service } = buildService({
 				connectors: [connector({ slug: "higgsfield" })],
@@ -2243,7 +2691,9 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			queueClient(client);
 			const { service } = buildService();
 
-			const resultPromise = service.resolveToolsForUser({ actorUserId: USER_ID });
+			const resultPromise = service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
 			await vi.advanceTimersByTimeAsync(249);
 			expect(client.listTools).toHaveBeenCalledTimes(1);
 			await vi.advanceTimersByTimeAsync(1);
@@ -2287,7 +2737,9 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 					}),
 				],
 			});
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
 			vi.useFakeTimers();
 
 			const readPromise = executeTool(
@@ -2328,7 +2780,9 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 					}),
 				],
 			});
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
 
 			await expect(
 				executeTool(
@@ -2357,7 +2811,9 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 					}),
 				],
 			});
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
 
 			await expect(
 				executeTool(
@@ -2390,7 +2846,9 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 					}),
 				],
 			});
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
 			const approval = result.approvalMap["mcp_tiktok-ads_tool_execute"];
 
 			expect(approval).toBeTypeOf("function");
@@ -2439,7 +2897,9 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 					}),
 				],
 			});
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
 			vi.useFakeTimers();
 
 			const readPromise = executeTool(
@@ -2517,7 +2977,9 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			const { service } = buildService({
 				connectors: [connector({ slug: "tiktok-ads" })],
 			});
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
 			vi.useFakeTimers();
 
 			const readPromise = executeTool(
@@ -2561,7 +3023,9 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			});
 			const { runtimeCache, service } = buildService();
 
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
 
 			expect(options).toBeDefined();
 			expect(options).not.toHaveProperty("initialInitializeResult");
@@ -2646,7 +3110,9 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			});
 			const { service } = buildService({ runtimeCache });
 
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
 
 			expect(createMCPClient).toHaveBeenCalledTimes(2);
 			expect(options[0]?.transport.initialSessionId).toBe("session-stale");
@@ -2679,7 +3145,9 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			queueClient(freshClient);
 			const { service } = buildService({ runtimeCache });
 
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
 
 			expect(staleClient.listTools).toHaveBeenCalledTimes(1);
 			expect(freshClient.listTools).not.toHaveBeenCalled();
@@ -2717,7 +3185,9 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			queueClient(freshClient, { sessionId: "session-fresh" });
 			const { service } = buildService({ runtimeCache });
 
-			const result = await service.resolveToolsForUser({ actorUserId: USER_ID });
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
 
 			expect(createMCPClient).toHaveBeenCalledTimes(2);
 			expect(staleClient.listTools).not.toHaveBeenCalled();
@@ -2739,9 +3209,13 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			queueClient(secondClient);
 			const { service } = buildService({ runtimeCache });
 
-			const firstResult = await service.resolveToolsForUser({ actorUserId: USER_ID });
+			const firstResult = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
 			await firstResult.close();
-			const currentResult = await service.resolveToolsForUser({ actorUserId: USER_ID });
+			const currentResult = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
 			await executeTool(
 				requiredTool(currentResult.tools, "run_platform_tool"),
 				{
@@ -2771,7 +3245,9 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			const { service } = buildService({ runtimeCache });
 
 			await service.resolveToolsForUser({ actorUserId: USER_ID });
-			const secondResult = await service.resolveToolsForUser({ actorUserId: USER_ID });
+			const secondResult = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
 
 			expect(firstClient.listTools).toHaveBeenCalledTimes(1);
 			expect(secondClient.listTools).not.toHaveBeenCalled();
@@ -2791,7 +3267,9 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			const pendingClient = deferred<MCPClient>();
 			vi.mocked(createMCPClient).mockReturnValueOnce(pendingClient.promise);
 			const { service } = buildService();
-			const resultPromise = service.resolveToolsForUser({ actorUserId: USER_ID });
+			const resultPromise = service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
 
 			await vi.advanceTimersByTimeAsync(10_000);
 			const result = await resultPromise;
@@ -2804,7 +3282,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 
 			expect(result.tools).toEqual({});
 			expect(result.notices).toEqual([
-				"The user's Meta Ads connection could not be used (connector unreachable). Tell the user it is temporarily unavailable and to try again later if they ask for it.",
+				"The user's Meta Ads connection could not be used (connector unreachable). If the user asks for ANYTHING that needs this connector (a generation, a report…), say plainly that it is temporarily unavailable right now and to try again shortly — never announce or pretend to start that work.",
 			]);
 			expect(client.close).toHaveBeenCalledTimes(1);
 			expect(client.listTools).not.toHaveBeenCalled();

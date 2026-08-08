@@ -595,7 +595,8 @@
 			"arguments": "Arguments",
 			"generation": {
 				"working": "Generating your media…",
-				"workingHint": "The provider is on it. It doesn't report progress while it renders — the result will appear right here the moment it's back.",
+				"workingHint": "{connector} is on it — the finished result lands right here the moment it's ready.",
+				"sentTo": "Sent to {connector}",
 				"ready": "Media ready",
 				"noMedia": "Generation finished, but there is no previewable file here — check your connected account.",
 				"failed": "Generation failed",

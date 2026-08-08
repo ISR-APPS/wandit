@@ -651,7 +651,9 @@ export function McpActivityCard({
 					{backgroundGenerations.map(({ output, part }) => (
 						<ConnectorGenerationCard
 							key={part.toolCallId}
+							args={part.input}
 							attemptId={output.attemptId}
+							connectorName={connectorDisplayName(output.connector)}
 							realtime={output.realtime}
 							title={humanizeMcpToolLabel(
 								part.toolName,
@@ -661,6 +663,7 @@ export function McpActivityCard({
 								toolLabels,
 								genericLabels,
 							)}
+							toolName={output.tool}
 						/>
 					))}
 				</>

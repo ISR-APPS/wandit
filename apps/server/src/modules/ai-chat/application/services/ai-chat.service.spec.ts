@@ -142,18 +142,22 @@ function buildService({
 			prompt: "One continuous shot.",
 		}),
 	};
+	const connectorGenerationsRepository = {
+		listSucceededByIdsForScope: vi.fn().mockResolvedValue([]),
+	};
 	const service = new AiChatService(
 		chatsRepository as unknown as AiChatServiceDependencies[0],
-		pagesRepository as unknown as AiChatServiceDependencies[1],
-		pageEditsService as unknown as AiChatServiceDependencies[2],
-		leadScrapesRepository as unknown as AiChatServiceDependencies[3],
-		mediaGenerationsRepository as unknown as AiChatServiceDependencies[4],
-		videoDirector as unknown as AiChatServiceDependencies[5],
-		marketingAssetsRepository as unknown as AiChatServiceDependencies[6],
-		imageGenerationsRepository as unknown as AiChatServiceDependencies[7],
-		mcpChatToolsService as unknown as AiChatServiceDependencies[8],
-		meteringService as unknown as AiChatServiceDependencies[9],
-		modelPricingService as unknown as AiChatServiceDependencies[10],
+		connectorGenerationsRepository as unknown as AiChatServiceDependencies[1],
+		pagesRepository as unknown as AiChatServiceDependencies[2],
+		pageEditsService as unknown as AiChatServiceDependencies[3],
+		leadScrapesRepository as unknown as AiChatServiceDependencies[4],
+		mediaGenerationsRepository as unknown as AiChatServiceDependencies[5],
+		videoDirector as unknown as AiChatServiceDependencies[6],
+		marketingAssetsRepository as unknown as AiChatServiceDependencies[7],
+		imageGenerationsRepository as unknown as AiChatServiceDependencies[8],
+		mcpChatToolsService as unknown as AiChatServiceDependencies[9],
+		meteringService as unknown as AiChatServiceDependencies[10],
+		modelPricingService as unknown as AiChatServiceDependencies[11],
 	);
 
 	return {

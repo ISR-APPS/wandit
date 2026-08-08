@@ -15,7 +15,7 @@ import type {
 	VideoDurationSeconds,
 	VideoVoiceover,
 } from "@wandit/contracts";
-import { and, desc, eq, isNull, lt } from "@wandit/db";
+import { and, desc, eq, inArray, isNull, lt } from "@wandit/db";
 import { mediaGenerationAttempts } from "@wandit/db/schema/media-generation-attempts";
 import { projects } from "@wandit/db/schema/projects";
 import { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
@@ -92,6 +92,35 @@ export class MediaGenerationsRepository {
 		@Inject(AnalyticsService)
 		private readonly analyticsService: AnalyticsService,
 	) {}
+
+	// Generated-asset markers for the model-bound transcript: settled
+	// successes only, constrained to the chat's own project (the ids come
+	// from the chat's own tool parts — the filter is defense in depth).
+	async listSucceededByIdsForProject(
+		projectId: string,
+		attemptIds: readonly string[],
+	): Promise<
+		Array<Pick<MediaGenerationAttemptRow, "id" | "videoMediaType" | "videoUrl">>
+	> {
+		if (attemptIds.length === 0) {
+			return [];
+		}
+
+		return this.db
+			.select({
+				id: mediaGenerationAttempts.id,
+				videoMediaType: mediaGenerationAttempts.videoMediaType,
+				videoUrl: mediaGenerationAttempts.videoUrl,
+			})
+			.from(mediaGenerationAttempts)
+			.where(
+				and(
+					inArray(mediaGenerationAttempts.id, [...attemptIds]),
+					eq(mediaGenerationAttempts.projectId, projectId),
+					eq(mediaGenerationAttempts.status, "succeeded"),
+				),
+			);
+	}
 
 	async insertAttempt(input: {
 		aspect: ImageToVideoAspect;

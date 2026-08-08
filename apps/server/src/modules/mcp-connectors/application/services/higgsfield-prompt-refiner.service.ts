@@ -6,6 +6,7 @@ import {
 	hasLlmProviderKey,
 	withLlmAttribution,
 } from "../../../ai-provider/domain/llm-provider";
+import { VideoDirectorService } from "../../../media-generations/application/services/video-director";
 import { MeteringService } from "../../../metering/application/services/metering.service";
 import { llmGenerationCaptureFromError } from "../../../metering/domain/gateway-metering";
 import { bundledUnmeteredStepUsage } from "../../../metering/domain/metering";
@@ -30,6 +31,8 @@ type HiggsfieldPromptRefinerInput = {
 };
 
 type PromptTarget = {
+	aspectRatio?: string;
+	durationSeconds?: number;
 	model: string;
 	prompt: string;
 	withRefinedPrompt: (refined: string) => Record<string, unknown>;
@@ -42,12 +45,19 @@ export class HiggsfieldPromptRefinerService {
 	constructor(
 		@Inject(MeteringService)
 		private readonly meteringService: MeteringService,
+		@Inject(VideoDirectorService)
+		private readonly videoDirector: VideoDirectorService,
 	) {}
 
 	/**
 	 * Rewrites the generation prompt inside the raw MCP arguments. Any failure
 	 * degrades to the original arguments: a refinement must never block or fail
 	 * a paid generation.
+	 *
+	 * Video prompts do NOT use the generic refiner below: they go through the
+	 * one creative director (VideoDirectorService) so a Higgsfield render and
+	 * a gateway render are prompted by the same brain, in the target model's
+	 * own dialect, from the same creative brief.
 	 */
 	async refineGenerationArgs(
 		input: HiggsfieldPromptRefinerInput,
@@ -60,6 +70,22 @@ export class HiggsfieldPromptRefinerService {
 
 		if (!target) {
 			return input.args;
+		}
+
+		if (input.toolName === "generate_video") {
+			// craftConnectorVideoPrompt never throws — it degrades to its own
+			// deterministic fallback, which still wraps the brief.
+			const crafted = await this.videoDirector.craftConnectorVideoPrompt({
+				aspect: target.aspectRatio,
+				brief: target.prompt,
+				durationSeconds: target.durationSeconds,
+				model: target.model,
+				organizationId: input.organizationId,
+				parentEventId: input.parentEventId,
+				userId: input.userId,
+			});
+
+			return target.withRefinedPrompt(crafted.prompt);
 		}
 
 		if (!hasLlmProviderKey("prompt_refine")) {
@@ -182,6 +208,7 @@ function locatePromptTarget(
 		}
 
 		return {
+			...promptContext(params),
 			model: nonEmptyString(params.model) ?? PROMPT_REFINER_UNKNOWN_MODEL,
 			prompt,
 			withRefinedPrompt: (refined) => ({
@@ -205,6 +232,7 @@ function locatePromptTarget(
 		}
 
 		return {
+			...promptContext(parsed),
 			model: nonEmptyString(parsed.model) ?? PROMPT_REFINER_UNKNOWN_MODEL,
 			prompt,
 			withRefinedPrompt: (refined) => ({
@@ -225,9 +253,43 @@ function locatePromptTarget(
 	}
 
 	return {
+		...promptContext(args),
 		model: nonEmptyString(args.model) ?? PROMPT_REFINER_UNKNOWN_MODEL,
 		prompt,
 		withRefinedPrompt: (refined) => ({ ...args, prompt: refined }),
+	};
+}
+
+/**
+ * Read-only view of the generation prompt inside raw MCP arguments — the
+ * brief gate in mcp-chat-tools uses it to inspect a call before any LLM
+ * rewrite or reservation happens.
+ */
+export function locateGenerationPrompt(args: unknown): string | null {
+	if (!isRecord(args)) {
+		return null;
+	}
+
+	return locatePromptTarget(args)?.prompt ?? null;
+}
+
+/** Aspect/duration context carried next to the prompt (free-form values). */
+function promptContext(record: Record<string, unknown>): {
+	aspectRatio?: string;
+	durationSeconds?: number;
+} {
+	const aspectRatio = nonEmptyString(record.aspect_ratio);
+	const duration =
+		typeof record.duration === "number" && Number.isFinite(record.duration)
+			? record.duration
+			: typeof record.duration === "string" &&
+					Number.isFinite(Number(record.duration))
+				? Number(record.duration)
+				: undefined;
+
+	return {
+		...(aspectRatio ? { aspectRatio } : {}),
+		...(duration && duration > 0 ? { durationSeconds: duration } : {}),
 	};
 }
 

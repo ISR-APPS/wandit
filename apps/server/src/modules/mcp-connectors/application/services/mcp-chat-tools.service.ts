@@ -31,7 +31,9 @@ import {
 	connectorGatewayCaptures,
 	connectorGenerationPlan,
 	connectorGenerationReference,
+	IMAGE_GENERATION_TOOLS,
 	normalizeConnectorToolName,
+	VIDEO_GENERATION_TOOLS,
 } from "../../domain/connector-generation-metering";
 import {
 	type McpToolApprovalMap,
@@ -49,7 +51,10 @@ import {
 	createConnectorGenerationBilling,
 	finalizeConnectorGenerationBilling,
 } from "./connector-generation-billing";
-import { HiggsfieldPromptRefinerService } from "./higgsfield-prompt-refiner.service";
+import {
+	HiggsfieldPromptRefinerService,
+	locateGenerationPrompt,
+} from "./higgsfield-prompt-refiner.service";
 import { McpConnectionsService } from "./mcp-connections.service";
 import {
 	type McpCatalogTool,
@@ -128,14 +133,26 @@ const READ_VERBS = new Set([
 	"display",
 ]);
 const GENERIC_WRAPPER_TOOLS = new Set(["tool_execute"]);
+// Reachable only through the run_platform_tool door (never in the visible
+// set): they render for minutes inline with no billing plan and no card.
+const HIGGSFIELD_BATCH_TOOLS = new Set([
+	"generate_audio_batch",
+	"generate_image_batch",
+	"generate_video_batch",
+]);
 
-// Connector tools whose provider call runs for MINUTES (video generation…):
-// executing them inline would block the chat stream and die on the API
-// process's 5-minute undici ceiling. They are intercepted and replayed by
-// the run-connector-generation Trigger.dev task instead; the chat card
-// follows the run over Realtime. Names are normalized (normalizeToolName).
-const BACKGROUND_GENERATION_TOOLS: Record<string, Set<string>> = {
-	higgsfield: new Set(["generate_video"]),
+// Connector tools whose provider call is a SUBMIT-style generation (a job
+// receipt in ~1s, the render minutes later) or simply runs for minutes:
+// executing them inline would block the chat stream, die on the API
+// process's 5-minute undici ceiling, and — for submit-style tools — hand the
+// model a receipt with demo garnish instead of the render. They are
+// intercepted and replayed by the run-connector-generation Trigger.dev task,
+// which follows the provider job to its real media; the chat card follows
+// the run over Realtime. The set is exactly the metering registry's image +
+// video generations, so every billed generation gets a live card. Names are
+// normalized (normalizeToolName).
+const BACKGROUND_GENERATION_TOOLS: Record<string, ReadonlySet<string>> = {
+	higgsfield: new Set([...IMAGE_GENERATION_TOOLS, ...VIDEO_GENERATION_TOOLS]),
 };
 
 function isBackgroundGenerationTool(slug: string, toolName: string): boolean {
@@ -153,6 +170,95 @@ const PROMPT_REFINED_TOOLS: Record<string, ReadonlySet<string>> = {
 function isPromptRefinedTool(slug: string, toolName: string): boolean {
 	return PROMPT_REFINED_TOOLS[slug]?.has(normalizeToolName(toolName)) ?? false;
 }
+
+// Higgsfield nests its real arguments as `params` (object or JSON string);
+// bare top-level arguments are the degenerate fallback shape.
+function readHiggsfieldParams(args: unknown): Record<string, unknown> | null {
+	if (typeof args !== "object" || args === null) {
+		return null;
+	}
+
+	const record = args as Record<string, unknown>;
+
+	return typeof record.params === "object" &&
+		record.params !== null &&
+		!Array.isArray(record.params)
+		? (record.params as Record<string, unknown>)
+		: typeof record.params === "string"
+			? tryParseJsonRecord(record.params)
+			: record;
+}
+
+// Higgsfield's `get_cost: true` turns a generate call into a fast, free cost
+// preflight: queueing or billing it would reserve credits, insert an attempt
+// row, and show a phantom progress card for a call that renders nothing.
+function isCostPreflight(args: unknown): boolean {
+	return readHiggsfieldParams(args)?.get_cost === true;
+}
+
+function tryParseJsonRecord(value: string): Record<string, unknown> | null {
+	try {
+		const parsed: unknown = JSON.parse(value);
+		return typeof parsed === "object" &&
+			parsed !== null &&
+			!Array.isArray(parsed)
+			? (parsed as Record<string, unknown>)
+			: null;
+	} catch {
+		return null;
+	}
+}
+
+// The unified creative director applies to EVERY from-scratch video render:
+// a Higgsfield generate_video call must carry a composed creative brief (the
+// same intake as the gateway generate_video tool), never a one-line wish.
+// The floor is deliberately low — it only catches calls that plainly skipped
+// the intake, and the rejection costs nothing (no reservation, no row).
+const VIDEO_BRIEF_MIN_CHARS = 40;
+
+function videoBriefGateError(
+	connectorSlug: string,
+	toolName: string,
+	args: unknown,
+): Record<string, unknown> | null {
+	if (
+		connectorSlug !== "higgsfield" ||
+		normalizeToolName(toolName) !== "generate_video" ||
+		isCostPreflight(args)
+	) {
+		return null;
+	}
+
+	// Image-to-video and motion-transfer calls carry reference media — that
+	// is animate-an-existing-asset territory, not a from-scratch commercial:
+	// a short motion hint next to a start_image is legitimate, never gated.
+	const medias = readHiggsfieldParams(args)?.medias;
+
+	if (Array.isArray(medias) && medias.length > 0) {
+		return null;
+	}
+
+	const prompt = locateGenerationPrompt(args);
+
+	if (!prompt || prompt.trim().length >= VIDEO_BRIEF_MIN_CHARS) {
+		return null;
+	}
+
+	return platformToolError(
+		"This video call needs a complete creative brief, not a one-line " +
+			"prompt. Run the creative-director intake first (ask_user: video " +
+			"type, key moment, setting, mood, audience — plus format and " +
+			"duration when unset), then call again with the composed CREATIVE " +
+			"BRIEF as the prompt. Wandit's video director turns that brief into " +
+			"the provider's own prompt language automatically.",
+	);
+}
+
+// DEMO-SAFE: the provider's own tool descriptions pass through UNCHANGED.
+// A Wandit-authored rewrite here once dropped Higgsfield's model-id
+// documentation and the chat model started inventing ids ("higgsfield_soul")
+// — a failed, refunded generation. Any future rewrite must keep the exact
+// model ids and the media_id rules from the live descriptions.
 const HIGGSFIELD_AUTO_TOOLS = [
 	"media_upload",
 	"media_upload_widget",
@@ -270,9 +376,9 @@ const SKIP_REASON_GUIDANCE: Record<McpSkipReason, string> = {
 	policy_invalid:
 		"Tell the user that its connector configuration must be fixed by an administrator if they ask for it.",
 	reconnect_required:
-		"Tell the user to reconnect it in Settings → Connectors if they ask for it.",
+		"If the user asks for ANYTHING that needs this connector (a generation, a report…), tell them to reconnect it in Settings → Connectors — never announce or pretend to start that work.",
 	unreachable:
-		"Tell the user it is temporarily unavailable and to try again later if they ask for it.",
+		"If the user asks for ANYTHING that needs this connector (a generation, a report…), say plainly that it is temporarily unavailable right now and to try again shortly — never announce or pretend to start that work.",
 };
 
 export type McpChatToolsResult = {
@@ -1093,6 +1199,21 @@ export class McpChatToolsService {
 
 		const catalog = await this.ensureCatalog(runtime, options);
 
+		// Batch generations run for minutes inline with no attempt row, no
+		// billing plan, and no card — the media then "suddenly appears" with
+		// zero progress. Route the model to the supported single-shot tools.
+		if (
+			runtime.connector.slug === "higgsfield" &&
+			HIGGSFIELD_BATCH_TOOLS.has(normalizeToolName(input.tool_name))
+		) {
+			return platformToolError(
+				`Tool "${input.tool_name}" is not supported here. Call ` +
+					"generate_image / generate_video instead (once per asset; the " +
+					"count parameter covers multiples) — each call gets its own " +
+					"live progress card.",
+			);
+		}
+
 		// Long-running generations never execute inline — same intercept as
 		// their namespaced tool, so the door cannot bypass the background path.
 		// The CANONICAL catalog name is queued (never the raw model spelling),
@@ -1107,6 +1228,27 @@ export class McpChatToolsService {
 			);
 
 			if (canonical) {
+				const briefGateError = videoBriefGateError(
+					runtime.connector.slug,
+					canonical.name,
+					input.params,
+				);
+
+				if (briefGateError) {
+					return briefGateError;
+				}
+
+				// Cost preflight: fast, free, unbilled — never queued.
+				if (isCostPreflight(input.params)) {
+					return callMcpTool(
+						runtime.client,
+						canonical.name,
+						input.params,
+						options,
+						true,
+					);
+				}
+
 				return this.queueBackgroundGeneration(
 					subject,
 					parentEventId,
@@ -1279,6 +1421,13 @@ export class McpChatToolsService {
 		// TikTok hidden operations alike — this is the one shared choke point.
 		assertUsdAdBudgetArgs(input.connectorSlug, input.input);
 
+		// A cost preflight renders nothing — the inline generation tools that
+		// accept it (generate_audio, generate_3d) must not pay the connector
+		// fee for a free price check, same carve-out as the background paths.
+		if (input.connectorSlug === "higgsfield" && isCostPreflight(input.input)) {
+			return input.invoke();
+		}
+
 		const plan = connectorGenerationPlan(input.toolName, input.input);
 		if (!plan) {
 			return input.invoke();
@@ -1387,6 +1536,30 @@ export class McpChatToolsService {
 		return {
 			...executable,
 			execute: async (input, options) => {
+				// A missing brief costs nothing here: no refine, no reservation,
+				// no attempt row — the model corrects itself in the same turn.
+				const briefGateError = videoBriefGateError(
+					connectorSlug,
+					toolName,
+					input,
+				);
+
+				if (briefGateError) {
+					return briefGateError;
+				}
+
+				// A cost preflight is fast and free — run it inline, unbilled,
+				// with the arguments untouched (no LLM rewrite for a price check).
+				if (isCostPreflight(input)) {
+					if (typeof inlineExecute !== "function") {
+						return platformToolError(
+							`Tool "${toolName}" is not executable on this server.`,
+						);
+					}
+
+					return inlineExecute(input, options);
+				}
+
 				const refinedInput = await this.refinePromptedGenerationArgs(
 					subject,
 					parentEventId,
@@ -1553,7 +1726,10 @@ export class McpChatToolsService {
 				"account. Progress and the finished media render automatically " +
 				"in the conversation — do NOT poll job_status and do NOT wait. " +
 				"Confirm the launch to the user in one short sentence and end " +
-				"your turn.",
+				"your turn. In LATER turns the finished asset appears as a " +
+				"[Generated image/video …] marker carrying its hosted URL — " +
+				"reuse that URL directly (for pages: place it in the HTML); " +
+				"never ask the user to attach media that was generated here.",
 			realtime: await this.mintRealtimeHandle(handle.id),
 			status: "queued",
 			tool: toolName,

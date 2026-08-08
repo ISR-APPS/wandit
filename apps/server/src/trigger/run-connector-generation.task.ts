@@ -66,7 +66,9 @@ export const runConnectorGenerationTask = task({
 		// Only the run that WON the claim may settle the row on error — a
 		// duplicate run losing the race must not fail the live attempt.
 		let claimed = false;
-		let claimedAttempt: { organizationId: string | null; userId: string } | undefined;
+		let claimedAttempt:
+			| { organizationId: string | null; userId: string }
+			| undefined;
 		let providerCompleted = false;
 		let completionCheckpointed = false;
 		const generationBilling = createConnectorGenerationBilling({
@@ -137,7 +139,11 @@ export const runConnectorGenerationTask = task({
 			providerCompleted = hasTerminalConnectorGenerationReplay(payload.billing);
 			assertBillingPayload(payload.billing, payload.billingMode, attempt.id);
 
-			metadata.set("stage", "generating");
+			// Still "queued" for the card: the provider has not accepted a job
+			// yet — announcing "generating" here would make the chip move
+			// backwards when the first status poll reports the provider's own
+			// queued state.
+			metadata.set("stage", "queued");
 
 			// Hand-wired mcp-connectors services (no Nest DI in this process).
 			const connectorsRepository = new McpConnectorsRepository(db);
@@ -197,6 +203,26 @@ export const runConnectorGenerationTask = task({
 						`${attempt.connectorSlug}/${attempt.toolName} returned an MCP tool error`,
 				);
 			}
+
+			// Higgsfield can answer a generate call with a plan QUESTION instead
+			// of a job ("unlim_choice": use the unlimited allowance or paid
+			// credits?). Nothing was submitted — settling that as "succeeded with
+			// no media" reads as "nothing happened". Fail honestly with the
+			// provider's own question so the card explains itself and the holds
+			// are refunded.
+			if (isUnlimChoiceReceipt(result)) {
+				throw new ProviderJobFailedError(
+					mcpErrorText(result) ??
+						"Higgsfield asked which plan to use (unlimited allowance vs " +
+							"paid credits) and did not start this render. Retry after " +
+							"answering the plan question in Higgsfield.",
+				);
+			}
+
+			// The provider accepted the call — from here on the render is the
+			// provider's work; the follow loop overwrites this with the
+			// provider's own state string on every poll.
+			metadata.set("stage", "generating");
 
 			const providerResults: unknown[] = [result];
 			let media = extractMediaUrls(result);
@@ -797,6 +823,37 @@ function isMcpToolError(result: unknown): boolean {
 		typeof result === "object" &&
 		(result as { isError?: unknown }).isError === true
 	);
+}
+
+/**
+ * A submit receipt that carries Higgsfield's "unlim_choice" question and no
+ * followable JOB id: the provider is waiting for a plan decision, nothing is
+ * rendering. Deliberately stricter than the follow heuristic — an echoed
+ * preset_id/soul_id/request_id in the question receipt must not read as a
+ * submitted job (following it would poll a nonexistent job for minutes).
+ */
+const JOB_ID_KEY_PATTERN = /^(?:job_set|jobset|job|generation|task)_?ids?$/i;
+
+function isUnlimChoiceReceipt(result: unknown): boolean {
+	if (!safeJsonPreviewFull(result).includes("unlim_choice")) {
+		return false;
+	}
+
+	for (const key of collectIdCandidates(result).keys()) {
+		if (JOB_ID_KEY_PATTERN.test(key)) {
+			return false;
+		}
+	}
+
+	return true;
+}
+
+function safeJsonPreviewFull(value: unknown): string {
+	try {
+		return JSON.stringify(value) ?? "";
+	} catch {
+		return String(value);
+	}
 }
 
 function mcpErrorText(result: unknown): string | null {
