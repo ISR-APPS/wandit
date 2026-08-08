@@ -61,6 +61,8 @@ Dialect: anything else
 
 Duration: a 5-second clip is one beat — a single action reaching its endpoint. A 10-second clip is two beats of the SAME continuous shot: establish, then evolve (a reveal, a turn, a slow push-in that lands).
 
+Start media: when the request says the call carries reference media (image-to-video), the first frame already exists — write motion-first: the subject's action, the camera move, and how lighting and atmosphere evolve FROM that exact frame. Never re-describe, replace, or contradict what the frame shows; the product in it is the real one.
+
 If the brief mentions a voiceover, keep the imagery breathing: unhurried pacing and clean hero moments the narration can sit on.`;
 
 export type CraftVideoPromptInput = {
@@ -90,6 +92,13 @@ export type CraftConnectorVideoPromptInput = {
 	model: string;
 	organizationId: string | null;
 	parentEventId: string | undefined;
+	/**
+	 * Count of FRAME-CARRYING `medias` entries on the provider call (start or
+	 * end images — never audio/motion references). Non-zero means the render
+	 * animates an existing frame — the director writes motion from that frame
+	 * instead of inventing a new scene.
+	 */
+	referenceMediaCount?: number;
 	userId: string;
 };
 
@@ -260,6 +269,7 @@ type DirectorRequest = {
 	model: string;
 	organizationId: string | null;
 	parentEventId: string | undefined;
+	referenceMediaCount?: number;
 	userId: string;
 	voiceoverLanguage?: string;
 };
@@ -275,6 +285,11 @@ function buildDirectorRequest(input: DirectorRequest): string {
 		...(input.durationSeconds
 			? [`Duration: ${input.durationSeconds} seconds`]
 			: []),
+		...(input.referenceMediaCount
+			? [
+					`Reference media: the call carries ${input.referenceMediaCount} reference media (image-to-video) — the first frame already exists; write motion-first from that frame.`,
+				]
+			: []),
 		voiceoverLine,
 		"CREATIVE BRIEF:",
 		input.brief,
@@ -287,9 +302,12 @@ function buildDirectorRequest(input: DirectorRequest): string {
  */
 function fallbackPrompt(input: DirectorRequest): CraftedVideoPrompt {
 	const brief = input.brief.replace(/\s+/g, " ").trim().slice(0, 500);
-	const shot = input.durationSeconds
-		? `One continuous ${input.durationSeconds}-second commercial shot.`
-		: "One continuous commercial shot.";
+	const base = input.durationSeconds
+		? `One continuous ${input.durationSeconds}-second commercial shot`
+		: "One continuous commercial shot";
+	const shot = input.referenceMediaCount
+		? `${base} animating the provided start image.`
+		: `${base}.`;
 
 	return {
 		directed: false,

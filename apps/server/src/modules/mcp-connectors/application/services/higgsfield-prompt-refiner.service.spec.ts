@@ -158,6 +158,75 @@ describe("HiggsfieldPromptRefinerService", () => {
 		expect(generateText).not.toHaveBeenCalled();
 	});
 
+	it("tells the director when the video call carries reference media", async () => {
+		const { service, videoDirector } = setup();
+
+		await service.refineGenerationArgs({
+			args: {
+				params: {
+					medias: [{ role: "start_image", value: "media-1" }],
+					model: "kling3_0",
+					prompt: "slow dolly push-in on the serum bottle as light blooms",
+				},
+			},
+			organizationId: null,
+			parentEventId: undefined,
+			toolName: "generate_video",
+			userId: "user_1",
+		});
+
+		expect(videoDirector.craftConnectorVideoPrompt).toHaveBeenCalledWith(
+			expect.objectContaining({ referenceMediaCount: 1 }),
+		);
+	});
+
+	it("carries the reference-media flag through a JSON-string params", async () => {
+		const { service, videoDirector } = setup();
+
+		await service.refineGenerationArgs({
+			args: {
+				params: JSON.stringify({
+					medias: [{ role: "start_image", value: "media-1" }],
+					model: "kling3_0",
+					prompt: "slow dolly push-in on the serum bottle as light blooms",
+				}),
+			},
+			organizationId: null,
+			parentEventId: undefined,
+			toolName: "generate_video",
+			userId: "user_1",
+		});
+
+		expect(videoDirector.craftConnectorVideoPrompt).toHaveBeenCalledWith(
+			expect.objectContaining({ referenceMediaCount: 1 }),
+		);
+	});
+
+	it("never counts audio or motion references as an existing first frame", async () => {
+		const { service, videoDirector } = setup();
+
+		// A voice/music reference adds sound to a from-scratch render: telling
+		// the director "the first frame already exists" would strip the scene
+		// description from a render that has no frame at all.
+		await service.refineGenerationArgs({
+			args: {
+				params: {
+					medias: [{ role: "audio", value: "media-9" }],
+					model: "seedance_2_5",
+					prompt: "SUBJECT: a serum bottle… KEY MOMENT: the drop lands…",
+				},
+			},
+			organizationId: null,
+			parentEventId: undefined,
+			toolName: "generate_video",
+			userId: "user_1",
+		});
+
+		expect(videoDirector.craftConnectorVideoPrompt).toHaveBeenCalledWith(
+			expect.not.objectContaining({ referenceMediaCount: expect.anything() }),
+		);
+	});
+
 	it("leaves video arguments without a prompt untouched and asks no director", async () => {
 		const { service, videoDirector } = setup();
 		const args = { params: { medias: ["https://cdn.example.com/still.png"] } };
