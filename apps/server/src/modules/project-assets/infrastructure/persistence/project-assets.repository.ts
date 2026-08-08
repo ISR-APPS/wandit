@@ -5,7 +5,7 @@
  * at all, which is exactly why this explicit gate must run first.
  */
 import { Inject, Injectable } from "@nestjs/common";
-import { and, eq, isNull } from "@wandit/db";
+import { and, desc, eq, isNull } from "@wandit/db";
 import { projects } from "@wandit/db/schema/projects";
 import {
 	DATABASE,
@@ -37,5 +37,19 @@ export class ProjectAssetsRepository {
 			.limit(1);
 
 		return Boolean(row);
+	}
+
+	/**
+	 * Every live project the scope can see, most recently touched first —
+	 * drives the dashboard aggregate's page-build R2 fan-out.
+	 */
+	async listAccessibleProjects(
+		scope: ProjectScope,
+	): Promise<Array<{ id: string; name: string }>> {
+		return this.db
+			.select({ id: projects.id, name: projects.name })
+			.from(projects)
+			.where(and(projectScopePredicate(scope), isNull(projects.deletedAt)))
+			.orderBy(desc(projects.updatedAt), desc(projects.createdAt));
 	}
 }

@@ -74,5 +74,12 @@
 		"tiktok": "TikTok",
 		"direct": "Direct"
 	},
-	"campaignTooltip": "Campaign: {campaign}"
+	"campaignTooltip": "Campaign: {campaign}",
+	"metaTitle": "Leads — Wandit",
+	"subtitle": "Every order captured across your projects.",
+	"colProject": "Project",
+	"allProjects": "All projects",
+	"allSources": "All sources",
+	"dashEmptyTitle": "No leads yet",
+	"dashEmptyBody": "Publish a page and every order it captures will land here, across all your projects."
 }

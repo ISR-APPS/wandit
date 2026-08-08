@@ -1,6 +1,7 @@
 import type { ImageGenerationAttempt } from "@wandit/contracts";
 import { describe, expect, it, vi } from "vitest";
 
+import { workspaceAssetKeys } from "@/features/assets/api/workspace-assets.queries";
 import {
 	imageGenerationPollingInterval,
 	invalidateCompletedImageGeneration,
@@ -67,6 +68,7 @@ describe("invalidateCompletedImageGeneration", () => {
 
 		expect(invalidateQueries.mock.calls).toEqual([
 			[{ queryKey: projectAssetKeys.list("project-1") }],
+			[{ queryKey: workspaceAssetKeys.all }],
 			[{ queryKey: pageKeys.overview("project-1") }],
 			[{ queryKey: pageKeys.versions("project-1") }],
 		]);
@@ -85,9 +87,12 @@ describe("invalidateCompletedImageGeneration", () => {
 			placementStatus,
 		);
 
-		expect(invalidateQueries).toHaveBeenCalledOnce();
+		expect(invalidateQueries).toHaveBeenCalledTimes(2);
 		expect(invalidateQueries).toHaveBeenCalledWith({
 			queryKey: projectAssetKeys.list("project-1"),
+		});
+		expect(invalidateQueries).toHaveBeenCalledWith({
+			queryKey: workspaceAssetKeys.all,
 		});
 	});
 });

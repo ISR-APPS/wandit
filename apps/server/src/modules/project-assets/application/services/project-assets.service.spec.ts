@@ -73,20 +73,28 @@ const IMAGE_ATTEMPT: ImageGenerationAttemptRow = {
 function setup(overrides?: {
 	imageAttempts?: ImageGenerationAttemptRow[];
 	owned?: boolean;
+	projects?: Array<{ id: string; name: string }>;
+	scopeImageAttempts?: unknown[];
+	scopeVideos?: unknown[];
 	videos?: unknown[];
 }) {
 	const projectAssetsRepository = {
 		isProjectAccessible: vi.fn().mockResolvedValue(overrides?.owned ?? true),
+		listAccessibleProjects: vi
+			.fn()
+			.mockResolvedValue(overrides?.projects ?? []),
 	};
 	const imageGenerationsRepository = {
-		listForProject: vi
+		listForProject: vi.fn().mockResolvedValue(overrides?.imageAttempts ?? []),
+		listSucceededForScope: vi
 			.fn()
-			.mockResolvedValue(overrides?.imageAttempts ?? []),
+			.mockResolvedValue(overrides?.scopeImageAttempts ?? []),
 	};
 	const mediaGenerationsRepository = {
-		listSucceededForProject: vi
+		listSucceededForProject: vi.fn().mockResolvedValue(overrides?.videos ?? []),
+		listSucceededForScope: vi
 			.fn()
-			.mockResolvedValue(overrides?.videos ?? []),
+			.mockResolvedValue(overrides?.scopeVideos ?? []),
 	};
 	const service = new ProjectAssetsService(
 		projectAssetsRepository as unknown as ProjectAssetsRepository,
@@ -222,6 +230,112 @@ describe("ProjectAssetsService.listAssets", () => {
 
 		expect(assets).toHaveLength(2);
 		expect(vi.mocked(listObjectsByPrefix)).not.toHaveBeenCalled();
+	});
+});
+
+describe("ProjectAssetsService.listWorkspaceAssets", () => {
+	const OTHER_PROJECT_ID = "66666666-6666-4666-8666-666666666666";
+
+	it("merges images, videos and build files across projects, newest first, with projects attached", async () => {
+		const videoKey = `sites/${OTHER_PROJECT_ID}/assets/v1/vid-1.mp4`;
+		vi.mocked(listObjectsByPrefix).mockImplementation(async (prefix) =>
+			prefix.startsWith(`sites/${PROJECT_ID}/`)
+				? [
+						{
+							key: `sites/${PROJECT_ID}/assets/b1/img-9.webp`,
+							lastModified: new Date("2026-07-25T13:00:00.000Z"),
+							sizeBytes: 111,
+						},
+					]
+				: [],
+		);
+		const { service } = setup({
+			projects: [
+				{ id: PROJECT_ID, name: "Sahara Serum" },
+				{ id: OTHER_PROJECT_ID, name: "Atlas Honey" },
+			],
+			scopeImageAttempts: [{ ...IMAGE_ATTEMPT, projectName: "Sahara Serum" }],
+			scopeVideos: [
+				{
+					completedAt: new Date("2026-07-25T10:00:00.000Z"),
+					createdAt: new Date("2026-07-25T09:59:00.000Z"),
+					id: "44444444-4444-4444-8444-444444444444",
+					kind: "image-animation",
+					projectId: OTHER_PROJECT_ID,
+					projectName: "Atlas Honey",
+					prompt: "Slow push.",
+					title: null,
+					videoMediaType: "video/mp4",
+					videoUrl: `https://assets.example.com/${videoKey}`,
+				},
+			],
+		});
+
+		const result = await service.listWorkspaceAssets(SCOPE);
+
+		expect(result.truncated).toBe(false);
+		// Build file (13:00) → images (12:00) → video (10:00).
+		expect(result.assets.map((asset) => asset.source)).toEqual([
+			"page-build",
+			"image-generation",
+			"image-generation",
+			"image-animation",
+		]);
+		expect(result.assets[0]?.projectName).toBe("Sahara Serum");
+		expect(result.assets.at(-1)?.projectId).toBe(OTHER_PROJECT_ID);
+		expect(result.assets.at(-1)?.projectName).toBe("Atlas Honey");
+		// One prefix listing per accessible project.
+		expect(vi.mocked(listObjectsByPrefix).mock.calls.map(([p]) => p)).toEqual([
+			`sites/${PROJECT_ID}/assets/`,
+			`sites/${OTHER_PROJECT_ID}/assets/`,
+		]);
+	});
+
+	it("dedupes animation videos out of the cross-project build fan-out", async () => {
+		const videoKey = `sites/${PROJECT_ID}/assets/a2/vid-1.mp4`;
+		vi.mocked(listObjectsByPrefix).mockResolvedValue([
+			{
+				key: videoKey,
+				lastModified: new Date("2026-07-25T08:00:00.000Z"),
+				sizeBytes: 5,
+			},
+		]);
+		const { service } = setup({
+			projects: [{ id: PROJECT_ID, name: "Sahara Serum" }],
+			scopeVideos: [
+				{
+					completedAt: new Date("2026-07-25T10:00:00.000Z"),
+					createdAt: new Date("2026-07-25T09:59:00.000Z"),
+					id: "55555555-5555-4555-8555-555555555555",
+					kind: "image-animation",
+					projectId: PROJECT_ID,
+					projectName: "Sahara Serum",
+					prompt: "Slow push.",
+					title: null,
+					videoMediaType: "video/mp4",
+					videoUrl: `https://assets.example.com/${videoKey}`,
+				},
+			],
+		});
+
+		const result = await service.listWorkspaceAssets(SCOPE);
+
+		expect(result.assets).toHaveLength(1);
+		expect(result.assets[0]?.source).toBe("image-animation");
+	});
+
+	it("reports truncation when the project fan-out cap is exceeded", async () => {
+		const projects = Array.from({ length: 51 }, (_, index) => ({
+			id: `77777777-7777-4777-8777-${String(index).padStart(12, "0")}`,
+			name: `Project ${index}`,
+		}));
+		const { service } = setup({ projects });
+
+		const result = await service.listWorkspaceAssets(SCOPE);
+
+		expect(result.truncated).toBe(true);
+		// Only the 50 most recently touched projects are scanned.
+		expect(vi.mocked(listObjectsByPrefix)).toHaveBeenCalledTimes(50);
 	});
 });
 

@@ -5,7 +5,11 @@
  * builds (which have no DB rows; the bucket is their source of truth).
  */
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
-import type { ProjectAsset } from "@wandit/contracts";
+import type {
+	ProjectAsset,
+	WorkspaceAsset,
+	WorkspaceAssetsResponse,
+} from "@wandit/contracts";
 
 import {
 	contentTypeFor,
@@ -23,6 +27,15 @@ import { ProjectAssetsRepository } from "../../infrastructure/persistence/projec
 // A video prompt doubles as the animation's display name, cut on a word
 // boundary so cards never show mid-word truncation.
 const LABEL_MAX_CHARS = 40;
+
+// Dashboard aggregate bounds. The page shows the newest slice of the whole
+// workspace; a project's complete history stays on its own Assets tab.
+const WORKSPACE_ASSETS_MAX = 1_000;
+const WORKSPACE_DB_ROWS_MAX = 500;
+// Page-build files have no DB rows — each project costs one R2 prefix
+// listing, so the fan-out is capped and lightly parallel.
+const WORKSPACE_BUILD_PROJECTS_MAX = 50;
+const BUILD_LIST_CONCURRENCY = 4;
 
 @Injectable()
 export class ProjectAssetsService {
@@ -142,6 +155,158 @@ export class ProjectAssetsService {
 		return assets.sort(byNewestFirst);
 	}
 
+	/**
+	 * Dashboard Assets page: the newest media across every project the scope
+	 * can see, each entry carrying its project for labels and download links.
+	 * Same composition as the per-project list — two ownership-joined DB reads
+	 * plus a bounded, best-effort R2 fan-out for page-build files.
+	 */
+	async listWorkspaceAssets(
+		scope: ProjectScope,
+	): Promise<WorkspaceAssetsResponse> {
+		const [accessibleProjects, imageAttempts, videoAttempts] =
+			await Promise.all([
+				this.projectAssetsRepository.listAccessibleProjects(scope),
+				this.imageGenerationsRepository.listSucceededForScope(
+					scope,
+					WORKSPACE_DB_ROWS_MAX,
+				),
+				this.mediaGenerationsRepository.listSucceededForScope(
+					scope,
+					WORKSPACE_DB_ROWS_MAX,
+				),
+			]);
+
+		const assets: WorkspaceAsset[] = [];
+
+		for (const attempt of imageAttempts) {
+			if (!attempt.images) {
+				continue;
+			}
+
+			attempt.images.forEach((image, index) => {
+				const key = publicAssetKeyFromUrl(image.url);
+
+				if (!key) {
+					return;
+				}
+
+				assets.push({
+					createdAt: (attempt.completedAt ?? attempt.createdAt).toISOString(),
+					id: `${attempt.id}:${index + 1}`,
+					key,
+					kind: "image",
+					mediaType: image.mediaType,
+					name:
+						attempt.count > 1
+							? `${attempt.title} (${index + 1}/${attempt.count})`
+							: attempt.title,
+					projectId: attempt.projectId,
+					projectName: attempt.projectName,
+					sizeBytes: null,
+					source: "image-generation",
+					url: image.url,
+				});
+			});
+		}
+
+		// Same dedupe rule as the per-project list: animation videos live under
+		// the sites/{id}/assets/ prefix the build fan-out scans.
+		const animationKeys = new Set<string>();
+
+		for (const row of videoAttempts) {
+			if (!row.videoUrl) {
+				continue;
+			}
+
+			const key = publicAssetKeyFromUrl(row.videoUrl);
+
+			if (!key) {
+				continue;
+			}
+
+			animationKeys.add(key);
+			assets.push({
+				createdAt: (row.completedAt ?? row.createdAt).toISOString(),
+				id: row.id,
+				key,
+				kind: "video",
+				mediaType: row.videoMediaType ?? "video/mp4",
+				name: row.title ?? animationLabel(row.prompt),
+				projectId: row.projectId,
+				projectName: row.projectName,
+				sizeBytes: null,
+				source:
+					row.kind === "text-to-video" ? "video-generation" : "image-animation",
+				url: row.videoUrl,
+			});
+		}
+
+		const buildProjects = accessibleProjects.slice(
+			0,
+			WORKSPACE_BUILD_PROJECTS_MAX,
+		);
+		const buildLists = await mapWithConcurrency(
+			buildProjects,
+			BUILD_LIST_CONCURRENCY,
+			async (project) => ({
+				objects: await this.listBuildObjects(project.id),
+				project,
+			}),
+		);
+
+		for (const { objects, project } of buildLists) {
+			for (const object of objects) {
+				if (animationKeys.has(object.key)) {
+					continue;
+				}
+
+				const mediaType = contentTypeFor(object.key);
+				const kind = mediaType.startsWith("image/")
+					? ("image" as const)
+					: mediaType.startsWith("video/")
+						? ("video" as const)
+						: null;
+
+				if (!kind) {
+					continue;
+				}
+
+				assets.push({
+					createdAt: object.lastModified?.toISOString() ?? null,
+					id: object.key,
+					key: object.key,
+					kind,
+					mediaType,
+					name: object.key.split("/").pop() ?? object.key,
+					projectId: project.id,
+					projectName: project.name,
+					sizeBytes: object.sizeBytes,
+					source: "page-build",
+					url: publicAssetUrl(object.key),
+				});
+			}
+		}
+
+		assets.sort(byNewestFirst);
+
+		// Honest cut signal: true when the final slice or any of the upstream
+		// bounds could have dropped older files.
+		const truncated =
+			assets.length > WORKSPACE_ASSETS_MAX ||
+			imageAttempts.length >= WORKSPACE_DB_ROWS_MAX ||
+			videoAttempts.length >= WORKSPACE_DB_ROWS_MAX ||
+			accessibleProjects.length > WORKSPACE_BUILD_PROJECTS_MAX;
+
+		return {
+			assets:
+				assets.length > WORKSPACE_ASSETS_MAX
+					? assets.slice(0, WORKSPACE_ASSETS_MAX)
+					: assets,
+			truncated,
+		};
+	}
+
 	async download(
 		scope: ProjectScope,
 		projectId: string,
@@ -196,6 +361,29 @@ export class ProjectAssetsService {
 			return [];
 		}
 	}
+}
+
+/** Order-preserving concurrent map with a small worker pool. */
+async function mapWithConcurrency<T, R>(
+	items: readonly T[],
+	concurrency: number,
+	fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+	const results: R[] = new Array(items.length);
+	let nextIndex = 0;
+	const workers = Array.from(
+		{ length: Math.min(concurrency, items.length) },
+		async () => {
+			while (nextIndex < items.length) {
+				const index = nextIndex;
+				nextIndex += 1;
+				results[index] = await fn(items[index] as T);
+			}
+		},
+	);
+	await Promise.all(workers);
+
+	return results;
 }
 
 function animationLabel(prompt: string): string {

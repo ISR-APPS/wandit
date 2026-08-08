@@ -64,6 +64,11 @@ export type SucceededMediaGenerationRow = {
 	videoUrl: string | null;
 };
 
+export type WorkspaceMediaGenerationRow = SucceededMediaGenerationRow & {
+	projectId: string;
+	projectName: string;
+};
+
 const ATTEMPT_COLUMNS = {
 	aspect: mediaGenerationAttempts.aspect,
 	completedAt: mediaGenerationAttempts.completedAt,
@@ -403,6 +408,39 @@ export class MediaGenerationsRepository {
 				),
 			)
 			.orderBy(desc(mediaGenerationAttempts.createdAt));
+	}
+
+	// Dashboard Assets page: newest finished videos across every project the
+	// scope can see, with the project attached for tile labels and download
+	// links. The limit bounds the aggregate payload.
+	async listSucceededForScope(
+		scope: ProjectScope,
+		limit: number,
+	): Promise<WorkspaceMediaGenerationRow[]> {
+		return this.db
+			.select({
+				completedAt: mediaGenerationAttempts.completedAt,
+				createdAt: mediaGenerationAttempts.createdAt,
+				id: mediaGenerationAttempts.id,
+				kind: mediaGenerationAttempts.kind,
+				projectId: mediaGenerationAttempts.projectId,
+				projectName: projects.name,
+				prompt: mediaGenerationAttempts.prompt,
+				title: mediaGenerationAttempts.title,
+				videoMediaType: mediaGenerationAttempts.videoMediaType,
+				videoUrl: mediaGenerationAttempts.videoUrl,
+			})
+			.from(mediaGenerationAttempts)
+			.innerJoin(projects, eq(projects.id, mediaGenerationAttempts.projectId))
+			.where(
+				and(
+					eq(mediaGenerationAttempts.status, "succeeded"),
+					projectScopePredicate(scope),
+					isNull(projects.deletedAt),
+				),
+			)
+			.orderBy(desc(mediaGenerationAttempts.createdAt))
+			.limit(limit);
 	}
 }
 
