@@ -254,6 +254,42 @@ function videoBriefGateError(
 	);
 }
 
+// Higgsfield's upload surfaces are dead ends in this client: Wandit cannot
+// render the Apps-UI upload widget (the chat card has nothing to click), and
+// the chat agent has no shell for media_upload's presigned-URL curl flow.
+// Models land on them because the provider's own descriptions claim chat
+// attachments are unreadable — untrue in Wandit, where every attachment is
+// already a public HTTPS URL that media_import_url can ingest. The rejection
+// is free (no provider call, no reservation) and self-corrects in-turn.
+const HIGGSFIELD_UPLOAD_SURFACE_TOOLS = new Set([
+	"media_upload",
+	"media_upload_widget",
+]);
+
+function uploadSurfaceRedirectError(
+	connectorSlug: string,
+	toolName: string,
+): Record<string, unknown> | null {
+	if (
+		connectorSlug !== "higgsfield" ||
+		!HIGGSFIELD_UPLOAD_SURFACE_TOOLS.has(normalizeToolName(toolName))
+	) {
+		return null;
+	}
+
+	return platformToolError(
+		"This chat cannot display Higgsfield's upload widget or run its " +
+			"presigned-URL uploads — media_upload and media_upload_widget never " +
+			"work here. Files the user attached to this chat are ALREADY hosted " +
+			"at public HTTPS URLs: find the [Attached image/file …] marker in " +
+			"the conversation and call media_import_url with that exact URL — " +
+			"it returns a confirmed media_id to pass in the generation's " +
+			"medias. If no attachment exists yet, ask the user to attach the " +
+			'file to a chat message (ask_user kind "attachments"), then import ' +
+			"its marker URL the same way.",
+	);
+}
+
 // DEMO-SAFE: the provider's own tool descriptions pass through UNCHANGED.
 // A Wandit-authored rewrite here once dropped Higgsfield's model-id
 // documentation and the chat model started inventing ids ("higgsfield_soul")
@@ -1415,6 +1451,17 @@ export class McpChatToolsService {
 		subject: MeteringSubject;
 		toolName: string;
 	}): Promise<unknown> {
+		// Dead-end upload surfaces are rejected before any provider call or
+		// reservation — this shared choke point covers the visible namespaced
+		// tools and the run_platform_tool door alike.
+		const uploadRedirect = uploadSurfaceRedirectError(
+			input.connectorSlug,
+			input.toolName,
+		);
+		if (uploadRedirect) {
+			return uploadRedirect;
+		}
+
 		// Money-safety backstop BEFORE any reservation or provider call: an ad
 		// budget written in dinars must never reach a platform that will spend
 		// the number as US dollars. Covers direct tools, run_platform_tool, and

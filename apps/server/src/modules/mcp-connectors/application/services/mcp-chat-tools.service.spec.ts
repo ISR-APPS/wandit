@@ -2475,6 +2475,103 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 		});
 	});
 
+	describe("higgsfield upload surface redirect", () => {
+		it("rejects media_upload_widget with media_import_url guidance, free", async () => {
+			const providerExecute = vi.fn(() => ({
+				content: [{ text: "widget", type: "text" }],
+			}));
+			queueClient(
+				mockClient({
+					definitions: [definition("media_upload_widget")],
+					toolImplementations: {
+						media_upload_widget: executableTool(providerExecute),
+					},
+				}),
+			);
+			const { connectorGenerationsRepository, meteringService, service } =
+				buildService({ connectors: [connector({ slug: "higgsfield" })] });
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+			);
+
+			const redirect = (await executeTool(
+				requiredTool(result.tools, "mcp_higgsfield_media_upload_widget"),
+				{ type: "image" },
+				toolExecutionOptions("call-widget-redirect"),
+			)) as { content: Array<{ text: string }>; isError: boolean };
+
+			expect(redirect.isError).toBe(true);
+			expect(redirect.content[0]?.text).toContain("media_import_url");
+			expect(providerExecute).not.toHaveBeenCalled();
+			expect(meteringService.reserveWithReplay).not.toHaveBeenCalled();
+			expect(
+				connectorGenerationsRepository.insertAttempt,
+			).not.toHaveBeenCalled();
+		});
+
+		it("rejects media_upload the same way through run_platform_tool", async () => {
+			const client = mockClient({
+				definitions: [definition("media_upload")],
+			});
+			queueClient(client);
+			const { service } = buildService({
+				connectors: [connector({ slug: "higgsfield" })],
+			});
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+			);
+
+			const redirect = (await executeTool(
+				requiredTool(result.tools, "run_platform_tool"),
+				{
+					connector: "higgsfield",
+					params: { filename: "product.png" },
+					tool_name: "media_upload",
+				},
+				toolExecutionOptions("call-door-upload"),
+			)) as { content: Array<{ text: string }>; isError: boolean };
+
+			expect(redirect.isError).toBe(true);
+			expect(redirect.content[0]?.text).toContain("media_import_url");
+			expect(client.callTool).not.toHaveBeenCalled();
+		});
+
+		it("still runs media_import_url inline against the provider", async () => {
+			const importResult = {
+				content: [{ text: '{"media_id": "media-9"}', type: "text" }],
+			};
+			const providerExecute = vi.fn(() => importResult);
+			queueClient(
+				mockClient({
+					definitions: [definition("media_import_url")],
+					toolImplementations: {
+						media_import_url: executableTool(providerExecute),
+					},
+				}),
+			);
+			const { meteringService, service } = buildService({
+				connectors: [connector({ slug: "higgsfield" })],
+			});
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+			);
+			const args = { type: "image", url: "https://pub.r2.dev/uploads/a.png" };
+
+			await expect(
+				executeTool(
+					requiredTool(result.tools, "mcp_higgsfield_media_import_url"),
+					args,
+					toolExecutionOptions("call-import-url"),
+				),
+			).resolves.toBe(importResult);
+			expect(providerExecute).toHaveBeenCalledWith(args, expect.anything());
+			expect(meteringService.reserveWithReplay).not.toHaveBeenCalled();
+		});
+	});
+
 	describe("higgsfield prompt refinement", () => {
 		it("sends the refined arguments to the provider for an inline image generation", async () => {
 			const providerExecute = vi.fn((_input: unknown) => ({

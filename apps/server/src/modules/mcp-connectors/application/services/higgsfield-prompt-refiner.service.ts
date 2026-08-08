@@ -35,6 +35,7 @@ type PromptTarget = {
 	durationSeconds?: number;
 	model: string;
 	prompt: string;
+	referenceMediaCount?: number;
 	withRefinedPrompt: (refined: string) => Record<string, unknown>;
 };
 
@@ -82,6 +83,7 @@ export class HiggsfieldPromptRefinerService {
 				model: target.model,
 				organizationId: input.organizationId,
 				parentEventId: input.parentEventId,
+				referenceMediaCount: target.referenceMediaCount,
 				userId: input.userId,
 			});
 
@@ -273,10 +275,24 @@ export function locateGenerationPrompt(args: unknown): string | null {
 	return locatePromptTarget(args)?.prompt ?? null;
 }
 
-/** Aspect/duration context carried next to the prompt (free-form values). */
+// Media roles that carry sound or motion, not a visual frame: a call whose
+// only references are these has NO existing first frame, and the director
+// must not be told to "write motion-first from that frame".
+const FRAMELESS_MEDIA_ROLE = /audio|voice|sound|music|motion|video/i;
+
+/**
+ * Aspect/duration/reference-media context carried next to the prompt
+ * (free-form values). `referenceMediaCount` counts only frame-carrying
+ * `medias` entries (start_image, image, end_image…): those mean the call
+ * animates an existing frame, and the director must know, or it rewrites the
+ * brief as a from-scratch text-to-video scene. Audio/motion references never
+ * count — they add sound or movement to a render that still needs its scene
+ * described in full.
+ */
 function promptContext(record: Record<string, unknown>): {
 	aspectRatio?: string;
 	durationSeconds?: number;
+	referenceMediaCount?: number;
 } {
 	const aspectRatio = nonEmptyString(record.aspect_ratio);
 	const duration =
@@ -286,10 +302,17 @@ function promptContext(record: Record<string, unknown>): {
 					Number.isFinite(Number(record.duration))
 				? Number(record.duration)
 				: undefined;
+	const referenceMediaCount = Array.isArray(record.medias)
+		? record.medias.filter((media) => {
+				const role = isRecord(media) ? media.role : undefined;
+				return typeof role !== "string" || !FRAMELESS_MEDIA_ROLE.test(role);
+			}).length
+		: 0;
 
 	return {
 		...(aspectRatio ? { aspectRatio } : {}),
 		...(duration && duration > 0 ? { durationSeconds: duration } : {}),
+		...(referenceMediaCount > 0 ? { referenceMediaCount } : {}),
 	};
 }
 
