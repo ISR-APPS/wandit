@@ -9,6 +9,12 @@ export default defineConfig(({ mode }) => ({
 		// Overridable per checkout via PORT in apps/web/.env (untracked), so
 		// worktrees can run beside the main checkout without --port flags.
 		port: Number(loadEnv(mode, import.meta.dirname, "").PORT ?? 3001),
+		// The native FS watcher delivers no events for checkouts nested under a
+		// dot-directory (worktrees live in .claude/worktrees/), which silently
+		// kills HMR there — fall back to stat polling for those checkouts only.
+		watch: import.meta.dirname.includes("/.claude/")
+			? { usePolling: true, interval: 300 }
+			: undefined,
 	},
 	build: {
 		// Maps exist only when the Sentry plugin below will upload-and-delete

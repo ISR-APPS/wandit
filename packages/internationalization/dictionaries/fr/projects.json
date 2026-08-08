@@ -99,7 +99,7 @@
 	"promptBox": {
 		"placeholderHero": "Décris ce que tu veux que Wandit crée ou modifie…",
 		"placeholderCompact": "Demande une modif de page, un asset marketing, une image ou une vidéo…",
-		"banner": "Beta — tes 10 premières pages sont offertes, sans carte",
+		"banner": "Beta — tes 5 premières pages sont offertes, sans carte",
 		"submitLabel": "Générer",
 		"micLabel": "Saisie vocale",
 		"micStop": "Arrêter l'enregistrement",

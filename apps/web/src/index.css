@@ -13,4 +13,7 @@
 	--font-sans:
 		"Noto Sans Arabic", "DM Sans", ui-sans-serif, system-ui, sans-serif;
 	--font-display: "Noto Sans Arabic", "DM Sans", sans-serif;
+	/* Geist Mono has no Arabic glyphs — mono micro-labels would fall back to
+	   a broken Courier-style face with severed cursive joins. */
+	--font-mono: "Noto Sans Arabic", "Geist Mono", ui-monospace, monospace;
 }
