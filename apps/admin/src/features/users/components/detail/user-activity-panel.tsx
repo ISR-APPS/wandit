@@ -1,3 +1,5 @@
+import { GlobeIcon } from "lucide-react";
+
 import {
 	Card,
 	CardContent,
@@ -6,24 +8,22 @@ import {
 	CardTitle,
 } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import type {
-	AdminCreditLedgerEntry,
-	AdminUserProject,
-} from "@/features/users/api/users.dto";
+import type { AdminCreditLedgerEntry } from "@/features/users/api/users.dto";
 import { formatWholeNumber } from "@/features/users/lib/formatters";
 
 import { UserCreditLedgerTable } from "./user-credit-ledger";
+import { UserLandingPages } from "./user-landing-pages";
 import { UserProjectsList } from "./user-projects-list";
 
 type UserActivityPanelProps = {
 	userId: string;
-	projects: AdminUserProject[];
+	projectsCount: number;
 	creditLedger: AdminCreditLedgerEntry[];
 };
 
 export function UserActivityPanel({
 	userId,
-	projects,
+	projectsCount,
 	creditLedger,
 }: UserActivityPanelProps) {
 	return (
@@ -33,7 +33,8 @@ export function UserActivityPanel({
 					<div className="space-y-1.5">
 						<CardTitle>Activity</CardTitle>
 						<CardDescription>
-							Switch between this user&apos;s projects and credit ledger.
+							Switch between this user&apos;s projects, credit ledger, and
+							landing pages.
 						</CardDescription>
 					</div>
 					<div className="-mx-6 overflow-x-auto border-b px-6">
@@ -41,7 +42,7 @@ export function UserActivityPanel({
 							<TabsTrigger value="projects">
 								Projects
 								<span className="text-muted-foreground tabular-nums">
-									{formatWholeNumber(projects.length)}
+									{formatWholeNumber(projectsCount)}
 								</span>
 							</TabsTrigger>
 							<TabsTrigger value="credit-ledger">
@@ -50,17 +51,28 @@ export function UserActivityPanel({
 									{formatWholeNumber(creditLedger.length)}
 								</span>
 							</TabsTrigger>
+							<TabsTrigger value="landing-pages">
+								<GlobeIcon aria-hidden="true" />
+								Landing pages
+							</TabsTrigger>
 						</TabsList>
 					</div>
 				</CardHeader>
 				<TabsContent value="projects" className="mt-0 outline-none">
-					<CardContent>
-						<UserProjectsList userId={userId} projects={projects} />
+					<CardContent className="pt-6">
+						<UserProjectsList userId={userId} />
 					</CardContent>
 				</TabsContent>
 				<TabsContent value="credit-ledger" className="mt-0 outline-none">
-					<CardContent className={creditLedger.length > 0 ? "px-0" : undefined}>
+					<CardContent
+						className={creditLedger.length > 0 ? "px-0 pt-6" : "pt-6"}
+					>
 						<UserCreditLedgerTable entries={creditLedger} />
+					</CardContent>
+				</TabsContent>
+				<TabsContent value="landing-pages" className="mt-0 outline-none">
+					<CardContent className="pt-6">
+						<UserLandingPages userId={userId} />
 					</CardContent>
 				</TabsContent>
 			</Tabs>

@@ -17,6 +17,8 @@ import type {
 	PageAttemptDetail,
 	PageOverview,
 	PageVersionHtml,
+	PageVersionListItem,
+	PaginatedResult,
 	RetryPageAttemptResponse,
 	StopPageAttemptBody,
 } from "@wandit/contracts";
@@ -32,6 +34,7 @@ import { stampHtml } from "../../domain/stamp";
 import {
 	type PageAttemptDetailRow,
 	PagesRepository,
+	type VersionListRow,
 } from "../../infrastructure/persistence/pages.repository";
 import {
 	isDefinitiveTriggerRejection,
@@ -277,16 +280,50 @@ export class PagesService {
 		}
 
 		return {
-			versions: rows.map((row) => ({
-				createdAt: row.createdAt.toISOString(),
-				id: row.id,
-				isBuilderOrigin: versionIsBuilderOrigin(row.meta),
-				isLive: row.isLive,
-				label: versionLabel(row.meta),
-				number: row.number,
-				source: versionSource(row.meta),
-			})),
+			versions: rows.map(mapVersionListRow),
 		};
+	}
+
+	async listVersionsPaginated(
+		scope: ProjectScope,
+		projectId: string,
+		query: { page: number; pageSize: number },
+	): Promise<PaginatedResult<PageVersionListItem & { isActive: boolean }>> {
+		const result = await this.pagesRepository.listVersionsForProjectPaginated(
+			scope,
+			projectId,
+			{
+				limit: query.pageSize,
+				offset: (query.page - 1) * query.pageSize,
+			},
+		);
+
+		if (!result) {
+			throw new NotFoundException();
+		}
+
+		return {
+			items: result.rows.map((row) => ({
+				...mapVersionListRow(row),
+				isActive: row.isActive,
+			})),
+			page: query.page,
+			pageSize: query.pageSize,
+			total: result.total,
+		};
+	}
+
+	async countVersions(scope: ProjectScope, projectId: string): Promise<number> {
+		const total = await this.pagesRepository.countVersionsForProject(
+			scope,
+			projectId,
+		);
+
+		if (total === null) {
+			throw new NotFoundException();
+		}
+
+		return total;
 	}
 
 	// Full HTML of one immutable version, fetched from R2.
@@ -329,6 +366,18 @@ function mapAttemptDetail(row: PageAttemptDetailRow): PageAttemptDetail {
 		status: row.status,
 		triggerRunId: row.triggerRunId,
 		versionId: row.versionId,
+	};
+}
+
+function mapVersionListRow(row: VersionListRow): PageVersionListItem {
+	return {
+		createdAt: row.createdAt.toISOString(),
+		id: row.id,
+		isBuilderOrigin: versionIsBuilderOrigin(row.meta),
+		isLive: row.isLive,
+		label: versionLabel(row.meta),
+		number: row.number,
+		source: versionSource(row.meta),
 	};
 }
 

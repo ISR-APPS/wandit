@@ -63,7 +63,9 @@ function setup() {
 		findAccessibleVersionById: vi.fn(),
 		findAttemptDetail: vi.fn(),
 		findOverviewByProject: vi.fn(),
+		countVersionsForProject: vi.fn(),
 		listVersionsForProject: vi.fn(),
+		listVersionsForProjectPaginated: vi.fn(),
 		markAttemptFailed: vi.fn(),
 		markAttemptTriggered: vi.fn(),
 		resetAttemptForRetry: vi.fn(),
@@ -351,6 +353,116 @@ describe("PagesService", () => {
 		expect(response.versions.map((version) => version.isBuilderOrigin)).toEqual(
 			[true, false, true],
 		);
+	});
+
+	it("paginates versions and maps active and live pointers independently", async () => {
+		const { pagesRepository, service } = setup();
+		pagesRepository.listVersionsForProjectPaginated.mockResolvedValue({
+			rows: [
+				{
+					createdAt: new Date("2026-08-07T12:00:00.000Z"),
+					id: "11111111-1111-4111-8111-111111111111",
+					isActive: true,
+					isLive: false,
+					meta: { builderSummary: "Current draft", source: "inline" },
+					number: 9,
+				},
+				{
+					createdAt: new Date("2026-08-06T12:00:00.000Z"),
+					id: "22222222-2222-4222-8222-222222222222",
+					isActive: false,
+					isLive: true,
+					meta: { source: "builder" },
+					number: 8,
+				},
+			],
+			total: 19,
+		});
+
+		const response = await service.listVersionsPaginated(SCOPE, "project_1", {
+			page: 3,
+			pageSize: 8,
+		});
+
+		expect(
+			pagesRepository.listVersionsForProjectPaginated,
+		).toHaveBeenCalledWith(SCOPE, "project_1", { limit: 8, offset: 16 });
+		expect(response).toEqual({
+			items: [
+				{
+					createdAt: "2026-08-07T12:00:00.000Z",
+					id: "11111111-1111-4111-8111-111111111111",
+					isActive: true,
+					isBuilderOrigin: false,
+					isLive: false,
+					label: "Current draft",
+					number: 9,
+					source: "inline",
+				},
+				{
+					createdAt: "2026-08-06T12:00:00.000Z",
+					id: "22222222-2222-4222-8222-222222222222",
+					isActive: false,
+					isBuilderOrigin: true,
+					isLive: true,
+					label: null,
+					number: 8,
+					source: "builder",
+				},
+			],
+			page: 3,
+			pageSize: 8,
+			total: 19,
+		});
+		expect(response.items[0]).not.toHaveProperty("r2Key");
+	});
+
+	it("returns an empty page when the project has no landing artifact", async () => {
+		const { pagesRepository, service } = setup();
+		pagesRepository.listVersionsForProjectPaginated.mockResolvedValue({
+			rows: [],
+			total: 0,
+		});
+
+		await expect(
+			service.listVersionsPaginated(SCOPE, "project_1", {
+				page: 1,
+				pageSize: 8,
+			}),
+		).resolves.toEqual({ items: [], page: 1, pageSize: 8, total: 0 });
+	});
+
+	it("keeps the cheap count in parity with the full version history", async () => {
+		const { pagesRepository, service } = setup();
+		const rows = [1, 2, 3].map((number) => ({
+			createdAt: new Date(`2026-08-0${number}T12:00:00.000Z`),
+			id: `version_${number}`,
+			isLive: false,
+			meta: null,
+			number,
+		}));
+		pagesRepository.listVersionsForProject.mockResolvedValue(rows);
+		pagesRepository.countVersionsForProject.mockResolvedValue(rows.length);
+
+		const [history, total] = await Promise.all([
+			service.listVersions(SCOPE, "project_1"),
+			service.countVersions(SCOPE, "project_1"),
+		]);
+
+		expect(total).toBe(history.versions.length);
+		expect(total).toBe(3);
+	});
+
+	it("404s paginated versions when the project is inaccessible", async () => {
+		const { pagesRepository, service } = setup();
+		pagesRepository.listVersionsForProjectPaginated.mockResolvedValue(null);
+
+		await expect(
+			service.listVersionsPaginated(SCOPE, "missing_project", {
+				page: 1,
+				pageSize: 8,
+			}),
+		).rejects.toBeInstanceOf(NotFoundException);
 	});
 
 	it("404s the version html when the version is unknown or not owned", async () => {

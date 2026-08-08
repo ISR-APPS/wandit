@@ -61,6 +61,20 @@ export type VersionListRow = {
 	number: number;
 };
 
+export type PaginatedVersionListRow = VersionListRow & {
+	isActive: boolean;
+};
+
+export type VersionListPage = {
+	rows: PaginatedVersionListRow[];
+	total: number;
+};
+
+export type VersionListPageOptions = {
+	limit: number;
+	offset: number;
+};
+
 export type BuilderVersionRow = {
 	id: string;
 	r2Key: string;
@@ -541,20 +555,17 @@ export class PagesRepository {
 		scope: ProjectScope,
 		projectId: string,
 	): Promise<VersionListRow[] | null> {
-		const [project] = await this.db
-			.select({ id: projects.id })
-			.from(projects)
-			.where(
-				and(
-					eq(projects.id, projectId),
-					projectScopePredicate(scope),
-					isNull(projects.deletedAt),
-				),
-			)
-			.limit(1);
+		const resolved = await this.resolveAccessibleLandingArtifact(
+			scope,
+			projectId,
+		);
 
-		if (!project) {
+		if (!resolved) {
 			return null;
+		}
+
+		if (!resolved.artifact) {
+			return [];
 		}
 
 		const [live] = await this.db
@@ -576,19 +587,86 @@ export class PagesRepository {
 				number: versions.number,
 			})
 			.from(versions)
-			.innerJoin(artifacts, eq(artifacts.id, versions.artifactId))
-			.where(
-				and(
-					eq(versions.projectId, projectId),
-					eq(artifacts.kind, "landing_page"),
-				),
-			)
+			.where(eq(versions.artifactId, resolved.artifact.id))
 			.orderBy(desc(versions.number));
 
 		return rows.map((row) => ({
 			...row,
 			isLive: row.id === (live?.versionId ?? null),
 		}));
+	}
+
+	// One page of immutable landing-page versions, newest first, plus the
+	// total count from the same artifact resolution. Resolve the single
+	// landing artifact before touching versions so the indexed
+	// (artifact_id, number) ordering can satisfy both filtering and
+	// pagination, and so rows and total cannot disagree about which
+	// artifact they describe.
+	async listVersionsForProjectPaginated(
+		scope: ProjectScope,
+		projectId: string,
+		options: VersionListPageOptions,
+	): Promise<VersionListPage | null> {
+		const resolved = await this.resolveAccessibleLandingArtifact(
+			scope,
+			projectId,
+		);
+
+		if (!resolved) {
+			return null;
+		}
+
+		if (!resolved.artifact) {
+			return { rows: [], total: 0 };
+		}
+
+		const [[live], rows, [countRow]] = await Promise.all([
+			this.db
+				.select({ versionId: deployments.versionId })
+				.from(deployments)
+				.where(
+					and(
+						eq(deployments.projectId, projectId),
+						eq(deployments.status, "active"),
+					),
+				)
+				.limit(1),
+			this.buildVersionPageQuery(resolved.artifact.id, options),
+			this.buildVersionCountQuery(resolved.artifact.id),
+		]);
+
+		return {
+			rows: rows.map((row) => ({
+				...row,
+				isActive: row.id === resolved.artifact?.activeVersionId,
+				isLive: row.id === (live?.versionId ?? null),
+			})),
+			total: countRow?.total ?? 0,
+		};
+	}
+
+	// Count only the resolved landing artifact's versions. This is the cheap
+	// detail-page replacement for loading and mapping the complete history.
+	async countVersionsForProject(
+		scope: ProjectScope,
+		projectId: string,
+	): Promise<number | null> {
+		const resolved = await this.resolveAccessibleLandingArtifact(
+			scope,
+			projectId,
+		);
+
+		if (!resolved) {
+			return null;
+		}
+
+		if (!resolved.artifact) {
+			return 0;
+		}
+
+		const [row] = await this.buildVersionCountQuery(resolved.artifact.id);
+
+		return row?.total ?? 0;
 	}
 
 	// What number the NEXT version will get. Advisory only (used for the
@@ -888,5 +966,53 @@ export class PagesRepository {
 			.limit(1);
 
 		return row ?? null;
+	}
+
+	private async resolveAccessibleLandingArtifact(
+		scope: ProjectScope,
+		projectId: string,
+	): Promise<{ artifact: LandingArtifactRow | null } | null> {
+		const [project] = await this.db
+			.select({ id: projects.id })
+			.from(projects)
+			.where(
+				and(
+					eq(projects.id, projectId),
+					projectScopePredicate(scope),
+					isNull(projects.deletedAt),
+				),
+			)
+			.limit(1);
+
+		if (!project) {
+			return null;
+		}
+
+		return { artifact: await this.findLandingArtifact(projectId) };
+	}
+
+	private buildVersionPageQuery(
+		artifactId: string,
+		options: VersionListPageOptions,
+	) {
+		return this.db
+			.select({
+				createdAt: versions.createdAt,
+				id: versions.id,
+				meta: versions.meta,
+				number: versions.number,
+			})
+			.from(versions)
+			.where(eq(versions.artifactId, artifactId))
+			.orderBy(desc(versions.number))
+			.limit(options.limit)
+			.offset(options.offset);
+	}
+
+	private buildVersionCountQuery(artifactId: string) {
+		return this.db
+			.select({ total: sql<number>`count(*)::int` })
+			.from(versions)
+			.where(eq(versions.artifactId, artifactId));
 	}
 }

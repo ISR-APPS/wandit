@@ -5,6 +5,7 @@ const METRIC_KEYS = ["assets", "leads", "marketing", "website"] as const;
 
 const SECTION_SKELETONS = [
 	{ key: "website", rows: ["deployment", "versions"] },
+	{ key: "variations", rows: ["one", "two", "three"] },
 	{ key: "marketing", rows: ["one", "two", "three", "four"] },
 	{ key: "leads", rows: ["one", "two", "three", "four", "five"] },
 	{ key: "exports", rows: ["one", "two", "three", "four"] },

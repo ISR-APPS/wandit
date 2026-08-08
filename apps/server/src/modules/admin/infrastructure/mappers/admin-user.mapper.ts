@@ -12,7 +12,6 @@ import {
 	isAdminRole,
 } from "@wandit/contracts";
 
-import type { AdminUserMembershipRow } from "../persistence/admin-organizations.repository";
 import type {
 	AdminCreditLedgerRow,
 	AdminProjectRow,
@@ -20,6 +19,7 @@ import type {
 	AdminUserDetailRow,
 	AdminUserSummaryRow,
 } from "../persistence/admin.repository";
+import type { AdminUserMembershipRow } from "../persistence/admin-organizations.repository";
 
 export function mapAdminUserSummary(
 	row: AdminUserSummaryRow,
@@ -83,7 +83,7 @@ function mapAdminUserSubscription(
 	};
 }
 
-function mapAdminUserProject(row: AdminProjectRow): AdminUserProject {
+export function mapAdminUserProject(row: AdminProjectRow): AdminUserProject {
 	return {
 		id: row.id,
 		name: row.name,

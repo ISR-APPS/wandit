@@ -1,6 +1,7 @@
 import { Inject, Injectable } from "@nestjs/common";
 import {
 	type AdminListUsersQuery,
+	type AdminUserPagesQuery,
 	ENTITLED_SUBSCRIPTION_STATUSES,
 	type PaginatedResult,
 } from "@wandit/contracts";
@@ -13,11 +14,16 @@ import {
 	isNull,
 	notInArray,
 	or,
+	type SQL,
 	sql,
 } from "@wandit/db";
+import { artifacts, versions } from "@wandit/db/schema/artifacts";
 import { session, user } from "@wandit/db/schema/auth";
 import { betaAccessEvents, subscriptions } from "@wandit/db/schema/billing";
 import { creditLedger } from "@wandit/db/schema/credits";
+import { deployments } from "@wandit/db/schema/deployments";
+import { domains } from "@wandit/db/schema/domains";
+import { pageGenerationAttempts } from "@wandit/db/schema/page-attempts";
 import { projects } from "@wandit/db/schema/projects";
 
 import {
@@ -58,6 +64,34 @@ export type AdminProjectRow = {
 	id: string;
 	name: string;
 	createdAt: Date;
+};
+
+export type AdminUserProjectsListOptions = {
+	limit: number;
+	offset: number;
+	order: "asc" | "desc";
+};
+
+export type AdminUserPageRow = {
+	projectId: string;
+	projectName: string;
+	organizationId: string | null;
+	previewImageUrl: string | null;
+	projectCreatedAt: Date;
+	projectUpdatedAt: Date | string;
+	activeVersionId: string | null;
+	activeVersionNumber: number | null;
+	activeVersionCreatedAt: Date | null;
+	latestGenerationStatus:
+		| (typeof pageGenerationAttempts.status)["_"]["data"]
+		| null;
+	latestGenerationCreatedAt: Date | null;
+	latestGenerationCompletedAt: Date | null;
+	activeDeploymentSlug: string | null;
+	activeDeploymentUpdatedAt: Date | null;
+	latestDeploymentStatus: (typeof deployments.status)["_"]["data"] | null;
+	primaryDomainName: string | null;
+	primaryDomainStatus: (typeof domains.status)["_"]["data"] | null;
 };
 
 export type AdminProjectDetailRow = {
@@ -140,6 +174,145 @@ export class AdminRepository {
 		};
 	}
 
+	async listUserPages(
+		userId: string,
+		query: AdminUserPagesQuery,
+	): Promise<PaginatedResult<AdminUserPageRow>> {
+		const { countQuery, listQuery } = this.buildUserPagesQueries(userId, query);
+		const [totalRow] = await countQuery;
+		const items: AdminUserPageRow[] = await listQuery;
+
+		return {
+			items,
+			page: query.page,
+			pageSize: query.pageSize,
+			total: totalRow?.total ?? 0,
+		};
+	}
+
+	private buildUserPagesQueries(userId: string, query: AdminUserPagesQuery) {
+		const where = and(
+			eq(projects.userId, userId),
+			isNull(projects.deletedAt),
+			eq(artifacts.kind, "landing_page"),
+		);
+		const offset = (query.page - 1) * query.pageSize;
+
+		const countQuery = this.db
+			.select({ total: sql<number>`count(*)::int` })
+			.from(projects)
+			.innerJoin(artifacts, eq(artifacts.projectId, projects.id))
+			.where(where);
+
+		const activeVersion = this.db
+			.select({
+				id: versions.id,
+				number: versions.number,
+				createdAt: versions.createdAt,
+			})
+			.from(versions)
+			.where(
+				and(
+					eq(versions.id, artifacts.activeVersionId),
+					eq(versions.artifactId, artifacts.id),
+					eq(versions.projectId, projects.id),
+				),
+			)
+			.limit(1)
+			.as("active_version");
+
+		// TODO(perf): add (project_id, created_at desc) indexes to page_generation_attempts and deployments.
+		const latestGeneration = this.db
+			.select({
+				status: pageGenerationAttempts.status,
+				createdAt: pageGenerationAttempts.createdAt,
+				completedAt: pageGenerationAttempts.completedAt,
+			})
+			.from(pageGenerationAttempts)
+			.where(
+				and(
+					eq(pageGenerationAttempts.projectId, projects.id),
+					eq(pageGenerationAttempts.artifactId, artifacts.id),
+				),
+			)
+			.orderBy(
+				desc(pageGenerationAttempts.createdAt),
+				desc(pageGenerationAttempts.id),
+			)
+			.limit(1)
+			.as("latest_generation");
+
+		const activeDeployment = this.db
+			.select({
+				slug: deployments.slug,
+				updatedAt: deployments.updatedAt,
+			})
+			.from(deployments)
+			.where(
+				and(
+					eq(deployments.projectId, projects.id),
+					eq(deployments.status, "active"),
+				),
+			)
+			.limit(1)
+			.as("active_deployment");
+
+		const latestDeployment = this.db
+			.select({ status: deployments.status })
+			.from(deployments)
+			.where(eq(deployments.projectId, projects.id))
+			.orderBy(desc(deployments.createdAt), desc(deployments.id))
+			.limit(1)
+			.as("latest_deployment");
+
+		const primaryDomain = this.db
+			.select({ name: domains.name, status: domains.status })
+			.from(domains)
+			.where(
+				and(
+					eq(domains.projectId, projects.id),
+					eq(domains.isPrimary, true),
+					eq(domains.status, "active"),
+				),
+			)
+			.limit(1)
+			.as("primary_domain");
+
+		const listQuery = this.db
+			.select({
+				projectId: projects.id,
+				projectName: projects.name,
+				organizationId: projects.organizationId,
+				previewImageUrl: projects.previewImageUrl,
+				projectCreatedAt: projects.createdAt,
+				projectUpdatedAt: userPageActivityTimestamp(),
+				activeVersionId: activeVersion.id,
+				activeVersionNumber: activeVersion.number,
+				activeVersionCreatedAt: activeVersion.createdAt,
+				latestGenerationStatus: latestGeneration.status,
+				latestGenerationCreatedAt: latestGeneration.createdAt,
+				latestGenerationCompletedAt: latestGeneration.completedAt,
+				activeDeploymentSlug: activeDeployment.slug,
+				activeDeploymentUpdatedAt: activeDeployment.updatedAt,
+				latestDeploymentStatus: latestDeployment.status,
+				primaryDomainName: primaryDomain.name,
+				primaryDomainStatus: primaryDomain.status,
+			})
+			.from(projects)
+			.innerJoin(artifacts, eq(artifacts.projectId, projects.id))
+			.leftJoinLateral(activeVersion, sql`true`)
+			.leftJoinLateral(latestGeneration, sql`true`)
+			.leftJoinLateral(activeDeployment, sql`true`)
+			.leftJoinLateral(latestDeployment, sql`true`)
+			.leftJoinLateral(primaryDomain, sql`true`)
+			.where(where)
+			.orderBy(...this.buildUserPagesOrderBy(query.sort))
+			.limit(query.pageSize)
+			.offset(offset);
+
+		return { countQuery, listQuery };
+	}
+
 	async findUserDetail(userId: string): Promise<AdminUserDetailRow | null> {
 		const [row] = await this.db
 			.select({
@@ -206,6 +379,39 @@ export class AdminRepository {
 		userId: string,
 		limit: number,
 	): Promise<AdminProjectRow[]> {
+		return this.listUserProjects(userId, {
+			limit,
+			offset: 0,
+			order: "desc",
+		});
+	}
+
+	listUserProjects(
+		userId: string,
+		options: AdminUserProjectsListOptions,
+	): Promise<AdminProjectRow[]> {
+		return this.buildUserProjectsListQuery(userId, options);
+	}
+
+	async countUserProjects(userId: string): Promise<number> {
+		const [row] = await this.buildUserProjectsCountQuery(userId);
+
+		return row?.total ?? 0;
+	}
+
+	private buildUserProjectsCountQuery(userId: string) {
+		return this.db
+			.select({ total: sql<number>`count(*)::int` })
+			.from(projects)
+			.where(userProjectsFilter(sql`${userId}`));
+	}
+
+	private buildUserProjectsListQuery(
+		userId: string,
+		options: AdminUserProjectsListOptions,
+	) {
+		const direction = options.order === "asc" ? asc : desc;
+
 		return this.db
 			.select({
 				id: projects.id,
@@ -213,9 +419,10 @@ export class AdminRepository {
 				createdAt: projects.createdAt,
 			})
 			.from(projects)
-			.where(and(eq(projects.userId, userId), isNull(projects.deletedAt)))
-			.orderBy(desc(projects.createdAt), desc(projects.id))
-			.limit(limit);
+			.where(userProjectsFilter(sql`${userId}`))
+			.orderBy(direction(projects.createdAt), direction(projects.id))
+			.limit(options.limit)
+			.offset(options.offset);
 	}
 
 	async findProjectDetail(
@@ -244,26 +451,28 @@ export class AdminRepository {
 		userId: string,
 		limit: number,
 	): Promise<AdminCreditLedgerRow[]> {
-		return this.db
-			.select({
-				id: creditLedger.id,
-				delta: creditLedger.delta,
-				kind: creditLedger.kind,
-				bucket: creditLedger.bucket,
-				meta: creditLedger.meta,
-				createdAt: creditLedger.createdAt,
-			})
-			.from(creditLedger)
-			// Personal rows only: org consume rows record the acting member in
-			// userId but the ORG pool paid — mixing them corrupts the money view.
-			.where(
-				and(
-					eq(creditLedger.userId, userId),
-					isNull(creditLedger.organizationId),
-				),
-			)
-			.orderBy(desc(creditLedger.createdAt), desc(creditLedger.id))
-			.limit(limit);
+		return (
+			this.db
+				.select({
+					id: creditLedger.id,
+					delta: creditLedger.delta,
+					kind: creditLedger.kind,
+					bucket: creditLedger.bucket,
+					meta: creditLedger.meta,
+					createdAt: creditLedger.createdAt,
+				})
+				.from(creditLedger)
+				// Personal rows only: org consume rows record the acting member in
+				// userId but the ORG pool paid — mixing them corrupts the money view.
+				.where(
+					and(
+						eq(creditLedger.userId, userId),
+						isNull(creditLedger.organizationId),
+					),
+				)
+				.orderBy(desc(creditLedger.createdAt), desc(creditLedger.id))
+				.limit(limit)
+		);
 	}
 
 	async updateUserRole(userId: string, role: string): Promise<void> {
@@ -384,12 +593,7 @@ export class AdminRepository {
 				where "credit_ledger"."user_id" = "user"."id"
 					and "credit_ledger"."organization_id" is null
 			), 0)::int`,
-			projectsCount: sql<number>`(
-				select count(*)
-				from "projects"
-				where "projects"."user_id" = "user"."id"
-					and "projects"."deleted_at" is null
-			)::int`,
+			projectsCount: userProjectsCount(sql.raw('"user"."id"')),
 		};
 	}
 
@@ -415,6 +619,38 @@ export class AdminRepository {
 				return [desc(user.createdAt), desc(user.id)];
 		}
 	}
+
+	private buildUserPagesOrderBy(sort: AdminUserPagesQuery["sort"]) {
+		switch (sort) {
+			case "oldest":
+				return [asc(projects.createdAt), asc(projects.id)];
+			case "newest":
+				return [desc(projects.createdAt), desc(projects.id)];
+			default:
+				return [desc(userPageActivityTimestamp()), desc(projects.id)];
+		}
+	}
+}
+
+function userPageActivityTimestamp() {
+	return sql<
+		Date | string
+	>`greatest(${projects.updatedAt}, ${artifacts.updatedAt})`;
+}
+
+// Raw qualified identifiers are deliberate: Drizzle strips table prefixes
+// from embedded column references inside a join-less scalar subquery.
+function userProjectsFilter(userId: SQL) {
+	return sql`"projects"."user_id" = ${userId}
+		and "projects"."deleted_at" is null`;
+}
+
+function userProjectsCount(userId: SQL) {
+	return sql<number>`(
+		select count(*)
+		from "projects"
+		where ${userProjectsFilter(userId)}
+	)::int`;
 }
 
 // Escape LIKE wildcards so a search for "100%" matches literally.
