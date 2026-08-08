@@ -1,36 +1,50 @@
 import { Link } from "@tanstack/react-router";
-import { CopyIcon, FolderKanbanIcon } from "lucide-react";
+import { CopyIcon, FolderKanbanIcon, RefreshCwIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
 	Empty,
+	EmptyContent,
 	EmptyDescription,
 	EmptyHeader,
 	EmptyMedia,
 	EmptyTitle,
 } from "@/components/ui/empty";
-import type { AdminUserProject } from "@/features/users/api/users.dto";
+import { Skeleton } from "@/components/ui/skeleton";
+import { useUserProjectsQuery } from "@/features/users/api/users.queries";
 import { formatAdminDate } from "@/features/users/lib/formatters";
 
 import { DetailPagination } from "./detail-pagination";
 
 export const PROJECTS_PAGE_SIZE = 10;
 
+const PROJECT_SKELETON_KEYS = [
+	"project-1",
+	"project-2",
+	"project-3",
+	"project-4",
+] as const;
+
 type UserProjectsListProps = {
 	userId: string;
-	projects: AdminUserProject[];
 };
 
 function copyProjectId(projectId: string) {
 	void navigator.clipboard.writeText(projectId).catch(() => undefined);
 }
 
-export function UserProjectsList({ userId, projects }: UserProjectsListProps) {
+export function UserProjectsList({ userId }: UserProjectsListProps) {
 	const [page, setPage] = useState(1);
+	const projectsQuery = useUserProjectsQuery({
+		userId,
+		page,
+		pageSize: PROJECTS_PAGE_SIZE,
+		sort: "newest",
+	});
 	const pageCount = Math.max(
 		1,
-		Math.ceil(projects.length / PROJECTS_PAGE_SIZE),
+		Math.ceil((projectsQuery.data?.total ?? 0) / PROJECTS_PAGE_SIZE),
 	);
 
 	useEffect(() => {
@@ -39,7 +53,43 @@ export function UserProjectsList({ userId, projects }: UserProjectsListProps) {
 		}
 	}, [page, pageCount]);
 
-	if (projects.length === 0) {
+	if (
+		projectsQuery.isPending ||
+		(projectsQuery.isFetching && projectsQuery.isPlaceholderData)
+	) {
+		return <ProjectsSkeleton />;
+	}
+
+	if (projectsQuery.isError || !projectsQuery.data) {
+		return (
+			<Empty className="min-h-56 border-0 p-6">
+				<EmptyHeader>
+					<EmptyMedia variant="icon">
+						<FolderKanbanIcon aria-hidden="true" />
+					</EmptyMedia>
+					<EmptyTitle>Projects could not be loaded</EmptyTitle>
+					<EmptyDescription>
+						{errorMessage(
+							projectsQuery.error,
+							"Retry the request to see this user's projects.",
+						)}
+					</EmptyDescription>
+				</EmptyHeader>
+				<EmptyContent>
+					<Button
+						type="button"
+						size="sm"
+						onClick={() => void projectsQuery.refetch()}
+					>
+						<RefreshCwIcon data-icon="inline-start" aria-hidden="true" />
+						Retry
+					</Button>
+				</EmptyContent>
+			</Empty>
+		);
+	}
+
+	if (projectsQuery.data.items.length === 0) {
 		return (
 			<Empty className="min-h-56 border-0 p-6">
 				<EmptyHeader>
@@ -55,15 +105,10 @@ export function UserProjectsList({ userId, projects }: UserProjectsListProps) {
 		);
 	}
 
-	const pageItems = projects.slice(
-		(page - 1) * PROJECTS_PAGE_SIZE,
-		page * PROJECTS_PAGE_SIZE,
-	);
-
 	return (
-		<div className="flex flex-col">
+		<div className="flex flex-col" aria-busy={projectsQuery.isFetching}>
 			<ul className="flex flex-col divide-y">
-				{pageItems.map((project) => (
+				{projectsQuery.data.items.map((project) => (
 					<li
 						key={project.id}
 						className="flex min-w-0 items-center gap-2 py-2 first:pt-0 last:pb-0"
@@ -115,9 +160,38 @@ export function UserProjectsList({ userId, projects }: UserProjectsListProps) {
 			<DetailPagination
 				page={page}
 				pageSize={PROJECTS_PAGE_SIZE}
-				total={projects.length}
+				total={projectsQuery.data.total}
 				onPageChange={setPage}
 			/>
 		</div>
 	);
+}
+
+function ProjectsSkeleton() {
+	return (
+		<div
+			className="flex flex-col divide-y"
+			role="status"
+			aria-label="Loading projects"
+		>
+			{PROJECT_SKELETON_KEYS.map((key) => (
+				<div
+					key={key}
+					className="flex items-center gap-3 py-2 first:pt-0 last:pb-0"
+				>
+					<Skeleton className="size-9 shrink-0 rounded-lg" />
+					<div className="flex min-w-0 flex-1 flex-col gap-2">
+						<Skeleton className="h-4 w-44 max-w-full" />
+						<Skeleton className="h-3 w-32 max-w-full" />
+					</div>
+					<Skeleton className="hidden h-3 w-24 sm:block" />
+					<Skeleton className="size-8 shrink-0" />
+				</div>
+			))}
+		</div>
+	);
+}
+
+function errorMessage(error: unknown, fallback: string) {
+	return error instanceof Error && error.message ? error.message : fallback;
 }

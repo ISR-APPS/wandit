@@ -1,7 +1,10 @@
 import { Controller, Get, Inject, Query, UseGuards } from "@nestjs/common";
 import {
+	type AdminOverviewQuery,
+	type AdminOverviewSnapshot,
 	type AdminSignupStats,
 	type AdminSignupStatsQuery,
+	adminOverviewQuerySchema,
 	adminSignupStatsQuerySchema,
 } from "@wandit/contracts";
 
@@ -16,6 +19,14 @@ export class AdminStatsController {
 		@Inject(AdminStatsService)
 		private readonly adminStatsService: AdminStatsService,
 	) {}
+
+	@Get("overview")
+	overview(
+		@Query(new ZodValidationPipe(adminOverviewQuerySchema))
+		query: AdminOverviewQuery,
+	): Promise<AdminOverviewSnapshot> {
+		return this.adminStatsService.getOverviewStats(query);
+	}
 
 	@Get("signups")
 	signups(

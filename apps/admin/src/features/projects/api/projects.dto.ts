@@ -8,6 +8,10 @@ import type {
 	AdminProjectMetadata,
 	AdminProjectOwner,
 	AdminProjectSheetsIntegration,
+	AdminProjectVersionHtmlResponse,
+	AdminProjectVersionListItem,
+	AdminProjectVersionsQuery,
+	AdminProjectVersionsResponse,
 	AdminProjectWebsite,
 	Lead,
 	LeadScrapeAttempt,
@@ -23,7 +27,15 @@ export type {
 	AdminProjectMetadata,
 	AdminProjectOwner,
 	AdminProjectSheetsIntegration,
+	AdminProjectVersionHtmlResponse,
+	AdminProjectVersionListItem,
+	AdminProjectVersionsQuery,
+	AdminProjectVersionsResponse,
 	AdminProjectWebsite,
 	Lead,
 	LeadScrapeAttempt,
+};
+
+export type ListAdminProjectVersionsParams = AdminProjectVersionsQuery & {
+	projectId: string;
 };

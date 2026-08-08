@@ -9,7 +9,11 @@ import {
 	creditBucketSchema,
 	creditKindSchema,
 } from "./credits";
-import { deploymentSlugSchema, deploymentUiStateSchema } from "./deployments";
+import {
+	deploymentSlugSchema,
+	deploymentStatusSchema,
+	deploymentUiStateSchema,
+} from "./deployments";
 import { domainStatusSchema } from "./domains";
 import { leadScrapeAttemptSchema } from "./lead-scrapes";
 import { leadSchema } from "./leads";
@@ -17,7 +21,7 @@ import {
 	marketingAssetStatusSchema,
 	marketingAssetTypeSchema,
 } from "./marketing-assets";
-import { pageAttemptStatusSchema } from "./pages";
+import { pageAttemptStatusSchema, pageVersionListItemSchema } from "./pages";
 import { projectAssetSourceSchema } from "./project-assets";
 import { isoDateTimeSchema, uuidSchema } from "./shared/primitives";
 
@@ -110,6 +114,28 @@ export const adminUserProjectSchema = z.object({
 
 export type AdminUserProject = z.infer<typeof adminUserProjectSchema>;
 
+export const adminUserProjectsSorts = ["newest", "oldest"] as const;
+
+export const adminUserProjectsSortSchema = z.enum(adminUserProjectsSorts);
+
+export type AdminUserProjectsSort = z.infer<typeof adminUserProjectsSortSchema>;
+
+export const adminUserProjectsQuerySchema = paginationQuerySchema.extend({
+	sort: adminUserProjectsSortSchema.default("newest"),
+});
+
+export type AdminUserProjectsQuery = z.infer<
+	typeof adminUserProjectsQuerySchema
+>;
+
+export const adminUserProjectsResponseSchema = paginatedResultSchema(
+	adminUserProjectSchema,
+);
+
+export type AdminUserProjectsResponse = z.infer<
+	typeof adminUserProjectsResponseSchema
+>;
+
 export const adminCreditLedgerEntrySchema = z.object({
 	id: uuidSchema,
 	delta: z.int(),
@@ -145,6 +171,105 @@ export const adminUserDetailSchema = adminUserSummarySchema.extend({
 });
 
 export type AdminUserDetail = z.infer<typeof adminUserDetailSchema>;
+
+export const adminUserPagesSorts = [
+	"newest",
+	"oldest",
+	"recently_updated",
+] as const;
+
+export const adminUserPagesSortSchema = z.enum(adminUserPagesSorts);
+
+export type AdminUserPagesSort = z.infer<typeof adminUserPagesSortSchema>;
+
+export const adminUserPagesQuerySchema = paginationQuerySchema.extend({
+	sort: adminUserPagesSortSchema.default("recently_updated"),
+});
+
+export type AdminUserPagesQuery = z.infer<typeof adminUserPagesQuerySchema>;
+
+export const adminUserPageSchema = z.object({
+	project: z.object({
+		id: uuidSchema,
+		name: z.string(),
+		organizationId: z.string().nullable(),
+		previewImageUrl: z.string().nullable(),
+		createdAt: isoDateTimeSchema,
+		updatedAt: isoDateTimeSchema,
+	}),
+	page: z.object({
+		activeVersion: z
+			.object({
+				id: uuidSchema,
+				number: z.int(),
+				createdAt: isoDateTimeSchema,
+			})
+			.nullable(),
+		latestGeneration: z
+			.object({
+				status: pageAttemptStatusSchema,
+				createdAt: isoDateTimeSchema,
+				completedAt: isoDateTimeSchema.nullable(),
+			})
+			.nullable(),
+	}),
+	deployment: z.object({
+		published: z.boolean(),
+		latestStatus: deploymentStatusSchema.nullable(),
+		slug: z.string().nullable(),
+		liveUrl: z.url().nullable(),
+		publicUrl: z.url().nullable(),
+		publishedAt: isoDateTimeSchema.nullable(),
+	}),
+	primaryDomain: z
+		.object({
+			name: z.string(),
+			status: domainStatusSchema,
+		})
+		.nullable(),
+});
+
+export type AdminUserPage = z.infer<typeof adminUserPageSchema>;
+
+export const adminUserPagesResponseSchema =
+	paginatedResultSchema(adminUserPageSchema);
+
+export type AdminUserPagesResponse = z.infer<
+	typeof adminUserPagesResponseSchema
+>;
+
+export const adminProjectVersionHtmlResponseSchema = z.object({
+	html: z.string(),
+});
+
+export type AdminProjectVersionHtmlResponse = z.infer<
+	typeof adminProjectVersionHtmlResponseSchema
+>;
+
+export const adminProjectVersionsQuerySchema = paginationQuerySchema.extend({
+	pageSize: z.coerce.number().int().min(1).max(24).default(8),
+});
+
+export type AdminProjectVersionsQuery = z.infer<
+	typeof adminProjectVersionsQuerySchema
+>;
+
+export const adminProjectVersionListItemSchema =
+	pageVersionListItemSchema.extend({
+		isActive: z.boolean(),
+	});
+
+export type AdminProjectVersionListItem = z.infer<
+	typeof adminProjectVersionListItemSchema
+>;
+
+export const adminProjectVersionsResponseSchema = paginatedResultSchema(
+	adminProjectVersionListItemSchema,
+);
+
+export type AdminProjectVersionsResponse = z.infer<
+	typeof adminProjectVersionsResponseSchema
+>;
 
 export const adminProjectMetadataSchema = z.object({
 	id: uuidSchema,
@@ -322,7 +447,11 @@ export type AdminOrganizationSummary = z.infer<
 	typeof adminOrganizationSummarySchema
 >;
 
-export const adminListOrganizationsSorts = ["newest", "oldest", "name"] as const;
+export const adminListOrganizationsSorts = [
+	"newest",
+	"oldest",
+	"name",
+] as const;
 
 export const adminListOrganizationsQuerySchema = paginationQuerySchema.extend({
 	q: z.string().trim().min(1).max(200).optional(),
@@ -434,6 +563,186 @@ export const adminSignupStatsSchema = z.object({
 
 export type AdminSignupStats = z.infer<typeof adminSignupStatsSchema>;
 
+// --- Dashboard overview ---
+
+export const adminOverviewRangeSchema = z.enum(adminSignupStatsRanges);
+
+export type AdminOverviewRange = z.infer<typeof adminOverviewRangeSchema>;
+
+export const adminOverviewQuerySchema = z.object({
+	range: adminOverviewRangeSchema.default("30d"),
+});
+
+export type AdminOverviewQuery = z.infer<typeof adminOverviewQuerySchema>;
+
+export const adminOverviewCurrencySchema = z.enum(["USD", "DZD"]);
+
+export type AdminOverviewCurrency = z.infer<typeof adminOverviewCurrencySchema>;
+
+export const adminOverviewPaymentProviderSchema = z.enum([
+	"stripe",
+	"chargily",
+]);
+
+export type AdminOverviewPaymentProvider = z.infer<
+	typeof adminOverviewPaymentProviderSchema
+>;
+
+export const adminOverviewFxMetadataSchema = z.object({
+	baseCurrency: z.literal("USD"),
+	quoteCurrency: z.literal("DZD"),
+	quotePerBase: z.number().positive(),
+	asOf: z.iso.date(),
+	isMock: z.literal(true),
+});
+
+export type AdminOverviewFxMetadata = z.infer<
+	typeof adminOverviewFxMetadataSchema
+>;
+
+export const adminOverviewProviderRevenueSchema = z.object({
+	provider: adminOverviewPaymentProviderSchema,
+	nativeCurrency: adminOverviewCurrencySchema,
+	nativeTotalMinor: z.int().nonnegative(),
+	reportingUsdTotalMinor: z.int().nonnegative(),
+	changePercent: z.number(),
+});
+
+export type AdminOverviewProviderRevenue = z.infer<
+	typeof adminOverviewProviderRevenueSchema
+>;
+
+export const adminOverviewRevenueSummarySchema = z.object({
+	reportingCurrency: z.literal("USD"),
+	totalReportingUsdMinor: z.int().nonnegative(),
+	changePercent: z.number(),
+	stripe: adminOverviewProviderRevenueSchema,
+	chargily: adminOverviewProviderRevenueSchema,
+	fx: adminOverviewFxMetadataSchema,
+});
+
+export type AdminOverviewRevenueSummary = z.infer<
+	typeof adminOverviewRevenueSummarySchema
+>;
+
+export const adminOverviewTotalsSchema = z.object({
+	tokensUsed: z.int().nonnegative(),
+	tokensChangePercent: z.number(),
+	tokenCostUsdMinor: z.int().nonnegative(),
+	websitesGenerated: z.int().nonnegative(),
+	websitesChangePercent: z.number(),
+	assetsGenerated: z.int().nonnegative(),
+	imagesGenerated: z.int().nonnegative(),
+	imagesChangePercent: z.number(),
+	totalUsers: z.int().nonnegative(),
+	signups: z.int().nonnegative(),
+	signupsChangePercent: z.number(),
+	activeUsers: z.int().nonnegative(),
+	activationPercent: z.number().min(0).max(100),
+});
+
+export type AdminOverviewTotals = z.infer<typeof adminOverviewTotalsSchema>;
+
+export const adminOverviewGenerationSummarySchema = z.object({
+	attempts: z.int().nonnegative(),
+	successful: z.int().nonnegative(),
+	failed: z.int().nonnegative(),
+	successRatePercent: z.number().min(0).max(100),
+	successRateChangePoints: z.number(),
+	averageLatencyMs: z.int().nonnegative(),
+	latencyChangePercent: z.number(),
+});
+
+export type AdminOverviewGenerationSummary = z.infer<
+	typeof adminOverviewGenerationSummarySchema
+>;
+
+export const adminOverviewRevenuePointSchema = z.object({
+	date: z.iso.date(),
+	label: z.string(),
+	stripeUsdMinor: z.int().nonnegative(),
+	chargilyUsdEquivalentMinor: z.int().nonnegative(),
+	totalUsdEquivalentMinor: z.int().nonnegative(),
+});
+
+export type AdminOverviewRevenuePoint = z.infer<
+	typeof adminOverviewRevenuePointSchema
+>;
+
+export const adminOverviewGrowthPointSchema = z.object({
+	date: z.iso.date(),
+	label: z.string(),
+	signups: z.int().nonnegative(),
+	websitesGenerated: z.int().nonnegative(),
+});
+
+export type AdminOverviewGrowthPoint = z.infer<
+	typeof adminOverviewGrowthPointSchema
+>;
+
+export const adminOverviewGenerationPointSchema = z.object({
+	date: z.iso.date(),
+	label: z.string(),
+	successful: z.int().nonnegative(),
+	failed: z.int().nonnegative(),
+});
+
+export type AdminOverviewGenerationPoint = z.infer<
+	typeof adminOverviewGenerationPointSchema
+>;
+
+export const adminOverviewModelUsageSchema = z.object({
+	modelId: z.string().min(1),
+	modelName: z.string().min(1),
+	provider: z.string().min(1),
+	tokensUsed: z.int().nonnegative(),
+	usageSharePercent: z.number().min(0).max(100),
+	costUsdMinor: z.int().nonnegative(),
+});
+
+export type AdminOverviewModelUsage = z.infer<
+	typeof adminOverviewModelUsageSchema
+>;
+
+export const adminOverviewSignalKindSchema = z.enum([
+	"payment",
+	"page_generation_succeeded",
+	"page_generation_failed",
+	"lead",
+]);
+
+export type AdminOverviewSignalKind = z.infer<
+	typeof adminOverviewSignalKindSchema
+>;
+
+export const adminOverviewSignalSchema = z.object({
+	id: z.string().min(1),
+	kind: adminOverviewSignalKindSchema,
+	title: z.string().min(1),
+	detail: z.string().min(1),
+	occurredAt: isoDateTimeSchema,
+});
+
+export type AdminOverviewSignal = z.infer<typeof adminOverviewSignalSchema>;
+
+export const adminOverviewSnapshotSchema = z.object({
+	range: adminOverviewRangeSchema,
+	rangeLabel: z.string().min(1),
+	generatedAt: isoDateTimeSchema,
+	periodStart: z.iso.date(),
+	periodEnd: z.iso.date(),
+	revenue: adminOverviewRevenueSummarySchema,
+	totals: adminOverviewTotalsSchema,
+	generation: adminOverviewGenerationSummarySchema,
+	revenueSeries: z.array(adminOverviewRevenuePointSchema),
+	growthSeries: z.array(adminOverviewGrowthPointSchema),
+	generationSeries: z.array(adminOverviewGenerationPointSchema),
+	modelUsage: z.array(adminOverviewModelUsageSchema),
+	recentSignals: z.array(adminOverviewSignalSchema).max(5),
+});
+
+export type AdminOverviewSnapshot = z.infer<typeof adminOverviewSnapshotSchema>;
+
 export const adminWebhookReplayResponseSchema = z.object({
 	accepted: z.literal(true),
 	eventId: z.string().min(1),
@@ -446,6 +755,8 @@ export type AdminWebhookReplayResponse = z.infer<
 export const adminRoutes = {
 	users: "/api/v1/admin/users",
 	user: (userId: string) => `/api/v1/admin/users/${userId}`,
+	userProjects: (userId: string) => `/api/v1/admin/users/${userId}/projects`,
+	userPages: (userId: string) => `/api/v1/admin/users/${userId}/pages`,
 	organizations: "/api/v1/admin/organizations",
 	organization: (organizationId: string) =>
 		`/api/v1/admin/organizations/${organizationId}`,
@@ -454,11 +765,16 @@ export const adminRoutes = {
 	organizationSetMemberRole: (organizationId: string, userId: string) =>
 		`/api/v1/admin/organizations/${organizationId}/members/${userId}/role`,
 	project: (projectId: string) => `/api/v1/admin/projects/${projectId}`,
+	projectVersions: (projectId: string) =>
+		`/api/v1/admin/projects/${projectId}/versions`,
+	projectVersionHtml: (projectId: string, versionId: string) =>
+		`/api/v1/admin/projects/${projectId}/versions/${versionId}/html`,
 	grantCredits: (userId: string) => `/api/v1/admin/users/${userId}/credits`,
 	betaEnroll: (userId: string) => `/api/v1/admin/users/${userId}/beta-enroll`,
 	setAccess: (userId: string) => `/api/v1/admin/users/${userId}/access`,
 	setRole: (userId: string) => `/api/v1/admin/users/${userId}/role`,
 	setBanned: (userId: string) => `/api/v1/admin/users/${userId}/banned`,
+	overviewStats: "/api/v1/admin/stats/overview",
 	signupStats: "/api/v1/admin/stats/signups",
 	webhookReplay: (eventId: string) =>
 		`/api/v1/admin/webhooks/${encodeURIComponent(eventId)}/replay`,

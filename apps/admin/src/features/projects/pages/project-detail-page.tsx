@@ -17,6 +17,7 @@ import { ProjectDetailHeader } from "@/features/projects/components/project-deta
 import { ProjectDetailSkeleton } from "@/features/projects/components/project-detail-skeleton";
 import { ProjectDomainsCard } from "@/features/projects/components/project-domains-card";
 import { ProjectIntegrationsCard } from "@/features/projects/components/project-integrations-card";
+import { ProjectLandingPageVariationsCard } from "@/features/projects/components/project-landing-page-variations-card";
 import { ProjectLeadExportsCard } from "@/features/projects/components/project-lead-exports-card";
 import { ProjectLeadsCard } from "@/features/projects/components/project-leads-card";
 import { ProjectMarketingAssetsCard } from "@/features/projects/components/project-marketing-assets-card";
@@ -99,6 +100,11 @@ export function ProjectDetailPage({
 			<ProjectMetrics detail={detail} />
 			<ProjectAssetsCard assets={detail.assets} />
 			<ProjectWebsiteCard website={detail.website} />
+			<ProjectLandingPageVariationsCard
+				projectId={detail.project.id}
+				projectName={detail.project.name}
+				liveUrl={detail.website.currentDeployment.liveUrl}
+			/>
 			<ProjectMarketingAssetsCard assets={detail.marketingAssets} />
 			<ProjectLeadsCard leads={detail.leads} />
 			<ProjectLeadExportsCard exports={detail.leadScrapeExports} />

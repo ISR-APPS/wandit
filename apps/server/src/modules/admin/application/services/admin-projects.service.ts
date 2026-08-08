@@ -1,5 +1,9 @@
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
-import type { AdminProjectDetail } from "@wandit/contracts";
+import type {
+	AdminProjectDetail,
+	AdminProjectVersionsQuery,
+	AdminProjectVersionsResponse,
+} from "@wandit/contracts";
 
 import { DomainsService } from "../../../domains/application/services/domains.service";
 import { LeadScrapesService } from "../../../lead-scrapes/application/services/lead-scrapes.service";
@@ -8,11 +12,12 @@ import { LeadsService } from "../../../leads/application/services/leads.service"
 import { MarketingAssetsService } from "../../../marketing-assets/application/services/marketing-assets.service";
 import { PagesService } from "../../../pages/application/services/pages.service";
 import { ProjectAssetsService } from "../../../project-assets/application/services/project-assets.service";
+import type { ProjectScope } from "../../../projects/domain/project-scope";
 import { SitesService } from "../../../sites/application/services/sites.service";
 import {
-	type ProjectScope,
-} from "../../../projects/domain/project-scope";
-import { AdminRepository } from "../../infrastructure/persistence/admin.repository";
+	type AdminProjectDetailRow,
+	AdminRepository,
+} from "../../infrastructure/persistence/admin.repository";
 
 const RECENT_LEADS_LIMIT = 50;
 
@@ -42,27 +47,16 @@ export class AdminProjectsService {
 	async getProjectDetail(projectId: string): Promise<AdminProjectDetail> {
 		// Resolve the live project and its owner before calling any owner-scoped
 		// service. The acting admin's id must never be used for these reads.
-		const project = await this.adminRepository.findProjectDetail(projectId);
-
-		if (!project) {
-			throw new NotFoundException();
-		}
+		const project = await this.findProject(projectId);
 
 		// Admin reads impersonate the project's owner entity: an org project is
 		// read through its org scope (creator as recorded actor), a personal
 		// project through the creator's personal scope.
-		const scope: ProjectScope = project.organizationId
-			? {
-					actorIsLimitExempt: true,
-					kind: "org",
-					organizationId: project.organizationId,
-					userId: project.ownerId,
-				}
-			: { kind: "personal", userId: project.ownerId };
+		const scope = this.projectScope(project);
 		const [
 			projectAssets,
 			pageOverview,
-			pageVersions,
+			pageVersionsCount,
 			currentDeployment,
 			deploymentHistory,
 			marketingAssets,
@@ -78,7 +72,7 @@ export class AdminProjectsService {
 			),
 			this.sectionOrNull(() => this.pagesService.overview(scope, projectId)),
 			this.sectionOrNull(() =>
-				this.pagesService.listVersions(scope, projectId),
+				this.pagesService.countVersions(scope, projectId),
 			),
 			this.sectionOrNull(() => this.sitesService.current(scope, projectId)),
 			this.sectionOrNull(() => this.sitesService.list(scope, projectId)),
@@ -164,9 +158,43 @@ export class AdminProjectsService {
 				},
 				deploymentHistoryCount: deploymentHistory?.deployments.length ?? 0,
 				latestAttemptStatus: pageOverview?.latestAttempt?.status ?? null,
-				versionsCount: pageVersions?.versions.length ?? 0,
+				versionsCount: pageVersionsCount ?? 0,
 			},
 		};
+	}
+
+	async listProjectVersions(
+		projectId: string,
+		query: AdminProjectVersionsQuery,
+	): Promise<AdminProjectVersionsResponse> {
+		const project = await this.findProject(projectId);
+
+		return this.pagesService.listVersionsPaginated(
+			this.projectScope(project),
+			projectId,
+			query,
+		);
+	}
+
+	private async findProject(projectId: string): Promise<AdminProjectDetailRow> {
+		const project = await this.adminRepository.findProjectDetail(projectId);
+
+		if (!project) {
+			throw new NotFoundException();
+		}
+
+		return project;
+	}
+
+	private projectScope(project: AdminProjectDetailRow): ProjectScope {
+		return project.organizationId
+			? {
+					actorIsLimitExempt: true,
+					kind: "org",
+					organizationId: project.organizationId,
+					userId: project.ownerId,
+				}
+			: { kind: "personal", userId: project.ownerId };
 	}
 
 	private async sectionOrNull<T>(load: () => Promise<T>): Promise<T | null> {
