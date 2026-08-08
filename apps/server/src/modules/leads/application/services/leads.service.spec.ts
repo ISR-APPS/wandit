@@ -1,5 +1,9 @@
 import { BadRequestException } from "@nestjs/common";
-import type { LeadsQuery, LeadTotals } from "@wandit/contracts";
+import type {
+	LeadsQuery,
+	LeadTotals,
+	WorkspaceLeadsQuery,
+} from "@wandit/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 import type { ProjectScope } from "../../../projects/domain/project-scope";
@@ -7,6 +11,7 @@ import {
 	InvalidLeadCursorError,
 	type LeadRow,
 	LeadsRepository,
+	type WorkspaceLeadRow,
 } from "../../infrastructure/persistence/leads.repository";
 import { LeadsService } from "./leads.service";
 
@@ -38,14 +43,30 @@ function leadRow(overrides: Partial<LeadRow> = {}): LeadRow {
 	};
 }
 
+function workspaceLeadRow(
+	overrides: Partial<WorkspaceLeadRow> = {},
+): WorkspaceLeadRow {
+	return {
+		...leadRow(),
+		projectId: PROJECT_ID,
+		projectName: "Sahara Serum",
+		...overrides,
+	};
+}
+
 function setup() {
 	const leadsRepository = {
 		countForProject: vi.fn().mockResolvedValue(4),
+		countForWorkspace: vi.fn().mockResolvedValue(7),
 		getTotalsForProject: vi.fn().mockResolvedValue(TOTALS),
 		listForProject: vi.fn().mockResolvedValue([leadRow()]),
 		listForProjectPage: vi.fn().mockResolvedValue({
 			nextCursor: "next-page",
 			rows: [leadRow()],
+		}),
+		listForWorkspacePage: vi.fn().mockResolvedValue({
+			nextCursor: "workspace-next",
+			rows: [workspaceLeadRow()],
 		}),
 	};
 	const service = new LeadsService(
@@ -100,6 +121,63 @@ describe("LeadsService", () => {
 		);
 	});
 
+	it("returns the workspace-wide page with each lead's project attached", async () => {
+		const { leadsRepository, service } = setup();
+		const query: WorkspaceLeadsQuery = {
+			pageSize: 20,
+			projectId: PROJECT_ID,
+			q: "amina",
+			source: "facebook",
+			status: "confirmed",
+		};
+
+		await expect(service.listForWorkspace(SCOPE, query)).resolves.toEqual({
+			leads: [
+				{
+					campaign: null,
+					commune: "Bab Ezzouar",
+					createdAt: "2026-08-02T10:00:00.000Z",
+					extras: { bundle: "Duo" },
+					id: LEAD_ID,
+					name: "Amina",
+					phone: "+213550000000",
+					projectId: PROJECT_ID,
+					projectName: "Sahara Serum",
+					source: "facebook",
+					status: "confirmed",
+					wilaya: "Alger",
+				},
+			],
+			nextCursor: "workspace-next",
+			total: 7,
+		});
+		expect(leadsRepository.listForWorkspacePage).toHaveBeenCalledWith(
+			SCOPE,
+			query,
+		);
+		// The total honors every active filter, cursor excluded.
+		expect(leadsRepository.countForWorkspace).toHaveBeenCalledWith(SCOPE, {
+			projectId: PROJECT_ID,
+			q: "amina",
+			source: "facebook",
+			status: "confirmed",
+		});
+	});
+
+	it("maps an invalid workspace cursor to a 400", async () => {
+		const { leadsRepository, service } = setup();
+		leadsRepository.listForWorkspacePage.mockRejectedValue(
+			new InvalidLeadCursorError(),
+		);
+
+		await expect(
+			service.listForWorkspace(SCOPE, {
+				cursor: "not-a-valid-cursor",
+				pageSize: 20,
+			}),
+		).rejects.toBeInstanceOf(BadRequestException);
+	});
+
 	it("maps an invalid opaque cursor to a 400", async () => {
 		const { leadsRepository, service } = setup();
 		leadsRepository.listForProjectPage.mockRejectedValue(
@@ -150,6 +228,9 @@ describe("LeadsRepository cursor validation", () => {
 				cursor,
 				pageSize: 20,
 			}),
+		).rejects.toBeInstanceOf(InvalidLeadCursorError);
+		await expect(
+			repository.listForWorkspacePage(SCOPE, { cursor, pageSize: 20 }),
 		).rejects.toBeInstanceOf(InvalidLeadCursorError);
 		expect(db.select).not.toHaveBeenCalled();
 	});

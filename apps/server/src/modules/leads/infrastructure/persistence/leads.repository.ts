@@ -8,8 +8,14 @@
  */
 
 import { Inject, Injectable } from "@nestjs/common";
-import type { LeadStatus, LeadsQuery, LeadTotals } from "@wandit/contracts";
-import { and, desc, eq, gt, isNull, lt, or, sql } from "@wandit/db";
+import type {
+	LeadSource,
+	LeadStatus,
+	LeadsQuery,
+	LeadTotals,
+	WorkspaceLeadsQuery,
+} from "@wandit/contracts";
+import { and, desc, eq, gt, isNull, lt, or, type SQL, sql } from "@wandit/db";
 import { deployments } from "@wandit/db/schema/deployments";
 import { leads } from "@wandit/db/schema/leads";
 import { projects } from "@wandit/db/schema/projects";
@@ -21,6 +27,10 @@ import {
 	type ProjectScope,
 	projectScopePredicate,
 } from "../../../projects/domain/project-scope";
+import {
+	FACEBOOK_UTM_SOURCES,
+	TIKTOK_UTM_SOURCES,
+} from "../../domain/derive-lead-source";
 
 export type LeadRow = {
 	attribution: unknown;
@@ -57,6 +67,12 @@ const LEAD_PAGE_COLUMNS = {
 		),
 } as const;
 
+const WORKSPACE_LEAD_PAGE_COLUMNS = {
+	...LEAD_PAGE_COLUMNS,
+	projectId: leads.projectId,
+	projectName: projects.name,
+} as const;
+
 const LEGACY_RECENT_LIMIT = 1_000;
 const OWNER_PAGE_SIZE_MAX = 100;
 const SYNC_PAGE_SIZE_MAX = 1_000;
@@ -65,7 +81,11 @@ const CURSOR_CREATED_AT_RE =
 const UUID_RE =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-type LeadListFilters = Pick<LeadsQuery, "q" | "status">;
+type LeadListFilters = Pick<LeadsQuery, "q" | "status"> & {
+	// Workspace-wide list only: narrow to one project / one derived source.
+	projectId?: string;
+	source?: LeadSource;
+};
 
 type LeadCursor = {
 	createdAt: string;
@@ -75,6 +95,16 @@ type LeadCursor = {
 export type LeadPageResult = {
 	nextCursor: string | null;
 	rows: LeadRow[];
+};
+
+export type WorkspaceLeadRow = LeadRow & {
+	projectId: string;
+	projectName: string;
+};
+
+export type WorkspaceLeadPageResult = {
+	nextCursor: string | null;
+	rows: WorkspaceLeadRow[];
 };
 
 export type LeadSyncPageOptions = {
@@ -194,6 +224,41 @@ function escapedContainsPattern(value: string): string {
 	return `%${value.replace(/[\\%_]/g, "\\$&")}%`;
 }
 
+// SQL mirror of deriveLeadSource (domain/derive-lead-source.ts) so the
+// workspace-wide list can filter by source inside the keyset query without a
+// stored source column. Precedence must match the JS derivation exactly:
+// fbclid → facebook, else ttclid → tiktok, else the utm_source lists, else
+// direct. jsonb_typeof guards mirror the typeof-string checks (a numeric
+// fbclid is not a click id), and coalesce keeps NULL attribution falsy so
+// attribution-less leads count as direct instead of vanishing.
+const FB_CLICK = sql<boolean>`coalesce(jsonb_typeof(${leads.attribution} -> 'fbclid') = 'string' and ${leads.attribution} ->> 'fbclid' <> '', false)`;
+const TT_CLICK = sql<boolean>`coalesce(jsonb_typeof(${leads.attribution} -> 'ttclid') = 'string' and ${leads.attribution} ->> 'ttclid' <> '', false)`;
+// btrim's default set is U+0020 only, but the JS derivation trims the full
+// ECMAScript whitespace set — pass that exact set so `utm_source=facebook%0A`
+// filters the same way it badges.
+const JS_TRIM_WHITESPACE =
+	"\u0009\u000A\u000B\u000C\u000D\u0020\u00A0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008\u2009\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF";
+const UTM_SOURCE = sql<string>`lower(btrim(coalesce(case when jsonb_typeof(${leads.attribution} -> 'utm_source') = 'string' then ${leads.attribution} ->> 'utm_source' end, ''), ${JS_TRIM_WHITESPACE}))`;
+
+function utmSourceList(values: readonly string[]): SQL {
+	return sql.join(
+		values.map((value) => sql`${value}`),
+		sql`, `,
+	);
+}
+
+function leadSourcePredicate(source: LeadSource): SQL<boolean> {
+	if (source === "facebook") {
+		return sql<boolean>`(${FB_CLICK} or (not ${TT_CLICK} and ${UTM_SOURCE} in (${utmSourceList(FACEBOOK_UTM_SOURCES)})))`;
+	}
+
+	if (source === "tiktok") {
+		return sql<boolean>`(not ${FB_CLICK} and (${TT_CLICK} or ${UTM_SOURCE} in (${utmSourceList(TIKTOK_UTM_SOURCES)})))`;
+	}
+
+	return sql<boolean>`(not ${FB_CLICK} and not ${TT_CLICK} and ${UTM_SOURCE} not in (${utmSourceList([...FACEBOOK_UTM_SOURCES, ...TIKTOK_UTM_SOURCES])}))`;
+}
+
 @Injectable()
 export class LeadsRepository {
 	constructor(@Inject(DATABASE) private readonly db: Database) {}
@@ -305,6 +370,53 @@ export class LeadsRepository {
 		return row?.total ?? 0;
 	}
 
+	/**
+	 * Dashboard aggregate: one keyset page across every project the scope can
+	 * see, newest first. Same machinery as the per-project page — the project
+	 * clause just became optional (a filter instead of a path segment).
+	 */
+	async listForWorkspacePage(
+		scope: ProjectScope,
+		query: WorkspaceLeadsQuery,
+	): Promise<WorkspaceLeadPageResult> {
+		const pageSize = clampPageSize(query.pageSize, OWNER_PAGE_SIZE_MAX);
+		const cursor = query.cursor ? decodeLeadCursor(query.cursor) : undefined;
+		const selected = await this.db
+			.select(WORKSPACE_LEAD_PAGE_COLUMNS)
+			.from(leads)
+			.innerJoin(projects, eq(projects.id, leads.projectId))
+			.where(this.accessibleWhere(scope, undefined, query, cursor))
+			.orderBy(desc(leads.createdAt), desc(leads.id))
+			.limit(pageSize + 1);
+		const hasNextPage = selected.length > pageSize;
+		const page = selected.slice(0, pageSize);
+		const last = page.at(-1);
+
+		return {
+			nextCursor:
+				hasNextPage && last
+					? encodeLeadCursor({
+							createdAt: last.cursorCreatedAt,
+							id: last.id,
+						})
+					: null,
+			rows: page.map(({ cursorCreatedAt: _cursorCreatedAt, ...row }) => row),
+		};
+	}
+
+	async countForWorkspace(
+		scope: ProjectScope,
+		filters: LeadListFilters = {},
+	): Promise<number> {
+		const [row] = await this.db
+			.select({ total: sql<number>`count(*)::int` })
+			.from(leads)
+			.innerJoin(projects, eq(projects.id, leads.projectId))
+			.where(this.accessibleWhere(scope, undefined, filters));
+
+		return row?.total ?? 0;
+	}
+
 	async getTotalsForProject(
 		scope: ProjectScope,
 		projectId: string,
@@ -392,12 +504,18 @@ export class LeadsRepository {
 			.limit(limit);
 	}
 
+	/**
+	 * The shared ownership + filter clause. `projectId` is the path-derived
+	 * project (per-project endpoints); when it is undefined the query spans the
+	 * whole scope and `filters.projectId` may narrow it back down.
+	 */
 	private accessibleWhere(
 		scope: ProjectScope,
-		projectId: string,
+		projectId: string | undefined,
 		filters: LeadListFilters = {},
 		cursor?: LeadCursor,
 	) {
+		const targetProjectId = projectId ?? filters.projectId;
 		const query = filters.q?.trim();
 		const phoneDigits = query ? normalizedPhoneDigits(query) : "";
 		const search = query
@@ -419,10 +537,11 @@ export class LeadsRepository {
 			: undefined;
 
 		return and(
-			eq(leads.projectId, projectId),
+			targetProjectId ? eq(leads.projectId, targetProjectId) : undefined,
 			projectScopePredicate(scope),
 			isNull(projects.deletedAt),
 			filters.status ? eq(leads.status, filters.status) : undefined,
+			filters.source ? leadSourcePredicate(filters.source) : undefined,
 			search,
 			afterCursor,
 		);

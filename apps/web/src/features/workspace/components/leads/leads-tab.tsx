@@ -29,26 +29,14 @@ import {
 	TableHeader,
 	TableRow,
 } from "@wandit/ui/components/table";
-import {
-	Tooltip,
-	TooltipContent,
-	TooltipTrigger,
-} from "@wandit/ui/components/tooltip";
 import { cn } from "@wandit/ui/lib/utils";
-import {
-	Download,
-	MessageCircle,
-	Phone,
-	Search,
-	SearchX,
-	Users,
-} from "lucide-react";
+import { Download, Search, SearchX, Users } from "lucide-react";
 import { useDeferredValue, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { formatDate, useDictionary, useTranslation } from "@/lib/i18n";
 import { relativeTime } from "@/lib/relative-time";
-import type { Lead, LeadStatus } from "../../api/dto";
+import type { LeadStatus } from "../../api/dto";
 import { useLeadsQuery } from "../../api/leads.queries";
 import { listAllLeads } from "../../api/leads.services";
 import {
@@ -60,70 +48,14 @@ import {
 	buildLeadsCsv,
 	downloadTextFile,
 	formatPhone,
-	telHref,
-	waHref,
 } from "../../lib/helpers";
 import { useWorkspace } from "../../lib/store";
+import { ContactLinks } from "./contact-links";
 import { LeadOrderDetails } from "./lead-order-details";
 import { LeadSourceBadge } from "./lead-source-badge";
 import { LeadStatusSelect } from "./lead-status-select";
 import { LeadsCounters } from "./leads-counters";
 import { SheetSyncButton } from "./sheet-sync-button";
-
-const HOVER_REVEAL =
-	"opacity-0 transition-opacity duration-150 focus-visible:opacity-100 group-hover/row:opacity-100";
-
-/** Call + WhatsApp icon links for one lead; `reveal` hides them until the
- * table row is hovered (or a link is keyboard-focused). */
-function ContactLinks({
-	lead,
-	reveal = false,
-}: {
-	lead: Lead;
-	reveal?: boolean;
-}) {
-	const { t } = useTranslation();
-	const revealClass = reveal ? HOVER_REVEAL : undefined;
-	return (
-		<div className="flex items-center gap-0.5">
-			<Tooltip>
-				<TooltipTrigger asChild>
-					<Button
-						asChild
-						variant="ghost"
-						size="icon-xs"
-						className={revealClass}
-					>
-						<a href={telHref(lead.phone)} aria-label={t("leads.call")}>
-							<Phone />
-						</a>
-					</Button>
-				</TooltipTrigger>
-				<TooltipContent>{t("leads.call")}</TooltipContent>
-			</Tooltip>
-			<Tooltip>
-				<TooltipTrigger asChild>
-					<Button
-						asChild
-						variant="ghost"
-						size="icon-xs"
-						className={revealClass}
-					>
-						<a
-							href={waHref(lead.phone)}
-							target="_blank"
-							rel="noreferrer"
-							aria-label={t("leads.whatsapp")}
-						>
-							<MessageCircle />
-						</a>
-					</Button>
-				</TooltipTrigger>
-				<TooltipContent>{t("leads.whatsapp")}</TooltipContent>
-			</Tooltip>
-		</div>
-	);
-}
 
 const COUNTER_SKELETON_KEYS = ["today", "week", "total", "rate"];
 const ROW_SKELETON_KEYS = ["a", "b", "c", "d", "e", "f"];
@@ -367,7 +299,7 @@ export function LeadsTab() {
 															<span className="font-mono text-xs">
 																{formatPhone(lead.phone)}
 															</span>
-															<ContactLinks lead={lead} reveal />
+															<ContactLinks phone={lead.phone} reveal />
 														</div>
 													</TableCell>
 													<TableCell>
@@ -424,7 +356,7 @@ export function LeadsTab() {
 												<span className="font-mono text-xs">
 													{formatPhone(lead.phone)}
 												</span>
-												<ContactLinks lead={lead} />
+												<ContactLinks phone={lead.phone} />
 											</div>
 											<div className="mt-2 flex items-center justify-between gap-2">
 												<span className="min-w-0 truncate text-muted-foreground text-xs">

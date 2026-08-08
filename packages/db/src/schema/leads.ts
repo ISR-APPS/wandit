@@ -68,6 +68,10 @@ export const leads = pgTable(
 			table.status,
 			table.createdAt,
 		),
+		// Dashboard aggregate list: newest-first keyset across every project in
+		// scope has no project_id equality, so it needs a bare recency index (a
+		// backward scan serves created_at DESC, id DESC).
+		index("leads_createdAt_id_idx").on(table.createdAt, table.id),
 		// A lead's deployment must belong to the lead's own project.
 		foreignKey({
 			columns: [table.projectId, table.deploymentId],

@@ -5,6 +5,7 @@
 import { type QueryClient, useQuery } from "@tanstack/react-query";
 import type { ImageGenerationAttempt } from "@wandit/contracts";
 
+import { workspaceAssetKeys } from "@/features/assets/api/workspace-assets.queries";
 import { getImageGenerationAttempt } from "./image-generations.services";
 import { pageKeys } from "./pages.queries";
 import { projectAssetKeys } from "./project-assets.queries";
@@ -37,6 +38,11 @@ export function invalidateCompletedImageGeneration(
 ): void {
 	void queryClient.invalidateQueries({
 		queryKey: projectAssetKeys.list(projectId),
+	});
+	// The dashboard Assets page aggregates every project — new media must
+	// surface there too, whatever workspace the cache was scoped to.
+	void queryClient.invalidateQueries({
+		queryKey: workspaceAssetKeys.all,
 	});
 
 	if (placementStatus !== "applied") {

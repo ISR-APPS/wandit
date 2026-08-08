@@ -5,7 +5,11 @@
  * builds (which have no DB rows; the bucket is their source of truth).
  */
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
-import type { ProjectAsset } from "@wandit/contracts";
+import type {
+	ProjectAsset,
+	WorkspaceAsset,
+	WorkspaceAssetsResponse,
+} from "@wandit/contracts";
 
 import {
 	contentTypeFor,
@@ -23,6 +27,18 @@ import { ProjectAssetsRepository } from "../../infrastructure/persistence/projec
 // A video prompt doubles as the animation's display name, cut on a word
 // boundary so cards never show mid-word truncation.
 const LABEL_MAX_CHARS = 40;
+
+// Dashboard aggregate bounds. The page shows the newest slice of the whole
+// workspace; a project's complete history stays on its own Assets tab.
+const WORKSPACE_ASSETS_MAX = 1_000;
+const WORKSPACE_DB_ROWS_MAX = 500;
+// Page-build files have no DB rows — each project costs one R2 prefix
+// listing, so the fan-out is capped and lightly parallel. Each listing asks
+// for one object beyond its own cap so a cut is observable and can flip the
+// aggregate's `truncated` flag.
+const WORKSPACE_BUILD_PROJECTS_MAX = 50;
+const BUILD_LIST_CONCURRENCY = 4;
+const BUILD_OBJECTS_MAX = 500;
 
 @Injectable()
 export class ProjectAssetsService {
@@ -142,6 +158,172 @@ export class ProjectAssetsService {
 		return assets.sort(byNewestFirst);
 	}
 
+	/**
+	 * Dashboard Assets page: the newest media across every project the scope
+	 * can see, each entry carrying its project for labels and download links.
+	 * Same composition as the per-project list — two ownership-joined DB reads
+	 * plus a bounded, best-effort R2 fan-out for page-build files.
+	 */
+	async listWorkspaceAssets(
+		scope: ProjectScope,
+	): Promise<WorkspaceAssetsResponse> {
+		const [accessibleProjects, imageAttempts, videoAttempts, allVideoUrls] =
+			await Promise.all([
+				this.projectAssetsRepository.listAccessibleProjects(scope),
+				this.imageGenerationsRepository.listSucceededForScope(
+					scope,
+					WORKSPACE_DB_ROWS_MAX,
+				),
+				this.mediaGenerationsRepository.listSucceededForScope(
+					scope,
+					WORKSPACE_DB_ROWS_MAX,
+				),
+				this.mediaGenerationsRepository.listSucceededVideoUrlsForScope(scope),
+			]);
+
+		const assets: WorkspaceAsset[] = [];
+
+		for (const attempt of imageAttempts) {
+			if (!attempt.images) {
+				continue;
+			}
+
+			attempt.images.forEach((image, index) => {
+				const key = publicAssetKeyFromUrl(image.url);
+
+				if (!key) {
+					return;
+				}
+
+				assets.push({
+					createdAt: (attempt.completedAt ?? attempt.createdAt).toISOString(),
+					id: `${attempt.id}:${index + 1}`,
+					key,
+					kind: "image",
+					mediaType: image.mediaType,
+					name:
+						attempt.count > 1
+							? `${attempt.title} (${index + 1}/${attempt.count})`
+							: attempt.title,
+					projectId: attempt.projectId,
+					projectName: attempt.projectName,
+					sizeBytes: null,
+					source: "image-generation",
+					url: image.url,
+				});
+			});
+		}
+
+		// Same dedupe rule as the per-project list: animation videos live under
+		// the sites/{id}/assets/ prefix the build fan-out scans. The set is built
+		// from EVERY succeeded video in scope (uncapped) — an animation whose
+		// row fell outside the display cap must still never re-surface as a
+		// mislabelled page-build tile.
+		const animationKeys = new Set<string>();
+
+		for (const url of allVideoUrls) {
+			const key = publicAssetKeyFromUrl(url);
+
+			if (key) {
+				animationKeys.add(key);
+			}
+		}
+
+		for (const row of videoAttempts) {
+			if (!row.videoUrl) {
+				continue;
+			}
+
+			const key = publicAssetKeyFromUrl(row.videoUrl);
+
+			if (!key) {
+				continue;
+			}
+
+			assets.push({
+				createdAt: (row.completedAt ?? row.createdAt).toISOString(),
+				id: row.id,
+				key,
+				kind: "video",
+				mediaType: row.videoMediaType ?? "video/mp4",
+				name: row.title ?? animationLabel(row.prompt),
+				projectId: row.projectId,
+				projectName: row.projectName,
+				sizeBytes: null,
+				source:
+					row.kind === "text-to-video" ? "video-generation" : "image-animation",
+				url: row.videoUrl,
+			});
+		}
+
+		const buildProjects = accessibleProjects.slice(
+			0,
+			WORKSPACE_BUILD_PROJECTS_MAX,
+		);
+		const buildLists = await mapWithConcurrency(
+			buildProjects,
+			BUILD_LIST_CONCURRENCY,
+			async (project) => ({
+				...(await this.listBuildObjectsProbed(project.id)),
+				project,
+			}),
+		);
+		const buildListingCut = buildLists.some((list) => list.cut);
+
+		for (const { objects, project } of buildLists) {
+			for (const object of objects) {
+				if (animationKeys.has(object.key)) {
+					continue;
+				}
+
+				const mediaType = contentTypeFor(object.key);
+				const kind = mediaType.startsWith("image/")
+					? ("image" as const)
+					: mediaType.startsWith("video/")
+						? ("video" as const)
+						: null;
+
+				if (!kind) {
+					continue;
+				}
+
+				assets.push({
+					createdAt: object.lastModified?.toISOString() ?? null,
+					id: object.key,
+					key: object.key,
+					kind,
+					mediaType,
+					name: object.key.split("/").pop() ?? object.key,
+					projectId: project.id,
+					projectName: project.name,
+					sizeBytes: object.sizeBytes,
+					source: "page-build",
+					url: publicAssetUrl(object.key),
+				});
+			}
+		}
+
+		assets.sort(byNewestFirst);
+
+		// Honest cut signal: true when the final slice or any of the upstream
+		// bounds could have dropped files — including a per-project R2 prefix
+		// listing that hit its object cap.
+		const truncated =
+			assets.length > WORKSPACE_ASSETS_MAX ||
+			imageAttempts.length >= WORKSPACE_DB_ROWS_MAX ||
+			videoAttempts.length >= WORKSPACE_DB_ROWS_MAX ||
+			accessibleProjects.length > WORKSPACE_BUILD_PROJECTS_MAX ||
+			buildListingCut;
+
+		return {
+			assets:
+				assets.length > WORKSPACE_ASSETS_MAX
+					? assets.slice(0, WORKSPACE_ASSETS_MAX)
+					: assets,
+			truncated,
+		};
+	}
+
 	async download(
 		scope: ProjectScope,
 		projectId: string,
@@ -196,6 +378,56 @@ export class ProjectAssetsService {
 			return [];
 		}
 	}
+
+	// Workspace variant: ask for one object beyond the cap so a cut listing is
+	// observable — the aggregate's `truncated` flag must not claim completeness
+	// while a project's prefix was silently clipped.
+	private async listBuildObjectsProbed(projectId: string): Promise<{
+		cut: boolean;
+		objects: Awaited<ReturnType<typeof listObjectsByPrefix>>;
+	}> {
+		if (!isR2Configured()) {
+			return { cut: false, objects: [] };
+		}
+
+		try {
+			const objects = await listObjectsByPrefix(
+				`sites/${projectId}/assets/`,
+				BUILD_OBJECTS_MAX + 1,
+			);
+
+			if (objects.length > BUILD_OBJECTS_MAX) {
+				return { cut: true, objects: objects.slice(0, BUILD_OBJECTS_MAX) };
+			}
+
+			return { cut: false, objects };
+		} catch {
+			return { cut: false, objects: [] };
+		}
+	}
+}
+
+/** Order-preserving concurrent map with a small worker pool. */
+async function mapWithConcurrency<T, R>(
+	items: readonly T[],
+	concurrency: number,
+	fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+	const results: R[] = new Array(items.length);
+	let nextIndex = 0;
+	const workers = Array.from(
+		{ length: Math.min(concurrency, items.length) },
+		async () => {
+			while (nextIndex < items.length) {
+				const index = nextIndex;
+				nextIndex += 1;
+				results[index] = await fn(items[index] as T);
+			}
+		},
+	);
+	await Promise.all(workers);
+
+	return results;
 }
 
 function animationLabel(prompt: string): string {

@@ -1,6 +1,10 @@
 import { Controller, Get, Inject, Param, Query, Res } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
-import { type ProjectAssetsResponse, uuidSchema } from "@wandit/contracts";
+import {
+	type ProjectAssetsResponse,
+	uuidSchema,
+	type WorkspaceAssetsResponse,
+} from "@wandit/contracts";
 import type { FastifyReply } from "fastify";
 import { z } from "zod";
 
@@ -22,6 +26,19 @@ export class ProjectAssetsController {
 		@Inject(ProjectAssetsService)
 		private readonly projectAssetsService: ProjectAssetsService,
 	) {}
+
+	// Dashboard Assets page: every asset across every project the active
+	// workspace can see. Scoping is entirely projectScopePredicate inside the
+	// service's repositories — no project id in the path.
+	@Get("assets")
+	listForWorkspace(
+		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
+	): Promise<WorkspaceAssetsResponse> {
+		return this.projectAssetsService.listWorkspaceAssets(
+			projectScopeFrom(workspace, user.id),
+		);
+	}
 
 	@Get("projects/:projectId/assets")
 	async list(

@@ -74,5 +74,15 @@
 		"tiktok": "TikTok",
 		"direct": "Direct"
 	},
-	"campaignTooltip": "Campagne : {campaign}"
+	"campaignTooltip": "Campagne : {campaign}",
+	"metaTitle": "Leads — Wandit",
+	"subtitle": "Toutes les commandes capturées dans tes projets.",
+	"colProject": "Projet",
+	"allProjects": "Tous les projets",
+	"allSources": "Toutes les sources",
+	"dashEmptyTitle": "Aucun lead",
+	"dashEmptyBody": "Publie une page et chaque commande capturée arrivera ici, pour tous tes projets.",
+	"loadError": "Impossible de charger tes leads.",
+	"retry": "Réessayer",
+	"noResultsBodyFilters": "Essaie une autre recherche ou efface les filtres."
 }

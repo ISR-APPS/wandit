@@ -1,0 +1,1 @@
+ALTER TABLE "projects" ADD COLUMN "hide_wandit_badge" boolean DEFAULT false NOT NULL;

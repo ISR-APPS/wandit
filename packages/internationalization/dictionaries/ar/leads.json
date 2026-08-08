@@ -74,5 +74,15 @@
 		"tiktok": "تيك توك",
 		"direct": "مباشر"
 	},
-	"campaignTooltip": "الحملة: {campaign}"
+	"campaignTooltip": "الحملة: {campaign}",
+	"metaTitle": "العملاء المحتملون — Wandit",
+	"subtitle": "كل الطلبات المُلتقطة عبر مشاريعك.",
+	"colProject": "المشروع",
+	"allProjects": "كل المشاريع",
+	"allSources": "كل المصادر",
+	"dashEmptyTitle": "لا عملاء محتملين بعد",
+	"dashEmptyBody": "انشر صفحة وستصل كل الطلبات التي تلتقطها إلى هنا، من كل مشاريعك.",
+	"loadError": "تعذّر تحميل العملاء المحتملين.",
+	"retry": "إعادة المحاولة",
+	"noResultsBodyFilters": "جرّب بحثًا آخر أو امسح المرشّحات."
 }

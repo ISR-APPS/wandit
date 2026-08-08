@@ -33,34 +33,33 @@ const STATUS_TINT: Record<LeadStatus, string> = {
 		"border-red-500/25 bg-red-500/10 text-red-700 dark:bg-red-500/10 dark:text-red-400 dark:hover:bg-red-500/20",
 };
 
-export function LeadStatusSelect({ lead }: { lead: Lead }) {
+/**
+ * The pill itself, decoupled from any data source — the workspace tab and the
+ * dashboard Leads page wire their own mutations around it.
+ */
+export function LeadStatusPill({
+	value,
+	onChange,
+}: {
+	value: LeadStatus;
+	onChange: (status: LeadStatus) => void;
+}) {
 	const { t } = useTranslation();
-	const { projectId } = useWorkspace();
-	const updateStatus = useUpdateLeadStatus(projectId);
-
-	const handleChange = (value: string) => {
-		const status = value as LeadStatus;
-		if (status === lead.status) return;
-		updateStatus.mutate({ leadId: lead.id, status });
-		toast.success(
-			t("leads.statusUpdated", {
-				name: lead.name,
-				status: t(`leads.status.${status}`),
-			}),
-		);
-	};
 
 	return (
-		<Select value={lead.status} onValueChange={handleChange}>
+		<Select
+			value={value}
+			onValueChange={(next) => onChange(next as LeadStatus)}
+		>
 			<SelectTrigger
 				size="sm"
 				aria-label={t("leads.colStatus")}
 				className={cn(
 					"w-auto gap-1.5 rounded-full px-2.5 font-medium text-xs shadow-none data-[size=sm]:h-7",
-					STATUS_TINT[lead.status],
+					STATUS_TINT[value],
 				)}
 			>
-				<SelectValue>{t(`leads.status.${lead.status}`)}</SelectValue>
+				<SelectValue>{t(`leads.status.${value}`)}</SelectValue>
 			</SelectTrigger>
 			<SelectContent align="end" position="popper">
 				{LEAD_STATUS_ORDER.map((status) => (
@@ -78,4 +77,23 @@ export function LeadStatusSelect({ lead }: { lead: Lead }) {
 			</SelectContent>
 		</Select>
 	);
+}
+
+export function LeadStatusSelect({ lead }: { lead: Lead }) {
+	const { t } = useTranslation();
+	const { projectId } = useWorkspace();
+	const updateStatus = useUpdateLeadStatus(projectId);
+
+	const handleChange = (status: LeadStatus) => {
+		if (status === lead.status) return;
+		updateStatus.mutate({ leadId: lead.id, status });
+		toast.success(
+			t("leads.statusUpdated", {
+				name: lead.name,
+				status: t(`leads.status.${status}`),
+			}),
+		);
+	};
+
+	return <LeadStatusPill value={lead.status} onChange={handleChange} />;
 }

@@ -27,7 +27,10 @@ export type ImageAnimationBilling = {
 		reservation: ImageAnimationReservation,
 		units?: 0 | 1,
 	) => Promise<void>;
-	settleExisting: (subject: MeteringSubject, attemptId: string) => Promise<boolean>;
+	settleExisting: (
+		subject: MeteringSubject,
+		attemptId: string,
+	) => Promise<boolean>;
 };
 
 export function createImageAnimationBilling(

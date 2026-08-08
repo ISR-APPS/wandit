@@ -1,0 +1,101 @@
+/**
+ * "Made with Wandit" badge, injected into the published page HTML as one more
+ * html→html publish transform (alongside pixel injection and the leads
+ * runtime). Plain exported functions, NO NestJS DI on purpose — same contract
+ * as inject-leads-runtime.ts.
+ *
+ * Deterministic on purpose: the builder model never writes the badge (its
+ * prompt bans third-party snippets), and draft bytes in R2 never contain it —
+ * the badge exists only on published pages, exactly like the ad pixels.
+ *
+ * Visibility follows the Lovable/Webflow norm: free publishes always carry
+ * the badge; an entitled (paid) owner may hide it with the per-project
+ * setting. Because injection happens at publish time, a plan downgrade
+ * brings the badge back on the NEXT publish — never retroactively.
+ *
+ * The badge is self-contained: inline CSS only, no external requests (the
+ * published page must not gain new origins), no script. Position uses
+ * logical properties (inset-inline-end), so it lands bottom-right on LTR
+ * pages and bottom-left on RTL Arabic pages with zero server-side parsing.
+ */
+
+// NEVER prefix with "__wandit-": stampHtml strips [id^="__wandit-"] and
+// assertNoEditorArtifacts rejects the string. Same convention as
+// LEADS_RUNTIME_SCRIPT_ID.
+export const WANDIT_BADGE_ID = "wandit-badge";
+
+const BADGE_HREF =
+	"https://wandit.app/?utm_source=wandit-badge&utm_medium=referral&utm_campaign=made-with-wandit";
+
+// A four-point spark, the Wandit mark, inline so the page stays offline-safe.
+const BADGE_SPARK_SVG =
+	'<svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 2c.6 5.4 4.6 9.4 10 10-5.4.6-9.4 4.6-10 10-.6-5.4-4.6-9.4-10-10 5.4-.6 9.4-4.6 10-10Z" fill="#ff7a1a"/></svg>';
+
+// Descendant rules are pinned on purpose: a generated page's global element
+// rules (span{color:…}, svg{width:…}, a:focus{outline:none}) would otherwise
+// beat inherited styles and SVG presentation attributes. The phone breakpoint
+// lifts the badge above the COD sticky order bar — the badge's z-index wins
+// every stacking contest, so at the default corner it would cover the bar's
+// end-side edge and steal order taps.
+const BADGE_STYLE = `#${WANDIT_BADGE_ID}{position:fixed;inset-block-end:12px;inset-inline-end:12px;z-index:2147483000}#${WANDIT_BADGE_ID} a{display:flex;align-items:center;gap:6px;padding:6px 12px 6px 10px;border-radius:999px;background:#161513;color:#f5f2ec;border:1px solid rgba(255,255,255,.14);box-shadow:0 2px 4px rgba(0,0,0,.18),0 8px 24px rgba(0,0,0,.22);font:500 12px/1 ui-sans-serif,system-ui,-apple-system,'Segoe UI',sans-serif;letter-spacing:.01em;text-decoration:none;white-space:nowrap;direction:ltr}#${WANDIT_BADGE_ID} a:hover{background:#221f1b;color:#fff}#${WANDIT_BADGE_ID} a:focus-visible{outline:2px solid #fff;outline-offset:2px}#${WANDIT_BADGE_ID} span{color:inherit;font:inherit}#${WANDIT_BADGE_ID} svg{flex:none;width:12px;height:12px}@media (max-width:640px){#${WANDIT_BADGE_ID}{inset-block-end:76px}}@media print{#${WANDIT_BADGE_ID}{display:none}}`;
+
+/**
+ * Insert the badge immediately before the LAST `</body>` (case-insensitive);
+ * with no body close tag, append at the end — same strategy as the leads
+ * runtime. Idempotent: a document already carrying the badge id is returned
+ * unchanged, so re-publishes and rollbacks of badge-carrying archives never
+ * double it.
+ *
+ * `hide` REMOVES a previously injected badge instead of merely skipping the
+ * insert: rollback replays archived bytes through this transform, and an
+ * entitled owner who hid the badge must not get it back from an old archive.
+ * It must only be true when the owner is entitled AND asked to hide the
+ * badge — the caller decides.
+ */
+export function injectWanditBadge(
+	html: string,
+	options: { hide: boolean },
+): string {
+	if (options.hide) return removeWanditBadge(html);
+	if (html.includes(`id="${WANDIT_BADGE_ID}"`)) return html;
+
+	const block =
+		`<div id="${WANDIT_BADGE_ID}"><style>${BADGE_STYLE}</style>` +
+		`<a href="${BADGE_HREF}" target="_blank" rel="noopener nofollow" aria-label="Made with Wandit">` +
+		`${BADGE_SPARK_SVG}<span>Made with Wandit</span></a></div>`;
+	const index = lastBodyCloseIndex(html);
+
+	if (index === -1) return html + block;
+
+	return html.slice(0, index) + block + html.slice(index);
+}
+
+// Strip the exact block this module wrote. The badge markup contains no
+// nested <div>, so the first `</div>` after the marker closes it — and the
+// marker id only ever comes from this injector (generated pages never author
+// it; stampHtml leaves non-"__wandit-" ids alone).
+function removeWanditBadge(html: string): string {
+	const start = html.indexOf(`<div id="${WANDIT_BADGE_ID}">`);
+
+	if (start === -1) return html;
+
+	const close = html.indexOf("</div>", start);
+
+	if (close === -1) return html;
+
+	return html.slice(0, start) + html.slice(close + "</div>".length);
+}
+
+// The index of the last `</body>` in the ORIGINAL string. Never index with a
+// lowercased copy: toLowerCase is not length-preserving ("İ" becomes two code
+// units), and a shifted index would splice the badge into the middle of the
+// closing tag and corrupt the published bytes.
+function lastBodyCloseIndex(html: string): number {
+	let index = -1;
+
+	for (const match of html.matchAll(/<\/body>/gi)) {
+		index = match.index;
+	}
+
+	return index;
+}

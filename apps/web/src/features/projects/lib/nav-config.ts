@@ -1,9 +1,9 @@
-// Typed sidebar nav config for the dashboard shell. Only "Projects" is a
-// real route today; the rest are disabled placeholders ("Soon") or external
-// resource stubs. Titles are dictionary keys, resolved at render.
+// Typed sidebar nav config for the dashboard shell. Leads, Assets and Apps
+// are real routes; Analytics and the support link stay as disabled
+// placeholders ("Soon"). Titles are dictionary keys, resolved at render.
 
 import {
-	BookOpen,
+	Blocks,
 	ChartSpline,
 	FolderOpen,
 	Images,
@@ -19,9 +19,11 @@ type NavItemBase = {
 	icon: LucideIcon;
 };
 
+export type NavRoutePath = "/dashboard" | "/leads" | "/assets" | "/apps";
+
 export type NavItem = NavItemBase &
 	(
-		| { type: "route"; to: "/dashboard" }
+		| { type: "route"; to: NavRoutePath }
 		| { type: "external"; href: string }
 		| { type: "soon" }
 	);
@@ -41,17 +43,32 @@ export const NAV_GROUPS: NavGroup[] = [
 				to: "/dashboard",
 				icon: FolderOpen,
 			},
-			{ type: "soon", titleKey: "projects.nav.leads", icon: Users },
-			{ type: "soon", titleKey: "projects.nav.assets", icon: Images },
+			{
+				type: "route",
+				titleKey: "projects.nav.leads",
+				to: "/leads",
+				icon: Users,
+			},
+			{
+				type: "route",
+				titleKey: "projects.nav.assets",
+				to: "/assets",
+				icon: Images,
+			},
 			{ type: "soon", titleKey: "projects.nav.analytics", icon: ChartSpline },
+			{
+				type: "route",
+				titleKey: "projects.nav.apps",
+				to: "/apps",
+				icon: Blocks,
+			},
 		],
 	},
 	{
 		titleKey: "projects.sidebar.groupResources",
 		items: [
-			// Docs/support sites don't exist yet — "Soon" until they do, so the
+			// The support site doesn't exist yet — "Soon" until it does, so the
 			// launch video doesn't show dead "#" links.
-			{ type: "soon", titleKey: "projects.nav.docs", icon: BookOpen },
 			{ type: "soon", titleKey: "projects.nav.support", icon: LifeBuoy },
 		],
 	},
