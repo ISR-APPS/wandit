@@ -9,7 +9,7 @@
 			"googlePendingCta": "Opening Google...",
 			"googleError": "Could not start Google sign-in. Please try again.",
 			"devModeCta": "Continue in dev mode",
-			"betaHint": "Beta — your first 10 pages are on us"
+			"betaHint": "Beta — your first 5 pages are on us"
 		}
 	},
 	"home": {

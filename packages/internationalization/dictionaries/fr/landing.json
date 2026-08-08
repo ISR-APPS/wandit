@@ -16,50 +16,76 @@
 		"backToTop": "Wandit — retour en haut"
 	},
 	"hero": {
-		"titleLine1": "Décris-le. Lance-le.",
-		"titleLine2": "Vends-le.",
-		"sub": "Wandit transforme un prompt en landing page prête à l'emploi — publie et récolte des commandes COD en quelques minutes.",
-		"chips": [
-			{
-				"label": "Page produit COD",
-				"prompt": "A COD product page for a vintage leather watch — hero shot, three benefit blocks, and an order form with wilaya and commune fields."
-			},
-			{
-				"label": "Site vitrine",
-				"prompt": "Un site vitrine élégant pour un cabinet dentaire à Alger — services, équipe, horaires et prise de rendez-vous."
-			},
-			{
-				"label": "Page de service",
-				"prompt": "A landing page for a media-buying training program in French — curriculum, testimonials, and an enrollment form."
-			},
-			{
-				"label": "Page promo",
-				"prompt": "A limited-time promo page for a sneakers drop in Algiers — bold visuals, size picker, and COD checkout."
-			}
-		],
+		"eyebrow": "WANDIT — THE AI BUSINESS BUILDER",
+		"titleLine1": "Transformez une idée",
+		"titleLine2": "en business prêt à vendre.",
+		"sub": "Créez votre site, générez vos publicités, construisez votre stratégie marketing et lancez vos campagnes depuis une seule plateforme alimentée par l'IA.",
 		"trust": [
-			"Pages en AR & FR",
-			"Formulaires de commande COD",
-			"Publie en un clic"
+			"Crédits offerts à l'inscription",
+			"Aucun code requis",
+			"Domaine et hébergement inclus"
 		]
+	},
+	"proofBar": {
+		"title": "Tout ce qu'il vous faut pour construire, lancer et faire grandir votre business.",
+		"items": [
+			"Sites web",
+			"Landing pages",
+			"Images publicitaires",
+			"Vidéos IA",
+			"Stratégie marketing",
+			"Analyse Ads",
+			"Lancement de campagnes"
+		]
+	},
+	"problem": {
+		"kicker": "Le problème",
+		"title": "Lancer un business ne devrait pas nécessiter dix outils et toute une équipe.",
+		"intro": "Normalement, il faut :",
+		"roles": [
+			"un développeur pour créer le site",
+			"un designer pour produire les visuels",
+			"un monteur pour réaliser les vidéos",
+			"un marketeur pour construire la stratégie",
+			"un media buyer pour gérer les campagnes"
+		],
+		"solution": "Une seule IA",
+		"resolution": "Avec Wandit, vous travaillez avec une seule IA qui comprend votre activité et orchestre tout le processus."
 	},
 	"howItWorks": {
 		"kicker": "Comment ça marche",
-		"title": "Trois étapes vers ta première commande.",
+		"title": "Voir Wandit en action.",
 		"steps": [
 			{
-				"title": "Décris-le",
-				"body": "Écris ce que tu vends en arabe, français ou anglais. Wandit rédige une landing page complète en quelques secondes."
+				"title": "Décrivez votre idée",
+				"body": "Expliquez ce que vous vendez — en français, en arabe ou en anglais. Wandit comprend votre marché et votre produit."
 			},
 			{
-				"title": "Personnalise-la",
-				"body": "Itère dans le chat — change les sections, les couleurs et les textes. Chaque modification devient une version que tu peux restaurer."
+				"title": "Regardez l'IA construire",
+				"body": "Votre site, vos visuels publicitaires et votre stratégie se génèrent sous vos yeux. Modifiez tout par simple message."
 			},
 			{
-				"title": "Publie & vends",
-				"body": "Mets en ligne sur your-page.wandit.app en un clic. Les commandes COD arrivent directement dans ta boîte de leads."
+				"title": "Lancez et vendez",
+				"body": "Publiez en un clic, lancez vos campagnes et recevez vos commandes directement dans votre boîte de leads."
 			}
-		]
+		],
+		"demo": {
+			"prompt": "Je vends du miel de montagne des Aurès. Crée mon site, mes visuels publicitaires et ma stratégie de lancement.",
+			"artifacts": [
+				"Site web",
+				"Visuels publicitaires",
+				"Vidéo IA",
+				"Stratégie marketing"
+			],
+			"publishedToast": "Site publié",
+			"campaignsLabel": "Campagnes",
+			"liveLabel": "En direct",
+			"events": [
+				"Nouvelle commande — Alger",
+				"Nouveau lead — Oran",
+				"Campagne TikTok active"
+			]
+		}
 	},
 	"examples": {
 		"kicker": "Exemples",

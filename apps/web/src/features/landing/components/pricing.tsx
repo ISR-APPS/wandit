@@ -30,7 +30,6 @@ import { useState } from "react";
 
 import { useAuthModal, useSession } from "@/features/auth";
 import { useBillingPlansQuery } from "@/features/billing/api/billing.queries";
-import { useBillingModal } from "@/features/billing/components/billing-modal-provider";
 import {
 	tierPriceUsd,
 	tierSavingsPercent,
@@ -77,7 +76,6 @@ function PlanCard({
 export function Pricing() {
 	const { data: session } = useSession();
 	const { open: openAuth } = useAuthModal();
-	const { openPlanPicker } = useBillingModal();
 	const { locale } = useTranslation();
 	const pricing = useDictionary().landing.pricing;
 	const plansQuery = useBillingPlansQuery();
@@ -286,27 +284,8 @@ export function Pricing() {
 									<FeatureRow key={feature} label={feature} />
 								))}
 							</ul>
-							{settingsQuery.isSuccess ? (
-								<Button
-									className="mt-8 active:translate-y-px"
-									disabled={paidSubscriptionsEnabled && !selectedTier}
-									onClick={() => {
-										if (paidSubscriptionsEnabled && selectedTier) {
-											openPlanPicker({
-												interval,
-												tierCredits: selectedTier.tierCredits,
-											});
-											return;
-										}
-
-										startBuilding();
-									}}
-								>
-									{paidSubscriptionsEnabled
-										? pricing.pro.cta
-										: pricing.beta.cta}
-								</Button>
-							) : null}
+							{/* No CTA while Pro access is granted manually — restore the
+							   subscribe button here once paid subscriptions open up. */}
 						</PlanCard>
 					</Reveal>
 
