@@ -6,28 +6,36 @@
  * status='active'), so every promotion is demote-then-promote inside one
  * transaction — never a bare insert or update.
  */
-import {
-	type ProjectScope,
-	projectScopePredicate,
-} from "../../../projects/domain/project-scope";
+
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { and, desc, eq, lt, ne, sql } from "@wandit/db";
+import { ENTITLED_SUBSCRIPTION_STATUSES } from "@wandit/contracts";
+import { and, desc, eq, inArray, isNull, lt, ne, or, sql } from "@wandit/db";
 import { artifacts, versions } from "@wandit/db/schema/artifacts";
+import { subscriptions } from "@wandit/db/schema/billing";
 import { deployments } from "@wandit/db/schema/deployments";
 import { projects } from "@wandit/db/schema/projects";
-
 import {
 	DATABASE,
 	type Database,
 } from "../../../../infrastructure/database/database.constants";
+import {
+	type ProjectScope,
+	projectScopePredicate,
+} from "../../../projects/domain/project-scope";
 import { SlugTakenError } from "../../domain/errors/site.errors";
 
 export type DeploymentRow = typeof deployments.$inferSelect;
 
 export type OwnedProjectRow = {
 	id: string;
+	// Publishing setting: hide the "Made with Wandit" badge. Honoured at
+	// publish time only together with ownerIsEntitled.
+	hideWanditBadge: boolean;
 	metaPixelId: string | null;
 	name: string;
+	// True when the project's payer (org first, then user) holds an entitled
+	// subscription right now — the badge hide-toggle only counts for them.
+	ownerIsEntitled: boolean;
 	// Capture key baked into the published page's leads runtime.
 	publicFormId: string;
 	tiktokPixelId: string | null;
@@ -61,11 +69,30 @@ export class DeploymentsRepository {
 		scope: ProjectScope,
 		projectId: string,
 	): Promise<OwnedProjectRow> {
+		// Payer identity = organization first, then user (CreditOwner rule). The
+		// org branch needs no IS NOT NULL guard: `subs.org_id = projects.org_id`
+		// is never true when the project has no org. The personal branch pins
+		// `subs.organization_id IS NULL` because an org creator's userId also
+		// appears on the org's subscription row.
+		const ownerIsEntitled = sql<boolean>`EXISTS (SELECT 1 FROM ${subscriptions} WHERE ${and(
+			inArray(subscriptions.status, [...ENTITLED_SUBSCRIPTION_STATUSES]),
+			or(
+				eq(subscriptions.organizationId, projects.organizationId),
+				and(
+					isNull(projects.organizationId),
+					eq(subscriptions.userId, projects.userId),
+					isNull(subscriptions.organizationId),
+				),
+			),
+		)})`;
+
 		const [project] = await this.db
 			.select({
+				hideWanditBadge: projects.hideWanditBadge,
 				id: projects.id,
 				metaPixelId: projects.metaPixelId,
 				name: projects.name,
+				ownerIsEntitled,
 				publicFormId: projects.publicFormId,
 				tiktokPixelId: projects.tiktokPixelId,
 			})

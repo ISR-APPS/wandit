@@ -24,7 +24,14 @@ export function injectLeadsRuntime(
 	if (html.includes(`id="${LEADS_RUNTIME_SCRIPT_ID}"`)) return html;
 
 	const block = `<script id="${LEADS_RUNTIME_SCRIPT_ID}">${buildLeadsRuntimeScript(options)}</script>`;
-	const index = html.toLowerCase().lastIndexOf("</body>");
+	// Match on the ORIGINAL string: toLowerCase is not length-preserving
+	// ("İ" lowers to two code units), so an index taken from a lowered copy
+	// can splice the script into the middle of the closing tag.
+	let index = -1;
+
+	for (const match of html.matchAll(/<\/body>/gi)) {
+		index = match.index;
+	}
 
 	if (index === -1) return html + block;
 

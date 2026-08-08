@@ -10,6 +10,7 @@ import {
 	createProject,
 	deleteProject,
 	renameProject,
+	updateProjectBadge,
 	updateProjectLogo,
 	updateProjectPixels,
 } from "./projects.services";
@@ -53,6 +54,25 @@ export function useUpdateProjectPixels() {
 			metaPixelId: string | null;
 			tiktokPixelId: string | null;
 		}) => updateProjectPixels(id, { metaPixelId, tiktokPixelId }),
+		onSuccess: (project) => {
+			queryClient.setQueryData(projectKeys.detail(project.id), project);
+			queryClient.setQueryData<Project[]>(projectKeys.list(), (old) =>
+				old?.map((p) => (p.id === project.id ? project : p)),
+			);
+		},
+	});
+}
+
+export function useUpdateProjectBadge() {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: ({
+			id,
+			hideWanditBadge,
+		}: {
+			id: string;
+			hideWanditBadge: boolean;
+		}) => updateProjectBadge(id, hideWanditBadge),
 		onSuccess: (project) => {
 			queryClient.setQueryData(projectKeys.detail(project.id), project);
 			queryClient.setQueryData<Project[]>(projectKeys.list(), (old) =>

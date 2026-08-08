@@ -6,6 +6,7 @@
 // Projects are soft-deleted with `deletedAt`, so normal queries must filter it.
 import { relations, sql } from "drizzle-orm";
 import {
+	boolean,
 	index,
 	pgTable,
 	text,
@@ -49,6 +50,10 @@ export const projects = pgTable(
 		previewImageUrl: text("preview_image_url"),
 		// User-uploaded brand logo reused by page rebuilds. Null until selected.
 		logoUrl: text("logo_url"),
+		// Publishing setting: hide the "Made with Wandit" badge on the published
+		// page. Honoured at publish time ONLY while the owner holds an entitled
+		// subscription — free publishes always carry the badge.
+		hideWanditBadge: boolean("hide_wandit_badge").notNull().default(false),
 		// Soft delete marker.
 		deletedAt: timestamp("deleted_at", { withTimezone: true }),
 		// Timestamps used for dashboard sorting.
