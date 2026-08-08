@@ -71,6 +71,10 @@ const attemptSpecSchema = z.object({
 
 export const generatePageTask = task({
 	id: "generate-page",
+	// Chromium for the screenshot passes plus the builder's in-memory file
+	// map do not fit the 0.5 GB small-1x default: real builds died mid-run
+	// with TASK_PROCESS_OOM_KILLED. 2 GB / 1 vCPU holds both with headroom.
+	machine: "medium-1x",
 	// One Builder tool loop with two screenshot review passes; typically a
 	// few minutes. The generous ceiling is a safety net, not an estimate.
 	maxDuration: 1800,

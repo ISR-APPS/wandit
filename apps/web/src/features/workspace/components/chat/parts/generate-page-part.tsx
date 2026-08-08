@@ -221,8 +221,16 @@ function PageBuildCard({
 					retryMutation.mutate(
 						{ attemptId },
 						{
-							onSuccess: (response) =>
-								setHandleOverride(response.realtime ?? null),
+							onSuccess: (response) => {
+								// Only a retry that actually queued may replace the
+								// handle. A no-op response (row unclaimable, run still
+								// alive) must keep the old handle: dropping it would
+								// mute the terminal card into a permanent building
+								// line with no buttons.
+								if (response.realtime || response.attempt.status === "queued") {
+									setHandleOverride(response.realtime ?? null);
+								}
+							},
 						},
 					);
 				};

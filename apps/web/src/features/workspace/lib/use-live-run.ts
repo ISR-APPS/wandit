@@ -68,7 +68,8 @@ export function useLiveRun({
 	/** Fired once when the run reaches a terminal state. */
 	onSettled?: () => void;
 }) {
-	const subscribed = Boolean(handle) && enabled;
+	const subscribed =
+		Boolean(handle?.runId && handle?.publicAccessToken) && enabled;
 	const { run: streamedRun, error } = useRealtimeRun(handle?.runId, {
 		accessToken: handle?.publicAccessToken,
 		enabled: subscribed,
@@ -78,13 +79,20 @@ export function useLiveRun({
 
 	// SWR disables itself on a null key, so the poll obeys the same gate as
 	// the subscription. Trigger's hook stops polling completed runs itself.
+	// `enabled` must reach this hook too: its useApiClient THROWS on a
+	// token-less render unless explicitly disabled, which took down the whole
+	// workspace behind the error boundary after a crashed-build retry. The
+	// published options type omits `enabled` even though the hook reads it,
+	// hence the widened type on the constant.
+	const pollOptions: Parameters<typeof useRun>[1] & { enabled: boolean } = {
+		accessToken: handle?.publicAccessToken,
+		enabled: subscribed,
+		refreshInterval: POLL_INTERVAL_MS,
+		revalidateOnFocus: true,
+	};
 	const { run: polledRun } = useRun(
 		(subscribed ? (handle?.runId ?? null) : null) as string,
-		{
-			accessToken: handle?.publicAccessToken,
-			refreshInterval: POLL_INTERVAL_MS,
-			revalidateOnFocus: true,
-		},
+		pollOptions,
 	);
 
 	const runId = handle?.runId;

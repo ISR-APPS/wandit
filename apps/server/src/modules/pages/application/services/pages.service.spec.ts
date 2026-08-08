@@ -16,10 +16,11 @@ vi.mock("../../../../infrastructure/analytics/analytics.service", () => ({
 	AnalyticsService: class AnalyticsService {},
 }));
 
-// The attempt lifecycle talks to Trigger.dev twice (cancel a run, queue a
-// retry). Both are network dependencies — mocked so tests stay hermetic.
+// The attempt lifecycle talks to Trigger.dev three times (cancel a run, look
+// up a stuck run, queue a retry). All are network dependencies — mocked so
+// tests stay hermetic.
 vi.mock("@trigger.dev/sdk", () => ({
-	runs: { cancel: vi.fn() },
+	runs: { cancel: vi.fn(), retrieve: vi.fn() },
 }));
 
 vi.mock("../page-build-handoff", () => ({
@@ -60,6 +61,7 @@ function setup() {
 	const pagesRepository = {
 		cancelAttempt: vi.fn(),
 		dismissAttempt: vi.fn(),
+		settleStrandedAttempt: vi.fn(),
 		findAccessibleVersionById: vi.fn(),
 		findAttemptDetail: vi.fn(),
 		findOverviewByProject: vi.fn(),
@@ -79,6 +81,10 @@ function setup() {
 
 beforeEach(() => {
 	vi.mocked(getPageHtml).mockReset();
+	// Per-test stubs on the Trigger.dev SDK must never leak forward: a stale
+	// mockRejectedValue would silently route later tests down the catch path.
+	vi.mocked(runs.cancel).mockReset();
+	vi.mocked(runs.retrieve).mockReset();
 });
 
 describe("PagesService", () => {
@@ -251,6 +257,11 @@ describe("PagesService", () => {
 	it("does not queue a second run when the retry CAS loses (double-click)", async () => {
 		const { pagesRepository, service } = setup();
 		vi.mocked(triggerGeneratePageTask).mockClear();
+		vi.mocked(runs.retrieve).mockResolvedValue({
+			isCancelled: false,
+			isCompleted: false,
+			status: "EXECUTING",
+		} as never);
 		pagesRepository.findAttemptDetail.mockResolvedValue(attemptRow());
 		pagesRepository.resetAttemptForRetry.mockResolvedValue(false);
 
@@ -260,8 +271,130 @@ describe("PagesService", () => {
 			"attempt_1",
 		);
 
+		expect(pagesRepository.settleStrandedAttempt).not.toHaveBeenCalled();
 		expect(triggerGeneratePageTask).not.toHaveBeenCalled();
 		expect(response.realtime).toBeUndefined();
+		expect(response.attempt.status).toBe("generating");
+	});
+
+	it("settles a row its dead run left in generating, then retries it", async () => {
+		const { pagesRepository, service } = setup();
+		vi.mocked(triggerGeneratePageTask).mockClear();
+		vi.mocked(runs.retrieve).mockResolvedValue({
+			finishedAt: new Date("2026-08-08T15:43:19.000Z"),
+			isCancelled: false,
+			isCompleted: true,
+			status: "CRASHED",
+		} as never);
+		pagesRepository.findAttemptDetail
+			.mockResolvedValueOnce(attemptRow())
+			.mockResolvedValueOnce(attemptRow({ status: "queued" as const }));
+		pagesRepository.resetAttemptForRetry
+			.mockResolvedValueOnce(false)
+			.mockResolvedValueOnce(true);
+		pagesRepository.settleStrandedAttempt.mockResolvedValue(true);
+		pagesRepository.markAttemptTriggered.mockResolvedValue(true);
+
+		const response = await service.retryAttempt(
+			SCOPE,
+			"project_1",
+			"attempt_1",
+		);
+
+		expect(runs.retrieve).toHaveBeenCalledWith("run_1");
+		expect(pagesRepository.settleStrandedAttempt).toHaveBeenCalledWith(
+			"attempt_1",
+			"run_1",
+			{ error: expect.stringContaining("crashed"), status: "failed" },
+			"user_1",
+		);
+		expect(pagesRepository.resetAttemptForRetry).toHaveBeenCalledTimes(2);
+		expect(triggerGeneratePageTask).toHaveBeenCalled();
+		expect(response.attempt.status).toBe("queued");
+		expect(response.realtime).toEqual({
+			publicAccessToken: "tok_2",
+			runId: "run_2",
+		});
+	});
+
+	it("settles a row its dead run left in queued (killed before the claim CAS)", async () => {
+		const { pagesRepository, service } = setup();
+		vi.mocked(triggerGeneratePageTask).mockClear();
+		vi.mocked(runs.retrieve).mockResolvedValue({
+			finishedAt: new Date("2026-08-08T15:43:19.000Z"),
+			isCancelled: false,
+			isCompleted: true,
+			status: "EXPIRED",
+		} as never);
+		pagesRepository.findAttemptDetail
+			.mockResolvedValueOnce(attemptRow({ status: "queued" as const }))
+			.mockResolvedValueOnce(attemptRow({ status: "queued" as const }));
+		pagesRepository.resetAttemptForRetry
+			.mockResolvedValueOnce(false)
+			.mockResolvedValueOnce(true);
+		pagesRepository.settleStrandedAttempt.mockResolvedValue(true);
+		pagesRepository.markAttemptTriggered.mockResolvedValue(true);
+
+		const response = await service.retryAttempt(
+			SCOPE,
+			"project_1",
+			"attempt_1",
+		);
+
+		expect(pagesRepository.settleStrandedAttempt).toHaveBeenCalledWith(
+			"attempt_1",
+			"run_1",
+			{ error: expect.stringContaining("expired"), status: "failed" },
+			"user_1",
+		);
+		expect(triggerGeneratePageTask).toHaveBeenCalled();
+		expect(response.realtime).toBeDefined();
+	});
+
+	it("records an out-of-band cancel as canceled, not as a crash", async () => {
+		const { pagesRepository, service } = setup();
+		vi.mocked(triggerGeneratePageTask).mockClear();
+		vi.mocked(runs.retrieve).mockResolvedValue({
+			finishedAt: new Date("2026-08-08T15:43:19.000Z"),
+			isCancelled: true,
+			isCompleted: false,
+			status: "CANCELED",
+		} as never);
+		pagesRepository.findAttemptDetail
+			.mockResolvedValueOnce(attemptRow())
+			.mockResolvedValueOnce(attemptRow({ status: "queued" as const }));
+		pagesRepository.resetAttemptForRetry
+			.mockResolvedValueOnce(false)
+			.mockResolvedValueOnce(true);
+		pagesRepository.settleStrandedAttempt.mockResolvedValue(true);
+		pagesRepository.markAttemptTriggered.mockResolvedValue(true);
+
+		await service.retryAttempt(SCOPE, "project_1", "attempt_1");
+
+		expect(pagesRepository.settleStrandedAttempt).toHaveBeenCalledWith(
+			"attempt_1",
+			"run_1",
+			{ error: expect.stringContaining("canceled"), status: "canceled" },
+			"user_1",
+		);
+	});
+
+	it("answers with truth when the run lookup for a stuck row fails", async () => {
+		const { pagesRepository, service } = setup();
+		vi.mocked(triggerGeneratePageTask).mockClear();
+		vi.mocked(runs.retrieve).mockRejectedValue(new Error("api down"));
+		pagesRepository.findAttemptDetail.mockResolvedValue(attemptRow());
+		pagesRepository.resetAttemptForRetry.mockResolvedValue(false);
+
+		const response = await service.retryAttempt(
+			SCOPE,
+			"project_1",
+			"attempt_1",
+		);
+
+		expect(pagesRepository.settleStrandedAttempt).not.toHaveBeenCalled();
+		expect(pagesRepository.resetAttemptForRetry).toHaveBeenCalledTimes(2);
+		expect(triggerGeneratePageTask).not.toHaveBeenCalled();
 		expect(response.attempt.status).toBe("generating");
 	});
 
