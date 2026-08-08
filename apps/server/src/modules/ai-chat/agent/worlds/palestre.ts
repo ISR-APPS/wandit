@@ -185,6 +185,7 @@ This world has one failure mode and it is TIMIDITY. A 6deg cut instead of 8. A 9
 
 Executed at 100% — one angle cutting the page eight times at the identical degree, a name at fifteen percent of the viewport width, bodies printed in ink and acid, twelve counters that only move when the visitor scrolls, a schedule typeset like a real wall, a pinned twelve-week timeline, and a form that talks like a coach — the page reads like the front door of a room where people actually work. Push INTO the hardness. Every number above is load-bearing, and the angle is the same number every single time.`,
 	energy: "loud",
+	family: "fitness-impact",
 	id: "palestre",
 	industries: [
 		"gym",
@@ -205,6 +206,13 @@ Executed at 100% — one angle cutting the page eight times at the identical deg
 	kind: "website",
 	mood: ["explosive", "gritty", "athletic", "high-contrast", "disciplined"],
 	name: "Palestre",
+	preview: {
+		ground: "#0B0B0D",
+		ink: "#EDEBE6",
+		accent: "#CEFF00",
+		fontFamily: "Barlow Condensed",
+		sampleWord: "PALESTRE",
+	},
 	priceFeel: "accessible",
 	tagline:
 		"Your name at the width of the whole screen, the page sliced by the same hard diagonal eight times, bodies printed in ink and acid, and counters that only move when the visitor scrolls — a page with the physics of the room you actually train in.",

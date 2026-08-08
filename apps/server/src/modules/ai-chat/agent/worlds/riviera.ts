@@ -223,6 +223,7 @@ Cyan-to-blue gradients and any tropical-travel-agency palette · a booking or da
 ## Intensity
 This world fails in exactly one way: half-committed. A horizon rule drawn in three scenes instead of eleven; a ground arc with two stops instead of six; a photograph cropped at the default center; one italic word forgotten. Each of those is invisible on its own and together they turn Riviera into a nice blue hotel page — precisely the thing it exists to replace. Executed at 100% — one line held at 58% down every scene, the sea welding to the paper, the sun descending as you read, the ground turning from breakfast light to after-dinner blue, a stamped postcard lying across the water — the page reads like a folio somebody printed because they love the place. Push INTO the light. Every number above is load-bearing.`,
 	energy: "medium",
+	family: "promenade",
 	id: "riviera",
 	industries: [
 		"hotel",
@@ -243,6 +244,13 @@ This world fails in exactly one way: half-committed. A horizon rule drawn in thr
 	kind: "website",
 	mood: ["luminous", "coastal", "romantic", "unhurried", "sunlit"],
 	name: "Riviera",
+	preview: {
+		ground: "#FBF6EC",
+		ink: "#1C1A16",
+		accent: "#F2DFC6",
+		fontFamily: "Cormorant Garamond",
+		sampleWord: "La Riviera",
+	},
 	priceFeel: "premium",
 	tagline:
 		"Mediterranean light on paper: one hairline horizon running through every scene, stamped postcards lying across the water, and a page whose background travels from morning white to after-dinner blue as you scroll.",

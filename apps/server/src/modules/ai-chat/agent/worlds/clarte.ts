@@ -199,6 +199,7 @@ This world fails one comfortable decision at a time, and every wrong decision lo
 
 Executed at 100 percent it is unmistakable: warm paper with a tooth you can almost feel, hairline serif headlines at a size that would be arrogant if the page were not so quiet, rules that draw themselves across the margin, a room photographed at ten in the morning dissolving with no edge back into the page, a care path gliding past a single sticky numeral, an appointment colophon set like the last page of a book. Nothing shouts, nothing spins, nothing sells. The nerve is in the emptiness — hold it. Push INTO the air, never back toward filling it.`,
 	energy: "quiet",
+	family: "clarte",
 	id: "clarte",
 	industries: [
 		"medical",
@@ -219,6 +220,13 @@ Executed at 100 percent it is unmistakable: warm paper with a tooth you can almo
 	kind: "website",
 	mood: ["calm", "luminous", "airy", "editorial", "unhurried"],
 	name: "Clarté",
+	preview: {
+		ground: "#FBF8F3",
+		ink: "#23201C",
+		accent: "#F2EDE4",
+		fontFamily: "Fraunces",
+		sampleWord: "Clarté",
+	},
 	priceFeel: "premium",
 	tagline:
 		"Warm off-white paper with far more air than ink: hairline serif headlines you could hold up to the light, rooms photographed at ten in the morning dissolving softly back into the page, and an appointment block set like the last page of a book — the site of a practice people trust before they arrive.",

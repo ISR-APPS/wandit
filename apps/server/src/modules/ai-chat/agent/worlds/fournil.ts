@@ -212,6 +212,7 @@ Pure white grounds or pure white text · neutral or cool grays · hairline or su
 ## Intensity
 This world fails by being merely pleasant. Warm colours and a rounded font buy a nice-looking takeaway template in twenty minutes — exactly the thing this world exists to beat. The difference lives in the parts a hurried build skips: leader dots running to every price, a wave genuinely hand-cut and different at every seam, six drawn glyphs with varied stroke weights that draw themselves in, five notes in a real hand pointing at real facts, a menu chapter designed with as much care as the hero, and a pinned rise that turns "we bake fresh daily" into something you watch happen. At 60 percent this is a beige page with a nice font. At 100 percent — flour dust over warm paper, a fat crust-coloured headline cropped tight with a drawn line under one word, a chalkboard leaning on a photograph, a conveyor of product names running past, and a menu you could actually order from — it looks like a shop that has fed the same street for twenty years and finally got a page worth its bread. Push INTO the warmth and INTO the specificity. Every number above is load-bearing.`,
 	energy: "medium",
+	family: "boulange",
 	id: "fournil",
 	industries: [
 		"bakery",
@@ -232,6 +233,13 @@ This world fails by being merely pleasant. Warm colours and a rounded font buy a
 	kind: "website",
 	mood: ["warm", "handmade", "appetizing", "generous", "playful"],
 	name: "Fournil",
+	preview: {
+		ground: "#F6EFE1",
+		ink: "#2E2013",
+		accent: "#C1743A",
+		fontFamily: "Fraunces",
+		sampleWord: "Le fournil",
+	},
 	priceFeel: "accessible",
 	tagline:
 		"Flour-dusted warm paper, a fat rounded serif you almost want to bite, hand-drawn wheat and steam curling across every seam, and your menu typeset like a real board with dotted lines running to each DZD price — the page smells like the shop at six in the morning.",

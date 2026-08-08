@@ -225,6 +225,7 @@ This world has exactly one failure mode and it is HEDGING. A wordmark at 9vw tha
 
 Executed at 100 percent — a name cut in half by the edge of the screen with a TAPE ghost a millimetre off register, a full-colour object tilted three degrees over the letters with a sticker hanging off its corner, tape running across every boundary carrying the same six words forever, a size run with two of them struck through in public, six duotone frames dragged sideways by the visitor's own scroll, and an order form that prints their name onto a shipping slip and stamps it — the page reads like something that was released, not something that was uploaded. Push INTO the crop, the tilt and the tape. Every number above is load-bearing, and the tilt is one of six values every single time.`,
 	energy: "loud",
+	family: "cargo",
 	id: "cargo",
 	industries: [
 		"streetwear",
@@ -244,6 +245,13 @@ Executed at 100 percent — a name cut in half by the edge of the screen with a 
 	kind: "product",
 	mood: ["loud", "street", "graphic", "kinetic", "irreverent"],
 	name: "Cargo",
+	preview: {
+		ground: "#101013",
+		ink: "#F2F0EA",
+		accent: "#FF5F00",
+		fontFamily: "Barlow Condensed",
+		sampleWord: "DROP 001",
+	},
 	priceFeel: "accessible",
 	tagline:
 		"Your product name at the width of the whole screen and cut in half by the edge of it, the object tilted three degrees over the letters with a sticker on its corner, tape slapped across every seam, and an order form that prints the buyer's name on a shipping slip and stamps it.",

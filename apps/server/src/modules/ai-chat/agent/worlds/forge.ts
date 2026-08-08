@@ -237,6 +237,7 @@ Warm blacks, browns and beiges (this steel is COOL) · pure #000 or #fff · any 
 ## Intensity
 This world fails in one direction: it goes SOFT. Radii creep back to 12px, plates grow drop shadows, the safety colour spreads onto a section background and stops meaning danger, the mono face gives way inside a table, the key spec shrinks to a normal h2, specs turn into adjectives, and the caution stripe gets used three times until it is just a pattern. At sixty percent that page is a dark template with a drill photographed on it, and it converts nothing, because it promises precision and delivers mood. At one hundred percent — a cool steel wall on engineering paper, one hazard colour marking exactly the fourteen things that matter, a stencil headline slamming into place over a 272px torque figure counting itself up beside its unit, three real dimensions drawing themselves onto the product at constant speed, the object cut open by a hazard-coloured plane travelling across it as you scroll, its hatched section and three dimensions landing behind the cut, a ruled datasheet on blueprint paper you could argue with, and one caution stripe cutting the page open right before a work order with 56px inputs and a wilaya picker that lists codes like a parts catalogue — it looks like a page built by somebody who has actually used the thing they are selling. That is the entire sale. Every number above is load-bearing.`,
 	energy: "medium",
+	family: "forge",
 	id: "forge",
 	industries: [
 		"tools",
@@ -257,6 +258,13 @@ This world fails in one direction: it goes SOFT. Radii creep back to 12px, plate
 	kind: "product",
 	mood: ["rugged", "engineered", "utilitarian", "high-contrast", "no-nonsense"],
 	name: "Forge",
+	preview: {
+		ground: "#14181A",
+		ink: "#E6EAE9",
+		accent: "#F2B705",
+		fontFamily: "Barlow Condensed",
+		sampleWord: "FORGE",
+	},
 	priceFeel: "accessible",
 	tagline:
 		"A steel-dark workshop wall drawn on engineering paper, one safety-yellow line marking only what matters, and the number that actually sells your tool — 340 Nm — set bigger than the headline and counting itself up as the page lands.",

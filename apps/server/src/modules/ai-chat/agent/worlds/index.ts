@@ -13,6 +13,8 @@
  * directions.ts, one level up.
  */
 
+import type { WorldCard } from "@wandit/contracts";
+
 import { atelier } from "./atelier";
 import { bazar } from "./bazar";
 import { beton } from "./beton";
@@ -25,6 +27,8 @@ import { forge } from "./forge";
 import { fournil } from "./fournil";
 import { heritage } from "./heritage";
 import { laboratoire } from "./laboratoire";
+import { landingWorlds } from "./landing";
+import { matiere } from "./matiere";
 import { monographe } from "./monographe";
 import { nid } from "./nid";
 import { nocturne } from "./nocturne";
@@ -53,6 +57,7 @@ export const designWorlds: DesignWorld[] = [
 	fournil,
 	heritage,
 	laboratoire,
+	matiere,
 	monographe,
 	nid,
 	nocturne,
@@ -65,6 +70,7 @@ export const designWorlds: DesignWorld[] = [
 	verger,
 	vitrine,
 	zellige,
+	...landingWorlds,
 	...codWorlds,
 ];
 
@@ -116,10 +122,31 @@ const COD_MAX_AFFINE_SEATS = 4;
 function sampleSection(pool: DesignWorld[], hints: string[]): DesignWorld[] {
 	const eligible = pool.filter((world) => !matchesAny(world.avoidFor, hints));
 	const usable = eligible.length > 0 ? eligible : pool;
+
+	// One seat per family: sibling worlds (e.g. two dark-luxury designs)
+	// would waste a menu slot on near-neighbors. Worlds without a family
+	// always qualify. Family scarcity must never shrink the menu, so a
+	// backfill pass reopens duplicate families when the pool runs dry.
+	const seated: DesignWorld[] = [];
+	const seatedFamilies = new Set<string>();
+	const seat = (candidates: DesignWorld[], limit: number) => {
+		for (const world of candidates) {
+			if (seated.length >= limit) return;
+			if (world.family && seatedFamilies.has(world.family)) continue;
+			seated.push(world);
+			if (world.family) seatedFamilies.add(world.family);
+		}
+	};
+
 	const affine = shuffle(usable.filter((w) => matchesAny(w.industries, hints)));
-	const seated = affine.slice(0, MAX_AFFINE_SEATS);
+	seat(affine, MAX_AFFINE_SEATS);
 	const rest = shuffle(usable.filter((w) => !seated.includes(w)));
-	return shuffle([...seated, ...rest.slice(0, MENU_SIZE - seated.length)]);
+	seat(rest, MENU_SIZE);
+	for (const world of rest) {
+		if (seated.length >= MENU_SIZE) break;
+		if (!seated.includes(world)) seated.push(world);
+	}
+	return shuffle(seated);
 }
 
 function worldsFuse(left: DesignWorld, right: DesignWorld): boolean {
@@ -200,9 +227,14 @@ function formatWorld(world: DesignWorld, hints: string[]): string {
 	const fit = matchesAny(world.industries, hints)
 		? " · STRONG FIT for this business"
 		: "";
+	// Skin swatch when authored — it lets the brain phrase taste questions
+	// concretely (ground/ink/accent + face) without reading the full doc.
+	const skin = world.preview
+		? ` · skin: ${world.preview.ground}/${world.preview.ink}/${world.preview.accent}, ${world.preview.fontFamily}`
+		: "";
 	return (
 		`- ${world.id} — "${world.name}" (${world.energy}, ${world.priceFeel}; ` +
-		`mood: ${world.mood.join(", ")})${fit}\n  ${world.tagline}`
+		`mood: ${world.mood.join(", ")})${skin}${fit}\n  ${world.tagline}`
 	);
 }
 
@@ -214,31 +246,67 @@ function formatCodWorld(world: DesignWorld, hints: string[]): string {
 	const skin = world.preview
 		? `${world.preview.ground}/${world.preview.ink}/${world.preview.accent}, ${world.preview.fontFamily}`
 		: "not specified";
+	// Family is printed so the Brain can seat taste cards from three DIFFERENT
+	// families — the COD menu (unlike the website one) may hold siblings
+	// because fusion pairing outranks family diversity when seats fill up.
+	const family = world.family ? ` · family: ${world.family}` : "";
 	return (
 		`- ${world.id} — "${world.name}" (${world.energy}, ${world.priceFeel}; ` +
-		`mood: ${world.mood.join(", ")}) · fuses with: ${fusesWith} · skin: ${skin}${fit}\n  ${world.tagline}`
+		`mood: ${world.mood.join(", ")})${family} · fuses with: ${fusesWith} · skin: ${skin}${fit}\n  ${world.tagline}`
 	);
+}
+
+/**
+ * A world's tappable card face for the taste question: name, tagline and the
+ * authored skin swatch. Never the doc — the design bible stays server-side.
+ */
+function toWorldCard(world: DesignWorld): WorldCard | undefined {
+	if (!world.preview) return undefined;
+	return {
+		id: world.id,
+		name: world.name,
+		tagline: world.tagline,
+		preview: { ...world.preview },
+	};
+}
+
+function toWorldCards(worlds: DesignWorld[]): WorldCard[] {
+	// Dedupe by id: a kind "both" world can be sampled into two sections.
+	const cards = new Map<string, WorldCard>();
+	for (const world of worlds) {
+		const card = toWorldCard(world);
+		if (card && !cards.has(card.id)) cards.set(card.id, card);
+	}
+	return [...cards.values()];
 }
 
 /**
  * Format the sampled world menu for the Brain's candidate tool result: one
  * section per build type. The sampling randomness lives HERE, never in the
  * model — same anti-convergence contract as sampleCandidates.
+ *
+ * Besides the menu text the Brain reads, the result carries the sampled
+ * worlds' card faces (cards). The tray uses them to render the taste
+ * question as specimen cards when the Brain's ask_user options reference
+ * these ids via worldId.
  */
 export function formatWorldCandidates(params: {
 	business: string;
 	industryHints?: string[];
 	pageKind?: "website" | "product" | "cod";
-}): string {
+}): { candidates: string; cards: WorldCard[] } {
 	const hints = [params.business, ...(params.industryHints ?? [])];
 	if (params.pageKind === "cod") {
 		const worlds = sampleCodSection(
 			designWorlds.filter((world) => world.kind === "cod"),
 			hints,
 		);
-		return `## COD FUNNEL WORLDS — one coherent visual universe, freshly sampled
+		return {
+			candidates: `## COD FUNNEL WORLDS — one coherent visual universe, freshly sampled
 Pick ONE BASE + 2-3 DONORS from this menu. Prefer donors from the base's fuses with list or worlds sharing its mood. Pass the ids to generate_page.worldIds in base-first order and set pageKind: "cod".
-${worlds.map((world) => formatCodWorld(world, hints)).join("\n")}`;
+${worlds.map((world) => formatCodWorld(world, hints)).join("\n")}`,
+			cards: toWorldCards(worlds),
+		};
 	}
 
 	const websiteWorlds = sampleSection(
@@ -250,9 +318,12 @@ ${worlds.map((world) => formatCodWorld(world, hints)).join("\n")}`;
 		hints,
 	);
 
-	return `## DESIGN WORLDS — the page's visual universe (freshly sampled; the builder receives the chosen world's full design bible automatically — you never restate it: your palette hexes, fonts and content live inside its physics)
-WEBSITE WORLDS (a multi-section website picks EXACTLY ONE):
+	return {
+		candidates: `## DESIGN WORLDS — freshly sampled departure points (the builder receives the chosen world's full design bible automatically — never restate the doc itself)
+WEBSITE WORLDS (a multi-section website commits to EXACTLY ONE as its DEPARTURE POINT — the world is inspiration, not law: your ART DIRECTION names what the page keeps from it and the 2-4 divergences that make it this business's own):
 ${websiteWorlds.map((w) => formatWorld(w, hints)).join("\n")}
-PRODUCT-PAGE WORLDS (a single-product presentation page picks ONE when it fits — or none for the classic skeleton path):
-${productWorlds.map((w) => formatWorld(w, hints)).join("\n")}`;
+PRODUCT-PAGE WORLDS (a single-product presentation page picks ONE when it fits — dossier worlds execute as law — or none for the classic skeleton path):
+${productWorlds.map((w) => formatWorld(w, hints)).join("\n")}`,
+		cards: toWorldCards([...websiteWorlds, ...productWorlds]),
+	};
 }

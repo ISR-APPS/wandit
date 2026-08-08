@@ -13,6 +13,7 @@ import {
 	type AskUserOutput,
 	ATTACHMENT_MEDIA_TYPES,
 	type UploadAttachmentResponse,
+	type WorldCard,
 } from "@wandit/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -182,6 +183,29 @@ export function collectAskStepper(messages: WanditUIMessage[]): AskStepper {
 	};
 }
 
+/** Card faces from every settled get_direction_candidates call, latest menu
+    winning on id collisions. The taste question's options reference these by
+    worldId — the specimen cards render from this server-authored data, never
+    from model-written text. */
+export function collectWorldCards(
+	messages: WanditUIMessage[],
+): Map<string, WorldCard> {
+	const cards = new Map<string, WorldCard>();
+	for (const message of messages) {
+		for (const part of message.parts) {
+			if (
+				part.type === "tool-get_direction_candidates" &&
+				part.state === "output-available"
+			) {
+				for (const card of part.output.cards ?? []) {
+					cards.set(card.id, card);
+				}
+			}
+		}
+	}
+	return cards;
+}
+
 /** One-line summary of an answer for the settled ask shown in the thread. */
 export function askAnswerValue(output: AskUserOutput): string {
 	return (
@@ -206,6 +230,7 @@ export function useRequestTray({
 }) {
 	const { t } = useTranslation();
 	const stepper = useMemo(() => collectAskStepper(messages), [messages]);
+	const worldCards = useMemo(() => collectWorldCards(messages), [messages]);
 	const [dismissedRoundKey, setDismissedRoundKey] = useState<string | null>(
 		null,
 	);
@@ -282,7 +307,13 @@ export function useRequestTray({
 		const options = (active.input?.options ?? []).flatMap<ChipOption>(
 			(option) =>
 				option?.id && option.label
-					? [{ id: option.id, label: option.label }]
+					? [
+							{
+								id: option.id,
+								label: option.label,
+								...(option.worldId ? { worldId: option.worldId } : {}),
+							},
+						]
 					: [],
 		);
 
@@ -291,6 +322,20 @@ export function useRequestTray({
 		const kind =
 			active.input?.kind ??
 			(options.length === 0 ? "free-text" : "single-choice");
+
+		// Taste cards: a single-choice ask whose options reference sampled
+		// design worlds renders as specimen cards. Requires at least one
+		// resolvable card — a transcript without menu cards (old chats, lost
+		// menus) falls back to the plain chips.
+		const worldOptions = options.some(
+			(option) => option.worldId && worldCards.has(option.worldId),
+		)
+			? options.map((option) => ({
+					id: option.id,
+					label: option.label,
+					card: option.worldId ? worldCards.get(option.worldId) : undefined,
+				}))
+			: null;
 
 		// While the input is still streaming the options are half-parsed — show
 		// the question growing with a spinner and no chips until input-available.
@@ -310,7 +355,9 @@ export function useRequestTray({
 				: kind === "multi-select"
 					? { kind: "multi-select", options, selectedIds }
 					: kind === "single-choice"
-						? { kind: "single-choice", options, selectedId }
+						? worldOptions
+							? { kind: "world-pick", options: worldOptions, selectedId }
+							: { kind: "single-choice", options, selectedId }
 						: { kind: "free-text" };
 
 		return {
@@ -343,7 +390,16 @@ export function useRequestTray({
 				composerText.trim().length > 0 &&
 				(options.length > 0 || (!streaming && kind === "attachments")),
 		};
-	}, [active, stepper, composerText, selectedId, selectedIds, attachItems, t]);
+	}, [
+		active,
+		stepper,
+		worldCards,
+		composerText,
+		selectedId,
+		selectedIds,
+		attachItems,
+		t,
+	]);
 
 	const answer = useCallback(
 		(output: AskUserOutput) => {
@@ -518,7 +574,7 @@ export function useRequestTray({
 	const trimmedComposerText = composerText.trim();
 	const answerMode = trimmedComposerText
 		? "text"
-		: state?.body.kind === "single-choice"
+		: state?.body.kind === "single-choice" || state?.body.kind === "world-pick"
 			? "single"
 			: state?.body.kind === "multi-select"
 				? "multi"

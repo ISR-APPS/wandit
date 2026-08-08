@@ -170,6 +170,7 @@ The split hero — text column left, photo column right — in any form · photo
 ## Intensity
 This world is a poster with a motor, and it has no half setting. Executed at 60% it reads as a broken template: a dark page with a big word, hairlines but no ledger, motion but no idea. THREE things must be at 100% or the world should not be chosen at all — the RUNTIME IMAGERY (a shader field or hand-drawn canvas systems; a dark page with no generated surface is a failure state), the STICKY OVERLAP (sections must physically cover each other, not stack with gaps), and the CONCEPT DISCIPLINE (one verb, four channels). Everything else — the grain, the corner ticks, the telemetry, the plus marks, the cursor, the decoder scramble — costs almost nothing and is exactly what separates this from a generated page. Push INTO the voltage, never back toward safe.`,
 	energy: "loud",
+	family: "cinetique",
 	id: "cinetique",
 	industries: [
 		"agency",
@@ -191,6 +192,13 @@ This world is a poster with a motor, and it has no half setting. Executed at 60%
 	kind: "website",
 	mood: ["kinetic", "brutalist", "electric", "technical", "nocturnal"],
 	name: "Cinétique",
+	preview: {
+		ground: "#0D0D11",
+		ink: "#E9E4DA",
+		accent: "#C8FF16",
+		fontFamily: "Bebas Neue",
+		sampleWord: "EN MARCHE",
+	},
 	priceFeel: "premium",
 	tagline:
 		"A night-black poster that runs: your name at the size of the whole screen over a living, cursor-following field, machine captions and acid hairlines, and sections that slide over each other like cards being dealt — a page that behaves like a title sequence.",

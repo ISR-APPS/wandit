@@ -115,6 +115,12 @@ export type AiChatRequestMetadata = z.infer<typeof aiChatRequestMetadataSchema>;
 export const askUserOptionSchema = z.object({
 	id: z.string().min(1),
 	label: z.string().min(1),
+	// Design-world taste cards: when set, the option refers to a world from the
+	// most recent get_direction_candidates result, and the tray renders it as a
+	// specimen card (real font + real colors from that result's cards data)
+	// instead of a text chip. Optional so every pre-cards row stays valid, and
+	// unknown ids simply fall back to the chip rendering.
+	worldId: z.string().min(1).optional(),
 });
 
 // How the tray should render the question. Optional on input so old
@@ -246,11 +252,35 @@ export const getDirectionCandidatesInputSchema = z.object({
 	industryHints: z.array(z.string().min(1)).max(4).optional(),
 });
 
+/**
+ * A design world's card face for the taste question: the world's real skin
+ * (ground/ink/accent + display face + specimen word) plus its user-facing
+ * name and tagline. Server-authored from the world registry — the full doc
+ * never leaves the backend. The tray renders these as tappable specimen
+ * cards when an ask_user option carries a matching worldId.
+ */
+export const worldCardSchema = z.object({
+	id: z.string().min(1),
+	name: z.string().min(1),
+	tagline: z.string().min(1),
+	preview: z.object({
+		ground: z.string().min(1),
+		ink: z.string().min(1),
+		accent: z.string().min(1),
+		fontFamily: z.string().min(1),
+		sampleWord: z.string().min(1),
+	}),
+});
+
 export const getDirectionCandidatesOutputSchema = z.object({
 	// The formatted candidate menu (formatCandidates() text) the model reads.
 	candidates: z.string(),
+	// Card faces for every sampled world that ships a preview, keyed by the
+	// same ids as the menu text. Optional so historical menus stay valid.
+	cards: z.array(worldCardSchema).optional(),
 });
 
+export type WorldCard = z.infer<typeof worldCardSchema>;
 export type GetDirectionCandidatesInput = z.infer<
 	typeof getDirectionCandidatesInputSchema
 >;

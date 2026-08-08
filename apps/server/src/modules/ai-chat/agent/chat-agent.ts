@@ -45,9 +45,10 @@ import {
 	type GenerateVideoToolDeps,
 	generateVideoToolSchemaOnly,
 } from "./tools/generate-video.tool";
-// EXPERIMENT (2026-07-27): worlds stay OFF for websites — the brain invents
-// website art direction itself. The live sampler is available only for COD
-// builds; the schema-only twin keeps historical tool calls valid.
+// Worlds serve BOTH build kinds since the landing-batch merge: COD samples a
+// fusion menu (base + donors, law), websites sample a departure-point menu
+// (one world as inspiration; the brain writes its own divergences). The
+// schema-only twin keeps historical tool calls valid.
 import {
 	getDirectionCandidatesTool,
 	getDirectionCandidatesToolSchemaOnly,
