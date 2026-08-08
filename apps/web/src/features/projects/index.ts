@@ -28,6 +28,7 @@ export type { Project, ProjectStatus } from "./api/dto";
 export {
 	useDeleteProject,
 	useRenameProject,
+	useUpdateProjectBadge,
 	useUpdateProjectLogo,
 	useUpdateProjectPixels,
 } from "./api/projects.mutations";

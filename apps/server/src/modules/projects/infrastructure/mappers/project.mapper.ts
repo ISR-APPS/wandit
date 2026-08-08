@@ -5,6 +5,7 @@ import type { ProjectQueryRow } from "../persistence/projects.repository";
 export function mapProjectRow(row: ProjectQueryRow): Project {
 	return {
 		createdAt: row.createdAt.toISOString(),
+		hideWanditBadge: row.hideWanditBadge,
 		id: row.id,
 		leadCount: row.leadCount,
 		logoUrl: row.logoUrl,
