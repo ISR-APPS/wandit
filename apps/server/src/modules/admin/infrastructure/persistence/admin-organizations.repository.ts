@@ -4,7 +4,18 @@ import {
 	ENTITLED_SUBSCRIPTION_STATUSES,
 	type PaginatedResult,
 } from "@wandit/contracts";
-import { and, asc, desc, eq, gte, ilike, notInArray, or, sql } from "@wandit/db";
+import {
+	and,
+	asc,
+	desc,
+	eq,
+	gte,
+	ilike,
+	inArray,
+	notInArray,
+	or,
+	sql,
+} from "@wandit/db";
 import { user } from "@wandit/db/schema/auth";
 import {
 	organizationBillingCustomers,
@@ -23,6 +34,10 @@ import {
 	DATABASE,
 	type Database,
 } from "../../../../infrastructure/database/database.constants";
+import {
+	AI_SPEND_STATUSES,
+	aiUsageEventCostUsdMicros,
+} from "./ai-usage-cost.sql";
 
 export type AdminOrganizationSummaryRow = {
 	id: string;
@@ -244,17 +259,21 @@ export class AdminOrganizationsRepository {
 					actorName: user.name,
 					aiModel: aiUsageEvents.model,
 					aiProvider: aiUsageEvents.provider,
+					// Cost only on consume rows: metering refund grants link to the
+					// same operation but are credit compensation, not new spend.
 					aiCostUsdMicros: sql<
 						number | null
-					>`coalesce(${aiUsageEvents.reconciledCostUsdMicros}, ${aiUsageEvents.estimatedCostUsdMicros})`,
+					>`case when ${creditLedger.kind} = 'consume' then ${aiUsageEventCostUsdMicros} end`,
 				})
 				.from(creditLedger)
 				.leftJoin(user, eq(user.id, creditLedger.userId))
-				// Consume rows written by the metering settle carry the operation id
-				// in meta.usageEventId; every other kind joins to nothing.
+				// Metering rows (reserve/settle consumes and refund grants) carry the
+				// operation id in meta.usageEventId; every other kind joins to
+				// nothing. Text comparison: a malformed historical id must not fail
+				// the whole query with a cast error.
 				.leftJoin(
 					aiUsageEvents,
-					sql`(${creditLedger.meta} ->> 'usageEventId')::uuid = ${aiUsageEvents.id}`,
+					sql`${creditLedger.meta} ->> 'usageEventId' = ${aiUsageEvents.id}::text`,
 				)
 				.where(eq(creditLedger.organizationId, organizationId))
 				.orderBy(desc(creditLedger.createdAt), desc(creditLedger.id))
@@ -263,15 +282,21 @@ export class AdminOrganizationsRepository {
 	}
 
 	// Actual AI-provider spend charged to this org's pool, across all acting
-	// members. Reconciled cost wins over the settle estimate.
+	// members. Completed operations only; ops without any recorded provider
+	// cost count 0. Bigint: lifetime micros can pass 2^31.
 	async sumAiSpend(organizationId: string): Promise<AdminOrgAiSpendRow> {
 		const [row] = await this.db
 			.select({
-				totalCostUsdMicros: sql<number>`coalesce(sum(coalesce(${aiUsageEvents.reconciledCostUsdMicros}, ${aiUsageEvents.estimatedCostUsdMicros}, 0)), 0)::int`,
+				totalCostUsdMicros: sql<number>`coalesce(sum(coalesce(${aiUsageEventCostUsdMicros}, 0)), 0)::bigint`,
 				meteredOperations: sql<number>`count(*)::int`,
 			})
 			.from(aiUsageEvents)
-			.where(eq(aiUsageEvents.organizationId, organizationId));
+			.where(
+				and(
+					eq(aiUsageEvents.organizationId, organizationId),
+					inArray(aiUsageEvents.status, [...AI_SPEND_STATUSES]),
+				),
+			);
 
 		return row ?? { meteredOperations: 0, totalCostUsdMicros: 0 };
 	}
