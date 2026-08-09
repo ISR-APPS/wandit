@@ -1,4 +1,4 @@
-import { getRouteApi } from "@tanstack/react-router";
+import { getRouteApi, useLocation } from "@tanstack/react-router";
 import { MotionConfig } from "motion/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -14,10 +14,9 @@ import { Hero } from "../components/hero";
 import { InAction } from "../components/in-action";
 import { LandingFooter } from "../components/landing-footer";
 import { LandingNav } from "../components/landing-nav";
-import { Pricing } from "../components/pricing";
 import { Problem } from "../components/problem";
 import { ProofBar } from "../components/proof-bar";
-import { scrollToTop } from "../lib/scroll";
+import { scrollToId, scrollToTop } from "../lib/scroll";
 
 const route = getRouteApi("/");
 
@@ -55,6 +54,12 @@ export default function LandingPage() {
 		if (scroll) scrollToTop();
 	}, []);
 
+	// Section links on other pages (e.g. /pricing) land here as /#section.
+	const hash = useLocation({ select: (location) => location.hash });
+	useEffect(() => {
+		if (hash) scrollToId(hash.replace(/^#/, ""));
+	}, [hash]);
+
 	return (
 		<MotionConfig reducedMotion="user">
 			<div className="min-h-svh bg-background">
@@ -66,7 +71,6 @@ export default function LandingPage() {
 					<Problem />
 					<Examples onUseExample={(prompt) => prefillPrompt(prompt, true)} />
 					<FeaturesBento />
-					<Pricing />
 					<Faq />
 					<CtaBand />
 				</main>

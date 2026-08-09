@@ -1,4 +1,4 @@
-import { Link } from "@tanstack/react-router";
+import { Link, useLocation } from "@tanstack/react-router";
 import {
 	useDictionary,
 	useTranslation,
@@ -13,7 +13,11 @@ import { ModeToggle } from "@/components/mode-toggle";
 import { UserMenu, useAuthModal, useSession } from "@/features/auth";
 
 import { LANDING_NAV_LINK_IDS } from "../lib/constants";
-import { scrollToId, scrollToTop } from "../lib/scroll";
+import { scrollToTop } from "../lib/scroll";
+import { useSectionNav } from "../lib/use-section-nav";
+
+const navLinkClass =
+	"rounded-md px-3 py-1.5 text-muted-foreground text-sm outline-none transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50";
 
 export function LandingNav() {
 	const [scrolled, setScrolled] = useState(false);
@@ -21,6 +25,10 @@ export function LandingNav() {
 	const { open } = useAuthModal();
 	const { t } = useTranslation();
 	const nav = useDictionary().landing.nav;
+	const navigateToSection = useSectionNav();
+	const isHome = useLocation({
+		select: (location) => location.pathname === "/",
+	});
 
 	useEffect(() => {
 		const onScroll = () => setScrolled(window.scrollY > 12);
@@ -39,29 +47,45 @@ export function LandingNav() {
 			)}
 		>
 			<div className="mx-auto flex h-14 max-w-6xl items-center justify-between gap-3 px-4 md:h-16 md:px-6">
-				<button
-					type="button"
-					onClick={scrollToTop}
-					className="rounded-md outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-					aria-label={t("landing.nav.backToTop")}
-				>
-					<Logo />
-				</button>
+				{isHome ? (
+					<button
+						type="button"
+						onClick={scrollToTop}
+						className="rounded-md outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+						aria-label={t("landing.nav.backToTop")}
+					>
+						<Logo />
+					</button>
+				) : (
+					<Link
+						to="/"
+						className="rounded-md outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
+						aria-label={t("landing.nav.home")}
+					>
+						<Logo />
+					</Link>
+				)}
 
 				<nav className="hidden items-center gap-1 md:flex">
-					{LANDING_NAV_LINK_IDS.map((id) => (
-						<a
-							key={id}
-							href={`#${id}`}
-							onClick={(e) => {
-								e.preventDefault();
-								scrollToId(id);
-							}}
-							className="rounded-md px-3 py-1.5 text-muted-foreground text-sm outline-none transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50"
-						>
-							{nav.links[id]}
-						</a>
-					))}
+					{LANDING_NAV_LINK_IDS.map((id) =>
+						id === "pricing" ? (
+							<Link key={id} to="/pricing" className={navLinkClass}>
+								{nav.links[id]}
+							</Link>
+						) : (
+							<a
+								key={id}
+								href={`#${id}`}
+								onClick={(e) => {
+									e.preventDefault();
+									navigateToSection(id);
+								}}
+								className={navLinkClass}
+							>
+								{nav.links[id]}
+							</a>
+						),
+					)}
 				</nav>
 
 				<div className="flex items-center gap-1.5 sm:gap-2">

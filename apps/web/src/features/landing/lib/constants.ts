@@ -1,7 +1,10 @@
 // Non-copy landing config. All copy lives in dictionaries/*/landing.json and is
 // read via useTranslation()/useDictionary(); only structural config stays here.
 
-/** Nav link scroll-target ids, in display order. Labels: landing.nav.links.<id>. */
+/**
+ * Nav link scroll-target ids, in display order. Labels: landing.nav.links.<id>.
+ * "pricing" is special-cased in LandingNav as a route link to /pricing.
+ */
 export const LANDING_NAV_LINK_IDS = [
 	"how-it-works",
 	"examples",
@@ -26,14 +29,17 @@ export const FEATURES_CONFIG = {
 	publishUrl: { slug: "montre-vintage", domain: ".wandit.app" },
 } as const;
 
-/** Footer columns: link `key` keys landing.footer.linkLabels.<key>; scrollId drives anchors. */
+/**
+ * Footer columns: link `key` keys landing.footer.linkLabels.<key>; scrollId
+ * drives anchors. "pricing" is special-cased in LandingFooter as a route link.
+ */
 export const FOOTER_COLUMNS = [
 	{
 		id: "product",
 		links: [
 			{ key: "how-it-works", scrollId: "how-it-works" },
 			{ key: "examples", scrollId: "examples" },
-			{ key: "pricing", scrollId: "pricing" },
+			{ key: "pricing", scrollId: null },
 		],
 	},
 	{

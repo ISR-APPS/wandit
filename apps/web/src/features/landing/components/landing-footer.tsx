@@ -1,12 +1,17 @@
+import { Link } from "@tanstack/react-router";
 import { useDictionary } from "@wandit/internationalization/react";
 
 import { Logo } from "@/components/logo";
 
 import { FOOTER_COLUMNS } from "../lib/constants";
-import { scrollToId } from "../lib/scroll";
+import { useSectionNav } from "../lib/use-section-nav";
+
+const footerLinkClass =
+	"rounded-sm text-muted-foreground text-sm outline-none transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50";
 
 export function LandingFooter() {
 	const footer = useDictionary().landing.footer;
+	const navigateToSection = useSectionNav();
 
 	return (
 		<footer className="border-border border-t px-4 py-12 md:py-16">
@@ -27,18 +32,24 @@ export function LandingFooter() {
 								<ul className="mt-3 flex flex-col gap-2">
 									{column.links.map((link) => (
 										<li key={link.key}>
-											<a
-												href={link.scrollId ? `#${link.scrollId}` : "#"}
-												onClick={(e) => {
-													if (link.scrollId) {
-														e.preventDefault();
-														scrollToId(link.scrollId);
-													}
-												}}
-												className="rounded-sm text-muted-foreground text-sm outline-none transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50"
-											>
-												{footer.linkLabels[link.key]}
-											</a>
+											{link.key === "pricing" ? (
+												<Link to="/pricing" className={footerLinkClass}>
+													{footer.linkLabels[link.key]}
+												</Link>
+											) : (
+												<a
+													href={link.scrollId ? `#${link.scrollId}` : "#"}
+													onClick={(e) => {
+														if (link.scrollId) {
+															e.preventDefault();
+															navigateToSection(link.scrollId);
+														}
+													}}
+													className={footerLinkClass}
+												>
+													{footer.linkLabels[link.key]}
+												</a>
+											)}
 										</li>
 									))}
 								</ul>

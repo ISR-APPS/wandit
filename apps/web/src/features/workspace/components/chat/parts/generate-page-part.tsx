@@ -32,6 +32,7 @@ import { useState } from "react";
 import { useStopwatch } from "react-timer-hook";
 
 import { useBillingModal } from "@/features/billing/components/billing-modal-provider";
+import { usePurchasesEnabled } from "@/features/billing/lib/purchases";
 import { creditsKeys } from "@/features/credits";
 import {
 	pageKeys,
@@ -692,8 +693,12 @@ export function FailedBuildCard({
 	retrying?: boolean;
 }) {
 	const { openPlanPicker } = useBillingModal();
+	const purchasesEnabled = usePurchasesEnabled();
 	const copy = buildFailureCopy(failureCode);
-	const outOfCredits = failureCode === "insufficient_credits";
+	// While all purchases are paused (beta), the top-up CTA is a dead end —
+	// fall through to Retry, which works once an admin grants credits.
+	const outOfCredits =
+		failureCode === "insufficient_credits" && purchasesEnabled !== false;
 	const retryable = failureCode !== "member_limit";
 	const busy = retrying || dismissing;
 
