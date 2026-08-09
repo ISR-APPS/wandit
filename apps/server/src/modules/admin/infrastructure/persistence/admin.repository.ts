@@ -11,6 +11,7 @@ import {
 	desc,
 	eq,
 	ilike,
+	inArray,
 	isNull,
 	notInArray,
 	or,
@@ -20,7 +21,7 @@ import {
 import { artifacts, versions } from "@wandit/db/schema/artifacts";
 import { session, user } from "@wandit/db/schema/auth";
 import { betaAccessEvents, subscriptions } from "@wandit/db/schema/billing";
-import { creditLedger } from "@wandit/db/schema/credits";
+import { aiUsageEvents, creditLedger } from "@wandit/db/schema/credits";
 import { deployments } from "@wandit/db/schema/deployments";
 import { domains } from "@wandit/db/schema/domains";
 import { pageGenerationAttempts } from "@wandit/db/schema/page-attempts";
@@ -30,6 +31,10 @@ import {
 	DATABASE,
 	type Database,
 } from "../../../../infrastructure/database/database.constants";
+import {
+	AI_SPEND_STATUSES,
+	aiUsageEventCostUsdMicros,
+} from "./ai-usage-cost.sql";
 
 export type AdminUserSummaryRow = {
 	id: string;
@@ -112,6 +117,14 @@ export type AdminCreditLedgerRow = {
 	bucket: (typeof creditLedger.bucket)["_"]["data"];
 	meta: unknown;
 	createdAt: Date;
+	aiModel: string | null;
+	aiProvider: string | null;
+	aiCostUsdMicros: number | null;
+};
+
+export type AdminAiSpendRow = {
+	totalCostUsdMicros: number;
+	meteredOperations: number;
 };
 
 export type AdminSignupPointRow = {
@@ -460,8 +473,23 @@ export class AdminRepository {
 					bucket: creditLedger.bucket,
 					meta: creditLedger.meta,
 					createdAt: creditLedger.createdAt,
+					aiModel: aiUsageEvents.model,
+					aiProvider: aiUsageEvents.provider,
+					// Cost only on consume rows: metering refund grants link to the
+					// same operation but are credit compensation, not new spend.
+					aiCostUsdMicros: sql<
+						number | null
+					>`case when ${creditLedger.kind} = 'consume' then ${aiUsageEventCostUsdMicros} end`,
 				})
 				.from(creditLedger)
+				// Metering rows (reserve/settle consumes and refund grants) carry the
+				// operation id in meta.usageEventId; every other kind joins to
+				// nothing. Text comparison: a malformed historical id must not fail
+				// the whole query with a cast error.
+				.leftJoin(
+					aiUsageEvents,
+					sql`${creditLedger.meta} ->> 'usageEventId' = ${aiUsageEvents.id}::text`,
+				)
 				// Personal rows only: org consume rows record the acting member in
 				// userId but the ORG pool paid — mixing them corrupts the money view.
 				.where(
@@ -473,6 +501,27 @@ export class AdminRepository {
 				.orderBy(desc(creditLedger.createdAt), desc(creditLedger.id))
 				.limit(limit)
 		);
+	}
+
+	// Actual AI-provider spend for the PERSONAL pool (org-workspace events are
+	// the org page's money view). Completed operations only; ops without any
+	// recorded provider cost count 0. Bigint: lifetime micros can pass 2^31.
+	async sumAiSpendForUser(userId: string): Promise<AdminAiSpendRow> {
+		const [row] = await this.db
+			.select({
+				totalCostUsdMicros: sql<number>`coalesce(sum(coalesce(${aiUsageEventCostUsdMicros}, 0)), 0)::bigint`,
+				meteredOperations: sql<number>`count(*)::int`,
+			})
+			.from(aiUsageEvents)
+			.where(
+				and(
+					eq(aiUsageEvents.userId, userId),
+					isNull(aiUsageEvents.organizationId),
+					inArray(aiUsageEvents.status, [...AI_SPEND_STATUSES]),
+				),
+			);
+
+		return row ?? { meteredOperations: 0, totalCostUsdMicros: 0 };
 	}
 
 	async updateUserRole(userId: string, role: string): Promise<void> {

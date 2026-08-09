@@ -30,73 +30,74 @@ export const ENTITLED_SUBSCRIPTION_STATUSES = ["active", "trialing"] as const;
 export type EntitledSubscriptionStatus =
 	(typeof ENTITLED_SUBSCRIPTION_STATUSES)[number];
 
-// The purchasable unit is 200 credits ($30 Pro / $60 Business). Tiers double
-// from there Lovable-style, with the same volume-discount curve as before
-// (2% / 4% / 6% / 8% / 10% off linear on the top five tiers).
+// The purchasable unit is 250 credits ($25 Pro / $50 Business) — 1 credit
+// retails at exactly $0.10. Tiers double from there Lovable-style, with the
+// same volume-discount curve as before (2% / 4% / 6% / 8% / 10% off linear on
+// the top five tiers).
 export const CREDIT_TIERS = [
-	200, 400, 800, 1600, 2400, 4000, 6000, 8000, 10000,
+	250, 500, 1000, 2000, 3000, 5000, 7500, 10000, 12500,
 ] as const;
 
 export type CreditTier = (typeof CREDIT_TIERS)[number];
 
 export const creditTierSchema = z.union([
-	z.literal(200),
-	z.literal(400),
-	z.literal(800),
-	z.literal(1600),
-	z.literal(2400),
-	z.literal(4000),
-	z.literal(6000),
-	z.literal(8000),
+	z.literal(250),
+	z.literal(500),
+	z.literal(1000),
+	z.literal(2000),
+	z.literal(3000),
+	z.literal(5000),
+	z.literal(7500),
 	z.literal(10000),
+	z.literal(12500),
 ]);
 
-export const topupPackIds = ["topup_200", "topup_1000", "topup_2000"] as const;
+export const topupPackIds = ["topup_250", "topup_1000", "topup_2500"] as const;
 
 export const topupPackIdSchema = z.enum(topupPackIds);
 
 export type TopupPackId = z.infer<typeof topupPackIdSchema>;
 
-// Top-ups sell at the base retail rate ($0.15/credit), no volume discount.
+// Top-ups sell at the base retail rate ($0.10/credit), no volume discount.
 export const TOPUP_PACKS = {
-	topup_200: { credits: 200, usd: 30 },
-	topup_1000: { credits: 1000, usd: 150 },
-	topup_2000: { credits: 2000, usd: 300 },
+	topup_250: { credits: 250, usd: 25 },
+	topup_1000: { credits: 1000, usd: 100 },
+	topup_2500: { credits: 2500, usd: 250 },
 } as const;
 
 export const BILLING_CATALOG = {
 	creditTiers: CREDIT_TIERS,
 	plans: {
 		pro: {
-			basePer100Usd: 15,
+			basePer100Usd: 10,
 			features: { seats: false, teamWorkspace: false },
 			monthlyPricesUsd: {
-				200: 30,
-				400: 60,
-				800: 120,
-				1600: 240,
-				2400: 353,
-				4000: 576,
-				6000: 846,
-				8000: 1104,
-				10000: 1350,
+				250: 25,
+				500: 50,
+				1000: 100,
+				2000: 200,
+				3000: 294,
+				5000: 480,
+				7500: 705,
+				10000: 920,
+				12500: 1125,
 			},
 		},
 		// Org workspaces: exactly 2× Pro per tier, unlimited seats — the POOL is
 		// what's priced. Purchasable only with org workspace scope (pairing rule).
 		business: {
-			basePer100Usd: 30,
+			basePer100Usd: 20,
 			features: { seats: true, teamWorkspace: true },
 			monthlyPricesUsd: {
-				200: 60,
-				400: 120,
-				800: 240,
-				1600: 480,
-				2400: 706,
-				4000: 1152,
-				6000: 1692,
-				8000: 2208,
-				10000: 2700,
+				250: 50,
+				500: 100,
+				1000: 200,
+				2000: 400,
+				3000: 588,
+				5000: 960,
+				7500: 1410,
+				10000: 1840,
+				12500: 2250,
 			},
 		},
 	},

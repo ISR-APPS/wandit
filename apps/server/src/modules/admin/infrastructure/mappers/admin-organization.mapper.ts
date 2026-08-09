@@ -74,6 +74,10 @@ export function mapAdminOrganizationLedgerEntry(
 		createdAt: toIso(row.createdAt),
 		actorUserId: row.actorUserId,
 		actorName: row.actorName,
+		aiModel: row.aiModel,
+		aiProvider: row.aiProvider,
+		aiCostUsdMicros:
+			row.aiCostUsdMicros === null ? null : Number(row.aiCostUsdMicros),
 	};
 }
 

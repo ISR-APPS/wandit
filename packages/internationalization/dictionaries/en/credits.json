@@ -16,7 +16,8 @@
 		"title": "You're out of credits",
 		"body": "Upgrade your plan to keep building.",
 		"memberBody": "This workspace is out of credits. Ask a workspace owner to upgrade.",
-		"cta": "Upgrade plan"
+		"cta": "Upgrade plan",
+		"pausedBody": "Credit purchases are paused during the beta."
 	},
 	"buckets": {
 		"plan": "Plan",

@@ -76,7 +76,9 @@ export const CREDIT_COSTS = {
 	videoGeneration: 25,
 } as const;
 
-// $2 of AI-provider value for free users: $2 / $0.04 per credit = 50 credits.
+// Free-user grant: 50 credits = $5 face value = $1.40 of AI-provider value at
+// $0.028/credit. The count is the stable product decision; its dollar value
+// floats with AI_USD_PER_CREDIT.
 export const SIGNUP_GRANT_CREDITS = 50;
 
 export const creditsRoutes = {

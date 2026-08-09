@@ -148,6 +148,7 @@
 		"attachHint": "Attach images, PDFs, docs or spreadsheets",
 		"connectApps": "Connect apps",
 		"attachments": {
+			"dropHint": "Drop files to attach",
 			"uploading": "Uploading…",
 			"remove": "Remove",
 			"retry": "Retry",

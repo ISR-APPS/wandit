@@ -1,3 +1,4 @@
+import { useNavigate } from "@tanstack/react-router";
 import type {
 	BillingInterval,
 	BillingTierPrice,
@@ -30,6 +31,7 @@ import { useState } from "react";
 
 import { useAuthModal, useSession } from "@/features/auth";
 import { useBillingPlansQuery } from "@/features/billing/api/billing.queries";
+import { useBillingModal } from "@/features/billing/components/billing-modal-provider";
 import {
 	tierPriceUsd,
 	tierSavingsPercent,
@@ -37,7 +39,6 @@ import {
 import { usePublicSettingsQuery } from "@/features/settings/api/settings.queries";
 import { CreateWorkspaceDialog } from "@/features/workspaces/components/create-workspace-dialog";
 
-import { scrollToTop } from "../lib/scroll";
 import { Reveal } from "./reveal";
 import { SectionHeader } from "./section-header";
 
@@ -76,6 +77,8 @@ function PlanCard({
 export function Pricing() {
 	const { data: session } = useSession();
 	const { open: openAuth } = useAuthModal();
+	const { openPlanPicker } = useBillingModal();
+	const navigate = useNavigate();
 	const { locale } = useTranslation();
 	const pricing = useDictionary().landing.pricing;
 	const plansQuery = useBillingPlansQuery();
@@ -103,14 +106,13 @@ export function Pricing() {
 		businessPlan !== undefined &&
 		businessPlan.tiers.length > 0;
 	const businessFromUsd = businessPlan?.tiers.length
-		? Math.min(
-				...businessPlan.tiers.map((tier) => tierPriceUsd(tier, "month")),
-			)
+		? Math.min(...businessPlan.tiers.map((tier) => tierPriceUsd(tier, "month")))
 		: null;
 
 	const startBuilding = () => {
 		if (session) {
-			scrollToTop();
+			// The prompt box lives in the homepage hero.
+			void navigate({ to: "/" });
 			return;
 		}
 
@@ -284,8 +286,21 @@ export function Pricing() {
 									<FeatureRow key={feature} label={feature} />
 								))}
 							</ul>
-							{/* No CTA while Pro access is granted manually — restore the
-							   subscribe button here once paid subscriptions open up. */}
+							{/* CTA only once paid subscriptions open up — the plan picker
+							   handles the signed-out case via the auth modal. */}
+							{paidSubscriptionsEnabled && selectedTier ? (
+								<Button
+									className="mt-8 active:translate-y-px"
+									onClick={() =>
+										openPlanPicker({
+											interval,
+											tierCredits: selectedTier.tierCredits,
+										})
+									}
+								>
+									{pricing.pro.cta}
+								</Button>
+							) : null}
 						</PlanCard>
 					</Reveal>
 

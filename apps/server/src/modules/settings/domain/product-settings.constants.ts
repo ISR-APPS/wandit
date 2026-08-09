@@ -6,8 +6,8 @@ export const DEFAULT_PRODUCT_SETTINGS = {
 	id: PRODUCT_SETTINGS_ID,
 	organizationsEnabled: false,
 	paidSubscriptionsEnabled: false,
-	// Pricing v2: $2 of AI value at $0.04/credit. Keep in sync with
-	// SIGNUP_GRANT_CREDITS in @wandit/contracts and the DB column default.
+	// 50 credits ($1.40 of AI value at pricing v3's $0.028/credit). Keep in
+	// sync with SIGNUP_GRANT_CREDITS in @wandit/contracts and the DB default.
 	signupGrantCredits: 50,
 	signupGrantEnabled: false,
 	topupsEnabled: false,

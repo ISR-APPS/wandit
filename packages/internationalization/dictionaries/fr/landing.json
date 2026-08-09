@@ -13,7 +13,8 @@
 		"signIn": "Se connecter",
 		"getStarted": "Commencer",
 		"dashboard": "Tableau de bord",
-		"backToTop": "Wandit — retour en haut"
+		"backToTop": "Wandit — retour en haut",
+		"home": "Wandit — accueil"
 	},
 	"hero": {
 		"eyebrow": "WANDIT — THE AI BUSINESS BUILDER",
@@ -163,6 +164,10 @@
 		}
 	},
 	"pricing": {
+		"meta": {
+			"title": "Tarifs — Wandit",
+			"description": "Commence gratuitement et passe à Pro quand il te faut plus de crédits. Tarification simple, mensuelle ou annuelle."
+		},
 		"kicker": "Tarifs",
 		"title": "Un seul plan. Choisis ton rythme.",
 		"note": "La publication reste gratuite. Les actions IA, dont la collecte de leads, utilisent des crédits.",

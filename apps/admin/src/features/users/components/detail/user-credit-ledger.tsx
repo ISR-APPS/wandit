@@ -27,6 +27,7 @@ import {
 import type { AdminCreditLedgerEntry } from "@/features/users/api/users.dto";
 import {
 	formatAdminDateTime,
+	formatUsdMicros,
 	formatWholeNumber,
 } from "@/features/users/lib/formatters";
 import { cn } from "@/lib/utils";
@@ -94,6 +95,8 @@ export function UserCreditLedgerTable({ entries }: UserCreditLedgerProps) {
 						<TableHead>Kind</TableHead>
 						<TableHead>Bucket</TableHead>
 						<TableHead>Reason</TableHead>
+						<TableHead>Model</TableHead>
+						<TableHead className="text-right">AI cost</TableHead>
 						<TableHead className="pr-6 text-right">Delta</TableHead>
 					</TableRow>
 				</TableHeader>
@@ -121,6 +124,39 @@ export function UserCreditLedgerTable({ entries }: UserCreditLedgerProps) {
 										</span>
 									) : (
 										<span className="text-muted-foreground">—</span>
+									)}
+								</TableCell>
+								<TableCell>
+									{entry.aiModel ? (
+										<span
+											className="block max-w-48 truncate"
+											title={
+												entry.aiProvider
+													? `${entry.aiModel} · ${entry.aiProvider}`
+													: entry.aiModel
+											}
+										>
+											{entry.aiModel}
+										</span>
+									) : (
+										<span className="text-muted-foreground">—</span>
+									)}
+								</TableCell>
+								<TableCell
+									className="text-right tabular-nums"
+									// Reserve + settle rows of one operation share the SAME
+									// operation-total cost — the figure is per operation, not
+									// per row.
+									title={
+										entry.aiCostUsdMicros === null
+											? undefined
+											: "Actual provider cost of the linked operation"
+									}
+								>
+									{entry.aiCostUsdMicros === null ? (
+										<span className="text-muted-foreground">—</span>
+									) : (
+										formatUsdMicros(entry.aiCostUsdMicros)
 									)}
 								</TableCell>
 								<TableCell

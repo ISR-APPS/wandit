@@ -20,6 +20,13 @@ vi.mock("@/features/billing/components/billing-modal-provider", () => ({
 	useBillingModal: () => ({ openPlanPicker }),
 }));
 
+// FailedBuildCard reads the purchases kill switch; static markup needs no
+// QueryClient, so stub it (default: purchases possible).
+let purchasesEnabled: boolean | undefined = true;
+vi.mock("@/features/billing/lib/purchases", () => ({
+	usePurchasesEnabled: () => purchasesEnabled,
+}));
+
 import {
 	FailedBuildCard,
 	GeneratePagePart,
@@ -320,6 +327,19 @@ describe("FailedBuildCard (design card 12)", () => {
 		expect(html).toContain("You&#x27;re out of credits.");
 		expect(html).toContain("Top up wallet");
 		expect(html).toContain("Retry");
+	});
+
+	it("falls back to Retry when purchases are paused (beta kill switch)", () => {
+		purchasesEnabled = false;
+		try {
+			const html = renderFailed("insufficient_credits");
+
+			expect(html).not.toContain("Top up wallet");
+			expect(html).toContain("Retry");
+			expect(html).toContain("Dismiss");
+		} finally {
+			purchasesEnabled = true;
+		}
 	});
 
 	it("offers no retry for a member credit limit — only the admin can fix it", () => {

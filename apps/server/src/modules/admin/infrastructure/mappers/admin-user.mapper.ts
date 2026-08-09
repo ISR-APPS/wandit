@@ -1,4 +1,5 @@
 import {
+	type AdminAiSpend,
 	type AdminCreditLedgerEntry,
 	type AdminUserDetail,
 	type AdminUserPlan,
@@ -13,6 +14,7 @@ import {
 } from "@wandit/contracts";
 
 import type {
+	AdminAiSpendRow,
 	AdminCreditLedgerRow,
 	AdminProjectRow,
 	AdminSubscriptionRow,
@@ -47,6 +49,7 @@ export function mapAdminUserDetail(
 	projects: AdminProjectRow[],
 	creditLedger: AdminCreditLedgerRow[],
 	memberships: AdminUserMembershipRow[],
+	aiSpend: AdminAiSpendRow,
 ): AdminUserDetail {
 	return {
 		...mapAdminUserSummary(row),
@@ -56,6 +59,14 @@ export function mapAdminUserDetail(
 		projects: projects.map(mapAdminUserProject),
 		creditLedger: creditLedger.map(mapAdminCreditLedgerEntry),
 		workspaces: memberships.map(mapAdminUserWorkspace),
+		aiSpend: mapAdminAiSpend(aiSpend),
+	};
+}
+
+function mapAdminAiSpend(row: AdminAiSpendRow): AdminAiSpend {
+	return {
+		totalCostUsdMicros: Number(row.totalCostUsdMicros),
+		meteredOperations: Number(row.meteredOperations),
 	};
 }
 
@@ -101,6 +112,9 @@ function mapAdminCreditLedgerEntry(
 		bucket: row.bucket,
 		meta: isRecord(row.meta) ? row.meta : null,
 		createdAt: toIso(row.createdAt),
+		aiModel: row.aiModel,
+		aiProvider: row.aiProvider,
+		aiCostUsdMicros: row.aiCostUsdMicros === null ? null : Number(row.aiCostUsdMicros),
 	};
 }
 

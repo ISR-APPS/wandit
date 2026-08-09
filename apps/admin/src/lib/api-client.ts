@@ -103,7 +103,7 @@ async function fetchResponse(
 	}
 
 	try {
-		return await fetch(buildUrl(path, params), {
+		return await fetch(buildApiUrl(path, params), {
 			method,
 			headers,
 			body: isWrite ? JSON.stringify(body ?? {}) : undefined,
@@ -121,7 +121,7 @@ async function fetchResponse(
 	}
 }
 
-function buildUrl(path: string, params?: ApiQueryParams): string {
+export function buildApiUrl(path: string, params?: ApiQueryParams): string {
 	const url = `${getServerUrl()}${path}`;
 
 	if (!params) {
