@@ -11,6 +11,7 @@ import {
 	desc,
 	eq,
 	ilike,
+	inArray,
 	isNull,
 	notInArray,
 	or,
@@ -30,6 +31,10 @@ import {
 	DATABASE,
 	type Database,
 } from "../../../../infrastructure/database/database.constants";
+import {
+	AI_SPEND_STATUSES,
+	aiUsageEventCostUsdMicros,
+} from "./ai-usage-cost.sql";
 
 export type AdminUserSummaryRow = {
 	id: string;
@@ -470,16 +475,20 @@ export class AdminRepository {
 					createdAt: creditLedger.createdAt,
 					aiModel: aiUsageEvents.model,
 					aiProvider: aiUsageEvents.provider,
+					// Cost only on consume rows: metering refund grants link to the
+					// same operation but are credit compensation, not new spend.
 					aiCostUsdMicros: sql<
 						number | null
-					>`coalesce(${aiUsageEvents.reconciledCostUsdMicros}, ${aiUsageEvents.estimatedCostUsdMicros})`,
+					>`case when ${creditLedger.kind} = 'consume' then ${aiUsageEventCostUsdMicros} end`,
 				})
 				.from(creditLedger)
-				// Consume rows written by the metering settle carry the operation id
-				// in meta.usageEventId; every other kind joins to nothing.
+				// Metering rows (reserve/settle consumes and refund grants) carry the
+				// operation id in meta.usageEventId; every other kind joins to
+				// nothing. Text comparison: a malformed historical id must not fail
+				// the whole query with a cast error.
 				.leftJoin(
 					aiUsageEvents,
-					sql`(${creditLedger.meta} ->> 'usageEventId')::uuid = ${aiUsageEvents.id}`,
+					sql`${creditLedger.meta} ->> 'usageEventId' = ${aiUsageEvents.id}::text`,
 				)
 				// Personal rows only: org consume rows record the acting member in
 				// userId but the ORG pool paid — mixing them corrupts the money view.
@@ -495,12 +504,12 @@ export class AdminRepository {
 	}
 
 	// Actual AI-provider spend for the PERSONAL pool (org-workspace events are
-	// the org page's money view). Reconciled cost wins over the settle estimate;
-	// events with neither (still reserved, or ops without provider cost) count 0.
+	// the org page's money view). Completed operations only; ops without any
+	// recorded provider cost count 0. Bigint: lifetime micros can pass 2^31.
 	async sumAiSpendForUser(userId: string): Promise<AdminAiSpendRow> {
 		const [row] = await this.db
 			.select({
-				totalCostUsdMicros: sql<number>`coalesce(sum(coalesce(${aiUsageEvents.reconciledCostUsdMicros}, ${aiUsageEvents.estimatedCostUsdMicros}, 0)), 0)::int`,
+				totalCostUsdMicros: sql<number>`coalesce(sum(coalesce(${aiUsageEventCostUsdMicros}, 0)), 0)::bigint`,
 				meteredOperations: sql<number>`count(*)::int`,
 			})
 			.from(aiUsageEvents)
@@ -508,6 +517,7 @@ export class AdminRepository {
 				and(
 					eq(aiUsageEvents.userId, userId),
 					isNull(aiUsageEvents.organizationId),
+					inArray(aiUsageEvents.status, [...AI_SPEND_STATUSES]),
 				),
 			);
 
