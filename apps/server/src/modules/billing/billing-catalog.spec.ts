@@ -22,28 +22,28 @@ import {
 import { describe, expect, it } from "vitest";
 
 const PRO_ECONOMICS = [
-	{ monthlyUsd: 30, tierCredits: 200, yearlyUsd: 300 },
-	{ monthlyUsd: 60, tierCredits: 400, yearlyUsd: 600 },
-	{ monthlyUsd: 120, tierCredits: 800, yearlyUsd: 1200 },
-	{ monthlyUsd: 240, tierCredits: 1600, yearlyUsd: 2400 },
-	{ monthlyUsd: 353, tierCredits: 2400, yearlyUsd: 3530 },
-	{ monthlyUsd: 576, tierCredits: 4000, yearlyUsd: 5760 },
-	{ monthlyUsd: 846, tierCredits: 6000, yearlyUsd: 8460 },
-	{ monthlyUsd: 1104, tierCredits: 8000, yearlyUsd: 11040 },
-	{ monthlyUsd: 1350, tierCredits: 10000, yearlyUsd: 13500 },
+	{ monthlyUsd: 25, tierCredits: 250, yearlyUsd: 250 },
+	{ monthlyUsd: 50, tierCredits: 500, yearlyUsd: 500 },
+	{ monthlyUsd: 100, tierCredits: 1000, yearlyUsd: 1000 },
+	{ monthlyUsd: 200, tierCredits: 2000, yearlyUsd: 2000 },
+	{ monthlyUsd: 294, tierCredits: 3000, yearlyUsd: 2940 },
+	{ monthlyUsd: 480, tierCredits: 5000, yearlyUsd: 4800 },
+	{ monthlyUsd: 705, tierCredits: 7500, yearlyUsd: 7050 },
+	{ monthlyUsd: 920, tierCredits: 10000, yearlyUsd: 9200 },
+	{ monthlyUsd: 1125, tierCredits: 12500, yearlyUsd: 11250 },
 ] as const;
 
 // Business is exactly 2x Pro per tier: unlimited seats, the pool is priced.
 const BUSINESS_ECONOMICS = [
-	{ monthlyUsd: 60, tierCredits: 200, yearlyUsd: 600 },
-	{ monthlyUsd: 120, tierCredits: 400, yearlyUsd: 1200 },
-	{ monthlyUsd: 240, tierCredits: 800, yearlyUsd: 2400 },
-	{ monthlyUsd: 480, tierCredits: 1600, yearlyUsd: 4800 },
-	{ monthlyUsd: 706, tierCredits: 2400, yearlyUsd: 7060 },
-	{ monthlyUsd: 1152, tierCredits: 4000, yearlyUsd: 11520 },
-	{ monthlyUsd: 1692, tierCredits: 6000, yearlyUsd: 16920 },
-	{ monthlyUsd: 2208, tierCredits: 8000, yearlyUsd: 22080 },
-	{ monthlyUsd: 2700, tierCredits: 10000, yearlyUsd: 27000 },
+	{ monthlyUsd: 50, tierCredits: 250, yearlyUsd: 500 },
+	{ monthlyUsd: 100, tierCredits: 500, yearlyUsd: 1000 },
+	{ monthlyUsd: 200, tierCredits: 1000, yearlyUsd: 2000 },
+	{ monthlyUsd: 400, tierCredits: 2000, yearlyUsd: 4000 },
+	{ monthlyUsd: 588, tierCredits: 3000, yearlyUsd: 5880 },
+	{ monthlyUsd: 960, tierCredits: 5000, yearlyUsd: 9600 },
+	{ monthlyUsd: 1410, tierCredits: 7500, yearlyUsd: 14100 },
+	{ monthlyUsd: 1840, tierCredits: 10000, yearlyUsd: 18400 },
+	{ monthlyUsd: 2250, tierCredits: 12500, yearlyUsd: 22500 },
 ] as const;
 
 describe("billing catalog", () => {
@@ -76,11 +76,11 @@ describe("billing catalog", () => {
 	});
 
 	it("publishes the exact top-up economics", () => {
-		expect(topupPackIds).toEqual(["topup_200", "topup_1000", "topup_2000"]);
+		expect(topupPackIds).toEqual(["topup_250", "topup_1000", "topup_2500"]);
 		expect(TOPUP_PACKS).toEqual({
-			topup_200: { credits: 200, usd: 30 },
-			topup_1000: { credits: 1000, usd: 150 },
-			topup_2000: { credits: 2000, usd: 300 },
+			topup_250: { credits: 250, usd: 25 },
+			topup_1000: { credits: 1000, usd: 100 },
+			topup_2500: { credits: 2500, usd: 250 },
 		});
 	});
 
@@ -162,11 +162,11 @@ describe("billing catalog", () => {
 			organizationId: null,
 			pendingTierCredits: null,
 			plan: "pro",
-			priceLookupKey: "pro_200_month",
+			priceLookupKey: "pro_250_month",
 			provider: "stripe",
 			providerSubscriptionId: "sub_past_due",
 			status: "past_due",
-			tierCredits: 200,
+			tierCredits: 250,
 			updatedAt: "2026-07-24T10:00:00.000Z",
 			userId: "user_1",
 		};
@@ -180,22 +180,22 @@ describe("billing catalog", () => {
 		expect(
 			previewBillingSubscriptionChangeBodySchema.parse({
 				interval: "month",
-				tierCredits: 400,
+				tierCredits: 500,
 			}),
 		).toEqual({
 			interval: "month",
-			tierCredits: 400,
+			tierCredits: 500,
 		});
 		expect(
 			previewBillingSubscriptionChangeBodySchema.parse({
 				interval: "year",
 				plan: "pro",
-				tierCredits: 2400,
+				tierCredits: 3000,
 			}),
 		).toEqual({
 			interval: "year",
 			plan: "pro",
-			tierCredits: 2400,
+			tierCredits: 3000,
 		});
 		expect(
 			previewBillingSubscriptionChangeBodySchema.safeParse({

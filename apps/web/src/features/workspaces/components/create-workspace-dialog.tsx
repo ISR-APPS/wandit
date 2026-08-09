@@ -77,7 +77,7 @@ export function CreateWorkspaceDialog({
 	const [tierCredits, setTierCredits] = useState<number | null>(null);
 	const selectedTier =
 		business?.tiers.find(
-			(tier) => tier.tierCredits === (tierCredits ?? 200),
+			(tier) => tier.tierCredits === (tierCredits ?? 250),
 		) ?? business?.tiers[0];
 
 	const submit = async () => {
@@ -172,7 +172,7 @@ export function CreateWorkspaceDialog({
 							<div className="flex flex-col gap-2">
 								<Label>{t("billing.planPicker.creditTier")}</Label>
 								<Select
-									value={String(selectedTier?.tierCredits ?? 200)}
+									value={String(selectedTier?.tierCredits ?? 250)}
 									onValueChange={(value) => setTierCredits(Number(value))}
 								>
 									<SelectTrigger>

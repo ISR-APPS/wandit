@@ -1,5 +1,9 @@
 # Pricing v2 implementation — 200-credit base unit
 
+> **SUPERSEDED 2026-08-09 by `pricing-v3-implementation.md`** (250-credit base
+> unit at $25, $0.028/credit AI value). v2 never reached production
+> subscribers. Kept for the audit results in §6, which still apply.
+
 Decision date: 2026-08-07. Source: co-founder pricing feedback. This file is the
 authoritative record of what changed, the exact numbers, and what must happen at
 rollout. All code changes listed here are uncommitted on `dev` pending review.

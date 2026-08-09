@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 import { tierPriceUsd, tierSavingsPercent } from "./plan-pricing";
 
 const EXPECTED_MONTHLY_PRICES = [
-	30, 60, 120, 240, 353, 576, 846, 1104, 1350,
+	25, 50, 100, 200, 294, 480, 705, 920, 1125,
 ] as const;
 const EXPECTED_SAVINGS = [0, 0, 0, 0, 2, 4, 6, 8, 10] as const;
 
@@ -34,7 +34,7 @@ describe("plan picker pricing", () => {
 		const tiers = catalogTiers();
 
 		expect(tiers.map((tier) => tier.tierCredits)).toEqual([
-			200, 400, 800, 1600, 2400, 4000, 6000, 8000, 10000,
+			250, 500, 1000, 2000, 3000, 5000, 7500, 10000, 12500,
 		]);
 		expect(tiers.map((tier) => tierSavingsPercent(tier))).toEqual(
 			EXPECTED_SAVINGS,

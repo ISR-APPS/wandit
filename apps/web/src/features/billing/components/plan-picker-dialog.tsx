@@ -970,7 +970,7 @@ function suggestedTierCredits(
 	tiers: readonly BillingTierPrice[],
 	subscription: Subscription | null,
 ): CreditTier {
-	if (!subscription) return tiers[0]?.tierCredits ?? 200;
+	if (!subscription) return tiers[0]?.tierCredits ?? 250;
 
 	return (
 		tiers.find((tier) => tier.tierCredits > subscription.tierCredits)
