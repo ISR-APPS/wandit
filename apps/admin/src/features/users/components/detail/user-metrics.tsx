@@ -1,8 +1,16 @@
-import { CoinsIcon, FolderKanbanIcon, GemIcon } from "lucide-react";
+import {
+	CircleDollarSignIcon,
+	CoinsIcon,
+	FolderKanbanIcon,
+	GemIcon,
+} from "lucide-react";
 
 import { Card, CardContent } from "@/components/ui/card";
 import type { AdminUserDetail } from "@/features/users/api/users.dto";
-import { formatWholeNumber } from "@/features/users/lib/formatters";
+import {
+	formatUsdMicros,
+	formatWholeNumber,
+} from "@/features/users/lib/formatters";
 
 import { titleCase } from "./user-detail-helpers";
 
@@ -32,18 +40,24 @@ export function UserMetrics({ user }: UserMetricsProps) {
 				: "No active subscription",
 			icon: GemIcon,
 		},
+		{
+			label: "AI spend",
+			value: formatUsdMicros(user.aiSpend.totalCostUsdMicros),
+			detail: `${formatWholeNumber(user.aiSpend.meteredOperations)} metered operations`,
+			icon: CircleDollarSignIcon,
+		},
 	] as const;
 
 	return (
 		<Card className="gap-0 py-0 shadow-none">
-			<CardContent className="grid grid-cols-1 px-0 sm:grid-cols-3">
+			<CardContent className="grid grid-cols-1 px-0 sm:grid-cols-2 lg:grid-cols-4">
 				{metrics.map((metric, index) => {
 					const Icon = metric.icon;
 
 					return (
 						<div
 							key={metric.label}
-							className="flex min-w-0 items-start gap-3 border-b p-4 last:border-b-0 sm:border-r sm:border-b-0 sm:last:border-r-0"
+							className="flex min-w-0 items-start gap-3 border-b p-4 last:border-b-0 sm:odd:border-r lg:border-r lg:border-b-0 lg:last:border-r-0"
 						>
 							<div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
 								<Icon aria-hidden="true" />
@@ -62,7 +76,9 @@ export function UserMetrics({ user }: UserMetricsProps) {
 									{metric.detail}
 								</dd>
 							</dl>
-							<span className="sr-only">{index + 1} of 3 metrics</span>
+							<span className="sr-only">
+								{index + 1} of {metrics.length} metrics
+							</span>
 						</div>
 					);
 				})}

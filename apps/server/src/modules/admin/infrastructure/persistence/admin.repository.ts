@@ -20,7 +20,7 @@ import {
 import { artifacts, versions } from "@wandit/db/schema/artifacts";
 import { session, user } from "@wandit/db/schema/auth";
 import { betaAccessEvents, subscriptions } from "@wandit/db/schema/billing";
-import { creditLedger } from "@wandit/db/schema/credits";
+import { aiUsageEvents, creditLedger } from "@wandit/db/schema/credits";
 import { deployments } from "@wandit/db/schema/deployments";
 import { domains } from "@wandit/db/schema/domains";
 import { pageGenerationAttempts } from "@wandit/db/schema/page-attempts";
@@ -112,6 +112,14 @@ export type AdminCreditLedgerRow = {
 	bucket: (typeof creditLedger.bucket)["_"]["data"];
 	meta: unknown;
 	createdAt: Date;
+	aiModel: string | null;
+	aiProvider: string | null;
+	aiCostUsdMicros: number | null;
+};
+
+export type AdminAiSpendRow = {
+	totalCostUsdMicros: number;
+	meteredOperations: number;
 };
 
 export type AdminSignupPointRow = {
@@ -460,8 +468,19 @@ export class AdminRepository {
 					bucket: creditLedger.bucket,
 					meta: creditLedger.meta,
 					createdAt: creditLedger.createdAt,
+					aiModel: aiUsageEvents.model,
+					aiProvider: aiUsageEvents.provider,
+					aiCostUsdMicros: sql<
+						number | null
+					>`coalesce(${aiUsageEvents.reconciledCostUsdMicros}, ${aiUsageEvents.estimatedCostUsdMicros})`,
 				})
 				.from(creditLedger)
+				// Consume rows written by the metering settle carry the operation id
+				// in meta.usageEventId; every other kind joins to nothing.
+				.leftJoin(
+					aiUsageEvents,
+					sql`(${creditLedger.meta} ->> 'usageEventId')::uuid = ${aiUsageEvents.id}`,
+				)
 				// Personal rows only: org consume rows record the acting member in
 				// userId but the ORG pool paid — mixing them corrupts the money view.
 				.where(
@@ -473,6 +492,26 @@ export class AdminRepository {
 				.orderBy(desc(creditLedger.createdAt), desc(creditLedger.id))
 				.limit(limit)
 		);
+	}
+
+	// Actual AI-provider spend for the PERSONAL pool (org-workspace events are
+	// the org page's money view). Reconciled cost wins over the settle estimate;
+	// events with neither (still reserved, or ops without provider cost) count 0.
+	async sumAiSpendForUser(userId: string): Promise<AdminAiSpendRow> {
+		const [row] = await this.db
+			.select({
+				totalCostUsdMicros: sql<number>`coalesce(sum(coalesce(${aiUsageEvents.reconciledCostUsdMicros}, ${aiUsageEvents.estimatedCostUsdMicros}, 0)), 0)::int`,
+				meteredOperations: sql<number>`count(*)::int`,
+			})
+			.from(aiUsageEvents)
+			.where(
+				and(
+					eq(aiUsageEvents.userId, userId),
+					isNull(aiUsageEvents.organizationId),
+				),
+			);
+
+		return row ?? { meteredOperations: 0, totalCostUsdMicros: 0 };
 	}
 
 	async updateUserRole(userId: string, role: string): Promise<void> {

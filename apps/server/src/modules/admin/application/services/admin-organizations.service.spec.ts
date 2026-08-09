@@ -142,6 +142,10 @@ class InMemoryOrgsRepository {
 	async findAttributionUserId() {
 		return "user_owner";
 	}
+
+	async sumAiSpend() {
+		return { meteredOperations: 4, totalCostUsdMicros: 123_000 };
+	}
 }
 
 class FakeCreditsService {
@@ -195,6 +199,10 @@ describe("AdminOrganizationsService", () => {
 		expect(detail.pendingInvitationsCount).toBe(1);
 		expect(detail.defaultMemberMonthlyCreditLimit).toBe(250);
 		expect(detail.attributionUserId).toBe("user_owner");
+		expect(detail.aiSpend).toEqual({
+			meteredOperations: 4,
+			totalCostUsdMicros: 123_000,
+		});
 		expect(detail.subscription).toMatchObject({
 			plan: "business",
 			tierCredits: 500,
