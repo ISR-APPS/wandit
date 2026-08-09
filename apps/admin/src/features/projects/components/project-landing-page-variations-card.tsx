@@ -1,3 +1,4 @@
+import { adminRoutes } from "@wandit/contracts";
 import { ExternalLinkIcon, Globe2Icon, RefreshCwIcon } from "lucide-react";
 import { memo, useCallback, useEffect, useRef, useState } from "react";
 
@@ -26,6 +27,11 @@ import {
 	EmptyTitle,
 } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type { AdminProjectVersionListItem } from "@/features/projects/api/projects.dto";
 import {
 	useAdminProjectVersionHtmlQuery,
@@ -36,6 +42,7 @@ import {
 	statusBadgeVariant,
 	titleCase,
 } from "@/features/projects/lib/project-detail-helpers";
+import { buildApiUrl } from "@/lib/api-client";
 
 import { ProjectDetailPagination } from "./project-detail-pagination";
 
@@ -139,6 +146,7 @@ export function ProjectLandingPageVariationsCard({
 										key={version.id}
 										projectId={projectId}
 										version={version}
+										liveUrl={liveUrl}
 										onPreview={handlePreview}
 									/>
 								))}
@@ -169,10 +177,12 @@ export function ProjectLandingPageVariationsCard({
 const VariationCard = memo(function VariationCard({
 	projectId,
 	version,
+	liveUrl,
 	onPreview,
 }: {
 	projectId: string;
 	version: AdminProjectVersionListItem;
+	liveUrl: string | null;
 	onPreview: (version: AdminProjectVersionListItem) => void;
 }) {
 	const [cardRef, shouldLoadPreview] = useNearViewportOnce<HTMLElement>();
@@ -181,6 +191,11 @@ const VariationCard = memo(function VariationCard({
 		versionId: version.id,
 		enabled: shouldLoadPreview,
 	});
+	const previewUrl = htmlQuery.data
+		? buildApiUrl(adminRoutes.projectVersionPreview(projectId, version.id))
+		: null;
+	const openUrl = version.isLive ? liveUrl : previewUrl;
+	const openLabel = version.isLive ? "Open live site" : "Open version";
 
 	return (
 		<article
@@ -193,6 +208,34 @@ const VariationCard = memo(function VariationCard({
 						v{version.number}
 					</p>
 					<VersionBadges version={version} />
+					{openUrl ? (
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<Button
+									asChild
+									variant="ghost"
+									size="icon-xs"
+									className="relative z-20 ml-auto text-muted-foreground"
+								>
+									<a
+										href={openUrl}
+										target="_blank"
+										rel="noreferrer"
+										aria-label={
+											version.isLive
+												? `Open live site for version ${version.number}`
+												: `Open version ${version.number}`
+										}
+									>
+										<ExternalLinkIcon aria-hidden="true" />
+									</a>
+								</Button>
+							</TooltipTrigger>
+							<TooltipContent side="top" sideOffset={6}>
+								{openLabel}
+							</TooltipContent>
+						</Tooltip>
+					) : null}
 				</div>
 				<div className="min-w-0">
 					<p
@@ -378,6 +421,12 @@ function VariationPreviewDialog({
 		versionId: version?.id,
 		enabled: open && version !== null,
 	});
+	const previewUrl =
+		version && htmlQuery.data
+			? buildApiUrl(adminRoutes.projectVersionPreview(projectId, version.id))
+			: null;
+	const openUrl = version?.isLive ? liveUrl : previewUrl;
+	const openLabel = version?.isLive ? "Open site" : "Open version";
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
@@ -399,14 +448,14 @@ function VariationPreviewDialog({
 								</div>
 							) : null}
 						</div>
-						{version?.isLive && liveUrl ? (
+						{openUrl ? (
 							<Button asChild variant="outline" size="sm">
-								<a href={liveUrl} target="_blank" rel="noreferrer">
+								<a href={openUrl} target="_blank" rel="noreferrer">
 									<ExternalLinkIcon
 										data-icon="inline-start"
 										aria-hidden="true"
 									/>
-									Open site
+									{openLabel}
 								</a>
 							</Button>
 						) : null}

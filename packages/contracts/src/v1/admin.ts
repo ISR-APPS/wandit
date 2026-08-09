@@ -769,6 +769,8 @@ export const adminRoutes = {
 		`/api/v1/admin/projects/${projectId}/versions`,
 	projectVersionHtml: (projectId: string, versionId: string) =>
 		`/api/v1/admin/projects/${projectId}/versions/${versionId}/html`,
+	projectVersionPreview: (projectId: string, versionId: string) =>
+		`/api/v1/admin/projects/${projectId}/versions/${versionId}/preview`,
 	grantCredits: (userId: string) => `/api/v1/admin/users/${userId}/credits`,
 	betaEnroll: (userId: string) => `/api/v1/admin/users/${userId}/beta-enroll`,
 	setAccess: (userId: string) => `/api/v1/admin/users/${userId}/access`,

@@ -4,6 +4,7 @@ import {
 	Inject,
 	Param,
 	Query,
+	Res,
 	UseGuards,
 } from "@nestjs/common";
 import {
@@ -14,7 +15,9 @@ import {
 	adminProjectVersionsQuerySchema,
 	uuidSchema,
 } from "@wandit/contracts";
+import type { FastifyReply } from "fastify";
 
+import { SkipResponseEnvelope } from "../../../../../infrastructure/http/skip-envelope.decorator";
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { AdminPagePreviewService } from "../../../application/services/admin-page-preview.service";
 import { AdminProjectsService } from "../../../application/services/admin-projects.service";
@@ -53,5 +56,32 @@ export class AdminProjectsController {
 		versionId: string,
 	): Promise<AdminProjectVersionHtmlResponse> {
 		return this.adminPagePreviewService.versionHtml(projectId, versionId);
+	}
+
+	@Get(":projectId/versions/:versionId/preview")
+	@SkipResponseEnvelope()
+	async versionPreview(
+		@Param("projectId", new ZodValidationPipe(uuidSchema))
+		projectId: string,
+		@Param("versionId", new ZodValidationPipe(uuidSchema))
+		versionId: string,
+		@Res() reply: FastifyReply,
+	): Promise<void> {
+		const { html } = await this.adminPagePreviewService.versionHtml(
+			projectId,
+			versionId,
+		);
+
+		// Generated HTML is active content. Keep its scripts in an opaque origin
+		// so they cannot use the admin's authenticated API session.
+		await reply
+			.header("Content-Type", "text/html; charset=utf-8")
+			.header("Cache-Control", "private, no-store")
+			.header(
+				"Content-Security-Policy",
+				"sandbox allow-forms allow-scripts; frame-ancestors 'none'",
+			)
+			.header("Referrer-Policy", "no-referrer")
+			.send(html);
 	}
 }
