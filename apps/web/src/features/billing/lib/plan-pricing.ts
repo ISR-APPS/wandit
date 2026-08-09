@@ -7,7 +7,7 @@ import type {
 
 // Pro base rate: $30 per 200 credits. Business passes its own basePer100Usd
 // (2× Pro) so its volume discounts surface instead of comparing against Pro.
-const DEFAULT_BASE_PER_100_USD = 15;
+const DEFAULT_BASE_PER_100_USD = 10;
 
 export function tierSavingsPercent(
 	tier: Pick<BillingTierPrice, "monthlyUsd" | "tierCredits">,

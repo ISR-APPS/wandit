@@ -37,11 +37,11 @@ Business is exactly 2× Pro per tier (the pooled workspace allowance is what's p
 
 Top-up packs (never expire, burn after plan and promo credits): `topup_200` $30 · `topup_1000` $150 · `topup_2000` $300.
 
-The configurable signup grant is 50 promo credits and is disabled by default. Retail value is anchored at $0.15 per credit (200 credits = $30 base tier); token-metered actions use `max(1, ceil(rawUsd / usdPerCredit))` with `usdPerCredit = $0.04` ($8 of AI value per 200-credit base tier). Fixed costs are image 5/image, video 25, marketing 5, connector generation 5 (plus inline child operations at their own rates), lead scrape 5, and transcription by minute with a 1-credit minimum. Chat and page-builder usage are token-metered.
+The configurable signup grant is 50 promo credits and is disabled by default. Retail value is anchored at $0.10 per credit (250 credits = $25 base tier); token-metered actions use `max(1, ceil(rawUsd / usdPerCredit))` with `usdPerCredit = $0.028` ($7 of AI value per 250-credit base tier). Fixed costs are image 5/image, video 25, marketing 5, connector generation 5 (plus inline child operations at their own rates), lead scrape 5, and transcription by minute with a 1-credit minimum. Chat and page-builder usage are token-metered.
 
 ### Credit ↔ token costing: starting point + how to tune
 
-Every metered operation records usage and the pricing snapshot used for its debit. After launch: compare Gateway invoice vs credits burned, target model COGS ≤ ~30% of retail credit value (1 credit retail ≈ $0.15 at base tier), and tune the operation registry or `usdPerCredit` without changing the ledger schema.
+Every metered operation records usage and the pricing snapshot used for its debit. After launch: compare Gateway invoice vs credits burned, target model COGS ≤ ~30% of retail credit value (1 credit retail = $0.10 at base tier), and tune the operation registry or `usdPerCredit` without changing the ledger schema.
 
 ## Data model (packages/db)
 

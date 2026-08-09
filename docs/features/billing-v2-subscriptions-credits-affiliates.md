@@ -27,8 +27,8 @@ must be 0 at first prod deploy of this branch; otherwise the grandfathering appe
 
 | Constant | Value |
 |---|---|
-| Retail credit value | $0.15/credit (base tier anchor: 200 credits = $30) |
-| Metering conversion `usdPerCredit` | $0.04/credit (config: $8 of AI value per 200-credit base tier) |
+| Retail credit value | $0.10/credit (base tier anchor: 250 credits = $25) |
+| Metering conversion `usdPerCredit` | $0.028/credit (config: $7 of AI value per 250-credit base tier) |
 | Debit formula (token-metered) | `max(1, ceil(rawUsd / usdPerCredit))` — min-1 is deliberate Lovable-style pricing |
 | Signup grant | 50 credits, configurable, `promo` bucket |
 

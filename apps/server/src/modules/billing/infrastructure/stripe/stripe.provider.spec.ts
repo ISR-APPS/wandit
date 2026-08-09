@@ -134,7 +134,7 @@ function setup() {
 		metadata: {
 			wanditScheduleIntent: "sub-change:user_1:intent_1",
 			wanditScheduleOwner: "period_end_downgrade",
-			wanditScheduleTarget: "pro_200_month",
+			wanditScheduleTarget: "pro_250_month",
 		},
 		status: "active",
 	} as unknown as Stripe.SubscriptionSchedule;
@@ -270,7 +270,7 @@ describe("StripeProvider", () => {
 				email: "user@example.com",
 				interval: "month",
 				plan: "pro",
-				tierCredits: 200,
+				tierCredits: 250,
 				userId: "user_1",
 			}),
 		).resolves.toEqual({
@@ -281,7 +281,7 @@ describe("StripeProvider", () => {
 		expect(pricesList).toHaveBeenCalledWith({
 			active: true,
 			limit: 1,
-			lookup_keys: ["pro_200_month"],
+			lookup_keys: ["pro_250_month"],
 		});
 		expect(sessionsCreate.mock.calls[0]).toHaveLength(2);
 		expect(sessionsCreate.mock.calls[0]?.[0]).toEqual(
@@ -319,7 +319,7 @@ describe("StripeProvider", () => {
 				email: "user@example.com",
 				interval: "month",
 				plan: "pro",
-				tierCredits: 200,
+				tierCredits: 250,
 				userId: "user_1",
 			}),
 		).rejects.toBeInstanceOf(AmbiguousPaymentProviderWriteError);
@@ -337,7 +337,7 @@ describe("StripeProvider", () => {
 				email: "user@example.com",
 				interval: "month",
 				plan: "pro",
-				tierCredits: 200,
+				tierCredits: 250,
 				userId: "user_1",
 			}),
 		).rejects.toBeInstanceOf(Stripe.errors.StripeInvalidRequestError);
@@ -445,7 +445,7 @@ describe("StripeProvider", () => {
 		const prorationDate = new Date("2026-08-01T12:34:56.000Z");
 		const input = {
 			billingCycleAnchorNow: true,
-			newPriceLookupKey: "pro_400_year",
+			newPriceLookupKey: "pro_500_year",
 			prorationDate,
 			providerSubscriptionId: "sub_1",
 		};
@@ -506,7 +506,7 @@ describe("StripeProvider", () => {
 			provider.changeSubscription({
 				billingCycleAnchorNow: false,
 				idempotencyKey: "sub-change:user_1:intent_pending",
-				newPriceLookupKey: "pro_400_month",
+				newPriceLookupKey: "pro_500_month",
 				prorationDate: new Date("2026-08-01T12:34:56.000Z"),
 				providerSubscriptionId: "sub_1",
 			}),
@@ -532,7 +532,7 @@ describe("StripeProvider", () => {
 			provider.changeSubscription({
 				billingCycleAnchorNow: false,
 				idempotencyKey: "sub-change:user_1:intent_replay",
-				newPriceLookupKey: "pro_400_month",
+				newPriceLookupKey: "pro_500_month",
 				prorationDate: new Date("2026-08-01T12:34:56.000Z"),
 				providerSubscriptionId: "sub_1",
 			}),
@@ -551,7 +551,7 @@ describe("StripeProvider", () => {
 		await expect(
 			provider.scheduleSubscriptionDowngrade({
 				idempotencyKey: "sub-change:user_1:intent_1",
-				newPriceLookupKey: "pro_200_month",
+				newPriceLookupKey: "pro_250_month",
 				providerSubscriptionId: "sub_1",
 			}),
 		).resolves.toBe("sub_sched_1");
@@ -563,7 +563,7 @@ describe("StripeProvider", () => {
 				metadata: {
 					wanditScheduleIntent: "sub-change:user_1:intent_1",
 					wanditScheduleOwner: "period_end_downgrade",
-					wanditScheduleTarget: "pro_200_month",
+					wanditScheduleTarget: "pro_250_month",
 				},
 			},
 			{ idempotencyKey: "sub-change:user_1:intent_1:mark-owner" },
@@ -611,7 +611,7 @@ describe("StripeProvider", () => {
 		await expect(
 			provider.scheduleSubscriptionDowngrade({
 				idempotencyKey: "sub-change:user_1:intent_1",
-				newPriceLookupKey: "pro_200_month",
+				newPriceLookupKey: "pro_250_month",
 				providerSubscriptionId: "sub_1",
 			}),
 		).resolves.toBe("sub_sched_1");
@@ -637,7 +637,7 @@ describe("StripeProvider", () => {
 		await expect(
 			provider.scheduleSubscriptionDowngrade({
 				idempotencyKey: "sub-change:user_1:intent_1",
-				newPriceLookupKey: "pro_200_month",
+				newPriceLookupKey: "pro_250_month",
 				providerSubscriptionId: "sub_1",
 			}),
 		).rejects.toThrow("controlled by an unmanaged schedule");
@@ -657,7 +657,7 @@ describe("StripeProvider", () => {
 		await expect(
 			provider.scheduleSubscriptionDowngrade({
 				idempotencyKey: "sub-change:user_1:intent_1",
-				newPriceLookupKey: "pro_200_month",
+				newPriceLookupKey: "pro_250_month",
 				providerSubscriptionId: "sub_1",
 			}),
 		).rejects.toBeInstanceOf(AmbiguousPaymentProviderWriteError);
@@ -675,7 +675,7 @@ describe("StripeProvider", () => {
 		await provider.changeSubscription({
 			billingCycleAnchorNow: false,
 			idempotencyKey: "sub-change:user_1:intent_2",
-			newPriceLookupKey: "pro_400_month",
+			newPriceLookupKey: "pro_500_month",
 			prorationDate: new Date("2026-08-01T12:34:56.000Z"),
 			providerSubscriptionId: "sub_1",
 		});
@@ -713,7 +713,7 @@ describe("StripeProvider", () => {
 			provider.changeSubscription({
 				billingCycleAnchorNow: false,
 				idempotencyKey: "sub-change:user_1:intent_2",
-				newPriceLookupKey: "pro_400_month",
+				newPriceLookupKey: "pro_500_month",
 				prorationDate: new Date("2026-08-01T12:34:56.000Z"),
 				providerSubscriptionId: "sub_1",
 			}),
@@ -725,7 +725,7 @@ describe("StripeProvider", () => {
 		subscription.metadata = {
 			wanditScheduleIntent: "sub-change:user_1:intent_1",
 			wanditScheduleOwner: "period_end_downgrade",
-			wanditScheduleTarget: "pro_200_month",
+			wanditScheduleTarget: "pro_250_month",
 		};
 		subscriptionsUpdate.mockRejectedValueOnce(
 			new Stripe.errors.StripeInvalidRequestError({

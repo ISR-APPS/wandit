@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export const AI_GATEWAY_MODELS_URL = "https://ai-gateway.vercel.sh/v1/models";
 export const DEFAULT_MODEL_PRICE_CACHE_TTL_MS = 60 * 60 * 1000;
-export const DEFAULT_USD_MICROS_PER_CREDIT = 40_000;
+export const DEFAULT_USD_MICROS_PER_CREDIT = 28_000;
 
 const POSTGRES_INTEGER_MAX = 2_147_483_647;
 const NON_NEGATIVE_DECIMAL_PATTERN = /^(?:0|[1-9]\d*)(?:\.\d+)?$/u;

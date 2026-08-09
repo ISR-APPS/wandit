@@ -82,9 +82,9 @@ export const env = createEnv({
 			.min(1)
 			.default("openai/gpt-4o-mini-transcribe"),
 		// Provider spend converted into whole customer credits at settlement.
-		// $0.04/credit is the product margin anchor from pricing v2: 200 credits
-		// per $30 Pro month carry $8 of AI-provider value.
-		AI_USD_PER_CREDIT: z.coerce.number().positive().default(0.04),
+		// $0.028/credit is the product margin anchor from pricing v3: 250 credits
+		// per $25 Pro month carry $7 of AI-provider value ($7 / 250 = $0.028).
+		AI_USD_PER_CREDIT: z.coerce.number().positive().default(0.028),
 		// Page generation foundation (Trigger.dev queue + Cloudflare R2 storage).
 		// All optional: the server must boot before these creds exist; the
 		// generate_page tool checks at call time and answers gracefully when

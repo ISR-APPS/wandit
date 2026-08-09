@@ -193,7 +193,7 @@ describe("model pricing math", () => {
 
 	it("applies max(1, ceil(cost / usdPerCredit))", () => {
 		expect(usdMicrosToCredits(0)).toBe(1);
-		expect(usdMicrosToCredits(40_000)).toBe(1);
+		expect(usdMicrosToCredits(28_000)).toBe(1);
 		expect(usdMicrosToCredits(50_001)).toBe(2);
 		expect(usdMicrosToCredits(125_000, 50_000)).toBe(3);
 	});
