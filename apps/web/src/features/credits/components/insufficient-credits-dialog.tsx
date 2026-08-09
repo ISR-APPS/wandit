@@ -8,6 +8,7 @@ import {
 	DialogTitle,
 } from "@wandit/ui/components/dialog";
 import { useBillingModal } from "@/features/billing/components/billing-modal-provider";
+import { usePurchasesEnabled } from "@/features/billing/lib/purchases";
 import { useTranslation } from "@/lib/i18n";
 
 type InsufficientCreditsDialogProps = {
@@ -23,6 +24,7 @@ export function InsufficientCreditsDialog({
 }: InsufficientCreditsDialogProps) {
 	const { t } = useTranslation();
 	const { openPlanPicker } = useBillingModal();
+	const purchasesEnabled = usePurchasesEnabled();
 	const handleUpgrade = () => {
 		onOpenChange(false);
 		openPlanPicker();
@@ -45,11 +47,14 @@ export function InsufficientCreditsDialog({
 						<span className="font-medium font-mono tabular-nums">{cost}</span>
 					</div>
 				</div>
-				<DialogFooter>
-					<Button type="button" onClick={handleUpgrade} className="w-full">
-						{t("credits.topUpDialog")}
-					</Button>
-				</DialogFooter>
+				{/* No purchase CTA while all purchases are paused (beta). */}
+				{purchasesEnabled !== false ? (
+					<DialogFooter>
+						<Button type="button" onClick={handleUpgrade} className="w-full">
+							{t("credits.topUpDialog")}
+						</Button>
+					</DialogFooter>
+				) : null}
 			</DialogContent>
 		</Dialog>
 	);

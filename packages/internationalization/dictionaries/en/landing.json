@@ -13,7 +13,8 @@
 		"signIn": "Sign in",
 		"getStarted": "Get started",
 		"dashboard": "Dashboard",
-		"backToTop": "Wandit — back to top"
+		"backToTop": "Wandit — back to top",
+		"home": "Wandit — home"
 	},
 	"hero": {
 		"eyebrow": "WANDIT — THE AI BUSINESS BUILDER",
@@ -158,6 +159,10 @@
 		}
 	},
 	"pricing": {
+		"meta": {
+			"title": "Pricing — Wandit",
+			"description": "Start free and go Pro when you need more credits. Simple monthly or yearly pricing."
+		},
 		"kicker": "Pricing",
 		"title": "One plan. Pick your pace.",
 		"note": "Publishing is always free. AI actions, including lead collection, use credits.",

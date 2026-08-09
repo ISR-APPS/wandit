@@ -16,7 +16,8 @@
 		"title": "Tu n'as plus de crédits",
 		"body": "Passe à une offre supérieure pour continuer à créer.",
 		"memberBody": "Cet espace de travail n'a plus de crédits. Demande à un propriétaire de mettre à niveau l'offre.",
-		"cta": "Mettre à niveau"
+		"cta": "Mettre à niveau",
+		"pausedBody": "L'achat de crédits est en pause pendant la bêta."
 	},
 	"buckets": {
 		"plan": "Offre",
