@@ -30,10 +30,7 @@ import { domainLiveUrl } from "@/features/domains/lib/helpers";
 import { useTranslation } from "@/lib/i18n";
 import { PUBLISHED_DOMAIN } from "../../lib/constants";
 import { isValidSlug } from "../../lib/helpers";
-import {
-	canPublish as canPublishFor,
-	displaySlug,
-} from "../../lib/publish-state";
+import { displaySlug, publishableVersion } from "../../lib/publish-state";
 import { useWorkspace } from "../../lib/store";
 import { DomainPurchaseDialog } from "./domain-purchase-dialog";
 
@@ -46,10 +43,11 @@ export function PublishPopover() {
 		project,
 		projectId,
 		previewVersion,
-		isPreviewingHistorical,
 		publish,
 		publishPending,
+		serverActiveVersion,
 		updateSlug,
+		versions,
 	} = useWorkspace();
 	const domains = useDomainsQuery(projectId);
 	const customDomain =
@@ -80,13 +78,20 @@ export function PublishPopover() {
 	const publishing = deployment.uiState === "publishing" || publishPending;
 	const published = deployment.uiState === "published";
 	const failed = deployment.uiState === "failed";
-	const canPublish =
-		Boolean(previewVersion) &&
-		(canPublishFor(deployment) || isPreviewingHistorical) &&
-		!publishPending;
-	const historicalVersionNumber = isPreviewingHistorical
-		? (previewVersion?.number ?? null)
-		: null;
+	const versionToPublish = publishableVersion(
+		deployment,
+		previewVersion,
+		serverActiveVersion,
+	);
+	const canPublish = versionToPublish !== null && !publishPending;
+	const publishableVersionNumber = versionToPublish?.number ?? null;
+	const liveVersionNumber =
+		versions.find((version) => version.id === deployment.publishedVersionId)
+			?.number ?? null;
+	const latestVersionNeedsPublishing =
+		published &&
+		serverActiveVersion !== null &&
+		serverActiveVersion.id !== deployment.publishedVersionId;
 
 	const saveSlug = () => {
 		const normalized = isValidSlug(slugDraft) ? slugDraft : slug;
@@ -106,8 +111,9 @@ export function PublishPopover() {
 	};
 
 	const requestPublish = () => {
+		if (versionToPublish === null) return;
 		setPopoverOpen(false);
-		publish();
+		publish({ version: versionToPublish });
 	};
 
 	const handlePurchaseOpenChange = (nextOpen: boolean) => {
@@ -122,7 +128,9 @@ export function PublishPopover() {
 	const triggerLabel = publishing
 		? t("workspace.publish.publishing")
 		: published
-			? t("workspace.publish.published")
+			? latestVersionNeedsPublishing
+				? t("workspace.publish.update")
+				: t("workspace.publish.published")
 			: t("workspace.publish.publish");
 
 	return (
@@ -132,7 +140,7 @@ export function PublishPopover() {
 					<Button size="sm" className="h-8 px-4">
 						{publishing ? (
 							<Loader2 data-icon="inline-start" className="animate-spin" />
-						) : published ? (
+						) : published && !latestVersionNeedsPublishing ? (
 							<Check data-icon="inline-start" />
 						) : (
 							<ArrowUp data-icon="inline-start" />
@@ -160,10 +168,13 @@ export function PublishPopover() {
 					<PopoverArrow className="size-3" />
 					{customDomain && published ? (
 						<CustomDomainLiveContent
+							canPublish={canPublish}
 							domain={customDomain}
+							latestVersionNeedsPublishing={latestVersionNeedsPublishing}
+							liveVersionNumber={liveVersionNumber}
+							publishableVersionNumber={publishableVersionNumber}
 							subdomain={subdomain}
 							subdomainPublishing={publishing}
-							historicalVersionNumber={historicalVersionNumber}
 							onCopy={copyUrl}
 							onPublish={requestPublish}
 						/>
@@ -173,10 +184,13 @@ export function PublishPopover() {
 							slugDraft={slugDraft}
 							subdomain={subdomain}
 							live={published}
+							latestVersionNeedsPublishing={latestVersionNeedsPublishing}
+							liveVersionNumber={liveVersionNumber}
 							publishing={publishing}
 							failed={failed}
 							failedDetail={deployment.error}
 							canPublish={canPublish}
+							publishableVersionNumber={publishableVersionNumber}
 							editingSlug={editingSlug}
 							onSlugDraftChange={setSlugDraft}
 							onEditSlug={() => setEditingSlug(true)}
@@ -187,7 +201,6 @@ export function PublishPopover() {
 							onSaveSlug={saveSlug}
 							onCopy={copyUrl}
 							onOpenPurchase={openPurchase}
-							historicalVersionNumber={historicalVersionNumber}
 							onPublish={requestPublish}
 						/>
 					)}
@@ -205,8 +218,12 @@ export function PublishPopover() {
 }
 
 function PublishStatusHeader({
+	latestVersionNeedsPublishing,
+	liveVersionNumber,
 	state,
 }: {
+	latestVersionNeedsPublishing: boolean;
+	liveVersionNumber: number | null;
 	state: "draft" | "publishing" | "published" | "failed";
 }) {
 	const { t } = useTranslation();
@@ -240,7 +257,11 @@ function PublishStatusHeader({
 				</div>
 				{state === "published" ? (
 					<div className="mt-0.5 text-muted-foreground text-xs">
-						{t("workspace.publish.popover.publishedMeta")}
+						{latestVersionNeedsPublishing && liveVersionNumber !== null
+							? t("workspace.publish.popover.liveVersionMeta", {
+									n: liveVersionNumber,
+								})
+							: t("workspace.publish.popover.publishedMeta")}
 					</div>
 				) : null}
 			</div>
@@ -253,10 +274,13 @@ function SubdomainContent({
 	slugDraft,
 	subdomain,
 	live,
+	latestVersionNeedsPublishing,
+	liveVersionNumber,
 	publishing,
 	failed,
 	failedDetail,
 	canPublish,
+	publishableVersionNumber,
 	editingSlug,
 	onSlugDraftChange,
 	onEditSlug,
@@ -264,17 +288,19 @@ function SubdomainContent({
 	onSaveSlug,
 	onCopy,
 	onOpenPurchase,
-	historicalVersionNumber,
 	onPublish,
 }: {
 	slug: string;
 	slugDraft: string;
 	subdomain: string;
 	live: boolean;
+	latestVersionNeedsPublishing: boolean;
+	liveVersionNumber: number | null;
 	publishing: boolean;
 	failed: boolean;
 	failedDetail: string | null;
 	canPublish: boolean;
+	publishableVersionNumber: number | null;
 	editingSlug: boolean;
 	onSlugDraftChange: (value: string) => void;
 	onEditSlug: () => void;
@@ -282,7 +308,6 @@ function SubdomainContent({
 	onSaveSlug: () => void;
 	onCopy: (url: string) => Promise<void>;
 	onOpenPurchase: () => void;
-	historicalVersionNumber: number | null;
 	onPublish: () => void;
 }) {
 	const { t } = useTranslation();
@@ -297,7 +322,11 @@ function SubdomainContent({
 
 	return (
 		<>
-			<PublishStatusHeader state={state} />
+			<PublishStatusHeader
+				latestVersionNeedsPublishing={latestVersionNeedsPublishing}
+				liveVersionNumber={liveVersionNumber}
+				state={state}
+			/>
 
 			<div className="flex flex-col gap-[9px] px-4 pb-3.5">
 				<div className="mt-0.5 font-medium text-muted-foreground text-xs">
@@ -419,7 +448,12 @@ function SubdomainContent({
 					)}
 				>
 					{live
-						? t("workspace.publish.popover.publishedHint")
+						? publishableVersionNumber !== null && liveVersionNumber !== null
+							? t("workspace.publish.popover.updateHint", {
+									live: liveVersionNumber,
+									n: publishableVersionNumber,
+								})
+							: t("workspace.publish.popover.publishedHint")
 						: failed
 							? (failedDetail ?? t("workspace.publish.failedHint"))
 							: t("workspace.publish.popover.freeTiming")}
@@ -432,7 +466,7 @@ function SubdomainContent({
 								{t("workspace.publish.popover.openLivePage")}
 							</a>
 						</Button>
-						{historicalVersionNumber !== null ? (
+						{publishableVersionNumber !== null ? (
 							<Button
 								size="lg"
 								onClick={onPublish}
@@ -441,7 +475,7 @@ function SubdomainContent({
 							>
 								<ArrowUp data-icon="inline-start" />
 								{t("workspace.publish.confirmVersion", {
-									n: historicalVersionNumber,
+									n: publishableVersionNumber,
 								})}
 							</Button>
 						) : null}
@@ -470,17 +504,23 @@ function SubdomainContent({
 }
 
 export function CustomDomainLiveContent({
+	canPublish,
 	domain,
+	latestVersionNeedsPublishing,
+	liveVersionNumber,
+	publishableVersionNumber,
 	subdomain,
 	subdomainPublishing,
-	historicalVersionNumber,
 	onCopy,
 	onPublish,
 }: {
+	canPublish: boolean;
 	domain: Pick<Domain, "isPrimary" | "name" | "source">;
+	latestVersionNeedsPublishing: boolean;
+	liveVersionNumber: number | null;
+	publishableVersionNumber: number | null;
 	subdomain: string;
 	subdomainPublishing: boolean;
-	historicalVersionNumber: number | null;
 	onCopy: (url: string) => Promise<void>;
 	onPublish: () => void;
 }) {
@@ -489,7 +529,11 @@ export function CustomDomainLiveContent({
 
 	return (
 		<>
-			<PublishStatusHeader state="published" />
+			<PublishStatusHeader
+				latestVersionNeedsPublishing={latestVersionNeedsPublishing}
+				liveVersionNumber={liveVersionNumber}
+				state="published"
+			/>
 
 			<div className="flex flex-col gap-[9px] px-4 pb-3.5">
 				<div className="mt-0.5 font-medium text-muted-foreground text-xs">
@@ -569,16 +613,16 @@ export function CustomDomainLiveContent({
 							{t("workspace.publish.popover.openDomain")}
 						</a>
 					</Button>
-					{historicalVersionNumber !== null ? (
+					{publishableVersionNumber !== null ? (
 						<Button
 							size="lg"
 							onClick={onPublish}
-							disabled={subdomainPublishing}
+							disabled={!canPublish || subdomainPublishing}
 							dir="auto"
 						>
 							<ArrowUp data-icon="inline-start" />
 							{t("workspace.publish.confirmVersion", {
-								n: historicalVersionNumber,
+								n: publishableVersionNumber,
 							})}
 						</Button>
 					) : null}

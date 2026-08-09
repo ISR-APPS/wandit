@@ -31,8 +31,8 @@ import {
 import { PUBLISHED_DOMAIN, SLUG_CHECK_DEBOUNCE_MS } from "../../lib/constants";
 import { isValidSlug } from "../../lib/helpers";
 import {
-	canPublish as canPublishFor,
 	displaySlug,
+	publishableVersion,
 	slugVerdict,
 } from "../../lib/publish-state";
 import { useWorkspace } from "../../lib/store";
@@ -46,10 +46,10 @@ export function PublishSection() {
 		project,
 		projectId,
 		previewVersion,
-		isPreviewingHistorical,
 		publish,
 		publishPending,
 		rollbackTo,
+		serverActiveVersion,
 		unpublish,
 		updateSlug,
 		versions,
@@ -112,10 +112,12 @@ export function PublishSection() {
 		[versions],
 	);
 
-	const canPublish =
-		Boolean(previewVersion) &&
-		(canPublishFor(deployment) || isPreviewingHistorical) &&
-		!publishPending;
+	const versionToPublish = publishableVersion(
+		deployment,
+		previewVersion,
+		serverActiveVersion,
+	);
+	const canPublish = versionToPublish !== null && !publishPending;
 
 	// "Made with Wandit" badge: shown on every published page; only an
 	// entitled (paid) owner can switch it off. The server enforces the same
@@ -191,6 +193,7 @@ export function PublishSection() {
 							</p>
 							<Button
 								onClick={() => {
+									if (versionToPublish === null) return;
 									// Carry a valid unsaved slug edit into the publish so the
 									// site doesn't go live on a stale name-derived slug.
 									const publishSlug =
@@ -200,7 +203,7 @@ export function PublishSection() {
 									if (publishSlug) {
 										updateSlug(slug);
 									}
-									publish(publishSlug ? { slug: publishSlug } : undefined);
+									publish({ slug: publishSlug, version: versionToPublish });
 								}}
 								disabled={!canPublish || publishing}
 							>
@@ -222,15 +225,15 @@ export function PublishSection() {
 					) : null}
 					{liveUrl ? (
 						<div className="flex flex-wrap items-center gap-2">
-							{isPreviewingHistorical && previewVersion ? (
+							{versionToPublish !== null ? (
 								<Button
 									size="sm"
-									onClick={() => publish()}
+									onClick={() => publish({ version: versionToPublish })}
 									disabled={!canPublish || publishing}
 									dir="auto"
 								>
 									{t("workspace.publish.confirmVersion", {
-										n: previewVersion.number,
+										n: versionToPublish.number,
 									})}
 								</Button>
 							) : null}

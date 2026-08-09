@@ -106,8 +106,8 @@ type WorkspaceContextValue = {
 	generationPhase: GenerationPhase;
 	isGenerating: boolean;
 	pendingVersionNumber: number;
-	/** Opens the version-aware confirmation for the resolved canvas version. */
-	publish: (options?: { slug?: string }) => void;
+	/** Opens the version-aware confirmation, defaulting to the resolved canvas version. */
+	publish: (options?: { slug?: string; version?: PreviewVersion }) => void;
 	publishCandidateVersion: PreviewVersion | null;
 	confirmPublish: () => void;
 	cancelPublish: () => void;
@@ -305,11 +305,12 @@ export function WorkspaceProvider({
 	);
 
 	const publish = useCallback(
-		(options?: { slug?: string }) => {
-			if (!previewVersion || publishMutation.isPending) return;
+		(options?: { slug?: string; version?: PreviewVersion }) => {
+			const version = options?.version ?? previewVersion;
+			if (!version || publishMutation.isPending) return;
 			const slug = options?.slug ?? draftSlug;
 			setPublishCandidate({
-				version: previewVersion,
+				version,
 				...(slug ? { slug } : {}),
 			});
 		},
