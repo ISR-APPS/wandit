@@ -21,12 +21,13 @@ export const BUILDER_MODEL_BY_OPTION: Record<string, string> = {
 
 type BuilderReasoningEffort = typeof env.AI_PAGE_DESIGN_REASONING;
 
+// Per-model overrides beat AI_PAGE_DESIGN_REASONING. Empty on purpose: the
+// env knob is the single source of truth (luna's forced "xhigh" was removed —
+// it silently ignored the env and doubled build latency/cost).
 export const BUILDER_REASONING_EFFORT_BY_MODEL: Record<
 	string,
 	BuilderReasoningEffort
-> = {
-	"openai/gpt-5.6-luna": "xhigh",
-};
+> = {};
 
 export function resolveBuilderModelOption(value: unknown): string | undefined {
 	return typeof value === "string" ? BUILDER_MODEL_BY_OPTION[value] : undefined;
