@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { z } from "zod";
 
 import type { MeteringService } from "../../../metering/application/services/metering.service";
+import { BUILDER_REASONING_EFFORT_BY_MODEL } from "../tools/builder-model-options";
 import type { BuildProgressEvent } from "./build-progress";
 import { buildSiteBuilderSystemPrompt } from "./builder-prompt";
 import { buildCodSiteBuilderSystemPrompt } from "./cod-builder-prompt";
@@ -20,7 +21,6 @@ import {
 	fallbackBuildSummary,
 	MAX_SCREENSHOT_PASSES,
 	REQUIRED_SCREENSHOT_PASSES,
-	resolveBuilderReasoningEffort,
 	runSiteBuild,
 } from "./site-builder-agent";
 import { VirtualFileSystem } from "./virtual-files";
@@ -2243,8 +2243,8 @@ describe("runSiteBuild", () => {
 		);
 	});
 
-	it("uses the per-model override for luna", () => {
-		expect(resolveBuilderReasoningEffort("openai/gpt-5.6-luna")).toBe("xhigh");
+	it("has no per-model reasoning override — the env knob is authoritative", () => {
+		expect(BUILDER_REASONING_EFFORT_BY_MODEL).toEqual({});
 	});
 
 	it("ships a valid step-limit revision and aggregates usage", async () => {
