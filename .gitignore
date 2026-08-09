@@ -2,6 +2,7 @@
 node_modules
 .pnp
 .pnp.js
+.pnpm-store/
 
 # Build outputs
 dist
@@ -9,7 +10,7 @@ build
 *.tsbuildinfo
 
 # Generated files
-apps/web/src/routeTree.gen.ts
+apps/*/src/routeTree.gen.ts
 
 # Environment variables
 .env
@@ -17,7 +18,6 @@ apps/web/src/routeTree.gen.ts
 
 # IDEs and editors
 .vscode/*
-!.vscode/settings.json
 !.vscode/tasks.json
 !.vscode/launch.json
 !.vscode/extensions.json
@@ -56,5 +56,14 @@ temp
 
 _admin-dashboard
 _production-ex
+_heroui-example
 # Playwright MCP session artifacts
 .playwright-mcp/
+
+# Claude Code worktrees
+.claude/worktrees/
+
+_cc-harness
+
+# Third-party references
+references/

@@ -1,0 +1,54 @@
+{
+	"chipAriaLabel": "رصيدك الحالي",
+	"balanceLabel": "الرصيد",
+	"balanceUnavailableShort": "الأرصدة —",
+	"balanceLoadError": "تعذر تحميل رصيدك. حاول مرة أخرى.",
+	"recentActivity": "النشاط الأخير",
+	"emptyLedger": "لا يوجد نشاط بعد.",
+	"ledgerLoadError": "تعذر تحميل نشاط الأرصدة.",
+	"topUpChip": "شحن الأرصدة",
+	"manageBilling": "عرض الفوترة",
+	"topUpDialog": "عرض الخطط وحزم الشحن",
+	"insufficientTitle": "الرصيد غير كافٍ",
+	"insufficientBody": "يتطلب هذا الإجراء أرصدة أكثر من رصيدك الحالي.",
+	"costLabel": "التكلفة",
+	"outOfCredits": {
+		"title": "نفد رصيدك",
+		"body": "قم بترقية خطتك لمواصلة الإنشاء.",
+		"memberBody": "نفد رصيد مساحة العمل هذه. اطلب من مالك مساحة العمل ترقية الخطة.",
+		"cta": "ترقية الخطة",
+		"pausedBody": "شراء الرصيد متوقف مؤقتًا خلال النسخة التجريبية."
+	},
+	"buckets": {
+		"plan": "الخطة",
+		"promo": "ترويجية",
+		"topup": "الشحن"
+	},
+	"ledgerKinds": {
+		"grant": "أرصدة ممنوحة",
+		"consume": "أرصدة مستخدمة",
+		"topup": "أرصدة مشتراة",
+		"expire": "أرصدة منتهية",
+		"revoke": "أرصدة مسترجعة"
+	},
+	"creditUnit": {
+		"zero": "{count} رصيد",
+		"one": "رصيد واحد",
+		"two": "رصيدان",
+		"few": "{count} أرصدة",
+		"many": "{count} رصيدًا",
+		"other": "{count} رصيد"
+	},
+	"priceTag": {
+		"zero": "{action} — {count} رصيد",
+		"one": "{action} — رصيد واحد",
+		"two": "{action} — رصيدان",
+		"few": "{action} — {count} أرصدة",
+		"many": "{action} — {count} رصيدًا",
+		"other": "{action} — {count} رصيد"
+	},
+	"actions": {
+		"generation": "توليد",
+		"chatMessage": "إرسال"
+	}
+}

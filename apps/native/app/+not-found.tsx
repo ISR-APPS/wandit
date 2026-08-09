@@ -1,3 +1,4 @@
+import { useTranslation } from "@wandit/internationalization/react";
 import { Link, Stack } from "expo-router";
 import { Button, Surface } from "heroui-native";
 import { Text, View } from "react-native";
@@ -5,9 +6,11 @@ import { Text, View } from "react-native";
 import { Container } from "@/components/container";
 
 export default function NotFoundScreen() {
+	const { t } = useTranslation();
+
 	return (
 		<>
-			<Stack.Screen options={{ title: "Not Found" }} />
+			<Stack.Screen options={{ title: t("native.notFound.screenTitle") }} />
 			<Container>
 				<View className="flex-1 items-center justify-center p-4">
 					<Surface
@@ -16,13 +19,13 @@ export default function NotFoundScreen() {
 					>
 						<Text className="mb-3 text-4xl">🤔</Text>
 						<Text className="mb-1 font-medium text-foreground text-lg">
-							Page Not Found
+							{t("native.notFound.title")}
 						</Text>
 						<Text className="mb-4 text-center text-muted text-sm">
-							The page you're looking for doesn't exist.
+							{t("native.notFound.description")}
 						</Text>
 						<Link href="/" asChild>
-							<Button size="sm">Go Home</Button>
+							<Button size="sm">{t("native.notFound.goHome")}</Button>
 						</Link>
 					</Surface>
 				</View>

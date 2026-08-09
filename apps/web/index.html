@@ -1,25 +1,33 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Wandit</title>
-    <meta
-      name="description"
-      content="Wandit turns a prompt into a ready-to-run landing page — publish and collect orders in minutes."
-    />
-    <meta name="theme-color" content="#191613" />
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400..800&family=Instrument+Sans:ital,wght@0,400..700;1,400..700&family=Geist+Mono:wght@400;500&display=swap"
-      rel="stylesheet"
-    />
-  </head>
+	<head>
+		<meta charset="UTF-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+		<title>Wandit</title>
+		<script>
+			(() => {
+				try {
+					const locale = window.localStorage.getItem("wandit-locale");
+					if (!["en", "fr", "ar"].includes(locale)) {
+						return;
+					}
+					document.documentElement.lang = locale;
+					document.documentElement.dir = locale === "ar" ? "rtl" : "ltr";
+				} catch {}
+			})();
+		</script>
+		<meta name="theme-color" content="#191613" />
+		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+		<link rel="preconnect" href="https://fonts.googleapis.com" />
+		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+		<link
+			href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400..700&family=Geist+Mono:wght@400;500&family=Noto+Sans+Arabic:wght@400..700&display=swap"
+			rel="stylesheet"
+		/>
+	</head>
 
-  <body>
-    <div id="app"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
+	<body>
+		<div id="app"></div>
+		<script type="module" src="/src/main.tsx"></script>
+	</body>
 </html>

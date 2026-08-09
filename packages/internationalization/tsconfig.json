@@ -1,0 +1,10 @@
+{
+	"extends": "@wandit/config/tsconfig.base.json",
+	"compilerOptions": {
+		"composite": true,
+		"jsx": "react-jsx",
+		"outDir": "dist",
+		"resolveJsonModule": true
+	},
+	"include": ["src", "dictionaries/**/*.json"]
+}

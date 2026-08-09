@@ -1,12 +1,35 @@
+autoInstallPeers: false
 packages:
   - apps/*
   - packages/*
+overrides:
+  # @trigger.dev/core pins 1.0.14, whose stream pause/teardown leaks
+  # "pause-stream" / AbortError unhandled rejections and silently kills the
+  # realtime run stream on tab switch — all fixed by 1.1.0+ (a328418) and the
+  # 1.5.x pause/resume state machine. Drop when trigger.dev bumps its pin.
+  # 1.5.24 (not .25): dist is byte-identical, but .24 has a month of soak and
+  # keeps the minimum-release-age supply-chain guard intact.
+  "@electric-sql/client": 1.5.24
 allowBuilds:
   esbuild: true
   msw: true
   msgpackr-extract: true
+  sharp: false
+  workerd: false
+  "@sentry/cli": true
+  core-js: false
+  protobufjs: false
 catalog:
   dotenv: ^17.2.2
+  # Sentry SDKs must stay in version lockstep — bump all five together.
+  "@sentry/nestjs": 10.69.0
+  "@sentry/node": 10.69.0
+  "@sentry/react": 10.69.0
+  "@sentry/cloudflare": 10.69.0
+  "@sentry/vite-plugin": 5.4.0
+  "@sentry/esbuild-plugin": 5.4.0
+  posthog-js: 1.359.1
+  posthog-node: 5.28.0
   zod: ^4.1.13
   typescript: ^6
   better-auth: 1.6.22

@@ -1,7 +1,11 @@
+import {
+	useDictionary,
+	useTranslation,
+} from "@wandit/internationalization/react";
 import { cn } from "@wandit/ui/lib/utils";
 import type * as React from "react";
 
-import { EXAMPLES, type ExampleItem } from "../lib/constants";
+import { EXAMPLE_ITEMS, type ExampleItemId } from "../lib/constants";
 import { Reveal } from "./reveal";
 import { SectionHeader } from "./section-header";
 
@@ -178,20 +182,27 @@ function PageArt({ art }: { art: ArtConfig }) {
 }
 
 function ExampleCard({
-	item,
+	id,
+	rtl,
+	name,
+	category,
 	onUse,
 }: {
-	item: ExampleItem;
+	id: ExampleItemId;
+	rtl?: boolean;
+	name: string;
+	category: string;
 	onUse: () => void;
 }) {
-	const art = ART[item.id] ?? FALLBACK_ART;
+	const { t } = useTranslation();
+	const art = ART[id] ?? FALLBACK_ART;
 
 	return (
 		<button
 			type="button"
 			onClick={onUse}
-			aria-label={`Start from example: ${item.name}`}
-			className="group w-full rounded-2xl border border-border bg-card/60 p-3 text-left outline-none transition-all duration-200 hover:-translate-y-1 hover:border-primary/40 hover:shadow-[0_16px_48px_-16px_color-mix(in_oklab,var(--color-primary)_30%,transparent)] focus-visible:ring-[3px] focus-visible:ring-ring/50"
+			aria-label={t("landing.examples.startFrom", { name })}
+			className="group w-full rounded-2xl border border-border bg-card/60 p-3 text-start outline-none transition-all duration-200 hover:-translate-y-1 hover:border-primary/40 hover:shadow-[0_16px_48px_-16px_color-mix(in_oklab,var(--color-primary)_30%,transparent)] focus-visible:ring-[3px] focus-visible:ring-ring/50"
 		>
 			<div className="overflow-hidden rounded-lg border border-border/70 bg-background">
 				{/* Browser chrome — traffic lights */}
@@ -201,22 +212,22 @@ function ExampleCard({
 					<span className="size-2 rounded-full bg-[#43c25b]/70" />
 					<span className="ms-2 h-2.5 flex-1 rounded-full bg-foreground/[0.06]" />
 				</div>
-				<div dir={item.rtl ? "rtl" : undefined} className="aspect-[4/3] p-2.5">
+				<div dir={rtl ? "rtl" : undefined} className="aspect-[4/3] p-2.5">
 					<PageArt art={art} />
 				</div>
 			</div>
 			<div className="mt-3 flex items-center justify-between gap-2 px-1 pb-0.5">
 				<span className="truncate font-display font-semibold text-sm tracking-[-0.01em]">
-					{item.name}
+					{name}
 				</span>
 				<span className="flex shrink-0 items-center gap-1.5">
-					{item.rtl ? (
+					{rtl ? (
 						<span className="rounded border border-border px-1 py-px font-mono text-[10px] text-muted-foreground">
-							RTL
+							{t("landing.examples.rtlBadge")}
 						</span>
 					) : null}
 					<span className="rounded-full border border-border px-2 py-0.5 text-[11px] text-muted-foreground">
-						{item.category}
+						{category}
 					</span>
 				</span>
 			</div>
@@ -229,23 +240,32 @@ type ExamplesProps = {
 };
 
 export function Examples({ onUseExample }: ExamplesProps) {
+	const { t } = useTranslation();
+	const examples = useDictionary().landing.examples;
+
 	return (
 		<section id="examples" className="scroll-mt-20 px-4 py-16 md:py-24">
 			<div className="mx-auto max-w-6xl">
 				<SectionHeader
-					kicker={EXAMPLES.kicker}
-					title={EXAMPLES.title}
-					sub={EXAMPLES.sub}
+					kicker={t("landing.examples.kicker")}
+					title={t("landing.examples.title")}
+					sub={t("landing.examples.sub")}
 				/>
 				<div className="grid gap-4 sm:grid-cols-2 md:gap-5 lg:grid-cols-3">
-					{EXAMPLES.items.map((item, index) => (
-						<Reveal key={item.id} delay={(index % 3) * 0.07}>
-							<ExampleCard
-								item={item}
-								onUse={() => onUseExample(item.prompt)}
-							/>
-						</Reveal>
-					))}
+					{EXAMPLE_ITEMS.map((item, index) => {
+						const copy = examples.items[item.id];
+						return (
+							<Reveal key={item.id} delay={(index % 3) * 0.07}>
+								<ExampleCard
+									id={item.id}
+									rtl={item.rtl}
+									name={copy.name}
+									category={copy.category}
+									onUse={() => onUseExample(copy.prompt)}
+								/>
+							</Reveal>
+						);
+					})}
 				</div>
 			</div>
 		</section>

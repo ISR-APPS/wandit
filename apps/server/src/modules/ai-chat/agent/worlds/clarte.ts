@@ -1,0 +1,233 @@
+import type { DesignWorld } from "./types";
+
+/**
+ * CLARTÉ — the light counterpart of MONOGRAPHE: porcelain-paper editorial calm
+ * for practices that are chosen, not bought. Same publication grammar (hairline
+ * rules, running heads, plate captions, sub-400 serif display), inverted into a
+ * warm off-white world where AIR is the luxury and nothing on the page shouts.
+ * The doc is appended VERBATIM to the builder system prompt.
+ */
+export const clarte: DesignWorld = {
+	avoidFor: ["nightclub", "gaming", "streetwear", "party"],
+	doc: `# DESIGN WORLD: CLARTÉ — the porcelain consultation
+
+## Philosophy
+This page is a QUIET PUBLICATION about a practice — a printed practice brochure, a care journal, the wall text of a very calm room — typeset for the screen on warm off-white paper. It is the LIGHT counterpart of the architectural monograph: the same grammar (hairline rules, running heads, plate captions, folio indices, sub-400-weight serif display) inverted from a night field into daylight. Where the dark monograph sells scarcity, this world sells COMPETENCE AND CALM. Its visitor is choosing a dentist, a physiotherapist, a nutritionist, an architect, a consultant — someone they will sit across from, possibly while anxious. The page's job is to lower a heart rate and then make one appointment feel obvious.
+
+Three laws hold it up.
+1. AIR IS THE LUXURY — emptiness, held with nerve. At 1440px at least 38 percent of every scene's height is unmarked paper, and one scene per page lets its content occupy no more than 46 percent of the width. A generic page fills space because space feels like waste; this world spends space because space is the product.
+2. HAIRLINE STRUCTURE. There are no boxes. Separation is 1px rules at 11-14 percent ink alpha, tone steps of 2-5 RGB points between three near-identical papers, and sheer distance. Ink at alpha does every secondary job — border, caption, placeholder, disabled state. No independent gray exists in the stylesheet.
+3. NO NIGHT. This world never inverts to a dark chapter, not once, not even in the footer. Variety comes from three papers, one accent wash, and photographs of light.
+
+## The vibe
+Unhurried, exact, humane — the practitioner writing to a patient they respect, never a clinic marketing to a lead. Copy rules, non-negotiable:
+- ZERO exclamation marks on the page. Not one, including the success state.
+- Sentences are short and end in a full stop, two clauses maximum, the second carrying the turn. Every big headline gets exactly ONE turn word in serif italic in the accent — never two.
+- Every reassurance is a FACT WITH A REASON, never an adjective: not "rapid appointments" but "A slot within 48 hours, because pain does not wait." Not "modern equipment" but "Digital radiography — one tenth of the dose of film."
+- Errors are full sentences in brand voice and never blame: "We need a number we can reach you on." The one place warmth breaks the reserve is the confirmation, which uses the name the person typed.
+- Banned in every language: solutions, seamless, elevate, experience (as a vague noun), transform, revolutionary, premium, cutting-edge, and their French and Arabic equivalents. Write in the brief's language; these rules hold in French, Arabic and English alike.
+
+## Visual signatures (what makes it instantly recognizable)
+- A warm off-white field with enormous margins and hairline-weight serif display at sizes that would be arrogant if the page were not so quiet.
+- ZERO cards, ZERO coloured section blocks, ZERO icon grids. Exactly ONE box-shadow exists in the stylesheet, and it is enormous, soft and nearly invisible.
+- THE ARCH PLATE: every photograph is a plate whose TOP TWO corners are heavily rounded and whose bottom corners are nearly square — a window, a porcelain form, a doorway — repeated at four scales. It is the world's only large radius.
+- Photographs are LIGHT and never end at an edge: they dissolve downward into a scrim whose final stop IS the page ground.
+- Hairlines everywhere, but INSET: rules stop short of both gutters by the gutter token, so they read as typeset rules on a page, not dividers in an interface. They DRAW on scroll (scaleX from the reading edge); they never fade in.
+- One muted botanical or mineral accent (sage, eucalyptus, clay, oat, slate-blue, moss, stone-ochre territory, from the brief) living almost entirely inside typography and hairlines, beside uppercase micro-labels in ink at 40 percent.
+- The page is silent: no marquee, no ticker, no spinning price, no bouncing chevron. The only ambient motion is daylight breathing behind the hero plate.
+
+## Color physics (route the brief's palette through the fixed tokens — the physics is law)
+FIXED TOKEN MAP — PAPER-00→--background · INK→--foreground · ACCENT→--primary · PAPER-00→--primary-foreground · PAPER-02→--secondary · ACCENT-DEEP→--accent · ink at 40%→--muted · ink at 13%→--border · 999px→--radius · DISPLAY→--font-heading · BODY→--font-body. These are the only CSS color/type/radius variables: every pole below is a prose role, literal register hexes belong only in these :root values, and every sibling or alpha step is a color-mix(in srgb, var(--foreground) N%, transparent), substituting the mapped fixed token for that pole, or a color-mix between two mapped fixed-token references. Every unmapped role below MUST reuse the nearest mapped token or such a mix; it never gets another custom property or literal. Non-color mechanics may keep their own custom properties. Any rgba(POLE, a) notation below is design shorthand for that color-mix, never emitted CSS.
+Build ten tonal roles from the fixed tokens; never introduce an eleventh hue.
+- PAPER-00 — the palette's lightest warm pole, the default ground. Tinted off-white in the #FBF8F3 register: never #ffffff, never #fafafa, never a cool gray-white. R greater than or equal to G greater than B, always.
+- PAPER-01 — the same paper 2-3 RGB points down (the #F7F3EC relationship), for alternating scenes.
+- PAPER-02 — 5-6 points down (the #F2EDE4 relationship), for the transactional chapter and the footer. THE TRIO MUST BE INDISTINGUISHABLE IN ISOLATION AND OBVIOUS IN SEQUENCE. If a screenshot makes a tone change look like two colours, the step is too large.
+- INK — the palette's dark pole, softened and warmed: never pure black, never #111. The #23201C / #1F2320 register, reading at 88-92 percent contrast against the paper, not 100.
+- THE ALPHA LADDER, the rule that makes this read as paper instead of as UI. Every secondary tone is ink at alpha from the same hex: headings rgba(ink,1) · body rgba(ink,.78) · lede and secondary rgba(ink,.62) · captions and micro-labels rgba(ink,.40) · placeholders rgba(ink,.34) · field rules rgba(ink,.20) · hairlines rgba(ink,.13) · tracks and disabled fills rgba(ink,.08). Any #888, #666 or slate value is a Pass-1 correctness bug here.
+- ACCENT — exactly ONE muted hue from the brief (botanical or mineral, never saturated, never anything that reads as a notification), plus ACCENT-DEEP for hover and for accent text that must pass contrast on paper.
+- ACCENT-WASH — the accent at .06-.09 alpha over PAPER-02, the ground of exactly ONE chapter per page. The page's only large colour field.
+- ERROR is not another pole: validation uses a contrast-safe color-mix between var(--primary) and var(--foreground), nowhere else.
+
+THE ACCENT'S TWELVE JOBS (global asks six; this world doubles it — use at least nine): the italic turn word in every big headline · the 44px tick opening a margin note · figure numbers · section indices · the hanging quote glyph · the focus ring · ::selection · the field rule and label on :focus-within · the journey's progress rail · the link underline as it draws · the drawn SVG icons in the trust strip · the pill border that fills on hover. An accent that appears only on a button has failed this world.
+
+Also required: color-scheme:light on :root and a theme-color meta equal to PAPER-00. ::selection is the accent at 18 percent with ink text — a tint, never a solid slab.
+
+## Typography system
+TWO families, sealed roles, plus a third register created for free from the display face's true italic.
+- DISPLAY — a variable serif with an optical-size axis and a real italic: Fraunces / Newsreader / Editorial-New / Instrument-Serif territory. Weights 250-360 ONLY, opsz driven explicitly toward its display end on the h1.
+- BODY — a quiet humanist sans in the General Sans / Instrument Sans / Söhne / Suisse territory. Weights 400 and 500 ONLY.
+- ITALIC SERIF — the display italic at 300-350, ONLY for accent fragments: the turn word, the pull-quote, the open-page line, the colophon's practice name.
+
+THE PAGE CONTAINS NO BOLD. No weight above 500 in the sans, above 400 in the serif, anywhere — including the sticky bar, the submit button and prices. Emphasis comes from SIZE, COLOUR and SPACE. This is the hardest rule here and the one that most separates this page from every generic clinic page on the internet.
+
+Scale — roughly 24:1, with a deliberately EMPTY MIDDLE:
+- Micro-label .66-.75rem uppercase / .18-.26em / sans 500 / rgba(ink,.40).
+- Body 1.0625rem / line-height 1.72 / tracking 0.
+- Lede clamp(1.12rem,1.6vw,1.42rem) / 1.55 / serif 300 / max-width 44ch.
+- Hero h1 clamp(2.9rem,7.6vw,7.4rem) / 1.02 / -.018em / serif 300 / max-width 13em.
+- Section h2 clamp(2.4rem,5.4vw,4.6rem) / 1.06 / -.012em / serif 300 / max-width 15em.
+- THE ONE MIDDLE STEP, the only licensed exception: clamp(1.22rem,1.9vw,1.38rem) serif 350 for care-step names, ledger row names, practitioner names. Nothing else lives between 1.42rem and 2.4rem.
+- Price and phone-as-typography clamp(1.9rem,4vw,3.1rem) serif 300, tabular.
+- Closing wordmark clamp(3.4rem,15vw,13rem) / .92 / letter-spacing POSITIVE .02em — hairline serif strokes at that size need air.
+Target a display-to-micro ratio of at least 20:1. A page whose largest type is 2.5rem has not understood this world.
+
+TRACKING IS A FUNCTION OF SIZE, inverted: -.018em above 96px · -.012em at 40-90px · -.005em at 24-40px · 0 at body · +.18em to +.26em at 10.5-12px uppercase. LINE-HEIGHT TIGHTENS AS SIZE GROWS: 1.72 body · 1.55 lede · 1.35 middle step · 1.06 section titles · 1.02 hero · .92 wordmark.
+
+NEVER LET A DISPLAY HEADLINE AUTO-WRAP. Break every h1 and h2 into explicit block-level line spans so the rag is AUTHORED, and reuse those spans as the masked-rise targets.
+
+THE ITALIC TURN — one class, once per big headline: serif, italic, weight 320, colour accent-deep, letter-spacing 0 to cancel the display face's negative tracking, font-size 1.02em so it optically matches the upright x-height.
+
+TABULAR FIGURES ON EVERYTHING NUMERIC: tabular-nums lining-nums on prices, phone numbers, hours, dates, durations, indices and coordinates. An hours list lines up perfectly because of that rule alone.
+
+## Page chassis
+- THE MASTHEAD, not a navbar. position:fixed, inset 0 0 auto 0, z-index 100, padding .95rem var(--gutter). Transparent over the hero. Past 64px of scroll it gains .is-set: rgba(paper-00,.86), backdrop-filter blur(16px) saturate(1.04), border-bottom 1px rgba(ink,.13), transitioning over .55s on the shared ease. IT NEVER HIDES ON SCROLL — no hide-on-scroll-down, no translateY(-110%) retreat, no direction-aware chrome of any kind, because a practice's phone number must stay reachable at every scroll offset — and it never becomes a solid opaque bar.
+- WORDMARK IS A LOCKUP: serif 350 at 1.32rem, tracking .005em, with a baseline-aligned sub-label in the sans at .58rem / .28em uppercase in rgba(ink,.40) — the discipline or the city. An accent full stop is the only ornament allowed. The end side carries THREE things: the phone in tabular sans at .84rem (numerals never letter-spaced), a 36px circular hairline WhatsApp button, and the accent-outlined appointment pill. Below 860px only the two controls remain and the sticky bar takes over.
+- With five or more nav destinations: a burger of TWO 1px bars 20px wide crossing into an X over .4s, opening a PAPER TAKEOVER on PAPER-01 — hairline-separated rows, each a baseline-aligned grid of [accent index .68rem] [serif name clamp(2rem,7vw,3.4rem) weight 300] [right micro-label], rising yPercent 100 out of overflow masks at stagger .07. Never a dark overlay.
+- THE PAPER TOOTH — fixed full-viewport grain tuned for LIGHT ground: an inline SVG data URI of feTurbulence fractalNoise, baseFrequency 0.62, numOctaves 2, stitchTiles stitch, desaturated with feColorMatrix, on a 220x220 tile; inset -40%, z-index 70, pointer-events none, opacity .045, mix-blend-mode MULTIPLY. On light paper multiply is mandatory — screen-blended grain disappears.
+- Global base: html and body overflow-x clip (required — plate overlaps, scrims and negative margins all overflow); scroll-padding-top 5.5rem; a skip link sliding from top -4rem to 1rem on focus over .3s; :focus-visible as a 1.5px accent outline at offset 3px. THE COORDINATED NUMBERS, derived from the measured masthead height: hero min-height 100svh, sticky offset top calc(50vh - 9rem), scroll-margin-top 5.5rem on every anchored section.
+- THE SPINE, nine to twelve scenes: (I) hero · (II) margin-note introduction with no heading · (III) the first full-bleed plate dissolving into paper · (IV) the care ledger · (V) the journey, the sticky-split showpiece · (VI) an open page, one line and nothing else · (VII) the practitioner column · (VIII) the accent-wash chapter carrying proof · (IX) the appointment vitrine · (X) the FAQ ledger · (XI) the colophon footer with the closing wordmark. Number them I-XI or 01-11 in the running heads; the open page and the wash band stay UNNUMBERED, deliberately breaking the count.
+
+## Hero forms (pick the one the practice calls for — never the marketplace split)
+1. THE PORCELAIN PLATE (default). min-height 100svh, grid-template-rows auto 1fr auto, gutter padding, PAPER-00.
+THE COPY BLOCK sits in the upper third, itself a .26fr/.74fr grid: the narrow column holds ONLY a 44px 1px accent tick and one uppercase micro-label (discipline and city); the wide column holds the h1 hand-broken into three or four line spans with one italic accent turn word, then a 44ch lede at serif 300.
+THERE IS NO SOLID BUTTON IN THE HERO. Two quiet affordances: a RULE-LINK whose 1px underline draws from the reading edge on hover, and the phone set as typography at clamp(1.5rem,2.6vw,2.1rem) serif 300 with tabular figures under a micro-label — one baseline-aligned row split by a 1px vertical hairline 1.2em tall.
+THE PLATE takes the bottom band at height clamp(44vh,56vh,620px). Commit to one treatment: INSET — width calc(100% - 2 * var(--gutter)), border-radius clamp(4rem,14vw,12rem) clamp(4rem,14vw,12rem) .3rem .3rem, overflow hidden; or FULL-BLEED — edge to edge, radius 0, bottom 22vh dissolving into the ground. Over it a light scrim: linear-gradient(to bottom, rgba(paper-00,.32) 0%, rgba(paper-00,0) 24%, rgba(paper-00,0) 56%, rgba(paper-00,.70) 84%, paper-00 100%) — THE FINAL STOP IS EXACTLY THE PAGE GROUND. Plus THE DAYLIGHT: radial-gradient(120% 80% at 22% 6%, rgba(paper-00,.85), transparent 62%) at mix-blend-mode screen, the page's single ambient loop.
+A figure caption row sits under the plate in the gutter; at the floor, the scroll cue — an uppercase micro-label beside a 54px vertical hairline with a 14px accent segment falling through it on a 2.6s infinite loop. NEVER a chevron.
+2. MARGIN-NOTE COLD OPEN. No photograph above the fold — full-viewport paper, the first plate arriving in scene two. A .28fr/.72fr grid: the narrow column carries a micro-label, the 44px accent tick, and a three-line margin note at .82rem / 1.6 in rgba(ink,.55) holding the practitioner's name and credential, the coordinates and the hours. The wide column carries ONE enormous serif sentence at clamp(2.6rem,6.6vw,6.2rem) weight 280, line-height 1.06, max-width 15em, starting mid-thought and ending in a full stop, with no label above it. The viewport floor is an inset hairline and, beneath it, the appointment colophon in three columns. Use when photography is weak or absent, and for architects, consultants and legal-adjacent practices.
+3. THE APPOINTMENT VITRINE. The page opens ON the booking. Grid 1.12fr/.88fr, min-height 100svh, PAPER-01. Start column: a smaller h1 register at clamp(2.4rem,5.4vw,4.6rem), a 44ch lede, the trust strip as a VERTICAL hairline-ruled list of four rows, the coordinates. End column: a PAPER-00 panel at 2px radius, 1px rgba(ink,.13) border, the world's single permitted shadow, padding clamp(1.8rem,3.4vw,2.8rem), carrying name, phone, the five day-chips and a rule-link to the full form — with a small arch plate at aspect-ratio 1/1.15 overlapping it by margin-bottom -3.5rem at z-index 2. Use for dentists, physiotherapists and any practice where the booking IS the product.
+
+## Section seams (Clarté's own vocabulary — every boundary uses one, never the same twice in a row; at least five per page)
+- WHISPER STEP: the ground moves between PAPER-00, PAPER-01 and PAPER-02 with NO rule at the join — 2-5 RGB points, felt and not seen. The default, and the reason the paper trio exists.
+- SCRIM-DISSOLVE TO PAPER: any full-bleed photograph ends in a 20-24vh bottom gradient whose final stop equals the NEXT scene's ground exactly, and opens with a 10vh top gradient from the previous ground. Photographs here have thresholds, not edges.
+- PLATE OVERLAP: the next scene's first block is pulled UP onto the photograph with margin-top clamp(-9rem,-9vw,-4rem) at z-index 3, on its own PAPER-00 panel at 88 percent width with a 1px hairline — and one element (a hanging accent quote glyph, or a figure number) breaks that panel's own top edge by -1.1rem. Double overlap.
+- INSET RULE JOIN: a 1px hairline stopping short of BOTH gutters by the gutter token, carrying a micro-label at its start and a factual aside at its end. The only seam that uses a line; at most three per page.
+- OPEN PAGE: pure paper, height clamp(38vh,52vh,42rem), holding ONE serif italic line at clamp(1.6rem,3.2vw,2.6rem) weight 300 indented to the wide column — no heading, no label, no CTA, no image. A generic builder puts a headline and three cards here. Do not. Exactly one per page.
+- INFUSION BAND: one chapter only, on ACCENT-WASH, full-bleed, inset hairlines above and below. Where the proof lives — credentials, facts, two quiet quotes.
+- CAPTION BRIDGE: the LAST element of scene A is the figure caption belonging to the FIRST plate of scene B — text above the seam, its subject below.
+- WELD: one scene gets padding-top 0 so it fuses to the previous one and the pair reads as a single chapter.
+
+## Layout physics
+- ONE gutter token, generous: clamp(1.5rem,5vw,6.5rem). It is the page padding, the inset of every hairline, and the anchor for every absolutely-positioned element, so off-grid pieces still snap to the margin.
+- TWO MEASURES, and the asymmetry between them is where the air comes from: the READING MEASURE caps text-bearing grids at 1080px, the PLATE MEASURE caps imagery at 1440px, full-bleed ignores both. Text is always surrounded by more paper than pictures are.
+- Vertical rhythm always clamp with a vh middle term: clamp(6rem,16vh,11rem) standard · clamp(8rem,22vh,15rem) around the open page and the hero exit · clamp(4rem,9vh,6rem) inside a welded pair · clamp(3rem,6vh,4.5rem) between a running head and its first content.
+- NO GRID IS 50/50, EVER: .26fr/.74fr margin-note · .82fr/1.18fr journey · 1.18fr/.82fr story row · .92fr/1.08fr vitrine · 1fr/1.35fr plate-plus-text. A narrow column holding only a micro-label and a tick is a COMPLETE column — do not fill it.
+- MEASURE CAPPED IN CH: lede 44ch · body 62ch · caption 38ch · pull-quote 26ch · form helper 46ch · margin note 30ch.
+- THE SHAPE LAW — exactly THREE radius treatments on the page: var(--radius) for pills, chips and icon buttons (:root sets --radius: 999px; true dots use 50%) · min(var(--radius), 2px) for the vitrine panel, small frames and checkbox square (text fields are ruled lines capped at 0) · and ONE sculpted arch value on the TOP two corners of plates only, at four scales — clamp(4rem,14vw,12rem) hero, 7rem story plates, 5rem portraits, 3rem ledger thumbnails, all with bottom corners at .3rem. These var(--radius)-derived declarations are the sanctioned corner mechanism; a page whose only radius is a uniform 12-16px has failed this world.
+- THE SHADOW LAW — overriding the global permission to shadow photographs freely, exactly ONE shadow declaration exists: 0 32px 80px -48px rgba(ink,.28), on at most two elements. If you can SEE it as a shadow in a screenshot, it is too strong.
+- LEDGERS, NOT CARDS, for services, prices, hours and FAQs: border-top 1px rgba(ink,.13) with a closing border-bottom on the last row, padding clamp(1.4rem,2.8vw,2.1rem) 0, grid-template-columns auto 1fr auto, align-items baseline, gap 1.4rem clamp(1.2rem,3vw,2.4rem), an accent index in the serif at .95rem in the start gutter, the name at the middle step, a duration or price in tabular sans at the end. Zero background, zero radius, zero shadow.
+- GUTTER RULES, NOT CARD EDGES, for three-column blocks above 1024px: gap clamp(2rem,4vw,4rem), then on adjacent siblings border-inline-start 1px rgba(ink,.13), padding-inline-start clamp(2rem,3vw,3rem), margin-inline-start calc(clamp(2rem,4vw,4rem) * -.5) so the rule sits in the MIDDLE of the gutter.
+- ZERO-ROW-GAP DEFINITION LISTS for hours and fees: gap 0 clamp(2rem,5vw,4.5rem), rows separated by border-top hairlines, each a space-between flex with a .72rem / .2em uppercase term at rgba(ink,.40) and a right-aligned tabular value at rgba(ink,.78). Today's row, computed in JS from the real weekday, gets an accent term and a 3px accent dot.
+- PORTRAITS ARE ARCH PLATES ON A STAGGERED BASELINE, never circular avatars: three columns carrying margin-top 0 / 3.5rem / 1.5rem, each at aspect-ratio 4/5 with the 5rem arch, a figure caption beneath, and the practitioner line.
+- OVERFLOW IS COMPOSITIONAL: exactly four elements may break their container — the hanging quote glyph at top -1.1rem / inline-start -.35rem, the plate-overlap panel, the journey's giant numeral, the closing wordmark. Safe only because overflow clip sits on the containing scenes and on html/body. Any parallaxed plate is top -9% and height 118% inside an overflow:hidden parent.
+- RESPONSIVE COLLAPSE below 900px: two-column grids become 1fr; the journey's sticky column becomes an inline numeral above each step; the margin-note column becomes a horizontal [tick][micro-label] row; portrait offsets reset; the gutter drops to 1.5rem; the arch shrinks to clamp(2.5rem,10vw,5rem). Vertical rhythm drops by no more than one clamp step — the air ratio must survive mobile.
+
+## Photography direction (the plates)
+- SHOOT LIGHT, NOT PEOPLE POSING. Subjects: a treatment room at ten in the morning with one window · hands at work, cropped at the wrist · an instrument in shallow focus on a pale surface · a corridor, a doorway, a chair · a leaf against plaster. People appear in profile, in motion, or as hands — never facing camera with folded arms.
+- GRADE: overexposed by a third of a stop, one soft directional source, no flash. Apply filter saturate(.92) contrast(.96) brightness(1.02) to every plate; if one still fights the paper, add an ::after wash of paper at .10 alpha at mix-blend-mode soft-light. Tint, never stylize.
+- BANNED: smiling staff in a row facing camera · a stethoscope on white · stock handshakes · a person pointing at a screen · pure white cyclorama · any visible text or watermark.
+
+## Motion identity (GSAP 3 + ScrollTrigger via CDN; Lenis OPTIONAL and welcome here)
+THE SAFETY CONTRACT COMES FIRST. One flag: animate = hasGsap && !matchMedia("(prefers-reduced-motion: reduce)").matches, where hasGsap checks window.gsap AND window.ScrollTrigger. EVERY hidden initial state — autoAlpha 0, y offset, clip-path, scaleX 0 — is set with gsap.set INSIDE that branch; no stylesheet here may contain opacity:0 or a transform on content. If the CDN dies, the page is a complete, readable paper document.
+- gsap.defaults({ease:"power3.out", duration:1.15}). ONE shared CSS easing token for every transition in the file: cubic-bezier(.19,.72,.24,1) — the porcelain ease.
+- TIMING BANDS, and every duration belongs to one: .28-.44s interaction feedback · .55-.75s component state · 1.0-1.45s narrative reveals · 1.5s plate clip with a 2.0s counter-zoom inside it (deliberately de-synced) · 2.6s hero plate settle · 6s the single ambient loop.
+- TRAVEL IS SMALL: y offsets of 12 / 26 / 44 only, used inside one scene to encode three depth planes. Scales .96 / 1.0 / 1.06 / 1.12. Hover nudges 2-4px. Nothing here travels 100px.
+- Eases: power4.out for masked line rises · power3.out for chrome and rows · power3.inOut for clip reveals · power2.out for settles · sine.inOut for the daylight · none for anything scrubbed.
+
+THE MANDATORY SET
+1. HERO ENTRANCE — one timeline, overlapping absolute positions, complete in about 2.6s. Set h1 line spans to yPercent 108 inside overflow masks; micro-label, tick, lede and affordance row to autoAlpha 0 / y 18; the plate to clip-path inset(0 0 14% 0) with its inner image at scale 1.10. Then .to(lines,{yPercent:0,duration:1.25,stagger:.12,ease:"power4.out"},.15) .to(plate,{clipPath:"inset(0%)",duration:1.6,ease:"power3.inOut"},.35) .to(plateImg,{scale:1,duration:2.6,ease:"power2.out"},.35) .to(tick,{scaleX:1,transformOrigin:"left center",duration:.9},.6) .to(furniture,{autoAlpha:1,y:0,duration:.8,stagger:.1},.85). The photograph opens like a shutter and keeps settling after everything else has landed.
+2. MASKED LINE RISE on every display block: yPercent 108 to 0, 1.1s power4.out, stagger .10, start "top 84%", once. Split at REAL browser wrap points by comparing offsetTop — never per character, never per word; preserve em ancestry with a class; run inside document.fonts.ready; set aria-label on the parent and aria-hidden on the visual lines; then ScrollTrigger.refresh(). Descender-safe masks: padding-bottom .08em with margin-bottom -.08em.
+3. HAIRLINE DRAW — the signature reveal. Every rule, tick, ledger border and inset seam animates scaleX 0 to 1 with transform-origin at the READING EDGE (left in LTR, right in RTL), .9s power2.out, stagger .06, start "top 88%", once. LINES DRAW; THEY NEVER FADE.
+4. PLATE REVEAL on every framed photograph: clip-path inset(0% 0% 100% 0%) to inset(0%) over 1.5s power3.inOut while the inner image counter-scales 1.12 to 1.0 over 2.0s power2.out at the same position, then clearProps both. start "top 86%", once. The arch survives because the clip runs on the frame, not the image.
+5. THE JOURNEY — the showpiece and this world's answer to the global "one pinned or scrubbed moment". A sticky-split scene at .82fr/1.18fr. The narrow column is position:sticky, top calc(50vh - 9rem), holding a giant step numeral in the serif at clamp(4rem,9vw,7rem) weight 250 with tabular figures, the step name at the middle step size, and a 1px VERTICAL accent progress rail (height clamp(9rem,18vh,14rem), track rgba(ink,.13), fill child at transform-origin top, scaleY driven by JS). The wide column scrolls four to six step blocks past it, each a plate plus a 44ch paragraph plus a micro-label. Each block owns a ScrollTrigger (start "top 62%", end "bottom 62%", onEnter and onEnterBack): the outgoing numeral leaves at yPercent -30 / autoAlpha 0 over .45s, the incoming arrives from yPercent 30 over .55s power3.out, the name cross-fades over .4s, the rail fill tweens to (index + 1) / total over .6s power2.out. NO PINNING — pinning jumps, sticky glides, and this world glides. Below 900px gsap.matchMedia tears it down into a vertical ledger with the numeral inline.
+6. ONE SCRUBBED PARALLAX on the page, on the full-bleed dissolving plate: fromTo(img,{yPercent:-6},{yPercent:6,ease:"none"}), start "top bottom", end "bottom top", scrub true — funded by the 118 / -9 percent overscan.
+7. ONE AMBIENT LOOP: the daylight radial behind the hero plate, gsap.to(daylight,{scale:1.06,opacity:.72,duration:6,ease:"sine.inOut",yoyo:true,repeat:-1}). Diegetic morning light moving across a room, and the only thing that never stops.
+8. STAGGERED RISES (autoAlpha 0 to 1, y 26 to 0, .95s, stagger .08, start "top 88%", once) on running heads, ledger rows, definition rows, portraits, trust-strip items, colophon columns, FORM FIELDS one at a time, and the footer wordmark rising yPercent 104 to 0 out of its own mask over 1.5s power4.out.
+9. AT MOST ONE COUNT-UP PER PAGE, and NEVER on a price — overriding the global instruction, because a price that spins is a sale. If a real figure earns it: a proxy tween over 1.9s power2.out with tabular figures, once, start "top 88%", plus a 3500ms setTimeout fallback. The true value is hard-coded in the HTML so a no-JS visitor sees truth, not zero.
+
+LENIS IS OPTIONAL AND SUITS THIS WORLD, the one world where smooth scroll earns its request. Pin the version, lerp .085, wheelMultiplier .9, wire lenis.on("scroll", ScrollTrigger.update), drive it from gsap.ticker with lagSmoothing(0), expose window.__lenis, destroy it under reduced motion, and keep every anchor working if the library fails.
+
+MICRO-INTERACTION KIT (CSS, inside the bands and a hover:hover query, with keyboard parity): rule-link underline drawn by transitioning right 100% to 0 over .4s, rgba(ink,.20) to accent · outline pill inverting border, background and label together over .38s, never darkening · ledger row running three decoupled transitions at once — border to accent over .3s, name shifting inline .35rem over .35s, a 72x86 arch thumbnail fading in at the row end from scale .96 over .45s · plate images swelling scale(1.02) over 1.6s on a WRAPPER GSAP is not transforming · fields moving THREE properties together on :focus-within over .3s (rule to accent at 1.5px, label to accent-deep, a 40px accent tick drawing in) · an accordion icon whose 1px plus loses its vertical bar via scaleY 1 to 0 over .4s — it does not rotate, because nothing here rotates. Ship the reduced-motion block: animation-duration .01ms, iteration-count 1, transition-duration .01ms, scroll-behavior auto.
+
+## Components
+- BUTTONS, three kinds only. (a) RULE-LINK: text plus the drawing underline, optionally a 14px inline-SVG arrow at stroke-width 1 sliding 4px on hover. (b) OUTLINE PILL: border-radius var(--radius), transparent, border 1px rgba(accent,.55), padding .95em 1.6em, .78rem sans 500 uppercase at .12em, filling with accent and inverting its label on hover. (c) THE ONE SOLID: the appointment submit and the sticky-bar CTA, also at var(--radius), filled with INK and labelled in PAPER-00 — never solid accent, because the accent's job is typographic. There is never a full-width solid rectangle elsewhere.
+- FIELDS ARE RULED LINES: transparent background, border 0, border-bottom 1px rgba(ink,.20), border-radius min(var(--radius), 0px), padding .95rem 0 .7rem, 1.0625rem. Labels sit ABOVE at .68rem / .22em uppercase in rgba(ink,.40). Placeholders at rgba(ink,.34) say something useful and never repeat the label. Selects use appearance:none with a hand-drawn 10px chevron inline SVG in the accent at the end edge. Textareas use the same rule at rows=3 and grow on input by writing scrollHeight to style.height.
+- CHOICE CHIPS instead of radio cards: pills at border-radius var(--radius), 1px rgba(ink,.20) border, transparent; when :has(input:checked) the border goes accent, the background goes accent at 12 percent, and a 5px accent dot scales 0 to 1 over .28s. The checkbox is a 16px square at min(var(--radius), 2px) whose check is an inline SVG path revealed by animating stroke-dashoffset over .35s.
+- ACCORDION (the FAQ, and it is a LEDGER): hairline-topped rows with a closing border-bottom, the question a full-width flex button in the serif at the middle step, padding 1.5rem 0, turning accent-deep when expanded, the body opened via grid-template-rows 0fr to 1fr over .5s with an overflow:hidden inner — never a max-height hack. Single-open, aria-expanded maintained.
+- FIGURE CAPTION under every plate: a space-between flex row — descriptive text at .78rem / .05em in rgba(ink,.40) at the start, the figure number in the accent with tabular figures at the end.
+- ICONS exist only in the trust strip and the WhatsApp glyph, as inline SVG drawn by you at 22px, stroke-width 1, stroke-linecap round, fill none, in the accent. No icon fonts, no libraries, no emoji. The favicon is an inline SVG data URI — a PAPER-00 square with one 1px accent arch stroke.
+- ACCESSIBILITY AS CRAFT: one h1, semantic landmarks, labelled fields, aria-live polite on errors and success, aria-hidden on decorative duplicates, visible focus everywhere. In a health context anxious people use keyboards and screen readers too.
+
+## Conversion objects (the consultation desk — this world books, and in this market it books by phone)
+- THE VITRINE is the climax of the page: full-bleed PAPER-02 with inset hairlines top and bottom, grid .92fr/1.08fr, padding clamp(6rem,16vh,11rem) var(--gutter). The narrow column is the appointment colophon; the wide column is the form.
+- THE FORM collects, in this order, each field a ruled line rising one at a time: full name · phone, type=tel with inputmode=tel, autocomplete tel and a real pattern, set in tabular figures at 1.15rem because the number is the most important thing on the page · wilaya, a styled select from the brief's real catchment list · commune or address · THE DAY, five choice chips generated in JS from the real next five working days via toLocaleDateString in the page's language ("mar. 12 août"), skipping the practice's closed days · the reason or service, a select from the brief's real list · an optional note, with 46ch of helper text stating what happens after submit and that nothing is charged now.
+- IF THE PRACTICE SELLS A PRODUCT (a nutrition programme, a whitening kit, a course, an equipment item), the same chapter carries a COD block: quantity as a stepper (inline-flex group at border-radius var(--radius), 2.6rem true-circle hairline buttons at 50%, an output at min-width 2.4rem in the serif at 1.2rem), delivery as choice chips, and a live total recomputing on every change.
+- PRICE TYPOGRAPHY: serif 300 at clamp(1.9rem,4vw,3.1rem), tabular-nums lining-nums, THOUSANDS SEPARATED BY A NARROW NO-BREAK SPACE, written as the entity &#8239; (U+202F), so "3&#8239;500 DZD" renders as 3 500 DZD and genuinely cannot break across a line. Do not use &#8201; (U+2009 THIN SPACE) for this — it looks identical and is a legal break opportunity, so a price splits across two lines at exactly the width where it matters most. Wrap the whole amount, currency mark included, in a span at white-space:nowrap as a second guard. The currency mark is NOT a superscript here: it sits on the baseline after the numeral in the sans at .34em, uppercase, .16em tracking, rgba(ink,.55), after a .45em gap. Quiet money. A struck former price sits beside it at 1rem with text-decoration-color accent at 1px.
+- THE WHATSAPP CTA, never a green blob: an outline pill with the glyph drawn as inline SVG at 18px in the accent and a sans label at .78rem / .12em uppercase, filling with accent and inverting both on hover. Exactly three placements — a 36px circular version in the masthead, the full pill in the vitrine beside the submit, one control in the sticky bar. The href is a wa.me link to the brief's real number with a pre-filled text parameter in the page's language.
+- THE STICKY BAR, below 860px only: hidden until a ScrollTrigger on the hero fires (start "bottom 20%"), then translateY(110%) to 0 over .5s on the porcelain ease. Height 4.5rem, rgba(paper-00,.92), backdrop-filter blur(18px), border-top 1px rgba(ink,.13), padding-inline var(--gutter), padding-bottom max(.6rem, env(safe-area-inset-bottom)). Start side: the practice name in the serif at .95rem over a .68rem micro-line carrying today's hours or the price. End side: a 44px circular hairline phone button and the solid ink CTA pill. Tap targets at least 44px; the body gains padding-bottom 5.4rem while it is present.
+- THE TRUST STRIP: four items, each a drawn inline SVG at 22px (a calendar as a rect plus two ticks, a shield with a check path, a location pin as a teardrop, a clock with hands at a real time — stroke-width 1, no fills), a .70rem / .18em uppercase label in rgba(ink,.55), and one factual line at .8rem in rgba(ink,.78). Grid repeat(4,1fr) above 900px with the gutter-rule treatment between cells; 2x2 below. Facts come only from the brief — cash on delivery, first consultation without charge, a named insurer, parking, wheelchair access, hours.
+- VALIDATION IS BLUR-GATED: a touched map so an error appears only after a field's first blur, never while someone is typing into a fresh field. Errors are brand-voice sentences in the error mix of var(--primary) and var(--foreground) at .82rem with min-height 1.15em reserved so nothing reflows, entering at opacity 0 / translateY -3px over .3s, aria-live polite.
+- SUBMIT has a deliberate 700ms pending state whose label becomes a human present-tense sentence, then the form CROSS-FADES IN PLACE into a confirmation absolutely positioned over it in the same box: the confirmation enters over .7s with staggered delays, the form leaves over .45s to translateY(-10px) with visibility delayed so focus never lands on a hidden element. The confirmation echoes the person's own name, the chosen day via toLocaleDateString, the address and the WhatsApp link. Persist it in localStorage and show the confirmed state INSTANTLY on return, so nobody books twice. The moment validation passes — as the confirmation begins — the page quietly passes the request on by dispatching the wandit:lead CustomEvent on document with the person's fields flat in detail (name, phone exactly as typed, wilaya, commune, plus the chosen day and reason), and the form holds one off-canvas decoy field marked data-wandit-hp that the page's own script never reads.
+- BANNED HERE: countdown timers, "only 3 slots left", discount urgency, spinning prices, chat-bubble popups, any claim about outcomes the brief did not supply. A practice that pressures is a practice you leave.
+
+## Editorial furniture (REQUIRED — this is Clarté's voice)
+- RUNNING HEADS, set like the head of a printed page rather than a web section title: a baseline-aligned flex row of [serif index at weight 300, I / II / III or 01 / 02 / 03] [uppercase micro-label] [flex:1 inset hairline eating the remaining width] [right-aligned factual aside], with a border-bottom hairline that draws in on scroll. Never a centred H2.
+- FIGURE CAPTIONS under every plate: "Fig. 04 — Salle de soins, lumière du matin." Descriptive, present tense, naming what the picture actually shows, numbered in sequence across the whole page.
+- THE APPOINTMENT COLOPHON — the signature block, set like the imprint page of a book: the practice name in serif italic; the address on two lines; the coordinates with prime marks (36°45′ N · 3°04′ E) in tabular micro-caps; the phone typeset large at clamp(1.5rem,2.6vw,2.1rem) serif 300; the hours as a zero-row-gap definition list with today's row in the accent; a by-appointment line; and a dagger footnote carrying one promise ("† Un créneau sous 48 h, parce que la douleur n'attend pas.").
+- MARGIN NOTES: an aside in the narrow column at .82rem / 1.6 in rgba(ink,.55), capped at 30ch, opened by a 44px accent tick — a credential, context, a definition of a treatment word, an honest caveat. Two or three per page.
+- THE PRACTITIONER LINE: name in the serif at the middle step, credential and registration detail in tabular uppercase micro-caps beneath — only what the brief supplies.
+- THE PULL-QUOTE: 26ch of serif italic at clamp(1.35rem,2.2vw,1.8rem) weight 300 with NO quotation marks except one hanging accent opening glyph at 3.8rem, opacity .28, positioned to overflow its column in two directions; beneath it a citation at .72rem / .18em uppercase in rgba(ink,.40).
+- SCENE INDICES in Roman numerals where the brand allows, the open page and the wash band deliberately unnumbered.
+- THE CLOSING WORDMARK: the practice name edge to edge at clamp(3.4rem,15vw,13rem), serif 250, letter-spacing +.02em, line-height .92, filled at rgba(ink,.085) — or, for a short name, color transparent with -webkit-text-stroke 1px rgba(ink,.22). Centred, user-select none, aria-hidden, rising out of an overflow mask. The page's last gesture is typography, not a link farm.
+All of this furniture invents ZERO business facts — it is typesetting. Fill it from the brief, in the page's language.
+
+## Arabic and RTL adaptation
+- dir="rtl" and lang="ar" on the html element; every horizontal property logical — padding-inline, margin-inline-start, border-inline-start, text-align start/end. No left/right in the stylesheet except transform-origin values, which flip explicitly.
+- NEVER LETTER-SPACE ARABIC. Tracking breaks the script's joining and is the most common failure of an Arabic page built by a Latin designer. Every micro-label carrying .18-.26em must set letter-spacing 0 under [lang="ar"] and recover its label-ness through size (.78rem instead of .70rem), colour, and word-spacing .12em.
+- No italics exist in Arabic: the headline TURN is carried by the accent colour plus one lighter display weight plus a 1.04em optical size on the turn word. Never fake an oblique.
+- Line-height opens — body 1.9 instead of 1.72, display 1.18 instead of 1.02 — and display sizes come down about 8 percent because Arabic sets optically larger. Pair a light naskh or contemporary Arabic display for the serif role with an Arabic-capable sans for the body role; roles stay sealed and the no-bold law holds.
+- The reading edge flips: every hairline draw uses transform-origin right, the rule-link underline draws from the right, the journey's sticky column moves to the right side, the select chevron mirrors.
+- Numerals, coordinates, phone numbers, prices and the wa.me link stay LTR inside dir="ltr" spans with tabular figures, so a phone number never renders in a mangled order.
+
+## Global rules this world overrides (declared, and honoured)
+HAIRLINES: global calls a hairline the weakest seam and allows one per page; Clarté overrides that for TYPESET rules — inset, labelled, drawn on scroll, dozens of them — while keeping the global law for SEAMS, so a bare hairline is never the sole boundary between two scenes. SHADOWS: one declaration, two elements. COUNT-UPS: never on prices, at most one per page. ACCENT JOBS: nine of twelve, not six. PINNED SCROLL: global asks for at least one pinned or scrubbed desktop moment; here it is answered by the sticky-split journey plus one scrubbed parallax, with pinning and horizontal rails banned outright. SMOOTH SCROLL: Lenis is permitted and encouraged here under the wiring contract above, because slowness is the point.
+
+## Clarté ban list (in addition to the global one)
+Pure #ffffff or #000000 anywhere · a dark chapter of any kind including the footer (this world has no night) · any detached gray that is not an alpha of the ink · box-shadows on cards, panels, nav, buttons, ledgers, portraits or the sticky bar · a uniform 12-16px border-radius as the page's shape · ANY font-weight above 500 in the sans or 400 in the serif · circular avatars · icon grids, icon fonts, emoji, or icons outside the trust strip · three-column feature cards with backgrounds · a 50/50 grid · centred body copy (only the closing wordmark and one caption may be centred) · marquees, tickers and any infinite loop besides the daylight · pinned sections and horizontal rails · rotation on any element, ever · glassmorphism (the only two blurs are the masthead and the sticky bar) · gradients as decoration — exactly three may exist: the plate scrim, the hero top scrim and the daylight radial · exclamation marks · countdown timers, fake scarcity, chat-bubble popups · testimonial carousels · stock photography of smiling staff facing camera · a bouncing chevron scroll cue · a solid rectangle CTA · prices that animate · per-character text splitting · any hidden state authored in CSS.
+
+## Intensity
+This world fails one comfortable decision at a time, and every wrong decision looks reasonable. A 16px radius instead of the arch. #ffffff instead of tinted paper. A gray border instead of ink at 13 percent. A 600-weight heading because it "reads clearly". Three icon cards because the brief listed three services. 4rem of section padding because 11rem "felt like too much space". Each is invisible alone; together they produce exactly the generic clinic page this world exists to replace.
+
+Executed at 100 percent it is unmistakable: warm paper with a tooth you can almost feel, hairline serif headlines at a size that would be arrogant if the page were not so quiet, rules that draw themselves across the margin, a room photographed at ten in the morning dissolving with no edge back into the page, a care path gliding past a single sticky numeral, an appointment colophon set like the last page of a book. Nothing shouts, nothing spins, nothing sells. The nerve is in the emptiness — hold it. Push INTO the air, never back toward filling it.`,
+	energy: "quiet",
+	family: "clarte",
+	id: "clarte",
+	industries: [
+		"medical",
+		"clinic",
+		"dentist",
+		"physiotherapy",
+		"wellness",
+		"spa",
+		"nutrition",
+		"psychology",
+		"optician",
+		"architecture",
+		"interior",
+		"consulting",
+		"law",
+		"education",
+	],
+	kind: "website",
+	mood: ["calm", "luminous", "airy", "editorial", "unhurried"],
+	name: "Clarté",
+	preview: {
+		ground: "#FBF8F3",
+		ink: "#23201C",
+		accent: "#F2EDE4",
+		fontFamily: "Fraunces",
+		sampleWord: "Clarté",
+	},
+	priceFeel: "premium",
+	tagline:
+		"Warm off-white paper with far more air than ink: hairline serif headlines you could hold up to the light, rooms photographed at ten in the morning dissolving softly back into the page, and an appointment block set like the last page of a book — the site of a practice people trust before they arrive.",
+};

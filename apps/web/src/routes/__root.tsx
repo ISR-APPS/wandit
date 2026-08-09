@@ -5,10 +5,16 @@ import {
 	Outlet,
 } from "@tanstack/react-router";
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools";
+import { DirectionProvider } from "@wandit/ui/components/direction";
 import { Toaster } from "@wandit/ui/components/sonner";
 
 import { ThemeProvider } from "@/components/theme-provider";
+import { AffiliateCapture } from "@/features/affiliates/lib/use-affiliate-capture";
 import { AuthModalProvider } from "@/features/auth";
+import { WorkspaceProvider } from "@/features/workspaces/lib/workspace-provider";
+import { BillingModalProvider } from "@/features/billing/components/billing-modal-provider";
+import { useConnectReturnToast } from "@/features/connectors/components/connect-return-toast";
+import { AppI18nProvider, pageTitle, useI18n } from "@/lib/i18n";
 import { queryClient } from "@/lib/query-client";
 
 import "../index.css";
@@ -21,12 +27,11 @@ export const Route = createRootRouteWithContext<RouterAppContext>()({
 	head: () => ({
 		meta: [
 			{
-				title: "Wandit — AI landing pages that sell",
+				title: pageTitle("common.appTitle"),
 			},
 			{
 				name: "description",
-				content:
-					"Wandit turns a prompt into a ready-to-run landing page — publish and collect orders in minutes.",
+				content: pageTitle("common.appDescription"),
 			},
 		],
 		links: [
@@ -44,19 +49,37 @@ function RootComponent() {
 		<>
 			<HeadContent />
 			<QueryClientProvider client={queryClient}>
-				<ThemeProvider
-					attribute="class"
-					defaultTheme="dark"
-					disableTransitionOnChange
-					storageKey="wandit-theme"
-				>
-					<AuthModalProvider>
-						<Outlet />
-					</AuthModalProvider>
-					<Toaster richColors />
-				</ThemeProvider>
+				<AppI18nProvider>
+					<RootProviders />
+				</AppI18nProvider>
 			</QueryClientProvider>
 			<TanStackRouterDevtools position="bottom-left" />
 		</>
+	);
+}
+
+function RootProviders() {
+	const { dir } = useI18n();
+	useConnectReturnToast();
+
+	return (
+		<ThemeProvider
+			attribute="class"
+			defaultTheme="light"
+			disableTransitionOnChange
+			storageKey="wandit-theme"
+		>
+			<DirectionProvider dir={dir}>
+				<AuthModalProvider>
+					<WorkspaceProvider>
+						<BillingModalProvider>
+							<AffiliateCapture />
+							<Outlet />
+						</BillingModalProvider>
+					</WorkspaceProvider>
+				</AuthModalProvider>
+				<Toaster richColors dir={dir} />
+			</DirectionProvider>
+		</ThemeProvider>
 	);
 }

@@ -20,7 +20,7 @@ apps/web/src/
 │       └── p.$projectId.tsx    # → features/workspace
 ├── features/
 │   ├── landing/                # `/` — hero prompt box, examples, pricing
-│   ├── auth/                   # cross-route overlay — auth modal, Google popup, magic link, prompt stash
+│   ├── auth/                   # cross-route overlay — auth modal, Google redirect, prompt stash
 │   ├── projects/               # `/dashboard` + project domain: grid, cards, create-with-prompt, switcher
 │   ├── workspace/              # `/p/$projectId` — the shell and ALL its views:
 │   │   ├── pages/              #   workspace-page
@@ -72,6 +72,7 @@ features/projects/                       ← THE EXEMPLAR
 
 ## Does not own
 
+- Copy, translations, and RTL — all user-facing strings go through `@wandit/internationalization`; see `docs/localization.md`.
 - Feature scope/behavior — see `docs/features/*.md`; routes/IA — see PRD §4.
 - Server or worker structure — light-DDD modules per domain; see `apps/server/src/modules/README.md`.
 

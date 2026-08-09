@@ -57,6 +57,14 @@ export function redirectToLoginAfterUnauthorized() {
 function fallbackRedirectToLanding() {
 	const url = new URL("/", window.location.origin);
 	url.searchParams.set("auth", "required");
+
+	const next = sanitizeAuthRedirectPath(
+		`${window.location.pathname}${window.location.search}`,
+	);
+	if (next && next !== "/") {
+		url.searchParams.set("next", next);
+	}
+
 	window.location.replace(url.toString());
 }
 
@@ -64,4 +72,33 @@ function releaseRedirectLock() {
 	window.setTimeout(() => {
 		redirectInProgress = false;
 	}, REDIRECT_LOCK_MS);
+}
+
+export function sanitizeAuthRedirectPath(
+	next: string | undefined,
+): string | undefined {
+	if (!next?.startsWith("/") || next.startsWith("//")) {
+		return undefined;
+	}
+
+	return next;
+}
+
+export function buildAuthCallbackUrls(
+	origin: string,
+	destination: string,
+): {
+	callbackURL: string;
+	errorCallbackURL: string;
+} {
+	const safeDestination = sanitizeAuthRedirectPath(destination) ?? "/dashboard";
+	const callbackURL = new URL(safeDestination, origin).toString();
+	const errorCallbackURL = new URL("/", origin);
+	errorCallbackURL.searchParams.set("auth", "error");
+	errorCallbackURL.searchParams.set("next", safeDestination);
+
+	return {
+		callbackURL,
+		errorCallbackURL: errorCallbackURL.toString(),
+	};
 }

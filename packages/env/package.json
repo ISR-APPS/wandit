@@ -4,6 +4,8 @@
 	"private": true,
 	"type": "module",
 	"exports": {
+		"./cors-origins": "./src/cors-origins.ts",
+		"./llm-routing": "./src/llm-routing.ts",
 		"./server": "./src/server.ts",
 		"./web": "./src/web.ts",
 		"./native": "./src/native.ts"

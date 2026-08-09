@@ -1,0 +1,960 @@
+{
+	"backToDashboard": "Back to dashboard",
+	"tabsAriaLabel": "Workspace views",
+	"autosaved": "Saved",
+	"meta": {
+		"title": "Workspace — Wandit"
+	},
+	"tabs": {
+		"page": "Page",
+		"assets": "Assets",
+		"marketing": "Marketing",
+		"leads": "Leads",
+		"settings": "Settings"
+	},
+	"switcher": {
+		"menuLabel": "Projects",
+		"allProjects": "All projects"
+	},
+	"store": {
+		"ledgerFallbackName": "Landing page",
+		"initialGeneration": "Initial generation",
+		"fallbackPageName": "your page"
+	},
+	"publish": {
+		"publish": "Publish",
+		"publishing": "Publishing…",
+		"published": "Published",
+		"failed": "Publish failed",
+		"retryCta": "Try again",
+		"failedHint": "Something went wrong. Your last live version is unaffected — try again.",
+		"earlyAccessRequired": "Your account does not have early access yet. Publishing is limited to early-access users.",
+		"copyLink": "Copy link",
+		"openLive": "Open live site",
+		"unpublish": "Unpublish",
+		"linkCopied": "Link copied",
+		"publishedToast": "Live at {url}",
+		"unpublishedToast": "Site unpublished",
+		"confirmTitle": "Publish v{n}?",
+		"confirmBody": "This will make v{n} the version visitors see.",
+		"confirmCancel": "Cancel",
+		"confirmVersion": "Publish v{n}",
+		"freeNote": "Publishing is always free",
+		"popover": {
+			"notPublished": "Not published",
+			"publishedMeta": "Live now · latest version",
+			"websiteUrl": "Website URL",
+			"editSubdomain": "Edit subdomain",
+			"saveSubdomain": "Save subdomain",
+			"visibility": "Visible to anyone with the link",
+			"customDomainTitle": "Use a custom domain",
+			"customDomainDescription": "Buy a new domain and connect it to this page.",
+			"freeTiming": "Free · takes about 15 seconds",
+			"publishedHint": "Your latest version is live",
+			"openLivePage": "Open live page",
+			"liveOn": "Live on",
+			"primary": "Primary",
+			"stillPublishing": "Publishing in background",
+			"alsoLive": "Also live · same page",
+			"openDomain": "Open domain",
+			"customConnectedHint": "Both links stay connected to this page"
+		},
+		"domainPurchase": {
+			"common": {
+				"close": "Close",
+				"back": "Back",
+				"stepCount": "Step {current} of {total}",
+				"perYear": "/yr"
+			},
+			"validation": {
+				"fullName": "Enter your full name.",
+				"email": "Enter a valid email address.",
+				"phone": "Enter a valid phone number.",
+				"address": "Enter your full address.",
+				"city": "Enter your city.",
+				"region": "Enter your province or region.",
+				"postalCode": "Enter a valid postal code.",
+				"countryCode": "Enter a two-letter country code."
+			},
+			"search": {
+				"title": "Add a custom domain",
+				"description": "Search for a new domain and choose one for this page.",
+				"label": "Search for a domain",
+				"placeholder": "e.g. auroravoid",
+				"hint": "Enter the name without www or an extension.",
+				"emptyTitle": "Find your domain",
+				"emptyDescription": "Enter at least two characters to see available domains.",
+				"noResultsTitle": "No domains found",
+				"noResultsDescription": "Try another name or a shorter search.",
+				"continue": "Choose a domain to continue",
+				"continueWith": "Continue with {domain}",
+				"unavailable": "Unavailable",
+				"recommended": "Recommended",
+				"liveAvailability": "Availability checked live with the registrar",
+				"premiumUnavailable": "Premium domains aren’t supported yet",
+				"priceUnavailable": "Registration price is unavailable",
+				"notSelectable": "Unavailable"
+			},
+			"details": {
+				"title": "Your details",
+				"description": "Required to register the domain in your name.",
+				"privacyTitle": "Registrant contact information",
+				"privacyDescription": "These details become the public registration record required by ICANN. WHOIS privacy is off by default and will be offered later as an add-on.",
+				"fullNameLabel": "Full name",
+				"emailLabel": "Email",
+				"phoneLabel": "Phone number",
+				"phoneHint": "Include your country calling code.",
+				"countryLabel": "Country code",
+				"addressLabel": "Street address",
+				"regionLabel": "Province / region",
+				"cityLabel": "City",
+				"postalCodeLabel": "Postal code",
+				"registrationTerm": "1-year registration",
+				"continue": "Review order"
+			},
+			"checkout": {
+				"title": "Review and pay",
+				"description": "Review your order, then continue to Stripe to pay.",
+				"registrationTerm": "Domain registration · 1 year",
+				"totalToday": "Total due today",
+				"privacyTitle": "Registrant details",
+				"privacyDescription": "Your details are submitted to the registrar for ICANN registration. WHOIS privacy can be added later.",
+				"secureTitle": "Secure Stripe checkout",
+				"legalNotice": "Domain purchases are final. You can transfer the domain after the 60-day ICANN lock.",
+				"continueToStripe": "Continue to Stripe · {amount}",
+				"stripeCaption": "Secure payment handled by Stripe"
+			}
+		},
+		"panel": {
+			"titles": {
+				"config": "Publish",
+				"publishing": "Publishing…",
+				"live": "You're live",
+				"update": "Publish update",
+				"history": "Version history"
+			},
+			"liveAtLabel": "Your page will be live at",
+			"slugInvalid": "Letters, numbers and dashes only",
+			"slugChecking": "Checking…",
+			"slugTaken": "This address is taken",
+			"available": "Available",
+			"slugRules": "letters, numbers and dashes",
+			"whatShipsTitle": "What gets published",
+			"shipStyles": "Styles compiled & optimized",
+			"shipPixelDetected": "{name} detected · injected",
+			"addInSettings": "add in Settings",
+			"shipCod": "COD order form → your Leads",
+			"publishingVersion": "Publishing v{n}",
+			"changeVersion": "Change",
+			"freeNote": "Publishing and collecting leads are always free.",
+			"publishCta": "Publish to wandit.app",
+			"publishHint": "Takes about 15 seconds · press Esc to cancel",
+			"deployTitle": "Deploying to the edge",
+			"deployStepStyles": "Compiled styles",
+			"deployStepPixels": "Injected ad pixels",
+			"deployStepUpload": "Uploading to edge network",
+			"deployStepDns": "Pointing your link to it",
+			"cancel": "Cancel",
+			"backgroundNote": "You can keep working — this runs in the background.",
+			"liveTitle": "Your page is live",
+			"liveSub": "Share the link and start taking orders.",
+			"scanTitle": "Scan to open",
+			"scanSub": "Point a phone camera at the code to preview on mobile — how most of your buyers will see it.",
+			"shareTo": "Share to",
+			"historyLink": "Version history",
+			"openLive": "Open live page",
+			"liveNow": "Live now · v{n}",
+			"publishedWhen": "published {when}",
+			"changesTitle": "{count} changes since you published",
+			"changesSub": "Review what buyers will see, then push it live.",
+			"change0": "Countdown color → red",
+			"change1": "Size picker now runs 40–44",
+			"change2": "Free delivery banner",
+			"change3": "Removed newsletter popup",
+			"moreChanges": "+{count} more changes",
+			"pixelToggleTitle": "Re-inject ad pixels",
+			"pixelToggleSub": "{name} · refreshed on publish",
+			"adPixels": "Ad pixels",
+			"linkSameNote": "Your link stays the same. Visitors always see the latest published version.",
+			"discard": "Discard",
+			"publishChanges": "Publish changes",
+			"historyIntro": "Every publish is saved. Roll back to any earlier version — it goes live on the same link.",
+			"whenByYou": "{when} · by you",
+			"liveChip": "Live",
+			"restore": "Restore",
+			"offlineTitle": "Take the site offline",
+			"offlineBody": "Unpublishing removes the link. Your project, versions and leads are all kept.",
+			"unpublishCta": "Unpublish"
+		}
+	},
+	"chat": {
+		"title": "Chat",
+		"collapse": "Collapse chat",
+		"menuLabel": "Chat options",
+		"expand": "Open chat",
+		"placeholder": "Describe a change…",
+		"thinking": "Thinking…",
+		"generating": "Generating",
+		"usage": {
+			"message": "Input {input} · Output {output} · Total {total} tokens",
+			"context": "Context",
+			"conversationTotal": "{total} tokens total spent this conversation",
+			"brain": "Brain",
+			"builder": "Builder"
+		},
+		"mcpTool": {
+			"workingWith": "Working with your tools",
+			"running": "Running…",
+			"approvalTitle": "This action needs your approval.",
+			"wantsTo": "Wandit wants to: {action} · {connector}",
+			"approve": "Approve",
+			"deny": "Deny",
+			"approved": "Approved",
+			"denied": "Denied",
+			"expired": "Approval expired",
+			"waiting": "Waiting to continue…",
+			"error": "Error",
+			"result": "Result",
+			"searchingToolCatalog": "Searching the tool catalog",
+			"searchedToolCatalog": "Searched the tool catalog",
+			"readingToolDetails": "Reading tool details",
+			"readToolDetails": "Read tool details",
+			"showDetails": "Show details",
+			"hideDetails": "Hide details",
+			"actionCount": "{count} actions",
+			"usedTool": "Used 1 tool",
+			"usedTools": "Used {count} tools",
+			"progressOf": "{done} of {total}",
+			"genericLabels": {
+				"fetch": {
+					"active": "Fetching data",
+					"past": "Fetched data"
+				},
+				"create": {
+					"active": "Creating",
+					"past": "Created"
+				},
+				"update": {
+					"active": "Updating",
+					"past": "Updated"
+				},
+				"delete": {
+					"active": "Deleting",
+					"past": "Deleted"
+				},
+				"publish": {
+					"active": "Publishing",
+					"past": "Published"
+				},
+				"send": {
+					"active": "Sending",
+					"past": "Sent"
+				},
+				"generate": {
+					"active": "Generating",
+					"past": "Generated"
+				},
+				"other": {
+					"active": "Running an action",
+					"past": "Action completed"
+				}
+			},
+			"toolLabels": {
+				"media_upload": {
+					"active": "Uploading your media",
+					"past": "Uploaded your media"
+				},
+				"media_upload_widget": {
+					"active": "Opening the media uploader",
+					"past": "Opened the media uploader"
+				},
+				"media_import_url": {
+					"active": "Importing media from a link",
+					"past": "Imported media from a link"
+				},
+				"media_confirm": {
+					"active": "Confirming the media upload",
+					"past": "Confirmed the media upload"
+				},
+				"select_workspace": {
+					"active": "Selecting your workspace",
+					"past": "Selected your workspace"
+				},
+				"generate_image": {
+					"active": "Generating the image",
+					"past": "Generated the image"
+				},
+				"generate_video": {
+					"active": "Generating the video",
+					"past": "Generated the video"
+				},
+				"generate_audio": {
+					"active": "Generating the audio",
+					"past": "Generated the audio"
+				},
+				"generate_3d": {
+					"active": "Creating the 3D model",
+					"past": "Created the 3D model"
+				},
+				"animation_actions": {
+					"active": "Loading 3D animation options",
+					"past": "Loaded 3D animation options"
+				},
+				"outpaint_image": {
+					"active": "Expanding the image",
+					"past": "Expanded the image"
+				},
+				"reframe": {
+					"active": "Reframing the video",
+					"past": "Reframed the video"
+				},
+				"remove_background": {
+					"active": "Removing the background",
+					"past": "Removed the background"
+				},
+				"upscale_image": {
+					"active": "Enhancing the image",
+					"past": "Enhanced the image"
+				},
+				"upscale_video": {
+					"active": "Enhancing the video",
+					"past": "Enhanced the video"
+				},
+				"motion_control": {
+					"active": "Applying motion",
+					"past": "Applied motion"
+				},
+				"voice_change": {
+					"active": "Changing the voice",
+					"past": "Changed the voice"
+				},
+				"dubbing": {
+					"active": "Dubbing the video",
+					"past": "Dubbed the video"
+				},
+				"models_explore": {
+					"active": "Exploring creative styles",
+					"past": "Explored creative styles"
+				},
+				"job_status": {
+					"active": "Checking creation progress",
+					"past": "Checked creation progress"
+				},
+				"job_display": {
+					"active": "Loading the creation preview",
+					"past": "Loaded the creation preview"
+				},
+				"show_generations": {
+					"active": "Loading your creations",
+					"past": "Loaded your creations"
+				},
+				"tiktok_accounts": {
+					"active": "Checking TikTok accounts",
+					"past": "Checked TikTok accounts"
+				},
+				"tiktok_connect": {
+					"active": "Connecting your TikTok account",
+					"past": "Connected your TikTok account"
+				},
+				"tiktok_music_trending": {
+					"active": "Browsing trending TikTok music",
+					"past": "Browsed trending TikTok music"
+				},
+				"tiktok_music_tune": {
+					"active": "Tuning the TikTok music",
+					"past": "Tuned the TikTok music"
+				},
+				"tiktok_prepare_publish": {
+					"active": "Preparing TikTok post",
+					"past": "Prepared TikTok post"
+				},
+				"tiktok_publish": {
+					"active": "Publishing to TikTok",
+					"past": "Published to TikTok"
+				},
+				"tiktok_publish_status": {
+					"active": "Checking the TikTok post status",
+					"past": "Checked the TikTok post status"
+				},
+				"tiktok_reconnect": {
+					"active": "Reconnecting your TikTok account",
+					"past": "Reconnected your TikTok account"
+				},
+				"ads_get_ad_accounts": {
+					"active": "Fetching ad accounts",
+					"past": "Fetched ad accounts"
+				},
+				"ads_get_ad_entities": {
+					"active": "Fetching ads and campaigns",
+					"past": "Fetched ads and campaigns"
+				},
+				"ads_entity_get_report": {
+					"active": "Fetching the campaign report",
+					"past": "Fetched the campaign report"
+				},
+				"ads_insights_performance_trend": {
+					"active": "Analyzing performance trends",
+					"past": "Analyzed performance trends"
+				},
+				"ads_insights_advertiser_context": {
+					"active": "Reviewing the ad account",
+					"past": "Reviewed the ad account"
+				},
+				"ads_get_ad_preview": {
+					"active": "Loading the ad preview",
+					"past": "Loaded the ad preview"
+				},
+				"ads_get_creatives": {
+					"active": "Fetching ad creatives",
+					"past": "Fetched ad creatives"
+				},
+				"ads_get_ad_account_pages": {
+					"active": "Fetching linked Pages",
+					"past": "Fetched linked Pages"
+				},
+				"ads_get_ig_accounts": {
+					"active": "Fetching Instagram accounts",
+					"past": "Fetched Instagram accounts"
+				},
+				"ads_get_ad_account_custom_audiences": {
+					"active": "Fetching custom audiences",
+					"past": "Fetched custom audiences"
+				},
+				"ads_get_errors": {
+					"active": "Checking ad account issues",
+					"past": "Checked ad account issues"
+				},
+				"ads_library_search": {
+					"active": "Searching the Ads Library",
+					"past": "Searched the Ads Library"
+				},
+				"ads_get_field_context": {
+					"active": "Reviewing report metrics",
+					"past": "Reviewed report metrics"
+				},
+				"advertiser_info_get": {
+					"active": "Fetching advertiser details",
+					"past": "Fetched advertiser details"
+				},
+				"auth_advertiser_get": {
+					"active": "Checking connected ad accounts",
+					"past": "Checked connected ad accounts"
+				},
+				"report_integrated_get": {
+					"active": "Fetching the ad report",
+					"past": "Fetched the ad report"
+				},
+				"identity_get": {
+					"active": "Fetching TikTok profiles",
+					"past": "Fetched TikTok profiles"
+				},
+				"page_get": {
+					"active": "Fetching Instant Pages",
+					"past": "Fetched Instant Pages"
+				},
+				"pixel_list_get": {
+					"active": "Fetching tracking pixels",
+					"past": "Fetched tracking pixels"
+				},
+				"dmp_custom_audience_list_get": {
+					"active": "Fetching custom audiences",
+					"past": "Fetched custom audiences"
+				},
+				"smart_plus_campaign_get": {
+					"active": "Fetching Smart+ campaigns",
+					"past": "Fetched Smart+ campaigns"
+				},
+				"ads_create_campaign": {
+					"active": "Creating the campaign",
+					"past": "Campaign created"
+				},
+				"ads_create_ad_set": {
+					"active": "Creating the ad set",
+					"past": "Ad set created"
+				},
+				"ads_create_ad": {
+					"active": "Creating the ad",
+					"past": "Ad created"
+				},
+				"ads_create_creative": {
+					"active": "Creating the ad design",
+					"past": "Ad design created"
+				},
+				"ads_create_custom_audience": {
+					"active": "Creating the custom audience",
+					"past": "Custom audience created"
+				},
+				"ads_update_entity": {
+					"active": "Updating the campaign or ad",
+					"past": "Campaign or ad updated"
+				},
+				"ads_update_custom_audience": {
+					"active": "Updating the custom audience",
+					"past": "Custom audience updated"
+				},
+				"smart_plus_campaign_create": {
+					"active": "Creating the Smart+ campaign",
+					"past": "Smart+ campaign created"
+				},
+				"smart_plus_campaign_update": {
+					"active": "Updating the Smart+ campaign",
+					"past": "Smart+ campaign updated"
+				},
+				"smart_plus_campaign_status_update": {
+					"active": "Turning Smart+ campaign on or off",
+					"past": "Smart+ campaign turned on or off"
+				},
+				"smart_plus_adgroup_create": {
+					"active": "Creating the Smart+ ad group",
+					"past": "Smart+ ad group created"
+				},
+				"smart_plus_adgroup_update": {
+					"active": "Updating the Smart+ ad group",
+					"past": "Smart+ ad group updated"
+				},
+				"smart_plus_adgroup_status_update": {
+					"active": "Turning Smart+ ad group on or off",
+					"past": "Smart+ ad group turned on or off"
+				},
+				"smart_plus_adgroup_budget_update": {
+					"active": "Updating the Smart+ ad group budget",
+					"past": "Smart+ ad group budget updated"
+				},
+				"smart_plus_ad_create": {
+					"active": "Creating the Smart+ ad",
+					"past": "Smart+ ad created"
+				},
+				"smart_plus_ad_update": {
+					"active": "Updating the Smart+ ad",
+					"past": "Smart+ ad updated"
+				},
+				"smart_plus_ad_status_update": {
+					"active": "Turning Smart+ ad on or off",
+					"past": "Smart+ ad turned on or off"
+				},
+				"smart_plus_ad_get": {
+					"active": "Reading the Smart+ ad",
+					"past": "Smart+ ad viewed"
+				},
+				"smart_plus_adgroup_get": {
+					"active": "Reading the Smart+ ad group",
+					"past": "Smart+ ad group viewed"
+				},
+				"campaign_get": {
+					"active": "Reading the campaign",
+					"past": "Campaign viewed"
+				},
+				"campaign_create": {
+					"active": "Creating the campaign",
+					"past": "Campaign created"
+				},
+				"campaign_update": {
+					"active": "Updating the campaign",
+					"past": "Campaign updated"
+				},
+				"campaign_status_update": {
+					"active": "Turning the campaign on or off",
+					"past": "Campaign turned on or off"
+				},
+				"adgroup_get": {
+					"active": "Reading the ad group",
+					"past": "Ad group viewed"
+				},
+				"adgroup_create": {
+					"active": "Creating the ad group",
+					"past": "Ad group created"
+				},
+				"adgroup_update": {
+					"active": "Updating the ad group",
+					"past": "Ad group updated"
+				},
+				"adgroup_status_update": {
+					"active": "Turning the ad group on or off",
+					"past": "Ad group turned on or off"
+				},
+				"ad_get": {
+					"active": "Reading the ad",
+					"past": "Ad viewed"
+				},
+				"ad_create": {
+					"active": "Creating the ad",
+					"past": "Ad created"
+				},
+				"ad_update": {
+					"active": "Updating the ad",
+					"past": "Ad updated"
+				},
+				"ad_status_update": {
+					"active": "Turning the ad on or off",
+					"past": "Ad turned on or off"
+				}
+			},
+			"stepFailed": "This step failed",
+			"interrupted": "Interrupted",
+			"skippedDeclined": "Skipped — you declined",
+			"arguments": "Arguments",
+			"generation": {
+				"working": "Generating your media…",
+				"workingHint": "{connector} is on it — the finished result lands right here the moment it's ready.",
+				"sentTo": "Sent to {connector}",
+				"ready": "Media ready",
+				"noMedia": "Generation finished, but there is no previewable file here — check your connected account.",
+				"failed": "Generation failed",
+				"stoppedEarly": "The generation stopped before finishing.",
+				"statusLoadError": "Couldn't load the generation status — reopen this chat to retry.",
+				"statusQueued": "Queued",
+				"statusGenerating": "Generating",
+				"usually": "usually 2–4 min"
+			}
+		},
+		"askUser": {
+			"questionsTitle": "A few questions",
+			"answerBelow": "Answer below ↓",
+			"upNext": "Up next",
+			"pickedForYou": "Wandit picked for you",
+			"skipped": "Skipped",
+			"questionCount": "{count} questions",
+			"answeredCount": "{answered}/{total} answered"
+		},
+		"animateImage": {
+			"preparing": "Preparing your image animation…",
+			"queueing": "Queueing the animation…",
+			"failedToStart": "Animation failed to start",
+			"failedTitle": "Image animation failed",
+			"failedBody": "The animation stopped before the video was ready.",
+			"unavailableTitle": "Video animation unavailable",
+			"unavailableBody": "Video animation is not available right now. Your original image is unchanged.",
+			"statusLoadError": "Couldn't load the animation status.",
+			"retry": "Retry",
+			"queuedTitle": "Animation queued",
+			"queuedBody": "Your image is next in line.",
+			"generatingTitle": "Animating your image",
+			"generatingBody": "Creating a five-second video. You can keep working.",
+			"sourceAlt": "Source image being animated",
+			"videoLabel": "Generated video animation",
+			"resultTitle": "Animated video",
+			"duration": "{seconds} sec",
+			"ready": "Ready",
+			"open": "Open",
+			"download": "Download"
+		},
+		"tray": {
+			"preparing": "Preparing the question…",
+			"needsDetail": "Needs a detail",
+			"decideForMe": "Decide for me",
+			"dismiss": "Dismiss request",
+			"typingOverride": "answering in your own words ↓",
+			"answer": "Answer",
+			"chooseAnOption": "Choose an option",
+			"chooseOptions": "Choose options",
+			"chooseSelected": {
+				"zero": "Choose these {count} options",
+				"one": "Choose this option",
+				"two": "Choose these {count} options",
+				"few": "Choose these {count} options",
+				"many": "Choose these {count} options",
+				"other": "Choose these {count} options"
+			},
+			"needsFiles": "Files requested",
+			"sendFiles": "Send {count} file(s)",
+			"filesSent": "{count} file(s) sent",
+			"dropHint": "Drop your files here",
+			"browse": "Browse"
+		},
+		"errors": {
+			"busy": "A generation is already running. Wait for it to finish before sending another message.",
+			"credits": "You don't have enough credits for this generation. Top up to continue.",
+			"replayed": "This request already ran. Send a new message to continue.",
+			"stream": "The generation stream was interrupted. Please try again."
+		},
+		"versionCardKind": "Landing page",
+		"emptyTitle": "Start the conversation",
+		"emptyBody": "Describe your page and the AI will generate it here.",
+		"suggestionsKicker": "Try one of these",
+		"suggestions": [
+			"Add customer reviews under the price",
+			"Make the order form shorter",
+			"Translate the page to Arabic"
+		],
+		"marketingAsset": {
+			"preparing": "Preparing the marketing brief…",
+			"queueing": "Queueing the generation…",
+			"failedToStart": "Marketing generation failed to start",
+			"buildingKicker": "Creating your marketing asset",
+			"building": "The asset is being generated — it will appear in the Marketing tab.",
+			"buildingNamed": "“{title}” is being generated — it will appear in the Marketing tab.",
+			"openTab": "Open the Marketing tab",
+			"readyKicker": "Marketing asset ready",
+			"ready": "The asset is ready in the Marketing tab.",
+			"readyNamed": "“{title}” is ready in the Marketing tab.",
+			"failedKicker": "Marketing generation failed",
+			"failedBody": "The generation stopped before finishing — ask to retry.",
+			"missing": "This asset is no longer in the Marketing tab."
+		},
+		"generateImage": {
+			"preparing": "Preparing your images…",
+			"queueing": "Queueing the generation…",
+			"failedToStart": "Image generation failed to start",
+			"failedTitle": "Image generation failed",
+			"failedBody": "Generation stopped before the images were ready.",
+			"statusLoadError": "Could not load the generation status.",
+			"retry": "Retry",
+			"queuedTitle": "Images queued…",
+			"generatingTitle": "Generating images…",
+			"readyTitle": "Images ready",
+			"download": "Download",
+			"inAssetsTab": "Also available in the Assets tab",
+			"placementFailed": "Couldn't apply it to the page — the image is in your Assets"
+		},
+		"media": {
+			"close": "Close",
+			"download": "Download",
+			"previous": "Previous",
+			"next": "Next"
+		}
+	},
+	"page": {
+		"versionShort": "v{n}",
+		"latestSuffix": "Latest",
+		"liveBadge": "Live",
+		"versionsMenuLabel": "Versions",
+		"viewingReadOnly": "Viewing v{n} — read-only",
+		"restoreVersion": "Restore this version",
+		"backToLatest": "Back to latest",
+		"restoring": "Restoring…",
+		"restoreSucceeded": "Restored as v{n}",
+		"viewportMobile": "Mobile preview",
+		"viewportDesktop": "Desktop preview",
+		"refresh": "Reload preview",
+		"openInNewTab": "Open in new tab",
+		"previewFallback": "Preview",
+		"emptyTitle": "Nothing to preview yet",
+		"emptyBody": "Describe your page in the chat — the preview appears here as it generates.",
+		"generatingTitle": "Generating v{n}",
+		"generatingSteps": [
+			"Analyzing your brief…",
+			"Writing the sections…",
+			"Styling for mobile…",
+			"Wiring the order form…",
+			"Final touches…"
+		],
+		"editor": {
+			"edit": "Edit",
+			"done": "Done",
+			"target": "Target",
+			"targetHint": "Click an element in the preview",
+			"selectedElement": "Targeted element",
+			"clearTarget": "Clear target",
+			"inSection": "in {wid}",
+			"textHint": "Edit the text directly in the preview.",
+			"changesCount": "{count} change(s)",
+			"save": "Save",
+			"discard": "Discard",
+			"discardConfirm": "Discard your unsaved changes?",
+			"discardKeep": "Keep editing",
+			"saved": "Changes saved — v{n}",
+			"versionSuperseded": "A new version arrived — your unsaved edits were dropped.",
+			"conflictTitle": "The page has changed",
+			"conflictBody": "A new version arrived while you were editing. Reload to start from the latest version.",
+			"conflictReload": "Reload the page",
+			"saveFailed": "Could not save: {reason}",
+			"theme": "Theme",
+			"presets": "Palettes",
+			"element": "Element",
+			"surface": "Surface",
+			"selectionPath": "Selection path",
+			"selectLevel": "Select {label}",
+			"commentPlaceholder": "Describe the change you want…",
+			"commentAriaLabel": "Comment for the selected element",
+			"addComment": "Add comment",
+			"updateComment": "Update",
+			"removeComment": "Remove",
+			"commentsCount": {
+				"zero": "No comments",
+				"one": "1 comment",
+				"two": "{count} comments",
+				"few": "{count} comments",
+				"many": "{count} comments",
+				"other": "{count} comments"
+			},
+			"clearAll": "Clear all comments",
+			"send": "Send",
+			"sendAll": "Send all ({count})",
+			"queueFull": "You can queue up to 10 comments. Send or clear them to add another.",
+			"targetRemoved": {
+				"zero": "No comments were removed.",
+				"one": "A comment was removed because its target is no longer on this page.",
+				"two": "{count} comments were removed because their targets are no longer on this page.",
+				"few": "{count} comments were removed because their targets are no longer on this page.",
+				"many": "{count} comments were removed because their targets are no longer on this page.",
+				"other": "{count} comments were removed because their targets are no longer on this page."
+			},
+			"askAiFailed": "Wandit couldn’t send your request. Please try again.",
+			"aiApplying": "AI is applying your changes…",
+			"replaceImage": "Replace image",
+			"fontFamily": "Font",
+			"fontSize": "Size",
+			"fontWeight": "Weight",
+			"weightNormal": "Normal",
+			"weightMedium": "Medium",
+			"weightSemibold": "Semibold",
+			"weightBold": "Bold",
+			"italic": "Italic",
+			"textAlign": "Alignment",
+			"alignStart": "Start",
+			"alignCenter": "Center",
+			"alignEnd": "End",
+			"lineHeight": "Line height",
+			"letterSpacing": "Letter spacing",
+			"color": "Color",
+			"backgroundColor": "Background color",
+			"width": "Width",
+			"radius": "Corners",
+			"radiusNone": "None",
+			"radiusSmall": "Small",
+			"radiusMedium": "Medium",
+			"radiusLarge": "Large",
+			"radiusFull": "Full",
+			"objectFit": "Image fit",
+			"fitCover": "Cover",
+			"fitContain": "Contain",
+			"placeholder": "Placeholder",
+			"removeElement": "Remove element",
+			"removeConfirmTitle": "Remove this element?",
+			"removeConfirmBody": "This element will be removed when you save your changes.",
+			"removeCancel": "Keep element",
+			"removeConfirm": "Remove",
+			"placeholderImage": "Replace with placeholder",
+			"placeholderConfirmTitle": "Replace this image with a placeholder?",
+			"placeholderConfirmBody": "The image will be replaced by a neutral placeholder when you save. You can put a new image there at any time.",
+			"placeholderCancel": "Keep image",
+			"placeholderConfirm": "Replace",
+			"contrastWarning": "Low contrast ({ratio}) — text is hard to read",
+			"themeLegacyNotice": "Themes work on pages generated after the design-tokens update — regenerate the page to enable them.",
+			"themeReset": "Reset to original theme",
+			"themeResetUnavailable": "Original theme unavailable for this page",
+			"presetModeMismatchLight": "Designed for light pages",
+			"presetModeMismatchDark": "Designed for dark pages",
+			"pageFont": "Page font",
+			"fontsArabicGroup": "Arabic fonts",
+			"fontsLatinGroup": "Latin fonts",
+			"presetLight": "Light",
+			"presetDark": "Dark",
+			"presetRtl": "Great for Arabic",
+			"removeImage": "Remove image",
+			"link": "Link",
+			"linkUrl": "Link URL",
+			"linkPhone": "Phone number",
+			"linkInvalid": "Invalid link",
+			"section": "Section",
+			"paddingTop": "Top spacing",
+			"paddingBottom": "Bottom spacing",
+			"paddingNone": "None",
+			"background": "Background image",
+			"backgroundAdd": "Add background image",
+			"backgroundReplace": "Replace background image",
+			"backgroundRemove": "Remove background image",
+			"data": "Data",
+			"dataHint": "Business details detected on the page.",
+			"dataBrand": "Brand",
+			"dataBrandHint": "Used in the navigation and footer.",
+			"dataBrandUpload": "Upload logo",
+			"dataBrandReplace": "Replace logo",
+			"dataBrandRemove": "Remove logo",
+			"dataBrandUploading": "Uploading…",
+			"dataBrandRemoving": "Removing…",
+			"dataBrandOccurrences": {
+				"zero": "{count} locations",
+				"one": "{count} location",
+				"two": "{count} locations",
+				"few": "{count} locations",
+				"many": "{count} locations",
+				"other": "{count} locations"
+			},
+			"dataBrandUnavailable": "No editable brand mark was found on this page.",
+			"dataBrandFormats": "JPEG, PNG, WebP, GIF or AVIF (no SVG).",
+			"dataPhone": "Phone",
+			"dataWhatsapp": "WhatsApp",
+			"dataEmail": "Email",
+			"dataSocial": "Social links",
+			"dataEmpty": "No business data found on this page.",
+			"dataReadOnly": "Read-only — this element is not editable.",
+			"dataOccurrences": "{count} link(s)",
+			"dataApply": "Apply",
+			"panelTitle": "Edit the page",
+			"closePanel": "Close the panel",
+			"tokens": {
+				"background": "Background",
+				"foreground": "Text",
+				"primary": "Primary",
+				"primary-foreground": "Text on primary",
+				"secondary": "Secondary surface",
+				"accent": "Accent",
+				"muted": "Muted text",
+				"border": "Borders",
+				"font-heading": "Heading font",
+				"font-body": "Body font"
+			}
+		}
+	},
+	"assets": {
+		"title": "Assets",
+		"metaCount": {
+			"zero": "{count} assets",
+			"one": "1 asset",
+			"two": "{count} assets",
+			"few": "{count} assets",
+			"many": "{count} assets",
+			"other": "{count} assets"
+		},
+		"filterAll": "All",
+		"filterImages": "Images",
+		"filterVideos": "Videos",
+		"sourceGeneration": "Generated",
+		"sourceAnimation": "Animation",
+		"sourceVideo": "Video",
+		"sourceBuild": "Site",
+		"download": "Download",
+		"refresh": "Refresh",
+		"close": "Close",
+		"loadError": "Could not load assets.",
+		"retry": "Retry",
+		"emptyTitle": "No assets yet",
+		"emptyBody": "AI-generated images and videos — for your site, your ads and your animations — appear here, ready to download.",
+		"downloadError": "Download failed. Please try again."
+	},
+	"marketing": {
+		"title": "Marketing",
+		"countLabel": {
+			"zero": "{count} assets",
+			"one": "1 asset",
+			"two": "{count} assets",
+			"few": "{count} assets",
+			"many": "{count} assets",
+			"other": "{count} assets"
+		},
+		"refresh": "Refresh",
+		"emptyTitle": "No marketing assets yet",
+		"emptyBody": "Ask the chat for ad copy, a strategy, a video script or a creative brief — every deliverable appears here as a card.",
+		"emptyCta": "Ask Wandit",
+		"loadError": "Could not load marketing assets.",
+		"retry": "Retry",
+		"generating": "Generating…",
+		"queued": "Queued…",
+		"failed": "Generation failed",
+		"back": "Back",
+		"download": "Download",
+		"types": {
+			"adCopy": "Ad copy",
+			"marketingStrategy": "Marketing strategy",
+			"videoScript": "Video script",
+			"creativeBrief": "Creative brief",
+			"htmlAsset": "HTML asset"
+		}
+	},
+	"notFound": {
+		"title": "Project not found",
+		"body": "It may have been deleted, or the link is wrong.",
+		"cta": "Back to dashboard"
+	}
+}

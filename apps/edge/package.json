@@ -1,0 +1,22 @@
+{
+	"name": "edge",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"dev": "wrangler dev --config wrangler.dev.jsonc --port 8799 --persist-to .wrangler/state",
+		"deploy": "wrangler deploy",
+		"typegen": "wrangler types",
+		"check-types": "tsc --noEmit",
+		"test": "vitest run"
+	},
+	"dependencies": {
+		"@wandit/observability": "workspace:*"
+	},
+	"devDependencies": {
+		"@cloudflare/vitest-pool-workers": "^0.9.13",
+		"@cloudflare/workers-types": "^4.20260620.0",
+		"typescript": "catalog:",
+		"vitest": "^3.2.4",
+		"wrangler": "^4.114.0"
+	}
+}

@@ -1,0 +1,611 @@
+{
+	"headerTitle": "Projets",
+	"promptHeading": "Qu'est-ce que tu lances aujourd'hui ?",
+	"promptSoonTitle": "Bientôt disponible",
+	"previewChatTitle": "Chat",
+	"previewAssistant": "C'est ici que Wandit construit ton site. La génération est en accès anticipé privé — ouverture à tout le monde très bientôt.",
+	"previewComposerPlaceholder": "Décris une modification…",
+	"promptSoonBody": "Wandit ouvre à tout le monde très bientôt. La création de sites est pour l'instant en accès anticipé privé.",
+	"toolbarTitle": "Tes projets",
+	"searchPlaceholder": "Rechercher des projets…",
+	"filterAll": "Tous",
+	"filterPublished": "Publiés",
+	"filterDrafts": "Brouillons",
+	"emptyTitle": "Aucun projet pour l'instant",
+	"emptyBody": "Aucun projet pour l'instant — décris ta première page ci-dessus.",
+	"emptyCta": "Écris ton premier prompt",
+	"noResultsTitle": "Aucun projet correspondant",
+	"noResultsBody": "Rien ne correspond à « {query} ». Essaie une autre recherche.",
+	"noResultsBodyEmpty": "Rien ne correspond à ce filtre.",
+	"clearFilters": "Réinitialiser les filtres",
+	"statusDraft": "Brouillon",
+	"statusPublishing": "Publication",
+	"statusPublished": "Publié",
+	"leadCount": {
+		"zero": "{count} lead",
+		"one": "{count} lead",
+		"two": "{count} leads",
+		"few": "{count} leads",
+		"many": "{count} leads",
+		"other": "{count} leads"
+	},
+	"publishedDomain": ".wandit.app",
+	"menuOpen": "Ouvrir",
+	"menuViewLive": "Voir en ligne",
+	"menuViewLiveMock": "Démo",
+	"menuRename": "Renommer",
+	"menuDelete": "Supprimer",
+	"cardMenuLabel": "Actions du projet",
+	"renameTitle": "Renommer le projet",
+	"renameDescription": "La page publiée garde son slug.",
+	"renameLabel": "Nom du projet",
+	"renameSave": "Enregistrer",
+	"renameCancel": "Annuler",
+	"renameSuccess": "Projet renommé",
+	"deleteTitle": "Supprimer le projet ?",
+	"deleteDescription": "« {name} » et ses leads seront définitivement perdus. Action irréversible.",
+	"deleteConfirm": "Supprimer",
+	"deleteCancel": "Annuler",
+	"deleteSuccess": "Projet supprimé",
+	"createSuccess": "« {name} » est prêt",
+	"untitled": "Projet sans titre",
+	"logoLabel": "Wandit — projets",
+	"meta": {
+		"title": "Projets — Wandit"
+	},
+	"sidebar": {
+		"groupWorkspace": "Espace de travail",
+		"groupResources": "Ressources",
+		"soon": "Bientôt",
+		"creditsLabel": "Crédits",
+		"topUp": "Recharger — bientôt",
+		"toggleSidebar": "Basculer la barre latérale",
+		"mobileTitle": "Navigation",
+		"mobileDescription": "Navigation du tableau de bord"
+	},
+	"nav": {
+		"projects": "Projets",
+		"leads": "Leads",
+		"assets": "Médias",
+		"analytics": "Statistiques",
+		"apps": "Apps",
+		"support": "Support"
+	},
+	"assetsPage": {
+		"metaTitle": "Médias — Wandit",
+		"subtitle": "Toutes les images et vidéos générées dans tes projets.",
+		"allProjects": "Tous les projets",
+		"truncatedNote": "Les fichiers les plus récents sont affichés — ouvre l'onglet Médias d'un projet pour tout son historique.",
+		"emptyTitle": "Aucun média",
+		"emptyBody": "Les images et vidéos générées par l'IA dans tous tes projets apparaissent ici, prêtes à télécharger.",
+		"noResultsTitle": "Aucun média correspondant",
+		"noResultsBody": "Rien ne correspond à ces filtres.",
+		"clearFilters": "Effacer les filtres"
+	},
+	"appsPage": {
+		"metaTitle": "Apps — Wandit",
+		"badge": "Bientôt disponible",
+		"heading": "Connecte tes apps",
+		"body": "Bientôt, tu pourras connecter des apps externes à Wandit — lancer des pubs, synchroniser tes leads et automatiser ton travail sans quitter ton tableau de bord.",
+		"previewNote": "Un aperçu de ce qui arrive",
+		"tiles": {
+			"metaAds": {
+				"name": "Meta Ads",
+				"hint": "Lance et suis tes campagnes"
+			},
+			"tiktokAds": {
+				"name": "TikTok Ads",
+				"hint": "Lance et suis tes campagnes"
+			},
+			"sheets": {
+				"name": "Google Sheets",
+				"hint": "Synchronise tes leads automatiquement"
+			},
+			"whatsapp": {
+				"name": "WhatsApp",
+				"hint": "Confirme les commandes plus vite"
+			}
+		}
+	},
+	"connectors": {
+		"title": "Connecter des applications",
+		"description": "Connecte et gère les applications de ton compte Wandit.",
+		"searchPlaceholder": "Rechercher une application…",
+		"noResults": "Aucune application trouvée.",
+		"connect": "Connecter",
+		"comingSoon": "Bientôt disponible",
+		"connecting": "Connexion…",
+		"reconnect": "Reconnecter",
+		"disconnect": "Déconnecter",
+		"connected": "Connectée",
+		"expired": "Connexion expirée",
+		"retry": "Réessayer",
+		"completeTitle": "Connexion de l’application",
+		"completeConnected": "L’application est connectée.",
+		"completeError": "Impossible de connecter l’application.",
+		"completeCloseHint": "Tu peux fermer cet onglet et revenir sur Wandit.",
+		"successToast": "Application connectée.",
+		"deniedToast": "Connexion annulée.",
+		"failedToast": "Impossible de connecter l’application. Réessaie.",
+		"invalidStateToast": "Cette demande de connexion n’est plus valide. Relance la connexion.",
+		"notConfigured": "Cette application n’est pas encore configurée.",
+		"disconnectedToast": "Application déconnectée.",
+		"signInFirst": "Connecte-toi pour connecter des applications"
+	},
+	"promptBox": {
+		"placeholderHero": "Décris ce que tu veux que Wandit crée ou modifie…",
+		"placeholderCompact": "Demande une modif de page, un asset marketing, une image ou une vidéo…",
+		"banner": "Beta — tes 5 premières pages sont offertes, sans carte",
+		"submitLabel": "Générer",
+		"micLabel": "Saisie vocale",
+		"micStop": "Arrêter l'enregistrement",
+		"micTranscribing": "Transcription…",
+		"micPermissionDenied": "Accès au micro refusé. Autorise-le dans ton navigateur pour utiliser la saisie vocale.",
+		"micError": "Impossible de transcrire l'audio. Réessaie.",
+		"addMenuLabel": "Ajouter du contexte",
+		"addSkillLabel": "Ajouter une compétence",
+		"attachLabel": "Joindre",
+		"attachHint": "Joindre des images, PDF, documents ou tableurs",
+		"connectApps": "Connecter des applications",
+		"attachments": {
+			"dropHint": "Dépose tes fichiers pour les joindre",
+			"uploading": "Envoi…",
+			"remove": "Retirer",
+			"retry": "Réessayer",
+			"unsupported": "Format non pris en charge",
+			"tooLarge": "Fichier trop lourd (15 Mo max)",
+			"failed": "Échec de l'envoi",
+			"signInFirst": "Connecte-toi pour joindre des fichiers"
+		},
+		"sourceImage": {
+			"title": "Ajoute une image source",
+			"label": "Image source",
+			"required": "Requise",
+			"dropHint": "Dépose-la ici ou choisis un fichier",
+			"formats": "JPEG, PNG ou WebP · 15 Mo max",
+			"choose": "Choisir l'image",
+			"replace": "Remplacer",
+			"remove": "Retirer l'image source",
+			"retry": "Réessayer l'envoi de l'image source",
+			"uploading": "Envoi…",
+			"ready": "Prête à animer",
+			"unsupported": "Choisis une image JPEG, PNG ou WebP",
+			"tooLarge": "L'image dépasse 15 Mo",
+			"failed": "Échec de l'envoi de l'image source",
+			"limit": "Retire d'abord une pièce jointe (6 fichiers max)",
+			"signInFirst": "Connecte-toi pour ajouter l'image source"
+		},
+		"modeLabel": "Mode",
+		"outputLabel": "Sortie",
+		"settingsLabel": "Réglages de génération",
+		"qualityLabel": "Qualité",
+		"skillLibraryLabel": "Conçu par Wandit",
+		"searchSkillsPlaceholder": "Rechercher une compétence…",
+		"noSkillResults": "Aucune compétence trouvée",
+		"removeSkillLabel": "Retirer {name}",
+		"moreSkillsLabel": {
+			"zero": "{count} compétence de plus",
+			"one": "{count} compétence de plus",
+			"two": "{count} compétences de plus",
+			"few": "{count} compétences de plus",
+			"many": "{count} compétences de plus",
+			"other": "{count} compétences de plus"
+		},
+		"outputsHeading": "Sorties {mode}",
+		"settingsSubtitle": "Options pour cette sortie {mode}.",
+		"stepBack": "Retour",
+		"stepNext": "Suivant",
+		"stepDone": "Terminé",
+		"stepLabel": "Étape {current} sur {total}",
+		"quality": {
+			"standard": {
+				"label": "Standard",
+				"hint": "Rapide et efficace"
+			},
+			"max": {
+				"label": "Max",
+				"hint": "Meilleur résultat, consomme plus de crédits"
+			}
+		},
+		"routeModes": {
+			"auto": {
+				"label": "Auto",
+				"description": "Wandit choisit le bon workflow.",
+				"placeholder": "Décris ce que tu veux que Wandit crée ou modifie…"
+			},
+			"page": {
+				"label": "Site web",
+				"description": "Crée un site web — landing page ou site vitrine.",
+				"placeholder": "Décris le site que tu veux créer ou améliorer…"
+			},
+			"marketing": {
+				"label": "Marketing",
+				"description": "Copy, stratégie, scripts et assets HTML.",
+				"placeholder": "Demande du copy pub, une stratégie, des scripts ou un asset de campagne…"
+			},
+			"image": {
+				"label": "Image",
+				"description": "Génère des visuels produit et des images pub.",
+				"placeholder": "Décris l'image produit, le ratio, le style et le décor…"
+			},
+			"video": {
+				"label": "Vidéo",
+				"description": "Crée une vidéo ou anime une photo.",
+				"placeholder": "Décris la vidéo que tu veux — produit, style, moment clé…"
+			}
+		},
+		"skillGroups": {
+			"review": {
+				"label": "Compétences de revue"
+			},
+			"market": {
+				"label": "Contexte marché"
+			}
+		},
+		"skills": {
+			"accessibility": {
+				"label": "Accessibilité",
+				"description": "Ajoute des conseils sur le contraste, les formulaires et le clavier."
+			},
+			"seo-review": {
+				"label": "Revue SEO",
+				"description": "Ajoute des conseils sur la structure de recherche, les métadonnées et le copy."
+			},
+			"redesign": {
+				"label": "Refonte",
+				"description": "Ajoute des conseils de rafraîchissement visuel et de critique de mise en page."
+			},
+			"cod-algeria": {
+				"label": "COD Algérie",
+				"description": "Ajoute le contexte COD algérien, wilaya et mobile-first."
+			},
+			"brand-voice": {
+				"label": "Voix de marque",
+				"description": "Garde le copy généré aligné au ton de la marque."
+			},
+			"direct-response": {
+				"label": "Réponse directe",
+				"description": "Ajoute de la pression sur l'offre, la preuve, les objections et le CTA."
+			},
+			"premium-visuals": {
+				"label": "Visuels premium",
+				"description": "Ajoute une direction artistique plus haut de gamme pour les visuels."
+			}
+		},
+		"outputs": {
+			"landing-page": {
+				"label": "Landing page",
+				"shortLabel": "Landing page",
+				"description": "Crée la page projet publiable.",
+				"placeholder": "Décris le produit, l'offre, le prix, la preuve et le flux COD…",
+				"options": {
+					"goal": {
+						"label": "Objectif",
+						"choices": {
+							"cod": "Ventes COD",
+							"leads": "Capture de leads",
+							"service": "Service",
+							"promo": "Promo"
+						}
+					}
+				}
+			},
+			"site-vitrine": {
+				"label": "Site vitrine",
+				"shortLabel": "Site vitrine",
+				"description": "Site multi-sections pour présenter ton activité.",
+				"placeholder": "Décris ton activité, tes services, tes coordonnées…",
+				"options": {
+					"goal": {
+						"label": "Objectif",
+						"choices": {
+							"cod": "Ventes COD",
+							"leads": "Capture de leads",
+							"service": "Service",
+							"promo": "Promo"
+						}
+					}
+				}
+			},
+			"ad-copy": {
+				"label": "Copy pub",
+				"shortLabel": "Copy pub",
+				"description": "Crée des hooks, textes principaux, titres et CTA.",
+				"placeholder": "Décris le produit et l'angle pub que tu veux tester…",
+				"options": {
+					"platform": {
+						"label": "Plateforme",
+						"choices": {
+							"meta": "Meta",
+							"tiktok": "TikTok",
+							"google": "Google",
+							"whatsapp": "WhatsApp"
+						}
+					},
+					"variants": {
+						"label": "Variantes",
+						"choices": {
+							"3": "3",
+							"5": "5",
+							"10": "10"
+						}
+					},
+					"angle": {
+						"label": "Angle",
+						"choices": {
+							"auto": "Auto",
+							"pain": "Douleur",
+							"offer": "Offre",
+							"proof": "Preuve sociale",
+							"urgency": "Urgence"
+						}
+					},
+					"length": {
+						"label": "Longueur",
+						"choices": {
+							"short": "Court",
+							"medium": "Moyen"
+						}
+					}
+				}
+			},
+			"marketing-strategy": {
+				"label": "Stratégie",
+				"shortLabel": "Stratégie",
+				"description": "Planifie les angles, le tunnel et le déroulé de campagne.",
+				"placeholder": "Décris le produit et demande un plan de lancement ou de campagne…",
+				"options": {
+					"strategy": {
+						"label": "Type de stratégie",
+						"choices": {
+							"launch": "Plan de lancement",
+							"campaign": "Plan de campagne",
+							"offer": "Stratégie d'offre",
+							"audit": "Audit de tunnel"
+						}
+					},
+					"channel": {
+						"label": "Canal",
+						"choices": {
+							"auto": "Auto",
+							"meta": "Meta",
+							"tiktok": "TikTok",
+							"whatsapp": "WhatsApp"
+						}
+					},
+					"depth": {
+						"label": "Profondeur",
+						"choices": {
+							"quick": "Rapide",
+							"detailed": "Détaillé"
+						}
+					}
+				}
+			},
+			"video-script": {
+				"label": "Script vidéo",
+				"shortLabel": "Script vidéo",
+				"description": "Écrit des scripts UGC, démos et pubs courtes.",
+				"placeholder": "Décris le produit et la structure vidéo que tu veux…",
+				"options": {
+					"format": {
+						"label": "Format",
+						"choices": {
+							"ugc": "UGC",
+							"demo": "Démo produit",
+							"problem": "Problème-solution",
+							"testimonial": "Témoignage"
+						}
+					},
+					"duration": {
+						"label": "Durée",
+						"choices": {
+							"15": "15s",
+							"30": "30s",
+							"60": "60s"
+						}
+					},
+					"detail": {
+						"label": "Inclure",
+						"choices": {
+							"hook": "Hook",
+							"voiceover": "Voix off",
+							"shots": "Liste de plans",
+							"cta": "CTA"
+						}
+					}
+				}
+			},
+			"creative-brief": {
+				"label": "Brief créatif",
+				"shortLabel": "Brief",
+				"description": "Crée un brief structuré pour les designers ou créateurs.",
+				"placeholder": "Décris la campagne et ce dont l'équipe créative a besoin…",
+				"options": {
+					"channel": {
+						"label": "Canal",
+						"choices": {
+							"meta": "Meta",
+							"tiktok": "TikTok",
+							"mixed": "Mixte"
+						}
+					},
+					"depth": {
+						"label": "Profondeur",
+						"choices": {
+							"simple": "Simple",
+							"detailed": "Détaillé"
+						}
+					}
+				}
+			},
+			"html-asset": {
+				"label": "Asset HTML",
+				"shortLabel": "Asset HTML",
+				"description": "Crée un artefact HTML de support enregistré dans les assets.",
+				"placeholder": "Décris l'asset de support : tableau, one-pager, FAQ ou brief…",
+				"options": {
+					"asset": {
+						"label": "Type d'asset",
+						"choices": {
+							"comparison": "Tableau comparatif",
+							"one-pager": "One-pager produit",
+							"faq": "Bloc FAQ",
+							"offer": "Bloc offre"
+						}
+					},
+					"format": {
+						"label": "Format",
+						"choices": {
+							"standalone": "Autonome",
+							"embed": "Prêt à intégrer"
+						}
+					}
+				}
+			},
+			"image-creator": {
+				"label": "Auto",
+				"shortLabel": "Auto",
+				"description": "Wandit choisit le meilleur format d'image selon le prompt.",
+				"placeholder": "Décris l'image, le produit, le fond, le style et le ratio…",
+				"options": {
+					"size": {
+						"label": "Taille",
+						"choices": {
+							"1-1": "1:1",
+							"3-2": "3:2",
+							"2-3": "2:3",
+							"4-3": "4:3",
+							"9-16": "9:16",
+							"16-9": "16:9"
+						}
+					},
+					"count": {
+						"label": "Images",
+						"choices": {
+							"1": "1 img",
+							"2": "2 img",
+							"4": "4 img"
+						}
+					}
+				}
+			},
+			"product-shot": {
+				"label": "Photo produit",
+				"shortLabel": "Photo produit",
+				"description": "Crée des visuels produit épurés pour le commerce.",
+				"placeholder": "Décris la photo produit, l'angle, le fond et les accessoires…",
+				"options": {
+					"scene": {
+						"label": "Scène",
+						"choices": {
+							"studio": "Studio",
+							"lifestyle": "Lifestyle",
+							"packshot": "Packshot",
+							"before-after": "Avant/après"
+						}
+					},
+					"size": {
+						"label": "Taille",
+						"choices": {
+							"1-1": "1:1",
+							"4-5": "4:5",
+							"9-16": "9:16",
+							"16-9": "16:9"
+						}
+					}
+				}
+			},
+			"ad-creative": {
+				"label": "Créa pub",
+				"shortLabel": "Créa pub",
+				"description": "Crée des visuels pub statiques avec composition orientée offre.",
+				"placeholder": "Décris la créa pub, l'offre, le titre et la plateforme…",
+				"options": {
+					"platform": {
+						"label": "Plateforme",
+						"choices": {
+							"meta": "Meta",
+							"tiktok": "TikTok",
+							"story": "Story",
+							"display": "Display"
+						}
+					},
+					"text": {
+						"label": "Quantité de texte",
+						"choices": {
+							"none": "Sans texte",
+							"light": "Léger",
+							"offer": "Axé offre"
+						}
+					},
+					"count": {
+						"label": "Variantes",
+						"choices": {
+							"1": "1",
+							"3": "3",
+							"5": "5"
+						}
+					}
+				}
+			},
+			"video-creator": {
+				"label": "Création vidéo",
+				"shortLabel": "Création vidéo",
+				"description": "Crée une courte vidéo à partir de ta description — pub, clip UGC ou teaser.",
+				"placeholder": "Décris la vidéo : le produit, l'ambiance, le moment à capturer…",
+				"options": {
+					"ratio": {
+						"label": "Ratio",
+						"choices": {
+							"9-16": "9:16",
+							"1-1": "1:1",
+							"16-9": "16:9"
+						}
+					},
+					"duration": {
+						"label": "Durée",
+						"choices": {
+							"10": "10 s",
+							"5": "5 s"
+						}
+					},
+					"voice": {
+						"label": "Voix off",
+						"choices": {
+							"auto": "Auto",
+							"none": "Aucune",
+							"en": "Anglais",
+							"fr": "Français",
+							"ar": "Arabe"
+						}
+					}
+				}
+			},
+			"image-animation": {
+				"label": "Image en vidéo",
+				"shortLabel": "Image en vidéo",
+				"description": "Anime une image fixe ; ne crée pas de vidéo à partir de zéro.",
+				"placeholder": "Facultatif : décris le mouvement, la caméra ou ce qui doit rester fixe…",
+				"options": {
+					"motion": {
+						"label": "Mouvement",
+						"choices": {
+							"subtle": "Subtil",
+							"balanced": "Équilibré",
+							"dynamic": "Dynamique"
+						}
+					},
+					"ratio": {
+						"label": "Ratio",
+						"choices": {
+							"9-16": "9:16",
+							"1-1": "1:1",
+							"16-9": "16:9"
+						}
+					}
+				}
+			}
+		}
+	}
+}

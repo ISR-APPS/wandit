@@ -1,9 +1,70 @@
+/**
+ * Main export file for `@wandit/contracts`.
+ *
+ * When code imports from `@wandit/contracts`, it gets exports from this file.
+ * Keep this file as re-exports only. No business logic here.
+ */
+// `export *` forwards exports from another file.
+// Normal API response envelope.
 export * from "./http/envelope";
+// API error codes.
+export * from "./http/error-codes";
+// Pagination helpers.
 export * from "./http/pagination";
+// Admin dashboard contracts.
+export * from "./v1/admin";
+// Affiliate capture and admin contracts.
+export * from "./v1/affiliates";
+// AI SDK chat tool and stream contracts.
+export * from "./v1/ai-chat";
+// Artifact/page contracts.
 export * from "./v1/artifacts";
+// Attachment upload contract.
+export * from "./v1/attachments";
+// Auth contracts.
+export * from "./v1/auth";
+// Billing contracts.
+export * from "./v1/billing";
+// Chat API and stream contracts.
 export * from "./v1/chats";
+// Connector (MCP) background generation contracts.
+export * from "./v1/connector-generations";
+// Credits contracts.
 export * from "./v1/credits";
+// Deployment contracts.
 export * from "./v1/deployments";
+// Domain contracts.
+export * from "./v1/domains";
+// Standalone image generation contracts.
+export * from "./v1/image-generations";
+// Lead-scrape (outbound prospecting) contracts.
+export * from "./v1/lead-scrapes";
+// Lead contracts.
+export * from "./v1/lead-sheet-sync";
 export * from "./v1/leads";
+// Marketing asset (HTML deliverable) contracts.
+export * from "./v1/marketing-assets";
+// MCP connector contracts.
+export * from "./v1/mcp-connectors";
+// Image-to-video generation contracts.
+export * from "./v1/media-generations";
+// Payment order contracts.
+export * from "./v1/orders";
+// Page edit-ops contract.
+export * from "./v1/page-edits";
+// Page theme vocabulary (tokens, fonts, presets).
+export * from "./v1/page-theme";
+// Page generation contracts.
+export * from "./v1/pages";
+// Project media assets (Assets tab) contracts.
+export * from "./v1/project-assets";
+// Project contracts.
 export * from "./v1/projects";
+// Product settings contracts.
+export * from "./v1/settings";
+// Shared id/date validators.
 export * from "./v1/shared/primitives";
+// Audio transcription contract.
+export * from "./v1/transcriptions";
+// Workspace (organization) contracts.
+export * from "./v1/workspaces";

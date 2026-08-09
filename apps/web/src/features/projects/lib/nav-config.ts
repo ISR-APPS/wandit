@@ -1,9 +1,9 @@
-// Typed sidebar nav config for the dashboard shell. Only "Projects" is a
-// real route today; the rest are disabled placeholders ("Soon") or external
-// resource stubs.
+// Typed sidebar nav config for the dashboard shell. Leads, Assets and Apps
+// are real routes; Analytics and the support link stay as disabled
+// placeholders ("Soon"). Titles are dictionary keys, resolved at render.
 
 import {
-	BookOpen,
+	Blocks,
 	ChartSpline,
 	FolderOpen,
 	Images,
@@ -12,40 +12,64 @@ import {
 	Users,
 } from "lucide-react";
 
-import { PROJECTS_COPY } from "./constants";
+import type { TranslationKey } from "@/lib/i18n";
 
 type NavItemBase = {
-	title: string;
+	titleKey: TranslationKey;
 	icon: LucideIcon;
 };
 
+export type NavRoutePath = "/dashboard" | "/leads" | "/assets" | "/apps";
+
 export type NavItem = NavItemBase &
 	(
-		| { type: "route"; to: "/dashboard" }
+		| { type: "route"; to: NavRoutePath }
 		| { type: "external"; href: string }
 		| { type: "soon" }
 	);
 
 export type NavGroup = {
-	title: string;
+	titleKey: TranslationKey;
 	items: NavItem[];
 };
 
 export const NAV_GROUPS: NavGroup[] = [
 	{
-		title: PROJECTS_COPY.sidebarGroupWorkspace,
+		titleKey: "projects.sidebar.groupWorkspace",
 		items: [
-			{ type: "route", title: "Projects", to: "/dashboard", icon: FolderOpen },
-			{ type: "soon", title: "Leads", icon: Users },
-			{ type: "soon", title: "Assets", icon: Images },
-			{ type: "soon", title: "Analytics", icon: ChartSpline },
+			{
+				type: "route",
+				titleKey: "projects.nav.projects",
+				to: "/dashboard",
+				icon: FolderOpen,
+			},
+			{
+				type: "route",
+				titleKey: "projects.nav.leads",
+				to: "/leads",
+				icon: Users,
+			},
+			{
+				type: "route",
+				titleKey: "projects.nav.assets",
+				to: "/assets",
+				icon: Images,
+			},
+			{ type: "soon", titleKey: "projects.nav.analytics", icon: ChartSpline },
+			{
+				type: "route",
+				titleKey: "projects.nav.apps",
+				to: "/apps",
+				icon: Blocks,
+			},
 		],
 	},
 	{
-		title: PROJECTS_COPY.sidebarGroupResources,
+		titleKey: "projects.sidebar.groupResources",
 		items: [
-			{ type: "external", title: "Docs", href: "#", icon: BookOpen },
-			{ type: "external", title: "Support", href: "#", icon: LifeBuoy },
+			// The support site doesn't exist yet — "Soon" until it does, so the
+			// launch video doesn't show dead "#" links.
+			{ type: "soon", titleKey: "projects.nav.support", icon: LifeBuoy },
 		],
 	},
 ];

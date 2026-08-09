@@ -1,0 +1,1197 @@
+import type Stripe from "stripe";
+import { describe, expect, it, vi } from "vitest";
+import { CreditsService } from "../../../credits/application/services/credits.service";
+import {
+	type CreditOwner,
+	userOwner,
+} from "../../../credits/domain/credit-owner";
+import type {
+	CreditLedgerRow,
+	CreditsRepository,
+	CreditsTransaction,
+	InsertCreditLedgerEntry,
+} from "../../../credits/infrastructure/persistence/credits.repository";
+import type { BillingCheckoutAttemptsRepository } from "../../infrastructure/persistence/billing-checkout-attempts.repository";
+import type { BillingCustomersRepository } from "../../infrastructure/persistence/billing-customers.repository";
+import type {
+	InsertInvoiceApplication,
+	InsertRefillSlot,
+	InvoiceApplicationRow,
+	RefillSlotRow,
+	SubscriptionCreditRow,
+	SubscriptionCreditsRepository,
+	SubscriptionCreditsTransaction,
+} from "../../infrastructure/persistence/subscription-credits.repository";
+import type { SubscriptionsRepository } from "../../infrastructure/persistence/subscriptions.repository";
+import type { StripeProvider } from "../../infrastructure/stripe/stripe.provider";
+import type { PaymentRefundsService } from "./payment-refunds.service";
+import { SubscriptionCreditsService } from "./subscription-credits.service";
+import { SubscriptionRefillService } from "./subscription-refill.service";
+
+const USER_ID = "user_1";
+const OWNER = userOwner(USER_ID);
+const PERIOD_START = new Date("2026-01-31T12:00:00.000Z");
+const PERIOD_END = new Date("2027-01-31T12:00:00.000Z");
+
+class MemoryCreditsRepository {
+	rows: CreditLedgerRow[] = [];
+	failGrantKeyOnce: string | null = null;
+	failAfterCallbackOnce = false;
+	readonly insertAttempts: string[] = [];
+	private nextId = 1;
+	private readonly tx = {} as CreditsTransaction;
+
+	async withOwnerLock<T>(
+		_owner: CreditOwner,
+		fn: (tx: CreditsTransaction) => Promise<T>,
+		transaction?: CreditsTransaction,
+	): Promise<T> {
+		if (transaction) {
+			return fn(transaction);
+		}
+
+		const snapshot = [...this.rows];
+
+		try {
+			const result = await fn(this.tx);
+
+			if (this.failAfterCallbackOnce) {
+				this.failAfterCallbackOnce = false;
+				throw new Error("simulated crash before transaction commit");
+			}
+
+			return result;
+		} catch (error) {
+			this.rows = snapshot;
+			throw error;
+		}
+	}
+
+	async withLockValue<T>(
+		_lockValue: string,
+		fn: (tx: CreditsTransaction) => Promise<T>,
+		transaction?: CreditsTransaction,
+	): Promise<T> {
+		if (transaction) {
+			return fn(transaction);
+		}
+
+		return fn(this.tx);
+	}
+
+	async getBalance(owner: CreditOwner) {
+		const result = { balance: 0, plan: 0, promo: 0, topup: 0 };
+
+		for (const row of this.rows.filter((entry) =>
+			this.ownerMatches(entry, owner),
+		)) {
+			result[row.bucket] += row.delta;
+		}
+		result.balance = result.plan + result.promo + result.topup;
+
+		return result;
+	}
+
+	async findByIdempotencyKey(key: string) {
+		return this.rows.find((row) => row.idempotencyKey === key) ?? null;
+	}
+
+	async findByIdempotencyKeys(owner: CreditOwner, keys: string[]) {
+		return this.rows.filter(
+			(row) =>
+				this.ownerMatches(row, owner) &&
+				row.idempotencyKey !== null &&
+				keys.includes(row.idempotencyKey),
+		);
+	}
+
+	private ownerMatches(row: CreditLedgerRow, owner: CreditOwner): boolean {
+		return owner.type === "user"
+			? row.userId === owner.userId && row.organizationId === null
+			: row.organizationId === owner.organizationId;
+	}
+
+	async listRefundablePlanHolds() {
+		return [];
+	}
+
+	async findPlanHoldPools() {
+		return [];
+	}
+
+	async applyPlanHoldBoundary() {}
+
+	async closePlanHoldPools() {}
+
+	async forfeitAllPlanHolds() {}
+
+	async insertLedgerEntry(input: InsertCreditLedgerEntry) {
+		if (input.idempotencyKey) {
+			this.insertAttempts.push(input.idempotencyKey);
+		}
+
+		if (
+			input.kind === "grant" &&
+			input.idempotencyKey === this.failGrantKeyOnce
+		) {
+			this.failGrantKeyOnce = null;
+			throw new Error("simulated crash before refill grant");
+		}
+
+		if (input.idempotencyKey) {
+			const existing = await this.findByIdempotencyKey(input.idempotencyKey);
+
+			if (existing) {
+				return existing;
+			}
+		}
+
+		const row = {
+			bucket: input.bucket,
+			createdAt: new Date(this.nextId * 1000),
+			delta: input.delta,
+			id: `ledger_${this.nextId++}`,
+			idempotencyKey: input.idempotencyKey ?? null,
+			kind: input.kind,
+			meta: input.meta,
+			organizationId: input.organizationId ?? null,
+			userId: input.userId,
+		} satisfies CreditLedgerRow;
+		this.rows.push(row);
+
+		return row;
+	}
+
+	seedPlan(amount: number): void {
+		void this.insertLedgerEntry({
+			bucket: "plan",
+			delta: amount,
+			kind: "grant",
+			meta: { reason: "seed" },
+			userId: USER_ID,
+		});
+	}
+}
+
+class MemorySubscriptionCreditsRepository {
+	applications: InvoiceApplicationRow[] = [];
+	canonical: SubscriptionCreditRow | null;
+	slots: RefillSlotRow[] = [];
+	readonly subscriptions = new Map<string, SubscriptionCreditRow>();
+	private nextSlotId = 1;
+	private lock: Promise<void> = Promise.resolve();
+	private readonly tx = {} as SubscriptionCreditsTransaction;
+
+	constructor(
+		canonical: SubscriptionCreditRow,
+		private readonly credits: MemoryCreditsRepository,
+	) {
+		this.canonical = canonical;
+		this.subscriptions.set(canonical.id, canonical);
+	}
+
+	async withOwnerLock<T>(
+		_owner: CreditOwner,
+		fn: (tx: SubscriptionCreditsTransaction) => Promise<T>,
+	): Promise<T> {
+		const previous = this.lock;
+		let release!: () => void;
+		this.lock = new Promise((resolve) => {
+			release = resolve;
+		});
+		await previous;
+		const slots = structuredClone(this.slots);
+		const applications = structuredClone(this.applications);
+		const ledger = structuredClone(this.credits.rows);
+
+		try {
+			return await fn(this.tx);
+		} catch (error) {
+			this.slots = slots;
+			this.applications = applications;
+			this.credits.rows = ledger;
+			throw error;
+		} finally {
+			release();
+		}
+	}
+
+	async findCanonicalEntitledByOwner() {
+		return this.canonical;
+	}
+
+	async findSubscriptionByProviderId(providerId: string) {
+		return (
+			[...this.subscriptions.values()].find(
+				(row) => row.providerSubscriptionId === providerId,
+			) ?? null
+		);
+	}
+
+	async findInvoiceApplication(invoiceId: string) {
+		return (
+			this.applications.find((row) => row.stripeInvoiceId === invoiceId) ?? null
+		);
+	}
+
+	async hasGrossGrant(owner: CreditOwner, idempotencyKey: string) {
+		return this.credits.rows.some(
+			(row) =>
+				(owner.type === "user"
+					? row.userId === owner.userId && row.organizationId === null
+					: row.organizationId === owner.organizationId) &&
+				row.idempotencyKey === idempotencyKey &&
+				row.kind === "grant" &&
+				row.delta > 0,
+		);
+	}
+
+	async findLatestInvoiceApplication(subscriptionId: string) {
+		return (
+			[...this.applications]
+				.reverse()
+				.find((row) => row.subscriptionId === subscriptionId) ?? null
+		);
+	}
+
+	seedApplication(newPriceLookupKey: string): void {
+		this.applications.push({
+			appliedAt: new Date(this.applications.length),
+			billingReason: "subscription_cycle",
+			creditsDelta: 0,
+			newPriceLookupKey,
+			oldPriceLookupKey: null,
+			periodEnd: PERIOD_END,
+			periodStart: PERIOD_START,
+			stripeInvoiceId: `seed_${this.applications.length}`,
+			subscriptionId: this.canonical?.id ?? "sub_local",
+		});
+	}
+
+	async findCycleAtOrAfter(subscriptionId: string, periodEnd: Date) {
+		return (
+			this.applications.find(
+				(row) =>
+					row.subscriptionId === subscriptionId &&
+					row.billingReason === "subscription_cycle" &&
+					row.periodEnd >= periodEnd,
+			) ?? null
+		);
+	}
+
+	async insertInvoiceApplication(input: InsertInvoiceApplication) {
+		const existing = await this.findInvoiceApplication(input.stripeInvoiceId);
+
+		if (existing) {
+			return existing;
+		}
+
+		const row = {
+			...input,
+			appliedAt: new Date(),
+			oldPriceLookupKey: input.oldPriceLookupKey ?? null,
+		} as InvoiceApplicationRow;
+		this.applications.push(row);
+
+		return row;
+	}
+
+	async insertRefillSlots(inputs: InsertRefillSlot[]) {
+		const inserted: RefillSlotRow[] = [];
+
+		for (const input of inputs) {
+			const duplicate = this.slots.find(
+				(slot) =>
+					slot.subscriptionId === input.subscriptionId &&
+					slot.fundingInvoiceId === input.fundingInvoiceId &&
+					slot.periodOrdinal === input.periodOrdinal,
+			);
+
+			if (duplicate) {
+				continue;
+			}
+
+			const row = {
+				...input,
+				fundingChargeId: input.fundingChargeId ?? null,
+				fundingPaymentIntentId: input.fundingPaymentIntentId ?? null,
+				grantedAt: null,
+				id: `slot_${this.nextSlotId++}`,
+				status: input.status ?? "pending",
+			} as RefillSlotRow;
+			this.slots.push(row);
+			inserted.push(row);
+		}
+
+		return inserted;
+	}
+
+	async cancelPendingSlotsForSubscription(subscriptionId: string) {
+		let count = 0;
+
+		for (const slot of this.slots) {
+			if (slot.subscriptionId === subscriptionId && slot.status === "pending") {
+				slot.status = "canceled";
+				count += 1;
+			}
+		}
+
+		return count;
+	}
+
+	async cancelPendingSlotsByFunding(input: {
+		chargeId?: string | null;
+		invoiceId?: string | null;
+		paymentIntentId?: string | null;
+	}) {
+		let count = 0;
+
+		for (const slot of this.slots) {
+			if (
+				slot.status === "pending" &&
+				((input.chargeId && slot.fundingChargeId === input.chargeId) ||
+					(input.invoiceId && slot.fundingInvoiceId === input.invoiceId) ||
+					(input.paymentIntentId &&
+						slot.fundingPaymentIntentId === input.paymentIntentId))
+			) {
+				slot.status = "canceled";
+				count += 1;
+			}
+		}
+
+		return count;
+	}
+
+	async listDueSlotIds(now: Date, limit: number) {
+		return this.slots
+			.filter((slot) => slot.status === "pending" && slot.dueAt <= now)
+			.sort((left, right) => left.dueAt.getTime() - right.dueAt.getTime())
+			.slice(0, limit)
+			.map((slot) => slot.id);
+	}
+
+	async findDuePendingSlotsForSubscription(
+		subscriptionId: string,
+		dueThrough: Date,
+	) {
+		return this.slots
+			.filter(
+				(slot) =>
+					slot.subscriptionId === subscriptionId &&
+					slot.status === "pending" &&
+					slot.dueAt <= dueThrough,
+			)
+			.sort((left, right) => {
+				const dueDifference = left.dueAt.getTime() - right.dueAt.getTime();
+
+				return dueDifference !== 0
+					? dueDifference
+					: left.periodOrdinal - right.periodOrdinal;
+			});
+	}
+
+	async findSlotWithSubscription(slotId: string) {
+		const slot = this.slots.find((row) => row.id === slotId);
+		const subscription = slot
+			? this.subscriptions.get(slot.subscriptionId)
+			: null;
+
+		return slot && subscription ? { slot, subscription } : null;
+	}
+
+	async claimDueSlot(slotId: string, now: Date) {
+		const slot = this.slots.find((row) => row.id === slotId);
+
+		if (slot?.status !== "pending" || slot.dueAt > now) {
+			return null;
+		}
+
+		slot.status = "granted";
+		slot.grantedAt = now;
+
+		return slot;
+	}
+
+	async cancelPendingSlot(slotId: string) {
+		const slot = this.slots.find((row) => row.id === slotId);
+
+		if (slot?.status !== "pending") {
+			return false;
+		}
+
+		slot.status = "canceled";
+
+		return true;
+	}
+}
+
+function subscription(
+	overrides: Partial<SubscriptionCreditRow> = {},
+): SubscriptionCreditRow {
+	return {
+		cancelAtPeriodEnd: false,
+		createdAt: new Date(0),
+		currentPeriodEnd: PERIOD_END,
+		currentPeriodStart: PERIOD_START,
+		id: "sub_local",
+		interval: "month",
+		organizationId: null,
+		pendingAppliedBy: null,
+		pendingTierCredits: null,
+		plan: "pro",
+		priceLookupKey: "pro_250_month",
+		provider: "stripe",
+		providerSubscriptionId: "sub_remote",
+		status: "active",
+		tierCredits: 250,
+		updatedAt: new Date(0),
+		userId: USER_ID,
+		...overrides,
+	};
+}
+
+function invoice(input: {
+	anchorReset?: boolean;
+	fundingChargeId?: string;
+	id: string;
+	newKey: string;
+	oldKey?: string;
+	reason: "subscription_create" | "subscription_cycle" | "subscription_update";
+	paidAt?: Date;
+	periodEnd?: Date;
+	periodStart?: Date;
+}): Stripe.Invoice {
+	const start = input.periodStart ?? PERIOD_START;
+	const end = input.periodEnd ?? PERIOD_END;
+	const line = (lookupKey: string, amount: number, proration: boolean) => ({
+		amount,
+		parent: {
+			subscription_item_details: { proration },
+			type: "subscription_item_details",
+		},
+		period: {
+			end: Math.floor(end.getTime() / 1000),
+			start: Math.floor(start.getTime() / 1000),
+		},
+		pricing: {
+			price_details: {
+				price: { id: `price_${lookupKey}`, lookup_key: lookupKey },
+			},
+		},
+	});
+	const lines = [line(input.newKey, 2500, false)];
+
+	if (input.oldKey) {
+		lines.push(line(input.oldKey, -1000, true));
+
+		if (!input.anchorReset) {
+			lines.push(line(input.newKey, 1000, true));
+		}
+	}
+	const paymentIntentId = input.fundingChargeId
+		? `pi_${input.fundingChargeId}`
+		: null;
+
+	return {
+		amount_paid: input.fundingChargeId ? 2500 : 0,
+		billing_reason: input.reason,
+		created: Math.floor((input.paidAt ?? start).getTime() / 1000),
+		customer: "cus_1",
+		id: input.id,
+		lines: { data: lines },
+		parent: {
+			subscription_details: {
+				metadata: { userId: USER_ID },
+				subscription: "sub_remote",
+			},
+			type: "subscription_details",
+		},
+		payments: {
+			data: input.fundingChargeId
+				? [
+						{
+							payment: {
+								charge: {
+									id: input.fundingChargeId,
+									payment_intent: paymentIntentId,
+								},
+								type: "charge",
+							},
+							status: "paid",
+						},
+					]
+				: [],
+		},
+		status_transitions: {
+			paid_at: Math.floor((input.paidAt ?? start).getTime() / 1000),
+		},
+	} as unknown as Stripe.Invoice;
+}
+
+function setup(initial = subscription()) {
+	const creditRepository = new MemoryCreditsRepository();
+	const credits = new CreditsService(
+		creditRepository as unknown as CreditsRepository,
+	);
+	const repository = new MemorySubscriptionCreditsRepository(
+		initial,
+		creditRepository,
+	);
+	const invoices = new Map<string, Stripe.Invoice>();
+	const paymentRefunds = {
+		reconcileChargeAfterGrant: vi.fn(async () => undefined),
+	};
+	const refill = new SubscriptionRefillService(
+		repository as unknown as SubscriptionCreditsRepository,
+		credits,
+		paymentRefunds as unknown as PaymentRefundsService,
+	);
+	const subscriptionsRepository = {
+		clearAppliedPendingTier: vi.fn(async () => initial),
+		findByProviderSubscriptionId: vi.fn(async (providerId: string) =>
+			providerId === initial.providerSubscriptionId ? initial : null,
+		),
+	};
+	const stripe = {
+		lookupKeyForPriceId: vi.fn(async () => null),
+		retrieveInvoice: vi.fn(async (id: string) => {
+			const found = invoices.get(id);
+
+			if (!found) {
+				throw new Error(`Missing fake invoice ${id}`);
+			}
+
+			return found;
+		}),
+		retrievePaymentIntent: vi.fn(),
+		retrieveSubscription: vi.fn(),
+	};
+	const service = new SubscriptionCreditsService(
+		{
+			findByProviderCustomerId: vi.fn(async () => ({ userId: USER_ID })),
+		} as unknown as BillingCustomersRepository,
+		subscriptionsRepository as unknown as SubscriptionsRepository,
+		credits,
+		stripe as unknown as StripeProvider,
+		paymentRefunds as unknown as PaymentRefundsService,
+		repository as unknown as SubscriptionCreditsRepository,
+		refill,
+		{} as BillingCheckoutAttemptsRepository,
+		{ findByProviderCustomerId: async () => null } as never,
+	);
+
+	return {
+		creditRepository,
+		credits,
+		invoices,
+		paymentRefunds,
+		refill,
+		repository,
+		service,
+		subscriptionsRepository,
+	};
+}
+
+function addInvoice(
+	context: ReturnType<typeof setup>,
+	value: Stripe.Invoice,
+): void {
+	context.invoices.set(value.id, value);
+}
+
+describe("Subscription credit policy", () => {
+	it("applies capped refill math below and above the rollover cap", async () => {
+		const below = setup();
+		below.creditRepository.seedPlan(60);
+		const belowResult = await below.credits.applyCappedRefill(OWNER, 100, {
+			idempotencyKey: "refill:below",
+		});
+		expect(belowResult).toMatchObject({
+			carriedCredits: 60,
+			expiredCredits: 0,
+			preRefillPlanBalance: 60,
+		});
+		expect((await below.credits.getBalance(OWNER)).plan).toBe(160);
+
+		const above = setup();
+		above.creditRepository.seedPlan(150);
+		const aboveResult = await above.credits.applyCappedRefill(OWNER, 100, {
+			idempotencyKey: "refill:above",
+		});
+		expect(aboveResult).toMatchObject({
+			carriedCredits: 100,
+			expiredCredits: 50,
+			preRefillPlanBalance: 150,
+		});
+		expect((await above.credits.getBalance(OWNER)).plan).toBe(200);
+	});
+
+	it("rolls back a crash between expiration and grant, then replays once", async () => {
+		const context = setup();
+		context.creditRepository.seedPlan(150);
+		context.creditRepository.failGrantKeyOnce = "refill:crash";
+
+		await expect(
+			context.credits.applyCappedRefill(OWNER, 100, {
+				idempotencyKey: "refill:crash",
+			}),
+		).rejects.toThrow("simulated crash");
+		expect(context.creditRepository.rows).toHaveLength(1);
+
+		await context.credits.applyCappedRefill(OWNER, 100, {
+			idempotencyKey: "refill:crash",
+		});
+		const rowCount = context.creditRepository.rows.length;
+		const replay = await context.credits.applyCappedRefill(OWNER, 100, {
+			idempotencyKey: "refill:crash",
+		});
+		expect(replay.replayed).toBe(true);
+		expect(context.creditRepository.rows).toHaveLength(rowCount);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(200);
+	});
+
+	it("rolls back both executed writes when commit crashes, then replays exactly once", async () => {
+		const context = setup();
+		context.creditRepository.seedPlan(150);
+		context.creditRepository.failAfterCallbackOnce = true;
+
+		await expect(
+			context.credits.applyCappedRefill(OWNER, 100, {
+				idempotencyKey: "refill:atomic",
+			}),
+		).rejects.toThrow("simulated crash before transaction commit");
+		expect(context.creditRepository.insertAttempts).toEqual(
+			expect.arrayContaining(["refill:atomic:expire", "refill:atomic"]),
+		);
+		expect(context.creditRepository.rows).toHaveLength(1);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(150);
+
+		await context.credits.applyCappedRefill(OWNER, 100, {
+			idempotencyKey: "refill:atomic",
+		});
+		const replay = await context.credits.applyCappedRefill(OWNER, 100, {
+			idempotencyKey: "refill:atomic",
+		});
+		expect(replay.replayed).toBe(true);
+		expect(
+			context.creditRepository.rows.filter(
+				(row) => row.idempotencyKey === "refill:atomic",
+			),
+		).toHaveLength(1);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(200);
+	});
+
+	it("grants only month one for a yearly create and creates eleven funded slots", async () => {
+		const context = setup(
+			subscription({
+				interval: "year",
+				priceLookupKey: "pro_250_year",
+			}),
+		);
+		const value = invoice({
+			id: "in_year_create",
+			newKey: "pro_250_year",
+			reason: "subscription_create",
+		});
+		addInvoice(context, value);
+
+		await context.service.grantForPaidInvoice(value);
+
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(250);
+		expect(context.repository.slots).toHaveLength(11);
+		expect(context.repository.slots.map((slot) => slot.periodOrdinal)).toEqual([
+			2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
+		]);
+		expect(context.repository.slots[0]?.dueAt.toISOString()).toBe(
+			"2026-02-28T12:00:00.000Z",
+		);
+	});
+
+	it("handles monthly upgrades immediately and leaves downgrades for renewal", async () => {
+		const upgrade = setup(
+			subscription({ priceLookupKey: "pro_500_month", tierCredits: 500 }),
+		);
+		upgrade.repository.seedApplication("pro_250_month");
+		upgrade.creditRepository.seedPlan(40);
+		const upInvoice = invoice({
+			id: "in_month_up",
+			newKey: "pro_500_month",
+			oldKey: "pro_250_month",
+			reason: "subscription_update",
+		});
+		addInvoice(upgrade, upInvoice);
+		await upgrade.service.grantForPaidInvoice(upInvoice);
+		expect((await upgrade.credits.getBalance(OWNER)).plan).toBe(290);
+		expect(upgrade.repository.slots).toHaveLength(0);
+
+		const downgrade = setup(subscription({ priceLookupKey: "pro_250_month" }));
+		downgrade.repository.seedApplication("pro_500_month");
+		downgrade.creditRepository.seedPlan(360);
+		const downInvoice = invoice({
+			id: "in_month_down",
+			newKey: "pro_250_month",
+			oldKey: "pro_500_month",
+			reason: "subscription_update",
+		});
+		addInvoice(downgrade, downInvoice);
+		await downgrade.service.grantForPaidInvoice(downInvoice);
+		expect((await downgrade.credits.getBalance(OWNER)).plan).toBe(360);
+		expect(downgrade.repository.applications[0]?.creditsDelta).toBe(0);
+
+		const renewal = invoice({
+			id: "in_month_down_renewal",
+			newKey: "pro_250_month",
+			periodEnd: new Date("2027-02-28T12:00:00.000Z"),
+			periodStart: PERIOD_END,
+			reason: "subscription_cycle",
+		});
+		addInvoice(downgrade, renewal);
+		await downgrade.service.grantForPaidInvoice(renewal);
+		expect((await downgrade.credits.getBalance(OWNER)).plan).toBe(500);
+	});
+
+	it("changes monthly to yearly with a capped month-one refill and eleven slots", async () => {
+		const context = setup(
+			subscription({
+				interval: "year",
+				priceLookupKey: "pro_500_year",
+				tierCredits: 500,
+			}),
+		);
+		context.repository.seedApplication("pro_250_month");
+		context.creditRepository.seedPlan(500);
+		const value = invoice({
+			anchorReset: true,
+			id: "in_to_year",
+			newKey: "pro_500_year",
+			oldKey: "pro_250_month",
+			reason: "subscription_update",
+		});
+		addInvoice(context, value);
+		await context.service.grantForPaidInvoice(value);
+
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(1000);
+		expect(context.repository.slots).toHaveLength(11);
+		expect(
+			context.repository.applications.find(
+				(row) => row.stripeInvoiceId === "in_to_year",
+			)?.creditsDelta,
+		).toBe(500);
+	});
+
+	it("reconciles a replayed gross cycle grant even when rollover expiry makes the journal delta non-positive", async () => {
+		const context = setup();
+		// 600 pre-balance vs the 250-tier cap keeps the journal delta strictly
+		// negative: min(600, 250) + 250 = 500 → delta -100.
+		context.creditRepository.seedPlan(600);
+		context.paymentRefunds.reconcileChargeAfterGrant.mockRejectedValueOnce(
+			new Error("simulated post-commit reconciliation outage"),
+		);
+		const renewal = invoice({
+			fundingChargeId: "ch_zero_net_cycle",
+			id: "in_zero_net_cycle",
+			newKey: "pro_250_month",
+			reason: "subscription_cycle",
+		});
+		addInvoice(context, renewal);
+
+		await expect(context.service.grantForPaidInvoice(renewal)).rejects.toThrow(
+			"simulated post-commit reconciliation outage",
+		);
+		expect(
+			context.repository.applications.find(
+				(row) => row.stripeInvoiceId === renewal.id,
+			)?.creditsDelta,
+		).toBe(-100);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(500);
+
+		await expect(context.service.grantForPaidInvoice(renewal)).resolves.toBe(
+			true,
+		);
+		expect(
+			context.paymentRefunds.reconcileChargeAfterGrant,
+		).toHaveBeenCalledTimes(2);
+		expect(
+			context.creditRepository.rows.filter(
+				(row) => row.idempotencyKey === `inv:${renewal.id}:grant`,
+			),
+		).toHaveLength(1);
+	});
+
+	it("rejects an update whose same-price predecessor belongs to an older paid period", async () => {
+		const context = setup(
+			subscription({ priceLookupKey: "pro_500_month", tierCredits: 500 }),
+		);
+		context.repository.applications.push({
+			appliedAt: new Date(),
+			billingReason: "subscription_cycle",
+			creditsDelta: 200,
+			newPriceLookupKey: "pro_250_month",
+			oldPriceLookupKey: null,
+			periodEnd: PERIOD_START,
+			periodStart: new Date("2025-12-31T12:00:00.000Z"),
+			stripeInvoiceId: "in_previous_period",
+			subscriptionId: "sub_local",
+		});
+		const update = invoice({
+			id: "in_wrong_period_predecessor",
+			newKey: "pro_500_month",
+			oldKey: "pro_250_month",
+			reason: "subscription_update",
+		});
+		addInvoice(context, update);
+
+		await expect(context.service.grantForPaidInvoice(update)).rejects.toThrow(
+			"predecessor for the same paid period",
+		);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(0);
+	});
+
+	it("derives a delayed cycle refill and yearly slots only from that paid invoice", async () => {
+		const context = setup(
+			subscription({
+				interval: "year",
+				priceLookupKey: "pro_1000_year",
+				tierCredits: 1000,
+			}),
+		);
+		const delayedOldTierRenewal = invoice({
+			id: "in_delayed_old_tier_cycle",
+			newKey: "pro_250_year",
+			reason: "subscription_cycle",
+		});
+		addInvoice(context, delayedOldTierRenewal);
+
+		await context.service.grantForPaidInvoice(delayedOldTierRenewal);
+
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(250);
+		expect(
+			context.repository.slots
+				.filter((slot) => slot.status === "pending")
+				.map((slot) => slot.credits),
+		).toEqual(Array.from({ length: 11 }, () => 250));
+		expect(
+			context.repository.applications.find(
+				(row) => row.stripeInvoiceId === delayedOldTierRenewal.id,
+			)?.newPriceLookupKey,
+		).toBe("pro_250_year");
+	});
+
+	it("defers an out-of-order annual tier update until its interval-change predecessor", async () => {
+		const context = setup(
+			subscription({
+				interval: "year",
+				priceLookupKey: "pro_1000_year",
+				tierCredits: 1000,
+			}),
+		);
+		context.repository.seedApplication("pro_250_month");
+		context.creditRepository.seedPlan(500);
+		const intervalChange = invoice({
+			id: "in_interval_first",
+			newKey: "pro_500_year",
+			oldKey: "pro_250_month",
+			reason: "subscription_update",
+		});
+		const laterTierUpgrade = invoice({
+			id: "in_tier_second",
+			newKey: "pro_1000_year",
+			oldKey: "pro_500_year",
+			reason: "subscription_update",
+		});
+		addInvoice(context, intervalChange);
+		addInvoice(context, laterTierUpgrade);
+
+		await expect(
+			context.service.grantForPaidInvoice(laterTierUpgrade),
+		).rejects.toThrow("arrived before its pro_500_year predecessor");
+		await context.service.grantForPaidInvoice(intervalChange);
+		await context.service.grantForPaidInvoice(laterTierUpgrade);
+
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(1500);
+		expect(
+			context.repository.slots.filter((slot) => slot.status === "pending"),
+		).toHaveLength(11);
+		expect(
+			context.repository.applications.filter(
+				(row) => row.billingReason === "subscription_update",
+			),
+		).toHaveLength(2);
+	});
+
+	it("grants due-but-unswept yearly slots before replacing them on upgrade and renewal", async () => {
+		const context = setup(
+			subscription({
+				interval: "year",
+				priceLookupKey: "pro_500_year",
+				tierCredits: 500,
+			}),
+		);
+		context.repository.seedApplication("pro_250_year");
+		context.creditRepository.seedPlan(100);
+		await context.refill.createYearlySlots(
+			{
+				credits: 250,
+				funding: {
+					chargeId: "ch_old",
+					invoiceId: "in_old",
+					paymentIntentId: "pi_old",
+				},
+				remainingAfter: PERIOD_START,
+				subscription: context.repository.canonical as SubscriptionCreditRow,
+			},
+			{} as SubscriptionCreditsTransaction,
+		);
+		const upgrade = invoice({
+			id: "in_year_up",
+			newKey: "pro_500_year",
+			oldKey: "pro_250_year",
+			paidAt: new Date("2026-05-01T00:00:00.000Z"),
+			reason: "subscription_update",
+		});
+		addInvoice(context, upgrade);
+		await context.service.grantForPaidInvoice(upgrade);
+		expect(
+			context.repository.slots.filter((slot) => slot.status === "canceled"),
+		).toHaveLength(8);
+		expect(
+			context.repository.slots
+				.filter((slot) => slot.status === "granted")
+				.map((slot) => slot.periodOrdinal),
+		).toEqual([2, 3, 4]);
+		expect(
+			context.repository.slots.filter((slot) => slot.status === "pending"),
+		).toHaveLength(8);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(750);
+
+		const renewal = invoice({
+			id: "in_year_cycle",
+			newKey: "pro_500_year",
+			periodEnd: new Date("2028-01-31T12:00:00.000Z"),
+			periodStart: PERIOD_END,
+			reason: "subscription_cycle",
+		});
+		addInvoice(context, renewal);
+		await context.service.grantForPaidInvoice(renewal);
+		expect(
+			context.repository.slots.filter((slot) => slot.status === "pending"),
+		).toHaveLength(11);
+		expect(
+			context.repository.slots.filter((slot) => slot.status === "granted"),
+		).toHaveLength(11);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(1000);
+	});
+
+	it("sweeps missed slots exactly once with CAS, canonical admission, and stable refill keys", async () => {
+		const context = setup(
+			subscription({ interval: "year", priceLookupKey: "pro_250_year" }),
+		);
+		await context.refill.createYearlySlots(
+			{
+				credits: 250,
+				funding: {
+					chargeId: "ch_1",
+					invoiceId: "in_1",
+					paymentIntentId: "pi_1",
+				},
+				remainingAfter: PERIOD_START,
+				subscription: context.repository.canonical as SubscriptionCreditRow,
+			},
+			{} as SubscriptionCreditsTransaction,
+		);
+		const now = new Date("2026-04-01T00:00:00.000Z");
+		const result = await context.refill.sweepDueSlots(now);
+		expect(result).toEqual({ canceled: 0, failed: 0, granted: 2, skipped: 0 });
+		expect(
+			context.creditRepository.rows
+				.filter((row) => row.kind === "grant")
+				.map((row) => row.idempotencyKey),
+		).toEqual(["refill:sub_local:in_1:2", "refill:sub_local:in_1:3"]);
+		const racingOutcomes = await Promise.all([
+			context.refill.grantDueSlot(
+				"slot_3",
+				new Date("2026-05-01T00:00:00.000Z"),
+			),
+			context.refill.grantDueSlot(
+				"slot_3",
+				new Date("2026-05-01T00:00:00.000Z"),
+			),
+		]);
+		expect(racingOutcomes.sort()).toEqual(["granted", "skipped"]);
+		expect(
+			context.creditRepository.rows.filter((row) => row.kind === "grant"),
+		).toHaveLength(3);
+		expect(
+			context.creditRepository.rows.find(
+				(row) => row.idempotencyKey === "refill:sub_local:in_1:4",
+			),
+		).toBeDefined();
+
+		const foreign = subscription({
+			id: "sub_foreign",
+			providerSubscriptionId: "sub_foreign_remote",
+		});
+		const baseSlot = context.repository.slots[0];
+		expect(baseSlot).toBeDefined();
+		if (!baseSlot) {
+			throw new Error(
+				"Expected the yearly subscription to create refill slots",
+			);
+		}
+		context.repository.subscriptions.set(foreign.id, foreign);
+		context.repository.slots.push({
+			...baseSlot,
+			id: "slot_foreign",
+			status: "pending",
+			subscriptionId: foreign.id,
+		});
+		await expect(
+			context.refill.grantDueSlot("slot_foreign", now),
+		).resolves.toBe("canceled");
+	});
+
+	it("keeps paid cancel-at-period-end slots, but cancels refund-funded pending slots", async () => {
+		const context = setup(
+			subscription({
+				cancelAtPeriodEnd: true,
+				interval: "year",
+				priceLookupKey: "pro_250_year",
+			}),
+		);
+		await context.refill.createYearlySlots(
+			{
+				credits: 250,
+				funding: {
+					chargeId: "ch_refund",
+					invoiceId: "in_refund",
+					paymentIntentId: "pi_refund",
+				},
+				remainingAfter: PERIOD_START,
+				subscription: context.repository.canonical as SubscriptionCreditRow,
+			},
+			{} as SubscriptionCreditsTransaction,
+		);
+		await expect(
+			context.refill.grantDueSlot(
+				"slot_1",
+				new Date("2026-03-01T00:00:00.000Z"),
+			),
+		).resolves.toBe("granted");
+		expect(
+			await context.repository.cancelPendingSlotsByFunding({
+				chargeId: "ch_refund",
+			}),
+		).toBe(10);
+		expect(
+			context.repository.slots.filter((slot) => slot.status === "pending"),
+		).toHaveLength(0);
+	});
+
+	it("deletion cancels slots and preserves plan credits when another entitled mirror remains", async () => {
+		const context = setup();
+		context.creditRepository.seedPlan(75);
+		context.repository.slots.push({
+			credits: 250,
+			dueAt: new Date(),
+			fundingChargeId: "ch_1",
+			fundingInvoiceId: "in_1",
+			fundingPaymentIntentId: "pi_1",
+			grantedAt: null,
+			id: "slot_delete",
+			periodOrdinal: 2,
+			status: "pending",
+			subscriptionId: "sub_local",
+		});
+		const second = subscription({
+			id: "sub_second",
+			providerSubscriptionId: "sub_second_remote",
+		});
+		context.repository.subscriptions.set(second.id, second);
+		context.repository.canonical = second;
+
+		await context.service.expireForDeletedSubscription({
+			customer: "cus_1",
+			id: "sub_remote",
+			metadata: { userId: USER_ID },
+		} as unknown as Stripe.Subscription);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(75);
+		expect(context.repository.slots[0]?.status).toBe("canceled");
+
+		context.repository.canonical = null;
+		await context.service.expireForDeletedSubscription({
+			customer: "cus_1",
+			id: "sub_remote",
+			metadata: { userId: USER_ID },
+		} as unknown as Stripe.Subscription);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(0);
+	});
+
+	it("keeps unresolved entitled invoice mirrors retryable and cycle staleness scoped away from updates", async () => {
+		const noncanonical = setup();
+		noncanonical.creditRepository.seedPlan(10);
+		noncanonical.repository.canonical = subscription({
+			id: "sub_other",
+			providerSubscriptionId: "sub_other_remote",
+		});
+		const rejected = invoice({
+			id: "in_noncanonical",
+			newKey: "pro_250_month",
+			reason: "subscription_cycle",
+		});
+		addInvoice(noncanonical, rejected);
+		await expect(
+			noncanonical.service.grantForPaidInvoice(rejected),
+		).rejects.toThrow("cannot resolve subscription sub_remote");
+		expect((await noncanonical.credits.getBalance(OWNER)).plan).toBe(10);
+		expect(noncanonical.repository.applications).toHaveLength(0);
+
+		const context = setup(
+			subscription({ priceLookupKey: "pro_1000_month", tierCredits: 1000 }),
+		);
+		context.repository.applications.push({
+			appliedAt: new Date(),
+			billingReason: "subscription_cycle",
+			creditsDelta: 200,
+			newPriceLookupKey: "pro_250_month",
+			oldPriceLookupKey: null,
+			periodEnd: PERIOD_END,
+			periodStart: PERIOD_START,
+			stripeInvoiceId: "in_newer_cycle",
+			subscriptionId: "sub_local",
+		});
+		const stale = invoice({
+			id: "in_stale",
+			newKey: "pro_500_month",
+			reason: "subscription_cycle",
+		});
+		addInvoice(context, stale);
+		await context.service.grantForPaidInvoice(stale);
+		expect(
+			context.repository.applications.find(
+				(row) => row.stripeInvoiceId === "in_stale",
+			)?.creditsDelta,
+		).toBe(0);
+
+		context.repository.seedApplication("pro_250_month");
+		context.creditRepository.seedPlan(200);
+		for (const [id, oldKey, newKey] of [
+			["in_update_1", "pro_250_month", "pro_500_month"],
+			["in_update_2", "pro_500_month", "pro_1000_month"],
+		] as const) {
+			const update = invoice({
+				id,
+				newKey,
+				oldKey,
+				reason: "subscription_update",
+			});
+			addInvoice(context, update);
+			await context.service.grantForPaidInvoice(update);
+		}
+		expect(
+			context.repository.applications.filter(
+				(row) => row.billingReason === "subscription_update",
+			),
+		).toHaveLength(2);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(950);
+	});
+});

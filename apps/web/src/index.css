@@ -1,1 +1,19 @@
 @import "@wandit/ui/globals.css";
+
+/* Streamdown (chat markdown renderer) styles itself with Tailwind utility
+   classes; Tailwind only generates classes it can see, so its dist files
+   must be scanned as a content source. Path is relative to THIS css file. */
+@source "../node_modules/streamdown/dist/*.js";
+
+/* Arabic text falls back to a proper Arabic family instead of the system
+   default. Overriding the font CSS variables at the :lang(ar) scope cascades
+   into every `font-sans` / `font-display` utility. Latin locales keep their
+   existing fonts. */
+:lang(ar) {
+	--font-sans:
+		"Noto Sans Arabic", "DM Sans", ui-sans-serif, system-ui, sans-serif;
+	--font-display: "Noto Sans Arabic", "DM Sans", sans-serif;
+	/* Geist Mono has no Arabic glyphs — mono micro-labels would fall back to
+	   a broken Courier-style face with severed cursive joins. */
+	--font-mono: "Noto Sans Arabic", "Geist Mono", ui-monospace, monospace;
+}

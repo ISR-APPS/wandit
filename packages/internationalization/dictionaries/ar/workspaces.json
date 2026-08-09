@@ -1,0 +1,114 @@
+{
+	"switcher": {
+		"label": "مساحة العمل",
+		"personal": "شخصي",
+		"personalDescription": "مشاريعك الخاصة",
+		"create": "إنشاء مساحة عمل للفريق",
+		"roleOwner": "المالك",
+		"roleAdmin": "مشرف",
+		"roleMember": "عضو"
+	},
+	"create": {
+		"title": "اختر اسمًا لمساحة العمل",
+		"description": "تحتاج مساحة عمل فريقك إلى اسم. يمكنك دعوة زملائك مباشرة بعد الدفع.",
+		"nameLabel": "اسم مساحة العمل",
+		"namePlaceholder": "مثال: فريق التسويق",
+		"submit": "المتابعة إلى الدفع",
+		"creating": "جارٍ إنشاء مساحة العمل…",
+		"errors": {
+			"nameRequired": "أدخل اسمًا لمساحة العمل",
+			"disabled": "مساحات عمل الفرق غير متاحة بعد",
+			"failed": "فشل إنشاء مساحة العمل. حاول مرة أخرى.",
+			"checkoutFailed": "تم إنشاء مساحة العمل، لكن تعذّر فتح صفحة الدفع. اضغط على الزر لإعادة محاولة الدفع."
+		},
+		"retryCheckout": "إعادة محاولة الدفع"
+	},
+	"members": {
+		"title": "الأعضاء",
+		"description": "الأشخاص الذين يمكنهم الوصول إلى مساحة العمل هذه.",
+		"invite": "دعوة زميل",
+		"inviteEmailLabel": "البريد الإلكتروني",
+		"inviteEmailPlaceholder": "zameel@sharika.com",
+		"inviteRoleLabel": "الدور",
+		"inviteSubmit": "إرسال الدعوة",
+		"inviteSending": "جارٍ الإرسال…",
+		"inviteSent": "تم إرسال الدعوة",
+		"inviteFailed": "فشل إرسال الدعوة. حاول مرة أخرى.",
+		"inviteLinkCopy": "نسخ رابط الدعوة",
+		"inviteLinkCopied": "تم نسخ رابط الدعوة",
+		"pendingTitle": "دعوات معلّقة",
+		"cancelInvite": "إلغاء الدعوة",
+		"resendInvite": "إعادة الإرسال",
+		"removeMember": "إزالة من مساحة العمل",
+		"removeConfirmTitle": "إزالة {name}؟",
+		"removeConfirmBody": "سيفقد هذا الشخص فورًا الوصول إلى كل مشاريع هذه المساحة.",
+		"leave": "مغادرة مساحة العمل",
+		"leaveConfirmTitle": "مغادرة مساحة العمل هذه؟",
+		"leaveConfirmBody": "ستفقد الوصول إلى مشاريعها حتى تتم دعوتك مجددًا.",
+		"lastOwnerBlocked": "أنت المالك الوحيد. انقل الملكية قبل المغادرة.",
+		"changeRole": "تغيير الدور",
+		"you": "أنت",
+		"memberCount": {
+			"zero": "لا أعضاء",
+			"one": "عضو واحد",
+			"two": "عضوان",
+			"few": "{count} أعضاء",
+			"many": "{count} عضوًا",
+			"other": "{count} عضو"
+		}
+	},
+	"limits": {
+		"title": "حدود أرصدة الأعضاء",
+		"description": "حدّد سقف الأرصدة التي يمكن لكل عضو إنفاقها من الرصيد المشترك في الشهر الميلادي. لا يخضع المالكون والمشرفون للحد الافتراضي.",
+		"defaultLabel": "الحد الشهري الافتراضي لكل عضو",
+		"noLimit": "بلا حد",
+		"customLimit": "حد مخصّص",
+		"spentThisMonth": "المُنفق هذا الشهر",
+		"save": "حفظ الحدود",
+		"saving": "جارٍ الحفظ…",
+		"saved": "تم حفظ الحدود",
+		"saveFailed": "فشل حفظ الحدود. حاول مرة أخرى."
+	},
+	"invite": {
+		"title": "دعوة إلى مساحة عمل",
+		"invitedTo": "تمت دعوتك للانضمام إلى {workspace}.",
+		"accept": "الانضمام إلى مساحة العمل",
+		"accepting": "جارٍ الانضمام…",
+		"reject": "رفض",
+		"accepted": "تم! جارٍ التبديل إلى {workspace}…",
+		"alreadyMember": "أنت عضو في مساحة العمل هذه بالفعل.",
+		"invalid": "هذه الدعوة غير صالحة أو منتهية الصلاحية.",
+		"signInFirst": "سجّل الدخول لقبول هذه الدعوة.",
+		"pendingBanner": {
+			"zero": "لا دعوات معلّقة",
+			"one": "لديك دعوة مساحة عمل معلّقة",
+			"two": "لديك دعوتا مساحة عمل معلّقتان",
+			"few": "لديك {count} دعوات مساحة عمل معلّقة",
+			"many": "لديك {count} دعوة مساحة عمل معلّقة",
+			"other": "لديك {count} دعوة مساحة عمل معلّقة"
+		},
+		"pendingBannerCta": "عرض"
+	},
+	"billing": {
+		"ownerOnlyTitle": "الفوترة يديرها مالك مساحة العمل",
+		"ownerOnlyBody": "مالك مساحة العمل وحده يمكنه تغيير الخطة أو شراء الأرصدة أو إدارة الدفع.",
+		"workspaceLabel": "فوترة مساحة العمل",
+		"personalLabel": "الفوترة الشخصية",
+		"teamTeaserTitle": "هل تعمل ضمن فريق؟",
+		"teamTeaserBody": "باقة الأعمال تمنح فريقك بالكامل رصيدًا مشتركًا واحدًا.",
+		"teamTeaserCta": "أنشئ مساحة عمل لفريقك"
+	},
+	"errors": {
+		"memberLimitTitle": "بلغت الحد الشهري",
+		"memberLimitBody": "استهلكت حدّك من أرصدة مساحة العمل لهذا الشهر ({limit} رصيد). اطلب من مالك أو مشرف رفعه.",
+		"memberLimitCta": "حسنًا",
+		"poolEmptyTitle": "نفدت أرصدة مساحة العمل",
+		"poolEmptyBodyManager": "الرصيد المشترك فارغ. حسّن الخطة أو اشترِ شحنة ليواصل الفريق العمل.",
+		"poolEmptyBodyMember": "الرصيد المشترك فارغ. أخبر مالك مساحة العمل ليضيف أرصدة.",
+		"permissionDenied": "ليست لديك صلاحية القيام بذلك في مساحة العمل هذه."
+	},
+	"credits": {
+		"poolLabel": "أرصدة {workspace}",
+		"personalPoolLabel": "أرصدة شخصية"
+	}
+}

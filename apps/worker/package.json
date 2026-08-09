@@ -6,24 +6,35 @@
 		"build": "tsdown",
 		"check-types": "tsc -b",
 		"dev": "tsx watch src/main.ts",
-		"start": "node dist/main.mjs"
+		"start": "node --enable-source-maps --import ./dist/instrument.mjs dist/main.mjs",
+		"test": "vitest run"
 	},
 	"dependencies": {
-		"@wandit/env": "workspace:*",
-		"@wandit/jobs": "workspace:*",
+		"@ai-sdk/gateway": "4.0.11",
 		"@nestjs/bullmq": "^11.0.4",
 		"@nestjs/common": "^11.1.27",
 		"@nestjs/config": "^4.0.4",
 		"@nestjs/core": "^11.1.27",
+		"@openrouter/ai-sdk-provider": "^3.0.0",
+		"@sentry/node": "catalog:",
+		"@wandit/contracts": "workspace:*",
+		"@wandit/db": "workspace:*",
+		"@wandit/env": "workspace:*",
+		"@wandit/jobs": "workspace:*",
+		"@wandit/observability": "workspace:*",
+		"ai": "^7.0.14",
 		"bullmq": "^5.79.2",
+		"ioredis": "^5.11.1",
 		"reflect-metadata": "^0.2.2",
 		"rxjs": "^7.8.2"
 	},
 	"devDependencies": {
-		"@wandit/config": "workspace:*",
+		"@ai-sdk/provider": "^4.0.3",
 		"@types/node": "^22.20.0",
+		"@wandit/config": "workspace:*",
 		"tsdown": "^0.21.10",
 		"tsx": "^4.22.4",
-		"typescript": "catalog:"
+		"typescript": "catalog:",
+		"vitest": "^4.1.9"
 	}
 }

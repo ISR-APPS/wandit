@@ -1,10 +1,17 @@
 import { SidebarInset, SidebarProvider } from "@wandit/ui/components/sidebar";
 import type * as React from "react";
 
+import type { TranslationKey } from "@/lib/i18n";
 import { AppSidebar } from "./app-sidebar";
 import { DashboardHeader } from "./dashboard-header";
 
-export function DashboardShell({ children }: { children: React.ReactNode }) {
+export function DashboardShell({
+	children,
+	titleKey,
+}: {
+	children: React.ReactNode;
+	titleKey?: TranslationKey;
+}) {
 	return (
 		<SidebarProvider
 			style={
@@ -16,7 +23,7 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
 		>
 			<AppSidebar variant="inset" collapsible="icon" />
 			<SidebarInset>
-				<DashboardHeader />
+				<DashboardHeader titleKey={titleKey} />
 				<div className="flex flex-1 flex-col">{children}</div>
 			</SidebarInset>
 		</SidebarProvider>

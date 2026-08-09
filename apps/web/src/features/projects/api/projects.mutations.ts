@@ -4,20 +4,24 @@
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
-import type { Project } from "./dto";
+import type { CreateProjectBody, Project } from "./dto";
 import { projectKeys } from "./projects.queries";
 import {
 	createProject,
 	deleteProject,
 	renameProject,
+	updateProjectBadge,
+	updateProjectLogo,
+	updateProjectPixels,
 } from "./projects.services";
 
 export function useCreateProject() {
 	const queryClient = useQueryClient();
 	return useMutation({
-		mutationFn: (prompt: string) => createProject(prompt),
-		onSuccess: (project) => {
-			queryClient.setQueryData(projectKeys.detail(project.id), project);
+		mutationFn: (body: CreateProjectBody) => createProject(body),
+		// Create returns ids only, so there is no full project to seed the detail
+		// cache with — the workspace refetches it. Just refresh the grid.
+		onSuccess: () => {
 			void queryClient.invalidateQueries({ queryKey: projectKeys.lists() });
 		},
 	});
@@ -34,6 +38,60 @@ export function useRenameProject() {
 				old?.map((p) => (p.id === project.id ? project : p)),
 			);
 			void queryClient.invalidateQueries({ queryKey: projectKeys.lists() });
+		},
+	});
+}
+
+export function useUpdateProjectPixels() {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: ({
+			id,
+			metaPixelId,
+			tiktokPixelId,
+		}: {
+			id: string;
+			metaPixelId: string | null;
+			tiktokPixelId: string | null;
+		}) => updateProjectPixels(id, { metaPixelId, tiktokPixelId }),
+		onSuccess: (project) => {
+			queryClient.setQueryData(projectKeys.detail(project.id), project);
+			queryClient.setQueryData<Project[]>(projectKeys.list(), (old) =>
+				old?.map((p) => (p.id === project.id ? project : p)),
+			);
+		},
+	});
+}
+
+export function useUpdateProjectBadge() {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: ({
+			id,
+			hideWanditBadge,
+		}: {
+			id: string;
+			hideWanditBadge: boolean;
+		}) => updateProjectBadge(id, hideWanditBadge),
+		onSuccess: (project) => {
+			queryClient.setQueryData(projectKeys.detail(project.id), project);
+			queryClient.setQueryData<Project[]>(projectKeys.list(), (old) =>
+				old?.map((p) => (p.id === project.id ? project : p)),
+			);
+		},
+	});
+}
+
+export function useUpdateProjectLogo() {
+	const queryClient = useQueryClient();
+	return useMutation({
+		mutationFn: ({ id, logoUrl }: { id: string; logoUrl: string | null }) =>
+			updateProjectLogo(id, logoUrl),
+		onSuccess: (project) => {
+			queryClient.setQueryData(projectKeys.detail(project.id), project);
+			queryClient.setQueryData<Project[]>(projectKeys.list(), (old) =>
+				old?.map((item) => (item.id === project.id ? project : item)),
+			);
 		},
 	});
 }

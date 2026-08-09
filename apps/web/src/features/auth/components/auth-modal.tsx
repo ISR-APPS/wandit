@@ -1,3 +1,7 @@
+import {
+	identifyAnalyticsUser,
+	resetAnalytics,
+} from "@wandit/analytics/browser";
 import { Button } from "@wandit/ui/components/button";
 import {
 	Dialog,
@@ -6,10 +10,8 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@wandit/ui/components/dialog";
-import { Input } from "@wandit/ui/components/input";
-import { Label } from "@wandit/ui/components/label";
 import { cn } from "@wandit/ui/lib/utils";
-import { ArrowLeft, Loader2, MailCheck } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import type * as React from "react";
 import {
 	createContext,
@@ -22,17 +24,33 @@ import {
 } from "react";
 
 import { Logo } from "@/components/logo";
-import { AUTH_COPY, MOCK_AUTH } from "../lib/constants";
-import { signInMock, useSession } from "../lib/session";
+import { usePublicSettingsQuery } from "@/features/settings/api/settings.queries";
+import {
+	buildAuthCallbackUrls,
+	registerAuthRedirectHandler,
+	sanitizeAuthRedirectPath,
+} from "@/lib/auth-navigation";
+import { useTranslation } from "@/lib/i18n";
+import { authClient } from "../lib/auth-client";
+import { promptStash } from "../lib/prompt-stash";
+import { invalidateSessionCache, useSession } from "../lib/session";
+import { EmailAuthSection } from "./email-auth-section";
+
+type AuthModalOpenOptions = {
+	next?: string;
+	redirectError?: boolean;
+};
 
 type AuthModalContextValue = {
-	open: () => void;
+	open: (opts?: AuthModalOpenOptions) => void;
 	requireAuth: (then: () => void) => void;
 };
 
 const AuthModalContext = createContext<AuthModalContextValue | null>(null);
 
-export function useAuthModal(): { open: () => void } {
+export function useAuthModal(): {
+	open: (opts?: AuthModalOpenOptions) => void;
+} {
 	const ctx = useContext(AuthModalContext);
 	if (!ctx)
 		throw new Error("useAuthModal must be used within AuthModalProvider");
@@ -41,8 +59,8 @@ export function useAuthModal(): { open: () => void } {
 
 /**
  * Returns a `requireAuth(then)` continuation runner: with a session, `then`
- * runs immediately; without one, the auth modal opens and `then` runs right
- * after a successful sign-in.
+ * runs immediately; without one, the modal starts Google redirect auth and any
+ * cross-page prompt handoff is handled through promptStash.
  */
 export function useRequireAuth(): (then: () => void) => void {
 	const ctx = useContext(AuthModalContext);
@@ -53,33 +71,102 @@ export function useRequireAuth(): (then: () => void) => void {
 
 export function AuthModalProvider({ children }: { children: React.ReactNode }) {
 	const [isOpen, setIsOpen] = useState(false);
-	const pendingRef = useRef<(() => void) | null>(null);
-	const { data: session } = useSession();
+	const [nextPath, setNextPath] = useState<string | undefined>();
+	const [redirectError, setRedirectError] = useState(false);
+	const googleRedirectStartedRef = useRef(false);
+	const { data: session, isPending: isSessionPending } = useSession();
 	const sessionRef = useRef(session);
 	sessionRef.current = session;
+	const userId = session?.user.id;
+	const userEmail = session?.user.email;
+	const userName = session?.user.name;
+	const identifiedUserIdRef = useRef<string | null>(null);
 
-	const open = useCallback(() => setIsOpen(true), []);
-
-	const requireAuth = useCallback((then: () => void) => {
-		if (sessionRef.current) {
-			then();
-			return;
-		}
-		pendingRef.current = then;
+	const open = useCallback((opts?: AuthModalOpenOptions) => {
+		setNextPath(sanitizeAuthRedirectPath(opts?.next));
+		setRedirectError(opts?.redirectError ?? false);
+		googleRedirectStartedRef.current = false;
 		setIsOpen(true);
 	}, []);
 
+	const requireAuth = useCallback(
+		(then: () => void) => {
+			if (sessionRef.current) {
+				then();
+				return;
+			}
+
+			open();
+		},
+		[open],
+	);
+
 	const handleSignedIn = useCallback(() => {
-		const pending = pendingRef.current;
-		pendingRef.current = null;
-		pending?.();
+		invalidateSessionCache();
+		promptStash.consume();
+		googleRedirectStartedRef.current = false;
+		setNextPath(undefined);
+		setRedirectError(false);
 		setIsOpen(false);
 	}, []);
 
-	const handleOpenChange = useCallback((next: boolean) => {
-		setIsOpen(next);
-		if (!next) pendingRef.current = null; // dismissed → drop continuation
+	const handleOpenChange = useCallback((nextOpen: boolean) => {
+		setIsOpen(nextOpen);
+
+		if (!nextOpen) {
+			if (!googleRedirectStartedRef.current) {
+				promptStash.consume();
+			}
+			googleRedirectStartedRef.current = false;
+			setNextPath(undefined);
+			setRedirectError(false);
+		}
 	}, []);
+
+	const handleGoogleRedirectStart = useCallback(() => {
+		googleRedirectStartedRef.current = true;
+	}, []);
+
+	const handleGoogleRedirectEnd = useCallback(() => {
+		googleRedirectStartedRef.current = false;
+	}, []);
+
+	useEffect(() => {
+		return registerAuthRedirectHandler(() => {
+			const next = getCurrentReturnPath();
+			open({ next: next === "/" ? undefined : next });
+		});
+	}, [open]);
+
+	useEffect(() => {
+		if (isSessionPending) return;
+
+		if (!userId) {
+			if (identifiedUserIdRef.current) {
+				resetAnalytics();
+			}
+			identifiedUserIdRef.current = null;
+			return;
+		}
+
+		if (identifiedUserIdRef.current !== userId) {
+			if (identifiedUserIdRef.current) {
+				resetAnalytics();
+			}
+			// Email and name are deliberate person properties for beta-support lookup.
+			identifyAnalyticsUser(userId, {
+				...(userEmail ? { email: userEmail } : {}),
+				...(userName ? { name: userName } : {}),
+			});
+			identifiedUserIdRef.current = userId;
+		}
+	}, [isSessionPending, userEmail, userId, userName]);
+
+	useEffect(() => {
+		if (isOpen && session) {
+			handleSignedIn();
+		}
+	}, [handleSignedIn, isOpen, session]);
 
 	const value = useMemo(() => ({ open, requireAuth }), [open, requireAuth]);
 
@@ -88,181 +175,157 @@ export function AuthModalProvider({ children }: { children: React.ReactNode }) {
 			{children}
 			<AuthModalDialog
 				open={isOpen}
+				nextPath={nextPath}
+				redirectError={redirectError}
 				onOpenChange={handleOpenChange}
-				onSignedIn={handleSignedIn}
+				onGoogleRedirectStart={handleGoogleRedirectStart}
+				onGoogleRedirectEnd={handleGoogleRedirectEnd}
 			/>
 		</AuthModalContext.Provider>
 	);
 }
 
-type AuthStep = "start" | "sent";
-
 function AuthModalDialog({
 	open,
+	nextPath,
+	redirectError,
 	onOpenChange,
-	onSignedIn,
+	onGoogleRedirectStart,
+	onGoogleRedirectEnd,
 }: {
 	open: boolean;
+	nextPath: string | undefined;
+	redirectError: boolean;
 	onOpenChange: (open: boolean) => void;
-	onSignedIn: () => void;
+	onGoogleRedirectStart: () => void;
+	onGoogleRedirectEnd: () => void;
 }) {
-	const [step, setStep] = useState<AuthStep>("start");
-	const [email, setEmail] = useState("");
+	const { t } = useTranslation();
 	const [isGoogleLoading, setIsGoogleLoading] = useState(false);
-	const [isSending, setIsSending] = useState(false);
-	const completeTimerRef = useRef<number | null>(null);
+	const [error, setError] = useState<string | null>(null);
+	// Dark until the emailAuthEnabled product setting is flipped: without it
+	// the dialog renders exactly the pre-email (Google-only) modal.
+	const settingsQuery = usePublicSettingsQuery();
+	const emailAuthEnabled = settingsQuery.data?.emailAuthEnabled === true;
 
-	const clearCompleteTimer = useCallback(() => {
-		if (completeTimerRef.current !== null) {
-			window.clearTimeout(completeTimerRef.current);
-			completeTimerRef.current = null;
-		}
-	}, []);
-
-	// Reset to a clean slate whenever the modal closes.
 	useEffect(() => {
 		if (!open) {
-			setStep("start");
-			setEmail("");
 			setIsGoogleLoading(false);
-			setIsSending(false);
-			clearCompleteTimer();
+			setError(null);
+			return;
 		}
-		return clearCompleteTimer;
-	}, [open, clearCompleteTimer]);
+
+		if (redirectError) {
+			setError(t("auth.redirectError"));
+		}
+	}, [open, redirectError, t]);
 
 	const handleGoogle = async () => {
 		if (isGoogleLoading) return;
+
+		setError(null);
 		setIsGoogleLoading(true);
+		onGoogleRedirectStart();
+		invalidateSessionCache();
+
+		const destination = nextPath && nextPath !== "/" ? nextPath : "/dashboard";
+		const { callbackURL, errorCallbackURL } = buildAuthCallbackUrls(
+			window.location.origin,
+			destination,
+		);
+
 		try {
-			await signInMock("google");
-			onSignedIn();
-		} finally {
+			const result = await authClient.signIn.social({
+				provider: "google",
+				callbackURL,
+				errorCallbackURL,
+			});
+
+			if (result.error) {
+				onGoogleRedirectEnd();
+				setError(result.error.message || t("auth.googleError"));
+				setIsGoogleLoading(false);
+				return;
+			}
+
+			if (result.data?.url) {
+				window.location.assign(result.data.url);
+			}
+		} catch (err) {
+			onGoogleRedirectEnd();
+			setError(err instanceof Error ? err.message : t("auth.googleError"));
 			setIsGoogleLoading(false);
 		}
-	};
-
-	const handleMagicLink = async (e: React.FormEvent<HTMLFormElement>) => {
-		e.preventDefault();
-		if (isSending || email.trim().length === 0) return;
-		setIsSending(true);
-		// Simulated send latency, then the "check your inbox" state.
-		await new Promise((r) => setTimeout(r, 450));
-		setIsSending(false);
-		setStep("sent");
-		if (MOCK_AUTH) {
-			// Mock: the "link" is clicked for you shortly after.
-			completeTimerRef.current = window.setTimeout(() => {
-				void signInMock("magic-link").then(onSignedIn);
-			}, 1600);
-		}
-	};
-
-	const handleBack = () => {
-		clearCompleteTimer();
-		setStep("start");
 	};
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent className="gap-0 overflow-hidden p-0 sm:max-w-sm">
-				{step === "start" ? (
-					<div className="flex flex-col px-6 pt-10 pb-6">
-						<DialogHeader className="items-center gap-2 text-center sm:text-center">
-							<Logo size="md" className="mb-2" />
-							<DialogTitle className="font-display font-semibold text-xl tracking-tight">
-								{AUTH_COPY.modalTitle}
-							</DialogTitle>
-							<DialogDescription className="text-muted-foreground text-sm">
-								{AUTH_COPY.modalSubtitle}
-							</DialogDescription>
-						</DialogHeader>
+			<DialogContent
+				className="gap-0 overflow-hidden p-0 sm:max-w-sm"
+				closeLabel={t("common.close")}
+			>
+				<div className="flex flex-col px-6 pt-10 pb-6">
+					<DialogHeader className="items-center gap-2 text-center sm:text-center">
+						<Logo size="md" className="mb-2" />
+						<DialogTitle className="font-display font-semibold text-xl tracking-tight">
+							{t("auth.modalTitle")}
+						</DialogTitle>
+						<DialogDescription className="text-muted-foreground text-sm">
+							{t("auth.modalSubtitle")}
+						</DialogDescription>
+					</DialogHeader>
 
-						<div className="mt-6 flex flex-col gap-4">
-							<Button
-								type="button"
-								variant="outline"
-								className="h-10 w-full"
-								disabled={isGoogleLoading}
-								onClick={handleGoogle}
-							>
-								{isGoogleLoading ? (
-									<Loader2 className="size-4 animate-spin" />
-								) : (
-									<GoogleIcon className="size-4" />
-								)}
-								{AUTH_COPY.googleButton}
-							</Button>
-
-							<div className="flex items-center gap-3">
-								<div className="h-px flex-1 bg-border" />
-								<span className="text-muted-foreground text-xs uppercase tracking-widest">
-									{AUTH_COPY.divider}
-								</span>
-								<div className="h-px flex-1 bg-border" />
-							</div>
-
-							<form className="flex flex-col gap-2" onSubmit={handleMagicLink}>
-								<Label htmlFor="auth-email" className="sr-only">
-									{AUTH_COPY.emailLabel}
-								</Label>
-								<Input
-									id="auth-email"
-									type="email"
-									required
-									autoComplete="email"
-									placeholder={AUTH_COPY.emailPlaceholder}
-									value={email}
-									onChange={(e) => setEmail(e.target.value)}
-									disabled={isSending}
-									className="h-10"
-								/>
-								<Button
-									type="submit"
-									variant="secondary"
-									className="h-10 w-full"
-									disabled={isSending || email.trim().length === 0}
-								>
-									{isSending ? (
-										<Loader2 className="size-4 animate-spin" />
-									) : null}
-									{AUTH_COPY.sendMagicLink}
-								</Button>
-							</form>
-						</div>
-
-						<p className="mt-6 text-center text-muted-foreground/80 text-xs leading-relaxed">
-							{AUTH_COPY.terms}
-						</p>
-					</div>
-				) : (
-					<div className="flex flex-col items-center px-6 pt-10 pb-8 text-center">
-						<span className="flex size-12 items-center justify-center rounded-full bg-primary/10 text-primary">
-							<MailCheck className="size-5" />
-						</span>
-						<DialogHeader className="mt-4 items-center gap-2 text-center sm:text-center">
-							<DialogTitle className="font-display font-semibold text-xl tracking-tight">
-								{AUTH_COPY.sentTitle}
-							</DialogTitle>
-							<DialogDescription className="text-muted-foreground text-sm">
-								{AUTH_COPY.sentBody}
-							</DialogDescription>
-						</DialogHeader>
-						<p className="mt-1 font-mono text-foreground text-sm">{email}</p>
+					<div className="mt-6 flex flex-col gap-3">
 						<Button
 							type="button"
-							variant="ghost"
-							size="sm"
-							className="mt-6 text-muted-foreground"
-							onClick={handleBack}
+							className="h-11 w-full rounded-full"
+							disabled={isGoogleLoading}
+							onClick={handleGoogle}
 						>
-							<ArrowLeft className="size-3.5" />
-							{AUTH_COPY.useDifferentEmail}
+							{isGoogleLoading ? (
+								<Loader2 className="size-4 animate-spin" />
+							) : (
+								<GoogleIcon className="size-4" />
+							)}
+							{isGoogleLoading
+								? t("auth.googleLoading")
+								: t("auth.googleButton")}
 						</Button>
+
+						{emailAuthEnabled ? (
+							<EmailAuthSection
+								nextPath={nextPath}
+								onError={setError}
+								onClearError={() => setError(null)}
+							/>
+						) : null}
+
+						{error ? (
+							<p
+								role="alert"
+								className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-center text-destructive text-sm leading-snug"
+							>
+								{error}
+							</p>
+						) : null}
 					</div>
-				)}
+
+					<p className="mt-6 text-center text-muted-foreground/80 text-xs leading-relaxed">
+						{t("auth.terms")}
+					</p>
+				</div>
 			</DialogContent>
 		</Dialog>
+	);
+}
+
+function getCurrentReturnPath(): string | undefined {
+	if (typeof window === "undefined") {
+		return undefined;
+	}
+
+	return sanitizeAuthRedirectPath(
+		`${window.location.pathname}${window.location.search}`,
 	);
 }
 

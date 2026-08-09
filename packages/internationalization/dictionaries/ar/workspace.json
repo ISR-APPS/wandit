@@ -1,0 +1,960 @@
+{
+	"backToDashboard": "العودة إلى لوحة التحكم",
+	"tabsAriaLabel": "طرق عرض مساحة العمل",
+	"autosaved": "محفوظ",
+	"meta": {
+		"title": "مساحة العمل — Wandit"
+	},
+	"tabs": {
+		"page": "الصفحة",
+		"assets": "الوسائط",
+		"marketing": "التسويق",
+		"leads": "العملاء المحتملون",
+		"settings": "الإعدادات"
+	},
+	"switcher": {
+		"menuLabel": "المشاريع",
+		"allProjects": "كل المشاريع"
+	},
+	"store": {
+		"ledgerFallbackName": "صفحة هبوط",
+		"initialGeneration": "التوليد الأولي",
+		"fallbackPageName": "صفحتك"
+	},
+	"publish": {
+		"publish": "نشر",
+		"publishing": "جارٍ النشر…",
+		"published": "منشور",
+		"failed": "فشل النشر",
+		"retryCta": "أعد المحاولة",
+		"failedHint": "حدث خطأ ما. نسختك المنشورة الأخيرة لم تتأثر — أعد المحاولة.",
+		"earlyAccessRequired": "لا يملك حسابك صلاحية الوصول المبكر بعد. النشر متاح فقط للمستخدمين الذين لديهم وصول مبكر.",
+		"copyLink": "نسخ الرابط",
+		"openLive": "فتح الموقع المباشر",
+		"unpublish": "إلغاء النشر",
+		"linkCopied": "تم نسخ الرابط",
+		"publishedToast": "مباشر على {url}",
+		"unpublishedToast": "تم إلغاء نشر الموقع",
+		"confirmTitle": "نشر الإصدار v{n}؟",
+		"confirmBody": "سيصبح الإصدار v{n} هو الإصدار الذي يراه الزوار.",
+		"confirmCancel": "إلغاء",
+		"confirmVersion": "نشر الإصدار v{n}",
+		"freeNote": "النشر مجاني دائمًا",
+		"popover": {
+			"notPublished": "غير منشور",
+			"publishedMeta": "مباشر الآن · آخر نسخة",
+			"websiteUrl": "رابط الموقع",
+			"editSubdomain": "تعديل النطاق الفرعي",
+			"saveSubdomain": "حفظ النطاق الفرعي",
+			"visibility": "مرئي لكل من يملك الرابط",
+			"customDomainTitle": "استخدام نطاق مخصص",
+			"customDomainDescription": "اشترِ نطاقًا جديدًا واربطه بهذه الصفحة.",
+			"freeTiming": "مجاني · يستغرق نحو 15 ثانية",
+			"publishedHint": "آخر نسخة من صفحتك مباشرة",
+			"openLivePage": "فتح الصفحة المباشرة",
+			"liveOn": "مباشر على",
+			"primary": "الرئيسي",
+			"stillPublishing": "جارٍ النشر في الخلفية",
+			"alsoLive": "مباشر أيضًا · الصفحة نفسها",
+			"openDomain": "فتح النطاق",
+			"customConnectedHint": "يبقى الرابطان متصلين بهذه الصفحة"
+		},
+		"domainPurchase": {
+			"common": {
+				"close": "إغلاق",
+				"back": "رجوع",
+				"stepCount": "الخطوة {current} من {total}",
+				"perYear": "/سنة"
+			},
+			"validation": {
+				"fullName": "أدخل الاسم الكامل.",
+				"email": "أدخل بريدًا إلكترونيًا صالحًا.",
+				"phone": "أدخل رقم هاتف صالحًا.",
+				"address": "أدخل عنوانًا كاملًا.",
+				"city": "أدخل اسم المدينة.",
+				"region": "أدخل الولاية أو المنطقة.",
+				"postalCode": "أدخل رمزًا بريديًا صالحًا.",
+				"countryCode": "أدخل رمز الدولة من حرفين لاتينيين."
+			},
+			"search": {
+				"title": "إضافة نطاق مخصص",
+				"description": "ابحث عن نطاق جديد واختره لهذه الصفحة.",
+				"label": "البحث عن نطاق",
+				"placeholder": "auroravoid",
+				"hint": "أدخل الاسم من دون www أو امتداد.",
+				"emptyTitle": "اعثر على نطاقك",
+				"emptyDescription": "أدخل حرفين على الأقل لعرض النطاقات المتاحة.",
+				"noResultsTitle": "لم نعثر على نطاقات",
+				"noResultsDescription": "جرّب اسمًا آخر أو عبارة أقصر.",
+				"continue": "اختر نطاقًا للمتابعة",
+				"continueWith": "المتابعة باستخدام {domain}",
+				"unavailable": "غير متاح",
+				"recommended": "موصى به",
+				"liveAvailability": "يتم التحقق من التوفر مباشرة من المسجّل",
+				"premiumUnavailable": "النطاقات المميزة غير مدعومة بعد",
+				"priceUnavailable": "سعر التسجيل غير متوفر",
+				"notSelectable": "غير متاح"
+			},
+			"details": {
+				"title": "بياناتك",
+				"description": "مطلوبة لتسجيل النطاق باسمك.",
+				"privacyTitle": "بيانات الاتصال بمالك النطاق",
+				"privacyDescription": "تصبح هذه البيانات سجل التسجيل العلني المطلوب من ICANN. خصوصية WHOIS معطّلة افتراضيًا وستتوفر لاحقًا كإضافة.",
+				"fullNameLabel": "الاسم الكامل",
+				"emailLabel": "البريد الإلكتروني",
+				"phoneLabel": "رقم الهاتف",
+				"phoneHint": "أضف رمز الاتصال الدولي.",
+				"countryLabel": "رمز الدولة",
+				"addressLabel": "العنوان",
+				"regionLabel": "الولاية / المنطقة",
+				"cityLabel": "المدينة",
+				"postalCodeLabel": "الرمز البريدي",
+				"registrationTerm": "تسجيل لمدة سنة",
+				"continue": "مراجعة الطلب"
+			},
+			"checkout": {
+				"title": "مراجعة الطلب والدفع",
+				"description": "راجع طلبك، ثم انتقل إلى Stripe لإتمام الدفع.",
+				"registrationTerm": "تسجيل النطاق · سنة واحدة",
+				"totalToday": "الإجمالي المستحق اليوم",
+				"privacyTitle": "بيانات مالك النطاق",
+				"privacyDescription": "تُرسل بياناتك إلى المسجّل لإتمام تسجيل ICANN. يمكن إضافة خصوصية WHOIS لاحقًا.",
+				"secureTitle": "دفع آمن عبر Stripe",
+				"legalNotice": "شراء النطاق نهائي. يمكنك نقله بعد انتهاء قفل ICANN لمدة 60 يومًا.",
+				"continueToStripe": "المتابعة إلى Stripe · {amount}",
+				"stripeCaption": "دفع آمن تتولاه Stripe"
+			}
+		},
+		"panel": {
+			"titles": {
+				"config": "نشر",
+				"publishing": "جارٍ النشر…",
+				"live": "صفحتك مباشرة الآن",
+				"update": "نشر التحديث",
+				"history": "سجلّ النسخ"
+			},
+			"liveAtLabel": "ستكون صفحتك مباشرة على",
+			"slugInvalid": "حروف لاتينية وأرقام وشرطات فقط",
+			"slugChecking": "جارٍ التحقق…",
+			"slugTaken": "هذا العنوان محجوز",
+			"available": "متاح",
+			"slugRules": "حروف وأرقام وشرطات",
+			"whatShipsTitle": "ما الذي يُنشر",
+			"shipStyles": "الأنماط مُجمّعة ومُحسّنة",
+			"shipPixelDetected": "{name} مكتشف · مُدمج",
+			"addInSettings": "أضفه في الإعدادات",
+			"shipCod": "استمارة الدفع عند الاستلام ← عملاؤك",
+			"publishingVersion": "نشر النسخة v{n}",
+			"changeVersion": "تغيير",
+			"freeNote": "النشر وجمع الطلبات مجانيان دائمًا.",
+			"publishCta": "انشر على wandit.app",
+			"publishHint": "يستغرق حوالي 15 ثانية · اضغط Esc للإلغاء",
+			"deployTitle": "جارٍ النشر على الشبكة",
+			"deployStepStyles": "تم تجميع الأنماط",
+			"deployStepPixels": "تم دمج بكسلات الإعلانات",
+			"deployStepUpload": "جارٍ الرفع إلى شبكة التوزيع",
+			"deployStepDns": "جارٍ توجيه رابطك",
+			"cancel": "إلغاء",
+			"backgroundNote": "يمكنك مواصلة العمل — يستمر هذا في الخلفية.",
+			"liveTitle": "صفحتك الآن مباشرة",
+			"liveSub": "شارك الرابط وابدأ في استقبال الطلبات.",
+			"scanTitle": "امسح لفتح الصفحة",
+			"scanSub": "وجّه كاميرا الهاتف نحو الرمز لمعاينة الصفحة على الجوال — كما سيراها معظم المشترين.",
+			"shareTo": "المشاركة عبر",
+			"historyLink": "سجلّ النسخ",
+			"openLive": "افتح الصفحة المباشرة",
+			"liveNow": "مباشر الآن · v{n}",
+			"publishedWhen": "نُشرت {when}",
+			"changesTitle": "{count} تغييرًا منذ آخر نشر",
+			"changesSub": "راجع ما سيراه المشترون ثم انشره.",
+			"change0": "لون العدّاد ← أحمر",
+			"change1": "المقاسات من 40 إلى 44",
+			"change2": "شريط التوصيل المجاني",
+			"change3": "حذف نافذة النشرة البريدية",
+			"moreChanges": "+{count} تغييرات أخرى",
+			"pixelToggleTitle": "إعادة دمج البكسلات",
+			"pixelToggleSub": "{name} · يُحدَّث عند النشر",
+			"adPixels": "بكسلات الإعلانات",
+			"linkSameNote": "رابطك يبقى كما هو. يرى الزوار دائمًا آخر نسخة منشورة.",
+			"discard": "تجاهل",
+			"publishChanges": "انشر التغييرات",
+			"historyIntro": "كل عملية نشر محفوظة. ارجع إلى أي نسخة سابقة — تعود مباشرة على نفس الرابط.",
+			"whenByYou": "{when} · بواسطتك",
+			"liveChip": "مباشر",
+			"restore": "استرجاع",
+			"offlineTitle": "إيقاف الموقع",
+			"offlineBody": "إلغاء النشر يزيل الرابط. يبقى مشروعك ونسخك وعملاؤك محفوظين.",
+			"unpublishCta": "إلغاء النشر"
+		}
+	},
+	"chat": {
+		"title": "المحادثة",
+		"collapse": "طيّ المحادثة",
+		"menuLabel": "خيارات المحادثة",
+		"expand": "فتح المحادثة",
+		"placeholder": "صف التغيير…",
+		"thinking": "جارٍ التفكير…",
+		"generating": "جارٍ التوليد",
+		"usage": {
+			"message": "الإدخال {input} · الإخراج {output} · الإجمالي {total} رمزًا",
+			"context": "السياق",
+			"conversationTotal": "إجمالي ما استُخدم في هذه المحادثة: {total} رمزًا",
+			"brain": "العقل",
+			"builder": "المنشئ"
+		},
+		"mcpTool": {
+			"workingWith": "العمل باستخدام أدواتك",
+			"running": "جارٍ التنفيذ…",
+			"approvalTitle": "يتطلب هذا الإجراء موافقتك.",
+			"wantsTo": "يريد Wandit تنفيذ: {action} · {connector}",
+			"approve": "موافقة",
+			"deny": "رفض",
+			"approved": "تمت الموافقة",
+			"denied": "تم الرفض",
+			"expired": "انتهت صلاحية الموافقة",
+			"waiting": "في انتظار المتابعة…",
+			"error": "خطأ",
+			"result": "النتيجة",
+			"searchingToolCatalog": "جارٍ البحث في كتالوج الأدوات",
+			"searchedToolCatalog": "تم البحث في كتالوج الأدوات",
+			"readingToolDetails": "جارٍ قراءة تفاصيل الأداة",
+			"readToolDetails": "تمت قراءة تفاصيل الأداة",
+			"showDetails": "عرض التفاصيل",
+			"hideDetails": "إخفاء التفاصيل",
+			"actionCount": "{count} إجراءات",
+			"usedTool": "استُخدمت أداة واحدة",
+			"usedTools": "استُخدمت {count} أدوات",
+			"progressOf": "{done} من {total}",
+			"genericLabels": {
+				"fetch": {
+					"active": "جارٍ قراءة البيانات",
+					"past": "تمت قراءة البيانات"
+				},
+				"create": {
+					"active": "جارٍ الإنشاء",
+					"past": "تم الإنشاء"
+				},
+				"update": {
+					"active": "جارٍ التعديل",
+					"past": "تم التعديل"
+				},
+				"delete": {
+					"active": "جارٍ الحذف",
+					"past": "تم الحذف"
+				},
+				"publish": {
+					"active": "جارٍ النشر",
+					"past": "تم النشر"
+				},
+				"send": {
+					"active": "جارٍ الإرسال",
+					"past": "تم الإرسال"
+				},
+				"generate": {
+					"active": "جارٍ التوليد",
+					"past": "تم التوليد"
+				},
+				"other": {
+					"active": "جارٍ تنفيذ إجراء على المنصة",
+					"past": "تم تنفيذ الإجراء"
+				}
+			},
+			"toolLabels": {
+				"media_upload": {
+					"active": "جارٍ رفع وسائطك",
+					"past": "تم رفع وسائطك"
+				},
+				"media_upload_widget": {
+					"active": "جارٍ فتح نافذة الوسائط",
+					"past": "تم فتح نافذة الوسائط"
+				},
+				"media_import_url": {
+					"active": "جارٍ استيراد الوسائط من رابط",
+					"past": "تم استيراد الوسائط من رابط"
+				},
+				"media_confirm": {
+					"active": "جارٍ تأكيد رفع الوسائط",
+					"past": "تم تأكيد رفع الوسائط"
+				},
+				"select_workspace": {
+					"active": "جارٍ اختيار مساحة العمل",
+					"past": "تم اختيار مساحة العمل"
+				},
+				"generate_image": {
+					"active": "جارٍ إنشاء الصورة",
+					"past": "تم إنشاء الصورة"
+				},
+				"generate_video": {
+					"active": "جارٍ إنشاء الفيديو",
+					"past": "تم إنشاء الفيديو"
+				},
+				"generate_audio": {
+					"active": "جارٍ إنشاء المقطع الصوتي",
+					"past": "تم إنشاء المقطع الصوتي"
+				},
+				"generate_3d": {
+					"active": "جارٍ إنشاء نموذج ثلاثي الأبعاد",
+					"past": "تم إنشاء نموذج ثلاثي الأبعاد"
+				},
+				"animation_actions": {
+					"active": "جارٍ تحميل خيارات التحريك",
+					"past": "تم تحميل خيارات التحريك"
+				},
+				"outpaint_image": {
+					"active": "جارٍ توسيع الصورة",
+					"past": "تم توسيع الصورة"
+				},
+				"reframe": {
+					"active": "جارٍ إعادة تأطير الفيديو",
+					"past": "تمت إعادة تأطير الفيديو"
+				},
+				"remove_background": {
+					"active": "جارٍ إزالة خلفية الصورة",
+					"past": "تمت إزالة خلفية الصورة"
+				},
+				"upscale_image": {
+					"active": "جارٍ تحسين جودة الصورة",
+					"past": "تم تحسين جودة الصورة"
+				},
+				"upscale_video": {
+					"active": "جارٍ تحسين جودة الفيديو",
+					"past": "تم تحسين جودة الفيديو"
+				},
+				"motion_control": {
+					"active": "جارٍ تطبيق الحركة",
+					"past": "تم تطبيق الحركة"
+				},
+				"voice_change": {
+					"active": "جارٍ تغيير الصوت",
+					"past": "تم تغيير الصوت"
+				},
+				"dubbing": {
+					"active": "جارٍ دبلجة الفيديو",
+					"past": "تمت دبلجة الفيديو"
+				},
+				"models_explore": {
+					"active": "جارٍ استكشاف الأساليب",
+					"past": "تم استكشاف الأساليب"
+				},
+				"job_status": {
+					"active": "جارٍ التحقق من تقدم الإنشاء",
+					"past": "تم التحقق من تقدم الإنشاء"
+				},
+				"job_display": {
+					"active": "جارٍ عرض النتيجة",
+					"past": "تم عرض النتيجة"
+				},
+				"show_generations": {
+					"active": "جارٍ تحميل إبداعاتك",
+					"past": "تم تحميل إبداعاتك"
+				},
+				"tiktok_accounts": {
+					"active": "جارٍ التحقق من حسابات تيك توك",
+					"past": "تم التحقق من حسابات تيك توك"
+				},
+				"tiktok_connect": {
+					"active": "جارٍ ربط حساب تيك توك",
+					"past": "تم ربط حساب تيك توك"
+				},
+				"tiktok_music_trending": {
+					"active": "جارٍ استعراض موسيقى تيك توك الرائجة",
+					"past": "تم استعراض موسيقى تيك توك الرائجة"
+				},
+				"tiktok_music_tune": {
+					"active": "جارٍ ضبط موسيقى تيك توك",
+					"past": "تم ضبط موسيقى تيك توك"
+				},
+				"tiktok_prepare_publish": {
+					"active": "جارٍ تجهيز منشور تيك توك",
+					"past": "تم تجهيز منشور تيك توك"
+				},
+				"tiktok_publish": {
+					"active": "جارٍ النشر على تيك توك",
+					"past": "تم النشر على تيك توك"
+				},
+				"tiktok_publish_status": {
+					"active": "جارٍ التحقق من حالة منشور تيك توك",
+					"past": "تم التحقق من حالة منشور تيك توك"
+				},
+				"tiktok_reconnect": {
+					"active": "جارٍ إعادة ربط حساب تيك توك",
+					"past": "تمت إعادة ربط حساب تيك توك"
+				},
+				"ads_get_ad_accounts": {
+					"active": "جارٍ جلب حسابات الإعلانات",
+					"past": "تم جلب حسابات الإعلانات"
+				},
+				"ads_get_ad_entities": {
+					"active": "جارٍ جلب الحملات والإعلانات",
+					"past": "تم جلب الحملات والإعلانات"
+				},
+				"ads_entity_get_report": {
+					"active": "جارٍ جلب تقرير الحملة",
+					"past": "تم جلب تقرير الحملة"
+				},
+				"ads_insights_performance_trend": {
+					"active": "جارٍ تحليل اتجاهات الأداء",
+					"past": "تم تحليل اتجاهات الأداء"
+				},
+				"ads_insights_advertiser_context": {
+					"active": "جارٍ مراجعة ملخص الحساب",
+					"past": "تمت مراجعة ملخص الحساب"
+				},
+				"ads_get_ad_preview": {
+					"active": "جارٍ تحميل معاينة الإعلان",
+					"past": "تم تحميل معاينة الإعلان"
+				},
+				"ads_get_creatives": {
+					"active": "جارٍ جلب تصاميم الإعلانات",
+					"past": "تم جلب تصاميم الإعلانات"
+				},
+				"ads_get_ad_account_pages": {
+					"active": "جارٍ جلب الصفحات المرتبطة",
+					"past": "تم جلب الصفحات المرتبطة"
+				},
+				"ads_get_ig_accounts": {
+					"active": "جارٍ جلب حسابات إنستغرام",
+					"past": "تم جلب حسابات إنستغرام"
+				},
+				"ads_get_ad_account_custom_audiences": {
+					"active": "جارٍ جلب الجماهير المخصصة",
+					"past": "تم جلب الجماهير المخصصة"
+				},
+				"ads_get_errors": {
+					"active": "جارٍ فحص مشكلات الحساب",
+					"past": "تم فحص مشكلات الحساب"
+				},
+				"ads_library_search": {
+					"active": "جارٍ البحث في مكتبة الإعلانات",
+					"past": "تم البحث في مكتبة الإعلانات"
+				},
+				"ads_get_field_context": {
+					"active": "جارٍ مراجعة مقاييس التقرير",
+					"past": "تمت مراجعة مقاييس التقرير"
+				},
+				"advertiser_info_get": {
+					"active": "جارٍ جلب تفاصيل المُعلن",
+					"past": "تم جلب تفاصيل المُعلن"
+				},
+				"auth_advertiser_get": {
+					"active": "جارٍ فحص الحسابات المتصلة",
+					"past": "تم فحص الحسابات المتصلة"
+				},
+				"report_integrated_get": {
+					"active": "جارٍ جلب تقرير الإعلان",
+					"past": "تم جلب تقرير الإعلان"
+				},
+				"identity_get": {
+					"active": "جارٍ جلب حسابات تيك توك",
+					"past": "تم جلب حسابات تيك توك"
+				},
+				"page_get": {
+					"active": "جارٍ جلب الصفحات الفورية",
+					"past": "تم جلب الصفحات الفورية"
+				},
+				"pixel_list_get": {
+					"active": "جارٍ جلب بكسلات التتبع",
+					"past": "تم جلب بكسلات التتبع"
+				},
+				"dmp_custom_audience_list_get": {
+					"active": "جارٍ جلب الجماهير المخصصة",
+					"past": "تم جلب الجماهير المخصصة"
+				},
+				"smart_plus_campaign_get": {
+					"active": "جارٍ جلب حملات Smart+",
+					"past": "تم جلب حملات Smart+"
+				},
+				"ads_create_campaign": {
+					"active": "جارٍ إنشاء الحملة",
+					"past": "تم إنشاء الحملة"
+				},
+				"ads_create_ad_set": {
+					"active": "جارٍ إنشاء المجموعة الإعلانية",
+					"past": "تم إنشاء المجموعة الإعلانية"
+				},
+				"ads_create_ad": {
+					"active": "جارٍ إنشاء الإعلان",
+					"past": "تم إنشاء الإعلان"
+				},
+				"ads_create_creative": {
+					"active": "جارٍ إنشاء تصميم الإعلان",
+					"past": "تم إنشاء تصميم الإعلان"
+				},
+				"ads_create_custom_audience": {
+					"active": "جارٍ إنشاء الجمهور المخصص",
+					"past": "تم إنشاء الجمهور المخصص"
+				},
+				"ads_update_entity": {
+					"active": "جارٍ تعديل الحملة أو الإعلان",
+					"past": "تم تعديل الحملة أو الإعلان"
+				},
+				"ads_update_custom_audience": {
+					"active": "جارٍ تعديل الجمهور المخصص",
+					"past": "تم تعديل الجمهور المخصص"
+				},
+				"smart_plus_campaign_create": {
+					"active": "جارٍ إنشاء حملة Smart+",
+					"past": "تم إنشاء حملة Smart+"
+				},
+				"smart_plus_campaign_update": {
+					"active": "جارٍ تعديل حملة Smart+",
+					"past": "تم تعديل حملة Smart+"
+				},
+				"smart_plus_campaign_status_update": {
+					"active": "جارٍ تشغيل حملة Smart+ أو إيقافها",
+					"past": "تم تشغيل حملة Smart+ أو إيقافها"
+				},
+				"smart_plus_adgroup_create": {
+					"active": "جارٍ إنشاء مجموعة إعلانية Smart+",
+					"past": "تم إنشاء مجموعة إعلانية Smart+"
+				},
+				"smart_plus_adgroup_update": {
+					"active": "جارٍ تعديل مجموعة إعلانية Smart+",
+					"past": "تم تعديل مجموعة إعلانية Smart+"
+				},
+				"smart_plus_adgroup_status_update": {
+					"active": "جارٍ تشغيل مجموعة Smart+ أو إيقافها",
+					"past": "تم تشغيل مجموعة Smart+ أو إيقافها"
+				},
+				"smart_plus_adgroup_budget_update": {
+					"active": "جارٍ تعديل ميزانية مجموعة Smart+",
+					"past": "تم تعديل ميزانية مجموعة Smart+"
+				},
+				"smart_plus_ad_create": {
+					"active": "جارٍ إنشاء إعلان Smart+",
+					"past": "تم إنشاء إعلان Smart+"
+				},
+				"smart_plus_ad_update": {
+					"active": "جارٍ تعديل إعلان Smart+",
+					"past": "تم تعديل إعلان Smart+"
+				},
+				"smart_plus_ad_status_update": {
+					"active": "جارٍ تشغيل إعلان Smart+ أو إيقافه",
+					"past": "تم تشغيل إعلان Smart+ أو إيقافه"
+				},
+				"smart_plus_ad_get": {
+					"active": "جارٍ الاطلاع على إعلان Smart+",
+					"past": "تم الاطلاع على إعلان Smart+"
+				},
+				"smart_plus_adgroup_get": {
+					"active": "جارٍ الاطلاع على مجموعة إعلانية Smart+",
+					"past": "تم الاطلاع على مجموعة إعلانية Smart+"
+				},
+				"campaign_get": {
+					"active": "جارٍ الاطلاع على الحملة",
+					"past": "تم الاطلاع على الحملة"
+				},
+				"campaign_create": {
+					"active": "جارٍ إنشاء الحملة",
+					"past": "تم إنشاء الحملة"
+				},
+				"campaign_update": {
+					"active": "جارٍ تعديل الحملة",
+					"past": "تم تعديل الحملة"
+				},
+				"campaign_status_update": {
+					"active": "جارٍ تشغيل الحملة أو إيقافها",
+					"past": "تم تشغيل الحملة أو إيقافها"
+				},
+				"adgroup_get": {
+					"active": "جارٍ الاطلاع على المجموعة الإعلانية",
+					"past": "تم الاطلاع على المجموعة الإعلانية"
+				},
+				"adgroup_create": {
+					"active": "جارٍ إنشاء المجموعة الإعلانية",
+					"past": "تم إنشاء المجموعة الإعلانية"
+				},
+				"adgroup_update": {
+					"active": "جارٍ تعديل المجموعة الإعلانية",
+					"past": "تم تعديل المجموعة الإعلانية"
+				},
+				"adgroup_status_update": {
+					"active": "جارٍ تشغيل المجموعة الإعلانية أو إيقافها",
+					"past": "تم تشغيل المجموعة الإعلانية أو إيقافها"
+				},
+				"ad_get": {
+					"active": "جارٍ الاطلاع على الإعلان",
+					"past": "تم الاطلاع على الإعلان"
+				},
+				"ad_create": {
+					"active": "جارٍ إنشاء الإعلان",
+					"past": "تم إنشاء الإعلان"
+				},
+				"ad_update": {
+					"active": "جارٍ تعديل الإعلان",
+					"past": "تم تعديل الإعلان"
+				},
+				"ad_status_update": {
+					"active": "جارٍ تشغيل الإعلان أو إيقافه",
+					"past": "تم تشغيل الإعلان أو إيقافه"
+				}
+			},
+			"stepFailed": "فشلت هذه الخطوة",
+			"interrupted": "توقّف قبل الاكتمال",
+			"skippedDeclined": "تم التخطي — لقد رفضت",
+			"arguments": "المُدخلات",
+			"generation": {
+				"working": "جارٍ إنشاء الوسائط…",
+				"workingHint": "{connector} يعمل عليه الآن — ستظهر النتيجة هنا فور جهوزها.",
+				"sentTo": "أُرسل إلى {connector}",
+				"ready": "الوسائط جاهزة",
+				"noMedia": "اكتمل الإنشاء، لكن لا يوجد ملف لعرضه هنا — تحقق من حسابك المتصل.",
+				"failed": "فشل الإنشاء",
+				"stoppedEarly": "توقف الإنشاء قبل الاكتمال.",
+				"statusLoadError": "تعذر تحميل حالة الإنشاء — أعد فتح هذه المحادثة للمحاولة مجددًا.",
+				"statusQueued": "في الانتظار",
+				"statusGenerating": "جارٍ الإنشاء",
+				"usually": "عادةً 2–4 دقائق"
+			}
+		},
+		"askUser": {
+			"questionsTitle": "بضعة أسئلة",
+			"answerBelow": "أجب أدناه ↓",
+			"upNext": "التالي",
+			"pickedForYou": "اختار Wandit نيابةً عنك",
+			"skipped": "تم التخطي",
+			"questionCount": "{count} أسئلة",
+			"answeredCount": "تمت الإجابة على {answered}/{total}"
+		},
+		"animateImage": {
+			"preparing": "جارٍ تحضير تحريك صورتك…",
+			"queueing": "جارٍ إضافة التحريك إلى قائمة الانتظار…",
+			"failedToStart": "تعذّر بدء التحريك",
+			"failedTitle": "فشل تحريك الصورة",
+			"failedBody": "توقّف التحريك قبل أن يصبح الفيديو جاهزًا.",
+			"unavailableTitle": "تحريك الفيديو غير متاح",
+			"unavailableBody": "تحريك الفيديو غير متاح الآن. لم تتغيّر صورتك الأصلية.",
+			"statusLoadError": "تعذّر تحميل حالة التحريك.",
+			"retry": "إعادة المحاولة",
+			"queuedTitle": "التحريك في قائمة الانتظار",
+			"queuedBody": "صورتك هي التالية في قائمة الانتظار.",
+			"generatingTitle": "جارٍ تحريك صورتك",
+			"generatingBody": "جارٍ إنشاء فيديو مدته خمس ثوانٍ. يمكنك متابعة العمل.",
+			"sourceAlt": "الصورة المصدر الجاري تحريكها",
+			"videoLabel": "الفيديو المُنشأ من الصورة",
+			"resultTitle": "فيديو متحرك",
+			"duration": "{seconds} ث",
+			"ready": "جاهز",
+			"open": "فتح",
+			"download": "تنزيل"
+		},
+		"tray": {
+			"preparing": "جارٍ تحضير السؤال…",
+			"needsDetail": "نحتاج توضيحًا",
+			"decideForMe": "قرّر بدلًا مني",
+			"dismiss": "تجاهل الطلب",
+			"typingOverride": "تجيب بكلماتك الخاصة ↓",
+			"answer": "أجب",
+			"chooseAnOption": "اختر خيارًا",
+			"chooseOptions": "اختر خيارات",
+			"chooseSelected": {
+				"zero": "اختر الخيارات",
+				"one": "اختر هذا الخيار",
+				"two": "اختر هذين الخيارين",
+				"few": "اختر هذه الخيارات الـ{count}",
+				"many": "اختر هذه الخيارات الـ{count}",
+				"other": "اختر هذه الخيارات الـ{count}"
+			},
+			"needsFiles": "ملفات مطلوبة",
+			"sendFiles": "أرسل {count} ملف(ات)",
+			"filesSent": "تم إرسال {count} ملف(ات)",
+			"dropHint": "اسحب ملفاتك هنا",
+			"browse": "استعرض"
+		},
+		"errors": {
+			"busy": "هناك عملية توليد قيد التنفيذ بالفعل. انتظر انتهاءها قبل إرسال رسالة أخرى.",
+			"credits": "ليست لديك أرصدة كافية لهذه العملية. أعد الشحن للمتابعة.",
+			"replayed": "تمت معالجة هذا الطلب من قبل. أرسل رسالة جديدة للمتابعة.",
+			"stream": "تم قطع بث التوليد. حاول مرة أخرى."
+		},
+		"versionCardKind": "صفحة هبوط",
+		"emptyTitle": "ابدأ المحادثة",
+		"emptyBody": "صف صفحتك وسيولّدها الذكاء الاصطناعي هنا.",
+		"suggestionsKicker": "جرّب أحد هذه الاقتراحات",
+		"suggestions": [
+			"أضف آراء العملاء تحت السعر",
+			"اجعل نموذج الطلب أقصر",
+			"ترجم الصفحة إلى العربية"
+		],
+		"marketingAsset": {
+			"preparing": "جارٍ تحضير الموجز التسويقي…",
+			"queueing": "جارٍ إضافة التوليد إلى قائمة الانتظار…",
+			"failedToStart": "تعذّر بدء التوليد",
+			"buildingKicker": "جارٍ إنشاء أصلك التسويقي",
+			"building": "يجري توليد الأصل — سيظهر في تبويب التسويق.",
+			"buildingNamed": "يجري توليد «{title}» — سيظهر في تبويب التسويق.",
+			"openTab": "افتح تبويب التسويق",
+			"readyKicker": "أصلك التسويقي جاهز",
+			"ready": "الأصل جاهز في تبويب التسويق.",
+			"readyNamed": "«{title}» جاهز في تبويب التسويق.",
+			"failedKicker": "فشل التوليد",
+			"failedBody": "توقف التوليد قبل الاكتمال — اطلب المحاولة من جديد.",
+			"missing": "هذا الأصل لم يعد موجودًا في تبويب التسويق."
+		},
+		"generateImage": {
+			"preparing": "جارٍ تحضير صورك…",
+			"queueing": "جارٍ إضافة التوليد إلى قائمة الانتظار…",
+			"failedToStart": "تعذّر بدء توليد الصور",
+			"failedTitle": "فشل توليد الصور",
+			"failedBody": "توقّف التوليد قبل أن تصبح الصور جاهزة.",
+			"statusLoadError": "تعذّر تحميل حالة التوليد.",
+			"retry": "إعادة المحاولة",
+			"queuedTitle": "الصور في قائمة الانتظار…",
+			"generatingTitle": "جارٍ توليد الصور…",
+			"readyTitle": "الصور جاهزة",
+			"download": "تنزيل",
+			"inAssetsTab": "متاحة أيضًا في تبويب الوسائط",
+			"placementFailed": "تعذّر تطبيقها على الصفحة — الصورة موجودة في تبويب الوسائط"
+		},
+		"media": {
+			"close": "إغلاق",
+			"download": "تحميل",
+			"previous": "السابق",
+			"next": "التالي"
+		}
+	},
+	"page": {
+		"versionShort": "v{n}",
+		"latestSuffix": "الأحدث",
+		"liveBadge": "مباشر",
+		"versionsMenuLabel": "الإصدارات",
+		"viewingReadOnly": "معاينة الإصدار v{n} — للقراءة فقط",
+		"restoreVersion": "استعادة هذا الإصدار",
+		"backToLatest": "العودة إلى الأحدث",
+		"restoring": "جارٍ الاستعادة…",
+		"restoreSucceeded": "تمت الاستعادة كإصدار v{n}",
+		"viewportMobile": "معاينة الهاتف",
+		"viewportDesktop": "معاينة سطح المكتب",
+		"refresh": "إعادة تحميل المعاينة",
+		"openInNewTab": "فتح في علامة تبويب جديدة",
+		"previewFallback": "معاينة",
+		"emptyTitle": "لا شيء للمعاينة بعد",
+		"emptyBody": "صف صفحتك في المحادثة — تظهر المعاينة هنا أثناء توليدها.",
+		"generatingTitle": "جارٍ توليد v{n}",
+		"generatingSteps": [
+			"تحليل موجزك…",
+			"كتابة الأقسام…",
+			"التنسيق للهاتف…",
+			"ربط استمارة الطلب…",
+			"اللمسات الأخيرة…"
+		],
+		"editor": {
+			"edit": "تعديل",
+			"done": "إنهاء",
+			"target": "استهداف",
+			"targetHint": "انقر على عنصر في المعاينة",
+			"selectedElement": "العنصر المستهدف",
+			"clearTarget": "إزالة الاستهداف",
+			"inSection": "داخل {wid}",
+			"textHint": "عدّل النص مباشرة في المعاينة.",
+			"changesCount": "{count} تعديل",
+			"save": "حفظ",
+			"discard": "إلغاء",
+			"discardConfirm": "هل تريد التخلي عن التعديلات غير المحفوظة؟",
+			"discardKeep": "متابعة التعديل",
+			"saved": "تم حفظ التعديلات — الإصدار {n}",
+			"versionSuperseded": "وصل إصدار جديد — أُلغيت تعديلاتك غير المحفوظة.",
+			"conflictTitle": "تغيّرت الصفحة",
+			"conflictBody": "وصل إصدار جديد أثناء تعديلاتك. أعد التحميل للانطلاق من أحدث إصدار.",
+			"conflictReload": "إعادة تحميل الصفحة",
+			"saveFailed": "تعذّر الحفظ: {reason}",
+			"theme": "السمة",
+			"presets": "لوحات الألوان",
+			"element": "العنصر",
+			"surface": "السطح",
+			"selectionPath": "مسار التحديد",
+			"selectLevel": "تحديد {label}",
+			"commentPlaceholder": "صِف التعديل الذي تريده…",
+			"commentAriaLabel": "تعليق على العنصر المحدد",
+			"addComment": "إضافة التعليق",
+			"updateComment": "تحديث",
+			"removeComment": "حذف",
+			"commentsCount": {
+				"zero": "لا تعليقات",
+				"one": "تعليق واحد",
+				"two": "تعليقان",
+				"few": "{count} تعليقات",
+				"many": "{count} تعليقًا",
+				"other": "{count} تعليق"
+			},
+			"clearAll": "مسح جميع التعليقات",
+			"send": "إرسال",
+			"sendAll": "إرسال الكل ({count})",
+			"queueFull": "يمكنك إضافة 10 تعليقات كحد أقصى. أرسلها أو امسحها لإضافة تعليق آخر.",
+			"targetRemoved": {
+				"zero": "لم تُزل أي تعليقات.",
+				"one": "أُزيل تعليق لأن العنصر المرتبط به لم يعد موجودًا في هذه الصفحة.",
+				"two": "أُزيل تعليقان لأن العنصرين المرتبطين بهما لم يعودا موجودين في هذه الصفحة.",
+				"few": "أُزيلت {count} تعليقات لأن العناصر المرتبطة بها لم تعد موجودة في هذه الصفحة.",
+				"many": "أُزيل {count} تعليقًا لأن العناصر المرتبطة بها لم تعد موجودة في هذه الصفحة.",
+				"other": "أُزيل {count} تعليق لأن العناصر المرتبطة بها لم تعد موجودة في هذه الصفحة."
+			},
+			"askAiFailed": "تعذّر على Wandit إرسال طلبك. حاول مرة أخرى.",
+			"aiApplying": "يطبّق الذكاء الاصطناعي تعديلاتك…",
+			"replaceImage": "استبدال الصورة",
+			"fontFamily": "الخط",
+			"fontSize": "الحجم",
+			"fontWeight": "سماكة الخط",
+			"weightNormal": "عادي",
+			"weightMedium": "متوسط",
+			"weightSemibold": "شبه عريض",
+			"weightBold": "عريض",
+			"italic": "مائل",
+			"textAlign": "محاذاة النص",
+			"alignStart": "البداية",
+			"alignCenter": "الوسط",
+			"alignEnd": "النهاية",
+			"lineHeight": "ارتفاع السطر",
+			"letterSpacing": "تباعد الأحرف",
+			"color": "اللون",
+			"backgroundColor": "لون الخلفية",
+			"width": "العرض",
+			"radius": "الزوايا",
+			"radiusNone": "بلا تدوير",
+			"radiusSmall": "صغيرة",
+			"radiusMedium": "متوسطة",
+			"radiusLarge": "كبيرة",
+			"radiusFull": "دائرية",
+			"objectFit": "ملاءمة الصورة",
+			"fitCover": "تعبئة",
+			"fitContain": "احتواء",
+			"placeholder": "النص الإرشادي",
+			"removeElement": "إزالة العنصر",
+			"removeConfirmTitle": "إزالة هذا العنصر؟",
+			"removeConfirmBody": "ستتم إزالة هذا العنصر عند حفظ تعديلاتك.",
+			"removeCancel": "إبقاء العنصر",
+			"removeConfirm": "إزالة",
+			"placeholderImage": "استبدال بصورة مؤقتة",
+			"placeholderConfirmTitle": "استبدال هذه الصورة بصورة مؤقتة؟",
+			"placeholderConfirmBody": "سيتم استبدال الصورة بصورة مؤقتة محايدة عند حفظ تعديلاتك. يمكنك وضع صورة جديدة مكانها في أي وقت.",
+			"placeholderCancel": "إبقاء الصورة",
+			"placeholderConfirm": "استبدال",
+			"contrastWarning": "تباين منخفض ({ratio}) — يصعب قراءة النص",
+			"themeLegacyNotice": "تعمل السمات على الصفحات التي تم توليدها بعد تحديث رموز التصميم — أعد توليد الصفحة لتفعيلها.",
+			"themeReset": "استعادة السمة الأصلية",
+			"themeResetUnavailable": "السمة الأصلية غير متاحة لهذه الصفحة",
+			"presetModeMismatchLight": "مصممة للصفحات ذات النمط الفاتح",
+			"presetModeMismatchDark": "مصممة للصفحات ذات النمط الداكن",
+			"pageFont": "خط الصفحة",
+			"fontsArabicGroup": "خطوط عربية",
+			"fontsLatinGroup": "خطوط لاتينية",
+			"presetLight": "فاتح",
+			"presetDark": "داكن",
+			"presetRtl": "مناسب للعربية",
+			"removeImage": "إزالة الصورة",
+			"link": "الرابط",
+			"linkUrl": "عنوان الرابط",
+			"linkPhone": "رقم الهاتف",
+			"linkInvalid": "رابط غير صالح",
+			"section": "القسم",
+			"paddingTop": "التباعد العلوي",
+			"paddingBottom": "التباعد السفلي",
+			"paddingNone": "بدون",
+			"background": "صورة الخلفية",
+			"backgroundAdd": "إضافة صورة خلفية",
+			"backgroundReplace": "استبدال صورة الخلفية",
+			"backgroundRemove": "إزالة صورة الخلفية",
+			"data": "البيانات",
+			"dataHint": "بيانات التواصل المكتشفة في الصفحة.",
+			"dataBrand": "العلامة التجارية",
+			"dataBrandHint": "تُستخدم في شريط التنقل وتذييل الصفحة.",
+			"dataBrandUpload": "رفع الشعار",
+			"dataBrandReplace": "استبدال الشعار",
+			"dataBrandRemove": "إزالة الشعار",
+			"dataBrandUploading": "جارٍ الرفع…",
+			"dataBrandRemoving": "جارٍ الإزالة…",
+			"dataBrandOccurrences": {
+				"zero": "لا مواضع",
+				"one": "موضع واحد",
+				"two": "موضعان",
+				"few": "{count} مواضع",
+				"many": "{count} موضعًا",
+				"other": "{count} موضع"
+			},
+			"dataBrandUnavailable": "لم يتم العثور على علامة تجارية قابلة للتعديل في هذه الصفحة.",
+			"dataBrandFormats": "JPEG أو PNG أو WebP أو GIF أو AVIF (من دون SVG).",
+			"dataPhone": "الهاتف",
+			"dataWhatsapp": "واتساب",
+			"dataEmail": "البريد الإلكتروني",
+			"dataSocial": "روابط التواصل",
+			"dataEmpty": "لم يتم العثور على بيانات في هذه الصفحة.",
+			"dataReadOnly": "للقراءة فقط — هذا العنصر غير قابل للتعديل.",
+			"dataOccurrences": "{count} رابط",
+			"dataApply": "تطبيق",
+			"panelTitle": "تعديل الصفحة",
+			"closePanel": "إغلاق اللوحة",
+			"tokens": {
+				"background": "الخلفية",
+				"foreground": "النص",
+				"primary": "الأساسي",
+				"primary-foreground": "النص على الأساسي",
+				"secondary": "سطح ثانوي",
+				"accent": "التمييز",
+				"muted": "نص خافت",
+				"border": "الحدود",
+				"font-heading": "خط العناوين",
+				"font-body": "خط النص"
+			}
+		}
+	},
+	"assets": {
+		"title": "الوسائط",
+		"metaCount": {
+			"zero": "لا موارد",
+			"one": "مورد واحد",
+			"two": "موردان",
+			"few": "{count} موارد",
+			"many": "{count} موردًا",
+			"other": "{count} مورد"
+		},
+		"filterAll": "الكل",
+		"filterImages": "صور",
+		"filterVideos": "فيديوهات",
+		"sourceGeneration": "مولّد",
+		"sourceAnimation": "تحريك",
+		"sourceVideo": "فيديو",
+		"sourceBuild": "الموقع",
+		"download": "تنزيل",
+		"refresh": "تحديث",
+		"close": "إغلاق",
+		"loadError": "تعذّر تحميل الوسائط.",
+		"retry": "إعادة المحاولة",
+		"emptyTitle": "لا وسائط بعد",
+		"emptyBody": "تظهر هنا الصور والفيديوهات المولّدة بالذكاء الاصطناعي — لموقعك وإعلاناتك وتحريكاتك — جاهزة للتنزيل.",
+		"downloadError": "فشل التنزيل. حاول مجددًا."
+	},
+	"marketing": {
+		"title": "التسويق",
+		"countLabel": {
+			"zero": "لا أصول",
+			"one": "أصل واحد",
+			"two": "أصلان",
+			"few": "{count} أصول",
+			"many": "{count} أصلًا",
+			"other": "{count} أصل"
+		},
+		"refresh": "تحديث",
+		"emptyTitle": "لا أصول تسويقية بعد",
+		"emptyBody": "اطلب من الدردشة نصوص إعلانات أو استراتيجية أو سيناريو فيديو أو موجزًا إبداعيًا — يظهر كل تسليم هنا كبطاقة.",
+		"emptyCta": "اسأل Wandit",
+		"loadError": "تعذّر تحميل الأصول التسويقية.",
+		"retry": "إعادة المحاولة",
+		"generating": "جارٍ التوليد…",
+		"queued": "في قائمة الانتظار…",
+		"failed": "فشل التوليد",
+		"back": "رجوع",
+		"download": "تنزيل",
+		"types": {
+			"adCopy": "نص إعلاني",
+			"marketingStrategy": "استراتيجية تسويق",
+			"videoScript": "سيناريو فيديو",
+			"creativeBrief": "موجز إبداعي",
+			"htmlAsset": "أصل HTML"
+		}
+	},
+	"notFound": {
+		"title": "المشروع غير موجود",
+		"body": "ربما تم حذفه، أو أن الرابط غير صحيح.",
+		"cta": "العودة إلى لوحة التحكم"
+	}
+}

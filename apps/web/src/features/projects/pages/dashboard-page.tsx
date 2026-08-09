@@ -1,19 +1,30 @@
+import { useNavigate } from "@tanstack/react-router";
+import type { ComposerMetadata } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import { Input } from "@wandit/ui/components/input";
 import { Skeleton } from "@wandit/ui/components/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@wandit/ui/components/tabs";
 import { Search } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Spark } from "@/components/logo";
-import { InsufficientCreditsDialog } from "@/features/credits";
+import { promptStash, useSession } from "@/features/auth";
+import {
+	InsufficientCreditsDialog,
+	OutOfCreditsBanner,
+	useOutOfCredits,
+} from "@/features/credits";
+import { PendingInvitesBanner } from "@/features/workspaces/components/pending-invites-banner";
+import { isEarlyAccessUser } from "@/lib/early-access";
+import { useTranslation } from "@/lib/i18n";
 import type { Project } from "../api/dto";
 import { useProjectsQuery } from "../api/projects.queries";
 import { ProjectCard } from "../components/project-card";
 import { PromptBox } from "../components/prompt-box";
 import { DashboardShell } from "../components/shell/dashboard-shell";
-import { GRID_SKELETON_COUNT, PROJECTS_COPY } from "../lib/constants";
+import { GRID_SKELETON_COUNT } from "../lib/constants";
 import { useCreateProjectWithPrompt } from "../lib/hooks";
+import { PREVIEW_PROMPT_STATE_KEY } from "../lib/preview-prompt";
 
 type StatusFilter = "all" | "published" | "drafts";
 
@@ -36,6 +47,7 @@ function CardSkeleton() {
 }
 
 function EmptyState({ onCta }: { onCta: () => void }) {
+	const { t } = useTranslation();
 	return (
 		<div className="relative flex flex-col items-center justify-center rounded-xl border border-dashed px-6 py-20 text-center">
 			<div
@@ -46,13 +58,13 @@ function EmptyState({ onCta }: { onCta: () => void }) {
 				<Spark className="size-5 text-primary" />
 			</div>
 			<h3 className="relative mt-4 font-display font-semibold text-lg">
-				{PROJECTS_COPY.emptyTitle}
+				{t("projects.emptyTitle")}
 			</h3>
 			<p className="relative mt-1 max-w-xs text-muted-foreground text-sm">
-				{PROJECTS_COPY.emptyBody}
+				{t("projects.emptyBody")}
 			</p>
 			<Button onClick={onCta} className="relative mt-5">
-				{PROJECTS_COPY.emptyCta}
+				{t("projects.emptyCta")}
 			</Button>
 		</div>
 	);
@@ -65,29 +77,67 @@ function NoResultsState({
 	query: string;
 	onClear: () => void;
 }) {
+	const { t } = useTranslation();
 	return (
 		<div className="flex flex-col items-center justify-center rounded-xl border border-dashed px-6 py-16 text-center">
 			<h3 className="font-display font-semibold text-base">
-				{PROJECTS_COPY.noResultsTitle}
+				{t("projects.noResultsTitle")}
 			</h3>
 			<p className="mt-1 max-w-xs text-muted-foreground text-sm">
-				{PROJECTS_COPY.noResultsBody(query)}
+				{query
+					? t("projects.noResultsBody", { query })
+					: t("projects.noResultsBodyEmpty")}
 			</p>
 			<Button variant="outline" size="sm" onClick={onClear} className="mt-4">
-				{PROJECTS_COPY.clearFilters}
+				{t("projects.clearFilters")}
 			</Button>
 		</div>
 	);
 }
 
 export default function DashboardPage() {
+	const { t } = useTranslation();
 	const { data: projects, isPending } = useProjectsQuery();
 	const { create, isCreating, insufficientOpen, setInsufficientOpen, cost } =
 		useCreateProjectWithPrompt();
+	const navigate = useNavigate();
+	const { data: session } = useSession();
+
+	// Launch window: everyone can type, but only early-access accounts really
+	// generate — the rest land on the workspace-shaped Coming Soon teaser with
+	// their prompt echoed in the chat (see lib/early-access.ts).
+	const hasEarlyAccess = isEarlyAccessUser(session?.user);
+	// Only real generators get credit-locked; the Coming Soon teaser is free.
+	const { outOfCredits } = useOutOfCredits();
+	const promptLocked = hasEarlyAccess && outOfCredits;
+	const teaseComingSoon = (prompt: string) => {
+		void navigate({
+			to: "/preview",
+			state: (previous) => ({
+				...previous,
+				[PREVIEW_PROMPT_STATE_KEY]: prompt,
+			}),
+		});
+	};
 
 	const [query, setQuery] = useState("");
 	const [filter, setFilter] = useState<StatusFilter>("all");
+	const [promptPrefill, setPromptPrefill] = useState<{
+		key: number;
+		value: string;
+		composer?: ComposerMetadata;
+	}>({ key: 0, value: "" });
 	const promptSectionRef = useRef<HTMLDivElement>(null);
+
+	useEffect(() => {
+		const draft = promptStash.consume();
+		if (!draft) return;
+		setPromptPrefill((prev) => ({
+			key: prev.key + 1,
+			value: draft.prompt,
+			composer: draft.composer,
+		}));
+	}, []);
 
 	const filtered = useMemo(() => {
 		const q = query.trim().toLowerCase();
@@ -121,6 +171,7 @@ export default function DashboardPage() {
 	return (
 		<DashboardShell>
 			<div className="mx-auto w-full max-w-6xl px-4 pb-16 md:px-6">
+				<PendingInvitesBanner className="mt-6" />
 				{/* Prompt section */}
 				<section className="relative py-10 md:py-14">
 					<div
@@ -129,13 +180,20 @@ export default function DashboardPage() {
 					/>
 					<div className="relative mx-auto w-full max-w-2xl">
 						<h2 className="text-center font-display font-semibold text-2xl tracking-tight md:text-3xl">
-							{PROJECTS_COPY.promptHeading}
+							{t("projects.promptHeading")}
 						</h2>
 						<div ref={promptSectionRef} className="mt-6">
+							{promptLocked ? <OutOfCreditsBanner className="mb-3" /> : null}
 							<PromptBox
+								key={promptPrefill.key}
 								variant="hero"
 								showPriceTag
-								onSubmit={create}
+								showModes
+								attachmentsEnabled={hasEarlyAccess}
+								disabled={promptLocked}
+								initialValue={promptPrefill.value}
+								initialComposer={promptPrefill.composer}
+								onSubmit={hasEarlyAccess ? create : teaseComingSoon}
 								isSubmitting={isCreating}
 							/>
 						</div>
@@ -152,7 +210,7 @@ export default function DashboardPage() {
 					<div className="flex flex-wrap items-center gap-x-4 gap-y-3">
 						<div className="flex items-baseline gap-2">
 							<h2 className="font-display font-semibold text-lg tracking-tight">
-								{PROJECTS_COPY.toolbarTitle}
+								{t("projects.toolbarTitle")}
 							</h2>
 							{projects ? (
 								<span className="font-mono text-muted-foreground text-xs">
@@ -160,18 +218,18 @@ export default function DashboardPage() {
 								</span>
 							) : null}
 						</div>
-						<div className="ml-auto flex w-full flex-wrap items-center gap-2 sm:w-auto">
+						<div className="ms-auto flex w-full flex-wrap items-center gap-2 sm:w-auto">
 							<div className="relative min-w-0 flex-1 sm:w-56 sm:flex-none">
 								<Search
 									aria-hidden
-									className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
+									className="pointer-events-none absolute start-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground"
 								/>
 								<Input
 									value={query}
 									onChange={(e) => setQuery(e.target.value)}
-									placeholder={PROJECTS_COPY.searchPlaceholder}
-									className="h-8 pl-8 text-sm"
-									aria-label={PROJECTS_COPY.searchPlaceholder}
+									placeholder={t("projects.searchPlaceholder")}
+									className="h-8 ps-8 text-sm"
+									aria-label={t("projects.searchPlaceholder")}
 								/>
 							</div>
 							<Tabs
@@ -180,13 +238,13 @@ export default function DashboardPage() {
 							>
 								<TabsList className="h-8">
 									<TabsTrigger value="all" className="text-xs">
-										{PROJECTS_COPY.filterAll}
+										{t("projects.filterAll")}
 									</TabsTrigger>
 									<TabsTrigger value="published" className="text-xs">
-										{PROJECTS_COPY.filterPublished}
+										{t("projects.filterPublished")}
 									</TabsTrigger>
 									<TabsTrigger value="drafts" className="text-xs">
-										{PROJECTS_COPY.filterDrafts}
+										{t("projects.filterDrafts")}
 									</TabsTrigger>
 								</TabsList>
 							</Tabs>

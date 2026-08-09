@@ -1,4 +1,5 @@
-import { useNavigate } from "@tanstack/react-router";
+import { useQueryClient } from "@tanstack/react-query";
+import { Link, useNavigate } from "@tanstack/react-router";
 import {
 	Avatar,
 	AvatarFallback,
@@ -14,10 +15,10 @@ import {
 	DropdownMenuTrigger,
 } from "@wandit/ui/components/dropdown-menu";
 import { Skeleton } from "@wandit/ui/components/skeleton";
-import { LogOut } from "lucide-react";
+import { CreditCard, LogOut } from "lucide-react";
 
-import { LedgerList } from "@/features/credits";
-import { AUTH_COPY } from "../lib/constants";
+import { LanguageSwitcherMenuItems } from "@/components/language-switcher";
+import { useTranslation } from "@/lib/i18n";
 import { signOut, useSession } from "../lib/session";
 import { useAuthModal } from "./auth-modal";
 
@@ -34,18 +35,20 @@ function initials(name: string): string {
 }
 
 export function UserMenu() {
+	const { t } = useTranslation();
 	const navigate = useNavigate();
+	const queryClient = useQueryClient();
 	const { data: session, isPending } = useSession();
 	const { open } = useAuthModal();
 
 	if (isPending) {
-		return <Skeleton className="size-8 rounded-full" />;
+		return <Skeleton className="size-7 rounded-full" />;
 	}
 
 	if (!session) {
 		return (
-			<Button type="button" variant="outline" size="sm" onClick={open}>
-				{AUTH_COPY.signIn}
+			<Button type="button" variant="outline" size="sm" onClick={() => open()}>
+				{t("auth.signIn")}
 			</Button>
 		);
 	}
@@ -58,39 +61,51 @@ export function UserMenu() {
 				<button
 					type="button"
 					aria-label={user.name}
-					className="rounded-full transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+					className="ph-no-capture rounded-full transition-shadow focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
 				>
-					<Avatar className="size-8 border border-border">
+					<Avatar className="size-7">
 						{user.image ? (
 							<AvatarImage src={user.image} alt={user.name} />
 						) : null}
-						<AvatarFallback className="bg-gradient-ember font-display font-semibold text-[oklch(0.17_0.02_55)] text-xs">
+						{/* 28px ink circle with a parchment initial (3a reference). */}
+						<AvatarFallback className="bg-foreground font-medium text-background text-xs">
 							{initials(user.name)}
 						</AvatarFallback>
 					</Avatar>
 				</button>
 			</DropdownMenuTrigger>
 			<DropdownMenuContent align="end" className="w-64">
-				<DropdownMenuLabel className="flex flex-col gap-0.5 font-normal">
+				<DropdownMenuLabel className="ph-no-capture flex flex-col gap-0.5 font-normal">
 					<span className="font-medium text-sm">{user.name}</span>
 					<span className="font-mono text-muted-foreground text-xs">
 						{user.email}
 					</span>
 				</DropdownMenuLabel>
 				<DropdownMenuSeparator />
+				<DropdownMenuItem asChild>
+					<Link to="/billing">
+						<CreditCard />
+						{t("billing.page.title")}
+					</Link>
+				</DropdownMenuItem>
+				<DropdownMenuSeparator />
 				<DropdownMenuLabel className="pb-0 text-[10px] text-muted-foreground uppercase tracking-widest">
-					{AUTH_COPY.creditsLabel}
+					{t("common.language")}
 				</DropdownMenuLabel>
-				<LedgerList limit={3} className="px-1 pb-1" />
+				<LanguageSwitcherMenuItems />
 				<DropdownMenuSeparator />
 				<DropdownMenuItem
 					variant="destructive"
 					onClick={() => {
-						void signOut().then(() => navigate({ to: "/" }));
+						void (async () => {
+							await signOut();
+							queryClient.clear();
+							await navigate({ to: "/" });
+						})();
 					}}
 				>
 					<LogOut className="size-4" />
-					{AUTH_COPY.signOut}
+					{t("auth.signOut")}
 				</DropdownMenuItem>
 			</DropdownMenuContent>
 		</DropdownMenu>

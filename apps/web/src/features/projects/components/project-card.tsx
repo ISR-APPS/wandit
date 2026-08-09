@@ -1,4 +1,4 @@
-// Dashboard grid card: gradient thumbnail, name, status badge, lead count,
+// Dashboard grid card: hero/gradient thumbnail, name, status badge, lead count,
 // updated-at, hover actions (open / view live / rename / delete).
 
 import { Link, useNavigate } from "@tanstack/react-router";
@@ -49,13 +49,15 @@ import type * as React from "react";
 import { useState } from "react";
 import { toast } from "sonner";
 
+import { useTranslation } from "@/lib/i18n";
 import { relativeTime } from "@/lib/relative-time";
 import type { Project } from "../api/dto";
 import { useDeleteProject, useRenameProject } from "../api/projects.mutations";
-import { PROJECT_NAME_MAX_LENGTH, PROJECTS_COPY } from "../lib/constants";
-import { thumbGradient } from "../lib/helpers";
+import { PROJECT_NAME_MAX_LENGTH } from "../lib/constants";
+import { shouldShowProjectPreview, thumbGradient } from "../lib/helpers";
 
 function StatusBadge({ status }: { status: Project["status"] }) {
+	const { t } = useTranslation();
 	if (status === "published") {
 		return (
 			<Badge variant="success" className="font-mono text-[10px]">
@@ -63,20 +65,20 @@ function StatusBadge({ status }: { status: Project["status"] }) {
 					aria-hidden
 					className="size-1.5 shrink-0 rounded-full bg-current"
 				/>
-				{PROJECTS_COPY.statusPublished}
+				{t("projects.statusPublished")}
 			</Badge>
 		);
 	}
 	if (status === "publishing") {
 		return (
 			<Badge className="animate-pulse font-mono text-[10px]">
-				{PROJECTS_COPY.statusPublishing}
+				{t("projects.statusPublishing")}
 			</Badge>
 		);
 	}
 	return (
 		<Badge variant="secondary" className="font-mono text-[10px]">
-			{PROJECTS_COPY.statusDraft}
+			{t("projects.statusDraft")}
 		</Badge>
 	);
 }
@@ -90,6 +92,7 @@ function RenameDialog({
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 }) {
+	const { t } = useTranslation();
 	const [name, setName] = useState(project.name);
 	const rename = useRenameProject();
 
@@ -101,7 +104,7 @@ function RenameDialog({
 			{ id: project.id, name: trimmed },
 			{
 				onSuccess: () => {
-					toast.success(PROJECTS_COPY.renameSuccess);
+					toast.success(t("projects.renameSuccess"));
 					onOpenChange(false);
 				},
 			},
@@ -110,19 +113,19 @@ function RenameDialog({
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent className="sm:max-w-sm">
+			<DialogContent className="sm:max-w-sm" closeLabel={t("common.close")}>
 				<DialogHeader>
 					<DialogTitle className="font-display">
-						{PROJECTS_COPY.renameTitle}
+						{t("projects.renameTitle")}
 					</DialogTitle>
 					<DialogDescription>
-						{PROJECTS_COPY.renameDescription}
+						{t("projects.renameDescription")}
 					</DialogDescription>
 				</DialogHeader>
 				<form onSubmit={handleSubmit} className="space-y-4">
 					<div className="space-y-2">
 						<Label htmlFor={`rename-${project.id}`}>
-							{PROJECTS_COPY.renameLabel}
+							{t("projects.renameLabel")}
 						</Label>
 						<Input
 							id={`rename-${project.id}`}
@@ -138,13 +141,13 @@ function RenameDialog({
 							variant="ghost"
 							onClick={() => onOpenChange(false)}
 						>
-							{PROJECTS_COPY.renameCancel}
+							{t("projects.renameCancel")}
 						</Button>
 						<Button type="submit" disabled={!name.trim() || rename.isPending}>
 							{rename.isPending ? (
 								<Loader2 className="size-4 animate-spin" />
 							) : null}
-							{PROJECTS_COPY.renameSave}
+							{t("projects.renameSave")}
 						</Button>
 					</DialogFooter>
 				</form>
@@ -154,17 +157,25 @@ function RenameDialog({
 }
 
 export function ProjectCard({ project }: { project: Project }) {
+	const { t, dir } = useTranslation();
 	const navigate = useNavigate();
 	const [renameOpen, setRenameOpen] = useState(false);
 	const [deleteOpen, setDeleteOpen] = useState(false);
+	const [failedPreviewImageUrl, setFailedPreviewImageUrl] = useState<
+		string | null
+	>(null);
 	const deleteProject = useDeleteProject();
 
 	const isPublished = project.status === "published";
 	const glyph = project.name.trim().charAt(0).toUpperCase() || "✦";
+	const showPreview = shouldShowProjectPreview(
+		project.previewImageUrl,
+		failedPreviewImageUrl,
+	);
 
 	const handleDelete = () => {
 		deleteProject.mutate(project.id, {
-			onSuccess: () => toast.success(PROJECTS_COPY.deleteSuccess),
+			onSuccess: () => toast.success(t("projects.deleteSuccess")),
 		});
 	};
 
@@ -184,11 +195,25 @@ export function ProjectCard({ project }: { project: Project }) {
 					className="relative aspect-video"
 					style={{ background: thumbGradient(project.thumbnailSeed) }}
 				>
-					<div className="pointer-events-none absolute inset-0 bg-grain" />
-					<span className="absolute right-4 bottom-0 select-none font-bold font-display text-8xl text-white/15 leading-none">
-						{glyph}
-					</span>
-					<div className="absolute top-2 left-2">
+					{showPreview ? (
+						<img
+							key={project.previewImageUrl}
+							src={project.previewImageUrl ?? undefined}
+							alt=""
+							loading="lazy"
+							decoding="async"
+							onError={() => setFailedPreviewImageUrl(project.previewImageUrl)}
+							className="absolute inset-0 h-full w-full object-cover object-top"
+						/>
+					) : (
+						<>
+							<div className="pointer-events-none absolute inset-0 bg-grain" />
+							<span className="absolute end-4 bottom-0 select-none font-bold font-display text-8xl text-white/15 leading-none">
+								{glyph}
+							</span>
+						</>
+					)}
+					<div className="absolute start-2 top-2">
 						<StatusBadge status={project.status} />
 					</div>
 				</div>
@@ -198,9 +223,7 @@ export function ProjectCard({ project }: { project: Project }) {
 					</h3>
 					<div className="mt-1.5 flex items-center gap-1.5 font-mono text-muted-foreground text-xs">
 						<Users aria-hidden className="size-3 shrink-0" />
-						<span>
-							{project.leadCount} {PROJECTS_COPY.leadsSuffix}
-						</span>
+						<span>{t("projects.leadCount", { count: project.leadCount })}</span>
 						<span aria-hidden className="text-muted-foreground/50">
 							·
 						</span>
@@ -209,7 +232,7 @@ export function ProjectCard({ project }: { project: Project }) {
 					{isPublished && project.publishedSlug ? (
 						<div className="mt-1.5 truncate font-mono text-primary text-xs">
 							{project.publishedSlug}
-							{PROJECTS_COPY.publishedDomain}
+							{t("projects.publishedDomain")}
 						</div>
 					) : null}
 				</div>
@@ -220,9 +243,9 @@ export function ProjectCard({ project }: { project: Project }) {
 					<Button
 						variant="secondary"
 						size="icon-sm"
-						aria-label={PROJECTS_COPY.cardMenuLabel}
+						aria-label={t("projects.cardMenuLabel")}
 						onClick={(e) => e.stopPropagation()}
-						className="absolute top-2 right-2 size-7 opacity-0 shadow-sm transition-opacity duration-150 focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100"
+						className="absolute end-2 top-2 size-7 opacity-0 shadow-sm transition-opacity duration-150 focus-visible:opacity-100 group-focus-within:opacity-100 group-hover:opacity-100 data-[state=open]:opacity-100"
 					>
 						<MoreHorizontal className="size-4" />
 					</Button>
@@ -237,7 +260,7 @@ export function ProjectCard({ project }: { project: Project }) {
 						}
 					>
 						<ExternalLink />
-						{PROJECTS_COPY.menuOpen}
+						{t("projects.menuOpen")}
 					</DropdownMenuItem>
 					{isPublished ? (
 						<Tooltip>
@@ -245,18 +268,18 @@ export function ProjectCard({ project }: { project: Project }) {
 								<div>
 									<DropdownMenuItem disabled>
 										<ExternalLink />
-										{PROJECTS_COPY.menuViewLive}
+										{t("projects.menuViewLive")}
 									</DropdownMenuItem>
 								</div>
 							</TooltipTrigger>
-							<TooltipContent side="right">
-								{PROJECTS_COPY.menuViewLiveMock}
+							<TooltipContent side={dir === "rtl" ? "left" : "right"}>
+								{t("projects.menuViewLiveMock")}
 							</TooltipContent>
 						</Tooltip>
 					) : null}
 					<DropdownMenuItem onSelect={() => setRenameOpen(true)}>
 						<PenLine />
-						{PROJECTS_COPY.menuRename}
+						{t("projects.menuRename")}
 					</DropdownMenuItem>
 					<DropdownMenuSeparator />
 					<DropdownMenuItem
@@ -264,7 +287,7 @@ export function ProjectCard({ project }: { project: Project }) {
 						onSelect={() => setDeleteOpen(true)}
 					>
 						<Trash2 />
-						{PROJECTS_COPY.menuDelete}
+						{t("projects.menuDelete")}
 					</DropdownMenuItem>
 				</DropdownMenuContent>
 			</DropdownMenu>
@@ -281,19 +304,19 @@ export function ProjectCard({ project }: { project: Project }) {
 				<AlertDialogContent>
 					<AlertDialogHeader>
 						<AlertDialogTitle className="font-display">
-							{PROJECTS_COPY.deleteTitle}
+							{t("projects.deleteTitle")}
 						</AlertDialogTitle>
 						<AlertDialogDescription>
-							{PROJECTS_COPY.deleteDescription(project.name)}
+							{t("projects.deleteDescription", { name: project.name })}
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
-						<AlertDialogCancel>{PROJECTS_COPY.deleteCancel}</AlertDialogCancel>
+						<AlertDialogCancel>{t("projects.deleteCancel")}</AlertDialogCancel>
 						<AlertDialogAction
 							onClick={handleDelete}
 							className="bg-destructive text-white hover:bg-destructive/90"
 						>
-							{PROJECTS_COPY.deleteConfirm}
+							{t("projects.deleteConfirm")}
 						</AlertDialogAction>
 					</AlertDialogFooter>
 				</AlertDialogContent>

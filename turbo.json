@@ -5,7 +5,23 @@
 		"build": {
 			"dependsOn": ["^build"],
 			"inputs": ["$TURBO_DEFAULT$", ".env*"],
-			"outputs": ["dist/**"]
+			"outputs": ["dist/**"],
+			"env": [
+				"SENTRY_DSN",
+				"SENTRY_ENVIRONMENT",
+				"SENTRY_RELEASE",
+				"SENTRY_ORG",
+				"SENTRY_AUTH_TOKEN",
+				"VITE_SENTRY_DSN",
+				"VITE_SENTRY_ENVIRONMENT",
+				"VITE_SENTRY_RELEASE",
+				"RAILWAY_GIT_COMMIT_SHA",
+				"VERCEL_GIT_COMMIT_SHA",
+				"POSTHOG_KEY",
+				"POSTHOG_HOST",
+				"VITE_POSTHOG_KEY",
+				"VITE_POSTHOG_HOST"
+			]
 		},
 		"lint": {
 			"dependsOn": ["^lint"]
@@ -13,19 +29,27 @@
 		"check-types": {
 			"dependsOn": ["^check-types"]
 		},
+		"deploy": {
+			"cache": false
+		},
 		"dev": {
 			"cache": false,
 			"persistent": true
 		},
+		"dev:trigger": {
+			"cache": false,
+			"persistent": true
+		},
 		"db:push": {
-			"cache": false
+			"cache": false,
+			"env": ["DATABASE_URL"]
 		},
 		"db:generate": {
 			"cache": false
 		},
 		"db:migrate": {
 			"cache": false,
-			"persistent": true
+			"env": ["DATABASE_URL"]
 		},
 		"db:studio": {
 			"cache": false,

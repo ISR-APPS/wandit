@@ -13,14 +13,23 @@
 	},
 	"dependencies": {
 		"@better-auth/expo": "catalog:",
+		"@expo-google-fonts/bricolage-grotesque": "^0.4.1",
+		"@expo-google-fonts/geist-mono": "^0.4.2",
+		"@expo-google-fonts/instrument-sans": "^0.4.2",
 		"@expo/metro-runtime": "~56.0.11",
 		"@expo/vector-icons": "^15.1.1",
 		"@gorhom/bottom-sheet": "^5.2.14",
-		"@wandit/env": "workspace:*",
 		"@tanstack/react-form": "catalog:",
+		"@tanstack/react-query": "^5.101.2",
+		"@wandit/contracts": "workspace:*",
+		"@wandit/env": "workspace:*",
+		"@wandit/internationalization": "workspace:*",
+		"axios": "^1.18.1",
 		"better-auth": "catalog:",
 		"dotenv": "catalog:",
 		"expo": "~56.0.3",
+		"expo-audio": "~56.0.12",
+		"expo-blur": "~56.0.3",
 		"expo-constants": "~56.0.14",
 		"expo-font": "~56.0.5",
 		"expo-haptics": "~56.0.3",
@@ -31,6 +40,7 @@
 		"expo-status-bar": "~56.0.4",
 		"expo-web-browser": "~56.0.5",
 		"heroui-native": "^1.0.4",
+		"lottie-react-native": "~7.3.8",
 		"react": "19.2.3",
 		"react-dom": "19.2.3",
 		"react-native": "0.85.3",
@@ -49,9 +59,9 @@
 		"zod": "catalog:"
 	},
 	"devDependencies": {
-		"@wandit/config": "workspace:*",
 		"@types/node": "^25.9.1",
 		"@types/react": "~19.2.14",
+		"@wandit/config": "workspace:*",
 		"typescript": "catalog:"
 	}
 }

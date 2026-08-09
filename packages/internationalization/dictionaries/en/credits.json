@@ -1,0 +1,54 @@
+{
+	"chipAriaLabel": "Credits balance",
+	"balanceLabel": "Credits",
+	"balanceUnavailableShort": "Credits —",
+	"balanceLoadError": "Your credit balance could not load. Try again.",
+	"recentActivity": "Recent activity",
+	"emptyLedger": "No activity yet.",
+	"ledgerLoadError": "Credit activity could not load.",
+	"topUpChip": "Top up credits",
+	"manageBilling": "View billing",
+	"topUpDialog": "See plans and top-ups",
+	"insufficientTitle": "Not enough credits",
+	"insufficientBody": "This action costs more credits than you currently have.",
+	"costLabel": "Cost",
+	"outOfCredits": {
+		"title": "You're out of credits",
+		"body": "Upgrade your plan to keep building.",
+		"memberBody": "This workspace is out of credits. Ask a workspace owner to upgrade.",
+		"cta": "Upgrade plan",
+		"pausedBody": "Credit purchases are paused during the beta."
+	},
+	"buckets": {
+		"plan": "Plan",
+		"promo": "Promotional",
+		"topup": "Top-up"
+	},
+	"ledgerKinds": {
+		"grant": "Credits granted",
+		"consume": "Credits used",
+		"topup": "Credits purchased",
+		"expire": "Credits expired",
+		"revoke": "Credits reversed"
+	},
+	"creditUnit": {
+		"zero": "{count} credits",
+		"one": "{count} credit",
+		"two": "{count} credits",
+		"few": "{count} credits",
+		"many": "{count} credits",
+		"other": "{count} credits"
+	},
+	"priceTag": {
+		"zero": "{action} — {count} credits",
+		"one": "{action} — {count} credit",
+		"two": "{action} — {count} credits",
+		"few": "{action} — {count} credits",
+		"many": "{action} — {count} credits",
+		"other": "{action} — {count} credits"
+	},
+	"actions": {
+		"generation": "Generate",
+		"chatMessage": "Send"
+	}
+}

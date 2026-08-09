@@ -50,13 +50,17 @@ function DialogContent({
 	className,
 	children,
 	showCloseButton = true,
+	closeLabel = "Close",
+	overlayClassName,
 	...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
 	showCloseButton?: boolean;
+	closeLabel?: string;
+	overlayClassName?: string;
 }) {
 	return (
 		<DialogPortal data-slot="dialog-portal">
-			<DialogOverlay />
+			<DialogOverlay className={overlayClassName} />
 			<DialogPrimitive.Content
 				data-slot="dialog-content"
 				className={cn(
@@ -69,10 +73,10 @@ function DialogContent({
 				{showCloseButton && (
 					<DialogPrimitive.Close
 						data-slot="dialog-close"
-						className="absolute top-4 right-4 rounded-xs opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-hidden focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground [&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0"
+						className="absolute end-4 top-4 rounded-xs opacity-70 ring-offset-background transition-opacity hover:opacity-100 focus:outline-hidden focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:pointer-events-none data-[state=open]:bg-accent data-[state=open]:text-muted-foreground [&_svg:not([class*='size-'])]:size-4 [&_svg]:pointer-events-none [&_svg]:shrink-0"
 					>
 						<XIcon />
-						<span className="sr-only">Close</span>
+						<span className="sr-only">{closeLabel}</span>
 					</DialogPrimitive.Close>
 				)}
 			</DialogPrimitive.Content>
@@ -84,7 +88,7 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
 	return (
 		<div
 			data-slot="dialog-header"
-			className={cn("flex flex-col gap-2 text-center sm:text-left", className)}
+			className={cn("flex flex-col gap-2 text-center sm:text-start", className)}
 			{...props}
 		/>
 	);
@@ -93,10 +97,12 @@ function DialogHeader({ className, ...props }: React.ComponentProps<"div">) {
 function DialogFooter({
 	className,
 	showCloseButton = false,
+	closeLabel = "Close",
 	children,
 	...props
 }: React.ComponentProps<"div"> & {
 	showCloseButton?: boolean;
+	closeLabel?: string;
 }) {
 	return (
 		<div
@@ -110,7 +116,7 @@ function DialogFooter({
 			{children}
 			{showCloseButton && (
 				<DialogPrimitive.Close asChild>
-					<Button variant="outline">Close</Button>
+					<Button variant="outline">{closeLabel}</Button>
 				</DialogPrimitive.Close>
 			)}
 		</div>

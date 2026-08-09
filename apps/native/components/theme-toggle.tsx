@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import { useTranslation } from "@wandit/internationalization/react";
 import * as Haptics from "expo-haptics";
 import { Platform, Pressable } from "react-native";
 import Animated, { FadeOut, ZoomIn } from "react-native-reanimated";
@@ -10,9 +11,12 @@ const StyledIonicons = withUniwind(Ionicons);
 
 export function ThemeToggle() {
 	const { toggleTheme, isLight } = useAppTheme();
+	const { t } = useTranslation();
 
 	return (
 		<Pressable
+			accessibilityLabel={t("common.toggleTheme")}
+			accessibilityRole="button"
 			onPress={() => {
 				if (Platform.OS === "ios") {
 					Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);

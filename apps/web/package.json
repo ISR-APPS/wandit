@@ -8,17 +8,26 @@
 		"build": "vite build",
 		"serve": "vite preview",
 		"start": "vite",
-		"check-types": "vite build && tsc --noEmit"
+		"check-types": "vite build && tsc --noEmit",
+		"test": "vitest run"
 	},
 	"dependencies": {
+		"@ai-sdk/react": "^4.0.17",
 		"@hookform/resolvers": "^5.2.2",
+		"@marsidev/react-turnstile": "^1.5.4",
 		"@tailwindcss/vite": "^4.3.1",
 		"@tanstack/react-form": "catalog:",
 		"@tanstack/react-query": "^5.101.2",
 		"@tanstack/react-router": "^1.168.22",
+		"@trigger.dev/react-hooks": "4.5.3",
+		"@wandit/analytics": "workspace:*",
+		"@wandit/auth": "workspace:*",
 		"@wandit/contracts": "workspace:*",
 		"@wandit/env": "workspace:*",
+		"@wandit/internationalization": "workspace:*",
+		"@wandit/observability": "workspace:*",
 		"@wandit/ui": "workspace:*",
+		"ai": "^7.0.14",
 		"axios": "^1.18.1",
 		"better-auth": "catalog:",
 		"dotenv": "catalog:",
@@ -28,7 +37,10 @@
 		"next-themes": "catalog:",
 		"react": "^19.2.7",
 		"react-dom": "^19.2.7",
+		"react-timer-hook": "^4.0.6",
+		"remark-breaks": "^4.0.0",
 		"sonner": "catalog:",
+		"streamdown": "^2.5.0",
 		"zod": "catalog:"
 	},
 	"devDependencies": {
@@ -42,6 +54,7 @@
 		"postcss": "^8.5.10",
 		"tailwindcss": "^4.3.1",
 		"typescript": "catalog:",
-		"vite": "^8.0.8"
+		"vite": "^8.0.8",
+		"vitest": "^4.1.9"
 	}
 }

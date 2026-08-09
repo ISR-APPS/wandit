@@ -1,0 +1,276 @@
+{
+	"meta": {
+		"title": "Wandit — des landing pages IA qui vendent",
+		"description": "Wandit transforme ton prompt en landing page prête à vendre — publie et collecte tes commandes COD en quelques minutes."
+	},
+	"nav": {
+		"links": {
+			"how-it-works": "Comment ça marche",
+			"examples": "Exemples",
+			"pricing": "Tarifs",
+			"faq": "FAQ"
+		},
+		"signIn": "Se connecter",
+		"getStarted": "Commencer",
+		"dashboard": "Tableau de bord",
+		"backToTop": "Wandit — retour en haut",
+		"home": "Wandit — accueil"
+	},
+	"hero": {
+		"eyebrow": "WANDIT — THE AI BUSINESS BUILDER",
+		"titleLine1": "Transformez une idée",
+		"titleLine2": "en business prêt à vendre.",
+		"sub": "Créez votre site, générez vos publicités, construisez votre stratégie marketing et lancez vos campagnes depuis une seule plateforme alimentée par l'IA.",
+		"trust": [
+			"Crédits offerts à l'inscription",
+			"Aucun code requis",
+			"Domaine et hébergement inclus"
+		]
+	},
+	"proofBar": {
+		"title": "Tout ce qu'il vous faut pour construire, lancer et faire grandir votre business.",
+		"items": [
+			"Sites web",
+			"Landing pages",
+			"Images publicitaires",
+			"Vidéos IA",
+			"Stratégie marketing",
+			"Analyse Ads",
+			"Lancement de campagnes"
+		]
+	},
+	"problem": {
+		"kicker": "Le problème",
+		"title": "Lancer un business ne devrait pas nécessiter dix outils et toute une équipe.",
+		"intro": "Normalement, il faut :",
+		"roles": [
+			"un développeur pour créer le site",
+			"un designer pour produire les visuels",
+			"un monteur pour réaliser les vidéos",
+			"un marketeur pour construire la stratégie",
+			"un media buyer pour gérer les campagnes"
+		],
+		"solution": "Une seule IA",
+		"resolution": "Avec Wandit, vous travaillez avec une seule IA qui comprend votre activité et orchestre tout le processus."
+	},
+	"howItWorks": {
+		"kicker": "Comment ça marche",
+		"title": "Voir Wandit en action.",
+		"steps": [
+			{
+				"title": "Décrivez votre idée",
+				"body": "Expliquez ce que vous vendez — en français, en arabe ou en anglais. Wandit comprend votre marché et votre produit."
+			},
+			{
+				"title": "Regardez l'IA construire",
+				"body": "Votre site, vos visuels publicitaires et votre stratégie se génèrent sous vos yeux. Modifiez tout par simple message."
+			},
+			{
+				"title": "Lancez et vendez",
+				"body": "Publiez en un clic, lancez vos campagnes et recevez vos commandes directement dans votre boîte de leads."
+			}
+		],
+		"demo": {
+			"prompt": "Je vends du miel de montagne des Aurès. Crée mon site, mes visuels publicitaires et ma stratégie de lancement.",
+			"artifacts": [
+				"Site web",
+				"Visuels publicitaires",
+				"Vidéo IA",
+				"Stratégie marketing"
+			],
+			"publishedToast": "Site publié",
+			"campaignsLabel": "Campagnes",
+			"liveLabel": "En direct",
+			"events": [
+				"Nouvelle commande — Alger",
+				"Nouveau lead — Oran",
+				"Campagne TikTok active"
+			]
+		}
+	},
+	"examples": {
+		"kicker": "Exemples",
+		"title": "Fait avec Wandit",
+		"sub": "Les types de pages que les vendeurs lancent chaque jour — choisis-en une pour démarrer.",
+		"startFrom": "Partir de l'exemple : {name}",
+		"rtlBadge": "RTL",
+		"items": {
+			"watch": {
+				"name": "Montre Vintage COD",
+				"category": "Produit COD",
+				"prompt": "A COD product page for a vintage leather watch — hero shot, three benefit blocks, and an order form with wilaya and commune fields."
+			},
+			"honey": {
+				"name": "عسل الأوراس",
+				"category": "Produit COD",
+				"prompt": "صفحة هبوط لعسل جبلي حر من الأوراس — قصة المنتج، فوائده، ونموذج طلب بالدفع عند الاستلام."
+			},
+			"serum": {
+				"name": "Serum Éclat",
+				"category": "Beauté",
+				"prompt": "Page produit pour un sérum éclat à la vitamine C — avant/après, ingrédients, et formulaire de commande COD."
+			},
+			"dental": {
+				"name": "Cabinet Dentaire Amine",
+				"category": "Site vitrine",
+				"prompt": "Un site vitrine pour un cabinet dentaire à Alger — services, équipe, horaires et prise de rendez-vous."
+			},
+			"formation": {
+				"name": "Formation Ads FR",
+				"category": "Service",
+				"prompt": "A landing page for a media-buying training program in French — curriculum, testimonials, and an enrollment form."
+			},
+			"sneakers": {
+				"name": "Sneakers Drop DZ",
+				"category": "Promo",
+				"prompt": "A limited-time promo page for a sneakers drop in Algiers — bold visuals, size picker, and COD checkout."
+			}
+		}
+	},
+	"features": {
+		"kicker": "Pourquoi Wandit",
+		"title": "Conçu pour ta façon de vendre.",
+		"items": {
+			"rtl": {
+				"title": "AR & RTL dès le premier jour",
+				"body": "Écris ton prompt en arabe et obtiens une page native de droite à gauche — mise en page, typo et formulaire de commande inclus. Le français aussi."
+			},
+			"leads": {
+				"title": "CRM leads COD",
+				"body": "Chaque commande arrive dans un pipeline que tu peux gérer — confirmer, expédier, terminé."
+			},
+			"publish": {
+				"title": "Publication en un clic",
+				"body": "Ta page en ligne sur une vraie adresse en quelques secondes. Aucun hébergement à gérer."
+			},
+			"credits": {
+				"title": "Crédits transparents",
+				"body": "Chaque action affiche son prix avant que tu agisses. Aucune facture surprise."
+			},
+			"mobile": {
+				"title": "Pages mobile-first",
+				"body": "Pensées pour les téléphones sur lesquels tes acheteurs scrollent vraiment."
+			},
+			"versions": {
+				"title": "Versions & restauration",
+				"body": "Chaque modification est une version. Restaure n'importe laquelle en un clic."
+			}
+		},
+		"pipeline": ["à confirmer", "confirmé", "expédié"],
+		"generateLabel": "Générer —",
+		"directionPanel": {
+			"ltrLang": "FR",
+			"rtlLang": "AR"
+		}
+	},
+	"pricing": {
+		"meta": {
+			"title": "Tarifs — Wandit",
+			"description": "Commence gratuitement et passe à Pro quand il te faut plus de crédits. Tarification simple, mensuelle ou annuelle."
+		},
+		"kicker": "Tarifs",
+		"title": "Un seul plan. Choisis ton rythme.",
+		"note": "La publication reste gratuite. Les actions IA, dont la collecte de leads, utilisent des crédits.",
+		"free": {
+			"name": "Gratuit",
+			"tagline": "Pour la bêta et tes premiers projets",
+			"price": "Gratuit",
+			"creditsLine": "Crédits d’inscription lorsqu’ils sont disponibles",
+			"features": [
+				"Publication toujours gratuite",
+				"La collecte de leads utilise des crédits",
+				"Pages en AR, FR & EN",
+				"Passe à Pro quand tu as besoin de plus d’IA"
+			],
+			"cta": "Commencer gratuitement"
+		},
+		"pro": {
+			"name": "Pro",
+			"badge": "Populaire",
+			"tagline": "Pour les vendeurs qui créent et améliorent chaque mois",
+			"loading": "Chargement des tarifs en direct",
+			"catalogUnavailable": "Les tarifs en direct sont temporairement indisponibles.",
+			"intervalLabel": "Période de facturation",
+			"monthly": "Mensuel",
+			"yearly": "Annuel",
+			"twoMonthsFree": "2 mois offerts",
+			"tierLabel": "Crédits mensuels inclus",
+			"creditsUnit": "crédits",
+			"perMonth": "/ mois",
+			"perYear": "/ an",
+			"savings": "Économise {percent} %",
+			"features": [
+				"De nouveaux crédits chaque mois",
+				"Neuf paliers adaptés à ta charge de travail",
+				"Facturation mensuelle ou annuelle",
+				"La publication reste gratuite"
+			],
+			"cta": "Choisir Pro"
+		},
+		"business": {
+			"name": "Business",
+			"tagline": "Pour les équipes qui partagent un pool de crédits",
+			"fromPrice": "À partir de {price}",
+			"perMonth": "/ mois",
+			"features": [
+				"Tout ce qui est inclus dans Pro",
+				"Un pool de crédits partagé pour toute l'équipe",
+				"Rôles, invitations et limites par membre",
+				"Sièges illimités — payez les crédits, pas les personnes"
+			],
+			"cta": "Créer un espace d'équipe"
+		},
+		"beta": {
+			"badge": "Bêta",
+			"cta": "Rejoindre la bêta"
+		}
+	},
+	"faq": {
+		"kicker": "FAQ",
+		"title": "Tes questions, nos réponses.",
+		"items": [
+			{
+				"q": "C'est quoi les crédits ?",
+				"a": "Les crédits sont la monnaie unique de Wandit. Générer une page coûte 10 crédits, une modif en chat coûte 1 — et tu vois toujours le prix avant d'agir."
+			},
+			{
+				"q": "La publication est-elle gratuite ?",
+				"a": "Oui. Publier ta page et collecter des leads ne coûtent jamais de crédits. Tu ne dépenses que quand l'IA travaille pour toi."
+			},
+			{
+				"q": "L'arabe et le RTL sont-ils gérés ?",
+				"a": "Totalement. Écris ton prompt en arabe et tu obtiens une page native de droite à gauche — mise en page, typographie et formulaire de commande inclus."
+			},
+			{
+				"q": "Où vivent mes pages ?",
+				"a": "Chaque page publiée reçoit une adresse your-page.wandit.app sur un hébergement rapide. Les domaines personnalisés sont sur la feuille de route."
+			},
+			{
+				"q": "Que se passe-t-il quand mes crédits sont épuisés ?",
+				"a": "Tes pages publiées restent en ligne et continuent de collecter des commandes. Tu ne peux simplement plus générer ni éditer jusqu'à ce que tu recharges."
+			}
+		]
+	},
+	"ctaBand": {
+		"title": "Du prompt à la première commande.",
+		"sub": "Décris ton produit ce soir. Prends des commandes demain.",
+		"button": "Commence à créer gratuitement"
+	},
+	"footer": {
+		"tagline": "Le chemin le plus rapide d'une idée à une page qui vend.",
+		"columnTitles": {
+			"product": "Produit",
+			"company": "Entreprise"
+		},
+		"linkLabels": {
+			"how-it-works": "Comment ça marche",
+			"examples": "Exemples",
+			"pricing": "Tarifs",
+			"docs": "Docs",
+			"support": "Support",
+			"contact": "Contact"
+		},
+		"copyright": "© 2026 Wandit",
+		"madeIn": "Conçu pour les vendeurs en DZ"
+	}
+}
