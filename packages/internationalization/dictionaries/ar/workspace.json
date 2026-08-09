@@ -25,6 +25,7 @@
 		"publish": "نشر",
 		"publishing": "جارٍ النشر…",
 		"published": "منشور",
+		"update": "تحديث",
 		"failed": "فشل النشر",
 		"retryCta": "أعد المحاولة",
 		"failedHint": "حدث خطأ ما. نسختك المنشورة الأخيرة لم تتأثر — أعد المحاولة.",
@@ -43,6 +44,7 @@
 		"popover": {
 			"notPublished": "غير منشور",
 			"publishedMeta": "مباشر الآن · آخر نسخة",
+			"liveVersionMeta": "مباشر الآن · v{n}",
 			"websiteUrl": "رابط الموقع",
 			"editSubdomain": "تعديل النطاق الفرعي",
 			"saveSubdomain": "حفظ النطاق الفرعي",
@@ -51,6 +53,7 @@
 			"customDomainDescription": "اشترِ نطاقًا جديدًا واربطه بهذه الصفحة.",
 			"freeTiming": "مجاني · يستغرق نحو 15 ثانية",
 			"publishedHint": "آخر نسخة من صفحتك مباشرة",
+			"updateHint": "الإصدار v{live} مباشر الآن — انشر الإصدار v{n} لتحديث موقعك.",
 			"openLivePage": "فتح الصفحة المباشرة",
 			"liveOn": "مباشر على",
 			"primary": "الرئيسي",
