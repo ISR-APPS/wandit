@@ -317,7 +317,11 @@ export function MessageParts({
 				</div>
 			) : null}
 			<div className="flex flex-col gap-2.5">{renderedEntries}</div>
-			{message.role === "assistant" && message.metadata?.usage ? (
+			{/* Debug meter, dev builds only — users never see raw token counts
+			   (same gate as the conversation context meter in ChatPane). */}
+			{import.meta.env.DEV &&
+			message.role === "assistant" &&
+			message.metadata?.usage ? (
 				<MessageTokenUsage usage={message.metadata.usage} />
 			) : null}
 		</div>
