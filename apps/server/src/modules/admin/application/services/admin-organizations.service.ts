@@ -69,6 +69,7 @@ export class AdminOrganizationsService {
 			memberLimits,
 			spentByUser,
 			attributionUserId,
+			aiSpend,
 		] = await Promise.all([
 			this.repository.listMembersWithUsers(organizationId),
 			this.repository.findLatestSubscription(organizationId),
@@ -79,6 +80,7 @@ export class AdminOrganizationsService {
 			this.repository.listMemberLimits(organizationId),
 			this.repository.sumMemberSpendThisMonth(organizationId, new Date()),
 			this.repository.findAttributionUserId(organizationId),
+			this.repository.sumAiSpend(organizationId),
 		]);
 
 		return {
@@ -96,6 +98,10 @@ export class AdminOrganizationsService {
 				: null,
 			balance,
 			creditLedger: ledger.map(mapAdminOrganizationLedgerEntry),
+			aiSpend: {
+				totalCostUsdMicros: Number(aiSpend.totalCostUsdMicros),
+				meteredOperations: Number(aiSpend.meteredOperations),
+			},
 			defaultMemberMonthlyCreditLimit,
 			attributionUserId,
 		};

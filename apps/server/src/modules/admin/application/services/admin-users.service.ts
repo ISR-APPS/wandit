@@ -111,7 +111,7 @@ export class AdminUsersService {
 			throw new NotFoundException();
 		}
 
-		const [subscription, projects, creditLedger, memberships] =
+		const [subscription, projects, creditLedger, memberships, aiSpend] =
 			await Promise.all([
 				this.adminRepository.findLatestSubscription(userId),
 				this.adminRepository.listRecentProjects(userId, RECENT_PROJECTS_LIMIT),
@@ -120,6 +120,7 @@ export class AdminUsersService {
 					RECENT_LEDGER_LIMIT,
 				),
 				this.adminOrganizationsRepository.listUserMemberships(userId),
+				this.adminRepository.sumAiSpendForUser(userId),
 			]);
 
 		return mapAdminUserDetail(
@@ -128,6 +129,7 @@ export class AdminUsersService {
 			projects,
 			creditLedger,
 			memberships,
+			aiSpend,
 		);
 	}
 

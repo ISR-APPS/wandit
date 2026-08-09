@@ -72,6 +72,14 @@ export type AdminOrgLedgerRow = {
 	createdAt: Date;
 	actorUserId: string | null;
 	actorName: string | null;
+	aiModel: string | null;
+	aiProvider: string | null;
+	aiCostUsdMicros: number | null;
+};
+
+export type AdminOrgAiSpendRow = {
+	totalCostUsdMicros: number;
+	meteredOperations: number;
 };
 
 const entitledStatuses = [...ENTITLED_SUBSCRIPTION_STATUSES];
@@ -223,22 +231,49 @@ export class AdminOrganizationsRepository {
 		organizationId: string,
 		limit: number,
 	): Promise<AdminOrgLedgerRow[]> {
-		return this.db
+		return (
+			this.db
+				.select({
+					id: creditLedger.id,
+					delta: creditLedger.delta,
+					kind: creditLedger.kind,
+					bucket: creditLedger.bucket,
+					meta: creditLedger.meta,
+					createdAt: creditLedger.createdAt,
+					actorUserId: creditLedger.userId,
+					actorName: user.name,
+					aiModel: aiUsageEvents.model,
+					aiProvider: aiUsageEvents.provider,
+					aiCostUsdMicros: sql<
+						number | null
+					>`coalesce(${aiUsageEvents.reconciledCostUsdMicros}, ${aiUsageEvents.estimatedCostUsdMicros})`,
+				})
+				.from(creditLedger)
+				.leftJoin(user, eq(user.id, creditLedger.userId))
+				// Consume rows written by the metering settle carry the operation id
+				// in meta.usageEventId; every other kind joins to nothing.
+				.leftJoin(
+					aiUsageEvents,
+					sql`(${creditLedger.meta} ->> 'usageEventId')::uuid = ${aiUsageEvents.id}`,
+				)
+				.where(eq(creditLedger.organizationId, organizationId))
+				.orderBy(desc(creditLedger.createdAt), desc(creditLedger.id))
+				.limit(limit)
+		);
+	}
+
+	// Actual AI-provider spend charged to this org's pool, across all acting
+	// members. Reconciled cost wins over the settle estimate.
+	async sumAiSpend(organizationId: string): Promise<AdminOrgAiSpendRow> {
+		const [row] = await this.db
 			.select({
-				id: creditLedger.id,
-				delta: creditLedger.delta,
-				kind: creditLedger.kind,
-				bucket: creditLedger.bucket,
-				meta: creditLedger.meta,
-				createdAt: creditLedger.createdAt,
-				actorUserId: creditLedger.userId,
-				actorName: user.name,
+				totalCostUsdMicros: sql<number>`coalesce(sum(coalesce(${aiUsageEvents.reconciledCostUsdMicros}, ${aiUsageEvents.estimatedCostUsdMicros}, 0)), 0)::int`,
+				meteredOperations: sql<number>`count(*)::int`,
 			})
-			.from(creditLedger)
-			.leftJoin(user, eq(user.id, creditLedger.userId))
-			.where(eq(creditLedger.organizationId, organizationId))
-			.orderBy(desc(creditLedger.createdAt), desc(creditLedger.id))
-			.limit(limit);
+			.from(aiUsageEvents)
+			.where(eq(aiUsageEvents.organizationId, organizationId));
+
+		return row ?? { meteredOperations: 0, totalCostUsdMicros: 0 };
 	}
 
 	async countPendingInvitations(organizationId: string): Promise<number> {

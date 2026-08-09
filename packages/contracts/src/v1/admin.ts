@@ -143,6 +143,14 @@ export const adminCreditLedgerEntrySchema = z.object({
 	bucket: creditBucketSchema,
 	meta: z.record(z.string(), z.unknown()).nullable(),
 	createdAt: isoDateTimeSchema,
+	// AI-cost enrichment, joined from the ai_usage_events row the ledger entry's
+	// meta.usageEventId points to. Null on rows with no metered operation
+	// (grants, top-ups) — and the cost is the OPERATION's actual provider cost
+	// (reconciled when available, else estimated), so reserve + settle rows of
+	// the same operation display the same figure.
+	aiModel: z.string().nullable(),
+	aiProvider: z.string().nullable(),
+	aiCostUsdMicros: z.int().nullable(),
 });
 
 export type AdminCreditLedgerEntry = z.infer<
@@ -161,6 +169,15 @@ export const adminUserWorkspaceSchema = z.object({
 
 export type AdminUserWorkspace = z.infer<typeof adminUserWorkspaceSchema>;
 
+// Actual AI-provider spend for an owner pool (personal or org), summed over
+// ai_usage_events with reconciled cost preferred over the settle estimate.
+export const adminAiSpendSchema = z.object({
+	totalCostUsdMicros: z.int(),
+	meteredOperations: z.int(),
+});
+
+export type AdminAiSpend = z.infer<typeof adminAiSpendSchema>;
+
 export const adminUserDetailSchema = adminUserSummarySchema.extend({
 	updatedAt: isoDateTimeSchema,
 	banReason: z.string().nullable(),
@@ -168,6 +185,7 @@ export const adminUserDetailSchema = adminUserSummarySchema.extend({
 	projects: z.array(adminUserProjectSchema),
 	creditLedger: z.array(adminCreditLedgerEntrySchema),
 	workspaces: z.array(adminUserWorkspaceSchema),
+	aiSpend: adminAiSpendSchema,
 });
 
 export type AdminUserDetail = z.infer<typeof adminUserDetailSchema>;
@@ -517,6 +535,7 @@ export const adminOrganizationDetailSchema =
 		subscription: adminOrganizationSubscriptionSchema.nullable(),
 		balance: creditBalanceResponseSchema,
 		creditLedger: z.array(adminOrganizationLedgerEntrySchema),
+		aiSpend: adminAiSpendSchema,
 		defaultMemberMonthlyCreditLimit: z.int().nullable(),
 		// Affiliate policy snapshot from the org's Stripe customer; null until
 		// the first checkout creates that customer.
