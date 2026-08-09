@@ -40,10 +40,13 @@ function renderCustomDomain(
 	onCopy: (url: string) => Promise<void>,
 ) {
 	const props = {
+		canPublish: false,
 		domain: { isPrimary: true, name: "example.com", source },
+		latestVersionNeedsPublishing: false,
+		liveVersionNumber: 1,
+		publishableVersionNumber: null,
 		subdomain: "site.wandit.app",
 		subdomainPublishing: false,
-		historicalVersionNumber: null,
 		onCopy,
 		onPublish: vi.fn(),
 	};

@@ -25,6 +25,7 @@
 		"publish": "Publier",
 		"publishing": "Publication…",
 		"published": "Publié",
+		"update": "Mettre à jour",
 		"failed": "Échec de la publication",
 		"retryCta": "Réessayer",
 		"failedHint": "Une erreur est survenue. Votre dernière version en ligne n'est pas affectée — réessayez.",
@@ -43,6 +44,7 @@
 		"popover": {
 			"notPublished": "Non publié",
 			"publishedMeta": "En ligne · dernière version",
+			"liveVersionMeta": "En ligne · v{n}",
 			"websiteUrl": "URL du site",
 			"editSubdomain": "Modifier le sous-domaine",
 			"saveSubdomain": "Enregistrer le sous-domaine",
@@ -51,6 +53,7 @@
 			"customDomainDescription": "Achetez un nouveau domaine et connectez-le à cette page.",
 			"freeTiming": "Gratuit · environ 15 secondes",
 			"publishedHint": "Votre dernière version est en ligne",
+			"updateHint": "La v{live} est en ligne — publiez la v{n} pour mettre à jour votre site.",
 			"openLivePage": "Ouvrir la page",
 			"liveOn": "En ligne sur",
 			"primary": "Principal",

@@ -25,6 +25,7 @@
 		"publish": "Publish",
 		"publishing": "Publishing…",
 		"published": "Published",
+		"update": "Update",
 		"failed": "Publish failed",
 		"retryCta": "Try again",
 		"failedHint": "Something went wrong. Your last live version is unaffected — try again.",
@@ -43,6 +44,7 @@
 		"popover": {
 			"notPublished": "Not published",
 			"publishedMeta": "Live now · latest version",
+			"liveVersionMeta": "Live now · v{n}",
 			"websiteUrl": "Website URL",
 			"editSubdomain": "Edit subdomain",
 			"saveSubdomain": "Save subdomain",
@@ -51,6 +53,7 @@
 			"customDomainDescription": "Buy a new domain and connect it to this page.",
 			"freeTiming": "Free · takes about 15 seconds",
 			"publishedHint": "Your latest version is live",
+			"updateHint": "v{live} is live — publish v{n} to update your site.",
 			"openLivePage": "Open live page",
 			"liveOn": "Live on",
 			"primary": "Primary",
