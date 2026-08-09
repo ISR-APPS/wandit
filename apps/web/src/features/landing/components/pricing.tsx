@@ -95,16 +95,18 @@ export function Pricing() {
 	const showBetaPosture = settingsQuery.isSuccess && !paidSubscriptionsEnabled;
 	const catalogUnavailable =
 		plansQuery.isError || (plansQuery.isSuccess && (!proPlan || !selectedTier));
-	// The Business card ships dark with the rest of teams: it appears only once
-	// organizations are enabled and the catalog carries the business plan.
+	// The Business card is a showcase: it renders whenever the catalog carries
+	// the plan, so the page can market teams before they open. Only the
+	// create-team CTA ships dark behind both kill switches — a team goes
+	// straight into a Business checkout the server would reject.
 	const businessPlan = plansQuery.data?.plans.find(
 		(plan) => plan.id === "business",
 	);
 	const showBusiness =
+		businessPlan !== undefined && businessPlan.tiers.length > 0;
+	const canCreateTeam =
 		settingsQuery.data?.organizationsEnabled === true &&
-		paidSubscriptionsEnabled &&
-		businessPlan !== undefined &&
-		businessPlan.tiers.length > 0;
+		paidSubscriptionsEnabled;
 	const businessFromUsd = businessPlan?.tiers.length
 		? Math.min(...businessPlan.tiers.map((tier) => tierPriceUsd(tier, "month")))
 		: null;
@@ -329,20 +331,22 @@ export function Pricing() {
 										<FeatureRow key={feature} label={feature} />
 									))}
 								</ul>
-								<Button
-									variant="outline"
-									className="mt-8 active:translate-y-px"
-									onClick={() => {
-										if (!session) {
-											openAuth();
-											return;
-										}
+								{canCreateTeam ? (
+									<Button
+										variant="outline"
+										className="mt-8 active:translate-y-px"
+										onClick={() => {
+											if (!session) {
+												openAuth();
+												return;
+											}
 
-										setCreateTeamOpen(true);
-									}}
-								>
-									{pricing.business.cta}
-								</Button>
+											setCreateTeamOpen(true);
+										}}
+									>
+										{pricing.business.cta}
+									</Button>
+								) : null}
 							</PlanCard>
 						</Reveal>
 					) : null}
