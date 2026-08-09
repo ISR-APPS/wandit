@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import { adminRoutes } from "@wandit/contracts";
 import {
 	ExternalLinkIcon,
 	EyeIcon,
@@ -37,6 +38,7 @@ import {
 	useUserPagesQuery,
 } from "@/features/users/api/users.queries";
 import { formatAdminDate } from "@/features/users/lib/formatters";
+import { buildApiUrl } from "@/lib/api-client";
 
 import { DetailPagination } from "./detail-pagination";
 
@@ -169,6 +171,16 @@ function LandingPageRow({
 	const publicUrl = item.deployment.published
 		? item.deployment.publicUrl
 		: null;
+	const draftUrl =
+		!item.deployment.published && item.page.activeVersion
+			? buildApiUrl(
+					adminRoutes.projectVersionPreview(
+						item.project.id,
+						item.page.activeVersion.id,
+					),
+				)
+			: null;
+	const openUrl = publicUrl ?? draftUrl;
 	const publicHost = getHost(publicUrl);
 	const generationFailed = item.page.latestGeneration?.status === "failed";
 
@@ -242,7 +254,7 @@ function LandingPageRow({
 						Preview page
 					</TooltipContent>
 				</Tooltip>
-				{publicUrl ? (
+				{openUrl ? (
 					<Tooltip>
 						<TooltipTrigger asChild>
 							<Button
@@ -252,17 +264,21 @@ function LandingPageRow({
 								className="text-muted-foreground"
 							>
 								<a
-									href={publicUrl}
+									href={openUrl}
 									target="_blank"
 									rel="noreferrer"
-									aria-label={`Open ${item.project.name} live site`}
+									aria-label={
+										publicUrl
+											? `Open ${item.project.name} live site`
+											: `Open ${item.project.name} draft page`
+									}
 								>
 									<ExternalLinkIcon aria-hidden="true" />
 								</a>
 							</Button>
 						</TooltipTrigger>
 						<TooltipContent side="top" sideOffset={6}>
-							Open live site
+							{publicUrl ? "Open live site" : "Open draft page"}
 						</TooltipContent>
 					</Tooltip>
 				) : null}
@@ -307,6 +323,13 @@ function PagePreviewDialog({
 	const publicUrl = page?.deployment.published
 		? page.deployment.publicUrl
 		: null;
+	const draftUrl =
+		page && !page.deployment.published && activeVersionId
+			? buildApiUrl(
+					adminRoutes.projectVersionPreview(page.project.id, activeVersionId),
+				)
+			: null;
+	const openUrl = publicUrl ?? draftUrl;
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
@@ -324,14 +347,14 @@ function PagePreviewDialog({
 								{getHost(publicUrl) ?? "Not published"}
 							</DialogDescription>
 						</div>
-						{publicUrl ? (
+						{openUrl ? (
 							<Button asChild variant="outline" size="sm">
-								<a href={publicUrl} target="_blank" rel="noreferrer">
+								<a href={openUrl} target="_blank" rel="noreferrer">
 									<ExternalLinkIcon
 										data-icon="inline-start"
 										aria-hidden="true"
 									/>
-									Open site
+									{publicUrl ? "Open site" : "Open page"}
 								</a>
 							</Button>
 						) : null}
