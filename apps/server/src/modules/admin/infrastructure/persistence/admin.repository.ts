@@ -343,9 +343,9 @@ export class AdminRepository {
 	async findUserAccess(
 		userId: string,
 		client: AdminDbClient = this.db,
-	): Promise<{ id: string; role: string } | null> {
+	): Promise<{ earlyAccess: boolean; id: string; role: string } | null> {
 		const [row] = await client
-			.select({ id: user.id, role: user.role })
+			.select({ earlyAccess: user.earlyAccess, id: user.id, role: user.role })
 			.from(user)
 			.where(eq(user.id, userId))
 			.limit(1);
