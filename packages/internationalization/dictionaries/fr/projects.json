@@ -104,6 +104,10 @@
 			"whatsapp": {
 				"name": "WhatsApp",
 				"hint": "Confirme les commandes plus vite"
+			},
+			"codPilot": {
+				"name": "COD Pilot",
+				"hint": "Synchronise tes commandes COD en Algérie"
 			}
 		}
 	},

@@ -104,6 +104,10 @@
 			"whatsapp": {
 				"name": "WhatsApp",
 				"hint": "أكّد الطلبات بشكل أسرع"
+			},
+			"codPilot": {
+				"name": "COD Pilot",
+				"hint": "زامن طلبات الدفع عند الاستلام في الجزائر"
 			}
 		}
 	},
