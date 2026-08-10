@@ -1,17 +1,18 @@
 import { createFileRoute } from "@tanstack/react-router";
 
+import {
+	type LoginError,
+	parseLoginError,
+} from "@/features/auth/lib/auth-navigation";
 import { LoginPage } from "@/features/auth/pages/login-page";
 
 type LoginSearch = {
-	error?: "oauth" | "forbidden";
+	error?: LoginError;
 };
 
 export const Route = createFileRoute("/login")({
 	validateSearch: (search: Record<string, unknown>): LoginSearch => ({
-		error:
-			search.error === "oauth" || search.error === "forbidden"
-				? search.error
-				: undefined,
+		error: parseLoginError(search.error),
 	}),
 	component: LoginPage,
 	head: () => ({

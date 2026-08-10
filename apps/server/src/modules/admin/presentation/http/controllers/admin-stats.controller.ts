@@ -1,4 +1,4 @@
-import { Controller, Get, Inject, Query, UseGuards } from "@nestjs/common";
+import { Controller, Get, Inject, Query } from "@nestjs/common";
 import {
 	type AdminOverviewQuery,
 	type AdminOverviewSnapshot,
@@ -10,10 +10,10 @@ import {
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { AdminStatsService } from "../../../application/services/admin-stats.service";
-import { AdminGuard } from "../guards/admin.guard";
+import { AdminOnly } from "../decorators/admin-only.decorator";
 
 @Controller("v1/admin/stats")
-@UseGuards(AdminGuard)
+@AdminOnly()
 export class AdminStatsController {
 	constructor(
 		@Inject(AdminStatsService)

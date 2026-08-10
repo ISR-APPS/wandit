@@ -1,11 +1,4 @@
-import {
-	Body,
-	Controller,
-	Get,
-	Inject,
-	Patch,
-	UseGuards,
-} from "@nestjs/common";
+import { Body, Controller, Get, Inject, Patch } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
 	type PatchProductSettingsBody,
@@ -14,12 +7,12 @@ import {
 } from "@wandit/contracts";
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
-import { AdminGuard } from "../../../../admin/presentation/http/guards/admin.guard";
+import { AdminOnly } from "../../../../admin/presentation/http/decorators/admin-only.decorator";
 import { CurrentUser } from "../../../../auth";
 import { ProductSettingsService } from "../../../application/services/product-settings.service";
 
 @Controller("v1/admin/settings")
-@UseGuards(AdminGuard)
+@AdminOnly()
 export class AdminSettingsController {
 	constructor(
 		@Inject(ProductSettingsService)
