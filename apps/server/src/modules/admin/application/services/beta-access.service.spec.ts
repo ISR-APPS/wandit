@@ -1,4 +1,8 @@
-import type { AdminBetaEnrollInput, CreditBucket } from "@wandit/contracts";
+import {
+	type AdminBetaEnrollInput,
+	adminBulkSetAccessResultSchema,
+	type CreditBucket,
+} from "@wandit/contracts";
 import { describe, expect, it } from "vitest";
 
 import type { CreditsService } from "../../../credits/application/services/credits.service";
@@ -30,6 +34,7 @@ class InMemoryAdminRepository {
 	grants: Grant[] = [];
 	events: AccessEvent[] = [];
 	failEventInsert = false;
+	failEventInsertUserIds = new Set<string>();
 
 	async withUserTransaction<T>(
 		_userId: string,
@@ -53,7 +58,9 @@ class InMemoryAdminRepository {
 
 	async findUserAccess(userId: string) {
 		const value = this.users.get(userId);
-		return value ? { id: userId, role: value.role } : null;
+		return value
+			? { earlyAccess: value.earlyAccess, id: userId, role: value.role }
+			: null;
 	}
 
 	async setUserEarlyAccess(userId: string, earlyAccess: boolean) {
@@ -67,7 +74,7 @@ class InMemoryAdminRepository {
 	}
 
 	async insertBetaAccessEvent(input: AccessEvent) {
-		if (this.failEventInsert) {
+		if (this.failEventInsert || this.failEventInsertUserIds.has(input.userId)) {
 			throw new Error("event insert failed");
 		}
 
@@ -190,6 +197,115 @@ describe("BetaAccessService", () => {
 				reason: "manual_admin_access",
 				userId: "user_1",
 			},
+			{
+				action: "revoked",
+				actorUserId: "admin_1",
+				reason: "manual_admin_access",
+				userId: "user_1",
+			},
+		]);
+	});
+
+	it("bulk updates eligible users, skips unchanged and admin users, and continues after failures", async () => {
+		const { repository, service } = setup();
+		repository.users.set("already_granted", {
+			earlyAccess: true,
+			role: "user",
+		});
+		repository.users.set("admin_2", {
+			earlyAccess: false,
+			role: "user, admin",
+		});
+		repository.users.set("user_fails", {
+			earlyAccess: false,
+			role: "user",
+		});
+		repository.users.set("user_after_failure", {
+			earlyAccess: false,
+			role: "user",
+		});
+		repository.failEventInsertUserIds.add("user_fails");
+
+		const result = await service.bulkSetAccess("admin_1", {
+			granted: true,
+			userIds: [
+				"user_1",
+				"already_granted",
+				"admin_2",
+				"missing",
+				"user_fails",
+				"user_after_failure",
+				"user_1",
+			],
+		});
+
+		expect(result).toEqual({
+			updated: 2,
+			skipped: 2,
+			failed: 2,
+			results: [
+				{ userId: "user_1", status: "granted" },
+				{
+					userId: "already_granted",
+					status: "skipped",
+					reason: "already_granted",
+				},
+				{ userId: "admin_2", status: "skipped", reason: "admin_role" },
+				{ userId: "missing", status: "failed", reason: "not_found" },
+				{ userId: "user_fails", status: "failed", reason: "error" },
+				{ userId: "user_after_failure", status: "granted" },
+			],
+		});
+		expect(() => adminBulkSetAccessResultSchema.parse(result)).not.toThrow();
+		expect(repository.users.get("user_1")?.earlyAccess).toBe(true);
+		expect(repository.users.get("already_granted")?.earlyAccess).toBe(true);
+		expect(repository.users.get("admin_2")?.earlyAccess).toBe(false);
+		expect(repository.users.get("user_fails")?.earlyAccess).toBe(false);
+		expect(repository.users.get("user_after_failure")?.earlyAccess).toBe(true);
+		expect(repository.events).toEqual([
+			{
+				action: "granted",
+				actorUserId: "admin_1",
+				reason: "manual_admin_access",
+				userId: "user_1",
+			},
+			{
+				action: "granted",
+				actorUserId: "admin_1",
+				reason: "manual_admin_access",
+				userId: "user_after_failure",
+			},
+		]);
+		expect(repository.grants).toEqual([]);
+	});
+
+	it("reports a bulk revocation as a successful transition without duplicating unchanged audit events", async () => {
+		const { repository, service } = setup();
+		repository.users.set("user_1", { earlyAccess: true, role: "user" });
+		repository.users.set("already_revoked", {
+			earlyAccess: false,
+			role: "user",
+		});
+
+		const result = await service.bulkSetAccess("admin_1", {
+			granted: false,
+			userIds: ["user_1", "already_revoked"],
+		});
+
+		expect(result).toEqual({
+			updated: 1,
+			skipped: 1,
+			failed: 0,
+			results: [
+				{ userId: "user_1", status: "revoked" },
+				{
+					userId: "already_revoked",
+					status: "skipped",
+					reason: "already_revoked",
+				},
+			],
+		});
+		expect(repository.events).toEqual([
 			{
 				action: "revoked",
 				actorUserId: "admin_1",

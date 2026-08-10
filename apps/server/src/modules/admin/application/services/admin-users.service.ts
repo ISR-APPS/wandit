@@ -7,6 +7,8 @@ import {
 } from "@nestjs/common";
 import {
 	type AdminBetaEnrollInput,
+	type AdminBulkSetAccessInput,
+	type AdminBulkSetAccessResult,
 	type AdminGrantCreditsInput,
 	type AdminListUsersQuery,
 	type AdminListUsersResponse,
@@ -206,6 +208,22 @@ export class AdminUsersService {
 		);
 
 		return this.getUserDetail(userId);
+	}
+
+	async bulkSetAccess(
+		actingAdminId: string,
+		input: AdminBulkSetAccessInput,
+	): Promise<AdminBulkSetAccessResult> {
+		const result = await this.betaAccessService.bulkSetAccess(
+			actingAdminId,
+			input,
+		);
+
+		this.logger.log(
+			`admin_bulk_set_access admin=${actingAdminId} updated=${result.updated} skipped=${result.skipped} failed=${result.failed}`,
+		);
+
+		return result;
 	}
 
 	async setBanned(

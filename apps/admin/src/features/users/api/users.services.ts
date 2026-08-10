@@ -15,6 +15,8 @@ import type {
 	AdminUserPagesResponse,
 	AdminUserProjectsResponse,
 	BetaEnrollUserInput,
+	BulkSetUserAccessInput,
+	BulkSetUserAccessResult,
 	ChangeUserRoleInput,
 	GrantUserCreditsInput,
 	ListUserPagesParams,
@@ -126,6 +128,12 @@ export function setUserAccess({
 	granted,
 }: SetUserAccessInput): Promise<UserDetail> {
 	return apiPost<UserDetail>(adminRoutes.setAccess(userId), { granted });
+}
+
+export function bulkSetUserAccess(
+	input: BulkSetUserAccessInput,
+): Promise<BulkSetUserAccessResult> {
+	return apiPost<BulkSetUserAccessResult>(adminRoutes.bulkSetAccess, input);
 }
 
 export function setUserBanned({
