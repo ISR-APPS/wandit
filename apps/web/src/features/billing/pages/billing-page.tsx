@@ -1,5 +1,4 @@
 import { Link } from "@tanstack/react-router";
-import { useWorkspace } from "@/features/workspaces/lib/workspace-provider";
 import type { BillingTopupPack, Subscription } from "@wandit/contracts";
 import {
 	formatDate,
@@ -36,7 +35,6 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
-
 import { Spark } from "@/components/logo";
 import { ModeToggle } from "@/components/mode-toggle";
 import { UserMenu } from "@/features/auth";
@@ -58,6 +56,7 @@ import {
 } from "@/features/credits/api/credits.queries";
 import { LedgerList } from "@/features/credits/components/ledger-list";
 import { usePublicSettingsQuery } from "@/features/settings/api/settings.queries";
+import { useWorkspace } from "@/features/workspaces/lib/workspace-provider";
 import { getApiErrorMessage } from "@/lib/api-client";
 import { useDictionary, useTranslation } from "@/lib/i18n";
 

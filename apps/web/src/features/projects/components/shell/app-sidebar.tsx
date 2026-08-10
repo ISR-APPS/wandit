@@ -2,6 +2,7 @@ import { Link, useLocation } from "@tanstack/react-router";
 import {
 	Sidebar,
 	SidebarContent,
+	SidebarFooter,
 	SidebarGroup,
 	SidebarGroupContent,
 	SidebarGroupLabel,
@@ -15,6 +16,7 @@ import {
 import type * as React from "react";
 
 import { Spark } from "@/components/logo";
+import { UpgradeCard } from "@/features/billing/components/upgrade-button";
 import { WorkspaceSwitcher } from "@/features/workspaces/components/workspace-switcher";
 import { useTranslation } from "@/lib/i18n";
 import { NAV_GROUPS, type NavItem } from "../../lib/nav-config";
@@ -108,8 +110,11 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
 					</SidebarGroup>
 				))}
 			</SidebarContent>
-			{/* Credits card intentionally absent for the launch window — the top
-			    bar chip is the only credits surface until top-ups exist. */}
+			{/* The upgrade card gates itself on purchases + free plan, so this
+			    stays invisible until billing opens (ship-dark launch policy). */}
+			<SidebarFooter className="group-data-[collapsible=icon]:hidden">
+				<UpgradeCard />
+			</SidebarFooter>
 			<SidebarRail
 				aria-label={t("projects.sidebar.toggleSidebar")}
 				title={t("projects.sidebar.toggleSidebar")}
