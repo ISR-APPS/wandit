@@ -7,7 +7,7 @@ import {
 	type Provider,
 } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
-import { type Auth, createAuth } from "@wandit/auth";
+import { type AdminAuth, type Auth, adminAuth, createAuth } from "@wandit/auth";
 import { canonicalizeEmail } from "@wandit/auth/email-canonical";
 import { isAdminRole } from "@wandit/contracts";
 import { eq, inArray, sql } from "@wandit/db";
@@ -22,16 +22,17 @@ import { DatabaseModule } from "../../infrastructure/database/database.module";
 import { AffiliatesModule } from "../affiliates/affiliates.module";
 import { AffiliateAttributionService } from "../affiliates/application/services/affiliate-attribution.service";
 import { CreditsModule } from "../credits/credits.module";
-import { EmailSendPolicyService } from "../email/application/services/email-send-policy.service";
 import { EmailService } from "../email/application/services/email.service";
+import { EmailSendPolicyService } from "../email/application/services/email-send-policy.service";
 import { EmailModule } from "../email/email.module";
 import { ProductSettingsService } from "../settings/application/services/product-settings.service";
 import { SettingsModule } from "../settings/settings.module";
 import { SignupGrantOutboxService } from "./application/services/signup-grant-outbox.service";
 import { SignupGrantsService } from "./application/services/signup-grants.service";
-import { AUTH_INSTANCE } from "./auth.constants";
+import { ADMIN_AUTH_INSTANCE, AUTH_INSTANCE } from "./auth.constants";
 import { SignupGrantOutboxRepository } from "./infrastructure/persistence/signup-grant-outbox.repository";
 import { TriggerSignupGrantDispatcherService } from "./infrastructure/trigger/trigger-signup-grant-dispatcher.service";
+import { AdminAuthController } from "./presentation/http/controllers/admin-auth.controller";
 import { AuthController } from "./presentation/http/controllers/auth.controller";
 import { AuthMeController } from "./presentation/http/controllers/me.controller";
 import { AuthGuard } from "./presentation/http/guards/auth.guard";
@@ -95,10 +96,14 @@ const authProvider: Provider<Auth> = {
 				emailSendPolicy.assertDomainAllowed(email);
 			},
 			onInvitationCreated: async (invitation) => {
-				analytics.capture(invitation.inviterUserId, "workspace_member_invited", {
-					organizationId: invitation.organizationId,
-					role: invitation.role,
-				});
+				analytics.capture(
+					invitation.inviterUserId,
+					"workspace_member_invited",
+					{
+						organizationId: invitation.organizationId,
+						role: invitation.role,
+					},
+				);
 
 				// Delivery is best-effort by contract: the copyable invite link
 				// and the in-app pending-invitations banner remain the fallback,
@@ -174,10 +179,15 @@ const authProvider: Provider<Auth> = {
 		}),
 };
 
+const adminAuthProvider: Provider<AdminAuth> = {
+	provide: ADMIN_AUTH_INSTANCE,
+	useValue: adminAuth,
+};
+
 @Global()
 @Module({
-	controllers: [AuthController, AuthMeController],
-	exports: [AUTH_INSTANCE, AuthGuard, EarlyAccessGuard],
+	controllers: [AdminAuthController, AuthController, AuthMeController],
+	exports: [ADMIN_AUTH_INSTANCE, AUTH_INSTANCE, AuthGuard, EarlyAccessGuard],
 	imports: [
 		AffiliatesModule,
 		CreditsModule,
@@ -186,6 +196,7 @@ const authProvider: Provider<Auth> = {
 		SettingsModule,
 	],
 	providers: [
+		adminAuthProvider,
 		authProvider,
 		AuthGuard,
 		EarlyAccessGuard,

@@ -8,7 +8,6 @@ import {
 	Patch,
 	Post,
 	Query,
-	UseGuards,
 } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
@@ -25,10 +24,10 @@ import {
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { CurrentUser } from "../../../../auth";
 import { AdminOrganizationsService } from "../../../application/services/admin-organizations.service";
-import { AdminGuard } from "../guards/admin.guard";
+import { AdminOnly } from "../decorators/admin-only.decorator";
 
 @Controller("v1/admin/organizations")
-@UseGuards(AdminGuard)
+@AdminOnly()
 export class AdminOrganizationsController {
 	constructor(
 		@Inject(AdminOrganizationsService)
@@ -47,9 +46,7 @@ export class AdminOrganizationsController {
 	detail(
 		@Param("organizationId") organizationId: string,
 	): Promise<AdminOrganizationDetail> {
-		return this.adminOrganizationsService.getOrganizationDetail(
-			organizationId,
-		);
+		return this.adminOrganizationsService.getOrganizationDetail(organizationId);
 	}
 
 	@Post(":organizationId/credits")
