@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import type {
 	BetaEnrollUserInput,
+	BulkSetUserAccessInput,
 	ChangeUserRoleInput,
 	GrantUserCreditsInput,
 	SetUserAccessInput,
@@ -11,6 +12,7 @@ import type {
 import { userKeys } from "./users.queries";
 import {
 	betaEnrollUser,
+	bulkSetUserAccess,
 	changeUserRole,
 	grantUserCredits,
 	setUserAccess,
@@ -50,6 +52,25 @@ export function useSetUserAccessMutation() {
 	return useMutation({
 		mutationFn: (input: SetUserAccessInput) => setUserAccess(input),
 		onSuccess: (user) => syncUserQueries(queryClient, user),
+	});
+}
+
+export function useBulkSetAccessMutation() {
+	const queryClient = useQueryClient();
+
+	return useMutation({
+		mutationFn: (input: BulkSetUserAccessInput) => bulkSetUserAccess(input),
+		onSuccess: (result) => {
+			void queryClient.invalidateQueries({ queryKey: userKeys.lists() });
+
+			for (const { userId, status } of result.results) {
+				if (status === "granted" || status === "revoked") {
+					void queryClient.invalidateQueries({
+						queryKey: userKeys.detail(userId),
+					});
+				}
+			}
+		},
 	});
 }
 

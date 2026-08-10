@@ -1,5 +1,11 @@
-import { Inject, Injectable, NotFoundException } from "@nestjs/common";
-import type { AdminBetaEnrollInput } from "@wandit/contracts";
+import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
+import {
+	type AdminBetaEnrollInput,
+	type AdminBulkSetAccessInput,
+	type AdminBulkSetAccessResult,
+	type AdminBulkSetAccessUserResult,
+	isAdminRole,
+} from "@wandit/contracts";
 
 import { CreditsService } from "../../../credits/application/services/credits.service";
 import { userOwner } from "../../../credits/domain/credit-owner";
@@ -7,6 +13,8 @@ import { AdminRepository } from "../../infrastructure/persistence/admin.reposito
 
 @Injectable()
 export class BetaAccessService {
+	private readonly logger = new Logger(BetaAccessService.name);
+
 	constructor(
 		@Inject(AdminRepository)
 		private readonly adminRepository: AdminRepository,
@@ -71,6 +79,85 @@ export class BetaAccessService {
 				},
 				tx,
 			);
+		});
+	}
+
+	async bulkSetAccess(
+		actingAdminId: string,
+		input: AdminBulkSetAccessInput,
+	): Promise<AdminBulkSetAccessResult> {
+		const result: AdminBulkSetAccessResult = {
+			updated: 0,
+			skipped: 0,
+			failed: 0,
+			results: [],
+		};
+
+		for (const userId of new Set(input.userIds)) {
+			try {
+				const userResult = await this.setBulkUserAccess(
+					actingAdminId,
+					userId,
+					input.granted,
+				);
+				result.results.push(userResult);
+
+				if (userResult.status === "skipped") {
+					result.skipped += 1;
+				} else if (userResult.status === "failed") {
+					result.failed += 1;
+				} else {
+					result.updated += 1;
+				}
+			} catch (error) {
+				this.logger.error(
+					`admin_bulk_set_access_failed target=${userId}`,
+					error instanceof Error ? error.stack : String(error),
+				);
+				result.failed += 1;
+				result.results.push({ userId, status: "failed", reason: "error" });
+			}
+		}
+
+		return result;
+	}
+
+	private setBulkUserAccess(
+		actingAdminId: string,
+		userId: string,
+		granted: boolean,
+	): Promise<AdminBulkSetAccessUserResult> {
+		return this.adminRepository.withUserTransaction(userId, async (tx) => {
+			const target = await this.adminRepository.findUserAccess(userId, tx);
+
+			if (!target) {
+				return { userId, status: "failed", reason: "not_found" };
+			}
+
+			if (isAdminRole(target.role)) {
+				return { userId, status: "skipped", reason: "admin_role" };
+			}
+
+			if (target.earlyAccess === granted) {
+				return {
+					userId,
+					status: "skipped",
+					reason: granted ? "already_granted" : "already_revoked",
+				};
+			}
+
+			await this.adminRepository.setUserEarlyAccess(userId, granted, tx);
+			await this.adminRepository.insertBetaAccessEvent(
+				{
+					action: granted ? "granted" : "revoked",
+					actorUserId: actingAdminId,
+					reason: "manual_admin_access",
+					userId,
+				},
+				tx,
+			);
+
+			return { userId, status: granted ? "granted" : "revoked" };
 		});
 	}
 
