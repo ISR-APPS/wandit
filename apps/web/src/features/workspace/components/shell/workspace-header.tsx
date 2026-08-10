@@ -13,9 +13,10 @@ import {
 
 import { Spark } from "@/components/logo";
 import { UserMenu } from "@/features/auth";
+import { UpgradeButton } from "@/features/billing/components/upgrade-button";
 import { CreditsChip } from "@/features/credits";
-import { useTranslation } from "@/lib/i18n";
 import { WorkspaceSwitcher } from "@/features/workspaces/components/workspace-switcher";
+import { useTranslation } from "@/lib/i18n";
 import { ProjectSwitcher } from "./project-switcher";
 import { PublishButton } from "./publish-button";
 
@@ -52,6 +53,7 @@ export function WorkspaceHeader() {
 					{t("workspace.autosaved")}
 				</span>
 				<CreditsChip />
+				<UpgradeButton />
 				<PublishButton />
 				<UserMenu />
 			</div>

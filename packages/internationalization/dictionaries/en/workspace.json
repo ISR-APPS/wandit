@@ -2,6 +2,12 @@
 	"backToDashboard": "Back to dashboard",
 	"tabsAriaLabel": "Workspace views",
 	"autosaved": "Saved",
+	"upgrade": "Upgrade",
+	"upgradeCard": {
+		"titlePro": "Upgrade to Pro",
+		"titleBusiness": "Upgrade to Business",
+		"body": "More credits and features"
+	},
 	"meta": {
 		"title": "Workspace — Wandit"
 	},

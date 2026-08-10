@@ -183,19 +183,20 @@ export default function DashboardPage() {
 							{t("projects.promptHeading")}
 						</h2>
 						<div ref={promptSectionRef} className="mt-6">
-							{promptLocked ? <OutOfCreditsBanner className="mb-3" /> : null}
-							<PromptBox
-								key={promptPrefill.key}
-								variant="hero"
-								showPriceTag
-								showModes
-								attachmentsEnabled={hasEarlyAccess}
-								disabled={promptLocked}
-								initialValue={promptPrefill.value}
-								initialComposer={promptPrefill.composer}
-								onSubmit={hasEarlyAccess ? create : teaseComingSoon}
-								isSubmitting={isCreating}
-							/>
+							<OutOfCreditsBanner active={promptLocked}>
+								<PromptBox
+									key={promptPrefill.key}
+									variant="hero"
+									showPriceTag
+									showModes
+									attachmentsEnabled={hasEarlyAccess}
+									disabled={promptLocked}
+									initialValue={promptPrefill.value}
+									initialComposer={promptPrefill.composer}
+									onSubmit={hasEarlyAccess ? create : teaseComingSoon}
+									isSubmitting={isCreating}
+								/>
+							</OutOfCreditsBanner>
 						</div>
 						<InsufficientCreditsDialog
 							open={insufficientOpen}

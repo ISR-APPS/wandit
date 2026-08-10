@@ -1,7 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-
-import type { CreditLedgerQuery } from "./credits.dto";
 import { getActiveWorkspaceId } from "@/features/workspaces/lib/workspace-scope";
+import type { CreditLedgerQuery } from "./credits.dto";
 
 import { getCreditBalance, getCreditLedger } from "./credits.services";
 
