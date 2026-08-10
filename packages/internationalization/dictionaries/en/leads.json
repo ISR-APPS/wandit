@@ -51,6 +51,10 @@
 		},
 		"errorToast": "Google Sheets sync failed. Try again."
 	},
+	"codPilotSync": {
+		"sync": "Sync COD Pilot",
+		"comingSoon": "COD Pilot sync — coming soon"
+	},
 	"status": {
 		"to_confirm": "To confirm",
 		"confirmed": "Confirmed",

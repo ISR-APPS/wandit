@@ -51,6 +51,10 @@
 		},
 		"errorToast": "فشلت المزامنة مع Google Sheets. حاول مجددًا."
 	},
+	"codPilotSync": {
+		"sync": "مزامنة COD Pilot",
+		"comingSoon": "مزامنة COD Pilot — قريبًا"
+	},
 	"status": {
 		"to_confirm": "بانتظار التأكيد",
 		"confirmed": "مؤكد",
