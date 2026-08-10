@@ -5,12 +5,19 @@ import {
 	getCoreRowModel,
 	type Header,
 	type PaginationState,
+	type RowSelectionState,
 	type Table as TanStackTable,
 	useReactTable,
 	type VisibilityState,
 } from "@tanstack/react-table";
+import { isAdminRole } from "@wandit/contracts";
 import { SearchXIcon, XIcon } from "lucide-react";
-import { type CSSProperties, type KeyboardEvent, useState } from "react";
+import {
+	type CSSProperties,
+	type KeyboardEvent,
+	useEffect,
+	useState,
+} from "react";
 
 import { DataTablePagination } from "@/components/data-table";
 import { Button } from "@/components/ui/button";
@@ -69,6 +76,12 @@ function UsersDataTable({
 }: UsersDataTableProps) {
 	const [columnVisibility, setColumnVisibility] = useState<VisibilityState>({});
 	const [columnSizing, setColumnSizing] = useState<ColumnSizingState>({});
+	const [rowSelection, setRowSelection] = useState<RowSelectionState>({});
+
+	// biome-ignore lint/correctness/useExhaustiveDependencies: these controls define the page-scoped selection boundary
+	useEffect(() => {
+		setRowSelection({});
+	}, [page, pageSize, searchValue, sort]);
 
 	const pagination: PaginationState = {
 		pageIndex: Math.max(page - 1, 0),
@@ -82,12 +95,15 @@ function UsersDataTable({
 			columnVisibility,
 			columnSizing,
 			pagination,
+			rowSelection,
 		},
 		defaultColumn: {
 			enableResizing: false,
 			enableSorting: false,
 		},
 		enableColumnResizing: true,
+		enableRowSelection: (row) =>
+			!isAdminRole(row.original.role) && !row.original.earlyAccess,
 		columnResizeMode: "onChange",
 		manualPagination: true,
 		pageCount: Math.max(Math.ceil(total / pageSize), 1),
@@ -95,6 +111,7 @@ function UsersDataTable({
 		getRowId: (user) => user.id,
 		onColumnVisibilityChange: setColumnVisibility,
 		onColumnSizingChange: setColumnSizing,
+		onRowSelectionChange: setRowSelection,
 		onPaginationChange: (updater) => {
 			const next =
 				typeof updater === "function" ? updater(pagination) : updater;
@@ -169,7 +186,11 @@ function UsersDataTable({
 					<TableBody>
 						{visibleRows.length > 0 ? (
 							visibleRows.map((row) => (
-								<TableRow key={row.id} className="group hover:bg-muted">
+								<TableRow
+									key={row.id}
+									data-state={row.getIsSelected() ? "selected" : undefined}
+									className="group hover:bg-muted"
+								>
 									{row.getVisibleCells().map((cell) => (
 										<TableCell
 											key={cell.id}
@@ -208,12 +229,21 @@ function UsersDataTable({
 }
 
 function getStickyClass(columnId: string, isHeader: boolean) {
-	if (columnId === "user") {
+	if (columnId === "select") {
 		return cn(
-			"sticky left-0 z-20 border-r px-4 pr-7",
+			"sticky left-0 z-30 w-12 min-w-12 max-w-12 px-4",
 			isHeader
 				? "bg-background"
-				: "bg-background group-hover:bg-muted",
+				: "bg-background group-hover:bg-muted group-data-[state=selected]:bg-muted",
+		);
+	}
+
+	if (columnId === "user") {
+		return cn(
+			"sticky left-12 z-20 border-r px-4 pr-7",
+			isHeader
+				? "bg-background"
+				: "bg-background group-hover:bg-muted group-data-[state=selected]:bg-muted",
 		);
 	}
 
@@ -230,7 +260,7 @@ function getStickyClass(columnId: string, isHeader: boolean) {
 			"sticky right-0 z-20 w-14 min-w-14 max-w-14 border-l px-2 text-center",
 			isHeader
 				? "bg-background"
-				: "bg-background group-hover:bg-muted",
+				: "bg-background group-hover:bg-muted group-data-[state=selected]:bg-muted",
 		);
 	}
 

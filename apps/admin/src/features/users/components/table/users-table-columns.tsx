@@ -1,6 +1,7 @@
 import type { ColumnDef } from "@tanstack/react-table";
 
 import { DataTableColumnHeader } from "@/components/data-table";
+import { Checkbox } from "@/components/ui/checkbox";
 import type { AdminUserSummary } from "@/features/users/api/users.dto";
 import { EarlyAccessBadge } from "@/features/users/components/early-access-badge";
 import {
@@ -18,6 +19,43 @@ import {
 } from "./user-table-cells";
 
 const usersTableColumns: ColumnDef<AdminUserSummary>[] = [
+	{
+		id: "select",
+		header: ({ table }) => {
+			const hasSelectableRows = table
+				.getRowModel()
+				.rows.some((row) => row.getCanSelect());
+			const isAllSelected =
+				hasSelectableRows && table.getIsAllPageRowsSelected();
+			const isSomeSelected = table.getIsSomePageRowsSelected();
+
+			return (
+				<Checkbox
+					checked={
+						isAllSelected ? true : isSomeSelected ? "indeterminate" : false
+					}
+					disabled={!hasSelectableRows}
+					onCheckedChange={(value) =>
+						table.toggleAllPageRowsSelected(value === true)
+					}
+					aria-label="Select all eligible users on this page"
+				/>
+			);
+		},
+		cell: ({ row }) => (
+			<Checkbox
+				checked={row.getIsSelected()}
+				disabled={!row.getCanSelect()}
+				onCheckedChange={(value) => row.toggleSelected(value === true)}
+				aria-label={`Select ${row.original.name}`}
+			/>
+		),
+		enableHiding: false,
+		enableSorting: false,
+		size: 48,
+		minSize: 48,
+		maxSize: 48,
+	},
 	{
 		id: "user",
 		accessorFn: (user) => `${user.name} ${user.email} ${user.id}`,

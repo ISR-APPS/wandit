@@ -3,6 +3,8 @@
 // import — the contract in @wandit/contracts is the source of truth.
 import type {
 	AdminBetaEnrollInput,
+	AdminBulkSetAccessInput,
+	AdminBulkSetAccessResult,
 	AdminCreditLedgerEntry,
 	AdminGrantCreditsInput,
 	AdminListUsersResponse,
@@ -28,6 +30,8 @@ import type {
 
 export type {
 	AdminBetaEnrollInput,
+	AdminBulkSetAccessInput,
+	AdminBulkSetAccessResult,
 	AdminCreditLedgerEntry,
 	AdminGrantCreditsInput,
 	AdminListUsersResponse,
@@ -103,6 +107,9 @@ export type ChangeUserRoleInput = AdminSetRoleInput & {
 export type SetUserAccessInput = AdminSetAccessInput & {
 	userId: string;
 };
+
+export type BulkSetUserAccessInput = AdminBulkSetAccessInput;
+export type BulkSetUserAccessResult = AdminBulkSetAccessResult;
 
 export type SetUserBannedInput = AdminSetBannedInput & {
 	userId: string;

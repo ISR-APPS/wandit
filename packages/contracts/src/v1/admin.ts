@@ -434,6 +434,44 @@ export const adminSetAccessInputSchema = z.object({
 
 export type AdminSetAccessInput = z.infer<typeof adminSetAccessInputSchema>;
 
+export const adminBulkSetAccessInputSchema = z.object({
+	userIds: z.array(z.string().trim().min(1)).min(1).max(100),
+	granted: z.boolean(),
+});
+
+export type AdminBulkSetAccessInput = z.infer<
+	typeof adminBulkSetAccessInputSchema
+>;
+
+export const adminBulkSetAccessUserResultSchema = z.object({
+	userId: z.string(),
+	status: z.enum(["granted", "revoked", "skipped", "failed"]),
+	reason: z
+		.enum([
+			"already_granted",
+			"already_revoked",
+			"admin_role",
+			"not_found",
+			"error",
+		])
+		.optional(),
+});
+
+export type AdminBulkSetAccessUserResult = z.infer<
+	typeof adminBulkSetAccessUserResultSchema
+>;
+
+export const adminBulkSetAccessResultSchema = z.object({
+	updated: z.int().nonnegative(),
+	skipped: z.int().nonnegative(),
+	failed: z.int().nonnegative(),
+	results: z.array(adminBulkSetAccessUserResultSchema),
+});
+
+export type AdminBulkSetAccessResult = z.infer<
+	typeof adminBulkSetAccessResultSchema
+>;
+
 export const adminSetBannedInputSchema = z.object({
 	banned: z.boolean(),
 	reason: z.string().trim().min(1).max(500).optional(),
@@ -792,6 +830,7 @@ export const adminRoutes = {
 		`/api/v1/admin/projects/${projectId}/versions/${versionId}/preview`,
 	grantCredits: (userId: string) => `/api/v1/admin/users/${userId}/credits`,
 	betaEnroll: (userId: string) => `/api/v1/admin/users/${userId}/beta-enroll`,
+	bulkSetAccess: "/api/v1/admin/users/bulk-access",
 	setAccess: (userId: string) => `/api/v1/admin/users/${userId}/access`,
 	setRole: (userId: string) => `/api/v1/admin/users/${userId}/role`,
 	setBanned: (userId: string) => `/api/v1/admin/users/${userId}/banned`,

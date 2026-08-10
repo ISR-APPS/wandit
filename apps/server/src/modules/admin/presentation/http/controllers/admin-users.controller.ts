@@ -12,6 +12,8 @@ import {
 import type { AuthUser } from "@wandit/auth";
 import {
 	type AdminBetaEnrollInput,
+	type AdminBulkSetAccessInput,
+	type AdminBulkSetAccessResult,
 	type AdminGrantCreditsInput,
 	type AdminListUsersQuery,
 	type AdminListUsersResponse,
@@ -24,6 +26,7 @@ import {
 	type AdminUserProjectsQuery,
 	type AdminUserProjectsResponse,
 	adminBetaEnrollInputSchema,
+	adminBulkSetAccessInputSchema,
 	adminGrantCreditsInputSchema,
 	adminListUsersQuerySchema,
 	adminSetAccessInputSchema,
@@ -52,6 +55,16 @@ export class AdminUsersController {
 		query: AdminListUsersQuery,
 	): Promise<AdminListUsersResponse> {
 		return this.adminUsersService.listUsers(query);
+	}
+
+	@Post("bulk-access")
+	@HttpCode(200)
+	bulkSetAccess(
+		@Body(new ZodValidationPipe(adminBulkSetAccessInputSchema))
+		body: AdminBulkSetAccessInput,
+		@CurrentUser() admin: AuthUser,
+	): Promise<AdminBulkSetAccessResult> {
+		return this.adminUsersService.bulkSetAccess(admin.id, body);
 	}
 
 	@Get(":userId/pages")
