@@ -9,6 +9,7 @@ import {
 	Megaphone,
 	MessageCircle,
 	Table2,
+	Truck,
 } from "lucide-react";
 
 import { type TranslationKey, useTranslation } from "@/lib/i18n";
@@ -44,6 +45,12 @@ const PREVIEW_TILES: Array<{
 		nameKey: "projects.appsPage.tiles.whatsapp.name",
 		hintKey: "projects.appsPage.tiles.whatsapp.hint",
 	},
+	{
+		key: "codPilot",
+		icon: Truck,
+		nameKey: "projects.appsPage.tiles.codPilot.name",
+		hintKey: "projects.appsPage.tiles.codPilot.hint",
+	},
 ];
 
 export default function AppsPage() {
@@ -77,7 +84,9 @@ export default function AppsPage() {
 						{PREVIEW_TILES.map((tile) => (
 							<div
 								key={tile.key}
-								className="flex items-center gap-3 rounded-xl border bg-card/70 p-3.5 text-start opacity-80"
+								// An odd tile count leaves the last one alone on a row;
+								// stretching it across both columns keeps the grid even.
+								className="flex items-center gap-3 rounded-xl border bg-card/70 p-3.5 text-start opacity-80 sm:last:odd:col-span-2"
 							>
 								<span className="grid size-9 shrink-0 place-items-center rounded-lg border bg-background text-muted-foreground">
 									<tile.icon className="size-4" aria-hidden />

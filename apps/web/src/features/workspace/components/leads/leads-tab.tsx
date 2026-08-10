@@ -50,6 +50,7 @@ import {
 	formatPhone,
 } from "../../lib/helpers";
 import { useWorkspace } from "../../lib/store";
+import { CodPilotSyncButton } from "./cod-pilot-sync-button";
 import { ContactLinks } from "./contact-links";
 import { LeadOrderDetails } from "./lead-order-details";
 import { LeadSourceBadge } from "./lead-source-badge";
@@ -159,8 +160,9 @@ export function LeadsTab() {
 	return (
 		<div className="h-full overflow-y-auto">
 			<div className="mx-auto w-full max-w-6xl px-4 py-6 md:px-8">
-				{/* Header: title + free note; sheet sync + CSV export on the right,
-				    wrapping under the title on narrow screens. */}
+				{/* Header: title + free note; sheet sync, the COD Pilot placeholder
+				    and CSV export on the right, wrapping under the title on narrow
+				    screens. */}
 				<div className="flex flex-wrap items-start justify-between gap-3">
 					<div>
 						<h2 className="font-display font-semibold text-lg">
@@ -172,6 +174,7 @@ export function LeadsTab() {
 					</div>
 					<div className="flex flex-wrap items-center justify-end gap-2">
 						<SheetSyncButton />
+						<CodPilotSyncButton />
 						<Button
 							variant="outline"
 							size="sm"
