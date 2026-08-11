@@ -646,12 +646,14 @@ export class AffiliateAdminRepository {
 			paidInvoiceCount: sql<number>`count(distinct ${affiliateCommissions.id}) filter (
 				where ${affiliateCommissions.entryType} = 'earning'
 			)::int`,
-			firstPaidAt: sql<Date | null>`min(${affiliateCommissions.createdAt}) filter (
+			firstPaidAt:
+				sql<Date | null>`min(${affiliateCommissions.createdAt}) filter (
 				where ${affiliateCommissions.entryType} = 'earning'
-			)`,
-			lastPaidAt: sql<Date | null>`max(${affiliateCommissions.createdAt}) filter (
+			)`.mapWith(affiliateCommissions.createdAt),
+			lastPaidAt:
+				sql<Date | null>`max(${affiliateCommissions.createdAt}) filter (
 				where ${affiliateCommissions.entryType} = 'earning'
-			)`,
+			)`.mapWith(affiliateCommissions.createdAt),
 		};
 		const [totalRow, rows] = await Promise.all([
 			this.db
@@ -1131,7 +1133,7 @@ export class AffiliateAdminRepository {
 				select max("affiliate_commissions"."created_at") from "affiliate_commissions"
 				where "affiliate_commissions"."affiliate_id" = "affiliates"."id"
 					and "affiliate_commissions"."entry_type" = 'earning'
-			)`,
+			)`.mapWith(affiliateCommissions.createdAt),
 		};
 	}
 
@@ -1172,7 +1174,7 @@ export class AffiliateAdminRepository {
 					on "affiliate_attributions"."id" = "affiliate_commissions"."attribution_id"
 				where "affiliate_attributions"."link_id" = "affiliate_links"."id"
 					and "affiliate_commissions"."entry_type" = 'earning'
-			)`,
+			)`.mapWith(affiliateCommissions.createdAt),
 		};
 	}
 

@@ -462,7 +462,10 @@ export class AffiliatesRepository {
 	): Promise<string[]> {
 		const rows = await this.db
 			.select({
-				oldestPaidAt: sql<Date>`min(${affiliateInvoiceCandidates.paidAt})`,
+				oldestPaidAt:
+					sql<Date>`min(${affiliateInvoiceCandidates.paidAt})`.mapWith(
+						affiliateInvoiceCandidates.paidAt,
+					),
 				userId: affiliateInvoiceCandidates.userId,
 			})
 			.from(affiliateInvoiceCandidates)

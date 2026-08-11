@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type {
 	AffiliateAdminAffiliateRecord,
 	AffiliateAdminAffiliateRow,
+	AffiliateAdminAttributionRecord,
 	AffiliateAdminLinkRecord,
 	AffiliateAdminPayoutRow,
 	AffiliateAdminProgramRecord,
@@ -19,6 +20,7 @@ const LINK_ID = "33333333-3333-4333-8333-333333333333";
 const PAYOUT_ID = "44444444-4444-4444-8444-444444444444";
 const REQUEST_ID = "55555555-5555-4555-8555-555555555555";
 const NOW = new Date("2026-08-02T12:00:00.000Z");
+const FIRST_PAID_AT = new Date("2026-07-01T12:00:00.000Z");
 const affiliateTransaction = {} as never;
 
 function programRow(
@@ -125,6 +127,42 @@ function linkRecord(expiresAt: Date | null = null): AffiliateAdminLinkRecord {
 			lastConversionAt: NOW,
 			currencies: [],
 		},
+	};
+}
+
+function attributionRecord(): AffiliateAdminAttributionRecord {
+	return {
+		attribution: {
+			id: REQUEST_ID,
+			userId: "user_2",
+			linkId: LINK_ID,
+			affiliateId: AFFILIATE_ID,
+			programId: PROGRAM_ID,
+			programKind: "percentage_recurring",
+			commissionRateBps: 2_000,
+			fixedAmountCents: null,
+			fixedCurrency: null,
+			commissionDurationMonths: 12,
+			clickedAt: FIRST_PAID_AT,
+			lockedAt: FIRST_PAID_AT,
+			source: "manual",
+			status: "active",
+			fraudFlags: [],
+			createdAt: FIRST_PAID_AT,
+			updatedAt: NOW,
+		},
+		user: { id: "user_2", name: "Grace Customer", email: "grace@example.com" },
+		link: { id: LINK_ID, code: "ada-ref", label: "Main" },
+		program: {
+			id: PROGRAM_ID,
+			kind: "percentage_recurring",
+			name: "Partner program",
+			status: "active",
+		},
+		paidInvoiceCount: 2,
+		firstPaidAt: FIRST_PAID_AT,
+		lastPaidAt: NOW,
+		currencies: [],
 	};
 }
 
@@ -337,6 +375,29 @@ describe("AffiliateAdminService", () => {
 		});
 
 		expect(result.items[0]?.link.status).toBe("expired");
+		expect(result.items[0]?.aggregates.lastConversionAt).toBe(
+			NOW.toISOString(),
+		);
+	});
+
+	it("maps attribution aggregate dates to API timestamps", async () => {
+		const { repository, service } = setup();
+		repository.getAffiliate.mockResolvedValue(affiliateRecord());
+		repository.listAttributions.mockResolvedValue({
+			items: [attributionRecord()],
+			page: 1,
+			pageSize: 20,
+			total: 1,
+		});
+
+		const result = await service.listAttributions(AFFILIATE_ID, {
+			fraud: "all",
+			page: 1,
+			pageSize: 20,
+		});
+
+		expect(result.items[0]?.firstPaidAt).toBe(FIRST_PAID_AT.toISOString());
+		expect(result.items[0]?.lastPaidAt).toBe(NOW.toISOString());
 	});
 
 	it("passes the authenticated admin id to the atomic payout builder", async () => {
@@ -405,6 +466,7 @@ describe("AffiliateAdminService", () => {
 		expect(lines[0]?.match(/attributed_revenue_cents/g)).toHaveLength(1);
 		expect(lines[1]).toContain("'=IMPORTXML");
 		expect(lines[1]).toContain('"Acme, ""Labs"""');
+		expect(lines[1]).toContain(`,12,${NOW.toISOString()},eur,`);
 		expect(lines[1]).toContain(",eur,");
 		expect(lines[2]).toContain(",usd,");
 	});
