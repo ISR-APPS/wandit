@@ -29,6 +29,7 @@ import {
 	triggerGeneratePageTask,
 } from "../../../pages/application/page-build-handoff";
 import type { PagesRepository } from "../../../pages/infrastructure/persistence/pages.repository";
+import type { ConversationGeneratedAsset } from "../annotate-generated-assets";
 import {
 	buildSiteBuilderSystemPrompt,
 	WORLD_DEPARTURE_POINT_HEADING,
@@ -47,6 +48,10 @@ export type GeneratePageToolDeps = {
 	// Undefined = use the env default.
 	builderModel?: string;
 	chatId: string;
+	// Finished [Generated …] assets from this conversation's transcript. The
+	// execute path appends the ones the Brain's brief forgot, so a build can
+	// never lose media the user generated on purpose.
+	conversationAssets?: readonly ConversationGeneratedAsset[];
 	pagesRepository: PagesRepository;
 	parentEventId?: string;
 	projectId: string;
@@ -54,6 +59,38 @@ export type GeneratePageToolDeps = {
 	subject: MeteringSubject;
 	userId: string;
 };
+
+// A media-heavy chat can carry many finished assets; the appended section
+// stays bounded so it can never crowd out the brief itself.
+const MAX_READY_MEDIA_ASSET_LINES = 16;
+
+/**
+ * Deterministic belt-and-braces for generated media: whatever the Brain's
+ * free-text brief forgot, the server appends. Assets whose URL the brief
+ * already mentions are skipped, so a diligent brief passes through unchanged.
+ */
+export function appendReadyMediaAssets(
+	brief: string,
+	assets: readonly ConversationGeneratedAsset[],
+): string {
+	const missing = assets
+		.filter((asset) => !brief.includes(asset.url))
+		.slice(0, MAX_READY_MEDIA_ASSET_LINES);
+
+	if (missing.length === 0) {
+		return brief;
+	}
+
+	const lines = missing.map((asset) => `- ${asset.kind}: ${asset.url}`);
+
+	return [
+		brief.trimEnd(),
+		"",
+		"READY MEDIA ASSETS (generated in this conversation — hosted, final, and allowed on the page):",
+		...lines,
+		"Placing every listed asset is part of the brief: give each one the role it serves best, and never generate a new image for a role a listed asset already covers.",
+	].join("\n");
+}
 
 // Explicit return type: composite-project declaration emit cannot name the
 // SDK's inferred ExecutableTool type; the plain Tool shape is what callers need.
@@ -143,13 +180,17 @@ export function createGeneratePageTool(
 				deps.builderModel ??
 				env.AI_PAGE_BUILDER_MODEL ??
 				env.AI_PAGE_DESIGN_MODEL;
+			const briefWithAssets = appendReadyMediaAssets(
+				brief,
+				deps.conversationAssets ?? [],
+			);
 			const attempt = await deps.pagesRepository.insertAttempt({
 				artifactId: artifact.id,
 				chatId: deps.chatId,
 				model: builderModel,
 				projectId: deps.projectId,
 				spec: {
-					brief,
+					brief: briefWithAssets,
 					designerSystemPrompt,
 					pageKind: isCod ? "cod" : "website",
 					title,
@@ -166,7 +207,9 @@ export function createGeneratePageTool(
 			// Log only a preview: the full brief is user business data and the
 			// full spec is already persisted on the attempt row above.
 			logger.log(
-				`Brief for attempt ${attempt.id} (${brief.length} chars): ${brief.slice(0, 200)}${brief.length > 200 ? "…" : ""}`,
+				`Brief for attempt ${attempt.id} (${briefWithAssets.length} chars, ` +
+					`${(deps.conversationAssets ?? []).length} conversation assets): ` +
+					`${briefWithAssets.slice(0, 200)}${briefWithAssets.length > 200 ? "…" : ""}`,
 			);
 
 			let handle: Awaited<ReturnType<typeof tasks.trigger>>;

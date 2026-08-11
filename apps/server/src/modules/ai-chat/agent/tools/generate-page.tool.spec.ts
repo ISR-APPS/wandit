@@ -5,13 +5,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { isR2Configured } from "../../../../infrastructure/storage/r2";
 import type { PagesRepository } from "../../../pages/infrastructure/persistence/pages.repository";
+import type { ConversationGeneratedAsset } from "../annotate-generated-assets";
 import { argan } from "../worlds/cod/argan";
 import { atay } from "../worlds/cod/atay";
 import { COD_GENRE_DOC, FUSION_CONTRACT } from "../worlds/cod/genre";
 import { hammam } from "../worlds/cod/hammam";
 import { monographe } from "../worlds/monographe";
 import { vitrine } from "../worlds/vitrine";
-import { createGeneratePageTool } from "./generate-page.tool";
+import {
+	appendReadyMediaAssets,
+	createGeneratePageTool,
+} from "./generate-page.tool";
 
 // Everything with side effects is replaced: env (credentials), storage
 // (R2 check), the Trigger queue, and the builder prompt.
@@ -58,7 +62,12 @@ const mutableEnv = env as {
 	AI_PAGE_DESIGN_MODEL: string;
 };
 
-function setup(options: { parentEventId?: string } = {}) {
+function setup(
+	options: {
+		parentEventId?: string;
+		conversationAssets?: ConversationGeneratedAsset[];
+	} = {},
+) {
 	const pagesRepository = {
 		findOrCreateLandingArtifact: vi.fn(),
 		insertAttempt: vi.fn(),
@@ -68,6 +77,9 @@ function setup(options: { parentEventId?: string } = {}) {
 	};
 	const generatePageTool = createGeneratePageTool({
 		chatId: "chat_1",
+		...(options.conversationAssets
+			? { conversationAssets: options.conversationAssets }
+			: {}),
 		pagesRepository: pagesRepository as unknown as PagesRepository,
 		...(options.parentEventId ? { parentEventId: options.parentEventId } : {}),
 		projectId: "project_1",
@@ -523,5 +535,76 @@ describe("generate_page tool", () => {
 			attemptId: "attempt_1",
 			status: "queued",
 		});
+	});
+});
+
+describe("appendReadyMediaAssets", () => {
+	const IMAGE = "https://assets.example.com/images/p1/a1/img-1.png";
+	const VIDEO = "https://assets.example.com/sites/p1/assets/a2/vid-1.mp4";
+
+	it("appends a READY MEDIA ASSETS section for URLs the brief forgot", () => {
+		const brief = appendReadyMediaAssets("Build the page.", [
+			{ kind: "image", url: IMAGE },
+			{ kind: "video", url: VIDEO },
+		]);
+
+		expect(brief).toContain("READY MEDIA ASSETS");
+		expect(brief).toContain(`- image: ${IMAGE}`);
+		expect(brief).toContain(`- video: ${VIDEO}`);
+		expect(brief.startsWith("Build the page.")).toBe(true);
+	});
+
+	it("returns the brief unchanged when every asset URL is already listed", () => {
+		const diligent = `Build the page.\nMEDIA ASSETS:\n- hero shot: ${IMAGE}`;
+
+		expect(
+			appendReadyMediaAssets(diligent, [{ kind: "image", url: IMAGE }]),
+		).toBe(diligent);
+	});
+
+	it("returns the brief unchanged when the conversation has no assets", () => {
+		expect(appendReadyMediaAssets("Build the page.", [])).toBe(
+			"Build the page.",
+		);
+	});
+
+	it("bounds the appended section to 16 asset lines", () => {
+		const assets = Array.from({ length: 20 }, (_, index) => ({
+			kind: "image",
+			url: `https://assets.example.com/img-${index}.png`,
+		}));
+
+		const brief = appendReadyMediaAssets("Build the page.", assets);
+
+		expect(brief.match(/^- image: /gm)).toHaveLength(16);
+	});
+});
+
+describe("generate_page with conversation assets", () => {
+	const IMAGE = "https://assets.example.com/images/p1/a1/img-1.png";
+
+	it("snapshots the brief with the appended conversation assets", async () => {
+		const { execute, pagesRepository } = setup({
+			conversationAssets: [{ kind: "image", url: IMAGE }],
+		});
+		vi.mocked(isR2Configured).mockReturnValue(true);
+		pagesRepository.findOrCreateLandingArtifact.mockResolvedValue({
+			activeVersionId: null,
+			id: "artifact_1",
+		});
+		pagesRepository.insertAttempt.mockResolvedValue({ id: "attempt_1" });
+		pagesRepository.nextVersionNumber.mockResolvedValue(1);
+		vi.mocked(tasks.trigger).mockResolvedValue({
+			id: "run_123",
+		} as Awaited<ReturnType<typeof tasks.trigger>>);
+
+		await execute(INPUT);
+
+		const spec = pagesRepository.insertAttempt.mock.calls[0]?.[0]?.spec as {
+			brief: string;
+		};
+		expect(spec.brief.startsWith(INPUT.brief)).toBe(true);
+		expect(spec.brief).toContain("READY MEDIA ASSETS");
+		expect(spec.brief).toContain(`- image: ${IMAGE}`);
 	});
 });
