@@ -40,10 +40,9 @@ export type DomainTldCatalogItem = {
 /*
  * Fail-closed guards around the registrar's wholesale registration quote.
  *
- * Every ceiling is 80% of the retail price in DOMAIN_REGISTRATION_USD_CENTS,
- * guaranteeing at least a 20% gross margin: a purchase whose wholesale quote
- * exceeds the ceiling is blocked, never sold at a loss. A contract test pins
- * ceiling < retail for every TLD. The UI never displays these cap values.
+ * Every ceiling is a standalone per-TLD cap on acceptable wholesale quotes.
+ * A purchase whose wholesale quote exceeds the ceiling is blocked. The UI never
+ * displays these cap values.
  */
 export const DOMAIN_TLD_CATALOG = {
 	com: {
@@ -66,16 +65,14 @@ export const DOMAIN_TLD_CATALOG = {
 	},
 } as const satisfies Record<DomainTld, DomainTldCatalogItem>;
 
-// Explicit one-time registration prices. These intentionally remain a
-// separate catalog instead of implying a universal credits-to-USD rate.
-export const DOMAIN_REGISTRATION_USD_CENTS = {
-	com: 3_000,
-	net: 3_500,
-	shop: 4_500,
-	store: 4_500,
-	online: 4_000,
-	site: 3_750,
-} as const satisfies Record<DomainTld, number>;
+// Retail is the live registrar wholesale quote plus this margin.
+export const DOMAIN_RETAIL_MARGIN_USD_CENTS = 200;
+
+export function domainRetailUsdCentsFromWholesale(
+	wholesaleUsd: number,
+): number {
+	return Math.round(wholesaleUsd * 100) + DOMAIN_RETAIL_MARGIN_USD_CENTS;
+}
 
 // Name.com requires a real E.164 number: "+" plus 8–15 digits.
 const e164PhoneRegex = /^\+[1-9]\d{7,14}$/;
@@ -213,14 +210,6 @@ export function parseExternalDomainName(
 	};
 }
 
-export function registrationUsdCentsFor(name: string) {
-	const parsedDomainName = parseDomainName(name);
-
-	return parsedDomainName
-		? DOMAIN_REGISTRATION_USD_CENTS[parsedDomainName.tld]
-		: null;
-}
-
 const sanitizedDomainInputSchema = z
 	.string()
 	.transform(normalizeDomainNameInput);
@@ -354,7 +343,7 @@ export const searchDomainsResultSchema = z.object({
 	name: domainNameSchema,
 	tld: domainTldSchema,
 	availability: domainAvailabilityStatusSchema,
-	// Retail price in USD, derived server-side from DOMAIN_REGISTRATION_USD_CENTS.
+	// Retail price in USD, derived server-side from live wholesale plus margin.
 	// `null` means there is no safe purchasable quote (premium, missing, or
 	// over-ceiling wholesale) — never substitute a mock or fallback price.
 	// The registrar's wholesale quote stays server-side and never crosses the wire.

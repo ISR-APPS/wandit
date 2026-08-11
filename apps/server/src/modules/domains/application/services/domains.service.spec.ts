@@ -1,12 +1,11 @@
 import {
-	DOMAIN_REGISTRATION_USD_CENTS,
 	DOMAIN_TLD_CATALOG,
 	domainNameSchema,
 	type RequiredDomainRecord,
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
-
+import type { ProjectScope } from "../../../projects/domain/project-scope";
 import {
 	DomainNotAvailableError,
 	DomainsUnavailableError,
@@ -26,7 +25,6 @@ import type {
 	DomainRow,
 	DomainsRepository,
 } from "../../infrastructure/persistence/domains.repository";
-import type { ProjectScope } from "../../../projects/domain/project-scope";
 import { DomainsService } from "./domains.service";
 
 const userId = "user_1";
@@ -409,7 +407,7 @@ describe("DomainsService", () => {
 			{
 				availability: "available",
 				name: "shop.com",
-				registrationPriceUsd: DOMAIN_REGISTRATION_USD_CENTS.com / 100,
+				registrationPriceUsd: 11,
 				tld: "com",
 			},
 			{
@@ -458,7 +456,10 @@ describe("DomainsService", () => {
 	it("prepares a purchase with the validated wholesale quote and ceiling", async () => {
 		const { dispatcher, provider, repository, service } = setup();
 		vi.stubEnv("QUEUE_ENABLED", "false");
-		const assertProjectAccessible = vi.spyOn(repository, "assertProjectAccessible");
+		const assertProjectAccessible = vi.spyOn(
+			repository,
+			"assertProjectAccessible",
+		);
 
 		const prepared = await service.preparePurchase(
 			scope,
@@ -486,7 +487,10 @@ describe("DomainsService", () => {
 	it("keeps the existing 503 contract before the registrar when Trigger is unavailable", async () => {
 		const { dispatcher, provider, repository, service } = setup();
 		vi.stubEnv("TRIGGER_SECRET_KEY", "   ");
-		const assertProjectAccessible = vi.spyOn(repository, "assertProjectAccessible");
+		const assertProjectAccessible = vi.spyOn(
+			repository,
+			"assertProjectAccessible",
+		);
 
 		const error = await service
 			.preparePurchase(scope, "example.com", projectId)
