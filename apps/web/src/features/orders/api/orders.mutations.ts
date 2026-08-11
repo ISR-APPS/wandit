@@ -5,7 +5,8 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 
 import type { CreateDomainOrderBody, ReconcileSessionBody } from "./orders.dto";
 import { orderKeys } from "./orders.queries";
-import { createDomainOrder, reconcileSession } from "./orders.services";
+import { reconcileSessionIntoCache } from "./orders.reconciliation";
+import { createDomainOrder } from "./orders.services";
 
 export function useCreateDomainOrder() {
 	const queryClient = useQueryClient();
@@ -22,9 +23,7 @@ export function useReconcileSession() {
 	const queryClient = useQueryClient();
 
 	return useMutation({
-		mutationFn: (body: ReconcileSessionBody) => reconcileSession(body),
-		onSuccess: (order) => {
-			queryClient.setQueryData(orderKeys.detail(order.id), order);
-		},
+		mutationFn: (body: ReconcileSessionBody) =>
+			reconcileSessionIntoCache(queryClient, body),
 	});
 }

@@ -620,11 +620,14 @@ describe("OrdersService", () => {
 		expect(payments.createOrderCheckout).toHaveBeenCalledWith(
 			expect.objectContaining({
 				amountCents: domainOrderAmountCents,
+				cancelUrl: "http://web.test/billing/cancel",
 				currency: "usd",
 				customerId,
 				kind: "domain_registration",
 				orderId,
 				productName: "Domain registration: example.com",
+				successUrl:
+					"http://web.test/billing/success?purpose=order&session_id={CHECKOUT_SESSION_ID}",
 				userId,
 			}),
 		);
@@ -642,6 +645,48 @@ describe("OrdersService", () => {
 			whoisPrivacy: false,
 		});
 		expect(orders.rows.get(orderId)?.providerCheckoutSessionId).toBe(sessionId);
+	});
+
+	it.each([
+		{
+			cancelUrl: `http://web.test/p/${projectId}?checkout=cancel`,
+			returnPath: `/p/${projectId}`,
+			successUrl: `http://web.test/p/${projectId}?checkout=success&purpose=order&session_id={CHECKOUT_SESSION_ID}`,
+		},
+		{
+			cancelUrl: `http://web.test/p/${projectId}?tab=settings&checkout=cancel`,
+			returnPath: `/p/${projectId}?tab=settings`,
+			successUrl: `http://web.test/p/${projectId}?tab=settings&checkout=success&purpose=order&session_id={CHECKOUT_SESSION_ID}`,
+		},
+		{
+			cancelUrl: `http://web.test/p/${projectId}?next=?&checkout=cancel`,
+			returnPath: `/p/${projectId}?next=?`,
+			successUrl: `http://web.test/p/${projectId}?next=?&checkout=success&purpose=order&session_id={CHECKOUT_SESSION_ID}`,
+		},
+	])("returns checkout to $returnPath", async ({
+		cancelUrl,
+		returnPath,
+		successUrl,
+	}) => {
+		const { payments, service } = setup();
+
+		await service.createDomainOrder(
+			user,
+			{
+				domain: "example.com",
+				projectId,
+				registrant,
+				returnPath,
+			},
+			scope,
+		);
+
+		expect(payments.createOrderCheckout).toHaveBeenCalledWith(
+			expect.objectContaining({
+				cancelUrl,
+				successUrl,
+			}),
+		);
 	});
 
 	it("defaults WHOIS privacy to off when the body omits it", async () => {

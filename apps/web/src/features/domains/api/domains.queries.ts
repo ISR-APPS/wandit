@@ -19,13 +19,18 @@ export const domainKeys = {
 type DomainsQueryOptions = {
 	enabled?: boolean;
 	pollWhileChecking?: boolean;
+	refetchInterval?: number;
 };
 
 export function useDomainsQuery(
 	projectId: string,
 	options: DomainsQueryOptions = {},
 ) {
-	const { enabled = true, pollWhileChecking = false } = options;
+	const {
+		enabled = true,
+		pollWhileChecking = false,
+		refetchInterval = DOMAIN_POLL_INTERVAL_MS,
+	} = options;
 
 	return useQuery({
 		queryKey: domainKeys.list(projectId),
@@ -33,7 +38,7 @@ export function useDomainsQuery(
 		enabled,
 		refetchInterval: (query) =>
 			pollWhileChecking || hasTransitionalDomains(query.state.data)
-				? DOMAIN_POLL_INTERVAL_MS
+				? refetchInterval
 				: false,
 	});
 }

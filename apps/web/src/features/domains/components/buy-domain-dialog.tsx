@@ -17,6 +17,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { useSession } from "@/features/auth";
 import { useCreateDomainOrder } from "@/features/orders/api/orders.mutations";
+import { currentCheckoutReturnPath } from "@/features/orders/lib/checkout-return";
 import { getApiErrorMessage } from "@/lib/api-client";
 import { type Locale, useTranslation } from "@/lib/i18n";
 import type { SearchDomainsResult } from "../api/domains.dto";
@@ -154,6 +155,7 @@ export function BuyDomainDialog({
 				domain: selected.name,
 				projectId,
 				registrant: parsed.data,
+				returnPath: currentCheckoutReturnPath(),
 				// WHOIS privacy is a paid registrar add-on with no line item in
 				// this charge, so it is never enabled implicitly.
 				whoisPrivacy: false,

@@ -52,6 +52,7 @@ import { useDebouncedValue } from "@/features/domains/lib/hooks";
 import type { RegistrantFlatFormValues } from "@/features/domains/lib/schemas";
 import { registrantFormSchema } from "@/features/domains/lib/schemas";
 import { useCreateDomainOrder } from "@/features/orders/api/orders.mutations";
+import { currentCheckoutReturnPath } from "@/features/orders/lib/checkout-return";
 import { getApiErrorMessage } from "@/lib/api-client";
 import { type Locale, useTranslation } from "@/lib/i18n";
 import { RoundIconButton } from "./publish-bits";
@@ -185,6 +186,7 @@ export function DomainPurchaseDialog({
 				domain: selectedDomain.name,
 				projectId,
 				registrant: parsed.data,
+				returnPath: currentCheckoutReturnPath(),
 				// WHOIS privacy is a paid registrar add-on with no line item in
 				// this charge, so it is never enabled implicitly.
 				whoisPrivacy: false,

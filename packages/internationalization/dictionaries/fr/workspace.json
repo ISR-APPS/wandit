@@ -57,6 +57,7 @@
 			"visibility": "Visible par toute personne ayant le lien",
 			"customDomainTitle": "Utiliser un domaine personnalisé",
 			"customDomainDescription": "Achetez un nouveau domaine et connectez-le à cette page.",
+			"domainConfiguring": "Configuration en cours — il sera bientôt en ligne",
 			"freeTiming": "Gratuit · environ 15 secondes",
 			"publishedHint": "Votre dernière version est en ligne",
 			"updateHint": "La v{live} est en ligne — publiez la v{n} pour mettre à jour votre site.",
