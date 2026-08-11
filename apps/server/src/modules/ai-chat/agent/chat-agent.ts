@@ -203,6 +203,7 @@ export function createChatAgent(
 			generate_page: createGeneratePageTool({
 				builderModel: deps.builderModel,
 				chatId: deps.chatId,
+				conversationAssets: deps.conversationAssets,
 				pagesRepository: deps.pagesRepository,
 				parentEventId: deps.parentEventId,
 				projectId: deps.projectId,

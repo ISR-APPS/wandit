@@ -107,7 +107,10 @@ import {
 	type ProjectScope,
 } from "../../../projects/domain/project-scope";
 import { annotateUserFileParts } from "../../agent/annotate-file-parts";
-import { annotateGeneratedAssets } from "../../agent/annotate-generated-assets";
+import {
+	annotateGeneratedAssets,
+	generatedAssetsFromAnnotatedMessages,
+} from "../../agent/annotate-generated-assets";
 import { createChatAgent, type WanditUIMessage } from "../../agent/chat-agent";
 import {
 	estimateAiChatTokenUsage,
@@ -579,12 +582,41 @@ export class AiChatService {
 			const contextWithMcpNotices = [context, mcpNoticeBlock]
 				.filter((block): block is string => Boolean(block))
 				.join("\n\n");
+			// Four transforms on the MODEL-BOUND copy only (DB + UI keep the truth):
+			// 1. complete tool calls that never got a result (typed-past ask_user,
+			//    or a stream aborted mid-execute) — providers reject a history that
+			//    carries a tool call without a matching result,
+			// 2. elide outputs from the retired read_skill tool so large stale
+			//    guidance does not cost tokens on every request,
+			// 3. follow user file parts with a text marker exposing their URL —
+			//    without it the model sees the image but cannot reference it in
+			//    generate_image/animate_image and asks for an already-sent photo,
+			// 4. follow settled generation tool parts with a [Generated …] marker
+			//    exposing the finished asset's URL — without it the model never
+			//    learns any generated URL and asks the user to re-attach media
+			//    that Wandit itself produced.
+			// Runs BEFORE the agent is built: generate_page receives the marker
+			// URLs so a brief can never silently drop this chat's generated media.
+			const agentMessages = await annotateGeneratedAssets(
+				annotateUserFileParts(
+					elideRetiredToolOutputs(completeDanglingToolCalls(messages)),
+				),
+				{
+					connectorGenerationsRepository: this.connectorGenerationsRepository,
+					imageGenerationsRepository: this.imageGenerationsRepository,
+					mediaGenerationsRepository: this.mediaGenerationsRepository,
+					projectId,
+					scope,
+				},
+			);
 			// Per-request agent: generate_page, scrape_leads, and the page-edit
 			// tools need to know which project/chat they act for (see chat-agent.ts).
 			const agent = createChatAgent(
 				{
 					availableDocuments,
 					availableImages,
+					conversationAssets:
+						generatedAssetsFromAnnotatedMessages(agentMessages),
 					// Composer's model picker: per-message builder override, validated
 					// against the allow-list; undefined = env default.
 					builderModel: resolveBuilderModelOption(
@@ -621,31 +653,6 @@ export class AiChatService {
 				contextWithMcpNotices || null,
 				mcpResult.tools,
 				mcpResult.approvalMap,
-			);
-			// Four transforms on the MODEL-BOUND copy only (DB + UI keep the truth):
-			// 1. complete tool calls that never got a result (typed-past ask_user,
-			//    or a stream aborted mid-execute) — providers reject a history that
-			//    carries a tool call without a matching result,
-			// 2. elide outputs from the retired read_skill tool so large stale
-			//    guidance does not cost tokens on every request,
-			// 3. follow user file parts with a text marker exposing their URL —
-			//    without it the model sees the image but cannot reference it in
-			//    generate_image/animate_image and asks for an already-sent photo,
-			// 4. follow settled generation tool parts with a [Generated …] marker
-			//    exposing the finished asset's URL — without it the model never
-			//    learns any generated URL and asks the user to re-attach media
-			//    that Wandit itself produced.
-			const agentMessages = await annotateGeneratedAssets(
-				annotateUserFileParts(
-					elideRetiredToolOutputs(completeDanglingToolCalls(messages)),
-				),
-				{
-					connectorGenerationsRepository: this.connectorGenerationsRepository,
-					imageGenerationsRepository: this.imageGenerationsRepository,
-					mediaGenerationsRepository: this.mediaGenerationsRepository,
-					projectId,
-					scope,
-				},
 			);
 			let finalUsage: LanguageModelUsage | null = null;
 			const pendingGenerationCaptures: CapturedGeneration[] = [];
