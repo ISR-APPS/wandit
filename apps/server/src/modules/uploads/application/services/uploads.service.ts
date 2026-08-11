@@ -15,6 +15,7 @@ import {
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 
+import { optimizeImage } from "../../../../infrastructure/storage/optimize-image";
 import {
 	isR2Configured,
 	publicAssetUrl,
@@ -117,16 +118,37 @@ export class UploadsService {
 			});
 		}
 
-		const filename = sanitizeFilename(file.filename, mediaType);
+		let storedType: AttachmentMediaType = mediaType;
+		let storedBytes: Uint8Array = file.buffer;
+
+		// Heavy raster photos are recompressed before they become publicly
+		// served page assets; SVG/GIF/documents and small files stay verbatim.
+		if (
+			OPTIMIZABLE_UPLOAD_TYPES.has(mediaType) &&
+			file.buffer.length > OPTIMIZE_UPLOAD_THRESHOLD_BYTES
+		) {
+			const optimized = await optimizeImage(file.buffer, {
+				contentType: mediaType,
+				ext: EXTENSIONS[mediaType].canonical,
+			});
+
+			if (optimized.contentType === "image/webp") {
+				storedType = "image/webp";
+			}
+
+			storedBytes = optimized.bytes;
+		}
+
+		const filename = sanitizeFilename(file.filename, storedType);
 		const key = userUploadKey(userId, crypto.randomUUID(), filename);
 
-		await putSiteFile(key, file.buffer, mediaType);
+		await putSiteFile(key, storedBytes, storedType);
 
 		return {
 			filename,
 			key,
-			mediaType,
-			size: file.buffer.length,
+			mediaType: storedType,
+			size: storedBytes.byteLength,
 			url: publicAssetUrl(key),
 		};
 	}
@@ -149,6 +171,17 @@ export class UploadsService {
 			: null;
 	}
 }
+
+// Still-raster photo types worth recompressing. image/gif is animation and
+// image/svg+xml never reaches here (not allowlisted).
+const OPTIMIZABLE_UPLOAD_TYPES = new Set<AttachmentMediaType>([
+	"image/avif",
+	"image/jpeg",
+	"image/png",
+	"image/webp",
+]);
+
+const OPTIMIZE_UPLOAD_THRESHOLD_BYTES = 500 * 1024;
 
 // Browsers report CSV and Office documents inconsistently — an empty type,
 // application/octet-stream, or the legacy Excel type depending on the OS and

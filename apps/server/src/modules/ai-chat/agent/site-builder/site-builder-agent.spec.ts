@@ -1778,6 +1778,85 @@ describe("COD finish gate", () => {
 	});
 });
 
+describe("self-contained script finish gate", () => {
+	const GSAP_CDN_TAGS =
+		'<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>' +
+		'<script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js"></script>';
+	const HTML_WITH_GSAP_CDN = HTML.replace("</body>", `${GSAP_CDN_TAGS}</body>`);
+
+	it("sanctions the pinned GSAP CDN pair — it will be auto-inlined", async () => {
+		const { options, tools } = setup({ screenshotRequired: false });
+		await tools.write_file.execute?.(
+			{ content: HTML_WITH_GSAP_CDN, path: "index.html" },
+			options(),
+		);
+
+		await expect(
+			tools.finish.execute?.({ summary: "GSAP page." }, options()),
+		).resolves.toEqual({ accepted: true });
+	});
+
+	it("rejects any other external script with corrective guidance", async () => {
+		const { options, state, tools } = setup({ screenshotRequired: false });
+		const withLenis = HTML_WITH_GSAP_CDN.replace(
+			"</body>",
+			'<script src="https://cdn.jsdelivr.net/npm/lenis@1.1.14/dist/lenis.min.js"></script></body>',
+		);
+		await tools.write_file.execute?.(
+			{ content: withLenis, path: "index.html" },
+			options(),
+		);
+
+		await expect(
+			tools.finish.execute?.({ summary: "Lenis page." }, options()),
+		).rejects.toThrow(
+			/loads external scripts \(https:\/\/cdn\.jsdelivr\.net\/npm\/lenis.*only\s+sanctioned external scripts/s,
+		);
+		expect(state.finishAccepted).toBe(false);
+	});
+
+	it("runSiteBuild ships the CDN pair inlined into the canonical HTML", async () => {
+		const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+		const streamSpy = vi
+			.spyOn(ToolLoopAgent.prototype, "stream")
+			.mockImplementation(async function (this: ToolLoopAgent) {
+				const tools = this.tools as unknown as ReturnType<
+					typeof setup
+				>["tools"];
+				await tools.write_file.execute?.(
+					{ content: HTML_WITH_GSAP_CDN, path: "index.html" },
+					{ messages: [], toolCallId: "gsap_write" } as never,
+				);
+
+				return {
+					fullStream: (async function* () {})(),
+					steps: Promise.resolve([]),
+				} as never;
+			});
+
+		try {
+			const build = await runSiteBuild({
+				attemptId: "attempt_gsap",
+				brief: "Build a substantial warm editorial landing page.",
+				model: "deepseek/test",
+				projectId: "project_1",
+				subject: { actorUserId: "user_1" },
+				system: "Build the page with the supplied tools.",
+				title: "GSAP page",
+			});
+			const index = build.files.find((file) => file.path === "index.html");
+
+			expect(index?.content).toContain("/*gsap core 3.12.5 inlined*/");
+			expect(index?.content).toContain("/*gsap ScrollTrigger 3.12.5 inlined*/");
+			expect(index?.content).not.toContain("cdn.jsdelivr.net");
+			expect(index?.content).toContain("data-wid=");
+		} finally {
+			streamSpy.mockRestore();
+			consoleSpy.mockRestore();
+		}
+	});
+});
+
 describe("generate_image tool", () => {
 	it("creates and settles an image child event under the page-build event", async () => {
 		const metering = {

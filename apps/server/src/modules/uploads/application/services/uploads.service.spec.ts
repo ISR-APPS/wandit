@@ -1,7 +1,10 @@
+import { randomBytes } from "node:crypto";
+
 import {
 	ServiceUnavailableException,
 	UnsupportedMediaTypeException,
 } from "@nestjs/common";
+import sharp from "sharp";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -109,6 +112,64 @@ describe("UploadsService.uploadAttachment", () => {
 			url: expect.stringMatching(
 				/^https:\/\/assets\.example\.com\/uploads\/user_1\//,
 			),
+		});
+	});
+
+	it("recompresses a raster photo over 500KB to webp, renaming key and type", async () => {
+		// Noise defeats PNG compression, so the canvas lands well over 500KB.
+		const bigPng = await sharp(randomBytes(2500 * 300 * 3), {
+			raw: { channels: 3, height: 300, width: 2500 },
+		})
+			.png()
+			.toBuffer();
+
+		const result = await service.uploadAttachment("user_1", {
+			buffer: bigPng,
+			filename: "hero-photo.png",
+			mimetype: "image/png",
+		});
+
+		expect(putSiteFile).toHaveBeenCalledWith(
+			expect.stringMatching(
+				/^uploads\/user_1\/[0-9a-f-]{36}\/hero-photo\.webp$/,
+			),
+			expect.any(Uint8Array),
+			"image/webp",
+		);
+
+		const uploaded = vi.mocked(putSiteFile).mock.calls[0]?.[1] as Uint8Array;
+		const metadata = await sharp(uploaded).metadata();
+		expect(metadata.format).toBe("webp");
+		expect(metadata.width).toBe(1920);
+
+		expect(result).toMatchObject({
+			filename: "hero-photo.webp",
+			mediaType: "image/webp",
+			size: uploaded.byteLength,
+		});
+	});
+
+	it("stores a large GIF verbatim", async () => {
+		const bigGif = Buffer.concat([
+			Buffer.from("GIF89a", "latin1"),
+			randomBytes(600 * 1024),
+		]);
+
+		const result = await service.uploadAttachment("user_1", {
+			buffer: bigGif,
+			filename: "loop.gif",
+			mimetype: "image/gif",
+		});
+
+		expect(putSiteFile).toHaveBeenCalledWith(
+			expect.stringMatching(/\/loop\.gif$/),
+			bigGif,
+			"image/gif",
+		);
+		expect(result).toMatchObject({
+			filename: "loop.gif",
+			mediaType: "image/gif",
+			size: bigGif.length,
 		});
 	});
 

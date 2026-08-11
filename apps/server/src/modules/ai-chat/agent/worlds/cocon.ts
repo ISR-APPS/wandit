@@ -143,7 +143,7 @@ The hero TERMINATES IN A DISSOLVE: its final 16vh is a linear-gradient(to bottom
 - RESPONSIVE COLLAPSE: below 1024px every two-column grid becomes 1fr; below 900px the routine's sticky media goes static and takes order:-1 above the gesture list while the matin/soir capsule becomes sticky at top 4.6rem; below 700px the dew stagger is off, the trust strip becomes 2x2, and the mobile order bar appears.
 - CENTRING IS RATIONED TO FOUR THINGS AND NO MORE: the REPOS line, the closing wordmark, the hero's one-line format caption under the stage, and ONE chosen moment (the RITUEL hero's copy block, or the founder's note, or the trust strip — pick one at the start of the build). Everything else is aligned to the flow start. Centred body copy is the fastest way to make this world look like a template.
 
-## Motion identity (GSAP 3 + ScrollTrigger via CDN; Lenis OPTIONAL and welcome here — if used, expose it as window.__lenis)
+## Motion identity (GSAP 3 + ScrollTrigger via CDN; native scroll — smooth-scroll libraries are unavailable)
 THE SAFETY CONTRACT COMES FIRST AND IS NON-NEGOTIABLE. Compute one flag: reduced = matchMedia("(prefers-reduced-motion: reduce)").matches, hasGsap = typeof window.gsap !== "undefined", animate = hasGsap && !reduced. EVERY hidden initial state — every autoAlpha 0, every y, every blur, every start scale — is set with gsap.set() INSIDE the animate branch, never authored in CSS. If the CDN fails or motion is reduced, the page is simply fully visible and fully functional: the dew stops drifting, the glow parks at scale 1, the routine shows all steps as active-legible, and the order form works.
 
 THIS WORLD OVERRIDES THE GLOBAL MOTION DEFAULTS in four places:
