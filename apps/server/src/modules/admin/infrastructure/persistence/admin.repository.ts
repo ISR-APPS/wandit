@@ -479,7 +479,9 @@ export class AdminRepository {
 					// same operation but are credit compensation, not new spend.
 					aiCostUsdMicros: sql<
 						number | null
-					>`case when ${creditLedger.kind} = 'consume' then ${aiUsageEventCostUsdMicros} end`,
+					>`case when ${creditLedger.kind} = 'consume' then ${aiUsageEventCostUsdMicros} end`.mapWith(
+						aiUsageEvents.reconciledCostUsdMicros,
+					),
 				})
 				.from(creditLedger)
 				// Metering rows (reserve/settle consumes and refund grants) carry the
@@ -509,7 +511,10 @@ export class AdminRepository {
 	async sumAiSpendForUser(userId: string): Promise<AdminAiSpendRow> {
 		const [row] = await this.db
 			.select({
-				totalCostUsdMicros: sql<number>`coalesce(sum(coalesce(${aiUsageEventCostUsdMicros}, 0)), 0)::bigint`,
+				totalCostUsdMicros:
+					sql<number>`coalesce(sum(coalesce(${aiUsageEventCostUsdMicros}, 0)), 0)::bigint`.mapWith(
+						aiUsageEvents.reconciledCostUsdMicros,
+					),
 				meteredOperations: sql<number>`count(*)::int`,
 			})
 			.from(aiUsageEvents)
