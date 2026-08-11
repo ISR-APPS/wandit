@@ -84,9 +84,9 @@ function RevenuePerformanceCard({
 	points,
 	rangeLabel,
 }: RevenuePerformanceCardProps) {
-	// MOCK DATA: subscription revenue coverage — canonical gross invoice amounts
-	// have no relational revenue source outside webhook JSONB; affiliate
-	// commission bases are not gross revenue and remain excluded.
+	// Stripe covers payment orders + subscription invoice settlements; top-up
+	// sessions still lack a relational amount source and stay uncounted, and
+	// affiliate commission bases are not gross revenue and remain excluded.
 	const [visibleProviders, setVisibleProviders] = useState<
 		Record<OverviewPaymentProvider, boolean>
 	>({

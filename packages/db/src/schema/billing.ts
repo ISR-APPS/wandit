@@ -333,6 +333,12 @@ export const billingInvoiceApplications = pgTable(
 		periodStart: timestamp("period_start", { withTimezone: true }).notNull(),
 		periodEnd: timestamp("period_end", { withTimezone: true }).notNull(),
 		creditsDelta: integer("credits_delta").notNull(),
+		// Settlement snapshot for revenue reporting: what Stripe actually
+		// collected for this invoice. Nullable — rows written before these
+		// columns existed carry no snapshot.
+		amountPaidMinor: integer("amount_paid_minor"),
+		currency: text("currency"),
+		paidAt: timestamp("paid_at", { withTimezone: true }),
 		appliedAt: timestamp("applied_at", { withTimezone: true })
 			.defaultNow()
 			.notNull(),

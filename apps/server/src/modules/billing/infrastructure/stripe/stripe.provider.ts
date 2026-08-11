@@ -1,4 +1,8 @@
-import { Injectable, InternalServerErrorException } from "@nestjs/common";
+import {
+	Injectable,
+	InternalServerErrorException,
+	Logger,
+} from "@nestjs/common";
 import {
 	type BillingInterval,
 	type BillingPlanId,
@@ -33,6 +37,7 @@ const RESTRICTED_PORTAL_CONFIGURATION_NAME =
 
 @Injectable()
 export class StripeProvider implements PaymentProvider {
+	private readonly logger = new Logger(StripeProvider.name);
 	private readonly priceIdByLookupKey = new Map<string, string>();
 	private readonly priceLookupKeyById = new Map<string, string | null>();
 	private client: Stripe | null = null;
@@ -559,14 +564,34 @@ export class StripeProvider implements PaymentProvider {
 		);
 	}
 
-	retrieveInvoice(invoiceId: string): Promise<Stripe.Invoice> {
-		return this.stripe().invoices.retrieve(invoiceId, {
-			expand: [
-				"lines.data.pricing.price_details.price",
-				"parent.subscription_details.subscription",
-				"payments.data.payment.payment_intent.latest_charge",
-			],
-		});
+	async retrieveInvoice(invoiceId: string): Promise<Stripe.Invoice> {
+		try {
+			return await this.stripe().invoices.retrieve(invoiceId, {
+				// Stripe caps expansion depth at 4 levels — expanding the payment
+				// intent's latest_charge on top of payments.data.payment exceeds it
+				// and Stripe rejects the whole retrieve. Every consumer accepts
+				// unexpanded ID strings, so stop at the payment intent.
+				expand: [
+					"lines.data.pricing.price_details.price",
+					"parent.subscription_details.subscription",
+					"payments.data.payment.payment_intent",
+				],
+			});
+		} catch (error) {
+			if (!this.isExpansionRejection(error)) {
+				throw error;
+			}
+
+			// Keep only the subscription expansion (owner attribution needs its
+			// metadata); lines and payments resolve through per-ID fallbacks.
+			this.logger.warn(
+				`Stripe rejected invoice ${invoiceId} expansions; retrying with the minimal set`,
+			);
+
+			return this.stripe().invoices.retrieve(invoiceId, {
+				expand: ["parent.subscription_details.subscription"],
+			});
+		}
 	}
 
 	async listInvoicePayments(
@@ -574,12 +599,20 @@ export class StripeProvider implements PaymentProvider {
 	): Promise<Stripe.InvoicePayment[]> {
 		return this.stripe()
 			.invoicePayments.list({
-				expand: ["data.payment.payment_intent.latest_charge"],
+				expand: ["data.payment.payment_intent"],
 				invoice: invoiceId,
 				limit: 100,
 				status: "paid",
 			})
 			.autoPagingToArray({ limit: 10_000 });
+	}
+
+	private isExpansionRejection(error: unknown): boolean {
+		return (
+			error instanceof Stripe.errors.StripeInvalidRequestError &&
+			(error.param?.startsWith("expand") === true ||
+				error.message.includes("expand"))
+		);
 	}
 
 	retrievePrice(priceId: string): Promise<Stripe.Price> {
