@@ -263,7 +263,9 @@ export class AdminOrganizationsRepository {
 					// same operation but are credit compensation, not new spend.
 					aiCostUsdMicros: sql<
 						number | null
-					>`case when ${creditLedger.kind} = 'consume' then ${aiUsageEventCostUsdMicros} end`,
+					>`case when ${creditLedger.kind} = 'consume' then ${aiUsageEventCostUsdMicros} end`.mapWith(
+						aiUsageEvents.reconciledCostUsdMicros,
+					),
 				})
 				.from(creditLedger)
 				.leftJoin(user, eq(user.id, creditLedger.userId))
@@ -287,7 +289,10 @@ export class AdminOrganizationsRepository {
 	async sumAiSpend(organizationId: string): Promise<AdminOrgAiSpendRow> {
 		const [row] = await this.db
 			.select({
-				totalCostUsdMicros: sql<number>`coalesce(sum(coalesce(${aiUsageEventCostUsdMicros}, 0)), 0)::bigint`,
+				totalCostUsdMicros:
+					sql<number>`coalesce(sum(coalesce(${aiUsageEventCostUsdMicros}, 0)), 0)::bigint`.mapWith(
+						aiUsageEvents.reconciledCostUsdMicros,
+					),
 				meteredOperations: sql<number>`count(*)::int`,
 			})
 			.from(aiUsageEvents)
@@ -315,9 +320,7 @@ export class AdminOrganizationsRepository {
 		return row?.total ?? 0;
 	}
 
-	async findDefaultMemberLimit(
-		organizationId: string,
-	): Promise<number | null> {
+	async findDefaultMemberLimit(organizationId: string): Promise<number | null> {
 		const [row] = await this.db
 			.select({
 				defaultMemberMonthlyCreditLimit:
@@ -330,9 +333,7 @@ export class AdminOrganizationsRepository {
 		return row?.defaultMemberMonthlyCreditLimit ?? null;
 	}
 
-	async listMemberLimits(
-		organizationId: string,
-	): Promise<Map<string, number>> {
+	async listMemberLimits(organizationId: string): Promise<Map<string, number>> {
 		const rows = await this.db
 			.select({
 				userId: organizationMemberCreditLimits.userId,
