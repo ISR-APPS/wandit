@@ -349,8 +349,11 @@ export class AdminOverviewRepository {
 		generatedAt: Date,
 		dzdPerUsd: number,
 	) {
-		// MOCK DATA: subscription revenue coverage — canonical Stripe gross invoice
-		// amounts have no relational source outside webhook JSONB; affiliate
+		// Stripe gross = one-time payment orders + subscription invoice
+		// settlements (billing_invoice_applications amount snapshots; rows
+		// predating the snapshot columns carry NULL and drop out). Subscription
+		// amounts are gross — refunds are not netted for them. Top-up sessions
+		// have no relational amount source yet and stay uncounted; affiliate
 		// commission bases are not gross revenue and remain excluded.
 		const result = await client.execute<RevenueRow>(sql`
 			with bounds as (${overviewBounds(days, generatedAt)}),
@@ -362,8 +365,8 @@ export class AdminOverviewRepository {
 				) as day
 				from bounds b
 			),
-			eligible_orders as (
-				select o.*
+			eligible_payments as (
+				select o.paid_at, lower(o.provider) as provider, o.amount_cents
 				from payment_orders o
 				cross join bounds b
 				where o.paid_at >= b.previous_start
@@ -373,26 +376,35 @@ export class AdminOverviewRepository {
 						(lower(o.provider) = 'stripe' and lower(o.currency) = 'usd')
 						or (lower(o.provider) = 'chargily' and lower(o.currency) = 'dzd')
 					)
+				union all
+				select a.paid_at, 'stripe' as provider, a.amount_paid_minor as amount_cents
+				from billing_invoice_applications a
+				cross join bounds b
+				where a.paid_at is not null
+					and a.amount_paid_minor > 0
+					and lower(a.currency) = 'usd'
+					and a.paid_at >= b.previous_start
+					and a.paid_at < b.current_end
 			),
 			native_totals as (
 				select
 					coalesce(sum(o.amount_cents) filter (
 						where o.paid_at >= b.current_start
-							and lower(o.provider) = 'stripe'
+							and o.provider = 'stripe'
 					), 0)::bigint as current_stripe,
 					coalesce(sum(o.amount_cents) filter (
 						where o.paid_at < b.current_start
-							and lower(o.provider) = 'stripe'
+							and o.provider = 'stripe'
 					), 0)::bigint as previous_stripe,
 					coalesce(sum(o.amount_cents) filter (
 						where o.paid_at >= b.current_start
-							and lower(o.provider) = 'chargily'
+							and o.provider = 'chargily'
 					), 0)::bigint as current_chargily,
 					coalesce(sum(o.amount_cents) filter (
 						where o.paid_at < b.current_start
-							and lower(o.provider) = 'chargily'
+							and o.provider = 'chargily'
 					), 0)::bigint as previous_chargily
-				from eligible_orders o
+				from eligible_payments o
 				cross join bounds b
 			),
 			reporting_totals as (
@@ -419,12 +431,12 @@ export class AdminOverviewRepository {
 				select
 					(o.paid_at at time zone 'UTC')::date as day,
 					coalesce(sum(o.amount_cents) filter (
-						where lower(o.provider) = 'stripe'
+						where o.provider = 'stripe'
 					), 0)::bigint as stripe,
 					coalesce(sum(o.amount_cents) filter (
-						where lower(o.provider) = 'chargily'
+						where o.provider = 'chargily'
 					), 0)::bigint as chargily
-				from eligible_orders o
+				from eligible_payments o
 				cross join bounds b
 				where o.paid_at >= b.current_start
 				group by 1

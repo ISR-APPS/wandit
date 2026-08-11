@@ -884,7 +884,7 @@ describe("StripeProvider", () => {
 
 		await expect(provider.listInvoicePayments("in_1")).resolves.toEqual([]);
 		expect(invoicePaymentsList).toHaveBeenCalledWith({
-			expand: ["data.payment.payment_intent.latest_charge"],
+			expand: ["data.payment.payment_intent"],
 			invoice: "in_1",
 			limit: 100,
 			status: "paid",
