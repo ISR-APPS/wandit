@@ -47,3 +47,13 @@ export class PublishFailedError extends SiteHttpError {
 		super("PUBLISH_FAILED", message, HttpStatus.BAD_GATEWAY);
 	}
 }
+
+export class SiteAssetsUnreachableError extends SiteHttpError {
+	constructor(readonly brokenUrls: string[]) {
+		super(
+			"ASSETS_UNREACHABLE",
+			`Publishing blocked: ${brokenUrls.length} asset URL(s) would never load on the live site: ${brokenUrls.join(", ")}`,
+			HttpStatus.UNPROCESSABLE_ENTITY,
+		);
+	}
+}

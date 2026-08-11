@@ -135,7 +135,7 @@ Use at least five of these eight. This world escapes the card stack CHROMATICALL
 - Arabic display face: a heavy Arabic display in the Cairo / Tajawal / Almarai / Rubik-Arabic territory at 700-900. Sizes go up 6 percent and line-heights up .06 against the Latin values, because Arabic needs vertical room. The slab word works unchanged, which is exactly why it exists instead of an italic.
 - Phone inputs, prices and the wilaya select keep dir="ltr" on the field itself inside an RTL page.
 
-## Motion identity (GSAP 3 + ScrollTrigger from a CDN; native scroll — Lenis optional and unnecessary here)
+## Motion identity (GSAP 3 + ScrollTrigger from a CDN; native scroll — smooth-scroll libraries are unavailable and unnecessary here)
 THE SAFETY CONTRACT COMES FIRST. Compute reduced = matchMedia("(prefers-reduced-motion: reduce)").matches, hasGsap = typeof window.gsap !== "undefined", animate = hasGsap && !reduced. EVERY hidden initial state is set with gsap.set() INSIDE the animate branch — never opacity:0 in CSS. If the CDN fails, the page is fully visible, the price is printed and the form works. Add a prefers-reduced-motion CSS block that beyond the .01ms blanket sets the ticker and crier tracks to animation:none and width:auto, stops the burst rotation and the sway, and forces the drawn circle to stroke-dashoffset:0.
 
 gsap.defaults({ease:"power3.out", duration:.7}) — this OVERRIDES the global 1.1s default. A market moves fast and confidently.

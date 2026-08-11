@@ -1,4 +1,7 @@
+import { randomBytes } from "node:crypto";
+
 import { generateImage, generateText } from "ai";
+import sharp from "sharp";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -121,6 +124,44 @@ describe("generateStandaloneImage", () => {
 			providerMetadata: { gateway: { generationId: "gen_image_1" } },
 			status: "generated",
 			usage: { inputTokens: 10, outputTokens: 0 },
+			url: "https://assets.example.com/images/project_1/attempt_1/img-1.webp",
+		});
+	});
+
+	it("recompresses heavy raster output to webp before upload", async () => {
+		// Noise defeats PNG compression, so the 2500px canvas is comfortably
+		// over the optimizer's 150KB threshold.
+		const bigPng = await sharp(randomBytes(2500 * 300 * 3), {
+			raw: { channels: 3, height: 300, width: 2500 },
+		})
+			.png()
+			.toBuffer();
+		vi.mocked(generateImage).mockResolvedValue({
+			image: {
+				base64: bigPng.toString("base64"),
+				mediaType: "image/png",
+				uint8Array: new Uint8Array(bigPng),
+			},
+			providerMetadata: { gateway: { generationId: "gen_image_1" } },
+			usage: { inputTokens: 10, outputTokens: 0 },
+		} as unknown as Awaited<ReturnType<typeof generateImage>>);
+
+		const result = await generateStandaloneImage(PARAMS);
+
+		expect(putSiteFile).toHaveBeenCalledWith(
+			"images/project_1/attempt_1/img-1.webp",
+			expect.any(Uint8Array),
+			"image/webp",
+		);
+
+		const uploaded = vi.mocked(putSiteFile).mock.calls[0]?.[1] as Uint8Array;
+		const metadata = await sharp(uploaded).metadata();
+		expect(metadata.format).toBe("webp");
+		expect(metadata.width).toBe(1920);
+
+		expect(result).toMatchObject({
+			mediaType: "image/webp",
+			status: "generated",
 			url: "https://assets.example.com/images/project_1/attempt_1/img-1.webp",
 		});
 	});
