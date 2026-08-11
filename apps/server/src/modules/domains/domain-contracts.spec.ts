@@ -1,10 +1,11 @@
 import {
 	attachExternalDomainBodySchema,
 	catalogFor,
-	DOMAIN_REGISTRATION_USD_CENTS,
+	DOMAIN_RETAIL_MARGIN_USD_CENTS,
 	DOMAIN_TLD_CATALOG,
 	domainNameSchema,
 	domainPriceSnapshotSchema,
+	domainRetailUsdCentsFromWholesale,
 	domainSchema,
 	domainTlds,
 	externalDomainNameSchema,
@@ -13,7 +14,6 @@ import {
 	parseDomainName,
 	parseExternalDomainName,
 	registrantSchema,
-	registrationUsdCentsFor,
 	searchDomainsResultSchema,
 } from "@wandit/contracts";
 import { describe, expect, it } from "vitest";
@@ -145,33 +145,18 @@ describe("domain TLD catalog", () => {
 		});
 	});
 
-	it("never allows a wholesale ceiling at or above the retail price", () => {
-		// Money invariant: a quote that passes the ceiling must still leave
-		// margin against what the customer is charged — we never sell at a loss.
-		for (const tld of domainTlds) {
-			expect(DOMAIN_TLD_CATALOG[tld].wholesaleCeilingUsd * 100).toBeLessThan(
-				DOMAIN_REGISTRATION_USD_CENTS[tld],
-			);
-		}
+	it("adds the fixed USD-cents retail margin to the rounded wholesale quote", () => {
+		expect(DOMAIN_RETAIL_MARGIN_USD_CENTS).toBe(200);
+		expect(domainRetailUsdCentsFromWholesale(12.99)).toBe(1_499);
+		expect(domainRetailUsdCentsFromWholesale(12.994)).toBe(1_499);
+		expect(domainRetailUsdCentsFromWholesale(12.995)).toBe(1_500);
 	});
 
-	it("defines a positive integer USD-cents registration price for every supported TLD", () => {
-		for (const tld of domainTlds) {
-			const priceCents = DOMAIN_REGISTRATION_USD_CENTS[tld];
-
-			expect(Number.isInteger(priceCents)).toBe(true);
-			expect(priceCents).toBeGreaterThan(0);
-			expect(registrationUsdCentsFor(`example.${tld}`)).toBe(priceCents);
-		}
-	});
-
-	it("identifies unsupported TLDs and invalid names", () => {
+	it("identifies unsupported TLDs", () => {
 		expect(isSupportedTld("com")).toBe(true);
 		expect(isSupportedTld(".shop")).toBe(true);
 		expect(isSupportedTld("dz")).toBe(false);
 		expect(catalogFor("dz")).toBeNull();
-		expect(registrationUsdCentsFor("example.dz")).toBeNull();
-		expect(registrationUsdCentsFor("not-a-domain")).toBeNull();
 	});
 
 	it("accepts Name.com as the provider for newly purchased domains", () => {
