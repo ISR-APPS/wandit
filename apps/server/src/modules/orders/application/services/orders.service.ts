@@ -1,17 +1,15 @@
 import { Inject, Injectable } from "@nestjs/common";
-import type { ProjectScope } from "../../../projects/domain/project-scope";
 import type { AuthUser } from "@wandit/auth";
 import {
 	CHECKOUT_PURPOSE,
 	type CreateDomainOrderBody,
 	type CreateOrderResponse,
-	DOMAIN_REGISTRATION_USD_CENTS,
+	domainRetailUsdCentsFromWholesale,
 	type PaymentOrder,
 	uuidSchema,
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import type Stripe from "stripe";
-
 import { BillingCustomerService } from "../../../billing/application/services/billing-customer.service";
 import {
 	PAYMENT_PROVIDER,
@@ -29,6 +27,7 @@ import {
 	PremiumDomainBlockedError,
 } from "../../../domains/domain/errors/domain.errors";
 import { DomainsRepository } from "../../../domains/infrastructure/persistence/domains.repository";
+import type { ProjectScope } from "../../../projects/domain/project-scope";
 import { OrderInvariantViolationError } from "../../domain/errors/payment-order.errors";
 import {
 	domainRegistrationOrderMetadataSchema,
@@ -99,7 +98,9 @@ export class OrdersService implements WebhookOrderReconciler {
 			body.domain,
 			body.projectId,
 		);
-		const amountCents = DOMAIN_REGISTRATION_USD_CENTS[prepared.tld];
+		const amountCents = domainRetailUsdCentsFromWholesale(
+			prepared.quotedWholesaleUsd,
+		);
 
 		// Never contact Stripe for a purchase that would lose money: the retail
 		// charge must stay above the registrar's live wholesale quote.

@@ -1,17 +1,15 @@
 import { randomUUID } from "node:crypto";
-
-import type { ProjectScope } from "../../../projects/domain/project-scope";
 import { Inject, Injectable, type Logger } from "@nestjs/common";
 import {
 	type AttachExternalDomainBody,
 	type AttachExternalDomainResponse,
 	type DetachDomainResponse,
-	DOMAIN_REGISTRATION_USD_CENTS,
 	DOMAIN_TLD_CATALOG,
 	type DomainAvailabilityStatus,
 	type DomainDns,
 	type DomainTld,
 	domainDnsSchema,
+	domainRetailUsdCentsFromWholesale,
 	domainTlds,
 	isReservedDomainName,
 	isValidDomainLabel,
@@ -27,6 +25,7 @@ import {
 	type VerifyDomainResponse,
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
+import type { ProjectScope } from "../../../projects/domain/project-scope";
 import {
 	mergeRequiredDomainRecords,
 	validationRequiredDomainRecords,
@@ -108,11 +107,13 @@ export class DomainsService {
 				return {
 					availability: publicAvailability,
 					name: candidate.name,
-					// Retail price from the catalog, only for safely purchasable
-					// results. The registrar's wholesale quote never crosses the wire.
+					// publicAvailability already validates this quote as finite, positive,
+					// and under the TLD ceiling. The quote itself never crosses the wire.
 					registrationPriceUsd:
-						publicAvailability === "available"
-							? DOMAIN_REGISTRATION_USD_CENTS[candidate.tld] / 100
+						publicAvailability === "available" &&
+						typeof result?.wholesalePriceUsd === "number"
+							? domainRetailUsdCentsFromWholesale(result.wholesalePriceUsd) /
+								100
 							: null,
 					tld: candidate.tld,
 				};
