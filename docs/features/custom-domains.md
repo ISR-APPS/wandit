@@ -114,7 +114,7 @@ Trigger global idempotency prevents duplicate ordinary delivery. DB status guard
 
 ## Working model
 
-**Search:** normalize the query → check the supported launch TLDs with Name.com → correlate unordered results by domain name → expose availability plus the **retail** USD registration price from `DOMAIN_REGISTRATION_USD_CENTS` for safe results → mark premium, non-registration, missing-price, and over-ceiling results not purchasable. Name.com's wholesale quote never crosses the wire; it stays server-side as the fail-closed margin guard.
+**Search:** normalize the query → check the supported launch TLDs with Name.com → correlate unordered results by domain name → expose availability plus the **retail** USD registration price (the live wholesale quote rounded to cents plus $2) for safe results → mark premium, non-registration, missing-price, and over-ceiling results not purchasable. Name.com's wholesale quote never crosses the wire; it stays server-side as the fail-closed pricing guard.
 
 **Purchase:** choose a domain and provide registrant details → `POST /api/v1/orders/domain` re-checks availability and both wholesale/retail margin guards, freezes a price snapshot, and creates Stripe Checkout → Stripe webhook or return-page reconciliation verifies payment → `DomainRegistrationFulfillment` creates/reuses the fenced row and dispatches `domain-purchase` → the task re-checks the fence and registers with the stable Name.com key → persists the registrar receipt → manages DNS/apex forwarding → creates the Cloudflare hostname and registrar validation records → resumes durable certificate verification → publishes KV when applicable → domain `active` → order `fulfilled`.
 

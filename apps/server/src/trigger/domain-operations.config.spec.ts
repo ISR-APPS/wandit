@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// Vitest skips shared env validation, so provide the schema-resolved default
+// that production receives from @wandit/env/server.
+vi.mock("@wandit/env/server", () => ({
+	env: { DOMAINS_FALLBACK_ORIGIN: "customers.wandit.app" },
+}));
+
 import {
 	assertDatabaseConfiguration,
 	assertDomainConfigurationConfiguration,
@@ -8,12 +14,11 @@ import {
 	assertOrderRefundConfiguration,
 } from "./domain-operations.config";
 
-const CONFIGURATION_KEYS = [
+const REQUIRED_CONFIGURATION_KEYS = [
 	"CLOUDFLARE_API_TOKEN",
 	"CLOUDFLARE_KV_NAMESPACE_ID",
 	"CLOUDFLARE_ZONE_ID_WANDIT_APP",
 	"DATABASE_URL",
-	"DOMAINS_FALLBACK_ORIGIN",
 	"NAMECOM_API_TOKEN",
 	"NAMECOM_ENVIRONMENT",
 	"NAMECOM_USERNAME",
@@ -25,7 +30,7 @@ const VALID_CONFIGURATION = {
 	CLOUDFLARE_KV_NAMESPACE_ID: "kv-namespace",
 	CLOUDFLARE_ZONE_ID_WANDIT_APP: "zone-id",
 	DATABASE_URL: "postgresql://task.test/database",
-	DOMAINS_FALLBACK_ORIGIN: "customers.wandit.app",
+	DOMAINS_FALLBACK_ORIGIN: "customers.task.test",
 	NAMECOM_API_TOKEN: "name-token",
 	NAMECOM_ENVIRONMENT: "sandbox",
 	NAMECOM_USERNAME: "wandit-test",
@@ -42,9 +47,10 @@ function setConfiguration(
 
 describe("domain operation task configuration", () => {
 	beforeEach(() => {
-		for (const key of CONFIGURATION_KEYS) {
+		for (const key of REQUIRED_CONFIGURATION_KEYS) {
 			vi.stubEnv(key, "");
 		}
+		vi.stubEnv("DOMAINS_FALLBACK_ORIGIN", "");
 	});
 
 	afterEach(() => {
@@ -52,7 +58,11 @@ describe("domain operation task configuration", () => {
 	});
 
 	it("returns the validated purchase values only when every spend and recovery dependency is ready", () => {
-		setConfiguration(CONFIGURATION_KEYS);
+		setConfiguration(REQUIRED_CONFIGURATION_KEYS);
+		vi.stubEnv(
+			"DOMAINS_FALLBACK_ORIGIN",
+			VALID_CONFIGURATION.DOMAINS_FALLBACK_ORIGIN,
+		);
 
 		expect(assertDomainPurchaseConfiguration()).toEqual({
 			cloudflareApiToken: VALID_CONFIGURATION.CLOUDFLARE_API_TOKEN,
@@ -65,6 +75,19 @@ describe("domain operation task configuration", () => {
 			namecomUsername: VALID_CONFIGURATION.NAMECOM_USERNAME,
 			stripeSecretKey: VALID_CONFIGURATION.STRIPE_SECRET_KEY,
 		});
+	});
+
+	it.each([
+		["unset", undefined],
+		["empty", ""],
+		["blank", "   "],
+	] as const)("uses the shared fallback origin when the runtime value is %s", (_state, value) => {
+		setConfiguration(REQUIRED_CONFIGURATION_KEYS);
+		vi.stubEnv("DOMAINS_FALLBACK_ORIGIN", value);
+
+		expect(assertDomainPurchaseConfiguration().fallbackOrigin).toBe(
+			"customers.wandit.app",
+		);
 	});
 
 	it("keeps BYO configuration independent of Name.com and Stripe", () => {
@@ -90,7 +113,7 @@ describe("domain operation task configuration", () => {
 			stripeSecretKey: VALID_CONFIGURATION.STRIPE_SECRET_KEY,
 		});
 
-		for (const key of CONFIGURATION_KEYS) {
+		for (const key of REQUIRED_CONFIGURATION_KEYS) {
 			vi.stubEnv(key, "");
 		}
 		setConfiguration([
@@ -106,7 +129,7 @@ describe("domain operation task configuration", () => {
 			namecomUsername: VALID_CONFIGURATION.NAMECOM_USERNAME,
 		});
 
-		for (const key of CONFIGURATION_KEYS) {
+		for (const key of REQUIRED_CONFIGURATION_KEYS) {
 			vi.stubEnv(key, "");
 		}
 		setConfiguration(["DATABASE_URL"]);
@@ -154,10 +177,9 @@ describe("domain operation task configuration", () => {
 		"NAMECOM_ENVIRONMENT",
 		"NAMECOM_USERNAME",
 		"NAMECOM_API_TOKEN",
-		"DOMAINS_FALLBACK_ORIGIN",
 		"STRIPE_SECRET_KEY",
 	] as const)("fails a purchase before runtime construction when %s is blank", (key) => {
-		setConfiguration(CONFIGURATION_KEYS);
+		setConfiguration(REQUIRED_CONFIGURATION_KEYS);
 		vi.stubEnv(key, "   ");
 
 		expect(() => assertDomainPurchaseConfiguration()).toThrow(key);

@@ -10,7 +10,7 @@ Ce document sépare volontairement l'état actuel des notes historiques. Les dé
 - **Registrar : Name.com CORE v1.** L'adapter utilise l'API CORE, son sandbox fonctionnel et l'authentification Basic username + API token derrière le port `DomainProvider`.
 - **Paiement direct, jamais en crédits Wandit.** L'achat passe par `POST /api/v1/orders/domain` → `payment_orders` → Stripe Checkout → réconciliation/webhook → `DomainRegistrationFulfillment` → tâche Trigger `domain-purchase`.
 - **Le paiement vérifié est l'autorité.** Le retour navigateur « success » ne déclenche rien par lui-même : `reconcile-session` relit la session chez Stripe et vérifie montant/devise/customer/mode/purpose. Les webhooks signés couvrent les paiements asynchrones, remboursements et litiges.
-- **Prix retail sur le fil, wholesale côté serveur.** La recherche expose `DOMAIN_REGISTRATION_USD_CENTS`; la quote wholesale Name.com reste privée et sert de garde-fou avant Stripe puis juste avant l'achat registrar.
+- **Prix retail sur le fil, wholesale côté serveur.** La recherche expose la quote wholesale Name.com arrondie aux cents plus une marge exacte de 2 USD; la quote wholesale reste privée et sert de garde-fou avant Stripe puis juste avant l'achat registrar.
 - **Le client reste registrant légal.** Ses coordonnées sont envoyées à Name.com; le produit doit suivre et expliquer la vérification de contact.
 - **Wandit pilote les renouvellements.** L'autorenew Name.com est désactivé. Le flag local exprime une intention mais aucun renouvellement n'est permis sans paiement confirmé.
 - **Premium, aftermarket, `.dz`, IDN et transferts entrants sont exclus du v1.** Une quote absente ou supérieure au plafond bloque l'achat.
