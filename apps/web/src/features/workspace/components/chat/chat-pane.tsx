@@ -403,55 +403,56 @@ export function ChatPane({ className }: { className?: string }) {
 							{t("workspace.page.editor.targetHint")}
 						</div>
 					) : null}
-					{outOfCredits ? <OutOfCreditsBanner className="mb-2" /> : null}
-					<PromptBox
-						variant="compact"
-						showEngines
-						showPriceTag
-						clearOnSubmit
-						attachmentsEnabled
-						disabled={outOfCredits}
-						placeholder={t("workspace.chat.placeholder")}
-						onSubmit={handleComposerSubmit}
-						onValueChange={setComposerText}
-						onBuilderModelChange={
-							import.meta.env.DEV ? setPickerBuilderModel : undefined
-						}
-						isSubmitting={isSubmitting}
-						submitOverride={
-							tray.active
-								? {
-										label: answerSubmitLabel,
-										disabled: !tray.canConfirm,
-										onSubmit: tray.confirmDraft,
-									}
-								: undefined
-						}
-						// The tray fuses into the composer card (design turn 10) — it
-						// grows out of the top and collapses on answer/dismiss thanks to
-						// AnimatePresence + TrayReveal's height animation. Keying by
-						// toolCallId also makes each stepper advance exit/re-enter.
-						topSlot={
-							<AnimatePresence initial={false}>
-								{tray.active && tray.state ? (
-									<TrayReveal key={tray.toolCallId ?? "ask"}>
-										<RequestTray
-											state={tray.state}
-											onEscape={tray.delegate}
-											onDismiss={tray.dismiss}
-											bodyCallbacks={{
-												onPick: tray.onPick,
-												multiSelectedIds: tray.multiSelectedIds,
-												onToggleMulti: tray.onToggleMulti,
-												onBrowseFiles: tray.onBrowseFiles,
-												onRemoveAttachment: tray.onRemoveAttachment,
-											}}
-										/>
-									</TrayReveal>
-								) : null}
-							</AnimatePresence>
-						}
-					/>
+					<OutOfCreditsBanner active={outOfCredits}>
+						<PromptBox
+							variant="compact"
+							showEngines
+							showPriceTag
+							clearOnSubmit
+							attachmentsEnabled
+							disabled={outOfCredits}
+							placeholder={t("workspace.chat.placeholder")}
+							onSubmit={handleComposerSubmit}
+							onValueChange={setComposerText}
+							onBuilderModelChange={
+								import.meta.env.DEV ? setPickerBuilderModel : undefined
+							}
+							isSubmitting={isSubmitting}
+							submitOverride={
+								tray.active
+									? {
+											label: answerSubmitLabel,
+											disabled: !tray.canConfirm,
+											onSubmit: tray.confirmDraft,
+										}
+									: undefined
+							}
+							// The tray fuses into the composer card (design turn 10) — it
+							// grows out of the top and collapses on answer/dismiss thanks to
+							// AnimatePresence + TrayReveal's height animation. Keying by
+							// toolCallId also makes each stepper advance exit/re-enter.
+							topSlot={
+								<AnimatePresence initial={false}>
+									{tray.active && tray.state ? (
+										<TrayReveal key={tray.toolCallId ?? "ask"}>
+											<RequestTray
+												state={tray.state}
+												onEscape={tray.delegate}
+												onDismiss={tray.dismiss}
+												bodyCallbacks={{
+													onPick: tray.onPick,
+													multiSelectedIds: tray.multiSelectedIds,
+													onToggleMulti: tray.onToggleMulti,
+													onBrowseFiles: tray.onBrowseFiles,
+													onRemoveAttachment: tray.onRemoveAttachment,
+												}}
+											/>
+										</TrayReveal>
+									) : null}
+								</AnimatePresence>
+							}
+						/>
+					</OutOfCreditsBanner>
 				</div>
 			</div>
 		</aside>

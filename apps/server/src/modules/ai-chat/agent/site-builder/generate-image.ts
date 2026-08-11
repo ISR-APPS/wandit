@@ -8,6 +8,7 @@
  */
 import { env } from "@wandit/env/server";
 
+import { optimizeImage } from "../../../../infrastructure/storage/optimize-image";
 import {
 	isR2Configured,
 	publicAssetUrl,
@@ -140,19 +141,24 @@ export async function generateBuildImage(params: {
 
 		await params.onProviderGeneration?.(metadata);
 
-		const extension = EXTENSION_BY_MEDIA_TYPE[mediaType] ?? "png";
+		// Providers answer raw PNGs of 1-2MB each — recompress before the bytes
+		// become part of a published page (and of the model transcript).
+		const optimized = await optimizeImage(bytes, {
+			contentType: mediaType,
+			ext: EXTENSION_BY_MEDIA_TYPE[mediaType] ?? "png",
+		});
 		const key = siteAssetKey(
 			params.projectId,
 			params.attemptId,
 			params.index,
-			extension,
+			optimized.ext,
 		);
 
-		await putSiteFile(key, bytes, mediaType);
+		await putSiteFile(key, optimized.bytes, optimized.contentType);
 
 		return {
-			imageBase64: Buffer.from(bytes).toString("base64"),
-			mediaType,
+			imageBase64: Buffer.from(optimized.bytes).toString("base64"),
+			mediaType: optimized.contentType,
 			model: metadata.model,
 			...(metadata.provider ? { provider: metadata.provider } : {}),
 			providerMetadata: metadata.providerMetadata,

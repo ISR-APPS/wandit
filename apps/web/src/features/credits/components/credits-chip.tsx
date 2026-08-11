@@ -1,5 +1,4 @@
 import { Link } from "@tanstack/react-router";
-import { useWorkspace } from "@/features/workspaces/lib/workspace-provider";
 import { formatNumber } from "@wandit/internationalization";
 import { Button } from "@wandit/ui/components/button";
 import {
@@ -14,6 +13,7 @@ import { useBillingPlansQuery } from "@/features/billing/api/billing.queries";
 import { useBillingModal } from "@/features/billing/components/billing-modal-provider";
 import { areTopupsAvailable } from "@/features/billing/lib/billing-ui-policy";
 import { usePublicSettingsQuery } from "@/features/settings/api/settings.queries";
+import { useWorkspace } from "@/features/workspaces/lib/workspace-provider";
 import { useTranslation } from "@/lib/i18n";
 import {
 	useCreditBalanceQuery,
@@ -23,8 +23,7 @@ import { LedgerList } from "./ledger-list";
 
 export function CreditsChip({ className }: { className?: string }) {
 	const { locale, t } = useTranslation();
-	const { activeWorkspace, actorCanManageBilling, isPersonal } =
-		useWorkspace();
+	const { activeWorkspace, actorCanManageBilling, isPersonal } = useWorkspace();
 	const { openPlanPicker } = useBillingModal();
 	const balanceQuery = useCreditBalanceQuery();
 	const ledgerQuery = useCreditLedgerQuery({ page: 1, pageSize: 3 });

@@ -2,6 +2,12 @@
 	"backToDashboard": "Retour au tableau de bord",
 	"tabsAriaLabel": "Vues de l'espace de travail",
 	"autosaved": "Enregistré",
+	"upgrade": "Mettre à niveau",
+	"upgradeCard": {
+		"titlePro": "Passer à Pro",
+		"titleBusiness": "Passer à Business",
+		"body": "Plus de crédits et d'options"
+	},
 	"meta": {
 		"title": "Espace de travail — Wandit"
 	},

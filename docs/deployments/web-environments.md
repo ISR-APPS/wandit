@@ -71,3 +71,14 @@ CORS_EXTRA_ORIGINS=https://www.wandit.dev
 ```
 
 If `CORS_EXTRA_ORIGINS` is unset, the existing single-origin behavior does not change.
+
+## Google OAuth redirect URIs
+
+The admin auth surface is at `<BETTER_AUTH_URL>/api/admin-auth`.
+
+In the Google Cloud Console, add `<BETTER_AUTH_URL>/api/admin-auth/callback/google` alongside the existing `<BETTER_AUTH_URL>/api/auth/callback/google` authorized redirect URI.
+
+Use these redirect URIs:
+
+- Production: `https://api.wandit.dev/api/admin-auth/callback/google`
+- Local: `http://localhost:3000/api/admin-auth/callback/google`

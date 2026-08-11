@@ -1,6 +1,6 @@
 import { NotFoundException } from "@nestjs/common";
 import { env } from "@wandit/env/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
 import {
 	deleteObject,
@@ -14,6 +14,7 @@ import {
 	NoVersionToPublishError,
 	PublishFailedError,
 	PublishUnavailableError,
+	SiteAssetsUnreachableError,
 	SlugReservedError,
 	SlugTakenError,
 } from "../../domain/errors/site.errors";
@@ -38,6 +39,16 @@ vi.mock("../../../../infrastructure/storage/r2", () => ({
 
 vi.mock("../../../../infrastructure/analytics/analytics.service", () => ({
 	AnalyticsService: class AnalyticsService {},
+}));
+
+// Owned by the pages module's CDN-inlining phase; replaced with an identity
+// transform so this spec exercises the sites service alone.
+const { inlineKnownCdnScriptsMock } = vi.hoisted(() => ({
+	inlineKnownCdnScriptsMock: vi.fn((html: string) => html),
+}));
+
+vi.mock("../../../pages/domain/inline-cdn-scripts", () => ({
+	inlineKnownCdnScripts: inlineKnownCdnScriptsMock,
 }));
 
 const PROJECT_ID = "11111111-1111-4111-8111-111111111111";
@@ -113,6 +124,11 @@ function setup(options: { kvConfigured?: boolean } = {}) {
 beforeEach(() => {
 	delete (env as { ALLOW_PUBLISH_WITHOUT_KV?: boolean })
 		.ALLOW_PUBLISH_WITHOUT_KV;
+	delete (env as { SITE_PUBLISH_ASSET_CHECK?: boolean })
+		.SITE_PUBLISH_ASSET_CHECK;
+	inlineKnownCdnScriptsMock
+		.mockReset()
+		.mockImplementation((html: string) => html);
 	vi.mocked(deleteObject).mockReset().mockResolvedValue(undefined);
 	vi.mocked(getPageHtml)
 		.mockReset()
@@ -340,6 +356,28 @@ describe("SitesService.publish", () => {
 		expect(bodies[1]).toContain('id="wandit-badge"');
 	});
 
+	it("runs the CDN inliner on the draft bytes before injection", async () => {
+		const { service } = setup();
+		inlineKnownCdnScriptsMock.mockImplementation((html: string) =>
+			html.replace(
+				"<body>",
+				'<body><script data-wandit-vendored="gsap"></script>',
+			),
+		);
+		const bodies: string[] = [];
+		vi.mocked(putPageHtml).mockImplementation(async (_key, html) => {
+			bodies.push(html);
+		});
+
+		await service.publish(SCOPE, PROJECT_ID, {});
+
+		expect(inlineKnownCdnScriptsMock).toHaveBeenCalledWith(
+			"<!doctype html><html><body>Hi</body></html>",
+		);
+		expect(bodies[0]).toContain('data-wandit-vendored="gsap"');
+		expect(bodies[1]).toContain('data-wandit-vendored="gsap"');
+	});
+
 	it("keeps the badge when a FREE owner sets the hide toggle", async () => {
 		const { repository, service } = setup();
 		repository.getAccessibleProject.mockResolvedValue({
@@ -382,6 +420,175 @@ describe("SitesService.publish", () => {
 		expect(bodies[0]).not.toContain('id="wandit-badge"');
 		// The rest of the publish transform chain is untouched.
 		expect(bodies[0]).toContain('id="wandit-leads-runtime"');
+	});
+});
+
+describe("SitesService.publish asset preflight", () => {
+	type FetchMock = ReturnType<typeof vi.fn<typeof fetch>>;
+
+	let fetchMock: FetchMock;
+
+	beforeEach(() => {
+		fetchMock = vi.fn<typeof fetch>();
+		vi.stubGlobal("fetch", fetchMock);
+	});
+
+	afterEach(() => {
+		vi.unstubAllGlobals();
+	});
+
+	function draftWith(bodyHtml: string): void {
+		vi.mocked(getPageHtml).mockResolvedValue(
+			`<!doctype html><html><head></head><body>${bodyHtml}</body></html>`,
+		);
+	}
+
+	function requestedUrls(): string[] {
+		return fetchMock.mock.calls.map(([input]) =>
+			typeof input === "string"
+				? input
+				: input instanceof URL
+					? input.toString()
+					: input.url,
+		);
+	}
+
+	it("probes each unique absolute asset once with HEAD and publishes", async () => {
+		const { repository, service } = setup();
+		draftWith(
+			'<img src="https://cdn.test/a.png"><img src="https://cdn.test/a.png">' +
+				'<video src="https://cdn.test/v.mp4" poster="https://cdn.test/p.jpg"></video>',
+		);
+		fetchMock.mockResolvedValue(new Response(null, { status: 200 }));
+
+		const result = await service.publish(SCOPE, PROJECT_ID, {});
+
+		expect(result.deployment.status).toBe("active");
+		expect(requestedUrls().sort()).toEqual([
+			"https://cdn.test/a.png",
+			"https://cdn.test/p.jpg",
+			"https://cdn.test/v.mp4",
+		]);
+		expect(
+			fetchMock.mock.calls.every(([, init]) => init?.method === "HEAD"),
+		).toBe(true);
+		expect(repository.promoteToActive).toHaveBeenCalledOnce();
+	});
+
+	it("422s listing the broken URLs when an asset 404s, before any R2 write", async () => {
+		const { repository, service } = setup();
+		draftWith(
+			'<img src="https://cdn.test/ok.png"><img src="https://cdn.test/gone.png">',
+		);
+		fetchMock.mockImplementation(async (input) => {
+			const status = String(input).includes("gone") ? 404 : 200;
+
+			return new Response(null, { status });
+		});
+		let thrown: unknown;
+
+		try {
+			await service.publish(SCOPE, PROJECT_ID, {});
+		} catch (error) {
+			thrown = error;
+		}
+
+		expect(thrown).toBeInstanceOf(SiteAssetsUnreachableError);
+		expect((thrown as SiteAssetsUnreachableError).getStatus()).toBe(422);
+		expect((thrown as SiteAssetsUnreachableError).getResponse()).toEqual({
+			code: "ASSETS_UNREACHABLE",
+			message: expect.stringContaining("https://cdn.test/gone.png"),
+		});
+		expect((thrown as SiteAssetsUnreachableError).brokenUrls).toEqual([
+			"https://cdn.test/gone.png",
+		]);
+		expect(putPageHtml).not.toHaveBeenCalled();
+		expect(repository.promoteToActive).not.toHaveBeenCalled();
+		expect(repository.markFailed).toHaveBeenCalledOnce();
+	});
+
+	it("hard-fails relative and root-relative URLs without probing the network", async () => {
+		const { service } = setup();
+		draftWith('<img src="images/a.png"><img src="/img/b.png">');
+		let thrown: unknown;
+
+		try {
+			await service.publish(SCOPE, PROJECT_ID, {});
+		} catch (error) {
+			thrown = error;
+		}
+
+		expect(thrown).toBeInstanceOf(SiteAssetsUnreachableError);
+		expect((thrown as SiteAssetsUnreachableError).brokenUrls).toEqual([
+			"images/a.png",
+			"/img/b.png",
+		]);
+		expect(fetchMock).not.toHaveBeenCalled();
+		expect(putPageHtml).not.toHaveBeenCalled();
+	});
+
+	it("publishes with a warning when probes time out or 5xx", async () => {
+		const { repository, service } = setup();
+		draftWith(
+			'<img src="https://cdn.test/slow.png"><img src="https://cdn.test/flaky.png">',
+		);
+		fetchMock.mockImplementation(async (input) => {
+			if (String(input).includes("slow")) {
+				throw new DOMException("The operation timed out", "TimeoutError");
+			}
+
+			return new Response(null, { status: 503 });
+		});
+
+		const result = await service.publish(SCOPE, PROJECT_ID, {});
+
+		expect(result.deployment.status).toBe("active");
+		expect(putPageHtml).toHaveBeenCalledTimes(2);
+		expect(repository.markFailed).not.toHaveBeenCalled();
+	});
+
+	it("falls back to GET when the host rejects HEAD", async () => {
+		const { service } = setup();
+		draftWith('<img src="https://cdn.test/a.png">');
+		fetchMock
+			.mockResolvedValueOnce(new Response(null, { status: 405 }))
+			.mockResolvedValueOnce(new Response(null, { status: 200 }));
+
+		const result = await service.publish(SCOPE, PROJECT_ID, {});
+
+		expect(result.deployment.status).toBe("active");
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+		expect(fetchMock.mock.calls[0]?.[1]?.method).toBe("HEAD");
+		expect(fetchMock.mock.calls[1]?.[1]?.method).toBe("GET");
+	});
+
+	it("parses srcset candidates and passes data: URIs without probing", async () => {
+		const { service } = setup();
+		draftWith(
+			'<img src="data:image/png;base64,AAA" srcset="https://cdn.test/a-1x.png 1x, https://cdn.test/a-2x.png 2x">' +
+				'<picture><source srcset="https://cdn.test/a-2x.png 2x"></picture>',
+		);
+		fetchMock.mockResolvedValue(new Response(null, { status: 200 }));
+
+		const result = await service.publish(SCOPE, PROJECT_ID, {});
+
+		expect(result.deployment.status).toBe("active");
+		expect(requestedUrls().sort()).toEqual([
+			"https://cdn.test/a-1x.png",
+			"https://cdn.test/a-2x.png",
+		]);
+	});
+
+	it("skips the whole preflight when SITE_PUBLISH_ASSET_CHECK is false", async () => {
+		(env as { SITE_PUBLISH_ASSET_CHECK?: boolean }).SITE_PUBLISH_ASSET_CHECK =
+			false;
+		const { service } = setup();
+		draftWith('<img src="/broken/relative.png">');
+
+		const result = await service.publish(SCOPE, PROJECT_ID, {});
+
+		expect(result.deployment.status).toBe("active");
+		expect(fetchMock).not.toHaveBeenCalled();
 	});
 });
 

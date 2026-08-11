@@ -138,7 +138,7 @@ Every page contains ONE scroll-scrubbed inline SVG schematic, and it is what peo
 - MOBILE AND FALLBACK CONTRACT: pin and scrub live inside gsap.matchMedia("(min-width: 900px)") only; below 900px the timeline plays once over 1.8s at "top 78%". The CSS default shows the diagram FULLY DRAWN (dashoffset 0 in CSS; JS sets it to 1 only inside the animate branch), so a visitor with JS off still sees a finished drawing.
 - NO CANVAS in this world — SVG and CSS only, because a drawing must stay crisp at any zoom and survive with JS off. Secondary drawn matter (brackets grouping a list, a 1px arrow between ruled rows, a spark rule, the trust icons) shares 1.25px, butt caps, miter joins and a 24-unit viewBox, so it reads as one drawn set.
 
-## Motion identity (GSAP 3 + ScrollTrigger via CDN; Lenis optional and gated)
+## Motion identity (GSAP 3 + ScrollTrigger via CDN; native scroll — smooth-scroll libraries are unavailable)
 THE SAFETY CONTRACT COMES FIRST. Compute once: reduced = matchMedia("(prefers-reduced-motion: reduce)").matches; hasGsap = typeof window.gsap !== "undefined"; animate = hasGsap && !reduced. EVERY hidden initial state is set with gsap.set INSIDE the animate branch — nothing is opacity 0, visibility hidden or clipped in CSS. If the CDN fails, the page is complete, drawn and readable. The reduced-motion CSS block, beyond the .01ms blanket, removes the rail's transform and leaves the schematic fully drawn.
 
 GLOBAL FEEL: gsap.defaults({ ease: "power3.out", duration: .8 }). Reveals live in 0.6-1.0s, data and drawing in 1.2-1.6s. THIS WORLD HAS NO BOUNCE: back, elastic and bounce eases are banned outright, as is any overshoot, yoyo or infinite loop. ONE shared CSS easing token, cubic-bezier(.2,.6,.2,1), on every transition; GSAP uses power3.out for entrances, power2.out for counters, power3.inOut for wipes and the menu, none for scrubs. TRAVEL IS TINY: y of 10, 14 and 22 only; x of 12 for mono labels arriving along a rule; scales of .96, .98, 1, and .6-to-1 on diagram nodes.
@@ -156,7 +156,7 @@ THE MANDATORY SET:
 
 MICRO-INTERACTIONS (all CSS, .18-.3s, on the shared token): the primary button goes accent to ink with no lift and no scale; text links draw a 1px accent underline from the inline-start via background-size 0% 1px to 100% 1px.
 
-LENIS IS OPTIONAL AND GATED: duration 1.05, exponential-out easing, disabled when reduced is true or on touch; wire lenis.on("scroll", ScrollTrigger.update), drive lenis.raf from gsap.ticker, lagSmoothing 0. If it fails to load, native scroll continues.
+SMOOTH-SCROLL LIBRARIES ARE UNAVAILABLE in this runtime — native scroll only. Every ScrollTrigger works directly on native scroll; do not load Lenis or any other smooth-scroll script.
 
 ## Components
 - BUTTONS: border-radius: var(--radius) (:root sets --radius: 2px), two variants. PRIMARY — accent fill, paper text, mono .6875rem .12em uppercase weight 500, padding 14px 22px, min-height 48px on mobile. SECONDARY — transparent, 1px ink border, ink text, same metrics. A third form is a mono TEXT LINK with a leading 10px drawn SVG arrow (never an icon-font character) translating x 4px on hover. No pills, no full-width solid rectangles except the mobile sticky action, no icon-only buttons.

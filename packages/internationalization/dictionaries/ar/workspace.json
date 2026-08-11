@@ -2,6 +2,12 @@
 	"backToDashboard": "العودة إلى لوحة التحكم",
 	"tabsAriaLabel": "طرق عرض مساحة العمل",
 	"autosaved": "محفوظ",
+	"upgrade": "ترقية",
+	"upgradeCard": {
+		"titlePro": "الترقية إلى Pro",
+		"titleBusiness": "الترقية إلى الأعمال",
+		"body": "المزيد من الرصيد والمزايا"
+	},
 	"meta": {
 		"title": "مساحة العمل — Wandit"
 	},

@@ -207,6 +207,13 @@ export const env = createEnv({
 		DOMAINS_FALLBACK_ORIGIN: z.string().min(1).default("customers.wandit.app"),
 		// Zone serving published customer sites: {slug}.SITES_DOMAIN.
 		SITES_DOMAIN: z.string().min(1).default("wandit.app"),
+		// Publish preflight over the final bytes: relative asset URLs and
+		// provably-gone media (404/410/403) block the publish. "false" is the
+		// emergency bypass when an asset host flaps and blocks every publish.
+		SITE_PUBLISH_ASSET_CHECK: z
+			.enum(["true", "false"])
+			.default("true")
+			.transform((value) => value === "true"),
 		// Sentry error tracking. Unset DSN = Sentry disabled (local dev).
 		SENTRY_DSN: z.url().optional(),
 		SENTRY_ENVIRONMENT: z

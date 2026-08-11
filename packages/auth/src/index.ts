@@ -1,10 +1,11 @@
 import { expo } from "@better-auth/expo";
+import { isAdminRole } from "@wandit/contracts";
 import { createDb } from "@wandit/db";
 import * as authSchema from "@wandit/db/schema/auth";
 import * as orgSchema from "@wandit/db/schema/organizations";
 import { corsWebOrigins } from "@wandit/env/cors-origins";
 import { env } from "@wandit/env/server";
-import { betterAuth } from "better-auth";
+import { betterAuth, type GoogleOptions } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { APIError, createAuthMiddleware, getIp } from "better-auth/api";
 import {
@@ -22,6 +23,45 @@ import { createUserCreatedHook, type OnUserCreated } from "./user-created-hook";
 // organization plugin needs `organization`, `member`, and `invitation` present
 // or every /api/auth/organization/* route fails with "model not found".
 const schema = { ...authSchema, ...orgSchema };
+
+// The admin plugin is kept for its schema fields (role/banned/banExpires), but
+// every HTTP route it mounts is served by NestJS admin controllers instead.
+// Better Auth answers 404 in onRequest before routing; server-side
+// `auth.api.*` calls are unaffected. Enumerated from
+// better-auth/dist/plugins/admin/routes.mjs — keep in sync on upgrades.
+const ADMIN_PLUGIN_DISABLED_PATHS = [
+	"/admin/set-role",
+	"/admin/get-user",
+	"/admin/create-user",
+	"/admin/update-user",
+	"/admin/list-users",
+	"/admin/list-user-sessions",
+	"/admin/unban-user",
+	"/admin/ban-user",
+	"/admin/impersonate-user",
+	"/admin/stop-impersonating",
+	"/admin/revoke-user-session",
+	"/admin/revoke-user-sessions",
+	"/admin/remove-user",
+	"/admin/set-user-password",
+	"/admin/has-permission",
+];
+
+// The email-otp plugin mounts a whole password-reset and email-change surface
+// the web app does not use. Enumerated from
+// better-auth/dist/plugins/email-otp/routes.mjs — keep in sync on upgrades.
+const EMAIL_OTP_DISABLED_PATHS = [
+	"/email-otp/request-password-reset",
+	"/email-otp/reset-password",
+	"/forget-password/email-otp",
+	"/email-otp/verify-email",
+	"/email-otp/request-email-change",
+	"/email-otp/change-email",
+	"/email-otp/check-verification-otp",
+];
+
+// Surfaced by the OAuth callback as `?error=...` — keep the string stable.
+export const ADMIN_ACCESS_REQUIRED_ERROR_CODE = "ADMIN_ACCESS_REQUIRED";
 
 export type OrganizationInvitationCreated = {
 	invitationId: string;
@@ -111,7 +151,7 @@ export type CreateAuthOptions = {
 	}) => Promise<void> | void;
 };
 
-export function createAuth(options: CreateAuthOptions = {}) {
+function createBaseAuthOptions() {
 	const db = createDb();
 
 	// See TRUSTED_PROXY_CIDRS in @wandit/env: without these, a request whose
@@ -123,6 +163,70 @@ export function createAuth(options: CreateAuthOptions = {}) {
 		.map((cidr) => cidr.trim())
 		.filter((cidr) => cidr.length > 0);
 
+	// Staging serves the web (vercel.app) and API (api-staging.wandit.dev) from
+	// different sites, so every auth cookie (OAuth state, session) must be
+	// SameSite=None;Secure or browsers drop it on the cross-site hop — the
+	// symptom is "State mismatch: State not persisted correctly" on the
+	// Google callback. Local dev is same-site localhost over plain http,
+	// where None+Secure would itself be rejected — keep defaults there.
+	// Production uses wandit.dev and api.wandit.dev, which are the same site.
+	const crossSiteCookies = env.BETTER_AUTH_URL.startsWith("https://");
+
+	return {
+		advanced: {
+			...(crossSiteCookies
+				? {
+						defaultCookieAttributes: {
+							sameSite: "none" as const,
+							secure: true,
+						},
+					}
+				: {}),
+			...(trustedProxies.length > 0 ? { ipAddress: { trustedProxies } } : {}),
+		},
+		account: { encryptOAuthTokens: true },
+		database: drizzleAdapter(db, {
+			provider: "pg" as const,
+			schema: schema,
+		}),
+		user: {
+			additionalFields: {
+				earlyAccess: {
+					type: "boolean" as const,
+					defaultValue: false,
+					input: false,
+				},
+			},
+		},
+		disabledPaths: [...ADMIN_PLUGIN_DISABLED_PATHS],
+		secret: env.BETTER_AUTH_SECRET,
+		baseURL: env.BETTER_AUTH_URL,
+		// The database store survives restarts and is shared by every API
+		// process. Enablement keeps Better Auth's default (production only).
+		rateLimit: {
+			storage: "database" as const,
+		},
+	};
+}
+
+const baseAuthOptions = createBaseAuthOptions();
+
+function createGoogleProviderOptions(): GoogleOptions {
+	return {
+		// offline → Google issues a refresh token whenever its consent screen is
+		// shown. No global `prompt`: forcing consent on every sign-in would hurt
+		// the funnel.
+		accessType: "offline",
+		clientId: env.GOOGLE_CLIENT_ID,
+		clientSecret: env.GOOGLE_CLIENT_SECRET,
+		// Keep Google and email sign-in on the same canonical inbox/user row.
+		mapProfileToUser: (profile) => ({
+			email: canonicalizeEmail(profile.email),
+		}),
+	};
+}
+
+export function createAuth(options: CreateAuthOptions = {}) {
 	const emailAuthDisabledError = () =>
 		APIError.from("FORBIDDEN", {
 			code: EMAIL_AUTH_DISABLED_ERROR_CODE,
@@ -144,123 +248,24 @@ export function createAuth(options: CreateAuthOptions = {}) {
 		return emailAuth;
 	};
 
-	// Staging serves the web (vercel.app) and API (api-staging.wandit.dev) from
-	// different sites, so every auth cookie (OAuth state, session) must be
-	// SameSite=None;Secure or browsers drop it on the cross-site hop — the
-	// symptom is "State mismatch: State not persisted correctly" on the
-	// Google callback. Local dev is same-site localhost over plain http,
-	// where None+Secure would itself be rejected — keep defaults there.
-	// Production uses wandit.dev and api.wandit.dev, which are the same site.
-	const crossSiteCookies = env.BETTER_AUTH_URL.startsWith("https://");
-
 	return betterAuth({
-		advanced: {
-			...(crossSiteCookies
-				? {
-						defaultCookieAttributes: {
-							sameSite: "none" as const,
-							secure: true,
-						},
-					}
-				: {}),
-			...(trustedProxies.length > 0 ? { ipAddress: { trustedProxies } } : {}),
-		},
-		account: { encryptOAuthTokens: true },
-		database: drizzleAdapter(db, {
-			provider: "pg",
-
-			schema: schema,
-		}),
-		user: {
-			additionalFields: {
-				earlyAccess: {
-					type: "boolean",
-					defaultValue: false,
-					input: false,
-				},
-			},
-		},
-		// The admin plugin is kept for its schema fields (role/banned/banExpires)
-		// and its banned-user session hook, but every HTTP route it mounts is taken
-		// off the wire: those are served by our @Public() catch-all auth controller,
-		// so they bypass the AdminGuard, the AdminUsersService invariants
-		// (self-role-change block, admins-cannot-be-banned) and the audit log.
-		// Better Auth answers 404 in onRequest before routing; server-side
-		// `auth.api.*` calls are unaffected. Enumerated from
-		// better-auth/dist/plugins/admin/routes.mjs — keep in sync on upgrades.
+		...baseAuthOptions,
+		basePath: "/api/auth",
+		// The email-otp plugin mounts password-reset and email-change routes this
+		// passwordless product does not use. Left mounted they would be publicly
+		// reachable through the auth catch-all and write verification rows.
 		disabledPaths: [
-			"/admin/set-role",
-			"/admin/get-user",
-			"/admin/create-user",
-			"/admin/update-user",
-			"/admin/list-users",
-			"/admin/list-user-sessions",
-			"/admin/unban-user",
-			"/admin/ban-user",
-			"/admin/impersonate-user",
-			"/admin/stop-impersonating",
-			"/admin/revoke-user-session",
-			"/admin/revoke-user-sessions",
-			"/admin/remove-user",
-			"/admin/set-user-password",
-			"/admin/has-permission",
-			// The email-otp plugin mounts a whole password-reset and
-			// email-change surface we do not use: this product has no
-			// passwords, and the only verification that matters happens by
-			// signing in. Left mounted they would be publicly reachable
-			// (the auth controller is a @Public() catch-all), write
-			// `verification` rows for unauthenticated callers, and — through
-			// /email-otp/reset-password — set a credential on an account.
-			// check-verification-otp is dropped too: we never call it, and it
-			// answers questions about codes we would rather not answer.
-			// Enumerated from better-auth/dist/plugins/email-otp/routes.mjs —
-			// keep in sync on upgrades.
-			"/email-otp/request-password-reset",
-			"/email-otp/reset-password",
-			"/forget-password/email-otp",
-			"/email-otp/verify-email",
-			"/email-otp/request-email-change",
-			"/email-otp/change-email",
-			"/email-otp/check-verification-otp",
+			...baseAuthOptions.disabledPaths,
+			...EMAIL_OTP_DISABLED_PATHS,
 		],
 		trustedOrigins: [
 			...corsWebOrigins(env.CORS_ORIGIN, env.CORS_EXTRA_ORIGINS),
-			// Admin dashboard origin (apps/admin); only set where the admin runs.
-			...(env.ADMIN_ORIGIN ? [env.ADMIN_ORIGIN] : []),
 			"wandit://",
 			"exp://",
 			"http://localhost:8081",
 		],
 		socialProviders: {
-			google: {
-				// offline → Google issues a refresh token whenever its consent
-				// screen is shown (first sign-up, or the linkSocial re-consent
-				// that requests the Sheets scope). Server-side Sheets sync then
-				// mints fresh access tokens via auth.api.getAccessToken without
-				// the user present. No global `prompt` on purpose: forcing the
-				// consent screen on every sign-in would hurt the funnel.
-				accessType: "offline",
-				clientId: env.GOOGLE_CLIENT_ID,
-				clientSecret: env.GOOGLE_CLIENT_SECRET,
-				// One inbox = one user row: Google-reported emails go through the
-				// same canonical form as magic-link/OTP entries, so a gmail user
-				// lands in the same account whichever door they use (returning
-				// OAuth users are matched by provider account id, not email, so
-				// this only shapes creation + email-based linking).
-				mapProfileToUser: (profile) => ({
-					email: canonicalizeEmail(profile.email),
-				}),
-			},
-		},
-		secret: env.BETTER_AUTH_SECRET,
-		baseURL: env.BETTER_AUTH_URL,
-		// The limiter's default memory store forgets counters on every restart
-		// and never shares them between instances; the database store (the
-		// rate_limit table) survives both. Enablement keeps Better Auth's
-		// default (production only). Path rules ship with the plugins:
-		// magic-link 5/60s and email-otp 3/60s, keyed by client IP.
-		rateLimit: {
-			storage: "database",
+			google: createGoogleProviderOptions(),
 		},
 		hooks: {
 			// Two jobs, both of which MUST run in the hook pipeline (hook
@@ -464,8 +469,62 @@ export function createAuth(options: CreateAuthOptions = {}) {
 	});
 }
 
+export function createAdminAuth() {
+	const googleProvider = createGoogleProviderOptions();
+
+	return betterAuth({
+		...baseAuthOptions,
+		basePath: "/api/admin-auth",
+		advanced: {
+			...baseAuthOptions.advanced,
+			// Do not set explicit names in advanced.cookies: doing so bypasses
+			// cookiePrefix and would let this instance collide with web auth.
+			cookiePrefix: "wandit-admin",
+		},
+		// Shared database table keys strip basePath and collide across instances.
+		// Admin traffic is tiny, so memory-store restart amnesia is acceptable.
+		rateLimit: { storage: "memory" },
+		trustedOrigins: [...(env.ADMIN_ORIGIN ? [env.ADMIN_ORIGIN] : [])],
+		socialProviders: {
+			google: {
+				...googleProvider,
+				// disableImplicitSignUp alone can be overridden by a caller sending
+				// requestSignUp=true; disableSignUp is the non-bypassable gate.
+				disableImplicitSignUp: true,
+				disableSignUp: true,
+			},
+		},
+		databaseHooks: {
+			session: {
+				create: {
+					before: async (session, context) => {
+						const user = context
+							? await context.context.internalAdapter.findUserById(
+									session.userId,
+								)
+							: null;
+						const role =
+							user && "role" in user && typeof user.role === "string"
+								? user.role
+								: null;
+						if (!isAdminRole(role)) {
+							throw APIError.from("FORBIDDEN", {
+								code: ADMIN_ACCESS_REQUIRED_ERROR_CODE,
+								message: "This account does not have admin access.",
+							});
+						}
+					},
+				},
+			},
+		},
+		plugins: [admin({ defaultRole: "user", adminRoles: ["admin"] })],
+	});
+}
+
 export const auth = createAuth();
+export const adminAuth = createAdminAuth();
 
 export type Auth = ReturnType<typeof createAuth>;
+export type AdminAuth = ReturnType<typeof createAdminAuth>;
 export type AuthSession = Auth["$Infer"]["Session"]["session"];
 export type AuthUser = Auth["$Infer"]["Session"]["user"];

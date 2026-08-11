@@ -154,21 +154,23 @@ export function Hero({ promptKey, promptInitial }: HeroProps) {
 						aria-hidden
 						className="absolute -inset-x-12 -inset-y-16 bg-[radial-gradient(ellipse_at_center,color-mix(in_oklab,var(--color-primary)_16%,transparent),transparent_70%)]"
 					/>
-					{promptLocked ? (
-						<OutOfCreditsBanner className="relative mb-3 text-start" />
-					) : null}
-					<PromptBox
-						key={promptKey}
-						variant="hero"
-						showBanner
-						showModes
-						attachmentsEnabled={Boolean(session)}
-						disabled={promptLocked}
-						initialValue={promptInitial}
-						onSubmit={create}
-						isSubmitting={isCreating}
+					<OutOfCreditsBanner
+						active={promptLocked}
 						className="relative text-start"
-					/>
+					>
+						<PromptBox
+							key={promptKey}
+							variant="hero"
+							showBanner={!promptLocked}
+							showModes
+							attachmentsEnabled={Boolean(session)}
+							disabled={promptLocked}
+							initialValue={promptInitial}
+							onSubmit={create}
+							isSubmitting={isCreating}
+							className="relative text-start"
+						/>
+					</OutOfCreditsBanner>
 				</motion.div>
 
 				<motion.div
