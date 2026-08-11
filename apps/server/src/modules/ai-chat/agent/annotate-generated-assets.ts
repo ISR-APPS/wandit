@@ -187,6 +187,54 @@ export async function annotateGeneratedAssets(
 	});
 }
 
+export type ConversationGeneratedAsset = {
+	/** Marker kind: "image", "video", or a connector media kind. */
+	kind: string;
+	url: string;
+};
+
+// Exact shape of the marker lines emitted above — kind, optional media type,
+// then the hosted URL. Parser and emitter live in this file on purpose: a
+// format change must update both or the specs below fail.
+const generatedMarkerLineRegex =
+	/^\[Generated ([a-z-]+)(?: \(([^)]+)\))?: (https?:\/\/\S+)\]$/;
+
+/**
+ * Read the [Generated …] markers back out of an annotated (model-bound)
+ * transcript. This is the ONE list of finished, project-verified asset URLs
+ * the conversation produced — generate_page appends it to the brief so a
+ * build can never lose the user's generated media to a forgetful brief.
+ */
+export function generatedAssetsFromAnnotatedMessages(
+	messages: readonly WanditUIMessage[],
+): ConversationGeneratedAsset[] {
+	const assets: ConversationGeneratedAsset[] = [];
+	const seen = new Set<string>();
+
+	for (const message of messages) {
+		if (message.role !== "assistant") {
+			continue;
+		}
+
+		for (const part of message.parts) {
+			if (part.type !== "text") {
+				continue;
+			}
+
+			for (const line of part.text.split("\n")) {
+				const match = generatedMarkerLineRegex.exec(line.trim());
+
+				if (match?.[1] && match[3] && !seen.has(match[3])) {
+					seen.add(match[3]);
+					assets.push({ kind: match[1], url: match[3] });
+				}
+			}
+		}
+	}
+
+	return assets;
+}
+
 function generationRef(
 	part: WanditUIMessage["parts"][number],
 ): GenerationRef | null {

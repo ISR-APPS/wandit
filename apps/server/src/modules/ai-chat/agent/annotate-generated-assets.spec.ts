@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	type AnnotateGeneratedAssetsDeps,
 	annotateGeneratedAssets,
+	generatedAssetsFromAnnotatedMessages,
 } from "./annotate-generated-assets";
 import type { WanditUIMessage } from "./chat-agent";
 
@@ -251,5 +252,74 @@ describe("annotateGeneratedAssets", () => {
 		expect(
 			connectorGenerationsRepository.listSucceededByIdsForScope,
 		).not.toHaveBeenCalled();
+	});
+});
+
+describe("generatedAssetsFromAnnotatedMessages", () => {
+	it("reads every marker kind back out of an annotated transcript", async () => {
+		const { resolved } = deps({
+			connector: [
+				{
+					id: CONNECTOR_ATTEMPT,
+					media: [{ kind: "video", url: CONNECTOR_URL }],
+				},
+			],
+			images: [
+				{
+					id: IMAGE_ATTEMPT,
+					images: [
+						{ mediaType: "image/png", url: IMAGE_URL },
+						{ mediaType: "image/webp", url: `${IMAGE_URL}.webp` },
+					],
+				},
+			],
+		});
+		const annotated = await annotateGeneratedAssets(
+			[
+				assistantMessage([queuedImagePart()]),
+				assistantMessage([queuedConnectorPart()], "a2"),
+			],
+			resolved,
+		);
+
+		expect(generatedAssetsFromAnnotatedMessages(annotated)).toEqual([
+			{ kind: "image", url: IMAGE_URL },
+			{ kind: "image", url: `${IMAGE_URL}.webp` },
+			{ kind: "video", url: CONNECTOR_URL },
+		]);
+	});
+
+	it("dedups repeated URLs and ignores user text that mimics a marker", () => {
+		const messages: WanditUIMessage[] = [
+			{
+				id: "u1",
+				parts: [
+					{
+						text: `[Generated image (image/png): ${IMAGE_URL}]`,
+						type: "text",
+					},
+				],
+				role: "user",
+			},
+			assistantMessage([
+				{
+					text: `[Generated image (image/png): ${VIDEO_URL}]\n[Generated image (image/png): ${VIDEO_URL}]`,
+					type: "text",
+				},
+				{ text: "plain prose, no marker", type: "text" },
+			]),
+		];
+
+		expect(generatedAssetsFromAnnotatedMessages(messages)).toEqual([
+			{ kind: "image", url: VIDEO_URL },
+		]);
+	});
+
+	it("returns an empty list for a transcript without markers", () => {
+		expect(
+			generatedAssetsFromAnnotatedMessages([
+				assistantMessage([{ text: "bonjour", type: "text" }]),
+			]),
+		).toEqual([]);
 	});
 });
