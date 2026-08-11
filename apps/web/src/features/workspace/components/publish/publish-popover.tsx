@@ -26,13 +26,54 @@ import { toast } from "sonner";
 import { Spark } from "@/components/logo";
 import type { Domain } from "@/features/domains/api/domains.dto";
 import { useDomainsQuery } from "@/features/domains/api/domains.queries";
-import { domainLiveUrl } from "@/features/domains/lib/helpers";
+import {
+	domainLiveUrl,
+	isDomainTransitional,
+} from "@/features/domains/lib/helpers";
 import { useTranslation } from "@/lib/i18n";
 import { PUBLISHED_DOMAIN } from "../../lib/constants";
 import { isValidSlug } from "../../lib/helpers";
 import { displaySlug, publishableVersion } from "../../lib/publish-state";
 import { useWorkspace } from "../../lib/store";
 import { DomainPurchaseDialog } from "./domain-purchase-dialog";
+
+const PUBLISH_DOMAIN_POLL_INTERVAL_MS = 12_000;
+
+type PublishDomain = Pick<Domain, "isPrimary" | "name" | "source" | "status">;
+
+export function selectPublishDomains(domains: PublishDomain[]) {
+	const purchasedDomain =
+		domains.find(
+			(domain) =>
+				domain.source === "purchased" && isDomainTransitional(domain.status),
+		) ??
+		domains.find(
+			(domain) =>
+				domain.source === "purchased" &&
+				domain.status === "active" &&
+				domain.isPrimary,
+		) ??
+		domains.find(
+			(domain) => domain.source === "purchased" && domain.status === "active",
+		) ??
+		null;
+	const activeExternalDomain =
+		domains.find(
+			(domain) =>
+				domain.source === "external" &&
+				domain.status === "active" &&
+				domain.isPrimary,
+		) ??
+		domains.find(
+			(domain) => domain.source === "external" && domain.status === "active",
+		) ??
+		null;
+	const customDomain =
+		(purchasedDomain?.status === "active" ? purchasedDomain : null) ??
+		activeExternalDomain;
+
+	return { activeExternalDomain, customDomain, purchasedDomain };
+}
 
 export function PublishPopover() {
 	const { t } = useTranslation();
@@ -49,13 +90,11 @@ export function PublishPopover() {
 		updateSlug,
 		versions,
 	} = useWorkspace();
-	const domains = useDomainsQuery(projectId);
-	const customDomain =
-		(domains.data ?? []).find(
-			(domain) => domain.status === "active" && domain.isPrimary,
-		) ??
-		(domains.data ?? []).find((domain) => domain.status === "active") ??
-		null;
+	const domains = useDomainsQuery(projectId, {
+		refetchInterval: PUBLISH_DOMAIN_POLL_INTERVAL_MS,
+	});
+	const { activeExternalDomain, customDomain, purchasedDomain } =
+		selectPublishDomains(domains.data ?? []);
 
 	// Display + intent only: the server generates the real slug when the first
 	// publish omits one, so an unresolvable name just shows a placeholder stem.
@@ -92,6 +131,9 @@ export function PublishPopover() {
 		published &&
 		serverActiveVersion !== null &&
 		serverActiveVersion.id !== deployment.publishedVersionId;
+	const showPurchasedDomainCard =
+		purchasedDomain !== null &&
+		(purchasedDomain.status !== "active" || !published);
 
 	const saveSlug = () => {
 		const normalized = isValidSlug(slugDraft) ? slugDraft : slug;
@@ -166,7 +208,7 @@ export function PublishPopover() {
 					className="w-[min(404px,calc(100vw-1.5rem))] overflow-hidden rounded-[18px] p-0 shadow-[0_34px_70px_-26px_rgb(0_0_0/0.4),0_0_0_0.5px_rgb(0_0_0/0.03)]"
 				>
 					<PopoverArrow className="size-3" />
-					{customDomain && published ? (
+					{customDomain && published && !showPurchasedDomainCard ? (
 						<CustomDomainLiveContent
 							canPublish={canPublish}
 							domain={customDomain}
@@ -175,6 +217,11 @@ export function PublishPopover() {
 							publishableVersionNumber={publishableVersionNumber}
 							subdomain={subdomain}
 							subdomainPublishing={publishing}
+							secondaryDomain={
+								customDomain.source === "purchased"
+									? activeExternalDomain
+									: null
+							}
 							onCopy={copyUrl}
 							onPublish={requestPublish}
 						/>
@@ -191,6 +238,8 @@ export function PublishPopover() {
 							failedDetail={deployment.error}
 							canPublish={canPublish}
 							publishableVersionNumber={publishableVersionNumber}
+							purchasedDomain={purchasedDomain}
+							secondaryDomain={published ? activeExternalDomain : null}
 							editingSlug={editingSlug}
 							onSlugDraftChange={setSlugDraft}
 							onEditSlug={() => setEditingSlug(true)}
@@ -281,6 +330,8 @@ function SubdomainContent({
 	failedDetail,
 	canPublish,
 	publishableVersionNumber,
+	purchasedDomain,
+	secondaryDomain,
 	editingSlug,
 	onSlugDraftChange,
 	onEditSlug,
@@ -301,6 +352,8 @@ function SubdomainContent({
 	failedDetail: string | null;
 	canPublish: boolean;
 	publishableVersionNumber: number | null;
+	purchasedDomain: Pick<Domain, "name" | "source" | "status"> | null;
+	secondaryDomain: Pick<Domain, "name" | "source"> | null;
 	editingSlug: boolean;
 	onSlugDraftChange: (value: string) => void;
 	onEditSlug: () => void;
@@ -420,24 +473,33 @@ function SubdomainContent({
 					</span>
 				</div>
 
-				<button
-					type="button"
-					onClick={onOpenPurchase}
-					className="group flex w-full items-center gap-3 rounded-[14px] border border-primary/30 bg-primary/5 px-3 py-3 text-start outline-none transition-[transform,background-color,border-color] hover:border-primary/45 hover:bg-primary/10 focus-visible:ring-[3px] focus-visible:ring-ring/30 active:scale-[0.99]"
-				>
-					<span className="grid size-[34px] shrink-0 place-items-center rounded-[10px] bg-primary/10 text-ember-text">
-						<Globe2 className="size-[17px]" strokeWidth={1.8} />
-					</span>
-					<span className="min-w-0 flex-1">
-						<span className="block font-medium text-sm">
-							{t("workspace.publish.popover.customDomainTitle")}
+				{purchasedDomain ? (
+					<>
+						<PurchasedDomainCard domain={purchasedDomain} onCopy={onCopy} />
+						{secondaryDomain ? (
+							<SecondaryDomainLink domain={secondaryDomain} />
+						) : null}
+					</>
+				) : (
+					<button
+						type="button"
+						onClick={onOpenPurchase}
+						className="group flex w-full items-center gap-3 rounded-[14px] border border-primary/30 bg-primary/5 px-3 py-3 text-start outline-none transition-[transform,background-color,border-color] hover:border-primary/45 hover:bg-primary/10 focus-visible:ring-[3px] focus-visible:ring-ring/30 active:scale-[0.99]"
+					>
+						<span className="grid size-[34px] shrink-0 place-items-center rounded-[10px] bg-primary/10 text-ember-text">
+							<Globe2 className="size-[17px]" strokeWidth={1.8} />
 						</span>
-						<span className="mt-0.5 block text-muted-foreground text-xs leading-relaxed">
-							{t("workspace.publish.popover.customDomainDescription")}
+						<span className="min-w-0 flex-1">
+							<span className="block font-medium text-sm">
+								{t("workspace.publish.popover.customDomainTitle")}
+							</span>
+							<span className="mt-0.5 block text-muted-foreground text-xs leading-relaxed">
+								{t("workspace.publish.popover.customDomainDescription")}
+							</span>
 						</span>
-					</span>
-					<ChevronRight className="size-4 shrink-0 text-ember-text transition-transform group-hover:translate-x-0.5 rtl:rotate-180 rtl:group-hover:-translate-x-0.5" />
-				</button>
+						<ChevronRight className="size-4 shrink-0 text-ember-text transition-transform group-hover:translate-x-0.5 rtl:rotate-180 rtl:group-hover:-translate-x-0.5" />
+					</button>
+				)}
 			</div>
 
 			<footer className="flex flex-wrap items-center gap-3 border-t bg-secondary px-4 py-[13px]">
@@ -503,6 +565,91 @@ function SubdomainContent({
 	);
 }
 
+export function PurchasedDomainCard({
+	domain,
+	onCopy,
+}: {
+	domain: Pick<Domain, "name" | "source" | "status">;
+	onCopy: (url: string) => Promise<void>;
+}) {
+	const { t } = useTranslation();
+	const active = domain.status === "active";
+	const domainUrl = domainLiveUrl(domain);
+
+	return (
+		<div className="flex min-h-[58px] items-center gap-3 rounded-[14px] border border-primary/30 bg-primary/5 px-3 py-3">
+			<span className="grid size-[34px] shrink-0 place-items-center rounded-[10px] bg-primary/10 text-ember-text">
+				{active ? (
+					<Check className="size-[17px]" strokeWidth={1.8} />
+				) : (
+					<Loader2 className="size-[17px] animate-spin" strokeWidth={1.8} />
+				)}
+			</span>
+			<span className="min-w-0 flex-1">
+				<span dir="ltr" className="block truncate font-semibold text-sm">
+					{active ? domainUrl : domain.name}
+				</span>
+				{active ? null : (
+					<span className="mt-0.5 block text-muted-foreground text-xs leading-relaxed">
+						{t("workspace.publish.popover.domainConfiguring")}
+					</span>
+				)}
+			</span>
+			{active ? (
+				<>
+					<Button
+						size="icon-sm"
+						variant="ghost"
+						onClick={() => void onCopy(domainUrl)}
+						aria-label={t("workspace.publish.copyLink")}
+					>
+						<Copy />
+					</Button>
+					<Button size="icon-sm" variant="ghost" asChild>
+						<a
+							href={domainUrl}
+							target="_blank"
+							rel="noreferrer"
+							aria-label={t("workspace.publish.popover.openDomain")}
+						>
+							<ExternalLink />
+						</a>
+					</Button>
+				</>
+			) : null}
+		</div>
+	);
+}
+
+function SecondaryDomainLink({
+	domain,
+}: {
+	domain: Pick<Domain, "name" | "source">;
+}) {
+	const { t } = useTranslation();
+	const domainUrl = domainLiveUrl(domain);
+
+	return (
+		<Button
+			variant="ghost"
+			className="h-auto min-w-0 justify-start gap-2 self-start px-2 py-1.5 text-muted-foreground text-xs"
+			asChild
+		>
+			<a
+				href={domainUrl}
+				target="_blank"
+				rel="noreferrer"
+				aria-label={t("workspace.publish.popover.openDomain")}
+			>
+				<ExternalLink className="size-3.5" />
+				<span dir="ltr" className="truncate">
+					{domainUrl}
+				</span>
+			</a>
+		</Button>
+	);
+}
+
 export function CustomDomainLiveContent({
 	canPublish,
 	domain,
@@ -511,6 +658,7 @@ export function CustomDomainLiveContent({
 	publishableVersionNumber,
 	subdomain,
 	subdomainPublishing,
+	secondaryDomain,
 	onCopy,
 	onPublish,
 }: {
@@ -521,6 +669,7 @@ export function CustomDomainLiveContent({
 	publishableVersionNumber: number | null;
 	subdomain: string;
 	subdomainPublishing: boolean;
+	secondaryDomain?: Pick<Domain, "name" | "source"> | null;
 	onCopy: (url: string) => Promise<void>;
 	onPublish: () => void;
 }) {
@@ -600,6 +749,10 @@ export function CustomDomainLiveContent({
 						{t("workspace.publish.popover.visibility")}
 					</span>
 				</div>
+
+				{secondaryDomain ? (
+					<SecondaryDomainLink domain={secondaryDomain} />
+				) : null}
 			</div>
 
 			<footer className="flex flex-wrap items-center gap-3 border-t bg-secondary px-4 py-[13px]">
