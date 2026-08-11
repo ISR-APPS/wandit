@@ -13,8 +13,8 @@ import { CreditsService } from "../../../credits/application/services/credits.se
 import {
 	type CreditOwner,
 	creditOwnerKey,
-	ownerFromIds,
 	orgOwner,
+	ownerFromIds,
 	sameCreditOwner,
 	userOwner,
 } from "../../../credits/domain/credit-owner";
@@ -477,9 +477,17 @@ export class SubscriptionCreditsService {
 					this.lookupKeyForParsedPlan(effectiveCurrentPlan);
 				const oldLookupKey = updatePlans?.oldPlan?.lookupKey ?? null;
 				const applicationBase = {
+					amountPaidMinor:
+						typeof invoice.amount_paid === "number"
+							? invoice.amount_paid
+							: null,
 					billingReason,
+					currency: invoice.currency ?? null,
 					newPriceLookupKey: newLookupKey,
 					oldPriceLookupKey: oldLookupKey,
+					paidAt: invoice.status_transitions?.paid_at
+						? new Date(invoice.status_transitions.paid_at * 1000)
+						: null,
 					periodEnd: period.end,
 					periodStart: period.start,
 					stripeInvoiceId: invoice.id,
@@ -1144,8 +1152,13 @@ export class SubscriptionCreditsService {
 		invoice: Stripe.Invoice,
 	): Promise<PaymentReferences> {
 		const references: PaymentReferences[] = [];
+		// The payments expansion on the invoice retrieve is best-effort (Stripe
+		// depth caps can strip it); the list endpoint recovers the same rows.
+		const payments =
+			invoice.payments?.data ??
+			(await this.stripeProvider.listInvoicePayments(invoice.id));
 
-		for (const payment of invoice.payments?.data ?? []) {
+		for (const payment of payments) {
 			if (payment.status !== "paid") {
 				continue;
 			}

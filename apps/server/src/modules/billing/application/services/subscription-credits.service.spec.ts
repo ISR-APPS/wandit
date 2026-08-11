@@ -256,11 +256,14 @@ class MemorySubscriptionCreditsRepository {
 
 	seedApplication(newPriceLookupKey: string): void {
 		this.applications.push({
+			amountPaidMinor: null,
 			appliedAt: new Date(this.applications.length),
 			billingReason: "subscription_cycle",
 			creditsDelta: 0,
+			currency: null,
 			newPriceLookupKey,
 			oldPriceLookupKey: null,
+			paidAt: null,
 			periodEnd: PERIOD_END,
 			periodStart: PERIOD_START,
 			stripeInvoiceId: `seed_${this.applications.length}`,
@@ -496,6 +499,7 @@ function invoice(input: {
 		amount_paid: input.fundingChargeId ? 2500 : 0,
 		billing_reason: input.reason,
 		created: Math.floor((input.paidAt ?? start).getTime() / 1000),
+		currency: "usd",
 		customer: "cus_1",
 		id: input.id,
 		lines: { data: lines },
@@ -553,6 +557,7 @@ function setup(initial = subscription()) {
 		),
 	};
 	const stripe = {
+		listInvoicePayments: vi.fn(async () => [] as Stripe.InvoicePayment[]),
 		lookupKeyForPriceId: vi.fn(async () => null),
 		retrieveInvoice: vi.fn(async (id: string) => {
 			const found = invoices.get(id);
@@ -588,6 +593,7 @@ function setup(initial = subscription()) {
 		refill,
 		repository,
 		service,
+		stripe,
 		subscriptionsRepository,
 	};
 }
@@ -707,6 +713,40 @@ describe("Subscription credit policy", () => {
 		);
 	});
 
+	it("recovers funding references from the payments list when the retrieve lacks the payments expansion", async () => {
+		const context = setup();
+		const value = invoice({
+			fundingChargeId: "ch_fallback",
+			id: "in_no_payments_expand",
+			newKey: "pro_250_month",
+			reason: "subscription_create",
+		});
+		const stripped = value as unknown as {
+			payments?: { data: Stripe.InvoicePayment[] };
+		};
+		const payments = stripped.payments?.data ?? [];
+		stripped.payments = undefined;
+		context.stripe.listInvoicePayments.mockResolvedValue(payments);
+		addInvoice(context, value);
+
+		await context.service.grantForPaidInvoice(value);
+
+		expect(context.stripe.listInvoicePayments).toHaveBeenCalledWith(
+			"in_no_payments_expand",
+		);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(250);
+		expect(
+			context.paymentRefunds.reconcileChargeAfterGrant,
+		).toHaveBeenCalledWith("ch_fallback");
+
+		const application = context.repository.applications.find(
+			(row) => row.stripeInvoiceId === "in_no_payments_expand",
+		);
+		expect(application?.amountPaidMinor).toBe(2500);
+		expect(application?.currency).toBe("usd");
+		expect(application?.paidAt?.toISOString()).toBe(PERIOD_START.toISOString());
+	});
+
 	it("handles monthly upgrades immediately and leaves downgrades for renewal", async () => {
 		const upgrade = setup(
 			subscription({ priceLookupKey: "pro_500_month", tierCredits: 500 }),
@@ -823,11 +863,14 @@ describe("Subscription credit policy", () => {
 			subscription({ priceLookupKey: "pro_500_month", tierCredits: 500 }),
 		);
 		context.repository.applications.push({
+			amountPaidMinor: null,
 			appliedAt: new Date(),
 			billingReason: "subscription_cycle",
 			creditsDelta: 200,
+			currency: null,
 			newPriceLookupKey: "pro_250_month",
 			oldPriceLookupKey: null,
+			paidAt: null,
 			periodEnd: PERIOD_START,
 			periodStart: new Date("2025-12-31T12:00:00.000Z"),
 			stripeInvoiceId: "in_previous_period",
@@ -1149,11 +1192,14 @@ describe("Subscription credit policy", () => {
 			subscription({ priceLookupKey: "pro_1000_month", tierCredits: 1000 }),
 		);
 		context.repository.applications.push({
+			amountPaidMinor: null,
 			appliedAt: new Date(),
 			billingReason: "subscription_cycle",
 			creditsDelta: 200,
+			currency: null,
 			newPriceLookupKey: "pro_250_month",
 			oldPriceLookupKey: null,
+			paidAt: null,
 			periodEnd: PERIOD_END,
 			periodStart: PERIOD_START,
 			stripeInvoiceId: "in_newer_cycle",

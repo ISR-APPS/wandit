@@ -364,7 +364,7 @@ describe("AdminOverviewRepository overview SQL", () => {
 	it("includes paid fulfilling orders and excludes non-collected terminal states", async () => {
 		const queries = await compileOverviewQueries();
 		const revenueQuery =
-			queries.find((query) => query.includes("eligible_orders as")) ?? "";
+			queries.find((query) => query.includes("eligible_payments as")) ?? "";
 		const signalsQuery =
 			queries.find((query) => query.includes("signals.occurred_at")) ?? "";
 
@@ -375,6 +375,18 @@ describe("AdminOverviewRepository overview SQL", () => {
 			expect(query).not.toContain("o.status in ('paid', 'fulfilled')");
 		}
 		expect(signalsQuery).toContain("o.paid_at is not null");
+	});
+
+	it("counts subscription invoice settlements as Stripe revenue", async () => {
+		const queries = await compileOverviewQueries();
+		const revenueQuery =
+			queries.find((query) => query.includes("eligible_payments as")) ?? "";
+
+		expect(revenueQuery).toContain("union all");
+		expect(revenueQuery).toContain("from billing_invoice_applications a");
+		expect(revenueQuery).toContain("a.amount_paid_minor > 0");
+		expect(revenueQuery).toContain("lower(a.currency) = 'usd'");
+		expect(revenueQuery).toContain("a.paid_at is not null");
 	});
 
 	it("bounds each recent-signal source before merging the final five rows", async () => {
