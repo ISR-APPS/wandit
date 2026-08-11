@@ -2,7 +2,11 @@
 // the deployment snapshot, the publish history, the version list (isLive
 // flags) and the projects caches (dashboard badge derives from deployments).
 
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+	type QueryClient,
+	useMutation,
+	useQueryClient,
+} from "@tanstack/react-query";
 
 import { projectKeys } from "@/features/projects";
 import type { DeploymentCurrent } from "./deployments.dto";
@@ -46,14 +50,17 @@ export function useRollbackDeployment(projectId: string) {
 	});
 }
 
-function applyDeploymentCurrent(
-	queryClient: ReturnType<typeof useQueryClient>,
+export function applyDeploymentCurrent(
+	queryClient: QueryClient,
 	projectId: string,
 	current: DeploymentCurrent,
 ) {
 	queryClient.setQueryData(deploymentKeys.current(projectId), current);
 	void queryClient.invalidateQueries({
 		queryKey: deploymentKeys.current(projectId),
+	});
+	void queryClient.invalidateQueries({
+		queryKey: deploymentKeys.slugs(projectId),
 	});
 	void queryClient.invalidateQueries({
 		queryKey: deploymentKeys.list(projectId),

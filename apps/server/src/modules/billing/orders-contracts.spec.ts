@@ -70,6 +70,7 @@ describe("payment order contracts", () => {
 			domain: "Example.COM",
 			registrant: validRegistrant,
 			projectId,
+			returnPath: `/p/${projectId}?tab=settings`,
 			whoisPrivacy: false,
 		});
 
@@ -77,8 +78,34 @@ describe("payment order contracts", () => {
 			domain: "example.com",
 			registrant: registrantSchema.parse(validRegistrant),
 			projectId,
+			returnPath: `/p/${projectId}?tab=settings`,
 			whoisPrivacy: false,
 		});
+	});
+
+	it.each([
+		"https://evil.example/checkout",
+		"//evil.example/checkout",
+		"/\\evil.example/checkout",
+		"/\t/evil.example/checkout",
+	])("rejects unsafe checkout return path %s", (returnPath) => {
+		expect(
+			createDomainOrderBodySchema.safeParse({
+				domain: "example.com",
+				registrant: validRegistrant,
+				returnPath,
+			}).success,
+		).toBe(false);
+	});
+
+	it("caps checkout return paths at a reasonable URL length", () => {
+		expect(
+			createDomainOrderBodySchema.safeParse({
+				domain: "example.com",
+				registrant: validRegistrant,
+				returnPath: `/${"a".repeat(2048)}`,
+			}).success,
+		).toBe(false);
 	});
 
 	it("round-trips payment orders and create-order responses", () => {
