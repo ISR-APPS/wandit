@@ -1,7 +1,8 @@
 // Load the repository's standard .env search before reading process.env. The
-// task assertions deliberately read the runtime values directly so defaults in
-// the shared env schema cannot hide a missing deployment-specific setting.
-import "@wandit/env/server";
+// task assertions deliberately read runtime values directly so shared schema
+// defaults cannot hide missing deployment-specific settings. The documented
+// fallback origin is the sole exception because its schema default is safe.
+import { env } from "@wandit/env/server";
 
 type NamecomEnvironment = "production" | "sandbox";
 
@@ -44,13 +45,14 @@ export function assertDatabaseConfiguration(): DatabaseTaskConfiguration {
 /**
  * Fail before a purchase mutates DB state or contacts Name.com. Refund
  * readiness is part of purchase readiness because registrar spend must never
- * begin unless a later terminal path can return the captured payment.
+ * begin unless a later terminal path can return the captured payment. Only the
+ * fallback origin may use its safe shared default; every other value stays strict.
  */
 export function assertDomainPurchaseConfiguration(): DomainPurchaseTaskConfiguration {
 	return {
 		...assertDomainConfigurationConfiguration(),
 		...assertNamecomConfiguration(),
-		fallbackOrigin: requiredValue("DOMAINS_FALLBACK_ORIGIN"),
+		fallbackOrigin: domainFallbackOrigin(),
 		stripeSecretKey: requiredValue("STRIPE_SECRET_KEY"),
 	};
 }
@@ -113,6 +115,16 @@ function namecomEnvironment(): NamecomEnvironment {
 	}
 
 	throw new Error("NAMECOM_ENVIRONMENT must be exactly sandbox or production");
+}
+
+function domainFallbackOrigin(): string {
+	const value = process.env.DOMAINS_FALLBACK_ORIGIN;
+
+	if (typeof value === "string" && value.trim().length > 0) {
+		return value;
+	}
+
+	return env.DOMAINS_FALLBACK_ORIGIN;
 }
 
 function requiredValue(name: string): string {
