@@ -12,6 +12,7 @@ import type { ImageGenerationAspect } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import { generateImage, generateText } from "ai";
 
+import { optimizeImage } from "../../../../infrastructure/storage/optimize-image";
 import {
 	imageGenerationKey,
 	isR2Configured,
@@ -343,18 +344,23 @@ export async function generateStandaloneImage(params: {
 
 		await params.onProviderGeneration?.(metadata);
 
-		const extension = EXTENSION_BY_MEDIA_TYPE[mediaType] ?? "png";
+		// Providers answer raw PNGs of 1-2MB each — recompress before the bytes
+		// become a publicly served URL. Recovery probes already list webp.
+		const optimized = await optimizeImage(bytes, {
+			contentType: mediaType,
+			ext: EXTENSION_BY_MEDIA_TYPE[mediaType] ?? "png",
+		});
 		const key = imageGenerationKey(
 			params.projectId,
 			params.attemptId,
 			params.index,
-			extension,
+			optimized.ext,
 		);
 
-		await putSiteFile(key, bytes, mediaType);
+		await putSiteFile(key, optimized.bytes, optimized.contentType);
 
 		return {
-			mediaType,
+			mediaType: optimized.contentType,
 			model: metadata.model,
 			...(metadata.provider ? { provider: metadata.provider } : {}),
 			providerMetadata: metadata.providerMetadata,

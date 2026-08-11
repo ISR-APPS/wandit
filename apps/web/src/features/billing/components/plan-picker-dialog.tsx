@@ -28,7 +28,10 @@ import {
 	SelectValue,
 } from "@wandit/ui/components/select";
 import { Skeleton } from "@wandit/ui/components/skeleton";
-import { Tabs, TabsList, TabsTrigger } from "@wandit/ui/components/tabs";
+import {
+	ToggleGroup,
+	ToggleGroupItem,
+} from "@wandit/ui/components/toggle-group";
 import { cn } from "@wandit/ui/lib/utils";
 import {
 	AlertTriangle,
@@ -98,7 +101,7 @@ export function PlanPickerDialog({
 			<Dialog open={open} onOpenChange={onOpenChange}>
 				{open ? (
 					<DialogContent
-						className="max-h-[min(760px,calc(100dvh-2rem))] overflow-y-auto sm:max-w-[620px]"
+						className="max-h-[min(760px,calc(100dvh-2rem))] overflow-y-auto sm:max-w-[720px]"
 						closeLabel={t("common.close")}
 					>
 						<PlanPickerContent
@@ -138,7 +141,7 @@ function PlanPickerContent({
 	requiredCredits?: number;
 	availableCredits?: number;
 }) {
-	const { locale, t } = useTranslation();
+	const { locale } = useTranslation();
 	const copy = useDictionary().billing.planPicker;
 	// Personal workspaces buy Pro; org workspaces buy Business — the server
 	// rejects any other pairing (billing.service assertPlanMatchesScope).
@@ -158,6 +161,8 @@ function PlanPickerContent({
 		useState<BillingInterval | null>(initialInterval ?? null);
 	const [selectedTierCredits, setSelectedTierCredits] =
 		useState<CreditTier | null>(initialTierCredits ?? null);
+	const [businessTierCredits, setBusinessTierCredits] =
+		useState<CreditTier | null>(null);
 	const [preview, setPreview] =
 		useState<BillingSubscriptionChangePreviewResponse | null>(null);
 	const [target, setTarget] = useState<ChangeTarget | null>(null);
@@ -414,7 +419,6 @@ function PlanPickerContent({
 	const sameAsCurrent =
 		subscription?.interval === interval &&
 		subscription.tierCredits === tier.tierCredits;
-	const savings = tierSavingsPercent(tier, plan.basePer100Usd);
 	const visibleAvailableCredits =
 		availableCredits ?? subscriptionView.balance.balance;
 
@@ -449,6 +453,22 @@ function PlanPickerContent({
 			});
 	};
 
+	// Personal scope buys Pro; the server rejects personal+Business checkouts
+	// (assertPlanMatchesScope), so the Business card's Upgrade routes through
+	// create-a-team first. Org scope IS the Business purchase, no second card.
+	const businessPlan = catalog.plans.find((item) => item.id === "business");
+	const showBusinessTeaser =
+		isPersonal &&
+		settings.organizationsEnabled &&
+		businessPlan !== undefined &&
+		businessPlan.tiers.length > 0;
+	const businessTier = businessPlan
+		? (businessPlan.tiers.find(
+				(item) => item.tierCredits === businessTierCredits,
+			) ?? businessPlan.tiers[0])
+		: undefined;
+	const planFeatures = isPersonal ? copy.proFeatures : copy.businessFeatures;
+
 	return (
 		<>
 			<DialogHeader className="text-start">
@@ -478,117 +498,100 @@ function PlanPickerContent({
 				</div>
 			) : null}
 
-			<div className="grid gap-5 rounded-2xl border bg-card/70 p-4 sm:p-5">
-				<div className="grid gap-2">
-					<span className="font-medium text-sm">{copy.billingCycle}</span>
-					<Tabs
-						value={interval}
-						onValueChange={(value) => {
-							if (value === "month" || value === "year") {
-								setSelectedInterval(value);
-							}
-						}}
-					>
-						<TabsList
-							className={cn(
-								"grid h-auto w-full",
-								subscription?.interval === "year"
-									? "grid-cols-1"
-									: "grid-cols-2",
-							)}
-						>
-							{subscription?.interval !== "year" ? (
-								<TabsTrigger value="month" className="py-2">
-									{copy.monthly}
-								</TabsTrigger>
-							) : null}
-							<TabsTrigger value="year" className="gap-2 py-2">
-								{copy.yearly}
-								<Badge variant="success" className="px-1.5 py-0 text-[10px]">
-									{copy.twoMonthsFree}
-								</Badge>
-							</TabsTrigger>
-						</TabsList>
-					</Tabs>
-					{subscription?.interval === "year" ? (
-						<p className="text-muted-foreground text-xs">
-							{copy.yearlyToMonthlyUnavailable}
-						</p>
+			<div className="grid gap-2">
+				<span className="font-medium text-sm">{copy.billingCycle}</span>
+				<ToggleGroup
+					type="single"
+					value={interval}
+					variant="outline"
+					spacing={0}
+					className="w-full"
+					aria-label={copy.billingCycle}
+					onValueChange={(value) => {
+						if (value === "month" || value === "year") {
+							setSelectedInterval(value);
+						}
+					}}
+				>
+					{subscription?.interval !== "year" ? (
+						<ToggleGroupItem value="month" className="flex-1">
+							{copy.monthly}
+						</ToggleGroupItem>
 					) : null}
-				</div>
-
-				<div className="grid gap-2">
-					<label htmlFor="billing-tier" className="font-medium text-sm">
-						{copy.creditTier}
-					</label>
-					<Select
-						value={String(tier.tierCredits)}
-						onValueChange={(value) => {
-							const parsed = creditTierSchema.safeParse(Number(value));
-							if (parsed.success) setSelectedTierCredits(parsed.data);
-						}}
-					>
-						<SelectTrigger id="billing-tier" className="h-11 w-full">
-							<SelectValue />
-						</SelectTrigger>
-						<SelectContent>
-							<SelectGroup>
-								{plan.tiers.map((option) => {
-									const optionSavings = tierSavingsPercent(
-										option,
-										plan.basePer100Usd,
-									);
-									return (
-										<SelectItem
-											key={option.tierCredits}
-											value={String(option.tierCredits)}
-										>
-											<span className="flex min-w-0 items-center gap-2">
-												<span>
-													{t("credits.creditUnit", {
-														count: option.tierCredits,
-													})}
-												</span>
-												<span className="text-muted-foreground">
-													{formatUsd(tierPriceUsd(option, interval), locale)}
-												</span>
-												{optionSavings > 0 ? (
-													<Badge
-														variant="success"
-														className="px-1.5 py-0 text-[10px]"
-													>
-														{t("billing.planPicker.savePercent", {
-															percent: optionSavings,
-														})}
-													</Badge>
-												) : null}
-											</span>
-										</SelectItem>
-									);
-								})}
-							</SelectGroup>
-						</SelectContent>
-					</Select>
-				</div>
-
-				<div className="flex flex-wrap items-end justify-between gap-3 border-t pt-4">
-					<div>
-						<p className="text-muted-foreground text-xs">
-							{copy.selectedPrice}
-						</p>
-						<p className="mt-1 font-mono font-semibold text-2xl tabular-nums">
-							{formatUsd(tierPriceUsd(tier, interval), locale)}
-							<span className="ms-1 font-normal text-muted-foreground text-xs">
-								{interval === "year" ? copy.perYear : copy.perMonth}
-							</span>
-						</p>
-					</div>
-					{savings > 0 ? (
-						<Badge variant="success">
-							{t("billing.planPicker.savePercent", { percent: savings })}
+					<ToggleGroupItem value="year" className="flex-1 gap-2">
+						{copy.yearly}
+						<Badge variant="secondary" className="px-1.5 font-mono text-[9px]">
+							{copy.twoMonthsFree}
 						</Badge>
-					) : null}
-				</div>
+					</ToggleGroupItem>
+				</ToggleGroup>
+				{subscription?.interval === "year" ? (
+					<p className="text-muted-foreground text-xs">
+						{copy.yearlyToMonthlyUnavailable}
+					</p>
+				) : null}
+			</div>
+
+			<div className={cn("grid gap-4", showBusinessTeaser && "sm:grid-cols-2")}>
+				<PlanCard
+					name={isPersonal ? copy.proName : copy.businessName}
+					badge={isPersonal ? copy.popularBadge : undefined}
+					tagline={isPersonal ? copy.proTagline : copy.businessTagline}
+					tier={tier}
+					tiers={plan.tiers}
+					basePer100Usd={plan.basePer100Usd}
+					interval={interval}
+					perLabel={interval === "year" ? copy.perYear : copy.perMonth}
+					selectId="billing-tier"
+					selectLabel={copy.creditTier}
+					onSelectTier={setSelectedTierCredits}
+					features={planFeatures}
+					highlighted
+					action={
+						<Button
+							type="button"
+							className="mt-4 w-full"
+							disabled={
+								sameAsCurrent || checkout.isPending || previewChange.isPending
+							}
+							onClick={handlePrimaryAction}
+						>
+							{sameAsCurrent
+								? copy.currentSelection
+								: checkout.isPending || previewChange.isPending
+									? copy.preparing
+									: subscription
+										? copy.previewChange
+										: copy.continueToCheckout}
+						</Button>
+					}
+				/>
+
+				{showBusinessTeaser && businessPlan && businessTier ? (
+					<PlanCard
+						name={copy.businessName}
+						tagline={copy.businessTagline}
+						tier={businessTier}
+						tiers={businessPlan.tiers}
+						basePer100Usd={businessPlan.basePer100Usd}
+						interval={interval}
+						perLabel={interval === "year" ? copy.perYear : copy.perMonth}
+						selectId="billing-tier-business"
+						selectLabel={copy.creditTier}
+						onSelectTier={setBusinessTierCredits}
+						features={copy.businessFeatures}
+						action={
+							<Button
+								type="button"
+								variant="outline"
+								className="mt-4 w-full"
+								onClick={onCreateTeam}
+							>
+								{copy.continueToCheckout}
+							</Button>
+						}
+					/>
+				) : null}
 			</div>
 
 			{topupsAvailable ? (
@@ -604,47 +607,152 @@ function PlanPickerContent({
 				/>
 			) : null}
 
-			{isPersonal &&
-			settings.organizationsEnabled &&
-			catalog.plans.some((item) => item.id === "business") ? (
-				<section className="flex flex-wrap items-center justify-between gap-3 rounded-xl border bg-card/70 p-4">
-					<div className="min-w-0">
-						<h3 className="font-medium text-sm">
-							{t("workspaces.billing.teamTeaserTitle")}
-						</h3>
-						<p className="mt-1 text-muted-foreground text-xs">
-							{t("workspaces.billing.teamTeaserBody")}
-						</p>
-					</div>
-					<Button type="button" variant="outline" onClick={onCreateTeam}>
-						{t("workspaces.billing.teamTeaserCta")}
-					</Button>
-				</section>
-			) : null}
-
 			{errorMessage ? <InlineError message={errorMessage} /> : null}
 
 			<DialogFooter>
 				<Button type="button" variant="outline" onClick={onClose}>
 					{copy.close}
 				</Button>
-				<Button
-					type="button"
-					disabled={
-						sameAsCurrent || checkout.isPending || previewChange.isPending
-					}
-					onClick={handlePrimaryAction}
-				>
-					{sameAsCurrent
-						? copy.currentSelection
-						: checkout.isPending || previewChange.isPending
-							? copy.preparing
-							: subscription
-								? copy.previewChange
-								: copy.continueToCheckout}
-				</Button>
 			</DialogFooter>
 		</>
+	);
+}
+
+// One symmetric plan column (Lovable layout): name, tagline, live price for
+// the selected tier, tier dropdown, CTA, feature checklist. Both cards render
+// through this so their rhythm and heights always match; the grid's default
+// stretch keeps the shorter card as tall as the other.
+function PlanCard({
+	name,
+	badge,
+	tagline,
+	tier,
+	tiers,
+	basePer100Usd,
+	interval,
+	perLabel,
+	selectId,
+	selectLabel,
+	onSelectTier,
+	action,
+	features,
+	highlighted = false,
+}: {
+	name: string;
+	badge?: string;
+	tagline: string;
+	tier: BillingTierPrice;
+	tiers: readonly BillingTierPrice[];
+	basePer100Usd: number;
+	interval: BillingInterval;
+	perLabel: string;
+	selectId: string;
+	selectLabel: string;
+	onSelectTier: (tierCredits: CreditTier) => void;
+	action: React.ReactNode;
+	features: readonly string[];
+	highlighted?: boolean;
+}) {
+	const { locale, t } = useTranslation();
+	const savings = tierSavingsPercent(tier, basePer100Usd);
+
+	return (
+		<section
+			className={cn(
+				"flex flex-col rounded-2xl border bg-card/70 p-4 sm:p-5",
+				highlighted && "border-primary/35 ring-1 ring-primary/10",
+			)}
+		>
+			<div className="flex items-center gap-2">
+				<h3 className="font-display font-semibold text-lg tracking-tight">
+					{name}
+				</h3>
+				{badge ? (
+					<Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
+						{badge}
+					</Badge>
+				) : null}
+			</div>
+			<p className="mt-1 text-muted-foreground text-xs">{tagline}</p>
+			<div className="mt-4 flex flex-wrap items-center gap-2">
+				<p className="font-mono font-semibold text-3xl tabular-nums">
+					{formatUsd(tierPriceUsd(tier, interval), locale)}
+					<span className="ms-1.5 font-normal font-sans text-muted-foreground text-xs">
+						{perLabel}
+					</span>
+				</p>
+				{savings > 0 ? (
+					<Badge variant="success">
+						{t("billing.planPicker.savePercent", { percent: savings })}
+					</Badge>
+				) : null}
+			</div>
+			<div className="mt-4 grid gap-2">
+				<label htmlFor={selectId} className="font-medium text-sm">
+					{selectLabel}
+				</label>
+				<Select
+					value={String(tier.tierCredits)}
+					onValueChange={(value) => {
+						const parsed = creditTierSchema.safeParse(Number(value));
+						if (parsed.success) onSelectTier(parsed.data);
+					}}
+				>
+					<SelectTrigger id={selectId} className="h-11 w-full">
+						<SelectValue />
+					</SelectTrigger>
+					<SelectContent>
+						<SelectGroup>
+							{tiers.map((option) => {
+								const optionSavings = tierSavingsPercent(option, basePer100Usd);
+								return (
+									<SelectItem
+										key={option.tierCredits}
+										value={String(option.tierCredits)}
+									>
+										<span className="flex min-w-0 items-center gap-2">
+											<span>
+												{t("credits.creditUnit", {
+													count: option.tierCredits,
+												})}
+											</span>
+											<span className="text-muted-foreground">
+												{formatUsd(tierPriceUsd(option, interval), locale)}
+											</span>
+											{optionSavings > 0 ? (
+												<Badge
+													variant="success"
+													className="px-1.5 py-0 text-[10px]"
+												>
+													{t("billing.planPicker.savePercent", {
+														percent: optionSavings,
+													})}
+												</Badge>
+											) : null}
+										</span>
+									</SelectItem>
+								);
+							})}
+						</SelectGroup>
+					</SelectContent>
+				</Select>
+			</div>
+			{action}
+			<FeatureList items={features} />
+		</section>
+	);
+}
+
+function FeatureList({ items }: { items: readonly string[] }) {
+	return (
+		<ul className="mt-5 grid gap-2 border-t pt-4">
+			{items.map((item) => (
+				<li key={item} className="flex items-start gap-2 text-sm">
+					<Check className="mt-0.5 size-4 shrink-0 text-success" aria-hidden />
+					<span className="min-w-0">{item}</span>
+				</li>
+			))}
+		</ul>
 	);
 }
 

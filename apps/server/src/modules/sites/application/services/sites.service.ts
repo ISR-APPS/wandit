@@ -40,12 +40,18 @@ import {
 	buildLeadsCaptureUrl,
 	injectLeadsRuntime,
 } from "../../../leads/runtime/inject-leads-runtime";
+import { inlineKnownCdnScripts } from "../../../pages/domain/inline-cdn-scripts";
 import type { ProjectScope } from "../../../projects/domain/project-scope";
+import {
+	collectAssetUrls,
+	verifyAssetUrls,
+} from "../../domain/asset-validator";
 import { injectWanditBadge } from "../../domain/badge-injector";
 import {
 	NoVersionToPublishError,
 	PublishFailedError,
 	PublishUnavailableError,
+	SiteAssetsUnreachableError,
 	SlugReservedError,
 	SlugTakenError,
 } from "../../domain/errors/site.errors";
@@ -258,9 +264,14 @@ export class SitesService {
 		});
 
 		try {
+			// Unconditional and idempotent like the injectors below: drafts and
+			// archives generated before CDN inlining existed still publish
+			// self-contained instead of depending on jsdelivr at view time.
+			const inlined = inlineKnownCdnScripts(input.html);
+
 			const withPixels = input.skipInjection
-				? input.html
-				: injectPixels(input.html, {
+				? inlined
+				: injectPixels(inlined, {
 						metaPixelId: input.project.metaPixelId,
 						tiktokPixelId: input.project.tiktokPixelId,
 					});
@@ -284,6 +295,8 @@ export class SitesService {
 			});
 
 			assertNoEditorArtifacts(published);
+
+			await this.assertPublishedAssetsReachable(published);
 
 			// Archive first, then flip the live bytes: the mutable key must
 			// never point at a publish that has no immutable audit copy.
@@ -315,7 +328,10 @@ export class SitesService {
 				failureSummary(error),
 			);
 
-			if (error instanceof SlugTakenError) {
+			if (
+				error instanceof SlugTakenError ||
+				error instanceof SiteAssetsUnreachableError
+			) {
 				throw error;
 			}
 
@@ -327,6 +343,34 @@ export class SitesService {
 			throw error instanceof PublishFailedError
 				? error
 				: new PublishFailedError(failureSummary(error));
+		}
+	}
+
+	// Preflight the final bytes before any R2 write: a publish whose media can
+	// never load must fail loudly instead of going live half-blank. Only
+	// structural failures block (relative URLs, 404/410/403); transient probe
+	// trouble is logged and the publish proceeds.
+	private async assertPublishedAssetsReachable(html: string): Promise<void> {
+		// Validated envs hold the transformed boolean; SKIP_ENV_VALIDATION envs
+		// (tests, local scripts) hold the raw string. Both spell "off" the same.
+		if (String(env.SITE_PUBLISH_ASSET_CHECK) === "false") {
+			return;
+		}
+
+		const urls = collectAssetUrls(html);
+
+		if (urls.length === 0) {
+			return;
+		}
+
+		const { broken, warnings } = await verifyAssetUrls(urls);
+
+		for (const url of warnings) {
+			this.logger.warn(`Publish asset check could not verify ${url}`);
+		}
+
+		if (broken.length > 0) {
+			throw new SiteAssetsUnreachableError(broken);
 		}
 	}
 

@@ -144,7 +144,7 @@ IF IMAGE GENERATION FAILS, OR THE BRIEF CARRIES NO PHOTOGRAPH: no section is del
 - OVERLAY CONTENT OBEYS THE GRID: text over a macro carries the same container class as everything else and sits at bottom clamp(2rem,7vh,4.5rem).
 - RESPONSIVE COLLAPSE: below 1024px every two-column grid becomes 1fr and sticky becomes static; the hero media narrows to min(100%,26rem); below 640px the size pill rail becomes a horizontal scroll rail with scroll-snap-type x mandatory, scroll-padding-inline the page pad, and a soft LAIT fade mask on the end edge — never a carousel with dots.
 
-## Motion identity (GSAP 3 + ScrollTrigger via CDN; Lenis optional — if used, expose it as window.__lenis)
+## Motion identity (GSAP 3 + ScrollTrigger via CDN; native scroll — smooth-scroll libraries are unavailable)
 THE SAFETY CONTRACT COMES FIRST AND IS NON-NEGOTIABLE. Compute one flag: reduced = matchMedia("(prefers-reduced-motion: reduce)").matches, hasGsap = typeof window.gsap !== "undefined", animate = hasGsap && !reduced. EVERY hidden initial state is set by gsap.set() INSIDE the animate branch. Never author opacity 0, visibility hidden or a blur filter for an animated element in CSS. If the CDN fails, the page is fully visible and every conversion element still works. Add a prefers-reduced-motion block that, beyond the blanket .01ms override, sets the mobile rotation to none, the cloud drift to none and any marquee to animation none / width auto.
 
 LULLABY TIMING — this world OVERRIDES the global bands, and the override is the concept: NOTHING ON THIS PAGE IS SHORTER THAN .5 SECONDS. Not a hover, not a focus ring, not a tooltip.

@@ -18,7 +18,7 @@ import type { MaybeAuthenticatedRequest } from "../../../../auth";
 
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
-const ALLOWED_WRITE_ORIGINS = [env.ADMIN_ORIGIN, env.CORS_ORIGIN].filter(
+const ALLOWED_WRITE_ORIGINS = [env.ADMIN_ORIGIN].filter(
 	(origin): origin is string => Boolean(origin),
 );
 
@@ -48,9 +48,9 @@ export class AdminGuard implements CanActivate {
 	 * Nest's FastifyAdapter always registers an `application/x-www-form-urlencoded`
 	 * body parser, so a plain auto-submitting HTML form — no preflight, no CORS
 	 * check — would otherwise reach these handlers carrying an admin's cookie.
-	 * Such a form can never send a JSON content type and always sends `Origin`,
-	 * so requiring both closes it while leaving the SPA and non-browser JSON
-	 * callers (which send no `Origin`) working.
+	 * Such a form can never send a JSON content type. Requiring both JSON and the
+	 * configured admin Origin also prevents non-browser callers from bypassing
+	 * the surface boundary by omitting Origin entirely.
 	 */
 	private assertSameSiteWrite(request: MaybeAuthenticatedRequest): void {
 		const contentType = request.headers["content-type"]
@@ -64,7 +64,7 @@ export class AdminGuard implements CanActivate {
 
 		const origin = request.headers.origin;
 
-		if (origin !== undefined && !ALLOWED_WRITE_ORIGINS.includes(origin)) {
+		if (origin === undefined || !ALLOWED_WRITE_ORIGINS.includes(origin)) {
 			throw new NotFoundException();
 		}
 	}

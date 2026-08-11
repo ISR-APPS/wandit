@@ -34,6 +34,7 @@ import {
 	hasGatewayGenerationMetadata,
 } from "../../../metering/domain/gateway-metering";
 import { fixedOperationCredits } from "../../../metering/domain/operation-registry";
+import { inlineKnownCdnScripts } from "../../../pages/domain/inline-cdn-scripts";
 // Plain module (no Nest), safe in the Trigger bundle — cheerio bundles fine.
 import {
 	isStampableContainer,
@@ -1556,10 +1557,12 @@ export async function runSiteBuild(
 		// Deterministic stamping pass (spec §4): every editable leaf gets a
 		// stable data-wid before upload, so every version's canonical HTML in
 		// R2 is fully stamped. The model is never asked to do this itself.
+		// The sanctioned GSAP CDN tags are inlined first, so the canonical HTML
+		// never depends on a third-party CDN request.
 		const rawHtml = vfs.read("index.html");
 
 		if (rawHtml !== null) {
-			vfs.write("index.html", stampHtml(rawHtml));
+			vfs.write("index.html", stampHtml(inlineKnownCdnScripts(rawHtml)));
 		}
 
 		try {
@@ -2032,6 +2035,25 @@ function assertValidSite(
 	}
 
 	assertValidBrandMarkers(html, pageKind);
+
+	// The finish tool validates BEFORE the publish-time inlining pass runs, so
+	// apply the (idempotent) inliner here: the sanctioned GSAP CDN tags pass,
+	// everything else external is rejected.
+	const $inlined = cheerio.load(inlineKnownCdnScripts(html));
+	const externalScriptUrls = $inlined("script[src]")
+		.toArray()
+		.map((node) => ($inlined(node).attr("src") ?? "").trim())
+		.filter((src) => /^(?:https?:)?\/\//i.test(src));
+
+	if (externalScriptUrls.length > 0) {
+		throw new Error(
+			`index.html loads external scripts (${externalScriptUrls.join(", ")}) — ` +
+				"the published page must be self-contained, so write ALL JavaScript " +
+				"inline in <script> elements; the pinned GSAP 3 core and " +
+				"ScrollTrigger tags from jsdelivr/unpkg/cdnjs are auto-inlined at " +
+				"finish and are the only sanctioned external scripts",
+		);
+	}
 
 	const firstStyle = /<style\b[^>]*>([\s\S]*?)<\/style\s*>/i.exec(html);
 

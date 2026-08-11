@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { LoginVisualPanel } from "@/features/auth/components/login-visual-panel";
 import { authClient } from "@/features/auth/lib/auth-client";
+import { buildAdminAuthCallbackUrls } from "@/features/auth/lib/auth-navigation";
 import { getSession, signOut } from "@/features/auth/lib/session";
 
 export function LoginPage() {
@@ -34,10 +35,13 @@ export function LoginPage() {
 		setLocalError(null);
 
 		try {
+			const { callbackURL, errorCallbackURL } = buildAdminAuthCallbackUrls(
+				window.location.origin,
+			);
 			const result = await authClient.signIn.social({
 				provider: "google",
-				callbackURL: `${window.location.origin}/dashboard`,
-				errorCallbackURL: `${window.location.origin}/login?error=oauth`,
+				callbackURL,
+				errorCallbackURL,
 			});
 
 			if (result.error) {

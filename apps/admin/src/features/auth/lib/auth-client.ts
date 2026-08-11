@@ -4,4 +4,5 @@ import { getServerUrl } from "@/lib/server-url";
 
 export const authClient = createAuthClient({
 	baseURL: getServerUrl(),
+	basePath: "/api/admin-auth",
 });

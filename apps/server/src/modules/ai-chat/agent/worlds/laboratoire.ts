@@ -152,7 +152,7 @@ The hero TERMINATES ON A SEAM, never whitespace: a PIN HEADER, or a full-bleed F
 - OVERFLOW IS A DEVICE, used exactly four times: the glow at 128 percent width, the callout labels leaving the stage, the corner ticks, the footer wordmark. Safe only because overflow-x clip sits on html and body and overflow clip on every scene containing a piercing element.
 - RESPONSIVE COLLAPSE below 900px: every multi-column grid becomes 1fr, sticky goes static, the explode plays once without a pin, callouts drop to 2, benchmark figures drop one size step, the ribbon becomes a 2-column grid, the comparison table scrolls in its own wrapper.
 
-## Motion identity (GSAP 3 + ScrollTrigger via CDN; Lenis optional and gated; no canvas)
+## Motion identity (GSAP 3 + ScrollTrigger via CDN; native scroll — smooth-scroll libraries are unavailable; no canvas)
 THE SAFETY CONTRACT COMES FIRST. Compute once: reduced = matchMedia("(prefers-reduced-motion: reduce)").matches; hasGsap = typeof window.gsap !== "undefined"; animate = hasGsap && !reduced. EVERY hidden initial state — autoAlpha, y, clip-path, dashoffset — is set with gsap.set INSIDE the animate branch; nothing is opacity 0, visibility hidden or clipped in CSS. If the CDN fails or motion is reduced, the page is fully visible, fully legible, and every conversion element still works. The reduced-motion CSS block, beyond the .01ms blanket, stops the LED breath and the power dot and leaves every trace fully drawn.
 
 GLOBAL FEEL: gsap.defaults({ ease: "power3.out", duration: .9 }).
@@ -173,7 +173,7 @@ THE MANDATORY SET:
 7. STICKY SPLIT row ticks and step counter, per-row triggers with onEnter and onEnterBack; micro-interactions on every interactive element, all CSS, all 120-220ms.
 once true on EVERYTHING non-scrubbed. Nothing re-animates on scroll-up.
 
-LENIS IS OPTIONAL AND GATED: duration 1.05, exponential-out easing, disabled when reduced is true or on touch; wire lenis.on("scroll", ScrollTrigger.update), drive lenis.raf from gsap.ticker, set gsap.ticker.lagSmoothing(0), expose the instance as window.__lenis. If it fails to load, native scroll continues.
+SMOOTH-SCROLL LIBRARIES ARE UNAVAILABLE in this runtime — native scroll only. Every ScrollTrigger on the page works directly on native scroll; do not load Lenis or any other smooth-scroll script.
 
 ## Components
 - BUTTONS, border-radius: var(--radius), three forms. PRIMARY: signal fill, bench text, mono .6875rem .12em uppercase 700, padding 14px 22px, min-height 48px on mobile; on hover it keeps the hue and gains box-shadow 0 0 16px signal at .28 over .16s (glow 3 of the budget's six) — it gets brighter, it never lifts. SECONDARY: transparent, 1px glass-.22 border, glass text, identical metrics; hover turns border and label signal over .16s. TEXT LINK: mono with a leading 10px inline-SVG arrow (never an icon-font glyph) translating x 4px. No pills for actions, no icon-only buttons, no full-width solid rectangles except the submit and the sticky bar action.

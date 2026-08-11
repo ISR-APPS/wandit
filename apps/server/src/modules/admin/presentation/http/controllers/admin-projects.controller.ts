@@ -1,12 +1,4 @@
-import {
-	Controller,
-	Get,
-	Inject,
-	Param,
-	Query,
-	Res,
-	UseGuards,
-} from "@nestjs/common";
+import { Controller, Get, Inject, Param, Query, Res } from "@nestjs/common";
 import {
 	type AdminProjectDetail,
 	type AdminProjectVersionHtmlResponse,
@@ -21,10 +13,10 @@ import { SkipResponseEnvelope } from "../../../../../infrastructure/http/skip-en
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { AdminPagePreviewService } from "../../../application/services/admin-page-preview.service";
 import { AdminProjectsService } from "../../../application/services/admin-projects.service";
-import { AdminGuard } from "../guards/admin.guard";
+import { AdminOnly } from "../decorators/admin-only.decorator";
 
 @Controller("v1/admin/projects")
-@UseGuards(AdminGuard)
+@AdminOnly()
 export class AdminProjectsController {
 	constructor(
 		@Inject(AdminProjectsService)

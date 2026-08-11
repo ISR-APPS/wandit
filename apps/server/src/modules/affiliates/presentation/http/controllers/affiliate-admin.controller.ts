@@ -10,7 +10,6 @@ import {
 	Post,
 	Query,
 	Res,
-	UseGuards,
 } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
@@ -63,12 +62,12 @@ import type { FastifyReply } from "fastify";
 
 import { SkipResponseEnvelope } from "../../../../../infrastructure/http/skip-envelope.decorator";
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
-import { AdminGuard } from "../../../../admin/presentation/http/guards/admin.guard";
+import { AdminOnly } from "../../../../admin/presentation/http/decorators/admin-only.decorator";
 import { CurrentUser } from "../../../../auth";
 import { AffiliateAdminService } from "../../../application/services/affiliate-admin.service";
 
 @Controller("v1/admin/affiliates")
-@UseGuards(AdminGuard)
+@AdminOnly()
 export class AffiliateAdminController {
 	constructor(
 		@Inject(AffiliateAdminService)

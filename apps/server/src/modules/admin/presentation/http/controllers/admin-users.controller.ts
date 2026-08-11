@@ -7,7 +7,6 @@ import {
 	Param,
 	Post,
 	Query,
-	UseGuards,
 } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
@@ -39,10 +38,10 @@ import {
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { CurrentUser } from "../../../../auth";
 import { AdminUsersService } from "../../../application/services/admin-users.service";
-import { AdminGuard } from "../guards/admin.guard";
+import { AdminOnly } from "../decorators/admin-only.decorator";
 
 @Controller("v1/admin/users")
-@UseGuards(AdminGuard)
+@AdminOnly()
 export class AdminUsersController {
 	constructor(
 		@Inject(AdminUsersService)
