@@ -8,7 +8,6 @@ import {
 	Post,
 	Req,
 	Res,
-	UseGuards,
 } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
@@ -27,7 +26,7 @@ import {
 	isUserUploadUrl,
 	isWanditUploadUrl,
 } from "../../../../../infrastructure/storage/r2";
-import { CurrentUser, EarlyAccessGuard } from "../../../../auth";
+import { CurrentUser } from "../../../../auth";
 import { ChatsRepository } from "../../../../generation/infrastructure/persistence/chats.repository";
 import { projectScopeFrom } from "../../../../projects/domain/project-scope";
 import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
@@ -85,7 +84,6 @@ export class AiChatController {
 		private readonly chatsRepository: ChatsRepository,
 	) {}
 
-	@UseGuards(EarlyAccessGuard)
 	@Post(":chatId/ai-stream")
 	@SkipResponseEnvelope()
 	async stream(

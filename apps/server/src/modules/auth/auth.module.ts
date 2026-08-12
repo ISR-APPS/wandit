@@ -36,7 +36,6 @@ import { AdminAuthController } from "./presentation/http/controllers/admin-auth.
 import { AuthController } from "./presentation/http/controllers/auth.controller";
 import { AuthMeController } from "./presentation/http/controllers/me.controller";
 import { AuthGuard } from "./presentation/http/guards/auth.guard";
-import { EarlyAccessGuard } from "./presentation/http/guards/early-access.guard";
 
 const logger = new Logger("AuthModule");
 
@@ -187,7 +186,7 @@ const adminAuthProvider: Provider<AdminAuth> = {
 @Global()
 @Module({
 	controllers: [AdminAuthController, AuthController, AuthMeController],
-	exports: [ADMIN_AUTH_INSTANCE, AUTH_INSTANCE, AuthGuard, EarlyAccessGuard],
+	exports: [ADMIN_AUTH_INSTANCE, AUTH_INSTANCE, AuthGuard],
 	imports: [
 		AffiliatesModule,
 		CreditsModule,
@@ -199,7 +198,6 @@ const adminAuthProvider: Provider<AdminAuth> = {
 		adminAuthProvider,
 		authProvider,
 		AuthGuard,
-		EarlyAccessGuard,
 		SignupGrantOutboxRepository,
 		SignupGrantOutboxService,
 		SignupGrantsService,

@@ -18,7 +18,6 @@ import { AdminProjectsService } from "./application/services/admin-projects.serv
 import { AdminStatsService } from "./application/services/admin-stats.service";
 import { AdminUsersService } from "./application/services/admin-users.service";
 import { AdminWebhookReplayService } from "./application/services/admin-webhook-replay.service";
-import { BetaAccessService } from "./application/services/beta-access.service";
 import { AdminRepository } from "./infrastructure/persistence/admin.repository";
 import { AdminOrganizationsRepository } from "./infrastructure/persistence/admin-organizations.repository";
 import { AdminOverviewRepository } from "./infrastructure/persistence/admin-overview.repository";
@@ -58,7 +57,6 @@ import { AdminWebhooksController } from "./presentation/http/controllers/admin-w
 		AdminStatsService,
 		AdminUsersService,
 		AdminWebhookReplayService,
-		BetaAccessService,
 		BillingWebhookEventsRepository,
 		TriggerBillingWebhookDispatcherService,
 	],

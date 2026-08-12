@@ -10,7 +10,7 @@ import { OrganizationsEnabledGuard } from "./presentation/http/guards/organizati
 import { SubscriptionsEnabledGuard } from "./presentation/http/guards/subscriptions-enabled.guard";
 import { TopupsEnabledGuard } from "./presentation/http/guards/topups-enabled.guard";
 
-// Global: EarlyAccessGuard and the billing kill-switch guards resolve
+// Global: the billing kill-switch guards resolve
 // ProductSettingsService from ANY module hosting a guarded controller —
 // same reason AuthModule is global.
 @Global()

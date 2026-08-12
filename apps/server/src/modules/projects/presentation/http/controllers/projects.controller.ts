@@ -8,7 +8,6 @@ import {
 	Param,
 	Patch,
 	Post,
-	UseGuards,
 } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
@@ -23,7 +22,7 @@ import {
 } from "@wandit/contracts";
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
-import { CurrentUser, EarlyAccessGuard } from "../../../../auth";
+import { CurrentUser } from "../../../../auth";
 import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
 import {
 	CurrentWorkspace,
@@ -50,7 +49,6 @@ export class ProjectsController {
 		return this.projectsService.list(projectScopeFrom(workspace, user.id));
 	}
 
-	@UseGuards(EarlyAccessGuard)
 	@RequireWorkspacePermission("project", "create")
 	@Post()
 	create(

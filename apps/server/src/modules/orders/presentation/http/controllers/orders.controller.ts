@@ -19,7 +19,7 @@ import {
 } from "@wandit/contracts";
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
-import { CurrentUser, EarlyAccessGuard } from "../../../../auth";
+import { CurrentUser } from "../../../../auth";
 import {
 	DomainRateLimit,
 	DomainRateLimitGuard,
@@ -43,7 +43,7 @@ export class OrdersController {
 	// availability request, so it gets the same budget as domain purchase had.
 	// Buy-with-attach on an org project requires domain:manage (the guard is
 	// a no-op in personal scope); the charge itself stays the buyer's money.
-	@UseGuards(EarlyAccessGuard, DomainRateLimitGuard)
+	@UseGuards(DomainRateLimitGuard)
 	@DomainRateLimit({ limit: 5, windowMs: 60_000 })
 	@RequireWorkspacePermission("domain", "manage")
 	@Post("domain")
@@ -60,7 +60,6 @@ export class OrdersController {
 		);
 	}
 
-	@UseGuards(EarlyAccessGuard)
 	@Post("reconcile-session")
 	reconcileSession(
 		@CurrentUser() user: AuthUser,

@@ -20,7 +20,7 @@ import {
 } from "@wandit/db";
 import { artifacts, versions } from "@wandit/db/schema/artifacts";
 import { session, user } from "@wandit/db/schema/auth";
-import { betaAccessEvents, subscriptions } from "@wandit/db/schema/billing";
+import { subscriptions } from "@wandit/db/schema/billing";
 import { aiUsageEvents, creditLedger } from "@wandit/db/schema/credits";
 import { deployments } from "@wandit/db/schema/deployments";
 import { domains } from "@wandit/db/schema/domains";
@@ -43,7 +43,6 @@ export type AdminUserSummaryRow = {
 	emailVerified: boolean;
 	image: string | null;
 	role: string;
-	earlyAccess: boolean;
 	banned: boolean | null;
 	createdAt: Date;
 	lastSeenAt: Date | null;
@@ -343,9 +342,9 @@ export class AdminRepository {
 	async findUserAccess(
 		userId: string,
 		client: AdminDbClient = this.db,
-	): Promise<{ earlyAccess: boolean; id: string; role: string } | null> {
+	): Promise<{ id: string; role: string } | null> {
 		const [row] = await client
-			.select({ earlyAccess: user.earlyAccess, id: user.id, role: user.role })
+			.select({ id: user.id, role: user.role })
 			.from(user)
 			.where(eq(user.id, userId))
 			.limit(1);
@@ -533,26 +532,6 @@ export class AdminRepository {
 		await this.db.update(user).set({ role }).where(eq(user.id, userId));
 	}
 
-	async setUserEarlyAccess(
-		userId: string,
-		earlyAccess: boolean,
-		client: AdminDbClient = this.db,
-	): Promise<void> {
-		await client.update(user).set({ earlyAccess }).where(eq(user.id, userId));
-	}
-
-	async insertBetaAccessEvent(
-		input: {
-			action: "granted" | "revoked";
-			actorUserId: string;
-			reason: string | null;
-			userId: string;
-		},
-		client: AdminDbClient = this.db,
-	): Promise<void> {
-		await client.insert(betaAccessEvents).values(input);
-	}
-
 	async setUserBanned(
 		userId: string,
 		banned: boolean,
@@ -625,7 +604,6 @@ export class AdminRepository {
 			emailVerified: user.emailVerified,
 			image: user.image,
 			role: user.role,
-			earlyAccess: user.earlyAccess,
 			banned: user.banned,
 			createdAt: user.createdAt,
 			lastSeenAt: user.lastSeenAt,

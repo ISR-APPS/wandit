@@ -18,7 +18,6 @@ import {
 	Query,
 	Req,
 	Res,
-	UseGuards,
 } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
@@ -35,7 +34,7 @@ import { z } from "zod";
 
 import { SkipResponseEnvelope } from "../../../../../infrastructure/http/skip-envelope.decorator";
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
-import { CurrentUser, EarlyAccessGuard } from "../../../../auth";
+import { CurrentUser } from "../../../../auth";
 import { projectScopeFrom } from "../../../../projects/domain/project-scope";
 import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
 import {
@@ -92,7 +91,6 @@ export class ChatsController {
 	// Save the user's prompt and enqueue generation. The answer streams later.
 	// Legacy BullMQ path: personal workspaces only (teams-workspaces.md §0).
 	@PersonalWorkspaceOnly()
-	@UseGuards(EarlyAccessGuard)
 	@Post(":chatId/messages")
 	sendMessage(
 		@Param("chatId", new ZodValidationPipe(uuidSchema))

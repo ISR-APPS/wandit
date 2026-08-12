@@ -52,7 +52,6 @@ import { isApiClientError } from "@/lib/api-client";
 const SETTINGS_CONFLICT_MESSAGE = "settings changed elsewhere — reload";
 
 const BOOLEAN_SETTING_KEYS = [
-	"earlyAccessRequired",
 	"signupGrantEnabled",
 	"paidSubscriptionsEnabled",
 	"topupsEnabled",
@@ -74,15 +73,6 @@ type ToggleDetails = {
 };
 
 const TOGGLE_DETAILS: Record<BooleanSettingKey, ToggleDetails> = {
-	earlyAccessRequired: {
-		label: "Require early access",
-		description:
-			"Keep the product limited to admins and accounts explicitly enrolled in beta.",
-		consequence: (nextValue) =>
-			nextValue
-				? "Only admins and users with beta access will be admitted. Other signed-in users will return to the early-access preview."
-				: "This opens the product to every signed-in user. Existing accounts will no longer need an early-access grant.",
-	},
 	signupGrantEnabled: {
 		label: "Signup credit grant",
 		description:

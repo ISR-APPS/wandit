@@ -1,4 +1,3 @@
-import { useNavigate } from "@tanstack/react-router";
 import type { ComposerMetadata } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import { Input } from "@wandit/ui/components/input";
@@ -8,14 +7,13 @@ import { Search } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Spark } from "@/components/logo";
-import { promptStash, useSession } from "@/features/auth";
+import { promptStash } from "@/features/auth";
 import {
 	InsufficientCreditsDialog,
 	OutOfCreditsBanner,
 	useOutOfCredits,
 } from "@/features/credits";
 import { PendingInvitesBanner } from "@/features/workspaces/components/pending-invites-banner";
-import { isEarlyAccessUser } from "@/lib/early-access";
 import { useTranslation } from "@/lib/i18n";
 import type { Project } from "../api/dto";
 import { useProjectsQuery } from "../api/projects.queries";
@@ -24,7 +22,6 @@ import { PromptBox } from "../components/prompt-box";
 import { DashboardShell } from "../components/shell/dashboard-shell";
 import { GRID_SKELETON_COUNT } from "../lib/constants";
 import { useCreateProjectWithPrompt } from "../lib/hooks";
-import { PREVIEW_PROMPT_STATE_KEY } from "../lib/preview-prompt";
 
 type StatusFilter = "all" | "published" | "drafts";
 
@@ -100,25 +97,9 @@ export default function DashboardPage() {
 	const { data: projects, isPending } = useProjectsQuery();
 	const { create, isCreating, insufficientOpen, setInsufficientOpen, cost } =
 		useCreateProjectWithPrompt();
-	const navigate = useNavigate();
-	const { data: session } = useSession();
 
-	// Launch window: everyone can type, but only early-access accounts really
-	// generate — the rest land on the workspace-shaped Coming Soon teaser with
-	// their prompt echoed in the chat (see lib/early-access.ts).
-	const hasEarlyAccess = isEarlyAccessUser(session?.user);
-	// Only real generators get credit-locked; the Coming Soon teaser is free.
 	const { outOfCredits } = useOutOfCredits();
-	const promptLocked = hasEarlyAccess && outOfCredits;
-	const teaseComingSoon = (prompt: string) => {
-		void navigate({
-			to: "/preview",
-			state: (previous) => ({
-				...previous,
-				[PREVIEW_PROMPT_STATE_KEY]: prompt,
-			}),
-		});
-	};
+	const promptLocked = outOfCredits;
 
 	const [query, setQuery] = useState("");
 	const [filter, setFilter] = useState<StatusFilter>("all");
@@ -189,11 +170,11 @@ export default function DashboardPage() {
 									variant="hero"
 									showPriceTag
 									showModes
-									attachmentsEnabled={hasEarlyAccess}
+									attachmentsEnabled
 									disabled={promptLocked}
 									initialValue={promptPrefill.value}
 									initialComposer={promptPrefill.composer}
-									onSubmit={hasEarlyAccess ? create : teaseComingSoon}
+									onSubmit={create}
 									isSubmitting={isCreating}
 								/>
 							</OutOfCreditsBanner>
