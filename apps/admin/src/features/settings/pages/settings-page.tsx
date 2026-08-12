@@ -97,9 +97,8 @@ export function SettingsPage() {
 					</p>
 					<h1 className="font-semibold text-2xl tracking-tight">Settings</h1>
 					<p className="text-muted-foreground text-sm leading-relaxed">
-						Control beta admission, purchase availability, and promotional
-						credits. Every switch requires confirmation before it reaches the
-						server.
+						Control purchase availability and promotional credits. Every switch
+						requires confirmation before it reaches the server.
 					</p>
 				</div>
 

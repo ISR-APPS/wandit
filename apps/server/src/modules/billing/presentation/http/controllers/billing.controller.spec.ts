@@ -1,7 +1,6 @@
 import { GUARDS_METADATA } from "@nestjs/common/constants";
 import { describe, expect, it } from "vitest";
 
-import { EarlyAccessGuard } from "../../../../auth";
 import {
 	SubscriptionsEnabledGuard,
 	TopupsEnabledGuard,
@@ -24,13 +23,10 @@ describe("BillingController admission guards", () => {
 		"change",
 		"resume",
 	] as const)("gates %s behind the subscriptions switch", (method) => {
-		expect(guardsFor(method)).toEqual([
-			SubscriptionsEnabledGuard,
-			EarlyAccessGuard,
-		]);
+		expect(guardsFor(method)).toEqual([SubscriptionsEnabledGuard]);
 	});
 
 	it("gates top-ups behind the top-ups switch", () => {
-		expect(guardsFor("topup")).toEqual([TopupsEnabledGuard, EarlyAccessGuard]);
+		expect(guardsFor("topup")).toEqual([TopupsEnabledGuard]);
 	});
 });

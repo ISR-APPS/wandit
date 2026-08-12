@@ -4,15 +4,7 @@
 //
 // Route prefix is "v1" (not "v1/pages") because the routes live under
 // different roots: /v1/projects/:id/page and /v1/pages/versions/:id/html.
-import {
-	Body,
-	Controller,
-	Get,
-	Inject,
-	Param,
-	Post,
-	UseGuards,
-} from "@nestjs/common";
+import { Body, Controller, Get, Inject, Param, Post } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
 	type ApplyPageOpsBody,
@@ -32,7 +24,7 @@ import {
 } from "@wandit/contracts";
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
-import { CurrentUser, EarlyAccessGuard } from "../../../../auth";
+import { CurrentUser } from "../../../../auth";
 import { projectScopeFrom } from "../../../../projects/domain/project-scope";
 import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
 import {
@@ -54,7 +46,6 @@ export class PagesController {
 	// One inline-editor/theme-panel Save = one op batch = one NEW immutable
 	// version (spec §7/§14). The body schema only accepts client op kinds —
 	// a replace-section op 400s at validation (the browser never sends HTML).
-	@UseGuards(EarlyAccessGuard)
 	@RequireWorkspacePermission("project", "update")
 	@Post("projects/:projectId/page/ops")
 	applyOps(
@@ -105,7 +96,6 @@ export class PagesController {
 	}
 
 	// User Stop: flips the attempt to canceled and cancels the Trigger run.
-	@UseGuards(EarlyAccessGuard)
 	@RequireWorkspacePermission("project", "update")
 	@Post("projects/:projectId/page/attempts/:attemptId/stop")
 	stopAttempt(
@@ -128,7 +118,6 @@ export class PagesController {
 
 	// Retry a failed build / resume a stopped one — same attempt row, new
 	// Trigger run, fresh Realtime handle for the chat card.
-	@UseGuards(EarlyAccessGuard)
 	@RequireWorkspacePermission("project", "update")
 	@Post("projects/:projectId/page/attempts/:attemptId/retry")
 	retryAttempt(
@@ -147,7 +136,6 @@ export class PagesController {
 	}
 
 	// Discard/Dismiss the terminal chat card (design card 16's "Discard").
-	@UseGuards(EarlyAccessGuard)
 	@RequireWorkspacePermission("project", "update")
 	@Post("projects/:projectId/page/attempts/:attemptId/dismiss")
 	dismissAttempt(
@@ -182,7 +170,6 @@ export class PagesController {
 	// Copy a historical version forward as a new immutable active version.
 	// The expected pointer gives restores the same compare-and-swap discipline
 	// as inline edit batches.
-	@UseGuards(EarlyAccessGuard)
 	@RequireWorkspacePermission("project", "update")
 	@Post("projects/:projectId/page/versions/:versionId/restore")
 	restoreVersion(

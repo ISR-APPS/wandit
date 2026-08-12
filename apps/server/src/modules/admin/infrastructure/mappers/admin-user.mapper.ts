@@ -33,7 +33,6 @@ export function mapAdminUserSummary(
 		emailVerified: row.emailVerified,
 		image: row.image,
 		role: normalizeRole(row.role),
-		earlyAccess: row.earlyAccess,
 		banned: row.banned ?? false,
 		createdAt: toIso(row.createdAt),
 		lastSeenAt: row.lastSeenAt === null ? null : toIso(row.lastSeenAt),
@@ -114,7 +113,8 @@ function mapAdminCreditLedgerEntry(
 		createdAt: toIso(row.createdAt),
 		aiModel: row.aiModel,
 		aiProvider: row.aiProvider,
-		aiCostUsdMicros: row.aiCostUsdMicros === null ? null : Number(row.aiCostUsdMicros),
+		aiCostUsdMicros:
+			row.aiCostUsdMicros === null ? null : Number(row.aiCostUsdMicros),
 	};
 }
 

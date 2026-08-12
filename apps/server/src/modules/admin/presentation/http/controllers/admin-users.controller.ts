@@ -10,13 +10,9 @@ import {
 } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
-	type AdminBetaEnrollInput,
-	type AdminBulkSetAccessInput,
-	type AdminBulkSetAccessResult,
 	type AdminGrantCreditsInput,
 	type AdminListUsersQuery,
 	type AdminListUsersResponse,
-	type AdminSetAccessInput,
 	type AdminSetBannedInput,
 	type AdminSetRoleInput,
 	type AdminUserDetail,
@@ -24,11 +20,8 @@ import {
 	type AdminUserPagesResponse,
 	type AdminUserProjectsQuery,
 	type AdminUserProjectsResponse,
-	adminBetaEnrollInputSchema,
-	adminBulkSetAccessInputSchema,
 	adminGrantCreditsInputSchema,
 	adminListUsersQuerySchema,
-	adminSetAccessInputSchema,
 	adminSetBannedInputSchema,
 	adminSetRoleInputSchema,
 	adminUserPagesQuerySchema,
@@ -56,16 +49,6 @@ export class AdminUsersController {
 		return this.adminUsersService.listUsers(query);
 	}
 
-	@Post("bulk-access")
-	@HttpCode(200)
-	bulkSetAccess(
-		@Body(new ZodValidationPipe(adminBulkSetAccessInputSchema))
-		body: AdminBulkSetAccessInput,
-		@CurrentUser() admin: AuthUser,
-	): Promise<AdminBulkSetAccessResult> {
-		return this.adminUsersService.bulkSetAccess(admin.id, body);
-	}
-
 	@Get(":userId/pages")
 	pages(
 		@Param("userId") userId: string,
@@ -89,17 +72,6 @@ export class AdminUsersController {
 		return this.adminUsersService.getUserDetail(userId);
 	}
 
-	@Post(":userId/beta-enroll")
-	@HttpCode(200)
-	betaEnroll(
-		@Param("userId") userId: string,
-		@Body(new ZodValidationPipe(adminBetaEnrollInputSchema))
-		body: AdminBetaEnrollInput,
-		@CurrentUser() admin: AuthUser,
-	): Promise<AdminUserDetail> {
-		return this.adminUsersService.betaEnroll(admin.id, userId, body);
-	}
-
 	@Post(":userId/credits")
 	@HttpCode(200)
 	grantCredits(
@@ -120,17 +92,6 @@ export class AdminUsersController {
 		@CurrentUser() admin: AuthUser,
 	): Promise<AdminUserDetail> {
 		return this.adminUsersService.setRole(admin.id, userId, body);
-	}
-
-	@Post(":userId/access")
-	@HttpCode(200)
-	setAccess(
-		@Param("userId") userId: string,
-		@Body(new ZodValidationPipe(adminSetAccessInputSchema))
-		body: AdminSetAccessInput,
-		@CurrentUser() admin: AuthUser,
-	): Promise<AdminUserDetail> {
-		return this.adminUsersService.setAccess(admin.id, userId, body);
 	}
 
 	@Post(":userId/banned")

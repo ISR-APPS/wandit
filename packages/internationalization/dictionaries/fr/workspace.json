@@ -35,7 +35,6 @@
 		"failed": "Échec de la publication",
 		"retryCta": "Réessayer",
 		"failedHint": "Une erreur est survenue. Votre dernière version en ligne n'est pas affectée — réessayez.",
-		"earlyAccessRequired": "Votre compte ne dispose pas encore de l’accès anticipé. La publication est réservée aux utilisateurs qui disposent de cet accès.",
 		"copyLink": "Copier le lien",
 		"openLive": "Ouvrir le site en ligne",
 		"unpublish": "Dépublier",

@@ -6,13 +6,9 @@ import {
 	NotFoundException,
 } from "@nestjs/common";
 import {
-	type AdminBetaEnrollInput,
-	type AdminBulkSetAccessInput,
-	type AdminBulkSetAccessResult,
 	type AdminGrantCreditsInput,
 	type AdminListUsersQuery,
 	type AdminListUsersResponse,
-	type AdminSetAccessInput,
 	type AdminSetBannedInput,
 	type AdminSetRoleInput,
 	type AdminUserDetail,
@@ -38,7 +34,6 @@ import {
 	type AdminUserPageRow,
 } from "../../infrastructure/persistence/admin.repository";
 import { AdminOrganizationsRepository } from "../../infrastructure/persistence/admin-organizations.repository";
-import { BetaAccessService } from "./beta-access.service";
 
 const RECENT_PROJECTS_LIMIT = 25;
 const RECENT_LEDGER_LIMIT = 50;
@@ -54,8 +49,6 @@ export class AdminUsersService {
 		private readonly adminOrganizationsRepository: AdminOrganizationsRepository,
 		@Inject(CreditsService)
 		private readonly creditsService: CreditsService,
-		@Inject(BetaAccessService)
-		private readonly betaAccessService: BetaAccessService,
 	) {}
 
 	async listUsers(query: AdminListUsersQuery): Promise<AdminListUsersResponse> {
@@ -159,20 +152,6 @@ export class AdminUsersService {
 		return this.getUserDetail(userId);
 	}
 
-	async betaEnroll(
-		actingAdminId: string,
-		userId: string,
-		input: AdminBetaEnrollInput,
-	): Promise<AdminUserDetail> {
-		await this.betaAccessService.enroll(actingAdminId, userId, input);
-
-		this.logger.log(
-			`admin_beta_enroll admin=${actingAdminId} target=${userId} credits=${input.credits}`,
-		);
-
-		return this.getUserDetail(userId);
-	}
-
 	async setRole(
 		actingAdminId: string,
 		userId: string,
@@ -190,40 +169,6 @@ export class AdminUsersService {
 		);
 
 		return this.getUserDetail(userId);
-	}
-
-	async setAccess(
-		actingAdminId: string,
-		userId: string,
-		input: AdminSetAccessInput,
-	): Promise<AdminUserDetail> {
-		await this.betaAccessService.setAccess(
-			actingAdminId,
-			userId,
-			input.granted,
-		);
-
-		this.logger.log(
-			`admin_set_access admin=${actingAdminId} target=${userId} granted=${input.granted}`,
-		);
-
-		return this.getUserDetail(userId);
-	}
-
-	async bulkSetAccess(
-		actingAdminId: string,
-		input: AdminBulkSetAccessInput,
-	): Promise<AdminBulkSetAccessResult> {
-		const result = await this.betaAccessService.bulkSetAccess(
-			actingAdminId,
-			input,
-		);
-
-		this.logger.log(
-			`admin_bulk_set_access admin=${actingAdminId} updated=${result.updated} skipped=${result.skipped} failed=${result.failed}`,
-		);
-
-		return result;
 	}
 
 	async setBanned(

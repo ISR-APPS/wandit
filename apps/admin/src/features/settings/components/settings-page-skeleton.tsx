@@ -2,7 +2,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const SETTINGS_SKELETON_ROWS = [
-	"early-access",
+	"organizations",
 	"signup-grant",
 	"subscriptions",
 	"topups",

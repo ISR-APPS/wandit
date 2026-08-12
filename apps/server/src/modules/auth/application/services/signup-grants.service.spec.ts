@@ -13,7 +13,6 @@ import { SignupGrantsService } from "./signup-grants.service";
 
 function settings(overrides: Partial<ProductSettings> = {}): ProductSettings {
 	return {
-		earlyAccessRequired: true,
 		emailAuthEnabled: false,
 		id: 1,
 		organizationsEnabled: false,
