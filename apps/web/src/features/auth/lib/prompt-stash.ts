@@ -5,7 +5,8 @@ import {
 
 // One-shot stash for the draft a signed-out visitor prepared before auth.
 // Files cannot survive the redirect, but the selected workflow can: the
-// dashboard restores it and asks for the Video source image there.
+// dashboard restores it. Text prompts auto-create the project and start
+// generation; image-animation still asks for the source still there.
 const STASH_KEY = "wandit-prompt-stash";
 const STASH_VERSION = 2;
 
@@ -13,6 +14,18 @@ export type StashedPrompt = {
 	prompt: string;
 	composer?: ComposerMetadata;
 };
+
+/**
+ * True when the post-auth dashboard should create the project and start
+ * generation without another click. Image animation still needs a source
+ * still that cannot survive signed-out auth, so those drafts stay prefill-only.
+ */
+export function canAutostartStashedPrompt(draft: StashedPrompt): boolean {
+	if (draft.prompt.trim().length === 0) return false;
+	if (draft.composer?.output !== "image-animation") return true;
+	const sourceUrl = draft.composer.options?.sourceImageUrl;
+	return typeof sourceUrl === "string" && sourceUrl.length > 0;
+}
 
 export const promptStash = {
 	stash(prompt: string, composer?: ComposerMetadata): void {

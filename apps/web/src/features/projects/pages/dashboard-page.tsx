@@ -1,13 +1,11 @@
-import type { ComposerMetadata } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import { Input } from "@wandit/ui/components/input";
 import { Skeleton } from "@wandit/ui/components/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@wandit/ui/components/tabs";
 import { Search } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import { Spark } from "@/components/logo";
-import { promptStash } from "@/features/auth";
 import {
 	InsufficientCreditsDialog,
 	OutOfCreditsBanner,
@@ -95,30 +93,23 @@ function NoResultsState({
 export default function DashboardPage() {
 	const { t } = useTranslation();
 	const { data: projects, isPending } = useProjectsQuery();
-	const { create, isCreating, insufficientOpen, setInsufficientOpen, cost } =
-		useCreateProjectWithPrompt();
+	const {
+		create,
+		isCreating,
+		insufficientOpen,
+		setInsufficientOpen,
+		cost,
+		restoreKey,
+		restoredPrompt,
+		restoredComposer,
+	} = useCreateProjectWithPrompt({ autostartStashedPrompt: true });
 
 	const { outOfCredits } = useOutOfCredits();
 	const promptLocked = outOfCredits;
 
 	const [query, setQuery] = useState("");
 	const [filter, setFilter] = useState<StatusFilter>("all");
-	const [promptPrefill, setPromptPrefill] = useState<{
-		key: number;
-		value: string;
-		composer?: ComposerMetadata;
-	}>({ key: 0, value: "" });
 	const promptSectionRef = useRef<HTMLDivElement>(null);
-
-	useEffect(() => {
-		const draft = promptStash.consume();
-		if (!draft) return;
-		setPromptPrefill((prev) => ({
-			key: prev.key + 1,
-			value: draft.prompt,
-			composer: draft.composer,
-		}));
-	}, []);
 
 	const filtered = useMemo(() => {
 		const q = query.trim().toLowerCase();
@@ -166,14 +157,14 @@ export default function DashboardPage() {
 						<div ref={promptSectionRef} className="mt-6">
 							<OutOfCreditsBanner active={promptLocked}>
 								<PromptBox
-									key={promptPrefill.key}
+									key={restoreKey}
 									variant="hero"
 									showPriceTag
 									showModes
 									attachmentsEnabled
 									disabled={promptLocked}
-									initialValue={promptPrefill.value}
-									initialComposer={promptPrefill.composer}
+									initialValue={restoredPrompt}
+									initialComposer={restoredComposer}
 									onSubmit={create}
 									isSubmitting={isCreating}
 								/>

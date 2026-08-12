@@ -60,7 +60,7 @@ export function useAuthModal(): {
 /**
  * Returns a `requireAuth(then)` continuation runner: with a session, `then`
  * runs immediately; without one, the modal starts Google redirect auth and any
- * cross-page prompt handoff is handled through promptStash.
+ * cross-page prompt handoff is handled through promptStash on the dashboard.
  */
 export function useRequireAuth(): (then: () => void) => void {
 	const ctx = useContext(AuthModalContext);
@@ -103,7 +103,6 @@ export function AuthModalProvider({ children }: { children: React.ReactNode }) {
 
 	const handleSignedIn = useCallback(() => {
 		invalidateSessionCache();
-		promptStash.consume();
 		googleRedirectStartedRef.current = false;
 		setNextPath(undefined);
 		setRedirectError(false);
