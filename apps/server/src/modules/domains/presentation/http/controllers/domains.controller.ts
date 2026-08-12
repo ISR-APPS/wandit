@@ -29,7 +29,7 @@ import {
 } from "@wandit/contracts";
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
-import { CurrentUser, EarlyAccessGuard } from "../../../../auth";
+import { CurrentUser } from "../../../../auth";
 import { projectScopeFrom } from "../../../../projects/domain/project-scope";
 import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
 import {
@@ -73,7 +73,7 @@ export class DomainsController {
 		);
 	}
 
-	@UseGuards(EarlyAccessGuard, DomainRateLimitGuard)
+	@UseGuards(DomainRateLimitGuard)
 	@DomainRateLimit({ limit: 5, windowMs: 60_000 })
 	@RequireWorkspacePermission("domain", "manage")
 	@Post("projects/:projectId/domains/external")
@@ -92,7 +92,7 @@ export class DomainsController {
 		);
 	}
 
-	@UseGuards(EarlyAccessGuard, DomainRateLimitGuard)
+	@UseGuards(DomainRateLimitGuard)
 	@DomainRateLimit({ limit: 10, windowMs: 60_000 })
 	@RequireWorkspacePermission("domain", "manage")
 	@Post("domains/:id/verify")
@@ -151,9 +151,6 @@ export class DomainsController {
 		@CurrentUser() user: AuthUser,
 		@CurrentWorkspace() workspace: WorkspaceContext,
 	): Promise<DetachDomainResponse> {
-		return this.domainsService.detach(
-			id,
-			projectScopeFrom(workspace, user.id),
-		);
+		return this.domainsService.detach(id, projectScopeFrom(workspace, user.id));
 	}
 }

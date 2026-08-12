@@ -1,9 +1,11 @@
-import { workspaceAccessControl, workspaceRoles } from "@wandit/auth/permissions";
+import {
+	workspaceAccessControl,
+	workspaceRoles,
+} from "@wandit/auth/permissions";
 import { env } from "@wandit/env/web";
 import {
 	adminClient,
 	emailOTPClient,
-	inferAdditionalFields,
 	magicLinkClient,
 	organizationClient,
 } from "better-auth/client/plugins";
@@ -41,15 +43,6 @@ export const authClient = createAuthClient({
 		organizationClient({
 			ac: workspaceAccessControl,
 			roles: workspaceRoles,
-		}),
-		inferAdditionalFields({
-			user: {
-				earlyAccess: {
-					type: "boolean",
-					defaultValue: false,
-					input: false,
-				},
-			},
 		}),
 	],
 });

@@ -21,7 +21,6 @@ import { UserDetailSkeleton } from "@/features/users/components/detail/user-deta
 import { UserMetrics } from "@/features/users/components/detail/user-metrics";
 import { UserSubscriptionCard } from "@/features/users/components/detail/user-subscription-card";
 import { UserWorkspacesCard } from "@/features/users/components/detail/user-workspaces-card";
-import { EarlyAccessDialog } from "@/features/users/components/early-access-dialog";
 import { GrantCreditsDialog } from "@/features/users/components/grant-credits-dialog";
 import { isApiClientError } from "@/lib/api-client";
 
@@ -29,7 +28,7 @@ type UserDetailPageProps = {
 	userId: string;
 };
 
-type OpenDialog = "credits" | "access" | "role" | "ban" | null;
+type OpenDialog = "credits" | "role" | "ban" | null;
 
 export function UserDetailPage({ userId }: UserDetailPageProps) {
 	const [openDialog, setOpenDialog] = useState<OpenDialog>(null);
@@ -103,7 +102,6 @@ export function UserDetailPage({ userId }: UserDetailPageProps) {
 				user={user}
 				canManageAccess={canManageAccess}
 				onGrantCredits={() => setOpenDialog("credits")}
-				onToggleEarlyAccess={() => setOpenDialog("access")}
 				onChangeRole={() => setOpenDialog("role")}
 				onToggleBanned={() => setOpenDialog("ban")}
 			/>
@@ -128,11 +126,6 @@ export function UserDetailPage({ userId }: UserDetailPageProps) {
 			/>
 			{canManageAccess ? (
 				<>
-					<EarlyAccessDialog
-						user={user}
-						open={openDialog === "access"}
-						onOpenChange={(open) => setOpenDialog(open ? "access" : null)}
-					/>
 					<ChangeRoleDialog
 						user={user}
 						open={openDialog === "role"}

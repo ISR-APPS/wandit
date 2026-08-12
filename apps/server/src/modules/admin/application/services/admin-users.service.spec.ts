@@ -14,7 +14,6 @@ import type {
 } from "../../infrastructure/persistence/admin.repository";
 import type { AdminOrganizationsRepository } from "../../infrastructure/persistence/admin-organizations.repository";
 import { AdminUsersService } from "./admin-users.service";
-import type { BetaAccessService } from "./beta-access.service";
 
 const QUERY = {
 	page: 1,
@@ -65,7 +64,6 @@ function setup(row: AdminUserPageRow) {
 		adminRepository as unknown as AdminRepository,
 		{} as AdminOrganizationsRepository,
 		{} as CreditsService,
-		{} as BetaAccessService,
 	);
 
 	return { adminRepository, service };
@@ -85,7 +83,6 @@ function setupProjects() {
 		adminRepository as unknown as AdminRepository,
 		{} as AdminOrganizationsRepository,
 		{} as CreditsService,
-		{} as BetaAccessService,
 	);
 
 	return { adminRepository, service };

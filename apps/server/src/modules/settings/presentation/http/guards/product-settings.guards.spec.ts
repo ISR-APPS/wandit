@@ -10,7 +10,6 @@ import { TopupsEnabledGuard } from "./topups-enabled.guard";
 
 function settings(overrides: Partial<ProductSettings> = {}): ProductSettings {
 	return {
-		earlyAccessRequired: true,
 		emailAuthEnabled: false,
 		id: 1,
 		organizationsEnabled: false,
