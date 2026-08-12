@@ -53,6 +53,7 @@ export const leads = pgTable(
 		attribution: jsonb("attribution"),
 		status: leadStatus("status").notNull().default("to_confirm"),
 		statusChangedAt: timestamp("status_changed_at", { withTimezone: true }),
+		archivedAt: timestamp("archived_at", { withTimezone: true }),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.defaultNow()
 			.notNull(),
@@ -63,6 +64,9 @@ export const leads = pgTable(
 	},
 	(table) => [
 		index("leads_projectId_createdAt_idx").on(table.projectId, table.createdAt),
+		index("leads_active_projectId_createdAt_idx")
+			.on(table.projectId, table.createdAt)
+			.where(sql`${table.archivedAt} is null`),
 		index("leads_projectId_status_createdAt_idx").on(
 			table.projectId,
 			table.status,

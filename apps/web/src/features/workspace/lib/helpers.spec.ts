@@ -20,6 +20,7 @@ const HEADERS = [
 
 function leadWithExtras(extras: Lead["extras"]): Lead {
 	return {
+		archivedAt: null,
 		campaign: "Ramadan Promo",
 		commune: "Bab Ezzouar",
 		createdAt: "2026-08-02T10:00:00.000Z",

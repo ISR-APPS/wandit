@@ -10,7 +10,11 @@
  */
 import { z } from "zod";
 import { cursorPaginationQuerySchema } from "../http/pagination";
-import { isoDateTimeSchema, uuidSchema } from "./shared/primitives";
+import {
+	isoDateSchema,
+	isoDateTimeSchema,
+	uuidSchema,
+} from "./shared/primitives";
 
 // The COD phone-confirmation pipeline. Mirrors lead_status in
 // packages/db/src/schema/leads.ts — cancelled = confirmation failed,
@@ -134,6 +138,7 @@ export type LeadCaptureResponse = z.infer<typeof leadCaptureResponseSchema>;
 
 // Everything the Leads tab needs for one row.
 export const leadSchema = z.object({
+	archivedAt: isoDateTimeSchema.nullable(),
 	// utm_campaign as the ad link carried it — names WHICH campaign brought
 	// this order, next to source's WHERE. Defaulted for older servers.
 	campaign: z.string().nullable().default(null),
@@ -150,10 +155,34 @@ export const leadSchema = z.object({
 
 export type Lead = z.infer<typeof leadSchema>;
 
-export const leadsQuerySchema = cursorPaginationQuerySchema.extend({
+const leadArchiveVisibilitySchema = z.enum(["exclude", "only", "include"]);
+
+const leadListFilterFields = {
+	archived: leadArchiveVisibilitySchema.default("exclude"),
+	createdFrom: isoDateSchema.optional(),
+	createdTo: isoDateSchema.optional(),
 	q: z.string().trim().max(200).optional(),
+	source: leadSourceSchema.optional(),
 	status: leadStatusSchema.optional(),
-});
+} as const;
+
+function createdRangeIsOrdered(query: {
+	createdFrom?: string;
+	createdTo?: string;
+}): boolean {
+	return (
+		!query.createdFrom ||
+		!query.createdTo ||
+		query.createdFrom <= query.createdTo
+	);
+}
+
+export const leadsQuerySchema = cursorPaginationQuerySchema
+	.extend(leadListFilterFields)
+	.refine(createdRangeIsOrdered, {
+		message: "createdFrom must be on or before createdTo",
+		path: ["createdFrom"],
+	});
 
 export type LeadsQuery = z.infer<typeof leadsQuerySchema>;
 
@@ -180,12 +209,15 @@ export type LeadsResponse = z.infer<typeof leadsResponseSchema>;
 // across all of its projects. Same search/status semantics as the per-project
 // list, plus optional project and source narrowing. Source filtering runs in
 // SQL against the stored attribution and mirrors the read-time derivation.
-export const workspaceLeadsQuerySchema = cursorPaginationQuerySchema.extend({
-	projectId: uuidSchema.optional(),
-	q: z.string().trim().max(200).optional(),
-	source: leadSourceSchema.optional(),
-	status: leadStatusSchema.optional(),
-});
+export const workspaceLeadsQuerySchema = cursorPaginationQuerySchema
+	.extend({
+		...leadListFilterFields,
+		projectId: uuidSchema.optional(),
+	})
+	.refine(createdRangeIsOrdered, {
+		message: "createdFrom must be on or before createdTo",
+		path: ["createdFrom"],
+	});
 
 export type WorkspaceLeadsQuery = z.infer<typeof workspaceLeadsQuerySchema>;
 
@@ -214,6 +246,12 @@ export const leadStatusUpdateBodySchema = z.object({
 
 export type LeadStatusUpdateBody = z.infer<typeof leadStatusUpdateBodySchema>;
 
+export const leadArchiveBodySchema = z.object({
+	archived: z.boolean(),
+});
+
+export type LeadArchiveBody = z.infer<typeof leadArchiveBodySchema>;
+
 export const leadResponseSchema = z.object({
 	lead: leadSchema,
 });
@@ -232,6 +270,8 @@ export const leadsRoutes = {
 	// the dashboard Leads page. No project id in the path: the workspace
 	// header (or its absence, for personal) is the only scope input.
 	listForWorkspace: "/api/v1/leads",
+	archive: (projectId: string, leadId: string) =>
+		`/api/v1/projects/${projectId}/leads/${leadId}/archive`,
 	updateStatus: (projectId: string, leadId: string) =>
 		`/api/v1/projects/${projectId}/leads/${leadId}/status`,
 } as const;

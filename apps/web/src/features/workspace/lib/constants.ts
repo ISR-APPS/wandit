@@ -23,6 +23,7 @@
 // LucideIcon is just the TypeScript type for one icon component from the
 // lucide-react icon library (each icon is a small React component that
 // renders an SVG).
+import { leadSources } from "@wandit/contracts";
 import type { LucideIcon } from "lucide-react";
 import { File, Image, Settings2, Users, Volume2 } from "lucide-react";
 
@@ -54,6 +55,7 @@ export const WORKSPACE_TABS: WorkspaceTabDef[] = [
 export const PUBLISHED_DOMAIN = ".wandit.app";
 
 export const LEADS_PAGE_SIZE = 12;
+export const LEAD_SOURCES = leadSources;
 export const CHAT_OPEN_STORAGE_KEY = "wandit-workspace-chat-open";
 /** react-resizable-panels autoSaveId — persists chat/main split width. */
 export const WORKSPACE_PANELS_STORAGE_ID = "wandit-workspace-panels";

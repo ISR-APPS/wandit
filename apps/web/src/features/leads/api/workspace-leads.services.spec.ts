@@ -15,6 +15,7 @@ const PROJECT_ID = "11111111-1111-4111-8111-111111111111";
 const RESPONSE: WorkspaceLeadsResponse = {
 	leads: [
 		{
+			archivedAt: null,
 			campaign: "summer-launch",
 			commune: null,
 			createdAt: "2026-08-02T10:00:00.000Z",
@@ -42,7 +43,10 @@ describe("listWorkspaceLeads", () => {
 		vi.mocked(apiClient.get).mockResolvedValueOnce(RESPONSE);
 
 		const page = await listWorkspaceLeads({
+			archived: "only",
 			cursor: "cursor-1",
+			createdFrom: "2026-07-01",
+			createdTo: "2026-07-31",
 			pageSize: 20,
 			projectId: PROJECT_ID,
 			q: "amina",
@@ -53,7 +57,10 @@ describe("listWorkspaceLeads", () => {
 		expect(page.leads[0]?.projectName).toBe("Sahara Serum");
 		expect(apiClient.get).toHaveBeenCalledWith(leadsRoutes.listForWorkspace, {
 			query: {
+				archived: "only",
 				cursor: "cursor-1",
+				createdFrom: "2026-07-01",
+				createdTo: "2026-07-31",
 				pageSize: 20,
 				projectId: PROJECT_ID,
 				q: "amina",
@@ -70,6 +77,8 @@ describe("listWorkspaceLeads", () => {
 			total: 1,
 		});
 
-		await expect(listWorkspaceLeads({ pageSize: 20 })).rejects.toThrowError();
+		await expect(
+			listWorkspaceLeads({ archived: "exclude", pageSize: 20 }),
+		).rejects.toThrowError();
 	});
 });
