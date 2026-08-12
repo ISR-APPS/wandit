@@ -46,9 +46,6 @@ describe("@wandit/auth isolated admin instance", () => {
 		expect(adminAuth.options.plugins?.map((plugin) => plugin.id)).toEqual([
 			"admin",
 		]);
-		expect(adminAuth.options.user?.additionalFields).toEqual(
-			auth.options.user?.additionalFields,
-		);
 		expect(adminAuth.options.database).toBe(auth.options.database);
 		expect(adminAuth.options.socialProviders?.google).toEqual(
 			expect.objectContaining({

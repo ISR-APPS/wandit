@@ -17,6 +17,8 @@ function defaultRow(
 ): ProductSettingsRow {
 	return {
 		...DEFAULT_PRODUCT_SETTINGS,
+		// Legacy DB column: still on the row, no longer a product setting.
+		earlyAccessRequired: false,
 		updatedAt: INITIAL_DATE,
 		updatedByUserId: null,
 		...overrides,
@@ -64,11 +66,10 @@ afterEach(() => {
 });
 
 describe("ProductSettingsService", () => {
-	it("creates and returns the singleton with beta-posture defaults", async () => {
+	it("creates and returns the singleton with launch defaults", async () => {
 		const { repository, service } = setup();
 
 		await expect(service.get()).resolves.toEqual({
-			earlyAccessRequired: true,
 			emailAuthEnabled: false,
 			id: 1,
 			organizationsEnabled: false,

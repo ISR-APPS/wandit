@@ -6,7 +6,6 @@ import {
 	BanIcon,
 	CopyIcon,
 	ShieldCheckIcon,
-	ShieldOffIcon,
 	WalletCardsIcon,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -15,7 +14,6 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { AdminUserDetail } from "@/features/users/api/users.dto";
-import { EarlyAccessBadge } from "@/features/users/components/early-access-badge";
 import { formatAdminDate } from "@/features/users/lib/formatters";
 
 import { getInitials, getRoleLabel, titleCase } from "./user-detail-helpers";
@@ -25,7 +23,6 @@ type UserDetailHeaderProps = {
 	/** False when the signed-in admin is viewing their own account. */
 	canManageAccess: boolean;
 	onGrantCredits: () => void;
-	onToggleEarlyAccess: () => void;
 	onChangeRole: () => void;
 	onToggleBanned: () => void;
 };
@@ -34,7 +31,6 @@ export function UserDetailHeader({
 	user,
 	canManageAccess,
 	onGrantCredits,
-	onToggleEarlyAccess,
 	onChangeRole,
 	onToggleBanned,
 }: UserDetailHeaderProps) {
@@ -42,7 +38,6 @@ export function UserDetailHeader({
 	// banning an admin has to go through "Change role" first.
 	const canToggleBanned =
 		canManageAccess && (user.banned || !isAdminRole(user.role));
-	const canToggleEarlyAccess = canManageAccess && !isAdminRole(user.role);
 
 	async function copyUserId() {
 		try {
@@ -96,7 +91,6 @@ export function UserDetailHeader({
 									Banned
 								</Badge>
 							) : null}
-							<EarlyAccessBadge user={user} />
 							<span className="text-muted-foreground text-xs">
 								Signed up {formatAdminDate(user.createdAt)}
 							</span>
@@ -122,20 +116,6 @@ export function UserDetailHeader({
 				</div>
 
 				<div className="flex flex-wrap items-center gap-2">
-					{canToggleEarlyAccess ? (
-						<Button
-							type="button"
-							variant={user.earlyAccess ? "destructive" : "outline"}
-							onClick={onToggleEarlyAccess}
-						>
-							{user.earlyAccess ? (
-								<ShieldOffIcon data-icon="inline-start" aria-hidden="true" />
-							) : (
-								<ShieldCheckIcon data-icon="inline-start" aria-hidden="true" />
-							)}
-							{user.earlyAccess ? "Revoke access" : "Grant access"}
-						</Button>
-					) : null}
 					{canManageAccess ? (
 						<Button type="button" variant="outline" onClick={onChangeRole}>
 							<ShieldCheckIcon data-icon="inline-start" aria-hidden="true" />

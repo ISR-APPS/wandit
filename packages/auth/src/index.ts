@@ -189,15 +189,6 @@ function createBaseAuthOptions() {
 			provider: "pg" as const,
 			schema: schema,
 		}),
-		user: {
-			additionalFields: {
-				earlyAccess: {
-					type: "boolean" as const,
-					defaultValue: false,
-					input: false,
-				},
-			},
-		},
 		disabledPaths: [...ADMIN_PLUGIN_DISABLED_PATHS],
 		secret: env.BETTER_AUTH_SECRET,
 		baseURL: env.BETTER_AUTH_URL,

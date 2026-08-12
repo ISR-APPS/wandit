@@ -1,11 +1,6 @@
 {
 	"headerTitle": "Projects",
 	"promptHeading": "What will you launch today?",
-	"promptSoonTitle": "Coming soon",
-	"previewChatTitle": "Chat",
-	"previewAssistant": "This is where Wandit builds your site. Generation is in private early access — opening to everyone very soon.",
-	"previewComposerPlaceholder": "Describe a change…",
-	"promptSoonBody": "Wandit is opening to everyone very soon. Creating new sites is in private early access for now.",
 	"toolbarTitle": "Your projects",
 	"searchPlaceholder": "Search projects…",
 	"filterAll": "All",

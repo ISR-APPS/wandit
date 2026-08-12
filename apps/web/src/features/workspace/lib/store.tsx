@@ -66,7 +66,6 @@ import {
 	type PreviewVersion,
 	resolvePreviewVersion,
 } from "./page-version-state";
-import { getPublishErrorMessage } from "./publish-error";
 
 export type Viewport = "mobile" | "desktop";
 export type { GenerationPhase, PreviewVersion } from "./page-version-state";
@@ -292,17 +291,9 @@ export function WorkspaceProvider({
 
 	// --- publishing ------------------------------------------------------------
 
-	const publishErrorToast = useCallback(
-		(error: unknown) => {
-			toast.error(
-				getPublishErrorMessage(
-					error,
-					t("workspace.publish.earlyAccessRequired"),
-				),
-			);
-		},
-		[t],
-	);
+	const publishErrorToast = useCallback((error: unknown) => {
+		toast.error(getApiErrorMessage(error));
+	}, []);
 
 	const publish = useCallback(
 		(options?: { slug?: string; version?: PreviewVersion }) => {

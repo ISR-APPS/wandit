@@ -33,7 +33,6 @@ function setup() {
 const user = {
 	banned: false,
 	createdAt: new Date("2026-01-01T00:00:00.000Z"),
-	earlyAccess: true,
 	email: "user@example.com",
 	emailVerified: true,
 	id: "user_1",

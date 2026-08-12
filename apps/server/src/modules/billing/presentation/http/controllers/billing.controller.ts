@@ -18,7 +18,7 @@ import {
 } from "@wandit/contracts";
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
-import { CurrentUser, EarlyAccessGuard, Public } from "../../../../auth";
+import { CurrentUser, Public } from "../../../../auth";
 import {
 	SubscriptionsEnabledGuard,
 	TopupsEnabledGuard,
@@ -56,7 +56,7 @@ export class BillingController {
 		return this.billingService.getSubscriptionView(user.id, workspace);
 	}
 
-	@UseGuards(SubscriptionsEnabledGuard, EarlyAccessGuard)
+	@UseGuards(SubscriptionsEnabledGuard)
 	@RequireWorkspacePermission("billing", "manage")
 	@Post("checkout")
 	checkout(
@@ -68,7 +68,7 @@ export class BillingController {
 		return this.billingService.checkout(user, body, workspace);
 	}
 
-	@UseGuards(TopupsEnabledGuard, EarlyAccessGuard)
+	@UseGuards(TopupsEnabledGuard)
 	@RequireWorkspacePermission("billing", "manage")
 	@Post("topup")
 	topup(
@@ -89,7 +89,7 @@ export class BillingController {
 		return this.billingService.portal(user, workspace);
 	}
 
-	@UseGuards(SubscriptionsEnabledGuard, EarlyAccessGuard)
+	@UseGuards(SubscriptionsEnabledGuard)
 	@RequireWorkspacePermission("billing", "manage")
 	@Post("change/preview")
 	previewChange(
@@ -101,7 +101,7 @@ export class BillingController {
 		return this.billingService.previewChange(user, body, workspace);
 	}
 
-	@UseGuards(SubscriptionsEnabledGuard, EarlyAccessGuard)
+	@UseGuards(SubscriptionsEnabledGuard)
 	@RequireWorkspacePermission("billing", "manage")
 	@Post("change")
 	change(
@@ -122,7 +122,7 @@ export class BillingController {
 		return this.billingService.cancel(user, workspace);
 	}
 
-	@UseGuards(SubscriptionsEnabledGuard, EarlyAccessGuard)
+	@UseGuards(SubscriptionsEnabledGuard)
 	@RequireWorkspacePermission("billing", "manage")
 	@Post("resume")
 	resume(

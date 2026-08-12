@@ -9,7 +9,6 @@ import {
 	Param,
 	Post,
 	Query,
-	UseGuards,
 } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
@@ -27,7 +26,7 @@ import {
 } from "@wandit/contracts";
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
-import { CurrentUser, EarlyAccessGuard } from "../../../../auth";
+import { CurrentUser } from "../../../../auth";
 import { projectScopeFrom } from "../../../../projects/domain/project-scope";
 import type { WorkspaceContext } from "../../../../workspaces/domain/workspace-context";
 import {
@@ -86,7 +85,6 @@ export class SitesController {
 		);
 	}
 
-	@UseGuards(EarlyAccessGuard)
 	@RequireWorkspacePermission("publish", "manage")
 	@Post("projects/:projectId/deployments")
 	publish(
@@ -105,7 +103,6 @@ export class SitesController {
 	}
 
 	// A rollback is a normal publish of an older deployment's bytes.
-	@UseGuards(EarlyAccessGuard)
 	@RequireWorkspacePermission("publish", "manage")
 	@Post("projects/:projectId/deployments/rollback")
 	rollback(

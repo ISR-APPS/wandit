@@ -19,7 +19,6 @@ import {
 	useOutOfCredits,
 } from "@/features/credits";
 import { PromptBox, useCreateProjectWithPrompt } from "@/features/projects";
-import { isEarlyAccessUser } from "@/lib/early-access";
 
 import orbAnimation from "../assets/ai-sphere-animation.json";
 import { scrollToId } from "../lib/scroll";
@@ -44,11 +43,9 @@ export function Hero({ promptKey, promptInitial }: HeroProps) {
 		useCreateProjectWithPrompt();
 	const { data: session } = useSession();
 	// Session-gated: signed-out visitors are never blocked here — their submit
-	// goes through the auth flow, not a credit debit. Same rule as the
-	// dashboard: only early-access accounts really consume credits, so a fresh
-	// signup without access must never see "out of credits" for its 0 balance.
+	// goes through the auth flow, not a credit debit.
 	const { outOfCredits } = useOutOfCredits();
-	const promptLocked = isEarlyAccessUser(session?.user) && outOfCredits;
+	const promptLocked = Boolean(session?.user) && outOfCredits;
 	const { t } = useTranslation();
 	const hero = useDictionary().landing.hero;
 
