@@ -11,3 +11,7 @@ export const uuidSchema = z.uuid();
 
 // ISO date strings sent over JSON, usually from Date#toISOString().
 export const isoDateTimeSchema = z.iso.datetime();
+
+// Calendar dates without a timezone, interpreted by the endpoint that owns
+// them (for example lead submission days use Africa/Algiers).
+export const isoDateSchema = z.iso.date();

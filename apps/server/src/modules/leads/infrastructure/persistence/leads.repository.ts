@@ -33,6 +33,7 @@ import {
 } from "../../domain/derive-lead-source";
 
 export type LeadRow = {
+	archivedAt: Date | null;
 	attribution: unknown;
 	commune: string | null;
 	createdAt: Date;
@@ -45,6 +46,7 @@ export type LeadRow = {
 };
 
 const LEAD_COLUMNS = {
+	archivedAt: leads.archivedAt,
 	attribution: leads.attribution,
 	commune: leads.commune,
 	createdAt: leads.createdAt,
@@ -81,10 +83,14 @@ const CURSOR_CREATED_AT_RE =
 const UUID_RE =
 	/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-type LeadListFilters = Pick<LeadsQuery, "q" | "status"> & {
-	// Workspace-wide list only: narrow to one project / one derived source.
+type LeadListFilters = Partial<
+	Pick<
+		LeadsQuery,
+		"archived" | "createdFrom" | "createdTo" | "q" | "source" | "status"
+	>
+> & {
+	// Workspace-wide list only: narrow to one project.
 	projectId?: string;
-	source?: LeadSource;
 };
 
 type LeadCursor = {
@@ -225,7 +231,7 @@ function escapedContainsPattern(value: string): string {
 }
 
 // SQL mirror of deriveLeadSource (domain/derive-lead-source.ts) so the
-// workspace-wide list can filter by source inside the keyset query without a
+// owner lists can filter by source inside the keyset query without a
 // stored source column. Precedence must match the JS derivation exactly:
 // fbclid → facebook, else ttclid → tiktok, else the utm_source lists, else
 // direct. jsonb_typeof guards mirror the typeof-string checks (a numeric
@@ -452,7 +458,7 @@ export class LeadsRepository {
 		return this.listAccessiblePage(
 			scope,
 			projectId,
-			options,
+			{ ...options, archived: "include" },
 			SYNC_PAGE_SIZE_MAX,
 		);
 	}
@@ -535,6 +541,19 @@ export class LeadsRepository {
 					),
 				)
 			: undefined;
+		const archived = filters.archived ?? "exclude";
+		const archivedPredicate =
+			archived === "only"
+				? sql<boolean>`${leads.archivedAt} is not null`
+				: archived === "exclude"
+					? isNull(leads.archivedAt)
+					: undefined;
+		const createdFrom = filters.createdFrom
+			? sql<boolean>`${leads.createdAt} >= (${filters.createdFrom}::date::timestamp at time zone 'Africa/Algiers')`
+			: undefined;
+		const createdTo = filters.createdTo
+			? sql<boolean>`${leads.createdAt} < (((${filters.createdTo}::date + 1)::timestamp) at time zone 'Africa/Algiers')`
+			: undefined;
 
 		return and(
 			targetProjectId ? eq(leads.projectId, targetProjectId) : undefined,
@@ -542,6 +561,9 @@ export class LeadsRepository {
 			isNull(projects.deletedAt),
 			filters.status ? eq(leads.status, filters.status) : undefined,
 			filters.source ? leadSourcePredicate(filters.source) : undefined,
+			archivedPredicate,
+			createdFrom,
+			createdTo,
 			search,
 			afterCursor,
 		);
@@ -574,6 +596,43 @@ export class LeadsRepository {
 		const [row] = await this.db
 			.update(leads)
 			.set({ status, statusChangedAt: new Date() })
+			.where(eq(leads.id, leadId))
+			.returning(LEAD_COLUMNS);
+
+		return row ?? null;
+	}
+
+	async updateAccessibleLeadArchived(
+		scope: ProjectScope,
+		projectId: string,
+		leadId: string,
+		archived: boolean,
+	): Promise<LeadRow | null> {
+		const [owned] = await this.db
+			.select(LEAD_COLUMNS)
+			.from(leads)
+			.innerJoin(projects, eq(projects.id, leads.projectId))
+			.where(
+				and(
+					eq(leads.id, leadId),
+					eq(leads.projectId, projectId),
+					projectScopePredicate(scope),
+					isNull(projects.deletedAt),
+				),
+			)
+			.limit(1);
+
+		if (!owned) {
+			return null;
+		}
+
+		if (Boolean(owned.archivedAt) === archived) {
+			return owned;
+		}
+
+		const [row] = await this.db
+			.update(leads)
+			.set({ archivedAt: archived ? sql`now()` : null })
 			.where(eq(leads.id, leadId))
 			.returning(LEAD_COLUMNS);
 

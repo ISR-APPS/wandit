@@ -13,7 +13,7 @@ import { cn } from "@wandit/ui/lib/utils";
 
 import { useTranslation } from "@/lib/i18n";
 
-// Exported for the dashboard Leads page's source filter dots.
+// Exported for owner-facing source filters as well as the badge itself.
 export const SOURCE_DOT_CLASS: Record<Lead["source"], string> = {
 	// Meta's brand blue; TikTok reads as the strong neutral; direct stays calm.
 	direct: "bg-stone",
