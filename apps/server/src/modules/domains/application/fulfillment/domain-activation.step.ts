@@ -42,6 +42,10 @@ type DomainActivationDependencies = {
 		summary: string,
 	): Promise<DomainFulfillmentRow>;
 	markOrderFulfilled(orderId: string): Promise<unknown>;
+	activateExternalDomain(
+		domainId: string,
+		statuses: Extract<DomainStatus, "active" | "configuring">[],
+	): Promise<DomainFulfillmentRow | null>;
 	putDomainPointer(
 		name: string,
 		pointer: { projectId: string; source: "domain" },
@@ -119,11 +123,16 @@ export class DomainActivationStep {
 		// Keep this CAS/race outcome aligned with DomainsService.activateDomain.
 		// The API path and this task path both accept an active winner and remove
 		// the already-published pointer after any other state wins.
-		const active = await this.dependencies.updateDomainIfStatus(
-			row.id,
-			["configuring"],
-			{ error: null, status: "active" },
-		);
+		const active =
+			row.source === "external"
+				? await this.dependencies.activateExternalDomain(row.id, [
+						"configuring",
+					])
+				: await this.dependencies.updateDomainIfStatus(
+						row.id,
+						["configuring"],
+						{ error: null, status: "active" },
+					);
 
 		if (active) {
 			return active;

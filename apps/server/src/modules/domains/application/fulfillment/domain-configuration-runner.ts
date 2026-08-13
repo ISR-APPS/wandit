@@ -34,6 +34,15 @@ type DomainConfigurationCursorStore = {
 		domainId: string,
 		input: { adoptExistingNonce: boolean; nonce: string },
 	): Promise<DomainConfigurationCursor | null>;
+	markExternalVerificationStalled(
+		domainId: string,
+		input: {
+			attempts: number;
+			expectedAttempt: number;
+			nonce: string;
+			stalledAt: Date;
+		},
+	): Promise<boolean>;
 	readCursor(domainId: string): Promise<DomainConfigurationCursor | null>;
 };
 
@@ -288,6 +297,25 @@ export class DomainConfigurationRunner {
 					processed: false,
 					reason: "timed_out",
 					terminalized: true,
+				};
+			}
+
+			const marked =
+				await this.dependencies.cursors.markExternalVerificationStalled(
+					row.id,
+					{
+						attempts: cursor.nextAttempt + 1,
+						expectedAttempt: cursor.nextAttempt,
+						nonce: cursor.nonce,
+						stalledAt: this.dependencies.now(),
+					},
+				);
+
+			if (!marked) {
+				return {
+					processed: false,
+					reason: "state_changed",
+					terminalized: false,
 				};
 			}
 
