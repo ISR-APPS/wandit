@@ -20,7 +20,11 @@ export function isDomainTransitional(status: DomainStatus) {
 
 export function hasTransitionalDomains(domains: Domain[] | undefined) {
 	return (
-		domains?.some((domain) => isDomainTransitional(domain.status)) ?? false
+		domains?.some(
+			(domain) =>
+				isDomainTransitional(domain.status) &&
+				!(domain.source === "external" && domain.dns?.externalVerification),
+		) ?? false
 	);
 }
 

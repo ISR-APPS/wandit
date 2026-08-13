@@ -198,6 +198,140 @@ describe("DomainsRepository Trigger configuration cursor", () => {
 		).resolves.toBe(false);
 	});
 
+	it("atomically marks only the exhausted external cursor as stalled", async () => {
+		const stalledAt = new Date("2026-08-02T00:00:30.000Z");
+		const { query, repository } = repositoryWithQuery([{ id: DOMAIN_ID }]);
+
+		await expect(
+			repository.markExternalVerificationStalled(DOMAIN_ID, {
+				attempts: 101,
+				expectedAttempt: 100,
+				nonce: NONCE,
+				stalledAt,
+			}),
+		).resolves.toBe(true);
+
+		const statement = compactSql(query);
+		expect(statement).toContain("source = 'external'");
+		expect(statement).toContain("status = 'configuring'");
+		expect(statement).toContain("'externalVerification'");
+		expect(statement).toContain("(dns -> 'triggerConfiguration') @>");
+		expect(statement).toContain("updated_at = updated_at");
+		expect(queryValues(query)).toEqual([
+			DOMAIN_ID,
+			NONCE,
+			100,
+			stalledAt.toISOString(),
+			101,
+		]);
+	});
+
+	it("resets a stalled external cursor without clearing its warning", async () => {
+		const stalledAt = "2026-08-02T00:00:30.000Z";
+		const { query, repository } = repositoryWithQuery([
+			{
+				dns: {
+					externalVerification: { attempts: 101, stalledAt },
+					records: [],
+					triggerConfiguration: {
+						nextAttempt: 0,
+						nextProbeAt: null,
+						nonce: `manual-restart:${stalledAt}`,
+					},
+				},
+			},
+		]);
+
+		await expect(
+			repository.prepareExternalVerificationRestart(DOMAIN_ID),
+		).resolves.toEqual({
+			attempts: 101,
+			nonce: `manual-restart:${stalledAt}`,
+			stalledAt,
+		});
+
+		const statement = compactSql(query);
+		expect(statement).toContain(
+			"'nonce', 'manual-restart:' || (dns -> 'externalVerification' ->> 'stalledAt')",
+		);
+		expect(statement).toContain(
+			"WHEN dns -> 'triggerConfiguration' ->> 'nonce' = 'manual-restart:'",
+		);
+		expect(statement).toContain("THEN dns ELSE");
+		expect(statement).toContain("'nextAttempt', 0");
+		expect(statement).toContain("'nextProbeAt', NULL");
+		expect(statement).toContain("source = 'external'");
+		expect(statement).toContain("status = 'configuring'");
+		expect(statement).toContain(
+			"jsonb_typeof(dns -> 'externalVerification') = 'object'",
+		);
+		expect(statement).not.toContain("- 'externalVerification'");
+		expect(queryValues(query)).toEqual([DOMAIN_ID]);
+	});
+
+	it("preserves an already-running deterministic restart cursor", async () => {
+		const stalledAt = "2026-08-02T00:00:30.000Z";
+		const restartNonce = `manual-restart:${stalledAt}`;
+		const { query, repository } = repositoryWithQuery([
+			{
+				dns: {
+					externalVerification: { attempts: 101, stalledAt },
+					triggerConfiguration: {
+						nextAttempt: 7,
+						nextProbeAt: "2026-08-02T00:10:00.000Z",
+						nonce: restartNonce,
+					},
+				},
+			},
+		]);
+
+		await expect(
+			repository.prepareExternalVerificationRestart(DOMAIN_ID),
+		).resolves.toEqual({ attempts: 101, nonce: restartNonce, stalledAt });
+
+		const statement = compactSql(query);
+		expect(statement).toContain(
+			"WHEN dns -> 'triggerConfiguration' ->> 'nonce' = 'manual-restart:'",
+		);
+		expect(statement).toContain("THEN dns ELSE");
+	});
+
+	it("clears only the matching stalled marker after restart handoff", async () => {
+		const stalledAt = "2026-08-02T00:00:30.000Z";
+		const { query, repository } = repositoryWithQuery([{ id: DOMAIN_ID }]);
+
+		await expect(
+			repository.clearExternalVerificationMarker(DOMAIN_ID, stalledAt),
+		).resolves.toBe(true);
+
+		const statement = compactSql(query);
+		expect(statement).toContain("- 'externalVerification'");
+		expect(statement).toContain("source = 'external'");
+		expect(statement).toContain("'stalledAt', $2::text");
+		expect(statement).toContain("updated_at = updated_at");
+		expect(queryValues(query)).toEqual([DOMAIN_ID, stalledAt]);
+	});
+
+	it("activates external domains while removing only the current stalled marker", async () => {
+		const current = { id: DOMAIN_ID, status: "active" };
+		const { query, repository } = repositoryWithQuery([{ id: DOMAIN_ID }]);
+		vi.spyOn(repository, "getById").mockResolvedValue(current as never);
+
+		await expect(
+			repository.activateAndClearExternalVerification(DOMAIN_ID, [
+				"configuring",
+			]),
+		).resolves.toEqual(current);
+
+		const statement = compactSql(query);
+		expect(statement).toContain("status = 'active'");
+		expect(statement).toContain("dns = (CASE WHEN jsonb_typeof(dns)");
+		expect(statement).toContain("- 'externalVerification'");
+		expect(statement).toContain("source = 'external'");
+		expect(statement).toContain("status = ANY($2::domain_status[])");
+		expect(queryValues(query)).toEqual([DOMAIN_ID, ["configuring"]]);
+	});
+
 	it("clears only the matching nonce and can clean up after terminal status", async () => {
 		const miss = repositoryWithQuery([]);
 

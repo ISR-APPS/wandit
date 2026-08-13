@@ -240,20 +240,37 @@ export class DomainsService {
 			status.requiredRecords,
 			row,
 		);
+		const dns = domainDnsSchema.safeParse(row.dns);
+		const currentDns = dns.success ? dns.data : {};
+		const current =
+			row.source === "external" &&
+			!this.sameRequiredRecords(currentDns.records ?? [], requiredRecords)
+				? await this.domainsRepository.setDns(row.id, {
+						...currentDns,
+						records: requiredRecords,
+					})
+				: row;
 
 		if (this.isHostnameActive(status.status)) {
-			const active = await this.activateDomain(row);
+			const active = await this.activateDomain(current);
 
 			return { domain: mapDomain(active), requiredRecords };
 		}
 
-		await this.domainTaskDispatcher.triggerConfiguration({
-			domainId: row.id,
-			nonce: `manual:${randomUUID()}`,
-		});
+		const pending =
+			current.source === "external"
+				? await this.redispatchExternalVerification(current, scope)
+				: current;
+
+		if (current.source === "purchased") {
+			await this.domainTaskDispatcher.triggerConfiguration({
+				domainId: current.id,
+				nonce: `manual:${randomUUID()}`,
+			});
+		}
 
 		return {
-			domain: mapDomain(row),
+			domain: mapDomain(pending),
 			requiredRecords,
 		};
 	}
@@ -359,14 +376,17 @@ export class DomainsService {
 			source: "domain",
 		});
 
-		const active = await this.domainsRepository.updateIfStatusOrNull(
-			row.id,
-			["configuring"],
-			{
-				error: null,
-				status: "active",
-			},
-		);
+		const active =
+			row.source === "external"
+				? await this.domainsRepository.activateAndClearExternalVerification(
+						row.id,
+						["configuring"],
+					)
+				: await this.domainsRepository.updateIfStatusOrNull(
+						row.id,
+						["configuring"],
+						{ error: null, status: "active" },
+					);
 
 		if (active) {
 			return active;
@@ -507,8 +527,80 @@ export class DomainsService {
 		return mergeRequiredDomainRecords(existingRecords, records);
 	}
 
+	private async redispatchExternalVerification(
+		row: DomainRow,
+		scope: ProjectScope,
+	): Promise<DomainRow> {
+		const dns = domainDnsSchema.safeParse(row.dns);
+		const marker = dns.success ? dns.data.externalVerification : undefined;
+
+		if (marker) {
+			const restart =
+				await this.domainsRepository.prepareExternalVerificationRestart(row.id);
+
+			if (!restart) {
+				const current = await this.domainsRepository.getByIdForScope(
+					row.id,
+					scope,
+				);
+				const currentDns = domainDnsSchema.safeParse(current.dns);
+
+				if (
+					current.status !== "configuring" ||
+					!currentDns.success ||
+					!currentDns.data.externalVerification
+				) {
+					return current;
+				}
+
+				throw new InvalidDomainStateError(
+					"External domain verification could not be restarted",
+				);
+			}
+
+			await this.domainTaskDispatcher.triggerConfiguration({
+				domainId: row.id,
+				nonce: restart.nonce,
+			});
+			await this.domainsRepository.clearExternalVerificationMarker(
+				row.id,
+				restart.stalledAt,
+			);
+
+			return this.domainsRepository.getByIdForScope(row.id, scope);
+		}
+
+		const cursor = await this.domainsRepository.readCursor(row.id);
+
+		await this.domainTaskDispatcher.triggerConfiguration({
+			domainId: row.id,
+			nonce: cursor?.nonce ?? String(row.updatedAt.getTime()),
+		});
+
+		return this.domainsRepository.getByIdForScope(row.id, scope);
+	}
+
 	private dnsWithRequiredRecords(records: RequiredDomainRecord[]): DomainDns {
 		return { records };
+	}
+
+	private sameRequiredRecords(
+		current: readonly RequiredDomainRecord[],
+		next: readonly RequiredDomainRecord[],
+	): boolean {
+		return (
+			current.length === next.length &&
+			current.every((record, index) => {
+				const candidate = next[index];
+
+				return (
+					candidate?.name === record.name &&
+					candidate.purpose === record.purpose &&
+					candidate.type === record.type &&
+					candidate.value === record.value
+				);
+			})
+		);
 	}
 
 	private isHostnameActive(status: string) {

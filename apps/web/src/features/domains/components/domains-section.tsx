@@ -16,15 +16,33 @@ import { useDomainsQuery } from "../api/domains.queries";
 import { BuyDomainDialog } from "./buy-domain-dialog";
 import { ConnectExternalDomain } from "./connect-external-domain";
 import { DomainList } from "./domain-list";
+import { DomainPublishNotice } from "./domain-publish-notice";
 
 type DomainsSectionProps = {
 	projectId: string;
+	isPublished: boolean;
+	canManageDomains: boolean;
+	canPublish: boolean;
+	onPublish: () => void;
 };
 
-export function DomainsSection({ projectId }: DomainsSectionProps) {
+export function DomainsSection({
+	projectId,
+	isPublished,
+	canManageDomains,
+	canPublish,
+	onPublish,
+}: DomainsSectionProps) {
 	const { t } = useTranslation();
 	const domains = useDomainsQuery(projectId);
 	const [buyOpen, setBuyOpen] = useState(false);
+	const hasAttachedDomain =
+		domains.data?.some(
+			(domain) =>
+				domain.status !== "failed" &&
+				domain.status !== "expired" &&
+				domain.status !== "transferred_out",
+		) ?? false;
 
 	return (
 		<Card>
@@ -38,13 +56,18 @@ export function DomainsSection({ projectId }: DomainsSectionProps) {
 							{t("settings.domains.description")}
 						</CardDescription>
 					</div>
-					<Button type="button" size="sm" onClick={() => setBuyOpen(true)}>
-						<Plus />
-						{t("settings.domains.buyCta")}
-					</Button>
+					{canManageDomains ? (
+						<Button type="button" size="sm" onClick={() => setBuyOpen(true)}>
+							<Plus />
+							{t("settings.domains.buyCta")}
+						</Button>
+					) : null}
 				</div>
 			</CardHeader>
 			<CardContent className="flex flex-col gap-6">
+				{hasAttachedDomain && !isPublished ? (
+					<DomainPublishNotice canPublish={canPublish} onPublish={onPublish} />
+				) : null}
 				{domains.isPending ? (
 					<div className="flex flex-col gap-2">
 						<Skeleton className="h-12 rounded-lg" />
@@ -64,10 +87,16 @@ export function DomainsSection({ projectId }: DomainsSectionProps) {
 						</div>
 					</div>
 				) : (
-					<DomainList projectId={projectId} domains={domains.data ?? []} />
+					<DomainList
+						projectId={projectId}
+						domains={domains.data ?? []}
+						canManageDomains={canManageDomains}
+					/>
 				)}
 
-				<ConnectExternalDomain projectId={projectId} />
+				{canManageDomains ? (
+					<ConnectExternalDomain projectId={projectId} />
+				) : null}
 			</CardContent>
 			<BuyDomainDialog
 				projectId={projectId}
