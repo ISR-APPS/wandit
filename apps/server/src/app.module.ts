@@ -10,6 +10,7 @@ import { DatabaseModule } from "./infrastructure/database/database.module";
 import { ApiExceptionFilter } from "./infrastructure/http/api-exception.filter";
 import { ApiResponseEnvelopeInterceptor } from "./infrastructure/http/api-response-envelope.interceptor";
 import { QueuesModule } from "./infrastructure/queues/queues.module";
+import { AcademyModule } from "./modules/academy/academy.module";
 import { AdminModule } from "./modules/admin/admin.module";
 import { AffiliatesModule } from "./modules/affiliates/affiliates.module";
 import { AiChatModule } from "./modules/ai-chat/ai-chat.module";
@@ -48,6 +49,7 @@ import { WorkspacesModule } from "./modules/workspaces/workspaces.module";
 		AnalyticsModule,
 		DatabaseModule,
 		QueuesModule,
+		AcademyModule,
 		AffiliatesModule,
 		AuthModule,
 		// After AuthModule ON PURPOSE: its global WorkspaceContextGuard reads

@@ -1,5 +1,13 @@
+import { Link } from "@tanstack/react-router";
+import { Button } from "@wandit/ui/components/button";
 import { Separator } from "@wandit/ui/components/separator";
 import { SidebarTrigger } from "@wandit/ui/components/sidebar";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@wandit/ui/components/tooltip";
+import { GraduationCap } from "lucide-react";
 
 import { ModeToggle } from "@/components/mode-toggle";
 import { UserMenu } from "@/features/auth";
@@ -26,6 +34,19 @@ export function DashboardHeader({
 				{t(titleKey)}
 			</h1>
 			<div className="ms-auto flex items-center gap-1.5">
+				<Tooltip>
+					<TooltipTrigger asChild>
+						<Button asChild size="sm" variant="outline">
+							<Link to="/academy" aria-label={t("academy.navLabel")}>
+								<GraduationCap className="size-4" aria-hidden />
+								<span className="hidden sm:inline">
+									{t("academy.navLabel")}
+								</span>
+							</Link>
+						</Button>
+					</TooltipTrigger>
+					<TooltipContent side="bottom">{t("academy.navLabel")}</TooltipContent>
+				</Tooltip>
 				<CreditsChip />
 				<ModeToggle />
 				<UserMenu />

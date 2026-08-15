@@ -1,3 +1,4 @@
+import enAcademy from "../dictionaries/en/academy.json";
 import enAuth from "../dictionaries/en/auth.json";
 import enBilling from "../dictionaries/en/billing.json";
 import enCommon from "../dictionaries/en/common.json";
@@ -13,6 +14,7 @@ import enWorkspaces from "../dictionaries/en/workspaces.json";
 import type { Locale } from "./config";
 
 const en = {
+	academy: enAcademy,
 	common: enCommon,
 	landing: enLanding,
 	auth: enAuth,
@@ -83,6 +85,7 @@ async function loadEnglishDictionary(): Promise<Dictionary> {
 
 async function loadFrenchDictionary(): Promise<Dictionary> {
 	const [
+		academy,
 		common,
 		landing,
 		auth,
@@ -96,6 +99,7 @@ async function loadFrenchDictionary(): Promise<Dictionary> {
 		errors,
 		native,
 	] = await Promise.all([
+		import("../dictionaries/fr/academy.json"),
 		import("../dictionaries/fr/common.json"),
 		import("../dictionaries/fr/landing.json"),
 		import("../dictionaries/fr/auth.json"),
@@ -111,6 +115,7 @@ async function loadFrenchDictionary(): Promise<Dictionary> {
 	]);
 
 	return normalizeDictionary({
+		academy: academy.default,
 		common: common.default,
 		landing: landing.default,
 		auth: auth.default,
@@ -128,6 +133,7 @@ async function loadFrenchDictionary(): Promise<Dictionary> {
 
 async function loadArabicDictionary(): Promise<Dictionary> {
 	const [
+		academy,
 		common,
 		landing,
 		auth,
@@ -141,6 +147,7 @@ async function loadArabicDictionary(): Promise<Dictionary> {
 		errors,
 		native,
 	] = await Promise.all([
+		import("../dictionaries/ar/academy.json"),
 		import("../dictionaries/ar/common.json"),
 		import("../dictionaries/ar/landing.json"),
 		import("../dictionaries/ar/auth.json"),
@@ -156,6 +163,7 @@ async function loadArabicDictionary(): Promise<Dictionary> {
 	]);
 
 	return normalizeDictionary({
+		academy: academy.default,
 		common: common.default,
 		landing: landing.default,
 		auth: auth.default,
