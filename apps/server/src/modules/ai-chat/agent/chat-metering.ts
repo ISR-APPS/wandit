@@ -2,7 +2,8 @@ import { bundledReservationPendingAttemptRef } from "../../metering/domain/meter
 import type { MeteredTokenUsage } from "../../metering/domain/model-pricing";
 import { WANDIT_SYSTEM_PROMPT } from "./system-prompt";
 
-export const AI_CHAT_MAX_OUTPUT_TOKENS = 4_096;
+// Ceiling for hidden reasoning plus long generate_page briefs; 4_096 truncated tool-call JSON, while short turns stop naturally.
+export const AI_CHAT_MAX_OUTPUT_TOKENS = 16_000;
 export const AI_CHAT_MAX_STEPS = 12;
 export const AI_CHAT_ESTIMATED_OUTPUT_TOKENS = 2_048;
 
