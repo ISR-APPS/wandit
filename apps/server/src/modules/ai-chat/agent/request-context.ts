@@ -1,16 +1,22 @@
 /**
  * Per-request context block appended to the chat system prompt (V2 spec
- * §5/§6/§10, contract §10): the prompt-box mode settings, the element the
- * user selected in the preview, and the wids they manually edited since the
- * last AI change. Metadata BIASES the model; the user's words always win.
+ * §5/§6/§10, contract §10): the prompt-box mode settings, the current page's
+ * start-of-request outline, the user-selected preview element, and the wids
+ * they manually edited since the last AI change. Metadata BIASES the model;
+ * the user's words always win.
  */
 import {
 	type AiChatRequestMetadata,
 	videoSubmissionIdSchema,
 } from "@wandit/contracts";
+import type { OutlineSection } from "../../pages/domain/stamp";
 import type { AvailableImage } from "./tools/animate-image.tool";
 
 export type ChatRequestContext = {
+	activePageOutline?: {
+		sections: OutlineSection[];
+		versionNumber: number;
+	} | null;
 	manualEdits: string[];
 	metadata?: AiChatRequestMetadata;
 	// ISO alpha-2 country derived from the request IP at the edge (e.g. "DZ"),
@@ -297,6 +303,25 @@ export function buildChatRequestContext(
 		paragraphs.push(lines.join("\n"));
 	}
 
+	if (context.activePageOutline) {
+		const outlineLines = context.activePageOutline.sections.map(
+			(section) =>
+				`- data-wid="${section.wid}" | <${section.tag}> | ${JSON.stringify(section.snippet)}`,
+		);
+
+		paragraphs.push(
+			[
+				"The current page outline at the start of this request " +
+					`(version ${context.activePageOutline.versionNumber}):`,
+				...outlineLines,
+				"A page already exists — edit it with the surgical tools. Do not " +
+					"call get_page_outline again; the outline is right here. Call " +
+					"generate_page only when the user asks for a new page or a full " +
+					"redesign.",
+			].join("\n"),
+		);
+	}
+
 	const selectedWids = context.metadata?.selectedWids;
 	const selectedWid =
 		selectedWids?.length === 1
@@ -320,8 +345,11 @@ export function buildChatRequestContext(
 		paragraphs.push(
 			"The user selected an element in the page preview for THIS message: " +
 				`data-wid="${selectedWid}". When they say "this", "here", "ça", ` +
-				'"هذا" they mean that element. Call get_page_outline / ' +
-				"read_section to see it before answering or editing.",
+				'"هذا" they mean that element. ' +
+				(context.activePageOutline
+					? "Call read_section directly to see it before answering or editing."
+					: "Call get_page_outline / read_section to see it before answering " +
+						"or editing."),
 		);
 	}
 

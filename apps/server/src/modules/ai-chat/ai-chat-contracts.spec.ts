@@ -5,8 +5,11 @@ import {
 	aiChatSelectedTargetSchema,
 	aiElementOpSchema,
 	applyElementOpsInputSchema,
+	clientEditOpSchema,
+	editOpSchema,
 	generateImageInputSchema,
 	imageGenerationAttemptSchema,
+	insertSectionInputSchema,
 } from "@wandit/contracts";
 import { describe, expect, it } from "vitest";
 
@@ -146,6 +149,12 @@ describe("AI element-op contract", () => {
 			},
 			wid: "hero",
 		},
+		{
+			kind: "insert-element",
+			position: "append",
+			value: '<a href="/pricing">View pricing</a>',
+			wid: "hero-actions",
+		},
 	])("accepts $kind", (op) => {
 		expect(aiElementOpSchema.safeParse(op).success).toBe(true);
 	});
@@ -158,6 +167,12 @@ describe("AI element-op contract", () => {
 		{
 			kind: "replace-section",
 			value: "<section><p>Replacement content</p></section>",
+			wid: "hero",
+		},
+		{
+			kind: "insert-section",
+			position: "after",
+			value: "<section><p>Inserted content</p></section>",
 			wid: "hero",
 		},
 	])("rejects excluded $kind", (op) => {
@@ -199,6 +214,56 @@ describe("AI element-op contract", () => {
 		).toBe(false);
 	});
 
+	it("bounds insert-element HTML and validates its position", () => {
+		const op = {
+			kind: "insert-element",
+			position: "before",
+			value: "x",
+			wid: "hero-title",
+		};
+
+		expect(aiElementOpSchema.safeParse(op).success).toBe(true);
+		expect(
+			aiElementOpSchema.safeParse({ ...op, position: "after" }).success,
+		).toBe(true);
+		expect(
+			aiElementOpSchema.safeParse({ ...op, position: "append" }).success,
+		).toBe(true);
+		expect(
+			aiElementOpSchema.safeParse({ ...op, value: "x".repeat(60_000) }).success,
+		).toBe(true);
+		expect(aiElementOpSchema.safeParse({ ...op, value: "" }).success).toBe(
+			false,
+		);
+		expect(
+			aiElementOpSchema.safeParse({ ...op, value: "x".repeat(60_001) }).success,
+		).toBe(false);
+		expect(
+			aiElementOpSchema.safeParse({ ...op, position: "inside" }).success,
+		).toBe(false);
+	});
+
+	it("keeps insertion ops server-only at the edit-op boundary", () => {
+		const insertElement = {
+			kind: "insert-element",
+			position: "append",
+			value: "<button>Buy now</button>",
+			wid: "hero-actions",
+		};
+		const insertSection = {
+			kind: "insert-section",
+			position: "before",
+			value: "<section><p>Announcement</p></section>",
+			wid: "hero",
+		};
+
+		expect(editOpSchema.safeParse(insertElement).success).toBe(true);
+		expect(editOpSchema.safeParse(insertSection).success).toBe(true);
+		expect(clientEditOpSchema.safeParse(insertElement).success).toBe(false);
+		expect(clientEditOpSchema.safeParse(insertSection).success).toBe(false);
+		expect(aiElementOpSchema.safeParse(insertSection).success).toBe(false);
+	});
+
 	it("bounds apply_element_ops batches at twenty", () => {
 		const op = { kind: "text", value: "Updated", wid: "hero-title" };
 
@@ -215,6 +280,62 @@ describe("AI element-op contract", () => {
 		expect(applyElementOpsInputSchema.safeParse({ ops: [] }).success).toBe(
 			false,
 		);
+	});
+});
+
+describe("insert_section contract", () => {
+	const html = "<section><p>New section</p></section>";
+
+	it("accepts an anchor and defaults its position to after", () => {
+		expect(insertSectionInputSchema.parse({ anchorWid: "hero", html })).toEqual(
+			{
+				anchorWid: "hero",
+				html,
+				position: "after",
+			},
+		);
+		expect(
+			insertSectionInputSchema.safeParse({
+				anchorWid: "hero",
+				html,
+				position: "before",
+			}).success,
+		).toBe(true);
+	});
+
+	it("bounds HTML and rejects invalid anchors or positions", () => {
+		const input = { anchorWid: "hero", html, position: "after" };
+
+		expect(
+			insertSectionInputSchema.safeParse({ ...input, html: "x".repeat(20) })
+				.success,
+		).toBe(true);
+		expect(
+			insertSectionInputSchema.safeParse({
+				...input,
+				html: "x".repeat(60_000),
+			}).success,
+		).toBe(true);
+		expect(
+			insertSectionInputSchema.safeParse({ ...input, html: "x".repeat(19) })
+				.success,
+		).toBe(false);
+		expect(
+			insertSectionInputSchema.safeParse({
+				...input,
+				html: "x".repeat(60_001),
+			}).success,
+		).toBe(false);
+		expect(
+			insertSectionInputSchema.safeParse({
+				...input,
+				anchorWid: "INVALID",
+			}).success,
+		).toBe(false);
+		expect(
+			insertSectionInputSchema.safeParse({ ...input, position: "append" })
+				.success,
+		).toBe(false);
 	});
 });
 

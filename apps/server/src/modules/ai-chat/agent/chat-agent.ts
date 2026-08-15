@@ -4,7 +4,17 @@ import type {
 	AiChatTools,
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
-import { isStepCount, type Tool, ToolLoopAgent, type UIMessage } from "ai";
+import {
+	generateObject,
+	isStepCount,
+	jsonSchema,
+	type LanguageModel,
+	NoSuchToolError,
+	type Tool,
+	type ToolCallRepairFunction,
+	ToolLoopAgent,
+	type UIMessage,
+} from "ai";
 import {
 	createLlmModel,
 	withLlmAttribution,
@@ -87,10 +97,53 @@ type AiChatToolSet = {
 	read_elements: PageEditTools["read_elements"];
 	read_theme: PageEditTools["read_theme"];
 	read_section: PageEditTools["read_section"];
+	insert_section: PageEditTools["insert_section"];
 	replace_section: PageEditTools["replace_section"];
 };
 
 type McpToolSet = Record<string, Tool>;
+
+export function createChatToolCallRepair({
+	model,
+}: {
+	model: LanguageModel;
+}): ToolCallRepairFunction<Record<string, Tool>> {
+	return async ({
+		error,
+		inputSchema,
+		instructions,
+		messages,
+		system,
+		toolCall,
+	}) => {
+		if (NoSuchToolError.isInstance(error)) {
+			return null;
+		}
+
+		try {
+			const schema = jsonSchema<Record<string, unknown>>(
+				await inputSchema({ toolName: toolCall.toolName }),
+			);
+			const { object } = await generateObject({
+				instructions: instructions ?? system,
+				maxOutputTokens: AI_CHAT_MAX_OUTPUT_TOKENS,
+				messages: [
+					...messages,
+					{
+						role: "user",
+						content: `Your previous ${toolCall.toolName} call was cut off before the JSON closed. Return the COMPLETE arguments as valid JSON that satisfies the tool schema.`,
+					},
+				],
+				model,
+				schema,
+			});
+
+			return { ...toolCall, input: JSON.stringify(object) };
+		} catch {
+			return null;
+		}
+	};
+}
 
 export type WanditUIMessage = UIMessage<
 	AiChatMessageMetadata,
@@ -114,8 +167,8 @@ export type ChatAgentDeps = GeneratePageToolDeps &
  * generate_page and the page-edit tools must know which project/chat they act
  * for, and those ids only exist once the controller has loaded the owned
  * chat. contextBlock is the pre-built per-request text from
- * request-context.ts (mode metadata, preview selection, manual-edit notes),
- * appended to the static system prompt when present.
+ * request-context.ts (mode metadata, active outline, preview selection, and
+ * manual-edit notes), appended to the static system prompt when present.
  */
 export function createChatAgent(
 	deps: ChatAgentDeps,
@@ -129,20 +182,23 @@ export function createChatAgent(
 		userId: deps.userId,
 	};
 
+	// The long-idle fetch travels with the model on either provider; on
+	// OpenRouter the "high" effort maps to unified reasoning instead of the
+	// openai providerOptions key below.
+	const model = createLlmModel(env.AI_CHAT_MODEL, {
+		context: meteringContext,
+		fetch: chatGatewayFetch,
+		reasoningEffort: "high",
+		task: "chat",
+	});
+
 	return new ToolLoopAgent({
+		experimental_repairToolCall: createChatToolCallRepair({ model }),
 		instructions: contextBlock
 			? `${WANDIT_SYSTEM_PROMPT}\n\n${contextBlock}`
 			: WANDIT_SYSTEM_PROMPT,
-		// The long-idle fetch travels with the model on either provider; on
-		// OpenRouter the "high" effort maps to unified reasoning instead of the
-		// openai providerOptions key below.
-		model: createLlmModel(env.AI_CHAT_MODEL, {
-			context: meteringContext,
-			fetch: chatGatewayFetch,
-			reasoningEffort: "high",
-			task: "chat",
-		}),
 		maxOutputTokens: AI_CHAT_MAX_OUTPUT_TOKENS,
+		model,
 		providerOptions: withLlmAttribution(
 			{
 				// Anthropic's fine-grained tool streaming can emit unvalidated JSON.
@@ -204,6 +260,7 @@ export function createChatAgent(
 				builderModel: deps.builderModel,
 				chatId: deps.chatId,
 				conversationAssets: deps.conversationAssets,
+				conversationUserLinks: deps.conversationUserLinks,
 				pagesRepository: deps.pagesRepository,
 				parentEventId: deps.parentEventId,
 				projectId: deps.projectId,

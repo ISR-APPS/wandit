@@ -45,7 +45,8 @@ export class PagesController {
 
 	// One inline-editor/theme-panel Save = one op batch = one NEW immutable
 	// version (spec §7/§14). The body schema only accepts client op kinds —
-	// a replace-section op 400s at validation (the browser never sends HTML).
+	// server-internal surgical HTML ops 400 at validation (the browser never
+	// sends HTML).
 	@RequireWorkspacePermission("project", "update")
 	@Post("projects/:projectId/page/ops")
 	applyOps(

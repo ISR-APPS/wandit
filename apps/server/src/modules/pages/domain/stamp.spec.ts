@@ -343,6 +343,25 @@ describe("extractSectionHtml", () => {
 		expect(html).toContain("Grand titre");
 	});
 
+	it("omits managed shelf blocks outside the selected feature section", () => {
+		const stamped = stampHtml(`<!doctype html><html><head>
+			<style id="wandit-feature-splide-css">.splide { display: block; }</style>
+		</head><body>
+			<section data-wid="gallery" data-wandit-carousel>
+				<a data-wandit-lightbox="products" href="/shoe.jpg">View shoe</a>
+			</section>
+			<script id="wandit-feature-splide-js">window.Splide = class {};</script>
+			<script id="wandit-feature-starter-js">window.wanditStarter = true;</script>
+		</body></html>`);
+		const html = extractSectionHtml(stamped, "gallery");
+
+		expect(html).toContain("data-wandit-carousel");
+		expect(html).toContain('data-wandit-lightbox="products"');
+		expect(html).not.toContain("wandit-feature-splide-css");
+		expect(html).not.toContain("wandit-feature-splide-js");
+		expect(html).not.toContain("wandit-feature-starter-js");
+	});
+
 	it("returns null for unknown wids", () => {
 		expect(extractSectionHtml(stampHtml(FIXTURE), "missing")).toBeNull();
 	});
