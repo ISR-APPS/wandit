@@ -11,6 +11,8 @@ export * from "./http/envelope";
 export * from "./http/error-codes";
 // Pagination helpers.
 export * from "./http/pagination";
+// Academy guide contracts.
+export * from "./v1/academy";
 // Admin dashboard contracts.
 export * from "./v1/admin";
 // Affiliate capture and admin contracts.
