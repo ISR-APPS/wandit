@@ -27,19 +27,43 @@ interface DataTableFacetedFilterOption {
 	icon?: React.ComponentType<{ className?: string }>;
 }
 
-interface DataTableFacetedFilterProps<TData, TValue> {
-	column?: Column<TData, TValue>;
+interface DataTableFacetedFilterBaseProps {
+	ariaLabel: string;
 	title: string;
-	options: DataTableFacetedFilterOption[];
+	options: readonly DataTableFacetedFilterOption[];
 }
 
-function DataTableFacetedFilter<TData, TValue>({
-	column,
-	title,
-	options,
-}: DataTableFacetedFilterProps<TData, TValue>) {
-	const facets = column?.getFacetedUniqueValues();
-	const filterValue = column?.getFilterValue();
+interface DataTableFacetedFilterControlledProps {
+	column?: never;
+	value: string[];
+	onValueChange: (values: string[] | undefined) => void;
+	counts?: Record<string, number>;
+}
+
+interface DataTableFacetedFilterColumnProps<TData, TValue> {
+	column: Column<TData, TValue>;
+	value?: never;
+	onValueChange?: never;
+	counts?: never;
+}
+
+type DataTableFacetedFilterProps<
+	TData = unknown,
+	TValue = unknown,
+> = DataTableFacetedFilterBaseProps &
+	(
+		| DataTableFacetedFilterControlledProps
+		| DataTableFacetedFilterColumnProps<TData, TValue>
+	);
+
+function DataTableFacetedFilter<TData = unknown, TValue = unknown>(
+	props: DataTableFacetedFilterProps<TData, TValue>,
+) {
+	const { ariaLabel, title, options } = props;
+	const facets = props.column?.getFacetedUniqueValues();
+	const filterValue = props.column
+		? props.column.getFilterValue()
+		: props.value;
 	const selectedValues = new Set(
 		Array.isArray(filterValue) ? (filterValue as string[]) : [],
 	);
@@ -54,7 +78,21 @@ function DataTableFacetedFilter<TData, TValue>({
 		}
 
 		const values = Array.from(nextValues);
-		column?.setFilterValue(values.length > 0 ? values : undefined);
+		const nextValue = values.length > 0 ? values : undefined;
+
+		if (props.column) {
+			props.column.setFilterValue(nextValue);
+		} else {
+			props.onValueChange(nextValue);
+		}
+	};
+
+	const clearFilter = () => {
+		if (props.column) {
+			props.column.setFilterValue(undefined);
+		} else {
+			props.onValueChange(undefined);
+		}
 	};
 
 	return (
@@ -65,6 +103,7 @@ function DataTableFacetedFilter<TData, TValue>({
 					variant="outline"
 					size="sm"
 					className="h-8 border-dashed"
+					aria-label={ariaLabel}
 				>
 					<PlusCircleIcon data-icon="inline-start" />
 					{title}
@@ -86,9 +125,8 @@ function DataTableFacetedFilter<TData, TValue>({
 										{selectedValues.size} selected
 									</Badge>
 								) : (
-									options
-										.filter((option) => selectedValues.has(option.value))
-										.map((option) => (
+									options.map((option) =>
+										selectedValues.has(option.value) ? (
 											<Badge
 												key={option.value}
 												variant="secondary"
@@ -96,7 +134,8 @@ function DataTableFacetedFilter<TData, TValue>({
 											>
 												{option.label}
 											</Badge>
-										))
+										) : null,
+									)
 								)}
 							</span>
 						</>
@@ -111,14 +150,24 @@ function DataTableFacetedFilter<TData, TValue>({
 						<CommandGroup>
 							{options.map((option) => {
 								const isSelected = selectedValues.has(option.value);
+								const hasCount = props.column
+									? facets?.has(option.value)
+									: props.counts
+										? Object.hasOwn(props.counts, option.value)
+										: false;
+								const count = props.column
+									? facets?.get(option.value)
+									: props.counts?.[option.value];
 
 								return (
 									<CommandItem
 										key={option.value}
 										value={`${option.label} ${option.value}`}
 										onSelect={() => updateFilter(option.value)}
+										aria-checked={isSelected}
 									>
 										<span
+											aria-hidden="true"
 											className={cn(
 												"flex size-4 items-center justify-center rounded-[4px] border",
 												isSelected
@@ -132,9 +181,9 @@ function DataTableFacetedFilter<TData, TValue>({
 											<option.icon className="size-4 text-muted-foreground" />
 										)}
 										<span>{option.label}</span>
-										{facets?.has(option.value) && (
+										{hasCount && (
 											<span className="ml-auto flex min-w-4 items-center justify-center font-mono text-muted-foreground text-xs">
-												{facets.get(option.value)}
+												{count}
 											</span>
 										)}
 									</CommandItem>
@@ -148,7 +197,7 @@ function DataTableFacetedFilter<TData, TValue>({
 									<CommandItem
 										value={`clear-${title}`}
 										className="justify-center text-center"
-										onSelect={() => column?.setFilterValue(undefined)}
+										onSelect={clearFilter}
 									>
 										Clear filters
 									</CommandItem>

@@ -58,6 +58,20 @@ const usersTableColumns: ColumnDef<AdminUserSummary>[] = [
 		),
 	},
 	{
+		accessorKey: "creditsConsumed",
+		header: ({ column }) => (
+			<DataTableColumnHeader column={column} title="Credits used" />
+		),
+		cell: ({ row }) => (
+			<div>
+				<p className="font-medium font-mono tabular-nums">
+					{formatWholeNumber(row.original.creditsConsumed)}
+				</p>
+				<p className="text-muted-foreground text-xs">lifetime</p>
+			</div>
+		),
+	},
+	{
 		accessorKey: "projectsCount",
 		header: ({ column }) => (
 			<DataTableColumnHeader column={column} title="Projects" />

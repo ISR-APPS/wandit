@@ -23,6 +23,12 @@ import type {
 	UserDetail,
 } from "./users.dto";
 
+function serializeMultiValueFilter(
+	values: readonly string[] | undefined,
+): string | undefined {
+	return values && values.length > 0 ? values.join(",") : undefined;
+}
+
 export function listUsers(
 	params: ListUsersParams,
 ): Promise<AdminListUsersResponse> {
@@ -31,6 +37,11 @@ export function listUsers(
 		pageSize: params.pageSize,
 		q: params.q || undefined,
 		sort: params.sort,
+		plan: serializeMultiValueFilter(params.plan),
+		role: serializeMultiValueFilter(params.role),
+		status: serializeMultiValueFilter(params.status),
+		verified: serializeMultiValueFilter(params.verified),
+		creditsUsed: params.creditsUsed,
 	});
 }
 

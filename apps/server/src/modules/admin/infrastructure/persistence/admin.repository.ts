@@ -1,7 +1,12 @@
 import { Inject, Injectable } from "@nestjs/common";
 import {
+	ADMIN_CREDITS_USED_BUCKETS,
 	type AdminListUsersQuery,
 	type AdminUserPagesQuery,
+	adminUserPlans,
+	adminUserRoles,
+	adminUserStatuses,
+	adminUserVerificationStatuses,
 	ENTITLED_SUBSCRIPTION_STATUSES,
 	type PaginatedResult,
 } from "@wandit/contracts";
@@ -48,6 +53,7 @@ export type AdminUserSummaryRow = {
 	lastSeenAt: Date | null;
 	plan: string | null;
 	creditsBalance: number;
+	creditsConsumed: number;
 	projectsCount: number;
 };
 
@@ -162,21 +168,9 @@ export class AdminRepository {
 	async listUsers(
 		query: AdminListUsersQuery,
 	): Promise<PaginatedResult<AdminUserSummaryRow>> {
-		const where = this.buildSearchFilter(query.q);
-		const offset = (query.page - 1) * query.pageSize;
-
-		const [totalRow] = await this.db
-			.select({ total: sql<number>`count(*)::int` })
-			.from(user)
-			.where(where);
-
-		const items: AdminUserSummaryRow[] = await this.db
-			.select(this.summaryColumns())
-			.from(user)
-			.where(where)
-			.orderBy(...this.buildOrderBy(query.sort))
-			.limit(query.pageSize)
-			.offset(offset);
+		const { countQuery, listQuery } = this.buildListUsersQueries(query);
+		const [totalRow] = await countQuery;
+		const items: AdminUserSummaryRow[] = await listQuery;
 
 		return {
 			items,
@@ -184,6 +178,26 @@ export class AdminRepository {
 			pageSize: query.pageSize,
 			total: totalRow?.total ?? 0,
 		};
+	}
+
+	private buildListUsersQueries(query: AdminListUsersQuery) {
+		const where = this.buildUsersFilter(query);
+		const offset = (query.page - 1) * query.pageSize;
+
+		const countQuery = this.db
+			.select({ total: sql<number>`count(*)::int` })
+			.from(user)
+			.where(where);
+
+		const listQuery = this.db
+			.select(this.summaryColumns())
+			.from(user)
+			.where(where)
+			.orderBy(...this.buildOrderBy(query.sort))
+			.limit(query.pageSize)
+			.offset(offset);
+
+		return { countQuery, listQuery };
 	}
 
 	async listUserPages(
@@ -597,6 +611,8 @@ export class AdminRepository {
 	 * refs, which would break the correlation with the outer "user" row.
 	 */
 	private summaryColumns() {
+		const userId = sql.raw('"user"."id"');
+
 		return {
 			id: user.id,
 			name: user.name,
@@ -610,36 +626,89 @@ export class AdminRepository {
 			plan: sql<string | null>`(
 				select "subscriptions"."plan"
 				from "subscriptions"
-				where "subscriptions"."user_id" = "user"."id"
-					and "subscriptions"."organization_id" is null
-					and "subscriptions"."status" in (${sql.join(
-						entitledStatuses.map((status) => sql`${status}`),
-						sql`, `,
-					)})
+				where ${personalEntitledSubscriptionFilter(userId)}
 				order by "subscriptions"."created_at" desc
 				limit 1
 			)`,
-			creditsBalance: sql<number>`coalesce((
-				select sum("credit_ledger"."delta")
-				from "credit_ledger"
-				where "credit_ledger"."user_id" = "user"."id"
-					and "credit_ledger"."organization_id" is null
-			), 0)::int`,
-			projectsCount: userProjectsCount(sql.raw('"user"."id"')),
+			creditsBalance: userCreditsBalance(userId),
+			creditsConsumed: userCreditsConsumed(userId),
+			projectsCount: userProjectsCount(userId),
 		};
 	}
 
-	private buildSearchFilter(q: string | undefined) {
-		if (!q) {
-			return undefined;
+	private buildUsersFilter(query: AdminListUsersQuery) {
+		const filters: (SQL | undefined)[] = [];
+
+		if (query.q) {
+			const pattern = `%${escapeLikePattern(query.q)}%`;
+			filters.push(or(ilike(user.name, pattern), ilike(user.email, pattern)));
 		}
 
-		const pattern = `%${escapeLikePattern(q)}%`;
+		if (query.plan && query.plan.length < adminUserPlans.length) {
+			const entitledSubscription = sql`select 1
+				from "subscriptions"
+				where ${personalEntitledSubscriptionFilter(sql.raw('"user"."id"'))}`;
+			const planFilters: SQL[] = [];
 
-		return or(ilike(user.name, pattern), ilike(user.email, pattern));
+			if (query.plan.includes("free")) {
+				planFilters.push(sql`not exists (${entitledSubscription})`);
+			}
+
+			const paidPlans = query.plan.filter((plan) => plan !== "free");
+			if (paidPlans.length > 0) {
+				planFilters.push(sql`exists (${entitledSubscription}
+					and "subscriptions"."plan" in (${sql.join(
+						paidPlans.map((plan) => sql`${plan}`),
+						sql`, `,
+					)}))`);
+			}
+
+			filters.push(or(...planFilters));
+		}
+
+		if (query.role && query.role.length < adminUserRoles.length) {
+			const adminRole = storedRoleIncludesAdmin(user.role);
+			filters.push(
+				query.role.includes("admin") ? adminRole : sql`not ${adminRole}`,
+			);
+		}
+
+		if (query.status && query.status.length < adminUserStatuses.length) {
+			filters.push(
+				query.status.includes("banned")
+					? sql`${user.banned} is true`
+					: sql`${user.banned} is not true`,
+			);
+		}
+
+		if (
+			query.verified &&
+			query.verified.length < adminUserVerificationStatuses.length
+		) {
+			filters.push(
+				query.verified.includes("verified")
+					? sql`${user.emailVerified} is true`
+					: sql`${user.emailVerified} is not true`,
+			);
+		}
+
+		if (query.creditsUsed) {
+			const { min, max } = ADMIN_CREDITS_USED_BUCKETS[query.creditsUsed];
+			const creditsConsumed = userCreditsConsumed(sql.raw('"user"."id"'));
+
+			filters.push(
+				max === null
+					? sql`${creditsConsumed} >= ${min}`
+					: sql`${creditsConsumed} between ${min} and ${max}`,
+			);
+		}
+
+		return and(...filters);
 	}
 
 	private buildOrderBy(sort: AdminListUsersQuery["sort"]) {
+		const userId = sql.raw('"user"."id"');
+
 		switch (sort) {
 			case "oldest":
 				return [asc(user.createdAt), asc(user.id)];
@@ -647,6 +716,14 @@ export class AdminRepository {
 				return [asc(user.name), asc(user.id)];
 			case "email":
 				return [asc(user.email)];
+			case "most_projects":
+				return [desc(userProjectsCount(userId)), desc(user.id)];
+			case "most_credits":
+				return [desc(userCreditsBalance(userId)), desc(user.id)];
+			case "most_consumed":
+				return [desc(userCreditsConsumed(userId)), desc(user.id)];
+			case "recently_seen":
+				return [sql`${user.lastSeenAt} desc nulls last`, desc(user.id)];
 			default:
 				return [desc(user.createdAt), desc(user.id)];
 		}
@@ -683,6 +760,42 @@ function userProjectsCount(userId: SQL) {
 		from "projects"
 		where ${userProjectsFilter(userId)}
 	)::int`;
+}
+
+function userCreditsBalance(userId: SQL) {
+	return sql<number>`coalesce((
+		select sum("credit_ledger"."delta")
+		from "credit_ledger"
+		where "credit_ledger"."user_id" = ${userId}
+			and "credit_ledger"."organization_id" is null
+	), 0)::int`;
+}
+
+function userCreditsConsumed(userId: SQL) {
+	return sql<number>`coalesce((
+		select -sum("credit_ledger"."delta")
+		from "credit_ledger"
+		where "credit_ledger"."user_id" = ${userId}
+			and "credit_ledger"."organization_id" is null
+			and "credit_ledger"."kind" = 'consume'
+	), 0)::int`;
+}
+
+function personalEntitledSubscriptionFilter(userId: SQL) {
+	return sql`"subscriptions"."user_id" = ${userId}
+		and "subscriptions"."organization_id" is null
+		and "subscriptions"."status" in (${sql.join(
+			entitledStatuses.map((status) => sql`${status}`),
+			sql`, `,
+		)})`;
+}
+
+function storedRoleIncludesAdmin(role: typeof user.role) {
+	return sql`exists (
+		select 1
+		from unnest(string_to_array(coalesce(${role}, ''), ',')) as role_part(value)
+		where lower(trim(role_part.value)) = 'admin'
+	)`;
 }
 
 // Escape LIKE wildcards so a search for "100%" matches literally.
