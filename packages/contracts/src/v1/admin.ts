@@ -132,33 +132,29 @@ export type AdminUserVerificationStatus = z.infer<
 	typeof adminUserVerificationStatusSchema
 >;
 
-export const ADMIN_CREDITS_USED_BUCKETS = {
-	zero: { min: 0, max: 0, label: "0 credits" },
-	low: { min: 1, max: 99, label: "1–99 credits" },
-	mid: { min: 100, max: 999, label: "100–999 credits" },
-	high: { min: 1000, max: null, label: "1,000+ credits" },
-} as const;
-
-export const adminCreditsUsedBucketSchema = z.enum(
-	Object.keys(ADMIN_CREDITS_USED_BUCKETS) as [
-		keyof typeof ADMIN_CREDITS_USED_BUCKETS,
-		...(keyof typeof ADMIN_CREDITS_USED_BUCKETS)[],
-	],
-);
-
-export type AdminCreditsUsedBucket = z.infer<
-	typeof adminCreditsUsedBucketSchema
->;
-
-export const adminListUsersQuerySchema = paginationQuerySchema.extend({
-	q: z.string().trim().min(1).max(200).optional(),
-	sort: adminListUsersSortSchema.default("newest"),
-	plan: optionalCsvEnum(adminUserPlans),
-	role: optionalCsvEnum(adminUserRoles),
-	status: optionalCsvEnum(adminUserStatuses),
-	verified: optionalCsvEnum(adminUserVerificationStatuses),
-	creditsUsed: adminCreditsUsedBucketSchema.optional(),
-});
+export const adminListUsersQuerySchema = paginationQuerySchema
+	.extend({
+		q: z.string().trim().min(1).max(200).optional(),
+		sort: adminListUsersSortSchema.default("newest"),
+		plan: optionalCsvEnum(adminUserPlans),
+		role: optionalCsvEnum(adminUserRoles),
+		status: optionalCsvEnum(adminUserStatuses),
+		verified: optionalCsvEnum(adminUserVerificationStatuses),
+		// Net credits-consumed range. Both bounds are inclusive; an omitted
+		// max means unbounded. Query params arrive as strings — coerce.
+		creditsUsedMin: z.coerce.number().int().nonnegative().optional(),
+		creditsUsedMax: z.coerce.number().int().nonnegative().optional(),
+	})
+	.refine(
+		(query) =>
+			query.creditsUsedMin === undefined ||
+			query.creditsUsedMax === undefined ||
+			query.creditsUsedMin <= query.creditsUsedMax,
+		{
+			message: "creditsUsedMin must be less than or equal to creditsUsedMax",
+			path: ["creditsUsedMin"],
+		},
+	);
 
 export type AdminListUsersQuery = z.infer<typeof adminListUsersQuerySchema>;
 
@@ -174,6 +170,12 @@ export const adminUserSubscriptionSchema = z.object({
 	plan: billingPlanIdSchema,
 	status: z.string(),
 	interval: z.enum(["month", "year"]),
+	// Purchased credit tier of the current price (credits refilled per month).
+	// Plain positive int rather than creditTierSchema so legacy or hand-migrated
+	// prices outside the current catalog still render in the admin.
+	tierCredits: z.int().positive(),
+	// Scheduled period-end downgrade target, when one is pending.
+	pendingTierCredits: z.int().positive().nullable(),
 	currentPeriodEnd: isoDateTimeSchema.nullable(),
 	cancelAtPeriodEnd: z.boolean(),
 });

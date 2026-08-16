@@ -269,6 +269,20 @@ export function assembleRevenueResponse(
 		failedPayments: snapshot.paymentAdjustments.failedPayments,
 		failedPaymentsCents: snapshot.paymentAdjustments.failedPaymentsCents,
 	};
+	const bySource = snapshot.revenueBySource;
+	const domainMarginCents = bySource.domainsCents - bySource.domainCostCents;
+	const revenueBySource = {
+		subscriptionsCents: bySource.subscriptionsCents,
+		domainsCents: bySource.domainsCents,
+		domainOrders: bySource.domainOrders,
+		domainCostCents: bySource.domainCostCents,
+		domainMarginCents,
+		domainMarginPct:
+			bySource.domainsCents > 0
+				? (domainMarginCents / bySource.domainsCents) * 100
+				: null,
+		domainCostUnknownOrders: bySource.domainCostUnknownOrders,
+	};
 
 	return {
 		updatedAt: generatedAt.toISOString(),
@@ -307,6 +321,7 @@ export function assembleRevenueResponse(
 		},
 		churn,
 		netRevenue,
+		revenueBySource,
 		arpuByPlan: assembleArpuByPlan(snapshot),
 		retention: assembleRetention(snapshot.retention),
 		churnBreakdown: assembleChurnBreakdown(snapshot.churnBreakdown),

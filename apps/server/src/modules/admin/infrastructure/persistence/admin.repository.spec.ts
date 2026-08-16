@@ -1,5 +1,4 @@
 import {
-	ADMIN_CREDITS_USED_BUCKETS,
 	type AdminListUsersQuery,
 	type AdminUserPagesQuery,
 	adminListUsersQuerySchema,
@@ -36,7 +35,8 @@ describe("adminListUsersQuerySchema", () => {
 			role: "admin, user,admin",
 			status: " banned,active ",
 			verified: "verified, unverified,verified",
-			creditsUsed: "mid",
+			creditsUsedMin: "100",
+			creditsUsedMax: "999",
 		});
 
 		expect(query).toMatchObject({
@@ -44,7 +44,8 @@ describe("adminListUsersQuerySchema", () => {
 			role: ["admin", "user"],
 			status: ["banned", "active"],
 			verified: ["verified", "unverified"],
-			creditsUsed: "mid",
+			creditsUsedMin: 100,
+			creditsUsedMax: 999,
 		});
 	});
 
@@ -59,10 +60,20 @@ describe("adminListUsersQuerySchema", () => {
 		["role", "user,owner"],
 		["status", "active,suspended"],
 		["verified", "verified,pending"],
-		["creditsUsed", "extreme"],
+		["creditsUsedMin", "-1"],
+		["creditsUsedMax", "1.5"],
 	] as const)("rejects an invalid %s token", (filter, value) => {
 		expect(
 			adminListUsersQuerySchema.safeParse({ [filter]: value }).success,
+		).toBe(false);
+	});
+
+	it("rejects an inverted credits-used range", () => {
+		expect(
+			adminListUsersQuerySchema.safeParse({
+				creditsUsedMin: "500",
+				creditsUsedMax: "100",
+			}).success,
 		).toBe(false);
 	});
 });
@@ -79,7 +90,8 @@ describe("AdminRepository user-list queries", () => {
 			role: ["admin"],
 			status: ["banned"],
 			verified: ["unverified"],
-			creditsUsed: "mid",
+			creditsUsedMin: 100,
+			creditsUsedMax: 999,
 		} satisfies AdminListUsersQuery;
 		const { countQuery, listQuery } =
 			// biome-ignore lint/complexity/useLiteralKeys: bracket access keeps the production query builder private.
@@ -195,32 +207,41 @@ describe("AdminRepository user-list queries", () => {
 		expect(outerUserWhere(listQuery.toSQL().sql)).toBeUndefined();
 	});
 
+	// Net consumption: reserve rows minus the refund grants that reverse them.
+	const netConsumedExpression =
+		'coalesce(( select -sum("credit_ledger"."delta") from "credit_ledger" where "credit_ledger"."user_id" = "user"."id" and "credit_ledger"."organization_id" is null and ("credit_ledger"."kind" = \'consume\' or ("credit_ledger"."kind" = \'grant\' and ("credit_ledger"."idempotency_key" like \'settle-refund:%\' or "credit_ledger"."idempotency_key" like \'reconcile-refund:%\' or "credit_ledger"."idempotency_key" like \'refund:%\'))) ), 0)::int';
+
 	it.each([
-		["zero", "between $? and $?", [0, 0]],
-		["low", "between $? and $?", [1, 99]],
-		["mid", "between $? and $?", [100, 999]],
-		["high", ">= $?", [1000]],
-	] as const)("applies the %s credits-used bucket range", (creditsUsed, operator, params) => {
+		[
+			"a closed",
+			{ creditsUsedMin: 100, creditsUsedMax: 999 },
+			"between $? and $?",
+			[100, 999],
+		],
+		[
+			"a single-value",
+			{ creditsUsedMin: 0, creditsUsedMax: 0 },
+			"between $? and $?",
+			[0, 0],
+		],
+		["a min-only", { creditsUsedMin: 1000 }, ">= $?", [1000]],
+		["a max-only", { creditsUsedMax: 99 }, "<= $?", [99]],
+	] as const)("applies %s credits-used range", (_label, range, operator, params) => {
 		const repository = new AdminRepository(db as Database);
 		const query = {
 			page: 1,
 			pageSize: 25,
 			sort: "newest",
-			creditsUsed,
+			...range,
 		} satisfies AdminListUsersQuery;
 		// biome-ignore lint/complexity/useLiteralKeys: bracket access keeps the production query builder private.
 		const { countQuery } = repository["buildListUsersQueries"](query);
 		const count = countQuery.toSQL();
 		const countSql = normalizeSqlParams(count.sql);
-		const range = ADMIN_CREDITS_USED_BUCKETS[creditsUsed];
 
-		expect(countSql).toContain(
-			'coalesce(( select -sum("credit_ledger"."delta") from "credit_ledger" where "credit_ledger"."user_id" = "user"."id" and "credit_ledger"."organization_id" is null and "credit_ledger"."kind" = \'consume\' ), 0)::int',
-		);
+		expect(countSql).toContain(netConsumedExpression);
 		expect(countSql).toContain(operator);
 		expect(count.params).toEqual(params);
-		expect(range.min).toBe(params[0]);
-		expect(range.max).toBe(params[1] ?? null);
 	});
 
 	it.each([
@@ -242,8 +263,7 @@ describe("AdminRepository user-list queries", () => {
 				'( select count(*) from "projects" where "projects"."user_id" = "user"."id" and "projects"."deleted_at" is null )::int',
 			creditsBalance:
 				'coalesce(( select sum("credit_ledger"."delta") from "credit_ledger" where "credit_ledger"."user_id" = "user"."id" and "credit_ledger"."organization_id" is null ), 0)::int',
-			creditsConsumed:
-				'coalesce(( select -sum("credit_ledger"."delta") from "credit_ledger" where "credit_ledger"."user_id" = "user"."id" and "credit_ledger"."organization_id" is null and "credit_ledger"."kind" = \'consume\' ), 0)::int',
+			creditsConsumed: netConsumedExpression,
 		};
 		const aggregateExpression = aggregateExpressions[aggregate];
 

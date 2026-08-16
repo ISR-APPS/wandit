@@ -41,7 +41,8 @@ export function listUsers(
 		role: serializeMultiValueFilter(params.role),
 		status: serializeMultiValueFilter(params.status),
 		verified: serializeMultiValueFilter(params.verified),
-		creditsUsed: params.creditsUsed,
+		creditsUsedMin: params.creditsUsedMin,
+		creditsUsedMax: params.creditsUsedMax,
 	});
 }
 

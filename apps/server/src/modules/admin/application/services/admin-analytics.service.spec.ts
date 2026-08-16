@@ -58,6 +58,13 @@ const REVENUE_SNAPSHOT = {
 	collectedRevenueByDay: [
 		{ date: "2026-08-13", subscriptionsMinor: 2_500, ordersMinor: 1_000 },
 	],
+	revenueBySource: {
+		subscriptionsCents: 2_500,
+		domainsCents: 1_000,
+		domainOrders: 1,
+		domainCostCents: 800,
+		domainCostUnknownOrders: 0,
+	},
 	newPaidByDay: [{ date: "2026-08-13", count: 2 }],
 	daysToConvert: [
 		{ days: 0, count: 1 },

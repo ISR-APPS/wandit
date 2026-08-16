@@ -228,6 +228,15 @@ describe("admin analytics services", () => {
 					failedPayments: 1,
 					failedPaymentsCents: 1_000,
 				},
+				revenueBySource: {
+					subscriptionsCents: 12_501,
+					domainsCents: 1_499,
+					domainOrders: 1,
+					domainCostCents: 1_299,
+					domainMarginCents: 200,
+					domainMarginPct: 13.3,
+					domainCostUnknownOrders: 0,
+				},
 				arpuByPlan: [],
 				retention: {
 					cohorts: [

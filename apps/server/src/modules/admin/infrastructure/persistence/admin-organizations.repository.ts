@@ -75,6 +75,7 @@ export type AdminOrgSubscriptionRow = {
 	currentPeriodEnd: Date;
 	cancelAtPeriodEnd: boolean;
 	tierCredits: number;
+	pendingTierCredits: number | null;
 	purchasedByUserId: string | null;
 };
 
@@ -227,6 +228,7 @@ export class AdminOrganizationsRepository {
 				currentPeriodEnd: subscriptions.currentPeriodEnd,
 				cancelAtPeriodEnd: subscriptions.cancelAtPeriodEnd,
 				tierCredits: subscriptions.tierCredits,
+				pendingTierCredits: subscriptions.pendingTierCredits,
 				purchasedByUserId: subscriptions.userId,
 			})
 			.from(subscriptions)
