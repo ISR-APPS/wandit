@@ -4,6 +4,7 @@
 import type {
 	AdminCreditLedgerEntry,
 	AdminGrantCreditsInput,
+	AdminListUsersQuery,
 	AdminListUsersResponse,
 	AdminProjectVersionHtmlResponse,
 	AdminSetBannedInput,
@@ -19,7 +20,6 @@ import type {
 	AdminUserRole,
 	AdminUserSubscription,
 	AdminUserSummary,
-	adminListUsersSorts,
 	CreditBalanceResponse,
 	CreditBucket,
 } from "@wandit/contracts";
@@ -46,7 +46,14 @@ export type {
 	CreditBucket,
 };
 
-export type AdminListUsersSort = (typeof adminListUsersSorts)[number];
+export type AdminListUsersSort = AdminListUsersQuery["sort"];
+export type UserPlanFilter = NonNullable<AdminListUsersQuery["plan"]>;
+export type UserRoleFilter = NonNullable<AdminListUsersQuery["role"]>;
+export type UserStatusFilter = NonNullable<AdminListUsersQuery["status"]>;
+export type UserVerifiedFilter = NonNullable<AdminListUsersQuery["verified"]>;
+export type UserCreditsUsedFilter = NonNullable<
+	AdminListUsersQuery["creditsUsed"]
+>;
 
 // Thin aliases so component imports stay tidy.
 export type UserSummary = AdminUserSummary;
@@ -66,6 +73,11 @@ export type ListUsersParams = {
 	pageSize: number;
 	q?: string;
 	sort: AdminListUsersSort;
+	plan?: UserPlanFilter;
+	role?: UserRoleFilter;
+	status?: UserStatusFilter;
+	verified?: UserVerifiedFilter;
+	creditsUsed?: UserCreditsUsedFilter;
 };
 
 /** Query params for one user's server-paginated landing pages. */

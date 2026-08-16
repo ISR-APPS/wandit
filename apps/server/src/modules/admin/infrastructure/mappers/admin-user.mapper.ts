@@ -38,6 +38,7 @@ export function mapAdminUserSummary(
 		lastSeenAt: row.lastSeenAt === null ? null : toIso(row.lastSeenAt),
 		plan: normalizePlan(row.plan),
 		creditsBalance: Number(row.creditsBalance),
+		creditsConsumed: Number(row.creditsConsumed),
 		projectsCount: Number(row.projectsCount),
 	};
 }
