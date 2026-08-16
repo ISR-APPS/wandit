@@ -35,6 +35,7 @@ const TRANSPARENT_PART_TYPES = new Set([
 	"tool-read_elements",
 	"tool-read_theme",
 	"tool-read_section",
+	"tool-insert_section",
 	"tool-replace_section",
 	"data-billing-error",
 ]);

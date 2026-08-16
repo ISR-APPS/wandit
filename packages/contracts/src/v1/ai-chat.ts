@@ -698,7 +698,11 @@ export type ReadSectionOutput = z.infer<typeof readSectionOutputSchema>;
 /** replace_section — DOM surgery producing a NEW immutable version. */
 export const replaceSectionInputSchema = z.object({
 	wid: widSchema,
-	html: z.string().min(20).max(60_000),
+	html: z
+		.string()
+		.min(20)
+		.max(60_000)
+		.describe("Section HTML only; never JavaScript or scripts."),
 });
 
 export const replaceSectionOutputSchema = z.object({
@@ -709,6 +713,22 @@ export const replaceSectionOutputSchema = z.object({
 
 export type ReplaceSectionInput = z.infer<typeof replaceSectionInputSchema>;
 export type ReplaceSectionOutput = z.infer<typeof replaceSectionOutputSchema>;
+
+/** insert_section — inserts one section relative to an existing section. */
+export const insertSectionInputSchema = z.object({
+	anchorWid: widSchema,
+	position: z.enum(["before", "after"]).default("after"),
+	html: z.string().min(20).max(60_000),
+});
+
+export const insertSectionOutputSchema = z.object({
+	status: z.enum(["applied", "rejected", "no-page"]),
+	versionNumber: z.number().int().positive().optional(),
+	message: z.string().min(1),
+});
+
+export type InsertSectionInput = z.infer<typeof insertSectionInputSchema>;
+export type InsertSectionOutput = z.infer<typeof insertSectionOutputSchema>;
 
 /** Tool map for typing UIMessage on both web and server without sharing runtime code. */
 export type AiChatTools = {
@@ -745,6 +765,10 @@ export type AiChatTools = {
 	replace_section: {
 		input: ReplaceSectionInput;
 		output: ReplaceSectionOutput;
+	};
+	insert_section: {
+		input: InsertSectionInput;
+		output: InsertSectionOutput;
 	};
 };
 

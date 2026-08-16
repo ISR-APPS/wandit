@@ -2,6 +2,8 @@
 //
 // If you add a new table file and want it in the root schema, export it here.
 
+// Academy guide tables.
+export * from "./academy";
 // Affiliate programs, attribution, commissions, and payouts.
 export * from "./affiliates";
 // Generated page/artifact tables.
@@ -32,6 +34,8 @@ export * from "./marketing-assets";
 export * from "./mcp-connectors";
 // Image-to-video generation attempt tables.
 export * from "./media-generation-attempts";
+// User onboarding questionnaire answers.
+export * from "./onboarding";
 // Payment order tables.
 export * from "./orders";
 // Organization (Teams/Workspaces) tables — Better Auth org plugin models +

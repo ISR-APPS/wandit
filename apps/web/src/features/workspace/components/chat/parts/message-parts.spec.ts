@@ -8,6 +8,7 @@ import {
 } from "../../../lib/use-ai-chat";
 import {
 	coalesceMessageParts,
+	isTransparentMessagePart,
 	MessageParts,
 	orderMessagePartEntries,
 } from "./message-parts";
@@ -289,6 +290,45 @@ describe("coalesceMessageParts", () => {
 		expect(entries[0]?.kind).toBe("mcp-run");
 		if (entries[0]?.kind !== "mcp-run") throw new Error("Expected MCP run");
 		expect(entries[0].parts).toHaveLength(2);
+	});
+
+	it("keeps insert_section transparent across coalescing and rendering", () => {
+		const insertSectionPart = {
+			type: "tool-insert_section",
+			toolCallId: "insert-section-1",
+			state: "output-available",
+			input: {
+				anchorWid: "hero",
+				position: "after",
+				html: "<section><h2>New section</h2></section>",
+			},
+			output: { status: "applied", message: "Done" },
+		};
+
+		expect(
+			isTransparentMessagePart(
+				insertSectionPart as WanditUIMessage["parts"][number],
+			),
+		).toBe(true);
+
+		const entries = coalesceMessageParts(
+			asMessageParts([
+				dynamicPart("mcp-1"),
+				insertSectionPart,
+				dynamicPart("mcp-2"),
+			]),
+		);
+		expect(entries).toHaveLength(1);
+		expect(entries[0]?.kind).toBe("mcp-run");
+		if (entries[0]?.kind !== "mcp-run") throw new Error("Expected MCP run");
+		expect(entries[0].parts).toHaveLength(2);
+
+		const html = renderMessage("assistant", [
+			insertSectionPart,
+			{ type: "text", text: "Section added.", state: "done" },
+		]);
+		expect(html).toContain("Section added.");
+		expect(html).not.toContain("insert-section-1");
 	});
 
 	it("groups ask_user calls independently across step-start", () => {

@@ -52,6 +52,9 @@ export type GeneratePageToolDeps = {
 	// execute path appends the ones the Brain's brief forgot, so a build can
 	// never lose media the user generated on purpose.
 	conversationAssets?: readonly ConversationGeneratedAsset[];
+	// Raw http(s) links the user supplied in chat, preserved even when the
+	// Brain omits them from its free-text brief.
+	conversationUserLinks?: readonly string[];
 	pagesRepository: PagesRepository;
 	parentEventId?: string;
 	projectId: string;
@@ -60,9 +63,35 @@ export type GeneratePageToolDeps = {
 	userId: string;
 };
 
-// A media-heavy chat can carry many finished assets; the appended section
-// stays bounded so it can never crowd out the brief itself.
+// Media- and link-heavy chats stay bounded so deterministic appendices can
+// never crowd out the brief itself.
 const MAX_READY_MEDIA_ASSET_LINES = 16;
+const MAX_USER_LINKS = 16;
+const USER_HTTP_URL_PATTERN = /https?:\/\/[^\s<>"'`)\]}]+/giu;
+const TRAILING_URL_SYNTAX_PATTERN = /[.,;:!?…。，、；：！？\p{Pe}\p{Pf}]+$/gu;
+const URL_MARKDOWN_WRAPPERS = ["**", "__", "~~", "*", "_", "~"] as const;
+
+function stripTrailingUrlSyntax(
+	candidate: string,
+	leadingText: string,
+): string {
+	const url = candidate.replace(TRAILING_URL_SYNTAX_PATTERN, "");
+	const wrapper = URL_MARKDOWN_WRAPPERS.find(
+		(syntax) => leadingText.endsWith(syntax) && url.endsWith(syntax),
+	);
+
+	return wrapper ? url.slice(0, -wrapper.length) : url;
+}
+
+function collectHttpUrls(text: string): Set<string> {
+	return new Set(
+		[...text.matchAll(USER_HTTP_URL_PATTERN)]
+			.map((match) =>
+				stripTrailingUrlSyntax(match[0], text.slice(0, match.index)),
+			)
+			.filter(Boolean),
+	);
+}
 
 /**
  * Deterministic belt-and-braces for generated media: whatever the Brain's
@@ -89,6 +118,31 @@ export function appendReadyMediaAssets(
 		"READY MEDIA ASSETS (generated in this conversation — hosted, final, and allowed on the page):",
 		...lines,
 		"Placing every listed asset is part of the brief: give each one the role it serves best, and never generate a new image for a role a listed asset already covers.",
+	].join("\n");
+}
+
+/**
+ * Deterministic guard for user-provided links: append the candidates the Brain's
+ * free-text brief forgot, while preserving the transcript's order.
+ */
+export function appendUserLinks(
+	brief: string,
+	links: readonly string[],
+): string {
+	const briefUrls = collectHttpUrls(brief);
+	const missing = [
+		...new Set(links.filter((link) => !briefUrls.has(link))),
+	].slice(-MAX_USER_LINKS);
+
+	if (missing.length === 0) {
+		return brief;
+	}
+
+	return [
+		brief.trimEnd(),
+		"",
+		"USER LINKS (URLs the user shared in this conversation — use the ones that belong on this page; ignore any that were only references):",
+		...missing.map((link) => `- ${link}`),
 	].join("\n");
 }
 
@@ -180,9 +234,9 @@ export function createGeneratePageTool(
 				deps.builderModel ??
 				env.AI_PAGE_BUILDER_MODEL ??
 				env.AI_PAGE_DESIGN_MODEL;
-			const briefWithAssets = appendReadyMediaAssets(
-				brief,
-				deps.conversationAssets ?? [],
+			const finalBrief = appendUserLinks(
+				appendReadyMediaAssets(brief, deps.conversationAssets ?? []),
+				deps.conversationUserLinks ?? [],
 			);
 			const attempt = await deps.pagesRepository.insertAttempt({
 				artifactId: artifact.id,
@@ -190,7 +244,7 @@ export function createGeneratePageTool(
 				model: builderModel,
 				projectId: deps.projectId,
 				spec: {
-					brief: briefWithAssets,
+					brief: finalBrief,
 					designerSystemPrompt,
 					pageKind: isCod ? "cod" : "website",
 					title,
@@ -207,9 +261,9 @@ export function createGeneratePageTool(
 			// Log only a preview: the full brief is user business data and the
 			// full spec is already persisted on the attempt row above.
 			logger.log(
-				`Brief for attempt ${attempt.id} (${briefWithAssets.length} chars, ` +
+				`Brief for attempt ${attempt.id} (${finalBrief.length} chars, ` +
 					`${(deps.conversationAssets ?? []).length} conversation assets): ` +
-					`${briefWithAssets.slice(0, 200)}${briefWithAssets.length > 200 ? "…" : ""}`,
+					`${finalBrief.slice(0, 200)}${finalBrief.length > 200 ? "…" : ""}`,
 			);
 
 			let handle: Awaited<ReturnType<typeof tasks.trigger>>;

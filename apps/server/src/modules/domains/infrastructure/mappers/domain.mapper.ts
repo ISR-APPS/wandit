@@ -13,7 +13,14 @@ export function mapDomain(row: DomainRow): Domain {
 	return {
 		autoRenew: row.autoRenew,
 		createdAt: row.createdAt.toISOString(),
-		dns: dns.success ? { records: dns.data.records ?? [] } : null,
+		dns: dns.success
+			? {
+					...(dns.data.externalVerification
+						? { externalVerification: dns.data.externalVerification }
+						: {}),
+					records: dns.data.records ?? [],
+				}
+			: null,
 		error: safeDomainErrorSummary(row.error),
 		expiresAt: row.expiresAt?.toISOString() ?? null,
 		id: row.id,

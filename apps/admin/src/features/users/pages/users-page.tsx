@@ -10,7 +10,14 @@ import {
 	EmptyMedia,
 	EmptyTitle,
 } from "@/components/ui/empty";
-import type { AdminListUsersSort } from "@/features/users/api/users.dto";
+import type {
+	AdminListUsersSort,
+	UserCreditsUsedFilter,
+	UserPlanFilter,
+	UserRoleFilter,
+	UserStatusFilter,
+	UserVerifiedFilter,
+} from "@/features/users/api/users.dto";
 import { useUsersQuery } from "@/features/users/api/users.queries";
 import { UsersDataTable } from "@/features/users/components/table/users-data-table";
 import { UsersTableLoading } from "@/features/users/components/table/users-table-loading";
@@ -22,6 +29,11 @@ function UsersPage() {
 	const [page, setPage] = useState(1);
 	const [pageSize, setPageSize] = useState(USER_TABLE_DEFAULT_PAGE_SIZE);
 	const [sort, setSort] = useState<AdminListUsersSort>("newest");
+	const [plan, setPlan] = useState<UserPlanFilter>();
+	const [role, setRole] = useState<UserRoleFilter>();
+	const [status, setStatus] = useState<UserStatusFilter>();
+	const [verified, setVerified] = useState<UserVerifiedFilter>();
+	const [creditsUsed, setCreditsUsed] = useState<UserCreditsUsedFilter>();
 	const [searchValue, setSearchValue] = useState("");
 	const [debouncedQuery, setDebouncedQuery] = useState("");
 
@@ -33,22 +45,55 @@ function UsersPage() {
 		return () => clearTimeout(handle);
 	}, [searchValue]);
 
-	// New search text, sort, or page size all restart from the first page.
+	// New search text, sort, filters, or page size restart from the first page.
 	// biome-ignore lint/correctness/useExhaustiveDependencies: page reset is intentional
 	useEffect(() => {
 		setPage(1);
-	}, [debouncedQuery, sort, pageSize]);
+	}, [
+		debouncedQuery,
+		sort,
+		pageSize,
+		plan,
+		role,
+		status,
+		verified,
+		creditsUsed,
+	]);
 
 	const usersQuery = useUsersQuery({
 		page,
 		pageSize,
 		sort,
 		q: debouncedQuery || undefined,
+		plan,
+		role,
+		status,
+		verified,
+		creditsUsed,
 	});
 
 	const result = usersQuery.data;
+	const hasActiveFilters = Boolean(
+		plan?.length ||
+			role?.length ||
+			status?.length ||
+			verified?.length ||
+			creditsUsed,
+	);
 	const isEmptyDirectory =
-		result !== undefined && result.total === 0 && debouncedQuery.length === 0;
+		result !== undefined &&
+		result.total === 0 &&
+		!usersQuery.isFetching &&
+		debouncedQuery.length === 0 &&
+		!hasActiveFilters;
+	const clearAllFilters = () => {
+		setSearchValue("");
+		setPlan(undefined);
+		setRole(undefined);
+		setStatus(undefined);
+		setVerified(undefined);
+		setCreditsUsed(undefined);
+	};
 
 	return (
 		<div className="mx-auto w-full max-w-[1600px] space-y-5">
@@ -65,7 +110,7 @@ function UsersPage() {
 				</div>
 			</div>
 
-			{/* Stale rows stay on screen so the search and sort controls — which live
+			{/* Stale rows stay on screen so the search, filter, and sort controls — which live
 			    in the table toolbar — remain available to undo the failing params. */}
 			{usersQuery.isError && result ? (
 				<div
@@ -127,10 +172,21 @@ function UsersPage() {
 					pageSize={pageSize}
 					total={result.total}
 					sort={sort}
+					plan={plan}
+					role={role}
+					status={status}
+					verified={verified}
+					creditsUsed={creditsUsed}
 					searchValue={searchValue}
 					isFetching={usersQuery.isFetching}
 					onSearchChange={setSearchValue}
 					onSortChange={setSort}
+					onPlanChange={setPlan}
+					onRoleChange={setRole}
+					onStatusChange={setStatus}
+					onVerifiedChange={setVerified}
+					onCreditsUsedChange={setCreditsUsed}
+					onClearAllFilters={clearAllFilters}
 					onPageChange={setPage}
 					onPageSizeChange={setPageSize}
 				/>

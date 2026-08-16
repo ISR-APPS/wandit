@@ -87,9 +87,9 @@ export class AuthGuard implements CanActivate {
 			throw new UnauthorizedException();
 		}
 
-		// Banning only deletes the target's sessions once, so a session created in
-		// that race window would otherwise authenticate forever. No cookie cache is
-		// configured, so the user row above is read fresh on every request.
+		// A newly applied ban can remain in the signed session cache for at most its
+		// five-minute lifetime. After that, Better Auth reads the Postgres session
+		// row again; the admin ban flow deletes those rows to enforce revocation.
 		if (isBanActive(session.user)) {
 			throw new UnauthorizedException();
 		}

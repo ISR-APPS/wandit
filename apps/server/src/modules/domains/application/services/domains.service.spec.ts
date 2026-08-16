@@ -1,5 +1,7 @@
 import {
 	DOMAIN_TLD_CATALOG,
+	type DomainDns,
+	domainDnsSchema,
 	domainNameSchema,
 	type RequiredDomainRecord,
 } from "@wandit/contracts";
@@ -26,6 +28,10 @@ import type {
 	DomainsRepository,
 } from "../../infrastructure/persistence/domains.repository";
 import { DomainsService } from "./domains.service";
+
+vi.mock("@wandit/env/server", () => ({
+	env: { DOMAINS_FALLBACK_ORIGIN: "customers.wandit.app" },
+}));
 
 const userId = "user_1";
 const projectId = "11111111-1111-4111-8111-111111111111";
@@ -122,6 +128,10 @@ class FakeDomainsRepository {
 		return updated;
 	}
 
+	async setDns(id: string, dns: DomainDns) {
+		return this.updateById(id, { dns });
+	}
+
 	async updateIfStatusOrNull(
 		id: string,
 		statuses: DomainRow["status"][],
@@ -134,6 +144,119 @@ class FakeDomainsRepository {
 		}
 
 		return this.updateById(id, patch);
+	}
+
+	async activateAndClearExternalVerification(
+		id: string,
+		statuses: Extract<DomainRow["status"], "active" | "configuring">[],
+	) {
+		const row = this.rows.get(id);
+
+		if (
+			row?.source !== "external" ||
+			!statuses.includes(row.status as "active" | "configuring")
+		) {
+			return null;
+		}
+
+		const dns = domainDnsSchema.safeParse(row.dns);
+		const currentDns = dns.success ? dns.data : {};
+		const { externalVerification: _externalVerification, ...remaining } =
+			currentDns;
+
+		return this.updateById(id, {
+			dns: remaining,
+			error: null,
+			status: "active",
+		});
+	}
+
+	async readCursor(id: string) {
+		const row = this.rows.get(id);
+		const dns = domainDnsSchema.safeParse(row?.dns);
+		const cursor =
+			dns?.success &&
+			typeof dns.data.triggerConfiguration === "object" &&
+			dns.data.triggerConfiguration !== null
+				? (dns.data.triggerConfiguration as {
+						nextAttempt?: unknown;
+						nextProbeAt?: unknown;
+						nonce?: unknown;
+					})
+				: null;
+
+		if (
+			!cursor ||
+			typeof cursor.nextAttempt !== "number" ||
+			typeof cursor.nonce !== "string"
+		) {
+			return null;
+		}
+
+		return {
+			nextAttempt: cursor.nextAttempt,
+			nextProbeAt:
+				typeof cursor.nextProbeAt === "string"
+					? new Date(cursor.nextProbeAt)
+					: null,
+			nonce: cursor.nonce,
+		};
+	}
+
+	async prepareExternalVerificationRestart(id: string) {
+		const row = this.rows.get(id);
+		const dns = domainDnsSchema.safeParse(row?.dns);
+		const cursor = await this.readCursor(id);
+
+		if (
+			row?.source !== "external" ||
+			row.status !== "configuring" ||
+			!dns.success ||
+			!dns.data.externalVerification ||
+			!cursor
+		) {
+			return null;
+		}
+
+		const nonce = `manual-restart:${dns.data.externalVerification.stalledAt}`;
+
+		if (cursor.nonce !== nonce) {
+			this.rows.set(id, {
+				...row,
+				dns: {
+					...dns.data,
+					triggerConfiguration: {
+						nextAttempt: 0,
+						nextProbeAt: null,
+						nonce,
+					},
+				},
+			});
+		}
+
+		return {
+			...dns.data.externalVerification,
+			nonce,
+		};
+	}
+
+	async clearExternalVerificationMarker(id: string, stalledAt: string) {
+		const row = this.rows.get(id);
+		const dns = domainDnsSchema.safeParse(row?.dns);
+
+		if (
+			row?.source !== "external" ||
+			!dns.success ||
+			dns.data.externalVerification?.stalledAt !== stalledAt
+		) {
+			return false;
+		}
+
+		const { externalVerification: _externalVerification, ...remaining } =
+			dns.data;
+		this.rows.set(id, { ...row, dns: remaining });
+
+		return true;
 	}
 
 	async setPrimary(id: string, inputScope: ProjectScope) {
@@ -265,6 +388,7 @@ class FakeProvider implements DomainProvider {
 }
 
 class FakeCustomHostnameService {
+	requiredRecords: Array<{ name: string; type: "TXT"; value: string }> = [];
 	status = "pending";
 	readonly createCustomHostname = vi.fn(async () => ({
 		hostnameStatus: "pending",
@@ -282,7 +406,7 @@ class FakeCustomHostnameService {
 	readonly getCustomHostnameStatus = vi.fn(async () => ({
 		hostnameStatus: this.status,
 		id: "cf_1",
-		requiredRecords: [],
+		requiredRecords: this.requiredRecords,
 		sslStatus: this.status,
 		status: this.status,
 	}));
@@ -315,6 +439,12 @@ class FakeDomainTaskDispatcher implements DomainTaskDispatcher {
 	readonly recoverPurchase = vi.fn(
 		async (_payload: { domainId: string; orderId: string }) => ({
 			id: "run_recovered",
+		}),
+	);
+
+	readonly recoverConfiguration = vi.fn(
+		async (_payload: { domainId: string; nonce: string }) => ({
+			id: "run_recovered_configuration",
 		}),
 	);
 
@@ -602,7 +732,7 @@ describe("DomainsService", () => {
 		expectNoRegistrarMutation(provider);
 	});
 
-	it("attaches BYO domains with required records and verifies only once Cloudflare is active", async () => {
+	it("attaches BYO domains and idempotently reuses its verification run", async () => {
 		const { cloudflare, dispatcher, repository, routing, service } = setup();
 
 		const attached = await service.attachExternal(scope, projectId, {
@@ -647,20 +777,16 @@ describe("DomainsService", () => {
 		});
 		expect(routing.pointers).toHaveLength(0);
 		expect(dispatcher.triggerConfiguration).toHaveBeenCalledTimes(2);
-		const firstManualPayload =
-			dispatcher.triggerConfiguration.mock.calls[1]?.[0];
-		expect(firstManualPayload).toEqual({
+		expect(dispatcher.triggerConfiguration).toHaveBeenNthCalledWith(2, {
 			domainId: row.id,
-			nonce: expect.stringMatching(
-				/^manual:[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
-			),
+			nonce: String(row.updatedAt.getTime()),
 		});
 
 		await service.verify(row.id, scope);
-		const secondManualPayload =
-			dispatcher.triggerConfiguration.mock.calls[2]?.[0];
-		expect(secondManualPayload?.nonce).toMatch(/^manual:/);
-		expect(secondManualPayload?.nonce).not.toBe(firstManualPayload?.nonce);
+		expect(dispatcher.triggerConfiguration).toHaveBeenNthCalledWith(3, {
+			domainId: row.id,
+			nonce: String(row.updatedAt.getTime()),
+		});
 
 		cloudflare.status = "active";
 		await expect(service.verify(row.id, scope)).resolves.toMatchObject({
@@ -670,6 +796,169 @@ describe("DomainsService", () => {
 			{ host: "brand.com", pointer: { projectId, source: "domain" } },
 		]);
 		expect(dispatcher.triggerConfiguration).toHaveBeenCalledTimes(3);
+		expect(dispatcher.recoverConfiguration).not.toHaveBeenCalled();
+	});
+
+	it("persists newly merged Cloudflare records for external domains", async () => {
+		const { cloudflare, dispatcher, repository, service } = setup();
+		cloudflare.requiredRecords = [
+			{
+				name: "_cf-custom-hostname.brand.com",
+				type: "TXT",
+				value: "fresh-token",
+			},
+		];
+		const row = repository.seed({
+			cfCustomHostnameId: "cf_rotated",
+			dns: {
+				records: [
+					{
+						name: "_cf-custom-hostname.brand.com",
+						purpose: "ownership_or_ssl_validation",
+						type: "TXT",
+						value: "old-token",
+					},
+				],
+				triggerConfiguration: {
+					nextAttempt: 2,
+					nextProbeAt: null,
+					nonce: "existing-nonce",
+				},
+			},
+			name: "brand.com",
+			projectId,
+			source: "external",
+			status: "configuring",
+		});
+
+		const response = await service.verify(row.id, scope);
+
+		expect(repository.rows.get(row.id)?.dns).toMatchObject({
+			records: response.requiredRecords,
+			triggerConfiguration: {
+				nextAttempt: 2,
+				nextProbeAt: null,
+				nonce: "existing-nonce",
+			},
+		});
+		expect(response.domain.dns?.records).toEqual(response.requiredRecords);
+		expect(response.requiredRecords).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({ type: "CNAME", name: "www" }),
+				expect.objectContaining({ type: "TXT", value: "old-token" }),
+				expect.objectContaining({ type: "TXT", value: "fresh-token" }),
+			]),
+		);
+		expect(dispatcher.triggerConfiguration).toHaveBeenCalledWith({
+			domainId: row.id,
+			nonce: "existing-nonce",
+		});
+	});
+
+	it("restarts a stalled external run and clears its warning after handoff", async () => {
+		const { dispatcher, repository, service } = setup();
+		const stalledAt = "2026-08-02T00:00:30.000Z";
+		const row = repository.seed({
+			cfCustomHostnameId: "cf_stalled",
+			dns: {
+				externalVerification: { attempts: 101, stalledAt },
+				records: [],
+				triggerConfiguration: {
+					nextAttempt: 100,
+					nextProbeAt: null,
+					nonce: "manual:stable-restart",
+				},
+			},
+			name: "stalled.com",
+			projectId,
+			source: "external",
+			status: "configuring",
+		});
+
+		await expect(service.verify(row.id, scope)).resolves.toMatchObject({
+			domain: {
+				dns: {
+					records: [expect.objectContaining({ name: "www", type: "CNAME" })],
+				},
+				status: "configuring",
+			},
+		});
+
+		expect(dispatcher.triggerConfiguration).toHaveBeenCalledWith({
+			domainId: row.id,
+			nonce: `manual-restart:${stalledAt}`,
+		});
+		expect(dispatcher.recoverConfiguration).not.toHaveBeenCalled();
+		expect(repository.rows.get(row.id)?.dns).toMatchObject({
+			triggerConfiguration: {
+				nextAttempt: 0,
+				nextProbeAt: null,
+				nonce: `manual-restart:${stalledAt}`,
+			},
+		});
+		expect(repository.rows.get(row.id)?.dns).not.toHaveProperty(
+			"externalVerification",
+		);
+	});
+
+	it("keeps the stalled marker when the restart handoff fails", async () => {
+		const { dispatcher, repository, service } = setup();
+		const stalledAt = "2026-08-02T00:00:30.000Z";
+		const row = repository.seed({
+			cfCustomHostnameId: "cf_stalled",
+			dns: {
+				externalVerification: { attempts: 101, stalledAt },
+				triggerConfiguration: {
+					nextAttempt: 100,
+					nextProbeAt: null,
+					nonce: "manual:stable-restart",
+				},
+			},
+			name: "retry-stalled.com",
+			projectId,
+			source: "external",
+			status: "configuring",
+		});
+		dispatcher.triggerConfiguration.mockRejectedValueOnce(
+			new Error("trigger down"),
+		);
+
+		await expect(service.verify(row.id, scope)).rejects.toThrow("trigger down");
+		expect(repository.rows.get(row.id)?.dns).toMatchObject({
+			externalVerification: { attempts: 101, stalledAt },
+		});
+	});
+
+	it("clears a stalled marker when a manual check activates the domain", async () => {
+		const { cloudflare, dispatcher, repository, service } = setup();
+		cloudflare.status = "active";
+		const row = repository.seed({
+			cfCustomHostnameId: "cf_stalled_active",
+			dns: {
+				externalVerification: {
+					attempts: 101,
+					stalledAt: "2026-08-02T00:00:30.000Z",
+				},
+				records: [],
+			},
+			name: "active-stalled.com",
+			projectId,
+			source: "external",
+			status: "configuring",
+		});
+
+		await expect(service.verify(row.id, scope)).resolves.toMatchObject({
+			domain: {
+				dns: {
+					records: [expect.objectContaining({ name: "www", type: "CNAME" })],
+				},
+				status: "active",
+			},
+		});
+		expect(repository.rows.get(row.id)?.dns).not.toHaveProperty(
+			"externalVerification",
+		);
+		expect(dispatcher.recoverConfiguration).not.toHaveBeenCalled();
 	});
 
 	it("deletes the external row when Cloudflare hostname creation fails", async () => {

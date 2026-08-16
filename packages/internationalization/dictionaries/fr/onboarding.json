@@ -1,0 +1,85 @@
+{
+	"meta": {
+		"title": "Bienvenue"
+	},
+	"steps": {
+		"style": {
+			"title": "Choisis ton style",
+			"options": {
+				"light": "Clair",
+				"dark": "Sombre"
+			}
+		},
+		"name": {
+			"title": "Comment t’appelles-tu ?",
+			"label": "Nom complet",
+			"next": "Suivant"
+		},
+		"accountType": {
+			"title": "Comment travailles-tu ?",
+			"options": {
+				"solo": "En solo",
+				"organization": "En équipe"
+			}
+		},
+		"soloProfile": {
+			"title": "Qu’est-ce qui te décrit le mieux ?",
+			"options": {
+				"ecommerce_seller": "Vendeur e‑commerce",
+				"agency": "Agence",
+				"freelancer": "Freelance",
+				"other": "Autre"
+			}
+		},
+		"role": {
+			"title": "Quel rôle te correspond le mieux ?",
+			"options": {
+				"founder": "Fondateur",
+				"product": "Produit",
+				"designer": "Designer",
+				"engineer": "Ingénieur",
+				"consultant": "Consultant",
+				"marketing_sales": "Marketing / Ventes",
+				"operations": "Opérations",
+				"other": "Autre"
+			}
+		},
+		"companySize": {
+			"title": "Combien de personnes travaillent dans ton entreprise ?",
+			"options": {
+				"2_10": "2 – 10",
+				"11_50": "11 – 50",
+				"51_200": "51 – 200",
+				"200_plus": "200+"
+			}
+		},
+		"aiExperience": {
+			"title": "As-tu déjà utilisé des outils IA ?",
+			"options": {
+				"never": "Jamais",
+				"sometimes": "Parfois",
+				"daily": "Tous les jours"
+			}
+		},
+		"aiTools": {
+			"title": "Quels outils IA utilises-tu ?",
+			"label": "Outils",
+			"placeholder": "p. ex. un assistant conversationnel, un créateur de sites web…",
+			"next": "Suivant",
+			"skip": "Passer"
+		}
+	},
+	"common": {
+		"back": "Retour",
+		"soundOn": "Activer le son",
+		"soundOff": "Couper le son"
+	},
+	"submitting": {
+		"saving": "Enregistrement de tes réponses…",
+		"warming": "Préparation de ton espace de travail…",
+		"igniting": "La première étincelle jaillit…"
+	},
+	"error": {
+		"submit": "Impossible d’enregistrer tes réponses. Réessaie."
+	}
+}

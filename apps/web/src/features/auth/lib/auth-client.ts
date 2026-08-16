@@ -6,6 +6,7 @@ import { env } from "@wandit/env/web";
 import {
 	adminClient,
 	emailOTPClient,
+	inferAdditionalFields,
 	magicLinkClient,
 	organizationClient,
 } from "better-auth/client/plugins";
@@ -33,6 +34,14 @@ export const authClient = createAuthClient({
 		},
 	},
 	plugins: [
+		inferAdditionalFields({
+			user: {
+				onboardingCompletedAt: {
+					type: "date",
+					required: false,
+				},
+			},
+		}),
 		adminClient(),
 		// Email sign-in (magic link + OTP fallback) — dark behind the
 		// emailAuthEnabled public setting; the auth modal gates the UI.
