@@ -144,6 +144,13 @@ function revenueSnapshot(
 			nonHealthyPaidUsers: 0,
 		},
 		collectedRevenueByDay: [],
+		revenueBySource: {
+			subscriptionsCents: 0,
+			domainsCents: 0,
+			domainOrders: 0,
+			domainCostCents: 0,
+			domainCostUnknownOrders: 0,
+		},
 		newPaidByDay: [],
 		daysToConvert: [],
 		checkoutFunnel: { completed: 0, started: 0 },
@@ -651,6 +658,38 @@ describe("admin analytics MRR", () => {
 });
 
 describe("admin analytics revenue extensions", () => {
+	it("splits revenue by source and derives domain margin", () => {
+		const response = assembleRevenueResponse(
+			revenueSnapshot({
+				revenueBySource: {
+					subscriptionsCents: 10_000,
+					domainsCents: 1_499,
+					domainOrders: 1,
+					domainCostCents: 1_299,
+					domainCostUnknownOrders: 0,
+				},
+			}),
+			NOW,
+		);
+
+		expect(response.revenueBySource).toEqual({
+			subscriptionsCents: 10_000,
+			domainsCents: 1_499,
+			domainOrders: 1,
+			domainCostCents: 1_299,
+			domainMarginCents: 200,
+			domainMarginPct: (200 / 1_499) * 100,
+			domainCostUnknownOrders: 0,
+		});
+	});
+
+	it("nulls the domain margin percent when no domain cash was collected", () => {
+		const response = assembleRevenueResponse(revenueSnapshot(), NOW);
+
+		expect(response.revenueBySource.domainMarginCents).toBe(0);
+		expect(response.revenueBySource.domainMarginPct).toBeNull();
+	});
+
 	it("computes churn, LTV, net-new MRR, net revenue, and plan ARPU", () => {
 		const response = assembleRevenueResponse(
 			revenueSnapshot({

@@ -1,4 +1,6 @@
 import { ArrowsDownUpIcon } from "@phosphor-icons/react/ArrowsDownUp";
+import { CircleNotchIcon } from "@phosphor-icons/react/CircleNotch";
+import { DownloadSimpleIcon } from "@phosphor-icons/react/DownloadSimple";
 import { XIcon } from "@phosphor-icons/react/X";
 import type { Table } from "@tanstack/react-table";
 
@@ -18,25 +20,16 @@ import {
 	DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "@/components/ui/select";
 import type {
 	AdminListUsersSort,
 	AdminUserSummary,
-	UserCreditsUsedFilter,
+	UserCreditsUsedRange,
 	UserPlanFilter,
 	UserRoleFilter,
 	UserStatusFilter,
 	UserVerifiedFilter,
 } from "@/features/users/api/users.dto";
 import {
-	USER_CREDITS_USED_FILTER_OPTIONS,
-	USER_FILTER_ALL,
 	USER_PLAN_FILTER_OPTIONS,
 	USER_ROLE_FILTER_OPTIONS,
 	USER_SORT_OPTION_GROUPS,
@@ -44,6 +37,8 @@ import {
 	USER_STATUS_FILTER_OPTIONS,
 	USER_VERIFIED_FILTER_OPTIONS,
 } from "@/features/users/lib/constants";
+
+import { UsersCreditsUsedFilter } from "./users-credits-used-filter";
 
 type UsersTableToolbarProps = {
 	table: Table<AdminUserSummary>;
@@ -53,15 +48,17 @@ type UsersTableToolbarProps = {
 	role?: UserRoleFilter;
 	status?: UserStatusFilter;
 	verified?: UserVerifiedFilter;
-	creditsUsed?: UserCreditsUsedFilter;
+	creditsUsed?: UserCreditsUsedRange;
+	isExporting: boolean;
 	onSearchChange: (value: string) => void;
 	onSortChange: (sort: AdminListUsersSort) => void;
 	onPlanChange: (plan: UserPlanFilter | undefined) => void;
 	onRoleChange: (role: UserRoleFilter | undefined) => void;
 	onStatusChange: (status: UserStatusFilter | undefined) => void;
 	onVerifiedChange: (verified: UserVerifiedFilter | undefined) => void;
-	onCreditsUsedChange: (creditsUsed: UserCreditsUsedFilter | undefined) => void;
+	onCreditsUsedChange: (creditsUsed: UserCreditsUsedRange | undefined) => void;
 	onClearAllFilters: () => void;
+	onExport: () => void;
 };
 
 const columnLabels = {
@@ -85,6 +82,7 @@ function UsersTableToolbar({
 	status,
 	verified,
 	creditsUsed,
+	isExporting,
 	onSearchChange,
 	onSortChange,
 	onPlanChange,
@@ -93,6 +91,7 @@ function UsersTableToolbar({
 	onVerifiedChange,
 	onCreditsUsedChange,
 	onClearAllFilters,
+	onExport,
 }: UsersTableToolbarProps) {
 	const hasActiveFilters = Boolean(
 		searchValue.trim().length > 0 ||
@@ -153,32 +152,10 @@ function UsersTableToolbar({
 						onVerifiedChange(values as UserVerifiedFilter | undefined)
 					}
 				/>
-				<Select
-					value={creditsUsed ?? USER_FILTER_ALL}
-					onValueChange={(value) =>
-						onCreditsUsedChange(
-							value === USER_FILTER_ALL
-								? undefined
-								: (value as UserCreditsUsedFilter),
-						)
-					}
-				>
-					<SelectTrigger
-						size="sm"
-						aria-label="Filter by credits used"
-						className="h-8 max-w-full"
-					>
-						<span className="text-muted-foreground text-sm">Credits used:</span>
-						<SelectValue />
-					</SelectTrigger>
-					<SelectContent>
-						{USER_CREDITS_USED_FILTER_OPTIONS.map((option) => (
-							<SelectItem key={option.value} value={option.value}>
-								{option.label}
-							</SelectItem>
-						))}
-					</SelectContent>
-				</Select>
+				<UsersCreditsUsedFilter
+					value={creditsUsed}
+					onValueChange={onCreditsUsedChange}
+				/>
 				{hasActiveFilters ? (
 					<Button
 						type="button"
@@ -193,6 +170,29 @@ function UsersTableToolbar({
 			</div>
 
 			<div className="flex items-center gap-2 lg:shrink-0">
+				<Button
+					type="button"
+					variant="outline"
+					size="sm"
+					aria-label="Export users to Excel"
+					disabled={isExporting}
+					onClick={onExport}
+				>
+					{isExporting ? (
+						<CircleNotchIcon
+							data-icon="inline-start"
+							className="animate-spin text-muted-foreground"
+							aria-hidden="true"
+						/>
+					) : (
+						<DownloadSimpleIcon
+							data-icon="inline-start"
+							className="text-muted-foreground"
+							aria-hidden="true"
+						/>
+					)}
+					Export
+				</Button>
 				<DropdownMenu>
 					<DropdownMenuTrigger asChild>
 						<Button

@@ -41,6 +41,16 @@ type Endpoint =
 	| "health"
 	| "revenue";
 
+// Consumption amounts are net of the refund grants that reverse reserves
+// ('settle-refund:%' / 'reconcile-refund:%' / 'refund:%' idempotency keys).
+function refundGrantSql(alias: string) {
+	return `(${alias}.kind = 'grant' and (${alias}.idempotency_key like 'settle-refund:%' or ${alias}.idempotency_key like 'reconcile-refund:%' or ${alias}.idempotency_key like 'refund:%'))`;
+}
+
+function netConsumptionSql(alias: string) {
+	return `(${alias}.kind = 'consume' or ${refundGrantSql(alias)})`;
+}
+
 function compileQuery(query: unknown): CompiledQuery {
 	if (
 		typeof query !== "object" ||
@@ -168,7 +178,7 @@ function expectSucceededGenerationSources(query: CompiledQuery) {
 
 describe("AdminAnalyticsRepository transactions", () => {
 	it.each([
-		["revenue", 14],
+		["revenue", 15],
 		["acquisition", 4],
 		["funnel", 1],
 		["engagement", 5],
@@ -197,6 +207,29 @@ describe("AdminAnalyticsRepository transactions", () => {
 			]);
 			expect(query.sql.length).toBeGreaterThan(0);
 		}
+	});
+
+	it("totals revenue by source and prices domain wholesale from actual then quote", async () => {
+		const { queries } = await collectQueries("revenue");
+		const bySource = queryContaining(queries, "domain_orders as");
+
+		expect(bySource.sql).toContain("from billing_invoice_applications a");
+		expect(bySource.sql).toContain("a.amount_paid_minor > 0");
+		expect(bySource.sql).toContain("lower(a.currency) = 'usd'");
+		expect(bySource.sql).toContain("o.kind = 'domain_registration'");
+		expect(bySource.sql).toContain(
+			"o.status in ('paid', 'fulfilling', 'fulfilled')",
+		);
+		expect(bySource.sql).toContain("round(d.provider_total_paid_usd * 100)");
+		expect(bySource.sql).toContain(
+			"round((o.metadata -> 'priceSnapshot' ->> 'quotedWholesaleUsd')::numeric * 100)",
+		);
+		expect(bySource.sql).toContain("where reg.payment_order_id = o.id");
+		expect(bySource.sql).toContain(
+			"where d.wholesale_cents is null), 0)::bigint as domain_cost_unknown_orders",
+		);
+		expectRange(bySource, "o.paid_at");
+		expectRange(bySource, "a.paid_at");
 	});
 
 	it("ends daily series on the selected series date", async () => {
@@ -811,10 +844,11 @@ describe("AdminAnalyticsRepository revenue SQL", () => {
 
 	it("maps missing churn source and country dimensions to unknown rows", async () => {
 		const rowsByCall: Array<Array<Record<string, unknown>>> = Array.from(
-			{ length: 14 },
+			{ length: 15 },
 			() => [],
 		);
-		rowsByCall[9] = [
+		// getRevenue call order: churn breakdown is the 11th query (0-indexed 10).
+		rowsByCall[10] = [
 			{
 				churned: "1",
 				dimension: "too_expensive",
@@ -1069,6 +1103,13 @@ describe("AdminAnalyticsRepository feature and credit SQL", () => {
 			"left join owner_consumption c on c.owner_id = o.owner_id",
 		);
 		expect(creditRange.sql).toContain("sum(e.reconciled_cost_usd_micros)");
+		expect(creditRange.sql).toContain(
+			`sum(l.delta) filter (where (l.kind = 'grant' and not ${refundGrantSql("l")}))`,
+		);
+		expect(creditRange.sql).toContain(
+			`sum(-l.delta) filter (where ${netConsumptionSql("l")})`,
+		);
+		expect(beforeUpgrade.sql).toContain(netConsumptionSql("c"));
 		expect(freeConsumption.sql).toContain("c.created_at < b.snapshot_end");
 		expect(freeConsumption.sql).toContain("u.created_at < b.snapshot_end");
 		expect(beforeUpgrade.sql).toContain("s.created_at < b.snapshot_end");
@@ -1129,7 +1170,7 @@ describe("AdminAnalyticsRepository feature and credit SQL", () => {
 		expect(freeCredits.sql).toContain("percentile_cont(0.5)");
 	});
 
-	it("buckets every owner by gross consumption and uses ever-paid conversion", async () => {
+	it("buckets every owner by net consumption and uses ever-paid conversion", async () => {
 		const { queries } = await collectQueries("features");
 		const conversion = queryContaining(queries, "ever_paid_owners as");
 
@@ -1137,7 +1178,7 @@ describe("AdminAnalyticsRepository feature and credit SQL", () => {
 		expect(conversion.sql).toContain("select c.organization_id");
 		expect(conversion.sql).toContain("c.organization_id is not null");
 		expect(conversion.sql).toContain(
-			"sum(-c.delta) filter (where c.kind = 'consume')",
+			`sum(-c.delta) filter (where ${netConsumptionSql("c")})`,
 		);
 		expect(conversion.sql).toContain(
 			"select distinct coalesce(s.organization_id, s.user_id) as owner_id",

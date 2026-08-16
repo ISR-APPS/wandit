@@ -1,8 +1,5 @@
-import { ADMIN_CREDITS_USED_BUCKETS } from "@wandit/contracts";
-
 import type {
 	AdminListUsersSort,
-	UserCreditsUsedFilter,
 	UserPlanFilter,
 	UserRoleFilter,
 	UserStatusFilter,
@@ -13,16 +10,13 @@ export const USER_TABLE_PAGE_SIZES = [10, 20, 25, 30, 40, 50] as const;
 
 export const USER_TABLE_DEFAULT_PAGE_SIZE = 25;
 
-export const USER_FILTER_ALL = "all" as const;
+// Slider ceiling for the credits-used range filter. The max thumb parked at
+// this edge means "no upper bound"; the numeric inputs accept larger values.
+export const USER_CREDITS_USED_SLIDER_MAX = 1000;
 
 type UserFacetedFilterOption<TValue extends string> = {
 	label: string;
 	value: TValue;
-};
-
-type UserSelectFilterOption<TValue extends string> = {
-	label: string;
-	value: TValue | typeof USER_FILTER_ALL;
 };
 
 type UserSortOption = UserFacetedFilterOption<AdminListUsersSort>;
@@ -85,15 +79,3 @@ export const USER_VERIFIED_FILTER_OPTIONS = [
 ] as const satisfies readonly UserFacetedFilterOption<
 	UserVerifiedFilter[number]
 >[];
-
-const userCreditsUsedBucketValues = Object.keys(
-	ADMIN_CREDITS_USED_BUCKETS,
-) as UserCreditsUsedFilter[];
-
-export const USER_CREDITS_USED_FILTER_OPTIONS = [
-	{ label: "All", value: USER_FILTER_ALL },
-	...userCreditsUsedBucketValues.map((value) => ({
-		label: ADMIN_CREDITS_USED_BUCKETS[value].label,
-		value,
-	})),
-] satisfies readonly UserSelectFilterOption<UserCreditsUsedFilter>[];

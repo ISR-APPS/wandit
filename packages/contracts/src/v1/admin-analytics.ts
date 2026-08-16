@@ -162,6 +162,25 @@ export type AdminAnalyticsNetRevenue = z.infer<
 	typeof adminAnalyticsNetRevenueSchema
 >;
 
+// Cash collected in the range split by source (subscription invoices vs domain
+// purchase orders), plus domain resale economics. Domain wholesale cost is the
+// registrar's actual charge when recorded, else the checkout-time wholesale
+// quote; orders with neither are counted in domainCostUnknownOrders and
+// contribute zero cost, so the margin can only overstate on those.
+export const adminAnalyticsRevenueBySourceSchema = z.object({
+	subscriptionsCents: z.int().nonnegative(),
+	domainsCents: z.int().nonnegative(),
+	domainOrders: z.int().nonnegative(),
+	domainCostCents: z.int().nonnegative(),
+	domainMarginCents: z.int(),
+	domainMarginPct: z.number().nullable(),
+	domainCostUnknownOrders: z.int().nonnegative(),
+});
+
+export type AdminAnalyticsRevenueBySource = z.infer<
+	typeof adminAnalyticsRevenueBySourceSchema
+>;
+
 export const adminAnalyticsArpuByPlanSchema = z.object({
 	plan: billingPlanIdSchema,
 	arpuCents: z.int().nonnegative(),
@@ -305,6 +324,7 @@ export const adminAnalyticsRevenueResponseSchema = z.object({
 	checkoutFunnel: adminAnalyticsCheckoutFunnelSchema,
 	churn: adminAnalyticsChurnSchema,
 	netRevenue: adminAnalyticsNetRevenueSchema,
+	revenueBySource: adminAnalyticsRevenueBySourceSchema,
 	arpuByPlan: z.array(adminAnalyticsArpuByPlanSchema),
 	retention: adminAnalyticsRetentionSchema,
 	churnBreakdown: adminAnalyticsChurnBreakdownSchema,

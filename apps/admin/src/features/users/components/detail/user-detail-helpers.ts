@@ -1,4 +1,9 @@
-import type { UserRole } from "@/features/users/api/users.dto";
+import { BILLING_CATALOG } from "@wandit/contracts";
+
+import type {
+	AdminUserSubscription,
+	UserRole,
+} from "@/features/users/api/users.dto";
 
 export function getInitials(name: string) {
 	return (
@@ -21,4 +26,47 @@ export function titleCase(value: string) {
 
 export function getRoleLabel(role: UserRole) {
 	return titleCase(role);
+}
+
+// Catalog price for the subscription's purchased tier, at its billing interval.
+// Null when the tier is no longer in the catalog (legacy price).
+export function subscriptionPriceUsd(
+	subscription: Pick<
+		AdminUserSubscription,
+		"plan" | "tierCredits" | "interval"
+	>,
+): number | null {
+	const monthly = (
+		BILLING_CATALOG.plans[subscription.plan].monthlyPricesUsd as Record<
+			number,
+			number
+		>
+	)[subscription.tierCredits];
+
+	if (monthly === undefined) {
+		return null;
+	}
+
+	return subscription.interval === "year"
+		? monthly * BILLING_CATALOG.yearlyPriceMultiplier
+		: monthly;
+}
+
+// "250 credits/mo · $25/mo" (or "· $250/yr" on yearly billing).
+export function subscriptionTierLabel(
+	subscription: Pick<
+		AdminUserSubscription,
+		"plan" | "tierCredits" | "interval"
+	>,
+): string {
+	const priceUsd = subscriptionPriceUsd(subscription);
+	const credits = `${subscription.tierCredits.toLocaleString("en-US")} credits/mo`;
+
+	if (priceUsd === null) {
+		return credits;
+	}
+
+	const per = subscription.interval === "year" ? "yr" : "mo";
+
+	return `${credits} · $${priceUsd.toLocaleString("en-US")}/${per}`;
 }

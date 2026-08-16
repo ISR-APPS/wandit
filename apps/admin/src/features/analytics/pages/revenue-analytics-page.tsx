@@ -20,6 +20,7 @@ import { MrrBreakdownCard } from "@/features/analytics/components/mrr-breakdown-
 import { NetRevenueCard } from "@/features/analytics/components/net-revenue-card";
 import { RevenueMetrics } from "@/features/analytics/components/revenue-metrics";
 import { RevenueRetentionCard } from "@/features/analytics/components/revenue-retention-card";
+import { RevenueSourcesCard } from "@/features/analytics/components/revenue-sources-card";
 import { UnitEconomicsCard } from "@/features/analytics/components/unit-economics-card";
 import { hasNonZeroAnalyticsValue } from "@/features/analytics/lib/analytics-data";
 import { hasRevenueHistoryActivity } from "@/features/analytics/lib/revenue-history-data";
@@ -58,6 +59,10 @@ function hasRevenueActivity(data: AnalyticsRevenueResponse) {
 			data.netRevenue.netCents,
 			data.netRevenue.failedPayments,
 			data.netRevenue.failedPaymentsCents,
+			data.revenueBySource.subscriptionsCents,
+			data.revenueBySource.domainsCents,
+			data.revenueBySource.domainOrders,
+			data.revenueBySource.domainCostCents,
 			data.unitEconomics.adSpendCents,
 			data.unitEconomics.infrastructureCostCents,
 			data.unitEconomics.otherCostCents,
@@ -150,6 +155,10 @@ function RevenueAnalyticsPage({
 								arpuByPlan={data.arpuByPlan}
 							/>
 						</div>
+					</section>
+
+					<section aria-label="Revenue by source" className="min-w-0">
+						<RevenueSourcesCard revenueBySource={data.revenueBySource} />
 					</section>
 
 					<section

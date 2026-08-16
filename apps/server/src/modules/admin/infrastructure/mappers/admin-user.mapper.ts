@@ -89,6 +89,9 @@ function mapAdminUserSubscription(
 		plan: billingPlanIdSchema.parse(row.plan),
 		status: row.status,
 		interval: row.interval,
+		tierCredits: Number(row.tierCredits),
+		pendingTierCredits:
+			row.pendingTierCredits === null ? null : Number(row.pendingTierCredits),
 		currentPeriodEnd: row.currentPeriodEnd ? toIso(row.currentPeriodEnd) : null,
 		cancelAtPeriodEnd: row.cancelAtPeriodEnd,
 	};
