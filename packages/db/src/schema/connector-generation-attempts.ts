@@ -35,10 +35,9 @@ export const connectorGenerationAttempts = pgTable(
 		// Payer snapshot: set when the generation was queued from an org
 		// workspace (the org pool paid), NULL for personal work. Recovery and
 		// settlement rebuild the metering subject from this column.
-		organizationId: text("organization_id").references(
-			() => organization.id,
-			{ onDelete: "set null" },
-		),
+		organizationId: text("organization_id").references(() => organization.id, {
+			onDelete: "set null",
+		}),
 		// Connector slug + tool exactly as the agent called them, plus the raw
 		// arguments snapshot — the task replays this call verbatim.
 		connectorSlug: text("connector_slug").notNull(),
@@ -55,10 +54,12 @@ export const connectorGenerationAttempts = pgTable(
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.defaultNow()
 			.notNull(),
+		startedAt: timestamp("started_at", { withTimezone: true }),
 		// When the attempt reached a terminal state (succeeded or failed).
 		completedAt: timestamp("completed_at", { withTimezone: true }),
 	},
 	(table) => [
+		index("connector_generation_attempts_createdAt_idx").on(table.createdAt),
 		index("connector_generation_attempts_user_idx").on(
 			table.userId,
 			table.createdAt,

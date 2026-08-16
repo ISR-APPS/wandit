@@ -91,6 +91,10 @@ function affiliateRecord(
 			uniqueVisitorCount: 20,
 			attributedUserCount: 8,
 			paidCustomerCount: 5,
+			healthyTrials: 3,
+			churnedCustomers: 2,
+			referredMrrCents: 12_500,
+			referredLtvCents: 187_500,
 			paidInvoiceCount: 12,
 			lastConversionAt: NOW,
 			currencies: [],
@@ -271,6 +275,12 @@ describe("AffiliateAdminService", () => {
 		expect(result.total).toBe(18);
 		expect(result.summary.activeAffiliateCount).toBe(14);
 		expect(result.items[0]?.affiliate.createdAt).toBe(NOW.toISOString());
+		expect(result.items[0]?.aggregates).toMatchObject({
+			healthyTrials: 3,
+			churnedCustomers: 2,
+			referredMrrCents: 12_500,
+			referredLtvCents: 187_500,
+		});
 		expect(result.items[0]?.aggregates.lastConversionAt).toBe(
 			NOW.toISOString(),
 		);
@@ -294,6 +304,12 @@ describe("AffiliateAdminService", () => {
 			selfReferralService.recheckAffiliate,
 		);
 		expect(result.payoutDetails).toEqual({ account: "hidden" });
+		expect(result.aggregates).toMatchObject({
+			healthyTrials: 3,
+			churnedCustomers: 2,
+			referredMrrCents: 12_500,
+			referredLtvCents: 187_500,
+		});
 	});
 
 	it("does not run a self-referral recheck when an update target is missing", async () => {
@@ -435,6 +451,7 @@ describe("AffiliateAdminService", () => {
 				}),
 				aggregates: {
 					...affiliateRecord().aggregates,
+					referredLtvCents: null,
 					currencies: [
 						{
 							currency: "eur",
@@ -462,10 +479,14 @@ describe("AffiliateAdminService", () => {
 
 		expect(download.fileName).toBe("affiliates.csv");
 		expect(lines).toHaveLength(3);
-		expect(lines[0]?.split(",")).toHaveLength(24);
+		expect(lines[0]?.split(",")).toHaveLength(28);
+		expect(lines[0]).toContain(
+			"healthy_trials,churned_customers,referred_mrr_cents,referred_ltv_cents",
+		);
 		expect(lines[0]?.match(/attributed_revenue_cents/g)).toHaveLength(1);
 		expect(lines[1]).toContain("'=IMPORTXML");
 		expect(lines[1]).toContain('"Acme, ""Labs"""');
+		expect(lines[1]).toContain(",5,3,2,12500,,12,");
 		expect(lines[1]).toContain(`,12,${NOW.toISOString()},eur,`);
 		expect(lines[1]).toContain(",eur,");
 		expect(lines[2]).toContain(",usd,");

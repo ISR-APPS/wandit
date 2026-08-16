@@ -1,4 +1,4 @@
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import {
 	index,
 	integer,
@@ -72,10 +72,15 @@ export const pageGenerationAttempts = pgTable(
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.defaultNow()
 			.notNull(),
+		startedAt: timestamp("started_at", { withTimezone: true }),
 		// When the attempt reached a terminal state (succeeded or failed).
 		completedAt: timestamp("completed_at", { withTimezone: true }),
 	},
 	(table) => [
+		index("page_generation_attempts_completedAt_idx").on(table.completedAt),
+		index("page_generation_attempts_pageKind_idx").on(
+			sql`(${table.spec} ->> 'pageKind')`,
+		),
 		index("page_attempts_project_idx").on(table.projectId),
 		index("page_attempts_artifact_idx").on(table.artifactId),
 	],

@@ -12,13 +12,17 @@ import { StripeEventRouter } from "./application/services/stripe-event-router.se
 import { StripeSubscriptionSyncService } from "./application/services/stripe-subscription-sync.service";
 import { StripeWebhookProcessor } from "./application/services/stripe-webhook-processor.service";
 import { SubscriptionCreditsService } from "./application/services/subscription-credits.service";
+import { SubscriptionLifecycleService } from "./application/services/subscription-lifecycle.service";
 import { SubscriptionRefillService } from "./application/services/subscription-refill.service";
 import { BillingPaymentsModule } from "./billing-payments.module";
 import { BillingChangeIntentsRepository } from "./infrastructure/persistence/billing-change-intents.repository";
 import { BillingCheckoutAttemptsRepository } from "./infrastructure/persistence/billing-checkout-attempts.repository";
 import { BillingCreditLedgerRepository } from "./infrastructure/persistence/billing-credit-ledger.repository";
+import { BillingPaymentAdjustmentsRepository } from "./infrastructure/persistence/billing-payment-adjustments.repository";
 import { BillingWebhookEventsRepository } from "./infrastructure/persistence/billing-webhook-events.repository";
+import { CancellationReasonsRepository } from "./infrastructure/persistence/cancellation-reasons.repository";
 import { SubscriptionCreditsRepository } from "./infrastructure/persistence/subscription-credits.repository";
+import { SubscriptionStateEventsRepository } from "./infrastructure/persistence/subscription-state-events.repository";
 import { SubscriptionsRepository } from "./infrastructure/persistence/subscriptions.repository";
 import { BillingController } from "./presentation/http/controllers/billing.controller";
 import { StripeWebhookController } from "./presentation/http/controllers/stripe-webhook.controller";
@@ -42,16 +46,20 @@ import { StripeWebhookController } from "./presentation/http/controllers/stripe-
 		BillingChangeIntentsRepository,
 		BillingCheckoutAttemptsRepository,
 		BillingCreditLedgerRepository,
+		BillingPaymentAdjustmentsRepository,
 		BillingService,
 		BillingWebhookRetryService,
 		BillingWebhookEventsRepository,
+		CancellationReasonsRepository,
 		PaymentRefundsService,
 		StripeEventRouter,
 		StripeSubscriptionSyncService,
 		StripeWebhookProcessor,
 		SubscriptionCreditsService,
 		SubscriptionCreditsRepository,
+		SubscriptionLifecycleService,
 		SubscriptionRefillService,
+		SubscriptionStateEventsRepository,
 		SubscriptionsRepository,
 	],
 })

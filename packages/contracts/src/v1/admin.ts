@@ -644,60 +644,90 @@ export type AdminSignupStats = z.infer<typeof adminSignupStatsSchema>;
 
 // --- Dashboard overview ---
 
-export const adminOverviewRangeSchema = z.enum(adminSignupStatsRanges);
+export const adminOverviewRanges = [
+	"7d",
+	"30d",
+	"90d",
+	"180d",
+	"365d",
+	"custom",
+] as const;
+
+export const adminOverviewRangeSchema = z.enum(adminOverviewRanges);
 
 export type AdminOverviewRange = z.infer<typeof adminOverviewRangeSchema>;
 
-export const adminOverviewQuerySchema = z.object({
-	range: adminOverviewRangeSchema.default("30d"),
-});
+const ADMIN_OVERVIEW_MAX_INCLUSIVE_DATES = 731;
+const MILLISECONDS_PER_DAY = 86_400_000;
+
+export const adminOverviewQuerySchema = z
+	.object({
+		range: adminOverviewRangeSchema.default("30d"),
+		from: z.iso.date().optional(),
+		to: z.iso.date().optional(),
+	})
+	.superRefine((query, context) => {
+		// Presets can include dates left over from a prior custom selection. The
+		// server ignores those dates and resolves the preset from the snapshot time.
+		if (query.range !== "custom") return;
+
+		if (!query.from) {
+			context.addIssue({
+				code: "custom",
+				message: "from is required when range is custom",
+				path: ["from"],
+			});
+		}
+
+		if (!query.to) {
+			context.addIssue({
+				code: "custom",
+				message: "to is required when range is custom",
+				path: ["to"],
+			});
+		}
+
+		if (!query.from || !query.to) return;
+
+		if (query.from > query.to) {
+			context.addIssue({
+				code: "custom",
+				message: "to must be on or after from",
+				path: ["to"],
+			});
+			return;
+		}
+
+		const todayUtc = new Date().toISOString().slice(0, 10);
+		if (query.to > todayUtc) {
+			context.addIssue({
+				code: "custom",
+				message: "to must not be after today",
+				path: ["to"],
+			});
+		}
+
+		const inclusiveDates =
+			(Date.parse(`${query.to}T00:00:00.000Z`) -
+				Date.parse(`${query.from}T00:00:00.000Z`)) /
+				MILLISECONDS_PER_DAY +
+			1;
+
+		if (inclusiveDates > ADMIN_OVERVIEW_MAX_INCLUSIVE_DATES) {
+			context.addIssue({
+				code: "custom",
+				message: `custom range must not exceed ${ADMIN_OVERVIEW_MAX_INCLUSIVE_DATES} dates`,
+				path: ["to"],
+			});
+		}
+	});
 
 export type AdminOverviewQuery = z.infer<typeof adminOverviewQuerySchema>;
 
-export const adminOverviewCurrencySchema = z.enum(["USD", "DZD"]);
-
-export type AdminOverviewCurrency = z.infer<typeof adminOverviewCurrencySchema>;
-
-export const adminOverviewPaymentProviderSchema = z.enum([
-	"stripe",
-	"chargily",
-]);
-
-export type AdminOverviewPaymentProvider = z.infer<
-	typeof adminOverviewPaymentProviderSchema
->;
-
-export const adminOverviewFxMetadataSchema = z.object({
-	baseCurrency: z.literal("USD"),
-	quoteCurrency: z.literal("DZD"),
-	quotePerBase: z.number().positive(),
-	asOf: z.iso.date(),
-	isMock: z.literal(true),
-});
-
-export type AdminOverviewFxMetadata = z.infer<
-	typeof adminOverviewFxMetadataSchema
->;
-
-export const adminOverviewProviderRevenueSchema = z.object({
-	provider: adminOverviewPaymentProviderSchema,
-	nativeCurrency: adminOverviewCurrencySchema,
-	nativeTotalMinor: z.int().nonnegative(),
-	reportingUsdTotalMinor: z.int().nonnegative(),
-	changePercent: z.number(),
-});
-
-export type AdminOverviewProviderRevenue = z.infer<
-	typeof adminOverviewProviderRevenueSchema
->;
-
 export const adminOverviewRevenueSummarySchema = z.object({
 	reportingCurrency: z.literal("USD"),
-	totalReportingUsdMinor: z.int().nonnegative(),
+	totalUsdMinor: z.int().nonnegative(),
 	changePercent: z.number(),
-	stripe: adminOverviewProviderRevenueSchema,
-	chargily: adminOverviewProviderRevenueSchema,
-	fx: adminOverviewFxMetadataSchema,
 });
 
 export type AdminOverviewRevenueSummary = z.infer<
@@ -739,9 +769,7 @@ export type AdminOverviewGenerationSummary = z.infer<
 export const adminOverviewRevenuePointSchema = z.object({
 	date: z.iso.date(),
 	label: z.string(),
-	stripeUsdMinor: z.int().nonnegative(),
-	chargilyUsdEquivalentMinor: z.int().nonnegative(),
-	totalUsdEquivalentMinor: z.int().nonnegative(),
+	totalUsdMinor: z.int().nonnegative(),
 });
 
 export type AdminOverviewRevenuePoint = z.infer<
@@ -804,12 +832,22 @@ export const adminOverviewSignalSchema = z.object({
 
 export type AdminOverviewSignal = z.infer<typeof adminOverviewSignalSchema>;
 
+export const adminOverviewHealthyTrialsSchema = z.object({
+	count: z.int().nonnegative(),
+});
+
+export type AdminOverviewHealthyTrials = z.infer<
+	typeof adminOverviewHealthyTrialsSchema
+>;
+
 export const adminOverviewSnapshotSchema = z.object({
 	range: adminOverviewRangeSchema,
 	rangeLabel: z.string().min(1),
 	generatedAt: isoDateTimeSchema,
 	periodStart: z.iso.date(),
 	periodEnd: z.iso.date(),
+	mrrMinor: z.int().nonnegative(),
+	healthyTrials: adminOverviewHealthyTrialsSchema,
 	revenue: adminOverviewRevenueSummarySchema,
 	totals: adminOverviewTotalsSchema,
 	generation: adminOverviewGenerationSummarySchema,

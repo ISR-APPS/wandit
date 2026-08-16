@@ -13,6 +13,7 @@ import {
 
 import { ApiService } from "@/lib/api-client";
 import type {
+	BillingCancelRequest,
 	BillingCheckoutResponse,
 	BillingPlansResponse,
 	BillingPortalResponse,
@@ -87,8 +88,13 @@ export async function changeBillingSubscription(
 	return billingSubscriptionChangeOutcomeResponseSchema.parse(payload);
 }
 
-export async function cancelBillingSubscription(): Promise<BillingSubscriptionViewResponse> {
-	const payload = await ApiService.post<unknown>(billingRoutes.cancel);
+export async function cancelBillingSubscription(
+	body: BillingCancelRequest,
+): Promise<BillingSubscriptionViewResponse> {
+	const payload = await ApiService.post<unknown, BillingCancelRequest>(
+		billingRoutes.cancel,
+		body,
+	);
 
 	return billingSubscriptionViewResponseSchema.parse(payload);
 }

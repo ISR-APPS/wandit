@@ -10,6 +10,7 @@ import {
 
 import { creditsKeys } from "@/features/credits/api/credits.queries";
 import type {
+	BillingCancelRequest,
 	BillingSubscriptionViewResponse,
 	ChangeBillingSubscriptionBody,
 	CreateBillingCheckoutBody,
@@ -85,7 +86,7 @@ export function useCancelBillingSubscription() {
 	const queryClient = useQueryClient();
 
 	return useMutation({
-		mutationFn: cancelBillingSubscription,
+		mutationFn: (body: BillingCancelRequest) => cancelBillingSubscription(body),
 		onSuccess: (subscriptionView) => {
 			queryClient.setQueryData(billingKeys.subscription(), subscriptionView);
 			refreshCreditCaches(queryClient, subscriptionView, false);

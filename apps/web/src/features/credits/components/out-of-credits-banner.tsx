@@ -64,7 +64,7 @@ export function OutOfCreditsBanner({
 						type="button"
 						size="sm"
 						className="h-7 shrink-0 rounded-full px-3 text-xs"
-						onClick={() => openPlanPicker()}
+						onClick={() => openPlanPicker("out_of_credits")}
 					>
 						{t("credits.outOfCredits.cta")}
 					</Button>

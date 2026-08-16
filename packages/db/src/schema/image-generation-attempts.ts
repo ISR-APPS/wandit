@@ -71,6 +71,7 @@ export const imageGenerationAttempts = pgTable(
 		completedAt: timestamp("completed_at", { withTimezone: true }),
 	},
 	(table) => [
+		index("image_generation_attempts_createdAt_idx").on(table.createdAt),
 		index("image_generation_attempts_project_idx").on(
 			table.projectId,
 			table.createdAt,

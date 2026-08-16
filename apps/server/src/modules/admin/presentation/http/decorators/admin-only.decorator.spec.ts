@@ -7,6 +7,8 @@ import {
 	AUTH_SURFACE_KEY,
 } from "../../../../auth/auth.constants";
 import { AdminSettingsController } from "../../../../settings/presentation/http/controllers/admin-settings.controller";
+import { AdminAnalyticsController } from "../controllers/admin-analytics.controller";
+import { AdminCostsController } from "../controllers/admin-costs.controller";
 import { AdminOrganizationsController } from "../controllers/admin-organizations.controller";
 import { AdminProjectsController } from "../controllers/admin-projects.controller";
 import { AdminStatsController } from "../controllers/admin-stats.controller";
@@ -15,6 +17,8 @@ import { AdminWebhooksController } from "../controllers/admin-webhooks.controlle
 import { AdminGuard } from "../guards/admin.guard";
 
 const adminControllers = [
+	AdminAnalyticsController,
+	AdminCostsController,
 	AdminOrganizationsController,
 	AdminProjectsController,
 	AdminStatsController,

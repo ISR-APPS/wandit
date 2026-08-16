@@ -9,11 +9,16 @@ import {
 	SidebarMenuItem,
 	useSidebar,
 } from "@/components/ui/sidebar";
-import { type AdminNavigationItem, adminNavigation } from "@/lib/navigation";
+import { getAdminAnalyticsNavigationSearch } from "@/lib/admin-date-range";
+import {
+	type AdminNavigationItem,
+	adminNavigationGroups,
+} from "@/lib/navigation";
 
 type NavigationEntryProps = {
 	item: AdminNavigationItem;
 	pathname: string;
+	search: Record<string, unknown>;
 	isMobile: boolean;
 	closeMobileSidebar: () => void;
 };
@@ -21,11 +26,17 @@ type NavigationEntryProps = {
 function NavigationEntry({
 	item,
 	pathname,
+	search,
 	isMobile,
 	closeMobileSidebar,
 }: NavigationEntryProps) {
 	const isActive = pathname === item.to || pathname.startsWith(`${item.to}/`);
 	const Icon = item.icon;
+	const navigationSearch = getAdminAnalyticsNavigationSearch(
+		pathname,
+		item.to,
+		search,
+	);
 
 	return (
 		<SidebarMenuItem>
@@ -37,6 +48,7 @@ function NavigationEntry({
 			>
 				<Link
 					to={item.to}
+					search={navigationSearch}
 					aria-current={isActive ? "page" : undefined}
 					onClick={() => {
 						if (isMobile) {
@@ -65,29 +77,37 @@ function NavigationEntry({
 }
 
 export function NavMain() {
-	const pathname = useLocation({
-		select: (location) => location.pathname,
+	const location = useLocation({
+		select: ({ pathname, search }) => ({ pathname, search }),
 	});
 	const { isMobile, setOpenMobile } = useSidebar();
 
 	return (
-		<SidebarGroup className="px-2 pt-2 group-data-[collapsible=icon]:px-1">
-			<SidebarGroupLabel className="mb-1 h-7 px-2.5 font-medium font-mono text-[9px] text-sidebar-foreground/45 uppercase tracking-[0.18em] group-data-[collapsible=icon]:hidden">
-				Operations
-			</SidebarGroupLabel>
-			<SidebarGroupContent>
-				<SidebarMenu className="gap-1.5">
-					{adminNavigation.map((item) => (
-						<NavigationEntry
-							key={item.to}
-							item={item}
-							pathname={pathname}
-							isMobile={isMobile}
-							closeMobileSidebar={() => setOpenMobile(false)}
-						/>
-					))}
-				</SidebarMenu>
-			</SidebarGroupContent>
-		</SidebarGroup>
+		<>
+			{adminNavigationGroups.map((group) => (
+				<SidebarGroup
+					key={group.title}
+					className="px-2 pt-2 group-data-[collapsible=icon]:px-1"
+				>
+					<SidebarGroupLabel className="mb-1 h-7 px-2.5 font-medium font-mono text-[9px] text-sidebar-foreground/45 uppercase tracking-[0.18em] group-data-[collapsible=icon]:hidden">
+						{group.title}
+					</SidebarGroupLabel>
+					<SidebarGroupContent>
+						<SidebarMenu className="gap-1.5">
+							{group.items.map((item) => (
+								<NavigationEntry
+									key={item.to}
+									item={item}
+									pathname={location.pathname}
+									search={location.search}
+									isMobile={isMobile}
+									closeMobileSidebar={() => setOpenMobile(false)}
+								/>
+							))}
+						</SidebarMenu>
+					</SidebarGroupContent>
+				</SidebarGroup>
+			))}
+		</>
 	);
 }

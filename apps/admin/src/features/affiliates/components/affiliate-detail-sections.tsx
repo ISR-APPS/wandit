@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
+import { MetricInfoTooltip } from "@/components/metric-info-tooltip";
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -27,7 +28,9 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 import {
 	formatAffiliateDateTime,
+	formatAffiliateMoney,
 	formatAffiliateNumber,
+	formatNullableAffiliateMoney,
 	titleCaseAffiliateValue,
 } from "../lib/formatters";
 import { AffiliateStatusBadge } from "./affiliate-ui";
@@ -101,27 +104,70 @@ export function AffiliateDetailHeader({
 
 export function AffiliateMetrics({ detail }: { detail: AffiliateDetail }) {
 	const metrics = [
-		["Clicks", formatAffiliateNumber(detail.aggregates.clickCount)],
-		["Visitors", formatAffiliateNumber(detail.aggregates.uniqueVisitorCount)],
-		[
-			"Attributed users",
-			formatAffiliateNumber(detail.aggregates.attributedUserCount),
-		],
-		[
-			"Paid customers",
-			formatAffiliateNumber(detail.aggregates.paidCustomerCount),
-		],
-		[
-			"Paid invoices",
-			formatAffiliateNumber(detail.aggregates.paidInvoiceCount),
-		],
+		{
+			label: "Clicks",
+			value: formatAffiliateNumber(detail.aggregates.clickCount),
+		},
+		{
+			label: "Visitors",
+			value: formatAffiliateNumber(detail.aggregates.uniqueVisitorCount),
+		},
+		{
+			label: "Attributed users",
+			value: formatAffiliateNumber(detail.aggregates.attributedUserCount),
+		},
+		{
+			label: "Paid customers",
+			value: formatAffiliateNumber(detail.aggregates.paidCustomerCount),
+		},
+		{
+			label: "Paid invoices",
+			value: formatAffiliateNumber(detail.aggregates.paidInvoiceCount),
+		},
+		{
+			label: "Healthy trials",
+			value: formatAffiliateNumber(detail.aggregates.healthyTrials),
+			tooltip:
+				"Attributed free users at least seven days old who consumed at least 20 credits and completed at least two successful generations in their first seven days.",
+		},
+		{
+			label: "Churned",
+			value: formatAffiliateNumber(detail.aggregates.churnedCustomers),
+			tooltip:
+				"Attributed customers whose subscription ended and who have no live subscription at the current snapshot.",
+		},
+		{
+			label: "Referred MRR",
+			value: formatAffiliateMoney(detail.aggregates.referredMrrCents, "usd"),
+			tooltip:
+				"Current monthly list-price value of live subscriptions referred by this affiliate. Annual plans are divided by 12.",
+		},
+		{
+			label: "Referred LTV",
+			value: formatNullableAffiliateMoney(
+				detail.aggregates.referredLtvCents,
+				"usd",
+			),
+			tooltip:
+				"Approximate — small samples. Referred ARPU divided by estimated monthly churn; a dash means there is not enough churn history to calculate it.",
+		},
 	] as const;
 	return (
-		<div className="grid grid-cols-2 gap-px border-b bg-border sm:grid-cols-5">
-			{metrics.map(([label, value]) => (
-				<div key={label} className="bg-background px-5 py-3">
-					<p className="text-muted-foreground text-xs">{label}</p>
-					<p className="mt-1 font-mono font-semibold tabular-nums">{value}</p>
+		<div className="grid grid-cols-2 gap-px border-b bg-border sm:grid-cols-3">
+			{metrics.map((metric) => (
+				<div key={metric.label} className="bg-background px-5 py-3">
+					<p className="flex items-center gap-1 text-muted-foreground text-xs">
+						{metric.label}
+						{"tooltip" in metric ? (
+							<MetricInfoTooltip
+								label={metric.label}
+								content={metric.tooltip}
+							/>
+						) : null}
+					</p>
+					<p className="mt-1 font-mono font-semibold tabular-nums">
+						{metric.value}
+					</p>
 				</div>
 			))}
 		</div>

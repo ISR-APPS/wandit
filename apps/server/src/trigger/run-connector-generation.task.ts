@@ -113,6 +113,7 @@ export const runConnectorGenerationTask = task({
 				.set({
 					completedAt: null,
 					error: null,
+					startedAt: new Date(),
 					status: "running",
 					triggerRunId: ctx.run.id,
 				})

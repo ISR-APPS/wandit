@@ -14,6 +14,7 @@ import { AcademyModule } from "./modules/academy/academy.module";
 import { AdminModule } from "./modules/admin/admin.module";
 import { AffiliatesModule } from "./modules/affiliates/affiliates.module";
 import { AiChatModule } from "./modules/ai-chat/ai-chat.module";
+import { AttributionModule } from "./modules/attribution/attribution.module";
 import { AuthModule } from "./modules/auth/auth.module";
 import { BillingModule } from "./modules/billing/billing.module";
 import { ConnectorGenerationsModule } from "./modules/connector-generations/connector-generations.module";
@@ -29,10 +30,12 @@ import { McpConnectorsModule } from "./modules/mcp-connectors/mcp-connectors.mod
 import { OnboardingModule } from "./modules/onboarding/onboarding.module";
 import { OrdersModule } from "./modules/orders/orders.module";
 import { PagesModule } from "./modules/pages/pages.module";
+import { ProductEventsModule } from "./modules/product-events/product-events.module";
 import { ProjectAssetsModule } from "./modules/project-assets/project-assets.module";
 import { ProjectsModule } from "./modules/projects/projects.module";
 import { SitesModule } from "./modules/sites/sites.module";
 import { StorageModule } from "./modules/storage/storage.module";
+import { StoryLinksModule } from "./modules/story-links/story-links.module";
 import { UploadsModule } from "./modules/uploads/uploads.module";
 import { WorkspacesModule } from "./modules/workspaces/workspaces.module";
 
@@ -52,6 +55,8 @@ import { WorkspacesModule } from "./modules/workspaces/workspaces.module";
 		QueuesModule,
 		AcademyModule,
 		AffiliatesModule,
+		AttributionModule,
+		StoryLinksModule,
 		AuthModule,
 		// After AuthModule ON PURPOSE: its global WorkspaceContextGuard reads
 		// request.user, and Nest runs global guards in registration order.
@@ -60,6 +65,7 @@ import { WorkspacesModule } from "./modules/workspaces/workspaces.module";
 		AiChatModule,
 		HealthModule,
 		ProjectsModule,
+		ProductEventsModule,
 		ProjectAssetsModule,
 		PagesModule,
 		SitesModule,

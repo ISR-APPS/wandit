@@ -44,7 +44,7 @@ export function UpgradeButton() {
 			size="sm"
 			variant="secondary"
 			className="h-8 px-3.5"
-			onClick={() => openPlanPicker()}
+			onClick={() => openPlanPicker("workspace_header")}
 		>
 			<Zap className="text-ember-text" aria-hidden />
 			{t("workspace.upgrade")}
@@ -66,7 +66,7 @@ export function UpgradeCard({ className }: { className?: string }) {
 	return (
 		<button
 			type="button"
-			onClick={() => openPlanPicker()}
+			onClick={() => openPlanPicker("sidebar")}
 			className={cn(
 				"flex w-full items-center gap-3 rounded-xl border border-primary/25 bg-card/70 px-3 py-2.5 text-start transition-colors hover:border-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50",
 				className,

@@ -121,7 +121,7 @@ export function CreditsChip({ className }: { className?: string }) {
 									variant="secondary"
 									size="sm"
 									className="w-full"
-									onClick={() => openPlanPicker()}
+									onClick={() => openPlanPicker("credits_chip")}
 								>
 									{t("credits.topUpChip")}
 								</Button>

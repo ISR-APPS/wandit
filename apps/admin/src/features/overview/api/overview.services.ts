@@ -6,15 +6,13 @@ import {
 
 import { apiGet } from "@/lib/api-client";
 
-import type { OverviewRange, OverviewSnapshot } from "./overview.dto";
+import type { OverviewQuery, OverviewSnapshot } from "./overview.dto";
 
 export async function getOverview(
-	range: OverviewRange,
+	query: OverviewQuery,
 ): Promise<OverviewSnapshot> {
-	const query = adminOverviewQuerySchema.parse({ range });
-	const payload = await apiGet<unknown>(adminRoutes.overviewStats, {
-		range: query.range,
-	});
+	const parsedQuery = adminOverviewQuerySchema.parse(query);
+	const payload = await apiGet<unknown>(adminRoutes.overviewStats, parsedQuery);
 
 	return adminOverviewSnapshotSchema.parse(payload);
 }

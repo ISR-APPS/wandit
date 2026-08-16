@@ -35,10 +35,12 @@ import {
 	normalizeConnectorToolName,
 	VIDEO_GENERATION_TOOLS,
 } from "../../domain/connector-generation-metering";
+import { sanitizeConnectorOperationError } from "../../domain/connector-operation-error";
 import {
 	type McpToolApprovalMap,
 	mcpToolPolicySchema,
 } from "../../domain/mcp-tool-policy";
+import { ConnectorOperationEventsRepository } from "../../infrastructure/persistence/connector-operation-events.repository";
 import type { McpConnectionRow } from "../../infrastructure/persistence/mcp-connections.repository";
 import { McpConnectionsRepository } from "../../infrastructure/persistence/mcp-connections.repository";
 import type { McpConnectorRow } from "../../infrastructure/persistence/mcp-connectors.repository";
@@ -460,6 +462,8 @@ export class McpChatToolsService {
 	private readonly logger = new Logger(McpChatToolsService.name);
 
 	constructor(
+		@Inject(ConnectorOperationEventsRepository)
+		private readonly connectorOperationEventsRepository: ConnectorOperationEventsRepository,
 		@Inject(McpConnectionsRepository)
 		private readonly connectionsRepository: McpConnectionsRepository,
 		@Inject(McpConnectorsRepository)
@@ -1276,13 +1280,23 @@ export class McpChatToolsService {
 
 				// Cost preflight: fast, free, unbilled — never queued.
 				if (isCostPreflight(input.params)) {
-					return callMcpTool(
-						runtime.client,
-						canonical.name,
-						input.params,
+					return this.executeInlineConnectorTool({
+						connectorSlug: runtime.connector.slug,
+						input: input.params,
+						invoke: () =>
+							callMcpTool(
+								runtime.client,
+								canonical.name,
+								input.params,
+								options,
+								false,
+							),
 						options,
-						true,
-					);
+						parentEventId,
+						retryProviderExecution: true,
+						subject,
+						toolName: canonical.name,
+					});
 				}
 
 				return this.queueBackgroundGeneration(
@@ -1320,10 +1334,11 @@ export class McpChatToolsService {
 						catalogTool.name,
 						refinedParams,
 						options,
-						classifyToolName(catalogTool.name) === "read",
+						false,
 					),
 				options,
 				parentEventId,
+				retryProviderExecution: classifyToolName(catalogTool.name) === "read",
 				subject,
 				toolName: catalogTool.name,
 			});
@@ -1351,10 +1366,12 @@ export class McpChatToolsService {
 								tool_name: hiddenOperation.name,
 							},
 							options,
-							classifyToolName(hiddenOperation.name) === "read",
+							false,
 						),
 					options,
 					parentEventId,
+					retryProviderExecution:
+						classifyToolName(hiddenOperation.name) === "read",
 					subject,
 					toolName: hiddenOperation.name,
 				});
@@ -1404,9 +1421,10 @@ export class McpChatToolsService {
 				return this.executeInlineConnectorTool({
 					connectorSlug,
 					input: refinedInput,
-					invoke: () => (shouldRetry ? withReadRetry(invoke) : invoke()),
+					invoke,
 					options,
 					parentEventId,
+					retryProviderExecution: shouldRetry,
 					subject,
 					toolName: effectiveToolName,
 				});
@@ -1448,6 +1466,7 @@ export class McpChatToolsService {
 		invoke: () => Promise<unknown>;
 		options: ToolExecutionOptions<unknown>;
 		parentEventId?: string;
+		retryProviderExecution?: boolean;
 		subject: MeteringSubject;
 		toolName: string;
 	}): Promise<unknown> {
@@ -1472,12 +1491,12 @@ export class McpChatToolsService {
 		// accept it (generate_audio, generate_3d) must not pay the connector
 		// fee for a free price check, same carve-out as the background paths.
 		if (input.connectorSlug === "higgsfield" && isCostPreflight(input.input)) {
-			return input.invoke();
+			return this.invokeProviderTool(input);
 		}
 
 		const plan = connectorGenerationPlan(input.toolName, input.input);
 		if (!plan) {
-			return input.invoke();
+			return this.invokeProviderTool(input);
 		}
 
 		const referenceId = connectorGenerationReference({
@@ -1496,7 +1515,7 @@ export class McpChatToolsService {
 		let result: unknown;
 
 		try {
-			result = await input.invoke();
+			result = await this.invokeProviderTool(input);
 		} catch (error) {
 			const capture = gatewayGenerationCaptureFromError(error);
 
@@ -1566,6 +1585,72 @@ export class McpChatToolsService {
 		return result;
 	}
 
+	private async invokeProviderTool(input: {
+		connectorSlug: string;
+		invoke: () => Promise<unknown>;
+		parentEventId?: string;
+		retryProviderExecution?: boolean;
+		subject: MeteringSubject;
+		toolName: string;
+	}): Promise<unknown> {
+		const invokeOnce = async () => {
+			const startedAt = performance.now();
+
+			try {
+				const result = await input.invoke();
+				const failed = isMcpErrorResult(result);
+				this.recordConnectorOperation(
+					input,
+					failed ? "failed" : "succeeded",
+					startedAt,
+					failed ? result : undefined,
+				);
+				return result;
+			} catch (error) {
+				this.recordConnectorOperation(input, "failed", startedAt, error);
+				throw error;
+			}
+		};
+
+		return input.retryProviderExecution
+			? withReadRetry(invokeOnce)
+			: invokeOnce();
+	}
+
+	private recordConnectorOperation(
+		input: {
+			connectorSlug: string;
+			parentEventId?: string;
+			subject: MeteringSubject;
+			toolName: string;
+		},
+		status: "failed" | "succeeded",
+		startedAt: number,
+		error?: unknown,
+	): void {
+		try {
+			const sanitizedError =
+				status === "failed" ? sanitizeConnectorOperationError(error) : null;
+			const insert = this.connectorOperationEventsRepository.insert({
+				connectorSlug: input.connectorSlug,
+				durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
+				errorCode: sanitizedError?.errorCode ?? null,
+				errorMessage: sanitizedError?.errorMessage ?? null,
+				feature: connectorOperationFeature(input.connectorSlug, input.toolName),
+				organizationId: input.subject.organizationId ?? null,
+				parentEventId: input.parentEventId,
+				status,
+				toolName: input.toolName,
+				userId: input.subject.actorUserId,
+			});
+			void insert.catch(() => {
+				this.logger.warn("Connector operation event insert failed");
+			});
+		} catch {
+			this.logger.warn("Connector operation event insert failed");
+		}
+	}
+
 	// Same schema and description as the provider tool, but execute queues a
 	// durable attempt + Trigger.dev run instead of blocking the chat stream.
 	// Without a Trigger key the legacy inline call is kept — degraded but
@@ -1604,7 +1689,15 @@ export class McpChatToolsService {
 						);
 					}
 
-					return inlineExecute(input, options);
+					return this.executeInlineConnectorTool({
+						connectorSlug,
+						input,
+						invoke: () => Promise.resolve(inlineExecute(input, options)),
+						options,
+						parentEventId,
+						subject,
+						toolName,
+					});
 				}
 
 				const refinedInput = await this.refinePromptedGenerationArgs(
@@ -1968,6 +2061,17 @@ function classifyToolName(toolName: string): "read" | "write" {
 	return tokens.some((token) => READ_VERBS.has(token)) ? "read" : "write";
 }
 
+function connectorOperationFeature(
+	connectorSlug: string,
+	toolName: string,
+): "ads_analysis" | "ads_launch" | "other" {
+	if (connectorSlug !== "meta-ads" && connectorSlug !== "tiktok-ads") {
+		return "other";
+	}
+
+	return classifyToolName(toolName) === "write" ? "ads_launch" : "ads_analysis";
+}
+
 function classifyNestedToolName(input: unknown): "read" | "write" {
 	const nestedToolName = readStringProperty(input, "tool_name");
 	return nestedToolName ? classifyToolName(nestedToolName) : "write";
@@ -2096,12 +2200,16 @@ function wait(delayMs: number): Promise<void> {
 }
 
 function isMcpErrorResult(result: unknown): boolean {
-	return (
-		typeof result === "object" &&
-		result !== null &&
-		"isError" in result &&
-		result.isError === true
-	);
+	try {
+		return (
+			typeof result === "object" &&
+			result !== null &&
+			"isError" in result &&
+			result.isError === true
+		);
+	} catch {
+		return false;
+	}
 }
 
 function assertFreshInlineConnectorReservations(

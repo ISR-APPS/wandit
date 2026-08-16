@@ -4,7 +4,6 @@ import { Cell, Label, Pie, PieChart } from "recharts";
 import { Badge } from "@/components/ui/badge";
 import {
 	Card,
-	CardAction,
 	CardContent,
 	CardDescription,
 	CardHeader,
@@ -105,21 +104,21 @@ function ModelUsageCard({ models }: ModelUsageCardProps) {
 	return (
 		<Card className="h-full min-h-0 shadow-none">
 			<CardHeader>
-				<div>
-					<CardTitle>
-						<h2>Model mix</h2>
-					</CardTitle>
-					<CardDescription className="mt-1">
-						Token volume and recorded cost by model
-					</CardDescription>
-				</div>
-				{models.length > 0 ? (
-					<CardAction>
-						<Badge variant="outline" className="text-muted-foreground">
+				<div className="flex flex-wrap items-start justify-between gap-3">
+					<div className="min-w-[200px] flex-1">
+						<CardTitle>
+							<h2>Model mix</h2>
+						</CardTitle>
+						<CardDescription className="mt-1">
+							Token volume and recorded cost by model
+						</CardDescription>
+					</div>
+					{models.length > 0 ? (
+						<Badge variant="outline" className="shrink-0 text-muted-foreground">
 							{models.length === 1 ? "1 model" : `${models.length} models`}
 						</Badge>
-					</CardAction>
-				) : null}
+					) : null}
+				</div>
 			</CardHeader>
 			<CardContent className="flex min-h-0 flex-1 flex-col gap-5">
 				{listData.length === 0 ? (
@@ -252,7 +251,7 @@ function ModelUsageCard({ models }: ModelUsageCardProps) {
 													style={{ backgroundColor: model.fill }}
 												/>
 												<span className="min-w-0">
-													<span className="block truncate font-medium text-sm">
+													<span className="block break-words font-medium text-sm leading-snug">
 														{model.modelName}
 													</span>
 													<span className="block text-muted-foreground text-xs capitalize">
