@@ -742,7 +742,7 @@ describe("StripeProvider", () => {
 		).rejects.toBeInstanceOf(AmbiguousPaymentProviderWriteError);
 	});
 
-	it("creates and caches a restricted cancel-only portal configuration", async () => {
+	it("creates and caches a restricted portal configuration without cancellation", async () => {
 		const {
 			portalConfigurationsCreate,
 			portalConfigurationsList,
@@ -767,15 +767,12 @@ describe("StripeProvider", () => {
 					customer_update: { allowed_updates: [], enabled: false },
 					invoice_history: { enabled: true },
 					payment_method_update: { enabled: true },
-					subscription_cancel: {
-						enabled: true,
-						mode: "at_period_end",
-					},
+					subscription_cancel: { enabled: false },
 					subscription_update: { enabled: false },
 				},
-				name: "Wandit restricted billing portal v1",
+				name: "Wandit restricted billing portal v2",
 			},
-			{ idempotencyKey: "billing-portal:restricted:v1" },
+			{ idempotencyKey: "billing-portal:restricted:v2" },
 		);
 		expect(portalSessionsCreate).toHaveBeenCalledTimes(2);
 		expect(portalSessionsCreate).toHaveBeenCalledWith({
@@ -796,7 +793,7 @@ describe("StripeProvider", () => {
 		portalConfigurationsAutoPagingToArray.mockResolvedValueOnce([
 			{
 				id: "bpc_existing",
-				name: "Wandit restricted billing portal v1",
+				name: "Wandit restricted billing portal v2",
 			} as Stripe.BillingPortal.Configuration,
 		]);
 
@@ -807,15 +804,12 @@ describe("StripeProvider", () => {
 			"bpc_existing",
 			expect.objectContaining({
 				features: expect.objectContaining({
-					subscription_cancel: {
-						enabled: true,
-						mode: "at_period_end",
-					},
+					subscription_cancel: { enabled: false },
 					subscription_update: { enabled: false },
 				}),
 			}),
 			{
-				idempotencyKey: "billing-portal:restricted:v1:enforce:bpc_existing",
+				idempotencyKey: "billing-portal:restricted:v2:enforce:bpc_existing",
 			},
 		);
 		expect(portalSessionsCreate).toHaveBeenCalledWith(
@@ -823,7 +817,7 @@ describe("StripeProvider", () => {
 		);
 	});
 
-	it("uses the persisted portal configuration override without creating duplicates", async () => {
+	it("re-enforces the persisted portal configuration override without creating duplicates", async () => {
 		const mutableEnv = env as unknown as {
 			STRIPE_PORTAL_CONFIGURATION_ID?: string;
 		};
@@ -834,6 +828,7 @@ describe("StripeProvider", () => {
 			const {
 				portalConfigurationsCreate,
 				portalConfigurationsList,
+				portalConfigurationsUpdate,
 				portalSessionsCreate,
 				provider,
 			} = setup();
@@ -841,6 +836,19 @@ describe("StripeProvider", () => {
 
 			expect(portalConfigurationsCreate).not.toHaveBeenCalled();
 			expect(portalConfigurationsList).not.toHaveBeenCalled();
+			expect(portalConfigurationsUpdate).toHaveBeenCalledWith(
+				"bpc_persisted",
+				expect.objectContaining({
+					features: expect.objectContaining({
+						invoice_history: { enabled: true },
+						payment_method_update: { enabled: true },
+						subscription_cancel: { enabled: false },
+					}),
+				}),
+				{
+					idempotencyKey: "billing-portal:restricted:v2:enforce:bpc_persisted",
+				},
+			);
 			expect(portalSessionsCreate).toHaveBeenCalledWith(
 				expect.objectContaining({ configuration: "bpc_persisted" }),
 			);

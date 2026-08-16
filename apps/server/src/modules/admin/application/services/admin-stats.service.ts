@@ -11,21 +11,14 @@ import {
 	AdminOverviewRepository,
 	type AdminOverviewSignalRow,
 } from "../../infrastructure/persistence/admin-overview.repository";
+import { aggregateMrr } from "./admin-analytics.metrics";
+import { resolveAdminDashboardRange } from "./admin-dashboard-range";
 
 const RANGE_DAYS: Record<AdminSignupStatsQuery["range"], number> = {
 	"7d": 7,
 	"30d": 30,
 	"90d": 90,
 };
-
-const RANGE_LABELS: Record<AdminOverviewQuery["range"], string> = {
-	"7d": "Last 7 days",
-	"30d": "Last 30 days",
-	"90d": "Last 90 days",
-};
-
-// MOCK DATA: DZD-to-USD reporting rate — no FX-rate source/table exists.
-const MOCK_DZD_PER_USD = 135.42;
 
 @Injectable()
 export class AdminStatsService {
@@ -40,39 +33,27 @@ export class AdminStatsService {
 		query: AdminOverviewQuery,
 	): Promise<AdminOverviewSnapshot> {
 		const generatedAt = new Date();
-		const snapshot = await this.adminOverviewRepository.getOverview({
-			days: RANGE_DAYS[query.range],
-			generatedAt,
-			dzdPerUsd: MOCK_DZD_PER_USD,
-		});
+		const resolvedRange = resolveAdminDashboardRange(query, generatedAt);
+		const snapshot = await this.adminOverviewRepository.getOverview(
+			resolvedRange.bounds,
+		);
+		const mrr = aggregateMrr(
+			snapshot.overviewMetrics.mrrSubscriptions,
+			snapshot.overviewMetrics.activePaidUsers,
+		);
 
 		return {
 			range: query.range,
-			rangeLabel: RANGE_LABELS[query.range],
+			rangeLabel: resolvedRange.rangeLabel,
 			generatedAt: generatedAt.toISOString(),
 			periodStart: snapshot.periodStart,
 			periodEnd: snapshot.periodEnd,
+			mrrMinor: mrr.mrrMinor,
+			healthyTrials: { count: snapshot.overviewMetrics.healthyTrials },
 			revenue: {
 				reportingCurrency: "USD",
-				totalReportingUsdMinor: snapshot.revenue.totalReportingUsdMinor,
+				totalUsdMinor: snapshot.revenue.totalUsdMinor,
 				changePercent: snapshot.revenue.changePercent,
-				stripe: {
-					provider: "stripe",
-					nativeCurrency: "USD",
-					...snapshot.revenue.stripe,
-				},
-				chargily: {
-					provider: "chargily",
-					nativeCurrency: "DZD",
-					...snapshot.revenue.chargily,
-				},
-				fx: {
-					baseCurrency: "USD",
-					quoteCurrency: "DZD",
-					quotePerBase: MOCK_DZD_PER_USD,
-					asOf: generatedAt.toISOString().slice(0, 10),
-					isMock: true,
-				},
 			},
 			totals: snapshot.totals,
 			generation: snapshot.generation,
@@ -186,7 +167,7 @@ function mapRecentSignal(signal: AdminOverviewSignalRow): AdminOverviewSignal {
 			return {
 				id: signal.id,
 				kind: signal.kind,
-				title: `${formatProviderName(signal.provider ?? "unknown")} payment captured`,
+				title: "Payment captured",
 				detail: `${signal.userName} · ${formatPaymentAmount(signal)}`,
 				occurredAt: signal.occurredAt,
 			};

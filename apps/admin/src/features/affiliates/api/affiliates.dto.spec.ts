@@ -46,6 +46,10 @@ describe("affiliate DTO mappers", () => {
 				uniqueVisitorCount: 180,
 				attributedUserCount: 24,
 				paidCustomerCount: 8,
+				healthyTrials: 5,
+				churnedCustomers: 2,
+				referredMrrCents: 43_500,
+				referredLtvCents: null,
 				paidInvoiceCount: 11,
 				lastConversionAt: now,
 				currencies: [
@@ -64,6 +68,10 @@ describe("affiliate DTO mappers", () => {
 			status: "active",
 			linkCount: 3,
 			uniqueVisitorCount: 180,
+			healthyTrials: 5,
+			churnedCustomers: 2,
+			referredMrrCents: 43_500,
+			referredLtvCents: null,
 			paidInvoiceCount: 11,
 		});
 		expect(row.currencies).toEqual([

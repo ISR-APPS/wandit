@@ -40,8 +40,9 @@ import {
 	CreditCard,
 	ExternalLink,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
+import { useSession } from "@/features/auth";
 import {
 	useChangeBillingSubscription,
 	useCreateBillingCheckout,
@@ -63,6 +64,10 @@ import {
 	tierPriceUsd,
 	tierSavingsPercent,
 } from "@/features/billing/lib/plan-pricing";
+import {
+	emitPricingViewed,
+	getProductEventSessionState,
+} from "@/features/product-events";
 import { usePublicSettingsQuery } from "@/features/settings/api/settings.queries";
 import { CreateWorkspaceDialog } from "@/features/workspaces/components/create-workspace-dialog";
 import { useWorkspace } from "@/features/workspaces/lib/workspace-provider";
@@ -94,7 +99,28 @@ export function PlanPickerDialog({
 	availableCredits,
 }: PlanPickerDialogProps) {
 	const { t } = useTranslation();
+	const { data: session, isPending: isSessionPending } = useSession();
+	const sessionUserId = session?.user.id;
+	const sessionState = getProductEventSessionState(
+		isSessionPending,
+		sessionUserId,
+	);
 	const [createTeamOpen, setCreateTeamOpen] = useState(false);
+	const wasOpen = useRef(false);
+
+	useEffect(() => {
+		if (!open) {
+			wasOpen.current = false;
+			return;
+		}
+
+		if (wasOpen.current) {
+			return;
+		}
+
+		wasOpen.current = true;
+		emitPricingViewed("plan_picker", sessionState);
+	}, [open, sessionState]);
 
 	return (
 		<>

@@ -21,6 +21,8 @@ import {
 import { DatabaseModule } from "../../infrastructure/database/database.module";
 import { AffiliatesModule } from "../affiliates/affiliates.module";
 import { AffiliateAttributionService } from "../affiliates/application/services/affiliate-attribution.service";
+import { UtmAttributionService } from "../attribution/application/services/utm-attribution.service";
+import { AttributionModule } from "../attribution/attribution.module";
 import { CreditsModule } from "../credits/credits.module";
 import { EmailService } from "../email/application/services/email.service";
 import { EmailSendPolicyService } from "../email/application/services/email-send-policy.service";
@@ -29,6 +31,7 @@ import { ProductSettingsService } from "../settings/application/services/product
 import { SettingsModule } from "../settings/settings.module";
 import { SignupGrantOutboxService } from "./application/services/signup-grant-outbox.service";
 import { SignupGrantsService } from "./application/services/signup-grants.service";
+import { UserActivityService } from "./application/services/user-activity.service";
 import { ADMIN_AUTH_INSTANCE, AUTH_INSTANCE } from "./auth.constants";
 import { SignupGrantOutboxRepository } from "./infrastructure/persistence/signup-grant-outbox.repository";
 import { TriggerSignupGrantDispatcherService } from "./infrastructure/trigger/trigger-signup-grant-dispatcher.service";
@@ -53,6 +56,7 @@ const authProvider: Provider<Auth> = {
 	provide: AUTH_INSTANCE,
 	inject: [
 		AffiliateAttributionService,
+		UtmAttributionService,
 		SignupGrantsService,
 		DATABASE,
 		AnalyticsService,
@@ -62,6 +66,7 @@ const authProvider: Provider<Auth> = {
 	],
 	useFactory: (
 		affiliateAttributionService: AffiliateAttributionService,
+		utmAttributionService: UtmAttributionService,
 		signupGrantsService: SignupGrantsService,
 		db: Database,
 		analytics: AnalyticsService,
@@ -151,6 +156,12 @@ const authProvider: Provider<Auth> = {
 					logger.error("Affiliate attribution lock failed", error);
 				}
 
+				try {
+					await utmAttributionService.lockForCreatedUser(newUser, ctx);
+				} catch (error) {
+					logger.error("UTM attribution lock failed", error);
+				}
+
 				analytics.capture(newUser.id, "user_signed_up");
 
 				try {
@@ -189,6 +200,7 @@ const adminAuthProvider: Provider<AdminAuth> = {
 	exports: [ADMIN_AUTH_INSTANCE, AUTH_INSTANCE, AuthGuard],
 	imports: [
 		AffiliatesModule,
+		AttributionModule,
 		CreditsModule,
 		DatabaseModule,
 		EmailModule,
@@ -202,6 +214,7 @@ const adminAuthProvider: Provider<AdminAuth> = {
 		SignupGrantOutboxService,
 		SignupGrantsService,
 		TriggerSignupGrantDispatcherService,
+		UserActivityService,
 		{
 			provide: APP_GUARD,
 			useExisting: AuthGuard,

@@ -17,14 +17,16 @@ import { StripeEventRouter } from "../modules/billing/application/services/strip
 import { StripeSubscriptionSyncService } from "../modules/billing/application/services/stripe-subscription-sync.service";
 import { StripeWebhookProcessor } from "../modules/billing/application/services/stripe-webhook-processor.service";
 import { SubscriptionCreditsService } from "../modules/billing/application/services/subscription-credits.service";
+import { SubscriptionLifecycleService } from "../modules/billing/application/services/subscription-lifecycle.service";
 import { SubscriptionRefillService } from "../modules/billing/application/services/subscription-refill.service";
 import { BillingCheckoutAttemptsRepository } from "../modules/billing/infrastructure/persistence/billing-checkout-attempts.repository";
-import { OrganizationBillingCustomersRepository } from "../modules/billing/infrastructure/persistence/organization-billing-customers.repository";
-import { WorkspaceMembersRepository } from "../modules/workspaces/infrastructure/persistence/members.repository";
 import { BillingCreditLedgerRepository } from "../modules/billing/infrastructure/persistence/billing-credit-ledger.repository";
 import { BillingCustomersRepository } from "../modules/billing/infrastructure/persistence/billing-customers.repository";
+import { BillingPaymentAdjustmentsRepository } from "../modules/billing/infrastructure/persistence/billing-payment-adjustments.repository";
 import { BillingWebhookEventsRepository } from "../modules/billing/infrastructure/persistence/billing-webhook-events.repository";
+import { OrganizationBillingCustomersRepository } from "../modules/billing/infrastructure/persistence/organization-billing-customers.repository";
 import { SubscriptionCreditsRepository } from "../modules/billing/infrastructure/persistence/subscription-credits.repository";
+import { SubscriptionStateEventsRepository } from "../modules/billing/infrastructure/persistence/subscription-state-events.repository";
 import { SubscriptionsRepository } from "../modules/billing/infrastructure/persistence/subscriptions.repository";
 import { StripeProvider } from "../modules/billing/infrastructure/stripe/stripe.provider";
 import { CreditsService } from "../modules/credits/application/services/credits.service";
@@ -50,6 +52,7 @@ import {
 	recoverOrderRefundTask,
 	triggerOrderRefundTask,
 } from "../modules/orders/infrastructure/trigger/trigger-order-refund-dispatcher.service";
+import { WorkspaceMembersRepository } from "../modules/workspaces/infrastructure/persistence/members.repository";
 import { createTriggerModelPricing } from "./metering.runtime";
 
 type TriggerDatabase = ReturnType<typeof createDb>;
@@ -139,6 +142,13 @@ export function createBillingWebhookRuntime(
 		billingCustomers,
 		affiliate.affiliates,
 	);
+	const subscriptionLifecycle = new SubscriptionLifecycleService(
+		new SubscriptionStateEventsRepository(db),
+		new BillingPaymentAdjustmentsRepository(db),
+		subscriptions,
+		billingCustomers,
+		new OrganizationBillingCustomersRepository(db),
+	);
 	const router = new StripeEventRouter(
 		billingCustomers,
 		new OrganizationBillingCustomersRepository(db),
@@ -149,6 +159,7 @@ export function createBillingWebhookRuntime(
 		orderReconciler,
 		affiliate.commission,
 		affiliate.clawback,
+		subscriptionLifecycle,
 	);
 	const events = new BillingWebhookEventsRepository(db);
 	const processor = new StripeWebhookProcessor(

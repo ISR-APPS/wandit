@@ -13,6 +13,10 @@ export * from "./http/error-codes";
 export * from "./http/pagination";
 // Admin dashboard contracts.
 export * from "./v1/admin";
+// Admin analytics contracts.
+export * from "./v1/admin-analytics";
+// Admin monthly-cost contracts.
+export * from "./v1/admin-costs";
 // Affiliate capture and admin contracts.
 export * from "./v1/affiliates";
 // AI SDK chat tool and stream contracts.
@@ -21,6 +25,8 @@ export * from "./v1/ai-chat";
 export * from "./v1/artifacts";
 // Attachment upload contract.
 export * from "./v1/attachments";
+// UTM attribution capture contracts.
+export * from "./v1/attribution";
 // Auth contracts.
 export * from "./v1/auth";
 // Billing contracts.
@@ -56,6 +62,8 @@ export * from "./v1/page-edits";
 export * from "./v1/page-theme";
 // Page generation contracts.
 export * from "./v1/pages";
+// Product-event contracts.
+export * from "./v1/product-events";
 // Project media assets (Assets tab) contracts.
 export * from "./v1/project-assets";
 // Project contracts.
@@ -64,6 +72,8 @@ export * from "./v1/projects";
 export * from "./v1/settings";
 // Shared id/date validators.
 export * from "./v1/shared/primitives";
+// Story-link campaign and analytics contracts.
+export * from "./v1/story-links";
 // Audio transcription contract.
 export * from "./v1/transcriptions";
 // Workspace (organization) contracts.

@@ -1,0 +1,1 @@
+ALTER TABLE "user_attributions" ADD COLUMN "device" text;

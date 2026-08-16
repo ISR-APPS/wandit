@@ -2,6 +2,7 @@ import { adminOverviewSnapshotSchema } from "@wandit/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Database } from "../../../../infrastructure/database/database.constants";
 import type { AdminRepository } from "../../infrastructure/persistence/admin.repository";
+import { AdminAnalyticsRepository } from "../../infrastructure/persistence/admin-analytics.repository";
 import {
 	AdminOverviewRepository,
 	type AdminOverviewRepositorySnapshot,
@@ -11,10 +12,19 @@ import { AdminStatsService } from "./admin-stats.service";
 const NOW = new Date("2026-08-07T12:34:56.000Z");
 
 const RANGE_CASES = [
-	["7d", 7, "Last 7 days"],
-	["30d", 30, "Last 30 days"],
-	["90d", 90, "Last 90 days"],
+	["7d", "2026-08-01T00:00:00.000Z", "Last 7 days"],
+	["30d", "2026-07-09T00:00:00.000Z", "Last 30 days"],
+	["90d", "2026-05-10T00:00:00.000Z", "Last 90 days"],
+	["180d", "2026-02-09T00:00:00.000Z", "Last 6 months"],
+	["365d", "2025-08-08T00:00:00.000Z", "Last year"],
 ] as const;
+
+const PRESET_BOUNDS = {
+	rangeStart: new Date("2026-08-01T00:00:00.000Z"),
+	rangeEnd: NOW,
+	seriesEnd: new Date("2026-08-07T00:00:00.000Z"),
+	snapshotEnd: NOW,
+};
 
 type SqlQuery = {
 	toQuery: (config: {
@@ -45,41 +55,35 @@ function compileQuery(query: unknown): string {
 	return sql.replaceAll(/\s+/g, " ").trim();
 }
 
-async function compileOverviewQueries(): Promise<string[]> {
+async function compileOverviewQueries() {
 	const execute = vi.fn().mockResolvedValue({ rows: [] });
 	const transaction = vi.fn(
 		(callback: (client: { execute: typeof execute }) => Promise<unknown>) =>
 			callback({ execute }),
 	);
-	const repository = new AdminOverviewRepository({
+	const database = {
 		transaction,
-	} as unknown as Database);
+	} as unknown as Database;
+	const adminAnalyticsRepository = new AdminAnalyticsRepository(database);
+	const repository = new AdminOverviewRepository(
+		database,
+		adminAnalyticsRepository,
+	);
 
-	await repository.getOverview({
-		days: 7,
-		dzdPerUsd: 135.42,
-		generatedAt: NOW,
-	});
+	await repository.getOverview(PRESET_BOUNDS);
 
-	return execute.mock.calls.map(([query]) => compileQuery(query));
+	return {
+		queries: execute.mock.calls.map(([query]) => compileQuery(query)),
+		transaction,
+	};
 }
 
 const OVERVIEW_SNAPSHOT = {
 	periodStart: "2026-08-01",
 	periodEnd: "2026-08-07",
 	revenue: {
-		totalReportingUsdMinor: 14_800,
+		totalUsdMinor: 10_000,
 		changePercent: 12.5,
-		stripe: {
-			nativeTotalMinor: 10_000,
-			reportingUsdTotalMinor: 10_000,
-			changePercent: 10,
-		},
-		chargily: {
-			nativeTotalMinor: 650_000,
-			reportingUsdTotalMinor: 4_800,
-			changePercent: 18.25,
-		},
 	},
 	totals: {
 		tokensUsed: 12_345,
@@ -108,9 +112,7 @@ const OVERVIEW_SNAPSHOT = {
 	revenueSeries: [
 		{
 			date: "2026-08-05",
-			stripeUsdMinor: 2_500,
-			chargilyUsdEquivalentMinor: 1_200,
-			totalUsdEquivalentMinor: 3_700,
+			totalUsdMinor: 2_500,
 		},
 	],
 	growthSeries: [
@@ -145,6 +147,11 @@ const OVERVIEW_SNAPSHOT = {
 			costUsdMinor: 41,
 		},
 	],
+	overviewMetrics: {
+		activePaidUsers: 2,
+		mrrSubscriptions: [{ priceLookupKey: "pro_250_month", subscribers: 2 }],
+		healthyTrials: 4,
+	},
 	recentSignals: [
 		{
 			id: "payment-1",
@@ -153,9 +160,8 @@ const OVERVIEW_SNAPSHOT = {
 			userName: "Ada Lovelace",
 			projectName: null,
 			leadName: null,
-			provider: "chargily",
 			amountMinor: 650_000,
-			currency: "dzd",
+			currency: "usd",
 			durationMs: null,
 		},
 		{
@@ -165,7 +171,6 @@ const OVERVIEW_SNAPSHOT = {
 			userName: "Grace Hopper",
 			projectName: "Portfolio launch",
 			leadName: null,
-			provider: null,
 			amountMinor: null,
 			currency: null,
 			durationMs: 42_400,
@@ -177,7 +182,6 @@ const OVERVIEW_SNAPSHOT = {
 			userName: "Linus Torvalds",
 			projectName: null,
 			leadName: null,
-			provider: null,
 			amountMinor: null,
 			currency: null,
 			durationMs: null,
@@ -189,7 +193,6 @@ const OVERVIEW_SNAPSHOT = {
 			userName: "Project owner",
 			projectName: "Storefront",
 			leadName: null,
-			provider: null,
 			amountMinor: null,
 			currency: null,
 			durationMs: null,
@@ -214,7 +217,11 @@ function setup() {
 		adminOverviewRepository as unknown as AdminOverviewRepository,
 	);
 
-	return { adminOverviewRepository, adminRepository, service };
+	return {
+		adminOverviewRepository,
+		adminRepository,
+		service,
+	};
 }
 
 describe("AdminStatsService", () => {
@@ -230,28 +237,46 @@ describe("AdminStatsService", () => {
 
 	it.each(
 		RANGE_CASES,
-	)("forwards %s as %i days with the reporting FX rate", async (range, days, rangeLabel) => {
+	)("forwards %s as explicit bounds to the overview repository", async (range, rangeStart, rangeLabel) => {
 		const { adminOverviewRepository, service } = setup();
 
 		const result = await service.getOverviewStats({ range });
 
 		expect(adminOverviewRepository.getOverview).toHaveBeenCalledWith({
-			days,
-			dzdPerUsd: 135.42,
-			generatedAt: NOW,
+			rangeStart: new Date(rangeStart),
+			rangeEnd: NOW,
+			seriesEnd: new Date("2026-08-07T00:00:00.000Z"),
+			snapshotEnd: NOW,
 		});
 		expect(result).toMatchObject({
 			range,
 			rangeLabel,
 			generatedAt: NOW.toISOString(),
-			revenue: {
-				fx: {
-					asOf: "2026-08-07",
-					isMock: true,
-					quotePerBase: 135.42,
-				},
-			},
+			mrrMinor: 5_000,
+			healthyTrials: { count: 4 },
 		});
+	});
+
+	it("forwards a past custom range with an exclusive end", async () => {
+		const { adminOverviewRepository, service } = setup();
+
+		const result = await service.getOverviewStats({
+			range: "custom",
+			from: "2026-06-01",
+			to: "2026-06-03",
+		});
+
+		expect(adminOverviewRepository.getOverview).toHaveBeenCalledWith({
+			rangeStart: new Date("2026-06-01T00:00:00.000Z"),
+			rangeEnd: new Date("2026-06-04T00:00:00.000Z"),
+			seriesEnd: new Date("2026-06-03T00:00:00.000Z"),
+			snapshotEnd: NOW,
+		});
+		expect(result).toMatchObject({
+			range: "custom",
+			rangeLabel: "Jun 1, 2026 – Jun 3, 2026",
+		});
+		expect(adminOverviewSnapshotSchema.parse(result)).toEqual(result);
 	});
 
 	it("returns a contract-valid snapshot with presentation labels and mapped models and signals", async () => {
@@ -285,7 +310,7 @@ describe("AdminStatsService", () => {
 			expect.objectContaining({
 				id: "payment-1",
 				kind: "payment",
-				title: "Chargily payment captured",
+				title: "Payment captured",
 			}),
 			{
 				id: "generation-success-1",
@@ -310,7 +335,7 @@ describe("AdminStatsService", () => {
 			},
 		]);
 		expect(result.recentSignals[0]?.detail).toContain("Ada Lovelace ·");
-		expect(result.recentSignals[0]?.detail).toContain("DZD");
+		expect(result.recentSignals[0]?.detail).toContain("USD");
 		expect(result.recentSignals[0]?.detail).toContain("6,500");
 	});
 
@@ -336,8 +361,50 @@ describe("AdminStatsService", () => {
 });
 
 describe("AdminOverviewRepository overview SQL", () => {
+	it("runs all overview metrics in one read-only repeatable-read transaction", async () => {
+		const { queries, transaction } = await compileOverviewQueries();
+
+		expect(transaction).toHaveBeenCalledOnce();
+		expect(transaction).toHaveBeenCalledWith(expect.any(Function), {
+			accessMode: "read only",
+			isolationLevel: "repeatable read",
+		});
+		expect(queries).toHaveLength(9);
+	});
+
+	it("uses explicit series and snapshot bounds and an exactly equal previous interval", async () => {
+		const { queries } = await compileOverviewQueries();
+
+		for (const query of queries) {
+			expect(query).toMatch(/as (current|range)_start/);
+			expect(query).toMatch(/as (current|range)_end/);
+			expect(query).toContain("as series_end");
+			expect(query).toContain("as snapshot_end");
+		}
+
+		const rangeQueries = queries.filter((query) =>
+			query.includes("as previous_start"),
+		);
+		expect(rangeQueries.length).toBeGreaterThan(0);
+		for (const query of rangeQueries) {
+			expect(query).toContain(
+				"w.current_start - (w.current_end - w.current_start) as previous_start",
+			);
+		}
+
+		const seriesQueries = queries.filter((query) =>
+			query.includes("generate_series"),
+		);
+		expect(seriesQueries).toHaveLength(3);
+		for (const query of seriesQueries) {
+			expect(query).toContain(
+				"generate_series( b.current_start, b.series_end, interval '1 day' )",
+			);
+		}
+	});
+
 	it("prefers the settled pricing snapshot cost over the reservation estimate", async () => {
-		const queries = await compileOverviewQueries();
+		const { queries } = await compileOverviewQueries();
 		const usageQueries = queries.filter(
 			(query) =>
 				query.includes("from ai_usage_events e") &&
@@ -362,7 +429,7 @@ describe("AdminOverviewRepository overview SQL", () => {
 	});
 
 	it("includes paid fulfilling orders and excludes non-collected terminal states", async () => {
-		const queries = await compileOverviewQueries();
+		const { queries } = await compileOverviewQueries();
 		const revenueQuery =
 			queries.find((query) => query.includes("eligible_payments as")) ?? "";
 		const signalsQuery =
@@ -372,13 +439,15 @@ describe("AdminOverviewRepository overview SQL", () => {
 			expect(query).toContain(
 				"o.status not in ('failed', 'canceled', 'refunded')",
 			);
+			expect(query).toContain("lower(o.provider) = 'stripe'");
+			expect(query).toContain("lower(o.currency) = 'usd'");
 			expect(query).not.toContain("o.status in ('paid', 'fulfilled')");
 		}
 		expect(signalsQuery).toContain("o.paid_at is not null");
 	});
 
 	it("counts subscription invoice settlements as Stripe revenue", async () => {
-		const queries = await compileOverviewQueries();
+		const { queries } = await compileOverviewQueries();
 		const revenueQuery =
 			queries.find((query) => query.includes("eligible_payments as")) ?? "";
 
@@ -390,22 +459,22 @@ describe("AdminOverviewRepository overview SQL", () => {
 	});
 
 	it("bounds each recent-signal source before merging the final five rows", async () => {
-		const queries = await compileOverviewQueries();
+		const { queries } = await compileOverviewQueries();
 		const signalsQuery =
 			queries.find((query) => query.includes("signals.occurred_at")) ?? "";
 
 		expect(signalsQuery.match(/limit 5/g)).toHaveLength(4);
 		expect(signalsQuery).toContain(
-			"o.paid_at < $1 order by o.paid_at desc, ('payment:' || o.id::text) desc limit 5",
+			"o.paid_at >= b.current_start and o.paid_at < b.current_end order by o.paid_at desc, ('payment:' || o.id::text) desc limit 5",
 		);
 		expect(signalsQuery).toContain(
-			"p.completed_at < $2 order by p.completed_at desc, ('page:' || p.id::text) desc limit 5",
+			"p.completed_at >= b.current_start and p.completed_at < b.current_end order by p.completed_at desc, ('page:' || p.id::text) desc limit 5",
 		);
 		expect(signalsQuery).toContain(
-			"l.created_at < $3 order by l.created_at desc, ('lead:' || l.id::text) desc limit 5",
+			"l.created_at >= b.current_start and l.created_at < b.current_end order by l.created_at desc, ('lead:' || l.id::text) desc limit 5",
 		);
 		expect(signalsQuery).toContain(
-			"order by signals.occurred_at desc, signals.id desc limit 5",
+			"signals.occurred_at >= b.current_start and signals.occurred_at < b.current_end order by signals.occurred_at desc, signals.id desc limit 5",
 		);
 	});
 });

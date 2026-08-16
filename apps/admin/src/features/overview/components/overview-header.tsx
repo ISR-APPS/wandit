@@ -1,32 +1,16 @@
-import { CalendarRangeIcon, RefreshCwIcon } from "lucide-react";
+import { RefreshCwIcon } from "lucide-react";
 
+import { AdminDateRangePicker } from "@/components/admin-date-range-picker";
 import { Button } from "@/components/ui/button";
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "@/components/ui/select";
-import type { OverviewRange } from "@/features/overview/api/overview.dto";
+import type { OverviewQuery } from "@/features/overview/api/overview.dto";
 
 type OverviewHeaderProps = {
-	range: OverviewRange;
+	query: OverviewQuery;
 	generatedAt?: string;
 	isRefreshing: boolean;
-	onRangeChange: (range: OverviewRange) => void;
+	onQueryChange: (query: OverviewQuery) => void;
 	onRefresh: () => void;
 };
-
-const rangeLabels: Record<OverviewRange, string> = {
-	"7d": "Last 7 days",
-	"30d": "Last 30 days",
-	"90d": "Last 90 days",
-};
-
-function isOverviewRange(value: string): value is OverviewRange {
-	return value === "7d" || value === "30d" || value === "90d";
-}
 
 function formatUpdatedAt(value: string | undefined) {
 	if (!value) {
@@ -40,10 +24,10 @@ function formatUpdatedAt(value: string | undefined) {
 }
 
 function OverviewHeader({
-	range,
+	query,
 	generatedAt,
 	isRefreshing,
-	onRangeChange,
+	onQueryChange,
 	onRefresh,
 }: OverviewHeaderProps) {
 	return (
@@ -62,29 +46,7 @@ function OverviewHeader({
 				<span className="mr-1 text-muted-foreground text-xs tabular-nums">
 					{formatUpdatedAt(generatedAt)}
 				</span>
-				<Select
-					value={range}
-					onValueChange={(value) => {
-						if (isOverviewRange(value)) {
-							onRangeChange(value);
-						}
-					}}
-				>
-					<SelectTrigger
-						className="min-w-38 bg-background"
-						aria-label="Date range"
-					>
-						<CalendarRangeIcon />
-						<SelectValue>{rangeLabels[range]}</SelectValue>
-					</SelectTrigger>
-					<SelectContent align="end">
-						{Object.entries(rangeLabels).map(([value, label]) => (
-							<SelectItem key={value} value={value}>
-								{label}
-							</SelectItem>
-						))}
-					</SelectContent>
-				</Select>
+				<AdminDateRangePicker value={query} onChange={onQueryChange} />
 				<Button
 					type="button"
 					variant="outline"

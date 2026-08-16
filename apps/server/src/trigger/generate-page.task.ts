@@ -142,6 +142,7 @@ export const generatePageTask = task({
 					error: null,
 					failureCode: null,
 					lastProgressPercent: null,
+					startedAt: new Date(),
 					status: "generating",
 					triggerRunId: ctx.run.id,
 					versionId: null,

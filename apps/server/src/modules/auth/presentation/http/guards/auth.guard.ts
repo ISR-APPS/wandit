@@ -25,6 +25,7 @@ import {
 	type Database,
 } from "../../../../../infrastructure/database/database.constants";
 import { toWebHeaders } from "../../../../../infrastructure/http/fastify-headers";
+import { UserActivityService } from "../../../application/services/user-activity.service";
 import {
 	ADMIN_AUTH_INSTANCE,
 	ADMIN_AUTH_SURFACE,
@@ -51,6 +52,8 @@ export class AuthGuard implements CanActivate {
 		@Inject(Reflector)
 		private readonly reflector: Reflector,
 		@Inject(DATABASE) private readonly db: Database,
+		@Inject(UserActivityService)
+		private readonly userActivityService: UserActivityService,
 	) {}
 
 	// Nest runs this before the controller method.
@@ -95,6 +98,7 @@ export class AuthGuard implements CanActivate {
 		}
 
 		this.touchLastSeen(session.user.id);
+		this.userActivityService.record(session.user.id, request);
 
 		// Attribute every Sentry capture on this request to the signed-in user.
 		// The SDK's request isolation scopes this per request — no leakage.

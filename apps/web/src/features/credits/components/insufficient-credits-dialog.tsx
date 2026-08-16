@@ -27,7 +27,7 @@ export function InsufficientCreditsDialog({
 	const purchasesEnabled = usePurchasesEnabled();
 	const handleUpgrade = () => {
 		onOpenChange(false);
-		openPlanPicker();
+		openPlanPicker("insufficient_credits");
 	};
 
 	return (

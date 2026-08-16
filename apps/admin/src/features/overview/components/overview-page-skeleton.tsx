@@ -2,10 +2,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 const metricSkeletonKeys = [
 	"revenue",
+	"mrr",
 	"tokens",
 	"websites",
 	"signups",
 	"users",
+	"healthy-trials",
 	"images",
 ] as const;
 
@@ -18,35 +20,23 @@ function OverviewPageSkeleton() {
 			className="space-y-5"
 		>
 			<div className="overflow-hidden rounded-xl border bg-background">
-				<div className="grid @[1180px]/main:grid-cols-6 @[860px]/main:grid-cols-3 sm:grid-cols-2">
-					{metricSkeletonKeys.map((key, index) => (
+				<div className="-mr-px -mb-px grid @[960px]/main:grid-cols-4 grid-cols-1 sm:grid-cols-2">
+					{metricSkeletonKeys.map((key) => (
 						<div
 							key={key}
-							className={[
-								"flex min-w-0 items-start gap-3 border-b px-4 py-4",
-								index === metricSkeletonKeys.length - 1 ? "border-b-0" : "",
-								index % 2 === 0 ? "sm:border-r" : "",
-								index >= metricSkeletonKeys.length - 2 ? "sm:border-b-0" : "",
-								index < 3
-									? "@[860px]/main:border-b"
-									: "@[860px]/main:border-b-0",
-								index % 3 === 2
-									? "@[860px]/main:border-r-0"
-									: "@[860px]/main:border-r",
-								"@[1180px]/main:border-b-0",
-								index === metricSkeletonKeys.length - 1
-									? "@[1180px]/main:border-r-0"
-									: "@[1180px]/main:border-r",
-							].join(" ")}
+							className="flex min-w-[200px] items-start gap-3 border-r border-b px-5 py-5"
 						>
 							<Skeleton className="size-8 shrink-0" />
-							<div className="w-full space-y-2">
-								<div className="flex justify-between gap-4">
-									<Skeleton className="h-3 w-20" />
+							<div className="w-full">
+								<Skeleton className="h-3 w-20" />
+								<div className="mt-1.5 flex min-h-7 items-center justify-between gap-2">
+									<Skeleton className="h-6 w-24" />
 									<Skeleton className="h-4 w-12 rounded-full" />
 								</div>
-								<Skeleton className="h-6 w-24" />
-								<Skeleton className="h-3 w-32" />
+								<div className="mt-1.5 space-y-1.5">
+									<Skeleton className="h-3 w-32 max-w-full" />
+									<Skeleton className="h-3 w-20 max-w-full" />
+								</div>
 							</div>
 						</div>
 					))}
@@ -62,10 +52,6 @@ function OverviewPageSkeleton() {
 					</div>
 					<div className="p-6">
 						<Skeleton className="h-[310px] w-full" />
-					</div>
-					<div className="grid border-t sm:grid-cols-2">
-						<Skeleton className="m-5 h-12" />
-						<Skeleton className="m-5 h-12" />
 					</div>
 				</div>
 				<div className="rounded-xl border bg-background p-6 xl:col-span-4">

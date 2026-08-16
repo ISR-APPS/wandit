@@ -76,10 +76,12 @@ export const leadScrapeAttempts = pgTable(
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.defaultNow()
 			.notNull(),
+		startedAt: timestamp("started_at", { withTimezone: true }),
 		// When the attempt reached a terminal state (succeeded or failed).
 		completedAt: timestamp("completed_at", { withTimezone: true }),
 	},
 	(table) => [
+		index("lead_scrape_attempts_createdAt_idx").on(table.createdAt),
 		index("lead_scrape_attempts_project_idx").on(
 			table.projectId,
 			table.createdAt,

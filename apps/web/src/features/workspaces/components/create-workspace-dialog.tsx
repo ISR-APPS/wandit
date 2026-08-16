@@ -4,6 +4,13 @@
  * OWNER to Business checkout (the workspace header now scopes the checkout to
  * the new org, so the subscription lands on the org, never the person).
  */
+
+import { useQueryClient } from "@tanstack/react-query";
+import type {
+	BillingInterval,
+	CreateBillingCheckoutBody,
+} from "@wandit/contracts";
+import { Button } from "@wandit/ui/components/button";
 import {
 	Dialog,
 	DialogContent,
@@ -11,7 +18,6 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@wandit/ui/components/dialog";
-import { Button } from "@wandit/ui/components/button";
 import { Input } from "@wandit/ui/components/input";
 import { Label } from "@wandit/ui/components/label";
 import {
@@ -21,18 +27,17 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@wandit/ui/components/select";
-import type {
-	BillingInterval,
-	CreateBillingCheckoutBody,
-} from "@wandit/contracts";
 import { useMemo, useState } from "react";
-
-import { useBillingPlansQuery } from "@/features/billing/api/billing.queries";
-import { useCreateBillingCheckout } from "@/features/billing/api/billing.mutations";
 import { authClient } from "@/features/auth/lib/auth-client";
-import { useWorkspace } from "@/features/workspaces/lib/workspace-provider";
+import { useSession } from "@/features/auth/lib/session";
+import { useCreateBillingCheckout } from "@/features/billing/api/billing.mutations";
+import { useBillingPlansQuery } from "@/features/billing/api/billing.queries";
+import {
+	emitUpgradeClicked,
+	getProductEventSessionState,
+} from "@/features/product-events";
 import { workspacesKeys } from "@/features/workspaces/api/workspaces.queries";
-import { useQueryClient } from "@tanstack/react-query";
+import { useWorkspace } from "@/features/workspaces/lib/workspace-provider";
 import { useTranslation } from "@/lib/i18n";
 
 function slugify(name: string): string {
@@ -60,6 +65,11 @@ export function CreateWorkspaceDialog({
 	const { switchWorkspace } = useWorkspace();
 	const plansQuery = useBillingPlansQuery();
 	const checkout = useCreateBillingCheckout();
+	const { data: session, isPending: isSessionPending } = useSession();
+	const sessionState = getProductEventSessionState(
+		isSessionPending,
+		session?.user.id,
+	);
 
 	const [name, setName] = useState("");
 	const [creating, setCreating] = useState(false);
@@ -70,15 +80,13 @@ export function CreateWorkspaceDialog({
 	const [createdOrgId, setCreatedOrgId] = useState<string | null>(null);
 
 	const business = useMemo(
-		() =>
-			plansQuery.data?.plans.find((plan) => plan.id === "business") ?? null,
+		() => plansQuery.data?.plans.find((plan) => plan.id === "business") ?? null,
 		[plansQuery.data],
 	);
 	const [tierCredits, setTierCredits] = useState<number | null>(null);
 	const selectedTier =
-		business?.tiers.find(
-			(tier) => tier.tierCredits === (tierCredits ?? 250),
-		) ?? business?.tiers[0];
+		business?.tiers.find((tier) => tier.tierCredits === (tierCredits ?? 250)) ??
+		business?.tiers[0];
 
 	const submit = async () => {
 		const trimmed = name.trim();
@@ -123,6 +131,7 @@ export function CreateWorkspaceDialog({
 			}
 
 			try {
+				emitUpgradeClicked("create_workspace", sessionState);
 				await checkout.mutateAsync({
 					plan: "business",
 					tierCredits: (selectedTier?.tierCredits ??

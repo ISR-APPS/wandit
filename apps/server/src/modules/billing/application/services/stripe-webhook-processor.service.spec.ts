@@ -1100,6 +1100,7 @@ function setup(
 		{
 			get: async () => ({ organizationsEnabled: false }),
 		} as never,
+		{} as never,
 	);
 	const router = new StripeEventRouter(
 		billingCustomers as unknown as BillingCustomersRepository,

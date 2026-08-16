@@ -729,7 +729,7 @@ export function FailedBuildCard({
 							size="sm"
 							className="h-8 flex-1 text-[13px]"
 							disabled={busy}
-							onClick={() => openPlanPicker()}
+							onClick={() => openPlanPicker("generate_page")}
 						>
 							Top up wallet
 						</Button>

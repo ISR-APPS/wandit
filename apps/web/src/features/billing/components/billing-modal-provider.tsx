@@ -1,5 +1,9 @@
 import { useQueryClient } from "@tanstack/react-query";
-import type { BillingInterval, CreditTier } from "@wandit/contracts";
+import type {
+	BillingInterval,
+	CreditTier,
+	ProductEventSurface,
+} from "@wandit/contracts";
 import {
 	createContext,
 	type ReactNode,
@@ -13,6 +17,10 @@ import {
 import { useAuthModal, useSession } from "@/features/auth";
 import { creditsKeys } from "@/features/credits/api/credits.queries";
 import {
+	emitUpgradeClicked,
+	getProductEventSessionState,
+} from "@/features/product-events";
+import {
 	WorkspaceBillingNoticeDialog,
 	type WorkspaceBillingNoticeKind,
 } from "@/features/workspaces/components/workspace-billing-notice-dialog";
@@ -25,7 +33,10 @@ import {
 import { PlanPickerDialog } from "./plan-picker-dialog";
 
 type BillingModalContextValue = {
-	openPlanPicker: (selection?: PlanPickerSelection) => void;
+	openPlanPicker: (
+		surface: ProductEventSurface,
+		selection?: PlanPickerSelection,
+	) => void;
 };
 
 type PlanPickerSelection = {
@@ -39,7 +50,12 @@ const BillingModalContext = createContext<BillingModalContextValue | null>(
 
 export function BillingModalProvider({ children }: { children: ReactNode }) {
 	const queryClient = useQueryClient();
-	const { data: session } = useSession();
+	const { data: session, isPending: isSessionPending } = useSession();
+	const sessionUserId = session?.user.id;
+	const sessionState = getProductEventSessionState(
+		isSessionPending,
+		sessionUserId,
+	);
 	const { open: openAuth } = useAuthModal();
 	const { actorCanManageBilling, isPersonal } = useWorkspace();
 	const [open, setOpen] = useState(false);
@@ -79,8 +95,10 @@ export function BillingModalProvider({ children }: { children: ReactNode }) {
 	);
 
 	const openPlanPicker = useCallback(
-		(nextSelection?: PlanPickerSelection) => {
-			if (!session) {
+		(surface: ProductEventSurface, nextSelection?: PlanPickerSelection) => {
+			emitUpgradeClicked(surface, sessionState);
+
+			if (!sessionUserId) {
 				openAuth({ next: "/billing" });
 				return;
 			}
@@ -89,7 +107,7 @@ export function BillingModalProvider({ children }: { children: ReactNode }) {
 			setSelection(nextSelection ?? null);
 			setOpen(true);
 		},
-		[openAuth, session],
+		[openAuth, sessionState, sessionUserId],
 	);
 
 	const handleOpenChange = useCallback((nextOpen: boolean) => {
