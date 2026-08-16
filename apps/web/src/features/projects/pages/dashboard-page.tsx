@@ -19,7 +19,10 @@ import { ProjectCard } from "../components/project-card";
 import { PromptBox } from "../components/prompt-box";
 import { DashboardShell } from "../components/shell/dashboard-shell";
 import { GRID_SKELETON_COUNT } from "../lib/constants";
-import { useCreateProjectWithPrompt } from "../lib/hooks";
+import {
+	useAutostartStashedPrompt,
+	useCreateProjectWithPrompt,
+} from "../lib/hooks";
 
 type StatusFilter = "all" | "published" | "drafts";
 
@@ -93,16 +96,12 @@ function NoResultsState({
 export default function DashboardPage() {
 	const { t } = useTranslation();
 	const { data: projects, isPending } = useProjectsQuery();
-	const {
-		create,
-		isCreating,
-		insufficientOpen,
-		setInsufficientOpen,
-		cost,
-		restoreKey,
-		restoredPrompt,
-		restoredComposer,
-	} = useCreateProjectWithPrompt({ autostartStashedPrompt: true });
+	const { create, isCreating, insufficientOpen, setInsufficientOpen, cost } =
+		useCreateProjectWithPrompt();
+	// Post-auth handoff: restore the stashed landing prompt and, when the
+	// draft is fresh and eligible, create the project without another click.
+	const { restoreKey, restoredPrompt, restoredComposer, isAutostarting } =
+		useAutostartStashedPrompt(create);
 
 	const { outOfCredits } = useOutOfCredits();
 	const promptLocked = outOfCredits;
@@ -166,7 +165,7 @@ export default function DashboardPage() {
 									initialValue={restoredPrompt}
 									initialComposer={restoredComposer}
 									onSubmit={create}
-									isSubmitting={isCreating}
+									isSubmitting={isCreating || isAutostarting}
 								/>
 							</OutOfCreditsBanner>
 						</div>

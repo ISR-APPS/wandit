@@ -32,10 +32,15 @@ export function EmailAuthSection({
 	nextPath,
 	onError,
 	onClearError,
+	onMagicLinkPendingChange,
 }: {
 	nextPath: string | undefined;
 	onError: (message: string) => void;
 	onClearError: () => void;
+	/** true from the moment a magic link send starts (so a dismiss mid-request
+	 * cannot clear the prompt stash the completion will need); false again only
+	 * when that send fails. */
+	onMagicLinkPendingChange: (pending: boolean) => void;
 }) {
 	const { t } = useTranslation();
 	const [view, setView] = useState<"form" | "sent">("form");
@@ -115,6 +120,7 @@ export function EmailAuthSection({
 		if (pending !== "none" || !captchaReady) return;
 		onClearError();
 		setPending("link");
+		onMagicLinkPendingChange(true);
 
 		const destination = nextPath && nextPath !== "/" ? nextPath : "/dashboard";
 		const { callbackURL, errorCallbackURL } = buildAuthCallbackUrls(
@@ -133,6 +139,7 @@ export function EmailAuthSection({
 				{ headers: consumeCaptcha() },
 			);
 			if (result.error) {
+				onMagicLinkPendingChange(false);
 				onError(mapError(result.error));
 				return;
 			}
@@ -141,6 +148,7 @@ export function EmailAuthSection({
 			setOtpRequested(false);
 			setLinkCooldown(RESEND_COOLDOWN_SECONDS);
 		} catch {
+			onMagicLinkPendingChange(false);
 			onError(t("auth.emailSendError"));
 		} finally {
 			setPending("none");

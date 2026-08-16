@@ -2,6 +2,7 @@ import { resetAnalytics } from "@wandit/analytics/browser";
 import { Sentry } from "@wandit/observability/browser";
 
 import { authClient } from "./auth-client";
+import { promptStash } from "./prompt-stash";
 
 export type SessionUser = (typeof authClient)["$Infer"]["Session"]["user"];
 
@@ -84,5 +85,8 @@ export async function signOut(): Promise<void> {
 		resetAnalytics();
 		invalidateSessionCache();
 		syncSentryUser(null);
+		// A draft stashed under this account must never auto-create a project
+		// (and charge credits) for whoever signs in next on this tab.
+		promptStash.clear();
 	}
 }
