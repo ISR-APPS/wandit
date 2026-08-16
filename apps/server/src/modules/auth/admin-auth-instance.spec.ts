@@ -2,9 +2,11 @@ import {
 	ADMIN_ACCESS_REQUIRED_ERROR_CODE,
 	adminAuth,
 	auth,
+	createAuth,
 } from "@wandit/auth";
 import { corsWebOrigins } from "@wandit/env/cors-origins";
 import { env } from "@wandit/env/server";
+import type { SecondaryStorage } from "better-auth";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@wandit/env/server", async (importOriginal) => {
@@ -33,6 +35,9 @@ describe("@wandit/auth isolated admin instance", () => {
 			]),
 		);
 		expect(auth.options.rateLimit?.storage).toBe("database");
+		expect(auth.options).not.toHaveProperty("secondaryStorage");
+		expect(auth.options.session).toBeUndefined();
+		expect(auth.options.verification).toBeUndefined();
 		expect(auth.options.trustedOrigins).toEqual([
 			...corsWebOrigins(env.CORS_ORIGIN, env.CORS_EXTRA_ORIGINS),
 			"wandit://",
@@ -59,6 +64,77 @@ describe("@wandit/auth isolated admin instance", () => {
 		expect(adminAuth.options.trustedOrigins).toEqual(
 			env.ADMIN_ORIGIN ? [env.ADMIN_ORIGIN] : [],
 		);
+	});
+
+	it("uses injected secondary storage only for main-auth rate limiting", () => {
+		const increment = vi.fn(async () => 1);
+		const secondaryStorage = {
+			delete: vi.fn(async () => undefined),
+			get: vi.fn(async () => null),
+			increment,
+			set: vi.fn(async () => undefined),
+		} satisfies SecondaryStorage;
+
+		const redisAuth = createAuth({ secondaryStorage });
+
+		// Root secondary storage would also take over session-list and
+		// bulk-revocation operations in Better Auth 1.6.22.
+		expect(redisAuth.options).not.toHaveProperty("secondaryStorage");
+		expect(redisAuth.options.rateLimit?.storage).toBe("secondary-storage");
+		expect(redisAuth.options.rateLimit).toHaveProperty("customStorage");
+		expect(redisAuth.options.session).toEqual({
+			cookieCache: {
+				enabled: true,
+				maxAge: 300,
+				strategy: "compact",
+			},
+			storeSessionInDatabase: true,
+		});
+		expect(redisAuth.options.verification).toEqual({
+			storeInDatabase: true,
+		});
+	});
+
+	it("adapts injected atomic increments to rate-limit decisions", async () => {
+		const increment = vi
+			.fn<(key: string, ttl: number) => Promise<number>>()
+			.mockResolvedValueOnce(3)
+			.mockResolvedValueOnce(4);
+		const redisAuth = createAuth({
+			secondaryStorage: {
+				delete: vi.fn(async () => undefined),
+				get: vi.fn(async () => null),
+				increment,
+				set: vi.fn(async () => undefined),
+			},
+		});
+		const rateLimit = redisAuth.options.rateLimit;
+		const consume =
+			rateLimit && "customStorage" in rateLimit
+				? rateLimit.customStorage.consume
+				: undefined;
+
+		if (!consume) {
+			throw new Error("Atomic rate-limit storage is missing");
+		}
+
+		await expect(
+			consume("203.0.113.10|/sign-in/email", { max: 3, window: 60 }),
+		).resolves.toEqual({ allowed: true, retryAfter: null });
+		await expect(
+			consume("203.0.113.10|/sign-in/email", { max: 3, window: 60 }),
+		).resolves.toEqual({ allowed: false, retryAfter: 60 });
+		expect(increment).toHaveBeenCalledTimes(2);
+		expect(increment).toHaveBeenCalledWith("203.0.113.10|/sign-in/email", 60);
+	});
+
+	it("preserves the database-backed factory defaults without storage", () => {
+		const databaseAuth = createAuth();
+
+		expect(databaseAuth.options.rateLimit?.storage).toBe("database");
+		expect(databaseAuth.options).not.toHaveProperty("secondaryStorage");
+		expect(databaseAuth.options.session).toBeUndefined();
+		expect(databaseAuth.options.verification).toBeUndefined();
 	});
 
 	it("computes non-colliding session cookie names for both instances", async () => {

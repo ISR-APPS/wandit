@@ -5,7 +5,13 @@ import * as authSchema from "@wandit/db/schema/auth";
 import * as orgSchema from "@wandit/db/schema/organizations";
 import { corsWebOrigins } from "@wandit/env/cors-origins";
 import { env } from "@wandit/env/server";
-import { betterAuth, type GoogleOptions } from "better-auth";
+import {
+	type BetterAuthRateLimitStorage,
+	betterAuth,
+	type GoogleOptions,
+	type RateLimit,
+	type SecondaryStorage,
+} from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { APIError, createAuthMiddleware, getIp } from "better-auth/api";
 import {
@@ -107,6 +113,11 @@ export type EmailAuthDelivery = {
 };
 
 export type CreateAuthOptions = {
+	/**
+	 * Server-owned secondary storage for distributed rate-limit counters.
+	 * If it is absent, the factory keeps its existing database rate limiter.
+	 */
+	secondaryStorage?: SecondaryStorage;
 	onUserCreated?: OnUserCreated;
 	/**
 	 * Admission gate for workspace creation — wired to the
@@ -202,6 +213,97 @@ function createBaseAuthOptions() {
 
 const baseAuthOptions = createBaseAuthOptions();
 
+function parseRateLimit(value: unknown): RateLimit | null {
+	let parsed = value;
+
+	if (typeof value === "string") {
+		try {
+			parsed = JSON.parse(value);
+		} catch {
+			return null;
+		}
+	}
+
+	if (
+		typeof parsed !== "object" ||
+		parsed === null ||
+		!("key" in parsed) ||
+		typeof parsed.key !== "string" ||
+		!("count" in parsed) ||
+		typeof parsed.count !== "number" ||
+		!("lastRequest" in parsed) ||
+		typeof parsed.lastRequest !== "number"
+	) {
+		return null;
+	}
+
+	return parsed as RateLimit;
+}
+
+/**
+ * Use the injected SecondaryStorage-shaped port only for rate limiting.
+ * Better Auth 1.6.22 routes session-list and bulk-revocation operations to
+ * root secondaryStorage without a database fallback, even when
+ * storeSessionInDatabase is true.
+ */
+function createRateLimitStorage(
+	secondaryStorage: SecondaryStorage,
+): BetterAuthRateLimitStorage {
+	return {
+		async consume(key, rule) {
+			if (secondaryStorage.increment) {
+				const count = await secondaryStorage.increment(key, rule.window);
+
+				return count <= rule.max
+					? { allowed: true, retryAfter: null }
+					: { allowed: false, retryAfter: rule.window };
+			}
+
+			// Compatibility path for a minimal get/set/delete port. The server's
+			// Redis implementation uses atomic increment instead.
+			const now = Date.now();
+			const current = parseRateLimit(await secondaryStorage.get(key));
+			const windowInMs = rule.window * 1_000;
+
+			if (!current || now - current.lastRequest > windowInMs) {
+				await secondaryStorage.set(
+					key,
+					JSON.stringify({ count: 1, key, lastRequest: now }),
+					rule.window,
+				);
+				return { allowed: true, retryAfter: null };
+			}
+
+			if (current.count >= rule.max) {
+				return {
+					allowed: false,
+					retryAfter: Math.max(
+						1,
+						Math.ceil((current.lastRequest + windowInMs - now) / 1_000),
+					),
+				};
+			}
+
+			await secondaryStorage.set(
+				key,
+				JSON.stringify({
+					...current,
+					count: current.count + 1,
+					lastRequest: now,
+				}),
+				rule.window,
+			);
+			return { allowed: true, retryAfter: null };
+		},
+		async get(key) {
+			return parseRateLimit(await secondaryStorage.get(key));
+		},
+		async set(key, value) {
+			await secondaryStorage.set(key, JSON.stringify(value));
+		},
+	};
+}
+
 function createGoogleProviderOptions(): GoogleOptions {
 	return {
 		// offline → Google issues a refresh token whenever its consent screen is
@@ -242,6 +344,30 @@ export function createAuth(options: CreateAuthOptions = {}) {
 	return betterAuth({
 		...baseAuthOptions,
 		basePath: "/api/auth",
+		...(options.secondaryStorage
+			? {
+					rateLimit: {
+						customStorage: createRateLimitStorage(options.secondaryStorage),
+						storage: "secondary-storage" as const,
+					},
+					// Keep durable auth records in Postgres. Do not set Better Auth's
+					// root secondaryStorage here; in 1.6.22 it also takes over session
+					// list and bulk-revocation reads without a database fallback.
+					session: {
+						storeSessionInDatabase: true,
+						// `organization.create` updates the DB session but leaves
+						// activeOrganizationId stale in this cookie. Clients must call
+						// `organization.setActive(newOrg.id)` afterward or pass an explicit
+						// `organizationId` to organization endpoints.
+						cookieCache: {
+							enabled: true,
+							maxAge: 300,
+							strategy: "compact" as const,
+						},
+					},
+					verification: { storeInDatabase: true },
+				}
+			: {}),
 		// The email-otp plugin mounts password-reset and email-change routes this
 		// passwordless product does not use. Left mounted they would be publicly
 		// reachable through the auth catch-all and write verification rows.
