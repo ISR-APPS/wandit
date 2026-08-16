@@ -131,4 +131,67 @@ describe("AskUserGroupCard", () => {
 
 		expect(html.match(/Up next/g)).toHaveLength(1);
 	});
+
+	it("shows the answer value and attachment count in the same receipt", () => {
+		const html = renderToStaticMarkup(
+			createElement(AskUserGroupCard, {
+				parts: [
+					{
+						type: "tool-ask_user",
+						toolCallId: "ask-with-files",
+						state: "output-available",
+						input: { question: "What should we build?", options: [] },
+						output: {
+							text: "Build the product page",
+							files: [
+								{
+									url: "https://example.com/product.png",
+									mediaType: "image/png",
+									filename: "product.png",
+								},
+							],
+						},
+					} satisfies AskPart,
+				],
+				ownsActiveAsk: false,
+				isAfterActiveAsk: false,
+				defaultOpen: true,
+			}),
+		);
+
+		expect(html).toContain("Build the product page");
+		expect(html).toContain("1 file(s) sent");
+		expect(html).toMatch(
+			/<p[^>]*>.*Build the product page.*1 file\(s\) sent.*<\/p>/,
+		);
+	});
+
+	it("keeps a pure attachment answer as a file-count receipt", () => {
+		const html = renderToStaticMarkup(
+			createElement(AskUserGroupCard, {
+				parts: [
+					{
+						type: "tool-ask_user",
+						toolCallId: "ask-files-only",
+						state: "output-available",
+						input: { question: "Attach a reference", options: [] },
+						output: {
+							files: [
+								{
+									url: "https://example.com/reference.pdf",
+									mediaType: "application/pdf",
+									filename: "reference.pdf",
+								},
+							],
+						},
+					} satisfies AskPart,
+				],
+				ownsActiveAsk: false,
+				isAfterActiveAsk: false,
+				defaultOpen: true,
+			}),
+		);
+
+		expect(html).toContain("1 file(s) sent");
+	});
 });

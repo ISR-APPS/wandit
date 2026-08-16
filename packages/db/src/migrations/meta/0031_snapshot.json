@@ -1,9 +1,135 @@
 {
-  "id": "ebd258ef-e6db-4179-94fb-4e422f5cb0be",
+  "id": "b336a9ab-d443-49d7-b1e1-8bfc0a92f8c9",
   "prevId": "b445c648-3f5a-4dae-bf6f-7da57d2b23a3",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
+    "public.academy_guides": {
+      "name": "academy_guides",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "category": {
+          "name": "category",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "youtube_url": {
+          "name": "youtube_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "youtube_video_id": {
+          "name": "youtube_video_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "body_html": {
+          "name": "body_html",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "''"
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'draft'"
+        },
+        "published_at": {
+          "name": "published_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_by_user_id": {
+          "name": "created_by_user_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "academy_guides_status_publishedAt_idx": {
+          "name": "academy_guides_status_publishedAt_idx",
+          "columns": [
+            {
+              "expression": "status",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "published_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "academy_guides_created_by_user_id_user_id_fk": {
+          "name": "academy_guides_created_by_user_id_user_id_fk",
+          "tableFrom": "academy_guides",
+          "tableTo": "user",
+          "columnsFrom": [
+            "created_by_user_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.affiliate_attributions": {
       "name": "affiliate_attributions",
       "schema": "",
@@ -2975,21 +3101,6 @@
         }
       },
       "indexes": {
-        "billing_invoice_applications_paidAt_idx": {
-          "name": "billing_invoice_applications_paidAt_idx",
-          "columns": [
-            {
-              "expression": "paid_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "billing_invoice_applications_stripeInvoiceId_uq": {
           "name": "billing_invoice_applications_stripeInvoiceId_uq",
           "columns": [
@@ -3776,21 +3887,6 @@
         }
       },
       "indexes": {
-        "subscriptions_createdAt_idx": {
-          "name": "subscriptions_createdAt_idx",
-          "columns": [
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "subscriptions_providerSubscriptionId_uq": {
           "name": "subscriptions_providerSubscriptionId_uq",
           "columns": [
@@ -4129,21 +4225,6 @@
         }
       },
       "indexes": {
-        "connector_generation_attempts_createdAt_idx": {
-          "name": "connector_generation_attempts_createdAt_idx",
-          "columns": [
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "connector_generation_attempts_user_idx": {
           "name": "connector_generation_attempts_user_idx",
           "columns": [
@@ -4361,21 +4442,6 @@
         }
       },
       "indexes": {
-        "ai_usage_events_createdAt_idx": {
-          "name": "ai_usage_events_createdAt_idx",
-          "columns": [
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "ai_usage_events_userId_createdAt_idx": {
           "name": "ai_usage_events_userId_createdAt_idx",
           "columns": [
@@ -4671,21 +4737,6 @@
         }
       },
       "indexes": {
-        "credit_ledger_createdAt_idx": {
-          "name": "credit_ledger_createdAt_idx",
-          "columns": [
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "credit_ledger_userId_createdAt_idx": {
           "name": "credit_ledger_userId_createdAt_idx",
           "columns": [
@@ -5879,21 +5930,6 @@
         }
       },
       "indexes": {
-        "image_generation_attempts_createdAt_idx": {
-          "name": "image_generation_attempts_createdAt_idx",
-          "columns": [
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "image_generation_attempts_project_idx": {
           "name": "image_generation_attempts_project_idx",
           "columns": [
@@ -6134,21 +6170,6 @@
         }
       },
       "indexes": {
-        "lead_scrape_attempts_createdAt_idx": {
-          "name": "lead_scrape_attempts_createdAt_idx",
-          "columns": [
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "lead_scrape_attempts_project_idx": {
           "name": "lead_scrape_attempts_project_idx",
           "columns": [
@@ -6629,21 +6650,6 @@
         }
       },
       "indexes": {
-        "marketing_assets_createdAt_idx": {
-          "name": "marketing_assets_createdAt_idx",
-          "columns": [
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "marketing_assets_project_idx": {
           "name": "marketing_assets_project_idx",
           "columns": [
@@ -7203,21 +7209,6 @@
         }
       },
       "indexes": {
-        "media_generation_attempts_createdAt_idx": {
-          "name": "media_generation_attempts_createdAt_idx",
-          "columns": [
-            {
-              "expression": "created_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "media_generation_attempts_project_idx": {
           "name": "media_generation_attempts_project_idx",
           "columns": [
@@ -8225,21 +8216,6 @@
         }
       },
       "indexes": {
-        "page_generation_attempts_completedAt_idx": {
-          "name": "page_generation_attempts_completedAt_idx",
-          "columns": [
-            {
-              "expression": "completed_at",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "page_attempts_project_idx": {
           "name": "page_attempts_project_idx",
           "columns": [

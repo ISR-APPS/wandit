@@ -2,6 +2,8 @@ import type {
 	AiElementOp,
 	ApplyElementOpsInput,
 	ApplyElementOpsOutput,
+	InsertSectionInput,
+	InsertSectionOutput,
 	ReadElementsInput,
 	ReadElementsOutput,
 	ReadThemeInput,
@@ -107,6 +109,15 @@ describe("apply_element_ops tool", () => {
 			op: { kind: "remove-element", wid: "e-2" },
 		},
 		{
+			kind: "insert-element",
+			op: {
+				kind: "insert-element",
+				position: "append",
+				value: "<button>Buy now</button>",
+				wid: "hero",
+			},
+		},
+		{
 			kind: "section-style",
 			op: {
 				kind: "section-style",
@@ -191,6 +202,40 @@ describe("apply_element_ops tool", () => {
 
 		expect(pageEditsService.applyAiOps).toHaveBeenCalledOnce();
 		expect(pageEditsService.applyAiOps).toHaveBeenCalledWith(PROJECT_ID, ops);
+	});
+});
+
+describe("insert_section tool", () => {
+	it("maps its anchor and fragment to exactly one internal service op", async () => {
+		const { pageEditsService, tools } = setup();
+		pageEditsService.applyAiOps.mockResolvedValue({
+			status: "applied",
+			versionNumber: 8,
+		});
+
+		const output = await executeTool<InsertSectionInput, InsertSectionOutput>(
+			tools.insert_section,
+			{
+				anchorWid: "hero",
+				html: "<section><h2>What comes next</h2></section>",
+				position: "after",
+			},
+		);
+
+		expect(pageEditsService.applyAiOps).toHaveBeenCalledOnce();
+		expect(pageEditsService.applyAiOps).toHaveBeenCalledWith(PROJECT_ID, [
+			{
+				kind: "insert-section",
+				position: "after",
+				value: "<section><h2>What comes next</h2></section>",
+				wid: "hero",
+			},
+		]);
+		expect(output).toEqual({
+			message: "Done — version 8 is live in the Page tab.",
+			status: "applied",
+			versionNumber: 8,
+		});
 	});
 });
 

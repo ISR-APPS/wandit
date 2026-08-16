@@ -222,36 +222,50 @@
     {
       "idx": 31,
       "version": "7",
-      "when": 1786619018469,
-      "tag": "0031_admin-analytics-indexes",
+      "when": 1786810446556,
+      "tag": "0031_sour_siren",
       "breakpoints": true
     },
     {
       "idx": 32,
       "version": "7",
-      "when": 1786811569877,
-      "tag": "0032_story-links-latency",
+      "when": 1786867272682,
+      "tag": "0032_user-onboarding",
       "breakpoints": true
     },
     {
       "idx": 33,
       "version": "7",
-      "when": 1786824372001,
-      "tag": "0033_phase2-attribution-activity-history",
+      "when": 1786867272700,
+      "tag": "0033_admin-analytics-indexes",
       "breakpoints": true
     },
     {
       "idx": 34,
       "version": "7",
-      "when": 1786866374005,
-      "tag": "0034_phase25-attribution-device",
+      "when": 1786867272800,
+      "tag": "0034_story-links-latency",
       "breakpoints": true
     },
     {
       "idx": 35,
       "version": "7",
+      "when": 1786867272900,
+      "tag": "0035_phase2-attribution-activity-history",
+      "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1786867273000,
+      "tag": "0036_phase25-attribution-device",
+      "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
       "when": 1786875120224,
-      "tag": "0035_phase3-events-costs",
+      "tag": "0037_phase3-events-costs",
       "breakpoints": true
     }
   ]

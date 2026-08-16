@@ -3,6 +3,10 @@ import {
 	applyElementOpsInputSchema,
 	applyElementOpsOutputSchema,
 	askUserOutputSchema,
+	insertSectionInputSchema,
+	insertSectionOutputSchema,
+	readAttachmentInputSchema,
+	readAttachmentOutputSchema,
 	readElementsInputSchema,
 	readElementsOutputSchema,
 	readThemeInputSchema,
@@ -21,6 +25,9 @@ const aiMocks = vi.hoisted(() => ({
 const chatAgentMocks = vi.hoisted(() => ({
 	createChatAgent: vi.fn(),
 }));
+const r2Mocks = vi.hoisted(() => ({
+	getPageHtml: vi.fn(),
+}));
 
 vi.mock("ai", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("ai")>();
@@ -37,6 +44,18 @@ vi.mock("../../agent/chat-agent", () => ({
 	aiChatToolsForValidation: {},
 	createChatAgent: chatAgentMocks.createChatAgent,
 }));
+
+vi.mock("../../../../infrastructure/storage/r2", async (importOriginal) => {
+	const actual =
+		await importOriginal<
+			typeof import("../../../../infrastructure/storage/r2")
+		>();
+
+	return {
+		...actual,
+		getPageHtml: r2Mocks.getPageHtml,
+	};
+});
 
 vi.mock("../../../../infrastructure/analytics/analytics.service", () => ({
 	AnalyticsService: class AnalyticsService {},
@@ -94,6 +113,7 @@ function buildService({
 	};
 	const pagesRepository = {
 		collectManualEditTrail: vi.fn().mockResolvedValue([]),
+		findActivePageByProjectUnchecked: vi.fn().mockResolvedValue(null),
 	};
 	const pageEditsService = {};
 	const leadScrapesRepository = {};
@@ -274,6 +294,7 @@ describe("AiChatService MCP lifecycle", () => {
 	beforeEach(() => {
 		vi.resetAllMocks();
 		capturedStreamOptions = undefined;
+		r2Mocks.getPageHtml.mockResolvedValue(null);
 		chatAgentMocks.createChatAgent.mockReturnValue({});
 		aiMocks.createAgentUIStream.mockResolvedValue(new ReadableStream());
 		aiMocks.createUIMessageStream.mockImplementation((options: unknown) => {
@@ -1076,6 +1097,223 @@ describe("AiChatService MCP lifecycle", () => {
 		options.prepared.release();
 	});
 
+	it("loads and injects the active page outline into request context", async () => {
+		const { pagesRepository, service } = buildService();
+		pagesRepository.findActivePageByProjectUnchecked.mockResolvedValue({
+			artifactId: "artifact-1",
+			version: {
+				id: "version-7",
+				number: 7,
+				r2Key: "sites/project-1/version-7/index.html",
+			},
+		});
+		r2Mocks.getPageHtml.mockResolvedValue(
+			"<!doctype html><html><body>" +
+				'<section data-wid="hero"><h1>Launch faster</h1></section>' +
+				"</body></html>",
+		);
+
+		await service.stream(streamOptions());
+
+		expect(
+			pagesRepository.findActivePageByProjectUnchecked,
+		).toHaveBeenCalledWith(PROJECT_ID);
+		expect(r2Mocks.getPageHtml).toHaveBeenCalledWith(
+			"sites/project-1/version-7/index.html",
+		);
+		const context = chatAgentMocks.createChatAgent.mock.calls[0]?.[1];
+		expect(context).toContain("hero");
+		expect(context).toContain("Launch faster");
+		expect(context).toContain("7");
+	});
+
+	it("omits active page outline context when the project has no active page", async () => {
+		const { pagesRepository, service } = buildService();
+
+		await service.stream(streamOptions());
+
+		expect(
+			pagesRepository.findActivePageByProjectUnchecked,
+		).toHaveBeenCalledWith(PROJECT_ID);
+		expect(r2Mocks.getPageHtml).not.toHaveBeenCalled();
+		expect(chatAgentMocks.createChatAgent.mock.calls[0]?.[1]).toBeNull();
+	});
+
+	it("keeps the chat turn running when active page HTML cannot be loaded", async () => {
+		const { pagesRepository, service } = buildService();
+		pagesRepository.findActivePageByProjectUnchecked.mockResolvedValue({
+			artifactId: "artifact-1",
+			version: {
+				id: "version-3",
+				number: 3,
+				r2Key: "sites/project-1/version-3/index.html",
+			},
+		});
+		r2Mocks.getPageHtml.mockRejectedValue(new Error("R2 unavailable"));
+
+		await expect(service.stream(streamOptions())).resolves.toBeUndefined();
+
+		expect(chatAgentMocks.createChatAgent).toHaveBeenCalledTimes(1);
+		expect(chatAgentMocks.createChatAgent.mock.calls[0]?.[1]).toBeNull();
+	});
+
+	it("keeps fallback page-read guidance when the active page has no outline sections", async () => {
+		const { pagesRepository, service } = buildService();
+		pagesRepository.findActivePageByProjectUnchecked.mockResolvedValue({
+			artifactId: "artifact-1",
+			version: {
+				id: "version-4",
+				number: 4,
+				r2Key: "sites/project-1/version-4/index.html",
+			},
+		});
+		r2Mocks.getPageHtml.mockResolvedValue(
+			"<!doctype html><html><body>" +
+				'<div data-wid="shell"><h1>Launch faster</h1></div>' +
+				"</body></html>",
+		);
+
+		await service.stream({
+			...streamOptions(),
+			metadata: { selectedWids: ["hero-title"] },
+		});
+
+		const context = chatAgentMocks.createChatAgent.mock.calls[0]?.[1];
+		expect(context).not.toContain("The current page outline");
+		expect(context).not.toContain("Do not call get_page_outline");
+		expect(context).toContain("Call get_page_outline / read_section");
+	});
+
+	it("times out a stalled active page load and builds context without its outline", async () => {
+		vi.useFakeTimers();
+
+		try {
+			const { pagesRepository, service } = buildService();
+			pagesRepository.findActivePageByProjectUnchecked.mockResolvedValue({
+				artifactId: "artifact-1",
+				version: {
+					id: "version-5",
+					number: 5,
+					r2Key: "sites/project-1/version-5/index.html",
+				},
+			});
+			r2Mocks.getPageHtml.mockReturnValue(new Promise(() => {}));
+
+			const turn = service.stream({
+				...streamOptions(),
+				metadata: { selectedWids: ["hero-title"] },
+			});
+
+			await vi.advanceTimersByTimeAsync(1_499);
+			expect(chatAgentMocks.createChatAgent).not.toHaveBeenCalled();
+
+			await vi.advanceTimersByTimeAsync(1);
+			await expect(turn).resolves.toBeUndefined();
+
+			const context = chatAgentMocks.createChatAgent.mock.calls[0]?.[1];
+			expect(context).not.toContain("The current page outline");
+			expect(context).toContain("Call get_page_outline / read_section");
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("passes only user-authored HTTP links to the page generator dependencies", async () => {
+		const { service } = buildService();
+		const messages: WanditUIMessage[] = [
+			{
+				id: "user-links-1",
+				parts: [
+					{
+						text:
+							"See [the demo](https://video.example/watch?v=abc), then " +
+							"<https://docs.example/guide>! " +
+							"[Attached image (image/png): https://assets.example/attached.png] " +
+							"[Generated video: https://assets.example/generated.mp4]",
+						type: "text",
+					},
+					{
+						mediaType: "image/png",
+						type: "file",
+						url: "https://assets.example/file-part.png",
+					},
+				],
+				role: "user",
+			},
+			{
+				id: "assistant-links",
+				parts: [
+					{
+						text: "Assistant reference: https://assistant.example/ignore-me",
+						type: "text",
+					},
+				],
+				role: "assistant",
+			},
+			{
+				id: "user-links-2",
+				parts: [
+					{
+						text:
+							"Duplicate https://video.example/watch?v=abc. " +
+							"Also **https://wrapped.example/page**;",
+						type: "text",
+					},
+				],
+				role: "user",
+			},
+		];
+
+		await service.stream(streamOptions(messages));
+
+		expect(chatAgentMocks.createChatAgent.mock.calls[0]?.[0]).toEqual(
+			expect.objectContaining({
+				conversationUserLinks: [
+					"https://video.example/watch?v=abc",
+					"https://docs.example/guide",
+					"https://wrapped.example/page",
+				],
+			}),
+		);
+	});
+
+	it("stops pasted URLs at markup and trims sentence punctuation", async () => {
+		const { service } = buildService();
+		const messages: WanditUIMessage[] = [
+			{
+				id: "pasted-links",
+				parts: [
+					{
+						text:
+							'<a href="https://acme.dz/boutique">Notre boutique</a> ' +
+							"https://comma.example/path, " +
+							"https://period.example/path. " +
+							"https://paren.example/path) " +
+							"https://cjk.example/path。 " +
+							"https://legal.example/path_~*",
+						type: "text",
+					},
+				],
+				role: "user",
+			},
+		];
+
+		await service.stream(streamOptions(messages));
+
+		expect(chatAgentMocks.createChatAgent.mock.calls[0]?.[0]).toEqual(
+			expect.objectContaining({
+				conversationUserLinks: [
+					"https://acme.dz/boutique",
+					"https://comma.example/path",
+					"https://period.example/path",
+					"https://paren.example/path",
+					"https://cjk.example/path",
+					"https://legal.example/path_~*",
+				],
+			}),
+		);
+	});
+
 	it("preserves a clean selected target through UI validation and history seeding", async () => {
 		const selectedTarget = {
 			excerpt: "A focused launch headline",
@@ -1538,6 +1776,57 @@ describe("completeDanglingToolCalls page tools", () => {
 		});
 		expect(readThemeInputSchema.safeParse(repaired.input).success).toBe(true);
 		expect(readThemeOutputSchema.safeParse(repaired.output).success).toBe(true);
+	});
+
+	it("repairs insert_section with schema-valid input and output", () => {
+		const repaired = repairBuiltInPart({
+			input: { html: "unfinished" },
+			state: "input-streaming",
+			toolCallId: "call-insert-section",
+			type: "tool-insert_section",
+		});
+
+		expect(repaired).toMatchObject({
+			input: {
+				anchorWid: "unknown",
+				position: "after",
+			},
+			output: {
+				status: "rejected",
+			},
+			state: "output-available",
+		});
+		expect(insertSectionInputSchema.safeParse(repaired.input).success).toBe(
+			true,
+		);
+		expect(insertSectionOutputSchema.safeParse(repaired.output).success).toBe(
+			true,
+		);
+	});
+
+	it("repairs read_attachment with a schema-valid unavailable result", () => {
+		const repaired = repairBuiltInPart({
+			input: { url: "unfinished" },
+			state: "input-streaming",
+			toolCallId: "call-read-attachment",
+			type: "tool-read_attachment",
+		});
+
+		expect(repaired).toMatchObject({
+			input: {
+				url: "https://wandit.invalid/interrupted-attachment",
+			},
+			output: {
+				status: "unavailable",
+			},
+			state: "output-available",
+		});
+		expect(readAttachmentInputSchema.safeParse(repaired.input).success).toBe(
+			true,
+		);
+		expect(readAttachmentOutputSchema.safeParse(repaired.output).success).toBe(
+			true,
+		);
 	});
 });
 

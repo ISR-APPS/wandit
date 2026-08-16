@@ -5,11 +5,13 @@
 // page layout renders behind it (see pages/workspace-page.tsx).
 
 import { Link } from "@tanstack/react-router";
+import { Button } from "@wandit/ui/components/button";
 import {
 	Tooltip,
 	TooltipContent,
 	TooltipTrigger,
 } from "@wandit/ui/components/tooltip";
+import { GraduationCap } from "lucide-react";
 
 import { Spark } from "@/components/logo";
 import { UserMenu } from "@/features/auth";
@@ -52,6 +54,16 @@ export function WorkspaceHeader() {
 					<span aria-hidden className="size-1.5 rounded-full bg-success" />
 					{t("workspace.autosaved")}
 				</span>
+				<Tooltip>
+					<TooltipTrigger asChild>
+						<Button asChild size="icon-sm" variant="ghost">
+							<Link to="/academy" aria-label={t("academy.navLabel")}>
+								<GraduationCap className="size-4" aria-hidden />
+							</Link>
+						</Button>
+					</TooltipTrigger>
+					<TooltipContent side="bottom">{t("academy.navLabel")}</TooltipContent>
+				</Tooltip>
 				<CreditsChip />
 				<UpgradeButton />
 				<PublishButton />

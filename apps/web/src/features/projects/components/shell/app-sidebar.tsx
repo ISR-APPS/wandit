@@ -30,7 +30,7 @@ function NavEntry({ item }: { item: NavItem }) {
 		return (
 			<SidebarMenuButton
 				asChild
-				isActive={pathname === item.to}
+				isActive={pathname === item.to || pathname.startsWith(`${item.to}/`)}
 				tooltip={title}
 			>
 				<Link to={item.to}>

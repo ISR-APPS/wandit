@@ -2,10 +2,11 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 
 const METRIC_SKELETON_KEYS = [
-	"credits",
-	"tokens",
-	"websites",
-	"assets",
+	"credit-balance",
+	"credits-used",
+	"projects",
+	"plan",
+	"ai-spend",
 ] as const;
 
 const SUBSCRIPTION_ROWS = [
@@ -39,9 +40,12 @@ export function UserDetailSkeleton() {
 				<Skeleton className="h-9 w-80 max-w-full" />
 			</div>
 			<Card className="py-0 shadow-none">
-				<CardContent className="grid grid-cols-2 gap-4 p-4 xl:grid-cols-4">
+				<CardContent className="grid grid-cols-1 gap-4 p-4 sm:grid-cols-2 lg:grid-cols-5">
 					{METRIC_SKELETON_KEYS.map((key) => (
-						<div key={key} className="flex flex-col gap-2">
+						<div
+							key={key}
+							className="flex flex-col gap-2 sm:last:col-span-2 lg:last:col-span-1"
+						>
 							<Skeleton className="h-3 w-24" />
 							<Skeleton className="h-8 w-20" />
 							<Skeleton className="h-3 w-28" />

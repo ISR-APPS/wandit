@@ -3,6 +3,8 @@ import {
 	catalogFor,
 	DOMAIN_RETAIL_MARGIN_USD_CENTS,
 	DOMAIN_TLD_CATALOG,
+	dnsRecordDiagnosticSchema,
+	domainDnsSchema,
 	domainNameSchema,
 	domainPriceSnapshotSchema,
 	domainRetailUsdCentsFromWholesale,
@@ -230,6 +232,39 @@ describe("domain TLD catalog", () => {
 				wholesaleCeilingUsd: 15,
 			}).success,
 		).toBe(false);
+	});
+});
+
+describe("domain DNS contracts", () => {
+	it("exposes an additive stalled external-verification marker", () => {
+		const dns = domainDnsSchema.parse({
+			externalVerification: {
+				attempts: 101,
+				stalledAt: "2026-08-12T10:00:00.000Z",
+			},
+			records: [],
+		});
+
+		expect(dns.externalVerification).toEqual({
+			attempts: 101,
+			stalledAt: "2026-08-12T10:00:00.000Z",
+		});
+	});
+
+	it("parses per-record DNS diagnostic results", () => {
+		expect(
+			dnsRecordDiagnosticSchema.parse({
+				name: "www",
+				observedValues: ["elsewhere.example.net"],
+				purpose: "traffic",
+				status: "mismatch",
+				type: "CNAME",
+				value: "customers.wandit.app",
+			}),
+		).toMatchObject({
+			observedValues: ["elsewhere.example.net"],
+			status: "mismatch",
+		});
 	});
 });
 

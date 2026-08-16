@@ -40,6 +40,11 @@ import {
 	generateVideoInputSchema,
 	getDirectionCandidatesInputSchema,
 	IMAGE_TO_VIDEO_SOURCE_MEDIA_TYPES,
+	type InsertSectionInput,
+	type InsertSectionOutput,
+	insertSectionInputSchema,
+	type ReadAttachmentInput,
+	type ReadAttachmentOutput,
 	type ReadElementsInput,
 	type ReadElementsOutput,
 	type ReadSectionOutput,
@@ -48,6 +53,7 @@ import {
 	type ReadThemeOutput,
 	type ReplaceSectionInput,
 	type ReplaceSectionOutput,
+	readAttachmentInputSchema,
 	readElementsInputSchema,
 	readSectionInputSchema,
 	readSkillInputSchema,
@@ -71,7 +77,10 @@ import {
 } from "ai";
 import type { FastifyReply } from "fastify";
 
-import { isUserUploadUrl } from "../../../../infrastructure/storage/r2";
+import {
+	getPageHtml,
+	isUserUploadUrl,
+} from "../../../../infrastructure/storage/r2";
 import { ConnectorGenerationsRepository } from "../../../connector-generations/infrastructure/persistence/connector-generations.repository";
 import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import { ChatsRepository } from "../../../generation/infrastructure/persistence/chats.repository";
@@ -101,12 +110,16 @@ import {
 } from "../../../metering/domain/model-pricing";
 import { operationPricing } from "../../../metering/domain/operation-registry";
 import { PageEditsService } from "../../../pages/application/services/page-edits.service";
+import { extractOutline, stampHtml } from "../../../pages/domain/stamp";
 import { PagesRepository } from "../../../pages/infrastructure/persistence/pages.repository";
 import {
 	meteringSubjectFrom,
 	type ProjectScope,
 } from "../../../projects/domain/project-scope";
-import { annotateUserFileParts } from "../../agent/annotate-file-parts";
+import {
+	annotateAskUserAnswerFiles,
+	annotateUserFileParts,
+} from "../../agent/annotate-file-parts";
 import {
 	annotateGeneratedAssets,
 	generatedAssetsFromAnnotatedMessages,
@@ -195,8 +208,10 @@ export class AiChatService {
 		let release = releaseSlot;
 
 		try {
-			const modelBoundMessages = annotateUserFileParts(
-				elideRetiredToolOutputs(completeDanglingToolCalls(options.messages)),
+			const modelBoundMessages = annotateAskUserAnswerFiles(
+				annotateUserFileParts(
+					elideRetiredToolOutputs(completeDanglingToolCalls(options.messages)),
+				),
 			);
 			const messageId = findFinalUserMessage(options.messages)?.id ?? null;
 			const requestId =
@@ -544,13 +559,15 @@ export class AiChatService {
 		try {
 			// Per-request context and connector discovery are independent. Start
 			// both together so zero-connection users add no wall-clock wait.
-			const [manualEdits, mcpResult] = await Promise.all([
+			const [manualEdits, mcpResult, activePageOutline] = await Promise.all([
 				this.pagesRepository.collectManualEditTrail(projectId),
 				mcpResultPromise,
+				loadActivePageOutline(this.pagesRepository, projectId),
 			]);
 			resolvedMcpResult = mcpResult;
 			const availableImages = collectAvailableImages(messages);
 			const availableDocuments = collectAvailableDocuments(messages);
+			const conversationUserLinks = collectUserHttpUrls(messages);
 			const selectedSourceImage = resolveSelectedSourceImage(
 				metadata,
 				availableImages,
@@ -564,6 +581,7 @@ export class AiChatService {
 				findFinalUserMessage(messages)?.id,
 			);
 			const context = buildChatRequestContext({
+				activePageOutline,
 				manualEdits,
 				metadata,
 				requestCountryCode,
@@ -582,7 +600,7 @@ export class AiChatService {
 			const contextWithMcpNotices = [context, mcpNoticeBlock]
 				.filter((block): block is string => Boolean(block))
 				.join("\n\n");
-			// Four transforms on the MODEL-BOUND copy only (DB + UI keep the truth):
+			// Five transforms on the MODEL-BOUND copy only (DB + UI keep the truth):
 			// 1. complete tool calls that never got a result (typed-past ask_user,
 			//    or a stream aborted mid-execute) — providers reject a history that
 			//    carries a tool call without a matching result,
@@ -594,12 +612,17 @@ export class AiChatService {
 			// 4. follow settled generation tool parts with a [Generated …] marker
 			//    exposing the finished asset's URL — without it the model never
 			//    learns any generated URL and asks the user to re-attach media
-			//    that Wandit itself produced.
+			//    that Wandit itself produced,
+			// 5. follow ask_user answers carrying provider-safe files with a user
+			//    message that exposes their contents to the model; the tool-result
+			//    JSON alone exposes URLs, not the image or document contents.
 			// Runs BEFORE the agent is built: generate_page receives the marker
 			// URLs so a brief can never silently drop this chat's generated media.
 			const agentMessages = await annotateGeneratedAssets(
-				annotateUserFileParts(
-					elideRetiredToolOutputs(completeDanglingToolCalls(messages)),
+				annotateAskUserAnswerFiles(
+					annotateUserFileParts(
+						elideRetiredToolOutputs(completeDanglingToolCalls(messages)),
+					),
 				),
 				{
 					connectorGenerationsRepository: this.connectorGenerationsRepository,
@@ -617,6 +640,7 @@ export class AiChatService {
 					availableImages,
 					conversationAssets:
 						generatedAssetsFromAnnotatedMessages(agentMessages),
+					conversationUserLinks,
 					// Composer's model picker: per-message builder override, validated
 					// against the allow-list; undefined = env default.
 					builderModel: resolveBuilderModelOption(
@@ -1330,6 +1354,31 @@ const INCOMPLETE_REPLACE_SECTION_INPUT: ReplaceSectionInput = {
 	wid: "unknown",
 };
 
+const INTERRUPTED_INSERT_SECTION_OUTPUT: InsertSectionOutput = {
+	message:
+		"The insertion was interrupted mid-stream — it may or may not have been " +
+		"applied. Call get_page_outline to check the current version before " +
+		"retrying.",
+	status: "rejected",
+};
+
+const INCOMPLETE_INSERT_SECTION_INPUT: InsertSectionInput = {
+	anchorWid: "unknown",
+	html: "<!-- the inserted HTML did not finish streaming -->",
+	position: "after",
+};
+
+const INTERRUPTED_READ_ATTACHMENT_OUTPUT: ReadAttachmentOutput = {
+	message:
+		"The attachment read was interrupted before it finished — call " +
+		"read_attachment again if the document is still needed.",
+	status: "unavailable",
+};
+
+const INCOMPLETE_READ_ATTACHMENT_INPUT: ReadAttachmentInput = {
+	url: "https://wandit.invalid/interrupted-attachment",
+};
+
 /**
  * A later message means these calls never got a result: the user typed past
  * an ask_user, or the stream was aborted (tab closed) while a server tool
@@ -1746,6 +1795,50 @@ export function completeDanglingToolCalls(
 				};
 			}
 
+			if (part.type === "tool-insert_section") {
+				if (
+					part.state !== "input-available" &&
+					part.state !== "input-streaming"
+				) {
+					return part;
+				}
+
+				changed = true;
+
+				const parsedInput = insertSectionInputSchema.safeParse(part.input);
+
+				return {
+					...part,
+					input: parsedInput.success
+						? parsedInput.data
+						: INCOMPLETE_INSERT_SECTION_INPUT,
+					output: INTERRUPTED_INSERT_SECTION_OUTPUT,
+					state: "output-available" as const,
+				};
+			}
+
+			if (part.type === "tool-read_attachment") {
+				if (
+					part.state !== "input-available" &&
+					part.state !== "input-streaming"
+				) {
+					return part;
+				}
+
+				changed = true;
+
+				const parsedInput = readAttachmentInputSchema.safeParse(part.input);
+
+				return {
+					...part,
+					input: parsedInput.success
+						? parsedInput.data
+						: INCOMPLETE_READ_ATTACHMENT_INPUT,
+					output: INTERRUPTED_READ_ATTACHMENT_OUTPUT,
+					state: "output-available" as const,
+				};
+			}
+
 			return part;
 		});
 
@@ -1847,6 +1940,104 @@ function findFinalUserMessage(
 const IMAGE_TO_VIDEO_MEDIA_TYPE_SET = new Set<string>(
 	IMAGE_TO_VIDEO_SOURCE_MEDIA_TYPES,
 );
+
+const ACTIVE_PAGE_OUTLINE_LOAD_TIMEOUT_MS = 1_500;
+
+async function loadActivePageOutline(
+	pagesRepository: PagesRepository,
+	projectId: string,
+) {
+	let timeout: ReturnType<typeof setTimeout> | undefined;
+
+	try {
+		return await Promise.race([
+			(async () => {
+				const page =
+					await pagesRepository.findActivePageByProjectUnchecked(projectId);
+
+				if (!page?.version) {
+					return null;
+				}
+
+				const html = await getPageHtml(page.version.r2Key);
+
+				if (html === null) {
+					return null;
+				}
+
+				const sections = extractOutline(stampHtml(html)).sections;
+
+				if (sections.length === 0) {
+					return null;
+				}
+
+				return {
+					sections,
+					versionNumber: page.version.number,
+				};
+			})(),
+			new Promise<null>((resolve) => {
+				timeout = setTimeout(
+					() => resolve(null),
+					ACTIVE_PAGE_OUTLINE_LOAD_TIMEOUT_MS,
+				);
+			}),
+		]);
+	} catch {
+		return null;
+	} finally {
+		if (timeout !== undefined) {
+			clearTimeout(timeout);
+		}
+	}
+}
+
+const USER_HTTP_URL_PATTERN = /https?:\/\/[^\s<>"'`)\]}]+/giu;
+const ANNOTATED_ASSET_MARKER_PATTERN =
+	/\[(?:Attached|Generated)\b[^\]\r\n]*\]/giu;
+const TRAILING_URL_SYNTAX_PATTERN = /[.,;:!?…。，、；：！？\p{Pe}\p{Pf}]+$/gu;
+const URL_MARKDOWN_WRAPPERS = ["**", "__", "~~", "*", "_", "~"] as const;
+
+function stripTrailingUrlSyntax(
+	candidate: string,
+	leadingText: string,
+): string {
+	const url = candidate.replace(TRAILING_URL_SYNTAX_PATTERN, "");
+	const wrapper = URL_MARKDOWN_WRAPPERS.find(
+		(syntax) => leadingText.endsWith(syntax) && url.endsWith(syntax),
+	);
+
+	return wrapper ? url.slice(0, -wrapper.length) : url;
+}
+
+function collectUserHttpUrls(messages: readonly WanditUIMessage[]): string[] {
+	const links = new Set<string>();
+
+	for (const message of messages) {
+		if (message.role !== "user") {
+			continue;
+		}
+
+		for (const part of message.parts) {
+			if (part.type !== "text") {
+				continue;
+			}
+
+			const text = part.text.replace(ANNOTATED_ASSET_MARKER_PATTERN, "");
+
+			for (const match of text.matchAll(USER_HTTP_URL_PATTERN)) {
+				const leadingText = text.slice(0, match.index);
+				const url = stripTrailingUrlSyntax(match[0], leadingText);
+
+				if (url) {
+					links.add(url);
+				}
+			}
+		}
+	}
+
+	return [...links];
+}
 
 /**
  * The tool's source allowlist is derived from validated transcript parts,

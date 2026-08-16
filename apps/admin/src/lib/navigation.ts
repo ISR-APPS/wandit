@@ -6,6 +6,7 @@ import { CoinsIcon } from "@phosphor-icons/react/Coins";
 import { CurrencyDollarIcon } from "@phosphor-icons/react/CurrencyDollar";
 import { FunnelIcon } from "@phosphor-icons/react/Funnel";
 import { GearSixIcon } from "@phosphor-icons/react/GearSix";
+import { GraduationCapIcon } from "@phosphor-icons/react/GraduationCap";
 import { HeartStraightIcon } from "@phosphor-icons/react/HeartStraight";
 import { LinkSimpleIcon } from "@phosphor-icons/react/LinkSimple";
 import { MegaphoneIcon } from "@phosphor-icons/react/Megaphone";
@@ -22,6 +23,7 @@ export type AdminRoutePath =
 	| "/affiliates"
 	| "/links"
 	| "/costs"
+	| "/academy"
 	| "/analytics/revenue"
 	| "/analytics/acquisition"
 	| "/analytics/funnel"
@@ -84,6 +86,12 @@ const operationsNavigation: AdminNavigationItem[] = [
 		description: "Monthly spend inputs",
 		to: "/costs",
 		icon: CurrencyDollarIcon,
+	},
+	{
+		title: "Academy",
+		description: "Guides and tutorials",
+		to: "/academy",
+		icon: GraduationCapIcon,
 	},
 	{
 		title: "Settings",

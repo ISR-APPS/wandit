@@ -1,0 +1,42 @@
+{
+	"meta": {
+		"title": "Académie — Wandit"
+	},
+	"title": "Académie",
+	"navLabel": "Académie",
+	"intro": "Apprends à tirer le meilleur parti de Wandit — pubs, sites web, landing pages et bien plus.",
+	"guideCount": {
+		"zero": "{count} guide",
+		"one": "{count} guide",
+		"two": "{count} guides",
+		"few": "{count} guides",
+		"many": "{count} guides",
+		"other": "{count} guides"
+	},
+	"categories": {
+		"gettingStarted": "Bien démarrer",
+		"websites": "Sites web",
+		"landingPages": "Pages de destination",
+		"ads": "Publicités",
+		"leads": "Prospects",
+		"marketing": "Marketing",
+		"domains": "Noms de domaine",
+		"apps": "Applications et intégrations"
+	},
+	"filters": {
+		"all": "Tous",
+		"noneInCategory": "Aucun guide dans cette catégorie pour l’instant.",
+		"showAll": "Tout afficher"
+	},
+	"empty": {
+		"title": "L’Académie se prépare",
+		"body": "Les guides apparaîtront bientôt ici."
+	},
+	"error": {
+		"title": "Impossible de charger l’Académie.",
+		"retry": "Réessayer"
+	},
+	"backToAcademy": "Retour à l’Académie",
+	"watchOnYoutube": "Regarder sur YouTube",
+	"notAvailable": "Ce guide n’est pas disponible."
+}

@@ -14,6 +14,7 @@ import { monographe } from "../worlds/monographe";
 import { vitrine } from "../worlds/vitrine";
 import {
 	appendReadyMediaAssets,
+	appendUserLinks,
 	createGeneratePageTool,
 } from "./generate-page.tool";
 
@@ -50,6 +51,17 @@ vi.mock("../site-builder/cod-builder-prompt", () => ({
 		.mockResolvedValue("COD builder prompt (test)"),
 }));
 
+vi.mock("../site-builder/simple-cod-builder-prompt", () => ({
+	buildSimpleCodSiteBuilderSystemPrompt: vi
+		.fn()
+		.mockResolvedValue("SIMPLE COD builder prompt (test)"),
+}));
+
+vi.mock("../site-builder/simple-cod-recipe", () => ({
+	SIMPLE_COD_STYLE_DOC: "# SIMPLE COD STYLE (test)",
+	sampleSimpleCodRecipe: vi.fn(() => "# THIS BUILD'S RECIPE (test)"),
+}));
+
 const INPUT = {
 	brief:
 		"Arabic RTL landing page for handmade kabyle jewelry, Bazar Heat direction, " +
@@ -66,6 +78,7 @@ function setup(
 	options: {
 		parentEventId?: string;
 		conversationAssets?: ConversationGeneratedAsset[];
+		conversationUserLinks?: string[];
 	} = {},
 ) {
 	const pagesRepository = {
@@ -80,6 +93,9 @@ function setup(
 		...(options.conversationAssets
 			? { conversationAssets: options.conversationAssets }
 			: {}),
+		...(options.conversationUserLinks
+			? { conversationUserLinks: options.conversationUserLinks }
+			: {}),
 		pagesRepository: pagesRepository as unknown as PagesRepository,
 		...(options.parentEventId ? { parentEventId: options.parentEventId } : {}),
 		projectId: "project_1",
@@ -91,6 +107,7 @@ function setup(
 	// the call options, so a stub second argument is enough here.
 	const execute = (
 		input: typeof INPUT & {
+			codMode?: "simple" | "max";
 			pageKind?: "cod" | "website";
 			worldId?: string;
 			worldIds?: string[];
@@ -301,7 +318,7 @@ describe("generate_page tool", () => {
 		);
 	});
 
-	it("assembles COD worldIds as genre law, fusion contract, base, then donors", async () => {
+	it("assembles inferred max COD worldIds as genre law, fusion contract, base, then donors", async () => {
 		const { execute, pagesRepository } = setup();
 		prepareSuccessfulQueue(pagesRepository);
 
@@ -314,6 +331,7 @@ describe("generate_page tool", () => {
 			expect.objectContaining({
 				spec: {
 					brief: INPUT.brief,
+					codMode: "max",
 					designerSystemPrompt: [
 						"COD builder prompt (test)",
 						COD_GENRE_DOC,
@@ -329,22 +347,67 @@ describe("generate_page tool", () => {
 		);
 	});
 
-	it("builds with COD genre law alone and persists pageKind", async () => {
+	it("uses the simple composition when COD explicitly requests simple", async () => {
+		const { execute, pagesRepository } = setup();
+		prepareSuccessfulQueue(pagesRepository);
+
+		await execute({ ...INPUT, codMode: "simple", pageKind: "cod" });
+
+		const spec = pagesRepository.insertAttempt.mock.calls[0]?.[0]?.spec as {
+			codMode: string;
+			designerSystemPrompt: string;
+		};
+		expect(spec.codMode).toBe("simple");
+		expect(spec.designerSystemPrompt).toContain("SIMPLE COD STYLE");
+		expect(spec.designerSystemPrompt).toContain("THIS BUILD'S RECIPE");
+		expect(spec.designerSystemPrompt).not.toContain("WORLD FUSION CONTRACT");
+	});
+
+	it("drops worlds from an explicitly simple COD composition", async () => {
+		const warn = vi
+			.spyOn(Logger.prototype, "warn")
+			.mockImplementation(() => undefined);
+		const { execute, pagesRepository } = setup();
+		prepareSuccessfulQueue(pagesRepository);
+
+		await execute({
+			...INPUT,
+			codMode: "simple",
+			pageKind: "cod",
+			worldIds: [argan.id, atay.id],
+		});
+
+		const spec = pagesRepository.insertAttempt.mock.calls[0]?.[0]?.spec as {
+			codMode: string;
+			designerSystemPrompt: string;
+		};
+		expect(spec.codMode).toBe("simple");
+		expect(spec.designerSystemPrompt).toContain("SIMPLE COD STYLE");
+		expect(spec.designerSystemPrompt).toContain("THIS BUILD'S RECIPE");
+		expect(spec.designerSystemPrompt).not.toContain("WORLD FUSION CONTRACT");
+		expect(spec.designerSystemPrompt).not.toContain(argan.doc);
+		expect(spec.designerSystemPrompt).not.toContain(atay.doc);
+		expect(warn).toHaveBeenCalledWith(
+			expect.stringContaining("dropping world docs"),
+		);
+
+		warn.mockRestore();
+	});
+
+	it("infers simple for a world-less COD call", async () => {
 		const { execute, pagesRepository } = setup();
 		prepareSuccessfulQueue(pagesRepository);
 
 		await execute({ ...INPUT, pageKind: "cod" });
 
-		expect(pagesRepository.insertAttempt).toHaveBeenCalledWith(
-			expect.objectContaining({
-				spec: {
-					brief: INPUT.brief,
-					designerSystemPrompt: `COD builder prompt (test)\n\n${COD_GENRE_DOC}`,
-					pageKind: "cod",
-					title: INPUT.title,
-				},
-			}),
-		);
+		const spec = pagesRepository.insertAttempt.mock.calls[0]?.[0]?.spec as {
+			codMode: string;
+			designerSystemPrompt: string;
+		};
+		expect(spec.codMode).toBe("simple");
+		expect(spec.designerSystemPrompt).toContain("SIMPLE COD STYLE");
+		expect(spec.designerSystemPrompt).toContain("THIS BUILD'S RECIPE");
+		expect(spec.designerSystemPrompt).not.toContain("WORLD FUSION CONTRACT");
 	});
 
 	it("warns and drops unknown ids while preserving resolved fusion order", async () => {
@@ -580,6 +643,54 @@ describe("appendReadyMediaAssets", () => {
 	});
 });
 
+describe("appendUserLinks", () => {
+	it("appends each missing link once in first-seen order", () => {
+		const first = "https://example.com/first";
+		const second = "https://example.com/second";
+
+		const brief = appendUserLinks("Build the page.", [first, second, first]);
+
+		expect(brief).toBe(
+			[
+				"Build the page.",
+				"",
+				"USER LINKS (URLs the user shared in this conversation — use the ones that belong on this page; ignore any that were only references):",
+				`- ${first}`,
+				`- ${second}`,
+			].join("\n"),
+		);
+	});
+
+	it("skips links the brief already contains", () => {
+		const included = "https://example.com/included";
+		const diligent = `Build around **${included}**.`;
+
+		expect(appendUserLinks(diligent, [included])).toBe(diligent);
+	});
+
+	it("does not treat a longer URL in the brief as containing its prefix", () => {
+		const prefix = "https://instagram.com/acme";
+		const longer = "https://instagram.com/acmestore";
+
+		const brief = appendUserLinks(`Use ${longer} as inspiration.`, [prefix]);
+
+		expect(brief).toContain(`- ${prefix}`);
+	});
+
+	it("bounds the appended section to the newest 16 unique links", () => {
+		const links = Array.from(
+			{ length: 20 },
+			(_, index) => `https://example.com/link-${index}`,
+		);
+
+		const brief = appendUserLinks("Build the page.", links);
+
+		expect(brief.match(/^- https:\/\/example\.com\/link-\d+$/gm)).toEqual(
+			links.slice(-16).map((link) => `- ${link}`),
+		);
+	});
+});
+
 describe("generate_page with conversation assets", () => {
 	const IMAGE = "https://assets.example.com/images/p1/a1/img-1.png";
 
@@ -606,5 +717,25 @@ describe("generate_page with conversation assets", () => {
 		expect(spec.brief.startsWith(INPUT.brief)).toBe(true);
 		expect(spec.brief).toContain("READY MEDIA ASSETS");
 		expect(spec.brief).toContain(`- image: ${IMAGE}`);
+	});
+});
+
+describe("generate_page with conversation user links", () => {
+	const USER_LINK = "https://www.youtube.com/watch?v=demo123";
+
+	it("snapshots the brief with the appended conversation links", async () => {
+		const { execute, pagesRepository } = setup({
+			conversationUserLinks: [USER_LINK],
+		});
+		prepareSuccessfulQueue(pagesRepository);
+
+		await execute(INPUT);
+
+		const spec = pagesRepository.insertAttempt.mock.calls[0]?.[0]?.spec as {
+			brief: string;
+		};
+		expect(spec.brief.startsWith(INPUT.brief)).toBe(true);
+		expect(spec.brief).toContain("USER LINKS");
+		expect(spec.brief).toContain(`- ${USER_LINK}`);
 	});
 });

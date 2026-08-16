@@ -28,6 +28,31 @@ import { isoDateTimeSchema, uuidSchema } from "./shared/primitives";
 // Admin contracts (consumed by apps/admin only). Every route below sits behind
 // the AdminGuard: non-admin sessions get 404 (not 403) per docs/api-security.md.
 
+function optionalCsvEnum<const Values extends readonly [string, ...string[]]>(
+	values: Values,
+) {
+	return z
+		.string()
+		.optional()
+		.transform((value) => {
+			if (value === undefined) {
+				return undefined;
+			}
+
+			const uniqueValues = [
+				...new Set(
+					value
+						.split(",")
+						.map((item) => item.trim())
+						.filter((item) => item.length > 0),
+				),
+			];
+
+			return uniqueValues.length > 0 ? uniqueValues : undefined;
+		})
+		.pipe(z.array(z.enum(values)).nonempty().optional());
+}
+
 export const adminUserRoles = ["user", "admin"] as const;
 
 export const adminUserRoleSchema = z.enum(adminUserRoles);
@@ -47,10 +72,9 @@ export function isAdminRole(role: string | null | undefined): boolean {
 }
 
 // "free" is derived (no entitled subscription row), not stored.
-export const adminUserPlanSchema = z.union([
-	z.literal("free"),
-	billingPlanIdSchema,
-]);
+export const adminUserPlans = ["free", "pro", "business"] as const;
+
+export const adminUserPlanSchema = z.enum(adminUserPlans);
 
 export type AdminUserPlan = z.infer<typeof adminUserPlanSchema>;
 
@@ -68,6 +92,7 @@ export const adminUserSummarySchema = z.object({
 	lastSeenAt: isoDateTimeSchema.nullable(),
 	plan: adminUserPlanSchema,
 	creditsBalance: z.int(),
+	creditsConsumed: z.int().nonnegative(),
 	projectsCount: z.int(),
 });
 
@@ -78,11 +103,61 @@ export const adminListUsersSorts = [
 	"oldest",
 	"name",
 	"email",
+	"most_projects",
+	"most_credits",
+	"most_consumed",
+	"recently_seen",
 ] as const;
+
+export const adminListUsersSortSchema = z.enum(adminListUsersSorts);
+
+export type AdminListUsersSort = z.infer<typeof adminListUsersSortSchema>;
+
+export const adminUserStatuses = ["active", "banned"] as const;
+
+export const adminUserStatusSchema = z.enum(adminUserStatuses);
+
+export type AdminUserStatus = z.infer<typeof adminUserStatusSchema>;
+
+export const adminUserVerificationStatuses = [
+	"verified",
+	"unverified",
+] as const;
+
+export const adminUserVerificationStatusSchema = z.enum(
+	adminUserVerificationStatuses,
+);
+
+export type AdminUserVerificationStatus = z.infer<
+	typeof adminUserVerificationStatusSchema
+>;
+
+export const ADMIN_CREDITS_USED_BUCKETS = {
+	zero: { min: 0, max: 0, label: "0 credits" },
+	low: { min: 1, max: 99, label: "1–99 credits" },
+	mid: { min: 100, max: 999, label: "100–999 credits" },
+	high: { min: 1000, max: null, label: "1,000+ credits" },
+} as const;
+
+export const adminCreditsUsedBucketSchema = z.enum(
+	Object.keys(ADMIN_CREDITS_USED_BUCKETS) as [
+		keyof typeof ADMIN_CREDITS_USED_BUCKETS,
+		...(keyof typeof ADMIN_CREDITS_USED_BUCKETS)[],
+	],
+);
+
+export type AdminCreditsUsedBucket = z.infer<
+	typeof adminCreditsUsedBucketSchema
+>;
 
 export const adminListUsersQuerySchema = paginationQuerySchema.extend({
 	q: z.string().trim().min(1).max(200).optional(),
-	sort: z.enum(adminListUsersSorts).default("newest"),
+	sort: adminListUsersSortSchema.default("newest"),
+	plan: optionalCsvEnum(adminUserPlans),
+	role: optionalCsvEnum(adminUserRoles),
+	status: optionalCsvEnum(adminUserStatuses),
+	verified: optionalCsvEnum(adminUserVerificationStatuses),
+	creditsUsed: adminCreditsUsedBucketSchema.optional(),
 });
 
 export type AdminListUsersQuery = z.infer<typeof adminListUsersQuerySchema>;

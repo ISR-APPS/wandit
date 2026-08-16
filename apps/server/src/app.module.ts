@@ -10,6 +10,7 @@ import { DatabaseModule } from "./infrastructure/database/database.module";
 import { ApiExceptionFilter } from "./infrastructure/http/api-exception.filter";
 import { ApiResponseEnvelopeInterceptor } from "./infrastructure/http/api-response-envelope.interceptor";
 import { QueuesModule } from "./infrastructure/queues/queues.module";
+import { AcademyModule } from "./modules/academy/academy.module";
 import { AdminModule } from "./modules/admin/admin.module";
 import { AffiliatesModule } from "./modules/affiliates/affiliates.module";
 import { AiChatModule } from "./modules/ai-chat/ai-chat.module";
@@ -26,6 +27,7 @@ import { LeadScrapesModule } from "./modules/lead-scrapes/lead-scrapes.module";
 import { LeadsModule } from "./modules/leads/leads.module";
 import { MarketingAssetsModule } from "./modules/marketing-assets/marketing-assets.module";
 import { McpConnectorsModule } from "./modules/mcp-connectors/mcp-connectors.module";
+import { OnboardingModule } from "./modules/onboarding/onboarding.module";
 import { OrdersModule } from "./modules/orders/orders.module";
 import { PagesModule } from "./modules/pages/pages.module";
 import { ProductEventsModule } from "./modules/product-events/product-events.module";
@@ -51,6 +53,7 @@ import { WorkspacesModule } from "./modules/workspaces/workspaces.module";
 		AnalyticsModule,
 		DatabaseModule,
 		QueuesModule,
+		AcademyModule,
 		AffiliatesModule,
 		AttributionModule,
 		StoryLinksModule,
@@ -74,6 +77,7 @@ import { WorkspacesModule } from "./modules/workspaces/workspaces.module";
 		ImageGenerationsModule,
 		CreditsModule,
 		BillingModule,
+		OnboardingModule,
 		OrdersModule,
 		DomainsModule,
 		StorageModule,

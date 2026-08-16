@@ -42,7 +42,9 @@ import {
 	stampHtml,
 } from "../../../pages/domain/stamp";
 import { BUILDER_REASONING_EFFORT_BY_MODEL } from "../tools/builder-model-options";
+import { extractBriefUserPhotoUrls } from "./brief-user-photos";
 import type { BuildProgressEvent } from "./build-progress";
+import { composeBuildStartMessages } from "./build-start-messages";
 import {
 	BUILD_IMAGE_ASPECTS,
 	type BuildImageAspect,
@@ -1485,12 +1487,25 @@ export async function runSiteBuild(
 		// write step routinely exceeds Node's 5-minute undici headersTimeout
 		// (observed as GatewayTimeoutError 408). Streaming receives headers
 		// immediately; nothing here consumes deltas — the stream is just drained.
-		const stream = await agent.stream({
-			abortSignal: params.abortSignal,
-			prompt:
-				`Build the landing page now.\n\nTITLE: ${params.title}\n\n` +
-				`BRIEF:\n${params.brief}`,
-		});
+		const userPhotoUrls = screenshotRequired
+			? extractBriefUserPhotoUrls(params.brief)
+			: [];
+		const stream =
+			userPhotoUrls.length > 0
+				? await agent.stream({
+						abortSignal: params.abortSignal,
+						messages: composeBuildStartMessages({
+							brief: params.brief,
+							title: params.title,
+							userPhotoUrls,
+						}),
+					})
+				: await agent.stream({
+						abortSignal: params.abortSignal,
+						prompt:
+							`Build the landing page now.\n\nTITLE: ${params.title}\n\n` +
+							`BRIEF:\n${params.brief}`,
+					});
 
 		// Model-call failures don't throw while draining: the SDK enqueues them
 		// as {type:"error"} stream parts (consumeStream's onError only fires

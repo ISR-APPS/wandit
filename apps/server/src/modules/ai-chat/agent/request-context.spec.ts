@@ -105,9 +105,115 @@ describe("buildChatRequestContext composer settings", () => {
 		expect(block).toContain('They chose "Landing page"');
 		expect(block).toContain("Objectif: Vente COD");
 	});
+
+	it("renders the pre-selected Simple COD page type", () => {
+		const block = composerContext("page", "landing-page", {
+			codMode: "simple",
+			goal: "cod",
+		});
+
+		expect(block).toContain(
+			"Type: Simple — the user pre-selected the SIMPLE COD page type",
+		);
+	});
+
+	it("renders the pre-selected Max COD page type", () => {
+		const block = composerContext("page", "landing-page", {
+			codMode: "max",
+			goal: "cod",
+		});
+
+		expect(block).toContain(
+			"Type: Max — the user pre-selected the MAX COD page type",
+		);
+	});
+
+	it("renders no COD page type for auto or absent settings", () => {
+		const autoBlock = composerContext("page", "landing-page", {
+			codMode: "auto",
+			goal: "cod",
+		});
+		const absentBlock = composerContext("page", "landing-page", {
+			goal: "cod",
+		});
+
+		// The goal line itself may mention codMode (it tells the Brain to always
+		// pass one); only the pre-selected "Type:" line must stay absent.
+		expect(autoBlock).not.toContain("Type: Simple");
+		expect(autoBlock).not.toContain("Type: Max");
+		expect(absentBlock).not.toContain("Type: Simple");
+		expect(absentBlock).not.toContain("Type: Max");
+	});
+});
+
+describe("buildChatRequestContext active page outline", () => {
+	it("renders the start-of-request page version and compact section lines", () => {
+		const block = buildChatRequestContext({
+			activePageOutline: {
+				sections: [
+					{
+						elements: 4,
+						snippet: "Bienvenue chez Atlas",
+						tag: "header",
+						wid: "hero",
+					},
+					{
+						elements: 7,
+						snippet: "Nos services Conseil Formation",
+						tag: "section",
+						wid: "services",
+					},
+				],
+				versionNumber: 12,
+			},
+			manualEdits: [],
+		});
+
+		expect(block).toBe(
+			"## This request (set by the app, not the user's words)\n\n" +
+				"The current page outline at the start of this request (version 12):\n" +
+				'- data-wid="hero" | <header> | "Bienvenue chez Atlas"\n' +
+				'- data-wid="services" | <section> | "Nos services Conseil Formation"\n' +
+				"A page already exists — edit it with the surgical tools. Do not " +
+				"call get_page_outline again; the outline is right here. Call " +
+				"generate_page only when the user asks for a new page or a full " +
+				"redesign.",
+		);
+	});
+
+	it("omits page-state guidance when no outline was loaded", () => {
+		expect(
+			buildChatRequestContext({ activePageOutline: null, manualEdits: [] }),
+		).toBeNull();
+	});
 });
 
 describe("buildChatRequestContext preview targets", () => {
+	it("routes a single selected element directly to read_section with an outline", () => {
+		const block = buildChatRequestContext({
+			activePageOutline: {
+				sections: [
+					{
+						elements: 3,
+						snippet: "The selected hero",
+						tag: "section",
+						wid: "hero",
+					},
+				],
+				versionNumber: 4,
+			},
+			manualEdits: [],
+			metadata: { selectedWids: ["hero-title"] },
+		});
+
+		expect(block).toContain(
+			' data-wid="hero-title". When they say "this", "here", "ça", ' +
+				'"هذا" they mean that element. Call read_section directly to see it ' +
+				"before answering or editing.",
+		);
+		expect(block).not.toContain("Call get_page_outline / read_section");
+	});
+
 	it("renders a one-item selectedWids array as the single-target block", () => {
 		const block = buildChatRequestContext({
 			manualEdits: [],

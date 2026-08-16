@@ -35,6 +35,11 @@ import {
 	WORLD_DEPARTURE_POINT_HEADING,
 } from "../site-builder/builder-prompt";
 import { buildCodSiteBuilderSystemPrompt } from "../site-builder/cod-builder-prompt";
+import { buildSimpleCodSiteBuilderSystemPrompt } from "../site-builder/simple-cod-builder-prompt";
+import {
+	SIMPLE_COD_STYLE_DOC,
+	sampleSimpleCodRecipe,
+} from "../site-builder/simple-cod-recipe";
 import { getWorld } from "../worlds";
 import { COD_GENRE_DOC, FUSION_CONTRACT } from "../worlds/cod/genre";
 
@@ -52,6 +57,9 @@ export type GeneratePageToolDeps = {
 	// execute path appends the ones the Brain's brief forgot, so a build can
 	// never lose media the user generated on purpose.
 	conversationAssets?: readonly ConversationGeneratedAsset[];
+	// Raw http(s) links the user supplied in chat, preserved even when the
+	// Brain omits them from its free-text brief.
+	conversationUserLinks?: readonly string[];
 	pagesRepository: PagesRepository;
 	parentEventId?: string;
 	projectId: string;
@@ -60,9 +68,35 @@ export type GeneratePageToolDeps = {
 	userId: string;
 };
 
-// A media-heavy chat can carry many finished assets; the appended section
-// stays bounded so it can never crowd out the brief itself.
+// Media- and link-heavy chats stay bounded so deterministic appendices can
+// never crowd out the brief itself.
 const MAX_READY_MEDIA_ASSET_LINES = 16;
+const MAX_USER_LINKS = 16;
+const USER_HTTP_URL_PATTERN = /https?:\/\/[^\s<>"'`)\]}]+/giu;
+const TRAILING_URL_SYNTAX_PATTERN = /[.,;:!?…。，、；：！？\p{Pe}\p{Pf}]+$/gu;
+const URL_MARKDOWN_WRAPPERS = ["**", "__", "~~", "*", "_", "~"] as const;
+
+function stripTrailingUrlSyntax(
+	candidate: string,
+	leadingText: string,
+): string {
+	const url = candidate.replace(TRAILING_URL_SYNTAX_PATTERN, "");
+	const wrapper = URL_MARKDOWN_WRAPPERS.find(
+		(syntax) => leadingText.endsWith(syntax) && url.endsWith(syntax),
+	);
+
+	return wrapper ? url.slice(0, -wrapper.length) : url;
+}
+
+function collectHttpUrls(text: string): Set<string> {
+	return new Set(
+		[...text.matchAll(USER_HTTP_URL_PATTERN)]
+			.map((match) =>
+				stripTrailingUrlSyntax(match[0], text.slice(0, match.index)),
+			)
+			.filter(Boolean),
+	);
+}
 
 /**
  * Deterministic belt-and-braces for generated media: whatever the Brain's
@@ -92,6 +126,31 @@ export function appendReadyMediaAssets(
 	].join("\n");
 }
 
+/**
+ * Deterministic guard for user-provided links: append the candidates the Brain's
+ * free-text brief forgot, while preserving the transcript's order.
+ */
+export function appendUserLinks(
+	brief: string,
+	links: readonly string[],
+): string {
+	const briefUrls = collectHttpUrls(brief);
+	const missing = [
+		...new Set(links.filter((link) => !briefUrls.has(link))),
+	].slice(-MAX_USER_LINKS);
+
+	if (missing.length === 0) {
+		return brief;
+	}
+
+	return [
+		brief.trimEnd(),
+		"",
+		"USER LINKS (URLs the user shared in this conversation — use the ones that belong on this page; ignore any that were only references):",
+		...missing.map((link) => `- ${link}`),
+	].join("\n");
+}
+
 // Explicit return type: composite-project declaration emit cannot name the
 // SDK's inferred ExecutableTool type; the plain Tool shape is what callers need.
 export function createGeneratePageTool(
@@ -107,6 +166,7 @@ export function createGeneratePageTool(
 		outputSchema: generatePageOutputSchema,
 		execute: async ({
 			brief,
+			codMode,
 			pageKind,
 			title,
 			worldId,
@@ -130,11 +190,11 @@ export function createGeneratePageTool(
 				deps.projectId,
 			);
 			// Snapshotted NOW so later prompt, model, or environment changes
-			// never change what this attempt meant. The chosen design world's
-			// bible rides inside the same snapshot — the trigger task and the
-			// build loop never need to know worlds exist.
+			// never change what this attempt meant. The selected design-world bible
+			// or server-sampled simple recipe rides inside the same snapshot — the
+			// trigger task and build loop never need to know which path supplied it.
 			const requestedWorldIds = worldIds ?? (worldId ? [worldId] : []);
-			const resolvedWorlds = requestedWorldIds.flatMap((id) => {
+			let resolvedWorlds = requestedWorldIds.flatMap((id) => {
 				const world = getWorld(id);
 
 				if (!world) {
@@ -152,20 +212,45 @@ export function createGeneratePageTool(
 			const isCod =
 				pageKind === "cod" ||
 				resolvedWorlds.some((world) => world.kind === "cod");
+			// The mode default is inference, not a coin flip: a max build always
+			// rides on worlds (the Brain samples them), so a world-less COD call
+			// means the simple flow — and historical calls with worlds keep meaning
+			// what they meant.
+			const resolvedCodMode = isCod
+				? (codMode ?? (resolvedWorlds.length > 0 ? "max" : "simple"))
+				: undefined;
+			const isSimpleCod = resolvedCodMode === "simple";
+
+			if (isSimpleCod && resolvedWorlds.length > 0) {
+				logger.warn(
+					`Simple COD build requested with ${resolvedWorlds.length} world${resolvedWorlds.length === 1 ? "" : "s"} — dropping world docs because the server-sampled recipe owns the skin.`,
+				);
+				resolvedWorlds = [];
+			}
+
 			const basePrompt = isCod
-				? await buildCodSiteBuilderSystemPrompt()
+				? isSimpleCod
+					? await buildSimpleCodSiteBuilderSystemPrompt()
+					: await buildCodSiteBuilderSystemPrompt()
 				: await buildSiteBuilderSystemPrompt();
 			const designerSystemPrompt = isCod
-				? [
-						basePrompt,
-						COD_GENRE_DOC,
-						...(resolvedWorlds.length > 0
-							? [
-									FUSION_CONTRACT(resolvedWorlds),
-									...resolvedWorlds.map((world) => world.doc),
-								]
-							: []),
-					].join("\n\n")
+				? isSimpleCod
+					? [
+							basePrompt,
+							COD_GENRE_DOC,
+							SIMPLE_COD_STYLE_DOC,
+							sampleSimpleCodRecipe(),
+						].join("\n\n")
+					: [
+							basePrompt,
+							COD_GENRE_DOC,
+							...(resolvedWorlds.length > 0
+								? [
+										FUSION_CONTRACT(resolvedWorlds),
+										...resolvedWorlds.map((world) => world.doc),
+									]
+								: []),
+						].join("\n\n")
 				: resolvedWorlds[0]
 					? // Product dossier docs stay bare — a bare world document is law.
 						// Website worlds ride behind the departure-point heading so the
@@ -180,9 +265,9 @@ export function createGeneratePageTool(
 				deps.builderModel ??
 				env.AI_PAGE_BUILDER_MODEL ??
 				env.AI_PAGE_DESIGN_MODEL;
-			const briefWithAssets = appendReadyMediaAssets(
-				brief,
-				deps.conversationAssets ?? [],
+			const finalBrief = appendUserLinks(
+				appendReadyMediaAssets(brief, deps.conversationAssets ?? []),
+				deps.conversationUserLinks ?? [],
 			);
 			const attempt = await deps.pagesRepository.insertAttempt({
 				artifactId: artifact.id,
@@ -190,7 +275,8 @@ export function createGeneratePageTool(
 				model: builderModel,
 				projectId: deps.projectId,
 				spec: {
-					brief: briefWithAssets,
+					brief: finalBrief,
+					...(resolvedCodMode ? { codMode: resolvedCodMode } : {}),
 					designerSystemPrompt,
 					pageKind: isCod ? "cod" : "website",
 					title,
@@ -200,6 +286,7 @@ export function createGeneratePageTool(
 			logger.log(
 				`Queued page build "${title}" — attempt ${attempt.id}, ` +
 					`Builder ${builderModel}` +
+					(resolvedCodMode ? `, COD mode "${resolvedCodMode}"` : "") +
 					(resolvedWorlds.length > 0
 						? `, world${resolvedWorlds.length === 1 ? "" : "s"} "${resolvedWorlds.map((world) => world.id).join('", "')}"`
 						: ", no world"),
@@ -207,9 +294,9 @@ export function createGeneratePageTool(
 			// Log only a preview: the full brief is user business data and the
 			// full spec is already persisted on the attempt row above.
 			logger.log(
-				`Brief for attempt ${attempt.id} (${briefWithAssets.length} chars, ` +
+				`Brief for attempt ${attempt.id} (${finalBrief.length} chars, ` +
 					`${(deps.conversationAssets ?? []).length} conversation assets): ` +
-					`${briefWithAssets.slice(0, 200)}${briefWithAssets.length > 200 ? "…" : ""}`,
+					`${finalBrief.slice(0, 200)}${finalBrief.length > 200 ? "…" : ""}`,
 			);
 
 			let handle: Awaited<ReturnType<typeof tasks.trigger>>;

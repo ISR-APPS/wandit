@@ -63,6 +63,8 @@ import { createTriggerMetering } from "./metering.runtime";
 // creative spec) that parse() strips — their brief/prompt/title still build.
 const attemptSpecSchema = z.object({
 	brief: z.string().min(1),
+	// Resolved COD build path, persisted so the queued snapshot round-trips.
+	codMode: z.enum(["simple", "max"]).optional(),
 	designerSystemPrompt: z.string().min(1),
 	// Legacy rows already use "website"; older rows may omit the field.
 	pageKind: z.enum(["cod", "website"]).optional(),

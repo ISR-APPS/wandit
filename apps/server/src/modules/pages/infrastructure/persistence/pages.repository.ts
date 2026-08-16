@@ -121,6 +121,8 @@ export type PageAttemptDetailRow = {
 // What generate_page snapshots into the attempt's jsonb spec.
 export type PageAttemptSpec = {
 	brief: string;
+	// Resolved COD build path, persisted so the queued snapshot round-trips.
+	codMode?: "simple" | "max";
 	designerSystemPrompt: string;
 	pageKind?: "cod" | "website";
 	title: string;

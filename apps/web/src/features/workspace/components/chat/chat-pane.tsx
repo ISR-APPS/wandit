@@ -135,7 +135,7 @@ export function ChatPane({ className }: { className?: string }) {
 		attachments: UploadAttachmentResponse[],
 	) => {
 		if (tray.answerable) {
-			tray.answerFreeText(prompt);
+			tray.answerFreeText(prompt, attachments);
 			setComposerText("");
 			return true;
 		}
