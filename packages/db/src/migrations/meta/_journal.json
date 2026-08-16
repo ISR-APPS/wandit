@@ -225,6 +225,13 @@
       "when": 1786810446556,
       "tag": "0031_sour_siren",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1786867272682,
+      "tag": "0032_user-onboarding",
+      "breakpoints": true
     }
   ]
 }

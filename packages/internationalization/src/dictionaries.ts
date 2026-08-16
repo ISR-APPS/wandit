@@ -7,6 +7,7 @@ import enErrors from "../dictionaries/en/errors.json";
 import enLanding from "../dictionaries/en/landing.json";
 import enLeads from "../dictionaries/en/leads.json";
 import enNative from "../dictionaries/en/native.json";
+import enOnboarding from "../dictionaries/en/onboarding.json";
 import enProjects from "../dictionaries/en/projects.json";
 import enSettings from "../dictionaries/en/settings.json";
 import enWorkspace from "../dictionaries/en/workspace.json";
@@ -27,6 +28,7 @@ const en = {
 	settings: enSettings,
 	errors: enErrors,
 	native: enNative,
+	onboarding: enOnboarding,
 } as const;
 
 type WidenDictionary<T> = T extends string
@@ -98,6 +100,7 @@ async function loadFrenchDictionary(): Promise<Dictionary> {
 		settings,
 		errors,
 		native,
+		onboarding,
 	] = await Promise.all([
 		import("../dictionaries/fr/academy.json"),
 		import("../dictionaries/fr/common.json"),
@@ -112,6 +115,7 @@ async function loadFrenchDictionary(): Promise<Dictionary> {
 		import("../dictionaries/fr/settings.json"),
 		import("../dictionaries/fr/errors.json"),
 		import("../dictionaries/fr/native.json"),
+		import("../dictionaries/fr/onboarding.json"),
 	]);
 
 	return normalizeDictionary({
@@ -128,6 +132,7 @@ async function loadFrenchDictionary(): Promise<Dictionary> {
 		settings: settings.default,
 		errors: errors.default,
 		native: native.default,
+		onboarding: onboarding.default,
 	});
 }
 
@@ -146,6 +151,7 @@ async function loadArabicDictionary(): Promise<Dictionary> {
 		settings,
 		errors,
 		native,
+		onboarding,
 	] = await Promise.all([
 		import("../dictionaries/ar/academy.json"),
 		import("../dictionaries/ar/common.json"),
@@ -160,6 +166,7 @@ async function loadArabicDictionary(): Promise<Dictionary> {
 		import("../dictionaries/ar/settings.json"),
 		import("../dictionaries/ar/errors.json"),
 		import("../dictionaries/ar/native.json"),
+		import("../dictionaries/ar/onboarding.json"),
 	]);
 
 	return normalizeDictionary({
@@ -176,6 +183,7 @@ async function loadArabicDictionary(): Promise<Dictionary> {
 		settings: settings.default,
 		errors: errors.default,
 		native: native.default,
+		onboarding: onboarding.default,
 	});
 }
 

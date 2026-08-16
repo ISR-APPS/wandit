@@ -368,6 +368,16 @@ export function createAuth(options: CreateAuthOptions = {}) {
 					verification: { storeInDatabase: true },
 				}
 			: {}),
+		user: {
+			additionalFields: {
+				// Server-owned: exposed on session users, never accepted from client input.
+				onboardingCompletedAt: {
+					type: "date",
+					required: false,
+					input: false,
+				},
+			},
+		},
 		// The email-otp plugin mounts password-reset and email-change routes this
 		// passwordless product does not use. Left mounted they would be publicly
 		// reachable through the auth catch-all and write verification rows.

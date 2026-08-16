@@ -26,6 +26,7 @@ import { LeadScrapesModule } from "./modules/lead-scrapes/lead-scrapes.module";
 import { LeadsModule } from "./modules/leads/leads.module";
 import { MarketingAssetsModule } from "./modules/marketing-assets/marketing-assets.module";
 import { McpConnectorsModule } from "./modules/mcp-connectors/mcp-connectors.module";
+import { OnboardingModule } from "./modules/onboarding/onboarding.module";
 import { OrdersModule } from "./modules/orders/orders.module";
 import { PagesModule } from "./modules/pages/pages.module";
 import { ProjectAssetsModule } from "./modules/project-assets/project-assets.module";
@@ -70,6 +71,7 @@ import { WorkspacesModule } from "./modules/workspaces/workspaces.module";
 		ImageGenerationsModule,
 		CreditsModule,
 		BillingModule,
+		OnboardingModule,
 		OrdersModule,
 		DomainsModule,
 		StorageModule,
