@@ -1,13 +1,11 @@
-import type { ComposerMetadata } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import { Input } from "@wandit/ui/components/input";
 import { Skeleton } from "@wandit/ui/components/skeleton";
 import { Tabs, TabsList, TabsTrigger } from "@wandit/ui/components/tabs";
 import { Search } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 
 import { Spark } from "@/components/logo";
-import { promptStash } from "@/features/auth";
 import {
 	InsufficientCreditsDialog,
 	OutOfCreditsBanner,
@@ -21,7 +19,10 @@ import { ProjectCard } from "../components/project-card";
 import { PromptBox } from "../components/prompt-box";
 import { DashboardShell } from "../components/shell/dashboard-shell";
 import { GRID_SKELETON_COUNT } from "../lib/constants";
-import { useCreateProjectWithPrompt } from "../lib/hooks";
+import {
+	useAutostartStashedPrompt,
+	useCreateProjectWithPrompt,
+} from "../lib/hooks";
 
 type StatusFilter = "all" | "published" | "drafts";
 
@@ -97,28 +98,17 @@ export default function DashboardPage() {
 	const { data: projects, isPending } = useProjectsQuery();
 	const { create, isCreating, insufficientOpen, setInsufficientOpen, cost } =
 		useCreateProjectWithPrompt();
+	// Post-auth handoff: restore the stashed landing prompt and, when the
+	// draft is fresh and eligible, create the project without another click.
+	const { restoreKey, restoredPrompt, restoredComposer, isAutostarting } =
+		useAutostartStashedPrompt(create);
 
 	const { outOfCredits } = useOutOfCredits();
 	const promptLocked = outOfCredits;
 
 	const [query, setQuery] = useState("");
 	const [filter, setFilter] = useState<StatusFilter>("all");
-	const [promptPrefill, setPromptPrefill] = useState<{
-		key: number;
-		value: string;
-		composer?: ComposerMetadata;
-	}>({ key: 0, value: "" });
 	const promptSectionRef = useRef<HTMLDivElement>(null);
-
-	useEffect(() => {
-		const draft = promptStash.consume();
-		if (!draft) return;
-		setPromptPrefill((prev) => ({
-			key: prev.key + 1,
-			value: draft.prompt,
-			composer: draft.composer,
-		}));
-	}, []);
 
 	const filtered = useMemo(() => {
 		const q = query.trim().toLowerCase();
@@ -166,16 +156,16 @@ export default function DashboardPage() {
 						<div ref={promptSectionRef} className="mt-6">
 							<OutOfCreditsBanner active={promptLocked}>
 								<PromptBox
-									key={promptPrefill.key}
+									key={restoreKey}
 									variant="hero"
 									showPriceTag
 									showModes
 									attachmentsEnabled
 									disabled={promptLocked}
-									initialValue={promptPrefill.value}
-									initialComposer={promptPrefill.composer}
+									initialValue={restoredPrompt}
+									initialComposer={restoredComposer}
 									onSubmit={create}
-									isSubmitting={isCreating}
+									isSubmitting={isCreating || isAutostarting}
 								/>
 							</OutOfCreditsBanner>
 						</div>

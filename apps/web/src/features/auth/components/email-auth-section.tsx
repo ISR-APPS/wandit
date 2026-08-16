@@ -32,10 +32,15 @@ export function EmailAuthSection({
 	nextPath,
 	onError,
 	onClearError,
+	onMagicLinkPendingChange,
 }: {
 	nextPath: string | undefined;
 	onError: (message: string) => void;
 	onClearError: () => void;
+	/** true from the moment a magic link send starts (so a dismiss mid-request
+	 * cannot clear the prompt stash the completion will need); false again only
+	 * when that send fails. */
+	onMagicLinkPendingChange: (pending: boolean) => void;
 }) {
 	const { t } = useTranslation();
 	const [view, setView] = useState<"form" | "sent">("form");
@@ -115,6 +120,7 @@ export function EmailAuthSection({
 		if (pending !== "none" || !captchaReady) return;
 		onClearError();
 		setPending("link");
+		onMagicLinkPendingChange(true);
 
 		const destination = nextPath && nextPath !== "/" ? nextPath : "/dashboard";
 		const { callbackURL, errorCallbackURL } = buildAuthCallbackUrls(
@@ -133,6 +139,7 @@ export function EmailAuthSection({
 				{ headers: consumeCaptcha() },
 			);
 			if (result.error) {
+				onMagicLinkPendingChange(false);
 				onError(mapError(result.error));
 				return;
 			}
@@ -141,6 +148,7 @@ export function EmailAuthSection({
 			setOtpRequested(false);
 			setLinkCooldown(RESEND_COOLDOWN_SECONDS);
 		} catch {
+			onMagicLinkPendingChange(false);
 			onError(t("auth.emailSendError"));
 		} finally {
 			setPending("none");
@@ -183,8 +191,7 @@ export function EmailAuthSection({
 			// Unlike Google and magic link — which arrive back through a
 			// server redirect — OTP verification finishes in place, so this
 			// has to perform the navigation itself. Assign immediately so the
-			// reload happens before the session effect can close the modal and
-			// drop a stashed prompt that the destination page still needs.
+			// dashboard can consume the stashed prompt and start generation.
 			invalidateSessionCache();
 			const destination =
 				nextPath && nextPath !== "/" ? nextPath : "/dashboard";
@@ -253,10 +260,9 @@ export function EmailAuthSection({
 					<div className="rounded-xl bg-muted/50 px-4 py-3 text-center">
 						<p className="font-medium text-sm">{t("auth.emailSentTitle")}</p>
 						<p className="mt-1 text-muted-foreground text-xs leading-relaxed">
-							{t(
-								otpRequested ? "auth.emailCodeSent" : "auth.emailSentBody",
-								{ email },
-							)}
+							{t(otpRequested ? "auth.emailCodeSent" : "auth.emailSentBody", {
+								email,
+							})}
 						</p>
 					</div>
 
@@ -322,23 +328,15 @@ export function EmailAuthSection({
 						<button
 							type="button"
 							className="text-muted-foreground underline-offset-2 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
-							disabled={
-								pending !== "none" || linkCooldown > 0 || !captchaReady
-							}
+							disabled={pending !== "none" || linkCooldown > 0 || !captchaReady}
 							// Resend whichever channel the user is actually on:
 							// re-sending the link from the code screen would wipe
 							// the entry form and strand a code they just received.
-							onClick={() =>
-								void (otpRequested ? sendOtp() : sendMagicLink())
-							}
+							onClick={() => void (otpRequested ? sendOtp() : sendMagicLink())}
 						>
 							{linkCooldown > 0
 								? t("auth.emailResendIn", { seconds: linkCooldown })
-								: t(
-										otpRequested
-											? "auth.emailResendCode"
-											: "auth.emailResend",
-									)}
+								: t(otpRequested ? "auth.emailResendCode" : "auth.emailResend")}
 						</button>
 						<button
 							type="button"

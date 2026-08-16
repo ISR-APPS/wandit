@@ -634,6 +634,16 @@ const OUTPUTS_BY_MODE: Record<ConcreteMode, readonly GenerationOutputDef[]> = {
 const ALL_SKILL_FILES = SKILL_FILE_GROUPS.flatMap((group) => group.skills);
 const ALL_OUTPUTS = Object.values(OUTPUTS_BY_MODE).flat();
 
+/** Registry-driven lookup for the prompt-stash autostart gate: outputs that
+ * demand a source asset can never auto-create a project after auth (the
+ * upload cannot survive signed-out auth) — including output ids added here
+ * later, with no other file to keep in sync. */
+export function outputRequiresSourceImage(outputId: string): boolean {
+	return ALL_OUTPUTS.some(
+		(output) => output.id === outputId && output.requiresSourceImage === true,
+	);
+}
+
 function getMode(id: RouteMode) {
 	return ROUTE_MODES.find((mode) => mode.id === id) ?? ROUTE_MODES[0];
 }
