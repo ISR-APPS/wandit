@@ -26,7 +26,7 @@ Primary market: **Algeria** → Arabic (RTL) + French pages, wilaya/commune addr
 ## 3. Core journey (prompt-first funnel)
 
 1. Visitor lands on `/` → hero prompt box + examples + pricing.
-2. Types a prompt → **auth modal** with one Continue-with-Google button → full-page Better Auth redirect. The typed prompt survives via a **one-shot sessionStorage stash**; after auth the user lands on `/dashboard` with the prompt prefilled and clicks Generate there.
+2. Types a prompt → **auth modal** with one Continue-with-Google button → full-page Better Auth redirect. The typed prompt survives via a **one-shot sessionStorage stash**; after auth the user lands on `/dashboard`, where an eligible fresh draft creates the project and starts generation without another click (other drafts are prefilled for review — see `docs/features/auth-accounts.md`).
 3. After Generate: **project auto-created**, user lands in the workspace with generation **already streaming**.
 4. Iterates via chat; the Page tab previews the landing page (mobile/desktop toggle — audience is mobile-first).
 5. Publishes to `{slug}.wandit.app` in one click; runs ads to it.

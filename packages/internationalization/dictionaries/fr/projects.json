@@ -286,6 +286,14 @@
 							"service": "Service",
 							"promo": "Promo"
 						}
+					},
+					"codMode": {
+						"label": "Type de page",
+						"choices": {
+							"auto": "Auto — l'assistant demande",
+							"simple": "Simple — épuré, focalisé commande",
+							"max": "Max — riche, très designé"
+						}
 					}
 				}
 			},

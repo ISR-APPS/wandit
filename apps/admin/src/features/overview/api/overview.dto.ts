@@ -1,12 +1,9 @@
 export type {
-	AdminOverviewCurrency as OverviewCurrency,
-	AdminOverviewFxMetadata as OverviewFxMetadata,
 	AdminOverviewGenerationPoint as OverviewGenerationPoint,
 	AdminOverviewGenerationSummary as OverviewGenerationSummary,
 	AdminOverviewGrowthPoint as OverviewGrowthPoint,
 	AdminOverviewModelUsage as OverviewModelUsage,
-	AdminOverviewPaymentProvider as OverviewPaymentProvider,
-	AdminOverviewProviderRevenue as OverviewProviderRevenue,
+	AdminOverviewQuery as OverviewQuery,
 	AdminOverviewRange as OverviewRange,
 	AdminOverviewRevenuePoint as OverviewRevenuePoint,
 	AdminOverviewRevenueSummary as OverviewRevenueSummary,

@@ -1,0 +1,892 @@
+{
+ "analyses": [
+  {
+   "ref": "13i",
+   "language": "Arabic (Algerian), RTL, with one Darija phrase (\"خلص كي توصلك\") in the hero trust line",
+   "product": "Drill-free silicone shower-head holder (1/2/3-piece packs), COD Algeria",
+   "blockCount": 6,
+   "blockSequence": [
+    {
+     "genreId": "other:sticky-brand-header",
+     "description": "Sticky top bar with brand wordmark (NUMIDIA EXPRESS) and a small pill CTA that anchors to #order-form; stays visible on scroll (sticky top-0 z-50). This page has NO sticky bottom bar — the sticky element is this top header.",
+     "structuralForm": "single-row bar: brand text on one side, rounded-full pill CTA on the other; position:sticky top"
+    },
+    {
+     "genreId": "hero",
+     "description": "Opening unit: square product photo card (teal image with the product name baked into the image as Arabic display text), then eyebrow chip, H1, a subheadline paragraph that contains ALL THREE price tiers in prose, two green-check trust lines, and a full-width anchor CTA.",
+     "structuralForm": "image-first vertical stack on mobile; 2-column grid (image | copy) on desktop; CTA is an anchor link to #order-form, not a form"
+    },
+    {
+     "genreId": "benefits-icons",
+     "description": "Why-you-need-it section: centered H2 plus three icon benefits (instant no-drill install, bathroom organization, saves plumber/tool money), all wrapped in ONE white rounded-2xl card.",
+     "structuralForm": "3-up icon cards (circle icon badge + bold title + 2-line body), stacked on mobile / 3-col grid on desktop, inside a single card container"
+    },
+    {
+     "genreId": "other:captioned-demo-photo-gallery",
+     "description": "Visual-proof section titled 'watch the effectiveness and ease of use': three real product photos, each in a card with a one-line benefit caption below the image (waterproof grip, silicone suction cups, easy to move). Functions as proof — the page has no customer reviews at all.",
+     "structuralForm": "3 photo cards (full-bleed image + caption strip), stacked on mobile / 3-col grid on desktop"
+    },
+    {
+     "genreId": "order-form",
+     "description": "Quick-order card: H2 'fast order — COD' + reassurance microcopy ('we will call you to confirm'), then full name input, intl-tel-input phone field with Algeria flag/+213, a 58-wilaya select, a 3-option quantity radio group (bundles live HERE, nowhere else), and a full-width submit button repeating the hero CTA label.",
+     "structuralForm": "single narrow white card (max-w-xl centered): 3 stacked fields + 3 radio bundle cards + submit; bundle radios show name+badge+savings on the text side and price on the far side"
+    },
+    {
+     "genreId": "trust-footer",
+     "description": "Minimal footer: copyright line (© 2026 Quatre Frères) plus privacy-policy and terms links.",
+     "structuralForm": "centered one-line text + two inline links separated by a dot"
+    }
+   ],
+   "heroAnatomy": [
+    "square product image card (teal studio photo with product name 'حامل الدوش بدون حفر' rendered inside the image itself)",
+    "eyebrow chip: '✨ الحل الذكي للحمامات' (pill, brand-tinted)",
+    "H1: 'ثبّت الدوش في أي مكان يناسبك وبدون حفر!'",
+    "subheadline paragraph carrying the full price ladder in prose: 1 pc 1000 DZD / 2 pcs 1500 DZD / 3 pcs 2000 DZD",
+    "2 green-checkmark trust lines: fast delivery to 69 wilayas; COD with Darija phrase '(خلص كي توصلك)'",
+    "full-width primary CTA 'اطلب الآن — الدفع عند الاستلام' (anchor scroll to #order-form)"
+   ],
+   "pricePlacements": [
+    "hero subheadline prose — all three tier prices written into the paragraph (no standalone price block, no crossed-out anchor price anywhere on the page)",
+    "order-form bundle radio cards — per-option price on the far edge of each card (1000/1500/2000 DZD) plus green 'save 500/1000 DZD' microcopy"
+   ],
+   "ctaPlacements": [
+    "sticky top header: small pill 'اطلب الآن' anchor to #order-form — always visible while scrolling (this replaces a bottom sticky bar)",
+    "hero: full-width button 'اطلب الآن — الدفع عند الاستلام' anchor to #order-form",
+    "order form: submit button with the identical label 'اطلب الآن — الدفع عند الاستلام'"
+   ],
+   "formPosition": "block 5 of 6 — the last content block, directly before the footer (roughly the bottom 20% of the mobile page); both page CTAs anchor-scroll down to it",
+   "bundlePresentation": "Quantity bundles appear exactly once, as 3 radio cards INSIDE the order form under the label 'اختر العرض المناسب لك': 1 pc 1000 DZD ('personal use', default CHECKED), 2 pcs 1500 DZD (visually pre-highlighted card — border-2 brand color + tinted bg — with red 'الأكثر طلباً 🔥' badge and 'save 500 DZD'), 3 pcs 2000 DZD (green 'أفضل توفير 💡' badge, 'save 1000 DZD'). Note the mismatch: the middle tier gets the highlight styling but the single unit is the pre-checked default.",
+   "proofStrategy": "No reviews, testimonials, stats, ratings, or guarantee seal anywhere. Proof is carried by (a) two checkmark trust lines inside the hero (69-wilaya delivery + COD in local dialect) and (b) block 4, a 3-photo captioned demo gallery placed immediately BEFORE the order form as the last persuasion beat; the form header adds reassurance microcopy ('we will call you by phone to confirm before shipping'). Footer only adds privacy/terms links.",
+   "structuralSignature": "An unusually lean 6-block linear funnel: sticky TOP brand header with an anchor pill CTA instead of the genre-standard sticky bottom order bar; the entire price ladder lives in the hero subheadline prose (no price block, no strikethrough anchor price, no countdown/stock urgency); zero social proof — its place is taken by a captioned product-photo demo gallery sitting right before the form; and bundles exist only as radio cards embedded in the end-of-page order form, with the middle tier visually highlighted while the cheapest single unit is the checked default."
+  },
+  {
+   "ref": "13h",
+   "language": "French primary with client-side Arabic toggle (FR/AR bilingual UI, lang=\"fr\" dir=\"ltr\"; footer and gift image carry Arabic strings)",
+   "product": "Women's two-piece sport/loungewear ensemble (Karma Boutique)",
+   "blockCount": 6,
+   "blockSequence": [
+    {
+     "genreId": "other:brand-header",
+     "description": "Sticky top brand bar: serif wordmark 'Karma Boutique' left; Instagram icon plus FR/العربية language-toggle pills right. No CTA, no phone number.",
+     "structuralForm": "single-row sticky bar, wordmark left / icon + pill toggle right"
+    },
+    {
+     "genreId": "hero",
+     "description": "Opening unit: announcement pill (free gift for first 50 orders), social-proof headline 'Rejoignez 10 000+ clientes satisfaites en Algérie', urgency subtext (limited stock), 3 icon trust bullets, then a full-width lifestyle photo of two models wearing the product with a gold brand monogram overlay. No price and no CTA anywhere in the hero.",
+     "structuralForm": "stacked text column then full-bleed rounded photo on mobile; 2-col text-left / photo-right on desktop"
+    },
+    {
+     "genreId": "other:free-gift-showcase",
+     "description": "'Votre Cadeau Offert' gift-with-purchase block: 'OFFRE EXCLUSIVE' chip, centered serif title + subtitle, then one soft rose card ('Le Bandeau Sport Élégant') with a paragraph, 2 icon feature bullets, and a tall collage image (headband fabric colors + women wearing them, 'Cadeaux offertes' sticker text baked into the image).",
+     "structuralForm": "chip + centered heading, then single card with text block over tall portrait collage image"
+    },
+    {
+     "genreId": "photo-reviews",
+     "description": "'Avis de nos clientes' proof block: centered heading + one-line subtitle, then ONE pre-designed 800x1000 collage image (dark branded poster with chat-bubble Darija testimonials, star row, pull-quote, icon strip). No native review cards, no widget — proof is a single static image.",
+     "structuralForm": "centered heading + single full-width rounded collage image (lazy-loaded)"
+    },
+    {
+     "genreId": "order-form",
+     "description": "'Remplissez le formulaire pour commander' — one rounded card holding a 3-numbered-step form: (1) delivery info (name, phone with DZ flag, wilaya select, dependent commune select, address), (2) 'Votre choix' with bundle radio cards, 5 color swatches, 8-size grid (36-50), (3) Yalidine delivery mode radio cards (home vs stop-desk), then an order recap table (product price, delivery fee, total, cash-on-delivery note) and the page's ONLY CTA: gradient pill 'Profiter de l'Offre'.",
+     "structuralForm": "single card, numbered 3-step vertical form: inputs -> radio bundle cards + swatch row + size grid -> delivery radio cards -> recap table -> full-width gradient submit"
+    },
+    {
+     "genreId": "trust-footer",
+     "description": "Bilingual footer: centered FR/AR copyright line, then a 3-link row (Politique de Confidentialité, Instagram, Conditions d'Utilisation) with dot separators, each link bilingual.",
+     "structuralForm": "centered copyright + dot-separated 3-link row"
+    }
+   ],
+   "heroAnatomy": [
+    "sticky brand bar (serif wordmark + Instagram icon + FR/AR toggle pills)",
+    "announcement pill: 'Cadeau Offert (Seulement pour les 50 premières commandes)'",
+    "large serif social-proof headline: 'Rejoignez 10 000+ clientes satisfaites en Algérie'",
+    "urgency subtext: exclusive offer, very limited stock, order before rupture",
+    "3 icon trust bullets: premium quality/soft fabric, surprise gift with today's order, easy size exchange",
+    "full-width rounded lifestyle photo: two models in the product on a sofa, gold monogram overlay",
+    "NO price, NO button — hero ends without any CTA"
+   ],
+   "pricePlacements": [
+    "inside order form step 2: radio card '1 Ensemble' 4500 DA (Prix standard, preselected)",
+    "inside order form step 2: radio card '2 Ensembles' 7800 DA with strikethrough 9000 DA and green 'Économisez 1200 DA !'",
+    "order form recap table: 'Prix du produit: 4500 DA', delivery fee placeholder, 'Total à payer: 4500 DA' in accent pink",
+    "nowhere else on the page — no price appears before the form"
+   ],
+   "ctaPlacements": [
+    "single CTA on the entire page: form submit 'Profiter de l'Offre ->' (gradient pill) at the bottom of the order-form card, block 5 of 6",
+    "no hero CTA, no scroll-anchor buttons, no sticky bottom order bar (the only fixed-bottom element is a cookie-consent banner with 'Accepter')"
+   ],
+   "formPosition": "Block 5 of 6, the last content block before the footer; it starts at roughly 62% of the mobile page height and occupies the bottom third of the page.",
+   "bundlePresentation": "Embedded inside the order form only (step 2 'Sélectionnez votre offre'): two selectable radio cards — 1 Ensemble 4500 DA labeled 'Prix standard' (preselected, pink outline) vs 2 Ensembles 7800 DA with strikethrough 9000 DA and green savings line 'Économisez 1200 DA !'. There is no standalone bundle/pricing section elsewhere on the page.",
+   "proofStrategy": "Layered but light: (1) numeric social proof is the hero HEADLINE itself ('10 000+ clientes satisfaites'), (2) three trust bullets sit in the hero directly under the subtext (quality guarantee, surprise gift, easy exchange), (3) a dedicated proof block (block 4) sits immediately BEFORE the order form and is a single pre-designed collage image containing chat-bubble Darija testimonials, a star row, and a pull-quote — no native review components, (4) a COD reassurance microline ('Paiement en espèces à la livraison (Yalidine)') sits under the form total. The free-gift block (block 3) doubles as value proof.",
+   "structuralSignature": "A minimal 5-content-block funnel (hero, free-gift showcase, one-image reviews collage, 3-step form, footer) with exactly ONE CTA and ZERO prices outside the form — the hero sells with a social-proof headline plus trust bullets and no button, forcing a full scroll to the form. Two moves a generic COD template lacks: a dedicated gift-with-purchase section as the main persuasion block (instead of benefits/how-it-works), and proof outsourced to a single designed collage image rather than review cards; plus a FR/AR language toggle in a sticky brand header."
+  },
+  {
+   "ref": "glowme",
+   "language": "Bilingual French + Arabic (FR is the default; a header pill toggles to Arabic; every text node has an FR and an AR copy)",
+   "product": "GlowMe! cosmetic tint drops (dropper bottle, 3 shades: Lilas, Rose, Rouge)",
+   "blockCount": 6,
+   "blockSequence": [
+    {
+     "genreId": "hero",
+     "description": "Opening viewport: header bar (wordmark + FR/AR language pill), eyebrow pill 'Galerie de marque', giant display wordmark headline, English tagline with one highlighted word, one-line body, 3 shade chips, one CTA 'Voir les teintes' that anchors DOWN to the collection (not to the form), then a large rounded-frame editorial photo with a caption tag '01 / flacon lilas'.",
+     "structuralForm": "stacked text column over a full-width framed photo (desktop: text left, photo right)"
+    },
+    {
+     "genreId": "variant-gallery",
+     "description": "Chapter '01 / La collection': short intro paragraph, then the 3 shades as numbered polaroid-frame portrait cards (Lilas 01, Rose 02, Rouge 03). Cards are tappable shade selectors; a status line under the grid reads 'Teinte choisie : lilas' and tracks the active shade.",
+     "structuralForm": "intro paragraph + 3 stacked full-width photo cards on mobile (3-up row on desktop) + selected-state caption line"
+    },
+    {
+     "genreId": "other:brand-manifesto",
+     "description": "Chapter '02 / manifeste visuel': pure editorial statement — full-bleed photo of the dropper and red bottle beside an oversized 3-line headline 'Couleur. Lumière. GlowMe.', one sentence of subcopy, and a small callout chip. No CTA, no product facts.",
+     "structuralForm": "full-bleed image + oversized stacked display headline + one-sentence subcopy"
+    },
+    {
+     "genreId": "other:scroll-pinned-shade-demo",
+     "description": "Chapter '03 / mood drop': dark inverted section 'Fais tomber la goutte.' with instruction copy ('activate a shade — the photo comes forward, the marker changes color'), the same 3 shades as tilted overlapping polaroid cards, a giant ghost 'Glow' word in the background, and a sticky-pinned scroll interaction (.showpiece-pin uses position: sticky). It is a second, interactive pass over the variant set.",
+     "structuralForm": "dark full-bleed band, headline + micro-copy, 3 tilted overlapping photo cards, scroll-pin"
+    },
+    {
+     "genreId": "order-form",
+     "description": "Chapter '04 / commander': heading 'Ton Glow, à toi.' + one line of copy, then the COD request form: name, phone, shade radio group (Lilas/Rose/Rouge), wilaya + delivery address, optional note, submit 'Envoyer ma demande'. No price, no total, no delivery-fee table. (Note: form content is hidden behind a reveal-on-scroll class, so it did not paint in the mobile capture; HTML and desktop confirm it.)",
+     "structuralForm": "two-column on desktop (heading left, boxed form right); stacked heading-then-form on mobile"
+    },
+    {
+     "genreId": "trust-footer",
+     "description": "Dark footer: big wordmark, 3-line brand descriptor ('Galerie visuelle bilingue. Couleur, lumière, GlowMe.'), divider, copyright, and the closing line 'Une vitrine de collection, pas une boutique' (a showcase, not a shop).",
+     "structuralForm": "single dark column: wordmark, descriptor lines, rule, legal line"
+    }
+   ],
+   "heroAnatomy": [
+    "header bar: brand wordmark left, 'FR / العربية' language toggle pill right (desktop adds anchor nav: COLLECTION, MOOD DROP)",
+    "eyebrow pill: 'GALERIE DE MARQUE'",
+    "display headline: the brand wordmark 'GlowMe!' repeated at poster size",
+    "English subheadline 'Glow in your own color' with the last word color-highlighted",
+    "one-sentence French body copy",
+    "3 shade chips: Lilas, Rose, Rouge",
+    "single pill CTA 'Voir les teintes' with arrow — anchors to #collection, NOT to the order form",
+    "large rounded-corner framed editorial photo (model + lilac bottle) with 'Made with Wandit' badge overlay and caption tag '01 / flacon lilas'"
+   ],
+   "pricePlacements": [
+    "none — no price, no currency amount, and no delivery fee appears anywhere on the page (HTML grep confirms zero DA/DZD values)"
+   ],
+   "ctaPlacements": [
+    "hero: one pill CTA 'Voir les teintes' that scrolls to the collection gallery, not to the form",
+    "desktop header: anchor links COLLECTION and MOOD DROP (navigation, not order CTAs)",
+    "end of page: the form submit button 'Envoyer ma demande' is the only order action on the page",
+    "no sticky bottom order bar exists — the only sticky/fixed elements are a decorative body background, the scroll-pin in the mood-drop section, and the site-builder badge"
+   ],
+   "formPosition": "block 5 of 6 — the last content block, directly before the footer; every earlier beat funnels shade choice toward it",
+   "bundlePresentation": "none — single product in 3 shades; the only 'variant' mechanic is a shade radio group inside the form, pre-seeded by the interactive galleries ('Teinte choisie : lilas'); no quantity tiers, no bundle pricing",
+   "proofStrategy": "none at all — no reviews, testimonials, stats, badges, guarantees, countdowns, or stock urgency anywhere; the page substitutes editorial photography and an interactive demo for proof, and the footer explicitly frames the page as 'a collection showcase, not a shop'",
+   "structuralSignature": "A numbered editorial-lookbook skeleton (01 collection / 02 manifeste visuel / 03 mood drop / 04 commander) instead of the usual COD stack: zero price, zero proof, zero urgency, and a hero CTA that points at the gallery rather than the form. The 3-shade variant set is presented twice — first as a light selectable card gallery, then as a dark scroll-pinned interactive demo — and both feed the shade radio in the single terminal order form; the whole page is fully bilingual FR/AR via a header toggle."
+  },
+  {
+   "ref": "13b",
+   "language": "Arabic (Algerian-dialect inflected), RTL",
+   "product": "10-in-1 multifunction electrician pliers (wire stripper/cutter multi-tool, XTUOSEN 12005)",
+   "blockCount": 6,
+   "blockSequence": [
+    {
+     "genreId": "announcement-bar",
+     "description": "Sticky top header that doubles as announcement bar: product name with pulsing 'live' teal dot on the right, pill chip 'delivery to 69 wilayas' with truck icon on the left. Sticky (top-0 z-40), stays visible on scroll.",
+     "structuralForm": "sticky slim header row: brand line + one pill chip"
+    },
+    {
+     "genreId": "hero",
+     "description": "Opening unit: hype pill badge ('most-requested offer in Algeria now'), H1, subhead, framed product photo with red 20%-off badge, then a self-contained price card (price + strikethrough + COD-after-inspection note + 3 trust chips inside the card), then a full-width anchor CTA to #order-form.",
+     "structuralForm": "centered stack: badge > h1 > subhead > image card > price card w/ embedded trust-chip row > full-width CTA"
+    },
+    {
+     "genreId": "ingredients-infographic",
+     "description": "Section 'specs and features of the professional pliers': one annotated callout diagram image (about 10 labeled parts pointing at the tool) followed by 3 icon benefit cards (strip/cut wires, unscrew and grip pipes, anti-slip insulated grip). Merges ingredients-infographic + benefits-icons into one titled section.",
+     "structuralForm": "h2 with accent bar > full-width annotated image card > stacked 3 icon+text cards (stay 1-col even on desktop)"
+    },
+    {
+     "genreId": "other:use-case-photo-gallery",
+     "description": "Section 'strength and stability in practical use': two demo photos of the tool in action (gripping a pipe with Arabic text baked into the image; steel close-up), each with a one-line caption strip under the photo. Not customer photos — staged product-demo shots.",
+     "structuralForm": "h2 > 2 captioned photo cards (stacked on mobile, 2-up grid on desktop)"
+    },
+    {
+     "genreId": "order-form",
+     "description": "Quick order form in a card with teal 2px border and a floating pill badge ('hurry and order now') overlapping its top edge: title, accuracy note, 5 fields (full name, phone via intl-tel-input locked to Algeria +213 with flag, wilaya, baladiya/commune, full address), submit button that carries a price in its label ('confirm order — 2900 DZD'), privacy reassurance line, plus a hidden success state promising a confirmation phone call.",
+     "structuralForm": "bordered card w/ overlapping top badge > centered title+note > 5 stacked labeled inputs > full-width submit > microcopy"
+    },
+    {
+     "genreId": "trust-footer",
+     "description": "Minimal footer: copyright line with product name, privacy-policy and terms-of-service links. No payment badges, no contact info.",
+     "structuralForm": "centered 2-line text footer"
+    }
+   ],
+   "heroAnatomy": [
+    "hype pill badge: 'the most-requested offer in Algeria right now' with fire emoji",
+    "H1 headline: '10-in-1 wonder pliers: the tool that crushes every job' (Algerian dialect phrasing)",
+    "subheadline paragraph: cuts, strips wires, unscrews, grips pipes — one tool replaces a full toolbag",
+    "framed product photo card with red 'discount 20%' badge pinned top-right of the image",
+    "price card: 3500 DZD large + 4900 DZD strikethrough, line 'pay on delivery (COD) after inspecting the product', divider, then a 3-column icon chip row inside the same card (quality guarantee | delivery to 69 wilayas | pay on delivery)",
+    "full-width teal anchor CTA 'order now — pay on delivery' linking to #order-form"
+   ],
+   "pricePlacements": [
+    "red 'discount 20%' badge overlaid on the hero product image",
+    "hero price card: 3500 DZD current + 4900 DZD strikethrough + COD note",
+    "sticky bottom bar (mobile only): 'current price: 3500 DZD' next to the CTA",
+    "order-form submit button label: 'confirm order — 2900 DZD' — a LOWER price than the 3500 shown everywhere else, i.e. a surprise price drop at the commitment point"
+   ],
+   "ctaPlacements": [
+    "end of hero: full-width anchor CTA to #order-form (after the price card)",
+    "sticky bottom bar, mobile only (fixed, z-50, hidden on md+): price + 'order now — pay on delivery' anchor to #order-form; main gets pb-24 to clear it",
+    "form submit button (block 5) with price baked into the label",
+    "no mid-page CTA between the spec and photo sections — one uninterrupted content run from hero CTA to the form"
+   ],
+   "formPosition": "block 5 of 6 — the last content block, directly before the footer; reached only by anchor jumps from the hero CTA and the sticky bar",
+   "bundlePresentation": "none — single unit price, no quantity or bundle offers anywhere",
+   "proofStrategy": "Zero customer proof: no reviews, testimonials, star ratings, photos of buyers, or stats. All reassurance is front-loaded into the hero: an unverifiable popularity claim badge ('most-requested offer in Algeria'), the trust-chip row embedded in the price card (quality guarantee / 69-wilaya delivery / COD), and the 'pay after inspecting the product' promise; the only later reassurance beats are the privacy line under the submit button and the post-submit promise of a confirmation phone call.",
+   "structuralSignature": "An ultra-short 4-content-section skeleton (hero > annotated spec-infographic + benefit cards > 2-photo use-case gallery > form) that replaces all social proof and urgency mechanics (no reviews, countdown, stock, or bundles) with a technical, catalog-style pitch; its distinctive moves are the price card with an embedded trust-chip row sitting inside the hero, a header that doubles as a delivery-coverage announcement bar, and a hidden price drop revealed only in the submit-button label (2900 vs the advertised 3500 DZD)."
+  },
+  {
+   "ref": "13d",
+   "language": "Arabic (Algerian dialect, RTL) with French-language product infographic images; feminine address in form copy",
+   "product": "Lizze Extreme titanium hair straightener + free hair spray gift",
+   "blockCount": 8,
+   "blockSequence": [
+    {
+     "genreId": "announcement-bar",
+     "description": "Sticky top brand bar with the LIZZE EXTREME wordmark (gold accent), no links or offer text",
+     "structuralForm": "slim sticky header, centered wordmark"
+    },
+    {
+     "genreId": "hero",
+     "description": "Two-line headline (second line gold), supplier poster image, price anchor, free-gift chip, CTA with price recap subline",
+     "structuralForm": "stacked center column: headline / full-width poster image / price row / gift chip / gold pill CTA / recap line"
+    },
+    {
+     "genreId": "benefits-icons",
+     "description": "Four key benefits: 5 heat levels, titanium plates, professional result, 360-degree swivel cable",
+     "structuralForm": "2x2 icon cards on dark panels"
+    },
+    {
+     "genreId": "spec-table",
+     "description": "Temperature guide: heading, French infographic poster, then five rows mapping color-coded temperatures (300-480 C) to hair types, closed by a CTA that embeds the price in its label",
+     "structuralForm": "heading + poster image + 5 stacked key-value rows (colored temp | hair type) + CTA pill + recap line"
+    },
+    {
+     "genreId": "other:poster-feature-deepdive",
+     "description": "Titanium technology section: heading, then two beats of [supplier poster image + one-line Arabic caption + CTA + price recap] - first beat for titanium plates, second for the 360 swivel cable",
+     "structuralForm": "heading + repeated image/caption/CTA triplet (x2)"
+    },
+    {
+     "genreId": "stock-urgency",
+     "description": "Free-gift scarcity block: gift headline pill, pulsing gold warning 'only the last gift of 10 remains', CTA + recap - urgency is on the GIFT, not product stock",
+     "structuralForm": "headline pill + animated alert banner + CTA pill + recap line"
+    },
+    {
+     "genreId": "price-anchor",
+     "description": "Offer reminder card right before the form: red 'special offer' badge, large 7,500 DZD next to struck 9,500 DZD, gift-value chip, red urgency strip, CTA + recap",
+     "structuralForm": "single bordered glass card with badge / price pair / gift chip / alert strip / CTA"
+    },
+    {
+     "genreId": "order-form",
+     "description": "Final block: 'Complete your order now' + COD reassurance line, name / phone / wilaya select / commune, delivery-type radios that appear only after wilaya is chosen, quantity stepper, live order summary (product+gift, delivery, total), gold submit, privacy trust line",
+     "structuralForm": "rounded-top dark sheet, stacked labeled fields, dynamic radio group, summary card, full-width submit"
+    }
+   ],
+   "heroAnatomy": [
+    "sticky brand bar: LIZZE EXTREME wordmark",
+    "two-line Arabic headline, second line in gold (softness and shine from the first pass)",
+    "full-width supplier poster image (French infographic: product shot, 5 temp levels, 360 badge, warranty icons)",
+    "price anchor row: large gold 7,500 DZD + arrow + struck-through 9,500 DZD",
+    "free-gift chip: gift icon + 'Free gift: Spray Miss Claire (worth 499 DZD)'",
+    "gold-gradient pill CTA: 'Claim the offer before the gift ends'",
+    "recap subline: '7,500 instead of 9,500 + gift worth 499 DZD'"
+   ],
+   "pricePlacements": [
+    "hero: price anchor row directly under the poster image",
+    "identical recap subline ('7,500 instead of 9,500 + gift 499') repeated under all 7 in-page CTAs and inside the sticky bar",
+    "temperature-guide CTA embeds the price in its button label ('Claim now at 7,500 DZD')",
+    "price-anchor card before the form: biggest display (5xl gold 7,500 vs struck 9,500)",
+    "order-form summary: product line 7,500, total recomputed after delivery-type choice"
+   ],
+   "ctaPlacements": [
+    "end of hero",
+    "end of temperature guide (spec-table)",
+    "twice inside titanium/cable section, one after each poster+caption beat",
+    "end of gift-scarcity block",
+    "inside the offer-reminder price card",
+    "form submit button",
+    "sticky bottom bar (mobile only, button + price recap subline, auto-hides via IntersectionObserver when the form is in view)"
+   ],
+   "formPosition": "block 8 of 8 - the final block; the page ends on the form sheet with no footer, FAQ, or reviews after it",
+   "bundlePresentation": "none - single-offer page; quantity is a plain stepper inside the form; the bundle role is played by a free gift (499-DZD spray) attached to every CTA and to the order summary",
+   "proofStrategy": "Zero customer proof (no reviews, testimonials, WhatsApp shots, or stats). Proof is manufacturer authority: three French-language brand infographic posters (hero, temperature guide, titanium section x2) carrying certification-style icons (2-year warranty, auto shut-off, intelligent safety, titanium plates), sitting at the hero and mid-page; plus a 'your data is safe' privacy line under the submit button.",
+   "structuralSignature": "A proof-free single-product rhythm machine: six [feature beat -> CTA + identical price/gift recap subline] repetitions before the form, with scarcity attached to the free GIFT ('last of 10 gifts') instead of product stock, a full price-anchor reminder card placed immediately before the form, and a hard stop at the form (no footer, FAQ, or social proof). Uniqueness comes from the metronomic recap subline under every CTA and from supplier infographic posters doing all persuasion imagery."
+  },
+  {
+   "ref": "137",
+   "language": "Arabic (Algerian darija), RTL",
+   "product": "Rugged phone case (ZAVA): slide camera cover, 360 ring, kickstand, MagSafe",
+   "blockCount": 9,
+   "blockSequence": [
+    {
+     "genreId": "other:brand-header",
+     "description": "Slim black bar with centered gold/white ZAVA logo SVG; no nav, no links",
+     "structuralForm": "full-width dark logo bar"
+    },
+    {
+     "genreId": "hero",
+     "description": "Full-bleed pre-rendered image: small logo, 3-line darija headline (expensive phone deserves a matching cover), lifestyle photo of woman holding cased phone; no price, no CTA",
+     "structuralForm": "single baked PNG (800x1200), text and photo composited in image"
+    },
+    {
+     "genreId": "other:feature-demo",
+     "description": "Camera slide-cover demo: heading 'the camera deserves protection', two product states (cover closed vs open) with swap arrows",
+     "structuralForm": "single baked PNG, two-state product comparison with arrow glyph"
+    },
+    {
+     "genreId": "benefits-icons",
+     "description": "'More than just a cover' use-case collage: 360-ring grip, magnetic car mount, built-in stand photos with icon callout bubbles, ending in a 3-chip icon benefit row (protection / materials / practical design)",
+     "structuralForm": "single baked PNG, photo collage + icon-caption pairs + 3-up chip row"
+    },
+    {
+     "genreId": "problem-solution",
+     "description": "Emotional protection beat: 'your phone is expensive... its protection must match' + dramatic drop-impact photo with flying debris",
+     "structuralForm": "single baked PNG, headline over cinematic product photo"
+    },
+    {
+     "genreId": "variant-gallery",
+     "description": "Colors & models section (alt='Colors'); image failed to load in both captures, leaving only its peach #fcece3 background band",
+     "structuralForm": "single baked PNG on colored section background"
+    },
+    {
+     "genreId": "order-form",
+     "description": "'Complete your order now': bundle radio cards, JS-injected per-piece model+color dropdowns, name/phone/wilaya/commune/delivery-type fields, live order summary box, pulsing gold submit; inline hidden success state (green check + 'we will call to confirm') below",
+     "structuralForm": "stacked single-column form: radio bundle cards, then repeated variant selector groups, then contact fields, then summary box, then button"
+    },
+    {
+     "genreId": "benefits-icons",
+     "description": "'Why choose ZAVA?' reassurance grid: fast delivery to 58 wilayas, max protection, cash on delivery, luxury MagSafe design",
+     "structuralForm": "4 emoji-icon cards (emoji + title + one-line desc) on gray band"
+    },
+    {
+     "genreId": "faq",
+     "description": "Dark near-black footer section: gold pill 'inspect the product on receipt', then 4-item accordion FAQ (delivery time bound to the wilaya chosen in the form, inspect-before-pay, MagSafe support, COD)",
+     "structuralForm": "badge pill + gold H2 + accordion list on dark background; doubles as the page footer"
+    }
+   ],
+   "heroAnatomy": [
+    "black brand bar with centered ZAVA logo (separate header element)",
+    "inside hero image: small ZAVA logo at top corner",
+    "3-line darija headline, navy with orange accent line: 'expensive phone... no ordinary cover suits it'",
+    "lifestyle photo filling lower two-thirds: woman on couch holding phone in orange case toward camera, case in sharp foreground focus",
+    "NO price, NO CTA, NO trust chips anywhere in the hero — first order path is the sticky bar or the form"
+   ],
+   "pricePlacements": [
+    "bundle radio cards inside the order form: 3500 DZD (1 piece, + delivery cost) and 7000 DZD (2 pieces, free delivery)",
+    "live order summary box inside the form: offer price, shipping price, final total 7000 DZD",
+    "nowhere above the form — the entire image zone is price-free"
+   ],
+   "ctaPlacements": [
+    "sticky bottom bar (white bar, gold pulsing 'Order now' button) — shown by IntersectionObserver only while the checkout form is off-screen; smooth-scrolls to #order-form",
+    "gold 'Order now' submit button at the end of the order form (pulse-glow keyframe animation, disabled by reduced-motion media query)",
+    "no inline CTA in any of the five top image sections"
+   ],
+   "formPosition": "block 7 of 9 — after five stacked image sections, before the why-us grid and the FAQ footer; starts at roughly 55% of mobile page height",
+   "bundlePresentation": "Two large radio label cards at the very top of the order form: 1x at 3500 DZD '+ delivery cost' vs 2x at 7000 DZD 'free delivery'; the 2-pack is pre-selected and carries a gold 'best savings' badge on its top edge; selecting a bundle injects that many model+color dropdown groups ('Piece #1', 'Piece #2') directly below the cards",
+   "proofStrategy": "Zero social proof — no reviews, no photos of customers, no stats, no testimonials. All reassurance sits BELOW the form: COD and inspection promises in the 4-card 'Why ZAVA' grid (block 8) and a gold 'inspect the product on receipt' pill + FAQ answers (block 9). Above the form, persuasion is purely product-feature imagery.",
+   "structuralSignature": "The persuasion zone is five full-bleed pre-rendered infographic PNGs (Amazon-A+ style) with zero HTML text, prices, or CTAs; every interactive element — bundles, variant pickers, pricing, live totals — is concentrated in one dense form block, with reassurance (why-us cards + dark FAQ footer) placed after the form instead of before it. Distinctive moves: a conditional sticky CTA is the only order path from the image zone; the FAQ delivery-time answer is data-bound to the wilaya dropdown in the form; and the post-submit success state is inline markup right below the form."
+  },
+  {
+   "ref": "13g",
+   "language": "Arabic (Algerian darija phrasing, RTL)",
+   "product": "ZAVA phone case (ring grip, kickstand, slide camera cover, MagSafe) for Samsung",
+   "blockCount": 9,
+   "blockSequence": [
+    {
+     "genreId": "announcement-bar",
+     "description": "Black brand strip with centered ZAVA wordmark (inline SVG, white + gold). No links, no text, no menu.",
+     "structuralForm": "full-width dark logo bar"
+    },
+    {
+     "genreId": "hero",
+     "description": "Full-bleed designed poster image: RTL headline 'expensive phone... not any cover suits it' overlaid on a lifestyle photo (woman + hand holding the cased phone). Logo baked into the image. No price, no CTA, no trust chips.",
+     "structuralForm": "single full-bleed image poster (800x1200), zero HTML text"
+    },
+    {
+     "genreId": "other:feature-poster",
+     "description": "Second full-bleed poster: 'the camera deserves protection' — spotlights the slide camera cover with macro product collage and open/close arrows.",
+     "structuralForm": "single full-bleed image poster (800x1200)"
+    },
+    {
+     "genreId": "benefits-icons",
+     "description": "Baked-image infographic 'more than just a cover': product centered, 3 icon callouts flanking it (360 ring grip, magnetic car mount, built-in stand), then a 3-up chip row (strong protection / quality materials / practical design).",
+     "structuralForm": "full-bleed image poster (800x1422) that emulates an icon-callout layout"
+    },
+    {
+     "genreId": "problem-solution",
+     "description": "Poster 'your phone is expensive... its protection must match it' + action shot of the case hitting dirt (durability demo).",
+     "structuralForm": "full-bleed image poster (800x1422): headline top, drop-test photo below"
+    },
+    {
+     "genreId": "variant-gallery",
+     "description": "'Colors & Models' lazy image on a pink #fcece3 section (did not load in either capture; alt text and HTML comment confirm a colors/models showcase).",
+     "structuralForm": "full-bleed image poster (800x1422)"
+    },
+    {
+     "genreId": "order-form",
+     "description": "'Complete your order now': radio bundle cards at the top of the form, then JS-injected per-piece model + color dropdowns (one group per piece), then name / phone / wilaya select / commune / delivery-type (home vs courier office), a live order-summary box (offer, products, delivery method, shipping price, delivery time, final total), and a gold 'Order now' submit. A hidden success state replaces the form after submit.",
+     "structuralForm": "heading + radio bundle cards + dynamic variant groups + stacked fields + summary box + full-width button"
+    },
+    {
+     "genreId": "benefits-icons",
+     "description": "'Why choose ZAVA?' reassurance grid: fast delivery to 58 wilayas, max shock protection, cash on delivery (pay after you inspect), luxury MagSafe design.",
+     "structuralForm": "2x2 emoji icon cards on light gray band"
+    },
+    {
+     "genreId": "faq",
+     "description": "Dark closing section: gold pill 'inspect the product on delivery' above a 4-item accordion (delivery time, inspect-before-pay, MagSafe support, COD). The first answer is live-bound to the wilaya chosen in the form and shows that wilaya's delivery time.",
+     "structuralForm": "dark band: centered trust pill + heading + accordion list; page ends here, no footer"
+    }
+   ],
+   "heroAnatomy": [
+    "black brand bar with ZAVA SVG wordmark (block 1, above the hero image)",
+    "full-bleed poster image starts: small ZAVA logo in top corner (baked into image)",
+    "overlaid RTL headline with two-color emphasis: 'expensive phone... not any cover suits it'",
+    "lifestyle photo: woman on couch, hand holding phone in orange case",
+    "no price, no CTA, no trust chips anywhere in the hero — first CTA is the sticky bar"
+   ],
+   "pricePlacements": [
+    "inside the order form's two bundle radio cards (3500 DZD single + delivery cost; 7000 DZD pair, free delivery) — first element of the form, ~56% down the page",
+    "live order-summary box lower in the form (offer price, shipping price, final total in DZD)",
+    "nowhere before the form: no hero price, no crossed-out anchor price anywhere"
+   ],
+   "ctaPlacements": [
+    "sticky bottom bar 'Order now' (gold pulsing button, anchor link to #order-form) — shown by an IntersectionObserver whenever the checkout form is off-screen, hidden while the form is visible; this is the ONLY CTA for the entire pre-form image funnel",
+    "gold 'Order now' submit button at the end of the form (block 7)",
+    "no inline CTAs between image sections and none after the form"
+   ],
+   "formPosition": "block 7 of 9 — after all five image-poster sections, before the why-choose grid and the FAQ; starts ~56% down the mobile page (y≈3320 of 5987)",
+   "bundlePresentation": "Two stacked radio label cards as the FIRST element inside the form: '1 piece — 3500 DZD + delivery cost' vs '2 pieces — 7000 DZD, free delivery' with a gold 'best savings' badge; the 2-pack is preselected (gold border highlight). Choosing the pair injects two 'Piece #1 / Piece #2' model + color dropdown groups via JS; free delivery is the pair's discount lever (no crossed-out prices).",
+   "proofStrategy": "No reviews, testimonials, customer photos, or stats anywhere. Proof = (a) five polished branded photography posters before the form, (b) AFTER the form: a 2x2 reassurance card grid (58-wilaya delivery, shock protection, COD pay-after-inspection, MagSafe), (c) a gold 'inspect the product on delivery' pill at the top of the dark FAQ, (d) FAQ answers as objection handling — the delivery-time answer updates live from the wilaya selected in the form. All explicit trust content sits below the form.",
+   "structuralSignature": "The entire pre-form page is five stacked full-bleed designed image posters (all copy, icons, and layouts baked into CDN images — zero HTML text sections), then one text-heavy order form; price and CTA are fully withheld until the form, with an IntersectionObserver sticky bar as the only bridge. Trust content (reassurance grid + dark FAQ with a form-linked dynamic delivery-time answer) comes only AFTER the form, and the page has no footer, no urgency, and no reviews."
+  }
+ ],
+ "synthesis": {
+  "skeletons": [
+   {
+    "name": "poster-funnel-trust-after",
+    "blockOrder": [
+     "announcement-bar",
+     "hero",
+     "problem-solution",
+     "benefits-icons",
+     "variant-gallery",
+     "order-form",
+     "faq",
+     "sticky-cta"
+    ],
+    "refs": [
+     "137",
+     "13g"
+    ],
+    "notes": "The pre-form zone is pure product imagery with no price and no inline CTA. The sticky bottom bar is the only order path before the form (IntersectionObserver hides it when the form is visible). Trust content (why-us grid, FAQ with COD and inspect-on-delivery answers) sits AFTER the form. Note: the raw refs put price and CTA only in the form; under the hero-economy law the hero must gain price + CTA + trust chips, so this skeleton keeps its ORDER but not its price-free hero. Counted content blocks: hero, problem-solution, benefits-icons, variant-gallery (or faq), order-form; announcement-bar/sticky-cta are chrome."
+   },
+   {
+    "name": "technical-catalog",
+    "blockOrder": [
+     "announcement-bar",
+     "hero",
+     "ingredients-infographic",
+     "unboxing-gallery",
+     "order-form",
+     "trust-footer",
+     "sticky-cta"
+    ],
+    "refs": [
+     "13b"
+    ],
+    "notes": "Ultra-short spec pitch: hero holds a price card with embedded trust chips and a full-width anchor CTA; then one annotated-parts infographic plus icon benefit cards; then a 2-3 photo use-case gallery (mapped to unboxing-gallery, the nearest id — these are staged demo photos, not customer photos); then the form as the last content block. Zero social proof, zero urgency mechanics. The header doubles as an announcement bar (delivery-coverage pill)."
+   },
+   {
+    "name": "offer-metronome",
+    "blockOrder": [
+     "announcement-bar",
+     "hero",
+     "benefits-icons",
+     "spec-table",
+     "stock-urgency",
+     "price-anchor",
+     "order-form",
+     "sticky-cta"
+    ],
+    "refs": [
+     "13d"
+    ],
+    "notes": "A rhythm machine: each support block ends with the same CTA + identical price/gift recap subline (6 repetitions before the form). Urgency attaches to a free GIFT, not stock. A full price-anchor reminder card sits immediately before the form. Hard stop at the form: no footer, no FAQ, no proof. At 8 raw blocks this exceeds the 6-block law; the compliant cut merges stock-urgency into the price-anchor card: hero, benefits-icons, spec-table, price-anchor(+gift urgency), order-form. Fully fact-free — needs no supplied reviews."
+   },
+   {
+    "name": "gift-proof-minimal",
+    "blockOrder": [
+     "hero",
+     "cross-sell",
+     "photo-reviews",
+     "order-form",
+     "trust-footer"
+    ],
+    "refs": [
+     "13h"
+    ],
+    "notes": "Five content blocks, exactly ONE CTA (the form submit), zero prices outside the form. The hero sells with a numeric social-proof headline plus trust bullets. Main persuasion block is a gift-with-purchase showcase (mapped to cross-sell, the nearest id). Proof is one designed collage image placed directly BEFORE the form. Under the hero-economy law the hero must gain price + CTA; under the spine law a sticky-cta must be added (the ref has none). photo-reviews REQUIRES supplied review assets — fact-free fallback: swap to faq or guarantee-seal."
+   },
+   {
+    "name": "lean-demo-funnel",
+    "blockOrder": [
+     "announcement-bar",
+     "hero",
+     "benefits-icons",
+     "unboxing-gallery",
+     "order-form",
+     "trust-footer",
+     "sticky-cta"
+    ],
+    "refs": [
+     "13i"
+    ],
+    "notes": "Lean linear funnel. The sticky element is a TOP header with a small anchor pill CTA (no bottom bar). The full price ladder lives in the hero subheadline prose. Zero social proof — its slot is filled by a 3-photo captioned demo gallery placed right before the form (mapped to unboxing-gallery). Bundles exist only as radio cards inside the form. This ref is fully law-compatible as-is."
+   },
+   {
+    "name": "editorial-lookbook",
+    "blockOrder": [
+     "hero",
+     "variant-gallery",
+     "before-after",
+     "order-form",
+     "trust-footer"
+    ],
+    "refs": [
+     "glowme"
+    ],
+    "notes": "Numbered-chapter lookbook: the variant set is shown twice (selectable gallery, then interactive dark demo — the second pass mapped to before-after as nearest interactive-visual id) and both feed the variant radio in the terminal form. The raw ref has NO price, NO proof, NO sticky bar and its hero CTA points at the gallery, which violates hero-economy and spine laws. Usable only as an adapted archetype for variant-rich products: hero (with law-mandated price/CTA/chips), variant-gallery, one more visual beat, form, plus mandatory sticky-cta."
+   }
+  ],
+  "variationDimensions": [
+   {
+    "dimension": "support-block choice (blocks between hero and form)",
+    "observedValues": [
+     "problem-solution poster (137,13g)",
+     "benefits-icons grid (137,13d,13g,13i)",
+     "ingredients-infographic / annotated parts diagram (13b)",
+     "spec-table / temperature guide (13d)",
+     "captioned demo photo gallery (13b,13i)",
+     "variant/colors gallery (137,13g,glowme x2)",
+     "free-gift showcase (13h)",
+     "photo-reviews collage (13h)",
+     "stock-urgency on a gift (13d)",
+     "price-anchor reminder card (13d)",
+     "editorial brand manifesto (glowme)"
+    ]
+   },
+   {
+    "dimension": "form position",
+    "observedValues": [
+     "last content block before footer or page end (13b,13d,13h,13i,glowme)",
+     "mid-page with reassurance grid + FAQ AFTER the form (137,13g — form at ~55-56% of page height)"
+    ]
+   },
+   {
+    "dimension": "hero internal composition and order",
+    "observedValues": [
+     "badge > H1 > subhead > image > price-card-with-embedded-trust-chips > CTA (13b)",
+     "headline > poster image > price row > gift chip > CTA > recap line (13d)",
+     "image-first > eyebrow chip > H1 > price ladder in prose > checkmark trust lines > CTA (13i)",
+     "price-free CTA-free image poster (137,13g,13h — violates the hero-economy law; order pattern only)",
+     "gallery-anchor CTA hero (glowme — violates law)"
+    ]
+   },
+   {
+    "dimension": "price disclosure strategy",
+    "observedValues": [
+     "hero price card + strikethrough (13b)",
+     "price ladder written into hero prose, no strikethrough (13i)",
+     "identical price recap subline repeated under every CTA (13d)",
+     "price fully withheld until the form (137,13g,13h)",
+     "no price at all (glowme — not law-compatible)"
+    ]
+   },
+   {
+    "dimension": "CTA cadence",
+    "observedValues": [
+     "single CTA on the whole page (13h)",
+     "hero CTA + sticky + form submit, nothing mid-page (13b,13i)",
+     "CTA + recap after every content block, 7 total (13d)",
+     "sticky bar as the ONLY pre-form order path (137,13g)"
+    ]
+   },
+   {
+    "dimension": "sticky element type",
+    "observedValues": [
+     "bottom bar with IntersectionObserver hide-when-form-visible (137,13g,13d)",
+     "bottom bar mobile-only with price line (13b)",
+     "sticky TOP header with anchor pill CTA, no bottom bar (13i)",
+     "none (13h,glowme — violates the spine law)"
+    ]
+   },
+   {
+    "dimension": "proof strategy and placement",
+    "observedValues": [
+     "zero proof anywhere (13b,13d,13i,glowme,137,13g)",
+     "single pre-designed reviews collage image directly before the form (13h)",
+     "numeric social proof as the hero headline (13h)",
+     "trust chips embedded in the hero price card (13b)",
+     "trust/reassurance placed AFTER the form as why-us grid + FAQ (137,13g)",
+     "demo photo gallery standing in for proof right before the form (13i)"
+    ]
+   },
+   {
+    "dimension": "bundle / offer presentation",
+    "observedValues": [
+     "radio bundle cards as the FIRST element inside the form (137,13g,13h,13i)",
+     "no bundles, single price + quantity stepper (13b,13d)",
+     "free gift as the offer lever instead of a bundle (13d,13h)",
+     "no standalone bundle-offers block observed in ANY ref — bundles always live inside the form"
+    ]
+   },
+   {
+    "dimension": "urgency mechanics",
+    "observedValues": [
+     "none (137,13b,13g,13i,glowme)",
+     "scarcity on the free gift, not on stock (13d)",
+     "first-50-orders gift pill + limited-stock subtext in the hero (13h)"
+    ]
+   },
+   {
+    "dimension": "top bar type",
+    "observedValues": [
+     "brand-only dark logo bar (137,13g)",
+     "sticky header doubling as delivery-coverage announcement (13b)",
+     "sticky brand bar with language toggle FR/AR (13h,glowme)",
+     "sticky brand bar with anchor pill CTA (13i)"
+    ]
+   },
+   {
+    "dimension": "post-form tail",
+    "observedValues": [
+     "hard stop, no footer (13d)",
+     "minimal trust-footer with legal links (13b,13h,13i,glowme)",
+     "reassurance card grid + dark FAQ, no footer (137,13g)"
+    ]
+   },
+   {
+    "dimension": "rendering medium of persuasion blocks",
+    "observedValues": [
+     "baked full-bleed infographic PNGs, zero HTML text (137,13g)",
+     "supplier poster images + HTML captions (13d)",
+     "native HTML sections with real photos (13b,13i,13h,glowme)"
+    ]
+   }
+  ],
+  "proposedLevers": [
+   {
+    "lever": "skeleton (one roll picks the whole ordered block plan; each option satisfies 4-6 content blocks + spine; hero always carries the full hero-economy payload)",
+    "options": [
+     {
+      "value": "poster-funnel-trust-after: hero > problem-solution > benefits-icons > order-form > faq (+sticky-cta bottom bar). Fact-free by construction — no proof blocks. Trust lives in the post-form faq.",
+      "weight": 0.26,
+      "groundedIn": "137, 13g"
+     },
+     {
+      "value": "technical-catalog: hero > ingredients-infographic > unboxing-gallery > order-form > trust-footer (+sticky-cta). Fallback: when the brief supplies no annotated diagram or demo photos, swap ingredients-infographic to spec-table and unboxing-gallery to how-it-works-steps (both generated from supplied product facts only).",
+      "weight": 0.18,
+      "groundedIn": "13b"
+     },
+     {
+      "value": "offer-metronome: hero > benefits-icons > spec-table > price-anchor (with gift/offer urgency strip merged in) > order-form (+sticky-cta). Every support block ends with CTA + identical price recap subline. Fully fact-free — no proof blocks.",
+      "weight": 0.18,
+      "groundedIn": "13d"
+     },
+     {
+      "value": "gift-proof-minimal: hero > cross-sell (gift showcase) > photo-reviews > order-form > trust-footer (+sticky-cta added to satisfy spine). GATED: run only when the brief supplies a gift AND review assets. Fallback: no reviews -> replace photo-reviews with faq; no gift -> replace cross-sell with benefits-icons (degrades into lean-demo shape).",
+      "weight": 0.12,
+      "groundedIn": "13h"
+     },
+     {
+      "value": "lean-demo-funnel: hero > benefits-icons > unboxing-gallery > order-form > trust-footer (+sticky-cta as TOP header pill). Fallback: no supplied product photos for the gallery -> how-it-works-steps.",
+      "weight": 0.18,
+      "groundedIn": "13i"
+     },
+     {
+      "value": "variant-lookbook: hero > variant-gallery > benefits-icons > order-form > trust-footer (+sticky-cta). GATED: run only when the product has 3+ visual variants with supplied photos; the gallery pre-seeds the variant field in the form. Fallback when gated out: reroll skeleton.",
+      "weight": 0.08,
+      "groundedIn": "glowme (adapted: law-mandated price/CTA/chips added to hero), plus variant-gallery slots in 137/13g"
+     }
+    ]
+   },
+   {
+    "lever": "hero internal order (permutation of the mandatory hero-economy elements; contents fixed by law, order rolls)",
+    "options": [
+     {
+      "value": "badge > headline > subhead > product image (discount badge overlay) > price card with embedded 2-3 trust chips > full-width CTA",
+      "weight": 0.35,
+      "groundedIn": "13b"
+     },
+     {
+      "value": "headline (2-line, accent second line) > product image > price row (struck old + large new) > offer/gift chip > CTA > one-line price recap",
+      "weight": 0.3,
+      "groundedIn": "13d"
+     },
+     {
+      "value": "product image FIRST > eyebrow chip > headline > price woven into subheadline prose + struck old price > checkmark trust lines > full-width CTA",
+      "weight": 0.25,
+      "groundedIn": "13i"
+     },
+     {
+      "value": "trust/social eyebrow pill > headline > trust chips > full-bleed lifestyle image > price row > CTA (image-dominant close)",
+      "weight": 0.1,
+      "groundedIn": "13h hero order + law-mandated price/CTA additions (13h itself withholds them)"
+     }
+    ]
+   },
+   {
+    "lever": "proof slot content (rolls only for skeletons with a proof/pre-form persuasion slot; asset-gated with mandatory fact-free fallback)",
+    "options": [
+     {
+      "value": "photo-reviews as ONE designed collage directly before the form — ONLY when the brief supplies real reviews/photos",
+      "weight": 0.25,
+      "groundedIn": "13h"
+     },
+     {
+      "value": "fact-free fallback A: captioned product demo photo gallery right before the form (supplied product photos only)",
+      "weight": 0.3,
+      "groundedIn": "13i, 13b"
+     },
+     {
+      "value": "fact-free fallback B: faq accordion as objection handling (COD, inspect-on-delivery, delivery time) — placeable after the form",
+      "weight": 0.25,
+      "groundedIn": "137, 13g"
+     },
+     {
+      "value": "fact-free fallback C: trust chips embedded in the hero price card + reassurance microcopy under the submit button, no dedicated proof block",
+      "weight": 0.2,
+      "groundedIn": "13b, 13d"
+     }
+    ]
+   },
+   {
+    "lever": "sticky-cta form (spine-mandated; only its form rolls)",
+    "options": [
+     {
+      "value": "bottom bar with pulsing CTA, IntersectionObserver hides it while the form is on screen",
+      "weight": 0.4,
+      "groundedIn": "137, 13g, 13d"
+     },
+     {
+      "value": "bottom bar (mobile-only) with current price text + CTA anchor",
+      "weight": 0.3,
+      "groundedIn": "13b, 13d"
+     },
+     {
+      "value": "sticky TOP header pill CTA instead of a bottom bar (brand wordmark + small anchor pill)",
+      "weight": 0.3,
+      "groundedIn": "13i"
+     }
+    ]
+   },
+   {
+    "lever": "CTA cadence between hero and form",
+    "options": [
+     {
+      "value": "hero CTA + sticky + form submit only; no mid-page CTAs",
+      "weight": 0.45,
+      "groundedIn": "13b, 13i"
+     },
+     {
+      "value": "metronome: CTA + identical price recap subline at the end of EVERY support block",
+      "weight": 0.25,
+      "groundedIn": "13d"
+     },
+     {
+      "value": "sticky-only bridge: no inline CTAs between hero and form, sticky bar carries the whole journey (pairs only with poster-funnel skeleton)",
+      "weight": 0.3,
+      "groundedIn": "137, 13g"
+     }
+    ]
+   },
+   {
+    "lever": "offer presentation inside the form (bundles never roll as a standalone block — no ref shows one)",
+    "options": [
+     {
+      "value": "2-3 radio bundle cards as the FIRST form element, best-value tier badged; multi-piece selection injects per-piece variant selectors",
+      "weight": 0.45,
+      "groundedIn": "137, 13g, 13h, 13i"
+     },
+     {
+      "value": "single price + quantity stepper; free gift attached to the offer and echoed in the order summary",
+      "weight": 0.3,
+      "groundedIn": "13d"
+     },
+     {
+      "value": "single price, no bundles, no stepper — pure 5-field quick form",
+      "weight": 0.25,
+      "groundedIn": "13b"
+     }
+    ]
+   },
+   {
+    "lever": "post-form tail",
+    "options": [
+     {
+      "value": "hard stop: page ends on the form sheet, no footer",
+      "weight": 0.25,
+      "groundedIn": "13d"
+     },
+     {
+      "value": "minimal trust-footer: copyright + privacy/terms links",
+      "weight": 0.45,
+      "groundedIn": "13b, 13h, 13i, glowme"
+     },
+     {
+      "value": "reassurance why-us grid + dark faq (with wilaya-bound delivery-time answer) after the form, doubling as the footer (pairs with poster-funnel skeleton)",
+      "weight": 0.3,
+      "groundedIn": "137, 13g"
+     }
+    ]
+   },
+   {
+    "lever": "top bar type",
+    "options": [
+     {
+      "value": "slim dark brand-only logo bar",
+      "weight": 0.3,
+      "groundedIn": "137, 13g"
+     },
+     {
+      "value": "announcement-bar: sticky header with product name + delivery-coverage pill",
+      "weight": 0.35,
+      "groundedIn": "13b"
+     },
+     {
+      "value": "sticky brand bar with FR/AR language toggle",
+      "weight": 0.15,
+      "groundedIn": "13h, glowme"
+     },
+     {
+      "value": "sticky brand bar with anchor pill CTA (merges with the top-pill sticky-cta option)",
+      "weight": 0.2,
+      "groundedIn": "13i"
+     }
+    ]
+   }
+  ],
+  "risks": [
+   "Fact-gated blocks: the dice can pick photo-reviews, video-testimonial, whatsapp-proof, press-badges, or variant-gallery when the brief supplies no such assets. The sampler must gate these options on brief facts BEFORE the roll (filter, then renormalize weights) — a post-roll fallback that silently swaps blocks makes the recipe and the rendered page disagree.",
+   "Law collisions inside proven refs: 3 of 7 refs (137, 13g, 13h) have price-free, CTA-free heroes and glowme has no price at all — these exact patterns violate the hero-economy law. If the skeleton generator copies ref heroes verbatim, it ships illegal pages; the archetypes must inherit ORDER only, with the mandatory hero payload injected.",
+   "Correlated dice producing incoherent pages: the sticky-only CTA cadence only makes sense with the poster-funnel skeleton; the metronome cadence assumes text-based support blocks with recap sublines; a top-pill sticky-cta plus a bottom bar doubles the chrome. The sampler needs pairing constraints (cadence and tail conditioned on skeleton) or the whole-skeleton lever should absorb them.",
+   "Form-too-early / trust-after-form risk: the mid-page-form + trust-after pattern (137/13g) is proven only for visually rich, branded products with polished poster imagery. Rolled onto a text-heavy generic product, the buyer hits the form with weak persuasion and the post-form FAQ is never read. Weight this skeleton down when the brief has few images.",
+   "Block-count accounting ambiguity: whether announcement-bar, sticky-cta, and trust-footer count toward the 4-6 law changes every skeleton's legality (13d is 8 raw blocks). The recipe must fix one convention (chrome excluded; hero + supports + order-form counted) and the validator must enforce it, or dice output will oscillate between legal and illegal.",
+   "Collision with the chat brain's SECTIONS list: the dice emit vocabulary ids, but several observed blocks have no exact id (use-case photo gallery, free-gift showcase, brand manifesto, feature posters) and were mapped to nearest ids (unboxing-gallery, cross-sell, before-after). If the chat brain's SECTIONS list or editor uses different ids or does not know these blocks, post-build edits and regenerations will desync. Freeze one shared id registry.",
+   "Bundle-offers as a standalone block is UNPROVEN: all 7 refs put bundles inside the form. If the sampler can roll a standalone bundle-offers block (as in today's converged skeleton), it leaves the evidence base; prefer the in-form radio-card presentation.",
+   "Determinism and edit stability: without a persisted seed per project, a rebuild rerolls the structure and destroys the user's mental map and any manual edits. Store the rolled recipe with the project and reroll only on explicit request.",
+   "Ref quirks that must NOT become levers: 13b's hidden price drop in the submit label (2900 vs advertised 3500) is a dark pattern; 13i's mismatch between the highlighted tier and the pre-checked tier is likely a bug; 137/13g's variant-gallery image failed to load in both captures (unverified block). Copying these degrades trust or ships broken sections.",
+   "Baked-image persuasion zones (137/13g posters) are not generatable without supplied designed assets; if the poster-funnel skeleton rolls for a brief with plain photos, the renderer must fall back to native HTML sections or the page loses its entire persuasion mechanism.",
+   "Small sample size: 7 refs, 2 of them near-duplicates (137/13g) and 1 not a real shop (glowme). Effective evidence is ~5 archetypes; weights are priors, not measurements. Instrument conversion per rolled recipe and re-weight from live data."
+  ]
+ }
+}

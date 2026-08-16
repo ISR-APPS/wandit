@@ -2,6 +2,8 @@
 //
 // If you add a new table file and want it in the root schema, export it here.
 
+// Academy guide tables.
+export * from "./academy";
 // Affiliate programs, attribution, commissions, and payouts.
 export * from "./affiliates";
 // Generated page/artifact tables.
@@ -10,10 +12,14 @@ export * from "./artifacts";
 export * from "./auth";
 // Billing tables.
 export * from "./billing";
+// Subscription cancellation survey tables.
+export * from "./cancellation-reasons";
 // Chat and message tables.
 export * from "./chats";
 // Connector (MCP) background generation attempt tables.
 export * from "./connector-generation-attempts";
+// Connector provider operation analytics tables.
+export * from "./connector-operation-events";
 // Credit ledger tables.
 export * from "./credits";
 // Deployment tables.
@@ -32,6 +38,10 @@ export * from "./marketing-assets";
 export * from "./mcp-connectors";
 // Image-to-video generation attempt tables.
 export * from "./media-generation-attempts";
+// Monthly cost input tables.
+export * from "./monthly-costs";
+// User onboarding questionnaire answers.
+export * from "./onboarding";
 // Payment order tables.
 export * from "./orders";
 // Organization (Teams/Workspaces) tables — Better Auth org plugin models +
@@ -39,5 +49,13 @@ export * from "./orders";
 export * from "./organizations";
 // Page generation attempt tables.
 export * from "./page-attempts";
+// Authenticated product intent event tables.
+export * from "./product-events";
 // Project tables.
 export * from "./projects";
+// Story-link campaign and click analytics tables.
+export * from "./story-links";
+// Authenticated-user daily activity analytics.
+export * from "./user-activity";
+// Signup acquisition attribution.
+export * from "./user-attributions";

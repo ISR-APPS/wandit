@@ -30,6 +30,10 @@ export type AffiliateTableRow = {
 	uniqueVisitorCount: number;
 	attributedUserCount: number;
 	paidCustomerCount: number;
+	healthyTrials: number;
+	churnedCustomers: number;
+	referredMrrCents: number;
+	referredLtvCents: number | null;
 	paidInvoiceCount: number;
 	lastConversionAt: string | null;
 	currencies: AffiliateCurrencyAggregate[];

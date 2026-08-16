@@ -1,4 +1,4 @@
-import { Inject, Injectable, Optional } from "@nestjs/common";
+import { Inject, Injectable, Logger, Optional } from "@nestjs/common";
 import { CHECKOUT_PURPOSE, parsePriceLookupKey } from "@wandit/contracts";
 import type Stripe from "stripe";
 
@@ -18,6 +18,7 @@ import type { SubscriptionRow } from "../../infrastructure/persistence/subscript
 import { PaymentRefundsService } from "./payment-refunds.service";
 import { StripeSubscriptionSyncService } from "./stripe-subscription-sync.service";
 import { SubscriptionCreditsService } from "./subscription-credits.service";
+import { SubscriptionLifecycleService } from "./subscription-lifecycle.service";
 
 export type StripeEventRouteResult =
 	| {
@@ -30,6 +31,8 @@ const PROCESSED = { status: "processed" } as const;
 
 @Injectable()
 export class StripeEventRouter {
+	private readonly logger = new Logger(StripeEventRouter.name);
+
 	constructor(
 		@Inject(BillingCustomersRepository)
 		private readonly billingCustomersRepository: BillingCustomersRepository,
@@ -52,6 +55,9 @@ export class StripeEventRouter {
 		@Optional()
 		@Inject(AffiliateClawbackService)
 		private readonly affiliateClawbackService?: AffiliateClawbackService,
+		@Optional()
+		@Inject(SubscriptionLifecycleService)
+		private readonly subscriptionLifecycleService?: SubscriptionLifecycleService,
 	) {}
 
 	async route(event: Stripe.Event): Promise<StripeEventRouteResult> {
@@ -69,6 +75,8 @@ export class StripeEventRouter {
 				return this.routeFailedCheckout(event.data.object);
 			case "customer.subscription.created":
 			case "customer.subscription.updated":
+				await this.recordBillingHistory(event);
+				return this.routeSubscriptionSync(event.data.object);
 			case "customer.subscription.paused":
 			case "customer.subscription.resumed":
 			case "customer.subscription.pending_update_applied":
@@ -76,12 +84,15 @@ export class StripeEventRouter {
 			case "customer.subscription.trial_will_end":
 				return this.routeSubscriptionSync(event.data.object);
 			case "customer.subscription.deleted":
+				await this.recordBillingHistory(event);
 				return this.routeDeletedSubscription(event.data.object);
 			case "invoice.paid":
 				return this.routePaidInvoice(event.data.object);
 			case "invoice.upcoming":
 				return this.routeUpcomingInvoice(event.data.object);
 			case "invoice.payment_failed":
+				await this.recordBillingHistory(event);
+				return this.routeInvoiceSync(event.data.object);
 			case "invoice.payment_action_required":
 			case "invoice.marked_uncollectible":
 				return this.routeInvoiceSync(event.data.object);
@@ -101,6 +112,7 @@ export class StripeEventRouter {
 					"canceled",
 				);
 			case "charge.refunded":
+				await this.recordBillingHistory(event);
 				return this.routeChargeRefunded(event.data.object);
 			case "charge.refund.updated":
 			case "refund.updated":
@@ -114,6 +126,17 @@ export class StripeEventRouter {
 				return this.skipped(
 					`Stripe event type ${event.type} is not allowlisted`,
 				);
+		}
+	}
+
+	private async recordBillingHistory(event: Stripe.Event): Promise<void> {
+		try {
+			await this.subscriptionLifecycleService?.recordEvent(event);
+		} catch (error) {
+			this.logger.error(
+				`Could not record billing history for Stripe event ${event.id}: ${error instanceof Error ? error.message : String(error)}`,
+				error instanceof Error ? error.stack : undefined,
+			);
 		}
 	}
 
@@ -347,7 +370,10 @@ export class StripeEventRouter {
 					metadataOrganizationId,
 				);
 
-			if (!orgCustomer || orgCustomer.providerCustomerId !== providerCustomerId) {
+			if (
+				!orgCustomer ||
+				orgCustomer.providerCustomerId !== providerCustomerId
+			) {
 				throw new Error(
 					`Stripe checkout session ${session.id} customer does not match organization ${metadataOrganizationId}`,
 				);

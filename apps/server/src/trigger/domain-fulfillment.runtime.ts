@@ -156,6 +156,11 @@ const triggerDomainLogger: DomainFulfillmentLogger = {
 function createDomainCore(db: Database, options: ConfigurationRuntimeOptions) {
 	const infrastructure = createDomainInfrastructure(db, options.logger);
 	const activation = new DomainActivationStep({
+		activateExternalDomain: (domainId, statuses) =>
+			infrastructure.domains.activateAndClearExternalVerification(
+				domainId,
+				statuses,
+			),
 		deleteCustomHostname: (id) =>
 			infrastructure.customHostnames.deleteCustomHostname(id),
 		deleteDomainPointer: (name) =>
@@ -184,6 +189,8 @@ function createDomainCore(db: Database, options: ConfigurationRuntimeOptions) {
 			findDomain: (domainId) => infrastructure.domains.getById(domainId),
 			initializeCursor: (domainId, input) =>
 				infrastructure.domains.initializeCursor(domainId, input),
+			markExternalVerificationStalled: (domainId, input) =>
+				infrastructure.domains.markExternalVerificationStalled(domainId, input),
 			readCursor: (domainId) => infrastructure.domains.readCursor(domainId),
 		},
 		now: options.now ?? (() => new Date()),

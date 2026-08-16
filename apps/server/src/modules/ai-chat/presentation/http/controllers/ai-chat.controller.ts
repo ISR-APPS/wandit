@@ -19,7 +19,7 @@ import {
 import { validateUIMessages } from "ai";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
-
+import { readRequestCountryCode } from "../../../../../infrastructure/http/request-country-code";
 import { SkipResponseEnvelope } from "../../../../../infrastructure/http/skip-envelope.decorator";
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import {
@@ -240,25 +240,6 @@ export function assertOwnedFileParts(
 			}
 		}
 	}
-}
-
-/**
- * Country of the visitor as reported by the trusted edge (Vercel proxy or
- * Cloudflare). Best-effort context, not security input: it only biases the
- * lead-scrape default location, so an absent/garbage header degrades to null.
- * "XX"/"T1" are Cloudflare's unknown/Tor sentinels.
- */
-function readRequestCountryCode(
-	headers: FastifyRequest["headers"],
-): string | null {
-	const raw = headers["x-vercel-ip-country"] ?? headers["cf-ipcountry"];
-	const value = (Array.isArray(raw) ? raw[0] : raw)?.trim().toUpperCase();
-
-	if (!value || !/^[A-Z]{2}$/.test(value) || value === "XX" || value === "T1") {
-		return null;
-	}
-
-	return value;
 }
 
 function hasEmptyParts(message: unknown): boolean {

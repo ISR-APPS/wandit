@@ -22,7 +22,10 @@ export async function listWorkspaceLeads(
 ): Promise<WorkspaceLeadsResponse> {
 	const data = await apiClient.get<unknown>(leadsRoutes.listForWorkspace, {
 		query: {
+			archived: query.archived,
 			cursor: query.cursor,
+			createdFrom: query.createdFrom,
+			createdTo: query.createdTo,
 			pageSize: query.pageSize,
 			projectId: query.projectId,
 			q: query.q,

@@ -2,8 +2,8 @@
  * Page edit-ops contract (V2 generation improvements, spec §5–§8).
  *
  * The browser accumulates ops client-side and POSTs one batch per Save; the
- * server is the ONLY writer of HTML. replace-section carries raw HTML and is
- * therefore server-internal (chat agent tool) — the HTTP endpoint rejects it.
+ * server is the ONLY writer of HTML. Raw-HTML insert/replace ops are
+ * server/AI-only — the HTTP endpoint rejects them.
  */
 import { z } from "zod";
 import { curatedFontIdSchema, type PAGE_TOKEN_NAMES } from "./page-theme";
@@ -268,6 +268,14 @@ export const sectionStyleOpSchema = z.object({
 		),
 });
 
+/** SERVER/AI-ONLY: inserts one bounded HTML fragment relative to an element. */
+export const insertElementOpSchema = z.object({
+	kind: z.literal("insert-element"),
+	wid: widSchema,
+	position: z.enum(["before", "after", "append"]),
+	value: z.string().min(1).max(60_000),
+});
+
 /** Curated element ops that are safe at the chat-tool boundary. */
 export const aiElementOpSchema = z.discriminatedUnion("kind", [
 	textOpSchema,
@@ -277,6 +285,7 @@ export const aiElementOpSchema = z.discriminatedUnion("kind", [
 	setLinkHrefOpSchema,
 	removeElementOpSchema,
 	sectionStyleOpSchema,
+	insertElementOpSchema,
 ]);
 
 export type AiElementOp = z.infer<typeof aiElementOpSchema>;
@@ -285,6 +294,14 @@ export type AiElementOp = z.infer<typeof aiElementOpSchema>;
 export const replaceSectionOpSchema = z.object({
 	kind: z.literal("replace-section"),
 	wid: widSchema,
+	value: z.string().min(20).max(60_000),
+});
+
+/** SERVER-INTERNAL: produced by the chat agent's insert_section tool only. */
+export const insertSectionOpSchema = z.object({
+	kind: z.literal("insert-section"),
+	wid: widSchema,
+	position: z.enum(["before", "after"]),
 	value: z.string().min(20).max(60_000),
 });
 
@@ -315,6 +332,8 @@ export const editOpSchema = z.discriminatedUnion("kind", [
 	resetTokensOpSchema,
 	setTokensOpSchema,
 	replaceSectionOpSchema,
+	insertElementOpSchema,
+	insertSectionOpSchema,
 ]);
 
 export type ClientEditOp = z.infer<typeof clientEditOpSchema>;

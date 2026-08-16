@@ -47,6 +47,23 @@ export const billingCheckoutAttemptStatus = pgEnum(
 	["created", "session_attached", "completed", "expired"],
 );
 
+export const subscriptionStateEventKind = pgEnum(
+	"subscription_state_event_kind",
+	[
+		"created",
+		"plan_changed",
+		"status_changed",
+		"cancel_scheduled",
+		"cancel_unscheduled",
+		"ended",
+	],
+);
+
+export const billingPaymentAdjustmentKind = pgEnum(
+	"billing_payment_adjustment_kind",
+	["refund", "failed_payment"],
+);
+
 export const signupGrantOutboxStatus = pgEnum("signup_grant_outbox_status", [
 	"pending",
 	"done",
@@ -164,6 +181,7 @@ export const subscriptions = pgTable(
 			.notNull(),
 	},
 	(table) => [
+		index("subscriptions_createdAt_idx").on(table.createdAt),
 		uniqueIndex("subscriptions_providerSubscriptionId_uq").on(
 			table.providerSubscriptionId,
 		),
@@ -244,6 +262,73 @@ export const billingWebhookEvents = pgTable(
 			.notNull(),
 	},
 	(table) => [index("billing_webhook_events_status_idx").on(table.status)],
+);
+
+export const subscriptionStateEvents = pgTable(
+	"subscription_state_events",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		stripeEventId: text("stripe_event_id").notNull(),
+		stripeSubscriptionId: text("stripe_subscription_id").notNull(),
+		userId: text("user_id").references(() => user.id, {
+			onDelete: "restrict",
+		}),
+		organizationId: text("organization_id").references(() => organization.id, {
+			onDelete: "restrict",
+		}),
+		kind: subscriptionStateEventKind("kind").notNull(),
+		fromLookupKey: text("from_lookup_key"),
+		toLookupKey: text("to_lookup_key"),
+		fromStatus: text("from_status"),
+		toStatus: text("to_status"),
+		occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+	},
+	(table) => [
+		uniqueIndex("subscription_state_events_stripeEventId_uq").on(
+			table.stripeEventId,
+		),
+		index("subscription_state_events_occurredAt_idx").on(table.occurredAt),
+		index("subscription_state_events_stripeSubscriptionId_occurredAt_idx").on(
+			table.stripeSubscriptionId,
+			table.occurredAt,
+		),
+	],
+);
+
+export const billingPaymentAdjustments = pgTable(
+	"billing_payment_adjustments",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		stripeEventId: text("stripe_event_id").notNull(),
+		kind: billingPaymentAdjustmentKind("kind").notNull(),
+		stripeObjectId: text("stripe_object_id").notNull(),
+		userId: text("user_id").references(() => user.id, {
+			onDelete: "restrict",
+		}),
+		organizationId: text("organization_id").references(() => organization.id, {
+			onDelete: "restrict",
+		}),
+		amountCents: integer("amount_cents").notNull(),
+		currency: text("currency").notNull(),
+		cumulativeRefundedCents: integer("cumulative_refunded_cents"),
+		occurredAt: timestamp("occurred_at", { withTimezone: true }).notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+	},
+	(table) => [
+		uniqueIndex("billing_payment_adjustments_stripeEventId_uq").on(
+			table.stripeEventId,
+		),
+		index("billing_payment_adjustments_occurredAt_idx").on(table.occurredAt),
+		index("billing_payment_adjustments_kind_occurredAt_idx").on(
+			table.kind,
+			table.occurredAt,
+		),
+	],
 );
 
 export const billingCheckoutAttempts = pgTable(
@@ -344,6 +429,7 @@ export const billingInvoiceApplications = pgTable(
 			.notNull(),
 	},
 	(table) => [
+		index("billing_invoice_applications_paidAt_idx").on(table.paidAt),
 		uniqueIndex("billing_invoice_applications_stripeInvoiceId_uq").on(
 			table.stripeInvoiceId,
 		),

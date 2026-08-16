@@ -5,7 +5,6 @@ import { Area, AreaChart, CartesianGrid, XAxis, YAxis } from "recharts";
 import { Button } from "@/components/ui/button";
 import {
 	Card,
-	CardAction,
 	CardContent,
 	CardDescription,
 	CardHeader,
@@ -27,6 +26,11 @@ import {
 	formatOverviewPercentValue,
 	formatOverviewWholeNumber,
 } from "@/features/overview/lib/formatters";
+import {
+	formatAdminDateAxisTick,
+	formatAdminDateTooltipLabel,
+	getAdminDateAxis,
+} from "@/lib/admin-date-range";
 import { cn } from "@/lib/utils";
 
 type GrowthTrendCardProps = {
@@ -47,25 +51,33 @@ const growthChartConfig = {
 } satisfies ChartConfig;
 
 function GrowthTrendCard({ points, totals, rangeLabel }: GrowthTrendCardProps) {
+	const dateAxis = getAdminDateAxis(points.map((point) => point.date));
+
 	return (
 		<Card className="h-full gap-0 overflow-hidden py-0 shadow-none">
 			<CardHeader className="border-b pt-6">
-				<div>
-					<CardTitle>
-						<h2>Growth momentum</h2>
-					</CardTitle>
-					<CardDescription className="mt-1">
-						New users and generated websites · {rangeLabel.toLowerCase()}
-					</CardDescription>
-				</div>
-				<CardAction>
-					<Button asChild type="button" size="sm" variant="outline">
+				<div className="flex flex-wrap items-start justify-between gap-3">
+					<div className="min-w-[200px] flex-1">
+						<CardTitle>
+							<h2>Growth momentum</h2>
+						</CardTitle>
+						<CardDescription className="mt-1">
+							New users and generated websites · {rangeLabel.toLowerCase()}
+						</CardDescription>
+					</div>
+					<Button
+						asChild
+						type="button"
+						size="sm"
+						variant="outline"
+						className="shrink-0"
+					>
 						<Link to="/users">
 							View users
 							<ArrowUpRightIcon />
 						</Link>
 					</Button>
-				</CardAction>
+				</div>
 			</CardHeader>
 
 			<CardContent className="flex min-h-0 flex-1 flex-col pt-5 pb-6">
@@ -95,13 +107,13 @@ function GrowthTrendCard({ points, totals, rangeLabel }: GrowthTrendCardProps) {
 							{formatOverviewWholeNumber(totals.websitesGenerated)}
 						</p>
 					</div>
-					<div className="ml-auto flex items-center gap-4 text-muted-foreground text-xs">
+					<div className="flex w-full flex-wrap items-center gap-x-4 gap-y-2 text-muted-foreground text-xs sm:ml-auto sm:w-auto">
 						<span className="flex items-center gap-1.5">
-							<span className="size-2 rounded-full bg-chart-1" />
+							<span className="size-2 shrink-0 rounded-full bg-chart-1" />
 							New users
 						</span>
 						<span className="flex items-center gap-1.5">
-							<span className="size-2 rounded-full bg-chart-2" />
+							<span className="size-2 shrink-0 rounded-full bg-chart-2" />
 							Websites
 						</span>
 					</div>
@@ -124,11 +136,16 @@ function GrowthTrendCard({ points, totals, rangeLabel }: GrowthTrendCardProps) {
 						>
 							<CartesianGrid vertical={false} strokeDasharray="3 3" />
 							<XAxis
-								dataKey="label"
+								dataKey="date"
 								axisLine={false}
 								tickLine={false}
 								tickMargin={10}
 								minTickGap={28}
+								ticks={dateAxis.ticks}
+								interval={dateAxis.ticks ? 0 : "preserveStartEnd"}
+								tickFormatter={(value) =>
+									formatAdminDateAxisTick(String(value), dateAxis)
+								}
 							/>
 							<YAxis
 								axisLine={false}
@@ -141,7 +158,14 @@ function GrowthTrendCard({ points, totals, rangeLabel }: GrowthTrendCardProps) {
 							/>
 							<ChartTooltip
 								cursor={{ stroke: "var(--border)", strokeDasharray: "3 3" }}
-								content={<ChartTooltipContent indicator="dot" />}
+								content={
+									<ChartTooltipContent
+										indicator="dot"
+										labelFormatter={(value) =>
+											formatAdminDateTooltipLabel(String(value))
+										}
+									/>
+								}
 							/>
 							<Area
 								dataKey="signups"

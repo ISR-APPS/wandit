@@ -26,6 +26,14 @@ export function formatAffiliateMoney(
 	}).format(cents / 100);
 }
 
+export function formatNullableAffiliateMoney(
+	cents: number | null,
+	currency: string,
+	compact = false,
+) {
+	return cents === null ? "—" : formatAffiliateMoney(cents, currency, compact);
+}
+
 export function formatAffiliateNumber(value: number, compact = false) {
 	return new Intl.NumberFormat("en-US", {
 		notation: compact ? "compact" : "standard",

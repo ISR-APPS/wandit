@@ -13,6 +13,12 @@ import type {
 } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import {
+	DropdownMenu,
+	DropdownMenuContent,
+	DropdownMenuItem,
+	DropdownMenuTrigger,
+} from "@wandit/ui/components/dropdown-menu";
+import {
 	Empty,
 	EmptyContent,
 	EmptyDescription,
@@ -38,7 +44,16 @@ import {
 	TableRow,
 } from "@wandit/ui/components/table";
 import { cn } from "@wandit/ui/lib/utils";
-import { AlertTriangle, RefreshCw, Search, SearchX, Users } from "lucide-react";
+import {
+	AlertTriangle,
+	Archive,
+	ArchiveRestore,
+	MoreHorizontal,
+	RefreshCw,
+	Search,
+	SearchX,
+	Users,
+} from "lucide-react";
 import { useDeferredValue, useMemo, useState } from "react";
 import { toast } from "sonner";
 
@@ -53,18 +68,25 @@ import {
 } from "@/features/workspace/components/leads/lead-source-badge";
 import { LeadStatusPill } from "@/features/workspace/components/leads/lead-status-select";
 import {
+	LEAD_SOURCES,
 	LEAD_STATUS_META,
 	LEAD_STATUS_ORDER,
 } from "@/features/workspace/lib/constants";
 import { formatPhone } from "@/features/workspace/lib/helpers";
+import {
+	getLeadDateRange,
+	type LeadDateFilter,
+} from "@/features/workspace/lib/lead-date-filter";
 import { useActiveWorkspaceId } from "@/features/workspaces/lib/workspace-provider";
 import { formatDate, useTranslation } from "@/lib/i18n";
 import { relativeTime } from "@/lib/relative-time";
-import { useUpdateWorkspaceLeadStatus } from "../api/workspace-leads.mutations";
+import {
+	useUpdateWorkspaceLeadArchive,
+	useUpdateWorkspaceLeadStatus,
+} from "../api/workspace-leads.mutations";
 import { useWorkspaceLeadsQuery } from "../api/workspace-leads.queries";
 
 const PAGE_SIZE = 20;
-const LEAD_SOURCES: LeadSource[] = ["facebook", "tiktok", "direct"];
 const ROW_SKELETON_KEYS = ["a", "b", "c", "d", "e", "f", "g", "h"];
 
 function WorkspaceLeadStatus({ lead }: { lead: WorkspaceLead }) {
@@ -87,6 +109,51 @@ function WorkspaceLeadStatus({ lead }: { lead: WorkspaceLead }) {
 	};
 
 	return <LeadStatusPill value={lead.status} onChange={handleChange} />;
+}
+
+function WorkspaceLeadActions({
+	archiveVisibility,
+	lead,
+	onArchiveChange,
+	pending,
+}: {
+	archiveVisibility: WorkspaceLeadsQuery["archived"];
+	lead: WorkspaceLead;
+	onArchiveChange: (lead: WorkspaceLead, archived: boolean) => void;
+	pending: boolean;
+}) {
+	const { t } = useTranslation();
+	const shouldArchive =
+		archiveVisibility === "only"
+			? false
+			: archiveVisibility === "exclude" || lead.archivedAt === null;
+
+	return (
+		<DropdownMenu>
+			<DropdownMenuTrigger asChild>
+				<Button
+					type="button"
+					variant="ghost"
+					size="icon-sm"
+					className="size-7 text-muted-foreground"
+					aria-label={t("leads.colActions")}
+					disabled={pending}
+				>
+					<MoreHorizontal className="size-4" aria-hidden />
+				</Button>
+			</DropdownMenuTrigger>
+			<DropdownMenuContent align="end">
+				<DropdownMenuItem onSelect={() => onArchiveChange(lead, shouldArchive)}>
+					{shouldArchive ? (
+						<Archive aria-hidden />
+					) : (
+						<ArchiveRestore aria-hidden />
+					)}
+					{t(shouldArchive ? "leads.archive" : "leads.unarchive")}
+				</DropdownMenuItem>
+			</DropdownMenuContent>
+		</DropdownMenu>
+	);
 }
 
 function ProjectLink({ lead }: { lead: WorkspaceLead }) {
@@ -169,26 +236,47 @@ export default function WorkspaceLeadsPage() {
 function WorkspaceLeadsContent() {
 	const { t, locale } = useTranslation();
 	const projectsQuery = useProjectsQuery();
+	const updateArchive = useUpdateWorkspaceLeadArchive();
 
 	const [search, setSearch] = useState("");
 	const [statusFilter, setStatusFilter] = useState<LeadStatus | "all">("all");
 	const [sourceFilter, setSourceFilter] = useState<LeadSource | "all">("all");
 	const [projectFilter, setProjectFilter] = useState<string>("all");
+	const [dateFilter, setDateFilter] = useState<LeadDateFilter>("all");
+	const [pickedDay, setPickedDay] = useState("");
+	const [archivedFilter, setArchivedFilter] =
+		useState<WorkspaceLeadsQuery["archived"]>("exclude");
 	const [cursorHistory, setCursorHistory] = useState<string[]>([]);
 	const deferredSearch = useDeferredValue(search.trim());
 	const searchPending = search.trim() !== deferredSearch;
 	const cursor = searchPending ? undefined : cursorHistory.at(-1);
+	const dateRange = useMemo(
+		() => getLeadDateRange(dateFilter, pickedDay),
+		[dateFilter, pickedDay],
+	);
 
 	const listQuery = useMemo<WorkspaceLeadsQuery>(
 		() => ({
+			archived: archivedFilter,
 			cursor,
+			createdFrom: dateRange.createdFrom,
+			createdTo: dateRange.createdTo,
 			pageSize: PAGE_SIZE,
 			projectId: projectFilter === "all" ? undefined : projectFilter,
 			q: deferredSearch || undefined,
 			source: sourceFilter === "all" ? undefined : sourceFilter,
 			status: statusFilter === "all" ? undefined : statusFilter,
 		}),
-		[cursor, deferredSearch, projectFilter, sourceFilter, statusFilter],
+		[
+			archivedFilter,
+			cursor,
+			dateRange.createdFrom,
+			dateRange.createdTo,
+			deferredSearch,
+			projectFilter,
+			sourceFilter,
+			statusFilter,
+		],
 	);
 	const leadsQuery = useWorkspaceLeadsQuery(listQuery);
 	const response = leadsQuery.data;
@@ -200,7 +288,9 @@ function WorkspaceLeadsContent() {
 		deferredSearch !== "" ||
 		statusFilter !== "all" ||
 		sourceFilter !== "all" ||
-		projectFilter !== "all";
+		projectFilter !== "all" ||
+		dateFilter !== "all" ||
+		archivedFilter !== "exclude";
 
 	const resetToFirstPage = () => setCursorHistory([]);
 
@@ -209,7 +299,28 @@ function WorkspaceLeadsContent() {
 		setStatusFilter("all");
 		setSourceFilter("all");
 		setProjectFilter("all");
+		setDateFilter("all");
+		setPickedDay("");
+		setArchivedFilter("exclude");
 		setCursorHistory([]);
+	};
+
+	const handleArchiveChange = (lead: WorkspaceLead, archived: boolean) => {
+		updateArchive.mutate(
+			{
+				archived,
+				leadId: lead.id,
+				projectId: lead.projectId,
+			},
+			{
+				onSuccess: () =>
+					toast.success(
+						t(archived ? "leads.archivedToast" : "leads.unarchivedToast", {
+							name: lead.name,
+						}),
+					),
+			},
+		);
 	};
 
 	return (
@@ -243,26 +354,9 @@ function WorkspaceLeadsContent() {
 					onRetry={() => void leadsQuery.refetch()}
 					retrying={leadsQuery.isFetching}
 				/>
-			) : matchingTotal === 0 && !isFiltering ? (
-				<Empty className="mt-5 rounded-xl border border-dashed">
-					<EmptyHeader>
-						<EmptyMedia variant="icon" className="rounded-xl">
-							<Users />
-						</EmptyMedia>
-						<EmptyTitle className="font-display">
-							{t("leads.dashEmptyTitle")}
-						</EmptyTitle>
-						<EmptyDescription>{t("leads.dashEmptyBody")}</EmptyDescription>
-					</EmptyHeader>
-					<EmptyContent>
-						<Button asChild variant="secondary">
-							<Link to="/dashboard">{t("projects.headerTitle")}</Link>
-						</Button>
-					</EmptyContent>
-				</Empty>
 			) : (
 				<>
-					{/* Toolbar: search + project / source / status filters */}
+					{/* Toolbar: search + project / source / status / date filters */}
 					<div className="mt-5 flex flex-col gap-2 lg:flex-row lg:items-center">
 						<div className="relative w-full lg:max-w-xs">
 							<Search className="absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -348,10 +442,85 @@ function WorkspaceLeadsContent() {
 									))}
 								</SelectContent>
 							</Select>
+							<Select
+								value={archivedFilter}
+								onValueChange={(value) => {
+									setArchivedFilter(value as WorkspaceLeadsQuery["archived"]);
+									resetToFirstPage();
+								}}
+							>
+								<SelectTrigger className="w-40">
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="exclude">
+										{t("leads.filterActive")}
+									</SelectItem>
+									<SelectItem value="only">
+										{t("leads.filterArchived")}
+									</SelectItem>
+									<SelectItem value="include">
+										{t("leads.filterAllLeads")}
+									</SelectItem>
+								</SelectContent>
+							</Select>
+							<Select
+								value={dateFilter}
+								onValueChange={(value) => {
+									setDateFilter(value as LeadDateFilter);
+									resetToFirstPage();
+								}}
+							>
+								<SelectTrigger className="w-40">
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value="all">{t("leads.allDates")}</SelectItem>
+									<SelectItem value="today">{t("leads.dateToday")}</SelectItem>
+									<SelectItem value="last7Days">
+										{t("leads.dateLast7Days")}
+									</SelectItem>
+									<SelectItem value="last30Days">
+										{t("leads.dateLast30Days")}
+									</SelectItem>
+									<SelectItem value="pickDay">
+										{t("leads.datePickDay")}
+									</SelectItem>
+								</SelectContent>
+							</Select>
+							{dateFilter === "pickDay" ? (
+								<Input
+									type="date"
+									value={pickedDay}
+									onChange={(event) => {
+										setPickedDay(event.target.value);
+										resetToFirstPage();
+									}}
+									aria-label={t("leads.datePickDay")}
+									className="w-40"
+								/>
+							) : null}
 						</div>
 					</div>
 
-					{matchingTotal === 0 ? (
+					{matchingTotal === 0 && !isFiltering ? (
+						<Empty className="mt-4 rounded-xl border border-dashed">
+							<EmptyHeader>
+								<EmptyMedia variant="icon" className="rounded-xl">
+									<Users />
+								</EmptyMedia>
+								<EmptyTitle className="font-display">
+									{t("leads.dashEmptyTitle")}
+								</EmptyTitle>
+								<EmptyDescription>{t("leads.dashEmptyBody")}</EmptyDescription>
+							</EmptyHeader>
+							<EmptyContent>
+								<Button asChild variant="secondary">
+									<Link to="/dashboard">{t("projects.headerTitle")}</Link>
+								</Button>
+							</EmptyContent>
+						</Empty>
+					) : matchingTotal === 0 ? (
 						<Empty className="mt-4 rounded-xl border border-dashed">
 							<EmptyHeader>
 								<EmptyMedia variant="icon" className="rounded-xl">
@@ -388,8 +557,11 @@ function WorkspaceLeadsContent() {
 											<TableHead>{t("leads.colProject")}</TableHead>
 											<TableHead>{t("leads.colSource")}</TableHead>
 											<TableHead>{t("leads.colDate")}</TableHead>
-											<TableHead className="pe-4 text-end">
+											<TableHead className="text-end">
 												{t("leads.colStatus")}
+											</TableHead>
+											<TableHead className="w-10 pe-4 text-end">
+												<span className="sr-only">{t("leads.colActions")}</span>
 											</TableHead>
 										</TableRow>
 									</TableHeader>
@@ -431,9 +603,22 @@ function WorkspaceLeadsContent() {
 												>
 													{relativeTime(lead.createdAt)}
 												</TableCell>
-												<TableCell className="pe-4">
+												<TableCell>
 													<div className="flex justify-end">
 														<WorkspaceLeadStatus lead={lead} />
+													</div>
+												</TableCell>
+												<TableCell className="pe-4">
+													<div className="flex justify-end">
+														<WorkspaceLeadActions
+															archiveVisibility={archivedFilter}
+															lead={lead}
+															onArchiveChange={handleArchiveChange}
+															pending={
+																updateArchive.isPending &&
+																updateArchive.variables?.leadId === lead.id
+															}
+														/>
 													</div>
 												</TableCell>
 											</TableRow>
@@ -456,7 +641,18 @@ function WorkspaceLeadsContent() {
 											>
 												{lead.name}
 											</div>
-											<WorkspaceLeadStatus lead={lead} />
+											<div className="flex shrink-0 items-center gap-1">
+												<WorkspaceLeadStatus lead={lead} />
+												<WorkspaceLeadActions
+													archiveVisibility={archivedFilter}
+													lead={lead}
+													onArchiveChange={handleArchiveChange}
+													pending={
+														updateArchive.isPending &&
+														updateArchive.variables?.leadId === lead.id
+													}
+												/>
+											</div>
 										</div>
 										<div className="mt-2 flex items-center justify-between gap-2">
 											<span className="font-mono text-xs">

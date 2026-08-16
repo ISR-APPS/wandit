@@ -9,12 +9,13 @@ vi.mock("@/lib/api-client", () => ({
 }));
 
 import { apiClient } from "@/lib/api-client";
-import { listAllLeads } from "./leads.services";
+import { listAllLeads, updateLeadArchive } from "./leads.services";
 
 function response(id: string, nextCursor: string | null): LeadsResponse {
 	return {
 		leads: [
 			{
+				archivedAt: null,
 				campaign: null,
 				commune: null,
 				createdAt: "2026-08-02T10:00:00.000Z",
@@ -54,7 +55,11 @@ describe("listAllLeads", () => {
 			);
 
 		const leads = await listAllLeads("project-1", {
+			archived: "only",
+			createdFrom: "2026-07-27",
+			createdTo: "2026-08-02",
 			q: "amina",
+			source: "facebook",
 			status: "confirmed",
 		});
 
@@ -67,9 +72,13 @@ describe("listAllLeads", () => {
 			leadsRoutes.listByProject("project-1"),
 			{
 				query: {
+					archived: "only",
 					cursor: undefined,
+					createdFrom: "2026-07-27",
+					createdTo: "2026-08-02",
 					pageSize: 100,
 					q: "amina",
+					source: "facebook",
 					status: "confirmed",
 				},
 			},
@@ -79,9 +88,13 @@ describe("listAllLeads", () => {
 			leadsRoutes.listByProject("project-1"),
 			{
 				query: {
+					archived: "only",
 					cursor: "next-page",
+					createdFrom: "2026-07-27",
+					createdTo: "2026-08-02",
 					pageSize: 100,
 					q: "amina",
+					source: "facebook",
 					status: "confirmed",
 				},
 			},
@@ -97,8 +110,31 @@ describe("listAllLeads", () => {
 				response("00000000-0000-4000-8000-000000000002", "repeat"),
 			);
 
-		await expect(listAllLeads("project-1", {})).rejects.toThrow(
-			"repeated cursor",
+		await expect(
+			listAllLeads("project-1", { archived: "exclude" }),
+		).rejects.toThrow("repeated cursor");
+	});
+
+	it("archives a lead through the project route", async () => {
+		const lead = response("00000000-0000-4000-8000-000000000001", null)
+			.leads[0];
+		vi.mocked(apiClient.patch).mockResolvedValue({
+			lead: {
+				...lead,
+				archivedAt: "2026-08-12T14:00:00.000Z",
+			},
+		});
+
+		const archived = await updateLeadArchive(
+			"project-1",
+			"00000000-0000-4000-8000-000000000001",
+			true,
+		);
+
+		expect(archived.archivedAt).toBe("2026-08-12T14:00:00.000Z");
+		expect(apiClient.patch).toHaveBeenCalledWith(
+			leadsRoutes.archive("project-1", "00000000-0000-4000-8000-000000000001"),
+			{ archived: true },
 		);
 	});
 });

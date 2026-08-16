@@ -11,10 +11,12 @@ import {
 } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
+	type LeadArchiveBody,
 	type LeadResponse,
 	type LeadStatusUpdateBody,
 	type LeadsQuery,
 	type LeadsResponse,
+	leadArchiveBodySchema,
 	leadStatusUpdateBodySchema,
 	leadsQuerySchema,
 	uuidSchema,
@@ -86,6 +88,25 @@ export class LeadsController {
 			projectId,
 			leadId,
 			body.status,
+		);
+	}
+
+	@Patch("projects/:projectId/leads/:leadId/archive")
+	archive(
+		@Param("projectId", new ZodValidationPipe(uuidSchema))
+		projectId: string,
+		@Param("leadId", new ZodValidationPipe(uuidSchema))
+		leadId: string,
+		@Body(new ZodValidationPipe(leadArchiveBodySchema))
+		body: LeadArchiveBody,
+		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
+	): Promise<LeadResponse> {
+		return this.leadsService.archive(
+			projectScopeFrom(workspace, user.id),
+			projectId,
+			leadId,
+			body.archived,
 		);
 	}
 }

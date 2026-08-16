@@ -11,6 +11,7 @@ import { McpOauthService } from "./application/services/mcp-oauth.service";
 import { McpRuntimeCacheService } from "./application/services/mcp-runtime-cache.service";
 import { McpDcrClient } from "./infrastructure/oauth/mcp-dcr.client";
 import { PreregOauthClient } from "./infrastructure/oauth/prereg-oauth.client";
+import { ConnectorOperationEventsRepository } from "./infrastructure/persistence/connector-operation-events.repository";
 import { McpConnectionsRepository } from "./infrastructure/persistence/mcp-connections.repository";
 import { McpConnectorsRepository } from "./infrastructure/persistence/mcp-connectors.repository";
 import { McpConnectorsController } from "./presentation/http/controllers/mcp-connectors.controller";
@@ -27,6 +28,7 @@ import { McpConnectorsController } from "./presentation/http/controllers/mcp-con
 		MeteringModule,
 	],
 	providers: [
+		ConnectorOperationEventsRepository,
 		HiggsfieldPromptRefinerService,
 		McpChatToolsService,
 		McpConnectionsRepository,

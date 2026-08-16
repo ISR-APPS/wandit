@@ -1,12 +1,14 @@
 import { Body, Controller, Get, Inject, Post, UseGuards } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
+	type BillingCancelRequest,
 	type BillingCheckoutResponse,
 	type BillingPlansResponse,
 	type BillingPortalResponse,
 	type BillingSubscriptionChangeOutcomeResponse,
 	type BillingSubscriptionChangePreviewResponse,
 	type BillingSubscriptionViewResponse,
+	billingCancelRequestSchema,
 	type ChangeBillingSubscriptionBody,
 	type CreateBillingCheckoutBody,
 	type CreateBillingTopupBody,
@@ -118,8 +120,10 @@ export class BillingController {
 	cancel(
 		@CurrentUser() user: AuthUser,
 		@CurrentWorkspace() workspace: WorkspaceContext,
+		@Body(new ZodValidationPipe(billingCancelRequestSchema))
+		body: BillingCancelRequest,
 	): Promise<BillingSubscriptionViewResponse> {
-		return this.billingService.cancel(user, workspace);
+		return this.billingService.cancel(user, body, workspace);
 	}
 
 	@UseGuards(SubscriptionsEnabledGuard)

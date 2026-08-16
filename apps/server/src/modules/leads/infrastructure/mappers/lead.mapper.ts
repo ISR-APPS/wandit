@@ -12,6 +12,7 @@ import type {
 
 export function toLeadDto(row: LeadRow): Lead {
 	return {
+		archivedAt: row.archivedAt?.toISOString() ?? null,
 		campaign: deriveLeadCampaign(row.attribution),
 		commune: row.commune,
 		createdAt: row.createdAt.toISOString(),

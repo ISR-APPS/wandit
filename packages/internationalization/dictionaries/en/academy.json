@@ -1,0 +1,42 @@
+{
+	"meta": {
+		"title": "Academy — Wandit"
+	},
+	"title": "Academy",
+	"navLabel": "Academy",
+	"intro": "Learn how to get the most out of Wandit — ads, websites, landing pages, and more.",
+	"guideCount": {
+		"zero": "{count} guides",
+		"one": "{count} guide",
+		"two": "{count} guides",
+		"few": "{count} guides",
+		"many": "{count} guides",
+		"other": "{count} guides"
+	},
+	"categories": {
+		"gettingStarted": "Getting started",
+		"websites": "Websites",
+		"landingPages": "Landing pages",
+		"ads": "Ads",
+		"leads": "Leads",
+		"marketing": "Marketing",
+		"domains": "Domains",
+		"apps": "Apps & integrations"
+	},
+	"filters": {
+		"all": "All",
+		"noneInCategory": "No guides in this category yet.",
+		"showAll": "Show all"
+	},
+	"empty": {
+		"title": "The Academy is warming up",
+		"body": "Guides will appear here soon."
+	},
+	"error": {
+		"title": "We couldn’t load the Academy.",
+		"retry": "Retry"
+	},
+	"backToAcademy": "Back to Academy",
+	"watchOnYoutube": "Watch on YouTube",
+	"notAvailable": "This guide is not available."
+}

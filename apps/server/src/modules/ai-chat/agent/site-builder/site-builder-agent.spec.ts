@@ -4,6 +4,7 @@ import type { z } from "zod";
 
 import type { MeteringService } from "../../../metering/application/services/metering.service";
 import { BUILDER_REASONING_EFFORT_BY_MODEL } from "../tools/builder-model-options";
+import { extractBriefUserPhotoUrls } from "./brief-user-photos";
 import type { BuildProgressEvent } from "./build-progress";
 import { buildSiteBuilderSystemPrompt } from "./builder-prompt";
 import { buildCodSiteBuilderSystemPrompt } from "./cod-builder-prompt";
@@ -14,6 +15,7 @@ import {
 	type ScreenshotSession,
 	ScreenshotUnavailableError,
 } from "./screenshot";
+import { buildSimpleCodSiteBuilderSystemPrompt } from "./simple-cod-builder-prompt";
 import {
 	buildStopConditions,
 	createBuilderTools,
@@ -39,6 +41,10 @@ vi.mock("./generate-video", async (importOriginal) => {
 
 	return { ...original, generateBuildVideo: vi.fn() };
 });
+
+vi.mock("./brief-user-photos", () => ({
+	extractBriefUserPhotoUrls: vi.fn(),
+}));
 
 const HTML = `<!doctype html>
 <html>
@@ -199,7 +205,25 @@ function materialize<T>(value: T | AsyncIterable<T> | undefined): T {
 	return value as T;
 }
 
+function mockSiteBuildStream() {
+	return vi
+		.spyOn(ToolLoopAgent.prototype, "stream")
+		.mockImplementation(async function (this: ToolLoopAgent) {
+			const tools = this.tools as unknown as ReturnType<typeof setup>["tools"];
+			await tools.write_file.execute?.({ content: HTML, path: "index.html" }, {
+				messages: [],
+				toolCallId: "build_start_write",
+			} as never);
+
+			return {
+				fullStream: (async function* () {})(),
+				steps: Promise.resolve([]),
+			} as never;
+		});
+}
+
 beforeEach(() => {
+	vi.mocked(extractBriefUserPhotoUrls).mockReset().mockReturnValue([]);
 	vi.mocked(generateBuildImage).mockReset();
 	vi.mocked(generateBuildVideo).mockReset();
 });
@@ -1276,6 +1300,43 @@ describe("COD builder prompt", () => {
 	});
 });
 
+describe("PHOTO QUALITY GATE prompts", () => {
+	it("requires visual judgment, faithful enhancement, and a raw-photo fallback in every mode", async () => {
+		const prompts = await Promise.all([
+			buildSiteBuilderSystemPrompt(),
+			buildCodSiteBuilderSystemPrompt(),
+			buildSimpleCodSiteBuilderSystemPrompt(),
+		]);
+
+		for (const prompt of prompts) {
+			expect(prompt).toContain("PHOTO QUALITY GATE");
+			expect(prompt).toContain("Before writing HTML, LOOK at every one");
+			expect(prompt).toContain("MUST NOT be placed raw in a prime");
+			expect(prompt).toContain("product stays EXACTLY as photographed");
+			expect(prompt).toContain(
+				"NEVER invent the product from text when a real photo exists",
+			);
+			expect(prompt).toContain(
+				"a weak image of the real product still beats no product",
+			);
+			expect(prompt).toContain(
+				"enhancement never adds features, badges, text, or packaging",
+			);
+			expect(prompt).toContain(
+				"Trust your own eyes first and any per-photo quality note",
+			);
+		}
+	});
+
+	it("adds the low-quality prime-slot check to SIMPLE COD pass 2", async () => {
+		const prompt = await buildSimpleCodSiteBuilderSystemPrompt();
+
+		expect(prompt).toContain(
+			"no low-quality raw photo occupies a prime slot when an enhanced edit exists or could have been made within budget",
+		);
+	});
+});
+
 describe("page-theme finish gate", () => {
 	it("describes the enforced root position and token-borne radius law", async () => {
 		const prompt = await buildSiteBuilderSystemPrompt();
@@ -2324,6 +2385,97 @@ describe("runSiteBuild", () => {
 
 	it("has no per-model reasoning override — the env knob is authoritative", () => {
 		expect(BUILDER_REASONING_EFFORT_BY_MODEL).toEqual({});
+	});
+
+	it("starts a vision-capable build with the brief's user photos attached", async () => {
+		const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+		const firstPhoto =
+			"https://assets.example.com/public/uploads/user_1/upload_1/front.jpg";
+		const secondPhoto =
+			"https://assets.example.com/public/uploads/user_2/upload_2/side.webp";
+		const brief = `BRAND ASSETS:\n- ${firstPhoto}\n- ${secondPhoto}`;
+		vi.mocked(extractBriefUserPhotoUrls).mockReturnValue([
+			firstPhoto,
+			secondPhoto,
+		]);
+		const streamSpy = mockSiteBuildStream();
+
+		try {
+			await runSiteBuild({
+				attemptId: "attempt_photos",
+				brief,
+				model: "openai/test",
+				projectId: "project_1",
+				subject: { actorUserId: "user_1" },
+				system: "Build the page with the supplied tools.",
+				title: "Photo page",
+			});
+
+			expect(extractBriefUserPhotoUrls).toHaveBeenCalledWith(brief);
+			expect(streamSpy).toHaveBeenCalledWith({
+				abortSignal: undefined,
+				messages: [
+					{
+						content: [
+							{
+								text: `Build the landing page now.\n\nTITLE: Photo page\n\nBRIEF:\n${brief}`,
+								type: "text",
+							},
+							{
+								text: `[User photo 1 — URL: ${firstPhoto}]`,
+								type: "text",
+							},
+							{ data: firstPhoto, mediaType: "image", type: "file" },
+							{
+								text: `[User photo 2 — URL: ${secondPhoto}]`,
+								type: "text",
+							},
+							{ data: secondPhoto, mediaType: "image", type: "file" },
+							{
+								text: "These are the user's real photos from the brief, attached so you can SEE them. Judge each one's quality before you write HTML, per your PHOTO QUALITY GATE law. To enhance or restage one, pass its exact URL from its marker as generate_image sourceImageUrls.",
+								type: "text",
+							},
+						],
+						role: "user",
+					},
+				],
+			});
+		} finally {
+			streamSpy.mockRestore();
+			consoleSpy.mockRestore();
+		}
+	});
+
+	it("keeps the plain prompt path for a text-only DeepSeek build", async () => {
+		const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+		const photo =
+			"https://assets.example.com/public/uploads/user_1/upload_1/front.jpg";
+		const brief = `BRAND ASSETS:\n- ${photo}`;
+		vi.mocked(extractBriefUserPhotoUrls).mockReturnValue([photo]);
+		const streamSpy = mockSiteBuildStream();
+
+		try {
+			await runSiteBuild({
+				attemptId: "attempt_text_only",
+				brief,
+				model: "deepseek/test",
+				projectId: "project_1",
+				subject: { actorUserId: "user_1" },
+				system: "Build the page with the supplied tools.",
+				title: "Text-only page",
+			});
+
+			expect(extractBriefUserPhotoUrls).not.toHaveBeenCalled();
+			expect(streamSpy).toHaveBeenCalledWith({
+				abortSignal: undefined,
+				prompt:
+					"Build the landing page now.\n\nTITLE: Text-only page\n\n" +
+					`BRIEF:\n${brief}`,
+			});
+		} finally {
+			streamSpy.mockRestore();
+			consoleSpy.mockRestore();
+		}
 	});
 
 	it("ships a valid step-limit revision and aggregates usage", async () => {

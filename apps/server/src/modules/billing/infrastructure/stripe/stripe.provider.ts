@@ -33,7 +33,7 @@ import type {
 
 const STRIPE_API_VERSION = "2026-02-25.clover";
 const RESTRICTED_PORTAL_CONFIGURATION_NAME =
-	"Wandit restricted billing portal v1";
+	"Wandit restricted billing portal v2";
 
 @Injectable()
 export class StripeProvider implements PaymentProvider {
@@ -811,20 +811,22 @@ export class StripeProvider implements PaymentProvider {
 	}
 
 	private restrictedPortalConfiguration(): Promise<string> {
-		if (env.STRIPE_PORTAL_CONFIGURATION_ID) {
-			return Promise.resolve(env.STRIPE_PORTAL_CONFIGURATION_ID);
-		}
-
 		if (this.restrictedPortalConfigurationPromise) {
 			return this.restrictedPortalConfigurationPromise;
 		}
 
-		this.restrictedPortalConfigurationPromise =
-			this.findOrCreateRestrictedPortalConfiguration().catch((error) => {
+		const configurationPromise = env.STRIPE_PORTAL_CONFIGURATION_ID
+			? this.enforceRestrictedPortalConfiguration(
+					env.STRIPE_PORTAL_CONFIGURATION_ID,
+				)
+			: this.findOrCreateRestrictedPortalConfiguration();
+		this.restrictedPortalConfigurationPromise = configurationPromise.catch(
+			(error) => {
 				// Allow a transient Stripe failure to be retried by the next request.
 				this.restrictedPortalConfigurationPromise = null;
 				throw error;
-			});
+			},
+		);
 
 		return this.restrictedPortalConfigurationPromise;
 	}
@@ -841,18 +843,28 @@ export class StripeProvider implements PaymentProvider {
 		const params = this.restrictedPortalConfigurationParams();
 
 		if (existing) {
-			const enforced = await configurations.update(existing.id, params, {
-				idempotencyKey: `billing-portal:restricted:v1:enforce:${existing.id}`,
-			});
-
-			return enforced.id;
+			return this.enforceRestrictedPortalConfiguration(existing.id);
 		}
 
 		const created = await configurations.create(params, {
-			idempotencyKey: "billing-portal:restricted:v1",
+			idempotencyKey: "billing-portal:restricted:v2",
 		});
 
 		return created.id;
+	}
+
+	private async enforceRestrictedPortalConfiguration(
+		configurationId: string,
+	): Promise<string> {
+		const enforced = await this.stripe().billingPortal.configurations.update(
+			configurationId,
+			this.restrictedPortalConfigurationParams(),
+			{
+				idempotencyKey: `billing-portal:restricted:v2:enforce:${configurationId}`,
+			},
+		);
+
+		return enforced.id;
 	}
 
 	private restrictedPortalConfigurationParams(): Stripe.BillingPortal.ConfigurationCreateParams {
@@ -861,10 +873,7 @@ export class StripeProvider implements PaymentProvider {
 				customer_update: { allowed_updates: [], enabled: false },
 				invoice_history: { enabled: true },
 				payment_method_update: { enabled: true },
-				subscription_cancel: {
-					enabled: true,
-					mode: "at_period_end",
-				},
+				subscription_cancel: { enabled: false },
 				subscription_update: { enabled: false },
 			},
 			name: RESTRICTED_PORTAL_CONFIGURATION_NAME,

@@ -84,6 +84,7 @@ export const creditLedger = pgTable(
 			.notNull(),
 	},
 	(table) => [
+		index("credit_ledger_createdAt_idx").on(table.createdAt),
 		// Serves both the balance sum and the ledger-history endpoint.
 		index("credit_ledger_userId_createdAt_idx").on(
 			table.userId,
@@ -294,6 +295,7 @@ export const aiUsageEvents = pgTable(
 		reconciledAt: timestamp("reconciled_at", { withTimezone: true }),
 	},
 	(table) => [
+		index("ai_usage_events_createdAt_idx").on(table.createdAt),
 		index("ai_usage_events_userId_createdAt_idx").on(
 			table.userId,
 			table.createdAt,

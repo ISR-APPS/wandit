@@ -29,6 +29,7 @@ import type { ConnectorGenerationsRepository } from "../../../connector-generati
 import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import { InsufficientCreditsError } from "../../../credits/domain/errors/insufficient-credits.error";
 import type { MeteringService } from "../../../metering/application/services/metering.service";
+import type { ConnectorOperationEventsRepository } from "../../infrastructure/persistence/connector-operation-events.repository";
 import type {
 	McpConnectionRow,
 	McpConnectionsRepository,
@@ -243,6 +244,9 @@ function buildService({
 	const connectionsRepository = {
 		listByUser: vi.fn().mockResolvedValue(connections),
 	};
+	const connectorOperationEventsRepository = {
+		insert: vi.fn().mockResolvedValue(undefined),
+	};
 	const connectorsRepository = {
 		listEnabled: vi.fn().mockResolvedValue(connectors),
 	};
@@ -300,6 +304,7 @@ function buildService({
 		),
 	};
 	const service = new McpChatToolsService(
+		connectorOperationEventsRepository as unknown as ConnectorOperationEventsRepository,
 		connectionsRepository as unknown as McpConnectionsRepository,
 		connectorsRepository as unknown as McpConnectorsRepository,
 		connectionsService as unknown as McpConnectionsService,
@@ -312,6 +317,7 @@ function buildService({
 	return {
 		connectionsRepository,
 		connectionsService,
+		connectorOperationEventsRepository,
 		connectorGenerationsRepository,
 		connectorsRepository,
 		meteringEvents,
@@ -497,7 +503,11 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 		});
 
 		it("requires reconnect only for a rejected token refresh", async () => {
-			const { connectionsService, service } = buildService();
+			const {
+				connectionsService,
+				connectorOperationEventsRepository,
+				service,
+			} = buildService();
 			connectionsService.getValidAccessToken.mockRejectedValue(
 				new ConflictException("refresh rejected"),
 			);
@@ -510,6 +520,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			expect(result.notices).toEqual([
 				"The user's Meta Ads connection could not be used (reconnect required). If the user asks for ANYTHING that needs this connector (a generation, a report…), tell them to reconnect it in Settings → Connectors — never announce or pretend to start that work.",
 			]);
+			expect(connectorOperationEventsRepository.insert).not.toHaveBeenCalled();
 		});
 
 		it("fails closed when a non-null tool policy is malformed", async () => {
@@ -1266,7 +1277,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				],
 			});
 			queueClient(client);
-			const { service } = buildService({
+			const { connectorOperationEventsRepository, service } = buildService({
 				connectors: [connector({ slug: "tiktok-ads" })],
 			});
 			const result = await service.resolveToolsForUser({
@@ -1284,6 +1295,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			expect(described).toMatchObject({ isError: true });
 			expect(client.callTool).toHaveBeenCalledTimes(1);
 			expect(loggerWarn).toHaveBeenCalledTimes(1);
+			expect(connectorOperationEventsRepository.insert).not.toHaveBeenCalled();
 		});
 
 		it("runs direct MCP tools directly and hidden TikTok operations through tool_execute", async () => {
@@ -2768,6 +2780,356 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			);
 
 			expect(promptRefiner.refineGenerationArgs).not.toHaveBeenCalled();
+		});
+	});
+
+	describe("connector operation events", () => {
+		it("records successful ads reads and writes with canonical names and correlation", async () => {
+			queueClient(
+				mockClient({
+					definitions: [
+						definition("ads_get_ad_accounts"),
+						definition("campaign_create"),
+					],
+					toolImplementations: {
+						ads_get_ad_accounts: executableTool(() => ({ accounts: [] })),
+						campaign_create: executableTool(() => ({ id: "campaign-1" })),
+					},
+				}),
+			);
+			const { connectorOperationEventsRepository, service } = buildService({
+				connectors: [
+					connector({
+						toolPolicy: {
+							allowlist: ["ads_get_ad_accounts", "campaign_create"],
+						},
+					}),
+				],
+			});
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID, organizationId: "organization-1" },
+				"usage-event-1",
+			);
+
+			await executeTool(
+				requiredTool(result.tools, "mcp_meta-ads_ads_get_ad_accounts"),
+				{},
+			);
+			await executeTool(
+				requiredTool(result.tools, "mcp_meta-ads_campaign_create"),
+				{},
+			);
+
+			expect(connectorOperationEventsRepository.insert).toHaveBeenNthCalledWith(
+				1,
+				{
+					connectorSlug: "meta-ads",
+					durationMs: expect.any(Number),
+					errorCode: null,
+					errorMessage: null,
+					feature: "ads_analysis",
+					organizationId: "organization-1",
+					parentEventId: "usage-event-1",
+					status: "succeeded",
+					toolName: "ads_get_ad_accounts",
+					userId: USER_ID,
+				},
+			);
+			expect(connectorOperationEventsRepository.insert).toHaveBeenNthCalledWith(
+				2,
+				expect.objectContaining({
+					connectorSlug: "meta-ads",
+					feature: "ads_launch",
+					status: "succeeded",
+					toolName: "campaign_create",
+				}),
+			);
+		});
+
+		it("classifies non-ads connector executions as other", async () => {
+			queueClient(
+				mockClient({
+					definitions: [definition("customer_get")],
+					toolImplementations: {
+						customer_get: executableTool(() => ({ customer: null })),
+					},
+				}),
+			);
+			const { connectorOperationEventsRepository, service } = buildService({
+				connectors: [
+					connector({ name: "CRM", slug: "future-crm", toolPolicy: null }),
+				],
+			});
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
+
+			await executeTool(
+				requiredTool(result.tools, "mcp_future-crm_customer_get"),
+				{},
+			);
+
+			expect(connectorOperationEventsRepository.insert).toHaveBeenCalledWith(
+				expect.objectContaining({
+					feature: "other",
+					toolName: "customer_get",
+				}),
+			);
+		});
+
+		it("records returned MCP errors and thrown provider failures without changing their outcome", async () => {
+			const thrown = Object.assign(
+				new Error("Bearer provider-token owner@example.com"),
+				{ code: "UPSTREAM_FAILURE" },
+			);
+			const returned = {
+				content: [{ text: "access_token=provider-token", type: "text" }],
+				isError: true,
+			};
+			queueClient(
+				mockClient({
+					definitions: [
+						definition("campaign_get"),
+						definition("campaign_create"),
+					],
+					toolImplementations: {
+						campaign_create: executableTool(() => {
+							throw thrown;
+						}),
+						campaign_get: executableTool(() => returned),
+					},
+				}),
+			);
+			const { connectorOperationEventsRepository, service } = buildService({
+				connectors: [
+					connector({
+						toolPolicy: {
+							allowlist: ["campaign_get", "campaign_create"],
+						},
+					}),
+				],
+			});
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
+
+			await expect(
+				executeTool(
+					requiredTool(result.tools, "mcp_meta-ads_campaign_get"),
+					{},
+				),
+			).resolves.toBe(returned);
+			await expect(
+				executeTool(
+					requiredTool(result.tools, "mcp_meta-ads_campaign_create"),
+					{},
+				),
+			).rejects.toBe(thrown);
+
+			expect(connectorOperationEventsRepository.insert).toHaveBeenNthCalledWith(
+				1,
+				expect.objectContaining({
+					errorCode: null,
+					errorMessage: "Provider tool execution failed",
+					feature: "ads_analysis",
+					status: "failed",
+				}),
+			);
+			expect(connectorOperationEventsRepository.insert).toHaveBeenNthCalledWith(
+				2,
+				expect.objectContaining({
+					errorCode: "UPSTREAM_FAILURE",
+					errorMessage: "Provider tool execution failed",
+					feature: "ads_launch",
+					status: "failed",
+				}),
+			);
+		});
+
+		it("records every retried provider attempt with its own duration and outcome", async () => {
+			const readExecute = vi
+				.fn()
+				.mockRejectedValueOnce(transientError({ statusCode: 503 }))
+				.mockRejectedValueOnce(transientError({ code: "ETIMEDOUT" }))
+				.mockResolvedValueOnce({ ok: true });
+			queueClient(
+				mockClient({
+					definitions: [definition("campaign_get")],
+					toolImplementations: {
+						campaign_get: executableTool(readExecute),
+					},
+				}),
+			);
+			const { connectorOperationEventsRepository, service } = buildService({
+				connectors: [
+					connector({ toolPolicy: { allowlist: ["campaign_get"] } }),
+				],
+			});
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
+			vi.useFakeTimers();
+
+			const execution = executeTool(
+				requiredTool(result.tools, "mcp_meta-ads_campaign_get"),
+				{},
+			);
+			await vi.advanceTimersByTimeAsync(1_250);
+
+			await expect(execution).resolves.toEqual({ ok: true });
+			expect(readExecute).toHaveBeenCalledTimes(3);
+			expect(connectorOperationEventsRepository.insert).toHaveBeenCalledTimes(
+				3,
+			);
+			expect(
+				connectorOperationEventsRepository.insert.mock.calls.map(
+					([event]) => event.status,
+				),
+			).toEqual(["failed", "failed", "succeeded"]);
+			for (const [event] of connectorOperationEventsRepository.insert.mock
+				.calls) {
+				expect(event.durationMs).toBeLessThan(250);
+			}
+		});
+
+		it("preserves the provider failure when error fields have hostile getters", async () => {
+			const providerFailure = Object.defineProperty({}, "code", {
+				get() {
+					throw new Error("hostile getter");
+				},
+			});
+			queueClient(
+				mockClient({
+					definitions: [definition("campaign_create")],
+					toolImplementations: {
+						campaign_create: executableTool(() => {
+							throw providerFailure;
+						}),
+					},
+				}),
+			);
+			const { connectorOperationEventsRepository, service } = buildService({
+				connectors: [
+					connector({ toolPolicy: { allowlist: ["campaign_create"] } }),
+				],
+			});
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
+
+			await expect(
+				executeTool(
+					requiredTool(result.tools, "mcp_meta-ads_campaign_create"),
+					{},
+				),
+			).rejects.toBe(providerFailure);
+			expect(connectorOperationEventsRepository.insert).toHaveBeenCalledWith(
+				expect.objectContaining({
+					errorCode: null,
+					errorMessage: "Provider tool execution failed",
+					status: "failed",
+				}),
+			);
+		});
+
+		it("does not await or surface an analytics insert failure", async () => {
+			const pendingInsert = deferred<void>();
+			queueClient(
+				mockClient({
+					definitions: [definition("ads_get_ad_accounts")],
+					toolImplementations: {
+						ads_get_ad_accounts: executableTool(() => ({ accounts: [] })),
+					},
+				}),
+			);
+			const { connectorOperationEventsRepository, service } = buildService();
+			connectorOperationEventsRepository.insert.mockReturnValueOnce(
+				pendingInsert.promise,
+			);
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
+
+			await expect(
+				executeTool(
+					requiredTool(result.tools, "mcp_meta-ads_ads_get_ad_accounts"),
+					{},
+				),
+			).resolves.toEqual({ accounts: [] });
+			expect(connectorOperationEventsRepository.insert).toHaveBeenCalledOnce();
+
+			pendingInsert.reject(new Error("analytics database unavailable"));
+			await vi.waitFor(() => {
+				expect(
+					connectorOperationEventsRepository.insert,
+				).toHaveBeenCalledOnce();
+			});
+		});
+
+		it("does not record when provider execution never starts", async () => {
+			const providerExecute = vi.fn();
+			queueClient(
+				mockClient({
+					definitions: [definition("campaign_create")],
+					toolImplementations: {
+						campaign_create: executableTool(providerExecute),
+					},
+				}),
+			);
+			const { connectorOperationEventsRepository, service } = buildService({
+				connectors: [
+					connector({
+						toolPolicy: { allowlist: ["campaign_create"] },
+					}),
+				],
+			});
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
+
+			expect(result.approvalMap["mcp_meta-ads_campaign_create"]).toBe(
+				"user-approval",
+			);
+			await expect(
+				executeTool(requiredTool(result.tools, "run_platform_tool"), {
+					connector: "meta-ads",
+					params: {},
+					tool_name: "missing_tool",
+				}),
+			).resolves.toMatchObject({ isError: true });
+			expect(providerExecute).not.toHaveBeenCalled();
+			expect(connectorOperationEventsRepository.insert).not.toHaveBeenCalled();
+		});
+
+		it("does not record an argument rejection before the provider call", async () => {
+			const providerExecute = vi.fn();
+			queueClient(
+				mockClient({
+					definitions: [definition("campaign_create")],
+					toolImplementations: {
+						campaign_create: executableTool(providerExecute),
+					},
+				}),
+			);
+			const { connectorOperationEventsRepository, service } = buildService({
+				connectors: [
+					connector({
+						toolPolicy: { allowlist: ["campaign_create"] },
+					}),
+				],
+			});
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
+
+			await expect(
+				executeTool(
+					requiredTool(result.tools, "mcp_meta-ads_campaign_create"),
+					{ params: { budget: "3000 DZD" } },
+				),
+			).rejects.toThrow(/must be in USD/);
+			expect(providerExecute).not.toHaveBeenCalled();
+			expect(connectorOperationEventsRepository.insert).not.toHaveBeenCalled();
 		});
 	});
 

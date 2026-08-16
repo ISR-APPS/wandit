@@ -1,4 +1,9 @@
-import type { AdminUserPagesQuery } from "@wandit/contracts";
+import {
+	ADMIN_CREDITS_USED_BUCKETS,
+	type AdminListUsersQuery,
+	type AdminUserPagesQuery,
+	adminListUsersQuerySchema,
+} from "@wandit/contracts";
 import { db } from "@wandit/db";
 import { describe, expect, it } from "vitest";
 import type { Database } from "../../../../infrastructure/database/database.constants";
@@ -13,6 +18,257 @@ const QUERY = {
 function normalizeSql(value: string): string {
 	return value.replaceAll(/\s+/g, " ").trim();
 }
+
+function normalizeSqlParams(value: string): string {
+	return normalizeSql(value).replaceAll(/\$\d+/g, "$?");
+}
+
+function outerUserWhere(value: string): string | undefined {
+	return normalizeSqlParams(value)
+		.split(' from "user" where ')[1]
+		?.split(" order by ")[0];
+}
+
+describe("adminListUsersQuerySchema", () => {
+	it("splits, trims, removes empty values, and deduplicates CSV filters", () => {
+		const query = adminListUsersQuerySchema.parse({
+			plan: " free,pro,,free ",
+			role: "admin, user,admin",
+			status: " banned,active ",
+			verified: "verified, unverified,verified",
+			creditsUsed: "mid",
+		});
+
+		expect(query).toMatchObject({
+			plan: ["free", "pro"],
+			role: ["admin", "user"],
+			status: ["banned", "active"],
+			verified: ["verified", "unverified"],
+			creditsUsed: "mid",
+		});
+	});
+
+	it("maps a CSV filter containing only empty tokens to undefined", () => {
+		const query = adminListUsersQuerySchema.parse({ plan: " , , " });
+
+		expect(query.plan).toBeUndefined();
+	});
+
+	it.each([
+		["plan", "free,enterprise"],
+		["role", "user,owner"],
+		["status", "active,suspended"],
+		["verified", "verified,pending"],
+		["creditsUsed", "extreme"],
+	] as const)("rejects an invalid %s token", (filter, value) => {
+		expect(
+			adminListUsersQuerySchema.safeParse({ [filter]: value }).success,
+		).toBe(false);
+	});
+});
+
+describe("AdminRepository user-list queries", () => {
+	it("applies the same combined search, plan, role, status, verification, and credits filters to count and list", () => {
+		const repository = new AdminRepository(db as Database);
+		const query = {
+			page: 2,
+			pageSize: 10,
+			sort: "newest",
+			q: "100%",
+			plan: ["pro", "business"],
+			role: ["admin"],
+			status: ["banned"],
+			verified: ["unverified"],
+			creditsUsed: "mid",
+		} satisfies AdminListUsersQuery;
+		const { countQuery, listQuery } =
+			// biome-ignore lint/complexity/useLiteralKeys: bracket access keeps the production query builder private.
+			repository["buildListUsersQueries"](query);
+		const count = countQuery.toSQL();
+		const list = listQuery.toSQL();
+		const countSql = normalizeSqlParams(count.sql);
+		const listSql = normalizeSqlParams(list.sql);
+		const entitledPredicate =
+			'"subscriptions"."user_id" = "user"."id" and "subscriptions"."organization_id" is null and "subscriptions"."status" in ($?, $?)';
+
+		expect(outerUserWhere(list.sql)).toBe(outerUserWhere(count.sql));
+		expect(countSql).toContain(
+			'("user"."name" ilike $? or "user"."email" ilike $?)',
+		);
+		expect(countSql).toContain(
+			`exists (select 1 from "subscriptions" where ${entitledPredicate} and "subscriptions"."plan" in ($?, $?))`,
+		);
+		expect(countSql).toContain(
+			"from unnest(string_to_array(coalesce(\"user\".\"role\", ''), ',')) as role_part(value)",
+		);
+		expect(countSql).toContain("where lower(trim(role_part.value)) = 'admin'");
+		expect(countSql).toContain('"user"."banned" is true');
+		expect(countSql).toContain('"user"."email_verified" is not true');
+		expect(countSql).toContain(
+			'coalesce(( select -sum("credit_ledger"."delta") from "credit_ledger"',
+		);
+		expect(countSql).toContain("between $? and $?");
+		expect(listSql.split(entitledPredicate)).toHaveLength(3);
+		expect(count.params).toEqual([
+			"%100\\%%",
+			"%100\\%%",
+			"active",
+			"trialing",
+			"pro",
+			"business",
+			100,
+			999,
+		]);
+		expect(list.params.slice(-2)).toEqual([10, 10]);
+	});
+
+	it("uses NOT EXISTS for free and inverse predicates for regular active verified users", () => {
+		const repository = new AdminRepository(db as Database);
+		const query = {
+			page: 1,
+			pageSize: 25,
+			sort: "newest",
+			plan: ["free"],
+			role: ["user"],
+			status: ["active"],
+			verified: ["verified"],
+		} satisfies AdminListUsersQuery;
+		// biome-ignore lint/complexity/useLiteralKeys: bracket access keeps the production query builder private.
+		const { countQuery } = repository["buildListUsersQueries"](query);
+		const countSql = normalizeSqlParams(countQuery.toSQL().sql);
+
+		expect(countSql).toContain(
+			'not exists (select 1 from "subscriptions" where "subscriptions"."user_id" = "user"."id"',
+		);
+		expect(countSql).toContain(
+			"not exists ( select 1 from unnest(string_to_array(coalesce(\"user\".\"role\", ''), ','))",
+		);
+		expect(countSql).toContain('"user"."banned" is not true');
+		expect(countSql).toContain('"user"."email_verified" is true');
+	});
+
+	it("ORs free with a selected paid plan inside the plan dimension", () => {
+		const repository = new AdminRepository(db as Database);
+		const query = {
+			page: 1,
+			pageSize: 25,
+			sort: "newest",
+			plan: ["free", "pro"],
+		} satisfies AdminListUsersQuery;
+		// biome-ignore lint/complexity/useLiteralKeys: bracket access keeps the production query builder private.
+		const { countQuery } = repository["buildListUsersQueries"](query);
+		const count = countQuery.toSQL();
+		const countSql = normalizeSqlParams(count.sql);
+
+		expect(countSql).toContain(
+			'not exists (select 1 from "subscriptions" where "subscriptions"."user_id" = "user"."id"',
+		);
+		expect(countSql).toContain(
+			'or exists (select 1 from "subscriptions" where "subscriptions"."user_id" = "user"."id"',
+		);
+		expect(countSql).toContain('"subscriptions"."plan" in ($?))');
+		expect(count.params).toEqual([
+			"active",
+			"trialing",
+			"active",
+			"trialing",
+			"pro",
+		]);
+	});
+
+	it("treats all values selected in each dimension as no filter", () => {
+		const repository = new AdminRepository(db as Database);
+		const query = {
+			page: 1,
+			pageSize: 25,
+			sort: "newest",
+			plan: ["free", "pro", "business"],
+			role: ["user", "admin"],
+			status: ["active", "banned"],
+			verified: ["verified", "unverified"],
+		} satisfies AdminListUsersQuery;
+		const { countQuery, listQuery } =
+			// biome-ignore lint/complexity/useLiteralKeys: bracket access keeps the production query builder private.
+			repository["buildListUsersQueries"](query);
+
+		expect(outerUserWhere(countQuery.toSQL().sql)).toBeUndefined();
+		expect(outerUserWhere(listQuery.toSQL().sql)).toBeUndefined();
+	});
+
+	it.each([
+		["zero", "between $? and $?", [0, 0]],
+		["low", "between $? and $?", [1, 99]],
+		["mid", "between $? and $?", [100, 999]],
+		["high", ">= $?", [1000]],
+	] as const)("applies the %s credits-used bucket range", (creditsUsed, operator, params) => {
+		const repository = new AdminRepository(db as Database);
+		const query = {
+			page: 1,
+			pageSize: 25,
+			sort: "newest",
+			creditsUsed,
+		} satisfies AdminListUsersQuery;
+		// biome-ignore lint/complexity/useLiteralKeys: bracket access keeps the production query builder private.
+		const { countQuery } = repository["buildListUsersQueries"](query);
+		const count = countQuery.toSQL();
+		const countSql = normalizeSqlParams(count.sql);
+		const range = ADMIN_CREDITS_USED_BUCKETS[creditsUsed];
+
+		expect(countSql).toContain(
+			'coalesce(( select -sum("credit_ledger"."delta") from "credit_ledger" where "credit_ledger"."user_id" = "user"."id" and "credit_ledger"."organization_id" is null and "credit_ledger"."kind" = \'consume\' ), 0)::int',
+		);
+		expect(countSql).toContain(operator);
+		expect(count.params).toEqual(params);
+		expect(range.min).toBe(params[0]);
+		expect(range.max).toBe(params[1] ?? null);
+	});
+
+	it.each([
+		["most_projects", "projectsCount"],
+		["most_credits", "creditsBalance"],
+		["most_consumed", "creditsConsumed"],
+	] as const)("reuses the selected %s aggregate expression for ordering", (sort, aggregate) => {
+		const repository = new AdminRepository(db as Database);
+		const query = {
+			page: 1,
+			pageSize: 10,
+			sort,
+		} satisfies AdminListUsersQuery;
+		// biome-ignore lint/complexity/useLiteralKeys: bracket access keeps the production query builder private.
+		const { listQuery } = repository["buildListUsersQueries"](query);
+		const listSql = normalizeSqlParams(listQuery.toSQL().sql);
+		const aggregateExpressions = {
+			projectsCount:
+				'( select count(*) from "projects" where "projects"."user_id" = "user"."id" and "projects"."deleted_at" is null )::int',
+			creditsBalance:
+				'coalesce(( select sum("credit_ledger"."delta") from "credit_ledger" where "credit_ledger"."user_id" = "user"."id" and "credit_ledger"."organization_id" is null ), 0)::int',
+			creditsConsumed:
+				'coalesce(( select -sum("credit_ledger"."delta") from "credit_ledger" where "credit_ledger"."user_id" = "user"."id" and "credit_ledger"."organization_id" is null and "credit_ledger"."kind" = \'consume\' ), 0)::int',
+		};
+		const aggregateExpression = aggregateExpressions[aggregate];
+
+		expect(listSql.split(aggregateExpression)).toHaveLength(3);
+		expect(listSql).toContain(
+			`order by ${aggregateExpression} desc, "user"."id" desc`,
+		);
+	});
+
+	it("sorts recent activity descending with nulls last and a stable id tie-breaker", () => {
+		const repository = new AdminRepository(db as Database);
+		const query = {
+			page: 1,
+			pageSize: 10,
+			sort: "recently_seen",
+		} satisfies AdminListUsersQuery;
+		// biome-ignore lint/complexity/useLiteralKeys: bracket access keeps the production query builder private.
+		const { listQuery } = repository["buildListUsersQueries"](query);
+		const listSql = normalizeSql(listQuery.toSQL().sql);
+
+		expect(listSql).toContain(
+			'order by "user"."last_seen_at" desc nulls last, "user"."id" desc',
+		);
+	});
+});
 
 describe("AdminRepository user landing-page queries", () => {
 	it("allows the driver string shape for the raw activity timestamp", () => {
