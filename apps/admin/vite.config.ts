@@ -7,6 +7,12 @@ import { defineConfig, loadEnv } from "vite";
 export default defineConfig(({ mode }) => ({
 	server: {
 		port: Number(loadEnv(mode, import.meta.dirname, "").PORT ?? 3002),
+		// The native FS watcher delivers no events for checkouts nested under a
+		// dot-directory (worktrees live in .claude/worktrees/), which silently
+		// kills HMR there — fall back to stat polling for those checkouts only.
+		watch: import.meta.dirname.includes("/.claude/")
+			? { usePolling: true, interval: 300 }
+			: undefined,
 	},
 	build: {
 		// Maps exist only when the Sentry plugin below will upload-and-delete

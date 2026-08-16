@@ -14,6 +14,7 @@ import { monographe } from "../worlds/monographe";
 import { vitrine } from "../worlds/vitrine";
 import {
 	appendReadyMediaAssets,
+	appendUserLinks,
 	createGeneratePageTool,
 } from "./generate-page.tool";
 
@@ -77,6 +78,7 @@ function setup(
 	options: {
 		parentEventId?: string;
 		conversationAssets?: ConversationGeneratedAsset[];
+		conversationUserLinks?: string[];
 	} = {},
 ) {
 	const pagesRepository = {
@@ -90,6 +92,9 @@ function setup(
 		chatId: "chat_1",
 		...(options.conversationAssets
 			? { conversationAssets: options.conversationAssets }
+			: {}),
+		...(options.conversationUserLinks
+			? { conversationUserLinks: options.conversationUserLinks }
 			: {}),
 		pagesRepository: pagesRepository as unknown as PagesRepository,
 		...(options.parentEventId ? { parentEventId: options.parentEventId } : {}),
@@ -638,6 +643,54 @@ describe("appendReadyMediaAssets", () => {
 	});
 });
 
+describe("appendUserLinks", () => {
+	it("appends each missing link once in first-seen order", () => {
+		const first = "https://example.com/first";
+		const second = "https://example.com/second";
+
+		const brief = appendUserLinks("Build the page.", [first, second, first]);
+
+		expect(brief).toBe(
+			[
+				"Build the page.",
+				"",
+				"USER LINKS (URLs the user shared in this conversation — use the ones that belong on this page; ignore any that were only references):",
+				`- ${first}`,
+				`- ${second}`,
+			].join("\n"),
+		);
+	});
+
+	it("skips links the brief already contains", () => {
+		const included = "https://example.com/included";
+		const diligent = `Build around **${included}**.`;
+
+		expect(appendUserLinks(diligent, [included])).toBe(diligent);
+	});
+
+	it("does not treat a longer URL in the brief as containing its prefix", () => {
+		const prefix = "https://instagram.com/acme";
+		const longer = "https://instagram.com/acmestore";
+
+		const brief = appendUserLinks(`Use ${longer} as inspiration.`, [prefix]);
+
+		expect(brief).toContain(`- ${prefix}`);
+	});
+
+	it("bounds the appended section to the newest 16 unique links", () => {
+		const links = Array.from(
+			{ length: 20 },
+			(_, index) => `https://example.com/link-${index}`,
+		);
+
+		const brief = appendUserLinks("Build the page.", links);
+
+		expect(brief.match(/^- https:\/\/example\.com\/link-\d+$/gm)).toEqual(
+			links.slice(-16).map((link) => `- ${link}`),
+		);
+	});
+});
+
 describe("generate_page with conversation assets", () => {
 	const IMAGE = "https://assets.example.com/images/p1/a1/img-1.png";
 
@@ -664,5 +717,25 @@ describe("generate_page with conversation assets", () => {
 		expect(spec.brief.startsWith(INPUT.brief)).toBe(true);
 		expect(spec.brief).toContain("READY MEDIA ASSETS");
 		expect(spec.brief).toContain(`- image: ${IMAGE}`);
+	});
+});
+
+describe("generate_page with conversation user links", () => {
+	const USER_LINK = "https://www.youtube.com/watch?v=demo123";
+
+	it("snapshots the brief with the appended conversation links", async () => {
+		const { execute, pagesRepository } = setup({
+			conversationUserLinks: [USER_LINK],
+		});
+		prepareSuccessfulQueue(pagesRepository);
+
+		await execute(INPUT);
+
+		const spec = pagesRepository.insertAttempt.mock.calls[0]?.[0]?.spec as {
+			brief: string;
+		};
+		expect(spec.brief.startsWith(INPUT.brief)).toBe(true);
+		expect(spec.brief).toContain("USER LINKS");
+		expect(spec.brief).toContain(`- ${USER_LINK}`);
 	});
 });

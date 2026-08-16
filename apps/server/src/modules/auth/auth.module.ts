@@ -31,6 +31,7 @@ import { SignupGrantOutboxService } from "./application/services/signup-grant-ou
 import { SignupGrantsService } from "./application/services/signup-grants.service";
 import { ADMIN_AUTH_INSTANCE, AUTH_INSTANCE } from "./auth.constants";
 import { SignupGrantOutboxRepository } from "./infrastructure/persistence/signup-grant-outbox.repository";
+import { BetterAuthRedisSecondaryStorage } from "./infrastructure/redis/better-auth-redis-secondary-storage";
 import { TriggerSignupGrantDispatcherService } from "./infrastructure/trigger/trigger-signup-grant-dispatcher.service";
 import { AdminAuthController } from "./presentation/http/controllers/admin-auth.controller";
 import { AuthController } from "./presentation/http/controllers/auth.controller";
@@ -59,6 +60,7 @@ const authProvider: Provider<Auth> = {
 		ProductSettingsService,
 		EmailService,
 		EmailSendPolicyService,
+		BetterAuthRedisSecondaryStorage,
 	],
 	useFactory: (
 		affiliateAttributionService: AffiliateAttributionService,
@@ -68,8 +70,10 @@ const authProvider: Provider<Auth> = {
 		productSettings: ProductSettingsService,
 		emailService: EmailService,
 		emailSendPolicy: EmailSendPolicyService,
+		secondaryStorage: BetterAuthRedisSecondaryStorage,
 	) =>
 		createAuth({
+			secondaryStorage,
 			// Workspace creation is a beta-gated admission — the organizations
 			// toggle is the same class of kill switch as paid subscriptions.
 			canCreateOrganization: async () => {
@@ -196,6 +200,7 @@ const adminAuthProvider: Provider<AdminAuth> = {
 	],
 	providers: [
 		adminAuthProvider,
+		BetterAuthRedisSecondaryStorage,
 		authProvider,
 		AuthGuard,
 		SignupGrantOutboxRepository,

@@ -1,4 +1,4 @@
-// Typed sidebar nav config for the dashboard shell. Leads, Assets and Apps
+// Typed sidebar nav config for the dashboard shell. Leads, Assets, Apps and Academy
 // are real routes; Analytics and the support link stay as disabled
 // placeholders ("Soon"). Titles are dictionary keys, resolved at render.
 
@@ -6,6 +6,7 @@ import {
 	Blocks,
 	ChartSpline,
 	FolderOpen,
+	GraduationCap,
 	Images,
 	LifeBuoy,
 	type LucideIcon,
@@ -19,7 +20,12 @@ type NavItemBase = {
 	icon: LucideIcon;
 };
 
-export type NavRoutePath = "/dashboard" | "/leads" | "/assets" | "/apps";
+export type NavRoutePath =
+	| "/dashboard"
+	| "/leads"
+	| "/assets"
+	| "/apps"
+	| "/academy";
 
 export type NavItem = NavItemBase &
 	(
@@ -67,6 +73,12 @@ export const NAV_GROUPS: NavGroup[] = [
 	{
 		titleKey: "projects.sidebar.groupResources",
 		items: [
+			{
+				type: "route",
+				titleKey: "academy.navLabel",
+				to: "/academy",
+				icon: GraduationCap,
+			},
 			// The support site doesn't exist yet — "Soon" until it does, so the
 			// launch video doesn't show dead "#" links.
 			{ type: "soon", titleKey: "projects.nav.support", icon: LifeBuoy },

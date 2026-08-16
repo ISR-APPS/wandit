@@ -1,5 +1,6 @@
 import {
 	CircleDollarSignIcon,
+	CircleMinusIcon,
 	CoinsIcon,
 	FolderKanbanIcon,
 	GemIcon,
@@ -11,6 +12,7 @@ import {
 	formatUsdMicros,
 	formatWholeNumber,
 } from "@/features/users/lib/formatters";
+import { cn } from "@/lib/utils";
 
 import { titleCase } from "./user-detail-helpers";
 
@@ -25,6 +27,12 @@ export function UserMetrics({ user }: UserMetricsProps) {
 			value: formatWholeNumber(user.creditsBalance),
 			detail: "Available now",
 			icon: CoinsIcon,
+		},
+		{
+			label: "Credits used",
+			value: formatWholeNumber(user.creditsConsumed),
+			detail: "Lifetime consumption",
+			icon: CircleMinusIcon,
 		},
 		{
 			label: "Projects",
@@ -50,14 +58,17 @@ export function UserMetrics({ user }: UserMetricsProps) {
 
 	return (
 		<Card className="gap-0 py-0 shadow-none">
-			<CardContent className="grid grid-cols-1 px-0 sm:grid-cols-2 lg:grid-cols-4">
+			<CardContent className="grid grid-cols-1 px-0 sm:grid-cols-2 lg:grid-cols-5">
 				{metrics.map((metric, index) => {
 					const Icon = metric.icon;
 
 					return (
 						<div
 							key={metric.label}
-							className="flex min-w-0 items-start gap-3 border-b p-4 last:border-b-0 sm:odd:border-r lg:border-r lg:border-b-0 lg:last:border-r-0"
+							className={cn(
+								"flex min-w-0 items-start gap-3 border-b p-4 last:border-b-0 sm:last:col-span-2 lg:border-r lg:border-b-0 lg:last:col-span-1 lg:last:border-r-0",
+								index % 2 === 0 && index < metrics.length - 1 && "sm:border-r",
+							)}
 						>
 							<div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-muted text-muted-foreground">
 								<Icon aria-hidden="true" />

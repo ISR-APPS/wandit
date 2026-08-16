@@ -193,7 +193,8 @@ export class AdminUsersService {
 		);
 
 		if (input.banned) {
-			// Kill live sessions so the ban takes effect immediately.
+			// Remove durable sessions. A signed session cache can remain valid for
+			// up to five minutes, then the missing Postgres row enforces the ban.
 			await this.adminRepository.deleteUserSessions(userId);
 		}
 

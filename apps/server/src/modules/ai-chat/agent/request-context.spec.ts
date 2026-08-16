@@ -146,7 +146,74 @@ describe("buildChatRequestContext composer settings", () => {
 	});
 });
 
+describe("buildChatRequestContext active page outline", () => {
+	it("renders the start-of-request page version and compact section lines", () => {
+		const block = buildChatRequestContext({
+			activePageOutline: {
+				sections: [
+					{
+						elements: 4,
+						snippet: "Bienvenue chez Atlas",
+						tag: "header",
+						wid: "hero",
+					},
+					{
+						elements: 7,
+						snippet: "Nos services Conseil Formation",
+						tag: "section",
+						wid: "services",
+					},
+				],
+				versionNumber: 12,
+			},
+			manualEdits: [],
+		});
+
+		expect(block).toBe(
+			"## This request (set by the app, not the user's words)\n\n" +
+				"The current page outline at the start of this request (version 12):\n" +
+				'- data-wid="hero" | <header> | "Bienvenue chez Atlas"\n' +
+				'- data-wid="services" | <section> | "Nos services Conseil Formation"\n' +
+				"A page already exists — edit it with the surgical tools. Do not " +
+				"call get_page_outline again; the outline is right here. Call " +
+				"generate_page only when the user asks for a new page or a full " +
+				"redesign.",
+		);
+	});
+
+	it("omits page-state guidance when no outline was loaded", () => {
+		expect(
+			buildChatRequestContext({ activePageOutline: null, manualEdits: [] }),
+		).toBeNull();
+	});
+});
+
 describe("buildChatRequestContext preview targets", () => {
+	it("routes a single selected element directly to read_section with an outline", () => {
+		const block = buildChatRequestContext({
+			activePageOutline: {
+				sections: [
+					{
+						elements: 3,
+						snippet: "The selected hero",
+						tag: "section",
+						wid: "hero",
+					},
+				],
+				versionNumber: 4,
+			},
+			manualEdits: [],
+			metadata: { selectedWids: ["hero-title"] },
+		});
+
+		expect(block).toContain(
+			' data-wid="hero-title". When they say "this", "here", "ça", ' +
+				'"هذا" they mean that element. Call read_section directly to see it ' +
+				"before answering or editing.",
+		);
+		expect(block).not.toContain("Call get_page_outline / read_section");
+	});
+
 	it("renders a one-item selectedWids array as the single-target block", () => {
 		const block = buildChatRequestContext({
 			manualEdits: [],

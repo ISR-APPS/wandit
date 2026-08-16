@@ -39,10 +39,15 @@ function UsersMobileList({ users }: { users: AdminUserSummary[] }) {
 						</MobileDatum>
 					</div>
 
-					<div className="grid grid-cols-2 divide-x border-b">
+					<div className="grid grid-cols-3 divide-x border-b">
 						<MobileDatum label="Credits">
 							<p className="font-medium font-mono tabular-nums">
 								{formatWholeNumber(user.creditsBalance)}
+							</p>
+						</MobileDatum>
+						<MobileDatum label="Credits used">
+							<p className="font-medium font-mono tabular-nums">
+								{formatWholeNumber(user.creditsConsumed)}
 							</p>
 						</MobileDatum>
 						<MobileDatum label="Projects">
