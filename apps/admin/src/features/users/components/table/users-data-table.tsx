@@ -33,7 +33,7 @@ import {
 import type {
 	AdminListUsersSort,
 	AdminUserSummary,
-	UserCreditsUsedFilter,
+	UserCreditsUsedRange,
 	UserPlanFilter,
 	UserRoleFilter,
 	UserStatusFilter,
@@ -55,17 +55,19 @@ type UsersDataTableProps = {
 	role?: UserRoleFilter;
 	status?: UserStatusFilter;
 	verified?: UserVerifiedFilter;
-	creditsUsed?: UserCreditsUsedFilter;
+	creditsUsed?: UserCreditsUsedRange;
 	searchValue: string;
 	isFetching?: boolean;
+	isExporting: boolean;
 	onSearchChange: (value: string) => void;
 	onSortChange: (sort: AdminListUsersSort) => void;
 	onPlanChange: (plan: UserPlanFilter | undefined) => void;
 	onRoleChange: (role: UserRoleFilter | undefined) => void;
 	onStatusChange: (status: UserStatusFilter | undefined) => void;
 	onVerifiedChange: (verified: UserVerifiedFilter | undefined) => void;
-	onCreditsUsedChange: (creditsUsed: UserCreditsUsedFilter | undefined) => void;
+	onCreditsUsedChange: (creditsUsed: UserCreditsUsedRange | undefined) => void;
 	onClearAllFilters: () => void;
+	onExport: () => void;
 	onPageChange: (page: number) => void;
 	onPageSizeChange: (pageSize: number) => void;
 };
@@ -83,6 +85,7 @@ function UsersDataTable({
 	creditsUsed,
 	searchValue,
 	isFetching = false,
+	isExporting,
 	onSearchChange,
 	onSortChange,
 	onPlanChange,
@@ -91,6 +94,7 @@ function UsersDataTable({
 	onVerifiedChange,
 	onCreditsUsedChange,
 	onClearAllFilters,
+	onExport,
 	onPageChange,
 	onPageSizeChange,
 }: UsersDataTableProps) {
@@ -158,6 +162,7 @@ function UsersDataTable({
 					status={status}
 					verified={verified}
 					creditsUsed={creditsUsed}
+					isExporting={isExporting}
 					onSearchChange={onSearchChange}
 					onSortChange={onSortChange}
 					onPlanChange={onPlanChange}
@@ -166,6 +171,7 @@ function UsersDataTable({
 					onVerifiedChange={onVerifiedChange}
 					onCreditsUsedChange={onCreditsUsedChange}
 					onClearAllFilters={onClearAllFilters}
+					onExport={onExport}
 				/>
 			</div>
 

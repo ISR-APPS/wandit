@@ -58,6 +58,8 @@ export function mapAdminOrganizationSubscription(
 		currentPeriodEnd: row.currentPeriodEnd ? toIso(row.currentPeriodEnd) : null,
 		cancelAtPeriodEnd: row.cancelAtPeriodEnd,
 		tierCredits: row.tierCredits,
+		pendingTierCredits:
+			row.pendingTierCredits === null ? null : Number(row.pendingTierCredits),
 		purchasedByUserId: row.purchasedByUserId,
 	};
 }
