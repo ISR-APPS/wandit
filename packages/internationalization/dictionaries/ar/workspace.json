@@ -655,6 +655,8 @@
 			"preparing": "جارٍ تحضير السؤال…",
 			"needsDetail": "نحتاج توضيحًا",
 			"decideForMe": "قرّر بدلًا مني",
+			"scrollBack": "البطاقات السابقة",
+			"scrollForward": "المزيد من البطاقات",
 			"dismiss": "تجاهل الطلب",
 			"typingOverride": "تجيب بكلماتك الخاصة ↓",
 			"answer": "أجب",

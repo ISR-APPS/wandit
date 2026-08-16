@@ -347,6 +347,10 @@ const OUTPUTS_BY_MODE: Record<ConcreteMode, readonly GenerationOutputDef[]> = {
 						{ id: "promo" },
 					],
 				},
+				{
+					id: "codMode",
+					choices: [{ id: "auto" }, { id: "simple" }, { id: "max" }],
+				},
 			],
 		},
 		{
@@ -655,6 +659,16 @@ function createDefaultOptions(output: GenerationOutputDef) {
 	return Object.fromEntries(
 		output.options.map((group) => [group.id, group.choices[0]?.id ?? ""]),
 	);
+}
+
+/** Keep cross-option dependencies in one place so new conditional groups do
+ * not leak product-specific branches into the settings-panel markup. */
+function isGroupVisible(
+	group: OptionGroup,
+	options: Readonly<Record<string, string>>,
+) {
+	if (group.id === "codMode") return options.goal === "cod";
+	return true;
 }
 
 function restoreOutputOptions(
@@ -1632,6 +1646,7 @@ function OutputSettings({
 			) : null}
 			<div className="space-y-4 p-4">
 				{(output?.options ?? []).map((group) => {
+					if (!isGroupVisible(group, values)) return null;
 					const groupCopy = optionsCopy[group.id];
 					return (
 						<div key={group.id}>
@@ -1871,10 +1886,12 @@ export type PromptBoxSubmitOverride = {
 	label: string;
 	/** The caller owns answer validity; PromptBox still also respects isSubmitting. */
 	disabled: boolean;
-	/** Confirm the caller's current draft. A false return or rejection keeps the
-	 * textarea. */
-	// biome-ignore lint/suspicious/noConfusingVoidType: void keeps fire-and-forget overrides assignable
-	onSubmit: () => void | boolean | Promise<void | boolean>;
+	/** Confirm the caller's current draft with its successfully uploaded
+	 * attachments. A false return or rejection keeps the textarea and files. */
+	onSubmit: (
+		attachments: UploadAttachmentResponse[],
+		// biome-ignore lint/suspicious/noConfusingVoidType: void keeps fire-and-forget overrides assignable
+	) => void | boolean | Promise<void | boolean>;
 };
 
 export type PromptBoxProps = {
@@ -2073,7 +2090,9 @@ export function PromptBox({
 	const canSubmit =
 		!disabled &&
 		(submitOverride
-			? !submitOverride.disabled && !submissionPending
+			? !submitOverride.disabled &&
+				!submissionPending &&
+				!hasUploadingAttachment
 			: hasRequiredInput &&
 				!submissionPending &&
 				!hasUploadingAttachment &&
@@ -2334,6 +2353,12 @@ export function PromptBox({
 	// the prompt so the backend routes the generation the same way the UI shows.
 	const buildComposer = (): ComposerMetadata => {
 		const options: Record<string, unknown> = { ...outputOptions };
+		const codMode = options.codMode;
+		// `auto` delegates the choice to the Brain, while a hidden value from a
+		// previous COD selection must not leak into another landing-page goal.
+		if (options.goal !== "cod" || (codMode !== "simple" && codMode !== "max")) {
+			delete options.codMode;
+		}
 
 		// Dev-only builder override: rides as a composer option so each
 		// generate_page call snapshots the picked model — no server restart.
@@ -2375,17 +2400,27 @@ export function PromptBox({
 		if (disabled || submitInFlightRef.current) return;
 
 		if (submitOverride) {
-			if (submitOverride.disabled || submissionPending) return;
+			if (
+				submitOverride.disabled ||
+				submissionPending ||
+				hasUploadingAttachment
+			) {
+				return;
+			}
+			const uploadedAttachments = readyAttachments.flatMap((attachment) =>
+				attachment.uploaded ? [attachment.uploaded] : [],
+			);
 			submitInFlightRef.current = true;
 			setIsLocallySubmitting(true);
 			try {
-				const result = await submitOverride.onSubmit();
+				const result = await submitOverride.onSubmit(uploadedAttachments);
 				if (clearOnSubmit && result !== false) {
 					if (value.length > 0) {
 						videoSubmissionIdRef.current = createVideoSubmissionId();
 					}
 					setValue("");
 					onValueChange?.("");
+					clearAttachments();
 				}
 			} catch {
 				// The caller owns error presentation. Keeping the draft makes the

@@ -50,6 +50,17 @@ vi.mock("../site-builder/cod-builder-prompt", () => ({
 		.mockResolvedValue("COD builder prompt (test)"),
 }));
 
+vi.mock("../site-builder/simple-cod-builder-prompt", () => ({
+	buildSimpleCodSiteBuilderSystemPrompt: vi
+		.fn()
+		.mockResolvedValue("SIMPLE COD builder prompt (test)"),
+}));
+
+vi.mock("../site-builder/simple-cod-recipe", () => ({
+	SIMPLE_COD_STYLE_DOC: "# SIMPLE COD STYLE (test)",
+	sampleSimpleCodRecipe: vi.fn(() => "# THIS BUILD'S RECIPE (test)"),
+}));
+
 const INPUT = {
 	brief:
 		"Arabic RTL landing page for handmade kabyle jewelry, Bazar Heat direction, " +
@@ -91,6 +102,7 @@ function setup(
 	// the call options, so a stub second argument is enough here.
 	const execute = (
 		input: typeof INPUT & {
+			codMode?: "simple" | "max";
 			pageKind?: "cod" | "website";
 			worldId?: string;
 			worldIds?: string[];
@@ -301,7 +313,7 @@ describe("generate_page tool", () => {
 		);
 	});
 
-	it("assembles COD worldIds as genre law, fusion contract, base, then donors", async () => {
+	it("assembles inferred max COD worldIds as genre law, fusion contract, base, then donors", async () => {
 		const { execute, pagesRepository } = setup();
 		prepareSuccessfulQueue(pagesRepository);
 
@@ -314,6 +326,7 @@ describe("generate_page tool", () => {
 			expect.objectContaining({
 				spec: {
 					brief: INPUT.brief,
+					codMode: "max",
 					designerSystemPrompt: [
 						"COD builder prompt (test)",
 						COD_GENRE_DOC,
@@ -329,22 +342,67 @@ describe("generate_page tool", () => {
 		);
 	});
 
-	it("builds with COD genre law alone and persists pageKind", async () => {
+	it("uses the simple composition when COD explicitly requests simple", async () => {
+		const { execute, pagesRepository } = setup();
+		prepareSuccessfulQueue(pagesRepository);
+
+		await execute({ ...INPUT, codMode: "simple", pageKind: "cod" });
+
+		const spec = pagesRepository.insertAttempt.mock.calls[0]?.[0]?.spec as {
+			codMode: string;
+			designerSystemPrompt: string;
+		};
+		expect(spec.codMode).toBe("simple");
+		expect(spec.designerSystemPrompt).toContain("SIMPLE COD STYLE");
+		expect(spec.designerSystemPrompt).toContain("THIS BUILD'S RECIPE");
+		expect(spec.designerSystemPrompt).not.toContain("WORLD FUSION CONTRACT");
+	});
+
+	it("drops worlds from an explicitly simple COD composition", async () => {
+		const warn = vi
+			.spyOn(Logger.prototype, "warn")
+			.mockImplementation(() => undefined);
+		const { execute, pagesRepository } = setup();
+		prepareSuccessfulQueue(pagesRepository);
+
+		await execute({
+			...INPUT,
+			codMode: "simple",
+			pageKind: "cod",
+			worldIds: [argan.id, atay.id],
+		});
+
+		const spec = pagesRepository.insertAttempt.mock.calls[0]?.[0]?.spec as {
+			codMode: string;
+			designerSystemPrompt: string;
+		};
+		expect(spec.codMode).toBe("simple");
+		expect(spec.designerSystemPrompt).toContain("SIMPLE COD STYLE");
+		expect(spec.designerSystemPrompt).toContain("THIS BUILD'S RECIPE");
+		expect(spec.designerSystemPrompt).not.toContain("WORLD FUSION CONTRACT");
+		expect(spec.designerSystemPrompt).not.toContain(argan.doc);
+		expect(spec.designerSystemPrompt).not.toContain(atay.doc);
+		expect(warn).toHaveBeenCalledWith(
+			expect.stringContaining("dropping world docs"),
+		);
+
+		warn.mockRestore();
+	});
+
+	it("infers simple for a world-less COD call", async () => {
 		const { execute, pagesRepository } = setup();
 		prepareSuccessfulQueue(pagesRepository);
 
 		await execute({ ...INPUT, pageKind: "cod" });
 
-		expect(pagesRepository.insertAttempt).toHaveBeenCalledWith(
-			expect.objectContaining({
-				spec: {
-					brief: INPUT.brief,
-					designerSystemPrompt: `COD builder prompt (test)\n\n${COD_GENRE_DOC}`,
-					pageKind: "cod",
-					title: INPUT.title,
-				},
-			}),
-		);
+		const spec = pagesRepository.insertAttempt.mock.calls[0]?.[0]?.spec as {
+			codMode: string;
+			designerSystemPrompt: string;
+		};
+		expect(spec.codMode).toBe("simple");
+		expect(spec.designerSystemPrompt).toContain("SIMPLE COD STYLE");
+		expect(spec.designerSystemPrompt).toContain("THIS BUILD'S RECIPE");
+		expect(spec.designerSystemPrompt).not.toContain("WORLD FUSION CONTRACT");
 	});
 
 	it("warns and drops unknown ids while preserving resolved fusion order", async () => {

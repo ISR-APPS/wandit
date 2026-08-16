@@ -35,6 +35,11 @@ import {
 	WORLD_DEPARTURE_POINT_HEADING,
 } from "../site-builder/builder-prompt";
 import { buildCodSiteBuilderSystemPrompt } from "../site-builder/cod-builder-prompt";
+import { buildSimpleCodSiteBuilderSystemPrompt } from "../site-builder/simple-cod-builder-prompt";
+import {
+	SIMPLE_COD_STYLE_DOC,
+	sampleSimpleCodRecipe,
+} from "../site-builder/simple-cod-recipe";
 import { getWorld } from "../worlds";
 import { COD_GENRE_DOC, FUSION_CONTRACT } from "../worlds/cod/genre";
 
@@ -107,6 +112,7 @@ export function createGeneratePageTool(
 		outputSchema: generatePageOutputSchema,
 		execute: async ({
 			brief,
+			codMode,
 			pageKind,
 			title,
 			worldId,
@@ -130,11 +136,11 @@ export function createGeneratePageTool(
 				deps.projectId,
 			);
 			// Snapshotted NOW so later prompt, model, or environment changes
-			// never change what this attempt meant. The chosen design world's
-			// bible rides inside the same snapshot — the trigger task and the
-			// build loop never need to know worlds exist.
+			// never change what this attempt meant. The selected design-world bible
+			// or server-sampled simple recipe rides inside the same snapshot — the
+			// trigger task and build loop never need to know which path supplied it.
 			const requestedWorldIds = worldIds ?? (worldId ? [worldId] : []);
-			const resolvedWorlds = requestedWorldIds.flatMap((id) => {
+			let resolvedWorlds = requestedWorldIds.flatMap((id) => {
 				const world = getWorld(id);
 
 				if (!world) {
@@ -152,20 +158,45 @@ export function createGeneratePageTool(
 			const isCod =
 				pageKind === "cod" ||
 				resolvedWorlds.some((world) => world.kind === "cod");
+			// The mode default is inference, not a coin flip: a max build always
+			// rides on worlds (the Brain samples them), so a world-less COD call
+			// means the simple flow — and historical calls with worlds keep meaning
+			// what they meant.
+			const resolvedCodMode = isCod
+				? (codMode ?? (resolvedWorlds.length > 0 ? "max" : "simple"))
+				: undefined;
+			const isSimpleCod = resolvedCodMode === "simple";
+
+			if (isSimpleCod && resolvedWorlds.length > 0) {
+				logger.warn(
+					`Simple COD build requested with ${resolvedWorlds.length} world${resolvedWorlds.length === 1 ? "" : "s"} — dropping world docs because the server-sampled recipe owns the skin.`,
+				);
+				resolvedWorlds = [];
+			}
+
 			const basePrompt = isCod
-				? await buildCodSiteBuilderSystemPrompt()
+				? isSimpleCod
+					? await buildSimpleCodSiteBuilderSystemPrompt()
+					: await buildCodSiteBuilderSystemPrompt()
 				: await buildSiteBuilderSystemPrompt();
 			const designerSystemPrompt = isCod
-				? [
-						basePrompt,
-						COD_GENRE_DOC,
-						...(resolvedWorlds.length > 0
-							? [
-									FUSION_CONTRACT(resolvedWorlds),
-									...resolvedWorlds.map((world) => world.doc),
-								]
-							: []),
-					].join("\n\n")
+				? isSimpleCod
+					? [
+							basePrompt,
+							COD_GENRE_DOC,
+							SIMPLE_COD_STYLE_DOC,
+							sampleSimpleCodRecipe(),
+						].join("\n\n")
+					: [
+							basePrompt,
+							COD_GENRE_DOC,
+							...(resolvedWorlds.length > 0
+								? [
+										FUSION_CONTRACT(resolvedWorlds),
+										...resolvedWorlds.map((world) => world.doc),
+									]
+								: []),
+						].join("\n\n")
 				: resolvedWorlds[0]
 					? // Product dossier docs stay bare — a bare world document is law.
 						// Website worlds ride behind the departure-point heading so the
@@ -191,6 +222,7 @@ export function createGeneratePageTool(
 				projectId: deps.projectId,
 				spec: {
 					brief: briefWithAssets,
+					...(resolvedCodMode ? { codMode: resolvedCodMode } : {}),
 					designerSystemPrompt,
 					pageKind: isCod ? "cod" : "website",
 					title,
@@ -200,6 +232,7 @@ export function createGeneratePageTool(
 			logger.log(
 				`Queued page build "${title}" — attempt ${attempt.id}, ` +
 					`Builder ${builderModel}` +
+					(resolvedCodMode ? `, COD mode "${resolvedCodMode}"` : "") +
 					(resolvedWorlds.length > 0
 						? `, world${resolvedWorlds.length === 1 ? "" : "s"} "${resolvedWorlds.map((world) => world.id).join('", "')}"`
 						: ", no world"),

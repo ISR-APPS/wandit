@@ -313,6 +313,12 @@ export const generatePageInputSchema = z.object({
 	// Durable page classification. Optional so historical tool calls continue
 	// to validate unchanged.
 	pageKind: z.enum(["website", "cod"]).optional(),
+	// COD page type. "simple" = the clean few-block funnel built WITHOUT
+	// design worlds (a server-sampled recipe owns the skin); "max" = the full
+	// world-driven funnel. Optional so historical calls stay valid; when
+	// absent on a COD build the server infers "max" when worldIds ride along
+	// and "simple" otherwise.
+	codMode: z.enum(["simple", "max"]).optional(),
 });
 
 // Definition moved to shared/trigger-realtime.ts (leaf module) so pages.ts

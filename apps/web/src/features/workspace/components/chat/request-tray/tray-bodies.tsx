@@ -15,6 +15,8 @@ import {
 	CalendarDays,
 	Camera,
 	Check,
+	ChevronLeft,
+	ChevronRight,
 	Clapperboard,
 	FileText,
 	ImageIcon,
@@ -27,6 +29,7 @@ import {
 import type * as React from "react";
 import { useEffect, useRef, useState } from "react";
 
+import { useTranslation } from "@/lib/i18n";
 import { SpinnerArc } from "./tray-signals";
 import type { ChipOption, MediaItem, TrayBody, WorldCardOption } from "./types";
 import { ensureWorldFontsLoaded } from "./world-fonts";
@@ -244,6 +247,9 @@ function SegmentedBody({
    Data comes from the sampled menu's server-authored cards — an option whose
    world didn't resolve renders a neutral card so the row never breaks. */
 
+const WORLD_CARD_SCROLL_STEP = 176;
+const WORLD_CARD_SCROLL_EPSILON = 2;
+
 function WorldPickBody({
 	body,
 	onPick,
@@ -251,9 +257,16 @@ function WorldPickBody({
 	body: Extract<TrayBody, { kind: "world-pick" }>;
 	onPick?: (option: ChipOption) => void;
 }) {
+	const { dir, t } = useTranslation();
 	// Local state only serves the display-only preview, same as the chips.
 	const [localId, setLocalId] = useState(body.selectedId);
 	const selectedId = onPick ? body.selectedId : localId;
+	const scrollRef = useRef<HTMLDivElement>(null);
+	const [scrollState, setScrollState] = useState({
+		canScrollBack: false,
+		canScrollForward: false,
+		isRtl: false,
+	});
 
 	const fonts = body.options.flatMap((option) =>
 		option.card ? [option.card.preview.fontFamily] : [],
@@ -264,20 +277,124 @@ function WorldPickBody({
 		ensureWorldFontsLoaded(fontsKey.split(",").filter(Boolean));
 	}, [fontsKey]);
 
+	useEffect(() => {
+		const container = scrollRef.current;
+		if (!container) return;
+
+		const updateScrollState = () => {
+			const maxScroll = Math.max(
+				0,
+				container.scrollWidth - container.clientWidth,
+			);
+			const scrollOffset = Math.abs(container.scrollLeft);
+			const isOverflowing = maxScroll > WORLD_CARD_SCROLL_EPSILON;
+			const nextState = {
+				canScrollBack:
+					isOverflowing && scrollOffset > WORLD_CARD_SCROLL_EPSILON,
+				canScrollForward:
+					isOverflowing && scrollOffset < maxScroll - WORLD_CARD_SCROLL_EPSILON,
+				isRtl: getComputedStyle(container).direction === "rtl",
+			};
+
+			setScrollState((current) =>
+				current.canScrollBack === nextState.canScrollBack &&
+				current.canScrollForward === nextState.canScrollForward &&
+				current.isRtl === nextState.isRtl
+					? current
+					: nextState,
+			);
+		};
+
+		updateScrollState();
+		const directionFrame =
+			getComputedStyle(container).direction === dir
+				? undefined
+				: requestAnimationFrame(updateScrollState);
+		container.addEventListener("scroll", updateScrollState, { passive: true });
+		const observer = new ResizeObserver(updateScrollState);
+		observer.observe(container);
+		for (let index = 0; index < body.options.length; index++) {
+			const card = container.children.item(index);
+			if (card) observer.observe(card);
+		}
+
+		return () => {
+			if (directionFrame !== undefined) cancelAnimationFrame(directionFrame);
+			container.removeEventListener("scroll", updateScrollState);
+			observer.disconnect();
+		};
+	}, [body.options.length, dir]);
+
+	const scrollByCard = (direction: "back" | "forward") => {
+		const container = scrollRef.current;
+		if (!container) return;
+		const forwardSign =
+			getComputedStyle(container).direction === "rtl" ? -1 : 1;
+
+		container.scrollBy({
+			left:
+				(direction === "forward" ? forwardSign : -forwardSign) *
+				WORLD_CARD_SCROLL_STEP,
+			behavior: "smooth",
+		});
+	};
+
+	const BackChevron = scrollState.isRtl ? ChevronRight : ChevronLeft;
+	const ForwardChevron = scrollState.isRtl ? ChevronLeft : ChevronRight;
+
 	return (
-		<div className="-mx-[15px] flex gap-2 overflow-x-auto overscroll-x-contain px-[15px] pb-1 [scrollbar-width:none]">
-			{body.options.map((option) => (
-				<WorldCardButton
-					key={option.id}
-					option={option}
-					selected={option.id === selectedId}
-					onClick={() =>
-						onPick
-							? onPick({ id: option.id, label: option.label })
-							: setLocalId(option.id)
-					}
-				/>
-			))}
+		<div className="relative">
+			<div
+				ref={scrollRef}
+				className="-mx-[15px] flex gap-2 overflow-x-auto overscroll-x-contain px-[15px] pb-1 [scrollbar-width:none]"
+			>
+				{body.options.map((option) => (
+					<WorldCardButton
+						key={option.id}
+						option={option}
+						selected={option.id === selectedId}
+						onClick={() =>
+							onPick
+								? onPick({ id: option.id, label: option.label })
+								: setLocalId(option.id)
+						}
+					/>
+				))}
+			</div>
+
+			{scrollState.canScrollBack ? (
+				<>
+					<div
+						aria-hidden
+						className="pointer-events-none absolute inset-y-0 -start-[15px] w-6 bg-gradient-to-r from-secondary to-transparent rtl:bg-gradient-to-l"
+					/>
+					<button
+						type="button"
+						aria-label={t("workspace.chat.tray.scrollBack")}
+						onClick={() => scrollByCard("back")}
+						className="absolute -start-3 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-full border border-border bg-background text-muted-foreground shadow-sm transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+					>
+						<BackChevron aria-hidden className="size-3.5" />
+					</button>
+				</>
+			) : null}
+
+			{scrollState.canScrollForward ? (
+				<>
+					<div
+						aria-hidden
+						className="pointer-events-none absolute inset-y-0 -end-[15px] w-6 bg-gradient-to-l from-secondary to-transparent rtl:bg-gradient-to-r"
+					/>
+					<button
+						type="button"
+						aria-label={t("workspace.chat.tray.scrollForward")}
+						onClick={() => scrollByCard("forward")}
+						className="absolute -end-3 top-1/2 grid size-7 -translate-y-1/2 place-items-center rounded-full border border-border bg-background text-muted-foreground shadow-sm transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+					>
+						<ForwardChevron aria-hidden className="size-3.5" />
+					</button>
+				</>
+			) : null}
 		</div>
 	);
 }

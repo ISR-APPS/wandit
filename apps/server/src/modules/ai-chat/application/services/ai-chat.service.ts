@@ -106,7 +106,10 @@ import {
 	meteringSubjectFrom,
 	type ProjectScope,
 } from "../../../projects/domain/project-scope";
-import { annotateUserFileParts } from "../../agent/annotate-file-parts";
+import {
+	annotateAskUserAnswerFiles,
+	annotateUserFileParts,
+} from "../../agent/annotate-file-parts";
 import {
 	annotateGeneratedAssets,
 	generatedAssetsFromAnnotatedMessages,
@@ -195,8 +198,10 @@ export class AiChatService {
 		let release = releaseSlot;
 
 		try {
-			const modelBoundMessages = annotateUserFileParts(
-				elideRetiredToolOutputs(completeDanglingToolCalls(options.messages)),
+			const modelBoundMessages = annotateAskUserAnswerFiles(
+				annotateUserFileParts(
+					elideRetiredToolOutputs(completeDanglingToolCalls(options.messages)),
+				),
 			);
 			const messageId = findFinalUserMessage(options.messages)?.id ?? null;
 			const requestId =
@@ -582,7 +587,7 @@ export class AiChatService {
 			const contextWithMcpNotices = [context, mcpNoticeBlock]
 				.filter((block): block is string => Boolean(block))
 				.join("\n\n");
-			// Four transforms on the MODEL-BOUND copy only (DB + UI keep the truth):
+			// Five transforms on the MODEL-BOUND copy only (DB + UI keep the truth):
 			// 1. complete tool calls that never got a result (typed-past ask_user,
 			//    or a stream aborted mid-execute) — providers reject a history that
 			//    carries a tool call without a matching result,
@@ -594,12 +599,17 @@ export class AiChatService {
 			// 4. follow settled generation tool parts with a [Generated …] marker
 			//    exposing the finished asset's URL — without it the model never
 			//    learns any generated URL and asks the user to re-attach media
-			//    that Wandit itself produced.
+			//    that Wandit itself produced,
+			// 5. follow ask_user answers carrying provider-safe files with a user
+			//    message that exposes their contents to the model; the tool-result
+			//    JSON alone exposes URLs, not the image or document contents.
 			// Runs BEFORE the agent is built: generate_page receives the marker
 			// URLs so a brief can never silently drop this chat's generated media.
 			const agentMessages = await annotateGeneratedAssets(
-				annotateUserFileParts(
-					elideRetiredToolOutputs(completeDanglingToolCalls(messages)),
+				annotateAskUserAnswerFiles(
+					annotateUserFileParts(
+						elideRetiredToolOutputs(completeDanglingToolCalls(messages)),
+					),
 				),
 				{
 					connectorGenerationsRepository: this.connectorGenerationsRepository,
