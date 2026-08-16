@@ -15,7 +15,7 @@ const STASH_VERSION = 3;
 // after it was written. Anything older — an abandoned Google consent screen,
 // a tab picked up hours later, a draft left behind before a sign-out —
 // downgrades to a harmless composer prefill.
-export const AUTOSTART_TTL_MS = 15 * 60_000;
+export const AUTOSTART_TTL_MS = 30 * 60_000;
 
 export type StashedPrompt = {
 	prompt: string;
