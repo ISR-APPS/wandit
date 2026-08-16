@@ -14,7 +14,7 @@ import {
 } from "@/features/users/lib/formatters";
 import { cn } from "@/lib/utils";
 
-import { titleCase } from "./user-detail-helpers";
+import { subscriptionTierLabel, titleCase } from "./user-detail-helpers";
 
 type UserMetricsProps = {
 	user: AdminUserDetail;
@@ -44,7 +44,7 @@ export function UserMetrics({ user }: UserMetricsProps) {
 			label: "Plan",
 			value: titleCase(user.plan),
 			detail: user.subscription
-				? `Subscription ${user.subscription.status}`
+				? subscriptionTierLabel(user.subscription)
 				: "No active subscription",
 			icon: GemIcon,
 		},

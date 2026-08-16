@@ -1,6 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
 import {
-	ADMIN_CREDITS_USED_BUCKETS,
 	type AdminListUsersQuery,
 	type AdminUserPagesQuery,
 	adminUserPlans,
@@ -66,6 +65,8 @@ export type AdminSubscriptionRow = {
 	plan: (typeof subscriptions.plan)["_"]["data"];
 	status: string;
 	interval: (typeof subscriptions.interval)["_"]["data"];
+	tierCredits: number;
+	pendingTierCredits: number | null;
 	currentPeriodEnd: Date;
 	cancelAtPeriodEnd: boolean;
 };
@@ -382,6 +383,8 @@ export class AdminRepository {
 				plan: subscriptions.plan,
 				status: subscriptions.status,
 				interval: subscriptions.interval,
+				tierCredits: subscriptions.tierCredits,
+				pendingTierCredits: subscriptions.pendingTierCredits,
 				currentPeriodEnd: subscriptions.currentPeriodEnd,
 				cancelAtPeriodEnd: subscriptions.cancelAtPeriodEnd,
 			})
@@ -692,14 +695,16 @@ export class AdminRepository {
 			);
 		}
 
-		if (query.creditsUsed) {
-			const { min, max } = ADMIN_CREDITS_USED_BUCKETS[query.creditsUsed];
+		const { creditsUsedMin: min, creditsUsedMax: max } = query;
+		if (min !== undefined || max !== undefined) {
 			const creditsConsumed = userCreditsConsumed(sql.raw('"user"."id"'));
 
 			filters.push(
-				max === null
-					? sql`${creditsConsumed} >= ${min}`
-					: sql`${creditsConsumed} between ${min} and ${max}`,
+				min !== undefined && max !== undefined
+					? sql`${creditsConsumed} between ${min} and ${max}`
+					: min !== undefined
+						? sql`${creditsConsumed} >= ${min}`
+						: sql`${creditsConsumed} <= ${max}`,
 			);
 		}
 
@@ -771,13 +776,22 @@ function userCreditsBalance(userId: SQL) {
 	), 0)::int`;
 }
 
+// Net lifetime consumption. Metering reserves credits up front ('consume' rows)
+// and reverses over-reserves and failed generations as positive 'grant' rows
+// keyed 'settle-refund:%' / 'reconcile-refund:%' / 'refund:%' — counting those
+// reversals as negative consumption is what keeps a refunded failure from
+// reading as credits "used".
 function userCreditsConsumed(userId: SQL) {
 	return sql<number>`coalesce((
 		select -sum("credit_ledger"."delta")
 		from "credit_ledger"
 		where "credit_ledger"."user_id" = ${userId}
 			and "credit_ledger"."organization_id" is null
-			and "credit_ledger"."kind" = 'consume'
+			and ("credit_ledger"."kind" = 'consume'
+				or ("credit_ledger"."kind" = 'grant'
+					and ("credit_ledger"."idempotency_key" like 'settle-refund:%'
+						or "credit_ledger"."idempotency_key" like 'reconcile-refund:%'
+						or "credit_ledger"."idempotency_key" like 'refund:%')))
 	), 0)::int`;
 }
 

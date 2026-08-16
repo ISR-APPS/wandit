@@ -51,9 +51,16 @@ export type UserPlanFilter = NonNullable<AdminListUsersQuery["plan"]>;
 export type UserRoleFilter = NonNullable<AdminListUsersQuery["role"]>;
 export type UserStatusFilter = NonNullable<AdminListUsersQuery["status"]>;
 export type UserVerifiedFilter = NonNullable<AdminListUsersQuery["verified"]>;
-export type UserCreditsUsedFilter = NonNullable<
-	AdminListUsersQuery["creditsUsed"]
->;
+
+/**
+ * Inclusive net-credits-consumed range the toolbar filter edits as one unit.
+ * An unset bound means unbounded on that side; a fully unset filter is
+ * represented as `undefined`, never `{}`.
+ */
+export type UserCreditsUsedRange = {
+	min?: number;
+	max?: number;
+};
 
 // Thin aliases so component imports stay tidy.
 export type UserSummary = AdminUserSummary;
@@ -77,7 +84,8 @@ export type ListUsersParams = {
 	role?: UserRoleFilter;
 	status?: UserStatusFilter;
 	verified?: UserVerifiedFilter;
-	creditsUsed?: UserCreditsUsedFilter;
+	creditsUsedMin?: number;
+	creditsUsedMax?: number;
 };
 
 /** Query params for one user's server-paginated landing pages. */

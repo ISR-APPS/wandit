@@ -67,6 +67,7 @@ class InMemoryOrgsRepository {
 		currentPeriodEnd: new Date("2026-09-01T00:00:00.000Z"),
 		cancelAtPeriodEnd: false,
 		tierCredits: 500,
+		pendingTierCredits: null,
 		purchasedByUserId: "user_owner",
 	};
 	ledger: AdminOrgLedgerRow[] = [];

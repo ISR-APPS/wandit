@@ -147,6 +147,14 @@ type CollectedRevenueRow = {
 	orders_minor: NumericValue;
 };
 
+type RevenueBySourceRow = {
+	subscriptions_minor: NumericValue;
+	domains_minor: NumericValue;
+	domain_orders: NumericValue;
+	domain_cost_cents: NumericValue;
+	domain_cost_unknown_orders: NumericValue;
+};
+
 type NewPaidRow = {
 	date: string;
 	count: NumericValue;
@@ -297,6 +305,13 @@ export type AdminAnalyticsRevenueRepositorySnapshot = {
 		subscriptionsMinor: number;
 		ordersMinor: number;
 	}>;
+	revenueBySource: {
+		subscriptionsCents: number;
+		domainsCents: number;
+		domainOrders: number;
+		domainCostCents: number;
+		domainCostUnknownOrders: number;
+	};
 	newPaidByDay: Array<{ date: string; count: number }>;
 	daysToConvert: Array<{ days: number; count: number }>;
 	checkoutFunnel: { started: number; completed: number };
@@ -640,6 +655,7 @@ export class AdminAnalyticsRepository {
 				transaction,
 				input,
 			);
+			const revenueBySource = await this.getRevenueBySource(transaction, input);
 			const newPaidByDay = await this.getNewPaidByDay(transaction, input);
 			const daysToConvert = await this.getDaysToConvert(transaction, input);
 			const checkoutFunnel = await this.getCheckoutFunnel(transaction, input);
@@ -678,6 +694,7 @@ export class AdminAnalyticsRepository {
 				paidOwnersInRange: creditRange.paidOwnersInRange,
 				trialCohort,
 				collectedRevenueByDay,
+				revenueBySource,
 				newPaidByDay,
 				daysToConvert,
 				checkoutFunnel,
@@ -1186,7 +1203,7 @@ export class AdminAnalyticsRepository {
 					sum(-l.delta)::bigint as credits_consumed
 				from mature_signup_cohort c
 				inner join credit_ledger l on l.user_id = c.user_id
-				where l.kind = 'consume'
+				where ${netConsumptionPredicate("l")}
 					and l.created_at >= c.created_at
 					and l.created_at < c.created_at + interval '7 days'
 				group by c.user_id
@@ -1757,7 +1774,7 @@ export class AdminAnalyticsRepository {
 					sum(-c.delta)::bigint as credits_consumed
 				from evaluation_users u
 				inner join credit_ledger c on c.user_id = u.user_id
-				where c.kind = 'consume'
+				where ${netConsumptionPredicate("c")}
 					and c.created_at >= u.created_at
 					and c.created_at < u.created_at + interval '7 days'
 				group by u.user_id
@@ -2010,7 +2027,7 @@ export class AdminAnalyticsRepository {
 				from credit_ledger c
 				inner join mature_users u on u.id = c.user_id
 				cross join bounds b
-				where c.kind = 'consume'
+				where ${netConsumptionPredicate("c")}
 					and c.created_at >= u.created_at
 					and c.created_at < u.created_at + interval '7 days'
 					and c.created_at < b.snapshot_end
@@ -2272,6 +2289,68 @@ export class AdminAnalyticsRepository {
 			subscriptionsMinor: toNumber(row.subscriptions_minor),
 			ordersMinor: toNumber(row.orders_minor),
 		}));
+	}
+
+	// Range totals for the same cash the collected-revenue chart counts, split by
+	// source, plus domain resale economics. Wholesale cost prefers the actual
+	// registrar charge stored on the domain row and falls back to the
+	// checkout-time wholesale quote; orders with neither contribute zero cost and
+	// are surfaced via domain_cost_unknown_orders.
+	private async getRevenueBySource(
+		client: AdminAnalyticsDbClient,
+		input: AdminDashboardRangeBounds,
+	) {
+		const result = await client.execute<RevenueBySourceRow>(sql`
+			with bounds as (${analyticsBounds(input)}),
+			subscription_totals as (
+				select coalesce(sum(a.amount_paid_minor), 0)::bigint as amount_minor
+				from billing_invoice_applications a
+				cross join bounds b
+				where a.paid_at >= b.range_start
+					and a.paid_at < b.range_end
+					and a.amount_paid_minor > 0
+					and lower(a.currency) = 'usd'
+			),
+			domain_orders as (
+				select
+					o.amount_cents,
+					coalesce(
+						round(d.provider_total_paid_usd * 100),
+						round((o.metadata -> 'priceSnapshot' ->> 'quotedWholesaleUsd')::numeric * 100)
+					)::bigint as wholesale_cents
+				from payment_orders o
+				cross join bounds b
+				left join lateral (
+					select reg.provider_total_paid_usd
+					from domains reg
+					where reg.payment_order_id = o.id
+					order by reg.created_at desc
+					limit 1
+				) d on true
+				where o.paid_at >= b.range_start
+					and o.paid_at < b.range_end
+					and o.kind = 'domain_registration'
+					and o.status in ('paid', 'fulfilling', 'fulfilled')
+					and lower(o.currency) = 'usd'
+			)
+			select
+				s.amount_minor as subscriptions_minor,
+				coalesce((select sum(d.amount_cents) from domain_orders d), 0)::bigint as domains_minor,
+				coalesce((select count(*) from domain_orders d), 0)::bigint as domain_orders,
+				coalesce((select sum(d.wholesale_cents) from domain_orders d), 0)::bigint as domain_cost_cents,
+				coalesce((select count(*) from domain_orders d where d.wholesale_cents is null), 0)::bigint as domain_cost_unknown_orders
+			from subscription_totals s
+		`);
+
+		const row = result.rows[0];
+
+		return {
+			subscriptionsCents: toNumber(row?.subscriptions_minor),
+			domainsCents: toNumber(row?.domains_minor),
+			domainOrders: toNumber(row?.domain_orders),
+			domainCostCents: toNumber(row?.domain_cost_cents),
+			domainCostUnknownOrders: toNumber(row?.domain_cost_unknown_orders),
+		};
 	}
 
 	private async getNewPaidByDay(
@@ -3521,7 +3600,8 @@ export class AdminAnalyticsRepository {
 				select
 					coalesce(c.organization_id, c.user_id) as owner_id,
 					c.kind,
-					c.delta
+					c.delta,
+					c.idempotency_key
 				from credit_ledger c
 				cross join bounds b
 				where c.created_at >= b.range_start
@@ -3536,12 +3616,12 @@ export class AdminAnalyticsRepository {
 				union
 				select distinct l.owner_id
 				from ledger_range l
-				where l.kind = 'consume'
+				where ${netConsumptionPredicate("l")}
 			),
 			owner_consumption as (
 				select l.owner_id, sum(-l.delta)::bigint as consumed
 				from ledger_range l
-				where l.kind = 'consume'
+				where ${netConsumptionPredicate("l")}
 				group by l.owner_id
 			),
 			consumption_totals as (
@@ -3556,8 +3636,8 @@ export class AdminAnalyticsRepository {
 			),
 			ledger_totals as (
 				select
-					coalesce(sum(l.delta) filter (where l.kind = 'grant'), 0)::bigint as granted,
-					coalesce(sum(-l.delta) filter (where l.kind = 'consume'), 0)::bigint as consumed
+					coalesce(sum(l.delta) filter (where ${nonRefundGrantPredicate("l")}), 0)::bigint as granted,
+					coalesce(sum(-l.delta) filter (where ${netConsumptionPredicate("l")}), 0)::bigint as consumed
 				from ledger_range l
 			),
 			provider_cost as (
@@ -3610,7 +3690,7 @@ export class AdminAnalyticsRepository {
 				select
 					coalesce(c.organization_id, c.user_id) as owner_id,
 					sum(c.delta)::bigint as balance,
-					coalesce(sum(-c.delta) filter (where c.kind = 'consume'), 0)::bigint as consumed
+					coalesce(sum(-c.delta) filter (where ${netConsumptionPredicate("c")}), 0)::bigint as consumed
 				from credit_ledger c
 				cross join bounds b
 				where c.created_at < b.snapshot_end
@@ -3701,7 +3781,7 @@ export class AdminAnalyticsRepository {
 				from converted_users u
 				left join credit_ledger c
 					on c.user_id = u.user_id
-					and c.kind = 'consume'
+					and ${netConsumptionPredicate("c")}
 					and c.created_at >= u.created_at
 					and c.created_at < u.first_subscription_at
 				group by u.user_id
@@ -3838,7 +3918,7 @@ export class AdminAnalyticsRepository {
 				select
 					coalesce(c.organization_id, c.user_id) as owner_id,
 					coalesce(
-						sum(-c.delta) filter (where c.kind = 'consume'),
+						sum(-c.delta) filter (where ${netConsumptionPredicate("c")}),
 						0
 					)::bigint as consumed
 				from credit_ledger c
@@ -4103,6 +4183,31 @@ function analyticsBounds(input: AdminDashboardRangeBounds) {
 			${input.seriesEnd}::timestamptz as series_end,
 			${input.snapshotEnd}::timestamptz as snapshot_end
 	`;
+}
+
+// Metering reserves credits up front ('consume' rows) and reverses over-reserves
+// and failed generations as positive 'grant' rows keyed 'settle-refund:%',
+// 'reconcile-refund:%' or 'refund:%'. Consumption AMOUNTS must net those
+// reversals out (their -delta is negative), and grant totals must not count them
+// as new credits — otherwise a failed 25-credit video still reads as 25 credits
+// "used". Metrics about consume EVENT timing/counts deliberately stay on raw
+// 'consume' rows.
+function refundGrantPredicate(alias: string): SQL {
+	const column = qualifiedColumn(alias, "idempotency_key");
+	return sql`(${qualifiedColumn(alias, "kind")} = 'grant'
+		and (${column} like 'settle-refund:%'
+			or ${column} like 'reconcile-refund:%'
+			or ${column} like 'refund:%'))`;
+}
+
+function netConsumptionPredicate(alias: string): SQL {
+	return sql`(${qualifiedColumn(alias, "kind")} = 'consume'
+		or ${refundGrantPredicate(alias)})`;
+}
+
+function nonRefundGrantPredicate(alias: string): SQL {
+	return sql`(${qualifiedColumn(alias, "kind")} = 'grant'
+		and not ${refundGrantPredicate(alias)})`;
 }
 
 function acquisitionSourceExpression(

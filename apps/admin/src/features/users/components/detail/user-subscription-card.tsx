@@ -9,7 +9,7 @@ import {
 import type { AdminUserSubscription } from "@/features/users/api/users.dto";
 import { formatAdminDate } from "@/features/users/lib/formatters";
 
-import { titleCase } from "./user-detail-helpers";
+import { subscriptionPriceUsd, titleCase } from "./user-detail-helpers";
 
 type UserSubscriptionCardProps = {
 	subscription: AdminUserSubscription;
@@ -18,6 +18,8 @@ type UserSubscriptionCardProps = {
 export function UserSubscriptionCard({
 	subscription,
 }: UserSubscriptionCardProps) {
+	const priceUsd = subscriptionPriceUsd(subscription);
+
 	return (
 		<Card className="shadow-none">
 			<CardHeader>
@@ -42,6 +44,22 @@ export function UserSubscriptionCard({
 							</Badge>
 						</dd>
 					</div>
+					<DetailItem
+						label="Credit tier"
+						value={
+							subscription.pendingTierCredits === null
+								? `${subscription.tierCredits.toLocaleString("en-US")} credits / month`
+								: `${subscription.tierCredits.toLocaleString("en-US")} credits / month (downgrades to ${subscription.pendingTierCredits.toLocaleString("en-US")} at period end)`
+						}
+					/>
+					<DetailItem
+						label="Price"
+						value={
+							priceUsd === null
+								? "Legacy price (not in catalog)"
+								: `$${priceUsd.toLocaleString("en-US")} / ${subscription.interval}`
+						}
+					/>
 					<DetailItem
 						label="Billing interval"
 						value={subscription.interval === "month" ? "Monthly" : "Yearly"}

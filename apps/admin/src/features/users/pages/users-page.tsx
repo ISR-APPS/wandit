@@ -1,5 +1,6 @@
 import { RefreshCwIcon, UsersRoundIcon } from "lucide-react";
 import { useEffect, useState } from "react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -12,7 +13,7 @@ import {
 } from "@/components/ui/empty";
 import type {
 	AdminListUsersSort,
-	UserCreditsUsedFilter,
+	UserCreditsUsedRange,
 	UserPlanFilter,
 	UserRoleFilter,
 	UserStatusFilter,
@@ -22,6 +23,7 @@ import { useUsersQuery } from "@/features/users/api/users.queries";
 import { UsersDataTable } from "@/features/users/components/table/users-data-table";
 import { UsersTableLoading } from "@/features/users/components/table/users-table-loading";
 import { USER_TABLE_DEFAULT_PAGE_SIZE } from "@/features/users/lib/constants";
+import { exportUsersToExcel } from "@/features/users/lib/users-export";
 
 const SEARCH_DEBOUNCE_MS = 300;
 
@@ -33,9 +35,10 @@ function UsersPage() {
 	const [role, setRole] = useState<UserRoleFilter>();
 	const [status, setStatus] = useState<UserStatusFilter>();
 	const [verified, setVerified] = useState<UserVerifiedFilter>();
-	const [creditsUsed, setCreditsUsed] = useState<UserCreditsUsedFilter>();
+	const [creditsUsed, setCreditsUsed] = useState<UserCreditsUsedRange>();
 	const [searchValue, setSearchValue] = useState("");
 	const [debouncedQuery, setDebouncedQuery] = useState("");
+	const [isExporting, setIsExporting] = useState(false);
 
 	useEffect(() => {
 		const handle = setTimeout(() => {
@@ -69,7 +72,8 @@ function UsersPage() {
 		role,
 		status,
 		verified,
-		creditsUsed,
+		creditsUsedMin: creditsUsed?.min,
+		creditsUsedMax: creditsUsed?.max,
 	});
 
 	const result = usersQuery.data;
@@ -93,6 +97,29 @@ function UsersPage() {
 		setStatus(undefined);
 		setVerified(undefined);
 		setCreditsUsed(undefined);
+	};
+	const handleExport = async () => {
+		if (isExporting) {
+			return;
+		}
+
+		setIsExporting(true);
+		try {
+			await exportUsersToExcel({
+				q: debouncedQuery || undefined,
+				sort,
+				plan,
+				role,
+				status,
+				verified,
+				creditsUsedMin: creditsUsed?.min,
+				creditsUsedMax: creditsUsed?.max,
+			});
+		} catch {
+			toast.error("Users could not be exported");
+		} finally {
+			setIsExporting(false);
+		}
 	};
 
 	return (
@@ -179,6 +206,7 @@ function UsersPage() {
 					creditsUsed={creditsUsed}
 					searchValue={searchValue}
 					isFetching={usersQuery.isFetching}
+					isExporting={isExporting}
 					onSearchChange={setSearchValue}
 					onSortChange={setSort}
 					onPlanChange={setPlan}
@@ -187,6 +215,7 @@ function UsersPage() {
 					onVerifiedChange={setVerified}
 					onCreditsUsedChange={setCreditsUsed}
 					onClearAllFilters={clearAllFilters}
+					onExport={() => void handleExport()}
 					onPageChange={setPage}
 					onPageSizeChange={setPageSize}
 				/>
