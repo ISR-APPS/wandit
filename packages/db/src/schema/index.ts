@@ -34,6 +34,8 @@ export * from "./marketing-assets";
 export * from "./mcp-connectors";
 // Image-to-video generation attempt tables.
 export * from "./media-generation-attempts";
+// User onboarding questionnaire answers.
+export * from "./onboarding";
 // Payment order tables.
 export * from "./orders";
 // Organization (Teams/Workspaces) tables — Better Auth org plugin models +

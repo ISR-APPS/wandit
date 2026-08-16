@@ -50,6 +50,8 @@ export * from "./v1/marketing-assets";
 export * from "./v1/mcp-connectors";
 // Image-to-video generation contracts.
 export * from "./v1/media-generations";
+// Post-signup onboarding contracts.
+export * from "./v1/onboarding";
 // Payment order contracts.
 export * from "./v1/orders";
 // Page edit-ops contract.

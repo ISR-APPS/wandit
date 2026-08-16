@@ -26,6 +26,14 @@ export const Route = createFileRoute("/_auth")({
 				},
 			});
 		}
+		if (!session.user.onboardingCompletedAt) {
+			throw redirect({
+				to: "/onboarding",
+				search: {
+					next: sanitizeAuthRedirectPath(location.href),
+				},
+			});
+		}
 		return { session };
 	},
 });
