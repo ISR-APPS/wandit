@@ -105,6 +105,45 @@ describe("buildChatRequestContext composer settings", () => {
 		expect(block).toContain('They chose "Landing page"');
 		expect(block).toContain("Objectif: Vente COD");
 	});
+
+	it("renders the pre-selected Simple COD page type", () => {
+		const block = composerContext("page", "landing-page", {
+			codMode: "simple",
+			goal: "cod",
+		});
+
+		expect(block).toContain(
+			"Type: Simple — the user pre-selected the SIMPLE COD page type",
+		);
+	});
+
+	it("renders the pre-selected Max COD page type", () => {
+		const block = composerContext("page", "landing-page", {
+			codMode: "max",
+			goal: "cod",
+		});
+
+		expect(block).toContain(
+			"Type: Max — the user pre-selected the MAX COD page type",
+		);
+	});
+
+	it("renders no COD page type for auto or absent settings", () => {
+		const autoBlock = composerContext("page", "landing-page", {
+			codMode: "auto",
+			goal: "cod",
+		});
+		const absentBlock = composerContext("page", "landing-page", {
+			goal: "cod",
+		});
+
+		// The goal line itself may mention codMode (it tells the Brain to always
+		// pass one); only the pre-selected "Type:" line must stay absent.
+		expect(autoBlock).not.toContain("Type: Simple");
+		expect(autoBlock).not.toContain("Type: Max");
+		expect(absentBlock).not.toContain("Type: Simple");
+		expect(absentBlock).not.toContain("Type: Max");
+	});
 });
 
 describe("buildChatRequestContext active page outline", () => {

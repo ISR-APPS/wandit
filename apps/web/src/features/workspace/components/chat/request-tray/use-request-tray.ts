@@ -118,6 +118,27 @@ export function filesAnswer(
 	return { files };
 }
 
+export function withAnswerFiles(
+	output: AskUserOutput,
+	attachments: readonly UploadAttachmentResponse[],
+): AskUserOutput {
+	if (attachments.length === 0) return output;
+
+	const files = [...(output.files ?? [])];
+	const seenUrls = new Set(files.map((file) => file.url));
+	for (const attachment of attachments) {
+		if (seenUrls.has(attachment.url)) continue;
+		seenUrls.add(attachment.url);
+		files.push({
+			url: attachment.url,
+			mediaType: attachment.mediaType,
+			filename: attachment.filename,
+		});
+	}
+
+	return { ...output, files };
+}
+
 /** "Decide for me" — the model picks confidently and says what it picked. */
 export function delegateAnswer(): AskUserOutput {
 	return { delegated: true };
@@ -522,7 +543,7 @@ export function useRequestTray({
 		);
 	}, []);
 
-	const onConfirmAttachments = useCallback(() => {
+	const buildAttachmentsAnswer = useCallback((): AskUserOutput | null => {
 		const files = attachItems.flatMap((item) =>
 			item.status === "ready" && item.uploaded
 				? [
@@ -534,30 +555,31 @@ export function useRequestTray({
 					]
 				: [],
 		);
-		if (files.length > 0) answer(filesAnswer(files));
-	}, [attachItems, answer]);
+		return files.length > 0 ? filesAnswer(files) : null;
+	}, [attachItems]);
 
-	const onConfirmMulti = useCallback(() => {
+	const buildMultiAnswer = useCallback((): AskUserOutput | null => {
 		const options = active?.input?.options ?? [];
 		const selections = options.flatMap<AskUserOption>((option) =>
 			option?.id && option.label && selectedIds.includes(option.id)
 				? [{ id: option.id, label: option.label }]
 				: [],
 		);
-		if (selections.length > 0) answer(multiAnswer(selections));
-	}, [active, selectedIds, answer]);
+		return selections.length > 0 ? multiAnswer(selections) : null;
+	}, [active, selectedIds]);
 
-	const onConfirmSingle = useCallback(() => {
+	const buildSingleAnswer = useCallback((): AskUserOutput | null => {
 		const option = (active?.input?.options ?? []).find(
 			(candidate) => candidate?.id === selectedId,
 		);
-		if (option?.id && option.label) {
-			answer(pickAnswer({ id: option.id, label: option.label }));
-		}
-	}, [active, selectedId, answer]);
+		return option?.id && option.label
+			? pickAnswer({ id: option.id, label: option.label })
+			: null;
+	}, [active, selectedId]);
 
 	const answerFreeText = useCallback(
-		(text: string) => answer(freeTextAnswer(text)),
+		(text: string, composerAttachments: UploadAttachmentResponse[] = []) =>
+			answer(withAnswerFiles(freeTextAnswer(text), composerAttachments)),
 		[answer],
 	);
 	const delegate = useCallback(() => answer(delegateAnswer()), [answer]);
@@ -596,26 +618,31 @@ export function useRequestTray({
 				: answerMode === "multi"
 					? selectedIds.length > 0
 					: readyFileCount > 0 && !hasUploadingFile);
-	const confirmDraft = useCallback(() => {
-		if (!canConfirm) return false;
-		if (trimmedComposerText) {
-			answerFreeText(trimmedComposerText);
-		} else if (answerMode === "single") {
-			onConfirmSingle();
-		} else if (answerMode === "multi") {
-			onConfirmMulti();
-		} else {
-			onConfirmAttachments();
-		}
-	}, [
-		canConfirm,
-		trimmedComposerText,
-		answerFreeText,
-		answerMode,
-		onConfirmSingle,
-		onConfirmMulti,
-		onConfirmAttachments,
-	]);
+	const confirmDraft = useCallback(
+		(composerAttachments: UploadAttachmentResponse[] = []) => {
+			if (!canConfirm) return false;
+
+			const output = trimmedComposerText
+				? freeTextAnswer(trimmedComposerText)
+				: answerMode === "single"
+					? buildSingleAnswer()
+					: answerMode === "multi"
+						? buildMultiAnswer()
+						: buildAttachmentsAnswer();
+			if (!output) return false;
+
+			answer(withAnswerFiles(output, composerAttachments));
+		},
+		[
+			canConfirm,
+			trimmedComposerText,
+			answerMode,
+			buildSingleAnswer,
+			buildMultiAnswer,
+			buildAttachmentsAnswer,
+			answer,
+		],
+	);
 
 	return {
 		/** True while an ask is docked — including its streaming preamble. */
