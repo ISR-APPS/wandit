@@ -1,5 +1,4 @@
 import { ActivityIcon, RefreshCwIcon } from "lucide-react";
-import { useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -12,7 +11,7 @@ import {
 	EmptyTitle,
 } from "@/components/ui/empty";
 import type {
-	OverviewRange,
+	OverviewQuery,
 	OverviewSnapshot,
 } from "@/features/overview/api/overview.dto";
 import { useOverviewQuery } from "@/features/overview/api/overview.queries";
@@ -23,6 +22,11 @@ import { OverviewHeader } from "@/features/overview/components/overview-header";
 import { OverviewMetrics } from "@/features/overview/components/overview-metrics";
 import { OverviewPageSkeleton } from "@/features/overview/components/overview-page-skeleton";
 import { RevenuePerformanceCard } from "@/features/overview/components/revenue-performance-card";
+
+type OverviewPageProps = {
+	query: OverviewQuery;
+	onQueryChange: (query: OverviewQuery) => void;
+};
 
 function OverviewErrorState({ onRetry }: { onRetry: () => void }) {
 	return (
@@ -64,9 +68,9 @@ function OverviewEmptyState() {
 }
 
 function hasOverviewActivity(snapshot: OverviewSnapshot) {
-	const { generation, revenue, totals } = snapshot;
+	const { generation, healthyTrials, mrrMinor, revenue, totals } = snapshot;
 	const periodStart = Date.parse(`${snapshot.periodStart}T00:00:00.000Z`);
-	const periodEnd = Date.parse(snapshot.generatedAt);
+	const periodEnd = Date.parse(`${snapshot.periodEnd}T23:59:59.999Z`);
 	const hasSignalInPeriod = snapshot.recentSignals.some(({ occurredAt }) => {
 		const occurredAtMs = Date.parse(occurredAt);
 
@@ -76,7 +80,9 @@ function hasOverviewActivity(snapshot: OverviewSnapshot) {
 	return (
 		hasSignalInPeriod ||
 		[
-			revenue.totalReportingUsdMinor,
+			revenue.totalUsdMinor,
+			mrrMinor,
+			healthyTrials.count,
 			totals.tokensUsed,
 			totals.tokenCostUsdMinor,
 			totals.websitesGenerated,
@@ -89,10 +95,9 @@ function hasOverviewActivity(snapshot: OverviewSnapshot) {
 	);
 }
 
-function OverviewPage() {
-	const [range, setRange] = useState<OverviewRange>("30d");
+function OverviewPage({ query, onQueryChange }: OverviewPageProps) {
 	const { data, isError, isFetching, isPending, refetch } =
-		useOverviewQuery(range);
+		useOverviewQuery(query);
 
 	const hasActivity = data ? hasOverviewActivity(data) : false;
 
@@ -110,10 +115,10 @@ function OverviewPage() {
 	return (
 		<div className="mx-auto w-full max-w-[1600px] space-y-5">
 			<OverviewHeader
-				range={range}
+				query={query}
 				generatedAt={data?.generatedAt}
 				isRefreshing={isFetching}
-				onRangeChange={setRange}
+				onQueryChange={onQueryChange}
 				onRefresh={() => void handleRefresh()}
 			/>
 
@@ -174,4 +179,5 @@ function OverviewPage() {
 	);
 }
 
+export type { OverviewPageProps };
 export { OverviewPage };

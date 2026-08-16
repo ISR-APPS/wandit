@@ -294,7 +294,7 @@ export function Pricing() {
 								<Button
 									className="mt-8 active:translate-y-px"
 									onClick={() =>
-										openPlanPicker({
+										openPlanPicker("marketing_pricing", {
 											interval,
 											tierCredits: selectedTier.tierCredits,
 										})

@@ -78,6 +78,9 @@ export default defineConfig({
 				{ placement: "last", target: "deploy" },
 			),
 		],
-		external: ["playwright"],
+		// sharp stays external too: 0.35 moved its entry to dist/index.cjs and
+		// the bundler's copied-node_modules resolution can't find it; externals
+		// are installed from package.json in dev and deploy instead.
+		external: ["playwright", "sharp"],
 	},
 });

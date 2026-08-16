@@ -290,6 +290,12 @@ export type RequiredDomainRecord = z.infer<typeof requiredDomainRecordSchema>;
 
 export const domainDnsSchema = z
 	.object({
+		externalVerification: z
+			.object({
+				attempts: z.int().nonnegative(),
+				stalledAt: isoDateTimeSchema,
+			})
+			.optional(),
 		records: z.array(requiredDomainRecordSchema).optional(),
 	})
 	.passthrough();
@@ -388,6 +394,38 @@ export const verifyDomainResponseSchema = z.object({
 
 export type VerifyDomainResponse = z.infer<typeof verifyDomainResponseSchema>;
 
+export const dnsRecordDiagnosticStatuses = [
+	"found",
+	"missing",
+	"mismatch",
+	"unknown",
+] as const;
+
+export const dnsRecordDiagnosticStatusSchema = z.enum(
+	dnsRecordDiagnosticStatuses,
+);
+
+export type DnsRecordDiagnosticStatus = z.infer<
+	typeof dnsRecordDiagnosticStatusSchema
+>;
+
+export const dnsRecordDiagnosticSchema = requiredDomainRecordSchema.extend({
+	observedValues: z.array(z.string()),
+	status: dnsRecordDiagnosticStatusSchema,
+});
+
+export type DnsRecordDiagnostic = z.infer<typeof dnsRecordDiagnosticSchema>;
+
+export const getDomainDnsStatusResponseSchema = z.object({
+	checkedAt: isoDateTimeSchema,
+	domain: domainSchema,
+	records: z.array(dnsRecordDiagnosticSchema),
+});
+
+export type GetDomainDnsStatusResponse = z.infer<
+	typeof getDomainDnsStatusResponseSchema
+>;
+
 export const updateDomainAutoRenewBodySchema = z.object({
 	autoRenew: z.boolean(),
 });
@@ -433,6 +471,7 @@ export const domainsRoutes = {
 	external: (projectId: string) =>
 		`/api/v1/projects/${projectId}/domains/external`,
 	verify: (domainId: string) => `/api/v1/domains/${domainId}/verify`,
+	dnsStatus: (domainId: string) => `/api/v1/domains/${domainId}/dns-status`,
 	autoRenew: (domainId: string) => `/api/v1/domains/${domainId}/auto-renew`,
 	primary: (domainId: string) => `/api/v1/domains/${domainId}/primary`,
 	transferUnlock: (domainId: string) =>

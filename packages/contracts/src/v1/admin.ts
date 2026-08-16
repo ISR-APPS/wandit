@@ -28,6 +28,31 @@ import { isoDateTimeSchema, uuidSchema } from "./shared/primitives";
 // Admin contracts (consumed by apps/admin only). Every route below sits behind
 // the AdminGuard: non-admin sessions get 404 (not 403) per docs/api-security.md.
 
+function optionalCsvEnum<const Values extends readonly [string, ...string[]]>(
+	values: Values,
+) {
+	return z
+		.string()
+		.optional()
+		.transform((value) => {
+			if (value === undefined) {
+				return undefined;
+			}
+
+			const uniqueValues = [
+				...new Set(
+					value
+						.split(",")
+						.map((item) => item.trim())
+						.filter((item) => item.length > 0),
+				),
+			];
+
+			return uniqueValues.length > 0 ? uniqueValues : undefined;
+		})
+		.pipe(z.array(z.enum(values)).nonempty().optional());
+}
+
 export const adminUserRoles = ["user", "admin"] as const;
 
 export const adminUserRoleSchema = z.enum(adminUserRoles);
@@ -47,10 +72,9 @@ export function isAdminRole(role: string | null | undefined): boolean {
 }
 
 // "free" is derived (no entitled subscription row), not stored.
-export const adminUserPlanSchema = z.union([
-	z.literal("free"),
-	billingPlanIdSchema,
-]);
+export const adminUserPlans = ["free", "pro", "business"] as const;
+
+export const adminUserPlanSchema = z.enum(adminUserPlans);
 
 export type AdminUserPlan = z.infer<typeof adminUserPlanSchema>;
 
@@ -68,6 +92,7 @@ export const adminUserSummarySchema = z.object({
 	lastSeenAt: isoDateTimeSchema.nullable(),
 	plan: adminUserPlanSchema,
 	creditsBalance: z.int(),
+	creditsConsumed: z.int().nonnegative(),
 	projectsCount: z.int(),
 });
 
@@ -78,11 +103,61 @@ export const adminListUsersSorts = [
 	"oldest",
 	"name",
 	"email",
+	"most_projects",
+	"most_credits",
+	"most_consumed",
+	"recently_seen",
 ] as const;
+
+export const adminListUsersSortSchema = z.enum(adminListUsersSorts);
+
+export type AdminListUsersSort = z.infer<typeof adminListUsersSortSchema>;
+
+export const adminUserStatuses = ["active", "banned"] as const;
+
+export const adminUserStatusSchema = z.enum(adminUserStatuses);
+
+export type AdminUserStatus = z.infer<typeof adminUserStatusSchema>;
+
+export const adminUserVerificationStatuses = [
+	"verified",
+	"unverified",
+] as const;
+
+export const adminUserVerificationStatusSchema = z.enum(
+	adminUserVerificationStatuses,
+);
+
+export type AdminUserVerificationStatus = z.infer<
+	typeof adminUserVerificationStatusSchema
+>;
+
+export const ADMIN_CREDITS_USED_BUCKETS = {
+	zero: { min: 0, max: 0, label: "0 credits" },
+	low: { min: 1, max: 99, label: "1–99 credits" },
+	mid: { min: 100, max: 999, label: "100–999 credits" },
+	high: { min: 1000, max: null, label: "1,000+ credits" },
+} as const;
+
+export const adminCreditsUsedBucketSchema = z.enum(
+	Object.keys(ADMIN_CREDITS_USED_BUCKETS) as [
+		keyof typeof ADMIN_CREDITS_USED_BUCKETS,
+		...(keyof typeof ADMIN_CREDITS_USED_BUCKETS)[],
+	],
+);
+
+export type AdminCreditsUsedBucket = z.infer<
+	typeof adminCreditsUsedBucketSchema
+>;
 
 export const adminListUsersQuerySchema = paginationQuerySchema.extend({
 	q: z.string().trim().min(1).max(200).optional(),
-	sort: z.enum(adminListUsersSorts).default("newest"),
+	sort: adminListUsersSortSchema.default("newest"),
+	plan: optionalCsvEnum(adminUserPlans),
+	role: optionalCsvEnum(adminUserRoles),
+	status: optionalCsvEnum(adminUserStatuses),
+	verified: optionalCsvEnum(adminUserVerificationStatuses),
+	creditsUsed: adminCreditsUsedBucketSchema.optional(),
 });
 
 export type AdminListUsersQuery = z.infer<typeof adminListUsersQuerySchema>;
@@ -569,60 +644,90 @@ export type AdminSignupStats = z.infer<typeof adminSignupStatsSchema>;
 
 // --- Dashboard overview ---
 
-export const adminOverviewRangeSchema = z.enum(adminSignupStatsRanges);
+export const adminOverviewRanges = [
+	"7d",
+	"30d",
+	"90d",
+	"180d",
+	"365d",
+	"custom",
+] as const;
+
+export const adminOverviewRangeSchema = z.enum(adminOverviewRanges);
 
 export type AdminOverviewRange = z.infer<typeof adminOverviewRangeSchema>;
 
-export const adminOverviewQuerySchema = z.object({
-	range: adminOverviewRangeSchema.default("30d"),
-});
+const ADMIN_OVERVIEW_MAX_INCLUSIVE_DATES = 731;
+const MILLISECONDS_PER_DAY = 86_400_000;
+
+export const adminOverviewQuerySchema = z
+	.object({
+		range: adminOverviewRangeSchema.default("30d"),
+		from: z.iso.date().optional(),
+		to: z.iso.date().optional(),
+	})
+	.superRefine((query, context) => {
+		// Presets can include dates left over from a prior custom selection. The
+		// server ignores those dates and resolves the preset from the snapshot time.
+		if (query.range !== "custom") return;
+
+		if (!query.from) {
+			context.addIssue({
+				code: "custom",
+				message: "from is required when range is custom",
+				path: ["from"],
+			});
+		}
+
+		if (!query.to) {
+			context.addIssue({
+				code: "custom",
+				message: "to is required when range is custom",
+				path: ["to"],
+			});
+		}
+
+		if (!query.from || !query.to) return;
+
+		if (query.from > query.to) {
+			context.addIssue({
+				code: "custom",
+				message: "to must be on or after from",
+				path: ["to"],
+			});
+			return;
+		}
+
+		const todayUtc = new Date().toISOString().slice(0, 10);
+		if (query.to > todayUtc) {
+			context.addIssue({
+				code: "custom",
+				message: "to must not be after today",
+				path: ["to"],
+			});
+		}
+
+		const inclusiveDates =
+			(Date.parse(`${query.to}T00:00:00.000Z`) -
+				Date.parse(`${query.from}T00:00:00.000Z`)) /
+				MILLISECONDS_PER_DAY +
+			1;
+
+		if (inclusiveDates > ADMIN_OVERVIEW_MAX_INCLUSIVE_DATES) {
+			context.addIssue({
+				code: "custom",
+				message: `custom range must not exceed ${ADMIN_OVERVIEW_MAX_INCLUSIVE_DATES} dates`,
+				path: ["to"],
+			});
+		}
+	});
 
 export type AdminOverviewQuery = z.infer<typeof adminOverviewQuerySchema>;
 
-export const adminOverviewCurrencySchema = z.enum(["USD", "DZD"]);
-
-export type AdminOverviewCurrency = z.infer<typeof adminOverviewCurrencySchema>;
-
-export const adminOverviewPaymentProviderSchema = z.enum([
-	"stripe",
-	"chargily",
-]);
-
-export type AdminOverviewPaymentProvider = z.infer<
-	typeof adminOverviewPaymentProviderSchema
->;
-
-export const adminOverviewFxMetadataSchema = z.object({
-	baseCurrency: z.literal("USD"),
-	quoteCurrency: z.literal("DZD"),
-	quotePerBase: z.number().positive(),
-	asOf: z.iso.date(),
-	isMock: z.literal(true),
-});
-
-export type AdminOverviewFxMetadata = z.infer<
-	typeof adminOverviewFxMetadataSchema
->;
-
-export const adminOverviewProviderRevenueSchema = z.object({
-	provider: adminOverviewPaymentProviderSchema,
-	nativeCurrency: adminOverviewCurrencySchema,
-	nativeTotalMinor: z.int().nonnegative(),
-	reportingUsdTotalMinor: z.int().nonnegative(),
-	changePercent: z.number(),
-});
-
-export type AdminOverviewProviderRevenue = z.infer<
-	typeof adminOverviewProviderRevenueSchema
->;
-
 export const adminOverviewRevenueSummarySchema = z.object({
 	reportingCurrency: z.literal("USD"),
-	totalReportingUsdMinor: z.int().nonnegative(),
+	totalUsdMinor: z.int().nonnegative(),
 	changePercent: z.number(),
-	stripe: adminOverviewProviderRevenueSchema,
-	chargily: adminOverviewProviderRevenueSchema,
-	fx: adminOverviewFxMetadataSchema,
 });
 
 export type AdminOverviewRevenueSummary = z.infer<
@@ -664,9 +769,7 @@ export type AdminOverviewGenerationSummary = z.infer<
 export const adminOverviewRevenuePointSchema = z.object({
 	date: z.iso.date(),
 	label: z.string(),
-	stripeUsdMinor: z.int().nonnegative(),
-	chargilyUsdEquivalentMinor: z.int().nonnegative(),
-	totalUsdEquivalentMinor: z.int().nonnegative(),
+	totalUsdMinor: z.int().nonnegative(),
 });
 
 export type AdminOverviewRevenuePoint = z.infer<
@@ -729,12 +832,22 @@ export const adminOverviewSignalSchema = z.object({
 
 export type AdminOverviewSignal = z.infer<typeof adminOverviewSignalSchema>;
 
+export const adminOverviewHealthyTrialsSchema = z.object({
+	count: z.int().nonnegative(),
+});
+
+export type AdminOverviewHealthyTrials = z.infer<
+	typeof adminOverviewHealthyTrialsSchema
+>;
+
 export const adminOverviewSnapshotSchema = z.object({
 	range: adminOverviewRangeSchema,
 	rangeLabel: z.string().min(1),
 	generatedAt: isoDateTimeSchema,
 	periodStart: z.iso.date(),
 	periodEnd: z.iso.date(),
+	mrrMinor: z.int().nonnegative(),
+	healthyTrials: adminOverviewHealthyTrialsSchema,
 	revenue: adminOverviewRevenueSummarySchema,
 	totals: adminOverviewTotalsSchema,
 	generation: adminOverviewGenerationSummarySchema,

@@ -48,6 +48,10 @@ type AuthModalContextValue = {
 
 const AuthModalContext = createContext<AuthModalContextValue | null>(null);
 
+// Mirrors the server's magicLink `expiresIn` (packages/auth): once the emailed
+// link is dead, a sent link no longer counts as a pending auth handoff.
+const MAGIC_LINK_PENDING_MS = 10 * 60_000;
+
 export function useAuthModal(): {
 	open: (opts?: AuthModalOpenOptions) => void;
 } {
@@ -60,7 +64,7 @@ export function useAuthModal(): {
 /**
  * Returns a `requireAuth(then)` continuation runner: with a session, `then`
  * runs immediately; without one, the modal starts Google redirect auth and any
- * cross-page prompt handoff is handled through promptStash.
+ * cross-page prompt handoff is handled through promptStash on the dashboard.
  */
 export function useRequireAuth(): (then: () => void) => void {
 	const ctx = useContext(AuthModalContext);
@@ -73,7 +77,18 @@ export function AuthModalProvider({ children }: { children: React.ReactNode }) {
 	const [isOpen, setIsOpen] = useState(false);
 	const [nextPath, setNextPath] = useState<string | undefined>();
 	const [redirectError, setRedirectError] = useState(false);
-	const googleRedirectStartedRef = useRef(false);
+	// Auth handoffs in flight. Dismissing the modal during a handoff must not
+	// clear the prompt stash — the completion still needs it. A Google redirect
+	// ends when this page comes back (bfcache restore or a fresh open); a sent
+	// magic link stays pending for the link's own lifetime. Both are tracked
+	// separately so a failed Google attempt cannot forget a still-valid link.
+	const googleRedirectPendingRef = useRef(false);
+	const magicLinkSentAtRef = useRef<number | null>(null);
+	const isAuthHandoffPending = useCallback(() => {
+		if (googleRedirectPendingRef.current) return true;
+		const sentAt = magicLinkSentAtRef.current;
+		return sentAt !== null && Date.now() - sentAt <= MAGIC_LINK_PENDING_MS;
+	}, []);
 	const { data: session, isPending: isSessionPending } = useSession();
 	const sessionRef = useRef(session);
 	sessionRef.current = session;
@@ -85,7 +100,12 @@ export function AuthModalProvider({ children }: { children: React.ReactNode }) {
 	const open = useCallback((opts?: AuthModalOpenOptions) => {
 		setNextPath(sanitizeAuthRedirectPath(opts?.next));
 		setRedirectError(opts?.redirectError ?? false);
-		googleRedirectStartedRef.current = false;
+		// A fresh open means any Google redirect is over; an auth error means
+		// the whole handoff failed.
+		googleRedirectPendingRef.current = false;
+		if (opts?.redirectError) {
+			magicLinkSentAtRef.current = null;
+		}
 		setIsOpen(true);
 	}, []);
 
@@ -103,32 +123,52 @@ export function AuthModalProvider({ children }: { children: React.ReactNode }) {
 
 	const handleSignedIn = useCallback(() => {
 		invalidateSessionCache();
-		promptStash.consume();
-		googleRedirectStartedRef.current = false;
+		googleRedirectPendingRef.current = false;
+		magicLinkSentAtRef.current = null;
 		setNextPath(undefined);
 		setRedirectError(false);
 		setIsOpen(false);
 	}, []);
 
-	const handleOpenChange = useCallback((nextOpen: boolean) => {
-		setIsOpen(nextOpen);
+	const handleOpenChange = useCallback(
+		(nextOpen: boolean) => {
+			setIsOpen(nextOpen);
 
-		if (!nextOpen) {
-			if (!googleRedirectStartedRef.current) {
-				promptStash.consume();
+			if (!nextOpen) {
+				if (!isAuthHandoffPending()) {
+					promptStash.consume();
+				}
+				setNextPath(undefined);
+				setRedirectError(false);
 			}
-			googleRedirectStartedRef.current = false;
-			setNextPath(undefined);
-			setRedirectError(false);
-		}
-	}, []);
+		},
+		[isAuthHandoffPending],
+	);
 
 	const handleGoogleRedirectStart = useCallback(() => {
-		googleRedirectStartedRef.current = true;
+		googleRedirectPendingRef.current = true;
 	}, []);
 
 	const handleGoogleRedirectEnd = useCallback(() => {
-		googleRedirectStartedRef.current = false;
+		googleRedirectPendingRef.current = false;
+	}, []);
+
+	const handleMagicLinkPendingChange = useCallback((pending: boolean) => {
+		magicLinkSentAtRef.current = pending ? Date.now() : null;
+	}, []);
+
+	// Back from the Google consent screen restores this page from the bfcache
+	// with the redirect still marked pending — it is over at that point, so
+	// re-arm normal dismiss cleanup. A sent magic link is unaffected: the
+	// email is still valid after a Back navigation.
+	useEffect(() => {
+		const onPageShow = (event: PageTransitionEvent) => {
+			if (event.persisted) {
+				googleRedirectPendingRef.current = false;
+			}
+		};
+		window.addEventListener("pageshow", onPageShow);
+		return () => window.removeEventListener("pageshow", onPageShow);
 	}, []);
 
 	useEffect(() => {
@@ -168,6 +208,15 @@ export function AuthModalProvider({ children }: { children: React.ReactNode }) {
 		}
 	}, [handleSignedIn, isOpen, session]);
 
+	// A session that appears while the modal is closed (cross-tab sign-in)
+	// also ends every pending handoff, so a later dismiss cleans up normally.
+	useEffect(() => {
+		if (userId) {
+			googleRedirectPendingRef.current = false;
+			magicLinkSentAtRef.current = null;
+		}
+	}, [userId]);
+
 	const value = useMemo(() => ({ open, requireAuth }), [open, requireAuth]);
 
 	return (
@@ -180,6 +229,7 @@ export function AuthModalProvider({ children }: { children: React.ReactNode }) {
 				onOpenChange={handleOpenChange}
 				onGoogleRedirectStart={handleGoogleRedirectStart}
 				onGoogleRedirectEnd={handleGoogleRedirectEnd}
+				onMagicLinkPendingChange={handleMagicLinkPendingChange}
 			/>
 		</AuthModalContext.Provider>
 	);
@@ -192,6 +242,7 @@ function AuthModalDialog({
 	onOpenChange,
 	onGoogleRedirectStart,
 	onGoogleRedirectEnd,
+	onMagicLinkPendingChange,
 }: {
 	open: boolean;
 	nextPath: string | undefined;
@@ -199,10 +250,23 @@ function AuthModalDialog({
 	onOpenChange: (open: boolean) => void;
 	onGoogleRedirectStart: () => void;
 	onGoogleRedirectEnd: () => void;
+	onMagicLinkPendingChange: (pending: boolean) => void;
 }) {
 	const { t } = useTranslation();
 	const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 	const [error, setError] = useState<string | null>(null);
+
+	// Back from the Google consent screen can restore this dialog from the
+	// bfcache mid-"loading" — unfreeze the button so the user can retry.
+	useEffect(() => {
+		const onPageShow = (event: PageTransitionEvent) => {
+			if (event.persisted) {
+				setIsGoogleLoading(false);
+			}
+		};
+		window.addEventListener("pageshow", onPageShow);
+		return () => window.removeEventListener("pageshow", onPageShow);
+	}, []);
 	// Dark until the emailAuthEnabled product setting is flipped: without it
 	// the dialog renders exactly the pre-email (Google-only) modal.
 	const settingsQuery = usePublicSettingsQuery();
@@ -297,6 +361,7 @@ function AuthModalDialog({
 								nextPath={nextPath}
 								onError={setError}
 								onClearError={() => setError(null)}
+								onMagicLinkPendingChange={onMagicLinkPendingChange}
 							/>
 						) : null}
 

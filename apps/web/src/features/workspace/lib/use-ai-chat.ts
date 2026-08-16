@@ -87,7 +87,7 @@ export function useAiChat(projectId: string) {
 		selectedWids?: string[];
 	}>({});
 
-	// AI edits (replace_section, page generation) mint a NEW immutable version
+	// AI edits and page generation mint a NEW immutable version
 	// server-side. Both keys must be invalidated: pageKeys.versions refreshes
 	// the version list (VersionSwitcher, assets, history), while the preview
 	// iframe only remounts via pageKeys.overview (its key contains
@@ -410,10 +410,16 @@ export function isAppliedPageEditPart(
 	part: WanditUIMessage["parts"][number],
 ): part is Extract<
 	WanditUIMessage["parts"][number],
-	{ type: "tool-apply_element_ops" | "tool-replace_section" }
+	{
+		type:
+			| "tool-apply_element_ops"
+			| "tool-insert_section"
+			| "tool-replace_section";
+	}
 > & { state: "output-available" } {
 	return (
 		(part.type === "tool-replace_section" ||
+			part.type === "tool-insert_section" ||
 			part.type === "tool-apply_element_ops") &&
 		part.state === "output-available" &&
 		part.output.status === "applied"

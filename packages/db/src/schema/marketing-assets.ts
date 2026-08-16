@@ -65,6 +65,7 @@ export const marketingAssets = pgTable(
 		completedAt: timestamp("completed_at", { withTimezone: true }),
 	},
 	(table) => [
+		index("marketing_assets_createdAt_idx").on(table.createdAt),
 		index("marketing_assets_project_idx").on(table.projectId, table.createdAt),
 		index("marketing_assets_chat_idx").on(table.chatId),
 		index("marketing_assets_status_created_idx").on(

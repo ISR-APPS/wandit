@@ -3,6 +3,7 @@ import { ConflictException, Inject, Injectable, Logger } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
 	BILLING_CATALOG,
+	type BillingCancelRequest,
 	type BillingCheckoutResponse,
 	type BillingPlansResponse,
 	type BillingPortalResponse,
@@ -31,8 +32,8 @@ import {
 	orgOwner,
 	userOwner,
 } from "../../../credits/domain/credit-owner";
-import { OrganizationsDisabledError } from "../../../settings/domain/errors/organizations-disabled.error";
 import { ProductSettingsService } from "../../../settings/application/services/product-settings.service";
+import { OrganizationsDisabledError } from "../../../settings/domain/errors/organizations-disabled.error";
 import { WorkspaceNotSupportedError } from "../../../workspaces/domain/errors/workspace.errors";
 import type { WorkspaceContext } from "../../../workspaces/domain/workspace-context";
 import { ActiveSubscriptionExistsError } from "../../domain/errors/active-subscription-exists.error";
@@ -61,6 +62,7 @@ import {
 	BillingCheckoutAttemptsRepository,
 } from "../../infrastructure/persistence/billing-checkout-attempts.repository";
 import { BillingCustomersRepository } from "../../infrastructure/persistence/billing-customers.repository";
+import { CancellationReasonsRepository } from "../../infrastructure/persistence/cancellation-reasons.repository";
 import { OrganizationBillingCustomersRepository } from "../../infrastructure/persistence/organization-billing-customers.repository";
 import {
 	type SubscriptionRow,
@@ -94,6 +96,8 @@ export class BillingService {
 		private readonly organizationBillingCustomersRepository: OrganizationBillingCustomersRepository,
 		@Inject(ProductSettingsService)
 		private readonly productSettingsService: ProductSettingsService,
+		@Inject(CancellationReasonsRepository)
+		private readonly cancellationReasonsRepository: CancellationReasonsRepository,
 	) {}
 
 	/**
@@ -107,7 +111,7 @@ export class BillingService {
 		workspace: WorkspaceContext | undefined,
 		options: { admission: boolean },
 	): Promise<{ organizationId: string | null; owner: CreditOwner }> {
-		if (!workspace || workspace.kind !== "org") {
+		if (workspace?.kind !== "org") {
 			return { organizationId: null, owner: userOwner(user.id) };
 		}
 
@@ -183,8 +187,9 @@ export class BillingService {
 	}
 
 	async hasActiveSubscription(userId: string): Promise<boolean> {
-		const subscription =
-			await this.subscriptionsRepository.findActiveByOwner(userOwner(userId));
+		const subscription = await this.subscriptionsRepository.findActiveByOwner(
+			userOwner(userId),
+		);
 
 		return subscription !== null && this.isEntitled(subscription.status);
 	}
@@ -222,43 +227,43 @@ export class BillingService {
 		await this.checkoutAttemptsRepository.withOwnerLock(
 			scope.owner,
 			async (tx) => {
-			const open = await this.checkoutAttemptsRepository.findOpenForOwner(
-				scope.owner,
-				"subscription",
-				tx,
-			);
-
-			if (open.length > 0) {
-				throw this.checkoutPendingError();
-			}
-
-			const providerSubscriptions =
-				await this.paymentProvider.listSubscriptionsForCustomer(
-					customer.providerCustomerId,
-				);
-			const entitledSubscription = providerSubscriptions.find((subscription) =>
-				this.isEntitled(subscription.status),
-			);
-			const blockingSubscription =
-				entitledSubscription ??
-				providerSubscriptions.find((subscription) =>
-					this.isNonTerminal(subscription.status),
+				const open = await this.checkoutAttemptsRepository.findOpenForOwner(
+					scope.owner,
+					"subscription",
+					tx,
 				);
 
-			if (blockingSubscription) {
-				this.throwCheckoutBlocked(blockingSubscription.status);
-			}
+				if (open.length > 0) {
+					throw this.checkoutPendingError();
+				}
 
-			await this.checkoutAttemptsRepository.create(
-				{
-					id: attemptId,
-					organizationId: scope.organizationId,
-					priceLookupKey: lookupKey,
-					purpose: "subscription",
-					userId: user.id,
-				},
-				tx,
-			);
+				const providerSubscriptions =
+					await this.paymentProvider.listSubscriptionsForCustomer(
+						customer.providerCustomerId,
+					);
+				const entitledSubscription = providerSubscriptions.find(
+					(subscription) => this.isEntitled(subscription.status),
+				);
+				const blockingSubscription =
+					entitledSubscription ??
+					providerSubscriptions.find((subscription) =>
+						this.isNonTerminal(subscription.status),
+					);
+
+				if (blockingSubscription) {
+					this.throwCheckoutBlocked(blockingSubscription.status);
+				}
+
+				await this.checkoutAttemptsRepository.create(
+					{
+						id: attemptId,
+						organizationId: scope.organizationId,
+						priceLookupKey: lookupKey,
+						purpose: "subscription",
+						userId: user.id,
+					},
+					tx,
+				);
 			},
 		);
 
@@ -340,26 +345,26 @@ export class BillingService {
 		await this.checkoutAttemptsRepository.withOwnerLock(
 			scope.owner,
 			async (tx) => {
-			const open = await this.checkoutAttemptsRepository.findOpenForOwner(
-				scope.owner,
-				"topup",
-				tx,
-			);
+				const open = await this.checkoutAttemptsRepository.findOpenForOwner(
+					scope.owner,
+					"topup",
+					tx,
+				);
 
-			if (open.length > 0) {
-				throw this.checkoutPendingError();
-			}
+				if (open.length > 0) {
+					throw this.checkoutPendingError();
+				}
 
-			await this.checkoutAttemptsRepository.create(
-				{
-					id: attemptId,
-					organizationId: scope.organizationId,
-					packId: body.packId,
-					purpose: "topup",
-					userId: user.id,
-				},
-				tx,
-			);
+				await this.checkoutAttemptsRepository.create(
+					{
+						id: attemptId,
+						organizationId: scope.organizationId,
+						packId: body.packId,
+						purpose: "topup",
+						userId: user.id,
+					},
+					tx,
+				);
 			},
 		);
 
@@ -918,17 +923,46 @@ export class BillingService {
 
 	async cancel(
 		user: AuthUser,
+		body: BillingCancelRequest,
 		workspace?: WorkspaceContext,
 	): Promise<BillingSubscriptionViewResponse> {
 		const scope = await this.resolveBillingScope(user, workspace, {
 			admission: false,
 		});
 		const subscription = await this.requireActiveSubscription(scope.owner);
+		const cancellationReason =
+			await this.cancellationReasonsRepository.createPending({
+				details: body.details ?? null,
+				organizationId: subscription.organizationId,
+				reason: body.reason,
+				stripeSubscriptionId: subscription.providerSubscriptionId,
+				submittedByUserId: user.id,
+				subscriptionId: subscription.id,
+				subscriptionUserId: subscription.userId,
+			});
 
-		await this.paymentProvider.setCancelAtPeriodEnd(
-			subscription.providerSubscriptionId,
-			true,
-		);
+		try {
+			await this.paymentProvider.setCancelAtPeriodEnd(
+				subscription.providerSubscriptionId,
+				true,
+			);
+		} catch (error) {
+			await this.markCancellationProviderFailure(cancellationReason.id);
+			throw error;
+		}
+
+		const scheduled =
+			await this.cancellationReasonsRepository.markPendingOutcome(
+				cancellationReason.id,
+				"scheduled",
+			);
+
+		if (!scheduled) {
+			throw new Error(
+				`Cancellation reason ${cancellationReason.id} could not be marked scheduled`,
+			);
+		}
+
 		await this.subscriptionsRepository.updateCancelAtPeriodEnd(
 			subscription.providerSubscriptionId,
 			true,
@@ -954,8 +988,34 @@ export class BillingService {
 			subscription.providerSubscriptionId,
 			false,
 		);
+		await this.cancellationReasonsRepository.markNewestScheduledResumed(
+			subscription.providerSubscriptionId,
+		);
 
 		return this.getSubscriptionView(user.id, workspace);
+	}
+
+	private async markCancellationProviderFailure(
+		cancellationReasonId: string,
+	): Promise<void> {
+		try {
+			const marked =
+				await this.cancellationReasonsRepository.markPendingOutcome(
+					cancellationReasonId,
+					"provider_failed",
+				);
+
+			if (!marked) {
+				this.logger.warn(
+					`Cancellation reason ${cancellationReasonId} was not pending after the provider failed`,
+				);
+			}
+		} catch (persistenceError) {
+			this.logger.warn(
+				`Could not mark cancellation reason ${cancellationReasonId} provider_failed after provider error: ${persistenceError instanceof Error ? persistenceError.message : String(persistenceError)}`,
+				persistenceError instanceof Error ? persistenceError.stack : undefined,
+			);
+		}
 	}
 
 	private async requireActiveSubscription(owner: CreditOwner) {

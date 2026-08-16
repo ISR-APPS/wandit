@@ -324,6 +324,37 @@ export const billingPortalResponseSchema = z.object({
 
 export type BillingPortalResponse = z.infer<typeof billingPortalResponseSchema>;
 
+export const cancellationReasonCodeSchema = z.enum([
+	"too_expensive",
+	"not_using_enough",
+	"missing_features",
+	"technical_issues",
+	"switching_provider",
+	"temporary_pause",
+	"other",
+]);
+
+export type CancellationReasonCode = z.infer<
+	typeof cancellationReasonCodeSchema
+>;
+
+export const billingCancelRequestSchema = z
+	.object({
+		reason: cancellationReasonCodeSchema,
+		details: z.string().trim().min(1).max(1000).optional(),
+	})
+	.superRefine((request, context) => {
+		if (request.reason === "other" && request.details === undefined) {
+			context.addIssue({
+				code: "custom",
+				message: "details is required when reason is other",
+				path: ["details"],
+			});
+		}
+	});
+
+export type BillingCancelRequest = z.infer<typeof billingCancelRequestSchema>;
+
 export const billingRoutes = {
 	plans: "/api/v1/billing/plans",
 	subscription: "/api/v1/billing/subscription",

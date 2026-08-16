@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { CreditsService } from "../../../credits/application/services/credits.service";
 import type { CreditOwner } from "../../../credits/domain/credit-owner";
+import type { WorkspaceContext } from "../../../workspaces/domain/workspace-context";
 import { ActiveSubscriptionExistsError } from "../../domain/errors/active-subscription-exists.error";
 import { AmbiguousPaymentProviderWriteError } from "../../domain/errors/ambiguous-payment-provider-write.error";
 import { BillingNotConfiguredError } from "../../domain/errors/billing-not-configured.error";
@@ -34,6 +35,11 @@ import type {
 	BillingCustomersRepository,
 } from "../../infrastructure/persistence/billing-customers.repository";
 import type {
+	CancellationReasonRow,
+	CancellationReasonsRepository,
+	InsertCancellationReason,
+} from "../../infrastructure/persistence/cancellation-reasons.repository";
+import type {
 	SubscriptionRow,
 	SubscriptionsRepository,
 	SubscriptionsTransaction,
@@ -45,6 +51,7 @@ import type { StripeSubscriptionSyncService } from "./stripe-subscription-sync.s
 const NOW = new Date("2026-08-01T12:34:56.789Z");
 const PRORATION_DATE = new Date("2026-08-01T12:34:56.000Z");
 const INTENT_ID = "33333333-3333-4333-8333-333333333333";
+const CANCELLATION_REASON_ID = "55555555-5555-4555-8555-555555555555";
 
 const user = {
 	email: "user@example.com",
@@ -488,6 +495,55 @@ class FakeChangeIntentsRepository {
 	}
 }
 
+class FakeCancellationReasonsRepository {
+	row: CancellationReasonRow | null = null;
+
+	readonly createPending = vi.fn(
+		async (
+			input: Omit<InsertCancellationReason, "status">,
+		): Promise<CancellationReasonRow> => {
+			const row: CancellationReasonRow = {
+				createdAt: new Date(NOW),
+				details: input.details ?? null,
+				endedStateEventId: input.endedStateEventId ?? null,
+				id: CANCELLATION_REASON_ID,
+				organizationId: input.organizationId ?? null,
+				reason: input.reason,
+				status: "pending",
+				stripeSubscriptionId: input.stripeSubscriptionId,
+				submittedByUserId: input.submittedByUserId,
+				subscriptionId: input.subscriptionId ?? null,
+				subscriptionUserId: input.subscriptionUserId,
+				updatedAt: new Date(NOW),
+			};
+			this.row = row;
+
+			return row;
+		},
+	);
+	readonly markPendingOutcome = vi.fn(
+		async (
+			id: string,
+			status: "provider_failed" | "scheduled",
+		): Promise<boolean> => {
+			if (this.row?.id !== id || this.row.status !== "pending") {
+				return false;
+			}
+
+			this.row = { ...this.row, status };
+			return true;
+		},
+	);
+	readonly markNewestScheduledResumed = vi.fn(async (): Promise<boolean> => {
+		if (this.row?.status !== "scheduled") {
+			return false;
+		}
+
+		this.row = { ...this.row, status: "resumed" };
+		return true;
+	});
+}
+
 function setup(row: SubscriptionRow | null = subscriptionRow()) {
 	const calls: string[] = [];
 	const billingCustomers = new FakeBillingCustomersRepository();
@@ -498,6 +554,7 @@ function setup(row: SubscriptionRow | null = subscriptionRow()) {
 	const subscriptionSync = new FakeSubscriptionSyncService();
 	const checkoutAttempts = new FakeCheckoutAttemptsRepository(calls);
 	const changeIntents = new FakeChangeIntentsRepository();
+	const cancellationReasons = new FakeCancellationReasonsRepository();
 	const service = new BillingService(
 		billingCustomers as unknown as BillingCustomersRepository,
 		subscriptions as unknown as SubscriptionsRepository,
@@ -514,11 +571,13 @@ function setup(row: SubscriptionRow | null = subscriptionRow()) {
 		{
 			get: async () => ({ organizationsEnabled: false }),
 		} as never,
+		cancellationReasons as unknown as CancellationReasonsRepository,
 	);
 
 	return {
 		billingCustomers,
 		billingCustomerService,
+		cancellationReasons,
 		calls,
 		changeIntents,
 		checkoutAttempts,
@@ -646,6 +705,117 @@ describe("BillingService entitlement and sync", () => {
 		);
 
 		await expect(service.sync(user)).rejects.toThrow("Stripe request failed");
+	});
+});
+
+describe("BillingService cancellation-reason lifecycle", () => {
+	it("persists the owner context before Stripe and marks the cycle scheduled after provider success", async () => {
+		const { cancellationReasons, paymentProvider, service, subscriptions } =
+			setup(
+				subscriptionRow({
+					organizationId: "org_1",
+					userId: "user_subscription_owner",
+				}),
+			);
+		const workspace = {
+			kind: "org",
+			organizationId: "org_1",
+			role: "owner",
+			roles: ["owner"],
+		} satisfies WorkspaceContext;
+
+		await service.cancel(
+			user,
+			{ details: "Needed a capability", reason: "missing_features" },
+			workspace,
+		);
+
+		expect(cancellationReasons.createPending).toHaveBeenCalledWith({
+			details: "Needed a capability",
+			organizationId: "org_1",
+			reason: "missing_features",
+			stripeSubscriptionId: "sub_1",
+			submittedByUserId: user.id,
+			subscriptionId: "22222222-2222-4222-8222-222222222222",
+			subscriptionUserId: "user_subscription_owner",
+		});
+		expect(paymentProvider.setCancelAtPeriodEnd).toHaveBeenCalledWith(
+			"sub_1",
+			true,
+		);
+		expect(cancellationReasons.markPendingOutcome).toHaveBeenCalledWith(
+			CANCELLATION_REASON_ID,
+			"scheduled",
+		);
+		expect(subscriptions.updateCancelAtPeriodEnd).toHaveBeenCalledWith(
+			"sub_1",
+			true,
+		);
+		expect(
+			cancellationReasons.createPending.mock.invocationCallOrder[0],
+		).toBeLessThan(
+			paymentProvider.setCancelAtPeriodEnd.mock.invocationCallOrder[0] ?? 0,
+		);
+		expect(
+			paymentProvider.setCancelAtPeriodEnd.mock.invocationCallOrder[0],
+		).toBeLessThan(
+			cancellationReasons.markPendingOutcome.mock.invocationCallOrder[0] ?? 0,
+		);
+		expect(cancellationReasons.row?.status).toBe("scheduled");
+	});
+
+	it("marks the pending cycle provider_failed and preserves the Stripe failure", async () => {
+		const { cancellationReasons, paymentProvider, service, subscriptions } =
+			setup();
+		const providerError = new Error("Stripe cancellation failed");
+		paymentProvider.setCancelAtPeriodEnd.mockRejectedValueOnce(providerError);
+
+		await expect(
+			service.cancel(user, { reason: "too_expensive" }),
+		).rejects.toBe(providerError);
+
+		expect(cancellationReasons.markPendingOutcome).toHaveBeenCalledWith(
+			CANCELLATION_REASON_ID,
+			"provider_failed",
+		);
+		expect(cancellationReasons.row?.status).toBe("provider_failed");
+		expect(subscriptions.updateCancelAtPeriodEnd).not.toHaveBeenCalled();
+	});
+
+	it("still rethrows the original Stripe failure when provider_failed persistence fails", async () => {
+		const warn = vi
+			.spyOn(Logger.prototype, "warn")
+			.mockImplementation(() => undefined);
+		const { cancellationReasons, paymentProvider, service } = setup();
+		const providerError = new Error("Stripe cancellation failed");
+		paymentProvider.setCancelAtPeriodEnd.mockRejectedValueOnce(providerError);
+		cancellationReasons.markPendingOutcome.mockRejectedValueOnce(
+			new Error("database unavailable"),
+		);
+
+		await expect(
+			service.cancel(user, { reason: "not_using_enough" }),
+		).rejects.toBe(providerError);
+		expect(warn).toHaveBeenCalledWith(
+			expect.stringContaining("Could not mark cancellation reason"),
+			expect.stringContaining("database unavailable"),
+		);
+	});
+
+	it("marks the newest scheduled cancellation cycle resumed after un-canceling", async () => {
+		const { cancellationReasons, paymentProvider, service } = setup();
+
+		await service.cancel(user, { reason: "temporary_pause" });
+		await service.resume(user);
+
+		expect(paymentProvider.setCancelAtPeriodEnd).toHaveBeenLastCalledWith(
+			"sub_1",
+			false,
+		);
+		expect(cancellationReasons.markNewestScheduledResumed).toHaveBeenCalledWith(
+			"sub_1",
+		);
+		expect(cancellationReasons.row?.status).toBe("resumed");
 	});
 });
 

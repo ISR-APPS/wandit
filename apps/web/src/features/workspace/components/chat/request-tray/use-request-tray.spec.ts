@@ -1,4 +1,7 @@
-import type { AskUserOutput } from "@wandit/contracts";
+import type {
+	AskUserOutput,
+	UploadAttachmentResponse,
+} from "@wandit/contracts";
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -8,6 +11,7 @@ import {
 	collectAskStepper,
 	collectWorldCards,
 	useRequestTray,
+	withAnswerFiles,
 } from "./use-request-tray";
 
 const { uploadAttachmentMock } = vi.hoisted(() => ({
@@ -141,6 +145,19 @@ function menuPart(cards: unknown[], toolCallId = "menu-1") {
 	};
 }
 
+function composerUpload(
+	url = "https://cdn.example.com/composer.png",
+	filename = "composer.png",
+): UploadAttachmentResponse {
+	return {
+		url,
+		key: `uploads/${filename}`,
+		mediaType: "image/png",
+		filename,
+		size: 42,
+	};
+}
+
 beforeEach(() => {
 	uploadAttachmentMock.mockReset();
 });
@@ -154,7 +171,198 @@ afterEach(async () => {
 	vi.unstubAllGlobals();
 });
 
+describe("withAnswerFiles", () => {
+	it("returns the original output when there are no composer attachments", () => {
+		const output: AskUserOutput = { text: "Use the warm direction" };
+
+		const result = withAnswerFiles(output, []);
+
+		expect(result).toBe(output);
+		expect(result).not.toHaveProperty("files");
+	});
+
+	it("maps uploads and deduplicates their URLs against existing answer files", () => {
+		const existingFile = {
+			url: "https://cdn.example.com/existing.png",
+			mediaType: "image/png",
+			filename: "existing.png",
+		};
+		const output: AskUserOutput = {
+			text: "Use these",
+			files: [existingFile],
+		};
+
+		expect(
+			withAnswerFiles(output, [
+				composerUpload(existingFile.url, "duplicate.png"),
+				composerUpload("https://cdn.example.com/new.png", "new.png"),
+				composerUpload("https://cdn.example.com/new.png", "duplicate-new.png"),
+			]),
+		).toEqual({
+			text: "Use these",
+			files: [
+				existingFile,
+				{
+					url: "https://cdn.example.com/new.png",
+					mediaType: "image/png",
+					filename: "new.png",
+				},
+			],
+		});
+		expect(output.files).toEqual([existingFile]);
+	});
+});
+
 describe("useRequestTray", () => {
+	it("confirms free text with composer attachments", async () => {
+		const onAnswer =
+			vi.fn<(toolCallId: string, output: AskUserOutput) => void>();
+		const upload = composerUpload();
+		const tray = await renderTrayHook({
+			messages: assistantMessages([
+				askPart("ask-text", {
+					question: "What should I build?",
+					options: [],
+				}),
+			]),
+			composerText: "Build a product page",
+			onAnswer,
+		});
+
+		await act(async () => {
+			tray.result.confirmDraft([upload]);
+		});
+
+		expect(onAnswer).toHaveBeenCalledWith("ask-text", {
+			text: "Build a product page",
+			files: [
+				{
+					url: upload.url,
+					mediaType: upload.mediaType,
+					filename: upload.filename,
+				},
+			],
+		});
+	});
+
+	it("confirms a single choice with composer attachments", async () => {
+		const onAnswer =
+			vi.fn<(toolCallId: string, output: AskUserOutput) => void>();
+		const upload = composerUpload();
+		const tray = await renderTrayHook({
+			messages: assistantMessages([
+				askPart("ask-choice", {
+					question: "Which direction?",
+					kind: "single-choice",
+					options: [{ id: "warm", label: "Warm" }],
+				}),
+			]),
+			composerText: "",
+			onAnswer,
+		});
+
+		await act(async () => {
+			tray.result.onPick({ id: "warm", label: "Warm" });
+		});
+		await act(async () => {
+			tray.result.confirmDraft([upload]);
+		});
+
+		expect(onAnswer).toHaveBeenCalledWith("ask-choice", {
+			selectedId: "warm",
+			label: "Warm",
+			files: [
+				{
+					url: upload.url,
+					mediaType: upload.mediaType,
+					filename: upload.filename,
+				},
+			],
+		});
+	});
+
+	it("deduplicates composer files against an attachment ask draft", async () => {
+		const onAnswer =
+			vi.fn<(toolCallId: string, output: AskUserOutput) => void>();
+		const trayUpload = composerUpload(
+			"https://cdn.example.com/shared.png",
+			"tray.png",
+		);
+		uploadAttachmentMock.mockResolvedValue(trayUpload);
+		vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:shared-preview");
+		vi.spyOn(URL, "revokeObjectURL");
+		const tray = await renderTrayHook({
+			messages: assistantMessages([
+				askPart("ask-attachments", {
+					question: "Attach a reference",
+					kind: "attachments",
+					accept: ["image"],
+					options: [],
+				}),
+			]),
+			composerText: "",
+			onAnswer,
+		});
+
+		await act(async () => {
+			tray.result.onBrowseFiles([
+				new File(["png"], "tray.png", { type: "image/png" }),
+			] as unknown as FileList);
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+		expect(tray.result.canConfirm).toBe(true);
+
+		const composerOnly = composerUpload(
+			"https://cdn.example.com/composer-only.png",
+			"composer-only.png",
+		);
+		await act(async () => {
+			tray.result.confirmDraft([
+				composerUpload(trayUpload.url, "duplicate.png"),
+				composerOnly,
+			]);
+		});
+
+		expect(onAnswer).toHaveBeenCalledWith("ask-attachments", {
+			files: [
+				{
+					url: trayUpload.url,
+					mediaType: trayUpload.mediaType,
+					filename: trayUpload.filename,
+				},
+				{
+					url: composerOnly.url,
+					mediaType: composerOnly.mediaType,
+					filename: composerOnly.filename,
+				},
+			],
+		});
+	});
+
+	it("keeps direct free-text answers fileless when the composer has no attachments", async () => {
+		const onAnswer =
+			vi.fn<(toolCallId: string, output: AskUserOutput) => void>();
+		const tray = await renderTrayHook({
+			messages: assistantMessages([
+				askPart("ask-direct-text", {
+					question: "What should I build?",
+					options: [],
+				}),
+			]),
+			composerText: "",
+			onAnswer,
+		});
+
+		await act(async () => {
+			tray.result.answerFreeText("Build a product page", []);
+		});
+
+		const output = onAnswer.mock.calls[0]?.[1];
+		expect(output).toEqual({ text: "Build a product page" });
+		expect(output).not.toHaveProperty("files");
+	});
+
 	it("keys a question round by assistant message and last step-start", () => {
 		const ask = askPart("ask-1", {
 			question: "What should the tone be?",

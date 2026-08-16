@@ -41,6 +41,35 @@ describe("mapDomain", () => {
 		expect(JSON.stringify(mapped.dns)).not.toContain("manual:private");
 	});
 
+	it("exposes the external verification warning without leaking its cursor", () => {
+		const mapped = mapDomain(
+			domainRow({
+				dns: {
+					externalVerification: {
+						attempts: 101,
+						stalledAt: "2026-07-05T00:00:30.000Z",
+					},
+					records: [],
+					triggerConfiguration: {
+						nextAttempt: 100,
+						nextProbeAt: null,
+						nonce: "manual:private",
+					},
+				},
+			}),
+		);
+
+		expect(mapped.dns).toEqual({
+			externalVerification: {
+				attempts: 101,
+				stalledAt: "2026-07-05T00:00:30.000Z",
+			},
+			records: [],
+		});
+		expect(JSON.stringify(mapped.dns)).not.toContain("triggerConfiguration");
+		expect(JSON.stringify(mapped.dns)).not.toContain("manual:private");
+	});
+
 	it("never exposes the internal price snapshot", () => {
 		const mapped = mapDomain(
 			domainRow({

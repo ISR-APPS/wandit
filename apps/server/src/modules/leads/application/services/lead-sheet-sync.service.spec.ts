@@ -44,6 +44,7 @@ function connectedAccount(overrides: Record<string, unknown> = {}) {
 
 function leadRow(overrides: Partial<LeadRow> = {}): LeadRow {
 	return {
+		archivedAt: null,
 		attribution: { fbclid: "x" },
 		commune: null,
 		createdAt: new Date("2026-07-25T13:30:00.000Z"),

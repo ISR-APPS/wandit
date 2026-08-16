@@ -130,6 +130,7 @@ export const scrapeLeadsTask = task({
 					error: null,
 					progress: 5,
 					stage: "searching",
+					startedAt: new Date(),
 					status: "running",
 					triggerRunId: ctx.run.id,
 				})

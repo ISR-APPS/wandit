@@ -160,6 +160,28 @@ function AskReceiptLine({
 		);
 	}
 
+	const value = askAnswerValue(output);
+	if (value) {
+		return (
+			<p className="mt-2 flex items-center gap-[7px] text-[12.5px] text-muted-foreground">
+				<span className="grid size-3.5 shrink-0 place-items-center rounded-full bg-success/16">
+					<Check className="size-2 text-success" strokeWidth={3} />
+				</span>
+				<span dir="auto" className="min-w-0 truncate">
+					{value}
+				</span>
+				{output.files?.length ? (
+					<span className="flex shrink-0 items-center gap-1 text-[11.5px] text-muted-foreground/80">
+						<Paperclip aria-hidden className="size-3" />
+						{t("workspace.chat.tray.filesSent", {
+							count: output.files.length,
+						})}
+					</span>
+				) : null}
+			</p>
+		);
+	}
+
 	// Attachments ask settled with uploads — count receipt instead of text.
 	if (output.files?.length) {
 		return (
@@ -184,17 +206,5 @@ function AskReceiptLine({
 		);
 	}
 
-	const value = askAnswerValue(output);
-	if (!value) return null;
-
-	return (
-		<p className="mt-2 flex items-center gap-[7px] text-[12.5px] text-muted-foreground">
-			<span className="grid size-3.5 shrink-0 place-items-center rounded-full bg-success/16">
-				<Check className="size-2 text-success" strokeWidth={3} />
-			</span>
-			<span dir="auto" className="min-w-0 truncate">
-				{value}
-			</span>
-		</p>
-	);
+	return null;
 }

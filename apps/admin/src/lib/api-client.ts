@@ -74,6 +74,10 @@ type RequestOptions = {
 async function request<T>(path: string, options: RequestOptions): Promise<T> {
 	const response = await fetchResponse(path, options);
 
+	if (response.status === 204) {
+		return undefined as T;
+	}
+
 	const payload = await parseJson(response);
 
 	if (!response.ok) {

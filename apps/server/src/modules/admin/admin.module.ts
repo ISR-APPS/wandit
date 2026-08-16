@@ -12,6 +12,8 @@ import { PagesModule } from "../pages/pages.module";
 import { ProjectAssetsModule } from "../project-assets/project-assets.module";
 import { SitesModule } from "../sites/sites.module";
 import { AdminSecurityModule } from "./admin-security.module";
+import { AdminAnalyticsService } from "./application/services/admin-analytics.service";
+import { AdminCostsService } from "./application/services/admin-costs.service";
 import { AdminOrganizationsService } from "./application/services/admin-organizations.service";
 import { AdminPagePreviewService } from "./application/services/admin-page-preview.service";
 import { AdminProjectsService } from "./application/services/admin-projects.service";
@@ -19,8 +21,12 @@ import { AdminStatsService } from "./application/services/admin-stats.service";
 import { AdminUsersService } from "./application/services/admin-users.service";
 import { AdminWebhookReplayService } from "./application/services/admin-webhook-replay.service";
 import { AdminRepository } from "./infrastructure/persistence/admin.repository";
+import { AdminAnalyticsRepository } from "./infrastructure/persistence/admin-analytics.repository";
+import { AdminCostsRepository } from "./infrastructure/persistence/admin-costs.repository";
 import { AdminOrganizationsRepository } from "./infrastructure/persistence/admin-organizations.repository";
 import { AdminOverviewRepository } from "./infrastructure/persistence/admin-overview.repository";
+import { AdminAnalyticsController } from "./presentation/http/controllers/admin-analytics.controller";
+import { AdminCostsController } from "./presentation/http/controllers/admin-costs.controller";
 import { AdminOrganizationsController } from "./presentation/http/controllers/admin-organizations.controller";
 import { AdminProjectsController } from "./presentation/http/controllers/admin-projects.controller";
 import { AdminStatsController } from "./presentation/http/controllers/admin-stats.controller";
@@ -29,6 +35,8 @@ import { AdminWebhooksController } from "./presentation/http/controllers/admin-w
 
 @Module({
 	controllers: [
+		AdminAnalyticsController,
+		AdminCostsController,
 		AdminOrganizationsController,
 		AdminProjectsController,
 		AdminUsersController,
@@ -48,6 +56,10 @@ import { AdminWebhooksController } from "./presentation/http/controllers/admin-w
 		SitesModule,
 	],
 	providers: [
+		AdminAnalyticsRepository,
+		AdminAnalyticsService,
+		AdminCostsRepository,
+		AdminCostsService,
 		AdminOrganizationsRepository,
 		AdminOrganizationsService,
 		AdminOverviewRepository,

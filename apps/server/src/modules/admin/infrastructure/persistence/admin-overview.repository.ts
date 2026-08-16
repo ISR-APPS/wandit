@@ -5,6 +5,11 @@ import {
 	DATABASE,
 	type Database,
 } from "../../../../infrastructure/database/database.constants";
+import type { AdminDashboardRangeBounds } from "../../application/services/admin-dashboard-range";
+import {
+	type AdminAnalyticsOverviewMetricsRepositorySnapshot,
+	AdminAnalyticsRepository,
+} from "./admin-analytics.repository";
 
 type NumericValue = bigint | number | string | null;
 
@@ -23,16 +28,8 @@ type GrowthRow = {
 
 type RevenueRow = {
 	date: string;
-	stripe_usd_minor: NumericValue;
-	chargily_dzd_minor: NumericValue;
-	chargily_usd_minor: NumericValue;
 	total_usd_minor: NumericValue;
-	current_stripe_usd_minor: NumericValue;
-	current_chargily_dzd_minor: NumericValue;
-	current_chargily_usd_minor: NumericValue;
 	current_total_usd_minor: NumericValue;
-	stripe_change_percent: NumericValue;
-	chargily_change_percent: NumericValue;
 	total_change_percent: NumericValue;
 };
 
@@ -81,7 +78,6 @@ export type AdminOverviewSignalRow = {
 	userName: string;
 	projectName: string | null;
 	leadName: string | null;
-	provider: string | null;
 	amountMinor: number | null;
 	currency: string | null;
 	durationMs: number | null;
@@ -91,18 +87,8 @@ export type AdminOverviewRepositorySnapshot = {
 	periodStart: string;
 	periodEnd: string;
 	revenue: {
-		totalReportingUsdMinor: number;
+		totalUsdMinor: number;
 		changePercent: number;
-		stripe: {
-			nativeTotalMinor: number;
-			reportingUsdTotalMinor: number;
-			changePercent: number;
-		};
-		chargily: {
-			nativeTotalMinor: number;
-			reportingUsdTotalMinor: number;
-			changePercent: number;
-		};
 	};
 	totals: {
 		tokensUsed: number;
@@ -130,9 +116,7 @@ export type AdminOverviewRepositorySnapshot = {
 	};
 	revenueSeries: Array<{
 		date: string;
-		stripeUsdMinor: number;
-		chargilyUsdEquivalentMinor: number;
-		totalUsdEquivalentMinor: number;
+		totalUsdMinor: number;
 	}>;
 	growthSeries: Array<{
 		date: string;
@@ -153,44 +137,46 @@ export type AdminOverviewRepositorySnapshot = {
 		costUsdMinor: number;
 	}>;
 	recentSignals: AdminOverviewSignalRow[];
+	overviewMetrics: AdminAnalyticsOverviewMetricsRepositorySnapshot;
 };
 
 @Injectable()
 export class AdminOverviewRepository {
-	constructor(@Inject(DATABASE) private readonly db: Database) {}
+	constructor(
+		@Inject(DATABASE) private readonly db: Database,
+		@Inject(AdminAnalyticsRepository)
+		private readonly adminAnalyticsRepository: AdminAnalyticsRepository,
+	) {}
 
-	async getOverview(input: {
-		days: number;
-		generatedAt: Date;
-		dzdPerUsd: number;
-	}): Promise<AdminOverviewRepositorySnapshot> {
+	async getOverview(
+		input: AdminDashboardRangeBounds,
+	): Promise<AdminOverviewRepositorySnapshot> {
 		return this.db.transaction(
 			async (transaction) => {
-				const [growth, revenue, usage, assets, generation, recentSignals] =
-					await Promise.all([
-						this.getGrowth(transaction, input.days, input.generatedAt),
-						this.getRevenue(
-							transaction,
-							input.days,
-							input.generatedAt,
-							input.dzdPerUsd,
-						),
-						this.getUsage(transaction, input.days, input.generatedAt),
-						this.getAssetTotals(transaction, input.days, input.generatedAt),
-						this.getGenerationHealth(
-							transaction,
-							input.days,
-							input.generatedAt,
-						),
-						this.getRecentSignals(transaction, input.generatedAt),
-					]);
+				const [
+					growth,
+					revenue,
+					usage,
+					assets,
+					generation,
+					recentSignals,
+					overviewMetrics,
+				] = await Promise.all([
+					this.getGrowth(transaction, input),
+					this.getRevenue(transaction, input),
+					this.getUsage(transaction, input),
+					this.getAssetTotals(transaction, input),
+					this.getGenerationHealth(transaction, input),
+					this.getRecentSignals(transaction, input),
+					this.adminAnalyticsRepository.getOverviewMetrics(transaction, input),
+				]);
 
 				const firstGrowthPoint = growth.points[0];
 				const lastGrowthPoint = growth.points.at(-1);
 
 				return {
-					periodStart: firstGrowthPoint?.date ?? utcDate(input.generatedAt),
-					periodEnd: lastGrowthPoint?.date ?? utcDate(input.generatedAt),
+					periodStart: firstGrowthPoint?.date ?? utcDate(input.rangeStart),
+					periodEnd: lastGrowthPoint?.date ?? utcDate(input.seriesEnd),
 					revenue: revenue.summary,
 					totals: {
 						...growth.summary,
@@ -203,6 +189,7 @@ export class AdminOverviewRepository {
 					generationSeries: generation.points,
 					modelUsage: usage.models,
 					recentSignals,
+					overviewMetrics,
 				};
 			},
 			{
@@ -214,15 +201,14 @@ export class AdminOverviewRepository {
 
 	private async getGrowth(
 		client: AdminOverviewDbClient,
-		days: number,
-		generatedAt: Date,
+		input: AdminDashboardRangeBounds,
 	) {
 		const result = await client.execute<GrowthRow>(sql`
-			with bounds as (${overviewBounds(days, generatedAt)}),
+			with bounds as (${overviewBounds(input)}),
 			days as (
 				select generate_series(
 					b.current_start,
-					(b.current_end at time zone 'UTC')::date at time zone 'UTC',
+					b.series_end,
 					interval '1 day'
 				) as day
 				from bounds b
@@ -345,9 +331,7 @@ export class AdminOverviewRepository {
 
 	private async getRevenue(
 		client: AdminOverviewDbClient,
-		days: number,
-		generatedAt: Date,
-		dzdPerUsd: number,
+		input: AdminDashboardRangeBounds,
 	) {
 		// Stripe gross = one-time payment orders + subscription invoice
 		// settlements (billing_invoice_applications amount snapshots; rows
@@ -356,28 +340,26 @@ export class AdminOverviewRepository {
 		// have no relational amount source yet and stay uncounted; affiliate
 		// commission bases are not gross revenue and remain excluded.
 		const result = await client.execute<RevenueRow>(sql`
-			with bounds as (${overviewBounds(days, generatedAt)}),
+			with bounds as (${overviewBounds(input)}),
 			days as (
 				select generate_series(
 					b.current_start,
-					(b.current_end at time zone 'UTC')::date at time zone 'UTC',
+					b.series_end,
 					interval '1 day'
 				) as day
 				from bounds b
 			),
 			eligible_payments as (
-				select o.paid_at, lower(o.provider) as provider, o.amount_cents
+				select o.paid_at, o.amount_cents
 				from payment_orders o
 				cross join bounds b
 				where o.paid_at >= b.previous_start
 					and o.paid_at < b.current_end
 					and o.status not in ('failed', 'canceled', 'refunded')
-					and (
-						(lower(o.provider) = 'stripe' and lower(o.currency) = 'usd')
-						or (lower(o.provider) = 'chargily' and lower(o.currency) = 'dzd')
-					)
+					and lower(o.provider) = 'stripe'
+					and lower(o.currency) = 'usd'
 				union all
-				select a.paid_at, 'stripe' as provider, a.amount_paid_minor as amount_cents
+				select a.paid_at, a.amount_paid_minor as amount_cents
 				from billing_invoice_applications a
 				cross join bounds b
 				where a.paid_at is not null
@@ -386,56 +368,27 @@ export class AdminOverviewRepository {
 					and a.paid_at >= b.previous_start
 					and a.paid_at < b.current_end
 			),
-			native_totals as (
+			totals as (
 				select
 					coalesce(sum(o.amount_cents) filter (
 						where o.paid_at >= b.current_start
-							and o.provider = 'stripe'
-					), 0)::bigint as current_stripe,
+					), 0)::bigint as current_total,
 					coalesce(sum(o.amount_cents) filter (
 						where o.paid_at < b.current_start
-							and o.provider = 'stripe'
-					), 0)::bigint as previous_stripe,
-					coalesce(sum(o.amount_cents) filter (
-						where o.paid_at >= b.current_start
-							and o.provider = 'chargily'
-					), 0)::bigint as current_chargily,
-					coalesce(sum(o.amount_cents) filter (
-						where o.paid_at < b.current_start
-							and o.provider = 'chargily'
-					), 0)::bigint as previous_chargily
+					), 0)::bigint as previous_total
 				from eligible_payments o
 				cross join bounds b
 			),
-			reporting_totals as (
-				select
-					n.*,
-					round(n.current_chargily::numeric / ${dzdPerUsd}::numeric)::bigint as current_chargily_usd,
-					round(n.previous_chargily::numeric / ${dzdPerUsd}::numeric)::bigint as previous_chargily_usd
-				from native_totals n
-			),
 			metrics as (
 				select
-					r.*,
-					(r.current_stripe + r.current_chargily_usd)::bigint as current_total_usd,
-					(r.previous_stripe + r.previous_chargily_usd)::bigint as previous_total_usd,
-					${percentChangeSql(sql`r.current_stripe`, sql`r.previous_stripe`)} as stripe_change_percent,
-					${percentChangeSql(sql`r.current_chargily_usd`, sql`r.previous_chargily_usd`)} as chargily_change_percent,
-					${percentChangeSql(
-						sql`(r.current_stripe + r.current_chargily_usd)`,
-						sql`(r.previous_stripe + r.previous_chargily_usd)`,
-					)} as total_change_percent
-				from reporting_totals r
+					t.current_total as current_total_usd,
+					${percentChangeSql(sql`t.current_total`, sql`t.previous_total`)} as total_change_percent
+				from totals t
 			),
-			daily_native as (
+			daily as (
 				select
 					(o.paid_at at time zone 'UTC')::date as day,
-					coalesce(sum(o.amount_cents) filter (
-						where o.provider = 'stripe'
-					), 0)::bigint as stripe,
-					coalesce(sum(o.amount_cents) filter (
-						where o.provider = 'chargily'
-					), 0)::bigint as chargily
+					coalesce(sum(o.amount_cents), 0)::bigint as total
 				from eligible_payments o
 				cross join bounds b
 				where o.paid_at >= b.current_start
@@ -443,23 +396,12 @@ export class AdminOverviewRepository {
 			)
 			select
 				to_char(d.day at time zone 'UTC', 'YYYY-MM-DD') as date,
-				coalesce(n.stripe, 0)::bigint as stripe_usd_minor,
-				coalesce(n.chargily, 0)::bigint as chargily_dzd_minor,
-				round(coalesce(n.chargily, 0)::numeric / ${dzdPerUsd}::numeric)::bigint as chargily_usd_minor,
-				(
-					coalesce(n.stripe, 0) +
-					round(coalesce(n.chargily, 0)::numeric / ${dzdPerUsd}::numeric)
-				)::bigint as total_usd_minor,
-				m.current_stripe as current_stripe_usd_minor,
-				m.current_chargily as current_chargily_dzd_minor,
-				m.current_chargily_usd as current_chargily_usd_minor,
+				coalesce(n.total, 0)::bigint as total_usd_minor,
 				m.current_total_usd as current_total_usd_minor,
-				m.stripe_change_percent,
-				m.chargily_change_percent,
 				m.total_change_percent
 			from days d
 			cross join metrics m
-			left join daily_native n
+			left join daily n
 				on n.day = (d.day at time zone 'UTC')::date
 			order by d.day asc
 		`);
@@ -469,36 +411,23 @@ export class AdminOverviewRepository {
 		return {
 			points: result.rows.map((row) => ({
 				date: String(row.date),
-				stripeUsdMinor: toNumber(row.stripe_usd_minor),
-				chargilyUsdEquivalentMinor: toNumber(row.chargily_usd_minor),
-				totalUsdEquivalentMinor: toNumber(row.total_usd_minor),
+				totalUsdMinor: toNumber(row.total_usd_minor),
 			})),
 			summary: {
-				totalReportingUsdMinor: toNumber(first?.current_total_usd_minor),
+				totalUsdMinor: toNumber(first?.current_total_usd_minor),
 				changePercent: toNumber(first?.total_change_percent),
-				stripe: {
-					nativeTotalMinor: toNumber(first?.current_stripe_usd_minor),
-					reportingUsdTotalMinor: toNumber(first?.current_stripe_usd_minor),
-					changePercent: toNumber(first?.stripe_change_percent),
-				},
-				chargily: {
-					nativeTotalMinor: toNumber(first?.current_chargily_dzd_minor),
-					reportingUsdTotalMinor: toNumber(first?.current_chargily_usd_minor),
-					changePercent: toNumber(first?.chargily_change_percent),
-				},
 			},
 		};
 	}
 
 	private async getUsage(
 		client: AdminOverviewDbClient,
-		days: number,
-		generatedAt: Date,
+		input: AdminDashboardRangeBounds,
 	) {
 		// TODO(perf): add an ai_usage_events index leading with created_at for these platform-wide range scans.
 		const [totalsResult, modelsResult] = await Promise.all([
 			client.execute<UsageTotalsRow>(sql`
-				with bounds as (${overviewBounds(days, generatedAt)}),
+				with bounds as (${overviewBounds(input)}),
 				usage_totals as (
 					select
 						coalesce(sum(
@@ -541,7 +470,7 @@ export class AdminOverviewRepository {
 				from usage_totals u
 			`),
 			client.execute<ModelUsageRow>(sql`
-				with bounds as (${overviewBounds(days, generatedAt)}),
+				with bounds as (${overviewBounds(input)}),
 				grouped as (
 					select
 						coalesce(nullif(lower(trim(e.provider)), ''), 'unknown') as provider,
@@ -612,13 +541,12 @@ export class AdminOverviewRepository {
 
 	private async getAssetTotals(
 		client: AdminOverviewDbClient,
-		days: number,
-		generatedAt: Date,
+		input: AdminDashboardRangeBounds,
 	) {
 		// MOCK DATA: Page-build images live only in R2; metering cannot distinguish
 		// successful asset writes from billed upload failures, so these totals omit them.
 		const result = await client.execute<AssetTotalsRow>(sql`
-			with bounds as (${overviewBounds(days, generatedAt)}),
+			with bounds as (${overviewBounds(input)}),
 			image_outputs as (
 				-- Count persisted image references because successful attempts can return
 				-- fewer outputs than requested. Legacy rows without an array fall back to
@@ -678,15 +606,14 @@ export class AdminOverviewRepository {
 
 	private async getGenerationHealth(
 		client: AdminOverviewDbClient,
-		days: number,
-		generatedAt: Date,
+		input: AdminDashboardRangeBounds,
 	) {
 		const result = await client.execute<GenerationRow>(sql`
-			with bounds as (${overviewBounds(days, generatedAt)}),
+			with bounds as (${overviewBounds(input)}),
 			days as (
 				select generate_series(
 					b.current_start,
-					(b.current_end at time zone 'UTC')::date at time zone 'UTC',
+					b.series_end,
 					interval '1 day'
 				) as day
 				from bounds b
@@ -833,7 +760,7 @@ export class AdminOverviewRepository {
 
 	private async getRecentSignals(
 		client: AdminOverviewDbClient,
-		generatedAt: Date,
+		input: AdminDashboardRangeBounds,
 	): Promise<AdminOverviewSignalRow[]> {
 		const result = await client.execute<{
 			id: string;
@@ -842,12 +769,12 @@ export class AdminOverviewRepository {
 			user_name: string;
 			project_name: string | null;
 			lead_name: string | null;
-			provider: string | null;
 			amount_minor: NumericValue;
 			currency: string | null;
 			duration_ms: NumericValue;
 		}>(sql`
-			select *
+			with bounds as (${overviewBounds(input)})
+			select signals.*
 			from (
 				select *
 				from (
@@ -858,15 +785,18 @@ export class AdminOverviewRepository {
 						u.name as user_name,
 						null::text as project_name,
 						null::text as lead_name,
-						lower(o.provider) as provider,
 						o.amount_cents::bigint as amount_minor,
 						upper(o.currency) as currency,
 						null::bigint as duration_ms
 					from payment_orders o
 					inner join "user" u on u.id = o.user_id
+					cross join bounds b
 					where o.paid_at is not null
 						and o.status not in ('failed', 'canceled', 'refunded')
-						and o.paid_at < ${generatedAt}
+						and lower(o.provider) = 'stripe'
+						and lower(o.currency) = 'usd'
+						and o.paid_at >= b.current_start
+						and o.paid_at < b.current_end
 					order by
 						o.paid_at desc,
 						('payment:' || o.id::text) desc
@@ -886,7 +816,6 @@ export class AdminOverviewRepository {
 						u.name,
 						pr.name,
 						null::text,
-						null::text,
 						null::bigint,
 						null::text,
 						case
@@ -898,10 +827,12 @@ export class AdminOverviewRepository {
 					from page_generation_attempts p
 					inner join projects pr on pr.id = p.project_id
 					inner join "user" u on u.id = pr.user_id
+					cross join bounds b
 					where p.status in ('succeeded', 'failed')
 						and p.completed_at is not null
 						and pr.deleted_at is null
-						and p.completed_at < ${generatedAt}
+						and p.completed_at >= b.current_start
+						and p.completed_at < b.current_end
 					order by
 						p.completed_at desc,
 						('page:' || p.id::text) desc
@@ -917,24 +848,27 @@ export class AdminOverviewRepository {
 						u.name,
 						pr.name,
 						l.name,
-						null::text,
 						null::bigint,
 						null::text,
 						null::bigint
 					from leads l
 					inner join projects pr on pr.id = l.project_id
 					inner join "user" u on u.id = pr.user_id
+					cross join bounds b
 					where pr.deleted_at is null
 						and l.created_at is not null
-						and l.created_at < ${generatedAt}
+						and l.created_at >= b.current_start
+						and l.created_at < b.current_end
 					order by
 						l.created_at desc,
 						('lead:' || l.id::text) desc
 					limit 5
 				) lead_signals
 			) signals
+			cross join bounds b
 			where signals.occurred_at is not null
-				and signals.occurred_at < ${generatedAt}
+				and signals.occurred_at >= b.current_start
+				and signals.occurred_at < b.current_end
 			order by signals.occurred_at desc, signals.id desc
 			limit 5
 		`);
@@ -946,7 +880,6 @@ export class AdminOverviewRepository {
 			userName: String(row.user_name),
 			projectName: row.project_name,
 			leadName: row.lead_name,
-			provider: row.provider,
 			amountMinor:
 				row.amount_minor === null ? null : toNumber(row.amount_minor),
 			currency: row.currency,
@@ -955,7 +888,7 @@ export class AdminOverviewRepository {
 	}
 }
 
-function overviewBounds(days: number, generatedAt: Date) {
+function overviewBounds(input: AdminDashboardRangeBounds) {
 	// The current window covers the selected UTC dates only up to the snapshot
 	// time. Subtracting that exact duration makes the previous window equal in
 	// elapsed length while the chart can still zero-fill one point per UTC date.
@@ -963,14 +896,15 @@ function overviewBounds(days: number, generatedAt: Date) {
 		select
 			w.current_start,
 			w.current_end,
+			w.series_end,
+			w.snapshot_end,
 			w.current_start - (w.current_end - w.current_start) as previous_start
 		from (
 			select
-				(
-					(${generatedAt}::timestamptz at time zone 'UTC')::date -
-					(${days}::int - 1)
-				) at time zone 'UTC' as current_start,
-				${generatedAt}::timestamptz as current_end
+				${input.rangeStart}::timestamptz as current_start,
+				${input.rangeEnd}::timestamptz as current_end,
+				${input.seriesEnd}::timestamptz as series_end,
+				${input.snapshotEnd}::timestamptz as snapshot_end
 		) w
 	`;
 }

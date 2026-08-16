@@ -15,6 +15,7 @@ vi.mock("@/lib/i18n", () => ({
 
 import {
 	CustomDomainLiveContent,
+	DomainEntryActions,
 	PurchasedDomainCard,
 	selectPublishDomains,
 } from "./publish-popover";
@@ -134,6 +135,32 @@ describe("PurchasedDomainCard", () => {
 		expect(html).toContain('href="https://example.com"');
 		clickCopy(view);
 		expect(onCopy).toHaveBeenCalledWith("https://example.com");
+	});
+});
+
+describe("DomainEntryActions", () => {
+	it("offers both buying and connecting an owned domain", () => {
+		const onOpenConnect = vi.fn();
+		const onOpenPurchase = vi.fn();
+		const view = DomainEntryActions({ onOpenConnect, onOpenPurchase });
+		const html = renderToStaticMarkup(view);
+
+		expect(html).toContain("buyDomainTitle");
+		expect(html).toContain("connectOwnedTitle");
+
+		const buyAction = findElement(
+			view,
+			(props) => props.title === "buyDomainTitle",
+		);
+		const connectAction = findElement(
+			view,
+			(props) => props.title === "connectOwnedTitle",
+		);
+
+		(buyAction?.props.onClick as () => void)();
+		(connectAction?.props.onClick as () => void)();
+		expect(onOpenPurchase).toHaveBeenCalledOnce();
+		expect(onOpenConnect).toHaveBeenCalledOnce();
 	});
 });
 

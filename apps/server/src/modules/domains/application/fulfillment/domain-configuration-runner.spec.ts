@@ -121,6 +121,39 @@ function setup(
 		cursor = null;
 		return true;
 	});
+	const markExternalVerificationStalled = vi.fn(
+		async (
+			_id: string,
+			input: {
+				attempts: number;
+				expectedAttempt: number;
+				nonce: string;
+				stalledAt: Date;
+			},
+		) => {
+			if (
+				row?.source !== "external" ||
+				row.status !== "configuring" ||
+				!cursor ||
+				cursor.nonce !== input.nonce ||
+				cursor.nextAttempt !== input.expectedAttempt
+			) {
+				return false;
+			}
+
+			row = {
+				...row,
+				dns: {
+					externalVerification: {
+						attempts: input.attempts,
+						stalledAt: input.stalledAt.toISOString(),
+					},
+				},
+			};
+
+			return true;
+		},
+	);
 	const waitUntil = vi.fn(async ({ date }: { date: Date }) => {
 		waits.push(date);
 		now = date;
@@ -166,6 +199,7 @@ function setup(
 			clearCursor,
 			findDomain: vi.fn(async () => row),
 			initializeCursor,
+			markExternalVerificationStalled,
 			readCursor: vi.fn(async () => cursor),
 		},
 		now: () => now,
@@ -183,6 +217,7 @@ function setup(
 			return cursor;
 		},
 		initializeCursor,
+		markExternalVerificationStalled,
 		loseNextAdvance() {
 			loseNextAdvance = true;
 		},
@@ -235,13 +270,14 @@ describe("DomainConfigurationRunner", () => {
 		expect(delays.slice(0, 7)).toEqual([30, 60, 120, 240, 480, 900, 900]);
 		expect(delays.reduce((total, delay) => total + delay, 0)).toBe(86_430);
 		expect(fixture.terminalFailure).toHaveBeenCalledTimes(1);
+		expect(fixture.markExternalVerificationStalled).not.toHaveBeenCalled();
 		expect(domainFailureSummary(fixture.terminalErrors[0])).toBe(
 			"Domain registration failed",
 		);
 		expect(fixture.cursor).toBeNull();
 	});
 
-	it("leaves an external domain and its exhausted cursor pending", async () => {
+	it("marks an exhausted external domain while leaving it pending", async () => {
 		const fixture = setup({
 			row: domain({ paymentOrderId: null, source: "external" }),
 		});
@@ -257,6 +293,15 @@ describe("DomainConfigurationRunner", () => {
 		expect(fixture.probes).toHaveLength(101);
 		expect(fixture.waits).toHaveLength(100);
 		expect(fixture.terminalFailure).not.toHaveBeenCalled();
+		expect(fixture.markExternalVerificationStalled).toHaveBeenCalledWith(
+			domainId,
+			{
+				attempts: 101,
+				expectedAttempt: 100,
+				nonce: "manual:1",
+				stalledAt: new Date("2026-08-02T00:00:30.000Z"),
+			},
+		);
 		expect(fixture.cursor).toMatchObject({
 			nextAttempt: 100,
 			nonce: "manual:1",

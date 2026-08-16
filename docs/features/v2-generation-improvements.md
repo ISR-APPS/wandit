@@ -114,12 +114,18 @@ minutes):
 - `get_page_outline` — section map of the active version (wid + tag + short
   text snippet). Cheap (~200 tokens).
 - `read_section(wid)` — that section's HTML only.
+- `apply_element_ops(ops)` — bounded targeted edits, including inserting one
+  inert element before, after, or inside an existing stamped target.
+- `insert_section(anchorWid, position, html)` — inserts one new section before
+  or after an existing outlined section; the server assigns all new wids.
 - `replace_section(wid, html)` — server applies DOM surgery on a copy of the
   current version files, re-runs the stamping pass, writes a **new immutable
   version**, flips `activeVersionId`.
-Escalation: structural redesigns route to the full builder task with the
-current version as context. After manual (inline) edits, the chat context
-gets a quiet note listing user-edited wids so the AI doesn't clobber them.
+Escalation: use `apply_element_ops` for small changes or additions inside an
+existing section, `insert_section` for one new section, `replace_section` to
+restructure one existing section, and the full builder only for broader
+redesigns or new pages. After manual (inline) edits, the chat context gets a
+quiet note listing user-edited wids so the AI doesn't clobber them.
 
 ## 6. Click-to-target
 

@@ -15,6 +15,7 @@ import {
 	type AttachExternalDomainResponse,
 	attachExternalDomainBodySchema,
 	type DetachDomainResponse,
+	type GetDomainDnsStatusResponse,
 	type ListDomainsResponse,
 	type SearchDomainsQuery,
 	type SearchDomainsResponse,
@@ -36,6 +37,7 @@ import {
 	CurrentWorkspace,
 	RequireWorkspacePermission,
 } from "../../../../workspaces/presentation/http/decorators/workspace.decorators";
+import { DomainDnsDiagnosticsService } from "../../../application/services/domain-dns-diagnostics.service";
 import { DomainsService } from "../../../application/services/domains.service";
 import {
 	DomainRateLimit,
@@ -47,6 +49,8 @@ export class DomainsController {
 	constructor(
 		@Inject(DomainsService)
 		private readonly domainsService: DomainsService,
+		@Inject(DomainDnsDiagnosticsService)
+		private readonly domainDnsDiagnosticsService: DomainDnsDiagnosticsService,
 	) {}
 
 	@UseGuards(DomainRateLimitGuard)
@@ -69,6 +73,21 @@ export class DomainsController {
 	): Promise<ListDomainsResponse> {
 		return this.domainsService.list(
 			projectId,
+			projectScopeFrom(workspace, user.id),
+		);
+	}
+
+	@UseGuards(DomainRateLimitGuard)
+	@DomainRateLimit({ limit: 10, windowMs: 60_000 })
+	@Get("domains/:id/dns-status")
+	dnsStatus(
+		@Param("id", new ZodValidationPipe(uuidSchema))
+		id: string,
+		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
+	): Promise<GetDomainDnsStatusResponse> {
+		return this.domainDnsDiagnosticsService.getStatus(
+			id,
 			projectScopeFrom(workspace, user.id),
 		);
 	}

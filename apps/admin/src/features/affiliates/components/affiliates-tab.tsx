@@ -14,6 +14,7 @@ import {
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { MetricInfoTooltip } from "@/components/metric-info-tooltip";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -41,7 +42,9 @@ import {
 import { downloadAffiliateCsv } from "../api/affiliates.services";
 import {
 	formatAffiliateDateTime,
+	formatAffiliateMoney,
 	formatAffiliateNumber,
+	formatNullableAffiliateMoney,
 	titleCaseAffiliateValue,
 } from "../lib/formatters";
 import { AffiliateDetailSheet } from "./affiliate-detail-sheet";
@@ -213,7 +216,7 @@ export function AffiliatesTab() {
 			</div>
 
 			{affiliatesQuery.isPending ? (
-				<AffiliateTableLoading columns={10} />
+				<AffiliateTableLoading columns={14} />
 			) : affiliatesQuery.isError || !affiliatesQuery.data ? (
 				<AffiliateSectionMessage
 					title="Affiliates could not be loaded"
@@ -245,7 +248,7 @@ export function AffiliatesTab() {
 			) : (
 				<div className="overflow-hidden rounded-lg border bg-background">
 					<div className="overflow-x-auto">
-						<Table className="min-w-[1150px]">
+						<Table className="min-w-[1680px]">
 							<TableHeader>
 								<TableRow>
 									<TableHead>Affiliate</TableHead>
@@ -253,6 +256,30 @@ export function AffiliatesTab() {
 									<TableHead>Links</TableHead>
 									<TableHead>Traffic</TableHead>
 									<TableHead>Conversions</TableHead>
+									<TableHead>
+										<AffiliateTableHeading
+											label="Healthy trials"
+											tooltip="Attributed free users at least seven days old who consumed at least 20 credits and completed at least two successful generations in their first seven days."
+										/>
+									</TableHead>
+									<TableHead>
+										<AffiliateTableHeading
+											label="Churned"
+											tooltip="Attributed customers whose subscription ended and who have no live subscription at the current snapshot."
+										/>
+									</TableHead>
+									<TableHead>
+										<AffiliateTableHeading
+											label="Referred MRR"
+											tooltip="Current monthly list-price value of live subscriptions referred by this affiliate. Annual plans are divided by 12."
+										/>
+									</TableHead>
+									<TableHead>
+										<AffiliateTableHeading
+											label="Referred LTV"
+											tooltip="Approximate — small samples. Referred ARPU divided by estimated monthly churn; a dash means there is not enough churn history to calculate it."
+										/>
+									</TableHead>
 									<TableHead>Revenue</TableHead>
 									<TableHead>Balance</TableHead>
 									<TableHead>Payout</TableHead>
@@ -366,6 +393,12 @@ function AffiliateRow({
 					{formatAffiliateNumber(row.paidInvoiceCount)} invoices
 				</p>
 			</TableCell>
+			<TableCell>{formatAffiliateNumber(row.healthyTrials)}</TableCell>
+			<TableCell>{formatAffiliateNumber(row.churnedCustomers)}</TableCell>
+			<TableCell>{formatAffiliateMoney(row.referredMrrCents, "usd")}</TableCell>
+			<TableCell>
+				{formatNullableAffiliateMoney(row.referredLtvCents, "usd")}
+			</TableCell>
 			<TableCell>
 				<CurrencyValues
 					currencies={row.currencies}
@@ -408,6 +441,21 @@ function AffiliateRow({
 				</div>
 			</TableCell>
 		</TableRow>
+	);
+}
+
+function AffiliateTableHeading({
+	label,
+	tooltip,
+}: {
+	label: string;
+	tooltip: string;
+}) {
+	return (
+		<div className="flex items-center gap-1">
+			<span>{label}</span>
+			<MetricInfoTooltip label={label} content={tooltip} />
+		</div>
 	);
 }
 

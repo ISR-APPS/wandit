@@ -16,6 +16,7 @@ import {
 	Copy,
 	ExternalLink,
 	Globe2,
+	Link2,
 	Loader2,
 	Pencil,
 } from "lucide-react";
@@ -24,12 +25,14 @@ import { createPortal } from "react-dom";
 import { toast } from "sonner";
 
 import { Spark } from "@/components/logo";
+import { ExternalDomainConnectDialog } from "@/features/domains";
 import type { Domain } from "@/features/domains/api/domains.dto";
 import { useDomainsQuery } from "@/features/domains/api/domains.queries";
 import {
 	domainLiveUrl,
 	isDomainTransitional,
 } from "@/features/domains/lib/helpers";
+import { useWorkspace as useActiveWorkspace } from "@/features/workspaces/lib/workspace-provider";
 import { useTranslation } from "@/lib/i18n";
 import { PUBLISHED_DOMAIN } from "../../lib/constants";
 import { isValidSlug } from "../../lib/helpers";
@@ -77,6 +80,7 @@ export function selectPublishDomains(domains: PublishDomain[]) {
 
 export function PublishPopover() {
 	const { t } = useTranslation();
+	const { actorCanManageWorkspace } = useActiveWorkspace();
 	const {
 		deployment,
 		deploymentPending,
@@ -103,6 +107,7 @@ export function PublishPopover() {
 
 	const [popoverOpen, setPopoverOpen] = useState(false);
 	const [purchaseOpen, setPurchaseOpen] = useState(false);
+	const [connectOpen, setConnectOpen] = useState(false);
 	const [editingSlug, setEditingSlug] = useState(false);
 	const [slugDraft, setSlugDraft] = useState(slug);
 
@@ -152,6 +157,11 @@ export function PublishPopover() {
 		setPurchaseOpen(true);
 	};
 
+	const openConnect = () => {
+		setPopoverOpen(false);
+		setConnectOpen(true);
+	};
+
 	const requestPublish = () => {
 		if (versionToPublish === null) return;
 		setPopoverOpen(false);
@@ -163,6 +173,18 @@ export function PublishPopover() {
 		if (!nextOpen) {
 			queueMicrotask(() => setPopoverOpen(true));
 		}
+	};
+
+	const handleConnectOpenChange = (nextOpen: boolean) => {
+		setConnectOpen(nextOpen);
+		if (!nextOpen) {
+			queueMicrotask(() => setPopoverOpen(true));
+		}
+	};
+
+	const publishFromConnect = () => {
+		setConnectOpen(false);
+		requestPublish();
 	};
 
 	// Published state comes from the deployment only — owning a custom domain
@@ -249,19 +271,34 @@ export function PublishPopover() {
 							}}
 							onSaveSlug={saveSlug}
 							onCopy={copyUrl}
-							onOpenPurchase={openPurchase}
+							onOpenConnect={actorCanManageWorkspace ? openConnect : undefined}
+							onOpenPurchase={
+								actorCanManageWorkspace ? openPurchase : undefined
+							}
 							onPublish={requestPublish}
 						/>
 					)}
 				</PopoverContent>
 			</Popover>
 
-			<DomainPurchaseDialog
-				open={purchaseOpen}
-				onOpenChange={handlePurchaseOpenChange}
-				projectId={projectId}
-				suggestedStem={slug.replaceAll("-", "")}
-			/>
+			{actorCanManageWorkspace ? (
+				<>
+					<DomainPurchaseDialog
+						open={purchaseOpen}
+						onOpenChange={handlePurchaseOpenChange}
+						projectId={projectId}
+						suggestedStem={slug.replaceAll("-", "")}
+					/>
+					<ExternalDomainConnectDialog
+						open={connectOpen}
+						onOpenChange={handleConnectOpenChange}
+						projectId={projectId}
+						isPublished={deployment.publishedVersionId !== null}
+						canPublish={canPublish}
+						onPublish={publishFromConnect}
+					/>
+				</>
+			) : null}
 		</>
 	);
 }
@@ -338,6 +375,7 @@ function SubdomainContent({
 	onCancelSlug,
 	onSaveSlug,
 	onCopy,
+	onOpenConnect,
 	onOpenPurchase,
 	onPublish,
 }: {
@@ -360,7 +398,8 @@ function SubdomainContent({
 	onCancelSlug: () => void;
 	onSaveSlug: () => void;
 	onCopy: (url: string) => Promise<void>;
-	onOpenPurchase: () => void;
+	onOpenConnect?: () => void;
+	onOpenPurchase?: () => void;
 	onPublish: () => void;
 }) {
 	const { t } = useTranslation();
@@ -480,26 +519,12 @@ function SubdomainContent({
 							<SecondaryDomainLink domain={secondaryDomain} />
 						) : null}
 					</>
-				) : (
-					<button
-						type="button"
-						onClick={onOpenPurchase}
-						className="group flex w-full items-center gap-3 rounded-[14px] border border-primary/30 bg-primary/5 px-3 py-3 text-start outline-none transition-[transform,background-color,border-color] hover:border-primary/45 hover:bg-primary/10 focus-visible:ring-[3px] focus-visible:ring-ring/30 active:scale-[0.99]"
-					>
-						<span className="grid size-[34px] shrink-0 place-items-center rounded-[10px] bg-primary/10 text-ember-text">
-							<Globe2 className="size-[17px]" strokeWidth={1.8} />
-						</span>
-						<span className="min-w-0 flex-1">
-							<span className="block font-medium text-sm">
-								{t("workspace.publish.popover.customDomainTitle")}
-							</span>
-							<span className="mt-0.5 block text-muted-foreground text-xs leading-relaxed">
-								{t("workspace.publish.popover.customDomainDescription")}
-							</span>
-						</span>
-						<ChevronRight className="size-4 shrink-0 text-ember-text transition-transform group-hover:translate-x-0.5 rtl:rotate-180 rtl:group-hover:-translate-x-0.5" />
-					</button>
-				)}
+				) : onOpenConnect && onOpenPurchase ? (
+					<DomainEntryActions
+						onOpenConnect={onOpenConnect}
+						onOpenPurchase={onOpenPurchase}
+					/>
+				) : null}
 			</div>
 
 			<footer className="flex flex-wrap items-center gap-3 border-t bg-secondary px-4 py-[13px]">
@@ -562,6 +587,68 @@ function SubdomainContent({
 				)}
 			</footer>
 		</>
+	);
+}
+
+export function DomainEntryActions({
+	onOpenConnect,
+	onOpenPurchase,
+}: {
+	onOpenConnect: () => void;
+	onOpenPurchase: () => void;
+}) {
+	const { t } = useTranslation();
+
+	return (
+		<div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+			<DomainEntryAction
+				title={t("workspace.publish.popover.buyDomainTitle")}
+				description={t("workspace.publish.popover.buyDomainDescription")}
+				icon={Globe2}
+				onClick={onOpenPurchase}
+			/>
+			<DomainEntryAction
+				title={t("workspace.publish.popover.connectOwnedTitle")}
+				description={t("workspace.publish.popover.connectOwnedDescription")}
+				icon={Link2}
+				onClick={onOpenConnect}
+			/>
+		</div>
+	);
+}
+
+function DomainEntryAction({
+	title,
+	description,
+	icon: Icon,
+	onClick,
+}: {
+	title: string;
+	description: string;
+	icon: typeof Globe2;
+	onClick: () => void;
+}) {
+	return (
+		<button
+			type="button"
+			onClick={onClick}
+			className="group flex min-h-[104px] w-full flex-col items-start gap-2 rounded-[14px] border border-primary/30 bg-primary/5 px-3 py-3 text-start outline-none transition-[transform,background-color,border-color] hover:border-primary/45 hover:bg-primary/10 focus-visible:ring-[3px] focus-visible:ring-ring/30 active:scale-[0.99]"
+		>
+			<span className="flex w-full items-center justify-between gap-2">
+				<span className="grid size-[32px] shrink-0 place-items-center rounded-[10px] bg-primary/10 text-ember-text">
+					<Icon className="size-4" strokeWidth={1.8} />
+				</span>
+				<ChevronRight className="size-4 shrink-0 text-ember-text transition-transform group-hover:translate-x-0.5 rtl:rotate-180 rtl:group-hover:-translate-x-0.5" />
+			</span>
+			<span>
+				<span className="block font-medium text-[13px] leading-snug">
+					{title}
+				</span>
+				<span className="mt-1 block text-[11px] text-muted-foreground leading-relaxed">
+					{description}
+				</span>
+			</span>
+		</button>
 	);
 }
 

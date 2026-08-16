@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 
 import { DatabaseModule } from "../../infrastructure/database/database.module";
+import { DomainDnsDiagnosticsService } from "./application/services/domain-dns-diagnostics.service";
 import {
 	DOMAINS_LOGGER,
 	DomainsService,
@@ -26,6 +27,7 @@ import { DomainRateLimitGuard } from "./presentation/http/guards/rate-limit.guar
 	imports: [DatabaseModule],
 	providers: [
 		CustomHostnameService,
+		DomainDnsDiagnosticsService,
 		DomainRateLimitGuard,
 		DomainRoutingService,
 		DomainsRepository,

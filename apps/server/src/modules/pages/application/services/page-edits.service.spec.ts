@@ -413,6 +413,141 @@ describe("PageEditsService.applyAiOps", () => {
 		});
 	});
 
+	it("adds, preserves, deduplicates, and removes the feature shelf across AI replacements", async () => {
+		const { pagesRepository, service } = setup();
+		const managedIds = [
+			"wandit-feature-toastify-css",
+			"wandit-feature-toastify-js",
+			"wandit-feature-starter-js",
+		];
+		mockAiActivePage(pagesRepository);
+		vi.mocked(getPageHtml).mockResolvedValueOnce(completeThemeHtml());
+		pagesRepository.insertVersionAndActivate.mockResolvedValue({
+			createdAt: new Date("2026-07-31T12:00:00.000Z"),
+			number: 4,
+		});
+
+		const added = await service.applyAiOps(PROJECT_ID, [
+			{
+				kind: "replace-section",
+				value:
+					'<section data-wid="hero"><button data-wandit-toast="Saved">Save</button></section>',
+				wid: "hero",
+			},
+		]);
+
+		expect(added).toEqual({ status: "applied", versionNumber: 4 });
+		const firstSavedHtml = vi.mocked(putPageHtml).mock.calls[0]?.[1] ?? "";
+		const firstSavedDom = cheerio.load(firstSavedHtml);
+		expect(firstSavedDom('[data-wandit-toast="Saved"]')).toHaveLength(1);
+		for (const id of managedIds) {
+			expect(firstSavedDom(`#${id}`)).toHaveLength(1);
+		}
+		expect(firstSavedDom('[id^="wandit-feature-"]')).toHaveLength(3);
+
+		vi.mocked(getPageHtml).mockResolvedValueOnce(firstSavedHtml);
+		pagesRepository.insertVersionAndActivate.mockResolvedValue({
+			createdAt: new Date("2026-07-31T12:01:00.000Z"),
+			number: 5,
+		});
+
+		const persisted = await service.applyAiOps(PROJECT_ID, [
+			{
+				kind: "replace-section",
+				value:
+					'<section data-wid="hero"><button data-wandit-toast="Updated">Save again</button></section>',
+				wid: "hero",
+			},
+		]);
+
+		expect(persisted).toEqual({ status: "applied", versionNumber: 5 });
+		const secondSavedHtml = vi.mocked(putPageHtml).mock.calls[1]?.[1] ?? "";
+		const secondSavedDom = cheerio.load(secondSavedHtml);
+		expect(secondSavedDom('[data-wandit-toast="Updated"]')).toHaveLength(1);
+		for (const id of managedIds) {
+			expect(secondSavedDom(`#${id}`)).toHaveLength(1);
+		}
+		expect(secondSavedDom('[id^="wandit-feature-"]')).toHaveLength(3);
+
+		vi.mocked(getPageHtml).mockResolvedValueOnce(secondSavedHtml);
+		pagesRepository.insertVersionAndActivate.mockResolvedValue({
+			createdAt: new Date("2026-07-31T12:02:00.000Z"),
+			number: 6,
+		});
+
+		const removed = await service.applyAiOps(PROJECT_ID, [
+			{
+				kind: "replace-section",
+				value:
+					'<section data-wid="hero"><button>Save without toast</button></section>',
+				wid: "hero",
+			},
+		]);
+
+		expect(removed).toEqual({ status: "applied", versionNumber: 6 });
+		const thirdSavedHtml = vi.mocked(putPageHtml).mock.calls[2]?.[1] ?? "";
+		const thirdSavedDom = cheerio.load(thirdSavedHtml);
+		expect(thirdSavedDom("[data-wandit-toast]")).toHaveLength(0);
+		expect(thirdSavedDom('[id^="wandit-feature-"]')).toHaveLength(0);
+	});
+
+	it("re-stamps and activates an inserted section without raw HTML in audit metadata", async () => {
+		const { pagesRepository, service } = setup();
+		const insertedHtml =
+			'<aside data-wid="model-section"><p data-wid="model-copy">Shipping notice</p></aside>';
+		mockAiActivePage(pagesRepository);
+		vi.mocked(getPageHtml).mockResolvedValue(
+			completeThemeHtml(
+				'<section data-wid="hero"><p data-wid="e-1">Copy</p></section><section data-wid="reviews"><p data-wid="e-2">Reviews</p></section>',
+			),
+		);
+		pagesRepository.insertVersionAndActivate.mockResolvedValue({
+			createdAt: new Date("2026-07-31T12:30:00.000Z"),
+			number: 4,
+		});
+
+		const result = await service.applyAiOps(PROJECT_ID, [
+			{
+				kind: "insert-section",
+				position: "before",
+				value: insertedHtml,
+				wid: "hero",
+			},
+		]);
+
+		expect(result).toEqual({ status: "applied", versionNumber: 4 });
+		const savedHtml = vi.mocked(putPageHtml).mock.calls[0]?.[1] ?? "";
+		const $ = cheerio.load(savedHtml);
+		const inserted = $("body > aside").first();
+
+		expect(inserted.attr("data-wid")).toMatch(/^sec-\d+$/);
+		expect(inserted.find("p").attr("data-wid")).toMatch(/^e-\d+$/);
+		expect($('[data-wid="model-section"]').length).toBe(0);
+		expect($('[data-wid="model-copy"]').length).toBe(0);
+		expect($("body").children().first().is("aside")).toBe(true);
+		expect($('[data-wid="hero"]').length).toBe(1);
+
+		const activation =
+			pagesRepository.insertVersionAndActivate.mock.calls[0]?.[0];
+
+		expect(activation).toEqual({
+			artifactId: ARTIFACT_ID,
+			expectedActiveVersionId: ACTIVE_VERSION_ID,
+			meta: {
+				editedWids: ["hero"],
+				ops: [{ kind: "insert-section", wid: "hero" }],
+				parentVersionId: ACTIVE_VERSION_ID,
+				source: "ai-edit",
+			},
+			projectId: PROJECT_ID,
+			r2Key: expect.any(String),
+			versionId: expect.any(String),
+		});
+		expect(activation?.versionId).not.toBe(ACTIVE_VERSION_ID);
+		expect(putPageHtml).toHaveBeenCalledWith(activation?.r2Key, savedHtml);
+		expect(JSON.stringify(activation?.meta)).not.toContain(insertedHtml);
+	});
+
 	it("reuses an atomic placement receipt and removes the duplicate upload", async () => {
 		const { pagesRepository, service } = setup();
 		const imageUrl = "https://assets.example.com/images/generated.png";

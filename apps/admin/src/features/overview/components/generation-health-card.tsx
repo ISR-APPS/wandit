@@ -10,7 +10,6 @@ import { Bar, BarChart } from "recharts";
 import { Badge } from "@/components/ui/badge";
 import {
 	Card,
-	CardAction,
 	CardContent,
 	CardDescription,
 	CardHeader,
@@ -131,17 +130,17 @@ function GenerationHealthCard({
 	return (
 		<Card className="h-full gap-0 py-0 shadow-none">
 			<CardHeader className="border-b pt-6">
-				<div>
-					<CardTitle>
-						<h2>Generation health</h2>
-					</CardTitle>
-					<CardDescription className="mt-1">
-						Completion quality and recent platform signals
-					</CardDescription>
-				</div>
-				<CardAction>
+				<div className="flex flex-wrap items-start justify-between gap-3">
+					<div className="min-w-[200px] flex-1">
+						<CardTitle>
+							<h2>Generation health</h2>
+						</CardTitle>
+						<CardDescription className="mt-1">
+							Completion quality and recent platform signals
+						</CardDescription>
+					</div>
 					<MockOperationalStatusBadge />
-				</CardAction>
+				</div>
 			</CardHeader>
 
 			<CardContent className="flex min-h-0 flex-1 flex-col gap-5 pt-5 pb-6">
@@ -283,10 +282,10 @@ function GenerationHealthCard({
 											<SignalIcon className="size-4" />
 										</div>
 										<div className="min-w-0 flex-1">
-											<p className="truncate font-medium text-sm">
+											<p className="break-words font-medium text-sm leading-snug">
 												{signal.title}
 											</p>
-											<p className="mt-0.5 truncate text-muted-foreground text-xs">
+											<p className="mt-0.5 break-words text-muted-foreground text-xs leading-relaxed">
 												{signal.detail}
 											</p>
 										</div>

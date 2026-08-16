@@ -160,23 +160,16 @@ describe("page edit invalidation", () => {
 		return value as WanditUIMessage["parts"][number];
 	}
 
-	it("recognizes applied section replacements and element-op batches", () => {
+	it.each([
+		["section replacement", "tool-replace_section"],
+		["element-op batch", "tool-apply_element_ops"],
+		["section insertion", "tool-insert_section"],
+	])("recognizes an applied %s", (_label, type) => {
 		expect(
 			isAppliedPageEditPart(
 				part({
-					type: "tool-replace_section",
-					toolCallId: "replace-1",
-					state: "output-available",
-					input: {},
-					output: { status: "applied", message: "Done" },
-				}),
-			),
-		).toBe(true);
-		expect(
-			isAppliedPageEditPart(
-				part({
-					type: "tool-apply_element_ops",
-					toolCallId: "ops-1",
+					type,
+					toolCallId: "edit-1",
 					state: "output-available",
 					input: {},
 					output: { status: "applied", message: "Done" },
@@ -185,18 +178,24 @@ describe("page edit invalidation", () => {
 		).toBe(true);
 	});
 
-	it("ignores rejected and unfinished page edits", () => {
+	it.each([
+		["rejected element-op batch", "tool-apply_element_ops"],
+		["rejected section insertion", "tool-insert_section"],
+	])("ignores a %s", (_label, type) => {
 		expect(
 			isAppliedPageEditPart(
 				part({
-					type: "tool-apply_element_ops",
-					toolCallId: "ops-1",
+					type,
+					toolCallId: "edit-1",
 					state: "output-available",
 					input: {},
 					output: { status: "rejected", message: "No change" },
 				}),
 			),
 		).toBe(false);
+	});
+
+	it("ignores an unfinished page edit", () => {
 		expect(
 			isAppliedPageEditPart(
 				part({

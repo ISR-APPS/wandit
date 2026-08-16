@@ -194,6 +194,7 @@ export const affiliateClicks = pgTable(
 			table.linkId,
 			table.createdAt,
 		),
+		index("affiliate_clicks_createdAt_idx").on(table.createdAt),
 	],
 );
 

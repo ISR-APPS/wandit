@@ -99,6 +99,7 @@ export const mediaGenerationAttempts = pgTable(
 		completedAt: timestamp("completed_at", { withTimezone: true }),
 	},
 	(table) => [
+		index("media_generation_attempts_createdAt_idx").on(table.createdAt),
 		index("media_generation_attempts_project_idx").on(
 			table.projectId,
 			table.createdAt,
