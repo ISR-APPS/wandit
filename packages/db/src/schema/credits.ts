@@ -70,8 +70,9 @@ export const creditLedger = pgTable(
 		}),
 		bucket: creditBucket("bucket").notNull().default("plan"),
 		// Signed: grant/topup positive, consume/expire/revoke negative.
-		// UNIT: whole credits — 1 is the minimum billable amount, forever
-		// (rescaling to fractional units later would rewrite every row).
+		// UNIT: centi-credits (1 cc = 0.01 credit; 100 cc = 1 credit) — 1 cc is
+		// the minimum billable amount. Migration 0038 rescaled every pre-v4
+		// whole-credit row ×100.
 		delta: integer("delta").notNull(),
 		kind: creditKind("kind").notNull(),
 		// Dedupe for retryable writers (worker jobs, payment webhooks):
@@ -141,6 +142,7 @@ export const creditPlanHoldPools = pgTable(
 			onDelete: "restrict",
 		}),
 		boundaryIdempotencyKey: text("boundary_idempotency_key").notNull(),
+		// UNIT: centi-credits (1 cc = 0.01 credit).
 		remainingCredits: integer("remaining_credits").notNull(),
 		closedAt: timestamp("closed_at", { withTimezone: true }),
 		createdAt: timestamp("created_at", { withTimezone: true })
@@ -191,6 +193,7 @@ export const creditPlanHolds = pgTable(
 		poolId: uuid("pool_id").references(() => creditPlanHoldPools.id, {
 			onDelete: "restrict",
 		}),
+		// UNIT: centi-credits, both columns.
 		originalCredits: integer("original_credits").notNull(),
 		refundableCredits: integer("refundable_credits").notNull(),
 		active: boolean("active").default(true).notNull(),
@@ -274,6 +277,7 @@ export const aiUsageEvents = pgTable(
 		status: aiUsageStatus("status").notNull().default("reserved"),
 		model: text("model"),
 		provider: text("provider"),
+		// UNIT: centi-credits (metering reserve/settle amounts).
 		reservedCredits: integer("reserved_credits").notNull(),
 		finalCredits: integer("final_credits"),
 		estimatedCostUsdMicros: integer("estimated_cost_usd_micros"),

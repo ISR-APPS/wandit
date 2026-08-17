@@ -231,7 +231,7 @@
 		"items": [
 			{
 				"q": "C'est quoi les crédits ?",
-				"a": "Les crédits sont la monnaie unique de Wandit. Générer une page coûte 10 crédits, une modif en chat coûte 1 — et tu vois toujours le prix avant d'agir."
+				"a": "Les crédits sont la monnaie unique de Wandit. Générer une page coûte 10 crédits, une image 3, un visuel marketing 7, une vidéo 20 — et une modif en chat démarre à seulement 0,10, car tu ne paies que ce que l'IA fait vraiment. Tu vois toujours le prix avant d'agir."
 			},
 			{
 				"q": "La publication est-elle gratuite ?",

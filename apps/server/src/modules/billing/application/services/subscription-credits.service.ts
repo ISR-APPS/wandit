@@ -186,6 +186,8 @@ export class SubscriptionCreditsService {
 		}
 
 		const pack = TOPUP_PACKS[packId];
+		// Stripe session metadata carries WHOLE display credits (pack identity);
+		// the metadata check therefore compares whole credits.
 		const credits = this.positiveIntegerMetadata(session.metadata, "credits");
 
 		if (credits !== pack.credits) {
@@ -258,7 +260,9 @@ export class SubscriptionCreditsService {
 			session.payment_intent,
 		);
 
-		await this.creditsService.topup(owner, credits, {
+		// The ledger takes centi-credits: convert the whole-credit pack amount
+		// exactly once at this grant boundary.
+		await this.creditsService.topup(owner, credits * 100, {
 			idempotencyKey: `topup:${session.id}`,
 			meta: this.withPaymentReferences(
 				{
@@ -613,7 +617,7 @@ export class SubscriptionCreditsService {
 		if (currentPlan.interval === "year") {
 			await this.subscriptionRefillService.createYearlySlots(
 				{
-					credits: currentPlan.tierCredits,
+					credits: this.allotment(currentPlan),
 					funding,
 					remainingAfter: subscription.currentPeriodStart,
 					subscription,
@@ -622,7 +626,7 @@ export class SubscriptionCreditsService {
 			);
 		}
 
-		return currentPlan.tierCredits;
+		return this.allotment(currentPlan);
 	}
 
 	private async handleSubscriptionCycleInvoice(
@@ -660,7 +664,7 @@ export class SubscriptionCreditsService {
 		if (currentPlan.interval === "year") {
 			await this.subscriptionRefillService.replacePendingYearlySlots(
 				{
-					credits: currentPlan.tierCredits,
+					credits: this.allotment(currentPlan),
 					funding,
 					grantDueThrough: this.invoicePaidAt(invoice),
 					remainingAfter: subscription.currentPeriodStart,
@@ -670,7 +674,9 @@ export class SubscriptionCreditsService {
 			);
 		}
 
-		return currentPlan.tierCredits - refill.expiredCredits;
+		// Both terms are centi-credits (allotment converts; expiredCredits is
+		// ledger-native), so the stored creditsDelta stays in one unit.
+		return this.allotment(currentPlan) - refill.expiredCredits;
 	}
 
 	private async handleSubscriptionUpdateInvoice(
@@ -699,7 +705,9 @@ export class SubscriptionCreditsService {
 		}
 
 		if (oldPlan.parsed.interval === newPlan.parsed.interval) {
-			const delta = currentPlan.tierCredits - oldPlan.parsed.tierCredits;
+			// Tier difference in centi-credits (allotment owns the x100).
+			const delta =
+				this.allotment(currentPlan) - this.allotment(oldPlan.parsed);
 
 			if (delta <= 0) {
 				return 0;
@@ -736,7 +744,7 @@ export class SubscriptionCreditsService {
 			if (currentPlan.interval === "year") {
 				await this.subscriptionRefillService.replacePendingYearlySlots(
 					{
-						credits: currentPlan.tierCredits,
+						credits: this.allotment(currentPlan),
 						funding,
 						grantDueThrough: this.invoicePaidAt(invoice),
 						remainingAfter: this.invoicePaidAt(invoice),
@@ -751,7 +759,7 @@ export class SubscriptionCreditsService {
 
 		const refill = await this.creditsService.applyCappedRefill(
 			ownerFromIds(subscription.userId, subscription.organizationId),
-			currentPlan.tierCredits,
+			this.allotment(currentPlan),
 			{
 				idempotencyKey: `inv:${invoice.id}:grant`,
 				meta: this.withPaymentReferences(
@@ -770,7 +778,7 @@ export class SubscriptionCreditsService {
 		if (newPlan.parsed.interval === "year") {
 			await this.subscriptionRefillService.replacePendingYearlySlots(
 				{
-					credits: newPlan.parsed.tierCredits,
+					credits: this.allotment(newPlan.parsed),
 					funding,
 					grantDueThrough: this.invoicePaidAt(invoice),
 					remainingAfter: subscription.currentPeriodStart,
@@ -780,7 +788,7 @@ export class SubscriptionCreditsService {
 			);
 		}
 
-		return currentPlan.tierCredits - refill.expiredCredits;
+		return this.allotment(currentPlan) - refill.expiredCredits;
 	}
 
 	private async assertSubscriptionOwnership(
@@ -1267,7 +1275,9 @@ export class SubscriptionCreditsService {
 	private allotment(parsed: ParsedPriceLookupKey) {
 		// A yearly payment funds twelve monthly refills; it never mints all
 		// twelve allotments into the ledger up front.
-		return parsed.tierCredits;
+		// tierCredits is the WHOLE-credit tier identity (Stripe lookup keys);
+		// this is the single x100 conversion to ledger centi-credits.
+		return parsed.tierCredits * 100;
 	}
 
 	private invoicePeriod(

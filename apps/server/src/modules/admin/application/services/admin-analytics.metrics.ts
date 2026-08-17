@@ -22,6 +22,8 @@ import {
 	billingIntervals,
 	billingPlanIds,
 	CREDIT_TIERS,
+	centiCreditsToCredits,
+	creditsToCentiCredits,
 	priceLookupKey,
 	priceUsdFor,
 } from "@wandit/contracts";
@@ -41,7 +43,13 @@ export const LIVE_SUBSCRIPTION_STATUSES = [
 	"past_due",
 ] as const;
 
+// Customer-facing threshold in WHOLE credits (copy strings say "20+
+// credits"). Ledger sums are integer centi-credits, so SQL comparisons must
+// interpolate the centi variant below.
 export const HEALTHY_TRIAL_MIN_CREDITS = 20;
+export const HEALTHY_TRIAL_MIN_CENTI_CREDITS = creditsToCentiCredits(
+	HEALTHY_TRIAL_MIN_CREDITS,
+);
 export const HEALTHY_TRIAL_MIN_COMPLETED_GENERATIONS = 2;
 
 const QUEUE_INCLUSIVE_GENERATION_KEYS = new Set<AdminAnalyticsGenerationKey>([
@@ -97,6 +105,8 @@ export function safePercentage(numerator: number, denominator: number): number {
 	return roundTo(Math.min(100, (numerator / denominator) * 100), 1);
 }
 
+// creditsConsumed is DECIMAL display credits — convert centi-credit sums with
+// centiCreditsToCredits before calling (SQL sites use the centi constant).
 export function isHealthyTrialActivity(
 	creditsConsumed: number,
 	completedGenerations: number,
@@ -121,6 +131,9 @@ export function daysToConvertBucket(
 	return "15+";
 }
 
+// Bucket boundaries keep their CUSTOMER meaning (whole credits) —
+// creditsConsumed is DECIMAL display credits, so centi-credit sums must be
+// divided by 100 before bucketing.
 export function consumptionBucket(
 	creditsConsumed: number,
 ): AdminAnalyticsConsumptionBucket {
@@ -405,15 +418,17 @@ export function assembleFeaturesResponse(
 				snapshot.ads.totalUsers,
 			),
 		},
+		// Snapshot credit sums are integer centi-credits; the response carries
+		// decimal credits, and per-credit ratios divide by CREDITS, not centi.
 		credits: {
-			grantedInRange: snapshot.credits.grantedInRange,
-			consumedInRange: snapshot.credits.consumedInRange,
+			grantedInRange: centiCreditsToCredits(snapshot.credits.grantedInRange),
+			consumedInRange: centiCreditsToCredits(snapshot.credits.consumedInRange),
 			avgConsumedPerFreeUser: safeAverage(
-				snapshot.credits.freeConsumedInRange,
+				centiCreditsToCredits(snapshot.credits.freeConsumedInRange),
 				snapshot.credits.freeOwnersInRange,
 			),
 			avgConsumedPerPaidUser: safeAverage(
-				snapshot.credits.paidConsumedInRange,
+				centiCreditsToCredits(snapshot.credits.paidConsumedInRange),
 				snapshot.credits.paidOwnersInRange,
 			),
 			consumptionBuckets: bucketConsumption(
@@ -421,12 +436,12 @@ export function assembleFeaturesResponse(
 			),
 			usersAtZeroBalance: snapshot.credits.usersAtZeroBalance,
 			avgCreditsBeforeUpgrade: safeAverage(
-				snapshot.credits.creditsBeforeUpgradeTotal,
+				centiCreditsToCredits(snapshot.credits.creditsBeforeUpgradeTotal),
 				snapshot.credits.convertedUsers,
 			),
 			providerCostPerCreditMicros: safeAverage(
 				snapshot.credits.providerCostMicros,
-				snapshot.credits.consumedInRange,
+				centiCreditsToCredits(snapshot.credits.consumedInRange),
 				2,
 			),
 		},
@@ -475,7 +490,9 @@ export function assembleHealthResponse(
 				topFailures: generation.topFailures,
 			};
 		}),
-		creditsRefundedInRange: snapshot.creditsRefundedInRange,
+		creditsRefundedInRange: centiCreditsToCredits(
+			snapshot.creditsRefundedInRange,
+		),
 		webhooks: snapshot.webhooks,
 	};
 }
@@ -951,7 +968,8 @@ function bucketConsumption(
 	);
 
 	for (const row of rows) {
-		const bucket = consumptionBucket(row.consumed);
+		// row.consumed is a centi-credit ledger sum; buckets are whole credits.
+		const bucket = consumptionBucket(centiCreditsToCredits(row.consumed));
 		counts.set(bucket, (counts.get(bucket) ?? 0) + row.users);
 	}
 
@@ -972,7 +990,8 @@ function bucketConversionByCredits(
 	);
 
 	for (const row of rows) {
-		const bucket = consumptionBucket(row.consumed);
+		// row.consumed is a centi-credit ledger sum; buckets are whole credits.
+		const bucket = consumptionBucket(centiCreditsToCredits(row.consumed));
 		const bucketCounts = counts.get(bucket);
 		if (!bucketCounts) continue;
 		bucketCounts.owners += row.owners;

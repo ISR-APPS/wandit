@@ -5,7 +5,7 @@ import { MeteringStateConflictError } from "../../../metering/domain/metering";
 import { createImageAnimationBilling } from "./image-animation-billing";
 
 function setup(input?: { billingDisabled?: boolean }) {
-	const event = { id: "event_1", reservedCredits: 25 } as Awaited<
+	const event = { id: "event_1", reservedCredits: 2000 } as Awaited<
 		ReturnType<MeteringService["reserve"]>
 	>;
 	const meteringService = {
@@ -39,7 +39,7 @@ describe("createImageAnimationBilling", () => {
 		);
 
 		expect(reservation).toEqual({
-			credits: 25,
+			credits: 2000,
 			eventId: null,
 			operation: "video",
 			referenceId: "attempt_1",
@@ -79,7 +79,7 @@ describe("createImageAnimationBilling", () => {
 			{ actorUserId: "user_1" },
 			{
 				attemptRef: "attempt_1",
-				credits: 25,
+				credits: 2000,
 				idempotencyKey: "video:attempt_1",
 				parentEventId: "parent_1",
 			},
@@ -120,7 +120,7 @@ describe("createImageAnimationBilling", () => {
 		expect(meteringService.reserveWithReplay).not.toHaveBeenCalled();
 	});
 
-	it("reserves 25 credits with a stable operation key and parent", async () => {
+	it("reserves 2000 centi-credits with a stable operation key and parent", async () => {
 		const { billing, event, meteringService } = setup();
 
 		const reservation = await billing.reserve(
@@ -129,13 +129,13 @@ describe("createImageAnimationBilling", () => {
 			"parent_1",
 		);
 
-		expect(reservation).toMatchObject({ credits: 25, eventId: event.id });
+		expect(reservation).toMatchObject({ credits: 2000, eventId: event.id });
 		expect(meteringService.reserveWithReplay).toHaveBeenCalledWith(
 			"video",
 			{ actorUserId: "user_1" },
 			{
 				attemptRef: "attempt_1",
-				credits: 25,
+				credits: 2000,
 				idempotencyKey: "video:attempt_1",
 				parentEventId: "parent_1",
 			},
@@ -160,10 +160,10 @@ describe("createImageAnimationBilling", () => {
 			capture,
 		);
 		expect(meteringService.settle).toHaveBeenCalledWith("event_1", {
-			finalCredits: 25,
+			finalCredits: 2000,
 			pricing: "direct",
 			pricingSnapshot: {
-				creditsPerUnit: 25,
+				creditsPerUnit: 2000,
 				mode: "fixed",
 				operation: "video",
 				source: "operation_registry",
@@ -265,7 +265,7 @@ describe("createImageAnimationBilling", () => {
 			operation: "video",
 			parentEventId: null,
 			provider: null,
-			reservedCredits: 25,
+			reservedCredits: 2000,
 			status: "reconcile_failed",
 		} as never;
 		meteringService.reserveWithReplay.mockRejectedValueOnce(
@@ -302,14 +302,14 @@ describe("createImageAnimationBilling", () => {
 			operation: "video",
 			parentEventId: null,
 			pricingSnapshot: {
-				creditsPerUnit: 20,
+				creditsPerUnit: 2500,
 				mode: "fixed",
 				operation: "video",
 				source: "operation_registry_reservation",
 				unit: "operation",
 			},
 			provider: null,
-			reservedCredits: 20,
+			reservedCredits: 2500,
 			status: "reconcile_failed",
 		} as never;
 		meteringService.reserveWithReplay.mockRejectedValueOnce(
@@ -324,7 +324,7 @@ describe("createImageAnimationBilling", () => {
 		await expect(
 			billing.reserve({ actorUserId: "user_1" }, "attempt_1"),
 		).resolves.toMatchObject({
-			credits: 20,
+			credits: 2500,
 			eventId: "event_old_price",
 			replay: "reconcile_failed",
 			units: 1,

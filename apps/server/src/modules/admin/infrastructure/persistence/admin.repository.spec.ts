@@ -61,11 +61,24 @@ describe("adminListUsersQuerySchema", () => {
 		["status", "active,suspended"],
 		["verified", "verified,pending"],
 		["creditsUsedMin", "-1"],
-		["creditsUsedMax", "1.5"],
+		["creditsUsedMax", "abc"],
 	] as const)("rejects an invalid %s token", (filter, value) => {
 		expect(
 			adminListUsersQuerySchema.safeParse({ [filter]: value }).success,
 		).toBe(false);
+	});
+
+	// Pricing v4: bounds are decimal credits, so fractional filters are valid.
+	it("accepts decimal credits-used bounds", () => {
+		const query = adminListUsersQuerySchema.parse({
+			creditsUsedMin: "0.5",
+			creditsUsedMax: "12.34",
+		});
+
+		expect(query).toMatchObject({
+			creditsUsedMin: 0.5,
+			creditsUsedMax: 12.34,
+		});
 	});
 
 	it("rejects an inverted credits-used range", () => {
@@ -121,6 +134,7 @@ describe("AdminRepository user-list queries", () => {
 		);
 		expect(countSql).toContain("between $? and $?");
 		expect(listSql.split(entitledPredicate)).toHaveLength(3);
+		// Credits bounds are decimal credits scaled x100 to centi-credits.
 		expect(count.params).toEqual([
 			"%100\\%%",
 			"%100\\%%",
@@ -128,8 +142,8 @@ describe("AdminRepository user-list queries", () => {
 			"trialing",
 			"pro",
 			"business",
-			100,
-			999,
+			10_000,
+			99_900,
 		]);
 		expect(list.params.slice(-2)).toEqual([10, 10]);
 	});
@@ -211,12 +225,14 @@ describe("AdminRepository user-list queries", () => {
 	const netConsumedExpression =
 		'coalesce(( select -sum("credit_ledger"."delta") from "credit_ledger" where "credit_ledger"."user_id" = "user"."id" and "credit_ledger"."organization_id" is null and ("credit_ledger"."kind" = \'consume\' or ("credit_ledger"."kind" = \'grant\' and ("credit_ledger"."idempotency_key" like \'settle-refund:%\' or "credit_ledger"."idempotency_key" like \'reconcile-refund:%\' or "credit_ledger"."idempotency_key" like \'refund:%\'))) ), 0)::int';
 
+	// Bounds arrive in decimal credits and are scaled x100 to the integer
+	// centi-credit unit of the ledger sums before hitting SQL.
 	it.each([
 		[
 			"a closed",
 			{ creditsUsedMin: 100, creditsUsedMax: 999 },
 			"between $? and $?",
-			[100, 999],
+			[10_000, 99_900],
 		],
 		[
 			"a single-value",
@@ -224,8 +240,14 @@ describe("AdminRepository user-list queries", () => {
 			"between $? and $?",
 			[0, 0],
 		],
-		["a min-only", { creditsUsedMin: 1000 }, ">= $?", [1000]],
-		["a max-only", { creditsUsedMax: 99 }, "<= $?", [99]],
+		[
+			"a fractional",
+			{ creditsUsedMin: 0.5, creditsUsedMax: 12.34 },
+			"between $? and $?",
+			[50, 1_234],
+		],
+		["a min-only", { creditsUsedMin: 1000 }, ">= $?", [100_000]],
+		["a max-only", { creditsUsedMax: 99 }, "<= $?", [9_900]],
 	] as const)("applies %s credits-used range", (_label, range, operator, params) => {
 		const repository = new AdminRepository(db as Database);
 		const query = {

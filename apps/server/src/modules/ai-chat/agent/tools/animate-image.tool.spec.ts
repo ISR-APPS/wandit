@@ -208,7 +208,8 @@ describe("animate_image tool", () => {
 			{ actorUserId: "user_1" },
 			{
 				attemptRef: "b48dfa65-13a2-4bd8-af89-d01c4bbdb1e3",
-				credits: 25,
+				// 2_000 centi-credits = the 20.00-credit video price.
+				credits: 2_000,
 				idempotencyKey: "video:b48dfa65-13a2-4bd8-af89-d01c4bbdb1e3",
 				parentEventId: undefined,
 			},

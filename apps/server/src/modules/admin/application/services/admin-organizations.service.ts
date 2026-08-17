@@ -1,15 +1,12 @@
+import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
 import {
-	Inject,
-	Injectable,
-	Logger,
-	NotFoundException,
-} from "@nestjs/common";
-import type {
-	AdminGrantCreditsInput,
-	AdminListOrganizationsQuery,
-	AdminListOrganizationsResponse,
-	AdminOrganizationDetail,
-	AdminSetMemberRoleInput,
+	type AdminGrantCreditsInput,
+	type AdminListOrganizationsQuery,
+	type AdminListOrganizationsResponse,
+	type AdminOrganizationDetail,
+	type AdminSetMemberRoleInput,
+	centiCreditsToCredits,
+	creditsToCentiCredits,
 } from "@wandit/contracts";
 
 import { CreditsService } from "../../../credits/application/services/credits.service";
@@ -51,9 +48,8 @@ export class AdminOrganizationsService {
 	async getOrganizationDetail(
 		organizationId: string,
 	): Promise<AdminOrganizationDetail> {
-		const summary = await this.repository.findOrganizationSummary(
-			organizationId,
-		);
+		const summary =
+			await this.repository.findOrganizationSummary(organizationId);
 
 		if (!summary) {
 			throw new NotFoundException();
@@ -96,13 +92,23 @@ export class AdminOrganizationsService {
 			subscription: subscription
 				? mapAdminOrganizationSubscription(subscription)
 				: null,
-			balance,
+			// CreditsService balances are internal centi-credits; the API carries
+			// decimal credits.
+			balance: {
+				balance: centiCreditsToCredits(balance.balance),
+				plan: centiCreditsToCredits(balance.plan),
+				promo: centiCreditsToCredits(balance.promo),
+				topup: centiCreditsToCredits(balance.topup),
+			},
 			creditLedger: ledger.map(mapAdminOrganizationLedgerEntry),
 			aiSpend: {
 				totalCostUsdMicros: Number(aiSpend.totalCostUsdMicros),
 				meteredOperations: Number(aiSpend.meteredOperations),
 			},
-			defaultMemberMonthlyCreditLimit,
+			defaultMemberMonthlyCreditLimit:
+				defaultMemberMonthlyCreditLimit === null
+					? null
+					: centiCreditsToCredits(defaultMemberMonthlyCreditLimit),
 			attributionUserId,
 		};
 	}
@@ -116,18 +122,23 @@ export class AdminOrganizationsService {
 
 		// "org:" namespaces the key away from personal grants — Better Auth user
 		// ids never contain a colon prefix, so the two families cannot collide.
-		await this.creditsService.grant(orgOwner(organizationId), input.amount, {
-			bucket: "promo",
-			idempotencyKey: `admin-grant:org:${organizationId}:${input.requestId}`,
-			meta: {
-				reason: "admin_grant",
-				grantedBy: actingAdminId,
-				note: input.reason ?? null,
+		// The API amount is decimal credits; the ledger takes centi-credits.
+		await this.creditsService.grant(
+			orgOwner(organizationId),
+			creditsToCentiCredits(input.amount),
+			{
+				bucket: "promo",
+				idempotencyKey: `admin-grant:org:${organizationId}:${input.requestId}`,
+				meta: {
+					reason: "admin_grant",
+					grantedBy: actingAdminId,
+					note: input.reason ?? null,
+				},
 			},
-		});
+		);
 
 		this.logger.log(
-			`admin_grant_org_credits admin=${actingAdminId} org=${organizationId} amount=${input.amount}`,
+			`admin_grant_org_credits admin=${actingAdminId} org=${organizationId} amountCredits=${input.amount}`,
 		);
 
 		return this.getOrganizationDetail(organizationId);

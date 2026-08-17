@@ -51,6 +51,46 @@ describe("billing error dispatch", () => {
 		unsubscribe();
 	});
 
+	it("accepts decimal 402 details (pricing v4 fractional charges)", () => {
+		const decimalDetails = { requiredCredits: 0.1, availableCredits: 0.05 };
+
+		expect(
+			toUpgradeModalIntent({
+				code: "INSUFFICIENT_CREDITS",
+				statusCode: 402,
+				details: decimalDetails,
+			}),
+		).toEqual({ code: "INSUFFICIENT_CREDITS", ...decimalDetails });
+	});
+
+	it("accepts a negative decimal available balance (settle overage)", () => {
+		const overageDetails = { requiredCredits: 3, availableCredits: -0.42 };
+
+		expect(
+			toUpgradeModalIntent({
+				code: "GENERATION_PAYMENT_REQUIRED",
+				statusCode: 402,
+				details: overageDetails,
+			}),
+		).toEqual({ code: "GENERATION_PAYMENT_REQUIRED", ...overageDetails });
+	});
+
+	it("maps decimal member-limit details to the member-limit intent", () => {
+		const limitDetails = {
+			limitCredits: 100,
+			spentCredits: 99.95,
+			requiredCredits: 0.1,
+		};
+
+		expect(
+			toUpgradeModalIntent({
+				code: "MEMBER_CREDIT_LIMIT_REACHED",
+				statusCode: 403,
+				details: limitDetails,
+			}),
+		).toEqual({ code: "MEMBER_CREDIT_LIMIT_REACHED", ...limitDetails });
+	});
+
 	it("ignores unrelated and malformed errors", () => {
 		expect(
 			toUpgradeModalIntent({
@@ -64,6 +104,13 @@ describe("billing error dispatch", () => {
 				code: "INSUFFICIENT_CREDITS",
 				statusCode: 402,
 				details: { requiredCredits: "25", availableCredits: 7 },
+			}),
+		).toBeNull();
+		expect(
+			toUpgradeModalIntent({
+				code: "INSUFFICIENT_CREDITS",
+				statusCode: 402,
+				details: { requiredCredits: 0, availableCredits: 7 },
 			}),
 		).toBeNull();
 	});

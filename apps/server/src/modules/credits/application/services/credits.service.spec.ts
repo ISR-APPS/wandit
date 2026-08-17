@@ -318,7 +318,10 @@ class InMemoryCreditsRepository {
 		}
 	}
 
-	async closePlanHoldPools(owner: CreditOwner, poolIds: string[]): Promise<void> {
+	async closePlanHoldPools(
+		owner: CreditOwner,
+		poolIds: string[],
+	): Promise<void> {
 		for (const poolId of poolIds) {
 			const pool = this.planHoldPools.get(poolId);
 
@@ -535,9 +538,9 @@ describe("CreditsService", () => {
 			userId: "user_1",
 		});
 
-		await expect(service.consume(userOwner("user_1"), 8)).rejects.toBeInstanceOf(
-			InsufficientCreditsError,
-		);
+		await expect(
+			service.consume(userOwner("user_1"), 8),
+		).rejects.toBeInstanceOf(InsufficientCreditsError);
 		expect(repository.rows).toHaveLength(2);
 
 		const rows = await service.consume(userOwner("user_1"), 5);
@@ -900,7 +903,9 @@ describe("CreditsService", () => {
 			preRefillPlanBalance: 200,
 			replayed: false,
 		});
-		expect(await service.getBalance(userOwner("user_1"))).toMatchObject({ plan: 100 });
+		expect(await service.getBalance(userOwner("user_1"))).toMatchObject({
+			plan: 100,
+		});
 
 		const refund = await service.refundConsumeAmount(
 			userOwner("user_1"),
@@ -968,10 +973,14 @@ describe("CreditsService", () => {
 		).resolves.toBe(0);
 
 		await expect(
-			service.refundConsumeAmount(userOwner("user_1"), "reserve:event_deleted", {
-				amount: 125,
-				idempotencyKey: "settle-refund:event_deleted",
-			}),
+			service.refundConsumeAmount(
+				userOwner("user_1"),
+				"reserve:event_deleted",
+				{
+					amount: 125,
+					idempotencyKey: "settle-refund:event_deleted",
+				},
+			),
 		).resolves.toMatchObject([
 			{
 				bucket: "topup",
@@ -1221,7 +1230,8 @@ describe("CreditsService", () => {
 
 		expect(row).toMatchObject({
 			bucket: "promo",
-			delta: 50,
+			// 50 display credits = 5000 centi-credits in the ledger.
+			delta: 5000,
 			idempotencyKey: "signup:user_1",
 			kind: "grant",
 			meta: { reason: "signup_grant" },
@@ -1232,9 +1242,9 @@ describe("CreditsService", () => {
 		const { service } = setup();
 
 		for (const amount of [0, -1, 1.5]) {
-			await expect(service.consume(userOwner("user_1"), amount)).rejects.toThrow(
-				"Credit amount must be a positive integer",
-			);
+			await expect(
+				service.consume(userOwner("user_1"), amount),
+			).rejects.toThrow("Credit amount must be a positive integer");
 		}
 	});
 });

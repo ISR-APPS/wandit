@@ -26,6 +26,7 @@ export type CreditLedgerRow = typeof creditLedger.$inferSelect;
 export type CreditPlanHoldRow = typeof creditPlanHolds.$inferSelect;
 export type CreditPlanHoldPoolRow = typeof creditPlanHoldPools.$inferSelect;
 
+/** UNIT: integer centi-credits (1 = 0.01 credit) — never whole credits. */
 export type CreditBalance = {
 	balance: number;
 	plan: number;
@@ -35,6 +36,7 @@ export type CreditBalance = {
 
 export type InsertCreditLedgerEntry = {
 	bucket: CreditBucket;
+	/** UNIT: integer centi-credits (signed). */
 	delta: number;
 	idempotencyKey?: string;
 	kind: CreditKind;

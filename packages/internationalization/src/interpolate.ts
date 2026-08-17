@@ -56,6 +56,20 @@ export function interpolate(
 	});
 }
 
+// Pricing v4 renders fractional credit counts. Plural selection needs the
+// numeric `count`, but raw floats must never reach the screen — callers pass
+// the locale-formatted string as `countDisplay` and it replaces `{count}` at
+// interpolation time.
+function withCountDisplay(
+	params?: TranslationParams,
+): TranslationParams | undefined {
+	if (!params || params.countDisplay === undefined) {
+		return params;
+	}
+
+	return { ...params, count: params.countDisplay };
+}
+
 export function translate(
 	dictionary: Dictionary,
 	key: TranslationKey,
@@ -65,7 +79,7 @@ export function translate(
 	const message = getPathValue(dictionary, key);
 
 	if (typeof message === "string") {
-		return interpolate(message, params);
+		return interpolate(message, withCountDisplay(params));
 	}
 
 	if (isPluralMessage(message)) {
@@ -77,7 +91,7 @@ export function translate(
 		const category = selectPluralCategory(locale, count);
 		const selectedMessage = message[category] ?? message.other;
 		if (selectedMessage) {
-			return interpolate(selectedMessage, params);
+			return interpolate(selectedMessage, withCountDisplay(params));
 		}
 	}
 

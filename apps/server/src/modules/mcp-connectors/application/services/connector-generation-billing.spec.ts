@@ -66,11 +66,15 @@ describe("createConnectorGenerationBilling", () => {
 	it("reserves and settles connector plus per-image child prices", async () => {
 		const { billing, meteringService } = buildBilling();
 
-		const reservations = await billing.reserve({ actorUserId: "user-1" }, "attempt-1", {
-			childOperation: "image",
-			childUnits: 3,
-			parentEventId: "chat-event",
-		});
+		const reservations = await billing.reserve(
+			{ actorUserId: "user-1" },
+			"attempt-1",
+			{
+				childOperation: "image",
+				childUnits: 3,
+				parentEventId: "chat-event",
+			},
+		);
 		await billing.settle(reservations);
 		await billing.capture(reservations, {
 			providerMetadata: { gateway: { generationId: "gen-1" } },
@@ -82,7 +86,7 @@ describe("createConnectorGenerationBilling", () => {
 			{ actorUserId: "user-1" },
 			{
 				attemptRef: "attempt-1",
-				credits: 5,
+				credits: 500,
 				idempotencyKey: "connector:attempt-1",
 				parentEventId: "chat-event",
 			},
@@ -93,7 +97,7 @@ describe("createConnectorGenerationBilling", () => {
 			{ actorUserId: "user-1" },
 			{
 				attemptRef: "attempt-1",
-				credits: 15,
+				credits: 900,
 				idempotencyKey: "image:attempt-1",
 				parentEventId: "event-1",
 			},
@@ -102,14 +106,14 @@ describe("createConnectorGenerationBilling", () => {
 			{
 				eventId: "event-1",
 				settlement: expect.objectContaining({
-					finalCredits: 5,
+					finalCredits: 500,
 					pricing: "direct",
 				}),
 			},
 			{
 				eventId: "event-2",
 				settlement: expect.objectContaining({
-					finalCredits: 15,
+					finalCredits: 900,
 					pricing: "direct",
 				}),
 			},
@@ -124,14 +128,18 @@ describe("createConnectorGenerationBilling", () => {
 	it("charges connector-only generation operations without a media child", async () => {
 		const { billing, meteringService } = buildBilling();
 
-		const reservations = await billing.reserve({ actorUserId: "user-1" }, "attempt-audio", {});
+		const reservations = await billing.reserve(
+			{ actorUserId: "user-1" },
+			"attempt-audio",
+			{},
+		);
 		await billing.settle(reservations);
 
 		expect(meteringService.reserveWithReplay).toHaveBeenCalledTimes(1);
 		expect(meteringService.reserveWithReplay).toHaveBeenCalledWith(
 			"connector",
 			{ actorUserId: "user-1" },
-			expect.objectContaining({ credits: 5 }),
+			expect.objectContaining({ credits: 500 }),
 		);
 		expect(meteringService.settle).not.toHaveBeenCalled();
 		expect(meteringService.settleDirectPair).toHaveBeenCalledWith(
@@ -143,20 +151,24 @@ describe("createConnectorGenerationBilling", () => {
 
 	it("refunds unused image units when three requested images return one", async () => {
 		const { billing, meteringService } = buildBilling();
-		const reservations = await billing.reserve({ actorUserId: "user-1" }, "attempt-images", {
-			childOperation: "image",
-			childUnits: 3,
-		});
+		const reservations = await billing.reserve(
+			{ actorUserId: "user-1" },
+			"attempt-images",
+			{
+				childOperation: "image",
+				childUnits: 3,
+			},
+		);
 
 		await billing.settle(reservations, { childUnits: 1 });
 
 		expect(meteringService.settleDirectPair).toHaveBeenCalledWith(
 			expect.objectContaining({
-				settlement: expect.objectContaining({ finalCredits: 5 }),
+				settlement: expect.objectContaining({ finalCredits: 500 }),
 			}),
 			expect.objectContaining({
 				settlement: expect.objectContaining({
-					finalCredits: 5,
+					finalCredits: 300,
 					pricingSnapshot: expect.objectContaining({ units: 1 }),
 				}),
 			}),
@@ -170,7 +182,7 @@ describe("createConnectorGenerationBilling", () => {
 		await billing.settle(
 			{
 				child: {
-					credits: 14,
+					credits: 1400,
 					eventId: "old-child",
 					operation: "image",
 					referenceId: "attempt-old-price",
@@ -178,7 +190,7 @@ describe("createConnectorGenerationBilling", () => {
 					units: 2,
 				},
 				connector: {
-					credits: 3,
+					credits: 300,
 					eventId: "old-parent",
 					operation: "connector",
 					referenceId: "attempt-old-price",
@@ -192,15 +204,15 @@ describe("createConnectorGenerationBilling", () => {
 		expect(meteringService.settleDirectPair).toHaveBeenCalledWith(
 			expect.objectContaining({
 				settlement: expect.objectContaining({
-					finalCredits: 3,
-					pricingSnapshot: expect.objectContaining({ creditsPerUnit: 3 }),
+					finalCredits: 300,
+					pricingSnapshot: expect.objectContaining({ creditsPerUnit: 300 }),
 				}),
 			}),
 			expect.objectContaining({
 				settlement: expect.objectContaining({
-					finalCredits: 7,
+					finalCredits: 700,
 					pricingSnapshot: expect.objectContaining({
-						creditsPerUnit: 7,
+						creditsPerUnit: 700,
 						units: 1,
 					}),
 				}),
@@ -211,10 +223,14 @@ describe("createConnectorGenerationBilling", () => {
 
 	it("captures a receipt generation id before a later follow failure", async () => {
 		const { billing, meteringService } = buildBilling();
-		const reservations = await billing.reserve({ actorUserId: "user-1" }, "attempt-receipt", {
-			childOperation: "image",
-			childUnits: 1,
-		});
+		const reservations = await billing.reserve(
+			{ actorUserId: "user-1" },
+			"attempt-receipt",
+			{
+				childOperation: "image",
+				childUnits: 1,
+			},
+		);
 		const follow = vi.fn(async () => {
 			throw new Error("follow failed");
 		});
@@ -272,10 +288,14 @@ describe("createConnectorGenerationBilling", () => {
 	it("preserves billing-off execution without metering side effects", async () => {
 		const { billing, meteringService } = buildBilling({ disabled: true });
 
-		const reservations = await billing.reserve({ actorUserId: "user-1" }, "attempt-off", {
-			childOperation: "video",
-			childUnits: 1,
-		});
+		const reservations = await billing.reserve(
+			{ actorUserId: "user-1" },
+			"attempt-off",
+			{
+				childOperation: "video",
+				childUnits: 1,
+			},
+		);
 		await billing.settle(reservations);
 
 		expect(reservations.connector.eventId).toBeNull();
@@ -290,7 +310,7 @@ describe("createConnectorGenerationBilling", () => {
 		expect(() =>
 			connectorBillingAdmissionMode({
 				child: {
-					credits: 5,
+					credits: 300,
 					eventId: null,
 					operation: "image",
 					referenceId: "attempt-mixed",
@@ -298,7 +318,7 @@ describe("createConnectorGenerationBilling", () => {
 					units: 1,
 				},
 				connector: {
-					credits: 5,
+					credits: 500,
 					eventId: "event-parent",
 					operation: "connector",
 					referenceId: "attempt-mixed",
@@ -334,10 +354,14 @@ describe("createConnectorGenerationBilling", () => {
 
 	it("captures every gateway id before settlement and retries idempotent writes", async () => {
 		const { billing, meteringService } = buildBilling();
-		const reservations = await billing.reserve({ actorUserId: "user-1" }, "attempt-retry", {
-			childOperation: "image",
-			childUnits: 1,
-		});
+		const reservations = await billing.reserve(
+			{ actorUserId: "user-1" },
+			"attempt-retry",
+			{
+				childOperation: "image",
+				childUnits: 1,
+			},
+		);
 		meteringService.captureGeneration
 			.mockRejectedValueOnce(new Error("transient capture 1"))
 			.mockRejectedValueOnce(new Error("transient capture 2"))
@@ -371,10 +395,14 @@ describe("createConnectorGenerationBilling", () => {
 
 	it("atomically preserves connector and child fees across a lost commit response without provider replay", async () => {
 		const { billing, meteringService } = buildBilling();
-		const reservations = await billing.reserve({ actorUserId: "user-1" }, "attempt-crash", {
-			childOperation: "video",
-			childUnits: 1,
-		});
+		const reservations = await billing.reserve(
+			{ actorUserId: "user-1" },
+			"attempt-crash",
+			{
+				childOperation: "video",
+				childUnits: 1,
+			},
+		);
 		// External MCP generations commonly expose no Gateway generation id.
 		const provider = vi.fn(async () => []);
 		const captures = await provider();
@@ -428,7 +456,11 @@ describe("createConnectorGenerationBilling", () => {
 
 	it("propagates terminal generation-ref persistence failure without settling", async () => {
 		const { billing, meteringService } = buildBilling();
-		const reservations = await billing.reserve({ actorUserId: "user-1" }, "attempt-failed", {});
+		const reservations = await billing.reserve(
+			{ actorUserId: "user-1" },
+			"attempt-failed",
+			{},
+		);
 		const persistenceError = new Error("generation ref unavailable");
 		meteringService.captureGeneration.mockRejectedValue(persistenceError);
 

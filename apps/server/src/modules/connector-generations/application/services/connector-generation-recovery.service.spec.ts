@@ -48,7 +48,7 @@ function event(input: {
 		outputTokens: null,
 		parentEventId: input.parentEventId ?? null,
 		pricingSnapshot: {
-			creditsPerUnit: 5,
+			creditsPerUnit: input.operation === "connector" ? 500 : 300,
 			mode: "fixed",
 			operation: input.operation,
 			source: "operation_registry_reservation",
@@ -68,13 +68,13 @@ function setup(options: { withEvents?: boolean } = {}) {
 	const connectorEvent = event({
 		id: "event-parent",
 		operation: "connector",
-		reservedCredits: 5,
+		reservedCredits: 500,
 	});
 	const imageEvent = event({
 		id: "event-child",
 		operation: "image",
 		parentEventId: connectorEvent.id,
-		reservedCredits: 15,
+		reservedCredits: 900,
 	});
 	const events = new Map(
 		options.withEvents === false
@@ -123,12 +123,12 @@ describe("ConnectorGenerationRecoveryService", () => {
 		).toHaveBeenCalledWith(
 			expect.objectContaining({
 				eventId: "event-parent",
-				settlement: expect.objectContaining({ finalCredits: 5 }),
+				settlement: expect.objectContaining({ finalCredits: 500 }),
 			}),
 			expect.objectContaining({
 				eventId: "event-child",
 				settlement: expect.objectContaining({
-					finalCredits: 10,
+					finalCredits: 600,
 					pricingSnapshot: expect.objectContaining({ units: 2 }),
 				}),
 			}),

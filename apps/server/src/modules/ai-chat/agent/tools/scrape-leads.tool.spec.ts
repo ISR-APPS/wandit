@@ -209,7 +209,8 @@ describe("scrape_leads tool", () => {
 			{ actorUserId: "user-1" },
 			{
 				attemptRef: "attempt_1",
-				credits: 5,
+				// 500 centi-credits = the 5.00-credit lead-scrape price.
+				credits: 500,
 				idempotencyKey: "lead-scrape:attempt_1",
 				parentEventId: "chat-event-1",
 			},

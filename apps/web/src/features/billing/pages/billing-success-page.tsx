@@ -23,6 +23,7 @@ import {
 } from "@/features/billing/lib/order-return-state";
 import { subscriptionReturnStateFor } from "@/features/billing/lib/subscription-return-state";
 import { creditsKeys } from "@/features/credits/api/credits.queries";
+import { formatCreditBalance } from "@/features/credits/lib/format-credits";
 import { domainKeys } from "@/features/domains/api/domains.queries";
 import { useReconcileSession } from "@/features/orders/api/orders.mutations";
 import { useOrderQuery } from "@/features/orders/api/orders.queries";
@@ -182,7 +183,7 @@ function SubscriptionSuccessFlow({ onRetry }: { onRetry: () => void }) {
 					/>
 					<ReturnDetail
 						label={copy.subscription.creditsLabel}
-						value={formatNumber(sync.data.balance.balance, locale)}
+						value={formatCreditBalance(sync.data.balance.balance, locale)}
 					/>
 				</dl>
 			}

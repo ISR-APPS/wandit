@@ -17,6 +17,7 @@ import {
 	type AdminUserPagesResponse,
 	type AdminUserProjectsQuery,
 	type AdminUserProjectsResponse,
+	creditsToCentiCredits,
 	isAdminRole,
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
@@ -135,18 +136,23 @@ export class AdminUsersService {
 	): Promise<AdminUserDetail> {
 		await this.ensureUserExists(userId);
 
-		await this.creditsService.grant(userOwner(userId), input.amount, {
-			bucket: "promo",
-			idempotencyKey: `admin-grant:${userId}:${input.requestId}`,
-			meta: {
-				reason: "admin_grant",
-				grantedBy: actingAdminId,
-				note: input.reason ?? null,
+		// The API amount is decimal credits; the ledger takes centi-credits.
+		await this.creditsService.grant(
+			userOwner(userId),
+			creditsToCentiCredits(input.amount),
+			{
+				bucket: "promo",
+				idempotencyKey: `admin-grant:${userId}:${input.requestId}`,
+				meta: {
+					reason: "admin_grant",
+					grantedBy: actingAdminId,
+					note: input.reason ?? null,
+				},
 			},
-		});
+		);
 
 		this.logger.log(
-			`admin_grant_credits admin=${actingAdminId} target=${userId} amount=${input.amount}`,
+			`admin_grant_credits admin=${actingAdminId} target=${userId} amountCredits=${input.amount}`,
 		);
 
 		return this.getUserDetail(userId);

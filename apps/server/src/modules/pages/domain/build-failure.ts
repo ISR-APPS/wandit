@@ -115,8 +115,10 @@ const CREDIT_CODE_PATTERN = /INSUFFICIENT_CREDITS/;
 // NOT a loose "Insufficient credits" match, because OpenRouter's own 402
 // says "Insufficient credits. Add more using…" about OUR account with THEM,
 // and that must classify as a provider failure, never the user's wallet.
+// Amounts are decimal credits since pricing v4 (e.g. "required 0.1,
+// available -0.5"), so accept an optional fraction and sign.
 const OUR_CREDITS_MESSAGE_PATTERN =
-	/Insufficient credits: required \d+, available \d+/;
+	/Insufficient credits: required \d+(?:\.\d+)?, available -?\d+(?:\.\d+)?/;
 const MEMBER_LIMIT_PATTERN = /MEMBER_CREDIT_LIMIT_REACHED/;
 
 /**

@@ -91,8 +91,9 @@ export const adminUserSummarySchema = z.object({
 	// the user has never been seen since the column was introduced.
 	lastSeenAt: isoDateTimeSchema.nullable(),
 	plan: adminUserPlanSchema,
-	creditsBalance: z.int(),
-	creditsConsumed: z.int().nonnegative(),
+	// Decimal credits (server divides internal centi-credits by 100).
+	creditsBalance: z.number(),
+	creditsConsumed: z.number().nonnegative(),
 	projectsCount: z.int(),
 });
 
@@ -140,10 +141,11 @@ export const adminListUsersQuerySchema = paginationQuerySchema
 		role: optionalCsvEnum(adminUserRoles),
 		status: optionalCsvEnum(adminUserStatuses),
 		verified: optionalCsvEnum(adminUserVerificationStatuses),
-		// Net credits-consumed range. Both bounds are inclusive; an omitted
-		// max means unbounded. Query params arrive as strings — coerce.
-		creditsUsedMin: z.coerce.number().int().nonnegative().optional(),
-		creditsUsedMax: z.coerce.number().int().nonnegative().optional(),
+		// Net credits-consumed range in decimal credits (the server compares
+		// x100 against centi-credit sums). Both bounds are inclusive; an
+		// omitted max means unbounded. Query params arrive as strings — coerce.
+		creditsUsedMin: z.coerce.number().nonnegative().optional(),
+		creditsUsedMax: z.coerce.number().nonnegative().optional(),
 	})
 	.refine(
 		(query) =>
@@ -214,7 +216,8 @@ export type AdminUserProjectsResponse = z.infer<
 
 export const adminCreditLedgerEntrySchema = z.object({
 	id: uuidSchema,
-	delta: z.int(),
+	// Decimal credits; settle deltas can be fractional (e.g. -0.37).
+	delta: z.number(),
 	kind: creditKindSchema,
 	bucket: creditBucketSchema,
 	meta: z.record(z.string(), z.unknown()).nullable(),
@@ -478,7 +481,9 @@ export const adminProjectDetailSchema = z.object({
 export type AdminProjectDetail = z.infer<typeof adminProjectDetailSchema>;
 
 export const adminGrantCreditsInputSchema = z.object({
-	amount: z.int().positive().max(1_000_000),
+	// Decimal credits in 0.01 steps; the server multiplies x100 (Math.round)
+	// exactly once before writing centi-credits to the ledger.
+	amount: z.number().positive().multipleOf(0.01).max(1_000_000),
 	reason: z.string().trim().min(1).max(500).optional(),
 	// Client-minted per-submission id. Required, not optional: it becomes the
 	// credit ledger idempotency key, so a retried or double-submitted grant
@@ -520,7 +525,8 @@ export const adminOrganizationSummarySchema = z.object({
 	membersCount: z.int(),
 	projectsCount: z.int(),
 	plan: adminUserPlanSchema,
-	creditsBalance: z.int(),
+	// Decimal credits (server divides internal centi-credits by 100).
+	creditsBalance: z.number(),
 });
 
 export type AdminOrganizationSummary = z.infer<
@@ -559,8 +565,10 @@ export const adminOrganizationMemberSchema = z.object({
 	// with the role helpers, never string equality.
 	role: z.string(),
 	joinedAt: isoDateTimeSchema,
+	// Whole credits (limits are configured whole; stored x100 internally).
 	monthlyCreditLimit: z.int().nullable(),
-	spentThisMonth: z.int(),
+	// Decimal credits — member consumption is fractional under pricing v4.
+	spentThisMonth: z.number(),
 });
 
 export type AdminOrganizationMember = z.infer<
@@ -598,6 +606,7 @@ export const adminOrganizationDetailSchema =
 		balance: creditBalanceResponseSchema,
 		creditLedger: z.array(adminOrganizationLedgerEntrySchema),
 		aiSpend: adminAiSpendSchema,
+		// Whole credits (configured whole; stored x100 internally).
 		defaultMemberMonthlyCreditLimit: z.int().nullable(),
 		// Affiliate policy snapshot from the org's Stripe customer; null until
 		// the first checkout creates that customer.

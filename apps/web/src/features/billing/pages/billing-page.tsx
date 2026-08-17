@@ -62,6 +62,7 @@ import {
 	useCreditLedgerQuery,
 } from "@/features/credits/api/credits.queries";
 import { LedgerList } from "@/features/credits/components/ledger-list";
+import { formatCreditBalance } from "@/features/credits/lib/format-credits";
 import { usePublicSettingsQuery } from "@/features/settings/api/settings.queries";
 import { useWorkspace } from "@/features/workspaces/lib/workspace-provider";
 import { getApiErrorMessage } from "@/lib/api-client";
@@ -327,20 +328,20 @@ function BalanceCard({
 					{copy.billing.page.totalBalance}
 				</p>
 				<p className="mt-1 font-mono font-semibold text-4xl tabular-nums tracking-tight">
-					{formatNumber(balance.balance, locale)}
+					{formatCreditBalance(balance.balance, locale)}
 				</p>
 				<dl className="mt-6 grid grid-cols-3 divide-x divide-border border-t pt-4 rtl:divide-x-reverse">
 					<BucketMetric
 						label={copy.credits.buckets.plan}
-						value={formatNumber(balance.plan, locale)}
+						value={formatCreditBalance(balance.plan, locale)}
 					/>
 					<BucketMetric
 						label={copy.credits.buckets.promo}
-						value={formatNumber(balance.promo, locale)}
+						value={formatCreditBalance(balance.promo, locale)}
 					/>
 					<BucketMetric
 						label={copy.credits.buckets.topup}
-						value={formatNumber(balance.topup, locale)}
+						value={formatCreditBalance(balance.topup, locale)}
 					/>
 				</dl>
 			</CardContent>

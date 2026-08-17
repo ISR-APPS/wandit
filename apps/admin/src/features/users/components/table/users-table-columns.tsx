@@ -7,6 +7,7 @@ import {
 	formatAdminDateTime,
 	formatWholeNumber,
 } from "@/features/users/lib/formatters";
+import { formatCreditAmount, formatCreditBalance } from "@/lib/credit-format";
 
 import { UserRowActions } from "./user-row-actions";
 import {
@@ -51,7 +52,7 @@ const usersTableColumns: ColumnDef<AdminUserSummary>[] = [
 		cell: ({ row }) => (
 			<div>
 				<p className="font-medium font-mono tabular-nums">
-					{formatWholeNumber(row.original.creditsBalance)}
+					{formatCreditBalance(row.original.creditsBalance)}
 				</p>
 				<p className="text-muted-foreground text-xs">available</p>
 			</div>
@@ -65,7 +66,7 @@ const usersTableColumns: ColumnDef<AdminUserSummary>[] = [
 		cell: ({ row }) => (
 			<div>
 				<p className="font-medium font-mono tabular-nums">
-					{formatWholeNumber(row.original.creditsConsumed)}
+					{formatCreditAmount(row.original.creditsConsumed)}
 				</p>
 				<p className="text-muted-foreground text-xs">lifetime</p>
 			</div>

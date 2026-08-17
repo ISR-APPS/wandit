@@ -4,6 +4,8 @@ import { isoDateTimeSchema } from "./shared/primitives";
 export const productSettingsSchema = z.object({
 	id: z.literal(1),
 	signupGrantEnabled: z.boolean(),
+	// WHOLE credits at the admin API; the server stores the setting x100 as
+	// centi-credits and converts at the settings presentation boundary.
 	signupGrantCredits: z.int().positive(),
 	paidSubscriptionsEnabled: z.boolean(),
 	topupsEnabled: z.boolean(),

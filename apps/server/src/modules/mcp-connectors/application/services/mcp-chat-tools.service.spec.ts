@@ -1476,7 +1476,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				{ actorUserId: USER_ID },
 				{
 					attemptRef: referenceId,
-					credits: 5,
+					credits: 500,
 					idempotencyKey: `connector:${referenceId}`,
 					parentEventId: "chat-event",
 				},
@@ -1487,7 +1487,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				{ actorUserId: USER_ID },
 				{
 					attemptRef: referenceId,
-					credits: 10,
+					credits: 600,
 					idempotencyKey: `image:${referenceId}`,
 					parentEventId: "usage-event-1",
 				},
@@ -1499,7 +1499,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				{
 					eventId: "usage-event-1",
 					settlement: expect.objectContaining({
-						finalCredits: 5,
+						finalCredits: 500,
 						pricing: "direct",
 						pricingSnapshot: expect.objectContaining({
 							operation: "connector",
@@ -1510,7 +1510,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				{
 					eventId: "usage-event-2",
 					settlement: expect.objectContaining({
-						finalCredits: 5,
+						finalCredits: 300,
 						pricing: "direct",
 						pricingSnapshot: expect.objectContaining({
 							operation: "image",
@@ -1844,7 +1844,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			expect(meteringService.reserveWithReplay).toHaveBeenCalledWith(
 				"connector",
 				{ actorUserId: USER_ID },
-				expect.objectContaining({ credits: 5, parentEventId: "chat-event" }),
+				expect.objectContaining({ credits: 500, parentEventId: "chat-event" }),
 			);
 		});
 
@@ -1908,7 +1908,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				"connector",
 				{ actorUserId: USER_ID },
 				expect.objectContaining({
-					credits: 5,
+					credits: 500,
 					idempotencyKey: `connector:${GENERATION_ATTEMPT_ID}`,
 					parentEventId: "chat-event",
 				}),
@@ -1918,7 +1918,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				"video",
 				{ actorUserId: USER_ID },
 				expect.objectContaining({
-					credits: 25,
+					credits: 2000,
 					idempotencyKey: `video:${GENERATION_ATTEMPT_ID}`,
 					parentEventId: "usage-event-1",
 				}),
@@ -1929,7 +1929,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 					attemptId: GENERATION_ATTEMPT_ID,
 					billing: {
 						child: {
-							credits: 25,
+							credits: 2000,
 							eventId: "usage-event-2",
 							operation: "video",
 							referenceId: GENERATION_ATTEMPT_ID,
@@ -1937,7 +1937,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 							units: 1,
 						},
 						connector: {
-							credits: 5,
+							credits: 500,
 							eventId: "usage-event-1",
 							operation: "connector",
 							referenceId: GENERATION_ATTEMPT_ID,

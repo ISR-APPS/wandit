@@ -42,7 +42,7 @@ import {
 } from "../../domain/metering";
 import {
 	normalizeTokenUsage,
-	usdMicrosToCredits,
+	usdMicrosToCentiCredits,
 } from "../../domain/model-pricing";
 import {
 	assertOperationParentAllowed,
@@ -359,7 +359,7 @@ export class MeteringService {
 
 		if (estimate.credits < minimumReserve) {
 			throw new Error(
-				`${operation} requires a reserve of at least ${minimumReserve} credits`,
+				`${operation} requires a reserve of at least ${minimumReserve} centi-credits`,
 			);
 		}
 
@@ -1953,7 +1953,7 @@ export class MeteringService {
 		const pricing = this.recoveryOperationPricing(event);
 
 		if (pricing.mode === "token") {
-			return usdMicrosToCredits(
+			return usdMicrosToCentiCredits(
 				customerBillableCostUsdMicros,
 				usdMicrosPerCredit,
 			);

@@ -14,6 +14,7 @@ import { Separator } from "@/components/ui/separator";
 import { Slider } from "@/components/ui/slider";
 import type { UserCreditsUsedRange } from "@/features/users/api/users.dto";
 import { USER_CREDITS_USED_SLIDER_MAX } from "@/features/users/lib/constants";
+import { roundCreditAmount } from "@/lib/credit-format";
 
 type UsersCreditsUsedFilterProps = {
 	value?: UserCreditsUsedRange;
@@ -33,7 +34,10 @@ function formatCreditsUsedRange({ min, max }: UserCreditsUsedRange): string {
 	return `≤ ${max}`;
 }
 
-/** "" means unbounded; anything else must parse to a nonnegative integer. */
+/**
+ * "" means unbounded; anything else must parse to a nonnegative decimal
+ * credit amount in 0.01 steps (the API filter unit).
+ */
 function parseBound(raw: string): number | undefined {
 	if (raw.trim() === "") {
 		return undefined;
@@ -41,14 +45,19 @@ function parseBound(raw: string): number | undefined {
 
 	const value = Number(raw);
 
-	return Number.isInteger(value) && value >= 0 ? value : Number.NaN;
+	return Number.isFinite(value) &&
+		value >= 0 &&
+		roundCreditAmount(value) === value
+		? value
+		: Number.NaN;
 }
 
 /**
  * Credits-used range filter pill. The dual-thumb slider covers 0 to
- * USER_CREDITS_USED_SLIDER_MAX with the max thumb parked at the right edge
- * meaning "no upper bound"; the numeric inputs accept values beyond the
- * slider ceiling. Nothing commits until Apply.
+ * USER_CREDITS_USED_SLIDER_MAX in whole-credit steps with the max thumb
+ * parked at the right edge meaning "no upper bound"; the numeric inputs
+ * accept decimal bounds (0.01 steps) and values beyond the slider ceiling.
+ * Nothing commits until Apply.
  */
 function UsersCreditsUsedFilter({
 	value,
@@ -167,8 +176,9 @@ function UsersCreditsUsedFilter({
 						<Input
 							id="credits-used-min"
 							type="number"
-							inputMode="numeric"
+							inputMode="decimal"
 							min={0}
+							step={0.01}
 							placeholder="0"
 							value={draftMin}
 							onChange={(event) => setDraftMin(event.target.value)}
@@ -185,8 +195,9 @@ function UsersCreditsUsedFilter({
 						<Input
 							id="credits-used-max"
 							type="number"
-							inputMode="numeric"
+							inputMode="decimal"
 							min={0}
+							step={0.01}
 							placeholder="No max"
 							value={draftMax}
 							onChange={(event) => setDraftMax(event.target.value)}

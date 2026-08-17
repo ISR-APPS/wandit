@@ -17,7 +17,7 @@ afterEach(() => {
 });
 
 describe("listUsers", () => {
-	it("round-trips the credits-used range through query params the contract accepts", async () => {
+	it("round-trips a decimal credits-used range through query params the contract accepts", async () => {
 		apiGetMock.mockResolvedValueOnce({
 			items: [],
 			page: 1,
@@ -30,8 +30,8 @@ describe("listUsers", () => {
 			pageSize: 25,
 			sort: "newest",
 			plan: ["pro"],
-			creditsUsedMin: 100,
-			creditsUsedMax: 500,
+			creditsUsedMin: 0.5,
+			creditsUsedMax: 500.25,
 		});
 
 		expect(apiGetMock).toHaveBeenCalledWith(adminRoutes.users, {
@@ -43,8 +43,8 @@ describe("listUsers", () => {
 			role: undefined,
 			status: undefined,
 			verified: undefined,
-			creditsUsedMin: 100,
-			creditsUsedMax: 500,
+			creditsUsedMin: 0.5,
+			creditsUsedMax: 500.25,
 		});
 
 		// The params the client sends must survive the server-side schema.
@@ -52,8 +52,8 @@ describe("listUsers", () => {
 		const parsed = adminListUsersQuerySchema.parse(sentParams);
 
 		expect(parsed).toMatchObject({
-			creditsUsedMin: 100,
-			creditsUsedMax: 500,
+			creditsUsedMin: 0.5,
+			creditsUsedMax: 500.25,
 		});
 	});
 
