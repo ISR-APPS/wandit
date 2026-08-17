@@ -9,6 +9,10 @@ import { useSectionNav } from "../lib/use-section-nav";
 const footerLinkClass =
 	"rounded-sm text-muted-foreground text-sm outline-none transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50";
 
+// The bottom bar sets its own size and colour; these links only add the states.
+const legalLinkClass =
+	"rounded-sm outline-none transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/50";
+
 export function LandingFooter() {
 	const footer = useDictionary().landing.footer;
 	const navigateToSection = useSectionNav();
@@ -57,8 +61,19 @@ export function LandingFooter() {
 						))}
 					</div>
 				</div>
+				{/* Google app verification checks that the homepage links to the
+				    privacy policy, so these two live in the bottom bar of every page
+				    that renders the footer. */}
 				<div className="mt-12 flex flex-wrap items-center justify-between gap-3 border-border border-t pt-6 font-mono text-muted-foreground text-xs">
 					<span>{footer.copyright}</span>
+					<div className="flex flex-wrap items-center gap-4">
+						<Link to="/privacy" className={legalLinkClass}>
+							{footer.linkLabels.privacy}
+						</Link>
+						<Link to="/terms" className={legalLinkClass}>
+							{footer.linkLabels.terms}
+						</Link>
+					</div>
 					<span>{footer.madeIn}</span>
 				</div>
 			</div>

@@ -1,8 +1,17 @@
-// Compact Google Sheets sync control for the Leads tab header. One spot
-// drives the whole flow: not connected → linkSocial full-page redirect to
-// the Google consent screen (the sheet-sync query refetches on focus when
-// the user lands back); connected without a sheet → first sync creates the
-// spreadsheet; sheet present → re-sync + open link + last-synced hint.
+// Google Sheets sync control for the Leads tab header, in two shapes picked
+// by the SHEET_SYNC_ENABLED flag.
+//
+// Flag off (today): a disabled "coming soon" button, because the Google OAuth
+// consent screen is not verified yet. The live component must not even mount
+// then — it would fire the sheet-sync query for nothing — so the exported
+// wrapper delegates to two separate components instead of branching inside
+// one; hooks cannot be called conditionally.
+//
+// Flag on: LiveSheetSyncButton drives the whole flow from one spot — not
+// connected → linkSocial full-page redirect to the Google consent screen (the
+// sheet-sync query refetches on focus when the user lands back); connected
+// without a sheet → first sync creates the spreadsheet; sheet present →
+// re-sync + open link + last-synced hint.
 
 import { GOOGLE_SHEETS_SCOPE } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
@@ -21,9 +30,43 @@ import { useTranslation } from "@/lib/i18n";
 import { relativeTime } from "@/lib/relative-time";
 import { useSyncSheetNow } from "../../api/lead-sheet-sync.mutations";
 import { useSheetSyncQuery } from "../../api/lead-sheet-sync.queries";
+import { SHEET_SYNC_ENABLED } from "../../lib/constants";
 import { useWorkspace } from "../../lib/store";
 
+// The exported wrapper only picks a shape — no hooks here, so neither branch
+// runs the other's effects or queries.
 export function SheetSyncButton() {
+	return SHEET_SYNC_ENABLED ? (
+		<LiveSheetSyncButton />
+	) : (
+		<SheetSyncComingSoonButton />
+	);
+}
+
+// The span is what carries the tooltip: a disabled Button is
+// pointer-events-none, so hovering it only reaches the wrapper. The tooltip
+// itself only opens on hover or focus, and a disabled button takes neither, so
+// the reason is repeated for assistive technology inside the trigger.
+function SheetSyncComingSoonButton() {
+	const { t } = useTranslation();
+
+	return (
+		<Tooltip>
+			<TooltipTrigger asChild>
+				<span className="inline-flex">
+					<Button variant="outline" size="sm" disabled>
+						<FileSpreadsheet />
+						{t("leads.sheetSync.connect")}
+					</Button>
+					<span className="sr-only">{t("leads.sheetSync.comingSoon")}</span>
+				</span>
+			</TooltipTrigger>
+			<TooltipContent>{t("leads.sheetSync.comingSoon")}</TooltipContent>
+		</Tooltip>
+	);
+}
+
+function LiveSheetSyncButton() {
 	const { t } = useTranslation();
 	const { projectId } = useWorkspace();
 	const syncState = useSheetSyncQuery(projectId);
