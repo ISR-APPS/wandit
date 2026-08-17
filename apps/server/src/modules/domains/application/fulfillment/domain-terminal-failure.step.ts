@@ -1,6 +1,7 @@
 import type { DomainStatus } from "@wandit/contracts";
 
 import {
+	bestEffortDeleteCustomerZone,
 	bestEffortDeleteCustomHostname,
 	bestEffortDeleteDomainPointer,
 } from "./domain-assets-cleanup";
@@ -27,6 +28,7 @@ export type DomainTerminalFailureErrorTags = {
 type DomainTerminalFailureDependencies = {
 	deleteCustomHostname(id: string): Promise<void>;
 	deleteDomainPointer(name: string): Promise<void>;
+	deleteZone(id: string): Promise<void>;
 	dispatchRefund(orderId: string, failureReason: string): Promise<void>;
 	findDomainForUpdate(
 		orderId: string,
@@ -156,6 +158,7 @@ export class DomainTerminalFailureStep {
 		}
 
 		await bestEffortDeleteCustomHostname(current, this.dependencies);
+		await bestEffortDeleteCustomerZone(current, this.dependencies);
 		await bestEffortDeleteDomainPointer(current, this.dependencies);
 
 		return { status: "failed" };
@@ -180,6 +183,7 @@ export class DomainTerminalFailureStep {
 		failure: string,
 	): Promise<void> {
 		await bestEffortDeleteCustomHostname(row, this.dependencies);
+		await bestEffortDeleteCustomerZone(row, this.dependencies);
 		await this.dependencies.markDomainFailed(row.id, failure);
 	}
 
@@ -191,6 +195,7 @@ export class DomainTerminalFailureStep {
 			`Domain ${row.id} failed terminally with no payment order attached; nothing to refund`,
 		);
 		await bestEffortDeleteCustomHostname(row, this.dependencies);
+		await bestEffortDeleteCustomerZone(row, this.dependencies);
 		await bestEffortDeleteDomainPointer(row, this.dependencies);
 		await this.dependencies.markDomainFailed(row.id, failure);
 	}

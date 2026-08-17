@@ -35,6 +35,7 @@ vi.mock(
 import type { DomainTerminalFailureErrorTags } from "../modules/domains/application/fulfillment/domain-terminal-failure.step";
 import { DomainsRepository } from "../modules/domains/infrastructure/persistence/domains.repository";
 import {
+	createDomainApexBackfillRuntime,
 	createDomainFailureRuntime,
 	createDomainReconciliationRuntime,
 } from "./domain-fulfillment.runtime";
@@ -118,6 +119,117 @@ describe("createDomainReconciliationRuntime", () => {
 			domainId: configurationCandidate.domainId,
 			nonce: configurationCandidate.nonce,
 		});
+	});
+});
+
+describe("createDomainApexBackfillRuntime", () => {
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
+
+	it("merges apex dns keys fenced on the live statuses instead of replacing dns", async () => {
+		const row = {
+			cfCustomHostnameId: "cf_www",
+			dns: {
+				purchaseDnsConfigured: true,
+				triggerConfiguration: {
+					nextAttempt: 3,
+					nextProbeAt: "2026-08-01T10:05:00.000Z",
+					nonce: "purchase:22222222-2222-4222-8222-222222222222",
+				},
+			},
+			error: null,
+			expiresAt: null,
+			id: "11111111-1111-4111-8111-111111111111",
+			isPrimary: false,
+			name: "example.com",
+			paymentOrderId: null,
+			projectId: null,
+			provider: "namecom",
+			providerDomainId: "example.com",
+			providerOrderId: null,
+			providerTotalPaidUsd: null,
+			registrant: null,
+			source: "purchased" as const,
+			status: "configuring" as const,
+			transferLockExpiresAt: null,
+			updatedAt: new Date("2026-08-01T10:00:00.000Z"),
+			whoisPrivacy: false,
+		};
+		const patch = { apexConfigured: true as const, apexError: null };
+		const mergeDnsIfStatus = vi
+			.spyOn(DomainsRepository.prototype, "mergeDnsIfStatus")
+			.mockResolvedValueOnce({
+				...row,
+				dns: { ...row.dns, apexConfigured: true },
+			} as never)
+			.mockResolvedValueOnce(null);
+		const updateIfStatusOrNull = vi.spyOn(
+			DomainsRepository.prototype,
+			"updateIfStatusOrNull",
+		);
+		const runtime = createDomainApexBackfillRuntime(databaseStub(), {
+			apexZoneEnabled: true,
+			fallbackOrigin: "customers.wandit.app",
+			logger: { error: vi.fn(), warn: vi.fn() },
+		});
+
+		await expect(
+			runtime.state.persistApexDns(row, patch),
+		).resolves.toMatchObject({
+			dns: {
+				apexConfigured: true,
+				triggerConfiguration: { nextAttempt: 3 },
+			},
+		});
+		expect(mergeDnsIfStatus).toHaveBeenCalledExactlyOnceWith(
+			row.id,
+			["registering", "configuring", "active"],
+			patch,
+		);
+		// A full-replace write would copy the stale verification cursor back.
+		expect(updateIfStatusOrNull).not.toHaveBeenCalled();
+		await expect(runtime.state.persistApexDns(row, patch)).rejects.toThrow(
+			`Domain ${row.id} left status configuring during apex configuration`,
+		);
+	});
+
+	it("honors the kill switch: a disabled step returns the row without touching any provider", async () => {
+		const mergeDnsIfStatus = vi.spyOn(
+			DomainsRepository.prototype,
+			"mergeDnsIfStatus",
+		);
+		const fetchSpy = vi.spyOn(globalThis, "fetch");
+		const runtime = createDomainApexBackfillRuntime(databaseStub(), {
+			apexZoneEnabled: false,
+			fallbackOrigin: "customers.wandit.app",
+			logger: { error: vi.fn(), warn: vi.fn() },
+		});
+		const row = {
+			cfCustomHostnameId: "cf_www",
+			dns: null,
+			error: null,
+			expiresAt: null,
+			id: "11111111-1111-4111-8111-111111111111",
+			isPrimary: false,
+			name: "example.com",
+			paymentOrderId: null,
+			projectId: null,
+			provider: "namecom",
+			providerDomainId: "example.com",
+			providerOrderId: null,
+			providerTotalPaidUsd: null,
+			registrant: null,
+			source: "purchased" as const,
+			status: "active" as const,
+			transferLockExpiresAt: null,
+			updatedAt: new Date("2026-08-01T10:00:00.000Z"),
+			whoisPrivacy: false,
+		};
+
+		await expect(runtime.apexZone.execute(row)).resolves.toBe(row);
+		expect(mergeDnsIfStatus).not.toHaveBeenCalled();
+		expect(fetchSpy).not.toHaveBeenCalled();
 	});
 });
 

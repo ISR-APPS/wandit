@@ -2,6 +2,7 @@ import type {
 	DomainDns,
 	DomainStatus,
 	PaymentOrderStatus,
+	RequiredDomainRecord,
 } from "@wandit/contracts";
 
 export const DOMAIN_CONFIGURATION_MAX_ATTEMPT = 100;
@@ -38,6 +39,21 @@ export type CustomHostnameResult = {
 	status: string;
 };
 
+/** A Cloudflare zone in our account that hosts one purchased domain's DNS. */
+export type CustomerZone = {
+	id: string;
+	nameServers: string[];
+	status: string;
+};
+
+export type CustomerZoneDnsRecord = {
+	content: string;
+	name: string;
+	proxied?: boolean;
+	ttl?: number;
+	type: "CNAME" | "TXT";
+};
+
 export type DomainConfigurationCursor = {
 	nextAttempt: number;
 	nextProbeAt: Date | null;
@@ -54,6 +70,26 @@ export type DomainFulfillmentDns = DomainDns & {
 	customHostnameDnsConfigured?: boolean;
 	purchaseDnsConfigured?: boolean;
 	triggerConfiguration?: PersistedDomainConfigurationCursor;
+};
+
+/**
+ * The `dns` keys ApexZoneStep owns. It is persisted as a shallow merge into
+ * the stored `dns` object (never a full replace), so a live verification cursor
+ * in `dns.triggerConfiguration` is left alone. A `null` value removes the key.
+ */
+export type DomainApexDnsPatch = {
+	apexConfigured?: true;
+	apexCustomHostnameId?: string;
+	apexCustomHostnameNudged?: true;
+	apexCustomHostnameStatus?: string;
+	apexError?: string | null;
+	records?: RequiredDomainRecord[];
+	zoneActive?: true;
+	zoneCreated?: true;
+	zoneDelegated?: true;
+	zoneId?: string;
+	zoneNameServers?: string[];
+	zoneStatus?: string;
 };
 
 export type DomainFulfillmentRow = {

@@ -18,6 +18,7 @@ export type DomainConfigurationTaskConfiguration = DatabaseTaskConfiguration & {
 
 export type DomainPurchaseTaskConfiguration =
 	DomainConfigurationTaskConfiguration & {
+		apexZoneEnabled: boolean;
 		fallbackOrigin: string;
 		namecomApiToken: string;
 		namecomEnvironment: NamecomEnvironment;
@@ -52,6 +53,7 @@ export function assertDomainPurchaseConfiguration(): DomainPurchaseTaskConfigura
 	return {
 		...assertDomainConfigurationConfiguration(),
 		...assertNamecomConfiguration(),
+		apexZoneEnabled: domainApexZoneEnabled(),
 		fallbackOrigin: domainFallbackOrigin(),
 		stripeSecretKey: requiredValue("STRIPE_SECRET_KEY"),
 	};
@@ -115,6 +117,22 @@ function namecomEnvironment(): NamecomEnvironment {
 	}
 
 	throw new Error("NAMECOM_ENVIRONMENT must be exactly sandbox or production");
+}
+
+/**
+ * Kill switch for the purchased-domain apex zone step (default on). It is not
+ * a preflight failure: "false" simply keeps the registrar URL forwarding for
+ * the apex. CLOUDFLARE_ACCOUNT_ID is likewise not asserted here — the step is
+ * best-effort and records a missing account id as `dns.apexError`.
+ */
+function domainApexZoneEnabled(): boolean {
+	const value = process.env.DOMAINS_APEX_ZONE_ENABLED?.trim().toLowerCase();
+
+	if (value === "true" || value === "false") {
+		return value === "true";
+	}
+
+	return env.DOMAINS_APEX_ZONE_ENABLED !== false;
 }
 
 function domainFallbackOrigin(): string {
