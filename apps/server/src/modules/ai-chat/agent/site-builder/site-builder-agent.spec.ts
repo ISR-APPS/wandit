@@ -98,6 +98,9 @@ const COD_LEAD_SCRIPT = `<script>
 	orderForm.addEventListener("submit", function (event) {
 		event.preventDefault();
 		const fields = new FormData(orderForm);
+		document.addEventListener("wandit:lead:result", function (result) {
+			orderForm.hidden = result.detail.ok === true;
+		}, { once: true });
 		document.dispatchEvent(new CustomEvent("wandit:lead", {
 			detail: {
 				name: fields.get("name"),
@@ -110,6 +113,13 @@ const COD_LEAD_SCRIPT = `<script>
 const COD_HTML = HTML.replace("<header><nav>", '<header><section class="hero">')
 	.replace("</nav></header>", "</section></header>")
 	.replace("</main>", `${COD_FORM}${COD_LEAD_SCRIPT}</main>`);
+
+// Same page, minus the acknowledgement listener: the lead still dispatches,
+// so only the success gate can reject it.
+const COD_HTML_WITHOUT_LEAD_RESULT = COD_HTML.replace(
+	/\s*document\.addEventListener\("wandit:lead:result"[\s\S]*?\{ once: true \}\);/,
+	"",
+);
 
 const DESKTOP_SHOT = "ZGVza3RvcC1zaG90";
 const MOBILE_SHOT = "bW9iaWxlLXNob3Q=";
@@ -1786,6 +1796,11 @@ describe("COD finish gate", () => {
 			label: "multiple honeypots",
 			message: /exactly one data-wandit-hp honeypot \(found 2\)/,
 		},
+		{
+			html: COD_HTML_WITHOUT_LEAD_RESULT,
+			label: "an unacknowledged success state",
+			message: /must handle the "wandit:lead:result" acknowledgement event/,
+		},
 	])("rejects $label", async ({ html, message }) => {
 		const { options, tools } = setup({
 			pageKind: "cod",
@@ -1915,6 +1930,63 @@ describe("self-contained script finish gate", () => {
 			streamSpy.mockRestore();
 			consoleSpy.mockRestore();
 		}
+	});
+});
+
+describe("finish-pass document title", () => {
+	async function buildWith(html: string, title: string) {
+		const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+		const streamSpy = vi
+			.spyOn(ToolLoopAgent.prototype, "stream")
+			.mockImplementation(async function (this: ToolLoopAgent) {
+				const tools = this.tools as unknown as ReturnType<
+					typeof setup
+				>["tools"];
+				await tools.write_file.execute?.(
+					{ content: html, path: "index.html" },
+					{ messages: [], toolCallId: "title_write" } as never,
+				);
+
+				return {
+					fullStream: (async function* () {})(),
+					steps: Promise.resolve([]),
+				} as never;
+			});
+
+		try {
+			const build = await runSiteBuild({
+				attemptId: "attempt_title",
+				brief: "Build a substantial warm editorial landing page.",
+				model: "deepseek/test",
+				projectId: "project_1",
+				subject: { actorUserId: "user_1" },
+				system: "Build the page with the supplied tools.",
+				title,
+			});
+
+			return build.files.find((file) => file.path === "index.html")?.content;
+		} finally {
+			streamSpy.mockRestore();
+			consoleSpy.mockRestore();
+		}
+	}
+
+	it("fills a missing <title> with the Brain's short human title", async () => {
+		// The HTML fixture's <head> carries only the token <style>.
+		const content = await buildWith(HTML, "Huile d argan bio");
+
+		expect(content).toContain("<title>Huile d argan bio</title>");
+	});
+
+	it("keeps the title the builder wrote", async () => {
+		const authored = HTML.replace(
+			"<head>",
+			"<head><title>Serum Éclat — livraison 48 h</title>",
+		);
+		const content = await buildWith(authored, "Huile d argan bio");
+
+		expect(content).toContain("<title>Serum Éclat — livraison 48 h</title>");
+		expect(content).not.toContain("Huile d");
 	});
 });
 

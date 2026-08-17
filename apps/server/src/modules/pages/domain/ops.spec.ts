@@ -906,6 +906,65 @@ describe("applyOps", () => {
 		});
 	});
 
+	it("rewrites an existing document title and records the head sentinel", () => {
+		// The inline SVG title in the body must stay untouched.
+		const html = PAGE.replace("<head>", "<head><title>Old tab</title>").replace(
+			"<body>",
+			"<body><svg><title>Icon</title></svg>",
+		);
+		const result = applied(html, [
+			{ kind: "set-page-title", value: "Maison Noor — Livraison" },
+		]);
+		const $ = cheerio.load(result.html);
+
+		expect($("head > title").text()).toBe("Maison Noor — Livraison");
+		expect($("head > title")).toHaveLength(1);
+		expect($("svg title").text()).toBe("Icon");
+		expect(result.editedWids).toEqual(["__title__"]);
+	});
+
+	it("creates the title tag when the page has none, after the charset meta", () => {
+		const html = PAGE.replace("<head>", '<head><meta charset="utf-8">');
+		const result = applied(html, [
+			{ kind: "set-page-title", value: "Atelier Saha" },
+		]);
+		const $ = cheerio.load(result.html);
+
+		expect($("head > title").text()).toBe("Atelier Saha");
+		expect($("head").children().first().is("meta")).toBe(true);
+	});
+
+	it("escapes hostile title content instead of closing the tag", () => {
+		const value = "</title><script>alert(1)</script><title>x";
+		const result = applied(PAGE, [{ kind: "set-page-title", value }]);
+		const $ = cheerio.load(result.html);
+
+		expect($("head > title")).toHaveLength(1);
+		expect($("head > title").text()).toBe(value);
+		expect($("script")).toHaveLength(0);
+		expect(result.html).not.toContain("<script>");
+	});
+
+	it("still titles a document whose source markup has no head", () => {
+		// The parser synthesizes the head, so the branch's head guard is defense
+		// in depth rather than a path a stored page can reach.
+		const result = applied("<p>bare fragment</p>", [
+			{ kind: "set-page-title", value: "Bare" },
+		]);
+
+		expect(cheerio.load(result.html)("head > title").text()).toBe("Bare");
+	});
+
+	it("keeps the title sentinel beside element wids in a mixed batch", () => {
+		const result = applied(PAGE, [
+			{ kind: "text", value: "T", wid: "e-1" },
+			{ kind: "set-page-title", value: "New tab" },
+			{ kind: "set-tokens", value: { primary: "#123456" } },
+		]);
+
+		expect(result.editedWids).toEqual(["e-1", "__title__", "__tokens__"]);
+	});
+
 	it("extracts raw values from the first :root token block", () => {
 		const html = `<!doctype html><html><head>
 			<style>:root { --primary: oklch(0.7 0.1 200); --font-heading: "Newsreader", serif; --custom: ignored; }</style>
