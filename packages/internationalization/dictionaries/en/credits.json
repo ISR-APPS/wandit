@@ -19,6 +19,11 @@
 		"cta": "Upgrade plan",
 		"pausedBody": "Credit purchases are paused during the beta."
 	},
+	"elsewhere": {
+		"chipHint": "Your credits are in {name}",
+		"dialogHint": "You have {balance} credits in {name}",
+		"switch": "Switch"
+	},
 	"buckets": {
 		"plan": "Plan",
 		"promo": "Promotional",

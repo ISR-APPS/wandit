@@ -77,6 +77,15 @@ type RevokeCreditOptions = CreditWriteOptions & {
 	bucket?: CreditBucket;
 };
 
+/** UNIT: integer centi-credits, like CreditBalance. */
+export type SettledCreditBalance = CreditBalance & {
+	/**
+	 * balance plus the in-flight reserve holds added back: what the balance
+	 * will read once running generations settle at estimated-or-lower cost.
+	 */
+	settledBalance: number;
+};
+
 @Injectable()
 export class CreditsService {
 	constructor(
@@ -87,6 +96,23 @@ export class CreditsService {
 	/** Internal balance in integer centi-credits; callers convert for the API. */
 	getBalance(owner: CreditOwner): Promise<CreditBalance> {
 		return this.creditsRepository.getBalance(owner);
+	}
+
+	/**
+	 * Balance plus the reserved add-back, all integer centi-credits. While a
+	 * usage event stays reserved its ledger dip equals its reserved_credits, so
+	 * the sum restores exactly what settlement will return at worst.
+	 */
+	async getSettledBalance(owner: CreditOwner): Promise<SettledCreditBalance> {
+		const [balance, reservedCentiCredits] = await Promise.all([
+			this.creditsRepository.getBalance(owner),
+			this.creditsRepository.sumReservedCentiCredits(owner),
+		]);
+
+		return {
+			...balance,
+			settledBalance: balance.balance + reservedCentiCredits,
+		};
 	}
 
 	listLedger(owner: CreditOwner, query: CreditLedgerQuery) {

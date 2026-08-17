@@ -211,6 +211,10 @@ class FakeSubscriptionsRepository {
 class FakeCreditsService {
 	balance = { balance: 0, plan: 0, promo: 0, topup: 0 };
 	readonly getBalance = vi.fn(async () => this.balance);
+	readonly getSettledBalance = vi.fn(async () => ({
+		...this.balance,
+		settledBalance: this.balance.balance,
+	}));
 }
 
 class FakePaymentProvider {
@@ -624,7 +628,7 @@ describe("BillingService entitlement and sync", () => {
 
 		await expect(service.hasActiveSubscription(user.id)).resolves.toBe(false);
 		await expect(service.getSubscriptionView(user.id)).resolves.toMatchObject({
-			balance: { balance: 0, plan: 0, promo: 0, topup: 0 },
+			balance: { balance: 0, plan: 0, promo: 0, settledBalance: 0, topup: 0 },
 			subscription: { entitled: false, status: "past_due" },
 		});
 	});
@@ -1266,7 +1270,7 @@ describe("BillingService subscription change intents", () => {
 			outcome: "payment_required",
 			pendingExpiresAt,
 		});
-		credits.getBalance.mockRejectedValueOnce(
+		credits.getSettledBalance.mockRejectedValueOnce(
 			new Error("response view unavailable"),
 		);
 
@@ -1299,7 +1303,7 @@ describe("BillingService subscription change intents", () => {
 			subscriptionSync,
 		} = setup();
 		changeIntents.intent = changeIntent();
-		credits.getBalance.mockRejectedValueOnce(
+		credits.getSettledBalance.mockRejectedValueOnce(
 			new Error("response view unavailable"),
 		);
 

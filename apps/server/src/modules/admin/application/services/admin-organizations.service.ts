@@ -69,7 +69,7 @@ export class AdminOrganizationsService {
 		] = await Promise.all([
 			this.repository.listMembersWithUsers(organizationId),
 			this.repository.findLatestSubscription(organizationId),
-			this.creditsService.getBalance(orgOwner(organizationId)),
+			this.creditsService.getSettledBalance(orgOwner(organizationId)),
 			this.repository.listRecentLedger(organizationId, RECENT_LEDGER_LIMIT),
 			this.repository.countPendingInvitations(organizationId),
 			this.repository.findDefaultMemberLimit(organizationId),
@@ -98,6 +98,7 @@ export class AdminOrganizationsService {
 				balance: centiCreditsToCredits(balance.balance),
 				plan: centiCreditsToCredits(balance.plan),
 				promo: centiCreditsToCredits(balance.promo),
+				settledBalance: centiCreditsToCredits(balance.settledBalance),
 				topup: centiCreditsToCredits(balance.topup),
 			},
 			creditLedger: ledger.map(mapAdminOrganizationLedgerEntry),

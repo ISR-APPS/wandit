@@ -19,6 +19,7 @@ const RESPONSE: BillingSubscriptionViewResponse = {
 		balance: 125,
 		plan: 100,
 		promo: 25,
+		settledBalance: 125,
 		topup: 0,
 	},
 	subscription: null,

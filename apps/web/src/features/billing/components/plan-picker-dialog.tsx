@@ -64,6 +64,7 @@ import {
 	tierPriceUsd,
 	tierSavingsPercent,
 } from "@/features/billing/lib/plan-pricing";
+import { CreditsElsewhereNotice } from "@/features/credits/components/credits-elsewhere-notice";
 import {
 	formatCreditAmount,
 	formatCreditBalance,
@@ -134,6 +135,9 @@ export function PlanPickerDialog({
 						className="max-h-[min(760px,calc(100dvh-2rem))] overflow-y-auto sm:max-w-[720px]"
 						closeLabel={t("common.close")}
 					>
+						{/* Credits-elsewhere hint above every purchase branch: switching
+						    workspaces may beat buying, and switching closes the picker. */}
+						<CreditsElsewhereNotice onSwitched={() => onOpenChange(false)} />
 						<PlanPickerContent
 							initialInterval={initialInterval}
 							initialTierCredits={initialTierCredits}
