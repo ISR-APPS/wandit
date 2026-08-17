@@ -16,6 +16,7 @@ import {
 	parseDomainName,
 	parseExternalDomainName,
 	registrantSchema,
+	requiredDomainRecordSchema,
 	searchDomainsResultSchema,
 } from "@wandit/contracts";
 import { describe, expect, it } from "vitest";
@@ -249,6 +250,61 @@ describe("domain DNS contracts", () => {
 			attempts: 101,
 			stalledAt: "2026-08-12T10:00:00.000Z",
 		});
+	});
+
+	it("accepts NS nameserver records and the purchased-domain apex zone state", () => {
+		expect(
+			requiredDomainRecordSchema.parse({
+				name: "@",
+				purpose: "nameserver",
+				type: "NS",
+				value: "art.ns.cloudflare.com",
+			}).type,
+		).toBe("NS");
+		expect(
+			requiredDomainRecordSchema.safeParse({
+				name: "@",
+				purpose: "traffic",
+				type: "ANAME",
+				value: "customers.wandit.app",
+			}).success,
+		).toBe(false);
+
+		const dns = domainDnsSchema.parse({
+			apexConfigured: true,
+			apexCustomHostnameId: "cf_apex",
+			apexCustomHostnameNudged: true,
+			apexCustomHostnameStatus: "active",
+			apexError: "Cloudflare zone request failed",
+			records: [],
+			zoneActive: true,
+			zoneCreated: true,
+			zoneDelegated: true,
+			zoneId: "zone_1",
+			zoneNameServers: ["art.ns.cloudflare.com", "savanna.ns.cloudflare.com"],
+			zoneStatus: "active",
+		});
+
+		expect(dns).toMatchObject({
+			apexConfigured: true,
+			apexCustomHostnameId: "cf_apex",
+			apexCustomHostnameNudged: true,
+			apexCustomHostnameStatus: "active",
+			apexError: "Cloudflare zone request failed",
+			zoneActive: true,
+			zoneCreated: true,
+			zoneDelegated: true,
+			zoneId: "zone_1",
+			zoneNameServers: ["art.ns.cloudflare.com", "savanna.ns.cloudflare.com"],
+			zoneStatus: "active",
+		});
+		expect(
+			domainDnsSchema.safeParse({ apexConfigured: "yes", records: [] }).success,
+		).toBe(false);
+		expect(
+			domainDnsSchema.safeParse({ records: [], zoneNameServers: "art" })
+				.success,
+		).toBe(false);
 	});
 
 	it("parses per-record DNS diagnostic results", () => {

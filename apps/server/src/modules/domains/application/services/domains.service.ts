@@ -54,6 +54,10 @@ import {
 	type DomainRow,
 	DomainsRepository,
 } from "../../infrastructure/persistence/domains.repository";
+import {
+	apexCustomHostnameIdOf,
+	customerZoneIdOf,
+} from "../fulfillment/domain-assets-cleanup";
 
 export const DOMAINS_LOGGER = Symbol("DOMAINS_LOGGER");
 
@@ -314,6 +318,24 @@ export class DomainsService {
 
 		if (row.cfCustomHostnameId) {
 			await this.bestEffortDeleteCustomHostname(row.cfCustomHostnameId, row.id);
+		}
+
+		// Purchased domains also hold an apex custom hostname (recorded in dns).
+		const apexCustomHostnameId = apexCustomHostnameIdOf(row.dns);
+
+		if (apexCustomHostnameId) {
+			await this.bestEffortDeleteCustomHostname(apexCustomHostnameId, row.id);
+		}
+
+		// The domain's Cloudflare zone stays: the registry still delegates to it,
+		// so deleting it would black-hole the customer's DNS. Detach only
+		// releases the project attachment, never the registration or its DNS.
+		const zoneId = customerZoneIdOf(row.dns);
+
+		if (zoneId) {
+			this.logger.log(
+				`Leaving Cloudflare zone ${zoneId} for detached domain ${row.id} in place`,
+			);
 		}
 
 		const updated = await this.domainsRepository.detach(id, scope);

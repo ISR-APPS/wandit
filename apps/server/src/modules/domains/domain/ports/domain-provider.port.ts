@@ -12,7 +12,7 @@ export type DomainAvailability = {
 
 export type DomainDnsRecord = {
 	name: string;
-	type: "A" | "AAAA" | "CNAME" | "TXT";
+	type: "A" | "AAAA" | "CNAME" | "NS" | "TXT";
 	value: string;
 };
 
@@ -50,6 +50,7 @@ export interface DomainProvider {
 	): Promise<DomainRegistrationResult>;
 	renew(name: string, years: number): Promise<{ expiresAt: Date | null }>;
 	setDnsRecords(name: string, records: DomainDnsRecord[]): Promise<void>;
+	setNameservers(name: string, nameservers: string[]): Promise<void>;
 	setUrlForwarding(name: string, target: string): Promise<void>;
 	getAuthCode(name: string): Promise<string>;
 	setTransferLock(name: string, locked: boolean): Promise<void>;

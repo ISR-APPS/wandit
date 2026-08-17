@@ -362,6 +362,45 @@ describe("NamecomProvider", () => {
 		expect(requests.some(({ url }) => url.endsWith("/records/12"))).toBe(false);
 	});
 
+	it("delegates nameservers through the colon-path setNameservers endpoint", async () => {
+		fetchMock.mockResolvedValueOnce(
+			jsonResponse({
+				nameservers: ["art.ns.cloudflare.com", "savanna.ns.cloudflare.com"],
+			}),
+		);
+		const provider = new NamecomProvider();
+
+		await provider.setNameservers("example.com", [
+			"art.ns.cloudflare.com",
+			"savanna.ns.cloudflare.com",
+		]);
+
+		const request = fetchCall(fetchMock, 0);
+		expect(request.url).toBe(
+			`${SANDBOX_BASE_URL}/core/v1/domains/example.com:setNameservers`,
+		);
+		expect(request.init.method).toBe("POST");
+		expect(jsonBody(request.init)).toEqual({
+			nameservers: ["art.ns.cloudflare.com", "savanna.ns.cloudflare.com"],
+		});
+	});
+
+	it("refuses an empty nameserver set without calling the registrar and maps a registrar rejection", async () => {
+		const provider = new NamecomProvider();
+
+		await expect(
+			provider.setNameservers("example.com", []),
+		).rejects.toMatchObject({ retryable: false });
+		expect(fetchMock).not.toHaveBeenCalled();
+
+		fetchMock.mockResolvedValueOnce(
+			jsonResponse({ message: "Invalid nameserver" }, 400),
+		);
+		await expect(
+			provider.setNameservers("example.com", ["bad"]),
+		).rejects.toMatchObject({ retryable: false, upstreamStatus: 400 });
+	});
+
 	it("creates the apex forwarding with an empty host when none exists", async () => {
 		fetchMock
 			.mockResolvedValueOnce(jsonResponse({ urlForwarding: [] }))
