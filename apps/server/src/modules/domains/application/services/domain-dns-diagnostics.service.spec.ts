@@ -164,6 +164,104 @@ describe("DomainDnsDiagnosticsService", () => {
 		expect(dnsMocks.resolve6).toHaveBeenCalledWith("www.brand.com");
 	});
 
+	it("verifies an apex ANAME through the apex and target address answers", async () => {
+		const row = domainRow({
+			dns: {
+				records: [
+					{
+						name: "@",
+						purpose: "traffic",
+						type: "ANAME",
+						value: "customers.wandit.app",
+					},
+				],
+			},
+			source: "purchased",
+		});
+		const notFound = () =>
+			Object.assign(new Error("queryAaaa ENODATA"), { code: "ENODATA" });
+		dnsMocks.resolve4.mockImplementation(async (hostname) =>
+			hostname === "brand.com" ? ["104.16.1.1"] : ["104.16.2.2", "104.16.1.1"],
+		);
+		dnsMocks.resolve6.mockRejectedValue(notFound());
+
+		await expect(
+			serviceFor(row).getStatus(row.id, scope),
+		).resolves.toMatchObject({
+			records: [{ observedValues: ["104.16.1.1"], status: "found" }],
+		});
+		expect(dnsMocks.resolve4).toHaveBeenCalledWith("brand.com");
+		expect(dnsMocks.resolve4).toHaveBeenCalledWith("customers.wandit.app");
+		expect(dnsMocks.resolveCname).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		{
+			apex: ["75.126.104.254"],
+			label: "still points at registrar forwarding",
+			status: "mismatch",
+			target: ["104.16.1.1"],
+		},
+		{
+			apex: [],
+			label: "has no address answers",
+			status: "missing",
+			target: ["104.16.1.1"],
+		},
+		{
+			apex: ["104.16.1.1"],
+			label: "cannot be judged because the target does not resolve",
+			status: "unknown",
+			target: null,
+		},
+	])("reports an apex ANAME that $label as $status", async ({
+		apex,
+		status,
+		target,
+	}) => {
+		const row = domainRow({
+			dns: {
+				records: [
+					{
+						name: "@",
+						purpose: "traffic",
+						type: "ANAME",
+						value: "customers.wandit.app",
+					},
+				],
+			},
+			source: "purchased",
+		});
+		dnsMocks.resolve4.mockImplementation(async (hostname) => {
+			if (hostname === "brand.com") {
+				if (apex.length === 0) {
+					throw Object.assign(new Error("queryA ENOTFOUND"), {
+						code: "ENOTFOUND",
+					});
+				}
+
+				return apex;
+			}
+
+			if (target === null) {
+				throw Object.assign(new Error("queryA ESERVFAIL"), {
+					code: "ESERVFAIL",
+				});
+			}
+
+			return target;
+		});
+		dnsMocks.resolve6.mockRejectedValue(
+			Object.assign(new Error("queryAaaa ENOTFOUND"), { code: "ENOTFOUND" }),
+		);
+
+		await expect(
+			serviceFor(row).getStatus(row.id, scope),
+		).resolves.toMatchObject({
+			records: [{ observedValues: apex, status }],
+		});
+	});
+
 	it("reports a timed-out query as unknown after three seconds", async () => {
 		vi.useFakeTimers();
 		const row = domainRow({

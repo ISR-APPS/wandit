@@ -16,6 +16,7 @@ import {
 	parseDomainName,
 	parseExternalDomainName,
 	registrantSchema,
+	requiredDomainRecordSchema,
 	searchDomainsResultSchema,
 } from "@wandit/contracts";
 import { describe, expect, it } from "vitest";
@@ -249,6 +250,39 @@ describe("domain DNS contracts", () => {
 			attempts: 101,
 			stalledAt: "2026-08-12T10:00:00.000Z",
 		});
+	});
+
+	it("accepts the purchased-domain apex ANAME record and apex state fields", () => {
+		expect(
+			requiredDomainRecordSchema.parse({
+				name: "@",
+				purpose: "traffic",
+				type: "ANAME",
+				value: "customers.wandit.app",
+			}).type,
+		).toBe("ANAME");
+		expect(
+			requiredDomainRecordSchema.safeParse({
+				name: "@",
+				purpose: "traffic",
+				type: "ALIAS",
+				value: "customers.wandit.app",
+			}).success,
+		).toBe(false);
+
+		const dns = domainDnsSchema.parse({
+			apexConfigured: true,
+			apexCustomHostnameId: "cf_apex",
+			apexError: "Registrar request failed",
+			records: [],
+		});
+
+		expect(dns.apexConfigured).toBe(true);
+		expect(dns.apexCustomHostnameId).toBe("cf_apex");
+		expect(dns.apexError).toBe("Registrar request failed");
+		expect(
+			domainDnsSchema.safeParse({ apexConfigured: "yes", records: [] }).success,
+		).toBe(false);
 	});
 
 	it("parses per-record DNS diagnostic results", () => {

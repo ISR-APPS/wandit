@@ -362,85 +362,205 @@ describe("NamecomProvider", () => {
 		expect(requests.some(({ url }) => url.endsWith("/records/12"))).toBe(false);
 	});
 
-	it("creates the apex forwarding with an empty host when none exists", async () => {
-		fetchMock
-			.mockResolvedValueOnce(jsonResponse({ urlForwarding: [] }))
-			.mockResolvedValueOnce(jsonResponse({}));
+	it("writes the apex ANAME after deleting registrar-forwarding A records and replaces an apex CNAME", async () => {
+		fetchMock.mockImplementation(async (_input, init) => {
+			if (init?.method === "GET") {
+				return jsonResponse({
+					records: [
+						{
+							answer: "75.126.104.254",
+							host: "",
+							id: 20,
+							ttl: 300,
+							type: "A",
+						},
+						{
+							answer: "2001:db8::75",
+							host: "@",
+							id: 21,
+							ttl: 300,
+							type: "AAAA",
+						},
+						{
+							answer: "old-origin.example.net",
+							host: "example.com",
+							id: 22,
+							ttl: 300,
+							type: "CNAME",
+						},
+						{
+							answer: "mail.example.net",
+							host: "",
+							id: 23,
+							priority: 10,
+							ttl: 3600,
+							type: "MX",
+						},
+						{
+							answer: "192.0.2.10",
+							host: "www",
+							id: 24,
+							ttl: 300,
+							type: "A",
+						},
+					],
+				});
+			}
+
+			return new Response(null, { status: 204 });
+		});
 		const provider = new NamecomProvider();
 
-		await provider.setUrlForwarding("example.com", "https://www.example.com");
+		await provider.setDnsRecords("example.com", [
+			{ name: "@", type: "ANAME", value: "customers.wandit.app" },
+		]);
 
-		const createRequest = fetchCall(fetchMock, 1);
-
-		expect(createRequest.url).toBe(
-			`${SANDBOX_BASE_URL}/core/v1/domains/example.com/url/forwarding`,
+		const requests = fetchMock.mock.calls.map((_, index) =>
+			fetchCall(fetchMock, index),
 		);
-		expect(createRequest.init.method).toBe("POST");
-		expect(jsonBody(createRequest.init)).toEqual({
-			forwardsTo: "https://www.example.com",
+
+		expect(requests.map(({ init, url }) => [init.method, url])).toEqual([
+			[
+				"GET",
+				`${SANDBOX_BASE_URL}/core/v1/domains/example.com/records?perPage=1000`,
+			],
+			["DELETE", `${SANDBOX_BASE_URL}/core/v1/domains/example.com/records/20`],
+			["DELETE", `${SANDBOX_BASE_URL}/core/v1/domains/example.com/records/21`],
+			["PUT", `${SANDBOX_BASE_URL}/core/v1/domains/example.com/records/22`],
+		]);
+		expect(jsonBody(requests[3]?.init ?? {})).toEqual({
+			answer: "customers.wandit.app",
 			host: "",
-			type: "redirect",
+			ttl: 300,
+			type: "ANAME",
 		});
 	});
 
-	it.each([
-		["an @ host", { host: "@" }],
-		["a full-domain host", { host: "example.com" }],
-		["a missing host", {}],
-	])("recognizes an apex forwarding entry with %s and does not duplicate it", async (_label, hostField) => {
+	it("replaces an existing apex ANAME in place and skips an exact match", async () => {
+		fetchMock.mockImplementation(async (_input, init) => {
+			if (init?.method === "GET") {
+				return jsonResponse({
+					records: [
+						{
+							answer: "old.example.net",
+							host: "",
+							id: 30,
+							ttl: 300,
+							type: "ANAME",
+						},
+					],
+				});
+			}
+
+			return jsonResponse({});
+		});
+		const provider = new NamecomProvider();
+
+		await provider.setDnsRecords("example.com", [
+			{ name: "example.com", type: "ANAME", value: "customers.wandit.app" },
+		]);
+
+		expect(fetchMock).toHaveBeenCalledTimes(2);
+		const update = fetchCall(fetchMock, 1);
+		expect(update.init.method).toBe("PUT");
+		expect(update.url).toBe(
+			`${SANDBOX_BASE_URL}/core/v1/domains/example.com/records/30`,
+		);
+
+		fetchMock.mockClear();
 		fetchMock.mockResolvedValueOnce(
 			jsonResponse({
-				urlForwarding: [
+				records: [
 					{
-						forwardsTo: "https://www.example.com",
-						id: 7,
-						type: "redirect",
-						...hostField,
+						answer: "customers.wandit.app",
+						host: "",
+						id: 31,
+						ttl: 300,
+						type: "ANAME",
 					},
 				],
 			}),
 		);
-		const provider = new NamecomProvider();
 
-		await provider.setUrlForwarding("example.com", "https://www.example.com");
+		await provider.setDnsRecords("example.com", [
+			{ name: "@", type: "ANAME", value: "customers.wandit.app" },
+		]);
 
 		expect(fetchMock).toHaveBeenCalledTimes(1);
 	});
 
-	it("updates an empty-host apex forwarding entry with a complete PATCH body", async () => {
+	it("creates the apex ANAME when the host is empty", async () => {
+		fetchMock
+			.mockResolvedValueOnce(jsonResponse({ records: [] }))
+			.mockResolvedValueOnce(jsonResponse({}));
+		const provider = new NamecomProvider();
+
+		await provider.setDnsRecords("example.com", [
+			{ name: "@", type: "ANAME", value: "customers.wandit.app" },
+		]);
+
+		const create = fetchCall(fetchMock, 1);
+		expect(create.init.method).toBe("POST");
+		expect(create.url).toBe(
+			`${SANDBOX_BASE_URL}/core/v1/domains/example.com/records`,
+		);
+		expect(jsonBody(create.init)).toEqual({
+			answer: "customers.wandit.app",
+			host: "",
+			ttl: 300,
+			type: "ANAME",
+		});
+	});
+
+	it.each([
+		["an empty host", { host: "" }],
+		["an @ host", { host: "@" }],
+		["a full-domain host", { host: "example.com" }],
+		["a missing host", {}],
+	])("deletes an apex forwarding entry with %s and leaves subdomain entries alone", async (_label, hostField) => {
 		fetchMock
 			.mockResolvedValueOnce(
 				jsonResponse({
 					urlForwarding: [
 						{
-							forwardsTo: "https://old.example.com",
-							host: "",
-							id: 42,
-							type: "masked",
+							forwardsTo: "https://www.example.com",
+							id: 7,
+							type: "redirect",
+							...hostField,
+						},
+						{
+							forwardsTo: "https://elsewhere.example.net",
+							host: "blog",
+							id: 8,
+							type: "redirect",
 						},
 					],
 				}),
 			)
-			.mockResolvedValueOnce(jsonResponse({}));
+			.mockResolvedValueOnce(new Response(null, { status: 204 }));
 		const provider = new NamecomProvider();
 
-		await provider.setUrlForwarding("example.com", "https://www.example.com");
+		await provider.clearUrlForwarding("example.com");
 
+		expect(fetchMock).toHaveBeenCalledTimes(2);
 		const listRequest = fetchCall(fetchMock, 0);
-		const updateRequest = fetchCall(fetchMock, 1);
-
+		const deleteRequest = fetchCall(fetchMock, 1);
 		expect(listRequest.url).toBe(
 			`${SANDBOX_BASE_URL}/core/v1/urlforwarding/example.com?perPage=1000`,
 		);
 		expect(listRequest.init.method).toBe("GET");
-		expect(updateRequest.url).toBe(
-			`${SANDBOX_BASE_URL}/core/v1/urlforwarding/example.com/42`,
+		expect(deleteRequest.url).toBe(
+			`${SANDBOX_BASE_URL}/core/v1/urlforwarding/example.com/7`,
 		);
-		expect(updateRequest.init.method).toBe("PATCH");
-		expect(jsonBody(updateRequest.init)).toEqual({
-			forwardsTo: "https://www.example.com",
-			host: "",
-			type: "redirect",
-		});
+		expect(deleteRequest.init.method).toBe("DELETE");
+	});
+
+	it("treats a domain without apex forwarding as already cleared", async () => {
+		fetchMock.mockResolvedValueOnce(jsonResponse({ urlForwarding: [] }));
+		const provider = new NamecomProvider();
+
+		await provider.clearUrlForwarding("example.com");
+
+		expect(fetchMock).toHaveBeenCalledTimes(1);
 	});
 });

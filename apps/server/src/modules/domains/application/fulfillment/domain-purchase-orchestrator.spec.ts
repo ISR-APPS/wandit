@@ -59,6 +59,15 @@ function setup(initialState?: DomainPurchaseStateResult) {
 		events.push("custom-hostname");
 		return { ...row, cfCustomHostnameId: "cf_1" };
 	});
+	const apexHostname = vi.fn(
+		async (row: DomainFulfillmentRow): Promise<DomainFulfillmentRow> => {
+			events.push("apex-hostname");
+			return {
+				...row,
+				dns: { ...(row.dns as Record<string, unknown>), apexConfigured: true },
+			};
+		},
+	);
 	const transitionToConfiguring = vi.fn(async (row: DomainFulfillmentRow) => {
 		events.push("transition");
 		return { ...row, status: "configuring" as const };
@@ -75,6 +84,7 @@ function setup(initialState?: DomainPurchaseStateResult) {
 		events.push("terminal-failure");
 	});
 	const orchestrator = new DomainPurchaseOrchestrator({
+		apexHostname: { execute: apexHostname },
 		configuration: { execute: configuration },
 		customHostname: { execute: customHostname },
 		purchasedDns: { execute: purchasedDns },
@@ -84,6 +94,7 @@ function setup(initialState?: DomainPurchaseStateResult) {
 	});
 
 	return {
+		apexHostname,
 		configuration,
 		customHostname,
 		events,
@@ -115,6 +126,7 @@ describe("DomainPurchaseOrchestrator", () => {
 			"registration",
 			"purchased-dns",
 			"custom-hostname",
+			"apex-hostname",
 			"transition",
 			"configuration",
 		]);
@@ -122,10 +134,59 @@ describe("DomainPurchaseOrchestrator", () => {
 			expect.objectContaining({ id: domainId }),
 			orderId,
 		);
+		expect(fixture.apexHostname).toHaveBeenCalledWith(
+			expect.objectContaining({ cfCustomHostnameId: "cf_1" }),
+		);
+		expect(fixture.transitionToConfiguring).toHaveBeenCalledWith(
+			expect.objectContaining({
+				dns: expect.objectContaining({ apexConfigured: true }),
+			}),
+		);
 		expect(fixture.configuration).toHaveBeenCalledWith({
 			domainId,
 			nonce: buildDomainPurchaseNonce(orderId),
 		});
+	});
+
+	it("keeps dispatching configuration when the best-effort apex step reports a deferred apex", async () => {
+		const fixture = setup();
+		fixture.apexHostname.mockImplementationOnce(
+			async (row: DomainFulfillmentRow) => {
+				fixture.events.push("apex-hostname");
+				return {
+					...row,
+					dns: {
+						...(row.dns as Record<string, unknown>),
+						apexError: "Cloudflare custom hostname request failed",
+					},
+				};
+			},
+		);
+
+		await expect(
+			fixture.orchestrator.execute({ domainId, orderId }),
+		).resolves.toEqual({
+			processed: true,
+			status: "active",
+			terminalized: false,
+		});
+
+		expect(fixture.events).toEqual([
+			"registration",
+			"purchased-dns",
+			"custom-hostname",
+			"apex-hostname",
+			"transition",
+			"configuration",
+		]);
+		expect(fixture.transitionToConfiguring).toHaveBeenCalledWith(
+			expect.objectContaining({
+				dns: expect.objectContaining({
+					apexError: "Cloudflare custom hostname request failed",
+				}),
+			}),
+		);
+		expect(fixture.terminalFailure).not.toHaveBeenCalled();
 	});
 
 	it("replaces the old configure enqueue with a direct runner resume", async () => {

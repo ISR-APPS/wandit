@@ -29,8 +29,45 @@ export class CustomHostnameService {
 		});
 	}
 
+	/**
+	 * Purchased-domain apex: the bare name is registered as its own custom
+	 * hostname so Cloudflare holds a certificate for `https://{domain}` and the
+	 * edge can redirect it to www. Never canonicalized.
+	 */
+	createApexCustomHostname(host: string): Promise<CustomHostnameResult> {
+		return this.requestCustomHostname("POST", "", {
+			hostname: host,
+			ssl: {
+				method: "http",
+				type: "dv",
+			},
+		});
+	}
+
 	async getCustomHostnameStatus(id: string): Promise<CustomHostnameResult> {
 		return this.requestCustomHostname("GET", `/${encodeURIComponent(id)}`);
+	}
+
+	/**
+	 * Exact-name lookup so retries and backfills adopt an existing hostname
+	 * instead of tripping Cloudflare's duplicate-hostname error.
+	 */
+	async findCustomHostnameByName(
+		hostname: string,
+	): Promise<CustomHostnameResult | null> {
+		const payload = await this.requestCustomHostnamePayload(
+			"GET",
+			`?hostname=${encodeURIComponent(hostname)}`,
+		);
+		const results = Array.isArray(payload.result) ? payload.result : [];
+		const wanted = hostname.toLowerCase();
+		const match = results.find(
+			(result) =>
+				this.isRecord(result) &&
+				this.stringValue(result.hostname)?.toLowerCase() === wanted,
+		);
+
+		return this.isRecord(match) ? this.mapCustomHostnameResult(match) : null;
 	}
 
 	async deleteCustomHostname(id: string): Promise<void> {
@@ -42,6 +79,28 @@ export class CustomHostnameService {
 		path: string,
 		body?: Record<string, unknown>,
 	): Promise<CustomHostnameResult> {
+		const payload = await this.requestCustomHostnamePayload(method, path, body);
+
+		if (method === "DELETE") {
+			return {
+				hostnameStatus: "deleted",
+				id: "",
+				requiredRecords: [],
+				sslStatus: null,
+				status: "deleted",
+			};
+		}
+
+		return this.mapCustomHostnameResult(
+			this.isRecord(payload.result) ? payload.result : {},
+		);
+	}
+
+	private async requestCustomHostnamePayload(
+		method: "DELETE" | "GET" | "POST",
+		path: string,
+		body?: Record<string, unknown>,
+	): Promise<Record<string, unknown>> {
 		const token = this.requiredEnv(
 			env.CLOUDFLARE_API_TOKEN,
 			"CLOUDFLARE_API_TOKEN",
@@ -63,13 +122,7 @@ export class CustomHostnameService {
 		);
 
 		if (method === "DELETE" && response.status === 404) {
-			return {
-				hostnameStatus: "deleted",
-				id: "",
-				requiredRecords: [],
-				sslStatus: null,
-				status: "deleted",
-			};
+			return {};
 		}
 
 		const payload = await this.safeJson(response);
@@ -84,17 +137,12 @@ export class CustomHostnameService {
 			);
 		}
 
-		if (method === "DELETE") {
-			return {
-				hostnameStatus: "deleted",
-				id: "",
-				requiredRecords: [],
-				sslStatus: null,
-				status: "deleted",
-			};
-		}
+		return payload;
+	}
 
-		const result = this.isRecord(payload.result) ? payload.result : {};
+	private mapCustomHostnameResult(
+		result: Record<string, unknown>,
+	): CustomHostnameResult {
 		const id = typeof result.id === "string" ? result.id : "";
 
 		if (!id) {
