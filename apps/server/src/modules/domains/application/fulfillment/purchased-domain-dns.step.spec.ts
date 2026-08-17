@@ -46,11 +46,6 @@ function setup() {
 			events.push("set-www-cname");
 		},
 	);
-	const setUrlForwarding = vi.fn(
-		async (_name: string, _target: string): Promise<void> => {
-			events.push("set-apex-forwarding");
-		},
-	);
 	const updatePostRegistrationState = vi.fn(
 		async (
 			row: DomainFulfillmentRow,
@@ -62,7 +57,7 @@ function setup() {
 		},
 	);
 	const step = new PurchasedDomainDnsStep(
-		{ setDnsRecords, setUrlForwarding },
+		{ setDnsRecords },
 		{ updatePostRegistrationState },
 		fallbackOrigin,
 	);
@@ -70,22 +65,16 @@ function setup() {
 	return {
 		events,
 		setDnsRecords,
-		setUrlForwarding,
 		step,
 		updatePostRegistrationState,
 	};
 }
 
 describe("PurchasedDomainDnsStep", () => {
-	it("configures the managed CNAME before apex forwarding and then persists the marker", async () => {
+	it("configures only the managed www CNAME and then persists the marker", async () => {
 		const row = makeRow();
-		const {
-			events,
-			setDnsRecords,
-			setUrlForwarding,
-			step,
-			updatePostRegistrationState,
-		} = setup();
+		const { events, setDnsRecords, step, updatePostRegistrationState } =
+			setup();
 
 		await expect(step.execute(row)).resolves.toMatchObject({
 			dns: {
@@ -100,13 +89,10 @@ describe("PurchasedDomainDnsStep", () => {
 				],
 			},
 		});
+		expect(setDnsRecords).toHaveBeenCalledOnce();
 		expect(setDnsRecords).toHaveBeenCalledWith("example.com", [
 			{ name: "www", type: "CNAME", value: fallbackOrigin },
 		]);
-		expect(setUrlForwarding).toHaveBeenCalledWith(
-			"example.com",
-			"https://www.example.com",
-		);
 		expect(updatePostRegistrationState).toHaveBeenCalledWith(row, {
 			dns: {
 				purchaseDnsConfigured: true,
@@ -120,11 +106,7 @@ describe("PurchasedDomainDnsStep", () => {
 				],
 			},
 		});
-		expect(events).toEqual([
-			"set-www-cname",
-			"set-apex-forwarding",
-			"persist-dns-marker",
-		]);
+		expect(events).toEqual(["set-www-cname", "persist-dns-marker"]);
 	});
 
 	it("preserves passthrough DNS state and appends the managed CNAME", async () => {
@@ -185,16 +167,10 @@ describe("PurchasedDomainDnsStep", () => {
 				records: [],
 			},
 		});
-		const {
-			setDnsRecords,
-			setUrlForwarding,
-			step,
-			updatePostRegistrationState,
-		} = setup();
+		const { setDnsRecords, step, updatePostRegistrationState } = setup();
 
 		await expect(step.execute(row)).resolves.toBe(row);
 		expect(setDnsRecords).not.toHaveBeenCalled();
-		expect(setUrlForwarding).not.toHaveBeenCalled();
 		expect(updatePostRegistrationState).not.toHaveBeenCalled();
 	});
 
@@ -219,37 +195,17 @@ describe("PurchasedDomainDnsStep", () => {
 		});
 	});
 
-	it("does not forward or persist when the registrar CNAME call fails", async () => {
-		const {
-			setDnsRecords,
-			setUrlForwarding,
-			step,
-			updatePostRegistrationState,
-		} = setup();
+	it("does not persist when the registrar CNAME call fails", async () => {
+		const { setDnsRecords, step, updatePostRegistrationState } = setup();
 		const registrarError = new Error("registrar DNS timeout");
 		setDnsRecords.mockRejectedValueOnce(registrarError);
 
 		await expect(step.execute(makeRow())).rejects.toBe(registrarError);
-		expect(setUrlForwarding).not.toHaveBeenCalled();
 		expect(updatePostRegistrationState).not.toHaveBeenCalled();
 	});
 
-	it("does not persist the marker when apex forwarding fails", async () => {
-		const { setUrlForwarding, step, updatePostRegistrationState } = setup();
-		const registrarError = new Error("registrar forwarding timeout");
-		setUrlForwarding.mockRejectedValueOnce(registrarError);
-
-		await expect(step.execute(makeRow())).rejects.toBe(registrarError);
-		expect(updatePostRegistrationState).not.toHaveBeenCalled();
-	});
-
-	it("propagates a registering-CAS financial race after idempotent DNS calls", async () => {
-		const {
-			setDnsRecords,
-			setUrlForwarding,
-			step,
-			updatePostRegistrationState,
-		} = setup();
+	it("propagates a registering-CAS financial race after the idempotent DNS call", async () => {
+		const { setDnsRecords, step, updatePostRegistrationState } = setup();
 		updatePostRegistrationState.mockRejectedValueOnce(
 			new OrderFulfillmentStoppedError("financial_race"),
 		);
@@ -258,6 +214,5 @@ describe("PurchasedDomainDnsStep", () => {
 			reason: "financial_race",
 		});
 		expect(setDnsRecords).toHaveBeenCalledTimes(1);
-		expect(setUrlForwarding).toHaveBeenCalledTimes(1);
 	});
 });

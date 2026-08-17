@@ -372,7 +372,7 @@ class FakeProvider implements DomainProvider {
 		async (_name: string, _records: DomainDnsRecord[]) => undefined,
 	);
 
-	readonly setUrlForwarding = vi.fn(async () => undefined);
+	readonly clearUrlForwarding = vi.fn(async (_name: string) => undefined);
 
 	async getAuthCode() {
 		return this.authCode;
@@ -465,7 +465,7 @@ function expectNoRegistrarMutation(provider: FakeProvider) {
 	expect(provider.register).not.toHaveBeenCalled();
 	expect(provider.renew).not.toHaveBeenCalled();
 	expect(provider.setDnsRecords).not.toHaveBeenCalled();
-	expect(provider.setUrlForwarding).not.toHaveBeenCalled();
+	expect(provider.clearUrlForwarding).not.toHaveBeenCalled();
 	expect(provider.lockCalls).toHaveLength(0);
 }
 
@@ -1033,6 +1033,29 @@ describe("DomainsService", () => {
 		expect(repository.rows.get(second.id)?.providerDomainId).toBeNull();
 		expect(routing.deleted).toEqual(["second.com"]);
 		expect(cloudflare.deleteCustomHostname).toHaveBeenCalledWith("cf_detach");
+	});
+
+	it("detach also deletes the purchased apex custom hostname recorded in dns", async () => {
+		const { cloudflare, repository, service } = setup();
+		const row = repository.seed({
+			cfCustomHostnameId: "cf_www",
+			dns: {
+				apexConfigured: true,
+				apexCustomHostnameId: "cf_apex",
+				records: [],
+			},
+			name: "apex.com",
+			projectId,
+			source: "purchased",
+			status: "active",
+		});
+
+		await service.detach(row.id, scope);
+
+		expect(cloudflare.deleteCustomHostname.mock.calls).toEqual([
+			["cf_www"],
+			["cf_apex"],
+		]);
 	});
 
 	it("transfer unlock returns the auth code without logging or storing it", async () => {

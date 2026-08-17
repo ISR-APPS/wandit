@@ -1,6 +1,6 @@
 # Custom Domains (buy in-app + bring your own)
 
-**Status:** Name.com + Stripe purchase fulfillment and BYO configuration use Trigger.dev v4 tasks; paid renewal remains intentionally disabled · **Direction updated:** 2026-08-01
+**Status:** Name.com + Stripe purchase fulfillment and BYO configuration use Trigger.dev v4 tasks; paid renewal remains intentionally disabled · **Direction updated:** 2026-08-17
 
 Extends `docs/features/publishing-serving.md` with real domains on top of `{slug}.wandit.app`.
 
@@ -17,7 +17,7 @@ Users can either buy a domain inside Wandit or connect one they already own. Pur
 - **Privacy starts disabled.** Name.com may charge separately for privacy and VAT. It can be offered only after checkout quotes and pays for the complete registrar cost.
 - **Wandit owns renewal timing.** Registrar autorenew is disabled at registration; the local `auto_renew` flag expresses customer intent. No renewal call is allowed without a successful payment event for that renewal.
 - **Serving remains registrar-independent.** Cloudflare for SaaS issues certificates, `apps/edge` routes hosts through KV/R2, and publishing refreshes each active domain pointer.
-- **Canonical host:** `www.{domain}` CNAMEs to `customers.wandit.app`; Name.com URL forwarding redirects the apex to `www`.
+- **Canonical host:** `www.{domain}` CNAMEs to `customers.wandit.app` and is the hostname that serves the site. The bare apex is also served through Cloudflare: for purchased domains, `ApexHostnameStep` writes an apex `ANAME` to the fallback origin at Name.com and creates a second Cloudflare custom hostname for the bare name, so `https://{domain}` has a certificate; `apps/edge` then 301-redirects any apex request to `https://www.{domain}`. Name.com URL forwarding is no longer used: the registrar's forwarding host answers `http://` only (no TLS certificate), so `https://{domain}` was refused by every modern browser. The apex path is best-effort and never blocks or delays the www path: a failed pass is stored in `dns.apexError`, retried automatically before every certificate-verification probe while the row is `configuring`, and — once the row is `active` — only by the `domains:backfill-apex` script.
 - **Domain ownership survives project deletion.** Deleting a project detaches its domains; it never releases a registration.
 - **`.dz`, IDNs, transfers-in, and aftermarket domains are deferred.**
 
@@ -42,8 +42,9 @@ Business work is split into independently testable steps with narrow structural 
 
 - fulfillment-state validation and the pre-spend order fence;
 - Name.com registration and receipt persistence;
-- managed DNS/apex forwarding;
+- managed www DNS;
 - Cloudflare custom-hostname creation and challenge propagation;
+- best-effort apex serving (apex Cloudflare hostname, apex ANAME, registrar forwarding removal), tracked in `dns.apexConfigured` / `dns.apexError`;
 - one read-only verification probe;
 - cursor-owned verification orchestration;
 - activation, KV publication, and order completion;
@@ -57,8 +58,9 @@ Business work is split into independently testable steps with narrow structural 
 verified Stripe payment
   -> fenced domain row + global domain-purchase handoff
   -> thin task wrapper + task-local runtime
-  -> state -> Name.com registration -> managed DNS
-  -> Cloudflare hostname/challenges -> one-probe verification loop
+  -> state -> Name.com registration -> managed www DNS
+  -> Cloudflare www hostname/challenges -> best-effort apex (hostname + ANAME)
+  -> one-probe verification loop (apex retried before each probe)
   -> activation + KV + order fulfilled
   -> on terminal failure: accept global order-refund first
   -> refund runner -> Stripe refund with the order-derived key
@@ -116,7 +118,7 @@ Trigger global idempotency prevents duplicate ordinary delivery. DB status guard
 
 **Search:** normalize the query → check the supported launch TLDs with Name.com → correlate unordered results by domain name → expose availability plus the **retail** USD registration price (the live wholesale quote rounded to cents plus $2) for safe results → mark premium, non-registration, missing-price, and over-ceiling results not purchasable. Name.com's wholesale quote never crosses the wire; it stays server-side as the fail-closed pricing guard.
 
-**Purchase:** choose a domain and provide registrant details → `POST /api/v1/orders/domain` re-checks availability and both wholesale/retail margin guards, freezes a price snapshot, and creates Stripe Checkout → Stripe webhook or return-page reconciliation verifies payment → `DomainRegistrationFulfillment` creates/reuses the fenced row and dispatches `domain-purchase` → the task re-checks the fence and registers with the stable Name.com key → persists the registrar receipt → manages DNS/apex forwarding → creates the Cloudflare hostname and registrar validation records → resumes durable certificate verification → publishes KV when applicable → domain `active` → order `fulfilled`.
+**Purchase:** choose a domain and provide registrant details → `POST /api/v1/orders/domain` re-checks availability and both wholesale/retail margin guards, freezes a price snapshot, and creates Stripe Checkout → Stripe webhook or return-page reconciliation verifies payment → `DomainRegistrationFulfillment` creates/reuses the fenced row and dispatches `domain-purchase` → the task re-checks the fence and registers with the stable Name.com key → persists the registrar receipt → writes the managed `www` CNAME → creates the Cloudflare `www` hostname and registrar validation records → best-effort apex: Cloudflare apex hostname (adopting an existing one by name), apex `ANAME` → fallback origin, Name.com URL forwarding removed, `dns.apexConfigured` persisted (a failure is stored in `dns.apexError` and never fails the purchase) → resumes durable certificate verification for the `www` hostname, re-running the apex step before each probe until `dns.apexConfigured` is set → publishes KV when applicable → domain `active` → order `fulfilled`. A domain that reaches `active` with the apex still deferred is www-only until an operator runs `domains:backfill-apex`; the `domain-configure` task (manual verify) does not retry it because it asserts no registrar credentials.
 
 **BYO:** create an external-domain row → create the Cloudflare custom hostname → return required CNAME/TXT records → user configures DNS → dispatch `domain-configure` with a global domain+nonce key → durable verification resumes until active or returns external-pending. BYO needs neither registrar credentials nor payment.
 
@@ -149,14 +151,27 @@ All routes are authenticated and ownership-guarded. Registrar and payment failur
 
 ## Provider infrastructure
 
-`DomainProvider` owns availability, registration, renewal, managed DNS, apex forwarding, auth-code, lock, and domain-info operations. `NamecomProvider` maps that port to Name.com CORE v1:
+`DomainProvider` owns availability, registration, renewal, managed DNS (A/AAAA/ANAME/CNAME/TXT), apex URL-forwarding removal, auth-code, lock, and domain-info operations. `NamecomProvider` maps that port to Name.com CORE v1:
 
 - sandbox `https://api.dev.name.com`; production `https://api.name.com`;
 - HTTP Basic authentication with username plus API token;
 - `X-Idempotency-Key` on registration;
-- individual DNS-record reconciliation that preserves records Wandit does not own;
-- URL-forwarding upsert for the apex;
+- individual DNS-record reconciliation that preserves records Wandit does not own; an apex `ANAME` replaces an existing apex ANAME/CNAME in place and deletes apex A/AAAA records first (registrar-forwarding artifacts — only Wandit manages purchased-domain DNS);
+- `clearUrlForwarding`: lists `/core/v1/urlforwarding/{domain}` and deletes every apex entry (`DELETE /core/v1/urlforwarding/{domain}/{id}`); idempotent, no-op when none exist;
 - structured retryability for `429`, transient `5xx`, and network failures.
+
+### Backfill existing purchased domains
+
+Purchased domains fulfilled before the apex step exist only serve `www.{domain}`. Run the backfill once per environment (it is safe to repeat; rows already carrying `dns.apexConfigured` are skipped and rows with `dns.apexError` are retried):
+
+```bash
+cd apps/server
+pnpm domains:backfill-apex -- --dry-run            # list candidates, change nothing
+pnpm domains:backfill-apex                         # process every candidate
+pnpm domains:backfill-apex -- --domain example.com # one domain
+```
+
+It reads `apps/server/.env` like the other scripts and needs `DATABASE_URL`, `NAMECOM_ENVIRONMENT`/`NAMECOM_USERNAME`/`NAMECOM_API_TOKEN`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ZONE_ID_WANDIT_APP`, and `DOMAINS_FALLBACK_ORIGIN` (schema default `customers.wandit.app`); no new variables. It prints a table of `name / apexCustomHostnameId / apexConfigured / apexError` and exits non-zero while any domain still needs a retry. Apex keys are merged into `dns` (jsonb `||`, fenced on `registering`/`configuring`/`active`) rather than replacing it, so a `configuring` row's live verification cursor is never overwritten and the script can run beside an in-flight purchase.
 
 ## Trigger.dev environment requirements
 
@@ -173,7 +188,7 @@ Set these in every Trigger.dev environment that can run the relevant tasks. Prod
 | `CLOUDFLARE_API_TOKEN` | Purchase, BYO configuration, activation, and cleanup | Custom hostname, zone lookup, and KV operations. |
 | `CLOUDFLARE_ZONE_ID_WANDIT_APP` | Purchase, BYO configuration, activation, and cleanup | Custom-hostname zone and Cloudflare account resolution. No `CLOUDFLARE_ACCOUNT_ID` is needed. |
 | `CLOUDFLARE_KV_NAMESPACE_ID` | Purchase/BYO activation and cleanup | KV `domain:{host}` pointer mutations. |
-| `DOMAINS_FALLBACK_ORIGIN` | Purchased managed DNS | `www` CNAME target; set explicitly (current shared-schema default: `customers.wandit.app`). |
+| `DOMAINS_FALLBACK_ORIGIN` | Purchased managed DNS | `www` CNAME and apex `ANAME` target; set explicitly (current shared-schema default: `customers.wandit.app`). |
 | `STRIPE_SECRET_KEY` | Refund; purchase preflight | Required for a captured-payment refund. Purchase asserts it before any Name.com spend. |
 
 Task-specific first operations:
@@ -239,7 +254,7 @@ Follow this order; it is designed to survive restarts and preserve elapsed certi
 
 ## Launch gates
 
-- Name.com sandbox: availability, idempotent registration, contact mapping, DNS, forwarding (apex `host: ""`), lock/auth-code, and retry behavior verified.
+- Name.com sandbox: availability, idempotent registration, contact mapping, DNS (including the apex `ANAME` and apex A/AAAA removal), apex URL-forwarding deletion (`host: ""`), lock/auth-code, and retry behavior verified.
 - Payments: signed webhook verification, amount/currency/order matching, duplicate events, checkout expiry, refund reconciliation, and fulfillment tests green.
 - Name.com account funding and low-balance alerts configured.
 - Retail price catalog calibrated against complete Name.com cost, including renewal, privacy, and tax exposure.
