@@ -62,7 +62,8 @@
 			"many": "تمت مزامنة {count} عميلًا",
 			"other": "تمت مزامنة {count} عميل"
 		},
-		"errorToast": "فشلت المزامنة مع Google Sheets. حاول مجددًا."
+		"errorToast": "فشلت المزامنة مع Google Sheets. حاول مجددًا.",
+		"comingSoon": "مزامنة Google Sheets — قريبًا"
 	},
 	"codPilotSync": {
 		"sync": "مزامنة COD Pilot",
