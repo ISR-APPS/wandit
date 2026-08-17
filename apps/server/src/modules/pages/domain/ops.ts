@@ -61,7 +61,10 @@ export function applyOps(
 			return { index, ok: false, reason };
 		}
 
-		if (op.kind === "set-tokens" || op.kind === "reset-tokens") {
+		if (op.kind === "set-page-title") {
+			// Head-level op: no wid, so it gets its own sentinel.
+			editedWids.add("__title__");
+		} else if (op.kind === "set-tokens" || op.kind === "reset-tokens") {
 			tokensTouched = true;
 			resetTokensTouched ||= op.kind === "reset-tokens";
 
@@ -118,6 +121,10 @@ function applyOne(
 		appendOriginalFontLinks($, context.originalTheme.fontLinkHrefs);
 
 		return null;
+	}
+
+	if (op.kind === "set-page-title") {
+		return applyPageTitle($, op.value);
 	}
 
 	const match = $(`[data-wid="${op.wid}"]`);
@@ -971,6 +978,29 @@ function ensureRootBlock(
 	}
 
 	return injected;
+}
+
+// Document <title> (the browser tab). The lookup is scoped to the head so an
+// inline SVG <title> in the body is never touched, and the value goes through
+// text() — cheerio escapes it, so a "</title><script>" value stays inert.
+function applyPageTitle($: CheerioAPI, value: string): string | null {
+	const head = $("head").first();
+
+	if (head.length === 0) {
+		return "this page has no <head> element";
+	}
+
+	let title = head.children("title").first();
+
+	if (title.length === 0) {
+		// Appended, never prepended: <meta charset> must stay first in the head.
+		head.append("<title></title>");
+		title = head.children("title").last();
+	}
+
+	title.text(value);
+
+	return null;
 }
 
 function applySetTokens(

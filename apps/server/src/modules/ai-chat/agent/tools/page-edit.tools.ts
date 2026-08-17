@@ -137,7 +137,7 @@ export function createPageEditTools(deps: PageEditToolsDeps): PageEditTools {
 				"with image-src when a final Wandit-hosted URL is known, element " +
 				"styles, link hrefs, removing an element, inserting one element inside " +
 				"an existing section or container, hosted section backgrounds and " +
-				"padding, or " +
+				"padding, the browser-tab page title with set-page-title, or " +
 				"theme-wide changes with set-tokens. set-tokens edits the page's 11 " +
 				":root tokens and restyles the whole page consistently. Use one op " +
 				"per user ask when possible. For one new section, use insert_section. " +
