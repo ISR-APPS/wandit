@@ -3,4 +3,6 @@ export type {
 	CreditLedgerQuery,
 	CreditLedgerResponse,
 	CreditLedgerRow,
+	WorkspaceCreditBalance,
+	WorkspaceCreditBalancesResponse,
 } from "@wandit/contracts";

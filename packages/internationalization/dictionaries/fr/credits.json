@@ -19,6 +19,11 @@
 		"cta": "Mettre à niveau",
 		"pausedBody": "L'achat de crédits est en pause pendant la bêta."
 	},
+	"elsewhere": {
+		"chipHint": "Vos crédits sont dans {name}",
+		"dialogHint": "Vous avez {balance} crédits dans {name}",
+		"switch": "Changer"
+	},
 	"buckets": {
 		"plan": "Offre",
 		"promo": "Promotionnels",
