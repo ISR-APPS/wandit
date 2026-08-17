@@ -1,17 +1,13 @@
 import { logger as triggerLogger } from "@trigger.dev/sdk";
-import type { DomainStatus } from "@wandit/contracts";
 import type { createDb } from "@wandit/db";
 import { Sentry } from "@wandit/observability/node";
 
-import { ApexHostnameStep } from "../modules/domains/application/fulfillment/apex-hostname.step";
 import { CustomHostnameConfigurationStep } from "../modules/domains/application/fulfillment/custom-hostname-configuration.step";
 import { CustomHostnameVerificationStep } from "../modules/domains/application/fulfillment/custom-hostname-verification.step";
 import { DomainActivationStep } from "../modules/domains/application/fulfillment/domain-activation.step";
 import { DomainConfigurationRunner } from "../modules/domains/application/fulfillment/domain-configuration-runner";
 import type {
-	DomainApexDnsPatch,
 	DomainFulfillmentLogger,
-	DomainFulfillmentRow,
 	DomainPurchasePayload,
 	DurableWait,
 } from "../modules/domains/application/fulfillment/domain-fulfillment.contracts";
@@ -53,37 +49,13 @@ type PurchaseRuntimeOptions = ConfigurationRuntimeOptions & {
 	fallbackOrigin: string;
 };
 
-type ApexBackfillRuntimeOptions = {
-	fallbackOrigin: string;
-	logger: DomainFulfillmentLogger;
-};
-
-/**
- * Apex dns writes may land while the row is `registering` (purchase pass),
- * `configuring` (verification probes, backfill) or `active` (backfill), and
- * must never reach a terminal row whose hostnames were already released.
- */
-const APEX_DNS_LIVE_STATUSES: DomainStatus[] = [
-	"registering",
-	"configuring",
-	"active",
-];
-
 /** Hand-wires the complete purchased-domain workflow for one task-local DB. */
 export function createDomainPurchaseRuntime(
 	db: Database,
 	options: PurchaseRuntimeOptions,
 ) {
-	const infrastructure = createDomainInfrastructure(db, options.logger);
+	const core = createDomainCore(db, options);
 	const registrar = new NamecomProvider();
-	const apexHostname = new ApexHostnameStep(
-		infrastructure.customHostnames,
-		registrar,
-		createApexDnsState(infrastructure.domains),
-		options.logger,
-		options.fallbackOrigin,
-	);
-	const core = createDomainCore(infrastructure, options, apexHostname);
 	const registration = new DomainRegistrationStep(registrar, core.state);
 	const purchasedDns = new PurchasedDomainDnsStep(
 		registrar,
@@ -97,7 +69,6 @@ export function createDomainPurchaseRuntime(
 		options.logger,
 	);
 	const purchase = new DomainPurchaseOrchestrator({
-		apexHostname,
 		configuration: core.configuration,
 		customHostname,
 		purchasedDns,
@@ -114,44 +85,12 @@ export function createDomainPurchaseRuntime(
 	};
 }
 
-/**
- * Apex-only composition for `scripts/backfill-apex-domains.ts`. It runs the
- * same best-effort ApexHostnameStep, with the same merge-based apex dns
- * persistence, as the purchase runtime.
- */
-export function createDomainApexBackfillRuntime(
-	db: Database,
-	options: ApexBackfillRuntimeOptions,
-) {
-	const domains = new DomainsRepository(db);
-	const state = createApexDnsState(domains);
-
-	return {
-		apexHostname: new ApexHostnameStep(
-			new CustomHostnameService(),
-			new NamecomProvider(),
-			state,
-			options.logger,
-			options.fallbackOrigin,
-		),
-		domains,
-		state,
-	};
-}
-
-/**
- * Hand-wires the BYO/custom-hostname verification workflow only. The apex
- * retry is deliberately absent: `domain-configure` asserts no registrar
- * credentials, so purchased rows are only retried by the purchase runtime.
- */
+/** Hand-wires the BYO/custom-hostname verification workflow only. */
 export function createDomainConfigurationRuntime(
 	db: Database,
 	options: ConfigurationRuntimeOptions,
 ) {
-	const core = createDomainCore(
-		createDomainInfrastructure(db, options.logger),
-		options,
-	);
+	const core = createDomainCore(db, options);
 
 	return { configuration: core.configuration };
 }
@@ -214,39 +153,8 @@ const triggerDomainLogger: DomainFulfillmentLogger = {
 	},
 };
 
-/**
- * ApexHostnameStep state: a jsonb merge of the apex-owned keys fenced on the
- * live statuses. A lost fence throws so the step records nothing for a row
- * that was terminalized underneath it (and releases a hostname it just made).
- */
-function createApexDnsState(domains: DomainsRepository) {
-	return {
-		async persistApexDns(
-			row: DomainFulfillmentRow,
-			patch: DomainApexDnsPatch,
-		): Promise<DomainFulfillmentRow> {
-			const updated = await domains.mergeDnsIfStatus(
-				row.id,
-				APEX_DNS_LIVE_STATUSES,
-				patch,
-			);
-
-			if (!updated) {
-				throw new Error(
-					`Domain ${row.id} left status ${row.status} during apex configuration`,
-				);
-			}
-
-			return updated;
-		},
-	};
-}
-
-function createDomainCore(
-	infrastructure: ReturnType<typeof createDomainInfrastructure>,
-	options: ConfigurationRuntimeOptions,
-	apexHostname?: ApexHostnameStep,
-) {
+function createDomainCore(db: Database, options: ConfigurationRuntimeOptions) {
+	const infrastructure = createDomainInfrastructure(db, options.logger);
 	const activation = new DomainActivationStep({
 		activateExternalDomain: (domainId, statuses) =>
 			infrastructure.domains.activateAndClearExternalVerification(
@@ -273,7 +181,6 @@ function createDomainCore(
 	);
 	const configuration = new DomainConfigurationRunner({
 		activation,
-		apexHostname,
 		cursors: {
 			advanceCursor: (domainId, input) =>
 				infrastructure.domains.advanceCursor(domainId, input),

@@ -432,30 +432,6 @@ describe("DomainActivationStep", () => {
 		expect(fixture.dependencies.markOrderFulfilled).not.toHaveBeenCalled();
 	});
 
-	it("deletes the apex custom hostname next to the www hostname when cleaning a failed row", async () => {
-		const fixture = setup(
-			domain("failed", {
-				dns: { apexConfigured: true, apexCustomHostnameId: "cf_apex" },
-			}),
-		);
-
-		await expect(fixture.step.execute(fixture.domain)).resolves.toEqual({
-			processed: false,
-			reason: "state_changed",
-		});
-
-		expect(fixture.events).toEqual([
-			"delete-hostname:cf_domain_1",
-			"delete-hostname:cf_apex",
-			"delete-pointer:example.com",
-			"cas:failed:same",
-		]);
-		expect(fixture.domain).toMatchObject({
-			cfCustomHostnameId: null,
-			dns: { apexConfigured: true, apexCustomHostnameId: "cf_apex" },
-		});
-	});
-
 	it("does not reactivate an already-failed delivery and tolerates cleanup failure", async () => {
 		const fixture = setup(domain("failed"));
 		fixture.dependencies.deleteCustomHostname.mockRejectedValueOnce(

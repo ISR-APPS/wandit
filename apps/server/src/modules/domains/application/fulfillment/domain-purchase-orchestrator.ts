@@ -24,9 +24,6 @@ export type DomainPurchaseRunResult =
 	  };
 
 type DomainPurchaseOrchestratorDependencies = {
-	apexHostname: {
-		execute(row: DomainFulfillmentRow): Promise<DomainFulfillmentRow>;
-	};
 	configuration: {
 		execute(input: {
 			domainId: string;
@@ -105,9 +102,6 @@ export class DomainPurchaseOrchestrator {
 			row = await this.dependencies.registration.execute(row, state.orderId);
 			row = await this.dependencies.purchasedDns.execute(row);
 			row = await this.dependencies.customHostname.execute(row);
-			// Best-effort by contract: the apex step never throws, so an apex
-			// hiccup cannot fail or delay the www path below.
-			row = await this.dependencies.apexHostname.execute(row);
 			row = await this.dependencies.state.transitionToConfiguring(row);
 
 			return await this.dependencies.configuration.execute({

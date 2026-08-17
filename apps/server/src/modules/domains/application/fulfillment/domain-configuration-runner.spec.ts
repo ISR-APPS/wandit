@@ -44,7 +44,6 @@ function domain(
 
 function setup(
 	input: {
-		apexHostname?: (row: DomainFulfillmentRow) => Promise<DomainFulfillmentRow>;
 		cursor?: DomainConfigurationCursor | null;
 		now?: Date;
 		row?: DomainFulfillmentRow | null;
@@ -193,12 +192,8 @@ function setup(
 
 		return verificationResults.shift() ?? { status: "pending" as const };
 	});
-	const apexHostname = input.apexHostname
-		? vi.fn(input.apexHostname)
-		: undefined;
 	const runner = new DomainConfigurationRunner({
 		activation: { execute: activation },
-		apexHostname: apexHostname ? { execute: apexHostname } : undefined,
 		cursors: {
 			advanceCursor,
 			clearCursor,
@@ -217,7 +212,6 @@ function setup(
 		activation,
 		activationResults,
 		advanceCursor,
-		apexHostname,
 		clearCursor,
 		get cursor() {
 			return cursor;
@@ -353,72 +347,6 @@ describe("DomainConfigurationRunner", () => {
 		expect(fixture.advanceCursor).toHaveBeenCalledBefore(fixture.waitUntil);
 		expect(fixture.waits).toEqual([new Date("2026-08-01T00:00:30.000Z")]);
 		expect(fixture.probes).toHaveLength(2);
-	});
-
-	it("retries the best-effort apex step before every probe of a purchased row and activates with its latest row", async () => {
-		let apexAttempts = 0;
-		const fixture = setup({
-			apexHostname: async (row) => {
-				apexAttempts += 1;
-				const updated = {
-					...row,
-					dns:
-						apexAttempts === 1
-							? { apexError: "Registrar request failed" }
-							: { apexConfigured: true },
-				};
-				fixture.row = updated;
-
-				return updated;
-			},
-		});
-		fixture.verificationResults.push(
-			{ status: "pending" },
-			{ status: "pending" },
-			{ status: "active" },
-		);
-
-		await expect(
-			fixture.runner.execute({ domainId, nonce: purchaseNonce }),
-		).resolves.toEqual({
-			processed: true,
-			status: "active",
-			terminalized: false,
-		});
-
-		expect(fixture.apexHostname).toHaveBeenCalledTimes(3);
-		expect(fixture.probes).toHaveLength(3);
-		expect(fixture.apexHostname).toHaveBeenCalledBefore(fixture.verification);
-		expect(fixture.apexHostname).toHaveBeenNthCalledWith(
-			2,
-			expect.objectContaining({
-				dns: { apexError: "Registrar request failed" },
-			}),
-		);
-		expect(fixture.activation).toHaveBeenCalledExactlyOnceWith(
-			expect.objectContaining({ dns: { apexConfigured: true } }),
-		);
-		expect(fixture.waits).toEqual([
-			new Date("2026-08-01T00:00:30.000Z"),
-			new Date("2026-08-01T00:01:30.000Z"),
-		]);
-	});
-
-	it("never runs the apex retry for external rows", async () => {
-		const fixture = setup({
-			apexHostname: async (row) => row,
-			row: domain({ paymentOrderId: null, source: "external" }),
-		});
-		fixture.verificationResults.push({ status: "active" });
-
-		await expect(
-			fixture.runner.execute({ domainId, nonce: "manual:1" }),
-		).resolves.toEqual({
-			processed: true,
-			status: "active",
-			terminalized: false,
-		});
-		expect(fixture.apexHostname).not.toHaveBeenCalled();
 	});
 
 	it("uses the same persisted wait policy for a transient KV activation failure", async () => {

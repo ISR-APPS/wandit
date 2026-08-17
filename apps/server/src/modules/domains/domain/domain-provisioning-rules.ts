@@ -50,21 +50,6 @@ export function wwwCnameTrafficRecord(
 	};
 }
 
-/**
- * Purchased domains point the bare apex at the SaaS fallback origin with an
- * ANAME (registrar-side CNAME flattening); the edge then redirects apex → www.
- */
-export function apexAnameTrafficRecord(
-	fallbackOrigin: string,
-): RequiredDomainRecord {
-	return {
-		name: "@",
-		purpose: "traffic",
-		type: "ANAME",
-		value: fallbackOrigin,
-	};
-}
-
 export function wholesaleQuoteBlockReason(
 	quote: WholesaleQuote,
 	wholesaleCeilingUsd: number,

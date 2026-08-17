@@ -21,12 +21,8 @@ const MAX_OBSERVED_VALUES = 20;
 const MAX_OBSERVED_VALUE_LENGTH = 256;
 
 type DnsLookupResult =
-	// "found"/"mismatch" come from lookups that already compared against the
-	// expected value (ANAME); "resolved" leaves that comparison to the caller.
-	| { status: "found" | "mismatch" | "missing" | "unknown"; values: string[] }
+	| { status: "missing" | "unknown"; values: string[] }
 	| { status: "resolved"; values: string[] };
-
-type ResolvableRecordType = Exclude<RequiredDomainRecord["type"], "ANAME">;
 
 class DnsQueryTimeoutError extends Error {}
 
@@ -51,11 +47,9 @@ export class DomainDnsDiagnosticsService {
 		const records = await Promise.all(
 			requiredRecords.map(async (record) => {
 				const hostname = this.recordHostname(row.name, record.name);
-				const key =
-					record.type === "ANAME"
-						? `ANAME:${hostname}:${record.value}`
-						: `${record.type}:${hostname}`;
-				const lookup = lookups.get(key) ?? this.lookupRecord(record, hostname);
+				const key = `${record.type}:${hostname}`;
+				const lookup =
+					lookups.get(key) ?? this.lookupRecord(record.type, hostname);
 				lookups.set(key, lookup);
 
 				return this.diagnosticFor(record, await lookup);
@@ -70,15 +64,9 @@ export class DomainDnsDiagnosticsService {
 	}
 
 	private async lookupRecord(
-		record: Pick<RequiredDomainRecord, "type" | "value">,
+		type: RequiredDomainRecord["type"],
 		hostname: string,
 	): Promise<DnsLookupResult> {
-		if (record.type === "ANAME") {
-			return this.lookupAname(hostname, record.value);
-		}
-
-		const type: ResolvableRecordType = record.type;
-
 		try {
 			const values = await this.withTimeout(this.resolve(type, hostname));
 
@@ -96,54 +84,9 @@ export class DomainDnsDiagnosticsService {
 		}
 	}
 
-	/**
-	 * An ANAME is invisible to resolvers: the apex answers with the target's A/AAAA
-	 * addresses. It is satisfied when the apex answers are a non-empty subset of
-	 * the target's current answers. An unresolvable target cannot be judged.
-	 */
-	private async lookupAname(
-		hostname: string,
-		target: string,
-	): Promise<DnsLookupResult> {
-		const [observed, expected] = await Promise.all([
-			this.lookupAddresses(hostname),
-			this.lookupAddresses(this.withoutTrailingDot(target.trim())),
-		]);
-
-		if (observed.status !== "resolved") {
-			return observed;
-		}
-
-		if (expected.status !== "resolved") {
-			return { status: "unknown", values: observed.values };
-		}
-
-		const expectedAddresses = new Set(
-			expected.values.map((value) => value.toLowerCase()),
-		);
-
-		return {
-			status: observed.values.every((value) =>
-				expectedAddresses.has(value.toLowerCase()),
-			)
-				? "found"
-				: "mismatch",
-			values: observed.values,
-		};
-	}
-
 	private async lookupFlattenedCname(
 		hostname: string,
 	): Promise<DnsLookupResult> {
-		const addresses = await this.lookupAddresses(hostname);
-
-		// Flattened answers cannot prove which CNAME target produced them.
-		return addresses.status === "resolved"
-			? { status: "unknown", values: addresses.values }
-			: addresses;
-	}
-
-	private async lookupAddresses(hostname: string): Promise<DnsLookupResult> {
 		const results = await Promise.allSettled([
 			this.withTimeout(resolve4(hostname)),
 			this.withTimeout(resolve6(hostname)),
@@ -153,7 +96,7 @@ export class DomainDnsDiagnosticsService {
 		);
 
 		if (values.length > 0) {
-			return { status: "resolved", values };
+			return { status: "unknown", values };
 		}
 
 		if (results.some((result) => result.status === "fulfilled")) {
@@ -169,7 +112,7 @@ export class DomainDnsDiagnosticsService {
 	}
 
 	private async resolve(
-		type: ResolvableRecordType,
+		type: RequiredDomainRecord["type"],
 		hostname: string,
 	): Promise<string[]> {
 		switch (type) {

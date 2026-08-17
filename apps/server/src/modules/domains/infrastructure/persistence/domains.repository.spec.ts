@@ -352,54 +352,6 @@ describe("DomainsRepository Trigger configuration cursor", () => {
 	});
 });
 
-describe("DomainsRepository apex dns merge", () => {
-	it("merges only the sent apex keys, removes null keys, and fences on live statuses", async () => {
-		const current = { id: DOMAIN_ID, status: "configuring" };
-		const { query, repository } = repositoryWithQuery([{ id: DOMAIN_ID }]);
-		vi.spyOn(repository, "getById").mockResolvedValue(current as never);
-		const records = [{ name: "@", type: "ANAME", value: "origin.example" }];
-
-		await expect(
-			repository.mergeDnsIfStatus(
-				DOMAIN_ID,
-				["registering", "configuring", "active"],
-				{
-					apexConfigured: true,
-					apexCustomHostnameId: undefined,
-					apexError: null,
-					records,
-				},
-			),
-		).resolves.toEqual(current);
-
-		const statement = compactSql(query);
-		// `||` merge, never `dns = $patch`: a live triggerConfiguration cursor
-		// that is not in the patch stays untouched.
-		expect(statement).toContain("- $3::text[]) || $2::jsonb");
-		expect(statement).not.toContain("dns = $2");
-		expect(statement).toContain("status = ANY($4::domain_status[])");
-		expect(statement).toContain("updated_at = updated_at");
-		expect(queryValues(query)).toEqual([
-			DOMAIN_ID,
-			JSON.stringify({ apexConfigured: true, records }),
-			["apexError"],
-			["registering", "configuring", "active"],
-		]);
-	});
-
-	it("returns null without reloading when the status fence loses", async () => {
-		const { repository } = repositoryWithQuery([]);
-		const getById = vi.spyOn(repository, "getById");
-
-		await expect(
-			repository.mergeDnsIfStatus(DOMAIN_ID, ["active"], {
-				apexError: "Registrar request failed",
-			}),
-		).resolves.toBeNull();
-		expect(getById).not.toHaveBeenCalled();
-	});
-});
-
 describe("DomainsRepository bounded scans", () => {
 	it("resolves persisted and pre-cursor external configuration nonces", async () => {
 		const persistedUpdatedAt = new Date("2026-08-01T11:00:00.000Z");
