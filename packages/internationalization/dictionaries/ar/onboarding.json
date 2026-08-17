@@ -15,6 +15,15 @@
 			"label": "الاسم الكامل",
 			"next": "التالي"
 		},
+		"phone": {
+			"title": "ما رقم هاتفك؟",
+			"label": "رقم الهاتف",
+			"country": "الدولة",
+			"searchPlaceholder": "ابحث عن دولة…",
+			"noResults": "لم يتم العثور على أي دولة.",
+			"placeholder": "555 12 34 56",
+			"next": "التالي"
+		},
 		"accountType": {
 			"title": "كيف تعمل؟",
 			"options": {
