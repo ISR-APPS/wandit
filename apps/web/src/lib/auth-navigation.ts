@@ -81,6 +81,20 @@ export function sanitizeAuthRedirectPath(
 		return undefined;
 	}
 
+	// A prefix check alone is not enough: WHATWG URL treats "\" as "/" and
+	// strips tab/CR/LF, so "/\evil.com" and "/\n/evil.com" both resolve to
+	// another origin. Resolve against a fixed base and require the origin to
+	// survive — this is the single choke point for every auth redirect sink
+	// (OTP window.location.assign, handleSignedIn, buildAuthCallbackUrls).
+	const base = "https://sanitize.invalid";
+	try {
+		if (new URL(next, base).origin !== base) {
+			return undefined;
+		}
+	} catch {
+		return undefined;
+	}
+
 	return next;
 }
 

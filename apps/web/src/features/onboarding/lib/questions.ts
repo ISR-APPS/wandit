@@ -42,6 +42,10 @@ export type OnboardingTextQuestion = Extract<
 	OnboardingQuestion,
 	{ type: "text" }
 >;
+export type OnboardingPhoneQuestion = Extract<
+	OnboardingQuestion,
+	{ type: "phone" }
+>;
 export type OnboardingChoiceQuestionId = OnboardingChoiceQuestion["id"];
 export type OnboardingChoiceOptionValue =
 	OnboardingChoiceQuestion["options"][number];
@@ -90,13 +94,29 @@ export type OnboardingTextQuestionViewConfigFor<
 	skipLabelKey?: TranslationKey;
 };
 
+export type OnboardingPhoneQuestionViewConfigFor<
+	TQuestion extends OnboardingPhoneQuestion,
+> = {
+	id: TQuestion["id"];
+	type: "phone";
+	titleKey: TranslationKey;
+	labelKey: TranslationKey;
+	nextLabelKey: TranslationKey;
+	countryLabelKey: TranslationKey;
+	searchPlaceholderKey: TranslationKey;
+	emptyLabelKey: TranslationKey;
+	placeholderKey?: TranslationKey;
+};
+
 export type OnboardingQuestionViewConfigFor<
 	TQuestion extends OnboardingQuestion,
 > = TQuestion extends OnboardingChoiceQuestion
 	? OnboardingChoiceQuestionViewConfigFor<TQuestion>
 	: TQuestion extends OnboardingTextQuestion
 		? OnboardingTextQuestionViewConfigFor<TQuestion>
-		: never;
+		: TQuestion extends OnboardingPhoneQuestion
+			? OnboardingPhoneQuestionViewConfigFor<TQuestion>
+			: never;
 
 export type OnboardingQuestionViewConfigMap = {
 	readonly [TQuestion in OnboardingQuestion as TQuestion["id"]]: OnboardingQuestionViewConfigFor<TQuestion>;
@@ -128,6 +148,17 @@ export const onboardingQuestionViewConfig = {
 		titleKey: "onboarding.steps.name.title",
 		labelKey: "onboarding.steps.name.label",
 		nextLabelKey: "onboarding.steps.name.next",
+	},
+	phone: {
+		id: "phone",
+		type: "phone",
+		titleKey: "onboarding.steps.phone.title",
+		labelKey: "onboarding.steps.phone.label",
+		nextLabelKey: "onboarding.steps.phone.next",
+		countryLabelKey: "onboarding.steps.phone.country",
+		searchPlaceholderKey: "onboarding.steps.phone.searchPlaceholder",
+		emptyLabelKey: "onboarding.steps.phone.noResults",
+		placeholderKey: "onboarding.steps.phone.placeholder",
 	},
 	account_type: {
 		id: "account_type",
@@ -303,6 +334,10 @@ export type OnboardingTextQuestionViewConfig = Extract<
 	OnboardingQuestionViewConfig,
 	{ type: "text" }
 >;
+export type OnboardingPhoneQuestionViewConfig = Extract<
+	OnboardingQuestionViewConfig,
+	{ type: "phone" }
+>;
 
 export function getOnboardingQuestionViewConfig<
 	TId extends OnboardingQuestionId,
@@ -323,6 +358,12 @@ export function isOnboardingTextQuestionViewConfig(
 	config: OnboardingQuestionViewConfig,
 ): config is OnboardingTextQuestionViewConfig {
 	return config.type === "text";
+}
+
+export function isOnboardingPhoneQuestionViewConfig(
+	config: OnboardingQuestionViewConfig,
+): config is OnboardingPhoneQuestionViewConfig {
+	return config.type === "phone";
 }
 
 export function removeInapplicableOnboardingAnswers(
