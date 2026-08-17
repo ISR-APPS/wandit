@@ -17,6 +17,7 @@ import {
 	adminAnalyticsFeatureKeys,
 	adminAnalyticsFunnelStepKeys,
 	adminAnalyticsGenerationKeys,
+	adminAnalyticsMarginAfterAiPlans,
 	type BillingInterval,
 	type BillingPlanId,
 	billingIntervals,
@@ -344,6 +345,7 @@ export function assembleRevenueResponse(
 			churn.ltvCents,
 			netRevenue.netCents,
 		),
+		marginAfterAi: assembleMarginAfterAi(snapshot.marginAfterAi),
 	};
 }
 
@@ -829,6 +831,48 @@ function assembleArpuByPlan(
 				owners > 0
 					? Math.round(exactMrr(snapshot.mrrSubscriptions, plan) / owners)
 					: 0,
+		};
+	});
+}
+
+// Measured margin only: the plan's collected subscription cash minus the
+// metered AI-provider cost of that plan's owners. Shared infrastructure and
+// ad spend stay out — they belong to the blended unitEconomics margin. The
+// contract fixes the row order (pro, business, free), so every plan the
+// repository never saw still emits a zero row, and "free" — which can never
+// collect cash — reports its AI cost as a negative margin with no percent.
+function assembleMarginAfterAi(
+	rows: AdminAnalyticsRevenueSnapshot["marginAfterAi"],
+): AdminAnalyticsRevenueResponse["marginAfterAi"] {
+	const totals = new Map<string, { aiCostCents: number; revenueCents: number }>(
+		adminAnalyticsMarginAfterAiPlans.map((plan) => [
+			plan,
+			{ aiCostCents: 0, revenueCents: 0 },
+		]),
+	);
+
+	for (const row of rows) {
+		// A plan outside the contract order has no row to land in.
+		const total = totals.get(row.plan);
+		if (!total) continue;
+
+		total.revenueCents += row.revenueCents;
+		total.aiCostCents += row.aiCostCents;
+	}
+
+	return adminAnalyticsMarginAfterAiPlans.map((plan) => {
+		const total = totals.get(plan) ?? { aiCostCents: 0, revenueCents: 0 };
+		const marginCents = total.revenueCents - total.aiCostCents;
+
+		return {
+			plan,
+			revenueCents: total.revenueCents,
+			aiCostCents: total.aiCostCents,
+			marginCents,
+			marginPct:
+				total.revenueCents > 0
+					? roundTo((marginCents / total.revenueCents) * 100, 1)
+					: null,
 		};
 	});
 }

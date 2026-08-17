@@ -25,6 +25,10 @@ import {
 	prorateMonthlyCosts,
 } from "../../application/services/admin-cost-allocation";
 import type { AdminDashboardRangeBounds } from "../../application/services/admin-dashboard-range";
+import {
+	AI_SPEND_STATUSES,
+	aiUsageEventCostUsdMicros,
+} from "./ai-usage-cost.sql";
 
 type NumericValue = bigint | number | string | null;
 
@@ -153,6 +157,12 @@ type RevenueBySourceRow = {
 	domain_orders: NumericValue;
 	domain_cost_cents: NumericValue;
 	domain_cost_unknown_orders: NumericValue;
+};
+
+type MarginAfterAiRow = {
+	plan: string;
+	revenue_cents: NumericValue;
+	ai_cost_cents: NumericValue;
 };
 
 type NewPaidRow = {
@@ -312,6 +322,14 @@ export type AdminAnalyticsRevenueRepositorySnapshot = {
 		domainCostCents: number;
 		domainCostUnknownOrders: number;
 	};
+	// One row per plan that collected cash or burned AI cost in range. "free"
+	// covers every owner without a live subscription. The assembler owns the
+	// contract order and fills the plans this query never saw.
+	marginAfterAi: Array<{
+		plan: string;
+		revenueCents: number;
+		aiCostCents: number;
+	}>;
 	newPaidByDay: Array<{ date: string; count: number }>;
 	daysToConvert: Array<{ days: number; count: number }>;
 	checkoutFunnel: { started: number; completed: number };
@@ -656,6 +674,7 @@ export class AdminAnalyticsRepository {
 				input,
 			);
 			const revenueBySource = await this.getRevenueBySource(transaction, input);
+			const marginAfterAi = await this.getMarginAfterAi(transaction, input);
 			const newPaidByDay = await this.getNewPaidByDay(transaction, input);
 			const daysToConvert = await this.getDaysToConvert(transaction, input);
 			const checkoutFunnel = await this.getCheckoutFunnel(transaction, input);
@@ -695,6 +714,7 @@ export class AdminAnalyticsRepository {
 				trialCohort,
 				collectedRevenueByDay,
 				revenueBySource,
+				marginAfterAi,
 				newPaidByDay,
 				daysToConvert,
 				checkoutFunnel,
@@ -2351,6 +2371,86 @@ export class AdminAnalyticsRepository {
 			domainCostCents: toNumber(row?.domain_cost_cents),
 			domainCostUnknownOrders: toNumber(row?.domain_cost_unknown_orders),
 		};
+	}
+
+	// Margin after AI per plan — measured numbers only. Revenue is the same
+	// collected subscription cash getRevenueBySource totals, attributed to the
+	// plan of the invoiced subscription; invoice cash whose subscription row
+	// resolves no plan is EXCLUDED from the split, so the per-plan revenues can
+	// sum to less than revenueBySource.subscriptionsCents. Cost is the metered
+	// provider spend of the plan's owners, where an owner is
+	// organization_id ?? user_id and the plan is the owner's CURRENT live
+	// subscription (subscriptions keep no plan history): both plans counts as
+	// business, no live subscription counts as free.
+	private async getMarginAfterAi(
+		client: AdminAnalyticsDbClient,
+		input: AdminDashboardRangeBounds,
+	) {
+		const result = await client.execute<MarginAfterAiRow>(sql`
+			with bounds as (${analyticsBounds(input)}),
+			plan_revenue as (
+				select
+					s.plan::text as plan,
+					sum(a.amount_paid_minor)::bigint as revenue_cents
+				from billing_invoice_applications a
+				cross join bounds b
+				left join subscriptions s on s.id = a.subscription_id
+				where a.paid_at >= b.range_start
+					and a.paid_at < b.range_end
+					and a.amount_paid_minor > 0
+					and lower(a.currency) = 'usd'
+					and s.plan is not null
+				group by 1
+			),
+			owner_plans as (
+				select
+					coalesce(s.organization_id, s.user_id) as owner_id,
+					max(case when s.plan = 'business' then 2 else 1 end) as plan_rank
+				from subscriptions s
+				cross join bounds b
+				where s.created_at < b.snapshot_end
+					and s.status in (${liveSubscriptionStatusList()})
+				group by 1
+			),
+			owner_cost as (
+				select
+					coalesce(
+						ai_usage_events.organization_id,
+						ai_usage_events.user_id
+					) as owner_id,
+					sum(coalesce(${aiUsageEventCostUsdMicros}, 0))::bigint as cost_micros
+				from ai_usage_events
+				cross join bounds b
+				where ai_usage_events.created_at >= b.range_start
+					and ai_usage_events.created_at < b.range_end
+					and ai_usage_events.status in (${aiSpendStatusList()})
+				group by 1
+			),
+			plan_cost as (
+				select
+					case
+						when o.plan_rank = 2 then 'business'
+						when o.plan_rank = 1 then 'pro'
+						else 'free'
+					end as plan,
+					round(sum(c.cost_micros)::numeric / 10000)::bigint as ai_cost_cents
+				from owner_cost c
+				left join owner_plans o on o.owner_id = c.owner_id
+				group by 1
+			)
+			select
+				coalesce(r.plan, c.plan) as plan,
+				coalesce(r.revenue_cents, 0)::bigint as revenue_cents,
+				coalesce(c.ai_cost_cents, 0)::bigint as ai_cost_cents
+			from plan_revenue r
+			full join plan_cost c on c.plan = r.plan
+		`);
+
+		return result.rows.map((row) => ({
+			plan: String(row.plan),
+			revenueCents: toNumber(row.revenue_cents),
+			aiCostCents: toNumber(row.ai_cost_cents),
+		}));
 	}
 
 	private async getNewPaidByDay(
@@ -4348,6 +4448,13 @@ function validCostRecord(
 function liveSubscriptionStatusList() {
 	return sql.join(
 		LIVE_SUBSCRIPTION_STATUSES.map((status) => sql`${status}`),
+		sql`, `,
+	);
+}
+
+function aiSpendStatusList() {
+	return sql.join(
+		AI_SPEND_STATUSES.map((status) => sql`${status}`),
 		sql`, `,
 	);
 }

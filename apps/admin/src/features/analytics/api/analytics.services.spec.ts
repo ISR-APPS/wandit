@@ -276,6 +276,30 @@ describe("admin analytics services", () => {
 					costPerActivePaidUserCents: 1_833,
 					costCoverageComplete: true,
 				},
+				// Fixed order: pro, business, free. Free never collects revenue.
+				marginAfterAi: [
+					{
+						plan: "pro",
+						revenueCents: 9_900,
+						aiCostCents: 3_150,
+						marginCents: 6_750,
+						marginPct: 68.2,
+					},
+					{
+						plan: "business",
+						revenueCents: 2_601,
+						aiCostCents: 4_100,
+						marginCents: -1_499,
+						marginPct: -57.6,
+					},
+					{
+						plan: "free",
+						revenueCents: 0,
+						aiCostCents: 1_875,
+						marginCents: -1_875,
+						marginPct: null,
+					},
+				],
 			});
 
 		await expect(
@@ -317,6 +341,11 @@ describe("admin analytics services", () => {
 				ltvCacRatio: 53.33,
 				costCoverageComplete: true,
 			},
+			marginAfterAi: [
+				{ plan: "pro", marginCents: 6_750, marginPct: 68.2 },
+				{ plan: "business", marginCents: -1_499, marginPct: -57.6 },
+				{ plan: "free", revenueCents: 0, marginCents: -1_875, marginPct: null },
+			],
 		});
 	});
 

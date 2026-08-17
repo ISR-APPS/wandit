@@ -151,6 +151,7 @@ function revenueSnapshot(
 			domainCostCents: 0,
 			domainCostUnknownOrders: 0,
 		},
+		marginAfterAi: [],
 		newPaidByDay: [],
 		daysToConvert: [],
 		checkoutFunnel: { completed: 0, started: 0 },
@@ -688,6 +689,110 @@ describe("admin analytics revenue extensions", () => {
 
 		expect(response.revenueBySource.domainMarginCents).toBe(0);
 		expect(response.revenueBySource.domainMarginPct).toBeNull();
+	});
+
+	it("emits margin after AI in contract order and rounds each margin percent", () => {
+		const response = assembleRevenueResponse(
+			revenueSnapshot({
+				marginAfterAi: [
+					{ plan: "free", revenueCents: 0, aiCostCents: 4_200 },
+					{ plan: "business", revenueCents: 30_000, aiCostCents: 9_000 },
+					{ plan: "pro", revenueCents: 10_000, aiCostCents: 3_333 },
+				],
+			}),
+			NOW,
+		);
+
+		expect(adminAnalyticsRevenueResponseSchema.parse(response)).toEqual(
+			response,
+		);
+		expect(response.marginAfterAi).toEqual([
+			{
+				plan: "pro",
+				revenueCents: 10_000,
+				aiCostCents: 3_333,
+				marginCents: 6_667,
+				marginPct: 66.7,
+			},
+			{
+				plan: "business",
+				revenueCents: 30_000,
+				aiCostCents: 9_000,
+				marginCents: 21_000,
+				marginPct: 70,
+			},
+			{
+				plan: "free",
+				revenueCents: 0,
+				aiCostCents: 4_200,
+				marginCents: -4_200,
+				marginPct: null,
+			},
+		]);
+	});
+
+	it("keeps three zero margin rows when the range measured no cash and no AI cost", () => {
+		const response = assembleRevenueResponse(revenueSnapshot(), NOW);
+
+		expect(response.marginAfterAi).toEqual([
+			{
+				plan: "pro",
+				revenueCents: 0,
+				aiCostCents: 0,
+				marginCents: 0,
+				marginPct: null,
+			},
+			{
+				plan: "business",
+				revenueCents: 0,
+				aiCostCents: 0,
+				marginCents: 0,
+				marginPct: null,
+			},
+			{
+				plan: "free",
+				revenueCents: 0,
+				aiCostCents: 0,
+				marginCents: 0,
+				marginPct: null,
+			},
+		]);
+	});
+
+	it("reports free AI cost as a negative margin and drops plans outside the contract", () => {
+		const response = assembleRevenueResponse(
+			revenueSnapshot({
+				marginAfterAi: [
+					{ plan: "free", revenueCents: 0, aiCostCents: 1_250 },
+					{ plan: "enterprise", revenueCents: 90_000, aiCostCents: 100 },
+				],
+			}),
+			NOW,
+		);
+
+		expect(response.marginAfterAi).toEqual([
+			{
+				plan: "pro",
+				revenueCents: 0,
+				aiCostCents: 0,
+				marginCents: 0,
+				marginPct: null,
+			},
+			{
+				plan: "business",
+				revenueCents: 0,
+				aiCostCents: 0,
+				marginCents: 0,
+				marginPct: null,
+			},
+			{
+				plan: "free",
+				revenueCents: 0,
+				aiCostCents: 1_250,
+				marginCents: -1_250,
+				marginPct: null,
+			},
+		]);
 	});
 
 	it("computes churn, LTV, net-new MRR, net revenue, and plan ARPU", () => {
