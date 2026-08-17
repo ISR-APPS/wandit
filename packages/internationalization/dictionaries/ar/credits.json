@@ -19,6 +19,11 @@
 		"cta": "ترقية الخطة",
 		"pausedBody": "شراء الرصيد متوقف مؤقتًا خلال النسخة التجريبية."
 	},
+	"elsewhere": {
+		"chipHint": "أرصدتك موجودة في {name}",
+		"dialogHint": "لديك {balance} من الأرصدة في {name}",
+		"switch": "التبديل"
+	},
 	"buckets": {
 		"plan": "الخطة",
 		"promo": "ترويجية",

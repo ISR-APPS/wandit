@@ -14,6 +14,7 @@ import {
 	DialogTitle,
 } from "@wandit/ui/components/dialog";
 
+import { CreditsElsewhereNotice } from "@/features/credits/components/credits-elsewhere-notice";
 import { formatCreditAmount } from "@/features/credits/lib/format-credits";
 import { useTranslation } from "@/lib/i18n";
 
@@ -45,6 +46,9 @@ export function WorkspaceBillingNoticeDialog({
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
 			<DialogContent className="sm:max-w-sm">
+				{/* A member cannot refill this pool, but their own credits may sit
+				    in another workspace — offer the switch before the shrug. */}
+				<CreditsElsewhereNotice onSwitched={() => onOpenChange(false)} />
 				<DialogHeader className="text-start">
 					<DialogTitle className="font-display tracking-tight">
 						{title}

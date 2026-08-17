@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
 	type CreditOwner,
+	orgOwner,
 	ownerColumns,
 	userOwner,
 } from "../../domain/credit-owner";
@@ -24,10 +25,18 @@ type SeedLedgerEntry = Pick<
 		Pick<InsertCreditLedgerEntry, "idempotencyKey" | "meta" | "organizationId">
 	>;
 
+type SeedUsageEvent = {
+	organizationId?: string | null;
+	reservedCredits: number;
+	status?: "reserved" | "settled" | "reconciled";
+	userId: string;
+};
+
 class InMemoryCreditsRepository {
 	readonly planHoldPools = new Map<string, CreditPlanHoldPoolRow>();
 	readonly planHolds = new Map<string, CreditPlanHoldRow>();
 	readonly rows: CreditLedgerRow[] = [];
+	readonly usageEvents: Required<SeedUsageEvent>[] = [];
 	readonly transactionInputs: Array<CreditsTransaction | undefined> = [];
 	readonly writeClients: unknown[] = [];
 	private lock: Promise<void> = Promise.resolve();
@@ -80,6 +89,18 @@ class InMemoryCreditsRepository {
 		balance.balance = balance.plan + balance.promo + balance.topup;
 
 		return balance;
+	}
+
+	async sumReservedCentiCredits(
+		owner: CreditOwner,
+		_client?: unknown,
+	): Promise<number> {
+		return this.usageEvents
+			.filter(
+				(event) =>
+					event.status === "reserved" && this.ownerMatches(event, owner),
+			)
+			.reduce((total, event) => total + event.reservedCredits, 0);
 	}
 
 	async insertLedgerEntry(
@@ -368,6 +389,15 @@ class InMemoryCreditsRepository {
 		this.rows.push(row);
 
 		return row;
+	}
+
+	seedUsageEvent(input: SeedUsageEvent) {
+		this.usageEvents.push({
+			organizationId: input.organizationId ?? null,
+			reservedCredits: input.reservedCredits,
+			status: input.status ?? "reserved",
+			userId: input.userId,
+		});
 	}
 
 	private async runLocked<T>(
@@ -1246,5 +1276,95 @@ describe("CreditsService", () => {
 				service.consume(userOwner("user_1"), amount),
 			).rejects.toThrow("Credit amount must be a positive integer");
 		}
+	});
+});
+
+describe("CreditsService.getSettledBalance", () => {
+	it("adds only still-reserved holds back onto the ledger balance", async () => {
+		const { repository, service } = setup();
+
+		repository.seed({
+			bucket: "plan",
+			delta: 500,
+			kind: "grant",
+			userId: "user_1",
+		});
+		// The reserve's ledger dip: while the event stays reserved, the dip
+		// equals reserved_credits exactly.
+		repository.seed({
+			bucket: "plan",
+			delta: -120,
+			kind: "consume",
+			userId: "user_1",
+		});
+		repository.seedUsageEvent({ reservedCredits: 120, userId: "user_1" });
+		// Settled events already reconciled their dip: no add-back.
+		repository.seedUsageEvent({
+			reservedCredits: 999,
+			status: "settled",
+			userId: "user_1",
+		});
+
+		expect(await service.getSettledBalance(userOwner("user_1"))).toEqual({
+			balance: 380,
+			plan: 380,
+			promo: 0,
+			settledBalance: 500,
+			topup: 0,
+		});
+	});
+
+	it("keeps an org member's reserves out of their personal settled balance", async () => {
+		const { repository, service } = setup();
+
+		repository.seed({
+			bucket: "promo",
+			delta: 300,
+			kind: "grant",
+			userId: "user_1",
+		});
+		repository.seed({
+			bucket: "topup",
+			delta: 1000,
+			kind: "topup",
+			organizationId: "org_1",
+			userId: null,
+		});
+		// Org usage events record the acting member in userId — the org pool
+		// pays, so the personal owner must not see this add-back.
+		repository.seedUsageEvent({
+			organizationId: "org_1",
+			reservedCredits: 250,
+			userId: "user_1",
+		});
+		repository.seedUsageEvent({ reservedCredits: 40, userId: "user_1" });
+
+		expect(await service.getSettledBalance(userOwner("user_1"))).toMatchObject({
+			balance: 300,
+			settledBalance: 340,
+		});
+		expect(await service.getSettledBalance(orgOwner("org_1"))).toMatchObject({
+			balance: 1000,
+			settledBalance: 1250,
+		});
+	});
+
+	it("returns settledBalance equal to balance when nothing is reserved", async () => {
+		const { repository, service } = setup();
+
+		repository.seed({
+			bucket: "topup",
+			delta: 700,
+			kind: "topup",
+			userId: "user_1",
+		});
+
+		expect(await service.getSettledBalance(userOwner("user_1"))).toEqual({
+			balance: 700,
+			plan: 0,
+			promo: 0,
+			settledBalance: 700,
+			topup: 700,
+		});
 	});
 });

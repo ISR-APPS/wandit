@@ -153,6 +153,11 @@ class FakeCreditsService {
 		return { plan: 50_000, promo: 25_000, topup: 0, balance: 75_000 };
 	}
 
+	async getSettledBalance() {
+		// Reserved add-back: 500 centi-credits still held by running work.
+		return { ...(await this.getBalance()), settledBalance: 75_500 };
+	}
+
 	async grant(
 		owner: CreditOwner,
 		amount: number,
@@ -193,6 +198,7 @@ describe("AdminOrganizationsService", () => {
 			promo: 250,
 			topup: 0,
 			balance: 750,
+			settledBalance: 755,
 		});
 		expect(detail.pendingInvitationsCount).toBe(1);
 		expect(detail.defaultMemberMonthlyCreditLimit).toBe(250);
