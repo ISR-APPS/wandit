@@ -241,6 +241,28 @@ describe("DomainTerminalFailureStep", () => {
 		expect(fixture.order.status).toBe("failed");
 	});
 
+	it("deletes the apex custom hostname alongside the www hostname after terminalization", async () => {
+		const fixture = setup(
+			domain("registering", {
+				dns: { apexCustomHostnameId: "cf_apex", purchaseDnsConfigured: true },
+			}),
+			order("fulfilling"),
+		);
+
+		await expect(
+			fixture.step.execute(
+				fixture.domain,
+				new TerminalDomainFulfillmentError("Domain is not available"),
+			),
+		).resolves.toEqual({ status: "failed" });
+
+		expect(fixture.events.slice(-3)).toEqual([
+			"delete-hostname:cf_domain_1",
+			"delete-hostname:cf_apex",
+			"delete-pointer:example.com",
+		]);
+	});
+
 	it("does not terminalize or clean up until durable refund dispatch succeeds", async () => {
 		const fixture = setup(domain(), order("fulfilling"));
 		const originalError = new TerminalDomainFulfillmentError(
