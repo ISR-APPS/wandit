@@ -59,9 +59,37 @@ export const creditBalanceResponseSchema = z.object({
 	promo: z.number(),
 	topup: z.number(),
 	balance: z.number(),
+	// `balance` plus the in-flight reserve holds added back: what the balance
+	// will read once running generations settle at estimated-or-lower cost.
+	// UI surfaces display THIS number so holds never bounce the pill.
+	settledBalance: z.number(),
 });
 
 export type CreditBalanceResponse = z.infer<typeof creditBalanceResponseSchema>;
+
+// One row per workspace the user belongs to (personal first, then orgs).
+// Balances are decimal credits; settledBalance follows the same add-back rule
+// as creditBalanceResponseSchema.
+export const workspaceCreditBalanceSchema = z.object({
+	// PERSONAL_WORKSPACE ("personal") or an organization id.
+	workspaceId: z.string(),
+	// Organization name; null for the personal workspace (client labels it).
+	name: z.string().nullable(),
+	balance: z.number(),
+	settledBalance: z.number(),
+});
+
+export type WorkspaceCreditBalance = z.infer<
+	typeof workspaceCreditBalanceSchema
+>;
+
+export const workspaceCreditBalancesResponseSchema = z.object({
+	items: z.array(workspaceCreditBalanceSchema),
+});
+
+export type WorkspaceCreditBalancesResponse = z.infer<
+	typeof workspaceCreditBalancesResponseSchema
+>;
 
 export const creditLedgerRowSchema = z.object({
 	id: uuidSchema,
@@ -106,5 +134,6 @@ export const SIGNUP_GRANT_CREDITS = 50;
 
 export const creditsRoutes = {
 	balance: "/api/v1/credits/balance",
+	balances: "/api/v1/credits/balances",
 	ledger: "/api/v1/credits/ledger",
 } as const;

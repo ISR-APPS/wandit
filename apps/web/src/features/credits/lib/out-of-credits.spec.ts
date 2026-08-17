@@ -3,7 +3,13 @@ import { describe, expect, it } from "vitest";
 import { isOutOfCredits } from "./out-of-credits";
 
 function balanceOf(balance: number) {
-	return { plan: balance, promo: 0, topup: 0, balance };
+	return {
+		plan: balance,
+		promo: 0,
+		topup: 0,
+		balance,
+		settledBalance: balance,
+	};
 }
 
 describe("isOutOfCredits", () => {

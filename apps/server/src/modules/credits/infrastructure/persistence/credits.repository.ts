@@ -7,6 +7,7 @@ import {
 } from "@wandit/contracts";
 import { and, asc, desc, eq, gt, inArray, isNull, sql } from "@wandit/db";
 import {
+	aiUsageEvents,
 	creditLedger,
 	creditPlanHoldPools,
 	creditPlanHolds,
@@ -96,6 +97,21 @@ export class CreditsRepository {
 
 	getBalance(owner: CreditOwner, client: CreditsDbClient = this.db) {
 		return this.sumBalances(owner, client);
+	}
+
+	/**
+	 * Reserved add-back for the settled balance. While an ai_usage_events row
+	 * is status='reserved', its ledger dip equals exactly reserved_credits
+	 * (every ledger adjustment commits atomically with a status transition), so
+	 * settled = balance + this sum. UNIT: integer centi-credits.
+	 */
+	async sumReservedCentiCredits(
+		owner: CreditOwner,
+		client: CreditsDbClient = this.db,
+	): Promise<number> {
+		const [row] = await this.buildSumReservedQuery(owner, client);
+
+		return Number(row?.total ?? 0);
 	}
 
 	async listByOwner(owner: CreditOwner, pagination: PaginationQuery) {
@@ -520,6 +536,37 @@ export class CreditsRepository {
 					isNull(creditPlanHolds.organizationId),
 				)
 			: eq(creditPlanHolds.organizationId, owner.organizationId);
+	}
+
+	// Mirrors ledgerOwnerPredicate: a personal pool requires organization_id
+	// IS NULL because org usage events record the acting member in user_id, and
+	// those reserves must never inflate the member's personal settled balance.
+	private usageEventOwnerPredicate(owner: CreditOwner) {
+		return owner.type === "user"
+			? and(
+					eq(aiUsageEvents.userId, owner.userId),
+					isNull(aiUsageEvents.organizationId),
+				)
+			: eq(aiUsageEvents.organizationId, owner.organizationId);
+	}
+
+	// Kept as a builder so specs can assert the compiled SQL. The partial index
+	// ai_usage_events_reserved_status_idx serves the status filter cheaply.
+	private buildSumReservedQuery(
+		owner: CreditOwner,
+		client: CreditsDbClient = this.db,
+	) {
+		return client
+			.select({
+				total: sql<number>`coalesce(sum(${aiUsageEvents.reservedCredits}), 0)::int`,
+			})
+			.from(aiUsageEvents)
+			.where(
+				and(
+					eq(aiUsageEvents.status, "reserved"),
+					this.usageEventOwnerPredicate(owner),
+				),
+			);
 	}
 
 	private poolOwnerPredicate(owner: CreditOwner) {
