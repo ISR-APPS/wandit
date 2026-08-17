@@ -1,6 +1,6 @@
 // Typed sidebar nav config for the dashboard shell. Leads, Assets, Apps and Academy
-// are real routes; Support opens the live-chat widget; Analytics stays a
-// disabled placeholder ("Soon"). Titles are dictionary keys, resolved at render.
+// are real routes; Analytics stays a disabled placeholder ("Soon"). Titles are
+// dictionary keys, resolved at render.
 
 import {
 	Blocks,
@@ -8,7 +8,6 @@ import {
 	FolderOpen,
 	GraduationCap,
 	Images,
-	LifeBuoy,
 	type LucideIcon,
 	Users,
 } from "lucide-react";
@@ -82,14 +81,6 @@ export const NAV_GROUPS: NavGroup[] = [
 				titleKey: "academy.navLabel",
 				to: "/academy",
 				icon: GraduationCap,
-			},
-			// Opens the Chatwoot live-chat widget. Disabled at render when the
-			// widget env vars are unset (local dev), never a dead "#" link.
-			{
-				type: "action",
-				action: "open-support-chat",
-				titleKey: "projects.nav.support",
-				icon: LifeBuoy,
 			},
 		],
 	},
