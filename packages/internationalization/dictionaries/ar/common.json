@@ -11,5 +11,23 @@
 	"sidebarToggle": "إظهار/إخفاء الشريط الجانبي",
 	"breadcrumbMore": "المزيد",
 	"sidebarMobileTitle": "الشريط الجانبي",
-	"sidebarMobileDescription": "يعرض الشريط الجانبي للجوال."
+	"sidebarMobileDescription": "يعرض الشريط الجانبي للجوال.",
+	"feedback": {
+		"open": "أرسل ملاحظة",
+		"title": "أرسل ملاحظة",
+		"description": "أخبرنا بما حدث. نرفق الصفحة ولقطة شاشة.",
+		"messageLabel": "ملاحظتك",
+		"messagePlaceholder": "ما الذي لم ينجح، أو ما الذي يمكننا تحسينه؟",
+		"categoryLabel": "عن ماذا تتحدث؟",
+		"categoryBug": "خطأ",
+		"categoryIdea": "فكرة",
+		"categoryOther": "غير ذلك",
+		"screenshotAlt": "لقطة شاشة للصفحة الحالية",
+		"includeScreenshot": "أرفق لقطة الشاشة",
+		"contextNote": "نرفق أيضًا الصفحة الحالية وتفاصيل جلستك.",
+		"submit": "إرسال",
+		"submitting": "جارٍ الإرسال…",
+		"success": "شكرًا لك. استلمنا ملاحظتك.",
+		"error": "تعذّر إرسال ملاحظتك. حاول مرة أخرى."
+	}
 }

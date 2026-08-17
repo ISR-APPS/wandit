@@ -17,6 +17,7 @@ import { Spark } from "@/components/logo";
 import { UserMenu } from "@/features/auth";
 import { UpgradeButton } from "@/features/billing/components/upgrade-button";
 import { CreditsChip } from "@/features/credits";
+import { FeedbackButton } from "@/features/feedback";
 import { WorkspaceSwitcher } from "@/features/workspaces/components/workspace-switcher";
 import { useTranslation } from "@/lib/i18n";
 import { ProjectSwitcher } from "./project-switcher";
@@ -64,6 +65,7 @@ export function WorkspaceHeader() {
 					</TooltipTrigger>
 					<TooltipContent side="bottom">{t("academy.navLabel")}</TooltipContent>
 				</Tooltip>
+				<FeedbackButton />
 				<CreditsChip />
 				<UpgradeButton />
 				<PublishButton />

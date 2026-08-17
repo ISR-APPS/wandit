@@ -43,6 +43,8 @@ export * from "./v1/credits";
 export * from "./v1/deployments";
 // Domain contracts.
 export * from "./v1/domains";
+// In-app user feedback contracts.
+export * from "./v1/feedback";
 // Standalone image generation contracts.
 export * from "./v1/image-generations";
 // Lead-scrape (outbound prospecting) contracts.
