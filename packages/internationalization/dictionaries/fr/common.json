@@ -11,5 +11,23 @@
 	"sidebarToggle": "Afficher/masquer la barre latérale",
 	"breadcrumbMore": "Plus",
 	"sidebarMobileTitle": "Barre latérale",
-	"sidebarMobileDescription": "Affiche la barre latérale mobile."
+	"sidebarMobileDescription": "Affiche la barre latérale mobile.",
+	"feedback": {
+		"open": "Envoyer un retour",
+		"title": "Envoyer un retour",
+		"description": "Dis-nous ce qui s’est passé. On joint la page et une capture d’écran.",
+		"messageLabel": "Ton retour",
+		"messagePlaceholder": "Qu’est-ce qui n’a pas marché, ou que peut-on améliorer ?",
+		"categoryLabel": "C’est à quel sujet ?",
+		"categoryBug": "Bug",
+		"categoryIdea": "Idée",
+		"categoryOther": "Autre",
+		"screenshotAlt": "Capture d’écran de la page actuelle",
+		"includeScreenshot": "Joindre la capture d’écran",
+		"contextNote": "On joint aussi la page actuelle et les détails de ta session.",
+		"submit": "Envoyer",
+		"submitting": "Envoi…",
+		"success": "Merci. Nous avons bien reçu ton retour.",
+		"error": "Impossible d’envoyer ton retour. Réessaie."
+	}
 }

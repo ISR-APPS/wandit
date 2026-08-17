@@ -11,5 +11,23 @@
 	"sidebarToggle": "Toggle sidebar",
 	"breadcrumbMore": "More",
 	"sidebarMobileTitle": "Sidebar",
-	"sidebarMobileDescription": "Displays the mobile sidebar."
+	"sidebarMobileDescription": "Displays the mobile sidebar.",
+	"feedback": {
+		"open": "Send feedback",
+		"title": "Send feedback",
+		"description": "Tell us what happened. We attach the page and a screenshot.",
+		"messageLabel": "Your feedback",
+		"messagePlaceholder": "What went wrong, or what can we do better?",
+		"categoryLabel": "What is this about?",
+		"categoryBug": "Bug",
+		"categoryIdea": "Idea",
+		"categoryOther": "Other",
+		"screenshotAlt": "Screenshot of the current page",
+		"includeScreenshot": "Include the screenshot",
+		"contextNote": "We also attach the current page and your session details.",
+		"submit": "Send",
+		"submitting": "Sending…",
+		"success": "Thank you. We received your feedback.",
+		"error": "We could not send your feedback. Please try again."
+	}
 }

@@ -242,6 +242,10 @@ export const env = createEnv({
 		POSTHOG_KEY: z.string().startsWith("phc_").optional(),
 		// Defaults to the EU cloud in the package when unset.
 		POSTHOG_HOST: z.url().optional(),
+		// Linear, for in-app user feedback. Unset = the feedback route answers
+		// 503 while the rest of the API boots normally.
+		LINEAR_API_KEY: z.string().min(1).optional(),
+		LINEAR_FEEDBACK_TEAM_ID: z.string().min(1).optional(),
 	},
 	// Real data source for validation.
 	runtimeEnv: process.env,
