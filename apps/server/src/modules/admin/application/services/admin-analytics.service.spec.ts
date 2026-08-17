@@ -237,19 +237,21 @@ const FEATURES_SNAPSHOT = {
 			convertedAfterUseUsers: 2,
 		},
 	],
+	// Snapshot credit sums are integer centi-credits (10_000 = 100 credits);
+	// the assembled response divides by 100.
 	credits: {
-		grantedInRange: 100,
-		consumedInRange: 50,
-		freeConsumedInRange: 12,
+		grantedInRange: 10_000,
+		consumedInRange: 5_000,
+		freeConsumedInRange: 1_200,
 		freeOwnersInRange: 3,
-		paidConsumedInRange: 38,
+		paidConsumedInRange: 3_800,
 		paidOwnersInRange: 2,
 		freeConsumptionTotals: [
 			{ consumed: 0, users: 2 },
-			{ consumed: 12, users: 1 },
+			{ consumed: 1_200, users: 1 },
 		],
 		usersAtZeroBalance: 2,
-		creditsBeforeUpgradeTotal: 30,
+		creditsBeforeUpgradeTotal: 3_000,
 		convertedUsers: 2,
 		providerCostMicros: 125,
 	},
@@ -260,7 +262,8 @@ const FEATURES_SNAPSHOT = {
 	},
 	conversionByCredits: [
 		{ consumed: 0, owners: 2, paidOwners: 0 },
-		{ consumed: 12, owners: 3, paidOwners: 2 },
+		// 1_200 centi-credits = 12 credits -> the "10-24" bucket.
+		{ consumed: 1_200, owners: 3, paidOwners: 2 },
 	],
 } satisfies AdminAnalyticsFeaturesSnapshot;
 
@@ -276,7 +279,8 @@ const HEALTH_SNAPSHOT = {
 			topFailures: [{ code: "provider_error", count: 2 }],
 		},
 	],
-	creditsRefundedInRange: 10,
+	// 1_000 centi-credits = 10 credits at the API.
+	creditsRefundedInRange: 1_000,
 	webhooks: {
 		received: 8,
 		processed: 5,

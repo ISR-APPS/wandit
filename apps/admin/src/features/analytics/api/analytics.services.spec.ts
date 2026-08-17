@@ -164,14 +164,15 @@ describe("admin analytics services", () => {
 					totalUsers: 40,
 					connectedPct: 22.5,
 				},
+				// Credit amounts are decimal credits at the API boundary (v4).
 				credits: {
-					grantedInRange: 100,
-					consumedInRange: 64,
-					avgConsumedPerFreeUser: 8,
-					avgConsumedPerPaidUser: 16,
+					grantedInRange: 100.5,
+					consumedInRange: 64.37,
+					avgConsumedPerFreeUser: 8.04,
+					avgConsumedPerPaidUser: 16.5,
 					consumptionBuckets: [{ bucket: "10-24", users: 3 }],
 					usersAtZeroBalance: 2,
-					avgCreditsBeforeUpgrade: 22,
+					avgCreditsBeforeUpgrade: 22.75,
 					providerCostPerCreditMicros: 410,
 				},
 				freeCredits: {
@@ -284,6 +285,7 @@ describe("admin analytics services", () => {
 				analysis: { events: 12, users: 5, errorRatePct: 7.5 },
 				connectedPct: 22.5,
 			},
+			credits: { grantedInRange: 100.5, consumedInRange: 64.37 },
 			freeCredits: { medianDaysToConsume: 6.2, measuredUsers: 5 },
 			conversionByCredits: [{ bucket: "10-24", paidPct: 28.6 }],
 			features: [{ key: "websites", convertedAfterUsePct: 12.5 }],

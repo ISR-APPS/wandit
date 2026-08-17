@@ -15,8 +15,8 @@ import {
 	type Database,
 } from "../../../../infrastructure/database/database.constants";
 import {
+	HEALTHY_TRIAL_MIN_CENTI_CREDITS,
 	HEALTHY_TRIAL_MIN_COMPLETED_GENERATIONS,
-	HEALTHY_TRIAL_MIN_CREDITS,
 	LIVE_SUBSCRIPTION_STATUSES,
 	MRR_PRICE_MAP,
 } from "../../application/services/admin-analytics.metrics";
@@ -1337,7 +1337,7 @@ export class AdminAnalyticsRepository {
 				left join credit_consumption l on l.user_id = c.user_id
 				left join completed_generations g on g.user_id = c.user_id
 				where p.user_id is null
-					and coalesce(l.credits_consumed, 0) >= ${HEALTHY_TRIAL_MIN_CREDITS}
+					and coalesce(l.credits_consumed, 0) >= ${HEALTHY_TRIAL_MIN_CENTI_CREDITS}
 						and coalesce(g.completed_generations, 0) >= ${HEALTHY_TRIAL_MIN_COMPLETED_GENERATIONS}
 			),
 			pricing_viewed_users as (
@@ -1908,7 +1908,7 @@ export class AdminAnalyticsRepository {
 				left join credit_consumption c on c.user_id = u.user_id
 				left join completed_generations g on g.user_id = u.user_id
 				where p.user_id is null
-					and coalesce(c.credits_consumed, 0) >= ${HEALTHY_TRIAL_MIN_CREDITS}
+					and coalesce(c.credits_consumed, 0) >= ${HEALTHY_TRIAL_MIN_CENTI_CREDITS}
 					and coalesce(g.completed_generations, 0) >= ${HEALTHY_TRIAL_MIN_COMPLETED_GENERATIONS}
 			),
 			healthy_by_day as (
@@ -2200,7 +2200,7 @@ export class AdminAnalyticsRepository {
 					u.id,
 					(f.first_subscription_at is not null) as paid,
 					(
-						coalesce(c.credits_consumed, 0) >= ${HEALTHY_TRIAL_MIN_CREDITS}
+						coalesce(c.credits_consumed, 0) >= ${HEALTHY_TRIAL_MIN_CENTI_CREDITS}
 						and coalesce(g.completed_generations, 0) >= ${HEALTHY_TRIAL_MIN_COMPLETED_GENERATIONS}
 					) as healthy
 				from mature_users u

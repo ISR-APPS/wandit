@@ -175,7 +175,9 @@ type AffiliateQualityRow = {
 	trailing_churned_owners: number | string;
 };
 
-const HEALTHY_TRIAL_MIN_CREDITS = 20;
+// 20 WHOLE credits, expressed in centi-credits because the CTE sums the
+// centi-credit ledger. Keep in sync with admin-analytics.metrics.ts.
+const HEALTHY_TRIAL_MIN_CENTI_CREDITS = 20 * 100;
 const HEALTHY_TRIAL_MIN_COMPLETED_GENERATIONS = 2;
 const LIVE_SUBSCRIPTION_STATUSES = ["active", "trialing", "past_due"] as const;
 
@@ -1491,7 +1493,7 @@ export class AffiliateAdminRepository {
 					m.affiliate_id,
 					count(*) filter (
 						where f.first_subscription_at is null
-							and coalesce(c.credits_consumed, 0) >= ${HEALTHY_TRIAL_MIN_CREDITS}
+							and coalesce(c.credits_consumed, 0) >= ${HEALTHY_TRIAL_MIN_CENTI_CREDITS}
 							and coalesce(g.completed_generations, 0) >= ${HEALTHY_TRIAL_MIN_COMPLETED_GENERATIONS}
 					)::int as healthy_trials
 				from mature_users m

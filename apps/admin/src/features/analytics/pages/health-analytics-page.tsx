@@ -24,6 +24,7 @@ import {
 	formatOverviewPercentValue,
 	formatOverviewWholeNumber,
 } from "@/features/overview/lib/formatters";
+import { formatCreditAmount } from "@/lib/credit-format";
 
 type HealthAnalyticsPageProps = {
 	query: AnalyticsQuery;
@@ -95,7 +96,7 @@ function HealthAnalyticsContent({ data }: { data: AnalyticsHealthResponse }) {
 						label: "Credits refunded",
 						tooltip:
 							"Total credits returned to users after failed AI work during the selected range.",
-						value: formatOverviewWholeNumber(data.creditsRefundedInRange),
+						value: formatCreditAmount(data.creditsRefundedInRange),
 						description: "Returned after failed AI work",
 						icon: RotateCcwIcon,
 					},

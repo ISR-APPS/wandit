@@ -37,6 +37,7 @@ import {
 	formatWholeNumber,
 } from "@/features/users/lib/formatters";
 import { isApiClientError } from "@/lib/api-client";
+import { formatCreditBalance } from "@/lib/credit-format";
 
 type OrganizationDetailPageProps = {
 	organizationId: string;
@@ -87,10 +88,7 @@ export function OrganizationDetailPage({
 					</EmptyHeader>
 					<EmptyContent>
 						{isMissing ? null : (
-							<Button
-								type="button"
-								onClick={() => organizationQuery.refetch()}
-							>
+							<Button type="button" onClick={() => organizationQuery.refetch()}>
 								Try again
 							</Button>
 						)}
@@ -130,9 +128,7 @@ export function OrganizationDetailPage({
 			<OrgMembersCard
 				organizationId={detail.id}
 				members={detail.members}
-				defaultMemberMonthlyCreditLimit={
-					detail.defaultMemberMonthlyCreditLimit
-				}
+				defaultMemberMonthlyCreditLimit={detail.defaultMemberMonthlyCreditLimit}
 			/>
 
 			<UserCreditLedger entries={detail.creditLedger} />
@@ -207,7 +203,7 @@ function BalanceMetrics({ detail }: { detail: OrganizationDetail }) {
 					<CardContent className="py-4">
 						<p className="text-muted-foreground text-xs">{metric.label}</p>
 						<p className="mt-1 font-mono font-semibold text-xl tabular-nums">
-							{formatWholeNumber(metric.value)}
+							{formatCreditBalance(metric.value)}
 						</p>
 					</CardContent>
 				</Card>
@@ -277,10 +273,7 @@ function AttributionCard({
 	);
 }
 
-function FactItem({
-	label,
-	children,
-}: PropsWithChildren<{ label: string }>) {
+function FactItem({ label, children }: PropsWithChildren<{ label: string }>) {
 	return (
 		<div className="flex min-w-0 flex-col gap-1">
 			<dt className="text-muted-foreground text-xs">{label}</dt>

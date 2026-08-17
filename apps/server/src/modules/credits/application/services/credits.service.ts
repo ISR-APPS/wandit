@@ -1,7 +1,6 @@
 import { BadRequestException, Inject, Injectable } from "@nestjs/common";
 import {
 	CREDIT_SPEND_ORDER,
-	type CreditBalanceResponse,
 	type CreditBucket,
 	type CreditLedgerQuery,
 	SIGNUP_GRANT_CREDITS,
@@ -14,6 +13,7 @@ import {
 } from "../../domain/credit-owner";
 import { InsufficientCreditsError } from "../../domain/errors/insufficient-credits.error";
 import {
+	type CreditBalance,
 	type CreditLedgerRow,
 	type CreditPlanHoldPoolRow,
 	type CreditPlanHoldRow,
@@ -84,7 +84,8 @@ export class CreditsService {
 		private readonly creditsRepository: CreditsRepository,
 	) {}
 
-	getBalance(owner: CreditOwner): Promise<CreditBalanceResponse> {
+	/** Internal balance in integer centi-credits; callers convert for the API. */
+	getBalance(owner: CreditOwner): Promise<CreditBalance> {
 		return this.creditsRepository.getBalance(owner);
 	}
 
@@ -92,6 +93,7 @@ export class CreditsService {
 		return this.creditsRepository.listByOwner(owner, query);
 	}
 
+	/** All amounts on this service are INTEGER CENTI-CREDITS (1 = 0.01 credit). */
 	async consume(
 		owner: CreditOwner,
 		amount: number,
@@ -683,7 +685,12 @@ export class CreditsService {
 				);
 
 				if (existingGrant) {
-					this.assertGrantReplayMatches(existingGrant, owner, allotment, "plan");
+					this.assertGrantReplayMatches(
+						existingGrant,
+						owner,
+						allotment,
+						"plan",
+					);
 					this.assertCappedRefillReplayMatches(
 						existingGrant,
 						allotment,
@@ -835,7 +842,11 @@ export class CreditsService {
 					newPoolId = pool.id;
 				}
 
-				await this.creditsRepository.applyPlanHoldBoundary(owner, newPoolId, tx);
+				await this.creditsRepository.applyPlanHoldBoundary(
+					owner,
+					newPoolId,
+					tx,
+				);
 				await this.creditsRepository.closePlanHoldPools(
 					owner,
 					oldPoolIds.filter((poolId) => poolId !== newPoolId),
@@ -884,6 +895,7 @@ export class CreditsService {
 		);
 	}
 
+	/** amount is centi-credits: billing converts pack credits x100 before calling. */
 	async topup(
 		owner: CreditOwner,
 		amount: number,
@@ -1029,7 +1041,11 @@ export class CreditsService {
 
 	grantSignupCredits(
 		userId: string,
-		amount = SIGNUP_GRANT_CREDITS,
+		// SIGNUP_GRANT_CREDITS is a whole-display-credit contract constant; the
+		// ledger unit is centi-credits, so the default converts x100 here (the
+		// only place). Explicit amounts (the signup outbox) already arrive in
+		// centi-credits — product_settings stores centi-credits post-v4.
+		amount = SIGNUP_GRANT_CREDITS * 100,
 		transaction?: CreditsTransaction,
 	): Promise<CreditLedgerRow> {
 		return this.grant(
@@ -1718,6 +1734,9 @@ export class CreditsService {
 		return typeof value === "object" && value !== null && !Array.isArray(value);
 	}
 
+	// Amounts are integer centi-credits: the minimum billable amount is
+	// 1 centi-credit (0.01 credit). A caller that forgot the x100 conversion
+	// still passes this guard, so every boundary must convert before calling.
 	private assertPositiveCreditAmount(amount: number) {
 		if (!Number.isInteger(amount) || amount <= 0) {
 			throw new BadRequestException("Credit amount must be a positive integer");

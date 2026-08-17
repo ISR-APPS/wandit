@@ -10,6 +10,7 @@ import {
 import { useBillingModal } from "@/features/billing/components/billing-modal-provider";
 import { usePurchasesEnabled } from "@/features/billing/lib/purchases";
 import { useTranslation } from "@/lib/i18n";
+import { formatCreditAmount } from "../lib/format-credits";
 
 type InsufficientCreditsDialogProps = {
 	open: boolean;
@@ -22,7 +23,7 @@ export function InsufficientCreditsDialog({
 	onOpenChange,
 	cost,
 }: InsufficientCreditsDialogProps) {
-	const { t } = useTranslation();
+	const { locale, t } = useTranslation();
 	const { openPlanPicker } = useBillingModal();
 	const purchasesEnabled = usePurchasesEnabled();
 	const handleUpgrade = () => {
@@ -44,7 +45,9 @@ export function InsufficientCreditsDialog({
 						<span className="text-muted-foreground">
 							{t("credits.costLabel")}
 						</span>
-						<span className="font-medium font-mono tabular-nums">{cost}</span>
+						<span className="font-medium font-mono tabular-nums">
+							{formatCreditAmount(cost, locale)}
+						</span>
 					</div>
 				</div>
 				{/* No purchase CTA while all purchases are paused (beta). */}

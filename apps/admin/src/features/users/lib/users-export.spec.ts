@@ -21,8 +21,8 @@ function makeUser(overrides: Partial<AdminUserSummary> = {}): AdminUserSummary {
 		createdAt: "2026-08-01T09:30:00.000Z",
 		lastSeenAt: "2026-08-15T18:00:00.000Z",
 		plan: "pro",
-		creditsBalance: 240,
-		creditsConsumed: 760,
+		creditsBalance: 240.87,
+		creditsConsumed: 760.45,
 		projectsCount: 3,
 		...overrides,
 	};
@@ -40,8 +40,9 @@ describe("buildUsersExportRow", () => {
 			"user",
 			"active",
 			"pro",
-			240,
-			760,
+			// Balance floors to one decimal; consumption stays exact at 2 dp.
+			240.8,
+			760.45,
 			3,
 			"2026-08-01T09:30:00.000Z",
 			"2026-08-15T18:00:00.000Z",
@@ -56,6 +57,15 @@ describe("buildUsersExportRow", () => {
 		expect(row[2]).toBe("No");
 		expect(row[4]).toBe("banned");
 		expect(row[10]).toBe("");
+	});
+
+	it("never rounds a balance up and keeps whole-credit amounts whole", () => {
+		const row = buildUsersExportRow(
+			makeUser({ creditsBalance: 2.99, creditsConsumed: 20 }),
+		);
+
+		expect(row[6]).toBe(2.9);
+		expect(row[7]).toBe(20);
 	});
 });
 

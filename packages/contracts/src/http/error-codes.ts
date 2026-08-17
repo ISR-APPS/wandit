@@ -37,9 +37,11 @@ export const apiErrorCodes = [
 export const apiErrorCodeSchema = z.enum(apiErrorCodes);
 export type ApiErrorCode = z.infer<typeof apiErrorCodeSchema>;
 
+// Decimal credits: the smallest charge is 0.01 and balances can be fractional
+// (or negative after accepted overage), so both fields carry decimals.
 export const paymentRequiredDetailsSchema = z.object({
-	requiredCredits: z.int().positive(),
-	availableCredits: z.int(),
+	requiredCredits: z.number().positive(),
+	availableCredits: z.number(),
 });
 
 export type PaymentRequiredDetails = z.infer<

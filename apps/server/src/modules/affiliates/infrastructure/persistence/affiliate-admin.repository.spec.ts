@@ -69,7 +69,8 @@ describe("AffiliateAdminRepository referred quality SQL", () => {
 			"c.created_at < m.created_at + interval '7 days'",
 		);
 		expect(query.sql).toContain("f.first_subscription_at is null");
-		expect(query.params).toContain(20);
+		// 2_000 centi-credits = the 20-whole-credit healthy-trial threshold.
+		expect(query.params).toContain(2_000);
 		expect(query.params).toContain(2);
 
 		for (const table of [

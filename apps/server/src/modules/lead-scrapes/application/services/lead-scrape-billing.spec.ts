@@ -49,7 +49,7 @@ describe("lead scrape billing", () => {
 			{ actorUserId: "user-1" },
 			{
 				attemptRef: "attempt-1",
-				credits: 5,
+				credits: 500,
 				idempotencyKey: "lead-scrape:attempt-1",
 				parentEventId: "chat-event-1",
 			},
@@ -158,10 +158,10 @@ describe("lead scrape billing", () => {
 			{ actorUserId: "user-1" },
 		);
 		expect(meteringService.settle).toHaveBeenCalledWith("usage-event-1", {
-			finalCredits: 5,
+			finalCredits: 500,
 			pricing: "direct",
 			pricingSnapshot: {
-				creditsPerOperation: 5,
+				creditsPerOperation: 500,
 				mode: "fixed",
 				source: "operation_registry",
 			},
@@ -217,7 +217,7 @@ describe("lead scrape billing", () => {
 		expect(meteringService.settle).toHaveBeenCalledWith(
 			"usage-event-1",
 			expect.objectContaining({
-				finalCredits: 5,
+				finalCredits: 500,
 				rawUsage: { provider: "serper", resultCount: 3 },
 			}),
 		);

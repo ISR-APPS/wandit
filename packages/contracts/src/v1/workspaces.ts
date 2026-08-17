@@ -41,8 +41,11 @@ export const workspaceMemberLimitSchema = z.object({
 	userId: z.string(),
 	name: z.string(),
 	email: z.email(),
+	// Limits are configured in WHOLE credits (deliberate admin UX); the server
+	// stores them x100 as centi-credits and divides back on read.
 	monthlyCreditLimit: z.int().positive().nullable(),
-	spentThisMonth: z.int().min(0),
+	// Decimal credits — consumption is fractional under pricing v4.
+	spentThisMonth: z.number().min(0),
 });
 
 export type WorkspaceMemberLimit = z.infer<typeof workspaceMemberLimitSchema>;
@@ -56,6 +59,7 @@ export type WorkspaceMemberLimitsResponse = z.infer<
 	typeof workspaceMemberLimitsResponseSchema
 >;
 
+// Limit inputs stay whole credits; the server multiplies x100 on write.
 export const putWorkspaceMemberLimitsBodySchema = z
 	.object({
 		defaultMemberMonthlyCreditLimit: z.int().positive().nullable().optional(),
@@ -80,10 +84,12 @@ export type PutWorkspaceMemberLimitsBody = z.infer<
 	typeof putWorkspaceMemberLimitsBodySchema
 >;
 
+// 403 details in decimal credits (spend and holds are fractional; the limit
+// itself is configured whole but exposed through the same decimal boundary).
 export const memberCreditLimitDetailsSchema = z.object({
-	limitCredits: z.int().positive(),
-	spentCredits: z.int().min(0),
-	requiredCredits: z.int().positive(),
+	limitCredits: z.number().positive(),
+	spentCredits: z.number().min(0),
+	requiredCredits: z.number().positive(),
 });
 
 export type MemberCreditLimitDetails = z.infer<

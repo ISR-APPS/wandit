@@ -167,7 +167,8 @@ describe("SubscriptionCreditsService top-up fulfillment", () => {
 
 		await service.grantTopup(checkoutSession());
 
-		expect(credits.topup).toHaveBeenCalledWith(userOwner("user_1"), 250, {
+		// 250-credit pack -> 25000 centi-credits at the grant boundary.
+		expect(credits.topup).toHaveBeenCalledWith(userOwner("user_1"), 25_000, {
 			idempotencyKey: "topup:cs_topup",
 			meta: {
 				chargeId: "ch_topup",

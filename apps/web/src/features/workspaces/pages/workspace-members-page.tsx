@@ -57,8 +57,12 @@ export default function WorkspaceMembersPage() {
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
 	const { data: session } = useSession();
-	const { activeWorkspace, actorCanManageWorkspace, isPersonal, switchWorkspace } =
-		useWorkspace();
+	const {
+		activeWorkspace,
+		actorCanManageWorkspace,
+		isPersonal,
+		switchWorkspace,
+	} = useWorkspace();
 	const organizationId = activeWorkspace?.id;
 
 	// Members only make sense inside an org workspace.
@@ -177,7 +181,10 @@ export default function WorkspaceMembersPage() {
 	});
 
 	const updateRole = useMutation({
-		mutationFn: async (input: { memberId: string; role: InviteRole | "owner" }) => {
+		mutationFn: async (input: {
+			memberId: string;
+			role: InviteRole | "owner";
+		}) => {
 			const result = await authClient.organization.updateMemberRole({
 				memberId: input.memberId,
 				role: input.role,
@@ -333,10 +340,7 @@ export default function WorkspaceMembersPage() {
 					</h2>
 					<div className="flex flex-col divide-y rounded-lg border">
 						{invitations.map((invitation) => (
-							<div
-								key={invitation.id}
-								className="flex items-center gap-3 p-4"
-							>
+							<div key={invitation.id} className="flex items-center gap-3 p-4">
 								<div className="min-w-0 flex-1">
 									<p className="truncate font-medium text-sm">
 										{invitation.email}

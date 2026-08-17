@@ -1,5 +1,4 @@
 import { Link } from "@tanstack/react-router";
-import { formatNumber } from "@wandit/internationalization";
 import { Button } from "@wandit/ui/components/button";
 import {
 	DropdownMenu,
@@ -19,6 +18,7 @@ import {
 	useCreditBalanceQuery,
 	useCreditLedgerQuery,
 } from "../api/credits.queries";
+import { formatCreditBalance } from "../lib/format-credits";
 import { LedgerList } from "./ledger-list";
 
 export function CreditsChip({ className }: { className?: string }) {
@@ -52,7 +52,10 @@ export function CreditsChip({ className }: { className?: string }) {
 					) : (
 						<span className="text-[13px] text-ember-text">
 							{balance
-								? t("credits.creditUnit", { count: balance.balance })
+								? t("credits.creditUnit", {
+										count: balance.balance,
+										countDisplay: formatCreditBalance(balance.balance, locale),
+									})
 								: t("credits.balanceUnavailableShort")}
 						</span>
 					)}
@@ -72,20 +75,20 @@ export function CreditsChip({ className }: { className?: string }) {
 					) : balance ? (
 						<>
 							<p className="mt-1 font-medium font-mono text-2xl tabular-nums">
-								{formatNumber(balance.balance, locale)}
+								{formatCreditBalance(balance.balance, locale)}
 							</p>
 							<dl className="mt-3 grid grid-cols-3 gap-2 border-t pt-3">
 								<BalanceBucket
 									label={t("credits.buckets.plan")}
-									value={formatNumber(balance.plan, locale)}
+									value={formatCreditBalance(balance.plan, locale)}
 								/>
 								<BalanceBucket
 									label={t("credits.buckets.promo")}
-									value={formatNumber(balance.promo, locale)}
+									value={formatCreditBalance(balance.promo, locale)}
 								/>
 								<BalanceBucket
 									label={t("credits.buckets.topup")}
-									value={formatNumber(balance.topup, locale)}
+									value={formatCreditBalance(balance.topup, locale)}
 								/>
 							</dl>
 						</>

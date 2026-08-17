@@ -47,15 +47,17 @@ import { readAudioDurationSeconds } from "./audio-duration";
 
 const METERING_WRITE_ATTEMPTS = 3;
 const TRANSCRIPTION_PROVIDER_TIMEOUT_MS = 10 * 60 * 1000;
-const TRANSCRIPTION_CREDITS_PER_MINUTE = (() => {
+const TRANSCRIPTION_PRICING = (() => {
 	const pricing = operationPricing("transcription");
 
 	if (pricing.mode !== "per_minute") {
 		throw new Error("Transcription operation must use per-minute pricing");
 	}
 
-	return pricing.creditsPerMinute;
+	return pricing;
 })();
+const TRANSCRIPTION_CREDITS_PER_MINUTE = TRANSCRIPTION_PRICING.creditsPerMinute;
+const TRANSCRIPTION_MINIMUM_CREDITS = TRANSCRIPTION_PRICING.minimumCredits;
 
 // `@Injectable()` lets the controller inject this service.
 @Injectable()
@@ -269,7 +271,7 @@ export class TranscriptionService {
 								providerDurationSeconds === null ? "container" : "provider",
 							localDurationSeconds: durationSeconds,
 							maxDurationSeconds: TRANSCRIPTION_MAX_DURATION_SECONDS,
-							minimumCredits: 1,
+							minimumCredits: TRANSCRIPTION_MINIMUM_CREDITS,
 							mode: "per_minute",
 							providerDurationSeconds,
 						},

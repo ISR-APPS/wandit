@@ -12,6 +12,8 @@ export const GENERATION_PAYMENT_REQUIRED_ERROR_CODE =
 
 // HTTP 402 is used here as "you need more credits".
 export class GenerationPaymentRequiredError extends HttpException {
+	// UNIT: decimal display credits — throwers must convert internal
+	// centi-credit amounts (divide by 100) before constructing.
 	constructor(
 		readonly requiredCredits: number,
 		readonly availableCredits: number,

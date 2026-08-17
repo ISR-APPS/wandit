@@ -111,6 +111,7 @@ export const organizationBillingSettings = pgTable(
 			.references(() => organization.id, { onDelete: "restrict" }),
 		// NULL = unlimited. Applies to `member`-role members without an explicit
 		// per-member row; owners/admins are exempt from the default.
+		// UNIT: centi-credits.
 		defaultMemberMonthlyCreditLimit: integer(
 			"default_member_monthly_credit_limit",
 		),
@@ -143,6 +144,7 @@ export const organizationMemberCreditLimits = pgTable(
 		userId: text("user_id")
 			.notNull()
 			.references(() => user.id, { onDelete: "restrict" }),
+		// UNIT: centi-credits.
 		monthlyCreditLimit: integer("monthly_credit_limit").notNull(),
 		updatedByUserId: text("updated_by_user_id").references(() => user.id, {
 			onDelete: "restrict",

@@ -6,6 +6,7 @@ import {
 	adminUserRoles,
 	adminUserStatuses,
 	adminUserVerificationStatuses,
+	creditsToCentiCredits,
 	ENTITLED_SUBSCRIPTION_STATUSES,
 	type PaginatedResult,
 } from "@wandit/contracts";
@@ -51,6 +52,7 @@ export type AdminUserSummaryRow = {
 	createdAt: Date;
 	lastSeenAt: Date | null;
 	plan: string | null;
+	// UNIT: integer centi-credits (ledger sums); mappers divide by 100.
 	creditsBalance: number;
 	creditsConsumed: number;
 	projectsCount: number;
@@ -118,6 +120,7 @@ export type AdminProjectDetailRow = {
 
 export type AdminCreditLedgerRow = {
 	id: string;
+	// UNIT: integer centi-credits; mappers divide by 100.
 	delta: number;
 	kind: (typeof creditLedger.kind)["_"]["data"];
 	bucket: (typeof creditLedger.bucket)["_"]["data"];
@@ -695,7 +698,16 @@ export class AdminRepository {
 			);
 		}
 
-		const { creditsUsedMin: min, creditsUsedMax: max } = query;
+		// Query bounds arrive in decimal credits; the ledger sums are integer
+		// centi-credits, so scale the bounds x100 before comparing.
+		const min =
+			query.creditsUsedMin === undefined
+				? undefined
+				: creditsToCentiCredits(query.creditsUsedMin);
+		const max =
+			query.creditsUsedMax === undefined
+				? undefined
+				: creditsToCentiCredits(query.creditsUsedMax);
 		if (min !== undefined || max !== undefined) {
 			const creditsConsumed = userCreditsConsumed(sql.raw('"user"."id"'));
 

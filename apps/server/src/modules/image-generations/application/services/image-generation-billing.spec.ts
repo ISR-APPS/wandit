@@ -4,8 +4,8 @@ import type { MeteringService } from "../../../metering/application/services/met
 import { createImageGenerationBilling } from "./image-generation-billing";
 
 describe("createImageGenerationBilling", () => {
-	it("prices the requested image count at five credits per image", async () => {
-		const event = { id: "event_1", reservedCredits: 20 } as Awaited<
+	it("prices the requested image count at 300 centi-credits per image", async () => {
+		const event = { id: "event_1", reservedCredits: 1200 } as Awaited<
 			ReturnType<MeteringService["reserve"]>
 		>;
 		const meteringService = {
@@ -38,16 +38,16 @@ describe("createImageGenerationBilling", () => {
 			{ actorUserId: "user_1" },
 			{
 				attemptRef: "attempt_1",
-				credits: 20,
+				credits: 1200,
 				idempotencyKey: "image:attempt_1",
 				parentEventId: "parent_1",
 			},
 		);
 		expect(meteringService.settle).toHaveBeenCalledWith("event_1", {
-			finalCredits: 20,
+			finalCredits: 1200,
 			pricing: "direct",
 			pricingSnapshot: {
-				creditsPerUnit: 5,
+				creditsPerUnit: 300,
 				mode: "fixed",
 				operation: "image",
 				source: "operation_registry",
@@ -58,7 +58,7 @@ describe("createImageGenerationBilling", () => {
 	});
 
 	it("settles partial output at the reservation-time unit price after registry drift", async () => {
-		const event = { id: "event_old_price", reservedCredits: 16 } as Awaited<
+		const event = { id: "event_old_price", reservedCredits: 1600 } as Awaited<
 			ReturnType<MeteringService["reserve"]>
 		>;
 		const meteringService = {
@@ -74,7 +74,7 @@ describe("createImageGenerationBilling", () => {
 			meteringService,
 		});
 		const oldPriceReservation = {
-			credits: 16,
+			credits: 1600,
 			eventId: "event_old_price",
 			operation: "image" as const,
 			referenceId: "attempt_old_price",
@@ -87,9 +87,9 @@ describe("createImageGenerationBilling", () => {
 		expect(meteringService.settle).toHaveBeenCalledWith(
 			"event_old_price",
 			expect.objectContaining({
-				finalCredits: 4,
+				finalCredits: 400,
 				pricingSnapshot: expect.objectContaining({
-					creditsPerUnit: 4,
+					creditsPerUnit: 400,
 					units: 1,
 				}),
 			}),

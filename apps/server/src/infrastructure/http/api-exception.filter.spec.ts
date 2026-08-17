@@ -29,7 +29,8 @@ function setupHost() {
 
 describe("ApiExceptionFilter payment-required details", () => {
 	it.each([
-		new InsufficientCreditsError(25, 4),
+		// Constructed with centi-credits; details expose decimal credits.
+		new InsufficientCreditsError(2500, 400),
 		new GenerationPaymentRequiredError(25, 4),
 	])("emits typed 402 details for %s", (exception) => {
 		const { host, reply, send } = setupHost();

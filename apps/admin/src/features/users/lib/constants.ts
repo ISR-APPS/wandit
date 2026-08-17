@@ -12,6 +12,8 @@ export const USER_TABLE_DEFAULT_PAGE_SIZE = 25;
 
 // Slider ceiling for the credits-used range filter. The max thumb parked at
 // this edge means "no upper bound"; the numeric inputs accept larger values.
+// Denominated in whole display credits (the API filter unit) — never scale
+// this to centi-credits.
 export const USER_CREDITS_USED_SLIDER_MAX = 1000;
 
 type UserFacetedFilterOption<TValue extends string> = {

@@ -6,9 +6,14 @@ export function mapCreditLedgerRow(row: DbCreditLedgerRow): CreditLedgerRow {
 	return {
 		bucket: row.bucket,
 		createdAt: row.createdAt.toISOString(),
-		delta: row.delta,
+		// Presentation boundary: the stored delta is integer centi-credits; the
+		// API contract carries decimal display credits.
+		delta: row.delta / 100,
 		id: row.id,
 		kind: row.kind,
+		// meta passes through in INTERNAL units: any embedded amounts
+		// (idempotencyFingerprint.amount, bucketSplit, refill.*, …) are
+		// centi-credit integers, not display credits.
 		meta: isRecord(row.meta) ? row.meta : null,
 		organizationId: row.organizationId,
 	};

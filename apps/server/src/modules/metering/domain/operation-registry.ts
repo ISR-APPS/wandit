@@ -3,12 +3,14 @@ import type { aiUsageOperation } from "@wandit/db/schema/credits";
 export type AiUsageOperation = (typeof aiUsageOperation.enumValues)[number];
 export type PricingMode = "fixed" | "per_minute" | "token";
 
-export const IMAGE_CREDITS_PER_IMAGE = 5;
-export const VIDEO_CREDITS_PER_OPERATION = 25;
-export const MARKETING_CREDITS_PER_OPERATION = 5;
-export const CONNECTOR_CREDITS_PER_OPERATION = 5;
-export const LEAD_SCRAPE_CREDITS_PER_OPERATION = 5;
-export const TRANSCRIPTION_CREDITS_PER_MINUTE = 1;
+// All credit amounts in this registry are integer centi-credits (cc):
+// 1 credit = 100 cc. The API/UI divide by 100 at their own boundary.
+export const IMAGE_CREDITS_PER_IMAGE = 300;
+export const VIDEO_CREDITS_PER_OPERATION = 2000;
+export const MARKETING_CREDITS_PER_OPERATION = 700;
+export const CONNECTOR_CREDITS_PER_OPERATION = 500;
+export const LEAD_SCRAPE_CREDITS_PER_OPERATION = 500;
+export const TRANSCRIPTION_CREDITS_PER_MINUTE = 100;
 export const TRANSCRIPTION_MAX_DURATION_SECONDS = 5 * 60;
 
 type ParentChildRules = {
@@ -62,7 +64,7 @@ export const OPERATION_REGISTRY = {
 		],
 		allowedParentOperations: NO_PARENTS,
 		mode: "token",
-		reserveFloorCredits: 1,
+		reserveFloorCredits: 10,
 		rootAllowed: true,
 	},
 	connector: {
@@ -105,7 +107,7 @@ export const OPERATION_REGISTRY = {
 		allowedChildOperations: ["image", "video"],
 		allowedParentOperations: ["chat"],
 		mode: "token",
-		reserveFloorCredits: 10,
+		reserveFloorCredits: 1000,
 		rootAllowed: true,
 	},
 	topup_adjust: {
@@ -122,9 +124,9 @@ export const OPERATION_REGISTRY = {
 		allowedParentOperations: NO_PARENTS,
 		creditsPerMinute: TRANSCRIPTION_CREDITS_PER_MINUTE,
 		maxDurationSeconds: TRANSCRIPTION_MAX_DURATION_SECONDS,
-		minimumCredits: 1,
+		minimumCredits: TRANSCRIPTION_CREDITS_PER_MINUTE,
 		mode: "per_minute",
-		reserveFloorCredits: 1,
+		reserveFloorCredits: TRANSCRIPTION_CREDITS_PER_MINUTE,
 		rootAllowed: true,
 	},
 	video: {

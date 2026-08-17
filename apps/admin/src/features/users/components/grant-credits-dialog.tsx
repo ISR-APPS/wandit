@@ -24,6 +24,11 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { AdminUserSummary } from "@/features/users/api/users.dto";
 import { useGrantCreditsMutation } from "@/features/users/api/users.mutations";
 import { isApiClientError } from "@/lib/api-client";
+import {
+	formatCreditAmount,
+	formatCreditBalance,
+	roundCreditAmount,
+} from "@/lib/credit-format";
 
 const CREDIT_PRESETS = [100, 500, 1_000, 5_000] as const;
 
@@ -49,10 +54,12 @@ export function GrantCreditsDialog({
 	const mutation = useGrantCreditsMutation();
 
 	const parsedAmount = Number(amount);
+	// Decimal credits in 0.01 steps — mirrors adminGrantCreditsInputSchema.
 	const amountIsValid =
-		Number.isInteger(parsedAmount) &&
+		Number.isFinite(parsedAmount) &&
 		parsedAmount > 0 &&
-		parsedAmount <= 1_000_000;
+		parsedAmount <= 1_000_000 &&
+		roundCreditAmount(parsedAmount) === parsedAmount;
 	const trimmedReason = reason.trim();
 	const reasonIsValid = trimmedReason.length <= 500;
 
@@ -94,7 +101,7 @@ export function GrantCreditsDialog({
 				requestId: requestIdRef.current.id,
 			});
 			toast.success(
-				`${parsedAmount.toLocaleString()} credits granted to ${user.name}.`,
+				`${formatCreditAmount(parsedAmount)} credits granted to ${user.name}.`,
 			);
 			resetForm();
 			onOpenChange(false);
@@ -131,10 +138,10 @@ export function GrantCreditsDialog({
 							<Input
 								id="grant-credit-amount"
 								type="number"
-								inputMode="numeric"
-								min={1}
+								inputMode="decimal"
+								min={0.01}
 								max={1_000_000}
-								step={1}
+								step={0.01}
 								value={amount}
 								onChange={(event) => setAmount(event.target.value)}
 								placeholder="Enter a credit amount"
@@ -142,11 +149,12 @@ export function GrantCreditsDialog({
 								autoFocus
 							/>
 							<FieldDescription>
-								Current balance: {user.creditsBalance.toLocaleString()} credits.
+								Current balance: {formatCreditBalance(user.creditsBalance)}{" "}
+								credits.
 							</FieldDescription>
 							<FieldError>
 								{submitted && !amountIsValid
-									? "Enter a whole number between 1 and 1,000,000."
+									? "Enter an amount between 0.01 and 1,000,000, in 0.01 steps."
 									: null}
 							</FieldError>
 						</Field>

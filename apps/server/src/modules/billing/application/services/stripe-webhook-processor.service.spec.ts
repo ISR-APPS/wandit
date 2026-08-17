@@ -1373,7 +1373,7 @@ describe("StripeWebhookProcessor claim lifecycle", () => {
 
 		expect(credits.grant).toHaveBeenCalledWith(
 			userOwner("user_1"),
-			250,
+			25_000,
 			expect.objectContaining({
 				idempotencyKey: `inv:${invoice.id}:grant`,
 			}),
@@ -1661,7 +1661,7 @@ describe("StripeEventRouter checkout routing", () => {
 			),
 		);
 
-		expect(credits.topup).toHaveBeenCalledWith(userOwner("user_1"), 1000, {
+		expect(credits.topup).toHaveBeenCalledWith(userOwner("user_1"), 100_000, {
 			idempotencyKey: "topup:cs_1",
 			meta: {
 				chargeId: "ch_pi_1",
@@ -1704,7 +1704,7 @@ describe("StripeEventRouter checkout routing", () => {
 			),
 		);
 
-		expect(credits.topup).toHaveBeenCalledWith(userOwner("user_1"), 2500, {
+		expect(credits.topup).toHaveBeenCalledWith(userOwner("user_1"), 250_000, {
 			idempotencyKey: "topup:cs_async",
 			meta: {
 				chargeId: "ch_pi_async",
@@ -2333,7 +2333,7 @@ describe("StripeEventRouter invoice allowlist", () => {
 		if (eventType === "invoice.paid") {
 			expect(credits.grant).toHaveBeenCalledWith(
 				userOwner("user_1"),
-				250,
+				25_000,
 				expect.objectContaining({
 					idempotencyKey: `inv:${invoiceId}:grant`,
 				}),
@@ -2430,7 +2430,7 @@ describe("SubscriptionCreditsService invoice policy", () => {
 
 		expect(credits.grant).toHaveBeenCalledWith(
 			userOwner("user_1"),
-			250,
+			25_000,
 			expect.objectContaining({
 				bucket: "plan",
 				idempotencyKey: "inv:in_create:grant",
@@ -2445,7 +2445,7 @@ describe("SubscriptionCreditsService invoice policy", () => {
 		);
 		expect(subscriptionCreditsRepository.refillSlots()).toHaveLength(11);
 		expect(subscriptionCreditsRepository.refillSlots()[0]).toMatchObject({
-			credits: 250,
+			credits: 25_000,
 			fundingChargeId: "ch_pi_invoice_create",
 			fundingInvoiceId: "in_create",
 			periodOrdinal: 2,
@@ -2484,7 +2484,7 @@ describe("SubscriptionCreditsService invoice policy", () => {
 		expect(stripe.retrievePaymentIntent).toHaveBeenCalledWith("pi_paid");
 		expect(credits.grant).toHaveBeenCalledWith(
 			userOwner("user_1"),
-			250,
+			25_000,
 			expect.objectContaining({
 				bucket: "plan",
 				idempotencyKey: "inv:in_retry_payment:grant",
@@ -2555,7 +2555,7 @@ describe("SubscriptionCreditsService invoice policy", () => {
 
 		expect(credits.applyCappedRefill).toHaveBeenCalledWith(
 			userOwner("user_1"),
-			500,
+			50_000,
 			expect.objectContaining({
 				idempotencyKey: "inv:in_cycle:grant",
 				meta: expect.objectContaining({
@@ -2647,7 +2647,7 @@ describe("SubscriptionCreditsService invoice policy", () => {
 
 		expect(credits.grant).toHaveBeenCalledWith(
 			userOwner("user_1"),
-			2000,
+			200_000,
 			expect.objectContaining({
 				bucket: "plan",
 				idempotencyKey: "inv:in_upgrade:grant",
@@ -2754,7 +2754,7 @@ describe("SubscriptionCreditsService invoice policy", () => {
 
 		expect(credits.applyCappedRefill).toHaveBeenCalledWith(
 			userOwner("user_1"),
-			250,
+			25_000,
 			expect.objectContaining({
 				idempotencyKey: "inv:in_interval:grant",
 				meta: expect.objectContaining({

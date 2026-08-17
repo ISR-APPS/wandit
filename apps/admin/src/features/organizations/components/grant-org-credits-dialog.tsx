@@ -24,6 +24,11 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { OrganizationSummary } from "@/features/organizations/api/organizations.dto";
 import { useGrantOrganizationCreditsMutation } from "@/features/organizations/api/organizations.mutations";
 import { isApiClientError } from "@/lib/api-client";
+import {
+	formatCreditAmount,
+	formatCreditBalance,
+	roundCreditAmount,
+} from "@/lib/credit-format";
 
 const CREDIT_PRESETS = [100, 500, 1_000, 5_000] as const;
 
@@ -48,10 +53,12 @@ export function GrantOrgCreditsDialog({
 	const mutation = useGrantOrganizationCreditsMutation();
 
 	const parsedAmount = Number(amount);
+	// Decimal credits in 0.01 steps — mirrors adminGrantCreditsInputSchema.
 	const amountIsValid =
-		Number.isInteger(parsedAmount) &&
+		Number.isFinite(parsedAmount) &&
 		parsedAmount > 0 &&
-		parsedAmount <= 1_000_000;
+		parsedAmount <= 1_000_000 &&
+		roundCreditAmount(parsedAmount) === parsedAmount;
 	const trimmedReason = reason.trim();
 	const reasonIsValid = trimmedReason.length <= 500;
 
@@ -93,7 +100,7 @@ export function GrantOrgCreditsDialog({
 				requestId: requestIdRef.current.id,
 			});
 			toast.success(
-				`${parsedAmount.toLocaleString()} credits granted to ${organization.name}'s pool.`,
+				`${formatCreditAmount(parsedAmount)} credits granted to ${organization.name}'s pool.`,
 			);
 			resetForm();
 			onOpenChange(false);
@@ -130,10 +137,10 @@ export function GrantOrgCreditsDialog({
 							<Input
 								id="grant-org-credit-amount"
 								type="number"
-								inputMode="numeric"
-								min={1}
+								inputMode="decimal"
+								min={0.01}
 								max={1_000_000}
-								step={1}
+								step={0.01}
 								value={amount}
 								onChange={(event) => setAmount(event.target.value)}
 								placeholder="Enter a credit amount"
@@ -142,11 +149,11 @@ export function GrantOrgCreditsDialog({
 							/>
 							<FieldDescription>
 								Current pool balance:{" "}
-								{organization.creditsBalance.toLocaleString()} credits.
+								{formatCreditBalance(organization.creditsBalance)} credits.
 							</FieldDescription>
 							<FieldError>
 								{submitted && !amountIsValid
-									? "Enter a whole number between 1 and 1,000,000."
+									? "Enter an amount between 0.01 and 1,000,000, in 0.01 steps."
 									: null}
 							</FieldError>
 						</Field>

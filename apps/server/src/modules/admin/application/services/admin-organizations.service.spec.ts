@@ -6,8 +6,8 @@ import type { CreditsService } from "../../../credits/application/services/credi
 import type { CreditOwner } from "../../../credits/domain/credit-owner";
 import type {
 	AdminOrganizationMemberRow,
-	AdminOrganizationsRepository,
 	AdminOrganizationSummaryRow,
+	AdminOrganizationsRepository,
 	AdminOrgLedgerRow,
 	AdminOrgSubscriptionRow,
 } from "../../infrastructure/persistence/admin-organizations.repository";
@@ -34,15 +34,13 @@ function summaryRow(
 		membersCount: 2,
 		projectsCount: 3,
 		plan: "business",
-		creditsBalance: 750,
+		// Repository rows carry integer centi-credits (75_000 = 750 credits).
+		creditsBalance: 75_000,
 		...overrides,
 	};
 }
 
-function memberRow(
-	userId: string,
-	role: string,
-): AdminOrganizationMemberRow {
+function memberRow(userId: string, role: string): AdminOrganizationMemberRow {
 	return {
 		userId,
 		name: `name-${userId}`,
@@ -71,8 +69,9 @@ class InMemoryOrgsRepository {
 		purchasedByUserId: "user_owner",
 	};
 	ledger: AdminOrgLedgerRow[] = [];
-	memberLimits = new Map<string, number>([["user_b", 100]]);
-	spentByUser = new Map<string, number>([["user_b", 40]]);
+	// Stored limits and spend sums are centi-credits (10_000 = 100 credits).
+	memberLimits = new Map<string, number>([["user_b", 10_000]]);
+	spentByUser = new Map<string, number>([["user_b", 4_000]]);
 	roleWrites: Array<{ organizationId: string; userId: string; role: string }> =
 		[];
 
@@ -101,11 +100,7 @@ class InMemoryOrgsRepository {
 		return row ? { id: `member-${userId}`, role: row.role } : null;
 	}
 
-	async updateMemberRole(
-		organizationId: string,
-		userId: string,
-		role: string,
-	) {
+	async updateMemberRole(organizationId: string, userId: string, role: string) {
 		this.roleWrites.push({ organizationId, role, userId });
 		const row = (this.members.get(organizationId) ?? []).find(
 			(entry) => entry.userId === userId,
@@ -129,7 +124,8 @@ class InMemoryOrgsRepository {
 	}
 
 	async findDefaultMemberLimit() {
-		return 250;
+		// Centi-credits: 25_000 = 250 credits.
+		return 25_000;
 	}
 
 	async listMemberLimits() {
@@ -153,7 +149,8 @@ class FakeCreditsService {
 	grants: Grant[] = [];
 
 	async getBalance() {
-		return { plan: 500, promo: 250, topup: 0, balance: 750 };
+		// CreditsService returns internal centi-credit balances.
+		return { plan: 50_000, promo: 25_000, topup: 0, balance: 75_000 };
 	}
 
 	async grant(
@@ -210,16 +207,12 @@ describe("AdminOrganizationsService", () => {
 			purchasedByUserId: "user_owner",
 		});
 
-		const memberB = detail.members.find(
-			(entry) => entry.userId === "user_b",
-		);
+		const memberB = detail.members.find((entry) => entry.userId === "user_b");
 		expect(memberB).toMatchObject({
 			monthlyCreditLimit: 100,
 			spentThisMonth: 40,
 		});
-		const owner = detail.members.find(
-			(entry) => entry.userId === "user_owner",
-		);
+		const owner = detail.members.find((entry) => entry.userId === "user_owner");
 		expect(owner).toMatchObject({
 			monthlyCreditLimit: null,
 			spentThisMonth: 0,
@@ -242,9 +235,10 @@ describe("AdminOrganizationsService", () => {
 			requestId: "11111111-1111-4111-8111-111111111111",
 		});
 
+		// The API amount (300 decimal credits) reaches the ledger x100.
 		expect(credits.grants).toEqual([
 			{
-				amount: 300,
+				amount: 30_000,
 				bucket: "promo",
 				idempotencyKey: `admin-grant:org:${ORG_ID}:11111111-1111-4111-8111-111111111111`,
 				owner: { organizationId: ORG_ID, type: "org" },
@@ -267,12 +261,9 @@ describe("AdminOrganizationsService", () => {
 	it("writes the member role directly and returns the refreshed detail", async () => {
 		const { repository, service } = build();
 
-		const detail = await service.setMemberRole(
-			"admin_1",
-			ORG_ID,
-			"user_b",
-			{ role: "admin" },
-		);
+		const detail = await service.setMemberRole("admin_1", ORG_ID, "user_b", {
+			role: "admin",
+		});
 
 		expect(repository.roleWrites).toEqual([
 			{ organizationId: ORG_ID, role: "admin", userId: "user_b" },
@@ -296,9 +287,7 @@ describe("AdminOrganizationsService", () => {
 			{ organizationId: ORG_ID, role: "member", userId: "user_owner" },
 		]);
 		expect(
-			detail.members.every(
-				(entry) => !entry.role.split(",").includes("owner"),
-			),
+			detail.members.every((entry) => !entry.role.split(",").includes("owner")),
 		).toBe(true);
 	});
 

@@ -74,7 +74,8 @@ describe("ProductSettingsService", () => {
 			id: 1,
 			organizationsEnabled: false,
 			paidSubscriptionsEnabled: false,
-			signupGrantCredits: 50,
+			// Stored (and internally served) as centi-credits: 5000 = 50 credits.
+			signupGrantCredits: 5000,
 			signupGrantEnabled: false,
 			topupsEnabled: false,
 			updatedAt: INITIAL_DATE.toISOString(),

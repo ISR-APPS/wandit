@@ -6,8 +6,10 @@ import { useCreditBalanceQuery } from "../api/credits.queries";
 /**
  * Settle-on-actuals can push the balance below zero (a running generation is
  * never killed mid-flight), so "out" means <= 0 — not just exactly empty.
- * An unloaded/failed balance never blocks: composers fail open and let the
- * server's 402 be the authority.
+ * Fractional balances below the 0.10-credit chat reserve floor (e.g. 0.05)
+ * deliberately pass this gate: the server's 402 stays the authority on
+ * whether a reserve is affordable, and the composer surfaces that error.
+ * An unloaded/failed balance never blocks: composers fail open.
  */
 export function isOutOfCredits(
 	balance: CreditBalanceResponse | undefined,

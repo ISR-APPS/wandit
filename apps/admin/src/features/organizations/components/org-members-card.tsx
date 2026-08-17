@@ -13,7 +13,6 @@ import {
 	AlertDialogMedia,
 	AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Badge } from "@/components/ui/badge";
 import {
 	Card,
 	CardContent,
@@ -46,6 +45,7 @@ import {
 	formatWholeNumber,
 } from "@/features/users/lib/formatters";
 import { isApiClientError } from "@/lib/api-client";
+import { formatCreditAmount } from "@/lib/credit-format";
 
 const WORKSPACE_ROLES: AdminWorkspaceRole[] = ["owner", "admin", "member"];
 
@@ -132,13 +132,10 @@ export function OrgMembersCard({
 						role="alert"
 						className="mb-4 flex items-start gap-3 rounded-md border border-destructive/25 bg-destructive/8 px-3 py-2 text-destructive text-sm"
 					>
-						<AlertTriangleIcon
-							className="mt-0.5 shrink-0"
-							aria-hidden="true"
-						/>
+						<AlertTriangleIcon className="mt-0.5 shrink-0" aria-hidden="true" />
 						<p>
-							This workspace has no owner. Promote a member to owner so the
-							team can manage billing again.
+							This workspace has no owner. Promote a member to owner so the team
+							can manage billing again.
 						</p>
 					</div>
 				) : null}
@@ -207,7 +204,7 @@ export function OrgMembersCard({
 											: formatWholeNumber(row.monthlyCreditLimit)}
 									</TableCell>
 									<TableCell className="text-end font-mono text-sm tabular-nums">
-										{formatWholeNumber(row.spentThisMonth)}
+										{formatCreditAmount(row.spentThisMonth)}
 									</TableCell>
 								</TableRow>
 							))}

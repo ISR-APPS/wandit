@@ -282,7 +282,9 @@ export const billingSubscriptionChangePreviewResponseSchema = z.object({
 	intentId: uuidSchema,
 	amountDueMinor: z.int(),
 	currency: z.string().min(1),
-	creditsDelta: z.int(),
+	// Decimal credits: computed against the centi-credit plan balance, so a
+	// monthly->yearly preview can carry a fractional expiry remainder.
+	creditsDelta: z.number(),
 	expiresAt: isoDateTimeSchema,
 });
 

@@ -22,9 +22,9 @@ export default function InvitePage({ invitationId }: { invitationId: string }) {
 	const { data: session, isPending: sessionPending } = useSession();
 	const { open: openAuthModal } = useAuthModal();
 	const { switchWorkspace } = useWorkspace();
-	const [outcome, setOutcome] = useState<
-		"accepted" | "alreadyMember" | null
-	>(null);
+	const [outcome, setOutcome] = useState<"accepted" | "alreadyMember" | null>(
+		null,
+	);
 
 	const invitationQuery = useQuery({
 		queryKey: ["workspace-invitation", invitationId],
@@ -112,9 +112,7 @@ export default function InvitePage({ invitationId }: { invitationId: string }) {
 						</p>
 						<Button
 							type="button"
-							onClick={() =>
-								openAuthModal({ next: `/invite/${invitationId}` })
-							}
+							onClick={() => openAuthModal({ next: `/invite/${invitationId}` })}
 						>
 							{t("auth.signIn")}
 						</Button>
@@ -170,9 +168,7 @@ export default function InvitePage({ invitationId }: { invitationId: string }) {
 					</p>
 				) : null}
 				{outcome === "alreadyMember" ? (
-					<p className="mt-6 text-sm">
-						{t("workspaces.invite.alreadyMember")}
-					</p>
+					<p className="mt-6 text-sm">{t("workspaces.invite.alreadyMember")}</p>
 				) : null}
 			</div>
 		</main>

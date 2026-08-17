@@ -55,7 +55,8 @@ export type UserVerifiedFilter = NonNullable<AdminListUsersQuery["verified"]>;
 /**
  * Inclusive net-credits-consumed range the toolbar filter edits as one unit.
  * An unset bound means unbounded on that side; a fully unset filter is
- * represented as `undefined`, never `{}`.
+ * represented as `undefined`, never `{}`. Bounds are decimal credits — the
+ * server converts to centi-credits; never scale them here.
  */
 export type UserCreditsUsedRange = {
 	min?: number;
@@ -84,6 +85,7 @@ export type ListUsersParams = {
 	role?: UserRoleFilter;
 	status?: UserStatusFilter;
 	verified?: UserVerifiedFilter;
+	// Decimal credits (the server stores centi-credits and scales ×100).
 	creditsUsedMin?: number;
 	creditsUsedMax?: number;
 };
@@ -104,6 +106,7 @@ export type ListUserProjectsParams = {
 	sort: AdminUserProjectsSort;
 };
 
+// `amount` is decimal credits in 0.01 steps; the server converts to centi.
 export type GrantUserCreditsInput = AdminGrantCreditsInput & {
 	userId: string;
 };
