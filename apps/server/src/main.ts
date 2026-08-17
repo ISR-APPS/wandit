@@ -16,6 +16,7 @@ import {
 	FastifyAdapter,
 	type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
+import { feedbackRoutes } from "@wandit/contracts";
 import { corsWebOrigins } from "@wandit/env/cors-origins";
 import { env } from "@wandit/env/server";
 import { SentryNestLogger } from "@wandit/observability/nestjs-setup";
@@ -68,6 +69,17 @@ async function bootstrap() {
 				done(null, body);
 			},
 		);
+	// Fastify accepts 1 MiB of JSON by default, and every route keeps that limit
+	// except feedback: its screenshot data URL alone can reach 2.6 MB. Nest
+	// registers the controller routes in `app.init()`, which `app.listen()` calls
+	// below, so this hook is in place before the feedback route is added.
+	adapter.getInstance().addHook("onRoute", (route) => {
+		const methods = Array.isArray(route.method) ? route.method : [route.method];
+
+		if (methods.includes("POST") && route.url === feedbackRoutes.create) {
+			route.bodyLimit = 4 * 1024 * 1024;
+		}
+	});
 	// All API routes start with `/api`, for example `/api/v1/chats/...`.
 	app.setGlobalPrefix("api", {
 		exclude: [{ path: "/", method: RequestMethod.GET }],

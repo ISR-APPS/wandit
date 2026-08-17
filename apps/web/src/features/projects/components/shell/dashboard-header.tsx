@@ -12,6 +12,7 @@ import { GraduationCap } from "lucide-react";
 import { ModeToggle } from "@/components/mode-toggle";
 import { UserMenu } from "@/features/auth";
 import { CreditsChip } from "@/features/credits";
+import { FeedbackButton } from "@/features/feedback";
 import { type TranslationKey, useTranslation } from "@/lib/i18n";
 
 export function DashboardHeader({
@@ -47,6 +48,7 @@ export function DashboardHeader({
 					</TooltipTrigger>
 					<TooltipContent side="bottom">{t("academy.navLabel")}</TooltipContent>
 				</Tooltip>
+				<FeedbackButton />
 				<CreditsChip />
 				<ModeToggle />
 				<UserMenu />
