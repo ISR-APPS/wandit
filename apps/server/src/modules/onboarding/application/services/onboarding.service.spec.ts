@@ -16,6 +16,7 @@ const soloBody: CompleteOnboardingBody = {
 		ai_experience: "daily",
 		ai_tools: "  A chat assistant  ",
 		name: "  Ada Lovelace  ",
+		phone: "+213661223344",
 		role: "engineer",
 		solo_profile: "freelancer",
 		style: "dark",
@@ -29,6 +30,7 @@ const organizationBody: CompleteOnboardingBody = {
 		ai_tools: "   ",
 		company_size: "11_50",
 		name: "  Grace Hopper  ",
+		phone: "+33612345678",
 		style: "light",
 	},
 };
@@ -66,12 +68,13 @@ describe("OnboardingService", () => {
 				ai_experience: "daily",
 				ai_tools: "A chat assistant",
 				name: "Ada Lovelace",
+				phone: "+213661223344",
 				role: "engineer",
 				solo_profile: "freelancer",
 				style: "dark",
 			},
 			name: "Ada Lovelace",
-			questionsVersion: "v2",
+			questionsVersion: "v3",
 			userId: "user_1",
 		});
 		expect(analytics.capture).toHaveBeenCalledTimes(2);
@@ -83,7 +86,7 @@ describe("OnboardingService", () => {
 				accountType: "solo",
 				aiExperience: "daily",
 				aiToolsProvided: true,
-				questionsVersion: "v2",
+				questionsVersion: "v3",
 				role: "engineer",
 				soloProfile: "freelancer",
 				style: "dark",
@@ -104,10 +107,11 @@ describe("OnboardingService", () => {
 				ai_experience: "sometimes",
 				company_size: "11_50",
 				name: "Grace Hopper",
+				phone: "+33612345678",
 				style: "light",
 			},
 			name: "Grace Hopper",
-			questionsVersion: "v2",
+			questionsVersion: "v3",
 			userId: "user_2",
 		});
 		expect(analytics.capture).toHaveBeenCalledWith(
@@ -118,7 +122,7 @@ describe("OnboardingService", () => {
 				aiExperience: "sometimes",
 				aiToolsProvided: false,
 				companySize: "11_50",
-				questionsVersion: "v2",
+				questionsVersion: "v3",
 				style: "light",
 			},
 		);
@@ -145,6 +149,7 @@ describe("completeOnboardingBodySchema", () => {
 				ai_experience: "sometimes",
 				company_size: "11_50",
 				name: "Grace Hopper",
+				phone: "+33612345678",
 				style: "light",
 			},
 		});
@@ -178,6 +183,17 @@ describe("completeOnboardingBodySchema", () => {
 					).toBe(true);
 				}
 			}
+		}
+	});
+
+	it("rejects a phone answer that is not E.164", () => {
+		for (const phone of ["0661223344", "+0661223344", "+213 661 22 33 44"]) {
+			expect(
+				completeOnboardingBodySchema.safeParse({
+					answers: { ...soloBody.answers, phone },
+				}).success,
+				phone,
+			).toBe(false);
 		}
 	});
 

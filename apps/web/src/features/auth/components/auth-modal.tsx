@@ -126,10 +126,19 @@ export function AuthModalProvider({ children }: { children: React.ReactNode }) {
 		invalidateSessionCache();
 		googleRedirectPendingRef.current = false;
 		magicLinkSentAtRef.current = null;
+		const destination = nextPath && nextPath !== "/" ? nextPath : "/dashboard";
 		setNextPath(undefined);
 		setRedirectError(false);
 		setIsOpen(false);
-	}, []);
+		// A session that materializes in place (cross-tab sign-in, bfcache
+		// return) leaves the user on the marketing page; move them into the
+		// app. Deep pages (requireAuth on /p/$projectId etc.) stay put.
+		if (window.location.pathname === "/") {
+			window.location.assign(
+				new URL(destination, window.location.origin).toString(),
+			);
+		}
+	}, [nextPath]);
 
 	const handleOpenChange = useCallback(
 		(nextOpen: boolean) => {

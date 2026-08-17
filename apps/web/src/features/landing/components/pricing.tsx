@@ -113,8 +113,9 @@ export function Pricing() {
 
 	const startBuilding = () => {
 		if (session) {
-			// The prompt box lives in the homepage hero.
-			void navigate({ to: "/" });
+			// Signed-in users are redirected off "/" anyway; go straight to the
+			// dashboard, which has its own prompt box.
+			void navigate({ to: "/dashboard" });
 			return;
 		}
 
