@@ -16,6 +16,7 @@ import {
 	CheckoutFunnelCard,
 	DaysToConvertCard,
 } from "@/features/analytics/components/conversion-analytics-cards";
+import { MarginAfterAiCard } from "@/features/analytics/components/margin-after-ai-card";
 import { MrrBreakdownCard } from "@/features/analytics/components/mrr-breakdown-card";
 import { NetRevenueCard } from "@/features/analytics/components/net-revenue-card";
 import { RevenueMetrics } from "@/features/analytics/components/revenue-metrics";
@@ -75,6 +76,10 @@ function hasRevenueActivity(data: AnalyticsRevenueResponse) {
 			data.unitEconomics.costPerHealthyTrialCents,
 			data.unitEconomics.costPerActivePaidUserCents,
 			...data.arpuByPlan.map((item) => item.arpuCents),
+			...data.marginAfterAi.flatMap((row) => [
+				row.revenueCents,
+				row.aiCostCents,
+			]),
 			...data.mrrByPlan.flatMap((item) => [item.subscribers, item.mrrMinor]),
 			...data.collectedRevenueByDay.flatMap((point) => [
 				point.subscriptionsMinor,
@@ -140,6 +145,10 @@ function RevenueAnalyticsPage({
 
 					<section aria-label="Revenue unit economics" className="min-w-0">
 						<UnitEconomicsCard unitEconomics={data.unitEconomics} />
+					</section>
+
+					<section aria-label="Margin after AI by plan" className="min-w-0">
+						<MarginAfterAiCard marginAfterAi={data.marginAfterAi} />
 					</section>
 
 					<section

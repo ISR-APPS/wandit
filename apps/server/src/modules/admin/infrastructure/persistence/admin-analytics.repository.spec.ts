@@ -10,6 +10,7 @@ import {
 	type AdminAnalyticsFilters,
 	AdminAnalyticsRepository,
 } from "./admin-analytics.repository";
+import { AI_SPEND_STATUSES } from "./ai-usage-cost.sql";
 
 const NOW = new Date("2026-08-13T10:20:30.000Z");
 const RANGE_BOUNDS = {
@@ -178,7 +179,7 @@ function expectSucceededGenerationSources(query: CompiledQuery) {
 
 describe("AdminAnalyticsRepository transactions", () => {
 	it.each([
-		["revenue", 15],
+		["revenue", 16],
 		["acquisition", 4],
 		["funnel", 1],
 		["engagement", 5],
@@ -844,11 +845,11 @@ describe("AdminAnalyticsRepository revenue SQL", () => {
 
 	it("maps missing churn source and country dimensions to unknown rows", async () => {
 		const rowsByCall: Array<Array<Record<string, unknown>>> = Array.from(
-			{ length: 15 },
+			{ length: 16 },
 			() => [],
 		);
-		// getRevenue call order: churn breakdown is the 11th query (0-indexed 10).
-		rowsByCall[10] = [
+		// getRevenue call order: churn breakdown is the 12th query (0-indexed 11).
+		rowsByCall[11] = [
 			{
 				churned: "1",
 				dimension: "too_expensive",
@@ -970,6 +971,46 @@ describe("AdminAnalyticsRepository revenue SQL", () => {
 		);
 		expect(cohort.sql).toContain(
 			"count(*) filter (where not c.paid and c.healthy)",
+		);
+	});
+
+	it("splits collected cash and metered AI cost per plan, ranking both-plan owners as business", async () => {
+		const { queries } = await collectQueries("revenue");
+		const margin = queryContaining(queries, "plan_revenue as");
+
+		expect(margin.params.slice(0, 4)).toEqual([
+			RANGE_BOUNDS.rangeStart,
+			RANGE_BOUNDS.rangeEnd,
+			RANGE_BOUNDS.seriesEnd,
+			RANGE_BOUNDS.snapshotEnd,
+		]);
+		expectRange(margin, "a.paid_at");
+		expectRange(margin, "ai_usage_events.created_at");
+		expect(margin.sql).toContain("a.amount_paid_minor > 0");
+		expect(margin.sql).toContain("lower(a.currency) = 'usd'");
+		expect(margin.sql).toContain(
+			"left join subscriptions s on s.id = a.subscription_id",
+		);
+		expect(margin.sql).toContain("and s.plan is not null");
+		expect(
+			margin.params.filter((value) =>
+				(LIVE_SUBSCRIPTION_STATUSES as readonly unknown[]).includes(value),
+			),
+		).toEqual([...LIVE_SUBSCRIPTION_STATUSES]);
+		expect(
+			margin.params.filter((value) =>
+				(AI_SPEND_STATUSES as readonly unknown[]).includes(value),
+			),
+		).toEqual([...AI_SPEND_STATUSES]);
+		expect(margin.sql).toContain("s.created_at < b.snapshot_end");
+		expect(margin.sql).toContain(
+			"max(case when s.plan = 'business' then 2 else 1 end) as plan_rank",
+		);
+		expect(margin.sql).toContain(
+			"when o.plan_rank = 2 then 'business' when o.plan_rank = 1 then 'pro' else 'free' end",
+		);
+		expect(margin.sql).toContain(
+			"round(sum(c.cost_micros)::numeric / 10000)::bigint as ai_cost_cents",
 		);
 	});
 
