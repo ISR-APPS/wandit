@@ -1,6 +1,7 @@
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
 
 import { getSession } from "@/features/auth";
+import { ChatwootWidget } from "@/features/support";
 import { sanitizeAuthRedirectPath } from "@/lib/auth-navigation";
 
 export const Route = createFileRoute("/_auth")({
@@ -39,5 +40,14 @@ export const Route = createFileRoute("/_auth")({
 });
 
 function AuthLayout() {
-	return <Outlet />;
+	const userId = Route.useRouteContext({
+		select: (context) => context.session?.user.id ?? null,
+	});
+	return (
+		<>
+			<Outlet />
+			{/* Live-chat bubble on every signed-in page; public routes stay clean. */}
+			<ChatwootWidget userId={userId} />
+		</>
+	);
 }
