@@ -78,6 +78,8 @@ export * from "./v1/settings";
 export * from "./v1/shared/primitives";
 // Story-link campaign and analytics contracts.
 export * from "./v1/story-links";
+// Support (live chat identity) contracts.
+export * from "./v1/support";
 // Audio transcription contract.
 export * from "./v1/transcriptions";
 // Workspace (organization) contracts.

@@ -12,11 +12,13 @@ import {
 	SidebarMenuButton,
 	SidebarMenuItem,
 	SidebarRail,
+	useSidebar,
 } from "@wandit/ui/components/sidebar";
 import type * as React from "react";
 
 import { Spark } from "@/components/logo";
 import { UpgradeCard } from "@/features/billing/components/upgrade-button";
+import { isChatwootConfigured, openSupportChat } from "@/features/support";
 import { WorkspaceSwitcher } from "@/features/workspaces/components/workspace-switcher";
 import { useTranslation } from "@/lib/i18n";
 import { NAV_GROUPS, type NavItem } from "../../lib/nav-config";
@@ -24,6 +26,7 @@ import { NAV_GROUPS, type NavItem } from "../../lib/nav-config";
 function NavEntry({ item }: { item: NavItem }) {
 	const pathname = useLocation({ select: (location) => location.pathname });
 	const { t } = useTranslation();
+	const { isMobile, setOpenMobile } = useSidebar();
 	const title = t(item.titleKey);
 
 	if (item.type === "route") {
@@ -48,6 +51,26 @@ function NavEntry({ item }: { item: NavItem }) {
 					<item.icon />
 					<span>{title}</span>
 				</a>
+			</SidebarMenuButton>
+		);
+	}
+
+	if (item.type === "action") {
+		// Only "open-support-chat" exists today; disabled when the widget is
+		// not configured so the button never silently does nothing.
+		return (
+			<SidebarMenuButton
+				disabled={!isChatwootConfigured}
+				onClick={() => {
+					// The mobile sidebar is a modal sheet: while open it sets
+					// body pointer-events:none, which the chat window inherits.
+					if (isMobile) setOpenMobile(false);
+					openSupportChat();
+				}}
+				tooltip={title}
+			>
+				<item.icon />
+				<span>{title}</span>
 			</SidebarMenuButton>
 		);
 	}
