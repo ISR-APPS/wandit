@@ -25,12 +25,14 @@ import type {
 	AdminUserSummary,
 	UserCreditsUsedRange,
 	UserPlanFilter,
+	UserPublishedFilter,
 	UserRoleFilter,
 	UserStatusFilter,
 	UserVerifiedFilter,
 } from "@/features/users/api/users.dto";
 import {
 	USER_PLAN_FILTER_OPTIONS,
+	USER_PUBLISHED_FILTER_OPTIONS,
 	USER_ROLE_FILTER_OPTIONS,
 	USER_SORT_OPTION_GROUPS,
 	USER_SORT_OPTIONS,
@@ -48,6 +50,7 @@ type UsersTableToolbarProps = {
 	role?: UserRoleFilter;
 	status?: UserStatusFilter;
 	verified?: UserVerifiedFilter;
+	published?: UserPublishedFilter;
 	creditsUsed?: UserCreditsUsedRange;
 	isExporting: boolean;
 	onSearchChange: (value: string) => void;
@@ -56,6 +59,7 @@ type UsersTableToolbarProps = {
 	onRoleChange: (role: UserRoleFilter | undefined) => void;
 	onStatusChange: (status: UserStatusFilter | undefined) => void;
 	onVerifiedChange: (verified: UserVerifiedFilter | undefined) => void;
+	onPublishedChange: (published: UserPublishedFilter | undefined) => void;
 	onCreditsUsedChange: (creditsUsed: UserCreditsUsedRange | undefined) => void;
 	onClearAllFilters: () => void;
 	onExport: () => void;
@@ -81,6 +85,7 @@ function UsersTableToolbar({
 	role,
 	status,
 	verified,
+	published,
 	creditsUsed,
 	isExporting,
 	onSearchChange,
@@ -89,6 +94,7 @@ function UsersTableToolbar({
 	onRoleChange,
 	onStatusChange,
 	onVerifiedChange,
+	onPublishedChange,
 	onCreditsUsedChange,
 	onClearAllFilters,
 	onExport,
@@ -99,6 +105,7 @@ function UsersTableToolbar({
 			role?.length ||
 			status?.length ||
 			verified?.length ||
+			published?.length ||
 			creditsUsed,
 	);
 	const activeSortLabel =
@@ -150,6 +157,15 @@ function UsersTableToolbar({
 					value={verified ?? []}
 					onValueChange={(values) =>
 						onVerifiedChange(values as UserVerifiedFilter | undefined)
+					}
+				/>
+				<DataTableFacetedFilter
+					ariaLabel="Filter by publication state"
+					title="Published"
+					options={USER_PUBLISHED_FILTER_OPTIONS}
+					value={published ?? []}
+					onValueChange={(values) =>
+						onPublishedChange(values as UserPublishedFilter | undefined)
 					}
 				/>
 				<UsersCreditsUsedFilter

@@ -221,6 +221,120 @@ describe("AdminRepository user-list queries", () => {
 		expect(outerUserWhere(listQuery.toSQL().sql)).toBeUndefined();
 	});
 
+	// Live-site predicates for the publication filter: an active deployment on
+	// a non-deleted owned project, plus an active domain for the custom tier.
+	const liveDeploymentSubquery =
+		'select 1 from "projects" inner join "deployments" on "deployments"."project_id" = "projects"."id" where "projects"."user_id" = "user"."id" and "projects"."deleted_at" is null and "deployments"."status" = \'active\'';
+	const liveCustomDomainSubquery =
+		'select 1 from "domains" inner join "projects" on "projects"."id" = "domains"."project_id" inner join "deployments" on "deployments"."project_id" = "projects"."id" where "domains"."user_id" = "user"."id" and "domains"."status" = \'active\' and "projects"."deleted_at" is null and "deployments"."status" = \'active\'';
+
+	it("filters unpublished users with NOT EXISTS over live deployments AND live custom domains", () => {
+		const repository = new AdminRepository(db as Database);
+		const query = {
+			page: 1,
+			pageSize: 25,
+			sort: "newest",
+			published: ["unpublished"],
+		} satisfies AdminListUsersQuery;
+		const { countQuery, listQuery } =
+			// biome-ignore lint/complexity/useLiteralKeys: bracket access keeps the production query builder private.
+			repository["buildListUsersQueries"](query);
+		const count = countQuery.toSQL();
+		const countSql = normalizeSqlParams(count.sql);
+
+		expect(outerUserWhere(listQuery.toSQL().sql)).toBe(
+			outerUserWhere(count.sql),
+		);
+		// Both fragments excluded: a user whose only live site is an org
+		// project serving THEIR custom domain must not read as unpublished.
+		expect(countSql).toContain(
+			`(not exists (${liveDeploymentSubquery}) and not exists (${liveCustomDomainSubquery}))`,
+		);
+	});
+
+	it("filters subdomain users as live sites minus custom domains", () => {
+		const repository = new AdminRepository(db as Database);
+		const query = {
+			page: 1,
+			pageSize: 25,
+			sort: "newest",
+			published: ["subdomain"],
+		} satisfies AdminListUsersQuery;
+		// biome-ignore lint/complexity/useLiteralKeys: bracket access keeps the production query builder private.
+		const { countQuery } = repository["buildListUsersQueries"](query);
+		const countSql = normalizeSqlParams(countQuery.toSQL().sql);
+
+		expect(countSql).toContain(
+			`(exists (${liveDeploymentSubquery}) and not exists (${liveCustomDomainSubquery}))`,
+		);
+	});
+
+	it("filters custom-domain users with EXISTS over active domains", () => {
+		const repository = new AdminRepository(db as Database);
+		const query = {
+			page: 1,
+			pageSize: 25,
+			sort: "newest",
+			published: ["custom_domain"],
+		} satisfies AdminListUsersQuery;
+		// biome-ignore lint/complexity/useLiteralKeys: bracket access keeps the production query builder private.
+		const { countQuery } = repository["buildListUsersQueries"](query);
+		const countSql = normalizeSqlParams(countQuery.toSQL().sql);
+
+		expect(countSql).toContain(`exists (${liveCustomDomainSubquery})`);
+		expect(countSql).not.toContain("not exists");
+	});
+
+	it("keeps the three publication states mutually exclusive and exhaustive", () => {
+		// unpublished = !LD && !LCD; subdomain = LD && !LCD; custom_domain =
+		// LCD. Every (LD, LCD) combination lands in exactly one state.
+		const states = (ld: boolean, lcd: boolean) => ({
+			unpublished: !ld && !lcd,
+			subdomain: ld && !lcd,
+			custom_domain: lcd,
+		});
+
+		for (const ld of [true, false]) {
+			for (const lcd of [true, false]) {
+				const matched = Object.values(states(ld, lcd)).filter(Boolean);
+				expect(matched).toHaveLength(1);
+			}
+		}
+	});
+
+	it("ORs unpublished with custom_domain inside the publication dimension", () => {
+		const repository = new AdminRepository(db as Database);
+		const query = {
+			page: 1,
+			pageSize: 25,
+			sort: "newest",
+			published: ["unpublished", "custom_domain"],
+		} satisfies AdminListUsersQuery;
+		// biome-ignore lint/complexity/useLiteralKeys: bracket access keeps the production query builder private.
+		const { countQuery } = repository["buildListUsersQueries"](query);
+		const countSql = normalizeSqlParams(countQuery.toSQL().sql);
+
+		expect(countSql).toContain(
+			`((not exists (${liveDeploymentSubquery}) and not exists (${liveCustomDomainSubquery})) or exists (${liveCustomDomainSubquery}))`,
+		);
+	});
+
+	it("treats all publication states selected as no publication filter", () => {
+		const repository = new AdminRepository(db as Database);
+		const query = {
+			page: 1,
+			pageSize: 25,
+			sort: "newest",
+			published: ["unpublished", "subdomain", "custom_domain"],
+		} satisfies AdminListUsersQuery;
+		const { countQuery, listQuery } =
+			// biome-ignore lint/complexity/useLiteralKeys: bracket access keeps the production query builder private.
+			repository["buildListUsersQueries"](query);
+
+		expect(outerUserWhere(countQuery.toSQL().sql)).toBeUndefined();
+		expect(outerUserWhere(listQuery.toSQL().sql)).toBeUndefined();
+	});
+
 	// Net consumption: reserve rows minus the refund grants that reverse them.
 	const netConsumedExpression =
 		'coalesce(( select -sum("credit_ledger"."delta") from "credit_ledger" where "credit_ledger"."user_id" = "user"."id" and "credit_ledger"."organization_id" is null and ("credit_ledger"."kind" = \'consume\' or ("credit_ledger"."kind" = \'grant\' and ("credit_ledger"."idempotency_key" like \'settle-refund:%\' or "credit_ledger"."idempotency_key" like \'reconcile-refund:%\' or "credit_ledger"."idempotency_key" like \'refund:%\'))) ), 0)::int';
@@ -358,6 +472,41 @@ describe("AdminRepository user landing-page queries", () => {
 		expect(list.params).toContain("landing_page");
 		expect(list.params).toContain("active");
 		expect(list.params).toContain(10);
+	});
+});
+
+describe("AdminRepository publication log queries", () => {
+	it("compiles matching count and lateral list queries over lived deployments", () => {
+		const repository = new AdminRepository(db as Database);
+		const { countQuery, listQuery } =
+			// biome-ignore lint/complexity/useLiteralKeys: bracket access keeps the production query builder private.
+			repository["buildListPublicationsQueries"]({ page: 3, pageSize: 20 });
+		const count = countQuery.toSQL();
+		const list = listQuery.toSQL();
+		const countSql = normalizeSqlParams(count.sql);
+		const listSql = normalizeSqlParams(list.sql);
+
+		expect(countSql).toContain('select count(*)::int from "deployments"');
+		expect(countSql).toContain('"deployments"."status" in ($?, $?, $?)');
+		expect(count.params).toEqual(["active", "superseded", "unpublished"]);
+
+		expect(listSql).toContain('inner join "user"');
+		expect(listSql).toContain("left join lateral");
+		expect(listSql).toContain('from "domains"');
+		expect(listSql).toContain('"domains"."is_primary" =');
+		expect(listSql).toContain('"domains"."status" =');
+		expect(listSql).toContain('"deployments"."status" in ($?, $?, $?)');
+		// Soft-deleted projects stay IN the log (deleting never unpublishes,
+		// so the owner of a still-serving slug must remain findable).
+		expect(listSql).not.toContain('"projects"."deleted_at" is null');
+		expect(listSql).toContain(
+			'order by "deployments"."created_at" desc, "deployments"."id" desc',
+		);
+		expect(list.params).toContain("active");
+		expect(list.params).toContain("superseded");
+		expect(list.params).toContain("unpublished");
+		// page 3 of 20 → limit 20, offset 40.
+		expect(list.params.slice(-2)).toEqual([20, 40]);
 	});
 });
 
