@@ -1,6 +1,5 @@
 import { domainDnsSchema } from "@wandit/contracts";
 
-import { apexRedirectTarget } from "../../domain/domain-hosts";
 import { wwwCnameTrafficRecord } from "../../domain/domain-provisioning-rules";
 import type { DomainDnsRecord } from "../../domain/ports/domain-provider.port";
 import type {
@@ -11,7 +10,6 @@ import type {
 
 type PurchasedDomainDnsProvider = {
 	setDnsRecords(name: string, records: DomainDnsRecord[]): Promise<void>;
-	setUrlForwarding(name: string, target: string): Promise<void>;
 };
 
 type PurchasedDomainDnsState = {
@@ -37,6 +35,9 @@ export class PurchasedDomainDnsStep {
 
 		const trafficRecord = wwwCnameTrafficRecord(this.fallbackOrigin);
 
+		// The apex (ANAME + Cloudflare apex hostname) is owned by ApexHostnameStep,
+		// which runs best-effort after the www hostname; this step stays on the
+		// critical path and only manages the canonical www CNAME.
 		await this.provider.setDnsRecords(row.name, [
 			{
 				name: trafficRecord.name,
@@ -44,10 +45,6 @@ export class PurchasedDomainDnsStep {
 				value: trafficRecord.value,
 			},
 		]);
-		await this.provider.setUrlForwarding(
-			row.name,
-			apexRedirectTarget(row.name),
-		);
 
 		return this.state.updatePostRegistrationState(row, {
 			dns: {

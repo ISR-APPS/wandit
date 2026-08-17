@@ -25,7 +25,8 @@ Les étapes métier sont testables indépendamment, sans NestJS ni SDK Trigger, 
 
 - `DomainFulfillmentStateService` : association ordre/domaine, branches de replay, transition `paid → fulfilling` et fence pré-dépense;
 - `DomainRegistrationStep` : disponibilité/plafond, registrant, appel Name.com idempotent et persistance CAS du reçu;
-- `PurchasedDomainDnsStep` : CNAME `www`, forwarding apex et marqueur DNS;
+- `PurchasedDomainDnsStep` : CNAME `www` et marqueur DNS;
+- `ApexHostnameStep` (best-effort, ne lève jamais) : hostname Cloudflare de l'apex, ANAME apex → origine de repli, suppression du forwarding Name.com, marqueur `dns.apexConfigured` / erreur `dns.apexError`; écrit ses clés `dns` par fusion jsonb (jamais de remplacement), rejoué avant chaque sonde du `DomainConfigurationRunner` tant que le marqueur manque, puis seulement par `domains:backfill-apex` une fois le domaine `active`;
 - `CustomHostnameConfigurationStep` : hostname Cloudflare, challenges et propagation TXT;
 - `CustomHostnameVerificationStep` : exactement une sonde de statut, sans boucle ni planification;
 - `DomainConfigurationRunner` : curseur persistant, boucle bornée et attente durable;
@@ -104,7 +105,7 @@ Le module orders/billing possède `payment_orders`, Stripe Checkout, l'inbox web
 3. Stripe Checkout (`mode: payment`, metadata `{ orderId, purpose: "order" }`).
 4. `reconcile-session` ou webhook vérifie le paiement, puis l'ordre passe `paid → fulfilling`.
 5. `DomainRegistrationFulfillment` crée/réutilise la ligne domaine sous advisory lock puis déclenche globalement `domain-purchase`.
-6. Juste avant la dépense, `DomainRegistrationStep` reprend la fence et revalide l'ordre/quote. Name.com reçoit `X-Idempotency-Key: domain-purchase:{domainRowId}`; le reçu, DNS, forwarding, hostname/challenges Cloudflare, activation et fulfillment sont persistés par CAS.
+6. Juste avant la dépense, `DomainRegistrationStep` reprend la fence et revalide l'ordre/quote. Name.com reçoit `X-Idempotency-Key: domain-purchase:{domainRowId}`; le reçu, DNS, hostname/challenges Cloudflare (www puis apex best-effort), activation et fulfillment sont persistés par CAS.
 
 En cas d'échec terminal après paiement, `DomainTerminalFailureStep` demande l'acceptation durable de `order-refund` **dans la fence ordre+domaine et avant toute écriture terminale**. Un échec de handoff annule la transaction et laisse les lignes récupérables. Aucun mouvement n'utilise `credit_ledger`.
 
@@ -215,7 +216,7 @@ L'ordre suivant est restart-safe et préserve le temps de polling déjà écoul�
 
 ## 9. Prochaines étapes et vigilance
 
-1. Vérifier l'adapter contre Name.com sandbox : availability, register idempotent, contacts, DNS, forwarding (apex `host: ""`), lock/auth code et erreurs retryables.
+1. Vérifier l'adapter contre Name.com sandbox : availability, register idempotent, contacts, DNS (ANAME apex + suppression des A/AAAA apex), suppression du forwarding apex (`host: ""`), lock/auth code et erreurs retryables.
 2. Smoke test complet : checkout test → `paid → fulfilling → fulfilled`, domaine `registering → configuring → active`, reçu persisté; puis échec terminal → acceptation refund avant écritures terminales.
 3. Calibrer le catalogue retail sur le coût complet et configurer financement/alertes de solde registrar.
 4. Ajouter suivi de vérification contact, procédures support et webhooks Name.com.

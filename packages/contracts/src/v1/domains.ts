@@ -280,7 +280,7 @@ export const domainPriceSnapshotSchema = z.object({
 export type DomainPriceSnapshot = z.infer<typeof domainPriceSnapshotSchema>;
 
 export const requiredDomainRecordSchema = z.object({
-	type: z.enum(["A", "AAAA", "CNAME", "TXT"]),
+	type: z.enum(["A", "AAAA", "ANAME", "CNAME", "TXT"]),
 	name: z.string().min(1),
 	value: z.string().min(1),
 	purpose: z.string().min(1),
@@ -290,6 +290,11 @@ export type RequiredDomainRecord = z.infer<typeof requiredDomainRecordSchema>;
 
 export const domainDnsSchema = z
 	.object({
+		// Purchased-domain apex state: the bare-name Cloudflare custom hostname,
+		// the durable "apex ANAME + hostname done" marker, and the last apex error.
+		apexConfigured: z.boolean().optional(),
+		apexCustomHostnameId: z.string().optional(),
+		apexError: z.string().optional(),
 		externalVerification: z
 			.object({
 				attempts: z.int().nonnegative(),
