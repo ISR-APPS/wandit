@@ -27,6 +27,22 @@ export interface InitBrowserSentryOptions extends WanditSentryOptions {
 
 let initialized = false;
 
+/** The last error Sentry accepted in this tab. */
+export interface LastCapturedError {
+	eventId: string;
+	at: number;
+}
+
+let lastCapturedError: LastCapturedError | null = null;
+
+/**
+ * The id of the most recent error event sent from this tab, for the in-app
+ * feedback widget. Returns null until an error survives scrubbing.
+ */
+export function getLastCapturedError(): LastCapturedError | null {
+	return lastCapturedError;
+}
+
 // URLs can carry user content (the preview route serializes the full prompt
 // into its query string) — never let a query string reach Sentry.
 const stripQuery = (url: string): string => url.split("?")[0] ?? url;
@@ -68,7 +84,13 @@ export function initBrowserSentry(options: InitBrowserSentryOptions): void {
 			if (event.request?.url) {
 				event.request.url = stripQuery(event.request.url);
 			}
-			return scrubEvent(event);
+			const scrubbed = scrubEvent(event);
+			// Record only the events Sentry keeps: a dropped event has no id
+			// to link from a feedback report.
+			if (scrubbed?.event_id) {
+				lastCapturedError = { eventId: scrubbed.event_id, at: Date.now() };
+			}
+			return scrubbed;
 		},
 		beforeSendTransaction: (event) => {
 			if (event.request?.url) {

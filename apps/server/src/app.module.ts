@@ -20,6 +20,7 @@ import { BillingModule } from "./modules/billing/billing.module";
 import { ConnectorGenerationsModule } from "./modules/connector-generations/connector-generations.module";
 import { CreditsModule } from "./modules/credits/credits.module";
 import { DomainsModule } from "./modules/domains/domains.module";
+import { FeedbackModule } from "./modules/feedback/feedback.module";
 import { GenerationModule } from "./modules/generation/generation.module";
 import { HealthModule } from "./modules/health/health.module";
 import { ImageGenerationsModule } from "./modules/image-generations/image-generations.module";
@@ -82,6 +83,7 @@ import { WorkspacesModule } from "./modules/workspaces/workspaces.module";
 		OrdersModule,
 		SupportModule,
 		DomainsModule,
+		FeedbackModule,
 		StorageModule,
 		GenerationModule,
 		UploadsModule,
