@@ -23,7 +23,7 @@ At publish time, `injectLeadsRuntime` (being built under `apps/server/src/module
 
 ## Working model
 
-Wilaya/commune are first-class columns (Algeria); anything else the page collects lands in the jsonb. Phones are normalized to canonical E.164 at capture (Arabic-Indic digits folded, `0`/`00213` prefixes mapped to `+213`; raw input kept in extras; unparseable → validation error — a DB CHECK enforces the shape). Source is derived server-side from attribution (fbclid/utm_source → facebook, ttclid → tiktok, else direct). Status changes are single-tap from the table (the audience works phone-first, mobile-first). CSV export uses a stable column order, UTF-8 BOM for Arabic names. Confirmation rate = confirmed ÷ (confirmed + cancelled).
+Wilaya/commune are first-class columns (Algeria); anything else the page collects lands in the jsonb. Phones are normalized to canonical E.164 at capture (Arabic-Indic digits folded, `0`/`00213` prefixes mapped to `+213`; raw input kept in extras; unparseable → validation error — a DB CHECK enforces the shape). Source is derived server-side from attribution (fbclid/utm_source → facebook, ttclid → tiktok, else direct). Status changes are single-tap from the table (the audience works phone-first, mobile-first). CSV and Sheets exports put the fixed columns first, then one column per dynamic form field (first-appearance order over the newest-first lead list, capped at 100 with a serialized "Autres champs" catch-all), UTF-8 BOM for Arabic names. Confirmation rate = confirmed ÷ (confirmed + cancelled).
 
 ## Does not own
 

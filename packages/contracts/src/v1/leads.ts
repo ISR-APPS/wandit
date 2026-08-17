@@ -101,18 +101,131 @@ export function publicLeadExtraEntries(
 		.sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0));
 }
 
-/** Compact deterministic JSON for the single Order details export column. */
-export function serializeLeadOrderDetails(extras: unknown): string {
-	const entries = publicLeadExtraEntries(extras);
-	if (entries.length === 0) {
+/**
+ * One export cell for a dynamic form-field value. French Oui/Non on purpose —
+ * exports are for Algerian merchants, matching the sheet's French labels.
+ */
+export function formatLeadExtraValue(value: LeadExtraScalar): string {
+	if (value === null) {
 		return "";
 	}
 
-	// Building the object JSON directly preserves code-unit order even for
-	// integer-like keys, which JSON.stringify(object) is allowed to reorder.
-	return `{${entries
-		.map(([key, value]) => `${JSON.stringify(key)}:${JSON.stringify(value)}`)
-		.join(",")}}`;
+	if (typeof value === "boolean") {
+		return value ? "Oui" : "Non";
+	}
+
+	return String(value);
+}
+
+/**
+ * Cap on distinct dynamic columns per export run. Extras keys are
+ * attacker-chosen on the public capture endpoint (leadExtrasSchema caps keys
+ * per lead, not per project), so without a bound, spam with unique keys would
+ * grow the spreadsheet past Google's hard limits (18,278 columns, 10M cells)
+ * and wedge every future sync. Keys past the cap collapse into one serialized
+ * catch-all cell instead of getting lost.
+ */
+export const MAX_LEAD_EXTRA_COLUMNS = 100;
+
+/** Header label of the catch-all overflow column. French on purpose, like the
+ * sheet's fixed labels — exports are for Algerian merchants. */
+export const LEAD_EXTRA_OVERFLOW_LABEL = "Autres champs";
+
+export type LeadExtrasColumns = {
+	/** Registers this lead's unseen keys, then returns its cells in column order
+	 * ("" for columns the lead lacks). May return fewer cells than keys() will
+	 * eventually hold — later-discovered columns are simply blank for this row. */
+	buildCells(extras: unknown): string[];
+	/** True once any lead spilled keys into the catch-all overflow column.
+	 * Like keys(), only final after every lead went through buildCells(). */
+	hasOverflow(): boolean;
+	/** Dynamic header labels (the raw form-field names), in column order. */
+	keys(): string[];
+};
+
+/**
+ * Dynamic keys must not repeat a fixed header label (a form field named
+ * "Date" would otherwise render two identical header cells and confuse
+ * header-keyed consumers — Excel pivots, pandas, re-imports). Collisions get
+ * a numeric suffix; cell positions are untouched.
+ */
+export function dedupeLeadExportHeaderLabels(
+	fixedLabels: readonly string[],
+	keys: readonly string[],
+): string[] {
+	const taken = new Set(fixedLabels);
+
+	return keys.map((key) => {
+		let label = key;
+		for (let suffix = 2; taken.has(label); suffix++) {
+			label = `${key} (${suffix})`;
+		}
+
+		taken.add(label);
+		return label;
+	});
+}
+
+/**
+ * Column layout for the dynamic form fields of one export run.
+ *
+ * Every AI-generated page collects different fields, so the export cannot use
+ * a fixed header: each public extras key gets its own column instead of the
+ * old single JSON "Order details" cell. Columns are assigned in
+ * first-appearance order across the leads seen (per lead, in
+ * publicLeadExtraEntries order), which lets a streaming export emit rows
+ * before the full key set is known — new keys only ever append to the right.
+ */
+export function createLeadExtrasColumns(): LeadExtrasColumns {
+	const columnByKey = new Map<string, number>();
+	let overflowSeen = false;
+
+	return {
+		buildCells(extras) {
+			const entries = publicLeadExtraEntries(extras);
+
+			for (const [key] of entries) {
+				if (
+					!columnByKey.has(key) &&
+					columnByKey.size < MAX_LEAD_EXTRA_COLUMNS
+				) {
+					columnByKey.set(key, columnByKey.size);
+				}
+			}
+
+			// Unassigned keys only exist once the cap is hit; they share the one
+			// overflow cell that sits right after the last real column.
+			const overflow = entries.filter(([key]) => !columnByKey.has(key));
+			const cells = new Array<string>(
+				columnByKey.size + (overflow.length > 0 ? 1 : 0),
+			).fill("");
+			for (const [key, value] of entries) {
+				const column = columnByKey.get(key);
+				if (column !== undefined) {
+					cells[column] = formatLeadExtraValue(value);
+				}
+			}
+
+			if (overflow.length > 0) {
+				overflowSeen = true;
+				// Compact deterministic JSON; entry order comes pre-sorted from
+				// publicLeadExtraEntries.
+				cells[columnByKey.size] = `{${overflow
+					.map(
+						([key, value]) => `${JSON.stringify(key)}:${JSON.stringify(value)}`,
+					)
+					.join(",")}}`;
+			}
+
+			return cells;
+		},
+		hasOverflow() {
+			return overflowSeen;
+		},
+		keys() {
+			return [...columnByKey.keys()];
+		},
+	};
 }
 
 // Body of the public capture POST. `_hp` is the honeypot decoy: humans never
