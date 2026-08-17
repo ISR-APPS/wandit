@@ -65,6 +65,9 @@ async function main() {
 
 				await ensurePrice({
 					lookupKey,
+					// Stripe price metadata stays in WHOLE display credits (tier
+					// identity, matching the lookup key) — never centi-credits. The
+					// grant path converts x100 once when writing the ledger.
 					metadata: {
 						credits: String(tierCredits),
 						interval,
@@ -87,6 +90,7 @@ async function main() {
 
 		await ensurePrice({
 			lookupKey: packId,
+			// WHOLE display credits, same convention as the tier prices above.
 			metadata: {
 				credits: String(pack.credits),
 				packId,

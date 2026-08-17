@@ -23,9 +23,8 @@ import {
 	useMemo,
 	useSyncExternalStore,
 } from "react";
-
-import { authClient } from "@/features/auth/lib/auth-client";
 import { useSession } from "@/features/auth";
+import { authClient } from "@/features/auth/lib/auth-client";
 import { useWorkspacesQuery } from "@/features/workspaces/api/workspaces.queries";
 import {
 	type ActiveWorkspaceId,
@@ -63,7 +62,9 @@ function readPersisted(userId: string | undefined): ActiveWorkspaceId {
 	}
 
 	try {
-		return window.localStorage.getItem(storageKey(userId)) ?? PERSONAL_WORKSPACE;
+		return (
+			window.localStorage.getItem(storageKey(userId)) ?? PERSONAL_WORKSPACE
+		);
 	} catch {
 		return PERSONAL_WORKSPACE;
 	}

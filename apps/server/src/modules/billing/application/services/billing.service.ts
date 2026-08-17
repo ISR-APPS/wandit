@@ -16,6 +16,8 @@ import {
 	CREDIT_TIERS,
 	type CreateBillingCheckoutBody,
 	type CreateBillingTopupBody,
+	centiCreditsToCredits,
+	creditsToCentiCredits,
 	ENTITLED_SUBSCRIPTION_STATUSES,
 	type PreviewBillingSubscriptionChangeBody,
 	parsePriceLookupKey,
@@ -181,7 +183,14 @@ export class BillingService {
 		]);
 
 		return {
-			balance,
+			// CreditsService balances are internal centi-credits; the API carries
+			// decimal credits.
+			balance: {
+				balance: centiCreditsToCredits(balance.balance),
+				plan: centiCreditsToCredits(balance.plan),
+				promo: centiCreditsToCredits(balance.promo),
+				topup: centiCreditsToCredits(balance.topup),
+			},
 			subscription: subscription ? mapSubscriptionRow(subscription) : null,
 		};
 	}
@@ -1278,10 +1287,15 @@ export class BillingService {
 		}
 	}
 
+	/**
+	 * Preview delta in DECIMAL display credits. tierCredits are whole credits
+	 * (Stripe tier identity) while planBalanceCentiCredits is the internal
+	 * centi-credit pool — the math runs in centi-credits and divides once.
+	 */
 	private previewCreditsDelta(
 		subscription: SubscriptionRow,
 		target: PreviewBillingSubscriptionChangeBody,
-		planBalance: number,
+		planBalanceCentiCredits: number,
 	): number {
 		if (subscription.interval === target.interval) {
 			return Math.max(0, target.tierCredits - subscription.tierCredits);
@@ -1289,10 +1303,11 @@ export class BillingService {
 
 		// Monthly -> yearly is a capped month-one refill. This is the exact
 		// ledger delta: expire balance above one target allotment, then grant it.
-		const positivePlanBalance = Math.max(0, planBalance);
-		const expired = Math.max(0, positivePlanBalance - target.tierCredits);
+		const targetCentiCredits = creditsToCentiCredits(target.tierCredits);
+		const positivePlanBalance = Math.max(0, planBalanceCentiCredits);
+		const expired = Math.max(0, positivePlanBalance - targetCentiCredits);
 
-		return target.tierCredits - expired;
+		return centiCreditsToCredits(targetCentiCredits - expired);
 	}
 
 	private persistedChangeResult(

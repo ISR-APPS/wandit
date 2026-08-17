@@ -10,6 +10,7 @@ import {
 	type AdminUserWorkspace,
 	billingPlanIdSchema,
 	billingPlanIds,
+	centiCreditsToCredits,
 	isAdminRole,
 } from "@wandit/contracts";
 
@@ -37,8 +38,9 @@ export function mapAdminUserSummary(
 		createdAt: toIso(row.createdAt),
 		lastSeenAt: row.lastSeenAt === null ? null : toIso(row.lastSeenAt),
 		plan: normalizePlan(row.plan),
-		creditsBalance: Number(row.creditsBalance),
-		creditsConsumed: Number(row.creditsConsumed),
+		// Ledger sums are integer centi-credits; the API carries decimal credits.
+		creditsBalance: centiCreditsToCredits(Number(row.creditsBalance)),
+		creditsConsumed: centiCreditsToCredits(Number(row.creditsConsumed)),
 		projectsCount: Number(row.projectsCount),
 	};
 }
@@ -110,7 +112,7 @@ function mapAdminCreditLedgerEntry(
 ): AdminCreditLedgerEntry {
 	return {
 		id: row.id,
-		delta: row.delta,
+		delta: centiCreditsToCredits(row.delta),
 		kind: row.kind,
 		bucket: row.bucket,
 		meta: isRecord(row.meta) ? row.meta : null,

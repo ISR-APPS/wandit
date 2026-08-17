@@ -1024,6 +1024,7 @@ export class AiChatService {
 		throw lastError;
 	}
 
+	/** `credits` is integer centi-credits: quote vs the 10 cc (0.10) chat floor. */
 	private async estimateReservation(
 		modelBoundMessages: readonly WanditUIMessage[],
 	): Promise<{ costUsdMicros: number | null; credits: number }> {

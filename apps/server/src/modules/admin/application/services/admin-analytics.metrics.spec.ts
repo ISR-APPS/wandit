@@ -1113,9 +1113,10 @@ describe("admin analytics buckets", () => {
 			featuresSnapshot({
 				credits: {
 					...featuresSnapshot().credits,
+					// Snapshot sums are centi-credits (5_000 = 50 credits).
 					freeConsumptionTotals: [
 						{ consumed: 0, users: 2 },
-						{ consumed: 50, users: 3 },
+						{ consumed: 5_000, users: 3 },
 					],
 				},
 			}),
@@ -1158,10 +1159,12 @@ describe("admin analytics buckets", () => {
 					medianSecondsToConsume: 129_600,
 					measuredUsers: 2,
 				},
+				// Snapshot sums are centi-credits; buckets stay whole credits
+				// (100 cc = 1 credit lands in "1-9").
 				conversionByCredits: [
-					{ consumed: 1, owners: 1, paidOwners: 1 },
-					{ consumed: 9, owners: 2, paidOwners: 1 },
-					{ consumed: 10, owners: 2, paidOwners: 3 },
+					{ consumed: 100, owners: 1, paidOwners: 1 },
+					{ consumed: 900, owners: 2, paidOwners: 1 },
+					{ consumed: 1_000, owners: 2, paidOwners: 3 },
 				],
 			}),
 			NOW,

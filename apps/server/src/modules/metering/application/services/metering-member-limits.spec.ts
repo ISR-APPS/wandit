@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-
-import { MemberCreditLimitError } from "../../../credits/domain/errors/member-credit-limit.error";
 import type { CreditsService } from "../../../credits/application/services/credits.service";
+import { MemberCreditLimitError } from "../../../credits/domain/errors/member-credit-limit.error";
 import type { OrganizationLimitsRepository } from "../../../workspaces/infrastructure/persistence/organization-limits.repository";
 import type { MeteringGateway } from "../../domain/metering";
 import { OPERATION_REGISTRY } from "../../domain/operation-registry";
@@ -30,8 +29,8 @@ function buildService(setup: LimitsSetup) {
 			insertedEvents.push(input);
 			return { ...input, createdAt: new Date() };
 		}),
-		transaction: vi.fn(
-			async (fn: (tx: unknown) => Promise<unknown>) => fn({ tx: true }),
+		transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) =>
+			fn({ tx: true }),
 		),
 	} as unknown as MeteringRepository;
 
@@ -68,7 +67,7 @@ function buildService(setup: LimitsSetup) {
 	return { consumeCalls, credits, insertedEvents, limits, service };
 }
 
-function estimate(credits = 5) {
+function estimate(credits = 500) {
 	return {
 		credits,
 		idempotencyKey: `k-${credits}`,
@@ -113,15 +112,15 @@ describe("metering member limits + org subjects", () => {
 
 	it("rejects a reserve that would exceed the member's monthly limit", async () => {
 		const { insertedEvents, service } = buildService({
-			limitCredits: 10,
-			spent: 7,
+			limitCredits: 1000,
+			spent: 700,
 		});
 
 		await expect(
 			service.reserveWithReplay(
 				"chat",
 				{ actorUserId: ACTOR, organizationId: ORG_ID },
-				estimate(5),
+				estimate(500),
 			),
 		).rejects.toBeInstanceOf(MemberCreditLimitError);
 		// The event insert never happens; the debit rolls back with the tx.
@@ -129,25 +128,25 @@ describe("metering member limits + org subjects", () => {
 	});
 
 	it("allows a reserve that exactly reaches the limit", async () => {
-		const { service } = buildService({ limitCredits: 12, spent: 7 });
+		const { service } = buildService({ limitCredits: 1200, spent: 700 });
 
 		const outcome = await service.reserveWithReplay(
 			"chat",
 			{ actorUserId: ACTOR, organizationId: ORG_ID },
-			estimate(5),
+			estimate(500),
 		);
 
 		expect(outcome.replayed).toBe(false);
 	});
 
 	it("carries limit details for the UI on the error", async () => {
-		const { service } = buildService({ limitCredits: 10, spent: 9 });
+		const { service } = buildService({ limitCredits: 1000, spent: 900 });
 
 		const failure = await service
 			.reserveWithReplay(
 				"chat",
 				{ actorUserId: ACTOR, organizationId: ORG_ID },
-				estimate(5),
+				estimate(500),
 			)
 			.then(
 				() => null,
@@ -158,12 +157,16 @@ describe("metering member limits + org subjects", () => {
 		const response = (failure as MemberCreditLimitError).getResponse();
 		expect(response).toMatchObject({
 			code: "MEMBER_CREDIT_LIMIT_REACHED",
+			// The error converts centi-credit inputs to decimal display credits.
 			details: { limitCredits: 10, requiredCredits: 5, spentCredits: 9 },
 		});
 	});
 
 	it("exempt actors skip the org default limit", async () => {
-		const { limits, service } = buildService({ limitCredits: 1, spent: 100 });
+		const { limits, service } = buildService({
+			limitCredits: 100,
+			spent: 10_000,
+		});
 
 		const outcome = await service.reserveWithReplay(
 			"chat",
@@ -172,7 +175,7 @@ describe("metering member limits + org subjects", () => {
 				actorUserId: ACTOR,
 				organizationId: ORG_ID,
 			},
-			estimate(5),
+			estimate(500),
 		);
 
 		expect(outcome.replayed).toBe(false);

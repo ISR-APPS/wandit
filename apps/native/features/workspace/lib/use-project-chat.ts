@@ -5,10 +5,15 @@ import type {
 	ChatStreamEvent,
 } from "@wandit/contracts";
 import { paymentRequiredDetailsSchema } from "@wandit/contracts";
+import type { Locale } from "@wandit/internationalization";
 import { useTranslation } from "@wandit/internationalization/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { creditsKeys } from "@/features/credits/api/credits.keys";
+import {
+	formatCreditAmount,
+	formatCreditBalance,
+} from "@/features/credits/lib/format-credits";
 import { chatKeys } from "@/features/workspace/api/chat.keys";
 import { useSendChatMessage as useSendChatMessageMutation } from "@/features/workspace/api/chat.mutations";
 import {
@@ -39,9 +44,11 @@ const lastEventIdsByChatId = new Map<string, string>();
 
 export function useProjectChat(projectId?: string) {
 	const queryClient = useQueryClient();
-	const { t } = useTranslation();
+	const { locale, t } = useTranslation();
 	const tRef = useRef(t);
 	tRef.current = t;
+	const localeRef = useRef(locale);
+	localeRef.current = locale;
 
 	const chatByProjectQuery = useChatByProject(projectId);
 	const chatId = chatByProjectQuery.data?.chatId;
@@ -416,7 +423,9 @@ export function useProjectChat(projectId?: string) {
 					if (isPaymentRequiredError(error)) {
 						invalidateCreditBalance();
 					}
-					setErrorMessage(sendErrorMessage(error, tRef.current));
+					setErrorMessage(
+						sendErrorMessage(error, tRef.current, localeRef.current),
+					);
 					if (generationStillActive) {
 						generationActiveRef.current = true;
 						setActiveOverride(true);
@@ -511,7 +520,7 @@ export function useProjectChat(projectId?: string) {
 	};
 }
 
-function sendErrorMessage(error: unknown, t: Translate) {
+function sendErrorMessage(error: unknown, t: Translate, locale: Locale) {
 	if (isChatStreamHttpError(error) && error.status === 402) {
 		return t("native.workspace.chat.errors.credits");
 	}
@@ -523,9 +532,16 @@ function sendErrorMessage(error: unknown, t: Translate) {
 		if (error.statusCode === 402) {
 			const details = paymentRequiredDetailsSchema.safeParse(error.details);
 			if (details.success) {
+				// Decimal credits: exact charge, floored balance (pricing v4).
 				return t("native.workspace.chat.errors.creditsDetails", {
-					requiredCredits: details.data.requiredCredits,
-					availableCredits: details.data.availableCredits,
+					requiredCredits: formatCreditAmount(
+						details.data.requiredCredits,
+						locale,
+					),
+					availableCredits: formatCreditBalance(
+						details.data.availableCredits,
+						locale,
+					),
 				});
 			}
 			return t("native.workspace.chat.errors.credits");

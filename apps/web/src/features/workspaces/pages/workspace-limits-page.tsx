@@ -11,6 +11,7 @@ import { Loader2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { formatCreditAmount } from "@/features/credits/lib/format-credits";
 import {
 	usePutWorkspaceMemberLimitsMutation,
 	useWorkspaceMemberLimitsQuery,
@@ -18,7 +19,11 @@ import {
 import { useWorkspace } from "@/features/workspaces/lib/workspace-provider";
 import { useTranslation } from "@/lib/i18n";
 
-/** Empty input = no limit (null); otherwise a positive integer. */
+/**
+ * Empty input = no limit (null); otherwise a positive integer. Limits stay
+ * deliberately WHOLE credits (pricing v4 keeps the admin input coarse even
+ * though spend is fractional) — decimals are rejected, matching the contract.
+ */
 function parseLimit(value: string): number | null | undefined {
 	const trimmed = value.trim();
 
@@ -32,7 +37,7 @@ function parseLimit(value: string): number | null | undefined {
 }
 
 export default function WorkspaceLimitsPage() {
-	const { t } = useTranslation();
+	const { locale, t } = useTranslation();
 	const navigate = useNavigate();
 	const { actorCanManageWorkspace, isPersonal } = useWorkspace();
 	const limitsQuery = useWorkspaceMemberLimitsQuery({ enabled: !isPersonal });
@@ -148,7 +153,7 @@ export default function WorkspaceLimitsPage() {
 										{t("workspaces.limits.spentThisMonth")}
 									</p>
 									<p className="font-mono text-sm tabular-nums">
-										{member.spentThisMonth}
+										{formatCreditAmount(member.spentThisMonth, locale)}
 									</p>
 								</div>
 								<Input
@@ -171,11 +176,7 @@ export default function WorkspaceLimitsPage() {
 
 					{actorCanManageWorkspace ? (
 						<div>
-							<Button
-								type="button"
-								disabled={save.isPending}
-								onClick={submit}
-							>
+							<Button type="button" disabled={save.isPending} onClick={submit}>
 								{save.isPending
 									? t("workspaces.limits.saving")
 									: t("workspaces.limits.save")}

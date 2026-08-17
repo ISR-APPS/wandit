@@ -1,3 +1,5 @@
+import { floorCreditBalance, roundCreditAmount } from "@/lib/credit-format";
+
 import type { AdminUserSummary, ListUsersParams } from "../api/users.dto";
 import { listUsers } from "../api/users.services";
 
@@ -68,8 +70,10 @@ export function buildUsersExportRow(
 		user.role,
 		user.banned ? "banned" : "active",
 		user.plan,
-		user.creditsBalance,
-		user.creditsConsumed,
+		// Same display rules as the table: floor the balance to one decimal
+		// (never export more than the user has), keep charges exact at 2 dp.
+		floorCreditBalance(user.creditsBalance),
+		roundCreditAmount(user.creditsConsumed),
 		user.projectsCount,
 		// Contract timestamps are already ISO 8601 strings — pass them through.
 		user.createdAt,

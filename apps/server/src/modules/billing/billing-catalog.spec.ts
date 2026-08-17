@@ -114,12 +114,15 @@ describe("billing catalog", () => {
 	});
 
 	it("exports exact credit costs, signup grant, and bucket policies", () => {
+		// Pricing v4 display prices in decimal credits.
 		expect(CREDIT_COSTS).toEqual({
 			chatMessage: 1,
-			imageGeneration: 5,
+			connectorGeneration: 5,
+			imageGeneration: 3,
 			landingPageGeneration: 10,
-			marketingAssetGeneration: 5,
-			videoGeneration: 25,
+			leadScrape: 5,
+			marketingAssetGeneration: 7,
+			videoGeneration: 20,
 		});
 		expect(SIGNUP_GRANT_CREDITS).toBe(50);
 		expect(CREDIT_SPEND_ORDER).toEqual(["plan", "promo", "topup"]);

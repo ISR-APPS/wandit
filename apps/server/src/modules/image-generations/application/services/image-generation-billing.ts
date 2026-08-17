@@ -35,7 +35,7 @@ export type ImageGenerationBilling = {
 	) => Promise<boolean>;
 };
 
-/** Five credits per provider-completed image, not per attempt or retry. */
+/** 300 cc (3.00 credits) per provider-completed image, not per attempt or retry. */
 export function createImageGenerationBilling(
 	dependencies: FixedOperationBillingDependencies,
 ): ImageGenerationBilling {

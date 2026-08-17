@@ -17,6 +17,11 @@ export type RefillFundingReferences = {
 };
 
 export type YearlySlotPlan = {
+	/**
+	 * UNIT: integer centi-credits. Callers convert the whole-credit tier x100
+	 * (subscription-credits.service allotment) before building the plan; slot
+	 * rows store centi-credits and flow into applyCappedRefill unchanged.
+	 */
 	credits: number;
 	funding: RefillFundingReferences;
 	grantDueThrough?: Date;

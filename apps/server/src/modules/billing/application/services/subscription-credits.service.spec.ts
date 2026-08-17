@@ -703,7 +703,8 @@ describe("Subscription credit policy", () => {
 
 		await context.service.grantForPaidInvoice(value);
 
-		expect((await context.credits.getBalance(OWNER)).plan).toBe(250);
+		// 250-credit tier -> 25_000 centi-credits granted.
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(25_000);
 		expect(context.repository.slots).toHaveLength(11);
 		expect(context.repository.slots.map((slot) => slot.periodOrdinal)).toEqual([
 			2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12,
@@ -734,7 +735,7 @@ describe("Subscription credit policy", () => {
 		expect(context.stripe.listInvoicePayments).toHaveBeenCalledWith(
 			"in_no_payments_expand",
 		);
-		expect((await context.credits.getBalance(OWNER)).plan).toBe(250);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(25_000);
 		expect(
 			context.paymentRefunds.reconcileChargeAfterGrant,
 		).toHaveBeenCalledWith("ch_fallback");
@@ -752,7 +753,7 @@ describe("Subscription credit policy", () => {
 			subscription({ priceLookupKey: "pro_500_month", tierCredits: 500 }),
 		);
 		upgrade.repository.seedApplication("pro_250_month");
-		upgrade.creditRepository.seedPlan(40);
+		upgrade.creditRepository.seedPlan(4_000);
 		const upInvoice = invoice({
 			id: "in_month_up",
 			newKey: "pro_500_month",
@@ -761,12 +762,13 @@ describe("Subscription credit policy", () => {
 		});
 		addInvoice(upgrade, upInvoice);
 		await upgrade.service.grantForPaidInvoice(upInvoice);
-		expect((await upgrade.credits.getBalance(OWNER)).plan).toBe(290);
+		// 4_000 seeded + (500 - 250) * 100 upgrade delta.
+		expect((await upgrade.credits.getBalance(OWNER)).plan).toBe(29_000);
 		expect(upgrade.repository.slots).toHaveLength(0);
 
 		const downgrade = setup(subscription({ priceLookupKey: "pro_250_month" }));
 		downgrade.repository.seedApplication("pro_500_month");
-		downgrade.creditRepository.seedPlan(360);
+		downgrade.creditRepository.seedPlan(36_000);
 		const downInvoice = invoice({
 			id: "in_month_down",
 			newKey: "pro_250_month",
@@ -775,7 +777,7 @@ describe("Subscription credit policy", () => {
 		});
 		addInvoice(downgrade, downInvoice);
 		await downgrade.service.grantForPaidInvoice(downInvoice);
-		expect((await downgrade.credits.getBalance(OWNER)).plan).toBe(360);
+		expect((await downgrade.credits.getBalance(OWNER)).plan).toBe(36_000);
 		expect(downgrade.repository.applications[0]?.creditsDelta).toBe(0);
 
 		const renewal = invoice({
@@ -787,7 +789,8 @@ describe("Subscription credit policy", () => {
 		});
 		addInvoice(downgrade, renewal);
 		await downgrade.service.grantForPaidInvoice(renewal);
-		expect((await downgrade.credits.getBalance(OWNER)).plan).toBe(500);
+		// Carried min(36_000, 25_000 cap) + 25_000 cycle allotment.
+		expect((await downgrade.credits.getBalance(OWNER)).plan).toBe(50_000);
 	});
 
 	it("changes monthly to yearly with a capped month-one refill and eleven slots", async () => {
@@ -799,7 +802,7 @@ describe("Subscription credit policy", () => {
 			}),
 		);
 		context.repository.seedApplication("pro_250_month");
-		context.creditRepository.seedPlan(500);
+		context.creditRepository.seedPlan(50_000);
 		const value = invoice({
 			anchorReset: true,
 			id: "in_to_year",
@@ -810,20 +813,21 @@ describe("Subscription credit policy", () => {
 		addInvoice(context, value);
 		await context.service.grantForPaidInvoice(value);
 
-		expect((await context.credits.getBalance(OWNER)).plan).toBe(1000);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(100_000);
 		expect(context.repository.slots).toHaveLength(11);
 		expect(
 			context.repository.applications.find(
 				(row) => row.stripeInvoiceId === "in_to_year",
 			)?.creditsDelta,
-		).toBe(500);
+		).toBe(50_000);
 	});
 
 	it("reconciles a replayed gross cycle grant even when rollover expiry makes the journal delta non-positive", async () => {
 		const context = setup();
-		// 600 pre-balance vs the 250-tier cap keeps the journal delta strictly
-		// negative: min(600, 250) + 250 = 500 → delta -100.
-		context.creditRepository.seedPlan(600);
+		// 60_000 cc pre-balance vs the 250-tier cap (25_000 cc) keeps the journal
+		// delta strictly negative: min(60_000, 25_000) + 25_000 = 50_000 →
+		// delta -10_000.
+		context.creditRepository.seedPlan(60_000);
 		context.paymentRefunds.reconcileChargeAfterGrant.mockRejectedValueOnce(
 			new Error("simulated post-commit reconciliation outage"),
 		);
@@ -842,8 +846,8 @@ describe("Subscription credit policy", () => {
 			context.repository.applications.find(
 				(row) => row.stripeInvoiceId === renewal.id,
 			)?.creditsDelta,
-		).toBe(-100);
-		expect((await context.credits.getBalance(OWNER)).plan).toBe(500);
+		).toBe(-10_000);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(50_000);
 
 		await expect(context.service.grantForPaidInvoice(renewal)).resolves.toBe(
 			true,
@@ -907,12 +911,12 @@ describe("Subscription credit policy", () => {
 
 		await context.service.grantForPaidInvoice(delayedOldTierRenewal);
 
-		expect((await context.credits.getBalance(OWNER)).plan).toBe(250);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(25_000);
 		expect(
 			context.repository.slots
 				.filter((slot) => slot.status === "pending")
 				.map((slot) => slot.credits),
-		).toEqual(Array.from({ length: 11 }, () => 250));
+		).toEqual(Array.from({ length: 11 }, () => 25_000));
 		expect(
 			context.repository.applications.find(
 				(row) => row.stripeInvoiceId === delayedOldTierRenewal.id,
@@ -929,7 +933,7 @@ describe("Subscription credit policy", () => {
 			}),
 		);
 		context.repository.seedApplication("pro_250_month");
-		context.creditRepository.seedPlan(500);
+		context.creditRepository.seedPlan(50_000);
 		const intervalChange = invoice({
 			id: "in_interval_first",
 			newKey: "pro_500_year",
@@ -951,7 +955,7 @@ describe("Subscription credit policy", () => {
 		await context.service.grantForPaidInvoice(intervalChange);
 		await context.service.grantForPaidInvoice(laterTierUpgrade);
 
-		expect((await context.credits.getBalance(OWNER)).plan).toBe(1500);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(150_000);
 		expect(
 			context.repository.slots.filter((slot) => slot.status === "pending"),
 		).toHaveLength(11);
@@ -971,10 +975,10 @@ describe("Subscription credit policy", () => {
 			}),
 		);
 		context.repository.seedApplication("pro_250_year");
-		context.creditRepository.seedPlan(100);
+		context.creditRepository.seedPlan(10_000);
 		await context.refill.createYearlySlots(
 			{
-				credits: 250,
+				credits: 25_000,
 				funding: {
 					chargeId: "ch_old",
 					invoiceId: "in_old",
@@ -1005,7 +1009,7 @@ describe("Subscription credit policy", () => {
 		expect(
 			context.repository.slots.filter((slot) => slot.status === "pending"),
 		).toHaveLength(8);
-		expect((await context.credits.getBalance(OWNER)).plan).toBe(750);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(75_000);
 
 		const renewal = invoice({
 			id: "in_year_cycle",
@@ -1022,7 +1026,7 @@ describe("Subscription credit policy", () => {
 		expect(
 			context.repository.slots.filter((slot) => slot.status === "granted"),
 		).toHaveLength(11);
-		expect((await context.credits.getBalance(OWNER)).plan).toBe(1000);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(100_000);
 	});
 
 	it("sweeps missed slots exactly once with CAS, canonical admission, and stable refill keys", async () => {
@@ -1031,7 +1035,7 @@ describe("Subscription credit policy", () => {
 		);
 		await context.refill.createYearlySlots(
 			{
-				credits: 250,
+				credits: 25_000,
 				funding: {
 					chargeId: "ch_1",
 					invoiceId: "in_1",
@@ -1103,7 +1107,7 @@ describe("Subscription credit policy", () => {
 		);
 		await context.refill.createYearlySlots(
 			{
-				credits: 250,
+				credits: 25_000,
 				funding: {
 					chargeId: "ch_refund",
 					invoiceId: "in_refund",
@@ -1134,7 +1138,7 @@ describe("Subscription credit policy", () => {
 		const context = setup();
 		context.creditRepository.seedPlan(75);
 		context.repository.slots.push({
-			credits: 250,
+			credits: 25_000,
 			dueAt: new Date(),
 			fundingChargeId: "ch_1",
 			fundingInvoiceId: "in_1",
@@ -1219,7 +1223,7 @@ describe("Subscription credit policy", () => {
 		).toBe(0);
 
 		context.repository.seedApplication("pro_250_month");
-		context.creditRepository.seedPlan(200);
+		context.creditRepository.seedPlan(20_000);
 		for (const [id, oldKey, newKey] of [
 			["in_update_1", "pro_250_month", "pro_500_month"],
 			["in_update_2", "pro_500_month", "pro_1000_month"],
@@ -1238,6 +1242,7 @@ describe("Subscription credit policy", () => {
 				(row) => row.billingReason === "subscription_update",
 			),
 		).toHaveLength(2);
-		expect((await context.credits.getBalance(OWNER)).plan).toBe(950);
+		// 20_000 seeded + 25_000 (250->500) + 50_000 (500->1000) update deltas.
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(95_000);
 	});
 });

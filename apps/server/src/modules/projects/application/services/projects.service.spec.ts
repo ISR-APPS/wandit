@@ -45,7 +45,7 @@ function setup() {
 	const modelPricingService = {
 		quoteTokenUsage: vi.fn().mockResolvedValue({
 			costUsdMicros: 60_000,
-			credits: 2,
+			credits: 200,
 		}),
 	};
 	const projectTitleService = {
@@ -108,7 +108,7 @@ describe("ProjectsService", () => {
 			{
 				attemptRef: `bundled-pending:project:${persistenceInput?.projectId}`,
 				chatId: persistenceInput?.chatId,
-				credits: 2,
+				credits: 200,
 				estimatedCostUsdMicros: 60_000,
 				idempotencyKey: `project-create:${persistenceInput?.projectId}`,
 				messageId: persistenceInput?.messageId,

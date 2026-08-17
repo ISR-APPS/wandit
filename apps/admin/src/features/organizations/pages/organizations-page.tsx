@@ -42,6 +42,7 @@ import {
 	formatAdminDate,
 	formatWholeNumber,
 } from "@/features/users/lib/formatters";
+import { formatCreditBalance } from "@/lib/credit-format";
 
 const SEARCH_DEBOUNCE_MS = 300;
 const PAGE_SIZE = 25;
@@ -79,7 +80,9 @@ export function OrganizationsPage() {
 		q: debouncedQuery || undefined,
 	});
 	const result = organizationsQuery.data;
-	const totalPages = result ? Math.max(1, Math.ceil(result.total / PAGE_SIZE)) : 1;
+	const totalPages = result
+		? Math.max(1, Math.ceil(result.total / PAGE_SIZE))
+		: 1;
 	const isEmptyDirectory =
 		result !== undefined && result.total === 0 && debouncedQuery.length === 0;
 
@@ -158,8 +161,8 @@ export function OrganizationsPage() {
 						</EmptyMedia>
 						<EmptyTitle>No team workspaces yet</EmptyTitle>
 						<EmptyDescription>
-							Teams appear here as soon as users create workspaces. Enable
-							team workspaces in Settings to open creation.
+							Teams appear here as soon as users create workspaces. Enable team
+							workspaces in Settings to open creation.
 						</EmptyDescription>
 					</EmptyHeader>
 				</Empty>
@@ -169,7 +172,7 @@ export function OrganizationsPage() {
 						<div className="flex flex-wrap items-center gap-3">
 							<div className="relative min-w-0 flex-1 sm:max-w-sm">
 								<SearchIcon
-									className="-translate-y-1/2 absolute start-3 top-1/2 size-4 text-muted-foreground"
+									className="absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
 									aria-hidden="true"
 								/>
 								<Input
@@ -235,9 +238,7 @@ export function OrganizationsPage() {
 											<TableCell>
 												<Badge
 													variant={
-														organization.plan === "free"
-															? "outline"
-															: "default"
+														organization.plan === "free" ? "outline" : "default"
 													}
 													className="capitalize"
 												>
@@ -251,7 +252,7 @@ export function OrganizationsPage() {
 												{formatWholeNumber(organization.projectsCount)}
 											</TableCell>
 											<TableCell className="text-end font-mono text-sm tabular-nums">
-												{formatWholeNumber(organization.creditsBalance)}
+												{formatCreditBalance(organization.creditsBalance)}
 											</TableCell>
 											<TableCell className="text-muted-foreground text-sm">
 												{formatAdminDate(organization.createdAt)}

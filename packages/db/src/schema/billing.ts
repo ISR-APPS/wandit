@@ -85,7 +85,10 @@ export const productSettings = pgTable(
 		signupGrantEnabled: boolean("signup_grant_enabled")
 			.notNull()
 			.default(false),
-		signupGrantCredits: integer("signup_grant_credits").notNull().default(50),
+		// UNIT: centi-credits (5000 cc = 50 credits).
+		signupGrantCredits: integer("signup_grant_credits")
+			.notNull()
+			.default(5000),
 		paidSubscriptionsEnabled: boolean("paid_subscriptions_enabled")
 			.notNull()
 			.default(false),
@@ -159,6 +162,8 @@ export const subscriptions = pgTable(
 		provider: text("provider").notNull(),
 		providerSubscriptionId: text("provider_subscription_id").notNull(),
 		plan: billingPlan("plan").notNull(),
+		// UNIT: whole display credits (tier identity — NOT centi-credits).
+		// Grant/refill writers multiply ×100 when inserting ledger rows.
 		tierCredits: integer("tier_credits").notNull(),
 		pendingTierCredits: integer("pending_tier_credits"),
 		pendingAppliedBy: text("pending_applied_by"),
@@ -377,6 +382,7 @@ export const subscriptionRefillSlots = pgTable(
 			.references(() => subscriptions.id, { onDelete: "restrict" }),
 		periodOrdinal: integer("period_ordinal").notNull(),
 		dueAt: timestamp("due_at", { withTimezone: true }).notNull(),
+		// UNIT: centi-credits.
 		credits: integer("credits").notNull(),
 		fundingInvoiceId: text("funding_invoice_id").notNull(),
 		fundingChargeId: text("funding_charge_id"),
@@ -417,6 +423,7 @@ export const billingInvoiceApplications = pgTable(
 		newPriceLookupKey: text("new_price_lookup_key").notNull(),
 		periodStart: timestamp("period_start", { withTimezone: true }).notNull(),
 		periodEnd: timestamp("period_end", { withTimezone: true }).notNull(),
+		// UNIT: centi-credits.
 		creditsDelta: integer("credits_delta").notNull(),
 		// Settlement snapshot for revenue reporting: what Stripe actually
 		// collected for this invoice. Nullable — rows written before these
@@ -495,6 +502,7 @@ export const signupGrantOutbox = pgTable(
 		userId: text("user_id")
 			.primaryKey()
 			.references(() => user.id, { onDelete: "restrict" }),
+		// UNIT: centi-credits.
 		credits: integer("credits").notNull(),
 		settingsVersion: integer("settings_version").notNull(),
 		status: signupGrantOutboxStatus("status").notNull().default("pending"),

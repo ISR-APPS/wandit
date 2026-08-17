@@ -15,7 +15,7 @@ import {
 	parseGatewayModelsResponse,
 	perTokenDollarsStringToUsdMicrosPerMTok,
 	tokenUsageCostUsdMicros,
-	usdMicrosToCredits,
+	usdMicrosToCentiCredits,
 } from "./model-pricing";
 
 const GENERATED_AT = new Date("2026-08-01T12:00:00.000Z");
@@ -191,11 +191,13 @@ describe("model pricing math", () => {
 		).toBe(1_000);
 	});
 
-	it("applies max(1, ceil(cost / usdPerCredit))", () => {
-		expect(usdMicrosToCredits(0)).toBe(1);
-		expect(usdMicrosToCredits(28_000)).toBe(1);
-		expect(usdMicrosToCredits(50_001)).toBe(2);
-		expect(usdMicrosToCredits(125_000, 50_000)).toBe(3);
+	it("applies max(1, ceil(cost * 100 / usdPerWholeCredit)) in centi-credits", () => {
+		expect(usdMicrosToCentiCredits(0)).toBe(1);
+		expect(usdMicrosToCentiCredits(280)).toBe(1);
+		expect(usdMicrosToCentiCredits(281)).toBe(2);
+		expect(usdMicrosToCentiCredits(28_000)).toBe(100);
+		expect(usdMicrosToCentiCredits(50_001)).toBe(179);
+		expect(usdMicrosToCentiCredits(125_000, 50_000)).toBe(250);
 	});
 
 	it("prices provider image cost per successful image", () => {

@@ -2,6 +2,7 @@ import { cn } from "@wandit/ui/lib/utils";
 
 import { Spark } from "@/components/logo";
 import { useTranslation } from "@/lib/i18n";
+import { formatCreditAmount } from "../lib/format-credits";
 
 type PriceTagProps = {
 	cost: number;
@@ -17,7 +18,9 @@ export function PriceTag({
 	showUnit = true,
 	className,
 }: PriceTagProps) {
-	const { t } = useTranslation();
+	const { locale, t } = useTranslation();
+	// Charges render exact trimmed decimals (3, 0.1, 20) — never raw floats.
+	const formattedCost = formatCreditAmount(cost, locale);
 	return (
 		<span
 			className={cn(
@@ -26,7 +29,9 @@ export function PriceTag({
 			)}
 		>
 			{withIcon ? <Spark className="size-3" /> : null}
-			{showUnit ? t("credits.creditUnit", { count: cost }) : cost}
+			{showUnit
+				? t("credits.creditUnit", { count: cost, countDisplay: formattedCost })
+				: formattedCost}
 		</span>
 	);
 }

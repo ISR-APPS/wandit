@@ -17,6 +17,10 @@ export type CreateSubscriptionCheckoutParams = {
 	/** Set for org (Business) checkouts: the paying pool's identity. */
 	organizationId?: string | null;
 	plan: BillingPlanId;
+	/**
+	 * WHOLE display credits (Stripe-boundary unit): tier identity embedded in
+	 * price lookup keys and session metadata — never centi-credits.
+	 */
 	tierCredits: CreditTier;
 	userId: string;
 };
@@ -50,6 +54,11 @@ export type CreateRefundParams = {
 
 export type CreateTopupCheckoutParams = {
 	attemptId: string;
+	/**
+	 * WHOLE display credits (Stripe-boundary unit): the pack's credit count as
+	 * stamped into session metadata — never centi-credits. The grant path
+	 * converts x100 once when writing the ledger.
+	 */
 	credits: number;
 	customerId: string;
 	/** Set for org top-ups: the pool that receives the credits. */

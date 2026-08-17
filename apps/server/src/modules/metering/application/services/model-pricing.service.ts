@@ -17,7 +17,7 @@ import {
 	pricingSnapshot,
 	type TokenUsageQuote,
 	tokenUsageCostUsdMicros,
-	usdMicrosToCredits,
+	usdMicrosToCentiCredits,
 } from "../../domain/model-pricing";
 import {
 	type ModelPriceRow,
@@ -130,7 +130,7 @@ export class ModelPricingService {
 
 		return {
 			costUsdMicros,
-			credits: usdMicrosToCredits(costUsdMicros, usdMicrosPerCredit),
+			credits: usdMicrosToCentiCredits(costUsdMicros, usdMicrosPerCredit),
 			pricingSnapshot: pricingSnapshot(price, usdMicrosPerCredit),
 			usage: normalizedUsage,
 		};
@@ -138,7 +138,8 @@ export class ModelPricingService {
 
 	/**
 	 * Provider cost for image reconciliation. Customer debits remain the fixed
-	 * operation-registry price (5 credits/image), not usdMicrosToCredits here.
+	 * operation-registry price (300 cc = 3.00 credits/image), not
+	 * usdMicrosToCentiCredits here.
 	 */
 	async quoteImages(
 		modelId: string,

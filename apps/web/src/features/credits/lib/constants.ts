@@ -6,7 +6,10 @@ import {
 	type TranslationKey,
 	translate,
 } from "@/lib/i18n";
+import { formatCreditAmount } from "./format-credits";
 
+// Decimal display credits straight from the contracts price card (video 20,
+// page 10). chatMessage is an anchor only — chat settles fractional cost.
 export const CREDIT_COSTS = {
 	generation: CONTRACT_CREDIT_COSTS.landingPageGeneration,
 	chatMessage: CONTRACT_CREDIT_COSTS.chatMessage,
@@ -29,7 +32,11 @@ export function priceTag(action: CreditAction): string {
 	return translate(
 		dictionary,
 		"credits.priceTag",
-		{ action: label, count },
+		{
+			action: label,
+			count,
+			countDisplay: formatCreditAmount(count, locale),
+		},
 		locale,
 	);
 }

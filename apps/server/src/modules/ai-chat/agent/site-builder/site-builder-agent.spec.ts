@@ -1950,7 +1950,7 @@ describe("generate_image tool", () => {
 			{ actorUserId: "user_1" },
 			expect.objectContaining({
 				attemptRef: "attempt_1:image:1",
-				credits: 5,
+				credits: 300,
 				idempotencyKey: "page-build-image:page_event_1:1",
 				parentEventId: "page_event_1",
 			}),
@@ -1964,7 +1964,7 @@ describe("generate_image tool", () => {
 		});
 		expect(metering.settle).toHaveBeenCalledWith(
 			"image_event_1",
-			expect.objectContaining({ finalCredits: 5, pricing: "direct" }),
+			expect.objectContaining({ finalCredits: 300, pricing: "direct" }),
 		);
 	});
 
@@ -2005,7 +2005,7 @@ describe("generate_image tool", () => {
 		expect(metering.settle).toHaveBeenCalledWith(
 			"image_event_1",
 			expect.objectContaining({
-				finalCredits: 5,
+				finalCredits: 300,
 				pricingSnapshot: expect.objectContaining({ units: 1 }),
 			}),
 		);
@@ -2221,7 +2221,7 @@ describe("animate_image tool", () => {
 			{ actorUserId: "user_1" },
 			expect.objectContaining({
 				attemptRef: "attempt_1:video:1",
-				credits: 25,
+				credits: 2000,
 				idempotencyKey: "page-build-video:page_event_1:1",
 				parentEventId: "page_event_1",
 			}),
@@ -2235,7 +2235,7 @@ describe("animate_image tool", () => {
 		});
 		expect(metering.settle).toHaveBeenCalledWith(
 			"video_event_1",
-			expect.objectContaining({ finalCredits: 25, pricing: "direct" }),
+			expect.objectContaining({ finalCredits: 2000, pricing: "direct" }),
 		);
 	});
 
@@ -2275,7 +2275,7 @@ describe("animate_image tool", () => {
 		expect(metering.settle).toHaveBeenCalledWith(
 			"video_event_1",
 			expect.objectContaining({
-				finalCredits: 25,
+				finalCredits: 2000,
 				pricingSnapshot: expect.objectContaining({ units: 1 }),
 			}),
 		);

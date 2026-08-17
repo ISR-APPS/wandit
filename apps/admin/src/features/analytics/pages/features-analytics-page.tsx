@@ -26,6 +26,7 @@ import {
 	formatOverviewCompactNumber,
 	formatOverviewWholeNumber,
 } from "@/features/overview/lib/formatters";
+import { formatCreditAmount } from "@/lib/credit-format";
 
 type FeaturesAnalyticsPageProps = {
 	query: AnalyticsQuery;
@@ -131,7 +132,7 @@ function FeaturesAnalyticsPage({
 								label: "Credits granted",
 								tooltip:
 									"Total credits added to user balances as grants during the selected range.",
-								value: formatOverviewWholeNumber(data.credits.grantedInRange),
+								value: formatCreditAmount(data.credits.grantedInRange),
 								description: "Granted in selected range",
 								icon: UserRoundPlusIcon,
 							},
@@ -140,7 +141,7 @@ function FeaturesAnalyticsPage({
 								label: "Credits consumed",
 								tooltip:
 									"Total credits spent on AI work during the selected range.",
-								value: formatOverviewWholeNumber(data.credits.consumedInRange),
+								value: formatCreditAmount(data.credits.consumedInRange),
 								description: "Used in the selected range",
 								icon: CoinsIcon,
 							},

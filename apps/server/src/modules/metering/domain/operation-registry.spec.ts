@@ -129,20 +129,29 @@ describe("operation registry", () => {
 		);
 	});
 
-	it("locks fixed action economics and per-image pricing", () => {
+	it("locks fixed action economics and per-image pricing in centi-credits", () => {
+		expect(IMAGE_CREDITS_PER_IMAGE).toBe(300);
+		expect(VIDEO_CREDITS_PER_OPERATION).toBe(2000);
 		expect(fixedOperationCredits("image", 3)).toBe(3 * IMAGE_CREDITS_PER_IMAGE);
 		expect(fixedOperationCredits("video")).toBe(VIDEO_CREDITS_PER_OPERATION);
-		expect(fixedOperationCredits("marketing")).toBe(5);
-		expect(fixedOperationCredits("connector")).toBe(5);
-		expect(fixedOperationCredits("lead_scrape")).toBe(5);
+		expect(fixedOperationCredits("marketing")).toBe(700);
+		expect(fixedOperationCredits("connector")).toBe(500);
+		expect(fixedOperationCredits("lead_scrape")).toBe(500);
+	});
+
+	it("keeps the centi-credit reserve floors of the v4 price card", () => {
+		expect(OPERATION_REGISTRY.chat.reserveFloorCredits).toBe(10);
+		expect(OPERATION_REGISTRY.page_build.reserveFloorCredits).toBe(1000);
+		expect(OPERATION_REGISTRY.transcription.reserveFloorCredits).toBe(100);
+		expect(OPERATION_REGISTRY.topup_adjust.reserveFloorCredits).toBe(0);
 	});
 
 	it("ceil-bills transcription by minute with a one-credit minimum and cap", () => {
-		expect(transcriptionCredits(0)).toBe(1);
-		expect(transcriptionCredits(1)).toBe(1);
-		expect(transcriptionCredits(60)).toBe(1);
-		expect(transcriptionCredits(61)).toBe(2);
-		expect(transcriptionCredits(TRANSCRIPTION_MAX_DURATION_SECONDS)).toBe(5);
+		expect(transcriptionCredits(0)).toBe(100);
+		expect(transcriptionCredits(1)).toBe(100);
+		expect(transcriptionCredits(60)).toBe(100);
+		expect(transcriptionCredits(61)).toBe(200);
+		expect(transcriptionCredits(TRANSCRIPTION_MAX_DURATION_SECONDS)).toBe(500);
 		expect(() =>
 			transcriptionCredits(TRANSCRIPTION_MAX_DURATION_SECONDS + 1),
 		).toThrow("exceeds 300 seconds");
