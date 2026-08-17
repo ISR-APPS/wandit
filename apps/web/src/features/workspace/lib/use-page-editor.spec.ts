@@ -246,6 +246,37 @@ describe("page editor pending ops", () => {
 			]),
 		).toBe("inline");
 		expect(sourceForPendingOps([])).toBe("inline");
+		// The page title is head-level but NOT a theme edit.
+		expect(
+			sourceForPendingOps([{ kind: "set-page-title", value: "Maison Noor" }]),
+		).toBe("inline");
+	});
+
+	it("emits the page title last and omits it when nothing is pending", () => {
+		const snapshot = {
+			text: { "e-1": "Fast delivery" },
+			styles: {},
+			images: {},
+			placeholderImages: {},
+			links: {},
+			placeholders: {},
+			removals: [],
+			sectionStyles: {},
+			tokens: { radius: "0.5rem" },
+			tokensReset: false,
+		};
+
+		expect(
+			buildPendingOps({ ...snapshot, pageTitle: "Maison Noor — Livraison" }),
+		).toEqual([
+			{ kind: "text", wid: "e-1", value: "Fast delivery" },
+			{ kind: "set-tokens", value: { radius: "0.5rem" } },
+			{ kind: "set-page-title", value: "Maison Noor — Livraison" },
+		]);
+		expect(buildPendingOps(snapshot).map((op) => op.kind)).toEqual([
+			"text",
+			"set-tokens",
+		]);
 	});
 
 	it("counts reset and token tweaks as one dirty token slot", () => {

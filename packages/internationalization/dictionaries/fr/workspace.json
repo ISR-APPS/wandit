@@ -871,6 +871,8 @@
 			"backgroundRemove": "Retirer l'image de fond",
 			"data": "Données",
 			"dataHint": "Coordonnées détectées sur la page.",
+			"dataPageTitle": "Titre de la page",
+			"dataPageTitleHint": "Affiché dans l’onglet du navigateur.",
 			"dataBrand": "Marque",
 			"dataBrandHint": "Utilisée dans la navigation et le pied de page.",
 			"dataBrandUpload": "Importer le logo",

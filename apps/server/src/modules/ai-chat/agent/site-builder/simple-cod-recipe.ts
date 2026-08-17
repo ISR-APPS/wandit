@@ -100,7 +100,12 @@ Restraint is the style: white space is functional, never theatrical.
 - order-form: the climax card. It may carry a slightly stronger border or the
   accent as a top rule. Stacked labeled fields, generous touch targets
   (inputs at least 48px tall), the genre's form canon in full, submit button
-  restating the total.
+  restating the total. The phone field carries the flag and the +213 prefix
+  chip inside its input group, as quiet chrome on the field's leading edge —
+  decorative only, the typed value is submitted raw. On success the form card
+  is replaced in place by an accent check, a thank-you line, the order
+  number, the 3-row recap, and the call-you line with the supplied delivery
+  window.
 - faq: native <details> items inside cards — 3-5 questions max. It may sit
   after the form as the closing trust band.
 - sticky-cta: slim fixed bottom bar (price + CTA) obeying the genre's triple

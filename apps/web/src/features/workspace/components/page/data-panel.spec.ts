@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 
 import {
 	availableBrandTargets,
+	canApplyPageTitle,
 	getBrandActionState,
 	scanBrandTargetsInDocument,
 } from "./data-panel";
@@ -277,6 +278,36 @@ describe("brand card action state", () => {
 			uploadPending: false,
 			removePending: false,
 		});
+	});
+});
+
+describe("page title card", () => {
+	it("applies only a non-empty title that changes the effective value", () => {
+		expect(canApplyPageTitle("Maison Noor", "Old tab")).toBe(true);
+		expect(canApplyPageTitle("  Maison Noor  ", "Maison Noor")).toBe(false);
+		expect(canApplyPageTitle("   ", "Old tab")).toBe(false);
+		// A page with no <title> yet: any real title is a change.
+		expect(canApplyPageTitle("Atelier Saha", "")).toBe(true);
+	});
+
+	it("labels the field and its browser-tab hint in every dictionary", async () => {
+		const [en, fr, ar] = await Promise.all([
+			getDictionary("en"),
+			getDictionary("fr"),
+			getDictionary("ar"),
+		]);
+
+		expect(en.workspace.page.editor.dataPageTitle).toBe("Page title");
+		expect(fr.workspace.page.editor.dataPageTitle).toBe("Titre de la page");
+		expect(ar.workspace.page.editor.dataPageTitle).toBe("عنوان الصفحة");
+		for (const dictionary of [en, fr, ar]) {
+			expect(
+				dictionary.workspace.page.editor.dataPageTitleHint.length,
+			).toBeGreaterThan(0);
+			expect(dictionary.workspace.page.editor.dataApply.length).toBeGreaterThan(
+				0,
+			);
+		}
 	});
 });
 

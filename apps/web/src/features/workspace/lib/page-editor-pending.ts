@@ -54,6 +54,8 @@ export type PendingOpsSnapshot = {
 	sectionStyles: Record<string, PendingSectionStyle>;
 	tokens: Partial<Record<PageTokenName, string>>;
 	tokensReset: boolean;
+	/** Document <title> (browser tab) — head-level, so it carries no wid. */
+	pageTitle?: string | null;
 };
 
 /** Build the one persisted batch in its dependency-safe order. Removals lead
@@ -71,6 +73,7 @@ export function buildPendingOps({
 	sectionStyles,
 	tokens,
 	tokensReset,
+	pageTitle = null,
 }: PendingOpsSnapshot): ClientEditOp[] {
 	const ops: ClientEditOp[] = [];
 
@@ -100,6 +103,10 @@ export function buildPendingOps({
 		ops.push({ kind: "section-style", wid, value });
 	}
 	ops.push(...buildPendingTokenOps(tokensReset, tokens));
+	// Head-level, order-independent: it targets no element the ops above move.
+	if (pageTitle !== null) {
+		ops.push({ kind: "set-page-title", value: pageTitle });
+	}
 
 	return ops;
 }
