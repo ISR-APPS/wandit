@@ -1,6 +1,6 @@
 // Typed sidebar nav config for the dashboard shell. Leads, Assets, Apps and Academy
-// are real routes; Analytics and the support link stay as disabled
-// placeholders ("Soon"). Titles are dictionary keys, resolved at render.
+// are real routes; Support opens the live-chat widget; Analytics stays a
+// disabled placeholder ("Soon"). Titles are dictionary keys, resolved at render.
 
 import {
 	Blocks,
@@ -14,6 +14,8 @@ import {
 } from "lucide-react";
 
 import type { TranslationKey } from "@/lib/i18n";
+
+export type NavAction = "open-support-chat";
 
 type NavItemBase = {
 	titleKey: TranslationKey;
@@ -31,6 +33,8 @@ export type NavItem = NavItemBase &
 	(
 		| { type: "route"; to: NavRoutePath }
 		| { type: "external"; href: string }
+		// In-app action rather than navigation (e.g. open the support chat).
+		| { type: "action"; action: NavAction }
 		| { type: "soon" }
 	);
 
@@ -79,9 +83,14 @@ export const NAV_GROUPS: NavGroup[] = [
 				to: "/academy",
 				icon: GraduationCap,
 			},
-			// The support site doesn't exist yet — "Soon" until it does, so the
-			// launch video doesn't show dead "#" links.
-			{ type: "soon", titleKey: "projects.nav.support", icon: LifeBuoy },
+			// Opens the Chatwoot live-chat widget. Disabled at render when the
+			// widget env vars are unset (local dev), never a dead "#" link.
+			{
+				type: "action",
+				action: "open-support-chat",
+				titleKey: "projects.nav.support",
+				icon: LifeBuoy,
+			},
 		],
 	},
 ];

@@ -163,6 +163,11 @@ export const env = createEnv({
 		// Cloudflare Turnstile server secret. Unset = captcha plugin not
 		// registered (local dev); set in any env that exposes email auth.
 		TURNSTILE_SECRET_KEY: z.string().min(1).optional(),
+		// Chatwoot website-inbox HMAC secret (Inbox > Configuration > Identity
+		// Validation). Signs the user id the widget sends, so a visitor cannot
+		// impersonate another account. Unset = identity sent without a hash
+		// (local dev). Never ship this to the browser.
+		CHATWOOT_HMAC_TOKEN: z.string().min(1).optional(),
 		// Comma-separated CIDRs of the proxies in front of this API (the
 		// platform edge, Cloudflare, a load balancer). REQUIRED in any
 		// deployment that terminates behind a proxy: Better Auth refuses to
