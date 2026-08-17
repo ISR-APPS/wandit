@@ -12,7 +12,11 @@
  */
 // Pure functions for the workspace feature.
 
-import { serializeLeadOrderDetails } from "@wandit/contracts";
+import {
+	createLeadExtrasColumns,
+	dedupeLeadExportHeaderLabels,
+	LEAD_EXTRA_OVERFLOW_LABEL,
+} from "@wandit/contracts";
 
 import { pageTitleDynamic } from "@/lib/i18n";
 import type { Lead, WorkspaceTab } from "../api/dto";
@@ -125,39 +129,56 @@ export function hashString(value: string): number {
 	return Math.abs(hash);
 }
 
+/** Title of the order-details popover in the leads table. */
+export const ORDER_DETAILS_LABEL = "Order details";
+
 /**
  * CSV with UTF-8 BOM so Arabic names survive Excel; stable column order.
  * `headers` is the localized header row (leads.csvHeaders); the status cell is
  * localized from the current dictionary snapshot (leads.status.<enum_value>).
+ * Every dynamic form field gets its own column after the fixed ones (each
+ * AI-generated page collects different fields), so the header is only known
+ * after all rows are collected; leads without a field get an empty cell.
  */
-export const ORDER_DETAILS_LABEL = "Order details";
-
-export function buildLeadsCsv(
-	leads: Lead[],
-	headers: string[],
-	orderDetailsHeader = ORDER_DETAILS_LABEL,
-): string {
+export function buildLeadsCsv(leads: Lead[], headers: string[]): string {
 	// CSV cells containing commas, quotes, or newlines must be wrapped in quotes;
-	// doubled quotes are the CSV escape sequence for a literal quote.
-	const escapeCell = (cell: string) =>
-		/[",\n]/.test(cell) ? `"${cell.replace(/"/g, '""')}"` : cell;
-	const csvHeaders = [...headers, orderDetailsHeader].map(escapeCell).join(",");
-	const rows = leads.map((lead) =>
-		[
-			lead.name,
-			lead.phone,
-			lead.wilaya ?? "",
-			lead.commune ?? "",
-			pageTitleDynamic(`leads.status.${lead.status}`),
-			lead.source,
-			lead.campaign ?? "",
-			lead.createdAt,
-			serializeLeadOrderDetails(lead.extras),
-		]
+	// doubled quotes are the CSV escape sequence for a literal quote. Cells
+	// starting with = or @ (or tab/CR) would execute as formulas in Excel and
+	// Sheets — buyer-controlled extras land in cells now, so neutralize those
+	// with a leading apostrophe. Leading + is deliberately left alone: phones
+	// are E.164 (+213…) and a quoted plus would corrupt the most-used column.
+	const escapeCell = (cell: string) => {
+		const neutralized = /^[=@\t\r]/.test(cell) ? `'${cell}` : cell;
+		return /[",\n]/.test(neutralized)
+			? `"${neutralized.replace(/"/g, '""')}"`
+			: neutralized;
+	};
+	const extrasColumns = createLeadExtrasColumns();
+	const leadCells = leads.map((lead) => [
+		lead.name,
+		lead.phone,
+		lead.wilaya ?? "",
+		lead.commune ?? "",
+		pageTitleDynamic(`leads.status.${lead.status}`),
+		lead.source,
+		lead.campaign ?? "",
+		lead.createdAt,
+		...extrasColumns.buildCells(lead.extras),
+	]);
+	const csvHeaders = [
+		...headers,
+		...dedupeLeadExportHeaderLabels(
+			[...headers, LEAD_EXTRA_OVERFLOW_LABEL],
+			extrasColumns.keys(),
+		),
+		...(extrasColumns.hasOverflow() ? [LEAD_EXTRA_OVERFLOW_LABEL] : []),
+	];
+	const rows = leadCells.map((cells) =>
+		Array.from({ length: csvHeaders.length }, (_, index) => cells[index] ?? "")
 			.map(escapeCell)
 			.join(","),
 	);
-	return `\uFEFF${[csvHeaders, ...rows].join("\n")}`;
+	return `\uFEFF${[csvHeaders.map(escapeCell).join(","), ...rows].join("\n")}`;
 }
 
 // Trigger a browser download for generated text. Blob is the browser object for
