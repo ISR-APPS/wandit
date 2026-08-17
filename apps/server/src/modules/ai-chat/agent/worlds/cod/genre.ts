@@ -36,13 +36,15 @@ All three are mandatory: body padding reserves the bar height plus env(safe-area
 
 ## 6. THE ORDER FORM CANON
 
-order-form is the climax and only purchase form. Collect full name or first+last; phone with type=tel, inputmode=numeric, dir=ltr and the locale regex; region select (wilaya in Algeria); commune/address text. Never collect email.
+order-form is the climax and only purchase form. Collect full name or first+last; phone with type=tel, inputmode=numeric, dir=ltr and the locale regex, sitting in a dir=ltr input group that carries the market affordance — the country flag plus the dial prefix chip (+213 in Algeria) as non-editable chrome, a span or chip beside the field, with the flag emoji or a small data-URI SVG flag as the one sanctioned flag treatment. The value the buyer types and the phone the page submits stay the RAW local number exactly as typed (0X…, locale regex unchanged); the prefix is decorative and is NEVER concatenated into the value. Then region select (wilaya in Algeria); commune/address text. Never collect email.
 
 When the offer needs them: bundle RADIO CARDS, never a select; per-item variant selects; delivery-method radios with explicit home versus desk/pickup/stopdesk fees. Compute and update a visible 3-row summary: product / delivery / grand total. Never say fees to be confirmed.
 
 Put order-steps before the form. Within one scene of submit state: pay nothing now, supplied delivery window, supplied exchange window. Dispatch the base prompt's wandit:lead event with canonical name, phone, wilaya and commune keys; extras use their own keys.
 
-Success REPLACES the form card with an order number and recap of product, option, delivery and total. Kill sticky-cta and reset body padding; never redirect or leave a second active submit.
+Success is the page's thank-you moment and always carries three parts: a clear thank-you/confirmation headline in the page's language; the order number with the recap of product, option, delivery and total; and ONE reassurance line built only from brief facts — the confirmation call (we will call you to confirm) plus the supplied delivery window, or a plain call-you line with NO invented deadline when the brief supplies no window.
+
+Two vessels are permitted: replacing the form card inline (the default), or a design-appropriate modal/overlay when the world's vessel language suits it. A modal confirmation is never a trap: it carries a visible close control, closes on Escape, moves focus to its headline when it opens, and dismissing it reveals the page with the form already replaced or disabled. Either way the invariants hold: kill sticky-cta, reset body padding, replace or disable the form so no second submit stays active, and never redirect.
 
 ## 7. PROOF HONESTY
 
@@ -62,7 +64,7 @@ For Arabic use logical CSS properties and Western Arabic numerals 0-9 for every 
 
 ## 10. LOCALE VARIABLES
 
-Phone regex, currency glyph/placement, region label/options and delivery fees come from market facts in the brief. Worldwide builds replace every locale value, not just labels. Algeria default: /^0[567]\\d{8}$/, DZD as دج or DZD with thin-space thousands, all 58 wilayas, commune, and explicit home-vs-stopdesk fees.
+Phone regex, currency glyph/placement, region label/options, delivery fees and the phone field's flag + dial prefix come from market facts in the brief. Worldwide builds replace every locale value, not just labels: the flag and the prefix chip swap to the target market exactly like the regex and the currency do. Algeria default: /^0[567]\\d{8}$/, the Algerian flag with a +213 prefix chip, DZD as دج or DZD with thin-space thousands, all 58 wilayas, commune, and explicit home-vs-stopdesk fees.
 
 ## 11. DESKTOP LAW
 

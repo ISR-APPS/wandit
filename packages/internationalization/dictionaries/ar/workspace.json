@@ -871,6 +871,8 @@
 			"backgroundRemove": "إزالة صورة الخلفية",
 			"data": "البيانات",
 			"dataHint": "بيانات التواصل المكتشفة في الصفحة.",
+			"dataPageTitle": "عنوان الصفحة",
+			"dataPageTitleHint": "يظهر في تبويب المتصفح.",
 			"dataBrand": "العلامة التجارية",
 			"dataBrandHint": "تُستخدم في شريط التنقل وتذييل الصفحة.",
 			"dataBrandUpload": "رفع الشعار",

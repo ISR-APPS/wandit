@@ -115,6 +115,12 @@ const OPTION_LABELS: Record<string, string> = {
 	variants: "Number of variants",
 };
 
+// Document-level edit sentinels the ops layer records instead of a data-wid.
+const MANUAL_EDIT_LABELS: Record<string, string> = {
+	__title__: "the page title",
+	__tokens__: "the global theme (colors/fonts)",
+};
+
 // Transport/internal keys, or keys already rendered by a dedicated block.
 const HANDLED_OPTION_KEYS = new Set([
 	"builderModel",
@@ -381,9 +387,7 @@ export function buildChatRequestContext(
 
 	if (context.manualEdits.length > 0) {
 		const edited = context.manualEdits
-			.map((wid) =>
-				wid === "__tokens__" ? "the global theme (colors/fonts)" : wid,
-			)
+			.map((wid) => MANUAL_EDIT_LABELS[wid] ?? wid)
 			.join(", ");
 
 		paragraphs.push(

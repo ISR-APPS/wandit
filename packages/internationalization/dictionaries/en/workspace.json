@@ -871,6 +871,8 @@
 			"backgroundRemove": "Remove background image",
 			"data": "Data",
 			"dataHint": "Business details detected on the page.",
+			"dataPageTitle": "Page title",
+			"dataPageTitleHint": "Shown in the browser tab.",
 			"dataBrand": "Brand",
 			"dataBrandHint": "Used in the navigation and footer.",
 			"dataBrandUpload": "Upload logo",

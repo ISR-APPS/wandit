@@ -34,6 +34,7 @@ import {
 	hasGatewayGenerationMetadata,
 } from "../../../metering/domain/gateway-metering";
 import { fixedOperationCredits } from "../../../metering/domain/operation-registry";
+import { ensureDocumentTitle } from "../../../pages/domain/document-title";
 import { inlineKnownCdnScripts } from "../../../pages/domain/inline-cdn-scripts";
 // Plain module (no Nest), safe in the Trigger bundle — cheerio bundles fine.
 import {
@@ -1573,11 +1574,19 @@ export async function runSiteBuild(
 		// stable data-wid before upload, so every version's canonical HTML in
 		// R2 is fully stamped. The model is never asked to do this itself.
 		// The sanctioned GSAP CDN tags are inlined first, so the canonical HTML
-		// never depends on a third-party CDN request.
+		// never depends on a third-party CDN request. A page that forgot its
+		// <title> then falls back to the Brain's short human title, so the
+		// browser tab never reads as a URL.
 		const rawHtml = vfs.read("index.html");
 
 		if (rawHtml !== null) {
-			vfs.write("index.html", stampHtml(inlineKnownCdnScripts(rawHtml)));
+			vfs.write(
+				"index.html",
+				ensureDocumentTitle(
+					stampHtml(inlineKnownCdnScripts(rawHtml)),
+					params.title,
+				),
+			);
 		}
 
 		try {
@@ -1644,6 +1653,13 @@ const BRAND_SECTION_SCOPE_SELECTOR = "nav, header, section, footer, aside";
 const JAVASCRIPT_IDENTIFIER_SOURCE = String.raw`[$A-Z_a-z][$\w]*`;
 const LEAD_EVENT_LITERAL_SOURCE =
 	"(?:\"wandit:lead\"|'wandit:lead'|`wandit:lead`)";
+/**
+ * Acknowledgement event the injected leads runtime answers with. The page's
+ * success UI is gated on it, so a COD page that never names it can only ever
+ * show an unacknowledged success — a plain text scan is enough, because any
+ * listener (however written) must carry the literal.
+ */
+const LEAD_RESULT_EVENT_NAME = "wandit:lead:result";
 const CUSTOM_EVENT_CONSTRUCTOR_SOURCE = String.raw`new\s+(?:(?:window|globalThis|self)\s*\.\s*)?CustomEvent\s*\(\s*`;
 const NAME_AUTOCOMPLETE_TOKENS = new Set([
 	"additional-name",
@@ -2045,6 +2061,19 @@ function assertValidSite(
 			throw new Error(
 				"COD index.html must contain exactly one data-wandit-hp " +
 					`honeypot (found ${honeypots.length})`,
+			);
+		}
+
+		const handlesLeadResult = $("script")
+			.toArray()
+			.some((node) => ($(node).html() ?? "").includes(LEAD_RESULT_EVENT_NAME));
+
+		if (!handlesLeadResult) {
+			throw new Error(
+				`COD index.html must handle the "${LEAD_RESULT_EVENT_NAME}" ` +
+					"acknowledgement event in a <script> element — install that " +
+					"listener before dispatching the lead, and gate the final " +
+					"success UI on it",
 			);
 		}
 	}
