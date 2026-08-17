@@ -1,0 +1,553 @@
+{
+	"common": {
+		"lastUpdated": "Last updated: {date}",
+		"contents": "On this page",
+		"backHome": "Back to home",
+		"otherPrivacy": "Read our Privacy Policy",
+		"otherTerms": "Read our Terms of Service",
+		"contactCta": "A question about this page? Write to {email}.",
+		"googlePolicyLabel": "Google API Services User Data Policy",
+		"googlePermissionsLabel": "Google Account permissions page"
+	},
+	"privacy": {
+		"meta": {
+			"title": "Privacy Policy — Wandit",
+			"description": "How Wandit collects, uses, shares and protects the data of the sellers who build and publish with us, and of the buyers who order from them."
+		},
+		"title": "Privacy Policy",
+		"intro": [
+			"Wandit ({siteUrl}) is an AI tool that helps online sellers create pages, publish them and manage the orders they receive. It is operated by {company}. This policy explains what personal data we collect, why we collect it, who we share it with, and what control you have over it.",
+			"We wrote this policy in plain language. If anything is unclear, write to {email} and we will explain it."
+		],
+		"sections": [
+			{
+				"id": "who-we-are",
+				"title": "1. Who we are",
+				"paragraphs": [
+					"{company} is a limited liability company registered in Dubai, United Arab Emirates (trade licence no. {licenceNo}, Department of Economy and Tourism, Dubai; commercial register no. {registerNo}), with its office at {address}. It operates Wandit at {siteUrl}: the marketing site, the dashboard, the pages you publish on wandit.app subdomains or on your own domain, our API and the emails we send you.",
+					"For the account data of the sellers who sign up, {company} is the data controller. We decide why and how that data is processed.",
+					"For the buyer data collected through the pages you publish, and for the business lists you ask us to find, you are the controller and we act only on your instructions. Section 7 explains this split.",
+					"You can reach us at {email} for any privacy question, including a request to see, correct or delete your data."
+				],
+				"bullets": [],
+				"after": []
+			},
+			{
+				"id": "scope",
+				"title": "2. What this policy covers",
+				"paragraphs": [
+					"This policy covers the Wandit website, the Wandit dashboard, our API and the emails we send you.",
+					"It does not cover what a seller writes on a published page or the tracking a seller adds to it. Buyer details entered in an order form are stored by Wandit for that seller; section 7 explains how we handle them and whom to contact.",
+					"It does not cover other companies we link to. Those companies have their own policies."
+				],
+				"bullets": [],
+				"after": []
+			},
+			{
+				"id": "data-we-collect",
+				"title": "3. Data we collect",
+				"paragraphs": [
+					"Some of this data you give us directly. Some of it is created when you use the service."
+				],
+				"bullets": [
+					"Account data: your name, your email address, your profile picture, the sign-in identifiers of the method you use, the language and theme you choose, and the workspaces you belong to.",
+					"Content you create: the prompts you write, the files and images you upload, the pages, images, videos and marketing assets you generate, your project settings, and the domains you publish on.",
+					"Billing data: the credit packs and plans you buy, your invoices, your credit balance and your transaction history. Card numbers go straight to Stripe. We never see them and we never store them.",
+					"Usage and device data: the screens you open in the dashboard, the actions you take, the credits you spend, your browser and device type, your operating system, an approximate location derived from your IP address, and crash or error reports. PostHog can also record a replay of your dashboard session so that we can see where the product fails. Typed input is masked in these recordings.",
+					"Log data: IP address, request time, requested address and response status, kept for security and troubleshooting.",
+					"Communications: the messages you send our support team and your replies to our emails.",
+					"Connector data: when you connect an external tool from the Connect apps dialog, we store the access token that tool gives us, encrypted, and we send it the instructions and assets you choose to use with it.",
+					"Buyer and lead data: the details buyers enter in the order forms of the pages you publish, and the public business listings you ask us to find. Section 7 explains how we treat this data.",
+					"Google user data: only what you allow when you sign in with Google or connect Google Sheets. Section 6 explains exactly what we receive."
+				],
+				"after": [
+					"We do not ask for special categories of data such as health, religion, political opinions or identity documents, and we do not want them. Do not put such data in prompts or in order forms unless you are certain you have the right to do so."
+				]
+			},
+			{
+				"id": "how-we-use",
+				"title": "4. How we use your data",
+				"paragraphs": ["We use personal data only for the purposes below."],
+				"bullets": [
+					"To run the service: create your account, sign you in, generate and publish your pages, store your files, deliver your leads and keep your workspaces in sync.",
+					"To handle payments: sell credit packs and plans, apply your balance, issue invoices and prevent payment fraud.",
+					"To support you: answer your messages and investigate the problems you report.",
+					"To keep the service safe: detect abuse, spam, scraping and fraud, enforce our Terms of Service, and protect our users and our infrastructure.",
+					"To improve the product: understand which features are used, measure performance and fix errors. We use aggregated or pseudonymous data for this whenever that is enough.",
+					"To communicate with you: service messages such as receipts, security alerts and changes to the product; and, where you agree or where the law allows it, occasional product news. You can unsubscribe from marketing email at any time.",
+					"To meet legal duties: accounting, tax, and answers to lawful requests from an authority."
+				],
+				"after": [
+					"We do not sell your personal data. We send your prompts and your uploaded files to the AI model providers described in section 8 only to produce the output you asked for."
+				]
+			},
+			{
+				"id": "legal-bases",
+				"title": "5. Legal bases",
+				"paragraphs": [
+					"Where the GDPR or a similar law applies to you, we rely on the legal bases below."
+				],
+				"bullets": [
+					"Performance of a contract: to give you the service you signed up for, including generation, publishing, lead capture and billing.",
+					"Legitimate interests: to secure the service, to prevent abuse and fraud, to measure how the product is used, to improve it and to tell you about it. We weigh these interests against your rights each time.",
+					"Consent: for marketing email where consent is required, and for connecting your Google account or another external tool. You can withdraw consent at any time.",
+					"Legal obligation: to keep accounting records and to answer lawful requests."
+				],
+				"after": [
+					"As a company established in the United Arab Emirates, we are subject to UAE Federal Decree-Law No. 45 of 2021 on the Protection of Personal Data. Algerian Law No. 18-07 on the protection of natural persons in the processing of personal data applies to sellers and buyers in Algeria. Where more than one of these laws applies, we follow the stricter requirement."
+				]
+			},
+			{
+				"id": "google-user-data",
+				"title": "6. Google user data",
+				"paragraphs": [
+					"Two Wandit features use a Google account. Both are optional, and both need your explicit permission."
+				],
+				"bullets": [
+					"Google Sign-In: when you sign in with Google we receive your name, your email address and your profile picture. We use them to create your account, to recognise you when you come back, and to contact you about the service.",
+					"Google Sheets sync: when you connect Google Sheets we ask for one scope only, {driveScope}. That scope lets an application see and change only the files it created itself. Wandit creates one spreadsheet in your own Google Drive for a project, and rewrites its rows each time you run a sync. The rows hold the lead data you already have in Wandit: buyer name, phone number, wilaya, commune, status, source, date and order details. Wandit cannot see any other file in your Drive."
+				],
+				"after": [
+					"We store the Google access token and refresh token that the sync needs, encrypted at rest. We delete them when you revoke Wandit's access on your {googlePermissionsUrl}, when you ask us to remove the connection at {email}, or when you delete your account. The sync then stops.",
+					"The name, email address and profile picture from Google Sign-In are kept as account data and deleted with your account, as section 10 explains. Google Sign-In tokens are stored encrypted, used only to sign you in, and deleted with your account.",
+					"You can review or revoke the access you gave Wandit at any time on your {googlePermissionsUrl}. Revoking access stops future syncs. The spreadsheet stays in your Drive and remains yours.",
+					"Wandit's use and transfer to any other app of information received from Google APIs will adhere to {googlePolicyUrl}, including the Limited Use requirements.",
+					"We do not send Google user data to AI model providers, and we do not use it to train or improve AI models.",
+					"We do not use Google user data for advertising and we do not sell it. We transfer it only to the providers in section 8 that make the feature work, when the law requires it, or with your explicit consent. Nobody at {company} reads your Google user data, except with your consent, to investigate abuse or a security incident, or where the law requires it."
+				]
+			},
+			{
+				"id": "buyer-data",
+				"title": "7. Buyer and lead data we process for sellers",
+				"paragraphs": [
+					"Sellers use Wandit to collect orders. When a buyer fills in an order form on a page you published, Wandit stores the details in your workspace: name, phone number, wilaya, commune, order details, the status you set, and the traffic source such as Facebook, TikTok or direct.",
+					"You can also ask Wandit to find public business listings for you. We send your search terms to a search provider and give you back public information about the businesses it finds.",
+					"For all of that data you are the controller and Wandit is your processor. We process it only to run the features you use, and only on your instructions."
+				],
+				"bullets": [
+					"You must have a valid legal basis to collect and use buyer and business data, and you must tell buyers who you are and what you do with their details.",
+					"You must answer buyers who ask to see, correct or delete their data. Wandit gives you tools to edit, export and delete leads, and to sync them to your own Google Sheet. Where you cannot do it yourself, write to {email} and we will help.",
+					"You must not use lead lists to send messages that the law or the platform forbids."
+				],
+				"after": [
+					"If a buyer contacts us directly about data held in a seller workspace, we pass the request to that seller and help them answer it."
+				]
+			},
+			{
+				"id": "sharing",
+				"title": "8. Who we share data with",
+				"paragraphs": [
+					"We do not sell personal data and we do not rent it. We share it with the providers that help us run Wandit, and only for that purpose. Most of them work under a contract and may use the data only on our instructions. Google and Stripe also process the data they receive under their own privacy policies."
+				],
+				"bullets": [
+					"Google: sign-in with your Google account, and the Google Sheets and Drive APIs when you connect them. Google processes this data under its own privacy policy, and the spreadsheet lives in your own Drive.",
+					"Stripe: payments, subscriptions and invoices. Card details go to Stripe directly and never reach our servers.",
+					"Resend: transactional email such as sign-in links, receipts and alerts.",
+					"PostHog: product analytics, hosted in the European Union.",
+					"Sentry: error and crash monitoring.",
+					"Vercel: hosting for the web application.",
+					"Railway: hosting for our API.",
+					"Cloudflare: file storage, DNS and domain services, and the Turnstile check that keeps bots out of sign-in.",
+					"Trigger.dev: background jobs such as generation, publishing and syncs.",
+					"AI model providers, reached through an AI gateway: your prompts, the assets you upload and the content we generate are sent to them so that they can produce the page, image, video or text you asked for.",
+					"Connectors you enable, such as video and image tools, which receive the prompts and assets you send them.",
+					"Serper: the search API behind business lead discovery, which receives the search terms you enter.",
+					"A managed PostgreSQL provider: the database that holds your account, your projects and your leads.",
+					"Referral partners: if you arrived through a partner link, we tell that partner that a sign-up or a purchase happened, so that we can credit them. We do not give them your name, email address or other personal details."
+				],
+				"after": [
+					"We also share data when we must: to answer a valid legal request from an authority, to protect our rights or the safety of a person, and with our professional advisers under a duty of confidence.",
+					"If {company} is ever part of a merger, an acquisition or a sale of assets, your data can pass to the buyer. We will tell you before that happens, and the buyer must keep to this policy or give you notice of a new one."
+				]
+			},
+			{
+				"id": "cookies",
+				"title": "9. Cookies and local storage",
+				"paragraphs": [
+					"Wandit uses a small number of cookies and browser storage keys."
+				],
+				"bullets": [
+					"Session cookie: keeps you signed in. It is strictly necessary and the service does not work without it.",
+					"Preferences: your language and your theme, kept in the local storage of your browser.",
+					"Analytics: PostHog cookies that show us which features are used and where the product fails. PostHog can also record a replay of your dashboard session, with typed input masked.",
+					"Turnstile: a Cloudflare cookie that shows you are not a bot when you sign in.",
+					"Stripe: cookies set during checkout to complete and secure the payment.",
+					"Referral: if you arrive through a partner link, we keep a referral token in your browser storage so that we can credit that partner for your sign-up."
+				],
+				"after": [
+					"You can clear or block cookies in your browser. If you block the strictly necessary ones, you cannot sign in.",
+					"A page published by a seller can contain that seller's own tracking, for example a Facebook or TikTok pixel. That is the seller's choice and the seller's responsibility."
+				]
+			},
+			{
+				"id": "retention",
+				"title": "10. How long we keep data",
+				"paragraphs": [
+					"We keep personal data only as long as we need it for the purpose we collected it for."
+				],
+				"bullets": [
+					"Account and content: while your account is open. After you delete your account we delete or anonymise your personal data without undue delay, except where we must keep it.",
+					"Buyer and lead data: while the workspace exists, or until the seller deletes it.",
+					"Billing records: for as long as tax and accounting law requires.",
+					"Log and security data: for a limited period needed for security and troubleshooting.",
+					"Backups: deleted data leaves our backups when the backup cycle of our providers completes."
+				],
+				"after": [
+					"Aggregated statistics that identify nobody can be kept longer."
+				]
+			},
+			{
+				"id": "security",
+				"title": "11. How we protect data",
+				"paragraphs": [
+					"We use the measures below, and we review them as the service grows."
+				],
+				"bullets": [
+					"Traffic is encrypted in transit with TLS, and data is encrypted at rest by our infrastructure providers.",
+					"Access to production data is limited to the staff who need it.",
+					"Secrets such as Google tokens are stored encrypted.",
+					"Bot protection, rate limits and monitoring help us detect abuse early."
+				],
+				"after": [
+					"No system is perfectly secure. Protect your account too: use a mailbox that only you control, and remove workspace members as soon as they no longer need access.",
+					"If a breach puts your rights at serious risk, we will tell you and the competent authority, as the law requires."
+				]
+			},
+			{
+				"id": "transfers",
+				"title": "12. International transfers",
+				"paragraphs": [
+					"Wandit is operated from the United Arab Emirates and used mainly from Algeria, and our providers store and process data in the European Union and in the United States. Your data can therefore leave the country you are in.",
+					"When we transfer personal data out of the European Economic Area, we rely on the safeguards the law offers, such as the standard contractual clauses of the European Commission or an adequacy decision. For transfers under UAE or Algerian law, we follow the conditions those laws set for sending data abroad.",
+					"Write to {email} if you want details of the safeguards that apply to a specific provider."
+				],
+				"bullets": [],
+				"after": []
+			},
+			{
+				"id": "your-rights",
+				"title": "13. Your rights",
+				"paragraphs": [
+					"Depending on where you live, you have some or all of the rights below over your personal data."
+				],
+				"bullets": [
+					"Access: ask for a copy of the data we hold about you.",
+					"Correction: ask us to correct data that is wrong or incomplete. Write to {email} and we will do it.",
+					"Deletion: ask us to delete your account and your data by writing to {email}. We confirm the deletion by email.",
+					"Portability: ask for your data in a machine-readable format. You can export your leads to CSV yourself from the dashboard, or sync them to your own Google Sheet.",
+					"Restriction and objection: ask us to stop or limit a use that relies on our legitimate interests.",
+					"Withdraw consent: unsubscribe from marketing email, object to analytics by writing to {email}, or revoke Google access at any time. Withdrawing consent does not undo what we did before.",
+					"Complain: contact the data protection authority of your country. In Algeria this is the Autorité nationale de protection des données à caractère personnel (ANPDP); in the United Arab Emirates it is the UAE Data Office."
+				],
+				"after": [
+					"Write to {email} to use any of these rights. We answer within one month. We can ask you to confirm who you are first, so that nobody else can use your rights.",
+					"For buyer or lead data that we hold for a seller, send your request to that seller. We will help them answer it."
+				]
+			},
+			{
+				"id": "children",
+				"title": "14. Children",
+				"paragraphs": [
+					"Wandit is a business tool for adults. You must be at least 18 years old to create an account, and the service is not directed at children.",
+					"We do not knowingly collect personal data from children. If you believe that a child gave us data, write to {email} and we will delete it."
+				],
+				"bullets": [],
+				"after": []
+			},
+			{
+				"id": "changes",
+				"title": "15. Changes to this policy",
+				"paragraphs": [
+					"We update this policy when the service or the law changes. The date at the top of the page always shows the current version.",
+					"If a change matters to you, we will tell you by email or in the application before it takes effect. If you keep using Wandit after that date, the new policy applies."
+				],
+				"bullets": [],
+				"after": []
+			},
+			{
+				"id": "contact",
+				"title": "16. How to contact us",
+				"paragraphs": [
+					"Write to {email} with any question about this policy, about the data we hold, or to use your rights.",
+					"You can also reach us from the support link in the dashboard. We answer in English, French and Arabic.",
+					"{company}, {address}."
+				],
+				"bullets": [],
+				"after": []
+			}
+		]
+	},
+	"terms": {
+		"meta": {
+			"title": "Terms of Service — Wandit",
+			"description": "The rules for using Wandit: accounts, credits, domains, published pages, AI content, and what each side is responsible for."
+		},
+		"title": "Terms of Service",
+		"intro": [
+			"These terms are the agreement between you and {company} for the use of Wandit at {siteUrl}. Read them before you create an account. If you do not agree with them, do not use the service.",
+			"They are written in plain language, and they are still a contract. Our Privacy Policy explains how we handle personal data, and it forms part of these terms."
+		],
+		"sections": [
+			{
+				"id": "acceptance",
+				"title": "1. Acceptance of these terms",
+				"paragraphs": [
+					"You accept these terms when you create an account, when you buy credits or a plan, or when you use any part of Wandit.",
+					"If you accept on behalf of a company, you confirm that you can bind that company. The word you then means that company."
+				],
+				"bullets": [],
+				"after": []
+			},
+			{
+				"id": "eligibility",
+				"title": "2. Who can use Wandit",
+				"paragraphs": [
+					"You can use Wandit only if all of the conditions below are true."
+				],
+				"bullets": [
+					"You are at least 18 years old and you can enter a contract.",
+					"You use Wandit for a business or professional activity. It is not a consumer service.",
+					"No law that applies to you stops you from using the service, and you are not on a sanctions list.",
+					"The account information you give is true, and you keep it up to date."
+				],
+				"after": []
+			},
+			{
+				"id": "account",
+				"title": "3. Your account",
+				"paragraphs": [
+					"You sign in with Google, or with a link or a code sent to your email address. Keep control of that mailbox and of that Google account: whoever controls them controls your Wandit account.",
+					"You are responsible for everything that happens under your account. Write to {email} at once if you think somebody else has access to it.",
+					"One person holds one account. Do not share your sign-in details and do not resell access to the service."
+				],
+				"bullets": [],
+				"after": []
+			},
+			{
+				"id": "workspaces",
+				"title": "4. Workspaces and members",
+				"paragraphs": [
+					"Work in Wandit happens in a workspace. The person who creates a workspace owns it and can invite members.",
+					"The owner is responsible for what the members do in the workspace, including the credits they spend and the pages they publish.",
+					"Members can see the projects, the leads and the credit balance of the workspace. Invite only people you trust with that data, and remove a member as soon as the access is no longer needed."
+				],
+				"bullets": [],
+				"after": []
+			},
+			{
+				"id": "credits",
+				"title": "5. Credits and billing",
+				"paragraphs": [
+					"Wandit runs on credits. Each action that costs us money to run, such as generating a page, an image, a video or a marketing asset, or syncing and discovering leads, consumes credits from the balance of your workspace."
+				],
+				"bullets": [
+					"A new account receives a starter balance of free credits. Free credits have no cash value, and we can change or end the starter offer at any time.",
+					"The price of an action is shown before you run it. Your balance is shown in the dashboard and updates after each action.",
+					"You buy credit packs and plans through Stripe. The price is shown before you pay, and you authorise the charge when you confirm the payment.",
+					"A plan renews automatically for the period you chose until you cancel it. You can cancel at any time from the billing portal we open for you in the app, and the cancellation takes effect at the end of the period you already paid for.",
+					"Prices do not include taxes unless we say otherwise. You pay any tax, duty or bank fee that applies to you.",
+					"Credits are consumed when the action runs. Credits are not refundable, and unused credits cannot be exchanged for money, except where the law requires a refund.",
+					"If an action fails because of a fault on our side, write to {email} and we will restore the credits it consumed.",
+					"If a payment fails or is charged back, we can pause the workspace until the amount is settled.",
+					"If you join Wandit through a partner link, we can tell that partner that a sign-up or a purchase happened. We do not give the partner your personal details."
+				],
+				"after": [
+					"We can change our prices. A new plan price applies from your next renewal, and we will tell you before it takes effect."
+				]
+			},
+			{
+				"id": "domains",
+				"title": "6. Domains",
+				"paragraphs": [
+					"You can publish on a free wandit.app subdomain, connect a domain you already own, or buy a domain through Wandit."
+				],
+				"bullets": [
+					"A domain bought through Wandit is registered through our registrar partner. The terms of that registrar and the policies of ICANN also apply to you.",
+					"Domain purchases and renewals are final. We cannot refund them, because the registry charges us as soon as the domain is registered.",
+					"A domain that was just registered or just transferred cannot move to another registrar for 60 days. This is an ICANN rule, not ours.",
+					"Give correct registration details. False or incomplete details can make the registry suspend the domain.",
+					"Renewal is your responsibility. If a domain expires, the pages on it stop working and somebody else can take the domain.",
+					"You must have the right to use any domain you connect, and you must not register a domain that infringes the trade mark of another person."
+				],
+				"after": []
+			},
+			{
+				"id": "acceptable-use",
+				"title": "7. Acceptable use",
+				"paragraphs": [
+					"You are responsible for what you generate, publish and sell with Wandit. Do not use the service for any of the following."
+				],
+				"bullets": [
+					"Goods or services that are illegal where you or your buyers are, such as drugs, weapons, protected wildlife or stolen goods.",
+					"Counterfeit goods, pirated content, or anything that infringes the trade mark, copyright or design of another person.",
+					"Scams, fake shops, false discounts, fake reviews, fake countdowns, and any other claim made to mislead a buyer.",
+					"Medical, health or financial claims that you cannot prove, and any promise of a cure, of weight loss or of guaranteed income.",
+					"Cash-on-delivery fraud, such as sending items that do not match the offer, forcing payment for goods that were not ordered, or using the details of another person to place or accept orders.",
+					"Hate speech, harassment, threats, content that attacks people for who they are, and content that exploits or endangers children.",
+					"Adult content, gambling, and any other content that our payment or hosting providers forbid.",
+					"Malware, phishing, credential theft, and any attempt to break, overload or reverse engineer the service.",
+					"Spam and unsolicited messages to lead lists, and any use of lead data that breaks marketing or privacy law.",
+					"Automated scraping of Wandit, resale of the service, and use of the service to build a competing product.",
+					"Impersonation of a person, a brand or a public body."
+				],
+				"after": [
+					"We can review published pages and generated content when we have a reason to believe that these rules are broken. We can remove content, unpublish a page, or suspend an account without notice when the breach is serious."
+				]
+			},
+			{
+				"id": "your-content",
+				"title": "8. Your content",
+				"paragraphs": [
+					"You keep all rights in the prompts, text, images, files and brand material you bring to Wandit.",
+					"You give {company} a worldwide, non-exclusive, royalty-free licence to host, store, copy, adapt, process and display that content, only as far as we need it to run the service for you: to generate what you asked for, to publish your pages, to make backups, and to show your content back to you and to your workspace members. The licence ends when you delete the content, except for backups that expire on their normal schedule.",
+					"You confirm that you own your content, or that you have the rights you need for it, and that it breaks neither the law nor these terms."
+				],
+				"bullets": [],
+				"after": []
+			},
+			{
+				"id": "ai-content",
+				"title": "9. AI-generated content",
+				"paragraphs": [
+					"Wandit uses AI models to produce pages, text, images and videos from your instructions."
+				],
+				"bullets": [
+					"AI output can be wrong, out of date, biased or unsuitable. Check it before you publish it.",
+					"You are responsible for every page you publish and for every claim it makes, whoever or whatever wrote it.",
+					"The same prompt or a similar prompt can give a similar result to another user. We cannot promise that your output is unique, and we cannot promise that the law protects it.",
+					"Between you and {company}, you own the output you generate, as far as the law lets anyone own it. Our own rights in the service are not affected.",
+					"The AI providers we use apply their own rules. Content that breaks those rules can be refused, and a request can fail for reasons outside our control."
+				],
+				"after": []
+			},
+			{
+				"id": "published-sites",
+				"title": "10. Published pages, buyers and leads",
+				"paragraphs": [
+					"A page you publish is yours. To your buyers you are the seller, not {company}."
+				],
+				"bullets": [
+					"You are responsible for describing your products honestly, for delivery, for returns, for after-sales support, and for any consumer law that applies to your sale.",
+					"You are responsible for the personal data your buyers give you. Tell them who you are, why you collect their details, and how to reach you.",
+					"Do not collect payment card data, passwords or identity documents through a Wandit order form.",
+					"Wandit stores and shows your leads, and syncs them to your own Google Sheets when you ask. We do not contact your buyers for you, and we do not use their details for our own marketing."
+				],
+				"after": [
+					"We can remove a published page that breaks these terms, that receives a valid legal complaint, or that puts our infrastructure or other users at risk."
+				]
+			},
+			{
+				"id": "third-party",
+				"title": "11. Third-party services",
+				"paragraphs": [
+					"Wandit works with other services: Google for sign-in and for Google Sheets, Stripe for payments, a registrar for domains, the connectors you enable from the dashboard, and the providers listed in our Privacy Policy.",
+					"When you connect one of these services, you also accept its terms. We do not control them, and we are not responsible for their acts, their outages, or their decisions about the account you hold with them.",
+					"You can revoke a third-party connection at any time from that provider, or ask us at {email}. Some Wandit features then stop working."
+				],
+				"bullets": [],
+				"after": []
+			},
+			{
+				"id": "our-ip",
+				"title": "12. Our intellectual property",
+				"paragraphs": [
+					"The Wandit service, its software, its design, its templates and its brand belong to {company} and to its licensors. These terms give you the right to use the service, nothing more.",
+					"Do not copy, resell, decompile or make derivative works of the service, and do not remove our notices. Do not use our name or our logo without our written permission, except to say that you use Wandit."
+				],
+				"bullets": [],
+				"after": []
+			},
+			{
+				"id": "suspension",
+				"title": "13. Suspension, termination and deletion",
+				"paragraphs": [
+					"You can stop using Wandit at any time and ask us to delete your account by writing to {email}."
+				],
+				"bullets": [
+					"We can suspend or close an account that breaks these terms, that puts other users or the service at risk, or that is used for fraud. Where we can, we tell you first and give you a chance to correct the problem.",
+					"We can also stop offering the service, or a part of it, with reasonable notice.",
+					"When an account is closed, published pages stop working, syncs stop, and your content is deleted as described in the Privacy Policy. Export what you need before that.",
+					"Credits left in a closed account are lost, except where the law says otherwise."
+				],
+				"after": [
+					"The sections on content licences, acceptable use, disclaimers, liability, indemnity and governing law stay in force after the account ends."
+				]
+			},
+			{
+				"id": "disclaimers",
+				"title": "14. Disclaimers",
+				"paragraphs": [
+					"Wandit is provided as is and as available. As far as the law allows, we exclude all implied warranties, including any warranty of merchantability, of fitness for a particular purpose, and of non-infringement.",
+					"We do not promise that the service will be uninterrupted, free of errors or safe from every attack. We do not promise that AI output will be accurate or suitable. We do not promise that Wandit will bring you sales, traffic or income.",
+					"Some laws give you rights that cannot be excluded. Nothing here limits those rights."
+				],
+				"bullets": [],
+				"after": []
+			},
+			{
+				"id": "liability",
+				"title": "15. Limitation of liability",
+				"paragraphs": [
+					"As far as the law allows, {company} is not liable for indirect, incidental, special or consequential loss, nor for lost profit, lost revenue, lost sales, lost data, lost goodwill, or the cost of a replacement service.",
+					"As far as the law allows, our total liability for all claims connected with the service is limited to the amount you paid us for the service in the 12 months before the event that caused the claim.",
+					"Nothing in these terms excludes liability for fraud, for wilful misconduct, or for anything else that the law does not let us exclude."
+				],
+				"bullets": [],
+				"after": []
+			},
+			{
+				"id": "indemnity",
+				"title": "16. Indemnity",
+				"paragraphs": [
+					"You will defend {company}, its staff and its providers, and you will cover any claim, loss, damage, fine or reasonable legal cost that comes from your content, from the pages you publish, from the goods or services you sell, from the way you handle buyer data, or from a breach of these terms or of the law by you.",
+					"We will tell you about such a claim and let you control the defence, as long as you do not settle it in a way that puts an obligation on us without our agreement."
+				],
+				"bullets": [],
+				"after": []
+			},
+			{
+				"id": "changes",
+				"title": "17. Changes to these terms",
+				"paragraphs": [
+					"We can change these terms when the service, our providers or the law changes. The date at the top of the page shows the current version.",
+					"We will tell you by email or in the application before an important change takes effect. If you keep using Wandit after that date, you accept the new terms. If you do not accept them, stop using the service and close your account."
+				],
+				"bullets": [],
+				"after": []
+			},
+			{
+				"id": "governing-law",
+				"title": "18. Governing law and disputes",
+				"paragraphs": [
+					"The laws of the United Arab Emirates, as applied in the Emirate of Dubai, govern these terms, without regard to conflict-of-law rules.",
+					"Talk to us first. Write to {email} and we will try to solve the problem within 30 days. Most problems end there.",
+					"If we cannot agree, the courts of Dubai, United Arab Emirates have exclusive jurisdiction. If a mandatory law gives you the right to bring a claim in your own country, that right is not affected."
+				],
+				"bullets": [],
+				"after": []
+			},
+			{
+				"id": "general",
+				"title": "19. General",
+				"paragraphs": ["The points below apply to the whole agreement."],
+				"bullets": [
+					"If a court finds part of these terms invalid, the rest stays in force.",
+					"You cannot transfer these terms to another person without our written consent. We can transfer them to a successor of our business, and we will tell you when we do.",
+					"These terms and the Privacy Policy are the whole agreement between you and {company} for the service.",
+					"If we do not enforce a term at once, we can still enforce it later."
+				],
+				"after": []
+			},
+			{
+				"id": "contact",
+				"title": "20. Contact",
+				"paragraphs": [
+					"Write to {email} with any question about these terms.",
+					"{company}, {address}. Trade licence no. {licenceNo}, Dubai, United Arab Emirates. {siteUrl}."
+				],
+				"bullets": [],
+				"after": []
+			}
+		]
+	}
+}

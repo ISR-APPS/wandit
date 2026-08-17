@@ -62,7 +62,8 @@
 			"many": "{count} leads synchronisés",
 			"other": "{count} leads synchronisés"
 		},
-		"errorToast": "Échec de la synchronisation Google Sheets. Réessaie."
+		"errorToast": "Échec de la synchronisation Google Sheets. Réessaie.",
+		"comingSoon": "Synchronisation Google Sheets — bientôt disponible"
 	},
 	"codPilotSync": {
 		"sync": "Synchroniser COD Pilot",

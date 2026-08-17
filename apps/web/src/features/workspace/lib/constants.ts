@@ -60,6 +60,15 @@ export const CHAT_OPEN_STORAGE_KEY = "wandit-workspace-chat-open";
 /** react-resizable-panels autoSaveId — persists chat/main split width. */
 export const WORKSPACE_PANELS_STORAGE_ID = "wandit-workspace-panels";
 
+/**
+ * Google Sheets sync stays behind this flag until the Google OAuth consent
+ * screen / app verification is approved — until then the consent screen scares
+ * merchants off with an "unverified app" warning, so the Leads header shows a
+ * disabled "coming soon" control instead. Flip to true to restore the live
+ * flow; the whole implementation is still in sheet-sync-button.tsx.
+ */
+export const SHEET_SYNC_ENABLED = false;
+
 /** Debounce before the slug-availability endpoint is asked about a draft. */
 export const SLUG_CHECK_DEBOUNCE_MS = 500;
 

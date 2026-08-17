@@ -24,6 +24,7 @@ import {
 } from "react";
 
 import { Logo } from "@/components/logo";
+import { LegalConsentSentence } from "@/features/legal/components/legal-consent-sentence";
 import { usePublicSettingsQuery } from "@/features/settings/api/settings.queries";
 import {
 	buildAuthCallbackUrls,
@@ -376,7 +377,15 @@ function AuthModalDialog({
 					</div>
 
 					<p className="mt-6 text-center text-muted-foreground/80 text-xs leading-relaxed">
-						{t("auth.terms")}
+						{/* This dialog is mounted at the app root, so a consent link
+						    would change the route under a modal that stays open on
+						    top of the document — close it on the way out. */}
+						<LegalConsentSentence
+							template={t("auth.terms")}
+							termsLabel={t("auth.termsLink")}
+							privacyLabel={t("auth.privacyLink")}
+							onNavigate={() => onOpenChange(false)}
+						/>
 					</p>
 				</div>
 			</DialogContent>
