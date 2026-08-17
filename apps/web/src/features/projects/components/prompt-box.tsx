@@ -1704,6 +1704,7 @@ function OutputSettings({
 						<div className="grid grid-cols-2 gap-2">
 							{QUALITY_TIERS.map((tier) => {
 								const tierCopy = pb.quality[tier.id];
+								const tierCost = QUALITY_CREDITS[tier.id];
 								const selected = quality === tier.id;
 								return (
 									<button
@@ -1718,12 +1719,14 @@ function OutputSettings({
 										)}
 									>
 										<span className="block font-medium">{tierCopy.label}</span>
-										<PriceTag
-											cost={QUALITY_CREDITS[tier.id]}
-											withIcon
-											showUnit={false}
-											className="mt-1 justify-center text-[11px]"
-										/>
+										{tierCost !== null ? (
+											<PriceTag
+												cost={tierCost}
+												withIcon
+												showUnit={false}
+												className="mt-1 justify-center text-[11px]"
+											/>
+										) : null}
 									</button>
 								);
 							})}

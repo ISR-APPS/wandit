@@ -1,8 +1,11 @@
 import { Inject, Injectable } from "@nestjs/common";
 import {
+	type AdminListPublicationsQuery,
 	type AdminListUsersQuery,
 	type AdminUserPagesQuery,
+	adminPublicationStatuses,
 	adminUserPlans,
+	adminUserPublicationStates,
 	adminUserRoles,
 	adminUserStatuses,
 	adminUserVerificationStatuses,
@@ -105,6 +108,25 @@ export type AdminUserPageRow = {
 	latestDeploymentStatus: (typeof deployments.status)["_"]["data"] | null;
 	primaryDomainName: string | null;
 	primaryDomainStatus: (typeof domains.status)["_"]["data"] | null;
+};
+
+export type AdminPublicationRow = {
+	deploymentId: string;
+	// WHERE-restricted to the publication statuses; the wider column type keeps
+	// the drizzle select assignable.
+	status: (typeof deployments.status)["_"]["data"];
+	slug: string;
+	deploymentCreatedAt: Date;
+	projectId: string;
+	projectName: string;
+	organizationId: string | null;
+	userId: string;
+	userName: string;
+	userEmail: string;
+	userImage: string | null;
+	// Lateral already restricts to the primary ACTIVE domain, so the name alone
+	// tells the mapper whether a live custom-domain URL exists.
+	primaryDomainName: string | null;
 };
 
 export type AdminProjectDetailRow = {
@@ -337,6 +359,78 @@ export class AdminRepository {
 			.leftJoinLateral(primaryDomain, sql`true`)
 			.where(where)
 			.orderBy(...this.buildUserPagesOrderBy(query.sort))
+			.limit(query.pageSize)
+			.offset(offset);
+
+		return { countQuery, listQuery };
+	}
+
+	async listPublications(
+		query: AdminListPublicationsQuery,
+	): Promise<PaginatedResult<AdminPublicationRow>> {
+		const { countQuery, listQuery } = this.buildListPublicationsQueries(query);
+		const [totalRow] = await countQuery;
+		const items: AdminPublicationRow[] = await listQuery;
+
+		return {
+			items,
+			page: query.page,
+			pageSize: query.pageSize,
+			total: totalRow?.total ?? 0,
+		};
+	}
+
+	// Platform-wide publish log: every deployment that went live at some point
+	// (active/superseded/unpublished) — pending and failed attempts never did.
+	// Soft-deleted projects stay IN the log: deleting a project does not
+	// unpublish its site, so the log must keep naming the owner of a slug that
+	// is still serving.
+	private buildListPublicationsQueries(query: AdminListPublicationsQuery) {
+		const where = inArray(deployments.status, [...adminPublicationStatuses]);
+		const offset = (query.page - 1) * query.pageSize;
+
+		// No projects join needed for counting: deployments.project_id and
+		// projects.user_id are NOT NULL FKs, so the list query's inner joins
+		// can never drop a row and both queries agree on the total.
+		const countQuery = this.db
+			.select({ total: sql<number>`count(*)::int` })
+			.from(deployments)
+			.where(where);
+
+		const primaryDomain = this.db
+			.select({ name: domains.name })
+			.from(domains)
+			.where(
+				and(
+					eq(domains.projectId, projects.id),
+					eq(domains.isPrimary, true),
+					eq(domains.status, "active"),
+				),
+			)
+			.limit(1)
+			.as("primary_domain");
+
+		const listQuery = this.db
+			.select({
+				deploymentId: deployments.id,
+				status: deployments.status,
+				slug: deployments.slug,
+				deploymentCreatedAt: deployments.createdAt,
+				projectId: projects.id,
+				projectName: projects.name,
+				organizationId: projects.organizationId,
+				userId: user.id,
+				userName: user.name,
+				userEmail: user.email,
+				userImage: user.image,
+				primaryDomainName: primaryDomain.name,
+			})
+			.from(deployments)
+			.innerJoin(projects, eq(projects.id, deployments.projectId))
+			.innerJoin(user, eq(user.id, projects.userId))
+			.leftJoinLateral(primaryDomain, sql`true`)
+			.where(where)
+			.orderBy(desc(deployments.createdAt), desc(deployments.id))
 			.limit(query.pageSize)
 			.offset(offset);
 
@@ -696,6 +790,51 @@ export class AdminRepository {
 					? sql`${user.emailVerified} is true`
 					: sql`${user.emailVerified} is not true`,
 			);
+		}
+
+		if (
+			query.published &&
+			query.published.length < adminUserPublicationStates.length
+		) {
+			// A user is "published" when a non-deleted owned project has the live
+			// deployment; the custom-domain tier additionally needs an active
+			// domain attached to such a project. The domain can sit on an org
+			// project created by a teammate (domains.user_id is the attacher, not
+			// the project creator), so "unpublished" must exclude BOTH fragments
+			// to keep the three states mutually exclusive.
+			const liveDeployment = sql`select 1
+				from "projects"
+				inner join "deployments" on "deployments"."project_id" = "projects"."id"
+				where "projects"."user_id" = ${sql.raw('"user"."id"')}
+					and "projects"."deleted_at" is null
+					and "deployments"."status" = 'active'`;
+			const liveCustomDomain = sql`select 1
+				from "domains"
+				inner join "projects" on "projects"."id" = "domains"."project_id"
+				inner join "deployments" on "deployments"."project_id" = "projects"."id"
+				where "domains"."user_id" = ${sql.raw('"user"."id"')}
+					and "domains"."status" = 'active'
+					and "projects"."deleted_at" is null
+					and "deployments"."status" = 'active'`;
+			const publishedFilters: SQL[] = [];
+
+			if (query.published.includes("unpublished")) {
+				publishedFilters.push(
+					sql`(not exists (${liveDeployment}) and not exists (${liveCustomDomain}))`,
+				);
+			}
+
+			if (query.published.includes("subdomain")) {
+				publishedFilters.push(
+					sql`(exists (${liveDeployment}) and not exists (${liveCustomDomain}))`,
+				);
+			}
+
+			if (query.published.includes("custom_domain")) {
+				publishedFilters.push(sql`exists (${liveCustomDomain})`);
+			}
+
+			filters.push(or(...publishedFilters));
 		}
 
 		// Query bounds arrive in decimal credits; the ledger sums are integer

@@ -48,6 +48,8 @@ export const deployments = pgTable(
 	},
 	(table) => [
 		index("deployments_projectId_idx").on(table.projectId),
+		// The admin publish log orders the whole table by created_at desc.
+		index("deployments_created_at_idx").on(table.createdAt),
 		// Global slug uniqueness among LIVE sites only — a slug frees up on
 		// unpublish, and history rows never block it.
 		uniqueIndex("deployments_active_slug_uq")

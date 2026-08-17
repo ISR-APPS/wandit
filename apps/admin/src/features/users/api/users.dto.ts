@@ -51,6 +51,7 @@ export type UserPlanFilter = NonNullable<AdminListUsersQuery["plan"]>;
 export type UserRoleFilter = NonNullable<AdminListUsersQuery["role"]>;
 export type UserStatusFilter = NonNullable<AdminListUsersQuery["status"]>;
 export type UserVerifiedFilter = NonNullable<AdminListUsersQuery["verified"]>;
+export type UserPublishedFilter = NonNullable<AdminListUsersQuery["published"]>;
 
 /**
  * Inclusive net-credits-consumed range the toolbar filter edits as one unit.
@@ -85,6 +86,7 @@ export type ListUsersParams = {
 	role?: UserRoleFilter;
 	status?: UserStatusFilter;
 	verified?: UserVerifiedFilter;
+	published?: UserPublishedFilter;
 	// Decimal credits (the server stores centi-credits and scales ×100).
 	creditsUsedMin?: number;
 	creditsUsedMax?: number;

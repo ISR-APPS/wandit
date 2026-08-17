@@ -15,6 +15,7 @@ import type {
 	AdminListUsersSort,
 	UserCreditsUsedRange,
 	UserPlanFilter,
+	UserPublishedFilter,
 	UserRoleFilter,
 	UserStatusFilter,
 	UserVerifiedFilter,
@@ -35,6 +36,7 @@ function UsersPage() {
 	const [role, setRole] = useState<UserRoleFilter>();
 	const [status, setStatus] = useState<UserStatusFilter>();
 	const [verified, setVerified] = useState<UserVerifiedFilter>();
+	const [published, setPublished] = useState<UserPublishedFilter>();
 	const [creditsUsed, setCreditsUsed] = useState<UserCreditsUsedRange>();
 	const [searchValue, setSearchValue] = useState("");
 	const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -60,6 +62,7 @@ function UsersPage() {
 		role,
 		status,
 		verified,
+		published,
 		creditsUsed,
 	]);
 
@@ -72,6 +75,7 @@ function UsersPage() {
 		role,
 		status,
 		verified,
+		published,
 		creditsUsedMin: creditsUsed?.min,
 		creditsUsedMax: creditsUsed?.max,
 	});
@@ -82,6 +86,7 @@ function UsersPage() {
 			role?.length ||
 			status?.length ||
 			verified?.length ||
+			published?.length ||
 			creditsUsed,
 	);
 	const isEmptyDirectory =
@@ -96,6 +101,7 @@ function UsersPage() {
 		setRole(undefined);
 		setStatus(undefined);
 		setVerified(undefined);
+		setPublished(undefined);
 		setCreditsUsed(undefined);
 	};
 	const handleExport = async () => {
@@ -112,6 +118,7 @@ function UsersPage() {
 				role,
 				status,
 				verified,
+				published,
 				creditsUsedMin: creditsUsed?.min,
 				creditsUsedMax: creditsUsed?.max,
 			});
@@ -203,6 +210,7 @@ function UsersPage() {
 					role={role}
 					status={status}
 					verified={verified}
+					published={published}
 					creditsUsed={creditsUsed}
 					searchValue={searchValue}
 					isFetching={usersQuery.isFetching}
@@ -213,6 +221,7 @@ function UsersPage() {
 					onRoleChange={setRole}
 					onStatusChange={setStatus}
 					onVerifiedChange={setVerified}
+					onPublishedChange={setPublished}
 					onCreditsUsedChange={setCreditsUsed}
 					onClearAllFilters={clearAllFilters}
 					onExport={() => void handleExport()}
