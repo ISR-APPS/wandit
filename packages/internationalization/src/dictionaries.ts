@@ -6,6 +6,7 @@ import enCredits from "../dictionaries/en/credits.json";
 import enErrors from "../dictionaries/en/errors.json";
 import enLanding from "../dictionaries/en/landing.json";
 import enLeads from "../dictionaries/en/leads.json";
+import enLegal from "../dictionaries/en/legal.json";
 import enNative from "../dictionaries/en/native.json";
 import enOnboarding from "../dictionaries/en/onboarding.json";
 import enProjects from "../dictionaries/en/projects.json";
@@ -25,6 +26,7 @@ const en = {
 	workspace: enWorkspace,
 	workspaces: enWorkspaces,
 	leads: enLeads,
+	legal: enLegal,
 	settings: enSettings,
 	errors: enErrors,
 	native: enNative,
@@ -97,6 +99,7 @@ async function loadFrenchDictionary(): Promise<Dictionary> {
 		workspace,
 		workspaces,
 		leads,
+		legal,
 		settings,
 		errors,
 		native,
@@ -112,6 +115,7 @@ async function loadFrenchDictionary(): Promise<Dictionary> {
 		import("../dictionaries/fr/workspace.json"),
 		import("../dictionaries/fr/workspaces.json"),
 		import("../dictionaries/fr/leads.json"),
+		import("../dictionaries/fr/legal.json"),
 		import("../dictionaries/fr/settings.json"),
 		import("../dictionaries/fr/errors.json"),
 		import("../dictionaries/fr/native.json"),
@@ -129,6 +133,7 @@ async function loadFrenchDictionary(): Promise<Dictionary> {
 		workspace: workspace.default,
 		workspaces: workspaces.default,
 		leads: leads.default,
+		legal: legal.default,
 		settings: settings.default,
 		errors: errors.default,
 		native: native.default,
@@ -148,6 +153,7 @@ async function loadArabicDictionary(): Promise<Dictionary> {
 		workspace,
 		workspaces,
 		leads,
+		legal,
 		settings,
 		errors,
 		native,
@@ -163,6 +169,7 @@ async function loadArabicDictionary(): Promise<Dictionary> {
 		import("../dictionaries/ar/workspace.json"),
 		import("../dictionaries/ar/workspaces.json"),
 		import("../dictionaries/ar/leads.json"),
+		import("../dictionaries/ar/legal.json"),
 		import("../dictionaries/ar/settings.json"),
 		import("../dictionaries/ar/errors.json"),
 		import("../dictionaries/ar/native.json"),
@@ -180,6 +187,7 @@ async function loadArabicDictionary(): Promise<Dictionary> {
 		workspace: workspace.default,
 		workspaces: workspaces.default,
 		leads: leads.default,
+		legal: legal.default,
 		settings: settings.default,
 		errors: errors.default,
 		native: native.default,
