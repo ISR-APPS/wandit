@@ -190,6 +190,42 @@ export type AdminAnalyticsArpuByPlan = z.infer<
 	typeof adminAnalyticsArpuByPlanSchema
 >;
 
+// Margin after AI, per plan — measured numbers only ("option 2"): collected
+// subscription cash minus the metered AI-provider cost of that plan's owners.
+// Shared infrastructure bills are deliberately NOT allocated here (they stay
+// in the blended unitEconomics gross margin). "free" is not a billing plan:
+// it is every owner without a live subscription — zero revenue, real AI cost.
+// Owners are attributed to their CURRENT plan (subscriptions store no
+// history); an owner holding both plans counts as business.
+export const adminAnalyticsMarginAfterAiPlans = [
+	"pro",
+	"business",
+	"free",
+] as const;
+
+export const adminAnalyticsMarginAfterAiPlanSchema = z.enum(
+	adminAnalyticsMarginAfterAiPlans,
+);
+
+export type AdminAnalyticsMarginAfterAiPlan = z.infer<
+	typeof adminAnalyticsMarginAfterAiPlanSchema
+>;
+
+export const adminAnalyticsMarginAfterAiRowSchema = z.object({
+	plan: adminAnalyticsMarginAfterAiPlanSchema,
+	// Collected subscription cash in range (USD cents); always 0 for "free".
+	revenueCents: z.int().nonnegative(),
+	// Metered AI-provider cost of this plan's owners in range (USD cents).
+	aiCostCents: z.int().nonnegative(),
+	marginCents: z.int(),
+	// null when the plan collected no revenue in range (free always).
+	marginPct: z.number().nullable(),
+});
+
+export type AdminAnalyticsMarginAfterAiRow = z.infer<
+	typeof adminAnalyticsMarginAfterAiRowSchema
+>;
+
 export const adminAnalyticsFeatureKeys = [
 	"websites",
 	"landingPages",
@@ -329,6 +365,8 @@ export const adminAnalyticsRevenueResponseSchema = z.object({
 	retention: adminAnalyticsRetentionSchema,
 	churnBreakdown: adminAnalyticsChurnBreakdownSchema,
 	unitEconomics: adminAnalyticsUnitEconomicsSchema,
+	// Fixed order: pro, business, free.
+	marginAfterAi: z.array(adminAnalyticsMarginAfterAiRowSchema),
 });
 
 export type AdminAnalyticsRevenueResponse = z.infer<

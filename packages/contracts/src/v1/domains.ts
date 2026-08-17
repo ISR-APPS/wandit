@@ -280,7 +280,7 @@ export const domainPriceSnapshotSchema = z.object({
 export type DomainPriceSnapshot = z.infer<typeof domainPriceSnapshotSchema>;
 
 export const requiredDomainRecordSchema = z.object({
-	type: z.enum(["A", "AAAA", "CNAME", "TXT"]),
+	type: z.enum(["A", "AAAA", "CNAME", "NS", "TXT"]),
 	name: z.string().min(1),
 	value: z.string().min(1),
 	purpose: z.string().min(1),
@@ -290,6 +290,15 @@ export type RequiredDomainRecord = z.infer<typeof requiredDomainRecordSchema>;
 
 export const domainDnsSchema = z
 	.object({
+		// Purchased-domain apex state (server-side only; mapDomain never exposes
+		// it): the Cloudflare zone that now hosts the domain's DNS in our
+		// account, the bare-name custom hostname, the durable "apex done"
+		// marker, and the last apex error.
+		apexConfigured: z.boolean().optional(),
+		apexCustomHostnameId: z.string().optional(),
+		apexCustomHostnameNudged: z.boolean().optional(),
+		apexCustomHostnameStatus: z.string().optional(),
+		apexError: z.string().optional(),
 		externalVerification: z
 			.object({
 				attempts: z.int().nonnegative(),
@@ -297,6 +306,16 @@ export const domainDnsSchema = z
 			})
 			.optional(),
 		records: z.array(requiredDomainRecordSchema).optional(),
+		zoneActive: z.boolean().optional(),
+		// True only when the pipeline created the zone itself (an adopted
+		// zone is never deleted by cleanup).
+		zoneCreated: z.boolean().optional(),
+		// Written right BEFORE the registrar nameserver call: from then on the
+		// registry may delegate to the zone, so cleanup never deletes it.
+		zoneDelegated: z.boolean().optional(),
+		zoneId: z.string().optional(),
+		zoneNameServers: z.array(z.string()).optional(),
+		zoneStatus: z.string().optional(),
 	})
 	.passthrough();
 

@@ -6,7 +6,7 @@
  */
 
 import { Link } from "@tanstack/react-router";
-import type { WorkspaceSummary } from "@wandit/contracts";
+import { PERSONAL_WORKSPACE, type WorkspaceSummary } from "@wandit/contracts";
 import {
 	Avatar,
 	AvatarFallback,
@@ -24,6 +24,8 @@ import { cn } from "@wandit/ui/lib/utils";
 import { Check, ChevronsUpDown, Gauge, Plus, User, Users } from "lucide-react";
 import { useState } from "react";
 import { useSession } from "@/features/auth";
+import { useWorkspaceCreditBalancesQuery } from "@/features/credits/api/credits.queries";
+import { formatCreditBalance } from "@/features/credits/lib/format-credits";
 import { usePublicSettingsQuery } from "@/features/settings/api/settings.queries";
 import { CreateWorkspaceDialog } from "@/features/workspaces/components/create-workspace-dialog";
 import { useWorkspace } from "@/features/workspaces/lib/workspace-provider";
@@ -36,6 +38,18 @@ function workspaceInitials(name: string): string {
 		.slice(0, 2)
 		.map((word) => word[0]?.toUpperCase() ?? "")
 		.join("");
+}
+
+function SettledBalanceValue({ value }: { value: string | null }) {
+	if (value === null) {
+		return null;
+	}
+
+	return (
+		<span className="shrink-0 font-mono text-muted-foreground text-xs tabular-nums">
+			{value}
+		</span>
+	);
 }
 
 function roleLabelKey(
@@ -56,10 +70,13 @@ function roleLabelKey(
 }
 
 export function WorkspaceSwitcher({ className }: { className?: string }) {
-	const { t } = useTranslation();
+	const { locale, t } = useTranslation();
 	const [createOpen, setCreateOpen] = useState(false);
 	const { data: session } = useSession();
 	const settingsQuery = usePublicSettingsQuery();
+	const balancesQuery = useWorkspaceCreditBalancesQuery({
+		enabled: Boolean(session),
+	});
 	const {
 		activeWorkspace,
 		activeWorkspaceId,
@@ -67,6 +84,17 @@ export function WorkspaceSwitcher({ className }: { className?: string }) {
 		switchWorkspace,
 		workspaces,
 	} = useWorkspace();
+
+	// Each entry's settled credit pool, right-aligned and muted. Settled
+	// balances (holds added back) so a running generation never bounces the
+	// number mid-dropdown.
+	const settledBalanceFor = (workspaceId: string): string | null => {
+		const item = balancesQuery.data?.items.find(
+			(entry) => entry.workspaceId === workspaceId,
+		);
+
+		return item ? formatCreditBalance(item.settledBalance, locale) : null;
+	};
 
 	// Ships dark: without the kill switch (or memberships) the switcher
 	// renders nothing and the app looks exactly like pre-teams.
@@ -132,6 +160,7 @@ export function WorkspaceSwitcher({ className }: { className?: string }) {
 							{t("workspaces.switcher.personalDescription")}
 						</span>
 					</span>
+					<SettledBalanceValue value={settledBalanceFor(PERSONAL_WORKSPACE)} />
 					{isPersonal ? <Check className="size-4 shrink-0" /> : null}
 				</DropdownMenuItem>
 				{workspaces.length > 0 ? <DropdownMenuSeparator /> : null}
@@ -153,6 +182,7 @@ export function WorkspaceSwitcher({ className }: { className?: string }) {
 								{t(roleLabelKey(entry))}
 							</span>
 						</span>
+						<SettledBalanceValue value={settledBalanceFor(entry.id)} />
 						{activeWorkspaceId === entry.id ? (
 							<Check className="size-4 shrink-0" />
 						) : null}

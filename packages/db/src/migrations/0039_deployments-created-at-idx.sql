@@ -1,0 +1,1 @@
+CREATE INDEX "deployments_created_at_idx" ON "deployments" USING btree ("created_at");

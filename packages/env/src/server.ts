@@ -205,6 +205,16 @@ export const env = createEnv({
 		CLOUDFLARE_API_TOKEN: z.string().min(1).optional(),
 		CLOUDFLARE_KV_NAMESPACE_ID: z.string().min(1).optional(),
 		CLOUDFLARE_ZONE_ID_WANDIT_APP: z.string().min(1).optional(),
+		// Account that hosts the per-domain Cloudflare zones created for the
+		// apex of purchased domains (POST /zones needs it). Unset means the apex
+		// zone step records an error and the domain stays www-only.
+		CLOUDFLARE_ACCOUNT_ID: z.string().min(1).optional(),
+		// Kill switch for the purchased-domain apex zone step. "false" restores
+		// the previous behavior exactly: Name.com URL forwarding for the apex.
+		DOMAINS_APEX_ZONE_ENABLED: z
+			.enum(["true", "false"])
+			.default("true")
+			.transform((value) => value === "true"),
 		// Local API-only escape hatch. Hosted publishing must keep this false so
 		// a missing edge-routing pointer cannot be reported as live.
 		ALLOW_PUBLISH_WITHOUT_KV: z

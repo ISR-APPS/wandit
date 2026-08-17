@@ -35,6 +35,7 @@ import type {
 	AdminUserSummary,
 	UserCreditsUsedRange,
 	UserPlanFilter,
+	UserPublishedFilter,
 	UserRoleFilter,
 	UserStatusFilter,
 	UserVerifiedFilter,
@@ -55,6 +56,7 @@ type UsersDataTableProps = {
 	role?: UserRoleFilter;
 	status?: UserStatusFilter;
 	verified?: UserVerifiedFilter;
+	published?: UserPublishedFilter;
 	creditsUsed?: UserCreditsUsedRange;
 	searchValue: string;
 	isFetching?: boolean;
@@ -65,6 +67,7 @@ type UsersDataTableProps = {
 	onRoleChange: (role: UserRoleFilter | undefined) => void;
 	onStatusChange: (status: UserStatusFilter | undefined) => void;
 	onVerifiedChange: (verified: UserVerifiedFilter | undefined) => void;
+	onPublishedChange: (published: UserPublishedFilter | undefined) => void;
 	onCreditsUsedChange: (creditsUsed: UserCreditsUsedRange | undefined) => void;
 	onClearAllFilters: () => void;
 	onExport: () => void;
@@ -82,6 +85,7 @@ function UsersDataTable({
 	role,
 	status,
 	verified,
+	published,
 	creditsUsed,
 	searchValue,
 	isFetching = false,
@@ -92,6 +96,7 @@ function UsersDataTable({
 	onRoleChange,
 	onStatusChange,
 	onVerifiedChange,
+	onPublishedChange,
 	onCreditsUsedChange,
 	onClearAllFilters,
 	onExport,
@@ -147,6 +152,7 @@ function UsersDataTable({
 				role?.length ||
 				status?.length ||
 				verified?.length ||
+				published?.length ||
 				creditsUsed,
 		);
 
@@ -161,6 +167,7 @@ function UsersDataTable({
 					role={role}
 					status={status}
 					verified={verified}
+					published={published}
 					creditsUsed={creditsUsed}
 					isExporting={isExporting}
 					onSearchChange={onSearchChange}
@@ -169,6 +176,7 @@ function UsersDataTable({
 					onRoleChange={onRoleChange}
 					onStatusChange={onStatusChange}
 					onVerifiedChange={onVerifiedChange}
+					onPublishedChange={onPublishedChange}
 					onCreditsUsedChange={onCreditsUsedChange}
 					onClearAllFilters={onClearAllFilters}
 					onExport={onExport}

@@ -1,13 +1,16 @@
 import { Link } from "@tanstack/react-router";
+import { PERSONAL_WORKSPACE } from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
+	DropdownMenuItem,
 	DropdownMenuSeparator,
 	DropdownMenuTrigger,
 } from "@wandit/ui/components/dropdown-menu";
 import { Skeleton } from "@wandit/ui/components/skeleton";
 import { cn } from "@wandit/ui/lib/utils";
+import { ArrowRightLeft } from "lucide-react";
 import { useBillingPlansQuery } from "@/features/billing/api/billing.queries";
 import { useBillingModal } from "@/features/billing/components/billing-modal-provider";
 import { areTopupsAvailable } from "@/features/billing/lib/billing-ui-policy";
@@ -17,16 +20,25 @@ import { useTranslation } from "@/lib/i18n";
 import {
 	useCreditBalanceQuery,
 	useCreditLedgerQuery,
+	useWorkspaceCreditBalancesQuery,
 } from "../api/credits.queries";
+import { findCreditsElsewhere } from "../lib/credits-elsewhere";
 import { formatCreditBalance } from "../lib/format-credits";
 import { LedgerList } from "./ledger-list";
 
 export function CreditsChip({ className }: { className?: string }) {
 	const { locale, t } = useTranslation();
-	const { activeWorkspace, actorCanManageBilling, isPersonal } = useWorkspace();
+	const {
+		activeWorkspace,
+		activeWorkspaceId,
+		actorCanManageBilling,
+		isPersonal,
+		switchWorkspace,
+	} = useWorkspace();
 	const { openPlanPicker } = useBillingModal();
 	const balanceQuery = useCreditBalanceQuery();
 	const ledgerQuery = useCreditLedgerQuery({ page: 1, pageSize: 3 });
+	const balancesQuery = useWorkspaceCreditBalancesQuery();
 	const settingsQuery = usePublicSettingsQuery();
 	const plansQuery = useBillingPlansQuery();
 	const balance = balanceQuery.data;
@@ -34,30 +46,79 @@ export function CreditsChip({ className }: { className?: string }) {
 		settingsQuery.data?.topupsEnabled,
 		plansQuery.data?.topupPacks.length,
 	);
+	// Credits-elsewhere hint: the drained active pool has a sibling workspace
+	// with settled credits — tint the chip and offer a switch in the dropdown.
+	const elsewhere = findCreditsElsewhere(
+		activeWorkspaceId,
+		balancesQuery.data?.items,
+	);
+	const elsewhereName = elsewhere
+		? elsewhere.workspaceId === PERSONAL_WORKSPACE
+			? t("workspaces.switcher.personal")
+			: (elsewhere.name ?? "")
+		: null;
+	// Scope label inside the chip ("69.9 credits · Personal"): the balance is
+	// per-workspace, and users in a drained org read the bare number as "I have
+	// no credits at all" — naming the workspace right where they look fixes it.
+	const workspaceLabel = isPersonal
+		? t("workspaces.switcher.personal")
+		: (activeWorkspace?.name ?? "");
 
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
 				<button
 					type="button"
-					aria-label={t("credits.chipAriaLabel")}
+					aria-label={
+						workspaceLabel
+							? `${t("credits.chipAriaLabel")} · ${workspaceLabel}`
+							: t("credits.chipAriaLabel")
+					}
+					title={workspaceLabel || undefined}
 					aria-busy={balanceQuery.isPending}
 					className={cn(
-						"inline-flex h-8 items-center rounded-full border border-primary/35 bg-transparent px-3 transition-[border-color,transform] hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 active:scale-[0.98]",
+						"inline-flex h-8 items-center gap-1.5 rounded-full border border-primary/35 bg-transparent px-3 transition-[border-color,transform] hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 active:scale-[0.98]",
+						elsewhere && "border-success/45 hover:border-success/70",
 						className,
 					)}
 				>
 					{balanceQuery.isPending ? (
 						<Skeleton className="h-3 w-16" />
 					) : (
-						<span className="text-[13px] text-ember-text">
-							{balance
-								? t("credits.creditUnit", {
-										count: balance.balance,
-										countDisplay: formatCreditBalance(balance.balance, locale),
-									})
-								: t("credits.balanceUnavailableShort")}
-						</span>
+						<>
+							{elsewhere ? (
+								<span
+									aria-hidden
+									className="size-1.5 shrink-0 rounded-full bg-success"
+								/>
+							) : null}
+							<span className="text-[13px] text-ember-text">
+								{balance
+									? t("credits.creditUnit", {
+											count: balance.settledBalance,
+											countDisplay: formatCreditBalance(
+												balance.settledBalance,
+												locale,
+											),
+										})
+									: t("credits.balanceUnavailableShort")}
+							</span>
+							{workspaceLabel ? (
+								// Hidden on phones like the header's other secondary texts
+								// (the workspace header row cannot wrap or scroll).
+								<>
+									<span
+										aria-hidden
+										className="hidden text-[13px] text-border sm:inline"
+									>
+										·
+									</span>
+									<span className="hidden max-w-24 truncate text-[13px] text-muted-foreground sm:inline">
+										{workspaceLabel}
+									</span>
+								</>
+							) : null}
+						</>
 					)}
 				</button>
 			</DropdownMenuTrigger>
@@ -75,7 +136,7 @@ export function CreditsChip({ className }: { className?: string }) {
 					) : balance ? (
 						<>
 							<p className="mt-1 font-medium font-mono text-2xl tabular-nums">
-								{formatCreditBalance(balance.balance, locale)}
+								{formatCreditBalance(balance.settledBalance, locale)}
 							</p>
 							<dl className="mt-3 grid grid-cols-3 gap-2 border-t pt-3">
 								<BalanceBucket
@@ -98,6 +159,30 @@ export function CreditsChip({ className }: { className?: string }) {
 						</p>
 					)}
 				</div>
+				{elsewhere ? (
+					<>
+						<DropdownMenuSeparator />
+						<div className="p-2">
+							<DropdownMenuItem
+								onSelect={() => switchWorkspace(elsewhere.workspaceId)}
+								className="gap-2"
+							>
+								<ArrowRightLeft
+									className="size-4 shrink-0 text-success"
+									aria-hidden
+								/>
+								<span className="min-w-0 flex-1 text-sm">
+									{t("credits.elsewhere.chipHint", {
+										name: elsewhereName ?? "",
+									})}
+								</span>
+								<span className="shrink-0 font-medium text-success text-xs">
+									{t("credits.elsewhere.switch")}
+								</span>
+							</DropdownMenuItem>
+						</div>
+					</>
+				) : null}
 				<DropdownMenuSeparator />
 				<div className="px-2 py-2">
 					<p className="px-2 pb-1 text-[10px] text-muted-foreground uppercase tracking-widest">

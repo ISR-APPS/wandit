@@ -65,6 +65,10 @@ const REVENUE_SNAPSHOT = {
 		domainCostCents: 800,
 		domainCostUnknownOrders: 0,
 	},
+	marginAfterAi: [
+		{ plan: "pro", revenueCents: 2_500, aiCostCents: 400 },
+		{ plan: "free", revenueCents: 0, aiCostCents: 150 },
+	],
 	newPaidByDay: [{ date: "2026-08-13", count: 2 }],
 	daysToConvert: [
 		{ days: 0, count: 1 },

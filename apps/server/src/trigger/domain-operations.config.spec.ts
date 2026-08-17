@@ -65,6 +65,7 @@ describe("domain operation task configuration", () => {
 		);
 
 		expect(assertDomainPurchaseConfiguration()).toEqual({
+			apexZoneEnabled: true,
 			cloudflareApiToken: VALID_CONFIGURATION.CLOUDFLARE_API_TOKEN,
 			cloudflareKvNamespaceId: VALID_CONFIGURATION.CLOUDFLARE_KV_NAMESPACE_ID,
 			cloudflareZoneId: VALID_CONFIGURATION.CLOUDFLARE_ZONE_ID_WANDIT_APP,
@@ -88,6 +89,19 @@ describe("domain operation task configuration", () => {
 		expect(assertDomainPurchaseConfiguration().fallbackOrigin).toBe(
 			"customers.wandit.app",
 		);
+	});
+
+	it.each([
+		["false", false],
+		["FALSE", false],
+		["true", true],
+		["", true],
+	] as const)("reads the apex zone kill switch DOMAINS_APEX_ZONE_ENABLED=%s as %s without asserting the account id", (value, expected) => {
+		setConfiguration(REQUIRED_CONFIGURATION_KEYS);
+		vi.stubEnv("DOMAINS_APEX_ZONE_ENABLED", value);
+		vi.stubEnv("CLOUDFLARE_ACCOUNT_ID", "");
+
+		expect(assertDomainPurchaseConfiguration().apexZoneEnabled).toBe(expected);
 	});
 
 	it("keeps BYO configuration independent of Name.com and Stripe", () => {

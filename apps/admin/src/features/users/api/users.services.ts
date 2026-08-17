@@ -41,6 +41,7 @@ export function listUsers(
 		role: serializeMultiValueFilter(params.role),
 		status: serializeMultiValueFilter(params.status),
 		verified: serializeMultiValueFilter(params.verified),
+		published: serializeMultiValueFilter(params.published),
 		creditsUsedMin: params.creditsUsedMin,
 		creditsUsedMax: params.creditsUsedMax,
 	});

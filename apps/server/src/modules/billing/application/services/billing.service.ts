@@ -179,7 +179,7 @@ export class BillingService {
 		});
 		const [subscription, balance] = await Promise.all([
 			this.subscriptionsRepository.findActiveByOwner(scope.owner),
-			this.creditsService.getBalance(scope.owner),
+			this.creditsService.getSettledBalance(scope.owner),
 		]);
 
 		return {
@@ -189,6 +189,7 @@ export class BillingService {
 				balance: centiCreditsToCredits(balance.balance),
 				plan: centiCreditsToCredits(balance.plan),
 				promo: centiCreditsToCredits(balance.promo),
+				settledBalance: centiCreditsToCredits(balance.settledBalance),
 				topup: centiCreditsToCredits(balance.topup),
 			},
 			subscription: subscription ? mapSubscriptionRow(subscription) : null,

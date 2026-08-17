@@ -50,6 +50,16 @@ type DomainConfigurationRunnerDependencies = {
 	activation: {
 		execute(row: DomainFulfillmentRow): Promise<DomainActivationResult>;
 	};
+	/**
+	 * Best-effort apex zone pass for purchased rows (purchase runtime only): it
+	 * runs before every probe (retrying configuration until `dns.apexConfigured`,
+	 * then polling the zone / nudging the apex hostname), never throws, and only
+	 * merges apex keys, so it cannot disturb this runner's cursor. Activation
+	 * never waits on it.
+	 */
+	apexZone?: {
+		execute(row: DomainFulfillmentRow): Promise<DomainFulfillmentRow>;
+	};
 	cursors: DomainConfigurationCursorStore;
 	now(): Date;
 	terminalFailure: {
@@ -139,7 +149,7 @@ export class DomainConfigurationRunner {
 			}
 
 			cursor = waited;
-			const row = await this.dependencies.cursors.findDomain(initial.id);
+			let row = await this.dependencies.cursors.findDomain(initial.id);
 
 			if (!row) {
 				return {
@@ -163,7 +173,9 @@ export class DomainConfigurationRunner {
 				};
 			}
 
-			if (!row.cfCustomHostnameId) {
+			const cfCustomHostnameId = row.cfCustomHostnameId;
+
+			if (!cfCustomHostnameId) {
 				if (row.source === "purchased") {
 					await this.dependencies.terminalFailure.execute(
 						row,
@@ -179,9 +191,12 @@ export class DomainConfigurationRunner {
 				};
 			}
 
-			const verification = await this.dependencies.verification.execute(
-				row.cfCustomHostnameId,
-			);
+			if (this.dependencies.apexZone && row.source === "purchased") {
+				row = await this.dependencies.apexZone.execute(row);
+			}
+
+			const verification =
+				await this.dependencies.verification.execute(cfCustomHostnameId);
 
 			if (verification.status === "active") {
 				let activation: DomainActivationResult;

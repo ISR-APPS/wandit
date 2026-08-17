@@ -1,6 +1,7 @@
 import type {
 	AdminListUsersSort,
 	UserPlanFilter,
+	UserPublishedFilter,
 	UserRoleFilter,
 	UserStatusFilter,
 	UserVerifiedFilter,
@@ -80,4 +81,12 @@ export const USER_VERIFIED_FILTER_OPTIONS = [
 	{ label: "Unverified", value: "unverified" },
 ] as const satisfies readonly UserFacetedFilterOption<
 	UserVerifiedFilter[number]
+>[];
+
+export const USER_PUBLISHED_FILTER_OPTIONS = [
+	{ label: "Not published", value: "unpublished" },
+	{ label: "Wandit subdomain", value: "subdomain" },
+	{ label: "Custom domain", value: "custom_domain" },
+] as const satisfies readonly UserFacetedFilterOption<
+	UserPublishedFilter[number]
 >[];
