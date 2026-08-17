@@ -133,6 +133,23 @@ export type AdminUserVerificationStatus = z.infer<
 	typeof adminUserVerificationStatusSchema
 >;
 
+// Publication reach, one exclusive state per user: "custom_domain" = at least
+// one live custom domain on a published project; "subdomain" = published but
+// only on {slug}.wandit sites-domain hosts; "unpublished" = no live site.
+export const adminUserPublicationStates = [
+	"unpublished",
+	"subdomain",
+	"custom_domain",
+] as const;
+
+export const adminUserPublicationStateSchema = z.enum(
+	adminUserPublicationStates,
+);
+
+export type AdminUserPublicationState = z.infer<
+	typeof adminUserPublicationStateSchema
+>;
+
 export const adminListUsersQuerySchema = paginationQuerySchema
 	.extend({
 		q: z.string().trim().min(1).max(200).optional(),
@@ -141,6 +158,7 @@ export const adminListUsersQuerySchema = paginationQuerySchema
 		role: optionalCsvEnum(adminUserRoles),
 		status: optionalCsvEnum(adminUserStatuses),
 		verified: optionalCsvEnum(adminUserVerificationStatuses),
+		published: optionalCsvEnum(adminUserPublicationStates),
 		// Net credits-consumed range in decimal credits (the server compares
 		// x100 against centi-credit sums). Both bounds are inclusive; an
 		// omitted max means unbounded. Query params arrive as strings — coerce.
@@ -333,6 +351,65 @@ export const adminUserPagesResponseSchema =
 
 export type AdminUserPagesResponse = z.infer<
 	typeof adminUserPagesResponseSchema
+>;
+
+// Platform-wide publish log. Every row is a deployment that actually went
+// live at some point: "active" is live now, "superseded" was replaced by a
+// newer publish, "unpublished" was taken down. Pending/failed attempts are
+// excluded at the query level.
+export const adminPublicationStatuses = [
+	"active",
+	"superseded",
+	"unpublished",
+] as const;
+
+export const adminPublicationStatusSchema = z.enum(adminPublicationStatuses);
+
+export type AdminPublicationStatus = z.infer<
+	typeof adminPublicationStatusSchema
+>;
+
+export const adminPublicationSchema = z.object({
+	// Deployment id — stable key for the log row.
+	id: uuidSchema,
+	status: adminPublicationStatusSchema,
+	slug: z.string(),
+	// Live links resolve only while the row is still the active deployment
+	// (an unpublished slug can be re-claimed by another project), so both are
+	// null for historical rows.
+	liveUrl: z.url().nullable(),
+	publicUrl: z.url().nullable(),
+	publishedAt: isoDateTimeSchema,
+	project: z.object({
+		id: uuidSchema,
+		name: z.string(),
+		organizationId: z.string().nullable(),
+	}),
+	user: z.object({
+		id: z.string(),
+		name: z.string(),
+		// Plain string on purpose: the column is unconstrained text, and one
+		// legacy address failing z.email() must not brick the whole log page
+		// (the admin client parses responses fail-closed).
+		email: z.string(),
+		image: z.string().nullable(),
+	}),
+});
+
+export type AdminPublication = z.infer<typeof adminPublicationSchema>;
+
+export const adminListPublicationsQuerySchema = paginationQuerySchema;
+
+export type AdminListPublicationsQuery = z.infer<
+	typeof adminListPublicationsQuerySchema
+>;
+
+export const adminListPublicationsResponseSchema = paginatedResultSchema(
+	adminPublicationSchema,
+);
+
+export type AdminListPublicationsResponse = z.infer<
+	typeof adminListPublicationsResponseSchema
 >;
 
 export const adminProjectVersionHtmlResponseSchema = z.object({
@@ -892,6 +969,7 @@ export const adminRoutes = {
 		`/api/v1/admin/organizations/${organizationId}/credits`,
 	organizationSetMemberRole: (organizationId: string, userId: string) =>
 		`/api/v1/admin/organizations/${organizationId}/members/${userId}/role`,
+	publications: "/api/v1/admin/publications",
 	project: (projectId: string) => `/api/v1/admin/projects/${projectId}`,
 	projectVersions: (projectId: string) =>
 		`/api/v1/admin/projects/${projectId}/versions`,

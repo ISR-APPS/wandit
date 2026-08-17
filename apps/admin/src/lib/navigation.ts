@@ -6,6 +6,7 @@ import { CoinsIcon } from "@phosphor-icons/react/Coins";
 import { CurrencyDollarIcon } from "@phosphor-icons/react/CurrencyDollar";
 import { FunnelIcon } from "@phosphor-icons/react/Funnel";
 import { GearSixIcon } from "@phosphor-icons/react/GearSix";
+import { GlobeIcon } from "@phosphor-icons/react/Globe";
 import { GraduationCapIcon } from "@phosphor-icons/react/GraduationCap";
 import { HeartStraightIcon } from "@phosphor-icons/react/HeartStraight";
 import { LinkSimpleIcon } from "@phosphor-icons/react/LinkSimple";
@@ -19,6 +20,7 @@ export type AdminRoutePath =
 	| "/dashboard"
 	| "/users"
 	| "/organizations"
+	| "/publications"
 	| "/feedback"
 	| "/affiliates"
 	| "/links"
@@ -62,6 +64,12 @@ const operationsNavigation: AdminNavigationItem[] = [
 		description: "Teams and credit pools",
 		to: "/organizations",
 		icon: BuildingsIcon,
+	},
+	{
+		title: "Publications",
+		description: "Latest published websites",
+		to: "/publications",
+		icon: GlobeIcon,
 	},
 	{
 		title: "Feedback",
