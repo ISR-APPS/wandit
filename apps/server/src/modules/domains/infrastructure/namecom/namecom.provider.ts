@@ -181,30 +181,12 @@ export class NamecomProvider implements DomainProvider {
 	/**
 	 * Name.com manages DNS one record at a time. We reconcile only records owned
 	 * by Wandit and preserve unrelated records the customer may add later.
-	 *
-	 * An ANAME is the one exception: it can only coexist with other ANAME/CNAME
-	 * data at its host, so any A/AAAA there (registrar URL-forwarding artifacts
-	 * on purchased domains, whose DNS only Wandit manages) is deleted first.
 	 */
 	async setDnsRecords(name: string, records: DomainDnsRecord[]): Promise<void> {
 		const existing = await this.listDnsRecords(name);
 
 		for (const desired of records) {
 			const host = this.relativeHost(name, desired.name);
-
-			if (desired.type === "ANAME") {
-				const conflicting = existing.filter(
-					(record) =>
-						record.host === host &&
-						(record.type === "A" || record.type === "AAAA"),
-				);
-
-				for (const record of conflicting) {
-					await this.deleteDnsRecord(name, record.id);
-					existing.splice(existing.indexOf(record), 1);
-				}
-			}
-
 			const exact = existing.find(
 				(record) =>
 					record.host === host &&
@@ -221,13 +203,7 @@ export class NamecomProvider implements DomainProvider {
 					? existing.find(
 							(record) => record.host === host && record.type === desired.type,
 						)
-					: desired.type === "ANAME"
-						? existing.find(
-								(record) =>
-									record.host === host &&
-									(record.type === "ANAME" || record.type === "CNAME"),
-							)
-						: undefined;
+					: undefined;
 			const body = {
 				answer: desired.value,
 				host,
@@ -253,23 +229,49 @@ export class NamecomProvider implements DomainProvider {
 	}
 
 	/**
-	 * Purchased domains serve the apex through Cloudflare, so registrar URL
-	 * forwarding (which has no TLS) must go. Deletes every apex entry; a no-op
-	 * when none exist, so retries are safe.
+	 * Purchased domains use www for traffic. This creates or updates the apex
+	 * redirect without creating duplicate forwarding entries on retries.
 	 */
-	async clearUrlForwarding(name: string): Promise<void> {
+	async setUrlForwarding(name: string, target: string): Promise<void> {
 		const entries = await this.listUrlForwardings(name);
+		const existing = entries.find((entry) => entry.host === "");
 
-		for (const entry of entries) {
-			if (entry.host !== "" || entry.id === undefined) {
-				continue;
-			}
-
-			await this.request(
-				"DELETE",
-				`/core/v1/urlforwarding/${encodeURIComponent(name)}/${entry.id}`,
-			);
+		if (
+			existing?.forwardsTo === target &&
+			existing.type.toLowerCase() === "redirect"
+		) {
+			return;
 		}
+
+		if (existing?.id !== undefined) {
+			await this.request(
+				"PATCH",
+				`/core/v1/urlforwarding/${encodeURIComponent(name)}/${existing.id}`,
+				{
+					body: {
+						forwardsTo: target,
+						host: existing.host,
+						type: "redirect",
+					},
+				},
+			);
+			return;
+		}
+
+		await this.request(
+			"POST",
+			`/core/v1/domains/${encodeURIComponent(name)}/url/forwarding`,
+			{
+				body: {
+					// Apex forwarding: `host` is the bare subdomain label (the domain
+					// itself travels in the path), so the apex is the empty string —
+					// the same convention the PATCH branch and list responses use.
+					host: "",
+					forwardsTo: target,
+					type: "redirect",
+				},
+			},
+		);
 	}
 
 	/** Return the secret once; callers must never persist or log it. */
@@ -358,13 +360,6 @@ export class NamecomProvider implements DomainProvider {
 				},
 			];
 		});
-	}
-
-	private async deleteDnsRecord(name: string, id: number): Promise<void> {
-		await this.request(
-			"DELETE",
-			`/core/v1/domains/${encodeURIComponent(name)}/records/${id}`,
-		);
 	}
 
 	private async listUrlForwardings(

@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-	apexAnameTrafficRecord,
 	DOMAIN_VALIDATION_RECORD_PURPOSE,
 	mergeRequiredDomainRecords,
 	requiredDomainRecordMergeKey,
@@ -42,15 +41,6 @@ describe("domain provisioning rules", () => {
 			name: "www",
 			purpose: "traffic",
 			type: "CNAME",
-			value: "customers.wandit.app",
-		});
-	});
-
-	it("builds the apex ANAME traffic record for purchased domains", () => {
-		expect(apexAnameTrafficRecord("customers.wandit.app")).toEqual({
-			name: "@",
-			purpose: "traffic",
-			type: "ANAME",
 			value: "customers.wandit.app",
 		});
 	});
