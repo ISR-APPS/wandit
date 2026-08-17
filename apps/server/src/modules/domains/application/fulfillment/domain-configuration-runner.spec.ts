@@ -44,6 +44,7 @@ function domain(
 
 function setup(
 	input: {
+		apexZone?: (row: DomainFulfillmentRow) => Promise<DomainFulfillmentRow>;
 		cursor?: DomainConfigurationCursor | null;
 		now?: Date;
 		row?: DomainFulfillmentRow | null;
@@ -192,8 +193,10 @@ function setup(
 
 		return verificationResults.shift() ?? { status: "pending" as const };
 	});
+	const apexZone = input.apexZone ? vi.fn(input.apexZone) : undefined;
 	const runner = new DomainConfigurationRunner({
 		activation: { execute: activation },
+		apexZone: apexZone ? { execute: apexZone } : undefined,
 		cursors: {
 			advanceCursor,
 			clearCursor,
@@ -212,6 +215,7 @@ function setup(
 		activation,
 		activationResults,
 		advanceCursor,
+		apexZone,
 		clearCursor,
 		get cursor() {
 			return cursor;
@@ -347,6 +351,132 @@ describe("DomainConfigurationRunner", () => {
 		expect(fixture.advanceCursor).toHaveBeenCalledBefore(fixture.waitUntil);
 		expect(fixture.waits).toEqual([new Date("2026-08-01T00:00:30.000Z")]);
 		expect(fixture.probes).toHaveLength(2);
+	});
+
+	it("runs the best-effort apex zone pass before every probe of a purchased row and activates with its latest row without waiting for the zone", async () => {
+		const zoneEvents: string[] = [];
+		let passes = 0;
+		const fixture = setup({
+			// Simulates ApexZoneStep: pass 1 configures, pass 2 polls a pending
+			// zone (activation check), pass 3 sees the zone active and nudges the
+			// apex hostname once. The www verification is independent of it.
+			apexZone: async (row) => {
+				passes += 1;
+				const dns = (row.dns ?? {}) as Record<string, unknown>;
+				let updated: DomainFulfillmentRow;
+
+				if (passes === 1) {
+					updated = {
+						...row,
+						dns: { ...dns, apexConfigured: true, zoneId: "zone_1" },
+					};
+				} else if (passes === 2) {
+					zoneEvents.push("activation-check");
+					updated = { ...row, dns: { ...dns, zoneStatus: "pending" } };
+				} else {
+					zoneEvents.push("apex-nudge");
+					updated = {
+						...row,
+						dns: {
+							...dns,
+							apexCustomHostnameNudged: true,
+							zoneActive: true,
+							zoneStatus: "active",
+						},
+					};
+				}
+
+				fixture.row = updated;
+
+				return updated;
+			},
+		});
+		fixture.verificationResults.push(
+			{ status: "pending" },
+			{ status: "pending" },
+			{ status: "active" },
+		);
+
+		await expect(
+			fixture.runner.execute({ domainId, nonce: purchaseNonce }),
+		).resolves.toEqual({
+			processed: true,
+			status: "active",
+			terminalized: false,
+		});
+
+		expect(fixture.apexZone).toHaveBeenCalledTimes(3);
+		expect(fixture.probes).toHaveLength(3);
+		expect(fixture.apexZone).toHaveBeenCalledBefore(fixture.verification);
+		expect(zoneEvents).toEqual(["activation-check", "apex-nudge"]);
+		expect(fixture.apexZone).toHaveBeenNthCalledWith(
+			2,
+			expect.objectContaining({
+				dns: expect.objectContaining({ apexConfigured: true }),
+			}),
+		);
+		expect(fixture.activation).toHaveBeenCalledExactlyOnceWith(
+			expect.objectContaining({
+				dns: expect.objectContaining({ zoneActive: true }),
+			}),
+		);
+		// The apex pass never adds a wait: only the www probe schedule applies.
+		expect(fixture.waits).toEqual([
+			new Date("2026-08-01T00:00:30.000Z"),
+			new Date("2026-08-01T00:01:30.000Z"),
+		]);
+	});
+
+	it("activates on an active www probe even while the apex zone is still pending", async () => {
+		const fixture = setup({
+			apexZone: async (row) => {
+				const updated = {
+					...row,
+					dns: {
+						apexConfigured: true,
+						zoneId: "zone_1",
+						zoneStatus: "pending",
+					},
+				};
+				fixture.row = updated;
+
+				return updated;
+			},
+		});
+		fixture.verificationResults.push({ status: "active" });
+
+		await expect(
+			fixture.runner.execute({ domainId, nonce: purchaseNonce }),
+		).resolves.toEqual({
+			processed: true,
+			status: "active",
+			terminalized: false,
+		});
+
+		expect(fixture.apexZone).toHaveBeenCalledTimes(1);
+		expect(fixture.waitUntil).not.toHaveBeenCalled();
+		expect(fixture.activation).toHaveBeenCalledExactlyOnceWith(
+			expect.objectContaining({
+				dns: expect.objectContaining({ zoneStatus: "pending" }),
+			}),
+		);
+	});
+
+	it("never runs the apex zone pass for external rows", async () => {
+		const fixture = setup({
+			apexZone: async (row) => row,
+			row: domain({ paymentOrderId: null, source: "external" }),
+		});
+		fixture.verificationResults.push({ status: "active" });
+
+		await expect(
+			fixture.runner.execute({ domainId, nonce: "manual:1" }),
+		).resolves.toEqual({
+			processed: true,
+			status: "active",
+			terminalized: false,
+		});
+		expect(fixture.apexZone).not.toHaveBeenCalled();
 	});
 
 	it("uses the same persisted wait policy for a transient KV activation failure", async () => {

@@ -59,6 +59,15 @@ function setup(initialState?: DomainPurchaseStateResult) {
 		events.push("custom-hostname");
 		return { ...row, cfCustomHostnameId: "cf_1" };
 	});
+	const apexZone = vi.fn(
+		async (row: DomainFulfillmentRow): Promise<DomainFulfillmentRow> => {
+			events.push("apex-zone");
+			return {
+				...row,
+				dns: { ...(row.dns as Record<string, unknown>), apexConfigured: true },
+			};
+		},
+	);
 	const transitionToConfiguring = vi.fn(async (row: DomainFulfillmentRow) => {
 		events.push("transition");
 		return { ...row, status: "configuring" as const };
@@ -75,6 +84,7 @@ function setup(initialState?: DomainPurchaseStateResult) {
 		events.push("terminal-failure");
 	});
 	const orchestrator = new DomainPurchaseOrchestrator({
+		apexZone: { execute: apexZone },
 		configuration: { execute: configuration },
 		customHostname: { execute: customHostname },
 		purchasedDns: { execute: purchasedDns },
@@ -84,6 +94,7 @@ function setup(initialState?: DomainPurchaseStateResult) {
 	});
 
 	return {
+		apexZone,
 		configuration,
 		customHostname,
 		events,
@@ -115,6 +126,7 @@ describe("DomainPurchaseOrchestrator", () => {
 			"registration",
 			"purchased-dns",
 			"custom-hostname",
+			"apex-zone",
 			"transition",
 			"configuration",
 		]);
@@ -122,10 +134,59 @@ describe("DomainPurchaseOrchestrator", () => {
 			expect.objectContaining({ id: domainId }),
 			orderId,
 		);
+		expect(fixture.apexZone).toHaveBeenCalledWith(
+			expect.objectContaining({ cfCustomHostnameId: "cf_1" }),
+		);
+		expect(fixture.transitionToConfiguring).toHaveBeenCalledWith(
+			expect.objectContaining({
+				dns: expect.objectContaining({ apexConfigured: true }),
+			}),
+		);
 		expect(fixture.configuration).toHaveBeenCalledWith({
 			domainId,
 			nonce: buildDomainPurchaseNonce(orderId),
 		});
+	});
+
+	it("keeps dispatching configuration when the best-effort apex zone step reports a deferred apex", async () => {
+		const fixture = setup();
+		fixture.apexZone.mockImplementationOnce(
+			async (row: DomainFulfillmentRow) => {
+				fixture.events.push("apex-zone");
+				return {
+					...row,
+					dns: {
+						...(row.dns as Record<string, unknown>),
+						apexError: "Cloudflare zone request failed",
+					},
+				};
+			},
+		);
+
+		await expect(
+			fixture.orchestrator.execute({ domainId, orderId }),
+		).resolves.toEqual({
+			processed: true,
+			status: "active",
+			terminalized: false,
+		});
+
+		expect(fixture.events).toEqual([
+			"registration",
+			"purchased-dns",
+			"custom-hostname",
+			"apex-zone",
+			"transition",
+			"configuration",
+		]);
+		expect(fixture.transitionToConfiguring).toHaveBeenCalledWith(
+			expect.objectContaining({
+				dns: expect.objectContaining({
+					apexError: "Cloudflare zone request failed",
+				}),
+			}),
+		);
+		expect(fixture.terminalFailure).not.toHaveBeenCalled();
 	});
 
 	it("replaces the old configure enqueue with a direct runner resume", async () => {

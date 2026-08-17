@@ -3,6 +3,11 @@ import type { RequiredDomainRecord } from "@wandit/contracts";
 export const DOMAIN_VALIDATION_RECORD_PURPOSE =
 	"ownership_or_ssl_validation" as const;
 
+export const DOMAIN_TRAFFIC_RECORD_PURPOSE = "traffic" as const;
+
+/** The registry delegation of a purchased domain to its Cloudflare zone. */
+export const DOMAIN_NAMESERVER_RECORD_PURPOSE = "nameserver" as const;
+
 type ValidationRecord = Pick<RequiredDomainRecord, "name" | "type" | "value">;
 
 type WholesaleQuote = {
@@ -44,10 +49,37 @@ export function wwwCnameTrafficRecord(
 ): RequiredDomainRecord {
 	return {
 		name: "www",
-		purpose: "traffic",
+		purpose: DOMAIN_TRAFFIC_RECORD_PURPOSE,
 		type: "CNAME",
 		value: fallbackOrigin,
 	};
+}
+
+/**
+ * Purchased-domain apex inside the domain's own Cloudflare zone: a DNS-only
+ * CNAME to the fallback origin (Cloudflare flattens it publicly while its
+ * SaaS verifier still sees the CNAME).
+ */
+export function apexCnameTrafficRecord(
+	fallbackOrigin: string,
+): RequiredDomainRecord {
+	return {
+		name: "@",
+		purpose: DOMAIN_TRAFFIC_RECORD_PURPOSE,
+		type: "CNAME",
+		value: fallbackOrigin,
+	};
+}
+
+export function nameserverRequiredDomainRecords(
+	nameServers: readonly string[],
+): RequiredDomainRecord[] {
+	return nameServers.map((nameServer) => ({
+		name: "@",
+		purpose: DOMAIN_NAMESERVER_RECORD_PURPOSE,
+		type: "NS",
+		value: nameServer,
+	}));
 }
 
 export function wholesaleQuoteBlockReason(

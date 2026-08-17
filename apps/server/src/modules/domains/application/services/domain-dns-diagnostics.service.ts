@@ -2,6 +2,7 @@ import {
 	resolve4,
 	resolve6,
 	resolveCname,
+	resolveNs,
 	resolveTxt,
 } from "node:dns/promises";
 import { Inject, Injectable } from "@nestjs/common";
@@ -122,6 +123,8 @@ export class DomainDnsDiagnosticsService {
 				return resolve6(hostname);
 			case "CNAME":
 				return resolveCname(hostname);
+			case "NS":
+				return resolveNs(hostname);
 			case "TXT":
 				return (await resolveTxt(hostname)).map((chunks) => chunks.join(""));
 		}
@@ -170,7 +173,7 @@ export class DomainDnsDiagnosticsService {
 		type: RequiredDomainRecord["type"],
 		value: string,
 	): string {
-		if (type === "CNAME") {
+		if (type === "CNAME" || type === "NS") {
 			return this.withoutTrailingDot(value.trim()).toLowerCase();
 		}
 
