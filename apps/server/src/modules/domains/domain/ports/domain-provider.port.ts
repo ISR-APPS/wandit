@@ -12,7 +12,7 @@ export type DomainAvailability = {
 
 export type DomainDnsRecord = {
 	name: string;
-	type: "A" | "AAAA" | "ANAME" | "CNAME" | "TXT";
+	type: "A" | "AAAA" | "CNAME" | "TXT";
 	value: string;
 };
 
@@ -50,12 +50,7 @@ export interface DomainProvider {
 	): Promise<DomainRegistrationResult>;
 	renew(name: string, years: number): Promise<{ expiresAt: Date | null }>;
 	setDnsRecords(name: string, records: DomainDnsRecord[]): Promise<void>;
-	/**
-	 * Remove every registrar URL-forwarding entry for the apex. Purchased
-	 * domains serve the apex through Cloudflare (ANAME + apex custom hostname);
-	 * registrar forwarding has no TLS and must not remain in place.
-	 */
-	clearUrlForwarding(name: string): Promise<void>;
+	setUrlForwarding(name: string, target: string): Promise<void>;
 	getAuthCode(name: string): Promise<string>;
 	setTransferLock(name: string, locked: boolean): Promise<void>;
 	getDomainInfo(name: string): Promise<DomainProviderInfo | null>;

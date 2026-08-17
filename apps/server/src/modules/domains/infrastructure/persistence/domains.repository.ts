@@ -682,48 +682,6 @@ export class DomainsRepository {
 		return row ?? null;
 	}
 
-	/**
-	 * Shallow-merges `patch` into the stored `dns` object (`dns || patch`),
-	 * fenced on `statuses`, and returns the fresh row (null when the fence
-	 * lost). Keys whose value is `null` are removed instead of stored. Unlike
-	 * `updateIfStatusOrNull(id, statuses, { dns })`, which replaces the whole
-	 * jsonb value, this never overwrites keys the caller does not send — the
-	 * private `triggerConfiguration` cursor a live verification run advances is
-	 * therefore safe from a concurrent apex write. Like the cursor helpers it
-	 * leaves `updated_at` alone, so private sub-state writes do not reset the
-	 * reconciler's staleness clock.
-	 */
-	async mergeDnsIfStatus(
-		id: string,
-		statuses: DomainStatus[],
-		patch: Record<string, unknown>,
-	): Promise<DomainRow | null> {
-		const set: Record<string, unknown> = {};
-		const remove: string[] = [];
-
-		for (const [key, value] of Object.entries(patch)) {
-			if (value === null) {
-				remove.push(key);
-			} else if (value !== undefined) {
-				set[key] = value;
-			}
-		}
-
-		const result = await this.db.$client.query<{ id: string }>(
-			`UPDATE domains
-			 SET dns = ((CASE WHEN jsonb_typeof(dns) = 'object' THEN dns ELSE '{}'::jsonb END)
-			     - $3::text[])
-			     || $2::jsonb,
-			 updated_at = updated_at
-			 WHERE id = $1::uuid
-			   AND status = ANY($4::domain_status[])
-			 RETURNING id`,
-			[id, JSON.stringify(set), remove, statuses],
-		);
-
-		return result.rows.length === 1 ? this.getById(id) : null;
-	}
-
 	async setPrimary(id: string, scope: ProjectScope): Promise<DomainRow> {
 		// Access checked scope-aware BEFORE the transaction narrows to the id.
 		await this.getByIdForScope(id, scope);

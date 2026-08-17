@@ -54,7 +54,6 @@ import {
 	type DomainRow,
 	DomainsRepository,
 } from "../../infrastructure/persistence/domains.repository";
-import { apexCustomHostnameIdOf } from "../fulfillment/domain-assets-cleanup";
 
 export const DOMAINS_LOGGER = Symbol("DOMAINS_LOGGER");
 
@@ -315,13 +314,6 @@ export class DomainsService {
 
 		if (row.cfCustomHostnameId) {
 			await this.bestEffortDeleteCustomHostname(row.cfCustomHostnameId, row.id);
-		}
-
-		// Purchased domains also hold an apex custom hostname (recorded in dns).
-		const apexCustomHostnameId = apexCustomHostnameIdOf(row.dns);
-
-		if (apexCustomHostnameId) {
-			await this.bestEffortDeleteCustomHostname(apexCustomHostnameId, row.id);
 		}
 
 		const updated = await this.domainsRepository.detach(id, scope);

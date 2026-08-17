@@ -2,7 +2,6 @@ import type {
 	DomainDns,
 	DomainStatus,
 	PaymentOrderStatus,
-	RequiredDomainRecord,
 } from "@wandit/contracts";
 
 export const DOMAIN_CONFIGURATION_MAX_ATTEMPT = 100;
@@ -55,18 +54,6 @@ export type DomainFulfillmentDns = DomainDns & {
 	customHostnameDnsConfigured?: boolean;
 	purchaseDnsConfigured?: boolean;
 	triggerConfiguration?: PersistedDomainConfigurationCursor;
-};
-
-/**
- * The `dns` keys ApexHostnameStep owns. It is persisted as a shallow merge into
- * the stored `dns` object (never a full replace), so a live verification cursor
- * in `dns.triggerConfiguration` is left alone. `apexError: null` removes the key.
- */
-export type DomainApexDnsPatch = {
-	apexConfigured?: true;
-	apexCustomHostnameId?: string;
-	apexError?: string | null;
-	records?: RequiredDomainRecord[];
 };
 
 export type DomainFulfillmentRow = {

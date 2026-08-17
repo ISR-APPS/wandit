@@ -50,14 +50,6 @@ type DomainConfigurationRunnerDependencies = {
 	activation: {
 		execute(row: DomainFulfillmentRow): Promise<DomainActivationResult>;
 	};
-	/**
-	 * Best-effort apex retry for purchased rows (purchase runtime only): it runs
-	 * before every probe until `dns.apexConfigured` is set, never throws, and
-	 * only merges apex keys, so it cannot disturb this runner's cursor.
-	 */
-	apexHostname?: {
-		execute(row: DomainFulfillmentRow): Promise<DomainFulfillmentRow>;
-	};
 	cursors: DomainConfigurationCursorStore;
 	now(): Date;
 	terminalFailure: {
@@ -147,7 +139,7 @@ export class DomainConfigurationRunner {
 			}
 
 			cursor = waited;
-			let row = await this.dependencies.cursors.findDomain(initial.id);
+			const row = await this.dependencies.cursors.findDomain(initial.id);
 
 			if (!row) {
 				return {
@@ -171,9 +163,7 @@ export class DomainConfigurationRunner {
 				};
 			}
 
-			const cfCustomHostnameId = row.cfCustomHostnameId;
-
-			if (!cfCustomHostnameId) {
+			if (!row.cfCustomHostnameId) {
 				if (row.source === "purchased") {
 					await this.dependencies.terminalFailure.execute(
 						row,
@@ -189,12 +179,9 @@ export class DomainConfigurationRunner {
 				};
 			}
 
-			if (this.dependencies.apexHostname && row.source === "purchased") {
-				row = await this.dependencies.apexHostname.execute(row);
-			}
-
-			const verification =
-				await this.dependencies.verification.execute(cfCustomHostnameId);
+			const verification = await this.dependencies.verification.execute(
+				row.cfCustomHostnameId,
+			);
 
 			if (verification.status === "active") {
 				let activation: DomainActivationResult;
