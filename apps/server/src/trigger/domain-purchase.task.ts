@@ -56,6 +56,7 @@ export const domainPurchaseTask = schemaTask({
 				.set("stage", "fulfilling");
 
 			runtime = createDomainPurchaseRuntime(db, {
+				apexZoneEnabled: configuration.apexZoneEnabled,
 				fallbackOrigin: configuration.fallbackOrigin,
 				logger: triggerLogger,
 				wait: {

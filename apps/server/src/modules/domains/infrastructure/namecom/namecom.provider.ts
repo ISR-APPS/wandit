@@ -229,8 +229,29 @@ export class NamecomProvider implements DomainProvider {
 	}
 
 	/**
+	 * Delegates the domain's DNS to another provider (the Cloudflare zone that
+	 * serves a purchased domain's apex). Name.com replaces the whole set, so a
+	 * retry with the same pair is a no-op.
+	 */
+	async setNameservers(name: string, nameservers: string[]): Promise<void> {
+		if (nameservers.length === 0) {
+			throw new DomainProviderError("Registrar nameserver update failed", {
+				retryable: false,
+			});
+		}
+
+		await this.request(
+			"POST",
+			`/core/v1/domains/${encodeURIComponent(name)}:setNameservers`,
+			{ body: { nameservers } },
+		);
+	}
+
+	/**
 	 * Purchased domains use www for traffic. This creates or updates the apex
-	 * redirect without creating duplicate forwarding entries on retries.
+	 * redirect without creating duplicate forwarding entries on retries. It is
+	 * the fallback for the apex when the Cloudflare zone step is disabled or
+	 * fails; once the nameservers move to Cloudflare, the entry is moot.
 	 */
 	async setUrlForwarding(name: string, target: string): Promise<void> {
 		const entries = await this.listUrlForwardings(name);

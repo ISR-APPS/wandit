@@ -10,6 +10,7 @@ const dnsMocks = vi.hoisted(() => ({
 	resolve4: vi.fn<(hostname: string) => Promise<string[]>>(),
 	resolve6: vi.fn<(hostname: string) => Promise<string[]>>(),
 	resolveCname: vi.fn<(hostname: string) => Promise<string[]>>(),
+	resolveNs: vi.fn<(hostname: string) => Promise<string[]>>(),
 	resolveTxt: vi.fn<(hostname: string) => Promise<string[][]>>(),
 }));
 
@@ -162,6 +163,46 @@ describe("DomainDnsDiagnosticsService", () => {
 		});
 		expect(dnsMocks.resolve4).toHaveBeenCalledWith("www.brand.com");
 		expect(dnsMocks.resolve6).toHaveBeenCalledWith("www.brand.com");
+	});
+
+	it("resolves NS nameserver records at the apex like the other record types", async () => {
+		const row = domainRow({
+			dns: {
+				records: [
+					{
+						name: "@",
+						purpose: "nameserver",
+						type: "NS",
+						value: "art.ns.cloudflare.com",
+					},
+					{
+						name: "@",
+						purpose: "nameserver",
+						type: "NS",
+						value: "savanna.ns.cloudflare.com",
+					},
+					{
+						name: "@",
+						purpose: "nameserver",
+						type: "NS",
+						value: "ns1.name.com",
+					},
+				],
+			},
+		});
+		dnsMocks.resolveNs.mockResolvedValue([
+			"ART.ns.cloudflare.com.",
+			"savanna.ns.cloudflare.com",
+		]);
+
+		const response = await serviceFor(row).getStatus(row.id, scope);
+
+		expect(response.records.map((record) => record.status)).toEqual([
+			"found",
+			"found",
+			"mismatch",
+		]);
+		expect(dnsMocks.resolveNs).toHaveBeenCalledExactlyOnceWith("brand.com");
 	});
 
 	it("reports a timed-out query as unknown after three seconds", async () => {
