@@ -32,12 +32,14 @@ import {
 import { IgnitionOverlay } from "../components/ignition-overlay";
 import { OnboardingProgress } from "../components/onboarding-progress";
 import { OnboardingShell } from "../components/onboarding-shell";
+import { PhoneStep } from "../components/phone-step";
 import { SoundToggle } from "../components/sound-toggle";
 import { SparkFlare } from "../components/spark-flare";
 import { TextStep } from "../components/text-step";
 import {
 	getOnboardingQuestionViewConfig,
 	isOnboardingChoiceQuestionViewConfig,
+	isOnboardingPhoneQuestionViewConfig,
 	isOnboardingTextQuestionViewConfig,
 	type OnboardingAnswerState,
 	type OnboardingQuestion,
@@ -72,7 +74,7 @@ type OnboardingPageProps = {
 export default function OnboardingPage({ user, next }: OnboardingPageProps) {
 	const navigate = useNavigate();
 	const { setTheme } = useTheme();
-	const { t, dir } = useTranslation();
+	const { t, dir, locale } = useTranslation();
 	const copy = useDictionary().onboarding;
 	const completeOnboarding = useCompleteOnboarding();
 	const { muted, toggle, playSelect, playCompletion } = useOnboardingSound();
@@ -318,7 +320,7 @@ export default function OnboardingPage({ user, next }: OnboardingPageProps) {
 										<div
 											className={cn(
 												"mx-auto mt-6 w-full md:mt-8",
-												view.type === "text"
+												view.type === "text" || view.type === "phone"
 													? "max-w-md"
 													: view.variant === "style-preview"
 														? "max-w-2xl"
@@ -332,6 +334,7 @@ export default function OnboardingPage({ user, next }: OnboardingPageProps) {
 												view={view}
 												answer={answers[question.id] ?? ""}
 												dir={dir}
+												locale={locale}
 												pulse={pulse}
 												titleId={titleId}
 												onTextChange={updateTextAnswer}
@@ -361,6 +364,7 @@ type QuestionRendererProps = {
 	view: OnboardingQuestionViewConfig;
 	answer: string;
 	dir: "ltr" | "rtl";
+	locale: string;
 	pulse: number;
 	titleId: string;
 	onTextChange: (value: string) => void;
@@ -373,6 +377,7 @@ function QuestionRenderer({
 	view,
 	answer,
 	dir,
+	locale,
 	pulse,
 	titleId,
 	onTextChange,
@@ -404,6 +409,24 @@ function QuestionRenderer({
 				pulse={pulse}
 				onSelect={onAnswer}
 				titleId={titleId}
+			/>
+		);
+	}
+
+	if (question.type === "phone" && isOnboardingPhoneQuestionViewConfig(view)) {
+		return (
+			<PhoneStep
+				value={answer}
+				label={t(view.labelKey)}
+				nextLabel={t(view.nextLabelKey)}
+				countryLabel={t(view.countryLabelKey)}
+				searchPlaceholder={t(view.searchPlaceholderKey)}
+				emptyLabel={t(view.emptyLabelKey)}
+				placeholder={view.placeholderKey ? t(view.placeholderKey) : undefined}
+				locale={locale}
+				onChange={onTextChange}
+				onSubmit={onAnswer}
+				inputId={`onboarding-answer-${question.id}`}
 			/>
 		);
 	}
