@@ -1,6 +1,8 @@
 import { resetAnalytics } from "@wandit/analytics/browser";
 import { Sentry } from "@wandit/observability/browser";
 
+import { resetSupportChat } from "@/features/support";
+
 import { authClient } from "./auth-client";
 import { promptStash } from "./prompt-stash";
 
@@ -104,6 +106,9 @@ export async function signOut(): Promise<void> {
 		await authClient.signOut();
 	} finally {
 		resetAnalytics();
+		// Chatwoot keeps the conversation in a cookie; without a reset the
+		// next account on this browser would see the previous user's chat.
+		resetSupportChat();
 		invalidateSessionCache();
 		syncSentryUser(null);
 		// A draft stashed under this account must never auto-create a project
