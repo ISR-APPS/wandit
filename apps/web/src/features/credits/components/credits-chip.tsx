@@ -57,13 +57,24 @@ export function CreditsChip({ className }: { className?: string }) {
 			? t("workspaces.switcher.personal")
 			: (elsewhere.name ?? "")
 		: null;
+	// Scope label inside the chip ("69.9 credits · Personal"): the balance is
+	// per-workspace, and users in a drained org read the bare number as "I have
+	// no credits at all" — naming the workspace right where they look fixes it.
+	const workspaceLabel = isPersonal
+		? t("workspaces.switcher.personal")
+		: (activeWorkspace?.name ?? "");
 
 	return (
 		<DropdownMenu>
 			<DropdownMenuTrigger asChild>
 				<button
 					type="button"
-					aria-label={t("credits.chipAriaLabel")}
+					aria-label={
+						workspaceLabel
+							? `${t("credits.chipAriaLabel")} · ${workspaceLabel}`
+							: t("credits.chipAriaLabel")
+					}
+					title={workspaceLabel || undefined}
 					aria-busy={balanceQuery.isPending}
 					className={cn(
 						"inline-flex h-8 items-center gap-1.5 rounded-full border border-primary/35 bg-transparent px-3 transition-[border-color,transform] hover:border-primary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 active:scale-[0.98]",
@@ -92,6 +103,21 @@ export function CreditsChip({ className }: { className?: string }) {
 										})
 									: t("credits.balanceUnavailableShort")}
 							</span>
+							{workspaceLabel ? (
+								// Hidden on phones like the header's other secondary texts
+								// (the workspace header row cannot wrap or scroll).
+								<>
+									<span
+										aria-hidden
+										className="hidden text-[13px] text-border sm:inline"
+									>
+										·
+									</span>
+									<span className="hidden max-w-24 truncate text-[13px] text-muted-foreground sm:inline">
+										{workspaceLabel}
+									</span>
+								</>
+							) : null}
 						</>
 					)}
 				</button>

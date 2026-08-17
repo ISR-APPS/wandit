@@ -43,6 +43,7 @@ describe("listUsers", () => {
 			role: undefined,
 			status: undefined,
 			verified: undefined,
+			published: undefined,
 			creditsUsedMin: 0.5,
 			creditsUsedMax: 500.25,
 		});
@@ -74,6 +75,35 @@ describe("listUsers", () => {
 				creditsUsedMax: undefined,
 			}),
 		);
+	});
+
+	it("round-trips the published filter as CSV through query params the contract accepts", async () => {
+		apiGetMock.mockResolvedValueOnce({
+			items: [],
+			page: 1,
+			pageSize: 25,
+			total: 0,
+		});
+
+		await listUsers({
+			page: 1,
+			pageSize: 25,
+			sort: "newest",
+			published: ["subdomain", "custom_domain"],
+		});
+
+		expect(apiGetMock).toHaveBeenCalledWith(
+			adminRoutes.users,
+			expect.objectContaining({
+				published: "subdomain,custom_domain",
+			}),
+		);
+
+		// The params the client sends must survive the server-side schema.
+		const [, sentParams] = apiGetMock.mock.calls[0] as [string, object];
+		const parsed = adminListUsersQuerySchema.parse(sentParams);
+
+		expect(parsed.published).toEqual(["subdomain", "custom_domain"]);
 	});
 
 	it("sends an open upper bound as min-only", async () => {

@@ -17,6 +17,7 @@ import { AdminCostsService } from "./application/services/admin-costs.service";
 import { AdminOrganizationsService } from "./application/services/admin-organizations.service";
 import { AdminPagePreviewService } from "./application/services/admin-page-preview.service";
 import { AdminProjectsService } from "./application/services/admin-projects.service";
+import { AdminPublicationsService } from "./application/services/admin-publications.service";
 import { AdminStatsService } from "./application/services/admin-stats.service";
 import { AdminUsersService } from "./application/services/admin-users.service";
 import { AdminWebhookReplayService } from "./application/services/admin-webhook-replay.service";
@@ -29,6 +30,7 @@ import { AdminAnalyticsController } from "./presentation/http/controllers/admin-
 import { AdminCostsController } from "./presentation/http/controllers/admin-costs.controller";
 import { AdminOrganizationsController } from "./presentation/http/controllers/admin-organizations.controller";
 import { AdminProjectsController } from "./presentation/http/controllers/admin-projects.controller";
+import { AdminPublicationsController } from "./presentation/http/controllers/admin-publications.controller";
 import { AdminStatsController } from "./presentation/http/controllers/admin-stats.controller";
 import { AdminUsersController } from "./presentation/http/controllers/admin-users.controller";
 import { AdminWebhooksController } from "./presentation/http/controllers/admin-webhooks.controller";
@@ -39,6 +41,7 @@ import { AdminWebhooksController } from "./presentation/http/controllers/admin-w
 		AdminCostsController,
 		AdminOrganizationsController,
 		AdminProjectsController,
+		AdminPublicationsController,
 		AdminUsersController,
 		AdminStatsController,
 		AdminWebhooksController,
@@ -66,6 +69,7 @@ import { AdminWebhooksController } from "./presentation/http/controllers/admin-w
 		AdminPagePreviewService,
 		AdminRepository,
 		AdminProjectsService,
+		AdminPublicationsService,
 		AdminStatsService,
 		AdminUsersService,
 		AdminWebhookReplayService,

@@ -29,12 +29,12 @@ export const PROJECT_NAME_MAX_LENGTH = 60;
 // Keeping only a few chips visible prevents the PromptBox from growing too tall.
 export const MAX_VISIBLE_SKILLS = 2;
 
-// Mock credit cost per composer quality tier — display only, no pricing logic.
+// Credit cost per composer quality tier — display only, no pricing logic.
 // Standard mirrors the contracts price card (page generation, 10 credits);
-// max is a local display mock with no fixed price in the v4 catalog.
+// max has no fixed price in the v4 catalog, so it shows NO badge (null).
 // NOTE: if pricing changes, also check the credits feature and server policy;
 // this map is not enough to change billing or generation authorization.
-export const QUALITY_CREDITS: Record<ComposerQuality, number> = {
+export const QUALITY_CREDITS: Record<ComposerQuality, number | null> = {
 	standard: CREDIT_COSTS.generation,
-	max: 25,
+	max: null,
 };
