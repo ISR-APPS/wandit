@@ -101,11 +101,13 @@ export type PricingSnapshot = {
 	provider: string;
 	refreshedAt: string;
 	source: ModelPriceSource;
+	/** Micros per WHOLE credit (28,000), never per centi-credit. */
 	usdMicrosPerCredit: number;
 };
 
 export type TokenUsageQuote = {
 	costUsdMicros: number;
+	/** Integer centi-credits (1 credit = 100 cc). */
 	credits: number;
 	pricingSnapshot: PricingSnapshot;
 	usage: NormalizedTokenUsage;
@@ -144,14 +146,24 @@ export function perTokenDollarsStringToUsdMicrosPerMTok(value: string): number {
 	return decimalStringToScaledInteger(value, 12, "USD micros per MTok");
 }
 
-export function usdMicrosToCredits(
+/**
+ * Convert provider cost to integer CENTI-credits (1 credit = 100 cc).
+ * `usdMicrosPerCredit` stays micros per WHOLE credit (28,000); this function
+ * owns the ×100. Minimum charge is 1 cc (0.01 credit).
+ */
+export function usdMicrosToCentiCredits(
 	costUsdMicros: number,
 	usdMicrosPerCredit = DEFAULT_USD_MICROS_PER_CREDIT,
 ): number {
 	assertNonNegativeSafeInteger(costUsdMicros, "costUsdMicros");
 	assertPositiveSafeInteger(usdMicrosPerCredit, "usdMicrosPerCredit");
 
-	return Math.max(1, Math.ceil(costUsdMicros / usdMicrosPerCredit));
+	const centiCredits = divideRoundingUp(
+		BigInt(costUsdMicros) * 100n,
+		BigInt(usdMicrosPerCredit),
+	);
+
+	return Math.max(1, bigintToSafeNumber(centiCredits));
 }
 
 export function normalizeTokenUsage(

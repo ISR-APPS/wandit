@@ -85,6 +85,14 @@ describe("classifyBuildFailure", () => {
 
 		expect(classifyBuildFailure(credits)).toBe("insufficient_credits");
 
+		// Pricing v4 messages carry decimal (and possibly negative) credits.
+		const decimalCredits = new Error(
+			"Insufficient credits: required 0.1, available -0.55",
+		);
+		Object.assign(decimalCredits, { status: 402 });
+
+		expect(classifyBuildFailure(decimalCredits)).toBe("insufficient_credits");
+
 		const memberLimit = new Error(
 			"Workspace member credit limit reached: limit 100, spent 95, required 10",
 		);

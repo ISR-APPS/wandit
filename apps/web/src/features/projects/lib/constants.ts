@@ -16,6 +16,8 @@
 
 import type { ComposerQuality } from "@wandit/contracts";
 
+import { CREDIT_COSTS } from "@/features/credits/lib/constants";
+
 // Number of skeleton cards shown while the project grid is loading.
 export const GRID_SKELETON_COUNT = 6;
 // Local UI cap for project names. Prompt-derived names may be shorter than this
@@ -28,9 +30,11 @@ export const PROJECT_NAME_MAX_LENGTH = 60;
 export const MAX_VISIBLE_SKILLS = 2;
 
 // Mock credit cost per composer quality tier — display only, no pricing logic.
+// Standard mirrors the contracts price card (page generation, 10 credits);
+// max is a local display mock with no fixed price in the v4 catalog.
 // NOTE: if pricing changes, also check the credits feature and server policy;
 // this map is not enough to change billing or generation authorization.
 export const QUALITY_CREDITS: Record<ComposerQuality, number> = {
-	standard: 10,
+	standard: CREDIT_COSTS.generation,
 	max: 25,
 };

@@ -12,6 +12,7 @@ import {
 	formatUsdMicros,
 	formatWholeNumber,
 } from "@/features/users/lib/formatters";
+import { formatCreditAmount, formatCreditBalance } from "@/lib/credit-format";
 import { cn } from "@/lib/utils";
 
 import { subscriptionTierLabel, titleCase } from "./user-detail-helpers";
@@ -24,13 +25,13 @@ export function UserMetrics({ user }: UserMetricsProps) {
 	const metrics = [
 		{
 			label: "Credit balance",
-			value: formatWholeNumber(user.creditsBalance),
+			value: formatCreditBalance(user.creditsBalance),
 			detail: "Available now",
 			icon: CoinsIcon,
 		},
 		{
 			label: "Credits used",
-			value: formatWholeNumber(user.creditsConsumed),
+			value: formatCreditAmount(user.creditsConsumed),
 			detail: "Lifetime consumption",
 			icon: CircleMinusIcon,
 		},

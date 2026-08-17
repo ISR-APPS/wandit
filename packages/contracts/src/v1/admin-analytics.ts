@@ -560,8 +560,9 @@ export type AdminAnalyticsConsumptionBucketPoint = z.infer<
 >;
 
 export const adminAnalyticsCreditsSchema = z.object({
-	grantedInRange: z.int().nonnegative(),
-	consumedInRange: z.int().nonnegative(),
+	// Decimal credits (server divides centi-credit ledger sums by 100).
+	grantedInRange: z.number().nonnegative(),
+	consumedInRange: z.number().nonnegative(),
 	avgConsumedPerFreeUser: z.number().nonnegative(),
 	avgConsumedPerPaidUser: z.number().nonnegative(),
 	consumptionBuckets: z.array(adminAnalyticsConsumptionBucketPointSchema),
@@ -683,7 +684,8 @@ export type AdminAnalyticsWebhookHealth = z.infer<
 export const adminAnalyticsHealthResponseSchema = z.object({
 	updatedAt: isoDateTimeSchema,
 	generation: z.array(adminAnalyticsGenerationHealthSchema),
-	creditsRefundedInRange: z.int().nonnegative(),
+	// Decimal credits (server divides the centi-credit refund sum by 100).
+	creditsRefundedInRange: z.number().nonnegative(),
 	webhooks: adminAnalyticsWebhookHealthSchema,
 });
 

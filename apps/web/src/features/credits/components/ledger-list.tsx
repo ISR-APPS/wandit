@@ -1,5 +1,4 @@
 import type { CreditKind, CreditLedgerRow } from "@wandit/contracts";
-import { formatNumber } from "@wandit/internationalization";
 import { Skeleton } from "@wandit/ui/components/skeleton";
 import { cn } from "@wandit/ui/lib/utils";
 import {
@@ -13,6 +12,7 @@ import {
 
 import { useTranslation } from "@/lib/i18n";
 import { relativeTime } from "@/lib/relative-time";
+import { formatCreditAmount } from "../lib/format-credits";
 
 const KIND_ICONS: Record<CreditKind, LucideIcon> = {
 	grant: Gift,
@@ -118,7 +118,7 @@ export function LedgerList({
 							)}
 						>
 							{positive ? "+" : ""}
-							{formatNumber(entry.delta, locale)}
+							{formatCreditAmount(entry.delta, locale)}
 						</span>
 					</li>
 				);

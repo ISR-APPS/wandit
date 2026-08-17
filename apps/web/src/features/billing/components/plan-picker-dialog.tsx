@@ -8,7 +8,7 @@ import type {
 	Subscription,
 } from "@wandit/contracts";
 import { creditTierSchema } from "@wandit/contracts";
-import { formatNumber, type Locale } from "@wandit/internationalization";
+import type { Locale } from "@wandit/internationalization";
 import { Badge } from "@wandit/ui/components/badge";
 import { Button } from "@wandit/ui/components/button";
 import {
@@ -64,6 +64,10 @@ import {
 	tierPriceUsd,
 	tierSavingsPercent,
 } from "@/features/billing/lib/plan-pricing";
+import {
+	formatCreditAmount,
+	formatCreditBalance,
+} from "@/features/credits/lib/format-credits";
 import {
 	emitPricingViewed,
 	getProductEventSessionState,
@@ -515,11 +519,11 @@ function PlanPickerContent({
 				<div className="grid grid-cols-2 gap-3 rounded-xl border border-primary/25 bg-primary/[0.045] p-3">
 					<RequirementMetric
 						label={copy.requiredCredits}
-						value={formatNumber(requiredCredits, locale)}
+						value={formatCreditAmount(requiredCredits, locale)}
 					/>
 					<RequirementMetric
 						label={copy.availableCredits}
-						value={formatNumber(visibleAvailableCredits, locale)}
+						value={formatCreditBalance(visibleAvailableCredits, locale)}
 					/>
 				</div>
 			) : null}
@@ -985,11 +989,11 @@ function PickerNotice({
 				<div className="grid grid-cols-2 gap-3 rounded-xl border border-primary/25 bg-primary/[0.045] p-3">
 					<RequirementMetric
 						label={copy.requiredCredits}
-						value={formatNumber(requiredCredits, locale)}
+						value={formatCreditAmount(requiredCredits, locale)}
 					/>
 					<RequirementMetric
 						label={copy.availableCredits}
-						value={formatNumber(availableCredits, locale)}
+						value={formatCreditBalance(availableCredits, locale)}
 					/>
 				</div>
 			) : null}
@@ -1022,11 +1026,11 @@ function PlanPickerSkeleton({
 				<div className="grid grid-cols-2 gap-3 rounded-xl border border-primary/25 bg-primary/[0.045] p-3">
 					<RequirementMetric
 						label={copy.requiredCredits}
-						value={formatNumber(requiredCredits, locale)}
+						value={formatCreditAmount(requiredCredits, locale)}
 					/>
 					<RequirementMetric
 						label={copy.availableCredits}
-						value={formatNumber(availableCredits, locale)}
+						value={formatCreditBalance(availableCredits, locale)}
 					/>
 				</div>
 			) : null}
@@ -1155,6 +1159,7 @@ function formatMinorCurrency(value: number, currency: string, locale: Locale) {
 }
 
 function signedNumber(value: number, locale: Locale) {
-	const formatted = formatNumber(Math.abs(value), locale);
+	// creditsDelta is decimal under pricing v4 — exact trimmed rendering.
+	const formatted = formatCreditAmount(Math.abs(value), locale);
 	return value >= 0 ? `+${formatted}` : `−${formatted}`;
 }

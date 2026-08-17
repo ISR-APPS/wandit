@@ -1010,7 +1010,8 @@ describe("AiChatService MCP lifecycle", () => {
 	it("emits the typed billing data part when end settlement exhausts credits", async () => {
 		const { meteringService, service } = buildService();
 		meteringService.settle.mockRejectedValue(
-			new InsufficientCreditsError(4, 1),
+			// Centi-credit inputs: details carry 4.00 / 1.00 decimal credits.
+			new InsufficientCreditsError(400, 100),
 		);
 		const options = streamOptions();
 		const writer = { merge: vi.fn(), write: vi.fn() };
@@ -1069,7 +1070,8 @@ describe("AiChatService MCP lifecycle", () => {
 		const reader = new ReadableStream({
 			start(controller) {
 				controller.enqueue({
-					error: new InsufficientCreditsError(25, 3),
+					// Centi-credit inputs: details carry 25.00 / 3.00 decimal credits.
+					error: new InsufficientCreditsError(2500, 300),
 					input: {},
 					toolCallId: "tool_1",
 					toolName: "animate_image",

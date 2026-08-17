@@ -22,7 +22,7 @@ import {
 import {
 	normalizeTokenUsage,
 	type TokenUsageQuote,
-	usdMicrosToCredits,
+	usdMicrosToCentiCredits,
 } from "../../domain/model-pricing";
 import type {
 	AiUsageEventPatch,
@@ -410,7 +410,7 @@ class FakeModelPricingService {
 	quoteCalls = 0;
 	quote: TokenUsageQuote = {
 		costUsdMicros: 75_000,
-		credits: 2,
+		credits: 150,
 		pricingSnapshot: {
 			cacheReadUsdMicrosPerMTok: 100,
 			cacheWriteUsdMicrosPerMTok: 100,
@@ -441,7 +441,10 @@ class FakeModelPricingService {
 		this.quoteCalls += 1;
 		return {
 			...this.quote,
-			credits: usdMicrosToCredits(this.quote.costUsdMicros, usdMicrosPerCredit),
+			credits: usdMicrosToCentiCredits(
+				this.quote.costUsdMicros,
+				usdMicrosPerCredit,
+			),
 			pricingSnapshot: {
 				...this.quote.pricingSnapshot,
 				usdMicrosPerCredit,
@@ -474,7 +477,7 @@ class FakeMeteringGateway implements MeteringGateway {
 	}
 }
 
-function setup(balance = 100) {
+function setup(balance = 10_000) {
 	const repository = new InMemoryMeteringRepository();
 	const credits = new InMemoryCreditsService();
 	const pricing = new FakeModelPricingService();
@@ -521,33 +524,34 @@ describe("MeteringService", () => {
 	});
 
 	it("atomically refuses a reserve with the typed 402 and leaves no event", async () => {
-		const { credits, repository, service } = setup(2);
+		const { credits, repository, service } = setup(200);
 
 		await expect(
 			service.reserve("chat", USER_SUBJECT, {
-				credits: 3,
+				credits: 300,
 				eventId: CHAT_EVENT_ID,
 				idempotencyKey: "chat:message_1",
 			}),
 		).rejects.toMatchObject({
+			// The error exposes decimal display credits (200 cc / 300 cc inputs).
 			availableCredits: 2,
 			requiredCredits: 3,
 			status: 402,
 		});
 		expect(repository.events).toHaveLength(0);
-		expect(credits.balances.get(USER_ID)).toBe(2);
+		expect(credits.balances.get(USER_ID)).toBe(200);
 	});
 
 	it("serializes concurrent reserves so only the affordable operation wins", async () => {
-		const { credits, repository, service } = setup(1);
+		const { credits, repository, service } = setup(100);
 		const results = await Promise.allSettled([
 			service.reserve("chat", USER_SUBJECT, {
-				credits: 1,
+				credits: 100,
 				eventId: CHAT_EVENT_ID,
 				idempotencyKey: "chat:one",
 			}),
 			service.reserve("chat", USER_SUBJECT, {
-				credits: 1,
+				credits: 100,
 				eventId: "22222222-2222-4222-8222-222222222222",
 				idempotencyKey: "chat:two",
 			}),
@@ -566,7 +570,7 @@ describe("MeteringService", () => {
 	it("replays reserve without a second debit and rejects a changed fingerprint", async () => {
 		const { credits, service } = setup();
 		const estimate = {
-			credits: 2,
+			credits: 200,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "chat:message_1",
 		};
@@ -590,19 +594,19 @@ describe("MeteringService", () => {
 		expect(credits.consumeCalls).toHaveLength(1);
 		expect(credits.consumeCalls[0]).toMatchObject({
 			allowOverdraft: false,
-			amount: 2,
+			amount: 200,
 			idempotencyKey: `reserve:${CHAT_EVENT_ID}`,
 		});
 		await expect(
-			service.reserve("chat", USER_SUBJECT, { ...estimate, credits: 3 }),
+			service.reserve("chat", USER_SUBJECT, { ...estimate, credits: 300 }),
 		).rejects.toBeInstanceOf(MeteringStateConflictError);
 	});
 
 	it("replays an org reserve for a different acting member of the same pool", async () => {
 		const { credits, service } = setup();
-		credits.setBalance("org_1", 100);
+		credits.setBalance("org_1", 10_000);
 		const estimate = {
-			credits: 2,
+			credits: 200,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "chat:org_message_1",
 		};
@@ -644,7 +648,7 @@ describe("MeteringService", () => {
 		await service.reserve("chat", USER_SUBJECT, {
 			attemptRef: PROJECT_PENDING_ATTEMPT_REF,
 			chatId: "chat-1",
-			credits: 1,
+			credits: 100,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "project-create:project-1",
 			messageId: "message-1",
@@ -694,7 +698,7 @@ describe("MeteringService", () => {
 		await service.reserve("chat", USER_SUBJECT, {
 			attemptRef: PROJECT_PENDING_ATTEMPT_REF,
 			chatId: "chat-1",
-			credits: 1,
+			credits: 100,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "project-create:project-1",
 			messageId: "message-1",
@@ -757,7 +761,7 @@ describe("MeteringService", () => {
 		await service.reserve("chat", USER_SUBJECT, {
 			attemptRef: PROJECT_PENDING_ATTEMPT_REF,
 			chatId: "chat-1",
-			credits: 1,
+			credits: 100,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "project-create:project-1",
 			messageId: "message-1",
@@ -786,7 +790,7 @@ describe("MeteringService", () => {
 		await service.reserve("chat", USER_SUBJECT, {
 			attemptRef: PROJECT_PENDING_ATTEMPT_REF,
 			chatId: "chat-1",
-			credits: 1,
+			credits: 100,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "project-create:project-1",
 			messageId: "message-1",
@@ -817,7 +821,7 @@ describe("MeteringService", () => {
 
 		repository.events.set(CHAT_EVENT_ID, {
 			...claimed,
-			finalCredits: 1,
+			finalCredits: 100,
 			settledAt: new Date(),
 			status: "settled",
 		});
@@ -852,7 +856,7 @@ describe("MeteringService", () => {
 		await service.reserve("chat", USER_SUBJECT, {
 			attemptRef: PROJECT_PENDING_ATTEMPT_REF,
 			chatId: "chat-1",
-			credits: 2,
+			credits: 200,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "project-create:project-1",
 			messageId: "message-1",
@@ -904,7 +908,7 @@ describe("MeteringService", () => {
 		);
 		await expect(service.reconcile(CHAT_EVENT_ID)).resolves.toMatchObject({
 			event: {
-				finalCredits: 1,
+				finalCredits: 100,
 				pricingSnapshot: {
 					gatewayReconciliation: {
 						customerBillableCostUsdMicros: 50_000,
@@ -929,12 +933,12 @@ describe("MeteringService", () => {
 		expect(repository.events.get(CHAT_EVENT_ID)?.status).toBe("reconciled");
 	});
 
-	it("keeps the one-credit creation charge when only bundled title usage exists", async () => {
+	it("keeps the minimum one-centi-credit creation charge when only bundled title usage exists", async () => {
 		const { credits, gateway, repository, service } = setup();
 		await service.reserve("chat", USER_SUBJECT, {
 			attemptRef: PROJECT_PENDING_ATTEMPT_REF,
 			chatId: "chat-1",
-			credits: 1,
+			credits: 100,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "project-create:project-1",
 			messageId: "message-1",
@@ -964,7 +968,7 @@ describe("MeteringService", () => {
 			reconciledCostUsdMicros: 500_000,
 			status: "reconciled",
 		});
-		expect(credits.balances.get(USER_ID)).toBe(99);
+		expect(credits.balances.get(USER_ID)).toBe(9_999);
 	});
 
 	it.each([
@@ -973,7 +977,7 @@ describe("MeteringService", () => {
 	] as const)("reports an explicit %s replay while the provider-facing reserve fails closed", async (status) => {
 		const { credits, repository, service } = setup();
 		const estimate = {
-			credits: 2,
+			credits: 200,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "chat:terminal-replay",
 		};
@@ -1002,7 +1006,7 @@ describe("MeteringService", () => {
 	] as const)("fails closed when a reservation key replays a %s event", async (status) => {
 		const { credits, repository, service } = setup();
 		const estimate = {
-			credits: 2,
+			credits: 200,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "chat:failed-replay",
 		};
@@ -1027,26 +1031,26 @@ describe("MeteringService", () => {
 
 		await expect(
 			service.reserve("image", USER_SUBJECT, {
-				credits: 4,
+				credits: 299,
 				idempotencyKey: "image:too-cheap",
 			}),
-		).rejects.toThrow("at least 5 credits");
+		).rejects.toThrow("at least 300 centi-credits");
 
 		const parent = await service.reserve("chat", USER_SUBJECT, {
-			credits: 1,
+			credits: 100,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "chat:parent",
 		});
 		await expect(
 			service.reserve("image", USER_SUBJECT, {
-				credits: 5,
+				credits: 300,
 				idempotencyKey: "image:child",
 				parentEventId: parent.id,
 			}),
 		).resolves.toMatchObject({ operation: "image", parentEventId: parent.id });
 		await expect(
 			service.reserve("transcription", USER_SUBJECT, {
-				credits: 1,
+				credits: 100,
 				idempotencyKey: "transcription:child",
 				parentEventId: parent.id,
 			}),
@@ -1054,14 +1058,14 @@ describe("MeteringService", () => {
 	});
 
 	it("settles an overage to debt once with settle:{eventId}", async () => {
-		const { credits, service } = setup(10);
+		const { credits, service } = setup(1000);
 		await service.reserve("chat", USER_SUBJECT, {
-			credits: 10,
+			credits: 1000,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "chat:message_1",
 		});
 		const settlement = {
-			finalCredits: 13,
+			finalCredits: 1300,
 			pricing: "direct" as const,
 			pricingSnapshot: { mode: "fixed" },
 		};
@@ -1073,21 +1077,21 @@ describe("MeteringService", () => {
 		expect(credits.consumeCalls).toHaveLength(2);
 		expect(credits.consumeCalls[1]).toMatchObject({
 			allowOverdraft: true,
-			amount: 3,
+			amount: 300,
 			idempotencyKey: `settle:${CHAT_EVENT_ID}`,
 		});
-		expect(credits.balances.get(USER_ID)).toBe(-3);
+		expect(credits.balances.get(USER_ID)).toBe(-300);
 	});
 
 	it("partially refunds a reserve once with settle-refund:{eventId}", async () => {
 		const { credits, service } = setup();
 		await service.reserve("chat", USER_SUBJECT, {
-			credits: 10,
+			credits: 1000,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "chat:message_1",
 		});
 		const settlement = {
-			finalCredits: 6,
+			finalCredits: 600,
 			pricing: "direct" as const,
 			pricingSnapshot: { mode: "fixed" },
 		};
@@ -1096,18 +1100,18 @@ describe("MeteringService", () => {
 
 		expect(credits.refundCalls).toEqual([
 			expect.objectContaining({
-				amount: 4,
+				amount: 400,
 				consumeIdempotencyKey: `reserve:${CHAT_EVENT_ID}`,
 				idempotencyKey: `settle-refund:${CHAT_EVENT_ID}`,
 			}),
 		]);
-		expect(credits.balances.get(USER_ID)).toBe(94);
+		expect(credits.balances.get(USER_ID)).toBe(9_400);
 	});
 
 	it("never refunds a reserved event after a generation ref is durable", async () => {
 		const { credits, repository, service } = setup();
 		await service.reserve("image", USER_SUBJECT, {
-			credits: 5,
+			credits: 300,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "image:captured",
 		});
@@ -1120,18 +1124,18 @@ describe("MeteringService", () => {
 		).resolves.toMatchObject({ id: CHAT_EVENT_ID, status: "reserved" });
 		expect(repository.events.get(CHAT_EVENT_ID)?.status).toBe("reserved");
 		expect(credits.refundCalls).toHaveLength(0);
-		expect(credits.balances.get(USER_ID)).toBe(95);
+		expect(credits.balances.get(USER_ID)).toBe(9_700);
 	});
 
 	it("settles a direct parent and child atomically in parent-first lock order", async () => {
 		const { credits, repository, service } = setup();
 		await service.reserve("connector", USER_SUBJECT, {
-			credits: 5,
+			credits: 500,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "connector:attempt_1",
 		});
 		await service.reserve("image", USER_SUBJECT, {
-			credits: 5,
+			credits: 300,
 			eventId: CHILD_EVENT_ID,
 			idempotencyKey: "image:attempt_1",
 			parentEventId: CHAT_EVENT_ID,
@@ -1139,7 +1143,7 @@ describe("MeteringService", () => {
 		const parent = {
 			eventId: CHAT_EVENT_ID,
 			settlement: {
-				finalCredits: 5,
+				finalCredits: 500,
 				pricing: "direct" as const,
 				pricingSnapshot: { mode: "fixed", operation: "connector" },
 			},
@@ -1147,7 +1151,7 @@ describe("MeteringService", () => {
 		const child = {
 			eventId: CHILD_EVENT_ID,
 			settlement: {
-				finalCredits: 5,
+				finalCredits: 300,
 				pricing: "direct" as const,
 				pricingSnapshot: { mode: "fixed", operation: "image" },
 			},
@@ -1183,12 +1187,12 @@ describe("MeteringService", () => {
 	it("atomically upgrades child completion evidence with its ref-less parent settlement", async () => {
 		const { repository, service } = setup();
 		await service.reserve("connector", USER_SUBJECT, {
-			credits: 5,
+			credits: 500,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "connector:completion-atomic",
 		});
 		await service.reserve("image", USER_SUBJECT, {
-			credits: 5,
+			credits: 300,
 			eventId: CHILD_EVENT_ID,
 			idempotencyKey: "image:completion-atomic",
 			parentEventId: CHAT_EVENT_ID,
@@ -1203,10 +1207,10 @@ describe("MeteringService", () => {
 		const parent = {
 			eventId: CHAT_EVENT_ID,
 			settlement: {
-				finalCredits: 5,
+				finalCredits: 500,
 				pricing: "direct" as const,
 				pricingSnapshot: {
-					creditsPerUnit: 5,
+					creditsPerUnit: 500,
 					mode: "fixed",
 					operation: "connector",
 					units: 1,
@@ -1216,10 +1220,10 @@ describe("MeteringService", () => {
 		const child = {
 			eventId: CHILD_EVENT_ID,
 			settlement: {
-				finalCredits: 5,
+				finalCredits: 300,
 				pricing: "direct" as const,
 				pricingSnapshot: {
-					creditsPerUnit: 5,
+					creditsPerUnit: 300,
 					mode: "fixed",
 					operation: "image",
 					units: 1,
@@ -1247,8 +1251,8 @@ describe("MeteringService", () => {
 				eventId: CHILD_EVENT_ID,
 			}),
 		).resolves.toMatchObject({
-			child: { finalCredits: 5, status: "settled" },
-			parent: { finalCredits: 5, status: "settled" },
+			child: { finalCredits: 300, status: "settled" },
+			parent: { finalCredits: 500, status: "settled" },
 		});
 		expect([...repository.refs.values()][0]?.stepUsage).toMatchObject({
 			metering: { fixedUnits: 1 },
@@ -1258,7 +1262,7 @@ describe("MeteringService", () => {
 	it("persists normalized token details from ModelPricingService", async () => {
 		const { service } = setup();
 		await service.reserve("chat", USER_SUBJECT, {
-			credits: 1,
+			credits: 100,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "chat:message_1",
 		});
@@ -1275,7 +1279,7 @@ describe("MeteringService", () => {
 		expect(settled).toMatchObject({
 			cacheReadTokens: 20,
 			cacheWriteTokens: 0,
-			finalCredits: 2,
+			finalCredits: 150,
 			inputTokens: 100,
 			model: "openai/test",
 			outputTokens: 30,
@@ -1287,7 +1291,7 @@ describe("MeteringService", () => {
 	it("settles token usage with the durable reservation conversion rate", async () => {
 		const { pricing, service } = setup();
 		await service.reserve("chat", USER_SUBJECT, {
-			credits: 2,
+			credits: 200,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "chat:settlement-rate-drift",
 		});
@@ -1300,7 +1304,7 @@ describe("MeteringService", () => {
 		});
 
 		expect(settled).toMatchObject({
-			finalCredits: 2,
+			finalCredits: 150,
 			pricingSnapshot: { usdMicrosPerCredit: 50_000 },
 			status: "settled",
 		});
@@ -1309,7 +1313,7 @@ describe("MeteringService", () => {
 	it("replays a settled token request without consulting volatile model pricing", async () => {
 		const { credits, pricing, service } = setup();
 		await service.reserve("chat", USER_SUBJECT, {
-			credits: 1,
+			credits: 100,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "chat:token-replay",
 		});
@@ -1332,7 +1336,7 @@ describe("MeteringService", () => {
 		pricing.quote = {
 			...pricing.quote,
 			costUsdMicros: 500_000,
-			credits: 10,
+			credits: 1_000,
 			pricingSnapshot: {
 				...pricing.quote.pricingSnapshot,
 				refreshedAt: "2026-08-02T00:00:00.000Z",
@@ -1371,7 +1375,7 @@ describe("MeteringService", () => {
 	it("validates a reconciled token replay from durable settlement evidence without re-quoting", async () => {
 		const { gateway, pricing, service } = setup();
 		await service.reserve("chat", USER_SUBJECT, {
-			credits: 2,
+			credits: 200,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "chat:reconciled-token-replay",
 		});
@@ -1402,7 +1406,7 @@ describe("MeteringService", () => {
 		pricing.quote = {
 			...pricing.quote,
 			costUsdMicros: 500_000,
-			credits: 10,
+			credits: 1_000,
 			pricingSnapshot: {
 				...pricing.quote.pricingSnapshot,
 				refreshedAt: "2026-08-02T00:00:00.000Z",
@@ -1428,7 +1432,7 @@ describe("MeteringService", () => {
 	it("captures a runtime-narrowed gateway generation exactly once", async () => {
 		const { repository, service } = setup();
 		await service.reserve("chat", USER_SUBJECT, {
-			credits: 1,
+			credits: 100,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "chat:message_1",
 		});
@@ -1459,7 +1463,7 @@ describe("MeteringService", () => {
 	it("monotonically enriches an ID-only generation replay with step usage", async () => {
 		const { repository, service } = setup();
 		await service.reserve("chat", USER_SUBJECT, {
-			credits: 1,
+			credits: 100,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "chat:generation-enrichment",
 		});
@@ -1479,7 +1483,7 @@ describe("MeteringService", () => {
 	it("batch-reconciles only after capture and settlement are both durable", async () => {
 		const { gateway, repository, service } = setup();
 		await service.reserve("chat", USER_SUBJECT, {
-			credits: 1,
+			credits: 100,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "chat:message_1",
 		});
@@ -1488,7 +1492,7 @@ describe("MeteringService", () => {
 		});
 
 		await service.settle(CHAT_EVENT_ID, {
-			finalCredits: 1,
+			finalCredits: 100,
 			pricing: "direct",
 			pricingSnapshot: { source: "test" },
 		});
@@ -1503,7 +1507,7 @@ describe("MeteringService", () => {
 	it("routes OpenRouter captures to reconciliation under their own source", async () => {
 		const { gateway, service } = setup();
 		await service.reserve("chat", USER_SUBJECT, {
-			credits: 1,
+			credits: 100,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "chat:message_1",
 		});
@@ -1519,7 +1523,7 @@ describe("MeteringService", () => {
 		});
 
 		await service.settle(CHAT_EVENT_ID, {
-			finalCredits: 1,
+			finalCredits: 100,
 			pricing: "direct",
 			pricingSnapshot: { source: "test" },
 		});
@@ -1534,12 +1538,12 @@ describe("MeteringService", () => {
 	it("keeps a late capture batch-selectable without any per-event handoff", async () => {
 		const { gateway, repository, service } = setup();
 		await service.reserve("chat", USER_SUBJECT, {
-			credits: 1,
+			credits: 100,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "chat:message_1",
 		});
 		await service.settle(CHAT_EVENT_ID, {
-			finalCredits: 1,
+			finalCredits: 100,
 			pricing: "direct",
 			pricingSnapshot: { source: "test" },
 		});
@@ -1559,16 +1563,16 @@ describe("MeteringService", () => {
 	it("reconciles authoritative multi-generation cost and token totals", async () => {
 		const { credits, gateway, repository, service } = setup();
 		await service.reserve("chat", USER_SUBJECT, {
-			credits: 5,
+			credits: 500,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "chat:message_1",
 		});
 		await service.settle(CHAT_EVENT_ID, {
-			finalCredits: 3,
+			finalCredits: 300,
 			pricing: "direct",
 			pricingSnapshot: {
 				mode: "token",
-				quotedCredits: 3,
+				quotedCredits: 300,
 				source: "estimate",
 			},
 			rawUsage: { inputTokens: 90, source: "finish-event" },
@@ -1584,13 +1588,13 @@ describe("MeteringService", () => {
 		const result = await service.reconcile(CHAT_EVENT_ID);
 
 		expect(result).toMatchObject({
-			adjustedCredits: 3,
+			adjustedCredits: 201,
 			reconciledCostUsdMicros: 250_001,
 		});
 		expect(result.event).toMatchObject({
 			cacheReadTokens: 14,
 			cacheWriteTokens: 6,
-			finalCredits: 6,
+			finalCredits: 501,
 			inputTokens: 200,
 			outputTokens: 80,
 			status: "reconciled",
@@ -1601,12 +1605,12 @@ describe("MeteringService", () => {
 				usdMicrosPerCredit: 50_000,
 			},
 			mode: "token",
-			quotedCredits: 3,
+			quotedCredits: 300,
 			source: "estimate",
 			settlementPricingSnapshot: {
 				costUsdMicros: null,
 				mode: "token",
-				quotedCredits: 3,
+				quotedCredits: 300,
 				source: "estimate",
 			},
 		});
@@ -1620,7 +1624,7 @@ describe("MeteringService", () => {
 		});
 		expect(credits.consumeCalls.at(-1)).toMatchObject({
 			allowOverdraft: true,
-			amount: 3,
+			amount: 201,
 			idempotencyKey: `reconcile:${CHAT_EVENT_ID}`,
 		});
 		expect(
@@ -1633,7 +1637,7 @@ describe("MeteringService", () => {
 	it("ceil-bills the aggregate raw gateway cost without per-ref round-down", async () => {
 		const { credits, gateway, repository, service } = setup();
 		await service.reserve("chat", USER_SUBJECT, {
-			credits: 1,
+			credits: 100,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "chat:fractional-micros",
 		});
@@ -1653,7 +1657,7 @@ describe("MeteringService", () => {
 			adjustedCredits: 1,
 			reconciledCostUsdMicros: 50_001,
 		});
-		expect(result.event.finalCredits).toBe(2);
+		expect(result.event.finalCredits).toBe(101);
 		expect(refCosts).toEqual([25_001, 25_000]);
 		expect(
 			refCosts.reduce<number>((total, cost) => total + (cost ?? 0), 0),
@@ -1675,7 +1679,7 @@ describe("MeteringService", () => {
 	it("adds decimal gateway totals without binary-float overbilling", async () => {
 		const { gateway, repository, service } = setup();
 		await service.reserve("chat", USER_SUBJECT, {
-			credits: 1,
+			credits: 100,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "chat:decimal-aggregate",
 		});
@@ -1692,7 +1696,7 @@ describe("MeteringService", () => {
 		const result = await service.reconcile(CHAT_EVENT_ID);
 
 		expect(result.reconciledCostUsdMicros).toBe(300_000);
-		expect(result.event.finalCredits).toBe(6);
+		expect(result.event.finalCredits).toBe(600);
 		expect(
 			[...repository.refs.values()].reduce(
 				(total, ref) => total + (ref.reconciledCostUsdMicros ?? 0),
@@ -1704,7 +1708,7 @@ describe("MeteringService", () => {
 	it("rejects an aggregate gateway cost outside the database integer range", async () => {
 		const { gateway, repository, service } = setup();
 		await service.reserve("chat", USER_SUBJECT, {
-			credits: 1,
+			credits: 100,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "chat:cost-overflow",
 		});
@@ -1729,7 +1733,7 @@ describe("MeteringService", () => {
 	it("reconciles a settled token event with its durable debit-time conversion rate", async () => {
 		const { credits, gateway, pricing, service } = setup();
 		await service.reserve("chat", USER_SUBJECT, {
-			credits: 1,
+			credits: 100,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "chat:settled-rate-snapshot",
 		});
@@ -1749,7 +1753,7 @@ describe("MeteringService", () => {
 
 		const result = await service.reconcile(CHAT_EVENT_ID);
 
-		expect(result.event.finalCredits).toBe(2);
+		expect(result.event.finalCredits).toBe(150);
 		expect(result.adjustedCredits).toBe(0);
 		expect(credits.consumeCalls).toHaveLength(2);
 		expect(result.event.pricingSnapshot).toMatchObject({
@@ -1761,7 +1765,7 @@ describe("MeteringService", () => {
 	it("reconciles a crash-stranded token reserve with its durable reservation rate", async () => {
 		const { credits, gateway, pricing, service } = setup();
 		await service.reserve("chat", USER_SUBJECT, {
-			credits: 1,
+			credits: 100,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "chat:reserved-rate-snapshot",
 		});
@@ -1777,12 +1781,12 @@ describe("MeteringService", () => {
 		const result = await service.reconcile(CHAT_EVENT_ID);
 		const replay = await service.reconcile(CHAT_EVENT_ID);
 
-		expect(result.event.finalCredits).toBe(2);
-		expect(result.adjustedCredits).toBe(1);
+		expect(result.event.finalCredits).toBe(150);
+		expect(result.adjustedCredits).toBe(50);
 		expect(replay.event).toEqual(result.event);
 		expect(replay.adjustedCredits).toBe(0);
 		expect(credits.consumeCalls.at(-1)).toMatchObject({
-			amount: 1,
+			amount: 50,
 			idempotencyKey: `reconcile:${CHAT_EVENT_ID}`,
 		});
 		expect(result.event.pricingSnapshot).toMatchObject({
@@ -1798,7 +1802,7 @@ describe("MeteringService", () => {
 	it("uses durable fixed registry terms for crash recovery and settlement replay after price drift", async () => {
 		const { gateway, repository, service } = setup();
 		const event = await service.reserve("image", USER_SUBJECT, {
-			credits: 14,
+			credits: 1400,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "image:reserved-registry-snapshot",
 		});
@@ -1806,7 +1810,7 @@ describe("MeteringService", () => {
 			...event,
 			pricingSnapshot: {
 				...(event.pricingSnapshot as Record<string, unknown>),
-				creditsPerUnit: 7,
+				creditsPerUnit: 700,
 			},
 		});
 		await service.captureGeneration(CHAT_EVENT_ID, {
@@ -1820,18 +1824,18 @@ describe("MeteringService", () => {
 
 		const result = await service.reconcile(CHAT_EVENT_ID);
 
-		expect(result.event.finalCredits).toBe(14);
+		expect(result.event.finalCredits).toBe(1400);
 		expect(result.event.pricingSnapshot).toMatchObject({
-			creditsPerUnit: 7,
-			reservationPricingSnapshot: { creditsPerUnit: 7 },
+			creditsPerUnit: 700,
+			reservationPricingSnapshot: { creditsPerUnit: 700 },
 			units: 2,
 		});
 		await expect(
 			service.settle(CHAT_EVENT_ID, {
-				finalCredits: 14,
+				finalCredits: 1400,
 				pricing: "direct",
 				pricingSnapshot: {
-					creditsPerUnit: 7,
+					creditsPerUnit: 700,
 					mode: "fixed",
 					operation: "image",
 					source: "operation_registry",
@@ -1845,7 +1849,7 @@ describe("MeteringService", () => {
 	it("uses durable per-minute terms for crash recovery after registry drift", async () => {
 		const { gateway, repository, service } = setup();
 		const event = await service.reserve("transcription", USER_SUBJECT, {
-			credits: 4,
+			credits: 400,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "transcription:reserved-registry-snapshot",
 		});
@@ -1853,7 +1857,7 @@ describe("MeteringService", () => {
 			...event,
 			pricingSnapshot: {
 				...(event.pricingSnapshot as Record<string, unknown>),
-				creditsPerMinute: 2,
+				creditsPerMinute: 200,
 			},
 		});
 		await service.captureGeneration(CHAT_EVENT_ID, {
@@ -1867,18 +1871,18 @@ describe("MeteringService", () => {
 
 		const result = await service.reconcile(CHAT_EVENT_ID);
 
-		expect(result.event.finalCredits).toBe(4);
+		expect(result.event.finalCredits).toBe(400);
 		expect(result.event.pricingSnapshot).toMatchObject({
-			creditsPerMinute: 2,
+			creditsPerMinute: 200,
 			durationSeconds: 90,
-			reservationPricingSnapshot: { creditsPerMinute: 2 },
+			reservationPricingSnapshot: { creditsPerMinute: 200 },
 		});
 	});
 
 	it("reconstructs fixed registry pricing when reconciling a reserved event", async () => {
 		const { credits, gateway, service } = setup();
 		await service.reserve("image", USER_SUBJECT, {
-			credits: 10,
+			credits: 600,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "image:attempt_1",
 		});
@@ -1892,10 +1896,10 @@ describe("MeteringService", () => {
 
 		const result = await service.reconcile(CHAT_EVENT_ID);
 		const recoveredCompletion = {
-			finalCredits: 10,
+			finalCredits: 600,
 			pricing: "direct" as const,
 			pricingSnapshot: {
-				creditsPerUnit: 5,
+				creditsPerUnit: 300,
 				mode: "fixed",
 				operation: "image",
 				source: "operation_registry",
@@ -1909,10 +1913,10 @@ describe("MeteringService", () => {
 			reconciledCostUsdMicros: 1_200_000,
 		});
 		expect(result.event).toMatchObject({
-			finalCredits: 10,
+			finalCredits: 600,
 			operation: "image",
 			pricingSnapshot: {
-				creditsPerUnit: 5,
+				creditsPerUnit: 300,
 				mode: "fixed",
 				operation: "image",
 				source: "operation_registry_recovery",
@@ -1941,7 +1945,7 @@ describe("MeteringService", () => {
 		await expect(
 			service.settle(CHAT_EVENT_ID, {
 				...recoveredCompletion,
-				finalCredits: 5,
+				finalCredits: 300,
 				pricingSnapshot: {
 					...recoveredCompletion.pricingSnapshot,
 					units: 1,
@@ -1959,7 +1963,7 @@ describe("MeteringService", () => {
 	it("allows a zero-unit direct settlement to refund an empty fixed result", async () => {
 		const { credits, service } = setup();
 		await service.reserve("image", USER_SUBJECT, {
-			credits: 5,
+			credits: 300,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "image:empty-result",
 		});
@@ -1968,7 +1972,7 @@ describe("MeteringService", () => {
 			finalCredits: 0,
 			pricing: "direct",
 			pricingSnapshot: {
-				creditsPerUnit: 5,
+				creditsPerUnit: 300,
 				mode: "fixed",
 				operation: "image",
 				units: 0,
@@ -1977,7 +1981,7 @@ describe("MeteringService", () => {
 
 		expect(settled).toMatchObject({ finalCredits: 0, status: "settled" });
 		expect(credits.refundCalls.at(-1)).toMatchObject({
-			amount: 5,
+			amount: 300,
 			idempotencyKey: `settle-refund:${CHAT_EVENT_ID}`,
 		});
 	});
@@ -1985,7 +1989,7 @@ describe("MeteringService", () => {
 	it("atomically settles fixed recovery from the larger stored/provider unit count", async () => {
 		const { credits, repository, service } = setup();
 		const reserved = await service.reserve("image", USER_SUBJECT, {
-			credits: 8,
+			credits: 800,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "image:fixed-evidence-recovery",
 		});
@@ -1993,7 +1997,7 @@ describe("MeteringService", () => {
 			...reserved,
 			pricingSnapshot: {
 				...(reserved.pricingSnapshot as Record<string, unknown>),
-				creditsPerUnit: 4,
+				creditsPerUnit: 400,
 			},
 		});
 		await service.captureGeneration(CHAT_EVENT_ID, {
@@ -2005,9 +2009,9 @@ describe("MeteringService", () => {
 		const replay = await service.settleFixedFromEvidence(CHAT_EVENT_ID, 1);
 
 		expect(settled).toMatchObject({
-			finalCredits: 8,
+			finalCredits: 800,
 			pricingSnapshot: {
-				creditsPerUnit: 4,
+				creditsPerUnit: 400,
 				operation: "image",
 				units: 2,
 			},
@@ -2021,7 +2025,7 @@ describe("MeteringService", () => {
 	it("uses the stored fixed prefix when it exceeds provider evidence", async () => {
 		const { service } = setup();
 		await service.reserve("image", USER_SUBJECT, {
-			credits: 15,
+			credits: 900,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "image:stored-prefix-recovery",
 		});
@@ -2033,8 +2037,8 @@ describe("MeteringService", () => {
 		await expect(
 			service.settleFixedFromEvidence(CHAT_EVENT_ID, 3),
 		).resolves.toMatchObject({
-			finalCredits: 15,
-			pricingSnapshot: { creditsPerUnit: 5, units: 3 },
+			finalCredits: 900,
+			pricingSnapshot: { creditsPerUnit: 300, units: 3 },
 			status: "settled",
 		});
 	});
@@ -2042,7 +2046,7 @@ describe("MeteringService", () => {
 	it("financially finalizes an unpriced reconcile-failed fixed event without reopening reconciliation", async () => {
 		const { credits, repository, service } = setup();
 		const reserved = await service.reserve("image", USER_SUBJECT, {
-			credits: 16,
+			credits: 1600,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "image:reconcile-failed-fixed-recovery",
 		});
@@ -2050,7 +2054,7 @@ describe("MeteringService", () => {
 			...reserved,
 			pricingSnapshot: {
 				...(reserved.pricingSnapshot as Record<string, unknown>),
-				creditsPerUnit: 4,
+				creditsPerUnit: 400,
 			},
 		});
 		await service.captureGeneration(CHAT_EVENT_ID, {
@@ -2066,9 +2070,9 @@ describe("MeteringService", () => {
 		const replay = await service.settleFixedFromEvidence(CHAT_EVENT_ID, 3);
 
 		expect(settled).toMatchObject({
-			finalCredits: 8,
+			finalCredits: 800,
 			pricingSnapshot: {
-				creditsPerUnit: 4,
+				creditsPerUnit: 400,
 				operation: "image",
 				units: 2,
 			},
@@ -2079,7 +2083,7 @@ describe("MeteringService", () => {
 		expect(replay).toEqual(settled);
 		expect(credits.refundCalls).toEqual([
 			expect.objectContaining({
-				amount: 8,
+				amount: 800,
 				idempotencyKey: `settle-refund:${CHAT_EVENT_ID}`,
 			}),
 		]);
@@ -2088,7 +2092,7 @@ describe("MeteringService", () => {
 	it("reconciles a crash-stranded four-image reserve from one durable unit ref", async () => {
 		const { credits, gateway, service } = setup();
 		await service.reserve("image", USER_SUBJECT, {
-			credits: 20,
+			credits: 1200,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "image:partial-crash",
 		});
@@ -2107,9 +2111,9 @@ describe("MeteringService", () => {
 		const result = await service.reconcile(CHAT_EVENT_ID);
 
 		expect(result.event).toMatchObject({
-			finalCredits: 5,
+			finalCredits: 300,
 			pricingSnapshot: {
-				creditsPerUnit: 5,
+				creditsPerUnit: 300,
 				mode: "fixed",
 				operation: "image",
 				units: 1,
@@ -2117,7 +2121,7 @@ describe("MeteringService", () => {
 			status: "reconciled",
 		});
 		expect(credits.refundCalls.at(-1)).toMatchObject({
-			amount: 15,
+			amount: 900,
 			idempotencyKey: `reconcile-refund:${CHAT_EVENT_ID}:reserve`,
 		});
 	});
@@ -2125,7 +2129,7 @@ describe("MeteringService", () => {
 	it("accepts zero-unit settlement replay when reconciliation wins the race", async () => {
 		const { gateway, service } = setup();
 		await service.reserve("image", USER_SUBJECT, {
-			credits: 5,
+			credits: 300,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "image:empty-race",
 		});
@@ -2151,7 +2155,7 @@ describe("MeteringService", () => {
 				finalCredits: 0,
 				pricing: "direct",
 				pricingSnapshot: {
-					creditsPerUnit: 5,
+					creditsPerUnit: 300,
 					mode: "fixed",
 					operation: "image",
 					source: "operation_registry",
@@ -2165,15 +2169,15 @@ describe("MeteringService", () => {
 	it("preserves fixed settlement pricing and raw usage during reconciliation", async () => {
 		const { gateway, service } = setup();
 		await service.reserve("image", USER_SUBJECT, {
-			credits: 10,
+			credits: 600,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "image:settled",
 		});
 		const settlement = {
-			finalCredits: 10,
+			finalCredits: 600,
 			pricing: "direct" as const,
 			pricingSnapshot: {
-				creditsPerUnit: 5,
+				creditsPerUnit: 300,
 				mode: "fixed",
 				operation: "image",
 				source: "operation_registry",
@@ -2195,7 +2199,7 @@ describe("MeteringService", () => {
 		const { event } = await service.reconcile(CHAT_EVENT_ID);
 
 		expect(event.pricingSnapshot).toMatchObject({
-			creditsPerUnit: 5,
+			creditsPerUnit: 300,
 			mode: "fixed",
 			operation: "image",
 			source: "operation_registry",
@@ -2226,7 +2230,7 @@ describe("MeteringService", () => {
 	it("reconstructs per-minute pricing and preserves captured duration evidence", async () => {
 		const { gateway, service } = setup();
 		await service.reserve("transcription", USER_SUBJECT, {
-			credits: 2,
+			credits: 200,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "transcription:operation_1",
 		});
@@ -2247,15 +2251,15 @@ describe("MeteringService", () => {
 		const { event } = await service.reconcile(CHAT_EVENT_ID);
 
 		expect(event).toMatchObject({
-			finalCredits: 1,
+			finalCredits: 100,
 			pricingSnapshot: {
 				authoritativeDurationSeconds: 60,
-				creditsPerMinute: 1,
+				creditsPerMinute: 100,
 				durationCapped: false,
 				durationSeconds: 60,
-				finalCredits: 1,
+				finalCredits: 100,
 				maxDurationSeconds: 300,
-				minimumCredits: 1,
+				minimumCredits: 100,
 				mode: "per_minute",
 				operation: "transcription",
 				providerDurationSeconds: 60,
@@ -2281,7 +2285,7 @@ describe("MeteringService", () => {
 	it("falls back to positive local duration when provider duration is invalid", async () => {
 		const { gateway, service } = setup();
 		await service.reserve("transcription", USER_SUBJECT, {
-			credits: 1,
+			credits: 100,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "transcription:local-duration",
 		});
@@ -2296,9 +2300,9 @@ describe("MeteringService", () => {
 
 		const result = await service.reconcile(CHAT_EVENT_ID);
 
-		expect(result).toMatchObject({ adjustedCredits: 2 });
+		expect(result).toMatchObject({ adjustedCredits: 200 });
 		expect(result.event).toMatchObject({
-			finalCredits: 3,
+			finalCredits: 300,
 			pricingSnapshot: {
 				authoritativeDurationSeconds: 121,
 				durationCapped: false,
@@ -2319,7 +2323,7 @@ describe("MeteringService", () => {
 	it("caps provider duration for billing while retaining the over-cap evidence", async () => {
 		const { credits, gateway, service } = setup();
 		await service.reserve("transcription", USER_SUBJECT, {
-			credits: 1,
+			credits: 100,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "transcription:provider-over-cap",
 		});
@@ -2334,9 +2338,9 @@ describe("MeteringService", () => {
 
 		const result = await service.reconcile(CHAT_EVENT_ID);
 
-		expect(result).toMatchObject({ adjustedCredits: 4 });
+		expect(result).toMatchObject({ adjustedCredits: 400 });
 		expect(result.event).toMatchObject({
-			finalCredits: 5,
+			finalCredits: 500,
 			pricingSnapshot: {
 				authoritativeDurationSeconds: 360,
 				durationCapped: true,
@@ -2364,7 +2368,7 @@ describe("MeteringService", () => {
 			},
 		});
 		expect(credits.consumeCalls.at(-1)).toMatchObject({
-			amount: 4,
+			amount: 400,
 			idempotencyKey: `reconcile:${CHAT_EVENT_ID}`,
 		});
 	});
@@ -2372,7 +2376,7 @@ describe("MeteringService", () => {
 	it("fails closed when a reserved transcription lacks positive duration evidence", async () => {
 		const { credits, gateway, repository, service } = setup();
 		await service.reserve("transcription", USER_SUBJECT, {
-			credits: 1,
+			credits: 100,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "transcription:missing-duration",
 		});
@@ -2397,15 +2401,15 @@ describe("MeteringService", () => {
 	it("retains a settled transcription debit when reconciliation duration is invalid", async () => {
 		const { gateway, service } = setup();
 		await service.reserve("transcription", USER_SUBJECT, {
-			credits: 1,
+			credits: 100,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "transcription:settled-duration",
 		});
 		await service.settle(CHAT_EVENT_ID, {
-			finalCredits: 2,
+			finalCredits: 200,
 			pricing: "direct",
 			pricingSnapshot: {
-				creditsPerMinute: 1,
+				creditsPerMinute: 100,
 				durationSeconds: 120,
 				mode: "per_minute",
 			},
@@ -2422,18 +2426,18 @@ describe("MeteringService", () => {
 
 		const { event } = await service.reconcile(CHAT_EVENT_ID);
 
-		expect(event).toMatchObject({ finalCredits: 2, status: "reconciled" });
+		expect(event).toMatchObject({ finalCredits: 200, status: "reconciled" });
 	});
 
 	it("reconciliation refunds settled overage before the original reserve", async () => {
 		const { credits, gateway, service } = setup();
 		await service.reserve("chat", USER_SUBJECT, {
-			credits: 5,
+			credits: 500,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "chat:message_1",
 		});
 		await service.settle(CHAT_EVENT_ID, {
-			finalCredits: 8,
+			finalCredits: 800,
 			pricing: "direct",
 			pricingSnapshot: { source: "estimate" },
 		});
@@ -2444,26 +2448,26 @@ describe("MeteringService", () => {
 
 		const result = await service.reconcile(CHAT_EVENT_ID);
 
-		expect(result.event.finalCredits).toBe(2);
+		expect(result.event.finalCredits).toBe(200);
 		expect(credits.refundCalls).toEqual([
 			expect.objectContaining({
-				amount: 3,
+				amount: 300,
 				consumeIdempotencyKey: `settle:${CHAT_EVENT_ID}`,
 				idempotencyKey: `reconcile-refund:${CHAT_EVENT_ID}:settle`,
 			}),
 			expect.objectContaining({
-				amount: 3,
+				amount: 300,
 				consumeIdempotencyKey: `reserve:${CHAT_EVENT_ID}`,
 				idempotencyKey: `reconcile-refund:${CHAT_EVENT_ID}:reserve`,
 			}),
 		]);
-		expect(credits.balances.get(USER_ID)).toBe(98);
+		expect(credits.balances.get(USER_ID)).toBe(9_800);
 	});
 
 	it("retries gateway usage-not-found without marking reconciliation failed", async () => {
 		const { gateway, repository, service } = setup();
 		await service.reserve("chat", USER_SUBJECT, {
-			credits: 1,
+			credits: 100,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "chat:message_1",
 		});
@@ -2484,7 +2488,7 @@ describe("MeteringService", () => {
 	it("terminalizes exhausted reconciliation idempotently under the event lock", async () => {
 		const { repository, service } = setup();
 		await service.reserve("chat", USER_SUBJECT, {
-			credits: 1,
+			credits: 100,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "chat:terminal-reconcile",
 		});
@@ -2515,7 +2519,7 @@ describe("MeteringService", () => {
 	it("marks non-pending gateway reconciliation failures", async () => {
 		const { gateway, repository, service } = setup();
 		await service.reserve("chat", USER_SUBJECT, {
-			credits: 1,
+			credits: 100,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "chat:message_1",
 		});
@@ -2536,13 +2540,13 @@ describe("MeteringService", () => {
 		const { credits, gateway, repository, service } = setup();
 		const staleAt = new Date("2026-01-01T00:00:00.000Z");
 		await service.reserve("chat", USER_SUBJECT, {
-			credits: 2,
+			credits: 200,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "chat:stranded",
 		});
 		const withRefId = "22222222-2222-4222-8222-222222222222";
 		await service.reserve("chat", USER_SUBJECT, {
-			credits: 2,
+			credits: 200,
 			eventId: withRefId,
 			idempotencyKey: "chat:recoverable",
 		});
@@ -2570,14 +2574,14 @@ describe("MeteringService", () => {
 		expect(repository.events.get(withRefId)?.status).toBe("reconciled");
 		expect(credits.refundCalls).toContainEqual(
 			expect.objectContaining({
-				amount: 2,
+				amount: 200,
 				idempotencyKey: `settle-refund:${CHAT_EVENT_ID}`,
 			}),
 		);
 	});
 
 	it("terminalizes a full pending recovery page on a durable age budget so later rows are reachable", async () => {
-		const { gateway, repository, service } = setup(101);
+		const { gateway, repository, service } = setup(10_100);
 		const staleAt = new Date("2026-08-01T00:00:00.000Z");
 		const beforeBudget = new Date("2026-08-01T00:03:00.000Z");
 		const afterBudget = new Date("2026-08-01T00:05:00.000Z");
@@ -2589,7 +2593,7 @@ describe("MeteringService", () => {
 			const eventId = randomUUID();
 			const generationId = `gen_pending_${index}`;
 			await service.reserve("chat", USER_SUBJECT, {
-				credits: 1,
+				credits: 100,
 				eventId,
 				idempotencyKey: `chat:pending-recovery:${index}`,
 			});
@@ -2643,7 +2647,7 @@ describe("MeteringService", () => {
 		const { gateway, repository, service } = setup();
 		const staleAt = new Date("2026-08-01T00:00:00.000Z");
 		await service.reserve("chat", USER_SUBJECT, {
-			credits: 1,
+			credits: 100,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "chat:pending-queue-failure",
 		});
@@ -2691,7 +2695,7 @@ describe("MeteringService", () => {
 		const staleAt = new Date("2026-08-01T00:00:00.000Z");
 		const staleCreatedAt = new Date("2026-07-31T00:00:00.000Z");
 		await service.reserve("chat", USER_SUBJECT, {
-			credits: 1,
+			credits: 100,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "chat:malformed-reserved-recovery",
 		});
@@ -2699,7 +2703,7 @@ describe("MeteringService", () => {
 			providerMetadata: { gateway: { generationId: "gen_bad_reserved" } },
 		});
 		await service.reserve("chat", USER_SUBJECT, {
-			credits: 1,
+			credits: 100,
 			eventId: CHILD_EVENT_ID,
 			idempotencyKey: "chat:malformed-settled-recovery",
 		});
@@ -2707,7 +2711,7 @@ describe("MeteringService", () => {
 			providerMetadata: { gateway: { generationId: "gen_bad_settled" } },
 		});
 		await service.settle(CHILD_EVENT_ID, {
-			finalCredits: 1,
+			finalCredits: 100,
 			pricing: "direct",
 			pricingSnapshot: { source: "test" },
 		});
@@ -2762,7 +2766,7 @@ describe("MeteringService", () => {
 		const { gateway, repository, service } = setup();
 		const staleAt = new Date("2026-08-01T00:00:00.000Z");
 		await service.reserve("chat", USER_SUBJECT, {
-			credits: 1,
+			credits: 100,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "chat:terminal-write-failure",
 		});
@@ -2797,7 +2801,7 @@ describe("MeteringService", () => {
 	it("batch-reconciles settled events without per-event delivery", async () => {
 		const { gateway, repository, service } = setup();
 		await service.reserve("chat", USER_SUBJECT, {
-			credits: 1,
+			credits: 100,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "chat:missed-queue",
 		});
@@ -2805,7 +2809,7 @@ describe("MeteringService", () => {
 			providerMetadata: { gateway: { generationId: "gen_sweep" } },
 		});
 		await service.settle(CHAT_EVENT_ID, {
-			finalCredits: 1,
+			finalCredits: 100,
 			pricing: "direct",
 			pricingSnapshot: { source: "test" },
 		});
@@ -2837,7 +2841,7 @@ describe("MeteringService", () => {
 	it("terminalizes gateway-pending settled events from their durable settledAt budget", async () => {
 		const { gateway, repository, service } = setup();
 		await service.reserve("chat", USER_SUBJECT, {
-			credits: 1,
+			credits: 100,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "chat:settled-pending-budget",
 		});
@@ -2845,7 +2849,7 @@ describe("MeteringService", () => {
 			providerMetadata: { gateway: { generationId: "gen_pending_settled" } },
 		});
 		await service.settle(CHAT_EVENT_ID, {
-			finalCredits: 1,
+			finalCredits: 100,
 			pricing: "direct",
 			pricingSnapshot: { source: "test" },
 		});

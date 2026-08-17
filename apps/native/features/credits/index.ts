@@ -3,3 +3,7 @@ export { creditsKeys } from "./api/credits.keys";
 export { useCreditBalance } from "./api/credits.queries";
 export { CreditsCard } from "./components/credits-card";
 export { CreditsChip } from "./components/credits-chip";
+export {
+	formatCreditAmount,
+	formatCreditBalance,
+} from "./lib/format-credits";

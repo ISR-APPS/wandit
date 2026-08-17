@@ -1,6 +1,8 @@
 import { Body, Controller, Get, Inject, Patch } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
+	centiCreditsToCredits,
+	creditsToCentiCredits,
 	type PatchProductSettingsBody,
 	type ProductSettings,
 	patchProductSettingsBodySchema,
@@ -20,16 +22,37 @@ export class AdminSettingsController {
 	) {}
 
 	@Get()
-	get(): Promise<ProductSettings> {
-		return this.settingsService.get();
+	async get(): Promise<ProductSettings> {
+		return toApiProductSettings(await this.settingsService.get());
 	}
 
 	@Patch()
-	update(
+	async update(
 		@Body(new ZodValidationPipe(patchProductSettingsBodySchema))
 		body: PatchProductSettingsBody,
 		@CurrentUser() admin: AuthUser,
 	): Promise<ProductSettings> {
-		return this.settingsService.update(body, admin.id);
+		// The admin API speaks whole credits; storage (and the signup-grant
+		// path that reads it) is centi-credits — convert exactly once here.
+		const changes: PatchProductSettingsBody =
+			body.signupGrantCredits === undefined
+				? body
+				: {
+						...body,
+						signupGrantCredits: creditsToCentiCredits(body.signupGrantCredits),
+					};
+
+		return toApiProductSettings(
+			await this.settingsService.update(changes, admin.id),
+		);
 	}
+}
+
+// Internal settings carry signupGrantCredits in centi-credits; the admin API
+// contract exposes whole credits.
+function toApiProductSettings(settings: ProductSettings): ProductSettings {
+	return {
+		...settings,
+		signupGrantCredits: centiCreditsToCredits(settings.signupGrantCredits),
+	};
 }

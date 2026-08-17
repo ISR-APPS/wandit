@@ -6,6 +6,7 @@ import {
 	type AdminUserPlan,
 	billingPlanIdSchema,
 	billingPlanIds,
+	centiCreditsToCredits,
 } from "@wandit/contracts";
 
 import type {
@@ -27,14 +28,17 @@ export function mapAdminOrganizationSummary(
 		membersCount: Number(row.membersCount),
 		projectsCount: Number(row.projectsCount),
 		plan: normalizePlan(row.plan),
-		creditsBalance: Number(row.creditsBalance),
+		// Ledger sums are integer centi-credits; the API carries decimal credits.
+		creditsBalance: centiCreditsToCredits(Number(row.creditsBalance)),
 	};
 }
 
+// Limit and spend arrive as internal centi-credits; the API exposes the limit
+// in whole credits (stored x100) and the spend in decimal credits.
 export function mapAdminOrganizationMember(
 	row: AdminOrganizationMemberRow,
-	monthlyCreditLimit: number | null,
-	spentThisMonth: number,
+	monthlyCreditLimitCentiCredits: number | null,
+	spentThisMonthCentiCredits: number,
 ): AdminOrganizationMember {
 	return {
 		userId: row.userId,
@@ -43,8 +47,11 @@ export function mapAdminOrganizationMember(
 		image: row.image,
 		role: row.role,
 		joinedAt: toIso(row.joinedAt),
-		monthlyCreditLimit,
-		spentThisMonth,
+		monthlyCreditLimit:
+			monthlyCreditLimitCentiCredits === null
+				? null
+				: centiCreditsToCredits(monthlyCreditLimitCentiCredits),
+		spentThisMonth: centiCreditsToCredits(spentThisMonthCentiCredits),
 	};
 }
 
@@ -69,7 +76,7 @@ export function mapAdminOrganizationLedgerEntry(
 ): AdminOrganizationLedgerEntry {
 	return {
 		id: row.id,
-		delta: row.delta,
+		delta: centiCreditsToCredits(row.delta),
 		kind: row.kind,
 		bucket: row.bucket,
 		meta: isRecord(row.meta) ? row.meta : null,

@@ -267,6 +267,13 @@
       "when": 1786875120224,
       "tag": "0037_phase3-events-costs",
       "breakpoints": true
+    },
+    {
+      "idx": 38,
+      "version": "7",
+      "when": 1786921461517,
+      "tag": "0038_centi-credit-rescale",
+      "breakpoints": true
     }
   ]
 }

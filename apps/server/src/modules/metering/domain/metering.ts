@@ -76,6 +76,7 @@ export type MeteredOperation = AiUsageEvent["operation"];
 export type MeteringReserveEstimate = {
 	attemptRef?: string | null;
 	chatId?: string | null;
+	/** Integer centi-credits (1 credit = 100 cc). */
 	credits: number;
 	estimatedCostUsdMicros?: number | null;
 	eventId?: string;
@@ -116,6 +117,7 @@ export type TokenMeteringSettlement = CommonSettlement & {
 
 export type DirectMeteringSettlement = CommonSettlement & {
 	costUsdMicros?: number | null;
+	/** Integer centi-credits (1 credit = 100 cc). */
 	finalCredits: number;
 	model?: string | null;
 	pricing: "direct";
@@ -143,6 +145,7 @@ export type CapturedGeneration = {
 };
 
 export type MeteringReconcileOutcome = {
+	/** Integer centi-credits (1 credit = 100 cc). */
 	adjustedCredits: number;
 	event: AiUsageEvent;
 	reconciledCostUsdMicros: number;
@@ -175,6 +178,7 @@ export interface MeteringGateway {
 
 export type PreparedMeteringSettlement = {
 	costUsdMicros: number | null;
+	/** Integer centi-credits (1 credit = 100 cc). */
 	finalCredits: number;
 	model: string | null;
 	pricingSnapshot: PricingSnapshot | Record<string, unknown>;

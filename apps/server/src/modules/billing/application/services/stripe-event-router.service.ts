@@ -326,6 +326,10 @@ export class StripeEventRouter {
 
 		const attemptedPrice = parsePriceLookupKey(attempt.priceLookupKey);
 
+		// Stripe metadata tierCredits is WHOLE display credits (tier identity in
+		// the lookup key), so this mismatch check compares whole credits. The
+		// downstream grant (SubscriptionCreditsService) converts x100 exactly
+		// once when writing the ledger.
 		if (
 			!attemptedPrice ||
 			session.metadata?.plan !== attemptedPrice.plan ||

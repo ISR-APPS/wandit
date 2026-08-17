@@ -28,8 +28,8 @@ import type { AdminCreditLedgerEntry } from "@/features/users/api/users.dto";
 import {
 	formatAdminDateTime,
 	formatUsdMicros,
-	formatWholeNumber,
 } from "@/features/users/lib/formatters";
+import { formatCreditAmount } from "@/lib/credit-format";
 import { cn } from "@/lib/utils";
 
 import { DetailPagination } from "./detail-pagination";
@@ -166,7 +166,7 @@ export function UserCreditLedgerTable({ entries }: UserCreditLedgerProps) {
 									)}
 								>
 									{entry.delta > 0 ? "+" : ""}
-									{formatWholeNumber(entry.delta)}
+									{formatCreditAmount(entry.delta)}
 								</TableCell>
 							</TableRow>
 						);

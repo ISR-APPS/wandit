@@ -6,6 +6,7 @@ import {
 	formatAdminDateTime,
 	formatWholeNumber,
 } from "@/features/users/lib/formatters";
+import { formatCreditAmount, formatCreditBalance } from "@/lib/credit-format";
 
 import { UserRowActions } from "./user-row-actions";
 import {
@@ -42,12 +43,12 @@ function UsersMobileList({ users }: { users: AdminUserSummary[] }) {
 					<div className="grid grid-cols-3 divide-x border-b">
 						<MobileDatum label="Credits">
 							<p className="font-medium font-mono tabular-nums">
-								{formatWholeNumber(user.creditsBalance)}
+								{formatCreditBalance(user.creditsBalance)}
 							</p>
 						</MobileDatum>
 						<MobileDatum label="Credits used">
 							<p className="font-medium font-mono tabular-nums">
-								{formatWholeNumber(user.creditsConsumed)}
+								{formatCreditAmount(user.creditsConsumed)}
 							</p>
 						</MobileDatum>
 						<MobileDatum label="Projects">

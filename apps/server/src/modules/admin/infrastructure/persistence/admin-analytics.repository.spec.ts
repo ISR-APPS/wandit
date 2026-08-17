@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { Database } from "../../../../infrastructure/database/database.constants";
 import {
+	HEALTHY_TRIAL_MIN_CENTI_CREDITS,
 	HEALTHY_TRIAL_MIN_COMPLETED_GENERATIONS,
-	HEALTHY_TRIAL_MIN_CREDITS,
 	LIVE_SUBSCRIPTION_STATUSES,
 } from "../../application/services/admin-analytics.metrics";
 import {
@@ -567,7 +567,7 @@ describe("AdminAnalyticsRepository funnel SQL", () => {
 		const { queries } = await collectQueries("funnel");
 		const funnel = queryContaining(queries, "signup_cohort as");
 
-		expect(funnel.params).toContain(HEALTHY_TRIAL_MIN_CREDITS);
+		expect(funnel.params).toContain(HEALTHY_TRIAL_MIN_CENTI_CREDITS);
 		expect(funnel.params).toContain(HEALTHY_TRIAL_MIN_COMPLETED_GENERATIONS);
 		expect(funnel.sql).toContain("credit_ledger l");
 		expect(funnel.sql).toContain("interval '7 days'");
@@ -663,7 +663,7 @@ describe("AdminAnalyticsRepository engagement SQL", () => {
 		const { queries } = await collectQueries("engagement");
 		const healthy = queryContaining(queries, "evaluation_users as");
 
-		expect(healthy.params).toContain(HEALTHY_TRIAL_MIN_CREDITS);
+		expect(healthy.params).toContain(HEALTHY_TRIAL_MIN_CENTI_CREDITS);
 		expect(healthy.params).toContain(HEALTHY_TRIAL_MIN_COMPLETED_GENERATIONS);
 		expect(healthy.sql).toContain("::date + 7 as evaluation_date");
 		expect(healthy.sql).toContain("interval '7 days'");
@@ -936,7 +936,7 @@ describe("AdminAnalyticsRepository revenue SQL", () => {
 		const { queries } = await collectQueries("revenue");
 		const cohort = queryContaining(queries, "mature_users as");
 
-		expect(cohort.params).toContain(HEALTHY_TRIAL_MIN_CREDITS);
+		expect(cohort.params).toContain(HEALTHY_TRIAL_MIN_CENTI_CREDITS);
 		expect(cohort.params).toContain(HEALTHY_TRIAL_MIN_COMPLETED_GENERATIONS);
 		expect(cohort.sql).toMatch(
 			/coalesce\(c\.credits_consumed, 0\) >= \$\d+ and coalesce\(g\.completed_generations, 0\) >= \$\d+/,

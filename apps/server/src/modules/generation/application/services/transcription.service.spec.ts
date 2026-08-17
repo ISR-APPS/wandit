@@ -110,7 +110,7 @@ describe("TranscriptionService", () => {
 				},
 				{
 					attemptRef: "operation-unconfigured-replay",
-					reservedCredits: 1,
+					reservedCredits: 100,
 					status: "settled",
 				},
 			),
@@ -149,7 +149,7 @@ describe("TranscriptionService", () => {
 			"transcription",
 			{ actorUserId: "user-1" },
 			expect.objectContaining({
-				credits: 2,
+				credits: 200,
 				idempotencyKey: "transcription:user-1:operation-123456",
 			}),
 		);
@@ -173,7 +173,7 @@ describe("TranscriptionService", () => {
 		);
 		expect(metering.settle).toHaveBeenCalledWith(
 			"usage-event-1",
-			expect.objectContaining({ finalCredits: 2, pricing: "direct" }),
+			expect.objectContaining({ finalCredits: 200, pricing: "direct" }),
 		);
 		expect(metering.settle).toHaveBeenCalledWith(
 			"usage-event-1",
@@ -193,7 +193,7 @@ describe("TranscriptionService", () => {
 		const existing = usageEvent(undefined, {
 			attemptRef: "operation-toggle",
 			model: "openai/test-transcription",
-			reservedCredits: 1,
+			reservedCredits: 100,
 			status: "reserved",
 		});
 		metering.findByIdempotencyKey.mockResolvedValueOnce(existing);
@@ -262,12 +262,12 @@ describe("TranscriptionService", () => {
 		expect(metering.reserveWithReplay).toHaveBeenCalledWith(
 			"transcription",
 			{ actorUserId: "user-1" },
-			expect.objectContaining({ credits: 1 }),
+			expect.objectContaining({ credits: 100 }),
 		);
 		expect(metering.settle).toHaveBeenCalledWith(
 			"usage-event-1",
 			expect.objectContaining({
-				finalCredits: 3,
+				finalCredits: 300,
 				pricingSnapshot: expect.objectContaining({
 					billableDurationSeconds: 121,
 					durationSource: "provider",
@@ -311,7 +311,7 @@ describe("TranscriptionService", () => {
 		expect(metering.settle).toHaveBeenCalledWith(
 			"usage-event-1",
 			expect.objectContaining({
-				finalCredits: 5,
+				finalCredits: 500,
 				rawUsage: {
 					billableDurationSeconds: 300,
 					durationSeconds: 1,
@@ -377,7 +377,7 @@ describe("TranscriptionService", () => {
 		expect(metering.settle).toHaveBeenCalledWith(
 			"usage-event-1",
 			expect.objectContaining({
-				finalCredits: 3,
+				finalCredits: 300,
 				rawUsage: expect.objectContaining({
 					providerDurationSeconds: 121,
 					transcriptionResponse: {
@@ -641,7 +641,7 @@ function usageEvent(
 		parentEventId: null,
 		provider: null,
 		rawUsage,
-		reservedCredits: 1,
+		reservedCredits: 100,
 		status: "reserved",
 		...overrides,
 	} as ReserveOutcome["event"];

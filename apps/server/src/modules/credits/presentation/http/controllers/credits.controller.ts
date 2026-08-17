@@ -26,15 +26,24 @@ export class CreditsController {
 	) {}
 
 	@Get("balance")
-	getBalance(
+	async getBalance(
 		@CurrentUser() user: AuthUser,
 		@CurrentWorkspace() workspace: WorkspaceContext,
 	): Promise<CreditBalanceResponse> {
-		return this.creditsService.getBalance(
+		const balance = await this.creditsService.getBalance(
 			workspace.kind === "org"
 				? orgOwner(workspace.organizationId)
 				: userOwner(user.id),
 		);
+
+		// Presentation boundary: internal balances are integer centi-credits;
+		// the API contract carries decimal display credits.
+		return {
+			balance: balance.balance / 100,
+			plan: balance.plan / 100,
+			promo: balance.promo / 100,
+			topup: balance.topup / 100,
+		};
 	}
 
 	@Get("ledger")

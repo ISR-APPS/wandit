@@ -2,10 +2,11 @@ import { useTranslation } from "@wandit/internationalization/react";
 import { Text, View } from "react-native";
 
 import { useCreditBalance } from "@/features/credits/api/credits.queries";
+import { formatCreditBalance } from "@/features/credits/lib/format-credits";
 
 /** Credits summary card inside the project sheet (light prototype §4.1). */
 export function CreditsCard() {
-	const { t } = useTranslation();
+	const { locale, t } = useTranslation();
 	const { data } = useCreditBalance();
 
 	return (
@@ -15,21 +16,23 @@ export function CreditsCard() {
 					{t("native.credits.title")}
 				</Text>
 				<Text className="font-mono text-[13px] text-muted">
-					{t("native.credits.left", { count: data?.balance ?? "—" })}
+					{t("native.credits.left", {
+						count: data ? formatCreditBalance(data.balance, locale) : "—",
+					})}
 				</Text>
 			</View>
 			<View className="mt-2.5 flex-row gap-2">
 				<CreditBucket
 					label={t("native.credits.bucketPlan")}
-					value={data?.plan}
+					value={data ? formatCreditBalance(data.plan, locale) : undefined}
 				/>
 				<CreditBucket
 					label={t("native.credits.bucketPromo")}
-					value={data?.promo}
+					value={data ? formatCreditBalance(data.promo, locale) : undefined}
 				/>
 				<CreditBucket
 					label={t("native.credits.bucketTopup")}
-					value={data?.topup}
+					value={data ? formatCreditBalance(data.topup, locale) : undefined}
 				/>
 			</View>
 			<View className="mt-2 flex-row items-center gap-1.5">
@@ -42,7 +45,7 @@ export function CreditsCard() {
 	);
 }
 
-function CreditBucket({ label, value }: { label: string; value?: number }) {
+function CreditBucket({ label, value }: { label: string; value?: string }) {
 	return (
 		<View className="min-w-0 flex-1 rounded-xl bg-surface-secondary px-2.5 py-2 dark:bg-surface-tertiary">
 			<Text className="text-[10.5px] text-muted" numberOfLines={1}>

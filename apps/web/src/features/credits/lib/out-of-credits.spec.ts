@@ -16,11 +16,17 @@ describe("isOutOfCredits", () => {
 		expect(isOutOfCredits(balanceOf(50))).toBe(false);
 	});
 
+	it("does not block a fractional balance below the chat reserve floor", () => {
+		// 0.05 < the 0.10 reserve floor, but the server's 402 is the authority.
+		expect(isOutOfCredits(balanceOf(0.05))).toBe(false);
+	});
+
 	it("blocks at exactly zero", () => {
 		expect(isOutOfCredits(balanceOf(0))).toBe(true);
 	});
 
 	it("blocks a negative balance (settle overage past the reserve)", () => {
 		expect(isOutOfCredits(balanceOf(-3))).toBe(true);
+		expect(isOutOfCredits(balanceOf(-0.01))).toBe(true);
 	});
 });

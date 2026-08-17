@@ -135,7 +135,7 @@ describe("ChatService", () => {
 			{
 				attemptRef: response.jobId,
 				chatId: "chat_1",
-				credits: 1,
+				credits: 10,
 				idempotencyKey: `legacy-chat:${response.jobId}`,
 				messageId: "message_1",
 				model: env.AI_CHAT_MODEL,

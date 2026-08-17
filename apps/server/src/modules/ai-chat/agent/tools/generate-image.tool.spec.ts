@@ -66,7 +66,7 @@ function setup(options: { parentEventId?: string; quality?: string } = {}) {
 		reserveWithReplay: vi.fn().mockResolvedValue({
 			event: {
 				id: "usage_event_1",
-				reservedCredits: 10,
+				reservedCredits: 600,
 				status: "reserved",
 			},
 			replay: "none",
@@ -273,7 +273,7 @@ describe("generate_image placement", () => {
 			{ actorUserId: "user_1" },
 			{
 				attemptRef: ATTEMPT_ID,
-				credits: 10,
+				credits: 600,
 				idempotencyKey: `image:${ATTEMPT_ID}`,
 				parentEventId: "parent_event_1",
 			},
@@ -342,7 +342,7 @@ describe("generate_image billing", () => {
 			{ actorUserId: "user_1" },
 			{
 				attemptRef: ATTEMPT_ID,
-				credits: 15,
+				credits: 900,
 				idempotencyKey: `image:${ATTEMPT_ID}`,
 				parentEventId: "parent_event_1",
 			},
@@ -360,7 +360,7 @@ describe("generate_image billing", () => {
 		meteringService.reserveWithReplay.mockResolvedValue({
 			event: {
 				id: "usage_event_1",
-				reservedCredits: 5,
+				reservedCredits: 300,
 				status: "settled",
 			},
 			replay: "settled",
