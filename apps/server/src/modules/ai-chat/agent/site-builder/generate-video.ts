@@ -19,6 +19,7 @@ import { env } from "@wandit/env/server";
 import { experimental_generateVideo as generateVideo } from "ai";
 
 import {
+	IMMUTABLE_ASSET_CACHE_CONTROL,
 	isR2Configured,
 	isWanditHostedUrl,
 	publicAssetUrl,
@@ -170,7 +171,12 @@ export async function generateBuildVideo(params: {
 			extension,
 		);
 
-		await putSiteFile(key, result.video.uint8Array, mediaType);
+		await putSiteFile(
+			key,
+			result.video.uint8Array,
+			mediaType,
+			IMMUTABLE_ASSET_CACHE_CONTROL,
+		);
 
 		return {
 			mediaType,
@@ -352,7 +358,12 @@ export async function generateTextToVideo(params: {
 			extension,
 		);
 
-		await putSiteFile(key, result.video.uint8Array, mediaType);
+		await putSiteFile(
+			key,
+			result.video.uint8Array,
+			mediaType,
+			IMMUTABLE_ASSET_CACHE_CONTROL,
+		);
 
 		return {
 			mediaType,

@@ -18,6 +18,7 @@ import {
 	listObjectsByPrefix,
 	publicAssetKeyFromUrl,
 	publicAssetUrl,
+	VARIANT_FILENAME_PATTERN,
 } from "../../../../infrastructure/storage/r2";
 import { ImageGenerationsRepository } from "../../../image-generations/infrastructure/persistence/image-generations.repository";
 import { MediaGenerationsRepository } from "../../../media-generations/infrastructure/persistence/media-generations.repository";
@@ -373,7 +374,9 @@ export class ProjectAssetsService {
 		}
 
 		try {
-			return await listObjectsByPrefix(`sites/${projectId}/assets/`);
+			return withoutVariants(
+				await listObjectsByPrefix(`sites/${projectId}/assets/`),
+			);
 		} catch {
 			return [];
 		}
@@ -391,9 +394,11 @@ export class ProjectAssetsService {
 		}
 
 		try {
-			const objects = await listObjectsByPrefix(
-				`sites/${projectId}/assets/`,
-				BUILD_OBJECTS_MAX + 1,
+			const objects = withoutVariants(
+				await listObjectsByPrefix(
+					`sites/${projectId}/assets/`,
+					BUILD_OBJECTS_MAX + 1,
+				),
 			);
 
 			if (objects.length > BUILD_OBJECTS_MAX) {
@@ -405,6 +410,15 @@ export class ProjectAssetsService {
 			return { cut: false, objects: [] };
 		}
 	}
+}
+
+/**
+ * Drop the srcset renditions written beside each build image. They are
+ * machine-facing copies of an asset the user already sees — as cards they
+ * would triple the tab and eat the listing cap.
+ */
+function withoutVariants<T extends { key: string }>(objects: T[]): T[] {
+	return objects.filter((object) => !VARIANT_FILENAME_PATTERN.test(object.key));
 }
 
 /** Order-preserving concurrent map with a small worker pool. */

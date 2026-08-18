@@ -10,6 +10,7 @@
 		"dev": "tsx watch src/main.ts",
 		"dev:trigger": "npx trigger.dev@4.5.3 dev",
 		"domains:backfill-apex": "tsx scripts/backfill-apex-zones.ts",
+		"images:backfill-variants": "tsx scripts/backfill-image-variants.ts",
 		"mcp:seed": "tsx scripts/seed-mcp-connectors.ts",
 		"start": "node --enable-source-maps --import ./dist/instrument.mjs dist/main.mjs",
 		"test": "vitest run",

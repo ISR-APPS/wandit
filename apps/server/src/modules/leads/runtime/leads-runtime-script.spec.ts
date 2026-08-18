@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { injectPixels } from "../../sites/domain/pixel-injector";
 import { buildLeadsRuntimeScript } from "./leads-runtime-script";
 
 const CAPTURE_URL = "https://api.wandit.example/api/public/leads/pf_123";
@@ -68,6 +69,8 @@ function createRuntimeHarness(
 		pixels?: boolean;
 		referrer?: string;
 		search?: string;
+		/** Extra properties merged onto the window stub (real pixel stubs). */
+		windowExtras?: Record<string, unknown>;
 	} = {},
 ) {
 	const script = buildLeadsRuntimeScript({ captureUrl: CAPTURE_URL });
@@ -147,6 +150,7 @@ function createRuntimeHarness(
 					},
 				}
 			: {}),
+		...(options.windowExtras ?? {}),
 	};
 	class CustomEventStub {
 		detail: unknown;
@@ -420,6 +424,81 @@ describe("buildLeadsRuntimeScript", () => {
 		expect(harness.results).toEqual([{ ok: true }]);
 		expect(harness.fbqCalls).toEqual([["track", "Lead"]]);
 		expect(harness.ttqCalls).toEqual([["Lead"]]);
+	});
+
+	// Timing guard for the deferred pixel SDK: pixel-injector.ts keeps the Meta
+	// base code stub synchronous but loads fbevents.js at idle time. A visitor
+	// who converts before the SDK arrives must still land in the fbq queue —
+	// fireLeadConversion feature-detects window.fbq and swallows a miss.
+	it("queues the Lead conversion when the Meta SDK has not loaded yet", async () => {
+		const inserted: unknown[] = [];
+		const pixelDocument = {
+			addEventListener: () => {},
+			createElement: () => ({}),
+			getElementsByTagName: () => [
+				{
+					parentNode: {
+						insertBefore: (node: unknown) => {
+							inserted.push(node);
+						},
+					},
+				},
+			],
+			// Still parsing → the snippet waits for `load`, so no SDK at all.
+			readyState: "loading",
+			visibilityState: "visible",
+		};
+		const pixelWindow: Record<string, unknown> = {
+			addEventListener: () => {},
+			requestIdleCallback: () => 1,
+			setTimeout: () => 1,
+		};
+		const published = injectPixels(
+			"<!doctype html><html><head></head><body></body></html>",
+			{ metaPixelId: "1234567890", tiktokPixelId: null },
+		);
+		const snippet =
+			/<script data-wandit-pixel="meta">(.*?)<\/script>/s.exec(
+				published,
+			)?.[1] ?? "";
+		// `fbq(…)` is a bare identifier in the base code, so the stub window
+		// has to sit on the scope chain.
+		new Function("window", "document", `with(window){${snippet}}`)(
+			pixelWindow,
+			pixelDocument,
+		);
+		expect(inserted).toHaveLength(0);
+
+		const harness = createRuntimeHarness({
+			windowExtras: {
+				fbq: pixelWindow.fbq,
+				wanditFlushPixels: pixelWindow.wanditFlushPixels,
+			},
+		});
+		harness.emitLead({ phone: "0555000012" });
+		await flushMicrotasks();
+
+		const fbq = pixelWindow.fbq as { queue: IArguments[] };
+		expect(harness.results).toEqual([{ ok: true }]);
+		expect(Array.from(fbq.queue, (entry) => Array.from(entry))).toEqual([
+			["init", "1234567890"],
+			["track", "PageView"],
+			["track", "Lead"],
+		]);
+		// A queued event is not a sent event: the conversion must also make the
+		// runtime pull the SDK in NOW, or it dies with the tab.
+		expect(inserted).toHaveLength(1);
+	});
+
+	// The same page without pixels: the hook is simply absent, and the
+	// conversion path must not throw on the missing function.
+	it("sends the lead when no pixel snippet installed the flush hook", async () => {
+		const harness = createRuntimeHarness();
+
+		harness.emitLead({ phone: "0555000013" });
+		await flushMicrotasks();
+
+		expect(harness.results).toEqual([{ ok: true }]);
 	});
 
 	it("fires no conversion when the capture endpoint rejects the lead", async () => {

@@ -56,10 +56,42 @@ export function injectPixels(html: string, pixels: PixelIds): string {
 	return $.html();
 }
 
+/**
+ * Meta base code, split in two on purpose:
+ *
+ * 1. The STUB (window.fbq + its n.queue buffer) stays SYNCHRONOUS. The leads
+ *    runtime feature-detects `typeof window.fbq === "function"` before it
+ *    fires the Lead conversion (leads/runtime/leads-runtime-script.ts) and
+ *    swallows a miss in an empty catch, so a visitor who converts early must
+ *    still find the stub. `fbq('init',…)` and `fbq('track','PageView')` only
+ *    push into n.queue; the SDK replays them when it arrives.
+ * 2. The SDK <script> insert (fbevents.js) is DEFERRED to idle time after
+ *    load. The fetch was already `async`, so this does not remove a
+ *    render-blocking request — it moves ~100 KB of bandwidth and main-thread
+ *    parse out of the critical window (TBT / Lighthouse third-party).
+ *
+ * WHY THE DEFER IS BOUNDED. Queued events are only SENT once the SDK arrives,
+ * so "wait for load" alone would put PageView — and the Lead conversion —
+ * behind every subresource on the page, including connector media served from
+ * a provider's own host that this platform does not control. The insert is
+ * therefore scheduled on the EARLIEST of: load, a 3 s timer, the page turning
+ * hidden, pagehide, and an explicit flush. The last three are what rescue the
+ * visitor who converts and closes the tab; `r` keeps every path idempotent.
+ *
+ * THE FLUSH HOOK. window.wanditFlushPixels fetches the SDKs immediately; the
+ * leads runtime calls it right after it queues a Lead, so a conversion is
+ * never left sitting in the stub queue. Each snippet chains the hook the
+ * other one may have installed, so Meta and TikTok both flush. The name
+ * carries no `__wandit-` prefix on purpose — assertNoEditorArtifacts rejects
+ * that prefix in published bytes.
+ *
+ * `async`/`defer` attributes on the tag itself would be a no-op: this is an
+ * inline classic script with no `src`, and the HTML spec ignores them there.
+ */
 function metaPixelScript(pixelId: string): string {
 	const id = escapeForScript(pixelId);
 
-	return `<script ${PIXEL_MARKER}="meta">!function(f,b,e,v,n,t,s){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('init','${id}');fbq('track','PageView');</script>`;
+	return `<script ${PIXEL_MARKER}="meta">!function(f,b,e,v,n,t,s,c,q,r,p){if(f.fbq)return;n=f.fbq=function(){n.callMethod?n.callMethod.apply(n,arguments):n.queue.push(arguments)};if(!f._fbq)f._fbq=n;n.push=n;n.loaded=!0;n.version='2.0';n.queue=[];r=0;c=function(){if(r)return;r=1;t=b.createElement(e);t.async=!0;t.src=v;s=b.getElementsByTagName(e)[0];s.parentNode.insertBefore(t,s)};q=function(){f.requestIdleCallback?f.requestIdleCallback(c,{timeout:2500}):f.setTimeout(c,1)};p=f.wanditFlushPixels;f.wanditFlushPixels=function(){c();p&&p()};b.readyState==='complete'?q():f.addEventListener('load',q);f.setTimeout(q,3000);f.addEventListener('pagehide',c);b.addEventListener('visibilitychange',function(){b.visibilityState==='hidden'&&c()})}(window,document,'script','https://connect.facebook.net/en_US/fbevents.js');fbq('init','${id}');fbq('track','PageView');</script>`;
 }
 
 function metaPixelNoscript(pixelId: string): string {
@@ -69,11 +101,17 @@ function metaPixelNoscript(pixelId: string): string {
 function tiktokPixelSnippet(pixelId: string): string {
 	const id = escapeForScript(pixelId);
 
-	// NOTE the `};ttq.load(` after insertBefore: ttq.load must be ASSIGNED,
-	// not immediately invoked. The earlier version accidentally executed the
+	// NOTE the `};` after insertBefore: ttq.load must be ASSIGNED, not
+	// immediately invoked. The earlier version accidentally executed the
 	// loader with (window,document,"ttq") — leaving ttq.load undefined, so
 	// ttq.load(id) threw and the TikTok pixel never registered anything.
-	return `<script ${PIXEL_MARKER}="tiktok">!function(w,d,t){w.TiktokAnalyticsObject=t;var ttq=w[t]=w[t]||[];ttq.methods=["page","track","identify","instances","debug","on","off","once","ready","alias","group","enableCookie","disableCookie"];ttq.setAndDefer=function(t,e){t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}};for(var i=0;i<ttq.methods.length;i++)ttq.setAndDefer(ttq,ttq.methods[i]);ttq.instance=function(t){for(var e=ttq._i[t]||[],n=0;n<ttq.methods.length;n++)ttq.setAndDefer(e,ttq.methods[n]);return e};ttq.load=function(e,n){var i="https://analytics.tiktok.com/i18n/pixel/events.js";ttq._i=ttq._i||{};ttq._i[e]=[];ttq._i[e]._u=i;ttq._t=ttq._t||{};ttq._t[e]=+new Date;ttq._o=ttq._o||{};ttq._o[e]=n||{};var o=d.createElement("script");o.type="text/javascript";o.async=!0;o.src=i+"?sdkid="+e+"&lib="+t;var a=d.getElementsByTagName("script")[0];a.parentNode.insertBefore(o,a)};ttq.load('${id}');ttq.page();}(window,document,'ttq');</script>`;
+	//
+	// Same split as Meta: the stub (ttq array + setAndDefer queue) runs at
+	// parse time so window.ttq.track exists for an early lead, and only the
+	// `ttq.load(id);ttq.page()` pair — which is what fetches events.js — waits
+	// for the idle scheduler. ttq.page() pushes into the array queue, so the
+	// SDK still replays it in order once it loads.
+	return `<script ${PIXEL_MARKER}="tiktok">!function(w,d,t){w.TiktokAnalyticsObject=t;var ttq=w[t]=w[t]||[];ttq.methods=["page","track","identify","instances","debug","on","off","once","ready","alias","group","enableCookie","disableCookie"];ttq.setAndDefer=function(t,e){t[e]=function(){t.push([e].concat(Array.prototype.slice.call(arguments,0)))}};for(var i=0;i<ttq.methods.length;i++)ttq.setAndDefer(ttq,ttq.methods[i]);ttq.instance=function(t){for(var e=ttq._i[t]||[],n=0;n<ttq.methods.length;n++)ttq.setAndDefer(e,ttq.methods[n]);return e};ttq.load=function(e,n){var i="https://analytics.tiktok.com/i18n/pixel/events.js";ttq._i=ttq._i||{};ttq._i[e]=[];ttq._i[e]._u=i;ttq._t=ttq._t||{};ttq._t[e]=+new Date;ttq._o=ttq._o||{};ttq._o[e]=n||{};var o=d.createElement("script");o.type="text/javascript";o.async=!0;o.src=i+"?sdkid="+e+"&lib="+t;var a=d.getElementsByTagName("script")[0];a.parentNode.insertBefore(o,a)};var r=0;var c=function(){if(r)return;r=1;ttq.load('${id}');ttq.page();};var q=function(){w.requestIdleCallback?w.requestIdleCallback(c,{timeout:2500}):w.setTimeout(c,1)};var p=w.wanditFlushPixels;w.wanditFlushPixels=function(){c();p&&p()};d.readyState==="complete"?q():w.addEventListener("load",q);w.setTimeout(q,3000);w.addEventListener("pagehide",c);d.addEventListener("visibilitychange",function(){d.visibilityState==="hidden"&&c()});}(window,document,'ttq');</script>`;
 }
 
 // Pixel ids are numeric-ish strings from the project settings form. Allowlist
