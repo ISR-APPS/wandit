@@ -11,7 +11,7 @@
  * the ops pipeline, and the chat edit tools all share this module.
  */
 
-import type { CheerioAPI } from "cheerio";
+import type { Cheerio, CheerioAPI } from "cheerio";
 import * as cheerio from "cheerio";
 
 // Always pair this selector with isStampableLeaf so span shape and SVG
@@ -142,7 +142,13 @@ export function isStampableContainer(
 		.some((ancestor) => isTopLevelSection($, ancestor));
 }
 
-function topLevelSections($: CheerioAPI) {
+/**
+ * Every section-ish element that sits at the top level of the document, in
+ * document order. Exported because the image pass needs the SAME section
+ * model to scope its LCP search: two definitions of "a page section" would
+ * drift apart.
+ */
+export function topLevelSections($: CheerioAPI): Cheerio<StampNode> {
 	return $(SECTIONISH_ELEMENT_SELECTOR).filter((_, node) =>
 		isTopLevelSection($, node),
 	);

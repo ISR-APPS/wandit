@@ -17,11 +17,16 @@ import { env } from "@wandit/env/server";
 
 import { optimizeImage } from "../../../../infrastructure/storage/optimize-image";
 import {
+	IMMUTABLE_ASSET_CACHE_CONTROL,
 	isR2Configured,
 	publicAssetUrl,
 	putSiteFile,
 	userUploadKey,
 } from "../../../../infrastructure/storage/r2";
+import {
+	type StoredImageVariant,
+	storeImageVariants,
+} from "../../../../infrastructure/storage/store-image-variants";
 
 type AttachmentMediaType = (typeof ATTACHMENT_MEDIA_TYPES)[number];
 
@@ -120,13 +125,16 @@ export class UploadsService {
 
 		let storedType: AttachmentMediaType = mediaType;
 		let storedBytes: Uint8Array = file.buffer;
+		let width: number | null = null;
+		let height: number | null = null;
+		const isRaster = OPTIMIZABLE_UPLOAD_TYPES.has(mediaType);
 
-		// Heavy raster photos are recompressed before they become publicly
-		// served page assets; SVG/GIF/documents and small files stay verbatim.
-		if (
-			OPTIMIZABLE_UPLOAD_TYPES.has(mediaType) &&
-			file.buffer.length > OPTIMIZE_UPLOAD_THRESHOLD_BYTES
-		) {
+		// EVERY raster photo goes through the optimizer — no byte gate here.
+		// A caller-side threshold could only ever be wrong: a 269KB 3072px PNG
+		// is small in bytes and enormous in pixels. optimizeImage owns both
+		// triggers (its own byte floor and the width cap) and returns the input
+		// untouched when neither applies. SVG/GIF/documents stay verbatim.
+		if (isRaster) {
 			const optimized = await optimizeImage(file.buffer, {
 				contentType: mediaType,
 				ext: EXTENSIONS[mediaType].canonical,
@@ -137,19 +145,39 @@ export class UploadsService {
 			}
 
 			storedBytes = optimized.bytes;
+			width = optimized.width;
+			height = optimized.height;
 		}
 
 		const filename = sanitizeFilename(file.filename, storedType);
 		const key = userUploadKey(userId, crypto.randomUUID(), filename);
 
-		await putSiteFile(key, storedBytes, storedType);
+		// Every upload key carries a fresh uuid and is written exactly once, so
+		// the whole prefix — images and documents alike — can be cached forever.
+		await putSiteFile(
+			key,
+			storedBytes,
+			storedType,
+			IMMUTABLE_ASSET_CACHE_CONTROL,
+		);
+
+		// Renditions are siblings inside the SAME uuid directory, so the
+		// primary key keeps its 4 segments (isUserUploadUrl and the brief's
+		// user-photo extractor both depend on that count). Never fatal: the
+		// object the caller asked for is already stored.
+		const variants: StoredImageVariant[] = isRaster
+			? await storeImageVariants(key, storedBytes)
+			: [];
 
 		return {
 			filename,
+			...(height === null ? {} : { height }),
 			key,
 			mediaType: storedType,
 			size: storedBytes.byteLength,
 			url: publicAssetUrl(key),
+			...(variants.length > 0 ? { variants } : {}),
+			...(width === null ? {} : { width }),
 		};
 	}
 
@@ -180,8 +208,6 @@ const OPTIMIZABLE_UPLOAD_TYPES = new Set<AttachmentMediaType>([
 	"image/png",
 	"image/webp",
 ]);
-
-const OPTIMIZE_UPLOAD_THRESHOLD_BYTES = 500 * 1024;
 
 // Browsers report CSV and Office documents inconsistently — an empty type,
 // application/octet-stream, or the legacy Excel type depending on the OS and

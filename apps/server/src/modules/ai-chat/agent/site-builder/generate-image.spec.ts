@@ -5,6 +5,7 @@ import sharp from "sharp";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+	IMMUTABLE_ASSET_CACHE_CONTROL,
 	isR2Configured,
 	putSiteFile,
 } from "../../../../infrastructure/storage/r2";
@@ -110,8 +111,12 @@ describe("generateBuildImage", () => {
 			"sites/project_1/assets/attempt_1/img-2.png",
 			new Uint8Array([1, 2, 3]),
 			"image/png",
+			IMMUTABLE_ASSET_CACHE_CONTROL,
 		);
 		expect(result).toEqual({
+			// Three bytes are not a readable image, so the provider canvas for
+			// the requested aspect is what the dimensions fall back to.
+			height: 1024,
 			// Base64 is now derived from the uploaded bytes, so transcript and
 			// bucket can never disagree.
 			imageBase64: "AQID",
@@ -121,6 +126,7 @@ describe("generateBuildImage", () => {
 			status: "generated",
 			usage: { inputTokens: 10, outputTokens: 0 },
 			url: "https://assets.example.com/sites/project_1/assets/attempt_1/img-2.png",
+			width: 1536,
 		});
 	});
 
@@ -176,6 +182,7 @@ describe("generateBuildImage", () => {
 			"sites/project_1/assets/attempt_1/img-2.webp",
 			expect.any(Uint8Array),
 			"image/webp",
+			IMMUTABLE_ASSET_CACHE_CONTROL,
 		);
 
 		const uploaded = vi.mocked(putSiteFile).mock.calls[0]?.[1] as Uint8Array;
@@ -184,10 +191,25 @@ describe("generateBuildImage", () => {
 		expect(metadata.width).toBe(1920);
 
 		expect(result).toMatchObject({
+			// Measured from the stored bytes, not from the requested canvas.
+			height: 230,
 			mediaType: "image/webp",
 			status: "generated",
 			url: "https://assets.example.com/sites/project_1/assets/attempt_1/img-2.webp",
+			width: 1920,
 		});
+
+		// The srcset renditions land beside the primary object.
+		expect(
+			vi
+				.mocked(putSiteFile)
+				.mock.calls.slice(1)
+				.map((call) => call[0]),
+		).toEqual([
+			"sites/project_1/assets/attempt_1/img-2.w480.webp",
+			"sites/project_1/assets/attempt_1/img-2.w960.webp",
+			"sites/project_1/assets/attempt_1/img-2.w1600.webp",
+		]);
 
 		if (result.status !== "generated") {
 			throw new Error("expected a generated result");
@@ -206,7 +228,35 @@ describe("generateBuildImage", () => {
 			"sites/project_1/assets/attempt_1/img-2.jpg",
 			expect.anything(),
 			"image/jpeg",
+			IMMUTABLE_ASSET_CACHE_CONTROL,
 		);
+	});
+
+	it("keeps the image when a rendition upload fails", async () => {
+		const bigPng = await sharp(randomBytes(2500 * 300 * 3), {
+			raw: { channels: 3, height: 300, width: 2500 },
+		})
+			.png()
+			.toBuffer();
+		vi.mocked(generateImage).mockResolvedValue({
+			image: {
+				base64: bigPng.toString("base64"),
+				mediaType: "image/png",
+				uint8Array: new Uint8Array(bigPng),
+			},
+			providerMetadata: { gateway: { generationId: "generation_1" } },
+			usage: { inputTokens: 10, outputTokens: 0 },
+		} as unknown as Awaited<ReturnType<typeof generateImage>>);
+		// The primary object stores; every rendition is refused.
+		vi.mocked(putSiteFile).mockImplementation(async (key) =>
+			/\.w\d+\.webp$/.test(key)
+				? Promise.reject(new Error("R2 said no"))
+				: undefined,
+		);
+
+		const result = await generateBuildImage(PARAMS);
+
+		expect(result).toMatchObject({ status: "generated" });
 	});
 
 	it("maps every brief aspect onto a supported canvas", async () => {

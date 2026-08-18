@@ -5,6 +5,7 @@ import sharp from "sharp";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+	IMMUTABLE_ASSET_CACHE_CONTROL,
 	isR2Configured,
 	putSiteFile,
 } from "../../../../infrastructure/storage/r2";
@@ -117,14 +118,19 @@ describe("generateStandaloneImage", () => {
 			"images/project_1/attempt_1/img-1.webp",
 			expect.any(Uint8Array),
 			"image/webp",
+			IMMUTABLE_ASSET_CACHE_CONTROL,
 		);
 		expect(result).toEqual({
+			// Three bytes are not a readable image, so the dimensions fall back
+			// to the canvas the provider was asked for (1:1 -> 1024x1024).
+			height: 1024,
 			mediaType: "image/webp",
 			model: "openai/gpt-image-2",
 			providerMetadata: { gateway: { generationId: "gen_image_1" } },
 			status: "generated",
 			usage: { inputTokens: 10, outputTokens: 0 },
 			url: "https://assets.example.com/images/project_1/attempt_1/img-1.webp",
+			width: 1024,
 		});
 	});
 
@@ -152,6 +158,7 @@ describe("generateStandaloneImage", () => {
 			"images/project_1/attempt_1/img-1.webp",
 			expect.any(Uint8Array),
 			"image/webp",
+			IMMUTABLE_ASSET_CACHE_CONTROL,
 		);
 
 		const uploaded = vi.mocked(putSiteFile).mock.calls[0]?.[1] as Uint8Array;
@@ -160,10 +167,25 @@ describe("generateStandaloneImage", () => {
 		expect(metadata.width).toBe(1920);
 
 		expect(result).toMatchObject({
+			// Measured from the stored bytes, not from the requested canvas.
+			height: 230,
 			mediaType: "image/webp",
 			status: "generated",
 			url: "https://assets.example.com/images/project_1/attempt_1/img-1.webp",
+			width: 1920,
 		});
+
+		// The srcset renditions land beside the primary object.
+		expect(
+			vi
+				.mocked(putSiteFile)
+				.mock.calls.slice(1)
+				.map((call) => call[0]),
+		).toEqual([
+			"images/project_1/attempt_1/img-1.w480.webp",
+			"images/project_1/attempt_1/img-1.w960.webp",
+			"images/project_1/attempt_1/img-1.w1600.webp",
+		]);
 	});
 
 	it("persists provider evidence before making uploaded bytes recoverable", async () => {

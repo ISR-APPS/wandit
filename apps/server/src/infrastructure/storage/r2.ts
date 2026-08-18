@@ -177,6 +177,36 @@ export function userUploadKey(
 	return `uploads/${userId}/${uuid}/${filename}`;
 }
 
+// Narrower renditions of an image object live BESIDE it, in the same
+// directory, so every key keeps its segment count:
+// {directory}/{stem}.w{width}.webp
+// Same-directory matters: isUserUploadUrl / isWanditUploadUrl and
+// brief-user-photos both require uploads/ keys to be exactly 4 segments, and
+// an extra segment would silently drop a user photo from the builder's view.
+export function variantKey(baseKey: string, width: number): string {
+	const slash = baseKey.lastIndexOf("/");
+	const directory = slash >= 0 ? baseKey.slice(0, slash + 1) : "";
+	const filename = baseKey.slice(slash + 1);
+	const dot = filename.lastIndexOf(".");
+	const stem = dot > 0 ? filename.slice(0, dot) : filename;
+
+	return `${directory}${stem}.w${width}.webp`;
+}
+
+// The shape variantKey writes. Prefix listings (the Assets tab) use it to
+// keep renditions out of the user-facing file list.
+export const VARIANT_FILENAME_PATTERN = /\.w\d+\.webp$/;
+
+// Cache header for uuid-addressed media objects (uploads, build assets,
+// generated images, videos). A given key is written ONCE and never rewritten,
+// which is what makes "immutable" honest.
+//
+// CONSEQUENCE for any future backfill: re-optimizing an existing object must
+// write a NEW key and repoint the HTML at it. Rewriting bytes in place would
+// leave every edge and browser serving the old copy for a year.
+export const IMMUTABLE_ASSET_CACHE_CONTROL =
+	"public, max-age=31536000, immutable";
+
 // Browser-reachable URL for an object key, through the bucket's public base
 // URL (Cloudflare public dev URL or custom domain). Callers MUST check that
 // env.R2_PUBLIC_BASE_URL is set first — same contract as isR2Configured().
@@ -315,15 +345,21 @@ export function contentTypeFor(path: string): string {
 
 // Upload one file of a generated site (the builder may emit more than just
 // index.html). Same overwrite semantics as putPageHtml.
+//
+// cacheControl is opt-in per call, NOT derived from the content type: page
+// screenshots and dashboard thumbnails are images too, and they are not the
+// long-lived page assets that earn IMMUTABLE_ASSET_CACHE_CONTROL.
 export async function putSiteFile(
 	key: string,
 	body: string | Uint8Array,
 	contentType: string,
+	cacheControl?: string,
 ): Promise<void> {
 	await r2Client().send(
 		new PutObjectCommand({
 			Body: body,
 			Bucket: env.R2_BUCKET,
+			...(cacheControl ? { CacheControl: cacheControl } : {}),
 			ContentType: contentType,
 			Key: key,
 		}),
@@ -401,6 +437,24 @@ export async function getObjectContentType(
 		}
 
 		throw error;
+	}
+}
+
+/**
+ * Does this object exist? A HEAD, so no body is transferred. Answers false on
+ * ANY error (missing key, credentials, network): callers use it to decide
+ * whether to reference an optional object such as an image rendition, and a
+ * storage hiccup must degrade to "do not reference it", never to a throw.
+ */
+export async function r2ObjectExists(key: string): Promise<boolean> {
+	try {
+		await r2Client().send(
+			new HeadObjectCommand({ Bucket: env.R2_BUCKET, Key: key }),
+		);
+
+		return true;
+	} catch {
+		return false;
 	}
 }
 
