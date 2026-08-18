@@ -118,6 +118,177 @@ export function formatLeadExtraValue(value: LeadExtraScalar): string {
 }
 
 /**
+ * The commercial facts of a typical COD order, promoted out of the free-form
+ * extras. Exports give them fixed labelled columns right after the standard
+ * lead columns, and the Leads tables surface them at a glance. Array order is
+ * the export column order.
+ */
+export const LEAD_ORDER_FIELDS = [
+	"product",
+	"quantity",
+	"price",
+	"delivery",
+	"total",
+] as const;
+
+export type LeadOrderField = (typeof LEAD_ORDER_FIELDS)[number];
+
+export type LeadOrderExtras = Partial<Record<LeadOrderField, LeadExtraScalar>>;
+
+/**
+ * Collapses the spellings of one order concept onto one lookup key: Latin
+ * diacritics stripped (Quantité → quantite), Arabic alef/taa-marbuta/yaa
+ * variants folded (NFKD splits hamza/madda off the alef — those combining
+ * marks are stripped with the harakat, so الإجمالي matches الاجمالي), tatweel
+ * dropped, and every separator removed ("Prix total" → "prixtotal").
+ */
+function normalizeLeadOrderKey(key: string): string {
+	return key
+		.normalize("NFKD")
+		.replace(/[\u0300-\u036f]/g, "")
+		.toLowerCase()
+		.replace(/[أإآٱ]/g, "ا")
+		.replace(/ة/g, "ه")
+		.replace(/ى/g, "ي")
+		.replace(/[\u064b-\u0655\u0640\u0670]/g, "")
+		.replace(/[^a-z0-9\u0600-\u06ff]+/g, "");
+}
+
+/**
+ * Synonyms → canonical order field. The COD builder prompts require the
+ * canonical keys themselves on new pages; the aliases absorb pages generated
+ * before that rule and the builder's stylistic drift (French, Arabic and
+ * compound spellings). Compared after normalizeLeadOrderKey — exact matches
+ * only, no substring guessing.
+ */
+const LEAD_ORDER_FIELD_ALIASES: Record<LeadOrderField, readonly string[]> = {
+	delivery: [
+		"delivery",
+		"delivery method",
+		"livraison",
+		"mode de livraison",
+		"mode livraison",
+		"type de livraison",
+		"type livraison",
+		"shipping",
+		"التوصيل",
+		"توصيل",
+		"الشحن",
+		"شحن",
+		"طريقة التوصيل",
+		"نوع التوصيل",
+	],
+	price: [
+		"price",
+		"unit price",
+		"prix",
+		"prix unitaire",
+		"السعر",
+		"سعر",
+		"الثمن",
+		"ثمن",
+	],
+	product: [
+		"product",
+		"produit",
+		"produits",
+		"offre",
+		"offer",
+		"pack",
+		"bundle",
+		"article",
+		"item",
+		"produit choisi",
+		"offre choisie",
+		"المنتج",
+		"منتج",
+		"المنتوج",
+		"منتوج",
+		"العرض",
+		"عرض",
+	],
+	quantity: [
+		"quantity",
+		"qty",
+		"qte",
+		"quantite",
+		"nombre",
+		"الكمية",
+		"كمية",
+		"العدد",
+		"عدد",
+	],
+	total: [
+		"total",
+		"grand total",
+		"total price",
+		"prix total",
+		"montant",
+		"montant total",
+		"total a payer",
+		"montant a payer",
+		"المجموع",
+		"مجموع",
+		"الاجمالي",
+		"اجمالي",
+		"المبلغ",
+		"مبلغ",
+		"المبلغ الاجمالي",
+		"السعر الاجمالي",
+		"الثمن الاجمالي",
+	],
+};
+
+const leadOrderFieldByAlias = new Map<string, LeadOrderField>();
+for (const field of LEAD_ORDER_FIELDS) {
+	for (const alias of LEAD_ORDER_FIELD_ALIASES[field]) {
+		leadOrderFieldByAlias.set(normalizeLeadOrderKey(alias), field);
+	}
+}
+
+/** Canonical order field a raw form-field key names, if any. */
+export function matchLeadOrderField(key: string): LeadOrderField | undefined {
+	return leadOrderFieldByAlias.get(normalizeLeadOrderKey(key));
+}
+
+/**
+ * Splits public extras into the recognized order facts and the leftover
+ * dynamic fields. The first key that names a field claims it (entries come
+ * pre-sorted from publicLeadExtraEntries), except that a non-null value beats
+ * an earlier null claim — an untouched optional input often submits null.
+ * Unclaimed synonyms stay in the dynamic rest so no value is ever lost.
+ */
+export function splitLeadOrderExtras(extras: unknown): {
+	order: LeadOrderExtras;
+	rest: Array<[string, LeadExtraScalar]>;
+} {
+	const entries = publicLeadExtraEntries(extras);
+
+	const claimedIndexByField = new Map<LeadOrderField, number>();
+	entries.forEach(([key, value], index) => {
+		const field = matchLeadOrderField(key);
+		if (field === undefined) return;
+		const claimedIndex = claimedIndexByField.get(field);
+		if (
+			claimedIndex === undefined ||
+			(entries[claimedIndex]?.[1] === null && value !== null)
+		) {
+			claimedIndexByField.set(field, index);
+		}
+	});
+
+	const order: LeadOrderExtras = {};
+	for (const [field, index] of claimedIndexByField) {
+		order[field] = entries[index]?.[1] ?? null;
+	}
+
+	const claimedIndexes = new Set(claimedIndexByField.values());
+	const rest = entries.filter((_, index) => !claimedIndexes.has(index));
+
+	return { order, rest };
+}
+
+/**
  * Cap on distinct dynamic columns per export run. Extras keys are
  * attacker-chosen on the public capture endpoint (leadExtrasSchema caps keys
  * per lead, not per project), so without a bound, spam with unique keys would
@@ -131,16 +302,19 @@ export const MAX_LEAD_EXTRA_COLUMNS = 100;
  * sheet's fixed labels — exports are for Algerian merchants. */
 export const LEAD_EXTRA_OVERFLOW_LABEL = "Autres champs";
 
-export type LeadExtrasColumns = {
-	/** Registers this lead's unseen keys, then returns its cells in column order
-	 * ("" for columns the lead lacks). May return fewer cells than keys() will
-	 * eventually hold — later-discovered columns are simply blank for this row. */
+export type LeadExportColumns = {
+	/** Registers this lead's unseen dynamic keys, then returns its cells: one
+	 * per LEAD_ORDER_FIELDS entry first, then the dynamic columns in column
+	 * order ("" for columns the lead lacks). May return fewer cells than the
+	 * final grid holds — later-discovered dynamic columns are simply blank for
+	 * this row. */
 	buildCells(extras: unknown): string[];
 	/** True once any lead spilled keys into the catch-all overflow column.
-	 * Like keys(), only final after every lead went through buildCells(). */
+	 * Like dynamicKeys(), only final after every lead went through
+	 * buildCells(). */
 	hasOverflow(): boolean;
 	/** Dynamic header labels (the raw form-field names), in column order. */
-	keys(): string[];
+	dynamicKeys(): string[];
 };
 
 /**
@@ -167,24 +341,30 @@ export function dedupeLeadExportHeaderLabels(
 }
 
 /**
- * Column layout for the dynamic form fields of one export run.
+ * Column layout for the form fields of one export run: the promoted order
+ * columns first (always present, one per LEAD_ORDER_FIELDS entry — a stable
+ * layout merchants can point formulas at), then the dynamic columns.
  *
- * Every AI-generated page collects different fields, so the export cannot use
- * a fixed header: each public extras key gets its own column instead of the
- * old single JSON "Order details" cell. Columns are assigned in
- * first-appearance order across the leads seen (per lead, in
- * publicLeadExtraEntries order), which lets a streaming export emit rows
- * before the full key set is known — new keys only ever append to the right.
+ * Every AI-generated page collects different fields, so beyond the promoted
+ * block the export cannot use a fixed header: each remaining public extras key
+ * gets its own column instead of the old single JSON "Order details" cell.
+ * Dynamic columns are assigned in first-appearance order across the leads seen
+ * (per lead, in publicLeadExtraEntries order), which lets a streaming export
+ * emit rows before the full key set is known — new keys only ever append to
+ * the right.
  */
-export function createLeadExtrasColumns(): LeadExtrasColumns {
+export function createLeadExportColumns(): LeadExportColumns {
 	const columnByKey = new Map<string, number>();
 	let overflowSeen = false;
 
 	return {
 		buildCells(extras) {
-			const entries = publicLeadExtraEntries(extras);
+			const { order, rest } = splitLeadOrderExtras(extras);
+			const orderCells = LEAD_ORDER_FIELDS.map((field) =>
+				field in order ? formatLeadExtraValue(order[field] ?? null) : "",
+			);
 
-			for (const [key] of entries) {
+			for (const [key] of rest) {
 				if (
 					!columnByKey.has(key) &&
 					columnByKey.size < MAX_LEAD_EXTRA_COLUMNS
@@ -195,11 +375,11 @@ export function createLeadExtrasColumns(): LeadExtrasColumns {
 
 			// Unassigned keys only exist once the cap is hit; they share the one
 			// overflow cell that sits right after the last real column.
-			const overflow = entries.filter(([key]) => !columnByKey.has(key));
+			const overflow = rest.filter(([key]) => !columnByKey.has(key));
 			const cells = new Array<string>(
 				columnByKey.size + (overflow.length > 0 ? 1 : 0),
 			).fill("");
-			for (const [key, value] of entries) {
+			for (const [key, value] of rest) {
 				const column = columnByKey.get(key);
 				if (column !== undefined) {
 					cells[column] = formatLeadExtraValue(value);
@@ -217,12 +397,12 @@ export function createLeadExtrasColumns(): LeadExtrasColumns {
 					.join(",")}}`;
 			}
 
-			return cells;
+			return [...orderCells, ...cells];
 		},
 		hasOverflow() {
 			return overflowSeen;
 		},
-		keys() {
+		dynamicKeys() {
 			return [...columnByKey.keys()];
 		},
 	};

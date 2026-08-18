@@ -61,7 +61,7 @@ function leadRow(overrides: Partial<LeadRow> = {}): LeadRow {
 function stagedRewrite(): StagedSheetRewrite {
 	return {
 		liveSheet: { index: 0, sheetId: 11, title: "Feuille 1" },
-		stagingSheet: { columnCount: 7, rowCount: 1, sheetId: 22 },
+		stagingSheet: { columnCount: 12, rowCount: 1, sheetId: 22 },
 	};
 }
 
@@ -222,7 +222,7 @@ describe("LeadSheetSyncService", () => {
 			expect(sheetsClient.beginStagedRewrite).toHaveBeenCalledWith(
 				"token-1",
 				SHEET.spreadsheetId,
-				7,
+				12,
 			);
 			expect(sheetsClient.writeStagedValues).toHaveBeenNthCalledWith(
 				1,
@@ -239,6 +239,11 @@ describe("LeadSheetSyncService", () => {
 						"À confirmer",
 						"Facebook",
 						"25/07/2026 14:30",
+						"",
+						"",
+						"",
+						"",
+						"",
 					],
 				],
 			);
@@ -250,7 +255,22 @@ describe("LeadSheetSyncService", () => {
 				SHEET.spreadsheetId,
 				rewrite,
 				0,
-				[["Nom", "Téléphone", "Wilaya", "Commune", "Statut", "Source", "Date"]],
+				[
+					[
+						"Nom",
+						"Téléphone",
+						"Wilaya",
+						"Commune",
+						"Statut",
+						"Source",
+						"Date",
+						"Produit",
+						"Quantité",
+						"Prix",
+						"Livraison",
+						"Total",
+					],
+				],
 			);
 			expect(sheetsClient.commitStagedRewrite).toHaveBeenCalledWith(
 				"token-1",
@@ -294,7 +314,7 @@ describe("LeadSheetSyncService", () => {
 			expect(sheetsClient.beginStagedRewrite).toHaveBeenCalledWith(
 				"token-1",
 				SHEET.spreadsheetId,
-				7,
+				12,
 			);
 			expect(sheetsClient.writeStagedValues).toHaveBeenCalledTimes(2);
 			expect(sheetsClient.commitStagedRewrite).toHaveBeenCalledWith(
@@ -325,13 +345,13 @@ describe("LeadSheetSyncService", () => {
 				1,
 				"token-1",
 				"deleted-sheet",
-				7,
+				12,
 			);
 			expect(sheetsClient.beginStagedRewrite).toHaveBeenNthCalledWith(
 				2,
 				"token-1",
 				SHEET.spreadsheetId,
-				7,
+				12,
 			);
 			expect(sheetsClient.commitStagedRewrite).toHaveBeenCalledWith(
 				"token-1",
@@ -431,6 +451,11 @@ describe("LeadSheetSyncService", () => {
 					"Statut",
 					"Source",
 					"Date",
+					"Produit",
+					"Quantité",
+					"Prix",
+					"Livraison",
+					"Total",
 					"size",
 					"color",
 				],
@@ -443,6 +468,11 @@ describe("LeadSheetSyncService", () => {
 				"À confirmer",
 				"Facebook",
 				"25/07/2026 14:30",
+				"",
+				"",
+				"",
+				"",
+				"",
 			];
 			expect(writeCalls.slice(0, -1).flatMap((call) => call[4])).toEqual([
 				[...fixedCells, "XL"],
