@@ -3,7 +3,7 @@ import { randomBytes } from "node:crypto";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 
-import { optimizeImage } from "./optimize-image";
+import { buildImageVariants, optimizeImage } from "./optimize-image";
 
 // Random noise defeats PNG compression, so even small canvases stay well
 // above the 150KB optimization threshold.
@@ -188,7 +188,7 @@ describe("optimizeImage", () => {
 		expect(metadata.width).toBe(640);
 	});
 
-	it("returns inputs under 150KB unchanged", async () => {
+	it("returns small, narrow inputs unchanged but still reports their size", async () => {
 		const input = await noisePng(24, 24);
 
 		const result = await optimizeImage(input, {
@@ -199,6 +199,35 @@ describe("optimizeImage", () => {
 		expect(result.bytes).toBe(input);
 		expect(result.contentType).toBe("image/png");
 		expect(result.ext).toBe("png");
+		// Dimensions are what let an <img> reserve its box, so a pass-through
+		// still has to answer them.
+		expect(result.width).toBe(24);
+		expect(result.height).toBe(24);
+	});
+
+	it("resizes a light file whose canvas is wider than 1920", async () => {
+		// The live regression: a flat 3000px PNG compresses to well under the
+		// 150KB byte floor and still ships 3000 pixels to a phone.
+		const input = await sharp({
+			create: {
+				background: { b: 200, g: 120, r: 30 },
+				channels: 3,
+				height: 400,
+				width: 3000,
+			},
+		})
+			.png()
+			.toBuffer();
+		expect(input.byteLength).toBeLessThan(150 * 1024);
+
+		const result = await optimizeImage(input, {
+			contentType: "image/png",
+			ext: "png",
+		});
+
+		expect(result.contentType).toBe("image/webp");
+		expect(result.width).toBe(1920);
+		expect(result.height).toBe(256);
 	});
 
 	it("returns SVG unchanged regardless of size", async () => {
@@ -270,6 +299,101 @@ describe("optimizeImage", () => {
 			bytes: input,
 			contentType: "application/octet-stream",
 			ext: "bin",
+			height: null,
+			width: null,
 		});
+	});
+
+	it("reports the dimensions of the optimized bytes, not the source", async () => {
+		const input = await noisePng(2500, 300);
+
+		const result = await optimizeImage(input, {
+			contentType: "image/png",
+			ext: "png",
+		});
+
+		expect({ height: result.height, width: result.width }).toEqual({
+			height: 230,
+			width: 1920,
+		});
+	});
+});
+
+describe("buildImageVariants", () => {
+	it("renders the default widths as webp", async () => {
+		const input = await noisePng(2000, 500);
+
+		const variants = await buildImageVariants(input);
+
+		expect(variants.map((variant) => variant.width)).toEqual([480, 960, 1600]);
+
+		for (const variant of variants) {
+			expect(variant.contentType).toBe("image/webp");
+			expect(variant.ext).toBe("webp");
+
+			const metadata = await sharp(variant.bytes).metadata();
+			expect(metadata.format).toBe("webp");
+			expect(metadata.width).toBe(variant.width);
+			expect(variant.height).toBe(metadata.height);
+		}
+	});
+
+	it("never upscales: widths at or above the source are skipped", async () => {
+		const input = await noisePng(960, 400);
+
+		const variants = await buildImageVariants(input);
+
+		// 960 is the source width itself — a rendition of it would be a copy.
+		expect(variants.map((variant) => variant.width)).toEqual([480]);
+	});
+
+	it("honours explicit widths", async () => {
+		const input = await noisePng(1200, 300);
+
+		const variants = await buildImageVariants(input, { widths: [300, 600] });
+
+		expect(variants.map((variant) => variant.width)).toEqual([300, 600]);
+	});
+
+	it("answers no variants (never throws) for non-image bytes", async () => {
+		await expect(buildImageVariants(randomBytes(2048))).resolves.toEqual([]);
+	});
+
+	it("answers no variants for animated inputs", async () => {
+		const input = await sharp(randomBytes(320 * 480 * 3), {
+			raw: { channels: 3, height: 480, pageHeight: 240, width: 320 },
+		})
+			.webp({ effort: 0, lossless: true })
+			.toBuffer();
+
+		await expect(buildImageVariants(input)).resolves.toEqual([]);
+	});
+
+	it("keeps the widths that succeed when one width cannot be rendered", async () => {
+		const input = await noisePng(2000, 500);
+
+		// A width sharp refuses (0 is not a valid resize target) must cost the
+		// caller that rendition only.
+		const variants = await buildImageVariants(input, {
+			widths: [0, 480, 960],
+		});
+
+		expect(variants.map((variant) => variant.width)).toEqual([480, 960]);
+	});
+
+	it("applies EXIF orientation before measuring the source width", async () => {
+		// Stored 2000x500, displayed 500x2000: only 480 is narrower than the
+		// DISPLAYED width, so an orientation-blind check would emit upscales.
+		const input = await sharp(randomBytes(2000 * 500 * 3), {
+			raw: { channels: 3, height: 500, width: 2000 },
+		})
+			.jpeg({ quality: 95 })
+			.withMetadata({ orientation: 6 })
+			.toBuffer();
+
+		const variants = await buildImageVariants(input);
+
+		expect(variants.map((variant) => variant.width)).toEqual([480]);
+		expect(variants[0]?.height).toBe(1920);
 	});
 });

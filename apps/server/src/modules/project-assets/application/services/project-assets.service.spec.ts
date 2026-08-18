@@ -35,6 +35,7 @@ vi.mock("../../../../infrastructure/storage/r2", () => ({
 		return url.startsWith(base) ? url.slice(base.length) : null;
 	},
 	publicAssetUrl: (key: string) => `https://assets.example.com/${key}`,
+	VARIANT_FILENAME_PATTERN: /\.w\d+\.webp$/,
 }));
 
 vi.mock("../../../../infrastructure/analytics/analytics.service", () => ({
@@ -198,6 +199,34 @@ describe("ProjectAssetsService.listAssets", () => {
 		]);
 		expect(assets.every((asset) => asset.source === "page-build")).toBe(true);
 		expect(assets[0]?.sizeBytes).not.toBeNull();
+	});
+
+	it("hides srcset renditions from the tab", async () => {
+		vi.mocked(listObjectsByPrefix).mockResolvedValue([
+			{
+				key: `sites/${PROJECT_ID}/assets/a1/img-1.webp`,
+				lastModified: new Date("2026-07-25T08:00:00.000Z"),
+				sizeBytes: 1_234,
+			},
+			{
+				key: `sites/${PROJECT_ID}/assets/a1/img-1.w480.webp`,
+				lastModified: new Date("2026-07-25T08:00:01.000Z"),
+				sizeBytes: 120,
+			},
+			{
+				key: `sites/${PROJECT_ID}/assets/a1/img-1.w960.webp`,
+				lastModified: new Date("2026-07-25T08:00:02.000Z"),
+				sizeBytes: 340,
+			},
+		]);
+		const { service } = setup();
+
+		const assets = await service.listAssets(SCOPE, PROJECT_ID);
+
+		// Renditions are machine copies of a card the user already sees.
+		expect(assets.map((asset) => asset.key)).toEqual([
+			`sites/${PROJECT_ID}/assets/a1/img-1.webp`,
+		]);
 	});
 
 	it("dedupes animation videos out of the build listing", async () => {

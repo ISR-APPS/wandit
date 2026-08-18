@@ -3,6 +3,7 @@ import { experimental_generateVideo as generateVideo } from "ai";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+	IMMUTABLE_ASSET_CACHE_CONTROL,
 	isR2Configured,
 	putSiteFile,
 } from "../../../../infrastructure/storage/r2";
@@ -134,6 +135,8 @@ describe("generateBuildVideo", () => {
 			"sites/project_1/assets/attempt_1/vid-2.mp4",
 			new Uint8Array([9, 9, 9]),
 			"video/mp4",
+			// uuid-addressed object, written once: cacheable forever.
+			IMMUTABLE_ASSET_CACHE_CONTROL,
 		);
 		expect(result).toEqual({
 			mediaType: "video/mp4",
@@ -213,6 +216,7 @@ describe("generateBuildVideo", () => {
 			"sites/project_1/assets/attempt_1/vid-2.webm",
 			expect.anything(),
 			"video/webm",
+			IMMUTABLE_ASSET_CACHE_CONTROL,
 		);
 	});
 
@@ -225,6 +229,7 @@ describe("generateBuildVideo", () => {
 			"sites/project_1/assets/attempt_1/vid-2.mp4",
 			expect.anything(),
 			"video/quicktime",
+			IMMUTABLE_ASSET_CACHE_CONTROL,
 		);
 	});
 
