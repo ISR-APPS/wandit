@@ -258,7 +258,11 @@ export function LeadsTab() {
 			});
 			downloadTextFile(
 				`leads-${projectId}.csv`,
-				buildLeadsCsv(exportLeads, dictionary.leads.csvHeaders),
+				buildLeadsCsv(
+					exportLeads,
+					dictionary.leads.csvHeaders,
+					dictionary.leads.csvOrderHeaders,
+				),
 			);
 			toast.success(t("leads.exportedToast", { count: exportLeads.length }));
 		} catch {
@@ -475,7 +479,10 @@ export function LeadsTab() {
 												>
 													{lead.name}
 												</div>
-												<LeadOrderDetails extras={lead.extras} />
+												<LeadOrderDetails
+													extras={lead.extras}
+													totalLabel={t("leads.orderTotal")}
+												/>
 											</TableCell>
 											<TableCell>
 												<div className="flex items-center gap-1">
@@ -555,7 +562,10 @@ export function LeadsTab() {
 											source={lead.source}
 										/>
 									</div>
-									<LeadOrderDetails extras={lead.extras} />
+									<LeadOrderDetails
+										extras={lead.extras}
+										totalLabel={t("leads.orderTotal")}
+									/>
 								</div>
 							))}
 						</div>

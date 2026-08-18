@@ -86,6 +86,8 @@
 		"Campaign",
 		"Date"
 	],
+	"csvOrderHeaders": ["Product", "Quantity", "Price", "Delivery", "Total"],
+	"orderTotal": "Total",
 	"source": {
 		"facebook": "Facebook",
 		"tiktok": "TikTok",
