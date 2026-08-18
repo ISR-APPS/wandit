@@ -2006,12 +2006,14 @@ describe("generate_image tool", () => {
 		};
 		const usage = { inputTokens: 9, outputTokens: 2 };
 		vi.mocked(generateBuildImage).mockResolvedValue({
+			height: 1024,
 			imageBase64: "aW1n",
 			mediaType: "image/png",
 			model: "test/image-model",
 			providerMetadata,
 			status: "generated",
 			url: "https://assets.example.com/img-1.png",
+			width: 1536,
 			usage,
 		});
 
@@ -2095,12 +2097,14 @@ describe("generate_image tool", () => {
 			usageEventId: "page_event_1",
 		});
 		vi.mocked(generateBuildImage).mockResolvedValue({
+			height: 1024,
 			imageBase64: "aW1n",
 			mediaType: "image/png",
 			model: "test/image-model",
 			providerMetadata: {},
 			status: "generated",
 			url: "https://assets.example.com/img-1.png",
+			width: 1536,
 			usage: { inputTokens: 9, outputTokens: 2 },
 		});
 
@@ -2145,12 +2149,14 @@ describe("generate_image tool", () => {
 		const url =
 			"https://assets.example.com/sites/project_1/assets/attempt_1/img-1.png";
 		vi.mocked(generateBuildImage).mockResolvedValue({
+			height: 1024,
 			imageBase64: "aW1nLWJ5dGVz",
 			mediaType: "image/png",
 			model: "test/image-model",
 			providerMetadata: {},
 			status: "generated",
 			url,
+			width: 1536,
 		});
 
 		const output = materialize(
@@ -2167,9 +2173,11 @@ describe("generate_image tool", () => {
 		});
 		expect(output).toEqual({
 			aspect: "16:9",
+			height: 1024,
 			role: "hero background",
 			status: "generated",
 			url,
+			width: 1536,
 		});
 		expect(state.imagesGenerated).toBe(1);
 		// The raw bytes must never land in the transcript output.
@@ -2197,6 +2205,10 @@ describe("generate_image tool", () => {
 				type: "file",
 			},
 		]);
+		// The real pixels reach the model, so it can write width/height on the
+		// <img> instead of guessing a box.
+		const [marker] = modelOutput.value;
+		expect(marker?.type === "text" && marker.text).toContain("1536x1024px");
 	});
 
 	it("passes handler failures through without counting the image", async () => {
@@ -2214,12 +2226,14 @@ describe("generate_image tool", () => {
 		// The key sequence is never reused: a retry after a failure must not
 		// collide with an image a concurrent call may have uploaded meanwhile.
 		vi.mocked(generateBuildImage).mockResolvedValue({
+			height: 1024,
 			imageBase64: "aW1nLWJ5dGVz",
 			mediaType: "image/png",
 			model: "test/image-model",
 			providerMetadata: {},
 			status: "generated",
 			url: "https://assets.example.com/sites/project_1/assets/attempt_1/img-2.png",
+			width: 1536,
 		});
 		await tools.generate_image.execute?.(IMAGE_INPUT, options("img_2"));
 		expect(generateBuildImage).toHaveBeenLastCalledWith(
@@ -2232,12 +2246,14 @@ describe("generate_image tool", () => {
 		state.imagesGenerated = MAX_IMAGES - 2;
 		state.imageSequence = MAX_IMAGES - 2;
 		vi.mocked(generateBuildImage).mockImplementation(async ({ index }) => ({
+			height: 1024,
 			imageBase64: "aW1nLWJ5dGVz",
 			mediaType: "image/png",
 			model: "test/image-model",
 			providerMetadata: {},
 			status: "generated",
 			url: `https://assets.example.com/img-${index}.png`,
+			width: 1536,
 		}));
 
 		// The SDK executes one step's tool calls concurrently (Promise.all), so
@@ -2504,7 +2520,7 @@ describe("runSiteBuild", () => {
 							},
 							{ data: secondPhoto, mediaType: "image", type: "file" },
 							{
-								text: "These are the user's real photos from the brief, attached so you can SEE them. Judge each one's quality before you write HTML, per your PHOTO QUALITY GATE law. To enhance or restage one, pass its exact URL from its marker as generate_image sourceImageUrls.",
+								text: "These are the user's real photos from the brief, attached so you can SEE them. Judge each one's quality before you write HTML, per your PHOTO QUALITY GATE law. To enhance, restage, or refit one to a slot's shape, pass its exact URL from its marker as generate_image sourceImageUrls.",
 								type: "text",
 							},
 						],
@@ -2673,12 +2689,14 @@ describe("progress events", () => {
 			onEvent: (event) => events.push(event),
 		});
 		vi.mocked(generateBuildImage).mockResolvedValue({
+			height: 1024,
 			imageBase64: "aW1n",
 			mediaType: "image/png",
 			model: "test/image-model",
 			providerMetadata: {},
 			status: "generated",
 			url: "https://assets.example.com/sites/project_1/assets/attempt_1/img-1.png",
+			width: 1536,
 		});
 
 		await tools.write_file.execute?.(

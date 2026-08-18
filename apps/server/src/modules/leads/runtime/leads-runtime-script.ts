@@ -254,6 +254,16 @@ export function buildLeadsRuntimeScript(options: {
 					window.ttq.track("Lead");
 				}
 			} catch (ignored) {}
+			// Both tracks above may still be sitting in a stub queue: the SDK
+			// fetch is deferred off the critical path (pixel-injector.ts) and a
+			// queued event is never sent. Ask the injected snippets to fetch
+			// NOW, so a visitor who converts and closes the tab does not take
+			// the conversion with them. Absent on a page with no pixels.
+			try {
+				if (typeof window.wanditFlushPixels === "function") {
+					window.wanditFlushPixels();
+				}
+			} catch (ignored) {}
 		}
 
 		function send(lead) {
