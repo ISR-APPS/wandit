@@ -13,7 +13,7 @@
 // Pure functions for the workspace feature.
 
 import {
-	createLeadExtrasColumns,
+	createLeadExportColumns,
 	dedupeLeadExportHeaderLabels,
 	LEAD_EXTRA_OVERFLOW_LABEL,
 } from "@wandit/contracts";
@@ -134,13 +134,20 @@ export const ORDER_DETAILS_LABEL = "Order details";
 
 /**
  * CSV with UTF-8 BOM so Arabic names survive Excel; stable column order.
- * `headers` is the localized header row (leads.csvHeaders); the status cell is
- * localized from the current dictionary snapshot (leads.status.<enum_value>).
- * Every dynamic form field gets its own column after the fixed ones (each
- * AI-generated page collects different fields), so the header is only known
- * after all rows are collected; leads without a field get an empty cell.
+ * `headers` is the localized fixed header row (leads.csvHeaders) and
+ * `orderHeaders` the localized promoted order columns (leads.csvOrderHeaders,
+ * aligned with LEAD_ORDER_FIELDS); the status cell is localized from the
+ * current dictionary snapshot (leads.status.<enum_value>). The promoted order
+ * columns (product, quantity, price, delivery, total) always follow the fixed
+ * ones; every remaining dynamic form field gets its own column after them
+ * (each AI-generated page collects different fields), so the header is only
+ * known after all rows are collected; leads without a field get an empty cell.
  */
-export function buildLeadsCsv(leads: Lead[], headers: string[]): string {
+export function buildLeadsCsv(
+	leads: Lead[],
+	headers: string[],
+	orderHeaders: string[],
+): string {
 	// CSV cells containing commas, quotes, or newlines must be wrapped in quotes;
 	// doubled quotes are the CSV escape sequence for a literal quote. Cells
 	// starting with = or @ (or tab/CR) would execute as formulas in Excel and
@@ -153,7 +160,7 @@ export function buildLeadsCsv(leads: Lead[], headers: string[]): string {
 			? `"${neutralized.replace(/"/g, '""')}"`
 			: neutralized;
 	};
-	const extrasColumns = createLeadExtrasColumns();
+	const exportColumns = createLeadExportColumns();
 	const leadCells = leads.map((lead) => [
 		lead.name,
 		lead.phone,
@@ -163,15 +170,16 @@ export function buildLeadsCsv(leads: Lead[], headers: string[]): string {
 		lead.source,
 		lead.campaign ?? "",
 		lead.createdAt,
-		...extrasColumns.buildCells(lead.extras),
+		...exportColumns.buildCells(lead.extras),
 	]);
+	const fixedHeaders = [...headers, ...orderHeaders];
 	const csvHeaders = [
-		...headers,
+		...fixedHeaders,
 		...dedupeLeadExportHeaderLabels(
-			[...headers, LEAD_EXTRA_OVERFLOW_LABEL],
-			extrasColumns.keys(),
+			[...fixedHeaders, LEAD_EXTRA_OVERFLOW_LABEL],
+			exportColumns.dynamicKeys(),
 		),
-		...(extrasColumns.hasOverflow() ? [LEAD_EXTRA_OVERFLOW_LABEL] : []),
+		...(exportColumns.hasOverflow() ? [LEAD_EXTRA_OVERFLOW_LABEL] : []),
 	];
 	const rows = leadCells.map((cells) =>
 		Array.from({ length: csvHeaders.length }, (_, index) => cells[index] ?? "")

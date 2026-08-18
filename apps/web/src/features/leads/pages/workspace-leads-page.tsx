@@ -575,7 +575,10 @@ function WorkspaceLeadsContent() {
 													>
 														{lead.name}
 													</div>
-													<LeadOrderDetails extras={lead.extras} />
+													<LeadOrderDetails
+														extras={lead.extras}
+														totalLabel={t("leads.orderTotal")}
+													/>
 												</TableCell>
 												<TableCell>
 													<div className="flex items-center gap-1">
@@ -671,7 +674,10 @@ function WorkspaceLeadsContent() {
 												source={lead.source}
 											/>
 										</div>
-										<LeadOrderDetails extras={lead.extras} />
+										<LeadOrderDetails
+											extras={lead.extras}
+											totalLabel={t("leads.orderTotal")}
+										/>
 									</div>
 								))}
 							</div>

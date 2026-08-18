@@ -23,7 +23,11 @@ import {
 } from "@wandit/contracts";
 import { AUTH_INSTANCE } from "../../../auth";
 import type { ProjectScope } from "../../../projects/domain/project-scope";
-import { LEAD_SHEET_HEADER, LeadSheetGrid } from "../../domain/lead-sheet-rows";
+import {
+	LEAD_SHEET_HEADER,
+	LEAD_SHEET_ORDER_HEADER,
+	LeadSheetGrid,
+} from "../../domain/lead-sheet-rows";
 import {
 	GoogleSheetsApiError,
 	GoogleSheetsClient,
@@ -150,7 +154,7 @@ export class LeadSheetSyncService {
 			rewrite = await this.sheetsClient.beginStagedRewrite(
 				accessToken,
 				spreadsheetId,
-				LEAD_SHEET_HEADER.length,
+				LEAD_SHEET_HEADER.length + LEAD_SHEET_ORDER_HEADER.length,
 			);
 
 			let cursor: string | undefined;

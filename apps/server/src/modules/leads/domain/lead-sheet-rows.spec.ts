@@ -1,6 +1,13 @@
 import { type Lead, MAX_LEAD_EXTRA_COLUMNS } from "@wandit/contracts";
 import { describe, expect, it } from "vitest";
-import { buildLeadSheetValues, LEAD_SHEET_HEADER } from "./lead-sheet-rows";
+import {
+	buildLeadSheetValues,
+	LEAD_SHEET_HEADER,
+	LEAD_SHEET_ORDER_HEADER,
+} from "./lead-sheet-rows";
+
+const FIXED_HEADER = [...LEAD_SHEET_HEADER, ...LEAD_SHEET_ORDER_HEADER];
+const EMPTY_ORDER_CELLS = LEAD_SHEET_ORDER_HEADER.map(() => "");
 
 function lead(overrides: Partial<Lead> = {}): Lead {
 	return {
@@ -20,14 +27,22 @@ function lead(overrides: Partial<Lead> = {}): Lead {
 }
 
 describe("buildLeadSheetValues", () => {
-	it("starts with the French header row", () => {
-		expect(buildLeadSheetValues([])).toEqual([[...LEAD_SHEET_HEADER]]);
+	it("starts with the French header row, promoted order columns included", () => {
+		expect(buildLeadSheetValues([])).toEqual([FIXED_HEADER]);
+		expect(LEAD_SHEET_ORDER_HEADER).toEqual([
+			"Produit",
+			"Quantité",
+			"Prix",
+			"Livraison",
+			"Total",
+		]);
 	});
 
 	it("renders one row per lead with French labels and Algiers time", () => {
 		const values = buildLeadSheetValues([lead()]);
 
-		// 13:30 UTC is 14:30 in Africa/Algiers (UTC+1, no DST).
+		// 13:30 UTC is 14:30 in Africa/Algiers (UTC+1, no DST). The promoted
+		// order columns are always present, blank without order extras.
 		expect(values[1]).toEqual([
 			"Amina B",
 			"+213540773102",
@@ -36,10 +51,11 @@ describe("buildLeadSheetValues", () => {
 			"À confirmer",
 			"Facebook",
 			"25/07/2026 14:30",
+			...EMPTY_ORDER_CELLS,
 		]);
 	});
 
-	it("gives every public scalar order extra its own labelled column", () => {
+	it("promotes order facts and gives the other scalars their own columns", () => {
 		const values = buildLeadSheetValues([
 			lead({
 				extras: {
@@ -55,24 +71,79 @@ describe("buildLeadSheetValues", () => {
 			}),
 		]);
 
-		// _rawPhone is capture metadata and options is not scalar — neither
-		// becomes a column.
-		expect(values[0]).toEqual([
-			...LEAD_SHEET_HEADER,
-			"bundle",
-			"color",
-			"delivery",
-			"quantity",
-			"size",
-			"variant",
-		]);
+		// bundle/quantity/delivery land in the promoted order columns; _rawPhone
+		// is capture metadata and options is not scalar — neither becomes a
+		// column; the rest stay dynamic.
+		expect(values[0]).toEqual([...FIXED_HEADER, "color", "size", "variant"]);
 		expect(values[1]?.slice(LEAD_SHEET_HEADER.length)).toEqual([
 			"Duo",
-			"Noir",
-			"Domicile",
 			"2",
+			"",
+			"Domicile",
+			"",
+			"Noir",
 			"XL",
 			"Menthe",
+		]);
+	});
+
+	it("promotes French and Arabic synonyms into the order columns", () => {
+		// الإجمالي uses the standard hamza spelling — the normalizer must fold
+		// it onto the hamza-less alias.
+		const values = buildLeadSheetValues([
+			lead({
+				extras: {
+					Quantité: 2,
+					offre: "Pack Duo",
+					الإجمالي: "3500 DA",
+					"طريقة التوصيل": "Stopdesk",
+				},
+			}),
+		]);
+
+		expect(values[0]).toEqual(FIXED_HEADER);
+		expect(values[1]?.slice(LEAD_SHEET_HEADER.length)).toEqual([
+			"Pack Duo",
+			"2",
+			"",
+			"Stopdesk",
+			"3500 DA",
+		]);
+	});
+
+	it("lets a non-null synonym beat an earlier null claim", () => {
+		const values = buildLeadSheetValues([
+			lead({ extras: { bundle: null, produit: "Solo" } }),
+		]);
+
+		// An untouched optional input submits null; the real product name must
+		// still reach the promoted column, with the null key kept dynamic.
+		expect(values[0]).toEqual([...FIXED_HEADER, "bundle"]);
+		expect(values[1]?.slice(LEAD_SHEET_HEADER.length)).toEqual([
+			"Solo",
+			"",
+			"",
+			"",
+			"",
+			"",
+		]);
+	});
+
+	it("keeps a later synonym as a dynamic column once the field is claimed", () => {
+		const values = buildLeadSheetValues([
+			lead({ extras: { bundle: "Duo", produit: "Solo" } }),
+		]);
+
+		// bundle claims the Produit column first (code-unit entry order); the
+		// second synonym keeps its own column so its value is never lost.
+		expect(values[0]).toEqual([...FIXED_HEADER, "produit"]);
+		expect(values[1]?.slice(LEAD_SHEET_HEADER.length)).toEqual([
+			"Duo",
+			"",
+			"",
+			"",
+			"",
+			"Solo",
 		]);
 	});
 
@@ -82,19 +153,15 @@ describe("buildLeadSheetValues", () => {
 			lead({ extras: { color: "Noir", giftWrap: true }, name: "Oldest" }),
 		]);
 
-		// First appearance assigns the column, so the newest form's fields sit
-		// leftmost and later-discovered fields only append to the right.
-		expect(values[0]?.slice(LEAD_SHEET_HEADER.length)).toEqual([
+		// First appearance assigns the dynamic column, so the newest form's
+		// fields sit leftmost and later-discovered fields only append right.
+		expect(values[0]?.slice(FIXED_HEADER.length)).toEqual([
 			"size",
 			"color",
 			"giftWrap",
 		]);
-		expect(values[1]?.slice(LEAD_SHEET_HEADER.length)).toEqual(["XL"]);
-		expect(values[2]?.slice(LEAD_SHEET_HEADER.length)).toEqual([
-			"",
-			"Noir",
-			"Oui",
-		]);
+		expect(values[1]?.slice(FIXED_HEADER.length)).toEqual(["XL"]);
+		expect(values[2]?.slice(FIXED_HEADER.length)).toEqual(["", "Noir", "Oui"]);
 	});
 
 	it("formats extras for merchants — Oui/Non booleans, blank nulls", () => {
@@ -102,19 +169,18 @@ describe("buildLeadSheetValues", () => {
 			lead({ extras: { express: false, gift: true, note: null, qty: 3 } }),
 		]);
 
-		expect(values[1]?.slice(LEAD_SHEET_HEADER.length)).toEqual([
-			"Non",
-			"Oui",
-			"",
-			"3",
-		]);
+		// qty is a quantity synonym and lands in the promoted column.
+		expect(
+			values[1]?.slice(LEAD_SHEET_HEADER.length, FIXED_HEADER.length),
+		).toEqual(["", "3", "", "", ""]);
+		expect(values[1]?.slice(FIXED_HEADER.length)).toEqual(["Non", "Oui", ""]);
 	});
 
 	it("renames a form field that collides with a fixed label", () => {
 		const values = buildLeadSheetValues([lead({ extras: { Date: "demain" } })]);
 
-		expect(values[0]?.slice(LEAD_SHEET_HEADER.length)).toEqual(["Date (2)"]);
-		expect(values[1]?.slice(LEAD_SHEET_HEADER.length)).toEqual(["demain"]);
+		expect(values[0]?.slice(FIXED_HEADER.length)).toEqual(["Date (2)"]);
+		expect(values[1]?.slice(FIXED_HEADER.length)).toEqual(["demain"]);
 	});
 
 	it("collapses keys past the column cap into one catch-all column", () => {
@@ -129,7 +195,7 @@ describe("buildLeadSheetValues", () => {
 		const values = buildLeadSheetValues([lead({ extras: wide })]);
 
 		expect(values[0]).toHaveLength(
-			LEAD_SHEET_HEADER.length + MAX_LEAD_EXTRA_COLUMNS + 1,
+			FIXED_HEADER.length + MAX_LEAD_EXTRA_COLUMNS + 1,
 		);
 		expect(values[0]?.at(-1)).toBe("Autres champs");
 		expect(values[1]?.at(-1)).toBe('{"f100":100}');

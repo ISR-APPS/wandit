@@ -40,7 +40,7 @@ order-form is the climax and only purchase form. Collect full name or first+last
 
 When the offer needs them: bundle RADIO CARDS, never a select; per-item variant selects; delivery-method radios with explicit home versus desk/pickup/stopdesk fees. Compute and update a visible 3-row summary: product / delivery / grand total. Never say fees to be confirmed.
 
-Put order-steps before the form. Within one scene of submit state: pay nothing now, supplied delivery window, supplied exchange window. Dispatch the base prompt's wandit:lead event with canonical name, phone, wilaya and commune keys; extras use their own keys.
+Put order-steps before the form. Within one scene of submit state: pay nothing now, supplied delivery window, supplied exchange window. Dispatch the base prompt's wandit:lead event with canonical name, phone, wilaya and commune keys. The order facts use canonical extras keys too — product, quantity, price, delivery and total (the grand total the summary shows, plain Western digits); every other collected field keeps its own key.
 
 Success is the page's thank-you moment and always carries three parts: a clear thank-you/confirmation headline in the page's language; the order number with the recap of product, option, delivery and total; and ONE reassurance line built only from brief facts — the confirmation call (we will call you to confirm) plus the supplied delivery window, or a plain call-you line with NO invented deadline when the brief supplies no window.
 
