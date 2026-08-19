@@ -9,8 +9,19 @@ import { GOOGLE_SHEETS_SCOPE } from "@wandit/contracts";
  * the product. The Limited Use sentence is the one place that must name the app
  * instead, because Google matches it against the consent screen, so that
  * sentence spells "Wandit" literally and carries no {company} token.
+ *
  */
 export const LEGAL_COMPANY = "Scalemind Marketing Consultancy L.L.C";
+
+/**
+ * The same entity spelled as the trade licence prints it and as Meta Business
+ * info holds it. Meta business verification looks for the legal business name
+ * on the website and publishes no rule on case, so the places a verification
+ * crawler reads — the landing footer and the static no-JS fallback in
+ * apps/web/index.html — print this exact form. Prose in the legal documents
+ * keeps LEGAL_COMPANY. Derived, so the two can never name different entities.
+ */
+export const LEGAL_COMPANY_REGISTERED_NAME = LEGAL_COMPANY.toUpperCase();
 
 /** Registered office that fills {address}, as printed on the trade licence. */
 export const LEGAL_COMPANY_ADDRESS =
