@@ -49,6 +49,13 @@ describe("index.html legal fallback", () => {
 		expect(fallback).toContain(LEGAL_COMPANY_REGISTERED_NAME);
 	});
 
+	it("names the legal entity in the static og:description", () => {
+		const ogDescription = indexHtml.match(
+			/<meta\s+property="og:description"\s+content="([^"]*)"/,
+		)?.[1];
+		expect(ogDescription).toContain(LEGAL_COMPANY_REGISTERED_NAME);
+	});
+
 	it("keeps the Organization structured data in step with LEGAL_*", () => {
 		const org = readOrganizationJsonLd();
 		expect(org["@type"]).toBe("Organization");

@@ -17,6 +17,24 @@
 			})();
 		</script>
 		<meta name="theme-color" content="#191613" />
+		<!--
+			Open Graph tags are static on purpose: Meta's scraper does not run
+			JavaScript, and the routes set no og:* tags at runtime, so nothing
+			duplicates these. The description names the registered legal entity.
+		-->
+		<meta property="og:type" content="website" />
+		<meta property="og:site_name" content="Wandit" />
+		<meta property="og:url" content="https://wandit.dev/" />
+		<meta property="og:title" content="Wandit — AI landing pages that sell" />
+		<meta
+			property="og:description"
+			content="Wandit turns a prompt into a ready-to-run landing page — publish and collect COD orders in minutes. Wandit is operated by SCALEMIND MARKETING CONSULTANCY L.L.C, Dubai, United Arab Emirates."
+		/>
+		<meta property="og:image" content="https://wandit.dev/og-image.png" />
+		<meta property="og:image:width" content="1200" />
+		<meta property="og:image:height" content="630" />
+		<meta property="og:image:alt" content="Wandit — AI landing pages that sell" />
+		<meta name="twitter:card" content="summary_large_image" />
 		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 		<link rel="preconnect" href="https://fonts.googleapis.com" />
 		<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
