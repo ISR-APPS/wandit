@@ -24,10 +24,68 @@
 			href="https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400..700&family=Geist+Mono:wght@400;500&family=Noto+Sans+Arabic:wght@400..700&display=swap"
 			rel="stylesheet"
 		/>
+		<!--
+			Registered entity behind the product, as structured data. Business
+			verification crawlers (Meta, Google) read the raw HTML of this SPA
+			before any JavaScript runs, so the legal name must be in this file.
+			src/features/legal/lib/constants.spec.ts pins every field here to the
+			LEGAL_* constants in src/features/legal/lib/constants.ts.
+		-->
+		<script type="application/ld+json">
+			{
+				"@context": "https://schema.org",
+				"@type": "Organization",
+				"name": "Wandit",
+				"legalName": "SCALEMIND MARKETING CONSULTANCY L.L.C",
+				"url": "https://wandit.dev",
+				"email": "contact@scalemindapps.com",
+				"address": {
+					"@type": "PostalAddress",
+					"streetAddress": "Office 94-104, Khalid Abdulrahim Shaaban Building, Al Garhoud, Deira",
+					"addressLocality": "Dubai",
+					"addressCountry": "AE"
+				}
+			}
+		</script>
+		<style>
+			/* Visible only until React mounts into #app (and for no-JS clients). */
+			#legal-fallback {
+				position: fixed;
+				inset-inline: 0;
+				bottom: 0;
+				margin: 0;
+				padding: 12px 16px;
+				text-align: center;
+				font: 12px/1.5 "DM Sans", system-ui, sans-serif;
+				color: #8a847b;
+			}
+			#legal-fallback noscript p {
+				margin-top: 4px;
+				font-size: 14px;
+				color: #3d3832;
+			}
+			#app:not(:empty) ~ #legal-fallback {
+				display: none;
+			}
+		</style>
 	</head>
 
 	<body>
 		<div id="app"></div>
+		<!--
+			Static legal line for crawlers that do not run JavaScript. The CSS
+			above hides it as soon as the app renders; the app footer then shows
+			the same sentence (landing.footer.legalEntity).
+		-->
+		<footer id="legal-fallback" lang="en" dir="ltr">
+			<p>
+				Wandit is operated by SCALEMIND MARKETING CONSULTANCY L.L.C, Dubai,
+				United Arab Emirates.
+			</p>
+			<noscript>
+				<p>Wandit needs JavaScript. Enable it in your browser and reload.</p>
+			</noscript>
+		</footer>
 		<script type="module" src="/src/main.tsx"></script>
 	</body>
 </html>

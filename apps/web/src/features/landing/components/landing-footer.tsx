@@ -1,7 +1,11 @@
 import { Link } from "@tanstack/react-router";
-import { useDictionary } from "@wandit/internationalization/react";
+import {
+	useDictionary,
+	useTranslation,
+} from "@wandit/internationalization/react";
 
 import { Logo } from "@/components/logo";
+import { LEGAL_COMPANY_REGISTERED_NAME } from "@/features/legal/lib/constants";
 
 import { FOOTER_COLUMNS } from "../lib/constants";
 import { useSectionNav } from "../lib/use-section-nav";
@@ -15,6 +19,7 @@ const legalLinkClass =
 
 export function LandingFooter() {
 	const footer = useDictionary().landing.footer;
+	const { t } = useTranslation();
 	const navigateToSection = useSectionNav();
 
 	return (
@@ -76,6 +81,14 @@ export function LandingFooter() {
 					</div>
 					<span>{footer.madeIn}</span>
 				</div>
+				{/* Meta (and other) business verification looks for the registered
+				    legal entity on the website itself, not only in the policies, so
+				    the footer names it on every page, spelled as the licence does. */}
+				<p className="mt-3 font-mono text-muted-foreground text-xs">
+					{t("landing.footer.legalEntity", {
+						company: LEGAL_COMPANY_REGISTERED_NAME,
+					})}
+				</p>
 			</div>
 		</footer>
 	);
