@@ -29,7 +29,10 @@ export const chatGatewayFetch = ((
 	input: Parameters<typeof fetch>[0],
 	init?: Parameters<typeof fetch>[1],
 ) =>
-	undiciFetch(input as Parameters<typeof undiciFetch>[0], {
-		...init,
-		dispatcher: chatGatewayDispatcher,
-	} as Parameters<typeof undiciFetch>[1])) as unknown as typeof fetch;
+	undiciFetch(
+		input as Parameters<typeof undiciFetch>[0],
+		{
+			...init,
+			dispatcher: chatGatewayDispatcher,
+		} as Parameters<typeof undiciFetch>[1],
+	)) as unknown as typeof fetch;

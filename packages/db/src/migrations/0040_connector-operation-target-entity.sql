@@ -1,0 +1,2 @@
+ALTER TABLE "connector_operation_events" ADD COLUMN "target_entity_ids" text[];--> statement-breakpoint
+CREATE INDEX "connector_operation_events_target_entity_ids_idx" ON "connector_operation_events" USING gin ("target_entity_ids");

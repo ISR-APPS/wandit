@@ -74,7 +74,16 @@ import {
 	type ReadAttachmentToolDeps,
 	readAttachmentToolSchemaOnly,
 } from "./tools/read-attachment.tool";
-import { readSkillToolSchemaOnly } from "./tools/read-skill.tool";
+import {
+	createReadLeadPerformanceTool,
+	type ReadLeadPerformanceTool,
+	type ReadLeadPerformanceToolDeps,
+	readLeadPerformanceToolSchemaOnly,
+} from "./tools/read-lead-performance.tool";
+import {
+	readSkillTool,
+	readSkillToolSchemaOnly,
+} from "./tools/read-skill.tool";
 import {
 	createScrapeLeadsTool,
 	type ScrapeLeadsTool,
@@ -91,6 +100,8 @@ type AiChatToolSet = {
 	generate_video: GenerateVideoTool;
 	get_direction_candidates: typeof getDirectionCandidatesTool;
 	read_attachment: ReadAttachmentTool;
+	read_lead_performance: ReadLeadPerformanceTool;
+	read_skill: typeof readSkillTool;
 	scrape_leads: ScrapeLeadsTool;
 	get_page_outline: PageEditTools["get_page_outline"];
 	apply_element_ops: PageEditTools["apply_element_ops"];
@@ -160,7 +171,8 @@ export type ChatAgentDeps = GeneratePageToolDeps &
 	Omit<GenerateMarketingAssetToolDeps, "chatId" | "projectId"> &
 	Omit<GenerateImageToolDeps, "chatId" | "projectId"> &
 	Omit<GenerateVideoToolDeps, "chatId" | "projectId"> &
-	ReadAttachmentToolDeps;
+	ReadAttachmentToolDeps &
+	Omit<ReadLeadPerformanceToolDeps, "now" | "projectId">;
 
 /**
  * The agent is built PER REQUEST now (it used to be a module singleton):
@@ -282,6 +294,12 @@ export function createChatAgent(
 			read_attachment: createReadAttachmentTool({
 				availableDocuments: deps.availableDocuments,
 			}),
+			read_lead_performance: createReadLeadPerformanceTool({
+				leadsRepository: deps.leadsRepository,
+				projectId: deps.projectId,
+			}),
+			// Live again for the ads playbooks (agent/ads); pure, no deps.
+			read_skill: readSkillTool,
 			scrape_leads: createScrapeLeadsTool({
 				chatId: deps.chatId,
 				leadScrapesRepository: deps.leadScrapesRepository,
@@ -318,8 +336,7 @@ export const aiChatToolsForValidation = {
 	scrape_leads: scrapeLeadsToolSchemaOnly,
 	get_direction_candidates: getDirectionCandidatesToolSchemaOnly,
 	read_attachment: readAttachmentToolSchemaOnly,
+	read_lead_performance: readLeadPerformanceToolSchemaOnly,
 	...pageEditToolsSchemaOnly,
-	// read_skill was retired from the live agent; the schema stays so chats
-	// that used it still validate.
 	read_skill: readSkillToolSchemaOnly,
 };

@@ -25,7 +25,10 @@ marketing and image outputs, renders known option keys with human labels,
 and falls back to a generic `key: value` line for unknown ones — a new UI
 option can never silently vanish again. `quality` (standard/max) is
 snapshotted into generation specs for later model swapping; no generator
-reads it yet.
+reads it yet. `skills` (the Skills picker) carries the six ads skill slugs;
+the server injects the selected playbooks for that message through
+`composeAdsBlock` (`agent/ads/index.ts`, see `ads-brain.md`) — the old
+decorative chips that no server code read are gone.
 
 ## Marketing assets (Marketing tab)
 

@@ -19,7 +19,7 @@ The brain decides what to build and which tools to use. It must NOT be a templat
 - **AI SDK 7.** The Brain and Builder both use `ToolLoopAgent`.
 - **Vercel AI Gateway** routes every model through swappable `provider/model` environment values.
 - **Trigger.dev** runs the Builder in one background task after chat queues a page attempt.
-- **Permanent focused prompts, not a design skill.** These agents exist for one product workflow, so the role-specific methods live in their system prompts.
+- **Permanent focused prompts for the page workflow; skills for the ads workflow.** The Brain and Builder carry their page method in their system prompts. Ads knowledge (six playbooks, 2026-08) is too large and too conditional for that — it loads on demand through `read_skill` and a connector-gated request block; see `ads-brain.md`.
 - **One tool loop, three enforced review passes.** The Builder must complete at least three screenshot passes (correctness, fidelity/ambition, final verification) AND the final revision must be the one captured — any rewrite invalidates both review gates, so the count can never bless a stale draft.
 - **Web app first.** Native chat streaming remains unchanged.
 

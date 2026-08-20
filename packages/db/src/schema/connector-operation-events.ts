@@ -33,6 +33,12 @@ export const connectorOperationEvents = pgTable(
 		}),
 		connectorSlug: text("connector_slug").notNull(),
 		toolName: text("tool_name").notNull(),
+		// Platform ids of the entities a successful ads write targeted or
+		// created (campaign / ad set / ad — several for TikTok bulk updates),
+		// kept in ONE row per call so admin analytics row counts stay exact.
+		// Null for reads, failed writes, and non-ads connectors. Feeds the
+		// 72-hour change-window guard (overlap lookup, GIN index).
+		targetEntityIds: text("target_entity_ids").array(),
 		feature: connectorOperationFeature("feature").notNull(),
 		status: connectorOperationStatus("status").notNull(),
 		errorCode: text("error_code"),
@@ -61,6 +67,10 @@ export const connectorOperationEvents = pgTable(
 		index("connector_operation_events_userId_createdAt_idx").on(
 			table.userId,
 			table.createdAt,
+		),
+		index("connector_operation_events_target_entity_ids_idx").using(
+			"gin",
+			table.targetEntityIds,
 		),
 	],
 );

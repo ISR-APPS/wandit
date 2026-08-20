@@ -245,6 +245,7 @@ function buildService({
 		listByUser: vi.fn().mockResolvedValue(connections),
 	};
 	const connectorOperationEventsRepository = {
+		findLatestWriteAt: vi.fn().mockResolvedValue(null),
 		insert: vi.fn().mockResolvedValue(undefined),
 	};
 	const connectorsRepository = {
@@ -652,13 +653,35 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				actorUserId: USER_ID,
 			});
 
-			expect(metaResult.approvalMap).toMatchObject({
-				"mcp_meta-ads_frobnicate_widget": "user-approval",
-				"mcp_meta-ads_get_and_delete_campaign": "user-approval",
-			});
-			expect(metaResult.approvalMap).not.toHaveProperty(
-				"mcp_meta-ads_ads_get_ad_accounts",
-			);
+			// Ads writes get call-time classifiers (money-based policy), never
+			// the static "user-approval": the verdict depends on the arguments.
+			const frobnicate =
+				metaResult.approvalMap["mcp_meta-ads_frobnicate_widget"];
+			const getAndDelete =
+				metaResult.approvalMap["mcp_meta-ads_get_and_delete_campaign"];
+
+			expect(frobnicate).toBeTypeOf("function");
+			expect(getAndDelete).toBeTypeOf("function");
+			if (
+				typeof frobnicate !== "function" ||
+				typeof getAndDelete !== "function"
+			) {
+				throw new Error("Expected call-time approval functions");
+			}
+
+			// Unknown verb, no money, no status: cannot start spend — free.
+			expect(frobnicate({})).toBe("not-applicable");
+			// Deletes destroy work — always carded.
+			expect(getAndDelete({ id: "1" })).toBe("user-approval");
+			// Reads are registered too (so a status-setter with a read-looking
+			// name still gets its arguments inspected) and resolve to no card.
+			const getAccounts =
+				metaResult.approvalMap["mcp_meta-ads_ads_get_ad_accounts"];
+			expect(getAccounts).toBeTypeOf("function");
+			if (typeof getAccounts !== "function") {
+				throw new Error("Expected a call-time approval function");
+			}
+			expect(getAccounts({})).toBe("not-applicable");
 
 			queueClient(
 				mockClient({
@@ -1386,6 +1409,41 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 					connector: "tiktok-ads",
 					params: {},
 					tool_name: "campaign_create",
+				}),
+			).toBe("user-approval");
+			expect(
+				approval({
+					connector: "tiktok-ads",
+					params: { budget: 40, operation_status: "DISABLE" },
+					tool_name: "campaign_create",
+				}),
+			).toBe("not-applicable");
+			expect(
+				approval({
+					connector: "meta-ads",
+					params: { status: "PAUSED" },
+					tool_name: "ads_create_adset",
+				}),
+			).toBe("not-applicable");
+			expect(
+				approval({
+					connector: "tiktok-ads",
+					params: { adgroup_ids: ["9"], operation_status: "ENABLE" },
+					tool_name: "adgroup_status_update",
+				}),
+			).toBe("user-approval");
+			expect(
+				approval({
+					connector: "tiktok-ads",
+					params: { adgroup_ids: ["9"], operation_status: "DISABLE" },
+					tool_name: "adgroup_status_update",
+				}),
+			).toBe("not-applicable");
+			expect(
+				approval({
+					connector: "meta-ads",
+					params: { daily_budget: "5000", id: "120210000" },
+					tool_name: "ads_update_adset",
 				}),
 			).toBe("user-approval");
 			expect(
@@ -2831,6 +2889,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 					organizationId: "organization-1",
 					parentEventId: "usage-event-1",
 					status: "succeeded",
+					targetEntityIds: null,
 					toolName: "ads_get_ad_accounts",
 					userId: USER_ID,
 				},
@@ -3087,8 +3146,18 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				actorUserId: USER_ID,
 			});
 
-			expect(result.approvalMap["mcp_meta-ads_campaign_create"]).toBe(
-				"user-approval",
+			const campaignCreateApproval =
+				result.approvalMap["mcp_meta-ads_campaign_create"];
+
+			expect(campaignCreateApproval).toBeTypeOf("function");
+			if (typeof campaignCreateApproval !== "function") {
+				throw new Error("Expected a call-time approval function");
+			}
+			// Status-less create may go live on the platform default — carded;
+			// an explicitly paused create is a free build step.
+			expect(campaignCreateApproval({})).toBe("user-approval");
+			expect(campaignCreateApproval({ status: "PAUSED" })).toBe(
+				"not-applicable",
 			);
 			await expect(
 				executeTool(requiredTool(result.tools, "run_platform_tool"), {
@@ -3130,6 +3199,465 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			).rejects.toThrow(/must be in USD/);
 			expect(providerExecute).not.toHaveBeenCalled();
 			expect(connectorOperationEventsRepository.insert).not.toHaveBeenCalled();
+		});
+	});
+
+	describe("ads change window", () => {
+		function adsWriteSetup(lastWriteAt: Date | null) {
+			queueClient(
+				mockClient({
+					definitions: [
+						definition("update_adset"),
+						definition("create_campaign"),
+						definition("get_adset"),
+					],
+					toolImplementations: {
+						create_campaign: executableTool(() => ({ id: "campaign-1" })),
+						get_adset: executableTool(() => ({ id: "adset-1" })),
+						update_adset: executableTool(() => ({ success: true })),
+					},
+				}),
+			);
+			const built = buildService({
+				connectors: [
+					connector({
+						toolPolicy: {
+							allowlist: ["update_adset", "create_campaign", "get_adset"],
+						},
+					}),
+				],
+			});
+			built.connectorOperationEventsRepository.findLatestWriteAt.mockResolvedValue(
+				lastWriteAt,
+			);
+			return built;
+		}
+
+		it("blocks a write on a recently changed entity once, then lets the insisted retry through", async () => {
+			const lastWriteAt = new Date(Date.now() - 10 * 3_600_000);
+			const { connectorOperationEventsRepository, service } =
+				adsWriteSetup(lastWriteAt);
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID, organizationId: "organization-1" },
+				"usage-event-1",
+			);
+			const tool = requiredTool(result.tools, "mcp_meta-ads_update_adset");
+
+			const blocked = await executeTool(tool, {
+				adset_id: "adset-1",
+				status: "PAUSED",
+			});
+
+			expect(blocked).toMatchObject({ isError: true });
+			expect(JSON.stringify(blocked)).toContain("Wandit change window");
+			expect(JSON.stringify(blocked)).toContain("this ad set was created");
+			expect(
+				connectorOperationEventsRepository.findLatestWriteAt,
+			).toHaveBeenCalledWith({
+				connectorSlug: "meta-ads",
+				organizationId: "organization-1",
+				targetEntityIds: ["adset-1"],
+				userId: USER_ID,
+			});
+			expect(connectorOperationEventsRepository.insert).not.toHaveBeenCalled();
+
+			const allowed = await executeTool(tool, {
+				adset_id: "adset-1",
+				status: "PAUSED",
+			});
+
+			expect(allowed).toEqual({ success: true });
+			expect(connectorOperationEventsRepository.insert).toHaveBeenCalledWith(
+				expect.objectContaining({
+					connectorSlug: "meta-ads",
+					feature: "ads_launch",
+					status: "succeeded",
+					targetEntityIds: ["adset-1"],
+					toolName: "update_adset",
+				}),
+			);
+
+			// The acknowledgement is consumed: a third call is blocked again.
+			// (A pure ACTIVATION would be exempt from the window — this stays a
+			// pause, the guarded direction.)
+			const blockedAgain = await executeTool(tool, {
+				adset_id: "adset-1",
+				status: "PAUSED",
+			});
+			expect(blockedAgain).toMatchObject({ isError: true });
+		});
+
+		it("never blocks creates or reads and skips the lookup for them", async () => {
+			const { connectorOperationEventsRepository, service } = adsWriteSetup(
+				new Date(Date.now() - 3_600_000),
+			);
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID, organizationId: "organization-1" },
+				"usage-event-1",
+			);
+
+			await expect(
+				executeTool(
+					requiredTool(result.tools, "mcp_meta-ads_create_campaign"),
+					{
+						campaign_id: "campaign-1",
+					},
+				),
+			).resolves.toEqual({ id: "campaign-1" });
+			await expect(
+				executeTool(requiredTool(result.tools, "mcp_meta-ads_get_adset"), {
+					adset_id: "adset-1",
+				}),
+			).resolves.toEqual({ id: "adset-1" });
+			expect(
+				connectorOperationEventsRepository.findLatestWriteAt,
+			).not.toHaveBeenCalled();
+			expect(connectorOperationEventsRepository.insert).toHaveBeenCalledWith(
+				expect.objectContaining({
+					targetEntityIds: ["campaign-1"],
+					toolName: "create_campaign",
+				}),
+			);
+		});
+
+		it("records the created entity id from the provider result when the create args carry none", async () => {
+			queueClient(
+				mockClient({
+					definitions: [definition("ads_create_campaign")],
+					toolImplementations: {
+						ads_create_campaign: executableTool(() => ({
+							content: [
+								{ text: JSON.stringify({ id: "new-1" }), type: "text" },
+							],
+						})),
+					},
+				}),
+			);
+			const { connectorOperationEventsRepository, service } = buildService({
+				connectors: [
+					connector({ toolPolicy: { allowlist: ["ads_create_campaign"] } }),
+				],
+			});
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
+
+			await executeTool(
+				requiredTool(result.tools, "mcp_meta-ads_ads_create_campaign"),
+				{ name: "Launch", objective: "OUTCOME_SALES" },
+			);
+
+			expect(connectorOperationEventsRepository.insert).toHaveBeenCalledWith(
+				expect.objectContaining({
+					feature: "ads_launch",
+					status: "succeeded",
+					targetEntityIds: ["new-1"],
+					toolName: "ads_create_campaign",
+				}),
+			);
+		});
+
+		it("records the created child id, never the parent id from the create args", async () => {
+			// A child create resets nothing on its parent: recording the parent
+			// would falsely arm the 72 h window against later legitimate edits.
+			queueClient(
+				mockClient({
+					definitions: [definition("adgroup_create")],
+					toolImplementations: {
+						adgroup_create: executableTool(() => ({
+							content: [
+								{
+									text: JSON.stringify({
+										code: 0,
+										data: { adgroup_id: "adgroup-9" },
+									}),
+									type: "text",
+								},
+							],
+						})),
+					},
+				}),
+			);
+			const { connectorOperationEventsRepository, service } = buildService({
+				connectors: [
+					connector({
+						slug: "tiktok-ads",
+						toolPolicy: { allowlist: ["adgroup_create"] },
+					}),
+				],
+			});
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
+
+			await executeTool(
+				requiredTool(result.tools, "mcp_tiktok-ads_adgroup_create"),
+				{ campaign_id: "campaign-C", operation_status: "DISABLE" },
+			);
+
+			expect(connectorOperationEventsRepository.insert).toHaveBeenCalledWith(
+				expect.objectContaining({
+					status: "succeeded",
+					targetEntityIds: ["adgroup-9"],
+					toolName: "adgroup_create",
+				}),
+			);
+		});
+
+		it("scopes the lookup to the personal space when the actor has no organization", async () => {
+			const { connectorOperationEventsRepository, service } =
+				adsWriteSetup(null);
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
+
+			await executeTool(
+				requiredTool(result.tools, "mcp_meta-ads_update_adset"),
+				{
+					adset_id: "adset-1",
+				},
+			);
+
+			expect(
+				connectorOperationEventsRepository.findLatestWriteAt,
+			).toHaveBeenCalledWith({
+				connectorSlug: "meta-ads",
+				organizationId: null,
+				targetEntityIds: ["adset-1"],
+				userId: USER_ID,
+			});
+		});
+
+		it("does not let a different operation consume the acknowledgement", async () => {
+			const { service } = adsWriteSetup(new Date(Date.now() - 3_600_000));
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
+			const tool = requiredTool(result.tools, "mcp_meta-ads_update_adset");
+
+			await expect(
+				executeTool(tool, { adset_id: "adset-1", status: "PAUSED" }),
+			).resolves.toMatchObject({ isError: true });
+			// Same entity, same operation name, other payload: the acknowledgement
+			// is keyed on entity + operation, so this repeat passes.
+			await expect(
+				executeTool(tool, { adset_id: "adset-1", status: "ACTIVE" }),
+			).resolves.toEqual({ success: true });
+			// A different entity set is a different key: blocked afresh.
+			await expect(
+				executeTool(tool, { adset_ids: ["adset-1", "adset-2"] }),
+			).resolves.toMatchObject({ isError: true });
+		});
+
+		it("guards and records TikTok hidden bulk operations on the params the provider sees", async () => {
+			const client = mockClient({
+				callTool: (input) => {
+					const call = input as { name: string };
+					if (call.name === "tool_list") {
+						return {
+							content: [
+								{
+									text: JSON.stringify([
+										{
+											description: "Enable or disable ad groups",
+											tool_name: "adgroup/status/update/",
+										},
+									]),
+									type: "text",
+								},
+							],
+						};
+					}
+					return {
+						content: [
+							{ text: JSON.stringify({ code: 0, data: {} }), type: "text" },
+						],
+					};
+				},
+				definitions: [
+					definition("tool_execute"),
+					definition("tool_get"),
+					definition("tool_list"),
+				],
+			});
+			queueClient(client);
+			const { connectorOperationEventsRepository, service } = buildService({
+				connectors: [connector({ slug: "tiktok-ads" })],
+			});
+			connectorOperationEventsRepository.findLatestWriteAt.mockResolvedValue(
+				new Date(Date.now() - 3_600_000),
+			);
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID, organizationId: "organization-1" },
+				"usage-event-1",
+			);
+			const params = {
+				adgroup_ids: ["777", "778"],
+				advertiser_id: "adv-1",
+				operation_status: "DISABLE",
+			};
+
+			const blocked = await executeTool(
+				requiredTool(result.tools, "run_platform_tool"),
+				{
+					connector: "tiktok-ads",
+					params,
+					tool_name: "adgroup/status/update/",
+				},
+			);
+
+			expect(blocked).toMatchObject({ isError: true });
+			expect(JSON.stringify(blocked)).toContain("777, 778");
+			expect(
+				connectorOperationEventsRepository.findLatestWriteAt,
+			).toHaveBeenCalledWith({
+				connectorSlug: "tiktok-ads",
+				organizationId: "organization-1",
+				targetEntityIds: ["777", "778"],
+				userId: USER_ID,
+			});
+
+			await executeTool(requiredTool(result.tools, "run_platform_tool"), {
+				connector: "tiktok-ads",
+				params,
+				tool_name: "adgroup/status/update/",
+			});
+
+			expect(client.callTool).toHaveBeenLastCalledWith({
+				arguments: { params, tool_name: "adgroup/status/update/" },
+				name: "tool_execute",
+			});
+			expect(connectorOperationEventsRepository.insert).toHaveBeenCalledWith(
+				expect.objectContaining({
+					connectorSlug: "tiktok-ads",
+					feature: "ads_launch",
+					status: "succeeded",
+					targetEntityIds: ["777", "778"],
+					toolName: "adgroup/status/update/",
+				}),
+			);
+		});
+
+		it("records a Meta platform error as failed without target ids", async () => {
+			queueClient(
+				mockClient({
+					definitions: [definition("ads_update_campaign")],
+					toolImplementations: {
+						ads_update_campaign: executableTool(() => ({
+							content: [
+								{
+									text: JSON.stringify({
+										error: { code: 100, message: "Invalid parameter" },
+									}),
+									type: "text",
+								},
+							],
+						})),
+					},
+				}),
+			);
+			const { connectorOperationEventsRepository, service } = buildService({
+				connectors: [
+					connector({ toolPolicy: { allowlist: ["ads_update_campaign"] } }),
+				],
+			});
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
+
+			await executeTool(
+				requiredTool(result.tools, "mcp_meta-ads_ads_update_campaign"),
+				{ campaign_id: "c-1", status: "PAUSED" },
+			);
+
+			expect(connectorOperationEventsRepository.insert).toHaveBeenCalledWith(
+				expect.objectContaining({
+					connectorSlug: "meta-ads",
+					errorCode: "100",
+					errorMessage: "Provider tool execution failed",
+					status: "failed",
+					targetEntityIds: null,
+					toolName: "ads_update_campaign",
+				}),
+			);
+		});
+
+		it("records a TikTok non-zero code as failed without target ids", async () => {
+			queueClient(
+				mockClient({
+					definitions: [definition("tool_execute")],
+					toolImplementations: {
+						tool_execute: executableTool(() => ({
+							content: [
+								{
+									text: JSON.stringify({ code: 40002, message: "Bad budget" }),
+									type: "text",
+								},
+							],
+						})),
+					},
+				}),
+			);
+			const { connectorOperationEventsRepository, service } = buildService({
+				connectors: [
+					connector({
+						slug: "tiktok-ads",
+						toolPolicy: { allowlist: ["tool_execute"] },
+					}),
+				],
+			});
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
+
+			await executeTool(
+				requiredTool(result.tools, "mcp_tiktok-ads_tool_execute"),
+				{
+					params: { adgroup_id: "777", budget: 20 },
+					tool_name: "adgroup/budget/update/",
+				},
+			);
+
+			expect(connectorOperationEventsRepository.insert).toHaveBeenCalledWith(
+				expect.objectContaining({
+					connectorSlug: "tiktok-ads",
+					errorCode: "40002",
+					feature: "ads_launch",
+					status: "failed",
+					targetEntityIds: null,
+					toolName: "adgroup/budget/update/",
+				}),
+			);
+		});
+
+		it("lets a write through when Wandit never touched the entity or the window elapsed", async () => {
+			const { connectorOperationEventsRepository, service } =
+				adsWriteSetup(null);
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID, organizationId: "organization-1" },
+				"usage-event-1",
+			);
+			const tool = requiredTool(result.tools, "mcp_meta-ads_update_adset");
+
+			await expect(executeTool(tool, { adset_id: "adset-1" })).resolves.toEqual(
+				{ success: true },
+			);
+
+			connectorOperationEventsRepository.findLatestWriteAt.mockResolvedValue(
+				new Date(Date.now() - 80 * 3_600_000),
+			);
+			await expect(executeTool(tool, { adset_id: "adset-1" })).resolves.toEqual(
+				{ success: true },
+			);
+		});
+
+		it("reports connected slugs on the result", async () => {
+			const { service } = adsWriteSetup(null);
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
+
+			expect(result.connectedSlugs).toEqual(["meta-ads"]);
 		});
 	});
 
@@ -3283,6 +3811,48 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			expect(execute).toHaveBeenCalledTimes(1);
 		});
 
+		it("normalizes string params on ads tool_execute so the guards see the real arguments", async () => {
+			const execute = vi.fn().mockResolvedValue({ ok: true });
+			queueClient(
+				mockClient({
+					definitions: [definition("tool_execute")],
+					toolImplementations: {
+						tool_execute: executableTool(execute),
+					},
+				}),
+			);
+			const { service } = buildService({
+				connectors: [
+					connector({
+						slug: "tiktok-ads",
+						toolPolicy: { allowlist: ["tool_execute"] },
+					}),
+				],
+			});
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
+			const tool = requiredTool(result.tools, "mcp_tiktok-ads_tool_execute");
+
+			// A dinar budget hidden inside a JSON-string params must still hit
+			// the USD guard — the string is parsed before the choke point.
+			await expect(
+				executeTool(tool, {
+					params: '{"adgroup_id":"9","budget":"3000 DA"}',
+					tool_name: "adgroup_update",
+				}),
+			).rejects.toThrow(/USD/);
+			expect(execute).not.toHaveBeenCalled();
+
+			// An unparseable string params never reaches the provider.
+			const rejected = await executeTool(tool, {
+				params: "not json at all",
+				tool_name: "adgroup_update",
+			});
+			expect(rejected).toMatchObject({ isError: true });
+			expect(execute).not.toHaveBeenCalled();
+		});
+
 		it("classifies tool_execute retry eligibility from the inner operation on every call", async () => {
 			const execute = vi
 				.fn()
@@ -3316,6 +3886,35 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			}
 			expect(approval({ tool_name: "campaign_get" })).toBe("not-applicable");
 			expect(approval({ tool_name: "campaign_create" })).toBe("user-approval");
+			expect(
+				approval({
+					params: { operation_status: "DISABLE" },
+					tool_name: "campaign_create",
+				}),
+			).toBe("not-applicable");
+			expect(
+				approval({
+					params: { budgets: [{ adgroup_id: "9", budget: 80 }] },
+					tool_name: "adgroup_budget_update",
+				}),
+			).toBe("user-approval");
+			// A JSON-string params must not blind the walk: it is parsed, and
+			// an unparseable one fails closed.
+			expect(
+				approval({
+					params: '{"adgroup_ids":["123"],"operation_status":"ENABLE"}',
+					tool_name: "adgroup_status_update",
+				}),
+			).toBe("user-approval");
+			expect(
+				approval({
+					params: '{"operation_status":"DISABLE"}',
+					tool_name: "campaign_create",
+				}),
+			).toBe("not-applicable");
+			expect(
+				approval({ params: "not json at all", tool_name: "campaign_update" }),
+			).toBe("user-approval");
 			expect(approval({})).toBe("user-approval");
 
 			vi.useFakeTimers();

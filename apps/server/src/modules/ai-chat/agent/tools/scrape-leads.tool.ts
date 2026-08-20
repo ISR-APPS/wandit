@@ -18,13 +18,12 @@ import {
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import { type Tool, tool } from "ai";
-
-import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import { isR2Configured } from "../../../../infrastructure/storage/r2";
 // Type-only import: pulling the task VALUE here would drag the Trigger task
 // (and its DB pool) into the Nest process. The type is enough to make
 // tasks.trigger() check the payload shape.
 import type { scrapeLeadsTask } from "../../../../trigger/scrape-leads.task";
+import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import {
 	refundLeadScrapeUsageIfReserved,
 	reserveLeadScrapeUsage,

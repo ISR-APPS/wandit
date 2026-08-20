@@ -20,16 +20,21 @@ export const ROUTE_MODES: RouteModeDef[] = [
 	{ id: "video", icon: "play" },
 ];
 
+// Skill ids are the EXACT server slugs the web composer sends in
+// `composer.skills`. On native the chips are visual-only for now: the chat
+// mutation (apps/native/features/workspace/api/chat.mutations.ts) sends the
+// text only and no composer metadata, so the director does not load a skill
+// from a native selection until that mutation sends composer metadata.
+// Mirror of the web list in apps/web/src/features/projects/components/prompt-box.tsx.
 export type SkillFileId =
-	| "accessibility"
-	| "seo-review"
-	| "redesign"
-	| "cod-algeria"
-	| "brand-voice"
-	| "direct-response"
-	| "premium-visuals";
+	| "ads-fundamentals"
+	| "ads-creative"
+	| "ads-audiences"
+	| "ads-measurement"
+	| "ads-cod-maghreb"
+	| "ads-diagnostic";
 
-export type SkillGroupId = "review" | "market";
+export type SkillGroupId = "ads";
 
 export type SkillFileDef = {
 	id: SkillFileId;
@@ -44,24 +49,14 @@ export type SkillFileGroup = {
 
 export const SKILL_GROUPS: SkillFileGroup[] = [
 	{
-		id: "review",
+		id: "ads",
 		skills: [
-			{ id: "accessibility", fileName: "accessibility.md", icon: "users" },
-			{ id: "seo-review", fileName: "seo-review.md", icon: "search" },
-			{ id: "redesign", fileName: "redesign.md", icon: "pencil" },
-		],
-	},
-	{
-		id: "market",
-		skills: [
-			{ id: "cod-algeria", fileName: "cod-algeria.md", icon: "bookmark" },
-			{ id: "brand-voice", fileName: "brand-voice.md", icon: "mic" },
-			{
-				id: "direct-response",
-				fileName: "direct-response.md",
-				icon: "megaphone",
-			},
-			{ id: "premium-visuals", fileName: "premium-visuals.md", icon: "image" },
+			{ id: "ads-fundamentals", fileName: "ads-fundamentals", icon: "sliders" },
+			{ id: "ads-creative", fileName: "ads-creative", icon: "image" },
+			{ id: "ads-audiences", fileName: "ads-audiences", icon: "users" },
+			{ id: "ads-measurement", fileName: "ads-measurement", icon: "check" },
+			{ id: "ads-cod-maghreb", fileName: "ads-cod-maghreb", icon: "bookmark" },
+			{ id: "ads-diagnostic", fileName: "ads-diagnostic", icon: "search" },
 		],
 	},
 ];

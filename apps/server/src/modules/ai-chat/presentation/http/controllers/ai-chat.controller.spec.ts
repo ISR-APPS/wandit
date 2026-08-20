@@ -128,7 +128,10 @@ describe("streamRequestId", () => {
 		// failed attempt's idempotency key, so one mid-stream failure turned
 		// the turn into a permanent 409 AI_CHAT_OPERATION_REPLAYED.
 		expect(
-			streamRequestId({ messageId: "assistant-msg-1", trigger: "submit-message" }),
+			streamRequestId({
+				messageId: "assistant-msg-1",
+				trigger: "submit-message",
+			}),
 		).toBeUndefined();
 		expect(
 			streamRequestId({ messageId: "assistant-msg-1", trigger: undefined }),
