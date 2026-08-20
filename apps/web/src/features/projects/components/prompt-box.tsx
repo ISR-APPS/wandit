@@ -40,8 +40,8 @@ import { cn } from "@wandit/ui/lib/utils";
 import {
 	ArrowUp,
 	BadgeCheck,
-	Brush,
 	Captions,
+	ChartLine,
 	Check,
 	ChevronDown,
 	ChevronLeft,
@@ -51,21 +51,24 @@ import {
 	Film,
 	Gauge,
 	ImageIcon,
+	Layers,
 	LayoutTemplate,
 	Loader2,
 	type LucideIcon,
 	Megaphone,
 	Mic,
+	Palette,
 	Paperclip,
 	Plug,
 	Plus,
 	RefreshCw,
 	Rocket,
-	SearchCheck,
-	ShieldCheck,
 	SlidersHorizontal,
 	Sparkles,
+	Stethoscope,
 	Target,
+	Truck,
+	Users,
 	WandSparkles,
 	X,
 } from "lucide-react";
@@ -114,19 +117,22 @@ type RouteModeDef = {
 	icon: LucideIcon;
 };
 
+// Skill ids are the EXACT server slugs: the director loads the matching ads
+// skill when the id arrives in `composer.skills`. Keep them in sync with the
+// server skill registry and with apps/native/features/projects/lib/prompt.ts.
 type SkillFileId =
-	| "accessibility"
-	| "redesign"
-	| "seo-review"
-	| "cod-algeria"
-	| "brand-voice"
-	| "direct-response"
-	| "premium-visuals";
+	| "ads-fundamentals"
+	| "ads-creative"
+	| "ads-audiences"
+	| "ads-measurement"
+	| "ads-cod-maghreb"
+	| "ads-diagnostic";
 
-type SkillGroupId = "review" | "market";
+type SkillGroupId = "ads";
 
 // Non-copy skill config: id + fileName + icon. Label/description live in the
-// `projects.promptBox.skills` dictionary namespace.
+// `projects.promptBox.skills` dictionary namespace. `fileName` is the slug
+// shown as a mono hint next to the label (it equals the id).
 type SkillFileDef = {
 	id: SkillFileId;
 	fileName: string;
@@ -302,28 +308,14 @@ const QUALITY_TIERS: readonly QualityTierDef[] = [
 
 const SKILL_FILE_GROUPS: readonly SkillFileGroup[] = [
 	{
-		id: "review",
+		id: "ads",
 		skills: [
-			{ id: "accessibility", fileName: "accessibility.md", icon: ShieldCheck },
-			{ id: "seo-review", fileName: "seo-review.md", icon: SearchCheck },
-			{ id: "redesign", fileName: "redesign.md", icon: Brush },
-		],
-	},
-	{
-		id: "market",
-		skills: [
-			{ id: "cod-algeria", fileName: "cod-algeria.md", icon: Target },
-			{ id: "brand-voice", fileName: "brand-voice.md", icon: Captions },
-			{
-				id: "direct-response",
-				fileName: "direct-response.md",
-				icon: BadgeCheck,
-			},
-			{
-				id: "premium-visuals",
-				fileName: "premium-visuals.md",
-				icon: ImageIcon,
-			},
+			{ id: "ads-fundamentals", fileName: "ads-fundamentals", icon: Layers },
+			{ id: "ads-creative", fileName: "ads-creative", icon: Palette },
+			{ id: "ads-audiences", fileName: "ads-audiences", icon: Users },
+			{ id: "ads-measurement", fileName: "ads-measurement", icon: ChartLine },
+			{ id: "ads-cod-maghreb", fileName: "ads-cod-maghreb", icon: Truck },
+			{ id: "ads-diagnostic", fileName: "ads-diagnostic", icon: Stethoscope },
 		],
 	},
 ];
@@ -2434,6 +2426,7 @@ export function PromptBox({
 					setValue("");
 					onValueChange?.("");
 					clearAttachments();
+					setSelectedSkillIds([]);
 				}
 			} catch {
 				// The caller owns error presentation. Keeping the draft makes the
@@ -2489,6 +2482,10 @@ export function PromptBox({
 					onValueChange?.("");
 					clearAttachments();
 					clearSourceImage();
+					// A skill applies to the message it was picked for. Dropping the
+					// chips keeps the playbooks out of every later system prompt; the
+					// director can still load one through read_skill.
+					setSelectedSkillIds([]);
 				}
 			}
 		} catch {

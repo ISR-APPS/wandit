@@ -28,6 +28,18 @@ import {
 import { MeteringStateConflictError } from "../../../metering/domain/metering";
 import { assertUsdAdBudgetArgs } from "../../domain/ad-budget-guard";
 import {
+	classifyAdsToolApproval,
+	isAdsApprovalConnector,
+} from "../../domain/ads-approval-policy";
+import { evaluateAdsChangeWindow } from "../../domain/ads-change-window-guard";
+import {
+	adsPlatformError,
+	extractAdsCreatedEntityIds,
+	extractAdsTargetEntityIds,
+	isAdsCreateToolName,
+	resultPayloads,
+} from "../../domain/ads-target-entity";
+import {
 	connectorGatewayCaptures,
 	connectorGenerationPlan,
 	connectorGenerationReference,
@@ -36,6 +48,7 @@ import {
 	VIDEO_GENERATION_TOOLS,
 } from "../../domain/connector-generation-metering";
 import { sanitizeConnectorOperationError } from "../../domain/connector-operation-error";
+import { classifyToolName } from "../../domain/mcp-tool-classification";
 import {
 	type McpToolApprovalMap,
 	mcpToolPolicySchema,
@@ -73,67 +86,7 @@ const VALID_TOOL_NAME_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
 const PLATFORM_TOOL_RESULT_LIMIT = 12;
 const PLATFORM_TOOL_SUMMARY_LENGTH = 160;
 const TIKTOK_GATEWAY_TOOLS = new Set(["tool_execute", "tool_get", "tool_list"]);
-const WRITE_VERBS = new Set([
-	"create",
-	"update",
-	"delete",
-	"remove",
-	"add",
-	"set",
-	"activate",
-	"deactivate",
-	"pause",
-	"resume",
-	"enable",
-	"disable",
-	"publish",
-	"deploy",
-	"boost",
-	"schedule",
-	"send",
-	"upload",
-	"buy",
-	"purchase",
-	"confirm",
-	"cancel",
-	"subscribe",
-	"launch",
-	"connect",
-	"disconnect",
-	"sync",
-	"rename",
-	"import",
-	"invoke",
-	"exec",
-	"execute",
-	"participate",
-]);
-const READ_VERBS = new Set([
-	"get",
-	"list",
-	"search",
-	"read",
-	"fetch",
-	"query",
-	"describe",
-	"show",
-	"check",
-	"count",
-	"view",
-	"retrieve",
-	"download",
-	"export",
-	"report",
-	"preview",
-	"status",
-	"health",
-	"explore",
-	"insights",
-	"balance",
-	"transactions",
-	"reveal",
-	"display",
-]);
+const ADS_CHANGE_WINDOW_ACK_TTL_MS = 30 * 60 * 1000;
 const GENERIC_WRAPPER_TOOLS = new Set(["tool_execute"]);
 // Reachable only through the run_platform_tool door (never in the visible
 // set): they render for minutes inline with no billing plan and no card.
@@ -422,6 +375,8 @@ const SKIP_REASON_GUIDANCE: Record<McpSkipReason, string> = {
 export type McpChatToolsResult = {
 	approvalMap: McpToolApprovalMap;
 	close: () => Promise<void>;
+	/** Sorted unique slugs of the connectors that contributed tools. */
+	connectedSlugs: string[];
 	notices: string[];
 	tools: Record<string, Tool>;
 };
@@ -460,6 +415,12 @@ type UnknownToolExecute = (
 @Injectable()
 export class McpChatToolsService {
 	private readonly logger = new Logger(McpChatToolsService.name);
+	/**
+	 * userId:connectorSlug:targetEntityIds(sorted):toolName -> acknowledgement
+	 * expiry (ms). Keyed per actor AND per operation, so a different write on
+	 * the same entity cannot consume another call's acknowledgement.
+	 */
+	private readonly adsChangeWindowAcknowledgements = new Map<string, number>();
 
 	constructor(
 		@Inject(ConnectorOperationEventsRepository)
@@ -543,9 +504,17 @@ export class McpChatToolsService {
 		const approvalMap: McpToolApprovalMap = {};
 		const notices: string[] = [];
 		const runtimes: ConnectorRuntimeContext[] = [];
+		const connectedSlugs = new Set<string>();
 
 		for (const result of connectorResults) {
 			let hasNameCollision = false;
+
+			if (
+				result.connector &&
+				(result.runtime || Object.keys(result.tools).length > 0)
+			) {
+				connectedSlugs.add(result.connector.slug);
+			}
 
 			for (const [name, tool] of Object.entries(result.tools)) {
 				if (Object.hasOwn(tools, name)) {
@@ -584,6 +553,7 @@ export class McpChatToolsService {
 			close: async () => {
 				await Promise.all(closers.map((close) => close()));
 			},
+			connectedSlugs: [...connectedSlugs].sort(),
 			notices,
 			tools: sortRecord(tools),
 		};
@@ -721,7 +691,21 @@ export class McpChatToolsService {
 			}
 
 			if (GENERIC_WRAPPER_TOOLS.has(normalizedToolName)) {
-				approvalMap[namespacedName] = classifyWrappedToolApproval;
+				const wrapperSlug = connector.slug;
+				approvalMap[namespacedName] = isAdsApprovalConnector(wrapperSlug)
+					? (input: unknown) =>
+							classifyAdsWrappedToolApproval(wrapperSlug, input)
+					: classifyWrappedToolApproval;
+			} else if (isAdsApprovalConnector(connector.slug)) {
+				// Ads tools use the money-based policy: build steps run free,
+				// only launch / money / delete moments keep the card. The verdict
+				// depends on the ARGUMENTS (paused vs live status), so it is a
+				// call-time function, never a static "user-approval" — and it is
+				// registered for read-NAMED tools too, so a status-setter whose
+				// name reads like a read still gets its arguments inspected.
+				const adsSlug = connector.slug;
+				approvalMap[namespacedName] = (input: unknown) =>
+					classifyAdsToolApproval(adsSlug, toolName, input);
 			} else if (classifyToolName(toolName) === "write") {
 				approvalMap[namespacedName] = "user-approval";
 			}
@@ -1398,10 +1382,44 @@ export class McpChatToolsService {
 		const execute = executable.execute;
 		return {
 			...executable,
-			execute: async (input, options) => {
-				const effectiveToolName = GENERIC_WRAPPER_TOOLS.has(
+			execute: async (rawInput, options) => {
+				const isGenericWrapper = GENERIC_WRAPPER_TOOLS.has(
 					normalizeToolName(toolName),
-				)
+				);
+
+				// Ads wrapper calls sometimes carry params as a JSON STRING the
+				// gateway would happily parse — but the USD guard, the 72 h
+				// guard, and the telemetry walk objects, so a string params
+				// would blind all of them at once. Normalize it to the parsed
+				// object (the provider accepts both); an unparseable string is
+				// rejected outright, free and self-correcting in-turn.
+				let input = rawInput;
+
+				if (
+					isGenericWrapper &&
+					isAdsApprovalConnector(connectorSlug) &&
+					typeof rawInput === "object" &&
+					rawInput !== null &&
+					typeof (rawInput as Record<string, unknown>).params === "string"
+				) {
+					const parsedParams = tryParseJsonRecord(
+						(rawInput as Record<string, unknown>).params as string,
+					);
+
+					if (!parsedParams) {
+						return platformToolError(
+							"params must be a JSON OBJECT, not a string. Resend the " +
+								"same call with params as an object.",
+						);
+					}
+
+					input = {
+						...(rawInput as Record<string, unknown>),
+						params: parsedParams,
+					};
+				}
+
+				const effectiveToolName = isGenericWrapper
 					? (readStringProperty(input, "tool_name") ?? toolName)
 					: toolName;
 				const shouldRetry = GENERIC_WRAPPER_TOOLS.has(
@@ -1487,16 +1505,40 @@ export class McpChatToolsService {
 		// TikTok hidden operations alike — this is the one shared choke point.
 		assertUsdAdBudgetArgs(input.connectorSlug, input.input);
 
+		// 72-hour change window: a write that targets a campaign / ad set / ad
+		// Wandit touched less than 72 h ago is refused ONCE with an instructive
+		// error (free, self-correcting in-turn); the same call repeated after
+		// the user insists passes — the insistence is the approval (under the
+		// money-based policy only money-moving, activating, or destructive
+		// writes also show a confirmation card). The extractor runs on the
+		// exact args object the provider receives (for TikTok hidden
+		// operations that is input.params, already unwrapped by the caller),
+		// including plural id arrays of bulk updates.
+		const targetEntityIds = extractAdsTargetEntityIds(
+			input.connectorSlug,
+			input.toolName,
+			input.input,
+		);
+		const guardError =
+			targetEntityIds.length === 0
+				? null
+				: await this.adsChangeWindowError({ ...input, targetEntityIds });
+		if (guardError) {
+			return guardError;
+		}
+
+		const providerInput = { ...input, targetEntityIds };
+
 		// A cost preflight renders nothing — the inline generation tools that
 		// accept it (generate_audio, generate_3d) must not pay the connector
 		// fee for a free price check, same carve-out as the background paths.
 		if (input.connectorSlug === "higgsfield" && isCostPreflight(input.input)) {
-			return this.invokeProviderTool(input);
+			return this.invokeProviderTool(providerInput);
 		}
 
 		const plan = connectorGenerationPlan(input.toolName, input.input);
 		if (!plan) {
-			return this.invokeProviderTool(input);
+			return this.invokeProviderTool(providerInput);
 		}
 
 		const referenceId = connectorGenerationReference({
@@ -1515,7 +1557,7 @@ export class McpChatToolsService {
 		let result: unknown;
 
 		try {
-			result = await this.invokeProviderTool(input);
+			result = await this.invokeProviderTool(providerInput);
 		} catch (error) {
 			const capture = gatewayGenerationCaptureFromError(error);
 
@@ -1585,12 +1627,107 @@ export class McpChatToolsService {
 		return result;
 	}
 
+	/**
+	 * Returns the change-window error for this write, or null when it may
+	 * proceed. The first refusal records an acknowledgement key (30-minute
+	 * TTL); the next call for the same user + connector + entities + operation
+	 * consumes it and passes — that is the "user explicitly insists" path.
+	 *
+	 * The user's insistence IS the approval: the model relays the rule, the
+	 * user says "do it anyway", the model repeats the call, and it runs —
+	 * under the money-based policy most window-blocked writes show no card,
+	 * so the acknowledged insistence is the only gate; money-moving writes
+	 * keep their card. The guard never decides for the user.
+	 *
+	 * The lookup is scoped to the platform entity (organization, or the
+	 * personal space), while the acknowledgement is per actor: the person who
+	 * was told the rule is the one whose repeat counts.
+	 */
+	private async adsChangeWindowError(input: {
+		connectorSlug: string;
+		input: unknown;
+		subject: MeteringSubject;
+		targetEntityIds: string[];
+		toolName: string;
+	}): Promise<unknown> {
+		const now = Date.now();
+		const evaluate = (lastWriteAt: Date | null, acknowledged: boolean) =>
+			evaluateAdsChangeWindow({
+				acknowledged,
+				args: input.input,
+				connectorSlug: input.connectorSlug,
+				lastWriteAt,
+				now: new Date(now),
+				targetEntityIds: input.targetEntityIds,
+				toolName: input.toolName,
+			});
+
+		// Reads and creates can never be blocked — skip the lookup for them.
+		if (!evaluate(new Date(now), false).blocked) {
+			return null;
+		}
+
+		const key = [
+			input.subject.actorUserId,
+			input.connectorSlug,
+			[...input.targetEntityIds].sort().join(","),
+			input.toolName,
+		].join(":");
+		const acknowledgedUntil = this.adsChangeWindowAcknowledgements.get(key);
+		const acknowledged =
+			acknowledgedUntil !== undefined && acknowledgedUntil > now;
+		// The acknowledgement is consumed synchronously, BEFORE the lookup
+		// await, so two parallel copies of the same call cannot both pass on
+		// one approval; it is restored below when the verdict turns out to be
+		// a refusal anyway (the refusal re-arms the key for the next repeat).
+		if (acknowledgedUntil !== undefined) {
+			this.adsChangeWindowAcknowledgements.delete(key);
+		}
+
+		let lastWriteAt: Date | null = null;
+		try {
+			lastWriteAt =
+				await this.connectorOperationEventsRepository.findLatestWriteAt({
+					connectorSlug: input.connectorSlug,
+					organizationId: input.subject.organizationId ?? null,
+					targetEntityIds: input.targetEntityIds,
+					userId: input.subject.actorUserId,
+				});
+		} catch {
+			// The guard is a courtesy, never a gate on the provider call.
+			this.logger.warn("Ads change-window lookup failed");
+			return null;
+		}
+
+		const verdict = evaluate(lastWriteAt, acknowledged);
+
+		if (verdict.blocked) {
+			// Drop expired keys so the map cannot grow without bound.
+			for (const [entry, expiry] of this.adsChangeWindowAcknowledgements) {
+				if (expiry <= now) {
+					this.adsChangeWindowAcknowledgements.delete(entry);
+				}
+			}
+
+			// No await between the verdict and this set: the key is armed
+			// before the refusal is returned.
+			this.adsChangeWindowAcknowledgements.set(
+				key,
+				now + ADS_CHANGE_WINDOW_ACK_TTL_MS,
+			);
+			return platformToolError(verdict.message);
+		}
+
+		return null;
+	}
+
 	private async invokeProviderTool(input: {
 		connectorSlug: string;
 		invoke: () => Promise<unknown>;
 		parentEventId?: string;
 		retryProviderExecution?: boolean;
 		subject: MeteringSubject;
+		targetEntityIds?: string[];
 		toolName: string;
 	}): Promise<unknown> {
 		const invokeOnce = async () => {
@@ -1598,12 +1735,45 @@ export class McpChatToolsService {
 
 			try {
 				const result = await input.invoke();
-				const failed = isMcpErrorResult(result);
+
+				if (isMcpErrorResult(result)) {
+					this.recordConnectorOperation(input, "failed", startedAt, result);
+					return result;
+				}
+
+				// A platform-level failure travels as a successful transport
+				// response (TikTok { code != 0 }, Meta { error }): record it as
+				// failed — a failed write never reset learning, so no target ids.
+				const platformFailure = adsPlatformFailure(input.connectorSlug, result);
+				if (platformFailure) {
+					this.recordConnectorOperation(
+						input,
+						"failed",
+						startedAt,
+						platformFailure.payload,
+						platformFailure.errorCode,
+					);
+					return result;
+				}
+
+				// A create records the CREATED entity's id (read from the
+				// provider result — the arguments carry none of its own), never
+				// the parent ids its arguments name: creating an ad set inside
+				// a campaign resets nothing on the campaign, and a parent id
+				// recorded here would falsely arm the 72 h window against later
+				// legitimate edits of the parent.
+				const isCreate = isAdsCreateToolName(input.toolName);
+				const targetEntityIds = isCreate
+					? extractAdsCreatedEntityIds(
+							input.connectorSlug,
+							input.toolName,
+							result,
+						)
+					: (input.targetEntityIds ?? []);
 				this.recordConnectorOperation(
-					input,
-					failed ? "failed" : "succeeded",
+					{ ...input, targetEntityIds },
+					"succeeded",
 					startedAt,
-					failed ? result : undefined,
 				);
 				return result;
 			} catch (error) {
@@ -1622,24 +1792,35 @@ export class McpChatToolsService {
 			connectorSlug: string;
 			parentEventId?: string;
 			subject: MeteringSubject;
+			targetEntityIds?: string[];
 			toolName: string;
 		},
 		status: "failed" | "succeeded",
 		startedAt: number,
 		error?: unknown,
+		platformErrorCode?: string | null,
 	): void {
 		try {
 			const sanitizedError =
 				status === "failed" ? sanitizeConnectorOperationError(error) : null;
+			// Target ids only ride on successful rows: a failed write never
+			// reset learning, so it must never arm the change-window guard.
+			const targetEntityIds =
+				status === "succeeded" &&
+				input.targetEntityIds &&
+				input.targetEntityIds.length > 0
+					? input.targetEntityIds
+					: null;
 			const insert = this.connectorOperationEventsRepository.insert({
 				connectorSlug: input.connectorSlug,
 				durationMs: Math.max(0, Math.round(performance.now() - startedAt)),
-				errorCode: sanitizedError?.errorCode ?? null,
+				errorCode: platformErrorCode ?? sanitizedError?.errorCode ?? null,
 				errorMessage: sanitizedError?.errorMessage ?? null,
 				feature: connectorOperationFeature(input.connectorSlug, input.toolName),
 				organizationId: input.subject.organizationId ?? null,
 				parentEventId: input.parentEventId,
 				status,
+				targetEntityIds,
 				toolName: input.toolName,
 				userId: input.subject.actorUserId,
 			});
@@ -2050,17 +2231,6 @@ function normalizeToolName(toolName: string): string {
 	return normalizeConnectorToolName(toolName);
 }
 
-function classifyToolName(toolName: string): "read" | "write" {
-	const normalizedName = normalizeToolName(toolName);
-	const tokens = normalizedName ? normalizedName.split("_") : [];
-
-	if (tokens.some((token) => WRITE_VERBS.has(token))) {
-		return "write";
-	}
-
-	return tokens.some((token) => READ_VERBS.has(token)) ? "read" : "write";
-}
-
 function connectorOperationFeature(
 	connectorSlug: string,
 	toolName: string,
@@ -2085,6 +2255,52 @@ function classifyWrappedToolApproval(
 		: "user-approval";
 }
 
+// Generic wrapper (tool_execute) on an ads connector: the nested tool name
+// plus its params decide under the money-based policy. A wrapper call whose
+// nested name is missing, or whose params are an unparseable string, stays
+// on the safe side — a JSON-string params the gateway would happily parse
+// must not blind the status/budget walk.
+function classifyAdsWrappedToolApproval(
+	connectorSlug: string,
+	input: unknown,
+): "not-applicable" | "user-approval" {
+	const nestedToolName = readStringProperty(input, "tool_name");
+
+	if (!nestedToolName) {
+		return "user-approval";
+	}
+
+	const args = wrappedToolArgs(input);
+
+	if (args === null) {
+		return "user-approval";
+	}
+
+	return classifyAdsToolApproval(connectorSlug, nestedToolName, args);
+}
+
+// tool_execute nests the provider arguments under `params` (object or JSON
+// string); scanning the unwrapped object keeps the status/budget walk at
+// the same depth as a direct catalog call. Returns null for a string params
+// that does not parse — the caller fails closed.
+function wrappedToolArgs(input: unknown): unknown {
+	if (typeof input !== "object" || input === null) {
+		return input;
+	}
+
+	const record = input as Record<string, unknown>;
+
+	if (typeof record.params === "object" && record.params !== null) {
+		return record.params;
+	}
+
+	if (typeof record.params === "string") {
+		return tryParseJsonRecord(record.params);
+	}
+
+	return input;
+}
+
 function classifyPlatformToolApproval(
 	input: unknown,
 ): "not-applicable" | "user-approval" {
@@ -2105,6 +2321,14 @@ function classifyPlatformToolApproval(
 		return "not-applicable";
 	}
 
+	if (isAdsApprovalConnector(connector)) {
+		return classifyAdsToolApproval(
+			connector,
+			nestedToolName,
+			parsed.data.params,
+		);
+	}
+
 	return classifyToolName(nestedToolName) === "read"
 		? "not-applicable"
 		: "user-approval";
@@ -2115,11 +2339,25 @@ function requiresApproval(connector: string, toolName: string): boolean {
 	const autoApproveTools =
 		CONNECTOR_TOOL_OVERRIDES[connector]?.autoApproveTools ?? [];
 	const normalizedToolName = normalizeToolName(toolName);
-	return (
-		!autoTools.includes(normalizedToolName) &&
-		!autoApproveTools.includes(normalizedToolName) &&
-		classifyToolName(toolName) === "write"
-	);
+
+	if (
+		autoTools.includes(normalizedToolName) ||
+		autoApproveTools.includes(normalizedToolName)
+	) {
+		return false;
+	}
+
+	// Catalog hint only (no arguments yet): under the money-based ads policy
+	// a create shown as approval-needed still runs free when called with an
+	// explicit paused status — the call-time classifier has the final word.
+	if (isAdsApprovalConnector(connector)) {
+		return (
+			classifyAdsToolApproval(connector, toolName, undefined) ===
+			"user-approval"
+		);
+	}
+
+	return classifyToolName(toolName) === "write";
 }
 
 async function callMcpTool(
@@ -2197,6 +2435,29 @@ function wait(delayMs: number): Promise<void> {
 	return new Promise((resolve) => {
 		setTimeout(resolve, delayMs);
 	});
+}
+
+/**
+ * Platform-level failure inside a successful transport response, for Meta /
+ * TikTok only: the first payload (content text JSON or the plain object) that
+ * carries a TikTok non-zero code or a Meta error object.
+ */
+function adsPlatformFailure(
+	connectorSlug: string,
+	result: unknown,
+): { errorCode: string | null; payload: unknown } | null {
+	if (connectorSlug !== "meta-ads" && connectorSlug !== "tiktok-ads") {
+		return null;
+	}
+
+	for (const payload of resultPayloads(result)) {
+		const failure = adsPlatformError(connectorSlug, payload);
+		if (failure) {
+			return { errorCode: failure.errorCode, payload };
+		}
+	}
+
+	return null;
 }
 
 function isMcpErrorResult(result: unknown): boolean {
@@ -2484,6 +2745,7 @@ function emptyResult(): McpChatToolsResult {
 	return {
 		approvalMap: {},
 		close: async () => {},
+		connectedSlugs: [],
 		notices: [],
 		tools: {},
 	};

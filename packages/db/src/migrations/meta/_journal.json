@@ -281,6 +281,13 @@
       "when": 1786956688678,
       "tag": "0039_deployments-created-at-idx",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1787146218506,
+      "tag": "0040_connector-operation-target-entity",
+      "breakpoints": true
     }
   ]
 }

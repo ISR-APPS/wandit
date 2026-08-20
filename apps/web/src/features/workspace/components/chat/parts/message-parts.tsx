@@ -29,6 +29,7 @@ const TRANSPARENT_PART_TYPES = new Set([
 	"reasoning",
 	"tool-read_skill",
 	"tool-read_attachment",
+	"tool-read_lead_performance",
 	"tool-get_direction_candidates",
 	"tool-get_page_outline",
 	"tool-apply_element_ops",
@@ -279,6 +280,7 @@ export function MessageParts({
 				return <GenerateVideoPart key={part.toolCallId} part={part} />;
 			case "tool-read_skill":
 			case "tool-read_attachment":
+			case "tool-read_lead_performance":
 			case "tool-get_direction_candidates":
 				// Server-side context tools — deliberately invisible in the thread
 				// (the model narrates what it did in prose when it matters).

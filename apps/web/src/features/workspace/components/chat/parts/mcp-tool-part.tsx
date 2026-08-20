@@ -982,17 +982,14 @@ function ApprovalBlock({
 			? "TikTok"
 			: connectorDisplayName(connectorSlug)
 		: t("workspace.chat.mcpTool.workingWith");
-	const rawArgumentsPreview = isPlatformToolWrapper(part.toolName)
+	const argumentsPreview = isPlatformToolWrapper(part.toolName)
 		? isRecord(part.input) && isRecord(part.input.params)
-			? summarizeTopLevelArguments(part.input.params).filter(
+			? summarizeTopLevelArguments(part.input.params, connectorSlug).filter(
 					({ key }) =>
 						key !== "connector" && key !== "tool_name" && key !== "params",
 				)
 			: []
-		: summarizeTopLevelArguments(part.input);
-	const argumentsPreview = rawArgumentsPreview.map((entry) =>
-		withAdBudgetUnit(connectorSlug, entry),
-	);
+		: summarizeTopLevelArguments(part.input, connectorSlug);
 
 	return (
 		<div className="mt-3 border-border border-t pt-3">
@@ -1321,27 +1318,127 @@ function isInputEchoTool(toolName: string, input: unknown): boolean {
 // Ad platforms charge in US dollars, so a bare "Budget 50" on the approval
 // card is dangerously ambiguous for merchants who think in DA — this is the
 // user's LAST look before money moves. Numbers only; text passes untouched.
+// Daily vs lifetime budgets are told apart too: Meta names the key
+// (daily_budget / lifetime_budget), TikTok sends `budget` + a sibling
+// `budget_mode` (BUDGET_MODE_DAY / BUDGET_MODE_TOTAL).
 const AD_CONNECTOR_SLUGS = new Set(["meta-ads", "tiktok-ads"]);
 const MONEY_ARGUMENT_KEY_PATTERN = /budget|spend|bid/i;
+const TIKTOK_BUDGET_MODE_UNITS: Record<string, string> = {
+	BUDGET_MODE_DAY: "USD daily",
+	BUDGET_MODE_TOTAL: "USD lifetime",
+};
+
+type ArgumentPreviewEntry = { key: string; value: string };
+
+function resolveAdBudgetUnit(
+	leafKey: string,
+	siblings: Record<string, unknown>,
+): string {
+	const tokens = tokenizeToolName(leafKey);
+	if (!tokens.includes("budget")) return "USD";
+	if (tokens.includes("lifetime") || tokens.includes("total")) {
+		return "USD lifetime";
+	}
+	if (tokens.includes("daily") || tokens.includes("day")) return "USD daily";
+
+	const budgetMode = siblings.budget_mode ?? siblings.budgetMode;
+	return typeof budgetMode === "string"
+		? (TIKTOK_BUDGET_MODE_UNITS[budgetMode] ?? "USD")
+		: "USD";
+}
 
 function withAdBudgetUnit(
 	connectorSlug: string | null,
-	entry: { key: string; value: string },
-): { key: string; value: string } {
+	entry: ArgumentPreviewEntry,
+	context: { leafKey: string; siblings: Record<string, unknown> },
+): ArgumentPreviewEntry {
 	if (!connectorSlug || !AD_CONNECTOR_SLUGS.has(connectorSlug)) return entry;
-	if (!MONEY_ARGUMENT_KEY_PATTERN.test(entry.key)) return entry;
+	if (!MONEY_ARGUMENT_KEY_PATTERN.test(context.leafKey)) return entry;
 	if (!/^\d+(\.\d+)?$/.test(entry.value)) return entry;
 
-	return { ...entry, value: `${entry.value} USD` };
+	return {
+		...entry,
+		value: `${entry.value} ${resolveAdBudgetUnit(context.leafKey, context.siblings)}`,
+	};
 }
 
-function summarizeTopLevelArguments(input: unknown) {
+// Approval cards list the arguments one level deep: a nested object (the
+// adset inside a campaign payload) or an array of objects is flattened into
+// "parent.child" rows so a nested budget is rendered — and labelled — instead
+// of hidden behind "…". Anything deeper still collapses to "…". Arrays show
+// their first items plus a "+N more" row, and the whole preview stops at a
+// fixed row count with a trailing "…" row so a bulk payload cannot flood the
+// card.
+const MAX_ARGUMENT_PREVIEW_DEPTH = 1;
+const MAX_ARGUMENT_PREVIEW_ARRAY_ITEMS = 3;
+const MAX_ARGUMENT_PREVIEW_ROWS = 24;
+const ARGUMENT_PREVIEW_OVERFLOW_ROW: ArgumentPreviewEntry = {
+	key: "…",
+	value: "…",
+};
+
+function summarizeTopLevelArguments(
+	input: unknown,
+	connectorSlug: string | null = null,
+): ArgumentPreviewEntry[] {
 	if (!isRecord(input)) return [];
 
-	return Object.entries(input).map(([key, value]) => ({
-		key,
-		value: summarizeArgumentValue(value),
-	}));
+	const rows = summarizeArgumentRecord(input, connectorSlug, "", 0);
+	if (rows.length <= MAX_ARGUMENT_PREVIEW_ROWS) return rows;
+
+	return [
+		...rows.slice(0, MAX_ARGUMENT_PREVIEW_ROWS),
+		ARGUMENT_PREVIEW_OVERFLOW_ROW,
+	];
+}
+
+function summarizeArgumentRecord(
+	record: Record<string, unknown>,
+	connectorSlug: string | null,
+	prefix: string,
+	depth: number,
+): ArgumentPreviewEntry[] {
+	return Object.entries(record).flatMap(([key, value]) => {
+		const path = prefix ? `${prefix}.${key}` : key;
+		if (depth < MAX_ARGUMENT_PREVIEW_DEPTH) {
+			const nested = isRecord(value)
+				? summarizeArgumentRecord(value, connectorSlug, path, depth + 1)
+				: Array.isArray(value) && value.length > 0 && value.every(isRecord)
+					? summarizeArgumentArray(value, connectorSlug, path, depth + 1)
+					: null;
+			if (nested && nested.length > 0) return nested;
+		}
+
+		return [
+			withAdBudgetUnit(
+				connectorSlug,
+				{ key: path, value: summarizeArgumentValue(value) },
+				{ leafKey: key, siblings: record },
+			),
+		];
+	});
+}
+
+function summarizeArgumentArray(
+	items: readonly Record<string, unknown>[],
+	connectorSlug: string | null,
+	path: string,
+	depth: number,
+): ArgumentPreviewEntry[] {
+	const rows = items
+		.slice(0, MAX_ARGUMENT_PREVIEW_ARRAY_ITEMS)
+		.flatMap((item, index) =>
+			summarizeArgumentRecord(
+				item,
+				connectorSlug,
+				`${path}.${index + 1}`,
+				depth,
+			),
+		);
+	const hidden = items.length - MAX_ARGUMENT_PREVIEW_ARRAY_ITEMS;
+	if (hidden > 0) rows.push({ key: path, value: `+${hidden} more` });
+
+	return rows;
 }
 
 function summarizeArgumentValue(value: unknown): string {
