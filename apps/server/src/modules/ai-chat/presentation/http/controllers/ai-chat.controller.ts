@@ -127,6 +127,7 @@ export class AiChatController {
 		const prepared = await this.aiChatService.prepareStream({
 			chatId: chat.id,
 			messages,
+			metadata: body.metadata,
 			projectId: chat.projectId,
 			requestId: streamRequestId(body),
 			scope,

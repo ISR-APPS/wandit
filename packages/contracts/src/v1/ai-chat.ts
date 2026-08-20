@@ -185,11 +185,22 @@ export type AskUserInput = z.infer<typeof askUserInputSchema>;
 export type AskUserOutput = z.infer<typeof askUserOutputSchema>;
 
 /**
- * read_skill — RETIRED. The live agent no longer exposes this tool (the
- * builder carries its design guidance in its own system prompt now), but the
- * schemas must survive so chats that called it still validate and render.
+ * read_skill — progressive disclosure for the brain's playbooks.
+ *
+ * The six `ads-*` slugs are the live ads skills (the composer chips use the
+ * same ids). `landing-page-design` is RETIRED (the builder carries its design
+ * guidance itself) but stays in the enum so chats that called it still
+ * validate and render. Never rename a slug: it is persisted in chat history.
  */
-export const skillSlugSchema = z.enum(["landing-page-design"]);
+export const skillSlugSchema = z.enum([
+	"landing-page-design",
+	"ads-fundamentals",
+	"ads-creative",
+	"ads-audiences",
+	"ads-measurement",
+	"ads-cod-maghreb",
+	"ads-diagnostic",
+]);
 
 export const readSkillInputSchema = z.object({
 	skill: skillSlugSchema,
@@ -232,6 +243,76 @@ export const readAttachmentOutputSchema = z.discriminatedUnion("status", [
 
 export type ReadAttachmentInput = z.infer<typeof readAttachmentInputSchema>;
 export type ReadAttachmentOutput = z.infer<typeof readAttachmentOutputSchema>;
+
+/**
+ * read_lead_performance — the merchant's own lead funnel for the chat's
+ * project (the Leads tab, the backend truth for COD): counts and rates over
+ * the last N days, grouped by source, campaign, or status. Read-only; the
+ * input stays tiny on purpose so the model cannot misuse it.
+ */
+export const readLeadPerformanceWindowDays = [7, 14, 30, 90] as const;
+export const readLeadPerformanceGroupBys = [
+	"source",
+	"campaign",
+	"status",
+	"none",
+] as const;
+
+export const readLeadPerformanceInputSchema = z
+	.object({
+		// Window: N full Africa/Algiers days before today, plus today so far
+		// (from Algiers midnight N days ago to now).
+		days: z
+			.union([z.literal(7), z.literal(14), z.literal(30), z.literal(90)])
+			.optional(),
+		// source = facebook | tiktok | direct (derived from click ids and
+		// utm_source); campaign = utm_campaign; status = lead status; none =
+		// totals only.
+		groupBy: z.enum(readLeadPerformanceGroupBys).optional(),
+	})
+	.strict();
+
+const leadFunnelCountsSchema = z.object({
+	total: z.number().int().nonnegative(),
+	to_confirm: z.number().int().nonnegative(),
+	confirmed: z.number().int().nonnegative(),
+	shipped: z.number().int().nonnegative(),
+	delivered: z.number().int().nonnegative(),
+	returned: z.number().int().nonnegative(),
+	cancelled: z.number().int().nonnegative(),
+});
+
+export const readLeadPerformanceOutputSchema = z.object({
+	// N as requested: N full Africa/Algiers days before today, plus today so far.
+	windowDays: z.number().int().positive(),
+	// ISO timestamps of the window bounds (from = Algiers midnight N days ago).
+	from: z.string(),
+	to: z.string(),
+	totals: leadFunnelCountsSchema.extend({
+		// (confirmed + shipped + delivered + returned) / total — the share of
+		// all leads in the window that were confirmed (to_confirm still counts
+		// in the denominator). null when total is 0.
+		confirmationRate: z.number().min(0).max(1).nullable(),
+		// delivered / (shipped + delivered + returned). null when nothing was
+		// shipped.
+		deliveryRate: z.number().min(0).max(1).nullable(),
+		// returned / (shipped + delivered + returned). null when nothing was
+		// shipped.
+		returnRate: z.number().min(0).max(1).nullable(),
+	}),
+	// At most 50 groups, ordered by total desc. Empty when groupBy is "none".
+	groups: z.array(leadFunnelCountsSchema.extend({ key: z.string() })),
+	// Plain-language caveats: scope, exclusions, and the rate definitions.
+	note: z.string(),
+});
+
+export type ReadLeadPerformanceInput = z.infer<
+	typeof readLeadPerformanceInputSchema
+>;
+export type ReadLeadPerformanceOutput = z.infer<
+	typeof readLeadPerformanceOutputSchema
+>;
+export type LeadFunnelCounts = z.infer<typeof leadFunnelCountsSchema>;
 
 /**
  * get_direction_candidates — the Brain samples a bounded random menu of
@@ -743,6 +824,10 @@ export type AiChatTools = {
 	read_attachment: {
 		input: ReadAttachmentInput;
 		output: ReadAttachmentOutput;
+	};
+	read_lead_performance: {
+		input: ReadLeadPerformanceInput;
+		output: ReadLeadPerformanceOutput;
 	};
 	get_direction_candidates: {
 		input: GetDirectionCandidatesInput;

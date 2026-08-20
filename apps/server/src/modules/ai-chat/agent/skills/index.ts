@@ -1,33 +1,57 @@
-import { readFile } from "node:fs/promises";
-
 import type { SkillSlug } from "@wandit/contracts";
+
+import { ADS_SKILL_SLUGS, ADS_SKILLS } from "../ads";
 
 /**
  * Skill registry — progressive disclosure for the brain.
  *
- * Each skill is a markdown playbook sitting next to this file. The system
- * prompt lists only the one-line descriptions below; the model pulls the
- * full text through the read_skill tool when the task actually needs it.
- * That keeps every ordinary message cheap and the design knowledge deep.
+ * Each skill is a playbook the model pulls through the read_skill tool when
+ * the task actually needs it; the system prompt and the per-request ads block
+ * carry only one-line descriptions. That keeps every ordinary message cheap
+ * and the domain knowledge deep.
  *
- * To add a skill: drop a .md file here, add its slug to `skillSlugSchema`
- * in @wandit/contracts, and add an entry below — nothing else to wire.
+ * Playbooks are TypeScript constants (see ../ads/index.ts for why), never .md
+ * files: the production tsdown bundle carries no markdown assets.
  *
- * NOTE: load() reads the .md relative to this module, which works under
- * dev (tsx runs from src/). The production `tsdown` bundle does not carry
- * .md assets yet — revisit when a real deploy pipeline exists.
+ * To add a skill: export its doc as a TS constant, add its slug to
+ * `skillSlugSchema` in @wandit/contracts, and add an entry below.
  */
-type SkillEntry = {
-	/** One-liner shown in the system prompt so the model knows when to load it. */
+export type SkillEntry = {
+	/** One-liner telling the model when to load it. */
 	description: string;
 	load: () => Promise<string>;
+	/** Retired skills stay in the enum so old chats validate; they load a short note. */
+	retired?: true;
 };
 
+const RETIRED_LANDING_PAGE_DESIGN_NOTE =
+	"The landing-page-design skill is retired: the page builder carries its design constitution in its own system prompt now. Nothing to load — continue with get_direction_candidates and generate_page as usual.";
+
 export const SKILLS: Record<SkillSlug, SkillEntry> = {
+	// Kept for history validation only — landing-page-design.md beside this
+	// file is the archived text; the builder prompt is the live source.
 	"landing-page-design": {
 		description:
-			"The design constitution for landing pages and small business sites: aesthetic-direction ritual, variation axes, anti-slop ban list, craft rules, the Algeria conversion layer (RTL/AR+FR, COD form, WhatsApp trust), and self-review gates. MUST be read before giving any design direction or page-structure advice.",
-		load: () =>
-			readFile(new URL("./landing-page-design.md", import.meta.url), "utf8"),
+			"RETIRED — the page builder carries its design guidance itself; do not load.",
+		load: async () => RETIRED_LANDING_PAGE_DESIGN_NOTE,
+		retired: true,
 	},
-};
+	...Object.fromEntries(
+		ADS_SKILL_SLUGS.map((slug) => [
+			slug,
+			{
+				description: ADS_SKILLS[slug].description,
+				load: async () => ADS_SKILLS[slug].doc,
+			} satisfies SkillEntry,
+		]),
+	),
+} as Record<SkillSlug, SkillEntry>;
+
+/** Slugs the live read_skill tool advertises (retired ones are excluded). */
+export const LIVE_SKILL_SLUGS: readonly SkillSlug[] = (
+	Object.keys(SKILLS) as SkillSlug[]
+).filter((slug) => !SKILLS[slug].retired);
+
+export async function loadSkill(slug: SkillSlug): Promise<string> {
+	return SKILLS[slug].load();
+}

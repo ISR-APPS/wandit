@@ -27,7 +27,7 @@ export const PROJECT_NAME_MAX_LENGTH = 60;
 // Skill chips shown inline in the composer before collapsing the rest into a
 // single "+N" overflow pill.
 // Keeping only a few chips visible prevents the PromptBox from growing too tall.
-export const MAX_VISIBLE_SKILLS = 2;
+export const MAX_VISIBLE_SKILLS = 3;
 
 // Credit cost per composer quality tier — display only, no pricing logic.
 // Standard mirrors the contracts price card (page generation, 10 credits);
