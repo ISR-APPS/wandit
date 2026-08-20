@@ -475,7 +475,7 @@ export function LeadsTab() {
 											<TableCell className="ps-4">
 												<div
 													dir="auto"
-													className="max-w-52 truncate font-medium"
+													className="w-fit max-w-52 truncate font-medium"
 												>
 													{lead.name}
 												</div>
@@ -486,7 +486,7 @@ export function LeadsTab() {
 											</TableCell>
 											<TableCell>
 												<div className="flex items-center gap-1">
-													<span className="font-mono text-xs">
+													<span dir="ltr" className="font-mono text-xs">
 														{formatPhone(lead.phone)}
 													</span>
 													<ContactLinks phone={lead.phone} reveal />
@@ -546,7 +546,7 @@ export function LeadsTab() {
 										</div>
 									</div>
 									<div className="mt-2 flex items-center justify-between gap-2">
-										<span className="font-mono text-xs">
+										<span dir="ltr" className="font-mono text-xs">
 											{formatPhone(lead.phone)}
 										</span>
 										<ContactLinks phone={lead.phone} />
