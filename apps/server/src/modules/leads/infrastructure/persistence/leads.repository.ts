@@ -15,7 +15,18 @@ import type {
 	LeadTotals,
 	WorkspaceLeadsQuery,
 } from "@wandit/contracts";
-import { and, desc, eq, gt, isNull, lt, or, type SQL, sql } from "@wandit/db";
+import {
+	and,
+	desc,
+	eq,
+	gt,
+	gte,
+	isNull,
+	lt,
+	or,
+	type SQL,
+	sql,
+} from "@wandit/db";
 import { deployments } from "@wandit/db/schema/deployments";
 import { leads } from "@wandit/db/schema/leads";
 import { projects } from "@wandit/db/schema/projects";
@@ -117,6 +128,39 @@ export type LeadSyncPageOptions = {
 	cursor?: string;
 	pageSize: number;
 };
+
+export type LeadFunnelGroupBy = "campaign" | "none" | "source" | "status";
+
+/** One funnel row: per-status counts for one group (key null = ungrouped). */
+export type LeadFunnelCountRow = {
+	cancelled: number;
+	confirmed: number;
+	delivered: number;
+	key: string | null;
+	returned: number;
+	shipped: number;
+	to_confirm: number;
+	total: number;
+};
+
+export type LeadFunnelCountsOptions = {
+	from: Date;
+	groupBy: LeadFunnelGroupBy;
+	limit?: number;
+	to: Date;
+};
+
+export type AdsTrackingFacts = {
+	metaPixelSet: boolean;
+	published: boolean;
+	tiktokPixelSet: boolean;
+};
+
+// Sanity cap on grouped funnel rows. Callers pick their own page size (the
+// read_lead_performance tool probes limit + 1 to detect truncation); this only
+// stops a runaway query.
+const FUNNEL_GROUP_LIMIT_MAX = 200;
+const UTM_CAMPAIGN_KEY_MAX_LENGTH = 200;
 
 export class InvalidLeadCursorError extends Error {
 	constructor() {
@@ -265,6 +309,80 @@ function leadSourcePredicate(source: LeadSource): SQL<boolean> {
 	return sql<boolean>`(not ${FB_CLICK} and not ${TT_CLICK} and ${UTM_SOURCE} not in (${utmSourceList([...FACEBOOK_UTM_SOURCES, ...TIKTOK_UTM_SOURCES])}))`;
 }
 
+// Grouping keys for the funnel read. The source key reuses the
+// leadSourcePredicate mirror so it can never drift from the badge logic; the
+// predicates are mutually exclusive, so the CASE order is irrelevant.
+const LEAD_SOURCE_KEY = sql<string>`case when ${leadSourcePredicate("facebook")} then 'facebook' when ${leadSourcePredicate("tiktok")} then 'tiktok' else 'direct' end`;
+const UTM_CAMPAIGN_KEY = sql<
+	string | null
+>`nullif(left(lower(btrim(coalesce(case when jsonb_typeof(${leads.attribution} -> 'utm_campaign') = 'string' then ${leads.attribution} ->> 'utm_campaign' end, ''), ${JS_TRIM_WHITESPACE})), ${UTM_CAMPAIGN_KEY_MAX_LENGTH}), '')`;
+
+function leadFunnelGroupKey(groupBy: LeadFunnelGroupBy): SQL<string | null> {
+	switch (groupBy) {
+		case "source":
+			return LEAD_SOURCE_KEY;
+		case "campaign":
+			return UTM_CAMPAIGN_KEY;
+		case "status":
+			return sql<string>`${leads.status}::text`;
+		case "none":
+			return sql<string | null>`null::text`;
+	}
+}
+
+/**
+ * The funnel query itself, exported (without running it) so a spec can read
+ * the rendered SQL through `.toSQL()`: drizzle builders are thenables, and the
+ * async repository method awaits this one.
+ */
+export function buildLeadFunnelCountsQuery(
+	db: Database,
+	projectId: string,
+	options: LeadFunnelCountsOptions,
+) {
+	const key = leadFunnelGroupKey(options.groupBy);
+	const limit = clampPageSize(
+		options.limit ?? FUNNEL_GROUP_LIMIT_MAX,
+		FUNNEL_GROUP_LIMIT_MAX,
+	);
+	const total = sql<number>`count(*)::int`;
+
+	const base = db
+		.select({
+			cancelled: sql<number>`count(*) filter (where ${leads.status} = 'cancelled')::int`,
+			confirmed: sql<number>`count(*) filter (where ${leads.status} = 'confirmed')::int`,
+			delivered: sql<number>`count(*) filter (where ${leads.status} = 'delivered')::int`,
+			key: key.as("lead_funnel_key"),
+			returned: sql<number>`count(*) filter (where ${leads.status} = 'returned')::int`,
+			shipped: sql<number>`count(*) filter (where ${leads.status} = 'shipped')::int`,
+			to_confirm: sql<number>`count(*) filter (where ${leads.status} = 'to_confirm')::int`,
+			total,
+		})
+		.from(leads)
+		.where(
+			and(
+				eq(leads.projectId, projectId),
+				isNull(leads.archivedAt),
+				gte(leads.createdAt, options.from),
+				lt(leads.createdAt, options.to),
+			),
+		);
+
+	if (options.groupBy === "none") {
+		// Plain aggregate: one row, key null (a constant in GROUP BY is
+		// pointless and Postgres is picky about it).
+		return base;
+	}
+
+	// Group and order on the output alias, not on `key`: rendering the
+	// parameterised key expression a second time gives it fresh bind ids,
+	// and Postgres then rejects the select list (42803) for source/campaign.
+	return base
+		.groupBy(sql`lead_funnel_key`)
+		.orderBy(desc(total), sql`lead_funnel_key nulls last`)
+		.limit(limit);
+}
+
 @Injectable()
 export class LeadsRepository {
 	constructor(@Inject(DATABASE) private readonly db: Database) {}
@@ -301,6 +419,45 @@ export class LeadsRepository {
 			.limit(1);
 
 		return row?.id ?? null;
+	}
+
+	/**
+	 * Tracking prerequisites the ads director checks before any diagnosis:
+	 * are the pixel ids set on the project, and is a page live to receive
+	 * the clicks. A missing/deleted project reads as all-false.
+	 */
+	async getAdsTrackingFacts(projectId: string): Promise<AdsTrackingFacts> {
+		const [[project], activeDeploymentId] = await Promise.all([
+			this.db
+				.select({
+					metaPixelId: projects.metaPixelId,
+					tiktokPixelId: projects.tiktokPixelId,
+				})
+				.from(projects)
+				.where(and(eq(projects.id, projectId), isNull(projects.deletedAt)))
+				.limit(1),
+			this.findActiveDeploymentId(projectId),
+		]);
+
+		return {
+			metaPixelSet: Boolean(project?.metaPixelId?.trim()),
+			published: activeDeploymentId !== null,
+			tiktokPixelSet: Boolean(project?.tiktokPixelId?.trim()),
+		};
+	}
+
+	/**
+	 * Funnel counts for the chat director's read_lead_performance tool: one
+	 * row per group (or a single ungrouped row for "none"), non-archived leads
+	 * of one project captured in [from, to). Ownership is NOT re-proven here —
+	 * callers pass the projectId of an already-owned chat. Rows order by total
+	 * desc and cap at `limit` (200 max).
+	 */
+	async getFunnelCountsForProject(
+		projectId: string,
+		options: LeadFunnelCountsOptions,
+	): Promise<LeadFunnelCountRow[]> {
+		return buildLeadFunnelCountsQuery(this.db, projectId, options);
 	}
 
 	/** Double-submit guard: same phone on the same project since `since`. */

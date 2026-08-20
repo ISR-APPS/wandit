@@ -234,41 +234,34 @@
 			}
 		},
 		"skillGroups": {
-			"review": {
-				"label": "Review skills"
-			},
-			"market": {
-				"label": "Market context"
+			"ads": {
+				"label": "Ads skills"
 			}
 		},
 		"skills": {
-			"accessibility": {
-				"label": "Accessibility",
-				"description": "Adds contrast, forms and keyboard review guidance."
+			"ads-fundamentals": {
+				"label": "Fundamentals",
+				"description": "Account structure, learning phase, bidding, scaling."
 			},
-			"seo-review": {
-				"label": "SEO Review",
-				"description": "Adds search structure, metadata and copy review guidance."
+			"ads-creative": {
+				"label": "Creative",
+				"description": "Hooks, formats, UGC, creative testing and fatigue."
 			},
-			"redesign": {
-				"label": "Redesign",
-				"description": "Adds visual refresh and layout critique guidance."
+			"ads-audiences": {
+				"label": "Audiences",
+				"description": "Targeting, broad vs. interests, lookalikes, exclusions."
 			},
-			"cod-algeria": {
-				"label": "COD Algeria",
-				"description": "Adds Algerian COD, wilaya and mobile-first context."
+			"ads-measurement": {
+				"label": "Measurement",
+				"description": "Pixel, events, UTMs, attribution, real CPA on COD."
 			},
-			"brand-voice": {
-				"label": "Brand Voice",
-				"description": "Keeps generated copy aligned to the brand tone."
+			"ads-cod-maghreb": {
+				"label": "COD Maghreb",
+				"description": "Benchmarks, confirmation rate, returns, local context."
 			},
-			"direct-response": {
-				"label": "Direct Response",
-				"description": "Adds offer, proof, objection and CTA pressure."
-			},
-			"premium-visuals": {
-				"label": "Premium Visuals",
-				"description": "Adds higher-end art direction for visual outputs."
+			"ads-diagnostic": {
+				"label": "Diagnostic",
+				"description": "Tracking first, then funnel read and the 72h rule."
 			}
 		},
 		"outputs": {

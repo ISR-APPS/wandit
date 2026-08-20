@@ -120,6 +120,14 @@ function buildService({
 	const mediaGenerationsRepository = {};
 	const marketingAssetsRepository = {};
 	const imageGenerationsRepository = {};
+	const leadsRepository = {
+		getAdsTrackingFacts: vi.fn().mockResolvedValue({
+			metaPixelSet: true,
+			published: false,
+			tiktokPixelSet: false,
+		}),
+		getFunnelCountsForProject: vi.fn().mockResolvedValue([]),
+	};
 	const mcpChatToolsService = {
 		resolveToolsForUser: vi.fn().mockResolvedValue(mcpResult),
 	};
@@ -178,10 +186,12 @@ function buildService({
 		mcpChatToolsService as unknown as AiChatServiceDependencies[9],
 		meteringService as unknown as AiChatServiceDependencies[10],
 		modelPricingService as unknown as AiChatServiceDependencies[11],
+		leadsRepository as unknown as AiChatServiceDependencies[12],
 	);
 
 	return {
 		chatsRepository,
+		leadsRepository,
 		meteringService,
 		mcpChatToolsService,
 		modelPricingService,
@@ -223,6 +233,7 @@ function createMcpResult(
 	return {
 		approvalMap: {},
 		close: vi.fn().mockResolvedValue(undefined),
+		connectedSlugs: [],
 		notices: [],
 		tools: {},
 		...overrides,
@@ -574,6 +585,43 @@ describe("AiChatService MCP lifecycle", () => {
 		expect(prepared.eventId).toBe("crashed-hold");
 		expect(meteringService.refund).not.toHaveBeenCalled();
 		prepared.release();
+	});
+
+	it("reserves for the inlined ads playbooks when the composer selected ads skills", async () => {
+		const plain = buildService();
+		const withSkills = buildService();
+
+		const plainPrepared = await plain.service.prepareStream({
+			chatId: CHAT_ID,
+			messages: [userMessage()],
+			projectId: PROJECT_ID,
+			requestId: "plain-turn",
+			scope: PERSONAL_SCOPE,
+		});
+		plainPrepared.release();
+		const skilledPrepared = await withSkills.service.prepareStream({
+			chatId: CHAT_ID,
+			messages: [userMessage()],
+			metadata: {
+				composer: {
+					mode: "auto",
+					quality: "standard",
+					skills: ["ads-diagnostic"],
+				},
+			},
+			projectId: PROJECT_ID,
+			requestId: "skilled-turn",
+			scope: PERSONAL_SCOPE,
+		});
+		skilledPrepared.release();
+
+		const plainTokens =
+			plain.modelPricingService.quoteTokenUsage.mock.calls[0]?.[1].inputTokens;
+		const skilledTokens =
+			withSkills.modelPricingService.quoteTokenUsage.mock.calls[0]?.[1]
+				.inputTokens;
+		// One playbook is ~14 KB ≈ 3.5k tokens at the /4 estimate.
+		expect(skilledTokens - plainTokens).toBeGreaterThan(2_000);
 	});
 
 	it("409s a duplicate of a turn that is actively streaming in this process", async () => {
@@ -1139,6 +1187,72 @@ describe("AiChatService MCP lifecycle", () => {
 		).toHaveBeenCalledWith(PROJECT_ID);
 		expect(r2Mocks.getPageHtml).not.toHaveBeenCalled();
 		expect(chatAgentMocks.createChatAgent.mock.calls[0]?.[1]).toBeNull();
+	});
+
+	it("appends the ads block with tracking facts when an ads connector is connected", async () => {
+		const { leadsRepository, service } = buildService({
+			mcpResult: createMcpResult({ connectedSlugs: ["meta-ads"] }),
+		});
+
+		await service.stream(streamOptions());
+
+		expect(leadsRepository.getAdsTrackingFacts).toHaveBeenCalledWith(
+			PROJECT_ID,
+		);
+		const context = chatAgentMocks.createChatAgent.mock.calls[0]?.[1];
+		expect(context).toContain("Ads context for THIS request");
+		expect(context).toContain("Connected ad platforms: Meta Ads");
+		expect(context).toContain("Meta pixel id set: yes");
+		expect(context).toContain("page published: no");
+		expect(context).toContain("ads-diagnostic:");
+	});
+
+	it("injects the selected ads skill even without a connected ad platform", async () => {
+		const { leadsRepository, service } = buildService();
+
+		await service.stream({
+			...streamOptions(),
+			metadata: {
+				composer: {
+					mode: "auto",
+					quality: "standard",
+					skills: ["ads-creative", "seo-review"],
+				},
+			},
+		});
+
+		expect(leadsRepository.getAdsTrackingFacts).toHaveBeenCalledWith(
+			PROJECT_ID,
+		);
+		const context = chatAgentMocks.createChatAgent.mock.calls[0]?.[1];
+		expect(context).toContain("No ad platform is connected");
+		expect(context).toContain("--- ads-creative ---");
+		expect(context).toContain("# ADS SKILL");
+		expect(context).not.toContain("seo-review");
+	});
+
+	it("adds no ads block and reads no tracking facts for a non-ads request", async () => {
+		const { leadsRepository, service } = buildService({
+			mcpResult: createMcpResult({ connectedSlugs: ["higgsfield"] }),
+		});
+
+		await service.stream(streamOptions());
+
+		expect(leadsRepository.getAdsTrackingFacts).not.toHaveBeenCalled();
+		expect(chatAgentMocks.createChatAgent.mock.calls[0]?.[1]).toBeNull();
+	});
+
+	it("keeps the turn running when the tracking facts lookup fails", async () => {
+		const { leadsRepository, service } = buildService({
+			mcpResult: createMcpResult({ connectedSlugs: ["tiktok-ads"] }),
+		});
+		leadsRepository.getAdsTrackingFacts.mockRejectedValue(new Error("db down"));
+
+		await service.stream(streamOptions());
+
+		const context = chatAgentMocks.createChatAgent.mock.calls[0]?.[1];
+		expect(context).toContain("Connected ad platforms: TikTok Ads");
+		expect(context).not.toContain("Tracking facts");
 	});
 
 	it("keeps the chat turn running when active page HTML cannot be loaded", async () => {
