@@ -61,7 +61,8 @@ export function injectPixels(html: string, pixels: PixelIds): string {
  *
  * 1. The STUB (window.fbq + its n.queue buffer) stays SYNCHRONOUS. The leads
  *    runtime feature-detects `typeof window.fbq === "function"` before it
- *    fires the Lead conversion (leads/runtime/leads-runtime-script.ts) and
+ *    fires the Meta Lead and Purchase conversions
+ *    (leads/runtime/leads-runtime-script.ts) and
  *    swallows a miss in an empty catch, so a visitor who converts early must
  *    still find the stub. `fbq('init',…)` and `fbq('track','PageView')` only
  *    push into n.queue; the SDK replays them when it arrives.
@@ -71,7 +72,7 @@ export function injectPixels(html: string, pixels: PixelIds): string {
  *    parse out of the critical window (TBT / Lighthouse third-party).
  *
  * WHY THE DEFER IS BOUNDED. Queued events are only SENT once the SDK arrives,
- * so "wait for load" alone would put PageView — and the Lead conversion —
+ * so "wait for load" alone would put PageView — and the conversion events —
  * behind every subresource on the page, including connector media served from
  * a provider's own host that this platform does not control. The insert is
  * therefore scheduled on the EARLIEST of: load, a 3 s timer, the page turning
@@ -79,7 +80,7 @@ export function injectPixels(html: string, pixels: PixelIds): string {
  * visitor who converts and closes the tab; `r` keeps every path idempotent.
  *
  * THE FLUSH HOOK. window.wanditFlushPixels fetches the SDKs immediately; the
- * leads runtime calls it right after it queues a Lead, so a conversion is
+ * leads runtime calls it after it queues the conversion events, so they are
  * never left sitting in the stub queue. Each snippet chains the hook the
  * other one may have installed, so Meta and TikTok both flush. The name
  * carries no `__wandit-` prefix on purpose — assertNoEditorArtifacts rejects
@@ -107,7 +108,7 @@ function tiktokPixelSnippet(pixelId: string): string {
 	// ttq.load(id) threw and the TikTok pixel never registered anything.
 	//
 	// Same split as Meta: the stub (ttq array + setAndDefer queue) runs at
-	// parse time so window.ttq.track exists for an early lead, and only the
+	// parse time so window.ttq.track exists for early conversions, and only the
 	// `ttq.load(id);ttq.page()` pair — which is what fetches events.js — waits
 	// for the idle scheduler. ttq.page() pushes into the array queue, so the
 	// SDK still replays it in order once it loads.
