@@ -413,24 +413,148 @@ describe("buildLeadsRuntimeScript", () => {
 		expect(body.name).toBe(largeValue.trim().slice(0, 200));
 	});
 
-	// Ad-pixel Lead conversions (fbq/ttq are injected at publish time by
-	// pixel-injector.ts; the runtime only fires the event).
-	it("fires one Lead conversion per accepted capture on both pixels", async () => {
-		const harness = createRuntimeHarness({ pixels: true });
+	// Ad-pixel conversions (fbq/ttq are injected at publish time by
+	// pixel-injector.ts; the runtime only fires the events).
+	it("fires Lead and zero-value purchase events for an accepted capture", async () => {
+		const flushPixels = vi.fn();
+		const harness = createRuntimeHarness({
+			pixels: true,
+			windowExtras: { wanditFlushPixels: flushPixels },
+		});
 
 		harness.emitLead({ phone: "0555000010" });
 		await flushMicrotasks();
 
 		expect(harness.results).toEqual([{ ok: true }]);
-		expect(harness.fbqCalls).toEqual([["track", "Lead"]]);
-		expect(harness.ttqCalls).toEqual([["Lead"]]);
+		expect(harness.fbqCalls).toEqual([
+			["track", "Lead"],
+			["track", "Purchase", { value: 0, currency: "DZD" }],
+		]);
+		expect(harness.ttqCalls).toEqual([
+			["Lead"],
+			["CompletePayment", { value: 0, currency: "DZD" }],
+		]);
+		expect(flushPixels).toHaveBeenCalledTimes(1);
+	});
+
+	it.each([
+		{
+			label: "numeric",
+			phone: "0555000020",
+			total: 12_900,
+			value: 12_900,
+		},
+		{
+			label: "spaced Arabic currency",
+			phone: "0555000021",
+			total: "12 900 دج",
+			value: 12_900,
+		},
+		{
+			label: "Arabic-Indic decimal",
+			phone: "0555000022",
+			total: "١٤٩٩,٩٩ DA",
+			value: 1_499.99,
+		},
+		{
+			label: "Eastern Arabic-Indic thousands",
+			phone: "0555000023",
+			total: "۱۲.۹۰۰ DZD",
+			value: 12_900,
+		},
+		{
+			label: "comma thousands",
+			phone: "0555000024",
+			total: "12,900 DA",
+			value: 12_900,
+		},
+	])("uses a $label total as the purchase value", async ({
+		phone,
+		total,
+		value,
+	}) => {
+		const harness = createRuntimeHarness({ pixels: true });
+
+		harness.emitLead({ phone, total });
+		await flushMicrotasks();
+
+		expect(harness.fbqCalls).toEqual([
+			["track", "Lead"],
+			["track", "Purchase", { value, currency: "DZD" }],
+		]);
+		expect(harness.ttqCalls).toEqual([
+			["Lead"],
+			["CompletePayment", { value, currency: "DZD" }],
+		]);
+	});
+
+	it("uses price times positive quantity when total is not parseable", async () => {
+		const harness = createRuntimeHarness({ pixels: true });
+
+		harness.emitLead({
+			phone: "0555000025",
+			price: "1 499,99 DA",
+			quantity: "٢",
+			total: "unknown",
+		});
+		await flushMicrotasks();
+
+		expect(harness.fbqCalls).toEqual([
+			["track", "Lead"],
+			["track", "Purchase", { value: 2_999.98, currency: "DZD" }],
+		]);
+		expect(harness.ttqCalls).toEqual([
+			["Lead"],
+			["CompletePayment", { value: 2_999.98, currency: "DZD" }],
+		]);
+	});
+
+	it.each([
+		{ label: "missing", phone: "0555000026", quantity: undefined },
+		{ label: "invalid", phone: "0555000027", quantity: "many" },
+		{ label: "non-positive", phone: "0555000028", quantity: 0 },
+	])("defaults a $label quantity to one", async ({ phone, quantity }) => {
+		const harness = createRuntimeHarness({ pixels: true });
+
+		harness.emitLead({ phone, price: "12.900 DZD", quantity });
+		await flushMicrotasks();
+
+		expect(harness.fbqCalls).toEqual([
+			["track", "Lead"],
+			["track", "Purchase", { value: 12_900, currency: "DZD" }],
+		]);
+		expect(harness.ttqCalls).toEqual([
+			["Lead"],
+			["CompletePayment", { value: 12_900, currency: "DZD" }],
+		]);
+	});
+
+	it("uses zero when total and price are not parseable", async () => {
+		const harness = createRuntimeHarness({ pixels: true });
+
+		harness.emitLead({
+			phone: "0555000029",
+			price: "not available",
+			quantity: 3,
+			total: Number.POSITIVE_INFINITY,
+		});
+		await flushMicrotasks();
+
+		expect(harness.fbqCalls).toEqual([
+			["track", "Lead"],
+			["track", "Purchase", { value: 0, currency: "DZD" }],
+		]);
+		expect(harness.ttqCalls).toEqual([
+			["Lead"],
+			["CompletePayment", { value: 0, currency: "DZD" }],
+		]);
 	});
 
 	// Timing guard for the deferred pixel SDK: pixel-injector.ts keeps the Meta
 	// base code stub synchronous but loads fbevents.js at idle time. A visitor
 	// who converts before the SDK arrives must still land in the fbq queue —
 	// fireLeadConversion feature-detects window.fbq and swallows a miss.
-	it("queues the Lead conversion when the Meta SDK has not loaded yet", async () => {
+	it("queues the Meta conversion events when the SDK has not loaded yet", async () => {
 		const inserted: unknown[] = [];
 		const pixelDocument = {
 			addEventListener: () => {},
@@ -484,8 +608,9 @@ describe("buildLeadsRuntimeScript", () => {
 			["init", "1234567890"],
 			["track", "PageView"],
 			["track", "Lead"],
+			["track", "Purchase", { value: 0, currency: "DZD" }],
 		]);
-		// A queued event is not a sent event: the conversion must also make the
+		// A queued event is not a sent event: the conversions must also make the
 		// runtime pull the SDK in NOW, or it dies with the tab.
 		expect(inserted).toHaveLength(1);
 	});
@@ -501,7 +626,7 @@ describe("buildLeadsRuntimeScript", () => {
 		expect(harness.results).toEqual([{ ok: true }]);
 	});
 
-	it("fires no conversion when the capture endpoint rejects the lead", async () => {
+	it("fires no conversion events when the capture endpoint rejects the lead", async () => {
 		const harness = createRuntimeHarness({
 			fetch: async () => response(400),
 			pixels: true,
@@ -515,7 +640,7 @@ describe("buildLeadsRuntimeScript", () => {
 		expect(harness.ttqCalls).toEqual([]);
 	});
 
-	it("does not fire a second conversion on the same-phone dedupe path", async () => {
+	it("does not fire more conversion events within the dedupe window", async () => {
 		const harness = createRuntimeHarness({ pixels: true });
 
 		harness.emitLead({ phone: "0555000012" });
@@ -524,11 +649,42 @@ describe("buildLeadsRuntimeScript", () => {
 		await flushMicrotasks();
 
 		expect(harness.fetchMock).toHaveBeenCalledTimes(1);
-		expect(harness.fbqCalls).toEqual([["track", "Lead"]]);
-		expect(harness.ttqCalls).toEqual([["Lead"]]);
+		expect(harness.fbqCalls).toEqual([
+			["track", "Lead"],
+			["track", "Purchase", { value: 0, currency: "DZD" }],
+		]);
+		expect(harness.ttqCalls).toEqual([
+			["Lead"],
+			["CompletePayment", { value: 0, currency: "DZD" }],
+		]);
 	});
 
-	it("fires no conversion for a honeypot-trapped send (server 200s but drops it)", async () => {
+	it("expires the in-memory conversion dedupe after 120 seconds", async () => {
+		vi.useFakeTimers();
+		const harness = createRuntimeHarness({ pixels: true });
+
+		harness.emitLead({ phone: "0555000030", total: 1_500 });
+		await flushMicrotasks();
+		await vi.advanceTimersByTimeAsync(120_000);
+		harness.emitLead({ phone: "0555000030", total: 1_500 });
+		await flushMicrotasks();
+
+		expect(harness.fetchMock).toHaveBeenCalledTimes(2);
+		expect(harness.fbqCalls).toEqual([
+			["track", "Lead"],
+			["track", "Purchase", { value: 1_500, currency: "DZD" }],
+			["track", "Lead"],
+			["track", "Purchase", { value: 1_500, currency: "DZD" }],
+		]);
+		expect(harness.ttqCalls).toEqual([
+			["Lead"],
+			["CompletePayment", { value: 1_500, currency: "DZD" }],
+			["Lead"],
+			["CompletePayment", { value: 1_500, currency: "DZD" }],
+		]);
+	});
+
+	it("fires no conversion events for a honeypot-trapped send", async () => {
 		const harness = createRuntimeHarness({
 			honeypot: "gotcha",
 			pixels: true,

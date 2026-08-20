@@ -17,7 +17,8 @@
  *
  * The payload matches leadCaptureBodySchema (@wandit/contracts) — values are
  * clipped client-side to the contract caps so a valid lead is never rejected
- * for length.
+ * for length. Accepted non-honeypot sends also fire Meta Lead/Purchase and
+ * TikTok Lead/CompletePayment events after the endpoint answers 2xx.
  */
 export function buildLeadsRuntimeScript(options: {
 	captureUrl: string;
@@ -62,6 +63,78 @@ export function buildLeadsRuntimeScript(options: {
 				}
 			}
 			return out;
+		}
+
+		function parseOrderNumber(value) {
+			if (typeof value === "number") {
+				return isFinite(value) && value >= 0 ? value : null;
+			}
+			if (typeof value !== "string") return null;
+			var folded = "";
+			for (var i = 0; i < value.length; i++) {
+				var code = value.charCodeAt(i);
+				if (code >= 48 && code <= 57) {
+					folded += value.charAt(i);
+				} else if (code >= 1632 && code <= 1641) {
+					folded += String.fromCharCode(code - 1584);
+				} else if (code >= 1776 && code <= 1785) {
+					folded += String.fromCharCode(code - 1728);
+				} else if (code === 44 || code === 46) {
+					folded += value.charAt(i);
+				} else if (code === 45 || code === 8722) {
+					return null;
+				}
+			}
+			while (
+				folded.charAt(folded.length - 1) === "." ||
+				folded.charAt(folded.length - 1) === ","
+			) {
+				folded = folded.slice(0, -1);
+			}
+			if (!folded) return null;
+			var decimalIndex = -1;
+			for (var j = folded.length - 1; j >= 0; j--) {
+				var character = folded.charAt(j);
+				if (character === "." || character === ",") {
+					var trailingDigits = folded.length - j - 1;
+					if (trailingDigits === 1 || trailingDigits === 2) {
+						decimalIndex = j;
+					}
+					break;
+				}
+			}
+			var normalized = "";
+			var digitCount = 0;
+			for (var k = 0; k < folded.length; k++) {
+				var foldedCode = folded.charCodeAt(k);
+				if (foldedCode >= 48 && foldedCode <= 57) {
+					normalized += folded.charAt(k);
+					digitCount += 1;
+				} else if (k === decimalIndex) {
+					normalized += ".";
+				}
+			}
+			if (digitCount === 0) return null;
+			var parsed = Number(normalized);
+			return isFinite(parsed) && parsed >= 0 ? parsed : null;
+		}
+
+		function roundPurchaseValue(value) {
+			var rounded = Math.round(value * 100) / 100;
+			if (!isFinite(rounded) || rounded < 0) return 0;
+			return rounded === 0 ? 0 : rounded;
+		}
+
+		function purchaseValue(lead) {
+			var extras = lead && lead.extras;
+			if (!extras || typeof extras !== "object") return 0;
+			var total = parseOrderNumber(extras.total);
+			if (total !== null) return roundPurchaseValue(total);
+			var price = parseOrderNumber(extras.price);
+			if (price === null) return 0;
+			var quantity = parseOrderNumber(extras.quantity);
+			if (quantity === null || quantity <= 0) quantity = 1;
+			return roundPurchaseValue(price * quantity);
 		}
 
 		function clip(value, max) {
@@ -227,7 +300,7 @@ export function buildLeadsRuntimeScript(options: {
 			});
 		}
 
-		// Ad-pixel conversion: fired ONCE per accepted lead send, only after
+		// Ad-pixel conversions: fired ONCE per accepted lead send, only after
 		// the capture endpoint answered 2xx — never on the raw submit, never
 		// on the same-phone dedupe path, and never for a honeypot-trapped
 		// send (the server answers 200 to keep bots blind, but stores no
@@ -235,18 +308,28 @@ export function buildLeadsRuntimeScript(options: {
 		// resubmit-after-refresh cannot double-count. The base codes
 		// (fbq/ttq) are injected at publish time by pixel-injector.ts;
 		// feature-detect so pages without pixels stay silent.
-		function fireLeadConversion(digits) {
-			if (converted[digits]) return;
-			converted[digits] = true;
+		function fireLeadConversion(digits, value) {
+			var now = Date.now();
+			if (
+				typeof converted[digits] === "number" &&
+				now - converted[digits] < DEDUPE_WINDOW_MS
+			) return;
+			converted[digits] = now;
 			try {
 				var storageKey = "wandit:lead:conv:" + digits;
 				var last = Number(localStorage.getItem(storageKey));
-				if (isFinite(last) && Date.now() - last < DEDUPE_WINDOW_MS) return;
-				localStorage.setItem(storageKey, String(Date.now()));
+				if (isFinite(last) && now - last < DEDUPE_WINDOW_MS) return;
+				localStorage.setItem(storageKey, String(now));
 			} catch (ignored) {}
+			// Wandit serves Algeria only today, so purchase currency is fixed to DZD.
 			try {
 				if (typeof window.fbq === "function") {
 					window.fbq("track", "Lead");
+				}
+			} catch (ignored) {}
+			try {
+				if (typeof window.fbq === "function") {
+					window.fbq("track", "Purchase", { value: value, currency: "DZD" });
 				}
 			} catch (ignored) {}
 			try {
@@ -254,7 +337,12 @@ export function buildLeadsRuntimeScript(options: {
 					window.ttq.track("Lead");
 				}
 			} catch (ignored) {}
-			// Both tracks above may still be sitting in a stub queue: the SDK
+			try {
+				if (window.ttq && typeof window.ttq.track === "function") {
+					window.ttq.track("CompletePayment", { value: value, currency: "DZD" });
+				}
+			} catch (ignored) {}
+			// The tracks above may still be sitting in a stub queue: the SDK
 			// fetch is deferred off the critical path (pixel-injector.ts) and a
 			// queued event is never sent. Ask the injected snippets to fetch
 			// NOW, so a visitor who converts and closes the tab does not take
@@ -278,6 +366,7 @@ export function buildLeadsRuntimeScript(options: {
 				return Promise.resolve(true);
 			}
 			if (inFlight[digits]) return inFlight[digits];
+			var value = purchaseValue(lead);
 			var body = { phone: phone };
 			var name = clip(lead.name, 200);
 			if (name) body.name = name;
@@ -304,7 +393,7 @@ export function buildLeadsRuntimeScript(options: {
 					sentAt[digits] = Date.now();
 					// A filled honeypot means the server accepted the request but
 					// silently dropped the lead — no conversion for a trapped bot.
-					if (!hp) fireLeadConversion(digits);
+					if (!hp) fireLeadConversion(digits, value);
 				}
 				return ok;
 			}, function () {
