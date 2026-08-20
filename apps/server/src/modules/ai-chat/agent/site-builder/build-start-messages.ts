@@ -23,7 +23,7 @@ export function composeBuildStartMessages(params: {
 	}
 
 	content.push({
-		text: "These are the user's real photos from the brief, attached so you can SEE them. Judge each one's quality before you write HTML, per your PHOTO QUALITY GATE law. To enhance or restage one, pass its exact URL from its marker as generate_image sourceImageUrls.",
+		text: "These are the user's real photos from the brief, attached so you can SEE them. Judge each one's quality before you write HTML, per your PHOTO QUALITY GATE law. To enhance, restage, or refit one to a slot's shape, pass its exact URL from its marker as generate_image sourceImageUrls.",
 		type: "text",
 	});
 

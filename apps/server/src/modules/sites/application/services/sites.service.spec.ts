@@ -7,6 +7,7 @@ import {
 	getPageHtml,
 	isR2Configured,
 	putPageHtml,
+	r2ObjectExists,
 } from "../../../../infrastructure/storage/r2";
 import type { DomainRoutingService } from "../../../domains/infrastructure/cloudflare/domain-routing.service";
 import type { ProjectScope } from "../../../projects/domain/project-scope";
@@ -25,16 +26,30 @@ import type {
 import { SitesService } from "./sites.service";
 
 // R2 is a network dependency — replace the storage module so tests control
-// what "the bucket" returns without credentials.
+// what "the bucket" returns without credentials. The URL/key helpers stay
+// real-shaped (the image pass in the publish chain reaches for them through
+// this same module) but resolve against a fixed public base.
+const ASSETS_BASE = "https://assets.test";
+
 vi.mock("../../../../infrastructure/storage/r2", () => ({
 	deleteObject: vi.fn(),
 	getPageHtml: vi.fn(),
 	isR2Configured: vi.fn(),
+	isWanditHostedUrl: (url: string) => url.startsWith(`${ASSETS_BASE}/`),
+	publicAssetKeyFromUrl: (url: string) =>
+		url.startsWith(`${ASSETS_BASE}/`)
+			? url.slice(ASSETS_BASE.length + 1)
+			: null,
+	publicAssetUrl: (key: string) => `${ASSETS_BASE}/${key}`,
 	publishedArchiveKey: (projectId: string, deploymentId: string) =>
 		`published/${projectId}/v/${deploymentId}.html`,
 	publishedCurrentKey: (projectId: string) =>
 		`published/${projectId}/current.html`,
 	putPageHtml: vi.fn(),
+	r2ObjectExists: vi.fn(),
+	VARIANT_FILENAME_PATTERN: /\.w\d+\.webp$/,
+	variantKey: (baseKey: string, width: number) =>
+		`${baseKey.replace(/\.[^./]+$/, "")}.w${width}.webp`,
 }));
 
 vi.mock("../../../../infrastructure/analytics/analytics.service", () => ({
@@ -135,6 +150,7 @@ beforeEach(() => {
 		.mockResolvedValue("<!doctype html><html><body>Hi</body></html>");
 	vi.mocked(isR2Configured).mockReset().mockReturnValue(true);
 	vi.mocked(putPageHtml).mockReset().mockResolvedValue(undefined);
+	vi.mocked(r2ObjectExists).mockReset().mockResolvedValue(false);
 });
 
 describe("SitesService.publish", () => {
@@ -376,6 +392,43 @@ describe("SitesService.publish", () => {
 		);
 		expect(bodies[0]).toContain('data-wandit-vendored="gsap"');
 		expect(bodies[1]).toContain('data-wandit-vendored="gsap"');
+	});
+
+	// The image pass sits between the font pass and the injectors, so its
+	// output is what the preflight probes and what BOTH R2 writes receive.
+	it("normalizes image markup and emits a verified srcset before injection", async () => {
+		const { service } = setup();
+		// The preflight has its own describe block; this test is about the
+		// transform chain, so the network probe stays off.
+		(env as { SITE_PUBLISH_ASSET_CHECK?: boolean }).SITE_PUBLISH_ASSET_CHECK =
+			false;
+		const hero = "https://assets.test/sites/p/a/img-1.webp";
+		vi.mocked(getPageHtml).mockResolvedValue(
+			"<!doctype html><html><head></head><body>" +
+				'<header><img data-wandit-brand-image src="/logo.png" alt="Brand"></header>' +
+				`<section><img src="${hero}" alt="Hero" width="1536" height="1024"></section>` +
+				'<section><img src="/late.png" alt="Late" loading="eager"></section>' +
+				"</body></html>",
+		);
+		vi.mocked(r2ObjectExists).mockImplementation(
+			async (key) => key === "sites/p/a/img-1.w960.webp",
+		);
+		const bodies: string[] = [];
+		vi.mocked(putPageHtml).mockImplementation(async (_key, html) => {
+			bodies.push(html);
+		});
+
+		await service.publish(SCOPE, PROJECT_ID, {});
+
+		expect(bodies[0]).toContain('fetchpriority="high"');
+		expect(bodies[0]?.match(/fetchpriority="high"/g)).toHaveLength(1);
+		expect(bodies[0]).toContain('loading="lazy"');
+		expect(bodies[0]).toContain(
+			`srcset="https://assets.test/sites/p/a/img-1.w960.webp 960w, ${hero} 1920w"`,
+		);
+		expect(bodies[0]).toContain('rel="preload" as="image"');
+		// Archive and current must be the same string (rollback replays it).
+		expect(bodies[1]).toBe(bodies[0]);
 	});
 
 	it("keeps the badge when a FREE owner sets the hide toggle", async () => {

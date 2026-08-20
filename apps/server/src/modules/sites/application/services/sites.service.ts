@@ -31,9 +31,11 @@ import {
 	deleteObject,
 	getPageHtml,
 	isR2Configured,
+	publicAssetKeyFromUrl,
 	publishedArchiveKey,
 	publishedCurrentKey,
 	putPageHtml,
+	r2ObjectExists,
 } from "../../../../infrastructure/storage/r2";
 import { DomainRoutingService } from "../../../domains/infrastructure/cloudflare/domain-routing.service";
 import {
@@ -41,6 +43,11 @@ import {
 	injectLeadsRuntime,
 } from "../../../leads/runtime/inject-leads-runtime";
 import { inlineKnownCdnScripts } from "../../../pages/domain/inline-cdn-scripts";
+import { optimizeFontLoading } from "../../../pages/domain/optimize-font-loading";
+import {
+	emitResponsiveImages,
+	optimizeImageMarkup,
+} from "../../../pages/domain/optimize-image-markup";
 import type { ProjectScope } from "../../../projects/domain/project-scope";
 import {
 	collectAssetUrls,
@@ -67,6 +74,19 @@ import {
 } from "../../infrastructure/persistence/deployments.repository";
 
 const SLUG_SUFFIX_ATTEMPTS = 5;
+
+/**
+ * Does this candidate rendition URL point at an object that really exists?
+ * emitResponsiveImages speaks in public URLs (that is what it writes into the
+ * HTML), R2 speaks in object keys, so the boundary is translated here. A URL
+ * outside our bucket, or any storage error, answers false — the srcset then
+ * simply omits that width.
+ */
+async function publishedVariantExists(url: string): Promise<boolean> {
+	const key = publicAssetKeyFromUrl(url);
+
+	return key === null ? false : r2ObjectExists(key);
+}
 
 @Injectable()
 export class SitesService {
@@ -269,9 +289,28 @@ export class SitesService {
 			// self-contained instead of depending on jsdelivr at view time.
 			const inlined = inlineKnownCdnScripts(input.html);
 
+			// Same reasoning, one layer up the page: the font stylesheet link
+			// is hoisted above the inline <style> so the browser discovers the
+			// render-blocking font request immediately. Pure and idempotent, so
+			// already-optimized drafts and replayed archives pass through
+			// unchanged and old sites are fixed by their next publish.
+			const withFonts = optimizeFontLoading(inlined);
+
+			// One prioritized LCP image, everything else lazy, then a srcset
+			// built only from renditions this pass just verified in R2. Both
+			// run BEFORE the preflight below, so every URL they emit is one of
+			// the URLs the preflight probes. Both are idempotent: the markup
+			// pass returns the identical string once the attributes already
+			// read that way, and the srcset pass skips any <img> that already
+			// carries one, so replayed archives keep their bytes.
+			const withImages = await emitResponsiveImages(
+				optimizeImageMarkup(withFonts),
+				{ exists: publishedVariantExists },
+			);
+
 			const withPixels = input.skipInjection
-				? inlined
-				: injectPixels(inlined, {
+				? withImages
+				: injectPixels(withImages, {
 						metaPixelId: input.project.metaPixelId,
 						tiktokPixelId: input.project.tiktokPixelId,
 					});

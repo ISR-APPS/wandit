@@ -20,12 +20,29 @@ export const ATTACHMENT_MEDIA_TYPES = [
 
 export const attachmentMediaTypeSchema = z.enum(ATTACHMENT_MEDIA_TYPES);
 
+/** One narrower rendition of an uploaded image, for a srcset. */
+export const attachmentVariantSchema = z.object({
+	url: z.url(),
+	width: z.number().int().positive(),
+});
+
+export type AttachmentVariant = z.infer<typeof attachmentVariantSchema>;
+
+// width/height/variants are OPTIONAL on purpose: they describe an image the
+// server could measure, and every non-image attachment (and any image sharp
+// could not read) legitimately has none. Optional also keeps clients built
+// against the earlier shape validating.
 export const uploadAttachmentResponseSchema = z.object({
 	url: z.url(),
 	key: z.string().min(1),
 	mediaType: attachmentMediaTypeSchema,
 	filename: z.string().min(1),
 	size: z.number().int().positive(),
+	/** Intrinsic width of the STORED object (post-optimization). */
+	width: z.number().int().positive().optional(),
+	/** Intrinsic height of the STORED object (post-optimization). */
+	height: z.number().int().positive().optional(),
+	variants: z.array(attachmentVariantSchema).optional(),
 });
 
 export type UploadAttachmentResponse = z.infer<

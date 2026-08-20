@@ -8,6 +8,7 @@ import sharp from "sharp";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+	IMMUTABLE_ASSET_CACHE_CONTROL,
 	isR2Configured,
 	putSiteFile,
 } from "../../../../infrastructure/storage/r2";
@@ -103,6 +104,9 @@ describe("UploadsService.uploadAttachment", () => {
 			expect.stringMatching(/^uploads\/user_1\/[0-9a-f-]{36}\/product\.png$/),
 			PNG_BYTES,
 			"image/png",
+			// uuid-addressed objects are never rewritten, so they may be cached
+			// forever.
+			IMMUTABLE_ASSET_CACHE_CONTROL,
 		);
 		expect(result).toEqual({
 			filename: "product.png",
@@ -115,8 +119,9 @@ describe("UploadsService.uploadAttachment", () => {
 		});
 	});
 
-	it("recompresses a raster photo over 500KB to webp, renaming key and type", async () => {
-		// Noise defeats PNG compression, so the canvas lands well over 500KB.
+	it("recompresses a heavy raster photo to webp, renaming key and type", async () => {
+		// Noise defeats PNG compression, so the canvas lands well over the
+		// optimizer's 150KB floor.
 		const bigPng = await sharp(randomBytes(2500 * 300 * 3), {
 			raw: { channels: 3, height: 300, width: 2500 },
 		})
@@ -135,6 +140,7 @@ describe("UploadsService.uploadAttachment", () => {
 			),
 			expect.any(Uint8Array),
 			"image/webp",
+			IMMUTABLE_ASSET_CACHE_CONTROL,
 		);
 
 		const uploaded = vi.mocked(putSiteFile).mock.calls[0]?.[1] as Uint8Array;
@@ -144,9 +150,111 @@ describe("UploadsService.uploadAttachment", () => {
 
 		expect(result).toMatchObject({
 			filename: "hero-photo.webp",
+			height: 230,
 			mediaType: "image/webp",
 			size: uploaded.byteLength,
+			width: 1920,
 		});
+	});
+
+	it("recompresses a LIGHT photo whose canvas is too wide (no byte gate)", async () => {
+		// The live regression: 3000px of flat color weighs far less than the
+		// old 500KB caller gate, and still shipped 3000 pixels to a phone.
+		const widePng = await sharp({
+			create: {
+				background: { b: 200, g: 120, r: 30 },
+				channels: 3,
+				height: 400,
+				width: 3000,
+			},
+		})
+			.png()
+			.toBuffer();
+		expect(widePng.byteLength).toBeLessThan(150 * 1024);
+
+		const result = await service.uploadAttachment("user_1", {
+			buffer: widePng,
+			filename: "wide.png",
+			mimetype: "image/png",
+		});
+
+		expect(result).toMatchObject({
+			filename: "wide.webp",
+			height: 256,
+			mediaType: "image/webp",
+			width: 1920,
+		});
+	});
+
+	it("stores srcset renditions as siblings inside the same uuid directory", async () => {
+		const bigPng = await sharp(randomBytes(2500 * 300 * 3), {
+			raw: { channels: 3, height: 300, width: 2500 },
+		})
+			.png()
+			.toBuffer();
+
+		const result = await service.uploadAttachment("user_1", {
+			buffer: bigPng,
+			filename: "hero-photo.png",
+			mimetype: "image/png",
+		});
+
+		const keys = vi
+			.mocked(putSiteFile)
+			.mock.calls.map((call) => call[0] as string);
+		const [primary = ""] = keys;
+		const directory = primary.slice(0, primary.lastIndexOf("/"));
+
+		expect(keys.slice(1)).toEqual([
+			`${directory}/hero-photo.w480.webp`,
+			`${directory}/hero-photo.w960.webp`,
+			`${directory}/hero-photo.w1600.webp`,
+		]);
+		// Four segments, exactly like the primary: isUserUploadUrl and the
+		// brief's user-photo extractor both reject anything deeper.
+		for (const key of keys) {
+			expect(key.split("/")).toHaveLength(4);
+		}
+		expect(result.variants).toEqual([
+			{ url: expect.stringContaining("hero-photo.w480.webp"), width: 480 },
+			{ url: expect.stringContaining("hero-photo.w960.webp"), width: 960 },
+			{ url: expect.stringContaining("hero-photo.w1600.webp"), width: 1600 },
+		]);
+	});
+
+	it("still answers the upload when every rendition fails to store", async () => {
+		const bigPng = await sharp(randomBytes(2500 * 300 * 3), {
+			raw: { channels: 3, height: 300, width: 2500 },
+		})
+			.png()
+			.toBuffer();
+		// First call (the primary object) succeeds; every rendition blows up.
+		vi.mocked(putSiteFile).mockImplementation(async (key) =>
+			/\.w\d+\.webp$/.test(key)
+				? Promise.reject(new Error("R2 said no"))
+				: undefined,
+		);
+
+		const result = await service.uploadAttachment("user_1", {
+			buffer: bigPng,
+			filename: "hero-photo.png",
+			mimetype: "image/png",
+		});
+
+		expect(result).toMatchObject({ mediaType: "image/webp" });
+		expect(result.variants).toBeUndefined();
+	});
+
+	it("answers no dimensions for a non-image attachment", async () => {
+		const result = await service.uploadAttachment("user_1", {
+			buffer: Buffer.from("name,phone"),
+			filename: "leads.csv",
+			mimetype: "text/csv",
+		});
+
+		expect(result.width).toBeUndefined();
+		expect(result.height).toBeUndefined();
+		expect(result.variants).toBeUndefined();
 	});
 
 	it("stores a large GIF verbatim", async () => {
@@ -165,6 +273,7 @@ describe("UploadsService.uploadAttachment", () => {
 			expect.stringMatching(/\/loop\.gif$/),
 			bigGif,
 			"image/gif",
+			IMMUTABLE_ASSET_CACHE_CONTROL,
 		);
 		expect(result).toMatchObject({
 			filename: "loop.gif",
@@ -194,6 +303,7 @@ describe("UploadsService.uploadAttachment", () => {
 			expect.stringMatching(/^uploads\/user_1\/[0-9a-f-]{36}\/stock\.xlsx$/),
 			ZIP_BYTES,
 			XLSX_MEDIA_TYPE,
+			IMMUTABLE_ASSET_CACHE_CONTROL,
 		);
 		expect(result.mediaType).toBe(XLSX_MEDIA_TYPE);
 		expect(result.filename).toBe("stock.xlsx");

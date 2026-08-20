@@ -95,6 +95,10 @@ export function annotateUserFileParts(
 
 				const kind = part.mediaType.startsWith("image/") ? "image" : "file";
 				const name = part.filename ? ` "${part.filename}"` : "";
+				// NO pixel size here on purpose: nothing on the persisted file
+				// part carries the upload's intrinsic width/height, so any number
+				// printed would be invented. The builder prompts tell the model to
+				// size user photos with CSS rather than guess an attribute.
 				const marker = `[Attached ${kind}${name} (${part.mediaType}): ${part.url}]`;
 
 				if (!MODEL_SAFE_MEDIA_TYPES(part.mediaType)) {

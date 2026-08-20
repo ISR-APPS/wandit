@@ -14,11 +14,13 @@ import { generateImage, generateText } from "ai";
 
 import { optimizeImage } from "../../../../infrastructure/storage/optimize-image";
 import {
+	IMMUTABLE_ASSET_CACHE_CONTROL,
 	imageGenerationKey,
 	isR2Configured,
 	publicAssetUrl,
 	putSiteFile,
 } from "../../../../infrastructure/storage/r2";
+import { storeImageVariants } from "../../../../infrastructure/storage/store-image-variants";
 import {
 	type GatewayGenerationFailure,
 	type GatewayGenerationMetadata,
@@ -275,9 +277,13 @@ export type GeneratedStandaloneImage =
 	| GatewayGenerationFailure
 	| { message: string; status: "unavailable" }
 	| ({
+			/** Intrinsic height of the STORED object, for the img attribute. */
+			height: number;
 			mediaType: string;
 			status: "generated";
 			url: string;
+			/** Intrinsic width of the STORED object, for the img attribute. */
+			width: number;
 	  } & GatewayGenerationMetadata);
 
 /**
@@ -357,9 +363,22 @@ export async function generateStandaloneImage(params: {
 			optimized.ext,
 		);
 
-		await putSiteFile(key, optimized.bytes, optimized.contentType);
+		await putSiteFile(
+			key,
+			optimized.bytes,
+			optimized.contentType,
+			IMMUTABLE_ASSET_CACHE_CONTROL,
+		);
+		// Renditions ride beside the primary object; never fatal (the runner
+		// settles the attempt on the primary URL alone).
+		await storeImageVariants(key, optimized.bytes);
+
+		// The provider canvas is the fallback: it is the size we ASKED for, so
+		// it is right whenever sharp could not measure the bytes back.
+		const canvas = standaloneCanvasDimensions(params.aspect);
 
 		return {
+			height: optimized.height ?? canvas.height,
 			mediaType: optimized.contentType,
 			model: metadata.model,
 			...(metadata.provider ? { provider: metadata.provider } : {}),
@@ -367,6 +386,7 @@ export async function generateStandaloneImage(params: {
 			status: "generated",
 			url: publicAssetUrl(key),
 			...(metadata.usage === undefined ? {} : { usage: metadata.usage }),
+			width: optimized.width ?? canvas.width,
 		};
 	} catch (error) {
 		return {
@@ -376,4 +396,16 @@ export async function generateStandaloneImage(params: {
 			status: "failed",
 		};
 	}
+}
+
+// "1536x1024" -> { height: 1024, width: 1536 }.
+function standaloneCanvasDimensions(aspect: ImageGenerationAspect): {
+	height: number;
+	width: number;
+} {
+	const [width = 0, height = 0] = STANDALONE_SIZE_BY_ASPECT[aspect]
+		.split("x")
+		.map((part) => Number.parseInt(part, 10));
+
+	return { height, width };
 }

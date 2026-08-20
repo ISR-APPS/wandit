@@ -36,6 +36,8 @@ import {
 import { fixedOperationCredits } from "../../../metering/domain/operation-registry";
 import { ensureDocumentTitle } from "../../../pages/domain/document-title";
 import { inlineKnownCdnScripts } from "../../../pages/domain/inline-cdn-scripts";
+import { optimizeFontLoading } from "../../../pages/domain/optimize-font-loading";
+import { optimizeImageMarkup } from "../../../pages/domain/optimize-image-markup";
 // Plain module (no Nest), safe in the Trigger bundle — cheerio bundles fine.
 import {
 	isStampableContainer,
@@ -373,9 +375,12 @@ type GenerateImageOutput =
 	| { message: string; status: "failed" | "unavailable" }
 	| {
 			aspect: BuildImageAspect;
+			/** Intrinsic pixels of the stored object; absent on older parts. */
+			height?: number;
 			role: string;
 			status: "generated";
 			url: string;
+			width?: number;
 	  };
 
 type ScreenshotPageOutput =
@@ -877,7 +882,7 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 			execute: async (
 				{ aspect, prompt, role, sourceImageUrls },
 				{ toolCallId },
-			) => {
+			): Promise<GenerateImageOutput> => {
 				if (state.imageSequence >= MAX_IMAGES) {
 					return {
 						message:
@@ -1015,9 +1020,13 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 
 				return {
 					aspect,
+					// Real stored pixels, so the model can write width/height
+					// attributes that match the object instead of guessing.
+					height: result.height,
 					role,
 					status: "generated" as const,
 					url: result.url,
+					width: result.width,
 				};
 			},
 			toModelOutput: ({ output, toolCallId }) => {
@@ -1031,14 +1040,21 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 				}
 
 				const image = imageByCall.get(toolCallId);
+				// Real stored pixels when this part carries them (parts persisted
+				// before dimensions existed do not).
+				const pixels =
+					output.width && output.height
+						? `, ${output.width}x${output.height}px — use those pixels as the img width/height attributes`
+						: "";
 
 				return {
 					type: "content",
 					value: [
 						{
 							text:
-								`Generated (${output.role}, ${output.aspect}): ${output.url} ` +
-								"— judge whether it fits the design before placing it.",
+								`Generated (${output.role}, ${output.aspect}${pixels}): ` +
+								`${output.url} — judge whether it fits the design before ` +
+								"placing it.",
 							type: "text",
 						},
 						...(image
@@ -1574,16 +1590,26 @@ export async function runSiteBuild(
 		// stable data-wid before upload, so every version's canonical HTML in
 		// R2 is fully stamped. The model is never asked to do this itself.
 		// The sanctioned GSAP CDN tags are inlined first, so the canonical HTML
-		// never depends on a third-party CDN request. A page that forgot its
-		// <title> then falls back to the Brain's short human title, so the
-		// browser tab never reads as a URL.
+		// never depends on a third-party CDN request. The font stylesheet links
+		// are then hoisted above the inline <style>, so the browser starts the
+		// render-blocking font request in the first bytes of <head> instead of
+		// after 20-40 KB of CSS. The <img> markup is then normalized to one
+		// prioritized LCP image and lazy everything else — srcset stays out of
+		// drafts, because the editor's swap path strips it and building one
+		// costs storage probes a generation must not pay for. A page that
+		// forgot its <title> finally falls back to the Brain's short human
+		// title, so the browser tab never reads as a URL.
 		const rawHtml = vfs.read("index.html");
 
 		if (rawHtml !== null) {
 			vfs.write(
 				"index.html",
 				ensureDocumentTitle(
-					stampHtml(inlineKnownCdnScripts(rawHtml)),
+					stampHtml(
+						optimizeImageMarkup(
+							optimizeFontLoading(inlineKnownCdnScripts(rawHtml)),
+						),
+					),
 					params.title,
 				),
 			);
