@@ -2,6 +2,8 @@ import { Inject, Injectable } from "@nestjs/common";
 import {
 	type AdminAnalyticsDevice,
 	type AdminAnalyticsFeatureKey,
+	type AdminAnalyticsFunnelStepUsersContacted,
+	type AdminAnalyticsFunnelUserStep,
 	type AdminAnalyticsGenerationKey,
 	adminAnalyticsFeatureKeys,
 	type BillingPlanId,
@@ -83,6 +85,35 @@ type FunnelRow = {
 	signups: NumericValue;
 	visitors: NumericValue;
 };
+
+type FunnelStepUserMetadataRow = {
+	all_count: NumericValue;
+	contacted_count: NumericValue;
+	converted_count: NumericValue;
+	total: NumericValue;
+};
+
+type FunnelStepUserDataRow = {
+	contacted_at: Date | string | null;
+	contacted_by_name: string | null;
+	contacted_by_user_id: string | null;
+	converted: boolean;
+	email: string;
+	event_count: NumericValue;
+	first_event_at: Date | string;
+	image: string | null;
+	last_event_at: Date | string;
+	name: string;
+	signed_up_at: Date | string;
+	user_id: string;
+};
+
+type EmptyFunnelStepUserDataRow = {
+	[Key in keyof FunnelStepUserDataRow]: null;
+};
+
+export type FunnelStepUserRow = FunnelStepUserMetadataRow &
+	(FunnelStepUserDataRow | EmptyFunnelStepUserDataRow);
 
 type EngagementActivityRow = {
 	actions: NumericValue;
@@ -443,6 +474,37 @@ export type AdminAnalyticsFunnelRepositorySnapshot = {
 	};
 };
 
+export type AdminAnalyticsFunnelStepUsersRepositorySnapshot = {
+	page: number;
+	pageSize: number;
+	total: number;
+	counts: {
+		all: number;
+		contacted: number;
+		converted: number;
+	};
+	items: Array<{
+		userId: string;
+		name: string;
+		email: string;
+		image: string | null;
+		signedUpAt: Date | string;
+		firstEventAt: Date | string;
+		lastEventAt: Date | string;
+		eventCount: number;
+		converted: boolean;
+		contact: {
+			contactedAt: Date | string;
+			contactedBy: { id: string; name: string };
+		} | null;
+	}>;
+};
+
+export type AdminAnalyticsFunnelStepUsersRepositoryOptions = {
+	contacted: AdminAnalyticsFunnelStepUsersContacted;
+	pagination: { page: number; pageSize: number } | null;
+};
+
 export type AdminAnalyticsEngagementRepositorySnapshot = {
 	activity: {
 		dau: number;
@@ -620,6 +682,155 @@ export class AdminAnalyticsRepository {
 			(transaction) => this.getFunnelSnapshot(transaction, input, filters),
 			READ_ONLY_TRANSACTION,
 		);
+	}
+
+	async getFunnelStepUsers(
+		input: AdminDashboardRangeBounds,
+		step: AdminAnalyticsFunnelUserStep,
+		filters: AdminAnalyticsFilters = {},
+		options: AdminAnalyticsFunnelStepUsersRepositoryOptions = {
+			contacted: "all",
+			pagination: { page: 1, pageSize: 20 },
+		},
+	): Promise<AdminAnalyticsFunnelStepUsersRepositorySnapshot> {
+		return this.db.transaction(async (transaction) => {
+			const contactedPredicate =
+				options.contacted === "contacted"
+					? sql`contact_user_id is not null`
+					: options.contacted === "notContacted"
+						? sql`contact_user_id is null`
+						: sql`true`;
+			const paginationClause = options.pagination
+				? sql`limit ${options.pagination.pageSize}
+					offset ${(options.pagination.page - 1) * options.pagination.pageSize}`
+				: sql``;
+			const result = await transaction.execute<FunnelStepUserRow>(sql`
+				with bounds as (${analyticsBounds(input)}),
+				filtered_users as (${filteredUserCohort(filters)}),
+				signup_cohort as (
+					select u.id as user_id, u.created_at
+					from "user" u
+					inner join filtered_users f on f.user_id = u.id
+					cross join bounds b
+					where u.created_at >= b.range_start
+						and u.created_at < b.range_end
+				),
+				step_events as (${FUNNEL_STEP_EVENT_QUERIES[step]}),
+				step_users as (
+					select
+						e.user_id,
+						u.name,
+						u.email,
+						u.image,
+						u.created_at as signed_up_at,
+						e.first_event_at,
+						e.last_event_at,
+						e.event_count,
+						exists (
+							select 1
+							from subscriptions s
+							where s.user_id = e.user_id
+								and s.created_at < b.snapshot_end
+						) as converted,
+						c.user_id as contact_user_id,
+						c.contacted_at,
+						contacted_by.id as contacted_by_user_id,
+						contacted_by.name as contacted_by_name
+					from step_events e
+					inner join "user" u on u.id = e.user_id
+					cross join bounds b
+					left join admin_funnel_contacts c on c.user_id = e.user_id
+					left join "user" contacted_by
+						on contacted_by.id = c.contacted_by_user_id
+				),
+				counts as (
+					select
+						count(*)::bigint as all_count,
+						count(*) filter (where contact_user_id is not null)::bigint
+							as contacted_count,
+						count(*) filter (where converted)::bigint as converted_count
+					from step_users
+				),
+				filtered_step_users as (
+					select *
+					from step_users
+					where ${contactedPredicate}
+				),
+				filtered_count as (
+					select count(*)::bigint as total
+					from filtered_step_users
+				),
+				paged_step_users as (
+					select *
+					from filtered_step_users
+					order by last_event_at desc, user_id asc
+					${paginationClause}
+				)
+				select
+					u.user_id,
+					u.name,
+					u.email,
+					u.image,
+					u.signed_up_at,
+					u.first_event_at,
+					u.last_event_at,
+					u.event_count,
+					u.converted,
+					u.contacted_at,
+					u.contacted_by_user_id,
+					u.contacted_by_name,
+					c.all_count,
+					c.contacted_count,
+					c.converted_count,
+					f.total
+				from counts c
+				cross join filtered_count f
+				left join paged_step_users u on true
+				order by u.last_event_at desc nulls last, u.user_id asc
+			`);
+			const metadata = result.rows[0];
+			const total = toNumber(metadata?.total);
+
+			return {
+				page: options.pagination?.page ?? 1,
+				pageSize: options.pagination?.pageSize ?? Math.max(1, total),
+				total,
+				counts: {
+					all: toNumber(metadata?.all_count),
+					contacted: toNumber(metadata?.contacted_count),
+					converted: toNumber(metadata?.converted_count),
+				},
+				items: result.rows.flatMap((row) =>
+					row.user_id === null
+						? []
+						: [
+								{
+									userId: row.user_id,
+									name: row.name,
+									email: row.email,
+									image: row.image,
+									signedUpAt: row.signed_up_at,
+									firstEventAt: row.first_event_at,
+									lastEventAt: row.last_event_at,
+									eventCount: toNumber(row.event_count),
+									converted: row.converted,
+									contact:
+										row.contacted_at !== null &&
+										row.contacted_by_user_id !== null &&
+										row.contacted_by_name !== null
+											? {
+													contactedAt: row.contacted_at,
+													contactedBy: {
+														id: row.contacted_by_user_id,
+														name: row.contacted_by_name,
+													},
+												}
+											: null,
+								},
+							],
+				),
+			};
+		}, READ_ONLY_TRANSACTION);
 	}
 
 	async getEngagement(
@@ -4268,6 +4479,48 @@ export class AdminAnalyticsRepository {
 const READ_ONLY_TRANSACTION = {
 	accessMode: "read only" as const,
 	isolationLevel: "repeatable read" as const,
+};
+
+const FUNNEL_STEP_EVENT_QUERIES: Record<AdminAnalyticsFunnelUserStep, SQL> = {
+	pricingViewed: sql`
+		select
+			e.user_id,
+			min(e.created_at) as first_event_at,
+			max(e.created_at) as last_event_at,
+			count(*)::bigint as event_count
+		from signup_cohort c
+		inner join product_events e
+			on e.user_id = c.user_id and e.kind = 'pricing_viewed'
+		cross join bounds b
+		where e.created_at < b.snapshot_end
+		group by e.user_id
+	`,
+	upgradeClicked: sql`
+		select
+			e.user_id,
+			min(e.created_at) as first_event_at,
+			max(e.created_at) as last_event_at,
+			count(*)::bigint as event_count
+		from signup_cohort c
+		inner join product_events e
+			on e.user_id = c.user_id and e.kind = 'upgrade_clicked'
+		cross join bounds b
+		where e.created_at < b.snapshot_end
+		group by e.user_id
+	`,
+	checkoutStarted: sql`
+		select
+			a.user_id,
+			min(a.created_at) as first_event_at,
+			max(a.created_at) as last_event_at,
+			count(*)::bigint as event_count
+		from signup_cohort c
+		inner join billing_checkout_attempts a
+			on a.user_id = c.user_id and a.purpose = 'subscription'
+		cross join bounds b
+		where a.created_at < b.snapshot_end
+		group by a.user_id
+	`,
 };
 
 const SEARCH_REFERRER_PATTERN =
