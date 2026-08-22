@@ -481,8 +481,8 @@ export const leadCaptureBodySchema = z.object({
 
 export type LeadCaptureBody = z.infer<typeof leadCaptureBodySchema>;
 
-// Deliberately carries no signal: success, honeypot discard, and duplicate
-// drop all look identical to the caller.
+// Deliberately carries no signal: success, honeypot discard, and in-window
+// update all look identical to the caller.
 export const leadCaptureResponseSchema = z.object({ ok: z.literal(true) });
 
 export type LeadCaptureResponse = z.infer<typeof leadCaptureResponseSchema>;

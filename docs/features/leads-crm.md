@@ -8,7 +8,7 @@ The value loop for COD sellers: order forms on published pages flow back into th
 
 - `leads` table: projectId, deploymentId, name, phone (canonical E.164), wilaya, commune, extra fields (jsonb), ad attribution (jsonb: utm_*, fbclid, ttclid, referrer), status, timestamps.
 - Status pipeline: `to_confirm → confirmed → shipped → delivered / returned`, plus `cancelled` — the terminal state when phone confirmation fails (refused / unreachable / fake order).
-- Public capture endpoint (implemented): `POST /api/public/leads/{publicFormId}` — keyed by the project's unguessable `public_form_id`, Zod validation, honeypot `_hp` (silently accept + discard), per-IP rate limit, dedupe window (same phone + form), E.164 normalization with Arabic-Indic digit folding. Accepts text/plain JSON as a CORS simple request (no preflight, no cookies); the caller never reads the response — capture is fire-and-forget by design.
+- Public capture endpoint (implemented): `POST /api/public/leads/{publicFormId}` — keyed by the project's unguessable `public_form_id`, Zod validation, honeypot `_hp` (silently accept + discard), per-IP rate limit, in-window duplicate updates (same phone + form; newest honest submission wins, no submission is dropped), E.164 normalization with Arabic-Indic digit folding. Accepts text/plain JSON as a CORS simple request (no preflight, no cookies); the caller never reads the response — capture is fire-and-forget by design.
 - Authed endpoints (implemented): `GET /api/v1/projects/{projectId}/leads` (full list; counters, filtering, search, pagination and CSV export are client-side over it) and `PATCH .../leads/{leadId}/status`.
 - Leads tab UI: table with inline status changes, tap-to-call (`tel:`) + tap-to-WhatsApp (`wa.me`), CSV export, counters (leads today / this week, confirmation rate), empty state.
 - Lead-count aggregates consumed by the dashboard grid.
@@ -41,7 +41,7 @@ Wilaya/commune are first-class columns (Algeria); anything else the page collect
 
 **Acceptance criteria**
 - A form submit on a published page creates a lead visible in the workspace within a refresh.
-- Honeypot-filled, rate-limited and duplicate submissions all answer `{ ok: true }` without creating rows; unknown `publicFormId` → 404.
+- Honeypot-filled submissions answer `{ ok: true }` without creating rows; a duplicate inside the window answers `{ ok: true }` and updates the recent row in place (newest honest submission wins; no submission is dropped); rate-limited requests → HTTP 429; unknown `publicFormId` → 404.
 - Status transitions persist with timestamps.
 
 ### 2. Leads tab UI (order-CRM)

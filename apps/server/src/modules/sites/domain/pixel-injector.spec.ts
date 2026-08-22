@@ -127,7 +127,7 @@ describe("injectPixels", () => {
 		expect(head).toContain('data-wandit-pixel="meta"');
 		expect(head).toContain("fbq('init','1234567890')");
 		expect(head).toContain("fbq('track','PageView')");
-		expect(body).toContain("<noscript>");
+		expect(body).toContain('<noscript data-wandit-pixel="meta">');
 		expect(body).toContain("facebook.com/tr?id=1234567890");
 		expect(html).not.toContain("tiktok");
 	});
@@ -355,7 +355,103 @@ describe("injectPixels", () => {
 		expect(html).toContain('data-wandit-pixel="tiktok"');
 	});
 
-	it("is idempotent — a second pass adds nothing", () => {
+	it.each([
+		["initial", "!function(f,b,e,v,n,t,s){"],
+		["deferred", "!function(f,b,e,v,n,t,s,c,q,r,p){"],
+	])("replaces the %s canonical Meta block with the current id", (_, opener) => {
+		const archived = PAGE.replace(
+			"</head>",
+			`<script data-wandit-pixel="meta">${opener}fbq('init','OLD_META')</script></head>`,
+		);
+		const html = injectPixels(archived, {
+			metaPixelId: "CURRENT_META",
+			tiktokPixelId: null,
+		});
+
+		expect(html).not.toContain("OLD_META");
+		expect(html.match(/fbq\('init','CURRENT_META'\)/g)).toHaveLength(1);
+	});
+
+	it("replaces the canonical TikTok block with the current id", () => {
+		const archived = PAGE.replace(
+			"</head>",
+			"<script data-wandit-pixel=\"tiktok\">!function(w,d,t){ttq.load('OLD_TIKTOK')}</script></head>",
+		);
+		const html = injectPixels(archived, {
+			metaPixelId: null,
+			tiktokPixelId: "CURRENT_TIKTOK",
+		});
+
+		expect(html).not.toContain("OLD_TIKTOK");
+		expect(html.match(/ttq\.load\('CURRENT_TIKTOK'\)/g)).toHaveLength(1);
+	});
+
+	it("removes the legacy unmarked Meta fallback only with a canonical Meta script", () => {
+		const fallback =
+			'<noscript><img height="1" width="1" style="display:none" src="https://www.facebook.com/tr?id=OLD&ev=PageView&noscript=1" alt=""/></noscript>';
+		const fallbackOnly = PAGE.replace("</body>", `${fallback}</body>`);
+		const canonicalPair = fallbackOnly.replace(
+			"</head>",
+			'<script data-wandit-pixel="meta">!function(f,b,e,v,n,t,s){oldMeta()}</script></head>',
+		);
+
+		expect(
+			injectPixels(canonicalPair, {
+				metaPixelId: null,
+				tiktokPixelId: null,
+			}),
+		).toBe(PAGE);
+		expect(
+			injectPixels(fallbackOnly, {
+				metaPixelId: null,
+				tiktokPixelId: null,
+			}),
+		).toBe(fallbackOnly);
+	});
+
+	it("clears a canonical provider block when that provider is no longer configured", () => {
+		const archived = PAGE.replace(
+			"</head>",
+			'<script data-wandit-pixel="tiktok">!function(w,d,t){oldTikTok()}</script></head>',
+		);
+
+		expect(
+			injectPixels(archived, {
+				metaPixelId: null,
+				tiktokPixelId: null,
+			}),
+		).toBe(PAGE);
+	});
+
+	it("returns the original document when an unrecognized marker survives", () => {
+		const variant = PAGE.replace(
+			"</head>",
+			'<script data-wandit-pixel="meta">merchantPixel()</script></head>',
+		);
+
+		expect(
+			injectPixels(variant, {
+				metaPixelId: "CURRENT_META",
+				tiktokPixelId: null,
+			}),
+		).toBe(variant);
+	});
+
+	it("returns the original document when canonical and unrecognized blocks are mixed", () => {
+		const mixed = PAGE.replace(
+			"</head>",
+			'<script data-wandit-pixel="tiktok">!function(w,d,t){oldTikTok()}</script><script data-wandit-pixel="meta">merchantPixel()</script></head>',
+		);
+
+		expect(
+			injectPixels(mixed, {
+				metaPixelId: null,
+				tiktokPixelId: "CURRENT_TIKTOK",
+			}),
+		).toBe(mixed);
+	});
+
+	it("is stable on a second pass with the same settings", () => {
 		const once = injectPixels(PAGE, {
 			metaPixelId: "111",
 			tiktokPixelId: "222",
@@ -365,7 +461,8 @@ describe("injectPixels", () => {
 			tiktokPixelId: "222",
 		});
 
-		expect(twice.match(/data-wandit-pixel="meta"/g)).toHaveLength(1);
+		expect(twice).toBe(once);
+		expect(twice.match(/data-wandit-pixel="meta"/g)).toHaveLength(2);
 		expect(twice.match(/data-wandit-pixel="tiktok"/g)).toHaveLength(1);
 	});
 

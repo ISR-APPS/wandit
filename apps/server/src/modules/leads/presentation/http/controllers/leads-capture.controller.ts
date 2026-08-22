@@ -31,7 +31,7 @@ export class LeadsCaptureController {
 		private readonly leadsCaptureService: LeadsCaptureService,
 	) {}
 
-	// 200 (not 201) on purpose: success, honeypot discard, and duplicate drop
+	// 200 (not 201) on purpose: success, honeypot discard, and in-window update
 	// must be indistinguishable to the caller.
 	@Post(":publicFormId")
 	@HttpCode(200)

@@ -518,39 +518,61 @@ export class LeadsRepository {
 		return buildLeadFunnelCountsQuery(this.db, projectId, options);
 	}
 
-	/** Double-submit guard: same phone on the same project since `since`. */
-	async hasRecentLeadWithPhone(
-		projectId: string,
-		phone: string,
+	/**
+	 * The capture window drops nothing: serialize each project/phone pair so
+	 * the newest honest submission always wins its row. Lifecycle fields and
+	 * createdAt belong to the first submission and are never replaced.
+	 */
+	async upsertCaptureLead(
+		input: {
+			attribution: Record<string, unknown> | null;
+			commune: string | null;
+			deploymentId: string | null;
+			extras: Record<string, unknown> | null;
+			name: string;
+			phone: string;
+			productSku: string | null;
+			projectId: string;
+			wilaya: string | null;
+		},
 		since: Date,
-	): Promise<boolean> {
-		const [row] = await this.db
-			.select({ id: leads.id })
-			.from(leads)
-			.where(
-				and(
-					eq(leads.projectId, projectId),
-					eq(leads.phone, phone),
-					gt(leads.createdAt, since),
-				),
-			)
-			.limit(1);
+	): Promise<void> {
+		await this.db.transaction(async (tx) => {
+			await tx.execute(
+				sql`select pg_advisory_xact_lock(hashtextextended(${`${input.projectId}:${input.phone}`}, 0))`,
+			);
 
-		return Boolean(row);
-	}
+			const [recent] = await tx
+				.select({ id: leads.id })
+				.from(leads)
+				.where(
+					and(
+						eq(leads.projectId, input.projectId),
+						eq(leads.phone, input.phone),
+						gt(leads.createdAt, since),
+					),
+				)
+				.orderBy(desc(leads.createdAt), desc(leads.id))
+				.limit(1);
 
-	async insertLead(input: {
-		attribution: Record<string, unknown> | null;
-		commune: string | null;
-		deploymentId: string | null;
-		extras: Record<string, unknown> | null;
-		name: string;
-		phone: string;
-		productSku: string | null;
-		projectId: string;
-		wilaya: string | null;
-	}): Promise<void> {
-		await this.db.insert(leads).values(input);
+			if (recent) {
+				await tx
+					.update(leads)
+					.set({
+						attribution: input.attribution,
+						commune: input.commune,
+						deploymentId: input.deploymentId,
+						extras: input.extras,
+						name: input.name,
+						productSku: input.productSku,
+						wilaya: input.wilaya,
+					})
+					.where(eq(leads.id, recent.id));
+				return;
+			}
+
+			await tx.insert(leads).values(input);
+		});
 	}
 
 	async listForProject(

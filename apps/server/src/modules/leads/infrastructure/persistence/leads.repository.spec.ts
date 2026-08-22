@@ -14,6 +14,8 @@ const PROJECT_ID = "11111111-1111-4111-8111-111111111111";
 const SCOPE = { kind: "personal", userId: "user-1" } as const;
 const FROM = new Date("2026-07-19T23:00:00.000Z");
 const TO = new Date("2026-08-19T10:30:00.000Z");
+const RECENT_LEAD_ID = "22222222-2222-4222-8222-222222222222";
+const SINCE = new Date("2026-08-22T10:00:00.000Z");
 
 type LeadPageTestRow = LeadRow & {
 	cursorCreatedAt: string;
@@ -79,6 +81,60 @@ function repositoryWithPages(pages: LeadPageTestRow[][]) {
 		builders,
 		repository: new LeadsRepository({ select } as unknown as Database),
 		select,
+	};
+}
+
+function captureLeadInput() {
+	return {
+		attribution: { fbclid: "new-click" },
+		commune: null,
+		deploymentId: "33333333-3333-4333-8333-333333333333",
+		extras: { color: "blue" },
+		name: "Newest Name",
+		phone: "+213550000000",
+		productSku: "SKU-NEW",
+		projectId: PROJECT_ID,
+		wilaya: "Alger",
+	};
+}
+
+function repositoryWithCapture(recent: { id: string }[]) {
+	const selectBuilder = {
+		from: vi.fn(),
+		limit: vi.fn(async () => recent),
+		orderBy: vi.fn(),
+		where: vi.fn(),
+	};
+	selectBuilder.from.mockReturnValue(selectBuilder);
+	selectBuilder.orderBy.mockReturnValue(selectBuilder);
+	selectBuilder.where.mockReturnValue(selectBuilder);
+
+	const updateBuilder = {
+		set: vi.fn(),
+		where: vi.fn().mockResolvedValue(undefined),
+	};
+	updateBuilder.set.mockReturnValue(updateBuilder);
+
+	const insertBuilder = {
+		values: vi.fn().mockResolvedValue(undefined),
+	};
+	const tx = {
+		execute: vi.fn().mockResolvedValue(undefined),
+		insert: vi.fn().mockReturnValue(insertBuilder),
+		select: vi.fn().mockReturnValue(selectBuilder),
+		update: vi.fn().mockReturnValue(updateBuilder),
+	};
+	const transaction = vi.fn(
+		async (callback: (transaction: typeof tx) => Promise<void>) => callback(tx),
+	);
+
+	return {
+		insertBuilder,
+		repository: new LeadsRepository({ transaction } as unknown as Database),
+		selectBuilder,
+		transaction,
+		tx,
+		updateBuilder,
 	};
 }
 
@@ -161,6 +217,74 @@ describe("buildLeadFunnelCountsQuery (LeadsRepository.getFunnelCountsForProject)
 		expect(sql).toContain('"leads"."archived_at" is null');
 		expect(sql).toContain('"leads"."created_at" >= $2');
 		expect(sql).toContain('"leads"."created_at" < $3');
+	});
+});
+
+describe("LeadsRepository capture upsert", () => {
+	it("serializes and fully replaces submission fields on the newest recent row", async () => {
+		const input = captureLeadInput();
+		const {
+			insertBuilder,
+			repository,
+			selectBuilder,
+			transaction,
+			tx,
+			updateBuilder,
+		} = repositoryWithCapture([{ id: RECENT_LEAD_ID }]);
+
+		await repository.upsertCaptureLead(input, SINCE);
+
+		expect(transaction).toHaveBeenCalledTimes(1);
+		const lock = compileSqlExpression(tx.execute.mock.calls[0]?.[0]);
+		expect(lock.sql).toBe(
+			"select pg_advisory_xact_lock(hashtextextended($1, 0))",
+		);
+		expect(lock.params).toEqual([`${PROJECT_ID}:${input.phone}`]);
+
+		const recentWhere = compileSqlExpression(
+			selectBuilder.where.mock.calls[0]?.[0],
+		);
+		expect(recentWhere.sql).toBe(
+			'("leads"."project_id" = $1 and "leads"."phone" = $2 and "leads"."created_at" > $3)',
+		);
+		expect(recentWhere.params).toEqual([
+			PROJECT_ID,
+			input.phone,
+			SINCE.toISOString(),
+		]);
+		const orderBy = selectBuilder.orderBy.mock.calls[0] ?? [];
+		expect(
+			orderBy.map((expression) => compileSqlExpression(expression).sql),
+		).toEqual(['"leads"."created_at" desc', '"leads"."id" desc']);
+		expect(selectBuilder.limit).toHaveBeenCalledWith(1);
+
+		expect(updateBuilder.set).toHaveBeenCalledWith({
+			attribution: input.attribution,
+			commune: input.commune,
+			deploymentId: input.deploymentId,
+			extras: input.extras,
+			name: input.name,
+			productSku: input.productSku,
+			wilaya: input.wilaya,
+		});
+		const updateWhere = compileSqlExpression(
+			updateBuilder.where.mock.calls[0]?.[0],
+		);
+		expect(updateWhere.sql).toBe('"leads"."id" = $1');
+		expect(updateWhere.params).toEqual([RECENT_LEAD_ID]);
+		expect(insertBuilder.values).not.toHaveBeenCalled();
+	});
+
+	it("inserts the full capture when no recent row exists", async () => {
+		const input = captureLeadInput();
+		const { insertBuilder, repository, tx, updateBuilder } =
+			repositoryWithCapture([]);
+
+		await repository.upsertCaptureLead(input, SINCE);
+
+		expect(tx.execute).toHaveBeenCalledTimes(1);
+		expect(insertBuilder.values).toHaveBeenCalledWith(input);
+		expect(updateBuilder.set).not.toHaveBeenCalled();
 	});
 });
 
