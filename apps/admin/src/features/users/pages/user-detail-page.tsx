@@ -12,6 +12,7 @@ import {
 	EmptyTitle,
 } from "@/components/ui/empty";
 import { useSession } from "@/features/auth/lib/session";
+import { GrantManualSubscriptionDialog } from "@/features/offline-billing/components/grant-manual-subscription-dialog";
 import { useUserQuery } from "@/features/users/api/users.queries";
 import { BanUserDialog } from "@/features/users/components/ban-user-dialog";
 import { ChangeRoleDialog } from "@/features/users/components/change-role-dialog";
@@ -28,7 +29,7 @@ type UserDetailPageProps = {
 	userId: string;
 };
 
-type OpenDialog = "credits" | "role" | "ban" | null;
+type OpenDialog = "credits" | "offline-subscription" | "role" | "ban" | null;
 
 export function UserDetailPage({ userId }: UserDetailPageProps) {
 	const [openDialog, setOpenDialog] = useState<OpenDialog>(null);
@@ -102,13 +103,17 @@ export function UserDetailPage({ userId }: UserDetailPageProps) {
 				user={user}
 				canManageAccess={canManageAccess}
 				onGrantCredits={() => setOpenDialog("credits")}
+				onGrantOffline={() => setOpenDialog("offline-subscription")}
 				onChangeRole={() => setOpenDialog("role")}
 				onToggleBanned={() => setOpenDialog("ban")}
 			/>
 			<UserMetrics user={user} />
 
 			{user.subscription ? (
-				<UserSubscriptionCard subscription={user.subscription} />
+				<UserSubscriptionCard
+					subscription={user.subscription}
+					ownerLabel={user.name}
+				/>
 			) : null}
 
 			<UserWorkspacesCard workspaces={user.workspaces} />
@@ -123,6 +128,13 @@ export function UserDetailPage({ userId }: UserDetailPageProps) {
 				user={user}
 				open={openDialog === "credits"}
 				onOpenChange={(open) => setOpenDialog(open ? "credits" : null)}
+			/>
+			<GrantManualSubscriptionDialog
+				open={openDialog === "offline-subscription"}
+				onOpenChange={(open) =>
+					setOpenDialog(open ? "offline-subscription" : null)
+				}
+				prefill={{ user }}
 			/>
 			{canManageAccess ? (
 				<>

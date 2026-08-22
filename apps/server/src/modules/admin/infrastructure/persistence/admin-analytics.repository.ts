@@ -878,6 +878,8 @@ export class AdminAnalyticsRepository {
 					on c.user_id = ${attributionUserExpression("s", "obc")}
 				where s.created_at < b.snapshot_end
 					and s.status in (${liveSubscriptionStatusList()})
+					-- Manual prices are negotiated offline; catalog USD would inflate MRR.
+					and s.provider = 'stripe'
 			),
 			source_mrr as (
 				select
@@ -982,6 +984,8 @@ export class AdminAnalyticsRepository {
 					on c.user_id = ${attributionUserExpression("s", "obc")}
 				where s.created_at < b.snapshot_end
 					and s.status in (${liveSubscriptionStatusList()})
+					-- Manual prices are negotiated offline; catalog USD would inflate MRR.
+					and s.provider = 'stripe'
 			),
 			campaign_mrr as (
 				select
@@ -1961,25 +1965,32 @@ export class AdminAnalyticsRepository {
 				select
 					s.plan,
 					s.price_lookup_key,
+					s.provider,
 					coalesce(s.organization_id, s.user_id) as owner_id
 				from subscriptions s
 				cross join bounds b
 				where s.created_at < b.snapshot_end
 					and s.status in (${liveSubscriptionStatusList()})
 			),
+			stripe_priced_subscriptions as (
+				select l.plan, l.price_lookup_key, l.owner_id
+				from live_subscriptions l
+				-- Manual prices are negotiated offline; catalog USD would inflate MRR.
+				where l.provider = 'stripe'
+			),
 			grouped as (
 				select
 					l.plan,
 					l.price_lookup_key,
 					count(*)::bigint as subscribers
-				from live_subscriptions l
+				from stripe_priced_subscriptions l
 				group by l.plan, l.price_lookup_key
 			),
 			plan_owner_totals as (
 				select
 					l.plan,
 					count(distinct l.owner_id)::bigint as plan_owners
-				from live_subscriptions l
+				from stripe_priced_subscriptions l
 				group by l.plan
 			),
 			owner_totals as (
@@ -2590,7 +2601,8 @@ export class AdminAnalyticsRepository {
 				select
 					s.provider_subscription_id as stripe_subscription_id,
 					coalesce(s.organization_id, s.user_id) as owner_id,
-					coalesce(f.from_lookup_key, s.price_lookup_key) as price_lookup_key
+					coalesce(f.from_lookup_key, s.price_lookup_key) as price_lookup_key,
+					s.provider
 				from subscriptions s
 				cross join bounds b
 				left join first_lookup_after_start f
@@ -2612,6 +2624,8 @@ export class AdminAnalyticsRepository {
 					a.price_lookup_key,
 					count(*)::bigint as count
 				from active_at_start_subscriptions a
+				-- Manual prices are negotiated offline; catalog USD would inflate MRR.
+				where a.provider = 'stripe'
 				group by a.price_lookup_key
 			),
 			ended_in_range as (
@@ -2624,7 +2638,14 @@ export class AdminAnalyticsRepository {
 						e.user_id,
 						s.user_id
 					) as owner_id,
-					coalesce(e.from_lookup_key, s.price_lookup_key) as price_lookup_key
+					coalesce(e.from_lookup_key, s.price_lookup_key) as price_lookup_key,
+					coalesce(
+						s.provider,
+						case
+							when e.stripe_event_id like 'manual:%' then 'manual'
+							else 'stripe'
+						end
+					) as provider
 				from subscription_state_events e
 				left join subscriptions s
 					on s.provider_subscription_id = e.stripe_subscription_id
@@ -2663,7 +2684,11 @@ export class AdminAnalyticsRepository {
 					)
 			),
 			churned_ended_subscriptions as (
-				select e.stripe_subscription_id, e.owner_id, e.price_lookup_key
+				select
+					e.stripe_subscription_id,
+					e.owner_id,
+					e.price_lookup_key,
+					e.provider
 				from ended_in_range e
 				left join live_at_range_end_subscriptions l
 					on l.owner_id = e.owner_id
@@ -2677,15 +2702,27 @@ export class AdminAnalyticsRepository {
 			churned_mrr as (
 				select c.price_lookup_key, count(*)::bigint as count
 				from churned_ended_subscriptions c
+				-- Manual prices are negotiated offline; catalog USD would inflate MRR.
+				where c.provider = 'stripe'
 				group by c.price_lookup_key
 			),
 			created_events as (
 				select e.to_lookup_key as price_lookup_key, count(*)::bigint as count
 				from subscription_state_events e
+				left join subscriptions s
+					on s.provider_subscription_id = e.stripe_subscription_id
 				cross join bounds b
 				where e.kind = 'created'
 					and e.occurred_at >= b.range_start
 					and e.occurred_at < b.range_end
+					-- Manual prices are negotiated offline; catalog USD would inflate MRR.
+					and coalesce(
+						s.provider,
+						case
+							when e.stripe_event_id like 'manual:%' then 'manual'
+							else 'stripe'
+						end
+					) = 'stripe'
 				group by e.to_lookup_key
 			),
 			plan_change_events as (
@@ -2694,10 +2731,20 @@ export class AdminAnalyticsRepository {
 					e.to_lookup_key,
 					count(*)::bigint as count
 				from subscription_state_events e
+				left join subscriptions s
+					on s.provider_subscription_id = e.stripe_subscription_id
 				cross join bounds b
 				where e.kind = 'plan_changed'
 					and e.occurred_at >= b.range_start
 					and e.occurred_at < b.range_end
+					-- Manual prices are negotiated offline; catalog USD would inflate MRR.
+					and coalesce(
+						s.provider,
+						case
+							when e.stripe_event_id like 'manual:%' then 'manual'
+							else 'stripe'
+						end
+					) = 'stripe'
 				group by e.from_lookup_key, e.to_lookup_key
 			),
 			lifecycle_rows as (
@@ -2798,6 +2845,13 @@ export class AdminAnalyticsRepository {
 				select
 					e.id,
 					e.stripe_subscription_id,
+					coalesce(
+						s.provider,
+						case
+							when e.stripe_event_id like 'manual:%' then 'manual'
+							else 'stripe'
+						end
+					) as provider,
 					e.kind,
 					e.occurred_at,
 					e.to_status,
@@ -2826,6 +2880,7 @@ export class AdminAnalyticsRepository {
 			subscription_created_events as (
 				select distinct on (e.stripe_subscription_id)
 					e.stripe_subscription_id,
+					e.provider,
 					e.owner_id,
 					e.occurred_at as created_at,
 					e.to_lookup_key as created_lookup_key,
@@ -2839,6 +2894,7 @@ export class AdminAnalyticsRepository {
 			subscription_event_owners as (
 				select distinct on (e.stripe_subscription_id)
 					e.stripe_subscription_id,
+					e.provider,
 					e.owner_id
 				from resolved_retention_events e
 				order by
@@ -2859,6 +2915,7 @@ export class AdminAnalyticsRepository {
 			retention_subscriptions as (
 				select
 					i.stripe_subscription_id,
+					coalesce(s.provider, o.provider, c.provider) as provider,
 					coalesce(o.owner_id, s.organization_id, s.user_id) as owner_id,
 					c.created_at,
 					c.created_lookup_key,
@@ -2918,6 +2975,7 @@ export class AdminAnalyticsRepository {
 					b.cohort_month,
 					b.month_index,
 					s.stripe_subscription_id,
+					s.provider,
 					case
 						when ended.id is not null then 'ended'
 						else coalesce(history_status.to_status, s.current_status)
@@ -2980,6 +3038,8 @@ export class AdminAnalyticsRepository {
 					count(h.stripe_subscription_id)::bigint as live_subscriptions
 				from boundary_subscription_history h
 				where h.effective_status in (${liveSubscriptionStatusList()})
+					-- Manual prices are negotiated offline; catalog USD would inflate MRR.
+					and h.provider = 'stripe'
 				group by h.cohort_month, h.month_index, h.effective_lookup_key
 			),
 			retention_point_grid as (
@@ -3059,6 +3119,13 @@ export class AdminAnalyticsRepository {
 					e.id as ended_state_event_id,
 					e.stripe_subscription_id,
 					coalesce(
+						s.provider,
+						case
+							when e.stripe_event_id like 'manual:%' then 'manual'
+							else 'stripe'
+						end
+					) as provider,
+					coalesce(
 						e.organization_id,
 						s.organization_id,
 						e.user_id,
@@ -3112,6 +3179,7 @@ export class AdminAnalyticsRepository {
 				select
 					e.ended_state_event_id,
 					e.stripe_subscription_id,
+					e.provider,
 					e.owner_id,
 					e.organization_id,
 					e.user_id,
@@ -3136,6 +3204,7 @@ export class AdminAnalyticsRepository {
 			churn_plan_rows as (
 				select
 					c.owner_id,
+					c.provider,
 					c.price_lookup_key,
 					${churnPlanExpression(sql`c.price_lookup_key`)} as plan
 				from churned_ended_subscriptions c
@@ -3151,6 +3220,8 @@ export class AdminAnalyticsRepository {
 					p.price_lookup_key,
 					count(*)::bigint as subscriptions
 				from churn_plan_rows p
+				-- Manual prices are negotiated offline; catalog USD would inflate MRR.
+				where p.provider = 'stripe'
 				group by p.plan, p.price_lookup_key
 			),
 			churn_attribution_users as (
@@ -3259,12 +3330,12 @@ export class AdminAnalyticsRepository {
 			breakdown_rows as (
 				select
 					'plan'::text as row_kind,
-					p.plan as dimension,
+					o.plan as dimension,
 					o.churned,
 					p.price_lookup_key,
-					p.subscriptions
-				from churn_plan_subscriptions p
-				inner join churn_plan_owners o on o.plan = p.plan
+					coalesce(p.subscriptions, 0)::bigint as subscriptions
+				from churn_plan_owners o
+				left join churn_plan_subscriptions p on p.plan = o.plan
 				union all
 				select 'source', s.source, s.churned, null::text, 0::bigint
 				from churn_source_totals s
