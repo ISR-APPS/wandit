@@ -9,6 +9,7 @@ import {
 	billingSubscriptionChangeOutcomeResponseSchema,
 	billingSubscriptionChangePreviewResponseSchema,
 	billingSubscriptionViewResponseSchema,
+	manualSubscriptionRequestViewResponseSchema,
 } from "@wandit/contracts";
 
 import { ApiService } from "@/lib/api-client";
@@ -23,6 +24,8 @@ import type {
 	ChangeBillingSubscriptionBody,
 	CreateBillingCheckoutBody,
 	CreateBillingTopupBody,
+	CreateManualSubscriptionRequestBody,
+	ManualSubscriptionRequestViewResponse,
 	PreviewBillingSubscriptionChangeBody,
 } from "./billing.dto";
 
@@ -36,6 +39,12 @@ export async function getBillingSubscription(): Promise<BillingSubscriptionViewR
 	const payload = await ApiService.get<unknown>(billingRoutes.subscription);
 
 	return billingSubscriptionViewResponseSchema.parse(payload);
+}
+
+export async function getManualSubscriptionRequest(): Promise<ManualSubscriptionRequestViewResponse> {
+	const payload = await ApiService.get<unknown>(billingRoutes.manualRequest);
+
+	return manualSubscriptionRequestViewResponseSchema.parse(payload);
 }
 
 export async function createBillingCheckout(
@@ -58,6 +67,25 @@ export async function createBillingTopupCheckout(
 	);
 
 	return billingCheckoutResponseSchema.parse(payload);
+}
+
+export async function createManualSubscriptionRequest(
+	body: CreateManualSubscriptionRequestBody,
+): Promise<ManualSubscriptionRequestViewResponse> {
+	const payload = await ApiService.post<
+		unknown,
+		CreateManualSubscriptionRequestBody
+	>(billingRoutes.manualRequest, body);
+
+	return manualSubscriptionRequestViewResponseSchema.parse(payload);
+}
+
+export async function cancelManualSubscriptionRequest(): Promise<ManualSubscriptionRequestViewResponse> {
+	const payload = await ApiService.post<unknown>(
+		billingRoutes.manualRequestCancel,
+	);
+
+	return manualSubscriptionRequestViewResponseSchema.parse(payload);
 }
 
 export async function createBillingPortal(): Promise<BillingPortalResponse> {

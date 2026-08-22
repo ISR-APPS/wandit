@@ -3,6 +3,7 @@ import {
 	AlertCircleIcon,
 	ArrowLeftIcon,
 	Building2Icon,
+	HandCoinsIcon,
 	MailIcon,
 	WalletCardsIcon,
 } from "lucide-react";
@@ -26,6 +27,7 @@ import {
 	EmptyTitle,
 } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
+import { GrantManualSubscriptionDialog } from "@/features/offline-billing/components/grant-manual-subscription-dialog";
 import type { OrganizationDetail } from "@/features/organizations/api/organizations.dto";
 import { useOrganizationQuery } from "@/features/organizations/api/organizations.queries";
 import { GrantOrgCreditsDialog } from "@/features/organizations/components/grant-org-credits-dialog";
@@ -47,6 +49,7 @@ export function OrganizationDetailPage({
 	organizationId,
 }: OrganizationDetailPageProps) {
 	const [grantOpen, setGrantOpen] = useState(false);
+	const [offlineGrantOpen, setOfflineGrantOpen] = useState(false);
 	const organizationQuery = useOrganizationQuery(organizationId);
 
 	if (organizationQuery.isLoading) {
@@ -109,15 +112,34 @@ export function OrganizationDetailPage({
 	if (!detail) {
 		return null;
 	}
+	const attributionMember = detail.attributionUserId
+		? detail.members.find(
+				(member) => member.userId === detail.attributionUserId,
+			)
+		: undefined;
+	const offlineBillingUser = detail.attributionUserId
+		? {
+				id: detail.attributionUserId,
+				name: attributionMember?.name,
+				email: attributionMember?.email,
+			}
+		: undefined;
 
 	return (
 		<DetailContainer>
-			<DetailHeader detail={detail} onGrantCredits={() => setGrantOpen(true)} />
+			<DetailHeader
+				detail={detail}
+				onGrantCredits={() => setGrantOpen(true)}
+				onGrantOffline={() => setOfflineGrantOpen(true)}
+			/>
 			<BalanceMetrics detail={detail} />
 
 			<div className="grid gap-6 xl:grid-cols-2">
 				{detail.subscription ? (
-					<UserSubscriptionCard subscription={detail.subscription} />
+					<UserSubscriptionCard
+						subscription={detail.subscription}
+						ownerLabel={detail.name}
+					/>
 				) : null}
 				<AttributionCard
 					detail={detail}
@@ -138,6 +160,14 @@ export function OrganizationDetailPage({
 				open={grantOpen}
 				onOpenChange={setGrantOpen}
 			/>
+			<GrantManualSubscriptionDialog
+				open={offlineGrantOpen}
+				onOpenChange={setOfflineGrantOpen}
+				prefill={{
+					user: offlineBillingUser,
+					organization: { id: detail.id, name: detail.name },
+				}}
+			/>
 		</DetailContainer>
 	);
 }
@@ -145,9 +175,11 @@ export function OrganizationDetailPage({
 function DetailHeader({
 	detail,
 	onGrantCredits,
+	onGrantOffline,
 }: {
 	detail: OrganizationDetail;
 	onGrantCredits: () => void;
+	onGrantOffline: () => void;
 }) {
 	return (
 		<div className="flex flex-wrap items-start justify-between gap-4">
@@ -172,13 +204,24 @@ function DetailHeader({
 					</p>
 				</div>
 			</div>
-			<div className="flex items-center gap-2">
+			<div className="flex flex-wrap items-center gap-2">
 				<Button asChild variant="outline" size="sm">
 					<Link to="/organizations">
 						<ArrowLeftIcon data-icon="inline-start" aria-hidden="true" />
 						All organizations
 					</Link>
 				</Button>
+				{!detail.subscription ? (
+					<Button
+						type="button"
+						variant="outline"
+						size="sm"
+						onClick={onGrantOffline}
+					>
+						<HandCoinsIcon data-icon="inline-start" aria-hidden="true" />
+						Grant offline subscription
+					</Button>
+				) : null}
 				<Button type="button" size="sm" onClick={onGrantCredits}>
 					<WalletCardsIcon data-icon="inline-start" aria-hidden="true" />
 					Grant credits

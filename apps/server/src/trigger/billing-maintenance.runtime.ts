@@ -12,6 +12,7 @@ import { SignupGrantOutboxService } from "../modules/auth/application/services/s
 import { SignupGrantOutboxRepository } from "../modules/auth/infrastructure/persistence/signup-grant-outbox.repository";
 import { BillingCustomerService } from "../modules/billing/application/services/billing-customer.service";
 import { BillingWebhookRetryService } from "../modules/billing/application/services/billing-webhook-retry.service";
+import { ManualSubscriptionsService } from "../modules/billing/application/services/manual-subscriptions.service";
 import { PaymentRefundsService } from "../modules/billing/application/services/payment-refunds.service";
 import { StripeEventRouter } from "../modules/billing/application/services/stripe-event-router.service";
 import { StripeSubscriptionSyncService } from "../modules/billing/application/services/stripe-subscription-sync.service";
@@ -24,6 +25,8 @@ import { BillingCreditLedgerRepository } from "../modules/billing/infrastructure
 import { BillingCustomersRepository } from "../modules/billing/infrastructure/persistence/billing-customers.repository";
 import { BillingPaymentAdjustmentsRepository } from "../modules/billing/infrastructure/persistence/billing-payment-adjustments.repository";
 import { BillingWebhookEventsRepository } from "../modules/billing/infrastructure/persistence/billing-webhook-events.repository";
+import { ManualSubscriptionPaymentsRepository } from "../modules/billing/infrastructure/persistence/manual-subscription-payments.repository";
+import { ManualSubscriptionRequestsRepository } from "../modules/billing/infrastructure/persistence/manual-subscription-requests.repository";
 import { OrganizationBillingCustomersRepository } from "../modules/billing/infrastructure/persistence/organization-billing-customers.repository";
 import { SubscriptionCreditsRepository } from "../modules/billing/infrastructure/persistence/subscription-credits.repository";
 import { SubscriptionStateEventsRepository } from "../modules/billing/infrastructure/persistence/subscription-state-events.repository";
@@ -52,6 +55,8 @@ import {
 	recoverOrderRefundTask,
 	triggerOrderRefundTask,
 } from "../modules/orders/infrastructure/trigger/trigger-order-refund-dispatcher.service";
+import { ProductSettingsService } from "../modules/settings/application/services/product-settings.service";
+import { ProductSettingsRepository } from "../modules/settings/infrastructure/persistence/product-settings.repository";
 import { WorkspaceMembersRepository } from "../modules/workspaces/infrastructure/persistence/members.repository";
 import { createTriggerModelPricing } from "./metering.runtime";
 
@@ -66,6 +71,31 @@ export function createSubscriptionRefillRuntime(db: TriggerDatabase) {
 			new SubscriptionCreditsRepository(db),
 			core.credits,
 			core.paymentRefunds,
+		),
+	};
+}
+
+export function createManualBillingRuntime(db: TriggerDatabase) {
+	const core = createPaymentCore(db);
+	const subscriptions = new SubscriptionsRepository(db);
+	const subscriptionCredits = new SubscriptionCreditsRepository(db);
+	const refills = new SubscriptionRefillService(
+		subscriptionCredits,
+		core.credits,
+		core.paymentRefunds,
+	);
+
+	return {
+		manualSubscriptions: new ManualSubscriptionsService(
+			subscriptions,
+			subscriptionCredits,
+			core.credits,
+			refills,
+			new ManualSubscriptionPaymentsRepository(db),
+			new ManualSubscriptionRequestsRepository(db),
+			new SubscriptionStateEventsRepository(db),
+			new BillingCheckoutAttemptsRepository(db),
+			new ProductSettingsService(new ProductSettingsRepository(db)),
 		),
 	};
 }

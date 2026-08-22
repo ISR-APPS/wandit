@@ -58,7 +58,25 @@
 		"ledgerDescription": "A complete record of grants, usage, expirations, and top-ups.",
 		"previousPage": "Previous",
 		"nextPage": "Next",
-		"pageStatus": "Page {page} of {totalPages}"
+		"pageStatus": "Page {page} of {totalPages}",
+		"offline": {
+			"badge": "Paid offline",
+			"expiresLabel": "Expires",
+			"requestChange": "Request renewal / change",
+			"graceTitle": "Offline payment due",
+			"graceNotice": "Your paid period ended on {endDate}. Renew before {accessEndDate} to keep your plan.",
+			"pending": {
+				"title": "Offline payment request pending",
+				"body": "We will call you at {phone}.",
+				"cancel": "Cancel request",
+				"cancelling": "Canceling…",
+				"cancelTitle": "Cancel this request?",
+				"cancelBody": "We will stop processing it. You can send a new request later.",
+				"keep": "Keep request",
+				"confirmCancel": "Cancel request",
+				"cancelSuccess": "Your request was canceled."
+			}
+		}
 	},
 	"status": {
 		"active": "Active",
@@ -155,6 +173,100 @@
 		"paymentAttentionTitle": "Fix your subscription payment",
 		"paymentAttentionBody": "Open the billing portal to resolve payment before changing tiers.",
 		"openPortal": "Open billing portal",
-		"close": "Close"
+		"close": "Close",
+		"offline": {
+			"tabs": {
+				"ariaLabel": "Payment method",
+				"card": "Card",
+				"offline": "Cash / transfer"
+			},
+			"managed": {
+				"title": "Your plan is managed offline",
+				"body": "To change or renew it, send us a request."
+			},
+			"cardActive": {
+				"title": "Your plan is billed by card",
+				"body": "To switch to cash or transfer, cancel your card subscription first — it stays active until the end of the paid period — then send us a request."
+			},
+			"title": "Cash or transfer",
+			"description": "Choose your plan and tell us how to reach you. We will call you to arrange payment.",
+			"localPriceNote": "We will agree on the local price during the call.",
+			"steps": {
+				"label": "Step {current} of {total}",
+				"plan": "Choose your plan"
+			},
+			"continue": "Continue",
+			"changePlan": "Change",
+			"form": {
+				"title": "Contact details",
+				"description": "Tell us how to contact you about this request.",
+				"required": "Required",
+				"optional": "Optional",
+				"fullNameLabel": "Full name",
+				"fullNamePlaceholder": "Enter your full name",
+				"phoneLabel": "Phone number",
+				"phonePlaceholder": "e.g. +213 555 12 34 56",
+				"phoneHint": "Include your country calling code.",
+				"companyLabel": "Company",
+				"companyPlaceholder": "Company name",
+				"countryLabel": "Country",
+				"countryPlaceholder": "Choose a country",
+				"cityLabel": "City",
+				"cityPlaceholder": "City",
+				"preferredMethodLabel": "Preferred payment method",
+				"preferredMethodPlaceholder": "Choose a payment method",
+				"noMethodPreference": "No preference",
+				"notesLabel": "Notes",
+				"notesPlaceholder": "Add any details that may help during the call."
+			},
+			"methods": {
+				"cash_on_delivery": "Cash on delivery",
+				"bank_transfer": "Bank transfer",
+				"ccp": "CCP",
+				"baridimob": "BaridiMob",
+				"other": "Other"
+			},
+			"countries": {
+				"DZ": "Algeria",
+				"TN": "Tunisia",
+				"MA": "Morocco",
+				"OTHER": "Other"
+			},
+			"validation": {
+				"plan": "Choose a valid plan.",
+				"tierCredits": "Choose a credit tier.",
+				"interval": "Choose a billing cycle.",
+				"fullName": "Enter a name with 2 to 120 characters.",
+				"phone": "Enter a valid phone number.",
+				"company": "Use 120 characters or fewer.",
+				"country": "Choose a country.",
+				"city": "Use 120 characters or fewer.",
+				"preferredPaymentMethod": "Choose a valid payment method.",
+				"notes": "Use 1,000 characters or fewer.",
+				"generic": "Check this field."
+			},
+			"submit": "Send request",
+			"submitting": "Sending…",
+			"close": "Close",
+			"success": {
+				"title": "Request received",
+				"body": "We received your request. We will call you at {phone} shortly."
+			},
+			"pending": {
+				"title": "Offline payment request pending",
+				"body": "We will call you at {phone}.",
+				"planLabel": "Plan",
+				"tierLabel": "Credit tier",
+				"cycleLabel": "Billing cycle",
+				"createdLabel": "Submitted",
+				"cancel": "Cancel request",
+				"cancelling": "Canceling…",
+				"cancelTitle": "Cancel this request?",
+				"cancelBody": "We will stop processing it. You can send a new request later.",
+				"keep": "Keep request",
+				"confirmCancel": "Cancel request",
+				"cancelSuccess": "Your request was canceled."
+			}
+		}
 	}
 }

@@ -13,6 +13,7 @@ export function usePurchasesEnabled(): boolean | undefined {
 
 	return (
 		settingsQuery.data.paidSubscriptionsEnabled ||
+		settingsQuery.data.manualPaymentsEnabled ||
 		settingsQuery.data.topupsEnabled
 	);
 }

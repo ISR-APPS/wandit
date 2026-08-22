@@ -1,3 +1,4 @@
+import { patchProductSettingsBodySchema } from "@wandit/contracts";
 import { describe, expect, it } from "vitest";
 
 import { mapProductSettingsDto } from "./settings.dto";
@@ -7,6 +8,8 @@ const SETTINGS_PAYLOAD = {
 	signupGrantEnabled: false,
 	signupGrantCredits: 20,
 	paidSubscriptionsEnabled: false,
+	manualPaymentsEnabled: false,
+	manualGraceDays: 3,
 	topupsEnabled: false,
 	organizationsEnabled: false,
 	emailAuthEnabled: false,
@@ -22,6 +25,8 @@ describe("mapProductSettingsDto", () => {
 			signupGrantEnabled: false,
 			signupGrantCredits: 20,
 			paidSubscriptionsEnabled: false,
+			manualPaymentsEnabled: false,
+			manualGraceDays: 3,
 			topupsEnabled: false,
 			organizationsEnabled: false,
 			emailAuthEnabled: false,
@@ -38,5 +43,41 @@ describe("mapProductSettingsDto", () => {
 				signupGrantCredits: 0,
 			}),
 		).toThrow();
+
+		expect(() =>
+			mapProductSettingsDto({
+				...SETTINGS_PAYLOAD,
+				manualGraceDays: 31,
+			}),
+		).toThrow();
+	});
+});
+
+describe("manualGraceDays PATCH validation", () => {
+	it.each([0, 30])("accepts the boundary value %i", (manualGraceDays) => {
+		expect(
+			patchProductSettingsBodySchema.safeParse({
+				manualGraceDays,
+				version: 7,
+			}).success,
+		).toBe(true);
+	});
+
+	it.each([31, -1])("rejects the out-of-range value %i", (manualGraceDays) => {
+		expect(
+			patchProductSettingsBodySchema.safeParse({
+				manualGraceDays,
+				version: 7,
+			}).success,
+		).toBe(false);
+	});
+
+	it("rejects a non-integer value", () => {
+		expect(
+			patchProductSettingsBodySchema.safeParse({
+				manualGraceDays: 1.5,
+				version: 7,
+			}).success,
+		).toBe(false);
 	});
 });
