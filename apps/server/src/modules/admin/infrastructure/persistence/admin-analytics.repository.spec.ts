@@ -1,3 +1,4 @@
+import type { AdminAnalyticsFunnelUserStep } from "@wandit/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 import type { Database } from "../../../../infrastructure/database/database.constants";
@@ -8,7 +9,9 @@ import {
 } from "../../application/services/admin-analytics.metrics";
 import {
 	type AdminAnalyticsFilters,
+	type AdminAnalyticsFunnelStepUsersRepositoryOptions,
 	AdminAnalyticsRepository,
+	type FunnelStepUserRow,
 } from "./admin-analytics.repository";
 import { AI_SPEND_STATUSES } from "./ai-usage-cost.sql";
 
@@ -77,10 +80,10 @@ function compileQuery(query: unknown): CompiledQuery {
 	return { params, sql: sql.replaceAll(/\s+/g, " ").trim() };
 }
 
-function setup() {
-	// A stable empty result exercises every SQL construction path without a
-	// database dependency.
-	const execute = vi.fn(async (_query: unknown) => ({ rows: [] }));
+function setup(rows: unknown[] = []) {
+	// A stable result exercises every SQL construction path without a database
+	// dependency.
+	const execute = vi.fn(async (_query: unknown) => ({ rows }));
 	const transaction = vi.fn(
 		(
 			callback: (client: { execute: typeof execute }) => Promise<unknown>,
@@ -112,6 +115,24 @@ async function collectQueries(
 	}
 	if (endpoint === "features") await repository.getFeatures(RANGE_BOUNDS);
 	if (endpoint === "health") await repository.getHealth(RANGE_BOUNDS);
+
+	return {
+		queries: execute.mock.calls.map(([query]) => compileQuery(query)),
+		transaction,
+	};
+}
+
+async function collectFunnelStepUserQueries(
+	step: AdminAnalyticsFunnelUserStep,
+	filters: AdminAnalyticsFilters = {},
+	options: AdminAnalyticsFunnelStepUsersRepositoryOptions = {
+		contacted: "all",
+		pagination: { page: 1, pageSize: 20 },
+	},
+) {
+	const { execute, repository, transaction } = setup();
+
+	await repository.getFunnelStepUsers(RANGE_BOUNDS, step, filters, options);
 
 	return {
 		queries: execute.mock.calls.map(([query]) => compileQuery(query)),
@@ -215,6 +236,230 @@ describe("AdminAnalyticsRepository transactions", () => {
 		}
 	});
 
+	it.each([
+		[
+			"pricingViewed",
+			"inner join product_events e on e.user_id = c.user_id and e.kind = 'pricing_viewed'",
+		],
+		[
+			"upgradeClicked",
+			"inner join product_events e on e.user_id = c.user_id and e.kind = 'upgrade_clicked'",
+		],
+		[
+			"checkoutStarted",
+			"inner join billing_checkout_attempts a on a.user_id = c.user_id and a.purpose = 'subscription'",
+		],
+	] as const)("runs the %s user list as one bounded read-only query", async (step, membershipJoin) => {
+		const { queries, transaction } = await collectFunnelStepUserQueries(step);
+
+		expect(transaction).toHaveBeenCalledOnce();
+		expect(transaction).toHaveBeenCalledWith(expect.any(Function), {
+			accessMode: "read only",
+			isolationLevel: "repeatable read",
+		});
+		expect(queries).toHaveLength(1);
+
+		const query = queries[0];
+		if (!query) throw new Error("Missing funnel-step user query");
+
+		expect(query.params.slice(0, 4)).toEqual([
+			RANGE_BOUNDS.rangeStart,
+			RANGE_BOUNDS.rangeEnd,
+			RANGE_BOUNDS.seriesEnd,
+			RANGE_BOUNDS.snapshotEnd,
+		]);
+		expect(query.sql).toContain("signup_cohort as");
+		expect(query.sql).toContain(
+			'from "user" u inner join filtered_users f on f.user_id = u.id cross join bounds b where u.created_at >= b.range_start and u.created_at < b.range_end',
+		);
+		expect(query.sql).toContain(membershipJoin);
+		expect(query.sql).toMatch(/[ea]\.created_at < b\.snapshot_end/);
+		expect(query.sql).toContain("left join admin_funnel_contacts");
+		expect(query.sql).toContain(
+			'left join "user" contacted_by on contacted_by.id = c.contacted_by_user_id',
+		);
+		expect(query.sql).toContain("counts as");
+		expect(query.sql).toContain("count(*)::bigint as all_count");
+		expect(query.sql).toContain(
+			"count(*) filter (where contact_user_id is not null)::bigint as contacted_count",
+		);
+		expect(query.sql).toContain(
+			"count(*) filter (where converted)::bigint as converted_count",
+		);
+		expect(query.sql).toContain("filtered_step_users as");
+		expect(query.sql).toContain(
+			"select count(*)::bigint as total from filtered_step_users",
+		);
+		expect(query.sql).toContain("order by last_event_at desc, user_id asc");
+		expect(query.sql).toMatch(/limit \$\d+ offset \$\d+/);
+		expect(query.params.slice(-2)).toEqual([20, 0]);
+		expect(query.sql).toContain("from subscriptions s");
+		expect(query.sql).toContain("s.created_at < b.snapshot_end");
+		expect(query.sql).not.toContain("s.status");
+	});
+
+	it.each([
+		["contacted", "where contact_user_id is not null"],
+		["notContacted", "where contact_user_id is null"],
+	] as const)("applies the %s filter after computing unfiltered counts", async (contacted, predicate) => {
+		const { queries } = await collectFunnelStepUserQueries(
+			"pricingViewed",
+			{},
+			{ contacted, pagination: { page: 3, pageSize: 25 } },
+		);
+		const query = queries[0];
+		if (!query) throw new Error("Missing funnel-step user query");
+
+		const countsStart = query.sql.indexOf("counts as");
+		const filteredStart = query.sql.indexOf("filtered_step_users as");
+		expect(countsStart).toBeGreaterThanOrEqual(0);
+		expect(filteredStart).toBeGreaterThan(countsStart);
+		expect(query.sql.slice(countsStart, filteredStart)).toContain(
+			"from step_users",
+		);
+		expect(query.sql.slice(filteredStart)).toContain(predicate);
+		expect(query.params.slice(-2)).toEqual([25, 50]);
+	});
+
+	it("omits limit and offset in the funnel-step CSV mode", async () => {
+		const { execute, repository } = setup();
+
+		await repository.getFunnelStepUsers(
+			RANGE_BOUNDS,
+			"pricingViewed",
+			{},
+			{ contacted: "notContacted", pagination: null },
+		);
+
+		const query = compileQuery(execute.mock.calls[0]?.[0]);
+		expect(query.sql).not.toMatch(/\blimit\b/);
+		expect(query.sql).not.toMatch(/\boffset\b/);
+		expect(query.sql).toContain("where contact_user_id is null");
+	});
+
+	it("maps a funnel-step page with authoritative counts and pagination", async () => {
+		const row = {
+			all_count: "7",
+			contacted_at: new Date("2026-08-04T12:00:00.000Z"),
+			contacted_by_name: "Grace Hopper",
+			contacted_by_user_id: "admin_1",
+			contacted_count: "2",
+			converted: true,
+			converted_count: 1n,
+			email: "ada@example.com",
+			event_count: "4",
+			first_event_at: new Date("2026-08-02T10:00:00.000Z"),
+			image: "https://example.com/ada.png",
+			last_event_at: new Date("2026-08-03T11:00:00.000Z"),
+			name: "Ada Lovelace",
+			signed_up_at: new Date("2026-08-01T09:00:00.000Z"),
+			total: "3",
+			user_id: "user_1",
+		} satisfies FunnelStepUserRow;
+		const { repository } = setup([row]);
+
+		const snapshot = await repository.getFunnelStepUsers(
+			RANGE_BOUNDS,
+			"pricingViewed",
+			{},
+			{ contacted: "contacted", pagination: { page: 2, pageSize: 2 } },
+		);
+
+		expect(snapshot).toEqual({
+			page: 2,
+			pageSize: 2,
+			total: 3,
+			counts: { all: 7, contacted: 2, converted: 1 },
+			items: [
+				{
+					userId: "user_1",
+					name: "Ada Lovelace",
+					email: "ada@example.com",
+					image: "https://example.com/ada.png",
+					signedUpAt: new Date("2026-08-01T09:00:00.000Z"),
+					firstEventAt: new Date("2026-08-02T10:00:00.000Z"),
+					lastEventAt: new Date("2026-08-03T11:00:00.000Z"),
+					eventCount: 4,
+					converted: true,
+					contact: {
+						contactedAt: new Date("2026-08-04T12:00:00.000Z"),
+						contactedBy: {
+							id: "admin_1",
+							name: "Grace Hopper",
+						},
+					},
+				},
+			],
+		});
+
+		const partialContact = {
+			...row,
+			contacted_by_name: null,
+		} satisfies FunnelStepUserRow;
+		const { repository: partialContactRepository } = setup([partialContact]);
+		const partialContactSnapshot =
+			await partialContactRepository.getFunnelStepUsers(
+				RANGE_BOUNDS,
+				"pricingViewed",
+			);
+
+		expect(partialContactSnapshot.items[0]?.contact).toBeNull();
+	});
+
+	it("returns zero funnel-step totals when the query has no rows", async () => {
+		const { repository } = setup();
+
+		const snapshot = await repository.getFunnelStepUsers(
+			RANGE_BOUNDS,
+			"checkoutStarted",
+		);
+
+		expect(snapshot).toEqual({
+			page: 1,
+			pageSize: 20,
+			total: 0,
+			counts: { all: 0, contacted: 0, converted: 0 },
+			items: [],
+		});
+	});
+
+	it("preserves counts and filtered total on an empty out-of-range page", async () => {
+		const metadataOnlyRow = {
+			all_count: "7",
+			contacted_at: null,
+			contacted_by_name: null,
+			contacted_by_user_id: null,
+			contacted_count: "3",
+			converted: null,
+			converted_count: "2",
+			email: null,
+			event_count: null,
+			first_event_at: null,
+			image: null,
+			last_event_at: null,
+			name: null,
+			signed_up_at: null,
+			total: "3",
+			user_id: null,
+		} satisfies FunnelStepUserRow;
+		const { repository } = setup([metadataOnlyRow]);
+
+		const snapshot = await repository.getFunnelStepUsers(
+			RANGE_BOUNDS,
+			"pricingViewed",
+			{},
+			{ contacted: "contacted", pagination: { page: 3, pageSize: 2 } },
+		);
+
+		expect(snapshot).toEqual({
+			page: 3,
+			pageSize: 2,
+			total: 3,
+			counts: { all: 7, contacted: 3, converted: 2 },
+			items: [],
+		});
+	});
+
 	it("totals revenue by source and prices domain wholesale from actual then quote", async () => {
 		const { queries } = await collectQueries("revenue");
 		const bySource = queryContaining(queries, "domain_orders as");
@@ -313,13 +558,21 @@ describe("AdminAnalyticsRepository analytics filters", () => {
 			cohortOnly: true,
 		});
 		const funnel = await collectQueries("funnel", { cohortOnly: true });
+		const funnelStepUsers = await collectFunnelStepUserQueries(
+			"pricingViewed",
+			{ cohortOnly: true },
+		);
 		const cohortClause =
 			"where u.created_at < b.snapshot_end and u.created_at >= b.range_start and u.created_at < b.range_end";
 
 		for (const query of engagement.queries) {
 			expect(query.sql).toContain(cohortClause);
 		}
-		for (const query of [...acquisition.queries, ...funnel.queries]) {
+		for (const query of [
+			...acquisition.queries,
+			...funnel.queries,
+			...funnelStepUsers.queries,
+		]) {
 			expect(query.sql).not.toContain(cohortClause);
 		}
 	});
@@ -700,6 +953,54 @@ describe("AdminAnalyticsRepository revenue SQL", () => {
 		expect(mrr.sql).toContain("s.created_at < b.snapshot_end");
 		expect(mrr.sql).toContain("count(distinct l.owner_id)");
 		expect(mrr.sql).toMatch(/plan_owners?(?:_totals)? as/);
+	});
+
+	it("keeps manual paid existence while limiting catalog MRR to Stripe", async () => {
+		const { queries: revenueQueries } = await collectQueries("revenue");
+		const mrr = queryContaining(revenueQueries, "live_subscriptions as");
+		const liveStart = mrr.sql.indexOf("live_subscriptions as (");
+		const pricedStart = mrr.sql.indexOf("stripe_priced_subscriptions as (");
+		const groupedStart = mrr.sql.indexOf("grouped as (");
+		const planOwnersStart = mrr.sql.indexOf("plan_owner_totals as (");
+		const ownerTotalsStart = mrr.sql.indexOf(
+			"owner_totals as (",
+			planOwnersStart + "plan_owner_totals as (".length,
+		);
+
+		expect(liveStart).toBeGreaterThanOrEqual(0);
+		expect(pricedStart).toBeGreaterThan(liveStart);
+		expect(groupedStart).toBeGreaterThan(pricedStart);
+		expect(planOwnersStart).toBeGreaterThan(groupedStart);
+		expect(ownerTotalsStart).toBeGreaterThan(planOwnersStart);
+
+		const liveSubscriptions = mrr.sql.slice(liveStart, pricedStart);
+		const stripePricedSubscriptions = mrr.sql.slice(pricedStart, groupedStart);
+		const groupedMrr = mrr.sql.slice(groupedStart, planOwnersStart);
+		const planOwners = mrr.sql.slice(planOwnersStart, ownerTotalsStart);
+		const activePaidUsers = mrr.sql.slice(ownerTotalsStart);
+
+		expect(liveSubscriptions).toContain("s.provider");
+		expect(liveSubscriptions).not.toContain("s.provider = 'stripe'");
+		expect(stripePricedSubscriptions).toContain("from live_subscriptions l");
+		expect(stripePricedSubscriptions).toContain("l.provider = 'stripe'");
+		expect(groupedMrr).toContain("from stripe_priced_subscriptions l");
+		expect(planOwners).toContain("from stripe_priced_subscriptions l");
+		expect(activePaidUsers).toContain("as active_paid_users");
+		expect(activePaidUsers).toContain("from live_subscriptions l");
+
+		const { queries: funnelQueries } = await collectQueries("funnel");
+		const funnel = queryContaining(funnelQueries, "signup_cohort as");
+		const paidUsersStart = funnel.sql.indexOf("paid_users as (");
+		const matureCohortStart = funnel.sql.indexOf("mature_signup_cohort as (");
+
+		expect(paidUsersStart).toBeGreaterThanOrEqual(0);
+		expect(matureCohortStart).toBeGreaterThan(paidUsersStart);
+
+		const signupToPaid = funnel.sql.slice(paidUsersStart, matureCohortStart);
+		expect(signupToPaid).toContain(
+			"inner join subscriptions s on s.user_id = c.user_id",
+		);
+		expect(signupToPaid).not.toContain("s.provider");
 	});
 
 	it("derives owner churn and range-start exposure from lifecycle history", async () => {

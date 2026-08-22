@@ -19,6 +19,7 @@ import {
 	centiCreditsToCredits,
 	creditsToCentiCredits,
 	ENTITLED_SUBSCRIPTION_STATUSES,
+	isManualSubscription,
 	type PreviewBillingSubscriptionChangeBody,
 	parsePriceLookupKey,
 	priceLookupKey,
@@ -36,11 +37,13 @@ import {
 } from "../../../credits/domain/credit-owner";
 import { ProductSettingsService } from "../../../settings/application/services/product-settings.service";
 import { OrganizationsDisabledError } from "../../../settings/domain/errors/organizations-disabled.error";
+import { SubscriptionsDisabledError } from "../../../settings/domain/errors/subscriptions-disabled.error";
 import { WorkspaceNotSupportedError } from "../../../workspaces/domain/errors/workspace.errors";
 import type { WorkspaceContext } from "../../../workspaces/domain/workspace-context";
 import { ActiveSubscriptionExistsError } from "../../domain/errors/active-subscription-exists.error";
 import { AmbiguousPaymentProviderWriteError } from "../../domain/errors/ambiguous-payment-provider-write.error";
 import { BillingNotConfiguredError } from "../../domain/errors/billing-not-configured.error";
+import { ManualSubscriptionUnsupportedError } from "../../domain/errors/manual-billing.errors";
 import { NoActiveSubscriptionError } from "../../domain/errors/no-active-subscription.error";
 import { PaymentPastDueError } from "../../domain/errors/payment-past-due.error";
 import {
@@ -234,6 +237,13 @@ export class BillingService {
 		await this.checkoutAttemptsRepository.withOwnerLock(
 			scope.owner,
 			async (tx) => {
+				const lockedSubscription =
+					await this.subscriptionsRepository.findActiveByOwner(scope.owner, tx);
+
+				if (lockedSubscription) {
+					this.throwCheckoutBlocked(lockedSubscription.status);
+				}
+
 				const open = await this.checkoutAttemptsRepository.findOpenForOwner(
 					scope.owner,
 					"subscription",
@@ -419,6 +429,14 @@ export class BillingService {
 		const scope = await this.resolveBillingScope(user, workspace, {
 			admission: false,
 		});
+		const subscription = await this.subscriptionsRepository.findActiveByOwner(
+			scope.owner,
+		);
+
+		if (isManualSubscription(subscription)) {
+			throw new ManualSubscriptionUnsupportedError();
+		}
+
 		// Structural isolation: personal scope can only ever reach the personal
 		// customer, org scope only the org's — the two tables partition Stripe
 		// customer ids (design §5.1/§5.4).
@@ -448,6 +466,11 @@ export class BillingService {
 			admission: true,
 		});
 		const subscription = await this.requireActiveSubscription(scope.owner);
+
+		if (isManualSubscription(subscription)) {
+			throw new ManualSubscriptionUnsupportedError();
+		}
+
 		this.assertSupportedIntervalChange(subscription.interval, body.interval);
 
 		if (
@@ -530,6 +553,13 @@ export class BillingService {
 		const scope = await this.resolveBillingScope(user, workspace, {
 			admission: true,
 		});
+		const currentSubscription =
+			await this.subscriptionsRepository.findActiveByOwner(scope.owner);
+
+		if (isManualSubscription(currentSubscription)) {
+			throw new ManualSubscriptionUnsupportedError();
+		}
+
 		const customer = scope.organizationId
 			? await this.organizationBillingCustomersRepository.findByOrganizationId(
 					scope.organizationId,
@@ -958,14 +988,16 @@ export class BillingService {
 				subscriptionUserId: subscription.userId,
 			});
 
-		try {
-			await this.paymentProvider.setCancelAtPeriodEnd(
-				subscription.providerSubscriptionId,
-				true,
-			);
-		} catch (error) {
-			await this.markCancellationProviderFailure(cancellationReason.id);
-			throw error;
+		if (!isManualSubscription(subscription)) {
+			try {
+				await this.paymentProvider.setCancelAtPeriodEnd(
+					subscription.providerSubscriptionId,
+					true,
+				);
+			} catch (error) {
+				await this.markCancellationProviderFailure(cancellationReason.id);
+				throw error;
+			}
 		}
 
 		const scheduled =
@@ -997,10 +1029,21 @@ export class BillingService {
 		});
 		const subscription = await this.requireActiveSubscription(scope.owner);
 
-		await this.paymentProvider.setCancelAtPeriodEnd(
-			subscription.providerSubscriptionId,
-			false,
-		);
+		if (!isManualSubscription(subscription)) {
+			// The controller no longer applies SubscriptionsEnabledGuard (a
+			// manual resume must work in an offline-only rollout), so the
+			// Stripe path enforces the kill switch here.
+			const settings = await this.productSettingsService.get();
+
+			if (!settings.paidSubscriptionsEnabled) {
+				throw new SubscriptionsDisabledError();
+			}
+
+			await this.paymentProvider.setCancelAtPeriodEnd(
+				subscription.providerSubscriptionId,
+				false,
+			);
+		}
 		await this.subscriptionsRepository.updateCancelAtPeriodEnd(
 			subscription.providerSubscriptionId,
 			false,

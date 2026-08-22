@@ -31,6 +31,8 @@ describe("workstream 5 contract round-trips", () => {
 		const settings = {
 			emailAuthEnabled: false,
 			id: 1,
+			manualGraceDays: 3,
+			manualPaymentsEnabled: false,
 			organizationsEnabled: false,
 			paidSubscriptionsEnabled: true,
 			signupGrantCredits: 50,

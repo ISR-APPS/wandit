@@ -1,6 +1,7 @@
 import type { PatchProductSettingsBody } from "@wandit/contracts";
 import {
 	AlertTriangleIcon,
+	CalendarClockIcon,
 	GiftIcon,
 	Loader2Icon,
 	RefreshCwIcon,
@@ -54,6 +55,7 @@ const SETTINGS_CONFLICT_MESSAGE = "settings changed elsewhere — reload";
 const BOOLEAN_SETTING_KEYS = [
 	"signupGrantEnabled",
 	"paidSubscriptionsEnabled",
+	"manualPaymentsEnabled",
 	"topupsEnabled",
 	"organizationsEnabled",
 	"emailAuthEnabled",
@@ -65,6 +67,8 @@ type PendingToggle = {
 	key: BooleanSettingKey;
 	nextValue: boolean;
 };
+
+type NumericSettingKey = "signupGrantCredits" | "manualGraceDays";
 
 type ToggleDetails = {
 	description: string;
@@ -90,6 +94,15 @@ const TOGGLE_DETAILS: Record<BooleanSettingKey, ToggleDetails> = {
 			nextValue
 				? "Signed-in users will be able to start, change, or resume paid subscriptions. Existing paid fulfillment already continues regardless of this switch."
 				: "New paid checkouts, plan changes, and subscription resumes will be blocked. Payments already made will still be fulfilled.",
+	},
+	manualPaymentsEnabled: {
+		label: "Offline payments",
+		description:
+			"Control whether users can request subscriptions paid by cash or transfer.",
+		consequence: (nextValue) =>
+			nextValue
+				? "Users will see Cash / transfer and can submit offline subscription requests. Administrators must still collect payment and grant each subscription."
+				: "Cash / transfer will be hidden and new offline requests will be blocked. Existing requests and offline subscriptions remain available for administrators to grant, renew, or end.",
 	},
 	topupsEnabled: {
 		label: "Credit top-ups",
@@ -135,6 +148,10 @@ export function ProductControlsCard({
 		String(settings.signupGrantCredits),
 	);
 	const [grantSubmitted, setGrantSubmitted] = useState(false);
+	const [graceDays, setGraceDays] = useState(String(settings.manualGraceDays));
+	const [graceSubmitted, setGraceSubmitted] = useState(false);
+	const [pendingNumericSetting, setPendingNumericSetting] =
+		useState<NumericSettingKey | null>(null);
 	const [conflict, setConflict] = useState(false);
 	const [errorMessage, setErrorMessage] = useState<string | null>(null);
 	const [isReloading, setIsReloading] = useState(false);
@@ -146,11 +163,24 @@ export function ProductControlsCard({
 		setGrantSubmitted(false);
 	}, [settings.signupGrantCredits]);
 
+	useEffect(() => {
+		setGraceDays(String(settings.manualGraceDays));
+		setGraceSubmitted(false);
+	}, [settings.manualGraceDays]);
+
 	const parsedGrantCredits = Number(grantCredits);
 	const grantCreditsAreValid =
 		Number.isSafeInteger(parsedGrantCredits) && parsedGrantCredits > 0;
 	const grantCreditsChanged =
 		grantCreditsAreValid && parsedGrantCredits !== settings.signupGrantCredits;
+	const parsedGraceDays = Number(graceDays);
+	const graceDaysAreValid =
+		graceDays.trim().length > 0 &&
+		Number.isSafeInteger(parsedGraceDays) &&
+		parsedGraceDays >= 0 &&
+		parsedGraceDays <= 30;
+	const graceDaysChanged =
+		graceDaysAreValid && parsedGraceDays !== settings.manualGraceDays;
 
 	function requestToggle(key: BooleanSettingKey, nextValue: boolean) {
 		if (nextValue === settings[key] || conflict) {
@@ -211,6 +241,7 @@ export function ProductControlsCard({
 			return;
 		}
 
+		setPendingNumericSetting("signupGrantCredits");
 		try {
 			await mutation.mutateAsync({
 				signupGrantCredits: parsedGrantCredits,
@@ -220,6 +251,32 @@ export function ProductControlsCard({
 			setGrantSubmitted(false);
 		} catch (error) {
 			handleMutationError(error, () => setConflict(true));
+		} finally {
+			setPendingNumericSetting(null);
+		}
+	}
+
+	async function saveGraceDays(event: FormEvent<HTMLFormElement>) {
+		event.preventDefault();
+		setGraceSubmitted(true);
+		setErrorMessage(null);
+
+		if (!graceDaysAreValid || !graceDaysChanged || conflict) {
+			return;
+		}
+
+		setPendingNumericSetting("manualGraceDays");
+		try {
+			await mutation.mutateAsync({
+				manualGraceDays: parsedGraceDays,
+				version: settings.version,
+			});
+			toast.success("Offline grace period updated.");
+			setGraceSubmitted(false);
+		} catch (error) {
+			handleMutationError(error, () => setConflict(true));
+		} finally {
+			setPendingNumericSetting(null);
 		}
 	}
 
@@ -400,7 +457,8 @@ export function ProductControlsCard({
 									(grantCreditsAreValid && !grantCreditsChanged)
 								}
 							>
-								{mutation.isPending && !pendingToggle ? (
+								{mutation.isPending &&
+								pendingNumericSetting === "signupGrantCredits" ? (
 									<Loader2Icon
 										data-icon="inline-start"
 										className="animate-spin"
@@ -409,7 +467,8 @@ export function ProductControlsCard({
 								) : (
 									<SaveIcon data-icon="inline-start" aria-hidden="true" />
 								)}
-								{mutation.isPending && !pendingToggle
+								{mutation.isPending &&
+								pendingNumericSetting === "signupGrantCredits"
 									? "Saving…"
 									: "Save amount"}
 							</Button>
@@ -419,6 +478,77 @@ export function ProductControlsCard({
 							>
 								{grantSubmitted && !grantCreditsAreValid
 									? "Enter a positive whole number of credits."
+									: null}
+							</FieldError>
+						</Field>
+					</FieldGroup>
+				</form>
+
+				<form
+					onSubmit={saveGraceDays}
+					noValidate
+					className="border-t bg-muted/20 px-5 py-5"
+				>
+					<FieldGroup>
+						<Field
+							data-invalid={graceSubmitted && !graceDaysAreValid}
+							className="sm:grid sm:grid-cols-[minmax(0,1fr)_10rem_auto] sm:items-end"
+						>
+							<div className="flex min-w-0 flex-col gap-1.5 sm:pb-1">
+								<div className="flex items-center gap-2 font-medium text-sm">
+									<CalendarClockIcon aria-hidden="true" />
+									Offline grace days
+								</div>
+								<FieldDescription id="offline-grace-days-description">
+									Days of access after an offline period ends before the cron
+									cancels it. 0 = strict.
+								</FieldDescription>
+							</div>
+							<div className="flex flex-col gap-2">
+								<FieldLabel htmlFor="offline-grace-days">Days</FieldLabel>
+								<Input
+									id="offline-grace-days"
+									type="number"
+									inputMode="numeric"
+									min={0}
+									max={30}
+									step={1}
+									value={graceDays}
+									onChange={(event) => setGraceDays(event.target.value)}
+									disabled={mutation.isPending || conflict}
+									aria-invalid={graceSubmitted && !graceDaysAreValid}
+									aria-describedby="offline-grace-days-description offline-grace-days-error"
+								/>
+							</div>
+							<Button
+								type="submit"
+								disabled={
+									mutation.isPending ||
+									conflict ||
+									(graceDaysAreValid && !graceDaysChanged)
+								}
+							>
+								{mutation.isPending &&
+								pendingNumericSetting === "manualGraceDays" ? (
+									<Loader2Icon
+										data-icon="inline-start"
+										className="animate-spin"
+										aria-hidden="true"
+									/>
+								) : (
+									<SaveIcon data-icon="inline-start" aria-hidden="true" />
+								)}
+								{mutation.isPending &&
+								pendingNumericSetting === "manualGraceDays"
+									? "Saving…"
+									: "Save days"}
+							</Button>
+							<FieldError
+								id="offline-grace-days-error"
+								className="sm:col-span-2 sm:col-start-2"
+							>
+								{graceSubmitted && !graceDaysAreValid
+									? "Enter a whole number from 0 to 30."
 									: null}
 							</FieldError>
 						</Field>

@@ -36,7 +36,11 @@ export type SubscriptionCreditRow = typeof subscriptions.$inferSelect;
  * refunded or disputed; `ownership`: its subscription stopped being the
  * owner's canonical entitled mirror (deletion, replacement).
  */
-export type RefillSlotCancelReason = "clawback" | "ownership" | "replaced";
+export type RefillSlotCancelReason =
+	| "clawback"
+	| "ended"
+	| "ownership"
+	| "replaced";
 
 export type RefillSlotCancellation = {
 	reason: RefillSlotCancelReason;

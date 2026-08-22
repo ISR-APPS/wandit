@@ -408,6 +408,20 @@ class FakeSubscriptionsRepository {
 		);
 	}
 
+	async findActiveByOwnerAndProvider(owner: CreditOwner, provider: string) {
+		return (
+			[...this.rows.values()].find(
+				(row) =>
+					(owner.type === "user"
+						? row.userId === owner.userId && row.organizationId === null
+						: row.organizationId === owner.organizationId) &&
+					row.provider === provider &&
+					row.status !== "canceled" &&
+					row.status !== "incomplete_expired",
+			) ?? null
+		);
+	}
+
 	async markPendingTierApplied(
 		providerSubscriptionId: string,
 		invoiceId: string,

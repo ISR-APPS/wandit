@@ -408,6 +408,63 @@ export function createLeadExportColumns(): LeadExportColumns {
 	};
 }
 
+/**
+ * CSV with a UTF-8 BOM so Arabic names survive Excel; stable column order.
+ * `headers` is the localized fixed header row, `orderHeaders` contains the
+ * localized promoted order columns aligned with LEAD_ORDER_FIELDS, and
+ * `statusLabel` supplies the caller's localized label for each lead status.
+ * Every remaining dynamic form field gets its own column after the promoted
+ * order columns, so the header is only known after all rows are collected;
+ * leads without a field get an empty cell.
+ */
+export function buildLeadsCsv(
+	leads: readonly Lead[],
+	headers: readonly string[],
+	orderHeaders: readonly string[],
+	statusLabel: (lead: Lead) => string,
+): string {
+	// CSV cells containing commas, quotes, or newlines must be wrapped in quotes;
+	// doubled quotes are the CSV escape sequence for a literal quote. Cells
+	// starting with = or @ (or tab/CR) would execute as formulas in Excel and
+	// Sheets — buyer-controlled extras land in cells now, so neutralize those
+	// with a leading apostrophe. Leading + is deliberately left alone: phones
+	// are E.164 (+213…) and a quoted plus would corrupt the most-used column.
+	const escapeCell = (cell: string) => {
+		const neutralized = /^[=@\t\r]/.test(cell) ? `'${cell}` : cell;
+		return /[",\n]/.test(neutralized)
+			? `"${neutralized.replace(/"/g, '""')}"`
+			: neutralized;
+	};
+	const exportColumns = createLeadExportColumns();
+	const leadCells = leads.map((lead) => [
+		lead.name,
+		lead.phone,
+		lead.wilaya ?? "",
+		lead.commune ?? "",
+		statusLabel(lead),
+		lead.source,
+		lead.campaign ?? "",
+		lead.createdAt,
+		lead.productSku ?? "",
+		...exportColumns.buildCells(lead.extras),
+	]);
+	const fixedHeaders = [...headers, ...orderHeaders];
+	const csvHeaders = [
+		...fixedHeaders,
+		...dedupeLeadExportHeaderLabels(
+			[...fixedHeaders, LEAD_EXTRA_OVERFLOW_LABEL],
+			exportColumns.dynamicKeys(),
+		),
+		...(exportColumns.hasOverflow() ? [LEAD_EXTRA_OVERFLOW_LABEL] : []),
+	];
+	const rows = leadCells.map((cells) =>
+		Array.from({ length: csvHeaders.length }, (_, index) => cells[index] ?? "")
+			.map(escapeCell)
+			.join(","),
+	);
+	return `\uFEFF${[csvHeaders.map(escapeCell).join(","), ...rows].join("\n")}`;
+}
+
 // Body of the public capture POST. `_hp` is the honeypot decoy: humans never
 // see the field, so a non-empty value means a bot — the server answers 200 and
 // silently discards, indistinguishable from success.
@@ -415,6 +472,7 @@ export const leadCaptureBodySchema = z.object({
 	_hp: z.string().max(500).optional(),
 	attribution: leadAttributionSchema.optional(),
 	commune: z.string().trim().max(120).optional(),
+	deploymentId: uuidSchema.optional().catch(undefined),
 	extras: leadExtrasSchema.optional(),
 	name: z.string().trim().min(1).max(200),
 	phone: z.string().trim().min(6).max(40),
@@ -423,8 +481,8 @@ export const leadCaptureBodySchema = z.object({
 
 export type LeadCaptureBody = z.infer<typeof leadCaptureBodySchema>;
 
-// Deliberately carries no signal: success, honeypot discard, and duplicate
-// drop all look identical to the caller.
+// Deliberately carries no signal: success, honeypot discard, and in-window
+// update all look identical to the caller.
 export const leadCaptureResponseSchema = z.object({ ok: z.literal(true) });
 
 export type LeadCaptureResponse = z.infer<typeof leadCaptureResponseSchema>;
@@ -441,6 +499,7 @@ export const leadSchema = z.object({
 	id: uuidSchema,
 	name: z.string(),
 	phone: z.string(),
+	productSku: z.string().nullable(),
 	source: leadSourceSchema,
 	status: leadStatusSchema,
 	wilaya: z.string().nullable(),

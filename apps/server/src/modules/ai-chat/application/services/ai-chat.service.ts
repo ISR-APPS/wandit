@@ -23,6 +23,12 @@ import {
 	animateImageInputSchema,
 	applyElementOpsInputSchema,
 	askUserInputSchema,
+	type EditVideoInput,
+	type EditVideoOutput,
+	type ExtendVideoInput,
+	type ExtendVideoOutput,
+	editVideoInputSchema,
+	extendVideoInputSchema,
 	type GenerateImageInput,
 	type GenerateImageOutput,
 	type GenerateMarketingAssetInput,
@@ -816,9 +822,6 @@ export class AiChatService {
 					pagesRepository: this.pagesRepository,
 					parentEventId: prepared.eventId ?? undefined,
 					projectId,
-					// Snapshotted into generation specs for later model swapping; no
-					// generator reads it yet.
-					quality: metadata?.composer?.quality,
 					// Only the image-animation output hard-requires a validated source
 					// still. Video mode's other output (video-creator) is
 					// text-to-video; a missing output means a legacy client where
@@ -1478,8 +1481,10 @@ const INCOMPLETE_ANIMATE_IMAGE_INPUT: AnimateImageInput = {
 	motion: "balanced",
 	prompt:
 		"The motion direction was lost when the request stream was interrupted.",
+	quality: "standard",
 	sourceImageUrl: "https://invalid.local/interrupted-image.jpg",
 	sourceMediaType: "image/jpeg",
+	talking: false,
 };
 
 const INTERRUPTED_GENERATE_VIDEO_OUTPUT: GenerateVideoOutput = {
@@ -1493,7 +1498,41 @@ const INCOMPLETE_GENERATE_VIDEO_INPUT: GenerateVideoInput = {
 	aspect: "16:9",
 	brief: "The creative brief was lost when the request stream was interrupted.",
 	durationSeconds: 10,
+	multiShot: false,
+	quality: "standard",
+	talking: false,
 	title: "Interrupted video request",
+};
+
+const INTERRUPTED_EDIT_VIDEO_OUTPUT: EditVideoOutput = {
+	message:
+		"The video edit request was interrupted before it could be queued. If " +
+		"the user still wants it, call edit_video again with the source clip.",
+	status: "unavailable",
+};
+
+const INCOMPLETE_EDIT_VIDEO_INPUT: EditVideoInput = {
+	instruction:
+		"The requested video change was lost when the request stream was interrupted.",
+	sourceAttemptId: "00000000-0000-4000-8000-000000000001",
+	title: "Interrupted video edit",
+};
+
+const INTERRUPTED_EXTEND_VIDEO_OUTPUT: ExtendVideoOutput = {
+	message:
+		"The video extension request was interrupted before it could be queued. " +
+		"If the user still wants it, call extend_video again with the source clip.",
+	status: "unavailable",
+};
+
+const INCOMPLETE_EXTEND_VIDEO_INPUT: ExtendVideoInput = {
+	acceptSilent: false,
+	continuationBrief:
+		"The continuation brief was lost when the request stream was interrupted.",
+	legCount: 1,
+	legDurationSeconds: 5,
+	sourceAttemptId: "00000000-0000-4000-8000-000000000001",
+	title: "Interrupted video extension",
 };
 
 const INTERRUPTED_READ_SKILL_MARKDOWN =
@@ -1813,6 +1852,50 @@ export function completeDanglingToolCalls(
 						? parsedInput.data
 						: INCOMPLETE_GENERATE_VIDEO_INPUT,
 					output: INTERRUPTED_GENERATE_VIDEO_OUTPUT,
+					state: "output-available" as const,
+				};
+			}
+
+			if (part.type === "tool-edit_video") {
+				if (
+					part.state !== "input-available" &&
+					part.state !== "input-streaming"
+				) {
+					return part;
+				}
+
+				changed = true;
+
+				const parsedInput = editVideoInputSchema.safeParse(part.input);
+
+				return {
+					...part,
+					input: parsedInput.success
+						? parsedInput.data
+						: INCOMPLETE_EDIT_VIDEO_INPUT,
+					output: INTERRUPTED_EDIT_VIDEO_OUTPUT,
+					state: "output-available" as const,
+				};
+			}
+
+			if (part.type === "tool-extend_video") {
+				if (
+					part.state !== "input-available" &&
+					part.state !== "input-streaming"
+				) {
+					return part;
+				}
+
+				changed = true;
+
+				const parsedInput = extendVideoInputSchema.safeParse(part.input);
+
+				return {
+					...part,
+					input: parsedInput.success
+						? parsedInput.data
+						: INCOMPLETE_EXTEND_VIDEO_INPUT,
+					output: INTERRUPTED_EXTEND_VIDEO_OUTPUT,
 					state: "output-available" as const,
 				};
 			}
@@ -2306,7 +2389,12 @@ function collectAvailableImages(
 }
 
 const DOCUMENT_MEDIA_TYPE_SET = new Set<string>(
-	ATTACHMENT_MEDIA_TYPES.filter((mediaType) => !mediaType.startsWith("image/")),
+	ATTACHMENT_MEDIA_TYPES.filter(
+		(mediaType) =>
+			!mediaType.startsWith("image/") &&
+			!mediaType.startsWith("video/") &&
+			!mediaType.startsWith("audio/"),
+	),
 );
 
 /**

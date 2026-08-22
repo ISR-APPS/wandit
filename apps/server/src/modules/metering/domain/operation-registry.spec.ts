@@ -26,11 +26,14 @@ const REQUIRED_WORKFLOW_IDS = [
 	"standalone-image",
 	"standalone-animation",
 	"standalone-text-to-video",
+	"standalone-video-edit",
+	"standalone-video-extension",
 	"marketing",
 	"connector-inline",
 	"connector-background",
 	"lead-scrape",
 	"transcription",
+	"video-voiceover-helper",
 	"legacy-worker-chat",
 	"project-title-helper",
 	"higgsfield-prompt-refine-helper",
@@ -46,6 +49,10 @@ const PROVIDER_CALL_PATTERNS = [
 	{ name: "embedMany", pattern: /\bembedMany\s*\(/gu },
 	{ name: "generateImage", pattern: /\bgenerateImage\s*\(/gu },
 	{ name: "generateObject", pattern: /\bgenerateObject\s*\(/gu },
+	{
+		name: "generateSpeech",
+		pattern: /\bexperimental_generateSpeech\s*\(/gu,
+	},
 	{ name: "generateText", pattern: /\bgenerateText\s*\(/gu },
 	{ name: "generateVideo", pattern: /\bgenerateVideo\s*\(/gu },
 	{ name: "streamText", pattern: /\bstreamText\s*\(/gu },
@@ -89,9 +96,20 @@ const EXPECTED_PROVIDER_CALLS = [
 	},
 	{
 		count: 1,
+		name: "generateVideo",
+		source: "apps/server/src/modules/ai-chat/agent/site-builder/edit-video.ts",
+	},
+	{
+		count: 1,
 		name: "doGenerate",
 		source:
 			"apps/server/src/modules/generation/application/services/transcription.service.ts",
+	},
+	{
+		count: 1,
+		name: "generateSpeech",
+		source:
+			"apps/server/src/modules/generation/application/services/speech.service.ts",
 	},
 	{
 		count: 1,

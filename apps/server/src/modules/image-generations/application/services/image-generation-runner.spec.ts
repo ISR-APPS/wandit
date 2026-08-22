@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	type GeneratedImageResult,
 	type ImageGenerationAttemptState,
+	type ImageGenerationProviderResult,
 	type ImageGenerationRunnerDependencies,
 	ImageGenerationSettlementPendingError,
 	parseImageGenerationPayload,
@@ -37,6 +38,31 @@ const RESERVATION = {
 	units: 2,
 };
 
+type Deferred<Value> = {
+	promise: Promise<Value>;
+	resolve: (value: Value) => void;
+};
+
+function deferred<Value>(): Deferred<Value> {
+	let resolve!: Deferred<Value>["resolve"];
+	const promise = new Promise<Value>((resolvePromise) => {
+		resolve = resolvePromise;
+	});
+
+	return { promise, resolve };
+}
+
+function generated(index: number) {
+	return {
+		mediaType: "image/png",
+		model: "openai/gpt-image-2",
+		providerMetadata: { gateway: { generationId: `generation_${index}` } },
+		status: "generated" as const,
+		usage: { inputTokens: 1 },
+		url: `https://assets.example.com/images/p/a/img-${index}.png`,
+	};
+}
+
 function makeAttempt(
 	overrides: Partial<ImageGenerationAttemptState> = {},
 ): ImageGenerationAttemptState {
@@ -64,6 +90,7 @@ function makeAttempt(
 
 function makeImages(count: number): GeneratedImageResult[] {
 	return Array.from({ length: count }, (_, i) => ({
+		index: i + 1,
 		mediaType: "image/png",
 		url: `https://assets.example.com/images/p/a/img-${i + 1}.png`,
 	}));
@@ -85,20 +112,12 @@ function makeDependencies(
 		generateOne: vi
 			.fn()
 			.mockImplementation((_attempt, _subject, index: number) =>
-				Promise.resolve({
-					mediaType: "image/png",
-					model: "openai/gpt-image-2",
-					providerMetadata: {
-						gateway: { generationId: `generation_${index}` },
-					},
-					status: "generated" as const,
-					usage: { inputTokens: 1 },
-					url: `https://assets.example.com/images/p/a/img-${index}.png`,
-				}),
+				Promise.resolve(generated(index)),
 			),
 		loadAttempt: vi.fn().mockResolvedValue(queued),
 		markSucceeded: vi.fn().mockResolvedValue(true),
 		now: () => new Date("2026-01-01T00:05:00Z"),
+		persistProgress: vi.fn().mockResolvedValue(true),
 		recoverStoredImages: vi.fn().mockResolvedValue(null),
 		refund: vi.fn().mockResolvedValue(undefined),
 		reserve: vi.fn().mockResolvedValue(RESERVATION),
@@ -147,7 +166,7 @@ describe("parseImageGenerationPayload", () => {
 });
 
 describe("runImageGeneration", () => {
-	it("claims, reserves, generates every image sequentially, and persists", async () => {
+	it("claims, reserves, generates every image in parallel, and persists", async () => {
 		const dependencies = makeDependencies();
 
 		const result = await runImageGeneration(
@@ -168,6 +187,7 @@ describe("runImageGeneration", () => {
 		);
 		expect(dependencies.generateOne).toHaveBeenCalledTimes(2);
 		expect(dependencies.capture).toHaveBeenCalledTimes(2);
+		expect(dependencies.persistProgress).toHaveBeenCalledTimes(2);
 		expect(dependencies.settle).toHaveBeenCalledWith(RESERVATION);
 		expect(dependencies.generateOne).toHaveBeenNthCalledWith(
 			1,
@@ -205,6 +225,217 @@ describe("runImageGeneration", () => {
 			recovered: false,
 			status: "succeeded",
 		});
+	});
+
+	it("caps provider concurrency at two", async () => {
+		const queued = makeAttempt({ count: 4 });
+		const generating = makeAttempt({
+			count: 4,
+			startedAt: new Date("2026-01-01T00:00:00Z"),
+			status: "generating",
+		});
+		const gates = new Map(
+			[1, 2, 3, 4].map((index) => [
+				index,
+				deferred<ImageGenerationProviderResult>(),
+			]),
+		);
+		const started: number[] = [];
+		let active = 0;
+		let maxActive = 0;
+		const dependencies = makeDependencies({
+			claimQueued: vi.fn().mockResolvedValue(generating),
+			generateOne: vi.fn(async (_attempt, _subject, index) => {
+				started.push(index);
+				active += 1;
+				maxActive = Math.max(maxActive, active);
+
+				try {
+					return await (
+						gates.get(index) as Deferred<ImageGenerationProviderResult>
+					).promise;
+				} finally {
+					active -= 1;
+				}
+			}),
+			loadAttempt: vi.fn().mockResolvedValue(queued),
+			reserve: vi.fn().mockResolvedValue({
+				...RESERVATION,
+				credits: 20,
+				units: 4,
+			}),
+		});
+		const run = runImageGeneration(PAYLOAD, {
+			dependencies,
+			runId: "run_parallel_cap",
+		});
+
+		await vi.waitFor(() => expect(started).toEqual([1, 2]));
+		gates.get(2)?.resolve(generated(2));
+		await vi.waitFor(() => expect(started).toEqual([1, 2, 3]));
+		gates.get(1)?.resolve(generated(1));
+		await vi.waitFor(() => expect(started).toEqual([1, 2, 3, 4]));
+		gates.get(3)?.resolve(generated(3));
+		gates.get(4)?.resolve(generated(4));
+
+		await expect(run).resolves.toMatchObject({
+			images: makeImages(4),
+			status: "succeeded",
+		});
+		expect(maxActive).toBe(2);
+	});
+
+	it("serializes capture writes shared by parallel provider calls", async () => {
+		const captureGates = [deferred<void>(), deferred<void>()];
+		let activeCaptures = 0;
+		let captureIndex = 0;
+		let maxActiveCaptures = 0;
+		const dependencies = makeDependencies({
+			capture: vi.fn(async () => {
+				const gate = captureGates[captureIndex] as Deferred<void>;
+				captureIndex += 1;
+				activeCaptures += 1;
+				maxActiveCaptures = Math.max(maxActiveCaptures, activeCaptures);
+				await gate.promise;
+				activeCaptures -= 1;
+			}),
+			generateOne: vi.fn(
+				async (_attempt, _subject, index, _signal, onProviderGeneration) => {
+					const result = generated(index);
+					await onProviderGeneration?.(result);
+					return result;
+				},
+			),
+		});
+		const run = runImageGeneration(PAYLOAD, {
+			dependencies,
+			runId: "run_serial_capture",
+		});
+
+		await vi.waitFor(() =>
+			expect(dependencies.capture).toHaveBeenCalledTimes(1),
+		);
+		expect(dependencies.generateOne).toHaveBeenCalledTimes(2);
+		captureGates[0]?.resolve();
+		await vi.waitFor(() =>
+			expect(dependencies.capture).toHaveBeenCalledTimes(2),
+		);
+		expect(maxActiveCaptures).toBe(1);
+		captureGates[1]?.resolve();
+
+		await expect(run).resolves.toMatchObject({ status: "succeeded" });
+		expect(maxActiveCaptures).toBe(1);
+	});
+
+	it("persists partial progress in completion order and sorts each snapshot", async () => {
+		const gates = [
+			deferred<ImageGenerationProviderResult>(),
+			deferred<ImageGenerationProviderResult>(),
+		];
+		const dependencies = makeDependencies({
+			generateOne: vi.fn((_attempt, _subject, index) => {
+				return (gates[index - 1] as Deferred<ImageGenerationProviderResult>)
+					.promise;
+			}),
+		});
+		const run = runImageGeneration(PAYLOAD, {
+			dependencies,
+			runId: "run_progress_order",
+		});
+
+		await vi.waitFor(() =>
+			expect(dependencies.generateOne).toHaveBeenCalledTimes(2),
+		);
+		gates[1]?.resolve(generated(2));
+		await vi.waitFor(() =>
+			expect(dependencies.persistProgress).toHaveBeenCalledTimes(1),
+		);
+		expect(dependencies.persistProgress).toHaveBeenNthCalledWith(
+			1,
+			expect.objectContaining({ id: ATTEMPT_ID }),
+			[makeImages(2)[1]],
+		);
+
+		gates[0]?.resolve(generated(1));
+		await expect(run).resolves.toEqual({
+			images: makeImages(2),
+			recovered: false,
+			status: "succeeded",
+		});
+		expect(dependencies.persistProgress).toHaveBeenNthCalledWith(
+			2,
+			expect.objectContaining({ id: ATTEMPT_ID }),
+			makeImages(2),
+		);
+	});
+
+	it("drains an in-flight sparse success after failure and settles captured units", async () => {
+		const queued = makeAttempt({ count: 4 });
+		const generating = makeAttempt({
+			count: 4,
+			startedAt: new Date("2026-01-01T00:00:00Z"),
+			status: "generating",
+		});
+		const gates = new Map(
+			[1, 2, 3, 4].map((index) => [
+				index,
+				deferred<ImageGenerationProviderResult>(),
+			]),
+		);
+		const started: number[] = [];
+		const reservation = { ...RESERVATION, credits: 20, units: 4 };
+		const dependencies = makeDependencies({
+			claimQueued: vi.fn().mockResolvedValue(generating),
+			generateOne: vi.fn((_attempt, _subject, index) => {
+				started.push(index);
+				return (gates.get(index) as Deferred<ImageGenerationProviderResult>)
+					.promise;
+			}),
+			loadAttempt: vi.fn().mockResolvedValue(queued),
+			reserve: vi.fn().mockResolvedValue(reservation),
+		});
+		const run = runImageGeneration(PAYLOAD, {
+			dependencies,
+			runId: "run_sparse_partial",
+		});
+
+		await vi.waitFor(() => expect(started).toEqual([1, 2]));
+		gates.get(1)?.resolve(generated(1));
+		await vi.waitFor(() => expect(started).toEqual([1, 2, 3]));
+		gates.get(2)?.resolve({ message: "quota", status: "failed" });
+		gates.get(3)?.resolve(generated(3));
+
+		await expect(run).resolves.toEqual({
+			images: [makeImages(4)[0], makeImages(4)[2]],
+			recovered: false,
+			status: "succeeded",
+		});
+		expect(started).toEqual([1, 2, 3]);
+		expect(dependencies.capture).toHaveBeenCalledTimes(2);
+		expect(dependencies.settle).toHaveBeenCalledWith(reservation, 2);
+		expect(dependencies.markSucceeded).toHaveBeenCalledWith(
+			generating,
+			[makeImages(4)[0], makeImages(4)[2]],
+			expect.any(Date),
+		);
+	});
+
+	it("keeps terminal completion authoritative when progress persistence fails", async () => {
+		const dependencies = makeDependencies({
+			persistProgress: vi.fn().mockRejectedValue(new Error("database busy")),
+		});
+
+		await expect(
+			runImageGeneration(PAYLOAD, {
+				dependencies,
+				runId: "run_progress_failure",
+			}),
+		).resolves.toMatchObject({ images: makeImages(2), status: "succeeded" });
+		expect(dependencies.markSucceeded).toHaveBeenCalledWith(
+			expect.anything(),
+			makeImages(2),
+			expect.any(Date),
+		);
 	});
 
 	it("meters an org attempt with the acting member, not the project creator", async () => {
@@ -280,7 +511,7 @@ describe("runImageGeneration", () => {
 		);
 	});
 
-	it("publishes a stored partial prefix after reconcile_failed without repricing", async () => {
+	it("publishes a stored partial subset after reconcile_failed without repricing", async () => {
 		const generating = makeAttempt({
 			count: 4,
 			startedAt: new Date("2026-01-01T00:04:00Z"),
@@ -462,6 +693,7 @@ describe("runImageGeneration", () => {
 		).resolves.toEqual({
 			images: [
 				{
+					index: 1,
 					mediaType: "image/png",
 					url: "https://assets.example.com/images/p/a/img-1.png",
 				},
@@ -475,6 +707,7 @@ describe("runImageGeneration", () => {
 			generating,
 			[
 				{
+					index: 1,
 					mediaType: "image/png",
 					url: "https://assets.example.com/images/p/a/img-1.png",
 				},
@@ -533,10 +766,10 @@ describe("runImageGeneration", () => {
 		expect(dependencies.refund).not.toHaveBeenCalled();
 	});
 
-	it("charges a provider-completed image when storage fails after capture", async () => {
+	it("charges every provider-completed in-flight image when storage fails", async () => {
 		const dependencies = makeDependencies({
 			generateOne: vi.fn(
-				async (_attempt, _index, _signal, onProviderGeneration) => {
+				async (_attempt, _subject, _index, _signal, onProviderGeneration) => {
 					const generation = {
 						model: "openai/gpt-image-2",
 						providerMetadata: {
@@ -569,7 +802,8 @@ describe("runImageGeneration", () => {
 				}),
 			}),
 		);
-		expect(dependencies.settle).toHaveBeenCalledWith(RESERVATION, 1);
+		expect(dependencies.capture).toHaveBeenCalledTimes(2);
+		expect(dependencies.settle).toHaveBeenCalledWith(RESERVATION, 2);
 		expect(dependencies.refund).not.toHaveBeenCalled();
 	});
 

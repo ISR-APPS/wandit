@@ -70,6 +70,8 @@ export type AdminUserMembershipRow = {
 };
 
 export type AdminOrgSubscriptionRow = {
+	id: string;
+	provider: string;
 	plan: (typeof subscriptions.plan)["_"]["data"];
 	status: string;
 	interval: (typeof subscriptions.interval)["_"]["data"];
@@ -229,6 +231,8 @@ export class AdminOrganizationsRepository {
 	): Promise<AdminOrgSubscriptionRow | null> {
 		const [row] = await this.db
 			.select({
+				id: subscriptions.id,
+				provider: subscriptions.provider,
 				plan: subscriptions.plan,
 				status: subscriptions.status,
 				interval: subscriptions.interval,

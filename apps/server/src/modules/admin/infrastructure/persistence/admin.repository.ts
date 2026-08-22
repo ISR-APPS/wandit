@@ -68,6 +68,8 @@ export type AdminUserDetailRow = AdminUserSummaryRow & {
 };
 
 export type AdminSubscriptionRow = {
+	id: string;
+	provider: string;
 	plan: (typeof subscriptions.plan)["_"]["data"];
 	status: string;
 	interval: (typeof subscriptions.interval)["_"]["data"];
@@ -508,6 +510,8 @@ export class AdminRepository {
 	): Promise<AdminSubscriptionRow | null> {
 		const [row] = await client
 			.select({
+				id: subscriptions.id,
+				provider: subscriptions.provider,
 				plan: subscriptions.plan,
 				status: subscriptions.status,
 				interval: subscriptions.interval,

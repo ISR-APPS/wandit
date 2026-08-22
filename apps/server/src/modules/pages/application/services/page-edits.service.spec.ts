@@ -43,6 +43,8 @@ const ACTIVE_VERSION_ID = "44444444-4444-4444-8444-444444444444";
 const RESTORED_VERSION_ID = "55555555-5555-4555-8555-555555555555";
 const RACED_VERSION_ID = "66666666-6666-4666-8666-666666666666";
 const IMAGE_GENERATION_ATTEMPT_ID = "99999999-9999-4999-8999-999999999999";
+const ACTIVE_PRODUCT_SKU = "ACTIVE-SKU";
+const RESTORED_PRODUCT_SKU = "RESTORED-SKU";
 const RESTORED_R2_KEY = `sites/${PROJECT_ID}/${RESTORED_VERSION_ID}/index.html`;
 
 function setup() {
@@ -89,6 +91,7 @@ function mockActivePage(
 		version: {
 			id: ACTIVE_VERSION_ID,
 			number: 3,
+			productSku: ACTIVE_PRODUCT_SKU,
 			r2Key: `sites/${PROJECT_ID}/${ACTIVE_VERSION_ID}/index.html`,
 		},
 	});
@@ -102,6 +105,7 @@ function mockAiActivePage(
 		version: {
 			id: ACTIVE_VERSION_ID,
 			number: 3,
+			productSku: ACTIVE_PRODUCT_SKU,
 			r2Key: `sites/${PROJECT_ID}/${ACTIVE_VERSION_ID}/index.html`,
 		},
 	});
@@ -115,6 +119,7 @@ function mockRestorableVersion(
 		version: {
 			id: ACTIVE_VERSION_ID,
 			number: 3,
+			productSku: ACTIVE_PRODUCT_SKU,
 			r2Key: `sites/${PROJECT_ID}/${ACTIVE_VERSION_ID}/index.html`,
 		},
 	});
@@ -122,6 +127,7 @@ function mockRestorableVersion(
 		artifactId: ARTIFACT_ID,
 		id: RESTORED_VERSION_ID,
 		projectId: PROJECT_ID,
+		productSku: RESTORED_PRODUCT_SKU,
 		r2Key: RESTORED_R2_KEY,
 	});
 }
@@ -172,6 +178,7 @@ describe("PageEditsService.restoreVersion", () => {
 				source: "restore",
 			},
 			projectId: PROJECT_ID,
+			productSku: RESTORED_PRODUCT_SKU,
 			r2Key: expect.any(String),
 			versionId: expect.any(String),
 		});
@@ -540,6 +547,7 @@ describe("PageEditsService.applyAiOps", () => {
 				source: "ai-edit",
 			},
 			projectId: PROJECT_ID,
+			productSku: ACTIVE_PRODUCT_SKU,
 			r2Key: expect.any(String),
 			versionId: expect.any(String),
 		});

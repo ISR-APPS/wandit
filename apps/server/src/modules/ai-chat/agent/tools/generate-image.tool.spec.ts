@@ -53,7 +53,9 @@ const INPUT = {
 	title: "Hero product image",
 } satisfies GenerateImageInput;
 
-function setup(options: { parentEventId?: string; quality?: string } = {}) {
+function setup(
+	options: { organizationId?: string; parentEventId?: string } = {},
+) {
 	const imageGenerationsRepository = {
 		insertAttempt: vi.fn(),
 		markAttemptFailed: vi.fn().mockResolvedValue(true),
@@ -90,9 +92,13 @@ function setup(options: { parentEventId?: string; quality?: string } = {}) {
 		pagesRepository: pagesRepository as unknown as PagesRepository,
 		parentEventId: options.parentEventId ?? "parent_event_1",
 		projectId: "project_1",
-		quality: options.quality,
 		requestKeySeed: REQUEST_KEY_SEED,
-		subject: { actorUserId: "user_1" },
+		subject: {
+			actorUserId: "user_1",
+			...(options.organizationId
+				? { organizationId: options.organizationId }
+				: {}),
+		},
 		userId: "user_1",
 	});
 	const run = imageTool.execute;
@@ -228,9 +234,7 @@ describe("generate_image placement", () => {
 	});
 
 	it("persists placement, reserves the image count, and triggers the billed child run", async () => {
-		const { execute, imageGenerationsRepository, meteringService } = setup({
-			quality: "high",
-		});
+		const { execute, imageGenerationsRepository, meteringService } = setup();
 		imageGenerationsRepository.insertAttempt.mockResolvedValue({
 			created: true,
 			id: ATTEMPT_ID,
@@ -264,7 +268,6 @@ describe("generate_image placement", () => {
 			sourceImageUrls: [],
 			spec: {
 				placement: { ...PLACEMENT, status: "pending" },
-				quality: "high",
 			},
 			title: INPUT.title,
 		});
@@ -296,10 +299,34 @@ describe("generate_image placement", () => {
 				userId: "user_1",
 			},
 			expect.objectContaining({
+				concurrencyKey: "user:user_1",
 				idempotencyKey: "global-image-generation-key",
 			}),
 		);
 		expect(output).toMatchObject({ attemptId: ATTEMPT_ID, status: "queued" });
+	});
+
+	it("partitions the task queue by organization payer", async () => {
+		const { execute, imageGenerationsRepository } = setup({
+			organizationId: "org_1",
+		});
+		imageGenerationsRepository.insertAttempt.mockResolvedValue({
+			created: true,
+			id: ATTEMPT_ID,
+			status: "queued",
+		});
+		vi.mocked(tasks.trigger).mockResolvedValue({
+			id: "run_org",
+		} as Awaited<ReturnType<typeof tasks.trigger>>);
+		const { placement: _, ...standaloneInput } = INPUT;
+
+		await execute(standaloneInput);
+
+		expect(tasks.trigger).toHaveBeenCalledWith(
+			"generate-image",
+			expect.objectContaining({ organizationId: "org_1" }),
+			expect.objectContaining({ concurrencyKey: "org:org_1" }),
+		);
 	});
 
 	it("keeps standalone generation independent of active page HTML", async () => {

@@ -6,8 +6,9 @@
  * format, duration, voiceover); the server-side creative director rewrites
  * it into ONE domain-language provider prompt at queue time and snapshots it
  * on the attempt row, so the background task executes exactly what was
- * captured. Voiceover is captured with the attempt but stays a stub until
- * the audio provider lands.
+ * captured. Talking-person speech and off-camera narration both route through
+ * Kling 3.0's native voice control; the persisted talking flag still means a
+ * person visibly speaks on screen.
  */
 import { createHash } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
@@ -31,11 +32,14 @@ import {
 	createImageAnimationBilling,
 	type ImageAnimationBilling,
 } from "../../../media-generations/application/services/image-animation-billing";
-import type { VideoDirectorService } from "../../../media-generations/application/services/video-director";
+import {
+	appendNativeNarrationToVideoPrompt,
+	type VideoDirectorService,
+} from "../../../media-generations/application/services/video-director";
+import { resolveVideoGenerationPlan } from "../../../media-generations/domain/video-quality-models";
 import type { MediaGenerationsRepository } from "../../../media-generations/infrastructure/persistence/media-generations.repository";
 import { assertFixedOperationProviderExecutionAllowed } from "../../../metering/application/services/fixed-operation-billing";
 import type { MeteringService } from "../../../metering/application/services/metering.service";
-import { resolveTextToVideoModel } from "../site-builder/generate-video";
 
 const logger = new Logger("generate-video");
 const TRIGGER_HANDOFF_ATTEMPTS = 3;
@@ -81,11 +85,18 @@ export function createGenerateVideoTool(
 		outputSchema: generateVideoOutputSchema,
 		execute: async (input, options): Promise<GenerateVideoOutput> => {
 			const clip = clipOrdinal++;
-			const model = resolveTextToVideoModel();
+			const narration = Boolean(input.voiceover?.script) && !input.talking;
+			const plan = resolveVideoGenerationPlan({
+				durationSeconds: input.durationSeconds,
+				kind: "t2v",
+				multiShot: input.multiShot,
+				narration,
+				quality: input.quality,
+				talking: input.talking,
+			});
 
 			if (
 				!env.AI_GATEWAY_API_KEY ||
-				!model ||
 				!env.R2_PUBLIC_BASE_URL ||
 				!isR2Configured() ||
 				!env.TRIGGER_SECRET_KEY
@@ -93,7 +104,7 @@ export function createGenerateVideoTool(
 				return {
 					message:
 						"Video generation is not configured on this server yet. Tell " +
-						"the user honestly that a text-to-video model, storage, and " +
+						"the user honestly that AI gateway, storage, and " +
 						"Trigger.dev credentials are required.",
 					status: "unavailable",
 				};
@@ -106,11 +117,14 @@ export function createGenerateVideoTool(
 				aspect: input.aspect,
 				brief: input.brief,
 				durationSeconds: input.durationSeconds,
-				model,
+				model: plan.modelId,
+				multiShot: input.multiShot,
 				organizationId: deps.subject.organizationId ?? null,
 				parentEventId: deps.parentEventId,
+				talking: input.talking,
 				userId: deps.userId,
 				voiceoverLanguage: input.voiceover?.language,
+				voiceoverScript: input.voiceover?.script,
 			});
 
 			let attempt: {
@@ -120,11 +134,11 @@ export function createGenerateVideoTool(
 			};
 
 			try {
-				// Only replay-stable fields enter the hash — the model-authored
-				// brief/title are composed fresh on a retried turn and would defeat
-				// the videoSubmissionId dedup (same reason animate_image excludes
-				// its prompt). The clip ordinal keeps two different clips requested
-				// in ONE turn from colliding.
+				// Only transport-stable fields enter the hash. The model-authored
+				// brief/title/quality/talking/multiShot fields can be recomposed on a
+				// retried turn and must not defeat videoSubmissionId dedup; the first
+				// persisted snapshot decides what renders. The clip ordinal keeps two
+				// different clips requested in ONE turn from colliding.
 				const requestKey = createHash("sha256")
 					.update(
 						JSON.stringify({
@@ -142,12 +156,20 @@ export function createGenerateVideoTool(
 					chatId: deps.chatId,
 					durationSeconds: input.durationSeconds,
 					kind: "text-to-video",
+					model: plan.modelId,
 					motion: null,
 					projectId: deps.projectId,
-					prompt: crafted.prompt,
+					prompt: narration
+						? appendNativeNarrationToVideoPrompt(
+								crafted.prompt,
+								input.voiceover,
+							)
+						: crafted.prompt,
+					quality: plan.quality,
 					requestKey,
 					sourceImageUrl: null,
 					sourceMediaType: null,
+					talking: input.talking,
 					title: input.title,
 					voiceover: input.voiceover ?? null,
 				});
@@ -176,6 +198,16 @@ export function createGenerateVideoTool(
 				};
 			}
 
+			if (!attempt.created && attempt.status === "queued") {
+				return {
+					attemptId: attempt.id,
+					message:
+						"This video request was already accepted. Its existing " +
+						"progress card appears in the conversation.",
+					status: "queued",
+				};
+			}
+
 			if (
 				!attempt.created &&
 				(attempt.status === "generating" || attempt.status === "succeeded")
@@ -194,7 +226,12 @@ export function createGenerateVideoTool(
 				attempt.id,
 				deps.parentEventId,
 				undefined,
-				{ durationSeconds: input.durationSeconds, kind: "text-to-video" },
+				{
+					audio: input.talking || narration,
+					durationSeconds: input.durationSeconds,
+					kind: "text-to-video",
+					modelId: plan.modelId,
+				},
 			);
 
 			assertFixedOperationProviderExecutionAllowed(reservation);
@@ -286,11 +323,13 @@ export function createGenerateVideoTool(
 					`Queued: the ${input.durationSeconds}-second video is rendering ` +
 					"in the background. Progress and the playable result appear here " +
 					"in the conversation." +
-					(input.voiceover
-						? " The voiceover script is saved with the request; narration " +
-							"audio ships with the upcoming audio provider, so today's " +
-							"clip renders silent — say so honestly."
-						: ""),
+					(input.voiceover && input.talking
+						? " Voice control is enabled for the on-camera speaker."
+						: narration
+							? " The clip will carry the requested narration."
+							: input.voiceover
+								? " The voiceover language is saved, but without an exact script this clip renders silent."
+								: ""),
 				status: "queued",
 			};
 		},

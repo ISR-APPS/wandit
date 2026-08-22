@@ -21,12 +21,12 @@ type ExampleCardProps = {
 export function ExampleCard({ example, onDelete }: ExampleCardProps) {
 	return (
 		<View className="flex-row items-center justify-between rounded-2xl border border-neutral-200 p-4">
-			<Text className="text-base font-semibold text-neutral-900">
+			<Text className="font-semibold text-base text-neutral-900">
 				{example.title}
 			</Text>
 
 			<Pressable hitSlop={8} onPress={() => onDelete(example.id)}>
-				<Text className="text-sm font-medium text-red-500">Delete</Text>
+				<Text className="font-medium text-red-500 text-sm">Delete</Text>
 			</Pressable>
 		</View>
 	);

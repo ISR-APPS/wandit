@@ -1,10 +1,13 @@
+import { NotFoundException } from "@nestjs/common";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
 import type { Database } from "../../../../infrastructure/database/database.constants";
 import {
+	getObjectBytes,
 	getObjectContentType,
 	imageGenerationKey,
+	publicAssetKeyFromUrl,
 	publicAssetUrl,
 } from "../../../../infrastructure/storage/r2";
 import type { MeteringService } from "../../../metering/application/services/metering.service";
@@ -139,9 +142,11 @@ function setupStaleRecovery() {
 }
 
 beforeEach(() => {
+	vi.mocked(getObjectBytes).mockReset();
 	vi.mocked(getObjectContentType).mockReset();
 	vi.mocked(getObjectContentType).mockResolvedValue("image/png");
 	vi.mocked(imageGenerationKey).mockClear();
+	vi.mocked(publicAssetKeyFromUrl).mockReset();
 	vi.mocked(publicAssetUrl).mockClear();
 });
 
@@ -184,7 +189,7 @@ describe("ImageGenerationsService stale recovery billing", () => {
 		expect(meteringService.refund).not.toHaveBeenCalled();
 	});
 
-	it("publishes the durable partial prefix and settles against durable completion evidence", async () => {
+	it("publishes the durable sparse subset and settles against durable completion evidence", async () => {
 		const { meteringService, repository, service, updateSet } =
 			setupStaleRecovery();
 		const partialRow = { ...STALE_ROW, count: 4 };
@@ -197,31 +202,118 @@ describe("ImageGenerationsService stale recovery billing", () => {
 					completedAt: new Date(),
 					images: [
 						{
+							index: 1,
 							mediaType: "image/png",
 							url: "https://assets.example.com/recovered-1.png",
+						},
+						{
+							index: 3,
+							mediaType: "image/png",
+							url: "https://assets.example.com/recovered-3.png",
 						},
 					],
 					status: "succeeded",
 				}),
 			);
 		vi.mocked(getObjectContentType).mockImplementation(async (key) =>
-			key.endsWith("img-1.png") ? "image/png" : null,
+			key.endsWith("img-1.png") || key.endsWith("img-3.png")
+				? "image/png"
+				: null,
 		);
 
 		await expect(service.attempt(SCOPE, STALE_ROW.id)).resolves.toMatchObject({
-			images: [expect.objectContaining({ mediaType: "image/png" })],
+			images: [
+				expect.objectContaining({ index: 1, mediaType: "image/png" }),
+				expect.objectContaining({ index: 3, mediaType: "image/png" }),
+			],
 			status: "succeeded",
 		});
 		expect(meteringService.settleMeasuredFromEvidence).toHaveBeenCalledWith(
 			"usage_event_image",
-			1,
+			2,
 		);
 		expect(updateSet).toHaveBeenCalledWith(
 			expect.objectContaining({
-				images: [expect.objectContaining({ mediaType: "image/png" })],
+				images: [
+					expect.objectContaining({ index: 1, mediaType: "image/png" }),
+					expect.objectContaining({ index: 3, mediaType: "image/png" }),
+				],
 				status: "succeeded",
 			}),
 		);
+	});
+});
+
+describe("ImageGenerationsService download", () => {
+	it("resolves an original generation index from a sparse successful subset", async () => {
+		const thirdUrl = "https://assets.example.com/images/result-3.png";
+		const repository = {
+			findAccessibleAttempt: vi.fn().mockResolvedValue(
+				attemptRow({
+					count: 4,
+					images: [
+						{
+							index: 1,
+							mediaType: "image/png",
+							url: "https://assets.example.com/images/result-1.png",
+						},
+						{ index: 3, mediaType: "image/png", url: thirdUrl },
+					],
+				}),
+			),
+		};
+		const service = new ImageGenerationsService(
+			repository as unknown as ImageGenerationsRepository,
+			{} as ImageGenerationPlacementService,
+			{} as MeteringService,
+			{} as Database,
+			{} as AnalyticsService,
+		);
+		vi.mocked(publicAssetKeyFromUrl).mockReturnValueOnce(
+			"images/project/result-3.png",
+		);
+		vi.mocked(getObjectBytes).mockResolvedValueOnce(new Uint8Array([1, 2, 3]));
+
+		await expect(service.download(SCOPE, ATTEMPT_ID, 3)).resolves.toEqual({
+			bytes: new Uint8Array([1, 2, 3]),
+			fileName: "product-image-3.png",
+			mediaType: "image/png",
+		});
+		expect(publicAssetKeyFromUrl).toHaveBeenCalledWith(thirdUrl);
+	});
+
+	it("does not fall back positionally when an indexed slot is missing", async () => {
+		const repository = {
+			findAccessibleAttempt: vi.fn().mockResolvedValue(
+				attemptRow({
+					count: 4,
+					images: [
+						{
+							index: 2,
+							mediaType: "image/png",
+							url: "https://assets.example.com/images/result-2.png",
+						},
+						{
+							index: 3,
+							mediaType: "image/png",
+							url: "https://assets.example.com/images/result-3.png",
+						},
+					],
+				}),
+			),
+		};
+		const service = new ImageGenerationsService(
+			repository as unknown as ImageGenerationsRepository,
+			{} as ImageGenerationPlacementService,
+			{} as MeteringService,
+			{} as Database,
+			{} as AnalyticsService,
+		);
+
+		await expect(service.download(SCOPE, ATTEMPT_ID, 1)).rejects.toBeInstanceOf(
+			NotFoundException,
+		);
+		expect(publicAssetKeyFromUrl).not.toHaveBeenCalled();
 	});
 });
 

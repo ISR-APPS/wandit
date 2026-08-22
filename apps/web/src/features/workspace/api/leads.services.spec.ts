@@ -23,6 +23,7 @@ function response(id: string, nextCursor: string | null): LeadsResponse {
 				id,
 				name: `Lead ${id}`,
 				phone: "+213550000000",
+				productSku: null,
 				source: "direct",
 				status: "confirmed",
 				wilaya: null,

@@ -20,6 +20,7 @@ export function toLeadDto(row: LeadRow): Lead {
 		id: row.id,
 		name: row.name,
 		phone: row.phone,
+		productSku: row.productSku,
 		source: deriveLeadSource(row.attribution),
 		status: row.status,
 		wilaya: row.wilaya,

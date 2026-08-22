@@ -8,13 +8,17 @@ import {
 	Param,
 	Patch,
 	Post,
+	Query,
 } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
 	type CreateProjectBody,
 	type CreateProjectResponse,
 	createProjectBodySchema,
+	type ListProjectsPageResponse,
+	type ListProjectsQuery,
 	type ListProjectsResponse,
+	listProjectsQuerySchema,
 	type Project,
 	type UpdateProjectBody,
 	updateProjectBodySchema,
@@ -47,6 +51,19 @@ export class ProjectsController {
 		@CurrentWorkspace() workspace: WorkspaceContext,
 	): Promise<ListProjectsResponse> {
 		return this.projectsService.list(projectScopeFrom(workspace, user.id));
+	}
+
+	@Get("paged")
+	listPaged(
+		@Query(new ZodValidationPipe(listProjectsQuerySchema))
+		query: ListProjectsQuery,
+		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
+	): Promise<ListProjectsPageResponse> {
+		return this.projectsService.listPaged(
+			projectScopeFrom(workspace, user.id),
+			query,
+		);
 	}
 
 	@RequireWorkspacePermission("project", "create")

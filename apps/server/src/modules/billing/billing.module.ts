@@ -1,12 +1,16 @@
 import { Module } from "@nestjs/common";
 
 import { DatabaseModule } from "../../infrastructure/database/database.module";
+import { AdminSecurityModule } from "../admin/admin-security.module";
 import { AffiliatesModule } from "../affiliates/affiliates.module";
 import { CreditsModule } from "../credits/credits.module";
+import { EmailModule } from "../email/email.module";
 import { OrdersModule } from "../orders/orders.module";
 import { SettingsModule } from "../settings/settings.module";
 import { BillingService } from "./application/services/billing.service";
 import { BillingWebhookRetryService } from "./application/services/billing-webhook-retry.service";
+import { ManualSubscriptionRequestsService } from "./application/services/manual-subscription-requests.service";
+import { ManualSubscriptionsService } from "./application/services/manual-subscriptions.service";
 import { PaymentRefundsService } from "./application/services/payment-refunds.service";
 import { StripeEventRouter } from "./application/services/stripe-event-router.service";
 import { StripeSubscriptionSyncService } from "./application/services/stripe-subscription-sync.service";
@@ -23,28 +27,41 @@ import { BillingTopupReceiptsRepository } from "./infrastructure/persistence/bil
 import { BillingWebhookEventsRepository } from "./infrastructure/persistence/billing-webhook-events.repository";
 import { CancellationReasonsRepository } from "./infrastructure/persistence/cancellation-reasons.repository";
 import { FinancialReconciliationOutboxRepository } from "./infrastructure/persistence/financial-reconciliation-outbox.repository";
+import { ManualSubscriptionPaymentsRepository } from "./infrastructure/persistence/manual-subscription-payments.repository";
+import { ManualSubscriptionRequestsRepository } from "./infrastructure/persistence/manual-subscription-requests.repository";
 import { SubscriptionCreditsRepository } from "./infrastructure/persistence/subscription-credits.repository";
 import { SubscriptionStateEventsRepository } from "./infrastructure/persistence/subscription-state-events.repository";
 import { SubscriptionsRepository } from "./infrastructure/persistence/subscriptions.repository";
+import { AdminManualBillingController } from "./presentation/http/controllers/admin-manual-billing.controller";
 import { BillingController } from "./presentation/http/controllers/billing.controller";
+import { ManualBillingController } from "./presentation/http/controllers/manual-billing.controller";
 import { StripeWebhookController } from "./presentation/http/controllers/stripe-webhook.controller";
+import { WebOriginWriteGuard } from "./presentation/http/guards/web-origin-write.guard";
 
 @Module({
-	controllers: [BillingController, StripeWebhookController],
+	controllers: [
+		AdminManualBillingController,
+		BillingController,
+		ManualBillingController,
+		StripeWebhookController,
+	],
 	exports: [
 		BillingService,
 		BillingWebhookRetryService,
 		SubscriptionRefillService,
 	],
 	imports: [
+		AdminSecurityModule,
 		AffiliatesModule,
 		BillingPaymentsModule,
 		CreditsModule,
 		DatabaseModule,
+		EmailModule,
 		OrdersModule,
 		SettingsModule,
 	],
 	providers: [
+		WebOriginWriteGuard,
 		BillingChangeIntentsRepository,
 		BillingCheckoutAttemptsRepository,
 		BillingCreditLedgerRepository,
@@ -55,6 +72,10 @@ import { StripeWebhookController } from "./presentation/http/controllers/stripe-
 		BillingWebhookEventsRepository,
 		CancellationReasonsRepository,
 		FinancialReconciliationOutboxRepository,
+		ManualSubscriptionPaymentsRepository,
+		ManualSubscriptionRequestsRepository,
+		ManualSubscriptionRequestsService,
+		ManualSubscriptionsService,
 		PaymentRefundsService,
 		StripeEventRouter,
 		StripeSubscriptionSyncService,

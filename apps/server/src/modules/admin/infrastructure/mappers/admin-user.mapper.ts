@@ -88,6 +88,8 @@ function mapAdminUserSubscription(
 	row: AdminSubscriptionRow,
 ): AdminUserSubscription {
 	return {
+		id: row.id,
+		provider: row.provider,
 		plan: billingPlanIdSchema.parse(row.plan),
 		status: row.status,
 		interval: row.interval,

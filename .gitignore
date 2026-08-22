@@ -67,3 +67,7 @@ _cc-harness
 
 # Third-party references
 references/
+
+# Expo prebuild output (native projects are generated, not authored)
+apps/native/ios/
+apps/native/android/

@@ -4,6 +4,8 @@
 
 // Academy guide tables.
 export * from "./academy";
+// Admin funnel outreach tracking.
+export * from "./admin-funnel-contacts";
 // Affiliate programs, attribution, commissions, and payouts.
 export * from "./affiliates";
 // Generated page/artifact tables.
@@ -36,8 +38,9 @@ export * from "./leads";
 // Marketing deliverable (HTML asset) tables.
 export * from "./marketing-assets";
 export * from "./mcp-connectors";
-// Image-to-video generation attempt tables.
+// Video generation attempt and continuation-leg tables.
 export * from "./media-generation-attempts";
+export * from "./media-generation-legs";
 // Monthly cost input tables.
 export * from "./monthly-costs";
 // User onboarding questionnaire answers.

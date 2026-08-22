@@ -7,14 +7,22 @@ import {
 	isR2Configured,
 	putSiteFile,
 } from "../../../../infrastructure/storage/r2";
-import { generateBuildVideo, videoCostEstimateInput } from "./generate-video";
+import { prepareVideoSourceImage } from "../../../media-generations/application/services/prepare-video-source-image";
+import {
+	editVideoProviderTimeoutMs,
+	generateBuildVideo,
+	generateTextToVideo,
+	videoCostEstimateInput,
+	videoProviderTimeoutMs,
+} from "./generate-video";
 
 // Env is a mutable stub so each test controls exactly which keys exist; the
 // real r2 key/url helpers stay in place (they are what the URL test proves),
 // while everything with credentials or network is mocked.
 const mockEnv = vi.hoisted(() => ({
-	AI_VIDEO_MODEL: undefined as string | undefined,
+	AI_GATEWAY_API_KEY: undefined as string | undefined,
 	R2_PUBLIC_BASE_URL: undefined as string | undefined,
+	TRIGGER_SECRET_KEY: undefined as string | undefined,
 }));
 
 vi.mock("@wandit/env/server", () => ({ env: mockEnv }));
@@ -24,6 +32,11 @@ vi.mock("ai", () => ({ experimental_generateVideo: vi.fn() }));
 vi.mock("@ai-sdk/gateway", () => ({
 	gateway: { video: vi.fn(() => ({ modelId: "mock-video-model" })) },
 }));
+
+vi.mock(
+	"../../../media-generations/application/services/prepare-video-source-image",
+	() => ({ prepareVideoSourceImage: vi.fn() }),
+);
 
 vi.mock("../../../../infrastructure/storage/r2", async (importOriginal) => {
 	const original =
@@ -41,8 +54,22 @@ const PARAMS = {
 		"https://assets.example.com/sites/project_1/assets/attempt_1/img-1.png",
 	index: 2,
 	metering: { operation: "video" as const, userId: "user_1" },
+	modelId: "klingai/kling-v2.6-i2v",
 	motionPrompt: "steam drifts slowly off the tagine, warm light breathes",
 	projectId: "project_1",
+	voiceControl: false,
+};
+
+const TEXT_PARAMS = {
+	aspect: "16:9" as const,
+	attemptId: "attempt_1",
+	durationSeconds: 10 as const,
+	index: 1,
+	metering: { operation: "video" as const, userId: "user_1" },
+	modelId: "klingai/kling-v2.6-t2v",
+	prompt: "A cinematic product reveal",
+	projectId: "project_1",
+	voiceControl: false,
 };
 
 function mockGeneratedVideo(mediaType = "video/mp4") {
@@ -52,6 +79,7 @@ function mockGeneratedVideo(mediaType = "video/mp4") {
 			uint8Array: new Uint8Array([9, 9, 9]),
 		},
 		providerMetadata: { gateway: { generationId: "generation_1" } },
+		warnings: [],
 	} as unknown as Awaited<ReturnType<typeof generateVideo>>);
 }
 
@@ -60,13 +88,46 @@ beforeEach(() => {
 	vi.mocked(gateway.video).mockClear();
 	vi.mocked(isR2Configured).mockReset().mockReturnValue(true);
 	vi.mocked(putSiteFile).mockReset().mockResolvedValue(undefined);
-	mockEnv.AI_VIDEO_MODEL = "klingai/kling-v2.6-i2v";
+	vi.mocked(prepareVideoSourceImage).mockReset().mockResolvedValue({
+		height: 900,
+		mediaType: "image/png",
+		repaired: false,
+		status: "ready",
+		url: PARAMS.imageUrl,
+		width: 1_600,
+	});
+	mockEnv.AI_GATEWAY_API_KEY = "gateway_test";
 	mockEnv.R2_PUBLIC_BASE_URL = "https://assets.example.com";
+	mockEnv.TRIGGER_SECRET_KEY = "tr_dev_test";
+});
+
+describe("videoProviderTimeoutMs", () => {
+	it("keeps the old ceiling through ten seconds and scales arbitrary positive durations", () => {
+		expect(videoProviderTimeoutMs(4)).toBe(6 * 60_000);
+		expect(videoProviderTimeoutMs(5)).toBe(6 * 60_000);
+		expect(videoProviderTimeoutMs(10)).toBe(6 * 60_000);
+		expect(videoProviderTimeoutMs(15)).toBe(495_000);
+		expect(videoProviderTimeoutMs(30)).toBe(15 * 60_000);
+	});
+
+	it("leaves edit-task settlement headroom at the thirty-second ceiling", () => {
+		expect(editVideoProviderTimeoutMs(10)).toBe(6 * 60_000);
+		expect(editVideoProviderTimeoutMs(30)).toBe(14 * 60_000);
+	});
+
+	it.each([
+		0,
+		-1,
+		Number.NaN,
+		Number.POSITIVE_INFINITY,
+	])("rejects non-positive or non-finite duration %s", (durationSeconds) => {
+		expect(() => videoProviderTimeoutMs(durationSeconds)).toThrow(RangeError);
+	});
 });
 
 describe("generateBuildVideo", () => {
-	it("answers unavailable when AI_VIDEO_MODEL is unset", async () => {
-		mockEnv.AI_VIDEO_MODEL = undefined;
+	it("answers unavailable when the AI Gateway key is unset", async () => {
+		mockEnv.AI_GATEWAY_API_KEY = undefined;
 
 		const result = await generateBuildVideo(PARAMS);
 
@@ -92,6 +153,15 @@ describe("generateBuildVideo", () => {
 		expect(generateVideo).not.toHaveBeenCalled();
 	});
 
+	it("answers unavailable when Trigger.dev is unconfigured", async () => {
+		mockEnv.TRIGGER_SECRET_KEY = undefined;
+
+		const result = await generateBuildVideo(PARAMS);
+
+		expect(result).toMatchObject({ status: "unavailable" });
+		expect(generateVideo).not.toHaveBeenCalled();
+	});
+
 	it("refuses images that are not Wandit-hosted assets", async () => {
 		const result = await generateBuildVideo({
 			...PARAMS,
@@ -103,6 +173,69 @@ describe("generateBuildVideo", () => {
 			status: "failed",
 		});
 		expect(generateVideo).not.toHaveBeenCalled();
+		expect(prepareVideoSourceImage).not.toHaveBeenCalled();
+	});
+
+	it("returns the source pre-flight reason without calling the provider", async () => {
+		vi.mocked(prepareVideoSourceImage).mockResolvedValueOnce({
+			reasonCode: "aspect_extreme",
+			status: "rejected",
+			userMessage:
+				"This image is 8192×512 px (16:1). Please send a less stretched image.",
+		});
+
+		const result = await generateBuildVideo(PARAMS);
+
+		expect(result).toEqual({
+			message: "video source image pre-flight rejected: aspect_extreme",
+			reasonCode: "aspect_extreme",
+			status: "failed",
+			userMessage:
+				"This image is 8192×512 px (16:1). Please send a less stretched image.",
+		});
+		expect(generateVideo).not.toHaveBeenCalled();
+	});
+
+	it("maps a transient source preparation failure to a raw failed result", async () => {
+		vi.mocked(prepareVideoSourceImage).mockRejectedValueOnce(
+			new Error("R2 temporarily unavailable"),
+		);
+
+		const result = await generateBuildVideo(PARAMS);
+
+		expect(result).toEqual({
+			message: "R2 temporarily unavailable",
+			status: "failed",
+		});
+		expect(result).not.toHaveProperty("userMessage");
+		expect(generateVideo).not.toHaveBeenCalled();
+	});
+
+	it("uses the prepared source URL as the provider image input", async () => {
+		mockGeneratedVideo();
+		vi.mocked(prepareVideoSourceImage).mockResolvedValueOnce({
+			height: 900,
+			mediaType: "image/jpeg",
+			repaired: true,
+			status: "ready",
+			url: "https://assets.example.com/sites/project_1/assets/attempt_1/img-1.video-src-f50714c0.jpg",
+			width: 1_600,
+		});
+
+		await generateBuildVideo(PARAMS);
+
+		expect(prepareVideoSourceImage).toHaveBeenCalledWith({
+			modelId: "klingai/kling-v2.6-i2v",
+			sourceUrl: PARAMS.imageUrl,
+		});
+		expect(generateVideo).toHaveBeenCalledWith(
+			expect.objectContaining({
+				prompt: expect.objectContaining({
+					image:
+						"https://assets.example.com/sites/project_1/assets/attempt_1/img-1.video-src-f50714c0.jpg",
+				}),
+			}),
+		);
 	});
 
 	it("generates, uploads under the attempt, and returns the public URL", async () => {
@@ -117,6 +250,7 @@ describe("generateBuildVideo", () => {
 				duration: 5,
 				fps: 30,
 				generateAudio: false,
+				maxRetries: 0,
 				n: 1,
 				prompt: {
 					image: PARAMS.imageUrl,
@@ -145,6 +279,25 @@ describe("generateBuildVideo", () => {
 			status: "generated",
 			url: "https://assets.example.com/sites/project_1/assets/attempt_1/vid-2.mp4",
 		});
+	});
+
+	it("passes a snapshotted ten-second duration for extension legs", async () => {
+		mockGeneratedVideo();
+
+		await generateBuildVideo({
+			...PARAMS,
+			durationSeconds: 10,
+			profile: "image-animation",
+		});
+
+		expect(generateVideo).toHaveBeenCalledWith(
+			expect.objectContaining({
+				duration: 10,
+				prompt: expect.objectContaining({
+					text: expect.stringContaining("continuous ten-second"),
+				}),
+			}),
+		);
 	});
 
 	it("persists provider evidence before uploading builder video bytes", async () => {
@@ -186,11 +339,11 @@ describe("generateBuildVideo", () => {
 	});
 
 	it("does not send Kling-only options to another video provider", async () => {
-		mockEnv.AI_VIDEO_MODEL = "google/veo-test";
 		mockGeneratedVideo();
 
 		await generateBuildVideo({
 			...PARAMS,
+			modelId: "google/veo-test",
 			profile: "image-animation",
 		});
 
@@ -256,44 +409,188 @@ describe("generateBuildVideo", () => {
 			status: "failed",
 		});
 	});
+
+	it("enables Kling voice control and native audio for talking people", async () => {
+		mockGeneratedVideo();
+
+		await generateBuildVideo({
+			...PARAMS,
+			modelId: "klingai/kling-v3.0-i2v",
+			voiceControl: true,
+		});
+
+		expect(generateVideo).toHaveBeenCalledWith(
+			expect.objectContaining({
+				generateAudio: true,
+				providerOptions: expect.objectContaining({
+					klingai: { mode: "std", voice_control: true },
+				}),
+			}),
+		);
+	});
+});
+
+describe("generateTextToVideo", () => {
+	it("uses the explicit model parameter and disables SDK retries", async () => {
+		mockGeneratedVideo();
+
+		const result = await generateTextToVideo({
+			...TEXT_PARAMS,
+			modelId: "klingai/kling-v3.0-t2v",
+		});
+
+		expect(gateway.video).toHaveBeenCalledWith("klingai/kling-v3.0-t2v");
+		expect(generateVideo).toHaveBeenCalledWith(
+			expect.objectContaining({ maxRetries: 0 }),
+		);
+		expect(result).toMatchObject({
+			model: "klingai/kling-v3.0-t2v",
+			status: "generated",
+		});
+	});
+
+	it("enables Kling voice control and native audio for talking people", async () => {
+		mockGeneratedVideo();
+
+		await generateTextToVideo({
+			...TEXT_PARAMS,
+			modelId: "klingai/kling-v3.0-t2v",
+			negativePrompt: "captions",
+			voiceControl: true,
+		});
+
+		expect(generateVideo).toHaveBeenCalledWith(
+			expect.objectContaining({
+				generateAudio: true,
+				providerOptions: expect.objectContaining({
+					klingai: {
+						mode: "std",
+						negativePrompt: "captions",
+						voice_control: true,
+					},
+				}),
+			}),
+		);
+	});
+
+	it("passes fifteen seconds through to a max renderer", async () => {
+		mockGeneratedVideo();
+
+		await generateTextToVideo({
+			...TEXT_PARAMS,
+			durationSeconds: 15,
+			modelId: "klingai/kling-v3.0-t2v",
+		});
+
+		expect(generateVideo).toHaveBeenCalledWith(
+			expect.objectContaining({ duration: 15 }),
+		);
+	});
+
+	it("defensively clamps fifteen seconds on the standard renderer", async () => {
+		mockGeneratedVideo();
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+		try {
+			await generateTextToVideo({
+				...TEXT_PARAMS,
+				durationSeconds: 15,
+			});
+
+			expect(generateVideo).toHaveBeenCalledWith(
+				expect.objectContaining({ duration: 10 }),
+			);
+			expect(warn).toHaveBeenCalledWith(
+				expect.stringContaining("Clamping klingai/kling-v2.6-t2v"),
+			);
+		} finally {
+			warn.mockRestore();
+		}
+	});
+
+	it("answers unavailable when the AI Gateway key is unset", async () => {
+		mockEnv.AI_GATEWAY_API_KEY = undefined;
+
+		const result = await generateTextToVideo(TEXT_PARAMS);
+
+		expect(result).toMatchObject({ status: "unavailable" });
+		expect(generateVideo).not.toHaveBeenCalled();
+	});
 });
 
 describe("videoCostEstimateInput", () => {
-	it("returns null without a configured video model", () => {
-		mockEnv.AI_VIDEO_MODEL = undefined;
-
-		expect(videoCostEstimateInput("image-animation", 5)).toBeNull();
+	it("returns null without a resolved renderer", () => {
+		expect(
+			videoCostEstimateInput({ durationSeconds: 5, modelId: null }),
+		).toBeNull();
+		expect(
+			videoCostEstimateInput({ durationSeconds: 5, modelId: undefined }),
+		).toBeNull();
 	});
 
 	it("describes the std, silent render the call sites submit", () => {
-		mockEnv.AI_VIDEO_MODEL = "klingai/kling-v2.6-i2v";
-
-		expect(videoCostEstimateInput("image-animation", 5)).toEqual({
+		expect(
+			videoCostEstimateInput({
+				durationSeconds: 5,
+				modelId: "klingai/kling-v2.6-i2v",
+			}),
+		).toEqual({
 			audio: false,
 			durationSeconds: 5,
 			kind: "video",
 			mode: "std",
 			modelId: "klingai/kling-v2.6-i2v",
 		});
-		// Text-to-video swaps Kling's -i2v suffix; unknown durations use the
-		// house five-second clip.
-		expect(videoCostEstimateInput("text-to-video", 10)).toMatchObject({
-			durationSeconds: 10,
-			modelId: "klingai/kling-v2.6-t2v",
-		});
-		expect(videoCostEstimateInput("text-to-video", null)).toMatchObject({
-			durationSeconds: 5,
-		});
+		// Unknown durations use the house five-second clip; audio follows
+		// Kling voice control.
+		expect(
+			videoCostEstimateInput({
+				audio: true,
+				durationSeconds: null,
+				modelId: "klingai/kling-v3.0-t2v",
+			}),
+		).toMatchObject({ audio: true, durationSeconds: 5 });
+		expect(
+			videoCostEstimateInput({
+				durationSeconds: 15,
+				modelId: "klingai/kling-v3.0-t2v",
+			}),
+		).toMatchObject({ durationSeconds: 15 });
+	});
+
+	it("keeps an edit's real source length and clamps the standard tier", () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+		try {
+			expect(
+				videoCostEstimateInput({
+					durationSeconds: 7,
+					modelId: "bytedance/seedance-2.5",
+				}),
+			).toMatchObject({ durationSeconds: 7 });
+			expect(
+				videoCostEstimateInput({
+					durationSeconds: 15,
+					modelId: "klingai/kling-v2.6-t2v",
+				}),
+			).toMatchObject({ durationSeconds: 10 });
+		} finally {
+			warn.mockRestore();
+		}
 	});
 
 	it("clamps the duration onto Veo's legal clip lengths", () => {
-		mockEnv.AI_VIDEO_MODEL = "google/veo-3.1-generate-001";
-
-		expect(videoCostEstimateInput("image-animation", 5)).toMatchObject({
-			durationSeconds: 6,
-		});
-		expect(videoCostEstimateInput("text-to-video", 10)).toMatchObject({
-			durationSeconds: 8,
-		});
+		expect(
+			videoCostEstimateInput({
+				durationSeconds: 5,
+				modelId: "google/veo-3.1-generate-001",
+			}),
+		).toMatchObject({ durationSeconds: 6 });
+		expect(
+			videoCostEstimateInput({
+				durationSeconds: 10,
+				modelId: "google/veo-3.1-generate-001",
+			}),
+		).toMatchObject({ durationSeconds: 8 });
 	});
 });

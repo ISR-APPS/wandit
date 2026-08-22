@@ -87,6 +87,19 @@ export type AffiliateAdminAggregate = {
 	currencies: AffiliateCurrencyAggregate[];
 };
 
+export type AffiliateAdminCoreAggregate = Pick<
+	AffiliateAdminAggregate,
+	| "activeLinkCount"
+	| "attributedUserCount"
+	| "clickCount"
+	| "currencies"
+	| "lastConversionAt"
+	| "linkCount"
+	| "paidCustomerCount"
+	| "paidInvoiceCount"
+	| "uniqueVisitorCount"
+>;
+
 export type AffiliateAdminLinkAggregate = {
 	clickCount: number;
 	uniqueVisitorCount: number;
@@ -347,6 +360,18 @@ export class AffiliateAdminRepository {
 		return row ?? null;
 	}
 
+	async findUserIdentity(
+		userId: string,
+	): Promise<{ id: string; name: string; email: string } | null> {
+		const [row] = await this.db
+			.select({ id: user.id, name: user.name, email: user.email })
+			.from(user)
+			.where(eq(user.id, userId))
+			.limit(1);
+
+		return row ?? null;
+	}
+
 	async createProgram(
 		input: CreateAffiliateProgramInput,
 	): Promise<AffiliateAdminProgramRow> {
@@ -478,6 +503,27 @@ export class AffiliateAdminRepository {
 				...this.pickAffiliateAggregate(row, quality.get(id)),
 				currencies: currencies.get(id) ?? [],
 			},
+		};
+	}
+
+	async getAffiliateCoreAggregates(
+		id: string,
+	): Promise<AffiliateAdminCoreAggregate | null> {
+		const [row] = await this.db
+			.select(this.affiliateAggregateColumns())
+			.from(affiliates)
+			.where(eq(affiliates.id, id))
+			.limit(1);
+
+		if (!row) {
+			return null;
+		}
+
+		const currencies = await this.currenciesByAffiliateIds([id]);
+
+		return {
+			...row,
+			currencies: currencies.get(id) ?? [],
 		};
 	}
 

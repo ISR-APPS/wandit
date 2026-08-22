@@ -4,6 +4,7 @@ import type {
 	CreditTier,
 	Subscription,
 } from "@wandit/contracts";
+import type { Locale } from "@wandit/internationalization";
 
 // Pro base rate: $30 per 200 credits. Business passes its own basePer100Usd
 // (2× Pro) so its volume discounts surface instead of comparing against Pro.
@@ -23,6 +24,14 @@ export function tierPriceUsd(
 	interval: BillingInterval,
 ): number {
 	return interval === "year" ? tier.annualUsd : tier.monthlyUsd;
+}
+
+export function formatUsd(value: number, locale: Locale): string {
+	return new Intl.NumberFormat(locale, {
+		style: "currency",
+		currency: "USD",
+		maximumFractionDigits: 0,
+	}).format(value);
 }
 
 export function isRenewalDowngrade(

@@ -144,7 +144,7 @@
 		"addMenuLabel": "Ajouter du contexte",
 		"addSkillLabel": "Ajouter une compétence",
 		"attachLabel": "Joindre",
-		"attachHint": "Joindre des images, PDF, documents ou tableurs",
+		"attachHint": "Joindre des images, vidéos, fichiers audio, PDF, documents ou tableurs",
 		"connectApps": "Connecter des applications",
 		"attachments": {
 			"dropHint": "Dépose tes fichiers pour les joindre",
@@ -152,7 +152,7 @@
 			"remove": "Retirer",
 			"retry": "Réessayer",
 			"unsupported": "Format non pris en charge",
-			"tooLarge": "Fichier trop lourd (15 Mo max)",
+			"tooLarge": "Fichier trop lourd (vidéo 50 Mo, audio 25 Mo, images et documents 15 Mo max)",
 			"failed": "Échec de l'envoi",
 			"signInFirst": "Connecte-toi pour joindre des fichiers"
 		},
@@ -177,7 +177,6 @@
 		"modeLabel": "Mode",
 		"outputLabel": "Sortie",
 		"settingsLabel": "Réglages de génération",
-		"qualityLabel": "Qualité",
 		"skillLibraryLabel": "Conçu par Wandit",
 		"searchSkillsPlaceholder": "Rechercher une compétence…",
 		"noSkillResults": "Aucune compétence trouvée",
@@ -196,16 +195,6 @@
 		"stepNext": "Suivant",
 		"stepDone": "Terminé",
 		"stepLabel": "Étape {current} sur {total}",
-		"quality": {
-			"standard": {
-				"label": "Standard",
-				"hint": "Rapide et efficace"
-			},
-			"max": {
-				"label": "Max",
-				"hint": "Meilleur résultat, consomme plus de crédits"
-			}
-		},
 		"routeModes": {
 			"auto": {
 				"label": "Auto",

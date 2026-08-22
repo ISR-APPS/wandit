@@ -1,8 +1,10 @@
 import { FunnelIcon } from "lucide-react";
+import { useState } from "react";
 import { toast } from "sonner";
 
 import type {
 	AnalyticsFunnelResponse,
+	AnalyticsFunnelUserStep,
 	AnalyticsQuery,
 } from "@/features/analytics/api/analytics.dto";
 import { useAdminAnalyticsFunnelQuery } from "@/features/analytics/api/analytics.queries";
@@ -10,6 +12,7 @@ import { AnalyticsPageHeader } from "@/features/analytics/components/analytics-p
 import { AnalyticsPageSkeleton } from "@/features/analytics/components/analytics-page-skeleton";
 import { AnalyticsPageState } from "@/features/analytics/components/analytics-page-state";
 import { FunnelDurationCards } from "@/features/analytics/components/funnel-duration-cards";
+import { FunnelStepUsersSheet } from "@/features/analytics/components/funnel-step-users-sheet";
 import { FunnelStepVisualization } from "@/features/analytics/components/funnel-step-visualization";
 
 type FunnelAnalyticsPageProps = {
@@ -29,6 +32,8 @@ function FunnelAnalyticsPage({
 	query,
 	onQueryChange,
 }: FunnelAnalyticsPageProps) {
+	const [selectedStep, setSelectedStep] =
+		useState<AnalyticsFunnelUserStep | null>(null);
 	const { data, isError, isFetching, isPending, refetch } =
 		useAdminAnalyticsFunnelQuery(query);
 	const hasActiveFilters = Boolean(
@@ -80,10 +85,22 @@ function FunnelAnalyticsPage({
 					<FunnelStepVisualization
 						steps={data.steps}
 						hasActiveFilters={hasActiveFilters}
+						onSelectStep={setSelectedStep}
 					/>
 					<FunnelDurationCards durations={data.durations} />
 				</>
 			)}
+
+			<FunnelStepUsersSheet
+				open={selectedStep !== null}
+				step={selectedStep}
+				query={query}
+				onOpenChange={(open) => {
+					if (!open) {
+						setSelectedStep(null);
+					}
+				}}
+			/>
 		</div>
 	);
 }

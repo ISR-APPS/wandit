@@ -44,6 +44,50 @@ function repositoryWithPlacementUpdate() {
 	return { repository, where };
 }
 
+function repositoryWithProgressUpdate(updated = true) {
+	const returning = vi
+		.fn()
+		.mockResolvedValue(updated ? [{ id: "attempt-1" }] : []);
+	const where = vi.fn((_condition: unknown) => ({ returning }));
+	const set = vi.fn(() => ({ where }));
+	const update = vi.fn(() => ({ set }));
+	const repository = new ImageGenerationsRepository(
+		{ update } as unknown as Database,
+		{ capture: vi.fn() },
+	);
+
+	return { repository, set, where };
+}
+
+describe("ImageGenerationsRepository.persistProgress", () => {
+	it("writes indexed progress only while the attempt is generating", async () => {
+		const { repository, set, where } = repositoryWithProgressUpdate();
+		const images = [
+			{
+				index: 3,
+				mediaType: "image/png",
+				url: "https://assets.example.com/img-3.png",
+			},
+		];
+
+		await expect(
+			repository.persistProgress("attempt-1", "project-1", images),
+		).resolves.toBe(true);
+		expect(set).toHaveBeenCalledWith({ images });
+
+		const condition = compileCondition(where.mock.calls[0]?.[0]);
+		expect(condition.params).toEqual(["attempt-1", "project-1", "generating"]);
+	});
+
+	it("reports a lost status guard", async () => {
+		const { repository } = repositoryWithProgressUpdate(false);
+
+		await expect(
+			repository.persistProgress("attempt-1", "project-1", []),
+		).resolves.toBe(false);
+	});
+});
+
 describe("ImageGenerationsRepository.updatePlacement", () => {
 	it("guards failed settlement by succeeded attempt and pending placement", async () => {
 		const { repository, where } = repositoryWithPlacementUpdate();

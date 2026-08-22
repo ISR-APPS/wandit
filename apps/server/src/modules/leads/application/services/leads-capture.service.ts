@@ -2,9 +2,9 @@
  * The public capture flow: anonymous and cross-origin.
  *
  * The page's primary transport posts application/json, while the unload
- * fallback may arrive as a raw text/plain string. Every quiet-discard path
- * (honeypot, duplicate) answers the same { ok: true } as a real insert so bots
- * learn nothing from the response.
+ * fallback may arrive as a raw text/plain string. Honeypots, inserts, and
+ * in-window updates answer the same { ok: true } so bots learn nothing from
+ * the response.
  */
 import {
 	BadRequestException,
@@ -24,8 +24,9 @@ import { normalizeLeadPhone } from "../../domain/normalize-lead-phone";
 import { LeadsRepository } from "../../infrastructure/persistence/leads.repository";
 import { LeadsCaptureThrottle } from "./leads-capture-throttle";
 
-// Same phone hitting the same project inside this window is a double submit
-// (page retries, impatient double click, heuristic + event both firing).
+// Same phone hitting the same project inside this window dedupes double submits
+// (page retries, impatient double click, heuristic + event both firing) by
+// updating the recent row in place; no submission is dropped.
 const DUPLICATE_WINDOW_MS = 2 * 60_000;
 
 export class LeadsCaptureRateLimitException extends HttpException {
@@ -81,30 +82,38 @@ export class LeadsCaptureService {
 			);
 		}
 
-		const isDuplicate = await this.leadsRepository.hasRecentLeadWithPhone(
-			project.id,
-			phone,
+		const loadedDeployment = body.deploymentId
+			? await this.leadsRepository.findDeploymentSnapshotById(
+					project.id,
+					body.deploymentId,
+				)
+			: null;
+		if (body.deploymentId && loadedDeployment === null) {
+			this.logger.warn(
+				`Lead capture deploymentId ${body.deploymentId} did not resolve for project ${project.id}; falling back to active deployment`,
+			);
+		}
+		// A resolved loaded deployment wins even when its SKU is null; only a
+		// missing or foreign id falls back to the currently active deployment.
+		const deployment =
+			loadedDeployment ??
+			(await this.leadsRepository.findActiveDeploymentSnapshot(project.id));
+
+		await this.leadsRepository.upsertCaptureLead(
+			{
+				attribution: body.attribution ?? null,
+				commune: body.commune || null,
+				deploymentId: deployment?.deploymentId ?? null,
+				// Spec: keep the raw phone as typed; the column only holds E.164.
+				extras: { ...body.extras, _rawPhone: body.phone },
+				name: body.name,
+				phone,
+				productSku: deployment?.productSku ?? null,
+				projectId: project.id,
+				wilaya: body.wilaya || null,
+			},
 			new Date(Date.now() - DUPLICATE_WINDOW_MS),
 		);
-		if (isDuplicate) {
-			return { ok: true };
-		}
-
-		const deploymentId = await this.leadsRepository.findActiveDeploymentId(
-			project.id,
-		);
-
-		await this.leadsRepository.insertLead({
-			attribution: body.attribution ?? null,
-			commune: body.commune || null,
-			deploymentId,
-			// Spec: keep the raw phone as typed; the column only holds E.164.
-			extras: { ...body.extras, _rawPhone: body.phone },
-			name: body.name,
-			phone,
-			projectId: project.id,
-			wilaya: body.wilaya || null,
-		});
 
 		return { ok: true };
 	}

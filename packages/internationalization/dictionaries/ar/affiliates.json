@@ -1,0 +1,159 @@
+{
+	"metaTitle": "بوابة الشركاء — Wandit",
+	"title": "بوابة الشركاء",
+	"navLabel": "الشركاء",
+	"sidebarGroup": "برنامج الشركاء",
+	"pausedNotice": "حسابك كشريك متوقف مؤقتًا. لا يزال بإمكانك مراجعة نشاطك هنا؛ تواصل معنا إذا كنت تعتقد أن ذلك حدث بالخطأ.",
+	"notPartner": {
+		"title": "هذه الصفحة مخصّصة لشركاء Wandit",
+		"body": "حسابك غير مرتبط بملف شريك. إذا كنت شريكًا، فتواصل معنا للحصول على المساعدة.",
+		"refresh": "تحديث",
+		"backToDashboard": "العودة إلى لوحة التحكم"
+	},
+	"status": {
+		"active": "نشط",
+		"paused": "متوقف مؤقتًا"
+	},
+	"stats": {
+		"clicks": "النقرات",
+		"uniqueVisitors": {
+			"one": "زائر فريد واحد",
+			"two": "زائران فريدان",
+			"few": "{count} زوار فريدين",
+			"many": "{count} زائرًا فريدًا",
+			"other": "{count} زائر فريد"
+		},
+		"signups": "التسجيلات",
+		"payingCustomers": "العملاء الدافعون",
+		"paidInvoices": {
+			"one": "فاتورة مدفوعة واحدة",
+			"two": "فاتورتان مدفوعتان",
+			"few": "{count} فواتير مدفوعة",
+			"many": "{count} فاتورة مدفوعة",
+			"other": "{count} فاتورة مدفوعة"
+		},
+		"referredRevenue": "الإيرادات الناتجة عن الإحالات",
+		"pendingCommission": "العمولات قيد الانتظار",
+		"approvedCommission": "العمولات المعتمدة (القابلة للدفع)",
+		"paidOut": "العمولات المدفوعة",
+		"balance": "الرصيد",
+		"noCommissions": "لا توجد عمولات بعد",
+		"currencyLabel": "ملخص {currency}"
+	},
+	"tabs": {
+		"links": "الروابط",
+		"referrals": "الإحالات",
+		"commissions": "العمولات",
+		"payouts": "الدفعات"
+	},
+	"links": {
+		"title": "روابط الإحالة",
+		"code": "الرمز",
+		"program": "البرنامج",
+		"status": "الحالة",
+		"clicks": "النقرات",
+		"signups": "التسجيلات",
+		"paying": "العملاء الدافعون",
+		"shareLink": "رابط المشاركة",
+		"copy": "نسخ",
+		"copied": "تم نسخ الرابط",
+		"copyFailed": "تعذّر نسخ الرابط",
+		"empty": "لا توجد روابط إحالة بعد",
+		"expires": "تنتهي صلاحيته في {date}",
+		"programArchived": "البرنامج مؤرشف"
+	},
+	"referrals": {
+		"title": "المستخدمون المُحالون",
+		"email": "البريد الإلكتروني",
+		"signedUp": "تاريخ التسجيل",
+		"link": "الرابط",
+		"terms": "الشروط",
+		"status": "الحالة",
+		"paidInvoices": "الفواتير المدفوعة",
+		"lastPaid": "آخر دفعة",
+		"revenue": "الإيرادات",
+		"commission": "العمولة",
+		"empty": "لا يوجد مستخدمون مُحالون بعد",
+		"filterAll": "كل الحالات",
+		"active": "نشط",
+		"voided": "ملغى"
+	},
+	"commissions": {
+		"title": "سجل العمولات",
+		"date": "التاريخ",
+		"type": "النوع",
+		"referral": "المستخدم المُحال",
+		"link": "الرابط",
+		"base": "المبلغ الأساسي",
+		"rate": "النسبة",
+		"amount": "العمولة",
+		"status": "الحالة",
+		"holdUntil": "معلّقة حتى",
+		"payout": "الدفعة",
+		"empty": "لا توجد قيود عمولة بعد",
+		"filterAll": "كل الحالات"
+	},
+	"payouts": {
+		"title": "سجل الدفعات",
+		"created": "تاريخ الإنشاء",
+		"period": "الفترة",
+		"total": "الإجمالي",
+		"method": "الطريقة",
+		"reference": "المرجع",
+		"status": "الحالة",
+		"entries": "القيود",
+		"empty": "لا توجد دفعات بعد"
+	},
+	"terms": {
+		"percentageRecurring": "عمولة متكررة بنسبة {rate}",
+		"fixedOneTime": "عمولة لمرة واحدة بقيمة {amount}",
+		"forMonths": {
+			"one": "لمدة شهر واحد",
+			"two": "لمدة شهرين",
+			"few": "لمدة {count} أشهر",
+			"many": "لمدة {count} شهرًا",
+			"other": "لمدة {count} شهر"
+		},
+		"lifetime": "مدى الحياة",
+		"holdDays": {
+			"one": "تعليق لمدة يوم واحد",
+			"two": "تعليق لمدة يومين",
+			"few": "تعليق لمدة {count} أيام",
+			"many": "تعليق لمدة {count} يومًا",
+			"other": "تعليق لمدة {count} يوم"
+		}
+	},
+	"commissionStatus": {
+		"pending": "قيد الانتظار",
+		"approved": "معتمدة",
+		"paid": "مدفوعة",
+		"reversed": "ملغاة"
+	},
+	"payoutStatus": {
+		"draft": "مسودة",
+		"processing": "قيد المعالجة",
+		"paid": "مدفوعة",
+		"failed": "فشلت"
+	},
+	"linkStatus": {
+		"active": "نشط",
+		"paused": "متوقف مؤقتًا",
+		"expired": "منتهي الصلاحية"
+	},
+	"entryType": {
+		"earning": "استحقاق",
+		"adjustment": "تعديل"
+	},
+	"payoutMethod": {
+		"manual": "يدوي",
+		"paypal": "PayPal",
+		"wise": "Wise"
+	},
+	"pagination": {
+		"previous": "السابق",
+		"next": "التالي",
+		"pageOf": "الصفحة {page} من {total}"
+	},
+	"loadError": "تعذّر تحميل بيانات الشراكة.",
+	"retry": "إعادة المحاولة"
+}

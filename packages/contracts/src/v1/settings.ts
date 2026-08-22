@@ -11,6 +11,12 @@ export const productSettingsSchema = z.object({
 	topupsEnabled: z.boolean(),
 	organizationsEnabled: z.boolean(),
 	emailAuthEnabled: z.boolean(),
+	// Offline payments (cash on delivery / wire / CCP): shows the manual
+	// request tab in the plan picker and opens the manual-request endpoint.
+	manualPaymentsEnabled: z.boolean(),
+	// Collection window in days after currentPeriodEnd for manual subscriptions;
+	// 0 = strict.
+	manualGraceDays: z.int().min(0).max(30),
 	version: z.int().positive(),
 	updatedByUserId: z.string().nullable(),
 	updatedAt: isoDateTimeSchema,
@@ -26,6 +32,10 @@ export const publicSettingsSchema = productSettingsSchema.pick({
 	organizationsEnabled: true,
 	// Public: the web shows/hides the email sign-in form in the auth modal.
 	emailAuthEnabled: true,
+	// Public: the web shows/hides the "cash / transfer" tab in the plan picker.
+	manualPaymentsEnabled: true,
+	// Public: the web computes the effective access-end date for manual plans.
+	manualGraceDays: true,
 });
 
 export type PublicSettings = z.infer<typeof publicSettingsSchema>;
@@ -38,6 +48,8 @@ export const patchProductSettingsBodySchema = z
 		topupsEnabled: z.boolean().optional(),
 		organizationsEnabled: z.boolean().optional(),
 		emailAuthEnabled: z.boolean().optional(),
+		manualPaymentsEnabled: z.boolean().optional(),
+		manualGraceDays: z.int().min(0).max(30).optional(),
 		version: z.int().positive(),
 	})
 	.refine(
@@ -47,7 +59,9 @@ export const patchProductSettingsBodySchema = z
 			settings.paidSubscriptionsEnabled !== undefined ||
 			settings.topupsEnabled !== undefined ||
 			settings.organizationsEnabled !== undefined ||
-			settings.emailAuthEnabled !== undefined,
+			settings.emailAuthEnabled !== undefined ||
+			settings.manualPaymentsEnabled !== undefined ||
+			settings.manualGraceDays !== undefined,
 		{ message: "At least one setting must be provided" },
 	);
 

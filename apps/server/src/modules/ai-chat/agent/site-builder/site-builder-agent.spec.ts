@@ -2375,6 +2375,7 @@ describe("animate_image tool", () => {
 				estimatedCostUsdMicros: 210_000,
 				measuredTerms: { estimatedUnitUsdMicros: 210_000, units: 1 },
 				idempotencyKey: "page-build-video:page_event_1:1",
+				model: "klingai/kling-v2.6-i2v",
 				parentEventId: "page_event_1",
 			}),
 		);
@@ -2480,8 +2481,10 @@ describe("animate_image tool", () => {
 			imageUrl: VIDEO_INPUT.imageUrl,
 			index: 1,
 			metering: { operation: "video", organizationId: null, userId: "user_1" },
+			modelId: "klingai/kling-v2.6-i2v",
 			motionPrompt: VIDEO_INPUT.motionPrompt,
 			projectId: "project_1",
+			voiceControl: false,
 		});
 		expect(output).toEqual({
 			posterUrl: VIDEO_INPUT.imageUrl,

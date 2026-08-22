@@ -1,5 +1,7 @@
 import { BadRequestException } from "@nestjs/common";
 import {
+	adminAnalyticsFunnelStepUsersExportQuerySchema,
+	adminAnalyticsFunnelStepUsersQuerySchema,
 	adminAnalyticsQuerySchema,
 	adminOverviewQuerySchema,
 	adminSignupStatsRanges,
@@ -37,6 +39,31 @@ describe("admin dashboard range query validation", () => {
 			cohortOnly: false,
 		});
 		expect(adminSignupStatsRanges).toEqual(["7d", "30d", "90d"]);
+	});
+
+	it("adds funnel-step pagination and contacted defaults without weakening range validation", () => {
+		expect(adminAnalyticsFunnelStepUsersQuerySchema.parse({})).toEqual({
+			range: "30d",
+			cohortOnly: false,
+			page: 1,
+			pageSize: 20,
+			contacted: "all",
+		});
+		expect(adminAnalyticsFunnelStepUsersExportQuerySchema.parse({})).toEqual({
+			range: "30d",
+			cohortOnly: false,
+			contacted: "all",
+		});
+		expect(
+			adminAnalyticsFunnelStepUsersQuerySchema.safeParse({
+				range: "custom",
+				from: "2026-08-10",
+				to: "2026-08-16",
+			}),
+		).toMatchObject({ success: false });
+		expect(
+			adminAnalyticsFunnelStepUsersQuerySchema.safeParse({ pageSize: 101 }),
+		).toMatchObject({ success: false });
 	});
 
 	it("accepts all presets and ignores valid stale custom dates", () => {

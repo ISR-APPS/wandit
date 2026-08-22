@@ -59,6 +59,8 @@ export function mapAdminOrganizationSubscription(
 	row: AdminOrgSubscriptionRow,
 ): AdminOrganizationSubscription {
 	return {
+		id: row.id,
+		provider: row.provider,
 		plan: billingPlanIdSchema.parse(row.plan),
 		status: row.status,
 		interval: row.interval,

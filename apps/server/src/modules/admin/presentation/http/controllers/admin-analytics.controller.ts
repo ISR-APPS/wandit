@@ -1,17 +1,41 @@
-import { Controller, Get, Inject, Query } from "@nestjs/common";
+import {
+	Body,
+	Controller,
+	Get,
+	HttpCode,
+	Inject,
+	Param,
+	Post,
+	Query,
+	Res,
+} from "@nestjs/common";
+import type { AuthUser } from "@wandit/auth";
 import {
 	type AdminAnalyticsAcquisitionResponse,
 	type AdminAnalyticsEngagementResponse,
 	type AdminAnalyticsFeaturesResponse,
+	type AdminAnalyticsFunnelContactInput,
+	type AdminAnalyticsFunnelContactResponse,
 	type AdminAnalyticsFunnelResponse,
+	type AdminAnalyticsFunnelStepUsersExportQuery,
+	type AdminAnalyticsFunnelStepUsersQuery,
+	type AdminAnalyticsFunnelStepUsersResponse,
+	type AdminAnalyticsFunnelUserStep,
 	type AdminAnalyticsHealthResponse,
 	type AdminAnalyticsQuery,
 	type AdminAnalyticsRevenueResponse,
+	adminAnalyticsFunnelContactInputSchema,
+	adminAnalyticsFunnelStepUsersExportQuerySchema,
+	adminAnalyticsFunnelStepUsersQuerySchema,
+	adminAnalyticsFunnelUserStepSchema,
 	adminAnalyticsQuerySchema,
 	adminAnalyticsRoutes,
 } from "@wandit/contracts";
+import type { FastifyReply } from "fastify";
 
+import { SkipResponseEnvelope } from "../../../../../infrastructure/http/skip-envelope.decorator";
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
+import { CurrentUser } from "../../../../auth";
 import { AdminAnalyticsService } from "../../../application/services/admin-analytics.service";
 import { AdminOnly } from "../decorators/admin-only.decorator";
 
@@ -61,6 +85,53 @@ export class AdminAnalyticsController {
 		query: AdminAnalyticsQuery,
 	): Promise<AdminAnalyticsFunnelResponse> {
 		return this.adminAnalyticsService.getFunnel(query);
+	}
+
+	@Get(analyticsChildPath(adminAnalyticsRoutes.funnelStepUsers(":step")))
+	getFunnelStepUsers(
+		@Param("step", new ZodValidationPipe(adminAnalyticsFunnelUserStepSchema))
+		step: AdminAnalyticsFunnelUserStep,
+		@Query(new ZodValidationPipe(adminAnalyticsFunnelStepUsersQuerySchema))
+		query: AdminAnalyticsFunnelStepUsersQuery,
+	): Promise<AdminAnalyticsFunnelStepUsersResponse> {
+		return this.adminAnalyticsService.getFunnelStepUsers(step, query);
+	}
+
+	@Get(analyticsChildPath(adminAnalyticsRoutes.funnelStepUsersExport(":step")))
+	@SkipResponseEnvelope()
+	async exportFunnelStepUsersCsv(
+		@Param("step", new ZodValidationPipe(adminAnalyticsFunnelUserStepSchema))
+		step: AdminAnalyticsFunnelUserStep,
+		@Query(
+			new ZodValidationPipe(adminAnalyticsFunnelStepUsersExportQuerySchema),
+		)
+		query: AdminAnalyticsFunnelStepUsersExportQuery,
+		@Res() reply: FastifyReply,
+	): Promise<void> {
+		const download = await this.adminAnalyticsService.getFunnelStepUsersCsv(
+			step,
+			query,
+		);
+
+		await reply
+			.header("Content-Type", "text/csv; charset=utf-8")
+			.header(
+				"Content-Disposition",
+				`attachment; filename="${download.fileName}"`,
+			)
+			.header("Cache-Control", "private, no-store")
+			.send(download.content);
+	}
+
+	@Post(analyticsChildPath(adminAnalyticsRoutes.funnelContact(":userId")))
+	@HttpCode(200)
+	setFunnelContact(
+		@Param("userId") userId: string,
+		@Body(new ZodValidationPipe(adminAnalyticsFunnelContactInputSchema))
+		body: AdminAnalyticsFunnelContactInput,
+		@CurrentUser() admin: AuthUser,
+	): Promise<AdminAnalyticsFunnelContactResponse> {
+		return this.adminAnalyticsService.setFunnelContact(admin.id, userId, body);
 	}
 
 	@Get(analyticsChildPath(adminAnalyticsRoutes.engagement))

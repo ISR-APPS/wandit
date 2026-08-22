@@ -22,6 +22,7 @@ const DIRECTOR_CAPTURE_ATTEMPTS = 3;
 const DIRECTOR_MAX_OUTPUT_TOKENS = 1_200;
 // Kling caps prompts at 2 500 chars; anything near it is a runaway output.
 const DIRECTOR_MAX_PROMPT_CHARS = 2_400;
+const NATIVE_NARRATION_PROMPT_MAX_CHARS = 2_500;
 
 /**
  * The creative-director brain: one cheap generateText call that rewrites the
@@ -40,9 +41,9 @@ You receive a creative brief and write ONE generation prompt for the stated targ
 
 Non-negotiables, regardless of model:
 - Preserve every explicit fact in the brief: product, brand names, colors, setting, audience cues. Never invent brand names or claims.
-- Describe ONE continuous shot (no cuts): subject + one precise action with a clear endpoint (e.g. "…then settles into place"), environment, camera move, lighting, mood.
+- Follow the request's shot structure. When Multi-shot is yes, allow a deliberate sequence of distinct shots/cuts that builds to one clear endpoint. Otherwise describe ONE continuous shot with no cuts: subject + one precise action with a clear endpoint (e.g. "…then settles into place"), environment, camera move, lighting, mood.
 - Give every motion an explicit spatial anchor ("fingers wrapped around the bottle", not "holding it") — vague spatial language causes morphing.
-- The clip renders SILENT: never write dialogue, sound effects, or music cues.
+- When Talking person is yes, feature that person visibly speaking to camera and preserve the supplied spoken script verbatim when one is present. Voice control handles their speech; never add other dialogue, sound effects, or music cues. When Talking person is no, nobody visibly speaks on screen. A supplied off-camera narration script renders natively after your visual prompt; leave clean visual room for it but do not repeat or rewrite its words. Without such a script the clip renders silent. Never write sound effects or music cues.
 - Never ask for on-screen text, captions, subtitles, UI, or watermarks; logos only if physically printed on the product itself.
 - Translate the brief's VIDEO TYPE into craft: product commercial → studio or lifestyle lighting, hero product framing, macro detail, polished dolly/orbit moves; UGC/testimonial → handheld phone feel, natural window light, casual eye-level framing; cinematic brand film → anamorphic framing, film grain, dramatic key light, confident crane or tracking moves; social teaser → high-energy push-ins, bold color, fast but physically believable motion.
 
@@ -59,7 +60,7 @@ Dialect: Veo (any model id containing "veo")
 Dialect: anything else
 - Use the Veo shape with plain cinematography vocabulary and stay under 100 words.
 
-Duration: a 5-second clip is one beat — a single action reaching its endpoint. A 10-second clip is two beats of the SAME continuous shot: establish, then evolve (a reveal, a turn, a slow push-in that lands).
+Duration: a 5-second clip is one beat — a single action reaching its endpoint. A 10-second clip is two beats: establish, then evolve (a reveal, a turn, a slow push-in that lands). A 15-second clip may use three deliberate beats. Keep every beat in the SAME continuous shot unless Multi-shot is yes; with Multi-shot yes, use purposeful cuts rather than a random montage.
 
 Start media: when the request says the call carries reference media (image-to-video), the first frame already exists — write motion-first: the subject's action, the camera move, and how lighting and atmosphere evolve FROM that exact frame. Never re-describe, replace, or contradict what the frame shows; the product in it is the real one.
 
@@ -71,11 +72,16 @@ export type CraftVideoPromptInput = {
 	durationSeconds: VideoDurationSeconds;
 	/** Resolved gateway model id the prompt targets (dialect selection). */
 	model: string;
+	/** True when the max-tier request deliberately uses more than one shot. */
+	multiShot: boolean;
 	/** Set when the generation runs in an org workspace: the org is the payer. */
 	organizationId: string | null;
 	parentEventId: string | undefined;
+	/** True when a visible person must speak to camera with voice control. */
+	talking: boolean;
 	userId: string;
 	voiceoverLanguage?: string;
+	voiceoverScript?: string;
 };
 
 /**
@@ -99,7 +105,11 @@ export type CraftConnectorVideoPromptInput = {
 	 * instead of inventing a new scene.
 	 */
 	referenceMediaCount?: number;
+	/** True when a visible person must speak to camera with voice control. */
+	talking?: boolean;
 	userId: string;
+	voiceoverLanguage?: string;
+	voiceoverScript?: string;
 };
 
 export type CraftedVideoPrompt = {
@@ -108,6 +118,23 @@ export type CraftedVideoPrompt = {
 	/** False when the director degraded to the deterministic fallback. */
 	directed: boolean;
 };
+
+/** Appends the provider-verified one-pass narration recipe without exceeding Kling's prompt cap. */
+export function appendNativeNarrationToVideoPrompt(
+	prompt: string,
+	voiceover: { language: string; script?: string } | undefined,
+): string {
+	if (!voiceover?.script) {
+		return prompt;
+	}
+
+	const narrationLine =
+		"\n\nVoiceover narration, calm confident voice, " +
+		`${voiceover.language}: "${voiceover.script}"`;
+	const promptBudget = NATIVE_NARRATION_PROMPT_MAX_CHARS - narrationLine.length;
+
+	return `${prompt.slice(0, Math.max(0, promptBudget)).trimEnd()}${narrationLine}`;
+}
 
 @Injectable()
 export class VideoDirectorService {
@@ -121,14 +148,26 @@ export class VideoDirectorService {
 	async craftVideoPrompt(
 		input: CraftVideoPromptInput,
 	): Promise<CraftedVideoPrompt> {
-		return this.craft(input);
+		return preserveTalkingScript(await this.craft(input), input);
 	}
 
 	/** Connector door into the SAME director brain (one creative director). */
 	async craftConnectorVideoPrompt(
 		input: CraftConnectorVideoPromptInput,
 	): Promise<CraftedVideoPrompt> {
-		return this.craft(input);
+		const crafted = preserveTalkingScript(await this.craft(input), input);
+
+		if (!input.voiceoverScript || input.talking === true) {
+			return crafted;
+		}
+
+		return {
+			...crafted,
+			prompt: appendNativeNarrationToVideoPrompt(crafted.prompt, {
+				language: input.voiceoverLanguage ?? "requested-language",
+				script: input.voiceoverScript,
+			}),
+		};
 	}
 
 	private async craft(input: DirectorRequest): Promise<CraftedVideoPrompt> {
@@ -260,6 +299,33 @@ export class VideoDirectorService {
 	}
 }
 
+function preserveTalkingScript(
+	crafted: CraftedVideoPrompt,
+	input: DirectorRequest,
+): CraftedVideoPrompt {
+	if (
+		input.talking !== true ||
+		!input.voiceoverScript ||
+		crafted.prompt.includes(input.voiceoverScript)
+	) {
+		return crafted;
+	}
+
+	const speechLine = `\n\nsaying exactly: "${input.voiceoverScript}"`;
+
+	if (
+		crafted.prompt.length + speechLine.length >
+		NATIVE_NARRATION_PROMPT_MAX_CHARS
+	) {
+		return fallbackPrompt(input);
+	}
+
+	return {
+		...crafted,
+		prompt: `${crafted.prompt.trimEnd()}${speechLine}`,
+	};
+}
+
 // Loose union of the gateway and connector inputs — the director brain only
 // reads context strings, so unknown aspect/duration lines are simply omitted.
 type DirectorRequest = {
@@ -267,17 +333,24 @@ type DirectorRequest = {
 	brief: string;
 	durationSeconds?: number;
 	model: string;
+	multiShot?: boolean;
 	organizationId: string | null;
 	parentEventId: string | undefined;
 	referenceMediaCount?: number;
+	talking?: boolean;
 	userId: string;
 	voiceoverLanguage?: string;
+	voiceoverScript?: string;
 };
 
 function buildDirectorRequest(input: DirectorRequest): string {
-	const voiceoverLine = input.voiceoverLanguage
-		? `Voiceover: a ${input.voiceoverLanguage} voiceover will be added later — leave visual room for narration.`
-		: "Voiceover: none.";
+	const voiceoverLine = input.voiceoverScript
+		? input.talking
+			? `Spoken script: preserve these exact words for the person speaking to camera: ${JSON.stringify(input.voiceoverScript)}`
+			: `Native off-camera narration: the provider will render these exact ${input.voiceoverLanguage ?? "requested-language"} words after your visual prompt: ${JSON.stringify(input.voiceoverScript)}. Keep nobody visibly speaking, leave clean visual room for the narration, and do not repeat or rewrite its words in your output.`
+		: input.voiceoverLanguage
+			? `Voiceover: ${input.voiceoverLanguage} was requested but no exact script was supplied, so keep this render silent.`
+			: "Voiceover: none.";
 
 	return [
 		`Target model: ${input.model}`,
@@ -290,6 +363,20 @@ function buildDirectorRequest(input: DirectorRequest): string {
 					`Reference media: the call carries ${input.referenceMediaCount} reference media (image-to-video) — the first frame already exists; write motion-first from that frame.`,
 				]
 			: []),
+		...(input.multiShot === undefined
+			? []
+			: [
+					input.multiShot
+						? "Multi-shot: yes — deliberate cuts or distinct shots are allowed."
+						: "Multi-shot: no — enforce one continuous shot with no cuts.",
+				]),
+		...(input.talking === undefined
+			? []
+			: [
+					input.talking
+						? "Talking person: yes — feature the person visibly speaking to camera with voice control."
+						: "Talking person: no — nobody visibly speaks on screen.",
+				]),
 		voiceoverLine,
 		"CREATIVE BRIEF:",
 		input.brief,
@@ -302,18 +389,27 @@ function buildDirectorRequest(input: DirectorRequest): string {
  */
 function fallbackPrompt(input: DirectorRequest): CraftedVideoPrompt {
 	const brief = input.brief.replace(/\s+/g, " ").trim().slice(0, 500);
-	const base = input.durationSeconds
-		? `One continuous ${input.durationSeconds}-second commercial shot`
-		: "One continuous commercial shot";
+	const base = input.multiShot
+		? input.durationSeconds
+			? `A deliberate multi-shot ${input.durationSeconds}-second commercial sequence`
+			: "A deliberate multi-shot commercial sequence"
+		: input.durationSeconds
+			? `One continuous ${input.durationSeconds}-second commercial shot`
+			: "One continuous commercial shot";
 	const shot = input.referenceMediaCount
 		? `${base} animating the provided start image.`
 		: `${base}.`;
+	const talking = input.talking
+		? input.voiceoverScript
+			? `A person speaks directly to camera with voice control, saying exactly: "${input.voiceoverScript}".`
+			: "A person speaks directly to camera with natural voice-controlled speech."
+		: "";
 
 	return {
 		directed: false,
 		negativePrompt: VIDEO_NEGATIVE_PROMPT,
 		prompt:
-			`${shot} ${brief} ` +
+			`${shot} ${talking} ${brief} ` +
 			"Cinematic, professional, ultra-detailed, photorealistic. Smooth " +
 			"controlled camera move with a clear endpoint. No text overlays, no " +
 			"captions, no watermarks.",

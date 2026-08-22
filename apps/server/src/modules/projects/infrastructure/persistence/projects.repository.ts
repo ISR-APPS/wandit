@@ -8,10 +8,12 @@ import { Inject, Injectable } from "@nestjs/common";
 import type {
 	ComposerMetadata,
 	FileRef,
+	ListProjectsQuery,
+	PaginatedResult,
 	UpdateProjectBody,
 } from "@wandit/contracts";
 // Drizzle is the TypeScript SQL builder/ORM used in this project.
-import { and, asc, desc, eq, isNull, sql } from "@wandit/db";
+import { and, asc, desc, eq, ilike, isNull, or, sql } from "@wandit/db";
 import { chats, messages } from "@wandit/db/schema/chats";
 import { deployments } from "@wandit/db/schema/deployments";
 import { leads } from "@wandit/db/schema/leads";
@@ -62,6 +64,47 @@ export class ProjectsRepository {
 		return this.projectSelect()
 			.where(and(projectScopePredicate(scope), isNull(projects.deletedAt)))
 			.orderBy(desc(projects.updatedAt), desc(projects.createdAt));
+	}
+
+	// Paginated variant used by the native drawer's infinite list + search.
+	async listPageForScope(
+		scope: ProjectScope,
+		query: ListProjectsQuery,
+	): Promise<PaginatedResult<ProjectQueryRow>> {
+		const firstMessages = this.firstMessagesSelect();
+		const searchFilter = query.search
+			? or(
+					ilike(projects.name, `%${escapeLikePattern(query.search)}%`),
+					ilike(firstMessages.prompt, `%${escapeLikePattern(query.search)}%`),
+				)
+			: undefined;
+		const where = and(
+			projectScopePredicate(scope),
+			isNull(projects.deletedAt),
+			searchFilter,
+		);
+		const offset = (query.page - 1) * query.pageSize;
+		const [totalRow] = await this.db
+			.select({ total: sql<number>`count(*)::int` })
+			.from(projects)
+			.leftJoin(firstMessages, eq(firstMessages.projectId, projects.id))
+			.where(where);
+		const items = await this.projectSelect(firstMessages)
+			.where(where)
+			.orderBy(
+				desc(projects.updatedAt),
+				desc(projects.createdAt),
+				desc(projects.id),
+			)
+			.limit(query.pageSize)
+			.offset(offset);
+
+		return {
+			items,
+			page: query.page,
+			pageSize: query.pageSize,
+			total: totalRow?.total ?? 0,
+		};
 	}
 
 	// Find one non-deleted project accessible in this scope.
@@ -244,9 +287,9 @@ export class ProjectsRepository {
 	}
 
 	// Shared SELECT builder used by list/get/update.
-	private projectSelect() {
+	private firstMessagesSelect() {
 		// Get the first user message text for each project.
-		const firstMessages = this.db
+		return this.db
 			.selectDistinctOn([chats.projectId], {
 				projectId: chats.projectId,
 				// Read the first TEXT part from the JSONB parts column — attachment
@@ -264,6 +307,9 @@ export class ProjectsRepository {
 			.where(eq(messages.role, "user"))
 			.orderBy(chats.projectId, asc(messages.seq))
 			.as("first_messages");
+	}
+
+	private projectSelect(firstMessages = this.firstMessagesSelect()) {
 		// Count leads per project.
 		const leadCounts = this.db
 			.select({
@@ -316,4 +362,8 @@ export class ProjectsRepository {
 			.leftJoin(leadCounts, eq(leadCounts.projectId, projects.id))
 			.leftJoin(deploymentAgg, eq(deploymentAgg.projectId, projects.id));
 	}
+}
+
+function escapeLikePattern(value: string): string {
+	return value.replace(/[\\%_]/g, (match) => `\\${match}`);
 }

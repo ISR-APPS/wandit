@@ -1,4 +1,3 @@
-import { apiClient } from "@/shared/lib/api-client";
 import { EXAMPLE_BASE_PATH } from "@/features/example/lib/example.constants";
 import {
 	type CreateExampleInput,
@@ -6,6 +5,7 @@ import {
 	exampleListSchema,
 	exampleSchema,
 } from "@/features/example/lib/example.schemas";
+import { apiClient } from "@/shared/lib/api-client";
 
 /**
  * example.requests.ts — the ACTUAL calls to the backend.

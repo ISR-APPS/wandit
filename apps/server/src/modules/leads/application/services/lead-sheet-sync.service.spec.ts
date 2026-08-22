@@ -52,6 +52,7 @@ function leadRow(overrides: Partial<LeadRow> = {}): LeadRow {
 		id: "33333333-3333-4333-8333-333333333333",
 		name: "Amina B",
 		phone: "+213540773102",
+		productSku: "SERUM-01",
 		status: "to_confirm",
 		wilaya: "Alger",
 		...overrides,
@@ -61,7 +62,7 @@ function leadRow(overrides: Partial<LeadRow> = {}): LeadRow {
 function stagedRewrite(): StagedSheetRewrite {
 	return {
 		liveSheet: { index: 0, sheetId: 11, title: "Feuille 1" },
-		stagingSheet: { columnCount: 12, rowCount: 1, sheetId: 22 },
+		stagingSheet: { columnCount: 13, rowCount: 1, sheetId: 22 },
 	};
 }
 
@@ -222,7 +223,7 @@ describe("LeadSheetSyncService", () => {
 			expect(sheetsClient.beginStagedRewrite).toHaveBeenCalledWith(
 				"token-1",
 				SHEET.spreadsheetId,
-				12,
+				13,
 			);
 			expect(sheetsClient.writeStagedValues).toHaveBeenNthCalledWith(
 				1,
@@ -239,6 +240,7 @@ describe("LeadSheetSyncService", () => {
 						"À confirmer",
 						"Facebook",
 						"25/07/2026 14:30",
+						"SERUM-01",
 						"",
 						"",
 						"",
@@ -264,6 +266,7 @@ describe("LeadSheetSyncService", () => {
 						"Statut",
 						"Source",
 						"Date",
+						"SKU",
 						"Produit",
 						"Quantité",
 						"Prix",
@@ -314,7 +317,7 @@ describe("LeadSheetSyncService", () => {
 			expect(sheetsClient.beginStagedRewrite).toHaveBeenCalledWith(
 				"token-1",
 				SHEET.spreadsheetId,
-				12,
+				13,
 			);
 			expect(sheetsClient.writeStagedValues).toHaveBeenCalledTimes(2);
 			expect(sheetsClient.commitStagedRewrite).toHaveBeenCalledWith(
@@ -345,13 +348,13 @@ describe("LeadSheetSyncService", () => {
 				1,
 				"token-1",
 				"deleted-sheet",
-				12,
+				13,
 			);
 			expect(sheetsClient.beginStagedRewrite).toHaveBeenNthCalledWith(
 				2,
 				"token-1",
 				SHEET.spreadsheetId,
-				12,
+				13,
 			);
 			expect(sheetsClient.commitStagedRewrite).toHaveBeenCalledWith(
 				"token-1",
@@ -451,6 +454,7 @@ describe("LeadSheetSyncService", () => {
 					"Statut",
 					"Source",
 					"Date",
+					"SKU",
 					"Produit",
 					"Quantité",
 					"Prix",
@@ -468,6 +472,7 @@ describe("LeadSheetSyncService", () => {
 				"À confirmer",
 				"Facebook",
 				"25/07/2026 14:30",
+				"SERUM-01",
 				"",
 				"",
 				"",

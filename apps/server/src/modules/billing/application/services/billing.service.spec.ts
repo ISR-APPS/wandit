@@ -9,6 +9,7 @@ import type { WorkspaceContext } from "../../../workspaces/domain/workspace-cont
 import { ActiveSubscriptionExistsError } from "../../domain/errors/active-subscription-exists.error";
 import { AmbiguousPaymentProviderWriteError } from "../../domain/errors/ambiguous-payment-provider-write.error";
 import { BillingNotConfiguredError } from "../../domain/errors/billing-not-configured.error";
+import { ManualSubscriptionUnsupportedError } from "../../domain/errors/manual-billing.errors";
 import { PaymentPastDueError } from "../../domain/errors/payment-past-due.error";
 import {
 	BillingChangeIntentExpiredError,
@@ -251,6 +252,9 @@ class FakePaymentProvider {
 			url: "https://checkout.stripe.test/cs_topup",
 		};
 	});
+	readonly createPortalSession = vi.fn(
+		async () => "https://billing.stripe.test",
+	);
 	readonly expireCheckoutSession = vi.fn(
 		async (): Promise<Stripe.Checkout.Session["status"]> => "expired",
 	);
@@ -574,7 +578,10 @@ function setup(row: SubscriptionRow | null = subscriptionRow()) {
 			setOpenCheckoutSessionId: async () => undefined,
 		} as never,
 		{
-			get: async () => ({ organizationsEnabled: false }),
+			get: async () => ({
+				organizationsEnabled: false,
+				paidSubscriptionsEnabled: true,
+			}),
 		} as never,
 		cancellationReasons as unknown as CancellationReasonsRepository,
 	);
@@ -658,6 +665,31 @@ describe("BillingService entitlement and sync", () => {
 		).rejects.toBeInstanceOf(ActiveSubscriptionExistsError);
 		expect(
 			remote.paymentProvider.createSubscriptionCheckout,
+		).not.toHaveBeenCalled();
+	});
+
+	it("rechecks local subscriptions under the checkout owner lock", async () => {
+		const context = setup(null);
+		context.subscriptions.findActiveByOwner
+			.mockResolvedValueOnce(null)
+			.mockResolvedValueOnce(
+				subscriptionRow({
+					provider: "manual",
+					providerSubscriptionId: "manual_grant_1",
+				}),
+			);
+
+		await expect(
+			context.service.checkout(user, {
+				interval: "month",
+				plan: "pro",
+				tierCredits: 250,
+			}),
+		).rejects.toBeInstanceOf(ActiveSubscriptionExistsError);
+
+		expect(context.checkoutAttempts.create).not.toHaveBeenCalled();
+		expect(
+			context.paymentProvider.listSubscriptionsForCustomer,
 		).not.toHaveBeenCalled();
 	});
 
@@ -821,6 +853,106 @@ describe("BillingService cancellation-reason lifecycle", () => {
 			"sub_1",
 		);
 		expect(cancellationReasons.row?.status).toBe("resumed");
+	});
+
+	it("resumes a manual subscription even while Stripe subscriptions are paused", async () => {
+		const { paymentProvider, service, subscriptions } = setup(
+			subscriptionRow({
+				cancelAtPeriodEnd: true,
+				provider: "manual",
+				providerSubscriptionId: "manual_grant_1",
+			}),
+		);
+		(
+			service as unknown as {
+				productSettingsService: { get: () => Promise<unknown> };
+			}
+		).productSettingsService = {
+			get: async () => ({
+				organizationsEnabled: false,
+				paidSubscriptionsEnabled: false,
+			}),
+		};
+
+		await service.resume(user);
+
+		expect(paymentProvider.setCancelAtPeriodEnd).not.toHaveBeenCalled();
+		expect(subscriptions.updateCancelAtPeriodEnd).toHaveBeenCalledWith(
+			"manual_grant_1",
+			false,
+		);
+	});
+
+	it("still gates a Stripe resume behind the subscriptions switch", async () => {
+		const { paymentProvider, service } = setup(
+			subscriptionRow({ cancelAtPeriodEnd: true }),
+		);
+		(
+			service as unknown as {
+				productSettingsService: { get: () => Promise<unknown> };
+			}
+		).productSettingsService = {
+			get: async () => ({
+				organizationsEnabled: false,
+				paidSubscriptionsEnabled: false,
+			}),
+		};
+
+		await expect(service.resume(user)).rejects.toMatchObject({ status: 403 });
+		expect(paymentProvider.setCancelAtPeriodEnd).not.toHaveBeenCalled();
+	});
+
+	it("keeps manual cancellation and resume local while preserving the reason cycle", async () => {
+		const { cancellationReasons, paymentProvider, service, subscriptions } =
+			setup(
+				subscriptionRow({
+					provider: "manual",
+					providerSubscriptionId: "manual_grant_1",
+				}),
+			);
+
+		await service.cancel(user, { reason: "temporary_pause" });
+
+		expect(paymentProvider.setCancelAtPeriodEnd).not.toHaveBeenCalled();
+		expect(cancellationReasons.row?.status).toBe("scheduled");
+		expect(subscriptions.updateCancelAtPeriodEnd).toHaveBeenCalledWith(
+			"manual_grant_1",
+			true,
+		);
+
+		await service.resume(user);
+
+		expect(paymentProvider.setCancelAtPeriodEnd).not.toHaveBeenCalled();
+		expect(subscriptions.updateCancelAtPeriodEnd).toHaveBeenLastCalledWith(
+			"manual_grant_1",
+			false,
+		);
+		expect(cancellationReasons.row?.status).toBe("resumed");
+	});
+});
+
+describe("BillingService manual subscription provider boundaries", () => {
+	it("rejects portal, preview, and change without calling Stripe", async () => {
+		const { paymentProvider, service } = setup(
+			subscriptionRow({
+				provider: "manual",
+				providerSubscriptionId: "manual_grant_1",
+			}),
+		);
+
+		await expect(service.portal(user)).rejects.toBeInstanceOf(
+			ManualSubscriptionUnsupportedError,
+		);
+		await expect(
+			service.previewChange(user, { interval: "month", tierCredits: 500 }),
+		).rejects.toBeInstanceOf(ManualSubscriptionUnsupportedError);
+		await expect(
+			service.change(user, { intentId: INTENT_ID }),
+		).rejects.toBeInstanceOf(ManualSubscriptionUnsupportedError);
+
+		expect(paymentProvider.createPortalSession).not.toHaveBeenCalled();
+		expect(paymentProvider.previewSubscriptionChange).not.toHaveBeenCalled();
+		expect(paymentProvider.changeSubscription).not.toHaveBeenCalled();
 	});
 });
 

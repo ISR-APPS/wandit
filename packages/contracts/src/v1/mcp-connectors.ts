@@ -52,8 +52,24 @@ export const MCP_CONNECTED_PARAM = "app_connected" as const;
 export const MCP_ERROR_PARAM = "app_error" as const;
 export const MCP_CONNECTOR_PARAM = "app_connector" as const;
 
+// Mobile-return params: the callback cannot exchange for app deep links (the
+// in-app auth browser carries no session), so it forwards code+state to the
+// app, which finishes through the authenticated POST /complete endpoint.
+export const MCP_CODE_PARAM = "mcp_code" as const;
+export const MCP_STATE_PARAM = "mcp_state" as const;
+
+export const mcpConnectCompleteRequestSchema = z.object({
+	code: z.string().min(1),
+	state: z.string().min(1),
+});
+
+export type McpConnectCompleteRequest = z.infer<
+	typeof mcpConnectCompleteRequestSchema
+>;
+
 export const mcpConnectorRoutes = {
 	callback: "/api/v1/mcp/connectors/callback",
+	complete: "/api/v1/mcp/connectors/complete",
 	connect: (slug: string) => `/api/v1/mcp/connectors/${slug}/connect`,
 	disconnect: (slug: string) => `/api/v1/mcp/connectors/${slug}`,
 	list: "/api/v1/mcp/connectors",

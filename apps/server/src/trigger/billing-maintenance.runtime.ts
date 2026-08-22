@@ -13,6 +13,7 @@ import { SignupGrantOutboxRepository } from "../modules/auth/infrastructure/pers
 import { BillingCustomerService } from "../modules/billing/application/services/billing-customer.service";
 import { BillingWebhookRetryService } from "../modules/billing/application/services/billing-webhook-retry.service";
 import { FinancialReconciliationService } from "../modules/billing/application/services/financial-reconciliation.service";
+import { ManualSubscriptionsService } from "../modules/billing/application/services/manual-subscriptions.service";
 import { PaymentRefundsService } from "../modules/billing/application/services/payment-refunds.service";
 import { StripeEventRouter } from "../modules/billing/application/services/stripe-event-router.service";
 import { StripeSubscriptionSyncService } from "../modules/billing/application/services/stripe-subscription-sync.service";
@@ -27,6 +28,8 @@ import { BillingPaymentAdjustmentsRepository } from "../modules/billing/infrastr
 import { BillingTopupReceiptsRepository } from "../modules/billing/infrastructure/persistence/billing-topup-receipts.repository";
 import { BillingWebhookEventsRepository } from "../modules/billing/infrastructure/persistence/billing-webhook-events.repository";
 import { FinancialReconciliationOutboxRepository } from "../modules/billing/infrastructure/persistence/financial-reconciliation-outbox.repository";
+import { ManualSubscriptionPaymentsRepository } from "../modules/billing/infrastructure/persistence/manual-subscription-payments.repository";
+import { ManualSubscriptionRequestsRepository } from "../modules/billing/infrastructure/persistence/manual-subscription-requests.repository";
 import { OrganizationBillingCustomersRepository } from "../modules/billing/infrastructure/persistence/organization-billing-customers.repository";
 import { SubscriptionCreditsRepository } from "../modules/billing/infrastructure/persistence/subscription-credits.repository";
 import { SubscriptionStateEventsRepository } from "../modules/billing/infrastructure/persistence/subscription-state-events.repository";
@@ -83,6 +86,32 @@ export function createFinancialReconciliationRuntime(db: TriggerDatabase) {
 		reconciliation: new FinancialReconciliationService(
 			core.reconciliationOutbox,
 			core.paymentRefunds,
+		),
+	};
+}
+
+export function createManualBillingRuntime(db: TriggerDatabase) {
+	const core = createPaymentCore(db);
+	const subscriptions = new SubscriptionsRepository(db);
+	const subscriptionCredits = new SubscriptionCreditsRepository(db);
+	const refills = new SubscriptionRefillService(
+		subscriptionCredits,
+		core.credits,
+		core.paymentRefunds,
+		core.reconciliationOutbox,
+	);
+
+	return {
+		manualSubscriptions: new ManualSubscriptionsService(
+			subscriptions,
+			subscriptionCredits,
+			core.credits,
+			refills,
+			new ManualSubscriptionPaymentsRepository(db),
+			new ManualSubscriptionRequestsRepository(db),
+			new SubscriptionStateEventsRepository(db),
+			new BillingCheckoutAttemptsRepository(db),
+			new ProductSettingsService(new ProductSettingsRepository(db)),
 		),
 	};
 }

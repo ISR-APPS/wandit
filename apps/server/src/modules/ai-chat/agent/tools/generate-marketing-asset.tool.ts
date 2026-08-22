@@ -41,9 +41,6 @@ export type GenerateMarketingAssetToolDeps = {
 	meteringService: MeteringService;
 	parentEventId?: string;
 	projectId: string;
-	// Composer quality tier, snapshotted for later model swapping — the
-	// generator does not read it yet.
-	quality?: string;
 	requestKeySeed?: string;
 	/** Pays for the asset: the org pool in an org workspace. */
 	subject: MeteringSubject;
@@ -109,7 +106,6 @@ export function createGenerateMarketingAssetTool(
 					name: input.title.trim(),
 					projectId: deps.projectId,
 					requestKey,
-					spec: deps.quality ? { quality: deps.quality } : undefined,
 				});
 			} catch (error) {
 				logger.error(

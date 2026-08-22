@@ -32,7 +32,20 @@ function selectPluralCategory(
 	count: number,
 ): Intl.LDMLPluralRule {
 	if (typeof Intl === "undefined" || typeof Intl.PluralRules === "undefined") {
-		return "other";
+		// Hermes (Expo Go) ships without Intl.PluralRules. English/French only
+		// need the one/other split, but the Arabic dictionaries carry all six
+		// CLDR forms — inline the (simple) Arabic cardinal rules so the dual
+		// and paucal forms still resolve without Intl.
+		if (locale === "ar") {
+			if (count === 0) return "zero";
+			if (count === 1) return "one";
+			if (count === 2) return "two";
+			const mod = count % 100;
+			if (mod >= 3 && mod <= 10) return "few";
+			if (mod >= 11 && mod <= 99) return "many";
+			return "other";
+		}
+		return count === 1 ? "one" : "other";
 	}
 
 	try {

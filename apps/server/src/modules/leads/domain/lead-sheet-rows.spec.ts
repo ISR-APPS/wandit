@@ -19,6 +19,7 @@ function lead(overrides: Partial<Lead> = {}): Lead {
 		id: "11111111-1111-4111-8111-111111111111",
 		name: "Amina B",
 		phone: "+213540773102",
+		productSku: "SERUM-01",
 		source: "facebook",
 		status: "to_confirm",
 		wilaya: "Alger",
@@ -29,6 +30,8 @@ function lead(overrides: Partial<Lead> = {}): Lead {
 describe("buildLeadSheetValues", () => {
 	it("starts with the French header row, promoted order columns included", () => {
 		expect(buildLeadSheetValues([])).toEqual([FIXED_HEADER]);
+		expect(LEAD_SHEET_HEADER.at(-1)).toBe("SKU");
+		expect(FIXED_HEADER[LEAD_SHEET_HEADER.length]).toBe("Produit");
 		expect(LEAD_SHEET_ORDER_HEADER).toEqual([
 			"Produit",
 			"Quantité",
@@ -51,6 +54,7 @@ describe("buildLeadSheetValues", () => {
 			"À confirmer",
 			"Facebook",
 			"25/07/2026 14:30",
+			"SERUM-01",
 			...EMPTY_ORDER_CELLS,
 		]);
 	});
@@ -205,6 +209,7 @@ describe("buildLeadSheetValues", () => {
 		const values = buildLeadSheetValues([
 			lead({
 				commune: null,
+				productSku: null,
 				source: "direct",
 				status: "delivered",
 				wilaya: null,
@@ -212,15 +217,16 @@ describe("buildLeadSheetValues", () => {
 		]);
 
 		expect(values[1]?.slice(2, 6)).toEqual(["", "", "Livré", "Direct"]);
+		expect(values[1]?.[LEAD_SHEET_HEADER.length - 1]).toBe("");
 	});
 
-	it("keeps lead order — newest first, same as the Leads tab", () => {
+	it("keeps the repository's oldest-first export order", () => {
 		const values = buildLeadSheetValues([
-			lead({ name: "Newest" }),
 			lead({ name: "Oldest", source: "tiktok", status: "cancelled" }),
+			lead({ name: "Newest" }),
 		]);
 
-		expect(values.map((row) => row[0])).toEqual(["Nom", "Newest", "Oldest"]);
-		expect(values[2]?.slice(4, 6)).toEqual(["Annulé", "TikTok"]);
+		expect(values.map((row) => row[0])).toEqual(["Nom", "Oldest", "Newest"]);
+		expect(values[1]?.slice(4, 6)).toEqual(["Annulé", "TikTok"]);
 	});
 });

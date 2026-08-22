@@ -1,5 +1,6 @@
 // /node, not /nestjs: this code also runs inside Trigger tasks and the worker.
 
+import type { VideoVoiceover } from "@wandit/contracts";
 import { Sentry } from "@wandit/observability/node";
 import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 
@@ -12,6 +13,7 @@ import {
 } from "../../../metering/domain/gateway-metering";
 import type {
 	ImageAnimationBilling,
+	ImageAnimationEstimateInput,
 	ImageAnimationReservation,
 } from "./image-animation-billing";
 
@@ -61,19 +63,25 @@ export type ImageAnimationAttempt = {
 	error: string | null;
 	id: string;
 	kind: "image-animation" | "text-to-video";
+	// Null only on rows created before model snapshots were introduced.
+	model: string | null;
 	// Null only for kind "text-to-video" (enforced by the DB kind CHECK).
 	motion: "subtle" | "balanced" | "dynamic" | null;
 	organizationId: string | null;
 	projectDeletedAt: Date | null;
 	projectId: string;
 	prompt: string;
+	quality: string | null;
 	sourceImageUrl: string | null;
 	startedAt: Date | null;
 	status: ImageAnimationAttemptStatus;
+	// Null only on legacy rows; new queue paths persist the exact provider flag.
+	talking: boolean | null;
 	triggerRunId: string | null;
 	userId: string;
 	videoMediaType: string | null;
 	videoUrl: string | null;
+	voiceover: VideoVoiceover | null;
 };
 
 export type ImageAnimationVideo = {
@@ -81,10 +89,20 @@ export type ImageAnimationVideo = {
 	url: string;
 };
 
+type ImageAnimationProviderFailureDetails = {
+	/** Stable classifier for analytics; raw provider messages remain internal. */
+	reasonCode?: string;
+	/** Explicitly safe to persist and show to the user. */
+	userMessage?: string;
+};
+
 export type ImageAnimationProviderResult =
 	| ({ status: "generated" } & ImageAnimationVideo & GatewayGenerationMetadata)
-	| GatewayGenerationFailure
-	| { message: string; status: "unavailable" };
+	| (GatewayGenerationFailure & ImageAnimationProviderFailureDetails)
+	| ({
+			message: string;
+			status: "unavailable";
+	  } & ImageAnimationProviderFailureDetails);
 
 export type ImageAnimationRunnerDependencies = {
 	claimQueued: (
@@ -276,6 +294,25 @@ function payloadSubject(payload: ImageAnimationPayload): MeteringSubject {
 	};
 }
 
+/**
+ * Estimate input from the durable row: the Brain-picked renderer snapshot,
+ * the requested duration, and whether Kling voice control will be on
+ * (talking person or native narration).
+ */
+export function videoEstimateForAttempt(
+	attempt: Pick<
+		ImageAnimationAttempt,
+		"durationSeconds" | "kind" | "model" | "talking" | "voiceover"
+	>,
+): ImageAnimationEstimateInput {
+	return {
+		audio: (attempt.talking ?? false) || Boolean(attempt.voiceover?.script),
+		durationSeconds: attempt.durationSeconds,
+		kind: attempt.kind,
+		modelId: attempt.model,
+	};
+}
+
 export async function runImageAnimation(
 	payload: ImageAnimationPayload,
 	input: {
@@ -313,7 +350,7 @@ export async function runImageAnimation(
 			loaded.id,
 			payload.parentEventId,
 			payload.billingMode,
-			{ durationSeconds: loaded.durationSeconds, kind: loaded.kind },
+			videoEstimateForAttempt(loaded),
 		);
 		await dependencies.settle(reservation);
 		return succeededResult(loaded, false);
@@ -343,7 +380,7 @@ export async function runImageAnimation(
 			loaded.id,
 			payload.parentEventId,
 			payload.billingMode,
-			{ durationSeconds: loaded.durationSeconds, kind: loaded.kind },
+			videoEstimateForAttempt(loaded),
 		);
 		return recoverOrSettleGenerating(
 			loaded,
@@ -375,7 +412,7 @@ export async function runImageAnimation(
 				raced.id,
 				payload.parentEventId,
 				payload.billingMode,
-				{ durationSeconds: raced.durationSeconds, kind: raced.kind },
+				videoEstimateForAttempt(raced),
 			);
 			await dependencies.settle(reservation);
 			return succeededResult(raced, false);
@@ -405,7 +442,7 @@ export async function runImageAnimation(
 				raced.id,
 				payload.parentEventId,
 				payload.billingMode,
-				{ durationSeconds: raced.durationSeconds, kind: raced.kind },
+				videoEstimateForAttempt(raced),
 			);
 			return recoverOrSettleGenerating(
 				raced,
@@ -432,7 +469,7 @@ export async function runImageAnimation(
 			claimed.id,
 			payload.parentEventId,
 			payload.billingMode,
-			{ durationSeconds: claimed.durationSeconds, kind: claimed.kind },
+			videoEstimateForAttempt(claimed),
 		);
 	} catch (error) {
 		// Insufficient credits is an expected outcome; anything else here is
@@ -444,7 +481,9 @@ export async function runImageAnimation(
 				tags: { animationId: claimed.id, userId: claimed.userId },
 			});
 		}
-		await failAndRefund(claimed, subject, dependencies, "reservation_failed");
+		await failAndRefund(claimed, subject, dependencies, {
+			reason: "reservation_failed",
+		});
 		return { reason: "reservation_failed", status: "failed" };
 	}
 
@@ -480,13 +519,16 @@ export async function runImageAnimation(
 				tags: { animationId: claimed.id, userId: claimed.userId },
 			});
 		}
-		await failAndRefund(claimed, subject, dependencies, "generation_failed");
+		await failAndRefund(claimed, subject, dependencies, {
+			reason: "generation_failed",
+		});
 		return { reason: "generation_failed", status: "failed" };
 	}
 
 	if (generated.status !== "generated") {
-		// The provider's message is about to be replaced by a generic
-		// "generation_failed" — keep the original reason.
+		// Raw provider copy is diagnostic only. Persistence below uses an
+		// explicitly classified userMessage when present, otherwise the fixed
+		// kind-specific fallback.
 		Sentry.captureMessage(`Image animation failed: ${generated.message}`, {
 			level: "error",
 			tags: { animationId: claimed.id, userId: claimed.userId },
@@ -508,13 +550,13 @@ export async function runImageAnimation(
 			}
 			await dependencies.settle(reservation, providerUnits);
 		}
-		await failAndRefund(
-			claimed,
-			subject,
-			dependencies,
-			"generation_failed",
-			!hasGatewayGenerationMetadata(generated),
-		);
+		await failAndRefund(claimed, subject, dependencies, {
+			reason: generated.reasonCode ?? "generation_failed",
+			shouldRefund: !hasGatewayGenerationMetadata(generated),
+			...(generated.userMessage !== undefined
+				? { userMessage: generated.userMessage }
+				: {}),
+		});
 		return { reason: "generation_failed", status: "failed" };
 	}
 
@@ -528,13 +570,10 @@ export async function runImageAnimation(
 			Sentry.captureException(error, {
 				tags: { animationId: claimed.id, userId: claimed.userId },
 			});
-			await failAndRefund(
-				claimed,
-				subject,
-				dependencies,
-				"generation_capture_failed",
-				false,
-			);
+			await failAndRefund(claimed, subject, dependencies, {
+				reason: "generation_capture_failed",
+				shouldRefund: false,
+			});
 			return { reason: "generation_failed", status: "failed" };
 		}
 	}
@@ -604,13 +643,10 @@ async function recoverOrSettleGenerating(
 	}
 
 	if (isTerminalFixedOperationReplay(reservation)) {
-		await failAndRefund(
-			attempt,
-			subject,
-			dependencies,
-			"terminal_billing",
-			false,
-		);
+		await failAndRefund(attempt, subject, dependencies, {
+			reason: "terminal_billing",
+			shouldRefund: false,
+		});
 		return { reason: "generation_failed", status: "failed" };
 	}
 
@@ -618,7 +654,9 @@ async function recoverOrSettleGenerating(
 		throw new ImageAnimationSettlementPendingError(attempt.id);
 	}
 
-	await failAndRefund(attempt, subject, dependencies, "stale_generation");
+	await failAndRefund(attempt, subject, dependencies, {
+		reason: "stale_generation",
+	});
 	return { reason: "stale_generation", status: "failed" };
 }
 
@@ -679,14 +717,17 @@ async function failAndRefund(
 	attempt: ImageAnimationAttempt,
 	subject: MeteringSubject,
 	dependencies: ImageAnimationRunnerDependencies,
-	reason: string,
-	shouldRefund = true,
+	options: {
+		reason: string;
+		shouldRefund?: boolean;
+		userMessage?: string;
+	},
 ): Promise<void> {
 	const failed = await dependencies.fail(attempt, {
 		completedAt: dependencies.now(),
-		error: userSafeGenerationError(attempt.kind),
+		error: options.userMessage ?? userSafeGenerationError(attempt.kind),
 		expectedStatus: "generating",
-		reason,
+		reason: options.reason,
 	});
 
 	if (!failed) {
@@ -703,7 +744,7 @@ async function failAndRefund(
 		}
 	}
 
-	if (shouldRefund) {
+	if (options.shouldRefund ?? true) {
 		await dependencies.refund(subject, attempt.id);
 	}
 }

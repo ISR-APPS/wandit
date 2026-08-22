@@ -1,21 +1,24 @@
-import { videoCostEstimateInput } from "../../../ai-chat/agent/site-builder/generate-video";
 import type { MeteringSubject } from "../../../credits/domain/credit-owner";
-import {
-	type BillingAdmissionMode,
-	createMeasuredOperationBilling,
-	type MeasuredOperationBillingDependencies,
-	type MeasuredOperationReservation,
-	type MeasuredSettlementInput,
+import type {
+	BillingAdmissionMode,
+	MeasuredOperationBillingDependencies,
+	MeasuredOperationReservation,
+	MeasuredSettlementInput,
 } from "../../../metering/application/services/fixed-operation-billing";
 import type { CapturedGeneration } from "../../../metering/domain/metering";
+import { createVideoBilling, type VideoReservation } from "./video-billing";
 
 export type ImageAnimationReservation = MeasuredOperationReservation & {
 	operation: "video";
 };
 
 export type ImageAnimationEstimateInput = {
+	/** Kling voice control on (talking person / native narration). */
+	audio?: boolean | null;
 	durationSeconds?: number | null;
 	kind?: "image-animation" | "text-to-video";
+	/** Renderer resolved upstream (Brain-picked tier) and snapshotted on the row. */
+	modelId?: string | null;
 };
 
 export type ImageAnimationBilling = {
@@ -43,41 +46,35 @@ export type ImageAnimationBilling = {
 
 /**
  * Measured per render: the reserve is the larger of the registry floor and
- * duration × the configured model's per-second catalog rate (std mode, no
- * audio); the gateway cost reconciles the exact charge.
+ * duration × the resolved renderer's per-second catalog rate (std mode);
+ * the gateway cost reconciles the exact charge.
  */
 export function createImageAnimationBilling(
 	dependencies: MeasuredOperationBillingDependencies,
 ): ImageAnimationBilling {
-	const billing = createMeasuredOperationBilling("video", dependencies);
+	const billing = createVideoBilling(dependencies);
 
 	return {
-		capture: (reservation, capture) => billing.capture(reservation, capture),
+		capture: (reservation, capture) =>
+			billing.capture(reservation as VideoReservation, capture),
 		refund: (subject, attemptId) =>
-			billing.refund(subject, attemptId, "image_animation_failed"),
-		reserve: async (
-			subject,
-			attemptId,
-			parentEventId,
-			billingMode,
-			estimate,
-		) => {
-			const input = videoCostEstimateInput(
-				estimate?.kind ?? "image-animation",
-				estimate?.durationSeconds,
-			);
-			const quote =
-				input && dependencies.meteringService.estimateMeasuredCost
-					? await dependencies.meteringService.estimateMeasuredCost(input)
-					: null;
-
-			return (await billing.reserve(subject, attemptId, {
-				billingMode,
-				estimateUsdMicros: quote?.costUsdMicros ?? null,
+			billing.refund(subject, attemptId, "image-animation"),
+		reserve: async (subject, attemptId, parentEventId, billingMode, estimate) =>
+			(await billing.reserve(
+				subject,
+				attemptId,
+				1,
 				parentEventId,
-			})) as ImageAnimationReservation;
-		},
-		settle: (reservation, units = 1) => billing.settle(reservation, units),
+				billingMode,
+				{
+					audio: estimate?.audio,
+					durationSeconds: estimate?.durationSeconds,
+					kind: estimate?.kind ?? "image-animation",
+					modelId: estimate?.modelId,
+				},
+			)) as ImageAnimationReservation,
+		settle: (reservation, units = 1) =>
+			billing.settle(reservation as VideoReservation, units),
 		settleExisting: (subject, attemptId) =>
 			billing.settleExisting(subject, attemptId),
 	};

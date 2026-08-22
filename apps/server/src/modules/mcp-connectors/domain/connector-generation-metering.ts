@@ -18,7 +18,6 @@ const CONNECTOR_ONLY_GENERATION_TOOLS = new Set([
 export const IMAGE_GENERATION_TOOLS: ReadonlySet<string> = new Set([
 	"generate_image",
 	"outpaint_image",
-	"reframe",
 	"remove_background",
 	"upscale_image",
 ]);
@@ -27,6 +26,7 @@ export const VIDEO_GENERATION_TOOLS: ReadonlySet<string> = new Set([
 	"animation_actions",
 	"generate_video",
 	"motion_control",
+	"reframe",
 	"upscale_video",
 ]);
 
@@ -53,6 +53,7 @@ export const FREE_CONNECTOR_TOOLS: ReadonlySet<string> = new Set([
 	"get_cost",
 	"job_display",
 	"job_status",
+	"list_voices",
 	"media_confirm",
 	"media_import_url",
 	"media_upload",
@@ -60,6 +61,9 @@ export const FREE_CONNECTOR_TOOLS: ReadonlySet<string> = new Set([
 	"models_explore",
 	"select_workspace",
 	"show_generations",
+	// Marketing Studio browsing and video analysis run inline on the user's
+	// own Higgsfield subscription: no Wandit-metered media is produced.
+	"show_marketing_studio",
 	"tiktok_accounts",
 	"tiktok_connect",
 	"tiktok_music_trending",
@@ -67,6 +71,9 @@ export const FREE_CONNECTOR_TOOLS: ReadonlySet<string> = new Set([
 	"tiktok_prepare_publish",
 	"tiktok_publish_status",
 	"tiktok_reconnect",
+	"video_analysis_create",
+	"video_analysis_jobs",
+	"video_analysis_status",
 	"whoami",
 ]);
 

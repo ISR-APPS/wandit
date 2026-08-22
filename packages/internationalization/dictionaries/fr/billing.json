@@ -58,7 +58,25 @@
 		"ledgerDescription": "Historique complet des attributions, utilisations, expirations et recharges.",
 		"previousPage": "Précédent",
 		"nextPage": "Suivant",
-		"pageStatus": "Page {page} sur {totalPages}"
+		"pageStatus": "Page {page} sur {totalPages}",
+		"offline": {
+			"badge": "Payé hors ligne",
+			"expiresLabel": "Expire le",
+			"requestChange": "Demander un renouvellement ou un changement",
+			"graceTitle": "Paiement hors ligne attendu",
+			"graceNotice": "Votre période payée a pris fin le {endDate}. Renouvelez avant le {accessEndDate} pour conserver votre offre.",
+			"pending": {
+				"title": "Demande de paiement hors ligne en attente",
+				"body": "Nous vous appellerons au {phone}.",
+				"cancel": "Annuler la demande",
+				"cancelling": "Annulation…",
+				"cancelTitle": "Annuler cette demande ?",
+				"cancelBody": "Nous cesserons de la traiter. Vous pourrez envoyer une nouvelle demande plus tard.",
+				"keep": "Conserver la demande",
+				"confirmCancel": "Annuler la demande",
+				"cancelSuccess": "Votre demande a été annulée."
+			}
+		}
 	},
 	"status": {
 		"active": "Actif",
@@ -156,6 +174,100 @@
 		"paymentAttentionTitle": "Corrigez le paiement de l’abonnement",
 		"paymentAttentionBody": "Ouvrez le portail de facturation pour régler le paiement avant de changer de niveau.",
 		"openPortal": "Ouvrir le portail",
-		"close": "Fermer"
+		"close": "Fermer",
+		"offline": {
+			"tabs": {
+				"ariaLabel": "Mode de paiement",
+				"card": "Carte",
+				"offline": "Espèces / virement"
+			},
+			"managed": {
+				"title": "Votre offre est gérée hors ligne",
+				"body": "Envoyez-nous une demande pour la modifier ou la renouveler."
+			},
+			"cardActive": {
+				"title": "Votre offre est facturée par carte",
+				"body": "Pour passer au paiement en espèces ou par virement, annulez d'abord votre abonnement par carte — il reste actif jusqu'à la fin de la période payée — puis envoyez-nous une demande."
+			},
+			"title": "Espèces ou virement",
+			"description": "Choisissez votre offre et indiquez-nous comment vous joindre. Nous vous appellerons pour organiser le paiement.",
+			"localPriceNote": "Nous conviendrons du prix local pendant l’appel.",
+			"steps": {
+				"label": "Étape {current} sur {total}",
+				"plan": "Choisissez votre offre"
+			},
+			"continue": "Continuer",
+			"changePlan": "Modifier",
+			"form": {
+				"title": "Coordonnées",
+				"description": "Indiquez-nous comment vous joindre au sujet de cette demande.",
+				"required": "Obligatoire",
+				"optional": "Facultatif",
+				"fullNameLabel": "Nom complet",
+				"fullNamePlaceholder": "Saisissez votre nom complet",
+				"phoneLabel": "Numéro de téléphone",
+				"phonePlaceholder": "ex. +213 555 12 34 56",
+				"phoneHint": "Indiquez l’indicatif du pays.",
+				"companyLabel": "Entreprise",
+				"companyPlaceholder": "Nom de l’entreprise",
+				"countryLabel": "Pays",
+				"countryPlaceholder": "Choisissez un pays",
+				"cityLabel": "Ville",
+				"cityPlaceholder": "Ville",
+				"preferredMethodLabel": "Mode de paiement préféré",
+				"preferredMethodPlaceholder": "Choisissez un mode de paiement",
+				"noMethodPreference": "Aucune préférence",
+				"notesLabel": "Remarques",
+				"notesPlaceholder": "Ajoutez toute précision utile pour l’appel."
+			},
+			"methods": {
+				"cash_on_delivery": "Paiement en espèces à la livraison",
+				"bank_transfer": "Virement bancaire",
+				"ccp": "CCP",
+				"baridimob": "BaridiMob",
+				"other": "Autre"
+			},
+			"countries": {
+				"DZ": "Algérie",
+				"TN": "Tunisie",
+				"MA": "Maroc",
+				"OTHER": "Autre"
+			},
+			"validation": {
+				"plan": "Choisissez une offre valide.",
+				"tierCredits": "Choisissez un niveau de crédits.",
+				"interval": "Choisissez un cycle de facturation.",
+				"fullName": "Saisissez un nom de 2 à 120 caractères.",
+				"phone": "Saisissez un numéro de téléphone valide.",
+				"company": "Le nom de l’entreprise ne doit pas dépasser 120 caractères.",
+				"country": "Choisissez un pays.",
+				"city": "Le nom de la ville ne doit pas dépasser 120 caractères.",
+				"preferredPaymentMethod": "Choisissez un mode de paiement valide.",
+				"notes": "Les remarques ne doivent pas dépasser 1 000 caractères.",
+				"generic": "Vérifiez ce champ."
+			},
+			"submit": "Envoyer la demande",
+			"submitting": "Envoi…",
+			"close": "Fermer",
+			"success": {
+				"title": "Demande reçue",
+				"body": "Nous avons reçu votre demande. Nous vous appellerons bientôt au {phone}."
+			},
+			"pending": {
+				"title": "Demande de paiement hors ligne en attente",
+				"body": "Nous vous appellerons au {phone}.",
+				"planLabel": "Offre",
+				"tierLabel": "Niveau de crédits",
+				"cycleLabel": "Cycle de facturation",
+				"createdLabel": "Envoyée le",
+				"cancel": "Annuler la demande",
+				"cancelling": "Annulation…",
+				"cancelTitle": "Annuler cette demande ?",
+				"cancelBody": "Nous cesserons de la traiter. Vous pourrez envoyer une nouvelle demande plus tard.",
+				"keep": "Conserver la demande",
+				"confirmCancel": "Annuler la demande",
+				"cancelSuccess": "Votre demande a été annulée."
+			}
+		}
 	}
 }

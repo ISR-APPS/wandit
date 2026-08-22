@@ -7,6 +7,7 @@ import {
 	adminAnalyticsFeaturesResponseSchema,
 	adminAnalyticsFunnelResponseSchema,
 	adminAnalyticsFunnelStepKeys,
+	adminAnalyticsFunnelStepUsersResponseSchema,
 	adminAnalyticsGenerationKeys,
 	adminAnalyticsHealthResponseSchema,
 	adminAnalyticsRevenueResponseSchema,
@@ -18,6 +19,7 @@ import type {
 	AdminAnalyticsEngagementSnapshot,
 	AdminAnalyticsFeaturesSnapshot,
 	AdminAnalyticsFunnelSnapshot,
+	AdminAnalyticsFunnelStepUsersRepositorySnapshot,
 	AdminAnalyticsHealthSnapshot,
 	AdminAnalyticsRevenueSnapshot,
 } from "../../infrastructure/persistence/admin-analytics.repository";
@@ -26,6 +28,7 @@ import {
 	assembleEngagementResponse,
 	assembleFeaturesResponse,
 	assembleFunnelResponse,
+	assembleFunnelStepUsersResponse,
 	assembleHealthResponse,
 	assembleRevenueResponse,
 	consumptionBucket,
@@ -86,6 +89,40 @@ function funnelSnapshot(
 				users: 0,
 			},
 		},
+		...overrides,
+	};
+}
+
+type FunnelStepUserSnapshotItem =
+	AdminAnalyticsFunnelStepUsersRepositorySnapshot["items"][number];
+
+function funnelStepUserSnapshotItem(
+	overrides: Partial<FunnelStepUserSnapshotItem> = {},
+): FunnelStepUserSnapshotItem {
+	return {
+		userId: "user_1",
+		name: "Ada Lovelace",
+		email: "ada@example.com",
+		image: null,
+		signedUpAt: new Date("2026-08-01T09:00:00.000Z"),
+		firstEventAt: new Date("2026-08-02T10:00:00.000Z"),
+		lastEventAt: new Date("2026-08-03T11:00:00.000Z"),
+		eventCount: 2,
+		converted: false,
+		contact: null,
+		...overrides,
+	};
+}
+
+function funnelStepUsersSnapshot(
+	overrides: Partial<AdminAnalyticsFunnelStepUsersRepositorySnapshot> = {},
+): AdminAnalyticsFunnelStepUsersRepositorySnapshot {
+	return {
+		page: 1,
+		pageSize: 20,
+		total: 1,
+		counts: { all: 1, contacted: 0, converted: 0 },
+		items: [funnelStepUserSnapshotItem()],
 		...overrides,
 	};
 }
@@ -517,6 +554,78 @@ describe("admin analytics acquisition and funnel", () => {
 			{ key: "checkoutStarted", count: 10, pctOfPrevious: 83.3 },
 			{ key: "paid", count: 5, pctOfPrevious: 50 },
 		]);
+	});
+
+	it("assembles funnel-step users with ISO dates and contact metadata", () => {
+		const response = assembleFunnelStepUsersResponse(
+			funnelStepUsersSnapshot({
+				page: 2,
+				pageSize: 2,
+				total: 2,
+				counts: { all: 5, contacted: 1, converted: 1 },
+				items: [
+					funnelStepUserSnapshotItem({
+						converted: true,
+						contact: {
+							contactedAt: new Date("2026-08-04T12:00:00.000Z"),
+							contactedBy: { id: "admin_1", name: "Grace Hopper" },
+						},
+					}),
+					funnelStepUserSnapshotItem({
+						userId: "user_2",
+						name: "Lin Chen",
+						email: "lin@example.com",
+						signedUpAt: "2026-08-05T08:00:00+01:00",
+						firstEventAt: "2026-08-05T09:00:00+01:00",
+						lastEventAt: "2026-08-05T10:00:00+01:00",
+						eventCount: 1,
+					}),
+				],
+			}),
+			"pricingViewed",
+			NOW,
+		);
+
+		expect(adminAnalyticsFunnelStepUsersResponseSchema.parse(response)).toEqual(
+			response,
+		);
+		expect(response).toEqual({
+			updatedAt: NOW.toISOString(),
+			step: "pricingViewed",
+			page: 2,
+			pageSize: 2,
+			total: 2,
+			counts: { all: 5, contacted: 1, converted: 1 },
+			items: [
+				{
+					id: "user_1",
+					name: "Ada Lovelace",
+					email: "ada@example.com",
+					image: null,
+					signedUpAt: "2026-08-01T09:00:00.000Z",
+					firstEventAt: "2026-08-02T10:00:00.000Z",
+					lastEventAt: "2026-08-03T11:00:00.000Z",
+					eventCount: 2,
+					converted: true,
+					contact: {
+						contactedAt: "2026-08-04T12:00:00.000Z",
+						contactedBy: { id: "admin_1", name: "Grace Hopper" },
+					},
+				},
+				{
+					id: "user_2",
+					name: "Lin Chen",
+					email: "lin@example.com",
+					image: null,
+					signedUpAt: "2026-08-05T07:00:00.000Z",
+					firstEventAt: "2026-08-05T08:00:00.000Z",
+					lastEventAt: "2026-08-05T09:00:00.000Z",
+					eventCount: 1,
+					converted: false,
+					contact: null,
+				},
+			],
+		});
 	});
 });
 

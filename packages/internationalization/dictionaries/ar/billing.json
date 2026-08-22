@@ -58,7 +58,25 @@
 		"ledgerDescription": "سجل كامل للمنح والاستخدام والانتهاء وعمليات الشحن.",
 		"previousPage": "السابق",
 		"nextPage": "التالي",
-		"pageStatus": "الصفحة {page} من {totalPages}"
+		"pageStatus": "الصفحة {page} من {totalPages}",
+		"offline": {
+			"badge": "مدفوع خارج المنصة",
+			"expiresLabel": "ينتهي في",
+			"requestChange": "طلب التجديد أو التغيير",
+			"graceTitle": "موعد الدفع خارج المنصة",
+			"graceNotice": "انتهت فترة اشتراكك المدفوعة في ⁨{endDate}⁩. جدّد قبل ⁨{accessEndDate}⁩ للاحتفاظ بخطتك.",
+			"pending": {
+				"title": "طلب الدفع خارج المنصة قيد الانتظار",
+				"body": "سنتصل بك على الرقم ⁨{phone}⁩.",
+				"cancel": "إلغاء الطلب",
+				"cancelling": "جارٍ الإلغاء…",
+				"cancelTitle": "هل تريد إلغاء هذا الطلب؟",
+				"cancelBody": "سنتوقف عن معالجته. يمكنك إرسال طلب جديد لاحقًا.",
+				"keep": "الاحتفاظ بالطلب",
+				"confirmCancel": "إلغاء الطلب",
+				"cancelSuccess": "تم إلغاء طلبك."
+			}
+		}
 	},
 	"status": {
 		"active": "نشط",
@@ -156,6 +174,100 @@
 		"paymentAttentionTitle": "أصلح دفعة الاشتراك",
 		"paymentAttentionBody": "افتح بوابة الفوترة لمعالجة الدفع قبل تغيير الفئة.",
 		"openPortal": "فتح بوابة الفوترة",
-		"close": "إغلاق"
+		"close": "إغلاق",
+		"offline": {
+			"tabs": {
+				"ariaLabel": "طريقة الدفع",
+				"card": "البطاقة",
+				"offline": "نقدًا / تحويل"
+			},
+			"managed": {
+				"title": "تُدار خطتك خارج المنصة",
+				"body": "أرسل إلينا طلبًا لتغييرها أو تجديدها."
+			},
+			"cardActive": {
+				"title": "خطتك مدفوعة بالبطاقة",
+				"body": "للتحول إلى الدفع نقدًا أو بالتحويل، ألغِ اشتراكك بالبطاقة أولًا — يبقى نشطًا حتى نهاية الفترة المدفوعة — ثم أرسل لنا طلبًا."
+			},
+			"title": "الدفع نقدًا أو بالتحويل",
+			"description": "اختر خطتك وأدخل بيانات التواصل. سنتصل بك لترتيب الدفع.",
+			"localPriceNote": "سنتفق معك على السعر المحلي أثناء المكالمة.",
+			"steps": {
+				"label": "الخطوة {current} من {total}",
+				"plan": "اختر خطتك"
+			},
+			"continue": "متابعة",
+			"changePlan": "تغيير",
+			"form": {
+				"title": "بيانات التواصل",
+				"description": "أدخل البيانات التي سنستخدمها للتواصل معك بشأن هذا الطلب.",
+				"required": "مطلوب",
+				"optional": "اختياري",
+				"fullNameLabel": "الاسم الكامل",
+				"fullNamePlaceholder": "أدخل اسمك الكامل",
+				"phoneLabel": "رقم الهاتف",
+				"phonePlaceholder": "مثال: ⁨+213 555 12 34 56⁩",
+				"phoneHint": "أدخل رمز الاتصال الدولي.",
+				"companyLabel": "الشركة",
+				"companyPlaceholder": "اسم الشركة",
+				"countryLabel": "البلد",
+				"countryPlaceholder": "اختر بلدًا",
+				"cityLabel": "المدينة",
+				"cityPlaceholder": "اسم المدينة",
+				"preferredMethodLabel": "طريقة الدفع المفضلة",
+				"preferredMethodPlaceholder": "اختر طريقة دفع",
+				"noMethodPreference": "لا تفضيل",
+				"notesLabel": "ملاحظات",
+				"notesPlaceholder": "أضف أي تفاصيل قد تساعد أثناء المكالمة."
+			},
+			"methods": {
+				"cash_on_delivery": "الدفع نقدًا عند الاستلام",
+				"bank_transfer": "تحويل بنكي",
+				"ccp": "الحساب البريدي الجاري (⁨CCP⁩)",
+				"baridimob": "بريدي موب (⁨BaridiMob⁩)",
+				"other": "طريقة أخرى"
+			},
+			"countries": {
+				"DZ": "الجزائر",
+				"TN": "تونس",
+				"MA": "المغرب",
+				"OTHER": "بلد آخر"
+			},
+			"validation": {
+				"plan": "اختر خطة صالحة.",
+				"tierCredits": "اختر فئة أرصدة.",
+				"interval": "اختر دورة فوترة.",
+				"fullName": "أدخل اسمًا من حرفين على الأقل وبحد أقصى 120 حرفًا.",
+				"phone": "أدخل رقم هاتف صالحًا.",
+				"company": "يجب ألا يتجاوز اسم الشركة 120 حرفًا.",
+				"country": "اختر بلدًا.",
+				"city": "يجب ألا يتجاوز اسم المدينة 120 حرفًا.",
+				"preferredPaymentMethod": "اختر طريقة دفع صالحة.",
+				"notes": "يجب ألا تتجاوز الملاحظات ألف حرف.",
+				"generic": "تحقق من هذا الحقل."
+			},
+			"submit": "إرسال الطلب",
+			"submitting": "جارٍ الإرسال…",
+			"close": "إغلاق",
+			"success": {
+				"title": "تم استلام الطلب",
+				"body": "استلمنا طلبك. سنتصل بك قريبًا على الرقم ⁨{phone}⁩."
+			},
+			"pending": {
+				"title": "طلب الدفع خارج المنصة قيد الانتظار",
+				"body": "سنتصل بك على الرقم ⁨{phone}⁩.",
+				"planLabel": "الخطة",
+				"tierLabel": "فئة الأرصدة",
+				"cycleLabel": "دورة الفوترة",
+				"createdLabel": "تاريخ الإرسال",
+				"cancel": "إلغاء الطلب",
+				"cancelling": "جارٍ الإلغاء…",
+				"cancelTitle": "هل تريد إلغاء هذا الطلب؟",
+				"cancelBody": "سنتوقف عن معالجته. يمكنك إرسال طلب جديد لاحقًا.",
+				"keep": "الاحتفاظ بالطلب",
+				"confirmCancel": "إلغاء الطلب",
+				"cancelSuccess": "تم إلغاء طلبك."
+			}
+		}
 	}
 }

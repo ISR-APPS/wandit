@@ -158,7 +158,6 @@ export default function DashboardPage() {
 								<PromptBox
 									key={restoreKey}
 									variant="hero"
-									showQualityPicker
 									showModes
 									attachmentsEnabled
 									disabled={promptLocked}

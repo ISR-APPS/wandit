@@ -428,4 +428,24 @@ describe("GeneratePagePart fallbacks", () => {
 
 		expect(html).toContain("isn&#x27;t configured");
 	});
+
+	it("relays the needs-input message instead of showing a build card", () => {
+		const part = {
+			input: { brief: "b", title: "t" },
+			output: {
+				message: "Ask the user for the merchant's exact product SKU first.",
+				status: "needs-input",
+			},
+			state: "output-available",
+			toolCallId: "call-1",
+			type: "tool-generate_page",
+		} as unknown as Parameters<typeof GeneratePagePart>[0]["part"];
+
+		const html = renderToStaticMarkup(
+			createElement(GeneratePagePart, { part }),
+		);
+
+		expect(html).toContain("merchant&#x27;s exact product SKU");
+		expect(html).not.toContain("Building v");
+	});
 });

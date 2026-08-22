@@ -15,6 +15,8 @@ function settings(overrides: Partial<ProductSettings> = {}): ProductSettings {
 	return {
 		emailAuthEnabled: false,
 		id: 1,
+		manualGraceDays: 0,
+		manualPaymentsEnabled: false,
 		organizationsEnabled: false,
 		paidSubscriptionsEnabled: false,
 		signupGrantCredits: 20,

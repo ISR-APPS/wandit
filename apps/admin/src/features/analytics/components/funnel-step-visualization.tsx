@@ -1,8 +1,16 @@
 import type {
 	AdminAnalyticsFunnelStep,
 	AdminAnalyticsFunnelStepKey,
+	AdminAnalyticsFunnelUserStep,
 } from "@wandit/contracts";
-import { BadgeCheckIcon, MousePointerClickIcon } from "lucide-react";
+import { adminAnalyticsFunnelUserStepKeys } from "@wandit/contracts";
+import {
+	BadgeCheckIcon,
+	ChevronRightIcon,
+	InfoIcon,
+	MousePointerClickIcon,
+	UsersIcon,
+} from "lucide-react";
 
 import { MetricInfoTooltip } from "@/components/metric-info-tooltip";
 import { Badge } from "@/components/ui/badge";
@@ -26,7 +34,12 @@ import { cn } from "@/lib/utils";
 type FunnelStepVisualizationProps = {
 	steps: AdminAnalyticsFunnelStep[];
 	hasActiveFilters?: boolean;
+	onSelectStep?: (step: AdminAnalyticsFunnelUserStep) => void;
 };
+
+const funnelUserStepKeys = new Set<AdminAnalyticsFunnelStepKey>(
+	adminAnalyticsFunnelUserStepKeys,
+);
 
 const funnelStepDescriptions = {
 	visitor: "Story-link and affiliate traffic",
@@ -44,10 +57,12 @@ function FunnelStepRow({
 	step,
 	maxCount,
 	hasActiveFilters,
+	onSelectStep,
 }: {
 	step: AdminAnalyticsFunnelStep;
 	maxCount: number;
 	hasActiveFilters: boolean;
+	onSelectStep?: (step: AdminAnalyticsFunnelUserStep) => void;
 }) {
 	const metadata = funnelStepMetadata[step.key];
 	const description = funnelStepDescriptions[step.key];
@@ -58,20 +73,27 @@ function FunnelStepRow({
 		step.count === null || maxCount <= 0 ? 0 : step.count / maxCount;
 	const visibleWidth =
 		step.count && relativeWidth > 0 ? Math.max(relativeWidth, 0.025) : 0;
-
-	return (
-		<li
-			className={cn(
-				"grid gap-3 border-b px-5 py-4 last:border-b-0 md:grid-cols-[minmax(190px,0.85fr)_minmax(240px,2fr)_minmax(118px,0.55fr)] md:items-center md:px-6",
-				isUnavailable && "bg-muted/20 text-muted-foreground",
-			)}
-		>
+	const selectableStep = isFunnelUserStep(step.key) ? step.key : null;
+	const isSelectable =
+		step.count !== null && selectableStep !== null && Boolean(onSelectStep);
+	const content = (
+		<>
 			<div className="min-w-0">
 				<div className="flex items-center gap-1">
 					<h3 className="font-medium text-sm">{metadata.label}</h3>
 					<MetricInfoTooltip
 						label={metadata.label}
 						content={metadata.tooltip}
+						trigger={
+							isSelectable ? (
+								<span
+									aria-hidden="true"
+									className="inline-flex size-3 shrink-0 items-center justify-center text-muted-foreground/70"
+								>
+									<InfoIcon className="size-3" />
+								</span>
+							) : undefined
+						}
 					/>
 				</div>
 				<p className="mt-0.5 text-muted-foreground text-xs">{description}</p>
@@ -98,14 +120,30 @@ function FunnelStepRow({
 			)}
 
 			<div className="md:text-right">
-				<p
-					className={cn(
-						"font-semibold text-xl tabular-nums tracking-tight",
-						isUnavailable && "text-muted-foreground",
-					)}
-				>
-					{step.count === null ? "—" : formatOverviewWholeNumber(step.count)}
-				</p>
+				{isSelectable ? (
+					<div className="flex items-center gap-1.5 md:justify-end">
+						<UsersIcon
+							aria-hidden="true"
+							className="size-3.5 text-muted-foreground"
+						/>
+						<p className="font-semibold text-xl tabular-nums tracking-tight">
+							{formatOverviewWholeNumber(step.count ?? 0)}
+						</p>
+						<ChevronRightIcon
+							aria-hidden="true"
+							className="size-4 text-muted-foreground transition-transform group-hover/step:translate-x-0.5"
+						/>
+					</div>
+				) : (
+					<p
+						className={cn(
+							"font-semibold text-xl tabular-nums tracking-tight",
+							isUnavailable && "text-muted-foreground",
+						)}
+					>
+						{step.count === null ? "—" : formatOverviewWholeNumber(step.count)}
+					</p>
+				)}
 				<p className="mt-0.5 text-muted-foreground text-xs tabular-nums">
 					{isFilteredVisitorUnavailable
 						? "Anonymous traffic cannot be attributed"
@@ -116,6 +154,32 @@ function FunnelStepRow({
 								: `${formatOverviewPercentValue(step.pctOfPrevious)} of previous`}
 				</p>
 			</div>
+		</>
+	);
+
+	if (isSelectable && selectableStep) {
+		return (
+			<li className="border-b last:border-b-0">
+				<button
+					type="button"
+					aria-label={`View ${formatOverviewWholeNumber(step.count ?? 0)} ${metadata.label} users. ${description}. ${metadata.tooltip}`}
+					className="group/step grid w-full gap-3 px-5 py-4 text-left transition-colors hover:bg-muted/40 focus-visible:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset md:grid-cols-[minmax(190px,0.85fr)_minmax(240px,2fr)_minmax(118px,0.55fr)] md:items-center md:px-6"
+					onClick={() => onSelectStep?.(selectableStep)}
+				>
+					{content}
+				</button>
+			</li>
+		);
+	}
+
+	return (
+		<li
+			className={cn(
+				"grid gap-3 border-b px-5 py-4 last:border-b-0 md:grid-cols-[minmax(190px,0.85fr)_minmax(240px,2fr)_minmax(118px,0.55fr)] md:items-center md:px-6",
+				isUnavailable && "bg-muted/20 text-muted-foreground",
+			)}
+		>
+			{content}
 		</li>
 	);
 }
@@ -123,6 +187,7 @@ function FunnelStepRow({
 function FunnelStepVisualization({
 	steps,
 	hasActiveFilters = false,
+	onSelectStep,
 }: FunnelStepVisualizationProps) {
 	const orderedSteps = orderFunnelSteps(steps);
 	const maxCount = Math.max(
@@ -166,6 +231,7 @@ function FunnelStepVisualization({
 								step={step}
 								maxCount={maxCount}
 								hasActiveFilters={hasActiveFilters}
+								onSelectStep={onSelectStep}
 							/>
 						))}
 					</ol>
@@ -197,6 +263,12 @@ function FunnelStepVisualization({
 			</div>
 		</Card>
 	);
+}
+
+function isFunnelUserStep(
+	step: AdminAnalyticsFunnelStepKey,
+): step is AdminAnalyticsFunnelUserStep {
+	return funnelUserStepKeys.has(step);
 }
 
 export type { FunnelStepVisualizationProps };

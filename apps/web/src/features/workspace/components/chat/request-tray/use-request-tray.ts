@@ -9,6 +9,7 @@
 // current round locally, leaving the pending call for next-send repair.
 
 import {
+	type AskUserInput,
 	type AskUserOption,
 	type AskUserOutput,
 	ATTACHMENT_MEDIA_TYPES,
@@ -17,7 +18,7 @@ import {
 } from "@wandit/contracts";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { ATTACHMENT_MAX_BYTES, uploadAttachment } from "@/features/projects";
+import { attachmentMaxBytesFor, uploadAttachment } from "@/features/projects";
 import { useTranslation } from "@/lib/i18n";
 import type { WanditUIMessage } from "../../../lib/use-ai-chat";
 import type { ChipOption, MediaItem, RequestTrayState } from "./types";
@@ -50,11 +51,22 @@ const IMAGE_MEDIA_TYPES = ATTACHMENT_MEDIA_TYPES.filter((mediaType) =>
 	mediaType.startsWith("image/"),
 );
 const DOCUMENT_MEDIA_TYPES = ATTACHMENT_MEDIA_TYPES.filter(
-	(mediaType) => !mediaType.startsWith("image/"),
+	(mediaType) =>
+		!mediaType.startsWith("image/") &&
+		!mediaType.startsWith("video/") &&
+		!mediaType.startsWith("audio/"),
+);
+const VIDEO_MEDIA_TYPES = ATTACHMENT_MEDIA_TYPES.filter((mediaType) =>
+	mediaType.startsWith("video/"),
+);
+const AUDIO_MEDIA_TYPES = ATTACHMENT_MEDIA_TYPES.filter((mediaType) =>
+	mediaType.startsWith("audio/"),
 );
 
+type AttachmentCategory = NonNullable<AskUserInput["accept"]>[number];
+
 function acceptedMediaTypes(
-	accept: readonly ("image" | "document")[],
+	accept: readonly AttachmentCategory[],
 	mediaTypes?: readonly string[],
 ) {
 	if (mediaTypes && mediaTypes.length > 0) {
@@ -64,11 +76,13 @@ function acceptedMediaTypes(
 	return new Set([
 		...(accept.includes("image") ? IMAGE_MEDIA_TYPES : []),
 		...(accept.includes("document") ? DOCUMENT_MEDIA_TYPES : []),
+		...(accept.includes("video") ? VIDEO_MEDIA_TYPES : []),
+		...(accept.includes("audio") ? AUDIO_MEDIA_TYPES : []),
 	]);
 }
 
 function acceptAttrFor(
-	accept: readonly ("image" | "document")[],
+	accept: readonly AttachmentCategory[],
 	mediaTypes?: readonly string[],
 ) {
 	if (mediaTypes && mediaTypes.length > 0) {
@@ -78,6 +92,8 @@ function acceptAttrFor(
 	const parts = [
 		...(accept.includes("image") ? ["image/*"] : []),
 		...(accept.includes("document") ? DOCUMENT_MEDIA_TYPES : []),
+		...(accept.includes("video") ? ["video/*"] : []),
+		...(accept.includes("audio") ? ["audio/*"] : []),
 	];
 	return parts.join(",");
 }
@@ -510,7 +526,8 @@ export function useRequestTray({
 			const uploads: Array<{ id: string; file: File }> = [];
 			for (const file of Array.from(files).slice(0, room)) {
 				const invalid =
-					!allowed.has(file.type) || file.size > ATTACHMENT_MAX_BYTES;
+					!allowed.has(file.type) ||
+					file.size > attachmentMaxBytesFor(file.type);
 				const item: AttachDraftItem = {
 					id: crypto.randomUUID(),
 					name: file.name,

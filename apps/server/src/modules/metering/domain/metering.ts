@@ -50,7 +50,8 @@ export type HelperStepTask =
 	| "project_title"
 	| "prompt_refine"
 	| "tool_call_repair"
-	| "video_director";
+	| "video_director"
+	| "voiceover_tts";
 
 /**
  * Helper LLM calls (project title, prompt refiners, tool-call repair) bill

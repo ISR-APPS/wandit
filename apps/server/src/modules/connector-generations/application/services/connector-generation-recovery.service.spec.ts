@@ -156,6 +156,42 @@ describe("ConnectorGenerationRecoveryService", () => {
 		);
 	});
 
+	it("settles a legacy image hold when a checkpointed reframe now classifies as video", async () => {
+		const { meteringService, repository, service } = setup();
+		const row: ConnectorGenerationAttemptRow = {
+			...BASE_ROW,
+			args: { aspect_ratio: "16:9" },
+			media: [{ kind: "video", url: "https://assets.test/reframed.mp4" }],
+			toolName: "reframe",
+		};
+
+		await expect(service.recoverCheckpoint(row)).resolves.toBe(true);
+
+		expect(meteringService.findByIdempotencyKey).toHaveBeenNthCalledWith(
+			2,
+			`video:${row.id}`,
+			{ actorUserId: row.userId },
+		);
+		expect(meteringService.findByIdempotencyKey).toHaveBeenNthCalledWith(
+			3,
+			`image:${row.id}`,
+			{ actorUserId: row.userId },
+		);
+		expect(
+			meteringService.settleDirectPairWithFixedEvidence,
+		).toHaveBeenCalledWith(
+			expect.objectContaining({ eventId: "event-parent" }),
+			expect.objectContaining({
+				eventId: "event-child",
+				settlement: expect.objectContaining({
+					pricingSnapshot: expect.objectContaining({ operation: "image" }),
+				}),
+			}),
+			{ completedUnits: 1, eventId: "event-child" },
+		);
+		expect(repository.markRunningAttemptSucceeded).toHaveBeenCalledWith(row.id);
+	});
+
 	it("publishes a billing-off checkpoint without inventing usage events", async () => {
 		const { meteringService, repository, service } = setup({
 			withEvents: false,
