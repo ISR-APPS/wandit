@@ -8,7 +8,7 @@
 		"web": {
 			"bundler": "metro"
 		},
-		"name": "wandit",
+		"name": "Wandit",
 		"slug": "wandit",
 		"plugins": [
 			"expo-font",
