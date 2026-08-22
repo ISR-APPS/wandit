@@ -1,5 +1,9 @@
 import { Logger } from "@nestjs/common";
 import { auth, idempotencyKeys, tasks } from "@trigger.dev/sdk";
+import {
+	generatePageInputSchema,
+	generatePageOutputSchema,
+} from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -68,6 +72,7 @@ const INPUT = {
 		"COD form phone-first, prices in DZD, WhatsApp CTA.",
 	title: "Kabyle jewelry page",
 };
+const COD_SKU = "KBL-JWL-001";
 
 const mutableEnv = env as {
 	AI_PAGE_BUILDER_MODEL?: string;
@@ -109,6 +114,7 @@ function setup(
 		input: typeof INPUT & {
 			codMode?: "simple" | "max";
 			pageKind?: "cod" | "website";
+			productSku?: string;
 			worldId?: string;
 			worldIds?: string[];
 		},
@@ -160,15 +166,95 @@ beforeEach(() => {
 });
 
 describe("generate_page tool", () => {
-	it("answers unavailable without touching the database when unconfigured", async () => {
+	it("keeps historical inputs valid while trimming and validating productSku", () => {
+		expect(generatePageInputSchema.safeParse(INPUT).success).toBe(true);
+		expect(
+			generatePageInputSchema.parse({ ...INPUT, productSku: "  SKU-01  " })
+				.productSku,
+		).toBe("SKU-01");
+		expect(
+			generatePageInputSchema.safeParse({
+				...INPUT,
+				productSku: "\tSKU-01 ",
+			}).success,
+		).toBe(false);
+		expect(
+			generatePageInputSchema.safeParse({
+				...INPUT,
+				productSku: "S".repeat(101),
+			}).success,
+		).toBe(false);
+	});
+
+	it("accepts the distinct needs-input output status", () => {
+		expect(
+			generatePageOutputSchema.safeParse({
+				message: "Ask the user for the missing SKU.",
+				status: "needs-input",
+			}).success,
+		).toBe(true);
+	});
+
+	it("reports configuration before a missing-SKU refusal", async () => {
 		const { execute, pagesRepository } = setup();
 		vi.mocked(isR2Configured).mockReturnValue(false);
 
-		const output = await execute(INPUT);
+		const output = await execute({ ...INPUT, pageKind: "cod" });
 
-		expect(output).toMatchObject({ status: "unavailable" });
+		expect(output).toMatchObject({
+			message: expect.stringContaining("isn't configured"),
+			status: "unavailable",
+		});
+		expect(output).not.toMatchObject({
+			message: expect.stringContaining("productSku is missing"),
+		});
+		expect(isR2Configured).toHaveBeenCalledOnce();
 		expect(pagesRepository.findOrCreateLandingArtifact).not.toHaveBeenCalled();
 		expect(tasks.trigger).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		["pageKind", { pageKind: "cod" as const }],
+		["COD world", { worldIds: [argan.id] }],
+	])("requests the missing SKU for a configured COD build identified by %s", async (_source, codInput) => {
+		const { execute, pagesRepository } = setup();
+		vi.mocked(isR2Configured).mockReturnValue(true);
+
+		const output = await execute({ ...INPUT, ...codInput });
+
+		expect(output).toEqual({
+			message: expect.stringContaining(
+				"Ask the user for the merchant's exact product SKU first",
+			),
+			status: "needs-input",
+		});
+		expect(isR2Configured).toHaveBeenCalledOnce();
+		expect(pagesRepository.findOrCreateLandingArtifact).not.toHaveBeenCalled();
+		expect(pagesRepository.insertAttempt).not.toHaveBeenCalled();
+		expect(tasks.trigger).not.toHaveBeenCalled();
+	});
+
+	it("does not let codMode reclassify an explicit website build", async () => {
+		const { execute, pagesRepository } = setup();
+		prepareSuccessfulQueue(pagesRepository);
+
+		const output = await execute({
+			...INPUT,
+			codMode: "simple",
+			pageKind: "website",
+		});
+
+		expect(pagesRepository.insertAttempt).toHaveBeenCalledWith(
+			expect.objectContaining({
+				spec: {
+					brief: INPUT.brief,
+					designerSystemPrompt: "builder prompt (test)",
+					pageKind: "website",
+					title: INPUT.title,
+				},
+			}),
+		);
+		expect(output).toMatchObject({ status: "queued" });
 	});
 
 	it("queues an attempt with a snapshotted spec and reports the version number", async () => {
@@ -324,6 +410,7 @@ describe("generate_page tool", () => {
 
 		await execute({
 			...INPUT,
+			productSku: COD_SKU,
 			worldIds: [argan.id, hammam.id, atay.id],
 		});
 
@@ -341,6 +428,7 @@ describe("generate_page tool", () => {
 						atay.doc,
 					].join("\n\n"),
 					pageKind: "cod",
+					productSku: COD_SKU,
 					title: INPUT.title,
 				},
 			}),
@@ -351,7 +439,12 @@ describe("generate_page tool", () => {
 		const { execute, pagesRepository } = setup();
 		prepareSuccessfulQueue(pagesRepository);
 
-		await execute({ ...INPUT, codMode: "simple", pageKind: "cod" });
+		await execute({
+			...INPUT,
+			codMode: "simple",
+			pageKind: "cod",
+			productSku: COD_SKU,
+		});
 
 		const spec = pagesRepository.insertAttempt.mock.calls[0]?.[0]?.spec as {
 			codMode: string;
@@ -374,6 +467,7 @@ describe("generate_page tool", () => {
 			...INPUT,
 			codMode: "simple",
 			pageKind: "cod",
+			productSku: COD_SKU,
 			worldIds: [argan.id, atay.id],
 		});
 
@@ -398,7 +492,7 @@ describe("generate_page tool", () => {
 		const { execute, pagesRepository } = setup();
 		prepareSuccessfulQueue(pagesRepository);
 
-		await execute({ ...INPUT, pageKind: "cod" });
+		await execute({ ...INPUT, pageKind: "cod", productSku: COD_SKU });
 
 		const spec = pagesRepository.insertAttempt.mock.calls[0]?.[0]?.spec as {
 			codMode: string;
@@ -419,6 +513,7 @@ describe("generate_page tool", () => {
 
 		await execute({
 			...INPUT,
+			productSku: COD_SKU,
 			worldIds: [argan.id, "no-such-world", atay.id],
 		});
 

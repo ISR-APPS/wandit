@@ -419,6 +419,7 @@ describe("PagesRepository.insertVersionAndActivate placement receipt", () => {
 					source: "ai-edit",
 				},
 				projectId: "project-1",
+				productSku: "SKU-1",
 				receipt: {
 					attemptId: "attempt-1",
 					kind: "image-generation-placement",
