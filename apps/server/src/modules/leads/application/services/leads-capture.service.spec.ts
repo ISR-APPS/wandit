@@ -16,8 +16,7 @@ function buildService() {
 		findActiveDeploymentSnapshot: vi.fn().mockResolvedValue(null),
 		findDeploymentSnapshotById: vi.fn().mockResolvedValue(null),
 		findProjectByPublicFormId: vi.fn().mockResolvedValue({ id: PROJECT_ID }),
-		hasRecentLeadWithPhone: vi.fn().mockResolvedValue(false),
-		insertLead: vi.fn().mockResolvedValue(undefined),
+		upsertCaptureLead: vi.fn().mockResolvedValue(undefined),
 	};
 	const throttle = {
 		consume: vi.fn().mockReturnValue({ allowed: true }),
@@ -51,7 +50,7 @@ describe("LeadsCaptureService", () => {
 
 		expect(result).toEqual({ ok: true });
 		expect(throttle.consume).toHaveBeenCalledWith(FORM_ID, "1.2.3.4");
-		expect(repository.insertLead).toHaveBeenCalledWith(
+		expect(repository.upsertCaptureLead).toHaveBeenCalledWith(
 			expect.objectContaining({
 				commune: null,
 				deploymentId: null,
@@ -62,6 +61,7 @@ describe("LeadsCaptureService", () => {
 				projectId: PROJECT_ID,
 				wilaya: "Alger",
 			}),
+			expect.any(Date),
 		);
 	});
 
@@ -74,8 +74,9 @@ describe("LeadsCaptureService", () => {
 			"1.2.3.4",
 		);
 
-		expect(repository.insertLead).toHaveBeenCalledWith(
+		expect(repository.upsertCaptureLead).toHaveBeenCalledWith(
 			expect.objectContaining({ phone: "+213661234567" }),
+			expect.any(Date),
 		);
 	});
 
@@ -92,11 +93,12 @@ describe("LeadsCaptureService", () => {
 			"1.2.3.4",
 		);
 
-		expect(repository.insertLead).toHaveBeenCalledWith(
+		expect(repository.upsertCaptureLead).toHaveBeenCalledWith(
 			expect.objectContaining({
 				deploymentId: "dep-1",
 				productSku: "MERCHANT-SKU-01",
 			}),
+			expect.any(Date),
 		);
 	});
 
@@ -118,11 +120,12 @@ describe("LeadsCaptureService", () => {
 			LOADED_DEPLOYMENT_ID,
 		);
 		expect(repository.findActiveDeploymentSnapshot).not.toHaveBeenCalled();
-		expect(repository.insertLead).toHaveBeenCalledWith(
+		expect(repository.upsertCaptureLead).toHaveBeenCalledWith(
 			expect.objectContaining({
 				deploymentId: LOADED_DEPLOYMENT_ID,
 				productSku: "LOADED-SKU-01",
 			}),
+			expect.any(Date),
 		);
 	});
 
@@ -140,11 +143,12 @@ describe("LeadsCaptureService", () => {
 		);
 
 		expect(repository.findActiveDeploymentSnapshot).not.toHaveBeenCalled();
-		expect(repository.insertLead).toHaveBeenCalledWith(
+		expect(repository.upsertCaptureLead).toHaveBeenCalledWith(
 			expect.objectContaining({
 				deploymentId: LOADED_DEPLOYMENT_ID,
 				productSku: null,
 			}),
+			expect.any(Date),
 		);
 	});
 
@@ -168,11 +172,12 @@ describe("LeadsCaptureService", () => {
 		expect(repository.findActiveDeploymentSnapshot).toHaveBeenCalledWith(
 			PROJECT_ID,
 		);
-		expect(repository.insertLead).toHaveBeenCalledWith(
+		expect(repository.upsertCaptureLead).toHaveBeenCalledWith(
 			expect.objectContaining({
 				deploymentId: "dep-active",
 				productSku: "ACTIVE-SKU-01",
 			}),
+			expect.any(Date),
 		);
 	});
 
@@ -194,11 +199,12 @@ describe("LeadsCaptureService", () => {
 		expect(repository.findActiveDeploymentSnapshot).toHaveBeenCalledWith(
 			PROJECT_ID,
 		);
-		expect(repository.insertLead).toHaveBeenCalledWith(
+		expect(repository.upsertCaptureLead).toHaveBeenCalledWith(
 			expect.objectContaining({
 				deploymentId: "dep-active",
 				productSku: "ACTIVE-SKU-01",
 			}),
+			expect.any(Date),
 		);
 	});
 
@@ -217,11 +223,12 @@ describe("LeadsCaptureService", () => {
 
 		await service.capture(FORM_ID, validBody(), "1.2.3.4");
 
-		expect(repository.insertLead).toHaveBeenCalledWith(
+		expect(repository.upsertCaptureLead).toHaveBeenCalledWith(
 			expect.objectContaining({
 				deploymentId: expectedDeploymentId,
 				productSku: null,
 			}),
+			expect.any(Date),
 		);
 	});
 
@@ -236,18 +243,34 @@ describe("LeadsCaptureService", () => {
 
 		expect(result).toEqual({ ok: true });
 		expect(throttle.consume).not.toHaveBeenCalled();
-		expect(repository.insertLead).not.toHaveBeenCalled();
+		expect(repository.upsertCaptureLead).not.toHaveBeenCalled();
 	});
 
-	it("answers ok without inserting on a recent duplicate phone", async () => {
+	it("upserts the full normalized payload with a two-minute cutoff", async () => {
 		const { repository, service, throttle } = buildService();
-		repository.hasRecentLeadWithPhone.mockResolvedValue(true);
+		const before = Date.now();
 
 		const result = await service.capture(FORM_ID, validBody(), "1.2.3.4");
+		const after = Date.now();
 
 		expect(result).toEqual({ ok: true });
 		expect(throttle.consume).toHaveBeenCalledWith(FORM_ID, "1.2.3.4");
-		expect(repository.insertLead).not.toHaveBeenCalled();
+		expect(repository.upsertCaptureLead).toHaveBeenCalledTimes(1);
+		const [payload, since] = repository.upsertCaptureLead.mock.calls[0] ?? [];
+		expect(payload).toEqual({
+			attribution: null,
+			commune: null,
+			deploymentId: null,
+			extras: { _rawPhone: "0540 77 31 02" },
+			name: "Amina B",
+			phone: "+213540773102",
+			productSku: null,
+			projectId: PROJECT_ID,
+			wilaya: "Alger",
+		});
+		expect(since).toBeInstanceOf(Date);
+		expect(since?.getTime()).toBeGreaterThanOrEqual(before - 125_000);
+		expect(since?.getTime()).toBeLessThanOrEqual(after - 115_000);
 	});
 
 	it("404s on an unknown form id", async () => {
@@ -279,8 +302,7 @@ describe("LeadsCaptureService", () => {
 		expect(error.getStatus()).toBe(429);
 		expect(repository.findProjectByPublicFormId).toHaveBeenCalledWith(FORM_ID);
 		expect(throttle.consume).toHaveBeenCalledWith(FORM_ID, "1.2.3.4");
-		expect(repository.hasRecentLeadWithPhone).not.toHaveBeenCalled();
-		expect(repository.insertLead).not.toHaveBeenCalled();
+		expect(repository.upsertCaptureLead).not.toHaveBeenCalled();
 	});
 
 	it("400s on malformed JSON and on an unusable phone", async () => {
@@ -307,8 +329,9 @@ describe("LeadsCaptureService", () => {
 			"1.2.3.4",
 		);
 
-		expect(repository.insertLead).toHaveBeenCalledWith(
+		expect(repository.upsertCaptureLead).toHaveBeenCalledWith(
 			expect.objectContaining({ attribution: { fbclid: "click-1" } }),
+			expect.any(Date),
 		);
 	});
 });
