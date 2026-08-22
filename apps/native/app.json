@@ -3,6 +3,8 @@
 		"scheme": "wandit",
 		"userInterfaceStyle": "automatic",
 		"orientation": "default",
+		"version": "1.0.0",
+		"icon": "./assets/images/icon.png",
 		"web": {
 			"bundler": "metro"
 		},
@@ -25,7 +27,10 @@
 			"reactCompiler": true
 		},
 		"ios": {
-			"bundleIdentifier": "com.zakisb97.wandit"
+			"bundleIdentifier": "com.zakisb97.wandit",
+			"infoPlist": {
+				"ITSAppUsesNonExemptEncryption": false
+			}
 		},
 		"extra": {
 			"eas": {

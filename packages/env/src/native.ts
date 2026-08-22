@@ -14,6 +14,14 @@ export const env = createEnv({
 		// the default matches the web app's vite dev port (apps/web/vite.config.ts).
 		EXPO_PUBLIC_WEB_APP_URL: z.url().default("http://localhost:3001"),
 	},
-	runtimeEnv: process.env,
+	// Static member accesses on purpose: babel-preset-expo inlines
+	// process.env.EXPO_PUBLIC_* into release bundles only when written exactly
+	// like this — a bare `process.env` object stays empty outside dev, and the
+	// schema above would then throw at app launch.
+	runtimeEnv: {
+		EXPO_PUBLIC_SERVER_URL: process.env.EXPO_PUBLIC_SERVER_URL,
+		EXPO_PUBLIC_TRIGGER_API_URL: process.env.EXPO_PUBLIC_TRIGGER_API_URL,
+		EXPO_PUBLIC_WEB_APP_URL: process.env.EXPO_PUBLIC_WEB_APP_URL,
+	},
 	emptyStringAsUndefined: true,
 });
