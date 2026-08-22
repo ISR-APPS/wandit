@@ -11,7 +11,12 @@ import { IconCircleButton } from "@/components/icon-circle-button";
 import { Wordmark } from "@/components/wordmark";
 import { useAppTheme } from "@/contexts/app-theme-context";
 import { CreditsChip } from "@/features/credits";
-import { PromptBox, useCreateProject } from "@/features/projects";
+import {
+	PromptBox,
+	type PromptDraft,
+	useCreateProject,
+} from "@/features/projects";
+import { chatAutostart } from "@/features/workspace/lib/chat-autostart";
 import { authClient } from "@/lib/auth-client";
 
 type SuggestionChipKey =
@@ -37,7 +42,8 @@ export function HomeScreen() {
 	const insets = useSafeAreaInsets();
 	const navigation = useNavigation();
 	const { isDark } = useAppTheme();
-	const { data: session } = authClient.useSession();
+	const { data: session, isPending: isSessionPending } =
+		authClient.useSession();
 	const [activeChip, setActiveChip] = useState(0);
 	const [prefill, setPrefill] = useState<{ key: number; value: string } | null>(
 		null,
@@ -46,12 +52,11 @@ export function HomeScreen() {
 	const createProjectLockRef = useRef(false);
 	const createProject = useCreateProject();
 
-	// "Zakaria" mirrors the prototype greeting while the dev auth bypass has
-	// no real session behind it.
-	const firstName =
-		session?.user?.name?.trim().split(/\s+/)[0] ||
-		session?.user?.email?.split("@")[0] ||
-		"Zakaria";
+	const firstName = session?.user?.name?.trim().split(/\s+/)[0];
+	const greeting =
+		!isSessionPending && firstName
+			? t("native.home.greeting", { name: firstName })
+			: t("native.home.greetingNeutral");
 
 	const accent = useThemeColor("accent");
 	// Deeper ember text tones from the light spec (§2.5/§2.6):
@@ -63,7 +68,7 @@ export function HomeScreen() {
 		(navigation as unknown as { openDrawer: () => void }).openDrawer();
 	}
 
-	function handleSubmit(prompt: string) {
+	function handleSubmit({ text, composer, files }: PromptDraft) {
 		if (createProjectLockRef.current || createProject.isPending) {
 			return false;
 		}
@@ -71,9 +76,22 @@ export function HomeScreen() {
 		createProjectLockRef.current = true;
 		setSubmitError(null);
 		createProject.mutate(
-			{ prompt },
 			{
-				onSuccess: ({ projectId }) => {
+				prompt: text,
+				composer,
+				...(files?.length
+					? {
+							attachments: files.map(({ url, mediaType, filename }) => ({
+								url,
+								mediaType,
+								filename,
+							})),
+						}
+					: {}),
+			},
+			{
+				onSuccess: ({ projectId, chatId }) => {
+					chatAutostart.stash({ projectId, chatId, composer });
 					setPrefill({ key: Date.now(), value: "" });
 					router.push(`/project/${projectId}`);
 				},
@@ -121,7 +139,7 @@ export function HomeScreen() {
 					<BrandOrb size={112} variant="aurora" />
 				</View>
 				<Text className="max-w-[300px] text-center font-display text-[27px] text-foreground leading-[31px] tracking-[-0.54px]">
-					{t("native.home.greeting", { name: firstName })}
+					{greeting}
 				</Text>
 				<View className="mt-5 w-full">
 					<PromptBox

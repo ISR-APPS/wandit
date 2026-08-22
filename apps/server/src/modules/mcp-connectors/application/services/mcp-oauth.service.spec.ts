@@ -1,4 +1,7 @@
-import { ServiceUnavailableException } from "@nestjs/common";
+import {
+	BadRequestException,
+	ServiceUnavailableException,
+} from "@nestjs/common";
 import type { Auth } from "@wandit/auth";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -116,6 +119,24 @@ function buildService({
 		returnUrl: pending?.returnUrl ?? null,
 	};
 	const connectionsRepository = {
+		// Mirrors the repository's conditional consume: only the caller that
+		// still matches the stored state wins the claim.
+		claimPendingState: vi
+			.fn()
+			.mockImplementation(
+				async (connectionId: string, expectedState: string) => {
+					if (
+						pending?.id === connectionId &&
+						storedTransientState.oauthState === expectedState
+					) {
+						storedTransientState.codeVerifier = null;
+						storedTransientState.oauthState = null;
+						storedTransientState.returnUrl = null;
+						return true;
+					}
+					return false;
+				},
+			),
 		clearPendingState: vi.fn().mockImplementation(async (connectionId) => {
 			if (pending?.id === connectionId) {
 				storedTransientState.codeVerifier = null;
@@ -125,6 +146,7 @@ function buildService({
 		}),
 		deleteByUserAndConnector: vi.fn(),
 		findByState: vi.fn().mockResolvedValue(pending),
+		findByUserAndConnector: vi.fn().mockResolvedValue(null),
 		listByUser: vi.fn(),
 		saveClientInfoAndCodeVerifier: vi.fn(),
 		saveTokens: vi
@@ -416,6 +438,250 @@ describe("McpOauthService.handleCallback", () => {
 		);
 		expect(redirect.searchParams.get("tab")).toBe("chat");
 		expect(redirect.searchParams.get("app_error")).toBe("invalid_state");
+	});
+});
+
+describe("McpOauthService.handleCallback (mobile return)", () => {
+	const MOBILE_RETURN_URL = "exp://192.168.1.172:8081/--/connect/complete";
+
+	beforeEach(() => {
+		vi.useFakeTimers();
+		vi.setSystemTime(NOW);
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+		vi.restoreAllMocks();
+	});
+
+	it("forwards code+state to the deep link without a session and without exchanging", async () => {
+		const pending = pendingConnection({ returnUrl: MOBILE_RETURN_URL });
+		const { auth, connectionsRepository, dcrClient, preregClient, service } =
+			buildService({ pending, sessionUserId: null });
+
+		const redirect = parseRedirect(
+			await service.handleCallback(
+				{ code: "authorization-code", state: STATE },
+				{},
+			),
+		);
+
+		// No web session exists in the auth browser — completion authenticates
+		// through POST /complete instead, so nothing must be exchanged here.
+		expect(auth.api.getSession).not.toHaveBeenCalled();
+		expect(preregClient.exchangeCode).not.toHaveBeenCalled();
+		expect(dcrClient.exchangeCode).not.toHaveBeenCalled();
+		expect(connectionsRepository.saveTokens).not.toHaveBeenCalled();
+		expect(connectionsRepository.clearPendingState).not.toHaveBeenCalled();
+
+		expect(redirect.protocol).toBe("exp:");
+		expect(redirect.pathname).toBe("/--/connect/complete");
+		expect(redirect.searchParams.get("mcp_connector")).toBe("future-oauth");
+		expect(redirect.searchParams.get("mcp_code")).toBe("authorization-code");
+		expect(redirect.searchParams.get("mcp_state")).toBe(STATE);
+	});
+
+	it("clears state and reports access_denied to the deep link when the user refuses", async () => {
+		const pending = pendingConnection({ returnUrl: MOBILE_RETURN_URL });
+		const { connectionsRepository, service } = buildService({
+			pending,
+			sessionUserId: null,
+		});
+
+		const redirect = parseRedirect(
+			await service.handleCallback(
+				{ error: "access_denied", state: STATE },
+				{},
+			),
+		);
+
+		expect(connectionsRepository.clearPendingState).toHaveBeenCalledWith(
+			CONNECTION_ID,
+		);
+		expect(redirect.protocol).toBe("exp:");
+		expect(redirect.searchParams.get("mcp_error")).toBe("access_denied");
+		expect(redirect.searchParams.has("mcp_code")).toBe(false);
+	});
+});
+
+describe("McpOauthService.startConnect (mobile return)", () => {
+	it.each([
+		["wandit://connect/complete"],
+		["exp://192.168.1.172:8081/--/connect/complete"],
+		["http://localhost:8081/connect/complete"],
+	])("accepts the mobile returnUrl %s", async (returnUrl) => {
+		const pending = dcrPendingConnection();
+		pending.returnUrl = returnUrl;
+		const { connectionsRepository, connectorsRepository, dcrClient, service } =
+			buildService({ pending });
+		connectorsRepository.findEnabledBySlug.mockResolvedValue(pending.connector);
+		connectionsRepository.upsertPending.mockResolvedValue(pending);
+		dcrClient.start.mockResolvedValue({
+			authorizeUrl: "https://auth.example.com/authorize",
+			clientInfo: pending.clientInfo,
+			codeVerifier: "new-code-verifier",
+		});
+
+		await expect(
+			service.startConnect(USER_ID, pending.connector.slug, returnUrl),
+		).resolves.toEqual({ authorizeUrl: "https://auth.example.com/authorize" });
+	});
+
+	it("still rejects a foreign web origin", async () => {
+		const pending = pendingConnection();
+		const { connectorsRepository, service } = buildService({ pending });
+		connectorsRepository.findEnabledBySlug.mockResolvedValue(pending.connector);
+
+		await expect(
+			service.startConnect(
+				USER_ID,
+				pending.connector.slug,
+				"http://evil.test/connect/complete",
+			),
+		).rejects.toBeInstanceOf(BadRequestException);
+	});
+});
+
+describe("McpOauthService.completeConnect", () => {
+	beforeEach(() => {
+		vi.useFakeTimers();
+		vi.setSystemTime(NOW);
+	});
+
+	afterEach(() => {
+		vi.useRealTimers();
+		vi.restoreAllMocks();
+	});
+
+	it("exchanges the code for the pending row's user and returns the connected item", async () => {
+		const pending = dcrPendingConnection();
+		pending.returnUrl = "wandit://connect/complete";
+		const { connectionsRepository, dcrClient, service } = buildService({
+			pending,
+		});
+		dcrClient.exchangeCode.mockResolvedValue({
+			accessToken: "dcr-access-token",
+			expiresIn: 3600,
+			refreshToken: "dcr-refresh-token",
+			scope: "mcp:tt4b",
+		});
+		connectionsRepository.findByUserAndConnector.mockResolvedValue({
+			...pending,
+			accessToken: "dcr-access-token",
+			connectedAt: NOW,
+		});
+
+		const item = await service.completeConnect(USER_ID, {
+			code: "authorization-code",
+			state: STATE,
+		});
+
+		expect(dcrClient.exchangeCode).toHaveBeenCalledWith(
+			pending.connector,
+			pending.clientInfo,
+			"authorization-code",
+			"dcr-code-verifier",
+			CALLBACK_URL,
+		);
+		expect(connectionsRepository.saveTokens).toHaveBeenCalledWith(
+			CONNECTION_ID,
+			{
+				accessToken: "dcr-access-token",
+				accessTokenExpiresAt: new Date("2026-07-28T13:00:00.000Z"),
+				refreshToken: "dcr-refresh-token",
+				scope: "mcp:tt4b",
+			},
+		);
+		expect(item).toMatchObject({
+			slug: "tiktok-ads",
+			status: "connected",
+		});
+	});
+
+	it("rejects a foreign session user WITHOUT clearing the owner's pending row", async () => {
+		const pending = pendingConnection({
+			returnUrl: "wandit://connect/complete",
+		});
+		const { connectionsRepository, dcrClient, preregClient, service } =
+			buildService({ pending });
+
+		await expect(
+			service.completeConnect("user-2", {
+				code: "must-not-be-exchanged",
+				state: STATE,
+			}),
+		).rejects.toBeInstanceOf(BadRequestException);
+
+		// Clearing here would let any authenticated caller cancel the real
+		// owner's in-flight connect — the row must survive the rejection.
+		expect(connectionsRepository.clearPendingState).not.toHaveBeenCalled();
+		expect(connectionsRepository.claimPendingState).not.toHaveBeenCalled();
+		expect(preregClient.exchangeCode).not.toHaveBeenCalled();
+		expect(dcrClient.exchangeCode).not.toHaveBeenCalled();
+		expect(connectionsRepository.saveTokens).not.toHaveBeenCalled();
+	});
+
+	it("rejects a duplicate completion that loses the state claim without exchanging", async () => {
+		const pending = pendingConnection({
+			returnUrl: "wandit://connect/complete",
+		});
+		const { connectionsRepository, dcrClient, preregClient, service } =
+			buildService({ pending });
+		// The first completion already consumed the state — the conditional
+		// claim reports the loss.
+		connectionsRepository.claimPendingState.mockResolvedValue(false);
+
+		await expect(
+			service.completeConnect(USER_ID, {
+				code: "must-not-be-exchanged",
+				state: STATE,
+			}),
+		).rejects.toBeInstanceOf(BadRequestException);
+
+		expect(connectionsRepository.claimPendingState).toHaveBeenCalledWith(
+			CONNECTION_ID,
+			STATE,
+		);
+		expect(preregClient.exchangeCode).not.toHaveBeenCalled();
+		expect(dcrClient.exchangeCode).not.toHaveBeenCalled();
+		expect(connectionsRepository.saveTokens).not.toHaveBeenCalled();
+	});
+
+	it("rejects a stale pending state", async () => {
+		const stale = pendingConnection({
+			returnUrl: "wandit://connect/complete",
+			updatedAt: new Date(NOW.getTime() - 10 * 60 * 1_000 - 1),
+		});
+		const { connectionsRepository, preregClient, service } = buildService({
+			pending: stale,
+		});
+
+		await expect(
+			service.completeConnect(USER_ID, {
+				code: "must-not-be-exchanged",
+				state: STATE,
+			}),
+		).rejects.toBeInstanceOf(BadRequestException);
+
+		// Conditional on the state value so a stale completion can never wipe
+		// a fresh attempt that reused the row.
+		expect(connectionsRepository.claimPendingState).toHaveBeenCalledWith(
+			CONNECTION_ID,
+			STATE,
+		);
+		expect(preregClient.exchangeCode).not.toHaveBeenCalled();
+	});
+
+	it("rejects an unknown state", async () => {
+		const { preregClient, service } = buildService({ pending: null });
+
+		await expect(
+			service.completeConnect(USER_ID, {
+				code: "authorization-code",
+				state: "unknown-state",
+			}),
+		).rejects.toBeInstanceOf(BadRequestException);
+		expect(preregClient.exchangeCode).not.toHaveBeenCalled();
 	});
 });
 

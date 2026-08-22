@@ -16,11 +16,16 @@
 					"microphonePermission": "Allow Wandit to use your microphone for voice input.",
 					"recordAudioAndroid": true
 				}
-			]
+			],
+			"expo-sharing",
+			"expo-video"
 		],
 		"experiments": {
 			"typedRoutes": true,
 			"reactCompiler": true
+		},
+		"ios": {
+			"bundleIdentifier": "com.zakisb97.wandit"
 		}
 	}
 }

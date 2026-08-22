@@ -89,13 +89,16 @@ export function AppScrollShadowLinearGradient({
 					y1={getPercent(resolvedStart.y, 0)}
 					y2={getPercent(resolvedEnd.y, 1)}
 				>
-					{colors.map((color, index) => (
-						<Stop
-							key={`${color}-${index}`}
-							offset={`${getOffset(locations, index, colors.length) * 100}%`}
-							stopColor={color}
-						/>
-					))}
+					{colors.map((color, index) => {
+						const offset = getOffset(locations, index, colors.length);
+						return (
+							<Stop
+								key={`${color}:${offset}`}
+								offset={`${offset * 100}%`}
+								stopColor={color}
+							/>
+						);
+					})}
 				</SvgLinearGradient>
 			</Defs>
 			<Rect

@@ -19,6 +19,8 @@ import {
 import type {
 	CreateProjectBody,
 	CreateProjectResponse,
+	ListProjectsPageResponse,
+	ListProjectsQuery,
 	ListProjectsResponse,
 	Project,
 	UpdateProjectBody,
@@ -66,6 +68,21 @@ export class ProjectsService {
 		const rows = await this.projectsRepository.listForScope(scope);
 
 		return rows.map(mapProjectRow);
+	}
+
+	// Paginated listing behind the native drawer's infinite scroll + search.
+	async listPaged(
+		scope: ProjectScope,
+		query: ListProjectsQuery,
+	): Promise<ListProjectsPageResponse> {
+		const page = await this.projectsRepository.listPageForScope(scope, query);
+
+		return {
+			items: page.items.map(mapProjectRow),
+			page: page.page,
+			pageSize: page.pageSize,
+			total: page.total,
+		};
 	}
 
 	// Load one project if it is accessible in this workspace scope.

@@ -189,7 +189,9 @@ export function WelcomeScreen() {
 					<AppPressableFeedback
 						accessibilityRole="button"
 						accessibilityState={{ disabled: isSigningIn }}
-						animation={{ scale: { ignoreScaleCoefficient: true, value: 0.975 } }}
+						animation={{
+							scale: { ignoreScaleCoefficient: true, value: 0.975 },
+						}}
 						className={`mt-3 rounded-full px-4 py-2 ${isSigningIn ? "opacity-60" : ""}`}
 						isDisabled={isSigningIn}
 						onPress={continueInDevMode}

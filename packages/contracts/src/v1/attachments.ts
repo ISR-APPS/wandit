@@ -20,6 +20,8 @@ export const ATTACHMENT_MEDIA_TYPES = [
 
 export const attachmentMediaTypeSchema = z.enum(ATTACHMENT_MEDIA_TYPES);
 
+export type AttachmentMediaType = z.infer<typeof attachmentMediaTypeSchema>;
+
 export const uploadAttachmentResponseSchema = z.object({
 	url: z.url(),
 	key: z.string().min(1),

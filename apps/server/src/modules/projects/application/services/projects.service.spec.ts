@@ -35,6 +35,7 @@ function setup() {
 		),
 		findByIdForScope: vi.fn(),
 		listForScope: vi.fn(),
+		listPageForScope: vi.fn(),
 		softDeleteByIdForScope: vi.fn(),
 		updateByIdForScope: vi.fn(),
 	};
@@ -70,6 +71,58 @@ function setup() {
 }
 
 describe("ProjectsService", () => {
+	it("maps a paginated project list", async () => {
+		const { projectsRepository, service } = setup();
+		const query = {
+			page: 2,
+			pageSize: 20,
+			search: "launch",
+		};
+		projectsRepository.listPageForScope.mockResolvedValue({
+			items: [
+				{
+					activeSlug: "summer-launch",
+					createdAt: new Date("2026-07-01T10:00:00.000Z"),
+					hideWanditBadge: false,
+					id: "018fc53d-6537-7a73-9217-1d7a677c8e0a",
+					leadCount: 4,
+					logoUrl: null,
+					metaPixelId: null,
+					name: "Summer launch",
+					pendingDeploymentCount: 0,
+					previewImageUrl: null,
+					prompt: "Build a launch page",
+					tiktokPixelId: "tt-1",
+					updatedAt: new Date("2026-07-02T10:00:00.000Z"),
+				},
+			],
+			page: 2,
+			pageSize: 20,
+			total: 24,
+		});
+
+		await expect(
+			service.listPaged(personalScope, query),
+		).resolves.toMatchObject({
+			items: [
+				{
+					createdAt: "2026-07-01T10:00:00.000Z",
+					id: "018fc53d-6537-7a73-9217-1d7a677c8e0a",
+					publishedSlug: "summer-launch",
+					status: "published",
+					updatedAt: "2026-07-02T10:00:00.000Z",
+				},
+			],
+			page: 2,
+			pageSize: 20,
+			total: 24,
+		});
+		expect(projectsRepository.listPageForScope).toHaveBeenCalledWith(
+			personalScope,
+			query,
+		);
+	});
+
 	it("creates a project, chat, and first user message", async () => {
 		const {
 			meteringService,

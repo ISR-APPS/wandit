@@ -26,6 +26,7 @@
 		"@wandit/env": "workspace:*",
 		"@wandit/internationalization": "workspace:*",
 		"@wandit/observability": "workspace:*",
+		"@wandit/preview-editor": "workspace:*",
 		"@wandit/ui": "workspace:*",
 		"ai": "^7.0.14",
 		"axios": "^1.18.1",

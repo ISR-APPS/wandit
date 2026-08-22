@@ -1,8 +1,7 @@
 import type { AudioRecorder } from "expo-audio";
 import { useAudioRecorderState } from "expo-audio";
 import { useThemeColor } from "heroui-native";
-import { memo, useCallback, useRef } from "react";
-import { useEffect } from "react";
+import { memo, useCallback, useEffect, useRef } from "react";
 import { Text, View } from "react-native";
 import Animated, {
 	Easing,
@@ -26,6 +25,10 @@ const METER_FLOOR_DB = -50;
 const METER_CEIL_DB = -10;
 // Older bars fade out toward the left so the strip reads as flowing motion.
 const BAR_MIN_OPACITY = 0.3;
+const WAVEFORM_BARS = Array.from({ length: BAR_COUNT }, (_, index) => ({
+	id: `waveform-bar-${index}`,
+	index,
+}));
 
 type RecordingWaveformProps = {
 	elapsedSeconds: number;
@@ -67,10 +70,10 @@ export function RecordingWaveform({
 				style={{ gap: BAR_GAP }}
 			>
 				<WaveformMeter recorder={recorder} levelValuesRef={levelValuesRef} />
-				{Array.from({ length: BAR_COUNT }, (_, index) => (
+				{WAVEFORM_BARS.map((bar) => (
 					<WaveformBar
-						key={index}
-						index={index}
+						key={bar.id}
+						index={bar.index}
 						color={accent}
 						onRegister={registerLevel}
 					/>
@@ -95,9 +98,7 @@ const WaveformMeter = memo(function WaveformMeter({
 			return;
 		}
 
-		const nextLevel = state.isRecording
-			? normalizeMetering(state.metering)
-			: 0;
+		const nextLevel = state.isRecording ? normalizeMetering(state.metering) : 0;
 
 		for (let index = 0; index < BAR_COUNT - 1; index += 1) {
 			const shiftedLevel = levels[index + 1]?.get() ?? 0;
@@ -136,8 +137,7 @@ function WaveformBar({
 	}, [index, level, onRegister]);
 
 	const animatedStyle = useAnimatedStyle(() => ({
-		height:
-			BAR_MIN_HEIGHT + level.get() * (BAR_MAX_HEIGHT - BAR_MIN_HEIGHT),
+		height: BAR_MIN_HEIGHT + level.get() * (BAR_MAX_HEIGHT - BAR_MIN_HEIGHT),
 	}));
 
 	return (
@@ -148,8 +148,7 @@ function WaveformBar({
 					borderRadius: BAR_WIDTH,
 					// Static fade by age: oldest (left) faint, newest (right) solid.
 					opacity:
-						BAR_MIN_OPACITY +
-						(1 - BAR_MIN_OPACITY) * (index / (BAR_COUNT - 1)),
+						BAR_MIN_OPACITY + (1 - BAR_MIN_OPACITY) * (index / (BAR_COUNT - 1)),
 					width: BAR_WIDTH,
 				},
 				animatedStyle,
@@ -195,16 +194,12 @@ function normalizeMetering(metering: number | undefined) {
 		return 0;
 	}
 
-	const clamped = Math.min(
-		METER_CEIL_DB,
-		Math.max(METER_FLOOR_DB, metering),
-	);
-	const linear =
-		(clamped - METER_FLOOR_DB) / (METER_CEIL_DB - METER_FLOOR_DB);
+	const clamped = Math.min(METER_CEIL_DB, Math.max(METER_FLOOR_DB, metering));
+	const linear = (clamped - METER_FLOOR_DB) / (METER_CEIL_DB - METER_FLOOR_DB);
 
 	// A slightly expansive curve keeps quiet passages low instead of letting
 	// mic auto-gain push every bar toward the ceiling.
-	return Math.pow(linear, 1.2);
+	return linear ** 1.2;
 }
 
 function formatElapsed(seconds: number) {

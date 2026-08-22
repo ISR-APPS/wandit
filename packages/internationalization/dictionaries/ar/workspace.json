@@ -606,6 +606,7 @@
 			"interrupted": "توقّف قبل الاكتمال",
 			"skippedDeclined": "تم التخطي — لقد رفضت",
 			"arguments": "المُدخلات",
+			"moreArguments": "+{count} مُدخلات أخرى",
 			"generation": {
 				"working": "جارٍ إنشاء الوسائط…",
 				"workingHint": "{connector} يعمل عليه الآن — ستظهر النتيجة هنا فور جهوزها.",
@@ -619,6 +620,9 @@
 				"statusGenerating": "جارٍ الإنشاء",
 				"usually": "عادةً 2–4 دقائق"
 			}
+		},
+		"generation": {
+			"downloadFailed": "فشل التنزيل — حاول مرة أخرى."
 		},
 		"askUser": {
 			"questionsTitle": "بضعة أسئلة",
@@ -724,8 +728,236 @@
 		"media": {
 			"close": "إغلاق",
 			"download": "تحميل",
+			"downloadFailed": "فشل التنزيل — حاول مرة أخرى.",
 			"previous": "السابق",
 			"next": "التالي"
+		},
+		"markdown": {
+			"expandTable": "ملء الشاشة",
+			"closeTable": "إغلاق",
+			"tapToLoadImage": "اضغط لتحميل الصورة",
+			"imageLoadFailed": "تعذّر تحميل الصورة — اضغط لإعادة المحاولة"
+		},
+		"pageBuild": {
+			"buildingNoVersion": "جارٍ إنشاء صفحتك",
+			"readyTitle": "الإصدار v{n} جاهز",
+			"readyNoVersion": "صفحتك جاهزة",
+			"failedTitle": "فشل الإنشاء",
+			"headline": {
+				"starting": "جارٍ البدء…",
+				"art": "جارٍ توليد الصور…",
+				"writing": "جارٍ كتابة الصفحة…",
+				"reviewing": "جارٍ مراجعة الصفحة…",
+				"fixing": "جارٍ تطبيق التصحيحات…",
+				"finishing": "جارٍ نشر الصفحة…"
+			},
+			"succeededHeadline": "الصفحة الجاهزة موجودة في مشروعك.",
+			"failedHeadline": "توقف الإنشاء قبل الاكتمال — اطلب مني المحاولة من جديد.",
+			"disconnectedHeadline": "انقطع التتبع المباشر — ستصل الصفحة الجاهزة رغم ذلك.",
+			"steps": {
+				"artActive": "جارٍ توليد الصور…",
+				"artDone": "تم توليد الصور",
+				"artPending": "توليد الصور",
+				"pageActive": "جارٍ كتابة الصفحة…",
+				"pageDone": "تمت كتابة الصفحة",
+				"pagePending": "كتابة الصفحة",
+				"reviewActive": "التقاط كل قسم للمراجعة…",
+				"reviewDone": "تمت مراجعة الصفحة بلقطات الشاشة",
+				"reviewPending": "التقاط الصفحة ومراجعتها",
+				"fixesActive": "جارٍ تطبيق التصحيحات…",
+				"fixesDone": {
+					"zero": "لم تُطبَّق تصحيحات",
+					"one": "تم تطبيق تصحيح واحد",
+					"two": "تم تطبيق تصحيحين",
+					"few": "تم تطبيق {count} تصحيحات",
+					"many": "تم تطبيق {count} تصحيحًا",
+					"other": "تم تطبيق {count} تصحيح"
+				},
+				"finishActive": "جارٍ نشر الصفحة…",
+				"finishDone": "تم التسليم — الصفحة جاهزة",
+				"finishPending": "فحص أخير وتسليم"
+			},
+			"imagesCount": {
+				"zero": "بدون صور",
+				"one": "صورة واحدة",
+				"two": "صورتان",
+				"few": "{count} صور",
+				"many": "{count} صورة",
+				"other": "{count} صورة"
+			},
+			"videosCount": {
+				"zero": "بدون فيديو",
+				"one": "فيديو واحد",
+				"two": "فيديوهان",
+				"few": "{count} فيديوهات",
+				"many": "{count} فيديو",
+				"other": "{count} فيديو"
+			},
+			"sectionsCount": {
+				"zero": "بدون أقسام",
+				"one": "قسم واحد",
+				"two": "قسمان",
+				"few": "{count} أقسام",
+				"many": "{count} قسمًا",
+				"other": "{count} قسم"
+			},
+			"passOf": "لقطة {current} من {target}",
+			"fixesBadge": "×{count}",
+			"live": {
+				"kicker": "منشورة · مباشرة",
+				"headline": "صفحتك أصبحت مباشرة.",
+				"subtitle": "وجّه إعلاناتك إلى هذا الرابط وابدأ في جمع الطلبات.",
+				"view": "عرض الصفحة المباشرة",
+				"draftHeadline": "صفحتك جاهزة.",
+				"draftSubtitle": "انشرها مجانًا للحصول على رابطك العام.",
+				"publishCta": "انشر مجانًا",
+				"publishing": "جارٍ النشر…",
+				"publishError": "فشل النشر — حاول مجددًا."
+			},
+			"stoppedKicker": "متوقفة",
+			"stoppedBody": "لقد أوقفت هذا الإنشاء.",
+			"stoppedFallbackTitle": "صفحتك",
+			"resume": "استئناف",
+			"resuming": "جارٍ الاستئناف…",
+			"discard": "تجاهل",
+			"discarding": "جارٍ التجاهل…",
+			"topUp": "شحن المحفظة",
+			"retry": "إعادة المحاولة",
+			"retrying": "جارٍ إعادة المحاولة…",
+			"dismiss": "إغلاق",
+			"dismissing": "جارٍ الإغلاق…",
+			"receiptStopped": "أُوقف الإنشاء — تم تجاهله.",
+			"receiptStoppedAt": "أُوقف الإنشاء عند {percent}% — تم تجاهله.",
+			"receiptDismissed": "أُغلق الإنشاء الفاشل.",
+			"errorCode": "خطأ · {code}",
+			"openPageTab": "افتح تبويب الصفحة"
+		},
+		"leadScrape": {
+			"title": "جارٍ البحث عن العملاء المحتملين",
+			"loadError": "تعذّر تحميل حالة البحث.",
+			"failedTitle": "فشل البحث عن العملاء المحتملين",
+			"failedDetail": "توقّف البحث قبل الانتهاء.",
+			"steps": {
+				"brief": "تم تحليل الطلب",
+				"searchingActive": "جارٍ البحث في خرائط Google…",
+				"searchingDone": "تم البحث في خرائط Google",
+				"extractingActive": "جارٍ استخراج جهات الاتصال…",
+				"extractingDone": "تم استخراج جهات الاتصال",
+				"verifyingActive": "جارٍ التحقق من البريد الإلكتروني وإزالة التكرارات…",
+				"verifyingDone": "تم التحقق من البريد الإلكتروني وإزالة التكرارات",
+				"exportingActive": "جارٍ التصدير إلى ‎.xlsx…",
+				"exportingDone": "تم التصدير إلى ‎.xlsx"
+			},
+			"foundBadge": {
+				"zero": "لا نتائج",
+				"one": "نتيجة واحدة",
+				"two": "نتيجتان",
+				"few": "{count} نتائج",
+				"many": "{count} نتيجة",
+				"other": "{count} نتيجة"
+			},
+			"ready": "جاهز",
+			"rowsCount": {
+				"zero": "بدون صفوف",
+				"one": "صف واحد",
+				"two": "صفان",
+				"few": "{count} صفوف",
+				"many": "{count} صفًا",
+				"other": "{count} صف"
+			},
+			"columnsCount": {
+				"zero": "بدون أعمدة",
+				"one": "عمود واحد",
+				"two": "عمودان",
+				"few": "{count} أعمدة",
+				"many": "{count} عمودًا",
+				"other": "{count} عمود"
+			},
+			"columnBusiness": "النشاط التجاري",
+			"columnPhone": "الهاتف",
+			"columnEmail": "البريد الإلكتروني",
+			"moreRows": {
+				"zero": "لا صفوف إضافية",
+				"one": "+صف إضافي واحد",
+				"two": "+صفان إضافيان",
+				"few": "+{count} صفوف إضافية",
+				"many": "+{count} صفًا إضافيًا",
+				"other": "+{count} صف إضافي"
+			},
+			"download": "تنزيل ملف ‎.xlsx",
+			"downloading": "جارٍ التنزيل…",
+			"downloadError": "فشل التنزيل — حاول مرة أخرى."
+		},
+		"generateVideo": {
+			"title": "فيديو",
+			"preparing": "جارٍ تأليف الموجز الإبداعي…",
+			"queueing": "جارٍ كتابة نسخة المخرج…",
+			"failedToStart": "تعذّر بدء إنشاء الفيديو",
+			"queuedTitle": "في قائمة الانتظار",
+			"generatingTitle": "جارٍ الإخراج…",
+			"statusLoadError": "تعذّر تحميل حالة الفيديو — أعد فتح هذه المحادثة للمحاولة مجددًا.",
+			"failedTitle": "فشل إنشاء الفيديو",
+			"failedBody": "توقف الإخراج قبل الانتهاء.",
+			"retry": "إعادة المحاولة",
+			"directorsCut": "كُتبت نسخة المخرج",
+			"renderingClip": "جارٍ إخراج مقطع مدته {seconds} ثانية…",
+			"renderedClip": "اكتمل إخراج مقطع مدته {seconds} ثانية",
+			"inQueue": "في قائمة الانتظار",
+			"publish": "النشر",
+			"publishing": "جارٍ النشر…",
+			"published": "تم النشر",
+			"allStepsDone": "اكتملت كل الخطوات",
+			"readyTitle": "الفيديو جاهز",
+			"download": "تنزيل",
+			"viewInAssets": "عرض في الأصول",
+			"play": "تشغيل {title}"
+		},
+		"pageBuildFailure": {
+			"insufficient_credits": {
+				"kicker": "تعذّر الإنشاء",
+				"title": "لقد نفد رصيدك.",
+				"message": "تعذّر حجز الرصيد اللازم لهذا الإنشاء. نسختك الأخيرة سليمة — أعد الشحن وحاول مجددًا."
+			},
+			"internal_error": {
+				"kicker": "حدث خطأ ما",
+				"title": "توقف الإنشاء بشكل غير متوقع.",
+				"message": "حدث خطأ من جهتنا. نسختك الأخيرة سليمة — حاول مجددًا."
+			},
+			"invalid_output": {
+				"kicker": "حدث خطأ ما",
+				"title": "لم ينتج الإنشاء صفحة صالحة.",
+				"message": "لم تجتز النتيجة فحوص الجودة لدينا فلم يُنشر شيء. نسختك الأخيرة سليمة — المحاولة مجددًا تنجح غالبًا."
+			},
+			"member_limit": {
+				"kicker": "تعذّر الإنشاء",
+				"title": "بلغت حد رصيد العضو الخاص بك.",
+				"message": "يتطلب هذا الإنشاء رصيدًا يتجاوز حدك الشهري في مساحة العمل. اطلب من المسؤول رفعه ثم حاول مجددًا."
+			},
+			"provider_error": {
+				"kicker": "مشكلة لدى المزوّد",
+				"title": "واجه مزوّد الذكاء الاصطناعي خطأ.",
+				"message": "الخلل من جهة مزوّد النموذج، لا من Wandit. نسختك الأخيرة سليمة؛ المحاولة مجددًا تنجح غالبًا."
+			},
+			"provider_overloaded": {
+				"kicker": "مشكلة لدى المزوّد",
+				"title": "مزوّد الذكاء الاصطناعي ممتلئ الطاقة.",
+				"message": "مزوّد النموذج (وليس Wandit) محمّل مؤقتًا فوق طاقته. نسختك الأخيرة سليمة — حاول بعد دقيقة."
+			},
+			"provider_rate_limited": {
+				"kicker": "مشكلة لدى المزوّد",
+				"title": "مزوّد الذكاء الاصطناعي مشغول الآن.",
+				"message": "وصلت طلبات كثيرة إلى مزوّد النموذج دفعة واحدة — ليست مشكلة من Wandit. نسختك الأخيرة سليمة؛ حاول بعد دقيقة."
+			},
+			"provider_timeout": {
+				"kicker": "مشكلة لدى المزوّد",
+				"title": "استغرق مزوّد الذكاء الاصطناعي وقتًا طويلًا.",
+				"message": "توقف مزوّد النموذج عن الاستجابة أثناء الإنشاء — ليست مشكلة من Wandit. نسختك الأخيرة سليمة — حاول مجددًا."
+			},
+			"storage_failure": {
+				"kicker": "حدث خطأ ما",
+				"title": "فشل حفظ الصفحة المكتملة.",
+				"message": "اكتمل إنشاء الصفحة لكن رفعها فشل من جهتنا. نسختك الأخيرة سليمة — حاول مجددًا."
+			}
 		}
 	},
 	"page": {
