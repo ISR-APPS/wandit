@@ -78,6 +78,9 @@ export const versions = pgTable(
 		messageId: text("message_id").references(() => messages.id, {
 			onDelete: "set null",
 		}),
+		// Merchant-owned identifier captured at COD build time. Nullable keeps
+		// historical and non-COD versions valid.
+		productSku: text("product_sku"),
 		// Page language, title… anything the UI wants without fetching the HTML.
 		meta: jsonb("meta"),
 		createdAt: timestamp("created_at", { withTimezone: true })

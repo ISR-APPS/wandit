@@ -23,6 +23,7 @@ const RESPONSE: WorkspaceLeadsResponse = {
 			id: "00000000-0000-4000-8000-000000000001",
 			name: "Amina",
 			phone: "+213550000000",
+			productSku: null,
 			projectId: PROJECT_ID,
 			projectName: "Sahara Serum",
 			source: "facebook",

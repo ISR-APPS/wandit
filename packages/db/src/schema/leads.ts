@@ -36,6 +36,7 @@ export const leads = pgTable(
 		// pair below; deployment rows are only ever deleted with the whole
 		// project, so leads keep their provenance for the project's lifetime.
 		deploymentId: uuid("deployment_id"),
+		productSku: text("product_sku"),
 		name: text("name").notNull(),
 		// Canonical E.164 (+213…) — the capture endpoint normalizes (folds
 		// Arabic-Indic digits, maps 0 / 00213 prefixes) before insert and keeps

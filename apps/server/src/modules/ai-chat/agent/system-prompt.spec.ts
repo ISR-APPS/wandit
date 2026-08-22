@@ -8,6 +8,32 @@ import {
 } from "../../mcp-connectors/domain/higgsfield-models";
 import { WANDIT_SYSTEM_PROMPT } from "./system-prompt";
 
+describe("COD SKU laws in the chat system prompt", () => {
+	it("collects and preserves a merchant-provided SKU before building", () => {
+		expect(WANDIT_SYSTEM_PROMPT).toContain(
+			'make ONE dedicated ask_user call with kind "free-text" and zero options',
+		);
+		expect(WANDIT_SYSTEM_PROMPT).toContain(
+			"Never invent, translate, normalize, or reformat a SKU",
+		);
+		expect(WANDIT_SYSTEM_PROMPT).toContain(
+			"any short internal product code they want to see on their orders",
+		);
+		expect(WANDIT_SYSTEM_PROMPT).toContain(
+			"the exact product SKU must appear verbatim in OFFER and/or here",
+		);
+		expect(WANDIT_SYSTEM_PROMPT).toContain(
+			"AND productSku with the user's exact value",
+		);
+		expect(WANDIT_SYSTEM_PROMPT).toContain(
+			'If it answers "needs-input", do what its message says',
+		);
+		expect(WANDIT_SYSTEM_PROMPT).toContain(
+			"then retry generate_page after they respond",
+		);
+	});
+});
+
 describe("video laws in the chat system prompt", () => {
 	it("exports every preferred connected-road model id", () => {
 		for (const modelId of [
