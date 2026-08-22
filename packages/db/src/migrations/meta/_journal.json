@@ -288,6 +288,20 @@
       "when": 1787146218506,
       "tag": "0040_connector-operation-target-entity",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1787334342892,
+      "tag": "0041_sudden_moondragon",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1787348122539,
+      "tag": "0042_video-edit-extension-foundations",
+      "breakpoints": true
     }
   ]
 }

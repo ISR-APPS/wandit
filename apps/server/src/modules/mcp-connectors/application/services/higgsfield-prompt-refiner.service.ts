@@ -32,10 +32,14 @@ type HiggsfieldPromptRefinerInput = {
 
 type PromptTarget = {
 	aspectRatio?: string;
+	bypassVideoDirector?: boolean;
 	durationSeconds?: number;
 	model: string;
 	prompt: string;
 	referenceMediaCount?: number;
+	talking?: boolean;
+	voiceoverLanguage?: string;
+	voiceoverScript?: string;
 	withRefinedPrompt: (refined: string) => Record<string, unknown>;
 };
 
@@ -55,10 +59,10 @@ export class HiggsfieldPromptRefinerService {
 	 * degrades to the original arguments: a refinement must never block or fail
 	 * a paid generation.
 	 *
-	 * Video prompts do NOT use the generic refiner below: they go through the
-	 * one creative director (VideoDirectorService) so a Higgsfield render and
-	 * a gateway render are prompted by the same brain, in the target model's
-	 * own dialect, from the same creative brief.
+	 * New-video prompts do NOT use the generic refiner below: they go through
+	 * the one creative director (VideoDirectorService) so a Higgsfield render
+	 * and a gateway render use the same brain. Surgical edit instructions bypass
+	 * all rewriting because the provider must receive them verbatim.
 	 */
 	async refineGenerationArgs(
 		input: HiggsfieldPromptRefinerInput,
@@ -74,6 +78,10 @@ export class HiggsfieldPromptRefinerService {
 		}
 
 		if (input.toolName === "generate_video") {
+			if (target.bypassVideoDirector) {
+				return input.args;
+			}
+
 			// craftConnectorVideoPrompt never throws — it degrades to its own
 			// deterministic fallback, which still wraps the brief.
 			const crafted = await this.videoDirector.craftConnectorVideoPrompt({
@@ -84,7 +92,14 @@ export class HiggsfieldPromptRefinerService {
 				organizationId: input.organizationId,
 				parentEventId: input.parentEventId,
 				referenceMediaCount: target.referenceMediaCount,
+				...(target.talking === undefined ? {} : { talking: target.talking }),
 				userId: input.userId,
+				...(target.voiceoverLanguage
+					? { voiceoverLanguage: target.voiceoverLanguage }
+					: {}),
+				...(target.voiceoverScript
+					? { voiceoverScript: target.voiceoverScript }
+					: {}),
 			});
 
 			return target.withRefinedPrompt(crafted.prompt);
@@ -291,8 +306,12 @@ const FRAMELESS_MEDIA_ROLE = /audio|voice|sound|music|motion|video/i;
  */
 function promptContext(record: Record<string, unknown>): {
 	aspectRatio?: string;
+	bypassVideoDirector?: boolean;
 	durationSeconds?: number;
 	referenceMediaCount?: number;
+	talking?: boolean;
+	voiceoverLanguage?: string;
+	voiceoverScript?: string;
 } {
 	const aspectRatio = nonEmptyString(record.aspect_ratio);
 	const duration =
@@ -308,12 +327,53 @@ function promptContext(record: Record<string, unknown>): {
 				return typeof role !== "string" || !FRAMELESS_MEDIA_ROLE.test(role);
 			}).length
 		: 0;
+	const talking =
+		typeof record.talking === "boolean" ? record.talking : undefined;
+	const voiceoverLanguage = nonEmptyString(record.voiceoverLanguage);
+	const voiceoverScript = nonEmptyString(record.voiceoverScript);
 
 	return {
 		...(aspectRatio ? { aspectRatio } : {}),
+		...(isVideoEditCall(record) ? { bypassVideoDirector: true } : {}),
 		...(duration && duration > 0 ? { durationSeconds: duration } : {}),
 		...(referenceMediaCount > 0 ? { referenceMediaCount } : {}),
+		...(talking === undefined ? {} : { talking }),
+		...(voiceoverLanguage ? { voiceoverLanguage } : {}),
+		...(voiceoverScript ? { voiceoverScript } : {}),
 	};
+}
+
+/**
+ * Accept singular, plural, snake-case, kebab-case, and camel-case spellings for
+ * the video-reference role. Compacting the token keeps edit detection stable
+ * without treating an ordinary video or motion reference as a surgical edit.
+ */
+function isVideoEditCall(record: Record<string, unknown>): boolean {
+	if (compactProviderToken(record.mode) === "videoedit") {
+		return true;
+	}
+
+	return (
+		Array.isArray(record.medias) &&
+		record.medias.some((media) => {
+			if (!isRecord(media)) {
+				return false;
+			}
+
+			const role = compactProviderToken(media.role);
+
+			return role === "videoreference" || role === "videoreferences";
+		})
+	);
+}
+
+function compactProviderToken(value: unknown): string | null {
+	return typeof value === "string"
+		? value
+				.trim()
+				.toLowerCase()
+				.replace(/[^a-z0-9]+/g, "")
+		: null;
 }
 
 function buildRefinementPrompt(

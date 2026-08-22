@@ -301,6 +301,22 @@
 					"active": "Création de la vidéo",
 					"past": "Vidéo créée"
 				},
+				"show_marketing_studio": {
+					"active": "Ouverture de la bibliothèque Marketing Studio",
+					"past": "Bibliothèque Marketing Studio ouverte"
+				},
+				"video_analysis_create": {
+					"active": "Visionnage de la vidéo de référence",
+					"past": "Vidéo de référence visionnée"
+				},
+				"video_analysis_status": {
+					"active": "Vérification de l’analyse vidéo",
+					"past": "Analyse vidéo vérifiée"
+				},
+				"video_analysis_jobs": {
+					"active": "Affichage des analyses vidéo",
+					"past": "Analyses vidéo affichées"
+				},
 				"generate_audio": {
 					"active": "Création de l’audio",
 					"past": "Audio créé"
@@ -360,6 +376,10 @@
 				"show_generations": {
 					"active": "Chargement de tes créations",
 					"past": "Créations chargées"
+				},
+				"list_voices": {
+					"active": "Chargement des voix disponibles",
+					"past": "Voix disponibles chargées"
 				},
 				"tiktok_accounts": {
 					"active": "Vérification des comptes TikTok",
@@ -651,6 +671,48 @@
 			"open": "Ouvrir",
 			"download": "Télécharger"
 		},
+		"videoAttempt": {
+			"statusLoadError": "Impossible de charger l’état de la vidéo — rouvre cette conversation pour réessayer.",
+			"inQueue": "En file d’attente",
+			"extractingFrame": "Préparation de la séquence {current} sur {total}…",
+			"extractingFrameFallback": "Préparation de la séquence suivante…",
+			"renderingPiece": "Génération de la séquence {current} sur {total}…",
+			"renderingPieceFallback": "Génération de la séquence suivante…",
+			"joining": "Assemblage des séquences…",
+			"narration": "Ajout de la narration…",
+			"narrationFailed": "La vidéo est prête, mais la narration n’a pas pu être ajoutée. Le clip est silencieux.",
+			"publish": "Publier",
+			"published": "Publiée",
+			"download": "Télécharger",
+			"viewAssets": "Voir dans les Médias",
+			"play": "Lire {title}",
+			"edit": {
+				"preparing": "Préparation de la modification vidéo…",
+				"queueing": "Mise en file de la modification…",
+				"failedToStart": "Impossible de lancer la modification vidéo",
+				"failedTitle": "La modification vidéo a échoué",
+				"failedBody": "La modification s’est arrêtée avant que la vidéo soit prête.",
+				"prepared": "Instructions de modification prêtes",
+				"active": "Modification de la vidéo de {seconds} secondes…",
+				"done": "Vidéo de {seconds} secondes modifiée",
+				"publishing": "Publication de la vidéo modifiée…",
+				"complete": "Modification terminée",
+				"ready": "Vidéo modifiée prête."
+			},
+			"extend": {
+				"preparing": "Préparation du prolongement…",
+				"queueing": "Mise en file du prolongement…",
+				"failedToStart": "Impossible de lancer le prolongement vidéo",
+				"failedTitle": "Le prolongement vidéo a échoué",
+				"failedBody": "Le prolongement s’est arrêté avant que la version longue soit prête.",
+				"prepared": "Suite planifiée",
+				"active": "Prolongement de la vidéo jusqu’à {seconds} secondes…",
+				"done": "Vidéo prolongée jusqu’à {seconds} secondes",
+				"publishing": "Publication de la vidéo prolongée…",
+				"complete": "Prolongement terminé",
+				"ready": "Vidéo prolongée prête."
+			}
+		},
 		"tray": {
 			"preparing": "Préparation de la question…",
 			"needsDetail": "Détail à préciser",
@@ -719,11 +781,13 @@
 			"readyTitle": "Images prêtes",
 			"download": "Télécharger",
 			"inAssetsTab": "Aussi disponible dans l’onglet Médias",
-			"placementFailed": "Impossible de l’appliquer à la page — l’image est dans tes Médias"
+			"placementFailed": "Impossible de l’appliquer à la page — l’image est dans tes Médias",
+			"readyCount": "{ready} sur {total} prêtes"
 		},
 		"media": {
 			"close": "Fermer",
 			"download": "Télécharger",
+			"imageLoadError": "Impossible de charger l’image",
 			"previous": "Précédent",
 			"next": "Suivant"
 		}

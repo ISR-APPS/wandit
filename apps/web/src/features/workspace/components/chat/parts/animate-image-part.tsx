@@ -16,7 +16,7 @@ import {
 	Film,
 	RefreshCw,
 } from "lucide-react";
-import { type ReactNode, useEffect } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 
 import { invalidateBalanceAfterGenerationTerminal } from "@/features/credits/lib/terminal-balance-invalidation";
 import { useTranslation } from "@/lib/i18n";
@@ -135,18 +135,7 @@ function MediaGenerationCard({ attemptId }: { attemptId: string }) {
 	}
 
 	if (attempt?.status === "failed") {
-		return (
-			<AnnouncedStatus
-				text={`${t("workspace.chat.animateImage.failedTitle")}. ${t(
-					"workspace.chat.animateImage.failedBody",
-				)}`}
-			>
-				<FailureMessage
-					title={t("workspace.chat.animateImage.failedTitle")}
-					body={t("workspace.chat.animateImage.failedBody")}
-				/>
-			</AnnouncedStatus>
-		);
+		return <ImageAnimationFailure error={attempt.error} />;
 	}
 
 	if (attempt?.status === "succeeded" && attempt.videoUrl) {
@@ -177,13 +166,41 @@ function MediaGenerationCard({ attemptId }: { attemptId: string }) {
 	);
 }
 
+export function ImageAnimationFailure({ error }: { error: string | null }) {
+	const { t } = useTranslation();
+	const title = t("workspace.chat.animateImage.failedTitle");
+	const body = error ?? t("workspace.chat.animateImage.failedBody");
+
+	return (
+		<AnnouncedStatus text={`${title}. ${body}`}>
+			<FailureMessage title={title} body={body} />
+		</AnnouncedStatus>
+	);
+}
+
+/** A failed source only suppresses the exact URL whose request failed. */
+export function shouldShowAnimationSourceImage(
+	sourceImageUrl: string | null | undefined,
+	failedSourceImageUrl: string | null,
+): boolean {
+	return Boolean(sourceImageUrl) && sourceImageUrl !== failedSourceImageUrl;
+}
+
 function MediaGenerationProgress({
 	attempt,
 }: {
 	attempt: MediaGenerationAttempt | undefined;
 }) {
 	const { t } = useTranslation();
+	const [failedSourceImageUrl, setFailedSourceImageUrl] = useState<
+		string | null
+	>(null);
 	const isGenerating = attempt?.status === "generating";
+	const sourceImageUrl = attempt?.sourceImageUrl;
+	const showSourceImage = shouldShowAnimationSourceImage(
+		sourceImageUrl,
+		failedSourceImageUrl,
+	);
 	const title = isGenerating
 		? t("workspace.chat.animateImage.generatingTitle")
 		: t("workspace.chat.animateImage.queuedTitle");
@@ -199,10 +216,12 @@ function MediaGenerationProgress({
 					aspectClass(attempt?.aspect),
 				)}
 			>
-				{attempt?.sourceImageUrl ? (
+				{showSourceImage && sourceImageUrl ? (
 					<img
-						src={attempt.sourceImageUrl}
+						key={sourceImageUrl}
+						src={sourceImageUrl}
 						alt={t("workspace.chat.animateImage.sourceAlt")}
+						onError={() => setFailedSourceImageUrl(sourceImageUrl)}
 						className="absolute inset-0 size-full object-cover"
 					/>
 				) : (

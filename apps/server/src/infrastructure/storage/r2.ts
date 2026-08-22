@@ -9,6 +9,11 @@
  * All R2_* env vars are optional (the server boots before credentials
  * exist), so callers MUST check isR2Configured() before touching storage.
  */
+import { createWriteStream } from "node:fs";
+import { rm } from "node:fs/promises";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
+
 import {
 	DeleteObjectCommand,
 	GetObjectCommand,
@@ -109,6 +114,36 @@ export function siteVideoKey(
 	extension: string,
 ): string {
 	return `sites/${projectId}/assets/${attemptId}/vid-${index}.${extension}`;
+}
+
+// IMPORTANT: only the FINAL deliverable may use siteVideoKey(..., 1, ...).
+// Recovery treats vid-1.* as proof the whole attempt finished, and published
+// asset URLs are immutable-cached, so intermediates must never occupy that key
+// or be overwritten there later.
+export function siteVideoFrameKey(
+	projectId: string,
+	attemptId: string,
+	index: number,
+	extension: string,
+): string {
+	return `sites/${projectId}/assets/${attemptId}/frames/frame-${index}.${extension}`;
+}
+
+export function siteVideoSegmentKey(
+	projectId: string,
+	attemptId: string,
+	index: number,
+	extension: string,
+): string {
+	return `sites/${projectId}/assets/${attemptId}/segments/segment-${index}.${extension}`;
+}
+
+export function siteVideoSoundtrackKey(
+	projectId: string,
+	attemptId: string,
+	extension: string,
+): string {
+	return `sites/${projectId}/assets/${attemptId}/audio/soundtrack.${extension}`;
 }
 
 // Review screenshots the build publishes for the chat progress card. Under
@@ -408,6 +443,47 @@ export async function getObjectBytes(key: string): Promise<Uint8Array | null> {
 	} catch (error) {
 		if (error instanceof NoSuchKey) {
 			return null;
+		}
+
+		throw error;
+	}
+}
+
+/**
+ * Stream one object directly to a local file. Video-processing workers use
+ * this instead of getObjectBytes so source clips and segments never coexist
+ * as full in-memory buffers. A partial destination is removed on any failure.
+ */
+export async function downloadObjectToFile(
+	key: string,
+	destinationPath: string,
+): Promise<boolean> {
+	try {
+		const result = await r2Client().send(
+			new GetObjectCommand({ Bucket: env.R2_BUCKET, Key: key }),
+		);
+
+		if (!(result.Body instanceof Readable)) {
+			throw new Error(`R2 object ${key} did not provide a readable body.`);
+		}
+
+		try {
+			await pipeline(
+				result.Body,
+				createWriteStream(destinationPath, { flags: "wx" }),
+			);
+		} catch (error) {
+			await rm(destinationPath, { force: true }).catch(() => undefined);
+			throw error;
+		}
+
+		return true;
+	} catch (error) {
+		if (
+			error instanceof NoSuchKey ||
+			(isAwsNotFoundError(error) && error.$metadata.httpStatusCode === 404)
+		) {
+			return false;
 		}
 
 		throw error;

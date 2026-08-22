@@ -15,7 +15,6 @@ function metadata(
 		composer: {
 			mode,
 			options: { videoSubmissionId },
-			quality: "standard",
 		},
 	};
 }
@@ -54,7 +53,7 @@ function composerContext(
 	return (
 		buildChatRequestContext({
 			manualEdits: [],
-			metadata: { composer: { mode, options, output, quality: "standard" } },
+			metadata: { composer: { mode, options, output } },
 		}) ?? ""
 	);
 }

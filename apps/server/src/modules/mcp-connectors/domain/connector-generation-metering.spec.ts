@@ -18,13 +18,21 @@ describe("connector generation metering", () => {
 			childUnits: 1,
 		});
 		expect(connectorGenerationPlan("reframe", {})).toEqual({
-			childOperation: "image",
+			childOperation: "video",
 			childUnits: 1,
 		});
 		expect(connectorGenerationPlan("generateVideo", {})).toEqual({
 			childOperation: "video",
 			childUnits: 1,
 		});
+		for (const toolName of [
+			"show_marketing_studio",
+			"video_analysis_create",
+			"video_analysis_status",
+			"video_analysis_jobs",
+		]) {
+			expect(connectorGenerationPlan(toolName, {})).toBeNull();
+		}
 		expect(connectorGenerationPlan("ads_get_ad_accounts", {})).toBeNull();
 	});
 

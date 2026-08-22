@@ -1,12 +1,6 @@
-// In-thread card for a generate_video call. The render runs in a background
-// task; this part subscribes to the Trigger.dev run over Realtime (staged
-// "progress" metadata pushed, zero polling) and renders a cinematic "stage"
-// card: a dark 16:9 viewport with a pulsing equalizer while rendering, then
-// the playable clip centered inside the same stage (a 9:16 video sits small
-// and pillarboxed instead of stretching the card). The durable attempt row
-// stays the source of truth: polled slowly as a safety net, fast when the
-// subscription dies, so a crashed run still resolves via the reconciler.
-// Chrome strings hardcoded English this pass, same rule as the tray files.
+// In-thread card shared by generate_video, edit_video, and extend_video. Each
+// wrapper supplies its own copy while the attempt core owns Realtime progress,
+// polling fallback, failure handling, and the finished cinematic stage.
 
 import { useQueryClient } from "@tanstack/react-query";
 import type {
@@ -22,6 +16,7 @@ import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 
 import { creditsKeys } from "@/features/credits";
+import { useTranslation } from "@/lib/i18n";
 import {
 	mediaGenerationKeys,
 	useMediaGenerationAttemptQuery,
@@ -39,17 +34,185 @@ type GenerateVideoToolPart = Extract<
 	{ type: "tool-generate_video" }
 >;
 
+type EditVideoToolPart = Extract<
+	WanditUIMessage["parts"][number],
+	{ type: "tool-edit_video" }
+>;
+
+type ExtendVideoToolPart = Extract<
+	WanditUIMessage["parts"][number],
+	{ type: "tool-extend_video" }
+>;
+
+type VideoToolPart =
+	| GenerateVideoToolPart
+	| EditVideoToolPart
+	| ExtendVideoToolPart;
+
+type VideoPieceProgress = {
+	current: number;
+	total: number;
+};
+
+type VideoAttemptCopy = {
+	preparing: string;
+	queueing: string;
+	failedToStart: string;
+	failedTitle: string;
+	failedBody: string;
+	statusLoadError: string;
+	prepared: string;
+	active: (durationSeconds: number) => string;
+	done: (durationSeconds: number) => string;
+	inQueue: string;
+	extractingFrame: (piece: VideoPieceProgress | null) => string;
+	renderingPiece: (piece: VideoPieceProgress | null) => string;
+	joining: string;
+	narration: string;
+	narrationFailed?: string;
+	publish: string;
+	publishing: string;
+	published: string;
+	complete: string;
+	ready: string;
+	download: string;
+	viewAssets: string;
+	play: (title: string) => string;
+};
+
+// Keep generate_video's established English chrome unchanged in this batch.
+const GENERATE_VIDEO_COPY: VideoAttemptCopy = {
+	preparing: "Composing the creative brief…",
+	queueing: "Writing the director's cut…",
+	failedToStart: "Video generation failed to start",
+	failedTitle: "Video generation failed",
+	failedBody: "The render stopped before finishing.",
+	statusLoadError:
+		"Couldn't load the video status — reopen this chat to retry.",
+	prepared: "Director's cut written",
+	active: (durationSeconds) => `Rendering the ${durationSeconds}-second clip…`,
+	done: (durationSeconds) => `Rendered the ${durationSeconds}-second clip`,
+	inQueue: "In queue",
+	extractingFrame: (piece) =>
+		piece
+			? `Preparing piece ${piece.current} of ${piece.total}…`
+			: "Preparing the next piece…",
+	renderingPiece: (piece) =>
+		piece
+			? `Rendering piece ${piece.current} of ${piece.total}…`
+			: "Rendering the next piece…",
+	joining: "Joining the pieces…",
+	narration: "Laying the narration…",
+	publish: "Publish",
+	publishing: "Publishing…",
+	published: "Published",
+	complete: "All steps done",
+	ready: "Video ready.",
+	download: "Download",
+	viewAssets: "View in Assets",
+	play: (title) => `Play ${title}`,
+};
+
 export function GenerateVideoPart({ part }: { part: GenerateVideoToolPart }) {
-	// The creative brief streams in first, then the tool executes server-side
-	// (including the director's prompt-writing pass).
+	return <VideoAttemptPart copy={GENERATE_VIDEO_COPY} part={part} />;
+}
+
+export function EditVideoPart({ part }: { part: EditVideoToolPart }) {
+	const { t } = useTranslation();
+	const copy: VideoAttemptCopy = {
+		preparing: t("workspace.chat.videoAttempt.edit.preparing"),
+		queueing: t("workspace.chat.videoAttempt.edit.queueing"),
+		failedToStart: t("workspace.chat.videoAttempt.edit.failedToStart"),
+		failedTitle: t("workspace.chat.videoAttempt.edit.failedTitle"),
+		failedBody: t("workspace.chat.videoAttempt.edit.failedBody"),
+		statusLoadError: t("workspace.chat.videoAttempt.statusLoadError"),
+		prepared: t("workspace.chat.videoAttempt.edit.prepared"),
+		active: (durationSeconds) =>
+			t("workspace.chat.videoAttempt.edit.active", {
+				seconds: durationSeconds,
+			}),
+		done: (durationSeconds) =>
+			t("workspace.chat.videoAttempt.edit.done", {
+				seconds: durationSeconds,
+			}),
+		inQueue: t("workspace.chat.videoAttempt.inQueue"),
+		extractingFrame: (piece) =>
+			piece
+				? t("workspace.chat.videoAttempt.extractingFrame", piece)
+				: t("workspace.chat.videoAttempt.extractingFrameFallback"),
+		renderingPiece: (piece) =>
+			piece
+				? t("workspace.chat.videoAttempt.renderingPiece", piece)
+				: t("workspace.chat.videoAttempt.renderingPieceFallback"),
+		joining: t("workspace.chat.videoAttempt.joining"),
+		narration: t("workspace.chat.videoAttempt.narration"),
+		publish: t("workspace.chat.videoAttempt.publish"),
+		publishing: t("workspace.chat.videoAttempt.edit.publishing"),
+		published: t("workspace.chat.videoAttempt.published"),
+		complete: t("workspace.chat.videoAttempt.edit.complete"),
+		ready: t("workspace.chat.videoAttempt.edit.ready"),
+		download: t("workspace.chat.videoAttempt.download"),
+		viewAssets: t("workspace.chat.videoAttempt.viewAssets"),
+		play: (title) => t("workspace.chat.videoAttempt.play", { title }),
+	};
+
+	return <VideoAttemptPart copy={copy} part={part} />;
+}
+
+export function ExtendVideoPart({ part }: { part: ExtendVideoToolPart }) {
+	const { t } = useTranslation();
+	const copy: VideoAttemptCopy = {
+		preparing: t("workspace.chat.videoAttempt.extend.preparing"),
+		queueing: t("workspace.chat.videoAttempt.extend.queueing"),
+		failedToStart: t("workspace.chat.videoAttempt.extend.failedToStart"),
+		failedTitle: t("workspace.chat.videoAttempt.extend.failedTitle"),
+		failedBody: t("workspace.chat.videoAttempt.extend.failedBody"),
+		statusLoadError: t("workspace.chat.videoAttempt.statusLoadError"),
+		prepared: t("workspace.chat.videoAttempt.extend.prepared"),
+		active: (durationSeconds) =>
+			t("workspace.chat.videoAttempt.extend.active", {
+				seconds: durationSeconds,
+			}),
+		done: (durationSeconds) =>
+			t("workspace.chat.videoAttempt.extend.done", {
+				seconds: durationSeconds,
+			}),
+		inQueue: t("workspace.chat.videoAttempt.inQueue"),
+		extractingFrame: (piece) =>
+			piece
+				? t("workspace.chat.videoAttempt.extractingFrame", piece)
+				: t("workspace.chat.videoAttempt.extractingFrameFallback"),
+		renderingPiece: (piece) =>
+			piece
+				? t("workspace.chat.videoAttempt.renderingPiece", piece)
+				: t("workspace.chat.videoAttempt.renderingPieceFallback"),
+		joining: t("workspace.chat.videoAttempt.joining"),
+		narration: t("workspace.chat.videoAttempt.narration"),
+		narrationFailed: t("workspace.chat.videoAttempt.narrationFailed"),
+		publish: t("workspace.chat.videoAttempt.publish"),
+		publishing: t("workspace.chat.videoAttempt.extend.publishing"),
+		published: t("workspace.chat.videoAttempt.published"),
+		complete: t("workspace.chat.videoAttempt.extend.complete"),
+		ready: t("workspace.chat.videoAttempt.extend.ready"),
+		download: t("workspace.chat.videoAttempt.download"),
+		viewAssets: t("workspace.chat.videoAttempt.viewAssets"),
+		play: (title) => t("workspace.chat.videoAttempt.play", { title }),
+	};
+
+	return <VideoAttemptPart copy={copy} part={part} />;
+}
+
+function VideoAttemptPart({
+	part,
+	copy,
+}: {
+	part: VideoToolPart;
+	copy: VideoAttemptCopy;
+}) {
 	if (part.state === "input-streaming" || part.state === "input-available") {
 		return (
 			<WorkingLine
-				text={
-					part.state === "input-streaming"
-						? "Composing the creative brief…"
-						: "Writing the director's cut…"
-				}
+				text={part.state === "input-streaming" ? copy.preparing : copy.queueing}
 			/>
 		);
 	}
@@ -60,7 +223,7 @@ export function GenerateVideoPart({ part }: { part: GenerateVideoToolPart }) {
 				<StatusMessageHeader
 					avatarClass="border-destructive/38 bg-destructive/14 text-destructive"
 					kickerClass="text-destructive"
-					kicker="Video generation failed to start"
+					kicker={copy.failedToStart}
 				>
 					<AlertTriangle className="size-3" aria-hidden />
 				</StatusMessageHeader>
@@ -78,10 +241,11 @@ export function GenerateVideoPart({ part }: { part: GenerateVideoToolPart }) {
 
 	if (part.output.status === "queued" && part.output.attemptId) {
 		return (
-			<VideoGenerationCard
+			<VideoAttemptCard
 				attemptId={part.output.attemptId}
 				realtime={part.output.realtime}
 				fallbackTitle={part.input.title}
+				copy={copy}
 			/>
 		);
 	}
@@ -96,14 +260,16 @@ export function GenerateVideoPart({ part }: { part: GenerateVideoToolPart }) {
 }
 
 /** Subscribes to the run and picks the progress / result / failed view. */
-function VideoGenerationCard({
+function VideoAttemptCard({
 	attemptId,
 	realtime,
 	fallbackTitle,
+	copy,
 }: {
 	attemptId: string;
 	realtime: TriggerRealtimeHandle | undefined;
 	fallbackTitle: string;
+	copy: VideoAttemptCopy;
 }) {
 	const queryClient = useQueryClient();
 	// Flipped when the subscription dies OR the run settles: the poll re-checks
@@ -145,7 +311,7 @@ function VideoGenerationCard({
 	if (error) {
 		return (
 			<p className="text-[13px] text-muted-foreground leading-[1.5]">
-				Couldn't load the video status — reopen this chat to retry.
+				{copy.statusLoadError}
 			</p>
 		);
 	}
@@ -156,7 +322,7 @@ function VideoGenerationCard({
 				<StatusMessageHeader
 					avatarClass="border-destructive/38 bg-destructive/14 text-destructive"
 					kickerClass="text-destructive"
-					kicker="Video generation failed"
+					kicker={copy.failedTitle}
 				>
 					<AlertTriangle className="size-3" aria-hidden />
 				</StatusMessageHeader>
@@ -164,7 +330,7 @@ function VideoGenerationCard({
 					dir="auto"
 					className="text-[13px] text-muted-foreground leading-[1.5]"
 				>
-					{attempt.error ?? "The render stopped before finishing."}
+					{attempt.error ?? copy.failedBody}
 				</p>
 			</div>
 		);
@@ -174,6 +340,7 @@ function VideoGenerationCard({
 		return (
 			<VideoResultCard
 				attempt={attempt}
+				copy={copy}
 				title={attempt.title ?? fallbackTitle}
 				videoUrl={attempt.videoUrl}
 			/>
@@ -189,6 +356,7 @@ function VideoGenerationCard({
 	return (
 		<VideoProgressCard
 			attempt={attempt}
+			copy={copy}
 			progress={parsed.success ? parsed.data : undefined}
 			title={attempt?.title ?? fallbackTitle}
 		/>
@@ -276,10 +444,12 @@ function EqualizerBars() {
 
 function VideoProgressCard({
 	attempt,
+	copy,
 	progress,
 	title,
 }: {
 	attempt: MediaGenerationAttempt | undefined;
+	copy: VideoAttemptCopy;
 	/** Staged snapshot pushed over Realtime — fresher than the polled row. */
 	progress: VideoBuildProgress | undefined;
 	title: string;
@@ -294,19 +464,34 @@ function VideoProgressCard({
 		progress?.durationSeconds ?? attempt?.durationSeconds ?? 10;
 	const percent = Math.round(progress?.percent ?? (generating ? 15 : 4));
 	const phase = progress?.phase ?? (generating ? "rendering" : "starting");
-	const rendering = phase === "rendering" || generating;
+	const publishing = progress?.stage === "publishing" || phase === "publishing";
+	const finishing = progress?.stage === "finishing" || phase === "finishing";
+	const rendering =
+		phase === "rendering" ||
+		generating ||
+		progress?.stage === "rendering" ||
+		progress?.stage === "rendering-leg" ||
+		progress?.stage === "extracting-frame" ||
+		progress?.stage === "joining" ||
+		progress?.stage === "soundtrack";
 	// Still queued also shows the render row alive ("In queue") — an
 	// all-pending checklist reads as a dead card.
 	const renderState: "done" | "active" =
-		phase === "publishing" || phase === "finishing" ? "done" : "active";
+		publishing || finishing ? "done" : "active";
 	const inQueue = renderState === "active" && !rendering;
-	const publishState: "done" | "active" | "pending" =
-		phase === "finishing"
-			? "done"
-			: phase === "publishing"
-				? "active"
-				: "pending";
+	const publishState: "done" | "active" | "pending" = finishing
+		? "done"
+		: publishing
+			? "active"
+			: "pending";
 	const elapsedMs = progress?.elapsedMs ?? 0;
+	const activeStep = videoActiveStep(copy, progress, durationSeconds);
+	const announcedStatus =
+		publishState === "done"
+			? copy.ready
+			: publishState === "active"
+				? copy.publishing
+				: `${activeStep} ${inQueue ? copy.inQueue : `${percent}%`}`;
 
 	return (
 		<div className="overflow-hidden rounded-[14px] border border-border bg-background">
@@ -325,7 +510,7 @@ function VideoProgressCard({
 				) : null}
 			</VideoStage>
 			<div className="flex flex-col gap-[9px] p-[15px] text-[13.5px]">
-				<StepRow state="done">Director's cut written</StepRow>
+				<StepRow state="done">{copy.prepared}</StepRow>
 				{promptExcerpt ? (
 					<p
 						dir="auto"
@@ -335,21 +520,19 @@ function VideoProgressCard({
 					</p>
 				) : null}
 				<StepRow state={renderState}>
-					{renderState === "done"
-						? `Rendered the ${durationSeconds}-second clip`
-						: `Rendering the ${durationSeconds}-second clip…`}
+					{renderState === "done" ? copy.done(durationSeconds) : activeStep}
 				</StepRow>
 				{renderState === "active" ? (
 					<p className="ms-[25px] font-mono text-[11px] text-ember-text uppercase tracking-[0.12em]">
-						{inQueue ? "In queue" : `${percent}%`}
+						{inQueue ? copy.inQueue : `${percent}%`}
 					</p>
 				) : null}
 				<StepRow state={publishState}>
 					{publishState === "done"
-						? "Published"
+						? copy.published
 						: publishState === "active"
-							? "Publishing…"
-							: "Publish"}
+							? copy.publishing
+							: copy.publish}
 				</StepRow>
 			</div>
 			<span
@@ -358,20 +541,68 @@ function VideoProgressCard({
 				aria-atomic="true"
 				className="sr-only"
 			>
-				Generating the video. {progress?.headline ?? "Working on the video…"}
+				{announcedStatus}
 			</span>
 		</div>
 	);
+}
+
+function videoActiveStep(
+	copy: VideoAttemptCopy,
+	progress: VideoBuildProgress | undefined,
+	durationSeconds: number,
+): string {
+	switch (progress?.stage) {
+		case "rendering-leg":
+			return copy.renderingPiece(videoPieceProgress(progress.headline));
+		case "extracting-frame":
+			return copy.extractingFrame(videoPieceProgress(progress.headline));
+		case "joining":
+			return copy.joining;
+		case "soundtrack":
+			return copy.narration;
+		case "publishing":
+			return copy.publishing;
+		case "finishing":
+			return copy.ready;
+		default:
+			// Unknown stages are caught to null by videoBuildProgressSchema and use
+			// the established kind-generic wording.
+			return copy.active(durationSeconds);
+	}
+}
+
+function videoPieceProgress(headline: string): VideoPieceProgress | null {
+	// Realtime does not expose structured leg indexes yet. Current workers put
+	// the durable sequence in their headline; parse only that narrow shape and
+	// fall back to localized non-numbered copy if it ever changes.
+	const match = /\bpiece\s+(\d+)\s+of\s+(\d+)\b/i.exec(headline);
+	if (!match) return null;
+
+	const current = Number(match[1]);
+	const total = Number(match[2]);
+	if (
+		!Number.isInteger(current) ||
+		!Number.isInteger(total) ||
+		current < 1 ||
+		total < current
+	) {
+		return null;
+	}
+
+	return { current, total };
 }
 
 /* ---------- result card ---------- */
 
 function VideoResultCard({
 	attempt,
+	copy,
 	title,
 	videoUrl,
 }: {
 	attempt: MediaGenerationAttempt;
+	copy: VideoAttemptCopy;
 	title: string;
 	videoUrl: string;
 }) {
@@ -388,6 +619,10 @@ function VideoResultCard({
 				new Date(attempt.createdAt).getTime()
 			: null;
 	const portrait = attempt.aspect !== "16:9";
+	const narrationFailed =
+		attempt.voiceover?.deliveryStatus === "failed"
+			? copy.narrationFailed
+			: undefined;
 
 	return (
 		<div className="overflow-hidden rounded-[14px] border border-border bg-background">
@@ -408,7 +643,7 @@ function VideoResultCard({
 				<button
 					type="button"
 					onClick={() => setViewerOpen(true)}
-					aria-label={`Play ${title}`}
+					aria-label={copy.play(title)}
 					className="group absolute inset-0 z-[5] cursor-pointer"
 				>
 					<span className="absolute inset-0 grid place-items-center">
@@ -427,9 +662,7 @@ function VideoResultCard({
 					</span>
 				</StageChip>
 				<StageChip position="bottom-right">
-					<span dir="ltr">
-						0:{String(attempt.durationSeconds).padStart(2, "0")}
-					</span>
+					<span dir="ltr">{formatClock(attempt.durationSeconds * 1000)}</span>
 				</StageChip>
 			</VideoStage>
 			<div className="p-3">
@@ -450,9 +683,19 @@ function VideoResultCard({
 						</span>
 					) : null}
 				</div>
-				<p className="ms-[25px] mb-3 text-[12px] text-muted-foreground">
-					All steps done
+				<p
+					className={cn(
+						"ms-[25px] text-[12px] text-muted-foreground",
+						narrationFailed ? "mb-1" : "mb-3",
+					)}
+				>
+					{copy.complete}
 				</p>
+				{narrationFailed ? (
+					<p dir="auto" className="ms-[25px] mb-3 text-[12px] text-destructive">
+						{narrationFailed}
+					</p>
+				) : null}
 				<div className="flex gap-2">
 					<Button asChild size="sm" className="h-9 flex-1 text-[13.5px]">
 						<a
@@ -460,7 +703,7 @@ function VideoResultCard({
 							download={filename}
 						>
 							<Download className="size-4" aria-hidden />
-							Download
+							{copy.download}
 						</a>
 					</Button>
 					<Button
@@ -470,7 +713,7 @@ function VideoResultCard({
 						onClick={() => setTab("assets")}
 					>
 						<FolderOpen className="size-4" aria-hidden />
-						View in Assets
+						{copy.viewAssets}
 					</Button>
 				</div>
 			</div>
@@ -496,7 +739,7 @@ function VideoResultCard({
 				aria-atomic="true"
 				className="sr-only"
 			>
-				Video ready.
+				{copy.ready}
 			</span>
 		</div>
 	);

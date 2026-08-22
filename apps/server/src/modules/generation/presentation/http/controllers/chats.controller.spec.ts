@@ -43,27 +43,18 @@ const user = {
 
 // Test controller validation.
 describe("ChatsController", () => {
-	// Composer quality defaults to "standard" if omitted.
-	it("validates composer quality and defaults it to standard", () => {
-		expect(
-			sendChatMessageBodySchema.parse({
-				composer: {
-					mode: "marketing",
-					quality: "max",
-				},
-				text: "Write campaign hooks",
-			}).composer?.quality,
-		).toBe("max");
+	// Zod strips the retired field, so old clients remain wire-compatible.
+	it("accepts and strips a legacy composer quality", () => {
+		const parsed = sendChatMessageBodySchema.parse({
+			composer: {
+				mode: "marketing",
+				quality: "max",
+			},
+			text: "Write campaign hooks",
+		});
 
-		// The default comes from the shared schema.
-		expect(
-			sendChatMessageBodySchema.parse({
-				composer: {
-					mode: "marketing",
-				},
-				text: "Write campaign hooks",
-			}).composer?.quality,
-		).toBe("standard");
+		expect(parsed.composer).toEqual({ mode: "marketing" });
+		expect(parsed.composer).not.toHaveProperty("quality");
 	});
 
 	// Bad query cursor should fail before opening SSE.

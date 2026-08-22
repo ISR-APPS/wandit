@@ -32,6 +32,18 @@ import {
 } from "./tools/animate-image.tool";
 import { askUserTool } from "./tools/ask-user.tool";
 import {
+	createEditVideoTool,
+	type EditVideoTool,
+	type EditVideoToolDeps,
+	editVideoToolSchemaOnly,
+} from "./tools/edit-video.tool";
+import {
+	createExtendVideoTool,
+	type ExtendVideoTool,
+	type ExtendVideoToolDeps,
+	extendVideoToolSchemaOnly,
+} from "./tools/extend-video.tool";
+import {
 	createGenerateImageTool,
 	type GenerateImageTool,
 	type GenerateImageToolDeps,
@@ -94,6 +106,8 @@ import {
 type AiChatToolSet = {
 	animate_image: AnimateImageTool;
 	ask_user: typeof askUserTool;
+	edit_video: EditVideoTool;
+	extend_video: ExtendVideoTool;
 	generate_image: GenerateImageTool;
 	generate_marketing_asset: GenerateMarketingAssetTool;
 	generate_page: GeneratePageTool;
@@ -168,6 +182,8 @@ export type ChatAgentDeps = GeneratePageToolDeps &
 	Omit<ScrapeLeadsToolDeps, "chatId" | "projectId"> & {
 		pageEditsService: PageEditsService;
 	} & Omit<AnimateImageToolDeps, "chatId" | "projectId"> &
+	Omit<EditVideoToolDeps, "chatId" | "projectId"> &
+	Omit<ExtendVideoToolDeps, "chatId" | "projectId"> &
 	Omit<GenerateMarketingAssetToolDeps, "chatId" | "projectId"> &
 	Omit<GenerateImageToolDeps, "chatId" | "projectId"> &
 	Omit<GenerateVideoToolDeps, "chatId" | "projectId"> &
@@ -244,6 +260,26 @@ export function createChatAgent(
 				userId: deps.userId,
 			}),
 			ask_user: askUserTool,
+			edit_video: createEditVideoTool({
+				chatId: deps.chatId,
+				mediaGenerationsRepository: deps.mediaGenerationsRepository,
+				meteringService: deps.meteringService,
+				parentEventId: deps.parentEventId,
+				projectId: deps.projectId,
+				requestKeySeed: deps.requestKeySeed,
+				subject: deps.subject,
+				userId: deps.userId,
+			}),
+			extend_video: createExtendVideoTool({
+				chatId: deps.chatId,
+				mediaGenerationsRepository: deps.mediaGenerationsRepository,
+				meteringService: deps.meteringService,
+				parentEventId: deps.parentEventId,
+				projectId: deps.projectId,
+				requestKeySeed: deps.requestKeySeed,
+				subject: deps.subject,
+				userId: deps.userId,
+			}),
 			generate_image: createGenerateImageTool({
 				availableImages: deps.availableImages,
 				chatId: deps.chatId,
@@ -252,7 +288,6 @@ export function createChatAgent(
 				parentEventId: deps.parentEventId,
 				pagesRepository: deps.pagesRepository,
 				projectId: deps.projectId,
-				quality: deps.quality,
 				requestKeySeed: deps.requestKeySeed,
 				subject: deps.subject,
 				userId: deps.userId,
@@ -263,7 +298,6 @@ export function createChatAgent(
 				meteringService: deps.meteringService,
 				parentEventId: deps.parentEventId,
 				projectId: deps.projectId,
-				quality: deps.quality,
 				requestKeySeed: deps.requestKeySeed,
 				subject: deps.subject,
 				userId: deps.userId,
@@ -329,6 +363,8 @@ export function createChatAgent(
 export const aiChatToolsForValidation = {
 	animate_image: animateImageToolSchemaOnly,
 	ask_user: askUserTool,
+	edit_video: editVideoToolSchemaOnly,
+	extend_video: extendVideoToolSchemaOnly,
 	generate_image: generateImageToolSchemaOnly,
 	generate_marketing_asset: generateMarketingAssetToolSchemaOnly,
 	generate_page: generatePageToolSchemaOnly,

@@ -21,19 +21,76 @@ vi.mock("ai", async (importOriginal) => {
 	};
 });
 
+// Tool construction is the subject here; loading Trigger's HTTP client adds
+// an unrelated Undici runtime to this unit spec.
+vi.mock("@trigger.dev/sdk", () => ({
+	auth: {},
+	idempotencyKeys: {},
+	tasks: {},
+}));
+
+vi.mock("../../ai-provider/domain/llm-provider", () => ({
+	createLlmModel: vi.fn(() => "mock/model"),
+	withLlmAttribution: (
+		providerOptions: Record<string, unknown>,
+		context: {
+			operation: string;
+			organizationId: string | null;
+			userId: string;
+		},
+	) => ({
+		...providerOptions,
+		gateway: {
+			tags: [
+				`op:${context.operation}`,
+				context.organizationId ? "ws:org" : "ws:personal",
+			],
+			user: context.userId,
+		},
+	}),
+}));
+
+vi.mock("./tools/edit-video.tool", () => ({
+	createEditVideoTool: vi.fn(() => ({ execute: vi.fn() })),
+	editVideoToolSchemaOnly: {},
+}));
+
+vi.mock("./tools/extend-video.tool", () => ({
+	createExtendVideoTool: vi.fn(() => ({ execute: vi.fn() })),
+	extendVideoToolSchemaOnly: {},
+}));
+
+vi.mock("./gateway-fetch", () => ({
+	chatGatewayFetch: vi.fn(),
+}));
+
 import {
 	InvalidToolInputError,
 	NoSuchToolError,
 	type Tool,
 	type ToolCallRepairFunction,
 } from "ai";
-import { createChatAgent } from "./chat-agent";
+import {
+	aiChatToolsForValidation,
+	type ChatAgentDeps,
+	createChatAgent,
+} from "./chat-agent";
 import { AI_CHAT_MAX_OUTPUT_TOKENS, AI_CHAT_MAX_STEPS } from "./chat-metering";
+
+type HasRetiredComposerQuality = "quality" extends keyof ChatAgentDeps
+	? true
+	: false;
+
+const HAS_RETIRED_COMPOSER_QUALITY: HasRetiredComposerQuality = false;
 
 describe("chat agent cost bounds and gateway attribution", () => {
 	beforeEach(() => {
 		aiMocks.generateObject.mockReset();
 		aiMocks.settings = undefined;
+	});
+
+	it("does not expose the retired composer quality dependency", () => {
+		expect(HAS_RETIRED_COMPOSER_QUALITY).toBe(false);
 	});
 
 	it("sets explicit output, step, and per-user gateway bounds", () => {
@@ -65,6 +122,30 @@ describe("chat agent cost bounds and gateway attribution", () => {
 		});
 		expect(AI_CHAT_MAX_OUTPUT_TOKENS).toBe(16_000);
 		expect(AI_CHAT_MAX_STEPS).toBe(12);
+	});
+
+	it("registers edit and extension tools with execute-less history twins", () => {
+		createChatAgent({
+			availableImages: [],
+			chatId: "chat-1",
+			imageGenerationsRepository: {},
+			leadScrapesRepository: {},
+			marketingAssetsRepository: {},
+			mediaGenerationsRepository: {},
+			meteringService: {},
+			pageEditsService: {},
+			pagesRepository: {},
+			projectId: "project-1",
+			requestCountryCode: null,
+			subject: { actorUserId: "user-1" },
+			userId: "user-1",
+		} as never);
+
+		const tools = aiMocks.settings?.tools as Record<string, Tool> | undefined;
+		expect(tools?.edit_video?.execute).toBeTypeOf("function");
+		expect(tools?.extend_video?.execute).toBeTypeOf("function");
+		expect(aiChatToolsForValidation.edit_video.execute).toBeUndefined();
+		expect(aiChatToolsForValidation.extend_video.execute).toBeUndefined();
 	});
 
 	it("repairs invalid tool input and safely declines unrecoverable calls", async () => {

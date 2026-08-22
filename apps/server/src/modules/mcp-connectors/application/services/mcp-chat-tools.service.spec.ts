@@ -29,6 +29,7 @@ import type { ConnectorGenerationsRepository } from "../../../connector-generati
 import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import { InsufficientCreditsError } from "../../../credits/domain/errors/insufficient-credits.error";
 import type { MeteringService } from "../../../metering/application/services/metering.service";
+import { HIGGSFIELD_MULTISHOT_AUDIO_MODEL } from "../../domain/higgsfield-models";
 import type { ConnectorOperationEventsRepository } from "../../infrastructure/persistence/connector-operation-events.repository";
 import type {
 	McpConnectionRow,
@@ -498,7 +499,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			expect(result.tools).toEqual({});
 			expect(result.approvalMap).toEqual({});
 			expect(result.notices).toEqual([
-				"The user's Meta Ads connection could not be used (connector unreachable). If the user asks for ANYTHING that needs this connector (a generation, a report…), say plainly that it is temporarily unavailable right now and to try again shortly — never announce or pretend to start that work.",
+				"The user's Meta Ads connection could not be used (connector unreachable). If the user asks for ANYTHING that needs this connector (a generation, a report…), say plainly that it is temporarily unavailable right now and to try again shortly — never announce or pretend to start that work. You may offer to make the whole video with Wandit's own generator instead, but only as an explicit user-approved switch.",
 			]);
 			expect(result.notices.join(" ")).not.toContain("secret-provider-token");
 		});
@@ -519,7 +520,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 
 			expect(createMCPClient).not.toHaveBeenCalled();
 			expect(result.notices).toEqual([
-				"The user's Meta Ads connection could not be used (reconnect required). If the user asks for ANYTHING that needs this connector (a generation, a report…), tell them to reconnect it in Settings → Connectors — never announce or pretend to start that work.",
+				"The user's Meta Ads connection could not be used (reconnect required). If the user asks for ANYTHING that needs this connector (a generation, a report…), tell them to reconnect it in Settings → Connectors — never announce or pretend to start that work. You may offer to make the whole video with Wandit's own generator instead, but only as an explicit user-approved switch.",
 			]);
 			expect(connectorOperationEventsRepository.insert).not.toHaveBeenCalled();
 		});
@@ -856,6 +857,56 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			expect(result.tools).toHaveProperty("mcp_meta-ads_ads_get_ad_accounts");
 			expect(result.tools).not.toHaveProperty(
 				"mcp_meta-ads_ads_campaign_create",
+			);
+		});
+
+		it("exposes only the enrolled default Higgsfield capabilities", async () => {
+			const enrolled = [
+				"generate_image",
+				"generate_video",
+				"generate_audio",
+				"upscale_video",
+				"reframe",
+				"motion_control",
+				"show_marketing_studio",
+				"video_analysis_create",
+				"video_analysis_status",
+				"video_analysis_jobs",
+				"media_import_url",
+				"list_voices",
+				"models_explore",
+				"job_status",
+				"job_display",
+				"show_generations",
+			];
+			queueClient(
+				mockClient({
+					definitions: [
+						...enrolled.map((name) => definition(name)),
+						definition("voice_change"),
+						definition("media_confirm"),
+						definition("select_workspace"),
+					],
+				}),
+			);
+			const { service } = buildService({
+				connectors: [connector({ slug: "higgsfield" })],
+			});
+
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
+
+			for (const name of enrolled) {
+				expect(result.tools).toHaveProperty(`mcp_higgsfield_${name}`);
+			}
+			expect(result.approvalMap).not.toHaveProperty(
+				"mcp_higgsfield_list_voices",
+			);
+			expect(result.tools).not.toHaveProperty("mcp_higgsfield_voice_change");
+			expect(result.tools).not.toHaveProperty("mcp_higgsfield_media_confirm");
+			expect(result.tools).not.toHaveProperty(
+				"mcp_higgsfield_select_workspace",
 			);
 		});
 
@@ -1375,6 +1426,86 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			});
 		});
 
+		it("refuses off-whitelist Higgsfield execution while keeping discovery honest", async () => {
+			const client = mockClient({
+				definitions: [definition("generate_audio"), definition("voice_change")],
+			});
+			queueClient(client);
+			const { service } = buildService({
+				connectors: [connector({ slug: "higgsfield" })],
+			});
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
+
+			await expect(
+				executeTool(requiredTool(result.tools, "describe_platform_tool"), {
+					connector: "higgsfield",
+					tool_name: "voice_change",
+				}),
+			).resolves.toMatchObject({ tool_name: "voice_change" });
+
+			const input = {
+				connector: "higgsfield" as const,
+				params: { voice: "narrator" },
+				tool_name: "voice_change",
+			};
+			const approval = result.approvalMap.run_platform_tool;
+			expect(approval).toBeTypeOf("function");
+			if (typeof approval !== "function") {
+				throw new Error("Expected a call-time approval function");
+			}
+			expect(approval(input)).toBe("not-applicable");
+
+			const refused = (await executeTool(
+				requiredTool(result.tools, "run_platform_tool"),
+				input,
+			)) as { content: Array<{ text: string }>; isError: boolean };
+
+			expect(refused.isError).toBe(true);
+			expect(refused.content[0]?.text).toContain(
+				'Tool "voice_change" is not enrolled for Higgsfield',
+			);
+			expect(refused.content[0]?.text).toContain(
+				"Available Higgsfield tools: generate_audio",
+			);
+			expect(client.callTool).not.toHaveBeenCalled();
+		});
+
+		it("does not restrict another connector's generic execution door", async () => {
+			const client = mockClient({
+				definitions: [definition("select_workspace")],
+			});
+			queueClient(client);
+			const { service } = buildService();
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
+			const approval = result.approvalMap.run_platform_tool;
+			expect(approval).toBeTypeOf("function");
+			if (typeof approval !== "function") {
+				throw new Error("Expected a call-time approval function");
+			}
+			expect(
+				approval({
+					connector: "meta-ads",
+					params: { workspace_id: "workspace-1" },
+					tool_name: "select_workspace",
+				}),
+			).toBe("not-applicable");
+
+			await executeTool(requiredTool(result.tools, "run_platform_tool"), {
+				connector: "meta-ads",
+				params: { workspace_id: "workspace-1" },
+				tool_name: "select_workspace",
+			});
+
+			expect(client.callTool).toHaveBeenCalledWith({
+				arguments: { workspace_id: "workspace-1" },
+				name: "select_workspace",
+			});
+		});
+
 		it("classifies run_platform_tool approval at call time for auto, read, write, and malformed inputs", async () => {
 			queueClient(
 				mockClient({ definitions: [definition("ads_get_ad_accounts")] }),
@@ -1397,6 +1528,27 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 					tool_name: "generate_video",
 				}),
 			).toBe("not-applicable");
+			for (const toolName of [
+				"show_marketing_studio",
+				"video_analysis_create",
+				"video_analysis_status",
+				"video_analysis_jobs",
+			]) {
+				expect(
+					approval({
+						connector: "higgsfield",
+						params: {},
+						tool_name: toolName,
+					}),
+				).toBe("not-applicable");
+			}
+			expect(
+				approval({
+					connector: "higgsfield",
+					params: {},
+					tool_name: "voice_change",
+				}),
+			).toBe("user-approval");
 			expect(
 				approval({
 					connector: "meta-ads",
@@ -1488,6 +1640,51 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 	});
 
 	describe("connector generation metering", () => {
+		it("runs Marketing Studio and video analysis inline, auto-approved, and unbilled", async () => {
+			const toolNames = [
+				"show_marketing_studio",
+				"video_analysis_create",
+				"video_analysis_status",
+				"video_analysis_jobs",
+			] as const;
+			const providerExecute = vi.fn((name: string) => ({ name, ok: true }));
+			queueClient(
+				mockClient({
+					definitions: toolNames.map((name) => definition(name)),
+					toolImplementations: Object.fromEntries(
+						toolNames.map((name) => [
+							name,
+							executableTool(() => providerExecute(name)),
+						]),
+					),
+				}),
+			);
+			const { connectorGenerationsRepository, meteringService, service } =
+				buildService({ connectors: [connector({ slug: "higgsfield" })] });
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+			);
+
+			for (const name of toolNames) {
+				await expect(
+					executeTool(
+						requiredTool(result.tools, `mcp_higgsfield_${name}`),
+						{},
+						toolExecutionOptions(`call-${name}`),
+					),
+				).resolves.toEqual({ name, ok: true });
+				expect(result.approvalMap).not.toHaveProperty(`mcp_higgsfield_${name}`);
+				expect(providerExecute).toHaveBeenCalledWith(name);
+			}
+
+			expect(
+				connectorGenerationsRepository.insertAttempt,
+			).not.toHaveBeenCalled();
+			expect(meteringService.reserveWithReplay).not.toHaveBeenCalled();
+			expect(triggerMocks.trigger).not.toHaveBeenCalled();
+		});
+
 		it("meters an inline image generation as connector plus per-image child and captures gateway ids", async () => {
 			const providerResult = {
 				content: [
@@ -2026,6 +2223,70 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			expect(meteringService.settle).not.toHaveBeenCalled();
 		});
 
+		it("pins omitted Higgsfield use_unlim false before storing a queued call", async () => {
+			(env as typeof env & { TRIGGER_SECRET_KEY?: string }).TRIGGER_SECRET_KEY =
+				"tr_test";
+			queueClient(mockClient({ definitions: [definition("generate_video")] }));
+			const { connectorGenerationsRepository, service } = buildService({
+				connectors: [connector({ slug: "higgsfield" })],
+			});
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
+
+			await executeTool(
+				requiredTool(result.tools, "mcp_higgsfield_generate_video"),
+				{
+					params: {
+						prompt:
+							"SUBJECT: a watch on slate. KEY MOMENT: the second hand catches a clean rim light.",
+					},
+				},
+				toolExecutionOptions("call-unlim-omitted"),
+			);
+
+			expect(connectorGenerationsRepository.insertAttempt).toHaveBeenCalledWith(
+				expect.objectContaining({
+					args: {
+						params: {
+							prompt:
+								"SUBJECT: a watch on slate. KEY MOMENT: the second hand catches a clean rim light.",
+							use_unlim: false,
+						},
+					},
+				}),
+			);
+		});
+
+		it("preserves an explicit Higgsfield use_unlim choice in queued args", async () => {
+			(env as typeof env & { TRIGGER_SECRET_KEY?: string }).TRIGGER_SECRET_KEY =
+				"tr_test";
+			queueClient(mockClient({ definitions: [definition("generate_video")] }));
+			const { connectorGenerationsRepository, service } = buildService({
+				connectors: [connector({ slug: "higgsfield" })],
+			});
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
+			const args = {
+				params: {
+					prompt:
+						"SUBJECT: a watch on slate. KEY MOMENT: the second hand catches a clean rim light.",
+					use_unlim: true,
+				},
+			};
+
+			await executeTool(
+				requiredTool(result.tools, "mcp_higgsfield_generate_video"),
+				args,
+				toolExecutionOptions("call-unlim-explicit"),
+			);
+
+			expect(connectorGenerationsRepository.insertAttempt).toHaveBeenCalledWith(
+				expect.objectContaining({ args }),
+			);
+		});
+
 		it("dispatches enforced reservations after the runtime switch turns off", async () => {
 			(env as typeof env & { TRIGGER_SECRET_KEY?: string }).TRIGGER_SECRET_KEY =
 				"tr_test";
@@ -2220,6 +2481,115 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			expect(meteringService.reserveWithReplay).not.toHaveBeenCalled();
 			expect(meteringService.settle).not.toHaveBeenCalled();
 		});
+
+		it("refunds inline fallback holds when Higgsfield returns an unlim_choice question", async () => {
+			const providerResult = {
+				content: [
+					{
+						text: JSON.stringify({
+							question: "Use unlimited allowance or paid balance?",
+							type: "unlim_choice",
+						}),
+						type: "text",
+					},
+				],
+				isError: false,
+			};
+			const providerExecute = vi.fn(() => providerResult);
+			queueClient(
+				mockClient({
+					definitions: [definition("generate_video")],
+					toolImplementations: {
+						generate_video: executableTool(providerExecute),
+					},
+				}),
+			);
+			const { meteringService, service } = buildService({
+				connectors: [connector({ slug: "higgsfield" })],
+			});
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+			);
+			const args = {
+				params: {
+					model: "seedance_2_5",
+					prompt:
+						"SUBJECT: a watch on slate. KEY MOMENT: the second hand catches a clean rim light.",
+				},
+			};
+
+			await expect(
+				executeTool(
+					requiredTool(result.tools, "mcp_higgsfield_generate_video"),
+					args,
+					toolExecutionOptions("call-inline-unlim-choice"),
+				),
+			).resolves.toBe(providerResult);
+			expect(providerExecute).toHaveBeenCalledWith(
+				{
+					params: { ...args.params, use_unlim: false },
+				},
+				expect.any(Object),
+			);
+			expect(meteringService.refund.mock.calls).toEqual([
+				["usage-event-2", "connector_generation_failed"],
+				["usage-event-1", "connector_generation_failed"],
+			]);
+			expect(
+				meteringService.settleDirectPairWithFixedEvidence,
+			).not.toHaveBeenCalled();
+			expect(meteringService.settle).not.toHaveBeenCalled();
+		});
+
+		it("pins omitted use_unlim on inline generate_audio through namespaced and door paths", async () => {
+			const providerExecute = vi.fn(() => ({ ok: true }));
+			const client = mockClient({
+				definitions: [definition("generate_audio")],
+				toolImplementations: {
+					generate_audio: executableTool(providerExecute),
+				},
+			});
+			queueClient(client);
+			const { service } = buildService({
+				connectors: [connector({ slug: "higgsfield" })],
+			});
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+			);
+			const args = {
+				params: { model: "seed_audio", prompt: "Read this exact line." },
+			};
+
+			await executeTool(
+				requiredTool(result.tools, "mcp_higgsfield_generate_audio"),
+				args,
+				toolExecutionOptions("call-inline-audio"),
+			);
+			expect(providerExecute).toHaveBeenCalledWith(
+				{
+					params: { ...args.params, use_unlim: false },
+				},
+				expect.any(Object),
+			);
+
+			await executeTool(
+				requiredTool(result.tools, "run_platform_tool"),
+				{
+					connector: "higgsfield",
+					params: args,
+					tool_name: "generate_audio",
+				},
+				toolExecutionOptions("call-door-audio"),
+			);
+			expect(client.callTool).toHaveBeenCalledWith({
+				arguments: {
+					params: { ...args.params, use_unlim: false },
+				},
+				name: "generate_audio",
+			});
+		});
 	});
 
 	describe("creative-director gate, cost preflight, and batch guard", () => {
@@ -2258,6 +2628,47 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				expect.objectContaining({
 					idempotencyKey: `image:${GENERATION_ATTEMPT_ID}`,
 				}),
+			);
+			expect(triggerMocks.trigger).toHaveBeenCalledTimes(1);
+		});
+
+		it.each([
+			"upscale_video",
+			"reframe",
+			"motion_control",
+		])("queues enrolled video transform %s with video metering", async (toolName) => {
+			(env as typeof env & { TRIGGER_SECRET_KEY?: string }).TRIGGER_SECRET_KEY =
+				"tr_test";
+			queueClient(mockClient({ definitions: [definition(toolName)] }));
+			const { connectorGenerationsRepository, meteringService, service } =
+				buildService({ connectors: [connector({ slug: "higgsfield" })] });
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+			);
+
+			await expect(
+				executeTool(
+					requiredTool(result.tools, `mcp_higgsfield_${toolName}`),
+					{ params: { media_id: "media-1" } },
+					toolExecutionOptions(`call-${toolName}`),
+				),
+			).resolves.toMatchObject({
+				kind: "wandit_background_generation",
+				status: "queued",
+				tool: toolName,
+			});
+			expect(connectorGenerationsRepository.insertAttempt).toHaveBeenCalledWith(
+				expect.objectContaining({
+					args: { params: { media_id: "media-1" } },
+					toolName,
+				}),
+			);
+			expect(meteringService.reserveWithReplay).toHaveBeenNthCalledWith(
+				2,
+				"video",
+				{ actorUserId: USER_ID },
+				expect.any(Object),
 			);
 			expect(triggerMocks.trigger).toHaveBeenCalledTimes(1);
 		});
@@ -2421,7 +2832,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 					{
 						params: {
 							medias: [{ role: "start_image", value: "media-1" }],
-							model: "kling3_0",
+							model: HIGGSFIELD_MULTISHOT_AUDIO_MODEL,
 							prompt: "slow dolly push-in",
 						},
 					},
@@ -2559,7 +2970,14 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				}),
 			);
 			const { connectorGenerationsRepository, meteringService, service } =
-				buildService({ connectors: [connector({ slug: "higgsfield" })] });
+				buildService({
+					connectors: [
+						connector({
+							slug: "higgsfield",
+							toolPolicy: { allowlist: ["media_upload_widget"] },
+						}),
+					],
+				});
 			const result = await service.resolveToolsForUser(
 				{ actorUserId: USER_ID },
 				"chat-event",
@@ -2573,6 +2991,9 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 
 			expect(redirect.isError).toBe(true);
 			expect(redirect.content[0]?.text).toContain("media_import_url");
+			expect(result.approvalMap).not.toHaveProperty(
+				"mcp_higgsfield_media_upload_widget",
+			);
 			expect(providerExecute).not.toHaveBeenCalled();
 			expect(meteringService.reserveWithReplay).not.toHaveBeenCalled();
 			expect(
@@ -2586,7 +3007,12 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			});
 			queueClient(client);
 			const { service } = buildService({
-				connectors: [connector({ slug: "higgsfield" })],
+				connectors: [
+					connector({
+						slug: "higgsfield",
+						toolPolicy: { allowlist: ["media_upload"] },
+					}),
+				],
 			});
 			const result = await service.resolveToolsForUser(
 				{ actorUserId: USER_ID },
@@ -2680,7 +3106,11 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				userId: USER_ID,
 			});
 			expect(providerExecute.mock.calls[0]?.[0]).toEqual({
-				params: { model: "seedream", prompt: "refined prompt" },
+				params: {
+					model: "seedream",
+					prompt: "refined prompt",
+					use_unlim: false,
+				},
 			});
 		});
 
@@ -2714,7 +3144,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			);
 			expect(connectorGenerationsRepository.insertAttempt).toHaveBeenCalledWith(
 				expect.objectContaining({
-					args: { params: { prompt: "refined film" } },
+					args: { params: { prompt: "refined film", use_unlim: false } },
 				}),
 			);
 		});
@@ -2753,7 +3183,13 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				userId: USER_ID,
 			});
 			expect(client.callTool).toHaveBeenCalledWith({
-				arguments: { params: { model: "seedream", prompt: "refined prompt" } },
+				arguments: {
+					params: {
+						model: "seedream",
+						prompt: "refined prompt",
+						use_unlim: false,
+					},
+				},
 				name: "generate_image",
 			});
 		});
@@ -3746,6 +4182,83 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			expect(writeExecute).toHaveBeenCalledTimes(1);
 		});
 
+		it("retries only read Marketing Studio actions through namespaced and door paths", async () => {
+			let directListAttempts = 0;
+			const directExecute = vi.fn((input: unknown) => {
+				const action = (input as { action?: string }).action;
+				if (action === "create") {
+					throw transientError({ statusCode: 503 });
+				}
+				if (action === "list" && directListAttempts++ === 0) {
+					throw transientError({ code: "ECONNRESET" });
+				}
+				return { ok: "direct-list" };
+			});
+			let doorListAttempts = 0;
+			const client = mockClient({
+				callTool: (rawInput) => {
+					const action = (rawInput as { arguments: { action?: string } })
+						.arguments.action;
+					if (action === "create") {
+						throw transientError({ statusCode: 502 });
+					}
+					if (action === "list" && doorListAttempts++ === 0) {
+						throw transientError({ code: "ETIMEDOUT" });
+					}
+					return { content: [], isError: false };
+				},
+				definitions: [definition("show_marketing_studio")],
+				toolImplementations: {
+					show_marketing_studio: executableTool(directExecute),
+				},
+			});
+			queueClient(client);
+			const { service } = buildService({
+				connectors: [connector({ slug: "higgsfield" })],
+			});
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
+			vi.useFakeTimers();
+
+			await expect(
+				executeTool(
+					requiredTool(result.tools, "mcp_higgsfield_show_marketing_studio"),
+					{ action: "create", type: "product" },
+				),
+			).rejects.toMatchObject({ statusCode: 503 });
+			expect(directExecute).toHaveBeenCalledTimes(1);
+
+			const directList = executeTool(
+				requiredTool(result.tools, "mcp_higgsfield_show_marketing_studio"),
+				{ action: "list", type: "product" },
+			);
+			await vi.advanceTimersByTimeAsync(250);
+			await expect(directList).resolves.toEqual({ ok: "direct-list" });
+			expect(directExecute).toHaveBeenCalledTimes(3);
+
+			await expect(
+				executeTool(requiredTool(result.tools, "run_platform_tool"), {
+					connector: "higgsfield",
+					params: { action: "create", type: "product" },
+					tool_name: "show_marketing_studio",
+				}),
+			).rejects.toMatchObject({ statusCode: 502 });
+			expect(client.callTool).toHaveBeenCalledTimes(1);
+
+			const doorList = executeTool(
+				requiredTool(result.tools, "run_platform_tool"),
+				{
+					connector: "higgsfield",
+					params: { action: "list", type: "product" },
+					tool_name: "show_marketing_studio",
+				},
+			);
+			await vi.advanceTimersByTimeAsync(250);
+			await expect(doorList).resolves.toMatchObject({ isError: false });
+			expect(client.callTool).toHaveBeenCalledTimes(3);
+		});
+
 		it("does not retry a returned MCP isError result", async () => {
 			const semanticError = {
 				content: [{ text: "invalid request", type: "text" }],
@@ -4340,7 +4853,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 
 			expect(result.tools).toEqual({});
 			expect(result.notices).toEqual([
-				"The user's Meta Ads connection could not be used (connector unreachable). If the user asks for ANYTHING that needs this connector (a generation, a report…), say plainly that it is temporarily unavailable right now and to try again shortly — never announce or pretend to start that work.",
+				"The user's Meta Ads connection could not be used (connector unreachable). If the user asks for ANYTHING that needs this connector (a generation, a report…), say plainly that it is temporarily unavailable right now and to try again shortly — never announce or pretend to start that work. You may offer to make the whole video with Wandit's own generator instead, but only as an explicit user-approved switch.",
 			]);
 			expect(client.close).toHaveBeenCalledTimes(1);
 			expect(client.listTools).not.toHaveBeenCalled();

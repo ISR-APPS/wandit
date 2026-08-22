@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 
 import {
+	PayloadTooLargeException,
 	ServiceUnavailableException,
 	UnsupportedMediaTypeException,
 } from "@nestjs/common";
@@ -37,6 +38,23 @@ const PNG_BYTES = Buffer.from([
 
 const JPEG_BYTES = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00]);
 
+const MP4_BYTES = Buffer.from([
+	0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x69, 0x73, 0x6f, 0x6d,
+]);
+const WEBM_BYTES = Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 0x9f]);
+const MOV_BYTES = Buffer.from([
+	0x00, 0x00, 0x00, 0x14, 0x66, 0x74, 0x79, 0x70, 0x71, 0x74, 0x20, 0x20,
+]);
+const MP3_BYTES = Buffer.from([0x49, 0x44, 0x33, 0x04, 0x00]);
+const WAV_BYTES = Buffer.from([
+	0x52, 0x49, 0x46, 0x46, 0x04, 0x00, 0x00, 0x00, 0x57, 0x41, 0x56, 0x45,
+]);
+const MP42_M4A_BYTES = Buffer.from([
+	0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x6d, 0x70, 0x34, 0x32,
+]);
+const OGG_BYTES = Buffer.from([0x4f, 0x67, 0x67, 0x53, 0x00]);
+const PDF_BYTES = Buffer.from("%PDF-1.7", "latin1");
+
 // docx and xlsx are OOXML ZIP containers — both start with the PK signature.
 const ZIP_BYTES = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00]);
 
@@ -47,6 +65,15 @@ const XLSX_MEDIA_TYPE =
 
 function pngUpload() {
 	return { buffer: PNG_BYTES, filename: "product.png", mimetype: "image/png" };
+}
+
+// Report an oversized byteLength without allocating large buffers in the
+// parallel server suite. Size validation intentionally runs before sniffing.
+function bufferReportingSize(bytes: Buffer, byteLength: number): Buffer {
+	const buffer = Buffer.from(bytes);
+	Object.defineProperty(buffer, "byteLength", { value: byteLength });
+
+	return buffer;
 }
 
 beforeEach(() => {
@@ -76,13 +103,19 @@ describe("UploadsService.uploadAttachment", () => {
 	});
 
 	it("rejects media types outside the allowlist with 415", async () => {
-		await expect(
-			service.uploadAttachment("user_1", {
-				buffer: Buffer.from("<svg/>"),
-				filename: "logo.svg",
-				mimetype: "image/svg+xml",
-			}),
-		).rejects.toThrow(UnsupportedMediaTypeException);
+		const failure = service.uploadAttachment("user_1", {
+			buffer: Buffer.from("<svg/>"),
+			filename: "logo.svg",
+			mimetype: "image/svg+xml",
+		});
+
+		await expect(failure).rejects.toThrow(UnsupportedMediaTypeException);
+		await expect(failure).rejects.toMatchObject({
+			response: {
+				code: "UNSUPPORTED_ATTACHMENT_TYPE",
+				message: "Only images, documents, video, or audio files are accepted",
+			},
+		});
 		expect(putSiteFile).not.toHaveBeenCalled();
 	});
 
@@ -117,6 +150,168 @@ describe("UploadsService.uploadAttachment", () => {
 				/^https:\/\/assets\.example\.com\/uploads\/user_1\//,
 			),
 		});
+	});
+
+	it.each([
+		{
+			bytes: MP4_BYTES,
+			expectedFilename: "clip.mp4",
+			filename: "clip",
+			mediaType: "video/mp4",
+		},
+		{
+			bytes: WEBM_BYTES,
+			expectedFilename: "reference.webm",
+			filename: "reference",
+			mediaType: "video/webm",
+		},
+		{
+			bytes: MOV_BYTES,
+			expectedFilename: "take.mov",
+			filename: "take",
+			mediaType: "video/quicktime",
+		},
+		{
+			bytes: MP3_BYTES,
+			expectedFilename: "song.mp3",
+			filename: "song",
+			mediaType: "audio/mpeg",
+		},
+		{
+			bytes: WAV_BYTES,
+			expectedFilename: "voice.wav",
+			filename: "voice",
+			mediaType: "audio/wav",
+		},
+		{
+			bytes: MP42_M4A_BYTES,
+			expectedFilename: "soundtrack.m4a",
+			filename: "soundtrack",
+			mediaType: "audio/mp4",
+		},
+		{
+			bytes: MP42_M4A_BYTES,
+			expectedFilename: "music.m4a",
+			filename: "music",
+			mediaType: "audio/x-m4a",
+		},
+		{
+			bytes: OGG_BYTES,
+			expectedFilename: "mix.ogg",
+			filename: "mix",
+			mediaType: "audio/ogg",
+		},
+	])("round-trips a signature-valid $mediaType upload with its canonical extension", async ({
+		bytes,
+		expectedFilename,
+		filename,
+		mediaType,
+	}) => {
+		const result = await service.uploadAttachment("user_1", {
+			buffer: bytes,
+			filename,
+			mimetype: mediaType,
+		});
+
+		expect(putSiteFile).toHaveBeenCalledWith(
+			expect.stringMatching(new RegExp(`/${expectedFilename}$`)),
+			bytes,
+			mediaType,
+			IMMUTABLE_ASSET_CACHE_CONTROL,
+		);
+		expect(result).toMatchObject({
+			filename: expectedFilename,
+			mediaType,
+			size: bytes.byteLength,
+		});
+	});
+
+	it("accepts an MP3 beginning with an MPEG frame-sync header", async () => {
+		const frameSyncMp3 = Buffer.from([0xff, 0xfb, 0x90, 0x64]);
+
+		const result = await service.uploadAttachment("user_1", {
+			buffer: frameSyncMp3,
+			filename: "frame.mp3",
+			mimetype: "audio/mpeg",
+		});
+
+		expect(result.mediaType).toBe("audio/mpeg");
+	});
+
+	it.each([
+		"audio/mp4",
+		"audio/x-m4a",
+	])("rejects a non-MP4 payload renamed as $mediaType", async (mediaType) => {
+		await expect(
+			service.uploadAttachment("user_1", {
+				buffer: MP3_BYTES,
+				filename: "spoofed.m4a",
+				mimetype: mediaType,
+			}),
+		).rejects.toThrow(UnsupportedMediaTypeException);
+		expect(putSiteFile).not.toHaveBeenCalled();
+	});
+
+	it("rejects a non-video payload renamed with an .mp4 extension", async () => {
+		await expect(
+			service.uploadAttachment("user_1", {
+				buffer: MP3_BYTES,
+				filename: "spoofed.mp4",
+				mimetype: "video/mp4",
+			}),
+		).rejects.toThrow(UnsupportedMediaTypeException);
+		expect(putSiteFile).not.toHaveBeenCalled();
+	});
+
+	it.each([
+		{
+			bytes: PNG_BYTES,
+			category: "image",
+			limit: 15,
+			mediaType: "image/png",
+			message: "Images must be 15 MB or smaller",
+		},
+		{
+			bytes: PDF_BYTES,
+			category: "document",
+			limit: 15,
+			mediaType: "application/pdf",
+			message: "Documents must be 15 MB or smaller",
+		},
+		{
+			bytes: MP3_BYTES,
+			category: "audio",
+			limit: 25,
+			mediaType: "audio/mpeg",
+			message: "Audio files must be 25 MB or smaller",
+		},
+		{
+			bytes: MP4_BYTES,
+			category: "video",
+			limit: 50,
+			mediaType: "video/mp4",
+			message: "Video files must be 50 MB or smaller",
+		},
+	])("enforces the $limit MB $category attachment cap with an honest 413", async ({
+		bytes,
+		limit,
+		mediaType,
+		message,
+	}) => {
+		const failure = service.uploadAttachment("user_1", {
+			buffer: bufferReportingSize(bytes, limit * 1024 * 1024 + 1),
+			filename: "oversized",
+			mimetype: mediaType,
+		});
+
+		await expect(failure).rejects.toBeInstanceOf(PayloadTooLargeException);
+		await expect(failure).rejects.toMatchObject({
+			response: {
+				code: "ATTACHMENT_FILE_TOO_LARGE",
+				message,
+			},
+		});
+		expect(putSiteFile).not.toHaveBeenCalled();
 	});
 
 	it("recompresses a heavy raster photo to webp, renaming key and type", async () => {
@@ -260,7 +455,9 @@ describe("UploadsService.uploadAttachment", () => {
 	it("stores a large GIF verbatim", async () => {
 		const bigGif = Buffer.concat([
 			Buffer.from("GIF89a", "latin1"),
-			randomBytes(600 * 1024),
+			// Deterministic payload keeps this size-path test independent of OS
+			// entropy availability under Vitest's highly parallel full-suite run.
+			Buffer.alloc(600 * 1024, 0x61),
 		]);
 
 		const result = await service.uploadAttachment("user_1", {
@@ -269,12 +466,13 @@ describe("UploadsService.uploadAttachment", () => {
 			mimetype: "image/gif",
 		});
 
-		expect(putSiteFile).toHaveBeenCalledWith(
-			expect.stringMatching(/\/loop\.gif$/),
-			bigGif,
-			"image/gif",
-			IMMUTABLE_ASSET_CACHE_CONTROL,
-		);
+		const upload = vi.mocked(putSiteFile).mock.calls[0];
+		expect(upload?.[0]).toMatch(/\/loop\.gif$/);
+		// Identity is the verbatim guarantee and avoids a recursive 600 KB
+		// Buffer comparison dominating the suite's five-second test budget.
+		expect(upload?.[1]).toBe(bigGif);
+		expect(upload?.[2]).toBe("image/gif");
+		expect(upload?.[3]).toBe(IMMUTABLE_ASSET_CACHE_CONTROL);
 		expect(result).toMatchObject({
 			filename: "loop.gif",
 			mediaType: "image/gif",

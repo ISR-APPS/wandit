@@ -18,7 +18,6 @@ const CONNECTOR_ONLY_GENERATION_TOOLS = new Set([
 export const IMAGE_GENERATION_TOOLS: ReadonlySet<string> = new Set([
 	"generate_image",
 	"outpaint_image",
-	"reframe",
 	"remove_background",
 	"upscale_image",
 ]);
@@ -27,6 +26,7 @@ export const VIDEO_GENERATION_TOOLS: ReadonlySet<string> = new Set([
 	"animation_actions",
 	"generate_video",
 	"motion_control",
+	"reframe",
 	"upscale_video",
 ]);
 
