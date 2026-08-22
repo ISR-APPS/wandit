@@ -26,6 +26,12 @@
 		},
 		"ios": {
 			"bundleIdentifier": "com.zakisb97.wandit"
-		}
+		},
+		"extra": {
+			"eas": {
+				"projectId": "41f71bec-8c56-43dc-b99a-1f0ec4faef40"
+			}
+		},
+		"owner": "zakisb97"
 	}
 }
