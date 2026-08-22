@@ -7,7 +7,7 @@ import type {
 	CreditTier,
 	Subscription,
 } from "@wandit/contracts";
-import { creditTierSchema } from "@wandit/contracts";
+import { isManualSubscription } from "@wandit/contracts";
 import type { Locale } from "@wandit/internationalization";
 import { Badge } from "@wandit/ui/components/badge";
 import { Button } from "@wandit/ui/components/button";
@@ -19,15 +19,13 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from "@wandit/ui/components/dialog";
-import {
-	Select,
-	SelectContent,
-	SelectGroup,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from "@wandit/ui/components/select";
 import { Skeleton } from "@wandit/ui/components/skeleton";
+import {
+	Tabs,
+	TabsContent,
+	TabsList,
+	TabsTrigger,
+} from "@wandit/ui/components/tabs";
 import {
 	ToggleGroup,
 	ToggleGroupItem,
@@ -39,6 +37,7 @@ import {
 	Check,
 	CreditCard,
 	ExternalLink,
+	HandCoins,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -57,13 +56,11 @@ import {
 } from "@/features/billing/api/billing.queries";
 import {
 	areTopupsAvailable,
+	type PlanPickerPaymentMethod,
 	resolvePlanPickerInterval,
+	resolvePlanPickerPaymentMethod,
 } from "@/features/billing/lib/billing-ui-policy";
-import {
-	isRenewalDowngrade,
-	tierPriceUsd,
-	tierSavingsPercent,
-} from "@/features/billing/lib/plan-pricing";
+import { isRenewalDowngrade } from "@/features/billing/lib/plan-pricing";
 import { CreditsElsewhereNotice } from "@/features/credits/components/credits-elsewhere-notice";
 import {
 	formatCreditAmount,
@@ -78,12 +75,15 @@ import { CreateWorkspaceDialog } from "@/features/workspaces/components/create-w
 import { useWorkspace } from "@/features/workspaces/lib/workspace-provider";
 import { getApiErrorMessage, isApiClientError } from "@/lib/api-client";
 import { useDictionary, useTranslation } from "@/lib/i18n";
+import { ManualPaymentRequestPanel } from "./manual-payment-request-panel";
+import { PlanCard } from "./plan-card";
 
 export type PlanPickerDialogProps = {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	initialInterval?: BillingInterval;
 	initialTierCredits?: CreditTier;
+	initialPaymentMethod?: PlanPickerPaymentMethod;
 	requiredCredits?: number;
 	availableCredits?: number;
 };
@@ -100,6 +100,7 @@ export function PlanPickerDialog({
 	onOpenChange,
 	initialInterval,
 	initialTierCredits,
+	initialPaymentMethod,
 	requiredCredits,
 	availableCredits,
 }: PlanPickerDialogProps) {
@@ -132,7 +133,7 @@ export function PlanPickerDialog({
 			<Dialog open={open} onOpenChange={onOpenChange}>
 				{open ? (
 					<DialogContent
-						className="max-h-[min(760px,calc(100dvh-2rem))] overflow-y-auto sm:max-w-[720px]"
+						className="max-h-[min(820px,calc(100dvh-2rem))] overflow-y-auto sm:max-w-[720px]"
 						closeLabel={t("common.close")}
 					>
 						{/* Credits-elsewhere hint above every purchase branch: switching
@@ -141,6 +142,8 @@ export function PlanPickerDialog({
 						<PlanPickerContent
 							initialInterval={initialInterval}
 							initialTierCredits={initialTierCredits}
+							initialPaymentMethod={initialPaymentMethod}
+							defaultFullName={session?.user.name ?? ""}
 							onClose={() => onOpenChange(false)}
 							onCreateTeam={() => {
 								onOpenChange(false);
@@ -165,6 +168,8 @@ function PlanPickerContent({
 	onCreateTeam,
 	initialInterval,
 	initialTierCredits,
+	initialPaymentMethod,
+	defaultFullName,
 	requiredCredits,
 	availableCredits,
 }: {
@@ -172,11 +177,14 @@ function PlanPickerContent({
 	onCreateTeam: () => void;
 	initialInterval?: BillingInterval;
 	initialTierCredits?: CreditTier;
+	initialPaymentMethod?: PlanPickerPaymentMethod;
+	defaultFullName: string;
 	requiredCredits?: number;
 	availableCredits?: number;
 }) {
 	const { locale } = useTranslation();
-	const copy = useDictionary().billing.planPicker;
+	const dictionary = useDictionary();
+	const copy = dictionary.billing.planPicker;
 	// Personal workspaces buy Pro; org workspaces buy Business — the server
 	// rejects any other pairing (billing.service assertPlanMatchesScope).
 	const { isPersonal } = useWorkspace();
@@ -197,6 +205,8 @@ function PlanPickerContent({
 		useState<CreditTier | null>(initialTierCredits ?? null);
 	const [businessTierCredits, setBusinessTierCredits] =
 		useState<CreditTier | null>(null);
+	const [selectedPaymentMethod, setSelectedPaymentMethod] =
+		useState<PlanPickerPaymentMethod | null>(initialPaymentMethod ?? null);
 	const [preview, setPreview] =
 		useState<BillingSubscriptionChangePreviewResponse | null>(null);
 	const [target, setTarget] = useState<ChangeTarget | null>(null);
@@ -253,8 +263,34 @@ function PlanPickerContent({
 		settings.topupsEnabled,
 		catalog.topupPacks.length,
 	);
+	const manualSubscription = isManualSubscription(subscription);
+	const cardAvailable =
+		settings.paidSubscriptionsEnabled && !manualSubscription;
+	const offlineAvailable = settings.manualPaymentsEnabled;
+	const paymentMethod = resolvePlanPickerPaymentMethod(
+		selectedPaymentMethod,
+		cardAvailable,
+		offlineAvailable,
+	);
 
-	if (!settings.paidSubscriptionsEnabled) {
+	if (manualSubscription && !offlineAvailable) {
+		return (
+			<PickerNotice
+				tone="neutral"
+				title={copy.offline.managed.title}
+				body={dictionary.errors.codes.MANUAL_PAYMENTS_DISABLED}
+				requiredCredits={requiredCredits}
+				availableCredits={noticeAvailableCredits}
+				action={
+					<Button type="button" onClick={onClose}>
+						{copy.close}
+					</Button>
+				}
+			/>
+		);
+	}
+
+	if (!settings.paidSubscriptionsEnabled && !offlineAvailable) {
 		return (
 			<PickerNotice
 				tone="neutral"
@@ -287,7 +323,15 @@ function PlanPickerContent({
 		);
 	}
 
-	if (subscription?.cancelAtPeriodEnd) {
+	if (!paymentMethod) {
+		return null;
+	}
+
+	if (
+		paymentMethod === "card" &&
+		!manualSubscription &&
+		subscription?.cancelAtPeriodEnd
+	) {
 		return (
 			<PickerNotice
 				tone="warning"
@@ -328,7 +372,12 @@ function PlanPickerContent({
 		);
 	}
 
-	if (subscription && !subscription.entitled) {
+	if (
+		paymentMethod === "card" &&
+		!manualSubscription &&
+		subscription &&
+		!subscription.entitled
+	) {
 		return (
 			<PickerNotice
 				tone="warning"
@@ -370,7 +419,13 @@ function PlanPickerContent({
 		);
 	}
 
-	if (step === "preview" && preview && target && subscription) {
+	if (
+		step === "preview" &&
+		preview &&
+		target &&
+		subscription &&
+		!manualSubscription
+	) {
 		const downgrade = isRenewalDowngrade(subscription, target);
 
 		return (
@@ -458,6 +513,9 @@ function PlanPickerContent({
 
 	const handlePrimaryAction = () => {
 		setErrorMessage(null);
+		if (isManualSubscription(subscription)) {
+			return;
+		}
 
 		if (!subscription) {
 			void checkout
@@ -502,36 +560,8 @@ function PlanPickerContent({
 			) ?? businessPlan.tiers[0])
 		: undefined;
 	const planFeatures = isPersonal ? copy.proFeatures : copy.businessFeatures;
-
-	return (
-		<>
-			<DialogHeader className="text-start">
-				<div className="flex flex-wrap items-center gap-2">
-					<DialogTitle className="font-display tracking-tight">
-						{subscription ? copy.changeTitle : copy.chooseTitle}
-					</DialogTitle>
-					{subscription ? (
-						<Badge variant="outline">{copy.currentPlan}</Badge>
-					) : null}
-				</div>
-				<DialogDescription>
-					{subscription ? copy.changeDescription : copy.chooseDescription}
-				</DialogDescription>
-			</DialogHeader>
-
-			{requiredCredits !== undefined ? (
-				<div className="grid grid-cols-2 gap-3 rounded-xl border border-primary/25 bg-primary/[0.045] p-3">
-					<RequirementMetric
-						label={copy.requiredCredits}
-						value={formatCreditAmount(requiredCredits, locale)}
-					/>
-					<RequirementMetric
-						label={copy.availableCredits}
-						value={formatCreditBalance(visibleAvailableCredits, locale)}
-					/>
-				</div>
-			) : null}
-
+	const cardPanel = (
+		<div className="flex flex-col gap-4">
 			<div className="grid gap-2">
 				<span className="font-medium text-sm">{copy.billingCycle}</span>
 				<ToggleGroup
@@ -648,145 +678,103 @@ function PlanPickerContent({
 					{copy.close}
 				</Button>
 			</DialogFooter>
-		</>
+		</div>
 	);
-}
-
-// One symmetric plan column (Lovable layout): name, tagline, live price for
-// the selected tier, tier dropdown, CTA, feature checklist. Both cards render
-// through this so their rhythm and heights always match; the grid's default
-// stretch keeps the shorter card as tall as the other.
-function PlanCard({
-	name,
-	badge,
-	tagline,
-	tier,
-	tiers,
-	basePer100Usd,
-	interval,
-	perLabel,
-	selectId,
-	selectLabel,
-	onSelectTier,
-	action,
-	features,
-	highlighted = false,
-}: {
-	name: string;
-	badge?: string;
-	tagline: string;
-	tier: BillingTierPrice;
-	tiers: readonly BillingTierPrice[];
-	basePer100Usd: number;
-	interval: BillingInterval;
-	perLabel: string;
-	selectId: string;
-	selectLabel: string;
-	onSelectTier: (tierCredits: CreditTier) => void;
-	action: React.ReactNode;
-	features: readonly string[];
-	highlighted?: boolean;
-}) {
-	const { locale, t } = useTranslation();
-	const savings = tierSavingsPercent(tier, basePer100Usd);
+	const offlinePanel = (
+		<ManualPaymentRequestPanel
+			plan={plan}
+			subscription={subscription}
+			defaultFullName={defaultFullName}
+			initialInterval={selectedInterval ?? initialInterval}
+			initialTierCredits={selectedTierCredits ?? initialTierCredits}
+			onClose={onClose}
+		/>
+	);
+	const showPaymentTabs = cardAvailable && offlineAvailable;
 
 	return (
-		<section
-			className={cn(
-				"flex flex-col rounded-2xl border bg-card/70 p-4 sm:p-5",
-				highlighted && "border-primary/35 ring-1 ring-primary/10",
-			)}
-		>
-			<div className="flex items-center gap-2">
-				<h3 className="font-display font-semibold text-lg tracking-tight">
-					{name}
-				</h3>
-				{badge ? (
-					<Badge variant="secondary" className="px-1.5 py-0 text-[10px]">
-						{badge}
-					</Badge>
-				) : null}
-			</div>
-			<p className="mt-1 text-muted-foreground text-xs">{tagline}</p>
-			<div className="mt-4 flex flex-wrap items-center gap-2">
-				<p className="font-mono font-semibold text-3xl tabular-nums">
-					{formatUsd(tierPriceUsd(tier, interval), locale)}
-					<span className="ms-1.5 font-normal font-sans text-muted-foreground text-xs">
-						{perLabel}
-					</span>
-				</p>
-				{savings > 0 ? (
-					<Badge variant="success">
-						{t("billing.planPicker.savePercent", { percent: savings })}
-					</Badge>
-				) : null}
-			</div>
-			<div className="mt-4 grid gap-2">
-				<label htmlFor={selectId} className="font-medium text-sm">
-					{selectLabel}
-				</label>
-				<Select
-					value={String(tier.tierCredits)}
+		<>
+			<DialogHeader className="text-start">
+				<div className="flex flex-wrap items-center gap-2">
+					<DialogTitle className="font-display tracking-tight">
+						{paymentMethod === "offline"
+							? copy.offline.title
+							: subscription
+								? copy.changeTitle
+								: copy.chooseTitle}
+					</DialogTitle>
+					{subscription ? (
+						<Badge variant="outline">{copy.currentPlan}</Badge>
+					) : null}
+				</div>
+				<DialogDescription>
+					{paymentMethod === "offline"
+						? copy.offline.description
+						: subscription
+							? copy.changeDescription
+							: copy.chooseDescription}
+				</DialogDescription>
+			</DialogHeader>
+
+			{requiredCredits !== undefined ? (
+				<div className="grid grid-cols-2 gap-3 rounded-xl border border-primary/25 bg-primary/[0.045] p-3">
+					<RequirementMetric
+						label={copy.requiredCredits}
+						value={formatCreditAmount(requiredCredits, locale)}
+					/>
+					<RequirementMetric
+						label={copy.availableCredits}
+						value={formatCreditBalance(visibleAvailableCredits, locale)}
+					/>
+				</div>
+			) : null}
+
+			{showPaymentTabs ? (
+				<Tabs
+					value={paymentMethod}
 					onValueChange={(value) => {
-						const parsed = creditTierSchema.safeParse(Number(value));
-						if (parsed.success) onSelectTier(parsed.data);
+						if (value === "card" || value === "offline") {
+							setSelectedPaymentMethod(value);
+						}
 					}}
 				>
-					<SelectTrigger id={selectId} className="h-11 w-full">
-						<SelectValue />
-					</SelectTrigger>
-					<SelectContent>
-						<SelectGroup>
-							{tiers.map((option) => {
-								const optionSavings = tierSavingsPercent(option, basePer100Usd);
-								return (
-									<SelectItem
-										key={option.tierCredits}
-										value={String(option.tierCredits)}
-									>
-										<span className="flex min-w-0 items-center gap-2">
-											<span>
-												{t("credits.creditUnit", {
-													count: option.tierCredits,
-												})}
-											</span>
-											<span className="text-muted-foreground">
-												{formatUsd(tierPriceUsd(option, interval), locale)}
-											</span>
-											{optionSavings > 0 ? (
-												<Badge
-													variant="success"
-													className="px-1.5 py-0 text-[10px]"
-												>
-													{t("billing.planPicker.savePercent", {
-														percent: optionSavings,
-													})}
-												</Badge>
-											) : null}
-										</span>
-									</SelectItem>
-								);
-							})}
-						</SelectGroup>
-					</SelectContent>
-				</Select>
-			</div>
-			{action}
-			<FeatureList items={features} />
-		</section>
-	);
-}
-
-function FeatureList({ items }: { items: readonly string[] }) {
-	return (
-		<ul className="mt-5 grid gap-2 border-t pt-4">
-			{items.map((item) => (
-				<li key={item} className="flex items-start gap-2 text-sm">
-					<Check className="mt-0.5 size-4 shrink-0 text-success" aria-hidden />
-					<span className="min-w-0">{item}</span>
-				</li>
-			))}
-		</ul>
+					<TabsList className="w-full" aria-label={copy.offline.tabs.ariaLabel}>
+						<TabsTrigger value="card" className="flex-1">
+							<CreditCard aria-hidden />
+							{copy.offline.tabs.card}
+						</TabsTrigger>
+						<TabsTrigger value="offline" className="flex-1">
+							<HandCoins aria-hidden />
+							{copy.offline.tabs.offline}
+						</TabsTrigger>
+					</TabsList>
+					<TabsContent value="card">{cardPanel}</TabsContent>
+					<TabsContent value="offline">{offlinePanel}</TabsContent>
+				</Tabs>
+			) : paymentMethod === "offline" ? (
+				<>
+					{offlinePanel}
+					{/* Manual subscribers can still buy Stripe top-up packs (the
+					    top-up switch is independent of subscription checkout), and
+					    only the card panel used to render them (review finding). */}
+					{topupsAvailable ? (
+						<TopupPackChoices
+							packs={catalog.topupPacks}
+							isPending={topup.isPending}
+							onSelect={(packId) => {
+								setErrorMessage(null);
+								void topup
+									.mutateAsync({ packId })
+									.catch((error) => setErrorMessage(getApiErrorMessage(error)));
+							}}
+						/>
+					) : null}
+					{errorMessage ? <InlineError message={errorMessage} /> : null}
+				</>
+			) : (
+				cardPanel
+			)}
+		</>
 	);
 }
 

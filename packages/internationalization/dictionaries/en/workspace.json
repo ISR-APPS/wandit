@@ -301,6 +301,22 @@
 					"active": "Generating the video",
 					"past": "Generated the video"
 				},
+				"show_marketing_studio": {
+					"active": "Opening the Marketing Studio library",
+					"past": "Opened the Marketing Studio library"
+				},
+				"video_analysis_create": {
+					"active": "Watching the reference video",
+					"past": "Watched the reference video"
+				},
+				"video_analysis_status": {
+					"active": "Checking the video analysis",
+					"past": "Checked the video analysis"
+				},
+				"video_analysis_jobs": {
+					"active": "Listing video analyses",
+					"past": "Listed video analyses"
+				},
 				"generate_audio": {
 					"active": "Generating the audio",
 					"past": "Generated the audio"
@@ -360,6 +376,10 @@
 				"show_generations": {
 					"active": "Loading your creations",
 					"past": "Loaded your creations"
+				},
+				"list_voices": {
+					"active": "Loading available voices",
+					"past": "Loaded available voices"
 				},
 				"tiktok_accounts": {
 					"active": "Checking TikTok accounts",
@@ -655,6 +675,48 @@
 			"open": "Open",
 			"download": "Download"
 		},
+		"videoAttempt": {
+			"statusLoadError": "Couldn't load the video status — reopen this chat to retry.",
+			"inQueue": "In queue",
+			"extractingFrame": "Preparing piece {current} of {total}…",
+			"extractingFrameFallback": "Preparing the next piece…",
+			"renderingPiece": "Rendering piece {current} of {total}…",
+			"renderingPieceFallback": "Rendering the next piece…",
+			"joining": "Joining the pieces…",
+			"narration": "Laying the narration…",
+			"narrationFailed": "The video is ready, but narration could not be added. The clip is silent.",
+			"publish": "Publish",
+			"published": "Published",
+			"download": "Download",
+			"viewAssets": "View in Assets",
+			"play": "Play {title}",
+			"edit": {
+				"preparing": "Preparing the video edit…",
+				"queueing": "Queueing the edit…",
+				"failedToStart": "Video edit failed to start",
+				"failedTitle": "Video edit failed",
+				"failedBody": "The edit stopped before the video was ready.",
+				"prepared": "Edit instructions ready",
+				"active": "Editing the {seconds}-second video…",
+				"done": "Edited the {seconds}-second video",
+				"publishing": "Publishing the edited video…",
+				"complete": "Edit complete",
+				"ready": "Edited video ready."
+			},
+			"extend": {
+				"preparing": "Preparing the continuation…",
+				"queueing": "Queueing the extension…",
+				"failedToStart": "Video extension failed to start",
+				"failedTitle": "Video extension failed",
+				"failedBody": "The extension stopped before the longer video was ready.",
+				"prepared": "Continuation planned",
+				"active": "Extending the video to {seconds} seconds…",
+				"done": "Extended the video to {seconds} seconds",
+				"publishing": "Publishing the longer video…",
+				"complete": "Extension complete",
+				"ready": "Extended video ready."
+			}
+		},
 		"tray": {
 			"preparing": "Preparing the question…",
 			"needsDetail": "Needs a detail",
@@ -723,12 +785,14 @@
 			"readyTitle": "Images ready",
 			"download": "Download",
 			"inAssetsTab": "Also available in the Assets tab",
-			"placementFailed": "Couldn't apply it to the page — the image is in your Assets"
+			"placementFailed": "Couldn't apply it to the page — the image is in your Assets",
+			"readyCount": "{ready} of {total} ready"
 		},
 		"media": {
 			"close": "Close",
 			"download": "Download",
 			"downloadFailed": "The download failed — try again.",
+			"imageLoadError": "Image failed to load",
 			"previous": "Previous",
 			"next": "Next"
 		},
@@ -1071,6 +1135,8 @@
 			"backgroundRemove": "Remove background image",
 			"data": "Data",
 			"dataHint": "Business details detected on the page.",
+			"dataPageTitle": "Page title",
+			"dataPageTitleHint": "Shown in the browser tab.",
 			"dataBrand": "Brand",
 			"dataBrandHint": "Used in the navigation and footer.",
 			"dataBrandUpload": "Upload logo",

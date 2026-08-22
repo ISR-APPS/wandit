@@ -3,6 +3,10 @@ import {
 	applyElementOpsInputSchema,
 	applyElementOpsOutputSchema,
 	askUserOutputSchema,
+	editVideoInputSchema,
+	editVideoOutputSchema,
+	extendVideoInputSchema,
+	extendVideoOutputSchema,
 	insertSectionInputSchema,
 	insertSectionOutputSchema,
 	readAttachmentInputSchema,
@@ -120,6 +124,14 @@ function buildService({
 	const mediaGenerationsRepository = {};
 	const marketingAssetsRepository = {};
 	const imageGenerationsRepository = {};
+	const leadsRepository = {
+		getAdsTrackingFacts: vi.fn().mockResolvedValue({
+			metaPixelSet: true,
+			published: false,
+			tiktokPixelSet: false,
+		}),
+		getFunnelCountsForProject: vi.fn().mockResolvedValue([]),
+	};
 	const mcpChatToolsService = {
 		resolveToolsForUser: vi.fn().mockResolvedValue(mcpResult),
 	};
@@ -178,10 +190,12 @@ function buildService({
 		mcpChatToolsService as unknown as AiChatServiceDependencies[9],
 		meteringService as unknown as AiChatServiceDependencies[10],
 		modelPricingService as unknown as AiChatServiceDependencies[11],
+		leadsRepository as unknown as AiChatServiceDependencies[12],
 	);
 
 	return {
 		chatsRepository,
+		leadsRepository,
 		meteringService,
 		mcpChatToolsService,
 		modelPricingService,
@@ -223,6 +237,7 @@ function createMcpResult(
 	return {
 		approvalMap: {},
 		close: vi.fn().mockResolvedValue(undefined),
+		connectedSlugs: [],
 		notices: [],
 		tools: {},
 		...overrides,
@@ -574,6 +589,42 @@ describe("AiChatService MCP lifecycle", () => {
 		expect(prepared.eventId).toBe("crashed-hold");
 		expect(meteringService.refund).not.toHaveBeenCalled();
 		prepared.release();
+	});
+
+	it("reserves for the inlined ads playbooks when the composer selected ads skills", async () => {
+		const plain = buildService();
+		const withSkills = buildService();
+
+		const plainPrepared = await plain.service.prepareStream({
+			chatId: CHAT_ID,
+			messages: [userMessage()],
+			projectId: PROJECT_ID,
+			requestId: "plain-turn",
+			scope: PERSONAL_SCOPE,
+		});
+		plainPrepared.release();
+		const skilledPrepared = await withSkills.service.prepareStream({
+			chatId: CHAT_ID,
+			messages: [userMessage()],
+			metadata: {
+				composer: {
+					mode: "auto",
+					skills: ["ads-diagnostic"],
+				},
+			},
+			projectId: PROJECT_ID,
+			requestId: "skilled-turn",
+			scope: PERSONAL_SCOPE,
+		});
+		skilledPrepared.release();
+
+		const plainTokens =
+			plain.modelPricingService.quoteTokenUsage.mock.calls[0]?.[1].inputTokens;
+		const skilledTokens =
+			withSkills.modelPricingService.quoteTokenUsage.mock.calls[0]?.[1]
+				.inputTokens;
+		// One playbook is ~14 KB ≈ 3.5k tokens at the /4 estimate.
+		expect(skilledTokens - plainTokens).toBeGreaterThan(2_000);
 	});
 
 	it("409s a duplicate of a turn that is actively streaming in this process", async () => {
@@ -1141,6 +1192,71 @@ describe("AiChatService MCP lifecycle", () => {
 		expect(chatAgentMocks.createChatAgent.mock.calls[0]?.[1]).toBeNull();
 	});
 
+	it("appends the ads block with tracking facts when an ads connector is connected", async () => {
+		const { leadsRepository, service } = buildService({
+			mcpResult: createMcpResult({ connectedSlugs: ["meta-ads"] }),
+		});
+
+		await service.stream(streamOptions());
+
+		expect(leadsRepository.getAdsTrackingFacts).toHaveBeenCalledWith(
+			PROJECT_ID,
+		);
+		const context = chatAgentMocks.createChatAgent.mock.calls[0]?.[1];
+		expect(context).toContain("Ads context for THIS request");
+		expect(context).toContain("Connected ad platforms: Meta Ads");
+		expect(context).toContain("Meta pixel id set: yes");
+		expect(context).toContain("page published: no");
+		expect(context).toContain("ads-diagnostic:");
+	});
+
+	it("injects the selected ads skill even without a connected ad platform", async () => {
+		const { leadsRepository, service } = buildService();
+
+		await service.stream({
+			...streamOptions(),
+			metadata: {
+				composer: {
+					mode: "auto",
+					skills: ["ads-creative", "seo-review"],
+				},
+			},
+		});
+
+		expect(leadsRepository.getAdsTrackingFacts).toHaveBeenCalledWith(
+			PROJECT_ID,
+		);
+		const context = chatAgentMocks.createChatAgent.mock.calls[0]?.[1];
+		expect(context).toContain("No ad platform is connected");
+		expect(context).toContain("--- ads-creative ---");
+		expect(context).toContain("# ADS SKILL");
+		expect(context).not.toContain("seo-review");
+	});
+
+	it("adds no ads block and reads no tracking facts for a non-ads request", async () => {
+		const { leadsRepository, service } = buildService({
+			mcpResult: createMcpResult({ connectedSlugs: ["higgsfield"] }),
+		});
+
+		await service.stream(streamOptions());
+
+		expect(leadsRepository.getAdsTrackingFacts).not.toHaveBeenCalled();
+		expect(chatAgentMocks.createChatAgent.mock.calls[0]?.[1]).toBeNull();
+	});
+
+	it("keeps the turn running when the tracking facts lookup fails", async () => {
+		const { leadsRepository, service } = buildService({
+			mcpResult: createMcpResult({ connectedSlugs: ["tiktok-ads"] }),
+		});
+		leadsRepository.getAdsTrackingFacts.mockRejectedValue(new Error("db down"));
+
+		await service.stream(streamOptions());
+
+		const context = chatAgentMocks.createChatAgent.mock.calls[0]?.[1];
+		expect(context).toContain("Connected ad platforms: TikTok Ads");
+		expect(context).not.toContain("Tracking facts");
+	});
+
 	it("keeps the chat turn running when active page HTML cannot be loaded", async () => {
 		const { pagesRepository, service } = buildService();
 		pagesRepository.findActivePageByProjectUnchecked.mockResolvedValue({
@@ -1274,6 +1390,80 @@ describe("AiChatService MCP lifecycle", () => {
 					"https://video.example/watch?v=abc",
 					"https://docs.example/guide",
 					"https://wrapped.example/page",
+				],
+			}),
+		);
+	});
+
+	it("keeps video and audio attachments out of read_attachment documents", async () => {
+		const { service } = buildService();
+		const messages: WanditUIMessage[] = [
+			{
+				id: "user-attachments",
+				parts: [
+					{
+						filename: "brief.pdf",
+						mediaType: "application/pdf",
+						type: "file",
+						url: "https://assets.example.com/brief.pdf",
+					},
+					{
+						filename: "reference.mp4",
+						mediaType: "video/mp4",
+						type: "file",
+						url: "https://assets.example.com/reference.mp4",
+					},
+				],
+				role: "user",
+			},
+			{
+				id: "assistant-attachments",
+				parts: [
+					{
+						input: {
+							kind: "attachments",
+							options: [],
+							question: "Attach the remaining files",
+						},
+						output: {
+							files: [
+								{
+									filename: "notes.csv",
+									mediaType: "text/csv",
+									url: "https://assets.example.com/notes.csv",
+								},
+								{
+									filename: "soundtrack.mp3",
+									mediaType: "audio/mpeg",
+									url: "https://assets.example.com/soundtrack.mp3",
+								},
+							],
+						},
+						state: "output-available",
+						toolCallId: "ask-attachments",
+						type: "tool-ask_user",
+					},
+				],
+				role: "assistant",
+			},
+			userMessage(),
+		];
+
+		await service.stream(streamOptions(messages));
+
+		expect(chatAgentMocks.createChatAgent.mock.calls[0]?.[0]).toEqual(
+			expect.objectContaining({
+				availableDocuments: [
+					{
+						filename: "brief.pdf",
+						mediaType: "application/pdf",
+						url: "https://assets.example.com/brief.pdf",
+					},
+					{
+						filename: "notes.csv",
+						mediaType: "text/csv",
+						url: "https://assets.example.com/notes.csv",
+					},
 				],
 			}),
 		);
@@ -1708,6 +1898,52 @@ describe("completeDanglingToolCalls ask_user", () => {
 		expect(pendingPart.state).toBe("input-available");
 		expect("output" in pendingPart).toBe(false);
 		expect(result[1]).toBe(tailMessage);
+	});
+});
+
+describe("completeDanglingToolCalls video revision tools", () => {
+	it("repairs an incomplete edit_video call with schema-valid input and output", () => {
+		const repaired = repairBuiltInPart({
+			input: { instruction: "unfinished" },
+			state: "input-streaming",
+			toolCallId: "call-edit-video",
+			type: "tool-edit_video",
+		});
+
+		expect(repaired).toMatchObject({
+			input: {
+				sourceAttemptId: "00000000-0000-4000-8000-000000000001",
+				title: "Interrupted video edit",
+			},
+			output: { status: "unavailable" },
+			state: "output-available",
+		});
+		expect(editVideoInputSchema.safeParse(repaired.input).success).toBe(true);
+		expect(editVideoOutputSchema.safeParse(repaired.output).success).toBe(true);
+	});
+
+	it("repairs an incomplete extend_video call with schema-valid input and output", () => {
+		const repaired = repairBuiltInPart({
+			input: { continuationBrief: "unfinished" },
+			state: "input-streaming",
+			toolCallId: "call-extend-video",
+			type: "tool-extend_video",
+		});
+
+		expect(repaired).toMatchObject({
+			input: {
+				legCount: 1,
+				legDurationSeconds: 5,
+				sourceAttemptId: "00000000-0000-4000-8000-000000000001",
+				title: "Interrupted video extension",
+			},
+			output: { status: "unavailable" },
+			state: "output-available",
+		});
+		expect(extendVideoInputSchema.safeParse(repaired.input).success).toBe(true);
+		expect(extendVideoOutputSchema.safeParse(repaired.output).success).toBe(
+			true,
+		);
 	});
 });
 

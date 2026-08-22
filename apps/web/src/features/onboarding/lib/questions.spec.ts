@@ -54,6 +54,15 @@ describe("onboarding question view config", () => {
 				if (config.skipLabelKey) {
 					expectDictionaryLabel(config.skipLabelKey);
 				}
+			} else if (question.type === "phone" && config.type === "phone") {
+				expectDictionaryLabel(config.labelKey);
+				expectDictionaryLabel(config.nextLabelKey);
+				expectDictionaryLabel(config.countryLabelKey);
+				expectDictionaryLabel(config.searchPlaceholderKey);
+				expectDictionaryLabel(config.emptyLabelKey);
+				if (config.placeholderKey) {
+					expectDictionaryLabel(config.placeholderKey);
+				}
 			}
 		}
 	});
@@ -61,6 +70,7 @@ describe("onboarding question view config", () => {
 	it("exposes renderer metadata for each step variant", () => {
 		const style = getOnboardingQuestionViewConfig("style");
 		const name = getOnboardingQuestionViewConfig("name");
+		const phone = getOnboardingQuestionViewConfig("phone");
 		const accountType = getOnboardingQuestionViewConfig("account_type");
 		const soloProfile = getOnboardingQuestionViewConfig("solo_profile");
 		const role = getOnboardingQuestionViewConfig("role");
@@ -72,6 +82,9 @@ describe("onboarding question view config", () => {
 		expect(style.grid.desktopColumns).toBe(2);
 		expect(name.labelKey).toBe("onboarding.steps.name.label");
 		expect(name.nextLabelKey).toBe("onboarding.steps.name.next");
+		expect(phone.labelKey).toBe("onboarding.steps.phone.label");
+		expect(phone.countryLabelKey).toBe("onboarding.steps.phone.country");
+		expect(phone.placeholderKey).toBe("onboarding.steps.phone.placeholder");
 		expect(accountType.grid.desktopColumns).toBe(2);
 		expect(soloProfile.grid.desktopColumns).toBe(4);
 		expect(role.grid.desktopColumns).toBe(4);
@@ -92,6 +105,7 @@ describe("applicable onboarding questions", () => {
 		).toEqual([
 			"style",
 			"name",
+			"phone",
 			"account_type",
 			"solo_profile",
 			"role",
@@ -109,6 +123,7 @@ describe("applicable onboarding questions", () => {
 		).toEqual([
 			"style",
 			"name",
+			"phone",
 			"account_type",
 			"company_size",
 			"ai_experience",
@@ -125,6 +140,7 @@ describe("applicable onboarding questions", () => {
 		).toEqual([
 			"style",
 			"name",
+			"phone",
 			"account_type",
 			"company_size",
 			"ai_experience",

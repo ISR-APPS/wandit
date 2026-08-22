@@ -301,6 +301,22 @@
 					"active": "جارٍ إنشاء الفيديو",
 					"past": "تم إنشاء الفيديو"
 				},
+				"show_marketing_studio": {
+					"active": "جارٍ فتح مكتبة Marketing Studio",
+					"past": "تم فتح مكتبة Marketing Studio"
+				},
+				"video_analysis_create": {
+					"active": "جارٍ مشاهدة الفيديو المرجعي",
+					"past": "تمت مشاهدة الفيديو المرجعي"
+				},
+				"video_analysis_status": {
+					"active": "جارٍ التحقق من تحليل الفيديو",
+					"past": "تم التحقق من تحليل الفيديو"
+				},
+				"video_analysis_jobs": {
+					"active": "جارٍ عرض تحليلات الفيديو",
+					"past": "تم عرض تحليلات الفيديو"
+				},
 				"generate_audio": {
 					"active": "جارٍ إنشاء المقطع الصوتي",
 					"past": "تم إنشاء المقطع الصوتي"
@@ -360,6 +376,10 @@
 				"show_generations": {
 					"active": "جارٍ تحميل إبداعاتك",
 					"past": "تم تحميل إبداعاتك"
+				},
+				"list_voices": {
+					"active": "جارٍ تحميل الأصوات المتاحة",
+					"past": "تم تحميل الأصوات المتاحة"
 				},
 				"tiktok_accounts": {
 					"active": "جارٍ التحقق من حسابات تيك توك",
@@ -655,6 +675,48 @@
 			"open": "فتح",
 			"download": "تنزيل"
 		},
+		"videoAttempt": {
+			"statusLoadError": "تعذّر تحميل حالة الفيديو — أعد فتح هذه المحادثة للمحاولة مجددًا.",
+			"inQueue": "في قائمة الانتظار",
+			"extractingFrame": "جارٍ تحضير المقطع {current} من {total}…",
+			"extractingFrameFallback": "جارٍ تحضير المقطع التالي…",
+			"renderingPiece": "جارٍ إنشاء المقطع {current} من {total}…",
+			"renderingPieceFallback": "جارٍ إنشاء المقطع التالي…",
+			"joining": "جارٍ دمج المقاطع…",
+			"narration": "جارٍ إضافة التعليق الصوتي…",
+			"narrationFailed": "الفيديو جاهز، لكن تعذّرت إضافة التعليق الصوتي. المقطع صامت.",
+			"publish": "نشر",
+			"published": "تم النشر",
+			"download": "تنزيل",
+			"viewAssets": "عرض في الوسائط",
+			"play": "تشغيل {title}",
+			"edit": {
+				"preparing": "جارٍ تحضير تعديل الفيديو…",
+				"queueing": "جارٍ إضافة التعديل إلى قائمة الانتظار…",
+				"failedToStart": "تعذّر بدء تعديل الفيديو",
+				"failedTitle": "فشل تعديل الفيديو",
+				"failedBody": "توقّف التعديل قبل أن يصبح الفيديو جاهزًا.",
+				"prepared": "تعليمات التعديل جاهزة",
+				"active": "جارٍ تعديل الفيديو ومدته {seconds} ثانية…",
+				"done": "تم تعديل الفيديو ومدته {seconds} ثانية",
+				"publishing": "جارٍ نشر الفيديو المعدّل…",
+				"complete": "اكتمل التعديل",
+				"ready": "الفيديو المعدّل جاهز."
+			},
+			"extend": {
+				"preparing": "جارٍ تحضير تمديد الفيديو…",
+				"queueing": "جارٍ إضافة التمديد إلى قائمة الانتظار…",
+				"failedToStart": "تعذّر بدء تمديد الفيديو",
+				"failedTitle": "فشل تمديد الفيديو",
+				"failedBody": "توقّف التمديد قبل أن يصبح الفيديو الأطول جاهزًا.",
+				"prepared": "تم التخطيط للمتابعة",
+				"active": "جارٍ تمديد الفيديو إلى {seconds} ثانية…",
+				"done": "تم تمديد الفيديو إلى {seconds} ثانية",
+				"publishing": "جارٍ نشر الفيديو الممتد…",
+				"complete": "اكتمل التمديد",
+				"ready": "الفيديو الممتد جاهز."
+			}
+		},
 		"tray": {
 			"preparing": "جارٍ تحضير السؤال…",
 			"needsDetail": "نحتاج توضيحًا",
@@ -723,12 +785,14 @@
 			"readyTitle": "الصور جاهزة",
 			"download": "تنزيل",
 			"inAssetsTab": "متاحة أيضًا في تبويب الوسائط",
-			"placementFailed": "تعذّر تطبيقها على الصفحة — الصورة موجودة في تبويب الوسائط"
+			"placementFailed": "تعذّر تطبيقها على الصفحة — الصورة موجودة في تبويب الوسائط",
+			"readyCount": "{ready} من {total} جاهزة"
 		},
 		"media": {
 			"close": "إغلاق",
 			"download": "تحميل",
 			"downloadFailed": "فشل التنزيل — حاول مرة أخرى.",
+			"imageLoadError": "تعذّر تحميل الصورة",
 			"previous": "السابق",
 			"next": "التالي"
 		},
@@ -1103,6 +1167,8 @@
 			"backgroundRemove": "إزالة صورة الخلفية",
 			"data": "البيانات",
 			"dataHint": "بيانات التواصل المكتشفة في الصفحة.",
+			"dataPageTitle": "عنوان الصفحة",
+			"dataPageTitleHint": "يظهر في تبويب المتصفح.",
 			"dataBrand": "العلامة التجارية",
 			"dataBrandHint": "تُستخدم في شريط التنقل وتذييل الصفحة.",
 			"dataBrandUpload": "رفع الشعار",

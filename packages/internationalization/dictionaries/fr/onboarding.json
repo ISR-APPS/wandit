@@ -15,6 +15,15 @@
 			"label": "Nom complet",
 			"next": "Suivant"
 		},
+		"phone": {
+			"title": "Quel est ton numéro de téléphone ?",
+			"label": "Numéro de téléphone",
+			"country": "Pays",
+			"searchPlaceholder": "Rechercher un pays…",
+			"noResults": "Aucun pays trouvé.",
+			"placeholder": "555 12 34 56",
+			"next": "Suivant"
+		},
 		"accountType": {
 			"title": "Comment travailles-tu ?",
 			"options": {

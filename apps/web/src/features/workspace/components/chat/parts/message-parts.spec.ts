@@ -12,6 +12,7 @@ import {
 	MessageParts,
 	orderMessagePartEntries,
 } from "./message-parts";
+import { isVisibleAssistantReplyPart } from "./visible-reply-part";
 
 vi.mock("@/lib/i18n", () => ({
 	useTranslation: () => ({
@@ -551,13 +552,55 @@ describe("MessageParts turn block", () => {
 		output: { ok: true },
 	};
 
+	it.each([
+		{
+			expectedCopy: "workspace.chat.videoAttempt.edit.queueing",
+			input: {
+				instruction: "Keep the framing and change the bottle to blue.",
+				sourceAttemptId: "11111111-1111-4111-8111-111111111111",
+				title: "Blue bottle edit",
+			},
+			type: "tool-edit_video",
+		},
+		{
+			expectedCopy: "workspace.chat.videoAttempt.extend.queueing",
+			input: {
+				continuationBrief: "Continue the orbit into a close-up.",
+				legCount: 1,
+				legDurationSeconds: 5,
+				sourceAttemptId: "11111111-1111-4111-8111-111111111111",
+				title: "Extended orbit",
+			},
+			type: "tool-extend_video",
+		},
+	])("renders and counts $type as visible reply content", (testCase) => {
+		const [part] = asMessageParts([
+			{
+				input: testCase.input,
+				state: "input-available",
+				toolCallId: `${testCase.type}-1`,
+				type: testCase.type,
+			},
+		]);
+		if (!part) throw new Error("Expected a video attempt tool part");
+
+		expect(isVisibleAssistantReplyPart(part)).toBe(true);
+
+		const html = renderMessage("assistant", [part]);
+		expect(html).toContain(testCase.expectedCopy);
+		expect(html.match(/>Wandit</g)).toHaveLength(1);
+	});
+
 	it("keeps the existing treatment for a single image", () => {
 		const html = renderMessage("user", [imagePart("solo")]);
 
 		expect(html).toContain(
-			'class="block max-w-48 overflow-hidden rounded-xl border border-border"',
+			'class="relative block aspect-[6/5] w-48 max-w-full overflow-hidden rounded-xl border border-border bg-muted"',
 		);
-		expect(html).toContain('class="block max-h-40 w-full object-cover"');
+		expect(html).toContain('data-slot="skeleton"');
+		expect(html).toContain(
+			'class="absolute inset-0 size-full object-cover opacity-0"',
+		);
 		expect(html).toContain('href="https://example.com/solo.png"');
 		expect(html).toContain('alt="solo.png"');
 		expect(html).toContain('loading="lazy"');
@@ -577,7 +620,10 @@ describe("MessageParts turn block", () => {
 			'class="grid w-full max-w-[86%] grid-cols-2 gap-1.5"',
 		);
 		expect(html.match(/aspect-square/g)).toHaveLength(4);
-		expect(html.match(/class="block size-full object-cover"/g)).toHaveLength(4);
+		expect(
+			html.match(/class="absolute inset-0 size-full object-cover opacity-0"/g),
+		).toHaveLength(4);
+		expect(html.match(/data-slot="skeleton"/g)).toHaveLength(4);
 		expect(html.match(/loading="lazy"/g)).toHaveLength(4);
 		for (const name of ["one", "two", "three", "four"]) {
 			expect(html).toContain(`href="https://example.com/${name}.png"`);

@@ -24,8 +24,9 @@ import {
 import { AUTH_INSTANCE } from "../../../auth";
 import type { ProjectScope } from "../../../projects/domain/project-scope";
 import {
-	buildLeadSheetRows,
 	LEAD_SHEET_HEADER,
+	LEAD_SHEET_ORDER_HEADER,
+	LeadSheetGrid,
 } from "../../domain/lead-sheet-rows";
 import {
 	GoogleSheetsApiError,
@@ -145,19 +146,15 @@ export class LeadSheetSyncService {
 	): Promise<number> {
 		let rewrite: StagedSheetRewrite | undefined;
 		let commitStarted = false;
+		// One grid per rewrite: it learns the dynamic extras columns while the
+		// lead pages stream through, so the header can only be written last.
+		const grid = new LeadSheetGrid();
 
 		try {
 			rewrite = await this.sheetsClient.beginStagedRewrite(
 				accessToken,
 				spreadsheetId,
-				LEAD_SHEET_HEADER.length,
-			);
-			await this.sheetsClient.writeStagedValues(
-				accessToken,
-				spreadsheetId,
-				rewrite,
-				0,
-				[[...LEAD_SHEET_HEADER]],
+				LEAD_SHEET_HEADER.length + LEAD_SHEET_ORDER_HEADER.length,
 			);
 
 			let cursor: string | undefined;
@@ -171,7 +168,7 @@ export class LeadSheetSyncService {
 					projectId,
 					{ cursor, pageSize: SYNC_PAGE_SIZE },
 				);
-				const rows = buildLeadSheetRows(page.rows.map(toLeadDto));
+				const rows = grid.addRows(page.rows.map(toLeadDto));
 
 				for (const row of rows) {
 					const rowPayloadBytes = stagedRowPayloadBytes(row);
@@ -216,6 +213,16 @@ export class LeadSheetSyncService {
 				);
 				leadCount += pendingRows.length;
 			}
+
+			// Row 0 was left empty on purpose: only now, after every lead has
+			// streamed through the grid, is the set of dynamic columns complete.
+			await this.sheetsClient.writeStagedValues(
+				accessToken,
+				spreadsheetId,
+				rewrite,
+				0,
+				[grid.header()],
+			);
 
 			commitStarted = true;
 			await this.sheetsClient.commitStagedRewrite(

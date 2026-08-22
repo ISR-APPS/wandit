@@ -9,7 +9,8 @@
 // - Ops are keyed per wid and merged (last wins per property); Save orders
 //   them remove-element → text → image ops → brand-logo → set-link-href →
 //   set-placeholder → element-style → section-style → reset-tokens → one
-//   set-tokens. Brand swaps precede descendant-sensitive styles/links because
+//   set-tokens → set-page-title (head-level, order-independent). Brand swaps
+//   precede descendant-sensitive styles/links because
 //   replacing wrapper innerHTML deletes stamped descendants (frozen order).
 // - `baseVersionId` is captured on the FIRST dirty op; a FOREIGN version
 //   change while dirty drops the batch (it would 409 anyway) with a warning
@@ -187,6 +188,8 @@ type PageEditorContextValue = TargetCommentsState & {
 	pendingSectionStyles: Record<string, PendingSectionStyle>;
 	pendingTokens: Partial<Record<PageTokenName, string>>;
 	pendingTokensReset: boolean;
+	/** Pending document <title> (null = the saved HTML's title still stands). */
+	pendingPageTitle: string | null;
 	dirtyCount: number;
 	isSaving: boolean;
 	/** Folded into the iframe key — discarding remounts the canonical HTML. */
@@ -229,6 +232,9 @@ type PageEditorContextValue = TargetCommentsState & {
 		patch: Partial<Record<PageTokenName, string>>,
 		effective: Partial<Record<PageTokenName, string>>,
 	) => void;
+	/** Record the browser-tab title. Head-level: no wid, no live preview — an
+	 *  iframe's document.title is invisible, so the field IS the feedback. */
+	applyPageTitle: (value: string) => void;
 	/** Restore the newest builder-origin token set without touching elements. */
 	resetTokens: (
 		originalTokens: Partial<Record<PageTokenName, string>>,
@@ -309,6 +315,7 @@ export function PageEditorProvider({
 		Partial<Record<PageTokenName, string>>
 	>({});
 	const [pendingTokensReset, setPendingTokensReset] = useState(false);
+	const [pendingPageTitle, setPendingPageTitle] = useState<string | null>(null);
 	const [baseVersionId, setBaseVersionId] = useState<string | null>(null);
 	const [discardCount, setDiscardCount] = useState(0);
 	const [isSaving, setIsSaving] = useState(false);
@@ -328,7 +335,8 @@ export function PageEditorProvider({
 		Object.keys(pendingPlaceholders).length +
 		pendingRemovals.length +
 		Object.keys(pendingSectionStyles).length +
-		countPendingTokenSlot(pendingTokensReset, pendingTokens);
+		countPendingTokenSlot(pendingTokensReset, pendingTokens) +
+		(pendingPageTitle === null ? 0 : 1);
 	const dirtyRef = useRef(dirtyCount);
 	dirtyRef.current = dirtyCount;
 
@@ -357,6 +365,8 @@ export function PageEditorProvider({
 	pendingTokensRef.current = pendingTokens;
 	const pendingTokensResetRef = useRef(pendingTokensReset);
 	pendingTokensResetRef.current = pendingTokensReset;
+	const pendingPageTitleRef = useRef(pendingPageTitle);
+	pendingPageTitleRef.current = pendingPageTitle;
 	const baseVersionIdRef = useRef(baseVersionId);
 	useEffect(() => {
 		baseVersionIdRef.current = baseVersionId;
@@ -431,6 +441,7 @@ export function PageEditorProvider({
 		pendingSectionStylesRef.current = {};
 		pendingTokensRef.current = {};
 		pendingTokensResetRef.current = false;
+		pendingPageTitleRef.current = null;
 		baseVersionIdRef.current = null;
 		setPendingText({});
 		setPendingStyles({});
@@ -443,6 +454,7 @@ export function PageEditorProvider({
 		setPendingSectionStyles({});
 		setPendingTokens({});
 		setPendingTokensReset(false);
+		setPendingPageTitle(null);
 		resetPreviewRef.current = null;
 		tokensResetRevisionRef.current = 0;
 		speculativeTokenResetRef.current = null;
@@ -693,6 +705,17 @@ export function PageEditorProvider({
 		[postToPreview, touchBase],
 	);
 
+	// No postToPreview: the iframe's document.title is never visible, so the
+	// Data panel's own field plus the saved version are the whole feedback.
+	const applyPageTitle = useCallback(
+		(value: string) => {
+			if (manualRecordingBlockedRef.current) return;
+			touchBase();
+			setPendingPageTitle(value);
+		},
+		[touchBase],
+	);
+
 	const removeElement = useCallback(
 		(wid: string) => {
 			if (manualRecordingBlockedRef.current) return;
@@ -844,6 +867,7 @@ export function PageEditorProvider({
 			const sentTokens = pendingTokensRef.current;
 			const sentReset = pendingTokensResetRef.current;
 			const sentResetRevision = tokensResetRevisionRef.current;
+			const sentPageTitle = pendingPageTitleRef.current;
 			// Removals lead the frozen batch order: removing nested inline targets
 			// first lets a later parent text edit pass the descendant-shape guard.
 			// Same-wid edits are safe because removeElement prunes them immediately.
@@ -859,6 +883,7 @@ export function PageEditorProvider({
 				sectionStyles: sentSectionStyles,
 				tokens: sentTokens,
 				tokensReset: sentReset,
+				pageTitle: sentPageTitle,
 			});
 			const base = baseVersionIdRef.current ?? activeVersionRef.current;
 			if (ops.length === 0 || !base) return "noop";
@@ -930,6 +955,13 @@ export function PageEditorProvider({
 					tokensResetRevisionRef.current,
 					sentResetRevision,
 				);
+				// Same rule as diffPendingValues, on the single title slot: a title
+				// typed while the request was in flight differs from the sent one
+				// and stays pending, rebased onto the new version.
+				const nextPageTitle =
+					pendingPageTitleRef.current === sentPageTitle
+						? null
+						: pendingPageTitleRef.current;
 
 				if (sentReset && !nextTokensReset) {
 					resetPreviewRef.current = null;
@@ -947,7 +979,8 @@ export function PageEditorProvider({
 					Object.keys(nextStyles).length +
 					Object.keys(nextSectionStyles).length +
 					nextRemovals.length +
-					countPendingTokenSlot(nextTokensReset, nextTokens);
+					countPendingTokenSlot(nextTokensReset, nextTokens) +
+					(nextPageTitle === null ? 0 : 1);
 				pendingTextRef.current = nextText;
 				pendingImagesRef.current = nextImages;
 				pendingPlaceholderImagesRef.current = nextPlaceholderImages;
@@ -959,6 +992,7 @@ export function PageEditorProvider({
 				pendingRemovalsRef.current = nextRemovals;
 				pendingTokensRef.current = nextTokens;
 				pendingTokensResetRef.current = nextTokensReset;
+				pendingPageTitleRef.current = nextPageTitle;
 				baseVersionIdRef.current = leftover > 0 ? response.version.id : null;
 				setPendingText(nextText);
 				setPendingImages(nextImages);
@@ -971,6 +1005,7 @@ export function PageEditorProvider({
 				setPendingRemovals(nextRemovals);
 				setPendingTokens(nextTokens);
 				setPendingTokensReset(nextTokensReset);
+				setPendingPageTitle(nextPageTitle);
 				setBaseVersionId(leftover > 0 ? response.version.id : null);
 				await Promise.all([
 					queryClient.invalidateQueries({
@@ -1157,6 +1192,7 @@ export function PageEditorProvider({
 			pendingSectionStyles,
 			pendingTokens,
 			pendingTokensReset,
+			pendingPageTitle,
 			dirtyCount,
 			isSaving,
 			isAskAiDispatching,
@@ -1168,6 +1204,7 @@ export function PageEditorProvider({
 			applyBrandLogo,
 			applyLinkHref,
 			applyPlaceholder,
+			applyPageTitle,
 			removeElement,
 			applySectionStyle,
 			applyTokens,
@@ -1208,6 +1245,7 @@ export function PageEditorProvider({
 			pendingSectionStyles,
 			pendingTokens,
 			pendingTokensReset,
+			pendingPageTitle,
 			dirtyCount,
 			isSaving,
 			isAskAiDispatching,
@@ -1219,6 +1257,7 @@ export function PageEditorProvider({
 			applyBrandLogo,
 			applyLinkHref,
 			applyPlaceholder,
+			applyPageTitle,
 			removeElement,
 			applySectionStyle,
 			applyTokens,

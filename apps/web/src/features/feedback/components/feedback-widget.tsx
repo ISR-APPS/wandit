@@ -34,7 +34,7 @@ import {
 	MessageCircle,
 	MessageSquarePlus,
 } from "lucide-react";
-import { useEffect, useId, useRef, useState } from "react";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { useSession } from "@/features/auth";
@@ -73,9 +73,14 @@ function getReplayUrl(): string | undefined {
 	}
 }
 
-// A header icon button. Mount it next to the academy icon in a header bar;
-// the bottom-right corner belongs to the live-chat widget.
-export function FeedbackButton() {
+type FeedbackHostProps = {
+	// Draws the element that opens the dialog. The host owns all state.
+	renderTrigger: (open: () => void) => ReactNode;
+};
+
+// Owns the dialog, the capture, and the submit flow. The trigger below
+// chooses where and how the opener renders.
+function FeedbackHost({ renderTrigger }: FeedbackHostProps) {
 	const { t } = useTranslation();
 	const { data } = useSession();
 	const createFeedback = useCreateFeedback();
@@ -206,23 +211,7 @@ export function FeedbackButton() {
 
 	return (
 		<>
-			<Tooltip>
-				<TooltipTrigger asChild>
-					<Button
-						type="button"
-						variant="ghost"
-						size="icon-sm"
-						data-feedback-widget=""
-						aria-label={t("common.feedback.open")}
-						onClick={openDialog}
-					>
-						<MessageSquarePlus className="size-4" aria-hidden />
-					</Button>
-				</TooltipTrigger>
-				<TooltipContent side="bottom">
-					{t("common.feedback.open")}
-				</TooltipContent>
-			</Tooltip>
+			{renderTrigger(openDialog)}
 
 			<Dialog open={open} onOpenChange={changeOpen}>
 				<DialogContent
@@ -352,5 +341,38 @@ export function FeedbackButton() {
 				</DialogContent>
 			</Dialog>
 		</>
+	);
+}
+
+// A labeled header button, styled like the academy button next to it. The
+// label hides on narrow screens where only the icon fits; the tooltip covers
+// that case. The bottom-right corner belongs to the live-chat widget.
+export function FeedbackButton() {
+	const { t } = useTranslation();
+	return (
+		<FeedbackHost
+			renderTrigger={(open) => (
+				<Tooltip>
+					<TooltipTrigger asChild>
+						<Button
+							type="button"
+							variant="outline"
+							size="sm"
+							data-feedback-widget=""
+							aria-label={t("common.feedback.open")}
+							onClick={open}
+						>
+							<MessageSquarePlus className="size-4" aria-hidden />
+							<span className="hidden sm:inline">
+								{t("common.feedback.open")}
+							</span>
+						</Button>
+					</TooltipTrigger>
+					<TooltipContent side="bottom">
+						{t("common.feedback.open")}
+					</TooltipContent>
+				</Tooltip>
+			)}
+		/>
 	);
 }

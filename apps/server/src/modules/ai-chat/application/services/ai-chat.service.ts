@@ -23,6 +23,12 @@ import {
 	animateImageInputSchema,
 	applyElementOpsInputSchema,
 	askUserInputSchema,
+	type EditVideoInput,
+	type EditVideoOutput,
+	type ExtendVideoInput,
+	type ExtendVideoOutput,
+	editVideoInputSchema,
+	extendVideoInputSchema,
 	type GenerateImageInput,
 	type GenerateImageOutput,
 	type GenerateMarketingAssetInput,
@@ -87,6 +93,7 @@ import { ChatsRepository } from "../../../generation/infrastructure/persistence/
 import { ImageGenerationsRepository } from "../../../image-generations/infrastructure/persistence/image-generations.repository";
 // Value imports (not `import type`): Nest needs the classes at runtime for @Inject.
 import { LeadScrapesRepository } from "../../../lead-scrapes/infrastructure/persistence/lead-scrapes.repository";
+import { LeadsRepository } from "../../../leads/infrastructure/persistence/leads.repository";
 import { MarketingAssetsRepository } from "../../../marketing-assets/infrastructure/persistence/marketing-assets.repository";
 import {
 	type McpChatToolsResult,
@@ -116,6 +123,12 @@ import {
 	meteringSubjectFrom,
 	type ProjectScope,
 } from "../../../projects/domain/project-scope";
+import {
+	ADS_CONNECTOR_SLUGS,
+	type AdsTrackingFacts,
+	composeAdsBlock,
+	isAdsSkillSlug,
+} from "../../agent/ads";
 import {
 	annotateAskUserAnswerFiles,
 	annotateUserFileParts,
@@ -192,11 +205,47 @@ export class AiChatService {
 		private readonly meteringService: MeteringService,
 		@Inject(ModelPricingService)
 		private readonly modelPricingService: ModelPricingService,
+		@Inject(LeadsRepository)
+		private readonly leadsRepository: LeadsRepository,
 	) {}
+
+	/**
+	 * Wandit-side tracking facts for the ads block — read only when the
+	 * request is an ads request, and never fatal: a failed lookup just drops
+	 * the tracking line from the block.
+	 */
+	private async loadAdsTrackingFacts(
+		projectId: string,
+		input: {
+			connectedSlugs: readonly string[];
+			selectedSkills: readonly string[];
+		},
+	): Promise<AdsTrackingFacts | null> {
+		const adsRequest =
+			input.connectedSlugs.some((slug) => ADS_CONNECTOR_SLUGS.has(slug)) ||
+			input.selectedSkills.some(isAdsSkillSlug);
+
+		if (!adsRequest) {
+			return null;
+		}
+
+		try {
+			return await this.leadsRepository.getAdsTrackingFacts(projectId);
+		} catch (error) {
+			this.logger.warn(
+				`Ads tracking facts lookup failed for project ${projectId}: ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+			);
+			return null;
+		}
+	}
 
 	async prepareStream(options: {
 		chatId: string;
 		messages: WanditUIMessage[];
+		/** Request metadata (composer pickers) — only its size matters here. */
+		metadata?: AiChatRequestMetadata;
 		projectId: string;
 		requestId?: string;
 		scope: ProjectScope;
@@ -287,7 +336,18 @@ export class AiChatService {
 				return { eventId: null, release };
 			}
 
-			const estimate = await this.estimateReservation(modelBoundMessages);
+			const estimate = await this.estimateReservation(
+				modelBoundMessages,
+				// Selected ads playbooks are inlined into the prompt for this
+				// message (agent/ads): the only large, predictable context block.
+				// Pure composition, no I/O — connectors and tracking are unknown
+				// at admission time and cost little.
+				composeAdsBlock({
+					connectedSlugs: [],
+					selectedSkills: options.metadata?.composer?.skills ?? [],
+					tracking: null,
+				}),
+			);
 			const event = await this.admitTurnReservation(subject, operationKey, {
 				chatId: options.chatId,
 				credits: estimate.credits,
@@ -597,7 +657,18 @@ export class AiChatService {
 							.map((notice) => `- ${notice}`)
 							.join("\n")}`
 					: null;
-			const contextWithMcpNotices = [context, mcpNoticeBlock]
+			// Ads block: only when an ads connector resolved tools or the user
+			// picked ads skills in the composer. The project's tracking facts are
+			// one cheap read, paid only by ads requests (see agent/ads/index.ts).
+			const adsBlock = composeAdsBlock({
+				connectedSlugs: mcpResult.connectedSlugs,
+				selectedSkills: metadata?.composer?.skills ?? [],
+				tracking: await this.loadAdsTrackingFacts(projectId, {
+					connectedSlugs: mcpResult.connectedSlugs,
+					selectedSkills: metadata?.composer?.skills ?? [],
+				}),
+			});
+			const contextWithMcpNotices = [context, mcpNoticeBlock, adsBlock]
 				.filter((block): block is string => Boolean(block))
 				.join("\n\n");
 			// Five transforms on the MODEL-BOUND copy only (DB + UI keep the truth):
@@ -649,6 +720,7 @@ export class AiChatService {
 					chatId,
 					imageGenerationsRepository: this.imageGenerationsRepository,
 					leadScrapesRepository: this.leadScrapesRepository,
+					leadsRepository: this.leadsRepository,
 					marketingAssetsRepository: this.marketingAssetsRepository,
 					mediaGenerationsRepository: this.mediaGenerationsRepository,
 					meteringService: this.meteringService,
@@ -656,9 +728,6 @@ export class AiChatService {
 					pagesRepository: this.pagesRepository,
 					parentEventId: prepared.eventId ?? undefined,
 					projectId,
-					// Snapshotted into generation specs for later model swapping; no
-					// generator reads it yet.
-					quality: metadata?.composer?.quality,
 					// Only the image-animation output hard-requires a validated source
 					// still. Video mode's other output (video-creator) is
 					// text-to-video; a missing output means a legacy client where
@@ -1027,11 +1096,12 @@ export class AiChatService {
 	/** `credits` is integer centi-credits: quote vs the 10 cc (0.10) chat floor. */
 	private async estimateReservation(
 		modelBoundMessages: readonly WanditUIMessage[],
+		contextBlock: string | null = null,
 	): Promise<{ costUsdMicros: number | null; credits: number }> {
 		try {
 			const quote = await this.modelPricingService.quoteTokenUsage(
 				env.AI_CHAT_MODEL,
-				estimateAiChatTokenUsage(modelBoundMessages),
+				estimateAiChatTokenUsage(modelBoundMessages, contextBlock),
 			);
 
 			return {
@@ -1253,8 +1323,10 @@ const INCOMPLETE_ANIMATE_IMAGE_INPUT: AnimateImageInput = {
 	motion: "balanced",
 	prompt:
 		"The motion direction was lost when the request stream was interrupted.",
+	quality: "standard",
 	sourceImageUrl: "https://invalid.local/interrupted-image.jpg",
 	sourceMediaType: "image/jpeg",
+	talking: false,
 };
 
 const INTERRUPTED_GENERATE_VIDEO_OUTPUT: GenerateVideoOutput = {
@@ -1268,7 +1340,41 @@ const INCOMPLETE_GENERATE_VIDEO_INPUT: GenerateVideoInput = {
 	aspect: "16:9",
 	brief: "The creative brief was lost when the request stream was interrupted.",
 	durationSeconds: 10,
+	multiShot: false,
+	quality: "standard",
+	talking: false,
 	title: "Interrupted video request",
+};
+
+const INTERRUPTED_EDIT_VIDEO_OUTPUT: EditVideoOutput = {
+	message:
+		"The video edit request was interrupted before it could be queued. If " +
+		"the user still wants it, call edit_video again with the source clip.",
+	status: "unavailable",
+};
+
+const INCOMPLETE_EDIT_VIDEO_INPUT: EditVideoInput = {
+	instruction:
+		"The requested video change was lost when the request stream was interrupted.",
+	sourceAttemptId: "00000000-0000-4000-8000-000000000001",
+	title: "Interrupted video edit",
+};
+
+const INTERRUPTED_EXTEND_VIDEO_OUTPUT: ExtendVideoOutput = {
+	message:
+		"The video extension request was interrupted before it could be queued. " +
+		"If the user still wants it, call extend_video again with the source clip.",
+	status: "unavailable",
+};
+
+const INCOMPLETE_EXTEND_VIDEO_INPUT: ExtendVideoInput = {
+	acceptSilent: false,
+	continuationBrief:
+		"The continuation brief was lost when the request stream was interrupted.",
+	legCount: 1,
+	legDurationSeconds: 5,
+	sourceAttemptId: "00000000-0000-4000-8000-000000000001",
+	title: "Interrupted video extension",
 };
 
 const INTERRUPTED_READ_SKILL_MARKDOWN =
@@ -1588,6 +1694,50 @@ export function completeDanglingToolCalls(
 						? parsedInput.data
 						: INCOMPLETE_GENERATE_VIDEO_INPUT,
 					output: INTERRUPTED_GENERATE_VIDEO_OUTPUT,
+					state: "output-available" as const,
+				};
+			}
+
+			if (part.type === "tool-edit_video") {
+				if (
+					part.state !== "input-available" &&
+					part.state !== "input-streaming"
+				) {
+					return part;
+				}
+
+				changed = true;
+
+				const parsedInput = editVideoInputSchema.safeParse(part.input);
+
+				return {
+					...part,
+					input: parsedInput.success
+						? parsedInput.data
+						: INCOMPLETE_EDIT_VIDEO_INPUT,
+					output: INTERRUPTED_EDIT_VIDEO_OUTPUT,
+					state: "output-available" as const,
+				};
+			}
+
+			if (part.type === "tool-extend_video") {
+				if (
+					part.state !== "input-available" &&
+					part.state !== "input-streaming"
+				) {
+					return part;
+				}
+
+				changed = true;
+
+				const parsedInput = extendVideoInputSchema.safeParse(part.input);
+
+				return {
+					...part,
+					input: parsedInput.success
+						? parsedInput.data
+						: INCOMPLETE_EXTEND_VIDEO_INPUT,
+					output: INTERRUPTED_EXTEND_VIDEO_OUTPUT,
 					state: "output-available" as const,
 				};
 			}
@@ -2081,7 +2231,12 @@ function collectAvailableImages(
 }
 
 const DOCUMENT_MEDIA_TYPE_SET = new Set<string>(
-	ATTACHMENT_MEDIA_TYPES.filter((mediaType) => !mediaType.startsWith("image/")),
+	ATTACHMENT_MEDIA_TYPES.filter(
+		(mediaType) =>
+			!mediaType.startsWith("image/") &&
+			!mediaType.startsWith("video/") &&
+			!mediaType.startsWith("audio/"),
+	),
 );
 
 /**

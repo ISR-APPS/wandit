@@ -32,6 +32,18 @@ import {
 } from "./tools/animate-image.tool";
 import { askUserTool } from "./tools/ask-user.tool";
 import {
+	createEditVideoTool,
+	type EditVideoTool,
+	type EditVideoToolDeps,
+	editVideoToolSchemaOnly,
+} from "./tools/edit-video.tool";
+import {
+	createExtendVideoTool,
+	type ExtendVideoTool,
+	type ExtendVideoToolDeps,
+	extendVideoToolSchemaOnly,
+} from "./tools/extend-video.tool";
+import {
 	createGenerateImageTool,
 	type GenerateImageTool,
 	type GenerateImageToolDeps,
@@ -74,7 +86,16 @@ import {
 	type ReadAttachmentToolDeps,
 	readAttachmentToolSchemaOnly,
 } from "./tools/read-attachment.tool";
-import { readSkillToolSchemaOnly } from "./tools/read-skill.tool";
+import {
+	createReadLeadPerformanceTool,
+	type ReadLeadPerformanceTool,
+	type ReadLeadPerformanceToolDeps,
+	readLeadPerformanceToolSchemaOnly,
+} from "./tools/read-lead-performance.tool";
+import {
+	readSkillTool,
+	readSkillToolSchemaOnly,
+} from "./tools/read-skill.tool";
 import {
 	createScrapeLeadsTool,
 	type ScrapeLeadsTool,
@@ -85,12 +106,16 @@ import {
 type AiChatToolSet = {
 	animate_image: AnimateImageTool;
 	ask_user: typeof askUserTool;
+	edit_video: EditVideoTool;
+	extend_video: ExtendVideoTool;
 	generate_image: GenerateImageTool;
 	generate_marketing_asset: GenerateMarketingAssetTool;
 	generate_page: GeneratePageTool;
 	generate_video: GenerateVideoTool;
 	get_direction_candidates: typeof getDirectionCandidatesTool;
 	read_attachment: ReadAttachmentTool;
+	read_lead_performance: ReadLeadPerformanceTool;
+	read_skill: typeof readSkillTool;
 	scrape_leads: ScrapeLeadsTool;
 	get_page_outline: PageEditTools["get_page_outline"];
 	apply_element_ops: PageEditTools["apply_element_ops"];
@@ -157,10 +182,13 @@ export type ChatAgentDeps = GeneratePageToolDeps &
 	Omit<ScrapeLeadsToolDeps, "chatId" | "projectId"> & {
 		pageEditsService: PageEditsService;
 	} & Omit<AnimateImageToolDeps, "chatId" | "projectId"> &
+	Omit<EditVideoToolDeps, "chatId" | "projectId"> &
+	Omit<ExtendVideoToolDeps, "chatId" | "projectId"> &
 	Omit<GenerateMarketingAssetToolDeps, "chatId" | "projectId"> &
 	Omit<GenerateImageToolDeps, "chatId" | "projectId"> &
 	Omit<GenerateVideoToolDeps, "chatId" | "projectId"> &
-	ReadAttachmentToolDeps;
+	ReadAttachmentToolDeps &
+	Omit<ReadLeadPerformanceToolDeps, "now" | "projectId">;
 
 /**
  * The agent is built PER REQUEST now (it used to be a module singleton):
@@ -232,6 +260,26 @@ export function createChatAgent(
 				userId: deps.userId,
 			}),
 			ask_user: askUserTool,
+			edit_video: createEditVideoTool({
+				chatId: deps.chatId,
+				mediaGenerationsRepository: deps.mediaGenerationsRepository,
+				meteringService: deps.meteringService,
+				parentEventId: deps.parentEventId,
+				projectId: deps.projectId,
+				requestKeySeed: deps.requestKeySeed,
+				subject: deps.subject,
+				userId: deps.userId,
+			}),
+			extend_video: createExtendVideoTool({
+				chatId: deps.chatId,
+				mediaGenerationsRepository: deps.mediaGenerationsRepository,
+				meteringService: deps.meteringService,
+				parentEventId: deps.parentEventId,
+				projectId: deps.projectId,
+				requestKeySeed: deps.requestKeySeed,
+				subject: deps.subject,
+				userId: deps.userId,
+			}),
 			generate_image: createGenerateImageTool({
 				availableImages: deps.availableImages,
 				chatId: deps.chatId,
@@ -240,7 +288,6 @@ export function createChatAgent(
 				parentEventId: deps.parentEventId,
 				pagesRepository: deps.pagesRepository,
 				projectId: deps.projectId,
-				quality: deps.quality,
 				requestKeySeed: deps.requestKeySeed,
 				subject: deps.subject,
 				userId: deps.userId,
@@ -251,7 +298,6 @@ export function createChatAgent(
 				meteringService: deps.meteringService,
 				parentEventId: deps.parentEventId,
 				projectId: deps.projectId,
-				quality: deps.quality,
 				requestKeySeed: deps.requestKeySeed,
 				subject: deps.subject,
 				userId: deps.userId,
@@ -282,6 +328,12 @@ export function createChatAgent(
 			read_attachment: createReadAttachmentTool({
 				availableDocuments: deps.availableDocuments,
 			}),
+			read_lead_performance: createReadLeadPerformanceTool({
+				leadsRepository: deps.leadsRepository,
+				projectId: deps.projectId,
+			}),
+			// Live again for the ads playbooks (agent/ads); pure, no deps.
+			read_skill: readSkillTool,
 			scrape_leads: createScrapeLeadsTool({
 				chatId: deps.chatId,
 				leadScrapesRepository: deps.leadScrapesRepository,
@@ -311,6 +363,8 @@ export function createChatAgent(
 export const aiChatToolsForValidation = {
 	animate_image: animateImageToolSchemaOnly,
 	ask_user: askUserTool,
+	edit_video: editVideoToolSchemaOnly,
+	extend_video: extendVideoToolSchemaOnly,
 	generate_image: generateImageToolSchemaOnly,
 	generate_marketing_asset: generateMarketingAssetToolSchemaOnly,
 	generate_page: generatePageToolSchemaOnly,
@@ -318,8 +372,7 @@ export const aiChatToolsForValidation = {
 	scrape_leads: scrapeLeadsToolSchemaOnly,
 	get_direction_candidates: getDirectionCandidatesToolSchemaOnly,
 	read_attachment: readAttachmentToolSchemaOnly,
+	read_lead_performance: readLeadPerformanceToolSchemaOnly,
 	...pageEditToolsSchemaOnly,
-	// read_skill was retired from the live agent; the schema stays so chats
-	// that used it still validate.
 	read_skill: readSkillToolSchemaOnly,
 };

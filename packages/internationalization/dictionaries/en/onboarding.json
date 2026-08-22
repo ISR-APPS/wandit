@@ -15,6 +15,15 @@
 			"label": "Full name",
 			"next": "Next"
 		},
+		"phone": {
+			"title": "What's your phone number?",
+			"label": "Phone number",
+			"country": "Country",
+			"searchPlaceholder": "Search for a country…",
+			"noResults": "No country found.",
+			"placeholder": "555 12 34 56",
+			"next": "Next"
+		},
 		"accountType": {
 			"title": "How do you work?",
 			"options": {

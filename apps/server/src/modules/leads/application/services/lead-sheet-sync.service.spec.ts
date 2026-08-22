@@ -61,7 +61,7 @@ function leadRow(overrides: Partial<LeadRow> = {}): LeadRow {
 function stagedRewrite(): StagedSheetRewrite {
 	return {
 		liveSheet: { index: 0, sheetId: 11, title: "Feuille 1" },
-		stagingSheet: { columnCount: 8, rowCount: 1, sheetId: 22 },
+		stagingSheet: { columnCount: 12, rowCount: 1, sheetId: 22 },
 	};
 }
 
@@ -205,7 +205,7 @@ describe("LeadSheetSyncService", () => {
 			);
 		});
 
-		it("creates the spreadsheet on first sync, then writes header + leads", async () => {
+		it("creates the spreadsheet on first sync, then writes leads + header", async () => {
 			const { rewrite, service, sheetsClient, syncsRepository } =
 				buildService();
 
@@ -222,29 +222,10 @@ describe("LeadSheetSyncService", () => {
 			expect(sheetsClient.beginStagedRewrite).toHaveBeenCalledWith(
 				"token-1",
 				SHEET.spreadsheetId,
-				8,
+				12,
 			);
 			expect(sheetsClient.writeStagedValues).toHaveBeenNthCalledWith(
 				1,
-				"token-1",
-				SHEET.spreadsheetId,
-				rewrite,
-				0,
-				[
-					[
-						"Nom",
-						"Téléphone",
-						"Wilaya",
-						"Commune",
-						"Statut",
-						"Source",
-						"Date",
-						"Order details",
-					],
-				],
-			);
-			expect(sheetsClient.writeStagedValues).toHaveBeenNthCalledWith(
-				2,
 				"token-1",
 				SHEET.spreadsheetId,
 				rewrite,
@@ -259,6 +240,35 @@ describe("LeadSheetSyncService", () => {
 						"Facebook",
 						"25/07/2026 14:30",
 						"",
+						"",
+						"",
+						"",
+						"",
+					],
+				],
+			);
+			// The header goes in last: only after every lead has streamed through
+			// is the set of dynamic form-field columns known.
+			expect(sheetsClient.writeStagedValues).toHaveBeenNthCalledWith(
+				2,
+				"token-1",
+				SHEET.spreadsheetId,
+				rewrite,
+				0,
+				[
+					[
+						"Nom",
+						"Téléphone",
+						"Wilaya",
+						"Commune",
+						"Statut",
+						"Source",
+						"Date",
+						"Produit",
+						"Quantité",
+						"Prix",
+						"Livraison",
+						"Total",
 					],
 				],
 			);
@@ -304,7 +314,7 @@ describe("LeadSheetSyncService", () => {
 			expect(sheetsClient.beginStagedRewrite).toHaveBeenCalledWith(
 				"token-1",
 				SHEET.spreadsheetId,
-				8,
+				12,
 			);
 			expect(sheetsClient.writeStagedValues).toHaveBeenCalledTimes(2);
 			expect(sheetsClient.commitStagedRewrite).toHaveBeenCalledWith(
@@ -335,13 +345,13 @@ describe("LeadSheetSyncService", () => {
 				1,
 				"token-1",
 				"deleted-sheet",
-				8,
+				12,
 			);
 			expect(sheetsClient.beginStagedRewrite).toHaveBeenNthCalledWith(
 				2,
 				"token-1",
 				SHEET.spreadsheetId,
-				8,
+				12,
 			);
 			expect(sheetsClient.commitStagedRewrite).toHaveBeenCalledWith(
 				"token-1",
@@ -385,7 +395,11 @@ describe("LeadSheetSyncService", () => {
 				PROJECT_ID,
 				{ cursor: "next-page", pageSize: 1_000 },
 			);
-			const dataWrites = sheetsClient.writeStagedValues.mock.calls.slice(1);
+			const writeCalls = sheetsClient.writeStagedValues.mock.calls;
+			// Last write is the header row, once every page has been seen.
+			expect(writeCalls.at(-1)?.[3]).toBe(0);
+			expect(writeCalls.at(-1)?.[4]).toHaveLength(1);
+			const dataWrites = writeCalls.slice(0, -1);
 			expect(dataWrites.length).toBeGreaterThan(1);
 			let nextStartRowIndex = 1;
 			for (const call of dataWrites) {
@@ -402,6 +416,68 @@ describe("LeadSheetSyncService", () => {
 				PROJECT_ID,
 				1_001,
 			);
+		});
+
+		it("appends one column per form field discovered across pages", async () => {
+			const { leadsRepository, service, sheetsClient, syncsRepository } =
+				buildService();
+			syncsRepository.findByProject.mockResolvedValue({
+				...SHEET,
+				lastSyncedAt: null,
+				syncedLeadCount: 0,
+			});
+			leadsRepository.listForProjectSync
+				.mockResolvedValueOnce({
+					nextCursor: "page-2",
+					rows: [leadRow({ extras: { _rawPhone: "0550", size: "XL" } })],
+				})
+				.mockResolvedValueOnce({
+					nextCursor: null,
+					rows: [leadRow({ extras: { color: "Noir", size: "M" } })],
+				});
+
+			await service.syncNow(SCOPE, PROJECT_ID);
+
+			const writeCalls = sheetsClient.writeStagedValues.mock.calls;
+			// The header is written last, once every field is known; capture
+			// metadata (_rawPhone) never becomes a column.
+			expect(writeCalls.at(-1)?.[3]).toBe(0);
+			expect(writeCalls.at(-1)?.[4]).toEqual([
+				[
+					"Nom",
+					"Téléphone",
+					"Wilaya",
+					"Commune",
+					"Statut",
+					"Source",
+					"Date",
+					"Produit",
+					"Quantité",
+					"Prix",
+					"Livraison",
+					"Total",
+					"size",
+					"color",
+				],
+			]);
+			const fixedCells = [
+				"Amina B",
+				"+213540773102",
+				"Alger",
+				"",
+				"À confirmer",
+				"Facebook",
+				"25/07/2026 14:30",
+				"",
+				"",
+				"",
+				"",
+				"",
+			];
+			expect(writeCalls.slice(0, -1).flatMap((call) => call[4])).toEqual([
+				[...fixedCells, "XL"],
+				[...fixedCells, "M", "Noir"],
+			]);
 		});
 
 		it("fails safely when the repository repeats a paging cursor", async () => {

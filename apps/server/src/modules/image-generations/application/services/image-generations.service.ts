@@ -8,10 +8,6 @@ import { imageGenerationAttempts } from "@wandit/db/schema/image-generation-atte
 import { env } from "@wandit/env/server";
 import { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
 import {
-	meteringSubjectFrom,
-	type ProjectScope,
-} from "../../../projects/domain/project-scope";
-import {
 	captureGenerationCompleted,
 	captureGenerationFailed,
 } from "../../../../infrastructure/analytics/generation-events";
@@ -21,18 +17,20 @@ import {
 } from "../../../../infrastructure/database/database.constants";
 import {
 	getObjectBytes,
-	getObjectContentType,
-	imageGenerationKey,
 	publicAssetKeyFromUrl,
-	publicAssetUrl,
 } from "../../../../infrastructure/storage/r2";
 import { MeteringService } from "../../../metering/application/services/metering.service";
+import {
+	meteringSubjectFrom,
+	type ProjectScope,
+} from "../../../projects/domain/project-scope";
 import {
 	type ImageGenerationAttemptRow,
 	ImageGenerationsRepository,
 } from "../../infrastructure/persistence/image-generations.repository";
 import { createImageGenerationBilling } from "./image-generation-billing";
 import { ImageGenerationPlacementService } from "./image-generation-placement.service";
+import { createStoredImagesRecovery } from "./stored-images-recovery";
 
 const GENERATION_STALE_AFTER_MS = 15 * 60 * 1_000;
 const QUEUED_STALE_AFTER_MS = 30 * 60 * 1_000;
@@ -40,6 +38,7 @@ const STALE_GENERATION_ERROR =
 	"The images did not finish. Please try generating them again.";
 const STALE_QUEUED_ERROR =
 	"The image request did not reach the background generator. Please try again.";
+const recoverStoredImages = createStoredImagesRecovery();
 
 const EXTENSION_BY_MEDIA_TYPE: Record<string, string> = {
 	"image/jpeg": "jpg",
@@ -151,7 +150,15 @@ export class ImageGenerationsService {
 			throw new NotFoundException();
 		}
 
-		const image = row.images[index - 1];
+		// Indexed rows use their stable generation slots strictly so a missing
+		// slot cannot serve a different image. Only legacy unindexed rows use
+		// their rendered array position.
+		const hasIndexedImages = row.images.some(
+			(candidate) => candidate.index !== undefined,
+		);
+		const image = hasIndexedImages
+			? row.images.find((candidate) => candidate.index === index)
+			: row.images[index - 1];
 
 		if (!image) {
 			throw new NotFoundException();
@@ -204,7 +211,7 @@ export class ImageGenerationsService {
 			return false;
 		}
 
-		const recovered = await this.recoverStoredImages(row);
+		const recovered = await recoverStoredImages(row);
 
 		if (recovered) {
 			// The deterministic upload proves provider work completed. Repair the
@@ -272,50 +279,6 @@ export class ImageGenerationsService {
 		}
 
 		return true;
-	}
-
-	private async recoverStoredImages(
-		row: ImageGenerationAttemptRow,
-	): Promise<{ mediaType: string; url: string }[] | null> {
-		const images: { mediaType: string; url: string }[] = [];
-
-		for (let index = 1; index <= row.count; index += 1) {
-			let found: { mediaType: string; url: string } | null = null;
-
-			for (const candidate of [
-				{ extension: "png", mediaType: "image/png" },
-				{ extension: "jpg", mediaType: "image/jpeg" },
-				{ extension: "webp", mediaType: "image/webp" },
-			] as const) {
-				const key = imageGenerationKey(
-					row.projectId,
-					row.id,
-					index,
-					candidate.extension,
-				);
-				const storedMediaType = await getObjectContentType(key);
-
-				if (!storedMediaType) {
-					continue;
-				}
-
-				found = {
-					mediaType: storedMediaType.startsWith("image/")
-						? storedMediaType
-						: candidate.mediaType,
-					url: publicAssetUrl(key),
-				};
-				break;
-			}
-
-			if (!found) {
-				break;
-			}
-
-			images.push(found);
-		}
-
-		return images.length > 0 ? images : null;
 	}
 }
 

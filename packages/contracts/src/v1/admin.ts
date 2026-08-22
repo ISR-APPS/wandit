@@ -3,7 +3,14 @@ import {
 	paginatedResultSchema,
 	paginationQuerySchema,
 } from "../http/pagination";
-import { billingPlanIdSchema } from "./billing";
+import {
+	billingIntervalSchema,
+	billingPlanIdSchema,
+	creditTierSchema,
+	manualPaymentMethodSchema,
+	manualSubscriptionRequestSchema,
+	manualSubscriptionRequestStatusSchema,
+} from "./billing";
 import {
 	creditBalanceResponseSchema,
 	creditBucketSchema,
@@ -187,6 +194,10 @@ export type AdminListUsersResponse = z.infer<
 >;
 
 export const adminUserSubscriptionSchema = z.object({
+	id: uuidSchema,
+	// "stripe" | "manual" — manual rows are admin-granted offline subscriptions
+	// (cash / wire); they have no portal, no Stripe object, and never auto-renew.
+	provider: z.string(),
 	plan: billingPlanIdSchema,
 	status: z.string(),
 	interval: z.enum(["month", "year"]),
@@ -957,6 +968,293 @@ export type AdminWebhookReplayResponse = z.infer<
 	typeof adminWebhookReplayResponseSchema
 >;
 
+// ---------------------------------------------------------------------------
+// Offline / manual billing (admin side).
+//
+// Requests arrive from the web plan picker ("pay by cash / transfer"). The
+// admin calls the contact, then either rejects the request or grants a
+// `provider = "manual"` subscription (which approves and links the request).
+// Renewals and early terminations are admin actions on the subscription.
+// ---------------------------------------------------------------------------
+
+export const adminManualBillingUserSchema = z.object({
+	id: z.string(),
+	name: z.string(),
+	email: z.string(),
+	image: z.string().nullable(),
+});
+
+export type AdminManualBillingUser = z.infer<
+	typeof adminManualBillingUserSchema
+>;
+
+export const adminManualBillingOrganizationSchema = z.object({
+	id: z.string(),
+	name: z.string(),
+	slug: z.string(),
+});
+
+export type AdminManualBillingOrganization = z.infer<
+	typeof adminManualBillingOrganizationSchema
+>;
+
+/** The owner's live subscription at read time (any provider), for context. */
+export const adminManualCurrentSubscriptionSchema = z.object({
+	id: uuidSchema,
+	provider: z.string(),
+	plan: billingPlanIdSchema,
+	status: z.string(),
+	tierCredits: z.int().positive(),
+	interval: billingIntervalSchema,
+	currentPeriodEnd: isoDateTimeSchema,
+	cancelAtPeriodEnd: z.boolean(),
+});
+
+export type AdminManualCurrentSubscription = z.infer<
+	typeof adminManualCurrentSubscriptionSchema
+>;
+
+export const adminManualRequestSchema = manualSubscriptionRequestSchema.extend({
+	user: adminManualBillingUserSchema,
+	organization: adminManualBillingOrganizationSchema.nullable(),
+	adminNotes: z.string().nullable(),
+	handledBy: adminManualBillingUserSchema.nullable(),
+	currentSubscription: adminManualCurrentSubscriptionSchema.nullable(),
+});
+
+export type AdminManualRequest = z.infer<typeof adminManualRequestSchema>;
+
+export const adminManualRequestStatusFilters = [
+	"open",
+	"all",
+	...manualSubscriptionRequestStatusSchema.options,
+] as const;
+
+export const adminManualRequestStatusFilterSchema = z.enum(
+	adminManualRequestStatusFilters,
+);
+
+export type AdminManualRequestStatusFilter = z.infer<
+	typeof adminManualRequestStatusFilterSchema
+>;
+
+export const adminListManualRequestsQuerySchema = paginationQuerySchema.extend({
+	status: adminManualRequestStatusFilterSchema.default("open"),
+	// Matches name, email, phone, company.
+	q: z.string().trim().max(200).optional(),
+});
+
+export type AdminListManualRequestsQuery = z.infer<
+	typeof adminListManualRequestsQuerySchema
+>;
+
+export const adminListManualRequestsResponseSchema = paginatedResultSchema(
+	adminManualRequestSchema,
+);
+
+export type AdminListManualRequestsResponse = z.infer<
+	typeof adminListManualRequestsResponseSchema
+>;
+
+// Approval happens through the grant endpoint (it links + approves). This
+// PATCH only moves a request between the manual states and edits the note.
+export const adminUpdateManualRequestBodySchema = z
+	.object({
+		status: z.enum(["pending", "contacted", "rejected"]).optional(),
+		adminNotes: z.string().trim().max(2000).nullable().optional(),
+	})
+	.refine(
+		(body) => body.status !== undefined || body.adminNotes !== undefined,
+		{ message: "At least one field must be provided" },
+	);
+
+export type AdminUpdateManualRequestBody = z.infer<
+	typeof adminUpdateManualRequestBodySchema
+>;
+
+export const adminManualPaymentInputSchema = z.object({
+	method: manualPaymentMethodSchema,
+	// Minor units of `currency` (DZD centimes, USD cents). 0 is allowed for a
+	// period the admin grants without collecting money (goodwill, trial).
+	amountMinor: z.int().min(0).max(1_000_000_000),
+	currency: z
+		.string()
+		.trim()
+		.length(3)
+		.transform((value) => value.toUpperCase()),
+	reference: z.string().trim().min(1).max(120).optional(),
+	note: z.string().trim().min(1).max(1000).optional(),
+});
+
+export type AdminManualPaymentInput = z.infer<
+	typeof adminManualPaymentInputSchema
+>;
+
+export const adminGrantManualSubscriptionInputSchema = z.object({
+	// Contact / provenance user. For an org grant this is the billing owner the
+	// admin spoke to; the credit POOL is the organization.
+	userId: z.string().min(1),
+	organizationId: z.string().min(1).nullable().optional(),
+	plan: billingPlanIdSchema,
+	tierCredits: creditTierSchema,
+	interval: billingIntervalSchema,
+	// Defaults: periodStart = now, periodEnd = periodStart + interval.
+	periodStart: isoDateTimeSchema.optional(),
+	periodEnd: isoDateTimeSchema.optional(),
+	payment: adminManualPaymentInputSchema,
+	// When set, the request is marked approved and linked to the subscription.
+	requestId: uuidSchema.optional(),
+	adminNotes: z.string().trim().max(2000).optional(),
+	// Client-minted per-submission id: it keys the payment row AND the
+	// subscription's provider id, so a retried submit cannot grant twice.
+	idempotencyKey: uuidSchema,
+});
+
+export type AdminGrantManualSubscriptionInput = z.infer<
+	typeof adminGrantManualSubscriptionInputSchema
+>;
+
+export const adminRenewManualSubscriptionInputSchema = z.object({
+	// Default: one interval after the current period end (still active) or
+	// after now (already ended).
+	periodEnd: isoDateTimeSchema.optional(),
+	payment: adminManualPaymentInputSchema,
+	// When set, the open renewal/change request is marked approved and linked
+	// to this subscription (same rule as the grant endpoint).
+	requestId: uuidSchema.optional(),
+	idempotencyKey: uuidSchema,
+});
+
+export type AdminRenewManualSubscriptionInput = z.infer<
+	typeof adminRenewManualSubscriptionInputSchema
+>;
+
+export const adminEndManualSubscriptionInputSchema = z.object({
+	reason: z.string().trim().min(1).max(500).optional(),
+});
+
+export type AdminEndManualSubscriptionInput = z.infer<
+	typeof adminEndManualSubscriptionInputSchema
+>;
+
+export const adminManualPaymentSchema = z.object({
+	id: uuidSchema,
+	kind: z.enum(["initial", "renewal"]),
+	method: manualPaymentMethodSchema,
+	amountMinor: z.int(),
+	currency: z.string(),
+	reference: z.string().nullable(),
+	note: z.string().nullable(),
+	periodStart: isoDateTimeSchema,
+	periodEnd: isoDateTimeSchema,
+	recordedBy: adminManualBillingUserSchema.nullable(),
+	createdAt: isoDateTimeSchema,
+});
+
+export type AdminManualPayment = z.infer<typeof adminManualPaymentSchema>;
+
+export const adminManualSubscriptionSchema = z.object({
+	id: uuidSchema,
+	provider: z.string(),
+	status: z.string(),
+	// True while the status is entitled, including the collection window.
+	entitled: z.boolean(),
+	inGrace: z.boolean(),
+	plan: billingPlanIdSchema,
+	tierCredits: z.int().positive(),
+	interval: billingIntervalSchema,
+	priceLookupKey: z.string(),
+	currentPeriodStart: isoDateTimeSchema,
+	currentPeriodEnd: isoDateTimeSchema,
+	// Effective end: currentPeriodEnd + grace days.
+	accessEndsAt: isoDateTimeSchema,
+	cancelAtPeriodEnd: z.boolean(),
+	user: adminManualBillingUserSchema,
+	organization: adminManualBillingOrganizationSchema.nullable(),
+	paymentsCount: z.int().min(0),
+	lastPaymentAt: isoDateTimeSchema.nullable(),
+	createdAt: isoDateTimeSchema,
+	updatedAt: isoDateTimeSchema,
+});
+
+export type AdminManualSubscription = z.infer<
+	typeof adminManualSubscriptionSchema
+>;
+
+export const adminManualSubscriptionDetailSchema =
+	adminManualSubscriptionSchema.extend({
+		payments: z.array(adminManualPaymentSchema),
+		request: manualSubscriptionRequestSchema.nullable(),
+	});
+
+export type AdminManualSubscriptionDetail = z.infer<
+	typeof adminManualSubscriptionDetailSchema
+>;
+
+export const adminManualSubscriptionStatusFilters = [
+	"active",
+	"ended",
+	"all",
+] as const;
+
+export const adminManualSubscriptionStatusFilterSchema = z.enum(
+	adminManualSubscriptionStatusFilters,
+);
+
+export type AdminManualSubscriptionStatusFilter = z.infer<
+	typeof adminManualSubscriptionStatusFilterSchema
+>;
+
+export const adminListManualSubscriptionsQuerySchema =
+	paginationQuerySchema.extend({
+		status: adminManualSubscriptionStatusFilterSchema.default("active"),
+		q: z.string().trim().max(200).optional(),
+	});
+
+export type AdminListManualSubscriptionsQuery = z.infer<
+	typeof adminListManualSubscriptionsQuerySchema
+>;
+
+export const adminListManualSubscriptionsResponseSchema = paginatedResultSchema(
+	adminManualSubscriptionSchema,
+);
+
+export type AdminListManualSubscriptionsResponse = z.infer<
+	typeof adminListManualSubscriptionsResponseSchema
+>;
+
+/** One collected-money line of the offline stats, per currency. */
+export const adminManualBillingCollectedSchema = z.object({
+	currency: z.string(),
+	// Minor units of `currency` (DZD centimes, TND millimes…).
+	amountMinor: z.int().min(0),
+	payments: z.int().min(0),
+});
+
+export type AdminManualBillingCollected = z.infer<
+	typeof adminManualBillingCollectedSchema
+>;
+
+/**
+ * Aggregates for the Offline billing page header. Offline money never joins
+ * the USD MRR analytics — these totals come from the real recorded payments.
+ */
+export const adminManualBillingStatsSchema = z.object({
+	activeSubscriptions: z.int().min(0),
+	openRequests: z.int().min(0),
+	// Active manual subscriptions whose effective access ends within 7 days.
+	expiringWithin7Days: z.int().min(0),
+	// Entitled manual subscriptions whose paid period has already ended.
+	inGrace: z.int().min(0),
+	// Current and previous UTC calendar month, grouped by currency.
+	collectedThisMonth: z.array(adminManualBillingCollectedSchema),
+	collectedPreviousMonth: z.array(adminManualBillingCollectedSchema),
+});
+
+export type AdminManualBillingStats = z.infer<
+	typeof adminManualBillingStatsSchema
+>;
+
 export const adminRoutes = {
 	users: "/api/v1/admin/users",
 	user: (userId: string) => `/api/v1/admin/users/${userId}`,
@@ -984,4 +1282,15 @@ export const adminRoutes = {
 	signupStats: "/api/v1/admin/stats/signups",
 	webhookReplay: (eventId: string) =>
 		`/api/v1/admin/webhooks/${encodeURIComponent(eventId)}/replay`,
+	manualBillingStats: "/api/v1/admin/manual-billing/stats",
+	manualRequests: "/api/v1/admin/manual-requests",
+	manualRequest: (requestId: string) =>
+		`/api/v1/admin/manual-requests/${requestId}`,
+	manualSubscriptions: "/api/v1/admin/manual-subscriptions",
+	manualSubscription: (subscriptionId: string) =>
+		`/api/v1/admin/manual-subscriptions/${subscriptionId}`,
+	manualSubscriptionRenew: (subscriptionId: string) =>
+		`/api/v1/admin/manual-subscriptions/${subscriptionId}/renew`,
+	manualSubscriptionEnd: (subscriptionId: string) =>
+		`/api/v1/admin/manual-subscriptions/${subscriptionId}/end`,
 } as const;

@@ -12,6 +12,7 @@ import {
 	imageToVideoMotionSchema,
 	imageToVideoSourceMediaTypeSchema,
 	videoDurationSecondsSchema,
+	videoQualitySchema,
 	videoVoiceoverSchema,
 } from "./media-generations";
 import { aiElementOpSchema, widSchema } from "./page-edits";
@@ -148,7 +149,7 @@ export const askUserInputSchema = z.object({
 	// kind "attachments" only — what the drop tray should accept (default
 	// ["image"]) and how many files at most (default 3). Optional so every
 	// pre-attachments row stays valid (spec §11 / contract §10.5).
-	accept: z.array(z.enum(["image", "document"])).optional(),
+	accept: z.array(z.enum(["image", "document", "video", "audio"])).optional(),
 	// Optional exact MIME allowlist. This narrows a broad category such as
 	// "image" when a workflow only supports still JPEG/PNG/WebP sources.
 	// Kept optional so persisted asks from before this field remain valid.
@@ -185,11 +186,22 @@ export type AskUserInput = z.infer<typeof askUserInputSchema>;
 export type AskUserOutput = z.infer<typeof askUserOutputSchema>;
 
 /**
- * read_skill — RETIRED. The live agent no longer exposes this tool (the
- * builder carries its design guidance in its own system prompt now), but the
- * schemas must survive so chats that called it still validate and render.
+ * read_skill — progressive disclosure for the brain's playbooks.
+ *
+ * The six `ads-*` slugs are the live ads skills (the composer chips use the
+ * same ids). `landing-page-design` is RETIRED (the builder carries its design
+ * guidance itself) but stays in the enum so chats that called it still
+ * validate and render. Never rename a slug: it is persisted in chat history.
  */
-export const skillSlugSchema = z.enum(["landing-page-design"]);
+export const skillSlugSchema = z.enum([
+	"landing-page-design",
+	"ads-fundamentals",
+	"ads-creative",
+	"ads-audiences",
+	"ads-measurement",
+	"ads-cod-maghreb",
+	"ads-diagnostic",
+]);
 
 export const readSkillInputSchema = z.object({
 	skill: skillSlugSchema,
@@ -232,6 +244,76 @@ export const readAttachmentOutputSchema = z.discriminatedUnion("status", [
 
 export type ReadAttachmentInput = z.infer<typeof readAttachmentInputSchema>;
 export type ReadAttachmentOutput = z.infer<typeof readAttachmentOutputSchema>;
+
+/**
+ * read_lead_performance — the merchant's own lead funnel for the chat's
+ * project (the Leads tab, the backend truth for COD): counts and rates over
+ * the last N days, grouped by source, campaign, or status. Read-only; the
+ * input stays tiny on purpose so the model cannot misuse it.
+ */
+export const readLeadPerformanceWindowDays = [7, 14, 30, 90] as const;
+export const readLeadPerformanceGroupBys = [
+	"source",
+	"campaign",
+	"status",
+	"none",
+] as const;
+
+export const readLeadPerformanceInputSchema = z
+	.object({
+		// Window: N full Africa/Algiers days before today, plus today so far
+		// (from Algiers midnight N days ago to now).
+		days: z
+			.union([z.literal(7), z.literal(14), z.literal(30), z.literal(90)])
+			.optional(),
+		// source = facebook | tiktok | direct (derived from click ids and
+		// utm_source); campaign = utm_campaign; status = lead status; none =
+		// totals only.
+		groupBy: z.enum(readLeadPerformanceGroupBys).optional(),
+	})
+	.strict();
+
+const leadFunnelCountsSchema = z.object({
+	total: z.number().int().nonnegative(),
+	to_confirm: z.number().int().nonnegative(),
+	confirmed: z.number().int().nonnegative(),
+	shipped: z.number().int().nonnegative(),
+	delivered: z.number().int().nonnegative(),
+	returned: z.number().int().nonnegative(),
+	cancelled: z.number().int().nonnegative(),
+});
+
+export const readLeadPerformanceOutputSchema = z.object({
+	// N as requested: N full Africa/Algiers days before today, plus today so far.
+	windowDays: z.number().int().positive(),
+	// ISO timestamps of the window bounds (from = Algiers midnight N days ago).
+	from: z.string(),
+	to: z.string(),
+	totals: leadFunnelCountsSchema.extend({
+		// (confirmed + shipped + delivered + returned) / total — the share of
+		// all leads in the window that were confirmed (to_confirm still counts
+		// in the denominator). null when total is 0.
+		confirmationRate: z.number().min(0).max(1).nullable(),
+		// delivered / (shipped + delivered + returned). null when nothing was
+		// shipped.
+		deliveryRate: z.number().min(0).max(1).nullable(),
+		// returned / (shipped + delivered + returned). null when nothing was
+		// shipped.
+		returnRate: z.number().min(0).max(1).nullable(),
+	}),
+	// At most 50 groups, ordered by total desc. Empty when groupBy is "none".
+	groups: z.array(leadFunnelCountsSchema.extend({ key: z.string() })),
+	// Plain-language caveats: scope, exclusions, and the rate definitions.
+	note: z.string(),
+});
+
+export type ReadLeadPerformanceInput = z.infer<
+	typeof readLeadPerformanceInputSchema
+>;
+export type ReadLeadPerformanceOutput = z.infer<
+	typeof readLeadPerformanceOutputSchema
+>;
+export type LeadFunnelCounts = z.infer<typeof leadFunnelCountsSchema>;
 
 /**
  * get_direction_candidates — the Brain samples a bounded random menu of
@@ -459,6 +541,12 @@ export const animateImageInputSchema = z.object({
 	aspect: imageToVideoAspectSchema,
 	motion: imageToVideoMotionSchema,
 	prompt: z.string().min(1).max(2_000),
+	// The Brain chooses the tier. The server enforces capability caps and may
+	// upgrade it before queueing the durable attempt.
+	quality: videoQualitySchema.default("standard"),
+	// The Brain sets this when the person speaks on camera. The server enforces
+	// capability caps and may upgrade the tier.
+	talking: z.boolean().default(false),
 });
 
 export const animateImageOutputSchema = z.object({
@@ -490,10 +578,18 @@ export const generateVideoInputSchema = z.object({
 	brief: z.string().min(30).max(4_000),
 	aspect: imageToVideoAspectSchema,
 	durationSeconds: videoDurationSecondsSchema.default(10),
+	// The Brain chooses the tier. The server enforces capability caps and may
+	// upgrade it before queueing the durable attempt.
+	quality: videoQualitySchema.default("standard"),
+	// The Brain sets this when the person speaks on camera. The server enforces
+	// capability caps and may upgrade the tier.
+	talking: z.boolean().default(false),
+	// The Brain sets this when the request needs deliberate cuts or shots. The
+	// server enforces capability caps and may upgrade the tier.
+	multiShot: z.boolean().default(false),
 	// Present only when the user asked for a voiceover. The Brain writes the
-	// short script in the requested language; audio generation itself is
-	// stubbed until the audio provider lands — the clip renders silent and
-	// the request is stored with the attempt.
+	// short script in the requested language. Talking-person speech and
+	// off-camera narration both render through Kling native voice control.
 	voiceover: videoVoiceoverSchema.optional(),
 });
 
@@ -508,6 +604,34 @@ export const generateVideoOutputSchema = z.object({
 
 export type GenerateVideoInput = z.infer<typeof generateVideoInputSchema>;
 export type GenerateVideoOutput = z.infer<typeof generateVideoOutputSchema>;
+
+/** edit_video — edits one succeeded video attempt from a plain instruction. */
+export const editVideoInputSchema = z.object({
+	sourceAttemptId: z.string().uuid(),
+	title: z.string().min(1).max(120),
+	instruction: z.string().min(1).max(2_000),
+});
+
+export const editVideoOutputSchema = generateVideoOutputSchema;
+
+export type EditVideoInput = z.infer<typeof editVideoInputSchema>;
+export type EditVideoOutput = z.infer<typeof editVideoOutputSchema>;
+
+/** extend_video — queues one to three continuation legs for an existing video. */
+export const extendVideoInputSchema = z.object({
+	sourceAttemptId: z.string().uuid(),
+	title: z.string().min(1).max(120),
+	continuationBrief: z.string().min(1).max(2_000),
+	legCount: z.union([z.literal(1), z.literal(2), z.literal(3)]).default(1),
+	legDurationSeconds: z.union([z.literal(5), z.literal(10)]).default(5),
+	voiceover: videoVoiceoverSchema.nullish(),
+	acceptSilent: z.boolean().default(false),
+});
+
+export const extendVideoOutputSchema = generateVideoOutputSchema;
+
+export type ExtendVideoInput = z.infer<typeof extendVideoInputSchema>;
+export type ExtendVideoOutput = z.infer<typeof extendVideoOutputSchema>;
 
 /**
  * Live video-generation progress the worker pushes over Trigger Realtime
@@ -528,6 +652,19 @@ export const videoBuildProgressSchema = z.object({
 	// 0-100, monotonically non-decreasing (the tracker clamps regressions).
 	percent: z.number().min(0).max(100).catch(2),
 	phase: videoBuildPhaseSchema.catch("starting"),
+	stage: z
+		.enum([
+			"starting",
+			"rendering",
+			"rendering-leg",
+			"extracting-frame",
+			"joining",
+			"soundtrack",
+			"publishing",
+			"finishing",
+		])
+		.nullish()
+		.catch(null),
 	// One short present-tense line for the card header. English chrome, same
 	// rule as the page-build card.
 	headline: z.string().min(1).catch("Working on the video…"),
@@ -744,6 +881,10 @@ export type AiChatTools = {
 		input: ReadAttachmentInput;
 		output: ReadAttachmentOutput;
 	};
+	read_lead_performance: {
+		input: ReadLeadPerformanceInput;
+		output: ReadLeadPerformanceOutput;
+	};
 	get_direction_candidates: {
 		input: GetDirectionCandidatesInput;
 		output: GetDirectionCandidatesOutput;
@@ -757,6 +898,8 @@ export type AiChatTools = {
 	scrape_leads: { input: ScrapeLeadsInput; output: ScrapeLeadsOutput };
 	animate_image: { input: AnimateImageInput; output: AnimateImageOutput };
 	generate_video: { input: GenerateVideoInput; output: GenerateVideoOutput };
+	edit_video: { input: EditVideoInput; output: EditVideoOutput };
+	extend_video: { input: ExtendVideoInput; output: ExtendVideoOutput };
 	get_page_outline: {
 		input: GetPageOutlineInput;
 		output: GetPageOutlineOutput;

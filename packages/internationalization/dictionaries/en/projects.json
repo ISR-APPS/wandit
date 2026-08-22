@@ -144,7 +144,7 @@
 		"addMenuLabel": "Add context",
 		"addSkillLabel": "Add skill",
 		"attachLabel": "Attach",
-		"attachHint": "Attach images, PDFs, docs or spreadsheets",
+		"attachHint": "Attach images, video, audio, PDFs, docs or spreadsheets",
 		"connectApps": "Connect apps",
 		"attachments": {
 			"dropHint": "Drop files to attach",
@@ -152,7 +152,7 @@
 			"remove": "Remove",
 			"retry": "Retry",
 			"unsupported": "Unsupported format",
-			"tooLarge": "File too large (15 MB max)",
+			"tooLarge": "File is too large (video 50 MB, audio 25 MB, images and documents 15 MB max)",
 			"failed": "Upload failed",
 			"signInFirst": "Sign in to attach files"
 		},
@@ -177,7 +177,6 @@
 		"modeLabel": "Mode",
 		"outputLabel": "Output",
 		"settingsLabel": "Generation settings",
-		"qualityLabel": "Quality",
 		"skillLibraryLabel": "Built by Wandit",
 		"searchSkillsPlaceholder": "Search skills…",
 		"noSkillResults": "No skills found",
@@ -196,16 +195,6 @@
 		"stepNext": "Next",
 		"stepDone": "Done",
 		"stepLabel": "Step {current} of {total}",
-		"quality": {
-			"standard": {
-				"label": "Standard",
-				"hint": "Fast and efficient"
-			},
-			"max": {
-				"label": "Max",
-				"hint": "Best result, uses more credits"
-			}
-		},
 		"routeModes": {
 			"auto": {
 				"label": "Auto",
@@ -234,41 +223,34 @@
 			}
 		},
 		"skillGroups": {
-			"review": {
-				"label": "Review skills"
-			},
-			"market": {
-				"label": "Market context"
+			"ads": {
+				"label": "Ads skills"
 			}
 		},
 		"skills": {
-			"accessibility": {
-				"label": "Accessibility",
-				"description": "Adds contrast, forms and keyboard review guidance."
+			"ads-fundamentals": {
+				"label": "Fundamentals",
+				"description": "Account structure, learning phase, bidding, scaling."
 			},
-			"seo-review": {
-				"label": "SEO Review",
-				"description": "Adds search structure, metadata and copy review guidance."
+			"ads-creative": {
+				"label": "Creative",
+				"description": "Hooks, formats, UGC, creative testing and fatigue."
 			},
-			"redesign": {
-				"label": "Redesign",
-				"description": "Adds visual refresh and layout critique guidance."
+			"ads-audiences": {
+				"label": "Audiences",
+				"description": "Targeting, broad vs. interests, lookalikes, exclusions."
 			},
-			"cod-algeria": {
-				"label": "COD Algeria",
-				"description": "Adds Algerian COD, wilaya and mobile-first context."
+			"ads-measurement": {
+				"label": "Measurement",
+				"description": "Pixel, events, UTMs, attribution, real CPA on COD."
 			},
-			"brand-voice": {
-				"label": "Brand Voice",
-				"description": "Keeps generated copy aligned to the brand tone."
+			"ads-cod-maghreb": {
+				"label": "COD Maghreb",
+				"description": "Benchmarks, confirmation rate, returns, local context."
 			},
-			"direct-response": {
-				"label": "Direct Response",
-				"description": "Adds offer, proof, objection and CTA pressure."
-			},
-			"premium-visuals": {
-				"label": "Premium Visuals",
-				"description": "Adds higher-end art direction for visual outputs."
+			"ads-diagnostic": {
+				"label": "Diagnostic",
+				"description": "Tracking first, then funnel read and the 72h rule."
 			}
 		},
 		"outputs": {

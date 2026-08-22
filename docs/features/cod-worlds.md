@@ -83,8 +83,10 @@ changing the funnel contract.
    union. The finished page must read as one new pressing, not a patchwork.
 7. The generated order form follows the existing `wandit:lead` event contract.
    Canonical `name`, `phone`, `wilaya` and `commune` keys remain first-class;
-   selected bundle, variant and delivery values travel under their own extra
-   keys.
+   the order facts use the canonical extras keys `product`, `quantity`,
+   `price`, `delivery` and `total` (promoted into first-class columns by the
+   CRM and exports); any other collected value travels under its own extra
+   key.
 
 ## Deliberately not here (yet)
 
@@ -95,6 +97,8 @@ changing the funnel contract.
   block id was rendered correctly.
 - **Visual block picking:** the block question uses the existing text
   multi-select request tray. A thumbnail or visual-pick interface is deferred.
-- **Lead extras columns:** bundle, variant, quantity and delivery selections
-  stay in lead extras under their own keys; this feature adds no dedicated
-  database columns or migration for them.
+- **Lead order database columns:** the promoted order facts (product,
+  quantity, price, delivery, total) stay in the lead extras jsonb; the CRM and
+  exports recognize them at read time (canonical keys + synonym aliases in
+  `@wandit/contracts`), so this feature still adds no dedicated database
+  columns or migration for them.

@@ -115,6 +115,12 @@ const OPTION_LABELS: Record<string, string> = {
 	variants: "Number of variants",
 };
 
+// Document-level edit sentinels the ops layer records instead of a data-wid.
+const MANUAL_EDIT_LABELS: Record<string, string> = {
+	__title__: "the page title",
+	__tokens__: "the global theme (colors/fonts)",
+};
+
 // Transport/internal keys, or keys already rendered by a dedicated block.
 const HANDLED_OPTION_KEYS = new Set([
 	"builderModel",
@@ -266,7 +272,8 @@ export function buildChatRequestContext(
 				lines.push(
 					'  Output: "Image animation" — animate the single uploaded ' +
 						"source image with animate_image. This is image-to-video: one " +
-						"silent five-second clip from the supplied still.",
+						"five-second clip from the supplied still. Use the talking/max " +
+						"path only when a person must visibly speak to camera.",
 				);
 			}
 
@@ -381,9 +388,7 @@ export function buildChatRequestContext(
 
 	if (context.manualEdits.length > 0) {
 		const edited = context.manualEdits
-			.map((wid) =>
-				wid === "__tokens__" ? "the global theme (colors/fonts)" : wid,
-			)
+			.map((wid) => MANUAL_EDIT_LABELS[wid] ?? wid)
 			.join(", ");
 
 		paragraphs.push(

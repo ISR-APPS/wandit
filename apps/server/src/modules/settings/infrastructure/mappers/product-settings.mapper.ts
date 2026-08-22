@@ -19,6 +19,8 @@ export function mapProductSettingsRow(
 	return {
 		emailAuthEnabled: row.emailAuthEnabled,
 		id: PRODUCT_SETTINGS_ID,
+		manualGraceDays: row.manualGraceDays,
+		manualPaymentsEnabled: row.manualPaymentsEnabled,
 		organizationsEnabled: row.organizationsEnabled,
 		paidSubscriptionsEnabled: row.paidSubscriptionsEnabled,
 		signupGrantCredits: row.signupGrantCredits,

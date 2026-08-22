@@ -46,6 +46,7 @@ import { ThinkingIndicator } from "./chat-message";
 import { MOCK_CHAT_THREAD_ENABLED, MockChatThread } from "./mock-thread";
 import { ConversationModelIndicator } from "./model-indicator";
 import { MessageParts } from "./parts/message-parts";
+import { isVisibleAssistantReplyPart } from "./parts/visible-reply-part";
 import { RequestTray } from "./request-tray/request-tray";
 import { TrayReveal } from "./request-tray/tray-reveal";
 import { TrayStatusPill } from "./request-tray/tray-signals";
@@ -107,18 +108,7 @@ export function ChatPane({ className }: { className?: string }) {
 	const lastMessage = messages[messages.length - 1];
 	const replyHasVisibleContent =
 		lastMessage?.role === "assistant" &&
-		lastMessage.parts.some(
-			(part) =>
-				(part.type === "text" && part.text.length > 0) ||
-				part.type === "tool-ask_user" ||
-				part.type === "tool-generate_page" ||
-				part.type === "tool-generate_marketing_asset" ||
-				part.type === "tool-generate_image" ||
-				part.type === "tool-scrape_leads" ||
-				part.type === "tool-animate_image" ||
-				part.type === "tool-generate_video" ||
-				part.type === "dynamic-tool",
-		);
+		lastMessage.parts.some(isVisibleAssistantReplyPart);
 	const showThinking = isSubmitting && !replyHasVisibleContent;
 
 	// Click-to-target (contract §12): the active selection renders as a
@@ -407,7 +397,6 @@ export function ChatPane({ className }: { className?: string }) {
 						<PromptBox
 							variant="compact"
 							showEngines
-							showPriceTag
 							clearOnSubmit
 							attachmentsEnabled
 							disabled={outOfCredits}

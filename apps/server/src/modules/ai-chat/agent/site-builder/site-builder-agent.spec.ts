@@ -98,6 +98,9 @@ const COD_LEAD_SCRIPT = `<script>
 	orderForm.addEventListener("submit", function (event) {
 		event.preventDefault();
 		const fields = new FormData(orderForm);
+		document.addEventListener("wandit:lead:result", function (result) {
+			orderForm.hidden = result.detail.ok === true;
+		}, { once: true });
 		document.dispatchEvent(new CustomEvent("wandit:lead", {
 			detail: {
 				name: fields.get("name"),
@@ -110,6 +113,13 @@ const COD_LEAD_SCRIPT = `<script>
 const COD_HTML = HTML.replace("<header><nav>", '<header><section class="hero">')
 	.replace("</nav></header>", "</section></header>")
 	.replace("</main>", `${COD_FORM}${COD_LEAD_SCRIPT}</main>`);
+
+// Same page, minus the acknowledgement listener: the lead still dispatches,
+// so only the success gate can reject it.
+const COD_HTML_WITHOUT_LEAD_RESULT = COD_HTML.replace(
+	/\s*document\.addEventListener\("wandit:lead:result"[\s\S]*?\{ once: true \}\);/,
+	"",
+);
 
 const DESKTOP_SHOT = "ZGVza3RvcC1zaG90";
 const MOBILE_SHOT = "bW9iaWxlLXNob3Q=";
@@ -1786,6 +1796,11 @@ describe("COD finish gate", () => {
 			label: "multiple honeypots",
 			message: /exactly one data-wandit-hp honeypot \(found 2\)/,
 		},
+		{
+			html: COD_HTML_WITHOUT_LEAD_RESULT,
+			label: "an unacknowledged success state",
+			message: /must handle the "wandit:lead:result" acknowledgement event/,
+		},
 	])("rejects $label", async ({ html, message }) => {
 		const { options, tools } = setup({
 			pageKind: "cod",
@@ -1918,6 +1933,63 @@ describe("self-contained script finish gate", () => {
 	});
 });
 
+describe("finish-pass document title", () => {
+	async function buildWith(html: string, title: string) {
+		const consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+		const streamSpy = vi
+			.spyOn(ToolLoopAgent.prototype, "stream")
+			.mockImplementation(async function (this: ToolLoopAgent) {
+				const tools = this.tools as unknown as ReturnType<
+					typeof setup
+				>["tools"];
+				await tools.write_file.execute?.(
+					{ content: html, path: "index.html" },
+					{ messages: [], toolCallId: "title_write" } as never,
+				);
+
+				return {
+					fullStream: (async function* () {})(),
+					steps: Promise.resolve([]),
+				} as never;
+			});
+
+		try {
+			const build = await runSiteBuild({
+				attemptId: "attempt_title",
+				brief: "Build a substantial warm editorial landing page.",
+				model: "deepseek/test",
+				projectId: "project_1",
+				subject: { actorUserId: "user_1" },
+				system: "Build the page with the supplied tools.",
+				title,
+			});
+
+			return build.files.find((file) => file.path === "index.html")?.content;
+		} finally {
+			streamSpy.mockRestore();
+			consoleSpy.mockRestore();
+		}
+	}
+
+	it("fills a missing <title> with the Brain's short human title", async () => {
+		// The HTML fixture's <head> carries only the token <style>.
+		const content = await buildWith(HTML, "Huile d argan bio");
+
+		expect(content).toContain("<title>Huile d argan bio</title>");
+	});
+
+	it("keeps the title the builder wrote", async () => {
+		const authored = HTML.replace(
+			"<head>",
+			"<head><title>Serum Éclat — livraison 48 h</title>",
+		);
+		const content = await buildWith(authored, "Huile d argan bio");
+
+		expect(content).toContain("<title>Serum Éclat — livraison 48 h</title>");
+		expect(content).not.toContain("Huile d");
+	});
+});
+
 describe("generate_image tool", () => {
 	it("creates and settles an image child event under the page-build event", async () => {
 		const metering = {
@@ -1934,12 +2006,14 @@ describe("generate_image tool", () => {
 		};
 		const usage = { inputTokens: 9, outputTokens: 2 };
 		vi.mocked(generateBuildImage).mockResolvedValue({
+			height: 1024,
 			imageBase64: "aW1n",
 			mediaType: "image/png",
 			model: "test/image-model",
 			providerMetadata,
 			status: "generated",
 			url: "https://assets.example.com/img-1.png",
+			width: 1536,
 			usage,
 		});
 
@@ -2023,12 +2097,14 @@ describe("generate_image tool", () => {
 			usageEventId: "page_event_1",
 		});
 		vi.mocked(generateBuildImage).mockResolvedValue({
+			height: 1024,
 			imageBase64: "aW1n",
 			mediaType: "image/png",
 			model: "test/image-model",
 			providerMetadata: {},
 			status: "generated",
 			url: "https://assets.example.com/img-1.png",
+			width: 1536,
 			usage: { inputTokens: 9, outputTokens: 2 },
 		});
 
@@ -2073,12 +2149,14 @@ describe("generate_image tool", () => {
 		const url =
 			"https://assets.example.com/sites/project_1/assets/attempt_1/img-1.png";
 		vi.mocked(generateBuildImage).mockResolvedValue({
+			height: 1024,
 			imageBase64: "aW1nLWJ5dGVz",
 			mediaType: "image/png",
 			model: "test/image-model",
 			providerMetadata: {},
 			status: "generated",
 			url,
+			width: 1536,
 		});
 
 		const output = materialize(
@@ -2095,9 +2173,11 @@ describe("generate_image tool", () => {
 		});
 		expect(output).toEqual({
 			aspect: "16:9",
+			height: 1024,
 			role: "hero background",
 			status: "generated",
 			url,
+			width: 1536,
 		});
 		expect(state.imagesGenerated).toBe(1);
 		// The raw bytes must never land in the transcript output.
@@ -2125,6 +2205,10 @@ describe("generate_image tool", () => {
 				type: "file",
 			},
 		]);
+		// The real pixels reach the model, so it can write width/height on the
+		// <img> instead of guessing a box.
+		const [marker] = modelOutput.value;
+		expect(marker?.type === "text" && marker.text).toContain("1536x1024px");
 	});
 
 	it("passes handler failures through without counting the image", async () => {
@@ -2142,12 +2226,14 @@ describe("generate_image tool", () => {
 		// The key sequence is never reused: a retry after a failure must not
 		// collide with an image a concurrent call may have uploaded meanwhile.
 		vi.mocked(generateBuildImage).mockResolvedValue({
+			height: 1024,
 			imageBase64: "aW1nLWJ5dGVz",
 			mediaType: "image/png",
 			model: "test/image-model",
 			providerMetadata: {},
 			status: "generated",
 			url: "https://assets.example.com/sites/project_1/assets/attempt_1/img-2.png",
+			width: 1536,
 		});
 		await tools.generate_image.execute?.(IMAGE_INPUT, options("img_2"));
 		expect(generateBuildImage).toHaveBeenLastCalledWith(
@@ -2160,12 +2246,14 @@ describe("generate_image tool", () => {
 		state.imagesGenerated = MAX_IMAGES - 2;
 		state.imageSequence = MAX_IMAGES - 2;
 		vi.mocked(generateBuildImage).mockImplementation(async ({ index }) => ({
+			height: 1024,
 			imageBase64: "aW1nLWJ5dGVz",
 			mediaType: "image/png",
 			model: "test/image-model",
 			providerMetadata: {},
 			status: "generated",
 			url: `https://assets.example.com/img-${index}.png`,
+			width: 1536,
 		}));
 
 		// The SDK executes one step's tool calls concurrently (Promise.all), so
@@ -2223,6 +2311,7 @@ describe("animate_image tool", () => {
 				attemptRef: "attempt_1:video:1",
 				credits: 2000,
 				idempotencyKey: "page-build-video:page_event_1:1",
+				model: "klingai/kling-v2.6-i2v",
 				parentEventId: "page_event_1",
 			}),
 		);
@@ -2317,8 +2406,10 @@ describe("animate_image tool", () => {
 			imageUrl: VIDEO_INPUT.imageUrl,
 			index: 1,
 			metering: { operation: "video", organizationId: null, userId: "user_1" },
+			modelId: "klingai/kling-v2.6-i2v",
 			motionPrompt: VIDEO_INPUT.motionPrompt,
 			projectId: "project_1",
+			voiceControl: false,
 		});
 		expect(output).toEqual({
 			posterUrl: VIDEO_INPUT.imageUrl,
@@ -2432,7 +2523,7 @@ describe("runSiteBuild", () => {
 							},
 							{ data: secondPhoto, mediaType: "image", type: "file" },
 							{
-								text: "These are the user's real photos from the brief, attached so you can SEE them. Judge each one's quality before you write HTML, per your PHOTO QUALITY GATE law. To enhance or restage one, pass its exact URL from its marker as generate_image sourceImageUrls.",
+								text: "These are the user's real photos from the brief, attached so you can SEE them. Judge each one's quality before you write HTML, per your PHOTO QUALITY GATE law. To enhance, restage, or refit one to a slot's shape, pass its exact URL from its marker as generate_image sourceImageUrls.",
 								type: "text",
 							},
 						],
@@ -2601,12 +2692,14 @@ describe("progress events", () => {
 			onEvent: (event) => events.push(event),
 		});
 		vi.mocked(generateBuildImage).mockResolvedValue({
+			height: 1024,
 			imageBase64: "aW1n",
 			mediaType: "image/png",
 			model: "test/image-model",
 			providerMetadata: {},
 			status: "generated",
 			url: "https://assets.example.com/sites/project_1/assets/attempt_1/img-1.png",
+			width: 1536,
 		});
 
 		await tools.write_file.execute?.(

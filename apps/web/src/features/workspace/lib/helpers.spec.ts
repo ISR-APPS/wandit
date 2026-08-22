@@ -18,6 +18,8 @@ const HEADERS = [
 	"Created at",
 ];
 
+const ORDER_HEADERS = ["Product", "Quantity", "Price", "Delivery", "Total"];
+
 function leadWithExtras(extras: Lead["extras"]): Lead {
 	return {
 		archivedAt: null,
@@ -39,7 +41,7 @@ describe("buildLeadsCsv", () => {
 		vi.clearAllMocks();
 	});
 
-	it("adds one deterministic order-details cell with every public COD scalar", () => {
+	it("promotes order facts and gives the other scalars their own columns", () => {
 		const csv = buildLeadsCsv(
 			[
 				leadWithExtras({
@@ -53,26 +55,96 @@ describe("buildLeadsCsv", () => {
 				}),
 			],
 			HEADERS,
+			ORDER_HEADERS,
 		);
+		const lines = csv.split("\n");
 
-		expect(csv).toContain(
-			"Name,Phone,Wilaya,Commune,Status,Source,Campaign,Created at,Order details",
+		// bundle/quantity/delivery land in the promoted order columns; the rest
+		// stay dynamic; hidden capture metadata never leaks.
+		expect(lines[0]).toBe(
+			"\uFEFFName,Phone,Wilaya,Commune,Status,Source,Campaign,Created at,Product,Quantity,Price,Delivery,Total,color,size,variant",
 		);
-		expect(csv).toContain("direct,Ramadan Promo,");
-		expect(csv.match(/Order details/g)).toHaveLength(1);
-		expect(csv).toContain(
-			'"{""bundle"":""Family pack"",""color"":""Blue"",""delivery"":""Home"",""quantity"":3,""size"":""XL"",""variant"":""Premium""}"',
+		expect(lines[1]).toBe(
+			"Amina,+213550000000,Alger,Bab Ezzouar,leads.status.confirmed,direct,Ramadan Promo,2026-08-02T10:00:00.000Z,Family pack,3,,Home,,Blue,XL,Premium",
 		);
 		expect(csv).not.toContain("_rawPhone");
 		expect(csv).not.toContain("0550000000");
 	});
 
-	it("serializes the same order details identically regardless of insertion order", () => {
+	it("promotes French synonyms into the localized order columns", () => {
+		const csv = buildLeadsCsv(
+			[
+				leadWithExtras({
+					quantité: 2,
+					produit: "Pack Solo",
+					"prix total": "3500",
+				}),
+			],
+			HEADERS,
+			ORDER_HEADERS,
+		);
+		const lines = csv.split("\n");
+
+		expect(
+			lines[0]?.endsWith("Created at,Product,Quantity,Price,Delivery,Total"),
+		).toBe(true);
+		expect(
+			lines[1]?.endsWith("2026-08-02T10:00:00.000Z,Pack Solo,2,,,3500"),
+		).toBe(true);
+	});
+
+	it("unions the columns across leads and pads missing fields", () => {
+		const csv = buildLeadsCsv(
+			[
+				leadWithExtras({ size: "XL" }),
+				leadWithExtras({ color: "Blue", gift: true }),
+			],
+			HEADERS,
+			ORDER_HEADERS,
+		);
+		const lines = csv.split("\n");
+
+		// First appearance assigns the dynamic column; every row is padded to the
+		// full header width so the CSV stays rectangular.
+		expect(lines[0]?.endsWith("Total,size,color,gift")).toBe(true);
+		expect(lines[1]?.endsWith("2026-08-02T10:00:00.000Z,,,,,,XL,,")).toBe(true);
+		expect(lines[2]?.endsWith("2026-08-02T10:00:00.000Z,,,,,,,Blue,Oui")).toBe(
+			true,
+		);
+	});
+
+	it("renames a form field that collides with a fixed header", () => {
+		const csv = buildLeadsCsv(
+			[leadWithExtras({ Status: "vip" })],
+			HEADERS,
+			ORDER_HEADERS,
+		);
+		const lines = csv.split("\n");
+
+		expect(lines[0]?.endsWith("Total,Status (2)")).toBe(true);
+		expect(lines[1]?.endsWith(",vip")).toBe(true);
+	});
+
+	it("neutralizes formula-starting extras cells but keeps E.164 phones intact", () => {
+		const csv = buildLeadsCsv(
+			[leadWithExtras({ note: "=2+5" })],
+			HEADERS,
+			ORDER_HEADERS,
+		);
+		const lines = csv.split("\n");
+
+		// Buyer-controlled cells must not execute in Excel; the phone column keeps
+		// its leading + untouched.
+		expect(lines[1]?.startsWith("Amina,+213550000000,")).toBe(true);
+		expect(lines[1]?.endsWith(",'=2+5")).toBe(true);
+	});
+
+	it("builds the same columns regardless of key insertion order", () => {
 		const first = leadWithExtras({ color: "Blue", bundle: "Pack" });
 		const second = leadWithExtras({ bundle: "Pack", color: "Blue" });
 
-		expect(buildLeadsCsv([first], HEADERS)).toBe(
-			buildLeadsCsv([second], HEADERS),
+		expect(buildLeadsCsv([first], HEADERS, ORDER_HEADERS)).toBe(
+			buildLeadsCsv([second], HEADERS, ORDER_HEADERS),
 		);
 	});
 });

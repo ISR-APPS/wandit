@@ -81,8 +81,8 @@ export type ChatPhase = "idle" | "thinking" | "streaming";
 export type StreamingBubble = { messageId: string; text: string };
 
 // Everything the send mutation needs: the message text, optional composer
-// metadata (e.g. which engine / quality tier the user picked in the
-// PromptBox), and the temporary id we gave the optimistic message so we can
+// metadata (e.g. the mode / output options attached by the PromptBox), and the
+// temporary id we gave the optimistic message so we can
 // find it again in the cache on success (id swap) or failure (rollback).
 type SendVars = {
 	text: string;

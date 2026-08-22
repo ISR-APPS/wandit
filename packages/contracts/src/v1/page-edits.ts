@@ -223,6 +223,13 @@ export const resetTokensOpSchema = z.object({
 	kind: z.literal("reset-tokens"),
 });
 
+/** Document-level <title> (browser tab). Same shape family as reset-tokens:
+ *  it targets the head, so it carries NO wid. */
+export const setPageTitleOpSchema = z.object({
+	kind: z.literal("set-page-title"),
+	value: z.string().trim().min(1).max(120),
+});
+
 /** Element removal (inline-editor V3) — the server restricts targets to
  *  stamped leaf elements; section elements are never removable. */
 export const removeElementOpSchema = z.object({
@@ -282,6 +289,7 @@ export const aiElementOpSchema = z.discriminatedUnion("kind", [
 	imageSrcOpSchema,
 	elementStyleOpSchema,
 	setTokensOpSchema,
+	setPageTitleOpSchema,
 	setLinkHrefOpSchema,
 	removeElementOpSchema,
 	sectionStyleOpSchema,
@@ -317,6 +325,7 @@ export const clientEditOpSchema = z.discriminatedUnion("kind", [
 	sectionStyleOpSchema,
 	resetTokensOpSchema,
 	setTokensOpSchema,
+	setPageTitleOpSchema,
 ]);
 
 export const editOpSchema = z.discriminatedUnion("kind", [
@@ -331,11 +340,13 @@ export const editOpSchema = z.discriminatedUnion("kind", [
 	sectionStyleOpSchema,
 	resetTokensOpSchema,
 	setTokensOpSchema,
+	setPageTitleOpSchema,
 	replaceSectionOpSchema,
 	insertElementOpSchema,
 	insertSectionOpSchema,
 ]);
 
+export type SetPageTitleOp = z.infer<typeof setPageTitleOpSchema>;
 export type ClientEditOp = z.infer<typeof clientEditOpSchema>;
 export type EditOp = z.infer<typeof editOpSchema>;
 

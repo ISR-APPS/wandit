@@ -15,6 +15,7 @@ import {
 	animateImageInputSchema,
 	animateImageOutputSchema,
 	type ImageToVideoSourceMediaType,
+	imageToVideoSourceMediaTypeSchema,
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import { type Tool, tool } from "ai";
@@ -31,6 +32,8 @@ import {
 	createImageAnimationBilling,
 	type ImageAnimationBilling,
 } from "../../../media-generations/application/services/image-animation-billing";
+import { prepareVideoSourceImage } from "../../../media-generations/application/services/prepare-video-source-image";
+import { resolveVideoGenerationPlan } from "../../../media-generations/domain/video-quality-models";
 import type { MediaGenerationsRepository } from "../../../media-generations/infrastructure/persistence/media-generations.repository";
 import { assertFixedOperationProviderExecutionAllowed } from "../../../metering/application/services/fixed-operation-billing";
 import type { MeteringService } from "../../../metering/application/services/metering.service";
@@ -66,20 +69,28 @@ export function createAnimateImageTool(
 		isBillingDisabled: () => env.GENERATION_BILLING_MODE === "off",
 		meteringService: deps.meteringService,
 	});
+	// Per-request clip ordinal: the tool instance is built per chat request, so
+	// a transport-retried turn replays the same ordinals (0, 1, …) and dedupes
+	// onto the existing attempts, while a genuine second clip in the same turn
+	// still gets its own requestKey.
+	let clipOrdinal = 0;
 
 	return tool({
 		description:
-			"Animate exactly one uploaded JPEG, PNG, or WebP into a silent " +
+			"Animate exactly one uploaded JPEG, PNG, or WebP into a " +
 			"five-second video. This is image-to-video only: sourceImageUrl and " +
 			"sourceMediaType MUST exactly match an image attached by this user " +
-			"in the conversation. Call once per requested clip. The result card " +
-			"shows progress and plays the finished video.",
+			"in the conversation. The platform automatically fixes format, size, " +
+			"and aspect where possible. Files over 25 MB and images shaped beyond " +
+			"1:4–4:1 are refused; very small photos can animate softly. Call once " +
+			"per requested clip. The result card shows progress and plays the " +
+			"finished video.",
 		inputSchema: animateImageInputSchema,
 		outputSchema: animateImageOutputSchema,
 		execute: async (input, options): Promise<AnimateImageOutput> => {
+			const clip = clipOrdinal++;
 			if (
 				!env.AI_GATEWAY_API_KEY ||
-				!env.AI_VIDEO_MODEL ||
 				!env.R2_PUBLIC_BASE_URL ||
 				!isR2Configured() ||
 				!env.TRIGGER_SECRET_KEY
@@ -87,11 +98,20 @@ export function createAnimateImageTool(
 				return {
 					message:
 						"Image animation is not configured on this server yet. Tell " +
-						"the user honestly that video model, storage, and Trigger.dev " +
+						"the user honestly that AI gateway, storage, and Trigger.dev " +
 						"credentials are required.",
 					status: "unavailable",
 				};
 			}
+
+			const plan = resolveVideoGenerationPlan({
+				durationSeconds: 5,
+				kind: "i2v",
+				multiShot: false,
+				narration: false,
+				quality: input.quality,
+				talking: input.talking,
+			});
 
 			const attached = deps.availableImages.find(
 				(image) =>
@@ -122,6 +142,50 @@ export function createAnimateImageTool(
 				};
 			}
 
+			let prepared: Awaited<ReturnType<typeof prepareVideoSourceImage>>;
+
+			try {
+				prepared = await prepareVideoSourceImage({
+					modelId: plan.modelId,
+					sourceUrl: attached.url,
+					userId: deps.userId,
+				});
+			} catch (error) {
+				logger.error(
+					"Preparing the image animation source failed",
+					error instanceof Error ? error.stack : String(error),
+				);
+
+				return {
+					message:
+						"The video request could not be saved on the server. Tell the " +
+						"user and offer to retry in a moment.",
+					status: "unavailable",
+				};
+			}
+
+			if (prepared.status === "rejected") {
+				return {
+					message:
+						`${prepared.userMessage} Tell the user this exact reason plainly ` +
+						"and ask for a different photo.",
+					status: "unavailable",
+				};
+			}
+
+			const preparedMediaType = imageToVideoSourceMediaTypeSchema.safeParse(
+				prepared.mediaType,
+			);
+
+			if (!preparedMediaType.success) {
+				return {
+					message:
+						"The prepared source image has an unsupported format. Tell the user " +
+						"plainly and ask for a different JPEG, PNG, or WebP photo.",
+					status: "unavailable",
+				};
+			}
+
 			let attempt: {
 				created: boolean;
 				id: string;
@@ -129,14 +193,20 @@ export function createAnimateImageTool(
 			};
 
 			try {
+				// Only transport-stable fields enter the hash. The model-authored
+				// prompt/quality/talking fields can be recomposed on a retried turn
+				// and must not defeat videoSubmissionId dedup; the first persisted
+				// snapshot decides what renders. The clip ordinal keeps two different
+				// clips requested in ONE turn from colliding.
 				const requestKey = createHash("sha256")
 					.update(
 						JSON.stringify({
 							aspect: input.aspect,
+							clip,
 							motion: input.motion,
 							request: deps.requestKeySeed ?? options.toolCallId,
-							sourceImageUrl: attached.url,
-							sourceMediaType: attached.mediaType,
+							sourceImageUrl: prepared.url,
+							sourceMediaType: preparedMediaType.data,
 						}),
 					)
 					.digest("hex");
@@ -144,12 +214,15 @@ export function createAnimateImageTool(
 				attempt = await deps.mediaGenerationsRepository.insertAttempt({
 					aspect: input.aspect,
 					chatId: deps.chatId,
+					model: plan.modelId,
 					motion: input.motion,
 					projectId: deps.projectId,
 					prompt: input.prompt.trim(),
+					quality: plan.quality,
 					requestKey,
-					sourceImageUrl: attached.url,
-					sourceMediaType: attached.mediaType,
+					sourceImageUrl: prepared.url,
+					sourceMediaType: preparedMediaType.data,
+					talking: input.talking,
 				});
 			} catch (error) {
 				logger.error(

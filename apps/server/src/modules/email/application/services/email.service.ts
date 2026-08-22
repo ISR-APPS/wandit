@@ -4,10 +4,12 @@ import { APIError } from "better-auth/api";
 import { Resend } from "resend";
 
 import {
-	invitationEmail,
-	magicLinkEmail,
-	otpEmail,
 	type EmailContent,
+	invitationEmail,
+	type ManualRequestEmailData,
+	magicLinkEmail,
+	manualRequestEmail,
+	otpEmail,
 } from "../../templates/auth-email-templates";
 
 /**
@@ -67,8 +69,19 @@ export class EmailService {
 		);
 	}
 
+	async sendManualRequestEmail(
+		to: readonly string[],
+		data: ManualRequestEmailData,
+	): Promise<void> {
+		await this.deliver(
+			[...to],
+			manualRequestEmail(data),
+			`offline subscription request: ${data.fullName}`,
+		);
+	}
+
 	private async deliver(
-		to: string,
+		to: string | string[],
 		content: EmailContent,
 		devSummary: string,
 	): Promise<void> {

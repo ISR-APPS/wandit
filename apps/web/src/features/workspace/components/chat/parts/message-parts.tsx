@@ -10,7 +10,11 @@ import { FilePart, ImageFileGrid } from "./file-part";
 import { GenerateImagePart } from "./generate-image-part";
 import { GenerateMarketingAssetPart } from "./generate-marketing-asset-part";
 import { GeneratePagePart } from "./generate-page-part";
-import { GenerateVideoPart } from "./generate-video-part";
+import {
+	EditVideoPart,
+	ExtendVideoPart,
+	GenerateVideoPart,
+} from "./generate-video-part";
 import {
 	isMcpRunFullySettled,
 	McpActivityCard,
@@ -29,6 +33,7 @@ const TRANSPARENT_PART_TYPES = new Set([
 	"reasoning",
 	"tool-read_skill",
 	"tool-read_attachment",
+	"tool-read_lead_performance",
 	"tool-get_direction_candidates",
 	"tool-get_page_outline",
 	"tool-apply_element_ops",
@@ -70,6 +75,8 @@ const ASYNC_CARD_PART_TYPES = new Set([
 	"tool-scrape_leads",
 	"tool-animate_image",
 	"tool-generate_video",
+	"tool-edit_video",
+	"tool-extend_video",
 ]);
 
 function isAsyncCardEntry(entry: MessagePartRenderEntry): boolean {
@@ -277,8 +284,13 @@ export function MessageParts({
 				return <AnimateImagePart key={part.toolCallId} part={part} />;
 			case "tool-generate_video":
 				return <GenerateVideoPart key={part.toolCallId} part={part} />;
+			case "tool-edit_video":
+				return <EditVideoPart key={part.toolCallId} part={part} />;
+			case "tool-extend_video":
+				return <ExtendVideoPart key={part.toolCallId} part={part} />;
 			case "tool-read_skill":
 			case "tool-read_attachment":
+			case "tool-read_lead_performance":
 			case "tool-get_direction_candidates":
 				// Server-side context tools — deliberately invisible in the thread
 				// (the model narrates what it did in prose when it matters).

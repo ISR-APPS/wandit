@@ -27,6 +27,7 @@ import {
 	withLlmAttribution,
 } from "../../../ai-provider/domain/llm-provider";
 import type { MeteringSubject } from "../../../credits/domain/credit-owner";
+import { resolveVideoGenerationPlan } from "../../../media-generations/domain/video-quality-models";
 import type { MeteringService } from "../../../metering/application/services/metering.service";
 import {
 	fixedGenerationStepUsage,
@@ -34,7 +35,10 @@ import {
 	hasGatewayGenerationMetadata,
 } from "../../../metering/domain/gateway-metering";
 import { fixedOperationCredits } from "../../../metering/domain/operation-registry";
+import { ensureDocumentTitle } from "../../../pages/domain/document-title";
 import { inlineKnownCdnScripts } from "../../../pages/domain/inline-cdn-scripts";
+import { optimizeFontLoading } from "../../../pages/domain/optimize-font-loading";
+import { optimizeImageMarkup } from "../../../pages/domain/optimize-image-markup";
 // Plain module (no Nest), safe in the Trigger bundle — cheerio bundles fine.
 import {
 	isStampableContainer,
@@ -372,9 +376,12 @@ type GenerateImageOutput =
 	| { message: string; status: "failed" | "unavailable" }
 	| {
 			aspect: BuildImageAspect;
+			/** Intrinsic pixels of the stored object; absent on older parts. */
+			height?: number;
 			role: string;
 			status: "generated";
 			url: string;
+			width?: number;
 	  };
 
 type ScreenshotPageOutput =
@@ -478,8 +485,11 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 			description:
 				"OPTIONAL: animate ONE existing image (a generate_image URL or a " +
 				"user asset from the brief) into a short (~5s) looping ambient " +
-				"background video. Use it ONLY when subtle motion genuinely " +
-				"elevates a section — a hero atmosphere, a fabric drift — never by " +
+				"background video. User uploads may be JPEG, PNG, or WebP; the " +
+				"platform automatically repairs source format, size, and aspect where " +
+				"possible, but refuses images beyond 1:4–4:1 or over 25 MB, and very " +
+				"small photos can animate softly. Use it ONLY when subtle motion " +
+				"genuinely elevates a section — a hero atmosphere, a fabric drift — never by " +
 				`default, never more than ${MAX_VIDEOS} per build. Embed the ` +
 				'result as <video autoplay muted loop playsinline poster="<posterUrl>"> ' +
 				"with the still image as poster. On unavailable/failed, keep the " +
@@ -505,13 +515,21 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 				state.videosGenerated += 1;
 				state.videoSequence += 1;
 				const index = state.videoSequence;
+				const plan = resolveVideoGenerationPlan({
+					durationSeconds: 5,
+					kind: "i2v",
+					multiShot: false,
+					narration: false,
+					quality: "standard",
+					talking: false,
+				});
 				const childEvent =
 					params.meteringService && params.usageEventId
 						? await params.meteringService.reserve("video", params.subject, {
 								attemptRef: `${params.attemptId}:video:${index}`,
 								credits: fixedOperationCredits("video"),
 								idempotencyKey: `page-build-video:${params.usageEventId}:${index}`,
-								model: env.AI_VIDEO_MODEL ?? null,
+								model: plan.modelId,
 								parentEventId: params.usageEventId,
 							})
 						: null;
@@ -523,6 +541,7 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 					attemptId: params.attemptId,
 					imageUrl,
 					index,
+					modelId: plan.modelId,
 					metering: {
 						operation: "video",
 						organizationId: params.subject.organizationId ?? null,
@@ -547,6 +566,7 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 							}
 						: {}),
 					projectId: params.projectId,
+					voiceControl: false,
 				});
 
 				if (result.status !== "generated") {
@@ -876,7 +896,7 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 			execute: async (
 				{ aspect, prompt, role, sourceImageUrls },
 				{ toolCallId },
-			) => {
+			): Promise<GenerateImageOutput> => {
 				if (state.imageSequence >= MAX_IMAGES) {
 					return {
 						message:
@@ -1014,9 +1034,13 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 
 				return {
 					aspect,
+					// Real stored pixels, so the model can write width/height
+					// attributes that match the object instead of guessing.
+					height: result.height,
 					role,
 					status: "generated" as const,
 					url: result.url,
+					width: result.width,
 				};
 			},
 			toModelOutput: ({ output, toolCallId }) => {
@@ -1030,14 +1054,21 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 				}
 
 				const image = imageByCall.get(toolCallId);
+				// Real stored pixels when this part carries them (parts persisted
+				// before dimensions existed do not).
+				const pixels =
+					output.width && output.height
+						? `, ${output.width}x${output.height}px — use those pixels as the img width/height attributes`
+						: "";
 
 				return {
 					type: "content",
 					value: [
 						{
 							text:
-								`Generated (${output.role}, ${output.aspect}): ${output.url} ` +
-								"— judge whether it fits the design before placing it.",
+								`Generated (${output.role}, ${output.aspect}${pixels}): ` +
+								`${output.url} — judge whether it fits the design before ` +
+								"placing it.",
 							type: "text",
 						},
 						...(image
@@ -1573,11 +1604,29 @@ export async function runSiteBuild(
 		// stable data-wid before upload, so every version's canonical HTML in
 		// R2 is fully stamped. The model is never asked to do this itself.
 		// The sanctioned GSAP CDN tags are inlined first, so the canonical HTML
-		// never depends on a third-party CDN request.
+		// never depends on a third-party CDN request. The font stylesheet links
+		// are then hoisted above the inline <style>, so the browser starts the
+		// render-blocking font request in the first bytes of <head> instead of
+		// after 20-40 KB of CSS. The <img> markup is then normalized to one
+		// prioritized LCP image and lazy everything else — srcset stays out of
+		// drafts, because the editor's swap path strips it and building one
+		// costs storage probes a generation must not pay for. A page that
+		// forgot its <title> finally falls back to the Brain's short human
+		// title, so the browser tab never reads as a URL.
 		const rawHtml = vfs.read("index.html");
 
 		if (rawHtml !== null) {
-			vfs.write("index.html", stampHtml(inlineKnownCdnScripts(rawHtml)));
+			vfs.write(
+				"index.html",
+				ensureDocumentTitle(
+					stampHtml(
+						optimizeImageMarkup(
+							optimizeFontLoading(inlineKnownCdnScripts(rawHtml)),
+						),
+					),
+					params.title,
+				),
+			);
 		}
 
 		try {
@@ -1644,6 +1693,13 @@ const BRAND_SECTION_SCOPE_SELECTOR = "nav, header, section, footer, aside";
 const JAVASCRIPT_IDENTIFIER_SOURCE = String.raw`[$A-Z_a-z][$\w]*`;
 const LEAD_EVENT_LITERAL_SOURCE =
 	"(?:\"wandit:lead\"|'wandit:lead'|`wandit:lead`)";
+/**
+ * Acknowledgement event the injected leads runtime answers with. The page's
+ * success UI is gated on it, so a COD page that never names it can only ever
+ * show an unacknowledged success — a plain text scan is enough, because any
+ * listener (however written) must carry the literal.
+ */
+const LEAD_RESULT_EVENT_NAME = "wandit:lead:result";
 const CUSTOM_EVENT_CONSTRUCTOR_SOURCE = String.raw`new\s+(?:(?:window|globalThis|self)\s*\.\s*)?CustomEvent\s*\(\s*`;
 const NAME_AUTOCOMPLETE_TOKENS = new Set([
 	"additional-name",
@@ -2045,6 +2101,19 @@ function assertValidSite(
 			throw new Error(
 				"COD index.html must contain exactly one data-wandit-hp " +
 					`honeypot (found ${honeypots.length})`,
+			);
+		}
+
+		const handlesLeadResult = $("script")
+			.toArray()
+			.some((node) => ($(node).html() ?? "").includes(LEAD_RESULT_EVENT_NAME));
+
+		if (!handlesLeadResult) {
+			throw new Error(
+				`COD index.html must handle the "${LEAD_RESULT_EVENT_NAME}" ` +
+					"acknowledgement event in a <script> element — install that " +
+					"listener before dispatching the lead, and gate the final " +
+					"success UI on it",
 			);
 		}
 	}

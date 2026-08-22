@@ -35,6 +35,7 @@ vi.mock("../../../../infrastructure/storage/r2", () => ({
 		return url.startsWith(base) ? url.slice(base.length) : null;
 	},
 	publicAssetUrl: (key: string) => `https://assets.example.com/${key}`,
+	VARIANT_FILENAME_PATTERN: /\.w\d+\.webp$/,
 }));
 
 vi.mock("../../../../infrastructure/analytics/analytics.service", () => ({
@@ -72,10 +73,11 @@ const IMAGE_ATTEMPT: ImageGenerationAttemptRow = {
 
 function setup(overrides?: {
 	imageAttempts?: ImageGenerationAttemptRow[];
+	mediaAttemptIdentities?: unknown[];
 	owned?: boolean;
 	projects?: Array<{ id: string; name: string }>;
 	scopeImageAttempts?: unknown[];
-	scopeVideoUrls?: string[];
+	scopeMediaAttemptIdentities?: unknown[];
 	scopeVideos?: unknown[];
 	videos?: unknown[];
 }) {
@@ -91,20 +93,42 @@ function setup(overrides?: {
 			.fn()
 			.mockResolvedValue(overrides?.scopeImageAttempts ?? []),
 	};
+	const videos = (overrides?.videos ?? []) as Array<{
+		id?: string;
+		videoUrl: string | null;
+	}>;
 	const scopeVideos = (overrides?.scopeVideos ?? []) as Array<{
+		id?: string;
+		projectId?: string;
 		videoUrl: string | null;
 	}>;
 	const mediaGenerationsRepository = {
-		listSucceededForProject: vi.fn().mockResolvedValue(overrides?.videos ?? []),
-		listSucceededForScope: vi.fn().mockResolvedValue(scopeVideos),
-		// Dedupe source: by default every succeeded scope video's URL, exactly
-		// what the real uncapped query would return for these fixtures.
-		listSucceededVideoUrlsForScope: vi
+		listAssetIdentitiesForProject: vi
 			.fn()
 			.mockResolvedValue(
-				overrides?.scopeVideoUrls ??
-					scopeVideos.flatMap((row) => (row.videoUrl ? [row.videoUrl] : [])),
+				overrides?.mediaAttemptIdentities ??
+					videos.flatMap((row) =>
+						row.id
+							? [{ id: row.id, projectId: PROJECT_ID, videoUrl: row.videoUrl }]
+							: [],
+					),
 			),
+		listAssetIdentitiesForScope: vi.fn().mockResolvedValue(
+			overrides?.scopeMediaAttemptIdentities ??
+				scopeVideos.flatMap((row) =>
+					row.id && row.projectId
+						? [
+								{
+									id: row.id,
+									projectId: row.projectId,
+									videoUrl: row.videoUrl,
+								},
+							]
+						: [],
+				),
+		),
+		listSucceededForProject: vi.fn().mockResolvedValue(videos),
+		listSucceededForScope: vi.fn().mockResolvedValue(scopeVideos),
 	};
 	const service = new ProjectAssetsService(
 		projectAssetsRepository as unknown as ProjectAssetsRepository,
@@ -143,6 +167,37 @@ describe("ProjectAssetsService.listAssets", () => {
 		);
 	});
 
+	it("preserves original generation numbers for a sparse image subset", async () => {
+		const sparseAttempt = {
+			...IMAGE_ATTEMPT,
+			count: 4,
+			images: [
+				{
+					index: 1,
+					mediaType: "image/png",
+					url: `https://assets.example.com/images/${PROJECT_ID}/${IMAGE_ATTEMPT.id}/img-1.png`,
+				},
+				{
+					index: 3,
+					mediaType: "image/png",
+					url: `https://assets.example.com/images/${PROJECT_ID}/${IMAGE_ATTEMPT.id}/img-3.png`,
+				},
+			],
+		};
+		const { service } = setup({ imageAttempts: [sparseAttempt] });
+
+		const assets = await service.listAssets(SCOPE, PROJECT_ID);
+
+		expect(assets.map((asset) => asset.id)).toEqual([
+			`${IMAGE_ATTEMPT.id}:1`,
+			`${IMAGE_ATTEMPT.id}:3`,
+		]);
+		expect(assets.map((asset) => asset.name)).toEqual([
+			"Photo produit (1/4)",
+			"Photo produit (3/4)",
+		]);
+	});
+
 	it("labels animations from the prompt on a word boundary", async () => {
 		const { service } = setup({
 			videos: [
@@ -150,6 +205,7 @@ describe("ProjectAssetsService.listAssets", () => {
 					completedAt: new Date("2026-07-25T10:00:00.000Z"),
 					createdAt: new Date("2026-07-25T09:59:00.000Z"),
 					id: "44444444-4444-4444-8444-444444444444",
+					kind: "image-animation",
 					prompt:
 						"A very slow cinematic camera push toward the product on the bench",
 					videoMediaType: "video/mp4",
@@ -167,6 +223,32 @@ describe("ProjectAssetsService.listAssets", () => {
 		expect(assets[0]?.name.length).toBeLessThanOrEqual(41);
 		// Word boundary: never cut mid-word.
 		expect(assets[0]?.name).toBe("A very slow cinematic camera push…");
+	});
+
+	it.each([
+		"text-to-video",
+		"video-edit",
+		"video-extension",
+	] as const)("maps %s rows to the existing video-generation asset source", async (kind) => {
+		const { service } = setup({
+			videos: [
+				{
+					completedAt: new Date("2026-07-25T10:00:00.000Z"),
+					createdAt: new Date("2026-07-25T09:59:00.000Z"),
+					id: "45454545-4545-4545-8545-454545454545",
+					kind,
+					prompt: "Continue the scene.",
+					title: "Product clip",
+					videoMediaType: "video/mp4",
+					videoUrl: `https://assets.example.com/sites/${PROJECT_ID}/assets/45454545-4545-4545-8545-454545454545/vid-1.mp4`,
+				},
+			],
+		});
+
+		const assets = await service.listAssets(SCOPE, PROJECT_ID);
+
+		expect(assets).toHaveLength(1);
+		expect(assets[0]?.source).toBe("video-generation");
 	});
 
 	it("lists build objects by media kind and skips non-media files", async () => {
@@ -200,6 +282,145 @@ describe("ProjectAssetsService.listAssets", () => {
 		expect(assets[0]?.sizeBytes).not.toBeNull();
 	});
 
+	it("lists only the final video from a succeeded two-leg extension", async () => {
+		const attemptId = "57575757-5757-4575-8575-575757575757";
+		const attemptPrefix = `sites/${PROJECT_ID}/assets/${attemptId}`;
+		const finalKey = `${attemptPrefix}/vid-1.mp4`;
+		vi.mocked(listObjectsByPrefix).mockResolvedValue([
+			{
+				key: `${attemptPrefix}/frames/frame-1.jpg`,
+				lastModified: new Date("2026-07-25T10:00:00.000Z"),
+				sizeBytes: 1,
+			},
+			{
+				key: `${attemptPrefix}/segments/segment-1.mp4`,
+				lastModified: new Date("2026-07-25T10:01:00.000Z"),
+				sizeBytes: 2,
+			},
+			{
+				key: `${attemptPrefix}/audio/soundtrack.mp3`,
+				lastModified: new Date("2026-07-25T10:02:00.000Z"),
+				sizeBytes: 3,
+			},
+			{
+				key: `${attemptPrefix}/vid-2.mp4`,
+				lastModified: new Date("2026-07-25T10:03:00.000Z"),
+				sizeBytes: 4,
+			},
+			{
+				key: `${attemptPrefix}/vid-3.mp4`,
+				lastModified: new Date("2026-07-25T10:04:00.000Z"),
+				sizeBytes: 5,
+			},
+			{
+				key: finalKey,
+				lastModified: new Date("2026-07-25T10:05:00.000Z"),
+				sizeBytes: 6,
+			},
+		]);
+		const { service } = setup({
+			videos: [
+				{
+					completedAt: new Date("2026-07-25T10:05:00.000Z"),
+					createdAt: new Date("2026-07-25T09:59:00.000Z"),
+					id: attemptId,
+					kind: "video-extension",
+					prompt: "Continue twice.",
+					title: "Longer clip",
+					videoMediaType: "video/mp4",
+					videoUrl: `https://assets.example.com/${finalKey}`,
+				},
+			],
+		});
+
+		const assets = await service.listAssets(SCOPE, PROJECT_ID);
+
+		expect(assets.map((asset) => asset.key)).toEqual([finalKey]);
+	});
+
+	it("lists nothing left by a failed video extension", async () => {
+		const attemptId = "58585858-5858-4585-8585-585858585858";
+		const attemptPrefix = `sites/${PROJECT_ID}/assets/${attemptId}`;
+		vi.mocked(listObjectsByPrefix).mockResolvedValue([
+			{
+				key: `${attemptPrefix}/frames/frame-1.jpg`,
+				lastModified: new Date("2026-07-25T10:00:00.000Z"),
+				sizeBytes: 1,
+			},
+			{
+				key: `${attemptPrefix}/segments/segment-1.mp4`,
+				lastModified: new Date("2026-07-25T10:01:00.000Z"),
+				sizeBytes: 2,
+			},
+			{
+				key: `${attemptPrefix}/vid-2.mp4`,
+				lastModified: new Date("2026-07-25T10:02:00.000Z"),
+				sizeBytes: 3,
+			},
+		]);
+		const { service } = setup({
+			mediaAttemptIdentities: [
+				{ id: attemptId, projectId: PROJECT_ID, videoUrl: null },
+			],
+		});
+
+		const assets = await service.listAssets(SCOPE, PROJECT_ID);
+
+		expect(assets).toEqual([]);
+	});
+
+	it("keeps every video from a page-build attempt", async () => {
+		const attemptPrefix = `sites/${PROJECT_ID}/assets/page-build-attempt`;
+		vi.mocked(listObjectsByPrefix).mockResolvedValue([
+			{
+				key: `${attemptPrefix}/vid-1.mp4`,
+				lastModified: new Date("2026-07-25T10:00:00.000Z"),
+				sizeBytes: 1,
+			},
+			{
+				key: `${attemptPrefix}/vid-2.mp4`,
+				lastModified: new Date("2026-07-25T10:01:00.000Z"),
+				sizeBytes: 2,
+			},
+		]);
+		const { service } = setup();
+
+		const assets = await service.listAssets(SCOPE, PROJECT_ID);
+
+		expect(assets.map((asset) => asset.key).sort()).toEqual([
+			`${attemptPrefix}/vid-1.mp4`,
+			`${attemptPrefix}/vid-2.mp4`,
+		]);
+	});
+
+	it("hides srcset renditions from the tab", async () => {
+		vi.mocked(listObjectsByPrefix).mockResolvedValue([
+			{
+				key: `sites/${PROJECT_ID}/assets/a1/img-1.webp`,
+				lastModified: new Date("2026-07-25T08:00:00.000Z"),
+				sizeBytes: 1_234,
+			},
+			{
+				key: `sites/${PROJECT_ID}/assets/a1/img-1.w480.webp`,
+				lastModified: new Date("2026-07-25T08:00:01.000Z"),
+				sizeBytes: 120,
+			},
+			{
+				key: `sites/${PROJECT_ID}/assets/a1/img-1.w960.webp`,
+				lastModified: new Date("2026-07-25T08:00:02.000Z"),
+				sizeBytes: 340,
+			},
+		]);
+		const { service } = setup();
+
+		const assets = await service.listAssets(SCOPE, PROJECT_ID);
+
+		// Renditions are machine copies of a card the user already sees.
+		expect(assets.map((asset) => asset.key)).toEqual([
+			`sites/${PROJECT_ID}/assets/a1/img-1.webp`,
+		]);
+	});
+
 	it("dedupes animation videos out of the build listing", async () => {
 		const videoKey = `sites/${PROJECT_ID}/assets/a2/vid-1.mp4`;
 
@@ -216,6 +437,7 @@ describe("ProjectAssetsService.listAssets", () => {
 					completedAt: new Date("2026-07-25T10:00:00.000Z"),
 					createdAt: new Date("2026-07-25T09:59:00.000Z"),
 					id: "55555555-5555-4555-8555-555555555555",
+					kind: "image-animation",
 					prompt: "Slow push.",
 					videoMediaType: "video/mp4",
 					videoUrl: `https://assets.example.com/${videoKey}`,
@@ -339,6 +561,111 @@ describe("ProjectAssetsService.listWorkspaceAssets", () => {
 		expect(result.assets[0]?.source).toBe("image-animation");
 	});
 
+	it("isolates media-attempt directories without hiding page-build videos", async () => {
+		const succeededId = "59595959-5959-4595-8595-595959595959";
+		const failedId = "60606060-6060-4606-8606-606060606060";
+		const succeededPrefix = `sites/${PROJECT_ID}/assets/${succeededId}`;
+		const failedPrefix = `sites/${PROJECT_ID}/assets/${failedId}`;
+		const buildPrefix = `sites/${PROJECT_ID}/assets/page-build-attempt`;
+		const finalKey = `${succeededPrefix}/vid-1.mp4`;
+		vi.mocked(listObjectsByPrefix).mockResolvedValue([
+			{
+				key: `${succeededPrefix}/frames/frame-1.jpg`,
+				lastModified: new Date("2026-07-25T10:00:00.000Z"),
+				sizeBytes: 1,
+			},
+			{
+				key: `${succeededPrefix}/segments/segment-2.mp4`,
+				lastModified: new Date("2026-07-25T10:01:00.000Z"),
+				sizeBytes: 2,
+			},
+			{
+				key: `${succeededPrefix}/vid-2.mp4`,
+				lastModified: new Date("2026-07-25T10:02:00.000Z"),
+				sizeBytes: 3,
+			},
+			{
+				key: finalKey,
+				lastModified: new Date("2026-07-25T10:03:00.000Z"),
+				sizeBytes: 4,
+			},
+			{
+				key: `${failedPrefix}/vid-2.mp4`,
+				lastModified: new Date("2026-07-25T10:04:00.000Z"),
+				sizeBytes: 5,
+			},
+			{
+				key: `${buildPrefix}/vid-1.mp4`,
+				lastModified: new Date("2026-07-25T10:05:00.000Z"),
+				sizeBytes: 6,
+			},
+			{
+				key: `${buildPrefix}/vid-2.mp4`,
+				lastModified: new Date("2026-07-25T10:06:00.000Z"),
+				sizeBytes: 7,
+			},
+		]);
+		const { service } = setup({
+			projects: [{ id: PROJECT_ID, name: "Sahara Serum" }],
+			scopeMediaAttemptIdentities: [
+				{
+					id: succeededId,
+					projectId: PROJECT_ID,
+					videoUrl: `https://assets.example.com/${finalKey}`,
+				},
+				{ id: failedId, projectId: PROJECT_ID, videoUrl: null },
+			],
+			scopeVideos: [
+				{
+					completedAt: new Date("2026-07-25T10:03:00.000Z"),
+					createdAt: new Date("2026-07-25T09:59:00.000Z"),
+					id: succeededId,
+					kind: "video-extension",
+					projectId: PROJECT_ID,
+					projectName: "Sahara Serum",
+					prompt: "Continue twice.",
+					title: "Longer clip",
+					videoMediaType: "video/mp4",
+					videoUrl: `https://assets.example.com/${finalKey}`,
+				},
+			],
+		});
+
+		const result = await service.listWorkspaceAssets(SCOPE);
+
+		expect(result.assets.map((asset) => asset.key).sort()).toEqual(
+			[`${buildPrefix}/vid-1.mp4`, `${buildPrefix}/vid-2.mp4`, finalKey].sort(),
+		);
+	});
+
+	it.each([
+		"video-edit",
+		"video-extension",
+	] as const)("keeps %s on the existing workspace video-generation source", async (kind) => {
+		const videoKey = `sites/${PROJECT_ID}/assets/v2/vid-1.mp4`;
+		const { service } = setup({
+			scopeVideos: [
+				{
+					completedAt: new Date("2026-07-25T10:00:00.000Z"),
+					createdAt: new Date("2026-07-25T09:59:00.000Z"),
+					id: "56565656-5656-4565-8565-565656565656",
+					kind,
+					projectId: PROJECT_ID,
+					projectName: "Sahara Serum",
+					prompt: "Continue the scene.",
+					title: "Longer product clip",
+					videoMediaType: "video/mp4",
+					videoUrl: `https://assets.example.com/${videoKey}`,
+				},
+			],
+		});
+
+		const result = await service.listWorkspaceAssets(SCOPE);
+
+		expect(result.assets).toHaveLength(1);
+		expect(result.assets[0]?.source).toBe("video-generation");
+	});
+
 	it("pins the DB row caps and reports truncation when a cap fills", async () => {
 		const cappedAttempts = Array.from({ length: 500 }, (_, index) => ({
 			...IMAGE_ATTEMPT,
@@ -399,7 +726,13 @@ describe("ProjectAssetsService.listWorkspaceAssets", () => {
 			projects: [{ id: PROJECT_ID, name: "Sahara Serum" }],
 			// Display rows are empty (row aged out of the 500 cap), but the
 			// uncapped URL sweep still knows this file is an animation.
-			scopeVideoUrls: [`https://assets.example.com/${videoKey}`],
+			scopeMediaAttemptIdentities: [
+				{
+					id: "old",
+					projectId: PROJECT_ID,
+					videoUrl: `https://assets.example.com/${videoKey}`,
+				},
+			],
 			scopeVideos: [],
 		});
 

@@ -92,7 +92,11 @@ export function Pricing() {
 		proPlan?.tiers[0];
 	const paidSubscriptionsEnabled =
 		settingsQuery.data?.paidSubscriptionsEnabled === true;
-	const showBetaPosture = settingsQuery.isSuccess && !paidSubscriptionsEnabled;
+	const subscriptionPlansAvailable =
+		paidSubscriptionsEnabled ||
+		settingsQuery.data?.manualPaymentsEnabled === true;
+	const showBetaPosture =
+		settingsQuery.isSuccess && !subscriptionPlansAvailable;
 	const catalogUnavailable =
 		plansQuery.isError || (plansQuery.isSuccess && (!proPlan || !selectedTier));
 	// The Business card is a showcase: it renders whenever the catalog carries
@@ -113,8 +117,9 @@ export function Pricing() {
 
 	const startBuilding = () => {
 		if (session) {
-			// The prompt box lives in the homepage hero.
-			void navigate({ to: "/" });
+			// Signed-in users are redirected off "/" anyway; go straight to the
+			// dashboard, which has its own prompt box.
+			void navigate({ to: "/dashboard" });
 			return;
 		}
 
@@ -288,9 +293,9 @@ export function Pricing() {
 									<FeatureRow key={feature} label={feature} />
 								))}
 							</ul>
-							{/* CTA only once paid subscriptions open up — the plan picker
-							   handles the signed-out case via the auth modal. */}
-							{paidSubscriptionsEnabled && selectedTier ? (
+							{/* The picker resolves Card versus Cash / transfer and handles
+							   the signed-out case through the auth modal. */}
+							{subscriptionPlansAvailable && selectedTier ? (
 								<Button
 									className="mt-8 active:translate-y-px"
 									onClick={() =>

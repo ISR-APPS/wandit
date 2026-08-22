@@ -10,19 +10,13 @@ describe("canDraftAutostart", () => {
 	});
 
 	it("allows an auto-mode draft", () => {
-		expect(
-			canDraftAutostart(
-				{ mode: "auto", quality: "standard" },
-				0,
-				requiresSource,
-			),
-		).toBe(true);
+		expect(canDraftAutostart({ mode: "auto" }, 0, requiresSource)).toBe(true);
 	});
 
 	it("allows a page draft", () => {
 		expect(
 			canDraftAutostart(
-				{ mode: "page", output: "landing-page", quality: "standard" },
+				{ mode: "page", output: "landing-page" },
 				0,
 				requiresSource,
 			),
@@ -32,7 +26,7 @@ describe("canDraftAutostart", () => {
 	it("refuses any draft that staged attachments", () => {
 		expect(
 			canDraftAutostart(
-				{ mode: "page", output: "landing-page", quality: "standard" },
+				{ mode: "page", output: "landing-page" },
 				1,
 				requiresSource,
 			),
@@ -42,7 +36,7 @@ describe("canDraftAutostart", () => {
 	it("refuses every video draft, whatever the output", () => {
 		expect(
 			canDraftAutostart(
-				{ mode: "video", output: "video-creator", quality: "standard" },
+				{ mode: "video", output: "video-creator" },
 				0,
 				requiresSource,
 			),
@@ -52,7 +46,7 @@ describe("canDraftAutostart", () => {
 	it("refuses an output that requires a source image", () => {
 		expect(
 			canDraftAutostart(
-				{ mode: "image", output: "image-animation", quality: "standard" },
+				{ mode: "image", output: "image-animation" },
 				0,
 				requiresSource,
 			),
@@ -62,7 +56,7 @@ describe("canDraftAutostart", () => {
 	it("consults the registry predicate for source-first outputs", () => {
 		expect(
 			canDraftAutostart(
-				{ mode: "image", output: "future-output", quality: "standard" },
+				{ mode: "image", output: "future-output" },
 				0,
 				() => true,
 			),

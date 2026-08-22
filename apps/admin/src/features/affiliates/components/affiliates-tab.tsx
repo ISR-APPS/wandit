@@ -10,6 +10,7 @@ import {
 	Loader2Icon,
 	PlusIcon,
 	RefreshCwIcon,
+	UserRoundCheckIcon,
 } from "lucide-react";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -32,6 +33,11 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type { AffiliateTableRow } from "../api/affiliates.dto";
 import { mapAffiliateListItemToTableRow } from "../api/affiliates.dto";
 import { useUpdateAffiliateMutation } from "../api/affiliates.mutations";
@@ -356,16 +362,35 @@ function AffiliateRow({
 	return (
 		<TableRow>
 			<TableCell>
-				<button
-					type="button"
-					className="text-left hover:underline"
-					onClick={onOpen}
-				>
-					<span className="block font-medium">{row.name}</span>
-					<span className="block text-muted-foreground text-xs">
-						{row.email}
-					</span>
-				</button>
+				<div className="flex items-start gap-1.5">
+					<button
+						type="button"
+						className="min-w-0 text-left hover:underline"
+						onClick={onOpen}
+					>
+						<span className="block font-medium">{row.name}</span>
+						<span className="block text-muted-foreground text-xs">
+							{row.email}
+						</span>
+					</button>
+					{row.userId ? (
+						<Tooltip>
+							<TooltipTrigger asChild>
+								<button
+									type="button"
+									aria-label={`Portal access on for ${row.name}`}
+									className="mt-0.5 inline-flex shrink-0 cursor-help rounded-full text-emerald-600 outline-none focus-visible:ring-2 focus-visible:ring-ring/50 dark:text-emerald-400"
+									onClick={onOpen}
+								>
+									<UserRoundCheckIcon aria-hidden="true" className="size-4" />
+								</button>
+							</TooltipTrigger>
+							<TooltipContent side="top" sideOffset={6}>
+								Portal access on
+							</TooltipContent>
+						</Tooltip>
+					) : null}
+				</div>
 				<p className="mt-0.5 font-mono text-[10px] text-muted-foreground">
 					{row.company ? `${row.company} · ` : ""}
 					{row.id}

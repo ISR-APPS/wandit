@@ -8,6 +8,8 @@ import {
 	type AdminAnalyticsFeaturesResponse,
 	type AdminAnalyticsFunnelResponse,
 	type AdminAnalyticsFunnelStepKey,
+	type AdminAnalyticsFunnelStepUsersResponse,
+	type AdminAnalyticsFunnelUserStep,
 	type AdminAnalyticsGenerationKey,
 	type AdminAnalyticsHealthResponse,
 	type AdminAnalyticsMrrByPlan,
@@ -34,6 +36,7 @@ import type {
 	AdminAnalyticsEngagementSnapshot,
 	AdminAnalyticsFeaturesSnapshot,
 	AdminAnalyticsFunnelSnapshot,
+	AdminAnalyticsFunnelStepUsersRepositorySnapshot,
 	AdminAnalyticsHealthSnapshot,
 	AdminAnalyticsRevenueSnapshot,
 } from "../../infrastructure/persistence/admin-analytics.repository";
@@ -226,6 +229,38 @@ export function assembleFunnelResponse(
 				snapshot.durations.signupToFirstGeneration,
 			),
 		},
+	};
+}
+
+export function assembleFunnelStepUsersResponse(
+	snapshot: AdminAnalyticsFunnelStepUsersRepositorySnapshot,
+	step: AdminAnalyticsFunnelUserStep,
+	generatedAt: Date,
+): AdminAnalyticsFunnelStepUsersResponse {
+	return {
+		updatedAt: generatedAt.toISOString(),
+		step,
+		page: snapshot.page,
+		pageSize: snapshot.pageSize,
+		total: snapshot.total,
+		counts: snapshot.counts,
+		items: snapshot.items.map((item) => ({
+			id: item.userId,
+			name: item.name,
+			email: item.email,
+			image: item.image,
+			signedUpAt: toIsoDateTime(item.signedUpAt),
+			firstEventAt: toIsoDateTime(item.firstEventAt),
+			lastEventAt: toIsoDateTime(item.lastEventAt),
+			eventCount: item.eventCount,
+			converted: item.converted,
+			contact: item.contact
+				? {
+						contactedAt: toIsoDateTime(item.contact.contactedAt),
+						contactedBy: item.contact.contactedBy,
+					}
+				: null,
+		})),
 	};
 }
 
@@ -1096,6 +1131,12 @@ function zeroSafeRatio(numerator: number, denominator: number): number {
 
 function secondsToHours(seconds: number | null): number | null {
 	return secondsToUnit(seconds, SECONDS_PER_HOUR);
+}
+
+function toIsoDateTime(value: Date | string): string {
+	return value instanceof Date
+		? value.toISOString()
+		: new Date(value).toISOString();
 }
 
 function secondsToDays(seconds: number | null): number | null {

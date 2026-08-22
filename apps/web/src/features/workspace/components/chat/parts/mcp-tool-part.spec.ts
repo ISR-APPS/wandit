@@ -125,6 +125,26 @@ describe("humanizeMcpToolLabel", () => {
 			}) as Record<string, string>
 		)[key] ?? key;
 	const toolLabels = {
+		show_marketing_studio: {
+			active: "Ouverture de la bibliothèque Marketing Studio",
+			past: "Bibliothèque Marketing Studio ouverte",
+		},
+		video_analysis_create: {
+			active: "Visionnage de la vidéo de référence",
+			past: "Vidéo de référence visionnée",
+		},
+		video_analysis_status: {
+			active: "Vérification de l’analyse vidéo",
+			past: "Analyse vidéo vérifiée",
+		},
+		video_analysis_jobs: {
+			active: "Affichage des analyses vidéo",
+			past: "Analyses vidéo affichées",
+		},
+		list_voices: {
+			active: "Chargement des voix disponibles",
+			past: "Voix disponibles chargées",
+		},
 		report_integrated_get: {
 			active: "Récupération du rapport",
 			past: "Rapport récupéré",
@@ -192,6 +212,99 @@ describe("humanizeMcpToolLabel", () => {
 				toolLabels,
 			),
 		).toBe("Rapport récupéré");
+	});
+
+	it("uses localized labels for live Higgsfield studio, analysis, and voice tools", () => {
+		expect(
+			humanizeMcpToolLabel(
+				"mcp_higgsfield_show_marketing_studio",
+				undefined,
+				"active",
+				t,
+				toolLabels,
+			),
+		).toBe("Ouverture de la bibliothèque Marketing Studio");
+		expect(
+			humanizeMcpToolLabel(
+				"mcp_higgsfield_show_marketing_studio",
+				undefined,
+				"past",
+				t,
+				toolLabels,
+			),
+		).toBe("Bibliothèque Marketing Studio ouverte");
+		expect(
+			humanizeMcpToolLabel(
+				"mcp_higgsfield_video_analysis_create",
+				undefined,
+				"active",
+				t,
+				toolLabels,
+			),
+		).toBe("Visionnage de la vidéo de référence");
+		expect(
+			humanizeMcpToolLabel(
+				"mcp_higgsfield_video_analysis_create",
+				undefined,
+				"past",
+				t,
+				toolLabels,
+			),
+		).toBe("Vidéo de référence visionnée");
+		expect(
+			humanizeMcpToolLabel(
+				"mcp_higgsfield_video_analysis_status",
+				undefined,
+				"active",
+				t,
+				toolLabels,
+			),
+		).toBe("Vérification de l’analyse vidéo");
+		expect(
+			humanizeMcpToolLabel(
+				"mcp_higgsfield_video_analysis_status",
+				undefined,
+				"past",
+				t,
+				toolLabels,
+			),
+		).toBe("Analyse vidéo vérifiée");
+		expect(
+			humanizeMcpToolLabel(
+				"mcp_higgsfield_video_analysis_jobs",
+				undefined,
+				"active",
+				t,
+				toolLabels,
+			),
+		).toBe("Affichage des analyses vidéo");
+		expect(
+			humanizeMcpToolLabel(
+				"mcp_higgsfield_video_analysis_jobs",
+				undefined,
+				"past",
+				t,
+				toolLabels,
+			),
+		).toBe("Analyses vidéo affichées");
+		expect(
+			humanizeMcpToolLabel(
+				"mcp_higgsfield_list_voices",
+				undefined,
+				"active",
+				t,
+				toolLabels,
+			),
+		).toBe("Chargement des voix disponibles");
+		expect(
+			humanizeMcpToolLabel(
+				"mcp_higgsfield_list_voices",
+				undefined,
+				"past",
+				t,
+				toolLabels,
+			),
+		).toBe("Voix disponibles chargées");
 	});
 
 	it("uses localized generic fetch labels for an unknown operation", () => {
@@ -492,7 +605,134 @@ describe("McpActivityCard", () => {
 		]);
 		const argumentsMarkup = html.match(/<ul[^>]*>.*?<\/ul>/su)?.[0];
 
-		expect(argumentsMarkup).toContain(">20 USD</span>");
+		expect(argumentsMarkup).toContain(">20 USD daily</span>");
+	});
+
+	it("tells Meta daily and lifetime budgets apart", () => {
+		const html = renderActivity([
+			{
+				...approvalPart,
+				toolName: "run_platform_tool",
+				input: {
+					connector: "meta-ads",
+					tool_name: "ads_create_adset",
+					params: { daily_budget: 10, lifetime_budget: 300, bid_amount: 2 },
+				},
+			},
+		]);
+		const argumentsMarkup = html.match(/<ul[^>]*>.*?<\/ul>/su)?.[0];
+
+		expect(argumentsMarkup).toContain(">10 USD daily</span>");
+		expect(argumentsMarkup).toContain(">300 USD lifetime</span>");
+		expect(argumentsMarkup).toContain(">2 USD</span>");
+	});
+
+	it("reads the TikTok budget_mode sibling to label a bare budget", () => {
+		const render = (budgetMode: string | undefined) =>
+			renderActivity([
+				{
+					...approvalPart,
+					toolName: "run_platform_tool",
+					input: {
+						connector: "tiktok-ads",
+						tool_name: "adgroup_create",
+						params: { budget: 15, budget_mode: budgetMode },
+					},
+				},
+			]).match(/<ul[^>]*>.*?<\/ul>/su)?.[0];
+
+		expect(render("BUDGET_MODE_DAY")).toContain(">15 USD daily</span>");
+		expect(render("BUDGET_MODE_TOTAL")).toContain(">15 USD lifetime</span>");
+		expect(render(undefined)).toContain(">15 USD</span>");
+	});
+
+	it("renders and labels budgets nested one level deep", () => {
+		const html = renderActivity([
+			{
+				...approvalPart,
+				toolName: "run_platform_tool",
+				input: {
+					connector: "meta-ads",
+					tool_name: "ads_create_campaign",
+					params: {
+						name: "Summer",
+						adset: { name: "Algiers", daily_budget: 12 },
+						ads: [{ name: "Hook A" }, { name: "Hook B", bid: 1.5 }],
+						targeting: { geo: { countries: ["DZ"] } },
+					},
+				},
+			},
+		]);
+		const argumentsMarkup = html.match(/<ul[^>]*>.*?<\/ul>/su)?.[0];
+
+		expect(argumentsMarkup).toContain(">Adset Name</span>");
+		expect(argumentsMarkup).toContain(">Algiers</span>");
+		expect(argumentsMarkup).toContain(">Adset Daily Budget</span>");
+		expect(argumentsMarkup).toContain(">12 USD daily</span>");
+		expect(argumentsMarkup).toContain(">Ads 1 Name</span>");
+		expect(argumentsMarkup).toContain(">Ads 2 Bid</span>");
+		expect(argumentsMarkup).toContain(">1.5 USD</span>");
+		// Two levels down still collapses.
+		expect(argumentsMarkup).toContain(">Targeting Geo</span>");
+		expect(argumentsMarkup).toContain(">…</span>");
+	});
+
+	it("caps array rows at three items and adds a +N more row", () => {
+		const html = renderActivity([
+			{
+				...approvalPart,
+				toolName: "run_platform_tool",
+				input: {
+					connector: "meta-ads",
+					tool_name: "ads_create_campaign",
+					params: {
+						ads: [
+							{ name: "Hook A" },
+							{ name: "Hook B" },
+							{ name: "Hook C" },
+							{ name: "Hook D" },
+							{ name: "Hook E" },
+						],
+					},
+				},
+			},
+		]);
+		const argumentsMarkup = html.match(/<ul[^>]*>.*?<\/ul>/su)?.[0];
+
+		expect(argumentsMarkup).toContain(">Ads 3 Name</span>");
+		expect(argumentsMarkup).toContain(">Hook C</span>");
+		expect(argumentsMarkup).not.toContain(">Ads 4 Name</span>");
+		expect(argumentsMarkup).not.toContain(">Hook D</span>");
+		expect(argumentsMarkup).toContain(">Ads</span>");
+		expect(argumentsMarkup).toContain(">+2 more</span>");
+	});
+
+	it("caps the flattened preview at 24 rows with a trailing … row", () => {
+		const params = Object.fromEntries(
+			Array.from({ length: 30 }, (_, index) => [
+				`field_${index + 1}`,
+				`value ${index + 1}`,
+			]),
+		);
+		const html = renderActivity([
+			{
+				...approvalPart,
+				toolName: "run_platform_tool",
+				input: {
+					connector: "meta-ads",
+					tool_name: "ads_create_campaign",
+					params,
+				},
+			},
+		]);
+		const argumentsMarkup = html.match(/<ul[^>]*>.*?<\/ul>/su)?.[0] ?? "";
+
+		expect(argumentsMarkup.match(/<li\b/gu)?.length).toBe(25);
+		expect(argumentsMarkup).toContain(">value 24</span>");
+		expect(argumentsMarkup).not.toContain(">value 25</span>");
+		expect(argumentsMarkup).toMatch(
+			/<li[^>]*>(?:(?!<\/li>).)*>…<\/span>\s*<\/li>\s*<\/ul>$/su,
+		);
 	});
 
 	it("leaves budget-like arguments of non-ads connectors untouched", () => {

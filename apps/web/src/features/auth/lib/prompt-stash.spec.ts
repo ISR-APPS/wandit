@@ -54,7 +54,6 @@ describe("canAutostartStashedPrompt", () => {
 					composer: {
 						mode: "page",
 						output: "landing-page",
-						quality: "standard",
 					},
 					prompt: "A vitrine for a florist in Algiers",
 					stashedAt: NOW - 1_000,
@@ -116,7 +115,6 @@ describe("promptStash", () => {
 			{
 				mode: "page",
 				output: "landing-page",
-				quality: "max",
 			},
 			{ autostart: true },
 		);
@@ -127,7 +125,6 @@ describe("promptStash", () => {
 			composer: {
 				mode: "page",
 				output: "landing-page",
-				quality: "max",
 			},
 			prompt: "Build a watch shop page",
 		});
@@ -159,7 +156,7 @@ describe("promptStash", () => {
 		window.sessionStorage.setItem(
 			"wandit-prompt-stash",
 			JSON.stringify({
-				composer: { mode: "page", output: "landing-page", quality: "standard" },
+				composer: { mode: "page", output: "landing-page" },
 				prompt: "Build a watch shop page",
 				version: 2,
 			}),
@@ -167,9 +164,40 @@ describe("promptStash", () => {
 
 		expect(promptStash.consume()).toEqual({
 			autostart: false,
-			composer: { mode: "page", output: "landing-page", quality: "standard" },
+			composer: { mode: "page", output: "landing-page" },
 			prompt: "Build a watch shop page",
 			stashedAt: 0,
+		});
+	});
+
+	it("restores a legacy composer while dropping its quality key", () => {
+		window.sessionStorage.setItem(
+			"wandit-prompt-stash",
+			JSON.stringify({
+				autostart: true,
+				composer: {
+					mode: "page",
+					options: { audience: "founders" },
+					output: "landing-page",
+					quality: "max",
+					skills: ["brand-copy"],
+				},
+				prompt: "Build a watch shop page",
+				stashedAt: NOW,
+				version: 3,
+			}),
+		);
+
+		expect(promptStash.consume()).toEqual({
+			autostart: true,
+			composer: {
+				mode: "page",
+				options: { audience: "founders" },
+				output: "landing-page",
+				skills: ["brand-copy"],
+			},
+			prompt: "Build a watch shop page",
+			stashedAt: NOW,
 		});
 	});
 

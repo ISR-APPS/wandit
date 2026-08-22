@@ -144,7 +144,7 @@
 		"addMenuLabel": "Ajouter du contexte",
 		"addSkillLabel": "Ajouter une compétence",
 		"attachLabel": "Joindre",
-		"attachHint": "Joindre des images, PDF, documents ou tableurs",
+		"attachHint": "Joindre des images, vidéos, fichiers audio, PDF, documents ou tableurs",
 		"connectApps": "Connecter des applications",
 		"attachments": {
 			"dropHint": "Dépose tes fichiers pour les joindre",
@@ -152,7 +152,7 @@
 			"remove": "Retirer",
 			"retry": "Réessayer",
 			"unsupported": "Format non pris en charge",
-			"tooLarge": "Fichier trop lourd (15 Mo max)",
+			"tooLarge": "Fichier trop lourd (vidéo 50 Mo, audio 25 Mo, images et documents 15 Mo max)",
 			"failed": "Échec de l'envoi",
 			"signInFirst": "Connecte-toi pour joindre des fichiers"
 		},
@@ -177,7 +177,6 @@
 		"modeLabel": "Mode",
 		"outputLabel": "Sortie",
 		"settingsLabel": "Réglages de génération",
-		"qualityLabel": "Qualité",
 		"skillLibraryLabel": "Conçu par Wandit",
 		"searchSkillsPlaceholder": "Rechercher une compétence…",
 		"noSkillResults": "Aucune compétence trouvée",
@@ -196,16 +195,6 @@
 		"stepNext": "Suivant",
 		"stepDone": "Terminé",
 		"stepLabel": "Étape {current} sur {total}",
-		"quality": {
-			"standard": {
-				"label": "Standard",
-				"hint": "Rapide et efficace"
-			},
-			"max": {
-				"label": "Max",
-				"hint": "Meilleur résultat, consomme plus de crédits"
-			}
-		},
 		"routeModes": {
 			"auto": {
 				"label": "Auto",
@@ -234,41 +223,34 @@
 			}
 		},
 		"skillGroups": {
-			"review": {
-				"label": "Compétences de revue"
-			},
-			"market": {
-				"label": "Contexte marché"
+			"ads": {
+				"label": "Skills ads"
 			}
 		},
 		"skills": {
-			"accessibility": {
-				"label": "Accessibilité",
-				"description": "Ajoute des conseils sur le contraste, les formulaires et le clavier."
+			"ads-fundamentals": {
+				"label": "Fondamentaux",
+				"description": "Structure de compte, phase d’apprentissage, enchères, scaling."
 			},
-			"seo-review": {
-				"label": "Revue SEO",
-				"description": "Ajoute des conseils sur la structure de recherche, les métadonnées et le copy."
+			"ads-creative": {
+				"label": "Créa",
+				"description": "Hooks, formats, UGC, tests créatifs et fatigue."
 			},
-			"redesign": {
-				"label": "Refonte",
-				"description": "Ajoute des conseils de rafraîchissement visuel et de critique de mise en page."
+			"ads-audiences": {
+				"label": "Audiences",
+				"description": "Ciblage, broad vs intérêts, lookalikes, exclusions."
 			},
-			"cod-algeria": {
-				"label": "COD Algérie",
-				"description": "Ajoute le contexte COD algérien, wilaya et mobile-first."
+			"ads-measurement": {
+				"label": "Mesure",
+				"description": "Pixel, événements, UTM, attribution, CPA réel en COD."
 			},
-			"brand-voice": {
-				"label": "Voix de marque",
-				"description": "Garde le copy généré aligné au ton de la marque."
+			"ads-cod-maghreb": {
+				"label": "COD Maghreb",
+				"description": "Benchmarks, taux de confirmation, retours, contexte local."
 			},
-			"direct-response": {
-				"label": "Réponse directe",
-				"description": "Ajoute de la pression sur l'offre, la preuve, les objections et le CTA."
-			},
-			"premium-visuals": {
-				"label": "Visuels premium",
-				"description": "Ajoute une direction artistique plus haut de gamme pour les visuels."
+			"ads-diagnostic": {
+				"label": "Diagnostic",
+				"description": "Tracking d’abord, puis lecture du funnel et règle des 72h."
 			}
 		},
 		"outputs": {
