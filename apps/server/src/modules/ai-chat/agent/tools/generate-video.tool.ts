@@ -193,6 +193,8 @@ export function createGenerateVideoTool(
 				deps.subject,
 				attempt.id,
 				deps.parentEventId,
+				undefined,
+				{ durationSeconds: input.durationSeconds, kind: "text-to-video" },
 			);
 
 			assertFixedOperationProviderExecutionAllowed(reservation);

@@ -255,6 +255,42 @@ export function resolveTextToVideoModel(): string | null {
 	return env.AI_VIDEO_MODEL.replace("-i2v", "-t2v");
 }
 
+/**
+ * The provider-cost estimate input for a video render, as the call sites
+ * above will actually submit it (model, clamped duration, std mode, silent).
+ * Null when no video model is configured; the reserve then uses the floor.
+ */
+export function videoCostEstimateInput(
+	kind: "image-animation" | "text-to-video",
+	durationSeconds: number | null | undefined,
+): {
+	audio: false;
+	durationSeconds: number;
+	kind: "video";
+	mode: "std";
+	modelId: string;
+} | null {
+	const modelId =
+		kind === "text-to-video" ? resolveTextToVideoModel() : env.AI_VIDEO_MODEL;
+
+	if (!modelId) {
+		return null;
+	}
+
+	const requested =
+		durationSeconds === 5 || durationSeconds === 10
+			? durationSeconds
+			: IMAGE_VIDEO_DURATION_SECONDS;
+
+	return {
+		audio: false,
+		durationSeconds: clampDurationForModel(modelId, requested),
+		kind: "video",
+		mode: "std",
+		modelId,
+	};
+}
+
 // Veo renders only 4/6/8-second clips; map the house durations (5/10) onto
 // the nearest legal value rather than failing the render on a model swap.
 // KNOWN TRADE-OFF: the attempt row (whose CHECK only allows 5/10) and the

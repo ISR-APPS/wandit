@@ -39,12 +39,58 @@ const IMAGE_COUNT_KEYS = [
 ] as const;
 
 /**
+ * Connectors whose catalog contains paid provider work. An unregistered tool
+ * on one of these fails CLOSED: it runs as a connector-billed event (1 cc
+ * hold that settles at zero, tracked and idempotent) instead of escaping
+ * metering entirely. Non-monetized connectors keep the open default.
+ */
+export const MONETIZED_CONNECTORS: ReadonlySet<string> = new Set([
+	"higgsfield",
+]);
+
+/** Known no-cost tools on monetized connectors: reads, status, auth, search. */
+export const FREE_CONNECTOR_TOOLS: ReadonlySet<string> = new Set([
+	"get_cost",
+	"job_display",
+	"job_status",
+	"media_confirm",
+	"media_import_url",
+	"media_upload",
+	"media_upload_widget",
+	"models_explore",
+	"select_workspace",
+	"show_generations",
+	"tiktok_accounts",
+	"tiktok_connect",
+	"tiktok_music_trending",
+	"tiktok_music_tune",
+	"tiktok_prepare_publish",
+	"tiktok_publish_status",
+	"tiktok_reconnect",
+	"whoami",
+]);
+
+const FREE_TOOL_PREFIXES = ["get_", "list_", "search_", "describe_", "read_"];
+
+export function isFreeConnectorTool(toolName: string): boolean {
+	const normalized = normalizeConnectorToolName(toolName);
+
+	return (
+		FREE_CONNECTOR_TOOLS.has(normalized) ||
+		FREE_TOOL_PREFIXES.some((prefix) => normalized.startsWith(prefix)) ||
+		/(^|_)(status|health|auth|login|logout)$/u.test(normalized)
+	);
+}
+
+/**
  * Product-owned classification for MCP operations that create or transform
- * media. Ordinary connector reads/writes are intentionally not billable.
+ * media. Ordinary connector reads/writes are intentionally not billable;
+ * on a monetized connector an unknown tool is connector-billed (fail closed).
  */
 export function connectorGenerationPlan(
 	toolName: string,
 	input: unknown,
+	connectorSlug?: string,
 ): ConnectorGenerationPlan | null {
 	const normalized = normalizeConnectorToolName(toolName);
 
@@ -63,7 +109,98 @@ export function connectorGenerationPlan(
 		return { childOperation: "video", childUnits: 1 };
 	}
 
+	if (isFreeConnectorTool(normalized)) {
+		return null;
+	}
+
+	// Recovery callers replay rows that were planned at queue time and pass
+	// no slug; the fail-closed default applies to live tool execution only.
+	if (connectorSlug !== undefined && MONETIZED_CONNECTORS.has(connectorSlug)) {
+		return {};
+	}
+
 	return null;
+}
+
+/** Evidence transport for a connector's provider receipts. */
+export function connectorEvidenceTransport(
+	connectorSlug: string,
+): "higgsfield" | "mcp" {
+	return connectorSlug === "higgsfield" ? "higgsfield" : "mcp";
+}
+
+// Same strictness as the task's unlim_choice check: an echoed preset/request
+// id in a question receipt must not read as an accepted job.
+const PROVIDER_JOB_ID_KEY_PATTERN =
+	/^(?:job_set|jobset|job|generation|task)_?ids?$/i;
+
+/**
+ * Provider job id from a submit receipt (Higgsfield job_set_id, job_id, …),
+ * walking nested objects and JSON-stringified content blocks. Null when the
+ * receipt exposes nothing job-like — the provider accepted no work.
+ */
+export function connectorProviderJobId(value: unknown): string | null {
+	const seen = new WeakSet<object>();
+
+	const visit = (candidate: unknown): string | null => {
+		if (typeof candidate === "string") {
+			const parsed = tryParseJson(candidate);
+			return parsed === null ? null : visit(parsed);
+		}
+
+		if (
+			candidate === null ||
+			typeof candidate !== "object" ||
+			seen.has(candidate)
+		) {
+			return null;
+		}
+		seen.add(candidate);
+
+		if (Array.isArray(candidate)) {
+			for (const item of candidate) {
+				const found = visit(item);
+				if (found) {
+					return found;
+				}
+			}
+			return null;
+		}
+
+		for (const [key, nested] of Object.entries(candidate)) {
+			if (
+				typeof nested === "string" &&
+				nested.length > 0 &&
+				PROVIDER_JOB_ID_KEY_PATTERN.test(key)
+			) {
+				return nested;
+			}
+		}
+
+		for (const nested of Object.values(candidate)) {
+			const found = visit(nested);
+			if (found) {
+				return found;
+			}
+		}
+
+		return null;
+	};
+
+	return visit(value);
+}
+
+/** Receipt preview bounded for jsonb storage (strings truncated). */
+export function sanitizeProviderReceipt(value: unknown, maxChars = 4_000) {
+	try {
+		const serialized = JSON.stringify(value) ?? "null";
+
+		return serialized.length <= maxChars
+			? JSON.parse(serialized)
+			: { truncated: true, preview: serialized.slice(0, maxChars) };
+	} catch {
+		return { preview: String(value).slice(0, maxChars), truncated: true };
+	}
 }
 
 /** A replay-stable reference whenever AI SDK supplies its stable tool-call id. */

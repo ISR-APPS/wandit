@@ -174,6 +174,13 @@ describe("admin analytics services", () => {
 					usersAtZeroBalance: 2,
 					avgCreditsBeforeUpgrade: 22.75,
 					providerCostPerCreditMicros: 410,
+					totalProviderCostMicros: 205_000,
+					billableProviderCostMicros: 180_000,
+					providerCostByProvenanceMicros: {
+						measured: 150_000,
+						contract: 40_000,
+						estimate: 15_000,
+					},
 				},
 				freeCredits: {
 					avgDaysToConsume: 8.4,
@@ -231,6 +238,7 @@ describe("admin analytics services", () => {
 				},
 				revenueBySource: {
 					subscriptionsCents: 12_501,
+					topupsCents: 2_500,
 					domainsCents: 1_499,
 					domainOrders: 1,
 					domainCostCents: 1_299,

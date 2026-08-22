@@ -25,7 +25,18 @@ const RESERVATION: MarketingAssetReservation = {
 	operation: "marketing" as const,
 	referenceId: ASSET_ID,
 	replay: "none" as const,
+	terms: { mode: "token", usdMicrosPerCredit: 40_000 },
 	units: 1,
+};
+// Token settlement of the generator's call (model + usage from evidence).
+const TOKEN_SETTLEMENT = {
+	completedUnits: 1,
+	tokenUsage: {
+		modelId: "google/gemini-2.5-pro",
+		provider: null,
+		rawUsage: { inputTokens: 10, outputTokens: 20 },
+		usage: { inputTokens: 10, outputTokens: 20 },
+	},
 };
 
 describe("parseMarketingAssetPayload", () => {
@@ -190,7 +201,10 @@ describe("runMarketingAssetGeneration", () => {
 		expect(dependencies.capture).toHaveBeenCalledTimes(1);
 		expect(dependencies.generate).toHaveBeenCalledTimes(1);
 		expect(dependencies.markSucceeded).toHaveBeenCalledTimes(1);
-		expect(dependencies.settle).toHaveBeenCalledWith(RESERVATION);
+		expect(dependencies.settle).toHaveBeenCalledWith(
+			RESERVATION,
+			TOKEN_SETTLEMENT,
+		);
 		expect(dependencies.settle.mock.invocationCallOrder[0]).toBeLessThan(
 			dependencies.markSucceeded.mock.invocationCallOrder[0] ??
 				Number.MAX_SAFE_INTEGER,
@@ -216,7 +230,10 @@ describe("runMarketingAssetGeneration", () => {
 				runId: "run_deleted_after_settle",
 			}),
 		).resolves.toEqual({ reason: "project_deleted", status: "failed" });
-		expect(dependencies.settle).toHaveBeenCalledWith(RESERVATION);
+		expect(dependencies.settle).toHaveBeenCalledWith(
+			RESERVATION,
+			TOKEN_SETTLEMENT,
+		);
 		expect(dependencies.fail).toHaveBeenCalledOnce();
 		expect(dependencies.refund).not.toHaveBeenCalled();
 	});
@@ -303,7 +320,10 @@ describe("runMarketingAssetGeneration", () => {
 				}),
 			}),
 		);
-		expect(dependencies.settle).toHaveBeenCalledWith(RESERVATION, 1);
+		expect(dependencies.settle).toHaveBeenCalledWith(
+			RESERVATION,
+			TOKEN_SETTLEMENT,
+		);
 		expect(dependencies.refund).not.toHaveBeenCalled();
 	});
 

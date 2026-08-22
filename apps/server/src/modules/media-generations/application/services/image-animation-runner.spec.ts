@@ -24,6 +24,12 @@ const RESERVATION = {
 	operation: "video" as const,
 	referenceId: ATTEMPT_ID,
 	replay: "none" as const,
+	terms: {
+		estimatedUnitUsdMicros: null,
+		mode: "measured" as const,
+		unit: "video",
+		usdMicrosPerCredit: 40_000,
+	},
 	units: 1,
 };
 
@@ -107,6 +113,7 @@ describe("runImageAnimation", () => {
 			ATTEMPT_ID,
 			undefined,
 			"enforce",
+			{ durationSeconds: 5, kind: "image-animation" },
 		);
 		expect(dependencies.generate).toHaveBeenCalledTimes(1);
 		expect(dependencies.capture).toHaveBeenCalledTimes(1);

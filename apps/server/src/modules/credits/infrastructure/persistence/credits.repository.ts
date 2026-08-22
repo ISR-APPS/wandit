@@ -114,6 +114,53 @@ export class CreditsRepository {
 		return Number(row?.total ?? 0);
 	}
 
+	/**
+	 * Balance plus the reserved add-back as ONE SQL statement, so both sums
+	 * come from the same snapshot under READ COMMITTED. Two separate reads let
+	 * a settle commit between them and double- or zero-count the hold.
+	 * UNIT: integer centi-credits.
+	 */
+	async getSettledBalanceSnapshot(
+		owner: CreditOwner,
+		client: CreditsDbClient = this.db,
+	): Promise<CreditBalance & { settledBalance: number }> {
+		const result = await client.execute(sql`
+			with ledger as (
+				select ${creditLedger.bucket} as bucket,
+					coalesce(sum(${creditLedger.delta}), 0)::int as total
+				from ${creditLedger}
+				where ${this.ledgerOwnerPredicate(owner)}
+				group by ${creditLedger.bucket}
+			),
+			reserved as (
+				select coalesce(sum(${aiUsageEvents.reservedCredits}), 0)::int as total
+				from ${aiUsageEvents}
+				where ${aiUsageEvents.status} = 'reserved'
+					and ${this.usageEventOwnerPredicate(owner)}
+			)
+			select
+				coalesce((select total from ledger where bucket = 'plan'), 0) as plan,
+				coalesce((select total from ledger where bucket = 'promo'), 0) as promo,
+				coalesce((select total from ledger where bucket = 'topup'), 0) as topup,
+				(select total from reserved) as reserved
+		`);
+		const row = result.rows[0] as
+			| { plan: unknown; promo: unknown; reserved: unknown; topup: unknown }
+			| undefined;
+		const plan = Number(row?.plan ?? 0);
+		const promo = Number(row?.promo ?? 0);
+		const topup = Number(row?.topup ?? 0);
+		const balance = plan + promo + topup;
+
+		return {
+			balance,
+			plan,
+			promo,
+			settledBalance: balance + Number(row?.reserved ?? 0),
+			topup,
+		};
+	}
+
 	async listByOwner(owner: CreditOwner, pagination: PaginationQuery) {
 		const where = this.ledgerOwnerPredicate(owner);
 		const offset = (pagination.page - 1) * pagination.pageSize;

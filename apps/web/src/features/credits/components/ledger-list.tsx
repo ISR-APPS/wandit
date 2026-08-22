@@ -13,6 +13,10 @@ import {
 import { useTranslation } from "@/lib/i18n";
 import { relativeTime } from "@/lib/relative-time";
 import { formatCreditAmount } from "../lib/format-credits";
+import {
+	isLedgerAdjustmentReason,
+	ledgerReasonKey,
+} from "../lib/ledger-reason";
 
 const KIND_ICONS: Record<CreditKind, LucideIcon> = {
 	grant: Gift,
@@ -82,6 +86,10 @@ export function LedgerList({
 			{entries.map((entry) => {
 				const Icon = KIND_ICONS[entry.kind];
 				const positive = entry.delta > 0;
+				const reason = ledgerReasonKey(entry.meta);
+				const reasonLabel = isLedgerAdjustmentReason(reason)
+					? t(`credits.ledgerReasons.${reason}`)
+					: null;
 
 				return (
 					<li
@@ -106,6 +114,7 @@ export function LedgerList({
 								{t(`credits.ledgerKinds.${entry.kind}`)}
 							</p>
 							<p className="mt-0.5 text-[10px] text-muted-foreground">
+								{reasonLabel ? `${reasonLabel} · ` : null}
 								{t(`credits.buckets.${entry.bucket}`)} ·{" "}
 								{relativeTime(entry.createdAt)}
 							</p>

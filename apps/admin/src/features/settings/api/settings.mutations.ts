@@ -1,8 +1,11 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
+import type { BackfillSignupGrantsBody } from "@wandit/contracts";
+
 import type { UpdateProductSettingsInput } from "./settings.dto";
 import { settingsKeys } from "./settings.queries";
 import {
+	backfillSignupGrants,
 	replayBillingWebhook,
 	updateProductSettings,
 } from "./settings.services";
@@ -19,13 +22,21 @@ export function useUpdateProductSettingsMutation() {
 			// version returned by this optimistic-concurrency PATCH.
 			await queryClient.cancelQueries({ queryKey: settingsKeys.detail() });
 		},
-		onSuccess: (settings) => {
+		onSuccess: ({ signupGrantSkippedCount: _skipped, ...settings }) => {
 			queryClient.setQueryData(
 				settingsKeys.detail(),
 				(current: typeof settings | undefined) =>
 					current && current.version > settings.version ? current : settings,
 			);
 		},
+	});
+}
+
+export function useBackfillSignupGrantsMutation() {
+	return useMutation({
+		mutationKey: [...settingsKeys.all, "signup-grant-backfill"],
+		mutationFn: (input: BackfillSignupGrantsBody) =>
+			backfillSignupGrants(input),
 	});
 }
 

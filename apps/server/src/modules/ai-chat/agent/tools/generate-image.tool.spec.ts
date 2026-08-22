@@ -73,7 +73,7 @@ function setup(options: { parentEventId?: string; quality?: string } = {}) {
 			replayed: false,
 		}),
 		settle: vi.fn(),
-		settleFixedFromEvidence: vi.fn(),
+		settleMeasuredFromEvidence: vi.fn(),
 	};
 	const pagesRepository = {
 		findActivePageByProjectUnchecked: vi.fn().mockResolvedValue({
@@ -273,8 +273,11 @@ describe("generate_image placement", () => {
 			{ actorUserId: "user_1" },
 			{
 				attemptRef: ATTEMPT_ID,
-				credits: 600,
+				// No catalog rate in this double: 2 × the 350 cc image floor.
+				credits: 700,
+				estimatedCostUsdMicros: null,
 				idempotencyKey: `image:${ATTEMPT_ID}`,
+				measuredTerms: { estimatedUnitUsdMicros: null, units: 2 },
 				parentEventId: "parent_event_1",
 			},
 		);
@@ -342,8 +345,10 @@ describe("generate_image billing", () => {
 			{ actorUserId: "user_1" },
 			{
 				attemptRef: ATTEMPT_ID,
-				credits: 900,
+				credits: 1050,
+				estimatedCostUsdMicros: null,
 				idempotencyKey: `image:${ATTEMPT_ID}`,
+				measuredTerms: { estimatedUnitUsdMicros: null, units: 3 },
 				parentEventId: "parent_event_1",
 			},
 		);

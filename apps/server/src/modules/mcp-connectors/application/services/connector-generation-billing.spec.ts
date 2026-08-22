@@ -8,6 +8,7 @@ import {
 	connectorBillingAdmissionMode,
 	createConnectorGenerationBilling,
 	finalizeConnectorGenerationBilling,
+	recordConnectorSubmitReceipt,
 } from "./connector-generation-billing";
 
 type MeteringEvent = Awaited<ReturnType<MeteringService["reserve"]>>;
@@ -23,6 +24,15 @@ function buildBilling(options: { disabled?: boolean } = {}) {
 	);
 	const meteringService = {
 		captureGeneration: vi.fn().mockResolvedValue({ id: "generation-ref" }),
+		captureProviderCallEvidence: vi.fn(
+			async (eventId: string, evidence: { idempotencyKey: string }) =>
+				({
+					id: `evidence:${evidence.idempotencyKey}`,
+					usageEventId: eventId,
+				}) as Awaited<
+					ReturnType<MeteringService["captureProviderCallEvidence"]>
+				>,
+		),
 		findByIdempotencyKey: vi.fn(
 			async (idempotencyKey: string) => events.get(idempotencyKey) ?? null,
 		),
@@ -31,15 +41,31 @@ function buildBilling(options: { disabled?: boolean } = {}) {
 		),
 		reserveWithReplay: vi.fn(
 			async (
-				_operation: string,
+				operation: string,
 				_subject: MeteringSubject,
-				input: { credits: number; idempotencyKey: string },
+				input: {
+					credits: number;
+					estimatedCostUsdMicros?: number | null;
+					idempotencyKey: string;
+					measuredTerms?: { estimatedUnitUsdMicros: number | null } | null;
+				},
 			): Promise<Awaited<ReturnType<MeteringService["reserveWithReplay"]>>> => {
 				eventIndex += 1;
 				const event = {
+					estimatedCostUsdMicros: input.estimatedCostUsdMicros ?? null,
 					id: `event-${eventIndex}`,
+					operation,
+					pricingSnapshot: {
+						estimatedUnitUsdMicros:
+							input.measuredTerms?.estimatedUnitUsdMicros ?? null,
+						mode: "measured",
+						operation,
+						source: "operation_registry_reservation",
+						unit: operation === "image" ? "image" : "operation",
+						usdMicrosPerCredit: 40_000,
+					},
 					reservedCredits: input.credits,
-				} as MeteringEvent;
+				} as unknown as MeteringEvent;
 				events.set(input.idempotencyKey, event);
 				return { event, replay: "none", replayed: false } as const;
 			},
@@ -49,10 +75,11 @@ function buildBilling(options: { disabled?: boolean } = {}) {
 		settle: vi.fn(
 			async (eventId: string) => ({ id: eventId }) as MeteringEvent,
 		),
-		settleFixedFromEvidence: vi.fn(
+		settleMeasuredFromEvidence: vi.fn(
 			async (eventId: string) => ({ id: eventId }) as MeteringEvent,
 		),
 		upgradeFixedGenerationUnits: vi.fn().mockResolvedValue(null),
+		usdMicrosPerCredit: 40_000,
 	};
 	const billing = createConnectorGenerationBilling({
 		isBillingDisabled: () => options.disabled === true,
@@ -63,7 +90,10 @@ function buildBilling(options: { disabled?: boolean } = {}) {
 }
 
 describe("createConnectorGenerationBilling", () => {
-	it("reserves and settles connector plus per-image child prices", async () => {
+	// The MCP render runs on the user's own Higgsfield subscription: the
+	// connector call and its media child hold 1 cc each and settle at zero
+	// provider cost. Gateway-shaped refs in the result still reconcile.
+	it("holds one centi-credit per event and settles connector plus child at zero cost", async () => {
 		const { billing, meteringService } = buildBilling();
 
 		const reservations = await billing.reserve(
@@ -86,8 +116,10 @@ describe("createConnectorGenerationBilling", () => {
 			{ actorUserId: "user-1" },
 			{
 				attemptRef: "attempt-1",
-				credits: 500,
+				credits: 1,
+				estimatedCostUsdMicros: null,
 				idempotencyKey: "connector:attempt-1",
+				measuredTerms: { estimatedUnitUsdMicros: null, units: 1 },
 				parentEventId: "chat-event",
 			},
 		);
@@ -97,8 +129,10 @@ describe("createConnectorGenerationBilling", () => {
 			{ actorUserId: "user-1" },
 			{
 				attemptRef: "attempt-1",
-				credits: 900,
+				credits: 1,
+				estimatedCostUsdMicros: 0,
 				idempotencyKey: "image:attempt-1",
+				measuredTerms: { estimatedUnitUsdMicros: 0, units: 3 },
 				parentEventId: "event-1",
 			},
 		);
@@ -106,15 +140,23 @@ describe("createConnectorGenerationBilling", () => {
 			{
 				eventId: "event-1",
 				settlement: expect.objectContaining({
-					finalCredits: 500,
+					costUsdMicros: 0,
+					finalCredits: 0,
 					pricing: "direct",
+					pricingSnapshot: expect.objectContaining({
+						mode: "measured",
+						operation: "connector",
+						source: "measured_local",
+					}),
 				}),
 			},
 			{
 				eventId: "event-2",
 				settlement: expect.objectContaining({
-					finalCredits: 900,
+					costUsdMicros: 0,
+					finalCredits: 0,
 					pricing: "direct",
+					pricingSnapshot: expect.objectContaining({ units: 3 }),
 				}),
 			},
 			{ completedUnits: 3, eventId: "event-2" },
@@ -139,17 +181,20 @@ describe("createConnectorGenerationBilling", () => {
 		expect(meteringService.reserveWithReplay).toHaveBeenCalledWith(
 			"connector",
 			{ actorUserId: "user-1" },
-			expect.objectContaining({ credits: 500 }),
+			expect.objectContaining({ credits: 1 }),
 		);
 		expect(meteringService.settle).not.toHaveBeenCalled();
 		expect(meteringService.settleDirectPair).toHaveBeenCalledWith(
-			expect.objectContaining({ eventId: "event-1" }),
+			expect.objectContaining({
+				eventId: "event-1",
+				settlement: expect.objectContaining({ finalCredits: 0 }),
+			}),
 			undefined,
 			{ completedUnits: 1, eventId: "event-1" },
 		);
 	});
 
-	it("refunds unused image units when three requested images return one", async () => {
+	it("records the delivered child unit count when three requested images return one", async () => {
 		const { billing, meteringService } = buildBilling();
 		const reservations = await billing.reserve(
 			{ actorUserId: "user-1" },
@@ -164,12 +209,15 @@ describe("createConnectorGenerationBilling", () => {
 
 		expect(meteringService.settleDirectPair).toHaveBeenCalledWith(
 			expect.objectContaining({
-				settlement: expect.objectContaining({ finalCredits: 500 }),
+				settlement: expect.objectContaining({ finalCredits: 0 }),
 			}),
 			expect.objectContaining({
 				settlement: expect.objectContaining({
-					finalCredits: 300,
-					pricingSnapshot: expect.objectContaining({ units: 1 }),
+					finalCredits: 0,
+					pricingSnapshot: expect.objectContaining({
+						outcome: "partial",
+						units: 1,
+					}),
 				}),
 			}),
 			{ completedUnits: 1, eventId: "event-2" },
@@ -187,6 +235,7 @@ describe("createConnectorGenerationBilling", () => {
 					operation: "image",
 					referenceId: "attempt-old-price",
 					replay: "none",
+					terms: { creditsPerUnit: 700, mode: "fixed", unit: "image" },
 					units: 2,
 				},
 				connector: {
@@ -195,6 +244,7 @@ describe("createConnectorGenerationBilling", () => {
 					operation: "connector",
 					referenceId: "attempt-old-price",
 					replay: "none",
+					terms: { creditsPerUnit: 300, mode: "fixed", unit: "operation" },
 					units: 1,
 				},
 			},
@@ -266,7 +316,10 @@ describe("createConnectorGenerationBilling", () => {
 		const paymentRequired = new InsufficientCreditsError(25, 2);
 		meteringService.reserveWithReplay
 			.mockImplementationOnce(async (_operation, _subject, input) => {
-				const event = { id: "connector-event" } as MeteringEvent;
+				const event = {
+					id: "connector-event",
+					operation: "connector",
+				} as MeteringEvent;
 				events.set(input.idempotencyKey, event);
 				return { event, replay: "none", replayed: false } as const;
 			})
@@ -310,19 +363,31 @@ describe("createConnectorGenerationBilling", () => {
 		expect(() =>
 			connectorBillingAdmissionMode({
 				child: {
-					credits: 300,
+					credits: 1,
 					eventId: null,
 					operation: "image",
 					referenceId: "attempt-mixed",
 					replay: "none",
+					terms: {
+						estimatedUnitUsdMicros: 0,
+						mode: "measured",
+						unit: "image",
+						usdMicrosPerCredit: 40_000,
+					},
 					units: 1,
 				},
 				connector: {
-					credits: 500,
+					credits: 1,
 					eventId: "event-parent",
 					operation: "connector",
 					referenceId: "attempt-mixed",
 					replay: "none",
+					terms: {
+						estimatedUnitUsdMicros: null,
+						mode: "measured",
+						unit: "operation",
+						usdMicrosPerCredit: 40_000,
+					},
 					units: 1,
 				},
 			}),
@@ -331,7 +396,10 @@ describe("createConnectorGenerationBilling", () => {
 
 	it("rejects terminal connector replays before reserving a child", async () => {
 		const { billing, meteringService } = buildBilling();
-		const event = { id: "settled-connector" } as MeteringEvent;
+		const event = {
+			id: "settled-connector",
+			operation: "connector",
+		} as MeteringEvent;
 		meteringService.reserveWithReplay.mockResolvedValueOnce({
 			event,
 			replay: "settled",
@@ -472,5 +540,91 @@ describe("createConnectorGenerationBilling", () => {
 		expect(meteringService.captureGeneration).toHaveBeenCalledTimes(3);
 		expect(meteringService.settle).not.toHaveBeenCalled();
 		expect(meteringService.settleDirectPair).not.toHaveBeenCalled();
+	});
+});
+
+describe("recordConnectorSubmitReceipt", () => {
+	it("persists a zero-cost measured Higgsfield receipt on the child event with the provider job id", async () => {
+		const { billing, meteringService } = buildBilling();
+		const reservations = await billing.reserve(
+			{ actorUserId: "user-1" },
+			"attempt-1",
+			{ childOperation: "video", childUnits: 1 },
+		);
+
+		const jobId = await recordConnectorSubmitReceipt(billing, reservations, {
+			connectorSlug: "higgsfield",
+			plan: { childOperation: "video", childUnits: 1 },
+			referenceId: "attempt-1",
+			result: {
+				content: [
+					{
+						text: JSON.stringify({ job_set_id: "js-9", status: "queued" }),
+						type: "text",
+					},
+				],
+			},
+		});
+
+		expect(jobId).toBe("js-9");
+		expect(meteringService.captureProviderCallEvidence).toHaveBeenCalledWith(
+			reservations.child?.eventId,
+			expect.objectContaining({
+				chargedUsdMicros: 0,
+				costStatus: "measured",
+				customerBillable: false,
+				idempotencyKey: "higgsfield:attempt-1:js-9",
+				providerRequestId: "js-9",
+				transport: "higgsfield",
+				unitKind: "video",
+				units: 1,
+			}),
+		);
+	});
+
+	it("records an mcp receipt on the connector event when the receipt has no job id", async () => {
+		const { billing, meteringService } = buildBilling();
+		const reservations = await billing.reserve(
+			{ actorUserId: "user-1" },
+			"attempt-2",
+			{},
+		);
+
+		const jobId = await recordConnectorSubmitReceipt(billing, reservations, {
+			connectorSlug: "other-mcp",
+			plan: {},
+			referenceId: "attempt-2",
+			result: { content: [{ text: "ok", type: "text" }] },
+		});
+
+		expect(jobId).toBeNull();
+		expect(meteringService.captureProviderCallEvidence).toHaveBeenCalledWith(
+			reservations.connector.eventId,
+			expect.objectContaining({
+				idempotencyKey: "mcp:attempt-2:submit",
+				providerRequestId: "attempt-2",
+				transport: "mcp",
+				unitKind: "operation",
+				units: 1,
+			}),
+		);
+	});
+
+	it("writes nothing when billing is off", async () => {
+		const { billing, meteringService } = buildBilling({ disabled: true });
+		const reservations = await billing.reserve(
+			{ actorUserId: "user-1" },
+			"attempt-3",
+			{},
+		);
+
+		await recordConnectorSubmitReceipt(billing, reservations, {
+			connectorSlug: "higgsfield",
+			plan: {},
+			referenceId: "attempt-3",
+			result: {},
+		});
+
+		expect(meteringService.captureProviderCallEvidence).not.toHaveBeenCalled();
 	});
 });

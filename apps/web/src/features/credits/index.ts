@@ -18,8 +18,6 @@ export { CreditsElsewhereNotice } from "./components/credits-elsewhere-notice";
 export { InsufficientCreditsDialog } from "./components/insufficient-credits-dialog";
 export { LedgerList } from "./components/ledger-list";
 export { OutOfCreditsBanner } from "./components/out-of-credits-banner";
-export { PriceTag } from "./components/price-tag";
-export { CREDIT_COSTS, type CreditAction, priceTag } from "./lib/constants";
 export { findCreditsElsewhere } from "./lib/credits-elsewhere";
 export {
 	formatCreditAmount,

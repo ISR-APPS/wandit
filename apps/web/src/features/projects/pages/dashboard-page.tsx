@@ -96,7 +96,7 @@ function NoResultsState({
 export default function DashboardPage() {
 	const { t } = useTranslation();
 	const { data: projects, isPending } = useProjectsQuery();
-	const { create, isCreating, insufficientOpen, setInsufficientOpen, cost } =
+	const { create, isCreating, insufficientOpen, setInsufficientOpen } =
 		useCreateProjectWithPrompt();
 	// Post-auth handoff: restore the stashed landing prompt and, when the
 	// draft is fresh and eligible, create the project without another click.
@@ -158,7 +158,7 @@ export default function DashboardPage() {
 								<PromptBox
 									key={restoreKey}
 									variant="hero"
-									showPriceTag
+									showQualityPicker
 									showModes
 									attachmentsEnabled
 									disabled={promptLocked}
@@ -172,7 +172,6 @@ export default function DashboardPage() {
 						<InsufficientCreditsDialog
 							open={insufficientOpen}
 							onOpenChange={setInsufficientOpen}
-							cost={cost}
 						/>
 					</div>
 				</section>

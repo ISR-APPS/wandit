@@ -11,7 +11,6 @@
 	"topUpDialog": "See plans and top-ups",
 	"insufficientTitle": "Not enough credits",
 	"insufficientBody": "This action costs more credits than you currently have.",
-	"costLabel": "Cost",
 	"outOfCredits": {
 		"title": "You're out of credits",
 		"body": "Upgrade your plan to keep building.",
@@ -36,6 +35,15 @@
 		"expire": "Credits expired",
 		"revoke": "Credits reversed"
 	},
+	"ledgerReasons": {
+		"reconcile": "Final price adjustment",
+		"reconcileRefund": "Final price refund",
+		"settleRefund": "Unused reserve refunded",
+		"fixedCompletion": "Late completion charge",
+		"reserve": "Reserved for an operation",
+		"settle": "Settled at the final price",
+		"refund": "Refunded"
+	},
 	"creditUnit": {
 		"zero": "{count} credits",
 		"one": "{count} credit",
@@ -43,17 +51,5 @@
 		"few": "{count} credits",
 		"many": "{count} credits",
 		"other": "{count} credits"
-	},
-	"priceTag": {
-		"zero": "{action} — {count} credits",
-		"one": "{action} — {count} credit",
-		"two": "{action} — {count} credits",
-		"few": "{action} — {count} credits",
-		"many": "{action} — {count} credits",
-		"other": "{action} — {count} credits"
-	},
-	"actions": {
-		"generation": "Generate",
-		"chatMessage": "Send"
 	}
 }

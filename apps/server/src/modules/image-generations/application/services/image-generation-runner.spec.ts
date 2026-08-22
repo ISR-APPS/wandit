@@ -28,6 +28,12 @@ const RESERVATION = {
 	operation: "image" as const,
 	referenceId: ATTEMPT_ID,
 	replay: "none" as const,
+	terms: {
+		estimatedUnitUsdMicros: null,
+		mode: "measured" as const,
+		unit: "image",
+		usdMicrosPerCredit: 40_000,
+	},
 	units: 2,
 };
 
@@ -76,18 +82,20 @@ function makeDependencies(
 		capture: vi.fn().mockResolvedValue(undefined),
 		claimQueued: vi.fn().mockResolvedValue(generating),
 		fail: vi.fn().mockResolvedValue(true),
-		generateOne: vi.fn().mockImplementation((_attempt, _subject, index: number) =>
-			Promise.resolve({
-				mediaType: "image/png",
-				model: "openai/gpt-image-2",
-				providerMetadata: {
-					gateway: { generationId: `generation_${index}` },
-				},
-				status: "generated" as const,
-				usage: { inputTokens: 1 },
-				url: `https://assets.example.com/images/p/a/img-${index}.png`,
-			}),
-		),
+		generateOne: vi
+			.fn()
+			.mockImplementation((_attempt, _subject, index: number) =>
+				Promise.resolve({
+					mediaType: "image/png",
+					model: "openai/gpt-image-2",
+					providerMetadata: {
+						gateway: { generationId: `generation_${index}` },
+					},
+					status: "generated" as const,
+					usage: { inputTokens: 1 },
+					url: `https://assets.example.com/images/p/a/img-${index}.png`,
+				}),
+			),
 		loadAttempt: vi.fn().mockResolvedValue(queued),
 		markSucceeded: vi.fn().mockResolvedValue(true),
 		now: () => new Date("2026-01-01T00:05:00Z"),
@@ -156,6 +164,7 @@ describe("runImageGeneration", () => {
 			2,
 			PARENT_EVENT_ID,
 			"enforce",
+			{ hasSourceImages: false },
 		);
 		expect(dependencies.generateOne).toHaveBeenCalledTimes(2);
 		expect(dependencies.capture).toHaveBeenCalledTimes(2);
@@ -226,6 +235,7 @@ describe("runImageGeneration", () => {
 			2,
 			undefined,
 			"enforce",
+			{ hasSourceImages: false },
 		);
 		expect(dependencies.generateOne).toHaveBeenNthCalledWith(
 			1,
@@ -514,7 +524,7 @@ describe("runImageGeneration", () => {
 			RESERVATION,
 			expect.objectContaining({
 				stepUsage: {
-					metering: { fixedUnits: 0 },
+					metering: { customerBilling: "refunded_failure", fixedUnits: 0 },
 					providerUsage: null,
 				},
 			}),
@@ -733,6 +743,7 @@ describe("runImageGeneration", () => {
 			4,
 			undefined,
 			"enforce",
+			{ hasSourceImages: false },
 		);
 		expect(dependencies.settleExisting).toHaveBeenCalledWith(
 			SUBJECT,

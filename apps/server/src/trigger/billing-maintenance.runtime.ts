@@ -12,6 +12,7 @@ import { SignupGrantOutboxService } from "../modules/auth/application/services/s
 import { SignupGrantOutboxRepository } from "../modules/auth/infrastructure/persistence/signup-grant-outbox.repository";
 import { BillingCustomerService } from "../modules/billing/application/services/billing-customer.service";
 import { BillingWebhookRetryService } from "../modules/billing/application/services/billing-webhook-retry.service";
+import { FinancialReconciliationService } from "../modules/billing/application/services/financial-reconciliation.service";
 import { PaymentRefundsService } from "../modules/billing/application/services/payment-refunds.service";
 import { StripeEventRouter } from "../modules/billing/application/services/stripe-event-router.service";
 import { StripeSubscriptionSyncService } from "../modules/billing/application/services/stripe-subscription-sync.service";
@@ -23,7 +24,9 @@ import { BillingCheckoutAttemptsRepository } from "../modules/billing/infrastruc
 import { BillingCreditLedgerRepository } from "../modules/billing/infrastructure/persistence/billing-credit-ledger.repository";
 import { BillingCustomersRepository } from "../modules/billing/infrastructure/persistence/billing-customers.repository";
 import { BillingPaymentAdjustmentsRepository } from "../modules/billing/infrastructure/persistence/billing-payment-adjustments.repository";
+import { BillingTopupReceiptsRepository } from "../modules/billing/infrastructure/persistence/billing-topup-receipts.repository";
 import { BillingWebhookEventsRepository } from "../modules/billing/infrastructure/persistence/billing-webhook-events.repository";
+import { FinancialReconciliationOutboxRepository } from "../modules/billing/infrastructure/persistence/financial-reconciliation-outbox.repository";
 import { OrganizationBillingCustomersRepository } from "../modules/billing/infrastructure/persistence/organization-billing-customers.repository";
 import { SubscriptionCreditsRepository } from "../modules/billing/infrastructure/persistence/subscription-credits.repository";
 import { SubscriptionStateEventsRepository } from "../modules/billing/infrastructure/persistence/subscription-state-events.repository";
@@ -52,6 +55,8 @@ import {
 	recoverOrderRefundTask,
 	triggerOrderRefundTask,
 } from "../modules/orders/infrastructure/trigger/trigger-order-refund-dispatcher.service";
+import { ProductSettingsService } from "../modules/settings/application/services/product-settings.service";
+import { ProductSettingsRepository } from "../modules/settings/infrastructure/persistence/product-settings.repository";
 import { WorkspaceMembersRepository } from "../modules/workspaces/infrastructure/persistence/members.repository";
 import { createTriggerModelPricing } from "./metering.runtime";
 
@@ -65,6 +70,18 @@ export function createSubscriptionRefillRuntime(db: TriggerDatabase) {
 		refills: new SubscriptionRefillService(
 			new SubscriptionCreditsRepository(db),
 			core.credits,
+			core.paymentRefunds,
+			core.reconciliationOutbox,
+		),
+	};
+}
+
+export function createFinancialReconciliationRuntime(db: TriggerDatabase) {
+	const core = createPaymentCore(db);
+
+	return {
+		reconciliation: new FinancialReconciliationService(
+			core.reconciliationOutbox,
 			core.paymentRefunds,
 		),
 	};
@@ -90,6 +107,7 @@ export function createSignupGrantRuntime(db: TriggerDatabase) {
 		outbox: new SignupGrantOutboxService(
 			new SignupGrantOutboxRepository(db),
 			createCredits(db),
+			new ProductSettingsService(new ProductSettingsRepository(db)),
 		),
 	};
 }
@@ -118,6 +136,7 @@ export function createBillingWebhookRuntime(
 		subscriptionCreditsRepository,
 		payment.credits,
 		payment.paymentRefunds,
+		payment.reconciliationOutbox,
 	);
 	const subscriptionCredits = new SubscriptionCreditsService(
 		billingCustomers,
@@ -129,6 +148,8 @@ export function createBillingWebhookRuntime(
 		refills,
 		checkoutAttempts,
 		new OrganizationBillingCustomersRepository(db),
+		payment.reconciliationOutbox,
+		new BillingTopupReceiptsRepository(db),
 	);
 	const subscriptionSync = new StripeSubscriptionSyncService(
 		billingCustomers,
@@ -190,6 +211,7 @@ function createPaymentCore(db: TriggerDatabase) {
 		orderRefunds,
 		paymentOrders,
 		paymentRefunds,
+		reconciliationOutbox: new FinancialReconciliationOutboxRepository(db),
 		stripe,
 	};
 }

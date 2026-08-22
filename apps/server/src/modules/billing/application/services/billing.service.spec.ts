@@ -117,6 +117,7 @@ function changeIntent(
 	overrides: Partial<BillingChangeIntentRow> = {},
 ): BillingChangeIntentRow {
 	return {
+		anchorReset: false,
 		consumedAt: null,
 		createdAt: new Date(NOW),
 		currency: "usd",
@@ -1074,20 +1075,25 @@ describe("BillingService checkout attempts", () => {
 
 describe("BillingService subscription change intents", () => {
 	it("creates a fixed-proration preview intent and returns its persisted facts", async () => {
-		const { changeIntents, paymentProvider, service } = setup();
+		const { changeIntents, credits, paymentProvider, service } = setup();
+		// 100 credits of plan balance stay below the 500-credit target cap, so
+		// the whole new allotment is the delta.
+		credits.balance = { balance: 10_000, plan: 10_000, promo: 0, topup: 0 };
 
 		const result = await service.previewChange(user, {
 			interval: "month",
 			tierCredits: 500,
 		});
 
+		// Ruling 7: a same-interval upgrade resets the billing anchor.
 		expect(paymentProvider.previewSubscriptionChange).toHaveBeenCalledWith({
-			billingCycleAnchorNow: false,
+			billingCycleAnchorNow: true,
 			newPriceLookupKey: "pro_500_month",
 			prorationDate: PRORATION_DATE,
 			providerSubscriptionId: "sub_1",
 		});
 		expect(changeIntents.create).toHaveBeenCalledWith({
+			anchorReset: true,
 			currency: "usd",
 			currentPriceLookupKey: "pro_250_month",
 			expiresAt: new Date("2026-08-01T12:49:56.000Z"),
@@ -1101,11 +1107,70 @@ describe("BillingService subscription change intents", () => {
 		});
 		expect(result).toEqual({
 			amountDueMinor: 2_500,
-			creditsDelta: 250,
+			creditsDelta: 500,
 			currency: "usd",
 			expiresAt: "2026-08-01T12:49:56.000Z",
 			intentId: INTENT_ID,
 		});
+	});
+
+	it("quotes the capped-refill delta when the plan balance exceeds the new allotment", async () => {
+		const { credits, service } = setup();
+		// 620 credits on hand: 120 above the 500 cap expire, 500 are granted.
+		credits.balance = { balance: 62_000, plan: 62_000, promo: 0, topup: 0 };
+
+		const result = await service.previewChange(user, {
+			interval: "month",
+			tierCredits: 500,
+		});
+
+		expect(result.creditsDelta).toBe(380);
+	});
+
+	it("keeps downgrades and pending-downgrade cancels off the anchor reset with a zero credit delta", async () => {
+		const downgrade = setup(
+			subscriptionRow({ priceLookupKey: "pro_500_month", tierCredits: 500 }),
+		);
+
+		const downgradePreview = await downgrade.service.previewChange(user, {
+			interval: "month",
+			tierCredits: 250,
+		});
+
+		expect(
+			downgrade.paymentProvider.previewSubscriptionChange,
+		).toHaveBeenCalledWith(
+			expect.objectContaining({ billingCycleAnchorNow: false }),
+		);
+		expect(downgrade.changeIntents.create).toHaveBeenCalledWith(
+			expect.objectContaining({ anchorReset: false }),
+		);
+		expect(downgradePreview.creditsDelta).toBe(0);
+
+		const cancel = setup(subscriptionRow({ pendingTierCredits: 250 }));
+		const cancelPreview = await cancel.service.previewChange(user, {
+			interval: "month",
+			tierCredits: 250,
+		});
+
+		expect(
+			cancel.paymentProvider.previewSubscriptionChange,
+		).not.toHaveBeenCalled();
+		expect(cancel.changeIntents.create).toHaveBeenCalledWith(
+			expect.objectContaining({ anchorReset: false }),
+		);
+		expect(cancelPreview.creditsDelta).toBe(0);
+	});
+
+	it("executes with the anchor decision persisted on the intent, not recomputed state", async () => {
+		const { changeIntents, paymentProvider, service } = setup();
+		changeIntents.intent = changeIntent({ anchorReset: true });
+
+		await service.change(user, { intentId: INTENT_ID });
+
+		expect(paymentProvider.changeSubscription).toHaveBeenCalledWith(
+			expect.objectContaining({ billingCycleAnchorNow: true }),
+		);
 	});
 
 	it("claims, executes, and durably completes an intent with its exact proration date", async () => {

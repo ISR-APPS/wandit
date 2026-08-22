@@ -9,7 +9,7 @@ import {
 } from "../../../ai-provider/domain/llm-provider";
 import { MeteringService } from "../../../metering/application/services/metering.service";
 import { llmGenerationCaptureFromError } from "../../../metering/domain/gateway-metering";
-import { bundledUnmeteredStepUsage } from "../../../metering/domain/metering";
+import { helperStepUsage } from "../../../metering/domain/metering";
 
 const DEFAULT_PROJECT_TITLE_MODEL = "deepseek/deepseek-v4-flash";
 const PROJECT_TITLE_MAX_LENGTH = 60;
@@ -110,7 +110,7 @@ export class ProjectTitleService {
 			if (input.usageEventId) {
 				await this.captureGeneration(input.usageEventId, {
 					providerMetadata: result.providerMetadata,
-					stepUsage: bundledUnmeteredStepUsage("project_title", result.usage),
+					stepUsage: helperStepUsage("project_title", result.usage),
 				});
 			}
 
@@ -128,7 +128,7 @@ export class ProjectTitleService {
 				try {
 					await this.captureGeneration(input.usageEventId, {
 						providerMetadata: errorCapture.providerMetadata,
-						stepUsage: bundledUnmeteredStepUsage("project_title", null),
+						stepUsage: helperStepUsage("project_title", null),
 					});
 				} catch (captureError) {
 					this.logger.warn(

@@ -36,8 +36,37 @@ for (const envFile of new Set(envFileCandidates)) {
 	}
 }
 
+/**
+ * Cross-field rules the per-variable schemas cannot express. Exported so the
+ * rules are unit-testable without booting createEnv against process.env.
+ */
+export function refineServerEnv(
+	values: { GENERATION_BILLING_MODE?: string; NODE_ENV?: string },
+	ctx: {
+		addIssue: (issue: {
+			code: "custom";
+			message: string;
+			path?: string[];
+		}) => void;
+	},
+): void {
+	// Billing off in production silently gives every operation away for free.
+	if (
+		values.NODE_ENV === "production" &&
+		values.GENERATION_BILLING_MODE === "off"
+	) {
+		ctx.addIssue({
+			code: "custom",
+			message:
+				"GENERATION_BILLING_MODE=off is not allowed when NODE_ENV=production",
+			path: ["GENERATION_BILLING_MODE"],
+		});
+	}
+}
+
 // Validated config object. Other code should import `env` instead of process.env.
 export const env = createEnv({
+	createFinalSchema: (shape) => z.object(shape).superRefine(refineServerEnv),
 	server: {
 		// AI model settings.
 		AI_CHAT_MODEL: z.string().min(1).default("openai/gpt-4o-mini"),
@@ -81,12 +110,12 @@ export const env = createEnv({
 			.string()
 			.min(1)
 			.default("openai/gpt-4o-mini-transcribe"),
-		// USD of provider value per WHOLE credit. Settlement debits integer
+		// USD of provider cost per WHOLE credit. Settlement debits integer
 		// centi-credits (1 credit = 100 cc); the conversion function owns the
-		// x100, so this value stays per whole credit. $0.028/credit is the
-		// product margin anchor from pricing v3 (kept by v4): 250 credits per
-		// $25 Pro month carry $7 of AI-provider value ($7 / 250 = $0.028).
-		AI_USD_PER_CREDIT: z.coerce.number().positive().default(0.028),
+		// x100, so this value stays per whole credit. $0.04/credit is the
+		// pricing v5 anchor: 1 credit = $0.04 of provider cost, so the 50-credit
+		// signup grant carries $2.00 of provider value.
+		AI_USD_PER_CREDIT: z.coerce.number().positive().default(0.04),
 		// Page generation foundation (Trigger.dev queue + Cloudflare R2 storage).
 		// All optional: the server must boot before these creds exist; the
 		// generate_page tool checks at call time and answers gracefully when
@@ -129,6 +158,14 @@ export const env = createEnv({
 		// Maps business search. Optional: the tool checks at call time and
 		// answers "unavailable" until the key exists (same contract as R2).
 		SERPER_API_KEY: z.string().min(1).optional(),
+		// Provider cost of one Serper Maps page (USD micros): $0.001 on the
+		// Starter plan. Recorded on lead_scrape events as provider cost; the
+		// customer price is the per-lead product price, not this.
+		SERPER_USD_MICROS_PER_SEARCH: z.coerce
+			.number()
+			.int()
+			.nonnegative()
+			.default(1000),
 		R2_ACCOUNT_ID: z.string().min(1).optional(),
 		R2_ACCESS_KEY_ID: z.string().min(1).optional(),
 		R2_SECRET_ACCESS_KEY: z.string().min(1).optional(),

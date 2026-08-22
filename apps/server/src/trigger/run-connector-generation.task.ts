@@ -34,6 +34,7 @@ import {
 	createConnectorGenerationBilling,
 	finalizeConnectorGenerationBilling,
 	hasTerminalConnectorGenerationReplay,
+	recordConnectorSubmitReceipt,
 } from "../modules/mcp-connectors/application/services/connector-generation-billing";
 import { McpConnectionsService } from "../modules/mcp-connectors/application/services/mcp-connections.service";
 import { connectorGatewayCaptures } from "../modules/mcp-connectors/domain/connector-generation-metering";
@@ -45,6 +46,10 @@ import { createTriggerMetering } from "./metering.runtime";
 import { recoverSettledConnectorCompletion } from "./settled-completion-recovery";
 
 export type RunConnectorGenerationPayload = {
+	// Prompt-refined arguments produced AFTER the reservation (reserve-before-
+	// refine): the claim persists them on the attempt row as the durable record
+	// of what was sent. Absent for payloads queued before this field existed.
+	args?: Record<string, unknown>;
 	attemptId: string;
 	billing: ConnectorGenerationReservations;
 	billingMode: "enforce" | "off";
@@ -70,6 +75,9 @@ export const runConnectorGenerationTask = task({
 			| { organizationId: string | null; userId: string }
 			| undefined;
 		let providerCompleted = false;
+		// Provider job id persisted with the submit receipt: proof the provider
+		// accepted work even when this run later loses track of it.
+		let providerJobId: string | null = null;
 		let completionCheckpointed = false;
 		const generationBilling = createConnectorGenerationBilling({
 			// Reservations were created by the API before this task was enqueued.
@@ -111,6 +119,7 @@ export const runConnectorGenerationTask = task({
 			const [claim] = await db
 				.update(connectorGenerationAttempts)
 				.set({
+					...(payload.args ? { args: payload.args } : {}),
 					completedAt: null,
 					error: null,
 					startedAt: new Date(),
@@ -185,7 +194,10 @@ export const runConnectorGenerationTask = task({
 
 			// The blocking provider call — the whole reason this runs here.
 			const result = await client.callTool({
-				arguments: (attempt.args ?? {}) as Record<string, unknown>,
+				arguments: (payload.args ?? attempt.args ?? {}) as Record<
+					string,
+					unknown
+				>,
 				name: attempt.toolName,
 				options: { signal },
 			});
@@ -224,6 +236,22 @@ export const runConnectorGenerationTask = task({
 			// provider's work; the follow loop overwrites this with the
 			// provider's own state string on every poll.
 			metadata.set("stage", "generating");
+
+			// Durable receipt BEFORE following: a timeout below must never read as
+			// "the provider did nothing" once the job id is on disk.
+			providerJobId = await recordConnectorSubmitReceipt(
+				generationBilling,
+				payload.billing,
+				{
+					connectorSlug: attempt.connectorSlug,
+					plan: {
+						childOperation: payload.billing.child?.operation,
+						childUnits: payload.billing.child?.units,
+					},
+					referenceId: attempt.id,
+					result,
+				},
+			);
 
 			const providerResults: unknown[] = [result];
 			let media = extractMediaUrls(result);
@@ -428,6 +456,33 @@ export const runConnectorGenerationTask = task({
 					);
 				}
 
+				if (
+					!providerCompleted &&
+					claimedAttempt &&
+					providerJobId !== null &&
+					!isProviderVerdict(error)
+				) {
+					// The provider accepted job `providerJobId` and never reported a
+					// verdict (follow timeout, unreadable status): the work most likely
+					// ran on the user's subscription. Close the holds as a zero-unit
+					// settlement on top of the persisted receipt instead of a refund
+					// that would claim nothing happened.
+					try {
+						await finalizeConnectorGenerationBilling(
+							generationBilling,
+							payload.billing,
+							[],
+							{ childUnits: payload.billing.child ? 0 : undefined },
+						);
+						providerCompleted = true;
+					} catch (settleError) {
+						logger.error(
+							`Provider-accepted settlement failed for attempt ${payload.attemptId}`,
+							{ error: settleError },
+						);
+					}
+				}
+
 				if (!providerCompleted && claimedAttempt) {
 					try {
 						await generationBilling.refund(
@@ -577,8 +632,20 @@ const SETTLE_GRACE_MS = 90_000;
 
 /** The provider itself decided the job's fate (failed/moderated/timed out)
     — never masked by receipt-media fallbacks, unlike transient follow
-    errors. */
-class ProviderJobFailedError extends Error {}
+    errors. `verdict` separates a provider-reported failure (refundable) from
+    a fate this run could not read (timeout, unreadable status). */
+class ProviderJobFailedError extends Error {
+	constructor(
+		message: string,
+		readonly verdict: boolean = true,
+	) {
+		super(message);
+	}
+}
+
+function isProviderVerdict(error: unknown): boolean {
+	return error instanceof ProviderJobFailedError && error.verdict;
+}
 
 /**
  * Follow a submit-style generation to completion via the connector's own
@@ -662,6 +729,7 @@ async function followProviderJob(
 			// media they never got.
 			throw new ProviderJobFailedError(
 				errorText ?? "The provider reported a job error",
+				false,
 			);
 		}
 		consecutiveStatusErrors = 0;
@@ -717,6 +785,7 @@ async function followProviderJob(
 
 	throw new ProviderJobFailedError(
 		"Timed out waiting for the provider to finish generating",
+		false,
 	);
 }
 

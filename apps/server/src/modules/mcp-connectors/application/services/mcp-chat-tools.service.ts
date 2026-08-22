@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
 import {
 	createMCPClient,
@@ -65,6 +66,7 @@ import {
 	connectorBillingAdmissionMode,
 	createConnectorGenerationBilling,
 	finalizeConnectorGenerationBilling,
+	recordConnectorSubmitReceipt,
 } from "./connector-generation-billing";
 import {
 	HiggsfieldPromptRefinerService,
@@ -444,6 +446,9 @@ export class McpChatToolsService {
 	async resolveToolsForUser(
 		subject: MeteringSubject,
 		parentEventId?: string,
+		// Requesting chat, when there is one: scopes background-generation
+		// request idempotency to (chatId, requestKey).
+		chatId?: string,
 	): Promise<McpChatToolsResult> {
 		// Connections belong to the acting member; the subject's payer (org pool
 		// in an org workspace) funds connector generations.
@@ -486,6 +491,7 @@ export class McpChatToolsService {
 					return await this.resolveConnectorTools(
 						subject,
 						parentEventId,
+						chatId ?? null,
 						connection,
 						connector,
 						registerCloser,
@@ -543,7 +549,12 @@ export class McpChatToolsService {
 		if (runtimes.length > 0) {
 			Object.assign(
 				tools,
-				this.createDiscoveryDoors(subject, parentEventId, runtimes),
+				this.createDiscoveryDoors(
+					subject,
+					parentEventId,
+					chatId ?? null,
+					runtimes,
+				),
 			);
 			approvalMap.run_platform_tool = classifyPlatformToolApproval;
 		}
@@ -562,6 +573,7 @@ export class McpChatToolsService {
 	private async resolveConnectorTools(
 		subject: MeteringSubject,
 		parentEventId: string | undefined,
+		chatId: string | null,
 		connection: McpConnectionRow,
 		connector: McpConnectorRow,
 		registerCloser: (client: MCPClient) => RegisteredCloser,
@@ -664,6 +676,7 @@ export class McpChatToolsService {
 						tool,
 						subject,
 						parentEventId,
+						chatId,
 						connector.slug,
 						toolName,
 					)
@@ -919,6 +932,7 @@ export class McpChatToolsService {
 	private createDiscoveryDoors(
 		subject: MeteringSubject,
 		parentEventId: string | undefined,
+		chatId: string | null,
 		runtimes: ConnectorRuntimeContext[],
 	): Record<string, Tool> {
 		const runtimesBySlug = new Map<string, ConnectorRuntimeContext>();
@@ -963,6 +977,7 @@ export class McpChatToolsService {
 					return this.runPlatformTool(
 						subject,
 						parentEventId,
+						chatId,
 						runtimesBySlug,
 						parsed.data,
 						options,
@@ -1201,6 +1216,7 @@ export class McpChatToolsService {
 	private async runPlatformTool(
 		subject: MeteringSubject,
 		parentEventId: string | undefined,
+		chatId: string | null,
 		runtimesBySlug: Map<string, ConnectorRuntimeContext>,
 		input: z.infer<typeof runPlatformToolInputSchema>,
 		options: ToolExecutionOptions<unknown>,
@@ -1267,11 +1283,11 @@ export class McpChatToolsService {
 					return this.executeInlineConnectorTool({
 						connectorSlug: runtime.connector.slug,
 						input: input.params,
-						invoke: () =>
+						invoke: (args) =>
 							callMcpTool(
 								runtime.client,
 								canonical.name,
-								input.params,
+								args as Record<string, unknown>,
 								options,
 								false,
 							),
@@ -1286,37 +1302,25 @@ export class McpChatToolsService {
 				return this.queueBackgroundGeneration(
 					subject,
 					parentEventId,
+					chatId,
 					runtime.connector.slug,
 					canonical.name,
-					await this.refinePromptedGenerationArgs(
-						subject,
-						parentEventId,
-						runtime.connector.slug,
-						canonical.name,
-						input.params,
-					),
+					input.params,
+					options.toolCallId,
 				);
 			}
 		}
 
 		const catalogTool = catalog.find((tool) => tool.name === input.tool_name);
 		if (catalogTool) {
-			const refinedParams = await this.refinePromptedGenerationArgs(
-				subject,
-				parentEventId,
-				runtime.connector.slug,
-				catalogTool.name,
-				input.params,
-			);
-
 			return this.executeInlineConnectorTool({
 				connectorSlug: runtime.connector.slug,
-				input: refinedParams,
-				invoke: () =>
+				input: input.params,
+				invoke: (args) =>
 					callMcpTool(
 						runtime.client,
 						catalogTool.name,
-						refinedParams,
+						args as Record<string, unknown>,
 						options,
 						false,
 					),
@@ -1341,12 +1345,12 @@ export class McpChatToolsService {
 				return this.executeInlineConnectorTool({
 					connectorSlug: runtime.connector.slug,
 					input: input.params,
-					invoke: () =>
+					invoke: (args) =>
 						callMcpTool(
 							runtime.client,
 							"tool_execute",
 							{
-								params: input.params,
+								params: args,
 								tool_name: hiddenOperation.name,
 							},
 							options,
@@ -1427,18 +1431,12 @@ export class McpChatToolsService {
 				)
 					? classifyNestedToolName(input) === "read"
 					: classifyToolName(toolName) === "read";
-				const refinedInput = await this.refinePromptedGenerationArgs(
-					subject,
-					parentEventId,
-					connectorSlug,
-					toolName,
-					input,
-				);
-				const invoke = () => Promise.resolve(execute(refinedInput, options));
+				const invoke = (args: unknown) =>
+					Promise.resolve(execute(args, options));
 
 				return this.executeInlineConnectorTool({
 					connectorSlug,
-					input: refinedInput,
+					input,
 					invoke,
 					options,
 					parentEventId,
@@ -1450,9 +1448,10 @@ export class McpChatToolsService {
 		} as Tool;
 	}
 
-	// Rewrites the generation prompt before any metering reservation or attempt
-	// insert, so a refiner failure costs nothing and the persisted args are the
-	// durable record of what was actually sent.
+	// Rewrites the generation prompt AFTER the metering reservation (the
+	// refiner's own LLM call is billable inside the parent chat event, so it
+	// must not run for a request that cannot hold credits). A refiner failure
+	// degrades to the original arguments.
 	private async refinePromptedGenerationArgs<TArgs>(
 		subject: MeteringSubject,
 		parentEventId: string | undefined,
@@ -1481,7 +1480,8 @@ export class McpChatToolsService {
 	private async executeInlineConnectorTool(input: {
 		connectorSlug: string;
 		input: unknown;
-		invoke: () => Promise<unknown>;
+		/** Receives the (possibly prompt-refined) arguments to send. */
+		invoke: (args: unknown) => Promise<unknown>;
 		options: ToolExecutionOptions<unknown>;
 		parentEventId?: string;
 		retryProviderExecution?: boolean;
@@ -1527,7 +1527,11 @@ export class McpChatToolsService {
 			return guardError;
 		}
 
-		const providerInput = { ...input, targetEntityIds };
+		const providerInput = {
+			...input,
+			invoke: () => input.invoke(input.input),
+			targetEntityIds,
+		};
 
 		// A cost preflight renders nothing — the inline generation tools that
 		// accept it (generate_audio, generate_3d) must not pay the connector
@@ -1536,7 +1540,11 @@ export class McpChatToolsService {
 			return this.invokeProviderTool(providerInput);
 		}
 
-		const plan = connectorGenerationPlan(input.toolName, input.input);
+		const plan = connectorGenerationPlan(
+			input.toolName,
+			input.input,
+			input.connectorSlug,
+		);
 		if (!plan) {
 			return this.invokeProviderTool(providerInput);
 		}
@@ -1554,10 +1562,24 @@ export class McpChatToolsService {
 			parentEventId: input.parentEventId,
 		});
 		assertFreshInlineConnectorReservations(reservations);
+
+		// Reserve-before-refine: the refiner's own LLM spend lands on the parent
+		// chat event only once the user's hold for this generation exists. A
+		// refiner failure degrades to the original arguments and keeps the hold.
+		const executeInput = await this.refinePromptedGenerationArgs(
+			input.subject,
+			input.parentEventId,
+			input.connectorSlug,
+			input.toolName,
+			input.input,
+		);
 		let result: unknown;
 
 		try {
-			result = await this.invokeProviderTool(providerInput);
+			result = await this.invokeProviderTool({
+				...providerInput,
+				invoke: () => input.invoke(executeInput),
+			});
 		} catch (error) {
 			const capture = gatewayGenerationCaptureFromError(error);
 
@@ -1610,8 +1632,14 @@ export class McpChatToolsService {
 		}
 
 		// Provider work has completed, so failures below propagate without a
-		// refund. Persist every discovered gateway id before settling and before
-		// the result can be delivered to the caller.
+		// refund. Persist the durable provider receipt and every discovered
+		// gateway id before settling and before the result can be delivered.
+		await recordConnectorSubmitReceipt(billing, reservations, {
+			connectorSlug: input.connectorSlug,
+			plan,
+			referenceId,
+			result,
+		});
 		const childUnits = deliveredInlineConnectorChildUnits(
 			plan.childOperation,
 			plan.childUnits,
@@ -1724,6 +1752,8 @@ export class McpChatToolsService {
 	private async invokeProviderTool(input: {
 		connectorSlug: string;
 		invoke: () => Promise<unknown>;
+		// Narrower than executeInlineConnectorTool's invoke: callers bind the
+		// arguments first (raw for unbilled paths, refined after a reservation).
 		parentEventId?: string;
 		retryProviderExecution?: boolean;
 		subject: MeteringSubject;
@@ -1840,6 +1870,7 @@ export class McpChatToolsService {
 		tool: Tool,
 		subject: MeteringSubject,
 		parentEventId: string | undefined,
+		chatId: string | null,
 		connectorSlug: string,
 		toolName: string,
 	): Tool {
@@ -1873,21 +1904,13 @@ export class McpChatToolsService {
 					return this.executeInlineConnectorTool({
 						connectorSlug,
 						input,
-						invoke: () => Promise.resolve(inlineExecute(input, options)),
+						invoke: (args) => Promise.resolve(inlineExecute(args, options)),
 						options,
 						parentEventId,
 						subject,
 						toolName,
 					});
 				}
-
-				const refinedInput = await this.refinePromptedGenerationArgs(
-					subject,
-					parentEventId,
-					connectorSlug,
-					toolName,
-					input,
-				);
 
 				if (!env.TRIGGER_SECRET_KEY) {
 					if (typeof inlineExecute !== "function") {
@@ -1898,8 +1921,8 @@ export class McpChatToolsService {
 
 					return this.executeInlineConnectorTool({
 						connectorSlug,
-						input: refinedInput,
-						invoke: () => Promise.resolve(inlineExecute(refinedInput, options)),
+						input,
+						invoke: (args) => Promise.resolve(inlineExecute(args, options)),
 						options,
 						parentEventId,
 						subject,
@@ -1910,9 +1933,11 @@ export class McpChatToolsService {
 				return this.queueBackgroundGeneration(
 					subject,
 					parentEventId,
+					chatId,
 					connectorSlug,
 					toolName,
-					refinedInput,
+					input,
+					options.toolCallId,
 				);
 			},
 		} as Tool;
@@ -1921,19 +1946,53 @@ export class McpChatToolsService {
 	private async queueBackgroundGeneration(
 		subject: MeteringSubject,
 		parentEventId: string | undefined,
+		chatId: string | null,
 		connectorSlug: string,
 		toolName: string,
 		args: unknown,
+		toolCallId: string,
 	): Promise<Record<string, unknown>> {
+		// Request idempotency: a duplicated delivery of this exact tool call
+		// (same toolCallId) lands on the original attempt — one generation, one
+		// reservation, one Trigger handoff. Without a chat the (chatId,
+		// requestKey) index never conflicts and the Trigger key is the guard.
+		const requestKey = createHash("sha256")
+			.update(
+				JSON.stringify({ args, connectorSlug, request: toolCallId, toolName }),
+			)
+			.digest("hex");
 		const attempt = await this.connectorGenerationsRepository.insertAttempt({
 			args: args !== null && typeof args === "object" ? args : {},
+			chatId,
 			connectorSlug,
 			organizationId: subject.organizationId ?? null,
+			requestKey,
 			toolName,
 			userId: subject.actorUserId,
 		});
 
-		const plan = connectorGenerationPlan(toolName, args);
+		if (!attempt.created && attempt.status === "failed") {
+			return platformToolError(
+				"This exact generation request already failed. Tell the user and " +
+					"wait for a new request before retrying.",
+			);
+		}
+
+		if (!attempt.created) {
+			return {
+				attemptId: attempt.id,
+				connector: connectorSlug,
+				kind: CONNECTOR_GENERATION_OUTPUT_KIND,
+				note:
+					"This generation request was already accepted. Its existing " +
+					"progress or result card appears in the conversation — do not " +
+					"start a second generation.",
+				status: "queued",
+				tool: toolName,
+			};
+		}
+
+		const plan = connectorGenerationPlan(toolName, args, connectorSlug);
 		if (!plan) {
 			const error = new Error(
 				`${connectorSlug}/${toolName} is not a registered connector generation`,
@@ -1956,10 +2015,25 @@ export class McpChatToolsService {
 			throw error;
 		}
 
+		// Reserve-before-refine: the refined arguments travel in the payload and
+		// the task's claim persists them on the attempt row (the durable record
+		// of what was sent). A refiner failure keeps the original arguments.
+		const executeArgs = await this.refinePromptedGenerationArgs(
+			subject,
+			parentEventId,
+			connectorSlug,
+			toolName,
+			args,
+		);
+
 		let handle: { id: string };
 
 		try {
 			handle = await triggerConnectorGenerationTask({
+				args:
+					executeArgs !== null && typeof executeArgs === "object"
+						? (executeArgs as Record<string, unknown>)
+						: undefined,
 				attemptId: attempt.id,
 				billing: reservations,
 				billingMode: connectorBillingAdmissionMode(reservations),
@@ -2119,6 +2193,7 @@ export class McpChatToolsService {
 }
 
 async function triggerConnectorGenerationTask(input: {
+	args?: Record<string, unknown>;
 	attemptId: string;
 	billing: ConnectorGenerationReservations;
 	billingMode: "enforce" | "off";
@@ -2136,6 +2211,7 @@ async function triggerConnectorGenerationTask(input: {
 			return await tasks.trigger<typeof runConnectorGenerationTask>(
 				"run-connector-generation",
 				{
+					...(input.args ? { args: input.args } : {}),
 					attemptId: input.attemptId,
 					billing: input.billing,
 					billingMode: input.billingMode,

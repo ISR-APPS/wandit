@@ -50,6 +50,7 @@ const CONNECTOR_ID = "22222222-2222-4222-8222-222222222222";
 const OTHER_CONNECTION_ID = "33333333-3333-4333-8333-333333333333";
 const OTHER_CONNECTOR_ID = "44444444-4444-4444-8444-444444444444";
 const GENERATION_ATTEMPT_ID = "55555555-5555-4555-8555-555555555555";
+const CHAT_ID = "66666666-6666-4666-8666-666666666666";
 const INITIALIZE_RESULT: InitializeResult = {
 	capabilities: {},
 	protocolVersion: "2025-11-25",
@@ -255,7 +256,11 @@ function buildService({
 		getValidAccessToken: vi.fn().mockResolvedValue("plain-access-token"),
 	};
 	const connectorGenerationsRepository = {
-		insertAttempt: vi.fn().mockResolvedValue({ id: GENERATION_ATTEMPT_ID }),
+		insertAttempt: vi.fn().mockResolvedValue({
+			created: true,
+			id: GENERATION_ATTEMPT_ID,
+			status: "queued",
+		}),
 		markAttemptFailed: vi.fn().mockResolvedValue(true),
 		markAttemptTriggered: vi.fn().mockResolvedValue(undefined),
 	};
@@ -266,6 +271,12 @@ function buildService({
 	let meteringEventIndex = 0;
 	const meteringService = {
 		captureGeneration: vi.fn().mockResolvedValue({ id: "generation-ref" }),
+		captureProviderCallEvidence: vi.fn(
+			async (eventId: string, evidence: { idempotencyKey: string }) => ({
+				id: `evidence:${evidence.idempotencyKey}`,
+				usageEventId: eventId,
+			}),
+		),
 		findByIdempotencyKey: vi.fn(
 			async (idempotencyKey: string) =>
 				meteringEvents.get(idempotencyKey) ?? null,
@@ -1532,10 +1543,13 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				1,
 				"connector",
 				{ actorUserId: USER_ID },
+				// The MCP render runs on the user's own subscription: 1 cc holds.
 				{
 					attemptRef: referenceId,
-					credits: 500,
+					credits: 1,
+					estimatedCostUsdMicros: null,
 					idempotencyKey: `connector:${referenceId}`,
+					measuredTerms: { estimatedUnitUsdMicros: null, units: 1 },
 					parentEventId: "chat-event",
 				},
 			);
@@ -1545,8 +1559,10 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				{ actorUserId: USER_ID },
 				{
 					attemptRef: referenceId,
-					credits: 600,
+					credits: 1,
+					estimatedCostUsdMicros: 0,
 					idempotencyKey: `image:${referenceId}`,
+					measuredTerms: { estimatedUnitUsdMicros: 0, units: 2 },
 					parentEventId: "usage-event-1",
 				},
 			);
@@ -1557,7 +1573,8 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				{
 					eventId: "usage-event-1",
 					settlement: expect.objectContaining({
-						finalCredits: 500,
+						costUsdMicros: 0,
+						finalCredits: 0,
 						pricing: "direct",
 						pricingSnapshot: expect.objectContaining({
 							operation: "connector",
@@ -1568,7 +1585,8 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				{
 					eventId: "usage-event-2",
 					settlement: expect.objectContaining({
-						finalCredits: 300,
+						costUsdMicros: 0,
+						finalCredits: 0,
 						pricing: "direct",
 						pricingSnapshot: expect.objectContaining({
 							operation: "image",
@@ -1902,7 +1920,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			expect(meteringService.reserveWithReplay).toHaveBeenCalledWith(
 				"connector",
 				{ actorUserId: USER_ID },
-				expect.objectContaining({ credits: 500, parentEventId: "chat-event" }),
+				expect.objectContaining({ credits: 1, parentEventId: "chat-event" }),
 			);
 		});
 
@@ -1966,7 +1984,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				"connector",
 				{ actorUserId: USER_ID },
 				expect.objectContaining({
-					credits: 500,
+					credits: 1,
 					idempotencyKey: `connector:${GENERATION_ATTEMPT_ID}`,
 					parentEventId: "chat-event",
 				}),
@@ -1976,7 +1994,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				"video",
 				{ actorUserId: USER_ID },
 				expect.objectContaining({
-					credits: 2000,
+					credits: 1,
 					idempotencyKey: `video:${GENERATION_ATTEMPT_ID}`,
 					parentEventId: "usage-event-1",
 				}),
@@ -1984,22 +2002,38 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			expect(triggerMocks.trigger).toHaveBeenCalledWith(
 				"run-connector-generation",
 				{
+					args: {
+						prompt:
+							"SUBJECT: PulseBuds earbuds. KEY MOMENT: the case snaps open in morning light.",
+					},
 					attemptId: GENERATION_ATTEMPT_ID,
 					billing: {
 						child: {
-							credits: 2000,
+							credits: 1,
 							eventId: "usage-event-2",
 							operation: "video",
 							referenceId: GENERATION_ATTEMPT_ID,
 							replay: "none",
+							terms: {
+								estimatedUnitUsdMicros: null,
+								mode: "measured",
+								unit: "video",
+								usdMicrosPerCredit: 40_000,
+							},
 							units: 1,
 						},
 						connector: {
-							credits: 500,
+							credits: 1,
 							eventId: "usage-event-1",
 							operation: "connector",
 							referenceId: GENERATION_ATTEMPT_ID,
 							replay: "none",
+							terms: {
+								estimatedUnitUsdMicros: null,
+								mode: "measured",
+								unit: "operation",
+								usdMicrosPerCredit: 40_000,
+							},
 							units: 1,
 						},
 					},
@@ -2260,6 +2294,88 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				}),
 			);
 			expect(triggerMocks.trigger).toHaveBeenCalledTimes(1);
+		});
+
+		it("dedupes a duplicated queue request onto one attempt and one reservation", async () => {
+			(env as typeof env & { TRIGGER_SECRET_KEY?: string }).TRIGGER_SECRET_KEY =
+				"tr_test";
+			queueClient(mockClient({ definitions: [definition("generate_image")] }));
+			const { connectorGenerationsRepository, meteringService, service } =
+				buildService({ connectors: [connector({ slug: "higgsfield" })] });
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+				CHAT_ID,
+			);
+			const tool = requiredTool(result.tools, "mcp_higgsfield_generate_image");
+			const input = {
+				params: { count: 2, model: "seedream", prompt: "A product photo" },
+			};
+
+			await executeTool(tool, input, toolExecutionOptions("call-image-dup"));
+			// Second delivery of the SAME tool call: the repository reports the
+			// existing row; nothing is reserved or triggered again.
+			connectorGenerationsRepository.insertAttempt.mockResolvedValueOnce({
+				created: false,
+				id: GENERATION_ATTEMPT_ID,
+				status: "running",
+			});
+			const replay = await executeTool(
+				tool,
+				input,
+				toolExecutionOptions("call-image-dup"),
+			);
+
+			expect(replay).toMatchObject({
+				attemptId: GENERATION_ATTEMPT_ID,
+				kind: "wandit_background_generation",
+				status: "queued",
+			});
+			const [first, second] =
+				connectorGenerationsRepository.insertAttempt.mock.calls;
+
+			expect(first?.[0]).toMatchObject({
+				chatId: CHAT_ID,
+				requestKey: expect.stringMatching(/^[0-9a-f]{64}$/),
+			});
+			expect(second?.[0].requestKey).toBe(first?.[0].requestKey);
+			expect(meteringService.reserveWithReplay).toHaveBeenCalledTimes(2);
+			expect(triggerMocks.trigger).toHaveBeenCalledTimes(1);
+
+			// A different tool call id is a different request.
+			await executeTool(tool, input, toolExecutionOptions("call-image-other"));
+			expect(
+				connectorGenerationsRepository.insertAttempt.mock.calls[2]?.[0]
+					.requestKey,
+			).not.toBe(first?.[0].requestKey);
+		});
+
+		it("answers a replay of a failed request without re-reserving", async () => {
+			(env as typeof env & { TRIGGER_SECRET_KEY?: string }).TRIGGER_SECRET_KEY =
+				"tr_test";
+			queueClient(mockClient({ definitions: [definition("generate_image")] }));
+			const { connectorGenerationsRepository, meteringService, service } =
+				buildService({ connectors: [connector({ slug: "higgsfield" })] });
+			connectorGenerationsRepository.insertAttempt.mockResolvedValueOnce({
+				created: false,
+				id: GENERATION_ATTEMPT_ID,
+				status: "failed",
+			});
+			const result = await service.resolveToolsForUser(
+				{ actorUserId: USER_ID },
+				"chat-event",
+				CHAT_ID,
+			);
+
+			const replay = (await executeTool(
+				requiredTool(result.tools, "mcp_higgsfield_generate_image"),
+				{ params: { count: 1, model: "seedream", prompt: "A product photo" } },
+				toolExecutionOptions("call-image-failed"),
+			)) as { isError: boolean };
+
+			expect(replay.isError).toBe(true);
+			expect(meteringService.reserveWithReplay).not.toHaveBeenCalled();
+			expect(triggerMocks.trigger).not.toHaveBeenCalled();
 		});
 
 		it("rejects a one-line video prompt with intake guidance before any cost", async () => {
@@ -2712,10 +2828,25 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			expect(promptRefiner.refineGenerationArgs).toHaveBeenCalledWith(
 				expect.objectContaining({ toolName: "generate_video" }),
 			);
+			// Reserve-before-refine: the attempt row is inserted with the original
+			// arguments and the refined ones travel in the Trigger payload (the
+			// task's claim persists them on the row).
 			expect(connectorGenerationsRepository.insertAttempt).toHaveBeenCalledWith(
+				expect.objectContaining({
+					args: {
+						params: {
+							prompt:
+								"SUBJECT: a serum bottle on marble. KEY MOMENT: one drop lands and settles.",
+						},
+					},
+				}),
+			);
+			expect(triggerMocks.trigger).toHaveBeenCalledWith(
+				"run-connector-generation",
 				expect.objectContaining({
 					args: { params: { prompt: "refined film" } },
 				}),
+				expect.anything(),
 			);
 		});
 

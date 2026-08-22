@@ -61,6 +61,10 @@ function event(input: {
 		settledAt: null,
 		status: "reserved" as const,
 		userId: BASE_ROW.userId,
+		executionLeaseToken: null,
+		executionLeaseExpiresAt: null,
+		reconcileAttempts: 0,
+		nextReconcileAttemptAt: null,
 	};
 }
 

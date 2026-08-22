@@ -34,10 +34,19 @@ type SeedRow = {
 	chargeId?: string;
 	delta: number;
 	idempotencyKey?: string;
-	kind: "grant" | "revoke" | "topup";
+	kind: "expire" | "grant" | "revoke" | "topup";
 	meta?: CreditMeta;
 	paymentIntentId?: string;
 	userId?: string;
+};
+
+type FakeSlot = {
+	canceledReason: string | null;
+	canonical: boolean;
+	chargeId: string;
+	dueAt: Date;
+	id: string;
+	status: "canceled" | "granted" | "pending";
 };
 
 class InMemoryBillingCreditLedgerRepository {
@@ -57,6 +66,7 @@ class InMemoryBillingCreditLedgerRepository {
 	}> = [];
 	readonly ownerLockCalls: CreditOwner[] = [];
 	readonly transactionClient = { kind: "charge-lock-transaction" };
+	readonly slots: FakeSlot[] = [];
 	private readonly pendingSlotsByCharge = new Map<string, number>();
 
 	private lock: Promise<void> = Promise.resolve();
@@ -142,14 +152,120 @@ class InMemoryBillingCreditLedgerRepository {
 		transaction: unknown,
 	) {
 		this.canceledSlotCalls.push({ chargeId, transaction });
-		const count = this.pendingSlotsByCharge.get(chargeId) ?? 0;
+		let count = this.pendingSlotsByCharge.get(chargeId) ?? 0;
 		this.pendingSlotsByCharge.set(chargeId, 0);
+
+		for (const slot of this.slots) {
+			if (slot.chargeId === chargeId && slot.status === "pending") {
+				slot.status = "canceled";
+				slot.canceledReason = "clawback";
+				count += 1;
+			}
+		}
 
 		return count;
 	}
 
+	async restorePendingRefillSlotsForCharge(chargeId: string, now: Date) {
+		const restored: string[] = [];
+		const skipped: string[] = [];
+
+		for (const slot of this.slots) {
+			if (
+				slot.chargeId !== chargeId ||
+				slot.status !== "canceled" ||
+				slot.canceledReason !== "clawback" ||
+				slot.dueAt <= now
+			) {
+				continue;
+			}
+
+			if (!slot.canonical) {
+				skipped.push(slot.id);
+				continue;
+			}
+
+			slot.status = "pending";
+			slot.canceledReason = null;
+			restored.push(slot.id);
+		}
+
+		return { restored, skipped };
+	}
+
+	async findExpiredPlanCreditsForPayment(input: {
+		chargeId: string;
+		paymentIntentId: string | null;
+	}) {
+		// Mirrors the real repository: one expire sum per (owner, subscription),
+		// capped at the charge's total plan grants, so a yearly charge's slot
+		// grants never re-count the same expire row.
+		const groups = new Map<
+			string,
+			{ earliestGrantAt: Date; granted: number; userId: string }
+		>();
+
+		for (const grant of await this.findPositiveRowsForPayment(input)) {
+			if (grant.bucket !== "plan") {
+				continue;
+			}
+
+			const subscriptionId = (grant.meta as CreditMeta).subscriptionId;
+
+			if (typeof subscriptionId !== "string") {
+				continue;
+			}
+
+			const key = `${grant.userId}|${subscriptionId}`;
+			const group = groups.get(key);
+
+			if (group) {
+				group.granted += grant.delta;
+				group.earliestGrantAt =
+					grant.createdAt < group.earliestGrantAt
+						? grant.createdAt
+						: group.earliestGrantAt;
+			} else {
+				groups.set(key, {
+					earliestGrantAt: grant.createdAt,
+					granted: grant.delta,
+					userId: grant.userId as string,
+				});
+			}
+		}
+
+		let expired = 0;
+
+		for (const [key, group] of groups) {
+			const subscriptionId = key.slice(key.indexOf("|") + 1);
+			const sum = this.rows
+				.filter(
+					(row) =>
+						row.kind === "expire" &&
+						row.bucket === "plan" &&
+						row.userId === group.userId &&
+						row.createdAt >= group.earliestGrantAt &&
+						(row.meta as CreditMeta).subscriptionId === subscriptionId,
+				)
+				.reduce((total, row) => total + Math.abs(row.delta), 0);
+			expired += Math.min(group.granted, sum);
+		}
+
+		return expired;
+	}
+
 	seedPendingSlots(chargeId: string, count: number) {
 		this.pendingSlotsByCharge.set(chargeId, count);
+	}
+
+	seedSlot(input: Partial<FakeSlot> & { chargeId: string; id: string }) {
+		this.slots.push({
+			canceledReason: null,
+			canonical: true,
+			dueAt: new Date(Date.now() + 30 * 86_400_000),
+			status: "pending",
+			...input,
+		});
 	}
 
 	seed(input: SeedRow): BillingCreditLedgerRow {
@@ -266,6 +382,28 @@ class FakeStripeProvider {
 	readonly listDisputesForCharge = vi.fn(async (chargeId: string) => {
 		return this.disputes.get(chargeId) ?? [];
 	});
+
+	readonly retrieveDispute = vi.fn(async (disputeId: string) => {
+		for (const values of this.disputes.values()) {
+			const found = values.find((candidate) => candidate.id === disputeId);
+
+			if (found) {
+				return found;
+			}
+		}
+
+		return (
+			this.freshDisputes.get(disputeId) ??
+			DISPUTE_FIXTURES.get(disputeId) ??
+			dispute({ id: disputeId })
+		);
+	});
+
+	seedFreshDispute(value: Stripe.Dispute) {
+		this.freshDisputes.set(value.id, value);
+	}
+
+	private readonly freshDisputes = new Map<string, Stripe.Dispute>();
 
 	readonly retrieveCharge = vi.fn(async (chargeId: string) => {
 		return (
@@ -401,7 +539,7 @@ function dispute(input: {
 	paymentIntent?: string | Stripe.PaymentIntent | null;
 	status?: string;
 }) {
-	return {
+	const value = {
 		amount: input.amount ?? 2_000,
 		charge: input.charge === undefined ? "ch_1" : input.charge,
 		currency: input.currency ?? "usd",
@@ -410,7 +548,14 @@ function dispute(input: {
 			input.paymentIntent === undefined ? "pi_1" : input.paymentIntent,
 		status: input.status ?? "needs_response",
 	} as Stripe.Dispute;
+	// The service re-retrieves every dispute it handles; the fake provider
+	// answers with the most recently built fixture for that id.
+	DISPUTE_FIXTURES.set(value.id, value);
+
+	return value;
 }
+
+const DISPUTE_FIXTURES = new Map<string, Stripe.Dispute>();
 
 describe("PaymentRefundsService", () => {
 	it("reconciles refund lifecycle events by refund id and payment intent", async () => {
@@ -759,7 +904,7 @@ describe("PaymentRefundsService", () => {
 			125,
 			{
 				bucket: "topup",
-				idempotencyKey: "refund:ch_1:500",
+				idempotencyKey: "refund:ch_1:cum:125",
 				meta: {
 					chargeId: "ch_1",
 					paymentIntentId: "pi_1",
@@ -774,7 +919,7 @@ describe("PaymentRefundsService", () => {
 			175,
 			{
 				bucket: "topup",
-				idempotencyKey: "refund:ch_1:1200",
+				idempotencyKey: "refund:ch_1:cum:300",
 				meta: {
 					chargeId: "ch_1",
 					paymentIntentId: "pi_1",
@@ -858,7 +1003,7 @@ describe("PaymentRefundsService", () => {
 			166,
 			{
 				bucket: "plan",
-				idempotencyKey: "refund:ch_plan:500",
+				idempotencyKey: "refund:ch_plan:cum:166",
 				meta: {
 					chargeId: "ch_plan",
 					paymentIntentId: "pi_plan",
@@ -909,7 +1054,7 @@ describe("PaymentRefundsService", () => {
 			1,
 			{
 				bucket: "plan",
-				idempotencyKey: "refund:ch_mixed:1:plan",
+				idempotencyKey: "refund:ch_mixed:cum:1:plan",
 				meta: {
 					chargeId: "ch_mixed",
 					paymentIntentId: "pi_mixed",
@@ -924,7 +1069,7 @@ describe("PaymentRefundsService", () => {
 			1,
 			{
 				bucket: "topup",
-				idempotencyKey: "refund:ch_mixed:2:topup",
+				idempotencyKey: "refund:ch_mixed:cum:2:topup",
 				meta: {
 					chargeId: "ch_mixed",
 					paymentIntentId: "pi_mixed",
@@ -989,7 +1134,7 @@ describe("PaymentRefundsService", () => {
 			200,
 			expect.objectContaining({
 				bucket: "topup",
-				idempotencyKey: "refund:ch_legacy:500",
+				idempotencyKey: "refund:ch_legacy:cum:200",
 			}),
 			repository.transactionClient,
 		);
@@ -1093,6 +1238,267 @@ describe("PaymentRefundsService", () => {
 				transaction: repository.transactionClient,
 			},
 		]);
+	});
+
+	it("applies the missing tranche under a new cumulative key after a later refill, and replays as a no-op", async () => {
+		const { credits, repository, service } = setup();
+		const paidCharge = charge({
+			amountCaptured: 1_000,
+			amountRefunded: 500,
+			id: "ch_refill_later",
+			paymentIntent: "pi_refill_later",
+		});
+		repository.seed({
+			bucket: "plan",
+			chargeId: paidCharge.id,
+			delta: 400,
+			kind: "grant",
+			paymentIntentId: "pi_refill_later",
+		});
+
+		await service.handleChargeRefunded(paidCharge);
+		await service.handleChargeRefunded(paidCharge);
+
+		// The replay recomputes the same target and finds it already revoked.
+		expect(credits.revoke).toHaveBeenCalledTimes(1);
+		expect(credits.revoke).toHaveBeenLastCalledWith(
+			userOwner("user_1"),
+			200,
+			expect.objectContaining({
+				idempotencyKey: "refund:ch_refill_later:cum:200",
+			}),
+			repository.transactionClient,
+		);
+		expect(repository.rows.filter((row) => row.kind === "revoke")).toHaveLength(
+			1,
+		);
+
+		// A yearly refill slot funded by the same charge lands later.
+		repository.seed({
+			bucket: "plan",
+			chargeId: paidCharge.id,
+			delta: 400,
+			kind: "grant",
+			paymentIntentId: "pi_refill_later",
+		});
+
+		await service.handleChargeRefunded(paidCharge);
+
+		expect(credits.revoke).toHaveBeenLastCalledWith(
+			userOwner("user_1"),
+			200,
+			expect.objectContaining({
+				idempotencyKey: "refund:ch_refill_later:cum:400",
+			}),
+			repository.transactionClient,
+		);
+		expect(
+			repository.rows
+				.filter((row) => row.kind === "revoke")
+				.reduce((sum, row) => sum + Math.abs(row.delta), 0),
+		).toBe(400);
+	});
+
+	it("subtracts already-expired plan credits from a refund clawback", async () => {
+		const full = setup();
+		const fullCharge = charge({
+			amountCaptured: 1_000,
+			amountRefunded: 1_000,
+			id: "ch_expired_full",
+			paymentIntent: "pi_expired_full",
+		});
+		full.repository.seed({
+			bucket: "plan",
+			chargeId: fullCharge.id,
+			delta: 400,
+			kind: "grant",
+			meta: { subscriptionId: "sub_expired" },
+			paymentIntentId: "pi_expired_full",
+		});
+		full.repository.seed({
+			bucket: "plan",
+			delta: -400,
+			kind: "expire",
+			meta: { reason: "subscription_ended", subscriptionId: "sub_expired" },
+		});
+
+		await expect(full.service.handleChargeRefunded(fullCharge)).resolves.toBe(
+			true,
+		);
+		expect(full.credits.revoke).not.toHaveBeenCalled();
+
+		const partial = setup();
+		const partialCharge = charge({
+			amountCaptured: 1_000,
+			amountRefunded: 1_000,
+			id: "ch_expired_partial",
+			paymentIntent: "pi_expired_partial",
+		});
+		partial.repository.seed({
+			bucket: "plan",
+			chargeId: partialCharge.id,
+			delta: 400,
+			kind: "grant",
+			meta: { subscriptionId: "sub_expired" },
+			paymentIntentId: "pi_expired_partial",
+		});
+		partial.repository.seed({
+			bucket: "plan",
+			delta: -150,
+			kind: "expire",
+			meta: { reason: "rollover_cap", subscriptionId: "sub_expired" },
+		});
+		// An expiry for another subscription never offsets this charge.
+		partial.repository.seed({
+			bucket: "plan",
+			delta: -100,
+			kind: "expire",
+			meta: { reason: "rollover_cap", subscriptionId: "sub_other" },
+		});
+
+		await partial.service.handleChargeRefunded(partialCharge);
+
+		expect(partial.credits.revoke).toHaveBeenCalledWith(
+			userOwner("user_1"),
+			250,
+			expect.objectContaining({
+				idempotencyKey: "refund:ch_expired_partial:cum:400",
+			}),
+			partial.repository.transactionClient,
+		);
+	});
+
+	it("counts each expire row once across the slot grants of one yearly charge", async () => {
+		// Yearly Pro 250: one charge funds three monthly refill slots of 25_000
+		// cc. The month-3 refill expires 25_000 (rollover cap). A full refund
+		// must claw back granted - expired = 50_000, not 0.
+		const { credits, repository, service } = setup();
+		const yearly = charge({
+			amountCaptured: 25_000,
+			amountRefunded: 25_000,
+			id: "ch_yearly",
+			paymentIntent: "pi_yearly",
+		});
+
+		for (let slot = 0; slot < 3; slot += 1) {
+			repository.seed({
+				bucket: "plan",
+				chargeId: yearly.id,
+				delta: 25_000,
+				kind: "grant",
+				meta: { subscriptionId: "sub_yearly" },
+				paymentIntentId: "pi_yearly",
+			});
+		}
+
+		repository.seed({
+			bucket: "plan",
+			delta: -25_000,
+			kind: "expire",
+			meta: { reason: "rollover_cap", subscriptionId: "sub_yearly" },
+		});
+
+		await expect(service.handleChargeRefunded(yearly)).resolves.toBe(true);
+		expect(credits.revoke).toHaveBeenCalledWith(
+			userOwner("user_1"),
+			50_000,
+			expect.objectContaining({
+				idempotencyKey: "refund:ch_yearly:cum:75000",
+			}),
+			repository.transactionClient,
+		);
+	});
+
+	it("restores clawback-canceled future slots on a won dispute and skips non-canonical ones", async () => {
+		const { repository, service, stripe } = setup();
+		const disputedCharge = charge({
+			amountCaptured: 1_000,
+			id: "ch_slot_restore",
+			paymentIntent: "pi_slot_restore",
+		});
+		stripe.seedCharge(disputedCharge);
+		repository.seedSlot({ chargeId: disputedCharge.id, id: "slot_future" });
+		repository.seedSlot({
+			canonical: false,
+			chargeId: disputedCharge.id,
+			id: "slot_foreign",
+		});
+		repository.seedSlot({
+			chargeId: disputedCharge.id,
+			dueAt: new Date(Date.now() - 86_400_000),
+			id: "slot_past",
+		});
+		repository.seedSlot({
+			canceledReason: "replaced",
+			chargeId: disputedCharge.id,
+			id: "slot_replaced",
+			status: "canceled",
+		});
+		const created = dispute({
+			charge: disputedCharge,
+			id: "dp_slot_restore",
+			paymentIntent: "pi_slot_restore",
+		});
+
+		await expect(service.handleChargeDisputeCreated(created)).resolves.toBe(
+			true,
+		);
+		expect(
+			repository.slots
+				.filter((slot) => slot.canceledReason === "clawback")
+				.map((slot) => slot.id),
+		).toEqual(["slot_future", "slot_foreign", "slot_past"]);
+
+		const won = dispute({
+			charge: disputedCharge.id,
+			id: "dp_slot_restore",
+			paymentIntent: "pi_slot_restore",
+			status: "won",
+		});
+		stripe.seedDisputes(disputedCharge.id, [won]);
+
+		await expect(service.handleChargeDisputeClosed(won)).resolves.toBe(true);
+
+		expect(
+			repository.slots.map((slot) => [
+				slot.id,
+				slot.status,
+				slot.canceledReason,
+			]),
+		).toEqual([
+			["slot_future", "pending", null],
+			["slot_foreign", "canceled", "clawback"],
+			["slot_past", "canceled", "clawback"],
+			["slot_replaced", "canceled", "replaced"],
+		]);
+	});
+
+	it("ignores a stale dispute.created replay after the dispute was won", async () => {
+		const { credits, repository, service, stripe } = setup();
+		const disputedCharge = charge({
+			amountCaptured: 1_000,
+			id: "ch_stale_dispute",
+			paymentIntent: "pi_stale_dispute",
+		});
+		repository.seed({
+			bucket: "topup",
+			chargeId: disputedCharge.id,
+			delta: 400,
+			kind: "topup",
+			paymentIntentId: "pi_stale_dispute",
+		});
+		const staleEvent = dispute({
+			charge: disputedCharge,
+			id: "dp_stale",
+			paymentIntent: "pi_stale_dispute",
+		});
+		stripe.seedFreshDispute({ ...staleEvent, status: "won" });
+
+		await expect(service.handleChargeDisputeCreated(staleEvent)).resolves.toBe(
+			false,
+		);
+		expect(stripe.retrieveDispute).toHaveBeenCalledWith("dp_stale");
+		expect(credits.revoke).not.toHaveBeenCalled();
 	});
 
 	it("adds multiple partial disputes while capping cumulative clawback at the original grant", async () => {
@@ -1362,7 +1768,7 @@ describe("PaymentRefundsService", () => {
 			userOwner("user_1"),
 			100,
 			expect.objectContaining({
-				idempotencyKey: `refund:${freshCharge.id}:500`,
+				idempotencyKey: `refund:${freshCharge.id}:cum:200`,
 			}),
 			repository.transactionClient,
 		);
@@ -1494,7 +1900,7 @@ describe("PaymentRefundsService", () => {
 			150,
 			expect.objectContaining({
 				bucket: "plan",
-				idempotencyKey: "refund:ch_legacy_bucket:500",
+				idempotencyKey: "refund:ch_legacy_bucket:cum:250",
 			}),
 			repository.transactionClient,
 		);
@@ -1634,7 +2040,7 @@ describe("PaymentRefundsService", () => {
 			200,
 			expect.objectContaining({
 				bucket: "topup",
-				idempotencyKey: "refund:ch_after_grant:500",
+				idempotencyKey: "refund:ch_after_grant:cum:200",
 			}),
 			repository.transactionClient,
 		);
@@ -1855,7 +2261,7 @@ describe("PaymentRefundsService", () => {
 			100,
 			expect.objectContaining({
 				bucket: "plan",
-				idempotencyKey: "refund:ch_direct:500",
+				idempotencyKey: "refund:ch_direct:cum:100",
 			}),
 			repository.transactionClient,
 		);

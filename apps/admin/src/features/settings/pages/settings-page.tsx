@@ -19,6 +19,7 @@ import { useProductSettingsQuery } from "@/features/settings/api/settings.querie
 import { BillingOpsCard } from "@/features/settings/components/billing-ops-card";
 import { ProductControlsCard } from "@/features/settings/components/product-controls-card";
 import { SettingsPageSkeleton } from "@/features/settings/components/settings-page-skeleton";
+import { SignupGrantBackfillCard } from "@/features/settings/components/signup-grant-backfill-card";
 
 const settingsDateTimeFormatter = new Intl.DateTimeFormat("en-US", {
 	day: "numeric",
@@ -134,7 +135,10 @@ export function SettingsPage() {
 					settings={settings}
 					reloadSettings={reloadSettings}
 				/>
-				<BillingOpsCard />
+				<div className="flex flex-col gap-6">
+					<SignupGrantBackfillCard settings={settings} />
+					<BillingOpsCard />
+				</div>
 			</div>
 		</div>
 	);

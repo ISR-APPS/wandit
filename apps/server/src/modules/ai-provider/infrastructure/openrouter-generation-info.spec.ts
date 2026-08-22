@@ -117,7 +117,7 @@ describe("createOpenRouterGenerationInfo", () => {
 		expect(isGatewayUsagePending(error)).toBe(true);
 	});
 
-	it("keeps hard failures non-retryable", async () => {
+	it("keeps contract-level failures non-retryable and 5xx retryable", async () => {
 		const { fetch } = fetchReturning(500, {});
 		const client = createOpenRouterGenerationInfo({ apiKey: "sk-or-1", fetch });
 
@@ -128,7 +128,24 @@ describe("createOpenRouterGenerationInfo", () => {
 				(caught: unknown) => caught,
 			);
 
+		// A 5xx never proves the generation is unbillable — the sweep retries
+		// under its bounded age budget instead of terminalizing.
 		expect(error).toMatchObject({ statusCode: 500 });
-		expect(isGatewayUsagePending(error)).toBe(false);
+		expect(isGatewayUsagePending(error)).toBe(true);
+
+		const { fetch: unauthorized } = fetchReturning(401, {});
+		const unauthorizedClient = createOpenRouterGenerationInfo({
+			apiKey: "sk-or-1",
+			fetch: unauthorized,
+		});
+		const contractError = await unauthorizedClient
+			.getGenerationInfo({ id: "gen-abc123", source: "openrouter" })
+			.then(
+				() => null,
+				(caught: unknown) => caught,
+			);
+
+		expect(contractError).toMatchObject({ statusCode: 401 });
+		expect(isGatewayUsagePending(contractError)).toBe(false);
 	});
 });

@@ -7,8 +7,8 @@ import { isoDateTimeSchema, uuidSchema } from "./shared/primitives";
 
 // Credits contracts (docs/features/credits.md + docs/features/billing.md).
 // The ledger is append-only and payment-provider-agnostic; balance =
-// sum(delta). Per-action costs live here so web price tags and server debits
-// never disagree.
+// sum(delta). Every operation bills measured provider cost; the UI shows no
+// per-action prices, so no display-price map lives here.
 
 // Mirrors credit_kind in packages/db/src/schema/credits.ts. Signed deltas:
 // grant/topup positive, consume/expire/revoke negative.
@@ -114,22 +114,9 @@ export const creditLedgerResponseSchema = paginatedResultSchema(
 
 export type CreditLedgerResponse = z.infer<typeof creditLedgerResponseSchema>;
 
-// Pricing v4 display prices in decimal credits. chatMessage is a display
-// anchor only: chat charges real token cost in 0.01-credit steps with a 0.10
-// reserve floor.
-export const CREDIT_COSTS = {
-	landingPageGeneration: 10,
-	chatMessage: 1,
-	imageGeneration: 3,
-	marketingAssetGeneration: 7,
-	videoGeneration: 20,
-	connectorGeneration: 5,
-	leadScrape: 5,
-} as const;
-
-// Free-user grant: 50 credits = $5 face value = $1.40 of AI-provider value at
-// $0.028/credit (280 USD micros per centi-credit). The count is the stable
-// product decision; the server writes it to the ledger x100 as centi-credits.
+// Free-user grant: 50 credits = $2.00 of AI-provider value at $0.04/credit
+// (400 USD micros per centi-credit). The count is the stable product
+// decision; the server writes it to the ledger x100 as centi-credits.
 export const SIGNUP_GRANT_CREDITS = 50;
 
 export const creditsRoutes = {

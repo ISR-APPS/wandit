@@ -36,6 +36,7 @@ import {
 } from "../../../../infrastructure/database/database.constants";
 import {
 	AI_SPEND_STATUSES,
+	aiUsageEventCostProvenance,
 	aiUsageEventCostUsdMicros,
 } from "./ai-usage-cost.sql";
 
@@ -91,6 +92,7 @@ export type AdminOrgLedgerRow = {
 	aiModel: string | null;
 	aiProvider: string | null;
 	aiCostUsdMicros: number | null;
+	aiCostProvenance: string | null;
 };
 
 export type AdminOrgAiSpendRow = {
@@ -104,6 +106,8 @@ const entitledStatuses = [...ENTITLED_SUBSCRIPTION_STATUSES];
 // (packages/db/src/schema/billing.ts) and AdminRepository — there is no shared
 // constant to import.
 const TERMINAL_SUBSCRIPTION_STATUSES = ["canceled", "incomplete_expired"];
+
+type AdminOrganizationsDbClient = Pick<Database, "select">;
 
 @Injectable()
 export class AdminOrganizationsRepository {
@@ -167,8 +171,11 @@ export class AdminOrganizationsRepository {
 	}
 
 	/** All team workspaces a user belongs to — the user-detail sidebar list. */
-	listUserMemberships(userId: string): Promise<AdminUserMembershipRow[]> {
-		return this.db
+	listUserMemberships(
+		userId: string,
+		client: AdminOrganizationsDbClient = this.db,
+	): Promise<AdminUserMembershipRow[]> {
+		return client
 			.select({
 				organizationId: member.organizationId,
 				name: organization.name,
@@ -268,6 +275,9 @@ export class AdminOrganizationsRepository {
 					>`case when ${creditLedger.kind} = 'consume' then ${aiUsageEventCostUsdMicros} end`.mapWith(
 						aiUsageEvents.reconciledCostUsdMicros,
 					),
+					aiCostProvenance: sql<
+						string | null
+					>`case when ${creditLedger.kind} = 'consume' and ${aiUsageEventCostUsdMicros} is not null then ${aiUsageEventCostProvenance} end`,
 				})
 				.from(creditLedger)
 				.leftJoin(user, eq(user.id, creditLedger.userId))

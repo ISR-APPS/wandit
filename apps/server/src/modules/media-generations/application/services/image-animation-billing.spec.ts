@@ -4,12 +4,37 @@ import type { MeteringService } from "../../../metering/application/services/met
 import { MeteringStateConflictError } from "../../../metering/domain/metering";
 import { createImageAnimationBilling } from "./image-animation-billing";
 
+// Kling std $0.042/s × 5 s = $0.21 → 525 cc, below the 550 cc video floor.
+const VIDEO_ESTIMATE = { costUsdMicros: 210_000, unitUsdMicros: 42_000 };
+const MEASURED_SNAPSHOT = {
+	estimatedUnitUsdMicros: 210_000,
+	mode: "measured",
+	operation: "video",
+	reserveFloorCredits: 550,
+	source: "operation_registry_reservation",
+	unit: "video",
+	units: 1,
+	usdMicrosPerCredit: 40_000,
+};
+const EXPECTED_RESERVE = {
+	attemptRef: "attempt_1",
+	credits: 550,
+	estimatedCostUsdMicros: 210_000,
+	idempotencyKey: "video:attempt_1",
+	measuredTerms: { estimatedUnitUsdMicros: 210_000, units: 1 },
+};
+
 function setup(input?: { billingDisabled?: boolean }) {
-	const event = { id: "event_1", reservedCredits: 2000 } as Awaited<
-		ReturnType<MeteringService["reserve"]>
-	>;
+	const event = {
+		estimatedCostUsdMicros: 210_000,
+		id: "event_1",
+		operation: "video",
+		pricingSnapshot: MEASURED_SNAPSHOT,
+		reservedCredits: 550,
+	} as unknown as Awaited<ReturnType<MeteringService["reserve"]>>;
 	const meteringService = {
 		captureGeneration: vi.fn().mockResolvedValue({ id: "generation-ref-1" }),
+		estimateMeasuredCost: vi.fn().mockResolvedValue(VIDEO_ESTIMATE),
 		findByIdempotencyKey: vi.fn().mockResolvedValue(event),
 		refund: vi.fn().mockResolvedValue(event),
 		reserveWithReplay: vi.fn().mockResolvedValue({
@@ -18,7 +43,8 @@ function setup(input?: { billingDisabled?: boolean }) {
 			replayed: false,
 		}),
 		settle: vi.fn().mockResolvedValue(event),
-		settleFixedFromEvidence: vi.fn().mockResolvedValue(event),
+		settleMeasuredFromEvidence: vi.fn().mockResolvedValue(event),
+		usdMicrosPerCredit: 40_000,
 	};
 	const billing = createImageAnimationBilling({
 		isBillingDisabled: () => input?.billingDisabled ?? false,
@@ -39,11 +65,17 @@ describe("createImageAnimationBilling", () => {
 		);
 
 		expect(reservation).toEqual({
-			credits: 2000,
+			credits: 550,
 			eventId: null,
 			operation: "video",
 			referenceId: "attempt_1",
 			replay: "none",
+			terms: {
+				estimatedUnitUsdMicros: 210_000,
+				mode: "measured",
+				unit: "video",
+				usdMicrosPerCredit: 40_000,
+			},
 			units: 1,
 		});
 		await billing.capture(reservation, {
@@ -77,12 +109,7 @@ describe("createImageAnimationBilling", () => {
 		expect(meteringService.reserveWithReplay).toHaveBeenCalledWith(
 			"video",
 			{ actorUserId: "user_1" },
-			{
-				attemptRef: "attempt_1",
-				credits: 2000,
-				idempotencyKey: "video:attempt_1",
-				parentEventId: "parent_1",
-			},
+			{ ...EXPECTED_RESERVE, parentEventId: "parent_1" },
 		);
 		expect(reservation).toMatchObject({ eventId: event.id, replay: "none" });
 	});
@@ -120,29 +147,65 @@ describe("createImageAnimationBilling", () => {
 		expect(meteringService.reserveWithReplay).not.toHaveBeenCalled();
 	});
 
-	it("reserves 2000 centi-credits with a stable operation key and parent", async () => {
+	it("reserves the duration-priced estimate (or the floor) with a stable key and parent", async () => {
 		const { billing, event, meteringService } = setup();
+		meteringService.findByIdempotencyKey.mockResolvedValueOnce(null);
 
 		const reservation = await billing.reserve(
 			{ actorUserId: "user_1" },
 			"attempt_1",
 			"parent_1",
+			undefined,
+			{ durationSeconds: 5, kind: "image-animation" },
 		);
 
-		expect(reservation).toMatchObject({ credits: 2000, eventId: event.id });
+		expect(reservation).toMatchObject({ credits: 550, eventId: event.id });
+		expect(meteringService.estimateMeasuredCost).toHaveBeenCalledWith(
+			expect.objectContaining({
+				audio: false,
+				durationSeconds: 5,
+				kind: "video",
+				mode: "std",
+			}),
+		);
 		expect(meteringService.reserveWithReplay).toHaveBeenCalledWith(
 			"video",
 			{ actorUserId: "user_1" },
-			{
-				attemptRef: "attempt_1",
-				credits: 2000,
-				idempotencyKey: "video:attempt_1",
-				parentEventId: "parent_1",
-			},
+			{ ...EXPECTED_RESERVE, parentEventId: "parent_1" },
 		);
 	});
 
-	it("captures the gateway generation and settles the registry price", async () => {
+	it("raises the reserve above the floor for a longer clip", async () => {
+		const { billing, meteringService } = setup();
+		meteringService.findByIdempotencyKey.mockResolvedValueOnce(null);
+		// 10 s × $0.042 = $0.42 → 1,050 cc.
+		meteringService.estimateMeasuredCost.mockResolvedValueOnce({
+			costUsdMicros: 420_000,
+			unitUsdMicros: 42_000,
+		});
+
+		await billing.reserve(
+			{ actorUserId: "user_1" },
+			"attempt_1",
+			undefined,
+			undefined,
+			{
+				durationSeconds: 10,
+				kind: "text-to-video",
+			},
+		);
+
+		expect(meteringService.reserveWithReplay).toHaveBeenCalledWith(
+			"video",
+			{ actorUserId: "user_1" },
+			expect.objectContaining({
+				credits: 1050,
+				estimatedCostUsdMicros: 420_000,
+			}),
+		);
+	});
+
+	it("captures the gateway generation and settles the local estimate", async () => {
 		const { billing, meteringService } = setup();
 		const reservation = await billing.reserve(
 			{ actorUserId: "user_1" },
@@ -160,15 +223,18 @@ describe("createImageAnimationBilling", () => {
 			capture,
 		);
 		expect(meteringService.settle).toHaveBeenCalledWith("event_1", {
-			finalCredits: 2000,
+			costUsdMicros: 210_000,
+			finalCredits: 525,
 			pricing: "direct",
 			pricingSnapshot: {
-				creditsPerUnit: 2000,
-				mode: "fixed",
+				estimatedUnitUsdMicros: 210_000,
+				mode: "measured",
 				operation: "video",
-				source: "operation_registry",
-				unit: "operation",
+				outcome: "delivered",
+				source: "measured_local",
+				unit: "video",
 				units: 1,
+				usdMicrosPerCredit: 40_000,
 			},
 		});
 	});
@@ -185,9 +251,21 @@ describe("createImageAnimationBilling", () => {
 		expect(meteringService.settle).toHaveBeenCalledWith(
 			"event_1",
 			expect.objectContaining({
+				costUsdMicros: 0,
 				finalCredits: 0,
-				pricingSnapshot: expect.objectContaining({ units: 0 }),
+				pricingSnapshot: expect.objectContaining({
+					outcome: "failed_no_deliverable",
+					units: 0,
+				}),
 			}),
+		);
+		await billing.settle(reservation, {
+			completedUnits: 0,
+			localCostUsdMicros: 210_000,
+		});
+		expect(meteringService.settle).toHaveBeenLastCalledWith(
+			"event_1",
+			expect.objectContaining({ costUsdMicros: 210_000, finalCredits: 0 }),
 		);
 	});
 
@@ -265,7 +343,7 @@ describe("createImageAnimationBilling", () => {
 			operation: "video",
 			parentEventId: null,
 			provider: null,
-			reservedCredits: 2000,
+			reservedCredits: 550,
 			status: "reconcile_failed",
 		} as never;
 		meteringService.reserveWithReplay.mockRejectedValueOnce(
@@ -327,6 +405,7 @@ describe("createImageAnimationBilling", () => {
 			credits: 2500,
 			eventId: "event_old_price",
 			replay: "reconcile_failed",
+			terms: { creditsPerUnit: 2500, mode: "fixed" },
 			units: 1,
 		});
 	});

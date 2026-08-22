@@ -12,6 +12,7 @@ import {
 } from "../../../credits/domain/credit-owner";
 import { MemberCreditLimitError } from "../../../credits/domain/errors/member-credit-limit.error";
 import { OrganizationLimitsRepository } from "../../../workspaces/infrastructure/persistence/organization-limits.repository";
+import { isRefundedFailureStepUsage } from "../../domain/gateway-metering";
 import {
 	type AiUsageEvent,
 	type AiUsageGenerationRef,
@@ -26,6 +27,7 @@ import {
 	isBundledReservationPending,
 	isBundledUnmeteredStepUsage,
 	isGatewayUsagePending,
+	isHelperBillableStepUsage,
 	METERING_GATEWAY,
 	type MeteredOperation,
 	type MeteringGateway,
@@ -41,19 +43,37 @@ import {
 	type TokenMeteringSettlement,
 } from "../../domain/metering";
 import {
+	type MeasuredCostEstimate,
 	normalizeTokenUsage,
 	usdMicrosToCentiCredits,
 } from "../../domain/model-pricing";
 import {
 	assertOperationParentAllowed,
+	type FixedOperationPricing,
+	type MeasuredOperationPricing,
+	maxFinalCreditsCeiling,
 	type OperationPricing,
 	operationPricing,
+	type PerMinuteOperationPricing,
+	TRANSCRIPTION_MAX_DURATION_SECONDS,
 } from "../../domain/operation-registry";
+import {
+	type AiProviderCallEvidence,
+	assertProviderCallEvidenceCost,
+	assertProviderCallEvidenceInput,
+	canUpgradeProviderCallCostStatus,
+	type ProviderCallEvidenceCost,
+	type ProviderCallEvidenceInput,
+	sumProviderCallEvidenceUsdMicros,
+} from "../../domain/provider-call-evidence";
 import {
 	MeteringRepository,
 	type MeteringTransaction,
 } from "../../infrastructure/persistence/metering.repository";
-import { ModelPricingService } from "./model-pricing.service";
+import {
+	type MeasuredCostEstimateInput,
+	ModelPricingService,
+} from "./model-pricing.service";
 
 const POSTGRES_INTEGER_MAX = 2_147_483_647;
 
@@ -69,6 +89,32 @@ const POSTGRES_INTEGER_MAX = 2_147_483_647;
 export const SETTLED_RECONCILIATION_PENDING_MAX_AGE_MS = 30 * 60_000;
 export const RESERVED_RECONCILIATION_PENDING_MAX_AGE_MS = 45 * 60_000;
 
+// reconcile_failed retry schedule: exponential backoff from 5 minutes capped
+// at 6 hours; after RECONCILE_DEAD_LETTER_CAP attempts the row dead-letters
+// (nextReconcileAttemptAt NULL) and needs an admin.
+export const RECONCILE_DEAD_LETTER_CAP = 10;
+export const RECONCILE_RETRY_BASE_DELAY_MS = 5 * 60_000;
+export const RECONCILE_RETRY_MAX_DELAY_MS = 6 * 60 * 60_000;
+
+/** Settlement snapshot flags that ask for an admin review of the charge. */
+export type MeteringReviewFlag = "gateway_zero_cost" | "no_catalog_rate";
+
+export type ExecutionLeaseHeartbeat = "error" | "lost" | "renewed";
+
+type CreditAdjustmentOutcome = {
+	/** Reserve-time exemption, carried forward so reconcile re-checks agree. */
+	actorIsLimitExempt: boolean;
+	/** The credits actually debited (the target, capped at the ceiling). */
+	finalCredits: number;
+	memberLimitBreach: {
+		deltaCredits: number;
+		limitCredits: number;
+		spentCredits: number;
+	} | null;
+	/** Set when the target breached the sanity ceiling and was capped. */
+	sanityCeiling: { attempted: number; ceiling: number } | null;
+};
+
 type PerMinuteDurationEvidence = {
 	authoritativeDurationSeconds: number;
 	billedDurationSeconds: number;
@@ -81,6 +127,17 @@ type PerMinuteDurationEvidence = {
 		source: "local" | "provider";
 	}>;
 };
+
+/**
+ * Price terms recovered from an event's own snapshot. Reservation-time terms
+ * are durable: an event reserved under the retired fixed/per_minute modes
+ * keeps settling under them after the registry moved to measured billing.
+ */
+type RecoveredOperationPricing =
+	| FixedOperationPricing
+	| PerMinuteOperationPricing
+	| (MeasuredOperationPricing & { estimatedUnitUsdMicros: number | null })
+	| Extract<OperationPricing, { mode: "token" }>;
 
 type GatewayCostAllocation = {
 	perGenerationUsdMicros: number[];
@@ -328,6 +385,31 @@ export class MeteringService {
 		return completed;
 	}
 
+	/**
+	 * Local provider-cost estimate for a measured operation (reserve sizing and
+	 * provisional settlement). Never blocks work: a missing catalog rate or a
+	 * pricing lookup failure yields null and the caller falls back to the
+	 * registry floor.
+	 */
+	async estimateMeasuredCost(
+		input: MeasuredCostEstimateInput,
+	): Promise<MeasuredCostEstimate | null> {
+		try {
+			return await this.modelPricing.quoteMeasuredEstimate(input);
+		} catch (error) {
+			this.logger.warn(
+				`Measured cost estimate failed for ${input.modelId}: ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+			);
+			return null;
+		}
+	}
+
+	get usdMicrosPerCredit(): number {
+		return this.modelPricing.usdMicrosPerCredit;
+	}
+
 	async reserve(
 		operation: MeteredOperation,
 		subject: MeteringSubject,
@@ -355,13 +437,6 @@ export class MeteringService {
 		this.assertNonEmpty(estimate.idempotencyKey, "reserve idempotency key");
 		this.assertOptionalCost(estimate.estimatedCostUsdMicros);
 		const pricing = operationPricing(operation);
-		const minimumReserve = pricing.reserveFloorCredits;
-
-		if (estimate.credits < minimumReserve) {
-			throw new Error(
-				`${operation} requires a reserve of at least ${minimumReserve} centi-credits`,
-			);
-		}
 
 		const eventId = estimate.eventId ?? randomUUID();
 		const payer = subjectPayer(subject);
@@ -387,6 +462,8 @@ export class MeteringService {
 				};
 			}
 
+			let minimumReserve = pricing.reserveFloorCredits;
+
 			if (estimate.parentEventId) {
 				const parent = await this.requireEvent(
 					estimate.parentEventId,
@@ -402,8 +479,23 @@ export class MeteringService {
 				}
 
 				assertOperationParentAllowed(operation, parent.operation);
+
+				// A connector child renders on the user's own provider subscription
+				// (zero provider cost to us), so the media floor does not apply.
+				if (parent.operation === "connector") {
+					minimumReserve = Math.min(
+						minimumReserve,
+						operationPricing("connector").reserveFloorCredits,
+					);
+				}
 			} else {
 				assertOperationParentAllowed(operation);
+			}
+
+			if (estimate.credits < minimumReserve) {
+				throw new Error(
+					`${operation} requires a reserve of at least ${minimumReserve} centi-credits`,
+				);
 			}
 
 			// CreditsService deliberately takes its consume-idempotency lock before
@@ -414,6 +506,9 @@ export class MeteringService {
 				estimate.credits,
 				{
 					actorUserId: subject.actorUserId,
+					// Ruling 5: any positive balance admits the full reserve (the
+					// remainder overdrafts); zero-or-negative refuses new work.
+					admission: "requirePositiveBalance",
 					idempotencyKey: this.reserveLedgerKey(eventId),
 					meta: {
 						action: operation,
@@ -445,7 +540,12 @@ export class MeteringService {
 					organizationId,
 					parentEventId: estimate.parentEventId ?? null,
 					provider: estimate.provider ?? null,
-					pricingSnapshot: this.reservationPricingSnapshot(operation, pricing),
+					pricingSnapshot: this.reservationPricingSnapshot(
+						operation,
+						pricing,
+						estimate,
+						subject,
+					),
 					reservedCredits: estimate.credits,
 					status: "reserved",
 					userId: subject.actorUserId,
@@ -473,8 +573,34 @@ export class MeteringService {
 		requiredCredits: number,
 		transaction: MeteringTransaction,
 	): Promise<void> {
+		const breach = await this.resolveMemberLimitBreach(
+			subject,
+			requiredCredits,
+			transaction,
+		);
+
+		if (breach) {
+			throw new MemberCreditLimitError(
+				breach.limit,
+				breach.spent,
+				requiredCredits,
+			);
+		}
+	}
+
+	/**
+	 * Shared limit arithmetic for the hard reserve gate and the soft
+	 * settlement re-check. `sumMemberSpendThisMonth` already counts the
+	 * current event at COALESCE(final, reserved), so `spent + delta` is the
+	 * exact post-adjustment month total.
+	 */
+	private async resolveMemberLimitBreach(
+		subject: MeteringSubject,
+		requiredCredits: number,
+		transaction: MeteringTransaction,
+	): Promise<{ limit: number; spent: number } | null> {
 		if (!subject.organizationId) {
-			return;
+			return null;
 		}
 
 		const resolved = await this.organizationLimits.resolveMemberLimit(
@@ -485,7 +611,7 @@ export class MeteringService {
 		);
 
 		if (resolved.limitCredits === null) {
-			return;
+			return null;
 		}
 
 		const spent = await this.organizationLimits.sumMemberSpendThisMonth(
@@ -495,13 +621,9 @@ export class MeteringService {
 			transaction,
 		);
 
-		if (spent + requiredCredits > resolved.limitCredits) {
-			throw new MemberCreditLimitError(
-				resolved.limitCredits,
-				spent,
-				requiredCredits,
-			);
-		}
+		return spent + requiredCredits > resolved.limitCredits
+			? { limit: resolved.limitCredits, spent }
+			: null;
 	}
 
 	/** The pool that pays for an event: its org when set, else its actor. */
@@ -551,7 +673,7 @@ export class MeteringService {
 			settlementUsdMicrosPerCredit,
 		);
 
-		const settled = await this.repository.transaction((transaction) =>
+		return this.repository.transaction((transaction) =>
 			this.lockAndSettlePreparedEvent(
 				eventId,
 				settlement,
@@ -559,19 +681,18 @@ export class MeteringService {
 				transaction,
 			),
 		);
-
-		return settled;
 	}
 
 	/**
-	 * Settles a fixed-price event from the strongest durable completion count.
+	 * Settles a measured (or legacy fixed) event from the strongest durable
+	 * completion count.
 	 *
 	 * Stored output can lag provider completion after a crash. Holding the event
 	 * lock while reading generation refs ensures recovery charges the maximum of
 	 * the stored prefix and provider-completion evidence, using the price terms
 	 * captured when the reservation was admitted.
 	 */
-	async settleFixedFromEvidence(
+	async settleMeasuredFromEvidence(
 		eventId: string,
 		storedUnits: number,
 	): Promise<AiUsageEvent> {
@@ -591,9 +712,9 @@ export class MeteringService {
 
 			const pricing = this.recoveryOperationPricing(event);
 
-			if (pricing.mode !== "fixed") {
+			if (pricing.mode === "per_minute") {
 				throw new Error(
-					`AI usage event ${event.id} is not a fixed-price operation`,
+					`AI usage event ${event.id} is not a unit-settled operation`,
 				);
 			}
 
@@ -610,26 +731,16 @@ export class MeteringService {
 			}
 
 			const units = Math.max(storedUnits, evidenceUnits ?? 0);
-			const finalCredits = units * pricing.creditsPerUnit;
+			const settlement = this.evidenceSettlement(event, pricing, units);
 
-			this.assertNonNegativeCredits(finalCredits, "fixed settlement credits");
-
-			const settlement = {
-				finalCredits,
-				pricing: "direct" as const,
-				pricingSnapshot: {
-					creditsPerUnit: pricing.creditsPerUnit,
-					mode: "fixed",
-					operation: event.operation,
-					source: "operation_registry",
-					unit: pricing.unit,
-					units,
-				},
-			};
+			this.assertNonNegativeCredits(
+				settlement.finalCredits,
+				"evidence settlement credits",
+			);
 			const prepared = await this.prepareSettlement(settlement);
 
 			if (event.status === "reconcile_failed") {
-				await this.applyCreditAdjustment(
+				const adjustment = await this.applyCreditAdjustment(
 					event,
 					event.reservedCredits,
 					prepared.finalCredits,
@@ -641,8 +752,11 @@ export class MeteringService {
 					event.id,
 					["reconcile_failed"],
 					{
-						finalCredits: prepared.finalCredits,
-						pricingSnapshot: prepared.pricingSnapshot,
+						finalCredits: adjustment.finalCredits,
+						pricingSnapshot: this.withAdjustmentMarkers(
+							prepared.pricingSnapshot,
+							adjustment,
+						),
 						settledAt: event.settledAt ?? new Date(),
 					},
 					transaction,
@@ -849,6 +963,22 @@ export class MeteringService {
 		return this.refundReserved(eventId, reason, true);
 	}
 
+	/**
+	 * Full refund of a reserved hold for an operation whose provider cost is
+	 * known locally and can never be reconciled from a gateway (lead scrape).
+	 * The user owes nothing; the consumed provider spend is still recorded on
+	 * the event so admin cost sums stay true.
+	 */
+	async refundWithProviderCost(
+		eventId: string,
+		providerCostUsdMicros: number,
+		reason: string,
+	): Promise<AiUsageEvent> {
+		this.assertOptionalCost(providerCostUsdMicros);
+
+		return this.refundReserved(eventId, reason, false, providerCostUsdMicros);
+	}
+
 	async captureGeneration(
 		eventId: string,
 		capture: CapturedGeneration,
@@ -926,6 +1056,93 @@ export class MeteringService {
 		});
 	}
 
+	/**
+	 * Durable receipt of a non-gateway provider call (Serper pages, a
+	 * Higgsfield/MCP submit). Legal on reserved, settled, reconcile_failed AND
+	 * refunded events — a failed lead scrape still paid Serper (ruling 6). Only
+	 * a reconciled event is closed to new evidence. Idempotent on the key.
+	 */
+	async captureProviderCallEvidence(
+		eventId: string,
+		evidence: ProviderCallEvidenceInput,
+	): Promise<AiProviderCallEvidence> {
+		assertProviderCallEvidenceInput(evidence);
+
+		return this.repository.transaction(async (transaction) => {
+			await this.lockEvent(eventId, transaction);
+			const event = await this.requireEvent(eventId, transaction);
+
+			if (event.status === "reconciled") {
+				throw new MeteringStateConflictError(
+					eventId,
+					event.status,
+					"capture provider call evidence for",
+				);
+			}
+
+			return this.repository.insertProviderCallEvidence(
+				{ ...evidence, usageEventId: eventId },
+				transaction,
+			);
+		});
+	}
+
+	/** Durable provider receipts of one event (read-only). */
+	async listProviderCallEvidence(
+		eventId: string,
+	): Promise<readonly AiProviderCallEvidence[]> {
+		return this.repository.listProviderCallEvidence(eventId);
+	}
+
+	/**
+	 * Settle (or improve) the cost of an evidence row. Status only upgrades
+	 * (pending → estimated → contract_rate → measured; equal status re-applies)
+	 * and units never decrease; a downgrade returns the stored row unchanged.
+	 */
+	async settleProviderCallEvidenceCost(
+		evidenceId: string,
+		cost: ProviderCallEvidenceCost,
+	): Promise<AiProviderCallEvidence> {
+		assertProviderCallEvidenceCost(cost);
+
+		return this.repository.transaction(async (transaction) => {
+			const current = await this.repository.findProviderCallEvidenceById(
+				evidenceId,
+				transaction,
+			);
+
+			if (!current) {
+				throw new Error(`Provider call evidence ${evidenceId} not found`);
+			}
+
+			await this.lockEvent(current.usageEventId, transaction);
+			const event = await this.requireEvent(current.usageEventId, transaction);
+
+			if (event.status === "reconciled") {
+				throw new MeteringStateConflictError(
+					event.id,
+					event.status,
+					"settle provider call evidence for",
+				);
+			}
+
+			if (
+				!canUpgradeProviderCallCostStatus(current.costStatus, cost.costStatus)
+			) {
+				return current;
+			}
+
+			return this.repository.updateProviderCallEvidenceCost(
+				evidenceId,
+				{
+					...cost,
+					units: Math.max(current.units, cost.units ?? current.units),
+				},
+				transaction,
+			);
+		});
+	}
+
 	async reconcile(eventId: string): Promise<MeteringReconcileOutcome> {
 		const initial = await this.requireEvent(eventId);
 
@@ -955,9 +1172,38 @@ export class MeteringService {
 		}
 
 		const refs = await this.repository.listGenerationRefs(eventId);
+		const evidence = await this.repository.listProviderCallEvidence(eventId);
+		const pendingEvidence = evidence.filter(
+			(row) => row.costStatus === "pending",
+		);
+
+		// Provider-accepted work whose charge is not known yet: the sweep retries
+		// exactly like a gateway generation that is not metered yet.
+		if (pendingEvidence.length > 0) {
+			throw new GatewayUsagePendingError(
+				eventId,
+				pendingEvidence.map((row) => `evidence:${row.id}`),
+			);
+		}
 
 		if (refs.length === 0) {
-			throw new Error(`AI usage event ${eventId} has no generation refs`);
+			if (initial.status === "reserved") {
+				// Evidence may still land; the stranded sweep refunds ref-less
+				// reserved holds anyway (provider-call evidence survives the refund).
+				throw new GatewayUsagePendingError(eventId, []);
+			}
+
+			if (initial.status === "settled" && evidence.length === 0) {
+				// The settlement is a durable, caller-observed billing fact with no
+				// provider evidence to reprice it — finalize instead of failing.
+				return this.finalizeSettledWithoutRefs(eventId);
+			}
+
+			if (evidence.length === 0) {
+				throw new Error(`AI usage event ${eventId} has no generation refs`);
+			}
+			// Evidence-only events (lead scrape, connector submit) price below
+			// from their evidence rows with an empty gateway allocation.
 		}
 
 		const results = await Promise.allSettled(
@@ -999,24 +1245,41 @@ export class MeteringService {
 		const rawCostsUsd = generationInfos.map((info) => info.totalCost);
 		const costAllocation = allocateGatewayCostMicros(rawCostsUsd);
 		const costs = costAllocation.perGenerationUsdMicros;
-		const reconciledCostUsdMicros = costAllocation.totalUsdMicros;
-		const customerBillableCostUsdMicros = allocateGatewayCostMicros(
-			refs.flatMap((ref, index) => {
-				if (isBundledUnmeteredStepUsage(ref.stepUsage)) {
-					return [];
-				}
+		// Evidence rows are integer micros already; they join after the bigint-
+		// safe gateway allocation. Gateway refs and evidence never overlap (a
+		// gateway id lives in refs, an external receipt in evidence), so each
+		// provider charge counts exactly once.
+		const evidenceCostUsdMicros = sumProviderCallEvidenceUsdMicros(evidence);
+		const reconciledCostUsdMicros =
+			costAllocation.totalUsdMicros + evidenceCostUsdMicros;
+		const customerBillableCostUsdMicros =
+			allocateGatewayCostMicros(
+				refs.flatMap((ref, index) => {
+					// Legacy bundled helper refs (pre-deploy rows) and refunded provider
+					// failures are provider spend, never customer charge. Helper rows
+					// tagged helper_billable fall through and bill inside the parent.
+					if (
+						isBundledUnmeteredStepUsage(ref.stepUsage) ||
+						isRefundedFailureStepUsage(ref.stepUsage)
+					) {
+						return [];
+					}
 
-				const rawCostUsd = rawCostsUsd[index];
+					const rawCostUsd = rawCostsUsd[index];
 
-				if (rawCostUsd === undefined) {
-					throw new Error(
-						`Missing reconciled cost for ${ref.gatewayGenerationId}`,
-					);
-				}
+					if (rawCostUsd === undefined) {
+						throw new Error(
+							`Missing reconciled cost for ${ref.gatewayGenerationId}`,
+						);
+					}
 
-				return [rawCostUsd];
-			}),
-		).totalUsdMicros;
+					return [rawCostUsd];
+				}),
+			).totalUsdMicros +
+			sumProviderCallEvidenceUsdMicros(evidence, {
+				customerBillableOnly: true,
+			});
+		this.assertOptionalCost(reconciledCostUsdMicros);
 		return this.repository.transaction(async (transaction) => {
 			await this.lockEvent(eventId, transaction);
 			const event = await this.requireEvent(eventId, transaction);
@@ -1050,26 +1313,44 @@ export class MeteringService {
 				throw new GatewayUsagePendingError(eventId, currentIds);
 			}
 
+			// Evidence captured or re-priced since the unlocked read must not be
+			// priced from a stale sum; the sweep simply retries.
+			const currentEvidence = await this.repository.listProviderCallEvidence(
+				eventId,
+				transaction,
+			);
+
+			if (!providerCallEvidenceMatches(evidence, currentEvidence)) {
+				throw new GatewayUsagePendingError(
+					eventId,
+					currentEvidence.map((row) => `evidence:${row.id}`),
+				);
+			}
+
 			const currentCredits = event.finalCredits ?? event.reservedCredits;
 			const reconciliationUsdMicrosPerCredit =
 				this.reconciliationUsdMicrosPerCredit(event);
-			// Gateway cost is authoritative for provider spend, but product-fixed
-			// operations retain their registry price. Per-minute recovery derives
-			// price from captured duration evidence; a prior durable settlement wins.
-			const finalCredits = this.reconciledFinalCredits(
+			// Gateway cost is authoritative for provider spend and, for token and
+			// measured operations, for the customer charge. Legacy fixed/per-minute
+			// reservations retain their reservation-time price.
+			const reconciled = this.reconciledFinalCredits(
 				event,
 				currentRefs,
 				customerBillableCostUsdMicros,
 				reconciliationUsdMicrosPerCredit,
 			);
-			this.assertNonNegativeCredits(finalCredits, "reconciled final credits");
-			await this.applyCreditAdjustment(
+			this.assertNonNegativeCredits(
+				reconciled.finalCredits,
+				"reconciled final credits",
+			);
+			const adjustment = await this.applyCreditAdjustment(
 				event,
 				currentCredits,
-				finalCredits,
+				reconciled.finalCredits,
 				"reconcile",
 				transaction,
 			);
+			const finalCredits = adjustment.finalCredits;
 
 			const reconciledAt = new Date();
 
@@ -1108,30 +1389,44 @@ export class MeteringService {
 				customerBillableCostUsdMicros,
 				finalCredits,
 				reconciliationUsdMicrosPerCredit,
+				currentEvidence,
 			);
 			const rawUsage = this.reconciledRawUsage(
 				event.rawUsage,
 				currentRefs,
 				generationInfos,
 			);
+			// Evidence-only events carry no gateway generation: their settlement-
+			// time model/provider/token columns stand.
+			const gatewayColumns =
+				generationInfos.length === 0
+					? {}
+					: {
+							cacheReadTokens: usage.cacheReadTokens,
+							cacheWriteTokens: usage.cacheWriteTokens,
+							inputTokens: usage.inputTokens,
+							model:
+								models.size === 1
+									? (generationInfos[0]?.model ?? null)
+									: "multiple",
+							outputTokens: usage.outputTokens,
+							provider:
+								providers.size === 1
+									? (generationInfos[0]?.providerName ?? null)
+									: "multiple",
+						};
 			const updated = await this.repository.updateEvent(
 				eventId,
 				["reserved", "settled", "reconcile_failed"],
 				{
-					cacheReadTokens: usage.cacheReadTokens,
-					cacheWriteTokens: usage.cacheWriteTokens,
+					...gatewayColumns,
+					executionLeaseExpiresAt: null,
+					executionLeaseToken: null,
 					finalCredits,
-					inputTokens: usage.inputTokens,
-					model:
-						models.size === 1
-							? (generationInfos[0]?.model ?? null)
-							: "multiple",
-					outputTokens: usage.outputTokens,
-					pricingSnapshot,
-					provider:
-						providers.size === 1
-							? (generationInfos[0]?.providerName ?? null)
-							: "multiple",
+					pricingSnapshot: this.withAdjustmentMarkers(
+						withReviewFlags(pricingSnapshot, reconciled.reviewFlags),
+						adjustment,
+					),
 					rawUsage,
 					reconciledAt,
 					reconciledCostUsdMicros,
@@ -1211,13 +1506,13 @@ export class MeteringService {
 							RESERVED_RECONCILIATION_PENDING_MAX_AGE_MS <=
 						now.getTime()
 					) {
-						await this.terminalizeRecoveryFailure(event.id, error);
+						await this.terminalizeSweepFailure(event, error);
 						outcome.failed += 1;
 					} else {
 						outcome.pending += 1;
 					}
 				} else {
-					await this.terminalizeRecoveryFailure(event.id, error);
+					await this.terminalizeSweepFailure(event, error);
 					outcome.failed += 1;
 				}
 			}
@@ -1263,19 +1558,269 @@ export class MeteringService {
 							SETTLED_RECONCILIATION_PENDING_MAX_AGE_MS <=
 						now.getTime()
 					) {
-						await this.terminalizeRecoveryFailure(event.id, error);
+						await this.terminalizeSweepFailure(event, error);
 						outcome.failed += 1;
 					} else {
 						outcome.pending += 1;
 					}
 				} else {
-					await this.terminalizeRecoveryFailure(event.id, error);
+					await this.terminalizeSweepFailure(event, error);
 					outcome.failed += 1;
 				}
 			}
 		}
 
 		return outcome;
+	}
+
+	/**
+	 * Retry sweep over due reconcile_failed rows. Every failure re-enters
+	 * terminalizeReconciliationFailure, which advances the backoff schedule;
+	 * dead-lettered rows (NULL next attempt) are never selected.
+	 */
+	async retryFailedReconciliations(
+		now: Date,
+		limit = 100,
+	): Promise<MeteringReconciliationSweepOutcome> {
+		if (!Number.isInteger(limit) || limit <= 0) {
+			throw new Error("Metering recovery limit must be a positive integer");
+		}
+
+		const events = await this.repository.listRetryableReconcileFailed(
+			now,
+			limit,
+		);
+		const outcome: MeteringReconciliationSweepOutcome = {
+			failed: 0,
+			pending: 0,
+			reconciled: 0,
+			scanned: events.length,
+		};
+
+		for (const event of events) {
+			try {
+				if (isBundledReservationPending(event.attemptRef)) {
+					await this.completeBundledReservation(event.id);
+				}
+
+				await this.reconcile(event.id);
+				outcome.reconciled += 1;
+			} catch (error) {
+				await this.terminalizeSweepFailure(event, error);
+
+				if (error instanceof GatewayUsagePendingError) {
+					outcome.pending += 1;
+				} else {
+					outcome.failed += 1;
+				}
+			}
+		}
+
+		return outcome;
+	}
+
+	/**
+	 * Settled events with zero generation refs are invisible to the normal
+	 * reconciliation sweep. Once old enough for late ref capture to have won,
+	 * reconcile() finalizes them from their settlement evidence.
+	 */
+	async recoverSettledWithoutRefs(
+		createdBefore: Date,
+		limit = 100,
+	): Promise<MeteringReconciliationSweepOutcome> {
+		if (!Number.isInteger(limit) || limit <= 0) {
+			throw new Error("Metering recovery limit must be a positive integer");
+		}
+
+		const events = await this.repository.listSettledWithoutRefs(
+			createdBefore,
+			limit,
+		);
+		const outcome: MeteringReconciliationSweepOutcome = {
+			failed: 0,
+			pending: 0,
+			reconciled: 0,
+			scanned: events.length,
+		};
+
+		for (const event of events) {
+			try {
+				await this.reconcile(event.id);
+				outcome.reconciled += 1;
+			} catch (error) {
+				if (error instanceof GatewayUsagePendingError) {
+					outcome.pending += 1;
+				} else {
+					await this.terminalizeSweepFailure(event, error);
+					outcome.failed += 1;
+				}
+			}
+		}
+
+		return outcome;
+	}
+
+	/**
+	 * Cross-replica execution lease surface for stream owners (ai-chat). The
+	 * lease marks a reserved hold as provably live so duplicate admissions
+	 * 409 and the stranded sweep skips it. Heartbeat/release never throw —
+	 * losing a lease mid-stream degrades to today's age-based arithmetic.
+	 */
+	async acquireExecutionLease(
+		eventId: string,
+		token: string,
+		ttlMs: number,
+	): Promise<AiUsageEvent | null> {
+		return this.repository.acquireExecutionLease(eventId, token, ttlMs);
+	}
+
+	/**
+	 * Three-state so a stream owner can tell a confirmed CAS miss (`lost`: the
+	 * row is no longer reserved under this token — abort) from a transport
+	 * failure (`error`: the lease may well still be ours — keep retrying until
+	 * the known expiry passes).
+	 */
+	async heartbeatExecutionLease(
+		eventId: string,
+		token: string,
+		ttlMs: number,
+	): Promise<ExecutionLeaseHeartbeat> {
+		try {
+			const renewed = await this.repository.heartbeatExecutionLease(
+				eventId,
+				token,
+				ttlMs,
+			);
+
+			return renewed ? "renewed" : "lost";
+		} catch (error) {
+			this.logger.warn(
+				`Execution lease heartbeat failed for ${eventId}: ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+			);
+			return "error";
+		}
+	}
+
+	async releaseExecutionLease(eventId: string, token: string): Promise<void> {
+		try {
+			await this.repository.releaseExecutionLease(eventId, token);
+		} catch (error) {
+			// The lease self-expires; a failed release only delays adoption.
+			this.logger.warn(
+				`Execution lease release failed for ${eventId}: ${
+					error instanceof Error ? error.message : String(error)
+				}`,
+			);
+		}
+	}
+
+	/** Finalize a settled event that has no provider evidence to reprice it. */
+	private async finalizeSettledWithoutRefs(
+		eventId: string,
+	): Promise<MeteringReconcileOutcome> {
+		return this.repository.transaction(async (transaction) => {
+			await this.lockEvent(eventId, transaction);
+			const event = await this.requireEvent(eventId, transaction);
+
+			if (event.status === "reconciled") {
+				return {
+					adjustedCredits: 0,
+					event,
+					reconciledCostUsdMicros: event.reconciledCostUsdMicros ?? 0,
+				};
+			}
+
+			const refs = await this.repository.listGenerationRefs(
+				eventId,
+				transaction,
+			);
+
+			const evidence = await this.repository.listProviderCallEvidence(
+				eventId,
+				transaction,
+			);
+
+			if (
+				refs.length > 0 ||
+				evidence.length > 0 ||
+				event.status !== "settled"
+			) {
+				// Late ref/evidence capture (or a state change) won the race under
+				// the lock — the normal reconciliation path owns this event again.
+				throw new GatewayUsagePendingError(
+					eventId,
+					refs.map((ref) => ref.gatewayGenerationId),
+				);
+			}
+
+			const snapshot = isRecord(event.pricingSnapshot)
+				? event.pricingSnapshot
+				: null;
+
+			// A measured charge taken from the registry floor (no catalog rate)
+			// with no provider evidence is a flat number, not the provider cost
+			// decision 3 requires. Never finalize it silently: the sweep parks it
+			// in reconcile_failed where admin views show it for repair.
+			if (
+				(event.finalCredits ?? 0) > 0 &&
+				snapshotReviewFlags(snapshot).includes("no_catalog_rate")
+			) {
+				throw new Error(
+					`AI usage event ${eventId} was settled from the registry floor without a catalog rate and needs admin review`,
+				);
+			}
+
+			const snapshotCost = snapshot?.costUsdMicros;
+			const reconciledCostUsdMicros =
+				Number.isSafeInteger(snapshotCost) && (snapshotCost as number) >= 0
+					? (snapshotCost as number)
+					: 0;
+			const settlementEvidence = this.buildSettlementReplayEvidence(event);
+			const updated = await this.repository.updateEvent(
+				eventId,
+				["settled"],
+				{
+					executionLeaseExpiresAt: null,
+					executionLeaseToken: null,
+					pricingSnapshot: {
+						...(snapshot ?? {}),
+						reconciliation: { source: "no_generation_refs" },
+						...(settlementEvidence ? { settlementEvidence } : {}),
+					},
+					reconciledAt: new Date(),
+					reconciledCostUsdMicros,
+					status: "reconciled",
+				},
+				transaction,
+			);
+
+			if (!updated) {
+				throw new Error(
+					`AI usage event ${eventId} lost its reconcile transition`,
+				);
+			}
+
+			// The customer charge (the settlement) stands; reconciliation rights
+			// close exactly like a normal zero-adjustment reconcile.
+			await this.credits.closePlanHold(
+				this.eventPayer(event),
+				this.reserveLedgerKey(event.id),
+				transaction,
+			);
+			await this.credits.closePlanHold(
+				this.eventPayer(event),
+				`settle:${event.id}`,
+				transaction,
+			);
+
+			return {
+				adjustedCredits: 0,
+				event: updated,
+				reconciledCostUsdMicros,
+			};
+		});
 	}
 
 	private async upgradeFixedGenerationUnitsLocked(
@@ -1285,9 +1830,9 @@ export class MeteringService {
 	): Promise<AiUsageGenerationRef | null> {
 		const pricing = this.recoveryOperationPricing(event);
 
-		if (pricing.mode !== "fixed") {
+		if (pricing.mode !== "fixed" && pricing.mode !== "measured") {
 			throw new Error(
-				`AI usage event ${event.id} is not a fixed-price operation`,
+				`AI usage event ${event.id} is not a unit-settled operation`,
 			);
 		}
 
@@ -1356,11 +1901,18 @@ export class MeteringService {
 		// A very late completion checkpoint may race the stranded-reservation
 		// reconciler. Repair only registry-recovered fixed pricing; an explicit
 		// direct settlement remains authoritative and is never repriced here.
+		const lateCompletionCredits = this.lateCompletionCredits(
+			event,
+			pricing,
+			completedUnits,
+		);
+
 		if (
 			event.status === "reconciled" &&
-			isRegistryRecoveryPricing(event.pricingSnapshot)
+			isRegistryRecoveryPricing(event.pricingSnapshot) &&
+			lateCompletionCredits !== null
 		) {
-			const targetCredits = completedUnits * pricing.creditsPerUnit;
+			const targetCredits = lateCompletionCredits;
 
 			if (
 				!Number.isSafeInteger(targetCredits) ||
@@ -1397,7 +1949,11 @@ export class MeteringService {
 						pricingSnapshot: {
 							...(isRecord(event.pricingSnapshot) ? event.pricingSnapshot : {}),
 							lateFixedCompletion: {
-								creditsPerUnit: pricing.creditsPerUnit,
+								...(pricing.mode === "fixed"
+									? { creditsPerUnit: pricing.creditsPerUnit }
+									: {
+											estimatedUnitUsdMicros: pricing.estimatedUnitUsdMicros,
+										}),
 								units: completedUnits,
 							},
 							units: completedUnits,
@@ -1453,7 +2009,7 @@ export class MeteringService {
 			throw new MeteringStateConflictError(event.id, event.status, "settle");
 		}
 
-		await this.applyCreditAdjustment(
+		const adjustment = await this.applyCreditAdjustment(
 			event,
 			event.reservedCredits,
 			prepared.finalCredits,
@@ -1468,11 +2024,16 @@ export class MeteringService {
 			{
 				cacheReadTokens: prepared.usage?.cacheReadTokens ?? null,
 				cacheWriteTokens: prepared.usage?.cacheWriteTokens ?? null,
-				finalCredits: prepared.finalCredits,
+				executionLeaseExpiresAt: null,
+				executionLeaseToken: null,
+				finalCredits: adjustment.finalCredits,
 				inputTokens: prepared.usage?.inputTokens ?? null,
 				model: prepared.model,
 				outputTokens: prepared.usage?.outputTokens ?? null,
-				pricingSnapshot: prepared.pricingSnapshot,
+				pricingSnapshot: this.withAdjustmentMarkers(
+					prepared.pricingSnapshot,
+					adjustment,
+				),
 				provider: prepared.provider,
 				rawUsage: prepared.rawUsage,
 				settledAt,
@@ -1486,6 +2047,28 @@ export class MeteringService {
 		}
 
 		return updated;
+	}
+
+	/**
+	 * Sweep-side terminalization. reconcile() already terminalizes a
+	 * non-pending gateway rejection inline; a second write here would advance
+	 * the retry backoff twice for one failure, so skip when the row's attempt
+	 * count moved since this sweep selected it.
+	 */
+	private async terminalizeSweepFailure(
+		event: AiUsageEvent,
+		cause: unknown,
+	): Promise<void> {
+		const current = await this.repository.findEventById(event.id);
+
+		if (
+			current?.status === "reconcile_failed" &&
+			current.reconcileAttempts > event.reconcileAttempts
+		) {
+			return;
+		}
+
+		await this.terminalizeRecoveryFailure(event.id, cause);
 	}
 
 	private async terminalizeRecoveryFailure(
@@ -1564,13 +2147,67 @@ export class MeteringService {
 	private async applyCreditAdjustment(
 		event: AiUsageEvent,
 		currentCredits: number,
-		targetCredits: number,
+		requestedCredits: number,
 		phase: "reconcile" | "settle",
 		transaction: MeteringTransaction,
-	): Promise<void> {
+	): Promise<CreditAdjustmentOutcome> {
+		let targetCredits = requestedCredits;
+		let sanityCeiling: CreditAdjustmentOutcome["sanityCeiling"] = null;
+		let memberLimitBreach: CreditAdjustmentOutcome["memberLimitBreach"] = null;
+		const actorIsLimitExempt = snapshotActorIsLimitExempt(
+			event.pricingSnapshot,
+		);
+
+		if (requestedCredits > currentCredits) {
+			// Sanity ceiling: a target this far above the reserve is the shape of
+			// a pricing-unit bug, not an honest run. The provider work is done and
+			// the deliverable must never be discarded over it, so the debit is
+			// CAPPED at the ceiling and the event carries a `sanityCeiling` marker
+			// for admin review (logged as an error). This applies to every
+			// operation: a refused settlement would fail the caller after the
+			// provider cost was spent, whatever the pricing mode.
+			const ceiling = maxFinalCreditsCeiling(
+				event.operation,
+				event.reservedCredits,
+			);
+
+			if (requestedCredits > ceiling) {
+				this.logger.error(
+					`AI usage event ${event.id} ${phase} of ${requestedCredits} centi-credits exceeds its sanity ceiling of ${ceiling}; debit capped for admin review`,
+				);
+				sanityCeiling = { attempted: requestedCredits, ceiling };
+				targetCredits = Math.max(ceiling, currentCredits);
+			}
+		}
+
 		const delta = targetCredits - currentCredits;
 
 		if (delta > 0) {
+			// Soft member-limit re-check: the provider cost is already spent, so a
+			// breach settles anyway (ruling 5 accepts overage). The hard stop stays
+			// at the next reserve, where the month sum already counts this event.
+			// The exemption decision is the reserve-time one (durable term).
+			const breach = await this.resolveMemberLimitBreach(
+				{
+					actorIsLimitExempt,
+					actorUserId: event.userId,
+					organizationId: event.organizationId,
+				},
+				delta,
+				transaction,
+			);
+
+			if (breach) {
+				memberLimitBreach = {
+					deltaCredits: delta,
+					limitCredits: breach.limit,
+					spentCredits: breach.spent,
+				};
+				this.logger.warn(
+					`AI usage event ${event.id} ${phase} exceeds the member limit of ${breach.limit} centi-credits (spent ${breach.spent}, delta ${delta})`,
+				);
+			}
+
 			await this.credits.consume(
 				this.eventPayer(event),
 				delta,
@@ -1649,12 +2286,49 @@ export class MeteringService {
 				transaction,
 			);
 		}
+
+		return {
+			actorIsLimitExempt,
+			finalCredits: targetCredits,
+			memberLimitBreach,
+			sanityCeiling,
+		};
+	}
+
+	/**
+	 * Merge the server-side markers (soft member-limit breach, capped sanity
+	 * ceiling, reserve-time limit exemption) into an outgoing snapshot patch.
+	 * Replay validation strips them again (see stripSettlementMarkers).
+	 */
+	private withAdjustmentMarkers(
+		pricingSnapshot: unknown,
+		outcome: CreditAdjustmentOutcome,
+	): unknown {
+		if (
+			!outcome.memberLimitBreach &&
+			!outcome.sanityCeiling &&
+			!outcome.actorIsLimitExempt
+		) {
+			return pricingSnapshot;
+		}
+
+		return {
+			...(isRecord(pricingSnapshot) ? pricingSnapshot : {}),
+			...(outcome.actorIsLimitExempt ? { actorIsLimitExempt: true } : {}),
+			...(outcome.memberLimitBreach
+				? { memberLimitBreach: outcome.memberLimitBreach }
+				: {}),
+			...(outcome.sanityCeiling
+				? { sanityCeiling: outcome.sanityCeiling }
+				: {}),
+		};
 	}
 
 	private async refundReserved(
 		eventId: string,
 		reason: string,
 		onlyWithoutGenerationRefs: boolean,
+		providerCostUsdMicros?: number,
 	): Promise<AiUsageEvent> {
 		return this.repository.transaction(async (transaction) => {
 			await this.lockEvent(eventId, transaction);
@@ -1700,9 +2374,24 @@ export class MeteringService {
 				eventId,
 				["reserved"],
 				{
+					executionLeaseExpiresAt: null,
+					executionLeaseToken: null,
 					finalCredits: 0,
-					pricingSnapshot: { reason, source: "refund" },
+					pricingSnapshot:
+						providerCostUsdMicros === undefined
+							? { reason, source: "refund" }
+							: {
+									costUsdMicros: providerCostUsdMicros,
+									reason,
+									source: "refund_with_provider_cost",
+								},
 					rawUsage: { reason },
+					...(providerCostUsdMicros === undefined
+						? {}
+						: {
+								reconciledAt: now,
+								reconciledCostUsdMicros: providerCostUsdMicros,
+							}),
 					settledAt: now,
 					status: "refunded",
 				},
@@ -1739,11 +2428,34 @@ export class MeteringService {
 				transaction,
 			);
 
+			// Backoff bookkeeping: each terminalization advances the attempt count
+			// and schedules the next sweep retry; the cap dead-letters the row.
+			const now = new Date();
+			const attempts = event.reconcileAttempts + 1;
+			const deadLettered = attempts >= RECONCILE_DEAD_LETTER_CAP;
+			const nextReconcileAttemptAt = deadLettered
+				? null
+				: new Date(
+						now.getTime() +
+							Math.min(
+								RECONCILE_RETRY_BASE_DELAY_MS * 2 ** event.reconcileAttempts,
+								RECONCILE_RETRY_MAX_DELAY_MS,
+							),
+					);
+
+			if (deadLettered) {
+				this.logger.error(
+					`AI usage event ${eventId} reconciliation is dead-lettered after ${attempts} attempts`,
+				);
+			}
+
 			const updated = await this.repository.updateEvent(
 				eventId,
 				["reserved", "settled", "reconcile_failed"],
 				{
-					reconciledAt: event.reconciledAt ?? new Date(),
+					nextReconcileAttemptAt,
+					reconcileAttempts: attempts,
+					reconciledAt: event.reconciledAt ?? now,
 					status: "reconcile_failed",
 				},
 				transaction,
@@ -1781,8 +2493,15 @@ export class MeteringService {
 	private reservationPricingSnapshot(
 		operation: MeteredOperation,
 		pricing: OperationPricing,
+		estimate: MeteringReserveEstimate,
+		subject: MeteringSubject,
 	): Record<string, unknown> {
 		const common = {
+			// The reserve-time exemption decision is a durable term: the soft
+			// member-limit re-check at settle/reconcile must use the same input.
+			...(subject.actorIsLimitExempt === true
+				? { actorIsLimitExempt: true }
+				: {}),
 			mode: pricing.mode,
 			operation,
 			reserveFloorCredits: pricing.reserveFloorCredits,
@@ -1795,6 +2514,19 @@ export class MeteringService {
 				...common,
 				creditsPerUnit: pricing.creditsPerUnit,
 				unit: pricing.unit,
+			};
+		}
+
+		if (pricing.mode === "measured") {
+			return {
+				...common,
+				estimatedUnitUsdMicros:
+					estimate.measuredTerms?.estimatedUnitUsdMicros ?? null,
+				...(pricing.maxDurationSeconds === undefined
+					? {}
+					: { maxDurationSeconds: pricing.maxDurationSeconds }),
+				unit: pricing.unit,
+				units: estimate.measuredTerms?.units ?? null,
 			};
 		}
 
@@ -1815,7 +2547,13 @@ export class MeteringService {
 		const snapshot = isRecord(event.pricingSnapshot)
 			? event.pricingSnapshot
 			: null;
-		const value = snapshot?.usdMicrosPerCredit;
+		// A recovered (reconciled-from-reserved) row nests the reservation
+		// snapshot; its anchor is still the reservation-time term.
+		const nestedReservation = isRecord(snapshot?.reservationPricingSnapshot)
+			? snapshot.reservationPricingSnapshot
+			: null;
+		const value =
+			snapshot?.usdMicrosPerCredit ?? nestedReservation?.usdMicrosPerCredit;
 
 		if (value === undefined) {
 			return this.modelPricing.usdMicrosPerCredit;
@@ -1830,7 +2568,9 @@ export class MeteringService {
 		return value as number;
 	}
 
-	private recoveryOperationPricing(event: AiUsageEvent): OperationPricing {
+	private recoveryOperationPricing(
+		event: AiUsageEvent,
+	): RecoveredOperationPricing {
 		const current = operationPricing(event.operation);
 		const eventSnapshot = isRecord(event.pricingSnapshot)
 			? event.pricingSnapshot
@@ -1849,45 +2589,86 @@ export class MeteringService {
 			eventSnapshot.mode === "fixed"
 				? eventSnapshot
 				: null;
+		const settledMeasuredSnapshot =
+			eventSnapshot?.source === "measured_local" &&
+			eventSnapshot.mode === "measured"
+				? eventSnapshot
+				: null;
 
-		if (
-			snapshot?.source !== "operation_registry_reservation" &&
-			settledFixedSnapshot === null
-		) {
-			return current;
-		}
-
-		if (settledFixedSnapshot) {
-			if (current.mode !== "fixed") {
-				throw new Error(
-					`AI usage event ${event.id} has fixed settlement pricing for a non-fixed operation`,
-				);
-			}
-
-			if (
-				settledFixedSnapshot.operation !== event.operation ||
-				settledFixedSnapshot.unit !== current.unit
-			) {
+		if (settledMeasuredSnapshot) {
+			if (settledMeasuredSnapshot.operation !== event.operation) {
 				throw new Error(
 					`AI usage event ${event.id} has a conflicting settlement pricing snapshot`,
 				);
 			}
 
 			return {
-				...current,
-				creditsPerUnit: snapshotInteger(
-					settledFixedSnapshot.creditsPerUnit,
-					"creditsPerUnit",
-					{ allowZero: current.unit === "adjustment", eventId: event.id },
+				...this.measuredRecoveryBase(current),
+				estimatedUnitUsdMicros: optionalSnapshotInteger(
+					settledMeasuredSnapshot.estimatedUnitUsdMicros,
 				),
 			};
 		}
 
+		// A transcription settled under the retired per-minute price carries
+		// only that settlement snapshot (the reservation snapshot is replaced at
+		// settle time); its durable debit stands through reconciliation.
 		if (
-			!snapshot ||
-			snapshot.operation !== event.operation ||
-			snapshot.mode !== current.mode
+			eventSnapshot?.mode === "per_minute" &&
+			eventSnapshot.source !== "operation_registry_reservation"
 		) {
+			const creditsPerMinute = snapshotInteger(
+				eventSnapshot.creditsPerMinute,
+				"creditsPerMinute",
+				{ allowZero: false, eventId: event.id },
+			);
+
+			return {
+				allowedChildOperations: current.allowedChildOperations,
+				allowedParentOperations: current.allowedParentOperations,
+				creditsPerMinute,
+				maxDurationSeconds: Number.isSafeInteger(
+					eventSnapshot.maxDurationSeconds,
+				)
+					? (eventSnapshot.maxDurationSeconds as number)
+					: "maxDurationSeconds" in current
+						? (current.maxDurationSeconds ?? TRANSCRIPTION_MAX_DURATION_SECONDS)
+						: TRANSCRIPTION_MAX_DURATION_SECONDS,
+				minimumCredits: Number.isSafeInteger(eventSnapshot.minimumCredits)
+					? (eventSnapshot.minimumCredits as number)
+					: creditsPerMinute,
+				mode: "per_minute",
+				reserveFloorCredits: current.reserveFloorCredits,
+				rootAllowed: current.rootAllowed,
+			};
+		}
+
+		if (settledFixedSnapshot) {
+			if (settledFixedSnapshot.operation !== event.operation) {
+				throw new Error(
+					`AI usage event ${event.id} has a conflicting settlement pricing snapshot`,
+				);
+			}
+
+			// Legacy fixed settlement (or a fixed-priced product such as
+			// lead_scrape): keep the settled unit price. A settled snapshot keeps
+			// its own unit — a flat legacy lead_scrape ('operation') must still
+			// reconcile after the registry moved to per-lead pricing.
+			return this.legacyFixedPricing(
+				event,
+				current,
+				settledFixedSnapshot.creditsPerUnit,
+				current.reserveFloorCredits,
+				settledFixedSnapshot.unit,
+				{ allowUnitMismatch: true },
+			);
+		}
+
+		if (snapshot?.source !== "operation_registry_reservation") {
+			return this.currentRecoveryPricing(current);
+		}
+
+		if (snapshot.operation !== event.operation) {
 			throw new Error(
 				`AI usage event ${event.id} has a conflicting reservation pricing snapshot`,
 			);
@@ -1899,29 +2680,29 @@ export class MeteringService {
 			{ allowZero: true, eventId: event.id },
 		);
 
-		if (current.mode === "fixed") {
-			return {
-				...current,
-				creditsPerUnit: snapshotInteger(
-					snapshot.creditsPerUnit,
-					"creditsPerUnit",
-					{ allowZero: current.unit === "adjustment", eventId: event.id },
-				),
+		// Reservation-time terms are durable. A hold admitted under the retired
+		// fixed/per_minute modes settles and reconciles under those terms even
+		// though the registry now prices the operation as measured.
+		if (snapshot.mode === "fixed") {
+			return this.legacyFixedPricing(
+				event,
+				current,
+				snapshot.creditsPerUnit,
 				reserveFloorCredits,
-				unit:
-					snapshot.unit === current.unit
-						? current.unit
-						: invalidSnapshotValue(event.id, "unit"),
-			};
+				snapshot.unit,
+				// A flat hold ('operation') admitted before per-lead pricing.
+				{ allowUnitMismatch: snapshot.unit === "operation" },
+			);
 		}
 
-		if (current.mode === "per_minute") {
+		if (snapshot.mode === "per_minute") {
 			if (snapshot.unit !== "minute") {
 				invalidSnapshotValue(event.id, "unit");
 			}
 
 			return {
-				...current,
+				allowedChildOperations: current.allowedChildOperations,
+				allowedParentOperations: current.allowedParentOperations,
 				creditsPerMinute: snapshotInteger(
 					snapshot.creditsPerMinute,
 					"creditsPerMinute",
@@ -1937,11 +2718,218 @@ export class MeteringService {
 					"minimumCredits",
 					{ allowZero: false, eventId: event.id },
 				),
+				mode: "per_minute",
+				reserveFloorCredits,
+				rootAllowed: current.rootAllowed,
+			};
+		}
+
+		if (snapshot.mode === "measured") {
+			return {
+				...this.measuredRecoveryBase(current),
+				estimatedUnitUsdMicros: optionalSnapshotInteger(
+					snapshot.estimatedUnitUsdMicros,
+				),
 				reserveFloorCredits,
 			};
 		}
 
-		return { ...current, reserveFloorCredits };
+		if (snapshot.mode !== current.mode) {
+			throw new Error(
+				`AI usage event ${event.id} has a conflicting reservation pricing snapshot`,
+			);
+		}
+
+		return { ...this.currentRecoveryPricing(current), reserveFloorCredits };
+	}
+
+	private currentRecoveryPricing(
+		current: OperationPricing,
+	): RecoveredOperationPricing {
+		return current.mode === "measured"
+			? { ...current, estimatedUnitUsdMicros: null }
+			: current;
+	}
+
+	private measuredRecoveryBase(
+		current: OperationPricing,
+	): MeasuredOperationPricing {
+		if (current.mode === "measured") {
+			return current;
+		}
+
+		return {
+			allowedChildOperations: current.allowedChildOperations,
+			allowedParentOperations: current.allowedParentOperations,
+			mode: "measured",
+			reserveFloorCredits: current.reserveFloorCredits,
+			rootAllowed: current.rootAllowed,
+			unit:
+				"unit" in current && current.unit === "image" ? "image" : "operation",
+		};
+	}
+
+	private legacyFixedPricing(
+		event: AiUsageEvent,
+		current: OperationPricing,
+		creditsPerUnitValue: unknown,
+		reserveFloorCredits: number,
+		unitValue: unknown,
+		options: { allowUnitMismatch?: boolean } = {},
+	): FixedOperationPricing {
+		const unit = isFixedUnit(unitValue)
+			? unitValue
+			: current.mode === "fixed"
+				? current.unit
+				: invalidSnapshotValue(event.id, "unit");
+
+		if (
+			current.mode === "fixed" &&
+			unit !== current.unit &&
+			options.allowUnitMismatch !== true
+		) {
+			invalidSnapshotValue(event.id, "unit");
+		}
+
+		return {
+			allowedChildOperations: current.allowedChildOperations,
+			allowedParentOperations: current.allowedParentOperations,
+			creditsPerUnit: snapshotInteger(creditsPerUnitValue, "creditsPerUnit", {
+				allowZero: unit === "adjustment",
+				eventId: event.id,
+			}),
+			mode: "fixed",
+			reserveFloorCredits,
+			rootAllowed: current.rootAllowed,
+			unit,
+		};
+	}
+
+	/** Provisional credits for a unit-settled recovery. */
+	private evidenceSettlement(
+		event: AiUsageEvent,
+		pricing: Exclude<RecoveredOperationPricing, { mode: "per_minute" }>,
+		units: number,
+	) {
+		if (pricing.mode === "token") {
+			// Stored output proves the call completed but its usage is gone; the
+			// reserve floor stands until the gateway reprices it from exact cost.
+			return {
+				finalCredits: units === 0 ? 0 : event.reservedCredits,
+				pricing: "direct" as const,
+				pricingSnapshot: {
+					mode: "token",
+					operation: event.operation,
+					outcome: units === 0 ? "failed_no_deliverable" : "delivered",
+					source: "token_floor_recovery",
+					units,
+					usdMicrosPerCredit: this.reconciliationUsdMicrosPerCredit(event),
+				},
+			};
+		}
+
+		if (pricing.mode === "fixed") {
+			return {
+				finalCredits: units * pricing.creditsPerUnit,
+				pricing: "direct" as const,
+				pricingSnapshot: {
+					creditsPerUnit: pricing.creditsPerUnit,
+					mode: "fixed",
+					operation: event.operation,
+					source: "operation_registry",
+					unit: pricing.unit,
+					units,
+				},
+			};
+		}
+
+		const usdMicrosPerCredit = this.reconciliationUsdMicrosPerCredit(event);
+		const costUsdMicros =
+			pricing.estimatedUnitUsdMicros === null
+				? null
+				: pricing.estimatedUnitUsdMicros * units;
+		const finalCredits =
+			units === 0
+				? 0
+				: costUsdMicros === null
+					? pricing.reserveFloorCredits * units
+					: usdMicrosToCentiCredits(costUsdMicros, usdMicrosPerCredit);
+
+		return {
+			costUsdMicros,
+			finalCredits,
+			pricing: "direct" as const,
+			pricingSnapshot: {
+				estimatedUnitUsdMicros: pricing.estimatedUnitUsdMicros,
+				mode: "measured",
+				operation: event.operation,
+				outcome: units === 0 ? "failed_no_deliverable" : "delivered",
+				// A floor charge is not a provider cost: flag it for admin review.
+				...(finalCredits > 0 && costUsdMicros === null
+					? { reviewFlags: ["no_catalog_rate"] }
+					: {}),
+				source: "measured_local",
+				unit: pricing.unit,
+				units,
+				usdMicrosPerCredit,
+			},
+		};
+	}
+
+	/**
+	 * Credits a late completion checkpoint should reprice a registry-recovered
+	 * event to; null when the measured terms carry no local estimate (the
+	 * gateway reconciliation already holds the authoritative cost).
+	 */
+	private lateCompletionCredits(
+		event: AiUsageEvent,
+		pricing: Extract<RecoveredOperationPricing, { mode: "fixed" | "measured" }>,
+		completedUnits: number,
+	): number | null {
+		if (pricing.mode === "fixed") {
+			return completedUnits * pricing.creditsPerUnit;
+		}
+
+		if (completedUnits === 0) {
+			return null;
+		}
+
+		// Reservation-time terms are authoritative for an in-flight event: the
+		// anchor comes from the snapshot, never the live config.
+		const usdMicrosPerCredit = this.reconciliationUsdMicrosPerCredit(event);
+		// The gateway already reported the exact customer-billable cost (decision
+		// 2/3): price the late completion from it, not from the local estimate.
+		const gatewayCost = this.reconciledCustomerBillableCostUsdMicros(event);
+
+		if (gatewayCost !== null && gatewayCost > 0) {
+			return usdMicrosToCentiCredits(gatewayCost, usdMicrosPerCredit);
+		}
+
+		if (pricing.estimatedUnitUsdMicros === null) {
+			return null;
+		}
+
+		return usdMicrosToCentiCredits(
+			pricing.estimatedUnitUsdMicros * completedUnits,
+			usdMicrosPerCredit,
+		);
+	}
+
+	/** customerBillableCostUsdMicros a gateway reconciliation recorded, if any. */
+	private reconciledCustomerBillableCostUsdMicros(
+		event: AiUsageEvent,
+	): number | null {
+		const snapshot = isRecord(event.pricingSnapshot)
+			? event.pricingSnapshot
+			: null;
+		const gatewayReconciliation = isRecord(snapshot?.gatewayReconciliation)
+			? snapshot.gatewayReconciliation
+			: null;
+		const cost = gatewayReconciliation?.customerBillableCostUsdMicros;
+
+		return Number.isSafeInteger(cost) && (cost as number) >= 0
+			? (cost as number)
+			: null;
 	}
 
 	private reconciledFinalCredits(
@@ -1949,32 +2937,85 @@ export class MeteringService {
 		refs: readonly AiUsageGenerationRef[],
 		customerBillableCostUsdMicros: number,
 		usdMicrosPerCredit: number,
-	): number {
+	): { finalCredits: number; reviewFlags: readonly MeteringReviewFlag[] } {
 		const pricing = this.recoveryOperationPricing(event);
 
 		if (pricing.mode === "token") {
-			return usdMicrosToCentiCredits(
-				customerBillableCostUsdMicros,
-				usdMicrosPerCredit,
-			);
+			// A call that produced no deliverable (refunded_failure refs only)
+			// owes nothing; otherwise the exact customer-billable cost applies.
+			if (
+				customerBillableCostUsdMicros === 0 &&
+				refs.length > 0 &&
+				refs.every((ref) => isRefundedFailureStepUsage(ref.stepUsage))
+			) {
+				return { finalCredits: 0, reviewFlags: [] };
+			}
+
+			return {
+				finalCredits: usdMicrosToCentiCredits(
+					customerBillableCostUsdMicros,
+					usdMicrosPerCredit,
+				),
+				reviewFlags: [],
+			};
+		}
+
+		if (pricing.mode === "measured") {
+			// A user-visible failure settled at 0 is never re-charged; its cost
+			// still lands in reconciledCostUsdMicros. Otherwise the exact
+			// customer-billable provider cost replaces the local estimate, and an
+			// event whose every ref was a refunded failure owes nothing.
+			if (
+				this.settlementOutcome(event) === "failed_no_deliverable" ||
+				(event.finalCredits === null && this.fixedUnitEvidence(refs) === 0)
+			) {
+				return { finalCredits: event.finalCredits ?? 0, reviewFlags: [] };
+			}
+
+			if (customerBillableCostUsdMicros === 0) {
+				// A gateway total_cost of 0 for DELIVERED work is a catalog gap (or
+				// an unpriced model), not a free render: the settle-time estimate
+				// stands and the event is flagged for admin review. An explicit
+				// zero settlement (user's own provider subscription) stays 0.
+				if ((event.finalCredits ?? 0) > 0) {
+					return {
+						finalCredits: event.finalCredits ?? 0,
+						reviewFlags: ["gateway_zero_cost"],
+					};
+				}
+
+				return { finalCredits: 0, reviewFlags: [] };
+			}
+
+			return {
+				finalCredits: usdMicrosToCentiCredits(
+					customerBillableCostUsdMicros,
+					usdMicrosPerCredit,
+				),
+				reviewFlags: [],
+			};
 		}
 
 		if (pricing.mode === "fixed") {
 			if (event.finalCredits !== null) {
-				return event.finalCredits;
+				return { finalCredits: event.finalCredits, reviewFlags: [] };
 			}
 
 			const fixedUnits = this.fixedUnitEvidence(refs);
 
-			return fixedUnits === null
-				? event.reservedCredits
-				: fixedUnits * pricing.creditsPerUnit;
+			return {
+				finalCredits:
+					fixedUnits === null
+						? event.reservedCredits
+						: fixedUnits * pricing.creditsPerUnit,
+				reviewFlags: [],
+			};
 		}
 
 		// A successful settle is already a durable, caller-observed billing fact.
 		// Reconciliation enriches it with provider evidence but does not re-price it.
 		if (event.settledAt !== null && event.finalCredits !== null) {
-			return event.finalCredits;
+			return { finalCredits: event.finalCredits, reviewFlags: [] };
 		}
 
 		const evidence = this.perMinuteDurationEvidence(
@@ -1988,10 +3029,14 @@ export class MeteringService {
 			);
 		}
 
-		return Math.max(
-			pricing.minimumCredits,
-			Math.ceil(evidence.billedDurationSeconds / 60) * pricing.creditsPerMinute,
-		);
+		return {
+			finalCredits: Math.max(
+				pricing.minimumCredits,
+				Math.ceil(evidence.billedDurationSeconds / 60) *
+					pricing.creditsPerMinute,
+			),
+			reviewFlags: [],
+		};
 	}
 
 	private reconciledPricingSnapshot(
@@ -2005,6 +3050,7 @@ export class MeteringService {
 		customerBillableCostUsdMicros: number,
 		finalCredits: number,
 		usdMicrosPerCredit: number,
+		evidence: readonly AiProviderCallEvidence[] = [],
 	): Record<string, unknown> {
 		const currentRefByGenerationId = new Map(
 			currentRefs.map((ref) => [ref.gatewayGenerationId, ref]),
@@ -2021,8 +3067,12 @@ export class MeteringService {
 
 				return {
 					customerBilling: isBundledUnmeteredStepUsage(ref.stepUsage)
-						? "bundled_unmetered"
-						: "metered",
+						? "bundled_unmetered_legacy"
+						: isHelperBillableStepUsage(ref.stepUsage)
+							? "helper_billable"
+							: isRefundedFailureStepUsage(ref.stepUsage)
+								? "refunded_failure"
+								: "metered",
 					costUsdMicros: costs[index],
 					id: info.id,
 					model: info.model,
@@ -2034,6 +3084,19 @@ export class MeteringService {
 				};
 			}),
 			customerBillableCostUsdMicros,
+			// Non-gateway receipts priced next to the gateway total, so the audit
+			// trail is self-contained.
+			providerCallEvidence: evidence.map((row) => ({
+				chargedUsdMicros: row.chargedUsdMicros,
+				costSource: row.costSource,
+				costStatus: row.costStatus,
+				customerBillable: row.customerBillable,
+				id: row.id,
+				providerRequestId: row.providerRequestId,
+				transport: row.transport,
+				unitKind: row.unitKind,
+				units: row.units,
+			})),
 			source: "gateway_reconciliation",
 			usdMicrosPerCredit,
 		};
@@ -2108,6 +3171,18 @@ export class MeteringService {
 				creditsPerUnit: pricing.creditsPerUnit,
 				unit: pricing.unit,
 				...(exactUnits === null ? { finalCredits } : { units: exactUnits }),
+			};
+		}
+
+		if (pricing.mode === "measured") {
+			const units = this.fixedUnitEvidence(refs);
+
+			return {
+				...common,
+				estimatedUnitUsdMicros: pricing.estimatedUnitUsdMicros,
+				finalCredits,
+				unit: pricing.unit,
+				...(units === null ? {} : { units }),
 			};
 		}
 
@@ -2295,7 +3370,10 @@ export class MeteringService {
 		settlement: PreparedMeteringSettlement,
 	): void {
 		if (
-			event.finalCredits !== settlement.finalCredits ||
+			settlementReplayFinalCredits(
+				event.pricingSnapshot,
+				event.finalCredits,
+			) !== settlement.finalCredits ||
 			event.model !== settlement.model ||
 			event.provider !== settlement.provider ||
 			event.inputTokens !== (settlement.usage?.inputTokens ?? null) ||
@@ -2303,7 +3381,7 @@ export class MeteringService {
 			event.cacheReadTokens !== (settlement.usage?.cacheReadTokens ?? null) ||
 			event.cacheWriteTokens !== (settlement.usage?.cacheWriteTokens ?? null) ||
 			!isDeepStrictEqual(
-				jsonComparable(event.pricingSnapshot),
+				jsonComparable(stripSettlementMarkers(event.pricingSnapshot)),
 				jsonComparable(settlement.pricingSnapshot),
 			) ||
 			!isDeepStrictEqual(
@@ -2360,7 +3438,10 @@ export class MeteringService {
 		const usage = isRecord(evidence.usage) ? evidence.usage : null;
 
 		if (
-			evidence.finalCredits !== prepared.finalCredits ||
+			settlementReplayFinalCredits(
+				evidence.pricingSnapshot,
+				evidence.finalCredits,
+			) !== prepared.finalCredits ||
 			evidence.model !== prepared.model ||
 			evidence.provider !== prepared.provider ||
 			usage?.inputTokens !== (prepared.usage?.inputTokens ?? null) ||
@@ -2370,7 +3451,7 @@ export class MeteringService {
 			usage?.uncachedInputTokens !==
 				(prepared.usage?.uncachedInputTokens ?? null) ||
 			!isDeepStrictEqual(
-				jsonComparable(evidence.pricingSnapshot),
+				jsonComparable(stripSettlementMarkers(evidence.pricingSnapshot)),
 				jsonComparable(prepared.pricingSnapshot),
 			) ||
 			!isDeepStrictEqual(
@@ -2390,6 +3471,30 @@ export class MeteringService {
 		const recoveredSnapshot = isRecord(event.pricingSnapshot)
 			? event.pricingSnapshot
 			: null;
+
+		if (pricing.mode === "measured") {
+			// The gateway already repriced this event from exact cost; a late
+			// provisional settlement for the same operation is a benign replay.
+			const preparedSnapshot: Record<string, unknown> | null = isRecord(
+				prepared.pricingSnapshot,
+			)
+				? prepared.pricingSnapshot
+				: null;
+
+			if (
+				recoveredSnapshot?.source !== "operation_registry_recovery" ||
+				recoveredSnapshot.mode !== "measured" ||
+				preparedSnapshot?.source !== "measured_local" ||
+				preparedSnapshot.operation !== event.operation
+			) {
+				throw new Error(
+					`AI usage settle replay conflict for event ${event.id}`,
+				);
+			}
+
+			return;
+		}
+
 		const units =
 			pricing.mode === "fixed" &&
 			event.finalCredits !== null &&
@@ -2486,6 +3591,19 @@ export class MeteringService {
 			: null;
 
 		return isRecord(evidence) ? evidence : null;
+	}
+
+	/** The `outcome` a measured_local settlement recorded, if any. */
+	private settlementOutcome(event: AiUsageEvent): string | null {
+		const snapshot = isRecord(event.pricingSnapshot)
+			? event.pricingSnapshot
+			: null;
+		const settlementSnapshot = isRecord(snapshot?.settlementPricingSnapshot)
+			? snapshot.settlementPricingSnapshot
+			: snapshot;
+		const outcome = settlementSnapshot?.outcome;
+
+		return typeof outcome === "string" ? outcome : null;
 	}
 
 	private settlementUncachedInputTokens(event: AiUsageEvent): number | null {
@@ -2594,6 +3712,95 @@ function fixedUnitsFromStepUsage(stepUsage: unknown): number | null {
 		: null;
 }
 
+/**
+ * Settlement-time advisory markers (the soft member-limit breach, the capped
+ * sanity ceiling, the reserve-time limit exemption) are written by the server
+ * ON TOP of the caller's snapshot, so replay validation must ignore them —
+ * the caller legitimately resubmits the marker-less basis.
+ */
+function stripSettlementMarkers(pricingSnapshot: unknown): unknown {
+	if (!isRecord(pricingSnapshot)) {
+		return pricingSnapshot;
+	}
+
+	const {
+		actorIsLimitExempt: _actorIsLimitExempt,
+		memberLimitBreach: _memberLimitBreach,
+		sanityCeiling: _sanityCeiling,
+		...rest
+	} = pricingSnapshot;
+
+	return rest;
+}
+
+/**
+ * The finalCredits a settlement replay must match: the caller's requested
+ * charge, which is the `sanityCeiling.attempted` basis when the debit was
+ * capped, else the stored charge.
+ */
+function settlementReplayFinalCredits(
+	pricingSnapshot: unknown,
+	storedFinalCredits: unknown,
+): unknown {
+	const sanityCeiling = isRecord(pricingSnapshot)
+		? pricingSnapshot.sanityCeiling
+		: null;
+	const attempted = isRecord(sanityCeiling) ? sanityCeiling.attempted : null;
+
+	return Number.isSafeInteger(attempted) ? attempted : storedFinalCredits;
+}
+
+/** Reserve-time limit exemption, from the reservation or a carried marker. */
+function snapshotActorIsLimitExempt(pricingSnapshot: unknown): boolean {
+	if (!isRecord(pricingSnapshot)) {
+		return false;
+	}
+
+	if (pricingSnapshot.actorIsLimitExempt === true) {
+		return true;
+	}
+
+	const reservation = pricingSnapshot.reservationPricingSnapshot;
+
+	return isRecord(reservation) && reservation.actorIsLimitExempt === true;
+}
+
+function snapshotReviewFlags(
+	pricingSnapshot: unknown,
+): readonly MeteringReviewFlag[] {
+	if (!isRecord(pricingSnapshot)) {
+		return [];
+	}
+
+	const flags = pricingSnapshot.reviewFlags;
+
+	if (!Array.isArray(flags)) {
+		return [];
+	}
+
+	return flags.filter(
+		(flag): flag is MeteringReviewFlag =>
+			flag === "gateway_zero_cost" || flag === "no_catalog_rate",
+	);
+}
+
+/** Union the admin-review flags into a snapshot (no key when there are none). */
+function withReviewFlags(
+	pricingSnapshot: Record<string, unknown>,
+	flags: readonly MeteringReviewFlag[],
+): Record<string, unknown> {
+	if (flags.length === 0) {
+		return pricingSnapshot;
+	}
+
+	return {
+		...pricingSnapshot,
+		reviewFlags: [
+			...new Set([...snapshotReviewFlags(pricingSnapshot), ...flags]),
+		],
+	};
+}
+
 function isRegistryRecoveryPricing(pricingSnapshot: unknown): boolean {
 	return (
 		isRecord(pricingSnapshot) &&
@@ -2605,6 +3812,22 @@ function finitePositiveNumber(value: unknown): number | null {
 	return typeof value === "number" && Number.isFinite(value) && value > 0
 		? value
 		: null;
+}
+
+/** Same rows with the same priced state (id, status, charge, units). */
+function providerCallEvidenceMatches(
+	expected: readonly AiProviderCallEvidence[],
+	current: readonly AiProviderCallEvidence[],
+): boolean {
+	const fingerprint = (rows: readonly AiProviderCallEvidence[]) =>
+		rows
+			.map(
+				(row) =>
+					`${row.id}:${row.costStatus}:${row.chargedUsdMicros ?? "null"}:${row.units}:${row.customerBillable}`,
+			)
+			.sort();
+
+	return isDeepStrictEqual(fingerprint(expected), fingerprint(current));
 }
 
 /**
@@ -2750,6 +3973,21 @@ function snapshotInteger(
 	}
 
 	return value as number;
+}
+
+function optionalSnapshotInteger(value: unknown): number | null {
+	return Number.isSafeInteger(value) && (value as number) >= 0
+		? (value as number)
+		: null;
+}
+
+function isFixedUnit(value: unknown): value is FixedOperationPricing["unit"] {
+	return (
+		value === "adjustment" ||
+		value === "image" ||
+		value === "lead" ||
+		value === "operation"
+	);
 }
 
 function invalidSnapshotValue(eventId: string, field: string): never {

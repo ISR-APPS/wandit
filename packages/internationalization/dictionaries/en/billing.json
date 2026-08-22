@@ -130,6 +130,7 @@
 		"previewDescription": "This preview is locked for a short time so the confirmed amount stays consistent.",
 		"newPlan": "New plan",
 		"payNowCredits": "Pay {amount} now · {credits} credits",
+		"upgradeExplanation": "You are charged the full new tier now and the unused time on your current tier is credited back. Your plan credits reset to the full new allotment right away.",
 		"changesAtRenewal": "Changes at renewal",
 		"downgradeExplanation": "Your current tier remains active through this billing period. The lower tier begins at renewal.",
 		"back": "Back",

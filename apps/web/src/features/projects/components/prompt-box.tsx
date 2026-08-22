@@ -1,7 +1,6 @@
 import {
 	type ComposerMetadata,
 	type ComposerQuality,
-	CREDIT_COSTS,
 	projectPromptMaxLength,
 	type UploadAttachmentResponse,
 	videoSubmissionIdSchema,
@@ -77,7 +76,6 @@ import type * as React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "@/features/auth";
 import { ConnectorsDialog } from "@/features/connectors";
-import { PriceTag } from "@/features/credits";
 import { useDictionary, useTranslation } from "@/lib/i18n";
 import {
 	BUILDER_MODEL_STORAGE_KEY,
@@ -92,7 +90,7 @@ import {
 	AttachmentUploadError,
 	uploadAttachment,
 } from "../api/attachments.services";
-import { MAX_VISIBLE_SKILLS, QUALITY_CREDITS } from "../lib/constants";
+import { MAX_VISIBLE_SKILLS } from "../lib/constants";
 import { useVoiceDictation } from "../lib/use-voice-dictation";
 
 type RouteMode = "auto" | "page" | "marketing" | "image" | "video";
@@ -295,7 +293,7 @@ const ROUTE_MODES: readonly RouteModeDef[] = [
 ];
 
 // Non-copy quality-tier config: id + icon. Label/hint live in the
-// `projects.promptBox.quality` dictionary namespace; cost in QUALITY_CREDITS.
+// `projects.promptBox.quality` dictionary namespace.
 type QualityTierDef = {
 	id: ComposerQuality;
 	icon: LucideIcon;
@@ -1696,7 +1694,6 @@ function OutputSettings({
 						<div className="grid grid-cols-2 gap-2">
 							{QUALITY_TIERS.map((tier) => {
 								const tierCopy = pb.quality[tier.id];
-								const tierCost = QUALITY_CREDITS[tier.id];
 								const selected = quality === tier.id;
 								return (
 									<button
@@ -1711,31 +1708,10 @@ function OutputSettings({
 										)}
 									>
 										<span className="block font-medium">{tierCopy.label}</span>
-										{tierCost !== null ? (
-											<PriceTag
-												cost={tierCost}
-												withIcon
-												showUnit={false}
-												className="mt-1 justify-center text-[11px]"
-											/>
-										) : null}
 									</button>
 								);
 							})}
 						</div>
-					</div>
-				) : null}
-				{showQuality && isVideoMode ? (
-					<div className="flex min-h-9 items-center justify-between rounded-xl border border-primary/35 bg-primary/10 px-3 py-2">
-						<span className="text-muted-foreground text-xs">
-							{t("projects.promptBox.qualityLabel")}
-						</span>
-						<PriceTag
-							cost={CREDIT_COSTS.videoGeneration}
-							withIcon
-							showUnit={false}
-							className="text-[11px] text-foreground"
-						/>
 					</div>
 				) : null}
 			</div>
@@ -1915,8 +1891,8 @@ export type PromptBoxProps = {
 	attachmentsEnabled?: boolean;
 	variant?: "hero" | "compact";
 	placeholder?: string;
-	/** Show the generation cost as a quiet mono tag next to the actions. */
-	showPriceTag?: boolean;
+	/** Show the quality-tier picker in the composer settings panel. */
+	showQualityPicker?: boolean;
 	/** Tinted strip above the card (ai-chat-v2 style). */
 	showBanner?: boolean;
 	/** Legacy prop kept for call sites; the composer always exposes modes. */
@@ -1956,7 +1932,7 @@ export function PromptBox({
 	attachmentsEnabled = false,
 	variant = "hero",
 	placeholder,
-	showPriceTag = false,
+	showQualityPicker = false,
 	showBanner = false,
 	isSubmitting = false,
 	disabled = false,
@@ -2702,7 +2678,7 @@ export function PromptBox({
 							onValueChange={updateOutputOption}
 							quality={quality}
 							onQualityChange={handleQualityChange}
-							showQuality={showPriceTag}
+							showQuality={showQualityPicker}
 							isVideoMode={isVideoMode}
 							isHero={isHero}
 						/>

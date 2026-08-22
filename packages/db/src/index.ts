@@ -16,11 +16,12 @@ export {
 	inArray,
 	isNull,
 	lt,
+	lte,
 	ne,
 	notInArray,
 	or,
-	sql,
 	type SQL,
+	sql,
 } from "drizzle-orm";
 
 import { drizzle } from "drizzle-orm/node-postgres";

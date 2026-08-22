@@ -8,13 +8,14 @@ import type {
 	MeteringSubject,
 } from "../../../credits/domain/credit-owner";
 import { InsufficientCreditsError } from "../../../credits/domain/errors/insufficient-credits.error";
+import { MemberCreditLimitError } from "../../../credits/domain/errors/member-credit-limit.error";
 import type { OrganizationLimitsRepository } from "../../../workspaces/infrastructure/persistence/organization-limits.repository";
 import {
 	type AiUsageEvent,
 	type AiUsageGenerationRef,
 	bundledReservationPendingAttemptRef,
-	bundledUnmeteredStepUsage,
 	GatewayUsagePendingError,
+	helperStepUsage,
 	isBundledUnmeteredStepUsage,
 	type MeteringGateway,
 	MeteringStateConflictError,
@@ -24,6 +25,12 @@ import {
 	type TokenUsageQuote,
 	usdMicrosToCentiCredits,
 } from "../../domain/model-pricing";
+import { maxFinalCreditsCeiling } from "../../domain/operation-registry";
+import type {
+	AiProviderCallEvidence,
+	ProviderCallEvidenceCost,
+	ProviderCallEvidenceInput,
+} from "../../domain/provider-call-evidence";
 import type {
 	AiUsageEventPatch,
 	InsertAiUsageEvent,
@@ -31,7 +38,7 @@ import type {
 	MeteringRepository,
 	MeteringTransaction,
 } from "../../infrastructure/persistence/metering.repository";
-import { MeteringService } from "./metering.service";
+import { MeteringService, RECONCILE_DEAD_LETTER_CAP } from "./metering.service";
 import type { ModelPricingService } from "./model-pricing.service";
 
 const USER_ID = "user_1";
@@ -41,9 +48,21 @@ const CHILD_EVENT_ID = "22222222-2222-4222-8222-222222222222";
 const PROJECT_PENDING_ATTEMPT_REF =
 	bundledReservationPendingAttemptRef("project:project-1");
 
+/** Pre-deploy helper rows: no writer emits this tag any more. */
+function bundledUnmeteredStepUsage(
+	operation: "project_title" | "prompt_refine",
+	providerUsage: unknown,
+): Record<string, unknown> {
+	return {
+		metering: { customerBilling: "bundled_unmetered", operation },
+		providerUsage,
+	};
+}
+
 class InMemoryMeteringRepository {
 	readonly events = new Map<string, AiUsageEvent>();
 	readonly refs = new Map<string, AiUsageGenerationRef>();
+	readonly evidence = new Map<string, AiProviderCallEvidence>();
 	readonly operationLocks: string[] = [];
 	failUpdateEventId: string | null = null;
 	private transactionQueue: Promise<void> = Promise.resolve();
@@ -60,6 +79,7 @@ class InMemoryMeteringRepository {
 		await previous;
 		const eventSnapshot = new Map(this.events);
 		const refSnapshot = new Map(this.refs);
+		const evidenceSnapshot = new Map(this.evidence);
 
 		try {
 			return await fn(this.transactionClient);
@@ -71,6 +91,10 @@ class InMemoryMeteringRepository {
 			this.refs.clear();
 			for (const [id, ref] of refSnapshot) {
 				this.refs.set(id, ref);
+			}
+			this.evidence.clear();
+			for (const [id, row] of evidenceSnapshot) {
+				this.evidence.set(id, row);
 			}
 			throw error;
 		} finally {
@@ -232,6 +256,76 @@ class InMemoryMeteringRepository {
 		});
 	}
 
+	async listProviderCallEvidence(eventId: string) {
+		return [...this.evidence.values()].filter(
+			(row) => row.usageEventId === eventId,
+		);
+	}
+
+	async findProviderCallEvidenceById(evidenceId: string) {
+		return this.evidence.get(evidenceId) ?? null;
+	}
+
+	async insertProviderCallEvidence(
+		input: ProviderCallEvidenceInput & { usageEventId: string },
+	) {
+		const existing = [...this.evidence.values()].find(
+			(row) => row.idempotencyKey === input.idempotencyKey,
+		);
+
+		if (existing) {
+			if (existing.usageEventId !== input.usageEventId) {
+				throw new Error("evidence belongs to another event");
+			}
+
+			return existing;
+		}
+
+		const row: AiProviderCallEvidence = {
+			chargedUsdMicros: input.chargedUsdMicros ?? null,
+			costSource: input.costSource ?? null,
+			costStatus: input.costStatus,
+			createdAt: new Date(),
+			customerBillable: input.customerBillable,
+			id: randomUUID(),
+			idempotencyKey: input.idempotencyKey,
+			providerRequestId: input.providerRequestId ?? null,
+			rateUsdMicrosPerUnit: input.rateUsdMicrosPerUnit ?? null,
+			rawReceipt: input.rawReceipt ?? null,
+			transport: input.transport,
+			unitKind: input.unitKind,
+			units: input.units,
+			updatedAt: new Date(),
+			usageEventId: input.usageEventId,
+		};
+		this.evidence.set(row.id, row);
+		return row;
+	}
+
+	async updateProviderCallEvidenceCost(
+		evidenceId: string,
+		cost: ProviderCallEvidenceCost & { units: number },
+	) {
+		const row = this.evidence.get(evidenceId);
+
+		if (!row) {
+			throw new Error("missing evidence");
+		}
+
+		const updated: AiProviderCallEvidence = {
+			...row,
+			chargedUsdMicros: cost.chargedUsdMicros,
+			costSource: cost.costSource ?? null,
+			costStatus: cost.costStatus,
+			rateUsdMicrosPerUnit: cost.rateUsdMicrosPerUnit ?? null,
+			...(cost.rawReceipt === undefined ? {} : { rawReceipt: cost.rawReceipt }),
+			units: cost.units,
+			updatedAt: new Date(),
+		};
+		this.evidence.set(evidenceId, updated);
+		return updated;
+	}
+
 	async listStaleReserved(createdBefore: Date, limit: number) {
 		return [...this.events.values()]
 			.filter(
@@ -250,6 +344,28 @@ class InMemoryMeteringRepository {
 					[...this.refs.values()].some(
 						(ref) => ref.usageEventId === event.id && ref.reconciledAt === null,
 					),
+			)
+			.slice(0, limit);
+	}
+
+	async listRetryableReconcileFailed(now: Date, limit: number) {
+		return [...this.events.values()]
+			.filter(
+				(event) =>
+					event.status === "reconcile_failed" &&
+					event.nextReconcileAttemptAt !== null &&
+					event.nextReconcileAttemptAt <= now,
+			)
+			.slice(0, limit);
+	}
+
+	async listSettledWithoutRefs(createdBefore: Date, limit: number) {
+		return [...this.events.values()]
+			.filter(
+				(event) =>
+					event.status === "settled" &&
+					event.createdAt < createdBefore &&
+					![...this.refs.values()].some((ref) => ref.usageEventId === event.id),
 			)
 			.slice(0, limit);
 	}
@@ -295,6 +411,7 @@ class InMemoryCreditsService {
 		amount: number,
 		options: {
 			actorUserId?: string;
+			admission?: "requirePositiveBalance";
 			allowOverdraft?: boolean;
 			idempotencyKey?: string;
 			planHold?: "active" | "inactive";
@@ -304,6 +421,8 @@ class InMemoryCreditsService {
 		const userId = ownerBalanceKey(owner);
 		const idempotencyKey = options.idempotencyKey ?? "";
 		const allowOverdraft = options.allowOverdraft === true;
+		const requirePositiveBalance =
+			options.admission === "requirePositiveBalance";
 		const existing = this.consumes.get(idempotencyKey);
 
 		if (existing) {
@@ -319,7 +438,13 @@ class InMemoryCreditsService {
 
 		const balance = this.balances.get(userId) ?? 0;
 
-		if (!allowOverdraft && balance < amount) {
+		// Mirrors CreditsService: ruling-5 admission admits any positive balance
+		// into overdraft; the legacy path needs the full amount.
+		if (
+			requirePositiveBalance
+				? balance <= 0
+				: !allowOverdraft && balance < amount
+		) {
 			throw new InsufficientCreditsError(amount, balance);
 		}
 
@@ -422,7 +547,9 @@ class FakeModelPricingService {
 			provider: "openai",
 			refreshedAt: "2026-08-01T00:00:00.000Z",
 			source: "database",
+			transcriptionUsdMicrosPerSecond: null,
 			usdMicrosPerCredit: 50_000,
+			videoUsdMicrosPerSecond: null,
 		},
 		usage: {
 			cacheReadTokens: 0,
@@ -477,6 +604,68 @@ class FakeMeteringGateway implements MeteringGateway {
 	}
 }
 
+/** Reservation snapshot written before measured billing (fixed mode). */
+function legacyFixedReservationSnapshot(
+	operation: "image" | "video",
+	creditsPerUnit: number,
+) {
+	return {
+		creditsPerUnit,
+		mode: "fixed",
+		operation,
+		reserveFloorCredits: creditsPerUnit,
+		source: "operation_registry_reservation",
+		unit: operation === "image" ? "image" : "operation",
+		usdMicrosPerCredit: 50_000,
+	};
+}
+
+/** Reservation snapshot written before measured billing (per-minute mode). */
+function legacyPerMinuteReservationSnapshot(creditsPerMinute: number) {
+	return {
+		creditsPerMinute,
+		maxDurationSeconds: 300,
+		minimumCredits: creditsPerMinute,
+		mode: "per_minute",
+		operation: "transcription",
+		reserveFloorCredits: creditsPerMinute,
+		source: "operation_registry_reservation",
+		unit: "minute",
+		usdMicrosPerCredit: 50_000,
+	};
+}
+
+function measuredSettlement(
+	operation: "image" | "video",
+	units: number,
+	estimatedUnitUsdMicros: number | null,
+	options: { outcome?: string } = {},
+) {
+	const costUsdMicros =
+		estimatedUnitUsdMicros === null ? null : estimatedUnitUsdMicros * units;
+
+	return {
+		costUsdMicros,
+		finalCredits:
+			units === 0 || costUsdMicros === null
+				? 0
+				: usdMicrosToCentiCredits(costUsdMicros, 50_000),
+		pricing: "direct" as const,
+		pricingSnapshot: {
+			estimatedUnitUsdMicros,
+			mode: "measured",
+			operation,
+			outcome:
+				options.outcome ??
+				(units === 0 ? "failed_no_deliverable" : "delivered"),
+			source: "measured_local",
+			unit: operation === "image" ? "image" : "video",
+			units,
+			usdMicrosPerCredit: 50_000,
+		},
+	};
+}
+
 function setup(balance = 10_000) {
 	const repository = new InMemoryMeteringRepository();
 	const credits = new InMemoryCreditsService();
@@ -524,7 +713,8 @@ describe("MeteringService", () => {
 	});
 
 	it("atomically refuses a reserve with the typed 402 and leaves no event", async () => {
-		const { credits, repository, service } = setup(200);
+		// Ruling 5: a zero (or negative) balance refuses every new reserve.
+		const { credits, repository, service } = setup(0);
 
 		await expect(
 			service.reserve("chat", USER_SUBJECT, {
@@ -533,13 +723,27 @@ describe("MeteringService", () => {
 				idempotencyKey: "chat:message_1",
 			}),
 		).rejects.toMatchObject({
-			// The error exposes decimal display credits (200 cc / 300 cc inputs).
-			availableCredits: 2,
+			// The error exposes decimal display credits (0 cc / 300 cc inputs).
+			availableCredits: 0,
 			requiredCredits: 3,
 			status: 402,
 		});
 		expect(repository.events).toHaveLength(0);
-		expect(credits.balances.get(USER_ID)).toBe(200);
+		expect(credits.balances.get(USER_ID)).toBe(0);
+	});
+
+	it("admits a reserve above a small positive balance into overdraft", async () => {
+		const { credits, service } = setup(1);
+
+		const event = await service.reserve("chat", USER_SUBJECT, {
+			credits: 300,
+			eventId: CHAT_EVENT_ID,
+			idempotencyKey: "chat:message_overdraft",
+		});
+
+		expect(event.status).toBe("reserved");
+		expect(credits.consumeCalls[0]).toMatchObject({ amount: 300 });
+		expect(credits.balances.get(USER_ID)).toBe(-299);
 	});
 
 	it("serializes concurrent reserves so only the affordable operation wins", async () => {
@@ -915,7 +1119,7 @@ describe("MeteringService", () => {
 						generations: expect.arrayContaining([
 							expect.objectContaining({
 								costUsdMicros: 500_000,
-								customerBilling: "bundled_unmetered",
+								customerBilling: "bundled_unmetered_legacy",
 								id: "title-generation",
 							}),
 							expect.objectContaining({
@@ -1031,10 +1235,10 @@ describe("MeteringService", () => {
 
 		await expect(
 			service.reserve("image", USER_SUBJECT, {
-				credits: 299,
+				credits: 349,
 				idempotencyKey: "image:too-cheap",
 			}),
-		).rejects.toThrow("at least 300 centi-credits");
+		).rejects.toThrow("at least 350 centi-credits");
 
 		const parent = await service.reserve("chat", USER_SUBJECT, {
 			credits: 100,
@@ -1043,7 +1247,7 @@ describe("MeteringService", () => {
 		});
 		await expect(
 			service.reserve("image", USER_SUBJECT, {
-				credits: 300,
+				credits: 350,
 				idempotencyKey: "image:child",
 				parentEventId: parent.id,
 			}),
@@ -1111,7 +1315,7 @@ describe("MeteringService", () => {
 	it("never refunds a reserved event after a generation ref is durable", async () => {
 		const { credits, repository, service } = setup();
 		await service.reserve("image", USER_SUBJECT, {
-			credits: 300,
+			credits: 350,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "image:captured",
 		});
@@ -1124,7 +1328,7 @@ describe("MeteringService", () => {
 		).resolves.toMatchObject({ id: CHAT_EVENT_ID, status: "reserved" });
 		expect(repository.events.get(CHAT_EVENT_ID)?.status).toBe("reserved");
 		expect(credits.refundCalls).toHaveLength(0);
-		expect(credits.balances.get(USER_ID)).toBe(9_700);
+		expect(credits.balances.get(USER_ID)).toBe(9_650);
 	});
 
 	it("settles a direct parent and child atomically in parent-first lock order", async () => {
@@ -1306,6 +1510,30 @@ describe("MeteringService", () => {
 		expect(settled).toMatchObject({
 			finalCredits: 150,
 			pricingSnapshot: { usdMicrosPerCredit: 50_000 },
+			status: "settled",
+		});
+	});
+
+	it("settles an event reserved at the 28,000 anchor at 28,000 after the flip to 40,000", async () => {
+		const { pricing, service } = setup();
+		pricing.usdMicrosPerCredit = 28_000;
+		await service.reserve("chat", USER_SUBJECT, {
+			credits: 200,
+			eventId: CHAT_EVENT_ID,
+			idempotencyKey: "chat:anchor-migration",
+		});
+		pricing.usdMicrosPerCredit = 40_000;
+
+		const settled = await service.settle(CHAT_EVENT_ID, {
+			modelId: "openai/test",
+			pricing: "token",
+			usage: { inputTokens: 100, outputTokens: 30 },
+		});
+
+		// 75,000 cost micros / 28,000 per credit = ceil(267.86) = 268 cc.
+		expect(settled).toMatchObject({
+			finalCredits: 268,
+			pricingSnapshot: { usdMicrosPerCredit: 28_000 },
 			status: "settled",
 		});
 	});
@@ -1808,10 +2036,7 @@ describe("MeteringService", () => {
 		});
 		repository.events.set(event.id, {
 			...event,
-			pricingSnapshot: {
-				...(event.pricingSnapshot as Record<string, unknown>),
-				creditsPerUnit: 700,
-			},
+			pricingSnapshot: legacyFixedReservationSnapshot("image", 700),
 		});
 		await service.captureGeneration(CHAT_EVENT_ID, {
 			providerMetadata: { gateway: { generationId: "gen_fixed_drift" } },
@@ -1855,10 +2080,7 @@ describe("MeteringService", () => {
 		});
 		repository.events.set(event.id, {
 			...event,
-			pricingSnapshot: {
-				...(event.pricingSnapshot as Record<string, unknown>),
-				creditsPerMinute: 200,
-			},
+			pricingSnapshot: legacyPerMinuteReservationSnapshot(200),
 		});
 		await service.captureGeneration(CHAT_EVENT_ID, {
 			providerMetadata: { gateway: { generationId: "gen_duration_drift" } },
@@ -1879,45 +2101,36 @@ describe("MeteringService", () => {
 		});
 	});
 
-	it("reconstructs fixed registry pricing when reconciling a reserved event", async () => {
+	it("reprices a crash-stranded measured reserve from the exact gateway cost", async () => {
 		const { credits, gateway, service } = setup();
 		await service.reserve("image", USER_SUBJECT, {
-			credits: 600,
+			credits: 700,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "image:attempt_1",
+			measuredTerms: { estimatedUnitUsdMicros: 134_400, units: 2 },
 		});
 		for (const id of ["gen_image_1", "gen_image_2"]) {
 			await service.captureGeneration(CHAT_EVENT_ID, {
 				providerMetadata: { gateway: { generationId: id } },
-				stepUsage: { deliveredImages: 1 },
+				stepUsage: { metering: { fixedUnits: 1 } },
 			});
 			gateway.results.set(id, generationInfo(id, 0.6));
 		}
 
 		const result = await service.reconcile(CHAT_EVENT_ID);
-		const recoveredCompletion = {
-			finalCredits: 600,
-			pricing: "direct" as const,
-			pricingSnapshot: {
-				creditsPerUnit: 300,
-				mode: "fixed",
-				operation: "image",
-				source: "operation_registry",
-				unit: "image",
-				units: 2,
-			},
-		};
 
+		// $1.20 at the 50,000-micro anchor: 2,400 cc, debited above the hold.
 		expect(result).toMatchObject({
-			adjustedCredits: 0,
+			adjustedCredits: 1700,
 			reconciledCostUsdMicros: 1_200_000,
 		});
 		expect(result.event).toMatchObject({
-			finalCredits: 600,
+			finalCredits: 2400,
 			operation: "image",
 			pricingSnapshot: {
-				creditsPerUnit: 300,
-				mode: "fixed",
+				estimatedUnitUsdMicros: 134_400,
+				gatewayReconciliation: { customerBillableCostUsdMicros: 1_200_000 },
+				mode: "measured",
 				operation: "image",
 				source: "operation_registry_recovery",
 				unit: "image",
@@ -1925,63 +2138,492 @@ describe("MeteringService", () => {
 			},
 			status: "reconciled",
 		});
-		expect(result.event.rawUsage).toMatchObject({
-			generationRefs: [
-				{
-					gatewayGenerationId: "gen_image_1",
-					stepUsage: { deliveredImages: 1 },
-				},
-				{
-					gatewayGenerationId: "gen_image_2",
-					stepUsage: { deliveredImages: 1 },
-				},
-			],
+		expect(credits.consumeCalls).toHaveLength(2);
+		expect(credits.consumeCalls.at(-1)).toMatchObject({
+			amount: 1700,
+			idempotencyKey: `reconcile:${CHAT_EVENT_ID}`,
 		});
-		expect(credits.consumeCalls).toHaveLength(1);
 		expect(credits.refundCalls).toHaveLength(0);
+		// A late provisional settlement for the same operation is a benign replay.
 		await expect(
-			service.settle(CHAT_EVENT_ID, recoveredCompletion),
+			service.settle(CHAT_EVENT_ID, measuredSettlement("image", 2, 134_400)),
 		).resolves.toEqual(result.event);
 		await expect(
-			service.settle(CHAT_EVENT_ID, {
-				...recoveredCompletion,
-				finalCredits: 300,
-				pricingSnapshot: {
-					...recoveredCompletion.pricingSnapshot,
-					units: 1,
+			service.settle(CHAT_EVENT_ID, measuredSettlement("video", 1, 134_400)),
+		).rejects.toThrow("settle replay conflict");
+	});
+
+	it("adjusts a settled measured event up or down to the customer-billable cost", async () => {
+		const { credits, gateway, service } = setup();
+		await service.reserve("video", USER_SUBJECT, {
+			credits: 550,
+			eventId: CHAT_EVENT_ID,
+			idempotencyKey: "video:up",
+			measuredTerms: { estimatedUnitUsdMicros: 210_000, units: 1 },
+		});
+		await service.settle(
+			CHAT_EVENT_ID,
+			measuredSettlement("video", 1, 210_000),
+		);
+		await service.captureGeneration(CHAT_EVENT_ID, {
+			providerMetadata: { gateway: { generationId: "gen_video_up" } },
+			stepUsage: { metering: { fixedUnits: 1 } },
+		});
+		gateway.results.set("gen_video_up", generationInfo("gen_video_up", 0.3));
+
+		const up = await service.reconcile(CHAT_EVENT_ID);
+
+		// settled 420 cc ($0.21) → $0.30 = 600 cc: +180 via overdraft consume.
+		expect(up).toMatchObject({ adjustedCredits: 180 });
+		expect(up.event.finalCredits).toBe(600);
+		expect(credits.consumeCalls.at(-1)).toMatchObject({
+			allowOverdraft: true,
+			amount: 180,
+			idempotencyKey: `reconcile:${CHAT_EVENT_ID}`,
+		});
+		expect(up.event.pricingSnapshot).toMatchObject({
+			gatewayReconciliation: { customerBillableCostUsdMicros: 300_000 },
+			settlementPricingSnapshot: {
+				outcome: "delivered",
+				source: "measured_local",
+			},
+		});
+
+		await service.reserve("video", USER_SUBJECT, {
+			credits: 550,
+			eventId: CHILD_EVENT_ID,
+			idempotencyKey: "video:down",
+			measuredTerms: { estimatedUnitUsdMicros: 300_000, units: 1 },
+		});
+		await service.settle(
+			CHILD_EVENT_ID,
+			measuredSettlement("video", 1, 300_000),
+		);
+		await service.captureGeneration(CHILD_EVENT_ID, {
+			providerMetadata: { gateway: { generationId: "gen_video_down" } },
+			stepUsage: { metering: { fixedUnits: 1 } },
+		});
+		gateway.results.set(
+			"gen_video_down",
+			generationInfo("gen_video_down", 0.1),
+		);
+
+		const down = await service.reconcile(CHILD_EVENT_ID);
+
+		// settled 600 cc → $0.10 = 200 cc: refund 50 from settle, 350 from reserve.
+		expect(down).toMatchObject({ adjustedCredits: -400 });
+		expect(down.event.finalCredits).toBe(200);
+		expect(credits.refundCalls.slice(-2)).toEqual([
+			expect.objectContaining({
+				amount: 50,
+				idempotencyKey: `reconcile-refund:${CHILD_EVENT_ID}:settle`,
+			}),
+			expect.objectContaining({
+				amount: 350,
+				idempotencyKey: `reconcile-refund:${CHILD_EVENT_ID}:reserve`,
+			}),
+		]);
+	});
+
+	it("keeps a failed measured generation at zero and books its cost to provider spend", async () => {
+		const { credits, gateway, service } = setup();
+		await service.reserve("image", USER_SUBJECT, {
+			credits: 350,
+			eventId: CHAT_EVENT_ID,
+			idempotencyKey: "image:failed",
+			measuredTerms: { estimatedUnitUsdMicros: 134_400, units: 1 },
+		});
+		await service.settle(CHAT_EVENT_ID, {
+			...measuredSettlement("image", 0, 134_400),
+			costUsdMicros: 134_400,
+		});
+		await service.captureGeneration(CHAT_EVENT_ID, {
+			providerMetadata: { gateway: { generationId: "gen_image_failed" } },
+			stepUsage: {
+				metering: { customerBilling: "refunded_failure", fixedUnits: 0 },
+				providerUsage: null,
+			},
+		});
+		gateway.results.set(
+			"gen_image_failed",
+			generationInfo("gen_image_failed", 0.1344),
+		);
+
+		const result = await service.reconcile(CHAT_EVENT_ID);
+
+		expect(result).toMatchObject({
+			adjustedCredits: 0,
+			reconciledCostUsdMicros: 134_400,
+		});
+		expect(result.event).toMatchObject({
+			finalCredits: 0,
+			reconciledCostUsdMicros: 134_400,
+			status: "reconciled",
+		});
+		expect(result.event.pricingSnapshot).toMatchObject({
+			gatewayReconciliation: {
+				customerBillableCostUsdMicros: 0,
+				generations: [{ customerBilling: "refunded_failure" }],
+			},
+		});
+		expect(credits.refundCalls).toEqual([
+			expect.objectContaining({
+				amount: 350,
+				idempotencyKey: `settle-refund:${CHAT_EVENT_ID}`,
+			}),
+		]);
+	});
+
+	it("excludes refunded-failure refs from the customer charge but not the provider cost", async () => {
+		const { gateway, service } = setup();
+		await service.reserve("image", USER_SUBJECT, {
+			credits: 700,
+			eventId: CHAT_EVENT_ID,
+			idempotencyKey: "image:partial-failure",
+			measuredTerms: { estimatedUnitUsdMicros: 134_400, units: 2 },
+		});
+		await service.settle(CHAT_EVENT_ID, {
+			...measuredSettlement("image", 1, 134_400, { outcome: "partial" }),
+		});
+		await service.captureGeneration(CHAT_EVENT_ID, {
+			providerMetadata: { gateway: { generationId: "gen_ok" } },
+			stepUsage: { metering: { fixedUnits: 1 }, providerUsage: null },
+		});
+		await service.captureGeneration(CHAT_EVENT_ID, {
+			providerMetadata: { gateway: { generationId: "gen_failed" } },
+			stepUsage: {
+				metering: { customerBilling: "refunded_failure", fixedUnits: 0 },
+				providerUsage: null,
+			},
+		});
+		gateway.results.set("gen_ok", generationInfo("gen_ok", 0.2));
+		gateway.results.set("gen_failed", generationInfo("gen_failed", 0.2));
+
+		const result = await service.reconcile(CHAT_EVENT_ID);
+
+		expect(result.reconciledCostUsdMicros).toBe(400_000);
+		expect(result.event.finalCredits).toBe(400);
+		expect(result.event.pricingSnapshot).toMatchObject({
+			gatewayReconciliation: { customerBillableCostUsdMicros: 200_000 },
+		});
+	});
+
+	describe("provider call evidence", () => {
+		const serperEvidence = (
+			units: number,
+			overrides: Partial<ProviderCallEvidenceInput> = {},
+		): ProviderCallEvidenceInput => ({
+			chargedUsdMicros: units * 1_000,
+			costSource: "serper_contract_env",
+			costStatus: "contract_rate",
+			customerBillable: false,
+			idempotencyKey: "serper:attempt_1",
+			rateUsdMicrosPerUnit: 1_000,
+			transport: "serper",
+			unitKind: "search_page",
+			units,
+			...overrides,
+		});
+
+		it("captures evidence on a refunded event and refuses a reconciled one", async () => {
+			const { repository, service } = setup();
+			await service.reserve("lead_scrape", USER_SUBJECT, {
+				credits: 250,
+				eventId: CHAT_EVENT_ID,
+				idempotencyKey: "lead-scrape:attempt_1",
+			});
+			await service.refundWithProviderCost(
+				CHAT_EVENT_ID,
+				3_000,
+				"lead_scrape_failed",
+			);
+
+			const captured = await service.captureProviderCallEvidence(
+				CHAT_EVENT_ID,
+				serperEvidence(3),
+			);
+
+			expect(captured).toMatchObject({
+				chargedUsdMicros: 3_000,
+				costStatus: "contract_rate",
+				customerBillable: false,
+				usageEventId: CHAT_EVENT_ID,
+			});
+			// Idempotent replay returns the same row.
+			await expect(
+				service.captureProviderCallEvidence(CHAT_EVENT_ID, serperEvidence(3)),
+			).resolves.toEqual(captured);
+			expect(repository.events.get(CHAT_EVENT_ID)?.status).toBe("refunded");
+
+			repository.events.set(CHAT_EVENT_ID, {
+				...(repository.events.get(CHAT_EVENT_ID) as AiUsageEvent),
+				status: "reconciled",
+			});
+			await expect(
+				service.captureProviderCallEvidence(
+					CHAT_EVENT_ID,
+					serperEvidence(1, { idempotencyKey: "serper:attempt_late" }),
+				),
+			).rejects.toBeInstanceOf(MeteringStateConflictError);
+		});
+
+		it("settles evidence cost monotonically and never downgrades the status", async () => {
+			const { service } = setup();
+			await service.reserve("lead_scrape", USER_SUBJECT, {
+				credits: 250,
+				eventId: CHAT_EVENT_ID,
+				idempotencyKey: "lead-scrape:attempt_1",
+			});
+			const row = await service.captureProviderCallEvidence(
+				CHAT_EVENT_ID,
+				serperEvidence(1, { chargedUsdMicros: null, costStatus: "pending" }),
+			);
+
+			const priced = await service.settleProviderCallEvidenceCost(row.id, {
+				chargedUsdMicros: 4_000,
+				costStatus: "contract_rate",
+				rateUsdMicrosPerUnit: 1_000,
+				units: 4,
+			});
+			expect(priced).toMatchObject({
+				chargedUsdMicros: 4_000,
+				costStatus: "contract_rate",
+				units: 4,
+			});
+
+			// Lower unit count is ignored; estimated never replaces contract_rate.
+			await expect(
+				service.settleProviderCallEvidenceCost(row.id, {
+					chargedUsdMicros: 2_000,
+					costStatus: "contract_rate",
+					units: 2,
+				}),
+			).resolves.toMatchObject({ chargedUsdMicros: 2_000, units: 4 });
+			await expect(
+				service.settleProviderCallEvidenceCost(row.id, {
+					chargedUsdMicros: 1,
+					costStatus: "estimated",
+				}),
+			).resolves.toMatchObject({
+				chargedUsdMicros: 2_000,
+				costStatus: "contract_rate",
+			});
+		});
+
+		it("reconciles an evidence-only settled lead scrape from its Serper receipt", async () => {
+			const { credits, service } = setup();
+			await service.reserve("lead_scrape", USER_SUBJECT, {
+				credits: 250,
+				eventId: CHAT_EVENT_ID,
+				idempotencyKey: "lead-scrape:attempt_1",
+			});
+			await service.settle(CHAT_EVENT_ID, {
+				costUsdMicros: 2_000,
+				finalCredits: 150,
+				pricing: "direct",
+				pricingSnapshot: { mode: "fixed", operation: "lead_scrape", units: 30 },
+			});
+			await service.captureProviderCallEvidence(
+				CHAT_EVENT_ID,
+				serperEvidence(2),
+			);
+
+			const outcome = await service.reconcile(CHAT_EVENT_ID);
+
+			expect(outcome).toMatchObject({
+				adjustedCredits: 0,
+				reconciledCostUsdMicros: 2_000,
+			});
+			expect(outcome.event).toMatchObject({
+				finalCredits: 150,
+				model: null,
+				reconciledCostUsdMicros: 2_000,
+				status: "reconciled",
+			});
+			expect(outcome.event.pricingSnapshot).toMatchObject({
+				gatewayReconciliation: {
+					customerBillableCostUsdMicros: 0,
+					providerCallEvidence: [
+						expect.objectContaining({
+							chargedUsdMicros: 2_000,
+							transport: "serper",
+							units: 2,
+						}),
+					],
 				},
+			});
+			expect(credits.balances.get(USER_ID)).toBe(9_850);
+		});
+
+		it("holds reconciliation while evidence is pending, then sums it next to gateway refs", async () => {
+			const { gateway, service } = setup();
+			await service.reserve("chat", USER_SUBJECT, {
+				credits: 100,
+				eventId: CHAT_EVENT_ID,
+				idempotencyKey: "chat:with-evidence",
+			});
+			await service.settle(CHAT_EVENT_ID, {
+				modelId: "openai/test",
+				pricing: "token",
+				usage: { inputTokens: 10, outputTokens: 2 },
+			});
+			await service.captureGeneration(CHAT_EVENT_ID, {
+				providerMetadata: { gateway: { generationId: "chat-generation" } },
+			});
+			gateway.results.set(
+				"chat-generation",
+				generationInfo("chat-generation", 0.05),
+			);
+			const pending = await service.captureProviderCallEvidence(CHAT_EVENT_ID, {
+				costStatus: "pending",
+				customerBillable: true,
+				idempotencyKey: "mcp:ref-1:submit",
+				transport: "mcp",
+				unitKind: "operation",
+				units: 1,
+			});
+
+			await expect(service.reconcile(CHAT_EVENT_ID)).rejects.toBeInstanceOf(
+				GatewayUsagePendingError,
+			);
+
+			await service.settleProviderCallEvidenceCost(pending.id, {
+				chargedUsdMicros: 10_000,
+				costStatus: "measured",
+			});
+			await service.captureProviderCallEvidence(CHAT_EVENT_ID, {
+				chargedUsdMicros: 5_000,
+				costStatus: "measured",
+				customerBillable: false,
+				idempotencyKey: "higgsfield:ref-1:job-1",
+				transport: "higgsfield",
+				unitKind: "video",
+				units: 1,
+			});
+
+			const outcome = await service.reconcile(CHAT_EVENT_ID);
+
+			// 50_000 gateway + 10_000 billable + 5_000 non-billable provider spend.
+			expect(outcome.reconciledCostUsdMicros).toBe(65_000);
+			expect(outcome.event.pricingSnapshot).toMatchObject({
+				gatewayReconciliation: { customerBillableCostUsdMicros: 60_000 },
+			});
+			expect(outcome.event.finalCredits).toBe(120);
+		});
+
+		it("bills helper_billable refs inside the parent while legacy bundled refs stay free", async () => {
+			const { gateway, service } = setup();
+			await service.reserve("chat", USER_SUBJECT, {
+				credits: 100,
+				eventId: CHAT_EVENT_ID,
+				idempotencyKey: "chat:helpers",
+			});
+			await service.settle(CHAT_EVENT_ID, {
+				modelId: "openai/test",
+				pricing: "token",
+				usage: { inputTokens: 10, outputTokens: 2 },
+			});
+			await service.captureGeneration(CHAT_EVENT_ID, {
+				providerMetadata: { gateway: { generationId: "chat-generation" } },
+			});
+			await service.captureGeneration(CHAT_EVENT_ID, {
+				providerMetadata: { gateway: { generationId: "repair-generation" } },
+				stepUsage: helperStepUsage("tool_call_repair", { inputTokens: 5 }),
+			});
+			await service.captureGeneration(CHAT_EVENT_ID, {
+				providerMetadata: { gateway: { generationId: "legacy-title" } },
+				stepUsage: bundledUnmeteredStepUsage("project_title", null),
+			});
+			gateway.results.set(
+				"chat-generation",
+				generationInfo("chat-generation", 0.04),
+			);
+			gateway.results.set(
+				"repair-generation",
+				generationInfo("repair-generation", 0.02),
+			);
+			gateway.results.set("legacy-title", generationInfo("legacy-title", 0.5));
+
+			const outcome = await service.reconcile(CHAT_EVENT_ID);
+
+			expect(outcome.reconciledCostUsdMicros).toBe(560_000);
+			expect(outcome.event.finalCredits).toBe(120);
+			expect(outcome.event.pricingSnapshot).toMatchObject({
+				gatewayReconciliation: {
+					customerBillableCostUsdMicros: 60_000,
+					generations: expect.arrayContaining([
+						expect.objectContaining({
+							customerBilling: "helper_billable",
+							id: "repair-generation",
+						}),
+						expect.objectContaining({
+							customerBilling: "bundled_unmetered_legacy",
+							id: "legacy-title",
+						}),
+					]),
+				},
+			});
+		});
+	});
+
+	it("refunds a hold in full while recording the provider cost it consumed", async () => {
+		const { credits, repository, service } = setup();
+		await service.reserve("lead_scrape", USER_SUBJECT, {
+			credits: 250,
+			eventId: CHAT_EVENT_ID,
+			idempotencyKey: "lead-scrape:attempt_1",
+		});
+
+		const refunded = await service.refundWithProviderCost(
+			CHAT_EVENT_ID,
+			3_000,
+			"lead_scrape_failed",
+		);
+
+		expect(refunded).toMatchObject({
+			finalCredits: 0,
+			pricingSnapshot: {
+				costUsdMicros: 3_000,
+				reason: "lead_scrape_failed",
+				source: "refund_with_provider_cost",
+			},
+			reconciledCostUsdMicros: 3_000,
+			status: "refunded",
+		});
+		expect(refunded.reconciledAt).toBeInstanceOf(Date);
+		expect(credits.refundCalls).toEqual([
+			expect.objectContaining({
+				amount: 250,
+				idempotencyKey: `settle-refund:${CHAT_EVENT_ID}`,
 			}),
-		).rejects.toThrow("settle replay conflict");
+		]);
+		expect(credits.balances.get(USER_ID)).toBe(10_000);
+		expect(repository.events.get(CHAT_EVENT_ID)?.status).toBe("refunded");
 		await expect(
-			service.settle(CHAT_EVENT_ID, {
-				...recoveredCompletion,
-				rawUsage: { deliveredImages: 2 },
-			}),
-		).rejects.toThrow("settle replay conflict");
+			service.refundWithProviderCost(
+				CHAT_EVENT_ID,
+				3_000,
+				"lead_scrape_failed",
+			),
+		).resolves.toEqual(refunded);
 	});
 
 	it("allows a zero-unit direct settlement to refund an empty fixed result", async () => {
 		const { credits, service } = setup();
 		await service.reserve("image", USER_SUBJECT, {
-			credits: 300,
+			credits: 350,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "image:empty-result",
 		});
 
-		const settled = await service.settle(CHAT_EVENT_ID, {
-			finalCredits: 0,
-			pricing: "direct",
-			pricingSnapshot: {
-				creditsPerUnit: 300,
-				mode: "fixed",
-				operation: "image",
-				units: 0,
-			},
-		});
+		const settled = await service.settle(
+			CHAT_EVENT_ID,
+			measuredSettlement("image", 0, null),
+		);
 
 		expect(settled).toMatchObject({ finalCredits: 0, status: "settled" });
 		expect(credits.refundCalls.at(-1)).toMatchObject({
-			amount: 300,
+			amount: 350,
 			idempotencyKey: `settle-refund:${CHAT_EVENT_ID}`,
 		});
 	});
@@ -1995,18 +2637,15 @@ describe("MeteringService", () => {
 		});
 		repository.events.set(reserved.id, {
 			...reserved,
-			pricingSnapshot: {
-				...(reserved.pricingSnapshot as Record<string, unknown>),
-				creditsPerUnit: 400,
-			},
+			pricingSnapshot: legacyFixedReservationSnapshot("image", 400),
 		});
 		await service.captureGeneration(CHAT_EVENT_ID, {
 			providerMetadata: { gateway: { generationId: "gen_fixed_evidence" } },
 			stepUsage: { metering: { fixedUnits: 2 } },
 		});
 
-		const settled = await service.settleFixedFromEvidence(CHAT_EVENT_ID, 1);
-		const replay = await service.settleFixedFromEvidence(CHAT_EVENT_ID, 1);
+		const settled = await service.settleMeasuredFromEvidence(CHAT_EVENT_ID, 1);
+		const replay = await service.settleMeasuredFromEvidence(CHAT_EVENT_ID, 1);
 
 		expect(settled).toMatchObject({
 			finalCredits: 800,
@@ -2022,23 +2661,53 @@ describe("MeteringService", () => {
 		expect(credits.refundCalls).toHaveLength(0);
 	});
 
-	it("uses the stored fixed prefix when it exceeds provider evidence", async () => {
+	it("uses the stored measured prefix when it exceeds provider evidence", async () => {
 		const { service } = setup();
 		await service.reserve("image", USER_SUBJECT, {
-			credits: 900,
+			credits: 1050,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "image:stored-prefix-recovery",
+			measuredTerms: { estimatedUnitUsdMicros: 134_400, units: 3 },
 		});
 		await service.captureGeneration(CHAT_EVENT_ID, {
 			providerMetadata: { gateway: { generationId: "gen_stored_prefix" } },
 			stepUsage: { metering: { fixedUnits: 2 } },
 		});
 
+		// 3 × $0.1344 = $0.4032 at the 50,000-micro anchor → 807 cc.
 		await expect(
-			service.settleFixedFromEvidence(CHAT_EVENT_ID, 3),
+			service.settleMeasuredFromEvidence(CHAT_EVENT_ID, 3),
 		).resolves.toMatchObject({
-			finalCredits: 900,
-			pricingSnapshot: { creditsPerUnit: 300, units: 3 },
+			finalCredits: 807,
+			pricingSnapshot: {
+				costUsdMicros: 403_200,
+				estimatedUnitUsdMicros: 134_400,
+				mode: "measured",
+				source: "measured_local",
+				units: 3,
+			},
+			status: "settled",
+		});
+	});
+
+	it("settles measured evidence at the floor when the hold carries no estimate", async () => {
+		const { service } = setup();
+		await service.reserve("image", USER_SUBJECT, {
+			credits: 700,
+			eventId: CHAT_EVENT_ID,
+			idempotencyKey: "image:floor-evidence",
+			measuredTerms: { estimatedUnitUsdMicros: null, units: 2 },
+		});
+		await service.captureGeneration(CHAT_EVENT_ID, {
+			providerMetadata: { gateway: { generationId: "gen_floor_evidence" } },
+			stepUsage: { metering: { fixedUnits: 2 } },
+		});
+
+		await expect(
+			service.settleMeasuredFromEvidence(CHAT_EVENT_ID, 0),
+		).resolves.toMatchObject({
+			finalCredits: 700,
+			pricingSnapshot: { costUsdMicros: null, units: 2 },
 			status: "settled",
 		});
 	});
@@ -2052,10 +2721,7 @@ describe("MeteringService", () => {
 		});
 		repository.events.set(CHAT_EVENT_ID, {
 			...reserved,
-			pricingSnapshot: {
-				...(reserved.pricingSnapshot as Record<string, unknown>),
-				creditsPerUnit: 400,
-			},
+			pricingSnapshot: legacyFixedReservationSnapshot("image", 400),
 		});
 		await service.captureGeneration(CHAT_EVENT_ID, {
 			providerMetadata: {
@@ -2066,8 +2732,8 @@ describe("MeteringService", () => {
 		const terminal =
 			await service.terminalizeReconciliationFailure(CHAT_EVENT_ID);
 
-		const settled = await service.settleFixedFromEvidence(CHAT_EVENT_ID, 1);
-		const replay = await service.settleFixedFromEvidence(CHAT_EVENT_ID, 3);
+		const settled = await service.settleMeasuredFromEvidence(CHAT_EVENT_ID, 1);
+		const replay = await service.settleMeasuredFromEvidence(CHAT_EVENT_ID, 3);
 
 		expect(settled).toMatchObject({
 			finalCredits: 800,
@@ -2089,12 +2755,16 @@ describe("MeteringService", () => {
 		]);
 	});
 
-	it("reconciles a crash-stranded four-image reserve from one durable unit ref", async () => {
-		const { credits, gateway, service } = setup();
-		await service.reserve("image", USER_SUBJECT, {
+	it("reconciles a crash-stranded legacy four-image reserve from one durable unit ref", async () => {
+		const { credits, gateway, repository, service } = setup();
+		const reserved = await service.reserve("image", USER_SUBJECT, {
 			credits: 1200,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "image:partial-crash",
+		});
+		repository.events.set(CHAT_EVENT_ID, {
+			...reserved,
+			pricingSnapshot: legacyFixedReservationSnapshot("image", 300),
 		});
 		await service.captureGeneration(CHAT_EVENT_ID, {
 			providerMetadata: { gateway: { generationId: "gen_image_partial" } },
@@ -2129,9 +2799,10 @@ describe("MeteringService", () => {
 	it("accepts zero-unit settlement replay when reconciliation wins the race", async () => {
 		const { gateway, service } = setup();
 		await service.reserve("image", USER_SUBJECT, {
-			credits: 300,
+			credits: 350,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "image:empty-race",
+			measuredTerms: { estimatedUnitUsdMicros: 134_400, units: 1 },
 		});
 		await service.captureGeneration(CHAT_EVENT_ID, {
 			providerMetadata: { gateway: { generationId: "gen_image_empty" } },
@@ -2145,24 +2816,15 @@ describe("MeteringService", () => {
 			generationInfo("gen_image_empty", 0.2),
 		);
 
+		// Zero completed units with a real cost: nothing delivered, nothing owed.
 		const reconciled = await service.reconcile(CHAT_EVENT_ID);
 		expect(reconciled.event).toMatchObject({
 			finalCredits: 0,
+			reconciledCostUsdMicros: 200_000,
 			status: "reconciled",
 		});
 		await expect(
-			service.settle(CHAT_EVENT_ID, {
-				finalCredits: 0,
-				pricing: "direct",
-				pricingSnapshot: {
-					creditsPerUnit: 300,
-					mode: "fixed",
-					operation: "image",
-					source: "operation_registry",
-					unit: "image",
-					units: 0,
-				},
-			}),
+			service.settle(CHAT_EVENT_ID, measuredSettlement("image", 0, 134_400)),
 		).resolves.toEqual(reconciled.event);
 	});
 
@@ -2227,12 +2889,16 @@ describe("MeteringService", () => {
 		).rejects.toThrow("settle replay conflict");
 	});
 
-	it("reconstructs per-minute pricing and preserves captured duration evidence", async () => {
-		const { gateway, service } = setup();
-		await service.reserve("transcription", USER_SUBJECT, {
+	it("reconstructs legacy per-minute pricing and preserves captured duration evidence", async () => {
+		const { gateway, repository, service } = setup();
+		const reserved = await service.reserve("transcription", USER_SUBJECT, {
 			credits: 200,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "transcription:operation_1",
+		});
+		repository.events.set(CHAT_EVENT_ID, {
+			...reserved,
+			pricingSnapshot: legacyPerMinuteReservationSnapshot(100),
 		});
 		await service.captureGeneration(CHAT_EVENT_ID, {
 			providerMetadata: {
@@ -2283,11 +2949,15 @@ describe("MeteringService", () => {
 	});
 
 	it("falls back to positive local duration when provider duration is invalid", async () => {
-		const { gateway, service } = setup();
-		await service.reserve("transcription", USER_SUBJECT, {
+		const { gateway, repository, service } = setup();
+		const reserved = await service.reserve("transcription", USER_SUBJECT, {
 			credits: 100,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "transcription:local-duration",
+		});
+		repository.events.set(CHAT_EVENT_ID, {
+			...reserved,
+			pricingSnapshot: legacyPerMinuteReservationSnapshot(100),
 		});
 		await service.captureGeneration(CHAT_EVENT_ID, {
 			providerMetadata: { gateway: { generationId: "gen_local_duration" } },
@@ -2321,11 +2991,15 @@ describe("MeteringService", () => {
 	});
 
 	it("caps provider duration for billing while retaining the over-cap evidence", async () => {
-		const { credits, gateway, service } = setup();
-		await service.reserve("transcription", USER_SUBJECT, {
+		const { credits, gateway, repository, service } = setup();
+		const reserved = await service.reserve("transcription", USER_SUBJECT, {
 			credits: 100,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "transcription:provider-over-cap",
+		});
+		repository.events.set(CHAT_EVENT_ID, {
+			...reserved,
+			pricingSnapshot: legacyPerMinuteReservationSnapshot(100),
 		});
 		await service.captureGeneration(CHAT_EVENT_ID, {
 			providerMetadata: { gateway: { generationId: "gen_provider_over_cap" } },
@@ -2373,12 +3047,16 @@ describe("MeteringService", () => {
 		});
 	});
 
-	it("fails closed when a reserved transcription lacks positive duration evidence", async () => {
+	it("fails closed when a legacy reserved transcription lacks positive duration evidence", async () => {
 		const { credits, gateway, repository, service } = setup();
-		await service.reserve("transcription", USER_SUBJECT, {
+		const reserved = await service.reserve("transcription", USER_SUBJECT, {
 			credits: 100,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "transcription:missing-duration",
+		});
+		repository.events.set(CHAT_EVENT_ID, {
+			...reserved,
+			pricingSnapshot: legacyPerMinuteReservationSnapshot(100),
 		});
 		await service.captureGeneration(CHAT_EVENT_ID, {
 			providerMetadata: { gateway: { generationId: "gen_missing_duration" } },
@@ -2398,12 +3076,16 @@ describe("MeteringService", () => {
 		expect(credits.refundCalls).toHaveLength(0);
 	});
 
-	it("retains a settled transcription debit when reconciliation duration is invalid", async () => {
-		const { gateway, service } = setup();
-		await service.reserve("transcription", USER_SUBJECT, {
+	it("retains a legacy settled transcription debit when reconciliation duration is invalid", async () => {
+		const { gateway, repository, service } = setup();
+		const reserved = await service.reserve("transcription", USER_SUBJECT, {
 			credits: 100,
 			eventId: CHAT_EVENT_ID,
 			idempotencyKey: "transcription:settled-duration",
+		});
+		repository.events.set(CHAT_EVENT_ID, {
+			...reserved,
+			pricingSnapshot: legacyPerMinuteReservationSnapshot(100),
 		});
 		await service.settle(CHAT_EVENT_ID, {
 			finalCredits: 200,
@@ -2499,7 +3181,14 @@ describe("MeteringService", () => {
 			await service.terminalizeReconciliationFailure(CHAT_EVENT_ID);
 
 		expect(terminal.status).toBe("reconcile_failed");
-		expect(replay).toEqual(terminal);
+		// A repeated terminalization is not a byte replay any more: it advances
+		// the retry backoff (attempt count + next retry time) and nothing else.
+		expect(terminal.reconcileAttempts).toBe(1);
+		expect(replay).toEqual({
+			...terminal,
+			nextReconcileAttemptAt: replay.nextReconcileAttemptAt,
+			reconcileAttempts: 2,
+		});
 		expect(repository.operationLocks).toContain(
 			`metering-event:${CHAT_EVENT_ID}`,
 		);
@@ -2892,6 +3581,644 @@ describe("MeteringService", () => {
 	});
 });
 
+describe("MeteringService guards and reconciliation durability", () => {
+	const ORG_SUBJECT: MeteringSubject = {
+		actorUserId: USER_ID,
+		organizationId: "org_1",
+	};
+
+	it("caps a settlement above the sanity ceiling instead of refusing the deliverable", async () => {
+		const { credits, repository, service } = setup();
+		await service.reserve("chat", USER_SUBJECT, {
+			credits: 100,
+			eventId: CHAT_EVENT_ID,
+			idempotencyKey: "chat:ceiling",
+		});
+
+		// Chat ceiling = max(50_000, 100 * 25) = 50_000 cc ($20 provider cost).
+		const ceiling = maxFinalCreditsCeiling("chat", 100);
+		expect(ceiling).toBe(50_000);
+		const settlement = {
+			finalCredits: 60_001,
+			pricing: "direct" as const,
+			pricingSnapshot: { source: "test" },
+		};
+
+		// The provider work is done: the settlement lands, capped, with the
+		// ceiling marker for admin review — never a refused settlement.
+		await expect(
+			service.settle(CHAT_EVENT_ID, settlement),
+		).resolves.toMatchObject({
+			finalCredits: 50_000,
+			pricingSnapshot: {
+				sanityCeiling: { attempted: 60_001, ceiling: 50_000 },
+				source: "test",
+			},
+			status: "settled",
+		});
+		expect(credits.consumeCalls.at(-1)).toMatchObject({
+			allowOverdraft: true,
+			amount: 50_000 - 100,
+			idempotencyKey: `settle:${CHAT_EVENT_ID}`,
+		});
+		expect(credits.balances.get(USER_ID)).toBe(10_000 - 50_000);
+		expect(repository.events.get(CHAT_EVENT_ID)?.status).toBe("settled");
+
+		// The caller's replay (its uncapped basis) stays idempotent.
+		await expect(
+			service.settle(CHAT_EVENT_ID, settlement),
+		).resolves.toMatchObject({ finalCredits: 50_000, status: "settled" });
+		expect(credits.consumeCalls).toHaveLength(2);
+	});
+
+	it("gives token operations a run-sized ceiling floor", () => {
+		// Reviewer scenario: page_build reserves the flat 1000 cc floor; a long
+		// 64-step build can exceed $10 of provider cost and must not be capped
+		// at 25_000 cc. 250_000 cc = $100 at the $0.04 anchor.
+		expect(maxFinalCreditsCeiling("page_build", 1_000)).toBe(250_000);
+		expect(maxFinalCreditsCeiling("chat", 100)).toBe(50_000);
+		expect(maxFinalCreditsCeiling("image", 350)).toBe(20_000);
+		expect(maxFinalCreditsCeiling("video", 350)).toBe(100_000);
+	});
+
+	it("re-checks the member limit at settle and reconcile with the reserve-time exemption", async () => {
+		const { credits, gateway, organizationLimits, repository, service } =
+			setup();
+		credits.setBalance("org_1", 10_000);
+		vi.mocked(organizationLimits.resolveMemberLimit).mockImplementation(
+			async (_orgId, _userId, exempt) => ({
+				limitCredits: exempt ? null : 150,
+				source: exempt ? "none" : "member",
+			}),
+		);
+		vi.mocked(organizationLimits.sumMemberSpendThisMonth).mockResolvedValue(
+			100,
+		);
+
+		await service.reserve(
+			"chat",
+			{ ...ORG_SUBJECT, actorIsLimitExempt: true },
+			{
+				credits: 100,
+				eventId: CHAT_EVENT_ID,
+				idempotencyKey: "chat:exempt-owner",
+			},
+		);
+		expect(repository.events.get(CHAT_EVENT_ID)?.pricingSnapshot).toMatchObject(
+			{ actorIsLimitExempt: true },
+		);
+
+		const settled = await service.settle(CHAT_EVENT_ID, {
+			finalCredits: 200,
+			pricing: "direct",
+			pricingSnapshot: { source: "test" },
+		});
+
+		// The exempt owner is not stamped as over-limit.
+		expect(
+			vi.mocked(organizationLimits.resolveMemberLimit).mock.calls.at(-1)?.[2],
+		).toBe(true);
+		expect(settled.pricingSnapshot).toMatchObject({ actorIsLimitExempt: true });
+		expect(settled.pricingSnapshot).not.toHaveProperty("memberLimitBreach");
+
+		// The exemption survives the settlement snapshot into reconciliation.
+		await service.captureGeneration(CHAT_EVENT_ID, {
+			providerMetadata: { gateway: { generationId: "gen_exempt" } },
+			stepUsage: null,
+		});
+		gateway.results.set("gen_exempt", generationInfo("gen_exempt", 0.5));
+		const { event } = await service.reconcile(CHAT_EVENT_ID);
+
+		expect(event.finalCredits).toBeGreaterThan(200);
+		expect(
+			vi.mocked(organizationLimits.resolveMemberLimit).mock.calls.at(-1)?.[2],
+		).toBe(true);
+		expect(event.pricingSnapshot).not.toHaveProperty("memberLimitBreach");
+	});
+
+	it("prices a late completion from the gateway cost under the reservation anchor", async () => {
+		const { credits, gateway, pricing, repository, service } = setup();
+		pricing.usdMicrosPerCredit = 28_000;
+		await service.reserve("image", USER_SUBJECT, {
+			credits: 1_000,
+			eventId: CHAT_EVENT_ID,
+			idempotencyKey: "image:late-completion",
+			measuredTerms: { estimatedUnitUsdMicros: 134_400, units: 4 },
+		});
+		// The anchor flips after admission; the hold keeps 28_000.
+		pricing.usdMicrosPerCredit = 40_000;
+		expect(repository.events.get(CHAT_EVENT_ID)?.pricingSnapshot).toMatchObject(
+			{ usdMicrosPerCredit: 28_000 },
+		);
+
+		// Early ref (fixedUnits 0), the run crashes, the stranded sweep
+		// reconciles at 0 cc while the gateway reports the exact cost.
+		await service.captureGeneration(CHAT_EVENT_ID, {
+			providerMetadata: { gateway: { generationId: "gen_late" } },
+			stepUsage: { metering: { fixedUnits: 0 }, providerUsage: null },
+		});
+		gateway.results.set("gen_late", generationInfo("gen_late", 0.2));
+		const reconciled = await service.reconcile(CHAT_EVENT_ID);
+		expect(reconciled.event).toMatchObject({
+			finalCredits: 0,
+			reconciledCostUsdMicros: 200_000,
+			status: "reconciled",
+		});
+		const balanceAfterReconcile = credits.balances.get(USER_ID);
+
+		// The late completion checkpoint prices the 4 images from the exact
+		// gateway cost at the reservation anchor — not 4 × the estimate at the
+		// live 40_000 anchor (= 1_344 cc).
+		await service.upgradeFixedGenerationUnits(CHAT_EVENT_ID, 4);
+		const expected = usdMicrosToCentiCredits(200_000, 28_000);
+
+		expect(expected).toBe(715);
+		expect(repository.events.get(CHAT_EVENT_ID)).toMatchObject({
+			finalCredits: expected,
+			pricingSnapshot: { lateFixedCompletion: { units: 4 }, units: 4 },
+			status: "reconciled",
+		});
+		expect(credits.balances.get(USER_ID)).toBe(
+			(balanceAfterReconcile ?? 0) - expected,
+		);
+	});
+
+	it("keeps the settle-time estimate when the gateway reports zero cost for delivered work", async () => {
+		const { credits, gateway, service } = setup();
+		await service.reserve("image", USER_SUBJECT, {
+			credits: 350,
+			eventId: CHAT_EVENT_ID,
+			idempotencyKey: "image:zero-cost",
+			measuredTerms: { estimatedUnitUsdMicros: 134_400, units: 1 },
+		});
+		await service.settle(
+			CHAT_EVENT_ID,
+			measuredSettlement("image", 1, 134_400),
+		);
+		const settledBalance = credits.balances.get(USER_ID);
+		await service.captureGeneration(CHAT_EVENT_ID, {
+			providerMetadata: { gateway: { generationId: "gen_zero" } },
+			stepUsage: { metering: { fixedUnits: 1 }, providerUsage: null },
+		});
+		gateway.results.set("gen_zero", generationInfo("gen_zero", 0));
+
+		const outcome = await service.reconcile(CHAT_EVENT_ID);
+
+		// No refund: the delivered image is not free; the event is flagged.
+		expect(outcome).toMatchObject({
+			adjustedCredits: 0,
+			reconciledCostUsdMicros: 0,
+		});
+		expect(outcome.event).toMatchObject({
+			finalCredits: usdMicrosToCentiCredits(134_400, 50_000),
+			pricingSnapshot: { reviewFlags: ["gateway_zero_cost"] },
+			status: "reconciled",
+		});
+		expect(credits.balances.get(USER_ID)).toBe(settledBalance);
+		expect(
+			credits.refundCalls.filter((call) =>
+				call.idempotencyKey.startsWith("reconcile-refund:"),
+			),
+		).toHaveLength(0);
+	});
+
+	it("still charges nothing when a zero-cost gateway result matches a zero settlement", async () => {
+		const { gateway, service } = setup();
+		await service.reserve("image", USER_SUBJECT, {
+			credits: 350,
+			eventId: CHAT_EVENT_ID,
+			idempotencyKey: "image:own-provider",
+			measuredTerms: { estimatedUnitUsdMicros: 0, units: 1 },
+		});
+		// A known zero cost (render on the user's own provider subscription).
+		await service.settle(CHAT_EVENT_ID, {
+			...measuredSettlement("image", 1, 0),
+			finalCredits: 0,
+		});
+		await service.captureGeneration(CHAT_EVENT_ID, {
+			providerMetadata: { gateway: { generationId: "gen_own" } },
+			stepUsage: { metering: { fixedUnits: 1 }, providerUsage: null },
+		});
+		gateway.results.set("gen_own", generationInfo("gen_own", 0));
+
+		const { event } = await service.reconcile(CHAT_EVENT_ID);
+
+		expect(event.finalCredits).toBe(0);
+		expect(event.pricingSnapshot).not.toHaveProperty("reviewFlags");
+	});
+
+	it("leaves a floor-settled measured event without refs unreconciled for admin review", async () => {
+		const { repository, service } = setup();
+		await service.reserve("image", USER_SUBJECT, {
+			credits: 350,
+			eventId: CHAT_EVENT_ID,
+			idempotencyKey: "image:no-catalog-rate",
+			measuredTerms: { estimatedUnitUsdMicros: null, units: 1 },
+		});
+		// The settlement a no-catalog-rate reserve produces: the registry floor,
+		// flagged (see measuredOperationSettlement).
+		await service.settle(CHAT_EVENT_ID, {
+			costUsdMicros: null,
+			finalCredits: 350,
+			pricing: "direct",
+			pricingSnapshot: {
+				estimatedUnitUsdMicros: null,
+				mode: "measured",
+				operation: "image",
+				outcome: "delivered",
+				reviewFlags: ["no_catalog_rate"],
+				source: "measured_local",
+				unit: "image",
+				units: 1,
+				usdMicrosPerCredit: 50_000,
+			},
+		});
+		const settled = repository.events.get(CHAT_EVENT_ID);
+		if (!settled) {
+			throw new Error("missing settled event");
+		}
+		repository.events.set(CHAT_EVENT_ID, {
+			...settled,
+			createdAt: new Date("2026-07-31T00:00:00.000Z"),
+		});
+
+		// Not finalized as a flat 3.5-credit charge: parked in reconcile_failed,
+		// where admin views show it for repair.
+		await expect(
+			service.recoverSettledWithoutRefs(new Date("2026-08-02T00:00:00.000Z")),
+		).resolves.toMatchObject({ failed: 1, pending: 0, reconciled: 0 });
+		expect(repository.events.get(CHAT_EVENT_ID)).toMatchObject({
+			finalCredits: 350,
+			pricingSnapshot: { reviewFlags: ["no_catalog_rate"] },
+			status: "reconcile_failed",
+		});
+	});
+
+	it("reconciles a legacy flat-price lead scrape settled by the per-lead code", async () => {
+		const { credits, service } = setup();
+		await service.reserve("lead_scrape", USER_SUBJECT, {
+			credits: 500,
+			eventId: CHAT_EVENT_ID,
+			idempotencyKey: "lead-scrape:legacy",
+		});
+		// The settlement the new code writes for a hold admitted under the
+		// retired flat price: unit 'operation', not the registry's 'lead'.
+		await service.settle(CHAT_EVENT_ID, {
+			costUsdMicros: 3_000,
+			finalCredits: 500,
+			pricing: "direct",
+			pricingSnapshot: {
+				creditsPerOperation: 500,
+				creditsPerUnit: 500,
+				mode: "fixed",
+				operation: "lead_scrape",
+				source: "operation_registry",
+				unit: "operation",
+				units: 1,
+			},
+			rawUsage: { provider: "serper", resultCount: 120, serperPages: 3 },
+		});
+		await service.captureProviderCallEvidence(CHAT_EVENT_ID, {
+			chargedUsdMicros: 3_000,
+			costSource: "serper_contract_env",
+			costStatus: "contract_rate",
+			customerBillable: false,
+			idempotencyKey: "serper:legacy",
+			rateUsdMicrosPerUnit: 1_000,
+			transport: "serper",
+			unitKind: "search_page",
+			units: 3,
+		});
+
+		const outcome = await service.reconcile(CHAT_EVENT_ID);
+
+		expect(outcome).toMatchObject({
+			adjustedCredits: 0,
+			reconciledCostUsdMicros: 3_000,
+		});
+		expect(outcome.event).toMatchObject({
+			finalCredits: 500,
+			status: "reconciled",
+		});
+		expect(credits.balances.get(USER_ID)).toBe(10_000 - 500);
+	});
+
+	it("reports the execution lease heartbeat as renewed, lost, or error", async () => {
+		const { repository, service } = setup();
+		const heartbeat = vi.fn<() => Promise<boolean>>();
+		Object.assign(repository, { heartbeatExecutionLease: heartbeat });
+
+		heartbeat.mockResolvedValueOnce(true);
+		await expect(
+			service.heartbeatExecutionLease(CHAT_EVENT_ID, "token", 60_000),
+		).resolves.toBe("renewed");
+
+		// A confirmed CAS miss: the row is not reserved under this token.
+		heartbeat.mockResolvedValueOnce(false);
+		await expect(
+			service.heartbeatExecutionLease(CHAT_EVENT_ID, "token", 60_000),
+		).resolves.toBe("lost");
+
+		// A transport failure proves nothing about the lease.
+		heartbeat.mockRejectedValueOnce(new Error("pool timeout"));
+		await expect(
+			service.heartbeatExecutionLease(CHAT_EVENT_ID, "token", 60_000),
+		).resolves.toBe("error");
+	});
+
+	it("settles a member-limit breach softly and blocks the next reserve", async () => {
+		const { credits, organizationLimits, repository, service } = setup();
+		credits.setBalance("org_1", 10_000);
+		vi.mocked(organizationLimits.resolveMemberLimit).mockResolvedValue({
+			limitCredits: 150,
+			source: "member",
+		});
+		vi.mocked(organizationLimits.sumMemberSpendThisMonth)
+			.mockResolvedValueOnce(0)
+			.mockResolvedValue(100);
+
+		await service.reserve("chat", ORG_SUBJECT, {
+			credits: 100,
+			eventId: CHAT_EVENT_ID,
+			idempotencyKey: "chat:member-limit",
+		});
+		const settled = await service.settle(CHAT_EVENT_ID, {
+			finalCredits: 200,
+			pricing: "direct",
+			pricingSnapshot: { source: "test" },
+		});
+
+		// The provider cost is spent: the overage settles, with the marker.
+		expect(settled).toMatchObject({
+			finalCredits: 200,
+			pricingSnapshot: {
+				memberLimitBreach: {
+					deltaCredits: 100,
+					limitCredits: 150,
+					spentCredits: 100,
+				},
+				source: "test",
+			},
+			status: "settled",
+		});
+		expect(credits.balances.get("org_1")).toBe(10_000 - 200);
+
+		// A replay with the marker-less caller snapshot still validates.
+		await expect(
+			service.settle(CHAT_EVENT_ID, {
+				finalCredits: 200,
+				pricing: "direct",
+				pricingSnapshot: { source: "test" },
+			}),
+		).resolves.toMatchObject({ status: "settled" });
+
+		// The hard stop lands on the next reserve (100 spent + 100 > 150).
+		await expect(
+			service.reserve("chat", ORG_SUBJECT, {
+				credits: 100,
+				eventId: CHILD_EVENT_ID,
+				idempotencyKey: "chat:member-limit-next",
+			}),
+		).rejects.toBeInstanceOf(MemberCreditLimitError);
+		expect(repository.events.has(CHILD_EVENT_ID)).toBe(false);
+	});
+
+	it("finalizes a settled event without refs and keeps a reserved one pending", async () => {
+		const { credits, repository, service } = setup();
+		await service.reserve("chat", USER_SUBJECT, {
+			credits: 100,
+			eventId: CHAT_EVENT_ID,
+			idempotencyKey: "chat:no-refs",
+		});
+
+		await expect(service.reconcile(CHAT_EVENT_ID)).rejects.toBeInstanceOf(
+			GatewayUsagePendingError,
+		);
+		expect(repository.events.get(CHAT_EVENT_ID)?.status).toBe("reserved");
+
+		await service.settle(CHAT_EVENT_ID, {
+			costUsdMicros: 4_000,
+			finalCredits: 80,
+			pricing: "direct",
+			pricingSnapshot: { source: "test" },
+		});
+		const balanceAfterSettle = credits.balances.get(USER_ID);
+
+		const outcome = await service.reconcile(CHAT_EVENT_ID);
+
+		expect(outcome).toMatchObject({
+			adjustedCredits: 0,
+			reconciledCostUsdMicros: 4_000,
+		});
+		expect(repository.events.get(CHAT_EVENT_ID)).toMatchObject({
+			finalCredits: 80,
+			pricingSnapshot: {
+				costUsdMicros: 4_000,
+				reconciliation: { source: "no_generation_refs" },
+			},
+			reconciledCostUsdMicros: 4_000,
+			status: "reconciled",
+		});
+		expect(credits.balances.get(USER_ID)).toBe(balanceAfterSettle);
+		// Idempotent: a second reconcile is a no-op on the reconciled row.
+		await expect(service.reconcile(CHAT_EVENT_ID)).resolves.toMatchObject({
+			adjustedCredits: 0,
+		});
+	});
+
+	it("sweeps settled events without refs only past the age gate", async () => {
+		const { repository, service } = setup();
+		await service.reserve("chat", USER_SUBJECT, {
+			credits: 100,
+			eventId: CHAT_EVENT_ID,
+			idempotencyKey: "chat:no-refs-sweep",
+		});
+		await service.settle(CHAT_EVENT_ID, {
+			finalCredits: 100,
+			pricing: "direct",
+			pricingSnapshot: { source: "test" },
+		});
+
+		await expect(
+			service.recoverSettledWithoutRefs(new Date(Date.now() - 60_000)),
+		).resolves.toEqual({ failed: 0, pending: 0, reconciled: 0, scanned: 0 });
+		await expect(
+			service.recoverSettledWithoutRefs(new Date(Date.now() + 60_000)),
+		).resolves.toEqual({ failed: 0, pending: 0, reconciled: 1, scanned: 1 });
+		expect(repository.events.get(CHAT_EVENT_ID)?.status).toBe("reconciled");
+	});
+
+	it("schedules reconcile_failed retries with 5m/10m/20m backoff and dead-letters at the cap", async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-08-01T00:00:00.000Z"));
+
+		try {
+			const { service } = setup();
+			await service.reserve("chat", USER_SUBJECT, {
+				credits: 100,
+				eventId: CHAT_EVENT_ID,
+				idempotencyKey: "chat:backoff",
+			});
+			const delays: number[] = [];
+
+			for (let attempt = 1; attempt < RECONCILE_DEAD_LETTER_CAP; attempt += 1) {
+				const event =
+					await service.terminalizeReconciliationFailure(CHAT_EVENT_ID);
+
+				expect(event.status).toBe("reconcile_failed");
+				expect(event.reconcileAttempts).toBe(attempt);
+				delays.push(
+					(event.nextReconcileAttemptAt?.getTime() ?? Number.NaN) - Date.now(),
+				);
+			}
+
+			expect(delays.slice(0, 4)).toEqual([
+				5 * 60_000,
+				10 * 60_000,
+				20 * 60_000,
+				40 * 60_000,
+			]);
+			// Capped at 6 hours: 5m * 2^8 = 21h20m would exceed it.
+			expect(delays.at(-1)).toBe(6 * 60 * 60_000);
+
+			const deadLettered =
+				await service.terminalizeReconciliationFailure(CHAT_EVENT_ID);
+
+			expect(deadLettered).toMatchObject({
+				nextReconcileAttemptAt: null,
+				reconcileAttempts: RECONCILE_DEAD_LETTER_CAP,
+				status: "reconcile_failed",
+			});
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("retries only due reconcile_failed rows and skips dead-lettered ones", async () => {
+		const { gateway, repository, service } = setup();
+		const now = new Date("2026-08-01T12:00:00.000Z");
+		const seedFailed = async (
+			eventId: string,
+			generationId: string,
+			nextReconcileAttemptAt: Date | null,
+		) => {
+			await service.reserve("chat", USER_SUBJECT, {
+				credits: 100,
+				eventId,
+				idempotencyKey: `chat:retry:${eventId}`,
+			});
+			await service.captureGeneration(eventId, {
+				providerMetadata: { gateway: { generationId } },
+			});
+			await service.settle(eventId, {
+				finalCredits: 100,
+				pricing: "direct",
+				pricingSnapshot: { source: "test" },
+			});
+			const failed = await service.terminalizeReconciliationFailure(eventId);
+			repository.events.set(eventId, { ...failed, nextReconcileAttemptAt });
+			gateway.results.set(generationId, generationInfo(generationId, 0.05));
+		};
+		const DEAD_EVENT_ID = "33333333-3333-4333-8333-333333333333";
+
+		await seedFailed(CHAT_EVENT_ID, "gen_due", new Date(now.getTime() - 1));
+		await seedFailed(
+			CHILD_EVENT_ID,
+			"gen_future",
+			new Date(now.getTime() + 60_000),
+		);
+		await seedFailed(DEAD_EVENT_ID, "gen_dead", null);
+
+		await expect(service.retryFailedReconciliations(now)).resolves.toEqual({
+			failed: 0,
+			pending: 0,
+			reconciled: 1,
+			scanned: 1,
+		});
+		expect(repository.events.get(CHAT_EVENT_ID)?.status).toBe("reconciled");
+		expect(repository.events.get(CHILD_EVENT_ID)?.status).toBe(
+			"reconcile_failed",
+		);
+		expect(repository.events.get(DEAD_EVENT_ID)?.status).toBe(
+			"reconcile_failed",
+		);
+	});
+
+	it("advances the backoff when a retried reconciliation fails again", async () => {
+		const { gateway, repository, service } = setup();
+		const now = new Date("2026-08-01T12:00:00.000Z");
+		await service.reserve("chat", USER_SUBJECT, {
+			credits: 100,
+			eventId: CHAT_EVENT_ID,
+			idempotencyKey: "chat:retry-again",
+		});
+		await service.captureGeneration(CHAT_EVENT_ID, {
+			providerMetadata: { gateway: { generationId: "gen_again" } },
+		});
+		await service.settle(CHAT_EVENT_ID, {
+			finalCredits: 100,
+			pricing: "direct",
+			pricingSnapshot: { source: "test" },
+		});
+		const failed =
+			await service.terminalizeReconciliationFailure(CHAT_EVENT_ID);
+		repository.events.set(CHAT_EVENT_ID, {
+			...failed,
+			nextReconcileAttemptAt: new Date(now.getTime() - 1),
+		});
+		gateway.results.set(
+			"gen_again",
+			Object.assign(new Error("bad request"), { statusCode: 400 }),
+		);
+
+		await expect(service.retryFailedReconciliations(now)).resolves.toEqual({
+			failed: 1,
+			pending: 0,
+			reconciled: 0,
+			scanned: 1,
+		});
+		expect(repository.events.get(CHAT_EVENT_ID)).toMatchObject({
+			reconcileAttempts: 2,
+			status: "reconcile_failed",
+		});
+		expect(
+			repository.events.get(CHAT_EVENT_ID)?.nextReconcileAttemptAt,
+		).not.toBeNull();
+	});
+
+	it("clears the execution lease when an event settles or refunds", async () => {
+		const { repository, service } = setup();
+		await service.reserve("chat", USER_SUBJECT, {
+			credits: 100,
+			eventId: CHAT_EVENT_ID,
+			idempotencyKey: "chat:lease-settle",
+		});
+		const reserved = repository.events.get(CHAT_EVENT_ID);
+
+		if (!reserved) {
+			throw new Error("missing reserved event");
+		}
+
+		repository.events.set(CHAT_EVENT_ID, {
+			...reserved,
+			executionLeaseExpiresAt: new Date(Date.now() + 60_000),
+			executionLeaseToken: randomUUID(),
+		});
+
+		await service.settle(CHAT_EVENT_ID, {
+			finalCredits: 100,
+			pricing: "direct",
+			pricingSnapshot: { source: "test" },
+		});
+
+		expect(repository.events.get(CHAT_EVENT_ID)).toMatchObject({
+			executionLeaseExpiresAt: null,
+			executionLeaseToken: null,
+			status: "settled",
+		});
+	});
+});
+
 function makeEvent(input: InsertAiUsageEvent): AiUsageEvent {
 	return {
 		attemptRef: input.attemptRef ?? null,
@@ -2919,6 +4246,10 @@ function makeEvent(input: InsertAiUsageEvent): AiUsageEvent {
 		settledAt: null,
 		status: input.status ?? "reserved",
 		userId: input.userId,
+		executionLeaseToken: null,
+		executionLeaseExpiresAt: null,
+		reconcileAttempts: 0,
+		nextReconcileAttemptAt: null,
 	};
 }
 

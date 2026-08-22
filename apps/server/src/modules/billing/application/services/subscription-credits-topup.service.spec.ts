@@ -146,6 +146,25 @@ function setup(
 			order.push("reconcile-charge");
 		}),
 	};
+	const reconciliationOutbox = {
+		enqueue: vi.fn(async () => {
+			order.push("enqueue-outbox");
+
+			return null;
+		}),
+		markDoneForCharge: vi.fn(async () => {
+			order.push("outbox-done");
+
+			return 1;
+		}),
+	};
+	const receipts = {
+		insertIfAbsent: vi.fn(async () => {
+			order.push("write-receipt");
+
+			return null;
+		}),
+	};
 	const service = new SubscriptionCreditsService(
 		customers as unknown as BillingCustomersRepository,
 		{} as never,
@@ -156,9 +175,21 @@ function setup(
 		{} as never,
 		attempts as unknown as BillingCheckoutAttemptsRepository,
 		{ findByProviderCustomerId: async () => null } as never,
+		reconciliationOutbox as never,
+		receipts as never,
 	);
 
-	return { attempts, credits, customers, order, refunds, service, stripe };
+	return {
+		attempts,
+		credits,
+		customers,
+		order,
+		receipts,
+		reconciliationOutbox,
+		refunds,
+		service,
+		stripe,
+	};
 }
 
 describe("SubscriptionCreditsService top-up fulfillment", () => {
@@ -189,9 +220,38 @@ describe("SubscriptionCreditsService top-up fulfillment", () => {
 		expect(refunds.reconcileChargeAfterGrant).toHaveBeenCalledWith("ch_topup");
 		expect(order).toEqual([
 			"grant-credits",
+			"write-receipt",
+			"enqueue-outbox",
 			"complete-attempt",
 			"reconcile-charge",
+			"outbox-done",
 		]);
+	});
+
+	it("writes a top-up cash receipt and a reconciliation outbox row keyed by the session", async () => {
+		const { receipts, reconciliationOutbox, service } = setup();
+
+		await service.grantTopup(checkoutSession());
+
+		expect(receipts.insertIfAbsent).toHaveBeenCalledWith(
+			expect.objectContaining({
+				amountCents: 2_500,
+				chargeId: "ch_topup",
+				currency: "usd",
+				organizationId: null,
+				packId: "topup_250",
+				paymentIntentId: "pi_topup",
+				sessionId: "cs_topup",
+				userId: "user_1",
+			}),
+		);
+		expect(reconciliationOutbox.enqueue).toHaveBeenCalledWith({
+			chargeId: "ch_topup",
+			triggerRef: "topup:cs_topup",
+		});
+		expect(reconciliationOutbox.markDoneForCharge).toHaveBeenCalledWith(
+			"ch_topup",
+		);
 	});
 
 	it("accepts a completed attempt as an idempotent webhook replay", async () => {

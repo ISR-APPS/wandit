@@ -7,7 +7,7 @@ import {
 	isR2Configured,
 	putSiteFile,
 } from "../../../../infrastructure/storage/r2";
-import { generateBuildVideo } from "./generate-video";
+import { generateBuildVideo, videoCostEstimateInput } from "./generate-video";
 
 // Env is a mutable stub so each test controls exactly which keys exist; the
 // real r2 key/url helpers stay in place (they are what the URL test proves),
@@ -254,6 +254,46 @@ describe("generateBuildVideo", () => {
 			providerMetadata: { gateway: { generationId: "generation_1" } },
 			providerUnits: 1,
 			status: "failed",
+		});
+	});
+});
+
+describe("videoCostEstimateInput", () => {
+	it("returns null without a configured video model", () => {
+		mockEnv.AI_VIDEO_MODEL = undefined;
+
+		expect(videoCostEstimateInput("image-animation", 5)).toBeNull();
+	});
+
+	it("describes the std, silent render the call sites submit", () => {
+		mockEnv.AI_VIDEO_MODEL = "klingai/kling-v2.6-i2v";
+
+		expect(videoCostEstimateInput("image-animation", 5)).toEqual({
+			audio: false,
+			durationSeconds: 5,
+			kind: "video",
+			mode: "std",
+			modelId: "klingai/kling-v2.6-i2v",
+		});
+		// Text-to-video swaps Kling's -i2v suffix; unknown durations use the
+		// house five-second clip.
+		expect(videoCostEstimateInput("text-to-video", 10)).toMatchObject({
+			durationSeconds: 10,
+			modelId: "klingai/kling-v2.6-t2v",
+		});
+		expect(videoCostEstimateInput("text-to-video", null)).toMatchObject({
+			durationSeconds: 5,
+		});
+	});
+
+	it("clamps the duration onto Veo's legal clip lengths", () => {
+		mockEnv.AI_VIDEO_MODEL = "google/veo-3.1-generate-001";
+
+		expect(videoCostEstimateInput("image-animation", 5)).toMatchObject({
+			durationSeconds: 6,
+		});
+		expect(videoCostEstimateInput("text-to-video", 10)).toMatchObject({
+			durationSeconds: 8,
 		});
 	});
 });

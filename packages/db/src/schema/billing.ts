@@ -86,9 +86,7 @@ export const productSettings = pgTable(
 			.notNull()
 			.default(false),
 		// UNIT: centi-credits (5000 cc = 50 credits).
-		signupGrantCredits: integer("signup_grant_credits")
-			.notNull()
-			.default(5000),
+		signupGrantCredits: integer("signup_grant_credits").notNull().default(5000),
 		paidSubscriptionsEnabled: boolean("paid_subscriptions_enabled")
 			.notNull()
 			.default(false),
@@ -389,6 +387,12 @@ export const subscriptionRefillSlots = pgTable(
 		fundingPaymentIntentId: text("funding_payment_intent_id"),
 		status: subscriptionRefillSlotStatus("status").notNull().default("pending"),
 		grantedAt: timestamp("granted_at", { withTimezone: true }),
+		// Cancellation provenance (app-enforced values: replaced | clawback |
+		// ownership). A won dispute restores only `clawback` rows; `replaced`
+		// rows point at the invoice whose slots superseded them.
+		canceledReason: text("canceled_reason"),
+		supersededByInvoiceId: text("superseded_by_invoice_id"),
+		canceledAt: timestamp("canceled_at", { withTimezone: true }),
 	},
 	(table) => [
 		uniqueIndex("subscription_refill_slots_subscription_invoice_ordinal_uq").on(
@@ -400,6 +404,9 @@ export const subscriptionRefillSlots = pgTable(
 			table.status,
 			table.dueAt,
 		),
+		index("subscription_refill_slots_fundingChargeId_status_idx")
+			.on(table.fundingChargeId, table.status)
+			.where(sql`${table.fundingChargeId} is not null`),
 		check(
 			"subscription_refill_slots_period_ordinal_ck",
 			sql`${table.periodOrdinal} BETWEEN 2 AND 12`,
@@ -471,6 +478,9 @@ export const billingChangeIntents = pgTable(
 		}).notNull(),
 		previewTotalMinor: integer("preview_total_minor").notNull(),
 		currency: text("currency").notNull(),
+		// Ruling 7: decided at preview time and replayed verbatim at execution
+		// so the quoted amount and the Stripe call can never disagree.
+		anchorReset: boolean("anchor_reset").notNull().default(false),
 		status: billingChangeIntentStatus("status").notNull().default("open"),
 		expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
 		providerAttemptedAt: timestamp("provider_attempted_at", {
@@ -519,6 +529,79 @@ export const signupGrantOutbox = pgTable(
 			"signup_grant_outbox_attempts_nonnegative_ck",
 			sql`${table.attempts} >= 0`,
 		),
+	],
+);
+
+export const billingFinancialReconciliationStatus = pgEnum(
+	"billing_financial_reconciliation_status",
+	["pending", "done"],
+);
+
+/**
+ * Transactional outbox for post-grant charge reconciliation. Every
+ * payment-funded credit grant enqueues its charge inside the grant
+ * transaction; the fast path marks the row done right after commit and the
+ * sweep drains whatever a crash left pending.
+ */
+export const billingFinancialReconciliationOutbox = pgTable(
+	"billing_financial_reconciliation_outbox",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		chargeId: text("charge_id").notNull(),
+		// inv:{invoiceId} | slot:{slotId} | topup:{sessionId}
+		triggerRef: text("trigger_ref").notNull(),
+		status: billingFinancialReconciliationStatus("status")
+			.notNull()
+			.default("pending"),
+		attempts: integer("attempts").notNull().default(0),
+		lastError: text("last_error"),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+		doneAt: timestamp("done_at", { withTimezone: true }),
+	},
+	(table) => [
+		uniqueIndex("billing_financial_reconciliation_outbox_charge_trigger_uq").on(
+			table.chargeId,
+			table.triggerRef,
+		),
+		index("billing_financial_reconciliation_outbox_status_createdAt_idx").on(
+			table.status,
+			table.createdAt,
+		),
+	],
+);
+
+/**
+ * Cash record for top-up purchases. Top-ups grant ledger credits but never
+ * touched a revenue table, so refunds (which do land in
+ * billing_payment_adjustments) were subtracted from a gross that never
+ * included them. Idempotent on the checkout session id.
+ */
+export const billingTopupReceipts = pgTable(
+	"billing_topup_receipts",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		sessionId: text("session_id").notNull(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => user.id, { onDelete: "restrict" }),
+		organizationId: text("organization_id").references(() => organization.id, {
+			onDelete: "restrict",
+		}),
+		packId: text("pack_id").notNull(),
+		amountCents: integer("amount_cents").notNull(),
+		currency: text("currency").notNull(),
+		chargeId: text("charge_id"),
+		paymentIntentId: text("payment_intent_id"),
+		paidAt: timestamp("paid_at", { withTimezone: true }).notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+	},
+	(table) => [
+		uniqueIndex("billing_topup_receipts_sessionId_uq").on(table.sessionId),
+		index("billing_topup_receipts_paidAt_idx").on(table.paidAt),
 	],
 );
 

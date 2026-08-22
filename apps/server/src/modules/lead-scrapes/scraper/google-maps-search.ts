@@ -44,6 +44,15 @@ export type GoogleMapsSearchOptions = {
 	// Called after each page with the running total, so the task can persist
 	// live foundCount for the progress card.
 	onProgress?: (found: number) => Promise<void> | void;
+	// Called as each Serper page request is sent (running page count), so a
+	// failed scrape can still record the provider cost it consumed.
+	onSearchRequest?: (pages: number) => void;
+};
+
+export type GoogleMapsSearchResult = {
+	/** Serper pages actually fetched — each one is a billed provider search. */
+	pages: number;
+	records: LeadRecord[];
 };
 
 /**
@@ -53,7 +62,7 @@ export type GoogleMapsSearchOptions = {
  */
 export async function searchGoogleMapsBusinesses(
 	options: GoogleMapsSearchOptions,
-): Promise<LeadRecord[]> {
+): Promise<GoogleMapsSearchResult> {
 	const apiKey = env.SERPER_API_KEY;
 
 	if (!apiKey) {
@@ -70,10 +79,15 @@ export async function searchGoogleMapsBusinesses(
 	// Serper resolves the query to a map center on page 1 and echoes it as
 	// `ll`; pages 2+ REQUIRE that value (HTTP 400 without it).
 	let mapCenter: string | null = null;
+	let pages = 0;
 
 	for (let page = 1; page <= MAX_PAGES; page += 1) {
 		options.signal?.throwIfAborted();
 
+		// Count the request before it resolves: a page that fails mid-flight was
+		// still sent to (and billed by) Serper.
+		pages += 1;
+		options.onSearchRequest?.(pages);
 		const { ll, places } = await fetchMapsPage({
 			apiKey,
 			countryCode: options.countryCode ?? null,
@@ -122,7 +136,7 @@ export async function searchGoogleMapsBusinesses(
 		}
 	}
 
-	return collected;
+	return { pages, records: collected };
 }
 
 /**

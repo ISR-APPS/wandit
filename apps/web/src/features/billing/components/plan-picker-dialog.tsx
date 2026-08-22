@@ -843,12 +843,17 @@ function ChangePreview({
 							</p>
 						</>
 					) : (
-						<p className="font-medium text-base">
-							{t("billing.planPicker.payNowCredits", {
-								amount,
-								credits: signedNumber(preview.creditsDelta, locale),
-							})}
-						</p>
+						<>
+							<p className="font-medium text-base">
+								{t("billing.planPicker.payNowCredits", {
+									amount,
+									credits: signedNumber(preview.creditsDelta, locale),
+								})}
+							</p>
+							<p className="mt-2 text-muted-foreground text-sm">
+								{copy.upgradeExplanation}
+							</p>
+						</>
 					)}
 				</div>
 			</div>

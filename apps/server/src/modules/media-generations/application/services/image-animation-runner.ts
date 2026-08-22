@@ -313,6 +313,7 @@ export async function runImageAnimation(
 			loaded.id,
 			payload.parentEventId,
 			payload.billingMode,
+			{ durationSeconds: loaded.durationSeconds, kind: loaded.kind },
 		);
 		await dependencies.settle(reservation);
 		return succeededResult(loaded, false);
@@ -342,6 +343,7 @@ export async function runImageAnimation(
 			loaded.id,
 			payload.parentEventId,
 			payload.billingMode,
+			{ durationSeconds: loaded.durationSeconds, kind: loaded.kind },
 		);
 		return recoverOrSettleGenerating(
 			loaded,
@@ -373,6 +375,7 @@ export async function runImageAnimation(
 				raced.id,
 				payload.parentEventId,
 				payload.billingMode,
+				{ durationSeconds: raced.durationSeconds, kind: raced.kind },
 			);
 			await dependencies.settle(reservation);
 			return succeededResult(raced, false);
@@ -402,6 +405,7 @@ export async function runImageAnimation(
 				raced.id,
 				payload.parentEventId,
 				payload.billingMode,
+				{ durationSeconds: raced.durationSeconds, kind: raced.kind },
 			);
 			return recoverOrSettleGenerating(
 				raced,
@@ -428,6 +432,7 @@ export async function runImageAnimation(
 			claimed.id,
 			payload.parentEventId,
 			payload.billingMode,
+			{ durationSeconds: claimed.durationSeconds, kind: claimed.kind },
 		);
 	} catch (error) {
 		// Insufficient credits is an expected outcome; anything else here is
@@ -492,7 +497,13 @@ export async function runImageAnimation(
 			if (!generationCapturedBeforeDelivery) {
 				await dependencies.capture(reservation, {
 					providerMetadata: generated.providerMetadata,
-					stepUsage: fixedGenerationStepUsage(generated.usage, providerUnits),
+					// A zero-unit provider failure is refunded to the user; the marker
+					// keeps its gateway cost out of the customer charge.
+					stepUsage: fixedGenerationStepUsage(
+						generated.usage,
+						providerUnits,
+						providerUnits === 0 ? "refunded_failure" : undefined,
+					),
 				});
 			}
 			await dependencies.settle(reservation, providerUnits);

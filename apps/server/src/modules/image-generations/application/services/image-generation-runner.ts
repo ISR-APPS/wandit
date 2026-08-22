@@ -1,7 +1,7 @@
 import type { ImageGenerationAspect } from "@wandit/contracts";
+import { Sentry } from "@wandit/observability/node";
 // /node, not /nestjs: this code also runs inside Trigger tasks and the worker.
 import type { MeteringSubject } from "../../../credits/domain/credit-owner";
-import { Sentry } from "@wandit/observability/node";
 import { isTerminalFixedOperationReplay } from "../../../metering/application/services/fixed-operation-billing";
 import {
 	fixedGenerationStepUsage,
@@ -327,8 +327,14 @@ export async function runImageGeneration(
 			loaded.count,
 			payload.parentEventId,
 			payload.billingMode,
+			{ hasSourceImages: loaded.sourceImageUrls.length > 0 },
 		);
-		return recoverOrSettleGenerating(loaded, subject, dependencies, reservation);
+		return recoverOrSettleGenerating(
+			loaded,
+			subject,
+			dependencies,
+			reservation,
+		);
 	}
 
 	const claimed = await dependencies.claimQueued(loaded, {
@@ -377,8 +383,14 @@ export async function runImageGeneration(
 				raced.count,
 				payload.parentEventId,
 				payload.billingMode,
+				{ hasSourceImages: raced.sourceImageUrls.length > 0 },
 			);
-			return recoverOrSettleGenerating(raced, subject, dependencies, reservation);
+			return recoverOrSettleGenerating(
+				raced,
+				subject,
+				dependencies,
+				reservation,
+			);
 		}
 
 		throw new Error(
@@ -399,6 +411,7 @@ export async function runImageGeneration(
 			claimed.count,
 			payload.parentEventId,
 			payload.billingMode,
+			{ hasSourceImages: claimed.sourceImageUrls.length > 0 },
 		);
 	} catch (error) {
 		// Insufficient credits is an expected outcome; anything else here is
@@ -415,7 +428,12 @@ export async function runImageGeneration(
 	}
 
 	if (isTerminalFixedOperationReplay(reservation)) {
-		return recoverOrSettleGenerating(claimed, subject, dependencies, reservation);
+		return recoverOrSettleGenerating(
+			claimed,
+			subject,
+			dependencies,
+			reservation,
+		);
 	}
 
 	const images: GeneratedImageResult[] = [];
@@ -477,7 +495,13 @@ export async function runImageGeneration(
 				try {
 					await dependencies.capture(reservation, {
 						providerMetadata: generated.providerMetadata,
-						stepUsage: fixedGenerationStepUsage(generated.usage, providerUnits),
+						// A zero-unit provider failure is refunded to the user; the
+						// marker keeps its gateway cost out of the customer charge.
+						stepUsage: fixedGenerationStepUsage(
+							generated.usage,
+							providerUnits,
+							providerUnits === 0 ? "refunded_failure" : undefined,
+						),
 					});
 					providerEvidenceCaptured = true;
 				} catch (error) {
@@ -640,7 +664,13 @@ async function recoverOrSettleGenerating(
 		// A terminal financial state cannot authorize another provider call. With
 		// no deterministic object to publish, close the domain row once and retain
 		// the charge/refund already chosen by metering.
-		await failAndRefund(attempt, subject, dependencies, "terminal_billing", false);
+		await failAndRefund(
+			attempt,
+			subject,
+			dependencies,
+			"terminal_billing",
+			false,
+		);
 		return { reason: "generation_failed", status: "failed" };
 	}
 
@@ -822,6 +852,7 @@ async function settleSucceededBillingReplay(
 		attempt.count,
 		payload.parentEventId,
 		payload.billingMode,
+		{ hasSourceImages: attempt.sourceImageUrls.length > 0 },
 	);
 	await settleExistingStoredOutput(
 		attempt,

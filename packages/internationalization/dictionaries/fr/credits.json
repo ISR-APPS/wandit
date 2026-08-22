@@ -11,7 +11,6 @@
 	"topUpDialog": "Voir les offres et recharges",
 	"insufficientTitle": "Crédits insuffisants",
 	"insufficientBody": "Cette action coûte plus de crédits que ton solde actuel.",
-	"costLabel": "Coût",
 	"outOfCredits": {
 		"title": "Tu n'as plus de crédits",
 		"body": "Passe à une offre supérieure pour continuer à créer.",
@@ -36,6 +35,15 @@
 		"expire": "Crédits expirés",
 		"revoke": "Crédits annulés"
 	},
+	"ledgerReasons": {
+		"reconcile": "Ajustement du prix final",
+		"reconcileRefund": "Remboursement du prix final",
+		"settleRefund": "Réserve non utilisée remboursée",
+		"fixedCompletion": "Facturation tardive de l'achèvement",
+		"reserve": "Réservé pour une opération",
+		"settle": "Réglé au prix final",
+		"refund": "Remboursé"
+	},
 	"creditUnit": {
 		"zero": "{count} crédit",
 		"one": "{count} crédit",
@@ -43,17 +51,5 @@
 		"few": "{count} crédits",
 		"many": "{count} crédits",
 		"other": "{count} crédits"
-	},
-	"priceTag": {
-		"zero": "{action} — {count} crédit",
-		"one": "{action} — {count} crédit",
-		"two": "{action} — {count} crédits",
-		"few": "{action} — {count} crédits",
-		"many": "{action} — {count} crédits",
-		"other": "{action} — {count} crédits"
-	},
-	"actions": {
-		"generation": "Générer",
-		"chatMessage": "Envoyer"
 	}
 }

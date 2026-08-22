@@ -84,6 +84,7 @@ function hasRevenueActivity(data: AnalyticsRevenueResponse) {
 			...data.collectedRevenueByDay.flatMap((point) => [
 				point.subscriptionsMinor,
 				point.ordersMinor,
+				point.topupsMinor,
 			]),
 			...data.newPaidByDay.map((point) => point.count),
 			...data.daysToConvert.map((point) => point.count),

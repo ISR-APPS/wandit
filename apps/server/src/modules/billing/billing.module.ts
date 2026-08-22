@@ -19,8 +19,10 @@ import { BillingChangeIntentsRepository } from "./infrastructure/persistence/bil
 import { BillingCheckoutAttemptsRepository } from "./infrastructure/persistence/billing-checkout-attempts.repository";
 import { BillingCreditLedgerRepository } from "./infrastructure/persistence/billing-credit-ledger.repository";
 import { BillingPaymentAdjustmentsRepository } from "./infrastructure/persistence/billing-payment-adjustments.repository";
+import { BillingTopupReceiptsRepository } from "./infrastructure/persistence/billing-topup-receipts.repository";
 import { BillingWebhookEventsRepository } from "./infrastructure/persistence/billing-webhook-events.repository";
 import { CancellationReasonsRepository } from "./infrastructure/persistence/cancellation-reasons.repository";
+import { FinancialReconciliationOutboxRepository } from "./infrastructure/persistence/financial-reconciliation-outbox.repository";
 import { SubscriptionCreditsRepository } from "./infrastructure/persistence/subscription-credits.repository";
 import { SubscriptionStateEventsRepository } from "./infrastructure/persistence/subscription-state-events.repository";
 import { SubscriptionsRepository } from "./infrastructure/persistence/subscriptions.repository";
@@ -49,8 +51,10 @@ import { StripeWebhookController } from "./presentation/http/controllers/stripe-
 		BillingPaymentAdjustmentsRepository,
 		BillingService,
 		BillingWebhookRetryService,
+		BillingTopupReceiptsRepository,
 		BillingWebhookEventsRepository,
 		CancellationReasonsRepository,
+		FinancialReconciliationOutboxRepository,
 		PaymentRefundsService,
 		StripeEventRouter,
 		StripeSubscriptionSyncService,

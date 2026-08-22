@@ -1,3 +1,4 @@
+import { parsePriceLookupKey, priceUsdFor } from "@wandit/contracts";
 import type Stripe from "stripe";
 import { describe, expect, it, vi } from "vitest";
 import { CreditsService } from "../../../credits/application/services/credits.service";
@@ -13,14 +14,16 @@ import type {
 } from "../../../credits/infrastructure/persistence/credits.repository";
 import type { BillingCheckoutAttemptsRepository } from "../../infrastructure/persistence/billing-checkout-attempts.repository";
 import type { BillingCustomersRepository } from "../../infrastructure/persistence/billing-customers.repository";
-import type {
-	InsertInvoiceApplication,
-	InsertRefillSlot,
-	InvoiceApplicationRow,
-	RefillSlotRow,
-	SubscriptionCreditRow,
-	SubscriptionCreditsRepository,
-	SubscriptionCreditsTransaction,
+import {
+	canceledSlotValues,
+	type InsertInvoiceApplication,
+	type InsertRefillSlot,
+	type InvoiceApplicationRow,
+	type RefillSlotCancellation,
+	type RefillSlotRow,
+	type SubscriptionCreditRow,
+	type SubscriptionCreditsRepository,
+	type SubscriptionCreditsTransaction,
 } from "../../infrastructure/persistence/subscription-credits.repository";
 import type { SubscriptionsRepository } from "../../infrastructure/persistence/subscriptions.repository";
 import type { StripeProvider } from "../../infrastructure/stripe/stripe.provider";
@@ -316,11 +319,14 @@ class MemorySubscriptionCreditsRepository {
 
 			const row = {
 				...input,
+				canceledAt: null,
+				canceledReason: null,
 				fundingChargeId: input.fundingChargeId ?? null,
 				fundingPaymentIntentId: input.fundingPaymentIntentId ?? null,
 				grantedAt: null,
 				id: `slot_${this.nextSlotId++}`,
 				status: input.status ?? "pending",
+				supersededByInvoiceId: null,
 			} as RefillSlotRow;
 			this.slots.push(row);
 			inserted.push(row);
@@ -329,12 +335,15 @@ class MemorySubscriptionCreditsRepository {
 		return inserted;
 	}
 
-	async cancelPendingSlotsForSubscription(subscriptionId: string) {
+	async cancelPendingSlotsForSubscription(
+		subscriptionId: string,
+		provenance: RefillSlotCancellation,
+	) {
 		let count = 0;
 
 		for (const slot of this.slots) {
 			if (slot.subscriptionId === subscriptionId && slot.status === "pending") {
-				slot.status = "canceled";
+				Object.assign(slot, canceledSlotValues(provenance));
 				count += 1;
 			}
 		}
@@ -415,14 +424,14 @@ class MemorySubscriptionCreditsRepository {
 		return slot;
 	}
 
-	async cancelPendingSlot(slotId: string) {
+	async cancelPendingSlot(slotId: string, provenance: RefillSlotCancellation) {
 		const slot = this.slots.find((row) => row.id === slotId);
 
 		if (slot?.status !== "pending") {
 			return false;
 		}
 
-		slot.status = "canceled";
+		Object.assign(slot, canceledSlotValues(provenance));
 
 		return true;
 	}
@@ -453,11 +462,27 @@ function subscription(
 	};
 }
 
+function catalogPriceMinor(lookupKey: string): number {
+	const parsed = parsePriceLookupKey(lookupKey);
+
+	if (!parsed) {
+		throw new Error(`Unknown fixture lookup key ${lookupKey}`);
+	}
+
+	return Math.round(
+		priceUsdFor(parsed.plan, parsed.tierCredits, parsed.interval) * 100,
+	);
+}
+
 function invoice(input: {
+	amountPaid?: number;
 	anchorReset?: boolean;
+	currency?: string;
+	customerBalance?: { ending: number; starting: number };
 	fundingChargeId?: string;
 	id: string;
 	newKey: string;
+	total?: number;
 	oldKey?: string;
 	reason: "subscription_create" | "subscription_cycle" | "subscription_update";
 	paidAt?: Date;
@@ -482,24 +507,41 @@ function invoice(input: {
 			},
 		},
 	});
-	const lines = [line(input.newKey, 2500, false)];
+	const fullPriceMinor = catalogPriceMinor(input.newKey);
+	// Anchor-reset upgrades and month->year changes carry the new plan as a
+	// full-period line at the full catalog price; delta-priced updates carry
+	// proration lines only.
+	const lines =
+		input.oldKey && !input.anchorReset
+			? [line(input.oldKey, -1000, true), line(input.newKey, 1000, true)]
+			: [line(input.newKey, fullPriceMinor, false)];
 
-	if (input.oldKey) {
+	if (input.oldKey && input.anchorReset) {
 		lines.push(line(input.oldKey, -1000, true));
-
-		if (!input.anchorReset) {
-			lines.push(line(input.newKey, 1000, true));
-		}
 	}
 	const paymentIntentId = input.fundingChargeId
 		? `pi_${input.fundingChargeId}`
 		: null;
+	const amountPaid =
+		input.amountPaid ??
+		(input.fundingChargeId
+			? input.oldKey && !input.anchorReset
+				? 1000
+				: fullPriceMinor
+			: 0);
 
 	return {
-		amount_paid: input.fundingChargeId ? 2500 : 0,
+		amount_paid: amountPaid,
 		billing_reason: input.reason,
+		...(input.customerBalance
+			? {
+					ending_balance: input.customerBalance.ending,
+					starting_balance: input.customerBalance.starting,
+				}
+			: {}),
+		...(input.total !== undefined ? { total: input.total } : {}),
 		created: Math.floor((input.paidAt ?? start).getTime() / 1000),
-		currency: "usd",
+		currency: input.currency ?? "usd",
 		customer: "cus_1",
 		id: input.id,
 		lines: { data: lines },
@@ -545,10 +587,31 @@ function setup(initial = subscription()) {
 	const paymentRefunds = {
 		reconcileChargeAfterGrant: vi.fn(async () => undefined),
 	};
+	const outboxRows: Array<{ chargeId: string; triggerRef: string }> = [];
+	const reconciliationOutbox = {
+		enqueue: vi.fn(async (input: { chargeId: string; triggerRef: string }) => {
+			if (
+				outboxRows.some(
+					(row) =>
+						row.chargeId === input.chargeId &&
+						row.triggerRef === input.triggerRef,
+				)
+			) {
+				return null;
+			}
+
+			outboxRows.push(input);
+
+			return input;
+		}),
+		markDoneForCharge: vi.fn(async () => 0),
+	};
+	const receipts = { insertIfAbsent: vi.fn(async () => null) };
 	const refill = new SubscriptionRefillService(
 		repository as unknown as SubscriptionCreditsRepository,
 		credits,
 		paymentRefunds as unknown as PaymentRefundsService,
+		reconciliationOutbox as never,
 	);
 	const subscriptionsRepository = {
 		clearAppliedPendingTier: vi.fn(async () => initial),
@@ -583,13 +646,18 @@ function setup(initial = subscription()) {
 		refill,
 		{} as BillingCheckoutAttemptsRepository,
 		{ findByProviderCustomerId: async () => null } as never,
+		reconciliationOutbox as never,
+		receipts as never,
 	);
 
 	return {
 		creditRepository,
 		credits,
 		invoices,
+		outboxRows,
 		paymentRefunds,
+		receipts,
+		reconciliationOutbox,
 		refill,
 		repository,
 		service,
@@ -791,6 +859,270 @@ describe("Subscription credit policy", () => {
 		await downgrade.service.grantForPaidInvoice(renewal);
 		// Carried min(36_000, 25_000 cap) + 25_000 cycle allotment.
 		expect((await downgrade.credits.getBalance(OWNER)).plan).toBe(50_000);
+	});
+
+	it("grants the full allotment with a capped refill for an anchor-reset same-interval upgrade", async () => {
+		// Ruling 7: the full-price new-plan line plus the negative old-plan
+		// proration marks an anchor reset; the preview promised a capped refill.
+		const above = setup(
+			subscription({ priceLookupKey: "pro_500_month", tierCredits: 500 }),
+		);
+		above.repository.seedApplication("pro_250_month");
+		above.creditRepository.seedPlan(62_000);
+		const aboveInvoice = invoice({
+			anchorReset: true,
+			fundingChargeId: "ch_anchor_up",
+			id: "in_anchor_up",
+			newKey: "pro_500_month",
+			oldKey: "pro_250_month",
+			reason: "subscription_update",
+		});
+		addInvoice(above, aboveInvoice);
+		await above.service.grantForPaidInvoice(aboveInvoice);
+		// min(62_000, 50_000 cap) + 50_000 allotment.
+		expect((await above.credits.getBalance(OWNER)).plan).toBe(100_000);
+		expect(
+			above.repository.applications.find(
+				(row) => row.stripeInvoiceId === "in_anchor_up",
+			)?.creditsDelta,
+		).toBe(38_000);
+		expect(
+			above.creditRepository.rows.find(
+				(row) => row.idempotencyKey === "inv:in_anchor_up:grant",
+			)?.meta,
+		).toMatchObject({ reason: "subscription_update_anchor_reset" });
+		expect(above.outboxRows).toEqual([
+			{ chargeId: "ch_anchor_up", triggerRef: "inv:in_anchor_up" },
+		]);
+		expect(above.reconciliationOutbox.markDoneForCharge).toHaveBeenCalledWith(
+			"ch_anchor_up",
+		);
+
+		const below = setup(
+			subscription({ priceLookupKey: "pro_500_month", tierCredits: 500 }),
+		);
+		below.repository.seedApplication("pro_250_month");
+		below.creditRepository.seedPlan(4_000);
+		const belowInvoice = invoice({
+			anchorReset: true,
+			id: "in_anchor_up_below",
+			newKey: "pro_500_month",
+			oldKey: "pro_250_month",
+			reason: "subscription_update",
+		});
+		addInvoice(below, belowInvoice);
+		await below.service.grantForPaidInvoice(belowInvoice);
+		expect((await below.credits.getBalance(OWNER)).plan).toBe(54_000);
+		expect(
+			below.repository.applications.find(
+				(row) => row.stripeInvoiceId === "in_anchor_up_below",
+			)?.creditsDelta,
+		).toBe(50_000);
+	});
+
+	it("replaces yearly slots with the new invoice as funding on an anchor-reset yearly upgrade", async () => {
+		const context = setup(
+			subscription({
+				interval: "year",
+				priceLookupKey: "pro_500_year",
+				tierCredits: 500,
+			}),
+		);
+		context.repository.seedApplication("pro_250_year");
+		context.creditRepository.seedPlan(10_000);
+		await context.refill.createYearlySlots(
+			{
+				credits: 25_000,
+				funding: {
+					chargeId: "ch_old",
+					invoiceId: "in_old",
+					paymentIntentId: "pi_old",
+				},
+				remainingAfter: PERIOD_START,
+				subscription: context.repository.canonical as SubscriptionCreditRow,
+			},
+			{} as SubscriptionCreditsTransaction,
+		);
+		const upgrade = invoice({
+			anchorReset: true,
+			fundingChargeId: "ch_new",
+			id: "in_year_anchor_up",
+			newKey: "pro_500_year",
+			oldKey: "pro_250_year",
+			paidAt: new Date("2026-05-01T00:00:00.000Z"),
+			reason: "subscription_update",
+		});
+		addInvoice(context, upgrade);
+		await context.service.grantForPaidInvoice(upgrade);
+
+		const replaced = context.repository.slots.filter(
+			(slot) => slot.status === "canceled",
+		);
+		expect(replaced).toHaveLength(8);
+		expect(replaced.every((slot) => slot.canceledReason === "replaced")).toBe(
+			true,
+		);
+		expect(
+			replaced.every(
+				(slot) => slot.supersededByInvoiceId === "in_year_anchor_up",
+			),
+		).toBe(true);
+		expect(
+			context.repository.slots
+				.filter((slot) => slot.status === "granted")
+				.map((slot) => slot.periodOrdinal),
+		).toEqual([2, 3, 4]);
+		expect(
+			context.repository.slots.filter(
+				(slot) =>
+					slot.status === "pending" && slot.fundingChargeId === "ch_new",
+			),
+		).toHaveLength(11);
+		// Catch-up slots funded by the OLD charge get their own recheck.
+		expect(
+			context.paymentRefunds.reconcileChargeAfterGrant,
+		).toHaveBeenCalledWith("ch_new");
+		expect(
+			context.paymentRefunds.reconcileChargeAfterGrant,
+		).toHaveBeenCalledWith("ch_old");
+		expect(context.outboxRows).toEqual(
+			expect.arrayContaining([
+				{ chargeId: "ch_new", triggerRef: "inv:in_year_anchor_up" },
+				{ chargeId: "ch_old", triggerRef: "slot:slot_1" },
+			]),
+		);
+	});
+
+	it("dead-letters invoices with unknown prices, off-catalog amounts or foreign currency", async () => {
+		const unknown = setup();
+		const unknownInvoice = invoice({
+			id: "in_unknown",
+			newKey: "pro_250_month",
+			reason: "subscription_create",
+		});
+		(
+			unknownInvoice.lines.data[0] as unknown as {
+				pricing: { price_details: { price: { lookup_key: string } } };
+			}
+		).pricing.price_details.price.lookup_key = "mystery_plan";
+		unknown.stripe.retrieveSubscription.mockResolvedValue({
+			items: { data: [] },
+		} as never);
+		addInvoice(unknown, unknownInvoice);
+		await expect(
+			unknown.service.grantForPaidInvoice(unknownInvoice),
+		).rejects.toThrow("unrecognized or missing price lookup key");
+
+		const mismatch = setup();
+		const mismatchInvoice = invoice({
+			amountPaid: 1_999,
+			fundingChargeId: "ch_mismatch",
+			id: "in_mismatch",
+			newKey: "pro_250_month",
+			reason: "subscription_cycle",
+		});
+		addInvoice(mismatch, mismatchInvoice);
+		await expect(
+			mismatch.service.grantForPaidInvoice(mismatchInvoice),
+		).rejects.toThrow("paid 1999 minor units but the catalog price");
+		expect((await mismatch.credits.getBalance(OWNER)).plan).toBe(0);
+
+		// Same short payment without a customer balance behind it: still a
+		// discount we do not model.
+		const unbacked = setup();
+		const unbackedInvoice = invoice({
+			amountPaid: 500,
+			customerBalance: { ending: 0, starting: 0 },
+			fundingChargeId: "ch_unbacked",
+			id: "in_unbacked",
+			newKey: "pro_250_month",
+			reason: "subscription_cycle",
+			total: 2_500,
+		});
+		addInvoice(unbacked, unbackedInvoice);
+		await expect(
+			unbacked.service.grantForPaidInvoice(unbackedInvoice),
+		).rejects.toThrow("paid 500 minor units but the catalog price");
+
+		const foreign = setup();
+		const foreignInvoice = invoice({
+			currency: "eur",
+			id: "in_eur",
+			newKey: "pro_250_month",
+			reason: "subscription_create",
+		});
+		addInvoice(foreign, foreignInvoice);
+		await expect(
+			foreign.service.grantForPaidInvoice(foreignInvoice),
+		).rejects.toThrow("only usd invoices grant credits");
+
+		const trial = setup();
+		const trialInvoice = invoice({
+			amountPaid: 0,
+			id: "in_trial",
+			newKey: "pro_250_month",
+			reason: "subscription_create",
+		});
+		addInvoice(trial, trialInvoice);
+		await expect(trial.service.grantForPaidInvoice(trialInvoice)).resolves.toBe(
+			true,
+		);
+		expect((await trial.credits.getBalance(OWNER)).plan).toBe(25_000);
+	});
+
+	it("grants cycle credits when Stripe pays part of the invoice from the customer balance", async () => {
+		// Year -> month is an anchor reset (ruling 7): Stripe credits the unused
+		// yearly remainder to the customer balance and the next cycle invoice is
+		// paid partly from it. amount_paid (500) is below the catalog price
+		// (2500) but the invoice total still matches and the gap is the balance.
+		const context = setup();
+		const value = invoice({
+			amountPaid: 500,
+			customerBalance: { ending: 0, starting: -2_000 },
+			fundingChargeId: "ch_balance",
+			id: "in_balance",
+			newKey: "pro_250_month",
+			reason: "subscription_cycle",
+			total: 2_500,
+		});
+		addInvoice(context, value);
+
+		await expect(context.service.grantForPaidInvoice(value)).resolves.toBe(
+			true,
+		);
+		expect((await context.credits.getBalance(OWNER)).plan).toBe(25_000);
+
+		// Fully covered by the balance: amount_paid 0 is the trial path and
+		// still grants.
+		const covered = setup();
+		const coveredInvoice = invoice({
+			amountPaid: 0,
+			customerBalance: { ending: -500, starting: -3_000 },
+			id: "in_covered",
+			newKey: "pro_250_month",
+			reason: "subscription_cycle",
+			total: 2_500,
+		});
+		addInvoice(covered, coveredInvoice);
+		await expect(
+			covered.service.grantForPaidInvoice(coveredInvoice),
+		).resolves.toBe(true);
+		expect((await covered.credits.getBalance(OWNER)).plan).toBe(25_000);
+
+		// Balance fields absent: the pre-balance total still proves the gap.
+		const totalOnly = setup();
+		const totalOnlyInvoice = invoice({
+			amountPaid: 1_500,
+			fundingChargeId: "ch_total_only",
+			id: "in_total_only",
+			newKey: "pro_250_month",
+			reason: "subscription_cycle",
+			total: 2_500,
+		});
+		addInvoice(totalOnly, totalOnlyInvoice);
+		await expect(
+			totalOnly.service.grantForPaidInvoice(totalOnlyInvoice),
+		).resolves.toBe(true);
 	});
 
 	it("changes monthly to yearly with a capped month-one refill and eleven slots", async () => {
@@ -1143,8 +1475,11 @@ describe("Subscription credit policy", () => {
 			fundingChargeId: "ch_1",
 			fundingInvoiceId: "in_1",
 			fundingPaymentIntentId: "pi_1",
+			canceledAt: null,
+			canceledReason: null,
 			grantedAt: null,
 			id: "slot_delete",
+			supersededByInvoiceId: null,
 			periodOrdinal: 2,
 			status: "pending",
 			subscriptionId: "sub_local",

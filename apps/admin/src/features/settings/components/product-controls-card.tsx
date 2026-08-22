@@ -79,7 +79,7 @@ const TOGGLE_DETAILS: Record<BooleanSettingKey, ToggleDetails> = {
 			"Control whether new accounts receive the configured promotional balance.",
 		consequence: (nextValue, signupGrantCredits) =>
 			nextValue
-				? `Every future signup will receive ${signupGrantCredits.toLocaleString()} promo credits. Existing accounts will not receive a retroactive grant.`
+				? `Every future signup will receive ${signupGrantCredits.toLocaleString()} promo credits. Existing accounts will not receive a retroactive grant unless you run the signup grant backfill.`
 				: "Future signups will stop receiving promo credits. Credits already granted to existing accounts will remain available.",
 	},
 	paidSubscriptionsEnabled: {
@@ -183,9 +183,14 @@ export function ProductControlsCard({
 		} as PatchProductSettingsBody;
 
 		try {
-			await mutation.mutateAsync(input);
+			const updated = await mutation.mutateAsync(input);
 			toast.success(
 				`${details.label} ${pendingToggle.nextValue ? "enabled" : "disabled"}.`,
+				updated.signupGrantSkippedCount
+					? {
+							description: `${updated.signupGrantSkippedCount.toLocaleString()} user${updated.signupGrantSkippedCount === 1 ? "" : "s"} signed up while it was off. Use the signup grant backfill to grant them.`,
+						}
+					: undefined,
 			);
 			setPendingToggle(null);
 			setErrorMessage(null);

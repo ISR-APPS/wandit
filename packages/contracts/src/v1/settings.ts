@@ -55,7 +55,43 @@ export type PatchProductSettingsBody = z.infer<
 	typeof patchProductSettingsBodySchema
 >;
 
+// PATCH response: when the signup grant flips off->on the server reports how
+// many users signed up while it was off (`skipped` outbox rows) so the admin
+// can decide on the explicit backfill. Enabling alone never grants to them.
+export const productSettingsUpdateResponseSchema = productSettingsSchema.extend(
+	{
+		signupGrantSkippedCount: z.int().nonnegative().optional(),
+	},
+);
+
+export type ProductSettingsUpdateResponse = z.infer<
+	typeof productSettingsUpdateResponseSchema
+>;
+
+export const backfillSignupGrantsBodySchema = z.object({
+	// Only users whose outbox row was created after this instant.
+	createdAfter: isoDateTimeSchema.optional(),
+	// true: count only, change nothing.
+	dryRun: z.boolean().default(false),
+});
+
+export type BackfillSignupGrantsBody = z.infer<
+	typeof backfillSignupGrantsBodySchema
+>;
+
+export const backfillSignupGrantsResponseSchema = z.object({
+	// Skipped rows matched before the run (the dry-run count).
+	skipped: z.int().nonnegative(),
+	// Rows moved to pending by this call (0 on a dry run).
+	requeued: z.int().nonnegative(),
+});
+
+export type BackfillSignupGrantsResponse = z.infer<
+	typeof backfillSignupGrantsResponseSchema
+>;
+
 export const settingsRoutes = {
 	admin: "/api/v1/admin/settings",
 	public: "/api/v1/settings/public",
+	signupGrantBackfill: "/api/v1/admin/settings/signup-grants/backfill",
 } as const;

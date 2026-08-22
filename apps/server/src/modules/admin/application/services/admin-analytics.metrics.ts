@@ -273,7 +273,8 @@ export function assembleRevenueResponse(
 	const cohort = snapshot.trialCohort;
 	const churn = assembleChurn(snapshot, mrr.arpuMinor);
 	const grossCents = snapshot.collectedRevenueByDay.reduce(
-		(sum, point) => sum + point.subscriptionsMinor + point.ordersMinor,
+		(sum, point) =>
+			sum + point.subscriptionsMinor + point.ordersMinor + point.topupsMinor,
 		0,
 	);
 	const netRevenue = {
@@ -287,6 +288,7 @@ export function assembleRevenueResponse(
 	const domainMarginCents = bySource.domainsCents - bySource.domainCostCents;
 	const revenueBySource = {
 		subscriptionsCents: bySource.subscriptionsCents,
+		topupsCents: bySource.topupsCents,
 		domainsCents: bySource.domainsCents,
 		domainOrders: bySource.domainOrders,
 		domainCostCents: bySource.domainCostCents,
@@ -441,11 +443,17 @@ export function assembleFeaturesResponse(
 				centiCreditsToCredits(snapshot.credits.creditsBeforeUpgradeTotal),
 				snapshot.credits.convertedUsers,
 			),
+			// Billable spend over the credits the ledger actually debited: bundled
+			// helper calls cost money against zero charge and must not dilute it.
 			providerCostPerCreditMicros: safeAverage(
-				snapshot.credits.providerCostMicros,
+				snapshot.credits.billableProviderCostMicros,
 				centiCreditsToCredits(snapshot.credits.consumedInRange),
 				2,
 			),
+			totalProviderCostMicros: snapshot.credits.providerCostMicros,
+			billableProviderCostMicros: snapshot.credits.billableProviderCostMicros,
+			providerCostByProvenanceMicros:
+				snapshot.credits.providerCostByProvenanceMicros,
 		},
 		freeCredits: {
 			avgDaysToConsume: secondsToDays(snapshot.freeCredits.avgSecondsToConsume),

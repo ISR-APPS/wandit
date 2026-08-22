@@ -1,17 +1,28 @@
 import type { aiUsageOperation } from "@wandit/db/schema/credits";
 
 export type AiUsageOperation = (typeof aiUsageOperation.enumValues)[number];
-export type PricingMode = "fixed" | "per_minute" | "token";
+export type PricingMode = "fixed" | "measured" | "per_minute" | "token";
 
 // All credit amounts in this registry are integer centi-credits (cc):
 // 1 credit = 100 cc. The API/UI divide by 100 at their own boundary.
-export const IMAGE_CREDITS_PER_IMAGE = 300;
-export const VIDEO_CREDITS_PER_OPERATION = 2000;
-export const MARKETING_CREDITS_PER_OPERATION = 700;
-export const CONNECTOR_CREDITS_PER_OPERATION = 500;
-export const LEAD_SCRAPE_CREDITS_PER_OPERATION = 500;
-export const TRANSCRIPTION_CREDITS_PER_MINUTE = 100;
+//
+// Measured reserve floors are derived from the seed catalog at $0.04/credit:
+// - image 350 cc: google/gemini-3-pro-image default $0.1344 -> 336 cc.
+// - video 550 cc: klingai/kling-v2.x std $0.042/s x 5 s = $0.21 -> 525 cc.
+// - transcription 25 cc: openai/whisper-1 $0.0001/s x 60 s -> 15 cc.
+// - connector 1 cc: the MCP render runs on the user's own Higgsfield
+//   subscription, so only our LLM tokens around it cost anything.
+// The size/duration/mode-aware estimate raises the reserve above the floor.
+export const IMAGE_RESERVE_FLOOR_CREDITS = 350;
+export const VIDEO_RESERVE_FLOOR_CREDITS = 550;
+export const MARKETING_RESERVE_FLOOR_CREDITS = 150;
+export const CONNECTOR_RESERVE_FLOOR_CREDITS = 1;
+export const TRANSCRIPTION_RESERVE_FLOOR_CREDITS = 25;
 export const TRANSCRIPTION_MAX_DURATION_SECONDS = 5 * 60;
+// Lead scrape is a value-priced product: 0.05 credits per delivered lead,
+// never less than 1 credit per scrape (ruling: not measured from Serper).
+export const LEAD_SCRAPE_CREDITS_PER_LEAD = 5;
+export const LEAD_SCRAPE_MINIMUM_CREDITS = 100;
 
 type ParentChildRules = {
 	allowedParentOperations: readonly AiUsageOperation[];
@@ -26,11 +37,17 @@ export type TokenOperationPricing = ParentChildRules & {
 
 export type FixedOperationPricing = ParentChildRules & {
 	creditsPerUnit: number;
+	/** Smallest charge per settled event (optional; defaults to 0). */
+	minimumCredits?: number;
 	mode: "fixed";
 	reserveFloorCredits: number;
-	unit: "adjustment" | "image" | "operation";
+	unit: "adjustment" | "image" | "lead" | "operation";
 };
 
+/**
+ * Legacy mode kept only so reservation snapshots written before measured
+ * billing still settle under their reservation-time terms.
+ */
 export type PerMinuteOperationPricing = ParentChildRules & {
 	creditsPerMinute: number;
 	maxDurationSeconds: number;
@@ -39,8 +56,21 @@ export type PerMinuteOperationPricing = ParentChildRules & {
 	reserveFloorCredits: number;
 };
 
+/**
+ * Billed from real provider cost / USD-per-credit. The floor sizes the
+ * reserve when no local price estimate exists; settlement charges the local
+ * estimate and gateway reconciliation corrects it to the exact cost.
+ */
+export type MeasuredOperationPricing = ParentChildRules & {
+	maxDurationSeconds?: number;
+	mode: "measured";
+	reserveFloorCredits: number;
+	unit: "image" | "operation" | "video";
+};
+
 export type OperationPricing =
 	| FixedOperationPricing
+	| MeasuredOperationPricing
 	| PerMinuteOperationPricing
 	| TokenOperationPricing;
 
@@ -70,38 +100,35 @@ export const OPERATION_REGISTRY = {
 	connector: {
 		allowedChildOperations: ["image", "video"],
 		allowedParentOperations: ["chat"],
-		creditsPerUnit: CONNECTOR_CREDITS_PER_OPERATION,
-		mode: "fixed",
-		reserveFloorCredits: CONNECTOR_CREDITS_PER_OPERATION,
+		mode: "measured",
+		reserveFloorCredits: CONNECTOR_RESERVE_FLOOR_CREDITS,
 		rootAllowed: true,
 		unit: "operation",
 	},
 	image: {
 		allowedChildOperations: NO_CHILDREN,
 		allowedParentOperations: ["chat", "page_build", "connector"],
-		creditsPerUnit: IMAGE_CREDITS_PER_IMAGE,
-		mode: "fixed",
-		reserveFloorCredits: IMAGE_CREDITS_PER_IMAGE,
+		mode: "measured",
+		reserveFloorCredits: IMAGE_RESERVE_FLOOR_CREDITS,
 		rootAllowed: true,
 		unit: "image",
 	},
 	lead_scrape: {
 		allowedChildOperations: NO_CHILDREN,
 		allowedParentOperations: ["chat"],
-		creditsPerUnit: LEAD_SCRAPE_CREDITS_PER_OPERATION,
+		creditsPerUnit: LEAD_SCRAPE_CREDITS_PER_LEAD,
+		minimumCredits: LEAD_SCRAPE_MINIMUM_CREDITS,
 		mode: "fixed",
-		reserveFloorCredits: LEAD_SCRAPE_CREDITS_PER_OPERATION,
+		reserveFloorCredits: LEAD_SCRAPE_MINIMUM_CREDITS,
 		rootAllowed: true,
-		unit: "operation",
+		unit: "lead",
 	},
 	marketing: {
 		allowedChildOperations: NO_CHILDREN,
 		allowedParentOperations: ["chat"],
-		creditsPerUnit: MARKETING_CREDITS_PER_OPERATION,
-		mode: "fixed",
-		reserveFloorCredits: MARKETING_CREDITS_PER_OPERATION,
+		mode: "token",
+		reserveFloorCredits: MARKETING_RESERVE_FLOOR_CREDITS,
 		rootAllowed: true,
-		unit: "operation",
 	},
 	page_build: {
 		allowedChildOperations: ["image", "video"],
@@ -122,21 +149,19 @@ export const OPERATION_REGISTRY = {
 	transcription: {
 		allowedChildOperations: NO_CHILDREN,
 		allowedParentOperations: NO_PARENTS,
-		creditsPerMinute: TRANSCRIPTION_CREDITS_PER_MINUTE,
 		maxDurationSeconds: TRANSCRIPTION_MAX_DURATION_SECONDS,
-		minimumCredits: TRANSCRIPTION_CREDITS_PER_MINUTE,
-		mode: "per_minute",
-		reserveFloorCredits: TRANSCRIPTION_CREDITS_PER_MINUTE,
+		mode: "measured",
+		reserveFloorCredits: TRANSCRIPTION_RESERVE_FLOOR_CREDITS,
 		rootAllowed: true,
+		unit: "operation",
 	},
 	video: {
 		allowedChildOperations: NO_CHILDREN,
 		allowedParentOperations: ["chat", "page_build", "connector"],
-		creditsPerUnit: VIDEO_CREDITS_PER_OPERATION,
-		mode: "fixed",
-		reserveFloorCredits: VIDEO_CREDITS_PER_OPERATION,
+		mode: "measured",
+		reserveFloorCredits: VIDEO_RESERVE_FLOOR_CREDITS,
 		rootAllowed: true,
-		unit: "operation",
+		unit: "video",
 	},
 } as const satisfies Record<AiUsageOperation, OperationPricing>;
 
@@ -146,24 +171,56 @@ export function operationPricing(
 	return OPERATION_REGISTRY[operation];
 }
 
-export function fixedOperationCredits(
+// Per-event settlement sanity ceiling (guards pricing-unit bugs, not honest
+// runs): 200 credits ≈ $8 provider cost at the $0.04/credit anchor.
+export const EVENT_CEILING_FLOOR_CC = 20_000;
+export const EVENT_CEILING_MULTIPLIER = 25;
+
+// Operations whose single legitimate run can cost far more than the default
+// floor. Token operations reserve a single-call input quote, not a run
+// estimate: a 64-step page build with helper calls billed into the parent can
+// legitimately exceed $10 of provider cost (page_build: 250_000 cc = $100;
+// chat: 50_000 cc = $20). Long video renders and connector media generations
+// keep their own floors.
+const EVENT_CEILING_FLOOR_OVERRIDES_CC: Partial<
+	Record<AiUsageOperation, number>
+> = {
+	chat: 50_000,
+	connector: 100_000,
+	page_build: 250_000,
+	video: 100_000,
+};
+
+/**
+ * Largest finalCredits a settlement/reconciliation may debit for one event.
+ * A breach never discards a finished deliverable: the debit is capped at the
+ * ceiling and the event carries a `sanityCeiling` snapshot marker for admin
+ * review (see MeteringService.applyCreditAdjustment).
+ */
+export function maxFinalCreditsCeiling(
 	operation: AiUsageOperation,
-	units = 1,
+	reservedCredits: number,
 ): number {
-	const pricing = operationPricing(operation);
+	const floor =
+		EVENT_CEILING_FLOOR_OVERRIDES_CC[operation] ?? EVENT_CEILING_FLOOR_CC;
 
-	if (pricing.mode !== "fixed") {
-		throw new Error(`${operation} is not fixed-price`);
-	}
-
-	if (!Number.isSafeInteger(units) || units <= 0) {
-		throw new Error("Fixed-price units must be a positive integer");
-	}
-
-	return pricing.creditsPerUnit * units;
+	return Math.max(floor, reservedCredits * EVENT_CEILING_MULTIPLIER);
 }
 
-export function transcriptionCredits(durationSeconds: number): number {
+/** Product price of a lead scrape: per delivered lead, never below 1 credit. */
+export function leadScrapeCredits(leads: number): number {
+	const pricing = OPERATION_REGISTRY.lead_scrape;
+
+	if (!Number.isSafeInteger(leads) || leads < 0) {
+		throw new Error("Lead count must be a non-negative integer");
+	}
+
+	return Math.max(pricing.minimumCredits, leads * pricing.creditsPerUnit);
+}
+
+export function assertTranscriptionDurationAllowed(
+	durationSeconds: number,
+): void {
 	const pricing = OPERATION_REGISTRY.transcription;
 
 	if (!Number.isFinite(durationSeconds) || durationSeconds < 0) {
@@ -175,11 +232,6 @@ export function transcriptionCredits(durationSeconds: number): number {
 			`Transcription duration exceeds ${pricing.maxDurationSeconds} seconds`,
 		);
 	}
-
-	return Math.max(
-		pricing.minimumCredits,
-		Math.ceil(durationSeconds / 60) * pricing.creditsPerMinute,
-	);
 }
 
 export function canNestOperation(
@@ -213,8 +265,8 @@ export function assertOperationParentAllowed(
 }
 
 export type AiInvocationCoverage = {
-	billing:
-		| { bundledInto: AiUsageOperation; kind: "bundled" }
+	billing: // Helper LLM calls bill inside the parent operation (helper_billable).
+		| { billedInto: AiUsageOperation; kind: "helper" }
 		| { kind: "metered"; operation: AiUsageOperation };
 	id: string;
 	marker: string;
@@ -314,24 +366,30 @@ export const AI_INVOCATION_COVERAGE = [
 		source: "apps/worker/src/processors/ai-generation.processor.ts",
 	},
 	{
-		billing: { bundledInto: "chat", kind: "bundled" },
-		id: "project-title-bundled",
+		billing: { billedInto: "chat", kind: "helper" },
+		id: "project-title-helper",
 		marker: "const result = await generateText({",
 		source:
 			"apps/server/src/modules/projects/application/services/project-title.service.ts",
 	},
 	{
-		billing: { bundledInto: "chat", kind: "bundled" },
-		id: "higgsfield-prompt-refine-bundled",
+		billing: { billedInto: "chat", kind: "helper" },
+		id: "higgsfield-prompt-refine-helper",
 		marker: "const result = await generateText({",
 		source:
 			"apps/server/src/modules/mcp-connectors/application/services/higgsfield-prompt-refiner.service.ts",
 	},
 	{
-		billing: { bundledInto: "chat", kind: "bundled" },
-		id: "video-director-bundled",
+		billing: { billedInto: "chat", kind: "helper" },
+		id: "video-director-helper",
 		marker: "const result = await generateText({",
 		source:
 			"apps/server/src/modules/media-generations/application/services/video-director.ts",
+	},
+	{
+		billing: { billedInto: "chat", kind: "helper" },
+		id: "chat-tool-call-repair-helper",
+		marker: "const result = await generateObject({",
+		source: "apps/server/src/modules/ai-chat/agent/chat-agent.ts",
 	},
 ] as const satisfies readonly AiInvocationCoverage[];

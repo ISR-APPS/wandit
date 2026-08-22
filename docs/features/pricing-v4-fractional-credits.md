@@ -1,5 +1,9 @@
 # Pricing v4 — fractional credits (centi-credit ledger)
 
+> **Superseded:** the anchor is $0.04 per credit since pricing v5
+> (`pricing-v5-usd-anchor.md`). The $0.028 figures below are a historical
+> record and stay unchanged.
+
 Decision date: 2026-08-16. Source: co-founder decision in chat ("go please"), after
 the credit-drain audit. Supersedes the debit formula of
 `pricing-v3-implementation.md`; every other v3 number (plan catalog, $0.10 retail,

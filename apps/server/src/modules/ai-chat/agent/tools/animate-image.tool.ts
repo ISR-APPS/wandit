@@ -193,6 +193,9 @@ export function createAnimateImageTool(
 				deps.subject,
 				attempt.id,
 				deps.parentEventId,
+				undefined,
+				// Image animation always renders the house five-second clip.
+				{ durationSeconds: 5, kind: "image-animation" },
 			);
 
 			assertFixedOperationProviderExecutionAllowed(reservation);

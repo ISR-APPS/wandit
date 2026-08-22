@@ -407,7 +407,7 @@ export function ChatPane({ className }: { className?: string }) {
 						<PromptBox
 							variant="compact"
 							showEngines
-							showPriceTag
+							showQualityPicker
 							clearOnSubmit
 							attachmentsEnabled
 							disabled={outOfCredits}

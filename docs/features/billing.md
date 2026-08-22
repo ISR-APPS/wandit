@@ -37,7 +37,7 @@ Business is exactly 2× Pro per tier (the pooled workspace allowance is what's p
 
 Top-up packs (never expire, burn after plan and promo credits): `topup_200` $30 · `topup_1000` $150 · `topup_2000` $300.
 
-The configurable signup grant is 50 promo credits and is disabled by default. Retail value is anchored at $0.10 per credit (250 credits = $25 base tier); token-metered actions use `max(1, ceil(rawUsd / usdPerCredit))` with `usdPerCredit = $0.028` ($7 of AI value per 250-credit base tier). Fixed costs are image 5/image, video 25, marketing 5, connector generation 5 (plus inline child operations at their own rates), lead scrape 5, and transcription by minute with a 1-credit minimum. Chat and page-builder usage are token-metered.
+The configurable signup grant is 50 promo credits and is disabled by default. Token-metered actions use `max(1, ceil(rawUsd / usdPerCredit))` with `usdPerCredit = $0.04` (pricing v5: 1 credit = $0.04 of AI-provider cost, so the 50-credit grant carries $2.00 of provider value). Fixed per-operation costs are superseded by pricing v5 — every operation bills its measured provider cost (see `pricing-v5-usd-anchor.md`).
 
 ### Credit ↔ token costing: starting point + how to tune
 
