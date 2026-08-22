@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
-
 import {
 	buildLeadsCaptureUrl,
 	injectLeadsRuntime,
 	LEADS_RUNTIME_SCRIPT_ID,
 } from "./inject-leads-runtime";
+import { buildLeadsRuntimeScript } from "./leads-runtime-script";
 
 const OPTIONS = {
 	captureUrl: "https://api.wandit.example/api/public/leads/pf_123",
+	deploymentId: "0198d798-57ce-779a-8f7c-d16260401a81",
 };
 
 const BLOCK_START = `<script id="${LEADS_RUNTIME_SCRIPT_ID}">`;
@@ -32,7 +33,37 @@ describe("injectLeadsRuntime", () => {
 		expect(result.endsWith("</script>")).toBe(true);
 	});
 
-	it("is idempotent", () => {
+	it("replaces canonical stale runtime blocks with one freshly stamped block", () => {
+		const oldOptions = {
+			captureUrl: "https://old-api.wandit.example/api/public/leads/pf_old",
+			deploymentId: "0198d798-57ce-779a-8f7c-d16260401a80",
+		};
+		const oldBlock = `${BLOCK_START}${buildLeadsRuntimeScript(oldOptions)}</script>`;
+		const html = `<html><body>${oldBlock}<main>page</main>${oldBlock}</body></html>`;
+		const result = injectLeadsRuntime(html, OPTIONS);
+
+		expect(result.split(BLOCK_START)).toHaveLength(2);
+		expect(result).toContain(JSON.stringify(OPTIONS.captureUrl));
+		expect(result).toContain(JSON.stringify(OPTIONS.deploymentId));
+		expect(result).not.toContain(JSON.stringify(oldOptions.captureUrl));
+		expect(result).not.toContain(JSON.stringify(oldOptions.deploymentId));
+		expect(result).toContain(`<main>page</main>${BLOCK_START}`);
+		expect(result.endsWith("</script></body></html>")).toBe(true);
+	});
+
+	it("leaves merchant bytes untouched when the marker appears inside a script string", () => {
+		const html = `<script>var x = '${BLOCK_START}';</script><body>page</body>`;
+
+		expect(injectLeadsRuntime(html, OPTIONS)).toBe(html);
+	});
+
+	it("leaves a variant runtime carrier untouched", () => {
+		const html = `<body><script data-x id="${LEADS_RUNTIME_SCRIPT_ID}">(function(){})();</script></body>`;
+
+		expect(injectLeadsRuntime(html, OPTIONS)).toBe(html);
+	});
+
+	it("is idempotent for the same options", () => {
 		const once = injectLeadsRuntime("<html><body></body></html>", OPTIONS);
 
 		expect(injectLeadsRuntime(once, OPTIONS)).toBe(once);
@@ -51,9 +82,14 @@ describe("injectLeadsRuntime", () => {
 
 	it("embeds the capture URL (quotes and ampersands intact) inside the wrapper", () => {
 		const captureUrl = 'https://api.wandit.example/capture?a=1&sig="q"';
-		const result = injectLeadsRuntime("<body></body>", { captureUrl });
+		const deploymentId = "0198d798-57ce-779a-8f7c-d16260401a82";
+		const result = injectLeadsRuntime("<body></body>", {
+			captureUrl,
+			deploymentId,
+		});
 
 		expect(result).toContain(JSON.stringify(captureUrl));
+		expect(result).toContain(JSON.stringify(deploymentId));
 	});
 });
 

@@ -472,6 +472,7 @@ export const leadCaptureBodySchema = z.object({
 	_hp: z.string().max(500).optional(),
 	attribution: leadAttributionSchema.optional(),
 	commune: z.string().trim().max(120).optional(),
+	deploymentId: uuidSchema.optional().catch(undefined),
 	extras: leadExtrasSchema.optional(),
 	name: z.string().trim().min(1).max(200),
 	phone: z.string().trim().min(6).max(40),
