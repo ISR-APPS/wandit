@@ -85,7 +85,7 @@ export async function getChatMessages(chatId: string) {
 /**
  * Send the user's message to a chat. The body is { text, composer? } where
  * `composer` carries the composer chips' settings (mode like "page" or
- * "marketing", quality "standard"/"max", etc.).
+ * "marketing", output options, etc.).
  *
  * IMPORTANT MENTAL MODEL: this is fire-and-acknowledge, not request/reply.
  * The server saves the user message, enqueues a background AI job, and

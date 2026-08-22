@@ -138,12 +138,23 @@ function ImageGenerationCard({ attemptId }: { attemptId: string }) {
 		);
 	}
 
+	return <ImageGenerationAttemptView attempt={attempt} />;
+}
+
+export function ImageGenerationAttemptView({
+	attempt,
+}: {
+	attempt: ImageGenerationAttempt | undefined;
+}) {
+	const { t } = useTranslation();
+	const succeeded = attempt?.status === "succeeded";
+
 	if (attempt?.status === "failed") {
 		return (
 			<AnnouncedStatus text={t("workspace.chat.generateImage.failedTitle")}>
 				<FailureMessage
 					title={t("workspace.chat.generateImage.failedTitle")}
-					body={t("workspace.chat.generateImage.failedBody")}
+					body={attempt.error ?? t("workspace.chat.generateImage.failedBody")}
 				/>
 			</AnnouncedStatus>
 		);
@@ -161,6 +172,14 @@ function ImageGenerationCard({ attemptId }: { attemptId: string }) {
 		attempt?.status === "generating"
 			? t("workspace.chat.generateImage.generatingTitle")
 			: t("workspace.chat.generateImage.queuedTitle");
+	const total = attempt?.count ?? 1;
+	const partialImages =
+		attempt?.status === "queued" || attempt?.status === "generating"
+			? attempt.images
+			: null;
+	const hasIndexed = partialImages?.some((image) => image.index !== undefined);
+	const ready = Math.min(partialImages?.length ?? 0, total);
+	const showReadyCount = partialImages !== null;
 
 	return (
 		<AnnouncedStatus text={working}>
@@ -174,17 +193,56 @@ function ImageGenerationCard({ attemptId }: { attemptId: string }) {
 				<div
 					className={cn(
 						"grid gap-2",
-						(attempt?.count ?? 1) > 1 ? "grid-cols-2" : "grid-cols-1",
+						total > 1 ? "grid-cols-2" : "grid-cols-1",
 					)}
 				>
-					{Array.from({ length: attempt?.count ?? 1 }, (_, index) => (
-						<Skeleton
-							// biome-ignore lint/suspicious/noArrayIndexKey: fixed-size placeholder grid
-							key={index}
-							className={cn("w-full rounded-lg", aspectClass(attempt?.aspect))}
-						/>
-					))}
+					{Array.from({ length: total }, (_, slot) => {
+						const image = hasIndexed
+							? partialImages?.find((image) => image.index === slot + 1)
+							: partialImages?.[slot];
+
+						return image ? (
+							<a
+								// biome-ignore lint/suspicious/noArrayIndexKey: each index is one stable requested slot
+								key={slot}
+								href={image.url}
+								target="_blank"
+								rel="noreferrer"
+								className={cn(
+									"block overflow-hidden rounded-lg border border-border bg-secondary",
+									aspectClass(attempt?.aspect),
+								)}
+							>
+								<img
+									src={image.url}
+									alt={`${attempt?.title ?? working} ${image.index ?? slot + 1}`}
+									loading="lazy"
+									className="block size-full object-cover"
+								/>
+							</a>
+						) : (
+							<Skeleton
+								// biome-ignore lint/suspicious/noArrayIndexKey: each index is one stable requested slot
+								key={slot}
+								className={cn(
+									"w-full rounded-lg",
+									aspectClass(attempt?.aspect),
+								)}
+							/>
+						);
+					})}
 				</div>
+				{showReadyCount ? (
+					<p
+						dir="auto"
+						className="mt-2 font-mono text-[10px] text-muted-foreground"
+					>
+						{t("workspace.chat.generateImage.readyCount", {
+							ready,
+							total,
+						})}
+					</p>
+				) : null}
 			</div>
 		</AnnouncedStatus>
 	);
@@ -207,13 +265,20 @@ export function ImageGenerationResult({
 				{attempt.title}
 			</p>
 			<ChatMediaGallery
-				items={images.map((image, index) => ({
-					key: image.url,
-					kind: "image" as const,
-					url: image.url,
-					label: `${attempt.title} ${index + 1}`,
-					downloadUrl: imageGenerationDownloadUrl(attempt.id, index + 1),
-				}))}
+				items={images.map((image, position) => {
+					const generationIndex = image.index ?? position + 1;
+
+					return {
+						key: image.url,
+						kind: "image" as const,
+						url: image.url,
+						label: `${attempt.title} ${generationIndex}`,
+						downloadUrl: imageGenerationDownloadUrl(
+							attempt.id,
+							generationIndex,
+						),
+					};
+				})}
 			/>
 			<p className="mt-2 font-mono text-[10px] text-muted-foreground">
 				{t("workspace.chat.generateImage.inAssetsTab")}

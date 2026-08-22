@@ -494,6 +494,39 @@ describe("runImageAnimation", () => {
 		expect(dependencies.refund).toHaveBeenCalledWith(SUBJECT, ATTEMPT_ID);
 	});
 
+	it("persists a classified provider failure's user-safe copy and reason", async () => {
+		const attempt = makeAttempt();
+		const dependencies = makeDependencies(attempt);
+		vi.mocked(dependencies.generate).mockResolvedValueOnce({
+			message: "provider rejected source pixels",
+			reasonCode: "aspect_extreme",
+			status: "failed",
+			userMessage:
+				"This image is 8192×512 px (16:1). Please send a less stretched image.",
+		});
+
+		await expect(
+			runImageAnimation(payload(), {
+				dependencies,
+				runId: "run_preflight_failure",
+			}),
+		).resolves.toEqual({
+			reason: "generation_failed",
+			status: "failed",
+		});
+		expect(dependencies.fail).toHaveBeenCalledWith(
+			expect.objectContaining({ id: attempt.id, status: "generating" }),
+			{
+				completedAt: NOW,
+				error:
+					"This image is 8192×512 px (16:1). Please send a less stretched image.",
+				expectedStatus: "generating",
+				reason: "aspect_extreme",
+			},
+		);
+		expect(dependencies.refund).toHaveBeenCalledWith(SUBJECT, ATTEMPT_ID);
+	});
+
 	it("charges a provider-completed video when storage fails after capture", async () => {
 		const dependencies = makeDependencies(makeAttempt());
 		vi.mocked(dependencies.generate).mockImplementationOnce(
@@ -678,18 +711,22 @@ function makeAttempt(
 		error: null,
 		id: ATTEMPT_ID,
 		kind: "image-animation",
+		model: "klingai/kling-v2.6-i2v",
 		motion: "balanced",
 		organizationId: null,
 		projectDeletedAt: null,
 		projectId: PROJECT_ID,
 		prompt: "A gentle camera move",
+		quality: "standard",
 		sourceImageUrl: "https://assets.test/source.webp",
 		startedAt: null,
 		status: "queued",
+		talking: false,
 		triggerRunId: null,
 		userId: USER_ID,
 		videoMediaType: null,
 		videoUrl: null,
+		voiceover: null,
 		...overrides,
 	};
 }

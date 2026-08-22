@@ -25,6 +25,7 @@ type PlacementAttempt = {
 };
 
 type PlacementImage = {
+	index?: number;
 	url: string;
 };
 
@@ -135,7 +136,12 @@ export async function settleImagePlacement(
 		return true;
 	}
 
-	const image = images[placement.imageIndex - 1];
+	const hasIndexedImages = images.some(
+		(candidate) => candidate.index !== undefined,
+	);
+	const image = hasIndexedImages
+		? images.find((candidate) => candidate.index === placement.imageIndex)
+		: images[placement.imageIndex - 1];
 	const receipt: AiEditReceipt = {
 		attemptId: attempt.id,
 		kind: "image-generation-placement",

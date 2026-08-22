@@ -244,6 +244,48 @@ describe("annotateUserFileParts", () => {
 		);
 	});
 
+	it.each([
+		{
+			filename: "reference.mp4",
+			kind: "video",
+			mediaType: "video/mp4",
+		},
+		{
+			filename: "soundtrack.mp3",
+			kind: "audio",
+			mediaType: "audio/mpeg",
+		},
+	])("drops $kind file parts and emits marker-only $kind annotations", ({
+		filename,
+		kind,
+		mediaType,
+	}) => {
+		const url = `https://assets.example.com/uploads/user-1/${filename}`;
+		const [message] = annotateUserFileParts([
+			{
+				id: "m1",
+				parts: [
+					{
+						filename,
+						mediaType,
+						type: "file",
+						url,
+					},
+					{ text: "Forward this attachment", type: "text" },
+				],
+				role: "user",
+			},
+		]);
+
+		expect(message?.parts).toEqual([
+			{
+				text: `[Attached ${kind} "${filename}" (${mediaType}): ${url}]`,
+				type: "text",
+			},
+			{ text: "Forward this attachment", type: "text" },
+		]);
+	});
+
 	it("drops a docx file part and points the marker at read_attachment", () => {
 		const url = "https://assets.example.com/uploads/user-1/tarifs.docx";
 		const [message] = annotateUserFileParts([

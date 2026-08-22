@@ -2,11 +2,12 @@
 // AI/storage SDK can issue a long-running text-to-video request.
 import "./undici-timeouts";
 
-import { logger, metadata, queue, schemaTask } from "@trigger.dev/sdk";
+import { logger, metadata, schemaTask } from "@trigger.dev/sdk";
 import type { VideoBuildProgress } from "@wandit/contracts";
 import { videoBuildProgressSchema } from "@wandit/contracts";
 import { createDb } from "@wandit/db";
 
+import { EXPECTED_VIDEO_RENDER_MS } from "../modules/ai-chat/agent/site-builder/generate-video";
 import type {
 	ImageAnimationAttempt,
 	ImageAnimationRunnerDependencies,
@@ -17,16 +18,8 @@ import {
 } from "../modules/media-generations/application/services/image-animation-runner";
 import { createImageAnimationRuntime } from "./image-animation.runtime";
 import { triggerAnalytics } from "./init";
+import { videoGenerationQueue } from "./video-generation.queue";
 
-const videoGenerationQueue = queue({
-	concurrencyLimit: 2,
-	name: "video-generation",
-});
-
-// How long a healthy render leg is expected to take, per clip duration. Only
-// drives the progress bar's crawl between 15% and 90% — never a timeout.
-const EXPECTED_RENDER_MS = { 5: 150_000, 10: 240_000 } as const;
-const DEFAULT_EXPECTED_RENDER_MS = EXPECTED_RENDER_MS[10];
 const HEARTBEAT_INTERVAL_MS = 5_000;
 
 /**
@@ -125,10 +118,7 @@ function createVideoProgressTracker(): VideoProgressTracker {
 				};
 	let heartbeat: ReturnType<typeof setInterval> | null = null;
 	let renderStartedAt: number | null = null;
-	let expectedRenderMs: number =
-		snapshot.durationSeconds === 5
-			? EXPECTED_RENDER_MS[5]
-			: DEFAULT_EXPECTED_RENDER_MS;
+	let expectedRenderMs = expectedRenderTime(snapshot.durationSeconds);
 
 	const publish = (estimate: number): void => {
 		try {
@@ -156,10 +146,7 @@ function createVideoProgressTracker(): VideoProgressTracker {
 			snapshot.aspect = attempt.aspect;
 			snapshot.durationSeconds = attempt.durationSeconds;
 			snapshot.promptExcerpt = attempt.prompt.slice(0, 400);
-			expectedRenderMs =
-				attempt.durationSeconds === 5
-					? EXPECTED_RENDER_MS[5]
-					: DEFAULT_EXPECTED_RENDER_MS;
+			expectedRenderMs = expectedRenderTime(attempt.durationSeconds);
 			publish(8);
 		},
 		beginRendering: (attempt) => {
@@ -197,6 +184,14 @@ function createVideoProgressTracker(): VideoProgressTracker {
 		},
 		stop: stopHeartbeat,
 	};
+}
+
+function expectedRenderTime(durationSeconds: number): number {
+	if (durationSeconds === 5 || durationSeconds === 15) {
+		return EXPECTED_VIDEO_RENDER_MS[durationSeconds];
+	}
+
+	return EXPECTED_VIDEO_RENDER_MS[10];
 }
 
 /**

@@ -19,7 +19,7 @@
 		"stripe:seed": "tsx scripts/seed-stripe.ts"
 	},
 	"dependencies": {
-		"@ai-sdk/gateway": "4.0.11",
+		"@ai-sdk/gateway": "4.0.15",
 		"@ai-sdk/mcp": "2.0.10",
 		"@aws-sdk/client-s3": "^3.1085.0",
 		"@fastify/multipart": "^10.0.0",
@@ -41,7 +41,7 @@
 		"@wandit/env": "workspace:*",
 		"@wandit/jobs": "workspace:*",
 		"@wandit/observability": "workspace:*",
-		"ai": "^7.0.14",
+		"ai": "^7.0.19",
 		"better-auth": "catalog:",
 		"bullmq": "^5.79.2",
 		"cheerio": "^1.2.0",

@@ -41,6 +41,7 @@ export const generateImageTask = schemaTask({
 	ttl: "25m",
 	run: async (payload, { ctx, signal }) => {
 		const db = createDb();
+		const runtime = createImageGenerationRuntime(db, triggerAnalytics);
 
 		try {
 			metadata
@@ -48,7 +49,6 @@ export const generateImageTask = schemaTask({
 				.set("projectId", payload.projectId)
 				.set("stage", "settling");
 
-			const runtime = createImageGenerationRuntime(db, triggerAnalytics);
 			const result = await runImageGeneration(payload, {
 				dependencies: runtime.runner,
 				runId: ctx.run.id,
@@ -65,6 +65,9 @@ export const generateImageTask = schemaTask({
 
 			return result;
 		} finally {
+			// Deferred renditions are best-effort but must be observed before the
+			// Trigger worker exits; the primary URLs are already durable/visible.
+			await runtime.flushDeferredWork();
 			await db.$client.end();
 		}
 	},

@@ -6,45 +6,52 @@ import {
 	IMAGE_ANIMATION_STALE_QUEUED_MS,
 	type ImageAnimationReconcilerDependencies,
 	type ImageAnimationReconciliationCandidate,
+	type MediaGenerationReconciliationAttempt,
 	reconcileImageAnimations,
 } from "./image-animation-reconciler";
 import {
-	type ImageAnimationAttempt,
 	type ImageAnimationVideo,
 	USER_SAFE_IMAGE_ANIMATION_ERROR,
 } from "./image-animation-runner";
+import { MEDIA_GENERATION_STALE_GENERATING_MS } from "./media-generation-staleness";
 
 const NOW = new Date("2026-07-24T12:00:00.000Z");
 const RECOVERED_VIDEO: ImageAnimationVideo = {
 	mediaType: "video/mp4",
 	url: "https://assets.example.com/sites/project_1/assets/attempt_1/vid-1.mp4",
 };
-const BASE_ATTEMPT: ImageAnimationAttempt = {
+const BASE_ATTEMPT: MediaGenerationReconciliationAttempt = {
 	aspect: "9:16",
 	completedAt: null,
 	durationSeconds: 5,
+	deliveredUnits: 0,
 	error: null,
 	id: "attempt_1",
 	kind: "image-animation",
+	model: "klingai/kling-v2.6-i2v",
 	motion: "balanced",
 	organizationId: null,
 	projectDeletedAt: null,
 	projectId: "project_1",
 	prompt: "A slow camera push.",
+	plannedUnits: 1,
+	quality: "standard",
 	sourceImageUrl: "https://assets.example.com/source.png",
 	startedAt: new Date(
 		NOW.getTime() - IMAGE_ANIMATION_RECONCILIATION_STALE_GENERATING_MS - 1,
 	),
 	status: "generating",
+	talking: false,
 	triggerRunId: "run_1",
 	userId: "user_1",
 	videoMediaType: null,
 	videoUrl: null,
+	voiceover: null,
 };
 
 function candidate(
 	reconciliationReason: ImageAnimationReconciliationCandidate["reconciliationReason"],
-	overrides: Partial<ImageAnimationAttempt> = {},
+	overrides: Partial<MediaGenerationReconciliationAttempt> = {},
 ): ImageAnimationReconciliationCandidate {
 	return {
 		...BASE_ATTEMPT,
@@ -60,6 +67,9 @@ function setup(candidates: ImageAnimationReconciliationCandidate[]) {
 	const listCandidates = vi
 		.fn<ImageAnimationReconcilerDependencies["listCandidates"]>()
 		.mockResolvedValue(candidates);
+	const latestLegActivityAt = vi
+		.fn<ImageAnimationReconcilerDependencies["latestLegActivityAt"]>()
+		.mockResolvedValue(null);
 	const markSucceeded = vi
 		.fn<ImageAnimationReconcilerDependencies["markSucceeded"]>()
 		.mockResolvedValue(true);
@@ -78,6 +88,7 @@ function setup(candidates: ImageAnimationReconciliationCandidate[]) {
 	const dependencies: ImageAnimationReconcilerDependencies = {
 		failFromStatus,
 		listCandidates,
+		latestLegActivityAt,
 		markSucceeded,
 		now,
 		recoverStoredVideo,
@@ -89,6 +100,7 @@ function setup(candidates: ImageAnimationReconciliationCandidate[]) {
 		dependencies,
 		failFromStatus,
 		listCandidates,
+		latestLegActivityAt,
 		markSucceeded,
 		recoverStoredVideo,
 		refund,
@@ -118,9 +130,22 @@ describe("reconcileImageAnimations", () => {
 			skipped: 0,
 		});
 		expect(listCandidates).toHaveBeenCalledWith({
-			generatingBefore: new Date(
-				NOW.getTime() - IMAGE_ANIMATION_RECONCILIATION_STALE_GENERATING_MS,
-			),
+			generatingBefore: {
+				"image-animation": new Date(
+					NOW.getTime() -
+						MEDIA_GENERATION_STALE_GENERATING_MS["image-animation"],
+				),
+				"text-to-video": new Date(
+					NOW.getTime() - MEDIA_GENERATION_STALE_GENERATING_MS["text-to-video"],
+				),
+				"video-edit": new Date(
+					NOW.getTime() - MEDIA_GENERATION_STALE_GENERATING_MS["video-edit"],
+				),
+				"video-extension": new Date(
+					NOW.getTime() -
+						MEDIA_GENERATION_STALE_GENERATING_MS["video-extension"],
+				),
+			},
 			limit: IMAGE_ANIMATION_RECONCILIATION_BATCH_SIZE,
 			queuedBefore: new Date(NOW.getTime() - IMAGE_ANIMATION_STALE_QUEUED_MS),
 		});
@@ -131,7 +156,11 @@ describe("reconcileImageAnimations", () => {
 			expectedStatus: "queued",
 			reason: "stale_queued",
 		});
-		expect(refund).toHaveBeenCalledWith({ actorUserId: "user_1" }, "attempt_1");
+		expect(refund).toHaveBeenCalledWith(
+			{ actorUserId: "user_1" },
+			"attempt_1",
+			"image-animation",
+		);
 	});
 
 	it("recovers a stale generating attempt from its deterministic stored video", async () => {
@@ -164,6 +193,7 @@ describe("reconcileImageAnimations", () => {
 		expect(settleExisting).toHaveBeenCalledWith(
 			{ actorUserId: "user_1" },
 			"attempt_1",
+			1,
 		);
 		expect(settleExisting.mock.invocationCallOrder[0]).toBeLessThan(
 			markSucceeded.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
@@ -185,12 +215,108 @@ describe("reconcileImageAnimations", () => {
 		expect(settleExisting).toHaveBeenCalledWith(
 			{ actorUserId: "user_1" },
 			"attempt_1",
+			1,
 		);
 		expect(markSucceeded).toHaveBeenCalledWith(
 			staleGenerating,
 			RECOVERED_VIDEO,
 			NOW,
 		);
+	});
+
+	it("settles every planned extension leg before publishing recovered final output", async () => {
+		const extension = candidate("stale_generating", {
+			kind: "video-extension",
+			plannedUnits: 3,
+			startedAt: new Date(
+				NOW.getTime() -
+					MEDIA_GENERATION_STALE_GENERATING_MS["video-extension"] -
+					1,
+			),
+		});
+		const { dependencies, markSucceeded, recoverStoredVideo, settleExisting } =
+			setup([extension]);
+		recoverStoredVideo.mockResolvedValue(RECOVERED_VIDEO);
+
+		await expect(reconcileImageAnimations(dependencies)).resolves.toMatchObject(
+			{
+				recovered: 1,
+			},
+		);
+		expect(settleExisting).toHaveBeenCalledWith(
+			{ actorUserId: "user_1" },
+			"attempt_1",
+			3,
+		);
+		expect(settleExisting.mock.invocationCallOrder[0]).toBeLessThan(
+			markSucceeded.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
+		);
+	});
+
+	it("settles delivered extension legs and leaves undelivered units uncharged on stale failure", async () => {
+		const extension = candidate("stale_generating", {
+			deliveredUnits: 2,
+			kind: "video-extension",
+			plannedUnits: 3,
+			startedAt: new Date(
+				NOW.getTime() -
+					MEDIA_GENERATION_STALE_GENERATING_MS["video-extension"] -
+					1,
+			),
+		});
+		const { dependencies, failFromStatus, refund, settleExisting } = setup([
+			extension,
+		]);
+
+		await expect(reconcileImageAnimations(dependencies)).resolves.toEqual({
+			failed: 1,
+			recovered: 0,
+			refunded: 0,
+			scanned: 1,
+			skipped: 0,
+		});
+		expect(failFromStatus).toHaveBeenCalledWith(
+			extension,
+			expect.objectContaining({
+				error:
+					"We couldn't finish extending this video. Please try again in a moment.",
+			}),
+		);
+		expect(settleExisting).toHaveBeenCalledWith(
+			{ actorUserId: "user_1" },
+			"attempt_1",
+			2,
+		);
+		expect(refund).not.toHaveBeenCalled();
+	});
+
+	it("does not reap an old extension with leg activity ten minutes ago", async () => {
+		const extension = candidate("stale_generating", {
+			kind: "video-extension",
+			startedAt: new Date(NOW.getTime() - 50 * 60 * 1_000),
+		});
+		const {
+			dependencies,
+			failFromStatus,
+			latestLegActivityAt,
+			recoverStoredVideo,
+			refund,
+		} = setup([extension]);
+		latestLegActivityAt.mockResolvedValue(
+			new Date(NOW.getTime() - 10 * 60 * 1_000),
+		);
+
+		await expect(reconcileImageAnimations(dependencies)).resolves.toEqual({
+			failed: 0,
+			recovered: 0,
+			refunded: 0,
+			scanned: 1,
+			skipped: 1,
+		});
+		expect(latestLegActivityAt).toHaveBeenCalledWith(extension.id);
+		expect(recoverStoredVideo).not.toHaveBeenCalled();
+		expect(failFromStatus).not.toHaveBeenCalled();
+		expect(refund).not.toHaveBeenCalled();
 	});
 
 	it("fails and refunds a stale generating attempt with no stored video", async () => {
@@ -213,12 +339,19 @@ describe("reconcileImageAnimations", () => {
 		expect(recoverStoredVideo).toHaveBeenCalledWith(staleGenerating);
 		expect(markSucceeded).not.toHaveBeenCalled();
 		expect(failFromStatus).toHaveBeenCalledWith(staleGenerating, {
+			activityBefore: new Date(
+				NOW.getTime() - MEDIA_GENERATION_STALE_GENERATING_MS["image-animation"],
+			),
 			completedAt: NOW,
 			error: USER_SAFE_IMAGE_ANIMATION_ERROR,
 			expectedStatus: "generating",
 			reason: "stale_generation",
 		});
-		expect(refund).toHaveBeenCalledWith({ actorUserId: "user_1" }, "attempt_1");
+		expect(refund).toHaveBeenCalledWith(
+			{ actorUserId: "user_1" },
+			"attempt_1",
+			"image-animation",
+		);
 	});
 
 	it("fails and refunds a deleted stale generation before checking recoverable R2", async () => {
@@ -249,7 +382,11 @@ describe("reconcileImageAnimations", () => {
 			expectedStatus: "generating",
 			reason: "project_deleted",
 		});
-		expect(refund).toHaveBeenCalledWith({ actorUserId: "user_1" }, "attempt_1");
+		expect(refund).toHaveBeenCalledWith(
+			{ actorUserId: "user_1" },
+			"attempt_1",
+			"image-animation",
+		);
 	});
 
 	it("settles an outstanding refund for an already failed attempt", async () => {
@@ -269,7 +406,11 @@ describe("reconcileImageAnimations", () => {
 			scanned: 1,
 			skipped: 0,
 		});
-		expect(refund).toHaveBeenCalledWith({ actorUserId: "user_1" }, "attempt_1");
+		expect(refund).toHaveBeenCalledWith(
+			{ actorUserId: "user_1" },
+			"attempt_1",
+			"image-animation",
+		);
 		expect(recoverStoredVideo).not.toHaveBeenCalled();
 		expect(failFromStatus).not.toHaveBeenCalled();
 	});

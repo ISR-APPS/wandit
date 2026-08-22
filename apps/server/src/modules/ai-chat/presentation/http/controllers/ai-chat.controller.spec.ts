@@ -1,3 +1,8 @@
+import {
+	animateImageInputSchema,
+	generateVideoInputSchema,
+} from "@wandit/contracts";
+import { validateUIMessages } from "ai";
 import { describe, expect, it, vi } from "vitest";
 
 const mockEnv = vi.hoisted(() => ({
@@ -6,7 +11,10 @@ const mockEnv = vi.hoisted(() => ({
 
 vi.mock("@wandit/env/server", () => ({ env: mockEnv }));
 
-import type { WanditUIMessage } from "../../../agent/chat-agent";
+import {
+	aiChatToolsForValidation,
+	type WanditUIMessage,
+} from "../../../agent/chat-agent";
 import { assertOwnedFileParts, streamRequestId } from "./ai-chat.controller";
 
 const OWN_UPLOAD =
@@ -40,6 +48,71 @@ function askUserFilesMessage(id: string, url: string): WanditUIMessage {
 		role: "assistant",
 	} as unknown as WanditUIMessage;
 }
+
+describe("persisted video tool validation", () => {
+	it("keeps legacy parts valid when tier fields are absent", async () => {
+		const messages = await validateUIMessages<WanditUIMessage>({
+			messages: [
+				{
+					id: "assistant_legacy_video",
+					parts: [
+						{
+							input: {
+								aspect: "16:9",
+								brief:
+									"A cinematic product reveal on a quiet studio stage at dawn.",
+								title: "Legacy video",
+							},
+							output: { message: "Queued.", status: "queued" },
+							state: "output-available",
+							toolCallId: "call_legacy_video",
+							type: "tool-generate_video",
+						},
+						{
+							input: {
+								aspect: "9:16",
+								motion: "balanced",
+								prompt: "A gentle camera push.",
+								sourceImageUrl: OWN_UPLOAD,
+								sourceMediaType: "image/png",
+							},
+							output: { message: "Queued.", status: "queued" },
+							state: "output-available",
+							toolCallId: "call_legacy_animation",
+							type: "tool-animate_image",
+						},
+					],
+					role: "assistant",
+				},
+			],
+			tools: aiChatToolsForValidation,
+		});
+
+		expect(messages).toHaveLength(1);
+		const generatePart = messages[0]?.parts[0];
+		const animatePart = messages[0]?.parts[1];
+		expect(generatePart).toMatchObject({ type: "tool-generate_video" });
+		expect(animatePart).toMatchObject({ type: "tool-animate_image" });
+		expect(
+			generateVideoInputSchema.parse(
+				generatePart && "input" in generatePart ? generatePart.input : null,
+			),
+		).toMatchObject({
+			durationSeconds: 10,
+			multiShot: false,
+			quality: "standard",
+			talking: false,
+		});
+		expect(
+			animateImageInputSchema.parse(
+				animatePart && "input" in animatePart ? animatePart.input : null,
+			),
+		).toMatchObject({
+			quality: "standard",
+			talking: false,
+		});
+	});
+});
 
 describe("assertOwnedFileParts", () => {
 	it("accepts the acting user's own upload on a new message", () => {

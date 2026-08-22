@@ -76,6 +76,9 @@ describe("generate_marketing_asset billing", () => {
 				>[1],
 			),
 		).rejects.toBeInstanceOf(MeteringStateConflictError);
+		expect(
+			marketingAssetsRepository.insertAsset.mock.calls[0]?.[0],
+		).not.toHaveProperty("spec");
 		expect(tasks.trigger).not.toHaveBeenCalled();
 	});
 });

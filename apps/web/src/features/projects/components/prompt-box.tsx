@@ -1,7 +1,5 @@
 import {
 	type ComposerMetadata,
-	type ComposerQuality,
-	CREDIT_COSTS,
 	projectPromptMaxLength,
 	type UploadAttachmentResponse,
 	videoSubmissionIdSchema,
@@ -62,7 +60,6 @@ import {
 	Plug,
 	Plus,
 	RefreshCw,
-	Rocket,
 	SlidersHorizontal,
 	Sparkles,
 	Stethoscope,
@@ -77,7 +74,6 @@ import type * as React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSession } from "@/features/auth";
 import { ConnectorsDialog } from "@/features/connectors";
-import { PriceTag } from "@/features/credits";
 import { useDictionary, useTranslation } from "@/lib/i18n";
 import {
 	BUILDER_MODEL_STORAGE_KEY,
@@ -90,9 +86,10 @@ import {
 	ATTACHMENT_ACCEPT,
 	ATTACHMENT_MAX_BYTES,
 	AttachmentUploadError,
+	attachmentMaxBytesFor,
 	uploadAttachment,
 } from "../api/attachments.services";
-import { MAX_VISIBLE_SKILLS, QUALITY_CREDITS } from "../lib/constants";
+import { MAX_VISIBLE_SKILLS } from "../lib/constants";
 import { useVoiceDictation } from "../lib/use-voice-dictation";
 
 type RouteMode = "auto" | "page" | "marketing" | "image" | "video";
@@ -231,7 +228,7 @@ function effectiveMediaType(file: File): string {
 function toComposerAttachment(file: File): ComposerAttachment {
 	const mediaType = effectiveMediaType(file);
 	const unsupported = !ALLOWED_ATTACHMENT_TYPES.has(mediaType);
-	const tooLarge = file.size > ATTACHMENT_MAX_BYTES;
+	const tooLarge = file.size > attachmentMaxBytesFor(mediaType);
 	return {
 		id: crypto.randomUUID(),
 		filename: file.name,
@@ -292,18 +289,6 @@ const ROUTE_MODES: readonly RouteModeDef[] = [
 	{ id: "marketing", icon: Megaphone },
 	{ id: "image", icon: ImageIcon },
 	{ id: "video", icon: Clapperboard },
-];
-
-// Non-copy quality-tier config: id + icon. Label/hint live in the
-// `projects.promptBox.quality` dictionary namespace; cost in QUALITY_CREDITS.
-type QualityTierDef = {
-	id: ComposerQuality;
-	icon: LucideIcon;
-};
-
-const QUALITY_TIERS: readonly QualityTierDef[] = [
-	{ id: "standard", icon: Gauge },
-	{ id: "max", icon: Rocket },
 ];
 
 const SKILL_FILE_GROUPS: readonly SkillFileGroup[] = [
@@ -502,8 +487,6 @@ const OUTPUTS_BY_MODE: Record<ConcreteMode, readonly GenerationOutputDef[]> = {
 			id: "image-creator",
 			mode: "image",
 			icon: ImageIcon,
-			// No per-output "quality" group: the composer-wide quality tier in
-			// the settings popover is the single quality control.
 			options: [
 				{
 					id: "size",
@@ -1039,7 +1022,7 @@ function AttachmentChips({
 								</span>
 							) : null}
 						</span>
-						{isError && attachment.file ? (
+						{isError && attachment.error === "failed" && attachment.file ? (
 							<button
 								type="button"
 								aria-label={pb.attachments.retry}
@@ -1511,10 +1494,10 @@ function usePanelHeight(): [number, (el: HTMLDivElement | null) => void] {
 /**
  * The composer's one generation-config surface: a settings popover that walks
  * two steps — 1) the output TYPE for the active mode, 2) that output's
- * options (+ quality). Replaces the old standalone output chip so the footer
- * stays to one pill. Panels slide horizontally (direction-aware for RTL) and
- * the popover height glides between the two panels' heights. Modes with a
- * single output (video) and auto mode (quality only) skip the type step.
+ * options. Replaces the old standalone output chip so the footer stays to one
+ * pill. Panels slide horizontally (direction-aware for RTL) and the popover
+ * height glides between the two panels' heights. Modes with a single output
+ * skip the type step; auto mode has no settings surface.
  */
 function OutputSettings({
 	outputs,
@@ -1522,10 +1505,6 @@ function OutputSettings({
 	onSelectOutput,
 	values,
 	onValueChange,
-	quality,
-	onQualityChange,
-	showQuality,
-	isVideoMode,
 	isHero,
 }: {
 	/** Every output of the active mode — the wizard's type step. */
@@ -1535,17 +1514,11 @@ function OutputSettings({
 	onSelectOutput: (output: GenerationOutputDef) => void;
 	values: Record<string, string>;
 	onValueChange: (groupId: string, choiceId: string) => void;
-	quality: ComposerQuality;
-	onQualityChange: (quality: ComposerQuality) => void;
-	// Quality lives INSIDE this popover (not as its own chip) so the composer
-	// footer never wraps to a second row of pills.
-	showQuality: boolean;
-	isVideoMode: boolean;
 	isHero: boolean;
 }) {
 	const { t, dir } = useTranslation();
 	const pb = useDictionary().projects.promptBox;
-	const hasTypeStep = outputs.length > 1 && output !== null;
+	const hasTypeStep = outputs.length > 1;
 	const [open, setOpen] = useState(false);
 	const [step, setStep] = useState<SettingsStep>("type");
 	// The popover height follows the ACTIVE panel's measured height so it
@@ -1554,15 +1527,15 @@ function OutputSettings({
 	const [optionsHeight, optionsPanelRef] = usePanelHeight();
 	const activeHeight = step === "type" ? typeHeight : optionsHeight;
 
-	if (!output && !showQuality) return null;
+	if (!output) return null;
 
-	const OutputIcon = output?.icon;
-	const outputCopy = output ? pb.outputs[output.id] : null;
-	const optionsCopy = (outputCopy?.options ?? {}) as unknown as Record<
+	const OutputIcon = output.icon;
+	const outputCopy = pb.outputs[output.id];
+	const optionsCopy = outputCopy.options as unknown as Record<
 		string,
 		OptionCopy
 	>;
-	const modeCopy = output ? pb.routeModes[output.mode] : null;
+	const modeCopy = pb.routeModes[output.mode];
 	const settingsLabel = t("projects.promptBox.settingsLabel");
 
 	const handleOpenChange = (next: boolean) => {
@@ -1572,82 +1545,79 @@ function OutputSettings({
 		}
 	};
 
-	const typePanel =
-		hasTypeStep && output && modeCopy ? (
-			<>
-				<div className="border-border border-b px-4 py-3">
-					<div className="flex items-center gap-2">
-						<IconTile icon={getMode(output.mode).icon} active />
-						<div className="min-w-0">
-							<p className="font-medium text-sm leading-tight">
-								{t("projects.promptBox.outputsHeading", {
-									mode: modeCopy.label,
-								})}
-							</p>
-							<p className="mt-0.5 text-muted-foreground text-xs">
-								{modeCopy.description}
-							</p>
-						</div>
+	const typePanel = hasTypeStep ? (
+		<>
+			<div className="border-border border-b px-4 py-3">
+				<div className="flex items-center gap-2">
+					<IconTile icon={getMode(output.mode).icon} active />
+					<div className="min-w-0">
+						<p className="font-medium text-sm leading-tight">
+							{t("projects.promptBox.outputsHeading", {
+								mode: modeCopy.label,
+							})}
+						</p>
+						<p className="mt-0.5 text-muted-foreground text-xs">
+							{modeCopy.description}
+						</p>
 					</div>
 				</div>
-				<div className="p-1.5">
-					{outputs.map((item) => {
-						const itemCopy = pb.outputs[item.id];
-						const selected = item.id === output.id;
-						return (
-							<button
-								key={item.id}
-								type="button"
-								aria-pressed={selected}
-								onClick={() => onSelectOutput(item)}
-								className={cn(
-									"flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-start transition-colors",
-									selected ? "bg-primary/10" : "hover:bg-accent/70",
-								)}
-							>
-								<IconTile icon={item.icon} active={selected} />
-								<span className="min-w-0 flex-1">
-									<span className="block font-medium text-sm leading-tight">
-										{itemCopy.label}
-									</span>
-									<span className="mt-0.5 block text-muted-foreground text-xs leading-snug">
-										{itemCopy.description}
-									</span>
+			</div>
+			<div className="p-1.5">
+				{outputs.map((item) => {
+					const itemCopy = pb.outputs[item.id];
+					const selected = item.id === output.id;
+					return (
+						<button
+							key={item.id}
+							type="button"
+							aria-pressed={selected}
+							onClick={() => onSelectOutput(item)}
+							className={cn(
+								"flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-start transition-colors",
+								selected ? "bg-primary/10" : "hover:bg-accent/70",
+							)}
+						>
+							<IconTile icon={item.icon} active={selected} />
+							<span className="min-w-0 flex-1">
+								<span className="block font-medium text-sm leading-tight">
+									{itemCopy.label}
 								</span>
-								<Check
-									className={cn(
-										"ms-auto size-4 shrink-0 text-primary transition-[opacity,transform]",
-										selected ? "scale-100 opacity-100" : "scale-90 opacity-0",
-									)}
-								/>
-							</button>
-						);
-					})}
-				</div>
-			</>
-		) : null;
+								<span className="mt-0.5 block text-muted-foreground text-xs leading-snug">
+									{itemCopy.description}
+								</span>
+							</span>
+							<Check
+								className={cn(
+									"ms-auto size-4 shrink-0 text-primary transition-[opacity,transform]",
+									selected ? "scale-100 opacity-100" : "scale-90 opacity-0",
+								)}
+							/>
+						</button>
+					);
+				})}
+			</div>
+		</>
+	) : null;
 
 	const optionsPanel = (
 		<>
-			{OutputIcon && outputCopy && modeCopy ? (
-				<div className="border-border border-b px-4 py-3">
-					<div className="flex items-center gap-2">
-						<IconTile icon={OutputIcon} active />
-						<div className="min-w-0">
-							<p className="font-medium text-sm leading-tight">
-								{outputCopy.label}
-							</p>
-							<p className="mt-0.5 text-muted-foreground text-xs">
-								{t("projects.promptBox.settingsSubtitle", {
-									mode: modeCopy.label.toLowerCase(),
-								})}
-							</p>
-						</div>
+			<div className="border-border border-b px-4 py-3">
+				<div className="flex items-center gap-2">
+					<IconTile icon={OutputIcon} active />
+					<div className="min-w-0">
+						<p className="font-medium text-sm leading-tight">
+							{outputCopy.label}
+						</p>
+						<p className="mt-0.5 text-muted-foreground text-xs">
+							{t("projects.promptBox.settingsSubtitle", {
+								mode: modeCopy.label.toLowerCase(),
+							})}
+						</p>
 					</div>
 				</div>
-			) : null}
+			</div>
 			<div className="space-y-4 p-4">
-				{(output?.options ?? []).map((group) => {
+				{output.options.map((group) => {
 					if (!isGroupVisible(group, values)) return null;
 					const groupCopy = optionsCopy[group.id];
 					return (
@@ -1688,56 +1658,6 @@ function OutputSettings({
 						</div>
 					);
 				})}
-				{showQuality && !isVideoMode ? (
-					<div>
-						<p className="mb-2 text-muted-foreground text-xs">
-							{t("projects.promptBox.qualityLabel")}
-						</p>
-						<div className="grid grid-cols-2 gap-2">
-							{QUALITY_TIERS.map((tier) => {
-								const tierCopy = pb.quality[tier.id];
-								const tierCost = QUALITY_CREDITS[tier.id];
-								const selected = quality === tier.id;
-								return (
-									<button
-										key={tier.id}
-										type="button"
-										onClick={() => onQualityChange(tier.id)}
-										className={cn(
-											"min-h-14 rounded-xl border px-3 py-2 text-center text-xs transition-[transform,color,background-color,border-color] duration-200 active:translate-y-px",
-											selected
-												? "border-primary/35 bg-primary/10 text-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.16)]"
-												: "border-border bg-background/60 text-muted-foreground hover:border-primary/25 hover:bg-accent/70 hover:text-foreground",
-										)}
-									>
-										<span className="block font-medium">{tierCopy.label}</span>
-										{tierCost !== null ? (
-											<PriceTag
-												cost={tierCost}
-												withIcon
-												showUnit={false}
-												className="mt-1 justify-center text-[11px]"
-											/>
-										) : null}
-									</button>
-								);
-							})}
-						</div>
-					</div>
-				) : null}
-				{showQuality && isVideoMode ? (
-					<div className="flex min-h-9 items-center justify-between rounded-xl border border-primary/35 bg-primary/10 px-3 py-2">
-						<span className="text-muted-foreground text-xs">
-							{t("projects.promptBox.qualityLabel")}
-						</span>
-						<PriceTag
-							cost={CREDIT_COSTS.videoGeneration}
-							withIcon
-							showUnit={false}
-							className="text-[11px] text-foreground"
-						/>
-					</div>
-				) : null}
 			</div>
 		</>
 	);
@@ -1754,11 +1674,7 @@ function OutputSettings({
 							type="button"
 							variant="outline"
 							size="icon-sm"
-							aria-label={
-								outputCopy
-									? `${settingsLabel}: ${outputCopy.label}`
-									: settingsLabel
-							}
+							aria-label={`${settingsLabel}: ${outputCopy.label}`}
 							className={cn(
 								"rounded-full border-border bg-transparent text-muted-foreground shadow-none transition-colors hover:border-primary/25 hover:bg-accent/70 hover:text-foreground data-[state=open]:border-primary/30 data-[state=open]:bg-primary/10 data-[state=open]:text-foreground",
 								isHero ? "size-9" : "size-[30px]",
@@ -1915,8 +1831,6 @@ export type PromptBoxProps = {
 	attachmentsEnabled?: boolean;
 	variant?: "hero" | "compact";
 	placeholder?: string;
-	/** Show the generation cost as a quiet mono tag next to the actions. */
-	showPriceTag?: boolean;
 	/** Tinted strip above the card (ai-chat-v2 style). */
 	showBanner?: boolean;
 	/** Legacy prop kept for call sites; the composer always exposes modes. */
@@ -1956,7 +1870,6 @@ export function PromptBox({
 	attachmentsEnabled = false,
 	variant = "hero",
 	placeholder,
-	showPriceTag = false,
 	showBanner = false,
 	isSubmitting = false,
 	disabled = false,
@@ -1989,9 +1902,6 @@ export function PromptBox({
 		useState<GenerationOutputId | null>(initialOutput?.id ?? null);
 	const [outputOptions, setOutputOptions] =
 		useState<Record<string, string>>(initialOptions);
-	const [quality, setQuality] = useState<ComposerQuality>(
-		initialComposer?.quality ?? "standard",
-	);
 	// Dev-only builder override (see BUILDER_MODELS); localStorage-backed so
 	// the choice survives the remounts between hero and chat composers.
 	const [builderModel, setBuilderModelState] = useState(() =>
@@ -2292,7 +2202,7 @@ export function PromptBox({
 			const found = attachmentsRef.current.find(
 				(attachment) => attachment.id === id,
 			);
-			if (!found?.file) return;
+			if (!found?.file || found.error !== "failed") return;
 			setAttachments((current) =>
 				current.map((attachment) =>
 					attachment.id === id
@@ -2384,7 +2294,6 @@ export function PromptBox({
 
 		return {
 			mode: routeMode,
-			quality,
 			output: selectedOutputId ?? undefined,
 			skills: selectedSkillIds.length > 0 ? selectedSkillIds : undefined,
 			options: Object.keys(options).length > 0 ? options : undefined,
@@ -2526,11 +2435,6 @@ export function PromptBox({
 		setSelectedOutputId(defaultOutput?.id ?? null);
 		setOutputOptions(defaultOutput ? createDefaultOptions(defaultOutput) : {});
 		textareaRef.current?.focus();
-	};
-
-	// No textarea refocus: quality is picked inside the open settings popover.
-	const handleQualityChange = (next: ComposerQuality) => {
-		setQuality(next);
 	};
 
 	const toggleSkillFile = (skill: SkillFileDef) => {
@@ -2700,10 +2604,6 @@ export function PromptBox({
 							onSelectOutput={chooseOutput}
 							values={outputOptions}
 							onValueChange={updateOutputOption}
-							quality={quality}
-							onQualityChange={handleQualityChange}
-							showQuality={showPriceTag}
-							isVideoMode={isVideoMode}
 							isHero={isHero}
 						/>
 						<div className="ms-auto flex items-center gap-1">

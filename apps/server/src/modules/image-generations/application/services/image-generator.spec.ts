@@ -9,6 +9,7 @@ import {
 	isR2Configured,
 	putSiteFile,
 } from "../../../../infrastructure/storage/r2";
+import { storeImageVariants } from "../../../../infrastructure/storage/store-image-variants";
 import {
 	editImageFromSources,
 	generateStandaloneImage,
@@ -40,6 +41,21 @@ vi.mock("../../../../infrastructure/storage/r2", async (importOriginal) => {
 
 	return { ...original, isR2Configured: vi.fn(), putSiteFile: vi.fn() };
 });
+
+vi.mock(
+	"../../../../infrastructure/storage/store-image-variants",
+	async (importOriginal) => {
+		const original =
+			await importOriginal<
+				typeof import("../../../../infrastructure/storage/store-image-variants")
+			>();
+
+		return {
+			...original,
+			storeImageVariants: vi.fn(original.storeImageVariants),
+		};
+	},
+);
 
 const PARAMS = {
 	aspect: "1:1" as const,
@@ -79,6 +95,7 @@ beforeEach(() => {
 	vi.mocked(generateText).mockReset();
 	vi.mocked(isR2Configured).mockReset().mockReturnValue(true);
 	vi.mocked(putSiteFile).mockReset().mockResolvedValue(undefined);
+	vi.mocked(storeImageVariants).mockClear();
 	mockEnv.AI_IMAGE_MODEL = "openai/gpt-image-2";
 	mockEnv.AI_IMAGE_EDIT_MODEL = "google/gemini-2.5-flash-image";
 	mockEnv.R2_PUBLIC_BASE_URL = "https://assets.example.com";
@@ -132,6 +149,33 @@ describe("generateStandaloneImage", () => {
 			url: "https://assets.example.com/images/project_1/attempt_1/img-1.webp",
 			width: 1024,
 		});
+	});
+
+	it("returns the primary URL before deferred variants are stored", async () => {
+		mockGeneratedImage("image/webp");
+
+		const result = await generateStandaloneImage({
+			...PARAMS,
+			deferVariants: true,
+		});
+
+		expect(putSiteFile).toHaveBeenCalledTimes(1);
+		expect(storeImageVariants).not.toHaveBeenCalled();
+		expect(result).toMatchObject({
+			status: "generated",
+			storeVariants: expect.any(Function),
+			url: "https://assets.example.com/images/project_1/attempt_1/img-1.webp",
+		});
+
+		if (result.status !== "generated" || !result.storeVariants) {
+			throw new Error("Expected deferred variant work");
+		}
+
+		await result.storeVariants();
+		expect(storeImageVariants).toHaveBeenCalledWith(
+			"images/project_1/attempt_1/img-1.webp",
+			expect.any(Uint8Array),
+		);
 	});
 
 	it("recompresses heavy raster output to webp before upload", async () => {

@@ -1,11 +1,11 @@
 import type { MeteringSubject } from "../../../credits/domain/credit-owner";
-import {
-	type BillingAdmissionMode,
-	createFixedOperationBilling,
-	type FixedOperationBillingDependencies,
-	type FixedOperationReservation,
+import type {
+	BillingAdmissionMode,
+	FixedOperationBillingDependencies,
+	FixedOperationReservation,
 } from "../../../metering/application/services/fixed-operation-billing";
 import type { CapturedGeneration } from "../../../metering/domain/metering";
+import { createVideoBilling, type VideoReservation } from "./video-billing";
 
 export type ImageAnimationReservation = FixedOperationReservation & {
 	operation: "video";
@@ -36,18 +36,23 @@ export type ImageAnimationBilling = {
 export function createImageAnimationBilling(
 	dependencies: FixedOperationBillingDependencies,
 ): ImageAnimationBilling {
-	const billing = createFixedOperationBilling("video", dependencies);
+	const billing = createVideoBilling(dependencies);
 
 	return {
-		capture: (reservation, capture) => billing.capture(reservation, capture),
+		capture: (reservation, capture) =>
+			billing.capture(reservation as VideoReservation, capture),
 		refund: (subject, attemptId) =>
-			billing.refund(subject, attemptId, "image_animation_failed"),
+			billing.refund(subject, attemptId, "image-animation"),
 		reserve: async (subject, attemptId, parentEventId, billingMode) =>
-			(await billing.reserve(subject, attemptId, {
-				billingMode,
+			(await billing.reserve(
+				subject,
+				attemptId,
+				1,
 				parentEventId,
-			})) as ImageAnimationReservation,
-		settle: (reservation, units = 1) => billing.settle(reservation, units),
+				billingMode,
+			)) as ImageAnimationReservation,
+		settle: (reservation, units = 1) =>
+			billing.settle(reservation as VideoReservation, units),
 		settleExisting: (subject, attemptId) =>
 			billing.settleExisting(subject, attemptId),
 	};

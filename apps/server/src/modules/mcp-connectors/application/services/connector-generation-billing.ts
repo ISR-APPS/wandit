@@ -10,6 +10,7 @@ import {
 import type { MeteringService } from "../../../metering/application/services/metering.service";
 import { fixedGenerationStepUsage } from "../../../metering/domain/gateway-metering";
 import {
+	type AiUsageEvent,
 	type CapturedGeneration,
 	MeteringStateConflictError,
 } from "../../../metering/domain/metering";
@@ -250,12 +251,20 @@ export function createConnectorGenerationBilling(
 					`connector:${referenceId}`,
 					subject,
 				);
-			const childEvent = input.childOperation
+			let childEvent = input.childOperation
 				? await dependencies.meteringService.findByIdempotencyKey(
 						`${input.childOperation}:${referenceId}`,
 						subject,
 					)
 				: null;
+			if (input.childOperation && !childEvent) {
+				const alternateOperation =
+					input.childOperation === "image" ? "video" : "image";
+				childEvent = await dependencies.meteringService.findByIdempotencyKey(
+					`${alternateOperation}:${referenceId}`,
+					subject,
+				);
+			}
 
 			if (!connectorEvent && !childEvent) {
 				return false;
@@ -275,11 +284,10 @@ export function createConnectorGenerationBilling(
 					`Connector billing ${referenceId} has no ${input.childOperation} child event`,
 				);
 			}
-			if (
-				childEvent &&
-				(childEvent.operation !== input.childOperation ||
-					childEvent.parentEventId !== connectorEvent.id)
-			) {
+			const childOperation = childEvent
+				? connectorChildOperationFromEvent(childEvent)
+				: undefined;
+			if (childEvent && childEvent.parentEventId !== connectorEvent.id) {
 				throw new Error(
 					`AI usage event ${childEvent.id} is not the expected child of ${connectorEvent.id}`,
 				);
@@ -299,12 +307,12 @@ export function createConnectorGenerationBilling(
 				? (input.completedChildUnits ?? input.childUnits ?? 1)
 				: undefined;
 			const reservations: ConnectorGenerationReservations = {
-				...(childEvent && input.childOperation
+				...(childEvent && childOperation
 					? {
 							child: {
 								credits: childEvent.reservedCredits,
 								eventId: childEvent.id,
-								operation: input.childOperation,
+								operation: childOperation,
 								referenceId,
 								replay: replayFromEventStatus(childEvent.status),
 								units: input.childUnits ?? 1,
@@ -440,6 +448,18 @@ function assertExecutableReservation(
 			"execute provider for",
 		);
 	}
+}
+
+function connectorChildOperationFromEvent(
+	event: Pick<AiUsageEvent, "id" | "operation">,
+): ConnectorChildOperation {
+	if (event.operation === "image" || event.operation === "video") {
+		return event.operation;
+	}
+
+	throw new Error(
+		`AI usage event ${event.id} is ${event.operation}, expected image or video`,
+	);
 }
 
 function fixedCaptureProviderUsage(stepUsage: unknown): unknown {

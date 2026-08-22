@@ -144,7 +144,7 @@
 		"addMenuLabel": "Add context",
 		"addSkillLabel": "Add skill",
 		"attachLabel": "Attach",
-		"attachHint": "Attach images, PDFs, docs or spreadsheets",
+		"attachHint": "Attach images, video, audio, PDFs, docs or spreadsheets",
 		"connectApps": "Connect apps",
 		"attachments": {
 			"dropHint": "Drop files to attach",
@@ -152,7 +152,7 @@
 			"remove": "Remove",
 			"retry": "Retry",
 			"unsupported": "Unsupported format",
-			"tooLarge": "File too large (15 MB max)",
+			"tooLarge": "File is too large (video 50 MB, audio 25 MB, images and documents 15 MB max)",
 			"failed": "Upload failed",
 			"signInFirst": "Sign in to attach files"
 		},
@@ -177,7 +177,6 @@
 		"modeLabel": "Mode",
 		"outputLabel": "Output",
 		"settingsLabel": "Generation settings",
-		"qualityLabel": "Quality",
 		"skillLibraryLabel": "Built by Wandit",
 		"searchSkillsPlaceholder": "Search skills…",
 		"noSkillResults": "No skills found",
@@ -196,16 +195,6 @@
 		"stepNext": "Next",
 		"stepDone": "Done",
 		"stepLabel": "Step {current} of {total}",
-		"quality": {
-			"standard": {
-				"label": "Standard",
-				"hint": "Fast and efficient"
-			},
-			"max": {
-				"label": "Max",
-				"hint": "Best result, uses more credits"
-			}
-		},
 		"routeModes": {
 			"auto": {
 				"label": "Auto",

@@ -27,6 +27,7 @@ import {
 	withLlmAttribution,
 } from "../../../ai-provider/domain/llm-provider";
 import type { MeteringSubject } from "../../../credits/domain/credit-owner";
+import { resolveVideoGenerationPlan } from "../../../media-generations/domain/video-quality-models";
 import type { MeteringService } from "../../../metering/application/services/metering.service";
 import {
 	fixedGenerationStepUsage,
@@ -484,8 +485,11 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 			description:
 				"OPTIONAL: animate ONE existing image (a generate_image URL or a " +
 				"user asset from the brief) into a short (~5s) looping ambient " +
-				"background video. Use it ONLY when subtle motion genuinely " +
-				"elevates a section — a hero atmosphere, a fabric drift — never by " +
+				"background video. User uploads may be JPEG, PNG, or WebP; the " +
+				"platform automatically repairs source format, size, and aspect where " +
+				"possible, but refuses images beyond 1:4–4:1 or over 25 MB, and very " +
+				"small photos can animate softly. Use it ONLY when subtle motion " +
+				"genuinely elevates a section — a hero atmosphere, a fabric drift — never by " +
 				`default, never more than ${MAX_VIDEOS} per build. Embed the ` +
 				'result as <video autoplay muted loop playsinline poster="<posterUrl>"> ' +
 				"with the still image as poster. On unavailable/failed, keep the " +
@@ -511,13 +515,21 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 				state.videosGenerated += 1;
 				state.videoSequence += 1;
 				const index = state.videoSequence;
+				const plan = resolveVideoGenerationPlan({
+					durationSeconds: 5,
+					kind: "i2v",
+					multiShot: false,
+					narration: false,
+					quality: "standard",
+					talking: false,
+				});
 				const childEvent =
 					params.meteringService && params.usageEventId
 						? await params.meteringService.reserve("video", params.subject, {
 								attemptRef: `${params.attemptId}:video:${index}`,
 								credits: fixedOperationCredits("video"),
 								idempotencyKey: `page-build-video:${params.usageEventId}:${index}`,
-								model: env.AI_VIDEO_MODEL ?? null,
+								model: plan.modelId,
 								parentEventId: params.usageEventId,
 							})
 						: null;
@@ -529,6 +541,7 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 					attemptId: params.attemptId,
 					imageUrl,
 					index,
+					modelId: plan.modelId,
 					metering: {
 						operation: "video",
 						organizationId: params.subject.organizationId ?? null,
@@ -553,6 +566,7 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 							}
 						: {}),
 					projectId: params.projectId,
+					voiceControl: false,
 				});
 
 				if (result.status !== "generated") {
