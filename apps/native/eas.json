@@ -1,0 +1,38 @@
+{
+	"cli": {
+		"version": ">= 16.0.0",
+		"appVersionSource": "remote"
+	},
+	"build": {
+		"development": {
+			"developmentClient": true,
+			"distribution": "internal"
+		},
+		"staging": {
+			"autoIncrement": true,
+			"env": {
+				"EXPO_PUBLIC_SERVER_URL": "https://api-staging.wandit.dev",
+				"EXPO_PUBLIC_WEB_APP_URL": "https://wandit.dev"
+			}
+		},
+		"production": {
+			"autoIncrement": true,
+			"env": {
+				"EXPO_PUBLIC_SERVER_URL": "https://api.wandit.dev",
+				"EXPO_PUBLIC_WEB_APP_URL": "https://wandit.dev"
+			}
+		}
+	},
+	"submit": {
+		"staging": {
+			"ios": {
+				"ascAppId": "REPLACE_WITH_ASC_APP_ID"
+			}
+		},
+		"production": {
+			"ios": {
+				"ascAppId": "REPLACE_WITH_ASC_APP_ID"
+			}
+		}
+	}
+}
