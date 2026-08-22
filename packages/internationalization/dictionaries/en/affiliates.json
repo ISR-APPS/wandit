@@ -1,0 +1,147 @@
+{
+	"metaTitle": "Affiliate portal — Wandit",
+	"title": "Affiliates",
+	"navLabel": "Affiliates",
+	"sidebarGroup": "Affiliate program",
+	"pausedNotice": "Your affiliate account is paused. You can still review your activity here; contact us if you believe this is a mistake.",
+	"notPartner": {
+		"title": "This page is for Wandit partners",
+		"body": "Your account is not linked to an affiliate profile. If you are a partner, contact us for help.",
+		"refresh": "Refresh",
+		"backToDashboard": "Back to dashboard"
+	},
+	"status": {
+		"active": "Active",
+		"paused": "Paused"
+	},
+	"stats": {
+		"clicks": "Clicks",
+		"uniqueVisitors": {
+			"one": "{count} unique visitor",
+			"other": "{count} unique visitors"
+		},
+		"signups": "Signups",
+		"payingCustomers": "Paying customers",
+		"paidInvoices": {
+			"one": "{count} paid invoice",
+			"other": "{count} paid invoices"
+		},
+		"referredRevenue": "Referred revenue",
+		"pendingCommission": "Pending commission",
+		"approvedCommission": "Approved (payable)",
+		"paidOut": "Paid out",
+		"balance": "Balance",
+		"noCommissions": "No commissions yet",
+		"currencyLabel": "{currency} summary"
+	},
+	"tabs": {
+		"links": "Links",
+		"referrals": "Referrals",
+		"commissions": "Commissions",
+		"payouts": "Payouts"
+	},
+	"links": {
+		"title": "Referral links",
+		"code": "Code",
+		"program": "Program",
+		"status": "Status",
+		"clicks": "Clicks",
+		"signups": "Signups",
+		"paying": "Paying",
+		"shareLink": "Share link",
+		"copy": "Copy",
+		"copied": "Link copied",
+		"copyFailed": "Could not copy the link",
+		"empty": "No referral links yet",
+		"expires": "Expires {date}",
+		"programArchived": "Program archived"
+	},
+	"referrals": {
+		"title": "Referred users",
+		"email": "Email",
+		"signedUp": "Signed up",
+		"link": "Link",
+		"terms": "Terms",
+		"status": "Status",
+		"paidInvoices": "Paid invoices",
+		"lastPaid": "Last paid",
+		"revenue": "Revenue",
+		"commission": "Commission",
+		"empty": "No referred users yet",
+		"filterAll": "All statuses",
+		"active": "Active",
+		"voided": "Voided"
+	},
+	"commissions": {
+		"title": "Commission ledger",
+		"date": "Date",
+		"type": "Type",
+		"referral": "Referral",
+		"link": "Link",
+		"base": "Base amount",
+		"rate": "Rate",
+		"amount": "Commission",
+		"status": "Status",
+		"holdUntil": "Held until",
+		"payout": "Payout",
+		"empty": "No commission entries yet",
+		"filterAll": "All statuses"
+	},
+	"payouts": {
+		"title": "Payout history",
+		"created": "Created",
+		"period": "Period",
+		"total": "Total",
+		"method": "Method",
+		"reference": "Reference",
+		"status": "Status",
+		"entries": "Entries",
+		"empty": "No payouts yet"
+	},
+	"terms": {
+		"percentageRecurring": "{rate} recurring",
+		"fixedOneTime": "{amount} one-time",
+		"forMonths": {
+			"one": "for {count} month",
+			"other": "for {count} months"
+		},
+		"lifetime": "lifetime",
+		"holdDays": {
+			"one": "{count}-day hold",
+			"other": "{count}-day hold"
+		}
+	},
+	"commissionStatus": {
+		"pending": "Pending",
+		"approved": "Approved",
+		"paid": "Paid",
+		"reversed": "Reversed"
+	},
+	"payoutStatus": {
+		"draft": "Draft",
+		"processing": "Processing",
+		"paid": "Paid",
+		"failed": "Failed"
+	},
+	"linkStatus": {
+		"active": "Active",
+		"paused": "Paused",
+		"expired": "Expired"
+	},
+	"entryType": {
+		"earning": "Earning",
+		"adjustment": "Adjustment"
+	},
+	"payoutMethod": {
+		"manual": "Manual",
+		"paypal": "PayPal",
+		"wise": "Wise"
+	},
+	"pagination": {
+		"previous": "Previous",
+		"next": "Next",
+		"pageOf": "Page {page} of {total}"
+	},
+	"loadError": "Could not load your affiliate data.",
+	"retry": "Retry"
+}

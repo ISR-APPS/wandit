@@ -22,6 +22,11 @@ const REQUEST_ID = "55555555-5555-4555-8555-555555555555";
 const NOW = new Date("2026-08-02T12:00:00.000Z");
 const FIRST_PAID_AT = new Date("2026-07-01T12:00:00.000Z");
 const affiliateTransaction = {} as never;
+const LINKED_USER = {
+	id: "user_1",
+	name: "Ada User",
+	email: "ada.user@example.com",
+};
 
 function programRow(
 	overrides: Partial<AffiliateAdminProgramRow> = {},
@@ -199,6 +204,7 @@ function setup() {
 		archiveProgram: vi.fn(),
 		listAffiliates: vi.fn(),
 		getAffiliate: vi.fn(),
+		findUserIdentity: vi.fn().mockResolvedValue(LINKED_USER),
 		createAffiliate: vi.fn(),
 		updateAffiliate: vi.fn(),
 		listLinks: vi.fn(),
@@ -304,12 +310,56 @@ describe("AffiliateAdminService", () => {
 			selfReferralService.recheckAffiliate,
 		);
 		expect(result.payoutDetails).toEqual({ account: "hidden" });
+		expect(result.linkedUser).toEqual(LINKED_USER);
 		expect(result.aggregates).toMatchObject({
 			healthyTrials: 3,
 			churnedCustomers: 2,
 			referredMrrCents: 12_500,
 			referredLtvCents: 187_500,
 		});
+	});
+
+	it("returns the linked web user identity in affiliate detail", async () => {
+		const { repository, service } = setup();
+		repository.getAffiliate.mockResolvedValue(affiliateRecord());
+		repository.listAllLinks.mockResolvedValue([]);
+
+		const result = await service.getAffiliate(AFFILIATE_ID);
+
+		expect(repository.findUserIdentity).toHaveBeenCalledWith("user_1");
+		expect(result.linkedUser).toEqual(LINKED_USER);
+	});
+
+	it("returns a null linked user when the affiliate has no user id", async () => {
+		const { repository, service } = setup();
+		repository.getAffiliate.mockResolvedValue(
+			affiliateRecord({ userId: null }),
+		);
+		repository.listAllLinks.mockResolvedValue([]);
+
+		const result = await service.getAffiliate(AFFILIATE_ID);
+
+		expect(repository.findUserIdentity).not.toHaveBeenCalled();
+		expect(result.linkedUser).toBeNull();
+	});
+
+	it("rejects an unknown linked user before creating or rechecking", async () => {
+		const { repository, selfReferralService, service } = setup();
+		repository.findUserIdentity.mockResolvedValue(null);
+		const operation = service.createAffiliate({
+			userId: "missing_user",
+			name: "Ada Partner",
+			email: "ada@example.com",
+		});
+
+		await expect(operation).rejects.toBeInstanceOf(NotFoundException);
+		await expect(operation).rejects.toThrow("Linked user not found");
+		expect(repository.findUserIdentity).toHaveBeenCalledWith("missing_user");
+		expect(repository.createAffiliate).not.toHaveBeenCalled();
+		expect(selfReferralService.recheckAffiliate).not.toHaveBeenCalled();
+		expect(
+			selfReferralService.mutateAndRecheckAffiliate,
+		).not.toHaveBeenCalled();
 	});
 
 	it("does not run a self-referral recheck when an update target is missing", async () => {
@@ -322,6 +372,24 @@ describe("AffiliateAdminService", () => {
 		expect(selfReferralService.recheckAffiliate).not.toHaveBeenCalled();
 	});
 
+	it("checks the update target before validating a linked user", async () => {
+		const { repository, selfReferralService, service } = setup();
+		repository.getAffiliate.mockResolvedValue(null);
+		repository.findUserIdentity.mockResolvedValue(null);
+		const operation = service.updateAffiliate(AFFILIATE_ID, {
+			userId: "missing_user",
+		});
+
+		await expect(operation).rejects.toBeInstanceOf(NotFoundException);
+		await expect(operation).rejects.toThrow("Affiliate not found");
+		expect(repository.getAffiliate).toHaveBeenCalledWith(AFFILIATE_ID);
+		expect(repository.findUserIdentity).not.toHaveBeenCalled();
+		expect(repository.updateAffiliate).not.toHaveBeenCalled();
+		expect(
+			selfReferralService.mutateAndRecheckAffiliate,
+		).not.toHaveBeenCalled();
+	});
+
 	it("updates affiliate identity and rechecks self-referral in one locked mutation", async () => {
 		const { repository, selfReferralService, service } = setup();
 		repository.updateAffiliate.mockResolvedValue(affiliateRow());
@@ -330,6 +398,10 @@ describe("AffiliateAdminService", () => {
 
 		await service.updateAffiliate(AFFILIATE_ID, { userId: "user_1" });
 
+		expect(repository.findUserIdentity).toHaveBeenCalledWith("user_1");
+		expect(repository.findUserIdentity).toHaveBeenCalledBefore(
+			selfReferralService.mutateAndRecheckAffiliate,
+		);
 		expect(selfReferralService.mutateAndRecheckAffiliate).toHaveBeenCalledWith(
 			AFFILIATE_ID,
 			expect.any(Function),
@@ -339,6 +411,24 @@ describe("AffiliateAdminService", () => {
 			{ userId: "user_1" },
 			affiliateTransaction,
 		);
+		expect(selfReferralService.recheckAffiliate).not.toHaveBeenCalled();
+	});
+
+	it("rejects an unknown linked user before updating or rechecking", async () => {
+		const { repository, selfReferralService, service } = setup();
+		repository.getAffiliate.mockResolvedValue(affiliateRecord());
+		repository.findUserIdentity.mockResolvedValue(null);
+		const operation = service.updateAffiliate(AFFILIATE_ID, {
+			userId: "missing_user",
+		});
+
+		await expect(operation).rejects.toBeInstanceOf(NotFoundException);
+		await expect(operation).rejects.toThrow("Linked user not found");
+		expect(repository.findUserIdentity).toHaveBeenCalledWith("missing_user");
+		expect(repository.updateAffiliate).not.toHaveBeenCalled();
+		expect(
+			selfReferralService.mutateAndRecheckAffiliate,
+		).not.toHaveBeenCalled();
 		expect(selfReferralService.recheckAffiliate).not.toHaveBeenCalled();
 	});
 

@@ -11,15 +11,22 @@ import { AffiliateClickService } from "./application/services/affiliate-click.se
 import { AffiliateClickThrottle } from "./application/services/affiliate-click-throttle";
 import { AffiliateCommissionService } from "./application/services/affiliate-commission.service";
 import { AffiliatePayoutService } from "./application/services/affiliate-payout.service";
+import { AffiliatePortalService } from "./application/services/affiliate-portal.service";
 import { AffiliateSelfReferralService } from "./application/services/affiliate-self-referral.service";
 import { AffiliateTokenService } from "./application/services/affiliate-token.service";
 import { AffiliateAdminRepository } from "./infrastructure/persistence/affiliate-admin.repository";
+import { AffiliatePortalRepository } from "./infrastructure/persistence/affiliate-portal.repository";
 import { TriggerAffiliateAttributionDispatcherService } from "./infrastructure/trigger/trigger-affiliate-attribution-dispatcher.service";
 import { AffiliateAdminController } from "./presentation/http/controllers/affiliate-admin.controller";
 import { AffiliateClickController } from "./presentation/http/controllers/affiliate-click.controller";
+import { AffiliatePortalController } from "./presentation/http/controllers/affiliate-portal.controller";
 
 @Module({
-	controllers: [AffiliateAdminController, AffiliateClickController],
+	controllers: [
+		AffiliateAdminController,
+		AffiliateClickController,
+		AffiliatePortalController,
+	],
 	exports: [
 		AffiliateApprovalService,
 		AffiliateAttributionService,
@@ -31,6 +38,7 @@ import { AffiliateClickController } from "./presentation/http/controllers/affili
 	imports: [AdminSecurityModule, BillingPaymentsModule, DatabaseModule],
 	providers: [
 		AffiliateAdminRepository,
+		AffiliatePortalRepository,
 		AffiliateAdminService,
 		AffiliateApprovalService,
 		AffiliateAttributionService,
@@ -39,6 +47,7 @@ import { AffiliateClickController } from "./presentation/http/controllers/affili
 		AffiliateClickThrottle,
 		AffiliateCommissionService,
 		AffiliatePayoutService,
+		AffiliatePortalService,
 		AffiliateSelfReferralService,
 		AffiliateTokenService,
 		TriggerAffiliateAttributionDispatcherService,
