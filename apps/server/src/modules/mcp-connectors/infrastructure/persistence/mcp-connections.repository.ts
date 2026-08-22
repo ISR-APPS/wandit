@@ -237,6 +237,34 @@ export class McpConnectionsRepository {
 		return Boolean(row);
 	}
 
+	/** Atomically consume a pending connect: clears the OAuth state only if
+	 * the row still carries the expected state value, and reports whether
+	 * this caller won. Two racing completions of the same deep link (double
+	 * delivery, replay) then resolve to exactly one exchange — a plain
+	 * read-then-clear lets both pass the read. */
+	async claimPendingState(
+		connectionId: string,
+		expectedOauthState: string,
+	): Promise<boolean> {
+		const [row] = await this.db
+			.update(mcpConnections)
+			.set({
+				codeVerifier: null,
+				oauthState: null,
+				returnUrl: null,
+				updatedAt: new Date(),
+			})
+			.where(
+				and(
+					eq(mcpConnections.id, connectionId),
+					eq(mcpConnections.oauthState, expectedOauthState),
+				),
+			)
+			.returning({ id: mcpConnections.id });
+
+		return Boolean(row);
+	}
+
 	async clearPendingState(
 		connectionId: string,
 		options: ClearPendingStateOptions = {},

@@ -92,9 +92,7 @@ export function ExampleScreen() {
 				data={visibleExamples}
 				keyExtractor={(item) => item.id}
 				ListEmptyComponent={
-					<Text className="text-center text-neutral-400">
-						No examples yet.
-					</Text>
+					<Text className="text-center text-neutral-400">No examples yet.</Text>
 				}
 				renderItem={({ item }) => (
 					<ExampleCard

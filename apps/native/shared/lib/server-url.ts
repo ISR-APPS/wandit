@@ -19,3 +19,9 @@ import { env } from "@wandit/env/native";
 export function getServerUrl() {
 	return env.EXPO_PUBLIC_SERVER_URL;
 }
+
+// Web-app origin, distinct from the API origin above. Billing and plan
+// management exist only on web, so native surfaces open this in the browser.
+export function getWebAppUrl() {
+	return env.EXPO_PUBLIC_WEB_APP_URL;
+}

@@ -9,7 +9,7 @@ import { Text, View } from "react-native";
 
 import { WanditIcon } from "@/components/wandit-icon";
 
-export type TrayPointerIcon = "question" | "options";
+export type TrayPointerIcon = "question" | "options" | "media";
 
 export function TrayPointerChip({
 	icon = "question",
@@ -28,6 +28,8 @@ export function TrayPointerChip({
 			>
 				{icon === "options" ? (
 					<WanditIcon name="sliders" size={12} color={accent} />
+				) : icon === "media" ? (
+					<WanditIcon name="image" size={12} color={accent} />
 				) : (
 					<View
 						className="items-center justify-center rounded-[5px] border border-accent/40 bg-accent/10"

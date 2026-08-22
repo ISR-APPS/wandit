@@ -28,6 +28,8 @@ export const ATTACHMENT_MEDIA_TYPES = [
 
 export const attachmentMediaTypeSchema = z.enum(ATTACHMENT_MEDIA_TYPES);
 
+export type AttachmentMediaType = z.infer<typeof attachmentMediaTypeSchema>;
+
 /** One narrower rendition of an uploaded image, for a srcset. */
 export const attachmentVariantSchema = z.object({
 	url: z.url(),

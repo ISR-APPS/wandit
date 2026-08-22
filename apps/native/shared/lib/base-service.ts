@@ -17,8 +17,8 @@
  *         attachSessionCookie below). That manual step is the whole difference.
  */
 import type { ApiErrorResponse } from "@wandit/contracts";
-import axios, { AxiosHeaders } from "axios";
 import type { InternalAxiosRequestConfig } from "axios";
+import axios, { AxiosHeaders } from "axios";
 
 import { authClient } from "@/lib/auth-client";
 import { redirectToSignIn } from "@/shared/lib/auth-redirect";
@@ -228,9 +228,7 @@ function toApiClientError(error: unknown) {
 					? `HTTP_${error.response.status}`
 					: "NETWORK_ERROR",
 				message:
-					error.response?.statusText ||
-					error.message ||
-					NETWORK_ERROR_MESSAGE,
+					error.response?.statusText || error.message || NETWORK_ERROR_MESSAGE,
 				path: error.config?.url ?? "unknown",
 				requestId: "unknown",
 				statusCode: error.response?.status ?? 0,

@@ -4,9 +4,6 @@ import {
 	chatByProjectResponseSchema,
 	chatMessagesResponseSchema,
 	chatsRoutes,
-	type SendChatMessageResponse,
-	sendChatMessageBodySchema,
-	sendChatMessageResponseSchema,
 } from "@wandit/contracts";
 
 import { apiClient } from "@/shared/lib/api-client";
@@ -14,8 +11,8 @@ import { apiClient } from "@/shared/lib/api-client";
 /**
  * chat.requests.ts — raw JSON calls for the chat API.
  *
- * The stream endpoint is intentionally absent here: it is not JSON/axios and is
- * consumed by the RN SSE transport in ../lib/chat-stream.ts.
+ * Streaming deliberately lives in use-ai-chat.ts because the response is an
+ * AI SDK event stream rather than a JSON envelope.
  */
 
 // GET /api/v1/chats/by-project/:projectId
@@ -36,17 +33,4 @@ export async function getChatMessages(
 		chatsRoutes.messages(chatId),
 	);
 	return chatMessagesResponseSchema.parse(data);
-}
-
-// POST /api/v1/chats/:chatId/messages
-export async function sendChatMessage(
-	chatId: string,
-	input: { text: string },
-): Promise<SendChatMessageResponse> {
-	const body = sendChatMessageBodySchema.parse({ text: input.text });
-	const data = await apiClient.post<SendChatMessageResponse, typeof body>(
-		chatsRoutes.messages(chatId),
-		body,
-	);
-	return sendChatMessageResponseSchema.parse(data);
 }

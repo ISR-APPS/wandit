@@ -626,6 +626,7 @@
 			"interrupted": "Interrompu",
 			"skippedDeclined": "Étape ignorée — tu as refusé",
 			"arguments": "Arguments",
+			"moreArguments": "+{count} de plus",
 			"generation": {
 				"working": "Génération du média en cours…",
 				"workingHint": "{connector} s'en occupe — le résultat apparaîtra ici dès qu'il est prêt.",
@@ -639,6 +640,9 @@
 				"statusGenerating": "Génération",
 				"usually": "généralement 2–4 min"
 			}
+		},
+		"generation": {
+			"downloadFailed": "Le téléchargement a échoué — réessaie."
 		},
 		"askUser": {
 			"questionsTitle": "Quelques questions",
@@ -787,9 +791,205 @@
 		"media": {
 			"close": "Fermer",
 			"download": "Télécharger",
+			"downloadFailed": "Le téléchargement a échoué — réessaie.",
 			"imageLoadError": "Impossible de charger l’image",
 			"previous": "Précédent",
 			"next": "Suivant"
+		},
+		"markdown": {
+			"expandTable": "Plein écran",
+			"closeTable": "Fermer",
+			"tapToLoadImage": "Touche pour charger l’image",
+			"imageLoadFailed": "L’image n’a pas pu se charger — touche pour réessayer"
+		},
+		"pageBuild": {
+			"buildingNoVersion": "Création de ta page",
+			"readyTitle": "La v{n} est prête",
+			"readyNoVersion": "Ta page est prête",
+			"failedTitle": "Échec de la création",
+			"headline": {
+				"starting": "Démarrage…",
+				"art": "Génération des visuels…",
+				"writing": "Rédaction de la page…",
+				"reviewing": "Relecture de la page…",
+				"fixing": "Application des corrections…",
+				"finishing": "Publication de la page…"
+			},
+			"succeededHeadline": "La page terminée est dans ton projet.",
+			"failedHeadline": "La création s'est arrêtée avant la fin — demande-moi de réessayer.",
+			"disconnectedHeadline": "Suivi en direct perdu — la page terminée arrivera quand même.",
+			"steps": {
+				"artActive": "Génération des visuels…",
+				"artDone": "Visuels générés",
+				"artPending": "Générer les visuels",
+				"pageActive": "Rédaction de la page…",
+				"pageDone": "Page écrite",
+				"pagePending": "Écrire la page",
+				"reviewActive": "Capture de chaque section pour se relire…",
+				"reviewDone": "Page relue capture par capture",
+				"reviewPending": "Capturer et relire la page",
+				"fixesActive": "Application des corrections…",
+				"fixesDone": {
+					"one": "1 correction appliquée",
+					"other": "{count} corrections appliquées"
+				},
+				"finishActive": "Publication de la page…",
+				"finishDone": "Remise faite — la page est prête",
+				"finishPending": "Relecture puis remise"
+			},
+			"imagesCount": {
+				"one": "{count} image",
+				"other": "{count} images"
+			},
+			"videosCount": {
+				"one": "{count} vidéo",
+				"other": "{count} vidéos"
+			},
+			"sectionsCount": {
+				"one": "{count} section",
+				"other": "{count} sections"
+			},
+			"passOf": "capture {current} sur {target}",
+			"fixesBadge": "×{count}",
+			"live": {
+				"kicker": "Publiée · En ligne",
+				"headline": "Ta page est en ligne.",
+				"subtitle": "Pointe tes pubs ici et commence à collecter des commandes.",
+				"view": "Voir la page en ligne",
+				"draftHeadline": "Ta page est prête.",
+				"draftSubtitle": "Publie-la gratuitement pour obtenir ton lien public.",
+				"publishCta": "Publier gratuitement",
+				"publishing": "Publication…",
+				"publishError": "Échec de la publication — réessaie."
+			},
+			"stoppedKicker": "Arrêtée",
+			"stoppedBody": "Tu as arrêté cette génération.",
+			"stoppedFallbackTitle": "Ta page",
+			"resume": "Reprendre",
+			"resuming": "Reprise…",
+			"discard": "Abandonner",
+			"discarding": "Abandon…",
+			"topUp": "Recharger le portefeuille",
+			"retry": "Réessayer",
+			"retrying": "Nouvel essai…",
+			"dismiss": "Ignorer",
+			"dismissing": "Fermeture…",
+			"receiptStopped": "Génération arrêtée — abandonnée.",
+			"receiptStoppedAt": "Génération arrêtée à {percent}% — abandonnée.",
+			"receiptDismissed": "Génération échouée ignorée.",
+			"errorCode": "erreur · {code}",
+			"openPageTab": "Ouvrir l'onglet Page"
+		},
+		"leadScrape": {
+			"title": "Recherche de prospects",
+			"loadError": "Impossible de charger l'état de la recherche.",
+			"failedTitle": "Échec de la recherche de prospects",
+			"failedDetail": "La recherche s'est arrêtée avant la fin.",
+			"steps": {
+				"brief": "Brief analysé",
+				"searchingActive": "Recherche sur Google Maps…",
+				"searchingDone": "Google Maps parcouru",
+				"extractingActive": "Extraction des contacts…",
+				"extractingDone": "Contacts extraits",
+				"verifyingActive": "Vérification des e-mails et dédoublonnage…",
+				"verifyingDone": "E-mails vérifiés et dédoublonnés",
+				"exportingActive": "Export en .xlsx…",
+				"exportingDone": "Exporté en .xlsx"
+			},
+			"foundBadge": {
+				"one": "{count} trouvé",
+				"other": "{count} trouvés"
+			},
+			"ready": "Prêt",
+			"rowsCount": {
+				"one": "{count} ligne",
+				"other": "{count} lignes"
+			},
+			"columnsCount": {
+				"one": "{count} colonne",
+				"other": "{count} colonnes"
+			},
+			"columnBusiness": "Entreprise",
+			"columnPhone": "Téléphone",
+			"columnEmail": "E-mail",
+			"moreRows": {
+				"one": "+{count} autre ligne",
+				"other": "+{count} autres lignes"
+			},
+			"download": "Télécharger le .xlsx",
+			"downloading": "Téléchargement…",
+			"downloadError": "Le téléchargement a échoué — réessaie."
+		},
+		"generateVideo": {
+			"title": "Vidéo",
+			"preparing": "Composition du brief créatif…",
+			"queueing": "Écriture de la version du réalisateur…",
+			"failedToStart": "La génération vidéo n'a pas pu démarrer",
+			"queuedTitle": "En file d'attente",
+			"generatingTitle": "Rendu en cours…",
+			"statusLoadError": "Impossible de charger l'état de la vidéo — rouvre cette discussion pour réessayer.",
+			"failedTitle": "La génération vidéo a échoué",
+			"failedBody": "Le rendu s'est arrêté avant la fin.",
+			"retry": "Réessayer",
+			"directorsCut": "Version du réalisateur écrite",
+			"renderingClip": "Rendu du clip de {seconds} secondes…",
+			"renderedClip": "Clip de {seconds} secondes rendu",
+			"inQueue": "En file d'attente",
+			"publish": "Publication",
+			"publishing": "Publication…",
+			"published": "Publié",
+			"allStepsDone": "Toutes les étapes sont terminées",
+			"readyTitle": "Vidéo prête",
+			"download": "Télécharger",
+			"viewInAssets": "Voir dans les Assets",
+			"play": "Lire {title}"
+		},
+		"pageBuildFailure": {
+			"insufficient_credits": {
+				"kicker": "Génération impossible",
+				"title": "Tu n'as plus de crédits.",
+				"message": "Cette génération n'a pas pu réserver les crédits nécessaires. Ta dernière version est intacte — recharge et réessaie."
+			},
+			"internal_error": {
+				"kicker": "Un problème est survenu",
+				"title": "La génération s'est arrêtée de façon inattendue.",
+				"message": "Un problème est survenu de notre côté. Ta dernière version est intacte — réessaie."
+			},
+			"invalid_output": {
+				"kicker": "Un problème est survenu",
+				"title": "La génération n'a pas produit une page valide.",
+				"message": "Le résultat n'a pas passé nos contrôles qualité, rien n'a été publié. Ta dernière version est intacte — réessayer suffit en général."
+			},
+			"member_limit": {
+				"kicker": "Génération impossible",
+				"title": "Ta limite de crédits membre est atteinte.",
+				"message": "Cette génération dépasse ta limite mensuelle dans cet espace. Demande à un admin de l'augmenter, puis réessaie."
+			},
+			"provider_error": {
+				"kicker": "Problème du fournisseur",
+				"title": "Le fournisseur d'IA a rencontré une erreur.",
+				"message": "Le problème vient du fournisseur du modèle, pas de Wandit. Ta dernière version est intacte ; réessayer marche en général."
+			},
+			"provider_overloaded": {
+				"kicker": "Problème du fournisseur",
+				"title": "Le fournisseur d'IA est saturé.",
+				"message": "Le fournisseur du modèle (pas Wandit) est temporairement surchargé. Ta dernière version est intacte — réessaie dans une minute."
+			},
+			"provider_rate_limited": {
+				"kicker": "Problème du fournisseur",
+				"title": "Le fournisseur d'IA est très sollicité.",
+				"message": "Trop de requêtes ont atteint le fournisseur du modèle en même temps — ce n'est pas un problème Wandit. Ta dernière version est intacte ; réessaie dans une minute."
+			},
+			"provider_timeout": {
+				"kicker": "Problème du fournisseur",
+				"title": "Le fournisseur d'IA a mis trop de temps.",
+				"message": "Le fournisseur du modèle a cessé de répondre en cours de génération — pas un souci Wandit. Ta dernière version est intacte — réessaie."
+			},
+			"storage_failure": {
+				"kicker": "Un problème est survenu",
+				"title": "L'enregistrement de la page a échoué.",
+				"message": "La page a été générée mais son envoi a échoué de notre côté. Ta dernière version est intacte — réessaie."
+			}
 		}
 	},
 	"page": {

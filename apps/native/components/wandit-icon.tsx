@@ -63,6 +63,10 @@ const ICONS = {
 		viewBox: 18,
 		paths: [{ d: "M9 3.5v11M3.5 9h11" }],
 	},
+	minus: {
+		viewBox: 18,
+		paths: [{ d: "M3.5 9h11" }],
+	},
 	camera: {
 		viewBox: 20,
 		paths: [
@@ -109,6 +113,24 @@ const ICONS = {
 			},
 		],
 	},
+	/** Paperclip — files attached/sent (ask_user attachments receipt). */
+	paperclip: {
+		viewBox: 20,
+		paths: [
+			{
+				d: "M13.9 5.1 7.7 11.3a1.7 1.7 0 0 0 2.4 2.4l6.2-6.2a3.4 3.4 0 0 0-4.8-4.8L5.3 8.9a5.1 5.1 0 0 0 7.2 7.2l4.6-4.6",
+			},
+		],
+	},
+	/** Power plug — Connect apps (MCP connectors). */
+	plug: {
+		viewBox: 20,
+		paths: [
+			{
+				d: "M7 2.5v4M13 2.5v4M5 6.5h10v3a5 5 0 0 1-5 5 5 5 0 0 1-5-5v-3ZM10 14.5v3",
+			},
+		],
+	},
 	folder: {
 		viewBox: 20,
 		paths: [
@@ -148,6 +170,46 @@ const ICONS = {
 		viewBox: 20,
 		strokeWidth: 2,
 		paths: [{ d: "M4 10.5l4 4 8-8.5" }],
+	},
+	/** Failure/status glyph for danger headers. */
+	alertTriangle: {
+		viewBox: 24,
+		strokeWidth: 2,
+		paths: [
+			{
+				d: "M12 4.2 2.9 19.2a1.2 1.2 0 0 0 1 1.8h16.2a1.2 1.2 0 0 0 1-1.8L12 4.2Z",
+			},
+			{ d: "M12 10v4.2" },
+			{ d: "M12 17.6h.01" },
+		],
+	},
+	download: {
+		viewBox: 24,
+		strokeWidth: 2,
+		paths: [
+			{ d: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" },
+			{ d: "m7 10 5 5 5-5" },
+			{ d: "M12 15V3" },
+		],
+	},
+	film: {
+		viewBox: 24,
+		strokeWidth: 1.8,
+		rects: [{ x: 3.5, y: 4, width: 17, height: 16, rx: 2.5 }],
+		paths: [{ d: "M8 4v16M16 4v16M3.5 9h4.5M3.5 15h4.5M16 9h4.5M16 15h4.5" }],
+	},
+	/** Attachment chip glyph for CSV/XLSX documents. */
+	spreadsheet: {
+		viewBox: 20,
+		strokeWidth: 1.6,
+		rects: [{ x: 3, y: 3.5, width: 14, height: 13, rx: 2 }],
+		paths: [{ d: "M3 8h14M8.5 8v8.5M3 12.5h14" }],
+	},
+	/** Filled stop square for neutral/stopped status headers. */
+	squareStop: {
+		viewBox: 20,
+		filled: true,
+		rects: [{ x: 5, y: 5, width: 10, height: 10, rx: 2 }],
 	},
 	thumbsUp: {
 		viewBox: 20,
@@ -222,12 +284,199 @@ const ICONS = {
 		strokeWidth: 1.7,
 		paths: [{ d: "M4 20l1.2-4.2L16.8 4.2a2 2 0 0 1 2.9 2.9L8.2 18.8z" }],
 	},
+	/** Comment bubble — page comment mode (prototype §5a). */
+	bubble: {
+		viewBox: 24,
+		strokeWidth: 1.9,
+		paths: [
+			{
+				d: "M20.5 12.2a8 8 0 0 1-11.6 7.1L4 20.5l1.3-4.6A8 8 0 1 1 20.5 12.2z",
+			},
+		],
+	},
+	/** Crosshair — element-target chips (chat Cibler mode). */
+	crosshair: {
+		viewBox: 20,
+		strokeWidth: 1.6,
+		circles: [{ cx: 10, cy: 10, r: 6.5 }],
+		paths: [{ d: "M10 1.5v2M10 16.5v2M1.5 10h2M16.5 10h2" }],
+	},
+	/** Section visibility toggles (page editor Sections tab). */
+	eye: {
+		viewBox: 24,
+		strokeWidth: 1.8,
+		circles: [{ cx: 12, cy: 12, r: 3 }],
+		paths: [
+			{
+				d: "M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z",
+			},
+		],
+	},
+	eyeOff: {
+		viewBox: 24,
+		strokeWidth: 1.8,
+		paths: [
+			{
+				d: "M4.5 5.5C3 7 2.5 12 2.5 12s3.5 6.5 9.5 6.5c1.7 0 3.2-.5 4.4-1.2M9.9 6C10.6 5.7 11.3 5.5 12 5.5c6 0 9.5 6.5 9.5 6.5s-.8 1.5-2.3 3",
+			},
+			{ d: "M9.9 9.9a3 3 0 0 0 4.2 4.2" },
+			{ d: "M4 4l16 16" },
+		],
+	},
+	/** Publish address card (publish sheet). */
+	globe: {
+		viewBox: 24,
+		strokeWidth: 1.7,
+		circles: [{ cx: 12, cy: 12, r: 8.5 }],
+		paths: [
+			{ d: "M3.5 12h17" },
+			{
+				d: "M12 3.5c2.5 2.3 3.8 5.2 3.8 8.5s-1.3 6.2-3.8 8.5c-2.5-2.3-3.8-5.2-3.8-8.5s1.3-6.2 3.8-8.5z",
+			},
+		],
+	},
 	/** Appearance row icon (half-filled circle). */
 	contrast: {
 		viewBox: 24,
 		strokeWidth: 1.7,
 		circles: [{ cx: 12, cy: 12, r: 8.5 }],
 		paths: [{ d: "M12 3.5a8.5 8.5 0 0 1 0 17z", filled: true }],
+	},
+	/** Hub pill chevron (rotates 180° when the selector opens). */
+	chevronUp: {
+		viewBox: 24,
+		strokeWidth: 2.2,
+		paths: [{ d: "m18 15-6-6-6 6" }],
+	},
+	/** Lead card action — tap-to-call handset. */
+	phone: {
+		viewBox: 24,
+		strokeWidth: 1.7,
+		paths: [
+			{
+				d: "M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6A19.79 19.79 0 0 1 2.12 4.18 2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.13.96.36 1.9.7 2.81a2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.91.34 1.85.57 2.81.7A2 2 0 0 1 22 16.92z",
+			},
+		],
+	},
+	/** List refresh (circular arrow). */
+	refresh: {
+		viewBox: 24,
+		strokeWidth: 1.8,
+		paths: [{ d: "M21 12a9 9 0 1 1-2.64-6.36" }, { d: "M21 3v6h-6" }],
+	},
+	/** Marketing type — HTML section wireframe. */
+	layout: {
+		viewBox: 24,
+		strokeWidth: 1.8,
+		paths: [
+			{ d: "M3 3.5h18v7H3z" },
+			{ d: "M3 14h9.5v6.5H3z" },
+			{ d: "M16.5 14H21v6.5h-4.5z" },
+		],
+	},
+	/** Marketing type — video script clapperboard. */
+	clap: {
+		viewBox: 24,
+		strokeWidth: 1.8,
+		paths: [
+			{
+				d: "M20.2 6 3 11l-.9-2.4c-.3-1.1.3-2.2 1.3-2.5l13.5-4c1-.3 2.1.3 2.4 1.3Z",
+			},
+			{ d: "m6.2 5.3 3.1 3.9" },
+			{ d: "m12.4 3.4 3.1 4" },
+			{ d: "M3 11h18v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" },
+		],
+	},
+	/** Marketing type — strategy route between two waypoints. */
+	route: {
+		viewBox: 24,
+		strokeWidth: 1.8,
+		circles: [
+			{ cx: 6, cy: 19, r: 2.6 },
+			{ cx: 18, cy: 5, r: 2.6 },
+		],
+		paths: [{ d: "M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15" }],
+	},
+	/** Marketing type — creative brief document with text lines. */
+	docText: {
+		viewBox: 24,
+		strokeWidth: 1.8,
+		paths: [
+			{ d: "M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" },
+			{ d: "M14 2v4a2 2 0 0 0 2 2h4" },
+			{ d: "M16 13H8M16 17H8M10 9H8" },
+		],
+	},
+	/** Empty search result (magnifier with an X in the lens). */
+	searchX: {
+		viewBox: 24,
+		strokeWidth: 1.7,
+		circles: [{ cx: 11, cy: 11, r: 7 }],
+		paths: [
+			{ d: "M20 20l-3.5-3.5" },
+			{ d: "m8.8 8.8 4.4 4.4" },
+			{ d: "m13.2 8.8-4.4 4.4" },
+		],
+	},
+	maximize: {
+		viewBox: 24,
+		strokeWidth: 2,
+		paths: [{ d: "M15 3h6v6M9 21H3v-6M21 3l-7 7M3 21l7-7" }],
+	},
+	/** Chain link — the tray's link ask field. */
+	link: {
+		viewBox: 20,
+		strokeWidth: 1.7,
+		paths: [
+			{ d: "M8.5 6.2 10 4.7a3.2 3.2 0 0 1 4.5 4.5l-1.5 1.5" },
+			{ d: "M11.5 13.8 10 15.3a3.2 3.2 0 0 1-4.5-4.5L7 9.3" },
+			{ d: "m7.8 12.2 4.4-4.4" },
+		],
+	},
+	/** Calendar — the tray's date & time ask. */
+	calendar: {
+		viewBox: 20,
+		strokeWidth: 1.6,
+		rects: [{ x: 3, y: 4.5, width: 14, height: 12.5, rx: 2 }],
+		paths: [{ d: "M3 8.5h14M7 2.5v4M13 2.5v4" }],
+	},
+	/** Circular alert — the tray's invalid-link state. */
+	alertCircle: {
+		viewBox: 20,
+		strokeWidth: 1.8,
+		circles: [{ cx: 10, cy: 10, r: 7.5 }],
+		paths: [{ d: "M10 6.5v4" }, { d: "M10 13.6h.01" }],
+	},
+	/** Trash can — the drawer's delete-project action. */
+	trash: {
+		viewBox: 24,
+		strokeWidth: 1.8,
+		paths: [
+			{
+				d: "M4.5 7h15M9 7V5.2A1.2 1.2 0 0 1 10.2 4h3.6A1.2 1.2 0 0 1 15 5.2V7m2 0-.7 12.1a1.5 1.5 0 0 1-1.5 1.4H9.2a1.5 1.5 0 0 1-1.5-1.4L7 7",
+			},
+		],
+	},
+	/** Arrow leaving a door — the drawer's sign-out action. */
+	signOut: {
+		viewBox: 24,
+		strokeWidth: 1.8,
+		paths: [
+			{ d: "M15 4.5h2.5A1.5 1.5 0 0 1 19 6v12a1.5 1.5 0 0 1-1.5 1.5H15" },
+			{ d: "M11 8.5 7.5 12l3.5 3.5M7.5 12H15" },
+		],
+	},
+	/** Arrow out of a box — the drawer's open-live-page action. */
+	externalLink: {
+		viewBox: 24,
+		strokeWidth: 1.8,
+		paths: [
+			{ d: "M13.5 4.5h6v6" },
+			{ d: "M19.5 4.5 11 13" },
+			{
+				d: "M18 15v3.5A1.5 1.5 0 0 1 16.5 20h-10A1.5 1.5 0 0 1 5 18.5v-10A1.5 1.5 0 0 1 6.5 7H10",
+			},
+		],
 	},
 } satisfies Record<string, IconDef>;
 
@@ -264,9 +513,9 @@ export function WanditIcon({
 					width={rect.width}
 					height={rect.height}
 					rx={rect.rx}
-					fill="none"
-					stroke={color}
-					strokeWidth={baseStrokeWidth}
+					fill={icon.filled ? color : "none"}
+					stroke={icon.filled ? undefined : color}
+					strokeWidth={icon.filled ? undefined : baseStrokeWidth}
 					strokeLinecap="round"
 					strokeLinejoin="round"
 				/>

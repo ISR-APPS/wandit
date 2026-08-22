@@ -1,3 +1,4 @@
+import { CREDIT_COSTS } from "@wandit/contracts";
 import {
 	useDictionary,
 	useTranslation,
@@ -7,8 +8,10 @@ import { Pressable, Text, View } from "react-native";
 
 import { WanditIcon } from "@/components/wandit-icon";
 import { useAppTheme } from "@/contexts/app-theme-context";
+import { PriceTag } from "@/features/credits";
 import { AppBottomSheet } from "@/shared/ui/bottom-sheet";
 
+import { QUALITY_CREDITS } from "../lib/constants";
 import {
 	type ConcreteMode,
 	type GenerationOutputDef,
@@ -110,6 +113,71 @@ export function OutputConfigSheet({
 						{outputCopy.description}
 					</Text>
 					<View className="my-3 h-px bg-separator" />
+					<View className="mb-3.5">
+						{mode === "video" ? (
+							// Video has one fixed price and no tiers — a static cost row
+							// replaces the heading + selectable tiles (web parity).
+							<View className="mx-1 min-h-9 flex-row items-center justify-between rounded-[12px] border border-accent/45 bg-accent/10 px-3 py-2">
+								<Text className="text-[12px] text-muted">
+									{promptBox.qualityLabel}
+								</Text>
+								<PriceTag
+									cost={CREDIT_COSTS.videoGeneration}
+									withIcon
+									showUnit={false}
+								/>
+							</View>
+						) : (
+							<>
+								<Text className="mb-1.5 px-1 font-mono text-[9.5px] text-muted uppercase tracking-[1.2px]">
+									{promptBox.qualityLabel}
+								</Text>
+								<View className="flex-row flex-wrap gap-[7px] px-1">
+									{(["standard", "max"] as const).map((quality) => {
+										const selected = values.quality === quality;
+										const cost = QUALITY_CREDITS[quality];
+										return (
+											<Pressable
+												key={quality}
+												accessibilityRole="button"
+												accessibilityState={{ selected }}
+												onPress={() => onValueChange("quality", quality)}
+												className={cn(
+													"rounded-[12px] border px-3 py-2",
+													selected
+														? "border-accent/45 bg-accent/10"
+														: "border-border bg-surface dark:bg-surface-tertiary/55",
+												)}
+											>
+												<Text
+													className={cn(
+														"font-sans-semibold text-[12px]",
+														!selected && "text-muted",
+													)}
+													style={
+														selected ? { color: chipActiveColor } : undefined
+													}
+												>
+													{promptBox.quality[quality].label}
+												</Text>
+												<Text className="mt-0.5 text-[10.5px] text-muted">
+													{promptBox.quality[quality].hint}
+												</Text>
+												{cost !== null ? (
+													<PriceTag
+														cost={cost}
+														withIcon
+														showUnit={false}
+														className="mt-1"
+													/>
+												) : null}
+											</Pressable>
+										);
+									})}
+								</View>
+							</>
+						)}
+					</View>
 					{output.options.map((group) => {
 						const groupCopy = optionsCopy[group.id];
 						return (
