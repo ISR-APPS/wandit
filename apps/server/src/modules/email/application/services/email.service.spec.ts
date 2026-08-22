@@ -100,4 +100,37 @@ describe("EmailService", () => {
 		expect(payload.html).toContain("Acme &amp; Sons &lt;script&gt;");
 		expect(payload.html).toContain("https://app.example.com/invite/inv_1");
 	});
+
+	it("sends one escaped offline-request notification to all admins", async () => {
+		mockEnv.RESEND_API_KEY = "re_test_key";
+		const service = new EmailService();
+		await service.sendManualRequestEmail(
+			["admin-one@example.com", "admin-two@example.com"],
+			{
+				adminUrl: "https://admin.example.com/offline-billing",
+				fullName: '<img src=x onerror=alert(1)>"Amina"',
+				interval: "year",
+				phone: "+213 661 22 33 44",
+				plan: "pro",
+				tierCredits: 500,
+			},
+		);
+
+		expect(sendMock).toHaveBeenCalledTimes(1);
+		const payload = sendMock.mock.calls[0]?.[0] as unknown as {
+			html: string;
+			subject: string;
+			text: string;
+			to: string[];
+		};
+		expect(payload.to).toEqual([
+			"admin-one@example.com",
+			"admin-two@example.com",
+		]);
+		expect(payload.subject).toContain("Amina");
+		expect(payload.html).not.toContain("<img src=x");
+		expect(payload.html).toContain("&lt;img src=x onerror=alert(1)&gt;");
+		expect(payload.text).toContain("Pro / 500 credits / yearly");
+		expect(payload.text).toContain("https://admin.example.com/offline-billing");
+	});
 });

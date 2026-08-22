@@ -55,9 +55,13 @@ describe("BillingController admission guards", () => {
 		"checkout",
 		"previewChange",
 		"change",
-		"resume",
 	] as const)("gates %s behind the subscriptions switch", (method) => {
 		expect(guardsFor(method)).toEqual([SubscriptionsEnabledGuard]);
+	});
+
+	it("leaves resume unguarded so manual subscriptions can resume in an offline-only rollout", () => {
+		// BillingService.resume enforces the switch for Stripe subscriptions.
+		expect(guardsFor("resume")).toEqual([]);
 	});
 
 	it("gates top-ups behind the top-ups switch", () => {

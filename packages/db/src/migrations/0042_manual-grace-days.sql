@@ -1,0 +1,2 @@
+ALTER TABLE "product_settings" ADD COLUMN "manual_grace_days" integer DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "product_settings" ADD CONSTRAINT "product_settings_manual_grace_days_range_ck" CHECK ("product_settings"."manual_grace_days" >= 0 AND "product_settings"."manual_grace_days" <= 30);

@@ -697,6 +697,54 @@ describe("AdminAnalyticsRepository revenue SQL", () => {
 		expect(mrr.sql).toMatch(/plan_owners?(?:_totals)? as/);
 	});
 
+	it("keeps manual paid existence while limiting catalog MRR to Stripe", async () => {
+		const { queries: revenueQueries } = await collectQueries("revenue");
+		const mrr = queryContaining(revenueQueries, "live_subscriptions as");
+		const liveStart = mrr.sql.indexOf("live_subscriptions as (");
+		const pricedStart = mrr.sql.indexOf("stripe_priced_subscriptions as (");
+		const groupedStart = mrr.sql.indexOf("grouped as (");
+		const planOwnersStart = mrr.sql.indexOf("plan_owner_totals as (");
+		const ownerTotalsStart = mrr.sql.indexOf(
+			"owner_totals as (",
+			planOwnersStart + "plan_owner_totals as (".length,
+		);
+
+		expect(liveStart).toBeGreaterThanOrEqual(0);
+		expect(pricedStart).toBeGreaterThan(liveStart);
+		expect(groupedStart).toBeGreaterThan(pricedStart);
+		expect(planOwnersStart).toBeGreaterThan(groupedStart);
+		expect(ownerTotalsStart).toBeGreaterThan(planOwnersStart);
+
+		const liveSubscriptions = mrr.sql.slice(liveStart, pricedStart);
+		const stripePricedSubscriptions = mrr.sql.slice(pricedStart, groupedStart);
+		const groupedMrr = mrr.sql.slice(groupedStart, planOwnersStart);
+		const planOwners = mrr.sql.slice(planOwnersStart, ownerTotalsStart);
+		const activePaidUsers = mrr.sql.slice(ownerTotalsStart);
+
+		expect(liveSubscriptions).toContain("s.provider");
+		expect(liveSubscriptions).not.toContain("s.provider = 'stripe'");
+		expect(stripePricedSubscriptions).toContain("from live_subscriptions l");
+		expect(stripePricedSubscriptions).toContain("l.provider = 'stripe'");
+		expect(groupedMrr).toContain("from stripe_priced_subscriptions l");
+		expect(planOwners).toContain("from stripe_priced_subscriptions l");
+		expect(activePaidUsers).toContain("as active_paid_users");
+		expect(activePaidUsers).toContain("from live_subscriptions l");
+
+		const { queries: funnelQueries } = await collectQueries("funnel");
+		const funnel = queryContaining(funnelQueries, "signup_cohort as");
+		const paidUsersStart = funnel.sql.indexOf("paid_users as (");
+		const matureCohortStart = funnel.sql.indexOf("mature_signup_cohort as (");
+
+		expect(paidUsersStart).toBeGreaterThanOrEqual(0);
+		expect(matureCohortStart).toBeGreaterThan(paidUsersStart);
+
+		const signupToPaid = funnel.sql.slice(paidUsersStart, matureCohortStart);
+		expect(signupToPaid).toContain(
+			"inner join subscriptions s on s.user_id = c.user_id",
+		);
+		expect(signupToPaid).not.toContain("s.provider");
+	});
+
 	it("derives owner churn and range-start exposure from lifecycle history", async () => {
 		const { queries } = await collectQueries("revenue");
 		const lifecycle = queryContaining(queries, "lifecycle_rows as");
