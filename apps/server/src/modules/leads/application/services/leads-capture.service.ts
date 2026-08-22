@@ -90,18 +90,18 @@ export class LeadsCaptureService {
 			return { ok: true };
 		}
 
-		const deploymentId = await this.leadsRepository.findActiveDeploymentId(
-			project.id,
-		);
+		const activeDeployment =
+			await this.leadsRepository.findActiveDeploymentSnapshot(project.id);
 
 		await this.leadsRepository.insertLead({
 			attribution: body.attribution ?? null,
 			commune: body.commune || null,
-			deploymentId,
+			deploymentId: activeDeployment?.deploymentId ?? null,
 			// Spec: keep the raw phone as typed; the column only holds E.164.
 			extras: { ...body.extras, _rawPhone: body.phone },
 			name: body.name,
 			phone,
+			productSku: activeDeployment?.productSku ?? null,
 			projectId: project.id,
 			wilaya: body.wilaya || null,
 		});

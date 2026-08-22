@@ -316,6 +316,13 @@
       "when": 1787409305512,
       "tag": "0044_video-pipeline-foundations",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1787413798069,
+      "tag": "0045_product-sku-snapshots",
+      "breakpoints": true
     }
   ]
 }

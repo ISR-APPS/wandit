@@ -50,7 +50,8 @@ export function ProjectLeadsCard({ leads }: ProjectLeadsCardProps) {
 								<TableHead>Phone</TableHead>
 								<TableHead>Location</TableHead>
 								<TableHead>Status</TableHead>
-								<TableHead className="pr-6">Created</TableHead>
+								<TableHead>Created</TableHead>
+								<TableHead className="pr-6">SKU</TableHead>
 							</TableRow>
 						</TableHeader>
 						<TableBody>
@@ -79,10 +80,19 @@ export function ProjectLeadsCard({ leads }: ProjectLeadsCardProps) {
 											{titleCase(lead.status)}
 										</Badge>
 									</TableCell>
-									<TableCell className="pr-6">
+									<TableCell>
 										<time dateTime={lead.createdAt}>
 											{formatProjectDateTime(lead.createdAt)}
 										</time>
+									</TableCell>
+									<TableCell className="pr-6">
+										<span
+											dir="ltr"
+											className="block max-w-32 truncate font-mono text-xs"
+											title={lead.productSku ?? undefined}
+										>
+											{lead.productSku ?? "—"}
+										</span>
 									</TableCell>
 								</TableRow>
 							))}

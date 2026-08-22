@@ -17,6 +17,7 @@ import type { MeteringSubject } from "../modules/credits/domain/credit-owner";
 import "./undici-timeouts";
 
 import { logger, metadata, task } from "@trigger.dev/sdk";
+import { productSkuSchema } from "@wandit/contracts";
 import { and, createDb, desc, eq, gt, inArray } from "@wandit/db";
 import { artifacts, versions } from "@wandit/db/schema/artifacts";
 import { pageGenerationAttempts } from "@wandit/db/schema/page-attempts";
@@ -68,6 +69,7 @@ const attemptSpecSchema = z.object({
 	designerSystemPrompt: z.string().min(1),
 	// Legacy rows already use "website"; older rows may omit the field.
 	pageKind: z.enum(["cod", "website"]).optional(),
+	productSku: productSkuSchema.optional(),
 	title: z.string().min(1),
 });
 
@@ -398,6 +400,7 @@ export const generatePageTask = task({
 						},
 						number: nextNumber,
 						projectId: attempt.projectId,
+						productSku: spec.productSku ?? null,
 						r2Key: key,
 					});
 

@@ -92,7 +92,7 @@ type ToolConfig = {
 };
 
 type NormalizedOutput = {
-	status: "queued" | "unavailable";
+	status: "queued" | "unavailable" | "needs-input";
 	message: string;
 	attemptId?: string;
 	assetId?: string;
@@ -167,6 +167,17 @@ export function AsyncGenerationCard({
 				config={config}
 				detail={output.message}
 				headline={config.failed}
+				tone="muted"
+			/>
+		);
+	}
+
+	if (output.status === "needs-input") {
+		return (
+			<GenerationCardFrame
+				config={config}
+				detail={output.message}
+				headline={config.title}
 				tone="muted"
 			/>
 		);

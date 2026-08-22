@@ -17,6 +17,7 @@ import {
 } from "./media-generations";
 import { aiElementOpSchema, widSchema } from "./page-edits";
 import { PAGE_TOKEN_NAMES } from "./page-theme";
+import { productSkuSchema } from "./shared/primitives";
 import { triggerRealtimeHandleSchema } from "./shared/trigger-realtime";
 import { memberCreditLimitDetailsSchema } from "./workspaces";
 
@@ -401,6 +402,9 @@ export const generatePageInputSchema = z.object({
 	// absent on a COD build the server infers "max" when worldIds ride along
 	// and "simple" otherwise.
 	codMode: z.enum(["simple", "max"]).optional(),
+	// Merchant-provided identifier snapshotted onto COD page versions. Optional
+	// here so historical tool calls and queued attempts keep parsing.
+	productSku: productSkuSchema.optional(),
 });
 
 // Definition moved to shared/trigger-realtime.ts (leaf module) so pages.ts
@@ -414,7 +418,9 @@ export {
 export const generatePageOutputSchema = z.object({
 	// "unavailable" = server missing R2/Trigger credentials; the model relays
 	// that honestly instead of pretending a page is coming.
-	status: z.enum(["queued", "unavailable"]),
+	// "needs-input" = the request is valid but missing user-owned information;
+	// the model follows the message, collects it, and then retries the tool.
+	status: z.enum(["queued", "unavailable", "needs-input"]),
 	attemptId: z.string().uuid().optional(),
 	versionNumber: z.number().int().positive().optional(),
 	// Resolved gateway model snapshotted onto the queued attempt. Optional for

@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 import {
+	buildLeadsCsv,
 	GOOGLE_SHEETS_SCOPE,
 	type Lead,
 	type LeadSource,
@@ -54,7 +55,7 @@ import {
 	leadExtrasLine,
 	minutesSince,
 } from "../../lib/lead-meta";
-import { buildLeadsCsv, shareLeadsCsv } from "../../lib/leads-export";
+import { shareLeadsCsv } from "../../lib/leads-export";
 import { SpinnerArc } from "../spinner-arc";
 import { HubRoundButton } from "./hub-round-button";
 
@@ -180,8 +181,11 @@ export function LeadsView({ projectId, onToast }: LeadsViewProps) {
 				onToast(t("native.workspace.leadsView.exportEmpty"));
 				return;
 			}
-			const csv = buildLeadsCsv(all, dictionary.leads.csvHeaders, (lead) =>
-				t(LEAD_STATUS[lead.status].labelKey),
+			const csv = buildLeadsCsv(
+				all,
+				dictionary.leads.csvHeaders,
+				dictionary.leads.csvOrderHeaders,
+				(lead) => t(LEAD_STATUS[lead.status].labelKey),
 			);
 			await shareLeadsCsv(`wandit-leads-${algiersToday()}.csv`, csv);
 			onToast(
@@ -910,6 +914,9 @@ function LeadCard({
 		...(lead.wilaya ? [lead.wilaya] : []),
 		...(lead.commune ? [lead.commune] : []),
 		...(lead.campaign ? [lead.campaign] : []),
+		...(lead.productSku
+			? [`${t("leads.colSku")}: \u2066${lead.productSku}\u2069`]
+			: []),
 		...(lead.archivedAt !== null
 			? [t("native.workspace.leadsView.archivedTag")]
 			: []),

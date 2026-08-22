@@ -63,6 +63,10 @@ import { SpinnerArc } from "@/features/workspace/components/chat/request-tray/tr
 import { ContactLinks } from "@/features/workspace/components/leads/contact-links";
 import { LeadOrderDetails } from "@/features/workspace/components/leads/lead-order-details";
 import {
+	LeadSkuCell,
+	LeadSkuMobileMeta,
+} from "@/features/workspace/components/leads/lead-sku-cell";
+import {
 	LeadSourceBadge,
 	SOURCE_DOT_CLASS,
 } from "@/features/workspace/components/leads/lead-source-badge";
@@ -557,6 +561,7 @@ function WorkspaceLeadsContent() {
 											<TableHead>{t("leads.colProject")}</TableHead>
 											<TableHead>{t("leads.colSource")}</TableHead>
 											<TableHead>{t("leads.colDate")}</TableHead>
+											<TableHead>{t("leads.colSku")}</TableHead>
 											<TableHead className="text-end">
 												{t("leads.colStatus")}
 											</TableHead>
@@ -605,7 +610,10 @@ function WorkspaceLeadsContent() {
 													})}
 												>
 													{relativeTime(lead.createdAt)}
-												</TableCell>
+											</TableCell>
+											<TableCell>
+												<LeadSkuCell productSku={lead.productSku} />
+											</TableCell>
 												<TableCell>
 													<div className="flex justify-end">
 														<WorkspaceLeadStatus lead={lead} />
@@ -664,11 +672,12 @@ function WorkspaceLeadsContent() {
 											<ContactLinks phone={lead.phone} />
 										</div>
 										<div className="mt-2 flex items-center justify-between gap-2">
-											<span className="min-w-0 truncate text-muted-foreground text-xs">
-												{[lead.projectName, relativeTime(lead.createdAt)].join(
-													" · ",
-												)}
-											</span>
+											<LeadSkuMobileMeta
+												afterSku={relativeTime(lead.createdAt)}
+												beforeSku={[lead.projectName]}
+												productSku={lead.productSku}
+												skuLabel={t("leads.colSku")}
+											/>
 											<LeadSourceBadge
 												campaign={lead.campaign}
 												source={lead.source}

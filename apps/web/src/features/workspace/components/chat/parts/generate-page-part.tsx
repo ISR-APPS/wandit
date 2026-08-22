@@ -103,8 +103,8 @@ export function GeneratePagePart({ part }: { part: GeneratePageToolPart }) {
 		return <StaticBuildingLine versionNumber={part.output.versionNumber} />;
 	}
 
-	// "unavailable" — the server is missing R2/Trigger credentials; relay the
-	// tool's honest message instead of pretending a page is coming.
+	// "needs-input" relays the corrective ask; "unavailable" relays the honest
+	// infrastructure blocker. Neither status should look like a queued build.
 	return (
 		<p dir="auto" className="text-[13px] text-muted-foreground leading-[1.5]">
 			{part.output.message}

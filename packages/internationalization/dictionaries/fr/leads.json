@@ -28,6 +28,7 @@
 	"colPhone": "Téléphone",
 	"colLocation": "Wilaya / Commune",
 	"colDate": "Date",
+	"colSku": "SKU",
 	"colStatus": "Statut",
 	"colSource": "Source",
 	"colActions": "Actions",
@@ -84,7 +85,8 @@
 		"Statut",
 		"Source",
 		"Campagne",
-		"Date"
+		"Date",
+		"SKU"
 	],
 	"csvOrderHeaders": ["Produit", "Quantité", "Prix", "Livraison", "Total"],
 	"orderTotal": "Total",

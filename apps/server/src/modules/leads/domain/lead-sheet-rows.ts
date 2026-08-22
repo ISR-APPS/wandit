@@ -21,6 +21,7 @@ export const LEAD_SHEET_HEADER = [
 	"Statut",
 	"Source",
 	"Date",
+	"SKU",
 ] as const;
 
 const ORDER_LABELS: Record<LeadOrderField, string> = {
@@ -83,6 +84,7 @@ export class LeadSheetGrid {
 			STATUS_LABELS[lead.status],
 			SOURCE_LABELS[lead.source],
 			dateFormatter.format(new Date(lead.createdAt)),
+			lead.productSku ?? "",
 			...this.exportColumns.buildCells(lead.extras),
 		]);
 	}
