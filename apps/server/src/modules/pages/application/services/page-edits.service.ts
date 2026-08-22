@@ -331,7 +331,7 @@ export class PageEditsService {
 	// upload NEW version object → insert row + flip pointer atomically.
 	private async mutate(input: {
 		artifactId: string;
-		baseVersion: { id: string; r2Key: string };
+		baseVersion: { id: string; productSku: string | null; r2Key: string };
 		context?: ApplyOpsContext;
 		expectedActiveVersionId: string;
 		ops: readonly EditOp[];
@@ -388,6 +388,7 @@ export class PageEditsService {
 					source: input.source,
 				},
 				projectId: input.projectId,
+				productSku: input.baseVersion.productSku,
 				...(input.receipt ? { receipt: input.receipt } : {}),
 				r2Key: key,
 				versionId: newVersionId,

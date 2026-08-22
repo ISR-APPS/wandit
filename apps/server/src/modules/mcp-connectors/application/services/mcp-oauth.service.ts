@@ -9,9 +9,12 @@ import {
 } from "@nestjs/common";
 import type { Auth } from "@wandit/auth";
 import {
+	MCP_CODE_PARAM,
 	MCP_CONNECTED_PARAM,
 	MCP_CONNECTOR_PARAM,
 	MCP_ERROR_PARAM,
+	MCP_STATE_PARAM,
+	type McpConnectCompleteRequest,
 	type McpConnectorListItem,
 	type McpConnectStartResponse,
 } from "@wandit/contracts";
@@ -182,13 +185,20 @@ export class McpOauthService {
 			});
 		}
 
-		const sessionUserId = await this.getSessionUserId(requestHeaders);
+		const isMobileReturn = isMobileReturnUrl(pending.returnUrl);
 
-		if (sessionUserId !== pending.userId) {
-			await this.connectionsRepository.clearPendingState(pending.id);
-			return this.redirectUrl(pending.returnUrl, {
-				[MCP_ERROR_PARAM]: "invalid_state",
-			});
+		if (!isMobileReturn) {
+			// Web flow: the callback rides the user's browser, so its session must
+			// belong to whoever started the connect. A mobile in-app auth browser
+			// has no app session — the binding happens in completeConnect instead.
+			const sessionUserId = await this.getSessionUserId(requestHeaders);
+
+			if (sessionUserId !== pending.userId) {
+				await this.connectionsRepository.clearPendingState(pending.id);
+				return this.redirectUrl(pending.returnUrl, {
+					[MCP_ERROR_PARAM]: "invalid_state",
+				});
+			}
 		}
 
 		if (query.error) {
@@ -201,28 +211,28 @@ export class McpOauthService {
 
 		const code = query.code;
 
-		try {
-			if (!code) {
-				throw new Error("OAuth callback is missing its authorization code");
-			}
-
-			const tokens = await this.exchangeCode(
-				pending.connector,
-				pending.clientInfo,
-				code,
-				pending.codeVerifier,
-			);
-			const now = new Date();
-
-			await this.connectionsRepository.saveTokens(pending.id, {
-				accessToken: tokens.accessToken,
-				accessTokenExpiresAt:
-					tokens.expiresIn === null
-						? null
-						: new Date(now.getTime() + tokens.expiresIn * 1_000),
-				refreshToken: tokens.refreshToken,
-				scope: tokens.scope,
+		if (!code) {
+			await this.clearAfterExchangeFailure(pending);
+			return this.redirectUrl(pending.returnUrl, {
+				[MCP_CONNECTOR_PARAM]: pending.connector.slug,
+				[MCP_ERROR_PARAM]: "exchange_failed",
 			});
+		}
+
+		if (isMobileReturn) {
+			// No token exchange here: hand code+state back to the app, which
+			// finishes through the session-authenticated POST /complete — that is
+			// where completer-must-equal-starter is enforced for mobile. The
+			// pending state stays intact for that call to consume.
+			return this.redirectUrl(pending.returnUrl, {
+				[MCP_CONNECTOR_PARAM]: pending.connector.slug,
+				[MCP_STATE_PARAM]: query.state ?? "",
+				[MCP_CODE_PARAM]: code,
+			});
+		}
+
+		try {
+			await this.exchangeAndStoreTokens(pending, code);
 
 			return this.redirectUrl(pending.returnUrl, {
 				[MCP_CONNECTED_PARAM]: pending.connector.slug,
@@ -231,18 +241,125 @@ export class McpOauthService {
 			this.logger.warn(
 				`OAuth exchange failed for MCP connector ${pending.connector.slug}: ${errorName(error)}`,
 			);
-			if (pending.connector.authKind === "mcp_dcr") {
-				await this.connectionsRepository.clearPendingState(pending.id, {
-					clearClientInfo: true,
-				});
-			} else {
-				await this.connectionsRepository.clearPendingState(pending.id);
-			}
+			await this.clearAfterExchangeFailure(pending);
 
 			return this.redirectUrl(pending.returnUrl, {
 				[MCP_CONNECTOR_PARAM]: pending.connector.slug,
 				[MCP_ERROR_PARAM]: "exchange_failed",
 			});
+		}
+	}
+
+	/** Mobile twin of the callback's exchange step: the app posts back the
+	    code+state it received via its deep link, authenticated with its own
+	    session — which must belong to the user who started the connect. */
+	async completeConnect(
+		userId: string,
+		body: McpConnectCompleteRequest,
+	): Promise<McpConnectorListItem> {
+		const pending = await this.connectionsRepository.findByState(body.state);
+
+		if (!pending) {
+			throw new BadRequestException(
+				"This connection request is no longer valid",
+			);
+		}
+
+		// A wrong-user completion rejects WITHOUT clearing: wiping the row here
+		// would let any authenticated caller cancel the real owner's in-flight
+		// connect. Staleness clears as before (the state is dead either way).
+		if (pending.userId !== userId) {
+			throw new BadRequestException(
+				"This connection request is no longer valid",
+			);
+		}
+
+		const isStale =
+			pending.updatedAt.getTime() < Date.now() - OAUTH_STATE_TTL_MS;
+
+		if (isStale) {
+			// Conditional on the state value: an unconditional id-clear here
+			// could wipe a FRESH attempt that reused this row between the read
+			// above and this write.
+			await this.connectionsRepository.claimPendingState(
+				pending.id,
+				body.state,
+			);
+			throw new BadRequestException(
+				"This connection request is no longer valid",
+			);
+		}
+
+		// Claim the state ATOMICALLY before exchanging (clear only while the
+		// row still carries this exact state): of two concurrent duplicate
+		// completions (double deep-link delivery, replayed request) exactly
+		// one wins the conditional write; the loser stops here instead of
+		// racing the exchange or wiping the winner's clientInfo via its
+		// failure path. The in-memory row still carries the connector,
+		// clientInfo and codeVerifier the exchange needs.
+		const claimed = await this.connectionsRepository.claimPendingState(
+			pending.id,
+			body.state,
+		);
+		if (!claimed) {
+			throw new BadRequestException(
+				"This connection request is no longer valid",
+			);
+		}
+
+		try {
+			await this.exchangeAndStoreTokens(pending, body.code);
+		} catch (error) {
+			this.logger.warn(
+				`OAuth exchange failed for MCP connector ${pending.connector.slug}: ${errorName(error)}`,
+			);
+			await this.clearAfterExchangeFailure(pending);
+			throw new BadRequestException("OAuth exchange failed");
+		}
+
+		const connection = await this.connectionsRepository.findByUserAndConnector(
+			userId,
+			pending.connector.id,
+		);
+
+		return this.toListItem(pending.connector, connection ?? undefined);
+	}
+
+	private async exchangeAndStoreTokens(
+		pending: NonNullable<
+			Awaited<ReturnType<McpConnectionsRepository["findByState"]>>
+		>,
+		code: string,
+	): Promise<void> {
+		const tokens = await this.exchangeCode(
+			pending.connector,
+			pending.clientInfo,
+			code,
+			pending.codeVerifier,
+		);
+		const now = new Date();
+
+		await this.connectionsRepository.saveTokens(pending.id, {
+			accessToken: tokens.accessToken,
+			accessTokenExpiresAt:
+				tokens.expiresIn === null
+					? null
+					: new Date(now.getTime() + tokens.expiresIn * 1_000),
+			refreshToken: tokens.refreshToken,
+			scope: tokens.scope,
+		});
+	}
+
+	private async clearAfterExchangeFailure(pending: {
+		id: string;
+		connector: McpConnectorRow;
+	}): Promise<void> {
+		if (pending.connector.authKind === "mcp_dcr") {
+			await this.connectionsRepository.clearPendingState(pending.id, {
+				clearClientInfo: true,
+			});
+		} else {
+			await this.connectionsRepository.clearPendingState(pending.id);
 		}
 	}
 
@@ -291,8 +408,13 @@ export class McpOauthService {
 	}
 
 	private assertAllowedReturnUrl(returnUrl: string): void {
+		if (isMobileReturnUrl(returnUrl)) {
+			return;
+		}
 		if (new URL(returnUrl).origin !== new URL(env.CORS_ORIGIN).origin) {
-			throw new BadRequestException("returnUrl must use the web app origin");
+			throw new BadRequestException(
+				"returnUrl must use the web app origin or the mobile app scheme",
+			);
 		}
 	}
 
@@ -340,6 +462,9 @@ export class McpOauthService {
 		}
 
 		try {
+			if (isMobileReturnUrl(returnUrl)) {
+				return returnUrl;
+			}
 			return new URL(returnUrl).origin === new URL(env.CORS_ORIGIN).origin
 				? returnUrl
 				: env.CORS_ORIGIN;
@@ -371,4 +496,30 @@ export class McpOauthService {
 
 function errorName(error: unknown): string {
 	return error instanceof Error ? error.name : "UnknownError";
+}
+
+/** Mirrors the Better Auth trustedOrigins mobile entries (packages/auth):
+    the production scheme always; Expo Go dev links and the Metro web origin
+    only OUTSIDE production. An exp:// deep link loads whatever bundle its
+    host serves (attacker-controlled code in Expo Go), so forwarding the
+    OAuth code to arbitrary exp hosts must stay a dev-only convenience —
+    wandit: always opens the installed app, whose completeConnect call is
+    then bound to the starter's user id. */
+function isMobileReturnUrl(returnUrl: string | null | undefined): boolean {
+	if (!returnUrl) {
+		return false;
+	}
+
+	try {
+		const url = new URL(returnUrl);
+		if (url.protocol === "wandit:") {
+			return true;
+		}
+		return (
+			env.NODE_ENV !== "production" &&
+			(url.protocol === "exp:" || url.origin === "http://localhost:8081")
+		);
+	} catch {
+		return false;
+	}
 }

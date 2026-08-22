@@ -1,12 +1,12 @@
-import * as Haptics from "expo-haptics";
 import {
 	type AudioRecorder,
-	RecordingPresets,
 	type RecordingOptions,
+	RecordingPresets,
 	requestRecordingPermissionsAsync,
 	setAudioModeAsync,
 	useAudioRecorder,
 } from "expo-audio";
+import * as Haptics from "expo-haptics";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Platform } from "react-native";
 
@@ -200,13 +200,7 @@ export function useVoiceDictation(
 				}
 			}
 		},
-		[
-			recorder,
-			restoreAudioMode,
-			setSafeStatus,
-			setSafeStopping,
-			tickHaptic,
-		],
+		[recorder, restoreAudioMode, setSafeStatus, setSafeStopping, tickHaptic],
 	);
 
 	const finishRecording = useCallback(
@@ -229,13 +223,7 @@ export function useVoiceDictation(
 
 			await stopRecorder({ haptic, session, upload });
 		},
-		[
-			clearError,
-			clearTimers,
-			setSafeStatus,
-			setSafeStopping,
-			stopRecorder,
-		],
+		[clearError, clearTimers, setSafeStatus, setSafeStopping, stopRecorder],
 	);
 
 	const startElapsedClock = useCallback(
@@ -380,7 +368,9 @@ function isRecorderRecording(recorder: AudioRecorder) {
 	try {
 		return recorder.isRecording || recorder.getStatus().isRecording;
 	} catch {
-		return recorder.isRecording;
+		// The recorder's native shared object can already be released (e.g. on
+		// remount) — reading it again here would rethrow during render.
+		return false;
 	}
 }
 
@@ -388,7 +378,7 @@ function getRecorderUri(recorder: AudioRecorder) {
 	try {
 		return recorder.uri ?? recorder.getStatus().url;
 	} catch {
-		return recorder.uri;
+		return null;
 	}
 }
 
@@ -411,10 +401,7 @@ function getTranscriptionErrorMessage(
 	messages: VoiceDictationMessages,
 ) {
 	if (isApiClientError(error)) {
-		if (
-			error.statusCode === 413 ||
-			error.code === "AUDIO_FILE_TOO_LARGE"
-		) {
+		if (error.statusCode === 413 || error.code === "AUDIO_FILE_TOO_LARGE") {
 			return messages.recordingTooLargeError;
 		}
 

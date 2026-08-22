@@ -32,13 +32,23 @@ export const ATTACHMENT_ACCEPT = [
 	".xlsx",
 ].join(",");
 
-/** Server-enforced cap (@fastify/multipart fileSize) — pre-checked client-side. */
+/** Existing image/document cap, also used by the still-image source picker. */
 export const ATTACHMENT_MAX_BYTES = 15 * 1024 * 1024;
+
+const VIDEO_ATTACHMENT_MAX_BYTES = 50 * 1024 * 1024;
+const AUDIO_ATTACHMENT_MAX_BYTES = 25 * 1024 * 1024;
+
+/** Mirror the server's MIME-category limits for instant client feedback. */
+export function attachmentMaxBytesFor(mediaType: string): number {
+	if (mediaType.startsWith("video/")) return VIDEO_ATTACHMENT_MAX_BYTES;
+	if (mediaType.startsWith("audio/")) return AUDIO_ATTACHMENT_MAX_BYTES;
+	return ATTACHMENT_MAX_BYTES;
+}
 
 /** Typed upload failure so the UI can pick the right dictionary string. */
 export type AttachmentUploadErrorReason =
 	| "unsupported" // 415 — media type outside the allowlist
-	| "too-large" // 413 — over the 15 MiB multipart cap
+	| "too-large" // 413 — over the MIME-category size cap
 	| "failed"; // anything else (network, 5xx, storage unavailable)
 
 export class AttachmentUploadError extends Error {

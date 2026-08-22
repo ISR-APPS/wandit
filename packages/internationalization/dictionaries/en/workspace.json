@@ -301,6 +301,22 @@
 					"active": "Generating the video",
 					"past": "Generated the video"
 				},
+				"show_marketing_studio": {
+					"active": "Opening the Marketing Studio library",
+					"past": "Opened the Marketing Studio library"
+				},
+				"video_analysis_create": {
+					"active": "Watching the reference video",
+					"past": "Watched the reference video"
+				},
+				"video_analysis_status": {
+					"active": "Checking the video analysis",
+					"past": "Checked the video analysis"
+				},
+				"video_analysis_jobs": {
+					"active": "Listing video analyses",
+					"past": "Listed video analyses"
+				},
 				"generate_audio": {
 					"active": "Generating the audio",
 					"past": "Generated the audio"
@@ -360,6 +376,10 @@
 				"show_generations": {
 					"active": "Loading your creations",
 					"past": "Loaded your creations"
+				},
+				"list_voices": {
+					"active": "Loading available voices",
+					"past": "Loaded available voices"
 				},
 				"tiktok_accounts": {
 					"active": "Checking TikTok accounts",
@@ -606,6 +626,7 @@
 			"interrupted": "Interrupted",
 			"skippedDeclined": "Skipped — you declined",
 			"arguments": "Arguments",
+			"moreArguments": "+{count} more",
 			"generation": {
 				"working": "Generating your media…",
 				"workingHint": "{connector} is on it — the finished result lands right here the moment it's ready.",
@@ -619,6 +640,9 @@
 				"statusGenerating": "Generating",
 				"usually": "usually 2–4 min"
 			}
+		},
+		"generation": {
+			"downloadFailed": "The download failed — try again."
 		},
 		"askUser": {
 			"questionsTitle": "A few questions",
@@ -650,6 +674,48 @@
 			"ready": "Ready",
 			"open": "Open",
 			"download": "Download"
+		},
+		"videoAttempt": {
+			"statusLoadError": "Couldn't load the video status — reopen this chat to retry.",
+			"inQueue": "In queue",
+			"extractingFrame": "Preparing piece {current} of {total}…",
+			"extractingFrameFallback": "Preparing the next piece…",
+			"renderingPiece": "Rendering piece {current} of {total}…",
+			"renderingPieceFallback": "Rendering the next piece…",
+			"joining": "Joining the pieces…",
+			"narration": "Laying the narration…",
+			"narrationFailed": "The video is ready, but narration could not be added. The clip is silent.",
+			"publish": "Publish",
+			"published": "Published",
+			"download": "Download",
+			"viewAssets": "View in Assets",
+			"play": "Play {title}",
+			"edit": {
+				"preparing": "Preparing the video edit…",
+				"queueing": "Queueing the edit…",
+				"failedToStart": "Video edit failed to start",
+				"failedTitle": "Video edit failed",
+				"failedBody": "The edit stopped before the video was ready.",
+				"prepared": "Edit instructions ready",
+				"active": "Editing the {seconds}-second video…",
+				"done": "Edited the {seconds}-second video",
+				"publishing": "Publishing the edited video…",
+				"complete": "Edit complete",
+				"ready": "Edited video ready."
+			},
+			"extend": {
+				"preparing": "Preparing the continuation…",
+				"queueing": "Queueing the extension…",
+				"failedToStart": "Video extension failed to start",
+				"failedTitle": "Video extension failed",
+				"failedBody": "The extension stopped before the longer video was ready.",
+				"prepared": "Continuation planned",
+				"active": "Extending the video to {seconds} seconds…",
+				"done": "Extended the video to {seconds} seconds",
+				"publishing": "Publishing the longer video…",
+				"complete": "Extension complete",
+				"ready": "Extended video ready."
+			}
 		},
 		"tray": {
 			"preparing": "Preparing the question…",
@@ -719,13 +785,211 @@
 			"readyTitle": "Images ready",
 			"download": "Download",
 			"inAssetsTab": "Also available in the Assets tab",
-			"placementFailed": "Couldn't apply it to the page — the image is in your Assets"
+			"placementFailed": "Couldn't apply it to the page — the image is in your Assets",
+			"readyCount": "{ready} of {total} ready"
 		},
 		"media": {
 			"close": "Close",
 			"download": "Download",
+			"downloadFailed": "The download failed — try again.",
+			"imageLoadError": "Image failed to load",
 			"previous": "Previous",
 			"next": "Next"
+		},
+		"markdown": {
+			"expandTable": "Full screen",
+			"closeTable": "Close",
+			"tapToLoadImage": "Tap to load the image",
+			"imageLoadFailed": "The image failed to load — tap to retry"
+		},
+		"pageBuild": {
+			"buildingNoVersion": "Building your page",
+			"readyTitle": "v{n} is ready",
+			"readyNoVersion": "Your page is ready",
+			"failedTitle": "Build failed",
+			"headline": {
+				"starting": "Starting up…",
+				"art": "Generating the product art…",
+				"writing": "Writing the page…",
+				"reviewing": "Reviewing the page…",
+				"fixing": "Applying fixes…",
+				"finishing": "Publishing the page…"
+			},
+			"succeededHeadline": "The finished page is in your project.",
+			"failedHeadline": "The build stopped before finishing — ask me to retry.",
+			"disconnectedHeadline": "Live progress lost — the finished page will still arrive.",
+			"steps": {
+				"artActive": "Generating the product art…",
+				"artDone": "Generated the product art",
+				"artPending": "Generate the product art",
+				"pageActive": "Writing the page…",
+				"pageDone": "Wrote the page",
+				"pagePending": "Write the page",
+				"reviewActive": "Capturing each section to review…",
+				"reviewDone": "Screenshot-reviewed the page",
+				"reviewPending": "Screenshot & review the page",
+				"fixesActive": "Applying fixes…",
+				"fixesDone": {
+					"one": "Applied 1 fix",
+					"other": "Applied {count} fixes"
+				},
+				"finishActive": "Publishing the page…",
+				"finishDone": "Handed over — the page is ready",
+				"finishPending": "Final check & handover"
+			},
+			"imagesCount": {
+				"one": "{count} image",
+				"other": "{count} images"
+			},
+			"videosCount": {
+				"one": "{count} video",
+				"other": "{count} videos"
+			},
+			"sectionsCount": {
+				"one": "{count} section",
+				"other": "{count} sections"
+			},
+			"passOf": "pass {current} of {target}",
+			"fixesBadge": "×{count}",
+			"live": {
+				"kicker": "Published · Live",
+				"headline": "Your page is live.",
+				"subtitle": "Point your ads here and start collecting orders.",
+				"view": "View live page",
+				"draftHeadline": "Your page is ready.",
+				"draftSubtitle": "Publish it free to get your public link.",
+				"publishCta": "Publish free",
+				"publishing": "Publishing…",
+				"publishError": "Publishing failed — try again."
+			},
+			"stoppedKicker": "Stopped",
+			"stoppedBody": "You stopped this build.",
+			"stoppedFallbackTitle": "Your page",
+			"resume": "Resume",
+			"resuming": "Resuming…",
+			"discard": "Discard",
+			"discarding": "Discarding…",
+			"topUp": "Top up wallet",
+			"retry": "Retry",
+			"retrying": "Retrying…",
+			"dismiss": "Dismiss",
+			"dismissing": "Dismissing…",
+			"receiptStopped": "Build stopped — discarded.",
+			"receiptStoppedAt": "Build stopped at {percent}% — discarded.",
+			"receiptDismissed": "Failed build dismissed.",
+			"errorCode": "error · {code}",
+			"openPageTab": "Open the Page tab"
+		},
+		"leadScrape": {
+			"title": "Scraping leads",
+			"loadError": "Couldn't load the scrape status.",
+			"failedTitle": "Lead scrape failed",
+			"failedDetail": "The scrape stopped before finishing.",
+			"steps": {
+				"brief": "Parsed the brief",
+				"searchingActive": "Searching Google Maps…",
+				"searchingDone": "Searched Google Maps",
+				"extractingActive": "Extracting contacts…",
+				"extractingDone": "Extracted contacts",
+				"verifyingActive": "Verifying emails & de-duplicating…",
+				"verifyingDone": "Verified emails & de-duplicated",
+				"exportingActive": "Exporting to .xlsx…",
+				"exportingDone": "Exported to .xlsx"
+			},
+			"foundBadge": {
+				"one": "{count} found",
+				"other": "{count} found"
+			},
+			"ready": "Ready",
+			"rowsCount": {
+				"one": "{count} row",
+				"other": "{count} rows"
+			},
+			"columnsCount": {
+				"one": "{count} column",
+				"other": "{count} columns"
+			},
+			"columnBusiness": "Business",
+			"columnPhone": "Phone",
+			"columnEmail": "Email",
+			"moreRows": {
+				"one": "+{count} more row",
+				"other": "+{count} more rows"
+			},
+			"download": "Download .xlsx",
+			"downloading": "Downloading…",
+			"downloadError": "The download failed — try again."
+		},
+		"generateVideo": {
+			"title": "Video",
+			"preparing": "Composing the creative brief…",
+			"queueing": "Writing the director's cut…",
+			"failedToStart": "Video generation failed to start",
+			"queuedTitle": "In queue",
+			"generatingTitle": "Rendering…",
+			"statusLoadError": "Couldn't load the video status — reopen this chat to retry.",
+			"failedTitle": "Video generation failed",
+			"failedBody": "The render stopped before finishing.",
+			"retry": "Retry",
+			"directorsCut": "Director's cut written",
+			"renderingClip": "Rendering the {seconds}-second clip…",
+			"renderedClip": "Rendered the {seconds}-second clip",
+			"inQueue": "In queue",
+			"publish": "Publish",
+			"publishing": "Publishing…",
+			"published": "Published",
+			"allStepsDone": "All steps done",
+			"readyTitle": "Video ready",
+			"download": "Download",
+			"viewInAssets": "View in Assets",
+			"play": "Play {title}"
+		},
+		"pageBuildFailure": {
+			"insufficient_credits": {
+				"kicker": "Can't generate",
+				"title": "You're out of credits.",
+				"message": "This build couldn't reserve the credits it needs. Your last version is safe — top up and retry."
+			},
+			"internal_error": {
+				"kicker": "Something went wrong",
+				"title": "The build stopped unexpectedly.",
+				"message": "Something went wrong on our side. Your last version is safe — please retry."
+			},
+			"invalid_output": {
+				"kicker": "Something went wrong",
+				"title": "The build didn't produce a valid page.",
+				"message": "The builder's output failed our quality checks, so nothing was published. Your last version is safe — a retry usually fixes it."
+			},
+			"member_limit": {
+				"kicker": "Can't generate",
+				"title": "Your member credit limit was reached.",
+				"message": "This build needs more credits than your monthly workspace limit allows. Ask a workspace admin to raise it, then retry."
+			},
+			"provider_error": {
+				"kicker": "Provider issue",
+				"title": "The AI provider had an error.",
+				"message": "Something broke on the model provider's side — not on Wandit. Your last version is safe; a retry usually works."
+			},
+			"provider_overloaded": {
+				"kicker": "Provider issue",
+				"title": "The AI provider is at capacity.",
+				"message": "The model provider (not Wandit) is temporarily overloaded. Your last version is safe — try again in a minute."
+			},
+			"provider_rate_limited": {
+				"kicker": "Provider issue",
+				"title": "The AI provider is busy right now.",
+				"message": "Too many requests hit the model provider at once — this isn't a Wandit problem. Your last version is safe; try again in a minute."
+			},
+			"provider_timeout": {
+				"kicker": "Provider issue",
+				"title": "The AI provider took too long.",
+				"message": "The model provider stopped responding mid-build — not a Wandit issue. Your last version is safe — please retry."
+			},
+			"storage_failure": {
+				"kicker": "Something went wrong",
+				"title": "Saving the finished page failed.",
+				"message": "The page was built, but uploading it failed on our side. Your last version is safe — please retry."
+			}
 		}
 	},
 	"page": {

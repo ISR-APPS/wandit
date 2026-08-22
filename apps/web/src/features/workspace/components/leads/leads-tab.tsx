@@ -2,7 +2,12 @@
 // desktop table / mobile card list with call & WhatsApp shortcuts, inline
 // status pipeline and complete CSV export, paginated server-side.
 
-import type { Lead, LeadSource, LeadsQuery } from "@wandit/contracts";
+import {
+	buildLeadsCsv,
+	type Lead,
+	type LeadSource,
+	type LeadsQuery,
+} from "@wandit/contracts";
 import { Button } from "@wandit/ui/components/button";
 import {
 	DropdownMenu,
@@ -48,7 +53,12 @@ import {
 import { useDeferredValue, useMemo, useState } from "react";
 import { toast } from "sonner";
 
-import { formatDate, useDictionary, useTranslation } from "@/lib/i18n";
+import {
+	formatDate,
+	pageTitleDynamic,
+	useDictionary,
+	useTranslation,
+} from "@/lib/i18n";
 import { relativeTime } from "@/lib/relative-time";
 import type { LeadStatus } from "../../api/dto";
 import { useUpdateLeadArchive } from "../../api/leads.mutations";
@@ -60,11 +70,7 @@ import {
 	LEAD_STATUS_ORDER,
 	LEADS_PAGE_SIZE,
 } from "../../lib/constants";
-import {
-	buildLeadsCsv,
-	downloadTextFile,
-	formatPhone,
-} from "../../lib/helpers";
+import { downloadTextFile, formatPhone } from "../../lib/helpers";
 import {
 	getLeadDateRange,
 	type LeadDateFilter,
@@ -73,6 +79,7 @@ import { useWorkspace } from "../../lib/store";
 import { CodPilotSyncButton } from "./cod-pilot-sync-button";
 import { ContactLinks } from "./contact-links";
 import { LeadOrderDetails } from "./lead-order-details";
+import { LeadSkuCell, LeadSkuMobileMeta } from "./lead-sku-cell";
 import { LeadSourceBadge, SOURCE_DOT_CLASS } from "./lead-source-badge";
 import { LeadStatusSelect } from "./lead-status-select";
 import { LeadsCounters } from "./leads-counters";
@@ -262,6 +269,7 @@ export function LeadsTab() {
 					exportLeads,
 					dictionary.leads.csvHeaders,
 					dictionary.leads.csvOrderHeaders,
+					(lead) => pageTitleDynamic(`leads.status.${lead.status}`),
 				),
 			);
 			toast.success(t("leads.exportedToast", { count: exportLeads.length }));
@@ -461,6 +469,7 @@ export function LeadsTab() {
 										<TableHead>{t("leads.colLocation")}</TableHead>
 										<TableHead>{t("leads.colSource")}</TableHead>
 										<TableHead>{t("leads.colDate")}</TableHead>
+										<TableHead>{t("leads.colSku")}</TableHead>
 										<TableHead className="text-end">
 											{t("leads.colStatus")}
 										</TableHead>
@@ -516,6 +525,9 @@ export function LeadsTab() {
 												{relativeTime(lead.createdAt)}
 											</TableCell>
 											<TableCell>
+												<LeadSkuCell productSku={lead.productSku} />
+											</TableCell>
+											<TableCell>
 												<div className="flex justify-end">
 													<LeadStatusSelect lead={lead} />
 												</div>
@@ -552,11 +564,12 @@ export function LeadsTab() {
 										<ContactLinks phone={lead.phone} />
 									</div>
 									<div className="mt-2 flex items-center justify-between gap-2">
-										<span className="min-w-0 truncate text-muted-foreground text-xs">
-											{[lead.wilaya, lead.commune, relativeTime(lead.createdAt)]
-												.filter((part) => part !== null)
-												.join(" · ")}
-										</span>
+										<LeadSkuMobileMeta
+											afterSku={relativeTime(lead.createdAt)}
+											beforeSku={[lead.wilaya, lead.commune]}
+											productSku={lead.productSku}
+											skuLabel={t("leads.colSku")}
+										/>
 										<LeadSourceBadge
 											campaign={lead.campaign}
 											source={lead.source}

@@ -168,6 +168,7 @@ export function createGeneratePageTool(
 			brief,
 			codMode,
 			pageKind,
+			productSku,
 			title,
 			worldId,
 			worldIds,
@@ -186,9 +187,6 @@ export function createGeneratePageTool(
 				};
 			}
 
-			const artifact = await deps.pagesRepository.findOrCreateLandingArtifact(
-				deps.projectId,
-			);
 			// Snapshotted NOW so later prompt, model, or environment changes
 			// never change what this attempt meant. The selected design-world bible
 			// or server-sampled simple recipe rides inside the same snapshot — the
@@ -212,6 +210,22 @@ export function createGeneratePageTool(
 			const isCod =
 				pageKind === "cod" ||
 				resolvedWorlds.some((world) => world.kind === "cod");
+
+			if (isCod && !productSku) {
+				return {
+					message:
+						"Cannot queue this COD page yet: productSku is missing. Ask " +
+						"the user for the merchant's exact product SKU first (or any " +
+						"short internal product code they want on their orders), then " +
+						"call generate_page again with that exact value. Never invent " +
+						"or reformat it.",
+					status: "needs-input",
+				};
+			}
+
+			const artifact = await deps.pagesRepository.findOrCreateLandingArtifact(
+				deps.projectId,
+			);
 			// The mode default is inference, not a coin flip: a max build always
 			// rides on worlds (the Brain samples them), so a world-less COD call
 			// means the simple flow — and historical calls with worlds keep meaning
@@ -279,6 +293,7 @@ export function createGeneratePageTool(
 					...(resolvedCodMode ? { codMode: resolvedCodMode } : {}),
 					designerSystemPrompt,
 					pageKind: isCod ? "cod" : "website",
+					...(productSku ? { productSku } : {}),
 					title,
 				},
 			});

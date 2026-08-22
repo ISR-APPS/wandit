@@ -275,6 +275,19 @@ export const AI_INVOCATION_COVERAGE = [
 			"apps/server/src/modules/ai-chat/agent/site-builder/generate-video.ts",
 	},
 	{
+		billing: { kind: "metered", operation: "video" },
+		id: "standalone-video-edit",
+		marker: "export async function editVideo",
+		source: "apps/server/src/modules/ai-chat/agent/site-builder/edit-video.ts",
+	},
+	{
+		billing: { kind: "metered", operation: "video" },
+		id: "standalone-video-extension",
+		marker: "export function resolveVideoGenerationPlan",
+		source:
+			"apps/server/src/modules/media-generations/domain/video-quality-models.ts",
+	},
+	{
 		billing: { kind: "metered", operation: "marketing" },
 		id: "marketing",
 		marker: "generateMarketingAssetHtml",
@@ -306,6 +319,13 @@ export const AI_INVOCATION_COVERAGE = [
 		marker: "model.doGenerate({",
 		source:
 			"apps/server/src/modules/generation/application/services/transcription.service.ts",
+	},
+	{
+		billing: { bundledInto: "video", kind: "bundled" },
+		id: "video-voiceover-bundled",
+		marker: "experimental_generateSpeech({",
+		source:
+			"apps/server/src/modules/generation/application/services/speech.service.ts",
 	},
 	{
 		billing: { kind: "metered", operation: "chat" },

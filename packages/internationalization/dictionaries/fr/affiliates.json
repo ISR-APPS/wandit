@@ -1,0 +1,147 @@
+{
+	"metaTitle": "Espace affilié — Wandit",
+	"title": "Affiliation",
+	"navLabel": "Affiliation",
+	"sidebarGroup": "Programme d'affiliation",
+	"pausedNotice": "Ton compte affilié est en pause. Tu peux toujours consulter ton activité ici ; contacte-nous si tu penses qu'il s'agit d'une erreur.",
+	"notPartner": {
+		"title": "Cette page est réservée aux partenaires Wandit",
+		"body": "Ton compte n'est pas lié à un profil affilié. Si tu es partenaire, contacte-nous pour obtenir de l'aide.",
+		"refresh": "Actualiser",
+		"backToDashboard": "Retour au tableau de bord"
+	},
+	"status": {
+		"active": "Actif",
+		"paused": "En pause"
+	},
+	"stats": {
+		"clicks": "Clics",
+		"uniqueVisitors": {
+			"one": "{count} visiteur unique",
+			"other": "{count} visiteurs uniques"
+		},
+		"signups": "Inscriptions",
+		"payingCustomers": "Clients payants",
+		"paidInvoices": {
+			"one": "{count} facture réglée",
+			"other": "{count} factures réglées"
+		},
+		"referredRevenue": "Chiffre d'affaires généré",
+		"pendingCommission": "Commissions en attente",
+		"approvedCommission": "Commissions approuvées (payables)",
+		"paidOut": "Commissions versées",
+		"balance": "Solde",
+		"noCommissions": "Aucune commission pour l'instant",
+		"currencyLabel": "Récapitulatif en {currency}"
+	},
+	"tabs": {
+		"links": "Liens",
+		"referrals": "Parrainages",
+		"commissions": "Commissions",
+		"payouts": "Versements"
+	},
+	"links": {
+		"title": "Liens de parrainage",
+		"code": "Code",
+		"program": "Programme",
+		"status": "Statut",
+		"clicks": "Clics",
+		"signups": "Inscriptions",
+		"paying": "Clients payants",
+		"shareLink": "Lien de partage",
+		"copy": "Copier",
+		"copied": "Lien copié",
+		"copyFailed": "Impossible de copier le lien",
+		"empty": "Aucun lien de parrainage pour l'instant",
+		"expires": "Expire le {date}",
+		"programArchived": "Programme archivé"
+	},
+	"referrals": {
+		"title": "Utilisateurs parrainés",
+		"email": "E-mail",
+		"signedUp": "Inscription",
+		"link": "Lien",
+		"terms": "Conditions",
+		"status": "Statut",
+		"paidInvoices": "Factures réglées",
+		"lastPaid": "Dernier paiement",
+		"revenue": "Revenu",
+		"commission": "Commission",
+		"empty": "Aucun utilisateur parrainé pour l'instant",
+		"filterAll": "Tous les statuts",
+		"active": "Actif",
+		"voided": "Annulé"
+	},
+	"commissions": {
+		"title": "Registre des commissions",
+		"date": "Date",
+		"type": "Type",
+		"referral": "Filleul",
+		"link": "Lien",
+		"base": "Montant de base",
+		"rate": "Taux",
+		"amount": "Commission",
+		"status": "Statut",
+		"holdUntil": "En attente jusqu'au",
+		"payout": "Versement",
+		"empty": "Aucune écriture de commission pour l'instant",
+		"filterAll": "Tous les statuts"
+	},
+	"payouts": {
+		"title": "Historique des versements",
+		"created": "Créé le",
+		"period": "Période",
+		"total": "Total",
+		"method": "Mode",
+		"reference": "Référence",
+		"status": "Statut",
+		"entries": "Écritures",
+		"empty": "Aucun versement pour l'instant"
+	},
+	"terms": {
+		"percentageRecurring": "Commission récurrente de {rate}",
+		"fixedOneTime": "Prime unique de {amount}",
+		"forMonths": {
+			"one": "pendant {count} mois",
+			"other": "pendant {count} mois"
+		},
+		"lifetime": "à vie",
+		"holdDays": {
+			"one": "{count} jour de blocage",
+			"other": "{count} jours de blocage"
+		}
+	},
+	"commissionStatus": {
+		"pending": "En attente",
+		"approved": "Approuvée",
+		"paid": "Versée",
+		"reversed": "Annulée"
+	},
+	"payoutStatus": {
+		"draft": "Brouillon",
+		"processing": "En cours",
+		"paid": "Versé",
+		"failed": "Échec"
+	},
+	"linkStatus": {
+		"active": "Actif",
+		"paused": "En pause",
+		"expired": "Expiré"
+	},
+	"entryType": {
+		"earning": "Gain",
+		"adjustment": "Ajustement"
+	},
+	"payoutMethod": {
+		"manual": "Manuel",
+		"paypal": "PayPal",
+		"wise": "Wise"
+	},
+	"pagination": {
+		"previous": "Précédent",
+		"next": "Suivant",
+		"pageOf": "Page {page} sur {total}"
+	},
+	"loadError": "Impossible de charger tes données d'affiliation.",
+	"retry": "Réessayer"
+}

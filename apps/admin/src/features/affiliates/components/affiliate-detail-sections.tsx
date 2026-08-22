@@ -19,6 +19,7 @@ import {
 	AlertDialogHeader,
 	AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
 	SheetDescription,
@@ -55,11 +56,15 @@ export function AffiliateDetailHeader({
 							{detail.affiliate.name}
 						</SheetTitle>
 						<AffiliateStatusBadge status={detail.affiliate.status} />
+						<PortalAccessBadge enabled={Boolean(detail.affiliate.userId)} />
 					</div>
 					<SheetDescription className="mt-1">
 						{detail.affiliate.email}
 						{detail.affiliate.company ? ` · ${detail.affiliate.company}` : ""}
 					</SheetDescription>
+					<p className="mt-1 text-muted-foreground text-xs">
+						Linked user: {linkedUserLabel(detail)}
+					</p>
 					<p className="mt-1 font-mono text-[10px] text-muted-foreground">
 						{detail.affiliate.id}
 					</p>
@@ -179,7 +184,7 @@ export function PartnerDetails({ detail }: { detail: AffiliateDetail }) {
 		["Payout method", titleCaseAffiliateValue(detail.affiliate.payoutMethod)],
 		["Channel", detail.affiliate.channel ?? "Not set"],
 		["Country", detail.affiliate.country ?? "Not set"],
-		["Linked user", detail.affiliate.userId ?? "Standalone profile"],
+		["Linked user", linkedUserLabel(detail)],
 		["Created", formatAffiliateDateTime(detail.affiliate.createdAt)],
 		["Last updated", formatAffiliateDateTime(detail.affiliate.updatedAt)],
 	];
@@ -192,6 +197,12 @@ export function PartnerDetails({ detail }: { detail: AffiliateDetail }) {
 						<p className="mt-1 break-all text-sm">{value}</p>
 					</div>
 				))}
+				<div>
+					<p className="text-muted-foreground text-xs">Portal access</p>
+					<div className="mt-1">
+						<PortalAccessBadge enabled={Boolean(detail.affiliate.userId)} />
+					</div>
+				</div>
 			</div>
 			<div>
 				<h3 className="font-semibold text-sm">Payout details</h3>
@@ -261,6 +272,27 @@ export function DeactivateAffiliateLinkDialog({
 }
 
 const detailSkeletonKeys = ["identity", "traffic", "users", "revenue", "links"];
+
+function PortalAccessBadge({ enabled }: { enabled: boolean }) {
+	return (
+		<Badge
+			variant="outline"
+			className={
+				enabled
+					? "border-emerald-500/25 bg-emerald-500/8 text-emerald-700 dark:text-emerald-300"
+					: "text-muted-foreground"
+			}
+		>
+			Portal access: {enabled ? "On" : "Off"}
+		</Badge>
+	);
+}
+
+function linkedUserLabel(detail: AffiliateDetail) {
+	return detail.linkedUser
+		? `${detail.linkedUser.name} · ${detail.linkedUser.email}`
+		: "No linked account";
+}
 
 async function copyText(value: string, success: string) {
 	try {

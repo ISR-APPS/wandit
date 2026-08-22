@@ -1,0 +1,59 @@
+# Builds the iOS app on EAS and submits it to TestFlight on each push to
+# staging or main that touches mobile code (the paths filter below — web-only
+# or server-only pushes do not build). staging uses the staging EAS profile
+# (api-staging URLs), main uses the production profile. The GitHub job only
+# queues the build (--no-wait); EAS builds, then auto-submits with the App
+# Store Connect API key stored in EAS credentials. Needs the EXPO_TOKEN
+# repository secret.
+name: Mobile TestFlight
+
+on:
+  push:
+    branches: [main, staging]
+    paths:
+      # apps/native plus the workspace packages it depends on (transitives
+      # included — the set closes on these five).
+      - "apps/native/**"
+      - "packages/config/**"
+      - "packages/contracts/**"
+      - "packages/env/**"
+      - "packages/internationalization/**"
+      - "packages/preview-editor/**"
+      - "pnpm-lock.yaml"
+      - ".github/workflows/mobile-testflight.yml"
+  workflow_dispatch: {}
+
+concurrency:
+  group: mobile-testflight-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  eas-build-submit:
+    name: EAS build + TestFlight submit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # Profile follows the branch, same pattern as trigger-deploy.yml.
+      - name: Build and submit to TestFlight
+        working-directory: apps/native
+        run: eas build --platform ios --profile ${{ github.ref_name == 'main' && 'production' || 'staging' }} --non-interactive --no-wait --auto-submit

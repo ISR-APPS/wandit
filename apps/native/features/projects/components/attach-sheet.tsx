@@ -1,55 +1,52 @@
 import { useTranslation } from "@wandit/internationalization/react";
 import { useThemeColor } from "heroui-native";
 import { Pressable, Text, View } from "react-native";
-
-import { WanditIcon, type WanditIconName } from "@/components/wandit-icon";
-import { useAppTheme } from "@/contexts/app-theme-context";
-import { ICON_STROKE } from "@/shared/lib/brand";
+import type { WanditIconName } from "@/components/wandit-icon";
+import { WanditIcon } from "@/components/wandit-icon";
 import { AppBottomSheet } from "@/shared/ui/bottom-sheet";
-
-export type AttachSource = "files" | "camera" | "library";
 
 type AttachSheetProps = {
 	isOpen: boolean;
 	onOpenChange: (open: boolean) => void;
-	onPick: (source: AttachSource) => void;
 	/** Opens the skill select dialog (the sheet closes itself first). */
 	onAttachSkill: () => void;
 	/** Attached-skill count shown on the skill row. */
 	skillCount: number;
+	/** Camera capture → upload (the sheet closes itself first). */
+	onTakePhoto: () => void;
+	/** Photo library picker → upload (the sheet closes itself first). */
+	onPickFromLibrary: () => void;
+	/** Document picker → upload (the sheet closes itself first). */
+	onBrowseFiles: () => void;
+	/** Opens the MCP connectors sheet (the sheet closes itself first). */
+	onConnectApps: () => void;
 };
 
-type AttachRowKey =
-	| "native.attach.browseFiles"
-	| "native.attach.takePhoto"
-	| "native.attach.photoLibrary";
-
-const ROWS: {
-	source: AttachSource;
-	icon: WanditIconName;
-	key: AttachRowKey;
-}[] = [
-	{ source: "files", icon: "folder", key: "native.attach.browseFiles" },
-	{ source: "camera", icon: "camera", key: "native.attach.takePhoto" },
-	{ source: "library", icon: "image", key: "native.attach.photoLibrary" },
-];
-
 /**
- * The [+] action sheet (dark prototype §2b styling): attach a file / photo /
- * library shot, or jump to the skill select dialog. Attachment picking is
- * UI-only for now — expo-image-picker wiring comes later.
+ * The [+] sheet: media/file pickers feed the composer's attachment chips,
+ * skills open the skill dialog, and Connect apps opens the MCP connectors
+ * sheet — the native twin of the web AddContextMenu.
  */
 export function AttachSheet({
 	isOpen,
 	onOpenChange,
-	onPick,
 	onAttachSkill,
 	skillCount,
+	onTakePhoto,
+	onPickFromLibrary,
+	onBrowseFiles,
+	onConnectApps,
 }: AttachSheetProps) {
 	const { t } = useTranslation();
-	const { isDark } = useAppTheme();
 	const accent = useThemeColor("accent");
-	const iconStroke = isDark ? ICON_STROKE.dark : ICON_STROKE.light;
+	const foreground = useThemeColor("foreground");
+
+	// Close first so the picker/dialog animation does not fight the sheet's
+	// dismissal (same 220ms handoff the skill dialog already uses).
+	const closeThen = (action: () => void) => () => {
+		onOpenChange(false);
+		setTimeout(action, 220);
+	};
 
 	return (
 		<AppBottomSheet isOpen={isOpen} onOpenChange={onOpenChange}>
@@ -66,45 +63,44 @@ export function AttachSheet({
 					contentContainerClassName="px-0 pb-0"
 				>
 					<View className="overflow-hidden rounded-[18px] border border-border bg-surface dark:bg-surface-secondary/95">
-						{ROWS.map((row) => (
-							<Pressable
-								key={row.source}
-								accessibilityRole="button"
-								onPress={() => {
-									onPick(row.source);
-									onOpenChange(false);
-								}}
-								className="flex-row items-center gap-3 border-separator border-b px-4 py-[15px] active:bg-surface-secondary"
-							>
-								<WanditIcon name={row.icon} size={18} color={iconStroke} />
-								<Text className="font-sans-medium text-[15px] text-foreground">
-									{t(row.key)}
-								</Text>
-							</Pressable>
-						))}
-						<Pressable
-							accessibilityRole="button"
+						<SheetRow
+							icon="camera"
+							iconColor={foreground}
+							label={t("native.attach.takePhoto")}
+							onPress={closeThen(onTakePhoto)}
+						/>
+						<RowSeparator />
+						<SheetRow
+							icon="image"
+							iconColor={foreground}
+							label={t("native.attach.photoLibrary")}
+							onPress={closeThen(onPickFromLibrary)}
+						/>
+						<RowSeparator />
+						<SheetRow
+							icon="page"
+							iconColor={foreground}
+							label={t("native.attach.browseFiles")}
+							onPress={closeThen(onBrowseFiles)}
+						/>
+						<RowSeparator />
+						<SheetRow
+							icon="spark"
+							iconColor={accent}
+							label={t("native.attach.attachSkill")}
 							onPress={() => {
 								onOpenChange(false);
 								onAttachSkill();
 							}}
-							className="flex-row items-center gap-3 px-4 py-[15px] active:bg-surface-secondary"
-						>
-							<WanditIcon name="spark" size={18} color={accent} />
-							<Text className="flex-1 font-sans-medium text-[15px] text-foreground">
-								{t("native.attach.attachSkill")}
-							</Text>
-							{skillCount > 0 ? (
-								<View className="h-[22px] min-w-[22px] items-center justify-center rounded-full bg-accent/10 px-1.5">
-									<Text
-										className="font-sans-semibold text-[11.5px]"
-										style={{ color: accent }}
-									>
-										{skillCount}
-									</Text>
-								</View>
-							) : null}
-						</Pressable>
+							badgeCount={skillCount}
+						/>
+						<RowSeparator />
+						<SheetRow
+							icon="plug"
+							iconColor={accent}
+							label={t("native.attach.connectApps")}
+							onPress={closeThen(onConnectApps)}
+						/>
 					</View>
 					<Pressable
 						accessibilityRole="button"
@@ -119,4 +115,47 @@ export function AttachSheet({
 			</AppBottomSheet.Portal>
 		</AppBottomSheet>
 	);
+}
+
+function SheetRow({
+	icon,
+	iconColor,
+	label,
+	onPress,
+	badgeCount = 0,
+}: {
+	icon: WanditIconName;
+	iconColor: string;
+	label: string;
+	onPress: () => void;
+	badgeCount?: number;
+}) {
+	const accent = useThemeColor("accent");
+
+	return (
+		<Pressable
+			accessibilityRole="button"
+			onPress={onPress}
+			className="flex-row items-center gap-3 px-4 py-[15px] active:bg-surface-secondary"
+		>
+			<WanditIcon name={icon} size={18} color={iconColor} />
+			<Text className="flex-1 font-sans-medium text-[15px] text-foreground">
+				{label}
+			</Text>
+			{badgeCount > 0 ? (
+				<View className="h-[22px] min-w-[22px] items-center justify-center rounded-full bg-accent/10 px-1.5">
+					<Text
+						className="font-sans-semibold text-[11.5px]"
+						style={{ color: accent }}
+					>
+						{badgeCount}
+					</Text>
+				</View>
+			) : null}
+		</Pressable>
+	);
+}
+
+function RowSeparator() {
+	return <View className="h-px bg-separator" />;
 }

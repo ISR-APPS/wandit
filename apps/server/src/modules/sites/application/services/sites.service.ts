@@ -315,14 +315,14 @@ export class SitesService {
 						tiktokPixelId: input.project.tiktokPixelId,
 					});
 
-			// Unconditional on purpose: the injector is idempotent (id marker),
-			// so fresh publishes gain the lead-capture runtime and rollbacks of
-			// pre-runtime archives gain it too instead of losing lead capture.
+			// Unconditional on purpose: recognized archived runtime bytes are replaced,
+			// so rollbacks are stamped for this deployment; unknown carriers stay intact.
 			const withRuntime = injectLeadsRuntime(withPixels, {
 				captureUrl: buildLeadsCaptureUrl(
 					env.BETTER_AUTH_URL,
 					input.project.publicFormId,
 				),
+				deploymentId: pending.id,
 			});
 
 			// Also unconditional and idempotent. The hide-toggle only counts for

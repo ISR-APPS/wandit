@@ -158,7 +158,6 @@ export default function DashboardPage() {
 								<PromptBox
 									key={restoreKey}
 									variant="hero"
-									showPriceTag
 									showModes
 									attachmentsEnabled
 									disabled={promptLocked}

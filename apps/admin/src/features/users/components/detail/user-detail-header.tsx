@@ -5,6 +5,7 @@ import {
 	BadgeCheckIcon,
 	BanIcon,
 	CopyIcon,
+	HandCoinsIcon,
 	ShieldCheckIcon,
 	WalletCardsIcon,
 } from "lucide-react";
@@ -23,6 +24,7 @@ type UserDetailHeaderProps = {
 	/** False when the signed-in admin is viewing their own account. */
 	canManageAccess: boolean;
 	onGrantCredits: () => void;
+	onGrantOffline?: () => void;
 	onChangeRole: () => void;
 	onToggleBanned: () => void;
 };
@@ -31,6 +33,7 @@ export function UserDetailHeader({
 	user,
 	canManageAccess,
 	onGrantCredits,
+	onGrantOffline,
 	onChangeRole,
 	onToggleBanned,
 }: UserDetailHeaderProps) {
@@ -116,6 +119,12 @@ export function UserDetailHeader({
 				</div>
 
 				<div className="flex flex-wrap items-center gap-2">
+					{!user.subscription && onGrantOffline ? (
+						<Button type="button" variant="outline" onClick={onGrantOffline}>
+							<HandCoinsIcon data-icon="inline-start" aria-hidden="true" />
+							Grant offline subscription
+						</Button>
+					) : null}
 					{canManageAccess ? (
 						<Button type="button" variant="outline" onClick={onChangeRole}>
 							<ShieldCheckIcon data-icon="inline-start" aria-hidden="true" />

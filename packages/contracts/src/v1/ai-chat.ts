@@ -12,10 +12,12 @@ import {
 	imageToVideoMotionSchema,
 	imageToVideoSourceMediaTypeSchema,
 	videoDurationSecondsSchema,
+	videoQualitySchema,
 	videoVoiceoverSchema,
 } from "./media-generations";
 import { aiElementOpSchema, widSchema } from "./page-edits";
 import { PAGE_TOKEN_NAMES } from "./page-theme";
+import { productSkuSchema } from "./shared/primitives";
 import { triggerRealtimeHandleSchema } from "./shared/trigger-realtime";
 import { memberCreditLimitDetailsSchema } from "./workspaces";
 
@@ -148,7 +150,7 @@ export const askUserInputSchema = z.object({
 	// kind "attachments" only — what the drop tray should accept (default
 	// ["image"]) and how many files at most (default 3). Optional so every
 	// pre-attachments row stays valid (spec §11 / contract §10.5).
-	accept: z.array(z.enum(["image", "document"])).optional(),
+	accept: z.array(z.enum(["image", "document", "video", "audio"])).optional(),
 	// Optional exact MIME allowlist. This narrows a broad category such as
 	// "image" when a workflow only supports still JPEG/PNG/WebP sources.
 	// Kept optional so persisted asks from before this field remain valid.
@@ -400,6 +402,9 @@ export const generatePageInputSchema = z.object({
 	// absent on a COD build the server infers "max" when worldIds ride along
 	// and "simple" otherwise.
 	codMode: z.enum(["simple", "max"]).optional(),
+	// Merchant-provided identifier snapshotted onto COD page versions. Optional
+	// here so historical tool calls and queued attempts keep parsing.
+	productSku: productSkuSchema.optional(),
 });
 
 // Definition moved to shared/trigger-realtime.ts (leaf module) so pages.ts
@@ -413,7 +418,9 @@ export {
 export const generatePageOutputSchema = z.object({
 	// "unavailable" = server missing R2/Trigger credentials; the model relays
 	// that honestly instead of pretending a page is coming.
-	status: z.enum(["queued", "unavailable"]),
+	// "needs-input" = the request is valid but missing user-owned information;
+	// the model follows the message, collects it, and then retries the tool.
+	status: z.enum(["queued", "unavailable", "needs-input"]),
 	attemptId: z.string().uuid().optional(),
 	versionNumber: z.number().int().positive().optional(),
 	// Resolved gateway model snapshotted onto the queued attempt. Optional for
@@ -540,6 +547,12 @@ export const animateImageInputSchema = z.object({
 	aspect: imageToVideoAspectSchema,
 	motion: imageToVideoMotionSchema,
 	prompt: z.string().min(1).max(2_000),
+	// The Brain chooses the tier. The server enforces capability caps and may
+	// upgrade it before queueing the durable attempt.
+	quality: videoQualitySchema.default("standard"),
+	// The Brain sets this when the person speaks on camera. The server enforces
+	// capability caps and may upgrade the tier.
+	talking: z.boolean().default(false),
 });
 
 export const animateImageOutputSchema = z.object({
@@ -571,10 +584,18 @@ export const generateVideoInputSchema = z.object({
 	brief: z.string().min(30).max(4_000),
 	aspect: imageToVideoAspectSchema,
 	durationSeconds: videoDurationSecondsSchema.default(10),
+	// The Brain chooses the tier. The server enforces capability caps and may
+	// upgrade it before queueing the durable attempt.
+	quality: videoQualitySchema.default("standard"),
+	// The Brain sets this when the person speaks on camera. The server enforces
+	// capability caps and may upgrade the tier.
+	talking: z.boolean().default(false),
+	// The Brain sets this when the request needs deliberate cuts or shots. The
+	// server enforces capability caps and may upgrade the tier.
+	multiShot: z.boolean().default(false),
 	// Present only when the user asked for a voiceover. The Brain writes the
-	// short script in the requested language; audio generation itself is
-	// stubbed until the audio provider lands — the clip renders silent and
-	// the request is stored with the attempt.
+	// short script in the requested language. Talking-person speech and
+	// off-camera narration both render through Kling native voice control.
 	voiceover: videoVoiceoverSchema.optional(),
 });
 
@@ -589,6 +610,34 @@ export const generateVideoOutputSchema = z.object({
 
 export type GenerateVideoInput = z.infer<typeof generateVideoInputSchema>;
 export type GenerateVideoOutput = z.infer<typeof generateVideoOutputSchema>;
+
+/** edit_video — edits one succeeded video attempt from a plain instruction. */
+export const editVideoInputSchema = z.object({
+	sourceAttemptId: z.string().uuid(),
+	title: z.string().min(1).max(120),
+	instruction: z.string().min(1).max(2_000),
+});
+
+export const editVideoOutputSchema = generateVideoOutputSchema;
+
+export type EditVideoInput = z.infer<typeof editVideoInputSchema>;
+export type EditVideoOutput = z.infer<typeof editVideoOutputSchema>;
+
+/** extend_video — queues one to three continuation legs for an existing video. */
+export const extendVideoInputSchema = z.object({
+	sourceAttemptId: z.string().uuid(),
+	title: z.string().min(1).max(120),
+	continuationBrief: z.string().min(1).max(2_000),
+	legCount: z.union([z.literal(1), z.literal(2), z.literal(3)]).default(1),
+	legDurationSeconds: z.union([z.literal(5), z.literal(10)]).default(5),
+	voiceover: videoVoiceoverSchema.nullish(),
+	acceptSilent: z.boolean().default(false),
+});
+
+export const extendVideoOutputSchema = generateVideoOutputSchema;
+
+export type ExtendVideoInput = z.infer<typeof extendVideoInputSchema>;
+export type ExtendVideoOutput = z.infer<typeof extendVideoOutputSchema>;
 
 /**
  * Live video-generation progress the worker pushes over Trigger Realtime
@@ -609,6 +658,19 @@ export const videoBuildProgressSchema = z.object({
 	// 0-100, monotonically non-decreasing (the tracker clamps regressions).
 	percent: z.number().min(0).max(100).catch(2),
 	phase: videoBuildPhaseSchema.catch("starting"),
+	stage: z
+		.enum([
+			"starting",
+			"rendering",
+			"rendering-leg",
+			"extracting-frame",
+			"joining",
+			"soundtrack",
+			"publishing",
+			"finishing",
+		])
+		.nullish()
+		.catch(null),
 	// One short present-tense line for the card header. English chrome, same
 	// rule as the page-build card.
 	headline: z.string().min(1).catch("Working on the video…"),
@@ -842,6 +904,8 @@ export type AiChatTools = {
 	scrape_leads: { input: ScrapeLeadsInput; output: ScrapeLeadsOutput };
 	animate_image: { input: AnimateImageInput; output: AnimateImageOutput };
 	generate_video: { input: GenerateVideoInput; output: GenerateVideoOutput };
+	edit_video: { input: EditVideoInput; output: EditVideoOutput };
+	extend_video: { input: ExtendVideoInput; output: ExtendVideoOutput };
 	get_page_outline: {
 		input: GetPageOutlineInput;
 		output: GetPageOutlineOutput;

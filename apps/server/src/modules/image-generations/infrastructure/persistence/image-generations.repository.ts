@@ -171,6 +171,31 @@ export class ImageGenerationsRepository {
 			.where(eq(imageGenerationAttempts.id, attemptId));
 	}
 
+	/**
+	 * Publish a captured, durably uploaded subset without terminalizing the
+	 * attempt. The runner serializes these snapshots, and this status guard keeps
+	 * a late progress write from overwriting a terminal result.
+	 */
+	async persistProgress(
+		attemptId: string,
+		projectId: string,
+		images: GeneratedImageRef[],
+	): Promise<boolean> {
+		const [updated] = await this.db
+			.update(imageGenerationAttempts)
+			.set({ images })
+			.where(
+				and(
+					eq(imageGenerationAttempts.id, attemptId),
+					eq(imageGenerationAttempts.projectId, projectId),
+					eq(imageGenerationAttempts.status, "generating"),
+				),
+			)
+			.returning({ id: imageGenerationAttempts.id });
+
+		return Boolean(updated);
+	}
+
 	async updatePlacement(
 		attemptId: string,
 		projectId: string,

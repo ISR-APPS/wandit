@@ -50,6 +50,7 @@ export type OwnedVersionRow = {
 	artifactId: string;
 	id: string;
 	projectId: string;
+	productSku: string | null;
 	r2Key: string;
 };
 
@@ -125,6 +126,7 @@ export type PageAttemptSpec = {
 	codMode?: "simple" | "max";
 	designerSystemPrompt: string;
 	pageKind?: "cod" | "website";
+	productSku?: string;
 	title: string;
 };
 
@@ -132,7 +134,12 @@ export type PageAttemptSpec = {
 // (ops batch, chat edit tool). version is null until a first build succeeds.
 export type ActivePageRow = {
 	artifactId: string;
-	version: { id: string; number: number; r2Key: string } | null;
+	version: {
+		id: string;
+		number: number;
+		productSku: string | null;
+		r2Key: string;
+	} | null;
 };
 
 /**
@@ -581,6 +588,7 @@ export class PagesRepository {
 				artifactId: versions.artifactId,
 				id: versions.id,
 				projectId: versions.projectId,
+				productSku: versions.productSku,
 				r2Key: versions.r2Key,
 			})
 			.from(versions)
@@ -827,6 +835,7 @@ export class PagesRepository {
 				.select({
 					id: versions.id,
 					number: versions.number,
+					productSku: versions.productSku,
 					r2Key: versions.r2Key,
 				})
 				.from(versions)
@@ -854,6 +863,7 @@ export class PagesRepository {
 		expectedActiveVersionId: string | null;
 		meta: Record<string, unknown>;
 		projectId: string;
+		productSku: string | null;
 		receipt?: {
 			attemptId: string;
 			kind: "image-generation-placement";
@@ -928,6 +938,7 @@ export class PagesRepository {
 					meta: input.meta,
 					number: nextNumber,
 					projectId: input.projectId,
+					productSku: input.productSku,
 					r2Key: input.r2Key,
 				})
 				.returning({ createdAt: versions.createdAt });

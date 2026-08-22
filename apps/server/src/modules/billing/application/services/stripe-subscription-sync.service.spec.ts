@@ -32,6 +32,11 @@ class FakeBillingCustomersRepository {
 }
 
 class FakeSubscriptionsRepository {
+	readonly activeProviderLookups: Array<{
+		client: SubscriptionsTransaction;
+		owner: CreditOwner;
+		provider: string;
+	}> = [];
 	readonly clearMatchingPendingTierCalls: Array<{
 		client: SubscriptionsTransaction;
 		providerSubscriptionId: string;
@@ -98,6 +103,25 @@ class FakeSubscriptionsRepository {
 					(owner.type === "user"
 						? row.userId === owner.userId && row.organizationId === null
 						: row.organizationId === owner.organizationId) &&
+					!this.isTerminal(row.status),
+			) ?? null
+		);
+	}
+
+	async findActiveByOwnerAndProvider(
+		owner: CreditOwner,
+		provider: string,
+		client: SubscriptionsTransaction,
+	): Promise<SubscriptionRow | null> {
+		this.activeProviderLookups.push({ client, owner, provider });
+
+		return (
+			this.rows().find(
+				(row) =>
+					(owner.type === "user"
+						? row.userId === owner.userId && row.organizationId === null
+						: row.organizationId === owner.organizationId) &&
+					row.provider === provider &&
 					!this.isTerminal(row.status),
 			) ?? null
 		);
@@ -589,6 +613,28 @@ describe("StripeSubscriptionSyncService", () => {
 
 		expect(subscriptions.writes).toEqual(["status:sub_missing:canceled"]);
 		expect(subscriptions.row("sub_missing")?.status).toBe("canceled");
+	});
+
+	it("never cancels a manual subscription during Stripe reconciliation", async () => {
+		const { service, subscriptions } = setup();
+		subscriptions.seed({
+			provider: "manual",
+			providerSubscriptionId: "manual_grant_1",
+			status: "active",
+			userId: "user_1",
+		});
+
+		await expect(service.syncFromStripe("cus_1")).resolves.toEqual([]);
+
+		expect(subscriptions.activeProviderLookups).toEqual([
+			{
+				client: subscriptions.transaction,
+				owner: { type: "user", userId: "user_1" },
+				provider: "stripe",
+			},
+		]);
+		expect(subscriptions.writes).toEqual([]);
+		expect(subscriptions.row("manual_grant_1")?.status).toBe("active");
 	});
 
 	it("skips subscriptions with missing or foreign price lookup keys", async () => {

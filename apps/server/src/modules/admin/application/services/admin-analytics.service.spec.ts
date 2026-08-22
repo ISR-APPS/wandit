@@ -1,22 +1,28 @@
+import { NotFoundException } from "@nestjs/common";
 import {
 	adminAnalyticsAcquisitionResponseSchema,
 	adminAnalyticsEngagementResponseSchema,
 	adminAnalyticsFeaturesResponseSchema,
+	adminAnalyticsFunnelContactResponseSchema,
 	adminAnalyticsFunnelResponseSchema,
+	adminAnalyticsFunnelStepUsersResponseSchema,
+	adminAnalyticsFunnelUserStepSchema,
 	adminAnalyticsHealthResponseSchema,
 	adminAnalyticsRevenueResponseSchema,
 } from "@wandit/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
+import type { AdminRepository } from "../../infrastructure/persistence/admin.repository";
 import type {
 	AdminAnalyticsAcquisitionSnapshot,
 	AdminAnalyticsEngagementSnapshot,
 	AdminAnalyticsFeaturesSnapshot,
 	AdminAnalyticsFunnelSnapshot,
+	AdminAnalyticsFunnelStepUsersRepositorySnapshot,
 	AdminAnalyticsHealthSnapshot,
 	AdminAnalyticsRepository,
 	AdminAnalyticsRevenueSnapshot,
 } from "../../infrastructure/persistence/admin-analytics.repository";
+import type { AdminFunnelContactsRepository } from "../../infrastructure/persistence/admin-funnel-contacts.repository";
 import { AdminAnalyticsService } from "./admin-analytics.service";
 
 const NOW = new Date("2026-08-13T10:20:30.000Z");
@@ -183,6 +189,30 @@ const FUNNEL_SNAPSHOT = {
 	},
 } satisfies AdminAnalyticsFunnelSnapshot;
 
+const FUNNEL_STEP_USERS_SNAPSHOT = {
+	page: 2,
+	pageSize: 20,
+	total: 1,
+	counts: { all: 4, contacted: 1, converted: 1 },
+	items: [
+		{
+			userId: "user_1",
+			name: "Ada Lovelace",
+			email: "ada@example.com",
+			image: null,
+			signedUpAt: new Date("2026-08-01T09:00:00.000Z"),
+			firstEventAt: new Date("2026-08-02T10:00:00.000Z"),
+			lastEventAt: new Date("2026-08-03T11:00:00.000Z"),
+			eventCount: 2,
+			converted: true,
+			contact: {
+				contactedAt: new Date("2026-08-04T12:00:00.000Z"),
+				contactedBy: { id: "admin_1", name: "Grace Hopper" },
+			},
+		},
+	],
+} satisfies AdminAnalyticsFunnelStepUsersRepositorySnapshot;
+
 const ENGAGEMENT_SNAPSHOT = {
 	activity: {
 		dau: 5,
@@ -299,15 +329,29 @@ function setup() {
 		getRevenue: vi.fn().mockResolvedValue(REVENUE_SNAPSHOT),
 		getAcquisition: vi.fn().mockResolvedValue(ACQUISITION_SNAPSHOT),
 		getFunnel: vi.fn().mockResolvedValue(FUNNEL_SNAPSHOT),
+		getFunnelStepUsers: vi.fn().mockResolvedValue(FUNNEL_STEP_USERS_SNAPSHOT),
 		getEngagement: vi.fn().mockResolvedValue(ENGAGEMENT_SNAPSHOT),
 		getFeatures: vi.fn().mockResolvedValue(FEATURES_SNAPSHOT),
 		getHealth: vi.fn().mockResolvedValue(HEALTH_SNAPSHOT),
 	};
+	const contactsRepository = {
+		set: vi.fn().mockResolvedValue(undefined),
+		clear: vi.fn().mockResolvedValue(undefined),
+		get: vi.fn().mockResolvedValue({
+			contactedAt: new Date("2026-08-13T10:20:30.000Z"),
+			contactedBy: { id: "admin_1", name: "Grace Hopper" },
+		}),
+	};
+	const adminRepository = {
+		findUserAccess: vi.fn().mockResolvedValue({ id: "user_1", role: "user" }),
+	};
 	const service = new AdminAnalyticsService(
 		repository as unknown as AdminAnalyticsRepository,
+		contactsRepository as unknown as AdminFunnelContactsRepository,
+		adminRepository as unknown as AdminRepository,
 	);
 
-	return { repository, service };
+	return { adminRepository, contactsRepository, repository, service };
 }
 
 describe("AdminAnalyticsService", () => {
@@ -424,6 +468,124 @@ describe("AdminAnalyticsService", () => {
 				users: 30,
 			},
 		});
+	});
+
+	it("assembles funnel-step users with resolved bounds and strips cohortOnly", async () => {
+		const { repository, service } = setup();
+
+		const response = await service.getFunnelStepUsers("pricingViewed", {
+			range: "7d",
+			source: "newsletter",
+			country: "DZ",
+			device: "mobile",
+			cohortOnly: true,
+			page: 2,
+			pageSize: 20,
+			contacted: "contacted",
+		});
+
+		expect(repository.getFunnelStepUsers).toHaveBeenCalledWith(
+			{
+				rangeStart: new Date("2026-08-07T00:00:00.000Z"),
+				rangeEnd: NOW,
+				seriesEnd: new Date("2026-08-13T00:00:00.000Z"),
+				snapshotEnd: NOW,
+			},
+			"pricingViewed",
+			{ source: "newsletter", country: "DZ", device: "mobile" },
+			{
+				contacted: "contacted",
+				pagination: { page: 2, pageSize: 20 },
+			},
+		);
+		expect(adminAnalyticsFunnelStepUsersResponseSchema.parse(response)).toEqual(
+			response,
+		);
+		expect(response).toMatchObject({
+			updatedAt: NOW.toISOString(),
+			step: "pricingViewed",
+			page: 2,
+			pageSize: 20,
+			total: 1,
+			counts: { all: 4, contacted: 1, converted: 1 },
+			items: [
+				{
+					id: "user_1",
+					converted: true,
+					contact: {
+						contactedAt: "2026-08-04T12:00:00.000Z",
+					},
+				},
+			],
+		});
+	});
+
+	it("exports funnel-step users as escaped CSV with a dated filename", async () => {
+		const { repository, service } = setup();
+
+		const download = await service.getFunnelStepUsersCsv("checkoutStarted", {
+			range: "30d",
+			cohortOnly: false,
+			contacted: "all",
+		});
+
+		expect(download.fileName).toBe(
+			"funnel-checkout-started-users-2026-08-13.csv",
+		);
+		expect(repository.getFunnelStepUsers).toHaveBeenCalledWith(
+			expect.any(Object),
+			"checkoutStarted",
+			{},
+			{ contacted: "all", pagination: null },
+		);
+		expect(download.content).toBe(
+			[
+				"name,email,user_id,signed_up_at,first_event_at,last_event_at,event_count,converted,contacted,contacted_at,contacted_by",
+				"Ada Lovelace,ada@example.com,user_1,2026-08-01T09:00:00.000Z,2026-08-02T10:00:00.000Z,2026-08-03T11:00:00.000Z,2,yes,yes,2026-08-04T12:00:00.000Z,Grace Hopper",
+				"",
+			].join("\r\n"),
+		);
+	});
+
+	it("adds the contacted filter to filtered CSV filenames", async () => {
+		const { repository, service } = setup();
+
+		const download = await service.getFunnelStepUsersCsv("checkoutStarted", {
+			range: "30d",
+			cohortOnly: false,
+			contacted: "notContacted",
+		});
+
+		expect(download.fileName).toBe(
+			"funnel-checkout-started-users-not-contacted-2026-08-13.csv",
+		);
+		expect(repository.getFunnelStepUsers).toHaveBeenCalledWith(
+			expect.any(Object),
+			"checkoutStarted",
+			{},
+			{ contacted: "notContacted", pagination: null },
+		);
+	});
+
+	it("neutralizes tab-prefixed CSV formulas", async () => {
+		const { repository, service } = setup();
+		repository.getFunnelStepUsers.mockResolvedValueOnce({
+			...FUNNEL_STEP_USERS_SNAPSHOT,
+			items: [
+				{
+					...FUNNEL_STEP_USERS_SNAPSHOT.items[0],
+					name: "\t=1+1",
+				},
+			],
+		});
+
+		const download = await service.getFunnelStepUsersCsv("pricingViewed", {
+			range: "30d",
+			cohortOnly: false,
+			contacted: "all",
+		});
+
+		expect(download.content.split("\r\n")[1]).toMatch(/^'\t=1\+1,/);
 	});
 
 	it("assembles a contract-valid engagement response from historical custom bounds", async () => {
@@ -589,5 +751,69 @@ describe("AdminAnalyticsService", () => {
 			seriesEnd: new Date("2026-06-03T00:00:00.000Z"),
 			snapshotEnd: NOW,
 		});
+	});
+
+	it("sets and returns funnel contact metadata for an existing user", async () => {
+		const { adminRepository, contactsRepository, service } = setup();
+
+		const response = await service.setFunnelContact("admin_1", "user_1", {
+			contacted: true,
+		});
+
+		expect(adminRepository.findUserAccess).toHaveBeenCalledWith("user_1");
+		expect(contactsRepository.set).toHaveBeenCalledWith("user_1", "admin_1");
+		expect(contactsRepository.get).toHaveBeenCalledWith("user_1");
+		expect(adminAnalyticsFunnelContactResponseSchema.parse(response)).toEqual(
+			response,
+		);
+		expect(response).toEqual({
+			userId: "user_1",
+			contact: {
+				contactedAt: NOW.toISOString(),
+				contactedBy: { id: "admin_1", name: "Grace Hopper" },
+			},
+		});
+	});
+
+	it("clears funnel contact state for an existing user", async () => {
+		const { contactsRepository, service } = setup();
+
+		const response = await service.setFunnelContact("admin_1", "user_1", {
+			contacted: false,
+		});
+
+		expect(contactsRepository.clear).toHaveBeenCalledWith("user_1");
+		expect(contactsRepository.set).not.toHaveBeenCalled();
+		expect(contactsRepository.get).not.toHaveBeenCalled();
+		expect(response).toEqual({ userId: "user_1", contact: null });
+	});
+
+	it("rejects funnel contact writes for an unknown user", async () => {
+		const { adminRepository, contactsRepository, service } = setup();
+		adminRepository.findUserAccess.mockResolvedValueOnce(null);
+
+		await expect(
+			service.setFunnelContact("admin_1", "missing_user", {
+				contacted: true,
+			}),
+		).rejects.toBeInstanceOf(NotFoundException);
+		expect(contactsRepository.set).not.toHaveBeenCalled();
+		expect(contactsRepository.clear).not.toHaveBeenCalled();
+	});
+});
+
+describe("adminAnalyticsFunnelUserStepSchema", () => {
+	it.each([
+		"pricingViewed",
+		"upgradeClicked",
+		"checkoutStarted",
+	])("accepts %s", (step) => {
+		expect(adminAnalyticsFunnelUserStepSchema.parse(step)).toBe(step);
+	});
+
+	it("rejects an invalid funnel user step", () => {
+		expect(adminAnalyticsFunnelUserStepSchema.safeParse("paid").success).toBe(
+			false,
+		);
 	});
 });

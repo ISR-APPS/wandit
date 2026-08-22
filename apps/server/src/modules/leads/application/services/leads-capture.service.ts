@@ -90,18 +90,32 @@ export class LeadsCaptureService {
 			return { ok: true };
 		}
 
-		const deploymentId = await this.leadsRepository.findActiveDeploymentId(
-			project.id,
-		);
+		const loadedDeployment = body.deploymentId
+			? await this.leadsRepository.findDeploymentSnapshotById(
+					project.id,
+					body.deploymentId,
+				)
+			: null;
+		if (body.deploymentId && loadedDeployment === null) {
+			this.logger.warn(
+				`Lead capture deploymentId ${body.deploymentId} did not resolve for project ${project.id}; falling back to active deployment`,
+			);
+		}
+		// A resolved loaded deployment wins even when its SKU is null; only a
+		// missing or foreign id falls back to the currently active deployment.
+		const deployment =
+			loadedDeployment ??
+			(await this.leadsRepository.findActiveDeploymentSnapshot(project.id));
 
 		await this.leadsRepository.insertLead({
 			attribution: body.attribution ?? null,
 			commune: body.commune || null,
-			deploymentId,
+			deploymentId: deployment?.deploymentId ?? null,
 			// Spec: keep the raw phone as typed; the column only holds E.164.
 			extras: { ...body.extras, _rawPhone: body.phone },
 			name: body.name,
 			phone,
+			productSku: deployment?.productSku ?? null,
 			projectId: project.id,
 			wilaya: body.wilaya || null,
 		});

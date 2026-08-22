@@ -25,7 +25,12 @@ export const imageGenerationAspect = pgEnum("image_generation_aspect", [
 	"16:9",
 ]);
 
-export type GeneratedImageRef = { mediaType: string; url: string };
+export type GeneratedImageRef = {
+	/** 1-based generation slot. Absent only on rows written before indexing. */
+	index?: number;
+	mediaType: string;
+	url: string;
+};
 
 // Mutable lifecycle row for one standalone image-generation request (the
 // chat's generate_image tool — distinct from the images the site builder
@@ -55,7 +60,8 @@ export const imageGenerationAttempts = pgTable(
 			.$type<string[]>()
 			.notNull()
 			.default(sql`'[]'::jsonb`),
-		// Set on success: one entry per generated image, in index order.
+		// Partial while generating, authoritative on success. Entries are sorted
+		// by their 1-based generation index and may omit failed slots.
 		images: jsonb("images").$type<GeneratedImageRef[]>(),
 		// Non-queryable snapshot extras: composer output id, options, quality.
 		spec: jsonb("spec").$type<Record<string, unknown>>(),

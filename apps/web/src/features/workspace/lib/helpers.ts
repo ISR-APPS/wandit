@@ -6,20 +6,12 @@
  * value, persisting the chat/main panel layout, remembering the Assets view,
  * formatting leads, and building/exporting simple files.
  *
- * PageVersion and Lead types appear here for the canvas layout and
- * CSV/download helpers; the real chat message flow lives in
- * use-project-chat.tsx and api/chat.*.
+ * PageVersion types appear here for the canvas layout and download helpers;
+ * the real chat message flow lives in use-project-chat.tsx and api/chat.*.
  */
 // Pure functions for the workspace feature.
 
-import {
-	createLeadExportColumns,
-	dedupeLeadExportHeaderLabels,
-	LEAD_EXTRA_OVERFLOW_LABEL,
-} from "@wandit/contracts";
-
-import { pageTitleDynamic } from "@/lib/i18n";
-import type { Lead, WorkspaceTab } from "../api/dto";
+import type { WorkspaceTab } from "../api/dto";
 import { WORKSPACE_PANELS_STORAGE_ID, WORKSPACE_TAB_VALUES } from "./constants";
 
 // Runtime guard for route search params. TypeScript types do not protect values
@@ -131,63 +123,6 @@ export function hashString(value: string): number {
 
 /** Title of the order-details popover in the leads table. */
 export const ORDER_DETAILS_LABEL = "Order details";
-
-/**
- * CSV with UTF-8 BOM so Arabic names survive Excel; stable column order.
- * `headers` is the localized fixed header row (leads.csvHeaders) and
- * `orderHeaders` the localized promoted order columns (leads.csvOrderHeaders,
- * aligned with LEAD_ORDER_FIELDS); the status cell is localized from the
- * current dictionary snapshot (leads.status.<enum_value>). The promoted order
- * columns (product, quantity, price, delivery, total) always follow the fixed
- * ones; every remaining dynamic form field gets its own column after them
- * (each AI-generated page collects different fields), so the header is only
- * known after all rows are collected; leads without a field get an empty cell.
- */
-export function buildLeadsCsv(
-	leads: Lead[],
-	headers: string[],
-	orderHeaders: string[],
-): string {
-	// CSV cells containing commas, quotes, or newlines must be wrapped in quotes;
-	// doubled quotes are the CSV escape sequence for a literal quote. Cells
-	// starting with = or @ (or tab/CR) would execute as formulas in Excel and
-	// Sheets — buyer-controlled extras land in cells now, so neutralize those
-	// with a leading apostrophe. Leading + is deliberately left alone: phones
-	// are E.164 (+213…) and a quoted plus would corrupt the most-used column.
-	const escapeCell = (cell: string) => {
-		const neutralized = /^[=@\t\r]/.test(cell) ? `'${cell}` : cell;
-		return /[",\n]/.test(neutralized)
-			? `"${neutralized.replace(/"/g, '""')}"`
-			: neutralized;
-	};
-	const exportColumns = createLeadExportColumns();
-	const leadCells = leads.map((lead) => [
-		lead.name,
-		lead.phone,
-		lead.wilaya ?? "",
-		lead.commune ?? "",
-		pageTitleDynamic(`leads.status.${lead.status}`),
-		lead.source,
-		lead.campaign ?? "",
-		lead.createdAt,
-		...exportColumns.buildCells(lead.extras),
-	]);
-	const fixedHeaders = [...headers, ...orderHeaders];
-	const csvHeaders = [
-		...fixedHeaders,
-		...dedupeLeadExportHeaderLabels(
-			[...fixedHeaders, LEAD_EXTRA_OVERFLOW_LABEL],
-			exportColumns.dynamicKeys(),
-		),
-		...(exportColumns.hasOverflow() ? [LEAD_EXTRA_OVERFLOW_LABEL] : []),
-	];
-	const rows = leadCells.map((cells) =>
-		Array.from({ length: csvHeaders.length }, (_, index) => cells[index] ?? "")
-			.map(escapeCell)
-			.join(","),
-	);
-	return `\uFEFF${[csvHeaders.map(escapeCell).join(","), ...rows].join("\n")}`;
-}
 
 // Trigger a browser download for generated text. Blob is the browser object for
 // in-memory file-like data, and URL.createObjectURL gives it a temporary URL the

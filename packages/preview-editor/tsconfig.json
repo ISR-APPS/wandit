@@ -1,0 +1,10 @@
+{
+	"extends": "@wandit/config/tsconfig.base.json",
+	"compilerOptions": {
+		"composite": true,
+		// parse-tokens feature-detects DOMParser at runtime (web has it, React
+		// Native falls back to the regex path) — DOM types are typecheck-only.
+		"lib": ["ESNext", "DOM", "DOM.Iterable"],
+		"outDir": "dist"
+	}
+}

@@ -1,9 +1,19 @@
 // Renders a persisted AI SDK v7 `type: "file"` part (contract §10.4): user
 // attachments (initial message or mid-conversation) whose `url` is a public
-// R2 asset. Images show as a small rounded thumbnail; everything else as a
-// quiet filename chip. Display-only — the canonical file lives in R2.
+// R2 asset. Images show as a small rounded thumbnail, video/audio use inline
+// controls, and other files use a quiet filename chip. Display-only — the
+// canonical file lives in R2.
 
-import { FileSpreadsheet, FileText } from "lucide-react";
+import { Skeleton } from "@wandit/ui/components/skeleton";
+import {
+	FileSpreadsheet,
+	FileText,
+	ImageOff,
+	type LucideIcon,
+} from "lucide-react";
+import { useState } from "react";
+
+import { useTranslation } from "@/lib/i18n";
 
 const SPREADSHEET_MEDIA_TYPES = new Set([
 	"text/csv",
@@ -17,13 +27,142 @@ type FilePartData = {
 	url: string;
 };
 
-export function ImageFileThumbnail({
+export type ChatFileMediaKind = "video" | "audio";
+
+export type ResilientChatImageState = "loading" | "loaded" | "failed";
+
+/** Image state is URL-scoped so a replacement URL retries automatically. */
+export function getResilientChatImageState(
+	url: string,
+	loadedImageUrl: string | null,
+	failedImageUrl: string | null,
+): ResilientChatImageState {
+	if (url === failedImageUrl) return "failed";
+	if (url === loadedImageUrl) return "loaded";
+	return "loading";
+}
+
+function filePartLabel(part: FilePartData): string {
+	return part.filename ?? part.url.split("/").at(-1) ?? "file";
+}
+
+function FileChip({
+	part,
+	Icon,
+	ariaLabel,
+}: {
+	part: FilePartData;
+	Icon: LucideIcon;
+	ariaLabel?: string;
+}) {
+	return (
+		<a
+			href={part.url}
+			target="_blank"
+			rel="noreferrer"
+			aria-label={ariaLabel}
+			className="inline-flex h-8 max-w-64 items-center gap-2 rounded-full border border-border bg-muted/60 px-3 text-muted-foreground text-xs transition-colors hover:text-foreground"
+		>
+			<Icon className="size-3.5 shrink-0" />
+			<span dir="auto" className="min-w-0 truncate">
+				{filePartLabel(part)}
+			</span>
+		</a>
+	);
+}
+
+export function ResilientChatFileMediaView({
+	part,
+	kind,
+	failed,
+	onError,
+}: {
+	part: FilePartData;
+	kind: ChatFileMediaKind;
+	failed: boolean;
+	onError?: () => void;
+}) {
+	if (failed) {
+		return <FileChip part={part} Icon={FileText} />;
+	}
+
+	const label = filePartLabel(part);
+	if (kind === "video") {
+		return (
+			<video
+				key={part.url}
+				src={part.url}
+				controls
+				preload="metadata"
+				playsInline
+				aria-label={label}
+				onError={onError}
+				className="block max-h-80 w-full max-w-xl rounded-xl border border-border bg-muted object-contain"
+			>
+				<track kind="captions" />
+			</video>
+		);
+	}
+
+	return (
+		<audio
+			key={part.url}
+			src={part.url}
+			controls
+			preload="metadata"
+			aria-label={label}
+			onError={onError}
+			className="block w-full max-w-xl"
+		>
+			<track kind="captions" />
+		</audio>
+	);
+}
+
+function ResilientChatFileMedia({
+	part,
+	kind,
+}: {
+	part: FilePartData;
+	kind: ChatFileMediaKind;
+}) {
+	const [failedMediaUrl, setFailedMediaUrl] = useState<string | null>(null);
+
+	return (
+		<ResilientChatFileMediaView
+			part={part}
+			kind={kind}
+			failed={failedMediaUrl === part.url}
+			onError={() => setFailedMediaUrl(part.url)}
+		/>
+	);
+}
+
+export function ResilientChatImageView({
 	part,
 	variant = "single",
+	state,
+	onLoad,
+	onError,
 }: {
 	part: FilePartData;
 	variant?: "single" | "grid";
+	state: ResilientChatImageState;
+	onLoad?: () => void;
+	onError?: () => void;
 }) {
+	const { t } = useTranslation();
+
+	if (state === "failed") {
+		return (
+			<FileChip
+				part={part}
+				Icon={ImageOff}
+				ariaLabel={`${t("workspace.chat.media.imageLoadError")}: ${filePartLabel(part)}`}
+			/>
+		);
+	}
+
 	return (
 		<a
 			href={part.url}
@@ -31,22 +170,62 @@ export function ImageFileThumbnail({
 			rel="noreferrer"
 			className={
 				variant === "grid"
-					? "block aspect-square overflow-hidden rounded-xl border border-border"
-					: "block max-w-48 overflow-hidden rounded-xl border border-border"
+					? "relative block aspect-square w-full overflow-hidden rounded-xl border border-border bg-muted"
+					: "relative block aspect-[6/5] w-48 max-w-full overflow-hidden rounded-xl border border-border bg-muted"
 			}
 		>
+			{state === "loading" ? (
+				<Skeleton className="absolute inset-0 size-full rounded-none" />
+			) : null}
 			<img
+				key={part.url}
 				src={part.url}
 				alt={part.filename ?? ""}
 				loading="lazy"
-				className={
-					variant === "grid"
-						? "block size-full object-cover"
-						: "block max-h-40 w-full object-cover"
-				}
+				onLoad={onLoad}
+				onError={onError}
+				className={`absolute inset-0 size-full object-cover ${
+					state === "loaded" ? "opacity-100" : "opacity-0"
+				}`}
 			/>
 		</a>
 	);
+}
+
+export function ResilientChatImage({
+	part,
+	variant = "single",
+}: {
+	part: FilePartData;
+	variant?: "single" | "grid";
+}) {
+	const [loadedImageUrl, setLoadedImageUrl] = useState<string | null>(null);
+	const [failedImageUrl, setFailedImageUrl] = useState<string | null>(null);
+	const state = getResilientChatImageState(
+		part.url,
+		loadedImageUrl,
+		failedImageUrl,
+	);
+
+	return (
+		<ResilientChatImageView
+			part={part}
+			variant={variant}
+			state={state}
+			onLoad={() => setLoadedImageUrl(part.url)}
+			onError={() => setFailedImageUrl(part.url)}
+		/>
+	);
+}
+
+export function ImageFileThumbnail({
+	part,
+	variant = "single",
+}: {
+	part: FilePartData;
+	variant?: "single" | "grid";
+}) {
+	return <ResilientChatImage part={part} variant={variant} />;
 }
 
 export function ImageFileGrid({ parts }: { parts: FilePartData[] }) {
@@ -82,6 +261,19 @@ export function FilePart({ part }: { part: FilePartData }) {
 	if (part.mediaType.startsWith("image/")) {
 		return <ImageFileGrid parts={[part]} />;
 	}
+	if (
+		part.mediaType.startsWith("video/") ||
+		part.mediaType.startsWith("audio/")
+	) {
+		return (
+			<div className="flex w-full justify-end">
+				<ResilientChatFileMedia
+					part={part}
+					kind={part.mediaType.startsWith("video/") ? "video" : "audio"}
+				/>
+			</div>
+		);
+	}
 
 	const Icon = SPREADSHEET_MEDIA_TYPES.has(part.mediaType)
 		? FileSpreadsheet
@@ -89,17 +281,7 @@ export function FilePart({ part }: { part: FilePartData }) {
 
 	return (
 		<div className="flex justify-end">
-			<a
-				href={part.url}
-				target="_blank"
-				rel="noreferrer"
-				className="inline-flex h-8 max-w-64 items-center gap-2 rounded-full border border-border bg-muted/60 px-3 text-muted-foreground text-xs transition-colors hover:text-foreground"
-			>
-				<Icon className="size-3.5 shrink-0" />
-				<span dir="auto" className="min-w-0 truncate">
-					{part.filename ?? part.url.split("/").at(-1) ?? "file"}
-				</span>
-			</a>
+			<FileChip part={part} Icon={Icon} />
 		</div>
 	);
 }

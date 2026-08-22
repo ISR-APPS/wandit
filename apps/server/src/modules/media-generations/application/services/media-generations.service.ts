@@ -17,10 +17,14 @@ import {
 	type MediaGenerationAttemptRow,
 	MediaGenerationsRepository,
 } from "../../infrastructure/persistence/media-generations.repository";
-import { createImageAnimationBilling } from "./image-animation-billing";
+import {
+	isLegActivityTrackedGeneration,
+	isMediaGenerationGeneratingStale,
+	MEDIA_GENERATION_STALE_GENERATING_MS,
+	MEDIA_GENERATION_STALE_QUEUED_MS,
+} from "./media-generation-staleness";
+import { createVideoBilling } from "./video-billing";
 
-const GENERATION_STALE_AFTER_MS = 15 * 60 * 1_000;
-const QUEUED_STALE_AFTER_MS = 30 * 60 * 1_000;
 const STALE_GENERATION_ERROR = "The video did not finish. Please try again.";
 const STALE_QUEUED_ERROR =
 	"The video request did not reach the background generator. Please try again.";
@@ -48,8 +52,13 @@ export class MediaGenerationsService {
 			throw new NotFoundException();
 		}
 
-		const staleCutoff = new Date(Date.now() - GENERATION_STALE_AFTER_MS);
-		const queuedStaleCutoff = new Date(Date.now() - QUEUED_STALE_AFTER_MS);
+		const now = new Date();
+		const staleCutoff = new Date(
+			now.getTime() - MEDIA_GENERATION_STALE_GENERATING_MS[row.kind],
+		);
+		const queuedStaleCutoff = new Date(
+			now.getTime() - MEDIA_GENERATION_STALE_QUEUED_MS,
+		);
 
 		if (row.status === "queued" && row.createdAt < queuedStaleCutoff) {
 			await this.mediaGenerationsRepository.markStaleQueuedAttemptFailed(
@@ -68,10 +77,21 @@ export class MediaGenerationsService {
 			}
 		}
 
+		const latestLegActivityAt =
+			row.status === "generating" && isLegActivityTrackedGeneration(row.kind)
+				? await this.mediaGenerationsRepository.latestLegActivityAt(row.id)
+				: null;
+
 		if (
 			row.status === "generating" &&
-			row.startedAt !== null &&
-			row.startedAt < staleCutoff
+			isMediaGenerationGeneratingStale(
+				{
+					kind: row.kind,
+					latestLegActivityAt,
+					startedAt: row.startedAt,
+				},
+				now,
+			)
 		) {
 			const recovered = await this.recoverStoredVideo(row, scope);
 
@@ -97,10 +117,21 @@ export class MediaGenerationsService {
 		// transient refund failure is retried by the next poll without ever
 		// granting the same reservation twice.
 		if (row.status === "failed") {
-			await createImageAnimationBilling({
+			const billing = createVideoBilling({
 				isBillingDisabled: () => env.GENERATION_BILLING_MODE === "off",
 				meteringService: this.meteringService,
-			}).refund(meteringSubjectFrom(scope), row.id);
+			});
+			const deliveredUnits = await this.deliveredExtensionUnits(row);
+
+			if (deliveredUnits !== 0) {
+				await billing.settleExisting(
+					meteringSubjectFrom(scope),
+					row.id,
+					deliveredUnits,
+				);
+			} else {
+				await billing.refund(meteringSubjectFrom(scope), row.id, row.kind);
+			}
 		}
 
 		return mapAttemptRow(row);
@@ -124,10 +155,16 @@ export class MediaGenerationsService {
 
 			// Storage is durable proof that provider work completed. Settle any
 			// existing hold before making the recovered video visible.
-			await createImageAnimationBilling({
+			const billing = createVideoBilling({
 				isBillingDisabled: () => env.GENERATION_BILLING_MODE === "off",
 				meteringService: this.meteringService,
-			}).settleExisting(meteringSubjectFrom(scope), row.id);
+			});
+			const plannedUnits = await this.plannedUnits(row);
+			await billing.settleExisting(
+				meteringSubjectFrom(scope),
+				row.id,
+				plannedUnits,
+			);
 
 			await this.mediaGenerationsRepository.markGeneratingAttemptSucceeded(
 				row.id,
@@ -142,6 +179,33 @@ export class MediaGenerationsService {
 		}
 
 		return false;
+	}
+
+	private async deliveredExtensionUnits(
+		row: MediaGenerationAttemptRow,
+	): Promise<0 | 1 | 2 | 3> {
+		const storedUnits =
+			row.kind === "video-extension"
+				? (await this.mediaGenerationsRepository.listLegs(row.id)).filter(
+						(leg) => leg.status === "succeeded",
+					).length
+				: 0;
+		const evidenceUnits =
+			await this.mediaGenerationsRepository.providerEvidenceUnits(row.id);
+		return videoUnits(Math.max(storedUnits, evidenceUnits), true);
+	}
+
+	private async plannedUnits(
+		row: MediaGenerationAttemptRow,
+	): Promise<1 | 2 | 3> {
+		if (row.kind !== "video-extension") {
+			return 1;
+		}
+
+		return videoUnits(
+			(await this.mediaGenerationsRepository.listLegs(row.id)).length,
+			false,
+		);
 	}
 
 	async download(
@@ -164,8 +228,7 @@ export class MediaGenerationsService {
 			throw new NotFoundException();
 		}
 
-		const baseName =
-			row.kind === "text-to-video" ? "wandit-video" : "wandit-animation";
+		const baseName = downloadBaseName(row.kind);
 
 		return {
 			bytes,
@@ -178,12 +241,42 @@ export class MediaGenerationsService {
 	}
 }
 
+function downloadBaseName(kind: MediaGenerationAttemptRow["kind"]): string {
+	switch (kind) {
+		case "image-animation":
+			return "wandit-animation";
+		case "text-to-video":
+			return "wandit-video";
+		case "video-edit":
+			return "wandit-video-edit";
+		case "video-extension":
+			return "wandit-video-extension";
+	}
+}
+
+function videoUnits(count: number, allowZero: true): 0 | 1 | 2 | 3;
+function videoUnits(count: number, allowZero: false): 1 | 2 | 3;
+function videoUnits(count: number, allowZero: boolean): 0 | 1 | 2 | 3 {
+	if (
+		!Number.isSafeInteger(count) ||
+		count > 3 ||
+		count < (allowZero ? 0 : 1)
+	) {
+		throw new Error("Video extension must have between one and three legs");
+	}
+
+	return count as 0 | 1 | 2 | 3;
+}
+
 function mapAttemptRow(row: MediaGenerationAttemptRow): MediaGenerationAttempt {
 	return {
 		aspect: row.aspect,
 		completedAt: row.completedAt?.toISOString() ?? null,
 		createdAt: row.createdAt.toISOString(),
-		durationSeconds: row.durationSeconds === 10 ? 10 : 5,
+		durationSeconds:
+			row.actualDurationMs === null
+				? row.durationSeconds
+				: Math.round(row.actualDurationMs / 1_000),
 		error: row.error,
 		id: row.id,
 		kind: row.kind,

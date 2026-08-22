@@ -9,11 +9,6 @@ import {
 	captureGenerationFailed,
 } from "../infrastructure/analytics/generation-events";
 import {
-	getObjectContentType,
-	imageGenerationKey,
-	publicAssetUrl,
-} from "../infrastructure/storage/r2";
-import {
 	createImageGenerationBilling,
 	type ImageGenerationBilling,
 } from "../modules/image-generations/application/services/image-generation-billing";
@@ -24,6 +19,7 @@ import type {
 	ImageGenerationRunnerDependencies,
 } from "../modules/image-generations/application/services/image-generation-runner";
 import { generateStandaloneImage } from "../modules/image-generations/application/services/image-generator";
+import { createStoredImagesRecovery } from "../modules/image-generations/application/services/stored-images-recovery";
 import { ImageGenerationsRepository } from "../modules/image-generations/infrastructure/persistence/image-generations.repository";
 import { PageEditsService } from "../modules/pages/application/services/page-edits.service";
 import { PagesRepository } from "../modules/pages/infrastructure/persistence/pages.repository";
@@ -52,6 +48,7 @@ const ATTEMPT_COLUMNS = {
 } as const;
 
 export type ImageGenerationRuntime = {
+	flushDeferredWork: () => Promise<void>;
 	runner: ImageGenerationRunnerDependencies;
 };
 
@@ -66,6 +63,7 @@ export function createImageGenerationRuntime(
 ): ImageGenerationRuntime {
 	const billing = createBilling(db);
 	const persistence = createPersistence(db, analytics);
+	const deferredWork: Array<() => Promise<void>> = [];
 	const pagesRepository = new PagesRepository(db, analytics);
 	const pageEditsService = new PageEditsService(pagesRepository);
 	const imageGenerationsRepository = new ImageGenerationsRepository(
@@ -79,15 +77,26 @@ export function createImageGenerationRuntime(
 	);
 
 	return {
+		flushDeferredWork: async () => {
+			const pending = deferredWork.splice(0);
+			await Promise.allSettled(pending.map(async (work) => work()));
+		},
 		runner: {
 			capture: billing.capture,
 			claimQueued: persistence.claimQueued,
 			fail: persistence.failFromStatus,
-			generateOne: (attempt, subject, index, signal, onProviderGeneration) =>
-				generateStandaloneImage({
+			generateOne: async (
+				attempt,
+				subject,
+				index,
+				signal,
+				onProviderGeneration,
+			) => {
+				const generated = await generateStandaloneImage({
 					...(signal ? { abortSignal: signal } : {}),
 					aspect: attempt.aspect,
 					attemptId: attempt.id,
+					deferVariants: true,
 					index,
 					// Metering identity comes from the queue-time subject: the acting
 					// member (not the project creator) with the paying entity.
@@ -100,10 +109,25 @@ export function createImageGenerationRuntime(
 					projectId: attempt.projectId,
 					prompt: attempt.prompt,
 					sourceImageUrls: attempt.sourceImageUrls,
-				}),
+				});
+
+				if (generated.status !== "generated" || !generated.storeVariants) {
+					return generated;
+				}
+
+				const { storeVariants, ...primary } = generated;
+				deferredWork.push(storeVariants);
+				return primary;
+			},
 			loadAttempt: persistence.loadAttempt,
 			markSucceeded: persistence.markSucceeded,
 			now: () => new Date(),
+			persistProgress: (attempt, images) =>
+				imageGenerationsRepository.persistProgress(
+					attempt.id,
+					attempt.projectId,
+					images,
+				),
 			recoverStoredImages: createStoredImagesRecovery(),
 			refund: billing.refund,
 			reserve: billing.reserve,
@@ -247,54 +271,5 @@ function createPersistence(db: TriggerDatabase, analytics: AnalyticsCapture) {
 		failFromStatus,
 		loadAttempt,
 		markSucceeded,
-	};
-}
-
-function createStoredImagesRecovery() {
-	return async (
-		attempt: Pick<ImageGenerationAttemptState, "count" | "id" | "projectId">,
-	): Promise<GeneratedImageResult[] | null> => {
-		const images: GeneratedImageResult[] = [];
-
-		for (let index = 1; index <= attempt.count; index += 1) {
-			let found: GeneratedImageResult | null = null;
-
-			for (const candidate of [
-				{ extension: "png", mediaType: "image/png" },
-				{ extension: "jpg", mediaType: "image/jpeg" },
-				{ extension: "webp", mediaType: "image/webp" },
-			] as const) {
-				const key = imageGenerationKey(
-					attempt.projectId,
-					attempt.id,
-					index,
-					candidate.extension,
-				);
-				const storedMediaType = await getObjectContentType(key);
-
-				if (!storedMediaType) {
-					continue;
-				}
-
-				found = {
-					mediaType: storedMediaType.startsWith("image/")
-						? storedMediaType
-						: candidate.mediaType,
-					url: publicAssetUrl(key),
-				};
-				break;
-			}
-
-			// Provider calls are sequential, so the first gap ends the durable
-			// prefix. Return that prefix instead of discarding billable/deliverable
-			// images after a process crash between calls.
-			if (!found) {
-				break;
-			}
-
-			images.push(found);
-		}
-
-		return images.length > 0 ? images : null;
 	};
 }

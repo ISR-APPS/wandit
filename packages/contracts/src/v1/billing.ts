@@ -357,6 +357,166 @@ export const billingCancelRequestSchema = z
 
 export type BillingCancelRequest = z.infer<typeof billingCancelRequestSchema>;
 
+// ---------------------------------------------------------------------------
+// Offline / manual billing ("cash on delivery", wire transfer, CCP…).
+//
+// A user who cannot (or does not want to) pay by card files a manual
+// subscription REQUEST from the plan picker. An admin calls them, collects the
+// payment outside Stripe, and grants a `provider = "manual"` subscription in
+// the admin app. Manual subscriptions never auto-renew: a Trigger.dev sweep
+// ends them at `currentPeriodEnd`; renewing is an admin action after contact.
+// ---------------------------------------------------------------------------
+
+export const SUBSCRIPTION_PROVIDERS = {
+	manual: "manual",
+	stripe: "stripe",
+} as const;
+
+export type SubscriptionProvider =
+	(typeof SUBSCRIPTION_PROVIDERS)[keyof typeof SUBSCRIPTION_PROVIDERS];
+
+export function isManualSubscription(
+	subscription: Pick<Subscription, "provider"> | null | undefined,
+): boolean {
+	return subscription?.provider === SUBSCRIPTION_PROVIDERS.manual;
+}
+
+export const manualPaymentMethods = [
+	"cash_on_delivery",
+	"bank_transfer",
+	"ccp",
+	"baridimob",
+	"other",
+] as const;
+
+export const manualPaymentMethodSchema = z.enum(manualPaymentMethods);
+
+export type ManualPaymentMethod = z.infer<typeof manualPaymentMethodSchema>;
+
+export const manualSubscriptionRequestStatuses = [
+	"pending",
+	"contacted",
+	"approved",
+	"rejected",
+	"canceled",
+] as const;
+
+export const manualSubscriptionRequestStatusSchema = z.enum(
+	manualSubscriptionRequestStatuses,
+);
+
+export type ManualSubscriptionRequestStatus = z.infer<
+	typeof manualSubscriptionRequestStatusSchema
+>;
+
+/** Statuses an admin still has to act on. */
+export const OPEN_MANUAL_REQUEST_STATUSES = ["pending", "contacted"] as const;
+
+export const manualBillingCountries = ["DZ", "TN", "MA", "OTHER"] as const;
+
+export const manualBillingCountrySchema = z.enum(manualBillingCountries);
+
+export type ManualBillingCountry = z.infer<typeof manualBillingCountrySchema>;
+
+// Loose international phone check: leading + or digit, then digits with the
+// usual separators. The admin calls the number by hand, so this only has to
+// reject garbage, not validate carriers.
+const phoneSchema = z
+	.string()
+	.trim()
+	.min(6)
+	.max(32)
+	.regex(/^[+\d][\d\s().-]{5,}$/, "Enter a valid phone number")
+	// The admin calls this number by hand — separators alone must not pass.
+	.refine(
+		(value) => (value.match(/\d/g)?.length ?? 0) >= 6,
+		"Enter a valid phone number",
+	);
+
+export const createManualSubscriptionRequestBodySchema = z.object({
+	plan: billingPlanIdSchema,
+	tierCredits: creditTierSchema,
+	interval: billingIntervalSchema,
+	fullName: z.string().trim().min(2).max(120),
+	phone: phoneSchema,
+	company: z.string().trim().min(1).max(120).optional(),
+	country: manualBillingCountrySchema,
+	city: z.string().trim().min(1).max(120).optional(),
+	preferredPaymentMethod: manualPaymentMethodSchema.optional(),
+	notes: z.string().trim().min(1).max(1000).optional(),
+});
+
+export type CreateManualSubscriptionRequestBody = z.infer<
+	typeof createManualSubscriptionRequestBodySchema
+>;
+
+export const manualSubscriptionRequestSchema = z.object({
+	id: uuidSchema,
+	status: manualSubscriptionRequestStatusSchema,
+	organizationId: z.string().nullable(),
+	plan: billingPlanIdSchema,
+	// Plain positive int (not creditTierSchema) so a request filed against a
+	// retired tier still renders.
+	tierCredits: z.int().positive(),
+	interval: billingIntervalSchema,
+	fullName: z.string(),
+	phone: z.string(),
+	company: z.string().nullable(),
+	country: z.string(),
+	city: z.string().nullable(),
+	preferredPaymentMethod: manualPaymentMethodSchema.nullable(),
+	notes: z.string().nullable(),
+	subscriptionId: uuidSchema.nullable(),
+	handledAt: isoDateTimeSchema.nullable(),
+	createdAt: isoDateTimeSchema,
+	updatedAt: isoDateTimeSchema,
+});
+
+export type ManualSubscriptionRequest = z.infer<
+	typeof manualSubscriptionRequestSchema
+>;
+
+/** The caller's most recent OPEN request for the active workspace, if any. */
+export const manualSubscriptionRequestViewResponseSchema = z.object({
+	request: manualSubscriptionRequestSchema.nullable(),
+});
+
+export type ManualSubscriptionRequestViewResponse = z.infer<
+	typeof manualSubscriptionRequestViewResponseSchema
+>;
+
+/**
+ * Adds one billing interval on the UTC calendar (the same month arithmetic the
+ * yearly refill slots use): Jan 31 + 1 month = Feb 28/29, never Mar 3.
+ */
+export function addBillingInterval(
+	anchor: Date,
+	interval: BillingInterval,
+	count = 1,
+): Date {
+	const months = (interval === "year" ? 12 : 1) * count;
+	const targetMonthIndex = anchor.getUTCMonth() + months;
+	const targetYear =
+		anchor.getUTCFullYear() + Math.floor(targetMonthIndex / 12);
+	const targetMonth = ((targetMonthIndex % 12) + 12) % 12;
+	const lastDay = new Date(
+		Date.UTC(targetYear, targetMonth + 1, 0),
+	).getUTCDate();
+	const targetDay = Math.min(anchor.getUTCDate(), lastDay);
+
+	return new Date(
+		Date.UTC(
+			targetYear,
+			targetMonth,
+			targetDay,
+			anchor.getUTCHours(),
+			anchor.getUTCMinutes(),
+			anchor.getUTCSeconds(),
+			anchor.getUTCMilliseconds(),
+		),
+	);
+}
+
 export const billingRoutes = {
 	plans: "/api/v1/billing/plans",
 	subscription: "/api/v1/billing/subscription",
@@ -368,5 +528,7 @@ export const billingRoutes = {
 	cancel: "/api/v1/billing/cancel",
 	resume: "/api/v1/billing/resume",
 	sync: "/api/v1/billing/sync",
+	manualRequest: "/api/v1/billing/manual-request",
+	manualRequestCancel: "/api/v1/billing/manual-request/cancel",
 	webhook: "/api/webhooks/stripe",
 } as const;

@@ -19,8 +19,6 @@ const DAY_MS = 24 * HOUR_MS;
 const WEEK_MS = 7 * DAY_MS;
 const MONTH_MS = 30 * DAY_MS;
 const YEAR_MS = 365 * DAY_MS;
-const COMBINING_MARKS_PATTERN = /\p{M}/gu;
-const ARABIC_TATWEEL_PATTERN = /\u0640/g;
 
 export function getProjectTileGradient(seed: number): ProjectTileGradient {
 	if (!Number.isFinite(seed)) {
@@ -72,14 +70,6 @@ export function formatShortRelativeTime(
 	return formatRelativeCount(elapsedMs, YEAR_MS, labels.year, labels);
 }
 
-export function foldProjectSearchText(value: string, locale?: string) {
-	return value
-		.normalize("NFD")
-		.replace(COMBINING_MARKS_PATTERN, "")
-		.replace(ARABIC_TATWEEL_PATTERN, "")
-		.toLocaleLowerCase(locale);
-}
-
 function formatRelativeCount(
 	elapsedMs: number,
 	unitMs: number,
@@ -91,6 +81,7 @@ function formatRelativeCount(
 }
 
 function toTimestamp(value: Date | number | string) {
-	const timestamp = value instanceof Date ? value.getTime() : new Date(value).getTime();
+	const timestamp =
+		value instanceof Date ? value.getTime() : new Date(value).getTime();
 	return Number.isFinite(timestamp) ? timestamp : null;
 }

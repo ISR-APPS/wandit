@@ -14,7 +14,13 @@ export type {
 	ChangeBillingSubscriptionBody,
 	CreateBillingCheckoutBody,
 	CreateBillingTopupBody,
+	CreateManualSubscriptionRequestBody,
 	CreditBalanceResponse,
 	CreditBucket,
+	ManualBillingCountry,
+	ManualPaymentMethod,
+	ManualSubscriptionRequest,
+	ManualSubscriptionRequestStatus,
+	ManualSubscriptionRequestViewResponse,
 	PreviewBillingSubscriptionChangeBody,
 } from "@wandit/contracts";

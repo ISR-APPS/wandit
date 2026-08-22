@@ -3,10 +3,12 @@
 		"scheme": "wandit",
 		"userInterfaceStyle": "automatic",
 		"orientation": "default",
+		"version": "1.0.0",
+		"icon": "./assets/images/icon.png",
 		"web": {
 			"bundler": "metro"
 		},
-		"name": "wandit",
+		"name": "Wandit",
 		"slug": "wandit",
 		"plugins": [
 			"expo-font",
@@ -16,11 +18,25 @@
 					"microphonePermission": "Allow Wandit to use your microphone for voice input.",
 					"recordAudioAndroid": true
 				}
-			]
+			],
+			"expo-sharing",
+			"expo-video"
 		],
 		"experiments": {
 			"typedRoutes": true,
 			"reactCompiler": true
-		}
+		},
+		"ios": {
+			"bundleIdentifier": "com.zakisb97.wandit",
+			"infoPlist": {
+				"ITSAppUsesNonExemptEncryption": false
+			}
+		},
+		"extra": {
+			"eas": {
+				"projectId": "41f71bec-8c56-43dc-b99a-1f0ec4faef40"
+			}
+		},
+		"owner": "zakisb97"
 	}
 }

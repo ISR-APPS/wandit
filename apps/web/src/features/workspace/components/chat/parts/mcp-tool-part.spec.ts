@@ -125,6 +125,26 @@ describe("humanizeMcpToolLabel", () => {
 			}) as Record<string, string>
 		)[key] ?? key;
 	const toolLabels = {
+		show_marketing_studio: {
+			active: "Ouverture de la bibliothèque Marketing Studio",
+			past: "Bibliothèque Marketing Studio ouverte",
+		},
+		video_analysis_create: {
+			active: "Visionnage de la vidéo de référence",
+			past: "Vidéo de référence visionnée",
+		},
+		video_analysis_status: {
+			active: "Vérification de l’analyse vidéo",
+			past: "Analyse vidéo vérifiée",
+		},
+		video_analysis_jobs: {
+			active: "Affichage des analyses vidéo",
+			past: "Analyses vidéo affichées",
+		},
+		list_voices: {
+			active: "Chargement des voix disponibles",
+			past: "Voix disponibles chargées",
+		},
 		report_integrated_get: {
 			active: "Récupération du rapport",
 			past: "Rapport récupéré",
@@ -192,6 +212,99 @@ describe("humanizeMcpToolLabel", () => {
 				toolLabels,
 			),
 		).toBe("Rapport récupéré");
+	});
+
+	it("uses localized labels for live Higgsfield studio, analysis, and voice tools", () => {
+		expect(
+			humanizeMcpToolLabel(
+				"mcp_higgsfield_show_marketing_studio",
+				undefined,
+				"active",
+				t,
+				toolLabels,
+			),
+		).toBe("Ouverture de la bibliothèque Marketing Studio");
+		expect(
+			humanizeMcpToolLabel(
+				"mcp_higgsfield_show_marketing_studio",
+				undefined,
+				"past",
+				t,
+				toolLabels,
+			),
+		).toBe("Bibliothèque Marketing Studio ouverte");
+		expect(
+			humanizeMcpToolLabel(
+				"mcp_higgsfield_video_analysis_create",
+				undefined,
+				"active",
+				t,
+				toolLabels,
+			),
+		).toBe("Visionnage de la vidéo de référence");
+		expect(
+			humanizeMcpToolLabel(
+				"mcp_higgsfield_video_analysis_create",
+				undefined,
+				"past",
+				t,
+				toolLabels,
+			),
+		).toBe("Vidéo de référence visionnée");
+		expect(
+			humanizeMcpToolLabel(
+				"mcp_higgsfield_video_analysis_status",
+				undefined,
+				"active",
+				t,
+				toolLabels,
+			),
+		).toBe("Vérification de l’analyse vidéo");
+		expect(
+			humanizeMcpToolLabel(
+				"mcp_higgsfield_video_analysis_status",
+				undefined,
+				"past",
+				t,
+				toolLabels,
+			),
+		).toBe("Analyse vidéo vérifiée");
+		expect(
+			humanizeMcpToolLabel(
+				"mcp_higgsfield_video_analysis_jobs",
+				undefined,
+				"active",
+				t,
+				toolLabels,
+			),
+		).toBe("Affichage des analyses vidéo");
+		expect(
+			humanizeMcpToolLabel(
+				"mcp_higgsfield_video_analysis_jobs",
+				undefined,
+				"past",
+				t,
+				toolLabels,
+			),
+		).toBe("Analyses vidéo affichées");
+		expect(
+			humanizeMcpToolLabel(
+				"mcp_higgsfield_list_voices",
+				undefined,
+				"active",
+				t,
+				toolLabels,
+			),
+		).toBe("Chargement des voix disponibles");
+		expect(
+			humanizeMcpToolLabel(
+				"mcp_higgsfield_list_voices",
+				undefined,
+				"past",
+				t,
+				toolLabels,
+			),
+		).toBe("Voix disponibles chargées");
 	});
 
 	it("uses localized generic fetch labels for an unknown operation", () => {

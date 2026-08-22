@@ -6,6 +6,7 @@
  */
 import {
 	Injectable,
+	PayloadTooLargeException,
 	ServiceUnavailableException,
 	UnsupportedMediaTypeException,
 } from "@nestjs/common";
@@ -29,6 +30,31 @@ import {
 } from "../../../../infrastructure/storage/store-image-variants";
 
 type AttachmentMediaType = (typeof ATTACHMENT_MEDIA_TYPES)[number];
+type AttachmentCategory = "audio" | "document" | "image" | "video";
+
+const MEBIBYTE = 1024 * 1024;
+
+const ATTACHMENT_SIZE_LIMITS: Record<
+	AttachmentCategory,
+	{ bytes: number; message: string }
+> = {
+	audio: {
+		bytes: 25 * MEBIBYTE,
+		message: "Audio files must be 25 MB or smaller",
+	},
+	document: {
+		bytes: 15 * MEBIBYTE,
+		message: "Documents must be 15 MB or smaller",
+	},
+	image: {
+		bytes: 15 * MEBIBYTE,
+		message: "Images must be 15 MB or smaller",
+	},
+	video: {
+		bytes: 50 * MEBIBYTE,
+		message: "Video files must be 50 MB or smaller",
+	},
+};
 
 // Canonical extension per allowed type, plus the spellings accepted as-is.
 // sanitizeFilename appends the canonical one when the name has none of them.
@@ -45,6 +71,11 @@ const EXTENSIONS: Record<
 		accepted: ["docx"],
 		canonical: "docx",
 	},
+	"audio/mp4": { accepted: ["m4a"], canonical: "m4a" },
+	"audio/mpeg": { accepted: ["mp3"], canonical: "mp3" },
+	"audio/ogg": { accepted: ["ogg"], canonical: "ogg" },
+	"audio/wav": { accepted: ["wav"], canonical: "wav" },
+	"audio/x-m4a": { accepted: ["m4a"], canonical: "m4a" },
 	"image/avif": { accepted: ["avif"], canonical: "avif" },
 	"image/gif": { accepted: ["gif"], canonical: "gif" },
 	"image/jpeg": { accepted: ["jpeg", "jpg"], canonical: "jpg" },
@@ -52,6 +83,9 @@ const EXTENSIONS: Record<
 	"image/webp": { accepted: ["webp"], canonical: "webp" },
 	"text/csv": { accepted: ["csv"], canonical: "csv" },
 	"text/plain": { accepted: ["log", "md", "text", "txt"], canonical: "txt" },
+	"video/mp4": { accepted: ["mp4"], canonical: "mp4" },
+	"video/quicktime": { accepted: ["mov"], canonical: "mov" },
+	"video/webm": { accepted: ["webm"], canonical: "webm" },
 };
 
 // First-bytes signatures for the binary types (contract §7.2). text/plain and
@@ -67,6 +101,12 @@ const MAGIC_BYTES: Partial<
 	"application/vnd.openxmlformats-officedocument.wordprocessingml.document": (
 		bytes,
 	) => startsWithBytes(bytes, [0x50, 0x4b, 0x03, 0x04]),
+	"audio/mp4": isM4a,
+	"audio/mpeg": isMp3,
+	"audio/ogg": (bytes) => ascii(bytes, 0, 4) === "OggS",
+	"audio/wav": (bytes) =>
+		ascii(bytes, 0, 4) === "RIFF" && ascii(bytes, 8, 12) === "WAVE",
+	"audio/x-m4a": isM4a,
 	"image/avif": (bytes) =>
 		ascii(bytes, 4, 8) === "ftyp" &&
 		["avif", "avis"].includes(ascii(bytes, 8, 12)),
@@ -76,6 +116,9 @@ const MAGIC_BYTES: Partial<
 		startsWithBytes(bytes, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
 	"image/webp": (bytes) =>
 		ascii(bytes, 0, 4) === "RIFF" && ascii(bytes, 8, 12) === "WEBP",
+	"video/mp4": hasFtypBox,
+	"video/quicktime": hasFtypBox,
+	"video/webm": (bytes) => startsWithBytes(bytes, [0x1a, 0x45, 0xdf, 0xa3]),
 };
 
 function ascii(bytes: Buffer, start: number, end: number): string {
@@ -84,6 +127,53 @@ function ascii(bytes: Buffer, start: number, end: number): string {
 
 function startsWithBytes(bytes: Buffer, signature: number[]): boolean {
 	return signature.every((byte, index) => bytes[index] === byte);
+}
+
+function hasFtypBox(bytes: Buffer): boolean {
+	return ascii(bytes, 4, 8) === "ftyp";
+}
+
+const M4A_MAJOR_BRANDS = new Set([
+	"M4A ",
+	"M4B ",
+	"mp42",
+	"mp41",
+	"isom",
+	"iso2",
+]);
+
+function isM4a(bytes: Buffer): boolean {
+	return hasFtypBox(bytes) && M4A_MAJOR_BRANDS.has(ascii(bytes, 8, 12));
+}
+
+function isMp3(bytes: Buffer): boolean {
+	return (
+		ascii(bytes, 0, 3) === "ID3" ||
+		(bytes[0] === 0xff && ((bytes[1] ?? 0) & 0xe0) === 0xe0)
+	);
+}
+
+function attachmentCategory(mediaType: string): AttachmentCategory {
+	if (mediaType.startsWith("audio/")) {
+		return "audio";
+	}
+
+	if (mediaType.startsWith("image/")) {
+		return "image";
+	}
+
+	if (mediaType.startsWith("video/")) {
+		return "video";
+	}
+
+	return "document";
+}
+
+export function attachmentSizeLimitFor(mediaType: string): {
+	bytes: number;
+	message: string;
+} {
+	return ATTACHMENT_SIZE_LIMITS[attachmentCategory(mediaType)];
 }
 
 @Injectable()
@@ -106,9 +196,16 @@ export class UploadsService {
 		if (!mediaType) {
 			throw new UnsupportedMediaTypeException({
 				code: "UNSUPPORTED_ATTACHMENT_TYPE",
-				message:
-					"Only images (JPEG, PNG, WebP, GIF, AVIF), PDF, Word, Excel, CSV " +
-					"and plain text files are accepted",
+				message: "Only images, documents, video, or audio files are accepted",
+			});
+		}
+
+		const sizeLimit = attachmentSizeLimitFor(mediaType);
+
+		if (file.buffer.byteLength > sizeLimit.bytes) {
+			throw new PayloadTooLargeException({
+				code: "ATTACHMENT_FILE_TOO_LARGE",
+				message: sizeLimit.message,
 			});
 		}
 
@@ -133,7 +230,7 @@ export class UploadsService {
 		// A caller-side threshold could only ever be wrong: a 269KB 3072px PNG
 		// is small in bytes and enormous in pixels. optimizeImage owns both
 		// triggers (its own byte floor and the width cap) and returns the input
-		// untouched when neither applies. SVG/GIF/documents stay verbatim.
+		// untouched when neither applies. GIF/documents/audio/video stay verbatim.
 		if (isRaster) {
 			const optimized = await optimizeImage(file.buffer, {
 				contentType: mediaType,

@@ -9,6 +9,15 @@ export type EmailContent = {
 	text: string;
 };
 
+export type ManualRequestEmailData = {
+	adminUrl: string;
+	fullName: string;
+	interval: "month" | "year";
+	phone: string;
+	plan: "pro" | "business";
+	tierCredits: number;
+};
+
 const EMBER = "#d16022";
 
 function shell(bodyHtml: string): string {
@@ -70,12 +79,38 @@ export function invitationEmail(data: {
 	};
 }
 
+export function manualRequestEmail(data: ManualRequestEmailData): EmailContent {
+	const fullName = sanitizeHeaderText(data.fullName);
+	const phone = sanitizeHeaderText(data.phone);
+	const plan = data.plan === "business" ? "Business" : "Pro";
+	const interval = data.interval === "year" ? "yearly" : "monthly";
+	const planSummary = `${plan} / ${data.tierCredits} credits / ${interval}`;
+	const adminUrl = sanitizeHeaderText(data.adminUrl);
+
+	return {
+		subject: `New offline subscription request — ${fullName}`,
+		html: `<!doctype html>
+<html><body style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#1a1815;line-height:1.6;">
+<h1 style="font-size:20px;">New offline subscription request</h1>
+<p><strong>Name:</strong> ${escapeHtml(fullName)}<br>
+<strong>Phone:</strong> ${escapeHtml(phone)}<br>
+<strong>Plan:</strong> ${escapeHtml(planSummary)}</p>
+<p><a href="${escapeHtml(adminUrl)}">Open offline billing in admin</a></p>
+</body></html>`,
+		text: `New offline subscription request\n\nName: ${fullName}\nPhone: ${phone}\nPlan: ${planSummary}\n\nOpen offline billing in admin:\n${adminUrl}`,
+	};
+}
+
 // Collapse anything header-shaped (CR/LF and other control characters) and
 // bound the length, so user text cannot restructure a subject line.
 function sanitizeHeaderText(value: string): string {
-	// biome-ignore lint/suspicious/noControlCharactersInRegex: collapsing control characters is the point
-	return value
-		.replaceAll(/[\u0000-\u001F\u007F]+/g, " ")
+	return [...value]
+		.map((character) => {
+			const code = character.charCodeAt(0);
+
+			return code <= 31 || code === 127 ? " " : character;
+		})
+		.join("")
 		.trim()
 		.slice(0, 120);
 }

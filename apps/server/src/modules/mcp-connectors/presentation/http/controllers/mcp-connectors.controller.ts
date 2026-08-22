@@ -15,9 +15,11 @@ import {
 import type { AuthUser } from "@wandit/auth";
 import {
 	MCP_ERROR_PARAM,
+	type McpConnectCompleteRequest,
 	type McpConnectorListItem,
 	type McpConnectStartRequest,
 	type McpConnectStartResponse,
+	mcpConnectCompleteRequestSchema,
 	mcpConnectStartRequestSchema,
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
@@ -55,6 +57,19 @@ export class McpConnectorsController {
 		@CurrentUser() user: AuthUser,
 	): Promise<McpConnectStartResponse> {
 		return this.oauthService.startConnect(user.id, slug, body.returnUrl);
+	}
+
+	// Mobile OAuth finish: the app posts the code+state its deep link received
+	// from the callback redirect; the session here is what binds completion to
+	// the user who started the connect.
+	@Post("complete")
+	@HttpCode(200)
+	completeConnect(
+		@Body(new ZodValidationPipe(mcpConnectCompleteRequestSchema))
+		body: McpConnectCompleteRequest,
+		@CurrentUser() user: AuthUser,
+	): Promise<McpConnectorListItem> {
+		return this.oauthService.completeConnect(user.id, body);
 	}
 
 	@Get("callback")

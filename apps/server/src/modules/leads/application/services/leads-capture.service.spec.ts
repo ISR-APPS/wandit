@@ -8,11 +8,13 @@ import {
 import type { LeadsCaptureThrottle } from "./leads-capture-throttle";
 
 const FORM_ID = "0b0e8b1e-4a6f-4a5e-9a34-2f4dfd7f2c11";
+const LOADED_DEPLOYMENT_ID = "f4593ee8-cb98-449a-b92a-3884252a8862";
 const PROJECT_ID = "7f4f7e6a-1111-4222-8333-944445555666";
 
 function buildService() {
 	const repository = {
-		findActiveDeploymentId: vi.fn().mockResolvedValue(null),
+		findActiveDeploymentSnapshot: vi.fn().mockResolvedValue(null),
+		findDeploymentSnapshotById: vi.fn().mockResolvedValue(null),
 		findProjectByPublicFormId: vi.fn().mockResolvedValue({ id: PROJECT_ID }),
 		hasRecentLeadWithPhone: vi.fn().mockResolvedValue(false),
 		insertLead: vi.fn().mockResolvedValue(undefined),
@@ -56,6 +58,7 @@ describe("LeadsCaptureService", () => {
 				extras: { _rawPhone: "0540 77 31 02" },
 				name: "Amina B",
 				phone: "+213540773102",
+				productSku: null,
 				projectId: PROJECT_ID,
 				wilaya: "Alger",
 			}),
@@ -76,14 +79,149 @@ describe("LeadsCaptureService", () => {
 		);
 	});
 
-	it("stamps the active deployment when one exists", async () => {
+	it("stamps the active version SKU and ignores visitor-provided SKU data", async () => {
 		const { repository, service } = buildService();
-		repository.findActiveDeploymentId.mockResolvedValue("dep-1");
+		repository.findActiveDeploymentSnapshot.mockResolvedValue({
+			deploymentId: "dep-1",
+			productSku: "MERCHANT-SKU-01",
+		});
+
+		await service.capture(
+			FORM_ID,
+			validBody({ productSku: "VISITOR-CANNOT-OVERRIDE" }),
+			"1.2.3.4",
+		);
+
+		expect(repository.insertLead).toHaveBeenCalledWith(
+			expect.objectContaining({
+				deploymentId: "dep-1",
+				productSku: "MERCHANT-SKU-01",
+			}),
+		);
+	});
+
+	it("stamps the deployment and SKU of the version loaded by the visitor", async () => {
+		const { repository, service } = buildService();
+		repository.findDeploymentSnapshotById.mockResolvedValue({
+			deploymentId: LOADED_DEPLOYMENT_ID,
+			productSku: "LOADED-SKU-01",
+		});
+
+		await service.capture(
+			FORM_ID,
+			validBody({ deploymentId: LOADED_DEPLOYMENT_ID }),
+			"1.2.3.4",
+		);
+
+		expect(repository.findDeploymentSnapshotById).toHaveBeenCalledWith(
+			PROJECT_ID,
+			LOADED_DEPLOYMENT_ID,
+		);
+		expect(repository.findActiveDeploymentSnapshot).not.toHaveBeenCalled();
+		expect(repository.insertLead).toHaveBeenCalledWith(
+			expect.objectContaining({
+				deploymentId: LOADED_DEPLOYMENT_ID,
+				productSku: "LOADED-SKU-01",
+			}),
+		);
+	});
+
+	it("keeps a null SKU from the loaded deployment without falling back", async () => {
+		const { repository, service } = buildService();
+		repository.findDeploymentSnapshotById.mockResolvedValue({
+			deploymentId: LOADED_DEPLOYMENT_ID,
+			productSku: null,
+		});
+
+		await service.capture(
+			FORM_ID,
+			validBody({ deploymentId: LOADED_DEPLOYMENT_ID }),
+			"1.2.3.4",
+		);
+
+		expect(repository.findActiveDeploymentSnapshot).not.toHaveBeenCalled();
+		expect(repository.insertLead).toHaveBeenCalledWith(
+			expect.objectContaining({
+				deploymentId: LOADED_DEPLOYMENT_ID,
+				productSku: null,
+			}),
+		);
+	});
+
+	it("falls back to the active deployment when the loaded id is unknown", async () => {
+		const { repository, service } = buildService();
+		repository.findActiveDeploymentSnapshot.mockResolvedValue({
+			deploymentId: "dep-active",
+			productSku: "ACTIVE-SKU-01",
+		});
+
+		await service.capture(
+			FORM_ID,
+			validBody({ deploymentId: LOADED_DEPLOYMENT_ID }),
+			"1.2.3.4",
+		);
+
+		expect(repository.findDeploymentSnapshotById).toHaveBeenCalledWith(
+			PROJECT_ID,
+			LOADED_DEPLOYMENT_ID,
+		);
+		expect(repository.findActiveDeploymentSnapshot).toHaveBeenCalledWith(
+			PROJECT_ID,
+		);
+		expect(repository.insertLead).toHaveBeenCalledWith(
+			expect.objectContaining({
+				deploymentId: "dep-active",
+				productSku: "ACTIVE-SKU-01",
+			}),
+		);
+	});
+
+	it("accepts a malformed loaded id and falls back to the active deployment", async () => {
+		const { repository, service } = buildService();
+		repository.findActiveDeploymentSnapshot.mockResolvedValue({
+			deploymentId: "dep-active",
+			productSku: "ACTIVE-SKU-01",
+		});
+
+		const result = await service.capture(
+			FORM_ID,
+			validBody({ deploymentId: "not-a-uuid" }),
+			"1.2.3.4",
+		);
+
+		expect(result).toEqual({ ok: true });
+		expect(repository.findDeploymentSnapshotById).not.toHaveBeenCalled();
+		expect(repository.findActiveDeploymentSnapshot).toHaveBeenCalledWith(
+			PROJECT_ID,
+		);
+		expect(repository.insertLead).toHaveBeenCalledWith(
+			expect.objectContaining({
+				deploymentId: "dep-active",
+				productSku: "ACTIVE-SKU-01",
+			}),
+		);
+	});
+
+	it.each([
+		{ activeDeployment: null, expectedDeploymentId: null },
+		{
+			activeDeployment: { deploymentId: "dep-legacy", productSku: null },
+			expectedDeploymentId: "dep-legacy",
+		},
+	])("inserts a null SKU when the active version or its SKU is missing", async ({
+		activeDeployment,
+		expectedDeploymentId,
+	}) => {
+		const { repository, service } = buildService();
+		repository.findActiveDeploymentSnapshot.mockResolvedValue(activeDeployment);
 
 		await service.capture(FORM_ID, validBody(), "1.2.3.4");
 
 		expect(repository.insertLead).toHaveBeenCalledWith(
-			expect.objectContaining({ deploymentId: "dep-1" }),
+			expect.objectContaining({
+				deploymentId: expectedDeploymentId,
+				productSku: null,
+			}),
 		);
 	});
 

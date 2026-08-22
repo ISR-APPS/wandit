@@ -1,3 +1,8 @@
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Readable } from "node:stream";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockEnv = vi.hoisted(() => ({
@@ -37,6 +42,7 @@ vi.mock("@aws-sdk/client-s3", () => ({
 }));
 
 import {
+	downloadObjectToFile,
 	IMMUTABLE_ASSET_CACHE_CONTROL,
 	isUserUploadUrl,
 	isWanditHostedUrl,
@@ -45,6 +51,9 @@ import {
 	putPageHtml,
 	putSiteFile,
 	r2ObjectExists,
+	siteVideoFrameKey,
+	siteVideoSegmentKey,
+	siteVideoSoundtrackKey,
 	VARIANT_FILENAME_PATTERN,
 	variantKey,
 } from "./r2";
@@ -85,6 +94,39 @@ describe("variantKey", () => {
 		expect(VARIANT_FILENAME_PATTERN.test("uploads/u/i/photo-w960.webp")).toBe(
 			false,
 		);
+	});
+});
+
+describe("video processing keys", () => {
+	it("keeps every intermediate outside the final vid-1 recovery key", () => {
+		expect(siteVideoFrameKey("project_1", "attempt_1", 2, "jpg")).toBe(
+			"sites/project_1/assets/attempt_1/frames/frame-2.jpg",
+		);
+		expect(siteVideoSegmentKey("project_1", "attempt_1", 3, "mp4")).toBe(
+			"sites/project_1/assets/attempt_1/segments/segment-3.mp4",
+		);
+		expect(siteVideoSoundtrackKey("project_1", "attempt_1", "m4a")).toBe(
+			"sites/project_1/assets/attempt_1/audio/soundtrack.m4a",
+		);
+	});
+});
+
+describe("downloadObjectToFile", () => {
+	it("streams the object body to disk without collecting it into one buffer", async () => {
+		const directory = await mkdtemp(join(tmpdir(), "wandit-r2-stream-"));
+		const destination = join(directory, "source.mp4");
+		s3.send.mockResolvedValueOnce({
+			Body: Readable.from([Buffer.from("clip-"), Buffer.from("bytes")]),
+		});
+
+		try {
+			await expect(
+				downloadObjectToFile("sites/p/assets/a/vid-1.mp4", destination),
+			).resolves.toBe(true);
+			await expect(readFile(destination, "utf8")).resolves.toBe("clip-bytes");
+		} finally {
+			await rm(directory, { force: true, recursive: true });
+		}
 	});
 });
 
