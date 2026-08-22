@@ -53,6 +53,8 @@ export class ProductSettingsService {
 
 		return {
 			emailAuthEnabled: settings.emailAuthEnabled,
+			manualGraceDays: settings.manualGraceDays,
+			manualPaymentsEnabled: settings.manualPaymentsEnabled,
 			organizationsEnabled: settings.organizationsEnabled,
 			paidSubscriptionsEnabled: settings.paidSubscriptionsEnabled,
 			signupGrantEnabled: settings.signupGrantEnabled,

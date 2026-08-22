@@ -1,11 +1,17 @@
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { adminAnalyticsFunnelStepUsersQuerySchema } from "@wandit/contracts";
 
-import type { AnalyticsQuery } from "./analytics.dto";
+import type {
+	AnalyticsFunnelStepUsersQueryInput,
+	AnalyticsFunnelUserStep,
+	AnalyticsQuery,
+} from "./analytics.dto";
 import {
 	getAdminAnalyticsAcquisition,
 	getAdminAnalyticsEngagement,
 	getAdminAnalyticsFeatures,
 	getAdminAnalyticsFunnel,
+	getAdminAnalyticsFunnelStepUsers,
 	getAdminAnalyticsHealth,
 	getAdminAnalyticsRevenue,
 } from "./analytics.services";
@@ -22,8 +28,23 @@ function analyticsQueryDimensions(query: AnalyticsQuery) {
 	] as const;
 }
 
+function funnelStepUsersQueryDimensions(
+	query: AnalyticsFunnelStepUsersQueryInput,
+) {
+	const parsedQuery = adminAnalyticsFunnelStepUsersQuerySchema.parse(query);
+
+	return [
+		...analyticsQueryDimensions(parsedQuery),
+		parsedQuery.page,
+		parsedQuery.pageSize,
+		parsedQuery.contacted,
+	] as const;
+}
+
 export const adminAnalyticsKeys = {
 	all: ["admin-analytics"] as const,
+	funnelStepUsersAll: () =>
+		[...adminAnalyticsKeys.all, "funnel-step-users"] as const,
 	acquisition: (query: AnalyticsQuery) =>
 		[
 			...adminAnalyticsKeys.all,
@@ -35,6 +56,15 @@ export const adminAnalyticsKeys = {
 			...adminAnalyticsKeys.all,
 			"funnel",
 			...analyticsQueryDimensions(query),
+		] as const,
+	funnelStepUsers: (
+		step: AnalyticsFunnelUserStep,
+		query: AnalyticsFunnelStepUsersQueryInput,
+	) =>
+		[
+			...adminAnalyticsKeys.funnelStepUsersAll(),
+			step,
+			...funnelStepUsersQueryDimensions(query),
 		] as const,
 	engagement: (query: AnalyticsQuery) =>
 		[
@@ -73,6 +103,19 @@ export function useAdminAnalyticsFunnelQuery(query: AnalyticsQuery) {
 	return useQuery({
 		queryKey: adminAnalyticsKeys.funnel(query),
 		queryFn: () => getAdminAnalyticsFunnel(query),
+	});
+}
+
+export function useAdminAnalyticsFunnelStepUsersQuery(
+	step: AnalyticsFunnelUserStep,
+	query: AnalyticsFunnelStepUsersQueryInput,
+	{ enabled }: { enabled: boolean },
+) {
+	return useQuery({
+		queryKey: adminAnalyticsKeys.funnelStepUsers(step, query),
+		queryFn: () => getAdminAnalyticsFunnelStepUsers(step, query),
+		enabled,
+		placeholderData: keepPreviousData,
 	});
 }
 

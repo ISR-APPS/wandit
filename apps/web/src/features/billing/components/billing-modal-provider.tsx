@@ -30,6 +30,7 @@ import {
 	subscribeToBillingErrors,
 	type UpgradeModalIntent,
 } from "../lib/billing-error-dispatch";
+import type { PlanPickerPaymentMethod } from "../lib/billing-ui-policy";
 import { PlanPickerDialog } from "./plan-picker-dialog";
 
 type BillingModalContextValue = {
@@ -42,6 +43,7 @@ type BillingModalContextValue = {
 type PlanPickerSelection = {
 	interval: BillingInterval;
 	tierCredits: CreditTier;
+	paymentMethod?: PlanPickerPaymentMethod;
 };
 
 const BillingModalContext = createContext<BillingModalContextValue | null>(
@@ -126,6 +128,7 @@ export function BillingModalProvider({ children }: { children: ReactNode }) {
 			<PlanPickerDialog
 				initialInterval={selection?.interval}
 				initialTierCredits={selection?.tierCredits}
+				initialPaymentMethod={selection?.paymentMethod}
 				open={open}
 				onOpenChange={handleOpenChange}
 				requiredCredits={intent?.requiredCredits}

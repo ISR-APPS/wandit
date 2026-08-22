@@ -59,6 +59,8 @@ class InMemoryOrgsRepository {
 		[ORG_ID, [memberRow("user_owner", "owner"), memberRow("user_b", "member")]],
 	]);
 	subscription: AdminOrgSubscriptionRow | null = {
+		id: "11111111-1111-4111-8111-111111111111",
+		provider: "stripe",
 		plan: "business",
 		status: "active",
 		interval: "month",

@@ -5,17 +5,16 @@ import {
 	parsePriceLookupKey,
 } from "@wandit/contracts";
 import type Stripe from "stripe";
-
-import {
-	PAYMENT_PROVIDER,
-	type PaymentProvider,
-} from "../../domain/ports/payment-provider.port";
 import {
 	type CreditOwner,
 	creditOwnerKey,
 	orgOwner,
 	userOwner,
 } from "../../../credits/domain/credit-owner";
+import {
+	PAYMENT_PROVIDER,
+	type PaymentProvider,
+} from "../../domain/ports/payment-provider.port";
 import { BillingCustomersRepository } from "../../infrastructure/persistence/billing-customers.repository";
 import { OrganizationBillingCustomersRepository } from "../../infrastructure/persistence/organization-billing-customers.repository";
 import {
@@ -133,7 +132,11 @@ export class StripeSubscriptionSyncService {
 					});
 				const [canonical, ...duplicates] = nonTerminal;
 				const localNonTerminal =
-					await this.subscriptionsRepository.findActiveByOwner(owner, tx);
+					await this.subscriptionsRepository.findActiveByOwnerAndProvider(
+						owner,
+						"stripe",
+						tx,
+					);
 
 				if (
 					localNonTerminal &&

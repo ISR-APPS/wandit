@@ -3,8 +3,10 @@ import type {
 	BillingCancelRequest,
 	BillingTopupPack,
 	CancellationReasonCode,
+	ManualSubscriptionRequest,
 	Subscription,
 } from "@wandit/contracts";
+import { isManualSubscription } from "@wandit/contracts";
 import {
 	formatDate,
 	formatNumber,
@@ -27,15 +29,18 @@ import {
 	Card,
 	CardContent,
 	CardDescription,
+	CardFooter,
 	CardHeader,
 	CardTitle,
 } from "@wandit/ui/components/card";
 import { Skeleton } from "@wandit/ui/components/skeleton";
 import { Textarea } from "@wandit/ui/components/textarea";
 import {
+	AlertTriangle,
 	ArrowLeft,
 	CreditCard,
 	ExternalLink,
+	HandCoins,
 	ReceiptText,
 	RefreshCw,
 } from "lucide-react";
@@ -46,6 +51,7 @@ import { ModeToggle } from "@/components/mode-toggle";
 import { UserMenu } from "@/features/auth";
 import {
 	useCancelBillingSubscription,
+	useCancelManualSubscriptionRequest,
 	useCreateBillingPortal,
 	useCreateBillingTopupCheckout,
 	useResumeBillingSubscription,
@@ -53,9 +59,14 @@ import {
 import {
 	useBillingPlansQuery,
 	useBillingSubscriptionQuery,
+	useManualSubscriptionRequestQuery,
 } from "@/features/billing/api/billing.queries";
 import { useBillingModal } from "@/features/billing/components/billing-modal-provider";
-import { areTopupsAvailable } from "@/features/billing/lib/billing-ui-policy";
+import { ManualRequestCancelDialog } from "@/features/billing/components/manual-payment-request-panel";
+import {
+	areTopupsAvailable,
+	getManualGraceNoticeDates,
+} from "@/features/billing/lib/billing-ui-policy";
 import { parseBillingCancelRequest } from "@/features/billing/lib/cancel-subscription";
 import {
 	useCreditBalanceQuery,
@@ -65,7 +76,7 @@ import { LedgerList } from "@/features/credits/components/ledger-list";
 import { formatCreditBalance } from "@/features/credits/lib/format-credits";
 import { usePublicSettingsQuery } from "@/features/settings/api/settings.queries";
 import { useWorkspace } from "@/features/workspaces/lib/workspace-provider";
-import { getApiErrorMessage } from "@/lib/api-client";
+import { getApiErrorMessage, isApiClientError } from "@/lib/api-client";
 import { useDictionary, useTranslation } from "@/lib/i18n";
 
 const LEDGER_PAGE_SIZE = 10;
@@ -91,9 +102,11 @@ export default function BillingPage() {
 		pageSize: LEDGER_PAGE_SIZE,
 	});
 	const subscriptionQuery = useBillingSubscriptionQuery();
+	const manualRequestQuery = useManualSubscriptionRequestQuery();
 	const settingsQuery = usePublicSettingsQuery();
 	const plansQuery = useBillingPlansQuery();
 	const cancelSubscription = useCancelBillingSubscription();
+	const cancelManualRequest = useCancelManualSubscriptionRequest();
 	const resumeSubscription = useResumeBillingSubscription();
 	const portal = useCreateBillingPortal();
 	const topup = useCreateBillingTopupCheckout();
@@ -106,6 +119,16 @@ export default function BillingPage() {
 	const topupsAvailable = areTopupsAvailable(
 		settingsQuery.data?.topupsEnabled,
 		plansQuery.data?.topupPacks.length,
+	);
+	const subscriptionPlansAvailable = Boolean(
+		settingsQuery.data?.paidSubscriptionsEnabled ||
+			settingsQuery.data?.manualPaymentsEnabled,
+	);
+	const subscriptionPlansPaused =
+		settingsQuery.data !== undefined && !subscriptionPlansAvailable;
+	const manualGraceNoticeDates = getManualGraceNoticeDates(
+		subscriptionQuery.data?.subscription,
+		settingsQuery.data?.manualGraceDays ?? 0,
 	);
 
 	const retryCore = () => {
@@ -154,7 +177,7 @@ export default function BillingPage() {
 							<h1 className="font-display font-semibold text-3xl tracking-tight">
 								{copy.page.title}
 							</h1>
-							{settingsQuery.data?.paidSubscriptionsEnabled === false ? (
+							{subscriptionPlansPaused ? (
 								<Badge variant="secondary">{copy.page.betaBadge}</Badge>
 							) : null}
 						</div>
@@ -164,7 +187,7 @@ export default function BillingPage() {
 					</div>
 				</div>
 
-				{settingsQuery.data?.paidSubscriptionsEnabled === false ? (
+				{subscriptionPlansPaused ? (
 					<div className="mt-6 rounded-xl border border-primary/20 bg-primary/[0.04] px-4 py-3 text-sm">
 						{copy.page.betaBody}
 					</div>
@@ -197,36 +220,82 @@ export default function BillingPage() {
 					subscriptionQuery.data &&
 					settingsQuery.data ? (
 					<>
-						<div className="mt-8 grid gap-5 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
-							<BalanceCard balance={balanceQuery.data} locale={locale} />
-							<SubscriptionCard
-								subscription={subscriptionQuery.data.subscription}
-								paidSubscriptionsEnabled={
-									settingsQuery.data.paidSubscriptionsEnabled
-								}
-								locale={locale}
-								onOpenPlanPicker={() => openPlanPicker("billing_page")}
-								onOpenPortal={() => {
-									void portal
-										.mutateAsync()
-										.catch((error) => toast.error(getApiErrorMessage(error)));
-								}}
-								portalPending={portal.isPending}
-								cancelPending={cancelSubscription.isPending}
-								resumePending={resumeSubscription.isPending}
-								onCancel={(request) => {
-									void cancelSubscription
-										.mutateAsync(request)
-										.then(() => toast.success(copy.page.cancelSuccess))
-										.catch((error) => toast.error(getApiErrorMessage(error)));
-								}}
-								onResume={() => {
-									void resumeSubscription
-										.mutateAsync()
-										.then(() => toast.success(copy.page.resumeSuccess))
-										.catch((error) => toast.error(getApiErrorMessage(error)));
-								}}
-							/>
+						<div className="mt-8 flex flex-col gap-5">
+							{manualGraceNoticeDates ? (
+								<ManualGraceNotice
+									accessEndDate={manualGraceNoticeDates.accessEndDate}
+									locale={locale}
+									periodEndDate={manualGraceNoticeDates.periodEndDate}
+								/>
+							) : null}
+							{manualRequestQuery.data?.request ? (
+								<ManualRequestNotice
+									request={manualRequestQuery.data.request}
+									isCancelPending={cancelManualRequest.isPending}
+									onCancel={() => {
+										void cancelManualRequest
+											.mutateAsync()
+											.then(() =>
+												toast.success(copy.page.offline.pending.cancelSuccess),
+											)
+											.catch((error) => {
+												if (
+													isApiClientError(error) &&
+													error.code === "NOT_FOUND"
+												) {
+													void manualRequestQuery.refetch();
+													return;
+												}
+												toast.error(getApiErrorMessage(error));
+											});
+									}}
+								/>
+							) : null}
+
+							<div className="grid gap-5 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
+								<BalanceCard balance={balanceQuery.data} locale={locale} />
+								<SubscriptionCard
+									subscription={subscriptionQuery.data.subscription}
+									paidSubscriptionsEnabled={
+										settingsQuery.data.paidSubscriptionsEnabled
+									}
+									manualPaymentsEnabled={
+										settingsQuery.data.manualPaymentsEnabled
+									}
+									locale={locale}
+									onOpenPlanPicker={() => openPlanPicker("billing_page")}
+									onOpenOfflinePlanPicker={() => {
+										const subscription = subscriptionQuery.data.subscription;
+										if (!subscription) return;
+
+										openPlanPicker("billing_page", {
+											interval: subscription.interval,
+											paymentMethod: "offline",
+											tierCredits: subscription.tierCredits,
+										});
+									}}
+									onOpenPortal={() => {
+										void portal
+											.mutateAsync()
+											.catch((error) => toast.error(getApiErrorMessage(error)));
+									}}
+									portalPending={portal.isPending}
+									cancelPending={cancelSubscription.isPending}
+									resumePending={resumeSubscription.isPending}
+									onCancel={(request) => {
+										void cancelSubscription
+											.mutateAsync(request)
+											.then(() => toast.success(copy.page.cancelSuccess))
+											.catch((error) => toast.error(getApiErrorMessage(error)));
+									}}
+									onResume={() => {
+										void resumeSubscription
+											.mutateAsync()
+											.then(() => toast.success(copy.page.resumeSuccess))
+											.catch((error) => toast.error(getApiErrorMessage(error)));
+									}}
+								/>
+							</div>
 						</div>
 
 						{topupsAvailable ? (
@@ -365,8 +434,10 @@ function BucketMetric({ label, value }: { label: string; value: string }) {
 function SubscriptionCard({
 	subscription,
 	paidSubscriptionsEnabled,
+	manualPaymentsEnabled,
 	locale,
 	onOpenPlanPicker,
+	onOpenOfflinePlanPicker,
 	onOpenPortal,
 	portalPending,
 	cancelPending,
@@ -376,8 +447,10 @@ function SubscriptionCard({
 }: {
 	subscription: Subscription | null;
 	paidSubscriptionsEnabled: boolean;
+	manualPaymentsEnabled: boolean;
 	locale: Locale;
 	onOpenPlanPicker: () => void;
+	onOpenOfflinePlanPicker: () => void;
 	onOpenPortal: () => void;
 	portalPending: boolean;
 	cancelPending: boolean;
@@ -387,6 +460,9 @@ function SubscriptionCard({
 }) {
 	const { t } = useTranslation();
 	const copy = useDictionary().billing;
+	const manualSubscription = isManualSubscription(subscription);
+	const subscriptionPlansAvailable =
+		paidSubscriptionsEnabled || manualPaymentsEnabled;
 
 	return (
 		<Card className="gap-0 overflow-hidden py-0">
@@ -399,19 +475,24 @@ function SubscriptionCard({
 						</CardDescription>
 					</div>
 					{subscription ? (
-						<Badge
-							variant={
-								subscription.cancelAtPeriodEnd
-									? "warning"
-									: subscription.entitled
-										? "success"
-										: "destructive"
-							}
-						>
-							{subscription.cancelAtPeriodEnd
-								? copy.status.canceling
-								: statusLabel(subscription.status, copy.status)}
-						</Badge>
+						<div className="flex flex-wrap justify-end gap-2">
+							{manualSubscription ? (
+								<Badge variant="outline">{copy.page.offline.badge}</Badge>
+							) : null}
+							<Badge
+								variant={
+									subscription.cancelAtPeriodEnd
+										? "warning"
+										: subscription.entitled
+											? "success"
+											: "destructive"
+								}
+							>
+								{subscription.cancelAtPeriodEnd
+									? copy.status.canceling
+									: statusLabel(subscription.status, copy.status)}
+							</Badge>
+						</div>
 					) : null}
 				</div>
 			</CardHeader>
@@ -419,7 +500,9 @@ function SubscriptionCard({
 				{subscription ? (
 					<>
 						<p className="font-display font-semibold text-2xl tracking-tight">
-							{copy.page.proPlan}
+							{subscription.plan === "business"
+								? copy.planPicker.businessName
+								: copy.page.proPlan}
 						</p>
 						<p className="mt-1 text-muted-foreground text-sm">
 							{t("billing.page.creditsPerCycle", {
@@ -437,9 +520,11 @@ function SubscriptionCard({
 							/>
 							<PlanDetail
 								label={
-									subscription.cancelAtPeriodEnd
-										? copy.page.endsLabel
-										: copy.page.renewsLabel
+									manualSubscription
+										? copy.page.offline.expiresLabel
+										: subscription.cancelAtPeriodEnd
+											? copy.page.endsLabel
+											: copy.page.renewsLabel
 								}
 								value={formatDate(subscription.currentPeriodEnd, locale, {
 									dateStyle: "medium",
@@ -455,7 +540,21 @@ function SubscriptionCard({
 							) : null}
 						</dl>
 						<div className="mt-5 flex flex-wrap gap-2">
-							{subscription.cancelAtPeriodEnd && paidSubscriptionsEnabled ? (
+							{manualSubscription && subscription.cancelAtPeriodEnd ? (
+								<Button
+									type="button"
+									disabled={resumePending}
+									onClick={onResume}
+								>
+									{resumePending ? copy.page.resuming : copy.page.resumePlan}
+								</Button>
+							) : null}
+							{manualSubscription ? (
+								<Button type="button" onClick={onOpenOfflinePlanPicker}>
+									<HandCoins data-icon="inline-start" aria-hidden />
+									{copy.page.offline.requestChange}
+								</Button>
+							) : subscription.cancelAtPeriodEnd && paidSubscriptionsEnabled ? (
 								<Button
 									type="button"
 									disabled={resumePending}
@@ -469,15 +568,17 @@ function SubscriptionCard({
 									{copy.page.changePlan}
 								</Button>
 							) : null}
-							<Button
-								type="button"
-								variant="outline"
-								disabled={portalPending}
-								onClick={onOpenPortal}
-							>
-								<ExternalLink aria-hidden />
-								{copy.page.openPortal}
-							</Button>
+							{manualSubscription ? null : (
+								<Button
+									type="button"
+									variant="outline"
+									disabled={portalPending}
+									onClick={onOpenPortal}
+								>
+									<ExternalLink aria-hidden />
+									{copy.page.openPortal}
+								</Button>
+							)}
 							{!subscription.cancelAtPeriodEnd ? (
 								<CancelSubscriptionDialog
 									pending={cancelPending}
@@ -502,7 +603,7 @@ function SubscriptionCard({
 								{copy.page.noSubscriptionBody}
 							</p>
 						</div>
-						{paidSubscriptionsEnabled ? (
+						{subscriptionPlansAvailable ? (
 							<Button
 								type="button"
 								className="mt-5 w-fit"
@@ -514,6 +615,101 @@ function SubscriptionCard({
 					</div>
 				)}
 			</CardContent>
+		</Card>
+	);
+}
+
+function ManualRequestNotice({
+	request,
+	isCancelPending,
+	onCancel,
+}: {
+	request: ManualSubscriptionRequest;
+	isCancelPending: boolean;
+	onCancel: () => void;
+}) {
+	const { t } = useTranslation();
+	const copy = useDictionary().billing;
+	const pending = copy.page.offline.pending;
+
+	return (
+		<Card className="gap-0 overflow-hidden border-primary/25 py-0">
+			<CardHeader className="border-b px-5 py-5 sm:px-6">
+				<div className="flex items-start gap-3">
+					<span className="grid size-9 shrink-0 place-items-center rounded-xl border bg-primary/[0.06]">
+						<HandCoins className="size-4" aria-hidden />
+					</span>
+					<div className="min-w-0">
+						<CardTitle>{pending.title}</CardTitle>
+						<CardDescription className="mt-1">
+							{t("billing.page.offline.pending.body", {
+								phone: request.phone,
+							})}
+						</CardDescription>
+					</div>
+				</div>
+			</CardHeader>
+			<CardContent className="px-5 py-4 sm:px-6">
+				<p className="text-muted-foreground text-sm">
+					{request.plan === "business"
+						? copy.planPicker.businessName
+						: copy.planPicker.proName}
+					{" · "}
+					{t("credits.creditUnit", { count: request.tierCredits })}
+					{" · "}
+					{request.interval === "year"
+						? copy.planPicker.yearly
+						: copy.planPicker.monthly}
+				</p>
+			</CardContent>
+			<CardFooter className="px-5 pb-5 sm:px-6">
+				<ManualRequestCancelDialog
+					copy={pending}
+					isPending={isCancelPending}
+					onConfirm={onCancel}
+				/>
+			</CardFooter>
+		</Card>
+	);
+}
+
+function ManualGraceNotice({
+	accessEndDate,
+	locale,
+	periodEndDate,
+}: {
+	accessEndDate: Date;
+	locale: Locale;
+	periodEndDate: Date;
+}) {
+	const { t } = useTranslation();
+	const copy = useDictionary().billing.page.offline;
+
+	return (
+		<Card className="gap-0 overflow-hidden border-amber-500/30 bg-amber-500/[0.04] py-0">
+			<CardHeader className="px-5 py-5 sm:px-6">
+				<div className="flex items-start gap-3">
+					<span className="grid size-9 shrink-0 place-items-center rounded-xl border border-amber-500/30 bg-amber-500/10">
+						<AlertTriangle
+							className="size-4 text-amber-700 dark:text-amber-300"
+							aria-hidden
+						/>
+					</span>
+					<div className="min-w-0">
+						<CardTitle>{copy.graceTitle}</CardTitle>
+						<CardDescription className="mt-1">
+							{t("billing.page.offline.graceNotice", {
+								accessEndDate: formatDate(accessEndDate, locale, {
+									dateStyle: "medium",
+								}),
+								endDate: formatDate(periodEndDate, locale, {
+									dateStyle: "medium",
+								}),
+							})}
+						</CardDescription>
+					</div>
+				</div>
+			</CardHeader>
 		</Card>
 	);
 }
