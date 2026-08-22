@@ -346,7 +346,17 @@ describe("SitesService.publish", () => {
 	});
 
 	it("injects the leads capture runtime into the published bytes", async () => {
-		const { service } = setup();
+		const { repository, service } = setup();
+		const pendingId = "55555555-5555-4555-8555-555555555555";
+		repository.insertPending.mockResolvedValue(
+			deploymentRow({ id: pendingId }),
+		);
+		repository.promoteToActive.mockResolvedValue(
+			deploymentRow({
+				id: pendingId,
+				status: "active",
+			}),
+		);
 		const bodies: string[] = [];
 		vi.mocked(putPageHtml).mockImplementation(async (_key, html) => {
 			bodies.push(html);
@@ -356,6 +366,7 @@ describe("SitesService.publish", () => {
 
 		expect(bodies[0]).toContain('id="wandit-leads-runtime"');
 		expect(bodies[0]).toContain(`/api/public/leads/${FORM_ID}`);
+		expect(bodies[0]).toContain(JSON.stringify(pendingId));
 	});
 
 	it("injects the Made with Wandit badge into every free publish", async () => {

@@ -436,6 +436,36 @@ export class LeadsRepository {
 		deploymentId: string;
 		productSku: string | null;
 	} | null> {
+		return this.findDeploymentSnapshot(
+			projectId,
+			eq(deployments.status, "active"),
+		);
+	}
+
+	/**
+	 * No status filter: the unguessable id comes from injected page bytes, so any
+	 * deployment belonging to this project is an honest loaded-version claim.
+	 */
+	async findDeploymentSnapshotById(
+		projectId: string,
+		deploymentId: string,
+	): Promise<{
+		deploymentId: string;
+		productSku: string | null;
+	} | null> {
+		return this.findDeploymentSnapshot(
+			projectId,
+			eq(deployments.id, deploymentId),
+		);
+	}
+
+	private async findDeploymentSnapshot(
+		projectId: string,
+		extraCondition: SQL,
+	): Promise<{
+		deploymentId: string;
+		productSku: string | null;
+	} | null> {
 		const [row] = await this.db
 			.select({
 				deploymentId: deployments.id,
@@ -443,12 +473,7 @@ export class LeadsRepository {
 			})
 			.from(deployments)
 			.innerJoin(versions, eq(versions.id, deployments.versionId))
-			.where(
-				and(
-					eq(deployments.projectId, projectId),
-					eq(deployments.status, "active"),
-				),
-			)
+			.where(and(eq(deployments.projectId, projectId), extraCondition))
 			.limit(1);
 
 		return row ?? null;

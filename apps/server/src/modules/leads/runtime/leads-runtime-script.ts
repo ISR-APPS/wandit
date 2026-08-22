@@ -22,10 +22,15 @@
  */
 export function buildLeadsRuntimeScript(options: {
 	captureUrl: string;
+	deploymentId: string;
 }): string {
-	// JSON-escape, then fold "<" to \u003c so no URL can ever smuggle a
+	// JSON-escape, then fold "<" to \u003c so no baked value can ever smuggle a
 	// script-close sequence into the inline tag.
 	const captureUrl = JSON.stringify(options.captureUrl).replace(
+		/</g,
+		"\\u003c",
+	);
+	const deploymentId = JSON.stringify(options.deploymentId).replace(
 		/</g,
 		"\\u003c",
 	);
@@ -36,6 +41,7 @@ export function buildLeadsRuntimeScript(options: {
 	return `(function () {
 	try {
 		var captureUrl = ${captureUrl};
+		var deploymentId = ${deploymentId};
 		var DEDUPE_WINDOW_MS = 120000;
 		var HEURISTIC_DELAY_MS = 2500;
 		var MAX_PAYLOAD_BYTES = 12 * 1024;
@@ -368,6 +374,7 @@ export function buildLeadsRuntimeScript(options: {
 			if (inFlight[digits]) return inFlight[digits];
 			var value = purchaseValue(lead);
 			var body = { phone: phone };
+			if (deploymentId) body.deploymentId = deploymentId;
 			var name = clip(lead.name, 200);
 			if (name) body.name = name;
 			var wilaya = clip(lead.wilaya, 120);
