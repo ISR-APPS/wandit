@@ -174,7 +174,10 @@ export function LinkEditorDialog({
 								autoFocus
 							/>
 						</FormField>
-						<FormField label="Internal label" htmlFor="affiliate-link-label">
+						<FormField
+							label="Label (visible to the partner)"
+							htmlFor="affiliate-link-label"
+						>
 							<Input
 								id="affiliate-link-label"
 								value={label}
@@ -182,6 +185,10 @@ export function LinkEditorDialog({
 								placeholder="Optional"
 								maxLength={200}
 							/>
+							<p className="text-muted-foreground text-xs">
+								Shown in the partner&apos;s Affiliates page next to the code. Do
+								not write internal notes here.
+							</p>
 						</FormField>
 					</div>
 

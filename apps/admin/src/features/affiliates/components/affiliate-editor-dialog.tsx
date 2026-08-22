@@ -2,6 +2,7 @@ import type {
 	AffiliateDetail,
 	AffiliatePayoutMethod,
 	AffiliateStatus,
+	AffiliateUserIdentity,
 	CreateAffiliateInput,
 	UpdateAffiliateInput,
 } from "@wandit/contracts";
@@ -32,6 +33,7 @@ import {
 	useCreateAffiliateMutation,
 	useUpdateAffiliateMutation,
 } from "../api/affiliates.mutations";
+import { PortalAccessControl } from "./portal-access-control";
 
 export function AffiliateEditorDialog({
 	open,
@@ -49,7 +51,9 @@ export function AffiliateEditorDialog({
 	const pending = createMutation.isPending || updateMutation.isPending;
 	const [name, setName] = useState("");
 	const [email, setEmail] = useState("");
-	const [userId, setUserId] = useState("");
+	const [linkedUser, setLinkedUser] = useState<AffiliateUserIdentity | null>(
+		null,
+	);
 	const [company, setCompany] = useState("");
 	const [channel, setChannel] = useState("");
 	const [country, setCountry] = useState("");
@@ -66,7 +70,7 @@ export function AffiliateEditorDialog({
 		}
 		setName(initial?.affiliate.name ?? "");
 		setEmail(initial?.affiliate.email ?? "");
-		setUserId(initial?.affiliate.userId ?? "");
+		setLinkedUser(initial?.linkedUser ?? null);
 		setCompany(initial?.affiliate.company ?? "");
 		setChannel(initial?.affiliate.channel ?? "");
 		setCountry(initial?.affiliate.country ?? "");
@@ -96,7 +100,7 @@ export function AffiliateEditorDialog({
 		}
 
 		const data = {
-			userId: nullable(userId),
+			userId: linkedUser?.id ?? null,
 			name: name.trim(),
 			email: email.trim(),
 			company: nullable(company),
@@ -166,14 +170,6 @@ export function AffiliateEditorDialog({
 								maxLength={320}
 							/>
 						</FormField>
-						<FormField label="Linked user ID" htmlFor="affiliate-user-id">
-							<Input
-								id="affiliate-user-id"
-								value={userId}
-								onChange={(event) => setUserId(event.target.value)}
-								placeholder="Optional"
-							/>
-						</FormField>
 						<FormField label="Company" htmlFor="affiliate-company">
 							<Input
 								id="affiliate-company"
@@ -233,6 +229,15 @@ export function AffiliateEditorDialog({
 							</Select>
 						</FormField>
 					</div>
+
+					<PortalAccessControl
+						key={`${initial?.affiliate.id ?? "new"}-${open ? "open" : "closed"}`}
+						dialogOpen={open}
+						linkedUser={linkedUser}
+						affiliateEmail={email}
+						suggestExactMatch={!linkedUser}
+						onLinkedUserChange={setLinkedUser}
+					/>
 
 					<FormField
 						label="Payout details (JSON)"

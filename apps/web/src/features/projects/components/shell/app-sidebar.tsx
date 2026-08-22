@@ -17,11 +17,16 @@ import {
 import type * as React from "react";
 
 import { Spark } from "@/components/logo";
+import { useAffiliatePortalMeQuery } from "@/features/affiliates/api/affiliates.queries";
 import { UpgradeCard } from "@/features/billing/components/upgrade-button";
 import { isChatwootConfigured, openSupportChat } from "@/features/support";
 import { WorkspaceSwitcher } from "@/features/workspaces/components/workspace-switcher";
 import { useTranslation } from "@/lib/i18n";
-import { NAV_GROUPS, type NavItem } from "../../lib/nav-config";
+import {
+	AFFILIATE_NAV_GROUP,
+	NAV_GROUPS,
+	type NavItem,
+} from "../../lib/nav-config";
 
 function NavEntry({ item }: { item: NavItem }) {
 	const pathname = useLocation({ select: (location) => location.pathname });
@@ -90,6 +95,11 @@ function NavEntry({ item }: { item: NavItem }) {
 
 export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
 	const { t } = useTranslation();
+	const affiliateQuery = useAffiliatePortalMeQuery();
+	const showAffiliateNavigation =
+		!affiliateQuery.isPending &&
+		!affiliateQuery.isError &&
+		Boolean(affiliateQuery.data?.affiliate);
 	return (
 		<Sidebar
 			collapsible="icon"
@@ -132,6 +142,22 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
 						</SidebarGroupContent>
 					</SidebarGroup>
 				))}
+				{showAffiliateNavigation ? (
+					<SidebarGroup>
+						<SidebarGroupLabel>
+							{t(AFFILIATE_NAV_GROUP.titleKey)}
+						</SidebarGroupLabel>
+						<SidebarGroupContent>
+							<SidebarMenu>
+								{AFFILIATE_NAV_GROUP.items.map((item) => (
+									<SidebarMenuItem key={item.titleKey}>
+										<NavEntry item={item} />
+									</SidebarMenuItem>
+								))}
+							</SidebarMenu>
+						</SidebarGroupContent>
+					</SidebarGroup>
+				) : null}
 			</SidebarContent>
 			{/* The upgrade card gates itself on purchases + free plan, so this
 			    stays invisible until billing opens (ship-dark launch policy). */}
