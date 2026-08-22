@@ -94,6 +94,7 @@ async function bootstrap() {
 			env.ADMIN_ORIGIN,
 		].filter((origin): origin is string => Boolean(origin)),
 		credentials: true,
+		exposedHeaders: ["Content-Disposition"],
 		methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
 		allowedHeaders: [
 			"Content-Type",

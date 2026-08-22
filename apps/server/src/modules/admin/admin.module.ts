@@ -24,6 +24,7 @@ import { AdminWebhookReplayService } from "./application/services/admin-webhook-
 import { AdminRepository } from "./infrastructure/persistence/admin.repository";
 import { AdminAnalyticsRepository } from "./infrastructure/persistence/admin-analytics.repository";
 import { AdminCostsRepository } from "./infrastructure/persistence/admin-costs.repository";
+import { AdminFunnelContactsRepository } from "./infrastructure/persistence/admin-funnel-contacts.repository";
 import { AdminOrganizationsRepository } from "./infrastructure/persistence/admin-organizations.repository";
 import { AdminOverviewRepository } from "./infrastructure/persistence/admin-overview.repository";
 import { AdminAnalyticsController } from "./presentation/http/controllers/admin-analytics.controller";
@@ -63,6 +64,7 @@ import { AdminWebhooksController } from "./presentation/http/controllers/admin-w
 		AdminAnalyticsService,
 		AdminCostsRepository,
 		AdminCostsService,
+		AdminFunnelContactsRepository,
 		AdminOrganizationsRepository,
 		AdminOrganizationsService,
 		AdminOverviewRepository,
