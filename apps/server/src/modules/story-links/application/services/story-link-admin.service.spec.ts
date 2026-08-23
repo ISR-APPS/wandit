@@ -1,5 +1,10 @@
 import { ConflictException, NotFoundException } from "@nestjs/common";
-import { storyLinkSchema, storyLinksResponseSchema } from "@wandit/contracts";
+import {
+	storyLinkSchema,
+	storyLinkSignupsResponseSchema,
+	storyLinkStatsResponseSchema,
+	storyLinksResponseSchema,
+} from "@wandit/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
@@ -34,7 +39,9 @@ function storyLinkRow(
 function setup() {
 	const repository = {
 		create: vi.fn(),
+		getStats: vi.fn(),
 		list: vi.fn(),
+		listSignups: vi.fn(),
 		update: vi.fn(),
 	};
 	const service = new StoryLinkAdminService(
@@ -96,6 +103,131 @@ describe("StoryLinkAdminService", () => {
 			],
 			updatedAt: NOW.toISOString(),
 		});
+	});
+
+	it("resolves the dashboard range and maps contract-valid per-link stats", async () => {
+		const { repository, service } = setup();
+		repository.getStats.mockResolvedValue({
+			clicks: {
+				allTime: 24,
+				inRange: 7,
+				uniqueInRange: 5,
+			},
+			clicksByDay: [
+				{ clicks: 0, date: "2026-08-01" },
+				{ clicks: 3, date: "2026-08-02" },
+			],
+			conversion: {
+				activatedUsers: 4,
+				convertedToPaid: 2,
+				liveSubscriptions: 1,
+				revenueUsdCents: 12_500,
+			},
+			link: storyLinkRow({ archivedAt: ARCHIVED_AT }),
+			signups: { allTime: 6, inRange: 5 },
+		});
+
+		const response = await service.stats(STORY_LINK_ID, {
+			from: "2026-08-01",
+			range: "custom",
+			to: "2026-08-10",
+		});
+
+		expect(repository.getStats).toHaveBeenCalledWith(STORY_LINK_ID, {
+			rangeEnd: new Date("2026-08-11T00:00:00.000Z"),
+			rangeStart: new Date("2026-08-01T00:00:00.000Z"),
+			seriesEnd: new Date("2026-08-10T00:00:00.000Z"),
+			snapshotEnd: NOW,
+		});
+		expect(storyLinkStatsResponseSchema.parse(response)).toEqual(response);
+		expect(response).toMatchObject({
+			clicks: { allTime: 24, inRange: 7, uniqueInRange: 5 },
+			link: {
+				archivedAt: ARCHIVED_AT.toISOString(),
+				createdAt: "2026-08-01T12:00:00.000Z",
+				updatedAt: "2026-08-02T12:00:00.000Z",
+			},
+			updatedAt: NOW.toISOString(),
+		});
+	});
+
+	it("maps a contract-valid paginated signup list with resolved bounds", async () => {
+		const { repository, service } = setup();
+		repository.listSignups.mockResolvedValue({
+			items: [
+				{
+					convertedToPaid: true,
+					email: "amina@example.com",
+					image: null,
+					name: "Amina",
+					signedUpAt: new Date("2026-08-09T14:30:00.000Z"),
+					userId: "user_1",
+				},
+			],
+			page: 2,
+			pageSize: 10,
+			total: 12,
+		});
+
+		const response = await service.signups(STORY_LINK_ID, {
+			from: "2026-08-01",
+			page: 2,
+			pageSize: 10,
+			range: "custom",
+			to: "2026-08-10",
+		});
+
+		expect(repository.listSignups).toHaveBeenCalledWith(
+			STORY_LINK_ID,
+			{
+				rangeEnd: new Date("2026-08-11T00:00:00.000Z"),
+				rangeStart: new Date("2026-08-01T00:00:00.000Z"),
+				seriesEnd: new Date("2026-08-10T00:00:00.000Z"),
+				snapshotEnd: NOW,
+			},
+			{ page: 2, pageSize: 10 },
+		);
+		expect(storyLinkSignupsResponseSchema.parse(response)).toEqual(response);
+		expect(response).toEqual({
+			items: [
+				{
+					convertedToPaid: true,
+					email: "amina@example.com",
+					image: null,
+					name: "Amina",
+					signedUpAt: "2026-08-09T14:30:00.000Z",
+					userId: "user_1",
+				},
+			],
+			page: 2,
+			pageSize: 10,
+			total: 12,
+		});
+	});
+
+	it("returns not found when the stats target does not exist", async () => {
+		const { repository, service } = setup();
+		repository.getStats.mockResolvedValue({
+			clicks: { allTime: 0, inRange: 0, uniqueInRange: 0 },
+			clicksByDay: [],
+			conversion: {
+				activatedUsers: 0,
+				convertedToPaid: 0,
+				liveSubscriptions: 0,
+				revenueUsdCents: 0,
+			},
+			link: null,
+			signups: { allTime: 0, inRange: 0 },
+		});
+
+		await expect(
+			service.stats(STORY_LINK_ID, { range: "7d" }),
+		).rejects.toMatchObject({
+			message: "Story link not found",
+		});
+		await expect(
+			service.stats(STORY_LINK_ID, { range: "7d" }),
+		).rejects.toBeInstanceOf(NotFoundException);
 	});
 
 	it("returns a contract-valid created story link", async () => {

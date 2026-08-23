@@ -98,7 +98,7 @@ function StoryLinksPage({ query, onQueryChange }: StoryLinksPageProps) {
 				) : (
 					<>
 						<StoryLinkMetrics links={data.links} rangeLabel={rangeLabel} />
-						<StoryLinksTable links={data.links} />
+						<StoryLinksTable links={data.links} query={query} />
 						<StoryLinkClicksChart
 							points={data.clicksByDay}
 							rangeLabel={rangeLabel}
