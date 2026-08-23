@@ -29,6 +29,22 @@ export function buildStoryLinkUrl(
 	return `${webOrigin.replace(/\/+$/g, "")}/s/${encodeURIComponent(slug)}`;
 }
 
+export function formatStoryLinkConversionRate(
+	numerator: number,
+	denominator: number,
+	locale = "en-US",
+): string {
+	if (denominator === 0) {
+		return "—";
+	}
+
+	return new Intl.NumberFormat(locale, {
+		style: "percent",
+		minimumFractionDigits: 1,
+		maximumFractionDigits: 1,
+	}).format(numerator / denominator);
+}
+
 export function sortStoryLinksArchivedLast<T extends SortableStoryLink>(
 	links: readonly T[],
 ): T[] {

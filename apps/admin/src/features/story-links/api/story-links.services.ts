@@ -2,6 +2,10 @@ import {
 	createStoryLinkInputSchema,
 	listStoryLinksQuerySchema,
 	storyLinkSchema,
+	storyLinkSignupsQuerySchema,
+	storyLinkSignupsResponseSchema,
+	storyLinkStatsQuerySchema,
+	storyLinkStatsResponseSchema,
 	storyLinksResponseSchema,
 	storyLinksRoutes,
 	updateStoryLinkInputSchema,
@@ -12,6 +16,10 @@ import { apiGet, apiPatch, apiPost } from "@/lib/api-client";
 import type {
 	CreateStoryLinkInput,
 	StoryLink,
+	StoryLinkSignupsQuery,
+	StoryLinkSignupsResponse,
+	StoryLinkStatsQuery,
+	StoryLinkStatsResponse,
 	StoryLinksQuery,
 	StoryLinksResponse,
 	UpdateStoryLinkInput,
@@ -27,6 +35,32 @@ export async function getStoryLinks(
 	);
 
 	return storyLinksResponseSchema.parse(payload);
+}
+
+export async function fetchStoryLinkStats(
+	storyLinkId: string,
+	query: StoryLinkStatsQuery,
+): Promise<StoryLinkStatsResponse> {
+	const parsedQuery = storyLinkStatsQuerySchema.parse(query);
+	const payload = await apiGet<unknown>(
+		storyLinksRoutes.adminStoryLinkStats(storyLinkId),
+		parsedQuery,
+	);
+
+	return storyLinkStatsResponseSchema.parse(payload);
+}
+
+export async function fetchStoryLinkSignups(
+	storyLinkId: string,
+	query: StoryLinkSignupsQuery,
+): Promise<StoryLinkSignupsResponse> {
+	const parsedQuery = storyLinkSignupsQuerySchema.parse(query);
+	const payload = await apiGet<unknown>(
+		storyLinksRoutes.adminStoryLinkSignups(storyLinkId),
+		parsedQuery,
+	);
+
+	return storyLinkSignupsResponseSchema.parse(payload);
 }
 
 export async function createStoryLink(

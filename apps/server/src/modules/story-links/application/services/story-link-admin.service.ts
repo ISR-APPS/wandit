@@ -9,6 +9,11 @@ import type {
 	ListStoryLinksQuery,
 	StoryLink,
 	StoryLinkListItem,
+	StoryLinkRecentSignup,
+	StoryLinkSignupsQuery,
+	StoryLinkSignupsResponse,
+	StoryLinkStatsQuery,
+	StoryLinkStatsResponse,
 	StoryLinksResponse,
 	UpdateStoryLinkInput,
 } from "@wandit/contracts";
@@ -16,6 +21,7 @@ import { resolveAdminDashboardRange } from "../../../admin/application/services/
 import type {
 	StoryLinkAdminListRecord,
 	StoryLinkAdminRow,
+	StoryLinkAdminSignupsPage,
 	StoryLinkAdminUpdate,
 } from "../../infrastructure/persistence/story-link-admin.repository";
 import { StoryLinkAdminRepository } from "../../infrastructure/persistence/story-link-admin.repository";
@@ -36,6 +42,47 @@ export class StoryLinkAdminService {
 			clicksByDay: snapshot.clicksByDay,
 			links: snapshot.links.map(mapStoryLinkListItem),
 			updatedAt: generatedAt.toISOString(),
+		};
+	}
+
+	async stats(
+		id: string,
+		query: StoryLinkStatsQuery,
+	): Promise<StoryLinkStatsResponse> {
+		const generatedAt = new Date();
+		const resolvedRange = resolveAdminDashboardRange(query, generatedAt);
+		const snapshot = await this.repository.getStats(id, resolvedRange.bounds);
+
+		if (!snapshot.link) {
+			throw new NotFoundException("Story link not found");
+		}
+
+		return {
+			clicks: snapshot.clicks,
+			clicksByDay: snapshot.clicksByDay,
+			conversion: snapshot.conversion,
+			link: mapStoryLink(snapshot.link),
+			signups: snapshot.signups,
+			updatedAt: generatedAt.toISOString(),
+		};
+	}
+
+	async signups(
+		id: string,
+		query: StoryLinkSignupsQuery,
+	): Promise<StoryLinkSignupsResponse> {
+		const generatedAt = new Date();
+		const resolvedRange = resolveAdminDashboardRange(query, generatedAt);
+		const page = await this.repository.listSignups(id, resolvedRange.bounds, {
+			page: query.page,
+			pageSize: query.pageSize,
+		});
+
+		return {
+			items: page.items.map(mapSignup),
+			page: page.page,
+			pageSize: page.pageSize,
+			total: page.total,
 		};
 	}
 
@@ -104,6 +151,19 @@ function mapStoryLinkListItem(
 		utmContent: record.link.utmContent,
 		utmMedium: record.link.utmMedium,
 		utmSource: record.link.utmSource,
+	};
+}
+
+function mapSignup(
+	signup: StoryLinkAdminSignupsPage["items"][number],
+): StoryLinkRecentSignup {
+	return {
+		convertedToPaid: signup.convertedToPaid,
+		email: signup.email,
+		image: signup.image,
+		name: signup.name,
+		signedUpAt: signup.signedUpAt.toISOString(),
+		userId: signup.userId,
 	};
 }
 

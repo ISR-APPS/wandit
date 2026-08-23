@@ -14,7 +14,13 @@ import {
 	type ListStoryLinksQuery,
 	listStoryLinksQuerySchema,
 	type StoryLink,
+	type StoryLinkSignupsQuery,
+	type StoryLinkSignupsResponse,
+	type StoryLinkStatsQuery,
+	type StoryLinkStatsResponse,
 	type StoryLinksResponse,
+	storyLinkSignupsQuerySchema,
+	storyLinkStatsQuerySchema,
 	type UpdateStoryLinkInput,
 	updateStoryLinkInputSchema,
 	uuidSchema,
@@ -40,6 +46,33 @@ export class StoryLinkAdminController {
 		query: ListStoryLinksQuery,
 	): Promise<StoryLinksResponse> {
 		return this.service.list(query);
+	}
+
+	@Get(":storyLinkId/stats")
+	// Method metadata overrides the class default. The stats payload carries
+	// revenue figures, so it needs the same analytics:read the revenue
+	// dashboard requires — links:read alone (support role) must not see it.
+	@AdminPermission({ analytics: ["read"], links: ["read"] })
+	stats(
+		@Param("storyLinkId", new ZodValidationPipe(uuidSchema))
+		storyLinkId: string,
+		@Query(new ZodValidationPipe(storyLinkStatsQuerySchema))
+		query: StoryLinkStatsQuery,
+	): Promise<StoryLinkStatsResponse> {
+		return this.service.stats(storyLinkId, query);
+	}
+
+	@Get(":storyLinkId/signups")
+	// The list exposes user emails and paid state, so it requires both the
+	// analytics and links read permissions.
+	@AdminPermission({ analytics: ["read"], links: ["read"] })
+	signups(
+		@Param("storyLinkId", new ZodValidationPipe(uuidSchema))
+		storyLinkId: string,
+		@Query(new ZodValidationPipe(storyLinkSignupsQuerySchema))
+		query: StoryLinkSignupsQuery,
+	): Promise<StoryLinkSignupsResponse> {
+		return this.service.signups(storyLinkId, query);
 	}
 
 	@Post()
