@@ -216,7 +216,7 @@ function AffiliatePortalContent({
 							}
 						}}
 					>
-						<TabsList className="max-w-full overflow-x-auto">
+						<TabsList className="max-w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
 							<TabsTrigger value="links">
 								{t("affiliates.tabs.links")}
 							</TabsTrigger>
