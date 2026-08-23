@@ -4,14 +4,13 @@ import {
 	type AdminUserDetail,
 	type AdminUserPlan,
 	type AdminUserProject,
-	type AdminUserRole,
 	type AdminUserSubscription,
 	type AdminUserSummary,
 	type AdminUserWorkspace,
 	billingPlanIdSchema,
 	billingPlanIds,
 	centiCreditsToCredits,
-	isAdminRole,
+	normalizeStoredRole,
 } from "@wandit/contracts";
 import type {
 	AdminAiSpendRow,
@@ -33,7 +32,7 @@ export function mapAdminUserSummary(
 		email: row.email,
 		emailVerified: row.emailVerified,
 		image: row.image,
-		role: normalizeRole(row.role),
+		role: normalizeStoredRole(row.role),
 		banned: row.banned ?? false,
 		createdAt: toIso(row.createdAt),
 		lastSeenAt: row.lastSeenAt === null ? null : toIso(row.lastSeenAt),
@@ -128,11 +127,6 @@ function mapAdminCreditLedgerEntry(
 				? null
 				: normalizeCostProvenance(row.aiCostProvenance),
 	};
-}
-
-// Defensive: any role value outside the contract enum maps to plain "user".
-function normalizeRole(role: string | null | undefined): AdminUserRole {
-	return isAdminRole(role) ? "admin" : "user";
 }
 
 // "free" is derived: no entitled subscription row means the free plan.

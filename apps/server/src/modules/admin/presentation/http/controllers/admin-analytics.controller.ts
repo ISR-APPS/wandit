@@ -38,6 +38,7 @@ import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-valida
 import { CurrentUser } from "../../../../auth";
 import { AdminAnalyticsService } from "../../../application/services/admin-analytics.service";
 import { AdminOnly } from "../decorators/admin-only.decorator";
+import { AdminPermission } from "../decorators/admin-permission.decorator";
 
 const API_PREFIX = "/api/";
 
@@ -57,6 +58,7 @@ function analyticsChildPath(route: string): string {
 
 @Controller(ADMIN_ANALYTICS_CONTROLLER_PATH)
 @AdminOnly()
+@AdminPermission({ analytics: ["read"] })
 export class AdminAnalyticsController {
 	constructor(
 		@Inject(AdminAnalyticsService)
@@ -124,6 +126,7 @@ export class AdminAnalyticsController {
 	}
 
 	@Post(analyticsChildPath(adminAnalyticsRoutes.funnelContact(":userId")))
+	@AdminPermission({ analytics: ["manage"] })
 	@HttpCode(200)
 	setFunnelContact(
 		@Param("userId") userId: string,

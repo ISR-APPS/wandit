@@ -28,9 +28,11 @@ import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-valida
 import { CurrentUser } from "../../../../auth";
 import { AdminCostsService } from "../../../application/services/admin-costs.service";
 import { AdminOnly } from "../decorators/admin-only.decorator";
+import { AdminPermission } from "../decorators/admin-permission.decorator";
 
 @Controller("v1/admin/costs")
 @AdminOnly()
+@AdminPermission({ costs: ["read"] })
 export class AdminCostsController {
 	constructor(
 		@Inject(AdminCostsService)
@@ -46,6 +48,7 @@ export class AdminCostsController {
 	}
 
 	@Post()
+	@AdminPermission({ costs: ["manage"] })
 	create(
 		@Body(new ZodValidationPipe(createMonthlyCostRequestSchema))
 		body: CreateMonthlyCostRequest,
@@ -55,6 +58,7 @@ export class AdminCostsController {
 	}
 
 	@Patch(":month")
+	@AdminPermission({ costs: ["manage"] })
 	update(
 		@Param("month", new ZodValidationPipe(monthKeySchema)) month: MonthKey,
 		@Body(new ZodValidationPipe(updateMonthlyCostRequestSchema))
@@ -65,6 +69,7 @@ export class AdminCostsController {
 	}
 
 	@Delete(":month")
+	@AdminPermission({ costs: ["manage"] })
 	@HttpCode(204)
 	async delete(
 		@Param("month", new ZodValidationPipe(monthKeySchema)) month: MonthKey,

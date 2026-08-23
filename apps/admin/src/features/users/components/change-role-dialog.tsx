@@ -44,6 +44,12 @@ const ROLE_OPTIONS: readonly {
 		description: "Standard product access.",
 	},
 	{
+		value: "support",
+		label: "Support",
+		description:
+			"Admin dashboard with limited permissions (see docs/features/admin-permissions.md).",
+	},
+	{
 		value: "admin",
 		label: "Admin",
 		description: "Platform management access.",
@@ -145,7 +151,7 @@ export function ChangeRoleDialog({
 						</Field>
 					</FieldGroup>
 
-					{user.role === "admin" && role !== "admin" ? (
+					{isRoleDemotion(user.role, role) ? (
 						<p className="rounded-md border bg-muted/40 p-3 text-muted-foreground text-sm">
 							Confirm that another admin will retain access before changing this
 							role.
@@ -180,5 +186,18 @@ export function ChangeRoleDialog({
 				</form>
 			</DialogContent>
 		</Dialog>
+	);
+}
+
+const ROLE_PRIVILEGE: Record<UserRole, number> = {
+	user: 0,
+	support: 1,
+	admin: 2,
+};
+
+function isRoleDemotion(currentRole: UserRole, nextRole: UserRole): boolean {
+	return (
+		currentRole !== "user" &&
+		ROLE_PRIVILEGE[nextRole] < ROLE_PRIVILEGE[currentRole]
 	);
 }

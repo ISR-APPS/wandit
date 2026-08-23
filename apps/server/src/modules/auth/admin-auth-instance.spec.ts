@@ -216,4 +216,25 @@ describe("@wandit/auth isolated admin instance", () => {
 			),
 		).resolves.toBeUndefined();
 	});
+
+	it("allows a stored support role to create an admin session", async () => {
+		const sessionAdmission =
+			adminAuth.options.databaseHooks?.session?.create?.before;
+		if (!sessionAdmission) {
+			throw new Error("Admin session admission hook is missing");
+		}
+
+		await expect(
+			sessionAdmission(
+				{ userId: "support_1" } as never,
+				{
+					context: {
+						internalAdapter: {
+							findUserById: vi.fn().mockResolvedValue({ role: "user,support" }),
+						},
+					},
+				} as never,
+			),
+		).resolves.toBeUndefined();
+	});
 });

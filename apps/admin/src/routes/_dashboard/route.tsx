@@ -1,5 +1,5 @@
 import { createFileRoute, Outlet, redirect } from "@tanstack/react-router";
-import { isAdminRole } from "@wandit/contracts";
+import { isStaffRole } from "@wandit/contracts";
 import type { CSSProperties } from "react";
 
 import { SiteHeader } from "@/components/layout/header";
@@ -30,7 +30,7 @@ export const Route = createFileRoute("/_dashboard")({
 			throw redirect({ to: "/login" });
 		}
 
-		if (!isAdminRole(session.user.role)) {
+		if (!isStaffRole(session.user.role)) {
 			throw redirect({ to: "/login", search: { error: "forbidden" } });
 		}
 	},

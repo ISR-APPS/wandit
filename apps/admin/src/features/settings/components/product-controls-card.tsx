@@ -46,6 +46,7 @@ import {
 } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { useAdminPermission } from "@/features/auth/lib/permissions";
 import type { ProductSettingsView } from "@/features/settings/api/settings.dto";
 import { useUpdateProductSettingsMutation } from "@/features/settings/api/settings.mutations";
 import { isApiClientError } from "@/lib/api-client";
@@ -157,6 +158,7 @@ export function ProductControlsCard({
 	const [isReloading, setIsReloading] = useState(false);
 	const toggleTriggerRef = useRef<HTMLButtonElement | null>(null);
 	const mutation = useUpdateProductSettingsMutation();
+	const canManage = useAdminPermission({ settings: ["manage"] });
 
 	useEffect(() => {
 		setGrantCredits(String(settings.signupGrantCredits));
@@ -183,7 +185,7 @@ export function ProductControlsCard({
 		graceDaysAreValid && parsedGraceDays !== settings.manualGraceDays;
 
 	function requestToggle(key: BooleanSettingKey, nextValue: boolean) {
-		if (nextValue === settings[key] || conflict) {
+		if (!canManage || nextValue === settings[key] || conflict) {
 			return;
 		}
 
@@ -237,7 +239,12 @@ export function ProductControlsCard({
 		setGrantSubmitted(true);
 		setErrorMessage(null);
 
-		if (!grantCreditsAreValid || !grantCreditsChanged || conflict) {
+		if (
+			!canManage ||
+			!grantCreditsAreValid ||
+			!grantCreditsChanged ||
+			conflict
+		) {
 			return;
 		}
 
@@ -261,7 +268,7 @@ export function ProductControlsCard({
 		setGraceSubmitted(true);
 		setErrorMessage(null);
 
-		if (!graceDaysAreValid || !graceDaysChanged || conflict) {
+		if (!canManage || !graceDaysAreValid || !graceDaysChanged || conflict) {
 			return;
 		}
 
@@ -405,7 +412,7 @@ export function ProductControlsCard({
 										toggleTriggerRef.current = event.currentTarget;
 									}}
 									checked={checked}
-									disabled={mutation.isPending || conflict}
+									disabled={mutation.isPending || conflict || !canManage}
 									onCheckedChange={(nextValue) => requestToggle(key, nextValue)}
 									aria-label={`${checked ? "Disable" : "Enable"} ${details.label.toLowerCase()}`}
 								/>
@@ -444,7 +451,7 @@ export function ProductControlsCard({
 									step={1}
 									value={grantCredits}
 									onChange={(event) => setGrantCredits(event.target.value)}
-									disabled={mutation.isPending || conflict}
+									disabled={mutation.isPending || conflict || !canManage}
 									aria-invalid={grantSubmitted && !grantCreditsAreValid}
 									aria-describedby="signup-grant-description signup-grant-error"
 								/>
@@ -454,6 +461,7 @@ export function ProductControlsCard({
 								disabled={
 									mutation.isPending ||
 									conflict ||
+									!canManage ||
 									(grantCreditsAreValid && !grantCreditsChanged)
 								}
 							>
@@ -515,7 +523,7 @@ export function ProductControlsCard({
 									step={1}
 									value={graceDays}
 									onChange={(event) => setGraceDays(event.target.value)}
-									disabled={mutation.isPending || conflict}
+									disabled={mutation.isPending || conflict || !canManage}
 									aria-invalid={graceSubmitted && !graceDaysAreValid}
 									aria-describedby="offline-grace-days-description offline-grace-days-error"
 								/>
@@ -525,6 +533,7 @@ export function ProductControlsCard({
 								disabled={
 									mutation.isPending ||
 									conflict ||
+									!canManage ||
 									(graceDaysAreValid && !graceDaysChanged)
 								}
 							>
@@ -596,7 +605,7 @@ export function ProductControlsCard({
 						</AlertDialogCancel>
 						<AlertDialogAction
 							variant={pendingToggle?.nextValue ? "default" : "destructive"}
-							disabled={mutation.isPending}
+							disabled={mutation.isPending || !canManage}
 							onClick={confirmToggle}
 						>
 							{mutation.isPending ? (

@@ -9,10 +9,11 @@ import {
 	SidebarMenuItem,
 	useSidebar,
 } from "@/components/ui/sidebar";
+import { useSession } from "@/features/auth/lib/session";
 import { getAdminAnalyticsNavigationSearch } from "@/lib/admin-date-range";
 import {
 	type AdminNavigationItem,
-	adminNavigationGroups,
+	getVisibleAdminNavigationGroups,
 } from "@/lib/navigation";
 
 type NavigationEntryProps = {
@@ -81,10 +82,12 @@ export function NavMain() {
 		select: ({ pathname, search }) => ({ pathname, search }),
 	});
 	const { isMobile, setOpenMobile } = useSidebar();
+	const { data } = useSession();
+	const navigationGroups = getVisibleAdminNavigationGroups(data?.user.role);
 
 	return (
 		<>
-			{adminNavigationGroups.map((group) => (
+			{navigationGroups.map((group) => (
 				<SidebarGroup
 					key={group.title}
 					className="px-2 pt-2 group-data-[collapsible=icon]:px-1"

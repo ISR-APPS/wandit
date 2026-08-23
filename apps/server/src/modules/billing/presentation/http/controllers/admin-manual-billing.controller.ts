@@ -33,11 +33,13 @@ import {
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { AdminOnly } from "../../../../admin/presentation/http/decorators/admin-only.decorator";
+import { AdminPermission } from "../../../../admin/presentation/http/decorators/admin-permission.decorator";
 import { CurrentUser } from "../../../../auth";
 import { ManualSubscriptionsService } from "../../../application/services/manual-subscriptions.service";
 
 @Controller("v1/admin")
 @AdminOnly()
+@AdminPermission({ billing: ["read"] })
 export class AdminManualBillingController {
 	constructor(
 		@Inject(ManualSubscriptionsService)
@@ -65,6 +67,7 @@ export class AdminManualBillingController {
 	}
 
 	@Patch("manual-requests/:id")
+	@AdminPermission({ billing: ["manage"] })
 	updateRequest(
 		@CurrentUser() admin: AuthUser,
 		@Param("id", new ZodValidationPipe(uuidSchema)) id: string,
@@ -83,6 +86,7 @@ export class AdminManualBillingController {
 	}
 
 	@Post("manual-subscriptions")
+	@AdminPermission({ billing: ["manage"] })
 	@HttpCode(200)
 	grant(
 		@CurrentUser() admin: AuthUser,
@@ -100,6 +104,7 @@ export class AdminManualBillingController {
 	}
 
 	@Post("manual-subscriptions/:id/renew")
+	@AdminPermission({ billing: ["manage"] })
 	@HttpCode(200)
 	renew(
 		@CurrentUser() admin: AuthUser,
@@ -111,6 +116,7 @@ export class AdminManualBillingController {
 	}
 
 	@Post("manual-subscriptions/:id/end")
+	@AdminPermission({ billing: ["manage"] })
 	@HttpCode(200)
 	end(
 		@CurrentUser() admin: AuthUser,

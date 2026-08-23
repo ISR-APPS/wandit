@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 
 import { HealthAnalyticsPage } from "@/features/analytics/pages/health-analytics-page";
+import { RequireAdminPermission } from "@/features/auth/components/require-admin-permission";
 import { adminStandardAnalyticsSearchValidator } from "@/lib/admin-date-range";
 
 function AnalyticsHealthRoute() {
@@ -8,13 +9,15 @@ function AnalyticsHealthRoute() {
 	const navigate = Route.useNavigate();
 
 	return (
-		<HealthAnalyticsPage
-			query={query}
-			onQueryChange={(nextQuery) => {
-				const { cohortOnly: _cohortOnly, ...search } = nextQuery;
-				void navigate({ search, replace: true });
-			}}
-		/>
+		<RequireAdminPermission permission={{ analytics: ["read"] }}>
+			<HealthAnalyticsPage
+				query={query}
+				onQueryChange={(nextQuery) => {
+					const { cohortOnly: _cohortOnly, ...search } = nextQuery;
+					void navigate({ search, replace: true });
+				}}
+			/>
+		</RequireAdminPermission>
 	);
 }
 

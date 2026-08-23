@@ -1,4 +1,5 @@
 import { Link } from "@tanstack/react-router";
+import { isStaffRole } from "@wandit/contracts";
 import { AlertCircleIcon, ArrowLeftIcon, UserRoundXIcon } from "lucide-react";
 import { type PropsWithChildren, useState } from "react";
 
@@ -11,6 +12,7 @@ import {
 	EmptyMedia,
 	EmptyTitle,
 } from "@/components/ui/empty";
+import { useAdminPermission } from "@/features/auth/lib/permissions";
 import { useSession } from "@/features/auth/lib/session";
 import { GrantManualSubscriptionDialog } from "@/features/offline-billing/components/grant-manual-subscription-dialog";
 import { useUserQuery } from "@/features/users/api/users.queries";
@@ -35,6 +37,10 @@ export function UserDetailPage({ userId }: UserDetailPageProps) {
 	const [openDialog, setOpenDialog] = useState<OpenDialog>(null);
 	const userQuery = useUserQuery(userId);
 	const { data: session } = useSession();
+	const canGrantCredits = useAdminPermission({ users: ["grant-credits"] });
+	const canSetRole = useAdminPermission({ users: ["set-role"] });
+	const canBan = useAdminPermission({ users: ["ban"] });
+	const canManageBilling = useAdminPermission({ billing: ["manage"] });
 
 	if (userQuery.isLoading) {
 		return (
@@ -96,6 +102,8 @@ export function UserDetailPage({ userId }: UserDetailPageProps) {
 
 	const user = userQuery.data;
 	const canManageAccess = session?.user.id !== user.id;
+	const canToggleBanned =
+		canManageAccess && canBan && (user.banned || !isStaffRole(user.role));
 
 	return (
 		<UserDetailContainer>
@@ -124,31 +132,35 @@ export function UserDetailPage({ userId }: UserDetailPageProps) {
 				creditLedger={user.creditLedger}
 			/>
 
-			<GrantCreditsDialog
-				user={user}
-				open={openDialog === "credits"}
-				onOpenChange={(open) => setOpenDialog(open ? "credits" : null)}
-			/>
-			<GrantManualSubscriptionDialog
-				open={openDialog === "offline-subscription"}
-				onOpenChange={(open) =>
-					setOpenDialog(open ? "offline-subscription" : null)
-				}
-				prefill={{ user }}
-			/>
-			{canManageAccess ? (
-				<>
-					<ChangeRoleDialog
-						user={user}
-						open={openDialog === "role"}
-						onOpenChange={(open) => setOpenDialog(open ? "role" : null)}
-					/>
-					<BanUserDialog
-						user={user}
-						open={openDialog === "ban"}
-						onOpenChange={(open) => setOpenDialog(open ? "ban" : null)}
-					/>
-				</>
+			{canGrantCredits ? (
+				<GrantCreditsDialog
+					user={user}
+					open={openDialog === "credits"}
+					onOpenChange={(open) => setOpenDialog(open ? "credits" : null)}
+				/>
+			) : null}
+			{canManageBilling ? (
+				<GrantManualSubscriptionDialog
+					open={openDialog === "offline-subscription"}
+					onOpenChange={(open) =>
+						setOpenDialog(open ? "offline-subscription" : null)
+					}
+					prefill={{ user }}
+				/>
+			) : null}
+			{canManageAccess && canSetRole ? (
+				<ChangeRoleDialog
+					user={user}
+					open={openDialog === "role"}
+					onOpenChange={(open) => setOpenDialog(open ? "role" : null)}
+				/>
+			) : null}
+			{canToggleBanned ? (
+				<BanUserDialog
+					user={user}
+					open={openDialog === "ban"}
+					onOpenChange={(open) => setOpenDialog(open ? "ban" : null)}
+				/>
 			) : null}
 		</UserDetailContainer>
 	);

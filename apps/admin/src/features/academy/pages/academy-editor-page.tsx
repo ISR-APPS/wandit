@@ -63,6 +63,7 @@ import {
 	hasGuideBodyContent,
 	isAcademyGuideCategory,
 } from "@/features/academy/lib/academy-helpers";
+import { useAdminPermission } from "@/features/auth/lib/permissions";
 import { cn } from "@/lib/utils";
 
 type AcademyEditorPageProps = {
@@ -133,6 +134,7 @@ function AcademyGuideEditor({
 	onRetry: () => void;
 }) {
 	const navigate = useNavigate();
+	const canManage = useAdminPermission({ academy: ["manage"] });
 	const createMutation = useCreateAcademyGuideMutation();
 	const updateMutation = useUpdateAcademyGuideMutation();
 	const deleteMutation = useDeleteAcademyGuideMutation();
@@ -173,6 +175,7 @@ function AcademyGuideEditor({
 		youtubeVideoId === null && !hasGuideBodyContent(bodyHtml);
 	const saving = createMutation.isPending || updateMutation.isPending;
 	const busy = saving || deleteMutation.isPending;
+	const editorDisabled = busy || !canManage;
 	const isPublished = status === "published";
 
 	function applySavedGuide(guide: AcademyGuide) {
@@ -192,6 +195,9 @@ function AcademyGuideEditor({
 
 	async function saveGuide(event: FormEvent<HTMLFormElement>) {
 		event.preventDefault();
+		if (!canManage) {
+			return;
+		}
 		setRequestError(null);
 
 		const intent = saveIntent(event);
@@ -268,7 +274,7 @@ function AcademyGuideEditor({
 	}
 
 	async function deleteGuide() {
-		if (!guideId) {
+		if (!canManage || !guideId) {
 			return;
 		}
 
@@ -297,7 +303,7 @@ function AcademyGuideEditor({
 
 					<div className="flex flex-wrap items-center gap-2 sm:justify-end">
 						<GuideStatusBadge status={status} />
-						{isPublished ? (
+						{canManage && isPublished ? (
 							<>
 								<Button
 									type="submit"
@@ -314,7 +320,7 @@ function AcademyGuideEditor({
 									{saving ? "Saving…" : "Save"}
 								</Button>
 							</>
-						) : (
+						) : canManage ? (
 							<>
 								<Button
 									type="submit"
@@ -330,7 +336,7 @@ function AcademyGuideEditor({
 									{saving ? "Saving…" : "Publish"}
 								</Button>
 							</>
-						)}
+						) : null}
 					</div>
 				</div>
 
@@ -383,7 +389,7 @@ function AcademyGuideEditor({
 							placeholder="Give this guide a clear title"
 							required
 							maxLength={200}
-							disabled={busy}
+							disabled={editorDisabled}
 							autoFocus={!guideId}
 							className="h-12 font-medium text-base sm:text-lg"
 						/>
@@ -393,7 +399,7 @@ function AcademyGuideEditor({
 						<EditorField label="Category" htmlFor="academy-guide-category">
 							<Select
 								value={category ?? NO_CATEGORY_SELECT_VALUE}
-								disabled={busy}
+								disabled={editorDisabled}
 								onValueChange={(value) => {
 									if (value === NO_CATEGORY_SELECT_VALUE) {
 										setCategory(null);
@@ -450,7 +456,7 @@ function AcademyGuideEditor({
 								onChange={(event) => setDescription(event.target.value)}
 								placeholder="What will someone learn?"
 								maxLength={300}
-								disabled={busy}
+								disabled={editorDisabled}
 								aria-describedby="academy-guide-description-help"
 								rows={3}
 							/>
@@ -478,7 +484,7 @@ function AcademyGuideEditor({
 							value={youtubeUrl}
 							onChange={(event) => setYoutubeUrl(event.target.value)}
 							placeholder="https://www.youtube.com/watch?v=…"
-							disabled={busy}
+							disabled={editorDisabled}
 							aria-invalid={youtubeIsInvalid}
 							aria-describedby={
 								youtubeIsInvalid ? "academy-youtube-error" : undefined
@@ -516,7 +522,7 @@ function AcademyGuideEditor({
 							id="academy-guide-body"
 							value={bodyHtml}
 							onChange={setBodyHtml}
-							disabled={busy}
+							disabled={editorDisabled}
 							placeholder="Write the steps, tips, and context for this guide…"
 						/>
 						{bodyIsTooLong ? (
@@ -532,7 +538,7 @@ function AcademyGuideEditor({
 					</EditorField>
 				</section>
 
-				{guideId ? (
+				{canManage && guideId ? (
 					<div className="flex items-center justify-between gap-4 border-t pt-6">
 						<div>
 							<p className="font-medium text-sm">Delete guide</p>
@@ -555,7 +561,7 @@ function AcademyGuideEditor({
 			</form>
 
 			<AlertDialog
-				open={deleteDialogOpen}
+				open={canManage && deleteDialogOpen}
 				onOpenChange={(open) => {
 					if (!busy) {
 						setDeleteDialogOpen(open);

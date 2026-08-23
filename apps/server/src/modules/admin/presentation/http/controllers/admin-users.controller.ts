@@ -32,9 +32,11 @@ import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-valida
 import { CurrentUser } from "../../../../auth";
 import { AdminUsersService } from "../../../application/services/admin-users.service";
 import { AdminOnly } from "../decorators/admin-only.decorator";
+import { AdminPermission } from "../decorators/admin-permission.decorator";
 
 @Controller("v1/admin/users")
 @AdminOnly()
+@AdminPermission({ users: ["read"] })
 export class AdminUsersController {
 	constructor(
 		@Inject(AdminUsersService)
@@ -73,6 +75,7 @@ export class AdminUsersController {
 	}
 
 	@Post(":userId/credits")
+	@AdminPermission({ users: ["grant-credits"] })
 	@HttpCode(200)
 	grantCredits(
 		@Param("userId") userId: string,
@@ -84,6 +87,7 @@ export class AdminUsersController {
 	}
 
 	@Post(":userId/role")
+	@AdminPermission({ users: ["set-role"] })
 	@HttpCode(200)
 	setRole(
 		@Param("userId") userId: string,
@@ -95,6 +99,7 @@ export class AdminUsersController {
 	}
 
 	@Post(":userId/banned")
+	@AdminPermission({ users: ["ban"] })
 	@HttpCode(200)
 	setBanned(
 		@Param("userId") userId: string,

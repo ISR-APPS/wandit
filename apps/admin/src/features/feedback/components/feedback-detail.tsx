@@ -22,6 +22,7 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { useAdminPermission } from "@/features/auth/lib/permissions";
 import {
 	FeedbackPriorityBadge,
 	FeedbackStatusBadge,
@@ -95,6 +96,8 @@ function FeedbackDetailHeader({
 	onStatusChange,
 	onClose,
 }: Pick<FeedbackDetailProps, "item" | "onStatusChange" | "onClose">) {
+	const canManage = useAdminPermission({ feedback: ["manage"] });
+
 	async function copyFeedbackId() {
 		try {
 			await navigator.clipboard.writeText(item.id);
@@ -122,20 +125,22 @@ function FeedbackDetailHeader({
 					>
 						<CopyIcon aria-hidden="true" />
 					</Button>
-					<Button
-						type="button"
-						variant={item.status === "resolved" ? "outline" : "default"}
-						size="sm"
-						onClick={() =>
-							onStatusChange(
-								item.id,
-								item.status === "resolved" ? "reviewing" : "resolved",
-							)
-						}
-					>
-						<CheckCircleIcon aria-hidden="true" />
-						{item.status === "resolved" ? "Reopen" : "Resolve"}
-					</Button>
+					{canManage ? (
+						<Button
+							type="button"
+							variant={item.status === "resolved" ? "outline" : "default"}
+							size="sm"
+							onClick={() =>
+								onStatusChange(
+									item.id,
+									item.status === "resolved" ? "reviewing" : "resolved",
+								)
+							}
+						>
+							<CheckCircleIcon aria-hidden="true" />
+							{item.status === "resolved" ? "Reopen" : "Resolve"}
+						</Button>
+					) : null}
 					{onClose ? (
 						<Button
 							type="button"
@@ -301,6 +306,8 @@ function WorkflowSection({
 	FeedbackDetailProps,
 	"item" | "domId" | "onStatusChange" | "onPriorityChange"
 >) {
+	const canManage = useAdminPermission({ feedback: ["manage"] });
+
 	return (
 		<section
 			className="border-b px-5 py-5 sm:px-6"
@@ -316,6 +323,7 @@ function WorkflowSection({
 					</label>
 					<Select
 						value={item.status}
+						disabled={!canManage}
 						onValueChange={(value) =>
 							onStatusChange(item.id, value as FeedbackStatus)
 						}
@@ -340,6 +348,7 @@ function WorkflowSection({
 					</label>
 					<Select
 						value={item.priority}
+						disabled={!canManage}
 						onValueChange={(value) =>
 							onPriorityChange(item.id, value as FeedbackPriority)
 						}
@@ -378,6 +387,8 @@ function InternalNoteSection({
 	onNoteChange: (note: string) => void;
 	onSaveNote: FeedbackDetailProps["onSaveNote"];
 }) {
+	const canManage = useAdminPermission({ feedback: ["manage"] });
+
 	return (
 		<section
 			className="border-b px-5 py-5 sm:px-6"
@@ -406,13 +417,14 @@ function InternalNoteSection({
 				placeholder="Add investigation details, a decision, or the next step…"
 				className="mt-3 min-h-24 resize-y bg-background"
 				onChange={(event) => onNoteChange(event.target.value)}
+				disabled={!canManage}
 			/>
 			<div className="mt-3 flex justify-end">
 				<Button
 					type="button"
 					variant="outline"
 					size="sm"
-					disabled={!noteIsDirty}
+					disabled={!canManage || !noteIsDirty}
 					onClick={() => onSaveNote(itemId, note.trim())}
 				>
 					Save note

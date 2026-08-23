@@ -8,6 +8,7 @@ import { useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { useAdminPermission } from "@/features/auth/lib/permissions";
 import type { StoryLinksQuery } from "@/features/story-links/api/story-links.dto";
 import { useStoryLinksQuery } from "@/features/story-links/api/story-links.queries";
 import { CreateStoryLinkDialog } from "@/features/story-links/components/create-story-link-dialog";
@@ -26,6 +27,7 @@ type StoryLinksPageProps = {
 
 function StoryLinksPage({ query, onQueryChange }: StoryLinksPageProps) {
 	const [createOpen, setCreateOpen] = useState(false);
+	const canManage = useAdminPermission({ links: ["manage"] });
 	const { data, isError, isFetching, isPending, refetch } =
 		useStoryLinksQuery(query);
 	const rangeLabel = formatAdminDateRangeLabel(query);
@@ -66,14 +68,16 @@ function StoryLinksPage({ query, onQueryChange }: StoryLinksPageProps) {
 									<RefreshCwIcon data-icon="inline-start" />
 									Retry
 								</Button>
-								<Button
-									type="button"
-									variant="outline"
-									onClick={() => setCreateOpen(true)}
-								>
-									<PlusIcon data-icon="inline-start" />
-									Create link
-								</Button>
+								{canManage ? (
+									<Button
+										type="button"
+										variant="outline"
+										onClick={() => setCreateOpen(true)}
+									>
+										<PlusIcon data-icon="inline-start" />
+										Create link
+									</Button>
+								) : null}
 							</div>
 						}
 					/>
@@ -83,10 +87,12 @@ function StoryLinksPage({ query, onQueryChange }: StoryLinksPageProps) {
 						title="No links yet"
 						description="Create your first link and share it in a story — clicks show up here."
 						action={
-							<Button type="button" onClick={() => setCreateOpen(true)}>
-								<PlusIcon data-icon="inline-start" />
-								Create link
-							</Button>
+							canManage ? (
+								<Button type="button" onClick={() => setCreateOpen(true)}>
+									<PlusIcon data-icon="inline-start" />
+									Create link
+								</Button>
+							) : undefined
 						}
 					/>
 				) : (
@@ -101,7 +107,7 @@ function StoryLinksPage({ query, onQueryChange }: StoryLinksPageProps) {
 				)}
 			</div>
 
-			{createOpen ? (
+			{canManage && createOpen ? (
 				<CreateStoryLinkDialog
 					open
 					onOpenChange={(next) => setCreateOpen(next)}
