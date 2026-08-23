@@ -1,14 +1,12 @@
 // Session access for the admin SPA, mirroring apps/web's 30s-cache pattern.
-// The server's better-auth session user includes a `role` field ("user" |
-// "admin") that the stock client types do not know about, so we widen the
-// inferred user type here and cast at the single fetch point.
+// The server's Better Auth session user includes the raw stored `role` value.
+// It may contain comma-joined roles (for example, "user,support"), which the
+// stock client types do not know about, so widen it at the single fetch point.
 import { authClient } from "./auth-client";
-
-export type SessionRole = "user" | "admin";
 
 type InferredSessionUser = (typeof authClient)["$Infer"]["Session"]["user"];
 
-export type SessionUser = InferredSessionUser & { role: SessionRole };
+export type SessionUser = InferredSessionUser & { role: string };
 
 type SessionSnapshot = { user: SessionUser } | null;
 

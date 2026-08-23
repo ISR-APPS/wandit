@@ -27,6 +27,7 @@ import {
 	SheetTitle,
 } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useAdminPermission } from "@/features/auth/lib/permissions";
 import {
 	formatAffiliateDateTime,
 	formatAffiliateMoney,
@@ -47,6 +48,8 @@ export function AffiliateDetailHeader({
 	onEdit: () => void;
 	onChangeStatus: () => void;
 }) {
+	const canManage = useAdminPermission({ affiliates: ["manage"] });
+
 	return (
 		<SheetHeader className="border-b px-5 py-5 pr-14 sm:px-6">
 			<div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -81,26 +84,30 @@ export function AffiliateDetailHeader({
 						<CopyIcon />
 						Copy ID
 					</Button>
-					<Button type="button" variant="outline" size="sm" onClick={onEdit}>
-						<PencilIcon />
-						Edit
-					</Button>
-					<Button
-						type="button"
-						variant="outline"
-						size="sm"
-						disabled={statusPending}
-						onClick={onChangeStatus}
-					>
-						{statusPending ? (
-							<Loader2Icon className="animate-spin" />
-						) : detail.affiliate.status === "active" ? (
-							<CirclePauseIcon />
-						) : (
-							<CirclePlayIcon />
-						)}
-						{detail.affiliate.status === "active" ? "Pause" : "Activate"}
-					</Button>
+					{canManage ? (
+						<Button type="button" variant="outline" size="sm" onClick={onEdit}>
+							<PencilIcon />
+							Edit
+						</Button>
+					) : null}
+					{canManage ? (
+						<Button
+							type="button"
+							variant="outline"
+							size="sm"
+							disabled={statusPending}
+							onClick={onChangeStatus}
+						>
+							{statusPending ? (
+								<Loader2Icon className="animate-spin" />
+							) : detail.affiliate.status === "active" ? (
+								<CirclePauseIcon />
+							) : (
+								<CirclePlayIcon />
+							)}
+							{detail.affiliate.status === "active" ? "Pause" : "Activate"}
+						</Button>
+					) : null}
 				</div>
 			</div>
 		</SheetHeader>

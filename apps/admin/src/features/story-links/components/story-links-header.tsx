@@ -2,6 +2,7 @@ import { PlusIcon, RefreshCwIcon } from "lucide-react";
 
 import { AdminDateRangePicker } from "@/components/admin-date-range-picker";
 import { Button } from "@/components/ui/button";
+import { useAdminPermission } from "@/features/auth/lib/permissions";
 import { formatOverviewUpdatedAt } from "@/features/overview/lib/formatters";
 import type { StoryLinksQuery } from "@/features/story-links/api/story-links.dto";
 
@@ -22,6 +23,8 @@ function StoryLinksHeader({
 	onRefresh,
 	onCreate,
 }: StoryLinksHeaderProps) {
+	const canManage = useAdminPermission({ links: ["manage"] });
+
 	return (
 		<header className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
 			<div className="min-w-0">
@@ -53,10 +56,12 @@ function StoryLinksHeader({
 						<RefreshCwIcon />
 					</span>
 				</Button>
-				<Button type="button" onClick={onCreate}>
-					<PlusIcon data-icon="inline-start" />
-					Create link
-				</Button>
+				{canManage ? (
+					<Button type="button" onClick={onCreate}>
+						<PlusIcon data-icon="inline-start" />
+						Create link
+					</Button>
+				) : null}
 			</div>
 		</header>
 	);

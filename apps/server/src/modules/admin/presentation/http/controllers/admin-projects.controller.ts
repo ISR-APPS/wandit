@@ -14,9 +14,11 @@ import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-valida
 import { AdminPagePreviewService } from "../../../application/services/admin-page-preview.service";
 import { AdminProjectsService } from "../../../application/services/admin-projects.service";
 import { AdminOnly } from "../decorators/admin-only.decorator";
+import { AdminPermission } from "../decorators/admin-permission.decorator";
 
 @Controller("v1/admin/projects")
 @AdminOnly()
+@AdminPermission({ users: ["read"] })
 export class AdminProjectsController {
 	constructor(
 		@Inject(AdminProjectsService)

@@ -40,6 +40,7 @@ import { useSetFunnelContactMutation } from "@/features/analytics/api/analytics.
 import { useAdminAnalyticsFunnelStepUsersQuery } from "@/features/analytics/api/analytics.queries";
 import { downloadFunnelStepUsersCsv } from "@/features/analytics/api/analytics.services";
 import { funnelStepMetadata } from "@/features/analytics/lib/analytics-data";
+import { useAdminPermission } from "@/features/auth/lib/permissions";
 import { formatOverviewWholeNumber } from "@/features/overview/lib/formatters";
 import { getInitials } from "@/features/users/components/table/users-table-utils";
 import {
@@ -71,6 +72,7 @@ type FunnelStepUsersSheetBodyProps = {
 	onFilterChange: (filter: FunnelStepUsersFilter) => void;
 	onPageChange: (page: number) => void;
 	onContactChange: (user: AnalyticsFunnelStepUser, contacted: boolean) => void;
+	canManageContact?: boolean;
 };
 
 const PAGE_SIZE = 10;
@@ -111,6 +113,7 @@ function FunnelStepUsersSheetContent({
 		{ enabled: open },
 	);
 	const contactMutation = useSetFunnelContactMutation();
+	const canManageContact = useAdminPermission({ analytics: ["manage"] });
 	const metadata = funnelStepMetadata[step];
 	const pendingUserId = contactMutation.isPending
 		? (contactMutation.variables?.userId ?? null)
@@ -232,6 +235,7 @@ function FunnelStepUsersSheetContent({
 						data={usersQuery.data}
 						filter={filter}
 						pendingUserId={pendingUserId}
+						canManageContact={canManageContact}
 						onFilterChange={(nextFilter) => {
 							setFilter(nextFilter);
 							setPage(1);
@@ -254,6 +258,7 @@ function FunnelStepUsersSheetBody({
 	onFilterChange,
 	onPageChange,
 	onContactChange,
+	canManageContact = true,
 }: FunnelStepUsersSheetBodyProps) {
 	const notContactedTotal = data.counts.all - data.counts.contacted;
 
@@ -321,6 +326,7 @@ function FunnelStepUsersSheetBody({
 							pendingUserId={pendingUserId}
 							onPageChange={onPageChange}
 							onContactChange={onContactChange}
+							canManageContact={canManageContact}
 						/>
 					)}
 				</TabsContent>
@@ -337,6 +343,7 @@ function FunnelStepUsersTable({
 	pendingUserId,
 	onPageChange,
 	onContactChange,
+	canManageContact,
 }: {
 	items: AnalyticsFunnelStepUser[];
 	page: number;
@@ -345,6 +352,7 @@ function FunnelStepUsersTable({
 	pendingUserId: string | null;
 	onPageChange: (page: number) => void;
 	onContactChange: (user: AnalyticsFunnelStepUser, contacted: boolean) => void;
+	canManageContact: boolean;
 }) {
 	return (
 		<div className="overflow-hidden rounded-lg border">
@@ -366,6 +374,7 @@ function FunnelStepUsersTable({
 								user={user}
 								mutationPending={pendingUserId === user.id}
 								onContactChange={onContactChange}
+								canManageContact={canManageContact}
 							/>
 						))}
 					</TableBody>
@@ -385,10 +394,12 @@ function FunnelStepUserRow({
 	user,
 	mutationPending,
 	onContactChange,
+	canManageContact,
 }: {
 	user: AnalyticsFunnelStepUser;
 	mutationPending: boolean;
 	onContactChange: (user: AnalyticsFunnelStepUser, contacted: boolean) => void;
+	canManageContact: boolean;
 }) {
 	const contacted = user.contact !== null;
 
@@ -446,7 +457,7 @@ function FunnelStepUserRow({
 				<div className="flex min-w-36 flex-col items-start gap-1.5">
 					<Switch
 						checked={contacted}
-						disabled={mutationPending}
+						disabled={mutationPending || !canManageContact}
 						onCheckedChange={(checked) => onContactChange(user, checked)}
 						aria-label={`Mark ${user.name} as ${contacted ? "not contacted" : "contacted"}`}
 					/>

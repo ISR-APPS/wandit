@@ -1,5 +1,5 @@
 import { Link } from "@tanstack/react-router";
-import { isAdminRole } from "@wandit/contracts";
+import { isStaffRole } from "@wandit/contracts";
 import {
 	ArrowLeftIcon,
 	BadgeCheckIcon,
@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useAdminPermission } from "@/features/auth/lib/permissions";
 import type { AdminUserDetail } from "@/features/users/api/users.dto";
 import { formatAdminDate } from "@/features/users/lib/formatters";
 
@@ -37,10 +38,14 @@ export function UserDetailHeader({
 	onChangeRole,
 	onToggleBanned,
 }: UserDetailHeaderProps) {
-	// The server rejects banning an admin (restoring one is still allowed), so
-	// banning an admin has to go through "Change role" first.
+	const canGrantCredits = useAdminPermission({ users: ["grant-credits"] });
+	const canSetRole = useAdminPermission({ users: ["set-role"] });
+	const canBan = useAdminPermission({ users: ["ban"] });
+	const canManageBilling = useAdminPermission({ billing: ["manage"] });
+	// The server rejects banning staff (restoring one is still allowed), so a
+	// staff account has to be demoted before it can be banned.
 	const canToggleBanned =
-		canManageAccess && (user.banned || !isAdminRole(user.role));
+		canBan && canManageAccess && (user.banned || !isStaffRole(user.role));
 
 	async function copyUserId() {
 		try {
@@ -119,22 +124,24 @@ export function UserDetailHeader({
 				</div>
 
 				<div className="flex flex-wrap items-center gap-2">
-					{!user.subscription && onGrantOffline ? (
+					{canManageBilling && !user.subscription && onGrantOffline ? (
 						<Button type="button" variant="outline" onClick={onGrantOffline}>
 							<HandCoinsIcon data-icon="inline-start" aria-hidden="true" />
 							Grant offline subscription
 						</Button>
 					) : null}
-					{canManageAccess ? (
+					{canSetRole && canManageAccess ? (
 						<Button type="button" variant="outline" onClick={onChangeRole}>
 							<ShieldCheckIcon data-icon="inline-start" aria-hidden="true" />
 							Change role
 						</Button>
 					) : null}
-					<Button type="button" onClick={onGrantCredits}>
-						<WalletCardsIcon data-icon="inline-start" aria-hidden="true" />
-						Grant credits
-					</Button>
+					{canGrantCredits ? (
+						<Button type="button" onClick={onGrantCredits}>
+							<WalletCardsIcon data-icon="inline-start" aria-hidden="true" />
+							Grant credits
+						</Button>
+					) : null}
 					{canToggleBanned ? (
 						<Button
 							type="button"

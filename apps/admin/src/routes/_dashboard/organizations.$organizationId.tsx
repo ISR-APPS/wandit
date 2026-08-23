@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 
+import { RequireAdminPermission } from "@/features/auth/components/require-admin-permission";
 import { OrganizationDetailPage } from "@/features/organizations/pages/organization-detail-page";
 
 export const Route = createFileRoute(
@@ -18,5 +19,9 @@ export const Route = createFileRoute(
 function OrganizationDetailRoute() {
 	const { organizationId } = Route.useParams();
 
-	return <OrganizationDetailPage organizationId={organizationId} />;
+	return (
+		<RequireAdminPermission permission={{ organizations: ["read"] }}>
+			<OrganizationDetailPage organizationId={organizationId} />
+		</RequireAdminPermission>
+	);
 }

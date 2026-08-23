@@ -310,3 +310,28 @@ describe("AdminUsersService.getUserDetail", () => {
 		expect(adminRepository.findLatestSubscription).not.toHaveBeenCalled();
 	});
 });
+
+describe("AdminUsersService.setBanned", () => {
+	it.each([
+		"support",
+		"user,support",
+		"admin",
+	])("refuses to ban a staff account stored as %s", async (role) => {
+		const adminRepository = {
+			deleteUserSessions: vi.fn(),
+			findUserAccess: vi.fn().mockResolvedValue({ id: "target-1", role }),
+			setUserBanned: vi.fn(),
+		};
+		const service = new AdminUsersService(
+			adminRepository as unknown as AdminRepository,
+			{} as AdminOrganizationsRepository,
+			{} as CreditsService,
+		);
+
+		await expect(
+			service.setBanned("admin-1", "target-1", { banned: true }),
+		).rejects.toThrow("Staff accounts cannot be banned");
+		expect(adminRepository.setUserBanned).not.toHaveBeenCalled();
+		expect(adminRepository.deleteUserSessions).not.toHaveBeenCalled();
+	});
+});

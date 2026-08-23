@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 
+import { RequireAdminPermission } from "@/features/auth/components/require-admin-permission";
 import { ProjectDetailPage } from "@/features/projects/pages/project-detail-page";
 
 export const Route = createFileRoute(
@@ -14,5 +15,9 @@ export const Route = createFileRoute(
 function ProjectDetailRoute() {
 	const { projectId, userId } = Route.useParams();
 
-	return <ProjectDetailPage projectId={projectId} userId={userId} />;
+	return (
+		<RequireAdminPermission permission={{ users: ["read"] }}>
+			<ProjectDetailPage projectId={projectId} userId={userId} />
+		</RequireAdminPermission>
+	);
 }

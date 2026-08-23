@@ -47,6 +47,7 @@ import {
 	TableRow,
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { useAdminPermission } from "@/features/auth/lib/permissions";
 import { isApiClientError } from "@/lib/api-client";
 import {
 	useBuildAffiliatePayoutMutation,
@@ -75,6 +76,7 @@ const PAGE_SIZE = 15;
 type ActionMode = "paid" | "failed";
 
 export function PayoutsTab() {
+	const canManage = useAdminPermission({ affiliates: ["manage"] });
 	const [page, setPage] = useState(1);
 	const [query, setQuery] = useState("");
 	const [currency, setCurrency] = useState("");
@@ -116,10 +118,12 @@ export function PayoutsTab() {
 						payment.
 					</p>
 				</div>
-				<Button type="button" onClick={openBuilder}>
-					<PlusIcon />
-					Build payout
-				</Button>
+				{canManage ? (
+					<Button type="button" onClick={openBuilder}>
+						<PlusIcon />
+						Build payout
+					</Button>
+				) : null}
 			</div>
 
 			<div className="flex flex-col gap-2 rounded-lg border bg-background p-3 lg:flex-row">
@@ -182,7 +186,11 @@ export function PayoutsTab() {
 				<AffiliateSectionMessage
 					title="No payouts found"
 					description="Build a payout after commissions have reached approved status."
-					action={<Button onClick={openBuilder}>Build payout</Button>}
+					action={
+						canManage ? (
+							<Button onClick={openBuilder}>Build payout</Button>
+						) : undefined
+					}
 				/>
 			) : (
 				<div className="overflow-hidden rounded-lg border bg-background">
@@ -252,26 +260,30 @@ export function PayoutsTab() {
 														<EyeIcon />
 														<span className="sr-only">View payout</span>
 													</Button>
-													<Button
-														type="button"
-														variant="ghost"
-														size="icon-sm"
-														disabled={!actionable}
-														onClick={() => openAction(item, "paid")}
-													>
-														<CheckCircle2Icon />
-														<span className="sr-only">Mark paid</span>
-													</Button>
-													<Button
-														type="button"
-														variant="ghost"
-														size="icon-sm"
-														disabled={!actionable}
-														onClick={() => openAction(item, "failed")}
-													>
-														<CircleXIcon />
-														<span className="sr-only">Mark failed</span>
-													</Button>
+													{canManage ? (
+														<Button
+															type="button"
+															variant="ghost"
+															size="icon-sm"
+															disabled={!actionable}
+															onClick={() => openAction(item, "paid")}
+														>
+															<CheckCircle2Icon />
+															<span className="sr-only">Mark paid</span>
+														</Button>
+													) : null}
+													{canManage ? (
+														<Button
+															type="button"
+															variant="ghost"
+															size="icon-sm"
+															disabled={!actionable}
+															onClick={() => openAction(item, "failed")}
+														>
+															<CircleXIcon />
+															<span className="sr-only">Mark failed</span>
+														</Button>
+													) : null}
 												</div>
 											</TableCell>
 										</TableRow>
@@ -289,23 +301,27 @@ export function PayoutsTab() {
 				</div>
 			)}
 
-			<BuildPayoutDialog
-				open={buildOpen}
-				onOpenChange={setBuildOpen}
-				requestId={requestId}
-				onRequestIdChange={setRequestId}
-				onCompleted={() => setRequestId("")}
-			/>
-			<PayoutActionDialog
-				open={Boolean(actionTarget)}
-				onOpenChange={(next) => {
-					if (!next) {
-						setActionTarget(null);
-					}
-				}}
-				item={actionTarget}
-				mode={actionMode}
-			/>
+			{canManage ? (
+				<>
+					<BuildPayoutDialog
+						open={buildOpen}
+						onOpenChange={setBuildOpen}
+						requestId={requestId}
+						onRequestIdChange={setRequestId}
+						onCompleted={() => setRequestId("")}
+					/>
+					<PayoutActionDialog
+						open={Boolean(actionTarget)}
+						onOpenChange={(next) => {
+							if (!next) {
+								setActionTarget(null);
+							}
+						}}
+						item={actionTarget}
+						mode={actionMode}
+					/>
+				</>
+			) : null}
 			<PayoutDetailSheet
 				payoutId={selectedPayoutId}
 				open={Boolean(selectedPayoutId)}

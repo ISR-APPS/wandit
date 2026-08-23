@@ -3,6 +3,7 @@ import { SignOutIcon } from "@phosphor-icons/react/SignOut";
 import { useNavigate } from "@tanstack/react-router";
 
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Badge } from "@/components/ui/badge";
 import {
 	DropdownMenu,
 	DropdownMenuContent,
@@ -18,6 +19,7 @@ import {
 	SidebarMenuItem,
 	useSidebar,
 } from "@/components/ui/sidebar";
+import { sessionRoleLabel } from "@/features/auth/lib/permissions";
 import { signOut, useSession } from "@/features/auth/lib/session";
 
 function getInitials(name: string) {
@@ -40,6 +42,7 @@ export function NavUser() {
 	const email = user?.email ?? "";
 	const image = user?.image ?? undefined;
 	const initials = getInitials(name);
+	const roleLabel = sessionRoleLabel(user?.role ?? "user");
 
 	async function handleLogOut() {
 		await signOut();
@@ -60,9 +63,14 @@ export function NavUser() {
 								<AvatarFallback>{initials}</AvatarFallback>
 							</Avatar>
 							<div className="grid min-w-0 flex-1 text-left font-sans leading-tight group-data-[collapsible=icon]:hidden">
-								<span className="truncate font-semibold text-[12.5px] text-sidebar-accent-foreground leading-4 tracking-[-0.01em]">
-									{name}
-								</span>
+								<div className="flex min-w-0 items-center gap-1.5">
+									<span className="truncate font-semibold text-[12.5px] text-sidebar-accent-foreground leading-4 tracking-[-0.01em]">
+										{name}
+									</span>
+									<Badge variant="outline" className="h-4 px-1 text-[8px]">
+										{roleLabel}
+									</Badge>
+								</div>
 								<span className="truncate text-[10.5px] text-sidebar-foreground/52 leading-3.5">
 									{email}
 								</span>
@@ -88,7 +96,12 @@ export function NavUser() {
 									<AvatarFallback>{initials}</AvatarFallback>
 								</Avatar>
 								<div className="grid flex-1 text-left text-sm leading-tight">
-									<span className="truncate font-medium">{name}</span>
+									<div className="flex min-w-0 items-center gap-2">
+										<span className="truncate font-medium">{name}</span>
+										<Badge variant="outline" className="h-5 px-1.5 text-[10px]">
+											{roleLabel}
+										</Badge>
+									</div>
 									<span className="truncate text-muted-foreground text-xs">
 										{email}
 									</span>

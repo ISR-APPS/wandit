@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 
 import { FunnelAnalyticsPage } from "@/features/analytics/pages/funnel-analytics-page";
+import { RequireAdminPermission } from "@/features/auth/components/require-admin-permission";
 import { adminStandardAnalyticsSearchValidator } from "@/lib/admin-date-range";
 
 function AnalyticsFunnelRoute() {
@@ -8,13 +9,15 @@ function AnalyticsFunnelRoute() {
 	const navigate = Route.useNavigate();
 
 	return (
-		<FunnelAnalyticsPage
-			query={query}
-			onQueryChange={(nextQuery) => {
-				const { cohortOnly: _cohortOnly, ...search } = nextQuery;
-				void navigate({ search, replace: true });
-			}}
-		/>
+		<RequireAdminPermission permission={{ analytics: ["read"] }}>
+			<FunnelAnalyticsPage
+				query={query}
+				onQueryChange={(nextQuery) => {
+					const { cohortOnly: _cohortOnly, ...search } = nextQuery;
+					void navigate({ search, replace: true });
+				}}
+			/>
+		</RequireAdminPermission>
 	);
 }
 
