@@ -16,7 +16,11 @@ const mocks = vi.hoisted(() => ({
 	buttons: new Map<string, (() => void) | undefined>(),
 	domainQueryOptions: undefined as { enabled?: boolean } | undefined,
 	domains: [] as unknown[],
+	setupRecords: null as unknown[] | null,
 	surface: null as "input" | "records" | null,
+	verifyMutateAsync: vi.fn(async (_domainId: string): Promise<unknown> => {
+		throw new Error("verify response not configured");
+	}),
 }));
 
 vi.mock("@/lib/i18n", () => ({
@@ -101,7 +105,7 @@ vi.mock("../api/domains.mutations", () => ({
 	}),
 	useVerifyDomain: () => ({
 		isPending: false,
-		mutateAsync: vi.fn(),
+		mutateAsync: mocks.verifyMutateAsync,
 	}),
 }));
 
@@ -127,11 +131,12 @@ vi.mock("../lib/hooks", () => ({
 	useCopyToClipboard: () => vi.fn(),
 }));
 
-vi.mock("./dns-records-table", async () => {
+vi.mock("./external-domain-setup-options", async () => {
 	const { createElement } = await import("react");
 	return {
-		DnsRecordsTable: () => {
+		ExternalDomainSetupOptions: ({ records }: { records: unknown[] }) => {
 			mocks.surface = "records";
+			mocks.setupRecords = records;
 			return createElement("div", null, "dnsRecords");
 		},
 	};
@@ -304,7 +309,9 @@ beforeEach(() => {
 	mocks.buttons.clear();
 	mocks.domainQueryOptions = undefined;
 	mocks.domains = [];
+	mocks.setupRecords = null;
 	mocks.surface = null;
+	mocks.verifyMutateAsync.mockReset();
 });
 
 afterEach(async () => {
@@ -375,6 +382,24 @@ describe("ExternalDomainRoutingNote", () => {
 		expect(html).toContain(
 			'<bdi dir="ltr" class="font-mono">example.com</bdi>',
 		);
+		expect(html).toContain(
+			'<bdi dir="ltr" class="font-mono">https://www.example.com</bdi>',
+		);
+		expect(html).not.toContain("externalApexAutomatic");
+	});
+
+	it("explains the automatic apex redirect when nameservers are offered", () => {
+		const html = renderToStaticMarkup(
+			createElement(ExternalDomainRoutingNote, {
+				name: "example.com",
+				hasNameserverOption: true,
+			}),
+		);
+
+		expect(html).toContain("externalServedAt");
+		expect(html).toContain("externalApexAutomatic");
+		expect(html).not.toContain("externalApexRedirect<");
+		expect(html).toContain("externalApexRedirectTo");
 		expect(html).toContain(
 			'<bdi dir="ltr" class="font-mono">https://www.example.com</bdi>',
 		);
@@ -504,6 +529,61 @@ describe("ExternalDomainConnectWizard pending domain resume", () => {
 		});
 
 		expect(mocks.surface).toBe("records");
+	});
+
+	it("shows the persisted records once the domain list carries newer ones than the last verify response", async () => {
+		const wwwRecords = [
+			{
+				name: "www",
+				purpose: "traffic",
+				type: "CNAME" as const,
+				value: "customers.wandit.app",
+			},
+		];
+		const nameserverRecords = [
+			{
+				name: "@",
+				purpose: "nameserver",
+				type: "NS" as const,
+				value: "ada.ns.cloudflare.com",
+			},
+			{
+				name: "@",
+				purpose: "nameserver",
+				type: "NS" as const,
+				value: "bob.ns.cloudflare.com",
+			},
+		];
+		const pendingDomain = domain({ dns: { records: wwwRecords } });
+		mocks.domains = [pendingDomain];
+		mocks.verifyMutateAsync.mockResolvedValue({
+			domain: pendingDomain,
+			requiredRecords: wwwRecords,
+		});
+		const root = await mountWizard();
+
+		expect(mocks.setupRecords).toEqual(wwwRecords);
+
+		const verify = mocks.buttons.get("verify");
+		expect(verify).toBeTypeOf("function");
+		await act(async () => verify?.());
+		expect(mocks.verifyMutateAsync).toHaveBeenCalledWith(pendingDomain.id);
+		expect(mocks.setupRecords).toEqual(wwwRecords);
+
+		// The configure task created the zone: the polled list now carries the
+		// nameservers, and the wizard must not keep the stale verify response.
+		mocks.domains = [
+			domain({ dns: { records: [...wwwRecords, ...nameserverRecords] } }),
+		];
+		await act(async () => {
+			root.render(
+				createElement(ExternalDomainConnectWizard, {
+					projectId: "11111111-1111-4111-8111-111111111111",
+				}),
+			);
+		});
+
+		expect(mocks.setupRecords).toEqual([...wwwRecords, ...nameserverRecords]);
 	});
 
 	it("returns to input when another domain is requested", async () => {

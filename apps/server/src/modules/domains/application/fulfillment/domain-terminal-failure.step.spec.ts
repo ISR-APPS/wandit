@@ -598,6 +598,40 @@ describe("DomainTerminalFailureStep", () => {
 		);
 	});
 
+	it("never deletes an external row's zone on an orderless terminal failure, even one created and never delegated", async () => {
+		const fixture = setup(
+			domain("configuring", {
+				dns: {
+					apexCustomHostnameId: "cf_apex",
+					zoneCreated: true,
+					zoneId: "zone_external",
+				},
+				paymentOrderId: null,
+				provider: null,
+				source: "external",
+			}),
+		);
+
+		await expect(
+			fixture.step.execute(
+				fixture.domain,
+				new TerminalDomainFulfillmentError("Operator failed the row"),
+			),
+		).resolves.toEqual({ status: "failed" });
+
+		expect(fixture.events).toEqual([
+			"delete-hostname:cf_domain_1",
+			"delete-hostname:cf_apex",
+			"delete-pointer:example.com",
+			"mark-domain-failed:Operator failed the row",
+		]);
+		expect(fixture.dependencies.deleteZone).not.toHaveBeenCalled();
+		expect(fixture.dependencies.logger.warn).toHaveBeenCalledWith(
+			`Leaving Cloudflare zone zone_external for domain ${domainId} in place`,
+			"the zone's nameservers were exposed to the domain owner",
+		);
+	});
+
 	it("repairs an orphaned-order domain without claiming it was unattached or deleting KV", async () => {
 		const fixture = setup(domain("registering"));
 

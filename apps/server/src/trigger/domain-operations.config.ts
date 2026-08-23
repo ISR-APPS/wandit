@@ -10,16 +10,20 @@ export type DatabaseTaskConfiguration = {
 	databaseUrl: string;
 };
 
-export type DomainConfigurationTaskConfiguration = DatabaseTaskConfiguration & {
-	cloudflareApiToken: string;
-	cloudflareKvNamespaceId: string;
-	cloudflareZoneId: string;
+export type DomainApexZoneOptions = {
+	apexZoneEnabled: boolean;
+	fallbackOrigin: string;
 };
+
+export type DomainConfigurationTaskConfiguration = DatabaseTaskConfiguration &
+	DomainApexZoneOptions & {
+		cloudflareApiToken: string;
+		cloudflareKvNamespaceId: string;
+		cloudflareZoneId: string;
+	};
 
 export type DomainPurchaseTaskConfiguration =
 	DomainConfigurationTaskConfiguration & {
-		apexZoneEnabled: boolean;
-		fallbackOrigin: string;
 		namecomApiToken: string;
 		namecomEnvironment: NamecomEnvironment;
 		namecomUsername: string;
@@ -53,19 +57,34 @@ export function assertDomainPurchaseConfiguration(): DomainPurchaseTaskConfigura
 	return {
 		...assertDomainConfigurationConfiguration(),
 		...assertNamecomConfiguration(),
-		apexZoneEnabled: domainApexZoneEnabled(),
-		fallbackOrigin: domainFallbackOrigin(),
 		stripeSecretKey: requiredValue("STRIPE_SECRET_KEY"),
 	};
 }
 
-/** Assert only the values needed by BYO-domain verification and activation. */
+/**
+ * Assert only the values needed by BYO-domain verification and activation
+ * (DB + the three Cloudflare values; no registrar, no Stripe) and read the
+ * apex zone options the best-effort external apex pass runs with.
+ */
 export function assertDomainConfigurationConfiguration(): DomainConfigurationTaskConfiguration {
 	return {
 		...assertDatabaseConfiguration(),
+		...domainApexZoneOptions(),
 		cloudflareApiToken: requiredValue("CLOUDFLARE_API_TOKEN"),
 		cloudflareKvNamespaceId: requiredValue("CLOUDFLARE_KV_NAMESPACE_ID"),
 		cloudflareZoneId: requiredValue("CLOUDFLARE_ZONE_ID_WANDIT_APP"),
+	};
+}
+
+/**
+ * Apex zone options shared by the purchase and configuration tasks. Neither
+ * value is a preflight failure: the kill switch defaults to on and the
+ * fallback origin has a safe schema default.
+ */
+export function domainApexZoneOptions(): DomainApexZoneOptions {
+	return {
+		apexZoneEnabled: domainApexZoneEnabled(),
+		fallbackOrigin: domainFallbackOrigin(),
 	};
 }
 
@@ -120,10 +139,11 @@ function namecomEnvironment(): NamecomEnvironment {
 }
 
 /**
- * Kill switch for the purchased-domain apex zone step (default on). It is not
- * a preflight failure: "false" simply keeps the registrar URL forwarding for
- * the apex. CLOUDFLARE_ACCOUNT_ID is likewise not asserted here — the step is
- * best-effort and records a missing account id as `dns.apexError`.
+ * Kill switch for the apex zone step of purchased and external domains
+ * (default on). It is not a preflight failure: "false" simply keeps the
+ * registrar URL forwarding for a purchased apex and the www-only records for
+ * an external one. CLOUDFLARE_ACCOUNT_ID is likewise not asserted here — the
+ * step is best-effort and records a missing account id as `dns.apexError`.
  */
 function domainApexZoneEnabled(): boolean {
 	const value = process.env.DOMAINS_APEX_ZONE_ENABLED?.trim().toLowerCase();

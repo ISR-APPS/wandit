@@ -40,6 +40,7 @@ import { CreditsRepository } from "../modules/credits/infrastructure/persistence
 import { DomainsService } from "../modules/domains/application/services/domains.service";
 import type { DomainTaskDispatcher } from "../modules/domains/domain/ports/domain-task-dispatcher.port";
 import { CustomHostnameService } from "../modules/domains/infrastructure/cloudflare/custom-hostname.service";
+import { CustomerZoneService } from "../modules/domains/infrastructure/cloudflare/customer-zone.service";
 import { DomainRoutingService } from "../modules/domains/infrastructure/cloudflare/domain-routing.service";
 import { NamecomProvider } from "../modules/domains/infrastructure/namecom/namecom.provider";
 import { DomainsRepository } from "../modules/domains/infrastructure/persistence/domains.repository";
@@ -289,6 +290,7 @@ function createOrderReconciler(
 		payment.domains,
 		new NamecomProvider(),
 		new CustomHostnameService(),
+		new CustomerZoneService(),
 		routing,
 		{
 			error: (message: unknown) =>

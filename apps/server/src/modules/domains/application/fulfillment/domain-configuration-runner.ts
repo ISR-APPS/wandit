@@ -51,11 +51,12 @@ type DomainConfigurationRunnerDependencies = {
 		execute(row: DomainFulfillmentRow): Promise<DomainActivationResult>;
 	};
 	/**
-	 * Best-effort apex zone pass for purchased rows (purchase runtime only): it
-	 * runs before every probe (retrying configuration until `dns.apexConfigured`,
-	 * then polling the zone / nudging the apex hostname), never throws, and only
-	 * merges apex keys, so it cannot disturb this runner's cursor. Activation
-	 * never waits on it.
+	 * Best-effort apex zone pass (purchased rows in the purchase runtime,
+	 * external rows in the configuration runtime; the step itself gates on the
+	 * row source): it runs before every probe (retrying configuration until
+	 * `dns.apexConfigured`, then polling the zone / nudging the apex hostname),
+	 * never throws, and only merges apex keys, so it cannot disturb this
+	 * runner's cursor. Activation never waits on it.
 	 */
 	apexZone?: {
 		execute(row: DomainFulfillmentRow): Promise<DomainFulfillmentRow>;
@@ -191,7 +192,7 @@ export class DomainConfigurationRunner {
 				};
 			}
 
-			if (this.dependencies.apexZone && row.source === "purchased") {
+			if (this.dependencies.apexZone) {
 				row = await this.dependencies.apexZone.execute(row);
 			}
 

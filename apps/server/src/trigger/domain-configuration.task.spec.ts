@@ -67,6 +67,14 @@ describe("domainConfigurationTask", () => {
 		});
 		mocks.assertConfiguration.mockReset().mockImplementation(() => {
 			mocks.events.push("config");
+			return {
+				apexZoneEnabled: true,
+				cloudflareApiToken: "cf-token",
+				cloudflareKvNamespaceId: "kv-namespace",
+				cloudflareZoneId: "zone-id",
+				databaseUrl: "postgresql://task.test/database",
+				fallbackOrigin: "customers.task.test",
+			};
 		});
 		mocks.createDb.mockReset().mockImplementation(() => {
 			mocks.events.push("db");
@@ -111,10 +119,18 @@ describe("domainConfigurationTask", () => {
 		expect(mocks.configurationExecute).toHaveBeenCalledWith(payload);
 
 		const runtimeOptions = mocks.createRuntime.mock.calls[0]?.[1] as {
+			apexZoneEnabled: boolean;
+			fallbackOrigin: string;
 			wait: { until(input: { date: Date }): Promise<void> };
 		};
 		const date = new Date("2026-08-01T00:00:00.000Z");
 
+		// The external apex zone pass runs with the asserted configuration's
+		// kill switch and fallback origin.
+		expect(runtimeOptions).toMatchObject({
+			apexZoneEnabled: true,
+			fallbackOrigin: "customers.task.test",
+		});
 		await runtimeOptions.wait.until({ date });
 		expect(mocks.waitUntil).toHaveBeenCalledWith({ date });
 		expect(mocks.createDb).toHaveBeenCalledWith({
