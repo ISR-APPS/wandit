@@ -11,11 +11,13 @@ import {
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { AdminOnly } from "../../../../admin/presentation/http/decorators/admin-only.decorator";
+import { AdminPermission } from "../../../../admin/presentation/http/decorators/admin-permission.decorator";
 import { CurrentUser } from "../../../../auth";
 import { ProductSettingsService } from "../../../application/services/product-settings.service";
 
 @Controller("v1/admin/settings")
 @AdminOnly()
+@AdminPermission({ settings: ["read"] })
 export class AdminSettingsController {
 	constructor(
 		@Inject(ProductSettingsService)
@@ -28,6 +30,7 @@ export class AdminSettingsController {
 	}
 
 	@Patch()
+	@AdminPermission({ settings: ["manage"] })
 	async update(
 		@Body(new ZodValidationPipe(patchProductSettingsBodySchema))
 		body: PatchProductSettingsBody,

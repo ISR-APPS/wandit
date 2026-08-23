@@ -817,9 +817,22 @@ export class AdminRepository {
 
 		if (query.role && query.role.length < adminUserRoles.length) {
 			const adminRole = storedRoleIncludesAdmin(user.role);
-			filters.push(
-				query.role.includes("admin") ? adminRole : sql`not ${adminRole}`,
-			);
+			const supportRole = storedRoleIncludesSupport(user.role);
+			const roleFilters: SQL[] = [];
+
+			if (query.role.includes("admin")) {
+				roleFilters.push(adminRole);
+			}
+
+			if (query.role.includes("support")) {
+				roleFilters.push(sql`(${supportRole} and not ${adminRole})`);
+			}
+
+			if (query.role.includes("user")) {
+				roleFilters.push(sql`(not ${adminRole} and not ${supportRole})`);
+			}
+
+			filters.push(or(...roleFilters));
 		}
 
 		if (query.status && query.status.length < adminUserStatuses.length) {
@@ -1009,6 +1022,14 @@ function storedRoleIncludesAdmin(role: typeof user.role) {
 		select 1
 		from unnest(string_to_array(coalesce(${role}, ''), ',')) as role_part(value)
 		where lower(trim(role_part.value)) = 'admin'
+	)`;
+}
+
+function storedRoleIncludesSupport(role: typeof user.role) {
+	return sql`exists (
+		select 1
+		from unnest(string_to_array(coalesce(${role}, ''), ',')) as role_part(value)
+		where lower(trim(role_part.value)) = 'support'
 	)`;
 }
 

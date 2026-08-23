@@ -38,6 +38,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useAdminPermission } from "@/features/auth/lib/permissions";
 import type { AffiliateTableRow } from "../api/affiliates.dto";
 import { mapAffiliateListItemToTableRow } from "../api/affiliates.dto";
 import { useUpdateAffiliateMutation } from "../api/affiliates.mutations";
@@ -66,6 +67,7 @@ import {
 const PAGE_SIZE = 15;
 
 export function AffiliatesTab() {
+	const canManage = useAdminPermission({ affiliates: ["manage"] });
 	const [page, setPage] = useState(1);
 	const [query, setQuery] = useState("");
 	const [status, setStatus] = useState<AffiliateStatus | "all">("all");
@@ -136,10 +138,12 @@ export function AffiliatesTab() {
 						)}
 						{exporting ? "Exporting…" : "Export CSV"}
 					</Button>
-					<Button type="button" onClick={() => setCreateOpen(true)}>
-						<PlusIcon />
-						Create affiliate
-					</Button>
+					{canManage ? (
+						<Button type="button" onClick={() => setCreateOpen(true)}>
+							<PlusIcon />
+							Create affiliate
+						</Button>
+					) : null}
 				</div>
 			</div>
 
@@ -245,10 +249,12 @@ export function AffiliatesTab() {
 					title="No affiliates found"
 					description="Create a partner or clear the filters to see affiliates."
 					action={
-						<Button type="button" onClick={() => setCreateOpen(true)}>
-							<PlusIcon />
-							Create affiliate
-						</Button>
+						canManage ? (
+							<Button type="button" onClick={() => setCreateOpen(true)}>
+								<PlusIcon />
+								Create affiliate
+							</Button>
+						) : undefined
 					}
 				/>
 			) : (
@@ -313,11 +319,13 @@ export function AffiliatesTab() {
 				</div>
 			)}
 
-			<AffiliateEditorDialog
-				open={createOpen}
-				onOpenChange={setCreateOpen}
-				onSaved={setSelectedAffiliateId}
-			/>
+			{canManage ? (
+				<AffiliateEditorDialog
+					open={createOpen}
+					onOpenChange={setCreateOpen}
+					onSaved={setSelectedAffiliateId}
+				/>
+			) : null}
 			<AffiliateDetailSheet
 				affiliateId={selectedAffiliateId}
 				open={Boolean(selectedAffiliateId)}
@@ -338,6 +346,7 @@ function AffiliateRow({
 	row: AffiliateTableRow;
 	onOpen: () => void;
 }) {
+	const canManage = useAdminPermission({ affiliates: ["manage"] });
 	const mutation = useUpdateAffiliateMutation();
 	const nextStatus = row.status === "active" ? "paused" : "active";
 
@@ -443,26 +452,28 @@ function AffiliateRow({
 			<TableCell>
 				<div className="flex justify-end gap-1">
 					<Button type="button" variant="outline" size="sm" onClick={onOpen}>
-						Manage
+						{canManage ? "Manage" : "Details"}
 					</Button>
-					<Button
-						type="button"
-						variant="ghost"
-						size="icon-sm"
-						disabled={mutation.isPending}
-						onClick={() => void changeStatus()}
-					>
-						{mutation.isPending ? (
-							<Loader2Icon className="animate-spin" />
-						) : nextStatus === "active" ? (
-							<CirclePlayIcon />
-						) : (
-							<CirclePauseIcon />
-						)}
-						<span className="sr-only">
-							{nextStatus === "active" ? "Activate" : "Pause"} {row.name}
-						</span>
-					</Button>
+					{canManage ? (
+						<Button
+							type="button"
+							variant="ghost"
+							size="icon-sm"
+							disabled={mutation.isPending}
+							onClick={() => void changeStatus()}
+						>
+							{mutation.isPending ? (
+								<Loader2Icon className="animate-spin" />
+							) : nextStatus === "active" ? (
+								<CirclePlayIcon />
+							) : (
+								<CirclePauseIcon />
+							)}
+							<span className="sr-only">
+								{nextStatus === "active" ? "Activate" : "Pause"} {row.name}
+							</span>
+						</Button>
+					) : null}
 				</div>
 			</TableCell>
 		</TableRow>

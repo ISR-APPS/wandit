@@ -1,5 +1,5 @@
 import { AlertTriangleIcon, Loader2Icon, UsersRoundIcon } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
 import {
@@ -35,6 +35,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
+import { useAdminPermission } from "@/features/auth/lib/permissions";
 import type {
 	AdminWorkspaceRole,
 	OrganizationMember,
@@ -83,6 +84,13 @@ export function OrgMembersCard({
 }) {
 	const [pending, setPending] = useState<PendingRoleChange | null>(null);
 	const mutation = useSetOrganizationMemberRoleMutation();
+	const canManage = useAdminPermission({ organizations: ["manage"] });
+
+	useEffect(() => {
+		if (!canManage && pending !== null) {
+			setPending(null);
+		}
+	}, [canManage, pending]);
 
 	const hasOwner = members.some((row) => primaryRole(row.role) === "owner");
 	const demotingLastOwner =
@@ -92,7 +100,7 @@ export function OrgMembersCard({
 		members.filter((row) => primaryRole(row.role) === "owner").length === 1;
 
 	async function confirmRoleChange() {
-		if (!pending) {
+		if (!pending || !canManage) {
 			return;
 		}
 
@@ -170,7 +178,7 @@ export function OrgMembersCard({
 									<TableCell>
 										<Select
 											value={primaryRole(row.role)}
-											disabled={mutation.isPending}
+											disabled={mutation.isPending || !canManage}
 											onValueChange={(value) => {
 												const nextRole = value as AdminWorkspaceRole;
 
@@ -214,7 +222,7 @@ export function OrgMembersCard({
 			</CardContent>
 
 			<AlertDialog
-				open={pending !== null}
+				open={canManage && pending !== null}
 				onOpenChange={(open) => {
 					if (!open && !mutation.isPending) {
 						setPending(null);

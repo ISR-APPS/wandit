@@ -29,6 +29,7 @@ import {
 	EmptyTitle,
 } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useAdminPermission } from "@/features/auth/lib/permissions";
 import { useDeleteMonthlyCostMutation } from "@/features/costs/api/costs.mutations";
 import { useMonthlyCostsQuery } from "@/features/costs/api/costs.queries";
 import { MonthlyCostDialog } from "@/features/costs/components/monthly-cost-dialog";
@@ -52,6 +53,7 @@ const costSkeletonRowKeys = [
 
 export function MonthlyCostsPage() {
 	const costsQuery = useMonthlyCostsQuery();
+	const canManage = useAdminPermission({ costs: ["manage"] });
 	const deleteMutation = useDeleteMonthlyCostMutation();
 	const [dialogState, setDialogState] = useState<CostDialogState>(null);
 	const [deleteEntry, setDeleteEntry] = useState<MonthlyCostEntry | null>(null);
@@ -145,13 +147,15 @@ export function MonthlyCostsPage() {
 						economics. The default view contains the latest 12 months.
 					</p>
 				</div>
-				<Button
-					type="button"
-					onClick={() => setDialogState({ mode: "create" })}
-				>
-					<PlusIcon aria-hidden="true" />
-					Add month
-				</Button>
+				{canManage ? (
+					<Button
+						type="button"
+						onClick={() => setDialogState({ mode: "create" })}
+					>
+						<PlusIcon aria-hidden="true" />
+						Add month
+					</Button>
+				) : null}
 			</header>
 
 			<MonthlyCostsTable
@@ -160,7 +164,7 @@ export function MonthlyCostsPage() {
 				onDelete={setDeleteEntry}
 			/>
 
-			{dialogState ? (
+			{canManage && dialogState ? (
 				<MonthlyCostDialog
 					key={
 						dialogState.mode === "edit"
@@ -179,7 +183,7 @@ export function MonthlyCostsPage() {
 			) : null}
 
 			<AlertDialog
-				open={deleteEntry !== null}
+				open={canManage && deleteEntry !== null}
 				onOpenChange={(open) => {
 					if (!open && !deleteMutation.isPending) {
 						setDeleteEntry(null);

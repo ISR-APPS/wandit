@@ -11,6 +11,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
+import { useAdminPermission } from "@/features/auth/lib/permissions";
 import type { useAffiliateLinksQuery } from "../api/affiliates.queries";
 import {
 	formatAffiliateDateTime,
@@ -40,6 +41,8 @@ export function AffiliateDetailLinksPanel({
 	onDelete: (link: AffiliateLinkListItem) => void;
 	onPageChange: (page: number) => void;
 }) {
+	const canManage = useAdminPermission({ affiliates: ["manage"] });
+
 	if (query.isPending) {
 		return <AffiliateDetailSkeleton />;
 	}
@@ -61,16 +64,22 @@ export function AffiliateDetailLinksPanel({
 						Status combines the active flag with expiry.
 					</p>
 				</div>
-				<Button type="button" size="sm" onClick={onCreate}>
-					<PlusIcon />
-					Add link
-				</Button>
+				{canManage ? (
+					<Button type="button" size="sm" onClick={onCreate}>
+						<PlusIcon />
+						Add link
+					</Button>
+				) : null}
 			</div>
 			{query.data.items.length === 0 ? (
 				<AffiliateSectionMessage
 					title="No referral links"
 					description="Create the first link and assign its program terms."
-					action={<Button onClick={onCreate}>Create link</Button>}
+					action={
+						canManage ? (
+							<Button onClick={onCreate}>Create link</Button>
+						) : undefined
+					}
 				/>
 			) : (
 				<div className="overflow-hidden rounded-lg border">
@@ -153,28 +162,32 @@ export function AffiliateDetailLinksPanel({
 											{formatAffiliateDateTime(item.link.expiresAt)}
 										</TableCell>
 										<TableCell>
-											<div className="flex justify-end gap-1">
-												<Button
-													type="button"
-													variant="ghost"
-													size="icon-sm"
-													onClick={() => onEdit(item)}
-												>
-													<PencilIcon />
-													<span className="sr-only">Edit {item.link.code}</span>
-												</Button>
-												<Button
-													type="button"
-													variant="ghost"
-													size="icon-sm"
-													onClick={() => onDelete(item)}
-												>
-													<Trash2Icon />
-													<span className="sr-only">
-														Deactivate {item.link.code}
-													</span>
-												</Button>
-											</div>
+											{canManage ? (
+												<div className="flex justify-end gap-1">
+													<Button
+														type="button"
+														variant="ghost"
+														size="icon-sm"
+														onClick={() => onEdit(item)}
+													>
+														<PencilIcon />
+														<span className="sr-only">
+															Edit {item.link.code}
+														</span>
+													</Button>
+													<Button
+														type="button"
+														variant="ghost"
+														size="icon-sm"
+														onClick={() => onDelete(item)}
+													>
+														<Trash2Icon />
+														<span className="sr-only">
+															Deactivate {item.link.code}
+														</span>
+													</Button>
+												</div>
+											) : null}
 										</TableCell>
 									</TableRow>
 								))}

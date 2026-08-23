@@ -47,6 +47,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
+import { useAdminPermission } from "@/features/auth/lib/permissions";
 import type {
 	AdminManualSubscription,
 	AdminManualSubscriptionStatusFilter,
@@ -425,6 +426,7 @@ function ManualSubscriptionActions({
 }) {
 	const [activeDialog, setActiveDialog] =
 		useState<SubscriptionActionDialog>(null);
+	const canManage = useAdminPermission({ billing: ["manage"] });
 	const ownerLabel = subscription.organization?.name ?? subscription.user.name;
 
 	return (
@@ -451,12 +453,14 @@ function ManualSubscriptionActions({
 							<EyeIcon />
 							Details & payments
 						</DropdownMenuItem>
-						<DropdownMenuItem onSelect={() => setActiveDialog("renew")}>
-							<CalendarPlusIcon />
-							Renew
-						</DropdownMenuItem>
+						{canManage ? (
+							<DropdownMenuItem onSelect={() => setActiveDialog("renew")}>
+								<CalendarPlusIcon />
+								Renew
+							</DropdownMenuItem>
+						) : null}
 					</DropdownMenuGroup>
-					{subscription.entitled ? (
+					{canManage && subscription.entitled ? (
 						<>
 							<DropdownMenuSeparator />
 							<DropdownMenuItem
@@ -471,23 +475,27 @@ function ManualSubscriptionActions({
 				</DropdownMenuContent>
 			</DropdownMenu>
 
-			<RenewManualSubscriptionDialog
-				subscription={{
-					id: subscription.id,
-					interval: subscription.interval,
-					currentPeriodEnd: subscription.currentPeriodEnd,
-					entitled: subscription.entitled,
-					ownerLabel,
-				}}
-				open={activeDialog === "renew"}
-				onOpenChange={(open) => setActiveDialog(open ? "renew" : null)}
-			/>
-			<EndManualSubscriptionDialog
-				subscriptionId={subscription.id}
-				ownerLabel={ownerLabel}
-				open={activeDialog === "end"}
-				onOpenChange={(open) => setActiveDialog(open ? "end" : null)}
-			/>
+			{canManage ? (
+				<>
+					<RenewManualSubscriptionDialog
+						subscription={{
+							id: subscription.id,
+							interval: subscription.interval,
+							currentPeriodEnd: subscription.currentPeriodEnd,
+							entitled: subscription.entitled,
+							ownerLabel,
+						}}
+						open={activeDialog === "renew"}
+						onOpenChange={(open) => setActiveDialog(open ? "renew" : null)}
+					/>
+					<EndManualSubscriptionDialog
+						subscriptionId={subscription.id}
+						ownerLabel={ownerLabel}
+						open={activeDialog === "end"}
+						onOpenChange={(open) => setActiveDialog(open ? "end" : null)}
+					/>
+				</>
+			) : null}
 		</>
 	);
 }

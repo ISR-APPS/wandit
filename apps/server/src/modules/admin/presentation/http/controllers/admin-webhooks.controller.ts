@@ -12,9 +12,11 @@ import type { AdminWebhookReplayResponse } from "@wandit/contracts";
 import { CurrentUser } from "../../../../auth";
 import { AdminWebhookReplayService } from "../../../application/services/admin-webhook-replay.service";
 import { AdminOnly } from "../decorators/admin-only.decorator";
+import { AdminPermission } from "../decorators/admin-permission.decorator";
 
 @Controller("v1/admin/webhooks")
 @AdminOnly()
+@AdminPermission({ billing: ["manage"] })
 export class AdminWebhooksController {
 	constructor(
 		@Inject(AdminWebhookReplayService)

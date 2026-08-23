@@ -66,6 +66,7 @@ export const USER_PLAN_FILTER_OPTIONS = [
 
 export const USER_ROLE_FILTER_OPTIONS = [
 	{ label: "User", value: "user" },
+	{ label: "Support", value: "support" },
 	{ label: "Admin", value: "admin" },
 ] as const satisfies readonly UserFacetedFilterOption<UserRoleFilter[number]>[];
 

@@ -11,9 +11,11 @@ import {
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { AdminStatsService } from "../../../application/services/admin-stats.service";
 import { AdminOnly } from "../decorators/admin-only.decorator";
+import { AdminPermission } from "../decorators/admin-permission.decorator";
 
 @Controller("v1/admin/stats")
 @AdminOnly()
+@AdminPermission({ overview: ["read"] })
 export class AdminStatsController {
 	constructor(
 		@Inject(AdminStatsService)

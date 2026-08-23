@@ -18,6 +18,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
+import { useAdminPermission } from "@/features/auth/lib/permissions";
 import {
 	formatCostMoney,
 	formatCostMonth,
@@ -36,6 +37,8 @@ export function MonthlyCostsTable({
 	onEdit,
 	onDelete,
 }: MonthlyCostsTableProps) {
+	const canManage = useAdminPermission({ costs: ["manage"] });
+
 	return (
 		<Card className="gap-0 overflow-hidden py-0 shadow-none">
 			<CardHeader className="border-b py-6">
@@ -101,27 +104,29 @@ export function MonthlyCostsTable({
 											</time>
 										</TableCell>
 										<TableCell className="px-3 text-right">
-											<div className="flex justify-end gap-1">
-												<Button
-													type="button"
-													variant="ghost"
-													size="icon"
-													onClick={() => onEdit(entry)}
-													aria-label={`Edit ${formatCostMonth(entry.month)} costs`}
-												>
-													<PencilIcon aria-hidden="true" />
-												</Button>
-												<Button
-													type="button"
-													variant="ghost"
-													size="icon"
-													className="text-destructive hover:text-destructive"
-													onClick={() => onDelete(entry)}
-													aria-label={`Delete ${formatCostMonth(entry.month)} costs`}
-												>
-													<Trash2Icon aria-hidden="true" />
-												</Button>
-											</div>
+											{canManage ? (
+												<div className="flex justify-end gap-1">
+													<Button
+														type="button"
+														variant="ghost"
+														size="icon"
+														onClick={() => onEdit(entry)}
+														aria-label={`Edit ${formatCostMonth(entry.month)} costs`}
+													>
+														<PencilIcon aria-hidden="true" />
+													</Button>
+													<Button
+														type="button"
+														variant="ghost"
+														size="icon"
+														className="text-destructive hover:text-destructive"
+														onClick={() => onDelete(entry)}
+														aria-label={`Delete ${formatCostMonth(entry.month)} costs`}
+													>
+														<Trash2Icon aria-hidden="true" />
+													</Button>
+												</div>
+											) : null}
 										</TableCell>
 									</TableRow>
 								))}

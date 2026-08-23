@@ -2,6 +2,7 @@ import { floorCreditBalance, roundCreditAmount } from "@/lib/credit-format";
 
 import type { AdminUserSummary, ListUsersParams } from "../api/users.dto";
 import { listUsers } from "../api/users.services";
+import { getRoleLabel } from "../components/detail/user-detail-helpers";
 
 /**
  * Contract ceiling from paginationQuerySchema (pageSize.max(100)). Pages are
@@ -67,7 +68,7 @@ export function buildUsersExportRow(
 		user.name,
 		user.email,
 		user.emailVerified ? "Yes" : "No",
-		user.role,
+		getRoleLabel(user.role),
 		user.banned ? "banned" : "active",
 		user.plan,
 		// Same display rules as the table: floor the balance to one decimal

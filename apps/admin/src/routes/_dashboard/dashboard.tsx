@@ -1,5 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 
+import { RequireAdminPermission } from "@/features/auth/components/require-admin-permission";
 import { OverviewPage } from "@/features/overview/pages/overview-page";
 import {
 	adminDashboardSearchValidator,
@@ -13,15 +14,17 @@ function DashboardRoute() {
 	const navigate = Route.useNavigate();
 
 	return (
-		<OverviewPage
-			query={query}
-			onQueryChange={(nextQuery) => {
-				void navigate({
-					search: mergeAdminDashboardDateRangeQuery(search, nextQuery),
-					replace: true,
-				});
-			}}
-		/>
+		<RequireAdminPermission permission={{ overview: ["read"] }}>
+			<OverviewPage
+				query={query}
+				onQueryChange={(nextQuery) => {
+					void navigate({
+						search: mergeAdminDashboardDateRangeQuery(search, nextQuery),
+						replace: true,
+					});
+				}}
+			/>
+		</RequireAdminPermission>
 	);
 }
 
