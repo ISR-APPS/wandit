@@ -14,6 +14,7 @@ export const TRANSPARENT_PART_TYPES = new Set([
 	"reasoning",
 	"tool-read_skill",
 	"tool-read_attachment",
+	"tool-inspect_video",
 	"tool-get_direction_candidates",
 	"tool-get_page_outline",
 	"tool-apply_element_ops",

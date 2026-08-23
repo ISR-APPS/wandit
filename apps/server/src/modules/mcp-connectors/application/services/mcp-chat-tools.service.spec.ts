@@ -490,6 +490,7 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 			expect(createMCPClient).not.toHaveBeenCalled();
 			expect(result).toMatchObject({
 				approvalMap: {},
+				configuredSlugs: [],
 				notices: [],
 				tools: {},
 			});
@@ -513,6 +514,31 @@ describe("McpChatToolsService.resolveToolsForUser", () => {
 				"The user's Meta Ads connection could not be used (connector unreachable). If the user asks for ANYTHING that needs this connector (a generation, a report…), say plainly that it is temporarily unavailable right now and to try again shortly — never announce or pretend to start that work. You may offer to make the whole video with Wandit's own generator instead, but only as an explicit user-approved switch.",
 			]);
 			expect(result.notices.join(" ")).not.toContain("secret-provider-token");
+		});
+
+		it("keeps a configured Higgsfield slug when tool discovery fails", async () => {
+			const client = mockClient();
+			client.listTools.mockRejectedValue(new Error("discovery failed"));
+			queueClient(client);
+			const { service } = buildService({
+				connectors: [
+					connector({
+						name: "Higgsfield",
+						slug: "higgsfield",
+					}),
+				],
+			});
+
+			const result = await service.resolveToolsForUser({
+				actorUserId: USER_ID,
+			});
+
+			expect(result.configuredSlugs).toEqual(["higgsfield"]);
+			expect(result.connectedSlugs).toEqual([]);
+			expect(result.tools).toEqual({});
+			expect(result.notices).toEqual([
+				"The user's Higgsfield connection could not be used (connector unreachable). If the user asks for ANYTHING that needs this connector (a generation, a report…), say plainly that it is temporarily unavailable right now and to try again shortly — never announce or pretend to start that work. You may offer to make the whole video with Wandit's own generator instead, but only as an explicit user-approved switch.",
+			]);
 		});
 
 		it("requires reconnect only for a rejected token refresh", async () => {
