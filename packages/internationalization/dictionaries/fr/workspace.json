@@ -690,6 +690,19 @@
 			"download": "Télécharger",
 			"viewAssets": "Voir dans les Médias",
 			"play": "Lire {title}",
+			"product": {
+				"preparing": "Préparation de la vidéo produit…",
+				"queueing": "Mise en file de la vidéo produit…",
+				"failedToStart": "Impossible de lancer la vidéo produit",
+				"failedTitle": "La vidéo produit a échoué",
+				"failedBody": "La génération s’est arrêtée avant que la vidéo produit soit prête.",
+				"prepared": "Scène produit prête",
+				"active": "Création de la vidéo produit de {seconds} secondes…",
+				"done": "Vidéo produit de {seconds} secondes créée",
+				"publishing": "Publication de la vidéo produit…",
+				"complete": "Vidéo produit terminée",
+				"ready": "Vidéo produit prête."
+			},
 			"edit": {
 				"preparing": "Préparation de la modification vidéo…",
 				"queueing": "Mise en file de la modification…",

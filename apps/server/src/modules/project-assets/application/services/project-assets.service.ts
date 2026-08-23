@@ -428,7 +428,15 @@ export class ProjectAssetsService {
 function assetSourceForVideoKind(
 	kind: MediaGenerationKind,
 ): "image-animation" | "video-generation" {
-	return kind === "image-animation" ? "image-animation" : "video-generation";
+	switch (kind) {
+		case "image-animation":
+			return "image-animation";
+		case "text-to-video":
+		case "video-edit":
+		case "video-extension":
+		case "video-product":
+			return "video-generation";
+	}
 }
 
 type MediaAttemptAssetsIndex = {

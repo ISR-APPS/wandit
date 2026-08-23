@@ -278,6 +278,7 @@ describe("MediaGenerationsService", () => {
 	});
 
 	it.each([
+		["video-product", 14],
 		["video-edit", 19],
 		["video-extension", 34],
 	] as const)("keeps a %s attempt active inside its kind-specific stale window", async (kind, ageMinutes) => {
@@ -321,6 +322,7 @@ describe("MediaGenerationsService", () => {
 	});
 
 	it.each([
+		["video-product", 16, "product_video_failed"],
 		["video-edit", 21, "video_edit_failed"],
 	] as const)("fails a stale %s attempt only after its own window", async (kind, ageMinutes, refundReason) => {
 		const { meteringService, repository, service } = setup();
@@ -512,6 +514,7 @@ describe("MediaGenerationsService", () => {
 	});
 
 	it.each([
+		["video-product", "product_video_failed"],
 		["video-edit", "video_edit_failed"],
 		["video-extension", "video_extension_failed"],
 	] as const)("uses the %s failure reason when polling", async (kind, reason) => {
@@ -544,6 +547,7 @@ describe("MediaGenerationsService", () => {
 	it.each([
 		["image-animation", "wandit-animation.mp4"],
 		["text-to-video", "wandit-video.mp4"],
+		["video-product", "wandit-product-video.mp4"],
 		["video-edit", "wandit-video-edit.mp4"],
 		["video-extension", "wandit-video-extension.mp4"],
 	] as const)("uses a kind-aware download name for %s", async (kind, fileName) => {

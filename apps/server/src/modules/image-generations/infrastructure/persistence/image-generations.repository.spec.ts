@@ -59,6 +59,60 @@ function repositoryWithProgressUpdate(updated = true) {
 	return { repository, set, where };
 }
 
+function repositoryWithGeneratedSourceLookup(
+	images: Array<{ mediaType: string; url: string }> | null,
+) {
+	const limit = vi.fn().mockResolvedValue(images ? [{ images }] : []);
+	const where = vi.fn((_condition: unknown) => ({ limit }));
+	const from = vi.fn(() => ({ where }));
+	const select = vi.fn(() => ({ from }));
+	const repository = new ImageGenerationsRepository(
+		{ select } as unknown as Database,
+		{ capture: vi.fn() },
+	);
+
+	return { repository, where };
+}
+
+describe("ImageGenerationsRepository.findSucceededImageByUrlForProject", () => {
+	it("scopes the exact recorded URL to a succeeded attempt in the project", async () => {
+		const requestedUrl = "https://assets.example.com/images/project-1/item.png";
+		const authoritative = { mediaType: "image/png", url: requestedUrl };
+		const { repository, where } = repositoryWithGeneratedSourceLookup([
+			{ mediaType: "image/jpeg", url: "https://assets.example.com/other.jpg" },
+			authoritative,
+		]);
+
+		await expect(
+			repository.findSucceededImageByUrlForProject("project-1", requestedUrl),
+		).resolves.toEqual(authoritative);
+
+		const condition = compileCondition(where.mock.calls[0]?.[0]);
+		expect(condition.params).toEqual(["project-1", "succeeded", requestedUrl]);
+		expect(condition.sql).toContain(
+			`"image_generation_attempts"."project_id" = $1`,
+		);
+		expect(condition.sql).toContain(
+			`"image_generation_attempts"."status" = $2`,
+		);
+		expect(condition.sql).toContain("jsonb_array_elements");
+		expect(condition.sql).toContain("image_ref->>'url' = $3");
+	});
+
+	it("does not authorize a URL absent from the selected row", async () => {
+		const { repository } = repositoryWithGeneratedSourceLookup([
+			{ mediaType: "image/png", url: "https://assets.example.com/other.png" },
+		]);
+
+		await expect(
+			repository.findSucceededImageByUrlForProject(
+				"project-1",
+				"https://assets.example.com/missing.png",
+			),
+		).resolves.toBeNull();
+	});
+});
+
 describe("ImageGenerationsRepository.persistProgress", () => {
 	it("writes indexed progress only while the attempt is generating", async () => {
 		const { repository, set, where } = repositoryWithProgressUpdate();

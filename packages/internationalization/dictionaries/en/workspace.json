@@ -690,6 +690,19 @@
 			"download": "Download",
 			"viewAssets": "View in Assets",
 			"play": "Play {title}",
+			"product": {
+				"preparing": "Preparing the product video…",
+				"queueing": "Queueing the product video…",
+				"failedToStart": "Product video failed to start",
+				"failedTitle": "Product video failed",
+				"failedBody": "The render stopped before the product video was ready.",
+				"prepared": "Product scene ready",
+				"active": "Rendering the {seconds}-second product video…",
+				"done": "Rendered the {seconds}-second product video",
+				"publishing": "Publishing the product video…",
+				"complete": "Product video complete",
+				"ready": "Product video ready."
+			},
 			"edit": {
 				"preparing": "Preparing the video edit…",
 				"queueing": "Queueing the edit…",

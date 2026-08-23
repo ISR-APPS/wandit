@@ -125,7 +125,7 @@ describe("chat agent cost bounds and gateway attribution", () => {
 		expect(AI_CHAT_MAX_STEPS).toBe(12);
 	});
 
-	it("registers edit and extension tools with execute-less history twins", () => {
+	it("registers product, edit, and extension tools with execute-less history twins", () => {
 		createChatAgent({
 			availableImages: [],
 			chatId: "chat-1",
@@ -143,8 +143,10 @@ describe("chat agent cost bounds and gateway attribution", () => {
 		} as never);
 
 		const tools = aiMocks.settings?.tools as Record<string, Tool> | undefined;
+		expect(tools?.product_video?.execute).toBeTypeOf("function");
 		expect(tools?.edit_video?.execute).toBeTypeOf("function");
 		expect(tools?.extend_video?.execute).toBeTypeOf("function");
+		expect(aiChatToolsForValidation.product_video.execute).toBeUndefined();
 		expect(aiChatToolsForValidation.edit_video.execute).toBeUndefined();
 		expect(aiChatToolsForValidation.extend_video.execute).toBeUndefined();
 	});

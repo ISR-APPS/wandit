@@ -49,6 +49,9 @@ import {
 	type InsertSectionInput,
 	type InsertSectionOutput,
 	insertSectionInputSchema,
+	type ProductVideoInput,
+	type ProductVideoOutput,
+	productVideoInputSchema,
 	type ReadAttachmentInput,
 	type ReadAttachmentOutput,
 	type ReadElementsInput,
@@ -1562,6 +1565,20 @@ const INCOMPLETE_GENERATE_VIDEO_INPUT: GenerateVideoInput = {
 	title: "Interrupted video request",
 };
 
+const INTERRUPTED_PRODUCT_VIDEO_OUTPUT: ProductVideoOutput = {
+	message:
+		"The product video request was interrupted before it could be queued. " +
+		"If the user still wants it, call product_video again with the product image.",
+	status: "unavailable",
+};
+
+const INCOMPLETE_PRODUCT_VIDEO_INPUT: ProductVideoInput = {
+	image: { url: "https://invalid.local/interrupted-product-image.jpg" },
+	preset: "orbit",
+	productName: "Unknown product",
+	title: "Interrupted product video",
+};
+
 const INTERRUPTED_EDIT_VIDEO_OUTPUT: EditVideoOutput = {
 	message:
 		"The video edit request was interrupted before it could be queued. If " +
@@ -1910,6 +1927,28 @@ export function completeDanglingToolCalls(
 						? parsedInput.data
 						: INCOMPLETE_GENERATE_VIDEO_INPUT,
 					output: INTERRUPTED_GENERATE_VIDEO_OUTPUT,
+					state: "output-available" as const,
+				};
+			}
+
+			if (part.type === "tool-product_video") {
+				if (
+					part.state !== "input-available" &&
+					part.state !== "input-streaming"
+				) {
+					return part;
+				}
+
+				changed = true;
+
+				const parsedInput = productVideoInputSchema.safeParse(part.input);
+
+				return {
+					...part,
+					input: parsedInput.success
+						? parsedInput.data
+						: INCOMPLETE_PRODUCT_VIDEO_INPUT,
+					output: INTERRUPTED_PRODUCT_VIDEO_OUTPUT,
 					state: "output-available" as const,
 				};
 			}

@@ -387,6 +387,23 @@ describe("orderMessagePartEntries", () => {
 		]);
 	});
 
+	it("moves the product-video card after the closing text", () => {
+		const entries = orderMessagePartEntries(
+			coalesceMessageParts(
+				asMessageParts([
+					toolPart("tool-product_video", "product-video-1"),
+					{
+						text: "Your product clip is rendering.",
+						state: "done",
+						type: "text",
+					},
+				]),
+			),
+		);
+
+		expect(entries.map(entryLabel)).toEqual(["text", "tool-product_video"]);
+	});
+
 	it("keeps connector receipts chronological when the run has no deliverables", () => {
 		const entries = orderMessagePartEntries(
 			coalesceMessageParts(
@@ -553,6 +570,19 @@ describe("MessageParts turn block", () => {
 	};
 
 	it.each([
+		{
+			expectedCopy: "workspace.chat.videoAttempt.product.queueing",
+			input: {
+				image: {
+					mediaType: "image/png",
+					url: "https://assets.example.com/product.png",
+				},
+				preset: "orbit",
+				productName: "PulseBuds",
+				title: "PulseBuds product video",
+			},
+			type: "tool-product_video",
+		},
 		{
 			expectedCopy: "workspace.chat.videoAttempt.edit.queueing",
 			input: {

@@ -1,6 +1,6 @@
-// In-thread card shared by generate_video, edit_video, and extend_video. Each
-// wrapper supplies its own copy while the attempt core owns Realtime progress,
-// polling fallback, failure handling, and the finished cinematic stage.
+// In-thread card shared by every own-road video tool. Each wrapper supplies
+// its own copy while the attempt core owns Realtime progress, polling fallback,
+// failure handling, and the finished cinematic stage.
 
 import { useQueryClient } from "@tanstack/react-query";
 import type {
@@ -44,17 +44,23 @@ type ExtendVideoToolPart = Extract<
 	{ type: "tool-extend_video" }
 >;
 
+type ProductVideoToolPart = Extract<
+	WanditUIMessage["parts"][number],
+	{ type: "tool-product_video" }
+>;
+
 type VideoToolPart =
 	| GenerateVideoToolPart
 	| EditVideoToolPart
-	| ExtendVideoToolPart;
+	| ExtendVideoToolPart
+	| ProductVideoToolPart;
 
 type VideoPieceProgress = {
 	current: number;
 	total: number;
 };
 
-type VideoAttemptCopy = {
+export type VideoAttemptCopy = {
 	preparing: string;
 	queueing: string;
 	failedToStart: string;
@@ -202,7 +208,7 @@ export function ExtendVideoPart({ part }: { part: ExtendVideoToolPart }) {
 	return <VideoAttemptPart copy={copy} part={part} />;
 }
 
-function VideoAttemptPart({
+export function VideoAttemptPart({
 	part,
 	copy,
 }: {

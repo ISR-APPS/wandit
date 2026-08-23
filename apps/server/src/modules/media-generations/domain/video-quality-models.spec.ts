@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
 	resolveVideoGenerationPlan,
 	VIDEO_EDIT_ENGINE_MODEL,
+	VIDEO_PRODUCT_ENGINE_MODEL,
 	VIDEO_QUALITY_CAPABILITIES,
 	VIDEO_QUALITY_MODELS,
 	videoQualities,
@@ -197,22 +198,22 @@ describe("resolveVideoGenerationPlan", () => {
 		});
 	});
 
-	it("never selects the edit engine for a tier resolution", () => {
+	it("never selects a fixed-operation engine for a tier resolution", () => {
 		for (const quality of videoQualities) {
 			for (const kind of ["t2v", "i2v"] as const) {
 				for (const durationSeconds of [5, 10, 15] as const) {
 					for (const talking of [false, true]) {
 						for (const multiShot of [false, true]) {
-							expect(
-								resolveVideoGenerationPlan({
-									durationSeconds,
-									kind,
-									multiShot,
-									narration: false,
-									quality,
-									talking,
-								}).modelId,
-							).not.toBe(VIDEO_EDIT_ENGINE_MODEL);
+							const modelId = resolveVideoGenerationPlan({
+								durationSeconds,
+								kind,
+								multiShot,
+								narration: false,
+								quality,
+								talking,
+							}).modelId;
+							expect(modelId).not.toBe(VIDEO_EDIT_ENGINE_MODEL);
+							expect(modelId).not.toBe(VIDEO_PRODUCT_ENGINE_MODEL);
 						}
 					}
 				}
