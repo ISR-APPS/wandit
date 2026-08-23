@@ -1,11 +1,12 @@
 import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import {
-	createFixedOperationBilling,
-	type FixedOperationBilling,
-	type FixedOperationBillingDependencies,
-	type FixedOperationReservation,
-	fixedOperationSettlementFromReservation,
+	createMeasuredOperationBilling,
 	isTerminalFixedOperationReplay,
+	type MeasuredOperationBilling,
+	type MeasuredOperationBillingDependencies,
+	type MeasuredOperationReservation,
+	measuredDirectSettlement,
+	reservationTermsFromEvent,
 } from "../../../metering/application/services/fixed-operation-billing";
 import type { MeteringService } from "../../../metering/application/services/metering.service";
 import { fixedGenerationStepUsage } from "../../../metering/domain/gateway-metering";
@@ -14,35 +15,60 @@ import {
 	type CapturedGeneration,
 	MeteringStateConflictError,
 } from "../../../metering/domain/metering";
+import { CONNECTOR_RESERVE_FLOOR_CREDITS } from "../../../metering/domain/operation-registry";
+import {
+	higgsfieldEvidenceKey,
+	mcpEvidenceKey,
+	type ProviderCallEvidenceInput,
+} from "../../../metering/domain/provider-call-evidence";
 import {
 	type ConnectorGenerationPlan,
+	connectorEvidenceTransport,
 	connectorGatewayCaptures,
+	connectorProviderJobId,
+	sanitizeProviderReceipt,
 } from "../../domain/connector-generation-metering";
 
 type ConnectorChildOperation = "image" | "video";
 
 type ConnectorGenerationBillingDependencies = Omit<
-	FixedOperationBillingDependencies,
+	MeasuredOperationBillingDependencies,
 	"meteringService"
 > & {
-	meteringService: FixedOperationBillingDependencies["meteringService"] &
+	meteringService: MeasuredOperationBillingDependencies["meteringService"] &
 		Pick<
 			MeteringService,
-			"settleDirectPairWithFixedEvidence" | "upgradeFixedGenerationUnits"
+			| "captureProviderCallEvidence"
+			| "settleDirectPairWithFixedEvidence"
+			| "upgradeFixedGenerationUnits"
 		>;
 };
 
 export type ConnectorGenerationReservations = {
-	child?: FixedOperationReservation & {
+	child?: MeasuredOperationReservation & {
 		operation: ConnectorChildOperation;
 	};
-	connector: FixedOperationReservation & { operation: "connector" };
+	connector: MeasuredOperationReservation & { operation: "connector" };
 };
+
+/**
+ * The MCP render runs on the user's own provider (Higgsfield) subscription,
+ * so the connector call and its media child cost us nothing: both settle at
+ * zero provider cost. Only gateway-shaped generation refs found in the MCP
+ * result reconcile to a real cost; the event plumbing stays for
+ * idempotency, evidence, and admin visibility.
+ */
+const CONNECTOR_PROVIDER_COST_USD_MICROS = 0;
 
 export type ConnectorGenerationBilling = {
 	capture: (
 		reservations: ConnectorGenerationReservations,
 		capture: CapturedGeneration,
+	) => Promise<void>;
+	/** Durable provider receipt on the child event when present, else the connector event. */
+	captureEvidence: (
+		reservations: ConnectorGenerationReservations,
+		evidence: ProviderCallEvidenceInput,
 	) => Promise<void>;
 	refund: (
 		subject: MeteringSubject,
@@ -100,6 +126,46 @@ export async function captureConnectorGenerationResult(
 	}
 
 	return captures.length > 0;
+}
+
+/**
+ * Persist the provider's submit receipt as durable evidence BEFORE the job is
+ * followed: the in-memory receipt used to be the only proof the provider
+ * accepted work, so a follow timeout refunded jobs the provider still ran.
+ * The render runs on the user's own provider subscription (zero cost to us):
+ * the row is measured at 0 and never customer-billable. Returns the provider
+ * job id when the receipt carries one (acceptance proof), else null.
+ */
+export async function recordConnectorSubmitReceipt(
+	billing: Pick<ConnectorGenerationBilling, "captureEvidence">,
+	reservations: ConnectorGenerationReservations,
+	input: {
+		connectorSlug: string;
+		plan: ConnectorGenerationPlan;
+		referenceId: string;
+		result: unknown;
+	},
+): Promise<string | null> {
+	const providerJobId = connectorProviderJobId(input.result);
+	const transport = connectorEvidenceTransport(input.connectorSlug);
+
+	await billing.captureEvidence(reservations, {
+		chargedUsdMicros: CONNECTOR_PROVIDER_COST_USD_MICROS,
+		costSource: "user_provider_subscription",
+		costStatus: "measured",
+		customerBillable: false,
+		idempotencyKey:
+			transport === "higgsfield"
+				? higgsfieldEvidenceKey(input.referenceId, providerJobId)
+				: mcpEvidenceKey(input.referenceId, providerJobId),
+		providerRequestId: providerJobId ?? input.referenceId,
+		rawReceipt: sanitizeProviderReceipt(input.result),
+		transport,
+		unitKind: input.plan.childOperation ?? "operation",
+		units: input.plan.childUnits ?? 1,
+	});
+
+	return providerJobId;
 }
 
 /**
@@ -162,17 +228,29 @@ export function hasTerminalConnectorGenerationReplay(
 export function createConnectorGenerationBilling(
 	dependencies: ConnectorGenerationBillingDependencies,
 ): ConnectorGenerationBilling {
-	const connectorBilling = createFixedOperationBilling(
+	const connectorBilling = createMeasuredOperationBilling(
 		"connector",
 		dependencies,
 	);
-	const imageBilling = createFixedOperationBilling("image", dependencies);
-	const videoBilling = createFixedOperationBilling("video", dependencies);
+	const imageBilling = createMeasuredOperationBilling("image", dependencies);
+	const videoBilling = createMeasuredOperationBilling("video", dependencies);
 
 	return {
 		async capture(reservations, capture) {
 			const target = reservations.child ?? reservations.connector;
 			await billingFor(target.operation).capture(target, capture);
+		},
+		async captureEvidence(reservations, evidence) {
+			const target = reservations.child ?? reservations.connector;
+
+			if (target.eventId === null) {
+				return;
+			}
+
+			await dependencies.meteringService.captureProviderCallEvidence(
+				target.eventId,
+				evidence,
+			);
 		},
 		async refund(subject, referenceId, childOperation) {
 			const failures: unknown[] = [];
@@ -219,6 +297,8 @@ export function createConnectorGenerationBilling(
 					subject,
 					referenceId,
 					{
+						estimateUsdMicros: CONNECTOR_PROVIDER_COST_USD_MICROS,
+						floorCredits: CONNECTOR_RESERVE_FLOOR_CREDITS,
 						parentEventId: connector.eventId ?? undefined,
 						units: input.childUnits,
 					},
@@ -239,7 +319,7 @@ export function createConnectorGenerationBilling(
 			if (isTerminalFixedOperationReplay(child)) {
 				// The child proves prior provider work completed. Finish an open
 				// connector fee, but never authorize another provider invocation.
-				await connectorBilling.settle(connector);
+				await connectorBilling.settle(connector, connectorSettlementInput(1));
 				assertExecutableReservation(child);
 			}
 
@@ -315,6 +395,7 @@ export function createConnectorGenerationBilling(
 								operation: childOperation,
 								referenceId,
 								replay: replayFromEventStatus(childEvent.status),
+								terms: reservationTermsFromEvent(childEvent),
 								units: input.childUnits ?? 1,
 							},
 						}
@@ -325,6 +406,7 @@ export function createConnectorGenerationBilling(
 					operation: "connector",
 					referenceId,
 					replay: replayFromEventStatus(connectorEvent.status),
+					terms: reservationTermsFromEvent(connectorEvent),
 					units: 1,
 				},
 			};
@@ -342,17 +424,20 @@ export function createConnectorGenerationBilling(
 				if (connectorEvent.status !== "reconcile_failed") {
 					await dependencies.meteringService.settle(
 						connectorEvent.id,
-						fixedOperationSettlementFromReservation(reservations.connector, 1),
+						measuredDirectSettlement(
+							reservations.connector,
+							connectorSettlementInput(1),
+						),
 					);
 				}
 				if (childEvent && childEvent.status !== "reconcile_failed") {
 					await dependencies.meteringService.settle(
 						childEvent.id,
-						fixedOperationSettlementFromReservation(
+						measuredDirectSettlement(
 							reservations.child as NonNullable<
 								ConnectorGenerationReservations["child"]
 							>,
-							childUnits,
+							connectorSettlementInput(childUnits ?? 1),
 						),
 					);
 				}
@@ -371,9 +456,9 @@ export function createConnectorGenerationBilling(
 				await dependencies.meteringService.settleDirectPairWithFixedEvidence(
 					{
 						eventId: reservations.connector.eventId,
-						settlement: fixedOperationSettlementFromReservation(
+						settlement: measuredDirectSettlement(
 							reservations.connector,
-							1,
+							connectorSettlementInput(1),
 						),
 					},
 					undefined,
@@ -398,23 +483,23 @@ export function createConnectorGenerationBilling(
 				);
 			}
 
-			// One transaction closes both fixed fees. External MCP providers often
+			// One transaction closes both events. External MCP providers often
 			// expose no Gateway generation id, so neither event may rely on stale-ref
 			// recovery to repair a crash between two independent settlements.
 			const childUnits = input?.childUnits ?? reservations.child.units;
 			await dependencies.meteringService.settleDirectPairWithFixedEvidence(
 				{
 					eventId: parentEventId,
-					settlement: fixedOperationSettlementFromReservation(
+					settlement: measuredDirectSettlement(
 						reservations.connector,
-						reservations.connector.units,
+						connectorSettlementInput(reservations.connector.units),
 					),
 				},
 				{
 					eventId: childEventId,
-					settlement: fixedOperationSettlementFromReservation(
+					settlement: measuredDirectSettlement(
 						reservations.child,
-						childUnits,
+						connectorSettlementInput(childUnits),
 					),
 				},
 				{ completedUnits: childUnits, eventId: childEventId },
@@ -424,7 +509,7 @@ export function createConnectorGenerationBilling(
 
 	function billingFor(
 		operation: ConnectorChildOperation | "connector",
-	): FixedOperationBilling {
+	): MeasuredOperationBilling {
 		if (operation === "image") {
 			return imageBilling;
 		}
@@ -435,8 +520,16 @@ export function createConnectorGenerationBilling(
 	}
 }
 
+/** Zero provider cost for us (legacy fixed holds keep their own terms). */
+function connectorSettlementInput(completedUnits: number) {
+	return {
+		completedUnits,
+		localCostUsdMicros: CONNECTOR_PROVIDER_COST_USD_MICROS,
+	};
+}
+
 function assertExecutableReservation(
-	reservation: FixedOperationReservation,
+	reservation: MeasuredOperationReservation,
 ): void {
 	if (
 		(reservation.replay === "settled" || reservation.replay === "reconciled") &&

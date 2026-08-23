@@ -69,10 +69,7 @@ import {
 import { BillingCustomersRepository } from "../../infrastructure/persistence/billing-customers.repository";
 import { CancellationReasonsRepository } from "../../infrastructure/persistence/cancellation-reasons.repository";
 import { OrganizationBillingCustomersRepository } from "../../infrastructure/persistence/organization-billing-customers.repository";
-import {
-	type SubscriptionRow,
-	SubscriptionsRepository,
-} from "../../infrastructure/persistence/subscriptions.repository";
+import { SubscriptionsRepository } from "../../infrastructure/persistence/subscriptions.repository";
 import { BillingCustomerService } from "./billing-customer.service";
 import { StripeSubscriptionSyncService } from "./stripe-subscription-sync.service";
 
@@ -193,6 +190,9 @@ export class BillingService {
 				plan: centiCreditsToCredits(balance.plan),
 				promo: centiCreditsToCredits(balance.promo),
 				settledBalance: centiCreditsToCredits(balance.settledBalance),
+				settledPlan: centiCreditsToCredits(balance.settledPlan),
+				settledPromo: centiCreditsToCredits(balance.settledPromo),
+				settledTopup: centiCreditsToCredits(balance.settledTopup),
 				topup: centiCreditsToCredits(balance.topup),
 			},
 			subscription: subscription ? mapSubscriptionRow(subscription) : null,
@@ -504,20 +504,25 @@ export class BillingService {
 		}
 
 		const prorationDate = new Date(Math.floor(Date.now() / 1000) * 1000);
+		const isDowngrade =
+			subscription.interval === body.interval &&
+			body.tierCredits < subscription.tierCredits;
+		const anchorReset = this.anchorResetsForChange({
+			cancelsPendingDowngrade,
+			isDowngrade,
+		});
 		const preview = cancelsPendingDowngrade
 			? { amountDueMinor: 0, currency: "usd" }
 			: await this.paymentProvider.previewSubscriptionChange({
-					billingCycleAnchorNow: subscription.interval !== body.interval,
+					billingCycleAnchorNow: anchorReset,
 					newPriceLookupKey: targetLookupKey,
 					prorationDate,
 					providerSubscriptionId: subscription.providerSubscriptionId,
 				});
 		const balance = await this.creditsService.getBalance(scope.owner);
-		const isDowngrade =
-			subscription.interval === body.interval &&
-			body.tierCredits < subscription.tierCredits;
 		const expiresAt = new Date(prorationDate.getTime() + 15 * 60 * 1000);
 		const intent = await this.changeIntentsRepository.create({
+			anchorReset,
 			currency: preview.currency.toLowerCase(),
 			currentPriceLookupKey: subscription.priceLookupKey,
 			expiresAt,
@@ -532,7 +537,11 @@ export class BillingService {
 
 		return {
 			amountDueMinor: intent.previewTotalMinor,
-			creditsDelta: this.previewCreditsDelta(subscription, body, balance.plan),
+			creditsDelta: this.previewCreditsDelta(
+				body,
+				balance.plan,
+				intent.anchorReset,
+			),
 			currency: intent.currency,
 			expiresAt: intent.expiresAt.toISOString(),
 			intentId: intent.id,
@@ -781,8 +790,9 @@ export class BillingService {
 						providerResult = { outcome: "applied" };
 					} else {
 						providerResult = await this.paymentProvider.changeSubscription({
-							billingCycleAnchorNow:
-								operation.subscription.interval !== operation.target.interval,
+							// The preview persisted this decision on the intent; recomputing
+							// it from live state could let preview and execution disagree.
+							billingCycleAnchorNow: operation.intent.anchorReset,
 							idempotencyKey,
 							newPriceLookupKey: operation.intent.targetPriceLookupKey,
 							prorationDate: operation.intent.prorationDate,
@@ -1332,21 +1342,36 @@ export class BillingService {
 	}
 
 	/**
+	 * Ruling 7: every non-downgrade, non-cancel change (same-interval tier
+	 * upgrade, plan upgrade, month->year) resets the Stripe billing anchor —
+	 * the customer pays the full new price now, Stripe credits the unused
+	 * remainder of the old price, and fulfillment grants the full allotment.
+	 * Downgrades are scheduled at period end and a pending-downgrade cancel
+	 * changes nothing about the cycle.
+	 */
+	private anchorResetsForChange(change: {
+		cancelsPendingDowngrade: boolean;
+		isDowngrade: boolean;
+	}): boolean {
+		return !change.cancelsPendingDowngrade && !change.isDowngrade;
+	}
+
+	/**
 	 * Preview delta in DECIMAL display credits. tierCredits are whole credits
 	 * (Stripe tier identity) while planBalanceCentiCredits is the internal
 	 * centi-credit pool — the math runs in centi-credits and divides once.
 	 */
 	private previewCreditsDelta(
-		subscription: SubscriptionRow,
 		target: PreviewBillingSubscriptionChangeBody,
 		planBalanceCentiCredits: number,
+		anchorReset: boolean,
 	): number {
-		if (subscription.interval === target.interval) {
-			return Math.max(0, target.tierCredits - subscription.tierCredits);
+		if (!anchorReset) {
+			return 0;
 		}
 
-		// Monthly -> yearly is a capped month-one refill. This is the exact
-		// ledger delta: expire balance above one target allotment, then grant it.
+		// Every anchor-reset change is a capped refill. This is the exact ledger
+		// delta: expire balance above one target allotment, then grant it.
 		const targetCentiCredits = creditsToCentiCredits(target.tierCredits);
 		const positivePlanBalance = Math.max(0, planBalanceCentiCredits);
 		const expired = Math.max(0, positivePlanBalance - targetCentiCredits);

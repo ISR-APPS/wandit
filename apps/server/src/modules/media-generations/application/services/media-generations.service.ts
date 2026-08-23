@@ -249,6 +249,8 @@ function downloadBaseName(kind: MediaGenerationAttemptRow["kind"]): string {
 			return "wandit-video";
 		case "video-edit":
 			return "wandit-video-edit";
+		case "video-product":
+			return "wandit-product-video";
 		case "video-extension":
 			return "wandit-video-extension";
 	}

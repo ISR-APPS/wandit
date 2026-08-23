@@ -43,6 +43,7 @@ export const imageToVideoMotion = pgEnum("image_to_video_motion", [
 export const mediaGenerationKind = pgEnum("media_generation_kind", [
 	"image-animation",
 	"text-to-video",
+	"video-product",
 	"video-edit",
 	"video-extension",
 ]);
@@ -155,6 +156,14 @@ export const mediaGenerationAttempts = pgTable(
 					${table.kind} = 'text-to-video'
 					AND ${table.sourceImageUrl} IS NULL
 					AND ${table.sourceMediaType} IS NULL
+				)
+				OR (
+					${table.kind}::text = 'video-product'
+					AND ${table.sourceImageUrl} IS NOT NULL
+					AND ${table.sourceMediaType} IS NOT NULL
+					AND ${table.durationSeconds} = 5
+					AND ${table.sourceVideoUrl} IS NULL
+					AND ${table.sourceVideoMediaType} IS NULL
 				)
 				OR (
 					${table.kind}::text = 'video-edit'

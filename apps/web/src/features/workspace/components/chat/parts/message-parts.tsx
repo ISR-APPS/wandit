@@ -20,6 +20,7 @@ import {
 	McpActivityCard,
 	mcpRunHasDeliverables,
 } from "./mcp-tool-part";
+import { ProductVideoPart } from "./product-video-part";
 import { ScrapeLeadsPart } from "./scrape-leads-part";
 import { TextPart } from "./text-part";
 
@@ -43,6 +44,8 @@ const TRANSPARENT_PART_TYPES = new Set([
 	"tool-insert_section",
 	"tool-replace_section",
 	"data-billing-error",
+	// Transient settle signal consumed in use-ai-chat's onData — never inline.
+	"data-credits-settled",
 ]);
 
 export function isTransparentMessagePart(part: MessagePart): boolean {
@@ -75,6 +78,7 @@ const ASYNC_CARD_PART_TYPES = new Set([
 	"tool-scrape_leads",
 	"tool-animate_image",
 	"tool-generate_video",
+	"tool-product_video",
 	"tool-edit_video",
 	"tool-extend_video",
 ]);
@@ -284,6 +288,8 @@ export function MessageParts({
 				return <AnimateImagePart key={part.toolCallId} part={part} />;
 			case "tool-generate_video":
 				return <GenerateVideoPart key={part.toolCallId} part={part} />;
+			case "tool-product_video":
+				return <ProductVideoPart key={part.toolCallId} part={part} />;
 			case "tool-edit_video":
 				return <EditVideoPart key={part.toolCallId} part={part} />;
 			case "tool-extend_video":

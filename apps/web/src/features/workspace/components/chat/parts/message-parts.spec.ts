@@ -387,6 +387,23 @@ describe("orderMessagePartEntries", () => {
 		]);
 	});
 
+	it("moves the product-video card after the closing text", () => {
+		const entries = orderMessagePartEntries(
+			coalesceMessageParts(
+				asMessageParts([
+					toolPart("tool-product_video", "product-video-1"),
+					{
+						text: "Your product clip is rendering.",
+						state: "done",
+						type: "text",
+					},
+				]),
+			),
+		);
+
+		expect(entries.map(entryLabel)).toEqual(["text", "tool-product_video"]);
+	});
+
 	it("keeps connector receipts chronological when the run has no deliverables", () => {
 		const entries = orderMessagePartEntries(
 			coalesceMessageParts(
@@ -554,6 +571,19 @@ describe("MessageParts turn block", () => {
 
 	it.each([
 		{
+			expectedCopy: "workspace.chat.videoAttempt.product.queueing",
+			input: {
+				image: {
+					mediaType: "image/png",
+					url: "https://assets.example.com/product.png",
+				},
+				preset: "orbit",
+				productName: "PulseBuds",
+				title: "PulseBuds product video",
+			},
+			type: "tool-product_video",
+		},
+		{
 			expectedCopy: "workspace.chat.videoAttempt.edit.queueing",
 			input: {
 				instruction: "Keep the framing and change the bottle to blue.",
@@ -669,6 +699,21 @@ describe("MessageParts turn block", () => {
 					code: "INSUFFICIENT_CREDITS",
 					statusCode: 402,
 					details: { requiredCredits: 10, availableCredits: 2 },
+				},
+			},
+		]);
+
+		expect(html).toBe("");
+	});
+
+	it("silently ignores the credits-settled signal consumed by the chat hook", () => {
+		const html = renderMessage("assistant", [
+			{
+				type: "data-credits-settled",
+				data: {
+					usageEventId: "usage-event-1",
+					credits: 0.37,
+					settledBalance: 12.63,
 				},
 			},
 		]);

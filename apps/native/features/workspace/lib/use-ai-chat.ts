@@ -1,15 +1,18 @@
 import { useChat } from "@ai-sdk/react";
-import { useQueryClient } from "@tanstack/react-query";
+import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import {
+	type AiChatCreditsSettledData,
 	type AiChatDataParts,
 	type AiChatMessageMetadata,
 	type AiChatSelectedTarget,
 	type AiChatTools,
 	type AskUserOutput,
 	aiChatBillingErrorDataSchema,
+	aiChatCreditsSettledDataSchema,
 	aiChatMessageMetadataSchema,
 	aiChatRoutes,
 	type ComposerMetadata,
+	type CreditBalanceResponse,
 	composerMetadataSchema,
 	type UploadAttachmentResponse,
 } from "@wandit/contracts";
@@ -23,7 +26,6 @@ import { fetch as expoFetch } from "expo/fetch";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { creditsKeys } from "@/features/credits";
-import { pageKeys } from "@/features/workspace/api/generation.keys";
 import {
 	type BillingErrorIntent,
 	toBillingErrorIntent,
@@ -32,6 +34,7 @@ import {
 	useChatByProject,
 	useChatMessages,
 } from "@/features/workspace/api/chat.queries";
+import { pageKeys } from "@/features/workspace/api/generation.keys";
 import { authClient } from "@/lib/auth-client";
 import { isApiClientError } from "@/shared/lib/base-service";
 import { getServerUrl } from "@/shared/lib/server-url";
@@ -154,6 +157,7 @@ export function useAiChat(projectId?: string) {
 		messageMetadataSchema: aiChatMessageMetadataSchema,
 		dataPartSchemas: {
 			"billing-error": aiChatBillingErrorDataSchema,
+			"credits-settled": aiChatCreditsSettledDataSchema,
 		},
 		messages: initialMessages,
 		transport,
@@ -191,6 +195,10 @@ export function useAiChat(projectId?: string) {
 			}
 		},
 		onData: (part) => {
+			if (part.type === "data-credits-settled") {
+				applyCreditsSettled(queryClient, part.data);
+				return;
+			}
 			const intent = toBillingErrorIntent(part);
 			if (intent) {
 				billingErrorInCurrentTurnRef.current = true;
@@ -333,6 +341,22 @@ export function useAiChat(projectId?: string) {
 		isResolvingChat: chatByProjectQuery.isPending,
 		isLoadingMessages: Boolean(chatId) && messagesQuery.isPending,
 	};
+}
+
+/**
+ * The server sends the post-settle balance once per turn. Seed the cache
+ * with it so the chip moves exactly once, then refetch the credits queries
+ * in the background (web parity).
+ */
+export function applyCreditsSettled(
+	queryClient: QueryClient,
+	data: AiChatCreditsSettledData,
+): void {
+	queryClient.setQueryData<CreditBalanceResponse>(
+		creditsKeys.balance(),
+		(prev) => (prev ? { ...prev, settledBalance: data.settledBalance } : prev),
+	);
+	void queryClient.invalidateQueries({ queryKey: creditsKeys.all });
 }
 
 /**

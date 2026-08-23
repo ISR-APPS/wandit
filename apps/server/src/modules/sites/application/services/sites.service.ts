@@ -8,7 +8,9 @@
  *
  * Money-shaped invariant, same as generation: R2 writes happen BEFORE the
  * row is promoted — an active deployment must never point at bytes that do
- * not exist.
+ * not exist. If the live-byte flip succeeds but promotion fails, best-effort
+ * compensation restores the previous live state because R2, KV, and Postgres
+ * share no transaction.
  */
 
 import { Inject, Injectable, Logger, NotFoundException } from "@nestjs/common";
@@ -193,13 +195,12 @@ export class SitesService {
 			throw new NotFoundException("Deployment not found");
 		}
 
-		// Prefer the archived published bytes (pixels already injected). Fall
-		// back to re-building from the version's draft bytes when the archive
-		// predates archiving or was cleaned up.
+		// Prefer the archived published bytes as input. Fall back to the version's
+		// draft bytes when the archive predates archiving or was cleaned up; the
+		// deterministic publish transforms run again in either case.
 		let html = await getPageHtml(
 			publishedArchiveKey(projectId, target.id),
 		).catch(() => null);
-		let alreadyInjected = true;
 
 		if (html === null) {
 			const version = await this.deploymentsRepository.findVersionForProject(
@@ -212,14 +213,12 @@ export class SitesService {
 			}
 
 			html = await this.readDraftHtml(version.r2Key);
-			alreadyInjected = false;
 		}
 
 		const deployment = await this.runPublishPipeline({
 			html,
 			project,
 			requestedSlug: undefined,
-			skipInjection: alreadyInjected,
 			versionId: target.versionId,
 		});
 
@@ -254,13 +253,14 @@ export class SitesService {
 	/*
 	 * The shared pipeline behind publish and rollback:
 	 * validate slug → pending row → R2 writes → KV pointer → promote.
-	 * Every throw after the pending row exists marks it failed first.
+	 * Once the live flip starts, storage compensation has priority over the
+	 * best-effort failed-row write; neither cleanup path may replace the
+	 * original publish error.
 	 */
 	private async runPublishPipeline(input: {
 		html: string;
 		project: OwnedProjectRow;
 		requestedSlug: string | undefined;
-		skipInjection?: boolean;
 		versionId: string;
 	}): Promise<DeploymentRow> {
 		if (!isR2Configured()) {
@@ -282,6 +282,8 @@ export class SitesService {
 			slug,
 			versionId: input.versionId,
 		});
+		let liveBytesFlipped = false;
+		let promoted: DeploymentRow | null = null;
 
 		try {
 			// Unconditional and idempotent like the injectors below: drafts and
@@ -308,15 +310,15 @@ export class SitesService {
 				{ exists: publishedVariantExists },
 			);
 
-			const withPixels = input.skipInjection
-				? withImages
-				: injectPixels(withImages, {
-						metaPixelId: input.project.metaPixelId,
-						tiktokPixelId: input.project.tiktokPixelId,
-					});
+			// Restamp recognized canonical blocks from current project state; an
+			// unrecognized carrier leaves this injector's input untouched.
+			const withPixels = injectPixels(withImages, {
+				metaPixelId: input.project.metaPixelId,
+				tiktokPixelId: input.project.tiktokPixelId,
+			});
 
-			// Unconditional on purpose: recognized archived runtime bytes are replaced,
-			// so rollbacks are stamped for this deployment; unknown carriers stay intact.
+			// Restamp recognized canonical blocks from current project state; an
+			// unrecognized carrier leaves this injector's input untouched.
 			const withRuntime = injectLeadsRuntime(withPixels, {
 				captureUrl: buildLeadsCaptureUrl(
 					env.BETTER_AUTH_URL,
@@ -325,10 +327,9 @@ export class SitesService {
 				deploymentId: pending.id,
 			});
 
-			// Also unconditional and idempotent. The hide-toggle only counts for
-			// an entitled owner: a free publish always carries the badge, and a
-			// downgraded owner regains it on their next publish (never
-			// retroactively — archives and rollbacks keep their bytes).
+			// Restamp recognized canonical blocks from current project state; an
+			// unrecognized carrier leaves this injector's input untouched. The hide
+			// toggle only counts for an entitled owner.
 			const published = injectWanditBadge(withRuntime, {
 				hide: input.project.hideWanditBadge && input.project.ownerIsEntitled,
 			});
@@ -344,13 +345,14 @@ export class SitesService {
 				published,
 			);
 			await putPageHtml(publishedCurrentKey(input.project.id), published);
+			liveBytesFlipped = true;
 
 			// Always write the host pointer: it is one idempotent PUT, and
 			// skipping it when the slug "already exists" strands sites whose
 			// first publish ran before Cloudflare credentials were configured.
 			await this.writeSlugPointer(input.project.id, slug, kvConfigured);
 
-			const promoted = await this.deploymentsRepository.promoteToActive(
+			promoted = await this.deploymentsRepository.promoteToActive(
 				pending.id,
 				input.project.id,
 			);
@@ -362,10 +364,38 @@ export class SitesService {
 
 			return promoted;
 		} catch (error) {
-			await this.deploymentsRepository.markFailed(
-				pending.id,
-				failureSummary(error),
-			);
+			if (liveBytesFlipped && promoted === null) {
+				try {
+					await this.restorePreviousLiveState({
+						activeSnapshot: active,
+						projectId: input.project.id,
+						slug,
+					});
+				} catch (restoreError) {
+					this.logger.error(
+						`Publish compensation failed for project ${input.project.id}`,
+						restoreError instanceof Error
+							? (restoreError.stack ?? restoreError.message)
+							: String(restoreError),
+					);
+				}
+			}
+
+			// Failure-state persistence is best-effort: an outage leaves this row
+			// pending for healStalePending to reclaim on the next project read.
+			try {
+				await this.deploymentsRepository.markFailed(
+					pending.id,
+					failureSummary(error),
+				);
+			} catch (markFailedError) {
+				this.logger.error(
+					`Publish failure state could not be recorded for deployment ${pending.id}`,
+					markFailedError instanceof Error
+						? (markFailedError.stack ?? markFailedError.message)
+						: String(markFailedError),
+				);
+			}
 
 			if (
 				error instanceof SlugTakenError ||
@@ -554,6 +584,47 @@ export class SitesService {
 		}
 
 		await this.domainRoutingService.deleteHostPointer(this.slugHost(slug));
+	}
+
+	// Live bytes must never reference a deployment row that was not promoted.
+	// Compensation is best-effort because R2, KV, and Postgres share no
+	// transaction; when an old archive is missing, keeping the new bytes is
+	// safer than taking an existing site down.
+	private async restorePreviousLiveState(input: {
+		activeSnapshot: DeploymentRow | null;
+		projectId: string;
+		slug: string;
+	}): Promise<void> {
+		const active = await this.deploymentsRepository
+			.findActiveByProject(input.projectId)
+			.catch(() => {
+				// Promotion failure commonly means Postgres is unavailable; the stale
+				// pre-pipeline snapshot still permits a best-effort restore.
+				return input.activeSnapshot;
+			});
+
+		if (active === null) {
+			await deleteObject(publishedCurrentKey(input.projectId));
+			await this.deleteSlugPointer(input.slug);
+
+			return;
+		}
+
+		const previousHtml = await getPageHtml(
+			publishedArchiveKey(input.projectId, active.id),
+		).catch(() => null);
+
+		if (previousHtml === null) {
+			this.logger.error(
+				`Publish compensation could not read archived bytes for deployment ${active.id}`,
+			);
+		} else {
+			await putPageHtml(publishedCurrentKey(input.projectId), previousHtml);
+		}
+
+		if (input.slug !== active.slug) {
+			await this.deleteSlugPointer(input.slug);
+		}
 	}
 
 	private async buildCurrent(projectId: string): Promise<DeploymentCurrent> {

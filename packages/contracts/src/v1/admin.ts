@@ -243,6 +243,16 @@ export type AdminUserProjectsResponse = z.infer<
 	typeof adminUserProjectsResponseSchema
 >;
 
+export const adminAiCostProvenances = [
+	"measured",
+	"contract",
+	"estimate",
+] as const;
+
+export const adminAiCostProvenanceSchema = z.enum(adminAiCostProvenances);
+
+export type AdminAiCostProvenance = z.infer<typeof adminAiCostProvenanceSchema>;
+
 export const adminCreditLedgerEntrySchema = z.object({
 	id: uuidSchema,
 	// Decimal credits; settle deltas can be fractional (e.g. -0.37).
@@ -259,6 +269,10 @@ export const adminCreditLedgerEntrySchema = z.object({
 	aiModel: z.string().nullable(),
 	aiProvider: z.string().nullable(),
 	aiCostUsdMicros: z.int().nullable(),
+	// Where aiCostUsdMicros came from: measured (gateway-reconciled),
+	// contract (settle-time catalog snapshot), estimate (reservation). Null
+	// with aiCostUsdMicros.
+	aiCostProvenance: adminAiCostProvenanceSchema.nullable(),
 });
 
 export type AdminCreditLedgerEntry = z.infer<

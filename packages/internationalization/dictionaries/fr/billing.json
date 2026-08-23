@@ -148,6 +148,7 @@
 		"previewDescription": "Cet aperçu est verrouillé brièvement afin de conserver le montant confirmé.",
 		"newPlan": "Nouvelle offre",
 		"payNowCredits": "Payer {amount} maintenant · {credits} crédits",
+		"upgradeExplanation": "Le nouveau niveau complet est facturé maintenant et le temps non utilisé de votre niveau actuel est remboursé. Vos crédits de forfait sont réinitialisés immédiatement à la dotation complète du nouveau niveau.",
 		"changesAtRenewal": "Changement au renouvellement",
 		"downgradeExplanation": "Votre niveau actuel reste actif jusqu’à la fin de cette période. Le niveau inférieur commence au renouvellement.",
 		"back": "Retour",

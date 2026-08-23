@@ -62,10 +62,16 @@ const REVENUE_SNAPSHOT = {
 		nonHealthyPaidUsers: 4,
 	},
 	collectedRevenueByDay: [
-		{ date: "2026-08-13", subscriptionsMinor: 2_500, ordersMinor: 1_000 },
+		{
+			date: "2026-08-13",
+			subscriptionsMinor: 2_500,
+			ordersMinor: 1_000,
+			topupsMinor: 500,
+		},
 	],
 	revenueBySource: {
 		subscriptionsCents: 2_500,
+		topupsCents: 500,
 		domainsCents: 1_000,
 		domainOrders: 1,
 		domainCostCents: 800,
@@ -288,6 +294,12 @@ const FEATURES_SNAPSHOT = {
 		creditsBeforeUpgradeTotal: 3_000,
 		convertedUsers: 2,
 		providerCostMicros: 125,
+		billableProviderCostMicros: 100,
+		providerCostByProvenanceMicros: {
+			measured: 75,
+			contract: 30,
+			estimate: 20,
+		},
 	},
 	freeCredits: {
 		avgSecondsToConsume: 172_800,

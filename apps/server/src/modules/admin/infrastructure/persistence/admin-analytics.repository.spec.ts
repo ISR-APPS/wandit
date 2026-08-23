@@ -55,6 +55,11 @@ function netConsumptionSql(alias: string) {
 	return `(${alias}.kind = 'consume' or ${refundGrantSql(alias)})`;
 }
 
+// Refund grants are attributed to their consume's day via the usage event.
+function effectiveAtSql(alias: string) {
+	return `(case when ${refundGrantSql(alias)} then coalesce( (select e.created_at from ai_usage_events e where e.id::text = ${alias}.meta ->> 'usageEventId'), ${alias}.created_at ) else ${alias}.created_at end)`;
+}
+
 function compileQuery(query: unknown): CompiledQuery {
 	if (
 		typeof query !== "object" ||
@@ -1248,8 +1253,14 @@ describe("AdminAnalyticsRepository revenue SQL", () => {
 		);
 		expect(cohort.sql).not.toContain("< b.range_end");
 		expect(cohort.sql).toContain("c.created_at >= u.created_at");
+		// Refund grants count on their consume's day; org-pool rows never
+		// count toward a personal trial.
 		expect(cohort.sql).toContain(
-			"c.created_at < u.created_at + interval '7 days'",
+			`${effectiveAtSql("c")} < u.created_at + interval '7 days'`,
+		);
+		expect(cohort.sql).toContain("c.organization_id is null");
+		expect(cohort.sql).toContain(
+			"greatest(0, sum(-c.delta))::bigint as credits_consumed",
 		);
 		expect(cohort.sql.match(/a\.status = 'succeeded'/g)).toHaveLength(6);
 		expect(cohort.sql.match(/a\.completed_at >= u\.created_at/g)).toHaveLength(
@@ -1432,7 +1443,8 @@ describe("AdminAnalyticsRepository feature and credit SQL", () => {
 			expect(query.sql).toContain("s.created_at < b.snapshot_end");
 		}
 
-		expectRange(creditRange, "c.created_at");
+		expect(creditRange.sql).toContain("c.created_at >= b.range_start");
+		expectRange(creditRange, effectiveAtSql("c"));
 		expectRange(creditRange, "e.created_at");
 		expect(creditRange.sql).toContain(
 			"coalesce(c.organization_id, c.user_id) as owner_id",
@@ -1444,12 +1456,39 @@ describe("AdminAnalyticsRepository feature and credit SQL", () => {
 		expect(creditRange.sql).toContain(
 			"left join owner_consumption c on c.owner_id = o.owner_id",
 		);
-		expect(creditRange.sql).toContain("sum(e.reconciled_cost_usd_micros)");
+		// Provider cost is the shared best-known expression over spend statuses
+		// (a settled-but-unreconciled event contributes its snapshot cost), split
+		// into total vs billable and by provenance.
+		expect(creditRange.sql).not.toContain("sum(e.reconciled_cost_usd_micros)");
+		expect(creditRange.sql).toContain(
+			`"ai_usage_events"."pricing_snapshot" ->> 'costUsdMicros')::bigint`,
+		);
+		expect(creditRange.sql).toContain(
+			`"ai_usage_events"."estimated_cost_usd_micros"`,
+		);
+		expect(creditRange.sql).toMatch(
+			/e\.status in \(\$\d+, \$\d+, \$\d+(, \$\d+)?\)/,
+		);
+		expect(creditRange.params).toEqual(
+			expect.arrayContaining(["settled", "reconciled", "reconcile_failed"]),
+		);
+		expect(creditRange.sql).toContain(
+			"sum(s.cost_micros) filter (where s.billable)",
+		);
+		expect(creditRange.sql).toContain(
+			`'$.gatewayReconciliation.generations[*] ? (@.customerBilling like_regex "^bundled_unmetered")'`,
+		);
+		expect(creditRange.sql).toContain("coalesce(e.final_credits, 0) > 0");
+		for (const provenance of ["measured", "contract", "estimate"]) {
+			expect(creditRange.sql).toContain(
+				`sum(s.cost_micros) filter (where s.provenance = '${provenance}')`,
+			);
+		}
 		expect(creditRange.sql).toContain(
 			`sum(l.delta) filter (where (l.kind = 'grant' and not ${refundGrantSql("l")}))`,
 		);
 		expect(creditRange.sql).toContain(
-			`sum(-l.delta) filter (where ${netConsumptionSql("l")})`,
+			`greatest(0, coalesce(sum(-l.delta) filter (where ${netConsumptionSql("l")}), 0))::bigint as consumed`,
 		);
 		expect(beforeUpgrade.sql).toContain(netConsumptionSql("c"));
 		expect(freeConsumption.sql).toContain("c.created_at < b.snapshot_end");
@@ -1461,8 +1500,9 @@ describe("AdminAnalyticsRepository feature and credit SQL", () => {
 		expect(beforeUpgrade.sql).toContain("u.created_at < b.snapshot_end");
 		expect(beforeUpgrade.sql).toContain("c.created_at >= u.created_at");
 		expect(beforeUpgrade.sql).toContain(
-			"c.created_at < u.first_subscription_at",
+			`${effectiveAtSql("c")} < u.first_subscription_at`,
 		);
+		expect(beforeUpgrade.sql).toContain("c.organization_id is null");
 	});
 
 	it("counts conversion only when the first owner subscription follows first in-range feature use", async () => {

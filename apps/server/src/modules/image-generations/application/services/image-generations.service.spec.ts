@@ -102,7 +102,7 @@ function setupStaleRecovery() {
 	const meteringService = {
 		findByIdempotencyKey: vi.fn().mockResolvedValue(usageEvent),
 		refund: vi.fn(),
-		settleFixedFromEvidence: vi.fn().mockResolvedValue(usageEvent),
+		settleMeasuredFromEvidence: vi.fn().mockResolvedValue(usageEvent),
 	};
 	const settlePlacement = vi.fn().mockResolvedValue(false);
 	const selectLimit = vi
@@ -162,12 +162,12 @@ describe("ImageGenerationsService stale recovery billing", () => {
 			`image:${STALE_ROW.id}`,
 			{ actorUserId: "user_1" },
 		);
-		expect(meteringService.settleFixedFromEvidence).toHaveBeenCalledWith(
+		expect(meteringService.settleMeasuredFromEvidence).toHaveBeenCalledWith(
 			"usage_event_image",
 			1,
 		);
 		expect(
-			meteringService.settleFixedFromEvidence.mock
+			meteringService.settleMeasuredFromEvidence.mock
 				.invocationCallOrder[0] as number,
 		).toBeLessThan(db.update.mock.invocationCallOrder[0] as number);
 		expect(updateSet).toHaveBeenCalledWith(
@@ -178,7 +178,7 @@ describe("ImageGenerationsService stale recovery billing", () => {
 	it("does not publish recovered images when existing settlement fails", async () => {
 		const { db, meteringService, service } = setupStaleRecovery();
 		const settlementError = new Error("settlement unavailable");
-		meteringService.settleFixedFromEvidence.mockRejectedValueOnce(
+		meteringService.settleMeasuredFromEvidence.mockRejectedValueOnce(
 			settlementError,
 		);
 
@@ -228,7 +228,7 @@ describe("ImageGenerationsService stale recovery billing", () => {
 			],
 			status: "succeeded",
 		});
-		expect(meteringService.settleFixedFromEvidence).toHaveBeenCalledWith(
+		expect(meteringService.settleMeasuredFromEvidence).toHaveBeenCalledWith(
 			"usage_event_image",
 			2,
 		);

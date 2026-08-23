@@ -136,6 +136,17 @@ function setup(options: { kvConfigured?: boolean } = {}) {
 	return { analytics, repository, routing, service };
 }
 
+function mockLoggerError(service: SitesService): ReturnType<typeof vi.fn> {
+	const error = vi.fn();
+	(
+		service as unknown as {
+			logger: { error: (...args: unknown[]) => void };
+		}
+	).logger.error = error;
+
+	return error;
+}
+
 beforeEach(() => {
 	delete (env as { ALLOW_PUBLISH_WITHOUT_KV?: boolean })
 		.ALLOW_PUBLISH_WITHOUT_KV;
@@ -155,10 +166,13 @@ beforeEach(() => {
 
 describe("SitesService.publish", () => {
 	it("publishes the draft version: archive + current written before promote", async () => {
-		const { analytics, repository, service } = setup();
+		const { analytics, repository, routing, service } = setup();
 		const calls: string[] = [];
 		vi.mocked(putPageHtml).mockImplementation(async (key) => {
 			calls.push(`put:${key}`);
+		});
+		routing.putHostPointer.mockImplementation(async () => {
+			calls.push("pointer");
 		});
 		repository.promoteToActive.mockImplementation(async () => {
 			calls.push("promote");
@@ -172,6 +186,7 @@ describe("SitesService.publish", () => {
 		expect(calls).toEqual([
 			`put:published/${PROJECT_ID}/v/33333333-3333-4333-8333-333333333333.html`,
 			`put:published/${PROJECT_ID}/current.html`,
+			"pointer",
 			"promote",
 		]);
 		expect(analytics.capture).toHaveBeenCalledOnce();
@@ -487,6 +502,298 @@ describe("SitesService.publish", () => {
 	});
 });
 
+describe("SitesService.publish compensation", () => {
+	const ACTIVE_ID = "66666666-6666-4666-8666-666666666666";
+	const CONCURRENT_ACTIVE_ID = "77777777-7777-4777-8777-777777777777";
+	const DRAFT_HTML = "<!doctype html><html><body>new</body></html>";
+	const PREVIOUS_HTML = "<!doctype html><html><body>previous</body></html>";
+	const CONCURRENT_HTML = "<!doctype html><html><body>winner</body></html>";
+
+	function previousActive(slug = "smoke-project"): DeploymentRow {
+		return deploymentRow({ id: ACTIVE_ID, slug, status: "active" });
+	}
+
+	it("restores previous live bytes when a same-slug pointer write fails", async () => {
+		const { repository, routing, service } = setup();
+		repository.findActiveByProject.mockResolvedValue(previousActive());
+		routing.putHostPointer.mockRejectedValue(new Error("KV exploded"));
+		vi.mocked(getPageHtml)
+			.mockResolvedValueOnce(DRAFT_HTML)
+			.mockResolvedValueOnce(PREVIOUS_HTML);
+
+		await expect(service.publish(SCOPE, PROJECT_ID, {})).rejects.toBeInstanceOf(
+			PublishFailedError,
+		);
+
+		expect(getPageHtml).toHaveBeenNthCalledWith(
+			2,
+			`published/${PROJECT_ID}/v/${ACTIVE_ID}.html`,
+		);
+		expect(putPageHtml).toHaveBeenLastCalledWith(
+			`published/${PROJECT_ID}/current.html`,
+			PREVIOUS_HTML,
+		);
+		expect(putPageHtml).toHaveBeenCalledTimes(3);
+		expect(routing.deleteHostPointer).not.toHaveBeenCalled();
+		expect(repository.markFailed).toHaveBeenCalledOnce();
+	});
+
+	it("restores previous live bytes when promotion fails", async () => {
+		const { repository, routing, service } = setup();
+		repository.findActiveByProject.mockResolvedValue(previousActive());
+		repository.promoteToActive.mockRejectedValue(new Error("DB exploded"));
+		vi.mocked(getPageHtml)
+			.mockResolvedValueOnce(DRAFT_HTML)
+			.mockResolvedValueOnce(PREVIOUS_HTML);
+
+		await expect(service.publish(SCOPE, PROJECT_ID, {})).rejects.toBeInstanceOf(
+			PublishFailedError,
+		);
+
+		expect(putPageHtml).toHaveBeenLastCalledWith(
+			`published/${PROJECT_ID}/current.html`,
+			PREVIOUS_HTML,
+		);
+		expect(routing.deleteHostPointer).not.toHaveBeenCalled();
+		expect(repository.markFailed).toHaveBeenCalledOnce();
+	});
+
+	it("restores previous live bytes when marking the failed deployment also fails", async () => {
+		const { repository, service } = setup();
+		const loggerError = mockLoggerError(service);
+		const calls: string[] = [];
+		const markFailedError = new Error("mark failed exploded");
+		repository.findActiveByProject.mockResolvedValue(previousActive());
+		repository.promoteToActive.mockRejectedValue(new Error("DB exploded"));
+		repository.markFailed.mockImplementation(async () => {
+			calls.push("markFailed");
+			throw markFailedError;
+		});
+		vi.mocked(getPageHtml)
+			.mockResolvedValueOnce(DRAFT_HTML)
+			.mockImplementationOnce(async () => {
+				calls.push("restore");
+
+				return PREVIOUS_HTML;
+			});
+
+		let thrown: unknown;
+
+		try {
+			await service.publish(SCOPE, PROJECT_ID, {});
+		} catch (error) {
+			thrown = error;
+		}
+
+		expect(thrown).toBeInstanceOf(PublishFailedError);
+		expect(thrown).not.toBe(markFailedError);
+		expect((thrown as PublishFailedError).getResponse()).toEqual({
+			code: "PUBLISH_FAILED",
+			message: "DB exploded",
+		});
+		expect(calls).toEqual(["restore", "markFailed"]);
+		expect(getPageHtml).toHaveBeenNthCalledWith(
+			2,
+			`published/${PROJECT_ID}/v/${ACTIVE_ID}.html`,
+		);
+		expect(putPageHtml).toHaveBeenLastCalledWith(
+			`published/${PROJECT_ID}/current.html`,
+			PREVIOUS_HTML,
+		);
+		expect(loggerError).toHaveBeenCalledWith(
+			`Publish failure state could not be recorded for deployment ${deploymentRow().id}`,
+			expect.stringContaining("mark failed exploded"),
+		);
+	});
+
+	it("restores the concurrent active deployment resolved after the flip", async () => {
+		const { repository, routing, service } = setup();
+		const concurrentActive = deploymentRow({
+			id: CONCURRENT_ACTIVE_ID,
+			status: "active",
+		});
+		repository.findActiveByProject
+			.mockResolvedValue(concurrentActive)
+			.mockResolvedValueOnce(previousActive());
+		repository.promoteToActive.mockRejectedValue(new Error("DB exploded"));
+		vi.mocked(getPageHtml)
+			.mockResolvedValueOnce(DRAFT_HTML)
+			.mockResolvedValueOnce(CONCURRENT_HTML);
+
+		await expect(service.publish(SCOPE, PROJECT_ID, {})).rejects.toBeInstanceOf(
+			PublishFailedError,
+		);
+
+		expect(getPageHtml).toHaveBeenNthCalledWith(
+			2,
+			`published/${PROJECT_ID}/v/${CONCURRENT_ACTIVE_ID}.html`,
+		);
+		expect(getPageHtml).not.toHaveBeenCalledWith(
+			`published/${PROJECT_ID}/v/${ACTIVE_ID}.html`,
+		);
+		expect(putPageHtml).toHaveBeenLastCalledWith(
+			`published/${PROJECT_ID}/current.html`,
+			CONCURRENT_HTML,
+		);
+		expect(routing.deleteHostPointer).not.toHaveBeenCalled();
+	});
+
+	it("falls back to the active snapshot when restore re-resolution fails", async () => {
+		const { repository, routing, service } = setup();
+		repository.findActiveByProject
+			.mockRejectedValue(new Error("DB unavailable"))
+			.mockResolvedValueOnce(previousActive());
+		repository.promoteToActive.mockRejectedValue(new Error("DB exploded"));
+		vi.mocked(getPageHtml)
+			.mockResolvedValueOnce(DRAFT_HTML)
+			.mockResolvedValueOnce(PREVIOUS_HTML);
+
+		await expect(service.publish(SCOPE, PROJECT_ID, {})).rejects.toBeInstanceOf(
+			PublishFailedError,
+		);
+
+		expect(getPageHtml).toHaveBeenNthCalledWith(
+			2,
+			`published/${PROJECT_ID}/v/${ACTIVE_ID}.html`,
+		);
+		expect(putPageHtml).toHaveBeenLastCalledWith(
+			`published/${PROJECT_ID}/current.html`,
+			PREVIOUS_HTML,
+		);
+		expect(routing.deleteHostPointer).not.toHaveBeenCalled();
+	});
+
+	it("deletes only the new slug pointer when changed-slug promotion fails", async () => {
+		const { repository, routing, service } = setup();
+		repository.findActiveByProject.mockResolvedValue(
+			previousActive("old-slug"),
+		);
+		repository.promoteToActive.mockRejectedValue(new Error("DB exploded"));
+		vi.mocked(getPageHtml)
+			.mockResolvedValueOnce(DRAFT_HTML)
+			.mockResolvedValueOnce(PREVIOUS_HTML);
+
+		await expect(
+			service.publish(SCOPE, PROJECT_ID, { slug: "new-slug" }),
+		).rejects.toBeInstanceOf(PublishFailedError);
+
+		expect(putPageHtml).toHaveBeenLastCalledWith(
+			`published/${PROJECT_ID}/current.html`,
+			PREVIOUS_HTML,
+		);
+		expect(routing.deleteHostPointer).toHaveBeenCalledOnce();
+		expect(routing.deleteHostPointer).toHaveBeenCalledWith(
+			"new-slug.wandit.app",
+		);
+		expect(routing.deleteHostPointer).not.toHaveBeenCalledWith(
+			"old-slug.wandit.app",
+		);
+	});
+
+	it("removes live bytes and the new pointer when a first publish fails after the flip", async () => {
+		const { repository, routing, service } = setup();
+		repository.promoteToActive.mockRejectedValue(new Error("DB exploded"));
+		vi.mocked(getPageHtml).mockResolvedValueOnce(DRAFT_HTML);
+
+		await expect(service.publish(SCOPE, PROJECT_ID, {})).rejects.toBeInstanceOf(
+			PublishFailedError,
+		);
+
+		expect(deleteObject).toHaveBeenCalledWith(
+			`published/${PROJECT_ID}/current.html`,
+		);
+		expect(routing.deleteHostPointer).toHaveBeenCalledWith(
+			"smoke-project.wandit.app",
+		);
+	});
+
+	it("keeps the new live bytes when the previous archive is missing", async () => {
+		const { repository, routing, service } = setup();
+		const loggerError = mockLoggerError(service);
+		repository.findActiveByProject.mockResolvedValue(previousActive());
+		routing.putHostPointer.mockRejectedValue(new Error("KV exploded"));
+		vi.mocked(getPageHtml)
+			.mockResolvedValueOnce(DRAFT_HTML)
+			.mockRejectedValueOnce(new Error("archive missing"));
+
+		let thrown: unknown;
+
+		try {
+			await service.publish(SCOPE, PROJECT_ID, {});
+		} catch (error) {
+			thrown = error;
+		}
+
+		expect(thrown).toBeInstanceOf(PublishFailedError);
+		expect((thrown as PublishFailedError).getResponse()).toEqual({
+			code: "PUBLISH_FAILED",
+			message: "KV exploded",
+		});
+		expect(putPageHtml).toHaveBeenCalledTimes(2);
+		expect(loggerError).toHaveBeenCalledWith(
+			`Publish compensation could not read archived bytes for deployment ${ACTIVE_ID}`,
+		);
+	});
+
+	it("preserves the original error when restoring live bytes fails", async () => {
+		const { repository, routing, service } = setup();
+		const loggerError = mockLoggerError(service);
+		repository.findActiveByProject.mockResolvedValue(previousActive());
+		routing.putHostPointer.mockRejectedValue(new Error("KV exploded"));
+		vi.mocked(getPageHtml)
+			.mockResolvedValueOnce(DRAFT_HTML)
+			.mockResolvedValueOnce(PREVIOUS_HTML);
+		vi.mocked(putPageHtml)
+			.mockResolvedValueOnce(undefined)
+			.mockResolvedValueOnce(undefined)
+			.mockRejectedValueOnce(new Error("restore exploded"));
+
+		let thrown: unknown;
+
+		try {
+			await service.publish(SCOPE, PROJECT_ID, {});
+		} catch (error) {
+			thrown = error;
+		}
+
+		expect(thrown).toBeInstanceOf(PublishFailedError);
+		expect((thrown as PublishFailedError).getResponse()).toEqual({
+			code: "PUBLISH_FAILED",
+			message: "KV exploded",
+		});
+		expect(loggerError).toHaveBeenCalledWith(
+			`Publish compensation failed for project ${PROJECT_ID}`,
+			expect.stringContaining("restore exploded"),
+		);
+	});
+
+	it("does not restore after promotion when old-slug cleanup fails", async () => {
+		const { repository, routing, service } = setup();
+		repository.findActiveByProject.mockResolvedValue(
+			previousActive("old-slug"),
+		);
+		routing.deleteHostPointer.mockRejectedValue(
+			new Error("KV delete exploded"),
+		);
+		vi.mocked(getPageHtml).mockResolvedValueOnce(DRAFT_HTML);
+
+		await expect(
+			service.publish(SCOPE, PROJECT_ID, { slug: "new-slug" }),
+		).rejects.toBeInstanceOf(PublishFailedError);
+
+		expect(repository.promoteToActive).toHaveBeenCalledOnce();
+		expect(getPageHtml).toHaveBeenCalledTimes(1);
+		expect(putPageHtml).toHaveBeenCalledTimes(2);
+		expect(routing.deleteHostPointer).toHaveBeenCalledTimes(1);
+		expect(routing.deleteHostPointer).toHaveBeenCalledWith(
+			"old-slug.wandit.app",
+		);
+		expect(routing.deleteHostPointer).not.toHaveBeenCalledWith(
+			"new-slug.wandit.app",
+		);
+	});
+});
+
 describe("SitesService.publish asset preflight", () => {
 	type FetchMock = ReturnType<typeof vi.fn<typeof fetch>>;
 
@@ -699,7 +1006,7 @@ describe("SitesService.unpublish", () => {
 });
 
 describe("SitesService.rollback", () => {
-	it("republished archived bytes without re-injecting pixels", async () => {
+	it("leaves an archived unrecognized pixel carrier untouched", async () => {
 		const { analytics, repository, service } = setup();
 		const target = deploymentRow({
 			id: "44444444-4444-4444-8444-444444444444",
@@ -721,9 +1028,41 @@ describe("SitesService.rollback", () => {
 		expect(vi.mocked(getPageHtml)).toHaveBeenCalledWith(
 			`published/${PROJECT_ID}/v/${target.id}.html`,
 		);
-		// One marker only — the archive's pixel was not duplicated.
+		expect(bodies[0]).toContain('<script data-wandit-pixel="meta"></script>');
 		expect(bodies[0]?.match(/data-wandit-pixel/g)).toHaveLength(1);
 		expect(analytics.capture).not.toHaveBeenCalled();
+	});
+
+	it("restamps a canonical archived pixel with the current project id", async () => {
+		const { repository, service } = setup();
+		const target = deploymentRow({
+			id: "44444444-4444-4444-8444-444444444444",
+			status: "superseded",
+		});
+		repository.findById.mockResolvedValue(target);
+		repository.getAccessibleProject.mockResolvedValue({
+			hideWanditBadge: false,
+			id: PROJECT_ID,
+			metaPixelId: "777",
+			name: "Smoke Project",
+			ownerIsEntitled: false,
+			publicFormId: FORM_ID,
+			tiktokPixelId: null,
+		});
+		vi.mocked(getPageHtml).mockResolvedValue(
+			'<html><head><script data-wandit-pixel="meta">!function(f,b,e,v,n,t,s,c,q,r,p){f.oldPixel="111"}()</script></head><body>archived</body></html>',
+		);
+		const bodies: string[] = [];
+		vi.mocked(putPageHtml).mockImplementation(async (_key, html) => {
+			bodies.push(html);
+		});
+
+		await service.rollback(SCOPE, PROJECT_ID, {
+			deploymentId: target.id,
+		});
+
+		expect(bodies[0]).not.toContain("111");
+		expect(bodies[0]?.match(/fbq\('init','777'\)/g)).toHaveLength(1);
 	});
 
 	it("falls back to draft bytes + injection when the archive is missing", async () => {

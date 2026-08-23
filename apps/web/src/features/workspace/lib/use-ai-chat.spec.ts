@@ -1,12 +1,15 @@
+import { QueryClient } from "@tanstack/react-query";
 import {
 	aiChatMessageMetadataSchema,
 	type ChatMessage,
 } from "@wandit/contracts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { toUpgradeModalIntent } from "@/features/billing/lib/billing-error-dispatch";
+import { creditsKeys } from "@/features/credits/api/credits.queries";
 import { ApiClientError } from "@/lib/api-client";
 import {
+	applyCreditsSettled,
 	chatStreamErrorKey,
 	hydrateAiChatMessages,
 	isAppliedPageEditPart,
@@ -123,6 +126,47 @@ describe("billing error turn state", () => {
 
 		expect(afterBillingPart).toBe(true);
 		expect(afterGenericError).toBe(true);
+	});
+});
+
+describe("credits-settled data part", () => {
+	const settled = {
+		credits: 0.37,
+		settledBalance: 12.63,
+		usageEventId: "usage-event-1",
+	};
+
+	it("seeds the cached settled balance once, then refetches all credits queries", () => {
+		const queryClient = new QueryClient();
+		const invalidate = vi
+			.spyOn(queryClient, "invalidateQueries")
+			.mockResolvedValue(undefined);
+		queryClient.setQueryData(creditsKeys.balance(), {
+			balance: 12,
+			plan: 12,
+			promo: 0,
+			settledBalance: 13,
+			settledPlan: 13,
+			settledPromo: 0,
+			settledTopup: 0,
+			topup: 0,
+		});
+
+		applyCreditsSettled(queryClient, settled);
+
+		expect(queryClient.getQueryData(creditsKeys.balance())).toEqual(
+			expect.objectContaining({ balance: 12, settledBalance: 12.63 }),
+		);
+		expect(invalidate).toHaveBeenCalledWith({ queryKey: creditsKeys.all });
+	});
+
+	it("does not create a partial balance row when nothing is cached", () => {
+		const queryClient = new QueryClient();
+		vi.spyOn(queryClient, "invalidateQueries").mockResolvedValue(undefined);
+
+		applyCreditsSettled(queryClient, settled);
+
+		expect(queryClient.getQueryData(creditsKeys.balance())).toBeUndefined();
 	});
 });
 

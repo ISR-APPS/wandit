@@ -74,6 +74,7 @@ import {
 	aiChatToolsForValidation,
 	type ChatAgentDeps,
 	createChatAgent,
+	createChatToolCallRepair,
 } from "./chat-agent";
 import { AI_CHAT_MAX_OUTPUT_TOKENS, AI_CHAT_MAX_STEPS } from "./chat-metering";
 
@@ -124,7 +125,7 @@ describe("chat agent cost bounds and gateway attribution", () => {
 		expect(AI_CHAT_MAX_STEPS).toBe(12);
 	});
 
-	it("registers edit and extension tools with execute-less history twins", () => {
+	it("registers product, edit, and extension tools with execute-less history twins", () => {
 		createChatAgent({
 			availableImages: [],
 			chatId: "chat-1",
@@ -142,8 +143,10 @@ describe("chat agent cost bounds and gateway attribution", () => {
 		} as never);
 
 		const tools = aiMocks.settings?.tools as Record<string, Tool> | undefined;
+		expect(tools?.product_video?.execute).toBeTypeOf("function");
 		expect(tools?.edit_video?.execute).toBeTypeOf("function");
 		expect(tools?.extend_video?.execute).toBeTypeOf("function");
+		expect(aiChatToolsForValidation.product_video.execute).toBeUndefined();
 		expect(aiChatToolsForValidation.edit_video.execute).toBeUndefined();
 		expect(aiChatToolsForValidation.extend_video.execute).toBeUndefined();
 	});
@@ -240,5 +243,139 @@ describe("chat agent cost bounds and gateway attribution", () => {
 			error: invalidToolInputError,
 		});
 		expect(failedRepair).toBeNull();
+	});
+
+	describe("tool-call repair metering", () => {
+		const toolCall = {
+			input: '{"brief":"cut off',
+			toolCallId: "tool-call-1",
+			toolName: "generate_page",
+			type: "tool-call" as const,
+		};
+		const repairOptions = {
+			inputSchema: vi.fn(async () => ({
+				properties: { brief: { type: "string" as const } },
+				type: "object" as const,
+			})),
+			instructions: "You are the Wandit chat agent.",
+			messages: [{ content: "Build a landing page", role: "user" as const }],
+			system: undefined,
+			toolCall,
+			tools: {},
+		};
+		const invalidToolInputError = new InvalidToolInputError({
+			cause: new SyntaxError("Unexpected end of JSON input"),
+			toolInput: toolCall.input,
+			toolName: toolCall.toolName,
+		});
+
+		it("captures the repair generation as helper-billable usage on the chat event", async () => {
+			aiMocks.generateObject.mockResolvedValueOnce({
+				object: { brief: "complete" },
+				providerMetadata: { gateway: { generationId: "repair-gen" } },
+				usage: { inputTokens: 12, outputTokens: 4 },
+			});
+			const captureGeneration = vi.fn(async () => undefined);
+			const repair = createChatToolCallRepair({
+				captureGeneration,
+				model: {} as never,
+			});
+
+			const repaired = await repair({
+				...repairOptions,
+				error: invalidToolInputError,
+			});
+
+			expect(JSON.parse(repaired?.input ?? "")).toEqual({ brief: "complete" });
+			expect(captureGeneration).toHaveBeenCalledWith({
+				providerMetadata: { gateway: { generationId: "repair-gen" } },
+				stepUsage: {
+					metering: {
+						customerBilling: "helper_billable",
+						task: "tool_call_repair",
+					},
+					providerUsage: { inputTokens: 12, outputTokens: 4 },
+				},
+			});
+		});
+
+		it("keeps the repaired call when the capture fails", async () => {
+			aiMocks.generateObject.mockResolvedValueOnce({
+				object: { brief: "complete" },
+				providerMetadata: { gateway: { generationId: "repair-gen" } },
+				usage: null,
+			});
+			const repair = createChatToolCallRepair({
+				captureGeneration: vi.fn(async () => {
+					throw new Error("metering down");
+				}),
+				model: {} as never,
+			});
+
+			const repaired = await repair({
+				...repairOptions,
+				error: invalidToolInputError,
+			});
+
+			expect(repaired).not.toBeNull();
+		});
+
+		it("wires the capture to the chat event and skips it without one", async () => {
+			const captureGeneration = vi
+				.fn()
+				.mockRejectedValueOnce(new Error("transient"))
+				.mockResolvedValueOnce({ id: "ref" });
+			const build = (parentEventId: string | undefined) =>
+				createChatAgent({
+					availableImages: [],
+					chatId: "chat-1",
+					imageGenerationsRepository: {},
+					leadScrapesRepository: {},
+					marketingAssetsRepository: {},
+					mediaGenerationsRepository: {},
+					meteringService: { captureGeneration },
+					pageEditsService: {},
+					pagesRepository: {},
+					parentEventId,
+					projectId: "project-1",
+					requestCountryCode: null,
+					subject: { actorUserId: "user-1" },
+					userId: "user-1",
+				} as never);
+
+			build("chat-event-1");
+			const repair = aiMocks.settings
+				?.experimental_repairToolCall as ToolCallRepairFunction<
+				Record<string, Tool>
+			>;
+			aiMocks.generateObject.mockResolvedValueOnce({
+				object: { brief: "complete" },
+				providerMetadata: { gateway: { generationId: "repair-gen" } },
+				usage: null,
+			});
+			await repair({ ...repairOptions, error: invalidToolInputError });
+			// Bounded retry: the transient first failure is retried once.
+			expect(captureGeneration).toHaveBeenCalledTimes(2);
+			expect(captureGeneration).toHaveBeenLastCalledWith(
+				"chat-event-1",
+				expect.objectContaining({
+					providerMetadata: { gateway: { generationId: "repair-gen" } },
+				}),
+			);
+
+			captureGeneration.mockClear();
+			build(undefined);
+			const unbilledRepair = aiMocks.settings
+				?.experimental_repairToolCall as ToolCallRepairFunction<
+				Record<string, Tool>
+			>;
+			aiMocks.generateObject.mockResolvedValueOnce({
+				object: { brief: "complete" },
+				providerMetadata: {},
+				usage: null,
+			});
+			await unbilledRepair({ ...repairOptions, error: invalidToolInputError });
+			expect(captureGeneration).not.toHaveBeenCalled();
+		});
 	});
 });

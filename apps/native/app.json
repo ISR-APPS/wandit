@@ -12,6 +12,7 @@
 		"slug": "wandit",
 		"plugins": [
 			"expo-font",
+			"expo-notifications",
 			[
 				"expo-audio",
 				{

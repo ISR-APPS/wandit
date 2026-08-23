@@ -225,6 +225,13 @@ export function createGenerateVideoTool(
 				deps.subject,
 				attempt.id,
 				deps.parentEventId,
+				undefined,
+				{
+					audio: input.talking || narration,
+					durationSeconds: input.durationSeconds,
+					kind: "text-to-video",
+					modelId: plan.modelId,
+				},
 			);
 
 			assertFixedOperationProviderExecutionAllowed(reservation);

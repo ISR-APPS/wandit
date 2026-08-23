@@ -3,7 +3,6 @@ import {
 	billingIntervals,
 	billingPlanIds,
 	billingRoutes,
-	CREDIT_COSTS,
 	CREDIT_SPEND_ORDER,
 	CREDIT_TIERS,
 	changeBillingSubscriptionBodySchema,
@@ -113,17 +112,7 @@ describe("billing catalog", () => {
 		}
 	});
 
-	it("exports exact credit costs, signup grant, and bucket policies", () => {
-		// Pricing v4 display prices in decimal credits.
-		expect(CREDIT_COSTS).toEqual({
-			chatMessage: 1,
-			connectorGeneration: 5,
-			imageGeneration: 3,
-			landingPageGeneration: 10,
-			leadScrape: 5,
-			marketingAssetGeneration: 7,
-			videoGeneration: 20,
-		});
+	it("exports the exact signup grant and bucket policies", () => {
 		expect(SIGNUP_GRANT_CREDITS).toBe(50);
 		expect(CREDIT_SPEND_ORDER).toEqual(["plan", "promo", "topup"]);
 		expect(PURCHASED_CREDIT_BUCKETS).toEqual(["plan", "topup"]);

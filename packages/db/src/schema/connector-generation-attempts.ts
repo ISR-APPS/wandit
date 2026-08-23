@@ -6,9 +6,11 @@ import {
 	pgTable,
 	text,
 	timestamp,
+	uniqueIndex,
 	uuid,
 } from "drizzle-orm/pg-core";
 import { user } from "./auth";
+import { chats } from "./chats";
 import { organization } from "./organizations";
 
 // Lifecycle of one background connector generation (e.g. a Higgsfield
@@ -38,6 +40,17 @@ export const connectorGenerationAttempts = pgTable(
 		organizationId: text("organization_id").references(() => organization.id, {
 			onDelete: "set null",
 		}),
+		// Chat that queued the generation. set null (not cascade): losing the
+		// conversation must not erase the generation history. NULL disables the
+		// per-chat request dedupe (NULLs are distinct in unique indexes).
+		chatId: uuid("chat_id").references(() => chats.id, {
+			onDelete: "set null",
+		}),
+		// Request idempotency: sha256 of connector/tool/args + the AI SDK
+		// toolCallId. Pre-existing rows carry their own id as the key.
+		// Nullable at the column level so old replicas in a rollout window can
+		// still insert; the application always writes a key.
+		requestKey: text("request_key"),
 		// Connector slug + tool exactly as the agent called them, plus the raw
 		// arguments snapshot — the task replays this call verbatim.
 		connectorSlug: text("connector_slug").notNull(),
@@ -63,6 +76,10 @@ export const connectorGenerationAttempts = pgTable(
 		index("connector_generation_attempts_user_idx").on(
 			table.userId,
 			table.createdAt,
+		),
+		uniqueIndex("connector_generation_attempts_chat_request_uq").on(
+			table.chatId,
+			table.requestKey,
 		),
 	],
 );

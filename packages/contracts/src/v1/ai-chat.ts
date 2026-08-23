@@ -51,8 +51,27 @@ export type AiChatBillingErrorData = z.infer<
 	typeof aiChatBillingErrorDataSchema
 >;
 
+/**
+ * Sent ONCE per turn, after the metering settle transaction has committed
+ * (wire key `data-credits-settled`). Clients move the visible balance from
+ * `settledBalance` and then refetch; no reserve/give-back is ever shown.
+ */
+export const aiChatCreditsSettledDataSchema = z.object({
+	usageEventId: z.string(),
+	// Decimal credits charged for this turn (positive number).
+	credits: z.number().nonnegative(),
+	// Decimal credits, post-settle settled balance (same rule as
+	// creditBalanceResponseSchema.settledBalance).
+	settledBalance: z.number(),
+});
+
+export type AiChatCreditsSettledData = z.infer<
+	typeof aiChatCreditsSettledDataSchema
+>;
+
 export type AiChatDataParts = {
 	"billing-error": AiChatBillingErrorData;
+	"credits-settled": AiChatCreditsSettledData;
 };
 
 export const aiChatMessageUsageSchema = z.object({
@@ -567,6 +586,31 @@ export type AnimateImageInput = z.infer<typeof animateImageInputSchema>;
 export type AnimateImageOutput = z.infer<typeof animateImageOutputSchema>;
 
 /**
+ * product_video — queues a deterministic five-second commercial from one
+ * authorized product image. The server selects the fixed renderer and prompt.
+ */
+export const productVideoInputSchema = z.object({
+	title: z.string().min(1).max(120),
+	image: z.object({
+		url: z.url(),
+		mediaType: z.enum(["image/jpeg", "image/png", "image/webp"]).optional(),
+	}),
+	preset: z.enum(["orbit", "hero", "lifestyle"]),
+	productName: z.string().min(1).max(80),
+	productDetails: z.string().max(500).optional(),
+});
+
+export const productVideoOutputSchema = z.object({
+	status: z.enum(["queued", "unavailable"]),
+	attemptId: z.string().uuid().optional(),
+	realtime: triggerRealtimeHandleSchema.optional(),
+	message: z.string().min(1),
+});
+
+export type ProductVideoInput = z.infer<typeof productVideoInputSchema>;
+export type ProductVideoOutput = z.infer<typeof productVideoOutputSchema>;
+
+/**
  * generate_video — queues a text-to-video generation from a creative brief.
  * The Brain gathers the brief (video type, subject, mood, format, voiceover)
  * in conversation; the server's video director rewrites it into one
@@ -904,6 +948,7 @@ export type AiChatTools = {
 	scrape_leads: { input: ScrapeLeadsInput; output: ScrapeLeadsOutput };
 	animate_image: { input: AnimateImageInput; output: AnimateImageOutput };
 	generate_video: { input: GenerateVideoInput; output: GenerateVideoOutput };
+	product_video: { input: ProductVideoInput; output: ProductVideoOutput };
 	edit_video: { input: EditVideoInput; output: EditVideoOutput };
 	extend_video: { input: ExtendVideoInput; output: ExtendVideoOutput };
 	get_page_outline: {

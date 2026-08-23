@@ -7,10 +7,13 @@ const mocks = vi.hoisted(() => {
 	const attribution = vi.fn();
 	const commission = vi.fn();
 	const connectorRecovery = vi.fn();
+	const financialReconciliation = vi.fn();
 	const modelPrices = vi.fn();
 	const reconciliation = vi.fn();
+	const reconcileRetries = vi.fn();
 	const refills = vi.fn();
 	const reservations = vi.fn();
+	const settledWithoutRefs = vi.fn();
 	const signup = vi.fn();
 	const webhookEvent = vi.fn();
 	const webhookSweep = vi.fn();
@@ -30,8 +33,13 @@ const mocks = vi.hoisted(() => {
 			commission: { reconcilePendingAttributedCandidates: commission },
 		})),
 		createDb: vi.fn(() => db),
+		createFinancialReconciliation: vi.fn(() => ({
+			reconciliation: { sweep: financialReconciliation },
+		})),
 		createMetering: vi.fn(() => ({
+			recoverSettledWithoutRefs: settledWithoutRefs,
 			recoverUnreconciledSettled: reconciliation,
+			retryFailedReconciliations: reconcileRetries,
 		})),
 		createMeteringRecovery: vi.fn(() => ({
 			connectorRecovery: { recoverCompletionCheckpoints: connectorRecovery },
@@ -46,12 +54,15 @@ const mocks = vi.hoisted(() => {
 			retry: { retryEvent: webhookEvent, sweep: webhookSweep },
 		})),
 		db,
+		financialReconciliation,
 		info: vi.fn(),
 		modelPrices,
 		queue: vi.fn((definition: unknown) => definition),
 		reconciliation,
+		reconcileRetries,
 		refills,
 		reservations,
+		settledWithoutRefs,
 		scheduledTask: vi.fn((definition: unknown) => definition),
 		schemaTask: vi.fn((definition: unknown) => definition),
 		signup,
@@ -76,6 +87,7 @@ vi.mock("./billing-maintenance.config", () => ({
 vi.mock("./billing-maintenance.runtime", () => ({
 	createAffiliateMaintenanceRuntime: mocks.createAffiliate,
 	createBillingWebhookRuntime: mocks.createWebhooks,
+	createFinancialReconciliationRuntime: mocks.createFinancialReconciliation,
 	createModelPriceRefreshRuntime: mocks.createModelPrices,
 	createSignupGrantRuntime: mocks.createSignup,
 	createSubscriptionRefillRuntime: mocks.createRefills,
@@ -96,6 +108,7 @@ import {
 	billingWebhookRetrySweepTask,
 } from "./retry-billing-webhooks.task";
 import { subscriptionRefillSweepTask } from "./subscription-refill.task";
+import { financialReconciliationSweepTask } from "./sweep-financial-reconciliation.task";
 import {
 	signupGrantDeliveryTask,
 	signupGrantOutboxSweepTask,
@@ -130,6 +143,7 @@ const webhookEvent = billingWebhookRetryEventTask as unknown as CapturedTask;
 const signupSweep = signupGrantOutboxSweepTask as unknown as CapturedTask;
 const signupDelivery = signupGrantDeliveryTask as unknown as CapturedTask;
 const prices = modelPriceRefreshTask as unknown as CapturedTask;
+const financial = financialReconciliationSweepTask as unknown as CapturedTask;
 const attribution = affiliateAttributionRetryTask as unknown as CapturedTask;
 
 const timestamp = new Date("2026-08-02T12:00:00.000Z");
@@ -149,6 +163,18 @@ describe("billing Trigger maintenance tasks", () => {
 			pending: 1,
 			reconciled: 4,
 			scanned: 5,
+		});
+		mocks.reconcileRetries.mockResolvedValue({
+			failed: 0,
+			pending: 0,
+			reconciled: 1,
+			scanned: 1,
+		});
+		mocks.settledWithoutRefs.mockResolvedValue({
+			failed: 0,
+			pending: 0,
+			reconciled: 0,
+			scanned: 0,
 		});
 		mocks.connectorRecovery.mockResolvedValue({
 			failed: 0,
@@ -175,7 +201,8 @@ describe("billing Trigger maintenance tasks", () => {
 			eventId: "evt_1",
 			status: "processed",
 		});
-		mocks.signup.mockResolvedValue({ done: 2, failed: 0 });
+		mocks.signup.mockResolvedValue({ done: 2, failed: 0, healed: 0 });
+		mocks.financialReconciliation.mockResolvedValue({ done: 3, failed: 0 });
 		mocks.modelPrices.mockResolvedValue({
 			fetched: 4,
 			persisted: 4,
@@ -184,9 +211,10 @@ describe("billing Trigger maintenance tasks", () => {
 		mocks.attribution.mockResolvedValue({ id: "attribution_1" });
 	});
 
-	it("declares the seven exact UTC schedules and bounded queues", () => {
+	it("declares the eight exact UTC schedules and bounded queues", () => {
 		expect([
 			[refill.id, refill.cron, refill.ttl],
+			[financial.id, financial.cron, financial.ttl],
 			[metering.id, metering.cron, metering.ttl],
 			[recovery.id, recovery.cron, recovery.ttl],
 			[affiliate.id, affiliate.cron, affiliate.ttl],
@@ -196,6 +224,11 @@ describe("billing Trigger maintenance tasks", () => {
 		]).toEqual([
 			[
 				"subscription-refill-sweep",
+				{ pattern: "*/10 * * * *", timezone: "UTC" },
+				"9m",
+			],
+			[
+				"financial-reconciliation-outbox-sweep",
 				{ pattern: "*/10 * * * *", timezone: "UTC" },
 				"9m",
 			],
@@ -231,6 +264,7 @@ describe("billing Trigger maintenance tasks", () => {
 			concurrencyLimit: 1,
 			name: "billing-financial-maintenance",
 		});
+		expect(financial.queue).toBe(refill.queue);
 		expect(metering.queue).toMatchObject({
 			concurrencyLimit: 1,
 			name: "metering-maintenance",
@@ -260,7 +294,7 @@ describe("billing Trigger maintenance tasks", () => {
 			granted: 2,
 		});
 		await expect(metering.run({ timestamp }, context)).resolves.toMatchObject({
-			reconciled: 4,
+			settled: { reconciled: 4 },
 		});
 
 		expect(mocks.refills).toHaveBeenCalledWith(timestamp, 1_000);
@@ -269,7 +303,28 @@ describe("billing Trigger maintenance tasks", () => {
 			500,
 			timestamp,
 		);
+		// After the settled sweep: due reconcile_failed retries, then the
+		// settled-without-refs finalization pass.
+		expect(mocks.reconcileRetries).toHaveBeenCalledWith(timestamp, 100);
+		expect(mocks.settledWithoutRefs).toHaveBeenCalledWith(
+			new Date("2026-08-02T11:30:00.000Z"),
+			100,
+		);
 		expect(mocks.close).toHaveBeenCalledTimes(2);
+	});
+
+	it("drains the financial reconciliation outbox and fails loudly when rows stay pending", async () => {
+		await expect(financial.run({ timestamp }, context)).resolves.toEqual({
+			done: 3,
+			failed: 0,
+		});
+		expect(mocks.assertFinancial).toHaveBeenCalled();
+		expect(mocks.close).toHaveBeenCalledTimes(1);
+
+		mocks.financialReconciliation.mockResolvedValueOnce({ done: 0, failed: 2 });
+		await expect(financial.run({ timestamp }, context)).rejects.toThrow(
+			"Financial reconciliation sweep left 2 row(s) pending",
+		);
 	});
 
 	it("repairs connector checkpoints before stale reservation recovery", async () => {

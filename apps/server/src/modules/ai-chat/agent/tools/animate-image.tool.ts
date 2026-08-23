@@ -266,6 +266,14 @@ export function createAnimateImageTool(
 				deps.subject,
 				attempt.id,
 				deps.parentEventId,
+				undefined,
+				// Image animation always renders the house five-second clip.
+				{
+					audio: input.talking,
+					durationSeconds: 5,
+					kind: "image-animation",
+					modelId: plan.modelId,
+				},
 			);
 
 			assertFixedOperationProviderExecutionAllowed(reservation);

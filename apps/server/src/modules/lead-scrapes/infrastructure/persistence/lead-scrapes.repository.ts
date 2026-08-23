@@ -7,19 +7,19 @@
  * download). The Trigger.dev task does NOT use this class: it runs outside
  * Nest and talks to the same table through createDb(), like the page task.
  */
-import {
-	type ProjectScope,
-	projectScopePredicate,
-} from "../../../projects/domain/project-scope";
+
 import { Inject, Injectable } from "@nestjs/common";
 import { and, desc, eq, inArray, isNull, lt, sql } from "@wandit/db";
 import { leadScrapeAttempts } from "@wandit/db/schema/lead-scrape-attempts";
 import { projects } from "@wandit/db/schema/projects";
-
 import {
 	DATABASE,
 	type Database,
 } from "../../../../infrastructure/database/database.constants";
+import {
+	type ProjectScope,
+	projectScopePredicate,
+} from "../../../projects/domain/project-scope";
 import type { LeadScrapeSpec } from "../../domain/lead-scrape-spec";
 
 const PROJECT_LIST_LIMIT = 20;
@@ -77,23 +77,55 @@ export class LeadScrapesRepository {
 	// DATABASE is the Nest token for the Drizzle database connection.
 	constructor(@Inject(DATABASE) private readonly db: Database) {}
 
-	// One attempt row per scrape_leads call, born "queued".
+	// One attempt row per scrape_leads REQUEST: a duplicated tool call (same
+	// chatId + requestKey) lands on the existing row instead of a second
+	// scrape. Same shape as ImageGenerationsRepository.insertAttempt.
 	async insertAttempt(input: {
 		chatId: string;
 		projectId: string;
+		requestKey: string;
 		spec: LeadScrapeSpec;
-	}): Promise<{ id: string }> {
+	}): Promise<{
+		created: boolean;
+		id: string;
+		status: LeadScrapeAttemptRow["status"];
+	}> {
 		const [row] = await this.db
 			.insert(leadScrapeAttempts)
 			.values(input)
-			.returning({ id: leadScrapeAttempts.id });
+			.onConflictDoNothing({
+				target: [leadScrapeAttempts.chatId, leadScrapeAttempts.requestKey],
+			})
+			.returning({
+				id: leadScrapeAttempts.id,
+				status: leadScrapeAttempts.status,
+			});
 
-		// Defensive guard: insert should always return one row.
-		if (!row) {
-			throw new Error("Lead scrape attempt insert did not return a row");
+		if (row) {
+			return { ...row, created: true };
 		}
 
-		return row;
+		const [existing] = await this.db
+			.select({
+				id: leadScrapeAttempts.id,
+				status: leadScrapeAttempts.status,
+			})
+			.from(leadScrapeAttempts)
+			.where(
+				and(
+					eq(leadScrapeAttempts.chatId, input.chatId),
+					eq(leadScrapeAttempts.requestKey, input.requestKey),
+				),
+			)
+			.limit(1);
+
+		if (!existing) {
+			throw new Error(
+				"Lead scrape idempotency conflict did not return an attempt",
+			);
+		}
+
+		return { ...existing, created: false };
 	}
 
 	// Link the attempt to its Trigger.dev run once the queue accepted it.

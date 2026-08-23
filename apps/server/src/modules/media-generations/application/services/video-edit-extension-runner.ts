@@ -5,11 +5,12 @@ import type { VideoVoiceover } from "@wandit/contracts";
 import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import { isTerminalFixedOperationReplay } from "../../../metering/application/services/fixed-operation-billing";
 import { parseImageAnimationPayload } from "./image-animation-runner";
-import type {
-	VideoBilling,
-	VideoDeliveredUnits,
-	VideoReservation,
-	VideoReservationUnits,
+import {
+	type VideoBilling,
+	type VideoDeliveredUnits,
+	type VideoReservation,
+	type VideoReservationUnits,
+	videoEstimateHintForAttempt,
 } from "./video-billing";
 
 export const USER_SAFE_VIDEO_EDIT_ERROR =
@@ -243,6 +244,7 @@ async function continueAttempt(
 			units,
 			payload.parentEventId,
 			payload.billingMode,
+			videoEstimateHintForAttempt(attempt, units),
 		);
 		await dependencies.settle(reservation, units);
 		return succeededResult(attempt, false);
@@ -303,6 +305,7 @@ async function continueAttempt(
 			units,
 			payload.parentEventId,
 			payload.billingMode,
+			videoEstimateHintForAttempt(active, units),
 		);
 	} catch {
 		await failAndBill(active, subject, dependencies, {

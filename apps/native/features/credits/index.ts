@@ -4,7 +4,6 @@ export { useCreditBalance } from "./api/credits.queries";
 export { CreditsCard } from "./components/credits-card";
 export { CreditsChip } from "./components/credits-chip";
 export { OutOfCreditsBanner } from "./components/out-of-credits-banner";
-export { PriceTag } from "./components/price-tag";
 export {
 	type BillingErrorIntent,
 	toBillingErrorIntent,

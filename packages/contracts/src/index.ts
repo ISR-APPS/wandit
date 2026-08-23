@@ -74,6 +74,8 @@ export * from "./v1/product-events";
 export * from "./v1/project-assets";
 // Project contracts.
 export * from "./v1/projects";
+// Mobile push-notification token contracts.
+export * from "./v1/push-tokens";
 // Product settings contracts.
 export * from "./v1/settings";
 // Shared id/date validators.

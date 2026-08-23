@@ -227,6 +227,7 @@ describe("ProjectAssetsService.listAssets", () => {
 
 	it.each([
 		"text-to-video",
+		"video-product",
 		"video-edit",
 		"video-extension",
 	] as const)("maps %s rows to the existing video-generation asset source", async (kind) => {
@@ -639,6 +640,7 @@ describe("ProjectAssetsService.listWorkspaceAssets", () => {
 	});
 
 	it.each([
+		"video-product",
 		"video-edit",
 		"video-extension",
 	] as const)("keeps %s on the existing workspace video-generation source", async (kind) => {

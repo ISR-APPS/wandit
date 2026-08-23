@@ -16,7 +16,7 @@ export function CreditsChip() {
 		<View className="h-9 flex-row items-center gap-1.5 rounded-full border border-border bg-surface px-3 dark:bg-surface-tertiary/65">
 			<WanditIcon name="spark" size={12} color={accent} />
 			<Text className="font-mono-semibold text-[12px] text-foreground">
-				{data ? formatCreditBalance(data.balance, locale) : "—"}
+				{data ? formatCreditBalance(data.settledBalance, locale) : "—"}
 			</Text>
 		</View>
 	);

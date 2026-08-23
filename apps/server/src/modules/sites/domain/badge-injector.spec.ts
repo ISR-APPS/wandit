@@ -25,23 +25,52 @@ describe("injectWanditBadge", () => {
 		expect(result).toContain(`id="${WANDIT_BADGE_ID}"`);
 	});
 
-	it("is idempotent: a badge-carrying document is returned unchanged", () => {
+	it("replaces a canonical badge with a fresh one", () => {
 		const once = injectWanditBadge(PAGE, { hide: false });
+		const stale = once.replaceAll("Made with Wandit", "Old Badge");
+		const refreshed = injectWanditBadge(stale, { hide: false });
 
-		expect(injectWanditBadge(once, { hide: false })).toBe(once);
+		expect(refreshed).toBe(once);
+		expect(refreshed).not.toContain("Old Badge");
 	});
 
 	it("returns a badge-free document untouched when hide is set", () => {
 		expect(injectWanditBadge(PAGE, { hide: true })).toBe(PAGE);
 	});
 
-	it("REMOVES a previously injected badge when hide is set", () => {
+	it("removes every canonical badge when hide is set", () => {
 		// Rollback replays archived bytes through the same transform: an
 		// entitled owner who hid the badge must not get it back from an old
 		// free-plan archive.
 		const withBadge = injectWanditBadge(PAGE, { hide: false });
+		const block = withBadge.match(
+			/<div id="wandit-badge">[\s\S]*?<\/div>/,
+		)?.[0];
+		const repeated = PAGE.replace("<h1>Hi</h1>", `${block}<h1>Hi</h1>${block}`);
 
-		expect(injectWanditBadge(withBadge, { hide: true })).toBe(PAGE);
+		expect(injectWanditBadge(repeated, { hide: true })).toBe(PAGE);
+	});
+
+	it.each([
+		false,
+		true,
+	])("returns an unrecognized badge carrier untouched when hide is %s", (hide) => {
+		const merchant = PAGE.replace(
+			"<h1>Hi</h1>",
+			'<div id="wandit-badge">Merchant content</div><h1>Hi</h1>',
+		);
+
+		expect(injectWanditBadge(merchant, { hide })).toBe(merchant);
+	});
+
+	it("returns the original document when canonical and unrecognized badges are mixed", () => {
+		const canonical = injectWanditBadge(PAGE, { hide: false });
+		const mixed = canonical.replace(
+			"<h1>Hi</h1>",
+			'<div id="wandit-badge">Merchant content</div><h1>Hi</h1>',
+		);
+
+		expect(injectWanditBadge(mixed, { hide: true })).toBe(mixed);
 	});
 
 	it("splices correctly when a Turkish İ precedes </body>", () => {

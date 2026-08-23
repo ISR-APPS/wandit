@@ -296,6 +296,13 @@ export function createExtendVideoTool(
 				attempt.id,
 				input.legCount,
 				deps.parentEventId,
+				undefined,
+				// Per leg: every continuation renders one legDurationSeconds clip.
+				{
+					durationSeconds: input.legDurationSeconds,
+					kind: "video-extension",
+					modelId: plan.modelId,
+				},
 			);
 
 			assertFixedOperationProviderExecutionAllowed(reservation);

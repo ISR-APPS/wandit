@@ -1,6 +1,6 @@
 import { expo } from "@better-auth/expo";
 import { isAdminRole } from "@wandit/contracts";
-import { createDb } from "@wandit/db";
+import { and, createDb, eq, sql } from "@wandit/db";
 import * as authSchema from "@wandit/db/schema/auth";
 import * as orgSchema from "@wandit/db/schema/organizations";
 import { corsWebOrigins } from "@wandit/env/cors-origins";
@@ -13,7 +13,13 @@ import {
 	type SecondaryStorage,
 } from "better-auth";
 import { drizzleAdapter } from "better-auth/adapters/drizzle";
-import { APIError, createAuthMiddleware, getIp } from "better-auth/api";
+import {
+	APIError,
+	createAuthMiddleware,
+	getIp,
+	getOAuthState,
+} from "better-auth/api";
+import { setSessionCookie } from "better-auth/cookies";
 import {
 	admin,
 	captcha,
@@ -29,6 +35,7 @@ import { createUserCreatedHook, type OnUserCreated } from "./user-created-hook";
 // organization plugin needs `organization`, `member`, and `invitation` present
 // or every /api/auth/organization/* route fails with "model not found".
 const schema = { ...authSchema, ...orgSchema };
+const db = createDb();
 
 // The admin plugin is kept for its schema fields (role/banned/banExpires), but
 // every HTTP route it mounts is served by NestJS admin controllers instead.
@@ -163,8 +170,6 @@ export type CreateAuthOptions = {
 };
 
 function createBaseAuthOptions() {
-	const db = createDb();
-
 	// See TRUSTED_PROXY_CIDRS in @wandit/env: without these, a request whose
 	// X-Forwarded-For has more than one hop resolves to NO client IP, and
 	// Better Auth then rate-limits every such caller through a single shared
@@ -304,6 +309,46 @@ function createRateLimitStorage(
 	};
 }
 
+const GOOGLE_DISPLAY_EMAIL_OAUTH_STATE_KEY = "wanditGoogleDisplayEmail";
+
+async function getGoogleDisplayEmailFromOAuthState(data: { email?: unknown }) {
+	try {
+		if (typeof data.email !== "string") {
+			return;
+		}
+		const oauthState = await getOAuthState();
+		const displayEmail = oauthState?.[GOOGLE_DISPLAY_EMAIL_OAUTH_STATE_KEY];
+		if (
+			typeof displayEmail !== "string" ||
+			canonicalizeEmail(displayEmail) !== data.email
+		) {
+			return;
+		}
+		return { data: { displayEmail } };
+	} catch {
+		// A cosmetic field must never abort Google sign-in.
+	}
+}
+
+async function refreshExistingGoogleDisplayEmail(
+	canonicalEmail: string,
+	displayEmail: string,
+) {
+	try {
+		await db
+			.update(authSchema.user)
+			.set({ displayEmail })
+			.where(
+				and(
+					eq(authSchema.user.email, canonicalEmail),
+					sql`${authSchema.user.displayEmail} is distinct from ${displayEmail}`,
+				),
+			);
+	} catch {
+		// A cosmetic refresh must never abort Google sign-in.
+	}
+}
+
 function createGoogleProviderOptions(): GoogleOptions {
 	return {
 		// offline → Google issues a refresh token whenever its consent screen is
@@ -312,10 +357,29 @@ function createGoogleProviderOptions(): GoogleOptions {
 		accessType: "offline",
 		clientId: env.GOOGLE_CLIENT_ID,
 		clientSecret: env.GOOGLE_CLIENT_SECRET,
-		// Keep Google and email sign-in on the same canonical inbox/user row.
-		mapProfileToUser: (profile) => ({
-			email: canonicalizeEmail(profile.email),
-		}),
+		mapProfileToUser: async (profile) => {
+			const displayEmail = profile.email.trim();
+			const canonicalEmail = canonicalizeEmail(profile.email);
+			try {
+				// better-auth/dist/oauth2/state.mjs makes callback state request-scoped,
+				// so DB hooks can recover the spelling after provider input is filtered.
+				const oauthState = await getOAuthState();
+				if (oauthState) {
+					oauthState[GOOGLE_DISPLAY_EMAIL_OAUTH_STATE_KEY] = displayEmail;
+				}
+			} catch {
+				// A cosmetic field must never abort Google sign-in.
+			}
+			// better-auth/dist/oauth2/link-account.mjs leaves linked users unchanged
+			// without full profile override, which would clobber onboarding-owned name.
+			// Refresh only the cosmetic field before Better Auth reads the user row.
+			await refreshExistingGoogleDisplayEmail(canonicalEmail, displayEmail);
+			return {
+				// Keep Google and email sign-in on the same canonical inbox/user row.
+				displayEmail,
+				email: canonicalEmail,
+			};
+		},
 	};
 }
 
@@ -371,6 +435,11 @@ export function createAuth(options: CreateAuthOptions = {}) {
 		user: {
 			additionalFields: {
 				// Server-owned: exposed on session users, never accepted from client input.
+				displayEmail: {
+					type: "string",
+					required: false,
+					input: false,
+				},
 				onboardingCompletedAt: {
 					type: "date",
 					required: false,
@@ -395,7 +464,7 @@ export function createAuth(options: CreateAuthOptions = {}) {
 			google: createGoogleProviderOptions(),
 		},
 		hooks: {
-			// Two jobs, both of which MUST run in the hook pipeline (hook
+			// The before hook has two jobs that MUST run in the hook pipeline (hook
 			// errors always propagate to the client; the email-otp plugin
 			// backgrounds its send callback, so in-callback errors would be
 			// swallowed into a fake `success: true`):
@@ -427,6 +496,10 @@ export function createAuth(options: CreateAuthOptions = {}) {
 				if (!body || typeof body.email !== "string") {
 					return;
 				}
+				const rawSignInEmail =
+					path === "/sign-in/email-otp" ? body.email.trim() : undefined;
+				// Magic-link verification carries only the token. Capturing spelling on
+				// its unauthenticated send would let an alias mutate another user's display.
 				const email = canonicalizeEmail(body.email);
 				if (isInvitePath) {
 					await options.guardInviteEmail?.({ email });
@@ -458,13 +531,67 @@ export function createAuth(options: CreateAuthOptions = {}) {
 						kind: sendKind,
 					});
 				}
-				return { context: { body: { ...body, email } } };
+				return {
+					context: {
+						body: { ...body, email },
+						...(rawSignInEmail === undefined ? {} : { rawSignInEmail }),
+					},
+				};
+			}),
+			after: createAuthMiddleware(async (ctx) => {
+				if (ctx.path !== "/sign-in/email-otp") {
+					return;
+				}
+				const rawSignInEmail = (
+					ctx as typeof ctx & { rawSignInEmail?: unknown }
+				).rawSignInEmail;
+				const newSession = ctx.context.newSession;
+				if (typeof rawSignInEmail !== "string" || !newSession) {
+					return;
+				}
+				const user = newSession.user;
+				if (
+					canonicalizeEmail(rawSignInEmail) !== user.email ||
+					user.displayEmail === rawSignInEmail
+				) {
+					return;
+				}
+				try {
+					const updatedUser = await ctx.context.internalAdapter.updateUser(
+						user.id,
+						{
+							displayEmail: rawSignInEmail,
+						},
+					);
+					const returned = ctx.context.returned;
+					if (
+						typeof returned === "object" &&
+						returned !== null &&
+						"user" in returned &&
+						typeof returned.user === "object" &&
+						returned.user !== null
+					) {
+						(returned.user as { displayEmail?: string | null }).displayEmail =
+							rawSignInEmail;
+					}
+					// The OTP route serialized the original user before after-hooks run.
+					// Reissue this same session so its cookie cache is immediately fresh.
+					await setSessionCookie(ctx, {
+						session: newSession.session,
+						user: updatedUser,
+					});
+				} catch {
+					// A cosmetic write must never turn a successful OTP into a failure.
+				}
 			}),
 		},
 		// Production cross-subdomain cookie policy is configured at deploy time.
 		databaseHooks: {
 			user: {
 				create: {
+					// better-auth/dist/db/schema.mjs filters input:false provider fields.
+					// Re-inject this server-owned value after provider input parsing.
+					before: getGoogleDisplayEmailFromOAuthState,
 					after: createUserCreatedHook(options.onUserCreated),
 				},
 			},

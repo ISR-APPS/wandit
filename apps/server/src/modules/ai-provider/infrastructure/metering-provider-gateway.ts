@@ -15,6 +15,19 @@ export function createProviderMeteringGateway(): MeteringGateway {
 	return {
 		async getGenerationInfo(params) {
 			if (params.source !== "openrouter") {
+				if (!env.AI_GATEWAY_API_KEY) {
+					// Retryable, never terminal — same contract as the OpenRouter
+					// branch below: a missing key is deployment drift, not proof the
+					// generation is unbillable. The sweep backs off instead of
+					// terminalizing the event or crashing the whole task.
+					throw Object.assign(
+						new Error(
+							"AI_GATEWAY_API_KEY is required to reconcile Vercel gateway generations",
+						),
+						{ retryable: true },
+					);
+				}
+
 				return gateway.getGenerationInfo({ id: params.id });
 			}
 

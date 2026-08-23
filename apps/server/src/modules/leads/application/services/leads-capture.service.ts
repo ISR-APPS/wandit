@@ -2,9 +2,9 @@
  * The public capture flow: anonymous and cross-origin.
  *
  * The page's primary transport posts application/json, while the unload
- * fallback may arrive as a raw text/plain string. Every quiet-discard path
- * (honeypot, duplicate) answers the same { ok: true } as a real insert so bots
- * learn nothing from the response.
+ * fallback may arrive as a raw text/plain string. Honeypots, inserts, and
+ * in-window updates answer the same { ok: true } so bots learn nothing from
+ * the response.
  */
 import {
 	BadRequestException,
@@ -20,12 +20,14 @@ import {
 	type LeadCaptureResponse,
 	leadCaptureBodySchema,
 } from "@wandit/contracts";
+import { LeadPushDispatcherService } from "../../../push-notifications/infrastructure/trigger/lead-push-dispatcher.service";
 import { normalizeLeadPhone } from "../../domain/normalize-lead-phone";
 import { LeadsRepository } from "../../infrastructure/persistence/leads.repository";
 import { LeadsCaptureThrottle } from "./leads-capture-throttle";
 
-// Same phone hitting the same project inside this window is a double submit
-// (page retries, impatient double click, heuristic + event both firing).
+// Same phone hitting the same project inside this window dedupes double submits
+// (page retries, impatient double click, heuristic + event both firing) by
+// updating the recent row in place; no submission is dropped.
 const DUPLICATE_WINDOW_MS = 2 * 60_000;
 
 export class LeadsCaptureRateLimitException extends HttpException {
@@ -49,6 +51,8 @@ export class LeadsCaptureService {
 		private readonly leadsRepository: LeadsRepository,
 		@Inject(LeadsCaptureThrottle)
 		private readonly throttle: LeadsCaptureThrottle,
+		@Inject(LeadPushDispatcherService)
+		private readonly leadPushDispatcher: LeadPushDispatcherService,
 	) {}
 
 	async capture(
@@ -81,15 +85,6 @@ export class LeadsCaptureService {
 			);
 		}
 
-		const isDuplicate = await this.leadsRepository.hasRecentLeadWithPhone(
-			project.id,
-			phone,
-			new Date(Date.now() - DUPLICATE_WINDOW_MS),
-		);
-		if (isDuplicate) {
-			return { ok: true };
-		}
-
 		const loadedDeployment = body.deploymentId
 			? await this.leadsRepository.findDeploymentSnapshotById(
 					project.id,
@@ -107,18 +102,40 @@ export class LeadsCaptureService {
 			loadedDeployment ??
 			(await this.leadsRepository.findActiveDeploymentSnapshot(project.id));
 
-		await this.leadsRepository.insertLead({
-			attribution: body.attribution ?? null,
-			commune: body.commune || null,
-			deploymentId: deployment?.deploymentId ?? null,
-			// Spec: keep the raw phone as typed; the column only holds E.164.
-			extras: { ...body.extras, _rawPhone: body.phone },
-			name: body.name,
-			phone,
-			productSku: deployment?.productSku ?? null,
-			projectId: project.id,
-			wilaya: body.wilaya || null,
-		});
+		const lead = await this.leadsRepository.upsertCaptureLead(
+			{
+				attribution: body.attribution ?? null,
+				commune: body.commune || null,
+				deploymentId: deployment?.deploymentId ?? null,
+				// Spec: keep the raw phone as typed; the column only holds E.164.
+				extras: { ...body.extras, _rawPhone: body.phone },
+				name: body.name,
+				phone,
+				productSku: deployment?.productSku ?? null,
+				projectId: project.id,
+				wilaya: body.wilaya || null,
+			},
+			new Date(Date.now() - DUPLICATE_WINDOW_MS),
+		);
+
+		// A duplicate-window update refreshes the row silently; only a brand-new
+		// lead may ring the owner's phone.
+		if (lead.created) {
+			void this.leadPushDispatcher
+				.dispatchLeadCaptured({
+					leadId: lead.id,
+					leadName: body.name,
+					leadPhone: phone,
+					projectId: project.id,
+					...(body.wilaya ? { wilaya: body.wilaya } : {}),
+				})
+				.catch((error) => {
+					const message = error instanceof Error ? error.message : String(error);
+					this.logger.warn(
+						`Lead push dispatch failed for lead ${lead.id}: ${message}`,
+					);
+				});
+		}
 
 		return { ok: true };
 	}

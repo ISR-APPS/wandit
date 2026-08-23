@@ -292,6 +292,19 @@ export const aiUsageEvents = pgTable(
 		messageId: text("message_id"),
 		attemptRef: text("attempt_ref"),
 		idempotencyKey: text("idempotency_key").notNull(),
+		// Cross-replica execution lease (chat streams): while unexpired, the
+		// stream owning this token is provably live somewhere, so sweeps and
+		// duplicate admissions must not touch the hold.
+		executionLeaseToken: uuid("execution_lease_token"),
+		executionLeaseExpiresAt: timestamp("execution_lease_expires_at", {
+			withTimezone: true,
+		}),
+		// Reconciliation retry bookkeeping: reconcile_failed rows stay sweepable
+		// with exponential backoff until the dead-letter cap NULLs the schedule.
+		reconcileAttempts: integer("reconcile_attempts").notNull().default(0),
+		nextReconcileAttemptAt: timestamp("next_reconcile_attempt_at", {
+			withTimezone: true,
+		}),
 		createdAt: timestamp("created_at", { withTimezone: true })
 			.defaultNow()
 			.notNull(),
@@ -311,6 +324,11 @@ export const aiUsageEvents = pgTable(
 		index("ai_usage_events_reserved_status_idx")
 			.on(table.status)
 			.where(sql`${table.status} = 'reserved'`),
+		index("ai_usage_events_reconcile_failed_retry_idx")
+			.on(table.nextReconcileAttemptAt)
+			.where(
+				sql`${table.status} = 'reconcile_failed' AND ${table.nextReconcileAttemptAt} IS NOT NULL`,
+			),
 		uniqueIndex("ai_usage_events_idempotencyKey_uq").on(table.idempotencyKey),
 	],
 );
@@ -338,6 +356,86 @@ export const aiUsageGenerationRefs = pgTable(
 	],
 );
 
+// Which external provider transport produced a piece of cost evidence.
+// `vercel`/`openrouter` exist for optional mirroring of gateway generations;
+// the evidence writers today emit serper/higgsfield/mcp rows only.
+export const aiCostTransport = pgEnum("ai_cost_transport", [
+	"vercel",
+	"openrouter",
+	"serper",
+	"higgsfield",
+	"mcp",
+]);
+
+export const aiCostStatus = pgEnum("ai_cost_status", [
+	// Exact charge confirmed by the provider.
+	"measured",
+	// units × configured contract rate.
+	"contract_rate",
+	// Provider preflight or heuristic.
+	"estimated",
+	// Provider accepted the work; the charge is not known yet.
+	"pending",
+]);
+
+/**
+ * Durable receipt of one non-gateway provider call (Serper search pages, a
+ * Higgsfield/MCP job submit). Separate from ai_usage_generation_refs on
+ * purpose: refs are gateway generation ids that reconciliation prices via
+ * the gateway; evidence rows carry their own cost and are summed next to
+ * the gateway total. Evidence may attach to a refunded event — a failed
+ * lead scrape still paid Serper.
+ */
+export const aiProviderCallEvidence = pgTable(
+	"ai_provider_call_evidence",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		usageEventId: uuid("usage_event_id")
+			.notNull()
+			.references(() => aiUsageEvents.id, { onDelete: "restrict" }),
+		transport: aiCostTransport("transport").notNull(),
+		// Provider-side id: Higgsfield job id, MCP tool-call ref, Serper attempt.
+		providerRequestId: text("provider_request_id"),
+		// e.g. "search_page", "video", "image", "operation". Units are integers.
+		unitKind: text("unit_kind").notNull(),
+		units: integer("units").notNull(),
+		chargedUsdMicros: integer("charged_usd_micros"),
+		// Snapshot of the rate used, so a later rate change never rewrites history.
+		rateUsdMicrosPerUnit: integer("rate_usd_micros_per_unit"),
+		costStatus: aiCostStatus("cost_status").notNull(),
+		costSource: text("cost_source"),
+		// False when the user pays a product price instead of this provider cost
+		// (per-lead scrape price; renders on the user's own Higgsfield plan).
+		customerBillable: boolean("customer_billable").notNull().default(true),
+		rawReceipt: jsonb("raw_receipt"),
+		idempotencyKey: text("idempotency_key").notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+		updatedAt: timestamp("updated_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+	},
+	(table) => [
+		index("ai_provider_call_evidence_usageEventId_idx").on(table.usageEventId),
+		index("ai_provider_call_evidence_transport_createdAt_idx").on(
+			table.transport,
+			table.createdAt,
+		),
+		uniqueIndex("ai_provider_call_evidence_idempotencyKey_uq").on(
+			table.idempotencyKey,
+		),
+		check(
+			"ai_provider_call_evidence_units_positive_ck",
+			sql`${table.units} > 0`,
+		),
+		check(
+			"ai_provider_call_evidence_cost_present_ck",
+			sql`${table.costStatus} = 'pending' OR ${table.chargedUsdMicros} IS NOT NULL`,
+		),
+	],
+);
+
 export const modelPrices = pgTable(
 	"model_prices",
 	{
@@ -349,6 +447,11 @@ export const modelPrices = pgTable(
 		cacheReadUsdMicrosPerMTok: integer("cache_read_usd_micros_per_mtok"),
 		cacheWriteUsdMicrosPerMTok: integer("cache_write_usd_micros_per_mtok"),
 		imageUsdMicros: integer("image_usd_micros"),
+		videoUsdMicrosPerSecond: integer("video_usd_micros_per_second"),
+		transcriptionUsdMicrosPerSecond: integer(
+			"transcription_usd_micros_per_second",
+		),
+		variantPricing: jsonb("variant_pricing"),
 		raw: jsonb("raw").notNull(),
 		refreshedAt: timestamp("refreshed_at", { withTimezone: true }).notNull(),
 	},
@@ -371,6 +474,17 @@ export const aiUsageEventsRelations = relations(
 			relationName: "aiUsageEventChildren",
 		}),
 		generationRefs: many(aiUsageGenerationRefs),
+		providerCallEvidence: many(aiProviderCallEvidence),
+	}),
+);
+
+export const aiProviderCallEvidenceRelations = relations(
+	aiProviderCallEvidence,
+	({ one }) => ({
+		usageEvent: one(aiUsageEvents, {
+			fields: [aiProviderCallEvidence.usageEventId],
+			references: [aiUsageEvents.id],
+		}),
 	}),
 );
 

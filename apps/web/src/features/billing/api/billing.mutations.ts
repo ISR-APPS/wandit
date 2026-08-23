@@ -155,6 +155,6 @@ function refreshCreditCaches(
 	void queryClient.invalidateQueries({ queryKey: creditsKeys.balance() });
 
 	if (invalidateLedger) {
-		void queryClient.invalidateQueries({ queryKey: creditsKeys.ledgers() });
+		void queryClient.invalidateQueries({ queryKey: creditsKeys.activities() });
 	}
 }

@@ -272,9 +272,24 @@ describe("analytics percentage helpers", () => {
 describe("mapCollectedRevenueChartData", () => {
 	it("sorts dates, combines duplicate days, and adds stacked totals", () => {
 		const points = [
-			{ date: "2026-08-03", subscriptionsMinor: 1_200, ordersMinor: 300 },
-			{ date: "2026-08-01", subscriptionsMinor: 800, ordersMinor: 0 },
-			{ date: "2026-08-03", subscriptionsMinor: 200, ordersMinor: 100 },
+			{
+				date: "2026-08-03",
+				subscriptionsMinor: 1_200,
+				ordersMinor: 300,
+				topupsMinor: 50,
+			},
+			{
+				date: "2026-08-01",
+				subscriptionsMinor: 800,
+				ordersMinor: 0,
+				topupsMinor: 0,
+			},
+			{
+				date: "2026-08-03",
+				subscriptionsMinor: 200,
+				ordersMinor: 100,
+				topupsMinor: 25,
+			},
 		];
 
 		expect(mapCollectedRevenueChartData(points)).toEqual([
@@ -282,13 +297,15 @@ describe("mapCollectedRevenueChartData", () => {
 				date: "2026-08-01",
 				subscriptionsMinor: 800,
 				ordersMinor: 0,
+				topupsMinor: 0,
 				totalMinor: 800,
 			},
 			{
 				date: "2026-08-03",
 				subscriptionsMinor: 1_400,
 				ordersMinor: 400,
-				totalMinor: 1_800,
+				topupsMinor: 75,
+				totalMinor: 1_875,
 			},
 		]);
 
@@ -296,6 +313,7 @@ describe("mapCollectedRevenueChartData", () => {
 			date: "2026-08-03",
 			subscriptionsMinor: 1_200,
 			ordersMinor: 300,
+			topupsMinor: 50,
 		});
 	});
 

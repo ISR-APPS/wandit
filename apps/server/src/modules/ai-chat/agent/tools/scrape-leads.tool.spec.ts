@@ -51,14 +51,20 @@ function setup(requestCountryCode: string | null = "DZ") {
 		status: "reserved",
 		userId: "user-1",
 	};
+	// No prior hold at the chat boundary: the tool creates the first one and
+	// later lookups (refund) find it.
+	let held = false;
 	const meteringService = {
-		findByIdempotencyKey: vi.fn(async () => usageEvent),
+		findByIdempotencyKey: vi.fn(async () => (held ? usageEvent : null)),
 		refund: vi.fn(async () => ({ ...usageEvent, status: "refunded" })),
-		reserveWithReplay: vi.fn(async () => ({
-			event: usageEvent,
-			replay: "none",
-			replayed: false,
+		refundWithProviderCost: vi.fn(async () => ({
+			...usageEvent,
+			status: "refunded",
 		})),
+		reserveWithReplay: vi.fn(async () => {
+			held = true;
+			return { event: usageEvent, replay: "none", replayed: false };
+		}),
 		settle: vi.fn(),
 	};
 	const scrapeLeadsTool = createScrapeLeadsTool({
@@ -125,7 +131,11 @@ describe("scrape_leads tool", () => {
 		const { execute, leadScrapesRepository } = setup("DZ");
 		vi.mocked(isLeadSearchConfigured).mockReturnValue(true);
 		vi.mocked(isR2Configured).mockReturnValue(true);
-		leadScrapesRepository.insertAttempt.mockResolvedValue({ id: "attempt_1" });
+		leadScrapesRepository.insertAttempt.mockResolvedValue({
+			created: true,
+			id: "attempt_1",
+			status: "queued",
+		});
 		vi.mocked(tasks.trigger).mockResolvedValue({
 			id: "run_123",
 		} as Awaited<ReturnType<typeof tasks.trigger>>);
@@ -135,6 +145,7 @@ describe("scrape_leads tool", () => {
 		expect(leadScrapesRepository.insertAttempt).toHaveBeenCalledWith({
 			chatId: "chat_1",
 			projectId: "project_1",
+			requestKey: expect.any(String),
 			spec: {
 				countryCode: "dz",
 				limit: 150,
@@ -177,7 +188,11 @@ describe("scrape_leads tool", () => {
 		).GENERATION_BILLING_MODE = "off";
 		vi.mocked(isLeadSearchConfigured).mockReturnValue(true);
 		vi.mocked(isR2Configured).mockReturnValue(true);
-		leadScrapesRepository.insertAttempt.mockResolvedValue({ id: "attempt_1" });
+		leadScrapesRepository.insertAttempt.mockResolvedValue({
+			created: true,
+			id: "attempt_1",
+			status: "queued",
+		});
 		vi.mocked(tasks.trigger).mockResolvedValue({
 			id: "run_123",
 		} as Awaited<ReturnType<typeof tasks.trigger>>);
@@ -199,7 +214,11 @@ describe("scrape_leads tool", () => {
 		const { execute, leadScrapesRepository, meteringService } = setup();
 		vi.mocked(isLeadSearchConfigured).mockReturnValue(true);
 		vi.mocked(isR2Configured).mockReturnValue(true);
-		leadScrapesRepository.insertAttempt.mockResolvedValue({ id: "attempt_1" });
+		leadScrapesRepository.insertAttempt.mockResolvedValue({
+			created: true,
+			id: "attempt_1",
+			status: "queued",
+		});
 		const paymentRequired = new InsufficientCreditsError(5, 2);
 		meteringService.reserveWithReplay.mockRejectedValueOnce(paymentRequired);
 
@@ -209,8 +228,8 @@ describe("scrape_leads tool", () => {
 			{ actorUserId: "user-1" },
 			{
 				attemptRef: "attempt_1",
-				// 500 centi-credits = the 5.00-credit lead-scrape price.
-				credits: 500,
+				// 150 requested leads × 5 cc = 750 cc (7.50 credits) held up front.
+				credits: 750,
 				idempotencyKey: "lead-scrape:attempt_1",
 				parentEventId: "chat-event-1",
 			},
@@ -224,7 +243,11 @@ describe("scrape_leads tool", () => {
 		const { execute, leadScrapesRepository } = setup("FR");
 		vi.mocked(isLeadSearchConfigured).mockReturnValue(true);
 		vi.mocked(isR2Configured).mockReturnValue(true);
-		leadScrapesRepository.insertAttempt.mockResolvedValue({ id: "attempt_1" });
+		leadScrapesRepository.insertAttempt.mockResolvedValue({
+			created: true,
+			id: "attempt_1",
+			status: "queued",
+		});
 		vi.mocked(tasks.trigger).mockResolvedValue({
 			id: "run_123",
 		} as Awaited<ReturnType<typeof tasks.trigger>>);
@@ -242,7 +265,11 @@ describe("scrape_leads tool", () => {
 		const { execute, leadScrapesRepository } = setup(null);
 		vi.mocked(isLeadSearchConfigured).mockReturnValue(true);
 		vi.mocked(isR2Configured).mockReturnValue(true);
-		leadScrapesRepository.insertAttempt.mockResolvedValue({ id: "attempt_1" });
+		leadScrapesRepository.insertAttempt.mockResolvedValue({
+			created: true,
+			id: "attempt_1",
+			status: "queued",
+		});
 		vi.mocked(tasks.trigger).mockResolvedValue({
 			id: "run_123",
 		} as Awaited<ReturnType<typeof tasks.trigger>>);
@@ -265,7 +292,11 @@ describe("scrape_leads tool", () => {
 		const { execute, leadScrapesRepository } = setup();
 		vi.mocked(isLeadSearchConfigured).mockReturnValue(true);
 		vi.mocked(isR2Configured).mockReturnValue(true);
-		leadScrapesRepository.insertAttempt.mockResolvedValue({ id: "attempt_1" });
+		leadScrapesRepository.insertAttempt.mockResolvedValue({
+			created: true,
+			id: "attempt_1",
+			status: "queued",
+		});
 		vi.mocked(tasks.trigger).mockRejectedValue(new Error("trigger is down"));
 
 		const output = await execute(INPUT);
@@ -279,7 +310,11 @@ describe("scrape_leads tool", () => {
 		const { execute, leadScrapesRepository } = setup();
 		vi.mocked(isLeadSearchConfigured).mockReturnValue(true);
 		vi.mocked(isR2Configured).mockReturnValue(true);
-		leadScrapesRepository.insertAttempt.mockResolvedValue({ id: "attempt_1" });
+		leadScrapesRepository.insertAttempt.mockResolvedValue({
+			created: true,
+			id: "attempt_1",
+			status: "queued",
+		});
 		vi.mocked(tasks.trigger)
 			.mockRejectedValueOnce(new Error("response lost"))
 			.mockResolvedValueOnce({
@@ -306,7 +341,11 @@ describe("scrape_leads tool", () => {
 		const { execute, leadScrapesRepository, meteringService } = setup();
 		vi.mocked(isLeadSearchConfigured).mockReturnValue(true);
 		vi.mocked(isR2Configured).mockReturnValue(true);
-		leadScrapesRepository.insertAttempt.mockResolvedValue({ id: "attempt_1" });
+		leadScrapesRepository.insertAttempt.mockResolvedValue({
+			created: true,
+			id: "attempt_1",
+			status: "queued",
+		});
 		vi.mocked(tasks.trigger).mockRejectedValue(
 			Object.assign(new Error("invalid Trigger credentials"), {
 				name: "TriggerApiError",
@@ -321,8 +360,10 @@ describe("scrape_leads tool", () => {
 			"attempt_1",
 			"The background scraper rejected this request. Please try again.",
 		);
-		expect(meteringService.refund).toHaveBeenCalledWith(
+		// Rejected before dispatch: full refund, no Serper cost consumed.
+		expect(meteringService.refundWithProviderCost).toHaveBeenCalledWith(
 			"usage-event-1",
+			0,
 			"lead_scrape_failed",
 		);
 		expect(output).toMatchObject({ status: "unavailable" });
@@ -332,7 +373,11 @@ describe("scrape_leads tool", () => {
 		const { execute, leadScrapesRepository } = setup();
 		vi.mocked(isLeadSearchConfigured).mockReturnValue(true);
 		vi.mocked(isR2Configured).mockReturnValue(true);
-		leadScrapesRepository.insertAttempt.mockResolvedValue({ id: "attempt_1" });
+		leadScrapesRepository.insertAttempt.mockResolvedValue({
+			created: true,
+			id: "attempt_1",
+			status: "queued",
+		});
 		leadScrapesRepository.markAttemptFailed.mockResolvedValue(false);
 		vi.mocked(tasks.trigger).mockRejectedValue(
 			Object.assign(new Error("invalid request"), {
@@ -346,11 +391,70 @@ describe("scrape_leads tool", () => {
 		expect(output).toMatchObject({ attemptId: "attempt_1", status: "queued" });
 	});
 
+	it("dedupes a duplicated tool call onto the existing attempt without a second reserve or trigger", async () => {
+		const { execute, leadScrapesRepository, meteringService } = setup();
+		vi.mocked(isLeadSearchConfigured).mockReturnValue(true);
+		vi.mocked(isR2Configured).mockReturnValue(true);
+		leadScrapesRepository.insertAttempt.mockResolvedValue({
+			created: false,
+			id: "attempt_1",
+			status: "running",
+		});
+
+		const output = await execute(INPUT);
+
+		expect(meteringService.reserveWithReplay).not.toHaveBeenCalled();
+		expect(tasks.trigger).not.toHaveBeenCalled();
+		expect(output).toMatchObject({ attemptId: "attempt_1", status: "queued" });
+	});
+
+	it("answers a replay of a terminally failed request without re-reserving", async () => {
+		const { execute, leadScrapesRepository, meteringService } = setup();
+		vi.mocked(isLeadSearchConfigured).mockReturnValue(true);
+		vi.mocked(isR2Configured).mockReturnValue(true);
+		leadScrapesRepository.insertAttempt.mockResolvedValue({
+			created: false,
+			id: "attempt_1",
+			status: "failed",
+		});
+
+		const output = await execute(INPUT);
+
+		expect(meteringService.reserveWithReplay).not.toHaveBeenCalled();
+		expect(tasks.trigger).not.toHaveBeenCalled();
+		expect(output).toMatchObject({ status: "unavailable" });
+	});
+
+	it("computes the same request key for identical deliveries and a new one per tool call", async () => {
+		const { execute, leadScrapesRepository } = setup();
+		vi.mocked(isLeadSearchConfigured).mockReturnValue(true);
+		vi.mocked(isR2Configured).mockReturnValue(true);
+		leadScrapesRepository.insertAttempt.mockResolvedValue({
+			created: true,
+			id: "attempt_1",
+			status: "queued",
+		});
+		vi.mocked(tasks.trigger).mockResolvedValue({
+			id: "run_123",
+		} as Awaited<ReturnType<typeof tasks.trigger>>);
+
+		await execute(INPUT);
+		await execute(INPUT);
+
+		const [first, second] = leadScrapesRepository.insertAttempt.mock.calls;
+
+		expect(first?.[0].requestKey).toEqual(second?.[0].requestKey);
+	});
+
 	it("does not turn accepted work into a failure when run-id persistence fails", async () => {
 		const { execute, leadScrapesRepository } = setup();
 		vi.mocked(isLeadSearchConfigured).mockReturnValue(true);
 		vi.mocked(isR2Configured).mockReturnValue(true);
-		leadScrapesRepository.insertAttempt.mockResolvedValue({ id: "attempt_1" });
+		leadScrapesRepository.insertAttempt.mockResolvedValue({
+			created: true,
+			id: "attempt_1",
+			status: "queued",
+		});
 		leadScrapesRepository.markAttemptTriggered.mockRejectedValue(
 			new Error("attempt already running"),
 		);

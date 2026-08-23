@@ -17,22 +17,30 @@ export function CreditsCard() {
 				</Text>
 				<Text className="font-mono text-[13px] text-muted">
 					{t("native.credits.left", {
-						count: data ? formatCreditBalance(data.balance, locale) : "—",
+						count: data
+							? formatCreditBalance(data.settledBalance, locale)
+							: "—",
 					})}
 				</Text>
 			</View>
 			<View className="mt-2.5 flex-row gap-2">
 				<CreditBucket
 					label={t("native.credits.bucketPlan")}
-					value={data ? formatCreditBalance(data.plan, locale) : undefined}
+					value={
+						data ? formatCreditBalance(data.settledPlan, locale) : undefined
+					}
 				/>
 				<CreditBucket
 					label={t("native.credits.bucketPromo")}
-					value={data ? formatCreditBalance(data.promo, locale) : undefined}
+					value={
+						data ? formatCreditBalance(data.settledPromo, locale) : undefined
+					}
 				/>
 				<CreditBucket
 					label={t("native.credits.bucketTopup")}
-					value={data ? formatCreditBalance(data.topup, locale) : undefined}
+					value={
+						data ? formatCreditBalance(data.settledTopup, locale) : undefined
+					}
 				/>
 			</View>
 			<View className="mt-2 flex-row items-center gap-1.5">

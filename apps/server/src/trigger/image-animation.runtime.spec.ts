@@ -143,7 +143,7 @@ describe("image-animation Trigger runtime", () => {
 		]);
 	});
 
-	it("routes edit and extension rows through the shared reconciliation ledger", async () => {
+	it("routes every newer video kind through the shared reconciliation ledger", async () => {
 		const edit = {
 			...BASE_ATTEMPT,
 			completedAt: new Date(),
@@ -159,8 +159,16 @@ describe("image-animation Trigger runtime", () => {
 			plannedUnits: 2,
 			status: "generating",
 		};
+		const product = {
+			...BASE_ATTEMPT,
+			completedAt: new Date(),
+			deliveredUnits: 0,
+			kind: "video-product",
+			plannedUnits: 1,
+			status: "failed",
+		};
 		const triggerRuntime = runtimeWithReconciliationRows(
-			[edit],
+			[edit, product],
 			[extension],
 			[],
 		);
@@ -173,6 +181,7 @@ describe("image-animation Trigger runtime", () => {
 					"text-to-video": cutoff,
 					"video-edit": cutoff,
 					"video-extension": cutoff,
+					"video-product": cutoff,
 				},
 				limit: 100,
 				queuedBefore: cutoff,
@@ -180,6 +189,11 @@ describe("image-animation Trigger runtime", () => {
 		).resolves.toEqual([
 			expect.objectContaining({
 				kind: "video-edit",
+				plannedUnits: 1,
+				reconciliationReason: "failed_refund",
+			}),
+			expect.objectContaining({
+				kind: "video-product",
 				plannedUnits: 1,
 				reconciliationReason: "failed_refund",
 			}),
@@ -195,6 +209,7 @@ describe("image-animation Trigger runtime", () => {
 	it.each([
 		"video-edit",
 		"video-extension",
+		"video-product",
 	] as const)("rejects %s before the legacy runtime can claim or refund it", async (kind) => {
 		const futureAttempt = { ...BASE_ATTEMPT, kind };
 		const futureRuntime = runtimeWithLoadedRow(futureAttempt);

@@ -476,7 +476,7 @@ describe("McpOauthService.handleCallback (mobile return)", () => {
 
 		expect(redirect.protocol).toBe("exp:");
 		expect(redirect.pathname).toBe("/--/connect/complete");
-		expect(redirect.searchParams.get("mcp_connector")).toBe("future-oauth");
+		expect(redirect.searchParams.get("app_connector")).toBe("future-oauth");
 		expect(redirect.searchParams.get("mcp_code")).toBe("authorization-code");
 		expect(redirect.searchParams.get("mcp_state")).toBe(STATE);
 	});
@@ -499,7 +499,7 @@ describe("McpOauthService.handleCallback (mobile return)", () => {
 			CONNECTION_ID,
 		);
 		expect(redirect.protocol).toBe("exp:");
-		expect(redirect.searchParams.get("mcp_error")).toBe("access_denied");
+		expect(redirect.searchParams.get("app_error")).toBe("access_denied");
 		expect(redirect.searchParams.has("mcp_code")).toBe(false);
 	});
 });

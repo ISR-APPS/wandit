@@ -12,6 +12,7 @@ import {
 	editVideoProviderTimeoutMs,
 	generateBuildVideo,
 	generateTextToVideo,
+	videoCostEstimateInput,
 	videoProviderTimeoutMs,
 } from "./generate-video";
 
@@ -514,5 +515,82 @@ describe("generateTextToVideo", () => {
 
 		expect(result).toMatchObject({ status: "unavailable" });
 		expect(generateVideo).not.toHaveBeenCalled();
+	});
+});
+
+describe("videoCostEstimateInput", () => {
+	it("returns null without a resolved renderer", () => {
+		expect(
+			videoCostEstimateInput({ durationSeconds: 5, modelId: null }),
+		).toBeNull();
+		expect(
+			videoCostEstimateInput({ durationSeconds: 5, modelId: undefined }),
+		).toBeNull();
+	});
+
+	it("describes the std, silent render the call sites submit", () => {
+		expect(
+			videoCostEstimateInput({
+				durationSeconds: 5,
+				modelId: "klingai/kling-v2.6-i2v",
+			}),
+		).toEqual({
+			audio: false,
+			durationSeconds: 5,
+			kind: "video",
+			mode: "std",
+			modelId: "klingai/kling-v2.6-i2v",
+		});
+		// Unknown durations use the house five-second clip; audio follows
+		// Kling voice control.
+		expect(
+			videoCostEstimateInput({
+				audio: true,
+				durationSeconds: null,
+				modelId: "klingai/kling-v3.0-t2v",
+			}),
+		).toMatchObject({ audio: true, durationSeconds: 5 });
+		expect(
+			videoCostEstimateInput({
+				durationSeconds: 15,
+				modelId: "klingai/kling-v3.0-t2v",
+			}),
+		).toMatchObject({ durationSeconds: 15 });
+	});
+
+	it("keeps an edit's real source length and clamps the standard tier", () => {
+		const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+		try {
+			expect(
+				videoCostEstimateInput({
+					durationSeconds: 7,
+					modelId: "bytedance/seedance-2.5",
+				}),
+			).toMatchObject({ durationSeconds: 7 });
+			expect(
+				videoCostEstimateInput({
+					durationSeconds: 15,
+					modelId: "klingai/kling-v2.6-t2v",
+				}),
+			).toMatchObject({ durationSeconds: 10 });
+		} finally {
+			warn.mockRestore();
+		}
+	});
+
+	it("clamps the duration onto Veo's legal clip lengths", () => {
+		expect(
+			videoCostEstimateInput({
+				durationSeconds: 5,
+				modelId: "google/veo-3.1-generate-001",
+			}),
+		).toMatchObject({ durationSeconds: 6 });
+		expect(
+			videoCostEstimateInput({
+				durationSeconds: 10,
+				modelId: "google/veo-3.1-generate-001",
+			}),
+		).toMatchObject({ durationSeconds: 8 });
 	});
 });

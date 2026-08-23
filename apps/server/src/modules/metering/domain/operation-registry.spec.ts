@@ -5,13 +5,17 @@ import { describe, expect, it } from "vitest";
 
 import {
 	AI_INVOCATION_COVERAGE,
+	assertTranscriptionDurationAllowed,
+	CONNECTOR_RESERVE_FLOOR_CREDITS,
 	canNestOperation,
-	fixedOperationCredits,
-	IMAGE_CREDITS_PER_IMAGE,
+	IMAGE_RESERVE_FLOOR_CREDITS,
+	LEAD_SCRAPE_CREDITS_PER_LEAD,
+	LEAD_SCRAPE_MINIMUM_CREDITS,
+	leadScrapeCredits,
 	OPERATION_REGISTRY,
 	TRANSCRIPTION_MAX_DURATION_SECONDS,
-	transcriptionCredits,
-	VIDEO_CREDITS_PER_OPERATION,
+	TRANSCRIPTION_RESERVE_FLOOR_CREDITS,
+	VIDEO_RESERVE_FLOOR_CREDITS,
 } from "./operation-registry";
 
 const REQUIRED_WORKFLOW_IDS = [
@@ -23,24 +27,29 @@ const REQUIRED_WORKFLOW_IDS = [
 	"standalone-animation",
 	"standalone-text-to-video",
 	"standalone-video-edit",
+	"standalone-product-video",
 	"standalone-video-extension",
 	"marketing",
 	"connector-inline",
 	"connector-background",
 	"lead-scrape",
 	"transcription",
-	"video-voiceover-bundled",
+	"video-voiceover-helper",
 	"legacy-worker-chat",
-	"project-title-bundled",
-	"higgsfield-prompt-refine-bundled",
-	"video-director-bundled",
+	"project-title-helper",
+	"higgsfield-prompt-refine-helper",
+	"video-director-helper",
+	"chat-tool-call-repair-helper",
 ] as const;
 
 const PROVIDER_CALL_PATTERNS = [
 	{ name: "ToolLoopAgent", pattern: /new\s+ToolLoopAgent\s*\(/gu },
 	{ name: "callTool", pattern: /\bclient\.callTool\s*\(/gu },
 	{ name: "doGenerate", pattern: /\.doGenerate\s*\(/gu },
+	{ name: "embed", pattern: /\bembed\s*\(/gu },
+	{ name: "embedMany", pattern: /\bembedMany\s*\(/gu },
 	{ name: "generateImage", pattern: /\bgenerateImage\s*\(/gu },
+	{ name: "generateObject", pattern: /\bgenerateObject\s*\(/gu },
 	{
 		name: "generateSpeech",
 		pattern: /\bexperimental_generateSpeech\s*\(/gu,
@@ -68,6 +77,12 @@ const EXPECTED_PROVIDER_CALLS = [
 		source: "apps/server/src/modules/ai-chat/agent/chat-agent.ts",
 	},
 	{
+		// Tool-call repair: billed inside the chat event (helper_billable).
+		count: 1,
+		name: "generateObject",
+		source: "apps/server/src/modules/ai-chat/agent/chat-agent.ts",
+	},
+	{
 		count: 1,
 		name: "ToolLoopAgent",
 		source:
@@ -84,6 +99,12 @@ const EXPECTED_PROVIDER_CALLS = [
 		count: 1,
 		name: "generateVideo",
 		source: "apps/server/src/modules/ai-chat/agent/site-builder/edit-video.ts",
+	},
+	{
+		count: 1,
+		name: "generateVideo",
+		source:
+			"apps/server/src/modules/ai-chat/agent/site-builder/product-video.ts",
 	},
 	{
 		count: 1,
@@ -147,31 +168,69 @@ describe("operation registry", () => {
 		);
 	});
 
-	it("locks fixed action economics and per-image pricing in centi-credits", () => {
-		expect(IMAGE_CREDITS_PER_IMAGE).toBe(300);
-		expect(VIDEO_CREDITS_PER_OPERATION).toBe(2000);
-		expect(fixedOperationCredits("image", 3)).toBe(3 * IMAGE_CREDITS_PER_IMAGE);
-		expect(fixedOperationCredits("video")).toBe(VIDEO_CREDITS_PER_OPERATION);
-		expect(fixedOperationCredits("marketing")).toBe(700);
-		expect(fixedOperationCredits("connector")).toBe(500);
-		expect(fixedOperationCredits("lead_scrape")).toBe(500);
+	it("prices media and transcription as measured provider cost", () => {
+		expect(OPERATION_REGISTRY.image).toMatchObject({
+			mode: "measured",
+			reserveFloorCredits: IMAGE_RESERVE_FLOOR_CREDITS,
+			unit: "image",
+		});
+		expect(OPERATION_REGISTRY.video).toMatchObject({
+			mode: "measured",
+			reserveFloorCredits: VIDEO_RESERVE_FLOOR_CREDITS,
+			unit: "video",
+		});
+		expect(OPERATION_REGISTRY.transcription).toMatchObject({
+			maxDurationSeconds: TRANSCRIPTION_MAX_DURATION_SECONDS,
+			mode: "measured",
+			reserveFloorCredits: TRANSCRIPTION_RESERVE_FLOOR_CREDITS,
+		});
+		// The MCP render runs on the user's own subscription: 1 cc floor, no fee.
+		expect(OPERATION_REGISTRY.connector).toMatchObject({
+			mode: "measured",
+			reserveFloorCredits: CONNECTOR_RESERVE_FLOOR_CREDITS,
+		});
+		expect(CONNECTOR_RESERVE_FLOOR_CREDITS).toBe(1);
+		expect(OPERATION_REGISTRY.marketing).toMatchObject({
+			mode: "token",
+			reserveFloorCredits: 150,
+		});
+		expect(IMAGE_RESERVE_FLOOR_CREDITS).toBe(350);
+		expect(VIDEO_RESERVE_FLOOR_CREDITS).toBe(550);
+		expect(TRANSCRIPTION_RESERVE_FLOOR_CREDITS).toBe(25);
 	});
 
-	it("keeps the centi-credit reserve floors of the v4 price card", () => {
+	it("prices lead scrapes per delivered lead with a one-credit minimum", () => {
+		expect(OPERATION_REGISTRY.lead_scrape).toMatchObject({
+			creditsPerUnit: LEAD_SCRAPE_CREDITS_PER_LEAD,
+			minimumCredits: LEAD_SCRAPE_MINIMUM_CREDITS,
+			mode: "fixed",
+			reserveFloorCredits: LEAD_SCRAPE_MINIMUM_CREDITS,
+			unit: "lead",
+		});
+		expect(LEAD_SCRAPE_CREDITS_PER_LEAD).toBe(5);
+		expect(LEAD_SCRAPE_MINIMUM_CREDITS).toBe(100);
+		expect(leadScrapeCredits(0)).toBe(100);
+		expect(leadScrapeCredits(20)).toBe(100);
+		expect(leadScrapeCredits(21)).toBe(105);
+		expect(leadScrapeCredits(200)).toBe(1000);
+		expect(() => leadScrapeCredits(-1)).toThrow("non-negative integer");
+	});
+
+	it("keeps the centi-credit reserve floors of the token operations", () => {
 		expect(OPERATION_REGISTRY.chat.reserveFloorCredits).toBe(10);
 		expect(OPERATION_REGISTRY.page_build.reserveFloorCredits).toBe(1000);
-		expect(OPERATION_REGISTRY.transcription.reserveFloorCredits).toBe(100);
 		expect(OPERATION_REGISTRY.topup_adjust.reserveFloorCredits).toBe(0);
 	});
 
-	it("ceil-bills transcription by minute with a one-credit minimum and cap", () => {
-		expect(transcriptionCredits(0)).toBe(100);
-		expect(transcriptionCredits(1)).toBe(100);
-		expect(transcriptionCredits(60)).toBe(100);
-		expect(transcriptionCredits(61)).toBe(200);
-		expect(transcriptionCredits(TRANSCRIPTION_MAX_DURATION_SECONDS)).toBe(500);
+	it("caps transcription duration at five minutes", () => {
+		expect(() => assertTranscriptionDurationAllowed(0)).not.toThrow();
 		expect(() =>
-			transcriptionCredits(TRANSCRIPTION_MAX_DURATION_SECONDS + 1),
+			assertTranscriptionDurationAllowed(TRANSCRIPTION_MAX_DURATION_SECONDS),
+		).not.toThrow();
+		expect(() =>
+			assertTranscriptionDurationAllowed(
+				TRANSCRIPTION_MAX_DURATION_SECONDS + 1,
+			),
 		).toThrow("exceeds 300 seconds");
 	});
 
@@ -199,7 +258,7 @@ describe("operation registry", () => {
 			const operation =
 				site.billing.kind === "metered"
 					? site.billing.operation
-					: site.billing.bundledInto;
+					: site.billing.billedInto;
 			expect(OPERATION_REGISTRY[operation]).toBeDefined();
 		}
 	});

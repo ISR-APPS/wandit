@@ -13,7 +13,7 @@ import {
 } from "../../../ai-provider/domain/llm-provider";
 import { MeteringService } from "../../../metering/application/services/metering.service";
 import { llmGenerationCaptureFromError } from "../../../metering/domain/gateway-metering";
-import { bundledUnmeteredStepUsage } from "../../../metering/domain/metering";
+import { helperStepUsage } from "../../../metering/domain/metering";
 
 const DIRECTOR_CAPTURE_ATTEMPTS = 3;
 // Reasoning tokens count against this budget on OpenAI models — sized so
@@ -204,15 +204,15 @@ export class VideoDirectorService {
 				system: VIDEO_DIRECTOR_PROMPT,
 			});
 
-			// Best-effort, unlike the refiner: the crafted prompt is the product
-			// here, and this capture only bundles unmetered usage into the parent
-			// chat event — a bookkeeping failure must not degrade the render to
-			// the fallback prompt.
+			// The director's cost bills inside the parent chat event (helper
+			// billable), so the capture retries like the refiner's; a persistent
+			// failure is logged (lost cost evidence) but never degrades the render
+			// to the fallback prompt — that would be a user-facing failure.
 			if (input.parentEventId) {
 				try {
 					await this.captureGeneration(input.parentEventId, {
 						providerMetadata: result.providerMetadata,
-						stepUsage: bundledUnmeteredStepUsage("prompt_refine", result.usage),
+						stepUsage: helperStepUsage("video_director", result.usage),
 					});
 				} catch (captureError) {
 					this.logger.warn(
@@ -251,7 +251,7 @@ export class VideoDirectorService {
 				try {
 					await this.captureGeneration(input.parentEventId, {
 						providerMetadata: errorCapture.providerMetadata,
-						stepUsage: bundledUnmeteredStepUsage("prompt_refine", null),
+						stepUsage: helperStepUsage("video_director", null),
 					});
 				} catch (captureError) {
 					this.logger.warn(

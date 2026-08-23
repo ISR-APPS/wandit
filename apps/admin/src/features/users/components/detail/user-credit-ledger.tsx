@@ -32,6 +32,15 @@ import {
 import { formatCreditAmount } from "@/lib/credit-format";
 import { cn } from "@/lib/utils";
 
+const costProvenanceTitle: Record<
+	NonNullable<AdminCreditLedgerEntry["aiCostProvenance"]>,
+	string
+> = {
+	contract: "Catalog price snapshotted at settlement",
+	estimate: "Reservation estimate, not yet reconciled",
+	measured: "Reconciled from the gateway's actual charge",
+};
+
 import { DetailPagination } from "./detail-pagination";
 import { titleCase } from "./user-detail-helpers";
 
@@ -156,7 +165,18 @@ export function UserCreditLedgerTable({ entries }: UserCreditLedgerProps) {
 									{entry.aiCostUsdMicros === null ? (
 										<span className="text-muted-foreground">—</span>
 									) : (
-										formatUsdMicros(entry.aiCostUsdMicros)
+										<span className="inline-flex items-center justify-end gap-1.5">
+											{formatUsdMicros(entry.aiCostUsdMicros)}
+											{entry.aiCostProvenance ? (
+												<Badge
+													variant="outline"
+													className="px-1.5 py-0 font-normal text-[10px] text-muted-foreground"
+													title={costProvenanceTitle[entry.aiCostProvenance]}
+												>
+													{entry.aiCostProvenance}
+												</Badge>
+											) : null}
+										</span>
 									)}
 								</TableCell>
 								<TableCell

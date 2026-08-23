@@ -1,6 +1,11 @@
 import type { AdminAnalyticsCredits } from "@wandit/contracts";
 import type { LucideIcon } from "lucide-react";
-import { ActivityIcon, CoinsIcon } from "lucide-react";
+import {
+	ActivityIcon,
+	CoinsIcon,
+	ReceiptIcon,
+	ScanSearchIcon,
+} from "lucide-react";
 import type { ReactNode } from "react";
 
 import { MetricInfoTooltip } from "@/components/metric-info-tooltip";
@@ -17,6 +22,14 @@ import { formatOverviewCompactNumber } from "@/features/overview/lib/formatters"
 type CreditEconomicsCardProps = {
 	credits: AdminAnalyticsCredits;
 };
+
+function formatUsd(micros: number): string {
+	return (micros / 1_000_000).toLocaleString("en-US", {
+		currency: "USD",
+		maximumFractionDigits: 2,
+		style: "currency",
+	});
+}
 
 type CreditEconomicsItemProps = {
 	icon: LucideIcon;
@@ -99,7 +112,54 @@ function CreditEconomicsCard({ credits }: CreditEconomicsCardProps) {
 					}
 					description="µUSD per credit · 1M µUSD = $1"
 					badge="In range"
-					tooltip="What one credit really costs us in AI provider fees. Values use micro-US dollars: 1,000,000 µUSD equals $1."
+					tooltip="What one billed credit really costs us in AI provider fees (billable spend over debited credits). Values use micro-US dollars: 1,000,000 µUSD equals $1."
+				/>
+				<CreditEconomicsItem
+					icon={ReceiptIcon}
+					label="Provider spend: billable vs total"
+					value={
+						<>
+							{formatUsd(credits.billableProviderCostMicros)}{" "}
+							<span className="font-medium text-muted-foreground text-sm">
+								of {formatUsd(credits.totalProviderCostMicros)}
+							</span>
+						</>
+					}
+					description={`Unbilled (bundled helper calls): ${formatUsd(
+						credits.totalProviderCostMicros -
+							credits.billableProviderCostMicros,
+					)}`}
+					badge="In range"
+					tooltip="Total is every provider dollar spent on metered operations in range (best-known cost). Billable is the part customers were debited for; historical bundled helper calls cost money against zero charge."
+				/>
+				<CreditEconomicsItem
+					icon={ScanSearchIcon}
+					label="Cost provenance"
+					value={
+						<span className="flex flex-wrap gap-x-3 text-base">
+							<span>
+								{formatUsd(credits.providerCostByProvenanceMicros.measured)}{" "}
+								<span className="font-medium text-muted-foreground text-xs">
+									measured
+								</span>
+							</span>
+							<span>
+								{formatUsd(credits.providerCostByProvenanceMicros.contract)}{" "}
+								<span className="font-medium text-muted-foreground text-xs">
+									contract
+								</span>
+							</span>
+							<span>
+								{formatUsd(credits.providerCostByProvenanceMicros.estimate)}{" "}
+								<span className="font-medium text-muted-foreground text-xs">
+									estimate
+								</span>
+							</span>
+						</span>
+					}
+					description="Where the total spend figure comes from."
+					badge="In range"
+					tooltip="Measured: reconciled from the gateway's actual charge. Contract: the catalog price snapshotted at settlement. Estimate: the reservation estimate, still awaiting reconciliation."
 				/>
 			</CardContent>
 		</Card>

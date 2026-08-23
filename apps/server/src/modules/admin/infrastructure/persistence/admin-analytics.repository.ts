@@ -29,6 +29,7 @@ import {
 import type { AdminDashboardRangeBounds } from "../../application/services/admin-dashboard-range";
 import {
 	AI_SPEND_STATUSES,
+	aiUsageEventCostProvenance,
 	aiUsageEventCostUsdMicros,
 } from "./ai-usage-cost.sql";
 
@@ -180,10 +181,12 @@ type CollectedRevenueRow = {
 	date: string;
 	subscriptions_minor: NumericValue;
 	orders_minor: NumericValue;
+	topups_minor: NumericValue;
 };
 
 type RevenueBySourceRow = {
 	subscriptions_minor: NumericValue;
+	topups_minor: NumericValue;
 	domains_minor: NumericValue;
 	domain_orders: NumericValue;
 	domain_cost_cents: NumericValue;
@@ -228,6 +231,10 @@ type CreditRangeRow = {
 	paid_consumed_in_range: NumericValue;
 	paid_owners_in_range: NumericValue;
 	provider_cost_micros: NumericValue;
+	billable_provider_cost_micros: NumericValue;
+	measured_provider_cost_micros: NumericValue;
+	contract_provider_cost_micros: NumericValue;
+	estimate_provider_cost_micros: NumericValue;
 };
 
 type FreeConsumptionRow = {
@@ -345,9 +352,11 @@ export type AdminAnalyticsRevenueRepositorySnapshot = {
 		date: string;
 		subscriptionsMinor: number;
 		ordersMinor: number;
+		topupsMinor: number;
 	}>;
 	revenueBySource: {
 		subscriptionsCents: number;
+		topupsCents: number;
 		domainsCents: number;
 		domainOrders: number;
 		domainCostCents: number;
@@ -566,7 +575,16 @@ export type AdminAnalyticsFeaturesRepositorySnapshot = {
 		usersAtZeroBalance: number;
 		creditsBeforeUpgradeTotal: number;
 		convertedUsers: number;
+		// Total best-known provider spend in range (all spend statuses).
 		providerCostMicros: number;
+		// Spend on events the customer was debited for (excludes historical
+		// bundled_unmetered helper calls).
+		billableProviderCostMicros: number;
+		providerCostByProvenanceMicros: {
+			measured: number;
+			contract: number;
+			estimate: number;
+		};
 	};
 	freeCredits: {
 		avgSecondsToConsume: number | null;
@@ -1435,12 +1453,13 @@ export class AdminAnalyticsRepository {
 			credit_consumption as (
 				select
 					c.user_id,
-					sum(-l.delta)::bigint as credits_consumed
+					greatest(0, sum(-l.delta))::bigint as credits_consumed
 				from mature_signup_cohort c
 				inner join credit_ledger l on l.user_id = c.user_id
 				where ${netConsumptionPredicate("l")}
+					and l.organization_id is null
 					and l.created_at >= c.created_at
-					and l.created_at < c.created_at + interval '7 days'
+					and ${consumptionEffectiveAt("l")} < c.created_at + interval '7 days'
 				group by c.user_id
 			),
 			attempt_usage_actors as (
@@ -2006,12 +2025,13 @@ export class AdminAnalyticsRepository {
 			credit_consumption as (
 				select
 					u.user_id,
-					sum(-c.delta)::bigint as credits_consumed
+					greatest(0, sum(-c.delta))::bigint as credits_consumed
 				from evaluation_users u
 				inner join credit_ledger c on c.user_id = u.user_id
 				where ${netConsumptionPredicate("c")}
+					and c.organization_id is null
 					and c.created_at >= u.created_at
-					and c.created_at < u.created_at + interval '7 days'
+					and ${consumptionEffectiveAt("c")} < u.created_at + interval '7 days'
 				group by u.user_id
 			),
 			attempt_usage_actors as (
@@ -2262,17 +2282,20 @@ export class AdminAnalyticsRepository {
 				where s.created_at < b.snapshot_end
 				group by s.user_id
 			),
+			-- Personal pool only: org-pool consumption performed by the acting
+			-- member is the org's spend, not this user's trial health.
 			credit_consumption as (
 				select
 					c.user_id,
-					sum(-c.delta)::bigint as credits_consumed
+					greatest(0, sum(-c.delta))::bigint as credits_consumed
 				from credit_ledger c
 				inner join mature_users u on u.id = c.user_id
 				cross join bounds b
 				where ${netConsumptionPredicate("c")}
+					and c.organization_id is null
 					and c.created_at >= u.created_at
-					and c.created_at < u.created_at + interval '7 days'
-					and c.created_at < b.snapshot_end
+					and ${consumptionEffectiveAt("c")} < u.created_at + interval '7 days'
+					and ${consumptionEffectiveAt("c")} < b.snapshot_end
 				group by c.user_id
 			),
 			completed_generations as (
@@ -2513,16 +2536,33 @@ export class AdminAnalyticsRepository {
 					and o.status in ('paid', 'fulfilling', 'fulfilled')
 					and lower(o.currency) = 'usd'
 				group by 1
+			),
+			-- Top-up cash: without it refunds of top-ups were subtracted from a
+			-- gross that never included the purchase.
+			topup_revenue as (
+				select
+					(t.paid_at at time zone 'UTC')::date as day,
+					sum(t.amount_cents)::bigint as amount_minor
+				from billing_topup_receipts t
+				cross join bounds b
+				where t.paid_at >= b.range_start
+					and t.paid_at < b.range_end
+					and t.amount_cents > 0
+					and lower(t.currency) = 'usd'
+				group by 1
 			)
 			select
 				to_char(d.day at time zone 'UTC', 'YYYY-MM-DD') as date,
 				coalesce(s.amount_minor, 0)::bigint as subscriptions_minor,
-				coalesce(o.amount_minor, 0)::bigint as orders_minor
+				coalesce(o.amount_minor, 0)::bigint as orders_minor,
+				coalesce(t.amount_minor, 0)::bigint as topups_minor
 			from days d
 			left join subscription_revenue s
 				on s.day = (d.day at time zone 'UTC')::date
 			left join order_revenue o
 				on o.day = (d.day at time zone 'UTC')::date
+			left join topup_revenue t
+				on t.day = (d.day at time zone 'UTC')::date
 			order by d.day asc
 		`);
 
@@ -2530,6 +2570,7 @@ export class AdminAnalyticsRepository {
 			date: String(row.date),
 			subscriptionsMinor: toNumber(row.subscriptions_minor),
 			ordersMinor: toNumber(row.orders_minor),
+			topupsMinor: toNumber(row.topups_minor),
 		}));
 	}
 
@@ -2552,6 +2593,15 @@ export class AdminAnalyticsRepository {
 					and a.paid_at < b.range_end
 					and a.amount_paid_minor > 0
 					and lower(a.currency) = 'usd'
+			),
+			topup_totals as (
+				select coalesce(sum(t.amount_cents), 0)::bigint as amount_minor
+				from billing_topup_receipts t
+				cross join bounds b
+				where t.paid_at >= b.range_start
+					and t.paid_at < b.range_end
+					and t.amount_cents > 0
+					and lower(t.currency) = 'usd'
 			),
 			domain_orders as (
 				select
@@ -2577,17 +2627,20 @@ export class AdminAnalyticsRepository {
 			)
 			select
 				s.amount_minor as subscriptions_minor,
+				t.amount_minor as topups_minor,
 				coalesce((select sum(d.amount_cents) from domain_orders d), 0)::bigint as domains_minor,
 				coalesce((select count(*) from domain_orders d), 0)::bigint as domain_orders,
 				coalesce((select sum(d.wholesale_cents) from domain_orders d), 0)::bigint as domain_cost_cents,
 				coalesce((select count(*) from domain_orders d where d.wholesale_cents is null), 0)::bigint as domain_cost_unknown_orders
 			from subscription_totals s
+			cross join topup_totals t
 		`);
 
 		const row = result.rows[0];
 
 		return {
 			subscriptionsCents: toNumber(row?.subscriptions_minor),
+			topupsCents: toNumber(row?.topups_minor),
 			domainsCents: toNumber(row?.domains_minor),
 			domainOrders: toNumber(row?.domain_orders),
 			domainCostCents: toNumber(row?.domain_cost_cents),
@@ -3978,6 +4031,9 @@ export class AdminAnalyticsRepository {
 				where s.created_at < b.snapshot_end
 					and s.status in (${liveSubscriptionStatusList()})
 			),
+			-- Refund grants sit on their consume's day (consumptionEffectiveAt):
+			-- created_at >= range_start keeps the index usable because a refund
+			-- never precedes its consume.
 			ledger_range as (
 				select
 					coalesce(c.organization_id, c.user_id) as owner_id,
@@ -3987,7 +4043,8 @@ export class AdminAnalyticsRepository {
 				from credit_ledger c
 				cross join bounds b
 				where c.created_at >= b.range_start
-					and c.created_at < b.range_end
+					and ${consumptionEffectiveAt("c")} >= b.range_start
+					and ${consumptionEffectiveAt("c")} < b.range_end
 			),
 			range_owners as (
 				select distinct coalesce(e.organization_id, e.user_id) as owner_id
@@ -4001,7 +4058,7 @@ export class AdminAnalyticsRepository {
 				where ${netConsumptionPredicate("l")}
 			),
 			owner_consumption as (
-				select l.owner_id, sum(-l.delta)::bigint as consumed
+				select l.owner_id, greatest(0, sum(-l.delta))::bigint as consumed
 				from ledger_range l
 				where ${netConsumptionPredicate("l")}
 				group by l.owner_id
@@ -4019,15 +4076,32 @@ export class AdminAnalyticsRepository {
 			ledger_totals as (
 				select
 					coalesce(sum(l.delta) filter (where ${nonRefundGrantPredicate("l")}), 0)::bigint as granted,
-					coalesce(sum(-l.delta) filter (where ${netConsumptionPredicate("l")}), 0)::bigint as consumed
+					greatest(0, coalesce(sum(-l.delta) filter (where ${netConsumptionPredicate("l")}), 0))::bigint as consumed
 				from ledger_range l
 			),
-			provider_cost as (
-				select coalesce(sum(e.reconciled_cost_usd_micros), 0)::bigint as cost_micros
+			-- Best-known cost per spend event (reconciled, else settle snapshot,
+			-- else estimate) with its provenance, and whether the customer was
+			-- debited for it: historical bundled helper calls carry real provider
+			-- cost against zero charge.
+			spend_events as (
+				select
+					${aiUsageEventCostUsdMicros} as cost_micros,
+					${aiUsageEventCostProvenance} as provenance,
+					${billableUsageEventPredicate("e")} as billable
 				from ai_usage_events e
 				cross join bounds b
 				where e.created_at >= b.range_start
 					and e.created_at < b.range_end
+					and e.status in (${aiSpendStatusList()})
+			),
+			provider_cost as (
+				select
+					coalesce(sum(s.cost_micros), 0)::bigint as total_micros,
+					coalesce(sum(s.cost_micros) filter (where s.billable), 0)::bigint as billable_micros,
+					coalesce(sum(s.cost_micros) filter (where s.provenance = 'measured'), 0)::bigint as measured_micros,
+					coalesce(sum(s.cost_micros) filter (where s.provenance = 'contract'), 0)::bigint as contract_micros,
+					coalesce(sum(s.cost_micros) filter (where s.provenance = 'estimate'), 0)::bigint as estimate_micros
+				from spend_events s
 			)
 			select
 				l.granted as granted_in_range,
@@ -4036,7 +4110,11 @@ export class AdminAnalyticsRepository {
 				c.free_owners as free_owners_in_range,
 				c.paid_consumed as paid_consumed_in_range,
 				c.paid_owners as paid_owners_in_range,
-				p.cost_micros as provider_cost_micros
+				p.total_micros as provider_cost_micros,
+				p.billable_micros as billable_provider_cost_micros,
+				p.measured_micros as measured_provider_cost_micros,
+				p.contract_micros as contract_provider_cost_micros,
+				p.estimate_micros as estimate_provider_cost_micros
 			from ledger_totals l
 			cross join consumption_totals c
 			cross join provider_cost p
@@ -4052,6 +4130,12 @@ export class AdminAnalyticsRepository {
 			paidConsumedInRange: toNumber(row?.paid_consumed_in_range),
 			paidOwnersInRange: toNumber(row?.paid_owners_in_range),
 			providerCostMicros: toNumber(row?.provider_cost_micros),
+			billableProviderCostMicros: toNumber(row?.billable_provider_cost_micros),
+			providerCostByProvenanceMicros: {
+				measured: toNumber(row?.measured_provider_cost_micros),
+				contract: toNumber(row?.contract_provider_cost_micros),
+				estimate: toNumber(row?.estimate_provider_cost_micros),
+			},
 		};
 	}
 
@@ -4072,7 +4156,7 @@ export class AdminAnalyticsRepository {
 				select
 					coalesce(c.organization_id, c.user_id) as owner_id,
 					sum(c.delta)::bigint as balance,
-					coalesce(sum(-c.delta) filter (where ${netConsumptionPredicate("c")}), 0)::bigint as consumed
+					greatest(0, coalesce(sum(-c.delta) filter (where ${netConsumptionPredicate("c")}), 0))::bigint as consumed
 				from credit_ledger c
 				cross join bounds b
 				where c.created_at < b.snapshot_end
@@ -4159,13 +4243,14 @@ export class AdminAnalyticsRepository {
 			consumption as (
 				select
 					u.user_id,
-					coalesce(sum(-c.delta), 0)::bigint as consumed
+					greatest(0, coalesce(sum(-c.delta), 0))::bigint as consumed
 				from converted_users u
 				left join credit_ledger c
 					on c.user_id = u.user_id
+					and c.organization_id is null
 					and ${netConsumptionPredicate("c")}
 					and c.created_at >= u.created_at
-					and c.created_at < u.first_subscription_at
+					and ${consumptionEffectiveAt("c")} < u.first_subscription_at
 				group by u.user_id
 			)
 			select
@@ -4299,10 +4384,10 @@ export class AdminAnalyticsRepository {
 			owner_consumption as (
 				select
 					coalesce(c.organization_id, c.user_id) as owner_id,
-					coalesce(
+					greatest(0, coalesce(
 						sum(-c.delta) filter (where ${netConsumptionPredicate("c")}),
 						0
-					)::bigint as consumed
+					))::bigint as consumed
 				from credit_ledger c
 				cross join bounds b
 				where c.created_at < b.snapshot_end
@@ -4629,6 +4714,25 @@ function netConsumptionPredicate(alias: string): SQL {
 		or ${refundGrantPredicate(alias)})`;
 }
 
+// A metering refund grant belongs to the DAY OF ITS CONSUME, not the day the
+// refund landed: netting it into a later range made that range's consumption
+// negative (and the contract rejects negative consumption). Refund keys carry
+// the usage event in meta.usageEventId; when the join fails the row keeps its
+// own timestamp and the per-range sum is clamped with greatest(0, ...).
+function consumptionEffectiveAt(alias: string): SQL {
+	const createdAt = qualifiedColumn(alias, "created_at");
+	const meta = qualifiedColumn(alias, "meta");
+
+	return sql`(case
+		when ${refundGrantPredicate(alias)} then coalesce(
+			(select e.created_at from ai_usage_events e
+				where e.id::text = ${meta} ->> 'usageEventId'),
+			${createdAt}
+		)
+		else ${createdAt}
+	end)`;
+}
+
 function nonRefundGrantPredicate(alias: string): SQL {
 	return sql`(${qualifiedColumn(alias, "kind")} = 'grant'
 		and not ${refundGrantPredicate(alias)})`;
@@ -4774,6 +4878,21 @@ function liveSubscriptionStatusList() {
 		LIVE_SUBSCRIPTION_STATUSES.map((status) => sql`${status}`),
 		sql`, `,
 	);
+}
+
+// Historical bundled helper calls (customerBilling 'bundled_unmetered' or
+// its '_legacy' successor on the gateway reconciliation snapshot) debited
+// nothing; every event that debited credits, or carries no bundled marker,
+// is billable.
+function billableUsageEventPredicate(alias: string): SQL {
+	const finalCredits = qualifiedColumn(alias, "final_credits");
+	const snapshot = qualifiedColumn(alias, "pricing_snapshot");
+
+	return sql`(coalesce(${finalCredits}, 0) > 0
+		or not coalesce(jsonb_path_exists(
+			${snapshot},
+			'$.gatewayReconciliation.generations[*] ? (@.customerBilling like_regex "^bundled_unmetered")'
+		), false))`;
 }
 
 function aiSpendStatusList() {

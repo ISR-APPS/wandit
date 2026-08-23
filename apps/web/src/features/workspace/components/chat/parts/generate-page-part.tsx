@@ -33,7 +33,7 @@ import { useStopwatch } from "react-timer-hook";
 
 import { useBillingModal } from "@/features/billing/components/billing-modal-provider";
 import { usePurchasesEnabled } from "@/features/billing/lib/purchases";
-import { creditsKeys } from "@/features/credits";
+import { invalidateBalanceAfterGenerationTerminal } from "@/features/credits/lib/terminal-balance-invalidation";
 import {
 	pageKeys,
 	useDismissPageAttempt,
@@ -149,9 +149,7 @@ function PageBuildCard({
 		handle: realtime,
 		enabled: Boolean(realtime),
 		onSettled: () => {
-			void queryClient.invalidateQueries({
-				queryKey: creditsKeys.balance(),
-			});
+			invalidateBalanceAfterGenerationTerminal(queryClient, "settled");
 			// The Page tab's overview poll also notices on its own — this just
 			// makes the switch instant.
 			void queryClient.invalidateQueries({

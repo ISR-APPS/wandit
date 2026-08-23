@@ -14,6 +14,7 @@ import {
 	type MediaGenerationGeneratingCutoffs,
 	mediaGenerationGeneratingCutoffs,
 } from "./media-generation-staleness";
+import { USER_SAFE_PRODUCT_VIDEO_ERROR } from "./product-video-runner";
 import type {
 	VideoBilling,
 	VideoDeliveredUnits,
@@ -261,6 +262,10 @@ async function settleDeliveredOrRefund(
 }
 
 function userSafeReconciliationError(kind: MediaGenerationKind): string {
+	if (kind === "video-product") {
+		return USER_SAFE_PRODUCT_VIDEO_ERROR;
+	}
+
 	if (kind === "video-edit") {
 		return "We couldn't finish editing this video. Please try again in a moment.";
 	}

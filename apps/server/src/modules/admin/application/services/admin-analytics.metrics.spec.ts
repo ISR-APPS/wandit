@@ -183,6 +183,7 @@ function revenueSnapshot(
 		collectedRevenueByDay: [],
 		revenueBySource: {
 			subscriptionsCents: 0,
+			topupsCents: 0,
 			domainsCents: 0,
 			domainOrders: 0,
 			domainCostCents: 0,
@@ -241,6 +242,8 @@ function featuresSnapshot(
 			creditsBeforeUpgradeTotal: 0,
 			convertedUsers: 0,
 			providerCostMicros: 0,
+			billableProviderCostMicros: 0,
+			providerCostByProvenanceMicros: { measured: 0, contract: 0, estimate: 0 },
 		},
 		freeCredits: {
 			avgSecondsToConsume: null,
@@ -773,6 +776,7 @@ describe("admin analytics revenue extensions", () => {
 			revenueSnapshot({
 				revenueBySource: {
 					subscriptionsCents: 10_000,
+					topupsCents: 0,
 					domainsCents: 1_499,
 					domainOrders: 1,
 					domainCostCents: 1_299,
@@ -784,6 +788,7 @@ describe("admin analytics revenue extensions", () => {
 
 		expect(response.revenueBySource).toEqual({
 			subscriptionsCents: 10_000,
+			topupsCents: 0,
 			domainsCents: 1_499,
 			domainOrders: 1,
 			domainCostCents: 1_299,
@@ -922,11 +927,13 @@ describe("admin analytics revenue extensions", () => {
 						date: "2026-08-12",
 						subscriptionsMinor: 2_500,
 						ordersMinor: 1_000,
+						topupsMinor: 0,
 					},
 					{
 						date: "2026-08-13",
 						subscriptionsMinor: 500,
 						ordersMinor: 0,
+						topupsMinor: 0,
 					},
 				],
 				lifecycle: {
@@ -995,6 +1002,43 @@ describe("admin analytics revenue extensions", () => {
 		]);
 	});
 
+	it("counts top-up cash in gross revenue symmetrically with refunds and exposes it by source", () => {
+		const response = assembleRevenueResponse(
+			revenueSnapshot({
+				collectedRevenueByDay: [
+					{
+						date: "2026-08-13",
+						subscriptionsMinor: 2_500,
+						ordersMinor: 1_000,
+						topupsMinor: 2_500,
+					},
+				],
+				paymentAdjustments: {
+					refundsCents: 2_500,
+					failedPayments: 0,
+					failedPaymentsCents: 0,
+				},
+				revenueBySource: {
+					subscriptionsCents: 2_500,
+					topupsCents: 2_500,
+					domainsCents: 1_000,
+					domainOrders: 1,
+					domainCostCents: 800,
+					domainCostUnknownOrders: 0,
+				},
+			}),
+			NOW,
+		);
+
+		// A refunded top-up nets to zero instead of eating subscription cash.
+		expect(response.netRevenue).toMatchObject({
+			grossCents: 6_000,
+			refundsCents: 2_500,
+			netCents: 3_500,
+		});
+		expect(response.revenueBySource.topupsCents).toBe(2_500);
+	});
+
 	it("returns null churn ratios and LTV for unavailable denominators", () => {
 		const response = assembleRevenueResponse(
 			revenueSnapshot({
@@ -1042,6 +1086,7 @@ describe("admin analytics revenue extensions", () => {
 						date: "2026-08-13",
 						subscriptionsMinor: 5_000,
 						ordersMinor: 0,
+						topupsMinor: 0,
 					},
 				],
 				lifecycle: {
@@ -1346,6 +1391,37 @@ describe("admin analytics buckets", () => {
 		expect(
 			features.credits.consumptionBuckets.map(({ bucket }) => bucket),
 		).toEqual(adminAnalyticsConsumptionBuckets);
+	});
+
+	it("prices credits from billable spend and exposes total spend with its provenance split", () => {
+		const response = assembleFeaturesResponse(
+			featuresSnapshot({
+				credits: {
+					...featuresSnapshot().credits,
+					// 50 credits consumed; $0.12 billable of $0.20 total spend.
+					consumedInRange: 5_000,
+					providerCostMicros: 200_000,
+					billableProviderCostMicros: 120_000,
+					providerCostByProvenanceMicros: {
+						measured: 150_000,
+						contract: 30_000,
+						estimate: 20_000,
+					},
+				},
+			}),
+			NOW,
+		);
+
+		expect(response.credits).toMatchObject({
+			providerCostPerCreditMicros: 2_400,
+			totalProviderCostMicros: 200_000,
+			billableProviderCostMicros: 120_000,
+			providerCostByProvenanceMicros: {
+				measured: 150_000,
+				contract: 30_000,
+				estimate: 20_000,
+			},
+		});
 	});
 
 	it("assembles free-credit timing and zero-safe paid conversion buckets", () => {

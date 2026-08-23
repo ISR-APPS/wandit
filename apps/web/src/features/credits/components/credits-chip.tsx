@@ -18,13 +18,13 @@ import { usePublicSettingsQuery } from "@/features/settings/api/settings.queries
 import { useWorkspace } from "@/features/workspaces/lib/workspace-provider";
 import { useTranslation } from "@/lib/i18n";
 import {
+	useCreditActivityQuery,
 	useCreditBalanceQuery,
-	useCreditLedgerQuery,
 	useWorkspaceCreditBalancesQuery,
 } from "../api/credits.queries";
 import { findCreditsElsewhere } from "../lib/credits-elsewhere";
 import { formatCreditBalance } from "../lib/format-credits";
-import { LedgerList } from "./ledger-list";
+import { ActivityList } from "./activity-list";
 
 export function CreditsChip({ className }: { className?: string }) {
 	const { locale, t } = useTranslation();
@@ -37,7 +37,7 @@ export function CreditsChip({ className }: { className?: string }) {
 	} = useWorkspace();
 	const { openPlanPicker } = useBillingModal();
 	const balanceQuery = useCreditBalanceQuery();
-	const ledgerQuery = useCreditLedgerQuery({ page: 1, pageSize: 3 });
+	const activityQuery = useCreditActivityQuery({ page: 1, pageSize: 3 });
 	const balancesQuery = useWorkspaceCreditBalancesQuery();
 	const settingsQuery = usePublicSettingsQuery();
 	const plansQuery = useBillingPlansQuery();
@@ -141,15 +141,15 @@ export function CreditsChip({ className }: { className?: string }) {
 							<dl className="mt-3 grid grid-cols-3 gap-2 border-t pt-3">
 								<BalanceBucket
 									label={t("credits.buckets.plan")}
-									value={formatCreditBalance(balance.plan, locale)}
+									value={formatCreditBalance(balance.settledPlan, locale)}
 								/>
 								<BalanceBucket
 									label={t("credits.buckets.promo")}
-									value={formatCreditBalance(balance.promo, locale)}
+									value={formatCreditBalance(balance.settledPromo, locale)}
 								/>
 								<BalanceBucket
 									label={t("credits.buckets.topup")}
-									value={formatCreditBalance(balance.topup, locale)}
+									value={formatCreditBalance(balance.settledTopup, locale)}
 								/>
 							</dl>
 						</>
@@ -188,10 +188,10 @@ export function CreditsChip({ className }: { className?: string }) {
 					<p className="px-2 pb-1 text-[10px] text-muted-foreground uppercase tracking-widest">
 						{t("credits.recentActivity")}
 					</p>
-					<LedgerList
-						entries={ledgerQuery.data?.items ?? []}
-						isPending={ledgerQuery.isPending}
-						isError={ledgerQuery.isError}
+					<ActivityList
+						items={activityQuery.data?.items ?? []}
+						isPending={activityQuery.isPending}
+						isError={activityQuery.isError}
 						compact
 					/>
 				</div>

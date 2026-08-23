@@ -24,6 +24,8 @@ export const TRANSPARENT_PART_TYPES = new Set([
 	"tool-replace_section",
 	// Consumed as a side channel by use-ai-chat's billing latch — never inline.
 	"data-billing-error",
+	// Transient settle signal consumed in use-ai-chat's onData — never inline.
+	"data-credits-settled",
 ]);
 
 export const ASYNC_CARD_PART_TYPES = new Set([

@@ -25,6 +25,7 @@ import { KeyboardProvider } from "react-native-keyboard-controller";
 
 import { AppThemeProvider } from "@/contexts/app-theme-context";
 import { LocaleProvider } from "@/contexts/locale-context";
+import { usePushNotifications } from "@/features/notifications/lib/use-push-notifications";
 import { authClient } from "@/lib/auth-client";
 import { useAuthBypass } from "@/lib/dev-auth-bypass";
 import { queryClient } from "@/shared/lib/query-client";
@@ -55,6 +56,9 @@ function RootNavigator() {
 		InstrumentSans_600SemiBold,
 		InstrumentSans_700Bold,
 	});
+	usePushNotifications(
+		!isPending && !!session?.user && (fontsLoaded || !!fontsError),
+	);
 
 	// TODO: keep the splash screen visible while the session is restoring.
 	if (isPending || (!fontsLoaded && !fontsError)) {

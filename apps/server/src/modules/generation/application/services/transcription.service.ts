@@ -38,9 +38,14 @@ import {
 	MeteringStateConflictError,
 } from "../../../metering/domain/metering";
 import {
+	DEFAULT_USD_MICROS_PER_CREDIT,
+	type MeasuredCostEstimate,
+	usdMicrosToCentiCredits,
+} from "../../../metering/domain/model-pricing";
+import {
+	assertTranscriptionDurationAllowed,
 	operationPricing,
 	TRANSCRIPTION_MAX_DURATION_SECONDS,
-	transcriptionCredits,
 } from "../../../metering/domain/operation-registry";
 import { AiGatewayNotConfiguredError } from "../../domain/errors/ai-gateway-not-configured.error";
 import { readAudioDurationSeconds } from "./audio-duration";
@@ -50,14 +55,14 @@ const TRANSCRIPTION_PROVIDER_TIMEOUT_MS = 10 * 60 * 1000;
 const TRANSCRIPTION_PRICING = (() => {
 	const pricing = operationPricing("transcription");
 
-	if (pricing.mode !== "per_minute") {
-		throw new Error("Transcription operation must use per-minute pricing");
+	if (pricing.mode !== "measured") {
+		throw new Error("Transcription operation must use measured pricing");
 	}
 
 	return pricing;
 })();
-const TRANSCRIPTION_CREDITS_PER_MINUTE = TRANSCRIPTION_PRICING.creditsPerMinute;
-const TRANSCRIPTION_MINIMUM_CREDITS = TRANSCRIPTION_PRICING.minimumCredits;
+const TRANSCRIPTION_RESERVE_FLOOR_CREDITS =
+	TRANSCRIPTION_PRICING.reserveFloorCredits;
 
 // `@Injectable()` lets the controller inject this service.
 @Injectable()
@@ -92,7 +97,7 @@ export class TranscriptionService {
 			throw audioDurationTooLong("container");
 		}
 
-		const credits = transcriptionCredits(durationSeconds);
+		assertTranscriptionDurationAllowed(durationSeconds);
 		const idempotencyKey = `transcription:${input.userId}:${input.operationId}`;
 		const billingEnabled = env.GENERATION_BILLING_MODE !== "off";
 		// Billing-off disables new holds, but it must not erase a stable-key event
@@ -100,25 +105,37 @@ export class TranscriptionService {
 		// authority for replay/provider execution across process restarts.
 		// Transcription stays personal-paid by design: the idempotency key embeds
 		// the actor and voice input is a per-user convenience, not org work.
-		const existingWhileDisabled = billingEnabled
+		// Measured billing: the hold is the larger of the registry floor and the
+		// catalog's per-second rate × duration (token-priced transcription models
+		// have no such rate and hold the floor). The durable hold owns the price
+		// terms, so a replay of a stable operation id reuses its own size; the
+		// read also lets a missing-gateway replay return its stored response.
+		const existingHold = await this.meteringService.findByIdempotencyKey(
+			idempotencyKey,
+			{ actorUserId: input.userId },
+		);
+		const existingWhileDisabled = billingEnabled ? null : existingHold;
+		const estimate = existingHold
 			? null
-			: await this.meteringService.findByIdempotencyKey(idempotencyKey, {
-					actorUserId: input.userId,
+			: await this.meteringService.estimateMeasuredCost({
+					durationSeconds,
+					kind: "transcription",
+					modelId: env.AI_TRANSCRIPTION_MODEL,
 				});
+		const credits = existingHold
+			? existingHold.reservedCredits
+			: Math.max(TRANSCRIPTION_RESERVE_FLOOR_CREDITS, estimate?.credits ?? 0);
+		const estimatedCostUsdMicros = existingHold
+			? existingHold.estimatedCostUsdMicros
+			: (estimate?.costUsdMicros ?? null);
 
 		// Reading an existing event is the only safe exception to the config
 		// preflight: it lets a settled transport retry return its stored response.
 		// This branch never calls reserveWithReplay, so missing configuration can
 		// neither create a hold nor strand one between reserve and provider setup.
 		if (!env.AI_GATEWAY_API_KEY) {
-			const existing = billingEnabled
-				? await this.meteringService.findByIdempotencyKey(idempotencyKey, {
-						actorUserId: input.userId,
-					})
-				: existingWhileDisabled;
-
-			if (existing) {
-				return replayExistingTranscription(existing, {
+			if (existingHold) {
+				return replayExistingTranscription(existingHold, {
 					credits,
 					model: env.AI_TRANSCRIPTION_MODEL,
 					operationId: input.operationId,
@@ -143,7 +160,12 @@ export class TranscriptionService {
 							{
 								attemptRef: input.operationId,
 								credits,
+								estimatedCostUsdMicros,
 								idempotencyKey,
+								measuredTerms: {
+									estimatedUnitUsdMicros: estimatedCostUsdMicros,
+									units: 1,
+								},
 								model: env.AI_TRANSCRIPTION_MODEL,
 							},
 						)
@@ -217,7 +239,22 @@ export class TranscriptionService {
 		const billableDurationSeconds = providerDurationExceedsLimit
 			? TRANSCRIPTION_MAX_DURATION_SECONDS
 			: (providerDurationSeconds ?? durationSeconds);
-		const finalCredits = transcriptionCredits(billableDurationSeconds);
+		const localCostUsdMicros = transcriptionLocalCost(
+			estimate,
+			billableDurationSeconds,
+		);
+		// Reservation-time terms are authoritative for an in-flight hold: the
+		// anchor comes from the reservation snapshot, never the live config (an
+		// AI_USD_PER_CREDIT flip mid-run must not reprice the settlement).
+		const usdMicrosPerCredit = reservation
+			? reservationUsdMicrosPerCredit(reservation.event)
+			: this.meteringService.usdMicrosPerCredit;
+		// No catalog rate: the floor-sized hold is the provisional charge and the
+		// captured gateway ref reconciles the exact cost.
+		const finalCredits =
+			localCostUsdMicros === null
+				? (reservation?.event.reservedCredits ?? credits)
+				: usdMicrosToCentiCredits(localCostUsdMicros, usdMicrosPerCredit);
 		const response: TranscriptionResponse | null = providerDurationExceedsLimit
 			? null
 			: {
@@ -260,20 +297,27 @@ export class TranscriptionService {
 			try {
 				await retryMeteringWrite(() =>
 					this.meteringService.settle(reservation.event.id, {
+						costUsdMicros: localCostUsdMicros,
 						finalCredits,
 						model: env.AI_TRANSCRIPTION_MODEL,
 						pricing: "direct",
 						pricingSnapshot: {
 							billableDurationSeconds,
-							creditsPerMinute: TRANSCRIPTION_CREDITS_PER_MINUTE,
 							durationSeconds: billableDurationSeconds,
 							durationSource:
 								providerDurationSeconds === null ? "container" : "provider",
+							estimatedUnitUsdMicros: estimatedCostUsdMicros,
 							localDurationSeconds: durationSeconds,
 							maxDurationSeconds: TRANSCRIPTION_MAX_DURATION_SECONDS,
-							minimumCredits: TRANSCRIPTION_MINIMUM_CREDITS,
-							mode: "per_minute",
+							mode: "measured",
+							operation: "transcription",
+							outcome: "delivered",
 							providerDurationSeconds,
+							source: "measured_local",
+							unit: "operation",
+							units: 1,
+							usdMicrosPerCredit,
+							usdMicrosPerSecond: estimate?.unitUsdMicros ?? null,
 						},
 						rawUsage: {
 							billableDurationSeconds,
@@ -370,6 +414,35 @@ export class TranscriptionService {
 			);
 		}
 	}
+}
+
+/**
+ * The USD-per-credit anchor the hold was admitted with (reservation snapshot),
+ * as reservationTermsFromEvent reads it; the default anchor for a pre-snapshot
+ * row.
+ */
+function reservationUsdMicrosPerCredit(
+	event: Pick<AiUsageEvent, "pricingSnapshot">,
+): number {
+	const value = isRecord(event.pricingSnapshot)
+		? event.pricingSnapshot.usdMicrosPerCredit
+		: null;
+
+	return Number.isSafeInteger(value) && (value as number) > 0
+		? (value as number)
+		: DEFAULT_USD_MICROS_PER_CREDIT;
+}
+
+/** Billable seconds × the catalog per-second rate, or null without a rate. */
+function transcriptionLocalCost(
+	estimate: MeasuredCostEstimate | null,
+	billableDurationSeconds: number,
+): number | null {
+	if (!estimate || estimate.unitUsdMicros <= 0) {
+		return null;
+	}
+
+	return Math.ceil(estimate.unitUsdMicros * billableDurationSeconds);
 }
 
 function replayExistingTranscription(

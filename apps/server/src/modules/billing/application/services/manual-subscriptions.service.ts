@@ -555,8 +555,11 @@ export class ManualSubscriptionsService {
 					return;
 				}
 
+				// A manual renewal re-grants the tier allotment below; the earlier
+				// period's unfired slots are superseded by this renewal.
 				await this.subscriptionCreditsRepository.cancelPendingSlotsForSubscription(
 					subscriptionId,
+					{ reason: "replaced" },
 					tx,
 				);
 
@@ -843,8 +846,11 @@ export class ManualSubscriptionsService {
 					throw new Error(`Manual subscription ${subscriptionId} disappeared`);
 				}
 
+				// The subscription ended: its unfired slots are void and, unlike a
+				// clawback, never restorable.
 				await this.subscriptionCreditsRepository.cancelPendingSlotsForSubscription(
 					subscriptionId,
+					{ reason: "ended" },
 					tx,
 				);
 				const anotherEntitled =

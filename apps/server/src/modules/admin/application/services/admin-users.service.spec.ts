@@ -10,6 +10,7 @@ import type { CreditsService } from "../../../credits/application/services/credi
 import type {
 	AdminProjectRow,
 	AdminRepository,
+	AdminUserDetailRow,
 	AdminUserPageRow,
 } from "../../infrastructure/persistence/admin.repository";
 import type { AdminOrganizationsRepository } from "../../infrastructure/persistence/admin-organizations.repository";
@@ -223,5 +224,89 @@ describe("AdminUsersService.listUserPages", () => {
 			publicUrl: null,
 		});
 		expect(() => adminUserPagesResponseSchema.parse(result)).not.toThrow();
+	});
+});
+
+describe("AdminUsersService.getUserDetail", () => {
+	const USER_ID = "user_1";
+	const TX = { kind: "repeatable-read-tx" };
+
+	function setupDetail(detailRow: AdminUserDetailRow | null) {
+		const adminRepository = {
+			findLatestSubscription: vi.fn().mockResolvedValue(null),
+			findUserDetail: vi.fn().mockResolvedValue(detailRow),
+			listRecentCreditLedger: vi.fn().mockResolvedValue([]),
+			listRecentProjects: vi.fn().mockResolvedValue([]),
+			readTransaction: vi.fn(async (fn: (tx: typeof TX) => Promise<unknown>) =>
+				fn(TX),
+			),
+			sumAiSpendForUser: vi
+				.fn()
+				.mockResolvedValue({ meteredOperations: 0, totalCostUsdMicros: 0 }),
+		};
+		const adminOrganizationsRepository = {
+			listUserMemberships: vi.fn().mockResolvedValue([]),
+		};
+		const service = new AdminUsersService(
+			adminRepository as unknown as AdminRepository,
+			adminOrganizationsRepository as unknown as AdminOrganizationsRepository,
+			{} as CreditsService,
+		);
+
+		return { adminOrganizationsRepository, adminRepository, service };
+	}
+
+	it("runs every read inside ONE read transaction and hands each the tx client", async () => {
+		const { adminOrganizationsRepository, adminRepository, service } =
+			setupDetail({
+				banReason: null,
+				banned: false,
+				createdAt: PROJECT_CREATED_AT,
+				creditsBalance: 1_250,
+				creditsConsumed: 300,
+				email: "zack@example.com",
+				emailVerified: true,
+				id: USER_ID,
+				image: null,
+				lastSeenAt: null,
+				name: "Zack",
+				plan: null,
+				projectsCount: 2,
+				role: "user",
+				updatedAt: PROJECT_UPDATED_AT,
+			});
+
+		const detail = await service.getUserDetail(USER_ID);
+
+		expect(detail).toMatchObject({ creditsBalance: 12.5, id: USER_ID });
+		expect(adminRepository.readTransaction).toHaveBeenCalledTimes(1);
+		expect(adminRepository.findUserDetail).toHaveBeenCalledWith(USER_ID, TX);
+		expect(adminRepository.findLatestSubscription).toHaveBeenCalledWith(
+			USER_ID,
+			TX,
+		);
+		expect(adminRepository.listRecentProjects).toHaveBeenCalledWith(
+			USER_ID,
+			expect.any(Number),
+			TX,
+		);
+		expect(adminRepository.listRecentCreditLedger).toHaveBeenCalledWith(
+			USER_ID,
+			expect.any(Number),
+			TX,
+		);
+		expect(adminRepository.sumAiSpendForUser).toHaveBeenCalledWith(USER_ID, TX);
+		expect(
+			adminOrganizationsRepository.listUserMemberships,
+		).toHaveBeenCalledWith(USER_ID, TX);
+	});
+
+	it("404s inside the transaction before the dependent reads run", async () => {
+		const { adminRepository, service } = setupDetail(null);
+
+		await expect(service.getUserDetail(USER_ID)).rejects.toMatchObject({
+			status: 404,
+		});
+		expect(adminRepository.findLatestSubscription).not.toHaveBeenCalled();
 	});
 });

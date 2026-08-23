@@ -9,6 +9,8 @@ import {
 	extendVideoOutputSchema,
 	insertSectionInputSchema,
 	insertSectionOutputSchema,
+	productVideoInputSchema,
+	productVideoOutputSchema,
 	readAttachmentInputSchema,
 	readAttachmentOutputSchema,
 	readElementsInputSchema,
@@ -136,9 +138,17 @@ function buildService({
 		resolveToolsForUser: vi.fn().mockResolvedValue(mcpResult),
 	};
 	const meteringService = {
+		acquireExecutionLease: vi
+			.fn()
+			.mockImplementation(async (eventId: string) => ({
+				id: eventId,
+				status: "reserved",
+			})),
 		captureGeneration: vi.fn().mockResolvedValue({ id: "generation-ref" }),
 		claimBundledReservation: vi.fn().mockResolvedValue(null),
 		findByIdempotencyKey: vi.fn().mockResolvedValue(null),
+		heartbeatExecutionLease: vi.fn().mockResolvedValue("renewed"),
+		releaseExecutionLease: vi.fn().mockResolvedValue(undefined),
 		refund: vi.fn().mockResolvedValue({
 			id: "usage-event-1",
 			status: "refunded",
@@ -155,10 +165,20 @@ function buildService({
 			replayed: false,
 		}),
 		settle: vi.fn().mockResolvedValue({
+			finalCredits: 37,
 			id: "usage-event-1",
 			status: "settled",
 		}),
 		...meteringOverrides,
+	};
+	const creditsService = {
+		getSettledBalance: vi.fn().mockResolvedValue({
+			balance: 1_200,
+			plan: 1_200,
+			promo: 0,
+			settledBalance: 1_263,
+			topup: 0,
+		}),
 	};
 	const modelPricingService = {
 		quoteTokenUsage: vi.fn().mockResolvedValue({
@@ -191,10 +211,12 @@ function buildService({
 		meteringService as unknown as AiChatServiceDependencies[10],
 		modelPricingService as unknown as AiChatServiceDependencies[11],
 		leadsRepository as unknown as AiChatServiceDependencies[12],
+		creditsService as unknown as AiChatServiceDependencies[13],
 	);
 
 	return {
 		chatsRepository,
+		creditsService,
 		leadsRepository,
 		meteringService,
 		mcpChatToolsService,
@@ -249,7 +271,7 @@ function streamOptions(messages: WanditUIMessage[] = [userMessage()]) {
 		abortSignal: new AbortController().signal,
 		chatId: CHAT_ID,
 		messages,
-		prepared: { eventId: "usage-event-1", release: vi.fn() },
+		prepared: { eventId: "usage-event-1", leaseToken: null, release: vi.fn() },
 		projectId: PROJECT_ID,
 		reply: { raw: {} } as FastifyReply,
 		scope: PERSONAL_SCOPE,
@@ -272,6 +294,20 @@ function assistantMessage(
 		metadata,
 		parts: [{ text: "Hi", type: "text" }],
 		role: "assistant",
+	};
+}
+
+function finishUsage() {
+	return {
+		inputTokenDetails: {
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
+			noCacheTokens: 100,
+		},
+		inputTokens: 100,
+		outputTokenDetails: { reasoningTokens: 5, textTokens: 15 },
+		outputTokens: 20,
+		totalTokens: 120,
 	};
 }
 
@@ -591,6 +627,285 @@ describe("AiChatService MCP lifecycle", () => {
 		prepared.release();
 	});
 
+	it("takes the cross-replica execution lease on a fresh reserve", async () => {
+		const { meteringService, service } = buildService();
+
+		const prepared = await service.prepareStream({
+			chatId: CHAT_ID,
+			messages: [userMessage()],
+			projectId: PROJECT_ID,
+			requestId: "fresh-lease-turn",
+			scope: PERSONAL_SCOPE,
+		});
+
+		expect(meteringService.acquireExecutionLease).toHaveBeenCalledWith(
+			"usage-event-1",
+			expect.stringMatching(/^[0-9a-f-]{36}$/),
+			5 * 60_000,
+		);
+		expect(prepared.leaseToken).toBe(
+			meteringService.acquireExecutionLease.mock.calls[0]?.[1],
+		);
+		prepared.release();
+	});
+
+	it("409s when a fresh reserve loses the lease race to another replica", async () => {
+		const { meteringService, service } = buildService();
+		meteringService.acquireExecutionLease.mockResolvedValueOnce(null);
+
+		const error = await service
+			.prepareStream({
+				chatId: CHAT_ID,
+				messages: [userMessage()],
+				projectId: PROJECT_ID,
+				requestId: "raced-lease-turn",
+				scope: PERSONAL_SCOPE,
+			})
+			.catch((caught: unknown) => caught);
+
+		expect(error).toBeInstanceOf(HttpException);
+		expect((error as HttpException).getStatus()).toBe(409);
+		expect((error as HttpException).getResponse()).toMatchObject({
+			code: "AI_CHAT_TURN_ACTIVE",
+		});
+	});
+
+	it("refuses to adopt a young hold whose lease is live on another replica", async () => {
+		const { meteringService, service } = buildService();
+		meteringService.reserveWithReplay.mockResolvedValueOnce({
+			event: {
+				createdAt: new Date(Date.now() - 60_000),
+				id: "remote-live-hold",
+				status: "reserved",
+			},
+			replay: "reserved",
+			replayed: true,
+		});
+		meteringService.acquireExecutionLease.mockResolvedValueOnce(null);
+
+		const error = await service
+			.prepareStream({
+				chatId: CHAT_ID,
+				messages: [userMessage()],
+				projectId: PROJECT_ID,
+				requestId: "remote-live-turn",
+				scope: PERSONAL_SCOPE,
+			})
+			.catch((caught: unknown) => caught);
+
+		expect(error).toBeInstanceOf(HttpException);
+		expect((error as HttpException).getStatus()).toBe(409);
+		expect((error as HttpException).getResponse()).toMatchObject({
+			code: "AI_CHAT_TURN_ACTIVE",
+		});
+		// The duplicate never attaches to, refunds, or supersedes the foreign hold.
+		expect(meteringService.refund).not.toHaveBeenCalled();
+		expect(meteringService.reserveWithReplay).toHaveBeenCalledTimes(1);
+	});
+
+	it("adopts a young hold once its lease is expired or absent", async () => {
+		const { meteringService, service } = buildService();
+		meteringService.reserveWithReplay.mockResolvedValueOnce({
+			event: {
+				createdAt: new Date(Date.now() - 60_000),
+				id: "expired-lease-hold",
+				status: "reserved",
+			},
+			replay: "reserved",
+			replayed: true,
+		});
+
+		const prepared = await service.prepareStream({
+			chatId: CHAT_ID,
+			messages: [userMessage()],
+			projectId: PROJECT_ID,
+			requestId: "expired-lease-turn",
+			scope: PERSONAL_SCOPE,
+		});
+
+		expect(prepared.eventId).toBe("expired-lease-hold");
+		expect(meteringService.acquireExecutionLease).toHaveBeenCalledWith(
+			"expired-lease-hold",
+			expect.any(String),
+			5 * 60_000,
+		);
+		expect(prepared.leaseToken).not.toBeNull();
+		prepared.release();
+	});
+
+	it("leases the adopted bundled project-creation hold", async () => {
+		const { meteringService, service } = buildService();
+		meteringService.claimBundledReservation.mockResolvedValueOnce({
+			chatId: CHAT_ID,
+			createdAt: new Date(),
+			id: "creation-event",
+			operation: "chat",
+			status: "reserved",
+		});
+
+		const prepared = await service.prepareStream({
+			chatId: CHAT_ID,
+			messages: [userMessage()],
+			projectId: PROJECT_ID,
+			requestId: "bundled-turn",
+			scope: PERSONAL_SCOPE,
+		});
+
+		expect(prepared.eventId).toBe("creation-event");
+		expect(meteringService.acquireExecutionLease).toHaveBeenCalledWith(
+			"creation-event",
+			expect.any(String),
+			5 * 60_000,
+		);
+		prepared.release();
+	});
+
+	it("heartbeats the lease while streaming and stops on release", async () => {
+		vi.useFakeTimers();
+
+		try {
+			const { meteringService, service } = buildService();
+			const options = {
+				...streamOptions(),
+				prepared: {
+					eventId: "usage-event-1",
+					leaseToken: "lease-token",
+					release: vi.fn(),
+				},
+			};
+
+			await service.stream(options);
+			await capturedExecute()({
+				writer: { merge: vi.fn(), write: vi.fn() },
+			});
+
+			await vi.advanceTimersByTimeAsync(60_000);
+			await vi.advanceTimersByTimeAsync(60_000);
+			expect(meteringService.heartbeatExecutionLease).toHaveBeenCalledTimes(2);
+			expect(meteringService.heartbeatExecutionLease).toHaveBeenCalledWith(
+				"usage-event-1",
+				"lease-token",
+				5 * 60_000,
+			);
+
+			// The agent's onEnd settles: renewals stop before the settle write.
+			await capturedAgentStreamOptions().onEnd?.();
+			await vi.advanceTimersByTimeAsync(60_000);
+			expect(meteringService.heartbeatExecutionLease).toHaveBeenCalledTimes(2);
+
+			await capturedOnEnd()({
+				isContinuation: false,
+				responseMessage: assistantMessage(),
+			});
+
+			expect(meteringService.releaseExecutionLease).toHaveBeenCalledWith(
+				"usage-event-1",
+				"lease-token",
+			);
+			expect(options.prepared.release).toHaveBeenCalledTimes(1);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("aborts the stream when a heartbeat CAS reports the lease as stolen", async () => {
+		vi.useFakeTimers();
+
+		try {
+			const { meteringService, service } = buildService();
+			meteringService.heartbeatExecutionLease.mockResolvedValue("lost");
+			const options = {
+				...streamOptions(),
+				prepared: {
+					eventId: "usage-event-1",
+					leaseToken: "lease-token",
+					release: vi.fn(),
+				},
+			};
+
+			await service.stream(options);
+			await capturedExecute()({
+				writer: { merge: vi.fn(), write: vi.fn() },
+			});
+			const agentOptions = capturedAgentStreamOptions();
+
+			expect(agentOptions.abortSignal.aborted).toBe(false);
+
+			await vi.advanceTimersByTimeAsync(60_000);
+
+			expect(agentOptions.abortSignal.aborted).toBe(true);
+			expect(options.prepared.release).toHaveBeenCalledTimes(1);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("keeps streaming through transient heartbeat errors until the lease expiry passes", async () => {
+		vi.useFakeTimers();
+
+		try {
+			const { meteringService, service } = buildService();
+			// Reviewer scenario: a transient pool timeout during a 20-minute page
+			// build. The lease (5-minute TTL) was not lost, so the stream must not
+			// abort and bill the partial turn.
+			meteringService.heartbeatExecutionLease.mockResolvedValue("error");
+			const options = {
+				...streamOptions(),
+				prepared: {
+					eventId: "usage-event-1",
+					leaseToken: "lease-token",
+					release: vi.fn(),
+				},
+			};
+
+			await service.stream(options);
+			await capturedExecute()({
+				writer: { merge: vi.fn(), write: vi.fn() },
+			});
+			const agentOptions = capturedAgentStreamOptions();
+
+			// Four failed heartbeats (t = 1..4 min) stay inside the 5-minute TTL.
+			await vi.advanceTimersByTimeAsync(4 * 60_000);
+			expect(meteringService.heartbeatExecutionLease).toHaveBeenCalledTimes(4);
+			expect(agentOptions.abortSignal.aborted).toBe(false);
+
+			// A renewal resets the known expiry.
+			meteringService.heartbeatExecutionLease.mockResolvedValueOnce("renewed");
+			await vi.advanceTimersByTimeAsync(60_000);
+			expect(agentOptions.abortSignal.aborted).toBe(false);
+
+			// Errors again: still live for four more minutes after that renewal.
+			await vi.advanceTimersByTimeAsync(4 * 60_000);
+			expect(agentOptions.abortSignal.aborted).toBe(false);
+
+			// The known expiry passes with no confirmed renewal: abort.
+			await vi.advanceTimersByTimeAsync(60_000);
+			expect(agentOptions.abortSignal.aborted).toBe(true);
+			expect(options.prepared.release).toHaveBeenCalledTimes(1);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("never heartbeats a stream that owns no lease", async () => {
+		vi.useFakeTimers();
+
+		try {
+			const { meteringService, service } = buildService();
+
+			await service.stream(streamOptions());
+			await capturedExecute()({
+				writer: { merge: vi.fn(), write: vi.fn() },
+			});
+			await vi.advanceTimersByTimeAsync(5 * 60_000);
+
+			expect(meteringService.heartbeatExecutionLease).not.toHaveBeenCalled();
+			expect(meteringService.releaseExecutionLease).not.toHaveBeenCalled();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("reserves for the inlined ads playbooks when the composer selected ads skills", async () => {
 		const plain = buildService();
 		const withSkills = buildService();
@@ -741,6 +1056,93 @@ describe("AiChatService MCP lifecycle", () => {
 		expect(
 			meteringService.reserveWithReplay.mock.calls[1]?.[2]?.idempotencyKey,
 		).toBe(`ai-chat:${CHAT_ID}:retry-near-deadline#2`);
+		prepared.release();
+	});
+
+	it("never refunds a stale hold whose execution lease is live (409 instead)", async () => {
+		// Reviewer scenario: a duplicate POST more than 4 minutes after the
+		// hold was reserved while the first stream still runs on another
+		// replica (long tool call, no ref yet) and heartbeats its lease.
+		const { meteringService, service } = buildService();
+		meteringService.reserveWithReplay.mockResolvedValueOnce({
+			event: {
+				createdAt: new Date(Date.now() - 5 * 60_000),
+				id: "leased-hold",
+				status: "reserved",
+			},
+			replay: "reserved",
+			replayed: true,
+		});
+		meteringService.acquireExecutionLease.mockResolvedValueOnce(null);
+
+		const error = await service
+			.prepareStream({
+				chatId: CHAT_ID,
+				messages: [userMessage()],
+				projectId: PROJECT_ID,
+				requestId: "duplicate-of-live-stream",
+				scope: PERSONAL_SCOPE,
+			})
+			.catch((caught: unknown) => caught);
+
+		expect(error).toBeInstanceOf(HttpException);
+		expect((error as HttpException).getStatus()).toBe(409);
+		expect((error as HttpException).getResponse()).toMatchObject({
+			code: "AI_CHAT_TURN_ACTIVE",
+		});
+		expect(meteringService.acquireExecutionLease).toHaveBeenCalledWith(
+			"leased-hold",
+			expect.any(String),
+			5 * 60_000,
+		);
+		expect(meteringService.refund).not.toHaveBeenCalled();
+		expect(meteringService.reserveWithReplay).toHaveBeenCalledTimes(1);
+	});
+
+	it("takes the lease before superseding and hands it back when the hold stays reserved", async () => {
+		const { meteringService, service } = buildService();
+		meteringService.reserveWithReplay
+			.mockResolvedValueOnce({
+				event: {
+					createdAt: new Date(Date.now() - 5 * 60_000),
+					id: "stale-hold-with-refs",
+					status: "reserved",
+				},
+				replay: "reserved",
+				replayed: true,
+			})
+			.mockResolvedValueOnce({
+				event: { createdAt: new Date(), id: "fresh-hold", status: "reserved" },
+				replay: "none",
+				replayed: false,
+			});
+		// refund() keeps a hold with durable refs reserved for the sweep.
+		meteringService.refund.mockResolvedValueOnce({
+			id: "stale-hold-with-refs",
+			status: "reserved",
+		});
+
+		const prepared = await service.prepareStream({
+			chatId: CHAT_ID,
+			messages: [userMessage()],
+			projectId: PROJECT_ID,
+			requestId: "retry-with-refs",
+			scope: PERSONAL_SCOPE,
+		});
+
+		expect(prepared.eventId).toBe("fresh-hold");
+		const leaseToken = meteringService.acquireExecutionLease.mock.calls[0]?.[1];
+		expect(meteringService.acquireExecutionLease.mock.calls[0]?.[0]).toBe(
+			"stale-hold-with-refs",
+		);
+		expect(meteringService.refund).toHaveBeenCalledWith(
+			"stale-hold-with-refs",
+			"ai_chat_retry_supersede",
+		);
+		expect(meteringService.releaseExecutionLease).toHaveBeenCalledWith(
+			"stale-hold-with-refs",
+			leaseToken,
+		);
 		prepared.release();
 	});
 
@@ -1056,6 +1458,97 @@ describe("AiChatService MCP lifecycle", () => {
 		expect(agentOptions.abortSignal.aborted).toBe(true);
 		expect(options.prepared.release).toHaveBeenCalledTimes(1);
 		timeout.mockRestore();
+	});
+
+	it("emits the credits-settled part with the post-settle balance after end settlement", async () => {
+		const { creditsService, meteringService, service } = buildService();
+		const options = streamOptions();
+		const writer = { merge: vi.fn(), write: vi.fn() };
+
+		await service.stream(options);
+		await capturedExecute()({ writer });
+		const agentOptions = capturedAgentStreamOptions();
+		agentOptions.messageMetadata?.({
+			part: { totalUsage: finishUsage(), type: "finish" },
+		} as never);
+		await agentOptions.onEnd?.({} as never);
+
+		expect(creditsService.getSettledBalance).toHaveBeenCalledWith({
+			type: "user",
+			userId: USER_ID,
+		});
+		expect(
+			creditsService.getSettledBalance.mock.invocationCallOrder[0],
+		).toBeGreaterThan(meteringService.settle.mock.invocationCallOrder[0] ?? 0);
+		expect(writer.write).toHaveBeenCalledWith({
+			data: {
+				credits: 0.37,
+				settledBalance: 12.63,
+				usageEventId: "usage-event-1",
+			},
+			transient: true,
+			type: "data-credits-settled",
+		});
+		options.prepared.release();
+	});
+
+	it("does not emit the credits-settled part when settlement throws", async () => {
+		const { creditsService, meteringService, service } = buildService();
+		meteringService.settle.mockRejectedValue(
+			new InsufficientCreditsError(400, 100),
+		);
+		const options = streamOptions();
+		const writer = { merge: vi.fn(), write: vi.fn() };
+
+		await service.stream(options);
+		await capturedExecute()({ writer });
+		const agentOptions = capturedAgentStreamOptions();
+		agentOptions.messageMetadata?.({
+			part: { totalUsage: finishUsage(), type: "finish" },
+		} as never);
+		await agentOptions.onEnd?.({} as never);
+
+		expect(creditsService.getSettledBalance).not.toHaveBeenCalled();
+		expect(writer.write).not.toHaveBeenCalledWith(
+			expect.objectContaining({ type: "data-credits-settled" }),
+		);
+		options.prepared.release();
+	});
+
+	it("does not write the credits-settled part after the stream writer closed", async () => {
+		const { creditsService, service } = buildService();
+		const options = streamOptions();
+		const writer = { merge: vi.fn(), write: vi.fn() };
+
+		await service.stream(options);
+		await capturedExecute()({ writer });
+		const agentOptions = capturedAgentStreamOptions();
+		agentOptions.messageMetadata?.({
+			part: { totalUsage: finishUsage(), type: "finish" },
+		} as never);
+		// The outer onEnd closes the writer before the balance read resolves.
+		let resolveBalance: (value: unknown) => void = () => {};
+		creditsService.getSettledBalance.mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					resolveBalance = resolve;
+				}),
+		);
+		const agentEnd = agentOptions.onEnd?.({} as never);
+		await vi.waitFor(() =>
+			expect(creditsService.getSettledBalance).toHaveBeenCalledTimes(1),
+		);
+		await capturedOnEnd()({
+			isContinuation: false,
+			responseMessage: assistantMessage(),
+		});
+		resolveBalance({ settledBalance: 1_263 });
+		await agentEnd;
+
+		expect(writer.write).not.toHaveBeenCalledWith(
+			expect.objectContaining({ type: "data-credits-settled" }),
+		);
+		options.prepared.release();
 	});
 
 	it("emits the typed billing data part when end settlement exhausts credits", async () => {
@@ -1740,6 +2233,7 @@ describe("AiChatService MCP lifecycle", () => {
 		expect(mcpChatToolsService.resolveToolsForUser).toHaveBeenCalledWith(
 			{ actorUserId: USER_ID },
 			"usage-event-1",
+			CHAT_ID,
 		);
 		expect(pagesRepository.collectManualEditTrail).toHaveBeenCalledWith(
 			PROJECT_ID,
@@ -1902,6 +2396,34 @@ describe("completeDanglingToolCalls ask_user", () => {
 });
 
 describe("completeDanglingToolCalls video revision tools", () => {
+	it("repairs an incomplete product_video call with schema-valid input and output", () => {
+		const repaired = repairBuiltInPart({
+			input: { productName: "unfinished" },
+			state: "input-streaming",
+			toolCallId: "call-product-video",
+			type: "tool-product_video",
+		});
+
+		expect(repaired).toMatchObject({
+			input: {
+				image: {
+					url: "https://invalid.local/interrupted-product-image.jpg",
+				},
+				preset: "orbit",
+				productName: "Unknown product",
+				title: "Interrupted product video",
+			},
+			output: { status: "unavailable" },
+			state: "output-available",
+		});
+		expect(productVideoInputSchema.safeParse(repaired.input).success).toBe(
+			true,
+		);
+		expect(productVideoOutputSchema.safeParse(repaired.output).success).toBe(
+			true,
+		);
+	});
+
 	it("repairs an incomplete edit_video call with schema-valid input and output", () => {
 		const repaired = repairBuiltInPart({
 			input: { instruction: "unfinished" },

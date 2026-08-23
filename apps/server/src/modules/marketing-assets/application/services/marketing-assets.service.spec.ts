@@ -59,7 +59,7 @@ function setup() {
 	const meteringService = {
 		findByIdempotencyKey: vi.fn().mockResolvedValue(usageEvent),
 		refund: vi.fn(),
-		settleFixedFromEvidence: vi.fn().mockResolvedValue(usageEvent),
+		settleMeasuredFromEvidence: vi.fn().mockResolvedValue(usageEvent),
 	};
 	const selectLimit = vi
 		.fn()
@@ -108,12 +108,12 @@ describe("MarketingAssetsService stale recovery billing", () => {
 			`marketing:${BASE_ROW.id}`,
 			{ actorUserId: "user_1" },
 		);
-		expect(meteringService.settleFixedFromEvidence).toHaveBeenCalledWith(
+		expect(meteringService.settleMeasuredFromEvidence).toHaveBeenCalledWith(
 			"usage_event_marketing",
 			1,
 		);
 		expect(
-			meteringService.settleFixedFromEvidence.mock
+			meteringService.settleMeasuredFromEvidence.mock
 				.invocationCallOrder[0] as number,
 		).toBeLessThan(db.update.mock.invocationCallOrder[0] as number);
 		expect(updateSet).toHaveBeenCalledWith(
@@ -124,7 +124,7 @@ describe("MarketingAssetsService stale recovery billing", () => {
 	it("does not publish a recovered document when existing settlement fails", async () => {
 		const { db, meteringService, service } = setup();
 		const settlementError = new Error("settlement unavailable");
-		meteringService.settleFixedFromEvidence.mockRejectedValueOnce(
+		meteringService.settleMeasuredFromEvidence.mockRejectedValueOnce(
 			settlementError,
 		);
 

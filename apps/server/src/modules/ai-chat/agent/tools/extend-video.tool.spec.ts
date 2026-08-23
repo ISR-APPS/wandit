@@ -258,8 +258,11 @@ describe("extend_video tool", () => {
 			{ actorUserId: "user_1", organizationId: "org_1" },
 			expect.objectContaining({
 				attemptRef: EXTENSION_ATTEMPT_ID,
-				credits: 6_000,
+				// Measured video: three legs at the 550 cc registry floor each (the
+				// test metering exposes no catalog rate); the gateway cost reprices.
+				credits: 1_650,
 				idempotencyKey: `video:${EXTENSION_ATTEMPT_ID}`,
+				measuredTerms: { estimatedUnitUsdMicros: null, units: 3 },
 				parentEventId: "parent_1",
 			}),
 		);

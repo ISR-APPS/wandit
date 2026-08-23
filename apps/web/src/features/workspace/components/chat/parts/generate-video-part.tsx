@@ -1,6 +1,6 @@
-// In-thread card shared by generate_video, edit_video, and extend_video. Each
-// wrapper supplies its own copy while the attempt core owns Realtime progress,
-// polling fallback, failure handling, and the finished cinematic stage.
+// In-thread card shared by every own-road video tool. Each wrapper supplies
+// its own copy while the attempt core owns Realtime progress, polling fallback,
+// failure handling, and the finished cinematic stage.
 
 import { useQueryClient } from "@tanstack/react-query";
 import type {
@@ -15,7 +15,7 @@ import { AlertTriangle, Check, Download, FolderOpen, Play } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 
-import { creditsKeys } from "@/features/credits";
+import { invalidateBalanceAfterGenerationTerminal } from "@/features/credits/lib/terminal-balance-invalidation";
 import { useTranslation } from "@/lib/i18n";
 import {
 	mediaGenerationKeys,
@@ -44,17 +44,23 @@ type ExtendVideoToolPart = Extract<
 	{ type: "tool-extend_video" }
 >;
 
+type ProductVideoToolPart = Extract<
+	WanditUIMessage["parts"][number],
+	{ type: "tool-product_video" }
+>;
+
 type VideoToolPart =
 	| GenerateVideoToolPart
 	| EditVideoToolPart
-	| ExtendVideoToolPart;
+	| ExtendVideoToolPart
+	| ProductVideoToolPart;
 
 type VideoPieceProgress = {
 	current: number;
 	total: number;
 };
 
-type VideoAttemptCopy = {
+export type VideoAttemptCopy = {
 	preparing: string;
 	queueing: string;
 	failedToStart: string;
@@ -202,7 +208,7 @@ export function ExtendVideoPart({ part }: { part: ExtendVideoToolPart }) {
 	return <VideoAttemptPart copy={copy} part={part} />;
 }
 
-function VideoAttemptPart({
+export function VideoAttemptPart({
 	part,
 	copy,
 }: {
@@ -290,7 +296,7 @@ function VideoAttemptCard({
 
 	useEffect(() => {
 		if (!terminalStatus) return;
-		void queryClient.invalidateQueries({ queryKey: creditsKeys.balance() });
+		invalidateBalanceAfterGenerationTerminal(queryClient, terminalStatus);
 	}, [queryClient, terminalStatus]);
 
 	const live = useLiveRun({

@@ -120,6 +120,12 @@ const RESERVATION = {
 	operation: "video" as const,
 	referenceId: BASE_ATTEMPT.id,
 	replay: "none" as const,
+	terms: {
+		estimatedUnitUsdMicros: null,
+		mode: "measured" as const,
+		unit: "video",
+		usdMicrosPerCredit: 40_000,
+	},
 	units: 2 as const,
 };
 
@@ -154,6 +160,33 @@ beforeEach(() => {
 });
 
 describe("video edit/extension Trigger runtime", () => {
+	it("rejects product rows before either closed workflow can execute or refund", async () => {
+		const productAttempt = {
+			...BASE_ATTEMPT,
+			kind: "video-product",
+		};
+		const refund = vi.fn();
+
+		await expect(
+			runVideoWorkflow(
+				{
+					attemptId: productAttempt.id,
+					projectId: productAttempt.projectId,
+					userId: productAttempt.userId,
+				},
+				{
+					dependencies: {
+						loadAttempt: vi.fn().mockResolvedValue(productAttempt),
+						refund,
+					} as never,
+					expectedKind: "video-edit",
+					runId: "run_product",
+				},
+			),
+		).rejects.toThrow("cannot process video-product attempt");
+		expect(refund).not.toHaveBeenCalled();
+	});
+
 	it("never reruns a succeeded leg and calls the provider once for the first queued leg", async () => {
 		const directory = await mkdtemp(join(tmpdir(), "video-extension-spec-"));
 		const sourcePath = join(directory, "source.mp4");
@@ -592,6 +625,7 @@ describe("video edit/extension Trigger runtime", () => {
 			voiceover: { language: "en" as const, script: "Keep moving forward." },
 		};
 
+		const ttsBilling = billing();
 		try {
 			await expect(
 				executeExtension(
@@ -604,18 +638,35 @@ describe("video edit/extension Trigger runtime", () => {
 						subject: { actorUserId: "user_1" },
 					},
 					{
-						billing: billing(),
+						billing: ttsBilling,
 						persistence,
 						speech: {
 							synthesizeVoiceover: vi.fn().mockResolvedValue({
 								bytes: new Uint8Array([73, 68, 51]),
 								mediaType: "audio/mpeg",
+								providerMetadata: {
+									gateway: { generationId: "generation_tts" },
+								},
 							}),
 						},
 					} as never,
 				),
 			).resolves.toMatchObject({ deliveredUnits: 1, status: "generated" });
 			expect(muxSoundtrack).toHaveBeenCalledTimes(1);
+			// The narration TTS bills inside the video event as a helper call.
+			expect(ttsBilling.capture).toHaveBeenCalledWith(
+				{ ...RESERVATION, units: 1 },
+				{
+					providerMetadata: { gateway: { generationId: "generation_tts" } },
+					stepUsage: {
+						metering: {
+							customerBilling: "helper_billable",
+							task: "voiceover_tts",
+						},
+						providerUsage: null,
+					},
+				},
+			);
 			expect(persistence.persistVoiceoverDeliveryStatus).toHaveBeenCalledWith(
 				attempt,
 				"delivered",
