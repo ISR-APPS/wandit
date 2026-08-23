@@ -408,6 +408,12 @@ export const AI_INVOCATION_COVERAGE = [
 	},
 	{
 		billing: { billedInto: "chat", kind: "helper" },
+		id: "video-inspect-helper",
+		marker: "const result = await generateText({",
+		source: "apps/server/src/modules/ai-chat/agent/tools/inspect-video.tool.ts",
+	},
+	{
+		billing: { billedInto: "chat", kind: "helper" },
 		id: "video-director-helper",
 		marker: "const result = await generateText({",
 		source:

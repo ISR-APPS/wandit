@@ -518,6 +518,8 @@ const SKIP_REASON_GUIDANCE: Record<McpSkipReason, string> = {
 export type McpChatToolsResult = {
 	approvalMap: McpToolApprovalMap;
 	close: () => Promise<void>;
+	/** Sorted unique slugs with an enabled connector and stored user token. */
+	configuredSlugs: string[];
 	/** Sorted unique slugs of the connectors that contributed tools. */
 	connectedSlugs: string[];
 	notices: string[];
@@ -606,6 +608,13 @@ export class McpChatToolsService {
 		const connectorsById = new Map(
 			connectors.map((connector) => [connector.id, connector]),
 		);
+		const configuredSlugs = new Set<string>();
+		for (const connection of connections) {
+			const connector = connectorsById.get(connection.connectorId);
+			if (connector) {
+				configuredSlugs.add(connector.slug);
+			}
+		}
 		const closers: RegisteredCloser[] = [];
 		const registerCloser = (client: MCPClient): RegisteredCloser => {
 			let closePromise: Promise<void> | undefined;
@@ -712,6 +721,7 @@ export class McpChatToolsService {
 			close: async () => {
 				await Promise.all(closers.map((close) => close()));
 			},
+			configuredSlugs: [...configuredSlugs].sort(),
 			connectedSlugs: [...connectedSlugs].sort(),
 			notices,
 			tools: sortRecord(tools),
@@ -3058,6 +3068,7 @@ function emptyResult(): McpChatToolsResult {
 	return {
 		approvalMap: {},
 		close: async () => {},
+		configuredSlugs: [],
 		connectedSlugs: [],
 		notices: [],
 		tools: {},

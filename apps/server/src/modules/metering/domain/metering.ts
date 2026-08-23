@@ -51,6 +51,7 @@ export type HelperStepTask =
 	| "prompt_refine"
 	| "tool_call_repair"
 	| "video_director"
+	| "video_inspect"
 	| "voiceover_tts";
 
 /**
