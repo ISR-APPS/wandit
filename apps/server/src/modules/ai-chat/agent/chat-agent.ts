@@ -29,7 +29,10 @@ import {
 import type { PageEditsService } from "../../pages/application/services/page-edits.service";
 import { AI_CHAT_MAX_OUTPUT_TOKENS, AI_CHAT_MAX_STEPS } from "./chat-metering";
 import { chatGatewayFetch } from "./gateway-fetch";
-import { WANDIT_SYSTEM_PROMPT } from "./system-prompt";
+import {
+	INSPECT_VIDEO_BRAIN_GUIDANCE,
+	WANDIT_SYSTEM_PROMPT,
+} from "./system-prompt";
 import {
 	type AnimateImageTool,
 	type AnimateImageToolDeps,
@@ -82,6 +85,12 @@ import {
 	getDirectionCandidatesToolSchemaOnly,
 } from "./tools/get-direction-candidates.tool";
 import {
+	createInspectVideoTool,
+	type InspectVideoTool,
+	type InspectVideoToolDeps,
+	inspectVideoToolSchemaOnly,
+} from "./tools/inspect-video.tool";
+import {
 	createPageEditTools,
 	type PageEditTools,
 	pageEditToolsSchemaOnly,
@@ -124,8 +133,9 @@ type AiChatToolSet = {
 	generate_marketing_asset: GenerateMarketingAssetTool;
 	generate_page: GeneratePageTool;
 	generate_video: GenerateVideoTool;
-	product_video: ProductVideoTool;
 	get_direction_candidates: typeof getDirectionCandidatesTool;
+	inspect_video?: InspectVideoTool;
+	product_video: ProductVideoTool;
 	read_attachment: ReadAttachmentTool;
 	read_lead_performance: ReadLeadPerformanceTool;
 	read_skill: typeof readSkillTool;
@@ -275,6 +285,7 @@ export type WanditUIMessage = UIMessage<
 // scrape_leads queue deps, plus the edit tools' mutation service.
 export type ChatAgentDeps = GeneratePageToolDeps &
 	Omit<ScrapeLeadsToolDeps, "chatId" | "projectId"> & {
+		hasHiggsfieldConnector?: boolean;
 		pageEditsService: PageEditsService;
 	} & Omit<AnimateImageToolDeps, "chatId" | "projectId"> &
 	Omit<EditVideoToolDeps, "chatId" | "projectId"> &
@@ -282,6 +293,7 @@ export type ChatAgentDeps = GeneratePageToolDeps &
 	Omit<GenerateMarketingAssetToolDeps, "chatId" | "projectId"> &
 	Omit<GenerateImageToolDeps, "chatId" | "projectId"> &
 	Omit<GenerateVideoToolDeps, "chatId" | "projectId"> &
+	Omit<InspectVideoToolDeps, "organizationId"> &
 	Omit<ProductVideoToolDeps, "chatId" | "projectId"> &
 	ReadAttachmentToolDeps &
 	Omit<ReadLeadPerformanceToolDeps, "now" | "projectId">;
@@ -300,6 +312,7 @@ export function createChatAgent(
 	mcpTools: McpToolSet = {},
 	approvalMap: McpToolApprovalMap = {},
 ): ToolLoopAgent<never, AiChatToolSet & McpToolSet> {
+	const inspectVideoAvailable = deps.hasHiggsfieldConnector !== true;
 	const meteringContext = {
 		operation: "chat" as const,
 		organizationId: deps.subject.organizationId ?? null,
@@ -316,14 +329,18 @@ export function createChatAgent(
 		task: "chat",
 	});
 
+	const systemPrompt = inspectVideoAvailable
+		? `${WANDIT_SYSTEM_PROMPT}\n\n${INSPECT_VIDEO_BRAIN_GUIDANCE}`
+		: WANDIT_SYSTEM_PROMPT;
+
 	return new ToolLoopAgent({
 		experimental_repairToolCall: createChatToolCallRepair({
 			captureGeneration: chatToolCallRepairCapture(deps),
 			model,
 		}),
 		instructions: contextBlock
-			? `${WANDIT_SYSTEM_PROMPT}\n\n${contextBlock}`
-			: WANDIT_SYSTEM_PROMPT,
+			? `${systemPrompt}\n\n${contextBlock}`
+			: systemPrompt,
 		maxOutputTokens: AI_CHAT_MAX_OUTPUT_TOKENS,
 		model,
 		providerOptions: withLlmAttribution(
@@ -423,6 +440,18 @@ export function createChatAgent(
 				userId: deps.userId,
 				videoDirector: deps.videoDirector,
 			}),
+			get_direction_candidates: getDirectionCandidatesTool,
+			...(inspectVideoAvailable
+				? {
+						inspect_video: createInspectVideoTool({
+							availableVideos: deps.availableVideos,
+							meteringService: deps.meteringService,
+							organizationId: deps.subject.organizationId ?? null,
+							parentEventId: deps.parentEventId,
+							userId: deps.userId,
+						}),
+					}
+				: {}),
 			product_video: createProductVideoTool({
 				availableImages: deps.availableImages,
 				chatId: deps.chatId,
@@ -435,7 +464,6 @@ export function createChatAgent(
 				subject: deps.subject,
 				userId: deps.userId,
 			}),
-			get_direction_candidates: getDirectionCandidatesTool,
 			read_attachment: createReadAttachmentTool({
 				availableDocuments: deps.availableDocuments,
 			}),
@@ -480,9 +508,10 @@ export const aiChatToolsForValidation = {
 	generate_marketing_asset: generateMarketingAssetToolSchemaOnly,
 	generate_page: generatePageToolSchemaOnly,
 	generate_video: generateVideoToolSchemaOnly,
+	get_direction_candidates: getDirectionCandidatesToolSchemaOnly,
+	inspect_video: inspectVideoToolSchemaOnly,
 	product_video: productVideoToolSchemaOnly,
 	scrape_leads: scrapeLeadsToolSchemaOnly,
-	get_direction_candidates: getDirectionCandidatesToolSchemaOnly,
 	read_attachment: readAttachmentToolSchemaOnly,
 	read_lead_performance: readLeadPerformanceToolSchemaOnly,
 	...pageEditToolsSchemaOnly,

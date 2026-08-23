@@ -9,6 +9,8 @@ import {
 	extendVideoOutputSchema,
 	insertSectionInputSchema,
 	insertSectionOutputSchema,
+	inspectVideoInputSchema,
+	inspectVideoOutputSchema,
 	productVideoInputSchema,
 	productVideoOutputSchema,
 	readAttachmentInputSchema,
@@ -259,6 +261,7 @@ function createMcpResult(
 	return {
 		approvalMap: {},
 		close: vi.fn().mockResolvedValue(undefined),
+		configuredSlugs: [],
 		connectedSlugs: [],
 		notices: [],
 		tools: {},
@@ -1726,14 +1729,20 @@ describe("AiChatService MCP lifecycle", () => {
 		expect(context).not.toContain("seo-review");
 	});
 
-	it("adds no ads block and reads no tracking facts for a non-ads request", async () => {
+	it("gates inspect_video for a configured Higgsfield connector without resolved tools", async () => {
 		const { leadsRepository, service } = buildService({
-			mcpResult: createMcpResult({ connectedSlugs: ["higgsfield"] }),
+			mcpResult: createMcpResult({
+				configuredSlugs: ["higgsfield"],
+				connectedSlugs: [],
+			}),
 		});
 
 		await service.stream(streamOptions());
 
 		expect(leadsRepository.getAdsTrackingFacts).not.toHaveBeenCalled();
+		expect(chatAgentMocks.createChatAgent.mock.calls[0]?.[0]).toEqual(
+			expect.objectContaining({ hasHiggsfieldConnector: true }),
+		);
 		expect(chatAgentMocks.createChatAgent.mock.calls[0]?.[1]).toBeNull();
 	});
 
@@ -1888,7 +1897,7 @@ describe("AiChatService MCP lifecycle", () => {
 		);
 	});
 
-	it("keeps video and audio attachments out of read_attachment documents", async () => {
+	it("collects attached videos separately from read_attachment documents", async () => {
 		const { service } = buildService();
 		const messages: WanditUIMessage[] = [
 			{
@@ -1930,6 +1939,11 @@ describe("AiChatService MCP lifecycle", () => {
 									mediaType: "audio/mpeg",
 									url: "https://assets.example.com/soundtrack.mp3",
 								},
+								{
+									filename: "second-reference.webm",
+									mediaType: "video/webm",
+									url: "https://assets.example.com/second-reference.webm",
+								},
 							],
 						},
 						state: "output-available",
@@ -1956,6 +1970,22 @@ describe("AiChatService MCP lifecycle", () => {
 						filename: "notes.csv",
 						mediaType: "text/csv",
 						url: "https://assets.example.com/notes.csv",
+					},
+				],
+			}),
+		);
+		expect(chatAgentMocks.createChatAgent.mock.calls[0]?.[0]).toEqual(
+			expect.objectContaining({
+				availableVideos: [
+					{
+						filename: "reference.mp4",
+						mediaType: "video/mp4",
+						url: "https://assets.example.com/reference.mp4",
+					},
+					{
+						filename: "second-reference.webm",
+						mediaType: "video/webm",
+						url: "https://assets.example.com/second-reference.webm",
 					},
 				],
 			}),
@@ -2585,6 +2615,32 @@ describe("completeDanglingToolCalls page tools", () => {
 			true,
 		);
 		expect(readAttachmentOutputSchema.safeParse(repaired.output).success).toBe(
+			true,
+		);
+	});
+
+	it("repairs inspect_video with a schema-valid unavailable result", () => {
+		const repaired = repairBuiltInPart({
+			input: { focus: "structure", url: "unfinished" },
+			state: "input-streaming",
+			toolCallId: "call-inspect-video",
+			type: "tool-inspect_video",
+		});
+
+		expect(repaired).toMatchObject({
+			input: {
+				focus: "structure",
+				url: "https://wandit.invalid/interrupted-video",
+			},
+			output: {
+				status: "unavailable",
+			},
+			state: "output-available",
+		});
+		expect(inspectVideoInputSchema.safeParse(repaired.input).success).toBe(
+			true,
+		);
+		expect(inspectVideoOutputSchema.safeParse(repaired.output).success).toBe(
 			true,
 		);
 	});

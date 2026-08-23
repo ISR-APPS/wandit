@@ -48,7 +48,10 @@ import {
 	IMAGE_TO_VIDEO_SOURCE_MEDIA_TYPES,
 	type InsertSectionInput,
 	type InsertSectionOutput,
+	type InspectVideoInput,
+	type InspectVideoOutput,
 	insertSectionInputSchema,
+	inspectVideoInputSchema,
 	type ProductVideoInput,
 	type ProductVideoOutput,
 	productVideoInputSchema,
@@ -157,6 +160,7 @@ import {
 } from "../../agent/request-context";
 import type { AvailableImage } from "../../agent/tools/animate-image.tool";
 import { resolveBuilderModelOption } from "../../agent/tools/builder-model-options";
+import type { AvailableVideo } from "../../agent/tools/inspect-video.tool";
 import type { AvailableDocument } from "../../agent/tools/read-attachment.tool";
 
 const MAX_IN_FLIGHT_STREAMS_PER_USER = 3;
@@ -730,6 +734,7 @@ export class AiChatService {
 			resolvedMcpResult = mcpResult;
 			const availableImages = collectAvailableImages(messages);
 			const availableDocuments = collectAvailableDocuments(messages);
+			const availableVideos = collectAvailableVideos(messages);
 			const conversationUserLinks = collectUserHttpUrls(messages);
 			const selectedSourceImage = resolveSelectedSourceImage(
 				metadata,
@@ -812,6 +817,7 @@ export class AiChatService {
 				{
 					availableDocuments,
 					availableImages,
+					availableVideos,
 					conversationAssets:
 						generatedAssetsFromAnnotatedMessages(agentMessages),
 					conversationUserLinks,
@@ -821,6 +827,8 @@ export class AiChatService {
 						metadata?.composer?.options?.builderModel,
 					),
 					chatId,
+					hasHiggsfieldConnector:
+						mcpResult.configuredSlugs.includes("higgsfield"),
 					imageGenerationsRepository: this.imageGenerationsRepository,
 					leadScrapesRepository: this.leadScrapesRepository,
 					leadsRepository: this.leadsRepository,
@@ -1719,6 +1727,18 @@ const INCOMPLETE_READ_ATTACHMENT_INPUT: ReadAttachmentInput = {
 	url: "https://wandit.invalid/interrupted-attachment",
 };
 
+const INTERRUPTED_INSPECT_VIDEO_OUTPUT: InspectVideoOutput = {
+	message:
+		"The video inspection was interrupted before it finished — call " +
+		"inspect_video again if the reference is still needed.",
+	status: "unavailable",
+};
+
+const INCOMPLETE_INSPECT_VIDEO_INPUT: InspectVideoInput = {
+	focus: "structure",
+	url: "https://wandit.invalid/interrupted-video",
+};
+
 /**
  * A later message means these calls never got a result: the user typed past
  * an ask_user, or the stream was aborted (tab closed) while a server tool
@@ -2223,6 +2243,28 @@ export function completeDanglingToolCalls(
 				};
 			}
 
+			if (part.type === "tool-inspect_video") {
+				if (
+					part.state !== "input-available" &&
+					part.state !== "input-streaming"
+				) {
+					return part;
+				}
+
+				changed = true;
+
+				const parsedInput = inspectVideoInputSchema.safeParse(part.input);
+
+				return {
+					...part,
+					input: parsedInput.success
+						? parsedInput.data
+						: INCOMPLETE_INSPECT_VIDEO_INPUT,
+					output: INTERRUPTED_INSPECT_VIDEO_OUTPUT,
+					state: "output-available" as const,
+				};
+			}
+
 			if (part.type === "tool-read_attachment") {
 				if (
 					part.state !== "input-available" &&
@@ -2532,6 +2574,46 @@ function collectAvailableDocuments(
 	}
 
 	return [...documents.values()];
+}
+
+/**
+ * Video twin of collectAvailableDocuments: inspect_video's URL allowlist,
+ * derived from the same validated transcript parts before video files are
+ * replaced by text markers in the model-bound copy.
+ */
+function collectAvailableVideos(
+	messages: readonly WanditUIMessage[],
+): AvailableVideo[] {
+	const videos = new Map<string, AvailableVideo>();
+
+	const add = (url: string, mediaType: string, filename?: string) => {
+		if (!mediaType.startsWith("video/")) {
+			return;
+		}
+
+		videos.set(url, {
+			...(filename ? { filename } : {}),
+			mediaType,
+			url,
+		});
+	};
+
+	for (const message of messages) {
+		for (const part of message.parts) {
+			if (message.role === "user" && part.type === "file") {
+				add(part.url, part.mediaType, part.filename);
+				continue;
+			}
+
+			if (part.type === "tool-ask_user" && part.state === "output-available") {
+				for (const file of part.output.files ?? []) {
+					add(file.url, file.mediaType, file.filename);
+				}
+			}
+		}
+	}
+
+	return [...videos.values()];
 }
 
 /**

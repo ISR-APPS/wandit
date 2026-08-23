@@ -5,8 +5,8 @@
 
 /**
  * Every TEXT-model call site names itself with one of these tasks. The
- * override syntax accepts exactly this list; media work (image, video,
- * transcription) stays on the Vercel gateway and is deliberately absent.
+ * override syntax accepts exactly this list; media generation and
+ * transcription stay on the Vercel gateway and are deliberately absent.
  */
 export const LLM_TASKS = [
 	"chat",
@@ -14,6 +14,7 @@ export const LLM_TASKS = [
 	"page_build",
 	"project_title",
 	"prompt_refine",
+	"video_inspect",
 ] as const;
 
 export type LlmTask = (typeof LLM_TASKS)[number];
