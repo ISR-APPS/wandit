@@ -18,7 +18,7 @@ import {
 	type AdminUserProjectsQuery,
 	type AdminUserProjectsResponse,
 	creditsToCentiCredits,
-	isAdminRole,
+	isStaffRole,
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 
@@ -197,8 +197,8 @@ export class AdminUsersService {
 			throw new NotFoundException();
 		}
 
-		if (input.banned && isAdminRole(target.role)) {
-			throw new BadRequestException("Admins cannot be banned");
+		if (input.banned && isStaffRole(target.role)) {
+			throw new BadRequestException("Staff accounts cannot be banned");
 		}
 
 		await this.adminRepository.setUserBanned(

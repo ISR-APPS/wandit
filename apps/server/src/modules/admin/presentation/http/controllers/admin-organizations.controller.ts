@@ -25,9 +25,11 @@ import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-valida
 import { CurrentUser } from "../../../../auth";
 import { AdminOrganizationsService } from "../../../application/services/admin-organizations.service";
 import { AdminOnly } from "../decorators/admin-only.decorator";
+import { AdminPermission } from "../decorators/admin-permission.decorator";
 
 @Controller("v1/admin/organizations")
 @AdminOnly()
+@AdminPermission({ organizations: ["read"] })
 export class AdminOrganizationsController {
 	constructor(
 		@Inject(AdminOrganizationsService)
@@ -50,6 +52,7 @@ export class AdminOrganizationsController {
 	}
 
 	@Post(":organizationId/credits")
+	@AdminPermission({ organizations: ["manage"] })
 	@HttpCode(200)
 	grantCredits(
 		@Param("organizationId") organizationId: string,
@@ -65,6 +68,7 @@ export class AdminOrganizationsController {
 	}
 
 	@Patch(":organizationId/members/:userId/role")
+	@AdminPermission({ organizations: ["manage"] })
 	@HttpCode(200)
 	setMemberRole(
 		@Param("organizationId") organizationId: string,

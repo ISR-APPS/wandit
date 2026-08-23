@@ -1,9 +1,10 @@
 import { createFileRoute } from "@tanstack/react-router";
 
+import { RequireAdminPermission } from "@/features/auth/components/require-admin-permission";
 import { UsersPage } from "@/features/users/pages/users-page";
 
 export const Route = createFileRoute("/_dashboard/users/")({
-	component: UsersPage,
+	component: UsersIndexRoute,
 	head: () => ({
 		meta: [
 			{
@@ -12,3 +13,11 @@ export const Route = createFileRoute("/_dashboard/users/")({
 		],
 	}),
 });
+
+function UsersIndexRoute() {
+	return (
+		<RequireAdminPermission permission={{ users: ["read"] }}>
+			<UsersPage />
+		</RequireAdminPermission>
+	);
+}

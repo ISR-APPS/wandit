@@ -11,6 +11,7 @@ import {
 	CardHeader,
 	CardTitle,
 } from "@/components/ui/card";
+import { useAdminPermission } from "@/features/auth/lib/permissions";
 import { EndManualSubscriptionDialog } from "@/features/offline-billing/components/end-manual-subscription-dialog";
 import { RenewManualSubscriptionDialog } from "@/features/offline-billing/components/renew-manual-subscription-dialog";
 import type { AdminUserSubscription } from "@/features/users/api/users.dto";
@@ -27,6 +28,7 @@ export function UserSubscriptionCard({
 	subscription,
 	ownerLabel,
 }: UserSubscriptionCardProps) {
+	const canManageBilling = useAdminPermission({ billing: ["manage"] });
 	const [activeDialog, setActiveDialog] = useState<"renew" | "end" | null>(
 		null,
 	);
@@ -50,7 +52,7 @@ export function UserSubscriptionCard({
 								: "Current plan and recurring billing information."}
 						</CardDescription>
 					</div>
-					{manual ? (
+					{manual && canManageBilling ? (
 						<div className="flex flex-wrap items-center gap-2">
 							<Button
 								type="button"
@@ -121,7 +123,7 @@ export function UserSubscriptionCard({
 				</CardContent>
 			</Card>
 
-			{manual ? (
+			{manual && canManageBilling ? (
 				<>
 					<RenewManualSubscriptionDialog
 						subscription={{

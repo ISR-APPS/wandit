@@ -59,6 +59,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
+import { useAdminPermission } from "@/features/auth/lib/permissions";
 
 import {
 	useDeleteAcademyGuideMutation,
@@ -80,6 +81,7 @@ type StatusFilter = AcademyGuideStatus | "all";
 
 export function AcademyPage() {
 	const navigate = useNavigate();
+	const canManage = useAdminPermission({ academy: ["manage"] });
 	const [page, setPage] = useState(1);
 	const [searchValue, setSearchValue] = useState("");
 	const [debouncedQuery, setDebouncedQuery] = useState("");
@@ -170,12 +172,14 @@ export function AcademyPage() {
 					</p>
 				</div>
 
-				<Button asChild>
-					<Link to="/academy/new">
-						<PlusIcon aria-hidden="true" />
-						New guide
-					</Link>
-				</Button>
+				{canManage ? (
+					<Button asChild>
+						<Link to="/academy/new">
+							<PlusIcon aria-hidden="true" />
+							New guide
+						</Link>
+					</Button>
+				) : null}
 			</div>
 
 			<section
@@ -302,62 +306,64 @@ export function AcademyPage() {
 												{formatGuideDate(guide.updatedAt)}
 											</TableCell>
 											<TableCell className="pe-4">
-												<div className="flex justify-end gap-1">
-													<Button asChild variant="ghost" size="sm">
-														<Link
-															to="/academy/$guideId"
-															params={{ guideId: guide.id }}
-															onClick={(event) => event.stopPropagation()}
+												{canManage ? (
+													<div className="flex justify-end gap-1">
+														<Button asChild variant="ghost" size="sm">
+															<Link
+																to="/academy/$guideId"
+																params={{ guideId: guide.id }}
+																onClick={(event) => event.stopPropagation()}
+															>
+																<PencilIcon aria-hidden="true" />
+																Edit
+															</Link>
+														</Button>
+														<Button
+															type="button"
+															variant="ghost"
+															size="sm"
+															disabled={
+																updateMutation.isPending ||
+																deleteMutation.isPending
+															}
+															onClick={(event) => {
+																event.stopPropagation();
+																void togglePublication(guide);
+															}}
 														>
-															<PencilIcon aria-hidden="true" />
-															Edit
-														</Link>
-													</Button>
-													<Button
-														type="button"
-														variant="ghost"
-														size="sm"
-														disabled={
-															updateMutation.isPending ||
-															deleteMutation.isPending
-														}
-														onClick={(event) => {
-															event.stopPropagation();
-															void togglePublication(guide);
-														}}
-													>
-														{isUpdating ? (
-															<Loader2Icon
-																aria-hidden="true"
-																className="animate-spin"
-															/>
-														) : guide.status === "published" ? (
-															<EyeOffIcon aria-hidden="true" />
-														) : (
-															<SendIcon aria-hidden="true" />
-														)}
-														{guide.status === "published"
-															? "Unpublish"
-															: "Publish"}
-													</Button>
-													<Button
-														type="button"
-														variant="ghost"
-														size="sm"
-														disabled={
-															updateMutation.isPending ||
-															deleteMutation.isPending
-														}
-														className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-														onClick={(event) => {
-															event.stopPropagation();
-															setDeleteTarget(guide);
-														}}
-													>
-														<Trash2Icon aria-hidden="true" />
-														Delete
-													</Button>
-												</div>
+															{isUpdating ? (
+																<Loader2Icon
+																	aria-hidden="true"
+																	className="animate-spin"
+																/>
+															) : guide.status === "published" ? (
+																<EyeOffIcon aria-hidden="true" />
+															) : (
+																<SendIcon aria-hidden="true" />
+															)}
+															{guide.status === "published"
+																? "Unpublish"
+																: "Publish"}
+														</Button>
+														<Button
+															type="button"
+															variant="ghost"
+															size="sm"
+															disabled={
+																updateMutation.isPending ||
+																deleteMutation.isPending
+															}
+															className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+															onClick={(event) => {
+																event.stopPropagation();
+																setDeleteTarget(guide);
+															}}
+														>
+															<Trash2Icon aria-hidden="true" />
+															Delete
+														</Button>
+													</div>
+												) : null}
 											</TableCell>
 										</TableRow>
 									);
@@ -375,7 +381,7 @@ export function AcademyPage() {
 			</section>
 
 			<AlertDialog
-				open={Boolean(deleteTarget)}
+				open={canManage && Boolean(deleteTarget)}
 				onOpenChange={(open) => {
 					if (!open && !deleteMutation.isPending) {
 						setDeleteTarget(null);
@@ -489,6 +495,8 @@ function AcademyEmptyState({
 	hasFilters: boolean;
 	onClearFilters: () => void;
 }) {
+	const canManage = useAdminPermission({ academy: ["manage"] });
+
 	return (
 		<Empty className="min-h-[360px] border-0">
 			<EmptyHeader>
@@ -509,14 +517,14 @@ function AcademyEmptyState({
 					<Button type="button" variant="outline" onClick={onClearFilters}>
 						Clear filters
 					</Button>
-				) : (
+				) : canManage ? (
 					<Button asChild>
 						<Link to="/academy/new">
 							<PlusIcon aria-hidden="true" />
 							Create your first guide
 						</Link>
 					</Button>
-				)}
+				) : null}
 			</EmptyContent>
 		</Empty>
 	);

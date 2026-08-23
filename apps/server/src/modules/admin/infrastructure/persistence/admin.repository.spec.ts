@@ -28,11 +28,24 @@ function outerUserWhere(value: string): string | undefined {
 		?.split(" order by ")[0];
 }
 
+function storedRoleExistsSql(role: "admin" | "support"): string {
+	return normalizeSql(`
+		exists (
+			select 1
+			from unnest(string_to_array(coalesce("user"."role", ''), ',')) as role_part(value)
+			where lower(trim(role_part.value)) = '${role}'
+		)
+	`);
+}
+
+const adminRoleExistsSql = storedRoleExistsSql("admin");
+const supportRoleExistsSql = storedRoleExistsSql("support");
+
 describe("adminListUsersQuerySchema", () => {
 	it("splits, trims, removes empty values, and deduplicates CSV filters", () => {
 		const query = adminListUsersQuerySchema.parse({
 			plan: " free,pro,,free ",
-			role: "admin, user,admin",
+			role: "admin, support, user,admin",
 			status: " banned,active ",
 			verified: "verified, unverified,verified",
 			creditsUsedMin: "100",
@@ -41,7 +54,7 @@ describe("adminListUsersQuerySchema", () => {
 
 		expect(query).toMatchObject({
 			plan: ["free", "pro"],
-			role: ["admin", "user"],
+			role: ["admin", "support", "user"],
 			status: ["banned", "active"],
 			verified: ["verified", "unverified"],
 			creditsUsedMin: 100,
@@ -169,8 +182,62 @@ describe("AdminRepository user-list queries", () => {
 		expect(countSql).toContain(
 			"not exists ( select 1 from unnest(string_to_array(coalesce(\"user\".\"role\", ''), ','))",
 		);
+		expect(countSql).toContain(
+			"where lower(trim(role_part.value)) = 'support'",
+		);
 		expect(countSql).toContain('"user"."banned" is not true');
 		expect(countSql).toContain('"user"."email_verified" is true');
+	});
+
+	it("filters support as a support component without a higher admin component", () => {
+		const repository = new AdminRepository(db as Database);
+		const query = {
+			page: 1,
+			pageSize: 25,
+			role: ["support"],
+			sort: "newest",
+		} satisfies AdminListUsersQuery;
+		// biome-ignore lint/complexity/useLiteralKeys: bracket access keeps the production query builder private.
+		const { countQuery } = repository["buildListUsersQueries"](query);
+		const countSql = normalizeSqlParams(countQuery.toSQL().sql);
+
+		expect(countSql).toContain(
+			`(${supportRoleExistsSql} and not ${adminRoleExistsSql})`,
+		);
+	});
+
+	it("filters user as neither an admin nor support stored-role component", () => {
+		const repository = new AdminRepository(db as Database);
+		const query = {
+			page: 1,
+			pageSize: 25,
+			role: ["user"],
+			sort: "newest",
+		} satisfies AdminListUsersQuery;
+		// biome-ignore lint/complexity/useLiteralKeys: bracket access keeps the production query builder private.
+		const { countQuery } = repository["buildListUsersQueries"](query);
+		const countSql = normalizeSqlParams(countQuery.toSQL().sql);
+
+		expect(countSql).toContain(
+			`(not ${adminRoleExistsSql} and not ${supportRoleExistsSql})`,
+		);
+	});
+
+	it("ORs admin and support role filters while excluding plain users", () => {
+		const repository = new AdminRepository(db as Database);
+		const query = {
+			page: 1,
+			pageSize: 25,
+			role: ["admin", "support"],
+			sort: "newest",
+		} satisfies AdminListUsersQuery;
+		// biome-ignore lint/complexity/useLiteralKeys: bracket access keeps the production query builder private.
+		const { countQuery } = repository["buildListUsersQueries"](query);
+		const countSql = normalizeSqlParams(countQuery.toSQL().sql);
+
+		expect(countSql).toContain(
+			`(${adminRoleExistsSql} or (${supportRoleExistsSql} and not ${adminRoleExistsSql}))`,
+		);
 	});
 
 	it("ORs free with a selected paid plan inside the plan dimension", () => {
@@ -209,16 +276,22 @@ describe("AdminRepository user-list queries", () => {
 			pageSize: 25,
 			sort: "newest",
 			plan: ["free", "pro", "business"],
-			role: ["user", "admin"],
+			role: ["user", "support", "admin"],
 			status: ["active", "banned"],
 			verified: ["verified", "unverified"],
 		} satisfies AdminListUsersQuery;
 		const { countQuery, listQuery } =
 			// biome-ignore lint/complexity/useLiteralKeys: bracket access keeps the production query builder private.
 			repository["buildListUsersQueries"](query);
+		const countSql = normalizeSqlParams(countQuery.toSQL().sql);
+		const listSql = normalizeSqlParams(listQuery.toSQL().sql);
 
 		expect(outerUserWhere(countQuery.toSQL().sql)).toBeUndefined();
 		expect(outerUserWhere(listQuery.toSQL().sql)).toBeUndefined();
+		expect(countSql).not.toContain(adminRoleExistsSql);
+		expect(countSql).not.toContain(supportRoleExistsSql);
+		expect(listSql).not.toContain(adminRoleExistsSql);
+		expect(listSql).not.toContain(supportRoleExistsSql);
 	});
 
 	// Live-site predicates for the publication filter: an active deployment on

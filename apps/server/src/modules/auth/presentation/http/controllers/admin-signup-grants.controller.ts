@@ -7,10 +7,12 @@ import {
 
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { AdminOnly } from "../../../../admin/presentation/http/decorators/admin-only.decorator";
+import { AdminPermission } from "../../../../admin/presentation/http/decorators/admin-permission.decorator";
 import { SignupGrantOutboxService } from "../../../application/services/signup-grant-outbox.service";
 
 @Controller("v1/admin/settings/signup-grants")
 @AdminOnly()
+@AdminPermission({ settings: ["manage"] })
 export class AdminSignupGrantsController {
 	constructor(
 		@Inject(SignupGrantOutboxService)

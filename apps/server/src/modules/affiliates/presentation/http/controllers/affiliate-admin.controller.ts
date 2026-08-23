@@ -63,11 +63,13 @@ import type { FastifyReply } from "fastify";
 import { SkipResponseEnvelope } from "../../../../../infrastructure/http/skip-envelope.decorator";
 import { ZodValidationPipe } from "../../../../../infrastructure/http/zod-validation.pipe";
 import { AdminOnly } from "../../../../admin/presentation/http/decorators/admin-only.decorator";
+import { AdminPermission } from "../../../../admin/presentation/http/decorators/admin-permission.decorator";
 import { CurrentUser } from "../../../../auth";
 import { AffiliateAdminService } from "../../../application/services/affiliate-admin.service";
 
 @Controller("v1/admin/affiliates")
 @AdminOnly()
+@AdminPermission({ affiliates: ["read"] })
 export class AffiliateAdminController {
 	constructor(
 		@Inject(AffiliateAdminService)
@@ -83,6 +85,7 @@ export class AffiliateAdminController {
 	}
 
 	@Post("programs")
+	@AdminPermission({ affiliates: ["manage"] })
 	createProgram(
 		@Body(new ZodValidationPipe(createAffiliateProgramInputSchema))
 		body: CreateAffiliateProgramInput,
@@ -98,6 +101,7 @@ export class AffiliateAdminController {
 	}
 
 	@Patch("programs/:programId")
+	@AdminPermission({ affiliates: ["manage"] })
 	updateProgram(
 		@Param("programId", new ZodValidationPipe(uuidSchema)) programId: string,
 		@Body(new ZodValidationPipe(updateAffiliateProgramInputSchema))
@@ -107,6 +111,7 @@ export class AffiliateAdminController {
 	}
 
 	@Delete("programs/:programId")
+	@AdminPermission({ affiliates: ["manage"] })
 	archiveProgram(
 		@Param("programId", new ZodValidationPipe(uuidSchema)) programId: string,
 	): Promise<DeleteAffiliateResourceResponse> {
@@ -130,6 +135,7 @@ export class AffiliateAdminController {
 	}
 
 	@Post("payouts")
+	@AdminPermission({ affiliates: ["manage"] })
 	@HttpCode(200)
 	buildPayout(
 		@Body(new ZodValidationPipe(buildAffiliatePayoutInputSchema))
@@ -147,6 +153,7 @@ export class AffiliateAdminController {
 	}
 
 	@Post("payouts/:payoutId/mark-paid")
+	@AdminPermission({ affiliates: ["manage"] })
 	@HttpCode(200)
 	markPayoutPaid(
 		@Param("payoutId", new ZodValidationPipe(uuidSchema)) payoutId: string,
@@ -157,6 +164,7 @@ export class AffiliateAdminController {
 	}
 
 	@Post("payouts/:payoutId/mark-failed")
+	@AdminPermission({ affiliates: ["manage"] })
 	@HttpCode(200)
 	markPayoutFailed(
 		@Param("payoutId", new ZodValidationPipe(uuidSchema)) payoutId: string,
@@ -194,6 +202,7 @@ export class AffiliateAdminController {
 	}
 
 	@Post()
+	@AdminPermission({ affiliates: ["manage"] })
 	createAffiliate(
 		@Body(new ZodValidationPipe(createAffiliateInputSchema))
 		body: CreateAffiliateInput,
@@ -210,6 +219,7 @@ export class AffiliateAdminController {
 	}
 
 	@Patch(":affiliateId")
+	@AdminPermission({ affiliates: ["manage"] })
 	updateAffiliate(
 		@Param("affiliateId", new ZodValidationPipe(uuidSchema))
 		affiliateId: string,
@@ -230,6 +240,7 @@ export class AffiliateAdminController {
 	}
 
 	@Post(":affiliateId/links")
+	@AdminPermission({ affiliates: ["manage"] })
 	createLink(
 		@Param("affiliateId", new ZodValidationPipe(uuidSchema))
 		affiliateId: string,
@@ -240,6 +251,7 @@ export class AffiliateAdminController {
 	}
 
 	@Patch(":affiliateId/links/:linkId")
+	@AdminPermission({ affiliates: ["manage"] })
 	updateLink(
 		@Param("affiliateId", new ZodValidationPipe(uuidSchema))
 		affiliateId: string,
@@ -251,6 +263,7 @@ export class AffiliateAdminController {
 	}
 
 	@Delete(":affiliateId/links/:linkId")
+	@AdminPermission({ affiliates: ["manage"] })
 	deactivateLink(
 		@Param("affiliateId", new ZodValidationPipe(uuidSchema))
 		affiliateId: string,

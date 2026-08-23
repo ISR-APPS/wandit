@@ -1,3 +1,4 @@
+import { ADMIN_PERMISSION_REQUIRED_ERROR_CODE } from "@wandit/contracts";
 import { BanIcon, Loader2Icon, ShieldCheckIcon } from "lucide-react";
 import { type MouseEvent, useState } from "react";
 import { toast } from "sonner";
@@ -79,11 +80,14 @@ export function BanUserDialog({
 			onOpenChange(false);
 		} catch (error) {
 			toast.error(
-				isApiClientError(error)
-					? error.message
-					: nextBannedState
-						? "The user could not be banned. Please try again."
-						: "Access could not be restored. Please try again.",
+				isApiClientError(error) &&
+					error.code === ADMIN_PERMISSION_REQUIRED_ERROR_CODE
+					? "Your permissions changed. Reload the page to refresh your access."
+					: isApiClientError(error)
+						? error.message
+						: nextBannedState
+							? "The user could not be banned. Please try again."
+							: "Access could not be restored. Please try again.",
 			);
 		}
 	}

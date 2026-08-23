@@ -50,6 +50,7 @@ import {
 	TooltipContent,
 	TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useAdminPermission } from "@/features/auth/lib/permissions";
 import {
 	formatOverviewDate,
 	formatOverviewWholeNumber,
@@ -68,6 +69,7 @@ type StoryLinksTableProps = {
 };
 
 function StoryLinksTable({ links }: StoryLinksTableProps) {
+	const canManage = useAdminPermission({ links: ["manage"] });
 	const updateMutation = useUpdateStoryLinkMutation();
 	const updatingRef = useRef(false);
 	const [renameLink, setRenameLink] = useState<StoryLinkListItem | null>(null);
@@ -151,6 +153,7 @@ function StoryLinksTable({ links }: StoryLinksTableProps) {
 								disableActions={updateMutation.isPending}
 								onRename={() => setRenameLink(link)}
 								onToggleArchived={() => requestArchiveChange(link)}
+								showActions={canManage}
 							/>
 						))}
 					</div>
@@ -228,13 +231,15 @@ function StoryLinksTable({ links }: StoryLinksTableProps) {
 												{formatOverviewDate(link.createdAt)}
 											</TableCell>
 											<TableCell className="px-3 text-right">
-												<StoryLinkActions
-													link={link}
-													isUpdating={updatingId === link.id}
-													disabled={updateMutation.isPending}
-													onRename={() => setRenameLink(link)}
-													onToggleArchived={() => requestArchiveChange(link)}
-												/>
+												{canManage ? (
+													<StoryLinkActions
+														link={link}
+														isUpdating={updatingId === link.id}
+														disabled={updateMutation.isPending}
+														onRename={() => setRenameLink(link)}
+														onToggleArchived={() => requestArchiveChange(link)}
+													/>
+												) : null}
 											</TableCell>
 										</TableRow>
 									);
@@ -245,7 +250,7 @@ function StoryLinksTable({ links }: StoryLinksTableProps) {
 				</CardContent>
 			</Card>
 
-			{renameLink ? (
+			{canManage && renameLink ? (
 				<RenameStoryLinkDialog
 					key={renameLink.id}
 					link={renameLink}
@@ -259,7 +264,7 @@ function StoryLinksTable({ links }: StoryLinksTableProps) {
 			) : null}
 
 			<AlertDialog
-				open={Boolean(archiveLink)}
+				open={canManage && Boolean(archiveLink)}
 				onOpenChange={(next) => {
 					if (!next && !updateMutation.isPending) {
 						setArchiveLink(null);
@@ -301,6 +306,7 @@ type StoryLinkMobileCardProps = {
 	disableActions: boolean;
 	onRename: () => void;
 	onToggleArchived: () => void;
+	showActions: boolean;
 };
 
 function StoryLinkMobileCard({
@@ -309,6 +315,7 @@ function StoryLinkMobileCard({
 	disableActions,
 	onRename,
 	onToggleArchived,
+	showActions,
 }: StoryLinkMobileCardProps) {
 	const archived = link.archivedAt !== null;
 
@@ -333,13 +340,15 @@ function StoryLinkMobileCard({
 						<ShortUrl link={link} mobile />
 					</div>
 				</div>
-				<StoryLinkActions
-					link={link}
-					isUpdating={isUpdating}
-					disabled={disableActions}
-					onRename={onRename}
-					onToggleArchived={onToggleArchived}
-				/>
+				{showActions ? (
+					<StoryLinkActions
+						link={link}
+						isUpdating={isUpdating}
+						disabled={disableActions}
+						onRename={onRename}
+						onToggleArchived={onToggleArchived}
+					/>
+				) : null}
 			</div>
 
 			<div className="mt-4 flex flex-wrap gap-1.5">

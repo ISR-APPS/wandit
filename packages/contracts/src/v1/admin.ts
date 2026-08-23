@@ -33,7 +33,8 @@ import { projectAssetSourceSchema } from "./project-assets";
 import { isoDateTimeSchema, uuidSchema } from "./shared/primitives";
 
 // Admin contracts (consumed by apps/admin only). Every route below sits behind
-// the AdminGuard: non-admin sessions get 404 (not 403) per docs/api-security.md.
+// the AdminGuard: non-staff sessions get 404; staff permissions are enforced
+// per docs/api-security.md.
 
 function optionalCsvEnum<const Values extends readonly [string, ...string[]]>(
 	values: Values,
@@ -60,11 +61,28 @@ function optionalCsvEnum<const Values extends readonly [string, ...string[]]>(
 		.pipe(z.array(z.enum(values)).nonempty().optional());
 }
 
-export const adminUserRoles = ["user", "admin"] as const;
+// Platform roles stored in user.role (ascending privilege). Better Auth may
+// persist several comma-joined ("user,admin") — never compare with ===.
+export const adminUserRoles = ["user", "support", "admin"] as const;
 
 export const adminUserRoleSchema = z.enum(adminUserRoles);
 
 export type AdminUserRole = z.infer<typeof adminUserRoleSchema>;
+
+// Roles that may sign in to the admin dashboard.
+export const staffRoles = [
+	"support",
+	"admin",
+] as const satisfies readonly AdminUserRole[];
+
+export type StaffRole = (typeof staffRoles)[number];
+
+export function parseStoredRoles(role: string | null | undefined): string[] {
+	return (role ?? "")
+		.split(",")
+		.map((value) => value.trim().toLowerCase())
+		.filter((value) => value.length > 0);
+}
 
 /**
  * Admin check for the stored `user.role` string.
@@ -73,9 +91,23 @@ export type AdminUserRole = z.infer<typeof adminUserRoleSchema>;
  * `role === "admin"` comparison would silently miss a real admin.
  */
 export function isAdminRole(role: string | null | undefined): boolean {
-	return (role ?? "")
-		.split(",")
-		.some((value) => value.trim().toLowerCase() === "admin");
+	return parseStoredRoles(role).includes("admin");
+}
+
+export function isStaffRole(role: string | null | undefined): boolean {
+	return parseStoredRoles(role).some((value) =>
+		staffRoles.includes(value as StaffRole),
+	);
+}
+
+/** Highest-privilege contract role in a stored value: admin > support > user. */
+export function normalizeStoredRole(
+	role: string | null | undefined,
+): AdminUserRole {
+	const roles = parseStoredRoles(role);
+	if (roles.includes("admin")) return "admin";
+	if (roles.includes("support")) return "support";
+	return "user";
 }
 
 // "free" is derived (no entitled subscription row), not stored.
@@ -1268,6 +1300,8 @@ export const adminManualBillingStatsSchema = z.object({
 export type AdminManualBillingStats = z.infer<
 	typeof adminManualBillingStatsSchema
 >;
+
+export const ADMIN_PERMISSION_REQUIRED_ERROR_CODE = "ADMIN_PERMISSION_REQUIRED";
 
 export const adminRoutes = {
 	users: "/api/v1/admin/users",

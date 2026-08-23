@@ -1,6 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 
 import { EngagementAnalyticsPage } from "@/features/analytics/pages/engagement-analytics-page";
+import { RequireAdminPermission } from "@/features/auth/components/require-admin-permission";
 import { adminAnalyticsSearchValidator } from "@/lib/admin-date-range";
 
 function AnalyticsEngagementRoute() {
@@ -8,12 +9,14 @@ function AnalyticsEngagementRoute() {
 	const navigate = Route.useNavigate();
 
 	return (
-		<EngagementAnalyticsPage
-			query={query}
-			onQueryChange={(nextQuery) => {
-				void navigate({ search: nextQuery, replace: true });
-			}}
-		/>
+		<RequireAdminPermission permission={{ analytics: ["read"] }}>
+			<EngagementAnalyticsPage
+				query={query}
+				onQueryChange={(nextQuery) => {
+					void navigate({ search: nextQuery, replace: true });
+				}}
+			/>
+		</RequireAdminPermission>
 	);
 }
 

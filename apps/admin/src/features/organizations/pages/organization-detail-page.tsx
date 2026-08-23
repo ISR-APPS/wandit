@@ -27,6 +27,7 @@ import {
 	EmptyTitle,
 } from "@/components/ui/empty";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useAdminPermission } from "@/features/auth/lib/permissions";
 import { GrantManualSubscriptionDialog } from "@/features/offline-billing/components/grant-manual-subscription-dialog";
 import type { OrganizationDetail } from "@/features/organizations/api/organizations.dto";
 import { useOrganizationQuery } from "@/features/organizations/api/organizations.queries";
@@ -51,6 +52,10 @@ export function OrganizationDetailPage({
 	const [grantOpen, setGrantOpen] = useState(false);
 	const [offlineGrantOpen, setOfflineGrantOpen] = useState(false);
 	const organizationQuery = useOrganizationQuery(organizationId);
+	const canManageOrganization = useAdminPermission({
+		organizations: ["manage"],
+	});
+	const canManageBilling = useAdminPermission({ billing: ["manage"] });
 
 	if (organizationQuery.isLoading) {
 		return (
@@ -155,19 +160,23 @@ export function OrganizationDetailPage({
 
 			<UserCreditLedger entries={detail.creditLedger} />
 
-			<GrantOrgCreditsDialog
-				organization={detail}
-				open={grantOpen}
-				onOpenChange={setGrantOpen}
-			/>
-			<GrantManualSubscriptionDialog
-				open={offlineGrantOpen}
-				onOpenChange={setOfflineGrantOpen}
-				prefill={{
-					user: offlineBillingUser,
-					organization: { id: detail.id, name: detail.name },
-				}}
-			/>
+			{canManageOrganization ? (
+				<GrantOrgCreditsDialog
+					organization={detail}
+					open={grantOpen}
+					onOpenChange={setGrantOpen}
+				/>
+			) : null}
+			{canManageBilling ? (
+				<GrantManualSubscriptionDialog
+					open={offlineGrantOpen}
+					onOpenChange={setOfflineGrantOpen}
+					prefill={{
+						user: offlineBillingUser,
+						organization: { id: detail.id, name: detail.name },
+					}}
+				/>
+			) : null}
 		</DetailContainer>
 	);
 }
@@ -181,6 +190,11 @@ function DetailHeader({
 	onGrantCredits: () => void;
 	onGrantOffline: () => void;
 }) {
+	const canManageOrganization = useAdminPermission({
+		organizations: ["manage"],
+	});
+	const canManageBilling = useAdminPermission({ billing: ["manage"] });
+
 	return (
 		<div className="flex flex-wrap items-start justify-between gap-4">
 			<div className="flex min-w-0 items-start gap-3">
@@ -211,7 +225,7 @@ function DetailHeader({
 						All organizations
 					</Link>
 				</Button>
-				{!detail.subscription ? (
+				{canManageBilling && !detail.subscription ? (
 					<Button
 						type="button"
 						variant="outline"
@@ -222,10 +236,12 @@ function DetailHeader({
 						Grant offline subscription
 					</Button>
 				) : null}
-				<Button type="button" size="sm" onClick={onGrantCredits}>
-					<WalletCardsIcon data-icon="inline-start" aria-hidden="true" />
-					Grant credits
-				</Button>
+				{canManageOrganization ? (
+					<Button type="button" size="sm" onClick={onGrantCredits}>
+						<WalletCardsIcon data-icon="inline-start" aria-hidden="true" />
+						Grant credits
+					</Button>
+				) : null}
 			</div>
 		</div>
 	);

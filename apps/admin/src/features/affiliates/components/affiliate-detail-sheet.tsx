@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useAdminPermission } from "@/features/auth/lib/permissions";
 import {
 	useDeactivateAffiliateLinkMutation,
 	useUpdateAffiliateMutation,
@@ -55,6 +56,7 @@ function AffiliateDetailSheetContent({
 	open,
 	onOpenChange,
 }: AffiliateDetailSheetProps) {
+	const canManage = useAdminPermission({ affiliates: ["manage"] });
 	const [tab, setTab] = useState<DetailTab>("links");
 	const [linkPage, setLinkPage] = useState(1);
 	const [attributionPage, setAttributionPage] = useState(1);
@@ -245,14 +247,14 @@ function AffiliateDetailSheetContent({
 					)}
 				</SheetContent>
 			</Sheet>
-			{detail ? (
+			{canManage && detail ? (
 				<AffiliateEditorDialog
 					open={editOpen}
 					onOpenChange={setEditOpen}
 					initial={detail}
 				/>
 			) : null}
-			{affiliateId ? (
+			{canManage && affiliateId ? (
 				<LinkEditorDialog
 					affiliateId={affiliateId}
 					open={linkEditorOpen}
@@ -261,7 +263,7 @@ function AffiliateDetailSheetContent({
 				/>
 			) : null}
 			<DeactivateAffiliateLinkDialog
-				link={deleteLink}
+				link={canManage ? deleteLink : null}
 				pending={deleteMutation.isPending}
 				onOpenChange={(next) => {
 					if (!next && !deleteMutation.isPending) {

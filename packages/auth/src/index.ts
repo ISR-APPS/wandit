@@ -1,5 +1,5 @@
 import { expo } from "@better-auth/expo";
-import { isAdminRole } from "@wandit/contracts";
+import { isStaffRole } from "@wandit/contracts";
 import { and, createDb, eq, sql } from "@wandit/db";
 import * as authSchema from "@wandit/db/schema/auth";
 import * as orgSchema from "@wandit/db/schema/organizations";
@@ -27,6 +27,7 @@ import {
 	magicLink,
 	organization,
 } from "better-auth/plugins";
+import { adminAccessControl, adminRoles } from "./admin-permissions";
 import { canonicalizeEmail } from "./email-canonical";
 import { workspaceAccessControl, workspaceRoles } from "./permissions";
 import { createUserCreatedHook, type OnUserCreated } from "./user-created-hook";
@@ -761,17 +762,24 @@ export function createAdminAuth() {
 							user && "role" in user && typeof user.role === "string"
 								? user.role
 								: null;
-						if (!isAdminRole(role)) {
+						if (!isStaffRole(role)) {
 							throw APIError.from("FORBIDDEN", {
 								code: ADMIN_ACCESS_REQUIRED_ERROR_CODE,
-								message: "This account does not have admin access.",
+								message: "This account does not have admin dashboard access.",
 							});
 						}
 					},
 				},
 			},
 		},
-		plugins: [admin({ defaultRole: "user", adminRoles: ["admin"] })],
+		plugins: [
+			admin({
+				defaultRole: "user",
+				adminRoles: ["admin"],
+				ac: adminAccessControl,
+				roles: adminRoles,
+			}),
+		],
 	});
 }
 

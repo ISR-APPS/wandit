@@ -52,6 +52,7 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
+import { useAdminPermission } from "@/features/auth/lib/permissions";
 import type {
 	AdminManualRequest,
 	AdminManualRequestStatusFilter,
@@ -413,6 +414,7 @@ function ManualRequestActions({
 }) {
 	const [activeDialog, setActiveDialog] = useState<RequestActionDialog>(null);
 	const updateMutation = useUpdateManualRequestMutation();
+	const canManage = useAdminPermission({ billing: ["manage"] });
 	const canAct = request.status === "pending" || request.status === "contacted";
 	const currentManualSubscription =
 		request.currentSubscription?.provider === "manual"
@@ -459,7 +461,7 @@ function ManualRequestActions({
 							<EyeIcon />
 							View details
 						</DropdownMenuItem>
-						{request.status === "pending" ? (
+						{canManage && request.status === "pending" ? (
 							<DropdownMenuItem
 								disabled={updateMutation.isPending}
 								onSelect={() => void markContacted()}
@@ -468,30 +470,32 @@ function ManualRequestActions({
 								Mark contacted
 							</DropdownMenuItem>
 						) : null}
-						{canAct && currentManualSubscription ? (
+						{canManage && canAct && currentManualSubscription ? (
 							<DropdownMenuItem onSelect={() => setActiveDialog("renew")}>
 								<HandCoinsIcon />
 								Renew current subscription
 							</DropdownMenuItem>
 						) : null}
-						{canAct && currentManualSubscription ? (
+						{canManage && canAct && currentManualSubscription ? (
 							<DropdownMenuItem onSelect={() => setActiveDialog("end")}>
 								<CalendarXIcon />
 								End current subscription…
 							</DropdownMenuItem>
 						) : null}
-						{canAct && !request.currentSubscription ? (
+						{canManage && canAct && !request.currentSubscription ? (
 							<DropdownMenuItem onSelect={() => setActiveDialog("grant")}>
 								<HandCoinsIcon />
 								Approve & grant
 							</DropdownMenuItem>
 						) : null}
-						<DropdownMenuItem onSelect={() => setActiveDialog("note")}>
-							<MessageSquareTextIcon />
-							Edit note
-						</DropdownMenuItem>
+						{canManage ? (
+							<DropdownMenuItem onSelect={() => setActiveDialog("note")}>
+								<MessageSquareTextIcon />
+								Edit note
+							</DropdownMenuItem>
+						) : null}
 					</DropdownMenuGroup>
-					{canAct ? (
+					{canManage && canAct ? (
 						<>
 							<DropdownMenuSeparator />
 							<DropdownMenuItem
@@ -506,19 +510,21 @@ function ManualRequestActions({
 				</DropdownMenuContent>
 			</DropdownMenu>
 
-			<GrantManualSubscriptionDialog
-				open={activeDialog === "grant"}
-				onOpenChange={(open) => setActiveDialog(open ? "grant" : null)}
-				prefill={{
-					user: request.user,
-					organization: request.organization ?? undefined,
-					tierCredits: request.tierCredits,
-					interval: request.interval,
-					requestId: request.id,
-					adminNotes: request.adminNotes,
-				}}
-			/>
-			{currentManualSubscription ? (
+			{canManage ? (
+				<GrantManualSubscriptionDialog
+					open={activeDialog === "grant"}
+					onOpenChange={(open) => setActiveDialog(open ? "grant" : null)}
+					prefill={{
+						user: request.user,
+						organization: request.organization ?? undefined,
+						tierCredits: request.tierCredits,
+						interval: request.interval,
+						requestId: request.id,
+						adminNotes: request.adminNotes,
+					}}
+				/>
+			) : null}
+			{canManage && currentManualSubscription ? (
 				<RenewManualSubscriptionDialog
 					subscription={{
 						id: currentManualSubscription.id,
@@ -539,7 +545,7 @@ function ManualRequestActions({
 					onOpenChange={(open) => setActiveDialog(open ? "renew" : null)}
 				/>
 			) : null}
-			{currentManualSubscription ? (
+			{canManage && currentManualSubscription ? (
 				<EndManualSubscriptionDialog
 					subscriptionId={currentManualSubscription.id}
 					ownerLabel={request.organization?.name ?? request.fullName}
@@ -547,18 +553,22 @@ function ManualRequestActions({
 					onOpenChange={(open) => setActiveDialog(open ? "end" : null)}
 				/>
 			) : null}
-			<ManualRequestNoteDialog
-				request={request}
-				mode="note"
-				open={activeDialog === "note"}
-				onOpenChange={(open) => setActiveDialog(open ? "note" : null)}
-			/>
-			<ManualRequestNoteDialog
-				request={request}
-				mode="reject"
-				open={activeDialog === "reject"}
-				onOpenChange={(open) => setActiveDialog(open ? "reject" : null)}
-			/>
+			{canManage ? (
+				<>
+					<ManualRequestNoteDialog
+						request={request}
+						mode="note"
+						open={activeDialog === "note"}
+						onOpenChange={(open) => setActiveDialog(open ? "note" : null)}
+					/>
+					<ManualRequestNoteDialog
+						request={request}
+						mode="reject"
+						open={activeDialog === "reject"}
+						onOpenChange={(open) => setActiveDialog(open ? "reject" : null)}
+					/>
+				</>
+			) : null}
 		</>
 	);
 }

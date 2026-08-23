@@ -40,6 +40,7 @@ function UserIdentity({ user }: { user: AdminUserSummary }) {
 
 const roleClasses: Record<AdminUserRole, string> = {
 	user: "text-muted-foreground",
+	support: "border-sky-500/30 bg-sky-500/8 text-sky-700 dark:text-sky-300",
 	admin:
 		"border-amber-500/30 bg-amber-500/8 text-amber-700 dark:text-amber-300",
 };

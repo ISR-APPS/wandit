@@ -37,7 +37,7 @@ describe("buildUsersExportRow", () => {
 			"Ada Lovelace",
 			"ada@example.com",
 			"Yes",
-			"user",
+			"User",
 			"active",
 			"pro",
 			// Balance floors to one decimal; consumption stays exact at 2 dp.
@@ -47,6 +47,12 @@ describe("buildUsersExportRow", () => {
 			"2026-08-01T09:30:00.000Z",
 			"2026-08-15T18:00:00.000Z",
 		]);
+	});
+
+	it("exports the support role with a readable label", () => {
+		const row = buildUsersExportRow(makeUser({ role: "support" }));
+
+		expect(row[3]).toBe("Support");
 	});
 
 	it("maps banned, unverified, and never-seen users to readable cells", () => {

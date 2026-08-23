@@ -15,6 +15,7 @@ import {
 	EmptyMedia,
 	EmptyTitle,
 } from "@/components/ui/empty";
+import { useAdminPermission } from "@/features/auth/lib/permissions";
 import { useProductSettingsQuery } from "@/features/settings/api/settings.queries";
 import { BillingOpsCard } from "@/features/settings/components/billing-ops-card";
 import { ProductControlsCard } from "@/features/settings/components/product-controls-card";
@@ -31,6 +32,8 @@ const settingsDateTimeFormatter = new Intl.DateTimeFormat("en-US", {
 
 export function SettingsPage() {
 	const settingsQuery = useProductSettingsQuery();
+	const canManageSettings = useAdminPermission({ settings: ["manage"] });
+	const canManageBilling = useAdminPermission({ billing: ["manage"] });
 
 	if (settingsQuery.isLoading) {
 		return <SettingsPageSkeleton />;
@@ -136,8 +139,10 @@ export function SettingsPage() {
 					reloadSettings={reloadSettings}
 				/>
 				<div className="flex flex-col gap-6">
-					<SignupGrantBackfillCard settings={settings} />
-					<BillingOpsCard />
+					{canManageSettings ? (
+						<SignupGrantBackfillCard settings={settings} />
+					) : null}
+					{canManageBilling ? <BillingOpsCard /> : null}
 				</div>
 			</div>
 		</div>
