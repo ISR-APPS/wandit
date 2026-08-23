@@ -6,6 +6,7 @@
  */
 import { Inject, Injectable, NotFoundException } from "@nestjs/common";
 import type {
+	MediaGenerationKind,
 	ProjectAsset,
 	WorkspaceAsset,
 	WorkspaceAssetsResponse,
@@ -21,7 +22,10 @@ import {
 	VARIANT_FILENAME_PATTERN,
 } from "../../../../infrastructure/storage/r2";
 import { ImageGenerationsRepository } from "../../../image-generations/infrastructure/persistence/image-generations.repository";
-import { MediaGenerationsRepository } from "../../../media-generations/infrastructure/persistence/media-generations.repository";
+import {
+	type MediaGenerationAssetIdentity,
+	MediaGenerationsRepository,
+} from "../../../media-generations/infrastructure/persistence/media-generations.repository";
 import type { ProjectScope } from "../../../projects/domain/project-scope";
 import { ProjectAssetsRepository } from "../../infrastructure/persistence/project-assets.repository";
 
@@ -58,10 +62,18 @@ export class ProjectAssetsService {
 	): Promise<ProjectAsset[]> {
 		await this.assertAccessibleProject(scope, projectId);
 
-		const [imageAttempts, videoAttempts] = await Promise.all([
-			this.imageGenerationsRepository.listForProject(scope, projectId),
-			this.mediaGenerationsRepository.listSucceededForProject(scope, projectId),
-		]);
+		const [imageAttempts, videoAttempts, mediaAttemptIdentities] =
+			await Promise.all([
+				this.imageGenerationsRepository.listForProject(scope, projectId),
+				this.mediaGenerationsRepository.listSucceededForProject(
+					scope,
+					projectId,
+				),
+				this.mediaGenerationsRepository.listAssetIdentitiesForProject(
+					scope,
+					projectId,
+				),
+			]);
 
 		const assets: ProjectAsset[] = [];
 
@@ -72,6 +84,7 @@ export class ProjectAssetsService {
 
 			attempt.images.forEach((image, index) => {
 				const key = publicAssetKeyFromUrl(image.url);
+				const generationIndex = image.index ?? index + 1;
 
 				if (!key) {
 					return;
@@ -79,13 +92,13 @@ export class ProjectAssetsService {
 
 				assets.push({
 					createdAt: (attempt.completedAt ?? attempt.createdAt).toISOString(),
-					id: `${attempt.id}:${index + 1}`,
+					id: `${attempt.id}:${generationIndex}`,
 					key,
 					kind: "image",
 					mediaType: image.mediaType,
 					name:
 						attempt.count > 1
-							? `${attempt.title} (${index + 1}/${attempt.count})`
+							? `${attempt.title} (${generationIndex}/${attempt.count})`
 							: attempt.title,
 					sizeBytes: null,
 					source: "image-generation",
@@ -94,10 +107,10 @@ export class ProjectAssetsService {
 			});
 		}
 
-		// Animation videos live under the same sites/{id}/assets/ prefix the
-		// build listing scans — remember their keys so they are never listed
-		// twice.
-		const animationKeys = new Set<string>();
+		// Media workflows and page builds share the assets prefix. The attempt
+		// index keeps workflow-owned directories isolated while still letting
+		// page builds expose every media file they intentionally produced.
+		const mediaAttemptAssets = indexMediaAttemptAssets(mediaAttemptIdentities);
 
 		for (const row of videoAttempts) {
 			if (!row.videoUrl) {
@@ -110,7 +123,6 @@ export class ProjectAssetsService {
 				continue;
 			}
 
-			animationKeys.add(key);
 			assets.push({
 				createdAt: (row.completedAt ?? row.createdAt).toISOString(),
 				id: row.id,
@@ -121,14 +133,17 @@ export class ProjectAssetsService {
 				// back to a slice of the motion prompt.
 				name: row.title ?? animationLabel(row.prompt),
 				sizeBytes: null,
-				source:
-					row.kind === "text-to-video" ? "video-generation" : "image-animation",
+				source: assetSourceForVideoKind(row.kind),
 				url: row.videoUrl,
 			});
 		}
 
 		for (const object of await this.listBuildObjects(projectId)) {
-			if (animationKeys.has(object.key)) {
+			if (
+				isVideoAttemptIntermediate(object.key) ||
+				isNonDeliverableMediaAttemptObject(object.key, mediaAttemptAssets) ||
+				mediaAttemptAssets.finalKeys.has(object.key)
+			) {
 				continue;
 			}
 
@@ -162,25 +177,29 @@ export class ProjectAssetsService {
 	/**
 	 * Dashboard Assets page: the newest media across every project the scope
 	 * can see, each entry carrying its project for labels and download links.
-	 * Same composition as the per-project list — two ownership-joined DB reads
+	 * Same composition as the per-project list — ownership-joined DB reads
 	 * plus a bounded, best-effort R2 fan-out for page-build files.
 	 */
 	async listWorkspaceAssets(
 		scope: ProjectScope,
 	): Promise<WorkspaceAssetsResponse> {
-		const [accessibleProjects, imageAttempts, videoAttempts, allVideoUrls] =
-			await Promise.all([
-				this.projectAssetsRepository.listAccessibleProjects(scope),
-				this.imageGenerationsRepository.listSucceededForScope(
-					scope,
-					WORKSPACE_DB_ROWS_MAX,
-				),
-				this.mediaGenerationsRepository.listSucceededForScope(
-					scope,
-					WORKSPACE_DB_ROWS_MAX,
-				),
-				this.mediaGenerationsRepository.listSucceededVideoUrlsForScope(scope),
-			]);
+		const [
+			accessibleProjects,
+			imageAttempts,
+			videoAttempts,
+			mediaAttemptIdentities,
+		] = await Promise.all([
+			this.projectAssetsRepository.listAccessibleProjects(scope),
+			this.imageGenerationsRepository.listSucceededForScope(
+				scope,
+				WORKSPACE_DB_ROWS_MAX,
+			),
+			this.mediaGenerationsRepository.listSucceededForScope(
+				scope,
+				WORKSPACE_DB_ROWS_MAX,
+			),
+			this.mediaGenerationsRepository.listAssetIdentitiesForScope(scope),
+		]);
 
 		const assets: WorkspaceAsset[] = [];
 
@@ -191,6 +210,7 @@ export class ProjectAssetsService {
 
 			attempt.images.forEach((image, index) => {
 				const key = publicAssetKeyFromUrl(image.url);
+				const generationIndex = image.index ?? index + 1;
 
 				if (!key) {
 					return;
@@ -198,13 +218,13 @@ export class ProjectAssetsService {
 
 				assets.push({
 					createdAt: (attempt.completedAt ?? attempt.createdAt).toISOString(),
-					id: `${attempt.id}:${index + 1}`,
+					id: `${attempt.id}:${generationIndex}`,
 					key,
 					kind: "image",
 					mediaType: image.mediaType,
 					name:
 						attempt.count > 1
-							? `${attempt.title} (${index + 1}/${attempt.count})`
+							? `${attempt.title} (${generationIndex}/${attempt.count})`
 							: attempt.title,
 					projectId: attempt.projectId,
 					projectName: attempt.projectName,
@@ -215,20 +235,10 @@ export class ProjectAssetsService {
 			});
 		}
 
-		// Same dedupe rule as the per-project list: animation videos live under
-		// the sites/{id}/assets/ prefix the build fan-out scans. The set is built
-		// from EVERY succeeded video in scope (uncapped) — an animation whose
-		// row fell outside the display cap must still never re-surface as a
-		// mislabelled page-build tile.
-		const animationKeys = new Set<string>();
-
-		for (const url of allVideoUrls) {
-			const key = publicAssetKeyFromUrl(url);
-
-			if (key) {
-				animationKeys.add(key);
-			}
-		}
+		// The uncapped identity index also covers failed attempts and successful
+		// rows beyond the display cap, so neither can re-surface as page-build
+		// tiles through the R2 fan-out.
+		const mediaAttemptAssets = indexMediaAttemptAssets(mediaAttemptIdentities);
 
 		for (const row of videoAttempts) {
 			if (!row.videoUrl) {
@@ -251,8 +261,7 @@ export class ProjectAssetsService {
 				projectId: row.projectId,
 				projectName: row.projectName,
 				sizeBytes: null,
-				source:
-					row.kind === "text-to-video" ? "video-generation" : "image-animation",
+				source: assetSourceForVideoKind(row.kind),
 				url: row.videoUrl,
 			});
 		}
@@ -273,7 +282,11 @@ export class ProjectAssetsService {
 
 		for (const { objects, project } of buildLists) {
 			for (const object of objects) {
-				if (animationKeys.has(object.key)) {
+				if (
+					isVideoAttemptIntermediate(object.key) ||
+					isNonDeliverableMediaAttemptObject(object.key, mediaAttemptAssets) ||
+					mediaAttemptAssets.finalKeys.has(object.key)
+				) {
 					continue;
 				}
 
@@ -410,6 +423,73 @@ export class ProjectAssetsService {
 			return { cut: false, objects: [] };
 		}
 	}
+}
+
+function assetSourceForVideoKind(
+	kind: MediaGenerationKind,
+): "image-animation" | "video-generation" {
+	switch (kind) {
+		case "image-animation":
+			return "image-animation";
+		case "text-to-video":
+		case "video-edit":
+		case "video-extension":
+		case "video-product":
+			return "video-generation";
+	}
+}
+
+type MediaAttemptAssetsIndex = {
+	finalKeyByDirectory: Map<string, string | null>;
+	finalKeys: Set<string>;
+};
+
+function indexMediaAttemptAssets(
+	attempts: readonly MediaGenerationAssetIdentity[],
+): MediaAttemptAssetsIndex {
+	const finalKeyByDirectory = new Map<string, string | null>();
+	const finalKeys = new Set<string>();
+
+	for (const attempt of attempts) {
+		const finalKey = attempt.videoUrl
+			? publicAssetKeyFromUrl(attempt.videoUrl)
+			: null;
+
+		finalKeyByDirectory.set(
+			`sites/${attempt.projectId}/assets/${attempt.id}/`,
+			finalKey,
+		);
+
+		if (finalKey) {
+			finalKeys.add(finalKey);
+		}
+	}
+
+	return { finalKeyByDirectory, finalKeys };
+}
+
+function isVideoAttemptIntermediate(key: string): boolean {
+	return (
+		assetAttemptDirectory(key) !== null &&
+		/\/(?:frames|segments|audio)\//.test(key)
+	);
+}
+
+function isNonDeliverableMediaAttemptObject(
+	key: string,
+	index: MediaAttemptAssetsIndex,
+): boolean {
+	const directory = assetAttemptDirectory(key);
+
+	return (
+		directory !== null &&
+		index.finalKeyByDirectory.has(directory) &&
+		index.finalKeyByDirectory.get(directory) !== key
+	);
+}
+
+function assetAttemptDirectory(key: string): string | null {
+	return /^(sites\/[^/]+\/assets\/[^/]+\/)/.exec(key)?.[1] ?? null;
 }
 
 /**

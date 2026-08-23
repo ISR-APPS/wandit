@@ -43,15 +43,6 @@ export const composerModeSchema = z.enum(composerModes);
 // TypeScript type for composer mode.
 export type ComposerMode = z.infer<typeof composerModeSchema>;
 
-// Prompt quality setting.
-export const composerQualities = ["standard", "max"] as const;
-
-// Runtime validator for quality.
-export const composerQualitySchema = z.enum(composerQualities);
-
-// TypeScript type for quality.
-export type ComposerQuality = z.infer<typeof composerQualitySchema>;
-
 // Stable idempotency token carried only by Video composer submissions.
 // It lives inside `options` so old clients and non-video modes stay compatible.
 export const videoSubmissionIdSchema = uuidSchema;
@@ -59,15 +50,13 @@ export const videoSubmissionIdSchema = uuidSchema;
 // Extra settings attached to a prompt.
 export const composerMetadataSchema = z.object({
 	mode: composerModeSchema,
-	// If quality is missing, treat it as "standard".
-	quality: composerQualitySchema.default("standard"),
 	// Flexible fields for future prompt-box options.
 	output: z.string().min(1).optional(),
 	skills: z.array(z.string().min(1)).optional(),
 	options: z.record(z.string(), z.unknown()).optional(),
 });
 
-// Type after Zod applies defaults.
+// Validated composer metadata.
 export type ComposerMetadata = z.infer<typeof composerMetadataSchema>;
 
 // AI SDK message parts. Kept flexible for future text/images/tools/etc.

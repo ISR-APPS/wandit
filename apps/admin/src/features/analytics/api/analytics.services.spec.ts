@@ -1,28 +1,260 @@
 import { adminAnalyticsRoutes } from "@wandit/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { apiGet } from "@/lib/api-client";
+import { apiGet, apiGetRaw, apiPost } from "@/lib/api-client";
 
 import {
+	downloadFunnelStepUsersCsv,
 	getAdminAnalyticsAcquisition,
 	getAdminAnalyticsEngagement,
 	getAdminAnalyticsFeatures,
 	getAdminAnalyticsFunnel,
+	getAdminAnalyticsFunnelStepUsers,
 	getAdminAnalyticsRevenue,
+	setAdminFunnelContact,
 } from "./analytics.services";
 
 vi.mock("@/lib/api-client", () => ({
 	apiGet: vi.fn(),
+	apiGetRaw: vi.fn(),
+	apiPost: vi.fn(),
 }));
 
 const apiGetMock = vi.mocked(apiGet);
+const apiGetRawMock = vi.mocked(apiGetRaw);
+const apiPostMock = vi.mocked(apiPost);
 const updatedAt = "2026-08-15T12:00:00.000Z";
 
+const funnelStepUsersResponse = {
+	updatedAt,
+	step: "pricingViewed" as const,
+	page: 2,
+	pageSize: 40,
+	total: 1,
+	counts: {
+		all: 7,
+		contacted: 3,
+		converted: 2,
+	},
+	items: [
+		{
+			id: "user-1",
+			name: "Nadia Founder",
+			email: "nadia@example.com",
+			image: null,
+			signedUpAt: "2026-08-01T08:00:00.000Z",
+			firstEventAt: "2026-08-02T09:00:00.000Z",
+			lastEventAt: "2026-08-03T10:00:00.000Z",
+			eventCount: 2,
+			converted: true,
+			contact: {
+				contactedAt: "2026-08-15T11:00:00.000Z",
+				contactedBy: { id: "admin-1", name: "Admin User" },
+			},
+		},
+	],
+};
+
+function mockCsvDownload(contentDisposition: string | null) {
+	const anchor = {
+		href: "",
+		download: "",
+		hidden: false,
+		click: vi.fn(),
+		remove: vi.fn(),
+	};
+	const append = vi.fn();
+	const createObjectURL = vi.fn(() => "blob:funnel-users");
+	const revokeObjectURL = vi.fn();
+	const headers = new Headers();
+
+	if (contentDisposition !== null) {
+		headers.set("Content-Disposition", contentDisposition);
+	}
+
+	vi.stubGlobal("document", {
+		createElement: vi.fn(() => anchor),
+		body: { append },
+	});
+	vi.stubGlobal("URL", { createObjectURL, revokeObjectURL });
+	apiGetRawMock.mockResolvedValueOnce(
+		new Response("name,email\nNadia,nadia@example.com", { headers }),
+	);
+
+	return { anchor, append, createObjectURL, revokeObjectURL };
+}
+
 afterEach(() => {
+	vi.useRealTimers();
 	vi.clearAllMocks();
+	vi.unstubAllEnvs();
+	vi.unstubAllGlobals();
 });
 
 describe("admin analytics services", () => {
+	it("builds funnel-user and contact routes, canonicalizes requests, and parses responses", async () => {
+		apiGetMock.mockResolvedValueOnce(funnelStepUsersResponse);
+		apiPostMock.mockResolvedValueOnce({
+			userId: "user-1",
+			contact: funnelStepUsersResponse.items[0]?.contact,
+		});
+
+		await expect(
+			getAdminAnalyticsFunnelStepUsers("pricingViewed", {
+				range: "custom",
+				from: "2026-08-01",
+				to: "2026-08-15",
+				source: " newsletter ",
+				country: "dz",
+				device: "mobile",
+				cohortOnly: true,
+				page: 2,
+				pageSize: 40,
+				contacted: "contacted",
+			}),
+		).resolves.toEqual(funnelStepUsersResponse);
+
+		expect(apiGetMock).toHaveBeenCalledWith(
+			adminAnalyticsRoutes.funnelStepUsers("pricingViewed"),
+			{
+				range: "custom",
+				from: "2026-08-01",
+				to: "2026-08-15",
+				source: "newsletter",
+				country: "DZ",
+				device: "mobile",
+				cohortOnly: true,
+				page: 2,
+				pageSize: 40,
+				contacted: "contacted",
+			},
+		);
+
+		await expect(
+			setAdminFunnelContact({ userId: "user-1", contacted: true }),
+		).resolves.toMatchObject({
+			userId: "user-1",
+			contact: { contactedBy: { name: "Admin User" } },
+		});
+		expect(apiPostMock).toHaveBeenCalledWith(
+			adminAnalyticsRoutes.funnelContact("user-1"),
+			{ contacted: true },
+		);
+	});
+
+	it("applies the funnel-user list defaults at the service boundary", async () => {
+		apiGetMock.mockResolvedValueOnce({
+			...funnelStepUsersResponse,
+			page: 1,
+			pageSize: 20,
+		});
+
+		await getAdminAnalyticsFunnelStepUsers("pricingViewed", {
+			range: "7d",
+			cohortOnly: false,
+		});
+
+		expect(apiGetMock).toHaveBeenCalledWith(
+			adminAnalyticsRoutes.funnelStepUsers("pricingViewed"),
+			{
+				range: "7d",
+				cohortOnly: false,
+				page: 1,
+				pageSize: 20,
+				contacted: "all",
+			},
+		);
+	});
+
+	it("sends only export filters and downloads the server filename", async () => {
+		const { anchor, append, createObjectURL, revokeObjectURL } =
+			mockCsvDownload(
+				'attachment; filename="funnel-checkout-started-users-not-contacted-2026-08-15.csv"',
+			);
+		const query = {
+			range: "30d" as const,
+			source: " referral ",
+			country: "fr",
+			cohortOnly: false,
+			page: 3,
+			pageSize: 50,
+			contacted: "notContacted" as const,
+		};
+
+		await expect(
+			downloadFunnelStepUsersCsv("checkoutStarted", query),
+		).resolves.toBe(
+			"funnel-checkout-started-users-not-contacted-2026-08-15.csv",
+		);
+
+		expect(apiGetRawMock).toHaveBeenCalledWith(
+			adminAnalyticsRoutes.funnelStepUsersExport("checkoutStarted"),
+			{
+				range: "30d",
+				source: "referral",
+				country: "FR",
+				cohortOnly: false,
+				contacted: "notContacted",
+			},
+			"text/csv",
+		);
+		expect(anchor.download).toBe(
+			"funnel-checkout-started-users-not-contacted-2026-08-15.csv",
+		);
+		expect(anchor.click).toHaveBeenCalledOnce();
+		expect(anchor.remove).toHaveBeenCalledOnce();
+		expect(append).toHaveBeenCalledWith(anchor);
+		expect(createObjectURL).toHaveBeenCalledOnce();
+		expect(revokeObjectURL).toHaveBeenCalledWith("blob:funnel-users");
+	});
+
+	it.each([
+		[
+			"missing",
+			null,
+			"notContacted",
+			"funnel-upgrade-clicked-users-not-contacted-2026-08-22.csv",
+		],
+		[
+			"malformed",
+			"attachment; filename=",
+			"all",
+			"funnel-upgrade-clicked-users-2026-08-22.csv",
+		],
+	] as const)("uses the local-date filename fallback when Content-Disposition is %s", async (_case, contentDisposition, contacted, expectedFileName) => {
+		vi.stubEnv("TZ", "Africa/Algiers");
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-08-21T23:30:00.000Z"));
+		const { anchor } = mockCsvDownload(contentDisposition);
+
+		await expect(
+			downloadFunnelStepUsersCsv("upgradeClicked", {
+				range: "7d",
+				cohortOnly: false,
+				contacted,
+			}),
+		).resolves.toBe(expectedFileName);
+		expect(anchor.download).toBe(expectedFileName);
+	});
+
+	it("rejects malformed funnel-user and contact responses", async () => {
+		apiGetMock.mockResolvedValueOnce({
+			...funnelStepUsersResponse,
+			items: [{ ...funnelStepUsersResponse.items[0], eventCount: 0 }],
+		});
+		apiPostMock.mockResolvedValueOnce({ userId: "user-1", contact: {} });
+
+		await expect(
+			getAdminAnalyticsFunnelStepUsers("pricingViewed", {
+				range: "7d",
+				cohortOnly: false,
+			}),
+		).rejects.toThrow();
+		await expect(
+			setAdminFunnelContact({ userId: "user-1", contacted: true }),
+		).rejects.toThrow();
+	});
+
 	it("parses new fields and forwards canonical analytics filters", async () => {
 		apiGetMock
 			.mockResolvedValueOnce({
@@ -174,6 +406,13 @@ describe("admin analytics services", () => {
 					usersAtZeroBalance: 2,
 					avgCreditsBeforeUpgrade: 22.75,
 					providerCostPerCreditMicros: 410,
+					totalProviderCostMicros: 205_000,
+					billableProviderCostMicros: 180_000,
+					providerCostByProvenanceMicros: {
+						measured: 150_000,
+						contract: 40_000,
+						estimate: 15_000,
+					},
 				},
 				freeCredits: {
 					avgDaysToConsume: 8.4,
@@ -231,6 +470,7 @@ describe("admin analytics services", () => {
 				},
 				revenueBySource: {
 					subscriptionsCents: 12_501,
+					topupsCents: 2_500,
 					domainsCents: 1_499,
 					domainOrders: 1,
 					domainCostCents: 1_299,

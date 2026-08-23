@@ -8,6 +8,7 @@ import { FunnelIcon } from "@phosphor-icons/react/Funnel";
 import { GearSixIcon } from "@phosphor-icons/react/GearSix";
 import { GlobeIcon } from "@phosphor-icons/react/Globe";
 import { GraduationCapIcon } from "@phosphor-icons/react/GraduationCap";
+import { HandCoinsIcon } from "@phosphor-icons/react/HandCoins";
 import { HeartStraightIcon } from "@phosphor-icons/react/HeartStraight";
 import { LinkSimpleIcon } from "@phosphor-icons/react/LinkSimple";
 import { MegaphoneIcon } from "@phosphor-icons/react/Megaphone";
@@ -20,6 +21,7 @@ export type AdminRoutePath =
 	| "/dashboard"
 	| "/users"
 	| "/organizations"
+	| "/offline-billing"
 	| "/publications"
 	| "/feedback"
 	| "/affiliates"
@@ -64,6 +66,12 @@ const operationsNavigation: AdminNavigationItem[] = [
 		description: "Teams and credit pools",
 		to: "/organizations",
 		icon: BuildingsIcon,
+	},
+	{
+		title: "Offline billing",
+		description: "Cash & transfer requests",
+		to: "/offline-billing",
+		icon: HandCoinsIcon,
 	},
 	{
 		title: "Publications",

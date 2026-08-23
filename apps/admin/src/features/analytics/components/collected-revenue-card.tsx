@@ -40,7 +40,17 @@ const collectedRevenueChartConfig = {
 		label: "Orders",
 		color: "var(--chart-2)",
 	},
+	topupsMinor: {
+		label: "Top-ups",
+		color: "var(--chart-3)",
+	},
 } satisfies ChartConfig;
+
+const collectedRevenueSeriesLabels: Record<string, string> = {
+	ordersMinor: "Orders",
+	subscriptionsMinor: "Subscriptions",
+	topupsMinor: "Top-ups",
+};
 
 function formatRevenueAxis(value: number) {
 	return `$${formatOverviewCompactNumber(value / 100)}`;
@@ -69,7 +79,7 @@ function CollectedRevenueCard({ points }: CollectedRevenueCardProps) {
 						</h2>
 					</CardTitle>
 					<CardDescription className="mt-1">
-						Paid subscription invoices and completed orders in USD
+						Paid subscription invoices, completed orders and top-ups in USD
 					</CardDescription>
 				</div>
 				<p className="mt-3 font-display font-semibold text-3xl tabular-nums tracking-tight">
@@ -84,7 +94,7 @@ function CollectedRevenueCard({ points }: CollectedRevenueCardProps) {
 							config={collectedRevenueChartConfig}
 							className="aspect-auto h-[290px] w-full tabular-nums lg:h-[320px]"
 							role="img"
-							aria-label="Daily collected revenue split between subscriptions and orders"
+							aria-label="Daily collected revenue split between subscriptions, orders and top-ups"
 						>
 							<AreaChart
 								accessibilityLayer
@@ -125,9 +135,8 @@ function CollectedRevenueCard({ points }: CollectedRevenueCardProps) {
 											formatter={(value, name) => (
 												<div className="flex min-w-40 flex-1 items-center justify-between gap-5">
 													<span className="text-muted-foreground">
-														{name === "subscriptionsMinor"
-															? "Subscriptions"
-															: "Orders"}
+														{collectedRevenueSeriesLabels[String(name)] ??
+															String(name)}
 													</span>
 													<span className="font-medium font-mono tabular-nums">
 														{formatOverviewRoundedUsdMinor(Number(value))}
@@ -157,11 +166,21 @@ function CollectedRevenueCard({ points }: CollectedRevenueCardProps) {
 									strokeWidth={2}
 									isAnimationActive={false}
 								/>
+								<Area
+									dataKey="topupsMinor"
+									type="monotone"
+									stackId="revenue"
+									fill="var(--color-topupsMinor)"
+									fillOpacity={0.1}
+									stroke="var(--color-topupsMinor)"
+									strokeWidth={2}
+									isAnimationActive={false}
+								/>
 							</AreaChart>
 						</ChartContainer>
 						<figcaption className="sr-only">
-							The stacked area chart shows daily subscription collections and
-							completed order revenue.
+							The stacked area chart shows daily subscription collections,
+							completed order revenue and top-up purchases.
 						</figcaption>
 					</figure>
 				) : (
@@ -173,7 +192,7 @@ function CollectedRevenueCard({ points }: CollectedRevenueCardProps) {
 							No collected revenue in this range yet
 						</p>
 						<p className="max-w-72 text-muted-foreground text-xs">
-							Paid invoices and completed orders will appear here.
+							Paid invoices, completed orders and top-ups will appear here.
 						</p>
 					</div>
 				)}

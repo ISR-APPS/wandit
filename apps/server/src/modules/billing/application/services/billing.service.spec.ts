@@ -9,6 +9,7 @@ import type { WorkspaceContext } from "../../../workspaces/domain/workspace-cont
 import { ActiveSubscriptionExistsError } from "../../domain/errors/active-subscription-exists.error";
 import { AmbiguousPaymentProviderWriteError } from "../../domain/errors/ambiguous-payment-provider-write.error";
 import { BillingNotConfiguredError } from "../../domain/errors/billing-not-configured.error";
+import { ManualSubscriptionUnsupportedError } from "../../domain/errors/manual-billing.errors";
 import { PaymentPastDueError } from "../../domain/errors/payment-past-due.error";
 import {
 	BillingChangeIntentExpiredError,
@@ -117,6 +118,7 @@ function changeIntent(
 	overrides: Partial<BillingChangeIntentRow> = {},
 ): BillingChangeIntentRow {
 	return {
+		anchorReset: false,
 		consumedAt: null,
 		createdAt: new Date(NOW),
 		currency: "usd",
@@ -214,6 +216,9 @@ class FakeCreditsService {
 	readonly getSettledBalance = vi.fn(async () => ({
 		...this.balance,
 		settledBalance: this.balance.balance,
+		settledPlan: this.balance.plan,
+		settledPromo: this.balance.promo,
+		settledTopup: this.balance.topup,
 	}));
 }
 
@@ -250,6 +255,9 @@ class FakePaymentProvider {
 			url: "https://checkout.stripe.test/cs_topup",
 		};
 	});
+	readonly createPortalSession = vi.fn(
+		async () => "https://billing.stripe.test",
+	);
 	readonly expireCheckoutSession = vi.fn(
 		async (): Promise<Stripe.Checkout.Session["status"]> => "expired",
 	);
@@ -573,7 +581,10 @@ function setup(row: SubscriptionRow | null = subscriptionRow()) {
 			setOpenCheckoutSessionId: async () => undefined,
 		} as never,
 		{
-			get: async () => ({ organizationsEnabled: false }),
+			get: async () => ({
+				organizationsEnabled: false,
+				paidSubscriptionsEnabled: true,
+			}),
 		} as never,
 		cancellationReasons as unknown as CancellationReasonsRepository,
 	);
@@ -628,7 +639,16 @@ describe("BillingService entitlement and sync", () => {
 
 		await expect(service.hasActiveSubscription(user.id)).resolves.toBe(false);
 		await expect(service.getSubscriptionView(user.id)).resolves.toMatchObject({
-			balance: { balance: 0, plan: 0, promo: 0, settledBalance: 0, topup: 0 },
+			balance: {
+				balance: 0,
+				plan: 0,
+				promo: 0,
+				settledBalance: 0,
+				settledPlan: 0,
+				settledPromo: 0,
+				settledTopup: 0,
+				topup: 0,
+			},
 			subscription: { entitled: false, status: "past_due" },
 		});
 	});
@@ -657,6 +677,31 @@ describe("BillingService entitlement and sync", () => {
 		).rejects.toBeInstanceOf(ActiveSubscriptionExistsError);
 		expect(
 			remote.paymentProvider.createSubscriptionCheckout,
+		).not.toHaveBeenCalled();
+	});
+
+	it("rechecks local subscriptions under the checkout owner lock", async () => {
+		const context = setup(null);
+		context.subscriptions.findActiveByOwner
+			.mockResolvedValueOnce(null)
+			.mockResolvedValueOnce(
+				subscriptionRow({
+					provider: "manual",
+					providerSubscriptionId: "manual_grant_1",
+				}),
+			);
+
+		await expect(
+			context.service.checkout(user, {
+				interval: "month",
+				plan: "pro",
+				tierCredits: 250,
+			}),
+		).rejects.toBeInstanceOf(ActiveSubscriptionExistsError);
+
+		expect(context.checkoutAttempts.create).not.toHaveBeenCalled();
+		expect(
+			context.paymentProvider.listSubscriptionsForCustomer,
 		).not.toHaveBeenCalled();
 	});
 
@@ -820,6 +865,106 @@ describe("BillingService cancellation-reason lifecycle", () => {
 			"sub_1",
 		);
 		expect(cancellationReasons.row?.status).toBe("resumed");
+	});
+
+	it("resumes a manual subscription even while Stripe subscriptions are paused", async () => {
+		const { paymentProvider, service, subscriptions } = setup(
+			subscriptionRow({
+				cancelAtPeriodEnd: true,
+				provider: "manual",
+				providerSubscriptionId: "manual_grant_1",
+			}),
+		);
+		(
+			service as unknown as {
+				productSettingsService: { get: () => Promise<unknown> };
+			}
+		).productSettingsService = {
+			get: async () => ({
+				organizationsEnabled: false,
+				paidSubscriptionsEnabled: false,
+			}),
+		};
+
+		await service.resume(user);
+
+		expect(paymentProvider.setCancelAtPeriodEnd).not.toHaveBeenCalled();
+		expect(subscriptions.updateCancelAtPeriodEnd).toHaveBeenCalledWith(
+			"manual_grant_1",
+			false,
+		);
+	});
+
+	it("still gates a Stripe resume behind the subscriptions switch", async () => {
+		const { paymentProvider, service } = setup(
+			subscriptionRow({ cancelAtPeriodEnd: true }),
+		);
+		(
+			service as unknown as {
+				productSettingsService: { get: () => Promise<unknown> };
+			}
+		).productSettingsService = {
+			get: async () => ({
+				organizationsEnabled: false,
+				paidSubscriptionsEnabled: false,
+			}),
+		};
+
+		await expect(service.resume(user)).rejects.toMatchObject({ status: 403 });
+		expect(paymentProvider.setCancelAtPeriodEnd).not.toHaveBeenCalled();
+	});
+
+	it("keeps manual cancellation and resume local while preserving the reason cycle", async () => {
+		const { cancellationReasons, paymentProvider, service, subscriptions } =
+			setup(
+				subscriptionRow({
+					provider: "manual",
+					providerSubscriptionId: "manual_grant_1",
+				}),
+			);
+
+		await service.cancel(user, { reason: "temporary_pause" });
+
+		expect(paymentProvider.setCancelAtPeriodEnd).not.toHaveBeenCalled();
+		expect(cancellationReasons.row?.status).toBe("scheduled");
+		expect(subscriptions.updateCancelAtPeriodEnd).toHaveBeenCalledWith(
+			"manual_grant_1",
+			true,
+		);
+
+		await service.resume(user);
+
+		expect(paymentProvider.setCancelAtPeriodEnd).not.toHaveBeenCalled();
+		expect(subscriptions.updateCancelAtPeriodEnd).toHaveBeenLastCalledWith(
+			"manual_grant_1",
+			false,
+		);
+		expect(cancellationReasons.row?.status).toBe("resumed");
+	});
+});
+
+describe("BillingService manual subscription provider boundaries", () => {
+	it("rejects portal, preview, and change without calling Stripe", async () => {
+		const { paymentProvider, service } = setup(
+			subscriptionRow({
+				provider: "manual",
+				providerSubscriptionId: "manual_grant_1",
+			}),
+		);
+
+		await expect(service.portal(user)).rejects.toBeInstanceOf(
+			ManualSubscriptionUnsupportedError,
+		);
+		await expect(
+			service.previewChange(user, { interval: "month", tierCredits: 500 }),
+		).rejects.toBeInstanceOf(ManualSubscriptionUnsupportedError);
+		await expect(
+			service.change(user, { intentId: INTENT_ID }),
+		).rejects.toBeInstanceOf(ManualSubscriptionUnsupportedError);
+
+		expect(paymentProvider.createPortalSession).not.toHaveBeenCalled();
+		expect(paymentProvider.previewSubscriptionChange).not.toHaveBeenCalled();
+		expect(paymentProvider.changeSubscription).not.toHaveBeenCalled();
 	});
 });
 
@@ -1074,20 +1219,25 @@ describe("BillingService checkout attempts", () => {
 
 describe("BillingService subscription change intents", () => {
 	it("creates a fixed-proration preview intent and returns its persisted facts", async () => {
-		const { changeIntents, paymentProvider, service } = setup();
+		const { changeIntents, credits, paymentProvider, service } = setup();
+		// 100 credits of plan balance stay below the 500-credit target cap, so
+		// the whole new allotment is the delta.
+		credits.balance = { balance: 10_000, plan: 10_000, promo: 0, topup: 0 };
 
 		const result = await service.previewChange(user, {
 			interval: "month",
 			tierCredits: 500,
 		});
 
+		// Ruling 7: a same-interval upgrade resets the billing anchor.
 		expect(paymentProvider.previewSubscriptionChange).toHaveBeenCalledWith({
-			billingCycleAnchorNow: false,
+			billingCycleAnchorNow: true,
 			newPriceLookupKey: "pro_500_month",
 			prorationDate: PRORATION_DATE,
 			providerSubscriptionId: "sub_1",
 		});
 		expect(changeIntents.create).toHaveBeenCalledWith({
+			anchorReset: true,
 			currency: "usd",
 			currentPriceLookupKey: "pro_250_month",
 			expiresAt: new Date("2026-08-01T12:49:56.000Z"),
@@ -1101,11 +1251,70 @@ describe("BillingService subscription change intents", () => {
 		});
 		expect(result).toEqual({
 			amountDueMinor: 2_500,
-			creditsDelta: 250,
+			creditsDelta: 500,
 			currency: "usd",
 			expiresAt: "2026-08-01T12:49:56.000Z",
 			intentId: INTENT_ID,
 		});
+	});
+
+	it("quotes the capped-refill delta when the plan balance exceeds the new allotment", async () => {
+		const { credits, service } = setup();
+		// 620 credits on hand: 120 above the 500 cap expire, 500 are granted.
+		credits.balance = { balance: 62_000, plan: 62_000, promo: 0, topup: 0 };
+
+		const result = await service.previewChange(user, {
+			interval: "month",
+			tierCredits: 500,
+		});
+
+		expect(result.creditsDelta).toBe(380);
+	});
+
+	it("keeps downgrades and pending-downgrade cancels off the anchor reset with a zero credit delta", async () => {
+		const downgrade = setup(
+			subscriptionRow({ priceLookupKey: "pro_500_month", tierCredits: 500 }),
+		);
+
+		const downgradePreview = await downgrade.service.previewChange(user, {
+			interval: "month",
+			tierCredits: 250,
+		});
+
+		expect(
+			downgrade.paymentProvider.previewSubscriptionChange,
+		).toHaveBeenCalledWith(
+			expect.objectContaining({ billingCycleAnchorNow: false }),
+		);
+		expect(downgrade.changeIntents.create).toHaveBeenCalledWith(
+			expect.objectContaining({ anchorReset: false }),
+		);
+		expect(downgradePreview.creditsDelta).toBe(0);
+
+		const cancel = setup(subscriptionRow({ pendingTierCredits: 250 }));
+		const cancelPreview = await cancel.service.previewChange(user, {
+			interval: "month",
+			tierCredits: 250,
+		});
+
+		expect(
+			cancel.paymentProvider.previewSubscriptionChange,
+		).not.toHaveBeenCalled();
+		expect(cancel.changeIntents.create).toHaveBeenCalledWith(
+			expect.objectContaining({ anchorReset: false }),
+		);
+		expect(cancelPreview.creditsDelta).toBe(0);
+	});
+
+	it("executes with the anchor decision persisted on the intent, not recomputed state", async () => {
+		const { changeIntents, paymentProvider, service } = setup();
+		changeIntents.intent = changeIntent({ anchorReset: true });
+
+		await service.change(user, { intentId: INTENT_ID });
+
+		expect(paymentProvider.changeSubscription).toHaveBeenCalledWith(
+			expect.objectContaining({ billingCycleAnchorNow: true }),
+		);
 	});
 
 	it("claims, executes, and durably completes an intent with its exact proration date", async () => {

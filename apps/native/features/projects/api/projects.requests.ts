@@ -1,13 +1,21 @@
 import {
 	type CreateProjectBody,
 	type CreateProjectResponse,
-	type ListProjectsResponse,
-	type ProjectByIdResponse,
 	createProjectBodySchema,
 	createProjectResponseSchema,
+	type ListProjectsPageResponse,
+	type ListProjectsQuery,
+	type ListProjectsResponse,
+	listProjectsPageResponseSchema,
+	listProjectsQuerySchema,
 	listProjectsResponseSchema,
+	type ProjectByIdResponse,
 	projectByIdResponseSchema,
 	projectsRoutes,
+	type UpdateProjectBody,
+	type UpdateProjectResponse,
+	updateProjectBodySchema,
+	updateProjectResponseSchema,
 } from "@wandit/contracts";
 
 import { apiClient } from "@/shared/lib/api-client";
@@ -23,6 +31,18 @@ import { apiClient } from "@/shared/lib/api-client";
 export async function listProjects(): Promise<ListProjectsResponse> {
 	const data = await apiClient.get<ListProjectsResponse>(projectsRoutes.list);
 	return listProjectsResponseSchema.parse(data);
+}
+
+// GET /api/v1/projects/paged
+export async function listProjectsPaged(
+	query: ListProjectsQuery,
+): Promise<ListProjectsPageResponse> {
+	const parsedQuery = listProjectsQuerySchema.parse(query);
+	const data = await apiClient.get<ListProjectsPageResponse>(
+		projectsRoutes.paged,
+		{ query: parsedQuery },
+	);
+	return listProjectsPageResponseSchema.parse(data);
 }
 
 // GET /api/v1/projects/:projectId
@@ -45,4 +65,22 @@ export async function createProject(
 		body,
 	);
 	return createProjectResponseSchema.parse(data);
+}
+
+// PATCH /api/v1/projects/:projectId
+export async function updateProject(
+	projectId: string,
+	input: UpdateProjectBody,
+): Promise<UpdateProjectResponse> {
+	const body = updateProjectBodySchema.parse(input);
+	const data = await apiClient.patch<UpdateProjectResponse, UpdateProjectBody>(
+		projectsRoutes.update(projectId),
+		body,
+	);
+	return updateProjectResponseSchema.parse(data);
+}
+
+// DELETE /api/v1/projects/:projectId (soft delete, empty response)
+export async function deleteProject(projectId: string): Promise<void> {
+	await apiClient.delete(projectsRoutes.delete(projectId));
 }

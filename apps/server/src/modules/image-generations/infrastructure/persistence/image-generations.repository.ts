@@ -105,6 +105,35 @@ export class ImageGenerationsRepository {
 			);
 	}
 
+	/**
+	 * Resolve a generated-image URL only when the exact recorded asset belongs
+	 * to a succeeded attempt in the requesting project. Public reachability is
+	 * deliberately insufficient authorization; the project and URL predicates
+	 * both execute in the database query.
+	 */
+	async findSucceededImageByUrlForProject(
+		projectId: string,
+		url: string,
+	): Promise<GeneratedImageRef | null> {
+		const [row] = await this.db
+			.select({ images: imageGenerationAttempts.images })
+			.from(imageGenerationAttempts)
+			.where(
+				and(
+					eq(imageGenerationAttempts.projectId, projectId),
+					eq(imageGenerationAttempts.status, "succeeded"),
+					sql`exists (
+						select 1
+						from jsonb_array_elements(coalesce(${imageGenerationAttempts.images}, '[]'::jsonb)) as image_ref
+						where image_ref->>'url' = ${url}
+					)`,
+				),
+			)
+			.limit(1);
+
+		return row?.images?.find((image) => image.url === url) ?? null;
+	}
+
 	async insertAttempt(input: {
 		aspect: ImageGenerationAspect;
 		chatId: string;
@@ -169,6 +198,31 @@ export class ImageGenerationsRepository {
 			.update(imageGenerationAttempts)
 			.set({ triggerRunId })
 			.where(eq(imageGenerationAttempts.id, attemptId));
+	}
+
+	/**
+	 * Publish a captured, durably uploaded subset without terminalizing the
+	 * attempt. The runner serializes these snapshots, and this status guard keeps
+	 * a late progress write from overwriting a terminal result.
+	 */
+	async persistProgress(
+		attemptId: string,
+		projectId: string,
+		images: GeneratedImageRef[],
+	): Promise<boolean> {
+		const [updated] = await this.db
+			.update(imageGenerationAttempts)
+			.set({ images })
+			.where(
+				and(
+					eq(imageGenerationAttempts.id, attemptId),
+					eq(imageGenerationAttempts.projectId, projectId),
+					eq(imageGenerationAttempts.status, "generating"),
+				),
+			)
+			.returning({ id: imageGenerationAttempts.id });
+
+		return Boolean(updated);
 	}
 
 	async updatePlacement(

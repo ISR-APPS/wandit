@@ -88,7 +88,7 @@ function NetRevenueCard({ netRevenue }: NetRevenueCardProps) {
 				<div className="-mr-px -mb-px grid grid-cols-1 sm:grid-cols-2">
 					<NetRevenueMetric
 						label="Gross collected"
-						tooltip="Money collected from paid subscription invoices and completed orders during the selected range, before cash refunds."
+						tooltip="Money collected from paid subscription invoices, completed orders and top-up packs during the selected range, before cash refunds."
 						value={formatOverviewUsdMinor(netRevenue.grossCents)}
 						description="Before cash refunds"
 					/>

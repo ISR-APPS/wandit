@@ -1990,12 +1990,46 @@ describe("finish-pass document title", () => {
 	});
 });
 
+const IMAGE_CHILD_EVENT = {
+	id: "image_event_1",
+	operation: "image",
+	pricingSnapshot: {
+		estimatedUnitUsdMicros: 134_400,
+		mode: "measured",
+		operation: "image",
+		source: "operation_registry_reservation",
+		unit: "image",
+		usdMicrosPerCredit: 40_000,
+	},
+	reservedCredits: 350,
+};
+const VIDEO_CHILD_EVENT = {
+	id: "video_event_1",
+	operation: "video",
+	pricingSnapshot: {
+		estimatedUnitUsdMicros: 210_000,
+		mode: "measured",
+		operation: "video",
+		source: "operation_registry_reservation",
+		unit: "video",
+		usdMicrosPerCredit: 40_000,
+	},
+	reservedCredits: 550,
+};
+
 describe("generate_image tool", () => {
 	it("creates and settles an image child event under the page-build event", async () => {
 		const metering = {
 			captureGeneration: vi.fn(async () => ({ id: "image_ref_1" })),
-			reserve: vi.fn(async () => ({ id: "image_event_1" })),
+			// gemini-3-pro-image default: $0.1344 → 336 cc, below the 350 cc floor.
+			estimateMeasuredCost: vi.fn(async () => ({
+				costUsdMicros: 134_400,
+				credits: 336,
+				unitUsdMicros: 134_400,
+			})),
+			reserve: vi.fn(async () => IMAGE_CHILD_EVENT),
 			settle: vi.fn(async () => undefined),
+			usdMicrosPerCredit: 40_000,
 		};
 		const { options, tools } = setup({
 			meteringService: metering as unknown as MeteringService,
@@ -2024,8 +2058,10 @@ describe("generate_image tool", () => {
 			{ actorUserId: "user_1" },
 			expect.objectContaining({
 				attemptRef: "attempt_1:image:1",
-				credits: 300,
+				credits: 350,
+				estimatedCostUsdMicros: 134_400,
 				idempotencyKey: "page-build-image:page_event_1:1",
+				measuredTerms: { estimatedUnitUsdMicros: 134_400, units: 1 },
 				parentEventId: "page_event_1",
 			}),
 		);
@@ -2038,16 +2074,31 @@ describe("generate_image tool", () => {
 		});
 		expect(metering.settle).toHaveBeenCalledWith(
 			"image_event_1",
-			expect.objectContaining({ finalCredits: 300, pricing: "direct" }),
+			expect.objectContaining({
+				costUsdMicros: 134_400,
+				finalCredits: 336,
+				pricing: "direct",
+				pricingSnapshot: expect.objectContaining({
+					mode: "measured",
+					outcome: "delivered",
+					source: "measured_local",
+				}),
+			}),
 		);
 	});
 
 	it("charges a provider-completed image when direct R2 storage fails", async () => {
 		const metering = {
 			captureGeneration: vi.fn(async () => ({ id: "image_ref_1" })),
+			estimateMeasuredCost: vi.fn(async () => ({
+				costUsdMicros: 134_400,
+				credits: 336,
+				unitUsdMicros: 134_400,
+			})),
 			refund: vi.fn(async () => undefined),
-			reserve: vi.fn(async () => ({ id: "image_event_1" })),
+			reserve: vi.fn(async () => IMAGE_CHILD_EVENT),
 			settle: vi.fn(async () => undefined),
+			usdMicrosPerCredit: 40_000,
 		};
 		const { options, state, tools } = setup({
 			meteringService: metering as unknown as MeteringService,
@@ -2079,7 +2130,7 @@ describe("generate_image tool", () => {
 		expect(metering.settle).toHaveBeenCalledWith(
 			"image_event_1",
 			expect.objectContaining({
-				finalCredits: 300,
+				finalCredits: 336,
 				pricingSnapshot: expect.objectContaining({ units: 1 }),
 			}),
 		);
@@ -2089,8 +2140,10 @@ describe("generate_image tool", () => {
 	it("does not settle an image child without a durable gateway reference", async () => {
 		const metering = {
 			captureGeneration: vi.fn(async () => null),
-			reserve: vi.fn(async () => ({ id: "image_event_1" })),
+			estimateMeasuredCost: vi.fn(async () => null),
+			reserve: vi.fn(async () => IMAGE_CHILD_EVENT),
 			settle: vi.fn(async () => undefined),
+			usdMicrosPerCredit: 40_000,
 		};
 		const { options, tools } = setup({
 			meteringService: metering as unknown as MeteringService,
@@ -2118,7 +2171,9 @@ describe("generate_image tool", () => {
 	it("propagates a child reservation refusal before calling the image provider", async () => {
 		const refusal = new Error("payment required");
 		const metering = {
+			estimateMeasuredCost: vi.fn(async () => null),
 			reserve: vi.fn(async () => Promise.reject(refusal)),
+			usdMicrosPerCredit: 40_000,
 		};
 		const { options, tools } = setup({
 			meteringService: metering as unknown as MeteringService,
@@ -2284,8 +2339,15 @@ describe("animate_image tool", () => {
 	it("creates and settles a video child event under the page-build event", async () => {
 		const metering = {
 			captureGeneration: vi.fn(async () => ({ id: "video_ref_1" })),
-			reserve: vi.fn(async () => ({ id: "video_event_1" })),
+			// Kling std $0.042/s × 5 s = $0.21 → 525 cc, below the 550 cc floor.
+			estimateMeasuredCost: vi.fn(async () => ({
+				costUsdMicros: 210_000,
+				credits: 525,
+				unitUsdMicros: 42_000,
+			})),
+			reserve: vi.fn(async () => VIDEO_CHILD_EVENT),
 			settle: vi.fn(async () => undefined),
+			usdMicrosPerCredit: 40_000,
 		};
 		const { options, tools } = setup({
 			meteringService: metering as unknown as MeteringService,
@@ -2309,8 +2371,11 @@ describe("animate_image tool", () => {
 			{ actorUserId: "user_1" },
 			expect.objectContaining({
 				attemptRef: "attempt_1:video:1",
-				credits: 2000,
+				credits: 550,
+				estimatedCostUsdMicros: 210_000,
+				measuredTerms: { estimatedUnitUsdMicros: 210_000, units: 1 },
 				idempotencyKey: "page-build-video:page_event_1:1",
+				model: "klingai/kling-v2.6-i2v",
 				parentEventId: "page_event_1",
 			}),
 		);
@@ -2323,7 +2388,11 @@ describe("animate_image tool", () => {
 		});
 		expect(metering.settle).toHaveBeenCalledWith(
 			"video_event_1",
-			expect.objectContaining({ finalCredits: 2000, pricing: "direct" }),
+			expect.objectContaining({
+				costUsdMicros: 210_000,
+				finalCredits: 525,
+				pricing: "direct",
+			}),
 		);
 	});
 
@@ -2331,8 +2400,15 @@ describe("animate_image tool", () => {
 		const metering = {
 			captureGeneration: vi.fn(async () => ({ id: "video_ref_1" })),
 			refund: vi.fn(async () => undefined),
-			reserve: vi.fn(async () => ({ id: "video_event_1" })),
+			// Kling std $0.042/s × 5 s = $0.21 → 525 cc, below the 550 cc floor.
+			estimateMeasuredCost: vi.fn(async () => ({
+				costUsdMicros: 210_000,
+				credits: 525,
+				unitUsdMicros: 42_000,
+			})),
+			reserve: vi.fn(async () => VIDEO_CHILD_EVENT),
 			settle: vi.fn(async () => undefined),
+			usdMicrosPerCredit: 40_000,
 		};
 		const { options, state, tools } = setup({
 			meteringService: metering as unknown as MeteringService,
@@ -2363,7 +2439,7 @@ describe("animate_image tool", () => {
 		expect(metering.settle).toHaveBeenCalledWith(
 			"video_event_1",
 			expect.objectContaining({
-				finalCredits: 2000,
+				finalCredits: 525,
 				pricingSnapshot: expect.objectContaining({ units: 1 }),
 			}),
 		);
@@ -2405,8 +2481,10 @@ describe("animate_image tool", () => {
 			imageUrl: VIDEO_INPUT.imageUrl,
 			index: 1,
 			metering: { operation: "video", organizationId: null, userId: "user_1" },
+			modelId: "klingai/kling-v2.6-i2v",
 			motionPrompt: VIDEO_INPUT.motionPrompt,
 			projectId: "project_1",
+			voiceControl: false,
 		});
 		expect(output).toEqual({
 			posterUrl: VIDEO_INPUT.imageUrl,

@@ -272,7 +272,8 @@ export function buildChatRequestContext(
 				lines.push(
 					'  Output: "Image animation" — animate the single uploaded ' +
 						"source image with animate_image. This is image-to-video: one " +
-						"silent five-second clip from the supplied still.",
+						"five-second clip from the supplied still. Use the talking/max " +
+						"path only when a person must visibly speak to camera.",
 				);
 			}
 

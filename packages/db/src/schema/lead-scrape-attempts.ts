@@ -7,6 +7,7 @@ import {
 	pgTable,
 	text,
 	timestamp,
+	uniqueIndex,
 	uuid,
 } from "drizzle-orm/pg-core";
 import { chats } from "./chats";
@@ -49,6 +50,12 @@ export const leadScrapeAttempts = pgTable(
 		chatId: uuid("chat_id").references(() => chats.id, {
 			onDelete: "set null",
 		}),
+		// Request idempotency: sha256 of the spec + the AI SDK toolCallId, so a
+		// duplicated tool call (transport retry, double delivery) lands on the
+		// same attempt row. Pre-existing rows carry their own id as the key.
+		// Nullable at the column level so old replicas in a rollout window can
+		// still insert; the application always writes a key.
+		requestKey: text("request_key"),
 		status: leadScrapeStatus("status").notNull().default("queued"),
 		stage: leadScrapeStage("stage").notNull().default("queued"),
 		// 0-100, recomputed by the task as stages advance.
@@ -85,6 +92,10 @@ export const leadScrapeAttempts = pgTable(
 		index("lead_scrape_attempts_project_idx").on(
 			table.projectId,
 			table.createdAt,
+		),
+		uniqueIndex("lead_scrape_attempts_chat_request_uq").on(
+			table.chatId,
+			table.requestKey,
 		),
 	],
 );

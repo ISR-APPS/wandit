@@ -49,6 +49,8 @@ export function hasGatewayGenerationMetadata(
 	);
 }
 
+const REFUNDED_FAILURE_CUSTOMER_BILLING = "refunded_failure";
+
 /**
  * Fixed-price reconciliation must use completed customer units, not the
  * reservation size. Nest the provider's native usage so the durable unit
@@ -57,15 +59,46 @@ export function hasGatewayGenerationMetadata(
 export function fixedGenerationStepUsage(
 	providerUsage: unknown,
 	fixedUnits: number,
-): { metering: { fixedUnits: number }; providerUsage: unknown } {
+	outcome?: typeof REFUNDED_FAILURE_CUSTOMER_BILLING,
+): {
+	metering: { customerBilling?: string; fixedUnits: number };
+	providerUsage: unknown;
+} {
 	if (!Number.isSafeInteger(fixedUnits) || fixedUnits < 0) {
 		throw new Error("Fixed generation units must be a non-negative integer");
 	}
 
 	return {
-		metering: { fixedUnits },
+		metering: {
+			fixedUnits,
+			...(outcome === undefined ? {} : { customerBilling: outcome }),
+		},
 		providerUsage: providerUsage ?? null,
 	};
+}
+
+/**
+ * A provider generation that failed before any deliverable reached the user.
+ * Reconciliation excludes it from the customer-billable cost (the user was
+ * refunded) while the event still records its real provider cost.
+ */
+export function isRefundedFailureStepUsage(stepUsage: unknown): boolean {
+	if (
+		typeof stepUsage !== "object" ||
+		stepUsage === null ||
+		!("metering" in stepUsage)
+	) {
+		return false;
+	}
+
+	const metering = stepUsage.metering;
+
+	return (
+		typeof metering === "object" &&
+		metering !== null &&
+		"customerBilling" in metering &&
+		metering.customerBilling === REFUNDED_FAILURE_CUSTOMER_BILLING
+	);
 }
 
 /**

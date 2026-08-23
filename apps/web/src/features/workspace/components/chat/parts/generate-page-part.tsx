@@ -33,7 +33,7 @@ import { useStopwatch } from "react-timer-hook";
 
 import { useBillingModal } from "@/features/billing/components/billing-modal-provider";
 import { usePurchasesEnabled } from "@/features/billing/lib/purchases";
-import { creditsKeys } from "@/features/credits";
+import { invalidateBalanceAfterGenerationTerminal } from "@/features/credits/lib/terminal-balance-invalidation";
 import {
 	pageKeys,
 	useDismissPageAttempt,
@@ -103,8 +103,8 @@ export function GeneratePagePart({ part }: { part: GeneratePageToolPart }) {
 		return <StaticBuildingLine versionNumber={part.output.versionNumber} />;
 	}
 
-	// "unavailable" — the server is missing R2/Trigger credentials; relay the
-	// tool's honest message instead of pretending a page is coming.
+	// "needs-input" relays the corrective ask; "unavailable" relays the honest
+	// infrastructure blocker. Neither status should look like a queued build.
 	return (
 		<p dir="auto" className="text-[13px] text-muted-foreground leading-[1.5]">
 			{part.output.message}
@@ -149,9 +149,7 @@ function PageBuildCard({
 		handle: realtime,
 		enabled: Boolean(realtime),
 		onSettled: () => {
-			void queryClient.invalidateQueries({
-				queryKey: creditsKeys.balance(),
-			});
+			invalidateBalanceAfterGenerationTerminal(queryClient, "settled");
 			// The Page tab's overview poll also notices on its own — this just
 			// makes the switch instant.
 			void queryClient.invalidateQueries({

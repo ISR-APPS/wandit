@@ -12,11 +12,16 @@ import type {
 	ImageToVideoMotion,
 	ImageToVideoSourceMediaType,
 	MediaGenerationKind,
-	VideoDurationSeconds,
+	VideoQuality,
 	VideoVoiceover,
 } from "@wandit/contracts";
-import { and, desc, eq, inArray, isNull, lt } from "@wandit/db";
+import { and, asc, desc, eq, inArray, isNull, lt, sql } from "@wandit/db";
+import {
+	aiUsageEvents,
+	aiUsageGenerationRefs,
+} from "@wandit/db/schema/credits";
 import { mediaGenerationAttempts } from "@wandit/db/schema/media-generation-attempts";
+import { mediaGenerationLegs } from "@wandit/db/schema/media-generation-legs";
 import { projects } from "@wandit/db/schema/projects";
 import { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
 import {
@@ -33,24 +38,110 @@ import {
 } from "../../../projects/domain/project-scope";
 
 export type MediaGenerationAttemptRow = {
+	actualDurationMs: number | null;
 	aspect: ImageToVideoAspect;
+	chainDepth: number;
 	completedAt: Date | null;
 	createdAt: Date;
 	durationSeconds: number;
 	error: string | null;
 	id: string;
 	kind: MediaGenerationKind;
+	model: string | null;
 	motion: ImageToVideoMotion | null;
 	projectId: string;
 	prompt: string;
+	quality: string | null;
+	sourceAttemptId: string | null;
+	sourceDurationMs: number | null;
 	sourceImageUrl: string | null;
 	sourceMediaType: ImageToVideoSourceMediaType | null;
+	sourceVideoMediaType: string | null;
+	sourceVideoUrl: string | null;
 	startedAt: Date | null;
 	status: "queued" | "generating" | "succeeded" | "failed";
+	talking: boolean | null;
 	title: string | null;
 	videoMediaType: string | null;
 	videoUrl: string | null;
 	voiceover: VideoVoiceover | null;
+};
+
+export type MediaGenerationLegRow = {
+	attemptId: string;
+	completedAt: Date | null;
+	createdAt: Date;
+	durationSeconds: 5 | 10;
+	error: string | null;
+	id: string;
+	model: string;
+	segmentKey: string | null;
+	seq: number;
+	sourceFrameKey: string | null;
+	startedAt: Date | null;
+	status: "queued" | "generating" | "succeeded" | "failed";
+};
+
+type InsertMediaGenerationAttemptBase = {
+	aspect: ImageToVideoAspect;
+	chainDepth?: number;
+	chatId: string;
+	/** Defaults to 5 for legacy image-animation rows. */
+	durationSeconds?: number;
+	/** Required for image animation, null for non-image source workflows. */
+	motion?: ImageToVideoMotion | null;
+	projectId: string;
+	prompt: string;
+	requestKey: string;
+	sourceAttemptId?: string | null;
+	sourceImageUrl?: string | null;
+	sourceMediaType?: ImageToVideoSourceMediaType | null;
+	sourceVideoMediaType?: string | null;
+	sourceVideoUrl?: string | null;
+	title?: string | null;
+	voiceover?: VideoVoiceover | null;
+};
+
+/** Per-kind durable plan snapshots; invalid model/tier/voice triples do not type. */
+export type InsertMediaGenerationAttemptInput =
+	InsertMediaGenerationAttemptBase &
+		(
+			| {
+					kind?: "image-animation";
+					model: string;
+					quality: VideoQuality;
+					talking: boolean;
+			  }
+			| {
+					kind: "text-to-video";
+					model: string;
+					quality: VideoQuality;
+					talking: boolean;
+			  }
+			| {
+					kind: "video-edit";
+					model: string;
+					quality: null;
+					talking: null;
+			  }
+			| {
+					kind: "video-product";
+					model: string;
+					quality: null;
+					talking: null;
+			  }
+			| {
+					kind: "video-extension";
+					model: string;
+					quality: VideoQuality;
+					talking: false;
+			  }
+		);
+
+export type InsertMediaGenerationLegInput = {
+	durationSeconds: 5 | 10;
+	model: string;
+	seq: number;
 };
 
 export type SucceededMediaGenerationRow = {
@@ -69,25 +160,55 @@ export type WorkspaceMediaGenerationRow = SucceededMediaGenerationRow & {
 	projectName: string;
 };
 
+export type MediaGenerationAssetIdentity = {
+	id: string;
+	projectId: string;
+	videoUrl: string | null;
+};
+
 const ATTEMPT_COLUMNS = {
+	actualDurationMs: mediaGenerationAttempts.actualDurationMs,
 	aspect: mediaGenerationAttempts.aspect,
+	chainDepth: mediaGenerationAttempts.chainDepth,
 	completedAt: mediaGenerationAttempts.completedAt,
 	createdAt: mediaGenerationAttempts.createdAt,
 	durationSeconds: mediaGenerationAttempts.durationSeconds,
 	error: mediaGenerationAttempts.error,
 	id: mediaGenerationAttempts.id,
 	kind: mediaGenerationAttempts.kind,
+	model: mediaGenerationAttempts.model,
 	motion: mediaGenerationAttempts.motion,
 	projectId: mediaGenerationAttempts.projectId,
 	prompt: mediaGenerationAttempts.prompt,
+	quality: mediaGenerationAttempts.quality,
+	sourceAttemptId: mediaGenerationAttempts.sourceAttemptId,
+	sourceDurationMs: mediaGenerationAttempts.sourceDurationMs,
 	sourceImageUrl: mediaGenerationAttempts.sourceImageUrl,
 	sourceMediaType: mediaGenerationAttempts.sourceMediaType,
+	sourceVideoMediaType: mediaGenerationAttempts.sourceVideoMediaType,
+	sourceVideoUrl: mediaGenerationAttempts.sourceVideoUrl,
 	startedAt: mediaGenerationAttempts.startedAt,
 	status: mediaGenerationAttempts.status,
+	talking: mediaGenerationAttempts.talking,
 	title: mediaGenerationAttempts.title,
 	videoMediaType: mediaGenerationAttempts.videoMediaType,
 	videoUrl: mediaGenerationAttempts.videoUrl,
 	voiceover: mediaGenerationAttempts.voiceover,
+} as const;
+
+const LEG_COLUMNS = {
+	attemptId: mediaGenerationLegs.attemptId,
+	completedAt: mediaGenerationLegs.completedAt,
+	createdAt: mediaGenerationLegs.createdAt,
+	durationSeconds: mediaGenerationLegs.durationSeconds,
+	error: mediaGenerationLegs.error,
+	id: mediaGenerationLegs.id,
+	model: mediaGenerationLegs.model,
+	segmentKey: mediaGenerationLegs.segmentKey,
+	seq: mediaGenerationLegs.seq,
+	sourceFrameKey: mediaGenerationLegs.sourceFrameKey,
+	startedAt: mediaGenerationLegs.startedAt,
+	status: mediaGenerationLegs.status,
 } as const;
 
 @Injectable()
@@ -127,23 +248,30 @@ export class MediaGenerationsRepository {
 			);
 	}
 
-	async insertAttempt(input: {
-		aspect: ImageToVideoAspect;
-		chatId: string;
-		/** Defaults to 5; text-to-video may render 10. */
-		durationSeconds?: VideoDurationSeconds;
-		/** Defaults to "image-animation" (the original mode). */
-		kind?: MediaGenerationKind;
-		/** Required for image animation, null for text-to-video (DB CHECK). */
-		motion?: ImageToVideoMotion | null;
-		projectId: string;
-		prompt: string;
-		requestKey: string;
-		sourceImageUrl?: string | null;
-		sourceMediaType?: ImageToVideoSourceMediaType | null;
-		title?: string | null;
-		voiceover?: VideoVoiceover | null;
-	}): Promise<{
+	/**
+	 * Resolves a source only when it is a completed attempt in the requesting
+	 * project. A public video URL is deliberately insufficient authorization.
+	 */
+	async findSucceededForProject(
+		projectId: string,
+		attemptId: string,
+	): Promise<MediaGenerationAttemptRow | null> {
+		const [row] = await this.db
+			.select(ATTEMPT_COLUMNS)
+			.from(mediaGenerationAttempts)
+			.where(
+				and(
+					eq(mediaGenerationAttempts.id, attemptId),
+					eq(mediaGenerationAttempts.projectId, projectId),
+					eq(mediaGenerationAttempts.status, "succeeded"),
+				),
+			)
+			.limit(1);
+
+		return row ?? null;
+	}
+
+	async insertAttempt(input: InsertMediaGenerationAttemptInput): Promise<{
 		created: boolean;
 		id: string;
 		status: MediaGenerationAttemptRow["status"];
@@ -187,6 +315,216 @@ export class MediaGenerationsRepository {
 		}
 
 		return { ...existing, created: false };
+	}
+
+	/**
+	 * Creates the extension parent and its immutable leg plan atomically. An
+	 * idempotency replay returns the existing parent without duplicating legs.
+	 */
+	async insertExtensionAttempt(
+		input: Extract<
+			InsertMediaGenerationAttemptInput,
+			{ kind: "video-extension" }
+		>,
+		legs: readonly InsertMediaGenerationLegInput[],
+	): Promise<{
+		created: boolean;
+		id: string;
+		status: MediaGenerationAttemptRow["status"];
+	}> {
+		if (
+			legs.length < 1 ||
+			legs.length > 3 ||
+			legs.some((leg, index) => leg.seq !== index + 1)
+		) {
+			throw new Error("Video extension legs must be consecutive from 1 to 3");
+		}
+
+		return this.db.transaction(async (tx) => {
+			const [row] = await tx
+				.insert(mediaGenerationAttempts)
+				.values(input)
+				.onConflictDoNothing({
+					target: [
+						mediaGenerationAttempts.chatId,
+						mediaGenerationAttempts.requestKey,
+					],
+				})
+				.returning({
+					id: mediaGenerationAttempts.id,
+					status: mediaGenerationAttempts.status,
+				});
+
+			if (row) {
+				await tx.insert(mediaGenerationLegs).values(
+					legs.map((leg) => ({
+						attemptId: row.id,
+						durationSeconds: leg.durationSeconds,
+						model: leg.model,
+						seq: leg.seq,
+					})),
+				);
+
+				return { ...row, created: true };
+			}
+
+			const [existing] = await tx
+				.select({
+					id: mediaGenerationAttempts.id,
+					status: mediaGenerationAttempts.status,
+				})
+				.from(mediaGenerationAttempts)
+				.where(
+					and(
+						eq(mediaGenerationAttempts.chatId, input.chatId),
+						eq(mediaGenerationAttempts.requestKey, input.requestKey),
+					),
+				)
+				.limit(1);
+
+			if (!existing) {
+				throw new Error(
+					"Media generation idempotency conflict did not return an attempt",
+				);
+			}
+
+			return { ...existing, created: false };
+		});
+	}
+
+	async listLegs(attemptId: string): Promise<MediaGenerationLegRow[]> {
+		const rows = await this.db
+			.select(LEG_COLUMNS)
+			.from(mediaGenerationLegs)
+			.where(eq(mediaGenerationLegs.attemptId, attemptId))
+			.orderBy(asc(mediaGenerationLegs.seq));
+
+		return rows.map(narrowLegDuration);
+	}
+
+	async latestLegActivityAt(attemptId: string): Promise<Date | null> {
+		const [row] = await this.db
+			.select({
+				activityAt:
+					sql<Date | null>`max(greatest(${mediaGenerationLegs.startedAt}, ${mediaGenerationLegs.completedAt}))`.mapWith(
+						mediaGenerationLegs.startedAt,
+					),
+			})
+			.from(mediaGenerationLegs)
+			.where(eq(mediaGenerationLegs.attemptId, attemptId));
+
+		return row?.activityAt ?? null;
+	}
+
+	/** Durable provider-completion units captured before any media upload. */
+	async providerEvidenceUnits(attemptId: string): Promise<0 | 1 | 2 | 3> {
+		const [row] = await this.db
+			.select({
+				units: sql<number>`coalesce(sum(
+					case
+						when jsonb_typeof(${aiUsageGenerationRefs.stepUsage} -> 'metering' -> 'fixedUnits') = 'number'
+						then (${aiUsageGenerationRefs.stepUsage} -> 'metering' ->> 'fixedUnits')::integer
+						else 0
+					end
+				), 0)::integer`,
+			})
+			.from(aiUsageGenerationRefs)
+			.innerJoin(
+				aiUsageEvents,
+				eq(aiUsageEvents.id, aiUsageGenerationRefs.usageEventId),
+			)
+			.where(eq(aiUsageEvents.idempotencyKey, `video:${attemptId}`));
+
+		return narrowDeliveredUnits(Number(row?.units ?? 0));
+	}
+
+	async claimQueuedLeg(
+		attemptId: string,
+		seq: number,
+	): Promise<MediaGenerationLegRow | null> {
+		const [row] = await this.db
+			.update(mediaGenerationLegs)
+			.set({ startedAt: new Date(), status: "generating" })
+			.where(
+				and(
+					eq(mediaGenerationLegs.attemptId, attemptId),
+					eq(mediaGenerationLegs.seq, seq),
+					eq(mediaGenerationLegs.status, "queued"),
+				),
+			)
+			.returning(LEG_COLUMNS);
+
+		return row ? narrowLegDuration(row) : null;
+	}
+
+	async recordGeneratingLegSourceFrame(
+		attemptId: string,
+		seq: number,
+		sourceFrameKey: string,
+	): Promise<boolean> {
+		const [row] = await this.db
+			.update(mediaGenerationLegs)
+			.set({ sourceFrameKey })
+			.where(
+				and(
+					eq(mediaGenerationLegs.attemptId, attemptId),
+					eq(mediaGenerationLegs.seq, seq),
+					eq(mediaGenerationLegs.status, "generating"),
+					isNull(mediaGenerationLegs.sourceFrameKey),
+				),
+			)
+			.returning({ id: mediaGenerationLegs.id });
+
+		return Boolean(row);
+	}
+
+	async markGeneratingLegSucceeded(
+		attemptId: string,
+		seq: number,
+		segmentKey: string,
+	): Promise<boolean> {
+		const [row] = await this.db
+			.update(mediaGenerationLegs)
+			.set({
+				completedAt: new Date(),
+				error: null,
+				segmentKey,
+				status: "succeeded",
+			})
+			.where(
+				and(
+					eq(mediaGenerationLegs.attemptId, attemptId),
+					eq(mediaGenerationLegs.seq, seq),
+					eq(mediaGenerationLegs.status, "generating"),
+				),
+			)
+			.returning({ id: mediaGenerationLegs.id });
+
+		return Boolean(row);
+	}
+
+	async markGeneratingLegFailed(
+		attemptId: string,
+		seq: number,
+		error: string,
+	): Promise<boolean> {
+		const [row] = await this.db
+			.update(mediaGenerationLegs)
+			.set({
+				completedAt: new Date(),
+				error: error.slice(0, 2_000),
+				status: "failed",
+			})
+			.where(
+				and(
+					eq(mediaGenerationLegs.attemptId, attemptId),
+					eq(mediaGenerationLegs.seq, seq),
+					eq(mediaGenerationLegs.status, "generating"),
+				),
+			)
+			.returning({ id: mediaGenerationLegs.id });
+
+		return Boolean(row);
 	}
 
 	async markAttemptTriggered(
@@ -276,6 +614,7 @@ export class MediaGenerationsRepository {
 					eq(mediaGenerationAttempts.id, attemptId),
 					eq(mediaGenerationAttempts.status, "generating"),
 					lt(mediaGenerationAttempts.startedAt, startedBefore),
+					noLegActivityAtOrAfter(startedBefore),
 				),
 			)
 			.returning({
@@ -410,24 +749,44 @@ export class MediaGenerationsRepository {
 			.orderBy(desc(mediaGenerationAttempts.createdAt));
 	}
 
-	// Dedupe support for the dashboard Assets page: EVERY succeeded video URL
-	// in scope, uncapped — animation files live under the same R2 prefix the
-	// build fan-out scans, and an animation whose row fell outside the display
-	// cap must still be recognized (else it re-appears as a "page-build" tile).
-	async listSucceededVideoUrlsForScope(scope: ProjectScope): Promise<string[]> {
-		const rows = await this.db
-			.select({ videoUrl: mediaGenerationAttempts.videoUrl })
+	// Assets-tab isolation: every media attempt owns its whole R2 directory,
+	// including failed attempts whose raw provider output must never surface as
+	// a page-build asset.
+	async listAssetIdentitiesForProject(
+		scope: ProjectScope,
+		projectId: string,
+	): Promise<MediaGenerationAssetIdentity[]> {
+		return this.db
+			.select({
+				id: mediaGenerationAttempts.id,
+				projectId: mediaGenerationAttempts.projectId,
+				videoUrl: mediaGenerationAttempts.videoUrl,
+			})
 			.from(mediaGenerationAttempts)
 			.innerJoin(projects, eq(projects.id, mediaGenerationAttempts.projectId))
 			.where(
 				and(
-					eq(mediaGenerationAttempts.status, "succeeded"),
+					eq(mediaGenerationAttempts.projectId, projectId),
 					projectScopePredicate(scope),
 					isNull(projects.deletedAt),
 				),
 			);
+	}
 
-		return rows.flatMap((row) => (row.videoUrl ? [row.videoUrl] : []));
+	// Dashboard counterpart: uncapped so attempts outside the display-row cap,
+	// including failed attempts, still retain ownership of their R2 directory.
+	async listAssetIdentitiesForScope(
+		scope: ProjectScope,
+	): Promise<MediaGenerationAssetIdentity[]> {
+		return this.db
+			.select({
+				id: mediaGenerationAttempts.id,
+				projectId: mediaGenerationAttempts.projectId,
+				videoUrl: mediaGenerationAttempts.videoUrl,
+			})
+			.from(mediaGenerationAttempts)
+			.innerJoin(projects, eq(projects.id, mediaGenerationAttempts.projectId))
+			.where(and(projectScopePredicate(scope), isNull(projects.deletedAt)));
 	}
 
 	// Dashboard Assets page: newest finished videos across every project the
@@ -465,5 +824,45 @@ export class MediaGenerationsRepository {
 }
 
 function analyticsKind(kind: MediaGenerationKind): "animation" | "video" {
-	return kind === "text-to-video" ? "video" : "animation";
+	switch (kind) {
+		case "image-animation":
+			return "animation";
+		case "text-to-video":
+		case "video-edit":
+		case "video-extension":
+		case "video-product":
+			return "video";
+	}
+}
+
+function noLegActivityAtOrAfter(cutoff: Date) {
+	return sql<boolean>`not exists (
+		select 1
+		from ${mediaGenerationLegs}
+		where ${mediaGenerationLegs.attemptId} = ${mediaGenerationAttempts.id}
+			and (
+				${mediaGenerationLegs.startedAt} >= ${cutoff}
+				or ${mediaGenerationLegs.completedAt} >= ${cutoff}
+			)
+	)`;
+}
+
+function narrowLegDuration<T extends { durationSeconds: number }>(
+	row: T,
+): T & { durationSeconds: 5 | 10 } {
+	if (row.durationSeconds !== 5 && row.durationSeconds !== 10) {
+		throw new Error(
+			`Video extension leg has invalid duration ${row.durationSeconds}`,
+		);
+	}
+
+	return { ...row, durationSeconds: row.durationSeconds };
+}
+
+function narrowDeliveredUnits(units: number): 0 | 1 | 2 | 3 {
+	if (units === 0 || units === 1 || units === 2 || units === 3) {
+		return units;
+	}
+
+	throw new Error(`Video attempt has invalid provider evidence units ${units}`);
 }

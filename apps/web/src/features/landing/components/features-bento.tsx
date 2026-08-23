@@ -15,8 +15,6 @@ import {
 } from "lucide-react";
 import type * as React from "react";
 
-import { CREDIT_COSTS, PriceTag } from "@/features/credits";
-
 import { FEATURES_CONFIG } from "../lib/constants";
 import { Reveal } from "./reveal";
 import { SectionHeader } from "./section-header";
@@ -89,7 +87,7 @@ function DirectionPanel({ rtl }: { rtl?: boolean }) {
 
 export function FeaturesBento() {
 	const { t } = useTranslation();
-	const { items, pipeline, generateLabel } = useDictionary().landing.features;
+	const { items, pipeline } = useDictionary().landing.features;
 	const { publishUrl } = FEATURES_CONFIG;
 
 	return (
@@ -167,17 +165,7 @@ export function FeaturesBento() {
 							icon={Coins}
 							title={items.credits.title}
 							body={items.credits.body}
-						>
-							<div className="mt-auto flex items-center gap-1.5 rounded-lg border border-border/70 bg-background/60 px-3 py-2">
-								<span className="font-mono text-muted-foreground text-xs">
-									{generateLabel}
-								</span>
-								<PriceTag
-									cost={CREDIT_COSTS.generation}
-									className="text-foreground/80"
-								/>
-							</div>
-						</BentoCell>
+						/>
 					</Reveal>
 
 					<Reveal delay={0.14} className="lg:col-span-3">

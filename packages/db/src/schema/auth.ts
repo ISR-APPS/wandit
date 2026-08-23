@@ -17,6 +17,9 @@ export const user = pgTable(
 		id: text("id").primaryKey(),
 		name: text("name").notNull(),
 		email: text("email").notNull().unique(),
+		// Cosmetic only: the spelling last presented at sign-in. `email` remains
+		// the canonical identity key; never use this field for lookups.
+		displayEmail: text("display_email"),
 		emailVerified: boolean("email_verified").default(false).notNull(),
 		image: text("image"),
 		// Better Auth admin plugin fields (role/banned/banReason/banExpires) —

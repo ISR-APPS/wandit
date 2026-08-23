@@ -288,6 +288,90 @@
       "when": 1787146218506,
       "tag": "0040_connector-operation-target-entity",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1787332156300,
+      "tag": "0041_manual-billing",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1787351300218,
+      "tag": "0042_manual-grace-days",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1787407311966,
+      "tag": "0043_admin-funnel-contacts",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1787409305512,
+      "tag": "0044_video-pipeline-foundations",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1787413798069,
+      "tag": "0045_product-sku-snapshots",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1787418505547,
+      "tag": "0046_ws4-guards-leases-idempotency",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1787420000000,
+      "tag": "0047_model-prices-media-rates",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1787424830615,
+      "tag": "0048_provider-call-evidence",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1787426350414,
+      "tag": "0049_stripe-lifecycle-admin-truth",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1787492416080,
+      "tag": "0050_display-email",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1787492429155,
+      "tag": "0051_push-tokens",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1787493813742,
+      "tag": "0052_product-video-kind",
+      "breakpoints": true
     }
   ]
 }

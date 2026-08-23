@@ -41,6 +41,7 @@ import {
 } from "../../../../infrastructure/database/database.constants";
 import {
 	AI_SPEND_STATUSES,
+	aiUsageEventCostProvenance,
 	aiUsageEventCostUsdMicros,
 } from "./ai-usage-cost.sql";
 
@@ -67,6 +68,8 @@ export type AdminUserDetailRow = AdminUserSummaryRow & {
 };
 
 export type AdminSubscriptionRow = {
+	id: string;
+	provider: string;
 	plan: (typeof subscriptions.plan)["_"]["data"];
 	status: string;
 	interval: (typeof subscriptions.interval)["_"]["data"];
@@ -151,6 +154,7 @@ export type AdminCreditLedgerRow = {
 	aiModel: string | null;
 	aiProvider: string | null;
 	aiCostUsdMicros: number | null;
+	aiCostProvenance: string | null;
 };
 
 export type AdminAiSpendRow = {
@@ -189,6 +193,31 @@ export class AdminRepository {
 
 			return fn(tx);
 		});
+	}
+
+	/**
+	 * One repeatable-read read-only snapshot for multi-query admin reads. A
+	 * (rare) serialization failure is retried once; read-only transactions
+	 * never leave partial writes behind.
+	 */
+	async readTransaction<T>(
+		fn: (tx: AdminTransaction) => Promise<T>,
+	): Promise<T> {
+		try {
+			return await this.db.transaction(fn, {
+				accessMode: "read only",
+				isolationLevel: "repeatable read",
+			});
+		} catch (error) {
+			if (!isSerializationFailure(error)) {
+				throw error;
+			}
+
+			return this.db.transaction(fn, {
+				accessMode: "read only",
+				isolationLevel: "repeatable read",
+			});
+		}
 	}
 
 	async listUsers(
@@ -437,8 +466,11 @@ export class AdminRepository {
 		return { countQuery, listQuery };
 	}
 
-	async findUserDetail(userId: string): Promise<AdminUserDetailRow | null> {
-		const [row] = await this.db
+	async findUserDetail(
+		userId: string,
+		client: AdminDbClient = this.db,
+	): Promise<AdminUserDetailRow | null> {
+		const [row] = await client
 			.select({
 				...this.summaryColumns(),
 				updatedAt: user.updatedAt,
@@ -474,9 +506,12 @@ export class AdminRepository {
 	 */
 	async findLatestSubscription(
 		userId: string,
+		client: AdminDbClient = this.db,
 	): Promise<AdminSubscriptionRow | null> {
-		const [row] = await this.db
+		const [row] = await client
 			.select({
+				id: subscriptions.id,
+				provider: subscriptions.provider,
 				plan: subscriptions.plan,
 				status: subscriptions.status,
 				interval: subscriptions.interval,
@@ -504,19 +539,25 @@ export class AdminRepository {
 	listRecentProjects(
 		userId: string,
 		limit: number,
+		client: AdminDbClient = this.db,
 	): Promise<AdminProjectRow[]> {
-		return this.listUserProjects(userId, {
-			limit,
-			offset: 0,
-			order: "desc",
-		});
+		return this.listUserProjects(
+			userId,
+			{
+				limit,
+				offset: 0,
+				order: "desc",
+			},
+			client,
+		);
 	}
 
 	listUserProjects(
 		userId: string,
 		options: AdminUserProjectsListOptions,
+		client: AdminDbClient = this.db,
 	): Promise<AdminProjectRow[]> {
-		return this.buildUserProjectsListQuery(userId, options);
+		return this.buildUserProjectsListQuery(userId, options, client);
 	}
 
 	async countUserProjects(userId: string): Promise<number> {
@@ -535,10 +576,11 @@ export class AdminRepository {
 	private buildUserProjectsListQuery(
 		userId: string,
 		options: AdminUserProjectsListOptions,
+		client: AdminDbClient = this.db,
 	) {
 		const direction = options.order === "asc" ? asc : desc;
 
-		return this.db
+		return client
 			.select({
 				id: projects.id,
 				name: projects.name,
@@ -576,9 +618,10 @@ export class AdminRepository {
 	listRecentCreditLedger(
 		userId: string,
 		limit: number,
+		client: AdminDbClient = this.db,
 	): Promise<AdminCreditLedgerRow[]> {
 		return (
-			this.db
+			client
 				.select({
 					id: creditLedger.id,
 					delta: creditLedger.delta,
@@ -595,6 +638,9 @@ export class AdminRepository {
 					>`case when ${creditLedger.kind} = 'consume' then ${aiUsageEventCostUsdMicros} end`.mapWith(
 						aiUsageEvents.reconciledCostUsdMicros,
 					),
+					aiCostProvenance: sql<
+						string | null
+					>`case when ${creditLedger.kind} = 'consume' and ${aiUsageEventCostUsdMicros} is not null then ${aiUsageEventCostProvenance} end`,
 				})
 				.from(creditLedger)
 				// Metering rows (reserve/settle consumes and refund grants) carry the
@@ -621,8 +667,11 @@ export class AdminRepository {
 	// Actual AI-provider spend for the PERSONAL pool (org-workspace events are
 	// the org page's money view). Completed operations only; ops without any
 	// recorded provider cost count 0. Bigint: lifetime micros can pass 2^31.
-	async sumAiSpendForUser(userId: string): Promise<AdminAiSpendRow> {
-		const [row] = await this.db
+	async sumAiSpendForUser(
+		userId: string,
+		client: AdminDbClient = this.db,
+	): Promise<AdminAiSpendRow> {
+		const [row] = await client
 			.select({
 				totalCostUsdMicros:
 					sql<number>`coalesce(sum(coalesce(${aiUsageEventCostUsdMicros}, 0)), 0)::bigint`.mapWith(
@@ -966,4 +1015,14 @@ function storedRoleIncludesAdmin(role: typeof user.role) {
 // Escape LIKE wildcards so a search for "100%" matches literally.
 function escapeLikePattern(value: string): string {
 	return value.replace(/[\\%_]/g, (match) => `\\${match}`);
+}
+
+// Postgres 40001 serialization_failure — the only error readTransaction retries.
+function isSerializationFailure(error: unknown): boolean {
+	return (
+		typeof error === "object" &&
+		error !== null &&
+		"code" in error &&
+		(error as { code?: unknown }).code === "40001"
+	);
 }

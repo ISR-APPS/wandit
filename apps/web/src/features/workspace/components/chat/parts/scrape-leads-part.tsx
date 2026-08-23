@@ -18,7 +18,7 @@ import { cn } from "@wandit/ui/lib/utils";
 import { AlertTriangle, Check, Download, FileSpreadsheet } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { creditsKeys } from "@/features/credits";
+import { invalidateBalanceAfterGenerationTerminal } from "@/features/credits/lib/terminal-balance-invalidation";
 import {
 	leadScrapeKeys,
 	useLeadScrapeAttemptQuery,
@@ -125,7 +125,7 @@ function LeadScrapeCard({
 
 	useEffect(() => {
 		if (!terminalStatus) return;
-		void queryClient.invalidateQueries({ queryKey: creditsKeys.balance() });
+		invalidateBalanceAfterGenerationTerminal(queryClient, terminalStatus);
 	}, [queryClient, terminalStatus]);
 
 	const live = useLiveRun({

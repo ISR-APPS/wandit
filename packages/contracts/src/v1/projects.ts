@@ -6,6 +6,10 @@
  */
 // Zod validates real JSON at runtime.
 import { z } from "zod";
+import {
+	paginatedResultSchema,
+	paginationQuerySchema,
+} from "../http/pagination";
 // Uploaded-attachment references ride the create body (V2 spec §11).
 import { fileRefSchema } from "./attachments";
 // Composer settings are shared with chat messages.
@@ -61,6 +65,24 @@ export const listProjectsResponseSchema = z.array(projectSchema);
 
 // TypeScript list response.
 export type ListProjectsResponse = z.infer<typeof listProjectsResponseSchema>;
+
+export const listProjectsQuerySchema = paginationQuerySchema.extend({
+	search: z
+		.string()
+		.trim()
+		.max(200)
+		.transform((value) => value || undefined)
+		.optional(),
+});
+
+export type ListProjectsQuery = z.infer<typeof listProjectsQuerySchema>;
+
+export const listProjectsPageResponseSchema =
+	paginatedResultSchema(projectSchema);
+
+export type ListProjectsPageResponse = z.infer<
+	typeof listProjectsPageResponseSchema
+>;
 
 // Max length for the first prompt that creates a project.
 export const projectPromptMaxLength = 2000;
@@ -147,6 +169,8 @@ export type DeleteProjectResponse = z.infer<typeof deleteProjectResponseSchema>;
 export const projectsRoutes = {
 	// GET dashboard projects.
 	list: "/api/v1/projects",
+	// GET paginated dashboard projects.
+	paged: "/api/v1/projects/paged",
 	// POST create project and start first generation.
 	create: "/api/v1/projects",
 	// GET one project.

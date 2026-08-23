@@ -54,9 +54,6 @@ export type GenerateImageToolDeps = {
 	parentEventId?: string;
 	pagesRepository: PagesRepository;
 	projectId: string;
-	// Composer quality tier, snapshotted for later model swapping — the
-	// generator does not read it yet.
-	quality?: string;
 	requestKeySeed?: string;
 	/** Pays for the generation: the org pool in an org workspace. */
 	subject: MeteringSubject;
@@ -179,17 +176,14 @@ export function createGenerateImageTool(
 					)
 					.digest("hex");
 
-				const spec = {
-					...(deps.quality ? { quality: deps.quality } : {}),
-					...(input.placement
-						? {
-								placement: {
-									...input.placement,
-									status: "pending" as const,
-								},
-							}
-						: {}),
-				};
+				const spec = input.placement
+					? {
+							placement: {
+								...input.placement,
+								status: "pending" as const,
+							},
+						}
+					: undefined;
 
 				attempt = await deps.imageGenerationsRepository.insertAttempt({
 					aspect: input.aspect,
@@ -199,7 +193,7 @@ export function createGenerateImageTool(
 					prompt: input.prompt.trim(),
 					requestKey,
 					sourceImageUrls,
-					spec: Object.keys(spec).length > 0 ? spec : undefined,
+					spec,
 					title: input.title.trim(),
 				});
 			} catch (error) {
@@ -247,6 +241,8 @@ export function createGenerateImageTool(
 				attempt.id,
 				input.count,
 				deps.parentEventId,
+				undefined,
+				{ hasSourceImages: sourceImageUrls.length > 0 },
 			);
 
 			assertFixedOperationProviderExecutionAllowed(reservation);
@@ -406,6 +402,9 @@ async function triggerGenerateImageTask(payload: {
 				"generate-image",
 				payload,
 				{
+					concurrencyKey: payload.organizationId
+						? `org:${payload.organizationId}`
+						: `user:${payload.userId}`,
 					idempotencyKey,
 					idempotencyKeyTTL: TRIGGER_IDEMPOTENCY_TTL,
 					tags: [

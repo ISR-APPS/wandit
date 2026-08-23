@@ -75,6 +75,27 @@ export const betaAccessAction = pgEnum("beta_access_action", [
 	"revoked",
 ]);
 
+// Offline ("cash on delivery" / wire) billing: a user files a request from the
+// plan picker, an admin calls them, records the payment, and grants a
+// provider = "manual" subscription by hand. No Stripe object exists for these.
+export const manualSubscriptionRequestStatus = pgEnum(
+	"manual_subscription_request_status",
+	["pending", "contacted", "approved", "rejected", "canceled"],
+);
+
+export const manualPaymentMethod = pgEnum("manual_payment_method", [
+	"cash_on_delivery",
+	"bank_transfer",
+	"ccp",
+	"baridimob",
+	"other",
+]);
+
+export const manualSubscriptionPaymentKind = pgEnum(
+	"manual_subscription_payment_kind",
+	["initial", "renewal"],
+);
+
 export const productSettings = pgTable(
 	"product_settings",
 	{
@@ -86,9 +107,7 @@ export const productSettings = pgTable(
 			.notNull()
 			.default(false),
 		// UNIT: centi-credits (5000 cc = 50 credits).
-		signupGrantCredits: integer("signup_grant_credits")
-			.notNull()
-			.default(5000),
+		signupGrantCredits: integer("signup_grant_credits").notNull().default(5000),
 		paidSubscriptionsEnabled: boolean("paid_subscriptions_enabled")
 			.notNull()
 			.default(false),
@@ -102,6 +121,13 @@ export const productSettings = pgTable(
 		// no token ⇒ verify can never succeed; ≤10-min token tail after a
 		// flip-off). Google sign-in is never affected.
 		emailAuthEnabled: boolean("email_auth_enabled").notNull().default(false),
+		// Offline payments kill switch: gates the "cash / transfer" tab in the plan
+		// picker and the manual-request endpoint. Admin grants/renewals of manual
+		// subscriptions never depend on it.
+		manualPaymentsEnabled: boolean("manual_payments_enabled")
+			.notNull()
+			.default(false),
+		manualGraceDays: integer("manual_grace_days").notNull().default(0),
 		version: integer("version").notNull().default(1),
 		updatedByUserId: text("updated_by_user_id").references(() => user.id, {
 			onDelete: "restrict",
@@ -116,6 +142,10 @@ export const productSettings = pgTable(
 		check(
 			"product_settings_signup_grant_credits_positive_ck",
 			sql`${table.signupGrantCredits} > 0`,
+		),
+		check(
+			"product_settings_manual_grace_days_range_ck",
+			sql`${table.manualGraceDays} >= 0 AND ${table.manualGraceDays} <= 30`,
 		),
 	],
 );
@@ -187,6 +217,13 @@ export const subscriptions = pgTable(
 	},
 	(table) => [
 		index("subscriptions_createdAt_idx").on(table.createdAt),
+		// Manual-subscription expiry sweep: provider = 'manual' rows whose period
+		// has ended and that are still entitled.
+		index("subscriptions_provider_status_periodEnd_idx").on(
+			table.provider,
+			table.status,
+			table.currentPeriodEnd,
+		),
 		uniqueIndex("subscriptions_providerSubscriptionId_uq").on(
 			table.providerSubscriptionId,
 		),
@@ -389,6 +426,13 @@ export const subscriptionRefillSlots = pgTable(
 		fundingPaymentIntentId: text("funding_payment_intent_id"),
 		status: subscriptionRefillSlotStatus("status").notNull().default("pending"),
 		grantedAt: timestamp("granted_at", { withTimezone: true }),
+		// Cancellation provenance (app-enforced values: replaced | clawback |
+		// ownership | ended). A won dispute restores only `clawback` rows;
+		// `replaced` rows point at the invoice whose slots superseded them;
+		// `ended` rows belong to a manual subscription that was closed.
+		canceledReason: text("canceled_reason"),
+		supersededByInvoiceId: text("superseded_by_invoice_id"),
+		canceledAt: timestamp("canceled_at", { withTimezone: true }),
 	},
 	(table) => [
 		uniqueIndex("subscription_refill_slots_subscription_invoice_ordinal_uq").on(
@@ -400,6 +444,9 @@ export const subscriptionRefillSlots = pgTable(
 			table.status,
 			table.dueAt,
 		),
+		index("subscription_refill_slots_fundingChargeId_status_idx")
+			.on(table.fundingChargeId, table.status)
+			.where(sql`${table.fundingChargeId} is not null`),
 		check(
 			"subscription_refill_slots_period_ordinal_ck",
 			sql`${table.periodOrdinal} BETWEEN 2 AND 12`,
@@ -471,6 +518,9 @@ export const billingChangeIntents = pgTable(
 		}).notNull(),
 		previewTotalMinor: integer("preview_total_minor").notNull(),
 		currency: text("currency").notNull(),
+		// Ruling 7: decided at preview time and replayed verbatim at execution
+		// so the quoted amount and the Stripe call can never disagree.
+		anchorReset: boolean("anchor_reset").notNull().default(false),
 		status: billingChangeIntentStatus("status").notNull().default("open"),
 		expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
 		providerAttemptedAt: timestamp("provider_attempted_at", {
@@ -522,6 +572,79 @@ export const signupGrantOutbox = pgTable(
 	],
 );
 
+export const billingFinancialReconciliationStatus = pgEnum(
+	"billing_financial_reconciliation_status",
+	["pending", "done"],
+);
+
+/**
+ * Transactional outbox for post-grant charge reconciliation. Every
+ * payment-funded credit grant enqueues its charge inside the grant
+ * transaction; the fast path marks the row done right after commit and the
+ * sweep drains whatever a crash left pending.
+ */
+export const billingFinancialReconciliationOutbox = pgTable(
+	"billing_financial_reconciliation_outbox",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		chargeId: text("charge_id").notNull(),
+		// inv:{invoiceId} | slot:{slotId} | topup:{sessionId}
+		triggerRef: text("trigger_ref").notNull(),
+		status: billingFinancialReconciliationStatus("status")
+			.notNull()
+			.default("pending"),
+		attempts: integer("attempts").notNull().default(0),
+		lastError: text("last_error"),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+		doneAt: timestamp("done_at", { withTimezone: true }),
+	},
+	(table) => [
+		uniqueIndex("billing_financial_reconciliation_outbox_charge_trigger_uq").on(
+			table.chargeId,
+			table.triggerRef,
+		),
+		index("billing_financial_reconciliation_outbox_status_createdAt_idx").on(
+			table.status,
+			table.createdAt,
+		),
+	],
+);
+
+/**
+ * Cash record for top-up purchases. Top-ups grant ledger credits but never
+ * touched a revenue table, so refunds (which do land in
+ * billing_payment_adjustments) were subtracted from a gross that never
+ * included them. Idempotent on the checkout session id.
+ */
+export const billingTopupReceipts = pgTable(
+	"billing_topup_receipts",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		sessionId: text("session_id").notNull(),
+		userId: text("user_id")
+			.notNull()
+			.references(() => user.id, { onDelete: "restrict" }),
+		organizationId: text("organization_id").references(() => organization.id, {
+			onDelete: "restrict",
+		}),
+		packId: text("pack_id").notNull(),
+		amountCents: integer("amount_cents").notNull(),
+		currency: text("currency").notNull(),
+		chargeId: text("charge_id"),
+		paymentIntentId: text("payment_intent_id"),
+		paidAt: timestamp("paid_at", { withTimezone: true }).notNull(),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+	},
+	(table) => [
+		uniqueIndex("billing_topup_receipts_sessionId_uq").on(table.sessionId),
+		index("billing_topup_receipts_paidAt_idx").on(table.paidAt),
+	],
+);
+
 export const betaAccessEvents = pgTable(
 	"beta_access_events",
 	{
@@ -544,6 +667,130 @@ export const betaAccessEvents = pgTable(
 			table.createdAt,
 		),
 		index("beta_access_events_actorUserId_idx").on(table.actorUserId),
+	],
+);
+
+export const manualSubscriptionRequests = pgTable(
+	"manual_subscription_requests",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		// The requester / contact person. For org requests this is the acting
+		// billing owner; the pool the subscription will fund is organizationId.
+		userId: text("user_id")
+			.notNull()
+			.references(() => user.id, { onDelete: "restrict" }),
+		organizationId: text("organization_id").references(() => organization.id, {
+			onDelete: "restrict",
+		}),
+		plan: billingPlan("plan").notNull(),
+		// UNIT: whole display credits (tier identity) — same as subscriptions.
+		tierCredits: integer("tier_credits").notNull(),
+		interval: billingInterval("interval").notNull(),
+		fullName: text("full_name").notNull(),
+		phone: text("phone").notNull(),
+		company: text("company"),
+		// ISO 3166-1 alpha-2 ("DZ", "TN", "MA") or "OTHER".
+		country: text("country").notNull(),
+		city: text("city"),
+		preferredPaymentMethod: manualPaymentMethod("preferred_payment_method"),
+		notes: text("notes"),
+		status: manualSubscriptionRequestStatus("status")
+			.notNull()
+			.default("pending"),
+		adminNotes: text("admin_notes"),
+		handledByUserId: text("handled_by_user_id").references(() => user.id, {
+			onDelete: "restrict",
+		}),
+		handledAt: timestamp("handled_at", { withTimezone: true }),
+		// Set when an admin approves the request by granting a subscription.
+		subscriptionId: uuid("subscription_id").references(() => subscriptions.id, {
+			onDelete: "restrict",
+		}),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+		updatedAt: timestamp("updated_at", { withTimezone: true })
+			.defaultNow()
+			.$onUpdate(() => /* @__PURE__ */ new Date())
+			.notNull(),
+	},
+	(table) => [
+		index("manual_subscription_requests_status_createdAt_idx").on(
+			table.status,
+			table.createdAt,
+		),
+		index("manual_subscription_requests_userId_createdAt_idx").on(
+			table.userId,
+			table.createdAt,
+		),
+		// One OPEN request per owner (personal user / organization).
+		uniqueIndex("manual_subscription_requests_userId_open_uq")
+			.on(table.userId)
+			.where(
+				sql`${table.status} IN ('pending', 'contacted') AND ${table.organizationId} IS NULL`,
+			),
+		uniqueIndex("manual_subscription_requests_orgId_open_uq")
+			.on(table.organizationId)
+			.where(
+				sql`${table.status} IN ('pending', 'contacted') AND ${table.organizationId} IS NOT NULL`,
+			),
+		check(
+			"manual_subscription_requests_tier_credits_positive_ck",
+			sql`${table.tierCredits} > 0`,
+		),
+	],
+);
+
+// Append-only record of every offline payment an admin recorded against a
+// manual subscription (initial grant + each renewal). Amounts are in the
+// MINOR unit of `currency` (DZD centimes, USD cents).
+export const manualSubscriptionPayments = pgTable(
+	"manual_subscription_payments",
+	{
+		id: uuid("id").primaryKey().defaultRandom(),
+		subscriptionId: uuid("subscription_id")
+			.notNull()
+			.references(() => subscriptions.id, { onDelete: "restrict" }),
+		requestId: uuid("request_id").references(
+			() => manualSubscriptionRequests.id,
+			{ onDelete: "restrict" },
+		),
+		kind: manualSubscriptionPaymentKind("kind").notNull(),
+		method: manualPaymentMethod("method").notNull(),
+		amountMinor: integer("amount_minor").notNull(),
+		currency: text("currency").notNull(),
+		reference: text("reference"),
+		note: text("note"),
+		// The service period this payment funds.
+		periodStart: timestamp("period_start", { withTimezone: true }).notNull(),
+		periodEnd: timestamp("period_end", { withTimezone: true }).notNull(),
+		// Client-minted per-submission id: a retried or double-submitted admin
+		// grant/renewal must not record twice or credit twice.
+		idempotencyKey: text("idempotency_key").notNull(),
+		recordedByUserId: text("recorded_by_user_id")
+			.notNull()
+			.references(() => user.id, { onDelete: "restrict" }),
+		createdAt: timestamp("created_at", { withTimezone: true })
+			.defaultNow()
+			.notNull(),
+	},
+	(table) => [
+		uniqueIndex("manual_subscription_payments_idempotencyKey_uq").on(
+			table.idempotencyKey,
+		),
+		index("manual_subscription_payments_subscriptionId_createdAt_idx").on(
+			table.subscriptionId,
+			table.createdAt,
+		),
+		index("manual_subscription_payments_createdAt_idx").on(table.createdAt),
+		check(
+			"manual_subscription_payments_amount_nonnegative_ck",
+			sql`${table.amountMinor} >= 0`,
+		),
+		check(
+			"manual_subscription_payments_period_ck",
+			sql`${table.periodEnd} > ${table.periodStart}`,
+		),
 	],
 );
 
@@ -573,3 +820,31 @@ export const subscriptionsRelations = relations(subscriptions, ({ one }) => ({
 		references: [user.id],
 	}),
 }));
+
+export const manualSubscriptionRequestsRelations = relations(
+	manualSubscriptionRequests,
+	({ one }) => ({
+		user: one(user, {
+			fields: [manualSubscriptionRequests.userId],
+			references: [user.id],
+		}),
+		subscription: one(subscriptions, {
+			fields: [manualSubscriptionRequests.subscriptionId],
+			references: [subscriptions.id],
+		}),
+	}),
+);
+
+export const manualSubscriptionPaymentsRelations = relations(
+	manualSubscriptionPayments,
+	({ one }) => ({
+		subscription: one(subscriptions, {
+			fields: [manualSubscriptionPayments.subscriptionId],
+			references: [subscriptions.id],
+		}),
+		request: one(manualSubscriptionRequests, {
+			fields: [manualSubscriptionPayments.requestId],
+			references: [manualSubscriptionRequests.id],
+		}),
+	}),
+);

@@ -101,32 +101,41 @@ export class AdminUsersService {
 	}
 
 	async getUserDetail(userId: string): Promise<AdminUserDetail> {
-		const row = await this.adminRepository.findUserDetail(userId);
+		// One repeatable-read snapshot for all six reads: the money numbers on
+		// the detail card can never mix two moments of the ledger.
+		return this.adminRepository.readTransaction(async (tx) => {
+			const row = await this.adminRepository.findUserDetail(userId, tx);
 
-		if (!row) {
-			throw new NotFoundException();
-		}
+			if (!row) {
+				throw new NotFoundException();
+			}
 
-		const [subscription, projects, creditLedger, memberships, aiSpend] =
-			await Promise.all([
-				this.adminRepository.findLatestSubscription(userId),
-				this.adminRepository.listRecentProjects(userId, RECENT_PROJECTS_LIMIT),
-				this.adminRepository.listRecentCreditLedger(
-					userId,
-					RECENT_LEDGER_LIMIT,
-				),
-				this.adminOrganizationsRepository.listUserMemberships(userId),
-				this.adminRepository.sumAiSpendForUser(userId),
-			]);
+			const [subscription, projects, creditLedger, memberships, aiSpend] =
+				await Promise.all([
+					this.adminRepository.findLatestSubscription(userId, tx),
+					this.adminRepository.listRecentProjects(
+						userId,
+						RECENT_PROJECTS_LIMIT,
+						tx,
+					),
+					this.adminRepository.listRecentCreditLedger(
+						userId,
+						RECENT_LEDGER_LIMIT,
+						tx,
+					),
+					this.adminOrganizationsRepository.listUserMemberships(userId, tx),
+					this.adminRepository.sumAiSpendForUser(userId, tx),
+				]);
 
-		return mapAdminUserDetail(
-			row,
-			subscription,
-			projects,
-			creditLedger,
-			memberships,
-			aiSpend,
-		);
+			return mapAdminUserDetail(
+				row,
+				subscription,
+				projects,
+				creditLedger,
+				memberships,
+				aiSpend,
+			);
+		});
 	}
 
 	async grantCredits(

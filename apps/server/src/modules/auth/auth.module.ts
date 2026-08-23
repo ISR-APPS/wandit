@@ -19,6 +19,7 @@ import {
 	type Database,
 } from "../../infrastructure/database/database.constants";
 import { DatabaseModule } from "../../infrastructure/database/database.module";
+import { AdminSecurityModule } from "../admin/admin-security.module";
 import { AffiliatesModule } from "../affiliates/affiliates.module";
 import { AffiliateAttributionService } from "../affiliates/application/services/affiliate-attribution.service";
 import { UtmAttributionService } from "../attribution/application/services/utm-attribution.service";
@@ -37,6 +38,7 @@ import { SignupGrantOutboxRepository } from "./infrastructure/persistence/signup
 import { BetterAuthRedisSecondaryStorage } from "./infrastructure/redis/better-auth-redis-secondary-storage";
 import { TriggerSignupGrantDispatcherService } from "./infrastructure/trigger/trigger-signup-grant-dispatcher.service";
 import { AdminAuthController } from "./presentation/http/controllers/admin-auth.controller";
+import { AdminSignupGrantsController } from "./presentation/http/controllers/admin-signup-grants.controller";
 import { AuthController } from "./presentation/http/controllers/auth.controller";
 import { AuthMeController } from "./presentation/http/controllers/me.controller";
 import { AuthGuard } from "./presentation/http/guards/auth.guard";
@@ -200,9 +202,15 @@ const adminAuthProvider: Provider<AdminAuth> = {
 
 @Global()
 @Module({
-	controllers: [AdminAuthController, AuthController, AuthMeController],
+	controllers: [
+		AdminAuthController,
+		AdminSignupGrantsController,
+		AuthController,
+		AuthMeController,
+	],
 	exports: [ADMIN_AUTH_INSTANCE, AUTH_INSTANCE, AuthGuard],
 	imports: [
+		AdminSecurityModule,
 		AffiliatesModule,
 		AttributionModule,
 		CreditsModule,

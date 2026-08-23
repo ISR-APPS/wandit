@@ -3,6 +3,10 @@ import { generateText } from "ai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+	HIGGSFIELD_EDIT_MODEL,
+	HIGGSFIELD_MULTISHOT_AUDIO_MODEL,
+} from "../../domain/higgsfield-models";
+import {
 	HIGGSFIELD_PROMPT_REFINER_PROMPT,
 	HiggsfieldPromptRefinerService,
 } from "./higgsfield-prompt-refiner.service";
@@ -128,7 +132,7 @@ describe("HiggsfieldPromptRefinerService", () => {
 					params: {
 						aspect_ratio: "9:16",
 						duration: 6,
-						model: "kling3_0",
+						model: HIGGSFIELD_MULTISHOT_AUDIO_MODEL,
 						prompt: "SUBJECT: a serum bottle… KEY MOMENT: the drop lands…",
 					},
 				},
@@ -141,7 +145,7 @@ describe("HiggsfieldPromptRefinerService", () => {
 			params: {
 				aspect_ratio: "9:16",
 				duration: 6,
-				model: "kling3_0",
+				model: HIGGSFIELD_MULTISHOT_AUDIO_MODEL,
 				prompt: DIRECTED_PROMPT,
 			},
 		});
@@ -150,12 +154,118 @@ describe("HiggsfieldPromptRefinerService", () => {
 			aspect: "9:16",
 			brief: "SUBJECT: a serum bottle… KEY MOMENT: the drop lands…",
 			durationSeconds: 6,
-			model: "kling3_0",
+			model: HIGGSFIELD_MULTISHOT_AUDIO_MODEL,
 			organizationId: "org_1",
 			parentEventId: "usage_event_1",
 			userId: "user_1",
 		});
 		expect(generateText).not.toHaveBeenCalled();
+	});
+
+	it("leaves a mode-marked connected video edit unchanged", async () => {
+		const { service, videoDirector } = setup();
+		const args = {
+			request_id: "edit-request-1",
+			params: {
+				aspect_ratio: "16:9",
+				medias: [{ role: "source_video", value: "media-video-1" }],
+				mode: "video_edit",
+				model: HIGGSFIELD_EDIT_MODEL,
+				prompt: "Replace the red mug with a blue mug; keep everything else.",
+				seed: 42,
+			},
+		};
+
+		await expect(
+			service.refineGenerationArgs({
+				args,
+				organizationId: "org_1",
+				parentEventId: "usage_event_1",
+				toolName: "generate_video",
+				userId: "user_1",
+			}),
+		).resolves.toBe(args);
+		expect(videoDirector.craftConnectorVideoPrompt).not.toHaveBeenCalled();
+		expect(generateText).not.toHaveBeenCalled();
+	});
+
+	it("recognizes a video-reference role spelling without an edit mode", async () => {
+		const { service, videoDirector } = setup();
+		const args = {
+			params: JSON.stringify({
+				medias: [{ role: "Video-Reference", value: "media-video-1" }],
+				model: HIGGSFIELD_EDIT_MODEL,
+				prompt: "Make the jacket green and preserve the rest.",
+				use_unlim: false,
+			}),
+		};
+
+		await expect(
+			service.refineGenerationArgs({
+				args,
+				organizationId: null,
+				parentEventId: undefined,
+				toolName: "generate_video",
+				userId: "user_1",
+			}),
+		).resolves.toBe(args);
+		expect(videoDirector.craftConnectorVideoPrompt).not.toHaveBeenCalled();
+		expect(generateText).not.toHaveBeenCalled();
+	});
+
+	it("forwards connector narration fields and preserves every sibling parameter", async () => {
+		const { service, videoDirector } = setup();
+
+		await expect(
+			service.refineGenerationArgs({
+				args: {
+					request_id: "request-1",
+					params: {
+						aspect_ratio: "9:16",
+						duration: 10,
+						generate_audio: true,
+						medias: [{ role: "audio", value: "media-9" }],
+						model: HIGGSFIELD_MULTISHOT_AUDIO_MODEL,
+						prompt: "SUBJECT: a shoe moves through a quiet dawn street.",
+						talking: false,
+						use_unlim: false,
+						voiceoverLanguage: "fr",
+						voiceoverScript: "Chaque pas devient plus léger.",
+					},
+				},
+				organizationId: "org_1",
+				parentEventId: "usage_event_1",
+				toolName: "generate_video",
+				userId: "user_1",
+			}),
+		).resolves.toEqual({
+			request_id: "request-1",
+			params: {
+				aspect_ratio: "9:16",
+				duration: 10,
+				generate_audio: true,
+				medias: [{ role: "audio", value: "media-9" }],
+				model: HIGGSFIELD_MULTISHOT_AUDIO_MODEL,
+				prompt: DIRECTED_PROMPT,
+				talking: false,
+				use_unlim: false,
+				voiceoverLanguage: "fr",
+				voiceoverScript: "Chaque pas devient plus léger.",
+			},
+		});
+
+		expect(videoDirector.craftConnectorVideoPrompt).toHaveBeenCalledWith({
+			aspect: "9:16",
+			brief: "SUBJECT: a shoe moves through a quiet dawn street.",
+			durationSeconds: 10,
+			model: HIGGSFIELD_MULTISHOT_AUDIO_MODEL,
+			organizationId: "org_1",
+			parentEventId: "usage_event_1",
+			talking: false,
+			userId: "user_1",
+			voiceoverLanguage: "fr",
+			voiceoverScript: "Chaque pas devient plus léger.",
+		});
 	});
 
 	it("tells the director when the video call carries reference media", async () => {
@@ -165,7 +275,7 @@ describe("HiggsfieldPromptRefinerService", () => {
 			args: {
 				params: {
 					medias: [{ role: "start_image", value: "media-1" }],
-					model: "kling3_0",
+					model: HIGGSFIELD_MULTISHOT_AUDIO_MODEL,
 					prompt: "slow dolly push-in on the serum bottle as light blooms",
 				},
 			},
@@ -187,7 +297,7 @@ describe("HiggsfieldPromptRefinerService", () => {
 			args: {
 				params: JSON.stringify({
 					medias: [{ role: "start_image", value: "media-1" }],
-					model: "kling3_0",
+					model: HIGGSFIELD_MULTISHOT_AUDIO_MODEL,
 					prompt: "slow dolly push-in on the serum bottle as light blooms",
 				}),
 			},
@@ -212,7 +322,7 @@ describe("HiggsfieldPromptRefinerService", () => {
 			args: {
 				params: {
 					medias: [{ role: "audio", value: "media-9" }],
-					model: "seedance_2_5",
+					model: HIGGSFIELD_EDIT_MODEL,
 					prompt: "SUBJECT: a serum bottle… KEY MOMENT: the drop lands…",
 				},
 			},
@@ -322,7 +432,7 @@ describe("HiggsfieldPromptRefinerService", () => {
 		);
 	});
 
-	it("captures the generation reference as bundled unmetered usage", async () => {
+	it("captures the generation reference as helper-billable usage", async () => {
 		mockRefinement(REFINED_PROMPT);
 		const { meteringService, service } = setup();
 
@@ -334,8 +444,8 @@ describe("HiggsfieldPromptRefinerService", () => {
 				providerMetadata: { gateway: { generationId: "generation_1" } },
 				stepUsage: {
 					metering: {
-						customerBilling: "bundled_unmetered",
-						operation: "prompt_refine",
+						customerBilling: "helper_billable",
+						task: "prompt_refine",
 					},
 					providerUsage: { inputTokens: 40, outputTokens: 60 },
 				},

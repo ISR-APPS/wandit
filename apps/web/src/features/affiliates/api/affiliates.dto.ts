@@ -1,0 +1,16 @@
+export type {
+	AffiliatePortalAggregate,
+	AffiliatePortalCommission,
+	AffiliatePortalCommissionsResponse,
+	AffiliatePortalLink,
+	AffiliatePortalMeResponse,
+	AffiliatePortalOverview,
+	AffiliatePortalPayout,
+	AffiliatePortalPayoutsResponse,
+	AffiliatePortalProfile,
+	AffiliatePortalReferral,
+	AffiliatePortalReferralsResponse,
+	ListAffiliatePortalCommissionsQuery,
+	ListAffiliatePortalPayoutsQuery,
+	ListAffiliatePortalReferralsQuery,
+} from "@wandit/contracts";

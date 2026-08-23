@@ -61,3 +61,78 @@ describe("ConnectorGenerationsRepository.markAttemptFailed", () => {
 		expect(analytics.capture).not.toHaveBeenCalled();
 	});
 });
+
+describe("ConnectorGenerationsRepository.insertAttempt request idempotency", () => {
+	function setupInsert(
+		inserted: Array<{ id: string; status: string }>,
+		existing: Array<{ id: string; status: string }>,
+	) {
+		const onConflictDoNothing = vi.fn(() => ({
+			returning: vi.fn().mockResolvedValue(inserted),
+		}));
+		const values = vi.fn(() => ({ onConflictDoNothing }));
+		const where = vi.fn(() => ({ limit: vi.fn().mockResolvedValue(existing) }));
+		const db = {
+			insert: vi.fn(() => ({ values })),
+			select: vi.fn(() => ({ from: vi.fn(() => ({ where })) })),
+		};
+		const repository = new ConnectorGenerationsRepository(
+			db as unknown as Database,
+			{ capture: vi.fn() } as unknown as AnalyticsService,
+		);
+
+		return { db, onConflictDoNothing, repository, values, where };
+	}
+
+	const input = {
+		args: { prompt: "a cat" },
+		chatId: "chat-1",
+		connectorSlug: "higgsfield",
+		organizationId: null,
+		requestKey: "b".repeat(64),
+		toolName: "generate_image",
+		userId: "user-1",
+	};
+
+	it("creates the attempt on the (chatId, requestKey) target", async () => {
+		const { db, onConflictDoNothing, repository, values } = setupInsert(
+			[{ id: ATTEMPT_ID, status: "queued" }],
+			[],
+		);
+
+		await expect(repository.insertAttempt(input)).resolves.toEqual({
+			created: true,
+			id: ATTEMPT_ID,
+			status: "queued",
+		});
+		expect(values).toHaveBeenCalledWith(input);
+		expect(onConflictDoNothing).toHaveBeenCalledTimes(1);
+		expect(db.select).not.toHaveBeenCalled();
+	});
+
+	it("returns the existing attempt with created:false on a conflict", async () => {
+		const { repository, where } = setupInsert(
+			[],
+			[{ id: ATTEMPT_ID, status: "succeeded" }],
+		);
+
+		await expect(repository.insertAttempt(input)).resolves.toEqual({
+			created: false,
+			id: ATTEMPT_ID,
+			status: "succeeded",
+		});
+		expect(where).toHaveBeenCalledTimes(1);
+	});
+
+	it("looks the conflict row up with an IS NULL chat predicate when chatId is null", async () => {
+		const { repository, where } = setupInsert(
+			[],
+			[{ id: ATTEMPT_ID, status: "queued" }],
+		);
+
+		await expect(
+			repository.insertAttempt({ ...input, chatId: null }),
+		).resolves.toMatchObject({ created: false, id: ATTEMPT_ID });
+		expect(where).toHaveBeenCalledTimes(1);
+	});
+});

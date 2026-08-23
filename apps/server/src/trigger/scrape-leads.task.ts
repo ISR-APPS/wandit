@@ -13,20 +13,21 @@
  * No NestJS imports here on purpose: the Trigger CLI bundles this file on
  * its own; the Nest DI container does not exist in this process.
  */
-import type { MeteringSubject } from "../modules/credits/domain/credit-owner";
+
 import { logger, metadata, task } from "@trigger.dev/sdk";
 import { and, createDb, eq, inArray } from "@wandit/db";
 import { leadScrapeAttempts } from "@wandit/db/schema/lead-scrape-attempts";
 import { projects } from "@wandit/db/schema/projects";
 import { env } from "@wandit/env/server";
-
 import {
 	contentTypeFor,
 	leadScrapeFileKey,
 	putSiteFile,
 } from "../infrastructure/storage/r2";
+import type { MeteringSubject } from "../modules/credits/domain/credit-owner";
 import {
 	ensureLeadScrapeUsageSettled,
+	recordSerperEvidence,
 	refundLeadScrapeUsageIfReserved,
 	reserveLeadScrapeUsageForExecution,
 	settleLeadScrapeUsage,
@@ -108,9 +109,12 @@ export const scrapeLeadsTask = task({
 			const meteringService = createTriggerMetering(db);
 
 			if (attempt.status === "succeeded") {
+				// An already-settled event is left untouched; a still-reserved
+				// hold settles with the page count of the original run's durable
+				// Serper receipt.
 				await ensureLeadScrapeUsageSettled(meteringService, {
 					attemptId: attempt.id,
-					resultCount: attempt.rowCount ?? attempt.foundCount,
+					deliveredLeads: attempt.rowCount ?? attempt.foundCount,
 					subject,
 				});
 
@@ -150,6 +154,29 @@ export const scrapeLeadsTask = task({
 
 			let usageEvent: AiUsageEvent | null = null;
 			let meteringClosed = false;
+			// Serper pages sent so far: the provider cost a failure still records.
+			let serperPages = 0;
+
+			// Durable Serper receipt (one row per attempt, units = pages). Flushed
+			// after the search and again before a refund; best-effort because the
+			// event-level cost carries the same number.
+			const flushSerperEvidence = async () => {
+				if (!usageEvent || serperPages === 0) {
+					return;
+				}
+
+				try {
+					await recordSerperEvidence(meteringService, {
+						attemptId: attempt.id,
+						eventId: usageEvent.id,
+						pages: serperPages,
+					});
+				} catch (evidenceError) {
+					logger.error(
+						`Serper evidence write failed: ${evidenceError instanceof Error ? evidenceError.message : String(evidenceError)}`,
+					);
+				}
+			};
 
 			const setProgress = async (input: {
 				stage?: Stage;
@@ -178,15 +205,16 @@ export const scrapeLeadsTask = task({
 			};
 
 			try {
+				const spec = leadScrapeSpecSchema.parse(attempt.spec);
+
 				usageEvent = await reserveLeadScrapeUsageForExecution(meteringService, {
 					attemptId: attempt.id,
 					billingMode: payload.billingMode,
 					parentEventId: payload.parentEventId,
+					requestedLimit: spec.limit,
 					runtimeBillingDisabled: env.GENERATION_BILLING_MODE === "off",
 					subject,
 				});
-
-				const spec = leadScrapeSpecSchema.parse(attempt.spec);
 
 				logger.info(
 					`🔎 Scrape starting — "${spec.query}" in ${spec.location ?? spec.countryCode ?? "anywhere"}, ` +
@@ -195,7 +223,7 @@ export const scrapeLeadsTask = task({
 
 				// Stage 1 — discover businesses on Google Maps. Search fills
 				// 5% → 45% proportionally to how much of the limit it found.
-				const records = await searchGoogleMapsBusinesses({
+				const { records } = await searchGoogleMapsBusinesses({
 					countryCode: spec.countryCode,
 					limit: spec.limit,
 					location: spec.location,
@@ -204,11 +232,15 @@ export const scrapeLeadsTask = task({
 							foundCount: found,
 							progress: 5 + Math.min(40, (40 * found) / spec.limit),
 						}),
+					onSearchRequest: (pages) => {
+						serperPages = pages;
+					},
 					query: spec.query,
 					signal,
 				});
 
 				logger.info(`📍 Google Maps returned ${records.length} businesses`);
+				await flushSerperEvidence();
 
 				if (records.length === 0) {
 					throw new Error(
@@ -317,11 +349,10 @@ export const scrapeLeadsTask = task({
 				signal.throwIfAborted();
 
 				if (usageEvent) {
-					await settleLeadScrapeUsage(
-						meteringService,
-						usageEvent.id,
-						workbook.rowCount,
-					);
+					await settleLeadScrapeUsage(meteringService, usageEvent, {
+						deliveredLeads: workbook.rowCount,
+						serperPages,
+					});
 					meteringClosed = true;
 				}
 
@@ -382,12 +413,17 @@ export const scrapeLeadsTask = task({
 				};
 			} catch (error) {
 				if (usageEvent && !meteringClosed) {
+					// The receipt survives the refund: ruling 6 records Serper spend
+					// on the refunded event.
+					await flushSerperEvidence();
+
 					try {
 						meteringClosed = await refundLeadScrapeUsageIfReserved(
 							meteringService,
 							{
 								attemptId: attempt.id,
 								eventId: usageEvent.id,
+								serperPages,
 								subject,
 							},
 						);

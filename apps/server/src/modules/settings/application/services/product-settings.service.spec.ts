@@ -1,5 +1,8 @@
 import { ConflictException } from "@nestjs/common";
-import type { PatchProductSettingsBody } from "@wandit/contracts";
+import {
+	type PatchProductSettingsBody,
+	patchProductSettingsBodySchema,
+} from "@wandit/contracts";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_PRODUCT_SETTINGS } from "../../domain/product-settings.constants";
@@ -28,10 +31,14 @@ function defaultRow(
 class FakeProductSettingsRepository {
 	row: ProductSettingsRow | null = null;
 
+	skippedSignupGrants = 0;
+
 	getOrCreate = vi.fn(async () => {
 		this.row ??= defaultRow();
 		return this.row;
 	});
+
+	countSkippedSignupGrants = vi.fn(async () => this.skippedSignupGrants);
 
 	updateIfVersion = vi.fn(async (input: UpdateProductSettingsInput) => {
 		this.row ??= defaultRow();
@@ -66,12 +73,48 @@ afterEach(() => {
 });
 
 describe("ProductSettingsService", () => {
+	it("reports the skipped signup-grant rows when the grant is switched on, without granting", async () => {
+		const { repository, service } = setup();
+		repository.skippedSignupGrants = 12;
+
+		await expect(
+			service.update({ signupGrantEnabled: true, version: 1 }, "admin_1"),
+		).resolves.toMatchObject({
+			signupGrantEnabled: true,
+			signupGrantSkippedCount: 12,
+		});
+
+		const off = await service.update(
+			{ signupGrantEnabled: false, version: 2 },
+			"admin_1",
+		);
+		expect(off).not.toHaveProperty("signupGrantSkippedCount");
+	});
+
+	it.each([
+		0, 30,
+	])("accepts a manual grace period of %i days", (manualGraceDays) => {
+		expect(
+			patchProductSettingsBodySchema.parse({ manualGraceDays, version: 1 }),
+		).toEqual({ manualGraceDays, version: 1 });
+	});
+
+	it.each([
+		-1, 31, 1.5,
+	])("rejects an invalid manual grace period of %s days", (manualGraceDays) => {
+		expect(() =>
+			patchProductSettingsBodySchema.parse({ manualGraceDays, version: 1 }),
+		).toThrow();
+	});
+
 	it("creates and returns the singleton with launch defaults", async () => {
 		const { repository, service } = setup();
 
 		await expect(service.get()).resolves.toEqual({
 			emailAuthEnabled: false,
 			id: 1,
+			manualGraceDays: 0,
+			manualPaymentsEnabled: false,
 			organizationsEnabled: false,
 			paidSubscriptionsEnabled: false,
 			// Stored (and internally served) as centi-credits: 5000 = 50 credits.
@@ -105,23 +148,23 @@ describe("ProductSettingsService", () => {
 		expect(repository.getOrCreate).toHaveBeenCalledTimes(2);
 	});
 
-	it("optimistically bumps the version and invalidates the read cache", async () => {
+	it("passes grace changes through, bumps the version, and invalidates the cache", async () => {
 		vi.useFakeTimers();
 		vi.setSystemTime(INITIAL_DATE);
 		const { repository, service } = setup();
 		await service.get();
 
 		const input: PatchProductSettingsBody = {
-			paidSubscriptionsEnabled: true,
+			manualGraceDays: 3,
 			version: 1,
 		};
 		await expect(service.update(input, "admin_1")).resolves.toMatchObject({
-			paidSubscriptionsEnabled: true,
+			manualGraceDays: 3,
 			updatedByUserId: "admin_1",
 			version: 2,
 		});
 		expect(repository.updateIfVersion).toHaveBeenCalledWith({
-			changes: { paidSubscriptionsEnabled: true },
+			changes: { manualGraceDays: 3 },
 			expectedVersion: 1,
 			updatedByUserId: "admin_1",
 		});
@@ -177,6 +220,8 @@ describe("ProductSettingsService", () => {
 	it("exposes only the public switches", async () => {
 		const { repository, service } = setup();
 		repository.row = defaultRow({
+			manualGraceDays: 7,
+			manualPaymentsEnabled: true,
 			paidSubscriptionsEnabled: true,
 			signupGrantEnabled: true,
 			topupsEnabled: false,
@@ -184,6 +229,8 @@ describe("ProductSettingsService", () => {
 
 		await expect(service.getPublic()).resolves.toEqual({
 			emailAuthEnabled: false,
+			manualGraceDays: 7,
+			manualPaymentsEnabled: true,
 			organizationsEnabled: false,
 			paidSubscriptionsEnabled: true,
 			signupGrantEnabled: true,

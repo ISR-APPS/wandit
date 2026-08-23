@@ -1,14 +1,19 @@
 // /node, not /nestjs: this code also runs inside Trigger tasks and the worker.
-import type { MeteringSubject } from "../../../credits/domain/credit-owner";
-import { Sentry } from "@wandit/observability/node";
 
-import { isTerminalFixedOperationReplay } from "../../../metering/application/services/fixed-operation-billing";
+import { Sentry } from "@wandit/observability/node";
+import type { MeteringSubject } from "../../../credits/domain/credit-owner";
+
+import {
+	isTerminalFixedOperationReplay,
+	type MeasuredSettlementInput,
+} from "../../../metering/application/services/fixed-operation-billing";
 import {
 	fixedGenerationStepUsage,
 	type GatewayGenerationFailure,
 	type GatewayGenerationMetadata,
 	hasGatewayGenerationMetadata,
 } from "../../../metering/domain/gateway-metering";
+import type { MeteredTokenUsage } from "../../../metering/domain/model-pricing";
 import type {
 	MarketingAssetBilling,
 	MarketingAssetReservation,
@@ -322,7 +327,12 @@ export async function runMarketingAssetGeneration(
 			payload.parentEventId,
 			payload.billingMode,
 		);
-		return recoverOrSettleGenerating(loaded, subject, dependencies, reservation);
+		return recoverOrSettleGenerating(
+			loaded,
+			subject,
+			dependencies,
+			reservation,
+		);
 	}
 
 	const claimed = await dependencies.claimQueued(loaded, {
@@ -377,7 +387,12 @@ export async function runMarketingAssetGeneration(
 				payload.parentEventId,
 				payload.billingMode,
 			);
-			return recoverOrSettleGenerating(raced, subject, dependencies, reservation);
+			return recoverOrSettleGenerating(
+				raced,
+				subject,
+				dependencies,
+				reservation,
+			);
 		}
 
 		throw new Error(
@@ -413,7 +428,12 @@ export async function runMarketingAssetGeneration(
 	}
 
 	if (isTerminalFixedOperationReplay(reservation)) {
-		return recoverOrSettleGenerating(claimed, subject, dependencies, reservation);
+		return recoverOrSettleGenerating(
+			claimed,
+			subject,
+			dependencies,
+			reservation,
+		);
 	}
 
 	let generated: MarketingAssetProviderResult;
@@ -456,10 +476,19 @@ export async function runMarketingAssetGeneration(
 			if (!generationCapturedBeforeDelivery) {
 				await dependencies.capture(reservation, {
 					providerMetadata: generated.providerMetadata,
-					stepUsage: fixedGenerationStepUsage(generated.usage, providerUnits),
+					// A zero-unit provider failure is refunded to the user; the marker
+					// keeps its gateway cost out of the customer charge.
+					stepUsage: fixedGenerationStepUsage(
+						generated.usage,
+						providerUnits,
+						providerUnits === 0 ? "refunded_failure" : undefined,
+					),
 				});
 			}
-			await dependencies.settle(reservation, providerUnits);
+			await dependencies.settle(reservation, {
+				completedUnits: providerUnits,
+				tokenUsage: marketingTokenUsage(generated),
+			});
 		}
 		await failAndRefund(
 			claimed,
@@ -493,7 +522,10 @@ export async function runMarketingAssetGeneration(
 	}
 
 	// A succeeded asset is user-visible, so settle before publishing that state.
-	await dependencies.settle(reservation);
+	await dependencies.settle(reservation, {
+		completedUnits: 1,
+		tokenUsage: marketingTokenUsage(generated),
+	});
 
 	const persisted = await dependencies.markSucceeded(
 		claimed,
@@ -555,7 +587,13 @@ async function recoverOrSettleGenerating(
 	}
 
 	if (isTerminalFixedOperationReplay(reservation)) {
-		await failAndRefund(asset, subject, dependencies, "terminal_billing", false);
+		await failAndRefund(
+			asset,
+			subject,
+			dependencies,
+			"terminal_billing",
+			false,
+		);
 		return { reason: "generation_failed", status: "failed" };
 	}
 
@@ -752,4 +790,28 @@ function succeededResult(
 		recovered,
 		status: "succeeded",
 	};
+}
+
+/** Token settlement input from the provider evidence, when usage is known. */
+function marketingTokenUsage(
+	generated: Partial<GatewayGenerationMetadata>,
+): NonNullable<MeasuredSettlementInput["tokenUsage"]> | null {
+	if (!generated.model || !isTokenUsage(generated.usage)) {
+		return null;
+	}
+
+	return {
+		modelId: generated.model,
+		provider: generated.provider ?? null,
+		rawUsage: generated.usage,
+		usage: generated.usage,
+	};
+}
+
+function isTokenUsage(value: unknown): value is MeteredTokenUsage {
+	return (
+		typeof value === "object" &&
+		value !== null &&
+		("inputTokens" in value || "outputTokens" in value)
+	);
 }

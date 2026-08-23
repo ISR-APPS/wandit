@@ -7,15 +7,14 @@ import {
 	subscriptions,
 } from "@wandit/db/schema/billing";
 import { creditLedger } from "@wandit/db/schema/credits";
-
-import {
-	type CreditOwner,
-	creditOwnerLockValue,
-} from "../../../credits/domain/credit-owner";
 import {
 	DATABASE,
 	type Database,
 } from "../../../../infrastructure/database/database.constants";
+import {
+	type CreditOwner,
+	creditOwnerLockValue,
+} from "../../../credits/domain/credit-owner";
 
 export type SubscriptionCreditsTransaction = Parameters<
 	Parameters<Database["transaction"]>[0]
@@ -30,6 +29,32 @@ export type InvoiceApplicationRow =
 	typeof billingInvoiceApplications.$inferSelect;
 export type RefillSlotRow = typeof subscriptionRefillSlots.$inferSelect;
 export type SubscriptionCreditRow = typeof subscriptions.$inferSelect;
+
+/**
+ * Why a pending slot was canceled. `replaced`: a newer invoice's slots
+ * superseded it (upgrade/renewal); `clawback`: its funding charge was
+ * refunded or disputed; `ownership`: its subscription stopped being the
+ * owner's canonical entitled mirror (deletion, replacement).
+ */
+export type RefillSlotCancelReason =
+	| "clawback"
+	| "ended"
+	| "ownership"
+	| "replaced";
+
+export type RefillSlotCancellation = {
+	reason: RefillSlotCancelReason;
+	supersededByInvoiceId?: string | null;
+};
+
+export function canceledSlotValues(provenance: RefillSlotCancellation) {
+	return {
+		canceledAt: new Date(),
+		canceledReason: provenance.reason,
+		status: "canceled" as const,
+		supersededByInvoiceId: provenance.supersededByInvoiceId ?? null,
+	};
+}
 
 export type InsertInvoiceApplication =
 	typeof billingInvoiceApplications.$inferInsert;
@@ -236,11 +261,12 @@ export class SubscriptionCreditsRepository {
 
 	async cancelPendingSlotsForSubscription(
 		subscriptionId: string,
+		provenance: RefillSlotCancellation,
 		client: SubscriptionCreditsClient = this.db,
 	): Promise<number> {
 		const rows = await client
 			.update(subscriptionRefillSlots)
-			.set({ status: "canceled" })
+			.set(canceledSlotValues(provenance))
 			.where(
 				and(
 					eq(subscriptionRefillSlots.subscriptionId, subscriptionId),
@@ -282,7 +308,7 @@ export class SubscriptionCreditsRepository {
 		const fundingMatch = matches.length === 1 ? matches[0] : or(...matches);
 		const rows = await client
 			.update(subscriptionRefillSlots)
-			.set({ status: "canceled" })
+			.set(canceledSlotValues({ reason: "clawback" }))
 			.where(and(eq(subscriptionRefillSlots.status, "pending"), fundingMatch))
 			.returning({ id: subscriptionRefillSlots.id });
 
@@ -375,11 +401,12 @@ export class SubscriptionCreditsRepository {
 
 	async cancelPendingSlot(
 		slotId: string,
+		provenance: RefillSlotCancellation,
 		client: SubscriptionCreditsClient = this.db,
 	): Promise<boolean> {
 		const [row] = await client
 			.update(subscriptionRefillSlots)
-			.set({ status: "canceled" })
+			.set(canceledSlotValues(provenance))
 			.where(
 				and(
 					eq(subscriptionRefillSlots.id, slotId),

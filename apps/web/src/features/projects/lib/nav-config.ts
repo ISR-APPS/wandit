@@ -1,12 +1,13 @@
-// Typed sidebar nav config for the dashboard shell. Leads, Assets, Apps and Academy
-// are real routes; Analytics stays a disabled placeholder ("Soon"). Titles are
-// dictionary keys, resolved at render.
+// Typed sidebar nav config for the dashboard shell. AFFILIATE_NAV_GROUP stays
+// separate from the always-visible groups because AppSidebar only adds it after
+// the signed-in user is confirmed to have a linked affiliate profile.
 
 import {
 	Blocks,
 	ChartSpline,
 	FolderOpen,
 	GraduationCap,
+	Handshake,
 	Images,
 	type LucideIcon,
 	Users,
@@ -26,7 +27,8 @@ export type NavRoutePath =
 	| "/leads"
 	| "/assets"
 	| "/apps"
-	| "/academy";
+	| "/academy"
+	| "/affiliates";
 
 export type NavItem = NavItemBase &
 	(
@@ -85,3 +87,15 @@ export const NAV_GROUPS: NavGroup[] = [
 		],
 	},
 ];
+
+export const AFFILIATE_NAV_GROUP: NavGroup = {
+	titleKey: "affiliates.sidebarGroup",
+	items: [
+		{
+			type: "route",
+			titleKey: "affiliates.navLabel",
+			to: "/affiliates",
+			icon: Handshake,
+		},
+	],
+};

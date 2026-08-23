@@ -12,17 +12,22 @@ export function FitCalPaginationDots({
 	className,
 	...props
 }: FitCalPaginationDotsProps) {
+	const dots = Array.from({ length: count }, (_, index) => ({
+		id: `pagination-dot-${index}`,
+		index,
+	}));
+
 	return (
 		<View className={cn("flex-row gap-[7px]", className)} {...props}>
-			{Array.from({ length: count }, (_, index) => (
+			{dots.map((dot) => (
 				<View
 					className={cn(
 						"h-[7px] rounded-full",
-						index === activeIndex
+						dot.index === activeIndex
 							? "w-[26px] bg-foreground"
 							: "w-[7px] bg-separator",
 					)}
-					key={index}
+					key={dot.id}
 				/>
 			))}
 		</View>

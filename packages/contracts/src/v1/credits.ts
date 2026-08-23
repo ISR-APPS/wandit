@@ -7,8 +7,8 @@ import { isoDateTimeSchema, uuidSchema } from "./shared/primitives";
 
 // Credits contracts (docs/features/credits.md + docs/features/billing.md).
 // The ledger is append-only and payment-provider-agnostic; balance =
-// sum(delta). Per-action costs live here so web price tags and server debits
-// never disagree.
+// sum(delta). Every operation bills measured provider cost; the UI shows no
+// per-action prices, so no display-price map lives here.
 
 // Mirrors credit_kind in packages/db/src/schema/credits.ts. Signed deltas:
 // grant/topup positive, consume/expire/revoke negative.
@@ -61,8 +61,13 @@ export const creditBalanceResponseSchema = z.object({
 	balance: z.number(),
 	// `balance` plus the in-flight reserve holds added back: what the balance
 	// will read once running generations settle at estimated-or-lower cost.
-	// UI surfaces display THIS number so holds never bounce the pill.
 	settledBalance: z.number(),
+	// Each bucket plus the in-flight holds taken from that bucket.
+	// UI surfaces display ONLY the settled* fields so holds never bounce
+	// the pill or the bucket rows. The raw fields stay for admin/audit.
+	settledPlan: z.number(),
+	settledPromo: z.number(),
+	settledTopup: z.number(),
 });
 
 export type CreditBalanceResponse = z.infer<typeof creditBalanceResponseSchema>;
@@ -114,26 +119,80 @@ export const creditLedgerResponseSchema = paginatedResultSchema(
 
 export type CreditLedgerResponse = z.infer<typeof creditLedgerResponseSchema>;
 
-// Pricing v4 display prices in decimal credits. chatMessage is a display
-// anchor only: chat charges real token cost in 0.01-credit steps with a 0.10
-// reserve floor.
-export const CREDIT_COSTS = {
-	landingPageGeneration: 10,
-	chatMessage: 1,
-	imageGeneration: 3,
-	marketingAssetGeneration: 7,
-	videoGeneration: 20,
-	connectorGeneration: 5,
-	leadScrape: 5,
-} as const;
+// User-facing activity: ONE row per top-level usage event (or per non-usage
+// ledger row such as a grant/topup). Reserve, settle-refund, reconcile and
+// refund ledger rows are never exposed here; the ledger route keeps them.
+export const creditActivityStatuses = [
+	"in_progress",
+	"settled",
+	"refunded",
+] as const;
 
-// Free-user grant: 50 credits = $5 face value = $1.40 of AI-provider value at
-// $0.028/credit (280 USD micros per centi-credit). The count is the stable
-// product decision; the server writes it to the ledger x100 as centi-credits.
+export const creditActivityStatusSchema = z.enum(creditActivityStatuses);
+
+export type CreditActivityStatus = z.infer<typeof creditActivityStatusSchema>;
+
+// Mirrors ai_usage_operation in packages/db/src/schema/credits.ts.
+export const creditActivityOperations = [
+	"chat",
+	"page_build",
+	"image",
+	"video",
+	"marketing",
+	"connector",
+	"lead_scrape",
+	"transcription",
+	"topup_adjust",
+] as const;
+
+export const creditActivityOperationSchema = z.enum(creditActivityOperations);
+
+export type CreditActivityOperation = z.infer<
+	typeof creditActivityOperationSchema
+>;
+
+export const creditActivityItemSchema = z.object({
+	id: uuidSchema,
+	// "usage": ai_usage_events row; "ledger": grant/topup/expire/revoke row.
+	kind: z.enum(["usage", "ledger"]),
+	// Set for kind "usage"; null for kind "ledger".
+	operation: creditActivityOperationSchema.nullable(),
+	status: creditActivityStatusSchema,
+	// Net decimal credits: negative for spend, positive for grants/topups;
+	// null while in_progress (no estimate is ever shown).
+	credits: z.number().nullable(),
+	// Set for kind "ledger"; null for kind "usage".
+	ledgerKind: creditKindSchema.nullable(),
+	bucket: creditBucketSchema.nullable(),
+	reason: z.string().nullable(),
+	createdAt: isoDateTimeSchema,
+	// Settle/refund time for usage rows; null while in_progress and for
+	// ledger rows.
+	finalizedAt: isoDateTimeSchema.nullable(),
+});
+
+export type CreditActivityItem = z.infer<typeof creditActivityItemSchema>;
+
+export const creditActivityQuerySchema = paginationQuerySchema;
+
+export type CreditActivityQuery = z.infer<typeof creditActivityQuerySchema>;
+
+export const creditActivityResponseSchema = paginatedResultSchema(
+	creditActivityItemSchema,
+);
+
+export type CreditActivityResponse = z.infer<
+	typeof creditActivityResponseSchema
+>;
+
+// Free-user grant: 50 credits = $2.00 of AI-provider value at $0.04/credit
+// (400 USD micros per centi-credit). The count is the stable product
+// decision; the server writes it to the ledger x100 as centi-credits.
 export const SIGNUP_GRANT_CREDITS = 50;
 
 export const creditsRoutes = {
 	balance: "/api/v1/credits/balance",
 	balances: "/api/v1/credits/balances",
 	ledger: "/api/v1/credits/ledger",
+	activity: "/api/v1/credits/activity",
 } as const;

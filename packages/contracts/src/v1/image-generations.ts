@@ -28,8 +28,10 @@ export type ImageGenerationAspect = z.infer<typeof imageGenerationAspectSchema>;
 export const MAX_IMAGES_PER_GENERATION = 4;
 
 export const generatedImageSchema = z.object({
-	url: z.url(),
+	// Added after launch; old durable rows intentionally omit it.
+	index: z.number().int().min(1).max(MAX_IMAGES_PER_GENERATION).optional(),
 	mediaType: z.string().min(1),
+	url: z.url(),
 });
 
 export type GeneratedImage = z.infer<typeof generatedImageSchema>;
@@ -50,7 +52,8 @@ export const imageGenerationAttemptSchema = z.object({
 	aspect: imageGenerationAspectSchema,
 	count: z.number().int().min(1).max(MAX_IMAGES_PER_GENERATION),
 	sourceImageUrls: z.array(z.url()),
-	// One entry per generated image in index order; null until succeeded.
+	// Partial progress may be present while generating. Entries are sorted by
+	// optional 1-based index and may omit failed slots; old rows are positional.
 	images: z.array(generatedImageSchema).nullable(),
 	// Present only when generate_image was asked to replace a page image.
 	placement: imageGenerationPlacementStatusSchema.optional(),

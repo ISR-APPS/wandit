@@ -126,7 +126,10 @@ export class BillingController {
 		return this.billingService.cancel(user, body, workspace);
 	}
 
-	@UseGuards(SubscriptionsEnabledGuard)
+	// No SubscriptionsEnabledGuard here: a MANUAL subscriber must be able to
+	// undo a scheduled cancellation even in an offline-only rollout (Stripe
+	// subscriptions paused). BillingService.resume enforces the switch for
+	// Stripe subscriptions itself.
 	@RequireWorkspacePermission("billing", "manage")
 	@Post("resume")
 	resume(

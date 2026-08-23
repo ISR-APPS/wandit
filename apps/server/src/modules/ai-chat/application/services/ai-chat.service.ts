@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
 	ConflictException,
 	HttpException,
@@ -23,6 +23,12 @@ import {
 	animateImageInputSchema,
 	applyElementOpsInputSchema,
 	askUserInputSchema,
+	type EditVideoInput,
+	type EditVideoOutput,
+	type ExtendVideoInput,
+	type ExtendVideoOutput,
+	editVideoInputSchema,
+	extendVideoInputSchema,
 	type GenerateImageInput,
 	type GenerateImageOutput,
 	type GenerateMarketingAssetInput,
@@ -43,6 +49,9 @@ import {
 	type InsertSectionInput,
 	type InsertSectionOutput,
 	insertSectionInputSchema,
+	type ProductVideoInput,
+	type ProductVideoOutput,
+	productVideoInputSchema,
 	type ReadAttachmentInput,
 	type ReadAttachmentOutput,
 	type ReadElementsInput,
@@ -82,7 +91,11 @@ import {
 	isUserUploadUrl,
 } from "../../../../infrastructure/storage/r2";
 import { ConnectorGenerationsRepository } from "../../../connector-generations/infrastructure/persistence/connector-generations.repository";
-import type { MeteringSubject } from "../../../credits/domain/credit-owner";
+import { CreditsService } from "../../../credits/application/services/credits.service";
+import {
+	type MeteringSubject,
+	subjectPayer,
+} from "../../../credits/domain/credit-owner";
 import { ChatsRepository } from "../../../generation/infrastructure/persistence/chats.repository";
 import { ImageGenerationsRepository } from "../../../image-generations/infrastructure/persistence/image-generations.repository";
 // Value imports (not `import type`): Nest needs the classes at runtime for @Inject.
@@ -162,9 +175,17 @@ const AI_CHAT_TURN_KEY_GENERATIONS = 4;
 // bounds adoption at 5 minutes; use 4 for margin. Older holds are superseded
 // (refunded + re-reserved), which restarts the recovery clock.
 const AI_CHAT_STALE_HOLD_ADOPTION_MAX_AGE_MS = 4 * 60_000;
+// Durable cross-replica execution lease on the turn's hold: the TTL is 5x the
+// heartbeat so one missed write never loses a live stream's lease, and it
+// stays far under the 40-minute stranded-recovery line so an expired lease
+// never extends a dead hold's life materially.
+const AI_CHAT_LEASE_TTL_MS = 5 * 60_000;
+const AI_CHAT_LEASE_HEARTBEAT_MS = 60_000;
 
 export type PreparedAiChatStream = {
 	readonly eventId: string | null;
+	/** Execution-lease token when this request owns the hold's lease. */
+	readonly leaseToken: string | null;
 	readonly release: () => void;
 };
 
@@ -201,6 +222,8 @@ export class AiChatService {
 		private readonly modelPricingService: ModelPricingService,
 		@Inject(LeadsRepository)
 		private readonly leadsRepository: LeadsRepository,
+		@Inject(CreditsService)
+		private readonly creditsService: CreditsService,
 	) {}
 
 	/**
@@ -285,7 +308,11 @@ export class AiChatService {
 					});
 
 				if (creationEvent) {
-					return { eventId: creationEvent.id, release };
+					// The bundled hold may be adoptable from ANY replica: the lease is
+					// the cross-replica proof no other stream is using it right now.
+					const leaseToken = await this.acquireStreamLease(creationEvent.id);
+
+					return { eventId: creationEvent.id, leaseToken, release };
 				}
 			} catch (error) {
 				if (error instanceof MeteringStateConflictError) {
@@ -327,7 +354,7 @@ export class AiChatService {
 					}
 				}
 
-				return { eventId: null, release };
+				return { eventId: null, leaseToken: null, release };
 			}
 
 			const estimate = await this.estimateReservation(
@@ -342,14 +369,18 @@ export class AiChatService {
 					tracking: null,
 				}),
 			);
-			const event = await this.admitTurnReservation(subject, operationKey, {
+			const admitted = await this.admitTurnReservation(subject, operationKey, {
 				chatId: options.chatId,
 				credits: estimate.credits,
 				estimatedCostUsdMicros: estimate.costUsdMicros,
 				messageId,
 			});
 
-			return { eventId: event.id, release };
+			return {
+				eventId: admitted.event.id,
+				leaseToken: admitted.leaseToken,
+				release,
+			};
 		} catch (error) {
 			release();
 			throw error;
@@ -433,7 +464,7 @@ export class AiChatService {
 			estimatedCostUsdMicros: number | null;
 			messageId: string;
 		},
-	): Promise<AiUsageEvent> {
+	): Promise<{ event: AiUsageEvent; leaseToken: string }> {
 		for (
 			let generation = 1;
 			generation <= AI_CHAT_TURN_KEY_GENERATIONS;
@@ -490,14 +521,27 @@ export class AiChatService {
 			}
 
 			if (outcome.replay === "none") {
-				return outcome.event;
+				// A lease failure on a FRESH reserve means another replica raced the
+				// same key between insert and here — its stream is live: busy 409.
+				return {
+					event: outcome.event,
+					leaseToken: await this.acquireStreamLease(outcome.event.id),
+				};
 			}
 
 			if (outcome.replay === "reserved") {
 				const heldForMs = Date.now() - outcome.event.createdAt.getTime();
 
 				if (heldForMs <= AI_CHAT_STALE_HOLD_ADOPTION_MAX_AGE_MS) {
-					return outcome.event;
+					// Adoption replaces trust-by-age with the lease CAS: a hold whose
+					// lease is still live belongs to a stream running on another
+					// replica, and the duplicate POST must wait (409), not attach.
+					// The age ceiling above stays as the rollout fallback while old
+					// replicas that never take leases may still be streaming.
+					return {
+						event: outcome.event,
+						leaseToken: await this.acquireStreamLease(outcome.event.id),
+					};
 				}
 
 				// Too old to trust for a whole stream (see the adoption-ceiling
@@ -514,15 +558,57 @@ export class AiChatService {
 	}
 
 	/**
+	 * Take the durable cross-replica lease on a reserved hold, or 409 when a
+	 * live stream elsewhere provably owns it. Single-statement CAS: exactly
+	 * one racer wins.
+	 */
+	private async acquireStreamLease(eventId: string): Promise<string> {
+		const token = randomUUID();
+		const leased = await this.meteringService.acquireExecutionLease(
+			eventId,
+			token,
+			AI_CHAT_LEASE_TTL_MS,
+		);
+
+		if (!leased) {
+			throw new ConflictException({
+				code: "AI_CHAT_TURN_ACTIVE",
+				message: "This AI chat turn is currently streaming",
+			});
+		}
+
+		return token;
+	}
+
+	/**
 	 * Void a crashed attempt's hold so the next key generation can reserve
 	 * fresh. refund() keeps events with durable generation refs reserved for
 	 * reconciliation instead of voiding paid provider work — the fresh hold
 	 * then simply coexists with the old one until the sweep prices it.
+	 *
+	 * A hold whose execution lease is live belongs to a stream still running
+	 * on another replica (a long tool call before any ref is captured): it is
+	 * never refunded. The lease CAS decides — a miss is the busy 409.
 	 */
 	private async supersedeStaleHold(eventId: string): Promise<void> {
+		const leaseToken = await this.acquireStreamLease(eventId);
+
 		try {
-			await this.meteringService.refund(eventId, "ai_chat_retry_supersede");
+			const refunded = await this.meteringService.refund(
+				eventId,
+				"ai_chat_retry_supersede",
+			);
+
+			if (refunded.status === "reserved") {
+				// Kept reserved for reconciliation (durable refs): the sweep owns
+				// it now, so do not hold its lease until the TTL.
+				await this.meteringService.releaseExecutionLease(eventId, leaseToken);
+			}
 		} catch (error) {
+			// The refund transaction rolled back: hand the lease back so a live
+			// retry does not wait out the TTL.
+			await this.meteringService.releaseExecutionLease(eventId, leaseToken);
+
 			if (error instanceof MeteringStateConflictError) {
 				// The hold completed (settled/reconciled) between the replay read
 				// and this refund — that is a finished turn: hard replay.
@@ -561,14 +647,37 @@ export class AiChatService {
 		// are actor-scoped even when the org pool pays.
 		const userId = scope.userId;
 		const subject = meteringSubjectFrom(scope);
+		// Internal aborter: a lost execution lease must stop the stream itself
+		// (settlement stays safe — settle replays are idempotent under the
+		// event lock), not just its admission bookkeeping.
+		const leaseLossAbort = new AbortController();
 		const abortSignal = AbortSignal.any([
 			clientAbortSignal,
 			AbortSignal.timeout(AI_CHAT_MAX_STREAM_DURATION_MS),
+			leaseLossAbort.signal,
 		]);
-		const releaseStream = this.releaseOnAbort(abortSignal, prepared.release);
+		const stopLeaseHeartbeat = this.startLeaseHeartbeat(
+			prepared,
+			leaseLossAbort,
+		);
+		const releaseStream = this.releaseOnAbort(abortSignal, () => {
+			stopLeaseHeartbeat();
+
+			if (prepared.eventId && prepared.leaseToken) {
+				// Fire-and-forget: the lease self-expires; an explicit release just
+				// lets an immediate retry adopt without waiting out the TTL.
+				void this.meteringService.releaseExecutionLease(
+					prepared.eventId,
+					prepared.leaseToken,
+				);
+			}
+
+			prepared.release();
+		});
 		const mcpResultPromise = this.mcpChatToolsService.resolveToolsForUser(
 			subject,
 			prepared.eventId ?? undefined,
+			chatId,
 		);
 		let resolvedMcpResult: McpChatToolsResult | undefined;
 		const pendingGatewayErrorCaptures = new Map<string, Promise<void>>();
@@ -722,9 +831,6 @@ export class AiChatService {
 					pagesRepository: this.pagesRepository,
 					parentEventId: prepared.eventId ?? undefined,
 					projectId,
-					// Snapshotted into generation specs for later model swapping; no
-					// generator reads it yet.
-					quality: metadata?.composer?.quality,
 					// Only the image-animation output hard-requires a validated source
 					// still. Video mode's other output (video-creator) is
 					// text-to-video; a missing output means a legacy client where
@@ -747,10 +853,41 @@ export class AiChatService {
 			let finalUsage: LanguageModelUsage | null = null;
 			const pendingGenerationCaptures: CapturedGeneration[] = [];
 			const stepUsages: MeteredTokenUsage[] = [];
+			let writerClosed = false;
 			const stream = createUIMessageStream<WanditUIMessage>({
 				execute: async ({ writer }) => {
 					let wroteBillingError = false;
 					let streamErrorCaptured = false;
+					// The settle signal must never reach a writer the outer onEnd
+					// already closed.
+					const writeCreditsSettled = async (
+						settled: AiUsageEvent,
+					): Promise<void> => {
+						if (writerClosed) {
+							return;
+						}
+
+						const snapshot = await this.creditsService.getSettledBalance(
+							subjectPayer(subject),
+						);
+
+						if (writerClosed) {
+							return;
+						}
+
+						// Transient: the client applies it in onData; it is never
+						// stored in the message, so a history replay cannot re-apply
+						// a stale balance.
+						writer.write({
+							type: "data-credits-settled",
+							transient: true,
+							data: {
+								usageEventId: settled.id,
+								credits: (settled.finalCredits ?? 0) / 100,
+								settledBalance: snapshot.settledBalance / 100,
+							},
+						});
+					};
 					const writeBillingError = (error: unknown): boolean => {
 						const data = this.billingErrorData(error);
 
@@ -848,6 +985,9 @@ export class AiChatService {
 							},
 							onError: onAgentStreamError,
 							onEnd: async () => {
+								// Settlement clears the lease columns; stop renewing first so
+								// a post-settle CAS miss cannot read as a stolen lease.
+								stopLeaseHeartbeat();
 								await flushGatewayErrorCaptures();
 
 								if (!prepared.eventId) {
@@ -865,17 +1005,36 @@ export class AiChatService {
 									return;
 								}
 
+								let settled: AiUsageEvent;
+
 								try {
-									await this.meteringService.settle(prepared.eventId, {
-										modelId: env.AI_CHAT_MODEL,
-										pricing: "token",
-										rawUsage: finalUsage ?? stepUsages,
-										usage,
-									});
+									settled = await this.meteringService.settle(
+										prepared.eventId,
+										{
+											modelId: env.AI_CHAT_MODEL,
+											pricing: "token",
+											rawUsage: finalUsage ?? stepUsages,
+											usage,
+										},
+									);
 								} catch (error) {
 									if (!writeBillingError(error)) {
 										throw error;
 									}
+
+									return;
+								}
+
+								// One visible balance move per turn: the client applies
+								// the post-settle balance from this part, not a refetch
+								// racing the settle transaction. The settle is committed;
+								// a failed signal must not fail the turn.
+								try {
+									await writeCreditsSettled(settled);
+								} catch (error) {
+									this.logger.warn(
+										`credits-settled signal failed for ${settled.id}: ${String(error)}`,
+									);
 								}
 							},
 							onStepEnd: async (step) => {
@@ -929,6 +1088,8 @@ export class AiChatService {
 					return this.streamErrorMessage(error);
 				},
 				onEnd: async ({ isContinuation, responseMessage }) => {
+					writerClosed = true;
+
 					try {
 						await flushGatewayErrorCaptures();
 
@@ -1036,6 +1197,67 @@ export class AiChatService {
 			}
 
 			this.inFlightStreamsByUser.set(userId, current - 1);
+		};
+	}
+
+	/**
+	 * Renew the hold's execution lease while the stream runs. Only a CONFIRMED
+	 * CAS miss (`lost`: the row is no longer reserved under our token, e.g. a
+	 * long DB outage let a duplicate adopt) aborts this stream — its settle
+	 * replay stays idempotent under the event lock. A transport error
+	 * (`error`) proves nothing: the lease is still ours until its known
+	 * expiry, so keep retrying and abort only once that expiry has passed
+	 * without a renewal. Returns the (idempotent) stopper.
+	 */
+	private startLeaseHeartbeat(
+		prepared: PreparedAiChatStream,
+		leaseLossAbort: AbortController,
+	): () => void {
+		if (!prepared.eventId || !prepared.leaseToken) {
+			return () => {};
+		}
+
+		const eventId = prepared.eventId;
+		const leaseToken = prepared.leaseToken;
+		// The lease was taken at admission, just before the stream started.
+		let leaseExpiresAt = Date.now() + AI_CHAT_LEASE_TTL_MS;
+		const interval = setInterval(() => {
+			void this.meteringService
+				.heartbeatExecutionLease(eventId, leaseToken, AI_CHAT_LEASE_TTL_MS)
+				.then((result) => {
+					if (result === "renewed") {
+						leaseExpiresAt = Date.now() + AI_CHAT_LEASE_TTL_MS;
+						return;
+					}
+
+					if (result === "lost") {
+						this.logger.warn(
+							`AI chat stream lost its execution lease for event ${eventId}; aborting`,
+						);
+						leaseLossAbort.abort(new Error("AI chat execution lease was lost"));
+						return;
+					}
+
+					if (Date.now() < leaseExpiresAt) {
+						this.logger.warn(
+							`AI chat lease heartbeat for event ${eventId} failed; retrying until the lease expiry`,
+						);
+						return;
+					}
+
+					this.logger.warn(
+						`AI chat lease for event ${eventId} expired without a confirmed renewal; aborting`,
+					);
+					leaseLossAbort.abort(
+						new Error("AI chat execution lease expired without renewal"),
+					);
+				});
+		}, AI_CHAT_LEASE_HEARTBEAT_MS);
+
+		interval.unref?.();
+
+		return () => {
+			clearInterval(interval);
 		};
 	}
 
@@ -1320,8 +1542,10 @@ const INCOMPLETE_ANIMATE_IMAGE_INPUT: AnimateImageInput = {
 	motion: "balanced",
 	prompt:
 		"The motion direction was lost when the request stream was interrupted.",
+	quality: "standard",
 	sourceImageUrl: "https://invalid.local/interrupted-image.jpg",
 	sourceMediaType: "image/jpeg",
+	talking: false,
 };
 
 const INTERRUPTED_GENERATE_VIDEO_OUTPUT: GenerateVideoOutput = {
@@ -1335,7 +1559,55 @@ const INCOMPLETE_GENERATE_VIDEO_INPUT: GenerateVideoInput = {
 	aspect: "16:9",
 	brief: "The creative brief was lost when the request stream was interrupted.",
 	durationSeconds: 10,
+	multiShot: false,
+	quality: "standard",
+	talking: false,
 	title: "Interrupted video request",
+};
+
+const INTERRUPTED_PRODUCT_VIDEO_OUTPUT: ProductVideoOutput = {
+	message:
+		"The product video request was interrupted before it could be queued. " +
+		"If the user still wants it, call product_video again with the product image.",
+	status: "unavailable",
+};
+
+const INCOMPLETE_PRODUCT_VIDEO_INPUT: ProductVideoInput = {
+	image: { url: "https://invalid.local/interrupted-product-image.jpg" },
+	preset: "orbit",
+	productName: "Unknown product",
+	title: "Interrupted product video",
+};
+
+const INTERRUPTED_EDIT_VIDEO_OUTPUT: EditVideoOutput = {
+	message:
+		"The video edit request was interrupted before it could be queued. If " +
+		"the user still wants it, call edit_video again with the source clip.",
+	status: "unavailable",
+};
+
+const INCOMPLETE_EDIT_VIDEO_INPUT: EditVideoInput = {
+	instruction:
+		"The requested video change was lost when the request stream was interrupted.",
+	sourceAttemptId: "00000000-0000-4000-8000-000000000001",
+	title: "Interrupted video edit",
+};
+
+const INTERRUPTED_EXTEND_VIDEO_OUTPUT: ExtendVideoOutput = {
+	message:
+		"The video extension request was interrupted before it could be queued. " +
+		"If the user still wants it, call extend_video again with the source clip.",
+	status: "unavailable",
+};
+
+const INCOMPLETE_EXTEND_VIDEO_INPUT: ExtendVideoInput = {
+	acceptSilent: false,
+	continuationBrief:
+		"The continuation brief was lost when the request stream was interrupted.",
+	legCount: 1,
+	legDurationSeconds: 5,
+	sourceAttemptId: "00000000-0000-4000-8000-000000000001",
+	title: "Interrupted video extension",
 };
 
 const INTERRUPTED_READ_SKILL_MARKDOWN =
@@ -1655,6 +1927,72 @@ export function completeDanglingToolCalls(
 						? parsedInput.data
 						: INCOMPLETE_GENERATE_VIDEO_INPUT,
 					output: INTERRUPTED_GENERATE_VIDEO_OUTPUT,
+					state: "output-available" as const,
+				};
+			}
+
+			if (part.type === "tool-product_video") {
+				if (
+					part.state !== "input-available" &&
+					part.state !== "input-streaming"
+				) {
+					return part;
+				}
+
+				changed = true;
+
+				const parsedInput = productVideoInputSchema.safeParse(part.input);
+
+				return {
+					...part,
+					input: parsedInput.success
+						? parsedInput.data
+						: INCOMPLETE_PRODUCT_VIDEO_INPUT,
+					output: INTERRUPTED_PRODUCT_VIDEO_OUTPUT,
+					state: "output-available" as const,
+				};
+			}
+
+			if (part.type === "tool-edit_video") {
+				if (
+					part.state !== "input-available" &&
+					part.state !== "input-streaming"
+				) {
+					return part;
+				}
+
+				changed = true;
+
+				const parsedInput = editVideoInputSchema.safeParse(part.input);
+
+				return {
+					...part,
+					input: parsedInput.success
+						? parsedInput.data
+						: INCOMPLETE_EDIT_VIDEO_INPUT,
+					output: INTERRUPTED_EDIT_VIDEO_OUTPUT,
+					state: "output-available" as const,
+				};
+			}
+
+			if (part.type === "tool-extend_video") {
+				if (
+					part.state !== "input-available" &&
+					part.state !== "input-streaming"
+				) {
+					return part;
+				}
+
+				changed = true;
+
+				const parsedInput = extendVideoInputSchema.safeParse(part.input);
+
+				return {
+					...part,
+					input: parsedInput.success
+						? parsedInput.data
+						: INCOMPLETE_EXTEND_VIDEO_INPUT,
+					output: INTERRUPTED_EXTEND_VIDEO_OUTPUT,
 					state: "output-available" as const,
 				};
 			}
@@ -2148,7 +2486,12 @@ function collectAvailableImages(
 }
 
 const DOCUMENT_MEDIA_TYPE_SET = new Set<string>(
-	ATTACHMENT_MEDIA_TYPES.filter((mediaType) => !mediaType.startsWith("image/")),
+	ATTACHMENT_MEDIA_TYPES.filter(
+		(mediaType) =>
+			!mediaType.startsWith("image/") &&
+			!mediaType.startsWith("video/") &&
+			!mediaType.startsWith("audio/"),
+	),
 );
 
 /**

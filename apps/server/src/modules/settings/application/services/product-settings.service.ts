@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger } from "@nestjs/common";
 import type {
 	PatchProductSettingsBody,
 	ProductSettings,
+	ProductSettingsUpdateResponse,
 	PublicSettings,
 } from "@wandit/contracts";
 
@@ -53,6 +54,8 @@ export class ProductSettingsService {
 
 		return {
 			emailAuthEnabled: settings.emailAuthEnabled,
+			manualGraceDays: settings.manualGraceDays,
+			manualPaymentsEnabled: settings.manualPaymentsEnabled,
 			organizationsEnabled: settings.organizationsEnabled,
 			paidSubscriptionsEnabled: settings.paidSubscriptionsEnabled,
 			signupGrantEnabled: settings.signupGrantEnabled,
@@ -63,7 +66,7 @@ export class ProductSettingsService {
 	async update(
 		input: PatchProductSettingsBody,
 		updatedByUserId: string,
-	): Promise<ProductSettings> {
+	): Promise<ProductSettingsUpdateResponse> {
 		const { version: expectedVersion, ...changes } = input;
 		const updated = await this.settingsRepository.updateIfVersion({
 			changes,
@@ -81,7 +84,21 @@ export class ProductSettingsService {
 			`product_settings_updated admin=${updatedByUserId} version=${updated.version} fields=${Object.keys(changes).sort().join(",")}`,
 		);
 
-		return mapProductSettingsRow(updated);
+		const settings = mapProductSettingsRow(updated);
+
+		// Decide-enable flow: a PATCH that turns the grant on reports the users
+		// skipped while it was off. The backfill is a separate, explicit action.
+		if (changes.signupGrantEnabled === true) {
+			const signupGrantSkippedCount =
+				await this.settingsRepository.countSkippedSignupGrants();
+			this.logger.log(
+				`signup_grant_enabled admin=${updatedByUserId} skipped_rows=${signupGrantSkippedCount}`,
+			);
+
+			return { ...settings, signupGrantSkippedCount };
+		}
+
+		return settings;
 	}
 
 	invalidate(): void {

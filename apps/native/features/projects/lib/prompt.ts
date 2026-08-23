@@ -1,8 +1,11 @@
-import type { WanditIconName } from "@/components/wandit-icon";
+import {
+	type ComposerMetadata,
+	type ComposerQuality,
+	projectPromptMaxLength,
+	type UploadAttachmentResponse,
+} from "@wandit/contracts";
 
-// Composer route modes + skills, mirroring the web PromptBox
-// (apps/web src/features/projects/components/prompt-box.tsx). Copy lives under
-// projects.promptBox.* in @wandit/internationalization; only ids/icons here.
+import type { WanditIconName } from "@/components/wandit-icon";
 
 export type RouteMode = "auto" | "page" | "marketing" | "image" | "video";
 export type ConcreteMode = Exclude<RouteMode, "auto">;
@@ -67,8 +70,7 @@ export const ALL_SKILLS: SkillFileDef[] = SKILL_GROUPS.flatMap((group) => [
 
 export type GenerationOutputId =
 	| "landing-page"
-	| "page-edit"
-	| "html-section"
+	| "site-vitrine"
 	| "ad-copy"
 	| "marketing-strategy"
 	| "video-script"
@@ -77,15 +79,11 @@ export type GenerationOutputId =
 	| "image-creator"
 	| "product-shot"
 	| "ad-creative"
-	| "background-edit"
-	| "video-creator"
-	| "ugc-video"
-	| "product-demo";
+	| "image-animation";
 
 export type OptionGroup = {
 	id: string;
 	choices: readonly { id: string }[];
-	/** grid = big tiles (aspect ratios); compact = short values. */
 	layout?: "grid" | "compact";
 };
 
@@ -94,14 +92,6 @@ export type GenerationOutputDef = {
 	mode: ConcreteMode;
 	icon: WanditIconName;
 	options: readonly OptionGroup[];
-};
-
-// Page outputs carry the composer quality tier (contracts composerQualities):
-// better models burn more credits, so the user picks Standard or Max.
-const PAGE_QUALITY: OptionGroup = {
-	id: "quality",
-	choices: [{ id: "standard" }, { id: "max" }],
-	layout: "compact",
 };
 
 export const OUTPUTS_BY_MODE: Record<
@@ -114,70 +104,30 @@ export const OUTPUTS_BY_MODE: Record<
 			mode: "page",
 			icon: "page",
 			options: [
-				PAGE_QUALITY,
 				{
 					id: "goal",
 					choices: [
 						{ id: "cod" },
 						{ id: "leads" },
-						{ id: "promo" },
 						{ id: "service" },
+						{ id: "promo" },
 					],
-				},
-				{
-					id: "language",
-					choices: [
-						{ id: "auto" },
-						{ id: "arabic" },
-						{ id: "french" },
-						{ id: "ar-fr" },
-					],
-				},
-				{
-					id: "shape",
-					choices: [{ id: "landing" }, { id: "product" }, { id: "service" }],
 				},
 			],
 		},
 		{
-			id: "page-edit",
-			mode: "page",
-			icon: "pencil",
-			options: [
-				PAGE_QUALITY,
-				{
-					id: "scope",
-					choices: [
-						{ id: "hero" },
-						{ id: "offer" },
-						{ id: "form" },
-						{ id: "full" },
-					],
-				},
-				{
-					id: "intensity",
-					choices: [{ id: "light" }, { id: "medium" }, { id: "rewrite" }],
-				},
-			],
-		},
-		{
-			id: "html-section",
+			id: "site-vitrine",
 			mode: "page",
 			icon: "browser",
 			options: [
-				PAGE_QUALITY,
 				{
-					id: "section",
+					id: "goal",
 					choices: [
-						{ id: "comparison" },
-						{ id: "faq" },
-						{ id: "testimonials" },
-						{ id: "offer" },
+						{ id: "cod" },
+						{ id: "leads" },
+						{ id: "service" },
+						{ id: "promo" },
 					],
-				},
-				{
-					id: "style",
-					choices: [{ id: "match" }, { id: "clean" }, { id: "direct" }],
 				},
 			],
 		},
@@ -324,15 +274,6 @@ export const OUTPUTS_BY_MODE: Record<
 			icon: "image",
 			options: [
 				{
-					id: "quality",
-					choices: [
-						{ id: "auto" },
-						{ id: "high" },
-						{ id: "medium" },
-						{ id: "low" },
-					],
-				},
-				{
 					id: "size",
 					choices: [
 						{ id: "1-1" },
@@ -346,7 +287,7 @@ export const OUTPUTS_BY_MODE: Record<
 				},
 				{
 					id: "count",
-					choices: [{ id: "1" }, { id: "2" }, { id: "4" }, { id: "8" }],
+					choices: [{ id: "1" }, { id: "2" }, { id: "4" }],
 				},
 			],
 		},
@@ -400,83 +341,16 @@ export const OUTPUTS_BY_MODE: Record<
 				},
 			],
 		},
-		{
-			id: "background-edit",
-			mode: "image",
-			icon: "pencil",
-			options: [
-				{
-					id: "background",
-					choices: [
-						{ id: "studio" },
-						{ id: "premium" },
-						{ id: "home" },
-						{ id: "outdoor" },
-					],
-				},
-				{
-					id: "preserve",
-					choices: [{ id: "product" }, { id: "lighting" }, { id: "shadow" }],
-				},
-			],
-		},
 	],
 	video: [
 		{
-			id: "video-creator",
+			id: "image-animation",
 			mode: "video",
 			icon: "play",
 			options: [
 				{
-					id: "method",
-					choices: [{ id: "reference" }, { id: "edit" }, { id: "frames" }],
-				},
-				{
-					id: "size",
-					choices: [
-						{ id: "auto" },
-						{ id: "16-9" },
-						{ id: "4-3" },
-						{ id: "1-1" },
-						{ id: "9-16" },
-						{ id: "21-9" },
-					],
-					layout: "grid",
-				},
-				{
-					id: "resolution",
-					choices: [{ id: "720" }, { id: "1080" }, { id: "4k" }],
-				},
-				{
-					id: "duration",
-					choices: [{ id: "4" }, { id: "5" }, { id: "8" }, { id: "10" }],
-				},
-			],
-		},
-		{
-			id: "ugc-video",
-			mode: "video",
-			icon: "users",
-			options: [
-				{
-					id: "structure",
-					choices: [{ id: "problem" }, { id: "demo" }, { id: "testimonial" }],
-				},
-				{
-					id: "duration",
-					choices: [{ id: "15" }, { id: "30" }, { id: "45" }],
-					layout: "compact",
-				},
-			],
-		},
-		{
-			id: "product-demo",
-			mode: "video",
-			icon: "play",
-			options: [
-				{
-					id: "pace",
-					choices: [{ id: "fast" }, { id: "balanced" }, { id: "slow" }],
+					id: "motion",
+					choices: [{ id: "subtle" }, { id: "balanced" }, { id: "dynamic" }],
 				},
 				{
 					id: "ratio",
@@ -495,10 +369,7 @@ export function getOutput(id: GenerationOutputId | null) {
 }
 
 export function getDefaultOutput(mode: RouteMode) {
-	if (mode === "auto") {
-		return null;
-	}
-	return OUTPUTS_BY_MODE[mode][0] ?? null;
+	return mode === "auto" ? null : (OUTPUTS_BY_MODE[mode][0] ?? null);
 }
 
 export function createDefaultOptions(output: GenerationOutputDef) {
@@ -507,12 +378,55 @@ export function createDefaultOptions(output: GenerationOutputDef) {
 	);
 }
 
-/** Shared contract limit (packages/contracts projectPromptMaxLength). */
-export const PROMPT_MAX_LENGTH = 2000;
-
-export type MockAttachment = {
-	id: string;
-	fileName: string;
-	/** e.g. "attached · 2.1 MB" tail is composed in the component. */
-	sizeLabel: string;
+export type PromptDraft = {
+	text: string;
+	composer: ComposerMetadata;
+	/** Uploaded attachments ready to ride the message as file parts. */
+	files?: UploadAttachmentResponse[];
 };
+
+export function buildComposer({
+	mode,
+	quality,
+	output,
+	skills,
+	options,
+}: {
+	mode: RouteMode;
+	quality: ComposerQuality;
+	output: GenerationOutputId | null;
+	skills: SkillFileId[];
+	options: Record<string, unknown>;
+}): ComposerMetadata {
+	return {
+		mode,
+		quality,
+		output: output ?? undefined,
+		skills: skills.length > 0 ? skills : undefined,
+		options: Object.keys(options).length > 0 ? options : undefined,
+	};
+}
+
+export function createVideoSubmissionId() {
+	const bytes = new Uint8Array(16);
+	if (globalThis.crypto?.getRandomValues) {
+		globalThis.crypto.getRandomValues(bytes);
+	} else {
+		for (let index = 0; index < bytes.length; index += 1) {
+			bytes[index] = Math.floor(Math.random() * 256);
+		}
+	}
+	bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x40;
+	bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80;
+	const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0"));
+	return [
+		hex.slice(0, 4).join(""),
+		hex.slice(4, 6).join(""),
+		hex.slice(6, 8).join(""),
+		hex.slice(8, 10).join(""),
+		hex.slice(10).join(""),
+	].join("-");
+}
+
+export const PROJECT_PROMPT_MAX_LENGTH = projectPromptMaxLength;
+export const CHAT_PROMPT_MAX_LENGTH = 8000;

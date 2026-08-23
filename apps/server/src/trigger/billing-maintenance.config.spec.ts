@@ -12,6 +12,18 @@ const CONFIGURATION_KEYS = [
 	"STRIPE_SECRET_KEY",
 ] as const;
 
+// Routing and feature switches the metering assertion reads — reset for
+// hermetic tests (the dev .env may set any of them).
+const ROUTING_KEYS = [
+	"AI_IMAGE_EDIT_MODEL",
+	"AI_IMAGE_MODEL",
+	"AI_PROVIDER",
+	"AI_PROVIDER_OVERRIDES",
+	"AI_VIDEO_MODEL",
+	"AI_VIDEO_TEXT_MODEL",
+	"OPENROUTER_API_KEY",
+] as const;
+
 const VALID_CONFIGURATION = {
 	AI_GATEWAY_API_KEY: "gateway-task-key",
 	DATABASE_URL: "postgresql://task.test/database",
@@ -28,7 +40,7 @@ function setConfiguration(
 
 describe("billing maintenance task configuration", () => {
 	beforeEach(() => {
-		for (const key of CONFIGURATION_KEYS) {
+		for (const key of [...CONFIGURATION_KEYS, ...ROUTING_KEYS]) {
 			vi.stubEnv(key, "");
 		}
 	});
@@ -85,6 +97,45 @@ describe("billing maintenance task configuration", () => {
 		vi.stubEnv("OPENROUTER_API_KEY", "sk-or-task-key");
 
 		expect(() => assertMeteringConfiguration()).not.toThrow();
+	});
+
+	it("passes openrouter-only routing without the gateway key while media is off", () => {
+		setConfiguration(["DATABASE_URL"]);
+		vi.stubEnv("AI_PROVIDER", "openrouter");
+		vi.stubEnv("OPENROUTER_API_KEY", "sk-or-task-key");
+
+		expect(() => assertMeteringConfiguration()).not.toThrow();
+	});
+
+	it("requires the gateway key for openrouter routing once media generation is on", () => {
+		setConfiguration(["DATABASE_URL"]);
+		vi.stubEnv("AI_PROVIDER", "openrouter");
+		vi.stubEnv("OPENROUTER_API_KEY", "sk-or-task-key");
+		vi.stubEnv("AI_IMAGE_MODEL", "test/image-model");
+
+		expect(() => assertMeteringConfiguration()).toThrow(
+			"AI_GATEWAY_API_KEY is required",
+		);
+	});
+
+	it("fails with neither reconciliation key", () => {
+		setConfiguration(["DATABASE_URL"]);
+		vi.stubEnv("AI_PROVIDER", "openrouter");
+
+		expect(() => assertMeteringConfiguration()).toThrow(
+			"OPENROUTER_API_KEY is required",
+		);
+	});
+
+	it("still requires the gateway key when any text task stays on vercel", () => {
+		setConfiguration(["DATABASE_URL"]);
+		vi.stubEnv("AI_PROVIDER", "openrouter");
+		vi.stubEnv("OPENROUTER_API_KEY", "sk-or-task-key");
+		vi.stubEnv("AI_PROVIDER_OVERRIDES", "page_build=vercel");
+
+		expect(() => assertMeteringConfiguration()).toThrow(
+			"AI_GATEWAY_API_KEY is required",
+		);
 	});
 
 	it("needs no OpenRouter key when overrides only name vercel", () => {

@@ -13,7 +13,6 @@ import {
 	centiCreditsToCredits,
 	isAdminRole,
 } from "@wandit/contracts";
-
 import type {
 	AdminAiSpendRow,
 	AdminCreditLedgerRow,
@@ -23,6 +22,7 @@ import type {
 	AdminUserSummaryRow,
 } from "../persistence/admin.repository";
 import type { AdminUserMembershipRow } from "../persistence/admin-organizations.repository";
+import { normalizeCostProvenance } from "./ai-cost-provenance.mapper";
 
 export function mapAdminUserSummary(
 	row: AdminUserSummaryRow,
@@ -88,6 +88,8 @@ function mapAdminUserSubscription(
 	row: AdminSubscriptionRow,
 ): AdminUserSubscription {
 	return {
+		id: row.id,
+		provider: row.provider,
 		plan: billingPlanIdSchema.parse(row.plan),
 		status: row.status,
 		interval: row.interval,
@@ -121,6 +123,10 @@ function mapAdminCreditLedgerEntry(
 		aiProvider: row.aiProvider,
 		aiCostUsdMicros:
 			row.aiCostUsdMicros === null ? null : Number(row.aiCostUsdMicros),
+		aiCostProvenance:
+			row.aiCostUsdMicros === null
+				? null
+				: normalizeCostProvenance(row.aiCostProvenance),
 	};
 }
 

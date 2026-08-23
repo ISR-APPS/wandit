@@ -48,6 +48,8 @@ type RestorationAllocation = {
 	delta: number;
 };
 
+type RevocationKeyBuilder = (globalTargetCentiCredits: number) => string;
+
 type FullChargeRefundState = {
 	providerRefundId: string;
 	refundStatus: "pending" | "succeeded";
@@ -103,7 +105,7 @@ export class PaymentRefundsService {
 				denominator: amountCaptured,
 				numerator: amountRefunded,
 			},
-			idempotencyKey: this.refundIdempotencyKey(charge),
+			idempotencyKey: this.refundIdempotencyKeyBuilder(charge),
 			mode: "cumulative",
 			paymentIntentId,
 			reason: "charge_refunded",
@@ -198,7 +200,7 @@ export class PaymentRefundsService {
 				denominator: amounts.amountCaptured,
 				numerator: amounts.amountRefunded,
 			},
-			idempotencyKey: this.refundIdempotencyKey(charge),
+			idempotencyKey: this.refundIdempotencyKeyBuilder(charge),
 			mode: "cumulative",
 			paymentIntentId,
 			reason: "refund_updated",
@@ -362,8 +364,31 @@ export class PaymentRefundsService {
 		};
 	}
 
-	async handleChargeDisputeCreated(dispute: Stripe.Dispute): Promise<boolean> {
+	async handleChargeDisputeCreated(
+		eventDispute: Stripe.Dispute,
+	): Promise<boolean> {
+		if (isNonAdverseDisputeStatus(eventDispute.status)) {
+			return false;
+		}
+
+		// A redelivered `created` event after the dispute was won must not
+		// re-claw the restored credits: the event payload is a snapshot, the
+		// retrieve is the truth.
+		const fresh = await this.stripeProvider.retrieveDispute(eventDispute.id);
+
+		if (fresh.id !== eventDispute.id) {
+			throw new Error(
+				`Stripe dispute refresh for ${eventDispute.id} returned ${fresh.id}`,
+			);
+		}
+
+		const dispute: Stripe.Dispute = { ...eventDispute, ...fresh };
+
 		if (isNonAdverseDisputeStatus(dispute.status)) {
+			this.logger.warn(
+				`Skipping stale dispute.created for ${dispute.id}: dispute is now ${dispute.status}`,
+			);
+
 			return false;
 		}
 
@@ -393,7 +418,7 @@ export class PaymentRefundsService {
 			chargeId,
 			disputeId: dispute.id,
 			fraction: this.disputeFraction(dispute, charge, chargeId),
-			idempotencyKey: `dispute:${dispute.id}`,
+			idempotencyKey: () => `dispute:${dispute.id}`,
 			mode: "incremental",
 			paymentIntentId,
 			reason: "charge_dispute_created",
@@ -437,7 +462,7 @@ export class PaymentRefundsService {
 					charge,
 					disputes.filter((candidate) => candidate.id !== dispute.id),
 				);
-				return this.restoreExcessPurchasedCredits(
+				const restoredCredits = await this.restoreExcessPurchasedCredits(
 					{
 						chargeId,
 						disputeId: dispute.id,
@@ -446,6 +471,28 @@ export class PaymentRefundsService {
 					},
 					tx,
 				);
+				let restoredSlots = 0;
+
+				// The clawback canceled future refill slots only for a FULL adverse
+				// amount; when the remaining refunds/disputes no longer cover the
+				// charge, those prepaid months come back.
+				if (adverseFraction.numerator < adverseFraction.denominator) {
+					const slots =
+						await this.billingCreditLedgerRepository.restorePendingRefillSlotsForCharge(
+							chargeId,
+							new Date(),
+							tx,
+						);
+					restoredSlots = slots.restored.length;
+
+					if (slots.skipped.length > 0) {
+						this.logger.warn(
+							`Dispute ${dispute.id} left ${slots.skipped.length} clawback-canceled slot(s) canceled for charge ${chargeId}: their subscription is no longer canonical (${slots.skipped.join(", ")})`,
+						);
+					}
+				}
+
+				return restoredCredits || restoredSlots > 0;
 			},
 		);
 	}
@@ -487,7 +534,8 @@ export class PaymentRefundsService {
 		chargeId: string;
 		disputeId?: string;
 		fraction: ClawbackFraction;
-		idempotencyKey: string;
+		/** Built from the cumulative revoke target computed inside the charge lock. */
+		idempotencyKey: RevocationKeyBuilder;
 		mode: ClawbackMode;
 		paymentIntentId: string | null;
 		reason: string;
@@ -578,19 +626,34 @@ export class PaymentRefundsService {
 				}
 
 				this.assertRevocationOwner(revocationRows, grantOwner, input.chargeId);
-				this.assertRevocationOwner(
-					restorationRows,
-					grantOwner,
-					input.chargeId,
-				);
-				const allocations = this.allocateByOriginalBucket(
+				this.assertRevocationOwner(restorationRows, grantOwner, input.chargeId);
+				// Plan credits that already expired cannot be revoked again; they
+				// count as already taken back (cumulative refunds only — a dispute's
+				// incremental tranche is its own money).
+				const expiredPlanCredits =
+					input.mode === "cumulative"
+						? await this.billingCreditLedgerRepository.findExpiredPlanCreditsForPayment(
+								paymentReference,
+								tx,
+							)
+						: 0;
+
+				if (expiredPlanCredits > 0) {
+					this.logger.log(
+						`Clawback for charge ${input.chargeId} offsets ${expiredPlanCredits} already-expired plan centi-credits`,
+					);
+				}
+
+				const { allocations, globalTarget } = this.allocateByOriginalBucket(
 					grantRows,
 					revocationRows,
 					restorationRows,
 					input.fraction,
 					input.mode,
+					expiredPlanCredits,
 				);
 				const multipleOriginalBuckets = allocations.length > 1;
+				const idempotencyKey = input.idempotencyKey(globalTarget);
 
 				for (const allocation of allocations) {
 					if (allocation.delta === 0) {
@@ -603,11 +666,11 @@ export class PaymentRefundsService {
 						{
 							bucket: allocation.bucket,
 							// A normal Stripe payment funds one bucket and uses the exact
-							// Phase I4 key. The suffix handles anomalous mixed-bucket
-							// legacy data without colliding in the global ledger index.
+							// key. The suffix handles anomalous mixed-bucket legacy data
+							// without colliding in the global ledger index.
 							idempotencyKey: multipleOriginalBuckets
-								? `${input.idempotencyKey}:${allocation.bucket}`
-								: input.idempotencyKey,
+								? `${idempotencyKey}:${allocation.bucket}`
+								: idempotencyKey,
 							meta: {
 								chargeId: input.chargeId,
 								...(input.disputeId ? { disputeId: input.disputeId } : {}),
@@ -634,10 +697,22 @@ export class PaymentRefundsService {
 		restorationRows: BillingCreditLedgerRow[],
 		fraction: ClawbackFraction,
 		mode: ClawbackMode,
-	): BucketAllocation[] {
+		expiredPlanCredits = 0,
+	): { allocations: BucketAllocation[]; globalTarget: number } {
 		const originalByBucket = this.sumByBucket(grantRows, false);
 		const revokedByBucket = this.sumByBucket(revocationRows, true);
 		const restoredByBucket = this.sumByBucket(restorationRows, false);
+
+		if (expiredPlanCredits > 0) {
+			// Expired plan credits count as already revoked for the plan bucket,
+			// capped at what that bucket actually granted.
+			revokedByBucket.set(
+				"plan",
+				(revokedByBucket.get("plan") ?? 0) +
+					Math.min(expiredPlanCredits, originalByBucket.get("plan") ?? 0),
+			);
+		}
+
 		const originalGranted = [...originalByBucket.values()].reduce(
 			(sum, amount) => sum + amount,
 			0,
@@ -738,7 +813,7 @@ export class PaymentRefundsService {
 			remainingGlobalDelta -= overflow;
 		}
 
-		return allocations;
+		return { allocations, globalTarget };
 	}
 
 	private async restoreExcessPurchasedCredits(
@@ -1027,13 +1102,20 @@ export class PaymentRefundsService {
 		};
 	}
 
-	private refundIdempotencyKey(charge: Stripe.Charge) {
+	private refundIdempotencyKeyBuilder(
+		charge: Stripe.Charge,
+	): RevocationKeyBuilder {
 		/*
 		 * charge.refunded carries a cumulative Charge, not the triggering Refund
-		 * object. The cumulative refunded amount is the stable, monotonic fallback
-		 * in refund:{chargeId}:{refundId-or-amountRefunded}.
+		 * object. The key embeds the cumulative REVOKE TARGET in centi-credits:
+		 * a replay of the same event recomputes the same target (no-op under the
+		 * ledger's idempotency), while a later refill funded by the same charge
+		 * raises the target and mints a fresh key, so the missing tranche still
+		 * applies. Old `refund:{chargeId}:{amountRefunded}` rows keep counting
+		 * as revoked because the allocator reads rows, not keys.
 		 */
-		return `refund:${charge.id}:${charge.amount_refunded}`;
+		return (targetCentiCredits) =>
+			`refund:${charge.id}:cum:${targetCentiCredits}`;
 	}
 
 	private async deferRecognizedCheckoutUntilItsPaymentMappingExists(

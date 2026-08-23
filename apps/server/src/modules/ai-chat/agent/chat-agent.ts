@@ -1,3 +1,4 @@
+import { Logger } from "@nestjs/common";
 import type {
 	AiChatDataParts,
 	AiChatMessageMetadata,
@@ -20,6 +21,11 @@ import {
 	withLlmAttribution,
 } from "../../ai-provider/domain/llm-provider";
 import type { McpToolApprovalMap } from "../../mcp-connectors/domain/mcp-tool-policy";
+import { llmGenerationCaptureFromError } from "../../metering/domain/gateway-metering";
+import {
+	type CapturedGeneration,
+	helperStepUsage,
+} from "../../metering/domain/metering";
 import type { PageEditsService } from "../../pages/application/services/page-edits.service";
 import { AI_CHAT_MAX_OUTPUT_TOKENS, AI_CHAT_MAX_STEPS } from "./chat-metering";
 import { chatGatewayFetch } from "./gateway-fetch";
@@ -31,6 +37,18 @@ import {
 	createAnimateImageTool,
 } from "./tools/animate-image.tool";
 import { askUserTool } from "./tools/ask-user.tool";
+import {
+	createEditVideoTool,
+	type EditVideoTool,
+	type EditVideoToolDeps,
+	editVideoToolSchemaOnly,
+} from "./tools/edit-video.tool";
+import {
+	createExtendVideoTool,
+	type ExtendVideoTool,
+	type ExtendVideoToolDeps,
+	extendVideoToolSchemaOnly,
+} from "./tools/extend-video.tool";
 import {
 	createGenerateImageTool,
 	type GenerateImageTool,
@@ -69,6 +87,12 @@ import {
 	pageEditToolsSchemaOnly,
 } from "./tools/page-edit.tools";
 import {
+	createProductVideoTool,
+	type ProductVideoTool,
+	type ProductVideoToolDeps,
+	productVideoToolSchemaOnly,
+} from "./tools/product-video.tool";
+import {
 	createReadAttachmentTool,
 	type ReadAttachmentTool,
 	type ReadAttachmentToolDeps,
@@ -94,10 +118,13 @@ import {
 type AiChatToolSet = {
 	animate_image: AnimateImageTool;
 	ask_user: typeof askUserTool;
+	edit_video: EditVideoTool;
+	extend_video: ExtendVideoTool;
 	generate_image: GenerateImageTool;
 	generate_marketing_asset: GenerateMarketingAssetTool;
 	generate_page: GeneratePageTool;
 	generate_video: GenerateVideoTool;
+	product_video: ProductVideoTool;
 	get_direction_candidates: typeof getDirectionCandidatesTool;
 	read_attachment: ReadAttachmentTool;
 	read_lead_performance: ReadLeadPerformanceTool;
@@ -114,11 +141,41 @@ type AiChatToolSet = {
 
 type McpToolSet = Record<string, Tool>;
 
+const REPAIR_CAPTURE_ATTEMPTS = 3;
+const repairLogger = new Logger("chat-tool-call-repair");
+
+export type ChatToolCallRepairCapture = (
+	capture: CapturedGeneration,
+) => Promise<void>;
+
 export function createChatToolCallRepair({
+	captureGeneration,
 	model,
 }: {
+	/** Bills the repair call inside the parent chat event; absent when billing is off. */
+	captureGeneration?: ChatToolCallRepairCapture;
 	model: LanguageModel;
 }): ToolCallRepairFunction<Record<string, Tool>> {
+	// A capture failure must never break the repair (the user-facing result);
+	// the metering sweep and the gateway remain the cost backstop.
+	const captureSafely = async (capture: CapturedGeneration) => {
+		if (!captureGeneration) {
+			return;
+		}
+
+		try {
+			await captureGeneration(capture);
+		} catch (captureError) {
+			repairLogger.warn(
+				`Chat tool-call repair usage capture failed: ${
+					captureError instanceof Error
+						? captureError.message
+						: String(captureError)
+				}`,
+			);
+		}
+	};
+
 	return async ({
 		error,
 		inputSchema,
@@ -135,7 +192,7 @@ export function createChatToolCallRepair({
 			const schema = jsonSchema<Record<string, unknown>>(
 				await inputSchema({ toolName: toolCall.toolName }),
 			);
-			const { object } = await generateObject({
+			const result = await generateObject({
 				instructions: instructions ?? system,
 				maxOutputTokens: AI_CHAT_MAX_OUTPUT_TOKENS,
 				messages: [
@@ -149,10 +206,62 @@ export function createChatToolCallRepair({
 				schema,
 			});
 
-			return { ...toolCall, input: JSON.stringify(object) };
-		} catch {
+			await captureSafely({
+				providerMetadata: result.providerMetadata,
+				stepUsage: helperStepUsage("tool_call_repair", result.usage),
+			});
+
+			return { ...toolCall, input: JSON.stringify(result.object) };
+		} catch (repairError) {
+			const errorCapture = llmGenerationCaptureFromError(repairError);
+
+			if (errorCapture) {
+				await captureSafely({
+					providerMetadata: errorCapture.providerMetadata,
+					stepUsage: helperStepUsage("tool_call_repair", null),
+				});
+			}
+
 			return null;
 		}
+	};
+}
+
+/**
+ * Capture bound to the parent chat event with the same bounded retry as the
+ * stream's own captures. Undefined when the request holds no event (billing
+ * off), so the repair runs unmetered exactly like the chat turn itself.
+ */
+function chatToolCallRepairCapture(
+	deps: Pick<ChatAgentDeps, "meteringService" | "parentEventId">,
+): ChatToolCallRepairCapture | undefined {
+	const eventId = deps.parentEventId;
+
+	if (!eventId) {
+		return undefined;
+	}
+
+	return async (capture) => {
+		let lastError: unknown;
+
+		for (let attempt = 1; attempt <= REPAIR_CAPTURE_ATTEMPTS; attempt += 1) {
+			try {
+				const generationRef = await deps.meteringService.captureGeneration(
+					eventId,
+					capture,
+				);
+
+				if (!generationRef) {
+					throw new Error("AI Gateway generation id is missing");
+				}
+
+				return;
+			} catch (error) {
+				lastError = error;
+			}
+		}
+
+		throw lastError;
 	};
 }
 
@@ -168,9 +277,12 @@ export type ChatAgentDeps = GeneratePageToolDeps &
 	Omit<ScrapeLeadsToolDeps, "chatId" | "projectId"> & {
 		pageEditsService: PageEditsService;
 	} & Omit<AnimateImageToolDeps, "chatId" | "projectId"> &
+	Omit<EditVideoToolDeps, "chatId" | "projectId"> &
+	Omit<ExtendVideoToolDeps, "chatId" | "projectId"> &
 	Omit<GenerateMarketingAssetToolDeps, "chatId" | "projectId"> &
 	Omit<GenerateImageToolDeps, "chatId" | "projectId"> &
 	Omit<GenerateVideoToolDeps, "chatId" | "projectId"> &
+	Omit<ProductVideoToolDeps, "chatId" | "projectId"> &
 	ReadAttachmentToolDeps &
 	Omit<ReadLeadPerformanceToolDeps, "now" | "projectId">;
 
@@ -205,7 +317,10 @@ export function createChatAgent(
 	});
 
 	return new ToolLoopAgent({
-		experimental_repairToolCall: createChatToolCallRepair({ model }),
+		experimental_repairToolCall: createChatToolCallRepair({
+			captureGeneration: chatToolCallRepairCapture(deps),
+			model,
+		}),
 		instructions: contextBlock
 			? `${WANDIT_SYSTEM_PROMPT}\n\n${contextBlock}`
 			: WANDIT_SYSTEM_PROMPT,
@@ -244,6 +359,26 @@ export function createChatAgent(
 				userId: deps.userId,
 			}),
 			ask_user: askUserTool,
+			edit_video: createEditVideoTool({
+				chatId: deps.chatId,
+				mediaGenerationsRepository: deps.mediaGenerationsRepository,
+				meteringService: deps.meteringService,
+				parentEventId: deps.parentEventId,
+				projectId: deps.projectId,
+				requestKeySeed: deps.requestKeySeed,
+				subject: deps.subject,
+				userId: deps.userId,
+			}),
+			extend_video: createExtendVideoTool({
+				chatId: deps.chatId,
+				mediaGenerationsRepository: deps.mediaGenerationsRepository,
+				meteringService: deps.meteringService,
+				parentEventId: deps.parentEventId,
+				projectId: deps.projectId,
+				requestKeySeed: deps.requestKeySeed,
+				subject: deps.subject,
+				userId: deps.userId,
+			}),
 			generate_image: createGenerateImageTool({
 				availableImages: deps.availableImages,
 				chatId: deps.chatId,
@@ -252,7 +387,6 @@ export function createChatAgent(
 				parentEventId: deps.parentEventId,
 				pagesRepository: deps.pagesRepository,
 				projectId: deps.projectId,
-				quality: deps.quality,
 				requestKeySeed: deps.requestKeySeed,
 				subject: deps.subject,
 				userId: deps.userId,
@@ -263,7 +397,6 @@ export function createChatAgent(
 				meteringService: deps.meteringService,
 				parentEventId: deps.parentEventId,
 				projectId: deps.projectId,
-				quality: deps.quality,
 				requestKeySeed: deps.requestKeySeed,
 				subject: deps.subject,
 				userId: deps.userId,
@@ -289,6 +422,18 @@ export function createChatAgent(
 				subject: deps.subject,
 				userId: deps.userId,
 				videoDirector: deps.videoDirector,
+			}),
+			product_video: createProductVideoTool({
+				availableImages: deps.availableImages,
+				chatId: deps.chatId,
+				imageGenerationsRepository: deps.imageGenerationsRepository,
+				mediaGenerationsRepository: deps.mediaGenerationsRepository,
+				meteringService: deps.meteringService,
+				parentEventId: deps.parentEventId,
+				projectId: deps.projectId,
+				requestKeySeed: deps.requestKeySeed,
+				subject: deps.subject,
+				userId: deps.userId,
 			}),
 			get_direction_candidates: getDirectionCandidatesTool,
 			read_attachment: createReadAttachmentTool({
@@ -329,10 +474,13 @@ export function createChatAgent(
 export const aiChatToolsForValidation = {
 	animate_image: animateImageToolSchemaOnly,
 	ask_user: askUserTool,
+	edit_video: editVideoToolSchemaOnly,
+	extend_video: extendVideoToolSchemaOnly,
 	generate_image: generateImageToolSchemaOnly,
 	generate_marketing_asset: generateMarketingAssetToolSchemaOnly,
 	generate_page: generatePageToolSchemaOnly,
 	generate_video: generateVideoToolSchemaOnly,
+	product_video: productVideoToolSchemaOnly,
 	scrape_leads: scrapeLeadsToolSchemaOnly,
 	get_direction_candidates: getDirectionCandidatesToolSchemaOnly,
 	read_attachment: readAttachmentToolSchemaOnly,

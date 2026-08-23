@@ -10,12 +10,17 @@ import { FilePart, ImageFileGrid } from "./file-part";
 import { GenerateImagePart } from "./generate-image-part";
 import { GenerateMarketingAssetPart } from "./generate-marketing-asset-part";
 import { GeneratePagePart } from "./generate-page-part";
-import { GenerateVideoPart } from "./generate-video-part";
+import {
+	EditVideoPart,
+	ExtendVideoPart,
+	GenerateVideoPart,
+} from "./generate-video-part";
 import {
 	isMcpRunFullySettled,
 	McpActivityCard,
 	mcpRunHasDeliverables,
 } from "./mcp-tool-part";
+import { ProductVideoPart } from "./product-video-part";
 import { ScrapeLeadsPart } from "./scrape-leads-part";
 import { TextPart } from "./text-part";
 
@@ -39,6 +44,8 @@ const TRANSPARENT_PART_TYPES = new Set([
 	"tool-insert_section",
 	"tool-replace_section",
 	"data-billing-error",
+	// Transient settle signal consumed in use-ai-chat's onData — never inline.
+	"data-credits-settled",
 ]);
 
 export function isTransparentMessagePart(part: MessagePart): boolean {
@@ -71,6 +78,9 @@ const ASYNC_CARD_PART_TYPES = new Set([
 	"tool-scrape_leads",
 	"tool-animate_image",
 	"tool-generate_video",
+	"tool-product_video",
+	"tool-edit_video",
+	"tool-extend_video",
 ]);
 
 function isAsyncCardEntry(entry: MessagePartRenderEntry): boolean {
@@ -278,6 +288,12 @@ export function MessageParts({
 				return <AnimateImagePart key={part.toolCallId} part={part} />;
 			case "tool-generate_video":
 				return <GenerateVideoPart key={part.toolCallId} part={part} />;
+			case "tool-product_video":
+				return <ProductVideoPart key={part.toolCallId} part={part} />;
+			case "tool-edit_video":
+				return <EditVideoPart key={part.toolCallId} part={part} />;
+			case "tool-extend_video":
+				return <ExtendVideoPart key={part.toolCallId} part={part} />;
 			case "tool-read_skill":
 			case "tool-read_attachment":
 			case "tool-read_lead_performance":

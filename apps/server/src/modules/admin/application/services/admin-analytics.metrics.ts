@@ -8,6 +8,8 @@ import {
 	type AdminAnalyticsFeaturesResponse,
 	type AdminAnalyticsFunnelResponse,
 	type AdminAnalyticsFunnelStepKey,
+	type AdminAnalyticsFunnelStepUsersResponse,
+	type AdminAnalyticsFunnelUserStep,
 	type AdminAnalyticsGenerationKey,
 	type AdminAnalyticsHealthResponse,
 	type AdminAnalyticsMrrByPlan,
@@ -34,6 +36,7 @@ import type {
 	AdminAnalyticsEngagementSnapshot,
 	AdminAnalyticsFeaturesSnapshot,
 	AdminAnalyticsFunnelSnapshot,
+	AdminAnalyticsFunnelStepUsersRepositorySnapshot,
 	AdminAnalyticsHealthSnapshot,
 	AdminAnalyticsRevenueSnapshot,
 } from "../../infrastructure/persistence/admin-analytics.repository";
@@ -229,6 +232,38 @@ export function assembleFunnelResponse(
 	};
 }
 
+export function assembleFunnelStepUsersResponse(
+	snapshot: AdminAnalyticsFunnelStepUsersRepositorySnapshot,
+	step: AdminAnalyticsFunnelUserStep,
+	generatedAt: Date,
+): AdminAnalyticsFunnelStepUsersResponse {
+	return {
+		updatedAt: generatedAt.toISOString(),
+		step,
+		page: snapshot.page,
+		pageSize: snapshot.pageSize,
+		total: snapshot.total,
+		counts: snapshot.counts,
+		items: snapshot.items.map((item) => ({
+			id: item.userId,
+			name: item.name,
+			email: item.email,
+			image: item.image,
+			signedUpAt: toIsoDateTime(item.signedUpAt),
+			firstEventAt: toIsoDateTime(item.firstEventAt),
+			lastEventAt: toIsoDateTime(item.lastEventAt),
+			eventCount: item.eventCount,
+			converted: item.converted,
+			contact: item.contact
+				? {
+						contactedAt: toIsoDateTime(item.contact.contactedAt),
+						contactedBy: item.contact.contactedBy,
+					}
+				: null,
+		})),
+	};
+}
+
 export function assembleEngagementResponse(
 	snapshot: AdminAnalyticsEngagementSnapshot,
 	generatedAt: Date,
@@ -273,7 +308,8 @@ export function assembleRevenueResponse(
 	const cohort = snapshot.trialCohort;
 	const churn = assembleChurn(snapshot, mrr.arpuMinor);
 	const grossCents = snapshot.collectedRevenueByDay.reduce(
-		(sum, point) => sum + point.subscriptionsMinor + point.ordersMinor,
+		(sum, point) =>
+			sum + point.subscriptionsMinor + point.ordersMinor + point.topupsMinor,
 		0,
 	);
 	const netRevenue = {
@@ -287,6 +323,7 @@ export function assembleRevenueResponse(
 	const domainMarginCents = bySource.domainsCents - bySource.domainCostCents;
 	const revenueBySource = {
 		subscriptionsCents: bySource.subscriptionsCents,
+		topupsCents: bySource.topupsCents,
 		domainsCents: bySource.domainsCents,
 		domainOrders: bySource.domainOrders,
 		domainCostCents: bySource.domainCostCents,
@@ -441,11 +478,17 @@ export function assembleFeaturesResponse(
 				centiCreditsToCredits(snapshot.credits.creditsBeforeUpgradeTotal),
 				snapshot.credits.convertedUsers,
 			),
+			// Billable spend over the credits the ledger actually debited: bundled
+			// helper calls cost money against zero charge and must not dilute it.
 			providerCostPerCreditMicros: safeAverage(
-				snapshot.credits.providerCostMicros,
+				snapshot.credits.billableProviderCostMicros,
 				centiCreditsToCredits(snapshot.credits.consumedInRange),
 				2,
 			),
+			totalProviderCostMicros: snapshot.credits.providerCostMicros,
+			billableProviderCostMicros: snapshot.credits.billableProviderCostMicros,
+			providerCostByProvenanceMicros:
+				snapshot.credits.providerCostByProvenanceMicros,
 		},
 		freeCredits: {
 			avgDaysToConsume: secondsToDays(snapshot.freeCredits.avgSecondsToConsume),
@@ -1096,6 +1139,12 @@ function zeroSafeRatio(numerator: number, denominator: number): number {
 
 function secondsToHours(seconds: number | null): number | null {
 	return secondsToUnit(seconds, SECONDS_PER_HOUR);
+}
+
+function toIsoDateTime(value: Date | string): string {
+	return value instanceof Date
+		? value.toISOString()
+		: new Date(value).toISOString();
 }
 
 function secondsToDays(seconds: number | null): number | null {

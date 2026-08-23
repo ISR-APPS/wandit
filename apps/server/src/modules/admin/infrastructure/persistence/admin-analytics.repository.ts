@@ -2,6 +2,8 @@ import { Inject, Injectable } from "@nestjs/common";
 import {
 	type AdminAnalyticsDevice,
 	type AdminAnalyticsFeatureKey,
+	type AdminAnalyticsFunnelStepUsersContacted,
+	type AdminAnalyticsFunnelUserStep,
 	type AdminAnalyticsGenerationKey,
 	adminAnalyticsFeatureKeys,
 	type BillingPlanId,
@@ -27,6 +29,7 @@ import {
 import type { AdminDashboardRangeBounds } from "../../application/services/admin-dashboard-range";
 import {
 	AI_SPEND_STATUSES,
+	aiUsageEventCostProvenance,
 	aiUsageEventCostUsdMicros,
 } from "./ai-usage-cost.sql";
 
@@ -83,6 +86,35 @@ type FunnelRow = {
 	signups: NumericValue;
 	visitors: NumericValue;
 };
+
+type FunnelStepUserMetadataRow = {
+	all_count: NumericValue;
+	contacted_count: NumericValue;
+	converted_count: NumericValue;
+	total: NumericValue;
+};
+
+type FunnelStepUserDataRow = {
+	contacted_at: Date | string | null;
+	contacted_by_name: string | null;
+	contacted_by_user_id: string | null;
+	converted: boolean;
+	email: string;
+	event_count: NumericValue;
+	first_event_at: Date | string;
+	image: string | null;
+	last_event_at: Date | string;
+	name: string;
+	signed_up_at: Date | string;
+	user_id: string;
+};
+
+type EmptyFunnelStepUserDataRow = {
+	[Key in keyof FunnelStepUserDataRow]: null;
+};
+
+export type FunnelStepUserRow = FunnelStepUserMetadataRow &
+	(FunnelStepUserDataRow | EmptyFunnelStepUserDataRow);
 
 type EngagementActivityRow = {
 	actions: NumericValue;
@@ -149,10 +181,12 @@ type CollectedRevenueRow = {
 	date: string;
 	subscriptions_minor: NumericValue;
 	orders_minor: NumericValue;
+	topups_minor: NumericValue;
 };
 
 type RevenueBySourceRow = {
 	subscriptions_minor: NumericValue;
+	topups_minor: NumericValue;
 	domains_minor: NumericValue;
 	domain_orders: NumericValue;
 	domain_cost_cents: NumericValue;
@@ -197,6 +231,10 @@ type CreditRangeRow = {
 	paid_consumed_in_range: NumericValue;
 	paid_owners_in_range: NumericValue;
 	provider_cost_micros: NumericValue;
+	billable_provider_cost_micros: NumericValue;
+	measured_provider_cost_micros: NumericValue;
+	contract_provider_cost_micros: NumericValue;
+	estimate_provider_cost_micros: NumericValue;
 };
 
 type FreeConsumptionRow = {
@@ -314,9 +352,11 @@ export type AdminAnalyticsRevenueRepositorySnapshot = {
 		date: string;
 		subscriptionsMinor: number;
 		ordersMinor: number;
+		topupsMinor: number;
 	}>;
 	revenueBySource: {
 		subscriptionsCents: number;
+		topupsCents: number;
 		domainsCents: number;
 		domainOrders: number;
 		domainCostCents: number;
@@ -443,6 +483,37 @@ export type AdminAnalyticsFunnelRepositorySnapshot = {
 	};
 };
 
+export type AdminAnalyticsFunnelStepUsersRepositorySnapshot = {
+	page: number;
+	pageSize: number;
+	total: number;
+	counts: {
+		all: number;
+		contacted: number;
+		converted: number;
+	};
+	items: Array<{
+		userId: string;
+		name: string;
+		email: string;
+		image: string | null;
+		signedUpAt: Date | string;
+		firstEventAt: Date | string;
+		lastEventAt: Date | string;
+		eventCount: number;
+		converted: boolean;
+		contact: {
+			contactedAt: Date | string;
+			contactedBy: { id: string; name: string };
+		} | null;
+	}>;
+};
+
+export type AdminAnalyticsFunnelStepUsersRepositoryOptions = {
+	contacted: AdminAnalyticsFunnelStepUsersContacted;
+	pagination: { page: number; pageSize: number } | null;
+};
+
 export type AdminAnalyticsEngagementRepositorySnapshot = {
 	activity: {
 		dau: number;
@@ -504,7 +575,16 @@ export type AdminAnalyticsFeaturesRepositorySnapshot = {
 		usersAtZeroBalance: number;
 		creditsBeforeUpgradeTotal: number;
 		convertedUsers: number;
+		// Total best-known provider spend in range (all spend statuses).
 		providerCostMicros: number;
+		// Spend on events the customer was debited for (excludes historical
+		// bundled_unmetered helper calls).
+		billableProviderCostMicros: number;
+		providerCostByProvenanceMicros: {
+			measured: number;
+			contract: number;
+			estimate: number;
+		};
 	};
 	freeCredits: {
 		avgSecondsToConsume: number | null;
@@ -620,6 +700,155 @@ export class AdminAnalyticsRepository {
 			(transaction) => this.getFunnelSnapshot(transaction, input, filters),
 			READ_ONLY_TRANSACTION,
 		);
+	}
+
+	async getFunnelStepUsers(
+		input: AdminDashboardRangeBounds,
+		step: AdminAnalyticsFunnelUserStep,
+		filters: AdminAnalyticsFilters = {},
+		options: AdminAnalyticsFunnelStepUsersRepositoryOptions = {
+			contacted: "all",
+			pagination: { page: 1, pageSize: 20 },
+		},
+	): Promise<AdminAnalyticsFunnelStepUsersRepositorySnapshot> {
+		return this.db.transaction(async (transaction) => {
+			const contactedPredicate =
+				options.contacted === "contacted"
+					? sql`contact_user_id is not null`
+					: options.contacted === "notContacted"
+						? sql`contact_user_id is null`
+						: sql`true`;
+			const paginationClause = options.pagination
+				? sql`limit ${options.pagination.pageSize}
+					offset ${(options.pagination.page - 1) * options.pagination.pageSize}`
+				: sql``;
+			const result = await transaction.execute<FunnelStepUserRow>(sql`
+				with bounds as (${analyticsBounds(input)}),
+				filtered_users as (${filteredUserCohort(filters)}),
+				signup_cohort as (
+					select u.id as user_id, u.created_at
+					from "user" u
+					inner join filtered_users f on f.user_id = u.id
+					cross join bounds b
+					where u.created_at >= b.range_start
+						and u.created_at < b.range_end
+				),
+				step_events as (${FUNNEL_STEP_EVENT_QUERIES[step]}),
+				step_users as (
+					select
+						e.user_id,
+						u.name,
+						u.email,
+						u.image,
+						u.created_at as signed_up_at,
+						e.first_event_at,
+						e.last_event_at,
+						e.event_count,
+						exists (
+							select 1
+							from subscriptions s
+							where s.user_id = e.user_id
+								and s.created_at < b.snapshot_end
+						) as converted,
+						c.user_id as contact_user_id,
+						c.contacted_at,
+						contacted_by.id as contacted_by_user_id,
+						contacted_by.name as contacted_by_name
+					from step_events e
+					inner join "user" u on u.id = e.user_id
+					cross join bounds b
+					left join admin_funnel_contacts c on c.user_id = e.user_id
+					left join "user" contacted_by
+						on contacted_by.id = c.contacted_by_user_id
+				),
+				counts as (
+					select
+						count(*)::bigint as all_count,
+						count(*) filter (where contact_user_id is not null)::bigint
+							as contacted_count,
+						count(*) filter (where converted)::bigint as converted_count
+					from step_users
+				),
+				filtered_step_users as (
+					select *
+					from step_users
+					where ${contactedPredicate}
+				),
+				filtered_count as (
+					select count(*)::bigint as total
+					from filtered_step_users
+				),
+				paged_step_users as (
+					select *
+					from filtered_step_users
+					order by last_event_at desc, user_id asc
+					${paginationClause}
+				)
+				select
+					u.user_id,
+					u.name,
+					u.email,
+					u.image,
+					u.signed_up_at,
+					u.first_event_at,
+					u.last_event_at,
+					u.event_count,
+					u.converted,
+					u.contacted_at,
+					u.contacted_by_user_id,
+					u.contacted_by_name,
+					c.all_count,
+					c.contacted_count,
+					c.converted_count,
+					f.total
+				from counts c
+				cross join filtered_count f
+				left join paged_step_users u on true
+				order by u.last_event_at desc nulls last, u.user_id asc
+			`);
+			const metadata = result.rows[0];
+			const total = toNumber(metadata?.total);
+
+			return {
+				page: options.pagination?.page ?? 1,
+				pageSize: options.pagination?.pageSize ?? Math.max(1, total),
+				total,
+				counts: {
+					all: toNumber(metadata?.all_count),
+					contacted: toNumber(metadata?.contacted_count),
+					converted: toNumber(metadata?.converted_count),
+				},
+				items: result.rows.flatMap((row) =>
+					row.user_id === null
+						? []
+						: [
+								{
+									userId: row.user_id,
+									name: row.name,
+									email: row.email,
+									image: row.image,
+									signedUpAt: row.signed_up_at,
+									firstEventAt: row.first_event_at,
+									lastEventAt: row.last_event_at,
+									eventCount: toNumber(row.event_count),
+									converted: row.converted,
+									contact:
+										row.contacted_at !== null &&
+										row.contacted_by_user_id !== null &&
+										row.contacted_by_name !== null
+											? {
+													contactedAt: row.contacted_at,
+													contactedBy: {
+														id: row.contacted_by_user_id,
+														name: row.contacted_by_name,
+													},
+												}
+											: null,
+								},
+							],
+				),
+			};
+		}, READ_ONLY_TRANSACTION);
 	}
 
 	async getEngagement(
@@ -878,6 +1107,8 @@ export class AdminAnalyticsRepository {
 					on c.user_id = ${attributionUserExpression("s", "obc")}
 				where s.created_at < b.snapshot_end
 					and s.status in (${liveSubscriptionStatusList()})
+					-- Manual prices are negotiated offline; catalog USD would inflate MRR.
+					and s.provider = 'stripe'
 			),
 			source_mrr as (
 				select
@@ -982,6 +1213,8 @@ export class AdminAnalyticsRepository {
 					on c.user_id = ${attributionUserExpression("s", "obc")}
 				where s.created_at < b.snapshot_end
 					and s.status in (${liveSubscriptionStatusList()})
+					-- Manual prices are negotiated offline; catalog USD would inflate MRR.
+					and s.provider = 'stripe'
 			),
 			campaign_mrr as (
 				select
@@ -1220,12 +1453,13 @@ export class AdminAnalyticsRepository {
 			credit_consumption as (
 				select
 					c.user_id,
-					sum(-l.delta)::bigint as credits_consumed
+					greatest(0, sum(-l.delta))::bigint as credits_consumed
 				from mature_signup_cohort c
 				inner join credit_ledger l on l.user_id = c.user_id
 				where ${netConsumptionPredicate("l")}
+					and l.organization_id is null
 					and l.created_at >= c.created_at
-					and l.created_at < c.created_at + interval '7 days'
+					and ${consumptionEffectiveAt("l")} < c.created_at + interval '7 days'
 				group by c.user_id
 			),
 			attempt_usage_actors as (
@@ -1791,12 +2025,13 @@ export class AdminAnalyticsRepository {
 			credit_consumption as (
 				select
 					u.user_id,
-					sum(-c.delta)::bigint as credits_consumed
+					greatest(0, sum(-c.delta))::bigint as credits_consumed
 				from evaluation_users u
 				inner join credit_ledger c on c.user_id = u.user_id
 				where ${netConsumptionPredicate("c")}
+					and c.organization_id is null
 					and c.created_at >= u.created_at
-					and c.created_at < u.created_at + interval '7 days'
+					and ${consumptionEffectiveAt("c")} < u.created_at + interval '7 days'
 				group by u.user_id
 			),
 			attempt_usage_actors as (
@@ -1961,25 +2196,32 @@ export class AdminAnalyticsRepository {
 				select
 					s.plan,
 					s.price_lookup_key,
+					s.provider,
 					coalesce(s.organization_id, s.user_id) as owner_id
 				from subscriptions s
 				cross join bounds b
 				where s.created_at < b.snapshot_end
 					and s.status in (${liveSubscriptionStatusList()})
 			),
+			stripe_priced_subscriptions as (
+				select l.plan, l.price_lookup_key, l.owner_id
+				from live_subscriptions l
+				-- Manual prices are negotiated offline; catalog USD would inflate MRR.
+				where l.provider = 'stripe'
+			),
 			grouped as (
 				select
 					l.plan,
 					l.price_lookup_key,
 					count(*)::bigint as subscribers
-				from live_subscriptions l
+				from stripe_priced_subscriptions l
 				group by l.plan, l.price_lookup_key
 			),
 			plan_owner_totals as (
 				select
 					l.plan,
 					count(distinct l.owner_id)::bigint as plan_owners
-				from live_subscriptions l
+				from stripe_priced_subscriptions l
 				group by l.plan
 			),
 			owner_totals as (
@@ -2040,17 +2282,20 @@ export class AdminAnalyticsRepository {
 				where s.created_at < b.snapshot_end
 				group by s.user_id
 			),
+			-- Personal pool only: org-pool consumption performed by the acting
+			-- member is the org's spend, not this user's trial health.
 			credit_consumption as (
 				select
 					c.user_id,
-					sum(-c.delta)::bigint as credits_consumed
+					greatest(0, sum(-c.delta))::bigint as credits_consumed
 				from credit_ledger c
 				inner join mature_users u on u.id = c.user_id
 				cross join bounds b
 				where ${netConsumptionPredicate("c")}
+					and c.organization_id is null
 					and c.created_at >= u.created_at
-					and c.created_at < u.created_at + interval '7 days'
-					and c.created_at < b.snapshot_end
+					and ${consumptionEffectiveAt("c")} < u.created_at + interval '7 days'
+					and ${consumptionEffectiveAt("c")} < b.snapshot_end
 				group by c.user_id
 			),
 			completed_generations as (
@@ -2291,16 +2536,33 @@ export class AdminAnalyticsRepository {
 					and o.status in ('paid', 'fulfilling', 'fulfilled')
 					and lower(o.currency) = 'usd'
 				group by 1
+			),
+			-- Top-up cash: without it refunds of top-ups were subtracted from a
+			-- gross that never included the purchase.
+			topup_revenue as (
+				select
+					(t.paid_at at time zone 'UTC')::date as day,
+					sum(t.amount_cents)::bigint as amount_minor
+				from billing_topup_receipts t
+				cross join bounds b
+				where t.paid_at >= b.range_start
+					and t.paid_at < b.range_end
+					and t.amount_cents > 0
+					and lower(t.currency) = 'usd'
+				group by 1
 			)
 			select
 				to_char(d.day at time zone 'UTC', 'YYYY-MM-DD') as date,
 				coalesce(s.amount_minor, 0)::bigint as subscriptions_minor,
-				coalesce(o.amount_minor, 0)::bigint as orders_minor
+				coalesce(o.amount_minor, 0)::bigint as orders_minor,
+				coalesce(t.amount_minor, 0)::bigint as topups_minor
 			from days d
 			left join subscription_revenue s
 				on s.day = (d.day at time zone 'UTC')::date
 			left join order_revenue o
 				on o.day = (d.day at time zone 'UTC')::date
+			left join topup_revenue t
+				on t.day = (d.day at time zone 'UTC')::date
 			order by d.day asc
 		`);
 
@@ -2308,6 +2570,7 @@ export class AdminAnalyticsRepository {
 			date: String(row.date),
 			subscriptionsMinor: toNumber(row.subscriptions_minor),
 			ordersMinor: toNumber(row.orders_minor),
+			topupsMinor: toNumber(row.topups_minor),
 		}));
 	}
 
@@ -2330,6 +2593,15 @@ export class AdminAnalyticsRepository {
 					and a.paid_at < b.range_end
 					and a.amount_paid_minor > 0
 					and lower(a.currency) = 'usd'
+			),
+			topup_totals as (
+				select coalesce(sum(t.amount_cents), 0)::bigint as amount_minor
+				from billing_topup_receipts t
+				cross join bounds b
+				where t.paid_at >= b.range_start
+					and t.paid_at < b.range_end
+					and t.amount_cents > 0
+					and lower(t.currency) = 'usd'
 			),
 			domain_orders as (
 				select
@@ -2355,17 +2627,20 @@ export class AdminAnalyticsRepository {
 			)
 			select
 				s.amount_minor as subscriptions_minor,
+				t.amount_minor as topups_minor,
 				coalesce((select sum(d.amount_cents) from domain_orders d), 0)::bigint as domains_minor,
 				coalesce((select count(*) from domain_orders d), 0)::bigint as domain_orders,
 				coalesce((select sum(d.wholesale_cents) from domain_orders d), 0)::bigint as domain_cost_cents,
 				coalesce((select count(*) from domain_orders d where d.wholesale_cents is null), 0)::bigint as domain_cost_unknown_orders
 			from subscription_totals s
+			cross join topup_totals t
 		`);
 
 		const row = result.rows[0];
 
 		return {
 			subscriptionsCents: toNumber(row?.subscriptions_minor),
+			topupsCents: toNumber(row?.topups_minor),
 			domainsCents: toNumber(row?.domains_minor),
 			domainOrders: toNumber(row?.domain_orders),
 			domainCostCents: toNumber(row?.domain_cost_cents),
@@ -2590,7 +2865,8 @@ export class AdminAnalyticsRepository {
 				select
 					s.provider_subscription_id as stripe_subscription_id,
 					coalesce(s.organization_id, s.user_id) as owner_id,
-					coalesce(f.from_lookup_key, s.price_lookup_key) as price_lookup_key
+					coalesce(f.from_lookup_key, s.price_lookup_key) as price_lookup_key,
+					s.provider
 				from subscriptions s
 				cross join bounds b
 				left join first_lookup_after_start f
@@ -2612,6 +2888,8 @@ export class AdminAnalyticsRepository {
 					a.price_lookup_key,
 					count(*)::bigint as count
 				from active_at_start_subscriptions a
+				-- Manual prices are negotiated offline; catalog USD would inflate MRR.
+				where a.provider = 'stripe'
 				group by a.price_lookup_key
 			),
 			ended_in_range as (
@@ -2624,7 +2902,14 @@ export class AdminAnalyticsRepository {
 						e.user_id,
 						s.user_id
 					) as owner_id,
-					coalesce(e.from_lookup_key, s.price_lookup_key) as price_lookup_key
+					coalesce(e.from_lookup_key, s.price_lookup_key) as price_lookup_key,
+					coalesce(
+						s.provider,
+						case
+							when e.stripe_event_id like 'manual:%' then 'manual'
+							else 'stripe'
+						end
+					) as provider
 				from subscription_state_events e
 				left join subscriptions s
 					on s.provider_subscription_id = e.stripe_subscription_id
@@ -2663,7 +2948,11 @@ export class AdminAnalyticsRepository {
 					)
 			),
 			churned_ended_subscriptions as (
-				select e.stripe_subscription_id, e.owner_id, e.price_lookup_key
+				select
+					e.stripe_subscription_id,
+					e.owner_id,
+					e.price_lookup_key,
+					e.provider
 				from ended_in_range e
 				left join live_at_range_end_subscriptions l
 					on l.owner_id = e.owner_id
@@ -2677,15 +2966,27 @@ export class AdminAnalyticsRepository {
 			churned_mrr as (
 				select c.price_lookup_key, count(*)::bigint as count
 				from churned_ended_subscriptions c
+				-- Manual prices are negotiated offline; catalog USD would inflate MRR.
+				where c.provider = 'stripe'
 				group by c.price_lookup_key
 			),
 			created_events as (
 				select e.to_lookup_key as price_lookup_key, count(*)::bigint as count
 				from subscription_state_events e
+				left join subscriptions s
+					on s.provider_subscription_id = e.stripe_subscription_id
 				cross join bounds b
 				where e.kind = 'created'
 					and e.occurred_at >= b.range_start
 					and e.occurred_at < b.range_end
+					-- Manual prices are negotiated offline; catalog USD would inflate MRR.
+					and coalesce(
+						s.provider,
+						case
+							when e.stripe_event_id like 'manual:%' then 'manual'
+							else 'stripe'
+						end
+					) = 'stripe'
 				group by e.to_lookup_key
 			),
 			plan_change_events as (
@@ -2694,10 +2995,20 @@ export class AdminAnalyticsRepository {
 					e.to_lookup_key,
 					count(*)::bigint as count
 				from subscription_state_events e
+				left join subscriptions s
+					on s.provider_subscription_id = e.stripe_subscription_id
 				cross join bounds b
 				where e.kind = 'plan_changed'
 					and e.occurred_at >= b.range_start
 					and e.occurred_at < b.range_end
+					-- Manual prices are negotiated offline; catalog USD would inflate MRR.
+					and coalesce(
+						s.provider,
+						case
+							when e.stripe_event_id like 'manual:%' then 'manual'
+							else 'stripe'
+						end
+					) = 'stripe'
 				group by e.from_lookup_key, e.to_lookup_key
 			),
 			lifecycle_rows as (
@@ -2798,6 +3109,13 @@ export class AdminAnalyticsRepository {
 				select
 					e.id,
 					e.stripe_subscription_id,
+					coalesce(
+						s.provider,
+						case
+							when e.stripe_event_id like 'manual:%' then 'manual'
+							else 'stripe'
+						end
+					) as provider,
 					e.kind,
 					e.occurred_at,
 					e.to_status,
@@ -2826,6 +3144,7 @@ export class AdminAnalyticsRepository {
 			subscription_created_events as (
 				select distinct on (e.stripe_subscription_id)
 					e.stripe_subscription_id,
+					e.provider,
 					e.owner_id,
 					e.occurred_at as created_at,
 					e.to_lookup_key as created_lookup_key,
@@ -2839,6 +3158,7 @@ export class AdminAnalyticsRepository {
 			subscription_event_owners as (
 				select distinct on (e.stripe_subscription_id)
 					e.stripe_subscription_id,
+					e.provider,
 					e.owner_id
 				from resolved_retention_events e
 				order by
@@ -2859,6 +3179,7 @@ export class AdminAnalyticsRepository {
 			retention_subscriptions as (
 				select
 					i.stripe_subscription_id,
+					coalesce(s.provider, o.provider, c.provider) as provider,
 					coalesce(o.owner_id, s.organization_id, s.user_id) as owner_id,
 					c.created_at,
 					c.created_lookup_key,
@@ -2918,6 +3239,7 @@ export class AdminAnalyticsRepository {
 					b.cohort_month,
 					b.month_index,
 					s.stripe_subscription_id,
+					s.provider,
 					case
 						when ended.id is not null then 'ended'
 						else coalesce(history_status.to_status, s.current_status)
@@ -2980,6 +3302,8 @@ export class AdminAnalyticsRepository {
 					count(h.stripe_subscription_id)::bigint as live_subscriptions
 				from boundary_subscription_history h
 				where h.effective_status in (${liveSubscriptionStatusList()})
+					-- Manual prices are negotiated offline; catalog USD would inflate MRR.
+					and h.provider = 'stripe'
 				group by h.cohort_month, h.month_index, h.effective_lookup_key
 			),
 			retention_point_grid as (
@@ -3059,6 +3383,13 @@ export class AdminAnalyticsRepository {
 					e.id as ended_state_event_id,
 					e.stripe_subscription_id,
 					coalesce(
+						s.provider,
+						case
+							when e.stripe_event_id like 'manual:%' then 'manual'
+							else 'stripe'
+						end
+					) as provider,
+					coalesce(
 						e.organization_id,
 						s.organization_id,
 						e.user_id,
@@ -3112,6 +3443,7 @@ export class AdminAnalyticsRepository {
 				select
 					e.ended_state_event_id,
 					e.stripe_subscription_id,
+					e.provider,
 					e.owner_id,
 					e.organization_id,
 					e.user_id,
@@ -3136,6 +3468,7 @@ export class AdminAnalyticsRepository {
 			churn_plan_rows as (
 				select
 					c.owner_id,
+					c.provider,
 					c.price_lookup_key,
 					${churnPlanExpression(sql`c.price_lookup_key`)} as plan
 				from churned_ended_subscriptions c
@@ -3151,6 +3484,8 @@ export class AdminAnalyticsRepository {
 					p.price_lookup_key,
 					count(*)::bigint as subscriptions
 				from churn_plan_rows p
+				-- Manual prices are negotiated offline; catalog USD would inflate MRR.
+				where p.provider = 'stripe'
 				group by p.plan, p.price_lookup_key
 			),
 			churn_attribution_users as (
@@ -3259,12 +3594,12 @@ export class AdminAnalyticsRepository {
 			breakdown_rows as (
 				select
 					'plan'::text as row_kind,
-					p.plan as dimension,
+					o.plan as dimension,
 					o.churned,
 					p.price_lookup_key,
-					p.subscriptions
-				from churn_plan_subscriptions p
-				inner join churn_plan_owners o on o.plan = p.plan
+					coalesce(p.subscriptions, 0)::bigint as subscriptions
+				from churn_plan_owners o
+				left join churn_plan_subscriptions p on p.plan = o.plan
 				union all
 				select 'source', s.source, s.churned, null::text, 0::bigint
 				from churn_source_totals s
@@ -3696,6 +4031,9 @@ export class AdminAnalyticsRepository {
 				where s.created_at < b.snapshot_end
 					and s.status in (${liveSubscriptionStatusList()})
 			),
+			-- Refund grants sit on their consume's day (consumptionEffectiveAt):
+			-- created_at >= range_start keeps the index usable because a refund
+			-- never precedes its consume.
 			ledger_range as (
 				select
 					coalesce(c.organization_id, c.user_id) as owner_id,
@@ -3705,7 +4043,8 @@ export class AdminAnalyticsRepository {
 				from credit_ledger c
 				cross join bounds b
 				where c.created_at >= b.range_start
-					and c.created_at < b.range_end
+					and ${consumptionEffectiveAt("c")} >= b.range_start
+					and ${consumptionEffectiveAt("c")} < b.range_end
 			),
 			range_owners as (
 				select distinct coalesce(e.organization_id, e.user_id) as owner_id
@@ -3719,7 +4058,7 @@ export class AdminAnalyticsRepository {
 				where ${netConsumptionPredicate("l")}
 			),
 			owner_consumption as (
-				select l.owner_id, sum(-l.delta)::bigint as consumed
+				select l.owner_id, greatest(0, sum(-l.delta))::bigint as consumed
 				from ledger_range l
 				where ${netConsumptionPredicate("l")}
 				group by l.owner_id
@@ -3737,15 +4076,32 @@ export class AdminAnalyticsRepository {
 			ledger_totals as (
 				select
 					coalesce(sum(l.delta) filter (where ${nonRefundGrantPredicate("l")}), 0)::bigint as granted,
-					coalesce(sum(-l.delta) filter (where ${netConsumptionPredicate("l")}), 0)::bigint as consumed
+					greatest(0, coalesce(sum(-l.delta) filter (where ${netConsumptionPredicate("l")}), 0))::bigint as consumed
 				from ledger_range l
 			),
-			provider_cost as (
-				select coalesce(sum(e.reconciled_cost_usd_micros), 0)::bigint as cost_micros
+			-- Best-known cost per spend event (reconciled, else settle snapshot,
+			-- else estimate) with its provenance, and whether the customer was
+			-- debited for it: historical bundled helper calls carry real provider
+			-- cost against zero charge.
+			spend_events as (
+				select
+					${aiUsageEventCostUsdMicros} as cost_micros,
+					${aiUsageEventCostProvenance} as provenance,
+					${billableUsageEventPredicate("e")} as billable
 				from ai_usage_events e
 				cross join bounds b
 				where e.created_at >= b.range_start
 					and e.created_at < b.range_end
+					and e.status in (${aiSpendStatusList()})
+			),
+			provider_cost as (
+				select
+					coalesce(sum(s.cost_micros), 0)::bigint as total_micros,
+					coalesce(sum(s.cost_micros) filter (where s.billable), 0)::bigint as billable_micros,
+					coalesce(sum(s.cost_micros) filter (where s.provenance = 'measured'), 0)::bigint as measured_micros,
+					coalesce(sum(s.cost_micros) filter (where s.provenance = 'contract'), 0)::bigint as contract_micros,
+					coalesce(sum(s.cost_micros) filter (where s.provenance = 'estimate'), 0)::bigint as estimate_micros
+				from spend_events s
 			)
 			select
 				l.granted as granted_in_range,
@@ -3754,7 +4110,11 @@ export class AdminAnalyticsRepository {
 				c.free_owners as free_owners_in_range,
 				c.paid_consumed as paid_consumed_in_range,
 				c.paid_owners as paid_owners_in_range,
-				p.cost_micros as provider_cost_micros
+				p.total_micros as provider_cost_micros,
+				p.billable_micros as billable_provider_cost_micros,
+				p.measured_micros as measured_provider_cost_micros,
+				p.contract_micros as contract_provider_cost_micros,
+				p.estimate_micros as estimate_provider_cost_micros
 			from ledger_totals l
 			cross join consumption_totals c
 			cross join provider_cost p
@@ -3770,6 +4130,12 @@ export class AdminAnalyticsRepository {
 			paidConsumedInRange: toNumber(row?.paid_consumed_in_range),
 			paidOwnersInRange: toNumber(row?.paid_owners_in_range),
 			providerCostMicros: toNumber(row?.provider_cost_micros),
+			billableProviderCostMicros: toNumber(row?.billable_provider_cost_micros),
+			providerCostByProvenanceMicros: {
+				measured: toNumber(row?.measured_provider_cost_micros),
+				contract: toNumber(row?.contract_provider_cost_micros),
+				estimate: toNumber(row?.estimate_provider_cost_micros),
+			},
 		};
 	}
 
@@ -3790,7 +4156,7 @@ export class AdminAnalyticsRepository {
 				select
 					coalesce(c.organization_id, c.user_id) as owner_id,
 					sum(c.delta)::bigint as balance,
-					coalesce(sum(-c.delta) filter (where ${netConsumptionPredicate("c")}), 0)::bigint as consumed
+					greatest(0, coalesce(sum(-c.delta) filter (where ${netConsumptionPredicate("c")}), 0))::bigint as consumed
 				from credit_ledger c
 				cross join bounds b
 				where c.created_at < b.snapshot_end
@@ -3877,13 +4243,14 @@ export class AdminAnalyticsRepository {
 			consumption as (
 				select
 					u.user_id,
-					coalesce(sum(-c.delta), 0)::bigint as consumed
+					greatest(0, coalesce(sum(-c.delta), 0))::bigint as consumed
 				from converted_users u
 				left join credit_ledger c
 					on c.user_id = u.user_id
+					and c.organization_id is null
 					and ${netConsumptionPredicate("c")}
 					and c.created_at >= u.created_at
-					and c.created_at < u.first_subscription_at
+					and ${consumptionEffectiveAt("c")} < u.first_subscription_at
 				group by u.user_id
 			)
 			select
@@ -4017,10 +4384,10 @@ export class AdminAnalyticsRepository {
 			owner_consumption as (
 				select
 					coalesce(c.organization_id, c.user_id) as owner_id,
-					coalesce(
+					greatest(0, coalesce(
 						sum(-c.delta) filter (where ${netConsumptionPredicate("c")}),
 						0
-					)::bigint as consumed
+					))::bigint as consumed
 				from credit_ledger c
 				cross join bounds b
 				where c.created_at < b.snapshot_end
@@ -4270,6 +4637,48 @@ const READ_ONLY_TRANSACTION = {
 	isolationLevel: "repeatable read" as const,
 };
 
+const FUNNEL_STEP_EVENT_QUERIES: Record<AdminAnalyticsFunnelUserStep, SQL> = {
+	pricingViewed: sql`
+		select
+			e.user_id,
+			min(e.created_at) as first_event_at,
+			max(e.created_at) as last_event_at,
+			count(*)::bigint as event_count
+		from signup_cohort c
+		inner join product_events e
+			on e.user_id = c.user_id and e.kind = 'pricing_viewed'
+		cross join bounds b
+		where e.created_at < b.snapshot_end
+		group by e.user_id
+	`,
+	upgradeClicked: sql`
+		select
+			e.user_id,
+			min(e.created_at) as first_event_at,
+			max(e.created_at) as last_event_at,
+			count(*)::bigint as event_count
+		from signup_cohort c
+		inner join product_events e
+			on e.user_id = c.user_id and e.kind = 'upgrade_clicked'
+		cross join bounds b
+		where e.created_at < b.snapshot_end
+		group by e.user_id
+	`,
+	checkoutStarted: sql`
+		select
+			a.user_id,
+			min(a.created_at) as first_event_at,
+			max(a.created_at) as last_event_at,
+			count(*)::bigint as event_count
+		from signup_cohort c
+		inner join billing_checkout_attempts a
+			on a.user_id = c.user_id and a.purpose = 'subscription'
+		cross join bounds b
+		where a.created_at < b.snapshot_end
+		group by a.user_id
+	`,
+};
+
 const SEARCH_REFERRER_PATTERN =
 	"^https?://([^/?#@]+\\.)?(google|bing|duckduckgo|yahoo)\\.[^/:?#]+([/:?#]|$)";
 
@@ -4303,6 +4712,25 @@ function refundGrantPredicate(alias: string): SQL {
 function netConsumptionPredicate(alias: string): SQL {
 	return sql`(${qualifiedColumn(alias, "kind")} = 'consume'
 		or ${refundGrantPredicate(alias)})`;
+}
+
+// A metering refund grant belongs to the DAY OF ITS CONSUME, not the day the
+// refund landed: netting it into a later range made that range's consumption
+// negative (and the contract rejects negative consumption). Refund keys carry
+// the usage event in meta.usageEventId; when the join fails the row keeps its
+// own timestamp and the per-range sum is clamped with greatest(0, ...).
+function consumptionEffectiveAt(alias: string): SQL {
+	const createdAt = qualifiedColumn(alias, "created_at");
+	const meta = qualifiedColumn(alias, "meta");
+
+	return sql`(case
+		when ${refundGrantPredicate(alias)} then coalesce(
+			(select e.created_at from ai_usage_events e
+				where e.id::text = ${meta} ->> 'usageEventId'),
+			${createdAt}
+		)
+		else ${createdAt}
+	end)`;
 }
 
 function nonRefundGrantPredicate(alias: string): SQL {
@@ -4450,6 +4878,21 @@ function liveSubscriptionStatusList() {
 		LIVE_SUBSCRIPTION_STATUSES.map((status) => sql`${status}`),
 		sql`, `,
 	);
+}
+
+// Historical bundled helper calls (customerBilling 'bundled_unmetered' or
+// its '_legacy' successor on the gateway reconciliation snapshot) debited
+// nothing; every event that debited credits, or carries no bundled marker,
+// is billable.
+function billableUsageEventPredicate(alias: string): SQL {
+	const finalCredits = qualifiedColumn(alias, "final_credits");
+	const snapshot = qualifiedColumn(alias, "pricing_snapshot");
+
+	return sql`(coalesce(${finalCredits}, 0) > 0
+		or not coalesce(jsonb_path_exists(
+			${snapshot},
+			'$.gatewayReconciliation.generations[*] ? (@.customerBilling like_regex "^bundled_unmetered")'
+		), false))`;
 }
 
 function aiSpendStatusList() {

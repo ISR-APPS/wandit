@@ -34,6 +34,7 @@ import { PagesModule } from "./modules/pages/pages.module";
 import { ProductEventsModule } from "./modules/product-events/product-events.module";
 import { ProjectAssetsModule } from "./modules/project-assets/project-assets.module";
 import { ProjectsModule } from "./modules/projects/projects.module";
+import { PushNotificationsModule } from "./modules/push-notifications/push-notifications.module";
 import { SitesModule } from "./modules/sites/sites.module";
 import { StorageModule } from "./modules/storage/storage.module";
 import { StoryLinksModule } from "./modules/story-links/story-links.module";
@@ -71,6 +72,7 @@ import { WorkspacesModule } from "./modules/workspaces/workspaces.module";
 		ProjectAssetsModule,
 		PagesModule,
 		SitesModule,
+		PushNotificationsModule,
 		LeadsModule,
 		LeadScrapesModule,
 		MarketingAssetsModule,

@@ -15,6 +15,8 @@ function settings(overrides: Partial<ProductSettings> = {}): ProductSettings {
 	return {
 		emailAuthEnabled: false,
 		id: 1,
+		manualGraceDays: 0,
+		manualPaymentsEnabled: false,
 		organizationsEnabled: false,
 		paidSubscriptionsEnabled: false,
 		signupGrantCredits: 20,
@@ -92,6 +94,50 @@ class InMemorySignupGrantOutboxRepository {
 		row.lastError = error;
 	}
 
+	usersWithoutRow: string[] = [];
+
+	async findUsersWithoutOutboxRow(input: { limit: number }) {
+		return this.usersWithoutRow
+			.filter((userId) => !this.rows.has(userId))
+			.slice(0, input.limit);
+	}
+
+	async countSkipped(createdAfter?: Date) {
+		return [...this.rows.values()].filter(
+			(row) =>
+				row.status === "skipped" &&
+				(createdAfter === undefined || row.createdAt > createdAfter),
+		).length;
+	}
+
+	async requeueSkipped(input: {
+		createdAfter?: Date;
+		credits: number;
+		limit: number;
+		settingsVersion: number;
+	}) {
+		let requeued = 0;
+
+		for (const row of this.rows.values()) {
+			if (
+				row.status !== "skipped" ||
+				(input.createdAfter !== undefined &&
+					row.createdAt <= input.createdAfter) ||
+				requeued >= input.limit
+			) {
+				continue;
+			}
+
+			row.status = "pending";
+			row.credits = input.credits;
+			row.settingsVersion = input.settingsVersion;
+			row.lastError = null;
+			requeued += 1;
+		}
+
+		return requeued;
+	}
+
 	private expectRow(userId: string) {
 		const row = this.rows.get(userId);
 
@@ -140,13 +186,14 @@ function setup(
 ) {
 	const repository = new InMemorySignupGrantOutboxRepository();
 	const credits = new InMemorySignupCreditsService(input.creditsFailures);
-	const outbox = new SignupGrantOutboxService(
-		repository as unknown as SignupGrantOutboxRepository,
-		credits as unknown as CreditsService,
-	);
 	const settingsService = {
 		get: vi.fn(async () => input.settings ?? settings()),
 	} as unknown as ProductSettingsService;
+	const outbox = new SignupGrantOutboxService(
+		repository as unknown as SignupGrantOutboxRepository,
+		credits as unknown as CreditsService,
+		settingsService,
+	);
 	const signup = new SignupGrantsService(
 		settingsService,
 		outbox,
@@ -261,14 +308,17 @@ describe("signup grant outbox", () => {
 		await expect(outbox.sweep("user_1")).resolves.toEqual({
 			done: 0,
 			failed: 1,
+			healed: 0,
 		});
 		await expect(outbox.sweep("user_1")).resolves.toEqual({
 			done: 1,
 			failed: 0,
+			healed: 0,
 		});
 		await expect(outbox.sweep("user_1")).resolves.toEqual({
 			done: 0,
 			failed: 0,
+			healed: 0,
 		});
 
 		expect(credits.ledger).toEqual(
@@ -289,5 +339,91 @@ describe("signup grant outbox", () => {
 
 		expect(repository.rows.get("user_1")).toMatchObject({ status: "skipped" });
 		expect(credits.grantSignupCredits).not.toHaveBeenCalled();
+	});
+
+	it("self-heals missing outbox rows on the scheduled sweep, then drains them", async () => {
+		const { credits, outbox, repository } = setup();
+		repository.usersWithoutRow = ["user_lost", "user_lost_2"];
+
+		await expect(outbox.sweep()).resolves.toEqual({
+			done: 2,
+			failed: 0,
+			healed: 2,
+		});
+		expect(repository.rows.get("user_lost")).toMatchObject({
+			credits: 20,
+			settingsVersion: 1,
+			status: "done",
+		});
+		expect(credits.grantSignupCredits).toHaveBeenCalledTimes(2);
+
+		// Healing is idempotent: the rows exist now.
+		await expect(outbox.sweep()).resolves.toEqual({
+			done: 0,
+			failed: 0,
+			healed: 0,
+		});
+	});
+
+	it("requeues skipped rows with the current grant size only on an explicit non-dry backfill", async () => {
+		const { credits, repository, signup } = setup({
+			settings: settings({ signupGrantEnabled: false, version: 3 }),
+		});
+		await signup.handleUserCreated("user_skipped");
+		expect(repository.rows.get("user_skipped")).toMatchObject({
+			status: "skipped",
+		});
+
+		const enabled = setup({
+			settings: settings({ signupGrantCredits: 50, version: 4 }),
+		});
+		enabled.repository.rows.set(
+			"user_skipped",
+			repository.rows.get("user_skipped") as SignupGrantOutboxRow,
+		);
+
+		await expect(
+			enabled.outbox.backfillSkipped({ dryRun: true }),
+		).resolves.toEqual({ requeued: 0, skipped: 1 });
+		expect(enabled.repository.rows.get("user_skipped")).toMatchObject({
+			credits: 20,
+			settingsVersion: 3,
+			status: "skipped",
+		});
+
+		await expect(
+			enabled.outbox.backfillSkipped({
+				createdAfter: new Date("2026-08-02T00:00:00.000Z"),
+				dryRun: false,
+			}),
+		).resolves.toEqual({ requeued: 0, skipped: 0 });
+
+		await expect(
+			enabled.outbox.backfillSkipped({ dryRun: false }),
+		).resolves.toEqual({ requeued: 1, skipped: 1 });
+		expect(enabled.repository.rows.get("user_skipped")).toMatchObject({
+			credits: 50,
+			settingsVersion: 4,
+			status: "pending",
+		});
+		expect(credits.grantSignupCredits).not.toHaveBeenCalled();
+
+		await enabled.outbox.sweep();
+		expect(enabled.credits.grantSignupCredits).toHaveBeenCalledWith(
+			"user_skipped",
+			50,
+		);
+	});
+
+	it("refuses a live backfill while the signup grant is disabled", async () => {
+		const { outbox, repository, signup } = setup({
+			settings: settings({ signupGrantEnabled: false }),
+		});
+		await signup.handleUserCreated("user_skipped");
+		expect(repository.rows.get("user_skipped")?.status).toBe("skipped");
+
+		await expect(outbox.backfillSkipped({ dryRun: false })).rejects.toThrow(
+			"requires the signup grant to be enabled",
+		);
 	});
 });

@@ -28,7 +28,7 @@ must be 0 at first prod deploy of this branch; otherwise the grandfathering appe
 | Constant | Value |
 |---|---|
 | Retail credit value | $0.10/credit (base tier anchor: 250 credits = $25) |
-| Metering conversion `usdPerCredit` | $0.028/credit (config: $7 of AI value per 250-credit base tier) |
+| Metering conversion `usdPerCredit` | $0.04/credit (pricing v5: 1 credit = $0.04 of AI-provider cost) |
 | Debit formula (token-metered) | `max(1, ceil(rawUsd / usdPerCredit))` — min-1 is deliberate Lovable-style pricing |
 | Signup grant | 50 credits, configurable, `promo` bucket |
 
@@ -351,6 +351,42 @@ remote subscription mirror.
 - Admin API + UI per §8; program-level terms (mock's per-code rate/window dies), payout methods
   manual|paypal|wise, statuses map to active+expiresAt, synthetic mock fields dropped.
 
+### 6.1 Affiliate portal — self-serve view in the web app (2026-08-20)
+
+- **Switch**: `affiliates.userId` (nullable UNIQUE FK → `user`). No new Better Auth role and no
+  user flag: a role would collide with the admin plugin's single `role` column and a flag would
+  duplicate the link. The admin links/unlinks an account from the affiliate editor (search by
+  name/email, exact-email suggestion on create, "Unlink"); the server validates the user exists
+  (404 `Linked user not found`), keeps the `affiliates_userId_uq` 23505 → 409 path, and re-runs
+  the self-referral recheck inside `mutateAndRecheckAffiliate`. `AffiliateDetail` now carries
+  `linkedUser {id,name,email} | null` so the admin sees who has portal access.
+- **API (user-scoped, global AuthGuard, never a client-supplied affiliate id)** —
+  `AffiliatePortalController` at `apps/server/src/modules/affiliates/presentation/http/controllers`:
+  - `GET /api/v1/affiliates/me` → `{ affiliate: {id,name,email,status,payoutMethod,createdAt} | null }`
+    (200 + `null` for non-affiliates, so clients cache "not a partner" as data).
+  - `GET /api/v1/affiliates/me/overview` → profile + `affiliatePortalAggregateSchema` (clicks, unique
+    visitors, signups, paying customers, paid invoices, last conversion, per-currency revenue /
+    pending / approved / paid / balance) + links with FULL program terms (`affiliateProgramSchema`).
+  - `GET /api/v1/affiliates/me/referrals|commissions|payouts` (paginated, 404 when not linked).
+  - Privacy by construction: referred users are exposed only as `maskedEmail`
+    (`domain/affiliate-privacy.ts`: `j***@domain`), no user ids/names, no Stripe ids, no admin
+    notes, no `payoutDetails`, no fraud flags; every portal schema is `.strict()` and the service
+    spec parses each payload against the contract. Reads reuse `AffiliateAdminRepository`
+    (`getAffiliate`, `listAllLinks`, `listAttributions`, `listCommissions`, `listPayouts`) filtered
+    by the caller's affiliate id; DTO mappers live in `application/mappers/affiliate-dto.mappers.ts`.
+  - Paused affiliates keep read-only access (their links stop capturing clicks — see click
+    service); the portal shows a paused notice.
+- **Web** (`apps/web/src/features/affiliates`): `useAffiliatePortalMeQuery` (user-level key,
+  5-minute staleTime) gates an extra sidebar group "Affiliate program → Affiliates"
+  (`AFFILIATE_NAV_GROUP` in `nav-config.ts`, rendered by `app-sidebar.tsx` only when
+  `affiliate !== null`). Route `/affiliates` → `affiliate-portal-page.tsx`: header + status, paused
+  notice, stat cards, per-currency summary, tabs Links (share URL =
+  `${origin}${landingPath}?ref=CODE`, copy) / Referrals / Commissions / Payouts with pagination and
+  status filters. Non-partners get an empty state. i18n namespace `affiliates` (en/fr/ar).
+- **Admin** (`apps/admin/src/features/affiliates`): `portal-access-control.tsx` user picker
+  (debounced `GET /api/v1/admin/users?q=`), "Portal access: On/Off" badges in the detail sheet and a
+  table icon in the affiliates list.
+
 ## 7. Web app
 
 - Kill the localStorage mock ledger; chip/ledger/affordability from real endpoints; invalidate
@@ -363,7 +399,8 @@ remote subscription mirror.
   slider → tier dropdown, dictionary-driven).
 - 402 anywhere (typed details / `data-billing-error` part) → upgrade modal; top-up buttons
   enabled (gated by `topupsEnabled`).
-- Referral capture in root route (§6.1).
+- Referral capture in root route (§6).
+- Affiliate portal page + conditional sidebar group (§6.1).
 - **i18n mandatory**: all new strings in en/fr/ar typed dictionaries; RTL-safe layout.
 - **Native (minimal)**: wire chip to real balance + invalidate on 402; 402 copy via
   `native.json`; legacy chat path already maps 402s; new SSE part safely ignored; NO purchases
@@ -376,7 +413,8 @@ remote subscription mirror.
   pagination inside `data` (client discards `meta`).
 - Users: beta-enroll action; promo bucket visible in balances.
 - Affiliates: programs CRUD (new surface), affiliates/links wiring to real API, attributed
-  users, commission ledger with statuses, payout builder, real CSV export.
+  users, commission ledger with statuses, payout builder, real CSV export, portal access
+  (link/unlink a user account by email — §6.1).
 - Webhook replay: audited admin action (§4.2).
 
 ## 9. Implementation packages (codex gpt-5.6-sol ultra, sequential)

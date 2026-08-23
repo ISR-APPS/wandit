@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { paginationQuerySchema } from "../http/pagination";
 import { adminOverviewQuerySchema, adminOverviewRangeSchema } from "./admin";
 import {
 	billingIntervalSchema,
@@ -85,6 +86,7 @@ export const adminAnalyticsCollectedRevenuePointSchema = z.object({
 	date: z.iso.date(),
 	subscriptionsMinor: z.int().nonnegative(),
 	ordersMinor: z.int().nonnegative(),
+	topupsMinor: z.int().nonnegative(),
 });
 
 export type AdminAnalyticsCollectedRevenuePoint = z.infer<
@@ -169,6 +171,10 @@ export type AdminAnalyticsNetRevenue = z.infer<
 // contribute zero cost, so the margin can only overstate on those.
 export const adminAnalyticsRevenueBySourceSchema = z.object({
 	subscriptionsCents: z.int().nonnegative(),
+	// Top-up packs (billing_topup_receipts). Receipts were backfilled from the
+	// ledger with catalog prices; the oldest rows without a pack id are
+	// missing, so this can only understate for them.
+	topupsCents: z.int().nonnegative(),
 	domainsCents: z.int().nonnegative(),
 	domainOrders: z.int().nonnegative(),
 	domainCostCents: z.int().nonnegative(),
@@ -453,6 +459,20 @@ export type AdminAnalyticsFunnelStepKey = z.infer<
 	typeof adminAnalyticsFunnelStepKeySchema
 >;
 
+export const adminAnalyticsFunnelUserStepKeys = [
+	"pricingViewed",
+	"upgradeClicked",
+	"checkoutStarted",
+] as const;
+
+export const adminAnalyticsFunnelUserStepSchema = z.enum(
+	adminAnalyticsFunnelUserStepKeys,
+);
+
+export type AdminAnalyticsFunnelUserStep = z.infer<
+	typeof adminAnalyticsFunnelUserStepSchema
+>;
+
 export const adminAnalyticsFunnelStepSchema = z.object({
 	key: adminAnalyticsFunnelStepKeySchema,
 	count: z.int().nonnegative().nullable(),
@@ -490,6 +510,97 @@ export const adminAnalyticsFunnelResponseSchema = z.object({
 
 export type AdminAnalyticsFunnelResponse = z.infer<
 	typeof adminAnalyticsFunnelResponseSchema
+>;
+
+export const adminAnalyticsFunnelContactSchema = z.object({
+	contactedAt: isoDateTimeSchema,
+	contactedBy: z.object({
+		id: z.string(),
+		name: z.string(),
+	}),
+});
+
+export type AdminAnalyticsFunnelContact = z.infer<
+	typeof adminAnalyticsFunnelContactSchema
+>;
+
+export const adminAnalyticsFunnelStepUserSchema = z.object({
+	id: z.string(),
+	name: z.string(),
+	email: z.string(),
+	image: z.string().nullable(),
+	signedUpAt: isoDateTimeSchema,
+	firstEventAt: isoDateTimeSchema,
+	lastEventAt: isoDateTimeSchema,
+	eventCount: z.int().positive(),
+	converted: z.boolean(),
+	contact: adminAnalyticsFunnelContactSchema.nullable(),
+});
+
+export type AdminAnalyticsFunnelStepUser = z.infer<
+	typeof adminAnalyticsFunnelStepUserSchema
+>;
+
+export const adminAnalyticsFunnelStepUsersContactedSchema = z
+	.enum(["all", "contacted", "notContacted"])
+	.default("all");
+
+export type AdminAnalyticsFunnelStepUsersContacted = z.infer<
+	typeof adminAnalyticsFunnelStepUsersContactedSchema
+>;
+
+export const adminAnalyticsFunnelStepUsersQuerySchema =
+	adminAnalyticsQuerySchema.safeExtend({
+		...paginationQuerySchema.shape,
+		contacted: adminAnalyticsFunnelStepUsersContactedSchema,
+	});
+
+export type AdminAnalyticsFunnelStepUsersQuery = z.infer<
+	typeof adminAnalyticsFunnelStepUsersQuerySchema
+>;
+
+export const adminAnalyticsFunnelStepUsersExportQuerySchema =
+	adminAnalyticsQuerySchema.safeExtend({
+		contacted: adminAnalyticsFunnelStepUsersContactedSchema,
+	});
+
+export type AdminAnalyticsFunnelStepUsersExportQuery = z.infer<
+	typeof adminAnalyticsFunnelStepUsersExportQuerySchema
+>;
+
+export const adminAnalyticsFunnelStepUsersResponseSchema = z.object({
+	updatedAt: isoDateTimeSchema,
+	step: adminAnalyticsFunnelUserStepSchema,
+	page: z.int().min(1),
+	pageSize: z.int().min(1),
+	total: z.int().nonnegative(),
+	counts: z.object({
+		all: z.int().nonnegative(),
+		contacted: z.int().nonnegative(),
+		converted: z.int().nonnegative(),
+	}),
+	items: z.array(adminAnalyticsFunnelStepUserSchema),
+});
+
+export type AdminAnalyticsFunnelStepUsersResponse = z.infer<
+	typeof adminAnalyticsFunnelStepUsersResponseSchema
+>;
+
+export const adminAnalyticsFunnelContactInputSchema = z.object({
+	contacted: z.boolean(),
+});
+
+export type AdminAnalyticsFunnelContactInput = z.infer<
+	typeof adminAnalyticsFunnelContactInputSchema
+>;
+
+export const adminAnalyticsFunnelContactResponseSchema = z.object({
+	userId: z.string(),
+	contact: adminAnalyticsFunnelContactSchema.nullable(),
+});
+
+export type AdminAnalyticsFunnelContactResponse = z.infer<
+	typeof adminAnalyticsFunnelContactResponseSchema
 >;
 
 export const adminAnalyticsActivitySchema = z.object({
@@ -606,7 +717,20 @@ export const adminAnalyticsCreditsSchema = z.object({
 	consumptionBuckets: z.array(adminAnalyticsConsumptionBucketPointSchema),
 	usersAtZeroBalance: z.int().nonnegative(),
 	avgCreditsBeforeUpgrade: z.number().nonnegative(),
+	// Billable provider spend per debited credit.
 	providerCostPerCreditMicros: z.number().nonnegative(),
+	// All best-known provider spend in range (reconciled, else settle-time
+	// snapshot, else estimate) vs the part the customer was debited for —
+	// historical bundled helper calls cost money against zero charge.
+	totalProviderCostMicros: z.number().nonnegative(),
+	billableProviderCostMicros: z.number().nonnegative(),
+	// How much of totalProviderCostMicros is measured (gateway-reconciled),
+	// contract (settle-time catalog snapshot) or still an estimate.
+	providerCostByProvenanceMicros: z.object({
+		measured: z.number().nonnegative(),
+		contract: z.number().nonnegative(),
+		estimate: z.number().nonnegative(),
+	}),
 });
 
 export type AdminAnalyticsCredits = z.infer<typeof adminAnalyticsCreditsSchema>;
@@ -737,6 +861,12 @@ export const adminAnalyticsRoutes = {
 	revenue: `${adminAnalyticsRoot}/revenue`,
 	acquisition: `${adminAnalyticsRoot}/acquisition`,
 	funnel: `${adminAnalyticsRoot}/funnel`,
+	funnelStepUsers: (step: string) =>
+		`${adminAnalyticsRoot}/funnel/steps/${step}/users`,
+	funnelStepUsersExport: (step: string) =>
+		`${adminAnalyticsRoot}/funnel/steps/${step}/users/export`,
+	funnelContact: (userId: string) =>
+		`${adminAnalyticsRoot}/funnel/contacts/${userId}`,
 	engagement: `${adminAnalyticsRoot}/engagement`,
 	features: `${adminAnalyticsRoot}/features`,
 	health: `${adminAnalyticsRoot}/health`,

@@ -20,6 +20,11 @@ const { uploadAttachmentMock } = vi.hoisted(() => ({
 
 vi.mock("@/features/projects", () => ({
 	ATTACHMENT_MAX_BYTES: 15 * 1024 * 1024,
+	attachmentMaxBytesFor: (mediaType: string) => {
+		if (mediaType.startsWith("video/")) return 50 * 1024 * 1024;
+		if (mediaType.startsWith("audio/")) return 25 * 1024 * 1024;
+		return 15 * 1024 * 1024;
+	},
 	uploadAttachment: uploadAttachmentMock,
 }));
 
@@ -214,6 +219,140 @@ describe("withAnswerFiles", () => {
 });
 
 describe("useRequestTray", () => {
+	it("derives video and audio accepts from attachment categories", async () => {
+		uploadAttachmentMock.mockImplementation(async (file: File) => ({
+			url: `https://cdn.example.com/${file.name}`,
+			key: `uploads/${file.name}`,
+			mediaType: file.type,
+			filename: file.name,
+			size: file.size,
+		}));
+		const tray = await renderTrayHook({
+			messages: assistantMessages([
+				askPart("ask-media", {
+					question: "Attach a reference clip and soundtrack",
+					kind: "attachments",
+					accept: ["video", "audio"],
+					maxFiles: 3,
+					options: [],
+				}),
+			]),
+			composerText: "",
+			onAnswer: vi.fn(),
+		});
+
+		const body = tray.result.state?.body;
+		expect(body?.kind).toBe("media-drop");
+		if (body?.kind !== "media-drop") {
+			throw new Error("Expected attachment tray");
+		}
+		expect(body.accept).toBe("video/*,audio/*");
+
+		const video = new File(["video"], "reference.mp4", {
+			type: "video/mp4",
+		});
+		const audio = new File(["audio"], "soundtrack.mp3", {
+			type: "audio/mpeg",
+		});
+		const document = new File(["pdf"], "brief.pdf", {
+			type: "application/pdf",
+		});
+		await act(async () => {
+			tray.result.onBrowseFiles([
+				video,
+				audio,
+				document,
+			] as unknown as FileList);
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+
+		expect(uploadAttachmentMock).toHaveBeenCalledTimes(2);
+		expect(uploadAttachmentMock.mock.calls.map(([file]) => file)).toEqual([
+			video,
+			audio,
+		]);
+	});
+
+	it("uses exact MIME narrowing for a video and audio attachment ask", async () => {
+		const tray = await renderTrayHook({
+			messages: assistantMessages([
+				askPart("ask-narrow-media", {
+					question: "Attach MP4 or MP3 media",
+					kind: "attachments",
+					accept: ["video", "audio"],
+					mediaTypes: ["video/mp4", "audio/mpeg"],
+					options: [],
+				}),
+			]),
+			composerText: "",
+			onAnswer: vi.fn(),
+		});
+
+		const body = tray.result.state?.body;
+		expect(body?.kind).toBe("media-drop");
+		if (body?.kind !== "media-drop") {
+			throw new Error("Expected attachment tray");
+		}
+		expect(body.accept).toBe("video/mp4,audio/mpeg");
+	});
+
+	it("uses category size caps for attachment ask uploads", async () => {
+		uploadAttachmentMock.mockResolvedValue(composerUpload());
+		const tray = await renderTrayHook({
+			messages: assistantMessages([
+				askPart("ask-sized-media", {
+					question: "Attach media or a document",
+					kind: "attachments",
+					accept: ["video", "audio", "document"],
+					maxFiles: 4,
+					options: [],
+				}),
+			]),
+			composerText: "",
+			onAnswer: vi.fn(),
+		});
+		const sizedFile = (name: string, type: string, size: number) => {
+			const file = new File(["fixture"], name, { type });
+			Object.defineProperty(file, "size", { value: size });
+			return file;
+		};
+		const acceptedVideo = sizedFile(
+			"reference.mp4",
+			"video/mp4",
+			50 * 1024 * 1024,
+		);
+		const rejectedVideo = sizedFile(
+			"oversize-reference.mp4",
+			"video/mp4",
+			50 * 1024 * 1024 + 1,
+		);
+		const rejectedAudio = sizedFile(
+			"soundtrack.mp3",
+			"audio/mpeg",
+			26 * 1024 * 1024,
+		);
+		const rejectedDocument = sizedFile(
+			"brief.pdf",
+			"application/pdf",
+			16 * 1024 * 1024,
+		);
+
+		await act(async () => {
+			tray.result.onBrowseFiles([
+				acceptedVideo,
+				rejectedVideo,
+				rejectedAudio,
+				rejectedDocument,
+			] as unknown as FileList);
+			await Promise.resolve();
+			await Promise.resolve();
+		});
+
+		expect(uploadAttachmentMock).toHaveBeenCalledOnce();
+		expect(uploadAttachmentMock).toHaveBeenCalledWith(acceptedVideo);
+	});
+
 	it("confirms free text with composer attachments", async () => {
 		const onAnswer =
 			vi.fn<(toolCallId: string, output: AskUserOutput) => void>();

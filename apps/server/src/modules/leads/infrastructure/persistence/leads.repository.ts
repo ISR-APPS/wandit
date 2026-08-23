@@ -17,6 +17,7 @@ import type {
 } from "@wandit/contracts";
 import {
 	and,
+	asc,
 	desc,
 	eq,
 	gt,
@@ -27,6 +28,7 @@ import {
 	type SQL,
 	sql,
 } from "@wandit/db";
+import { versions } from "@wandit/db/schema/artifacts";
 import { deployments } from "@wandit/db/schema/deployments";
 import { leads } from "@wandit/db/schema/leads";
 import { projects } from "@wandit/db/schema/projects";
@@ -52,6 +54,7 @@ export type LeadRow = {
 	id: string;
 	name: string;
 	phone: string;
+	productSku: string | null;
 	status: LeadStatus;
 	wilaya: string | null;
 };
@@ -65,6 +68,7 @@ const LEAD_COLUMNS = {
 	id: leads.id,
 	name: leads.name,
 	phone: leads.phone,
+	productSku: leads.productSku,
 	status: leads.status,
 	wilaya: leads.wilaya,
 } as const;
@@ -108,6 +112,28 @@ type LeadCursor = {
 	createdAt: string;
 	id: string;
 };
+
+type LeadSortDirection = "asc" | "desc";
+
+function buildLeadKeyset(direction: LeadSortDirection, cursor?: LeadCursor) {
+	const [order, compare] =
+		direction === "asc" ? ([asc, gt] as const) : ([desc, lt] as const);
+	const orderBy = [order(leads.createdAt), order(leads.id)] as const;
+
+	if (!cursor) {
+		return { afterCursor: undefined, orderBy };
+	}
+
+	const cursorCreatedAt = sql`${cursor.createdAt}::timestamptz`;
+
+	return {
+		afterCursor: or(
+			compare(leads.createdAt, cursorCreatedAt),
+			and(eq(leads.createdAt, cursorCreatedAt), compare(leads.id, cursor.id)),
+		),
+		orderBy,
+	};
+}
 
 export type LeadPageResult = {
 	nextCursor: string | null;
@@ -405,20 +431,52 @@ export class LeadsRepository {
 		return row ?? null;
 	}
 
-	/** Which live deployment captured the lead — null before publishing exists. */
-	async findActiveDeploymentId(projectId: string): Promise<string | null> {
+	/** Live deployment/version facts snapshotted onto a captured lead. */
+	async findActiveDeploymentSnapshot(projectId: string): Promise<{
+		deploymentId: string;
+		productSku: string | null;
+	} | null> {
+		return this.findDeploymentSnapshot(
+			projectId,
+			eq(deployments.status, "active"),
+		);
+	}
+
+	/**
+	 * No status filter: the unguessable id comes from injected page bytes, so any
+	 * deployment belonging to this project is an honest loaded-version claim.
+	 */
+	async findDeploymentSnapshotById(
+		projectId: string,
+		deploymentId: string,
+	): Promise<{
+		deploymentId: string;
+		productSku: string | null;
+	} | null> {
+		return this.findDeploymentSnapshot(
+			projectId,
+			eq(deployments.id, deploymentId),
+		);
+	}
+
+	private async findDeploymentSnapshot(
+		projectId: string,
+		extraCondition: SQL,
+	): Promise<{
+		deploymentId: string;
+		productSku: string | null;
+	} | null> {
 		const [row] = await this.db
-			.select({ id: deployments.id })
+			.select({
+				deploymentId: deployments.id,
+				productSku: versions.productSku,
+			})
 			.from(deployments)
-			.where(
-				and(
-					eq(deployments.projectId, projectId),
-					eq(deployments.status, "active"),
-				),
-			)
+			.innerJoin(versions, eq(versions.id, deployments.versionId))
+			.where(and(eq(deployments.projectId, projectId), extraCondition))
 			.limit(1);
 
-		return row?.id ?? null;
+		return row ?? null;
 	}
 
 	/**
@@ -427,7 +485,7 @@ export class LeadsRepository {
 	 * the clicks. A missing/deleted project reads as all-false.
 	 */
 	async getAdsTrackingFacts(projectId: string): Promise<AdsTrackingFacts> {
-		const [[project], activeDeploymentId] = await Promise.all([
+		const [[project], activeDeployment] = await Promise.all([
 			this.db
 				.select({
 					metaPixelId: projects.metaPixelId,
@@ -436,12 +494,12 @@ export class LeadsRepository {
 				.from(projects)
 				.where(and(eq(projects.id, projectId), isNull(projects.deletedAt)))
 				.limit(1),
-			this.findActiveDeploymentId(projectId),
+			this.findActiveDeploymentSnapshot(projectId),
 		]);
 
 		return {
 			metaPixelSet: Boolean(project?.metaPixelId?.trim()),
-			published: activeDeploymentId !== null,
+			published: activeDeployment !== null,
 			tiktokPixelSet: Boolean(project?.tiktokPixelId?.trim()),
 		};
 	}
@@ -460,38 +518,71 @@ export class LeadsRepository {
 		return buildLeadFunnelCountsQuery(this.db, projectId, options);
 	}
 
-	/** Double-submit guard: same phone on the same project since `since`. */
-	async hasRecentLeadWithPhone(
-		projectId: string,
-		phone: string,
+	/**
+	 * The capture window drops nothing: serialize each project/phone pair so
+	 * the newest honest submission always wins its row. Lifecycle fields and
+	 * createdAt belong to the first submission and are never replaced.
+	 * `created` is false for a window update so callers notify only once.
+	 */
+	async upsertCaptureLead(
+		input: {
+			attribution: Record<string, unknown> | null;
+			commune: string | null;
+			deploymentId: string | null;
+			extras: Record<string, unknown> | null;
+			name: string;
+			phone: string;
+			productSku: string | null;
+			projectId: string;
+			wilaya: string | null;
+		},
 		since: Date,
-	): Promise<boolean> {
-		const [row] = await this.db
-			.select({ id: leads.id })
-			.from(leads)
-			.where(
-				and(
-					eq(leads.projectId, projectId),
-					eq(leads.phone, phone),
-					gt(leads.createdAt, since),
-				),
-			)
-			.limit(1);
+	): Promise<{ created: boolean; id: string }> {
+		return this.db.transaction(async (tx) => {
+			await tx.execute(
+				sql`select pg_advisory_xact_lock(hashtextextended(${`${input.projectId}:${input.phone}`}, 0))`,
+			);
 
-		return Boolean(row);
-	}
+			const [recent] = await tx
+				.select({ id: leads.id })
+				.from(leads)
+				.where(
+					and(
+						eq(leads.projectId, input.projectId),
+						eq(leads.phone, input.phone),
+						gt(leads.createdAt, since),
+					),
+				)
+				.orderBy(desc(leads.createdAt), desc(leads.id))
+				.limit(1);
 
-	async insertLead(input: {
-		attribution: Record<string, unknown> | null;
-		commune: string | null;
-		deploymentId: string | null;
-		extras: Record<string, unknown> | null;
-		name: string;
-		phone: string;
-		projectId: string;
-		wilaya: string | null;
-	}): Promise<void> {
-		await this.db.insert(leads).values(input);
+			if (recent) {
+				await tx
+					.update(leads)
+					.set({
+						attribution: input.attribution,
+						commune: input.commune,
+						deploymentId: input.deploymentId,
+						extras: input.extras,
+						name: input.name,
+						productSku: input.productSku,
+						wilaya: input.wilaya,
+					})
+					.where(eq(leads.id, recent.id));
+				return { created: false, id: recent.id };
+			}
+
+			const [inserted] = await tx
+				.insert(leads)
+				.values(input)
+				.returning({ id: leads.id });
+
+			if (!inserted) {
+				throw new Error("Lead insert did not return a row");
+			}
+
+			return { created: true, id: inserted.id };
+		});
 	}
 
 	async listForProject(
@@ -544,12 +635,13 @@ export class LeadsRepository {
 	): Promise<WorkspaceLeadPageResult> {
 		const pageSize = clampPageSize(query.pageSize, OWNER_PAGE_SIZE_MAX);
 		const cursor = query.cursor ? decodeLeadCursor(query.cursor) : undefined;
+		const keyset = buildLeadKeyset("desc", cursor);
 		const selected = await this.db
 			.select(WORKSPACE_LEAD_PAGE_COLUMNS)
 			.from(leads)
 			.innerJoin(projects, eq(projects.id, leads.projectId))
-			.where(this.accessibleWhere(scope, undefined, query, cursor))
-			.orderBy(desc(leads.createdAt), desc(leads.id))
+			.where(this.accessibleWhere(scope, undefined, query, keyset.afterCursor))
+			.orderBy(...keyset.orderBy)
 			.limit(pageSize + 1);
 		const hasNextPage = selected.length > pageSize;
 		const page = selected.slice(0, pageSize);
@@ -617,6 +709,7 @@ export class LeadsRepository {
 			projectId,
 			{ ...options, archived: "include" },
 			SYNC_PAGE_SIZE_MAX,
+			"asc",
 		);
 	}
 
@@ -625,17 +718,21 @@ export class LeadsRepository {
 		projectId: string,
 		options: LeadListFilters & LeadSyncPageOptions,
 		maximumPageSize: number,
+		direction: LeadSortDirection = "desc",
 	): Promise<LeadPageResult> {
 		const pageSize = clampPageSize(options.pageSize, maximumPageSize);
 		const cursor = options.cursor
 			? decodeLeadCursor(options.cursor)
 			: undefined;
+		const keyset = buildLeadKeyset(direction, cursor);
 		const selected = await this.db
 			.select(LEAD_PAGE_COLUMNS)
 			.from(leads)
 			.innerJoin(projects, eq(projects.id, leads.projectId))
-			.where(this.accessibleWhere(scope, projectId, options, cursor))
-			.orderBy(desc(leads.createdAt), desc(leads.id))
+			.where(
+				this.accessibleWhere(scope, projectId, options, keyset.afterCursor),
+			)
+			.orderBy(...keyset.orderBy)
 			.limit(pageSize + 1);
 		const hasNextPage = selected.length > pageSize;
 		const page = selected.slice(0, pageSize);
@@ -676,7 +773,7 @@ export class LeadsRepository {
 		scope: ProjectScope,
 		projectId: string | undefined,
 		filters: LeadListFilters = {},
-		cursor?: LeadCursor,
+		afterCursor?: SQL,
 	) {
 		const targetProjectId = projectId ?? filters.projectId;
 		const query = filters.q?.trim();
@@ -687,15 +784,6 @@ export class LeadsRepository {
 					phoneDigits
 						? sql<boolean>`regexp_replace(${leads.phone}, '[^0-9]', '', 'g') like ${`%${phoneDigits}%`}`
 						: undefined,
-				)
-			: undefined;
-		const afterCursor = cursor
-			? or(
-					sql<boolean>`${leads.createdAt} < ${cursor.createdAt}::timestamptz`,
-					and(
-						sql<boolean>`${leads.createdAt} = ${cursor.createdAt}::timestamptz`,
-						lt(leads.id, cursor.id),
-					),
 				)
 			: undefined;
 		const archived = filters.archived ?? "exclude";

@@ -4,14 +4,13 @@
 	"balanceUnavailableShort": "الأرصدة —",
 	"balanceLoadError": "تعذر تحميل رصيدك. حاول مرة أخرى.",
 	"recentActivity": "النشاط الأخير",
-	"emptyLedger": "لا يوجد نشاط بعد.",
-	"ledgerLoadError": "تعذر تحميل نشاط الأرصدة.",
+	"emptyActivity": "لا يوجد نشاط بعد.",
+	"activityLoadError": "تعذر تحميل نشاط الأرصدة.",
 	"topUpChip": "شحن الأرصدة",
 	"manageBilling": "عرض الفوترة",
 	"topUpDialog": "عرض الخطط وحزم الشحن",
 	"insufficientTitle": "الرصيد غير كافٍ",
 	"insufficientBody": "يتطلب هذا الإجراء أرصدة أكثر من رصيدك الحالي.",
-	"costLabel": "التكلفة",
 	"outOfCredits": {
 		"title": "نفد رصيدك",
 		"body": "قم بترقية خطتك لمواصلة الإنشاء.",
@@ -36,6 +35,21 @@
 		"expire": "أرصدة منتهية",
 		"revoke": "أرصدة مسترجعة"
 	},
+	"activityOperations": {
+		"chat": "رسالة الذكاء الاصطناعي",
+		"page_build": "إنشاء صفحة",
+		"image": "صورة",
+		"video": "فيديو",
+		"marketing": "مادة تسويقية",
+		"connector": "أداة موصل",
+		"lead_scrape": "استخراج عملاء محتملين",
+		"transcription": "تفريغ صوتي",
+		"topup_adjust": "تعديل الرصيد"
+	},
+	"activityStatus": {
+		"inProgress": "قيد التنفيذ",
+		"refunded": "تم الاسترداد"
+	},
 	"creditUnit": {
 		"zero": "{count} رصيد",
 		"one": "رصيد واحد",
@@ -43,17 +57,5 @@
 		"few": "{count} أرصدة",
 		"many": "{count} رصيدًا",
 		"other": "{count} رصيد"
-	},
-	"priceTag": {
-		"zero": "{action} — {count} رصيد",
-		"one": "{action} — رصيد واحد",
-		"two": "{action} — رصيدان",
-		"few": "{action} — {count} أرصدة",
-		"many": "{action} — {count} رصيدًا",
-		"other": "{action} — {count} رصيد"
-	},
-	"actions": {
-		"generation": "توليد",
-		"chatMessage": "إرسال"
 	}
 }

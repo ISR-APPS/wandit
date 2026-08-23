@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import type { AnalyticsQuery } from "./analytics.dto";
+import type {
+	AnalyticsFunnelStepUsersQueryInput,
+	AnalyticsQuery,
+} from "./analytics.dto";
 import { adminAnalyticsKeys } from "./analytics.queries";
 
 describe("admin analytics query keys", () => {
@@ -17,6 +20,19 @@ describe("admin analytics query keys", () => {
 			"admin-analytics",
 			"funnel",
 			...dimensions,
+		]);
+		expect(adminAnalyticsKeys.funnelStepUsersAll()).toEqual([
+			"admin-analytics",
+			"funnel-step-users",
+		]);
+		expect(adminAnalyticsKeys.funnelStepUsers("pricingViewed", query)).toEqual([
+			"admin-analytics",
+			"funnel-step-users",
+			"pricingViewed",
+			...dimensions,
+			1,
+			20,
+			"all",
 		]);
 		expect(adminAnalyticsKeys.engagement(query)).toEqual([
 			"admin-analytics",
@@ -62,6 +78,63 @@ describe("admin analytics query keys", () => {
 			"mobile",
 			true,
 		]);
+		expect(
+			adminAnalyticsKeys.funnelStepUsers("checkoutStarted", query),
+		).toEqual([
+			"admin-analytics",
+			"funnel-step-users",
+			"checkoutStarted",
+			"custom",
+			"2026-08-01",
+			"2026-08-15",
+			"newsletter",
+			"DZ",
+			"mobile",
+			true,
+			1,
+			20,
+			"all",
+		]);
+	});
+
+	it("canonicalizes funnel-user dimensions before building the key", () => {
+		const implicitDefaults: AnalyticsFunnelStepUsersQueryInput = {
+			range: "30d",
+			source: " newsletter ",
+			country: "dz",
+			cohortOnly: false,
+		};
+		const explicitDefaults: AnalyticsFunnelStepUsersQueryInput = {
+			range: "30d",
+			source: "newsletter",
+			country: "DZ",
+			cohortOnly: false,
+			page: 1,
+			pageSize: 20,
+			contacted: "all",
+		};
+
+		expect(
+			adminAnalyticsKeys.funnelStepUsers("pricingViewed", implicitDefaults),
+		).toEqual(
+			adminAnalyticsKeys.funnelStepUsers("pricingViewed", explicitDefaults),
+		);
+	});
+
+	it.each([
+		["page", { page: 2 }],
+		["page size", { pageSize: 50 }],
+		["contacted filter", { contacted: "contacted" as const }],
+	] as const)("changes the funnel-user key when the %s changes", (_name, change) => {
+		const base: AnalyticsFunnelStepUsersQueryInput = {
+			range: "90d",
+			cohortOnly: false,
+		};
+		const changed: AnalyticsFunnelStepUsersQueryInput = { ...base, ...change };
+
+		expect(
+			adminAnalyticsKeys.funnelStepUsers("upgradeClicked", changed),
+		).not.toEqual(adminAnalyticsKeys.funnelStepUsers("upgradeClicked", base));
 	});
 
 	it.each([

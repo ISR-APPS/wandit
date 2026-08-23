@@ -4,6 +4,7 @@ import { injectPixels } from "../../sites/domain/pixel-injector";
 import { buildLeadsRuntimeScript } from "./leads-runtime-script";
 
 const CAPTURE_URL = "https://api.wandit.example/api/public/leads/pf_123";
+const DEPLOYMENT_ID = "0198d798-57ce-779a-8f7c-d16260401a81";
 const MAX_PAYLOAD_BYTES = 12 * 1024;
 
 type RuntimeEvent = {
@@ -62,6 +63,7 @@ async function flushMicrotasks(): Promise<void> {
 
 function createRuntimeHarness(
 	options: {
+		deploymentId?: string;
 		fetch?: RuntimeFetch;
 		honeypot?: string;
 		href?: string;
@@ -73,7 +75,10 @@ function createRuntimeHarness(
 		windowExtras?: Record<string, unknown>;
 	} = {},
 ) {
-	const script = buildLeadsRuntimeScript({ captureUrl: CAPTURE_URL });
+	const script = buildLeadsRuntimeScript({
+		captureUrl: CAPTURE_URL,
+		deploymentId: options.deploymentId ?? DEPLOYMENT_ID,
+	});
 	const documentListeners = new Map<string, RuntimeHandler[]>();
 	const windowListeners = new Map<string, RuntimeHandler[]>();
 	const beacons: Array<{ body: string; url: string }> = [];
@@ -199,11 +204,17 @@ afterEach(() => {
 });
 
 describe("buildLeadsRuntimeScript", () => {
-	const script = buildLeadsRuntimeScript({ captureUrl: CAPTURE_URL });
+	const script = buildLeadsRuntimeScript({
+		captureUrl: CAPTURE_URL,
+		deploymentId: DEPLOYMENT_ID,
+	});
 
 	it("embeds a capture URL containing quotes and ampersands as valid JS", () => {
 		const trickyUrl = 'https://api.wandit.example/capture?sig="a&b"&x=1';
-		const tricky = buildLeadsRuntimeScript({ captureUrl: trickyUrl });
+		const tricky = buildLeadsRuntimeScript({
+			captureUrl: trickyUrl,
+			deploymentId: DEPLOYMENT_ID,
+		});
 
 		expect(tricky).toContain(JSON.stringify(trickyUrl));
 		expect(() => new Function(tricky)).not.toThrow();
@@ -212,11 +223,31 @@ describe("buildLeadsRuntimeScript", () => {
 	it("folds < so a hostile URL cannot close the inline script tag", () => {
 		const hostile = buildLeadsRuntimeScript({
 			captureUrl: "https://evil.example/</script><script>alert(1)</script>",
+			deploymentId: DEPLOYMENT_ID,
 		});
 
 		expect(hostile.toLowerCase()).not.toContain("</script>");
 		expect(hostile).toContain("\\u003c/script>");
 		expect(() => new Function(hostile)).not.toThrow();
+	});
+
+	it("bakes the loaded deployment id into capture payloads when present", () => {
+		const harness = createRuntimeHarness({ deploymentId: DEPLOYMENT_ID });
+
+		harness.emitLead({ phone: "0555000040" });
+		expect(
+			JSON.parse(harness.fetchMock.mock.calls[0]?.[1]?.body ?? "{}"),
+		).toMatchObject({ deploymentId: DEPLOYMENT_ID, phone: "0555000040" });
+	});
+
+	it("omits deploymentId from capture payloads when the baked id is empty", () => {
+		const harness = createRuntimeHarness({ deploymentId: "" });
+
+		harness.emitLead({ phone: "0555000041" });
+		expect(
+			JSON.parse(harness.fetchMock.mock.calls[0]?.[1]?.body ?? "{}")
+				.deploymentId,
+		).toBeUndefined();
 	});
 
 	it("wires CORS fetch acknowledgement and pagehide-only beacon fallback", () => {
@@ -351,6 +382,7 @@ describe("buildLeadsRuntimeScript", () => {
 	it("uses sendBeacon only for an unacknowledged payload on pagehide", async () => {
 		const pending = deferred<RuntimeResponse>();
 		const harness = createRuntimeHarness({
+			deploymentId: DEPLOYMENT_ID,
 			fetch: () => pending.promise,
 		});
 
@@ -361,6 +393,7 @@ describe("buildLeadsRuntimeScript", () => {
 		expect(harness.beacons).toHaveLength(1);
 		expect(harness.beacons[0]?.url).toBe(CAPTURE_URL);
 		expect(JSON.parse(harness.beacons[0]?.body ?? "{}")).toMatchObject({
+			deploymentId: DEPLOYMENT_ID,
 			name: "Sofiane",
 			phone: "0555000003",
 		});

@@ -1,0 +1,42 @@
+name: Deploy Trigger.dev tasks
+
+# Keeps the trigger.dev worker on the same commit as the API server:
+# every push to main deploys the prod environment, every push to
+# staging deploys the staging environment. Skew between the two
+# deployments breaks idempotent metering replays (mismatched reserve).
+on:
+  push:
+    branches: [main, staging]
+  workflow_dispatch:
+
+# One deploy per branch at a time; a queued run waits, nothing overlaps.
+concurrency:
+  group: trigger-deploy-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node 22 matches `runtime: "node-22"` in apps/server/trigger.config.ts.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Server package plus its workspace dependencies only.
+      - name: Install dependencies
+        run: npx -y pnpm@11.7.0 install --frozen-lockfile --filter server...
+
+      # CLI version stays in lockstep with the @trigger.dev/sdk dependency.
+      # SENTRY_* vars are optional: without them the source-map upload in
+      # trigger.config.ts disables itself.
+      - name: Deploy to Trigger.dev
+        working-directory: apps/server
+        run: npx trigger.dev@4.5.3 deploy --env ${{ github.ref_name == 'main' && 'prod' || 'staging' }}
+        env:
+          TRIGGER_ACCESS_TOKEN: ${{ secrets.TRIGGER_ACCESS_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}

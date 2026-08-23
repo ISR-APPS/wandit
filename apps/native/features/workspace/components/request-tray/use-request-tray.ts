@@ -1,32 +1,116 @@
-// Derives the live request-tray state from the chat message list — the
-// mobile twin of the web use-request-tray.ts, working over persisted
-// ChatMessage parts instead of typed AI SDK stream parts. The rule: the LAST
-// unanswered ask_user call of the LAST assistant message docks on the
-// composer; everything else in the thread stays prose. Answering goes back
-// through ONE callback (onAnswer) with the exact contract output shape, so
-// the tray chips, the composer free-text path and the escape hatch all
-// complete the same tool call the same way.
+// Derives the live request-tray state from the AI SDK message list — the
+// mobile twin of the web use-request-tray.ts. The rule: the FIRST unanswered
+// ask_user call of the LAST assistant message docks on the composer; a
+// multi-question turn steps through them oldest first. Choice picks and
+// attachment uploads are DRAFTS keyed by toolCallId; every answer mode
+// confirms through ONE CTA (the composer's send button via submitOverride),
+// exactly like the web. Answering goes back through one callback
+// (answerAskUser in use-ai-chat.ts) with the contract output shape.
 
-import type {
-	AskUserOption,
-	AskUserOutput,
-	ChatMessage,
+import {
+	type AskUserOption,
+	type AskUserOutput,
+	type AttachmentMediaType,
+	type UploadAttachmentResponse,
+	type WorldCard,
+	worldCardSchema,
 } from "@wandit/contracts";
 import { useTranslation } from "@wandit/internationalization/react";
-import { useCallback, useMemo, useState } from "react";
+import * as DocumentPicker from "expo-document-picker";
+import * as ImagePicker from "expo-image-picker";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+import {
+	ATTACHMENT_MAX_BYTES,
+	AttachmentUploadError,
+	uploadAttachment,
+} from "@/features/projects";
 
 import {
 	type AskUserThreadPart,
+	asMessagePart,
+	type ChatMessageLike,
 	parseAskUserParts,
 } from "../../lib/chat-message";
-import type { ChipOption, RequestTrayState, TrayReceipt } from "./tray-types";
+import type { ChipOption, RequestTrayState, TrayMediaItem } from "./tray-types";
 
-/** How many settled questions stack above the active one. */
-const MAX_RECEIPTS = 3;
-
-// Stable empty selection — a fresh [] every render would defeat the state
-// memo below (its deps compare by reference).
 const NO_PICKS: string[] = [];
+
+/* ---------- attachments ask (contract §10.5) ---------- */
+
+/** One drafted upload inside the media-drop tray body. */
+type AttachDraftItem = {
+	id: string;
+	/** Local device uri — thumbnail source, never sent to the server. */
+	uri: string;
+	name: string;
+	mediaType: string;
+	status: "uploading" | "ready" | "error";
+	uploaded?: UploadAttachmentResponse;
+};
+
+const NO_ATTACH_ITEMS: AttachDraftItem[] = [];
+const DEFAULT_MAX_FILES = 3;
+
+// Contract §7.2 allowlist split by the ask's accept kinds (web parity).
+const IMAGE_MEDIA_TYPES = [
+	"image/jpeg",
+	"image/png",
+	"image/webp",
+	"image/gif",
+	"image/avif",
+];
+const DOCUMENT_MEDIA_TYPES = ["application/pdf", "text/plain"];
+
+// Fallback for pickers that omit mimeType — keyed by lowercase extension.
+const EXTENSION_MEDIA_TYPES: Record<string, string> = {
+	avif: "image/avif",
+	gif: "image/gif",
+	jpeg: "image/jpeg",
+	jpg: "image/jpeg",
+	pdf: "application/pdf",
+	png: "image/png",
+	txt: "text/plain",
+	webp: "image/webp",
+};
+
+function acceptedMediaTypes(
+	accept: readonly ("image" | "document")[],
+	mediaTypes?: readonly string[],
+) {
+	if (mediaTypes && mediaTypes.length > 0) return new Set(mediaTypes);
+	return new Set([
+		...(accept.includes("image") ? IMAGE_MEDIA_TYPES : []),
+		...(accept.includes("document") ? DOCUMENT_MEDIA_TYPES : []),
+	]);
+}
+
+type PickedFile = {
+	uri: string;
+	filename: string | null;
+	mimeType: string | null;
+	size: number | null;
+};
+
+function resolvePickedMediaType(file: PickedFile): string | null {
+	const fromMime = file.mimeType?.toLowerCase().split(";")[0]?.trim();
+	if (fromMime) return fromMime;
+	const name = file.filename ?? file.uri;
+	const extension = name.split(".").at(-1)?.toLowerCase() ?? "";
+	return EXTENSION_MEDIA_TYPES[extension] ?? null;
+}
+
+function toMediaItem(item: AttachDraftItem): TrayMediaItem {
+	return {
+		id: item.id,
+		name: item.name,
+		previewUri: item.mediaType.startsWith("image/") ? item.uri : null,
+		// The endpoint gives no progress events — indeterminate 50 while in
+		// flight reads as "working" without pretending precision (web parity).
+		uploading: item.status === "uploading" ? { percent: 50 } : undefined,
+		error: item.status === "error" || undefined,
+	};
+}
 
 /* ---------- answer builders ----------
    One tiny function per way the ask can settle, so every call site sends the
@@ -44,89 +128,118 @@ export function freeTextAnswer(text: string): AskUserOutput {
 	return { text };
 }
 
-/** "Decide for me" — the model picks confidently and says what it picked. */
+export function filesAnswer(
+	files: NonNullable<AskUserOutput["files"]>,
+): AskUserOutput {
+	return { files };
+}
+
 export function delegateAnswer(): AskUserOutput {
 	return { delegated: true };
 }
 
-/** Tray X — "skip, continue" (the question is logged, never lost). */
 export function dismissAnswer(): AskUserOutput {
 	return { dismissed: true };
 }
 
-/* ---------- derivation helpers (pure) ---------- */
-
-/** The ask currently waiting on the user: the last ask_user part of the last
-    assistant message that hasn't produced an output yet. */
-export function findActiveAsk(
-	messages: ChatMessage[],
-): { part: AskUserThreadPart; messageIndex: number } | null {
-	const lastIndex = messages.length - 1;
-	const last = messages[lastIndex];
-	if (last?.role !== "assistant") return null;
-
-	const asks = parseAskUserParts(last.parts);
-	for (let i = asks.length - 1; i >= 0; i--) {
-		const part = asks[i];
-		if (!part) continue;
-		if (part.state === "input-streaming" || part.state === "input-available") {
-			return { part, messageIndex: lastIndex };
-		}
-		// This ask is settled — keep scanning older siblings. The model can
-		// emit several ask_user calls in one turn; if the user answers the
-		// newest first, an older one may still be waiting, and it must dock
-		// next or the agent's continuation (which needs EVERY call answered)
-		// never fires.
-	}
-	return null;
+function isPendingAsk(part: AskUserThreadPart) {
+	return part.state === "input-streaming" || part.state === "input-available";
 }
 
-/** One-line summary of an answer, for receipts here and in the thread. */
+export type AskStepper = {
+	/** Stable identity for this assistant step's question round. */
+	roundKey: string | null;
+	active: AskUserThreadPart | null;
+	asks: AskUserThreadPart[];
+	messageIndex: number;
+	current: number;
+	total: number;
+};
+
+const NO_ASKS: AskStepper = {
+	roundKey: null,
+	active: null,
+	asks: [],
+	messageIndex: -1,
+	current: 0,
+	total: 0,
+};
+
+/** Current-round rule: only asks after the final step-start in the final
+ * assistant turn participate, and the oldest pending ask docks first. */
+export function collectAskStepper(messages: ChatMessageLike[]): AskStepper {
+	const messageIndex = messages.length - 1;
+	const last = messages[messageIndex];
+	if (last?.role !== "assistant") return NO_ASKS;
+
+	let lastStepStart = -1;
+	for (const [index, value] of last.parts.entries()) {
+		if (asMessagePart(value)?.type === "step-start") lastStepStart = index;
+	}
+
+	const asks = parseAskUserParts(last.parts).filter(
+		(part) => part.index > lastStepStart,
+	);
+	if (asks.length === 0) return NO_ASKS;
+
+	const answered = asks.filter((part) => !isPendingAsk(part)).length;
+	return {
+		roundKey: `${last.id}:${lastStepStart}`,
+		active: asks.find(isPendingAsk) ?? null,
+		asks,
+		messageIndex,
+		current: Math.min(answered + 1, asks.length),
+		total: asks.length,
+	};
+}
+
+export function findActiveAsk(
+	messages: ChatMessageLike[],
+): { part: AskUserThreadPart; messageIndex: number } | null {
+	const stepper = collectAskStepper(messages);
+	return stepper.active
+		? { part: stepper.active, messageIndex: stepper.messageIndex }
+		: null;
+}
+
+/** Card faces from every settled get_direction_candidates call, latest menu
+    winning on id collisions. The taste question's options reference these by
+    worldId — the specimen cards render from this server-authored data, never
+    from model-written text. */
+export function collectWorldCards(
+	messages: ChatMessageLike[],
+): Map<string, WorldCard> {
+	const cards = new Map<string, WorldCard>();
+	for (const message of messages) {
+		for (const value of message.parts) {
+			const part = asMessagePart(value);
+			if (
+				part?.type !== "tool-get_direction_candidates" ||
+				part.state !== "output-available"
+			) {
+				continue;
+			}
+			const output = part.output;
+			if (!output || typeof output !== "object") continue;
+			const rawCards = (output as Record<string, unknown>).cards;
+			if (!Array.isArray(rawCards)) continue;
+			for (const rawCard of rawCards) {
+				const parsed = worldCardSchema.safeParse(rawCard);
+				if (parsed.success) cards.set(parsed.data.id, parsed.data);
+			}
+		}
+	}
+	return cards;
+}
+
 export function askAnswerValue(output: AskUserOutput): string {
 	return (
 		output.text ??
 		output.label ??
-		output.selections?.map((s) => s.label).join(" · ") ??
+		output.selections?.map((selection) => selection.label).join(" · ") ??
 		""
 	);
 }
-
-/** Walk backward from the active ask and collect the run of questions the
-    user just answered (a queue collapses into stacked receipts). The run
-    ends at the first assistant message with no ask_user in it — ordinary
-    prose means the conversation moved on. */
-export function collectReceipts(
-	messages: ChatMessage[],
-	activeMessageIndex: number,
-): TrayReceipt[] {
-	const receipts: TrayReceipt[] = []; // newest first while walking backward
-
-	for (let i = activeMessageIndex; i >= 0; i--) {
-		const message = messages[i];
-		if (message?.role !== "assistant") continue;
-
-		const askParts = parseAskUserParts(message.parts);
-		if (askParts.length === 0 && i !== activeMessageIndex) break;
-
-		// Within one message, newest part last — reverse so the walk stays
-		// strictly newest-first.
-		for (const part of [...askParts].reverse()) {
-			if (part.state !== "output-available" || !part.output) continue;
-			// Dismissed asks were skipped, not answered — no receipt.
-			if (part.output.dismissed) continue;
-			receipts.push({
-				kind: part.output.delegated ? "delegated" : "answered",
-				label: part.input?.question ?? "",
-				value: askAnswerValue(part.output),
-			});
-		}
-	}
-
-	// Cap to the newest few, then flip to oldest-first for display.
-	return receipts.slice(0, MAX_RECEIPTS).reverse();
-}
-
-/* ---------- the hook ---------- */
 
 export function useRequestTray({
 	messages,
@@ -134,22 +247,57 @@ export function useRequestTray({
 	enabled = true,
 	onAnswer,
 }: {
-	messages: ChatMessage[];
+	messages: ChatMessageLike[];
 	composerText: string;
-	/** Master switch — off = the tray never docks (derivation is skipped). */
 	enabled?: boolean;
-	/** Completes the tool call with the built output shape. */
 	onAnswer: (toolCallId: string, output: AskUserOutput) => void;
 }) {
 	const { t } = useTranslation();
-	const active = useMemo(
-		() => (enabled ? findActiveAsk(messages) : null),
+	const stepper = useMemo(
+		() => (enabled ? collectAskStepper(messages) : NO_ASKS),
 		[enabled, messages],
 	);
-	const toolCallId = active?.part.toolCallId;
+	const worldCards = useMemo(
+		() =>
+			enabled ? collectWorldCards(messages) : new Map<string, WorldCard>(),
+		[enabled, messages],
+	);
+	// Dismiss is LOCAL and round-wide (web parity): the X hides the whole
+	// question round without writing any tool output — the server repairs the
+	// dangling calls on the next send. A NEW round (new roundKey) re-arms the
+	// tray. Writing {dismissed:true} here would settle one ask and immediately
+	// dock the next: four X-taps on a four-question turn, each recorded as
+	// "Skipped".
+	const [dismissedRoundKey, setDismissedRoundKey] = useState<string | null>(
+		null,
+	);
+	const roundDismissed =
+		stepper.roundKey !== null && stepper.roundKey === dismissedRoundKey;
+	const active = roundDismissed ? null : stepper.active;
+	const toolCallId = active?.toolCallId;
+	const currentStep = stepper.current;
+	const totalSteps = stepper.total;
+	// The exiting tray stays mounted (~260ms) with callbacks frozen from the
+	// render where the previous ask was still pending. The ref always names
+	// the LIVE active call, so a stale closure no-ops instead of overwriting
+	// an answer that already settled.
+	const activeToolCallIdRef = useRef(toolCallId);
+	useEffect(() => {
+		activeToolCallIdRef.current = toolCallId;
+	}, [toolCallId]);
 
-	// Multi-select picks live here (not in the body component) so the confirm
-	// button can read them; keyed by toolCallId so a new ask starts clean.
+	// Choice drafts live above the bodies so the composer CTA can validate and
+	// confirm them. Keying by toolCallId prevents a queued ask from inheriting
+	// the previous question's selection.
+	const [singlePick, setSinglePick] = useState<{
+		toolCallId: string;
+		id: string;
+	} | null>(null);
+	const selectedId =
+		singlePick && singlePick.toolCallId === toolCallId
+			? singlePick.id
+			: undefined;
+
 	const [multiPicks, setMultiPicks] = useState<{
 		toolCallId: string;
 		ids: string[];
@@ -159,69 +307,162 @@ export function useRequestTray({
 			? multiPicks.ids
 			: NO_PICKS;
 
+	// Attachments ask draft: uploads keyed by toolCallId, same pattern as the
+	// choice drafts above.
+	const [attachDrafts, setAttachDrafts] = useState<{
+		toolCallId: string;
+		items: AttachDraftItem[];
+	} | null>(null);
+	const attachItems =
+		attachDrafts && attachDrafts.toolCallId === toolCallId
+			? attachDrafts.items
+			: NO_ATTACH_ITEMS;
+	const attachDraftsRef = useRef(attachDrafts);
+	useEffect(() => {
+		attachDraftsRef.current = attachDrafts;
+	}, [attachDrafts]);
+	const attachIdRef = useRef(0);
+
+	// One transient feedback line (camera permission, upload failure).
+	const [notice, setNotice] = useState<string | null>(null);
+
+	const askKind = useMemo(() => {
+		if (!active) return "free-text";
+		const options = active.input?.options ?? [];
+		return (
+			active.input?.kind ??
+			(options.length === 0 ? "free-text" : "single-choice")
+		);
+	}, [active]);
+
+	const allowedTypes = useMemo(
+		() =>
+			acceptedMediaTypes(
+				active?.input?.accept ?? ["image"],
+				active?.input?.mediaTypes,
+			),
+		[active],
+	);
+	const maxFiles = active?.input?.maxFiles ?? DEFAULT_MAX_FILES;
+
 	const state = useMemo<RequestTrayState | null>(() => {
 		if (!active) return null;
-		const { part } = active;
-		const streaming = part.state === "input-streaming";
-		const question = part.input?.question || undefined;
-		const helper = part.input?.helper ?? undefined;
-		const options: ChipOption[] = part.input?.options ?? [];
+		const streaming = active.state === "input-streaming";
+		const options: AskUserOption[] = active.input?.options ?? [];
 
-		// Explicit kind wins; old asks (no kind) derive it from the options:
-		// none → free-text, some → single-choice.
-		const kind =
-			part.input?.kind ??
-			(options.length === 0 ? "free-text" : "single-choice");
+		const allowsImages = [...allowedTypes].some((type) =>
+			type.startsWith("image/"),
+		);
+		const allowsDocuments = [...allowedTypes].some(
+			(type) => !type.startsWith("image/"),
+		);
+
+		// Taste cards: a single-choice ask whose options reference sampled
+		// design worlds renders as specimen cards. Requires at least one
+		// resolvable card — a transcript without menu cards (old chats, lost
+		// menus) falls back to the plain chips.
+		const worldOptions =
+			askKind === "single-choice" &&
+			options.some((option) => option.worldId && worldCards.has(option.worldId))
+				? options.map((option) => ({
+						id: option.id,
+						label: option.label,
+						card: option.worldId ? worldCards.get(option.worldId) : undefined,
+					}))
+				: null;
 
 		// While the input is still streaming the options are half-parsed — show
 		// the question growing with a spinner and no chips until input-available.
 		const body: RequestTrayState["body"] = streaming
 			? { kind: "free-text" }
-			: kind === "multi-select"
-				? { kind: "multi-select", options, selectedIds }
-				: kind === "single-choice"
-					? { kind: "single-choice", options }
-					: { kind: "free-text" };
+			: askKind === "attachments"
+				? {
+						kind: "media-drop",
+						items: attachItems.map(toMediaItem),
+						sources: {
+							camera: allowsImages,
+							library: allowsImages,
+							files: allowsDocuments,
+						},
+						canAddMore: attachItems.length < maxFiles,
+					}
+				: askKind === "multi-select"
+					? { kind: "multi-select", options, selectedIds }
+					: worldOptions
+						? { kind: "world-pick", options: worldOptions, selectedId }
+						: askKind === "single-choice"
+							? { kind: "single-choice", options, selectedId }
+							: { kind: "free-text" };
 
 		return {
-			badge: streaming ? "spinner" : "question",
+			badge: streaming
+				? "spinner"
+				: askKind === "attachments"
+					? "media"
+					: "question",
 			label: streaming
 				? t("native.workspace.chat.tray.preparing")
-				: t("native.workspace.chat.tray.needsDetail"),
-			question,
-			helper,
+				: askKind === "attachments"
+					? t("native.workspace.chat.tray.needsFiles")
+					: t("native.workspace.chat.tray.needsDetail"),
+			question: active.input?.question || undefined,
+			helper: active.input?.helper,
 			escape: { label: t("native.workspace.chat.tray.decideForMe") },
-			receipts: collectReceipts(messages, active.messageIndex),
 			body,
-			// Typed text beats the chips — only meaningful when there ARE chips
-			// to dim.
-			typingOverride: composerText.trim().length > 0 && options.length > 0,
+			step:
+				totalSteps > 1
+					? { current: currentStep, total: totalSteps }
+					: undefined,
+			// Typed text beats the chips / media drafts — only meaningful when
+			// there IS a body to dim.
+			typingOverride:
+				composerText.trim().length > 0 &&
+				((active.input?.options ?? []).length > 0 ||
+					(!streaming && askKind === "attachments")),
 		};
-	}, [active, messages, composerText, selectedIds, t]);
+	}, [
+		active,
+		allowedTypes,
+		askKind,
+		attachItems,
+		composerText,
+		currentStep,
+		maxFiles,
+		selectedId,
+		selectedIds,
+		t,
+		totalSteps,
+		worldCards,
+	]);
 
 	const answer = useCallback(
 		(output: AskUserOutput) => {
-			// Only a fully-arrived ask may be answered: writing an output onto a
-			// part whose input is still streaming would race the incoming chunks.
-			if (!toolCallId || active?.part.state !== "input-available") return;
+			// Only a fully-arrived ask may be answered; a stale closure captured
+			// before a stepper advance must not overwrite the previous answer.
+			if (!toolCallId || active?.state !== "input-available") return;
+			if (toolCallId !== activeToolCallIdRef.current) return;
 			onAnswer(toolCallId, output);
+			setSinglePick(null);
 			setMultiPicks(null);
+			setAttachDrafts(null);
+			setNotice(null);
 		},
-		[toolCallId, active, onAnswer],
+		[active, onAnswer, toolCallId],
 	);
 
-	// Single-choice answers immediately on tap — one tap, done.
 	const onPick = useCallback(
-		(option: ChipOption) => answer(pickAnswer(option)),
-		[answer],
+		(option: ChipOption) => {
+			if (!toolCallId) return;
+			setSinglePick({ toolCallId, id: option.id });
+		},
+		[toolCallId],
 	);
 
 	const onToggleMulti = useCallback(
 		(id: string) => {
 			if (!toolCallId) return;
 			setMultiPicks((current) => {
-				const ids =
-					current && current.toolCallId === toolCallId ? current.ids : [];
+				const ids = current?.toolCallId === toolCallId ? current.ids : [];
 				return {
 					toolCallId,
 					ids: ids.includes(id)
@@ -233,35 +474,293 @@ export function useRequestTray({
 		[toolCallId],
 	);
 
-	// Confirm — send the picked options with their labels intact.
+	/* ---------- attachment drafts ---------- */
+
+	const runDraftUpload = useCallback(
+		async (ownerToolCallId: string, item: AttachDraftItem) => {
+			const patch = (changes: Partial<AttachDraftItem>) =>
+				setAttachDrafts((current) =>
+					current && current.toolCallId === ownerToolCallId
+						? {
+								...current,
+								items: current.items.map((entry) =>
+									entry.id === item.id ? { ...entry, ...changes } : entry,
+								),
+							}
+						: current,
+				);
+			try {
+				const uploaded = await uploadAttachment({
+					name: item.name,
+					type: item.mediaType as AttachmentMediaType,
+					uri: item.uri,
+				});
+				patch({ status: "ready", uploaded });
+			} catch (error: unknown) {
+				patch({ status: "error" });
+				setNotice(
+					error instanceof AttachmentUploadError && error.reason === "too-large"
+						? t("native.attach.tooLarge")
+						: error instanceof AttachmentUploadError &&
+								error.reason === "unsupported"
+							? t("native.attach.unsupported")
+							: t("native.attach.uploadFailed"),
+				);
+			}
+		},
+		[t],
+	);
+
+	const startDraftUploads = useCallback(
+		(picked: PickedFile[]) => {
+			// Narrow on state FIRST — a streaming input is DeepPartial.
+			if (!toolCallId || active?.state !== "input-available") return;
+			if (askKind !== "attachments") return;
+
+			const existing =
+				attachDraftsRef.current &&
+				attachDraftsRef.current.toolCallId === toolCallId
+					? attachDraftsRef.current.items
+					: [];
+			const room = maxFiles - existing.length;
+			if (room <= 0) return;
+
+			const next: AttachDraftItem[] = [];
+			const uploads: AttachDraftItem[] = [];
+			// The notice names the actual reason — a valid-type file over the
+			// size cap must not be reported as an unsupported type.
+			let rejection: string | null = null;
+			for (const file of picked.slice(0, room)) {
+				const mediaType = resolvePickedMediaType(file) ?? "";
+				const unsupported = !allowedTypes.has(mediaType);
+				const tooLarge = file.size !== null && file.size > ATTACHMENT_MAX_BYTES;
+				const invalid = unsupported || tooLarge;
+				if (invalid) {
+					rejection = unsupported
+						? t("native.attach.unsupported")
+						: t("native.attach.tooLarge");
+				}
+				attachIdRef.current += 1;
+				const item: AttachDraftItem = {
+					id: `ask-attachment-${attachIdRef.current}`,
+					uri: file.uri,
+					name: file.filename ?? mediaType.split("/").at(-1) ?? "file",
+					mediaType,
+					status: invalid ? "error" : "uploading",
+				};
+				next.push(item);
+				if (!invalid) uploads.push(item);
+			}
+			if (next.length === 0) return;
+
+			setNotice(rejection);
+			setAttachDrafts({ toolCallId, items: [...existing, ...next] });
+			for (const item of uploads) {
+				void runDraftUpload(toolCallId, item);
+			}
+		},
+		[active, allowedTypes, askKind, maxFiles, runDraftUpload, t, toolCallId],
+	);
+
+	const onAttachCamera = useCallback(async () => {
+		try {
+			const permission = await ImagePicker.requestCameraPermissionsAsync();
+			if (!permission.granted) {
+				setNotice(t("native.attach.cameraPermissionDenied"));
+				return;
+			}
+			// quality < 1 forces a JPEG re-encode, which keeps HEIC captures
+			// inside the server's magic-byte allowlist.
+			const result = await ImagePicker.launchCameraAsync({ quality: 0.9 });
+			if (result.canceled) return;
+			startDraftUploads(
+				result.assets.map((asset) => ({
+					uri: asset.uri,
+					filename: asset.fileName ?? null,
+					mimeType: asset.mimeType ?? null,
+					size: asset.fileSize ?? null,
+				})),
+			);
+		} catch {
+			setNotice(t("native.attach.uploadFailed"));
+		}
+	}, [startDraftUploads, t]);
+
+	const onAttachLibrary = useCallback(async () => {
+		try {
+			const remaining = maxFiles - attachItems.length;
+			if (remaining <= 0) return;
+			const result = await ImagePicker.launchImageLibraryAsync({
+				allowsMultipleSelection: true,
+				mediaTypes: ["images"],
+				// Compatible = PHPicker transcodes HEIC → JPEG, which the server's
+				// magic-byte allowlist requires.
+				preferredAssetRepresentationMode:
+					ImagePicker.UIImagePickerPreferredAssetRepresentationMode.Compatible,
+				selectionLimit: remaining,
+			});
+			if (result.canceled) return;
+			startDraftUploads(
+				result.assets.map((asset) => ({
+					uri: asset.uri,
+					filename: asset.fileName ?? null,
+					mimeType: asset.mimeType ?? null,
+					size: asset.fileSize ?? null,
+				})),
+			);
+		} catch {
+			setNotice(t("native.attach.uploadFailed"));
+		}
+	}, [attachItems.length, maxFiles, startDraftUploads, t]);
+
+	const onAttachBrowse = useCallback(async () => {
+		try {
+			const result = await DocumentPicker.getDocumentAsync({
+				copyToCacheDirectory: true,
+				multiple: true,
+				type: [...allowedTypes],
+			});
+			if (result.canceled) return;
+			startDraftUploads(
+				result.assets.map((asset) => ({
+					uri: asset.uri,
+					filename: asset.name ?? null,
+					mimeType: asset.mimeType ?? null,
+					size: asset.size ?? null,
+				})),
+			);
+		} catch {
+			setNotice(t("native.attach.uploadFailed"));
+		}
+	}, [allowedTypes, startDraftUploads, t]);
+
+	const onRemoveAttachment = useCallback((id: string) => {
+		setNotice(null);
+		setAttachDrafts((current) =>
+			current
+				? {
+						...current,
+						items: current.items.filter((item) => item.id !== id),
+					}
+				: current,
+		);
+	}, []);
+
+	/* ---------- the one confirm CTA ---------- */
+
+	const onConfirmSingle = useCallback(() => {
+		const option = (active?.input?.options ?? []).find(
+			(candidate) => candidate.id === selectedId,
+		);
+		if (option) answer(pickAnswer(option));
+	}, [active, answer, selectedId]);
+
 	const onConfirmMulti = useCallback(() => {
-		const options = active?.part.input?.options ?? [];
+		const options = active?.input?.options ?? [];
 		const selections = options.filter((option) =>
 			selectedIds.includes(option.id),
 		);
 		if (selections.length > 0) answer(multiAnswer(selections));
-	}, [active, selectedIds, answer]);
+	}, [active, answer, selectedIds]);
+
+	const onConfirmAttachments = useCallback(() => {
+		const files = attachItems.flatMap((item) =>
+			item.status === "ready" && item.uploaded
+				? [
+						{
+							url: item.uploaded.url,
+							mediaType: item.uploaded.mediaType,
+							filename: item.uploaded.filename,
+						},
+					]
+				: [],
+		);
+		if (files.length > 0) answer(filesAnswer(files));
+	}, [attachItems, answer]);
 
 	const answerFreeText = useCallback(
 		(text: string) => answer(freeTextAnswer(text)),
 		[answer],
 	);
 	const delegate = useCallback(() => answer(delegateAnswer()), [answer]);
-	const dismiss = useCallback(() => answer(dismissAnswer()), [answer]);
+	const dismiss = useCallback(() => {
+		if (!active || !stepper.roundKey) return;
+		setDismissedRoundKey(stepper.roundKey);
+		setSinglePick(null);
+		setMultiPicks(null);
+		setAttachDrafts(null);
+		setNotice(null);
+	}, [active, stepper.roundKey]);
+
+	// Typed text wins over any chip/upload draft — every answer mode confirms
+	// through one CTA (the composer's send button).
+	const trimmedComposerText = composerText.trim();
+	const answerMode = trimmedComposerText
+		? "text"
+		: state?.body.kind === "single-choice" || state?.body.kind === "world-pick"
+			? "single"
+			: state?.body.kind === "multi-select"
+				? "multi"
+				: state?.body.kind === "media-drop"
+					? "attachments"
+					: "text";
+	const readyFileCount = attachItems.filter(
+		(item) => item.status === "ready",
+	).length;
+	const hasUploadingFile = attachItems.some(
+		(item) => item.status === "uploading",
+	);
+	const canConfirm =
+		active?.state === "input-available" &&
+		(answerMode === "text"
+			? trimmedComposerText.length > 0
+			: answerMode === "single"
+				? Boolean(selectedId)
+				: answerMode === "multi"
+					? selectedIds.length > 0
+					: readyFileCount > 0 && !hasUploadingFile);
+	const confirmDraft = useCallback(() => {
+		if (!canConfirm) return false;
+		if (trimmedComposerText) {
+			answerFreeText(trimmedComposerText);
+		} else if (answerMode === "single") {
+			onConfirmSingle();
+		} else if (answerMode === "multi") {
+			onConfirmMulti();
+		} else {
+			onConfirmAttachments();
+		}
+	}, [
+		answerFreeText,
+		answerMode,
+		canConfirm,
+		onConfirmAttachments,
+		onConfirmMulti,
+		onConfirmSingle,
+		trimmedComposerText,
+	]);
 
 	return {
-		/** True while an ask is docked — including its streaming preamble. */
 		active: Boolean(active),
-		/** Only input-available asks may be answered; a streaming input hasn't
-		    fully arrived yet. */
-		answerable: active?.part.state === "input-available",
+		answerable: active?.state === "input-available",
 		toolCallId,
 		state,
+		notice,
 		// Body interactivity, threaded through RequestTray → TrayBodySlot.
 		onPick,
 		multiSelectedIds: selectedIds,
 		onToggleMulti,
-		onConfirmMulti,
+		onAttachCamera,
+		onAttachLibrary,
+		onAttachBrowse,
+		onRemoveAttachment,
+		// The one confirm CTA (composer submitOverride).
+		answerMode,
+		canConfirm,
+		selectedCount:
+			answerMode === "single" ? (selectedId ? 1 : 0) : selectedIds.length,
+		readyFileCount,
+		confirmDraft,
 		// Whole-ask actions.
 		answerFreeText,
 		delegate,
