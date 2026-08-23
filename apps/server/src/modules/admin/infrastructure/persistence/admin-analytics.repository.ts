@@ -4087,12 +4087,12 @@ export class AdminAnalyticsRepository {
 				select
 					${aiUsageEventCostUsdMicros} as cost_micros,
 					${aiUsageEventCostProvenance} as provenance,
-					${billableUsageEventPredicate("e")} as billable
-				from ai_usage_events e
+					${billableUsageEventPredicate("ai_usage_events")} as billable
+				from ai_usage_events
 				cross join bounds b
-				where e.created_at >= b.range_start
-					and e.created_at < b.range_end
-					and e.status in (${aiSpendStatusList()})
+				where ai_usage_events.created_at >= b.range_start
+					and ai_usage_events.created_at < b.range_end
+					and ai_usage_events.status in (${aiSpendStatusList()})
 			),
 			provider_cost as (
 				select
