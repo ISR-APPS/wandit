@@ -522,6 +522,7 @@ export class LeadsRepository {
 	 * The capture window drops nothing: serialize each project/phone pair so
 	 * the newest honest submission always wins its row. Lifecycle fields and
 	 * createdAt belong to the first submission and are never replaced.
+	 * `created` is false for a window update so callers notify only once.
 	 */
 	async upsertCaptureLead(
 		input: {
@@ -536,8 +537,8 @@ export class LeadsRepository {
 			wilaya: string | null;
 		},
 		since: Date,
-	): Promise<void> {
-		await this.db.transaction(async (tx) => {
+	): Promise<{ created: boolean; id: string }> {
+		return this.db.transaction(async (tx) => {
 			await tx.execute(
 				sql`select pg_advisory_xact_lock(hashtextextended(${`${input.projectId}:${input.phone}`}, 0))`,
 			);
@@ -568,10 +569,19 @@ export class LeadsRepository {
 						wilaya: input.wilaya,
 					})
 					.where(eq(leads.id, recent.id));
-				return;
+				return { created: false, id: recent.id };
 			}
 
-			await tx.insert(leads).values(input);
+			const [inserted] = await tx
+				.insert(leads)
+				.values(input)
+				.returning({ id: leads.id });
+
+			if (!inserted) {
+				throw new Error("Lead insert did not return a row");
+			}
+
+			return { created: true, id: inserted.id };
 		});
 	}
 

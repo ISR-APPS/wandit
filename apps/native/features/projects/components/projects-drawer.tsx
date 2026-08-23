@@ -36,6 +36,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { WanditIcon } from "@/components/wandit-icon";
 import { useAppTheme } from "@/contexts/app-theme-context";
 import { useLocale } from "@/contexts/locale-context";
+import { unregisterCurrentPushToken } from "@/features/notifications/lib/use-push-notifications";
 import { authClient } from "@/lib/auth-client";
 import { disableAuthBypass } from "@/lib/dev-auth-bypass";
 import { ICON_STROKE } from "@/shared/lib/brand";
@@ -402,7 +403,13 @@ export function ProjectsDrawer({ navigation }: ProjectsDrawerProps) {
 		}
 	}
 
-	function signOut() {
+	async function signOut() {
+		try {
+			await unregisterCurrentPushToken();
+		} catch {
+			// Token cleanup is best-effort and must not prevent signing out.
+		}
+
 		// Also clears the dev auth bypass so we land back on Welcome.
 		disableAuthBypass();
 		// Authenticated query keys are intentionally user-agnostic. Clear
@@ -469,7 +476,11 @@ export function ProjectsDrawer({ navigation }: ProjectsDrawerProps) {
 		label: string;
 		count: number | null;
 	}[] = [
-		{ key: "all", label: t("native.drawer.filterAll"), count: counts?.all ?? null },
+		{
+			key: "all",
+			label: t("native.drawer.filterAll"),
+			count: counts?.all ?? null,
+		},
 		{
 			key: "building",
 			label: t("native.drawer.filterBuilding"),
@@ -545,7 +556,11 @@ export function ProjectsDrawer({ navigation }: ProjectsDrawerProps) {
 					/>
 					{showSearchActivity ? (
 						<View className="h-11 w-7 items-center justify-center">
-							<ActivityIndicator accessible={false} size="small" color={accent} />
+							<ActivityIndicator
+								accessible={false}
+								size="small"
+								color={accent}
+							/>
 						</View>
 					) : null}
 					{hasSearchText ? (
@@ -769,10 +784,7 @@ export function ProjectsDrawer({ navigation }: ProjectsDrawerProps) {
 				<WanditIcon name="caretDown" size={13} color={muted} strokeWidth={2} />
 			</Pressable>
 
-			<DrawerToast
-				message={toast.message}
-				bottomOffset={insets.bottom + 80}
-			/>
+			<DrawerToast message={toast.message} bottomOffset={insets.bottom + 80} />
 
 			<ProjectActionsSheet
 				isOpen={sheet === "actions"}

@@ -15,6 +15,7 @@ const SCOPE = { kind: "personal", userId: "user-1" } as const;
 const FROM = new Date("2026-07-19T23:00:00.000Z");
 const TO = new Date("2026-08-19T10:30:00.000Z");
 const RECENT_LEAD_ID = "22222222-2222-4222-8222-222222222222";
+const INSERTED_LEAD_ID = "33333333-3333-4333-8333-333333333333";
 const SINCE = new Date("2026-08-22T10:00:00.000Z");
 
 type LeadPageTestRow = LeadRow & {
@@ -116,8 +117,10 @@ function repositoryWithCapture(recent: { id: string }[]) {
 	updateBuilder.set.mockReturnValue(updateBuilder);
 
 	const insertBuilder = {
-		values: vi.fn().mockResolvedValue(undefined),
+		returning: vi.fn(async () => [{ id: INSERTED_LEAD_ID }]),
+		values: vi.fn(),
 	};
+	insertBuilder.values.mockReturnValue(insertBuilder);
 	const tx = {
 		execute: vi.fn().mockResolvedValue(undefined),
 		insert: vi.fn().mockReturnValue(insertBuilder),
@@ -125,7 +128,8 @@ function repositoryWithCapture(recent: { id: string }[]) {
 		update: vi.fn().mockReturnValue(updateBuilder),
 	};
 	const transaction = vi.fn(
-		async (callback: (transaction: typeof tx) => Promise<void>) => callback(tx),
+		async (callback: (transaction: typeof tx) => Promise<unknown>) =>
+			callback(tx),
 	);
 
 	return {
@@ -232,7 +236,9 @@ describe("LeadsRepository capture upsert", () => {
 			updateBuilder,
 		} = repositoryWithCapture([{ id: RECENT_LEAD_ID }]);
 
-		await repository.upsertCaptureLead(input, SINCE);
+		const result = await repository.upsertCaptureLead(input, SINCE);
+
+		expect(result).toEqual({ created: false, id: RECENT_LEAD_ID });
 
 		expect(transaction).toHaveBeenCalledTimes(1);
 		const lock = compileSqlExpression(tx.execute.mock.calls[0]?.[0]);
@@ -280,10 +286,14 @@ describe("LeadsRepository capture upsert", () => {
 		const { insertBuilder, repository, tx, updateBuilder } =
 			repositoryWithCapture([]);
 
-		await repository.upsertCaptureLead(input, SINCE);
+		const result = await repository.upsertCaptureLead(input, SINCE);
 
+		expect(result).toEqual({ created: true, id: INSERTED_LEAD_ID });
 		expect(tx.execute).toHaveBeenCalledTimes(1);
 		expect(insertBuilder.values).toHaveBeenCalledWith(input);
+		expect(insertBuilder.returning).toHaveBeenCalledWith({
+			id: expect.anything(),
+		});
 		expect(updateBuilder.set).not.toHaveBeenCalled();
 	});
 });

@@ -56,6 +56,8 @@ export * from "./page-attempts";
 export * from "./product-events";
 // Project tables.
 export * from "./projects";
+export * from "./push-tokens";
+// Mobile push-notification device tokens.
 // Story-link campaign and click analytics tables.
 export * from "./story-links";
 // Authenticated-user daily activity analytics.

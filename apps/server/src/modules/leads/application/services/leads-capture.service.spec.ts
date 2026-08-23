@@ -1,5 +1,6 @@
 import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { LeadPushDispatcherService } from "../../../push-notifications/infrastructure/trigger/lead-push-dispatcher.service";
 import type { LeadsRepository } from "../../infrastructure/persistence/leads.repository";
 import {
 	LeadsCaptureRateLimitException,
@@ -8,6 +9,7 @@ import {
 import type { LeadsCaptureThrottle } from "./leads-capture-throttle";
 
 const FORM_ID = "0b0e8b1e-4a6f-4a5e-9a34-2f4dfd7f2c11";
+const LEAD_ID = "b0e4021f-9078-4212-8f6a-08d92753561b";
 const LOADED_DEPLOYMENT_ID = "f4593ee8-cb98-449a-b92a-3884252a8862";
 const PROJECT_ID = "7f4f7e6a-1111-4222-8333-944445555666";
 
@@ -16,17 +18,23 @@ function buildService() {
 		findActiveDeploymentSnapshot: vi.fn().mockResolvedValue(null),
 		findDeploymentSnapshotById: vi.fn().mockResolvedValue(null),
 		findProjectByPublicFormId: vi.fn().mockResolvedValue({ id: PROJECT_ID }),
-		upsertCaptureLead: vi.fn().mockResolvedValue(undefined),
+		upsertCaptureLead: vi
+			.fn()
+			.mockResolvedValue({ created: true, id: LEAD_ID }),
 	};
 	const throttle = {
 		consume: vi.fn().mockReturnValue({ allowed: true }),
 	};
+	const dispatcher = {
+		dispatchLeadCaptured: vi.fn().mockResolvedValue(undefined),
+	};
 	const service = new LeadsCaptureService(
 		repository as unknown as LeadsRepository,
 		throttle as unknown as LeadsCaptureThrottle,
+		dispatcher as unknown as LeadPushDispatcherService,
 	);
 
-	return { repository, service, throttle };
+	return { dispatcher, repository, service, throttle };
 }
 
 function validBody(overrides: Record<string, unknown> = {}) {
@@ -44,7 +52,7 @@ describe("LeadsCaptureService", () => {
 	});
 
 	it("inserts a normalized lead from a text/plain JSON body", async () => {
-		const { repository, service, throttle } = buildService();
+		const { dispatcher, repository, service, throttle } = buildService();
 
 		const result = await service.capture(FORM_ID, validBody(), "1.2.3.4");
 
@@ -63,6 +71,38 @@ describe("LeadsCaptureService", () => {
 			}),
 			expect.any(Date),
 		);
+		expect(dispatcher.dispatchLeadCaptured).toHaveBeenCalledWith({
+			leadId: LEAD_ID,
+			leadName: "Amina B",
+			leadPhone: "+213540773102",
+			projectId: PROJECT_ID,
+			wilaya: "Alger",
+		});
+	});
+
+	it("returns without awaiting the best-effort push dispatch", async () => {
+		const { dispatcher, service } = buildService();
+		let finishDispatch: (() => void) | undefined;
+		const pendingDispatch = new Promise<void>((resolve) => {
+			finishDispatch = resolve;
+		});
+		dispatcher.dispatchLeadCaptured.mockReturnValue(pendingDispatch);
+		let captureResult: unknown;
+		const capturePromise = service
+			.capture(FORM_ID, validBody(), "1.2.3.4")
+			.then((result) => {
+				captureResult = result;
+				return result;
+			});
+
+		await vi.waitFor(() => {
+			expect(dispatcher.dispatchLeadCaptured).toHaveBeenCalledOnce();
+		});
+		await new Promise<void>((resolve) => setImmediate(resolve));
+
+		expect(captureResult).toEqual({ ok: true });
+		finishDispatch?.();
+		await expect(capturePromise).resolves.toEqual({ ok: true });
 	});
 
 	it("accepts an already-parsed JSON object body", async () => {
@@ -233,7 +273,7 @@ describe("LeadsCaptureService", () => {
 	});
 
 	it("answers ok without inserting when the honeypot is filled", async () => {
-		const { repository, service, throttle } = buildService();
+		const { dispatcher, repository, service, throttle } = buildService();
 
 		const result = await service.capture(
 			FORM_ID,
@@ -244,6 +284,21 @@ describe("LeadsCaptureService", () => {
 		expect(result).toEqual({ ok: true });
 		expect(throttle.consume).not.toHaveBeenCalled();
 		expect(repository.upsertCaptureLead).not.toHaveBeenCalled();
+		expect(dispatcher.dispatchLeadCaptured).not.toHaveBeenCalled();
+	});
+
+	it("does not ring the owner when the capture updates a recent duplicate", async () => {
+		const { dispatcher, repository, service } = buildService();
+		repository.upsertCaptureLead.mockResolvedValue({
+			created: false,
+			id: LEAD_ID,
+		});
+
+		const result = await service.capture(FORM_ID, validBody(), "1.2.3.4");
+
+		expect(result).toEqual({ ok: true });
+		expect(repository.upsertCaptureLead).toHaveBeenCalledTimes(1);
+		expect(dispatcher.dispatchLeadCaptured).not.toHaveBeenCalled();
 	});
 
 	it("upserts the full normalized payload with a two-minute cutoff", async () => {
