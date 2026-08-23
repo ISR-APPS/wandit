@@ -252,7 +252,7 @@ describe("domain DNS contracts", () => {
 		});
 	});
 
-	it("accepts NS nameserver records and the purchased-domain apex zone state", () => {
+	it("accepts NS nameserver records and the apex zone state of purchased and external domains", () => {
 		expect(
 			requiredDomainRecordSchema.parse({
 				name: "@",
@@ -282,6 +282,8 @@ describe("domain DNS contracts", () => {
 			zoneDelegated: true,
 			zoneId: "zone_1",
 			zoneNameServers: ["art.ns.cloudflare.com", "savanna.ns.cloudflare.com"],
+			zoneScanRecordsAdded: 3,
+			zoneScanned: true,
 			zoneStatus: "active",
 		});
 
@@ -296,6 +298,8 @@ describe("domain DNS contracts", () => {
 			zoneDelegated: true,
 			zoneId: "zone_1",
 			zoneNameServers: ["art.ns.cloudflare.com", "savanna.ns.cloudflare.com"],
+			zoneScanRecordsAdded: 3,
+			zoneScanned: true,
 			zoneStatus: "active",
 		});
 		expect(
@@ -304,6 +308,14 @@ describe("domain DNS contracts", () => {
 		expect(
 			domainDnsSchema.safeParse({ records: [], zoneNameServers: "art" })
 				.success,
+		).toBe(false);
+		// The external DNS-import markers are optional and strictly typed.
+		expect(
+			domainDnsSchema.safeParse({ records: [], zoneScanRecordsAdded: -1 })
+				.success,
+		).toBe(false);
+		expect(
+			domainDnsSchema.safeParse({ records: [], zoneScanned: "done" }).success,
 		).toBe(false);
 	});
 

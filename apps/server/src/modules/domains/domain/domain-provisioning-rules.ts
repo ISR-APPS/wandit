@@ -82,6 +82,21 @@ export function nameserverRequiredDomainRecords(
 	}));
 }
 
+export function isNameserverRequiredDomainRecord(
+	record: Pick<RequiredDomainRecord, "purpose" | "type">,
+): boolean {
+	return (
+		record.type === "NS" || record.purpose === DOMAIN_NAMESERVER_RECORD_PURPOSE
+	);
+}
+
+/** `dns.records` without the nameservers of a zone that is withdrawn. */
+export function withoutNameserverRequiredDomainRecords(
+	records: readonly RequiredDomainRecord[],
+): RequiredDomainRecord[] {
+	return records.filter((record) => !isNameserverRequiredDomainRecord(record));
+}
+
 export function wholesaleQuoteBlockReason(
 	quote: WholesaleQuote,
 	wholesaleCeilingUsd: number,

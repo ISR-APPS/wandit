@@ -462,9 +462,50 @@ describe("DomainConfigurationRunner", () => {
 		);
 	});
 
-	it("never runs the apex zone pass for external rows", async () => {
+	it("runs the wired apex zone pass before every probe of an external row too and activates with its latest row", async () => {
 		const fixture = setup({
-			apexZone: async (row) => row,
+			// The step gates on the row source itself; the configuration runtime
+			// wires an external-only composition.
+			apexZone: async (row) => {
+				const updated = {
+					...row,
+					dns: {
+						...((row.dns ?? {}) as Record<string, unknown>),
+						zoneDelegated: true,
+						zoneId: "zone_1",
+					},
+				};
+				fixture.row = updated;
+
+				return updated;
+			},
+			row: domain({ paymentOrderId: null, source: "external" }),
+		});
+		fixture.verificationResults.push(
+			{ status: "pending" },
+			{ status: "active" },
+		);
+
+		await expect(
+			fixture.runner.execute({ domainId, nonce: "manual:1" }),
+		).resolves.toEqual({
+			processed: true,
+			status: "active",
+			terminalized: false,
+		});
+		expect(fixture.apexZone).toHaveBeenCalledTimes(2);
+		expect(fixture.apexZone).toHaveBeenCalledBefore(fixture.verification);
+		expect(fixture.activation).toHaveBeenCalledExactlyOnceWith(
+			expect.objectContaining({
+				dns: expect.objectContaining({ zoneId: "zone_1" }),
+				source: "external",
+			}),
+		);
+		expect(fixture.waits).toEqual([new Date("2026-08-01T00:00:30.000Z")]);
+	});
+
+	it("skips the apex zone pass entirely when none is wired", async () => {
+		const fixture = setup({
 			row: domain({ paymentOrderId: null, source: "external" }),
 		});
 		fixture.verificationResults.push({ status: "active" });
@@ -476,7 +517,7 @@ describe("DomainConfigurationRunner", () => {
 			status: "active",
 			terminalized: false,
 		});
-		expect(fixture.apexZone).not.toHaveBeenCalled();
+		expect(fixture.apexZone).toBeUndefined();
 	});
 
 	it("uses the same persisted wait policy for a transient KV activation failure", async () => {
