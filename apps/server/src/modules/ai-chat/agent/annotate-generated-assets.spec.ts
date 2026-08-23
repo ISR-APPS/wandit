@@ -11,6 +11,7 @@ const IMAGE_ATTEMPT = "11111111-1111-4111-8111-111111111111";
 const VIDEO_ATTEMPT = "22222222-2222-4222-8222-222222222222";
 const EDIT_ATTEMPT = "22222222-2222-4222-8222-222222222223";
 const EXTEND_ATTEMPT = "22222222-2222-4222-8222-222222222224";
+const PRODUCT_ATTEMPT = "22222222-2222-4222-8222-222222222225";
 const CONNECTOR_ATTEMPT = "33333333-3333-4333-8333-333333333333";
 const IMAGE_URL = "https://assets.example.com/images/p1/a1/img-1.png";
 const VIDEO_URL = "https://assets.example.com/sites/p1/assets/a2/vid-1.mp4";
@@ -95,7 +96,8 @@ function queuedVideoPart(
 		| "tool-animate_image"
 		| "tool-edit_video"
 		| "tool-extend_video"
-		| "tool-generate_video",
+		| "tool-generate_video"
+		| "tool-product_video",
 	attemptId = VIDEO_ATTEMPT,
 ) {
 	return {
@@ -172,6 +174,36 @@ describe("annotateGeneratedAssets", () => {
 		const marker = message?.parts[1];
 		expect(marker?.type === "text" && marker.text).toBe(
 			`[Generated video (video/mp4): ${VIDEO_URL}]`,
+		);
+	});
+
+	it("follows a settled product_video part with a reusable generated-video marker", async () => {
+		const productVideoUrl = `${VIDEO_URL}?attempt=${PRODUCT_ATTEMPT}`;
+		const { mediaGenerationsRepository, resolved } = deps({
+			videos: [
+				{
+					id: PRODUCT_ATTEMPT,
+					videoMediaType: "video/mp4",
+					videoUrl: productVideoUrl,
+				},
+			],
+		});
+
+		const [message] = await annotateGeneratedAssets(
+			[
+				assistantMessage([
+					queuedVideoPart("tool-product_video", PRODUCT_ATTEMPT),
+				]),
+			],
+			resolved,
+		);
+
+		expect(
+			mediaGenerationsRepository.listSucceededByIdsForProject,
+		).toHaveBeenCalledWith("project-1", [PRODUCT_ATTEMPT]);
+		const marker = message?.parts[1];
+		expect(marker?.type === "text" && marker.text).toBe(
+			`[Generated video (video/mp4): ${productVideoUrl}]`,
 		);
 	});
 

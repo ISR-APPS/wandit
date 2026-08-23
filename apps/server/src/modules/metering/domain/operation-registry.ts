@@ -334,6 +334,13 @@ export const AI_INVOCATION_COVERAGE = [
 	},
 	{
 		billing: { kind: "metered", operation: "video" },
+		id: "standalone-product-video",
+		marker: "export async function productVideo",
+		source:
+			"apps/server/src/modules/ai-chat/agent/site-builder/product-video.ts",
+	},
+	{
+		billing: { kind: "metered", operation: "video" },
 		id: "standalone-video-extension",
 		marker: "export function resolveVideoGenerationPlan",
 		source:

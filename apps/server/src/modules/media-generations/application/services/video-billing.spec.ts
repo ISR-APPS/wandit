@@ -119,6 +119,23 @@ describe("createVideoBilling", () => {
 		);
 	});
 
+	it("falls back to the fixed Seedance engine for product video", async () => {
+		const { billing, meteringService } = setup({ withEstimate: true });
+
+		await billing.reserve(
+			{ actorUserId: "user_1" },
+			"attempt_1",
+			1,
+			undefined,
+			undefined,
+			{ durationSeconds: 5, kind: "video-product", modelId: null },
+		);
+
+		expect(meteringService.estimateMeasuredCost).toHaveBeenCalledWith(
+			expect.objectContaining({ modelId: "bytedance/seedance-2.5" }),
+		);
+	});
+
 	it("settles only the delivered units provisionally for gateway repricing", async () => {
 		const { billing, meteringService } = setup();
 		const reservation = await billing.reserve(
@@ -180,6 +197,7 @@ describe("createVideoBilling", () => {
 	it.each([
 		["image-animation", "image_animation_failed"],
 		["text-to-video", "image_animation_failed"],
+		["video-product", "product_video_failed"],
 		["video-edit", "video_edit_failed"],
 		["video-extension", "video_extension_failed"],
 	] as const)("maps %s refunds to %s", async (kind, reason) => {

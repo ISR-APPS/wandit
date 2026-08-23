@@ -12,6 +12,7 @@ import {
 import type { CapturedGeneration } from "../../../metering/domain/metering";
 import {
 	VIDEO_EDIT_ENGINE_MODEL,
+	VIDEO_PRODUCT_ENGINE_MODEL,
 	VIDEO_QUALITY_MODELS,
 } from "../../domain/video-quality-models";
 
@@ -26,6 +27,7 @@ export type VideoReservation = MeasuredOperationReservation & {
 export const VIDEO_REFUND_REASON_BY_KIND = {
 	"image-animation": "image_animation_failed",
 	"text-to-video": "image_animation_failed",
+	"video-product": "product_video_failed",
 	"video-edit": "video_edit_failed",
 	"video-extension": "video_extension_failed",
 } as const satisfies Record<MediaGenerationKind, string>;
@@ -79,6 +81,8 @@ export function defaultVideoModelForKind(
 	switch (kind) {
 		case "video-edit":
 			return VIDEO_EDIT_ENGINE_MODEL;
+		case "video-product":
+			return VIDEO_PRODUCT_ENGINE_MODEL;
 		case "text-to-video":
 			return VIDEO_QUALITY_MODELS.standard.t2v;
 		default:

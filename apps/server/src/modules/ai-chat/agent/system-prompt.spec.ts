@@ -62,6 +62,46 @@ describe("video laws in the chat system prompt", () => {
 		expect(WANDIT_SYSTEM_PROMPT).not.toContain("upcoming narration feature");
 	});
 
+	it("routes one-photo product commercials through the fixed five-second path", () => {
+		expect(WANDIT_SYSTEM_PROMPT).toContain("## Generating a product video");
+		expect(WANDIT_SYSTEM_PROMPT).toContain(
+			"except a product ad built from ONE existing product photo routes to product_video",
+		);
+		expect(WANDIT_SYSTEM_PROMPT).toContain(
+			"Exactly one product image is required: a JPEG, PNG, or WebP",
+		);
+		expect(WANDIT_SYSTEM_PROMPT).toContain(
+			"Every product video is exactly 5 seconds",
+		);
+		expect(WANDIT_SYSTEM_PROMPT).toContain(
+			"generated images ARE valid product_video sources",
+		);
+		expect(WANDIT_SYSTEM_PROMPT).toContain(
+			"orbit (a studio turntable), hero (a dramatic push-in), and lifestyle (a real-world setting)",
+		);
+		expect(WANDIT_SYSTEM_PROMPT).toContain(
+			"tiny text, fine print and logos can drift in the render",
+		);
+		expect(WANDIT_SYSTEM_PROMPT).toContain("call product_video exactly ONCE");
+	});
+
+	it("pins product-video attachment and intake boundaries", () => {
+		expect(WANDIT_SYSTEM_PROMPT).toContain(
+			'kind "attachments", accept ["image"], mediaTypes ["image/jpeg", "image/png", "image/webp"], and maxFiles 1',
+		);
+		expect(WANDIT_SYSTEM_PROMPT).toContain(
+			"Do not ask for an upload when an eligible generated-image marker already exists",
+		);
+		expect(WANDIT_SYSTEM_PROMPT).toContain('ask_user kind "single-choice"');
+		expect(WANDIT_SYSTEM_PROMPT).toContain(
+			"Do not run creative-director intake, write a CREATIVE BRIEF, ask a tier question, or do prompt engineering",
+		);
+		expect(WANDIT_SYSTEM_PROMPT).toContain("Never state credit numbers");
+		expect(WANDIT_SYSTEM_PROMPT).toContain(
+			"Never claim it was queued when it was not",
+		);
+	});
+
 	it("requires honest same-length edit warnings and one edit call", () => {
 		expect(WANDIT_SYSTEM_PROMPT).toContain("## Editing a video");
 		expect(WANDIT_SYSTEM_PROMPT).toContain(

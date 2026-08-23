@@ -27,6 +27,7 @@ const REQUIRED_WORKFLOW_IDS = [
 	"standalone-animation",
 	"standalone-text-to-video",
 	"standalone-video-edit",
+	"standalone-product-video",
 	"standalone-video-extension",
 	"marketing",
 	"connector-inline",
@@ -98,6 +99,12 @@ const EXPECTED_PROVIDER_CALLS = [
 		count: 1,
 		name: "generateVideo",
 		source: "apps/server/src/modules/ai-chat/agent/site-builder/edit-video.ts",
+	},
+	{
+		count: 1,
+		name: "generateVideo",
+		source:
+			"apps/server/src/modules/ai-chat/agent/site-builder/product-video.ts",
 	},
 	{
 		count: 1,

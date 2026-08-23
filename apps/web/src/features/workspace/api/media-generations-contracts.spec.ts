@@ -90,6 +90,7 @@ describe("media generation contracts", () => {
 	});
 
 	it.each([
+		"video-product",
 		"video-edit",
 		"video-extension",
 	])("preserves the %s attempt kind", (kind) => {

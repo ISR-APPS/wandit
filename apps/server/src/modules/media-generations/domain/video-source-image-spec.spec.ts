@@ -1,10 +1,34 @@
 import { describe, expect, it } from "vitest";
 
+import { assessVideoSourceImage } from "./assess-video-source-image";
 import { videoSourceImageSpecForModel } from "./video-source-image-spec";
 
 const MEBIBYTE = 1024 * 1024;
 
 describe("videoSourceImageSpecForModel", () => {
+	it("uses the explicit Seedance descriptor so WebP is repaired before rendering", () => {
+		const spec = videoSourceImageSpecForModel("bytedance/seedance-2.5");
+
+		expect(spec).toEqual({
+			acceptedMediaTypes: ["image/jpeg", "image/png"],
+			aspectRatio: { max: 4, min: 1 / 4 },
+			maxSourceBytes: 20 * MEBIBYTE,
+			minSidePx: 300,
+		});
+		expect(
+			assessVideoSourceImage(
+				{
+					byteLength: 100_000,
+					hasAlpha: false,
+					height: 800,
+					mediaType: "image/webp",
+					width: 800,
+				},
+				spec,
+			),
+		).toEqual({ ok: true, repairs: ["convert-format"] });
+	});
+
 	it.each([
 		"klingai/kling-v2.1-i2v",
 		"klingai/future-model",
