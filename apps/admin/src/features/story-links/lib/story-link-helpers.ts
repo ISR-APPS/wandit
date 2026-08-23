@@ -1,6 +1,8 @@
+import { WEB_APP_ORIGIN } from "@/lib/web-origin";
+
 // The admin app exposes only the API origin, not the product web origin.
 // Keep shared story links on Wandit's canonical public origin.
-export const STORY_LINK_WEB_ORIGIN = "https://wandit.dev";
+export { WEB_APP_ORIGIN as STORY_LINK_WEB_ORIGIN };
 
 type SortableStoryLink = {
 	archivedAt: string | null;
@@ -22,7 +24,7 @@ export function suggestStoryLinkSlug(name: string): string {
 
 export function buildStoryLinkUrl(
 	slug: string,
-	webOrigin = STORY_LINK_WEB_ORIGIN,
+	webOrigin = WEB_APP_ORIGIN,
 ): string {
 	return `${webOrigin.replace(/\/+$/g, "")}/s/${encodeURIComponent(slug)}`;
 }
