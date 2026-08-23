@@ -10,6 +10,9 @@ type DomainAssetRow = Pick<
 	"cfCustomHostnameId" | "dns" | "id" | "name" | "projectId"
 >;
 
+type CustomerZoneAssetRow = DomainAssetRow &
+	Pick<DomainFulfillmentRow, "source">;
+
 type DomainAssetsCleanupDependencies = {
 	deleteCustomHostname(id: string): Promise<void>;
 	deleteDomainPointer(name: string): Promise<void>;
@@ -68,11 +71,12 @@ export async function bestEffortDeleteCustomHostname(
  * such a zone carries no live delegation. An adopted zone, or one whose
  * delegation may have gone live (`zoneDelegated` or `apexConfigured` set), is
  * left in place and logged — deleting a zone that the registry still
- * delegates to would black-hole the domain's DNS. Detach/unpublish never call
- * this.
+ * delegates to would black-hole the domain's DNS. An EXTERNAL row's zone is
+ * never deleted: its nameservers were exposed to the user, who may delegate at
+ * any time (they also carry `zoneDelegated`). Detach/unpublish never call this.
  */
 export async function bestEffortDeleteCustomerZone(
-	row: DomainAssetRow,
+	row: CustomerZoneAssetRow,
 	dependencies: CustomerZoneCleanupDependencies,
 ): Promise<boolean> {
 	const parsed = domainDnsSchema.safeParse(row.dns);
@@ -83,15 +87,18 @@ export async function bestEffortDeleteCustomerZone(
 	}
 
 	if (
+		row.source === "external" ||
 		dns.zoneCreated !== true ||
 		dns.zoneDelegated === true ||
 		dns.apexConfigured === true
 	) {
 		dependencies.logger.warn(
 			`Leaving Cloudflare zone ${dns.zoneId} for domain ${row.id} in place`,
-			dns.zoneCreated !== true
-				? "zone was adopted, not created by fulfillment"
-				: "nameservers were already delegated to the zone",
+			row.source === "external"
+				? "the zone's nameservers were exposed to the domain owner"
+				: dns.zoneCreated !== true
+					? "zone was adopted, not created by fulfillment"
+					: "nameservers were already delegated to the zone",
 		);
 
 		return false;

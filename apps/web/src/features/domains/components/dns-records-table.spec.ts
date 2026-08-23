@@ -104,6 +104,45 @@ describe("DnsRecordsTable", () => {
 		expect(html).not.toContain("dnsUnknown");
 	});
 
+	it("gives each nameserver row its own status although both share type and name", () => {
+		const nameserver = (value: string) => ({
+			name: "@",
+			purpose: "nameserver",
+			type: "NS" as const,
+			value,
+		});
+		const html = renderToStaticMarkup(
+			createElement(DnsRecordsTable, {
+				records: [
+					nameserver("ada.ns.cloudflare.com"),
+					nameserver("bob.ns.cloudflare.com"),
+				],
+				diagnostics: [
+					{
+						...nameserver("ada.ns.cloudflare.com"),
+						observedValues: ["bob.ns.cloudflare.com", "ns1.other.com"],
+						status: "mismatch",
+					},
+					{
+						...nameserver("bob.ns.cloudflare.com"),
+						observedValues: ["bob.ns.cloudflare.com", "ns1.other.com"],
+						status: "found",
+					},
+				],
+				onRefresh: vi.fn(),
+			}),
+		);
+		const rows = html.split("<tr").slice(-2);
+		const [adaRow = "", bobRow = ""] = rows;
+
+		expect(adaRow).toContain("ada.ns.cloudflare.com");
+		expect(adaRow).toContain("dnsMismatch");
+		expect(adaRow).not.toContain("dnsFound");
+		expect(bobRow).toContain("bob.ns.cloudflare.com");
+		expect(bobRow).toContain("dnsFound");
+		expect(bobRow).not.toContain("dnsMismatch");
+	});
+
 	it("shows checking only while diagnostics are loading", () => {
 		const props = {
 			records: [

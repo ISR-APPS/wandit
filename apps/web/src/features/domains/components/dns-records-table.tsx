@@ -32,6 +32,9 @@ type DnsRecordsTableProps = {
 	diagnostics?: DnsRecordDiagnostic[];
 	isRefreshing?: boolean;
 	onRefresh?: () => void;
+	// Forces the status column on (or off) for a table that shares its
+	// diagnostics and Refresh button with a sibling table.
+	showStatus?: boolean;
 };
 
 export function DnsRecordsTable({
@@ -39,13 +42,13 @@ export function DnsRecordsTable({
 	diagnostics,
 	isRefreshing = false,
 	onRefresh,
+	showStatus: forcedShowStatus,
 }: DnsRecordsTableProps) {
 	const { t } = useTranslation();
 	const copy = useCopyToClipboard(t("settings.domains.copySuccess"));
-	const showStatus = diagnostics !== undefined || onRefresh !== undefined;
-	const diagnosticsByRecord = new Map(
-		diagnostics?.map((record) => [diagnosticKey(record), record]),
-	);
+	const showStatus =
+		forcedShowStatus ?? (diagnostics !== undefined || onRefresh !== undefined);
+	const diagnosticFor = indexDiagnostics(diagnostics);
 
 	return (
 		<div className="flex flex-col gap-2">
@@ -116,9 +119,7 @@ export function DnsRecordsTable({
 							{showStatus ? (
 								<TableCell>
 									<RecordStatus
-										diagnostic={diagnosticsByRecord.get(
-											diagnosticKey(record),
-										)}
+										diagnostic={diagnosticFor(record)}
 										isRefreshing={isRefreshing}
 									/>
 								</TableCell>
@@ -139,6 +140,39 @@ function diagnosticKey(record: RequiredDomainRecord) {
 	return `${record.type}:${record.name}`;
 }
 
+// A diagnostic belongs to the record with the same type, name AND value: the
+// two nameserver rows share `NS:@`, each with its own status. The type:name
+// fallback only serves a record whose expected value rotated (a fresh
+// validation token) and is skipped when several diagnostics share that name.
+function indexDiagnostics(diagnostics: DnsRecordDiagnostic[] | undefined) {
+	const byRecord = new Map<string, DnsRecordDiagnostic>();
+	const byName = new Map<string, DnsRecordDiagnostic>();
+	const ambiguousNames = new Set<string>();
+
+	for (const diagnostic of diagnostics ?? []) {
+		byRecord.set(recordKey(diagnostic), diagnostic);
+		const nameKey = diagnosticKey(diagnostic);
+
+		if (byName.has(nameKey)) {
+			ambiguousNames.add(nameKey);
+		} else {
+			byName.set(nameKey, diagnostic);
+		}
+	}
+
+	return (record: RequiredDomainRecord) => {
+		const exact = byRecord.get(recordKey(record));
+
+		if (exact) {
+			return exact;
+		}
+
+		const nameKey = diagnosticKey(record);
+
+		return ambiguousNames.has(nameKey) ? undefined : byName.get(nameKey);
+	};
+}
+
 function RecordStatus({
 	diagnostic,
 	isRefreshing,
@@ -153,7 +187,9 @@ function RecordStatus({
 
 		return (
 			<span className="inline-flex items-center gap-1.5 text-muted-foreground text-xs">
-				<StatusIcon className={cn("size-3.5", isRefreshing && "animate-spin")} />
+				<StatusIcon
+					className={cn("size-3.5", isRefreshing && "animate-spin")}
+				/>
 				{t(
 					isRefreshing
 						? "settings.domains.dnsChecking"

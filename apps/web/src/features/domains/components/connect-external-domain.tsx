@@ -36,10 +36,9 @@ import { domainLiveUrl, normalizeDomainInput } from "../lib/helpers";
 import { useCopyToClipboard } from "../lib/hooks";
 import { externalDomainFormSchema } from "../lib/schemas";
 import type { ExternalDomainStep } from "../lib/store";
-import { DnsRecordsTable } from "./dns-records-table";
 import { DomainPublishNotice } from "./domain-publish-notice";
 import { DomainStatusChip } from "./domain-status-chip";
-import { ExternalDomainRoutingNote } from "./external-domain-routing-note";
+import { ExternalDomainSetupOptions } from "./external-domain-setup-options";
 
 type PublishGuidanceProps = {
 	isPublished?: boolean;
@@ -127,8 +126,16 @@ export function ExternalDomainConnectWizard({
 		() => (domains.data ?? []).find((domain) => domain.id === domainId) ?? null,
 		[domainId, domains.data],
 	);
+	// The persisted records win once the domain is loaded: the server changes
+	// `dns.records` after the attach (the configure task adds the nameservers
+	// of a zone the attach could not prepare, a lost zone withdraws them), and
+	// the polled domain list carries that; the attach/verify response only
+	// bridges the gap until then.
+	const persistedRecords = currentDomain?.dns?.records;
 	const effectiveRecords =
-		records.length > 0 ? records : (currentDomain?.dns?.records ?? []);
+		persistedRecords && persistedRecords.length > 0
+			? persistedRecords
+			: records;
 	const stalledVerification = currentDomain?.dns?.externalVerification;
 	const showRecords =
 		step === "records" || step === "checking" || step === "success";
@@ -292,8 +299,8 @@ export function ExternalDomainConnectWizard({
 			{showRecords && currentDomain ? (
 				<div className="flex flex-col gap-4">
 					<Separator />
-					<ExternalDomainRoutingNote name={currentDomain.name} />
-					<DnsRecordsTable
+					<ExternalDomainSetupOptions
+						name={currentDomain.name}
 						records={effectiveRecords}
 						diagnostics={dnsStatus.data?.records}
 						isRefreshing={dnsStatus.isFetching}

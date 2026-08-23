@@ -1,5 +1,5 @@
 import { logger as triggerLogger } from "@trigger.dev/sdk";
-import type { DomainStatus } from "@wandit/contracts";
+import type { DomainSource, DomainStatus } from "@wandit/contracts";
 import type { createDb } from "@wandit/db";
 import { Sentry } from "@wandit/observability/node";
 
@@ -59,6 +59,20 @@ type ApexZoneRuntimeOptions = {
 type PurchaseRuntimeOptions = ConfigurationRuntimeOptions &
 	ApexZoneRuntimeOptions;
 
+type ApexZoneRegistrar = {
+	setNameservers(name: string, nameservers: string[]): Promise<void>;
+};
+
+/**
+ * External rows delegate at their own registrar with the exposed nameservers;
+ * the step never calls this for them, so a call is a wiring bug, not a retry.
+ */
+const manualNameserverRegistrar: ApexZoneRegistrar = {
+	async setNameservers() {
+		throw new Error("External domains delegate nameservers manually");
+	},
+};
+
 /**
  * Apex dns writes may land while the row is `registering` (purchase pass),
  * `configuring` (verification probes, backfill) or `active` (backfill), and
@@ -77,7 +91,9 @@ export function createDomainPurchaseRuntime(
 ) {
 	const infrastructure = createDomainInfrastructure(db, options.logger);
 	const registrar = new NamecomProvider();
-	const apexZone = createApexZoneStep(infrastructure, registrar, options);
+	const apexZone = createApexZoneStep(infrastructure, registrar, options, [
+		"purchased",
+	]);
 	const core = createDomainCore(infrastructure, options, apexZone);
 	const registration = new DomainRegistrationStep(registrar, core.state);
 	const purchasedDns = new PurchasedDomainDnsStep(
@@ -126,6 +142,7 @@ export function createDomainApexBackfillRuntime(
 			infrastructure,
 			new NamecomProvider(),
 			options,
+			["purchased"],
 			state,
 		),
 		domains: infrastructure.domains,
@@ -134,18 +151,24 @@ export function createDomainApexBackfillRuntime(
 }
 
 /**
- * Hand-wires the BYO/custom-hostname verification workflow only. The apex
- * pass is deliberately absent: `domain-configure` asserts no registrar
- * credentials, so purchased rows are only retried by the purchase runtime.
+ * Hand-wires the BYO/custom-hostname verification workflow plus the
+ * best-effort apex zone pass for EXTERNAL rows (zone in our account, DNS
+ * import, apex hostname, nameservers exposed to the user). `domain-configure`
+ * asserts no registrar credentials, so purchased rows are never handled here:
+ * they are only retried by the purchase runtime and the backfill.
  */
 export function createDomainConfigurationRuntime(
 	db: Database,
-	options: ConfigurationRuntimeOptions,
+	options: ConfigurationRuntimeOptions & ApexZoneRuntimeOptions,
 ) {
-	const core = createDomainCore(
-		createDomainInfrastructure(db, options.logger),
+	const infrastructure = createDomainInfrastructure(db, options.logger);
+	const apexZone = createApexZoneStep(
+		infrastructure,
+		manualNameserverRegistrar,
 		options,
+		["external"],
 	);
+	const core = createDomainCore(infrastructure, options, apexZone);
 
 	return { configuration: core.configuration };
 }
@@ -238,8 +261,9 @@ function createApexDnsState(domains: DomainsRepository) {
 
 function createApexZoneStep(
 	infrastructure: ReturnType<typeof createDomainInfrastructure>,
-	registrar: NamecomProvider,
+	registrar: ApexZoneRegistrar,
 	options: ApexZoneRuntimeOptions,
+	sources: readonly DomainSource[],
 	state = createApexDnsState(infrastructure.domains),
 ) {
 	return new ApexZoneStep(
@@ -251,6 +275,7 @@ function createApexZoneStep(
 		{
 			enabled: options.apexZoneEnabled,
 			fallbackOrigin: options.fallbackOrigin,
+			sources,
 		},
 	);
 }
