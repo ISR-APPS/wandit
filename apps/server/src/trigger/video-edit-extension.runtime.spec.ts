@@ -160,6 +160,33 @@ beforeEach(() => {
 });
 
 describe("video edit/extension Trigger runtime", () => {
+	it("rejects product rows before either closed workflow can execute or refund", async () => {
+		const productAttempt = {
+			...BASE_ATTEMPT,
+			kind: "video-product",
+		};
+		const refund = vi.fn();
+
+		await expect(
+			runVideoWorkflow(
+				{
+					attemptId: productAttempt.id,
+					projectId: productAttempt.projectId,
+					userId: productAttempt.userId,
+				},
+				{
+					dependencies: {
+						loadAttempt: vi.fn().mockResolvedValue(productAttempt),
+						refund,
+					} as never,
+					expectedKind: "video-edit",
+					runId: "run_product",
+				},
+			),
+		).rejects.toThrow("cannot process video-product attempt");
+		expect(refund).not.toHaveBeenCalled();
+	});
+
 	it("never reruns a succeeded leg and calls the provider once for the first queued leg", async () => {
 		const directory = await mkdtemp(join(tmpdir(), "video-extension-spec-"));
 		const sourcePath = join(directory, "source.mp4");

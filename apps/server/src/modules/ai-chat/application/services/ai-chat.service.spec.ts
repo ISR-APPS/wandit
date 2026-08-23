@@ -9,6 +9,8 @@ import {
 	extendVideoOutputSchema,
 	insertSectionInputSchema,
 	insertSectionOutputSchema,
+	productVideoInputSchema,
+	productVideoOutputSchema,
 	readAttachmentInputSchema,
 	readAttachmentOutputSchema,
 	readElementsInputSchema,
@@ -2394,6 +2396,34 @@ describe("completeDanglingToolCalls ask_user", () => {
 });
 
 describe("completeDanglingToolCalls video revision tools", () => {
+	it("repairs an incomplete product_video call with schema-valid input and output", () => {
+		const repaired = repairBuiltInPart({
+			input: { productName: "unfinished" },
+			state: "input-streaming",
+			toolCallId: "call-product-video",
+			type: "tool-product_video",
+		});
+
+		expect(repaired).toMatchObject({
+			input: {
+				image: {
+					url: "https://invalid.local/interrupted-product-image.jpg",
+				},
+				preset: "orbit",
+				productName: "Unknown product",
+				title: "Interrupted product video",
+			},
+			output: { status: "unavailable" },
+			state: "output-available",
+		});
+		expect(productVideoInputSchema.safeParse(repaired.input).success).toBe(
+			true,
+		);
+		expect(productVideoOutputSchema.safeParse(repaired.output).success).toBe(
+			true,
+		);
+	});
+
 	it("repairs an incomplete edit_video call with schema-valid input and output", () => {
 		const repaired = repairBuiltInPart({
 			input: { instruction: "unfinished" },

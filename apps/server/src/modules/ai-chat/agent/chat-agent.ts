@@ -87,6 +87,12 @@ import {
 	pageEditToolsSchemaOnly,
 } from "./tools/page-edit.tools";
 import {
+	createProductVideoTool,
+	type ProductVideoTool,
+	type ProductVideoToolDeps,
+	productVideoToolSchemaOnly,
+} from "./tools/product-video.tool";
+import {
 	createReadAttachmentTool,
 	type ReadAttachmentTool,
 	type ReadAttachmentToolDeps,
@@ -118,6 +124,7 @@ type AiChatToolSet = {
 	generate_marketing_asset: GenerateMarketingAssetTool;
 	generate_page: GeneratePageTool;
 	generate_video: GenerateVideoTool;
+	product_video: ProductVideoTool;
 	get_direction_candidates: typeof getDirectionCandidatesTool;
 	read_attachment: ReadAttachmentTool;
 	read_lead_performance: ReadLeadPerformanceTool;
@@ -275,6 +282,7 @@ export type ChatAgentDeps = GeneratePageToolDeps &
 	Omit<GenerateMarketingAssetToolDeps, "chatId" | "projectId"> &
 	Omit<GenerateImageToolDeps, "chatId" | "projectId"> &
 	Omit<GenerateVideoToolDeps, "chatId" | "projectId"> &
+	Omit<ProductVideoToolDeps, "chatId" | "projectId"> &
 	ReadAttachmentToolDeps &
 	Omit<ReadLeadPerformanceToolDeps, "now" | "projectId">;
 
@@ -415,6 +423,18 @@ export function createChatAgent(
 				userId: deps.userId,
 				videoDirector: deps.videoDirector,
 			}),
+			product_video: createProductVideoTool({
+				availableImages: deps.availableImages,
+				chatId: deps.chatId,
+				imageGenerationsRepository: deps.imageGenerationsRepository,
+				mediaGenerationsRepository: deps.mediaGenerationsRepository,
+				meteringService: deps.meteringService,
+				parentEventId: deps.parentEventId,
+				projectId: deps.projectId,
+				requestKeySeed: deps.requestKeySeed,
+				subject: deps.subject,
+				userId: deps.userId,
+			}),
 			get_direction_candidates: getDirectionCandidatesTool,
 			read_attachment: createReadAttachmentTool({
 				availableDocuments: deps.availableDocuments,
@@ -460,6 +480,7 @@ export const aiChatToolsForValidation = {
 	generate_marketing_asset: generateMarketingAssetToolSchemaOnly,
 	generate_page: generatePageToolSchemaOnly,
 	generate_video: generateVideoToolSchemaOnly,
+	product_video: productVideoToolSchemaOnly,
 	scrape_leads: scrapeLeadsToolSchemaOnly,
 	get_direction_candidates: getDirectionCandidatesToolSchemaOnly,
 	read_attachment: readAttachmentToolSchemaOnly,

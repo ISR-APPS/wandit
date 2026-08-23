@@ -1,11 +1,13 @@
 /**
  * Durable video generation contracts.
  *
- * Four kinds share one attempt table and one polling route:
+ * Five kinds share one attempt table and one polling route:
  * - "image-animation" — animates a user-provided source image (the original
  *   image-to-video mode; source columns are required for this kind).
  * - "text-to-video" — renders a clip from a director-crafted text prompt
  *   alone; source columns stay null.
+ * - "video-product" — renders a five-second commercial from one snapshotted
+ *   product image.
  * - "video-edit" — edits a snapshotted source video.
  * - "video-extension" — joins continuation legs onto a source video.
  * The chat tool queues the work and the web polls the attempt route until it
@@ -51,6 +53,7 @@ export const IMAGE_TO_VIDEO_DURATION_SECONDS = 5 as const;
 export const MEDIA_GENERATION_KINDS = [
 	"image-animation",
 	"text-to-video",
+	"video-product",
 	"video-edit",
 	"video-extension",
 ] as const;

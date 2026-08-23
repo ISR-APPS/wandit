@@ -247,6 +247,7 @@ function generationRef(
 
 	if (
 		part.type === "tool-generate_video" ||
+		part.type === "tool-product_video" ||
 		part.type === "tool-animate_image" ||
 		part.type === "tool-edit_video" ||
 		part.type === "tool-extend_video"

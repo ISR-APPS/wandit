@@ -53,9 +53,8 @@ import {
 import { useDomainDnsStatusQuery } from "../api/domains.queries";
 import { domainLiveUrl, safeDomainErrorSummary } from "../lib/helpers";
 import { useCopyToClipboard } from "../lib/hooks";
-import { DnsRecordsTable } from "./dns-records-table";
 import { DomainStatusChip } from "./domain-status-chip";
-import { ExternalDomainRoutingNote } from "./external-domain-routing-note";
+import { ExternalDomainSetupOptions } from "./external-domain-setup-options";
 
 type DomainListProps = {
 	projectId: string;
@@ -442,10 +441,8 @@ function DomainListRow({
 								</p>
 							) : null}
 							{domain.source === "external" ? (
-								<ExternalDomainRoutingNote name={domain.name} />
-							) : null}
-							{externalRecords.length > 0 ? (
-								<DnsRecordsTable
+								<ExternalDomainSetupOptions
+									name={domain.name}
 									records={externalRecords}
 									diagnostics={dnsStatus.data?.records}
 									isRefreshing={dnsStatus.isFetching}

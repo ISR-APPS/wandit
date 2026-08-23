@@ -212,14 +212,6 @@ export function PartnerDetails({ detail }: { detail: AffiliateDetail }) {
 				</div>
 			</div>
 			<div>
-				<h3 className="font-semibold text-sm">Payout details</h3>
-				<pre className="mt-2 overflow-x-auto rounded-lg border bg-muted/20 p-4 text-xs">
-					{detail.payoutDetails
-						? JSON.stringify(detail.payoutDetails, null, 2)
-						: "No payout details"}
-				</pre>
-			</div>
-			<div>
 				<h3 className="font-semibold text-sm">Internal notes</h3>
 				<p className="mt-2 whitespace-pre-wrap rounded-lg border bg-muted/20 p-4 text-muted-foreground text-sm">
 					{detail.notes ?? "No internal notes."}

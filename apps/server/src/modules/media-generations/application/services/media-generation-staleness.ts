@@ -5,6 +5,7 @@ export const MEDIA_GENERATION_STALE_QUEUED_MS = 30 * 60_000;
 export const MEDIA_GENERATION_STALE_GENERATING_MS = {
 	"image-animation": 15 * 60_000,
 	"text-to-video": 15 * 60_000,
+	"video-product": 15 * 60_000,
 	"video-edit": 20 * 60_000,
 	"video-extension": 35 * 60_000,
 } as const satisfies Record<MediaGenerationKind, number>;
@@ -62,6 +63,9 @@ export function mediaGenerationGeneratingCutoffs(
 		),
 		"text-to-video": new Date(
 			now.getTime() - MEDIA_GENERATION_STALE_GENERATING_MS["text-to-video"],
+		),
+		"video-product": new Date(
+			now.getTime() - MEDIA_GENERATION_STALE_GENERATING_MS["video-product"],
 		),
 		"video-edit": new Date(
 			now.getTime() - MEDIA_GENERATION_STALE_GENERATING_MS["video-edit"],

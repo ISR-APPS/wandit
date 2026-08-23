@@ -3,7 +3,15 @@ import { ExternalLink } from "lucide-react";
 import { useTranslation } from "@/lib/i18n";
 import { domainLiveUrl } from "../lib/helpers";
 
-export function ExternalDomainRoutingNote({ name }: { name: string }) {
+export function ExternalDomainRoutingNote({
+	name,
+	hasNameserverOption = false,
+}: {
+	name: string;
+	// True when the row also offers Wandit nameservers (option A): the apex
+	// redirect is then automatic with option A and manual with option B.
+	hasNameserverOption?: boolean;
+}) {
 	const { t } = useTranslation();
 	const hostname = `www.${name}`;
 	const redirectTarget = domainLiveUrl({ name, source: "external" });
@@ -20,7 +28,11 @@ export function ExternalDomainRoutingNote({ name }: { name: string }) {
 					.
 				</p>
 				<p className="text-muted-foreground">
-					{t("settings.domains.externalApexRedirect")}{" "}
+					{t(
+						hasNameserverOption
+							? "settings.domains.externalApexAutomatic"
+							: "settings.domains.externalApexRedirect",
+					)}{" "}
 					<bdi dir="ltr" className="font-mono">
 						{name}
 					</bdi>{" "}

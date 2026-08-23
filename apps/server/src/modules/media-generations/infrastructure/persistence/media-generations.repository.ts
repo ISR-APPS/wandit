@@ -125,6 +125,12 @@ export type InsertMediaGenerationAttemptInput =
 					talking: null;
 			  }
 			| {
+					kind: "video-product";
+					model: string;
+					quality: null;
+					talking: null;
+			  }
+			| {
 					kind: "video-extension";
 					model: string;
 					quality: VideoQuality;
@@ -818,7 +824,15 @@ export class MediaGenerationsRepository {
 }
 
 function analyticsKind(kind: MediaGenerationKind): "animation" | "video" {
-	return kind === "image-animation" ? "animation" : "video";
+	switch (kind) {
+		case "image-animation":
+			return "animation";
+		case "text-to-video":
+		case "video-edit":
+		case "video-extension":
+		case "video-product":
+			return "video";
+	}
 }
 
 function noLegActivityAtOrAfter(cutoff: Date) {

@@ -24,6 +24,15 @@ const DEFAULT_VIDEO_SOURCE_IMAGE_SPEC = {
  */
 const VIDEO_SOURCE_IMAGE_SPECS = [
 	{
+		modelIdPrefix: "bytedance/seedance-",
+		spec: {
+			acceptedMediaTypes: ["image/jpeg", "image/png"],
+			aspectRatio: DEFAULT_VIDEO_SOURCE_IMAGE_SPEC.aspectRatio,
+			maxSourceBytes: DEFAULT_VIDEO_SOURCE_IMAGE_SPEC.maxSourceBytes,
+			minSidePx: 300,
+		},
+	},
+	{
 		modelIdPrefix: "klingai/",
 		spec: {
 			acceptedMediaTypes: ["image/jpeg", "image/png"],

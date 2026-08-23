@@ -112,6 +112,41 @@ describe("StoryLinkAdminRepository list SQL", () => {
 		expect(query.sql).toContain("order by d.day asc");
 	});
 
+	it("normalizes string timestamps from raw execute rows into Dates", async () => {
+		// Production regression: the driver there returns timestamptz columns as
+		// ISO strings, and the service's .toISOString() crashed on the first
+		// real link (TypeError: createdAt.toISOString is not a function).
+		const { repository } = setupList([
+			[
+				{
+					all_time_clicks: 0,
+					archived_at: "2026-08-03T09:00:00.000Z",
+					clicks_in_range: 0,
+					created_at: "2026-08-01T12:00:00.000Z",
+					destination_path: "/",
+					id: STORY_LINK_ID,
+					name: "Wandit intro",
+					slug: "wandit-intro",
+					unique_visitors_in_range: 0,
+					updated_at: "2026-08-02T12:00:00.000Z",
+					utm_campaign: "wandit-intro",
+					utm_content: null,
+					utm_medium: "video",
+					utm_source: "youtube",
+				},
+			],
+			[],
+		]);
+
+		const snapshot = await repository.list(RANGE_BOUNDS);
+		const link = snapshot.links[0]?.link;
+
+		expect(link?.createdAt).toBeInstanceOf(Date);
+		expect(link?.createdAt.toISOString()).toBe("2026-08-01T12:00:00.000Z");
+		expect(link?.updatedAt.toISOString()).toBe("2026-08-02T12:00:00.000Z");
+		expect(link?.archivedAt?.toISOString()).toBe("2026-08-03T09:00:00.000Z");
+	});
+
 	it("maps PostgreSQL counts and timestamps into repository records", async () => {
 		const createdAt = new Date("2026-08-01T12:00:00.000Z");
 		const updatedAt = new Date("2026-08-02T12:00:00.000Z");

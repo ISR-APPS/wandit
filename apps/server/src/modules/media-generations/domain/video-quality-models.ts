@@ -39,11 +39,9 @@ export const VIDEO_QUALITY_CAPABILITIES = {
 	},
 } as const satisfies Record<VideoQuality, VideoQualityCapabilities>;
 
-/**
- * Edit engine only, consumed by Batch 3's edit_video tool. It must never be
- * selected as a generation tier renderer.
- */
+/** Fixed-operation engines must never be selected as generation tier renderers. */
 export const VIDEO_EDIT_ENGINE_MODEL = "bytedance/seedance-2.5";
+export const VIDEO_PRODUCT_ENGINE_MODEL = "bytedance/seedance-2.5";
 
 export type VideoGenerationKind = "i2v" | "t2v";
 

@@ -1,10 +1,11 @@
-import type { RequiredDomainRecord } from "@wandit/contracts";
+import type { DomainSource, RequiredDomainRecord } from "@wandit/contracts";
 import { describe, expect, it, vi } from "vitest";
 
 import { ApexZoneStep } from "./apex-zone.step";
 import type {
 	CustomerZone,
 	CustomerZoneDnsRecord,
+	CustomerZoneDnsRecordDeletion,
 	CustomHostnameResult,
 	DomainApexDnsPatch,
 	DomainFulfillmentLogger,
@@ -34,18 +35,6 @@ const apexChallenge = {
 	type: "TXT" as const,
 	value: "apex-token",
 };
-
-const apexValidationRecord = {
-	...apexChallenge,
-	purpose: "ownership_or_ssl_validation",
-} satisfies RequiredDomainRecord;
-
-const apexTrafficRecord = {
-	name: "@",
-	purpose: "traffic",
-	type: "CNAME",
-	value: fallbackOrigin,
-} satisfies RequiredDomainRecord;
 
 const nameserverRecords = nameServers.map((value) => ({
 	name: "@",
@@ -126,12 +115,24 @@ function mergeDns(dns: unknown, patch: DomainApexDnsPatch): unknown {
 	return merged;
 }
 
-function setup(options: { enabled?: boolean } = {}) {
+function setup(
+	options: { enabled?: boolean; sources?: readonly DomainSource[] } = {},
+) {
 	const events: string[] = [];
 	const zones = {
 		createZone: vi.fn(async (_name: string) => {
 			events.push("create-zone");
 			return zone();
+		}),
+		deleteDnsRecords: vi.fn(
+			async (_zoneId: string, input: CustomerZoneDnsRecordDeletion) => {
+				events.push(`delete-records:${input.name}`);
+				return 0;
+			},
+		),
+		disableProxyOnAllRecords: vi.fn(async (_zoneId: string) => {
+			events.push("disable-proxy");
+			return 0;
 		}),
 		findZoneByName: vi.fn(
 			async (_name: string): Promise<CustomerZone | null> => {
@@ -139,12 +140,16 @@ function setup(options: { enabled?: boolean } = {}) {
 				return null;
 			},
 		),
-		getZoneStatus: vi.fn(async (_id: string) => {
+		getZoneStatus: vi.fn(async (_id: string): Promise<string | null> => {
 			events.push("get-zone-status");
 			return "pending";
 		}),
 		requestActivationCheck: vi.fn(async (_id: string) => {
 			events.push("activation-check");
+		}),
+		scanDnsRecords: vi.fn(async (_zoneId: string) => {
+			events.push("scan-dns");
+			return { recordsAdded: 3, recordsParsed: 8 };
 		}),
 		upsertDnsRecord: vi.fn(
 			async (_zoneId: string, record: CustomerZoneDnsRecord) => {
@@ -203,10 +208,18 @@ function setup(options: { enabled?: boolean } = {}) {
 		step: new ApexZoneStep(zones, customHostnames, registrar, state, logger, {
 			enabled: options.enabled ?? true,
 			fallbackOrigin,
+			sources: options.sources ?? ["purchased"],
 		}),
 		zones,
 	};
 }
+
+const trafficConflictDeletion = (name: string) =>
+	({
+		keepContent: fallbackOrigin,
+		name,
+		types: ["A", "AAAA", "CNAME"],
+	}) satisfies CustomerZoneDnsRecordDeletion;
 
 describe("ApexZoneStep", () => {
 	it("creates the zone and apex hostname, writes zone records, delegates nameservers, and persists the marker", async () => {
@@ -215,22 +228,28 @@ describe("ApexZoneStep", () => {
 
 		const result = await step.execute(input);
 
+		// The www records reach the zone before anything apex-specific can fail.
 		expect(events).toEqual([
 			"find-zone",
 			"create-zone",
 			"persist",
+			"delete-records:www.example.com",
+			"upsert:CNAME:www.example.com",
+			"upsert:TXT:_cf-custom-hostname.www.example.com",
 			"find-apex-hostname",
 			"create-apex-hostname",
 			"persist",
+			"delete-records:example.com",
 			"upsert:CNAME:example.com",
-			"upsert:CNAME:www.example.com",
-			"upsert:TXT:_cf-custom-hostname.www.example.com",
 			"upsert:TXT:_cf-custom-hostname.example.com",
 			"persist",
 			"set-nameservers",
 			"activation-check",
 			"persist",
 		]);
+		// Purchased rows never import DNS: a fresh zone has nothing to import.
+		expect(zones.scanDnsRecords).not.toHaveBeenCalled();
+		expect(zones.disableProxyOnAllRecords).not.toHaveBeenCalled();
 		expect(zones.findZoneByName).toHaveBeenCalledWith("example.com");
 		expect(zones.createZone).toHaveBeenCalledWith("example.com");
 		expect(customHostnames.findCustomHostnameByName).toHaveBeenCalledWith(
@@ -248,25 +267,22 @@ describe("ApexZoneStep", () => {
 			zoneNameServers: nameServers,
 			zoneStatus: "pending",
 		});
+		// The apex hostname's TXT is written INTO the zone only, never merged into
+		// dns.records (it is nothing the user must do).
 		expect(state.persistApexDns).toHaveBeenNthCalledWith(
 			2,
 			expect.objectContaining({ id: domainId }),
 			{
 				apexCustomHostnameId: "cf_apex",
 				apexCustomHostnameStatus: "pending_validation",
-				records: [wwwTrafficRecord, wwwValidationRecord, apexValidationRecord],
 			},
 		);
+		// Conflicting address records make room for each traffic CNAME first.
+		expect(zones.deleteDnsRecords.mock.calls).toEqual([
+			["zone_1", trafficConflictDeletion("www.example.com")],
+			["zone_1", trafficConflictDeletion("example.com")],
+		]);
 		expect(zones.upsertDnsRecord.mock.calls).toEqual([
-			[
-				"zone_1",
-				{
-					content: fallbackOrigin,
-					name: "example.com",
-					proxied: false,
-					type: "CNAME",
-				},
-			],
 			[
 				"zone_1",
 				{
@@ -282,6 +298,15 @@ describe("ApexZoneStep", () => {
 					content: "www-token",
 					name: "_cf-custom-hostname.www.example.com",
 					type: "TXT",
+				},
+			],
+			[
+				"zone_1",
+				{
+					content: fallbackOrigin,
+					name: "example.com",
+					proxied: false,
+					type: "CNAME",
 				},
 			],
 			[
@@ -306,19 +331,15 @@ describe("ApexZoneStep", () => {
 		expect(zones.requestActivationCheck).toHaveBeenCalledExactlyOnceWith(
 			"zone_1",
 		);
+		// Only the nameservers reach dns.records: the apex CNAME and TXT live
+		// inside our zone.
 		expect(state.persistApexDns).toHaveBeenNthCalledWith(
 			4,
 			expect.objectContaining({ id: domainId }),
 			{
 				apexConfigured: true,
 				apexError: null,
-				records: [
-					wwwTrafficRecord,
-					wwwValidationRecord,
-					apexValidationRecord,
-					apexTrafficRecord,
-					...nameserverRecords,
-				],
+				records: [wwwTrafficRecord, wwwValidationRecord, ...nameserverRecords],
 			},
 		);
 		expect(result.dns).toEqual({
@@ -327,13 +348,7 @@ describe("ApexZoneStep", () => {
 			apexCustomHostnameStatus: "pending_validation",
 			customHostnameDnsConfigured: true,
 			purchaseDnsConfigured: true,
-			records: [
-				wwwTrafficRecord,
-				wwwValidationRecord,
-				apexValidationRecord,
-				apexTrafficRecord,
-				...nameserverRecords,
-			],
+			records: [wwwTrafficRecord, wwwValidationRecord, ...nameserverRecords],
 			zoneCreated: true,
 			zoneDelegated: true,
 			zoneId: "zone_1",
@@ -385,19 +400,96 @@ describe("ApexZoneStep", () => {
 		});
 		expect(zones.findZoneByName).not.toHaveBeenCalled();
 		expect(zones.createZone).not.toHaveBeenCalled();
+		// The persisted zone is only checked to still exist.
+		expect(zones.getZoneStatus).toHaveBeenCalledExactlyOnceWith("zone_1");
 		expect(customHostnames.findCustomHostnameByName).not.toHaveBeenCalled();
 		expect(customHostnames.getCustomHostnameStatus).toHaveBeenCalledWith(
 			"cf_apex",
 		);
-		expect(events.slice(0, 2)).toEqual([
+		expect(events.slice(0, 5)).toEqual([
+			"get-zone-status",
+			"delete-records:www.example.com",
+			"upsert:CNAME:www.example.com",
+			"upsert:TXT:_cf-custom-hostname.www.example.com",
 			"get-apex-hostname",
-			"upsert:CNAME:example.com",
 		]);
 	});
 
+	it("withdraws a persisted zone that no longer exists and creates a new one in the same pass", async () => {
+		const input = domainRow({
+			dns: {
+				apexCustomHostnameId: "cf_apex",
+				records: [wwwTrafficRecord, wwwValidationRecord, ...nameserverRecords],
+				zoneCreated: true,
+				zoneDelegated: true,
+				zoneId: "zone_gone",
+				zoneNameServers: nameServers,
+				zoneScanned: true,
+				zoneStatus: "pending",
+			},
+		});
+		const { events, logger, state, step, zones } = setup();
+		zones.getZoneStatus.mockImplementationOnce(async () => {
+			events.push("get-zone-status");
+			return null;
+		});
+		zones.createZone.mockImplementationOnce(async () => {
+			events.push("create-zone");
+			return zone("zone_2", "pending");
+		});
+
+		const result = await step.execute(input);
+
+		expect(events.slice(0, 5)).toEqual([
+			"get-zone-status",
+			"persist",
+			"find-zone",
+			"create-zone",
+			"persist",
+		]);
+		expect(state.persistApexDns).toHaveBeenNthCalledWith(1, input, {
+			apexConfigured: null,
+			apexCustomHostnameNudged: null,
+			apexError: "Cloudflare zone zone_gone no longer exists",
+			records: [wwwTrafficRecord, wwwValidationRecord],
+			zoneActive: null,
+			zoneCreated: null,
+			zoneDelegated: null,
+			zoneId: null,
+			zoneNameServers: null,
+			zoneScanRecordsAdded: null,
+			zoneScanned: null,
+			zoneStatus: null,
+		});
+		expect(logger.warn).toHaveBeenCalledWith(
+			`Cloudflare zone zone_gone for domain ${domainId} no longer exists; its nameservers are withdrawn`,
+		);
+		expect(result.dns).toMatchObject({
+			apexConfigured: true,
+			apexCustomHostnameId: "cf_apex",
+			zoneCreated: true,
+			zoneId: "zone_2",
+		});
+		expect(result.dns).not.toHaveProperty("apexError");
+	});
+
 	it.each([
-		["external rows", domainRow({ source: "external" }), {}],
+		[
+			"external rows in a purchased composition",
+			domainRow({ source: "external" }),
+			{},
+		],
+		[
+			"purchased rows in an external composition",
+			domainRow(),
+			{ sources: ["external"] as const },
+		],
 		["the kill switch", domainRow(), { enabled: false }],
+		[
+			"the kill switch of an external composition",
+			domainRow({ source: "external" }),
+			{ enabled: false, sources: ["external"] as const },
+		],
 	] as const)("is a no-op for %s", async (_label, input, options) => {
 		const { customHostnames, events, registrar, state, step, zones } =
 			setup(options);
@@ -408,6 +500,34 @@ describe("ApexZoneStep", () => {
 		expect(customHostnames.findCustomHostnameByName).not.toHaveBeenCalled();
 		expect(registrar.setNameservers).not.toHaveBeenCalled();
 		expect(state.persistApexDns).not.toHaveBeenCalled();
+	});
+
+	it("still finishes an external row that already exposed its zone when the kill switch is off", async () => {
+		const input = domainRow({
+			dns: {
+				records: [wwwTrafficRecord, wwwValidationRecord, ...nameserverRecords],
+				zoneCreated: true,
+				zoneDelegated: true,
+				zoneId: "zone_1",
+				zoneNameServers: nameServers,
+				zoneStatus: "pending",
+			},
+			source: "external",
+		});
+		const { events, registrar, step, zones } = setup({
+			enabled: false,
+			sources: ["external"],
+		});
+
+		const result = await step.execute(input);
+
+		// No new zone; the exposed one gets its records, import, and hostname.
+		expect(zones.findZoneByName).not.toHaveBeenCalled();
+		expect(zones.createZone).not.toHaveBeenCalled();
+		expect(events).toContain("upsert:CNAME:www.example.com");
+		expect(events).toContain("create-apex-hostname");
+		expect(registrar.setNameservers).not.toHaveBeenCalled();
+		expect(result.dns).toMatchObject({ apexConfigured: true });
 	});
 
 	it("skips every provider call once configured and the zone is active and nudged", async () => {
@@ -430,6 +550,7 @@ describe("ApexZoneStep", () => {
 	it.each([
 		["zone creation", "createZone"],
 		["apex hostname creation", "createApexCustomHostname"],
+		["a conflicting zone record delete", "deleteDnsRecords"],
 		["a zone record write", "upsertDnsRecord"],
 		["the registrar nameserver update", "setNameservers"],
 	] as const)("records apexError and never throws when %s fails", async (_label, method) => {
@@ -442,6 +563,7 @@ describe("ApexZoneStep", () => {
 			createApexCustomHostname:
 				fixture.customHostnames.createApexCustomHostname,
 			createZone: fixture.zones.createZone,
+			deleteDnsRecords: fixture.zones.deleteDnsRecords,
 			setNameservers: fixture.registrar.setNameservers,
 			upsertDnsRecord: fixture.zones.upsertDnsRecord,
 		};
@@ -600,6 +722,406 @@ describe("ApexZoneStep", () => {
 		expect((result.dns as { apexError: string }).apexError).toHaveLength(240);
 	});
 
+	describe("external rows", () => {
+		const externalRow = (overrides: Partial<DomainFulfillmentRow> = {}) =>
+			domainRow({
+				dns: { records: [wwwTrafficRecord, wwwValidationRecord] },
+				paymentOrderId: null,
+				provider: null,
+				providerDomainId: null,
+				providerOrderId: null,
+				providerTotalPaidUsd: null,
+				source: "external",
+				status: "configuring",
+				...overrides,
+			});
+		const externalSetup = (options: { enabled?: boolean } = {}) =>
+			setup({ ...options, sources: ["external"] });
+
+		it("creates the zone, exposes its nameservers at once, imports the existing DNS once, and configures the apex without any registrar call", async () => {
+			const input = externalRow();
+			const { events, registrar, state, step, zones } = externalSetup();
+			registrar.setNameservers.mockRejectedValue(
+				new Error("External domains delegate nameservers manually"),
+			);
+
+			const result = await step.execute(input);
+
+			expect(events).toEqual([
+				"find-zone",
+				"create-zone",
+				"persist",
+				"scan-dns",
+				"disable-proxy",
+				"persist",
+				"delete-records:www.example.com",
+				"upsert:CNAME:www.example.com",
+				"upsert:TXT:_cf-custom-hostname.www.example.com",
+				"find-apex-hostname",
+				"create-apex-hostname",
+				"persist",
+				"delete-records:example.com",
+				"upsert:CNAME:example.com",
+				"upsert:TXT:_cf-custom-hostname.example.com",
+				"activation-check",
+				"persist",
+			]);
+			expect(registrar.setNameservers).not.toHaveBeenCalled();
+			// Nameservers + "may be delegated" marker land in ONE write with the zone.
+			expect(state.persistApexDns).toHaveBeenNthCalledWith(1, input, {
+				records: [wwwTrafficRecord, wwwValidationRecord, ...nameserverRecords],
+				zoneCreated: true,
+				zoneDelegated: true,
+				zoneId: "zone_1",
+				zoneNameServers: nameServers,
+				zoneStatus: "pending",
+			});
+			expect(zones.scanDnsRecords).toHaveBeenCalledExactlyOnceWith("zone_1");
+			expect(zones.disableProxyOnAllRecords).toHaveBeenCalledExactlyOnceWith(
+				"zone_1",
+			);
+			expect(state.persistApexDns).toHaveBeenNthCalledWith(
+				2,
+				expect.objectContaining({ id: domainId }),
+				{ zoneScanRecordsAdded: 3, zoneScanned: true },
+			);
+			expect(state.persistApexDns).toHaveBeenNthCalledWith(
+				3,
+				expect.objectContaining({ id: domainId }),
+				{
+					apexCustomHostnameId: "cf_apex",
+					apexCustomHostnameStatus: "pending_validation",
+				},
+			);
+			expect(zones.deleteDnsRecords.mock.calls).toEqual([
+				["zone_1", trafficConflictDeletion("www.example.com")],
+				["zone_1", trafficConflictDeletion("example.com")],
+			]);
+			expect(zones.upsertDnsRecord.mock.calls).toEqual([
+				[
+					"zone_1",
+					{
+						content: fallbackOrigin,
+						name: "www.example.com",
+						proxied: false,
+						type: "CNAME",
+					},
+				],
+				[
+					"zone_1",
+					{
+						content: "www-token",
+						name: "_cf-custom-hostname.www.example.com",
+						type: "TXT",
+					},
+				],
+				[
+					"zone_1",
+					{
+						content: fallbackOrigin,
+						name: "example.com",
+						proxied: false,
+						type: "CNAME",
+					},
+				],
+				[
+					"zone_1",
+					{
+						content: "apex-token",
+						name: "_cf-custom-hostname.example.com",
+						type: "TXT",
+					},
+				],
+			]);
+			expect(zones.requestActivationCheck).toHaveBeenCalledExactlyOnceWith(
+				"zone_1",
+			);
+			expect(state.persistApexDns).toHaveBeenNthCalledWith(
+				4,
+				expect.objectContaining({ id: domainId }),
+				{
+					apexConfigured: true,
+					apexError: null,
+					records: [
+						wwwTrafficRecord,
+						wwwValidationRecord,
+						...nameserverRecords,
+					],
+				},
+			);
+			expect(result.dns).toEqual({
+				apexConfigured: true,
+				apexCustomHostnameId: "cf_apex",
+				apexCustomHostnameStatus: "pending_validation",
+				records: [wwwTrafficRecord, wwwValidationRecord, ...nameserverRecords],
+				zoneCreated: true,
+				zoneDelegated: true,
+				zoneId: "zone_1",
+				zoneNameServers: nameServers,
+				zoneScanRecordsAdded: 3,
+				zoneScanned: true,
+				zoneStatus: "pending",
+			});
+		});
+
+		it("resumes from the zone the attach already exposed without looking it up, and still imports the DNS once", async () => {
+			const input = externalRow({
+				dns: {
+					records: [
+						wwwTrafficRecord,
+						wwwValidationRecord,
+						...nameserverRecords,
+					],
+					zoneCreated: true,
+					zoneDelegated: true,
+					zoneId: "zone_1",
+					zoneNameServers: nameServers,
+					zoneStatus: "pending",
+				},
+			});
+			const { events, state, step, zones } = externalSetup();
+
+			const result = await step.execute(input);
+
+			expect(zones.findZoneByName).not.toHaveBeenCalled();
+			expect(zones.createZone).not.toHaveBeenCalled();
+			expect(events.slice(0, 4)).toEqual([
+				"get-zone-status",
+				"scan-dns",
+				"disable-proxy",
+				"persist",
+			]);
+			expect(state.persistApexDns).toHaveBeenNthCalledWith(1, input, {
+				zoneScanRecordsAdded: 3,
+				zoneScanned: true,
+			});
+			expect(result.dns).toMatchObject({
+				apexConfigured: true,
+				zoneScanned: true,
+			});
+			// The nameserver merge is idempotent: no duplicates.
+			expect((result.dns as { records: unknown[] }).records).toEqual([
+				wwwTrafficRecord,
+				wwwValidationRecord,
+				...nameserverRecords,
+			]);
+		});
+
+		it("adopts a zone that already exists by name and still exposes its nameservers with the delegation marker", async () => {
+			const { state, step, zones } = externalSetup();
+			zones.findZoneByName.mockResolvedValueOnce(
+				zone("zone_existing", "active"),
+			);
+
+			const result = await step.execute(externalRow());
+
+			expect(zones.createZone).not.toHaveBeenCalled();
+			expect(state.persistApexDns).toHaveBeenNthCalledWith(
+				1,
+				expect.anything(),
+				{
+					records: [
+						wwwTrafficRecord,
+						wwwValidationRecord,
+						...nameserverRecords,
+					],
+					zoneDelegated: true,
+					zoneId: "zone_existing",
+					zoneNameServers: nameServers,
+					zoneStatus: "active",
+				},
+			);
+			expect(result.dns).not.toHaveProperty("zoneCreated");
+			expect(result.dns).toMatchObject({
+				apexConfigured: true,
+				zoneDelegated: true,
+			});
+		});
+
+		it("never imports DNS twice once the marker is set", async () => {
+			const input = externalRow({
+				dns: {
+					records: [],
+					zoneDelegated: true,
+					zoneId: "zone_1",
+					zoneNameServers: nameServers,
+					zoneScanRecordsAdded: 0,
+					zoneScanned: true,
+					zoneStatus: "pending",
+				},
+			});
+			const { step, zones } = externalSetup();
+
+			await expect(step.execute(input)).resolves.toMatchObject({
+				dns: { apexConfigured: true },
+			});
+			expect(zones.scanDnsRecords).not.toHaveBeenCalled();
+			expect(zones.disableProxyOnAllRecords).not.toHaveBeenCalled();
+		});
+
+		it.each([
+			[
+				"the record scan",
+				"scanDnsRecords",
+				`Existing DNS import into the Cloudflare zone deferred for domain ${domainId}`,
+			],
+			[
+				"the proxy normalization",
+				"disableProxyOnAllRecords",
+				`DNS-only normalization of the Cloudflare zone deferred for domain ${domainId}`,
+			],
+		] as const)("keeps going without the scan marker when %s fails, so a later pass retries", async (_label, method, warning) => {
+			const fixture = externalSetup();
+			fixture.zones[method].mockRejectedValueOnce(new Error(`${method} down`));
+
+			const result = await fixture.step.execute(externalRow());
+
+			expect(result.dns).toMatchObject({ apexConfigured: true });
+			expect(result.dns).not.toHaveProperty("zoneScanned");
+			expect(result.dns).not.toHaveProperty("zoneScanRecordsAdded");
+			expect(result.dns).not.toHaveProperty("apexError");
+			expect(fixture.logger.warn).toHaveBeenCalledWith(
+				warning,
+				`${method} down`,
+			);
+			expect(fixture.state.persistApexDns).not.toHaveBeenCalledWith(
+				expect.anything(),
+				expect.objectContaining({ zoneScanned: true }),
+			);
+			// A timed-out scan can still have imported records server-side, so the
+			// DNS-only normalization runs whatever the scan reported.
+			expect(fixture.zones.scanDnsRecords).toHaveBeenCalledExactlyOnceWith(
+				"zone_1",
+			);
+			expect(
+				fixture.zones.disableProxyOnAllRecords,
+			).toHaveBeenCalledExactlyOnceWith("zone_1");
+		});
+
+		it("records apexError and keeps the exposed nameservers when the apex hostname fails, with the www records already in the zone", async () => {
+			const { customHostnames, events, registrar, step, zones } =
+				externalSetup();
+			customHostnames.createApexCustomHostname.mockRejectedValueOnce(
+				new Error("hostname quota"),
+			);
+
+			const result = await step.execute(externalRow());
+
+			expect(result.dns).toMatchObject({
+				apexError: "hostname quota",
+				records: [wwwTrafficRecord, wwwValidationRecord, ...nameserverRecords],
+				zoneDelegated: true,
+				zoneId: "zone_1",
+				zoneScanned: true,
+			});
+			expect(result.dns).not.toHaveProperty("apexConfigured");
+			expect(registrar.setNameservers).not.toHaveBeenCalled();
+			// An owner who already delegated keeps www: its CNAME and ownership TXT
+			// were written before the apex hostname; the apex CNAME waits for it.
+			expect(zones.upsertDnsRecord.mock.calls).toEqual([
+				[
+					"zone_1",
+					{
+						content: fallbackOrigin,
+						name: "www.example.com",
+						proxied: false,
+						type: "CNAME",
+					},
+				],
+				[
+					"zone_1",
+					{
+						content: "www-token",
+						name: "_cf-custom-hostname.www.example.com",
+						type: "TXT",
+					},
+				],
+			]);
+			expect(zones.deleteDnsRecords).toHaveBeenCalledExactlyOnceWith(
+				"zone_1",
+				trafficConflictDeletion("www.example.com"),
+			);
+			expect(events).not.toContain("upsert:CNAME:example.com");
+		});
+
+		it("never persists a lone delegation marker for external rows", async () => {
+			const { state, step } = externalSetup();
+
+			await step.execute(externalRow());
+
+			expect(state.persistApexDns).not.toHaveBeenCalledWith(expect.anything(), {
+				zoneDelegated: true,
+			});
+		});
+
+		it("polls the zone after configuration like a purchased row and retries a deferred DNS import while the zone is pending", async () => {
+			const configured = externalRow({
+				dns: {
+					apexConfigured: true,
+					apexCustomHostnameId: "cf_apex",
+					records: [],
+					zoneDelegated: true,
+					zoneId: "zone_1",
+					zoneNameServers: nameServers,
+					zoneStatus: "pending",
+				},
+			});
+			const { events, state, step, zones } = externalSetup();
+
+			const first = await step.execute(configured);
+
+			expect(events).toEqual([
+				"scan-dns",
+				"disable-proxy",
+				"persist",
+				"get-zone-status",
+				"activation-check",
+			]);
+			expect(state.persistApexDns).toHaveBeenCalledExactlyOnceWith(configured, {
+				zoneScanRecordsAdded: 3,
+				zoneScanned: true,
+			});
+			expect(first.dns).toMatchObject({ zoneScanned: true });
+
+			events.length = 0;
+			zones.getZoneStatus.mockImplementationOnce(async () => {
+				events.push("get-zone-status");
+				return "active";
+			});
+			const second = await step.execute(first);
+
+			expect(events).toEqual([
+				"get-zone-status",
+				"persist",
+				"nudge-apex-hostname",
+				"persist",
+			]);
+			expect(zones.scanDnsRecords).toHaveBeenCalledOnce();
+			expect(second.dns).toMatchObject({
+				apexCustomHostnameNudged: true,
+				zoneActive: true,
+			});
+		});
+
+		it("does not retry the DNS import once the zone is active", async () => {
+			const configured = externalRow({
+				dns: {
+					apexConfigured: true,
+					apexCustomHostnameId: "cf_apex",
+					apexCustomHostnameNudged: true,
+					zoneActive: true,
+					zoneDelegated: true,
+					zoneId: "zone_1",
+					zoneNameServers: nameServers,
+				},
+			});
+			const { events, step } = externalSetup();
+
+			await expect(step.execute(configured)).resolves.toBe(configured);
+			expect(events).toEqual([]);
+		});
+	});
+
 	describe("after configuration", () => {
 		const configured = domainRow({
 			dns: {
@@ -666,6 +1188,79 @@ describe("ApexZoneStep", () => {
 			events.length = 0;
 			await expect(step.execute(first)).resolves.toBe(first);
 			expect(events).toEqual([]);
+		});
+
+		it("withdraws a zone that no longer exists: nameservers leave dns.records and the zone keys are cleared", async () => {
+			const configuredWithNs = domainRow({
+				dns: {
+					apexConfigured: true,
+					apexCustomHostnameId: "cf_apex",
+					records: [
+						wwwTrafficRecord,
+						wwwValidationRecord,
+						...nameserverRecords,
+					],
+					zoneCreated: true,
+					zoneDelegated: true,
+					zoneId: "zone_1",
+					zoneNameServers: nameServers,
+					zoneStatus: "pending",
+				},
+				status: "configuring",
+			});
+			const { events, logger, state, step, zones } = setup();
+			zones.getZoneStatus.mockImplementationOnce(async () => {
+				events.push("get-zone-status");
+				return null;
+			});
+
+			const result = await step.execute(configuredWithNs);
+
+			expect(events).toEqual(["get-zone-status", "persist"]);
+			expect(zones.requestActivationCheck).not.toHaveBeenCalled();
+			expect(state.persistApexDns).toHaveBeenCalledExactlyOnceWith(
+				configuredWithNs,
+				{
+					apexConfigured: null,
+					apexCustomHostnameNudged: null,
+					apexError: "Cloudflare zone zone_1 no longer exists",
+					records: [wwwTrafficRecord, wwwValidationRecord],
+					zoneActive: null,
+					zoneCreated: null,
+					zoneDelegated: null,
+					zoneId: null,
+					zoneNameServers: null,
+					zoneScanRecordsAdded: null,
+					zoneScanned: null,
+					zoneStatus: null,
+				},
+			);
+			expect(logger.warn).toHaveBeenCalledWith(
+				`Cloudflare zone zone_1 for domain ${domainId} no longer exists; its nameservers are withdrawn`,
+			);
+			expect(result.dns).toEqual({
+				apexCustomHostnameId: "cf_apex",
+				apexError: "Cloudflare zone zone_1 no longer exists",
+				records: [wwwTrafficRecord, wwwValidationRecord],
+			});
+
+			// The next pass configures again from scratch: a new zone, fresh
+			// nameservers, and the kept apex hostname.
+			events.length = 0;
+			const next = await step.execute(result);
+
+			expect(events.slice(0, 3)).toEqual([
+				"find-zone",
+				"create-zone",
+				"persist",
+			]);
+			expect(next.dns).toMatchObject({
+				apexConfigured: true,
+				apexCustomHostnameId: "cf_apex",
+				records: [wwwTrafficRecord, wwwValidationRecord, ...nameserverRecords],
+				zoneId: "zone_1",
+			});
+			expect(next.dns).not.toHaveProperty("apexError");
 		});
 
 		it("logs and returns the latest row when polling fails, without an apexError write", async () => {

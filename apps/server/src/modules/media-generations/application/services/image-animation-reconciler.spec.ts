@@ -14,6 +14,7 @@ import {
 	USER_SAFE_IMAGE_ANIMATION_ERROR,
 } from "./image-animation-runner";
 import { MEDIA_GENERATION_STALE_GENERATING_MS } from "./media-generation-staleness";
+import { USER_SAFE_PRODUCT_VIDEO_ERROR } from "./product-video-runner";
 
 const NOW = new Date("2026-07-24T12:00:00.000Z");
 const RECOVERED_VIDEO: ImageAnimationVideo = {
@@ -145,6 +146,9 @@ describe("reconcileImageAnimations", () => {
 					NOW.getTime() -
 						MEDIA_GENERATION_STALE_GENERATING_MS["video-extension"],
 				),
+				"video-product": new Date(
+					NOW.getTime() - MEDIA_GENERATION_STALE_GENERATING_MS["video-product"],
+				),
 			},
 			limit: IMAGE_ANIMATION_RECONCILIATION_BATCH_SIZE,
 			queuedBefore: new Date(NOW.getTime() - IMAGE_ANIMATION_STALE_QUEUED_MS),
@@ -190,6 +194,35 @@ describe("reconcileImageAnimations", () => {
 		);
 		expect(failFromStatus).not.toHaveBeenCalled();
 		expect(refund).not.toHaveBeenCalled();
+		expect(settleExisting).toHaveBeenCalledWith(
+			{ actorUserId: "user_1" },
+			"attempt_1",
+			1,
+		);
+		expect(settleExisting.mock.invocationCallOrder[0]).toBeLessThan(
+			markSucceeded.mock.invocationCallOrder[0] ?? Number.MAX_SAFE_INTEGER,
+		);
+	});
+
+	it("recovers a stale product video and settles it before publishing success", async () => {
+		const product = candidate("stale_generating", {
+			kind: "video-product",
+			startedAt: new Date(
+				NOW.getTime() -
+					MEDIA_GENERATION_STALE_GENERATING_MS["video-product"] -
+					1,
+			),
+		});
+		const { dependencies, markSucceeded, recoverStoredVideo, settleExisting } =
+			setup([product]);
+		recoverStoredVideo.mockResolvedValue(RECOVERED_VIDEO);
+
+		await expect(reconcileImageAnimations(dependencies)).resolves.toMatchObject(
+			{
+				recovered: 1,
+			},
+		);
+		expect(recoverStoredVideo).toHaveBeenCalledWith(product);
 		expect(settleExisting).toHaveBeenCalledWith(
 			{ actorUserId: "user_1" },
 			"attempt_1",
@@ -351,6 +384,39 @@ describe("reconcileImageAnimations", () => {
 			{ actorUserId: "user_1" },
 			"attempt_1",
 			"image-animation",
+		);
+	});
+
+	it("fails and refunds a stale product video when no final object exists", async () => {
+		const product = candidate("stale_generating", {
+			kind: "video-product",
+			startedAt: new Date(
+				NOW.getTime() -
+					MEDIA_GENERATION_STALE_GENERATING_MS["video-product"] -
+					1,
+			),
+		});
+		const { dependencies, failFromStatus, refund } = setup([product]);
+
+		await expect(reconcileImageAnimations(dependencies)).resolves.toMatchObject(
+			{
+				failed: 1,
+				refunded: 1,
+			},
+		);
+		expect(failFromStatus).toHaveBeenCalledWith(product, {
+			activityBefore: new Date(
+				NOW.getTime() - MEDIA_GENERATION_STALE_GENERATING_MS["video-product"],
+			),
+			completedAt: NOW,
+			error: USER_SAFE_PRODUCT_VIDEO_ERROR,
+			expectedStatus: "generating",
+			reason: "stale_generation",
+		});
+		expect(refund).toHaveBeenCalledWith(
+			{ actorUserId: "user_1" },
+			"attempt_1",
+			"video-product",
 		);
 	});
 

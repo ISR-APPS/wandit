@@ -22,9 +22,11 @@ type StoryLinkStatsRow = {
 	utm_campaign: string;
 	utm_content: string | null;
 	destination_path: string;
-	archived_at: Date | null;
-	created_at: Date;
-	updated_at: Date;
+	// Raw `execute` rows: the production driver returns timestamptz as ISO
+	// strings (node-postgres parses them to Date); normalize before mapping.
+	archived_at: Date | string | null;
+	created_at: Date | string;
+	updated_at: Date | string;
 	clicks_in_range: NumericValue;
 	unique_visitors_in_range: NumericValue;
 	all_time_clicks: NumericValue;
@@ -147,13 +149,13 @@ export class StoryLinkAdminRepository {
 
 		return result.rows.map((row) => ({
 			link: {
-				archivedAt: row.archived_at,
-				createdAt: row.created_at,
+				archivedAt: toNullableDate(row.archived_at),
+				createdAt: toDate(row.created_at),
 				destinationPath: row.destination_path,
 				id: row.id,
 				name: row.name,
 				slug: row.slug,
-				updatedAt: row.updated_at,
+				updatedAt: toDate(row.updated_at),
 				utmCampaign: row.utm_campaign,
 				utmContent: row.utm_content,
 				utmMedium: row.utm_medium,
@@ -217,6 +219,14 @@ function storyLinkBounds(input: AdminDashboardRangeBounds) {
 			${input.seriesEnd}::timestamptz as series_end,
 			${input.snapshotEnd}::timestamptz as snapshot_end
 	`;
+}
+
+function toDate(value: Date | string): Date {
+	return value instanceof Date ? value : new Date(value);
+}
+
+function toNullableDate(value: Date | string | null): Date | null {
+	return value === null ? null : toDate(value);
 }
 
 function toNumber(value: NumericValue | undefined): number {

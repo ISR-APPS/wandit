@@ -19,6 +19,7 @@ function setup() {
 		id: "11111111-1111-4111-8111-111111111111",
 		name: "example.com",
 		projectId: "22222222-2222-4222-8222-222222222222",
+		source: "purchased" as const,
 	};
 
 	return { dependencies, row };
@@ -140,6 +141,32 @@ describe("domain asset cleanup", () => {
 		).resolves.toBe(false);
 		expect(dependencies.deleteZone).not.toHaveBeenCalled();
 		expect(dependencies.logger.warn).toHaveBeenCalledTimes(warned ? 1 : 0);
+	});
+
+	it.each([
+		[
+			"a zone the attach created and exposed",
+			{ zoneCreated: true, zoneDelegated: true, zoneId: "zone_ext" },
+		],
+		[
+			"a zone whose delegation marker is missing",
+			{ zoneCreated: true, zoneId: "zone_ext_bare" },
+		],
+		["an adopted zone", { zoneId: "zone_ext_adopted" }],
+	] as const)("never deletes an external row's zone (%s): the owner may delegate to it at any time", async (_label, dns) => {
+		const { dependencies, row } = setup();
+
+		await expect(
+			bestEffortDeleteCustomerZone(
+				{ ...row, dns, source: "external" },
+				dependencies,
+			),
+		).resolves.toBe(false);
+		expect(dependencies.deleteZone).not.toHaveBeenCalled();
+		expect(dependencies.logger.warn).toHaveBeenCalledExactlyOnceWith(
+			`Leaving Cloudflare zone ${dns.zoneId} for domain 11111111-1111-4111-8111-111111111111 in place`,
+			"the zone's nameservers were exposed to the domain owner",
+		);
 	});
 
 	it("warns on a zone delete failure without throwing", async () => {

@@ -56,6 +56,7 @@ const MEDIA_GENERATION_RECONCILIATION_KINDS = [
 	"text-to-video",
 	"video-edit",
 	"video-extension",
+	"video-product",
 ] as const;
 
 const ATTEMPT_COLUMNS = {
@@ -469,6 +470,13 @@ function createPersistence(db: TriggerDatabase, analytics: AnalyticsCapture) {
 										lt(
 											mediaGenerationAttempts.startedAt,
 											input.generatingBefore["text-to-video"],
+										),
+									),
+									and(
+										eq(mediaGenerationAttempts.kind, "video-product"),
+										lt(
+											mediaGenerationAttempts.startedAt,
+											input.generatingBefore["video-product"],
 										),
 									),
 									and(

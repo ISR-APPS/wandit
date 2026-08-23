@@ -39,7 +39,10 @@ export type CustomHostnameResult = {
 	status: string;
 };
 
-/** A Cloudflare zone in our account that hosts one purchased domain's DNS. */
+/**
+ * A Cloudflare zone in our account that hosts one domain's DNS (purchased:
+ * the registrar delegates to it; external: the user may delegate to it).
+ */
 export type CustomerZone = {
 	id: string;
 	nameServers: string[];
@@ -52,6 +55,23 @@ export type CustomerZoneDnsRecord = {
 	proxied?: boolean;
 	ttl?: number;
 	type: "CNAME" | "TXT";
+};
+
+/** Result of Cloudflare's one-shot import of a domain's public DNS records. */
+export type CustomerZoneDnsScan = {
+	recordsAdded: number;
+	recordsParsed: number;
+};
+
+/**
+ * Selects the address records at one exact name that must make room for our
+ * traffic CNAME: every A/AAAA record and any CNAME whose content differs from
+ * `keepContent` (the fallback origin).
+ */
+export type CustomerZoneDnsRecordDeletion = {
+	keepContent?: string;
+	name: string;
+	types: readonly ("A" | "AAAA" | "CNAME")[];
 };
 
 export type DomainConfigurationCursor = {
@@ -75,21 +95,24 @@ export type DomainFulfillmentDns = DomainDns & {
 /**
  * The `dns` keys ApexZoneStep owns. It is persisted as a shallow merge into
  * the stored `dns` object (never a full replace), so a live verification cursor
- * in `dns.triggerConfiguration` is left alone. A `null` value removes the key.
+ * in `dns.triggerConfiguration` is left alone. A `null` value removes the key
+ * (used to withdraw a zone that no longer exists).
  */
 export type DomainApexDnsPatch = {
-	apexConfigured?: true;
+	apexConfigured?: true | null;
 	apexCustomHostnameId?: string;
-	apexCustomHostnameNudged?: true;
+	apexCustomHostnameNudged?: true | null;
 	apexCustomHostnameStatus?: string;
 	apexError?: string | null;
 	records?: RequiredDomainRecord[];
-	zoneActive?: true;
-	zoneCreated?: true;
-	zoneDelegated?: true;
-	zoneId?: string;
-	zoneNameServers?: string[];
-	zoneStatus?: string;
+	zoneActive?: true | null;
+	zoneCreated?: true | null;
+	zoneDelegated?: true | null;
+	zoneId?: string | null;
+	zoneNameServers?: string[] | null;
+	zoneScanned?: true | null;
+	zoneScanRecordsAdded?: number | null;
+	zoneStatus?: string | null;
 };
 
 export type DomainFulfillmentRow = {
