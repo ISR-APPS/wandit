@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
 	buildStoryLinkUrl,
+	formatStoryLinkConversionRate,
 	sortStoryLinksArchivedLast,
 	suggestStoryLinkSlug,
 } from "./story-link-helpers";
@@ -38,6 +39,17 @@ describe("buildStoryLinkUrl", () => {
 		expect(buildStoryLinkUrl("launch story", "https://preview.test///")).toBe(
 			"https://preview.test/s/launch%20story",
 		);
+	});
+});
+
+describe("formatStoryLinkConversionRate", () => {
+	it("shows an em dash when the denominator is zero", () => {
+		expect(formatStoryLinkConversionRate(0, 0)).toBe("—");
+	});
+
+	it("formats the ratio as a percentage with one decimal place", () => {
+		expect(formatStoryLinkConversionRate(1, 4)).toBe("25.0%");
+		expect(formatStoryLinkConversionRate(2, 3)).toBe("66.7%");
 	});
 });
 

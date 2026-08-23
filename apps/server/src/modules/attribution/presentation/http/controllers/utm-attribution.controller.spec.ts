@@ -16,7 +16,10 @@ vi.mock("@wandit/env/server", () => ({ env: mockEnv }));
 import { IS_PUBLIC_KEY } from "../../../../auth/presentation/http/decorators/public.decorator";
 import type { UtmAttributionThrottle } from "../../../application/services/utm-attribution-throttle";
 import type { UtmAttributionTokenService } from "../../../application/services/utm-attribution-token.service";
-import { UTM_ATTRIBUTION_WINDOW_SECONDS } from "../../../domain/utm-attribution-token";
+import {
+	UTM_ATTRIBUTION_WINDOW_SECONDS,
+	type UtmAttributionTokenPayload,
+} from "../../../domain/utm-attribution-token";
 import { UtmAttributionController } from "./utm-attribution.controller";
 
 const NOW = new Date("2026-08-15T12:00:00.000Z");
@@ -28,6 +31,25 @@ const BODY = {
 	utmSource: "google",
 } satisfies UtmAttributionBody;
 const TOKEN = "v1.payload.signature";
+const EXISTING_TOKEN = "v1.existing+payload/signature?";
+
+function storyLinkPayload(
+	overrides: Partial<UtmAttributionTokenPayload> = {},
+): UtmAttributionTokenPayload {
+	return {
+		issuedAt: Math.floor(NOW.getTime() / 1_000) - 60,
+		landingPath: "/pricing",
+		storyLinkSlug: "summer-story",
+		utmCampaign: BODY.utmCampaign,
+		utmMedium: BODY.utmMedium,
+		utmSource: BODY.utmSource,
+		...overrides,
+	};
+}
+
+function attributionCookie(token = EXISTING_TOKEN): string {
+	return `${UTM_ATTRIBUTION_COOKIE_NAME}=${encodeURIComponent(token)}`;
+}
 
 function setup() {
 	const throttle = {
@@ -35,6 +57,9 @@ function setup() {
 	};
 	const tokenService = {
 		sign: vi.fn(() => TOKEN),
+		verify: vi.fn(
+			(_token: string, _now?: Date): UtmAttributionTokenPayload | null => null,
+		),
 	};
 	const controller = new UtmAttributionController(
 		throttle as unknown as UtmAttributionThrottle,
@@ -96,6 +121,109 @@ describe("UtmAttributionController", () => {
 			"set-cookie",
 			`${UTM_ATTRIBUTION_COOKIE_NAME}=${TOKEN}; Max-Age=${UTM_ATTRIBUTION_WINDOW_SECONDS}; Path=/; HttpOnly; SameSite=None; Secure`,
 		);
+	});
+
+	it("preserves a verified story-link slug when all UTM values match", () => {
+		const { controller, reply, tokenService } = setup();
+		tokenService.verify.mockReturnValueOnce(storyLinkPayload());
+
+		controller.capture(
+			BODY,
+			request({
+				cookie: `session=other; ${attributionCookie()}; preference=compact`,
+			}),
+			reply as unknown as FastifyReply,
+		);
+
+		expect(tokenService.verify).toHaveBeenCalledWith(EXISTING_TOKEN);
+		expect(tokenService.sign).toHaveBeenCalledWith({
+			...BODY,
+			issuedAt: Math.floor(NOW.getTime() / 1_000),
+			storyLinkSlug: "summer-story",
+		});
+	});
+
+	it.each([
+		["source", { utmSource: "newsletter" }],
+		["medium", { utmMedium: "email" }],
+		["campaign", { utmCampaign: "autumn-launch" }],
+	] as const)("drops the story-link slug when the UTM %s differs", (_, change) => {
+		const { controller, reply, tokenService } = setup();
+		tokenService.verify.mockReturnValueOnce(storyLinkPayload());
+		const body = { ...BODY, ...change };
+
+		controller.capture(
+			body,
+			request({ cookie: attributionCookie() }),
+			reply as unknown as FastifyReply,
+		);
+
+		expect(tokenService.sign).toHaveBeenCalledWith({
+			...body,
+			issuedAt: Math.floor(NOW.getTime() / 1_000),
+		});
+	});
+
+	it.each([
+		[
+			"the existing content is absent and the incoming content has a value",
+			storyLinkPayload(),
+			{ ...BODY, utmContent: "hero-cta" },
+		],
+		[
+			"the existing content has a value and the incoming content is absent",
+			storyLinkPayload({ utmContent: "hero-cta" }),
+			BODY,
+		],
+	] satisfies ReadonlyArray<
+		readonly [string, UtmAttributionTokenPayload, UtmAttributionBody]
+	>)("drops the story-link slug when %s", (_, existingPayload, body) => {
+		const { controller, reply, tokenService } = setup();
+		tokenService.verify.mockReturnValueOnce(existingPayload);
+
+		controller.capture(
+			body,
+			request({ cookie: attributionCookie() }),
+			reply as unknown as FastifyReply,
+		);
+
+		expect(tokenService.sign).toHaveBeenCalledWith({
+			...body,
+			issuedAt: Math.floor(NOW.getTime() / 1_000),
+		});
+	});
+
+	it("ignores an invalid existing attribution cookie", () => {
+		const { controller, reply, tokenService } = setup();
+		tokenService.verify.mockReturnValueOnce(null);
+
+		controller.capture(
+			BODY,
+			request({ cookie: attributionCookie("invalid-token") }),
+			reply as unknown as FastifyReply,
+		);
+
+		expect(tokenService.verify).toHaveBeenCalledWith("invalid-token");
+		expect(tokenService.sign).toHaveBeenCalledWith({
+			...BODY,
+			issuedAt: Math.floor(NOW.getTime() / 1_000),
+		});
+	});
+
+	it("ignores an absent existing attribution cookie", () => {
+		const { controller, reply, tokenService } = setup();
+
+		controller.capture(
+			BODY,
+			request({ cookie: "session=other" }),
+			reply as unknown as FastifyReply,
+		);
+
+		expect(tokenService.verify).not.toHaveBeenCalled();
+		expect(tokenService.sign).toHaveBeenCalledWith({
+			...BODY,
+			issuedAt: Math.floor(NOW.getTime() / 1_000),
+		});
 	});
 
 	it("uses SameSite=Lax without Secure for an HTTP auth origin", () => {

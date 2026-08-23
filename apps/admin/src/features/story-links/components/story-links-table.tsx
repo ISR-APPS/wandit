@@ -1,8 +1,8 @@
 import {
 	ArchiveIcon,
 	ArchiveRestoreIcon,
-	CopyIcon,
 	EllipsisIcon,
+	EyeIcon,
 	Loader2Icon,
 	PencilIcon,
 } from "lucide-react";
@@ -45,30 +45,28 @@ import {
 	TableHeader,
 	TableRow,
 } from "@/components/ui/table";
-import {
-	Tooltip,
-	TooltipContent,
-	TooltipTrigger,
-} from "@/components/ui/tooltip";
 import { useAdminPermission } from "@/features/auth/lib/permissions";
 import {
 	formatOverviewDate,
 	formatOverviewWholeNumber,
 } from "@/features/overview/lib/formatters";
-import type { StoryLinkListItem } from "@/features/story-links/api/story-links.dto";
+import type {
+	StoryLinkListItem,
+	StoryLinksQuery,
+} from "@/features/story-links/api/story-links.dto";
 import { useUpdateStoryLinkMutation } from "@/features/story-links/api/story-links.mutations";
 import { RenameStoryLinkDialog } from "@/features/story-links/components/rename-story-link-dialog";
-import {
-	buildStoryLinkUrl,
-	sortStoryLinksArchivedLast,
-} from "@/features/story-links/lib/story-link-helpers";
+import { StoryLinkDetailSheet } from "@/features/story-links/components/story-link-detail-sheet";
+import { StoryLinkShortUrl } from "@/features/story-links/components/story-link-short-url";
+import { sortStoryLinksArchivedLast } from "@/features/story-links/lib/story-link-helpers";
 import { cn } from "@/lib/utils";
 
 type StoryLinksTableProps = {
 	links: readonly StoryLinkListItem[];
+	query: StoryLinksQuery;
 };
 
-function StoryLinksTable({ links }: StoryLinksTableProps) {
+function StoryLinksTable({ links, query }: StoryLinksTableProps) {
 	const canManage = useAdminPermission({ links: ["manage"] });
 	const updateMutation = useUpdateStoryLinkMutation();
 	const updatingRef = useRef(false);
@@ -76,6 +74,7 @@ function StoryLinksTable({ links }: StoryLinksTableProps) {
 	const [archiveLink, setArchiveLink] = useState<StoryLinkListItem | null>(
 		null,
 	);
+	const [detailLinkId, setDetailLinkId] = useState<string | null>(null);
 	const [updatingId, setUpdatingId] = useState<string | null>(null);
 	const sortedLinks = sortStoryLinksArchivedLast(links);
 
@@ -151,6 +150,7 @@ function StoryLinksTable({ links }: StoryLinksTableProps) {
 								link={link}
 								isUpdating={updatingId === link.id}
 								disableActions={updateMutation.isPending}
+								onDetails={() => setDetailLinkId(link.id)}
 								onRename={() => setRenameLink(link)}
 								onToggleArchived={() => requestArchiveChange(link)}
 								showActions={canManage}
@@ -191,20 +191,22 @@ function StoryLinksTable({ links }: StoryLinksTableProps) {
 										>
 											<TableCell className="px-4 py-3">
 												<div className="flex min-w-0 items-center gap-2">
-													<span
+													<button
+														type="button"
 														className={cn(
-															"max-w-48 truncate font-medium",
+															"max-w-48 truncate text-left font-medium outline-none hover:underline focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring",
 															!archived && "text-foreground",
 														)}
 														title={link.name}
+														onClick={() => setDetailLinkId(link.id)}
 													>
 														{link.name}
-													</span>
+													</button>
 													{archived ? <ArchivedBadge /> : null}
 												</div>
 											</TableCell>
 											<TableCell>
-												<ShortUrl link={link} />
+												<StoryLinkShortUrl link={link} />
 											</TableCell>
 											<TableCell>
 												<AttributionBadge
@@ -236,6 +238,7 @@ function StoryLinksTable({ links }: StoryLinksTableProps) {
 														link={link}
 														isUpdating={updatingId === link.id}
 														disabled={updateMutation.isPending}
+														onDetails={() => setDetailLinkId(link.id)}
 														onRename={() => setRenameLink(link)}
 														onToggleArchived={() => requestArchiveChange(link)}
 													/>
@@ -249,6 +252,12 @@ function StoryLinksTable({ links }: StoryLinksTableProps) {
 					</div>
 				</CardContent>
 			</Card>
+
+			<StoryLinkDetailSheet
+				storyLinkId={detailLinkId}
+				query={query}
+				onClose={() => setDetailLinkId(null)}
+			/>
 
 			{canManage && renameLink ? (
 				<RenameStoryLinkDialog
@@ -304,6 +313,7 @@ type StoryLinkMobileCardProps = {
 	link: StoryLinkListItem;
 	isUpdating: boolean;
 	disableActions: boolean;
+	onDetails: () => void;
 	onRename: () => void;
 	onToggleArchived: () => void;
 	showActions: boolean;
@@ -313,6 +323,7 @@ function StoryLinkMobileCard({
 	link,
 	isUpdating,
 	disableActions,
+	onDetails,
 	onRename,
 	onToggleArchived,
 	showActions,
@@ -325,19 +336,24 @@ function StoryLinkMobileCard({
 		>
 			<div className="flex items-start gap-3">
 				<div className="min-w-0 flex-1">
-					<div className="flex flex-wrap items-center gap-2">
-						<h3
-							className={cn(
-								"truncate font-medium",
-								!archived && "text-foreground",
-							)}
-						>
-							{link.name}
+					<div className="flex min-w-0 flex-wrap items-center gap-2">
+						<h3 className="min-w-0">
+							<button
+								type="button"
+								className={cn(
+									"block max-w-full truncate text-left font-medium outline-none hover:underline focus-visible:rounded-sm focus-visible:ring-2 focus-visible:ring-ring",
+									!archived && "text-foreground",
+								)}
+								title={link.name}
+								onClick={onDetails}
+							>
+								{link.name}
+							</button>
 						</h3>
 						{archived ? <ArchivedBadge /> : null}
 					</div>
 					<div className="mt-2">
-						<ShortUrl link={link} mobile />
+						<StoryLinkShortUrl link={link} mobile />
 					</div>
 				</div>
 				{showActions ? (
@@ -345,6 +361,7 @@ function StoryLinkMobileCard({
 						link={link}
 						isUpdating={isUpdating}
 						disabled={disableActions}
+						onDetails={onDetails}
 						onRename={onRename}
 						onToggleArchived={onToggleArchived}
 					/>
@@ -377,12 +394,14 @@ function StoryLinkActions({
 	link,
 	isUpdating,
 	disabled,
+	onDetails,
 	onRename,
 	onToggleArchived,
 }: {
 	link: StoryLinkListItem;
 	isUpdating: boolean;
 	disabled: boolean;
+	onDetails: () => void;
 	onRename: () => void;
 	onToggleArchived: () => void;
 }) {
@@ -410,6 +429,10 @@ function StoryLinkActions({
 				<DropdownMenuLabel className="truncate">{link.name}</DropdownMenuLabel>
 				<DropdownMenuSeparator />
 				<DropdownMenuGroup>
+					<DropdownMenuItem onSelect={onDetails}>
+						<EyeIcon />
+						View details
+					</DropdownMenuItem>
 					<DropdownMenuItem onSelect={onRename}>
 						<PencilIcon />
 						Rename
@@ -424,46 +447,6 @@ function StoryLinkActions({
 				</DropdownMenuGroup>
 			</DropdownMenuContent>
 		</DropdownMenu>
-	);
-}
-
-function ShortUrl({
-	link,
-	mobile = false,
-}: {
-	link: StoryLinkListItem;
-	mobile?: boolean;
-}) {
-	const url = buildStoryLinkUrl(link.slug);
-
-	return (
-		<div
-			className={cn("flex min-w-0 items-center gap-1.5", !mobile && "max-w-72")}
-		>
-			<code
-				className="min-w-0 whitespace-normal break-all font-mono text-[11px] tabular-nums"
-				title={url}
-			>
-				{url}
-			</code>
-			<Tooltip>
-				<TooltipTrigger asChild>
-					<Button
-						type="button"
-						variant="ghost"
-						size="icon-xs"
-						className="shrink-0"
-						aria-label={`Copy short URL for ${link.name}`}
-						onClick={() => void copyShortUrl(url)}
-					>
-						<CopyIcon />
-					</Button>
-				</TooltipTrigger>
-				<TooltipContent side="top" sideOffset={6}>
-					Copy short URL
-				</TooltipContent>
-			</Tooltip>
-		</div>
 	);
 }
 
@@ -517,15 +500,6 @@ function MobileCount({ label, value }: { label: string; value: number }) {
 			</p>
 		</div>
 	);
-}
-
-async function copyShortUrl(url: string) {
-	try {
-		await navigator.clipboard.writeText(url);
-		toast.success("Short URL copied");
-	} catch {
-		toast.error("The short URL could not be copied.");
-	}
 }
 
 export type { StoryLinksTableProps };

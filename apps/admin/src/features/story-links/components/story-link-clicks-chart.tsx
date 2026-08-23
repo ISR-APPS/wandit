@@ -25,6 +25,7 @@ import {
 type StoryLinkClicksChartProps = {
 	points: StoryLinksResponse["clicksByDay"];
 	rangeLabel: string;
+	scope?: "all" | "link";
 };
 
 const clicksChartConfig = {
@@ -37,17 +38,20 @@ const clicksChartConfig = {
 function StoryLinkClicksChart({
 	points,
 	rangeLabel,
+	scope = "all",
 }: StoryLinkClicksChartProps) {
 	const dateAxis = getAdminDateAxis(points.map((point) => point.date));
+	const isSingleLink = scope === "link";
 
 	return (
 		<Card className="gap-0 overflow-hidden py-0 shadow-none">
 			<CardHeader className="border-b pt-6">
 				<CardTitle>
-					<h2>Clicks per day</h2>
+					{isSingleLink ? <h3>Clicks per day</h3> : <h2>Clicks per day</h2>}
 				</CardTitle>
 				<CardDescription className="mt-1">
-					All story-link visits · {rangeLabel.toLowerCase()}
+					{isSingleLink ? "This link only" : "All story-link visits"} ·{" "}
+					{rangeLabel.toLowerCase()}
 				</CardDescription>
 			</CardHeader>
 
@@ -58,7 +62,11 @@ function StoryLinkClicksChart({
 							config={clicksChartConfig}
 							className="aspect-auto h-[290px] w-full tabular-nums lg:h-[320px]"
 							role="img"
-							aria-label={`Daily story-link clicks for ${rangeLabel.toLowerCase()}`}
+							aria-label={
+								isSingleLink
+									? `Daily clicks for this story link during ${rangeLabel.toLowerCase()}`
+									: `Daily story-link clicks for ${rangeLabel.toLowerCase()}`
+							}
 						>
 							<AreaChart
 								accessibilityLayer
@@ -114,8 +122,9 @@ function StoryLinkClicksChart({
 							</AreaChart>
 						</ChartContainer>
 						<figcaption className="sr-only">
-							The area chart shows combined clicks across all story links for
-							each UTC calendar day in the selected range.
+							{isSingleLink
+								? "The area chart shows clicks for this story link for each UTC calendar day in the selected range."
+								: "The area chart shows combined clicks across all story links for each UTC calendar day in the selected range."}
 						</figcaption>
 					</figure>
 				) : (
@@ -125,7 +134,9 @@ function StoryLinkClicksChart({
 						</div>
 						<p className="font-medium text-sm">No daily click data yet</p>
 						<p className="max-w-72 text-muted-foreground text-xs">
-							Share an active link to start seeing daily traffic.
+							{isSingleLink
+								? "No clicks were recorded for this link in the selected range."
+								: "Share an active link to start seeing daily traffic."}
 						</p>
 					</div>
 				)}
