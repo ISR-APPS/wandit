@@ -179,7 +179,7 @@
 			"tabs": {
 				"ariaLabel": "Mode de paiement",
 				"card": "Carte",
-				"offline": "Espèces / virement"
+				"offline": "Paiement à la livraison"
 			},
 			"managed": {
 				"title": "Votre offre est gérée hors ligne",
