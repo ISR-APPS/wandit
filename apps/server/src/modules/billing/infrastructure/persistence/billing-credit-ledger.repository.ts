@@ -1,22 +1,25 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { PURCHASED_CREDIT_BUCKETS } from "@wandit/contracts";
-import { and, eq, inArray, sql } from "@wandit/db";
+import {
+	ENTITLED_SUBSCRIPTION_STATUSES,
+	PURCHASED_CREDIT_BUCKETS,
+} from "@wandit/contracts";
+import { and, desc, eq, inArray, isNull, sql } from "@wandit/db";
 import {
 	subscriptionRefillSlots,
 	subscriptions,
 } from "@wandit/db/schema/billing";
 import { creditLedger } from "@wandit/db/schema/credits";
-
+import {
+	DATABASE,
+	type Database,
+} from "../../../../infrastructure/database/database.constants";
 import {
 	type CreditOwner,
 	creditOwnerKey,
 	creditOwnerLockValue,
 	ownerFromIds,
 } from "../../../credits/domain/credit-owner";
-import {
-	DATABASE,
-	type Database,
-} from "../../../../infrastructure/database/database.constants";
+import { canceledSlotValues } from "./subscription-credits.repository";
 
 export type BillingCreditLedgerRow = typeof creditLedger.$inferSelect;
 
@@ -154,7 +157,7 @@ export class BillingCreditLedgerRepository {
 	): Promise<number> {
 		const rows = await client
 			.update(subscriptionRefillSlots)
-			.set({ status: "canceled" })
+			.set(canceledSlotValues({ reason: "clawback" }))
 			.where(
 				and(
 					eq(subscriptionRefillSlots.fundingChargeId, chargeId),
@@ -164,6 +167,195 @@ export class BillingCreditLedgerRepository {
 			.returning({ id: subscriptionRefillSlots.id });
 
 		return rows.length;
+	}
+
+	/**
+	 * Won dispute: put back the future months a clawback canceled. Only
+	 * `clawback` rows qualify (`replaced`/`ownership` rows were canceled for
+	 * reasons the dispute outcome does not reverse), only future months, and
+	 * only while the slot's subscription is still its owner's canonical
+	 * entitled mirror. Returns the restored and skipped slot ids.
+	 */
+	async restorePendingRefillSlotsForCharge(
+		chargeId: string,
+		now: Date,
+		client: BillingCreditLedgerClient = this.db,
+	): Promise<{ restored: string[]; skipped: string[] }> {
+		const candidates = await client
+			.select({
+				id: subscriptionRefillSlots.id,
+				organizationId: subscriptions.organizationId,
+				subscriptionId: subscriptions.id,
+				userId: subscriptions.userId,
+			})
+			.from(subscriptionRefillSlots)
+			.innerJoin(
+				subscriptions,
+				eq(subscriptionRefillSlots.subscriptionId, subscriptions.id),
+			)
+			.where(
+				and(
+					eq(subscriptionRefillSlots.fundingChargeId, chargeId),
+					eq(subscriptionRefillSlots.status, "canceled"),
+					eq(subscriptionRefillSlots.canceledReason, "clawback"),
+					sql`${subscriptionRefillSlots.dueAt} > ${now}`,
+				),
+			);
+		const restored: string[] = [];
+		const skipped: string[] = [];
+
+		for (const candidate of candidates) {
+			const canonical = await this.findCanonicalEntitledByOwner(
+				ownerFromIds(candidate.userId, candidate.organizationId),
+				client,
+			);
+
+			if (canonical?.id !== candidate.subscriptionId) {
+				skipped.push(candidate.id);
+				continue;
+			}
+
+			const [row] = await client
+				.update(subscriptionRefillSlots)
+				.set({
+					canceledAt: null,
+					canceledReason: null,
+					status: "pending",
+					supersededByInvoiceId: null,
+				})
+				.where(
+					and(
+						eq(subscriptionRefillSlots.id, candidate.id),
+						eq(subscriptionRefillSlots.status, "canceled"),
+					),
+				)
+				.returning({ id: subscriptionRefillSlots.id });
+
+			if (row) {
+				restored.push(row.id);
+			}
+		}
+
+		return { restored, skipped };
+	}
+
+	/**
+	 * Plan credits from a refunded charge that ALREADY expired (rollover cap,
+	 * subscription end) must not be clawed back a second time out of live
+	 * credits bought with newer money. Sums the `expire` rows of the grant
+	 * owner's plan bucket written at or after the earliest grant for the same
+	 * subscription, ONCE per (owner, subscription) no matter how many grants
+	 * the charge funded (a yearly charge funds one refill slot per month),
+	 * capped at the total of those grants.
+	 */
+	async findExpiredPlanCreditsForPayment(
+		input: { chargeId: string; paymentIntentId: string | null },
+		client: BillingCreditLedgerClient = this.db,
+	): Promise<number> {
+		const grants = (
+			await this.findPositiveRowsForPayment(input, client)
+		).filter((row) => row.bucket === "plan");
+		const groups = new Map<
+			string,
+			{
+				earliestGrantAt: Date;
+				granted: number;
+				owner: CreditOwner;
+				subscriptionId: string;
+			}
+		>();
+
+		for (const grant of grants) {
+			const meta = (grant.meta ?? {}) as Record<string, unknown>;
+			const subscriptionId =
+				typeof meta.subscriptionId === "string" ? meta.subscriptionId : null;
+
+			if (!subscriptionId) {
+				continue;
+			}
+
+			const owner = ownerFromIds(grant.userId, grant.organizationId);
+			const key = `${creditOwnerKey(owner)}|${subscriptionId}`;
+			const group = groups.get(key);
+
+			if (group) {
+				group.granted += grant.delta;
+
+				if (grant.createdAt < group.earliestGrantAt) {
+					group.earliestGrantAt = grant.createdAt;
+				}
+			} else {
+				groups.set(key, {
+					earliestGrantAt: grant.createdAt,
+					granted: grant.delta,
+					owner,
+					subscriptionId,
+				});
+			}
+		}
+
+		let expired = 0;
+
+		for (const group of groups.values()) {
+			const ownerPredicate =
+				group.owner.type === "org"
+					? eq(creditLedger.organizationId, group.owner.organizationId)
+					: and(
+							eq(creditLedger.userId, group.owner.userId),
+							isNull(creditLedger.organizationId),
+						);
+			const [row] = await client
+				.select({
+					expired:
+						sql<number>`coalesce(sum(-${creditLedger.delta}), 0)::bigint`.mapWith(
+							Number,
+						),
+				})
+				.from(creditLedger)
+				.where(
+					and(
+						ownerPredicate,
+						eq(creditLedger.kind, "expire"),
+						eq(creditLedger.bucket, "plan"),
+						sql`${creditLedger.delta} < 0`,
+						sql`${creditLedger.createdAt} >= ${group.earliestGrantAt}`,
+						sql`${creditLedger.meta}->>'subscriptionId' = ${group.subscriptionId}`,
+					),
+				);
+
+			expired += Math.min(group.granted, row?.expired ?? 0);
+		}
+
+		return expired;
+	}
+
+	private async findCanonicalEntitledByOwner(
+		owner: CreditOwner,
+		client: BillingCreditLedgerClient,
+	) {
+		const ownerPredicate =
+			owner.type === "user"
+				? and(
+						eq(subscriptions.userId, owner.userId),
+						isNull(subscriptions.organizationId),
+					)
+				: eq(subscriptions.organizationId, owner.organizationId);
+		const [row] = await client
+			.select({ id: subscriptions.id })
+			.from(subscriptions)
+			.where(
+				and(
+					ownerPredicate,
+					inArray(
+						subscriptions.status,
+						ENTITLED_SUBSCRIPTION_STATUSES as unknown as string[],
+					),
+				),
+			)
+			.orderBy(desc(subscriptions.updatedAt), desc(subscriptions.createdAt))
+			.limit(1);
+
+		return row ?? null;
 	}
 
 	async findRevocationRowsForPayment(

@@ -155,7 +155,7 @@ export function useVoiceDictation(
 					})
 					.finally(() => {
 						void queryClient.invalidateQueries({
-							queryKey: creditsKeys.balance(),
+							queryKey: creditsKeys.scope(),
 						});
 						setIsTranscribing(false);
 					});

@@ -57,6 +57,7 @@ async function runSweep(
 
 		logger.info("Signup grant outbox sweep completed", {
 			done: result.done,
+			healed: result.healed,
 			triggerRunId,
 			...(userId ? { userId } : {}),
 		});

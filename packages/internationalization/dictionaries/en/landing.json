@@ -140,7 +140,7 @@
 			},
 			"credits": {
 				"title": "Transparent credits",
-				"body": "Every action shows its price before you act. No surprise bills."
+				"body": "You pay the measured AI cost of each action, at $0.04 per credit. No markup, no surprise bills."
 			},
 			"mobile": {
 				"title": "Mobile-first pages",
@@ -226,7 +226,7 @@
 		"items": [
 			{
 				"q": "What are credits?",
-				"a": "Credits are Wandit's single currency. Generating a page costs 10 credits, an image 3, a marketing asset 7, a video 20 — and a chat edit starts at just 0.10, since you only pay for what the AI actually does. You always see the price before you act."
+				"a": "Credits are Wandit's single currency: 1 credit = $0.04 of AI provider cost. There are no flat prices. Every page build, image, video, marketing asset or chat edit is measured, and you pay exactly what the AI provider charged for it — a short chat edit costs a fraction of a credit, a long page build costs more. Your balance shows what each run used."
 			},
 			{
 				"q": "Is publishing free?",

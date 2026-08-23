@@ -1,16 +1,19 @@
 import { useChat } from "@ai-sdk/react";
-import { useQueryClient } from "@tanstack/react-query";
+import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import {
+	type AiChatCreditsSettledData,
 	type AiChatDataParts,
 	type AiChatMessageMetadata,
 	type AiChatSelectedTarget,
 	type AiChatTools,
 	type AskUserOutput,
 	aiChatBillingErrorDataSchema,
+	aiChatCreditsSettledDataSchema,
 	aiChatMessageMetadataSchema,
 	aiChatRoutes,
 	type ChatMessage,
 	type ComposerMetadata,
+	type CreditBalanceResponse,
 	composerMetadataSchema,
 	type UploadAttachmentResponse,
 } from "@wandit/contracts";
@@ -182,6 +185,7 @@ export function useAiChat(projectId: string) {
 		messageMetadataSchema: aiChatMessageMetadataSchema,
 		dataPartSchemas: {
 			"billing-error": aiChatBillingErrorDataSchema,
+			"credits-settled": aiChatCreditsSettledDataSchema,
 		},
 		messages: initialMessages,
 		transport,
@@ -206,6 +210,10 @@ export function useAiChat(projectId: string) {
 			}
 		},
 		onData: (part) => {
+			if (part.type === "data-credits-settled") {
+				applyCreditsSettled(queryClient, part.data);
+				return;
+			}
 			const intent = dispatchBillingError(part);
 			if (intent) {
 				billingErrorInCurrentTurnRef.current = true;
@@ -363,6 +371,22 @@ export function useAiChat(projectId: string) {
 		isResolvingChat: chatByProjectQuery.isPending,
 		isLoadingMessages: Boolean(chatId) && messagesQuery.isPending,
 	};
+}
+
+/**
+ * The server sends the post-settle balance once per turn. Seed the cache
+ * with it so the chip moves exactly once, then refetch the credits queries
+ * (activity row, buckets) in the background.
+ */
+export function applyCreditsSettled(
+	queryClient: QueryClient,
+	data: AiChatCreditsSettledData,
+): void {
+	queryClient.setQueryData<CreditBalanceResponse>(
+		creditsKeys.balance(),
+		(prev) => (prev ? { ...prev, settledBalance: data.settledBalance } : prev),
+	);
+	void queryClient.invalidateQueries({ queryKey: creditsKeys.all });
 }
 
 /**

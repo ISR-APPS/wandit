@@ -5,30 +5,30 @@ import { creditsKeys } from "../api/credits.keys";
 import { getCreditBalance } from "../api/credits.requests";
 
 /**
- * Settle-on-actuals can push the balance below zero (a running generation is
- * never killed mid-flight), so "out" means <= 0 — not just exactly empty.
+ * Gate on `settledBalance` (reserves excluded) so the composer never locks
+ * during an in-flight hold. Settle-on-actuals can push it below zero (a
+ * running generation is never killed mid-flight), so "out" means <= 0.
  * An unloaded/failed balance never blocks: composers fail open and let the
  * server's 402 be the authority. (Web parity: out-of-credits.ts.)
  */
 export function isOutOfCredits(
 	balance: CreditBalanceResponse | undefined,
 ): boolean {
-	return balance !== undefined && balance.balance <= 0;
+	return balance !== undefined && balance.settledBalance <= 0;
 }
 
 /**
- * Reactive out-of-credits gate for composer surfaces. Recovery needs no
- * manual wiring: this observer polls every 15s and the chat hook invalidates
- * the balance on billing errors and finished turns — so the gate engages on a
- * refusal and lifts on its own once a top-up (done on web) lands. Mounted
- * only inside the authenticated app group, so no session gate is needed; a
- * signed-out/failed fetch leaves `data` undefined and fails open.
+ * Reactive out-of-credits gate for composer surfaces. No polling: the chat
+ * hook and the generation cards invalidate the balance on billing errors and
+ * on settle, so the gate engages on a refusal and lifts once a top-up (done
+ * on web) lands and the query refetches. Mounted only inside the
+ * authenticated app group, so no session gate is needed; a signed-out/failed
+ * fetch leaves `data` undefined and fails open.
  */
 export function useOutOfCredits() {
 	const balanceQuery = useQuery({
 		queryKey: creditsKeys.balance(),
 		queryFn: getCreditBalance,
-		refetchInterval: 15_000,
 	});
 
 	return { outOfCredits: isOutOfCredits(balanceQuery.data) };

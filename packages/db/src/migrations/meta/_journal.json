@@ -323,6 +323,34 @@
       "when": 1787413798069,
       "tag": "0045_product-sku-snapshots",
       "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1787418505547,
+      "tag": "0046_ws4-guards-leases-idempotency",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1787420000000,
+      "tag": "0047_model-prices-media-rates",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1787424830615,
+      "tag": "0048_provider-call-evidence",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1787426350414,
+      "tag": "0049_stripe-lifecycle-admin-truth",
+      "breakpoints": true
     }
   ]
 }

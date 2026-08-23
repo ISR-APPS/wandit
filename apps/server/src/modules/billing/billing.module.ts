@@ -23,8 +23,10 @@ import { BillingChangeIntentsRepository } from "./infrastructure/persistence/bil
 import { BillingCheckoutAttemptsRepository } from "./infrastructure/persistence/billing-checkout-attempts.repository";
 import { BillingCreditLedgerRepository } from "./infrastructure/persistence/billing-credit-ledger.repository";
 import { BillingPaymentAdjustmentsRepository } from "./infrastructure/persistence/billing-payment-adjustments.repository";
+import { BillingTopupReceiptsRepository } from "./infrastructure/persistence/billing-topup-receipts.repository";
 import { BillingWebhookEventsRepository } from "./infrastructure/persistence/billing-webhook-events.repository";
 import { CancellationReasonsRepository } from "./infrastructure/persistence/cancellation-reasons.repository";
+import { FinancialReconciliationOutboxRepository } from "./infrastructure/persistence/financial-reconciliation-outbox.repository";
 import { ManualSubscriptionPaymentsRepository } from "./infrastructure/persistence/manual-subscription-payments.repository";
 import { ManualSubscriptionRequestsRepository } from "./infrastructure/persistence/manual-subscription-requests.repository";
 import { SubscriptionCreditsRepository } from "./infrastructure/persistence/subscription-credits.repository";
@@ -66,8 +68,10 @@ import { WebOriginWriteGuard } from "./presentation/http/guards/web-origin-write
 		BillingPaymentAdjustmentsRepository,
 		BillingService,
 		BillingWebhookRetryService,
+		BillingTopupReceiptsRepository,
 		BillingWebhookEventsRepository,
 		CancellationReasonsRepository,
+		FinancialReconciliationOutboxRepository,
 		ManualSubscriptionPaymentsRepository,
 		ManualSubscriptionRequestsRepository,
 		ManualSubscriptionRequestsService,

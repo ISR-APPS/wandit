@@ -5,6 +5,7 @@ import {
 	creditsToCentiCredits,
 	type PatchProductSettingsBody,
 	type ProductSettings,
+	type ProductSettingsUpdateResponse,
 	patchProductSettingsBodySchema,
 } from "@wandit/contracts";
 
@@ -31,7 +32,7 @@ export class AdminSettingsController {
 		@Body(new ZodValidationPipe(patchProductSettingsBodySchema))
 		body: PatchProductSettingsBody,
 		@CurrentUser() admin: AuthUser,
-	): Promise<ProductSettings> {
+	): Promise<ProductSettingsUpdateResponse> {
 		// The admin API speaks whole credits; storage (and the signup-grant
 		// path that reads it) is centi-credits — convert exactly once here.
 		const changes: PatchProductSettingsBody =
@@ -50,7 +51,7 @@ export class AdminSettingsController {
 
 // Internal settings carry signupGrantCredits in centi-credits; the admin API
 // contract exposes whole credits.
-function toApiProductSettings(settings: ProductSettings): ProductSettings {
+function toApiProductSettings<T extends ProductSettings>(settings: T): T {
 	return {
 		...settings,
 		signupGrantCredits: centiCreditsToCredits(settings.signupGrantCredits),

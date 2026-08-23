@@ -9,7 +9,7 @@ import {
 import { VideoDirectorService } from "../../../media-generations/application/services/video-director";
 import { MeteringService } from "../../../metering/application/services/metering.service";
 import { llmGenerationCaptureFromError } from "../../../metering/domain/gateway-metering";
-import { bundledUnmeteredStepUsage } from "../../../metering/domain/metering";
+import { helperStepUsage } from "../../../metering/domain/metering";
 
 const PROMPT_REFINER_CAPTURE_ATTEMPTS = 3;
 const PROMPT_REFINER_UNKNOWN_MODEL = "unknown";
@@ -138,7 +138,7 @@ export class HiggsfieldPromptRefinerService {
 			if (input.parentEventId) {
 				await this.captureGeneration(input.parentEventId, {
 					providerMetadata: result.providerMetadata,
-					stepUsage: bundledUnmeteredStepUsage("prompt_refine", result.usage),
+					stepUsage: helperStepUsage("prompt_refine", result.usage),
 				});
 			}
 
@@ -156,7 +156,7 @@ export class HiggsfieldPromptRefinerService {
 				try {
 					await this.captureGeneration(input.parentEventId, {
 						providerMetadata: errorCapture.providerMetadata,
-						stepUsage: bundledUnmeteredStepUsage("prompt_refine", null),
+						stepUsage: helperStepUsage("prompt_refine", null),
 					});
 				} catch (captureError) {
 					this.logger.warn(

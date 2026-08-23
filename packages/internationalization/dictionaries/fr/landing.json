@@ -145,7 +145,7 @@
 			},
 			"credits": {
 				"title": "Crédits transparents",
-				"body": "Chaque action affiche son prix avant que tu agisses. Aucune facture surprise."
+				"body": "Tu paies le coût IA mesuré de chaque action, à 0,04 $ le crédit. Aucune marge, aucune facture surprise."
 			},
 			"mobile": {
 				"title": "Pages mobile-first",
@@ -231,7 +231,7 @@
 		"items": [
 			{
 				"q": "C'est quoi les crédits ?",
-				"a": "Les crédits sont la monnaie unique de Wandit. Générer une page coûte 10 crédits, une image 3, un visuel marketing 7, une vidéo 20 — et une modif en chat démarre à seulement 0,10, car tu ne paies que ce que l'IA fait vraiment. Tu vois toujours le prix avant d'agir."
+				"a": "Les crédits sont la monnaie unique de Wandit : 1 crédit = 0,04 $ de coût IA. Il n'y a pas de prix fixes. Chaque page, image, vidéo, visuel marketing ou modif en chat est mesuré, et tu paies exactement ce que le fournisseur IA a facturé — une petite modif coûte une fraction de crédit, une longue génération de page coûte plus. Ton solde indique ce que chaque exécution a consommé."
 			},
 			{
 				"q": "La publication est-elle gratuite ?",

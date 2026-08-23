@@ -15,7 +15,7 @@ import { AlertTriangle, Check, Download, FolderOpen, Play } from "lucide-react";
 import { motion } from "motion/react";
 import { useEffect, useState } from "react";
 
-import { creditsKeys } from "@/features/credits";
+import { invalidateBalanceAfterGenerationTerminal } from "@/features/credits/lib/terminal-balance-invalidation";
 import { useTranslation } from "@/lib/i18n";
 import {
 	mediaGenerationKeys,
@@ -290,7 +290,7 @@ function VideoAttemptCard({
 
 	useEffect(() => {
 		if (!terminalStatus) return;
-		void queryClient.invalidateQueries({ queryKey: creditsKeys.balance() });
+		invalidateBalanceAfterGenerationTerminal(queryClient, terminalStatus);
 	}, [queryClient, terminalStatus]);
 
 	const live = useLiveRun({

@@ -16,7 +16,7 @@ export default function BillingCancelPage() {
 
 	useEffect(() => {
 		void queryClient.invalidateQueries({ queryKey: creditsKeys.balance() });
-		void queryClient.invalidateQueries({ queryKey: creditsKeys.ledgers() });
+		void queryClient.invalidateQueries({ queryKey: creditsKeys.activities() });
 	}, [queryClient]);
 
 	return (

@@ -28,13 +28,19 @@ import {
 } from "../../../ai-provider/domain/llm-provider";
 import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 import { resolveVideoGenerationPlan } from "../../../media-generations/domain/video-quality-models";
+import {
+	type MeasuredOperationReservation,
+	measuredDirectSettlement,
+	measuredReserveCredits,
+	reservationTermsFromEvent,
+} from "../../../metering/application/services/fixed-operation-billing";
 import type { MeteringService } from "../../../metering/application/services/metering.service";
+import type { MeasuredCostEstimateInput } from "../../../metering/application/services/model-pricing.service";
 import {
 	fixedGenerationStepUsage,
 	type GatewayGenerationMetadata,
 	hasGatewayGenerationMetadata,
 } from "../../../metering/domain/gateway-metering";
-import { fixedOperationCredits } from "../../../metering/domain/operation-registry";
 import { ensureDocumentTitle } from "../../../pages/domain/document-title";
 import { inlineKnownCdnScripts } from "../../../pages/domain/inline-cdn-scripts";
 import { optimizeFontLoading } from "../../../pages/domain/optimize-font-loading";
@@ -58,8 +64,10 @@ import {
 import {
 	type BuildVideoAspect,
 	generateBuildVideo,
+	IMAGE_VIDEO_DURATION_SECONDS,
 	MAX_VIDEOS,
 	VIDEO_ASPECTS,
+	videoCostEstimateInput,
 } from "./generate-video";
 import {
 	modelNeedsToolImageRelocation,
@@ -516,23 +524,29 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 				state.videoSequence += 1;
 				const index = state.videoSequence;
 				const plan = resolveVideoGenerationPlan({
-					durationSeconds: 5,
+					durationSeconds: IMAGE_VIDEO_DURATION_SECONDS,
 					kind: "i2v",
 					multiShot: false,
 					narration: false,
 					quality: "standard",
 					talking: false,
 				});
-				const childEvent =
+				const childReservation =
 					params.meteringService && params.usageEventId
-						? await params.meteringService.reserve("video", params.subject, {
+						? await reserveMeasuredChild(params.meteringService, "video", {
 								attemptRef: `${params.attemptId}:video:${index}`,
-								credits: fixedOperationCredits("video"),
+								estimate: videoCostEstimateInput({
+									audio: false,
+									durationSeconds: IMAGE_VIDEO_DURATION_SECONDS,
+									modelId: plan.modelId,
+								}),
 								idempotencyKey: `page-build-video:${params.usageEventId}:${index}`,
 								model: plan.modelId,
 								parentEventId: params.usageEventId,
+								subject: params.subject,
 							})
 						: null;
+				const childEvent = childReservation?.event ?? null;
 				let generationCapturedBeforeDelivery = false;
 
 				const result = await generateBuildVideo({
@@ -571,7 +585,7 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 
 				if (result.status !== "generated") {
 					state.videosGenerated -= 1;
-					if (childEvent && params.meteringService) {
+					if (childReservation && childEvent && params.meteringService) {
 						if (hasGatewayGenerationMetadata(result)) {
 							const providerUnits =
 								"providerUnits" in result && result.providerUnits === 1 ? 1 : 0;
@@ -584,21 +598,16 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 										stepUsage: fixedGenerationStepUsage(
 											result.usage,
 											providerUnits,
+											providerUnits === 0 ? "refunded_failure" : undefined,
 										),
 									},
 								);
 							}
 							await params.meteringService.settle(childEvent.id, {
-								finalCredits:
-									providerUnits === 0
-										? 0
-										: fixedOperationCredits("video", providerUnits),
+								...measuredDirectSettlement(childReservation.reservation, {
+									completedUnits: providerUnits,
+								}),
 								model: result.model,
-								pricing: "direct",
-								pricingSnapshot: {
-									...fixedPricingSnapshot("video"),
-									units: providerUnits,
-								},
 								rawUsage: result.usage ?? null,
 							});
 						} else {
@@ -613,7 +622,7 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 					return { message: result.message, status: result.status };
 				}
 
-				if (childEvent && params.meteringService) {
+				if (childReservation && childEvent && params.meteringService) {
 					if (!generationCapturedBeforeDelivery) {
 						await captureRequiredGeneration(
 							params.meteringService,
@@ -625,10 +634,8 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 						);
 					}
 					await params.meteringService.settle(childEvent.id, {
-						finalCredits: fixedOperationCredits("video"),
+						...measuredDirectSettlement(childReservation.reservation),
 						model: result.model,
-						pricing: "direct",
-						pricingSnapshot: fixedPricingSnapshot("video"),
 						rawUsage: result.usage ?? null,
 					});
 				}
@@ -914,19 +921,24 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 				state.imageSequence += 1;
 				const index = state.imageSequence;
 				emitEvent({ role, type: "image-start" });
-				const childEvent =
+				const imageModel =
+					sourceImageUrls?.length && env.AI_IMAGE_EDIT_MODEL
+						? env.AI_IMAGE_EDIT_MODEL
+						: (env.AI_IMAGE_MODEL ?? null);
+				const childReservation =
 					params.meteringService && params.usageEventId
-						? await params.meteringService.reserve("image", params.subject, {
+						? await reserveMeasuredChild(params.meteringService, "image", {
 								attemptRef: `${params.attemptId}:image:${index}`,
-								credits: fixedOperationCredits("image"),
+								estimate: imageModel
+									? { count: 1, kind: "image", modelId: imageModel }
+									: null,
 								idempotencyKey: `page-build-image:${params.usageEventId}:${index}`,
-								model:
-									sourceImageUrls?.length && env.AI_IMAGE_EDIT_MODEL
-										? env.AI_IMAGE_EDIT_MODEL
-										: (env.AI_IMAGE_MODEL ?? null),
+								model: imageModel,
 								parentEventId: params.usageEventId,
+								subject: params.subject,
 							})
 						: null;
+				const childEvent = childReservation?.event ?? null;
 				let generationCapturedBeforeDelivery = false;
 
 				const result = await generateBuildImage({
@@ -963,7 +975,7 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 
 				if (result.status !== "generated") {
 					state.imagesGenerated -= 1;
-					if (childEvent && params.meteringService) {
+					if (childReservation && childEvent && params.meteringService) {
 						if (hasGatewayGenerationMetadata(result)) {
 							const providerUnits =
 								"providerUnits" in result && result.providerUnits === 1 ? 1 : 0;
@@ -976,21 +988,16 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 										stepUsage: fixedGenerationStepUsage(
 											result.usage,
 											providerUnits,
+											providerUnits === 0 ? "refunded_failure" : undefined,
 										),
 									},
 								);
 							}
 							await params.meteringService.settle(childEvent.id, {
-								finalCredits:
-									providerUnits === 0
-										? 0
-										: fixedOperationCredits("image", providerUnits),
+								...measuredDirectSettlement(childReservation.reservation, {
+									completedUnits: providerUnits,
+								}),
 								model: result.model,
-								pricing: "direct",
-								pricingSnapshot: {
-									...fixedPricingSnapshot("image"),
-									units: providerUnits,
-								},
 								rawUsage: result.usage ?? null,
 							});
 						} else {
@@ -1005,7 +1012,7 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 					return { message: result.message, status: result.status };
 				}
 
-				if (childEvent && params.meteringService) {
+				if (childReservation && childEvent && params.meteringService) {
 					if (!generationCapturedBeforeDelivery) {
 						await captureRequiredGeneration(
 							params.meteringService,
@@ -1017,10 +1024,8 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 						);
 					}
 					await params.meteringService.settle(childEvent.id, {
-						finalCredits: fixedOperationCredits("image"),
+						...measuredDirectSettlement(childReservation.reservation),
 						model: result.model,
-						pricing: "direct",
-						pricingSnapshot: fixedPricingSnapshot("image"),
 						rawUsage: result.usage ?? null,
 					});
 				}
@@ -1342,13 +1347,56 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 	};
 }
 
-function fixedPricingSnapshot(operation: "image" | "video") {
+/**
+ * Inline Builder media child: one measured hold sized by the local catalog
+ * estimate (floor when none), settled provisionally from the same estimate
+ * and repriced by gateway reconciliation.
+ */
+async function reserveMeasuredChild(
+	meteringService: MeteringService,
+	operation: "image" | "video",
+	input: {
+		attemptRef: string;
+		estimate: MeasuredCostEstimateInput | null;
+		idempotencyKey: string;
+		model: string | null;
+		parentEventId: string;
+		subject: MeteringSubject;
+	},
+): Promise<{
+	event: Awaited<ReturnType<MeteringService["reserve"]>>;
+	reservation: MeasuredOperationReservation;
+}> {
+	const quote = input.estimate
+		? await meteringService.estimateMeasuredCost(input.estimate)
+		: null;
+	const estimatedCostUsdMicros = quote?.costUsdMicros ?? null;
+	const event = await meteringService.reserve(operation, input.subject, {
+		attemptRef: input.attemptRef,
+		credits: measuredReserveCredits(
+			operation,
+			1,
+			estimatedCostUsdMicros,
+			meteringService.usdMicrosPerCredit,
+		),
+		estimatedCostUsdMicros,
+		idempotencyKey: input.idempotencyKey,
+		measuredTerms: { estimatedUnitUsdMicros: estimatedCostUsdMicros, units: 1 },
+		model: input.model,
+		parentEventId: input.parentEventId,
+	});
+
 	return {
-		creditsPerUnit: fixedOperationCredits(operation),
-		mode: "fixed",
-		operation,
-		source: "operation_registry",
-		unit: operation === "image" ? "image" : "operation",
+		event,
+		reservation: {
+			credits: event.reservedCredits,
+			eventId: event.id,
+			operation,
+			referenceId: input.attemptRef,
+			replay: "none",
+			terms: reservationTermsFromEvent(event),
+			units: 1,
+		},
 	};
 }
 

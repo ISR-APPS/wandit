@@ -39,7 +39,7 @@ type HeroProps = {
 };
 
 export function Hero({ promptKey, promptInitial }: HeroProps) {
-	const { create, isCreating, insufficientOpen, setInsufficientOpen, cost } =
+	const { create, isCreating, insufficientOpen, setInsufficientOpen } =
 		useCreateProjectWithPrompt();
 	const { data: session } = useSession();
 	// Session-gated: signed-out visitors are never blocked here — their submit
@@ -210,7 +210,6 @@ export function Hero({ promptKey, promptInitial }: HeroProps) {
 			<InsufficientCreditsDialog
 				open={insufficientOpen}
 				onOpenChange={setInsufficientOpen}
-				cost={cost}
 			/>
 		</section>
 	);

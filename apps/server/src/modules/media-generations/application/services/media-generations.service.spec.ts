@@ -80,7 +80,7 @@ function setup() {
 	const meteringService = {
 		findByIdempotencyKey: vi.fn().mockResolvedValue(usageEvent),
 		refund: vi.fn().mockResolvedValue(usageEvent),
-		settleFixedFromEvidence: vi.fn().mockResolvedValue(usageEvent),
+		settleMeasuredFromEvidence: vi.fn().mockResolvedValue(usageEvent),
 	};
 	const service = new MediaGenerationsService(
 		repository as unknown as MediaGenerationsRepository,
@@ -153,7 +153,7 @@ describe("MediaGenerationsService", () => {
 
 		await service.attempt(SCOPE, BASE_ROW.id);
 
-		expect(meteringService.settleFixedFromEvidence).toHaveBeenCalledWith(
+		expect(meteringService.settleMeasuredFromEvidence).toHaveBeenCalledWith(
 			"usage_event_1",
 			1,
 		);
@@ -295,7 +295,7 @@ describe("MediaGenerationsService", () => {
 		});
 		expect(repository.markStaleGeneratingAttemptFailed).not.toHaveBeenCalled();
 		expect(repository.markGeneratingAttemptSucceeded).not.toHaveBeenCalled();
-		expect(meteringService.settleFixedFromEvidence).not.toHaveBeenCalled();
+		expect(meteringService.settleMeasuredFromEvidence).not.toHaveBeenCalled();
 		expect(meteringService.refund).not.toHaveBeenCalled();
 	});
 
@@ -429,12 +429,12 @@ describe("MediaGenerationsService", () => {
 			`video:${BASE_ROW.id}`,
 			{ actorUserId: "user_1" },
 		);
-		expect(meteringService.settleFixedFromEvidence).toHaveBeenCalledWith(
+		expect(meteringService.settleMeasuredFromEvidence).toHaveBeenCalledWith(
 			"usage_event_1",
 			1,
 		);
 		expect(
-			meteringService.settleFixedFromEvidence.mock
+			meteringService.settleMeasuredFromEvidence.mock
 				.invocationCallOrder[0] as number,
 		).toBeLessThan(
 			repository.markGeneratingAttemptSucceeded.mock
@@ -454,7 +454,7 @@ describe("MediaGenerationsService", () => {
 		const settlementError = new Error("settlement unavailable");
 		repository.findAccessibleAttempt.mockResolvedValue(staleRow);
 		vi.mocked(getObjectContentType).mockResolvedValueOnce("video/mp4");
-		meteringService.settleFixedFromEvidence.mockRejectedValueOnce(
+		meteringService.settleMeasuredFromEvidence.mockRejectedValueOnce(
 			settlementError,
 		);
 
@@ -490,7 +490,7 @@ describe("MediaGenerationsService", () => {
 		await expect(service.attempt(SCOPE, BASE_ROW.id)).resolves.toMatchObject({
 			status: "succeeded",
 		});
-		expect(meteringService.settleFixedFromEvidence).not.toHaveBeenCalled();
+		expect(meteringService.settleMeasuredFromEvidence).not.toHaveBeenCalled();
 		expect(repository.markGeneratingAttemptSucceeded).toHaveBeenCalledTimes(1);
 	});
 

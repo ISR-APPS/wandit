@@ -40,7 +40,11 @@ describe("SpeechService", () => {
 				},
 				script: "Une courte narration.",
 			}),
-		).resolves.toEqual({ bytes, mediaType: "audio/mpeg" });
+		).resolves.toEqual({
+			bytes,
+			mediaType: "audio/mpeg",
+			providerMetadata: { gateway: { generationId: "generation-1" } },
+		});
 
 		expect(speechMocks.speech).toHaveBeenCalledWith(VOICEOVER_TTS_MODEL);
 		expect(speechMocks.generateSpeech).toHaveBeenCalledWith({

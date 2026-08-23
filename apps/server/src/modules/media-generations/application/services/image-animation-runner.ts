@@ -1,7 +1,7 @@
 // /node, not /nestjs: this code also runs inside Trigger tasks and the worker.
 
-import { Sentry } from "@wandit/observability/node";
 import type { VideoVoiceover } from "@wandit/contracts";
+import { Sentry } from "@wandit/observability/node";
 import type { MeteringSubject } from "../../../credits/domain/credit-owner";
 
 import { isTerminalFixedOperationReplay } from "../../../metering/application/services/fixed-operation-billing";
@@ -13,6 +13,7 @@ import {
 } from "../../../metering/domain/gateway-metering";
 import type {
 	ImageAnimationBilling,
+	ImageAnimationEstimateInput,
 	ImageAnimationReservation,
 } from "./image-animation-billing";
 
@@ -293,6 +294,25 @@ function payloadSubject(payload: ImageAnimationPayload): MeteringSubject {
 	};
 }
 
+/**
+ * Estimate input from the durable row: the Brain-picked renderer snapshot,
+ * the requested duration, and whether Kling voice control will be on
+ * (talking person or native narration).
+ */
+export function videoEstimateForAttempt(
+	attempt: Pick<
+		ImageAnimationAttempt,
+		"durationSeconds" | "kind" | "model" | "talking" | "voiceover"
+	>,
+): ImageAnimationEstimateInput {
+	return {
+		audio: (attempt.talking ?? false) || Boolean(attempt.voiceover?.script),
+		durationSeconds: attempt.durationSeconds,
+		kind: attempt.kind,
+		modelId: attempt.model,
+	};
+}
+
 export async function runImageAnimation(
 	payload: ImageAnimationPayload,
 	input: {
@@ -330,6 +350,7 @@ export async function runImageAnimation(
 			loaded.id,
 			payload.parentEventId,
 			payload.billingMode,
+			videoEstimateForAttempt(loaded),
 		);
 		await dependencies.settle(reservation);
 		return succeededResult(loaded, false);
@@ -359,6 +380,7 @@ export async function runImageAnimation(
 			loaded.id,
 			payload.parentEventId,
 			payload.billingMode,
+			videoEstimateForAttempt(loaded),
 		);
 		return recoverOrSettleGenerating(
 			loaded,
@@ -390,6 +412,7 @@ export async function runImageAnimation(
 				raced.id,
 				payload.parentEventId,
 				payload.billingMode,
+				videoEstimateForAttempt(raced),
 			);
 			await dependencies.settle(reservation);
 			return succeededResult(raced, false);
@@ -419,6 +442,7 @@ export async function runImageAnimation(
 				raced.id,
 				payload.parentEventId,
 				payload.billingMode,
+				videoEstimateForAttempt(raced),
 			);
 			return recoverOrSettleGenerating(
 				raced,
@@ -445,6 +469,7 @@ export async function runImageAnimation(
 			claimed.id,
 			payload.parentEventId,
 			payload.billingMode,
+			videoEstimateForAttempt(claimed),
 		);
 	} catch (error) {
 		// Insufficient credits is an expected outcome; anything else here is
@@ -514,7 +539,13 @@ export async function runImageAnimation(
 			if (!generationCapturedBeforeDelivery) {
 				await dependencies.capture(reservation, {
 					providerMetadata: generated.providerMetadata,
-					stepUsage: fixedGenerationStepUsage(generated.usage, providerUnits),
+					// A zero-unit provider failure is refunded to the user; the marker
+					// keeps its gateway cost out of the customer charge.
+					stepUsage: fixedGenerationStepUsage(
+						generated.usage,
+						providerUnits,
+						providerUnits === 0 ? "refunded_failure" : undefined,
+					),
 				});
 			}
 			await dependencies.settle(reservation, providerUnits);

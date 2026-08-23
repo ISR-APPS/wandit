@@ -1,4 +1,3 @@
-import { Logger } from "@nestjs/common";
 import type Stripe from "stripe";
 import { describe, expect, it, vi } from "vitest";
 
@@ -850,6 +849,11 @@ class FakeBillingCreditLedgerRepository {
 	);
 
 	readonly cancelPendingRefillSlotsForCharge = vi.fn(async () => 0);
+	readonly restorePendingRefillSlotsForCharge = vi.fn(async () => ({
+		restored: [] as string[],
+		skipped: [] as string[],
+	}));
+	readonly findExpiredPlanCreditsForPayment = vi.fn(async () => 0);
 
 	readonly findRevocationRowsForPayment = vi.fn(
 		async (input: { chargeId: string; paymentIntentId: string | null }) =>
@@ -973,6 +977,8 @@ class FakePaymentProvider {
 class FakeStripeProvider {
 	readonly charges = new Map<string, Stripe.Charge>();
 	readonly disputesByCharge = new Map<string, Stripe.Dispute[]>();
+	/** Fresh dispute state answered by retrieveDispute for ids not listed by charge. */
+	readonly disputes = new Map<string, Stripe.Dispute>();
 	readonly invoices = new Map<string, Stripe.Invoice>();
 	readonly paymentIntents = new Map<string, Stripe.PaymentIntent>();
 	readonly subscriptions = new Map<string, Stripe.Subscription>();
@@ -1030,6 +1036,21 @@ class FakeStripeProvider {
 		return this.disputesByCharge.get(chargeId) ?? [];
 	});
 
+	readonly retrieveDispute = vi.fn(async (disputeId: string) => {
+		for (const disputes of this.disputesByCharge.values()) {
+			const found = disputes.find((candidate) => candidate.id === disputeId);
+
+			if (found) {
+				return found;
+			}
+		}
+
+		return (
+			this.disputes.get(disputeId) ??
+			({ id: disputeId, status: "needs_response" } as Stripe.Dispute)
+		);
+	});
+
 	readonly lookupKeyForPriceId = vi.fn(async (priceId: string) => {
 		return this.lookupKeyByPriceId.get(priceId) ?? null;
 	});
@@ -1082,10 +1103,15 @@ function setup(
 		orderRefundHandler,
 		stripe as unknown as StripeProvider,
 	);
+	const reconciliationOutbox = {
+		enqueue: vi.fn(async () => null),
+		markDoneForCharge: vi.fn(async () => 0),
+	};
 	const subscriptionRefill = new SubscriptionRefillService(
 		subscriptionCreditsRepository as unknown as SubscriptionCreditsRepository,
 		credits as unknown as CreditsService,
 		paymentRefunds,
+		reconciliationOutbox as never,
 	);
 	const subscriptionCredits = new SubscriptionCreditsService(
 		billingCustomers as unknown as BillingCustomersRepository,
@@ -1097,6 +1123,8 @@ function setup(
 		subscriptionRefill,
 		checkoutAttempts as unknown as BillingCheckoutAttemptsRepository,
 		{ findByProviderCustomerId: async () => null } as never,
+		reconciliationOutbox as never,
+		{ insertIfAbsent: vi.fn(async () => null) } as never,
 	);
 	const billingService = new BillingService(
 		billingCustomers as unknown as BillingCustomersRepository,
@@ -1286,6 +1314,7 @@ function invoiceLine(input: {
 
 function stripeInvoice(input: {
 	amountPaid?: number;
+	currency?: string;
 	billingReason:
 		| "subscription_create"
 		| "subscription_cycle"
@@ -1309,8 +1338,9 @@ function stripeInvoice(input: {
 			: []);
 
 	return {
-		amount_paid: input.amountPaid,
+		amount_paid: input.amountPaid ?? 0,
 		billing_reason: input.billingReason,
+		currency: input.currency ?? "usd",
 		customer: input.customer ?? "cus_1",
 		id: input.id,
 		lines: {
@@ -2387,10 +2417,7 @@ describe("SubscriptionCreditsService invoice policy", () => {
 		);
 	});
 
-	it("logs and skips a paid invoice with an unrecognized price", async () => {
-		const warning = vi
-			.spyOn(Logger.prototype, "warn")
-			.mockImplementation(() => undefined);
+	it("fails a paid invoice with an unrecognized price so it retries and dead-letters", async () => {
 		const { credits, processor, stripe, webhookEvents } = setup();
 		const subscription = stripeSubscription({
 			id: "sub_unknown_invoice",
@@ -2406,16 +2433,70 @@ describe("SubscriptionCreditsService invoice policy", () => {
 		});
 		stripe.invoices.set(invoice.id, invoice);
 
-		await processor.process(
-			paidInvoiceEvent(invoice.id, "evt_unknown_invoice_price"),
+		await expect(
+			processor.process(
+				paidInvoiceEvent(invoice.id, "evt_unknown_invoice_price"),
+			),
+		).rejects.toThrow(
+			"Stripe invoice in_unknown_price (subscription_create) has an unrecognized or missing price lookup key",
 		);
 
 		expect(credits.grant).not.toHaveBeenCalled();
-		expect(webhookEvents.statusOf("evt_unknown_invoice_price")).toBe(
-			"processed",
+		expect(webhookEvents.statusOf("evt_unknown_invoice_price")).toBe("failed");
+	});
+
+	it("fails a create invoice whose paid amount does not match the catalog, accepts trials and rejects non-usd", async () => {
+		const { credits, processor, stripe, webhookEvents } = setup();
+		const mismatch = stripeInvoice({
+			amountPaid: 1_000,
+			billingReason: "subscription_create",
+			id: "in_amount_mismatch",
+			lines: [invoiceLine({ lookupKey: "pro_250_month" })],
+			userId: "user_1",
+		});
+		stripe.invoices.set(mismatch.id, mismatch);
+
+		await expect(
+			processor.process(paidInvoiceEvent(mismatch.id, "evt_amount_mismatch")),
+		).rejects.toThrow(
+			"Stripe invoice in_amount_mismatch (subscription_create) paid 1000 minor units but the catalog price of pro_250_month is 2500",
 		);
-		expect(warning).toHaveBeenCalledWith(
-			"Skipping Stripe invoice in_unknown_price credit grant: unrecognized or missing price lookup key",
+		expect(webhookEvents.statusOf("evt_amount_mismatch")).toBe("failed");
+
+		const foreign = stripeInvoice({
+			amountPaid: 2_500,
+			billingReason: "subscription_create",
+			currency: "eur",
+			id: "in_eur",
+			lines: [invoiceLine({ lookupKey: "pro_250_month" })],
+			userId: "user_1",
+		});
+		stripe.invoices.set(foreign.id, foreign);
+
+		await expect(
+			processor.process(paidInvoiceEvent(foreign.id, "evt_eur")),
+		).rejects.toThrow(
+			"Stripe invoice in_eur is in eur; only usd invoices grant credits",
+		);
+		expect(credits.grant).not.toHaveBeenCalled();
+
+		const trial = stripeInvoice({
+			amountPaid: 0,
+			billingReason: "subscription_create",
+			id: "in_trial",
+			lines: [invoiceLine({ lookupKey: "pro_250_month" })],
+			userId: "user_1",
+		});
+		stripe.invoices.set(trial.id, trial);
+
+		await processor.process(paidInvoiceEvent(trial.id, "evt_trial"));
+
+		expect(webhookEvents.statusOf("evt_trial")).toBe("processed");
+		expect(credits.grant).toHaveBeenCalledWith(
+			userOwner("user_1"),
+			25_000,
+			expect.objectContaining({ idempotencyKey: "inv:in_trial:grant" }),
+			expect.anything(),
 		);
 	});
 
@@ -2480,7 +2561,7 @@ describe("SubscriptionCreditsService invoice policy", () => {
 			"reconcileChargeAfterGrant",
 		);
 		const invoice = stripeInvoice({
-			amountPaid: 1_000,
+			amountPaid: 2_500,
 			billingReason: "subscription_create",
 			id: "in_retry_payment",
 			lines: [invoiceLine({ lookupKey: "pro_250_month" })],
@@ -2522,7 +2603,7 @@ describe("SubscriptionCreditsService invoice policy", () => {
 			"reconcileChargeAfterGrant",
 		);
 		const invoice = stripeInvoice({
-			amountPaid: 1_000,
+			amountPaid: 2_500,
 			billingReason: "subscription_create",
 			id: "in_multiple_paid",
 			lines: [invoiceLine({ lookupKey: "pro_250_month" })],
@@ -2859,6 +2940,7 @@ describe("SubscriptionCreditsService invoice policy", () => {
 			subscriptionCreditsRepository.cancelPendingSlotsForSubscription,
 		).toHaveBeenCalledWith(
 			subscriptions.row(deleted.id)?.id,
+			{ reason: "ownership" },
 			expect.anything(),
 		);
 		expect(credits.expirePlanRemainder).not.toHaveBeenCalled();
@@ -2891,7 +2973,7 @@ describe("PaymentRefundsService routing", () => {
 			375,
 			{
 				bucket: "topup",
-				idempotencyKey: "refund:ch_1:500",
+				idempotencyKey: "refund:ch_1:cum:375",
 				meta: {
 					chargeId: "ch_1",
 					paymentIntentId: "pi_refund",
@@ -3124,7 +3206,7 @@ describe("PaymentRefundsService routing", () => {
 			250,
 			{
 				bucket: "topup",
-				idempotencyKey: "refund:ch_delayed_grant:500",
+				idempotencyKey: "refund:ch_delayed_grant:cum:250",
 				meta: {
 					chargeId: "ch_delayed_grant",
 					paymentIntentId: "pi_delayed_grant",

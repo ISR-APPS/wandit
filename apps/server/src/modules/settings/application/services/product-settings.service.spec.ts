@@ -31,10 +31,14 @@ function defaultRow(
 class FakeProductSettingsRepository {
 	row: ProductSettingsRow | null = null;
 
+	skippedSignupGrants = 0;
+
 	getOrCreate = vi.fn(async () => {
 		this.row ??= defaultRow();
 		return this.row;
 	});
+
+	countSkippedSignupGrants = vi.fn(async () => this.skippedSignupGrants);
 
 	updateIfVersion = vi.fn(async (input: UpdateProductSettingsInput) => {
 		this.row ??= defaultRow();
@@ -69,6 +73,24 @@ afterEach(() => {
 });
 
 describe("ProductSettingsService", () => {
+	it("reports the skipped signup-grant rows when the grant is switched on, without granting", async () => {
+		const { repository, service } = setup();
+		repository.skippedSignupGrants = 12;
+
+		await expect(
+			service.update({ signupGrantEnabled: true, version: 1 }, "admin_1"),
+		).resolves.toMatchObject({
+			signupGrantEnabled: true,
+			signupGrantSkippedCount: 12,
+		});
+
+		const off = await service.update(
+			{ signupGrantEnabled: false, version: 2 },
+			"admin_1",
+		);
+		expect(off).not.toHaveProperty("signupGrantSkippedCount");
+	});
+
 	it.each([
 		0, 30,
 	])("accepts a manual grace period of %i days", (manualGraceDays) => {

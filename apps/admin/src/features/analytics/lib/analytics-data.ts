@@ -395,7 +395,7 @@ export function mapCollectedRevenueChartData(
 		string,
 		Pick<
 			AdminAnalyticsCollectedRevenuePoint,
-			"ordersMinor" | "subscriptionsMinor"
+			"ordersMinor" | "subscriptionsMinor" | "topupsMinor"
 		>
 	>();
 
@@ -405,6 +405,7 @@ export function mapCollectedRevenueChartData(
 			ordersMinor: (current?.ordersMinor ?? 0) + point.ordersMinor,
 			subscriptionsMinor:
 				(current?.subscriptionsMinor ?? 0) + point.subscriptionsMinor,
+			topupsMinor: (current?.topupsMinor ?? 0) + point.topupsMinor,
 		});
 	}
 
@@ -413,7 +414,8 @@ export function mapCollectedRevenueChartData(
 		.map(([date, revenue]) => ({
 			date,
 			...revenue,
-			totalMinor: revenue.subscriptionsMinor + revenue.ordersMinor,
+			totalMinor:
+				revenue.subscriptionsMinor + revenue.ordersMinor + revenue.topupsMinor,
 		}));
 }
 

@@ -241,6 +241,8 @@ export function createGenerateImageTool(
 				attempt.id,
 				input.count,
 				deps.parentEventId,
+				undefined,
+				{ hasSourceImages: sourceImageUrls.length > 0 },
 			);
 
 			assertFixedOperationProviderExecutionAllowed(reservation);

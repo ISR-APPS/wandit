@@ -1,7 +1,11 @@
 import { getDictionary, translate } from "@wandit/internationalization";
 import { describe, expect, it } from "vitest";
 
-import { formatCreditAmount, formatCreditBalance } from "./format-credits";
+import {
+	formatCreditAmount,
+	formatCreditBalance,
+	formatCreditDelta,
+} from "./format-credits";
 
 describe("formatCreditBalance", () => {
 	it("floors to one decimal and never rounds up", () => {
@@ -36,6 +40,19 @@ describe("formatCreditAmount", () => {
 
 	it("never renders raw float dust", () => {
 		expect(formatCreditAmount(0.1 + 0.2, "en")).toBe("0.3");
+	});
+});
+
+describe("formatCreditDelta", () => {
+	it("keeps two decimals and an explicit sign", () => {
+		expect(formatCreditDelta(-0.39, "en")).toBe("-0.39");
+		expect(formatCreditDelta(50, "en")).toBe("+50.00");
+		// A zero spend must not read as a gain.
+		expect(formatCreditDelta(0, "en")).toBe("0.00");
+	});
+
+	it("localizes the decimal separator", () => {
+		expect(formatCreditDelta(-0.39, "fr")).toBe("-0,39");
 	});
 });
 

@@ -334,6 +334,51 @@ function buildVideoPrompt(params: {
 	);
 }
 
+export type VideoCostEstimateInput = {
+	audio: boolean;
+	durationSeconds: number;
+	kind: "video";
+	mode: "std";
+	modelId: string;
+};
+
+/**
+ * The provider-cost estimate input for one video render, as the call sites
+ * above will actually submit it (resolved renderer, clamped duration, std
+ * mode, audio only when Kling voice control is on). Null without a renderer;
+ * the reserve then uses the registry floor.
+ */
+export function videoCostEstimateInput(input: {
+	audio?: boolean;
+	durationSeconds: number | null | undefined;
+	modelId: string | null | undefined;
+}): VideoCostEstimateInput | null {
+	const modelId = input.modelId;
+
+	if (!modelId) {
+		return null;
+	}
+
+	const requested = input.durationSeconds;
+	// House durations (5/10/15) follow the renderer clamp. An edit renders the
+	// source clip's real length (4-30 s) and keeps that number. Anything else
+	// falls back to the five-second house clip.
+	const durationSeconds =
+		requested === 5 || requested === 10 || requested === 15
+			? clampDurationForModel(modelId, requested)
+			: Number.isSafeInteger(requested) && (requested as number) > 0
+				? (requested as number)
+				: clampDurationForModel(modelId, IMAGE_VIDEO_DURATION_SECONDS);
+
+	return {
+		audio: input.audio === true,
+		durationSeconds,
+		kind: "video",
+		mode: "std",
+		modelId,
+	};
+}
+
 // Veo renders only 4/6/8-second clips; map the house durations (5/10/15) onto
 // the nearest legal value rather than failing the render on a model swap.
 // KNOWN TRADE-OFF: the attempt and cards keep showing the requested duration,

@@ -16,6 +16,7 @@ export {
 	inArray,
 	isNull,
 	lt,
+	lte,
 	ne,
 	notInArray,
 	or,

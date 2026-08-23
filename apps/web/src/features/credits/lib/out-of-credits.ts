@@ -14,14 +14,14 @@ import { useCreditBalanceQuery } from "../api/credits.queries";
 export function isOutOfCredits(
 	balance: CreditBalanceResponse | undefined,
 ): boolean {
-	return balance !== undefined && balance.balance <= 0;
+	return balance !== undefined && balance.settledBalance <= 0;
 }
 
 /**
  * Reactive out-of-credits gate for composer surfaces. Recovery needs no manual
- * wiring: the underlying balance query polls every 15s and is invalidated on
- * billing errors, finished turns and the /billing/success return — so the gate
- * lifts on its own once a resubscribe or top-up lands.
+ * wiring: the underlying balance query is invalidated on billing errors,
+ * finished operations, window focus and the /billing/success return — so the
+ * gate lifts on its own once a resubscribe or top-up lands.
  */
 export function useOutOfCredits() {
 	const { data: session } = useSession();

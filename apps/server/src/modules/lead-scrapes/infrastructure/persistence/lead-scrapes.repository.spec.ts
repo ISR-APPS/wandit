@@ -56,3 +56,78 @@ describe("LeadScrapesRepository queue handoff transitions", () => {
 		).resolves.toBe(false);
 	});
 });
+
+describe("LeadScrapesRepository.insertAttempt request idempotency", () => {
+	function setupInsert(
+		inserted: Array<{ id: string; status: string }>,
+		existing: Array<{ id: string; status: string }>,
+	) {
+		const onConflictDoNothing = vi.fn(() => ({
+			returning: vi.fn().mockResolvedValue(inserted),
+		}));
+		const values = vi.fn(() => ({ onConflictDoNothing }));
+		const limit = vi.fn().mockResolvedValue(existing);
+		const db = {
+			insert: vi.fn(() => ({ values })),
+			select: vi.fn(() => ({
+				from: vi.fn(() => ({ where: vi.fn(() => ({ limit })) })),
+			})),
+		};
+		const repository = new LeadScrapesRepository(db as unknown as Database);
+
+		return { db, onConflictDoNothing, repository, values };
+	}
+
+	const input = {
+		chatId: "chat-1",
+		projectId: "project-1",
+		requestKey: "a".repeat(64),
+		spec: {
+			countryCode: null,
+			limit: 10,
+			location: null,
+			query: "plumbers",
+			sources: ["google-maps" as const],
+			version: 1 as const,
+		},
+	};
+
+	it("creates the attempt on the (chatId, requestKey) target", async () => {
+		const { db, onConflictDoNothing, repository, values } = setupInsert(
+			[{ id: "attempt-1", status: "queued" }],
+			[],
+		);
+
+		await expect(repository.insertAttempt(input)).resolves.toEqual({
+			created: true,
+			id: "attempt-1",
+			status: "queued",
+		});
+		expect(values).toHaveBeenCalledWith(input);
+		expect(onConflictDoNothing).toHaveBeenCalledWith({
+			target: expect.arrayContaining([expect.anything(), expect.anything()]),
+		});
+		expect(db.select).not.toHaveBeenCalled();
+	});
+
+	it("returns the existing attempt with created:false on a conflict", async () => {
+		const { repository } = setupInsert(
+			[],
+			[{ id: "attempt-existing", status: "running" }],
+		);
+
+		await expect(repository.insertAttempt(input)).resolves.toEqual({
+			created: false,
+			id: "attempt-existing",
+			status: "running",
+		});
+	});
+
+	it("fails loudly when the conflict row cannot be read back", async () => {
+		const { repository } = setupInsert([], []);
+
+		await expect(repository.insertAttempt(input)).rejects.toThrow(
+			"Lead scrape idempotency conflict did not return an attempt",
+		);
+	});
+});

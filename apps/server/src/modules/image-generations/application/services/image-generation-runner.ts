@@ -338,6 +338,7 @@ export async function runImageGeneration(
 			loaded.count,
 			payload.parentEventId,
 			payload.billingMode,
+			{ hasSourceImages: loaded.sourceImageUrls.length > 0 },
 		);
 		return recoverOrSettleGenerating(
 			loaded,
@@ -393,6 +394,7 @@ export async function runImageGeneration(
 				raced.count,
 				payload.parentEventId,
 				payload.billingMode,
+				{ hasSourceImages: raced.sourceImageUrls.length > 0 },
 			);
 			return recoverOrSettleGenerating(
 				raced,
@@ -420,6 +422,7 @@ export async function runImageGeneration(
 			claimed.count,
 			payload.parentEventId,
 			payload.billingMode,
+			{ hasSourceImages: claimed.sourceImageUrls.length > 0 },
 		);
 	} catch (error) {
 		// Insufficient credits is an expected outcome; anything else here is
@@ -479,7 +482,13 @@ export async function runImageGeneration(
 	): Promise<void> => {
 		await dependencies.capture(reservation, {
 			providerMetadata: generation.providerMetadata,
-			stepUsage: fixedGenerationStepUsage(generation.usage, units),
+			// A zero-unit provider failure is refunded to the user; the marker
+			// keeps its gateway cost out of the customer charge.
+			stepUsage: fixedGenerationStepUsage(
+				generation.usage,
+				units,
+				units === 0 ? "refunded_failure" : undefined,
+			),
 		});
 		capturedProviderEvidence = true;
 		capturedUnits += units;
@@ -949,6 +958,7 @@ async function settleSucceededBillingReplay(
 		attempt.count,
 		payload.parentEventId,
 		payload.billingMode,
+		{ hasSourceImages: attempt.sourceImageUrls.length > 0 },
 	);
 	await settleExistingStoredOutput(
 		attempt,

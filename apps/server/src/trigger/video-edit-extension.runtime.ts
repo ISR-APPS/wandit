@@ -61,6 +61,7 @@ import {
 	fixedGenerationStepUsage,
 	hasGatewayGenerationMetadata,
 } from "../modules/metering/domain/gateway-metering";
+import { helperStepUsage } from "../modules/metering/domain/metering";
 import { createTriggerMetering } from "./metering.runtime";
 
 type TriggerDatabase = ReturnType<typeof createDb>;
@@ -984,6 +985,24 @@ export async function executeExtension(
 					metering: gatewayMetering(input.subject),
 					script: attempt.voiceover.script,
 				});
+				// The narration TTS bills inside this video event (helper_billable);
+				// a missing gateway id only loses attribution, never the soundtrack.
+				try {
+					await dependencies.billing.capture(input.reservation, {
+						providerMetadata: soundtrack.providerMetadata,
+						stepUsage: helperStepUsage("voiceover_tts", null),
+					});
+				} catch (captureError) {
+					logger.warn(
+						`Extension ${attempt.id}: narration TTS cost capture failed`,
+						{
+							error:
+								captureError instanceof Error
+									? captureError.message
+									: String(captureError),
+						},
+					);
+				}
 				await writeFile(soundtrackPath, soundtrack.bytes);
 				await putSiteFile(
 					soundtrackKey,

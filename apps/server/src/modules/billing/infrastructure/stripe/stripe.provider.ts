@@ -645,6 +645,10 @@ export class StripeProvider implements PaymentProvider {
 			.autoPagingToArray({ limit: 10_000 });
 	}
 
+	retrieveDispute(disputeId: string): Promise<Stripe.Dispute> {
+		return this.stripe().disputes.retrieve(disputeId);
+	}
+
 	async listDisputesForCharge(chargeId: string): Promise<Stripe.Dispute[]> {
 		return this.stripe()
 			.disputes.list({ charge: chargeId, limit: 100 })

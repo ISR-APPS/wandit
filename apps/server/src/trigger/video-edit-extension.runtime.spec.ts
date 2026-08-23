@@ -120,6 +120,12 @@ const RESERVATION = {
 	operation: "video" as const,
 	referenceId: BASE_ATTEMPT.id,
 	replay: "none" as const,
+	terms: {
+		estimatedUnitUsdMicros: null,
+		mode: "measured" as const,
+		unit: "video",
+		usdMicrosPerCredit: 40_000,
+	},
 	units: 2 as const,
 };
 
@@ -592,6 +598,7 @@ describe("video edit/extension Trigger runtime", () => {
 			voiceover: { language: "en" as const, script: "Keep moving forward." },
 		};
 
+		const ttsBilling = billing();
 		try {
 			await expect(
 				executeExtension(
@@ -604,18 +611,35 @@ describe("video edit/extension Trigger runtime", () => {
 						subject: { actorUserId: "user_1" },
 					},
 					{
-						billing: billing(),
+						billing: ttsBilling,
 						persistence,
 						speech: {
 							synthesizeVoiceover: vi.fn().mockResolvedValue({
 								bytes: new Uint8Array([73, 68, 51]),
 								mediaType: "audio/mpeg",
+								providerMetadata: {
+									gateway: { generationId: "generation_tts" },
+								},
 							}),
 						},
 					} as never,
 				),
 			).resolves.toMatchObject({ deliveredUnits: 1, status: "generated" });
 			expect(muxSoundtrack).toHaveBeenCalledTimes(1);
+			// The narration TTS bills inside the video event as a helper call.
+			expect(ttsBilling.capture).toHaveBeenCalledWith(
+				{ ...RESERVATION, units: 1 },
+				{
+					providerMetadata: { gateway: { generationId: "generation_tts" } },
+					stepUsage: {
+						metering: {
+							customerBilling: "helper_billable",
+							task: "voiceover_tts",
+						},
+						providerUsage: null,
+					},
+				},
+			);
 			expect(persistence.persistVoiceoverDeliveryStatus).toHaveBeenCalledWith(
 				attempt,
 				"delivered",

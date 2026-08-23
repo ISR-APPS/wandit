@@ -82,9 +82,11 @@ function setup(
 		markAttemptTriggered: vi.fn(),
 		markAttemptFailed: vi.fn().mockResolvedValue(true),
 	};
-	const usageEvent = { id: "usage_event_1" } as Awaited<
-		ReturnType<MeteringService["reserve"]>
-	>;
+	const usageEvent = {
+		id: "usage_event_1",
+		operation: "video",
+		reservedCredits: 550,
+	} as Awaited<ReturnType<MeteringService["reserve"]>>;
 	const meteringService = {
 		captureGeneration: vi.fn().mockResolvedValue(null),
 		findByIdempotencyKey: vi.fn().mockResolvedValue(usageEvent),
@@ -323,9 +325,11 @@ describe("animate_image tool", () => {
 			{ actorUserId: "user_1" },
 			{
 				attemptRef: "b48dfa65-13a2-4bd8-af89-d01c4bbdb1e3",
-				// 2_000 centi-credits = the 20.00-credit video price.
-				credits: 2_000,
+				// No catalog rate in this double: the 550 cc video floor is held.
+				credits: 550,
+				estimatedCostUsdMicros: null,
 				idempotencyKey: "video:b48dfa65-13a2-4bd8-af89-d01c4bbdb1e3",
+				measuredTerms: { estimatedUnitUsdMicros: null, units: 1 },
 				parentEventId: undefined,
 			},
 		);

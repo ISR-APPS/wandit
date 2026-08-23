@@ -12,6 +12,8 @@ import {
 export type SynthesizedVoiceover = {
 	bytes: Uint8Array;
 	mediaType: string;
+	/** Gateway evidence so the caller can bill the TTS inside its video event. */
+	providerMetadata: unknown;
 };
 
 @Injectable()
@@ -35,6 +37,7 @@ export class SpeechService {
 		return {
 			bytes: result.audio.uint8Array,
 			mediaType: result.audio.mediaType,
+			providerMetadata: result.providerMetadata,
 		};
 	}
 }

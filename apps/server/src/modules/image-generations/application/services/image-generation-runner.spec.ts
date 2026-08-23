@@ -29,6 +29,12 @@ const RESERVATION = {
 	operation: "image" as const,
 	referenceId: ATTEMPT_ID,
 	replay: "none" as const,
+	terms: {
+		estimatedUnitUsdMicros: null,
+		mode: "measured" as const,
+		unit: "image",
+		usdMicrosPerCredit: 40_000,
+	},
 	units: 2,
 };
 
@@ -177,6 +183,7 @@ describe("runImageGeneration", () => {
 			2,
 			PARENT_EVENT_ID,
 			"enforce",
+			{ hasSourceImages: false },
 		);
 		expect(dependencies.generateOne).toHaveBeenCalledTimes(2);
 		expect(dependencies.capture).toHaveBeenCalledTimes(2);
@@ -459,6 +466,7 @@ describe("runImageGeneration", () => {
 			2,
 			undefined,
 			"enforce",
+			{ hasSourceImages: false },
 		);
 		expect(dependencies.generateOne).toHaveBeenNthCalledWith(
 			1,
@@ -749,7 +757,7 @@ describe("runImageGeneration", () => {
 			RESERVATION,
 			expect.objectContaining({
 				stepUsage: {
-					metering: { fixedUnits: 0 },
+					metering: { customerBilling: "refunded_failure", fixedUnits: 0 },
 					providerUsage: null,
 				},
 			}),
@@ -969,6 +977,7 @@ describe("runImageGeneration", () => {
 			4,
 			undefined,
 			"enforce",
+			{ hasSourceImages: false },
 		);
 		expect(dependencies.settleExisting).toHaveBeenCalledWith(
 			SUBJECT,

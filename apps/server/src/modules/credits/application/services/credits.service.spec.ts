@@ -1,3 +1,4 @@
+import type { CreditBucket } from "@wandit/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -27,6 +28,8 @@ type SeedLedgerEntry = Pick<
 
 type SeedUsageEvent = {
 	organizationId?: string | null;
+	/** Bucket the fake attributes the whole reserve hold to (default plan). */
+	holdBucket?: CreditBucket;
 	reservedCredits: number;
 	status?: "reserved" | "settled" | "reconciled";
 	userId: string;
@@ -101,6 +104,25 @@ class InMemoryCreditsRepository {
 					event.status === "reserved" && this.ownerMatches(event, owner),
 			)
 			.reduce((total, event) => total + event.reservedCredits, 0);
+	}
+
+	async getSettledBalanceSnapshot(owner: CreditOwner, _client?: unknown) {
+		const balance = await this.getBalance(owner);
+		const holds = { plan: 0, promo: 0, topup: 0 };
+
+		for (const event of this.usageEvents) {
+			if (event.status === "reserved" && this.ownerMatches(event, owner)) {
+				holds[event.holdBucket] += event.reservedCredits;
+			}
+		}
+
+		return {
+			...balance,
+			settledBalance: balance.balance + holds.plan + holds.promo + holds.topup,
+			settledPlan: balance.plan + holds.plan,
+			settledPromo: balance.promo + holds.promo,
+			settledTopup: balance.topup + holds.topup,
+		};
 	}
 
 	async insertLedgerEntry(
@@ -393,6 +415,7 @@ class InMemoryCreditsRepository {
 
 	seedUsageEvent(input: SeedUsageEvent) {
 		this.usageEvents.push({
+			holdBucket: input.holdBucket ?? "plan",
 			organizationId: input.organizationId ?? null,
 			reservedCredits: input.reservedCredits,
 			status: input.status ?? "reserved",
@@ -1279,6 +1302,206 @@ describe("CreditsService", () => {
 	});
 });
 
+describe("CreditsService.consume admission requirePositiveBalance", () => {
+	it("admits a reserve far above a 1 cc balance into overdraft", async () => {
+		const { repository, service } = setup();
+		repository.seed({
+			bucket: "plan",
+			delta: 1,
+			kind: "grant",
+			userId: "user_1",
+		});
+
+		const rows = await service.consume(userOwner("user_1"), 5000, {
+			admission: "requirePositiveBalance",
+			idempotencyKey: "reserve:event_1",
+			meta: { action: "chat" },
+		});
+
+		expect(rows).toMatchObject([
+			{ bucket: "plan", delta: -1 },
+			{ bucket: "topup", delta: -4999 },
+		]);
+		expect(await service.getBalance(userOwner("user_1"))).toMatchObject({
+			balance: -4999,
+		});
+	});
+
+	it("rejects a zero balance and a negative balance", async () => {
+		const { repository, service } = setup();
+
+		await expect(
+			service.consume(userOwner("user_1"), 5000, {
+				admission: "requirePositiveBalance",
+			}),
+		).rejects.toBeInstanceOf(InsufficientCreditsError);
+
+		repository.seed({
+			bucket: "topup",
+			delta: -50,
+			kind: "consume",
+			userId: "user_1",
+		});
+
+		await expect(
+			service.consume(userOwner("user_1"), 1, {
+				admission: "requirePositiveBalance",
+			}),
+		).rejects.toBeInstanceOf(InsufficientCreditsError);
+		expect(repository.rows).toHaveLength(1);
+	});
+
+	it("records the admission mode in the fingerprint and validates replays", async () => {
+		const { repository, service } = setup();
+		repository.seed({
+			bucket: "plan",
+			delta: 10,
+			kind: "grant",
+			userId: "user_1",
+		});
+
+		const rows = await service.consume(userOwner("user_1"), 4, {
+			admission: "requirePositiveBalance",
+			idempotencyKey: "reserve:event_2",
+			meta: { action: "chat" },
+		});
+
+		expect(rows[0]?.meta).toMatchObject({
+			idempotencyFingerprint: { admission: "requirePositiveBalance" },
+		});
+		await expect(
+			service.consume(userOwner("user_1"), 4, {
+				admission: "requirePositiveBalance",
+				idempotencyKey: "reserve:event_2",
+				meta: { action: "chat" },
+			}),
+		).resolves.toEqual(rows);
+		await expect(
+			service.consume(userOwner("user_1"), 4, {
+				idempotencyKey: "reserve:event_2",
+				meta: { action: "chat" },
+			}),
+		).rejects.toThrow("Credit consume idempotency replay conflict");
+	});
+});
+
+describe("CreditsService topup/revoke replay fingerprints", () => {
+	it("returns the original row for an identical topup replay", async () => {
+		const { repository, service } = setup();
+
+		const first = await service.topup(userOwner("user_1"), 500, {
+			idempotencyKey: "topup:pi_1",
+		});
+		const replay = await service.topup(userOwner("user_1"), 500, {
+			idempotencyKey: "topup:pi_1",
+		});
+
+		expect(first.meta).toMatchObject({
+			idempotencyFingerprint: { amount: 500, userId: "user_1" },
+		});
+		expect(replay).toEqual(first);
+		expect(repository.rows).toHaveLength(1);
+	});
+
+	it("rejects a topup replay with a different amount or owner", async () => {
+		const { service } = setup();
+
+		await service.topup(userOwner("user_1"), 500, {
+			idempotencyKey: "topup:pi_2",
+		});
+
+		await expect(
+			service.topup(userOwner("user_1"), 600, {
+				idempotencyKey: "topup:pi_2",
+			}),
+		).rejects.toThrow("Credit topup idempotency replay conflict");
+		await expect(
+			service.topup(userOwner("user_2"), 500, {
+				idempotencyKey: "topup:pi_2",
+			}),
+		).rejects.toThrow("Credit topup idempotency replay conflict");
+		await expect(
+			service.topup(orgOwner("org_1"), 500, {
+				idempotencyKey: "topup:pi_2",
+			}),
+		).rejects.toThrow("Credit topup idempotency replay conflict");
+	});
+
+	it("validates a legacy topup row without a fingerprint by its columns", async () => {
+		const { repository, service } = setup();
+		repository.seed({
+			bucket: "topup",
+			delta: 500,
+			idempotencyKey: "topup:legacy",
+			kind: "topup",
+			meta: { reason: "topup" },
+			userId: "user_1",
+		});
+
+		await expect(
+			service.topup(userOwner("user_1"), 500, {
+				idempotencyKey: "topup:legacy",
+			}),
+		).resolves.toMatchObject({ delta: 500, idempotencyKey: "topup:legacy" });
+		await expect(
+			service.topup(userOwner("user_1"), 501, {
+				idempotencyKey: "topup:legacy",
+			}),
+		).rejects.toThrow("Credit topup idempotency replay conflict");
+	});
+
+	it("rejects a revoke replay with a different amount, owner, or bucket", async () => {
+		const { service } = setup();
+
+		await service.revoke(userOwner("user_1"), 25, {
+			bucket: "plan",
+			idempotencyKey: "refund:ch_2",
+		});
+
+		await expect(
+			service.revoke(userOwner("user_1"), 26, {
+				bucket: "plan",
+				idempotencyKey: "refund:ch_2",
+			}),
+		).rejects.toThrow("Credit revoke idempotency replay conflict");
+		await expect(
+			service.revoke(userOwner("user_2"), 25, {
+				bucket: "plan",
+				idempotencyKey: "refund:ch_2",
+			}),
+		).rejects.toThrow("Credit revoke idempotency replay conflict");
+		await expect(
+			service.revoke(userOwner("user_1"), 25, {
+				idempotencyKey: "refund:ch_2",
+			}),
+		).rejects.toThrow("Credit revoke idempotency replay conflict");
+	});
+
+	it("validates a legacy revoke row without a fingerprint by its columns", async () => {
+		const { repository, service } = setup();
+		repository.seed({
+			bucket: "topup",
+			delta: -25,
+			idempotencyKey: "refund:legacy",
+			kind: "revoke",
+			meta: { reason: "revoke" },
+			userId: "user_1",
+		});
+
+		await expect(
+			service.revoke(userOwner("user_1"), 25, {
+				idempotencyKey: "refund:legacy",
+			}),
+		).resolves.toMatchObject({ delta: -25 });
+		await expect(
+			service.revoke(userOwner("user_1"), 25, {
+				bucket: "plan",
+				idempotencyKey: "refund:legacy",
+			}),
+		).rejects.toThrow("Credit revoke idempotency replay conflict");
+	});
+});
+
 describe("CreditsService.getSettledBalance", () => {
 	it("adds only still-reserved holds back onto the ledger balance", async () => {
 		const { repository, service } = setup();
@@ -1310,6 +1533,9 @@ describe("CreditsService.getSettledBalance", () => {
 			plan: 380,
 			promo: 0,
 			settledBalance: 500,
+			settledPlan: 500,
+			settledPromo: 0,
+			settledTopup: 0,
 			topup: 0,
 		});
 	});
@@ -1364,6 +1590,9 @@ describe("CreditsService.getSettledBalance", () => {
 			plan: 0,
 			promo: 0,
 			settledBalance: 700,
+			settledPlan: 0,
+			settledPromo: 0,
+			settledTopup: 700,
 			topup: 700,
 		});
 	});

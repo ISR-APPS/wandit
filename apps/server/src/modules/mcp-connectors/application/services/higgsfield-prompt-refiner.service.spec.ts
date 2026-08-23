@@ -432,7 +432,7 @@ describe("HiggsfieldPromptRefinerService", () => {
 		);
 	});
 
-	it("captures the generation reference as bundled unmetered usage", async () => {
+	it("captures the generation reference as helper-billable usage", async () => {
 		mockRefinement(REFINED_PROMPT);
 		const { meteringService, service } = setup();
 
@@ -444,8 +444,8 @@ describe("HiggsfieldPromptRefinerService", () => {
 				providerMetadata: { gateway: { generationId: "generation_1" } },
 				stepUsage: {
 					metering: {
-						customerBilling: "bundled_unmetered",
-						operation: "prompt_refine",
+						customerBilling: "helper_billable",
+						task: "prompt_refine",
 					},
 					providerUsage: { inputTokens: 40, outputTokens: 60 },
 				},

@@ -40,12 +40,30 @@ function setup() {
 				id: "generation-ref-1",
 			}),
 		),
+		// whisper-1 shape: $0.0001 per second (100 micros/s) at $0.04/credit.
+		estimateMeasuredCost: vi.fn(
+			async (input: {
+				durationSeconds: number;
+			}): Promise<{
+				costUsdMicros: number;
+				credits: number;
+				unitUsdMicros: number;
+			} | null> => ({
+				costUsdMicros: Math.ceil(100 * input.durationSeconds),
+				credits: Math.max(
+					1,
+					Math.ceil((Math.ceil(100 * input.durationSeconds) * 100) / 40_000),
+				),
+				unitUsdMicros: 100,
+			}),
+		),
 		findByIdempotencyKey: vi.fn(
 			async (): Promise<ReserveOutcome["event"] | null> => null,
 		),
 		refund: vi.fn(async () => undefined),
 		reserveWithReplay,
 		settle: vi.fn(async () => undefined),
+		usdMicrosPerCredit: 40_000,
 	};
 	const service = new TranscriptionService(
 		metering as unknown as MeteringService,
@@ -128,7 +146,7 @@ describe("TranscriptionService", () => {
 		expect(gatewayMocks.doGenerate).not.toHaveBeenCalled();
 	});
 
-	it("ceil-reserves minutes, tags the call, captures its ref, and settles", async () => {
+	it("reserves the floor, tags the call, captures its ref, and settles the measured cost", async () => {
 		const { metering, service } = setup();
 		gatewayMocks.doGenerate.mockResolvedValue({
 			durationInSeconds: 61,
@@ -148,9 +166,12 @@ describe("TranscriptionService", () => {
 		expect(metering.reserveWithReplay).toHaveBeenCalledWith(
 			"transcription",
 			{ actorUserId: "user-1" },
+			// 61 s × 100 micros = $0.0061 → 16 cc, below the 25 cc floor.
 			expect.objectContaining({
-				credits: 200,
+				credits: 25,
+				estimatedCostUsdMicros: 6_100,
 				idempotencyKey: "transcription:user-1:operation-123456",
+				measuredTerms: { estimatedUnitUsdMicros: 6_100, units: 1 },
 			}),
 		);
 		expect(gatewayMocks.doGenerate).toHaveBeenCalledWith(
@@ -173,7 +194,17 @@ describe("TranscriptionService", () => {
 		);
 		expect(metering.settle).toHaveBeenCalledWith(
 			"usage-event-1",
-			expect.objectContaining({ finalCredits: 200, pricing: "direct" }),
+			expect.objectContaining({
+				costUsdMicros: 6_100,
+				finalCredits: 16,
+				pricing: "direct",
+				pricingSnapshot: expect.objectContaining({
+					mode: "measured",
+					outcome: "delivered",
+					source: "measured_local",
+					usdMicrosPerSecond: 100,
+				}),
+			}),
 		);
 		expect(metering.settle).toHaveBeenCalledWith(
 			"usage-event-1",
@@ -183,6 +214,87 @@ describe("TranscriptionService", () => {
 					providerDurationSeconds: 61,
 					transcriptionResponse: { durationSec: 61, text: "hello" },
 				}),
+			}),
+		);
+	});
+
+	it("settles under the reservation snapshot anchor, not the live config", async () => {
+		// Reviewer scenario: the hold was reserved while AI_USD_PER_CREDIT was
+		// 0.028 (snapshot 28_000); the config flipped to 0.04 before completion.
+		const { metering, service } = setup();
+		metering.usdMicrosPerCredit = 40_000;
+		metering.reserveWithReplay.mockResolvedValueOnce({
+			event: usageEvent(null, {
+				pricingSnapshot: {
+					mode: "measured",
+					operation: "transcription",
+					source: "operation_registry_reservation",
+					unit: "operation",
+					usdMicrosPerCredit: 28_000,
+				},
+			}),
+			replay: "none",
+			replayed: false,
+		});
+		gatewayMocks.doGenerate.mockResolvedValue({
+			durationInSeconds: 61,
+			providerMetadata: { gateway: { generationId: "gen-anchor" } },
+			text: "hello",
+		});
+
+		await service.transcribeAudio({
+			audio: wavWithDuration(61),
+			mimeType: "audio/wav",
+			operationId: "operation-anchor",
+			userId: "user-1",
+		});
+
+		// 6_100 micros × 100 / 28_000 = 21.8 → 22 cc (16 cc at the live 40_000).
+		expect(metering.settle).toHaveBeenCalledWith(
+			"usage-event-1",
+			expect.objectContaining({
+				costUsdMicros: 6_100,
+				finalCredits: 22,
+				pricingSnapshot: expect.objectContaining({
+					usdMicrosPerCredit: 28_000,
+				}),
+			}),
+		);
+	});
+
+	it("holds and settles the floor when the model has no per-second rate", async () => {
+		const { metering, service } = setup();
+		metering.estimateMeasuredCost.mockResolvedValue(null);
+		gatewayMocks.doGenerate.mockResolvedValue({
+			durationInSeconds: 61,
+			providerMetadata: { gateway: { generationId: "gen-token-priced" } },
+			text: "token-priced model",
+		});
+
+		await expect(
+			service.transcribeAudio({
+				audio: wavWithDuration(61),
+				mimeType: "audio/wav",
+				operationId: "operation-no-rate",
+				userId: "user-1",
+			}),
+		).resolves.toEqual({ durationSec: 61, text: "token-priced model" });
+		expect(metering.reserveWithReplay).toHaveBeenCalledWith(
+			"transcription",
+			{ actorUserId: "user-1" },
+			expect.objectContaining({
+				credits: 25,
+				estimatedCostUsdMicros: null,
+				measuredTerms: { estimatedUnitUsdMicros: null, units: 1 },
+			}),
+		);
+		// The gateway ref captured above reconciles the exact cost later.
+		expect(metering.settle).toHaveBeenCalledWith(
+			"usage-event-1",
+			expect.objectContaining({
+				costUsdMicros: null,
+				finalCredits: 100,
+				pricingSnapshot: expect.objectContaining({ usdMicrosPerSecond: null }),
 			}),
 		);
 	});
@@ -262,12 +374,14 @@ describe("TranscriptionService", () => {
 		expect(metering.reserveWithReplay).toHaveBeenCalledWith(
 			"transcription",
 			{ actorUserId: "user-1" },
-			expect.objectContaining({ credits: 100 }),
+			expect.objectContaining({ credits: 25, estimatedCostUsdMicros: 3_000 }),
 		);
+		// 121 s × 100 micros = $0.0121 → 31 cc.
 		expect(metering.settle).toHaveBeenCalledWith(
 			"usage-event-1",
 			expect.objectContaining({
-				finalCredits: 300,
+				costUsdMicros: 12_100,
+				finalCredits: 31,
 				pricingSnapshot: expect.objectContaining({
 					billableDurationSeconds: 121,
 					durationSource: "provider",
@@ -310,8 +424,10 @@ describe("TranscriptionService", () => {
 		});
 		expect(metering.settle).toHaveBeenCalledWith(
 			"usage-event-1",
+			// Capped at 300 s × 100 micros = $0.03 → 75 cc.
 			expect.objectContaining({
-				finalCredits: 500,
+				costUsdMicros: 30_000,
+				finalCredits: 75,
 				rawUsage: {
 					billableDurationSeconds: 300,
 					durationSeconds: 1,
@@ -377,7 +493,7 @@ describe("TranscriptionService", () => {
 		expect(metering.settle).toHaveBeenCalledWith(
 			"usage-event-1",
 			expect.objectContaining({
-				finalCredits: 300,
+				finalCredits: 31,
 				rawUsage: expect.objectContaining({
 					providerDurationSeconds: 121,
 					transcriptionResponse: {

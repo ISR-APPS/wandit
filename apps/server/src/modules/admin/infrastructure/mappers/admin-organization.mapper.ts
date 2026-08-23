@@ -8,13 +8,13 @@ import {
 	billingPlanIds,
 	centiCreditsToCredits,
 } from "@wandit/contracts";
-
 import type {
 	AdminOrganizationMemberRow,
 	AdminOrganizationSummaryRow,
 	AdminOrgLedgerRow,
 	AdminOrgSubscriptionRow,
 } from "../persistence/admin-organizations.repository";
+import { normalizeCostProvenance } from "./ai-cost-provenance.mapper";
 
 export function mapAdminOrganizationSummary(
 	row: AdminOrganizationSummaryRow,
@@ -89,6 +89,10 @@ export function mapAdminOrganizationLedgerEntry(
 		aiProvider: row.aiProvider,
 		aiCostUsdMicros:
 			row.aiCostUsdMicros === null ? null : Number(row.aiCostUsdMicros),
+		aiCostProvenance:
+			row.aiCostUsdMicros === null
+				? null
+				: normalizeCostProvenance(row.aiCostProvenance),
 	};
 }
 

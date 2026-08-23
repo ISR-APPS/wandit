@@ -843,7 +843,11 @@ describe("ManualSubscriptionsService", () => {
 		);
 		expect(
 			context.subscriptionCreditsRepository.cancelPendingSlotsForSubscription,
-		).toHaveBeenCalledWith(SUBSCRIPTION_ID, TRANSACTION);
+		).toHaveBeenCalledWith(
+			SUBSCRIPTION_ID,
+			{ reason: "replaced" },
+			TRANSACTION,
+		);
 		expect(context.stateEventsRepository.tryInsert).toHaveBeenCalledWith(
 			expect.objectContaining({
 				fromStatus: "canceled",
@@ -867,7 +871,11 @@ describe("ManualSubscriptionsService", () => {
 
 		expect(
 			context.subscriptionCreditsRepository.cancelPendingSlotsForSubscription,
-		).toHaveBeenCalledWith(SUBSCRIPTION_ID, TRANSACTION);
+		).toHaveBeenCalledWith(
+			SUBSCRIPTION_ID,
+			{ reason: "replaced" },
+			TRANSACTION,
+		);
 		expect(
 			context.subscriptionCreditsRepository.cancelPendingSlotsForSubscription
 				.mock.invocationCallOrder[0],
@@ -888,7 +896,7 @@ describe("ManualSubscriptionsService", () => {
 
 		expect(
 			context.subscriptionCreditsRepository.cancelPendingSlotsForSubscription,
-		).toHaveBeenCalledWith(SUBSCRIPTION_ID, TRANSACTION);
+		).toHaveBeenCalledWith(SUBSCRIPTION_ID, { reason: "ended" }, TRANSACTION);
 		expect(context.creditsService.expirePlanRemainder).toHaveBeenCalledWith(
 			{ type: "user", userId: USER.id },
 			expect.objectContaining({

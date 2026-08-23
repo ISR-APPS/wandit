@@ -676,6 +676,21 @@ describe("MessageParts turn block", () => {
 		expect(html).toBe("");
 	});
 
+	it("silently ignores the credits-settled signal consumed by the chat hook", () => {
+		const html = renderMessage("assistant", [
+			{
+				type: "data-credits-settled",
+				data: {
+					usageEventId: "usage-event-1",
+					credits: 0.37,
+					settledBalance: 12.63,
+				},
+			},
+		]);
+
+		expect(html).toBe("");
+	});
+
 	it("renders a persisted target chip above a targeted user message", () => {
 		const html = renderMessage(
 			"user",

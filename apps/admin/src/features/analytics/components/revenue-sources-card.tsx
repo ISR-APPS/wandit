@@ -52,7 +52,9 @@ function RevenueSourceMetric({
 
 function RevenueSourcesCard({ revenueBySource }: RevenueSourcesCardProps) {
 	const totalCents =
-		revenueBySource.subscriptionsCents + revenueBySource.domainsCents;
+		revenueBySource.subscriptionsCents +
+		revenueBySource.topupsCents +
+		revenueBySource.domainsCents;
 	const domainSharePct =
 		totalCents > 0 ? (revenueBySource.domainsCents / totalCents) * 100 : null;
 
@@ -76,12 +78,18 @@ function RevenueSourcesCard({ revenueBySource }: RevenueSourcesCardProps) {
 			</CardHeader>
 
 			<CardContent className="p-0">
-				<div className="-mr-px -mb-px grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5">
+				<div className="-mr-px -mb-px grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6">
 					<RevenueSourceMetric
 						label="Subscriptions"
 						tooltip="Cash collected from paid subscription invoices during the selected range, before refunds."
 						value={formatOverviewUsdMinor(revenueBySource.subscriptionsCents)}
 						description="Paid subscription invoices"
+					/>
+					<RevenueSourceMetric
+						label="Top-ups"
+						tooltip="Cash collected from credit top-up packs during the selected range, before refunds. Backfilled receipts use catalog prices; the oldest purchases without a pack id are missing, so this can only understate."
+						value={formatOverviewUsdMinor(revenueBySource.topupsCents)}
+						description="Credit pack purchases"
 					/>
 					<RevenueSourceMetric
 						label="Domain sales"
@@ -107,7 +115,7 @@ function RevenueSourcesCard({ revenueBySource }: RevenueSourcesCardProps) {
 					/>
 					<RevenueSourceMetric
 						label="Domain share"
-						tooltip="Domain sales as a share of all cash collected in the range (subscriptions + domains)."
+						tooltip="Domain sales as a share of all cash collected in the range (subscriptions + top-ups + domains)."
 						value={
 							domainSharePct === null
 								? "—"

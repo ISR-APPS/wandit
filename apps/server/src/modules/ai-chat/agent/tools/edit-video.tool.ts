@@ -240,6 +240,12 @@ export function createEditVideoTool(
 				attempt.id,
 				1,
 				deps.parentEventId,
+				undefined,
+				{
+					durationSeconds: source.durationSeconds,
+					kind: "video-edit",
+					modelId: VIDEO_EDIT_ENGINE_MODEL,
+				},
 			);
 
 			assertFixedOperationProviderExecutionAllowed(reservation);

@@ -28,6 +28,7 @@
 		"../server/src/modules/metering/domain/gateway-metering.ts",
 		"../server/src/modules/metering/domain/model-pricing.ts",
 		"../server/src/modules/metering/domain/operation-registry.ts",
+		"../server/src/modules/metering/domain/provider-call-evidence.ts",
 		"../server/src/modules/metering/infrastructure/persistence/metering.repository.ts",
 		"../server/src/modules/metering/infrastructure/persistence/model-prices.repository.ts",
 		"../server/src/modules/metering/**/*.json",

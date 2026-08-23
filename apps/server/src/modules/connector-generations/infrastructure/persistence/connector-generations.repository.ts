@@ -45,24 +45,64 @@ export class ConnectorGenerationsRepository {
 		private readonly analyticsService: AnalyticsService,
 	) {}
 
-	// One attempt row per intercepted generation call, born "queued".
+	// One attempt row per intercepted generation REQUEST: a duplicated tool
+	// call (same chatId + requestKey) lands on the existing row instead of a
+	// second generation. chatId NULL disables the dedupe by design (NULLs are
+	// distinct); the Trigger-side idempotency key stays the second guard.
 	async insertAttempt(input: {
 		userId: string;
 		organizationId: string | null;
+		chatId: string | null;
+		requestKey: string;
 		connectorSlug: string;
 		toolName: string;
 		args: unknown;
-	}): Promise<{ id: string }> {
+	}): Promise<{
+		created: boolean;
+		id: string;
+		status: ConnectorGenerationAttemptRow["status"];
+	}> {
 		const [row] = await this.db
 			.insert(connectorGenerationAttempts)
 			.values(input)
-			.returning({ id: connectorGenerationAttempts.id });
+			.onConflictDoNothing({
+				target: [
+					connectorGenerationAttempts.chatId,
+					connectorGenerationAttempts.requestKey,
+				],
+			})
+			.returning({
+				id: connectorGenerationAttempts.id,
+				status: connectorGenerationAttempts.status,
+			});
 
-		if (!row) {
-			throw new Error("Connector generation insert did not return a row");
+		if (row) {
+			return { ...row, created: true };
 		}
 
-		return row;
+		const [existing] = await this.db
+			.select({
+				id: connectorGenerationAttempts.id,
+				status: connectorGenerationAttempts.status,
+			})
+			.from(connectorGenerationAttempts)
+			.where(
+				and(
+					input.chatId === null
+						? isNull(connectorGenerationAttempts.chatId)
+						: eq(connectorGenerationAttempts.chatId, input.chatId),
+					eq(connectorGenerationAttempts.requestKey, input.requestKey),
+				),
+			)
+			.limit(1);
+
+		if (!existing) {
+			throw new Error(
+				"Connector generation idempotency conflict did not return an attempt",
+			);
+		}
+
+		return { ...existing, created: false };
 	}
 
 	async markAttemptTriggered(

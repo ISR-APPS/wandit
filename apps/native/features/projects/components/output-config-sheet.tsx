@@ -1,4 +1,3 @@
-import { CREDIT_COSTS } from "@wandit/contracts";
 import {
 	useDictionary,
 	useTranslation,
@@ -8,10 +7,8 @@ import { Pressable, Text, View } from "react-native";
 
 import { WanditIcon } from "@/components/wandit-icon";
 import { useAppTheme } from "@/contexts/app-theme-context";
-import { PriceTag } from "@/features/credits";
 import { AppBottomSheet } from "@/shared/ui/bottom-sheet";
 
-import { QUALITY_CREDITS } from "../lib/constants";
 import {
 	type ConcreteMode,
 	type GenerationOutputDef,
@@ -115,17 +112,13 @@ export function OutputConfigSheet({
 					<View className="my-3 h-px bg-separator" />
 					<View className="mb-3.5">
 						{mode === "video" ? (
-							// Video has one fixed price and no tiers — a static cost row
-							// replaces the heading + selectable tiles (web parity).
-							<View className="mx-1 min-h-9 flex-row items-center justify-between rounded-[12px] border border-accent/45 bg-accent/10 px-3 py-2">
+							// Video has no tiers — a static row replaces the heading +
+							// selectable tiles (web parity). No price is shown before
+							// the call; the balance moves once, after settle.
+							<View className="mx-1 min-h-9 flex-row items-center rounded-[12px] border border-accent/45 bg-accent/10 px-3 py-2">
 								<Text className="text-[12px] text-muted">
 									{promptBox.qualityLabel}
 								</Text>
-								<PriceTag
-									cost={CREDIT_COSTS.videoGeneration}
-									withIcon
-									showUnit={false}
-								/>
 							</View>
 						) : (
 							<>
@@ -135,7 +128,6 @@ export function OutputConfigSheet({
 								<View className="flex-row flex-wrap gap-[7px] px-1">
 									{(["standard", "max"] as const).map((quality) => {
 										const selected = values.quality === quality;
-										const cost = QUALITY_CREDITS[quality];
 										return (
 											<Pressable
 												key={quality}
@@ -163,14 +155,6 @@ export function OutputConfigSheet({
 												<Text className="mt-0.5 text-[10.5px] text-muted">
 													{promptBox.quality[quality].hint}
 												</Text>
-												{cost !== null ? (
-													<PriceTag
-														cost={cost}
-														withIcon
-														showUnit={false}
-														className="mt-1"
-													/>
-												) : null}
 											</Pressable>
 										);
 									})}
