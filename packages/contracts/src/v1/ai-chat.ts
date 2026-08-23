@@ -13,6 +13,7 @@ import {
 	imageToVideoSourceMediaTypeSchema,
 	videoDurationSecondsSchema,
 	videoQualitySchema,
+	videoVoiceoverLanguageSchema,
 	videoVoiceoverSchema,
 } from "./media-generations";
 import { aiElementOpSchema, widSchema } from "./page-edits";
@@ -264,6 +265,59 @@ export const readAttachmentOutputSchema = z.discriminatedUnion("status", [
 
 export type ReadAttachmentInput = z.infer<typeof readAttachmentInputSchema>;
 export type ReadAttachmentOutput = z.infer<typeof readAttachmentOutputSchema>;
+
+/**
+ * inspect_video — analyzes one video attached to the conversation and returns
+ * advisory creative direction for generate_video. The url must exactly match
+ * an attachment from the conversation; authorization is enforced server-side.
+ */
+export const inspectVideoInputSchema = z
+	.object({
+		url: z.url(),
+		focus: z.enum(["motion", "style", "structure", "product"]),
+	})
+	.strict();
+
+export const inspectVideoOutputSchema = z.discriminatedUnion("status", [
+	z
+		.object({
+			status: z.literal("ok"),
+			brief: z.string().max(4_000),
+			suggested: z
+				.object({
+					aspect: imageToVideoAspectSchema,
+					durationSeconds: videoDurationSecondsSchema,
+					quality: videoQualitySchema,
+					talking: z.boolean(),
+					multiShot: z.boolean(),
+				})
+				.strict(),
+			shotList: z
+				.array(
+					z
+						.object({
+							startSeconds: z.number(),
+							endSeconds: z.number(),
+							description: z.string(),
+							talking: z.boolean(),
+						})
+						.strict(),
+				)
+				.optional(),
+			voiceoverScript: z.string().max(600).optional(),
+			voiceoverLanguage: videoVoiceoverLanguageSchema.optional(),
+		})
+		.strict(),
+	z
+		.object({
+			status: z.literal("unavailable"),
+			message: z.string().min(1),
+		})
+		.strict(),
+]);
+
+export type InspectVideoInput = z.infer<typeof inspectVideoInputSchema>;
+export type InspectVideoOutput = z.infer<typeof inspectVideoOutputSchema>;
 
 /**
  * read_lead_performance — the merchant's own lead funnel for the chat's
@@ -930,6 +984,10 @@ export type AiChatTools = {
 	read_attachment: {
 		input: ReadAttachmentInput;
 		output: ReadAttachmentOutput;
+	};
+	inspect_video: {
+		input: InspectVideoInput;
+		output: InspectVideoOutput;
 	};
 	read_lead_performance: {
 		input: ReadLeadPerformanceInput;

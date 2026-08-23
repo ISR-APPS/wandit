@@ -27,6 +27,7 @@ describe("parseLlmProviderOverrides", () => {
 				page_build: "openrouter",
 				project_title: "openrouter",
 				prompt_refine: "openrouter",
+				video_inspect: "openrouter",
 			},
 		});
 	});

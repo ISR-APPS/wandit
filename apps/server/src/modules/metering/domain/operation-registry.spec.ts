@@ -38,6 +38,7 @@ const REQUIRED_WORKFLOW_IDS = [
 	"legacy-worker-chat",
 	"project-title-helper",
 	"higgsfield-prompt-refine-helper",
+	"video-inspect-helper",
 	"video-director-helper",
 	"chat-tool-call-repair-helper",
 ] as const;
@@ -141,6 +142,11 @@ const EXPECTED_PROVIDER_CALLS = [
 		name: "generateText",
 		source:
 			"apps/server/src/modules/mcp-connectors/application/services/higgsfield-prompt-refiner.service.ts",
+	},
+	{
+		count: 1,
+		name: "generateText",
+		source: "apps/server/src/modules/ai-chat/agent/tools/inspect-video.tool.ts",
 	},
 	{
 		count: 1,

@@ -8,7 +8,10 @@ import {
 	projectCreationReservationAttemptRef,
 	projectCreationStreamClaimAttemptRef,
 } from "./chat-metering";
-import { WANDIT_SYSTEM_PROMPT } from "./system-prompt";
+import {
+	INSPECT_VIDEO_BRAIN_GUIDANCE,
+	WANDIT_SYSTEM_PROMPT,
+} from "./system-prompt";
 
 describe("AI chat admission estimate", () => {
 	it("includes model-bound messages, static context, and tool schema allowance", () => {
@@ -18,6 +21,7 @@ describe("AI chat admission estimate", () => {
 		const expectedInputTokens = Math.ceil(
 			(JSON.stringify(messages).length +
 				WANDIT_SYSTEM_PROMPT.length +
+				INSPECT_VIDEO_BRAIN_GUIDANCE.length +
 				context.length +
 				AI_CHAT_TOOL_SCHEMA_ALLOWANCE_CHARS) /
 				4,
