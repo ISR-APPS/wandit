@@ -69,10 +69,10 @@ import {
 } from "@/features/billing/lib/billing-ui-policy";
 import { parseBillingCancelRequest } from "@/features/billing/lib/cancel-subscription";
 import {
+	useCreditActivityQuery,
 	useCreditBalanceQuery,
-	useCreditLedgerQuery,
 } from "@/features/credits/api/credits.queries";
-import { LedgerList } from "@/features/credits/components/ledger-list";
+import { ActivityList } from "@/features/credits/components/activity-list";
 import { formatCreditBalance } from "@/features/credits/lib/format-credits";
 import { usePublicSettingsQuery } from "@/features/settings/api/settings.queries";
 import { useWorkspace } from "@/features/workspaces/lib/workspace-provider";
@@ -97,7 +97,7 @@ export default function BillingPage() {
 	const { openPlanPicker } = useBillingModal();
 	const [ledgerPage, setLedgerPage] = useState(1);
 	const balanceQuery = useCreditBalanceQuery();
-	const ledgerQuery = useCreditLedgerQuery({
+	const activityQuery = useCreditActivityQuery({
 		page: ledgerPage,
 		pageSize: LEDGER_PAGE_SIZE,
 	});
@@ -329,14 +329,14 @@ export default function BillingPage() {
 								</div>
 							</CardHeader>
 							<CardContent className="px-3 py-2 sm:px-5">
-								<LedgerList
-									entries={ledgerQuery.data?.items ?? []}
-									isPending={ledgerQuery.isPending}
-									isError={ledgerQuery.isError}
+								<ActivityList
+									items={activityQuery.data?.items ?? []}
+									isPending={activityQuery.isPending}
+									isError={activityQuery.isError}
 								/>
 								<LedgerPagination
 									page={ledgerPage}
-									total={ledgerQuery.data?.total ?? 0}
+									total={activityQuery.data?.total ?? 0}
 									onPageChange={setLedgerPage}
 								/>
 							</CardContent>
@@ -379,7 +379,12 @@ function BalanceCard({
 	balance,
 	locale,
 }: {
-	balance: { balance: number; plan: number; promo: number; topup: number };
+	balance: {
+		settledBalance: number;
+		settledPlan: number;
+		settledPromo: number;
+		settledTopup: number;
+	};
 	locale: Locale;
 }) {
 	const copy = useDictionary();
@@ -397,20 +402,20 @@ function BalanceCard({
 					{copy.billing.page.totalBalance}
 				</p>
 				<p className="mt-1 font-mono font-semibold text-4xl tabular-nums tracking-tight">
-					{formatCreditBalance(balance.balance, locale)}
+					{formatCreditBalance(balance.settledBalance, locale)}
 				</p>
 				<dl className="mt-6 grid grid-cols-3 divide-x divide-border border-t pt-4 rtl:divide-x-reverse">
 					<BucketMetric
 						label={copy.credits.buckets.plan}
-						value={formatCreditBalance(balance.plan, locale)}
+						value={formatCreditBalance(balance.settledPlan, locale)}
 					/>
 					<BucketMetric
 						label={copy.credits.buckets.promo}
-						value={formatCreditBalance(balance.promo, locale)}
+						value={formatCreditBalance(balance.settledPromo, locale)}
 					/>
 					<BucketMetric
 						label={copy.credits.buckets.topup}
-						value={formatCreditBalance(balance.topup, locale)}
+						value={formatCreditBalance(balance.settledTopup, locale)}
 					/>
 				</dl>
 			</CardContent>

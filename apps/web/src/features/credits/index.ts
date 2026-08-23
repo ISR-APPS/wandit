@@ -1,26 +1,27 @@
 export type {
+	CreditActivityItem,
+	CreditActivityQuery,
+	CreditActivityResponse,
 	CreditBalanceResponse,
 	CreditBucket,
-	CreditLedgerQuery,
-	CreditLedgerResponse,
-	CreditLedgerRow,
 	WorkspaceCreditBalance,
 	WorkspaceCreditBalancesResponse,
 } from "@wandit/contracts";
 export {
 	creditsKeys,
+	useCreditActivityQuery,
 	useCreditBalanceQuery,
-	useCreditLedgerQuery,
 	useWorkspaceCreditBalancesQuery,
 } from "./api/credits.queries";
+export { ActivityList } from "./components/activity-list";
 export { CreditsChip } from "./components/credits-chip";
 export { CreditsElsewhereNotice } from "./components/credits-elsewhere-notice";
 export { InsufficientCreditsDialog } from "./components/insufficient-credits-dialog";
-export { LedgerList } from "./components/ledger-list";
 export { OutOfCreditsBanner } from "./components/out-of-credits-banner";
 export { findCreditsElsewhere } from "./lib/credits-elsewhere";
 export {
 	formatCreditAmount,
 	formatCreditBalance,
+	formatCreditDelta,
 } from "./lib/format-credits";
 export { useOutOfCredits } from "./lib/out-of-credits";

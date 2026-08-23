@@ -43,6 +43,8 @@ const TRANSPARENT_PART_TYPES = new Set([
 	"tool-insert_section",
 	"tool-replace_section",
 	"data-billing-error",
+	// Transient settle signal consumed in use-ai-chat's onData — never inline.
+	"data-credits-settled",
 ]);
 
 export function isTransparentMessagePart(part: MessagePart): boolean {

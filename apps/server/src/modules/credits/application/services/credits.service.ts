@@ -1,6 +1,7 @@
 import { BadRequestException, Inject, Injectable } from "@nestjs/common";
 import {
 	CREDIT_SPEND_ORDER,
+	type CreditActivityQuery,
 	type CreditBucket,
 	type CreditLedgerQuery,
 	SIGNUP_GRANT_CREDITS,
@@ -19,6 +20,7 @@ import {
 	type CreditPlanHoldRow,
 	CreditsRepository,
 	type CreditsTransaction,
+	type SettledBalanceSnapshot,
 } from "../../infrastructure/persistence/credits.repository";
 
 type CreditMeta = Record<string, unknown> & {
@@ -84,14 +86,13 @@ type RevokeCreditOptions = CreditWriteOptions & {
 	bucket?: CreditBucket;
 };
 
-/** UNIT: integer centi-credits, like CreditBalance. */
-export type SettledCreditBalance = CreditBalance & {
-	/**
-	 * balance plus the in-flight reserve holds added back: what the balance
-	 * will read once running generations settle at estimated-or-lower cost.
-	 */
-	settledBalance: number;
-};
+/**
+ * UNIT: integer centi-credits, like CreditBalance. settledBalance and the
+ * settled* buckets have the in-flight reserve holds added back: what the
+ * balance will read once running generations settle at estimated-or-lower
+ * cost.
+ */
+export type SettledCreditBalance = SettledBalanceSnapshot;
 
 @Injectable()
 export class CreditsService {
@@ -118,6 +119,11 @@ export class CreditsService {
 
 	listLedger(owner: CreditOwner, query: CreditLedgerQuery) {
 		return this.creditsRepository.listByOwner(owner, query);
+	}
+
+	/** One row per operation plus the non-usage ledger rows; see the repository. */
+	listActivity(owner: CreditOwner, query: CreditActivityQuery) {
+		return this.creditsRepository.listActivityByOwner(owner, query);
 	}
 
 	/** All amounts on this service are INTEGER CENTI-CREDITS (1 = 0.01 credit). */

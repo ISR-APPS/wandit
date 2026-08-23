@@ -163,10 +163,20 @@ function buildService({
 			replayed: false,
 		}),
 		settle: vi.fn().mockResolvedValue({
+			finalCredits: 37,
 			id: "usage-event-1",
 			status: "settled",
 		}),
 		...meteringOverrides,
+	};
+	const creditsService = {
+		getSettledBalance: vi.fn().mockResolvedValue({
+			balance: 1_200,
+			plan: 1_200,
+			promo: 0,
+			settledBalance: 1_263,
+			topup: 0,
+		}),
 	};
 	const modelPricingService = {
 		quoteTokenUsage: vi.fn().mockResolvedValue({
@@ -199,10 +209,12 @@ function buildService({
 		meteringService as unknown as AiChatServiceDependencies[10],
 		modelPricingService as unknown as AiChatServiceDependencies[11],
 		leadsRepository as unknown as AiChatServiceDependencies[12],
+		creditsService as unknown as AiChatServiceDependencies[13],
 	);
 
 	return {
 		chatsRepository,
+		creditsService,
 		leadsRepository,
 		meteringService,
 		mcpChatToolsService,
@@ -280,6 +292,20 @@ function assistantMessage(
 		metadata,
 		parts: [{ text: "Hi", type: "text" }],
 		role: "assistant",
+	};
+}
+
+function finishUsage() {
+	return {
+		inputTokenDetails: {
+			cacheReadTokens: 0,
+			cacheWriteTokens: 0,
+			noCacheTokens: 100,
+		},
+		inputTokens: 100,
+		outputTokenDetails: { reasoningTokens: 5, textTokens: 15 },
+		outputTokens: 20,
+		totalTokens: 120,
 	};
 }
 
@@ -1430,6 +1456,97 @@ describe("AiChatService MCP lifecycle", () => {
 		expect(agentOptions.abortSignal.aborted).toBe(true);
 		expect(options.prepared.release).toHaveBeenCalledTimes(1);
 		timeout.mockRestore();
+	});
+
+	it("emits the credits-settled part with the post-settle balance after end settlement", async () => {
+		const { creditsService, meteringService, service } = buildService();
+		const options = streamOptions();
+		const writer = { merge: vi.fn(), write: vi.fn() };
+
+		await service.stream(options);
+		await capturedExecute()({ writer });
+		const agentOptions = capturedAgentStreamOptions();
+		agentOptions.messageMetadata?.({
+			part: { totalUsage: finishUsage(), type: "finish" },
+		} as never);
+		await agentOptions.onEnd?.({} as never);
+
+		expect(creditsService.getSettledBalance).toHaveBeenCalledWith({
+			type: "user",
+			userId: USER_ID,
+		});
+		expect(
+			creditsService.getSettledBalance.mock.invocationCallOrder[0],
+		).toBeGreaterThan(meteringService.settle.mock.invocationCallOrder[0] ?? 0);
+		expect(writer.write).toHaveBeenCalledWith({
+			data: {
+				credits: 0.37,
+				settledBalance: 12.63,
+				usageEventId: "usage-event-1",
+			},
+			transient: true,
+			type: "data-credits-settled",
+		});
+		options.prepared.release();
+	});
+
+	it("does not emit the credits-settled part when settlement throws", async () => {
+		const { creditsService, meteringService, service } = buildService();
+		meteringService.settle.mockRejectedValue(
+			new InsufficientCreditsError(400, 100),
+		);
+		const options = streamOptions();
+		const writer = { merge: vi.fn(), write: vi.fn() };
+
+		await service.stream(options);
+		await capturedExecute()({ writer });
+		const agentOptions = capturedAgentStreamOptions();
+		agentOptions.messageMetadata?.({
+			part: { totalUsage: finishUsage(), type: "finish" },
+		} as never);
+		await agentOptions.onEnd?.({} as never);
+
+		expect(creditsService.getSettledBalance).not.toHaveBeenCalled();
+		expect(writer.write).not.toHaveBeenCalledWith(
+			expect.objectContaining({ type: "data-credits-settled" }),
+		);
+		options.prepared.release();
+	});
+
+	it("does not write the credits-settled part after the stream writer closed", async () => {
+		const { creditsService, service } = buildService();
+		const options = streamOptions();
+		const writer = { merge: vi.fn(), write: vi.fn() };
+
+		await service.stream(options);
+		await capturedExecute()({ writer });
+		const agentOptions = capturedAgentStreamOptions();
+		agentOptions.messageMetadata?.({
+			part: { totalUsage: finishUsage(), type: "finish" },
+		} as never);
+		// The outer onEnd closes the writer before the balance read resolves.
+		let resolveBalance: (value: unknown) => void = () => {};
+		creditsService.getSettledBalance.mockImplementationOnce(
+			() =>
+				new Promise((resolve) => {
+					resolveBalance = resolve;
+				}),
+		);
+		const agentEnd = agentOptions.onEnd?.({} as never);
+		await vi.waitFor(() =>
+			expect(creditsService.getSettledBalance).toHaveBeenCalledTimes(1),
+		);
+		await capturedOnEnd()({
+			isContinuation: false,
+			responseMessage: assistantMessage(),
+		});
+		resolveBalance({ settledBalance: 1_263 });
+		await agentEnd;
+
+		expect(writer.write).not.toHaveBeenCalledWith(
+			expect.objectContaining({ type: "data-credits-settled" }),
+		);
+		options.prepared.release();
 	});
 
 	it("emits the typed billing data part when end settlement exhausts credits", async () => {

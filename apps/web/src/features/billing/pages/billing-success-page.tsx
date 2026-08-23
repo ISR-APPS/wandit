@@ -86,7 +86,7 @@ function TopupSuccessFlow() {
 
 	useEffect(() => {
 		void queryClient.invalidateQueries({ queryKey: creditsKeys.balance() });
-		void queryClient.invalidateQueries({ queryKey: creditsKeys.ledgers() });
+		void queryClient.invalidateQueries({ queryKey: creditsKeys.activities() });
 	}, [queryClient]);
 
 	return (
@@ -110,7 +110,7 @@ function SubscriptionSuccessFlow({ onRetry }: { onRetry: () => void }) {
 
 	useEffect(() => {
 		void queryClient.invalidateQueries({ queryKey: creditsKeys.balance() });
-		void queryClient.invalidateQueries({ queryKey: creditsKeys.ledgers() });
+		void queryClient.invalidateQueries({ queryKey: creditsKeys.activities() });
 
 		if (syncStarted.current) {
 			return;
@@ -183,7 +183,10 @@ function SubscriptionSuccessFlow({ onRetry }: { onRetry: () => void }) {
 					/>
 					<ReturnDetail
 						label={copy.subscription.creditsLabel}
-						value={formatCreditBalance(sync.data.balance.balance, locale)}
+						value={formatCreditBalance(
+							sync.data.balance.settledBalance,
+							locale,
+						)}
 					/>
 				</dl>
 			}

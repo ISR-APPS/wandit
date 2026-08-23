@@ -1,9 +1,12 @@
 import { Controller, Get, Inject, Query } from "@nestjs/common";
 import type { AuthUser } from "@wandit/auth";
 import {
+	type CreditActivityQuery,
+	type CreditActivityResponse,
 	type CreditBalanceResponse,
 	type CreditLedgerQuery,
 	type CreditLedgerResponse,
+	creditActivityQuerySchema,
 	creditLedgerQuerySchema,
 	PERSONAL_WORKSPACE,
 	type WorkspaceCreditBalancesResponse,
@@ -20,6 +23,7 @@ import {
 	orgOwner,
 	userOwner,
 } from "../../../domain/credit-owner";
+import { mapCreditActivityPage } from "../../../infrastructure/mappers/credit-activity.mapper";
 import { mapCreditLedgerPage } from "../../../infrastructure/mappers/credit-ledger.mapper";
 
 // Balance/ledger are workspace-scoped: the active workspace's pool, resolved
@@ -52,6 +56,9 @@ export class CreditsController {
 			plan: balance.plan / 100,
 			promo: balance.promo / 100,
 			settledBalance: balance.settledBalance / 100,
+			settledPlan: balance.settledPlan / 100,
+			settledPromo: balance.settledPromo / 100,
+			settledTopup: balance.settledTopup / 100,
 			topup: balance.topup / 100,
 		};
 	}
@@ -113,5 +120,24 @@ export class CreditsController {
 		);
 
 		return mapCreditLedgerPage(page);
+	}
+
+	// One row per operation (net charge) plus grants/topups; never the raw
+	// reserve/refund pairs. Same owner resolution as the ledger.
+	@Get("activity")
+	async listActivity(
+		@Query(new ZodValidationPipe(creditActivityQuerySchema))
+		query: CreditActivityQuery,
+		@CurrentUser() user: AuthUser,
+		@CurrentWorkspace() workspace: WorkspaceContext,
+	): Promise<CreditActivityResponse> {
+		const page = await this.creditsService.listActivity(
+			workspace.kind === "org"
+				? orgOwner(workspace.organizationId)
+				: userOwner(user.id),
+			query,
+		);
+
+		return mapCreditActivityPage(page);
 	}
 }

@@ -258,7 +258,7 @@ function PlanPickerContent({
 
 	const subscription = subscriptionView.subscription;
 	const noticeAvailableCredits =
-		availableCredits ?? subscriptionView.balance.balance;
+		availableCredits ?? subscriptionView.balance.settledBalance;
 	const topupsAvailable = areTopupsAvailable(
 		settings.topupsEnabled,
 		catalog.topupPacks.length,
@@ -509,7 +509,7 @@ function PlanPickerContent({
 		subscription?.interval === interval &&
 		subscription.tierCredits === tier.tierCredits;
 	const visibleAvailableCredits =
-		availableCredits ?? subscriptionView.balance.balance;
+		availableCredits ?? subscriptionView.balance.settledBalance;
 
 	const handlePrimaryAction = () => {
 		setErrorMessage(null);

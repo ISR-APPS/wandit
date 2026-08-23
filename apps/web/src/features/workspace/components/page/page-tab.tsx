@@ -37,7 +37,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Spark } from "@/components/logo";
-import { creditsKeys } from "@/features/credits";
+import { invalidateBalanceAfterGenerationTerminal } from "@/features/credits/lib/terminal-balance-invalidation";
 import { useDictionary, useTranslation } from "@/lib/i18n";
 import { useVersionHtmlQuery } from "../../api/pages.queries";
 import { useAiChatControls } from "../../lib/ai-chat-context";
@@ -379,7 +379,7 @@ function PreviewStage({ reloadKey }: { reloadKey: number }) {
 
 	useEffect(() => {
 		if (!terminalAttemptId) return;
-		void queryClient.invalidateQueries({ queryKey: creditsKeys.balance() });
+		invalidateBalanceAfterGenerationTerminal(queryClient, "settled");
 	}, [queryClient, terminalAttemptId]);
 
 	// A historical canvas is strictly read-only. Pending edits made against the

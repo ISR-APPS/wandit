@@ -2449,10 +2449,20 @@ export class MeteringService {
 				);
 			}
 
+			// A never-settled row keeps final_credits null so the balance add-back
+			// treats it as in flight. Once dead-lettered nobody retries it, so the
+			// reserve (already debited in the ledger) becomes the final charge —
+			// otherwise the hold would stay hidden and the row "in progress" forever.
+			const finalCredits =
+				deadLettered && event.finalCredits === null
+					? event.reservedCredits
+					: event.finalCredits;
+
 			const updated = await this.repository.updateEvent(
 				eventId,
 				["reserved", "settled", "reconcile_failed"],
 				{
+					finalCredits,
 					nextReconcileAttemptAt,
 					reconcileAttempts: attempts,
 					reconciledAt: event.reconciledAt ?? now,

@@ -88,7 +88,11 @@ import {
 	isUserUploadUrl,
 } from "../../../../infrastructure/storage/r2";
 import { ConnectorGenerationsRepository } from "../../../connector-generations/infrastructure/persistence/connector-generations.repository";
-import type { MeteringSubject } from "../../../credits/domain/credit-owner";
+import { CreditsService } from "../../../credits/application/services/credits.service";
+import {
+	type MeteringSubject,
+	subjectPayer,
+} from "../../../credits/domain/credit-owner";
 import { ChatsRepository } from "../../../generation/infrastructure/persistence/chats.repository";
 import { ImageGenerationsRepository } from "../../../image-generations/infrastructure/persistence/image-generations.repository";
 // Value imports (not `import type`): Nest needs the classes at runtime for @Inject.
@@ -215,6 +219,8 @@ export class AiChatService {
 		private readonly modelPricingService: ModelPricingService,
 		@Inject(LeadsRepository)
 		private readonly leadsRepository: LeadsRepository,
+		@Inject(CreditsService)
+		private readonly creditsService: CreditsService,
 	) {}
 
 	/**
@@ -844,10 +850,41 @@ export class AiChatService {
 			let finalUsage: LanguageModelUsage | null = null;
 			const pendingGenerationCaptures: CapturedGeneration[] = [];
 			const stepUsages: MeteredTokenUsage[] = [];
+			let writerClosed = false;
 			const stream = createUIMessageStream<WanditUIMessage>({
 				execute: async ({ writer }) => {
 					let wroteBillingError = false;
 					let streamErrorCaptured = false;
+					// The settle signal must never reach a writer the outer onEnd
+					// already closed.
+					const writeCreditsSettled = async (
+						settled: AiUsageEvent,
+					): Promise<void> => {
+						if (writerClosed) {
+							return;
+						}
+
+						const snapshot = await this.creditsService.getSettledBalance(
+							subjectPayer(subject),
+						);
+
+						if (writerClosed) {
+							return;
+						}
+
+						// Transient: the client applies it in onData; it is never
+						// stored in the message, so a history replay cannot re-apply
+						// a stale balance.
+						writer.write({
+							type: "data-credits-settled",
+							transient: true,
+							data: {
+								usageEventId: settled.id,
+								credits: (settled.finalCredits ?? 0) / 100,
+								settledBalance: snapshot.settledBalance / 100,
+							},
+						});
+					};
 					const writeBillingError = (error: unknown): boolean => {
 						const data = this.billingErrorData(error);
 
@@ -965,17 +1002,36 @@ export class AiChatService {
 									return;
 								}
 
+								let settled: AiUsageEvent;
+
 								try {
-									await this.meteringService.settle(prepared.eventId, {
-										modelId: env.AI_CHAT_MODEL,
-										pricing: "token",
-										rawUsage: finalUsage ?? stepUsages,
-										usage,
-									});
+									settled = await this.meteringService.settle(
+										prepared.eventId,
+										{
+											modelId: env.AI_CHAT_MODEL,
+											pricing: "token",
+											rawUsage: finalUsage ?? stepUsages,
+											usage,
+										},
+									);
 								} catch (error) {
 									if (!writeBillingError(error)) {
 										throw error;
 									}
+
+									return;
+								}
+
+								// One visible balance move per turn: the client applies
+								// the post-settle balance from this part, not a refetch
+								// racing the settle transaction. The settle is committed;
+								// a failed signal must not fail the turn.
+								try {
+									await writeCreditsSettled(settled);
+								} catch (error) {
+									this.logger.warn(
+										`credits-settled signal failed for ${settled.id}: ${String(error)}`,
+									);
 								}
 							},
 							onStepEnd: async (step) => {
@@ -1029,6 +1085,8 @@ export class AiChatService {
 					return this.streamErrorMessage(error);
 				},
 				onEnd: async ({ isContinuation, responseMessage }) => {
+					writerClosed = true;
+
 					try {
 						await flushGatewayErrorCaptures();
 

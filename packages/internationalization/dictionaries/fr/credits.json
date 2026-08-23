@@ -4,8 +4,8 @@
 	"balanceUnavailableShort": "Crédits —",
 	"balanceLoadError": "Impossible de charger ton solde de crédits. Réessaie.",
 	"recentActivity": "Activité récente",
-	"emptyLedger": "Aucune activité pour l'instant.",
-	"ledgerLoadError": "Impossible de charger l’activité des crédits.",
+	"emptyActivity": "Aucune activité pour l'instant.",
+	"activityLoadError": "Impossible de charger l’activité des crédits.",
 	"topUpChip": "Recharger les crédits",
 	"manageBilling": "Voir la facturation",
 	"topUpDialog": "Voir les offres et recharges",
@@ -35,14 +35,20 @@
 		"expire": "Crédits expirés",
 		"revoke": "Crédits annulés"
 	},
-	"ledgerReasons": {
-		"reconcile": "Ajustement du prix final",
-		"reconcileRefund": "Remboursement du prix final",
-		"settleRefund": "Réserve non utilisée remboursée",
-		"fixedCompletion": "Facturation tardive de l'achèvement",
-		"reserve": "Réservé pour une opération",
-		"settle": "Réglé au prix final",
-		"refund": "Remboursé"
+	"activityOperations": {
+		"chat": "Message IA",
+		"page_build": "Création de page",
+		"image": "Image",
+		"video": "Vidéo",
+		"marketing": "Visuel marketing",
+		"connector": "Outil connecteur",
+		"lead_scrape": "Extraction de prospects",
+		"transcription": "Transcription vocale",
+		"topup_adjust": "Ajustement du solde"
+	},
+	"activityStatus": {
+		"inProgress": "En cours",
+		"refunded": "Remboursé"
 	},
 	"creditUnit": {
 		"zero": "{count} crédit",

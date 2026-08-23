@@ -216,6 +216,9 @@ class FakeCreditsService {
 	readonly getSettledBalance = vi.fn(async () => ({
 		...this.balance,
 		settledBalance: this.balance.balance,
+		settledPlan: this.balance.plan,
+		settledPromo: this.balance.promo,
+		settledTopup: this.balance.topup,
 	}));
 }
 
@@ -636,7 +639,16 @@ describe("BillingService entitlement and sync", () => {
 
 		await expect(service.hasActiveSubscription(user.id)).resolves.toBe(false);
 		await expect(service.getSubscriptionView(user.id)).resolves.toMatchObject({
-			balance: { balance: 0, plan: 0, promo: 0, settledBalance: 0, topup: 0 },
+			balance: {
+				balance: 0,
+				plan: 0,
+				promo: 0,
+				settledBalance: 0,
+				settledPlan: 0,
+				settledPromo: 0,
+				settledTopup: 0,
+				topup: 0,
+			},
 			subscription: { entitled: false, status: "past_due" },
 		});
 	});

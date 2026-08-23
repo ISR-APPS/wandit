@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 
 import { ConnectorGenerationsModule } from "../connector-generations/connector-generations.module";
+import { CreditsModule } from "../credits/credits.module";
 import { GenerationModule } from "../generation/generation.module";
 import { ImageGenerationsModule } from "../image-generations/image-generations.module";
 import { LeadScrapesModule } from "../lead-scrapes/lead-scrapes.module";
@@ -22,6 +23,8 @@ import { AiChatController } from "./presentation/http/controllers/ai-chat.contro
 	// behind generate_marketing_asset and generate_image.
 	imports: [
 		ConnectorGenerationsModule,
+		// CreditsModule exports CreditsService (post-settle balance signal).
+		CreditsModule,
 		GenerationModule,
 		ImageGenerationsModule,
 		LeadScrapesModule,

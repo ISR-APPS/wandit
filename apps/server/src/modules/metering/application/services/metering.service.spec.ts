@@ -4067,6 +4067,8 @@ describe("MeteringService guards and reconciliation durability", () => {
 
 				expect(event.status).toBe("reconcile_failed");
 				expect(event.reconcileAttempts).toBe(attempt);
+				// Still retryable: the reserve stays an open hold (final null).
+				expect(event.finalCredits).toBeNull();
 				delays.push(
 					(event.nextReconcileAttemptAt?.getTime() ?? Number.NaN) - Date.now(),
 				);
@@ -4084,7 +4086,11 @@ describe("MeteringService guards and reconciliation durability", () => {
 			const deadLettered =
 				await service.terminalizeReconciliationFailure(CHAT_EVENT_ID);
 
+			// Dead-lettered: nobody retries, so the reserve already debited in
+			// the ledger becomes the final charge instead of a hold that the
+			// balance add-back would hide forever.
 			expect(deadLettered).toMatchObject({
+				finalCredits: 100,
 				nextReconcileAttemptAt: null,
 				reconcileAttempts: RECONCILE_DEAD_LETTER_CAP,
 				status: "reconcile_failed",

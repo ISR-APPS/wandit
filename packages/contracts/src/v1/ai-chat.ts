@@ -51,8 +51,27 @@ export type AiChatBillingErrorData = z.infer<
 	typeof aiChatBillingErrorDataSchema
 >;
 
+/**
+ * Sent ONCE per turn, after the metering settle transaction has committed
+ * (wire key `data-credits-settled`). Clients move the visible balance from
+ * `settledBalance` and then refetch; no reserve/give-back is ever shown.
+ */
+export const aiChatCreditsSettledDataSchema = z.object({
+	usageEventId: z.string(),
+	// Decimal credits charged for this turn (positive number).
+	credits: z.number().nonnegative(),
+	// Decimal credits, post-settle settled balance (same rule as
+	// creditBalanceResponseSchema.settledBalance).
+	settledBalance: z.number(),
+});
+
+export type AiChatCreditsSettledData = z.infer<
+	typeof aiChatCreditsSettledDataSchema
+>;
+
 export type AiChatDataParts = {
 	"billing-error": AiChatBillingErrorData;
+	"credits-settled": AiChatCreditsSettledData;
 };
 
 export const aiChatMessageUsageSchema = z.object({

@@ -1,3 +1,4 @@
+import type { CreditBucket } from "@wandit/contracts";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -27,6 +28,8 @@ type SeedLedgerEntry = Pick<
 
 type SeedUsageEvent = {
 	organizationId?: string | null;
+	/** Bucket the fake attributes the whole reserve hold to (default plan). */
+	holdBucket?: CreditBucket;
 	reservedCredits: number;
 	status?: "reserved" | "settled" | "reconciled";
 	userId: string;
@@ -105,9 +108,21 @@ class InMemoryCreditsRepository {
 
 	async getSettledBalanceSnapshot(owner: CreditOwner, _client?: unknown) {
 		const balance = await this.getBalance(owner);
-		const reserved = await this.sumReservedCentiCredits(owner);
+		const holds = { plan: 0, promo: 0, topup: 0 };
 
-		return { ...balance, settledBalance: balance.balance + reserved };
+		for (const event of this.usageEvents) {
+			if (event.status === "reserved" && this.ownerMatches(event, owner)) {
+				holds[event.holdBucket] += event.reservedCredits;
+			}
+		}
+
+		return {
+			...balance,
+			settledBalance: balance.balance + holds.plan + holds.promo + holds.topup,
+			settledPlan: balance.plan + holds.plan,
+			settledPromo: balance.promo + holds.promo,
+			settledTopup: balance.topup + holds.topup,
+		};
 	}
 
 	async insertLedgerEntry(
@@ -400,6 +415,7 @@ class InMemoryCreditsRepository {
 
 	seedUsageEvent(input: SeedUsageEvent) {
 		this.usageEvents.push({
+			holdBucket: input.holdBucket ?? "plan",
 			organizationId: input.organizationId ?? null,
 			reservedCredits: input.reservedCredits,
 			status: input.status ?? "reserved",
@@ -1517,6 +1533,9 @@ describe("CreditsService.getSettledBalance", () => {
 			plan: 380,
 			promo: 0,
 			settledBalance: 500,
+			settledPlan: 500,
+			settledPromo: 0,
+			settledTopup: 0,
 			topup: 0,
 		});
 	});
@@ -1571,6 +1590,9 @@ describe("CreditsService.getSettledBalance", () => {
 			plan: 0,
 			promo: 0,
 			settledBalance: 700,
+			settledPlan: 0,
+			settledPromo: 0,
+			settledTopup: 700,
 			topup: 700,
 		});
 	});

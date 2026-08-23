@@ -1,15 +1,15 @@
 import {
+	creditActivityResponseSchema,
 	creditBalanceResponseSchema,
-	creditLedgerResponseSchema,
 	creditsRoutes,
 	workspaceCreditBalancesResponseSchema,
 } from "@wandit/contracts";
 
 import { ApiService } from "@/lib/api-client";
 import type {
+	CreditActivityQuery,
+	CreditActivityResponse,
 	CreditBalanceResponse,
-	CreditLedgerQuery,
-	CreditLedgerResponse,
 	WorkspaceCreditBalancesResponse,
 } from "./credits.dto";
 
@@ -25,12 +25,13 @@ export async function getWorkspaceCreditBalances(): Promise<WorkspaceCreditBalan
 	return workspaceCreditBalancesResponseSchema.parse(payload);
 }
 
-export async function getCreditLedger(
-	query: CreditLedgerQuery,
-): Promise<CreditLedgerResponse> {
-	const payload = await ApiService.get<unknown>(creditsRoutes.ledger, {
+/** One net row per operation; reserve/settle/reconcile ledger rows stay hidden. */
+export async function getCreditActivity(
+	query: CreditActivityQuery,
+): Promise<CreditActivityResponse> {
+	const payload = await ApiService.get<unknown>(creditsRoutes.activity, {
 		query,
 	});
 
-	return creditLedgerResponseSchema.parse(payload);
+	return creditActivityResponseSchema.parse(payload);
 }

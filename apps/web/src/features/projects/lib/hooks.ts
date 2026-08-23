@@ -68,7 +68,7 @@ export function useCreateProjectWithPrompt(): UseCreateProjectWithPromptResult {
 			// Convenience precheck only (see create-precheck.ts): any positive
 			// balance may start a run; the server performs the atomic reservation
 			// and remains authoritative if this cached balance is stale.
-			const precheck = precheckCreateBalance(balanceQuery.data?.balance);
+			const precheck = precheckCreateBalance(balanceQuery.data?.settledBalance);
 			if (precheck === "balance-unavailable") {
 				toast.error(
 					balanceQuery.error
@@ -106,10 +106,7 @@ export function useCreateProjectWithPrompt(): UseCreateProjectWithPromptResult {
 			} catch (error) {
 				if (isInsufficientCreditsApiError(error)) {
 					void queryClient.invalidateQueries({
-						queryKey: creditsKeys.balance(),
-					});
-					void queryClient.invalidateQueries({
-						queryKey: creditsKeys.ledgers(),
+						queryKey: creditsKeys.scope(),
 					});
 					return false;
 				}
@@ -118,11 +115,10 @@ export function useCreateProjectWithPrompt(): UseCreateProjectWithPromptResult {
 				return false;
 			}
 
+			// settledBalance is flat during the bundled reserve; the activity
+			// list shows the first turn as in progress.
 			void queryClient.invalidateQueries({
-				queryKey: creditsKeys.balance(),
-			});
-			void queryClient.invalidateQueries({
-				queryKey: creditsKeys.ledgers(),
+				queryKey: creditsKeys.scope(),
 			});
 			toast.success(t("projects.createSuccess", { name }));
 			// The prompt is already persisted as the chat's first message
@@ -144,7 +140,7 @@ export function useCreateProjectWithPrompt(): UseCreateProjectWithPromptResult {
 			return true;
 		},
 		[
-			balanceQuery.data?.balance,
+			balanceQuery.data?.settledBalance,
 			balanceQuery.error,
 			createProject,
 			navigate,
