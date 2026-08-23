@@ -179,7 +179,7 @@
 			"tabs": {
 				"ariaLabel": "Payment method",
 				"card": "Card",
-				"offline": "Cash / transfer"
+				"offline": "Cash on delivery"
 			},
 			"managed": {
 				"title": "Your plan is managed offline",
