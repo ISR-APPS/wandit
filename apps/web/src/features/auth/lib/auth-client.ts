@@ -36,6 +36,10 @@ export const authClient = createAuthClient({
 	plugins: [
 		inferAdditionalFields({
 			user: {
+				displayEmail: {
+					type: "string",
+					required: false,
+				},
 				onboardingCompletedAt: {
 					type: "date",
 					required: false,

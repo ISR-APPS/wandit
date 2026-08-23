@@ -20,6 +20,7 @@ import {
 	type LeadCaptureResponse,
 	leadCaptureBodySchema,
 } from "@wandit/contracts";
+import { LeadPushDispatcherService } from "../../../push-notifications/infrastructure/trigger/lead-push-dispatcher.service";
 import { normalizeLeadPhone } from "../../domain/normalize-lead-phone";
 import { LeadsRepository } from "../../infrastructure/persistence/leads.repository";
 import { LeadsCaptureThrottle } from "./leads-capture-throttle";
@@ -50,6 +51,8 @@ export class LeadsCaptureService {
 		private readonly leadsRepository: LeadsRepository,
 		@Inject(LeadsCaptureThrottle)
 		private readonly throttle: LeadsCaptureThrottle,
+		@Inject(LeadPushDispatcherService)
+		private readonly leadPushDispatcher: LeadPushDispatcherService,
 	) {}
 
 	async capture(
@@ -99,7 +102,7 @@ export class LeadsCaptureService {
 			loadedDeployment ??
 			(await this.leadsRepository.findActiveDeploymentSnapshot(project.id));
 
-		await this.leadsRepository.upsertCaptureLead(
+		const lead = await this.leadsRepository.upsertCaptureLead(
 			{
 				attribution: body.attribution ?? null,
 				commune: body.commune || null,
@@ -114,6 +117,25 @@ export class LeadsCaptureService {
 			},
 			new Date(Date.now() - DUPLICATE_WINDOW_MS),
 		);
+
+		// A duplicate-window update refreshes the row silently; only a brand-new
+		// lead may ring the owner's phone.
+		if (lead.created) {
+			void this.leadPushDispatcher
+				.dispatchLeadCaptured({
+					leadId: lead.id,
+					leadName: body.name,
+					leadPhone: phone,
+					projectId: project.id,
+					...(body.wilaya ? { wilaya: body.wilaya } : {}),
+				})
+				.catch((error) => {
+					const message = error instanceof Error ? error.message : String(error);
+					this.logger.warn(
+						`Lead push dispatch failed for lead ${lead.id}: ${message}`,
+					);
+				});
+		}
 
 		return { ok: true };
 	}
