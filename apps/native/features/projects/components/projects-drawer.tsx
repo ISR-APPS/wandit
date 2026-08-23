@@ -278,7 +278,9 @@ export function ProjectsDrawer({ navigation }: ProjectsDrawerProps) {
 			: null;
 
 	const userName = session?.user?.name?.trim();
-	const userEmail = session?.user?.email?.trim();
+	const userEmail = (
+		session?.user?.displayEmail ?? session?.user?.email
+	)?.trim();
 	const accountTitle = userName || t("native.drawer.myWandit");
 	const initial = (userName || userEmail || "W").charAt(0).toUpperCase();
 

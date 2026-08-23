@@ -351,6 +351,13 @@
       "when": 1787426350414,
       "tag": "0049_stripe-lifecycle-admin-truth",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1787492416080,
+      "tag": "0050_display-email",
+      "breakpoints": true
     }
   ]
 }

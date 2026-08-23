@@ -49,6 +49,7 @@ export function isAvailableSearchResult(result: SearchDomainsResult) {
 
 export function createRegistrantDefaults(user?: {
 	name?: string | null;
+	displayEmail?: string | null;
 	email?: string | null;
 }): RegistrantFlatFormValues {
 	const { firstName, lastName } = splitDisplayName(user?.name);
@@ -56,7 +57,8 @@ export function createRegistrantDefaults(user?: {
 	return {
 		firstName,
 		lastName,
-		email: user?.email ?? "",
+		// This is an editable prefill; both spellings reach the same inbox.
+		email: user?.displayEmail ?? user?.email ?? "",
 		phone: "",
 		companyName: "",
 		street: "",
