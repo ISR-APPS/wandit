@@ -4,7 +4,12 @@ import type {
 	CreateAffiliateLinkInput,
 	UpdateAffiliateLinkInput,
 } from "@wandit/contracts";
-import { CheckIcon, ChevronDownIcon, Loader2Icon } from "lucide-react";
+import {
+	CheckIcon,
+	ChevronDownIcon,
+	CopyIcon,
+	Loader2Icon,
+} from "lucide-react";
 import { type FormEvent, useId, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -44,6 +49,7 @@ import {
 	formatAffiliateRateBps,
 } from "../lib/formatters";
 import { filterPrograms } from "../lib/program-matching";
+import { buildReferralUrl } from "../lib/referral-url";
 
 type LinkEditorPayload = {
 	programId: string;
@@ -127,7 +133,7 @@ function LinkEditorForm({
 	const [code, setCode] = useState(() => initial?.link.code ?? "");
 	const [label, setLabel] = useState(() => initial?.link.label ?? "");
 	const [landingPath, setLandingPath] = useState(
-		() => initial?.link.landingPath ?? "/start",
+		() => initial?.link.landingPath ?? "/",
 	);
 	const [expiresAt, setExpiresAt] = useState(() =>
 		toDateTimeInput(initial?.link.expiresAt ?? null),
@@ -164,12 +170,27 @@ function LinkEditorForm({
 		? formatProgramTermsHint(selectedLoadedProgram.program)
 		: null;
 	const displayQuery = programQuery.trim();
+	const referralUrl = buildReferralUrl(
+		landingPath || "/",
+		code || "PARTNER_CODE",
+	);
 
 	function selectProgram(nextProgramId: string) {
 		setProgramId(nextProgramId);
 		setProgramError(null);
 		setProgramPickerOpen(false);
 		setProgramQuery("");
+	}
+
+	async function copyReferralUrl() {
+		try {
+			await navigator.clipboard.writeText(
+				buildReferralUrl(landingPath || "/", code),
+			);
+			toast.success("Referral URL copied.");
+		} catch {
+			toast.error("Copy failed.");
+		}
 	}
 
 	async function submit(event: FormEvent<HTMLFormElement>) {
@@ -399,13 +420,29 @@ function LinkEditorForm({
 					id="affiliate-link-path"
 					value={landingPath}
 					onChange={(event) => setLandingPath(event.target.value)}
-					placeholder="/start"
+					placeholder="/"
 					pattern="\/[^\/].*|\/"
 					required
 				/>
-				<p className="text-muted-foreground text-xs">
-					wandit.ai{landingPath || "/start"}?ref={code || "PARTNER_CODE"}
-				</p>
+				<div className="flex min-w-0 items-center gap-1">
+					<p
+						className="min-w-0 flex-1 break-all text-muted-foreground text-xs"
+						title={referralUrl}
+					>
+						{referralUrl}
+					</p>
+					<Button
+						type="button"
+						variant="ghost"
+						size="icon-xs"
+						className="shrink-0"
+						aria-label="Copy referral URL"
+						disabled={!code}
+						onClick={() => void copyReferralUrl()}
+					>
+						<CopyIcon />
+					</Button>
+				</div>
 			</FormField>
 			<FormField label="Expires at" htmlFor="affiliate-link-expiry">
 				<Input

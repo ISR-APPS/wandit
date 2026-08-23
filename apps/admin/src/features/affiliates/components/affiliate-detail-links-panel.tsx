@@ -1,5 +1,5 @@
 import type { AffiliateLinkListItem } from "@wandit/contracts";
-import { PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
+import { LinkIcon, PencilIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ import {
 	formatAffiliateNumber,
 	titleCaseAffiliateValue,
 } from "../lib/formatters";
+import { buildReferralUrl } from "../lib/referral-url";
 import { AffiliateDetailSkeleton } from "./affiliate-detail-sections";
 import {
 	AffiliateSectionMessage,
@@ -162,32 +163,52 @@ export function AffiliateDetailLinksPanel({
 											{formatAffiliateDateTime(item.link.expiresAt)}
 										</TableCell>
 										<TableCell>
-											{canManage ? (
-												<div className="flex justify-end gap-1">
-													<Button
-														type="button"
-														variant="ghost"
-														size="icon-sm"
-														onClick={() => onEdit(item)}
-													>
-														<PencilIcon />
-														<span className="sr-only">
-															Edit {item.link.code}
-														</span>
-													</Button>
-													<Button
-														type="button"
-														variant="ghost"
-														size="icon-sm"
-														onClick={() => onDelete(item)}
-													>
-														<Trash2Icon />
-														<span className="sr-only">
-															Deactivate {item.link.code}
-														</span>
-													</Button>
-												</div>
-											) : null}
+											<div className="flex justify-end gap-1">
+												<Button
+													type="button"
+													variant="ghost"
+													size="icon-sm"
+													aria-label="Copy referral URL"
+													title="Copy referral URL"
+													onClick={() =>
+														void copyText(
+															buildReferralUrl(
+																item.link.landingPath,
+																item.link.code,
+															),
+															"Referral URL copied.",
+														)
+													}
+												>
+													<LinkIcon />
+												</Button>
+												{canManage ? (
+													<>
+														<Button
+															type="button"
+															variant="ghost"
+															size="icon-sm"
+															onClick={() => onEdit(item)}
+														>
+															<PencilIcon />
+															<span className="sr-only">
+																Edit {item.link.code}
+															</span>
+														</Button>
+														<Button
+															type="button"
+															variant="ghost"
+															size="icon-sm"
+															onClick={() => onDelete(item)}
+														>
+															<Trash2Icon />
+															<span className="sr-only">
+																Deactivate {item.link.code}
+															</span>
+														</Button>
+													</>
+												) : null}
+											</div>
 										</TableCell>
 									</TableRow>
 								))}
