@@ -6,7 +6,10 @@ import { createDomainConfigurationRuntime } from "./domain-fulfillment.runtime";
 import { assertDomainConfigurationConfiguration } from "./domain-operations.config";
 import { domainOperationsQueue } from "./domain-task-queues";
 
-/** Durable custom-hostname verification for BYO attach and manual checks. */
+/**
+ * Durable custom-hostname verification for BYO attach and manual checks, plus
+ * the best-effort apex zone pass for external rows before every probe.
+ */
 export const domainConfigurationTask = schemaTask({
 	id: "domain-configure",
 	queue: domainOperationsQueue,
@@ -20,7 +23,7 @@ export const domainConfigurationTask = schemaTask({
 	schema: parseDomainConfigurationPayload,
 	run: async (payload, { ctx }) => {
 		// Deliberately before pool/runtime construction and any provider call.
-		assertDomainConfigurationConfiguration();
+		const configuration = assertDomainConfigurationConfiguration();
 		const db = createDb({ idleTimeoutMillis: 10_000, max: 1 });
 
 		try {
@@ -30,6 +33,8 @@ export const domainConfigurationTask = schemaTask({
 				.set("stage", "verifying");
 
 			const runtime = createDomainConfigurationRuntime(db, {
+				apexZoneEnabled: configuration.apexZoneEnabled,
+				fallbackOrigin: configuration.fallbackOrigin,
 				logger: triggerLogger,
 				wait: {
 					until: (input) => wait.until(input),

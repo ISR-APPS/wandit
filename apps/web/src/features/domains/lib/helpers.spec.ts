@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import type { Domain } from "../api/domains.dto";
-import { domainLiveUrl, hasTransitionalDomains } from "./helpers";
+import type { Domain, RequiredDomainRecord } from "../api/domains.dto";
+import {
+	dnsPurposeKey,
+	domainLiveUrl,
+	hasTransitionalDomains,
+	splitExternalDomainRecords,
+} from "./helpers";
 
 describe("domainLiveUrl", () => {
 	it("uses the provisioned www hostname for an external domain", () => {
@@ -40,6 +45,86 @@ describe("hasTransitionalDomains", () => {
 		);
 	});
 });
+
+describe("dnsPurposeKey", () => {
+	it("explains nameserver records by type or purpose", () => {
+		expect(
+			dnsPurposeKey({
+				name: "@",
+				purpose: "nameserver",
+				type: "NS",
+				value: "ada.ns.cloudflare.com",
+			}),
+		).toBe("settings.domains.dnsPurposeNameserver");
+		expect(
+			dnsPurposeKey({
+				name: "@",
+				purpose: "Nameserver",
+				type: "CNAME",
+				value: "ada.ns.cloudflare.com",
+			}),
+		).toBe("settings.domains.dnsPurposeNameserver");
+	});
+
+	it("keeps the existing keys for the www records", () => {
+		expect(dnsPurposeKey(wwwRecord)).toBe("settings.domains.dnsPurposeRouting");
+		expect(dnsPurposeKey(ownershipRecord)).toBe(
+			"settings.domains.dnsPurposeOwnership",
+		);
+	});
+});
+
+describe("splitExternalDomainRecords", () => {
+	it("keeps rows without a zone on the manual path only", () => {
+		expect(splitExternalDomainRecords([wwwRecord, ownershipRecord])).toEqual({
+			manualRecords: [wwwRecord, ownershipRecord],
+			nameserverRecords: [],
+		});
+		expect(splitExternalDomainRecords([])).toEqual({
+			manualRecords: [],
+			nameserverRecords: [],
+		});
+	});
+
+	it("separates the nameserver records from the www records in order", () => {
+		const nsRecords = [nameserverRecord("ada"), nameserverRecord("bob")];
+
+		expect(
+			splitExternalDomainRecords([
+				wwwRecord,
+				nsRecords[0] as RequiredDomainRecord,
+				ownershipRecord,
+				nsRecords[1] as RequiredDomainRecord,
+			]),
+		).toEqual({
+			manualRecords: [wwwRecord, ownershipRecord],
+			nameserverRecords: nsRecords,
+		});
+	});
+});
+
+const wwwRecord: RequiredDomainRecord = {
+	name: "www",
+	purpose: "traffic",
+	type: "CNAME",
+	value: "customers.wandit.app",
+};
+
+const ownershipRecord: RequiredDomainRecord = {
+	name: "_cf-custom-hostname.www.example.com",
+	purpose: "ownership_or_ssl_validation",
+	type: "TXT",
+	value: "token",
+};
+
+function nameserverRecord(host: string): RequiredDomainRecord {
+	return {
+		name: "@",
+		purpose: "nameserver",
+		type: "NS",
+		value: `${host}.ns.cloudflare.com`,
+	};
+}
 
 function domain(overrides: Partial<Domain> = {}): Domain {
 	return {

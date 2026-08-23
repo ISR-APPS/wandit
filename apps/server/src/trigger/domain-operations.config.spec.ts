@@ -12,6 +12,7 @@ import {
 	assertDomainPurchaseConfiguration,
 	assertDomainRegistrarSyncConfiguration,
 	assertOrderRefundConfiguration,
+	domainApexZoneOptions,
 } from "./domain-operations.config";
 
 const REQUIRED_CONFIGURATION_KEYS = [
@@ -104,7 +105,7 @@ describe("domain operation task configuration", () => {
 		expect(assertDomainPurchaseConfiguration().apexZoneEnabled).toBe(expected);
 	});
 
-	it("keeps BYO configuration independent of Name.com and Stripe", () => {
+	it("keeps BYO configuration independent of Name.com and Stripe while carrying the apex zone options", () => {
 		setConfiguration([
 			"CLOUDFLARE_API_TOKEN",
 			"CLOUDFLARE_KV_NAMESPACE_ID",
@@ -113,10 +114,36 @@ describe("domain operation task configuration", () => {
 		]);
 
 		expect(assertDomainConfigurationConfiguration()).toEqual({
+			apexZoneEnabled: true,
 			cloudflareApiToken: VALID_CONFIGURATION.CLOUDFLARE_API_TOKEN,
 			cloudflareKvNamespaceId: VALID_CONFIGURATION.CLOUDFLARE_KV_NAMESPACE_ID,
 			cloudflareZoneId: VALID_CONFIGURATION.CLOUDFLARE_ZONE_ID_WANDIT_APP,
 			databaseUrl: VALID_CONFIGURATION.DATABASE_URL,
+			fallbackOrigin: "customers.wandit.app",
+		});
+	});
+
+	it("reads the BYO apex zone options without asserting the account id, the registrar, or Stripe", () => {
+		setConfiguration([
+			"CLOUDFLARE_API_TOKEN",
+			"CLOUDFLARE_KV_NAMESPACE_ID",
+			"CLOUDFLARE_ZONE_ID_WANDIT_APP",
+			"DATABASE_URL",
+		]);
+		vi.stubEnv("CLOUDFLARE_ACCOUNT_ID", "");
+		vi.stubEnv("DOMAINS_APEX_ZONE_ENABLED", "false");
+		vi.stubEnv(
+			"DOMAINS_FALLBACK_ORIGIN",
+			VALID_CONFIGURATION.DOMAINS_FALLBACK_ORIGIN,
+		);
+
+		expect(assertDomainConfigurationConfiguration()).toMatchObject({
+			apexZoneEnabled: false,
+			fallbackOrigin: VALID_CONFIGURATION.DOMAINS_FALLBACK_ORIGIN,
+		});
+		expect(domainApexZoneOptions()).toEqual({
+			apexZoneEnabled: false,
+			fallbackOrigin: VALID_CONFIGURATION.DOMAINS_FALLBACK_ORIGIN,
 		});
 	});
 

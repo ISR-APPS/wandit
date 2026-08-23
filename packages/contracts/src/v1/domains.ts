@@ -290,10 +290,10 @@ export type RequiredDomainRecord = z.infer<typeof requiredDomainRecordSchema>;
 
 export const domainDnsSchema = z
 	.object({
-		// Purchased-domain apex state (server-side only; mapDomain never exposes
-		// it): the Cloudflare zone that now hosts the domain's DNS in our
-		// account, the bare-name custom hostname, the durable "apex done"
-		// marker, and the last apex error.
+		// Apex state for purchased AND external domains (server-side only;
+		// mapDomain never exposes it): the Cloudflare zone in our account that
+		// hosts (or is offered to host) the domain's DNS, the bare-name custom
+		// hostname, the durable "apex done" marker, and the last apex error.
 		apexConfigured: z.boolean().optional(),
 		apexCustomHostnameId: z.string().optional(),
 		apexCustomHostnameNudged: z.boolean().optional(),
@@ -310,11 +310,18 @@ export const domainDnsSchema = z
 		// True only when the pipeline created the zone itself (an adopted
 		// zone is never deleted by cleanup).
 		zoneCreated: z.boolean().optional(),
-		// Written right BEFORE the registrar nameserver call: from then on the
-		// registry may delegate to the zone, so cleanup never deletes it.
+		// Purchased: written right BEFORE the registrar nameserver call.
+		// External: written as soon as the zone's nameservers were exposed to
+		// the user, who may delegate at any time. Either way the registry may
+		// delegate to the zone from then on, so cleanup never deletes it.
 		zoneDelegated: z.boolean().optional(),
 		zoneId: z.string().optional(),
 		zoneNameServers: z.array(z.string()).optional(),
+		// External only: the one-time import of the domain's current public
+		// DNS into the zone (Cloudflare record scan) already ran; it must never
+		// run again once the user may have switched nameservers to us.
+		zoneScanned: z.boolean().optional(),
+		zoneScanRecordsAdded: z.int().nonnegative().optional(),
 		zoneStatus: z.string().optional(),
 	})
 	.passthrough();
