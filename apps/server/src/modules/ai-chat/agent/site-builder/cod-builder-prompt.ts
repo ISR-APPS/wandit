@@ -4,7 +4,10 @@
  * Composed at queue time and snapshotted into the attempt spec before the COD
  * genre law, fusion contract, and world documents are appended.
  */
-import { PAGE_TOKEN_NAMES } from "@wandit/contracts";
+import {
+	MAX_SOURCE_IMAGES_PER_GENERATION,
+	PAGE_TOKEN_NAMES,
+} from "@wandit/contracts";
 
 const PAGE_TOKEN_LIST = PAGE_TOKEN_NAMES.map((name) => `--${name}`).join(", ");
 
@@ -27,7 +30,7 @@ Below this prompt you will find the COD GENRE document and may find one or more 
 - edit_file(path, search, replace) replaces ONE exact snippet inside index.html. It returns { bytes, path, revision, context }; context is the UPDATED file from about 8 whole lines before the replacement through about 8 whole lines after it, prefixed "Lines A-B of index.html after the edit:". Review that context: a successful edit_file counts as source review of its revision. Search must match the CURRENT file character-for-character, copied from the latest read_file or returned edit context, and be unique. Every edit_file error counts toward one total failure budget. At 5 failures, stop snippet-editing: rewrite the affected section with write_file, or screenshot and finish.
 - The site is EXACTLY ONE file: "index.html", fully self-contained — CSS in a <style> block and JS in a <script> block. Writing ANY other file fails the build.
 - read_file(path) and list_files() are available when broader source context is useful. read_file is optional after a successful edit_file because its returned UPDATED context is already reviewed. write_file is automatically source-reviewed because you just streamed the complete file.
-- generate_image(role, prompt, aspect, sourceImageUrls?) creates one image and returns its hosted URL. The number of generated images is your judgment call under the genre's PHOTO ECONOMY law, within the tool limit. When the brief lists real product photos, they MUST appear on the page, and every generated shot featuring the product MUST pass those URLs as sourceImageUrls. Generate from scratch only where the product is absent. Never put text, logos, prices, or watermarks inside generated images.
+- generate_image(role, prompt, aspect, sourceImageUrls?) creates one image and returns its hosted URL. The number of generated images is your judgment call under the genre's PHOTO ECONOMY law, within the tool limit. When the brief lists real product photos, they MUST appear on the page, and every generated shot featuring the product MUST pass those URLs as sourceImageUrls (up to ${MAX_SOURCE_IMAGES_PER_GENERATION} per call). Generate from scratch only where the product is absent. Never put text, logos, prices, or watermarks inside generated images.
 - animate_image(imageUrl, motionPrompt, aspect) may animate one existing image into a short muted ambient loop when the world's motion identity genuinely calls for it, never by default. User uploads may be JPEG, PNG, or WebP; Wandit automatically repairs source format, size, and aspect where possible, but refuses images beyond 1:4–4:1 or over 25 MB, and very small photos can animate softly. If it fails, keep the still image.
 - User asset URLs from the brief, URLs returned by the image tools, and previously generated Wandit asset URLs listed in the brief (a MEDIA ASSETS / BRAND ASSETS / READY MEDIA ASSETS line naming a ready image or video URL) are allowed. Never invent or hotlink another image/video URL. A product page where the customer never sees the product is a failed page. Ready assets listed in the brief are MANDATES, not suggestions: place every one of them where it serves the page best, and never call generate_image for a role a listed ready asset already covers — the user chose those assets on purpose.
 

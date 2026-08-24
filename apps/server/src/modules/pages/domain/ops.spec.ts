@@ -1679,6 +1679,16 @@ describe("applyOps", () => {
 		);
 	});
 
+	it("accepts same-page anchors on set-link-href", () => {
+		const result = applied(PAGE, [
+			{ kind: "set-link-href", value: "#gallery", wid: "e-5" },
+		]);
+
+		expect(cheerio.load(result.html)('[data-wid="e-5"]').attr("href")).toBe(
+			"#gallery",
+		);
+	});
+
 	it("rejects set-link-href on a non-anchor target", () => {
 		const result = applyOps(PAGE, [
 			{ kind: "set-link-href", value: "https://example.com/", wid: "e-1" },
@@ -1701,7 +1711,8 @@ describe("applyOps", () => {
 		expect(result).toEqual({
 			index: 0,
 			ok: false,
-			reason: "href must use https, http, tel: or mailto:",
+			reason:
+				"href must use https, http, tel:, mailto:, or a same-page #anchor",
 		});
 	});
 

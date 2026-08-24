@@ -27,6 +27,15 @@ export type ImageGenerationAspect = z.infer<typeof imageGenerationAspectSchema>;
 // Hard cap per attempt — image calls are the most expensive quick action.
 export const MAX_IMAGES_PER_GENERATION = 4;
 
+/**
+ * Source photos one generation edits. The edit model (Gemini 3 Pro Image)
+ * keeps up to 6 objects faithful per request, and the composer, ask_user, and
+ * the builder brief cap user photos at 6 as well. Tools KEEP the first 6 and
+ * report the rest instead of rejecting the call: a model that dutifully passes
+ * every attached photo must degrade gracefully, never fail schema validation.
+ */
+export const MAX_SOURCE_IMAGES_PER_GENERATION = 6;
+
 export const generatedImageSchema = z.object({
 	// Added after launch; old durable rows intentionally omit it.
 	index: z.number().int().min(1).max(MAX_IMAGES_PER_GENERATION).optional(),
