@@ -26,6 +26,7 @@ export const VIDEO_GENERATION_TOOLS: ReadonlySet<string> = new Set([
 	"animation_actions",
 	"generate_video",
 	"motion_control",
+	"personal_clipper_create",
 	"reframe",
 	"upscale_video",
 ]);
@@ -59,6 +60,8 @@ export const FREE_CONNECTOR_TOOLS: ReadonlySet<string> = new Set([
 	"media_upload",
 	"media_upload_widget",
 	"models_explore",
+	"personal_clipper_jobs",
+	"personal_clipper_status",
 	"select_workspace",
 	"show_generations",
 	// Marketing Studio browsing and video analysis run inline on the user's
@@ -139,12 +142,13 @@ export function connectorEvidenceTransport(
 // Same strictness as the task's unlim_choice check: an echoed preset/request
 // id in a question receipt must not read as an accepted job.
 const PROVIDER_JOB_ID_KEY_PATTERN =
-	/^(?:job_set|jobset|job|generation|task)_?ids?$/i;
+	/^(?:job_set|jobset|job|generation|row|task)_?ids?$/i;
 
 /**
- * Provider job id from a submit receipt (Higgsfield job_set_id, job_id, …),
- * walking nested objects and JSON-stringified content blocks. Null when the
- * receipt exposes nothing job-like — the provider accepted no work.
+ * Provider job id from a submit receipt (Higgsfield job_set_id, Clipper
+ * row_id, job_id, …), walking nested objects and JSON-stringified content
+ * blocks. Null when the receipt exposes nothing job-like — the provider
+ * accepted no work.
  */
 export function connectorProviderJobId(value: unknown): string | null {
 	const seen = new WeakSet<object>();
@@ -176,11 +180,11 @@ export function connectorProviderJobId(value: unknown): string | null {
 
 		for (const [key, nested] of Object.entries(candidate)) {
 			if (
-				typeof nested === "string" &&
-				nested.length > 0 &&
+				(typeof nested === "number" ||
+					(typeof nested === "string" && nested.length > 0)) &&
 				PROVIDER_JOB_ID_KEY_PATTERN.test(key)
 			) {
-				return nested;
+				return String(nested);
 			}
 		}
 

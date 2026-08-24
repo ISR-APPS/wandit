@@ -1027,6 +1027,11 @@ function ConnectorGenerationResult({
 								connector: connectorName,
 							})}
 						</Text>
+						{toolName === "personal_clipper_create" ? (
+							<Text className="mt-1 text-[13px] text-muted leading-[19px]">
+								{t("workspace.chat.mcpTool.generation.clipperLongJobHint")}
+							</Text>
+						) : null}
 						<View
 							className="mt-2 flex-row items-center gap-1.5"
 							style={{ direction: "ltr" }}
@@ -1041,9 +1046,11 @@ function ConnectorGenerationResult({
 								className="font-mono text-[11px]"
 								color={accent}
 							/>
-							<Text className="font-mono text-[11px] text-muted">
-								/ {t("workspace.chat.mcpTool.generation.usually")}
-							</Text>
+							{toolName === "personal_clipper_create" ? null : (
+								<Text className="font-mono text-[11px] text-muted">
+									/ {t("workspace.chat.mcpTool.generation.usually")}
+								</Text>
+							)}
 						</View>
 					</View>
 					<Text

@@ -1,3 +1,4 @@
+import { db } from "@wandit/db";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../../infrastructure/analytics/analytics.service", () => ({
@@ -6,9 +7,96 @@ vi.mock("../../../../infrastructure/analytics/analytics.service", () => ({
 
 import type { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
 import type { Database } from "../../../../infrastructure/database/database.constants";
-import { ConnectorGenerationsRepository } from "./connector-generations.repository";
+import {
+	CONNECTOR_ATTEMPT_STALE_MS,
+	ConnectorGenerationsRepository,
+	PERSONAL_CLIPPER_ATTEMPT_STALE_MS,
+} from "./connector-generations.repository";
 
 const ATTEMPT_ID = "55555555-5555-4555-8555-555555555555";
+
+it("keeps the normal and Personal Clipper stale windows tool-scoped", () => {
+	expect(CONNECTOR_ATTEMPT_STALE_MS).toBe(38 * 60 * 1000);
+	expect(PERSONAL_CLIPPER_ATTEMPT_STALE_MS).toBe(68 * 60 * 1000);
+});
+
+type Rendered = { params: unknown[]; sql: string };
+
+function render(query: unknown): Rendered {
+	const dialect = (
+		db as unknown as { dialect: { sqlToQuery(query: unknown): Rendered } }
+	).dialect;
+	const rendered = dialect.sqlToQuery(query);
+
+	return {
+		params: rendered.params,
+		sql: rendered.sql.replaceAll(/\s+/g, " ").trim(),
+	};
+}
+
+describe("ConnectorGenerationsRepository stale attempt janitor", () => {
+	it("protects a 60-minute clipper row while a 40-minute generate_video row is stale", async () => {
+		let updateWhere: unknown;
+		const update = vi.fn(() => ({
+			set: vi.fn(() => ({
+				where: vi.fn((where: unknown) => {
+					updateWhere = where;
+					return Promise.resolve();
+				}),
+			})),
+		}));
+		const select = vi.fn(() => ({
+			from: vi.fn(() => ({
+				where: vi.fn(() => ({ limit: vi.fn(async () => []) })),
+			})),
+		}));
+		const repository = new ConnectorGenerationsRepository(
+			{ select, update } as unknown as Database,
+			{ capture: vi.fn() } as unknown as AnalyticsService,
+		);
+		const now = Date.parse("2026-08-02T12:00:00.000Z");
+		const nowSpy = vi.spyOn(Date, "now").mockReturnValue(now);
+
+		try {
+			await repository.findAccessibleAttempt(
+				{ kind: "personal", userId: "user-1" },
+				ATTEMPT_ID,
+			);
+		} finally {
+			nowSpy.mockRestore();
+		}
+
+		const where = render(updateWhere);
+		const clipperToolParam = where.params.indexOf("personal_clipper_create");
+		const normalToolParam = where.params.indexOf(
+			"personal_clipper_create",
+			clipperToolParam + 1,
+		);
+		const clipperCutoff = Date.parse(
+			String(where.params[clipperToolParam + 1]),
+		);
+		const normalCutoff = Date.parse(String(where.params[normalToolParam + 1]));
+
+		expect(where.sql).toContain(
+			'"connector_generation_attempts"."tool_name" = $4 and "connector_generation_attempts"."created_at" < $5',
+		);
+		expect(where.sql).toContain(
+			'"connector_generation_attempts"."tool_name" <> $6 and "connector_generation_attempts"."created_at" < $7',
+		);
+		expect(where.sql).toContain(
+			'"connector_generation_attempts"."created_at" < $5) or ("connector_generation_attempts"."tool_name" <> $6',
+		);
+		expect(clipperCutoff).toBe(now - PERSONAL_CLIPPER_ATTEMPT_STALE_MS);
+		expect(normalCutoff).toBe(now - CONNECTOR_ATTEMPT_STALE_MS);
+
+		const isStale = (toolName: string, ageMs: number) =>
+			now - ageMs <
+			(toolName === "personal_clipper_create" ? clipperCutoff : normalCutoff);
+
+		expect(isStale("personal_clipper_create", 60 * 60_000)).toBe(false);
+		expect(isStale("generate_video", 40 * 60_000)).toBe(true);
+	});
+});
 
 function setup(returned: Array<{ id: string; userId: string }>): {
 	analytics: { capture: ReturnType<typeof vi.fn> };

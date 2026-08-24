@@ -630,6 +630,7 @@
 			"generation": {
 				"working": "Generating your media…",
 				"workingHint": "{connector} is on it — the finished result lands right here the moment it's ready.",
+				"clipperLongJobHint": "Clipping a long video can take 10–30 minutes.",
 				"sentTo": "Sent to {connector}",
 				"ready": "Media ready",
 				"noMedia": "Generation finished, but there is no previewable file here — check your connected account.",

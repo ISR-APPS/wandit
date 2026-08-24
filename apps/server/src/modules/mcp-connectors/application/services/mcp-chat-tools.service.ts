@@ -98,6 +98,8 @@ const HIGGSFIELD_BATCH_TOOLS = new Set([
 	"generate_video_batch",
 ]);
 const HIGGSFIELD_READ_TOOLS = new Set([
+	"personal_clipper_jobs",
+	"personal_clipper_status",
 	"video_analysis_jobs",
 	"video_analysis_status",
 ]);
@@ -347,6 +349,43 @@ function uploadSurfaceRedirectError(
 	);
 }
 
+// Clipify belongs to Higgsfield's dedicated Personal Clipper surface. The
+// legacy generate_video model spelling cannot accept that tool's YouTube
+// inputs, so redirect before the creative-brief gate or any paid work.
+const HIGGSFIELD_CLIPPER_REDIRECT_MODELS = new Set([
+	"clipify",
+	"personal_clipper",
+]);
+
+function clipifyRedirectError(
+	connectorSlug: string,
+	toolName: string,
+	args: unknown,
+): Record<string, unknown> | null {
+	const model = readHiggsfieldParams(args)?.model;
+
+	if (
+		connectorSlug !== "higgsfield" ||
+		normalizeToolName(toolName) !== "generate_video" ||
+		typeof model !== "string" ||
+		!HIGGSFIELD_CLIPPER_REDIRECT_MODELS.has(model.trim().toLowerCase())
+	) {
+		return null;
+	}
+
+	return platformToolError(
+		"Do not call generate_video with the clipify or personal_clipper model. " +
+			"Personal Clipper is the tool `personal_clipper_create`: pass the exact " +
+			"YouTube URL(s) in `urls`. If any settings are not yet known, ask the user " +
+			"for `clips_num` (1–20), `clip_aspect` (9:16 | 1:1 | 16:9), and " +
+			"`subtitle_font` (Noto Sans | Noto Serif | Noto Sans Display | IBM Plex " +
+			"Sans | M PLUS Rounded 1c | Bebas Neue | Archivo Black | Unbounded | " +
+			"Inter | Montserrat | Bangers | Permanent Marker | Playfair Display | " +
+			"Caveat), then call `personal_clipper_create`. The job runs in the " +
+			"background for 10–30 minutes.",
+	);
+}
+
 // DEMO-SAFE: the provider's own tool descriptions pass through UNCHANGED.
 // A Wandit-authored rewrite here once dropped Higgsfield's model-id
 // documentation and the chat model started inventing ids ("higgsfield_soul")
@@ -357,6 +396,7 @@ const HIGGSFIELD_AUTO_TOOLS = [
 	"generate_image",
 	"generate_video",
 	"generate_audio",
+	"personal_clipper_create",
 	"reframe",
 	"upscale_video",
 	"motion_control",
@@ -364,6 +404,8 @@ const HIGGSFIELD_AUTO_TOOLS = [
 ] as const;
 const HIGGSFIELD_VISIBLE_READ_TOOLS = [
 	"show_marketing_studio",
+	"personal_clipper_status",
+	"personal_clipper_jobs",
 	"video_analysis_status",
 	"video_analysis_jobs",
 	"list_voices",
@@ -1435,6 +1477,16 @@ export class McpChatToolsService {
 			);
 
 			if (canonical) {
+				const clipperRedirect = clipifyRedirectError(
+					runtime.connector.slug,
+					canonical.name,
+					input.params,
+				);
+
+				if (clipperRedirect) {
+					return clipperRedirect;
+				}
+
 				const briefGateError = videoBriefGateError(
 					runtime.connector.slug,
 					canonical.name,
@@ -1659,6 +1711,15 @@ export class McpChatToolsService {
 		subject: MeteringSubject;
 		toolName: string;
 	}): Promise<unknown> {
+		const clipperRedirect = clipifyRedirectError(
+			input.connectorSlug,
+			input.toolName,
+			input.input,
+		);
+		if (clipperRedirect) {
+			return clipperRedirect;
+		}
+
 		// Dead-end upload surfaces are rejected before any provider call or
 		// reservation — this shared choke point covers the visible namespaced
 		// tools and the run_platform_tool door alike.
@@ -2072,6 +2133,16 @@ export class McpChatToolsService {
 		return {
 			...executable,
 			execute: async (input, options) => {
+				const clipperRedirect = clipifyRedirectError(
+					connectorSlug,
+					toolName,
+					input,
+				);
+
+				if (clipperRedirect) {
+					return clipperRedirect;
+				}
+
 				// A missing brief costs nothing here: no refine, no reservation,
 				// no attempt row — the model corrects itself in the same turn.
 				const briefGateError = videoBriefGateError(
@@ -2434,7 +2505,7 @@ async function triggerConnectorGenerationTask(input: {
 						`connector:${input.connectorSlug}`,
 					],
 					// A generation that cannot START within 5 minutes expires instead
-					// of running later: the repository's 35-minute stale-row janitor
+					// of running later: the repository's tool-scoped stale-row janitor
 					// can then safely close a stranded card.
 					ttl: "5m",
 				},
