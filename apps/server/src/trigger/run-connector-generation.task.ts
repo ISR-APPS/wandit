@@ -29,6 +29,11 @@ import {
 } from "../infrastructure/analytics/generation-events";
 import { extractMediaUrls } from "../modules/connector-generations/domain/extract-media-urls";
 import {
+	followDeadlineFor,
+	statusToolFor,
+} from "../modules/connector-generations/domain/provider-job-follow";
+import { classifyProviderRejection } from "../modules/connector-generations/domain/provider-rejection";
+import {
 	type ConnectorGenerationReservations,
 	captureConnectorGenerationResult,
 	createConnectorGenerationBilling,
@@ -59,9 +64,10 @@ export type RunConnectorGenerationPayload = {
 
 export const runConnectorGenerationTask = task({
 	id: "run-connector-generation",
-	// Provider-side generation is minutes; the ceiling is a safety net. The
-	// repository's stale-row self-heal (35 min) must stay ABOVE this.
-	maxDuration: 1800,
+	// Personal Clipper gets a 50-minute follow window; the ceiling leaves ten
+	// minutes for submission and settlement. The stale-row self-heal stays
+	// above the queue delay plus this full runtime.
+	maxDuration: 3600,
 	retry: { maxAttempts: 1 },
 	run: async (payload: RunConnectorGenerationPayload, { ctx, signal }) => {
 		// Fresh pool per run; ended in `finally` so the worker process can be
@@ -75,6 +81,7 @@ export const runConnectorGenerationTask = task({
 			| { organizationId: string | null; userId: string }
 			| undefined;
 		let providerCompleted = false;
+		let submitResultCaptureFailed = false;
 		// Provider job id persisted with the submit receipt: proof the provider
 		// accepted work even when this run later loses track of it.
 		let providerJobId: string | null = null;
@@ -201,19 +208,59 @@ export const runConnectorGenerationTask = task({
 				name: attempt.toolName,
 				options: { signal },
 			});
-			providerCompleted =
-				(await captureConnectorGenerationResult(
-					generationBilling,
-					payload.billing,
-					result,
-				)) || providerCompleted;
+			try {
+				providerCompleted =
+					(await captureConnectorGenerationResult(
+						generationBilling,
+						payload.billing,
+						result,
+					)) || providerCompleted;
+			} catch (captureError) {
+				// Preserve the exact provider/tool error while leaving both holds open.
+				// Refunding after provider evidence failed to persist could create a
+				// free-generation race; the stale sweep remains the backstop.
+				submitResultCaptureFailed = true;
+				logger.error(
+					`Connector submit-result capture failed for attempt ${payload.attemptId}`,
+					{ error: captureError },
+				);
+
+				if (isMcpToolError(result)) {
+					const providerText =
+						mcpErrorText(result) ??
+						`${attempt.connectorSlug}/${attempt.toolName} returned an MCP tool error`;
+					throw new ProviderResultCaptureError(
+						providerText,
+						classifyProviderRejection(providerText).userMessage,
+					);
+				}
+
+				throw captureError;
+			}
 
 			// MCP reports tool failures as a RESULT with isError, not a thrown
 			// error — settling that as "succeeded" would show a dead card.
 			if (isMcpToolError(result)) {
-				throw new Error(
+				const providerText =
 					mcpErrorText(result) ??
-						`${attempt.connectorSlug}/${attempt.toolName} returned an MCP tool error`,
+					`${attempt.connectorSlug}/${attempt.toolName} returned an MCP tool error`;
+				const rejection = classifyProviderRejection(providerText);
+
+				logger.warn(
+					"Connector generation submit was rejected by the provider",
+					{
+						kind: rejection.kind,
+						providerText,
+					},
+				);
+
+				if (rejection.kind !== "unknown") {
+					throw new ProviderSubmitRejectedError(rejection.userMessage);
+				}
+
+				throw new ProviderUnknownSubmitError(
+					providerText,
+					rejection.userMessage,
 				);
 			}
 
@@ -272,6 +319,8 @@ export const runConnectorGenerationTask = task({
 
 				const followed = await followProviderJob(
 					client,
+					attempt.connectorSlug,
+					attempt.toolName,
 					result,
 					signal,
 					async (providerResult) => {
@@ -398,8 +447,11 @@ export const runConnectorGenerationTask = task({
 
 			return { mediaCount: media.length };
 		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			const attemptErrorMessage =
+				error instanceof ProviderSubmitError ? error.userMessage : message;
+
 			if (claimed) {
-				const message = error instanceof Error ? error.message : String(error);
 				let durableCheckpoint = completionCheckpointed;
 
 				if (!durableCheckpoint) {
@@ -430,7 +482,7 @@ export const runConnectorGenerationTask = task({
 					.update(connectorGenerationAttempts)
 					.set({
 						completedAt: new Date(),
-						error: message,
+						error: attemptErrorMessage,
 						status: "failed",
 					})
 					.where(
@@ -483,7 +535,11 @@ export const runConnectorGenerationTask = task({
 					}
 				}
 
-				if (!providerCompleted && claimedAttempt) {
+				if (
+					!providerCompleted &&
+					!submitResultCaptureFailed &&
+					claimedAttempt
+				) {
 					try {
 						await generationBilling.refund(
 							{
@@ -502,6 +558,14 @@ export const runConnectorGenerationTask = task({
 						);
 					}
 				}
+			}
+
+			if (error instanceof ProviderSubmitRejectedError) {
+				return {
+					mediaCount: 0,
+					outcome: "provider_rejected",
+					reason: message,
+				};
 			}
 
 			throw error;
@@ -607,7 +671,6 @@ function assertBillingPayload(
 
 // How the provider job is followed. The status checks live INSIDE this
 // background task — the chat stream, the model, and the browser never poll.
-const STATUS_TOOL_NAME = "job_status";
 const FOLLOW_POLL_INTERVAL_MS = 5_000;
 // A status-endpoint hiccup (gateway 5xx, "Something went wrong. Please try
 // again.") is indistinguishable in shape from a job verdict, but a hiccup
@@ -615,9 +678,6 @@ const FOLLOW_POLL_INTERVAL_MS = 5_000;
 // sink (and refund) a job that is still rendering. 12 polls ≈ one minute of
 // continuous errors before the job's fate is declared unknowable.
 const MAX_CONSECUTIVE_STATUS_ERRORS = 12;
-// Below maxDuration (1800s) so a stuck provider fails THIS way, with a
-// readable error, instead of via the duration kill.
-const FOLLOW_DEADLINE_MS = 25 * 60 * 1000;
 const ID_KEY_PATTERN =
 	/(^|_)(job_set|jobset|job|generation|request|task)?_?ids?$/i;
 const FAILED_STATE_PATTERN = /fail|error|cancel|nsfw|moderat/i;
@@ -643,6 +703,24 @@ class ProviderJobFailedError extends Error {
 	}
 }
 
+/** Expected submit-time refusal: fail/refund the row without failing the run. */
+class ProviderSubmitRejectedError extends ProviderJobFailedError {}
+
+class ProviderSubmitError extends Error {
+	constructor(
+		message: string,
+		readonly userMessage: string,
+	) {
+		super(message);
+	}
+}
+
+/** Unknown provider refusal: preserve raw diagnostics outside the user-facing row. */
+class ProviderUnknownSubmitError extends ProviderSubmitError {}
+
+/** Capture uncertainty must fail the run while stale recovery owns both holds. */
+class ProviderResultCaptureError extends ProviderSubmitError {}
+
 function isProviderVerdict(error: unknown): boolean {
 	return error instanceof ProviderJobFailedError && error.verdict;
 }
@@ -657,18 +735,35 @@ function isProviderVerdict(error: unknown): boolean {
  */
 async function followProviderJob(
 	client: MCPClient,
+	connectorSlug: string,
+	submittedToolName: string,
 	submitResult: unknown,
 	signal: AbortSignal,
 	onResult: (result: unknown) => Promise<void>,
 ): Promise<unknown | null> {
+	const statusRoute = statusToolFor(connectorSlug, submittedToolName);
+	const isPersonalClipperRoute =
+		statusRoute.toolName === "personal_clipper_status" &&
+		statusRoute.idProperty === "row_id";
+	const cannotFollow = (): null => {
+		if (isPersonalClipperRoute) {
+			throw new ProviderJobFailedError(
+				"Higgsfield accepted the clipping job but Wandit could not follow it. Check your Higgsfield account for the clips.",
+				false,
+			);
+		}
+
+		return null;
+	};
+
 	const ids = collectIdCandidates(submitResult);
-	if (ids.size === 0) return null;
+	if (ids.size === 0) return cannotFollow();
 
 	const definitions = await client.listTools();
 	const statusTool = definitions.tools.find(
-		(tool) => tool.name === STATUS_TOOL_NAME,
+		(tool) => tool.name === statusRoute.toolName,
 	);
-	if (!statusTool) return null;
+	if (!statusTool) return cannotFollow();
 
 	const schemaProperties = Object.keys(
 		(statusTool.inputSchema as { properties?: Record<string, unknown> })
@@ -676,28 +771,35 @@ async function followProviderJob(
 	);
 	const argumentsValue: Record<string, unknown> = {};
 
-	for (const property of schemaProperties) {
-		const match = ids.get(property.toLowerCase());
-		if (match !== undefined) argumentsValue[property] = match;
+	if (statusRoute.idProperty) {
+		const exactId = ids.get(statusRoute.idProperty.toLowerCase());
+		if (exactId === undefined) return cannotFollow();
+		argumentsValue[statusRoute.idProperty] = exactId;
+	} else {
+		for (const property of schemaProperties) {
+			const match = ids.get(property.toLowerCase());
+			if (match !== undefined) argumentsValue[property] = match;
+		}
+
+		if (Object.keys(argumentsValue).length === 0) {
+			// No exact key match: pair the first id with the first id-shaped prop.
+			const fallbackProperty = schemaProperties.find((property) =>
+				/ids?$/i.test(property),
+			);
+			const firstId = [...ids.values()][0];
+			if (!fallbackProperty || firstId === undefined) return null;
+			argumentsValue[fallbackProperty] = firstId;
+		}
 	}
 
-	if (Object.keys(argumentsValue).length === 0) {
-		// No exact key match: pair the first id with the first id-shaped prop.
-		const fallbackProperty = schemaProperties.find((property) =>
-			/ids?$/i.test(property),
-		);
-		const firstId = [...ids.values()][0];
-		if (!fallbackProperty || firstId === undefined) return null;
-		argumentsValue[fallbackProperty] = firstId;
-	}
-
-	logger.info(`Following provider job via ${STATUS_TOOL_NAME}`, {
+	logger.info(`Following provider job via ${statusRoute.toolName}`, {
 		arguments: argumentsValue,
 	});
 
-	const deadline = Date.now() + FOLLOW_DEADLINE_MS;
+	const deadline = Date.now() + followDeadlineFor(submittedToolName);
 	let settledSince: number | null = null;
 	let lastSettledStatus: unknown = null;
+	let lastMediaStatus: unknown = null;
 	let consecutiveStatusErrors = 0;
 
 	while (Date.now() < deadline) {
@@ -705,7 +807,7 @@ async function followProviderJob(
 
 		const status = await client.callTool({
 			arguments: argumentsValue,
-			name: STATUS_TOOL_NAME,
+			name: statusRoute.toolName,
 			options: { signal },
 		});
 		await onResult(status);
@@ -742,12 +844,14 @@ async function followProviderJob(
 			states.find((state) => IN_FLIGHT_STATE_PATTERN.test(state)) ?? states[0];
 		if (displayState) metadata.set("stage", displayState);
 
-		const media = extractMediaUrls(status);
-		if (media.length > 0) return status;
-
 		const anyInFlight = states.some((state) =>
 			IN_FLIGHT_STATE_PATTERN.test(state),
 		);
+		const media = extractMediaUrls(status);
+		if (media.length > 0) {
+			if (!isPersonalClipperRoute) return status;
+			lastMediaStatus = status;
+		}
 
 		// One failed auxiliary item must not sink a set whose main item is
 		// still rendering — failure is terminal only once nothing is
@@ -765,6 +869,7 @@ async function followProviderJob(
 			states.length > 0 &&
 			!anyInFlight &&
 			states.every((state) => SETTLED_STATE_PATTERN.test(state));
+		if (allSettled && media.length > 0) return status;
 
 		// Every state reads settled but no media URL we recognize yet — grace
 		// period first (URLs propagate late), then return what we have so the
@@ -781,6 +886,8 @@ async function followProviderJob(
 
 	// The deadline can expire mid-grace: a job that settled in the window's
 	// final seconds is still a settled job, not a timeout.
+	if (isPersonalClipperRoute && lastMediaStatus !== null)
+		return lastMediaStatus;
 	if (lastSettledStatus !== null) return lastSettledStatus;
 
 	throw new ProviderJobFailedError(
@@ -822,8 +929,13 @@ function collectIdCandidates(
 	}
 
 	for (const [key, nested] of Object.entries(value)) {
-		if (typeof nested === "string" && ID_KEY_PATTERN.test(key)) {
-			if (!found.has(key.toLowerCase())) found.set(key.toLowerCase(), nested);
+		if (
+			(typeof nested === "string" || typeof nested === "number") &&
+			ID_KEY_PATTERN.test(key)
+		) {
+			if (!found.has(key.toLowerCase())) {
+				found.set(key.toLowerCase(), String(nested));
+			}
 		} else {
 			collectIdCandidates(nested, found, seen);
 		}

@@ -2,6 +2,7 @@ import { isDeepStrictEqual } from "node:util";
 
 import { Inject, Injectable } from "@nestjs/common";
 import { and, asc, eq, inArray, isNull, lt, lte, or, sql } from "@wandit/db";
+import { connectorGenerationAttempts } from "@wandit/db/schema/connector-generation-attempts";
 import {
 	aiProviderCallEvidence,
 	aiUsageEvents,
@@ -58,6 +59,8 @@ export type AiUsageEventPatch = Partial<
 		| "status"
 	>
 >;
+
+const PERSONAL_CLIPPER_RESERVATION_STALE_EXTENSION_MS = 30 * 60_000;
 
 @Injectable()
 export class MeteringRepository {
@@ -512,6 +515,10 @@ export class MeteringRepository {
 		limit: number,
 		client: MeteringDbClient = this.db,
 	): Promise<AiUsageEventRow[]> {
+		const personalClipperCreatedBefore = new Date(
+			createdBefore.getTime() - PERSONAL_CLIPPER_RESERVATION_STALE_EXTENSION_MS,
+		);
+
 		return client
 			.select()
 			.from(aiUsageEvents)
@@ -519,6 +526,19 @@ export class MeteringRepository {
 				and(
 					eq(aiUsageEvents.status, "reserved"),
 					lt(aiUsageEvents.createdAt, createdBefore),
+					// The scheduled sweep passes the normal 40-minute cutoff. Only a
+					// reservation tied to a still-running Personal Clipper attempt gets
+					// the additional 30 minutes; all other rows remain selectable.
+					or(
+						lt(aiUsageEvents.createdAt, personalClipperCreatedBefore),
+						sql`not exists (
+							select 1
+							from ${connectorGenerationAttempts}
+							where ${connectorGenerationAttempts.id}::text = ${aiUsageEvents.attemptRef}
+								and ${connectorGenerationAttempts.status} = ${"running"}
+								and ${connectorGenerationAttempts.toolName} = ${"personal_clipper_create"}
+						)`,
+					),
 					// Never refund a hold whose stream is provably live on another
 					// replica: an unexpired execution lease excludes the row.
 					or(

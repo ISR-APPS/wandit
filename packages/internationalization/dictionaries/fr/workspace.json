@@ -630,6 +630,7 @@
 			"generation": {
 				"working": "Génération du média en cours…",
 				"workingHint": "{connector} s'en occupe — le résultat apparaîtra ici dès qu'il est prêt.",
+				"clipperLongJobHint": "Le découpage d’une longue vidéo peut prendre 10 à 30 minutes.",
 				"sentTo": "Envoyé à {connector}",
 				"ready": "Média prêt",
 				"noMedia": "Génération terminée, mais aucun fichier à afficher ici — vérifie ton compte connecté.",

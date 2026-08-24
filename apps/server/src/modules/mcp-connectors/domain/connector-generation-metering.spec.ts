@@ -27,6 +27,12 @@ describe("connector generation metering", () => {
 			childOperation: "video",
 			childUnits: 1,
 		});
+		expect(
+			connectorGenerationPlan("personal_clipper_create", { clips_num: 20 }),
+		).toEqual({
+			childOperation: "video",
+			childUnits: 1,
+		});
 		for (const toolName of [
 			"show_marketing_studio",
 			"video_analysis_create",
@@ -36,6 +42,13 @@ describe("connector generation metering", () => {
 			expect(connectorGenerationPlan(toolName, {})).toBeNull();
 		}
 		expect(connectorGenerationPlan("ads_get_ad_accounts", {})).toBeNull();
+	});
+
+	it.each([
+		"personal_clipper_jobs",
+		"personal_clipper_status",
+	])("keeps %s free on a monetized connector", (toolName) => {
+		expect(connectorGenerationPlan(toolName, {}, "higgsfield")).toBeNull();
 	});
 
 	it("reads the requested image count from Higgsfield's nested params", () => {
@@ -142,6 +155,19 @@ describe("connector generation metering", () => {
 		expect(
 			connectorProviderJobId({ jobs: [{ id: "x", job_id: "job-2" }] }),
 		).toBe("job-2");
+		expect(connectorProviderJobId({ row_id: 90210 })).toBe("90210");
+		expect(
+			connectorProviderJobId({
+				content: [
+					{
+						text: JSON.stringify({
+							request_id: "req-10",
+							row_id: "clip-row-3",
+						}),
+					},
+				],
+			}),
+		).toBe("clip-row-3");
 		expect(connectorProviderJobId({ request_id: "req-9" })).toBeNull();
 		expect(connectorProviderJobId("not json")).toBeNull();
 	});

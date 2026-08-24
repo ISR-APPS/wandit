@@ -11,7 +11,7 @@ export type ExtractedMediaUrl = {
 const HTTPS_URL_PATTERN = /https:\/\/[^\s<>"']+/giu;
 const VIDEO_EXTENSION_PATTERN = /\.(?:mp4|webm)$/i;
 const IMAGE_EXTENSION_PATTERN = /\.(?:png|jpe?g|webp|gif|svg)$/i;
-const MAX_MEDIA_URLS = 8;
+const MAX_MEDIA_URLS = 20;
 
 // Catalog/preview assets that must NEVER pass as a generation result:
 // Higgsfield submit receipts embed preset demo clips

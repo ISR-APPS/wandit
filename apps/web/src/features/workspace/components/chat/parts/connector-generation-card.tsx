@@ -222,13 +222,24 @@ export function ConnectorGenerationCard({
 						})}
 					</p>
 
+					{toolName === "personal_clipper_create" ? (
+						<p
+							dir="auto"
+							className="mt-1 text-[13px] text-muted-foreground leading-[1.5]"
+						>
+							{t("workspace.chat.mcpTool.generation.clipperLongJobHint")}
+						</p>
+					) : null}
+
 					<p
 						dir="ltr"
 						className="mt-2 flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground"
 					>
 						<span aria-hidden className="size-1.5 rounded-full bg-primary" />
 						<ElapsedTimer key={startedAtIso} since={startedAtIso} />
-						<span>/ {t("workspace.chat.mcpTool.generation.usually")}</span>
+						{toolName === "personal_clipper_create" ? null : (
+							<span>/ {t("workspace.chat.mcpTool.generation.usually")}</span>
+						)}
 					</p>
 				</div>
 
