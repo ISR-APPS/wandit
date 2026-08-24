@@ -6,7 +6,7 @@
  * Nest and talks to the same table through createDb(), like the other tasks.
  */
 import { Inject, Injectable } from "@nestjs/common";
-import { and, eq, inArray, isNull, lt, sql } from "@wandit/db";
+import { and, eq, inArray, isNull, lt, ne, or, sql } from "@wandit/db";
 import { connectorGenerationAttempts } from "@wandit/db/schema/connector-generation-attempts";
 
 import { AnalyticsService } from "../../../../infrastructure/analytics/analytics.service";
@@ -32,10 +32,11 @@ export type ConnectorGenerationAttemptRow = {
 	completedAt: Date | null;
 };
 
-// Trigger can wait five minutes before starting a 30-minute task. Keep three
-// minutes for final billing + DB commit so polling cannot fail a live run at
-// the exact queue/runtime boundary.
+// Most connector tasks can wait five minutes before starting a 30-minute
+// task. Keep three minutes for final billing + DB commit. Personal Clipper can
+// run for 60 minutes, so only its rows receive the longer window.
 export const CONNECTOR_ATTEMPT_STALE_MS = 38 * 60 * 1000;
+export const PERSONAL_CLIPPER_ATTEMPT_STALE_MS = 68 * 60 * 1000;
 
 @Injectable()
 export class ConnectorGenerationsRepository {
@@ -250,6 +251,8 @@ export class ConnectorGenerationsRepository {
 	// Read-time janitor: a queued/running row this old is an orphaned run
 	// (worker crash, lost handoff) — settle it so the card can conclude.
 	private async settleStaleAttempt(attemptId: string): Promise<void> {
+		const now = Date.now();
+
 		await this.db
 			.update(connectorGenerationAttempts)
 			.set({
@@ -262,9 +265,27 @@ export class ConnectorGenerationsRepository {
 					eq(connectorGenerationAttempts.id, attemptId),
 					inArray(connectorGenerationAttempts.status, ["queued", "running"]),
 					isNull(connectorGenerationAttempts.media),
-					lt(
-						connectorGenerationAttempts.createdAt,
-						new Date(Date.now() - CONNECTOR_ATTEMPT_STALE_MS),
+					or(
+						and(
+							eq(
+								connectorGenerationAttempts.toolName,
+								"personal_clipper_create",
+							),
+							lt(
+								connectorGenerationAttempts.createdAt,
+								new Date(now - PERSONAL_CLIPPER_ATTEMPT_STALE_MS),
+							),
+						),
+						and(
+							ne(
+								connectorGenerationAttempts.toolName,
+								"personal_clipper_create",
+							),
+							lt(
+								connectorGenerationAttempts.createdAt,
+								new Date(now - CONNECTOR_ATTEMPT_STALE_MS),
+							),
+						),
 					),
 				),
 			);

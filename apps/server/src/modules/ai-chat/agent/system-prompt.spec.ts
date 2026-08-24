@@ -146,7 +146,7 @@ describe("video laws in the chat system prompt", () => {
 			`A cinematic film wish uses generate_video with model ${HIGGSFIELD_CINEMA_MODEL}`,
 		);
 		expect(WANDIT_SYSTEM_PROMPT).toContain(
-			`A simple clip wish uses generate_video with the general default model ${HIGGSFIELD_EDIT_MODEL}`,
+			`A simple from-scratch clip wish uses generate_video with the general default model ${HIGGSFIELD_EDIT_MODEL}`,
 		);
 		expect(WANDIT_SYSTEM_PROMPT).toContain("action='fetch'");
 		expect(WANDIT_SYSTEM_PROMPT).toContain("action='create'");
@@ -158,6 +158,39 @@ describe("video laws in the chat system prompt", () => {
 			"I'll make this in Higgsfield's Marketing Studio",
 		);
 		expect(WANDIT_SYSTEM_PROMPT).toContain('say "DTC Ads", never ms_image');
+	});
+
+	it("routes YouTube clipping through Personal Clipper", () => {
+		expect(WANDIT_SYSTEM_PROMPT).toContain(
+			"For Higgsfield VIDEO generation EXCEPT personal_clipper_create",
+		);
+		expect(WANDIT_SYSTEM_PROMPT).toContain(
+			"For personal_clipper_create, ask only for clips_num, clip_aspect, and subtitle_font, and only when missing",
+		);
+		expect(WANDIT_SYSTEM_PROMPT).toContain(
+			"a YouTube URL plus a request for clips, shorts, or to cut this video",
+		);
+		expect(WANDIT_SYSTEM_PROMPT).toContain(
+			"Collect clips_num (1–20), clip_aspect (9:16, 1:1, or 16:9), and subtitle_font",
+		);
+		expect(WANDIT_SYSTEM_PROMPT).toContain(
+			"Ask only for values that are still missing; defaults are fine to propose",
+		);
+		expect(WANDIT_SYSTEM_PROMPT).toContain(
+			"call personal_clipper_create with the exact YouTube URL in urls",
+		);
+		expect(WANDIT_SYSTEM_PROMPT).toContain(
+			"NEVER call generate_video with model clipify or personal_clipper",
+		);
+		expect(WANDIT_SYSTEM_PROMPT).toContain(
+			"clipping runs in the background for 10–30 minutes and the finished clips land on the card",
+		);
+		expect(WANDIT_SYSTEM_PROMPT).toContain(
+			'personal_clipper_status and personal_clipper_jobs are read tools only for later "is it done?" questions',
+		);
+		expect(WANDIT_SYSTEM_PROMPT).not.toContain(
+			"A simple clip wish uses generate_video",
+		);
 	});
 
 	it("keeps Marketing Studio inside its supported duration range", () => {

@@ -152,17 +152,91 @@ describe("MeteringRepository execution lease CAS", () => {
 describe("MeteringRepository sweep selections", () => {
 	it("excludes live-leased holds from the stranded sweep and includes expired ones", async () => {
 		const { calls, client, repository } = setup([]);
-		const createdBefore = new Date("2026-08-01T00:00:00.000Z");
+		const now = Date.parse("2026-08-01T00:00:00.000Z");
+		const createdBefore = new Date(now - 40 * 60_000);
 
 		await repository.listStaleReserved(createdBefore, 10, client);
 
 		const where = render(calls[0]?.where);
-
-		expect(where.sql).toBe(
-			'("ai_usage_events"."status" = $1 and "ai_usage_events"."created_at" < $2 and ("ai_usage_events"."execution_lease_expires_at" is null or "ai_usage_events"."execution_lease_expires_at" < now()))',
+		const runningParam = where.params.indexOf("running");
+		const clipperParam = where.params.indexOf("personal_clipper_create");
+		const createdBeforeParam = where.params[1];
+		const clipperCreatedBeforeParam = where.params[2];
+		const createdBeforeTime = Date.parse(String(createdBeforeParam));
+		const clipperCreatedBeforeTime = Date.parse(
+			String(clipperCreatedBeforeParam),
 		);
-		// Drizzle renders the Date param in its own wire format.
-		expect(where.params).toEqual(["reserved", expect.anything()]);
+
+		expect(where.sql).toContain(
+			'"ai_usage_events"."created_at" < $2 and ("ai_usage_events"."created_at" < $3 or not exists',
+		);
+		expect(where.sql).toContain(
+			'from "connector_generation_attempts" where "connector_generation_attempts"."id"::text = "ai_usage_events"."attempt_ref"',
+		);
+		expect(where.sql).toContain(
+			'not exists ( select 1 from "connector_generation_attempts" where "connector_generation_attempts"."id"::text = "ai_usage_events"."attempt_ref" and "connector_generation_attempts"."status" = $4 and "connector_generation_attempts"."tool_name" = $5',
+		);
+		expect(where.sql).toContain(
+			'"connector_generation_attempts"."tool_name" = $5 )) and ("ai_usage_events"."execution_lease_expires_at" is null',
+		);
+		expect(where.sql).toContain(
+			'("ai_usage_events"."execution_lease_expires_at" is null or "ai_usage_events"."execution_lease_expires_at" < now())',
+		);
+		expect(where.params[0]).toBe("reserved");
+		expect(where.params[runningParam]).toBe("running");
+		expect(where.params[clipperParam]).toBe("personal_clipper_create");
+		expect(createdBeforeTime).toBe(now - 40 * 60_000);
+		expect(clipperCreatedBeforeTime).toBe(now - 70 * 60_000);
+
+		const isSweepSelected = (input: {
+			ageMs: number;
+			attemptStatus?: string;
+			attemptTool?: string;
+			liveLease?: boolean;
+		}) => {
+			const createdAt = now - input.ageMs;
+			const hasRunningClipperAttempt =
+				input.attemptStatus === "running" &&
+				input.attemptTool === "personal_clipper_create";
+
+			return (
+				createdAt < createdBeforeTime &&
+				(createdAt < clipperCreatedBeforeTime || !hasRunningClipperAttempt) &&
+				input.liveLease !== true
+			);
+		};
+
+		expect(
+			[
+				{
+					ageMs: 60 * 60_000,
+					attemptStatus: "running",
+					attemptTool: "personal_clipper_create",
+				},
+				{
+					ageMs: 40 * 60_000 + 1,
+					attemptStatus: "running",
+					attemptTool: "generate_video",
+				},
+				{
+					ageMs: 60 * 60_000,
+					attemptStatus: "failed",
+					attemptTool: "personal_clipper_create",
+				},
+				{ ageMs: 60 * 60_000 },
+				{
+					ageMs: 71 * 60_000,
+					attemptStatus: "running",
+					attemptTool: "personal_clipper_create",
+				},
+				{
+					ageMs: 71 * 60_000,
+					attemptStatus: "running",
+					attemptTool: "personal_clipper_create",
+					liveLease: true,
+				},
+			].map(isSweepSelected),
+		).toEqual([false, true, true, true, true, false]);
 	});
 
 	it("selects only due reconcile_failed retries (dead-lettered NULL never matches)", async () => {

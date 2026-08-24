@@ -6,8 +6,8 @@ import { meteringMaintenanceQueue } from "./billing-task-queues";
 import { triggerAnalytics } from "./init";
 import { createTriggerMeteringRecovery } from "./metering.runtime";
 
-// Connector tasks may wait 5m and execute for 30m. Keep another 5m before a
-// generic reservation refund can compete with a delayed completion write.
+// Keep the generic reservation window unchanged. The metering query grants a
+// longer window only to reservations tied to a running Personal Clipper job.
 const RESERVATION_STALE_AFTER_MS = 40 * 60_000;
 const RECOVERY_BATCH_LIMIT = 100;
 
