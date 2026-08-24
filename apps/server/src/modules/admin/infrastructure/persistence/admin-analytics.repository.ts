@@ -27,6 +27,7 @@ import {
 	prorateMonthlyCosts,
 } from "../../application/services/admin-cost-allocation";
 import type { AdminDashboardRangeBounds } from "../../application/services/admin-dashboard-range";
+import { withAdminReadSnapshot } from "./admin-read-snapshot";
 import {
 	AI_SPEND_STATUSES,
 	aiUsageEventCostProvenance,
@@ -662,23 +663,13 @@ export class AdminAnalyticsRepository {
 		input: AdminDashboardRangeBounds,
 		filters: AdminAnalyticsFilters = {},
 	): Promise<AdminAnalyticsAcquisitionRepositorySnapshot> {
-		return this.db.transaction(async (transaction) => {
-			const sources = await this.getAcquisitionSources(
-				transaction,
-				input,
-				filters,
-			);
-			const campaigns = await this.getAcquisitionCampaigns(
-				transaction,
-				input,
-				filters,
-			);
-			const countries = await this.getAcquisitionCountries(
-				transaction,
-				input,
-				filters,
-			);
-			const costs = await this.getCostAllocation(transaction, input);
+		return withAdminReadSnapshot(this.db, async (client) => {
+			const [sources, campaigns, countries, costs] = await Promise.all([
+				this.getAcquisitionSources(client, input, filters),
+				this.getAcquisitionCampaigns(client, input, filters),
+				this.getAcquisitionCountries(client, input, filters),
+				this.getCostAllocation(client, input),
+			]);
 
 			return {
 				costs,
@@ -689,17 +680,14 @@ export class AdminAnalyticsRepository {
 				unattributedSignups:
 					sources.find(({ source }) => source === "unknown")?.signups ?? 0,
 			};
-		}, READ_ONLY_TRANSACTION);
+		});
 	}
 
 	async getFunnel(
 		input: AdminDashboardRangeBounds,
 		filters: AdminAnalyticsFilters = {},
 	): Promise<AdminAnalyticsFunnelRepositorySnapshot> {
-		return this.db.transaction(
-			(transaction) => this.getFunnelSnapshot(transaction, input, filters),
-			READ_ONLY_TRANSACTION,
-		);
+		return this.getFunnelSnapshot(this.db, input, filters);
 	}
 
 	async getFunnelStepUsers(
@@ -711,18 +699,17 @@ export class AdminAnalyticsRepository {
 			pagination: { page: 1, pageSize: 20 },
 		},
 	): Promise<AdminAnalyticsFunnelStepUsersRepositorySnapshot> {
-		return this.db.transaction(async (transaction) => {
-			const contactedPredicate =
-				options.contacted === "contacted"
-					? sql`contact_user_id is not null`
-					: options.contacted === "notContacted"
-						? sql`contact_user_id is null`
-						: sql`true`;
-			const paginationClause = options.pagination
-				? sql`limit ${options.pagination.pageSize}
+		const contactedPredicate =
+			options.contacted === "contacted"
+				? sql`contact_user_id is not null`
+				: options.contacted === "notContacted"
+					? sql`contact_user_id is null`
+					: sql`true`;
+		const paginationClause = options.pagination
+			? sql`limit ${options.pagination.pageSize}
 					offset ${(options.pagination.page - 1) * options.pagination.pageSize}`
-				: sql``;
-			const result = await transaction.execute<FunnelStepUserRow>(sql`
+			: sql``;
+		const result = await this.db.execute<FunnelStepUserRow>(sql`
 				with bounds as (${analyticsBounds(input)}),
 				filtered_users as (${filteredUserCohort(filters)}),
 				signup_cohort as (
@@ -806,81 +793,63 @@ export class AdminAnalyticsRepository {
 				left join paged_step_users u on true
 				order by u.last_event_at desc nulls last, u.user_id asc
 			`);
-			const metadata = result.rows[0];
-			const total = toNumber(metadata?.total);
+		const metadata = result.rows[0];
+		const total = toNumber(metadata?.total);
 
-			return {
-				page: options.pagination?.page ?? 1,
-				pageSize: options.pagination?.pageSize ?? Math.max(1, total),
-				total,
-				counts: {
-					all: toNumber(metadata?.all_count),
-					contacted: toNumber(metadata?.contacted_count),
-					converted: toNumber(metadata?.converted_count),
-				},
-				items: result.rows.flatMap((row) =>
-					row.user_id === null
-						? []
-						: [
-								{
-									userId: row.user_id,
-									name: row.name,
-									email: row.email,
-									image: row.image,
-									signedUpAt: row.signed_up_at,
-									firstEventAt: row.first_event_at,
-									lastEventAt: row.last_event_at,
-									eventCount: toNumber(row.event_count),
-									converted: row.converted,
-									contact:
-										row.contacted_at !== null &&
-										row.contacted_by_user_id !== null &&
-										row.contacted_by_name !== null
-											? {
-													contactedAt: row.contacted_at,
-													contactedBy: {
-														id: row.contacted_by_user_id,
-														name: row.contacted_by_name,
-													},
-												}
-											: null,
-								},
-							],
-				),
-			};
-		}, READ_ONLY_TRANSACTION);
+		return {
+			page: options.pagination?.page ?? 1,
+			pageSize: options.pagination?.pageSize ?? Math.max(1, total),
+			total,
+			counts: {
+				all: toNumber(metadata?.all_count),
+				contacted: toNumber(metadata?.contacted_count),
+				converted: toNumber(metadata?.converted_count),
+			},
+			items: result.rows.flatMap((row) =>
+				row.user_id === null
+					? []
+					: [
+							{
+								userId: row.user_id,
+								name: row.name,
+								email: row.email,
+								image: row.image,
+								signedUpAt: row.signed_up_at,
+								firstEventAt: row.first_event_at,
+								lastEventAt: row.last_event_at,
+								eventCount: toNumber(row.event_count),
+								converted: row.converted,
+								contact:
+									row.contacted_at !== null &&
+									row.contacted_by_user_id !== null &&
+									row.contacted_by_name !== null
+										? {
+												contactedAt: row.contacted_at,
+												contactedBy: {
+													id: row.contacted_by_user_id,
+													name: row.contacted_by_name,
+												},
+											}
+										: null,
+							},
+						],
+			),
+		};
 	}
 
 	async getEngagement(
 		input: AdminDashboardRangeBounds,
 		filters: AdminAnalyticsFilters = {},
 	): Promise<AdminAnalyticsEngagementRepositorySnapshot> {
-		return this.db.transaction(async (transaction) => {
-			const activity = await this.getEngagementActivity(
-				transaction,
-				input,
-				filters,
-			);
-			const activityByDay = await this.getEngagementActivityByDay(
-				transaction,
-				input,
-				filters,
-			);
-			const returning = await this.getEngagementReturning(
-				transaction,
-				input,
-				filters,
-			);
-			const cohorts = await this.getEngagementCohorts(
-				transaction,
-				input,
-				filters,
-			);
-			const healthyTrialsByDay = await this.getEngagementHealthyTrialsByDay(
-				transaction,
-				input,
-				filters,
-			);
+		return withAdminReadSnapshot(this.db, async (client) => {
+			const [activity, activityByDay, returning, cohorts, healthyTrialsByDay] =
+				await Promise.all([
+					this.getEngagementActivity(client, input, filters),
+					this.getEngagementActivityByDay(client, input, filters),
+					this.getEngagementReturning(client, input, filters),
+					this.getEngagementCohorts(client, input, filters),
+					this.getEngagementHealthyTrialsByDay(client, input, filters),
+				]);
 
 			return {
 				activity,
@@ -889,39 +858,48 @@ export class AdminAnalyticsRepository {
 				cohorts,
 				healthyTrialsByDay,
 			};
-		}, READ_ONLY_TRANSACTION);
+		});
 	}
 
 	async getRevenue(
 		input: AdminDashboardRangeBounds,
 	): Promise<AdminAnalyticsRevenueRepositorySnapshot> {
-		return this.db.transaction(async (transaction) => {
-			const mrr = await this.getMrr(transaction, input);
-			const trialCohort = await this.getTrialCohort(transaction, input);
-			const collectedRevenueByDay = await this.getCollectedRevenue(
-				transaction,
-				input,
-			);
-			const revenueBySource = await this.getRevenueBySource(transaction, input);
-			const marginAfterAi = await this.getMarginAfterAi(transaction, input);
-			const newPaidByDay = await this.getNewPaidByDay(transaction, input);
-			const daysToConvert = await this.getDaysToConvert(transaction, input);
-			const checkoutFunnel = await this.getCheckoutFunnel(transaction, input);
-			const lifecycle = await this.getRevenueLifecycle(transaction, input);
-			const paymentAdjustments = await this.getRevenuePaymentAdjustments(
-				transaction,
-				input,
-			);
-			const retention = await this.getRevenueRetention(transaction, input);
-			const churnBreakdown = await this.getChurnBreakdown(transaction, input);
-			const acquisitionSources = await this.getAcquisitionSources(
-				transaction,
-				input,
-				{},
-			);
-			const creditRange = await this.getCreditRange(transaction, input);
-			const funnel = await this.getFunnelSnapshot(transaction, input, {});
-			const costs = await this.getCostAllocation(transaction, input);
+		return withAdminReadSnapshot(this.db, async (client) => {
+			const [
+				mrr,
+				trialCohort,
+				collectedRevenueByDay,
+				revenueBySource,
+				marginAfterAi,
+				newPaidByDay,
+				daysToConvert,
+				checkoutFunnel,
+				lifecycle,
+				paymentAdjustments,
+				retention,
+				churnBreakdown,
+				acquisitionSources,
+				creditRange,
+				funnel,
+				costs,
+			] = await Promise.all([
+				this.getMrr(client, input),
+				this.getTrialCohort(client, input),
+				this.getCollectedRevenue(client, input),
+				this.getRevenueBySource(client, input),
+				this.getMarginAfterAi(client, input),
+				this.getNewPaidByDay(client, input),
+				this.getDaysToConvert(client, input),
+				this.getCheckoutFunnel(client, input),
+				this.getRevenueLifecycle(client, input),
+				this.getRevenuePaymentAdjustments(client, input),
+				this.getRevenueRetention(client, input),
+				this.getChurnBreakdown(client, input),
+				this.getAcquisitionSources(client, input, {}),
+				this.getCreditRange(client, input),
+				this.getFunnelSnapshot(client, input, {}),
+				this.getCostAllocation(client, input),
+			]);
 
 			return {
 				activePaidUsers: mrr.activePaidUsers,
@@ -952,26 +930,30 @@ export class AdminAnalyticsRepository {
 				retention,
 				churnBreakdown,
 			};
-		}, READ_ONLY_TRANSACTION);
+		});
 	}
 
 	async getFeatures(
 		input: AdminDashboardRangeBounds,
 	): Promise<AdminAnalyticsFeaturesRepositorySnapshot> {
-		return this.db.transaction(async (transaction) => {
-			const adoption = await this.getFeatureAdoption(transaction, input);
-			const creditRange = await this.getCreditRange(transaction, input);
-			const freeConsumption = await this.getFreeConsumption(transaction, input);
-			const beforeUpgrade = await this.getCreditsBeforeUpgrade(
-				transaction,
-				input,
-			);
-			const freeCredits = await this.getFreeCredits(transaction, input);
-			const conversionByCredits = await this.getConversionByCredits(
-				transaction,
-				input,
-			);
-			const ads = await this.getAdsFeatures(transaction, input);
+		return withAdminReadSnapshot(this.db, async (client) => {
+			const [
+				adoption,
+				creditRange,
+				freeConsumption,
+				beforeUpgrade,
+				freeCredits,
+				conversionByCredits,
+				ads,
+			] = await Promise.all([
+				this.getFeatureAdoption(client, input),
+				this.getCreditRange(client, input),
+				this.getFreeConsumption(client, input),
+				this.getCreditsBeforeUpgrade(client, input),
+				this.getFreeCredits(client, input),
+				this.getConversionByCredits(client, input),
+				this.getAdsFeatures(client, input),
+			]);
 
 			return {
 				activeUsersInRange: adoption.activeUsersInRange,
@@ -986,20 +968,20 @@ export class AdminAnalyticsRepository {
 				freeCredits,
 				conversionByCredits,
 			};
-		}, READ_ONLY_TRANSACTION);
+		});
 	}
 
 	async getHealth(
 		input: AdminDashboardRangeBounds,
 	): Promise<AdminAnalyticsHealthRepositorySnapshot> {
-		return this.db.transaction(async (transaction) => {
-			const generation = await this.getGenerationHealth(transaction, input);
-			const topFailures = await this.getTopPageFailures(transaction, input);
-			const creditsRefundedInRange = await this.getCreditsRefunded(
-				transaction,
-				input,
-			);
-			const webhooks = await this.getWebhookHealth(transaction, input);
+		return withAdminReadSnapshot(this.db, async (client) => {
+			const [generation, topFailures, creditsRefundedInRange, webhooks] =
+				await Promise.all([
+					this.getGenerationHealth(client, input),
+					this.getTopPageFailures(client, input),
+					this.getCreditsRefunded(client, input),
+					this.getWebhookHealth(client, input),
+				]);
 
 			return {
 				generation: generation.map((row) => ({
@@ -1009,7 +991,7 @@ export class AdminAnalyticsRepository {
 				creditsRefundedInRange,
 				webhooks,
 			};
-		}, READ_ONLY_TRANSACTION);
+		});
 	}
 
 	private async getAcquisitionSources(
@@ -2291,11 +2273,19 @@ export class AdminAnalyticsRepository {
 				from credit_ledger c
 				inner join mature_users u on u.id = c.user_id
 				cross join bounds b
+				left join ai_usage_events refund_event
+					on refund_event.id = case
+						when ${refundGrantPredicate("c")}
+							and (c.meta ->> 'usageEventId')
+								~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+							then (c.meta ->> 'usageEventId')::uuid
+					end
 				where ${netConsumptionPredicate("c")}
 					and c.organization_id is null
 					and c.created_at >= u.created_at
-					and ${consumptionEffectiveAt("c")} < u.created_at + interval '7 days'
-					and ${consumptionEffectiveAt("c")} < b.snapshot_end
+					and coalesce(refund_event.created_at, c.created_at)
+						< u.created_at + interval '7 days'
+					and coalesce(refund_event.created_at, c.created_at) < b.snapshot_end
 				group by c.user_id
 			),
 			completed_generations as (
@@ -4034,17 +4024,23 @@ export class AdminAnalyticsRepository {
 			-- Refund grants sit on their consume's day (consumptionEffectiveAt):
 			-- created_at >= range_start keeps the index usable because a refund
 			-- never precedes its consume.
-			ledger_range as (
+			ledger_effective as materialized (
 				select
 					coalesce(c.organization_id, c.user_id) as owner_id,
 					c.kind,
 					c.delta,
-					c.idempotency_key
+					c.idempotency_key,
+					${consumptionEffectiveAt("c")} as effective_at
 				from credit_ledger c
 				cross join bounds b
 				where c.created_at >= b.range_start
-					and ${consumptionEffectiveAt("c")} >= b.range_start
-					and ${consumptionEffectiveAt("c")} < b.range_end
+			),
+			ledger_range as (
+				select l.owner_id, l.kind, l.delta, l.idempotency_key
+				from ledger_effective l
+				cross join bounds b
+				where l.effective_at >= b.range_start
+					and l.effective_at < b.range_end
 			),
 			range_owners as (
 				select distinct coalesce(e.organization_id, e.user_id) as owner_id
@@ -4632,11 +4628,6 @@ export class AdminAnalyticsRepository {
 	}
 }
 
-const READ_ONLY_TRANSACTION = {
-	accessMode: "read only" as const,
-	isolationLevel: "repeatable read" as const,
-};
-
 const FUNNEL_STEP_EVENT_QUERIES: Record<AdminAnalyticsFunnelUserStep, SQL> = {
 	pricingViewed: sql`
 		select
@@ -4722,11 +4713,16 @@ function netConsumptionPredicate(alias: string): SQL {
 function consumptionEffectiveAt(alias: string): SQL {
 	const createdAt = qualifiedColumn(alias, "created_at");
 	const meta = qualifiedColumn(alias, "meta");
+	const usageEventId = sql`(${meta} ->> 'usageEventId')`;
 
 	return sql`(case
 		when ${refundGrantPredicate(alias)} then coalesce(
 			(select e.created_at from ai_usage_events e
-				where e.id::text = ${meta} ->> 'usageEventId'),
+				where e.id = (case
+					when ${usageEventId}
+						~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+						then ${usageEventId}::uuid
+				end)),
 			${createdAt}
 		)
 		else ${createdAt}

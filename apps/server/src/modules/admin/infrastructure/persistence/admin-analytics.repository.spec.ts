@@ -57,7 +57,7 @@ function netConsumptionSql(alias: string) {
 
 // Refund grants are attributed to their consume's day via the usage event.
 function effectiveAtSql(alias: string) {
-	return `(case when ${refundGrantSql(alias)} then coalesce( (select e.created_at from ai_usage_events e where e.id::text = ${alias}.meta ->> 'usageEventId'), ${alias}.created_at ) else ${alias}.created_at end)`;
+	return `(case when ${refundGrantSql(alias)} then coalesce( (select e.created_at from ai_usage_events e where e.id = (case when (${alias}.meta ->> 'usageEventId') ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$' then (${alias}.meta ->> 'usageEventId')::uuid end)), ${alias}.created_at ) else ${alias}.created_at end)`;
 }
 
 function compileQuery(query: unknown): CompiledQuery {
@@ -84,24 +84,49 @@ function setup(rows: unknown[] = []) {
 	// A stable result exercises every SQL construction path without a database
 	// dependency.
 	const execute = vi.fn(async (_query: unknown) => ({ rows }));
+	const snapshot = databaseWithSnapshotTransactions(execute);
+	const repository = new AdminAnalyticsRepository(snapshot.database);
+
+	return { execute, repository, ...snapshot };
+}
+
+function databaseWithSnapshotTransactions(
+	execute: (query: unknown) => Promise<{ rows: unknown[] }>,
+) {
+	const controlQueries: CompiledQuery[] = [];
+	const transactionExecute = vi.fn(async (query: unknown) => {
+		const compiled = compileQuery(query);
+		if (compiled.sql === "select pg_export_snapshot() as snapshot_id") {
+			controlQueries.push(compiled);
+			return { rows: [{ snapshot_id: "00000003-0000001B-1" }] };
+		}
+		if (compiled.sql.startsWith("set transaction snapshot")) {
+			controlQueries.push(compiled);
+			return { rows: [] };
+		}
+		return execute(query);
+	});
 	const transaction = vi.fn(
 		(
-			callback: (client: { execute: typeof execute }) => Promise<unknown>,
+			callback: (client: {
+				execute: typeof transactionExecute;
+			}) => Promise<unknown>,
 			_options: unknown,
-		) => callback({ execute }),
+		) => callback({ execute: transactionExecute }),
 	);
-	const repository = new AdminAnalyticsRepository({
+	const database = {
+		execute,
 		transaction,
-	} as unknown as Database);
+	} as unknown as Database;
 
-	return { execute, repository, transaction };
+	return { controlQueries, database, transaction, transactionExecute };
 }
 
 async function collectQueries(
 	endpoint: Endpoint,
 	filters: AdminAnalyticsFilters = {},
 ) {
-	const { execute, repository, transaction } = setup();
+	const { controlQueries, execute, repository, transaction } = setup();
 
 	if (endpoint === "revenue") await repository.getRevenue(RANGE_BOUNDS);
 	if (endpoint === "acquisition") {
@@ -117,6 +142,7 @@ async function collectQueries(
 	if (endpoint === "health") await repository.getHealth(RANGE_BOUNDS);
 
 	return {
+		controlQueries,
 		queries: execute.mock.calls.map(([query]) => compileQuery(query)),
 		transaction,
 	};
@@ -130,11 +156,12 @@ async function collectFunnelStepUserQueries(
 		pagination: { page: 1, pageSize: 20 },
 	},
 ) {
-	const { execute, repository, transaction } = setup();
+	const { controlQueries, execute, repository, transaction } = setup();
 
 	await repository.getFunnelStepUsers(RANGE_BOUNDS, step, filters, options);
 
 	return {
+		controlQueries,
 		queries: execute.mock.calls.map(([query]) => compileQuery(query)),
 		transaction,
 	};
@@ -203,22 +230,40 @@ function expectSucceededGenerationSources(query: CompiledQuery) {
 	).toHaveLength(5);
 }
 
-describe("AdminAnalyticsRepository transactions", () => {
+describe("AdminAnalyticsRepository snapshot queries", () => {
 	it.each([
-		["revenue", 16],
-		["acquisition", 4],
-		["funnel", 1],
-		["engagement", 5],
-		["features", 7],
-		["health", 4],
-	] as const)("runs %s in exactly one read-only repeatable-read transaction and compiles all %i queries", async (endpoint, queryCount) => {
-		const { queries, transaction } = await collectQueries(endpoint);
+		["revenue", 16, 17],
+		["acquisition", 4, 5],
+		["funnel", 1, 0],
+		["engagement", 5, 6],
+		["features", 7, 8],
+		["health", 4, 5],
+	] as const)("runs %s with one page snapshot and compiles all %i queries", async (endpoint, queryCount, transactionCount) => {
+		const { controlQueries, queries, transaction } =
+			await collectQueries(endpoint);
 
-		expect(transaction).toHaveBeenCalledOnce();
-		expect(transaction).toHaveBeenCalledWith(expect.any(Function), {
-			accessMode: "read only",
-			isolationLevel: "repeatable read",
-		});
+		expect(transaction).toHaveBeenCalledTimes(transactionCount);
+		for (const [, options] of transaction.mock.calls) {
+			expect(options).toEqual({
+				accessMode: "read only",
+				isolationLevel: "repeatable read",
+			});
+		}
+		if (transactionCount === 0) {
+			expect(controlQueries).toEqual([]);
+		} else {
+			expect(controlQueries).toHaveLength(queryCount + 1);
+			expect(controlQueries[0]?.sql).toBe(
+				"select pg_export_snapshot() as snapshot_id",
+			);
+			expect(
+				controlQueries
+					.slice(1)
+					.every(({ sql }) =>
+						sql.startsWith("set transaction snapshot '00000003-0000001B-1'"),
+					),
+			).toBe(true);
+		}
 		expect(queries).toHaveLength(queryCount);
 		for (const query of queries) {
 			expect(query.sql).toContain("with bounds as");
@@ -237,6 +282,39 @@ describe("AdminAnalyticsRepository transactions", () => {
 	});
 
 	it.each([
+		["revenue", 16],
+		["acquisition", 4],
+		["engagement", 5],
+		["features", 7],
+		["health", 4],
+	] as const)("starts all %s queries before any of the %i queries resolves", async (endpoint, queryCount) => {
+		const resolvers: Array<(result: { rows: unknown[] }) => void> = [];
+		const execute = vi.fn(
+			(_query: unknown) =>
+				new Promise<{ rows: unknown[] }>((resolve) => {
+					resolvers.push(resolve);
+				}),
+		);
+		const { database } = databaseWithSnapshotTransactions(execute);
+		const repository = new AdminAnalyticsRepository(database);
+
+		const request =
+			endpoint === "revenue"
+				? repository.getRevenue(RANGE_BOUNDS)
+				: endpoint === "acquisition"
+					? repository.getAcquisition(RANGE_BOUNDS)
+					: endpoint === "engagement"
+						? repository.getEngagement(RANGE_BOUNDS)
+						: endpoint === "features"
+							? repository.getFeatures(RANGE_BOUNDS)
+							: repository.getHealth(RANGE_BOUNDS);
+
+		await vi.waitFor(() => expect(execute).toHaveBeenCalledTimes(queryCount));
+		for (const resolve of resolvers) resolve({ rows: [] });
+		await request;
+	});
+
+	it.each([
 		[
 			"pricingViewed",
 			"inner join product_events e on e.user_id = c.user_id and e.kind = 'pricing_viewed'",
@@ -249,14 +327,10 @@ describe("AdminAnalyticsRepository transactions", () => {
 			"checkoutStarted",
 			"inner join billing_checkout_attempts a on a.user_id = c.user_id and a.purpose = 'subscription'",
 		],
-	] as const)("runs the %s user list as one bounded read-only query", async (step, membershipJoin) => {
+	] as const)("runs the %s user list as one bounded pool query", async (step, membershipJoin) => {
 		const { queries, transaction } = await collectFunnelStepUserQueries(step);
 
-		expect(transaction).toHaveBeenCalledOnce();
-		expect(transaction).toHaveBeenCalledWith(expect.any(Function), {
-			accessMode: "read only",
-			isolationLevel: "repeatable read",
-		});
+		expect(transaction).not.toHaveBeenCalled();
 		expect(queries).toHaveLength(1);
 
 		const query = queries[0];
@@ -500,7 +574,7 @@ describe("AdminAnalyticsRepository transactions", () => {
 });
 
 describe("AdminAnalyticsRepository overview metrics SQL", () => {
-	it("compiles only MRR and healthy-trial queries against the caller transaction", async () => {
+	it("compiles only MRR and healthy-trial queries against the caller client", async () => {
 		const { execute, repository, transaction } = setup();
 
 		const result = await repository.getOverviewMetrics(
@@ -603,7 +677,7 @@ describe("AdminAnalyticsRepository analytics filters", () => {
 });
 
 describe("AdminAnalyticsRepository acquisition SQL", () => {
-	it("loads every intersecting monthly-cost row inside the acquisition transaction", async () => {
+	it("loads every intersecting monthly-cost row for the acquisition snapshot", async () => {
 		const { queries } = await collectQueries("acquisition");
 		const costs = queryContaining(queries, "from monthly_costs c");
 
@@ -692,13 +766,8 @@ describe("AdminAnalyticsRepository acquisition SQL", () => {
 			.mockResolvedValueOnce({ rows: [] })
 			.mockResolvedValueOnce({ rows: [] })
 			.mockResolvedValueOnce({ rows: [] });
-		const transaction = vi.fn(
-			(callback: (client: { execute: typeof execute }) => Promise<unknown>) =>
-				callback({ execute }),
-		);
-		const repository = new AdminAnalyticsRepository({
-			transaction,
-		} as unknown as Database);
+		const { database } = databaseWithSnapshotTransactions(execute);
+		const repository = new AdminAnalyticsRepository(database);
 
 		const snapshot = await repository.getAcquisition(RANGE_BOUNDS);
 
@@ -797,13 +866,8 @@ describe("AdminAnalyticsRepository funnel SQL", () => {
 				},
 			],
 		}));
-		const transaction = vi.fn(
-			(callback: (client: { execute: typeof execute }) => Promise<unknown>) =>
-				callback({ execute }),
-		);
-		const repository = new AdminAnalyticsRepository({
-			transaction,
-		} as unknown as Database);
+		const { database } = databaseWithSnapshotTransactions(execute);
+		const repository = new AdminAnalyticsRepository(database);
 
 		const snapshot = await repository.getFunnel(RANGE_BOUNDS);
 
@@ -1196,13 +1260,8 @@ describe("AdminAnalyticsRepository revenue SQL", () => {
 		const execute = vi.fn(async () => ({
 			rows: rowsByCall[callIndex++] ?? [],
 		}));
-		const transaction = vi.fn(
-			(callback: (client: { execute: typeof execute }) => Promise<unknown>) =>
-				callback({ execute }),
-		);
-		const repository = new AdminAnalyticsRepository({
-			transaction,
-		} as unknown as Database);
+		const { database } = databaseWithSnapshotTransactions(execute);
+		const repository = new AdminAnalyticsRepository(database);
 
 		const snapshot = await repository.getRevenue(RANGE_BOUNDS);
 
@@ -1256,7 +1315,17 @@ describe("AdminAnalyticsRepository revenue SQL", () => {
 		// Refund grants count on their consume's day; org-pool rows never
 		// count toward a personal trial.
 		expect(cohort.sql).toContain(
-			`${effectiveAtSql("c")} < u.created_at + interval '7 days'`,
+			"coalesce(refund_event.created_at, c.created_at) < u.created_at + interval '7 days'",
+		);
+		expect(cohort.sql).toContain(
+			"coalesce(refund_event.created_at, c.created_at) < b.snapshot_end",
+		);
+		expect(cohort.sql).toContain("left join ai_usage_events refund_event");
+		expect(cohort.sql).toMatch(
+			/refund_event\.id = case when .*c\.meta ->> 'usageEventId'.* then \(c\.meta ->> 'usageEventId'\)::uuid end/,
+		);
+		expect(cohort.sql).not.toContain(
+			"select e.created_at from ai_usage_events e where e.id::text = c.meta ->> 'usageEventId'",
 		);
 		expect(cohort.sql).toContain("c.organization_id is null");
 		expect(cohort.sql).toContain(
@@ -1444,7 +1513,14 @@ describe("AdminAnalyticsRepository feature and credit SQL", () => {
 		}
 
 		expect(creditRange.sql).toContain("c.created_at >= b.range_start");
-		expectRange(creditRange, effectiveAtSql("c"));
+		expect(creditRange.sql).toContain("ledger_effective as materialized");
+		expect(creditRange.sql).toContain(`${effectiveAtSql("c")} as effective_at`);
+		expect(
+			creditRange.sql.match(
+				/where e\.id = \(case when \(c\.meta ->> 'usageEventId'\)/g,
+			),
+		).toHaveLength(1);
+		expectRange(creditRange, "l.effective_at");
 		expectRange(creditRange, "e.created_at");
 		expect(creditRange.sql).toContain(
 			"coalesce(c.organization_id, c.user_id) as owner_id",
@@ -1467,7 +1543,7 @@ describe("AdminAnalyticsRepository feature and credit SQL", () => {
 			`"ai_usage_events"."estimated_cost_usd_micros"`,
 		);
 		expect(creditRange.sql).toMatch(
-			/e\.status in \(\$\d+, \$\d+, \$\d+(, \$\d+)?\)/,
+			/ai_usage_events\.status in \(\$\d+, \$\d+, \$\d+(, \$\d+)?\)/,
 		);
 		expect(creditRange.params).toEqual(
 			expect.arrayContaining(["settled", "reconciled", "reconcile_failed"]),
@@ -1478,7 +1554,9 @@ describe("AdminAnalyticsRepository feature and credit SQL", () => {
 		expect(creditRange.sql).toContain(
 			`'$.gatewayReconciliation.generations[*] ? (@.customerBilling like_regex "^bundled_unmetered")'`,
 		);
-		expect(creditRange.sql).toContain("coalesce(e.final_credits, 0) > 0");
+		expect(creditRange.sql).toContain(
+			"coalesce(ai_usage_events.final_credits, 0) > 0",
+		);
 		for (const provenance of ["measured", "contract", "estimate"]) {
 			expect(creditRange.sql).toContain(
 				`sum(s.cost_micros) filter (where s.provenance = '${provenance}')`,
