@@ -55,15 +55,39 @@ function compileQuery(query: unknown): string {
 	return sql.replaceAll(/\s+/g, " ").trim();
 }
 
+function databaseWithSnapshotTransactions(
+	execute: (query: unknown) => Promise<{ rows: unknown[] }>,
+) {
+	const controlQueries: string[] = [];
+	const transactionExecute = vi.fn(async (query: unknown) => {
+		const compiled = compileQuery(query);
+		if (compiled === "select pg_export_snapshot() as snapshot_id") {
+			controlQueries.push(compiled);
+			return { rows: [{ snapshot_id: "00000003-0000001B-1" }] };
+		}
+		if (compiled.startsWith("set transaction snapshot")) {
+			controlQueries.push(compiled);
+			return { rows: [] };
+		}
+		return execute(query);
+	});
+	const transaction = vi.fn(
+		(
+			callback: (client: {
+				execute: typeof transactionExecute;
+			}) => Promise<unknown>,
+			_options: unknown,
+		) => callback({ execute: transactionExecute }),
+	);
+	const database = { execute, transaction } as unknown as Database;
+
+	return { controlQueries, database, transaction };
+}
+
 async function compileOverviewQueries() {
 	const execute = vi.fn().mockResolvedValue({ rows: [] });
-	const transaction = vi.fn(
-		(callback: (client: { execute: typeof execute }) => Promise<unknown>) =>
-			callback({ execute }),
-	);
-	const database = {
-		transaction,
-	} as unknown as Database;
+	const { controlQueries, database, transaction } =
+		databaseWithSnapshotTransactions(execute);
 	const adminAnalyticsRepository = new AdminAnalyticsRepository(database);
 	const repository = new AdminOverviewRepository(
 		database,
@@ -73,6 +97,7 @@ async function compileOverviewQueries() {
 	await repository.getOverview(PRESET_BOUNDS);
 
 	return {
+		controlQueries,
 		queries: execute.mock.calls.map(([query]) => compileQuery(query)),
 		transaction,
 	};
@@ -361,15 +386,51 @@ describe("AdminStatsService", () => {
 });
 
 describe("AdminOverviewRepository overview SQL", () => {
-	it("runs all overview metrics in one read-only repeatable-read transaction", async () => {
-		const { queries, transaction } = await compileOverviewQueries();
+	it("runs all overview metrics on one exported repeatable-read snapshot", async () => {
+		const { controlQueries, queries, transaction } =
+			await compileOverviewQueries();
 
-		expect(transaction).toHaveBeenCalledOnce();
-		expect(transaction).toHaveBeenCalledWith(expect.any(Function), {
-			accessMode: "read only",
-			isolationLevel: "repeatable read",
-		});
+		expect(transaction).toHaveBeenCalledTimes(10);
+		for (const [, options] of transaction.mock.calls) {
+			expect(options).toEqual({
+				accessMode: "read only",
+				isolationLevel: "repeatable read",
+			});
+		}
+		expect(controlQueries).toHaveLength(10);
+		expect(controlQueries[0]).toBe(
+			"select pg_export_snapshot() as snapshot_id",
+		);
+		expect(
+			controlQueries
+				.slice(1)
+				.every((query) =>
+					query.startsWith("set transaction snapshot '00000003-0000001B-1'"),
+				),
+		).toBe(true);
 		expect(queries).toHaveLength(9);
+	});
+
+	it("starts all overview queries before any query resolves", async () => {
+		const resolvers: Array<(result: { rows: unknown[] }) => void> = [];
+		const execute = vi.fn(
+			(_query: unknown) =>
+				new Promise<{ rows: unknown[] }>((resolve) => {
+					resolvers.push(resolve);
+				}),
+		);
+		const { database, transaction } = databaseWithSnapshotTransactions(execute);
+		const repository = new AdminOverviewRepository(
+			database,
+			new AdminAnalyticsRepository(database),
+		);
+
+		const request = repository.getOverview(PRESET_BOUNDS);
+
+		await vi.waitFor(() => expect(execute).toHaveBeenCalledTimes(9));
+		for (const resolve of resolvers) resolve({ rows: [] });
+		await request;
+		expect(transaction).toHaveBeenCalledTimes(10);
 	});
 
 	it("uses explicit series and snapshot bounds and an exactly equal previous interval", async () => {
