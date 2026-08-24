@@ -19,9 +19,18 @@ export const isoDateSchema = z.iso.date();
 // Merchant-owned product identifier. Trimming keeps accidental surrounding
 // whitespace out of immutable snapshots; control characters are never valid
 // inside an order-facing code.
+//
+// The check is a refine, NOT a .regex(): this schema is part of the
+// generate_page tool input, and zod copies a .regex() into the JSON schema
+// `pattern` sent to the AI gateway. OpenAI and Azure reject `\p{Cc}` there
+// ("is not a 'regex'"), which knocked the chat over to a slow fallback
+// provider. A refine validates at runtime only and never reaches the gateway.
 export const productSkuSchema = z
 	.string()
-	.regex(/^[^\p{Cc}]*$/u, "Product SKU must not contain control characters")
+	.refine(
+		(value) => !/\p{Cc}/u.test(value),
+		"Product SKU must not contain control characters",
+	)
 	.trim()
 	.min(1)
 	.max(100);
