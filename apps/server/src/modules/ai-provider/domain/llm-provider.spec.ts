@@ -22,6 +22,7 @@ import { capturedGenerationRef } from "../../metering/domain/metering";
 import {
 	createLlmModel,
 	fromOpenRouterModelId,
+	gatewayRoutingForModel,
 	hasLlmProviderKey,
 	llmProviderForTask,
 	llmProviderKeyName,
@@ -255,6 +256,35 @@ describe("attribution options", () => {
 		expect(withLlmAttribution(vendorOptions, CONTEXT, "chat")).toBe(
 			vendorOptions,
 		);
+	});
+});
+
+describe("gateway routing pin", () => {
+	it("pins openai models to the OpenAI provider only", () => {
+		expect(gatewayRoutingForModel("openai/gpt-5.6-terra")).toEqual({
+			only: ["openai"],
+		});
+	});
+
+	it("leaves other creators on the gateway's default routing", () => {
+		expect(gatewayRoutingForModel("xai/grok-4.5")).toEqual({});
+		expect(gatewayRoutingForModel("anthropic/claude-opus-5")).toEqual({});
+	});
+
+	it("survives attribution on vercel", () => {
+		const options = withLlmAttribution(
+			{ gateway: gatewayRoutingForModel("openai/gpt-5.6-terra") },
+			CONTEXT,
+			"chat",
+		);
+
+		expect(options).toEqual({
+			gateway: {
+				only: ["openai"],
+				tags: ["op:chat", "ws:personal"],
+				user: "user-1",
+			},
+		});
 	});
 });
 
