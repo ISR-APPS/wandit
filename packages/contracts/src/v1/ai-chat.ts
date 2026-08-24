@@ -5,6 +5,7 @@ import { composerMetadataSchema } from "./chats";
 import {
 	imageGenerationAspectSchema,
 	MAX_IMAGES_PER_GENERATION,
+	MAX_SOURCE_IMAGES_PER_GENERATION,
 } from "./image-generations";
 import { marketingAssetTypeSchema } from "./marketing-assets";
 import {
@@ -845,8 +846,19 @@ export const generateImageInputSchema = z.object({
 	aspect: imageGenerationAspectSchema,
 	count: z.number().int().min(1).max(MAX_IMAGES_PER_GENERATION).default(1),
 	// URLs of images the user attached in this conversation to edit or stay
-	// faithful to. Each MUST exactly match a user-provided attachment.
-	sourceImageUrls: z.array(z.url()).max(3).default([]),
+	// faithful to. Each MUST exactly match a user-provided attachment. No zod
+	// maximum on purpose: the tool keeps the first
+	// MAX_SOURCE_IMAGES_PER_GENERATION and reports the rest, so a long list
+	// degrades gracefully instead of failing tool-input validation.
+	sourceImageUrls: z
+		.array(z.url())
+		.default([])
+		.describe(
+			"Exact URLs of images the user attached in this conversation, at " +
+				`most ${MAX_SOURCE_IMAGES_PER_GENERATION}. Only the first ` +
+				`${MAX_SOURCE_IMAGES_PER_GENERATION} are used; extras are skipped ` +
+				"and reported back.",
+		),
 	placement: generateImagePlacementSchema.optional(),
 });
 
@@ -863,7 +875,11 @@ export type GenerateImageOutput = z.infer<typeof generateImageOutputSchema>;
 
 /** apply_element_ops — a bounded batch of targeted, AI-safe page mutations. */
 export const applyElementOpsInputSchema = z.object({
-	ops: z.array(aiElementOpSchema).min(1).max(20),
+	ops: z
+		.array(aiElementOpSchema)
+		.min(1)
+		.max(20)
+		.describe("1 to 20 ops. Never send an empty list."),
 });
 
 export const applyElementOpsOutputSchema = z.object({

@@ -70,6 +70,7 @@ import {
 	type Tool,
 	type ToolCallRepairFunction,
 } from "ai";
+import { z } from "zod";
 import {
 	aiChatToolsForValidation,
 	type ChatAgentDeps,
@@ -262,6 +263,15 @@ describe("chat agent cost bounds and gateway attribution", () => {
 				model: aiMocks.settings?.model,
 			}),
 		);
+		// The repair model sees what it sent and why it was rejected.
+		const repairMessage = (
+			aiMocks.generateObject.mock.calls[0]?.[0] as {
+				messages: Array<{ content: string }>;
+			}
+		).messages.at(-1)?.content;
+		expect(repairMessage).toContain(toolCall.input);
+		expect(repairMessage).toContain("Unexpected end of JSON input");
+		expect(repairMessage).not.toContain("cut off before the JSON closed");
 
 		const unknownTool = await repairToolCall({
 			...repairOptions,
@@ -276,6 +286,83 @@ describe("chat agent cost bounds and gateway attribution", () => {
 			error: invalidToolInputError,
 		});
 		expect(failedRepair).toBeNull();
+	});
+
+	it("names the zod issues and validates the repair with the tool's own schema", async () => {
+		const repairedObject = {
+			sourceImageUrls: ["https://assets.example.com/uploads/u/a.jpg"],
+		};
+		aiMocks.generateObject.mockResolvedValueOnce({ object: repairedObject });
+
+		createChatAgent({
+			availableImages: [],
+			chatId: "chat-1",
+			imageGenerationsRepository: {},
+			leadScrapesRepository: {},
+			marketingAssetsRepository: {},
+			mediaGenerationsRepository: {},
+			meteringService: {},
+			pageEditsService: {},
+			pagesRepository: {},
+			projectId: "project-1",
+			requestCountryCode: null,
+			subject: { actorUserId: "user-1" },
+			userId: "user-1",
+		} as never);
+
+		const repairToolCall = aiMocks.settings
+			?.experimental_repairToolCall as ToolCallRepairFunction<
+			Record<string, Tool>
+		>;
+		const schema = z.object({ sourceImageUrls: z.array(z.url()).max(1) });
+		const toolInput = JSON.stringify({
+			sourceImageUrls: [
+				"https://assets.example.com/uploads/u/a.jpg",
+				"https://assets.example.com/uploads/u/b.jpg",
+			],
+		});
+		// Real chain: InvalidToolInputError → TypeValidationError → ZodError.
+		const zodError = schema.safeParse(JSON.parse(toolInput)).error;
+		const error = new InvalidToolInputError({
+			cause: Object.assign(new Error("Type validation failed"), {
+				cause: zodError,
+			}),
+			toolInput,
+			toolName: "generate_image",
+		});
+		const inputSchema = vi.fn(async () => ({
+			properties: {},
+			type: "object" as const,
+		}));
+
+		const repaired = await repairToolCall({
+			error,
+			inputSchema,
+			instructions: "You are the Wandit chat agent.",
+			messages: [{ content: "Make a product shot", role: "user" as const }],
+			system: undefined,
+			toolCall: {
+				input: toolInput,
+				toolCallId: "tool-call-2",
+				toolName: "generate_image",
+				type: "tool-call" as const,
+			},
+			tools: { generate_image: { inputSchema } as unknown as Tool },
+		});
+
+		expect(repaired?.input).toBe(JSON.stringify(repairedObject));
+		// The tool's own schema validates the repair; the SDK-derived JSON
+		// document is only the fallback for tools without one.
+		expect(inputSchema).not.toHaveBeenCalled();
+		const call = aiMocks.generateObject.mock.calls.at(-1)?.[0] as {
+			messages: Array<{ content: string }>;
+			schema: unknown;
+		};
+		expect(call.schema).toBe(inputSchema);
+		const repairMessage = call.messages.at(-1)?.content ?? "";
+		expect(repairMessage).toContain("sourceImageUrls: Too big");
+		expect(repairMessage).toContain(toolInput);
+		expect(repairMessage).not.toContain("cut off");
 	});
 
 	describe("tool-call repair metering", () => {
@@ -330,6 +417,70 @@ describe("chat agent cost bounds and gateway attribution", () => {
 					providerUsage: { inputTokens: 12, outputTokens: 4 },
 				},
 			});
+		});
+
+		it("meters the provider call once, at step end, even when the schema rejects the repair", async () => {
+			const stepEnd = {
+				providerMetadata: { gateway: { generationId: "repair-gen" } },
+				usage: { inputTokens: 1200, outputTokens: 6 },
+			};
+			// The real SDK reports the step BEFORE it validates the object, then
+			// throws NoObjectGeneratedError — which carries no generation id.
+			aiMocks.generateObject.mockImplementationOnce(
+				async (options: {
+					onStepEnd?: (event: typeof stepEnd) => Promise<void>;
+				}) => {
+					await options.onStepEnd?.(stepEnd);
+					throw new Error(
+						"No object generated: response did not match schema.",
+					);
+				},
+			);
+			const captureGeneration = vi.fn(async () => undefined);
+			const repair = createChatToolCallRepair({
+				captureGeneration,
+				model: {} as never,
+			});
+
+			const repaired = await repair({
+				...repairOptions,
+				error: invalidToolInputError,
+			});
+
+			expect(repaired).toBeNull();
+			expect(captureGeneration).toHaveBeenCalledTimes(1);
+			expect(captureGeneration).toHaveBeenCalledWith({
+				providerMetadata: stepEnd.providerMetadata,
+				stepUsage: {
+					metering: {
+						customerBilling: "helper_billable",
+						task: "tool_call_repair",
+					},
+					providerUsage: stepEnd.usage,
+				},
+			});
+
+			// A successful repair reports the same call twice (step end, then
+			// the result); it is still captured once.
+			aiMocks.generateObject.mockImplementationOnce(
+				async (options: {
+					onStepEnd?: (event: typeof stepEnd) => Promise<void>;
+				}) => {
+					await options.onStepEnd?.(stepEnd);
+					return { object: { brief: "complete" }, ...stepEnd };
+				},
+			);
+			captureGeneration.mockClear();
+
+			const repairedTwice = await repair({
+				...repairOptions,
+				error: invalidToolInputError,
+			});
+
+			expect(JSON.parse(repairedTwice?.input ?? "")).toEqual({
+				brief: "complete",
+			});
+			expect(captureGeneration).toHaveBeenCalledTimes(1);
 		});
 
 		it("keeps the repaired call when the capture fails", async () => {
