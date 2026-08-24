@@ -31,6 +31,7 @@ vi.mock("@trigger.dev/sdk", () => ({
 
 vi.mock("../../ai-provider/domain/llm-provider", () => ({
 	createLlmModel: vi.fn(() => "mock/model"),
+	gatewayRoutingForModel: vi.fn(() => ({ only: ["openai"] })),
 	withLlmAttribution: (
 		providerOptions: Record<string, unknown>,
 		context: {
@@ -41,6 +42,8 @@ vi.mock("../../ai-provider/domain/llm-provider", () => ({
 	) => ({
 		...providerOptions,
 		gateway: {
+			// Mirrors withGatewayAttribution: routing pins survive attribution.
+			...(providerOptions.gateway as Record<string, unknown>),
 			tags: [
 				`op:${context.operation}`,
 				context.organizationId ? "ws:org" : "ws:personal",
@@ -116,6 +119,7 @@ describe("chat agent cost bounds and gateway attribution", () => {
 			maxOutputTokens: AI_CHAT_MAX_OUTPUT_TOKENS,
 			providerOptions: {
 				gateway: {
+					only: ["openai"],
 					tags: ["op:chat", "ws:personal"],
 					user: "user-1",
 				},

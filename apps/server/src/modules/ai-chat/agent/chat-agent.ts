@@ -18,6 +18,7 @@ import {
 } from "ai";
 import {
 	createLlmModel,
+	gatewayRoutingForModel,
 	withLlmAttribution,
 } from "../../ai-provider/domain/llm-provider";
 import type { McpToolApprovalMap } from "../../mcp-connectors/domain/mcp-tool-policy";
@@ -449,6 +450,10 @@ export function createChatAgent(
 			{
 				// Anthropic's fine-grained tool streaming can emit unvalidated JSON.
 				anthropic: { toolStreaming: false },
+				// Provider pin: an openai/* brain talks to OpenAI only — never the
+				// gateway's Azure/Bedrock fallbacks, whose stalls turned one failed
+				// turn into a 13-minute wait. Attribution is merged in below.
+				gateway: gatewayRoutingForModel(env.AI_CHAT_MODEL),
 				// Gemini thinking level — only Google models read this key; every
 				// other provider ignores it. MEDIUM: the launch-window compromise
 				// between snappy chat replies and brief quality (2026-07-26).

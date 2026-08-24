@@ -206,6 +206,24 @@ export function withLlmAttribution<T extends Record<string, unknown>>(
 }
 
 /**
+ * Gateway routing pin for a model, to spread into `providerOptions.gateway`
+ * (withGatewayAttribution keeps it next to the attribution block).
+ *
+ * The Vercel gateway serves `openai/*` models from OpenAI, Azure, AND Bedrock
+ * and fails over between them. The fallbacks are slower, and when one stalls
+ * the gateway waits out its whole routing budget before it errors — that is
+ * how a chat turn took 13 minutes to fail on 2026-08-24. Pin OpenAI-made
+ * models to OpenAI itself: a fast, honest error beats a slow fallback.
+ * Other creators keep the gateway's default routing, and OpenRouter ignores
+ * the `gateway` key entirely, so the pin is safe to send on every path.
+ */
+export function gatewayRoutingForModel(
+	modelId: string,
+): Record<string, JSONValue> {
+	return modelId.startsWith("openai/") ? { only: ["openai"] } : {};
+}
+
+/**
  * OpenRouter surfaces its generation id ("gen-…") as the HTTP response id,
  * not inside providerMetadata — but metering capture reads ONLY
  * providerMetadata (step.providerMetadata in onStepEnd). This middleware

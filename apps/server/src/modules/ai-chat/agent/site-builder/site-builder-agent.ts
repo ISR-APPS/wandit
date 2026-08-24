@@ -27,6 +27,7 @@ import * as cheerio from "cheerio";
 import { z } from "zod";
 import {
 	createLlmModel,
+	gatewayRoutingForModel,
 	withLlmAttribution,
 } from "../../../ai-provider/domain/llm-provider";
 import type { MeteringSubject } from "../../../credits/domain/credit-owner";
@@ -1515,7 +1516,13 @@ export async function runSiteBuild(
 			// preference stays scoped to K2-era models. Qwen's default routing
 			// lands on Alibaba Cloud/Together at ~55 tps; Fireworks serves the
 			// same models at ~330 tps (gateway P50 chart, 2026-07-26).
-			...(routingOrder ? { gateway: { order: routingOrder } } : {}),
+			// An openai/* builder (luna in prod) is pinned to OpenAI itself — see
+			// gatewayRoutingForModel. The two knobs never overlap: the pin covers
+			// openai/* models, the order preferences cover Kimi/Qwen.
+			gateway: {
+				...gatewayRoutingForModel(params.model),
+				...(routingOrder ? { order: routingOrder } : {}),
+			},
 		},
 		buildMeteringContext,
 		"page_build",
