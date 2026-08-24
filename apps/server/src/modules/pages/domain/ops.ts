@@ -304,7 +304,7 @@ function applyOne(
 			// Re-check the allowlist here (defense in depth): the AI path
 			// builds EditOps with no zod schema between it and the DOM.
 			if (!isSafeLinkHref(op.value)) {
-				return "href must use https, http, tel: or mailto:";
+				return "href must use https, http, tel:, mailto:, or a same-page #anchor";
 			}
 
 			if (!match.is("a")) {

@@ -13,6 +13,7 @@ import type { ImageGenerationsRepository } from "../../../image-generations/infr
 import type { MeteringService } from "../../../metering/application/services/metering.service";
 import { MeteringStateConflictError } from "../../../metering/domain/metering";
 import type { PagesRepository } from "../../../pages/infrastructure/persistence/pages.repository";
+import type { AvailableImage } from "./animate-image.tool";
 import { createGenerateImageTool } from "./generate-image.tool";
 
 const mockEnv = vi.hoisted(() => ({
@@ -54,7 +55,11 @@ const INPUT = {
 } satisfies GenerateImageInput;
 
 function setup(
-	options: { organizationId?: string; parentEventId?: string } = {},
+	options: {
+		availableImages?: readonly AvailableImage[];
+		organizationId?: string;
+		parentEventId?: string;
+	} = {},
 ) {
 	const imageGenerationsRepository = {
 		insertAttempt: vi.fn(),
@@ -84,7 +89,7 @@ function setup(
 		}),
 	};
 	const imageTool = createGenerateImageTool({
-		availableImages: [],
+		availableImages: options.availableImages ?? [],
 		chatId: "chat_1",
 		imageGenerationsRepository:
 			imageGenerationsRepository as unknown as ImageGenerationsRepository,
@@ -405,5 +410,104 @@ describe("generate_image billing", () => {
 		).rejects.toBeInstanceOf(MeteringStateConflictError);
 
 		expect(tasks.trigger).not.toHaveBeenCalled();
+	});
+});
+
+describe("generate_image source photos", () => {
+	const sourceUrls = Array.from(
+		{ length: 8 },
+		(_, index) =>
+			`https://assets.example.com/uploads/user_1/photo-${index + 1}.jpg`,
+	);
+	const standaloneInput: GenerateImageInput = {
+		aspect: INPUT.aspect,
+		count: 1,
+		prompt: INPUT.prompt,
+		sourceImageUrls: [],
+		title: INPUT.title,
+	};
+
+	function queueable(availableUrls: readonly string[]) {
+		const context = setup({
+			availableImages: availableUrls.map((url) => ({
+				mediaType: "image/jpeg" as const,
+				url,
+			})),
+		});
+		context.imageGenerationsRepository.insertAttempt.mockResolvedValue({
+			created: true,
+			id: ATTEMPT_ID,
+			status: "queued",
+		});
+		vi.mocked(tasks.trigger).mockResolvedValue({
+			id: "run_123",
+		} as Awaited<ReturnType<typeof tasks.trigger>>);
+
+		return context;
+	}
+
+	it("keeps the first six distinct sources and tells the model about the rest", async () => {
+		const { execute, imageGenerationsRepository } = queueable(sourceUrls);
+
+		const output = await execute({
+			...standaloneInput,
+			// A repeated URL is one photo, not a skipped one.
+			sourceImageUrls: [...sourceUrls, sourceUrls[0] as string],
+		});
+
+		expect(imageGenerationsRepository.insertAttempt).toHaveBeenCalledWith(
+			expect.objectContaining({ sourceImageUrls: sourceUrls.slice(0, 6) }),
+		);
+		expect(output).toMatchObject({
+			attemptId: ATTEMPT_ID,
+			message: expect.stringContaining(
+				"the first 6 were used and 2 were skipped",
+			),
+			status: "queued",
+		});
+		expect((output as { message: string }).message).toContain(
+			"Tell the user this gently",
+		);
+	});
+
+	it("never checks ownership of a skipped source", async () => {
+		// Only the six kept photos are attachments; the two extras are not.
+		const { execute } = queueable(sourceUrls.slice(0, 6));
+
+		const output = await execute({
+			...standaloneInput,
+			sourceImageUrls: sourceUrls,
+		});
+
+		expect(output).toMatchObject({ attemptId: ATTEMPT_ID, status: "queued" });
+	});
+
+	it("keeps the note when Trigger.dev does not confirm the handoff", async () => {
+		const { execute } = queueable(sourceUrls);
+		vi.mocked(tasks.trigger).mockRejectedValue(new Error("socket hang up"));
+
+		const output = await execute({
+			...standaloneInput,
+			sourceImageUrls: sourceUrls,
+		});
+
+		expect(output).toMatchObject({
+			attemptId: ATTEMPT_ID,
+			message: expect.stringContaining("did not confirm the handoff"),
+			status: "queued",
+		});
+		expect((output as { message: string }).message).toContain("2 were skipped");
+	});
+
+	it("adds no note when every source fits", async () => {
+		const { execute } = queueable(sourceUrls);
+
+		const output = await execute({
+			...standaloneInput,
+			sourceImageUrls: sourceUrls.slice(0, 6),
+		});
+
+		expect(output).toMatchObject({ attemptId: ATTEMPT_ID, status: "queued" });
+		expect((output as { message: string }).message).not.toContain("skipped");
 	});
 });

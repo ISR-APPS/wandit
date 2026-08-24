@@ -81,9 +81,10 @@ export const SECTION_PADDING_CSS: Record<SectionPaddingStep, string> = {
 
 /**
  * Allowlisted link href (set-link-href): https/http URLs without embedded
- * credentials, tel: numbers, and mailto: addresses. Everything else —
- * javascript:, data:, vbscript:, protocol-relative, relative paths — is
- * rejected. Whitespace/control characters are rejected OUTRIGHT (browsers
+ * credentials, tel: numbers, mailto: addresses, and same-page anchors
+ * ("#gallery"). Everything else — javascript:, data:, vbscript:,
+ * protocol-relative, relative paths — is rejected. Whitespace/control
+ * characters are rejected OUTRIGHT (browsers
  * strip them inside schemes, so "java\tscript:" would otherwise run); the
  * client normalizes phone numbers to digits before building tel: hrefs.
  */
@@ -92,6 +93,14 @@ export function isSafeLinkHref(value: string): boolean {
 		if (char.charCodeAt(0) <= 0x20) {
 			return false;
 		}
+	}
+
+	// Same-page anchors carry no scheme, so they cannot run script; one-page
+	// nav links ("#gallery") need them. Quotes, angle brackets, and backticks
+	// never belong in an id, so an anchor can never break out of an attribute
+	// even on a path that concatenates HTML instead of setting an attribute.
+	if (value.startsWith("#")) {
+		return value.length > 1 && !/["'<>`\\]/.test(value);
 	}
 
 	const lowered = value.toLowerCase();
@@ -127,7 +136,10 @@ export const linkHrefSchema = z
 	.string()
 	.min(1)
 	.max(2048)
-	.refine(isSafeLinkHref, "href must use https, http, tel: or mailto:");
+	.refine(
+		isSafeLinkHref,
+		"href must use https, http, tel:, mailto:, or a same-page #anchor",
+	);
 
 export const textOpSchema = z.object({
 	kind: z.literal("text"),

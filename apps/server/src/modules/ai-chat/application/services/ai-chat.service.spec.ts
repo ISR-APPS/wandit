@@ -21,7 +21,7 @@ import {
 	readThemeOutputSchema,
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
-import type { DynamicToolUIPart, Tool } from "ai";
+import { type DynamicToolUIPart, InvalidToolInputError, type Tool } from "ai";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -36,6 +36,22 @@ const chatAgentMocks = vi.hoisted(() => ({
 const r2Mocks = vi.hoisted(() => ({
 	getPageHtml: vi.fn(),
 }));
+const sentryMocks = vi.hoisted(() => ({
+	captureException: vi.fn(),
+}));
+
+vi.mock("@wandit/observability/nestjs", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("@wandit/observability/nestjs")>();
+
+	return {
+		...actual,
+		Sentry: {
+			...actual.Sentry,
+			captureException: sentryMocks.captureException,
+		},
+	};
+});
 
 vi.mock("ai", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("ai")>();
@@ -1348,6 +1364,51 @@ describe("AiChatService MCP lifecycle", () => {
 			},
 		);
 		expect(meteringService.settle).not.toHaveBeenCalled();
+		options.prepared.release();
+	});
+
+	it("captures a real stream failure after an invalid tool input warning", async () => {
+		const { service } = buildService();
+		const options = streamOptions();
+
+		await service.stream(options);
+		await capturedExecute()({
+			writer: { merge: vi.fn(), write: vi.fn() },
+		});
+		const agentOptions = capturedAgentStreamOptions();
+		const invalidInput = new InvalidToolInputError({
+			cause: new Error("Too big: expected array to have <=6 items"),
+			toolInput: '{"sourceImageUrls":[]}',
+			toolName: "generate_image",
+		});
+		const providerError = new Error("gateway failed");
+
+		// The SDK reports an invalid call twice: the error, then its text for the
+		// tool-error chunk. Neither may arm the fatal-error latch: the tool loop
+		// continues, and a later real failure still needs its capture.
+		expect(agentOptions.onError?.(invalidInput)).toBe(invalidInput.message);
+		expect(agentOptions.onError?.(String(invalidInput))).toBe(
+			"An error occurred.",
+		);
+		expect(agentOptions.onError?.(providerError)).toBe("An error occurred.");
+
+		expect(sentryMocks.captureException).toHaveBeenCalledTimes(2);
+		expect(sentryMocks.captureException).toHaveBeenNthCalledWith(
+			1,
+			invalidInput,
+			expect.objectContaining({
+				fingerprint: ["ai-chat", "invalid-tool-input", "generate_image"],
+				level: "warning",
+				tags: expect.objectContaining({ toolName: "generate_image" }),
+			}),
+		);
+		expect(sentryMocks.captureException).toHaveBeenNthCalledWith(
+			2,
+			providerError,
+			expect.objectContaining({
+				tags: expect.objectContaining({ chatId: expect.any(String) }),
+			}),
+		);
 		options.prepared.release();
 	});
 
