@@ -2333,6 +2333,39 @@ describe("generate_image tool", () => {
 		);
 		expect(state.imagesGenerated).toBe(MAX_IMAGES);
 	});
+
+	it("keeps the first six distinct source photos", async () => {
+		const { options, tools } = setup();
+		vi.mocked(generateBuildImage).mockResolvedValue({
+			height: 1024,
+			imageBase64: "aW1n",
+			mediaType: "image/png",
+			model: "test/image-model",
+			providerMetadata: {},
+			status: "generated",
+			url: "https://assets.example.com/img-sources.png",
+			width: 1536,
+			usage: { inputTokens: 9, outputTokens: 2 },
+		});
+		const sourceImageUrls = Array.from(
+			{ length: 8 },
+			(_, index) => `https://assets.example.com/uploads/u/photo-${index}.jpg`,
+		);
+
+		const output = await tools.generate_image.execute?.(
+			{
+				...IMAGE_INPUT,
+				// A repeated URL is one photo; the two extras are dropped.
+				sourceImageUrls: [sourceImageUrls[0] as string, ...sourceImageUrls],
+			},
+			options("img_sources"),
+		);
+
+		expect(output).toMatchObject({ status: "generated" });
+		expect(generateBuildImage).toHaveBeenLastCalledWith(
+			expect.objectContaining({ sourceImageUrls: sourceImageUrls.slice(0, 6) }),
+		);
+	});
 });
 
 describe("animate_image tool", () => {

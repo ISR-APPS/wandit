@@ -10,6 +10,7 @@ import {
 	generateImageInputSchema,
 	imageGenerationAttemptSchema,
 	insertSectionInputSchema,
+	MAX_SOURCE_IMAGES_PER_GENERATION,
 } from "@wandit/contracts";
 import { describe, expect, it } from "vitest";
 
@@ -413,5 +414,69 @@ describe("generate_image placement contract", () => {
 				placement: { status: "queued" },
 			}).success,
 		).toBe(false);
+	});
+});
+
+describe("generate_image source photos contract", () => {
+	const baseInput = {
+		aspect: "4:5",
+		prompt: "Editorial product photo in a warm studio",
+		title: "Hero product image",
+	} as const;
+	const sourceImageUrls = Array.from(
+		{ length: MAX_SOURCE_IMAGES_PER_GENERATION + 2 },
+		(_, index) => `https://assets.example.com/uploads/u/photo-${index}.jpg`,
+	);
+
+	it("accepts more sources than one generation uses — the tool trims them", () => {
+		// A hard zod cap here would fail the whole tool call (Sentry
+		// WANDIT-SERVER-1Y); trimming with a note is the tool's job.
+		expect(
+			generateImageInputSchema.safeParse({ ...baseInput, sourceImageUrls })
+				.success,
+		).toBe(true);
+	});
+
+	it("tells the model the cap in the schema description", () => {
+		expect(
+			generateImageInputSchema.shape.sourceImageUrls.description,
+		).toContain(`at most ${MAX_SOURCE_IMAGES_PER_GENERATION}`);
+	});
+});
+
+describe("apply_element_ops link hrefs", () => {
+	const op = (value: string) => ({
+		ops: [{ kind: "set-link-href", value, wid: "contact-link" }],
+	});
+
+	it.each([
+		"#gallery",
+		"#order-form",
+		"https://example.com/",
+		"tel:+212611111111",
+		"mailto:hello@example.com",
+	])("accepts %s", (value) => {
+		expect(applyElementOpsInputSchema.safeParse(op(value)).success).toBe(true);
+	});
+
+	it.each([
+		"#",
+		"#gal lery",
+		'#"><script>',
+		"#a'b",
+		"/contact",
+		"javascript:alert(1)",
+		"//evil",
+	])("rejects %s", (value) => {
+		expect(applyElementOpsInputSchema.safeParse(op(value)).success).toBe(false);
+	});
+
+	it("rejects an empty op list and says so in the schema description", () => {
+		expect(applyElementOpsInputSchema.safeParse({ ops: [] }).success).toBe(
+			false,
+		);
+		expect(applyElementOpsInputSchema.shape.ops.description).toContain(
+			"Never send an empty list",
+		);
 	});
 });
