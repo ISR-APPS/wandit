@@ -10,6 +10,7 @@ import {
 	type AdminAnalyticsOverviewMetricsRepositorySnapshot,
 	AdminAnalyticsRepository,
 } from "./admin-analytics.repository";
+import { withAdminReadSnapshot } from "./admin-read-snapshot";
 
 type NumericValue = bigint | number | string | null;
 
@@ -151,52 +152,46 @@ export class AdminOverviewRepository {
 	async getOverview(
 		input: AdminDashboardRangeBounds,
 	): Promise<AdminOverviewRepositorySnapshot> {
-		return this.db.transaction(
-			async (transaction) => {
-				const [
-					growth,
-					revenue,
-					usage,
-					assets,
-					generation,
-					recentSignals,
-					overviewMetrics,
-				] = await Promise.all([
-					this.getGrowth(transaction, input),
-					this.getRevenue(transaction, input),
-					this.getUsage(transaction, input),
-					this.getAssetTotals(transaction, input),
-					this.getGenerationHealth(transaction, input),
-					this.getRecentSignals(transaction, input),
-					this.adminAnalyticsRepository.getOverviewMetrics(transaction, input),
-				]);
+		return withAdminReadSnapshot(this.db, async (client) => {
+			const [
+				growth,
+				revenue,
+				usage,
+				assets,
+				generation,
+				recentSignals,
+				overviewMetrics,
+			] = await Promise.all([
+				this.getGrowth(client, input),
+				this.getRevenue(client, input),
+				this.getUsage(client, input),
+				this.getAssetTotals(client, input),
+				this.getGenerationHealth(client, input),
+				this.getRecentSignals(client, input),
+				this.adminAnalyticsRepository.getOverviewMetrics(client, input),
+			]);
 
-				const firstGrowthPoint = growth.points[0];
-				const lastGrowthPoint = growth.points.at(-1);
+			const firstGrowthPoint = growth.points[0];
+			const lastGrowthPoint = growth.points.at(-1);
 
-				return {
-					periodStart: firstGrowthPoint?.date ?? utcDate(input.rangeStart),
-					periodEnd: lastGrowthPoint?.date ?? utcDate(input.seriesEnd),
-					revenue: revenue.summary,
-					totals: {
-						...growth.summary,
-						...usage.summary,
-						...assets,
-					},
-					generation: generation.summary,
-					revenueSeries: revenue.points,
-					growthSeries: growth.points,
-					generationSeries: generation.points,
-					modelUsage: usage.models,
-					recentSignals,
-					overviewMetrics,
-				};
-			},
-			{
-				accessMode: "read only",
-				isolationLevel: "repeatable read",
-			},
-		);
+			return {
+				periodStart: firstGrowthPoint?.date ?? utcDate(input.rangeStart),
+				periodEnd: lastGrowthPoint?.date ?? utcDate(input.seriesEnd),
+				revenue: revenue.summary,
+				totals: {
+					...growth.summary,
+					...usage.summary,
+					...assets,
+				},
+				generation: generation.summary,
+				revenueSeries: revenue.points,
+				growthSeries: growth.points,
+				generationSeries: generation.points,
+				modelUsage: usage.models,
+				recentSignals,
+				overviewMetrics,
+			};
+		});
 	}
 
 	private async getGrowth(
@@ -424,7 +419,6 @@ export class AdminOverviewRepository {
 		client: AdminOverviewDbClient,
 		input: AdminDashboardRangeBounds,
 	) {
-		// TODO(perf): add an ai_usage_events index leading with created_at for these platform-wide range scans.
 		const [totalsResult, modelsResult] = await Promise.all([
 			client.execute<UsageTotalsRow>(sql`
 				with bounds as (${overviewBounds(input)}),

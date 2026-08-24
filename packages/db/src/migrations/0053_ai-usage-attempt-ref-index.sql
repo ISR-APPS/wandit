@@ -1,0 +1,1 @@
+CREATE INDEX "ai_usage_events_attemptRef_operation_createdAt_idx" ON "ai_usage_events" USING btree ("attempt_ref","operation","created_at") WHERE "ai_usage_events"."attempt_ref" IS NOT NULL;
