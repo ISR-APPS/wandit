@@ -11,7 +11,10 @@
  * finish. Successful writes and edits count as their own source review.
  */
 
-import { PAGE_TOKEN_NAMES } from "@wandit/contracts";
+import {
+	MAX_SOURCE_IMAGES_PER_GENERATION,
+	PAGE_TOKEN_NAMES,
+} from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import {
 	isStepCount,
@@ -432,7 +435,12 @@ export type BuilderTools = {
 	>;
 	finish: Tool<{ summary: string }, FinishOutput>;
 	generate_image: Tool<
-		{ aspect: BuildImageAspect; prompt: string; role: string },
+		{
+			aspect: BuildImageAspect;
+			prompt: string;
+			role: string;
+			sourceImageUrls?: string[];
+		},
 		GenerateImageOutput
 	>;
 	list_files: Tool<
@@ -897,13 +905,35 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 				prompt: z.string().min(20),
 				role: z.string().min(1),
 				// User asset URLs from the brief's BRAND ASSETS — edit the user's
-				// real photos instead of inventing the product.
-				sourceImageUrls: z.array(z.url()).max(3).optional(),
+				// real photos instead of inventing the product. No zod maximum: the
+				// first MAX_SOURCE_IMAGES_PER_GENERATION are kept below.
+				sourceImageUrls: z
+					.array(z.url())
+					.optional()
+					.describe(
+						"Exact user photo URLs from the brief, at most " +
+							`${MAX_SOURCE_IMAGES_PER_GENERATION}.`,
+					),
 			}),
 			execute: async (
-				{ aspect, prompt, role, sourceImageUrls },
+				{ aspect, prompt, role, sourceImageUrls: requestedSourceImageUrls },
 				{ toolCallId },
 			): Promise<GenerateImageOutput> => {
+				// Keep the first MAX_SOURCE_IMAGES_PER_GENERATION distinct sources:
+				// the edit model takes no more, and a rejected call would cost the
+				// builder a step.
+				const sourceImageUrls = [
+					...new Set(requestedSourceImageUrls ?? []),
+				].slice(0, MAX_SOURCE_IMAGES_PER_GENERATION);
+				const requestedSourceCount = requestedSourceImageUrls?.length ?? 0;
+
+				if (sourceImageUrls.length < requestedSourceCount) {
+					log(
+						`generate_image (${role}): kept ${sourceImageUrls.length} of ` +
+							`${requestedSourceCount} source photos`,
+					);
+				}
+
 				if (state.imageSequence >= MAX_IMAGES) {
 					return {
 						message:
@@ -922,7 +952,7 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 				const index = state.imageSequence;
 				emitEvent({ role, type: "image-start" });
 				const imageModel =
-					sourceImageUrls?.length && env.AI_IMAGE_EDIT_MODEL
+					sourceImageUrls.length > 0 && env.AI_IMAGE_EDIT_MODEL
 						? env.AI_IMAGE_EDIT_MODEL
 						: (env.AI_IMAGE_MODEL ?? null);
 				const childReservation =
@@ -970,7 +1000,7 @@ export function createBuilderTools(params: BuilderToolsParams): BuilderTools {
 						: {}),
 					projectId: params.projectId,
 					prompt,
-					...(sourceImageUrls?.length ? { sourceImageUrls } : {}),
+					...(sourceImageUrls.length > 0 ? { sourceImageUrls } : {}),
 				});
 
 				if (result.status !== "generated") {

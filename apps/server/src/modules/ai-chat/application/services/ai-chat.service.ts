@@ -866,6 +866,9 @@ export class AiChatService {
 				execute: async ({ writer }) => {
 					let wroteBillingError = false;
 					let streamErrorCaptured = false;
+					// Text forms of invalid tool inputs already captured as warnings:
+					// the SDK replays each one as plain text for its tool-error chunk.
+					const invalidToolInputTexts = new Set<string>();
 					// The settle signal must never reach a writer the outer onEnd
 					// already closed.
 					const writeCreditsSettled = async (
@@ -921,6 +924,25 @@ export class AiChatService {
 							// not be captured for an expected refusal either.
 							streamErrorCaptured = true;
 							return "Insufficient credits.";
+						}
+
+						// An invalid tool input is a warning: the tool loop continues,
+						// so it must not arm the fatal-error latch below — a later real
+						// failure still needs its capture. Its plain-text replay is
+						// recognised by content instead of by the latch.
+						if (InvalidToolInputError.isInstance(error)) {
+							invalidToolInputTexts.add(error.message);
+							invalidToolInputTexts.add(String(error));
+
+							return this.handleStreamError(error, {
+								chatId,
+								projectId,
+								userId,
+							});
+						}
+
+						if (typeof error === "string" && invalidToolInputTexts.has(error)) {
+							return this.streamErrorMessage(error);
 						}
 
 						// The SDK invokes onError twice per failure: first with the
@@ -1394,8 +1416,23 @@ export class AiChatService {
 		context: { chatId: string; projectId: string; userId: string },
 	): string {
 		// Stream onError never reaches any exception filter — capture explicitly.
-		Sentry.captureException(error, { tags: context });
-		this.logger.error("AI chat stream failed", error);
+		if (InvalidToolInputError.isInstance(error)) {
+			// The SDK hands the validation error back to the model and the tool
+			// loop continues, so this is a warning, not a failed request. One
+			// fingerprint per tool keeps distinct schema gaps from grouping under
+			// the SDK's shared parse-tool-call frame.
+			Sentry.captureException(error, {
+				fingerprint: ["ai-chat", "invalid-tool-input", error.toolName],
+				level: "warning",
+				tags: { ...context, toolName: error.toolName },
+			});
+			this.logger.warn(
+				`AI chat tool input rejected for ${error.toolName}: ${error.message}`,
+			);
+		} else {
+			Sentry.captureException(error, { tags: context });
+			this.logger.error("AI chat stream failed", error);
+		}
 
 		return this.streamErrorMessage(error);
 	}

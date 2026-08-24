@@ -17,6 +17,7 @@ import {
 	type GenerateImageOutput,
 	generateImageInputSchema,
 	generateImageOutputSchema,
+	MAX_SOURCE_IMAGES_PER_GENERATION,
 } from "@wandit/contracts";
 import { env } from "@wandit/env/server";
 import { type Tool, tool } from "ai";
@@ -76,10 +77,13 @@ export function createGenerateImageTool(
 			"image's verified data-wid; the selected generated result is applied " +
 			"to the page automatically when ready. Do not ask for an attachment " +
 			"just to place a generated image. To feature the user's REAL product " +
-			"or logo faithfully, pass the " +
-			"exact URLs of images they attached as sourceImageUrls — the " +
-			"generator edits/stays faithful to them. Without sources it " +
-			"generates from the prompt alone. Call once per requested set.",
+			"or logo faithfully, pass the exact URLs of images they attached as " +
+			`sourceImageUrls (at most ${MAX_SOURCE_IMAGES_PER_GENERATION}) — the ` +
+			"generator edits/stays faithful to them. When the user attached " +
+			"more, pick the most representative ones (front, back, details, " +
+			"logo); any extras are skipped and the result says so — relay that " +
+			"gently to the user. Without sources it generates from the prompt " +
+			"alone. Call once per requested set.",
 		inputSchema: generateImageInputSchema,
 		outputSchema: generateImageOutputSchema,
 		execute: async (input, options): Promise<GenerateImageOutput> => {
@@ -99,7 +103,22 @@ export function createGenerateImageTool(
 				};
 			}
 
-			const sourceImageUrls = input.sourceImageUrls ?? [];
+			// Keep the first MAX_SOURCE_IMAGES_PER_GENERATION distinct sources and
+			// tell the model about the rest: a user who attached eight photos gets
+			// a gentle note, never a rejected tool call.
+			const distinctSourceImageUrls = [...new Set(input.sourceImageUrls ?? [])];
+			const sourceImageUrls = distinctSourceImageUrls.slice(
+				0,
+				MAX_SOURCE_IMAGES_PER_GENERATION,
+			);
+			const skippedSourceCount =
+				distinctSourceImageUrls.length - sourceImageUrls.length;
+			// Every "queued" answer carries the note: the generation runs with the
+			// kept photos whichever handoff path reported it.
+			const skippedNote =
+				skippedSourceCount > 0
+					? ` ${skippedSourcesNote(sourceImageUrls.length, skippedSourceCount)}`
+					: "";
 
 			if (sourceImageUrls.length > 0 && !env.AI_IMAGE_EDIT_MODEL) {
 				return {
@@ -229,7 +248,7 @@ export function createGenerateImageTool(
 					attemptId: attempt.id,
 					message:
 						"This image request was already accepted. Its existing " +
-						"progress or result card appears in the conversation.",
+						`progress or result card appears in the conversation.${skippedNote}`,
 					status: "queued",
 				};
 			}
@@ -314,24 +333,42 @@ export function createGenerateImageTool(
 					message:
 						"The image request is saved, but Trigger.dev did not confirm " +
 						"the handoff yet. Its card will keep checking, and the same " +
-						"request can be retried safely.",
+						`request can be retried safely.${skippedNote}`,
 					status: "queued",
 				};
 			}
 
+			const queuedMessage = input.placement
+				? "Queued: the images are being generated in the background, and " +
+					"the selected result will replace the page image when ready. " +
+					"Progress and the results appear here and in the Assets tab."
+				: "Queued: the images are being generated in the background. " +
+					"Progress and the results appear here in the conversation and " +
+					"in the Assets tab.";
+
 			return {
 				attemptId: attempt.id,
-				message: input.placement
-					? "Queued: the images are being generated in the background, and " +
-						"the selected result will replace the page image when ready. " +
-						"Progress and the results appear here and in the Assets tab."
-					: "Queued: the images are being generated in the background. " +
-						"Progress and the results appear here in the conversation and " +
-						"in the Assets tab.",
+				message: `${queuedMessage}${skippedNote}`,
 				status: "queued",
 			};
 		},
 	});
+}
+
+/**
+ * Model-facing note when the call named more sources than one generation can
+ * use. The chat card hides this message, so the model must relay it in prose.
+ */
+export function skippedSourcesNote(
+	usedCount: number,
+	skippedCount: number,
+): string {
+	return (
+		`Note: the generator uses at most ${MAX_SOURCE_IMAGES_PER_GENERATION} ` +
+		`source photos per request, so the first ${usedCount} were used and ` +
+		`${skippedCount} ${skippedCount === 1 ? "was" : "were"} skipped. Tell ` +
+		"the user this gently in one short sentence, in their language."
+	);
 }
 
 async function validatePlacementTarget(
