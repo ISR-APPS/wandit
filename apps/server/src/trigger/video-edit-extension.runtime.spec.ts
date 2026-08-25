@@ -10,6 +10,7 @@ import {
 } from "../infrastructure/storage/r2";
 import { editVideo } from "../modules/ai-chat/agent/site-builder/edit-video";
 import { generateBuildVideo } from "../modules/ai-chat/agent/site-builder/generate-video";
+import { LifecycleEventsService } from "../modules/lifecycle-events/application/services/lifecycle-events.service";
 import {
 	runVideoWorkflow,
 	type VideoWorkflowAttempt,
@@ -25,9 +26,14 @@ import {
 } from "../modules/media-generations/application/services/video-processing";
 import {
 	createStoredFinalRecovery,
+	createVideoWorkflowRuntime,
 	executeAttempt,
 	executeExtension,
 } from "./video-edit-extension.runtime";
+
+vi.mock("./metering.runtime", () => ({
+	createTriggerMetering: vi.fn(() => ({})),
+}));
 
 vi.mock("../infrastructure/storage/r2", async (importOriginal) => {
 	const actual =
@@ -129,8 +135,33 @@ const RESERVATION = {
 	units: 2 as const,
 };
 
+const enqueueLifecycleEvent = vi.spyOn(
+	LifecycleEventsService.prototype,
+	"enqueue",
+);
+
+function successfulUpdateDatabase() {
+	const returning = vi.fn().mockResolvedValue([{ id: BASE_ATTEMPT.id }]);
+	const where = vi.fn(() => ({ returning }));
+	const set = vi.fn(() => ({ where }));
+	const update = vi.fn(() => ({ set }));
+	const transactionClient = { update };
+	const transaction = vi.fn(
+		async (callback: (client: typeof transactionClient) => Promise<unknown>) =>
+			callback(transactionClient),
+	);
+
+	return {
+		db: { transaction } as unknown as Parameters<
+			typeof createVideoWorkflowRuntime
+		>[0],
+		transactionClient,
+	};
+}
+
 beforeEach(() => {
 	vi.clearAllMocks();
+	enqueueLifecycleEvent.mockResolvedValue(null);
 	vi.mocked(downloadObjectToFile).mockImplementation(async (_key, path) => {
 		await writeFile(path, "video");
 		return true;
@@ -160,6 +191,46 @@ beforeEach(() => {
 });
 
 describe("video edit/extension Trigger runtime", () => {
+	it.each([
+		"video-edit",
+		"video-extension",
+	] as const)("persists video_generated for the queue actor after %s success", async (kind) => {
+		const { db, transactionClient } = successfulUpdateDatabase();
+		const capture = vi.fn();
+		const triggerRuntime = createVideoWorkflowRuntime(db, { capture });
+
+		await expect(
+			triggerRuntime.runner.markSucceeded(
+				{
+					...BASE_ATTEMPT,
+					kind,
+					organizationId: "org_1",
+					userId: "project_creator_1",
+				},
+				{
+					mediaType: "video/mp4",
+					url: "https://assets.test/video.mp4",
+				},
+				new Date("2026-08-24T12:00:00.000Z"),
+				"acting_member_1",
+			),
+		).resolves.toBe(true);
+
+		expect(enqueueLifecycleEvent).toHaveBeenCalledExactlyOnceWith(
+			{
+				event: "video_generated",
+				idempotencyKey: "video_generated:acting_member_1",
+				userId: "acting_member_1",
+			},
+			transactionClient,
+		);
+		expect(capture).toHaveBeenCalledWith(
+			"acting_member_1",
+			"generation_completed",
+			expect.any(Object),
+		);
+	});
+
 	it("rejects product rows before either closed workflow can execute or refund", async () => {
 		const productAttempt = {
 			...BASE_ATTEMPT,

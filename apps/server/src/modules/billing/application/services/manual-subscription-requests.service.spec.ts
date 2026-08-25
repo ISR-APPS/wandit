@@ -109,6 +109,7 @@ function productSettings(
 	return {
 		emailAuthEnabled: false,
 		id: 1,
+		lifecycleEmailsEnabled: false,
 		manualGraceDays: 0,
 		manualPaymentsEnabled: true,
 		organizationsEnabled: true,

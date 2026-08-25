@@ -1,3 +1,4 @@
+import { PgDialect } from "@wandit/db";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	getObjectContentType,
@@ -77,6 +78,33 @@ function makeImages(): GeneratedImageResult[] {
 	return [{ mediaType: "image/png", url: GENERATED_URL }];
 }
 
+function successPersistenceDb(lifecycleError?: Error) {
+	const updateReturning = vi.fn().mockResolvedValue([{ id: ATTEMPT_ID }]);
+	const updateWhere = vi.fn(() => ({ returning: updateReturning }));
+	const updateSet = vi.fn(() => ({ where: updateWhere }));
+	const update = vi.fn(() => ({ set: updateSet }));
+	const insertReturning = lifecycleError
+		? vi.fn().mockRejectedValue(lifecycleError)
+		: vi.fn().mockResolvedValue([{ id: "lifecycle_1" }]);
+	const onConflictDoNothing = vi.fn(() => ({ returning: insertReturning }));
+	const values = vi.fn(() => ({ onConflictDoNothing }));
+	const insert = vi.fn(() => ({ values }));
+	const tx = { insert, update };
+	const transaction = vi.fn(
+		async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx),
+	);
+
+	return {
+		db: { transaction },
+		insert,
+		insertReturning,
+		transaction,
+		update,
+		updateReturning,
+		values,
+	};
+}
+
 beforeEach(() => {
 	vi.mocked(generateStandaloneImage).mockReset();
 	vi.mocked(getObjectContentType).mockReset();
@@ -84,6 +112,128 @@ beforeEach(() => {
 });
 
 describe("createImageGenerationRuntime", () => {
+	it("snapshots the queue actor while claiming a queued attempt", async () => {
+		const claimed = makeAttempt();
+		claimed.status = "generating";
+		const limit = vi.fn().mockResolvedValue([claimed]);
+		const selectWhere = vi.fn(() => ({ limit }));
+		const innerJoin = vi.fn(() => ({ where: selectWhere }));
+		const from = vi.fn(() => ({ innerJoin }));
+		const select = vi.fn(() => ({ from }));
+		const returning = vi.fn().mockResolvedValue([{ id: ATTEMPT_ID }]);
+		const updateWhere = vi.fn(() => ({ returning }));
+		const set = vi.fn((_values: Record<string, unknown>) => ({
+			where: updateWhere,
+		}));
+		const update = vi.fn(() => ({ set }));
+		const runtime = createImageGenerationRuntime({ select, update } as never, {
+			capture: vi.fn(),
+		});
+		const queued = makeAttempt();
+		queued.status = "queued";
+		const startedAt = new Date("2026-01-01T00:00:00Z");
+
+		await expect(
+			runtime.runner.claimQueued(queued, {
+				actorUserId: "acting_member_2",
+				runId: "run_1",
+				startedAt,
+			}),
+		).resolves.toEqual(claimed);
+
+		expect(set).toHaveBeenCalledWith(
+			expect.objectContaining({ startedAt, triggerRunId: "run_1" }),
+		);
+		const specExpression = set.mock.calls[0]?.[0]?.spec;
+		const rendered = new PgDialect().sqlToQuery(
+			specExpression as Parameters<PgDialect["sqlToQuery"]>[0],
+		);
+		expect(rendered.sql).toContain("coalesce");
+		expect(rendered.sql).toContain("|| jsonb_build_object('actorUserId'");
+		expect(rendered.params).toContain("acting_member_2");
+	});
+
+	it("atomically records image_generated for the queue actor in an org workspace", async () => {
+		const persistence = successPersistenceDb();
+		const analytics = { capture: vi.fn() };
+		const runtime = createImageGenerationRuntime(
+			persistence.db as never,
+			analytics,
+		);
+		const attempt = makeAttempt();
+		attempt.organizationId = "org_1";
+		attempt.userId = "project_creator_1";
+
+		await expect(
+			runtime.runner.markSucceeded(
+				attempt,
+				makeImages(),
+				new Date("2026-01-01T00:05:00Z"),
+				"acting_member_2",
+			),
+		).resolves.toBe(true);
+
+		expect(persistence.transaction).toHaveBeenCalledOnce();
+		expect(persistence.values).toHaveBeenCalledWith(
+			expect.objectContaining({
+				event: "image_generated",
+				idempotencyKey: "image_generated:acting_member_2",
+				userId: "acting_member_2",
+			}),
+		);
+		expect(
+			persistence.updateReturning.mock.invocationCallOrder[0] as number,
+		).toBeLessThan(
+			persistence.insertReturning.mock.invocationCallOrder[0] as number,
+		);
+		expect(analytics.capture).toHaveBeenCalledWith(
+			"acting_member_2",
+			"generation_completed",
+			expect.objectContaining({ generationId: ATTEMPT_ID, kind: "image" }),
+		);
+	});
+
+	it("propagates an unexpected lifecycle insert failure before success commits", async () => {
+		const lifecycleError = new Error("lifecycle insert unavailable");
+		const persistence = successPersistenceDb(lifecycleError);
+		const analytics = { capture: vi.fn() };
+		const runtime = createImageGenerationRuntime(
+			persistence.db as never,
+			analytics,
+		);
+
+		await expect(
+			runtime.runner.markSucceeded(
+				makeAttempt(),
+				makeImages(),
+				new Date("2026-01-01T00:05:00Z"),
+				"user_1",
+			),
+		).rejects.toBe(lifecycleError);
+		expect(analytics.capture).not.toHaveBeenCalled();
+	});
+
+	it("does not enqueue when the guarded success transition loses its race", async () => {
+		const persistence = successPersistenceDb();
+		persistence.updateReturning.mockResolvedValueOnce([]);
+		const analytics = { capture: vi.fn() };
+		const runtime = createImageGenerationRuntime(
+			persistence.db as never,
+			analytics,
+		);
+
+		await expect(
+			runtime.runner.markSucceeded(
+				makeAttempt(),
+				makeImages(),
+				new Date("2026-01-01T00:05:00Z"),
+				"user_1",
+			),
+		).resolves.toBe(false);
+		expect(persistence.insert).not.toHaveBeenCalled();
+		expect(analytics.capture).not.toHaveBeenCalled();
+	});
+
 	it("collects variant thunks and drains every one with all-settled semantics", async () => {
 		const firstVariants = vi
 			.fn()

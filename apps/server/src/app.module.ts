@@ -26,6 +26,7 @@ import { HealthModule } from "./modules/health/health.module";
 import { ImageGenerationsModule } from "./modules/image-generations/image-generations.module";
 import { LeadScrapesModule } from "./modules/lead-scrapes/lead-scrapes.module";
 import { LeadsModule } from "./modules/leads/leads.module";
+import { LifecycleEventsModule } from "./modules/lifecycle-events/lifecycle-events.module";
 import { MarketingAssetsModule } from "./modules/marketing-assets/marketing-assets.module";
 import { McpConnectorsModule } from "./modules/mcp-connectors/mcp-connectors.module";
 import { OnboardingModule } from "./modules/onboarding/onboarding.module";
@@ -75,6 +76,7 @@ import { WorkspacesModule } from "./modules/workspaces/workspaces.module";
 		PushNotificationsModule,
 		LeadsModule,
 		LeadScrapesModule,
+		LifecycleEventsModule,
 		MarketingAssetsModule,
 		ConnectorGenerationsModule,
 		McpConnectorsModule,

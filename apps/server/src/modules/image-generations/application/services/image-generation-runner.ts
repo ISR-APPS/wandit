@@ -83,7 +83,7 @@ export type ImageGenerationProviderResult =
 export type ImageGenerationRunnerDependencies = {
 	claimQueued: (
 		attempt: ImageGenerationAttemptState,
-		input: { runId: string; startedAt: Date },
+		input: { actorUserId: string; runId: string; startedAt: Date },
 	) => Promise<ImageGenerationAttemptState | null>;
 	fail: (
 		attempt: ImageGenerationAttemptState,
@@ -113,6 +113,7 @@ export type ImageGenerationRunnerDependencies = {
 		attempt: ImageGenerationAttemptState,
 		images: GeneratedImageResult[],
 		completedAt: Date,
+		actorUserId: string,
 	) => Promise<boolean>;
 	now: () => Date;
 	persistProgress: (
@@ -349,6 +350,7 @@ export async function runImageGeneration(
 	}
 
 	const claimed = await dependencies.claimQueued(loaded, {
+		actorUserId: subject.actorUserId,
 		runId: input.runId,
 		startedAt: dependencies.now(),
 	});
@@ -656,6 +658,7 @@ export async function runImageGeneration(
 		claimed,
 		images,
 		dependencies.now(),
+		subject.actorUserId,
 	);
 
 	if (!persisted) {
@@ -688,6 +691,7 @@ async function completeSuccessfulSubsetOrFailure(
 			attempt,
 			[...images],
 			dependencies.now(),
+			subject.actorUserId,
 		);
 
 		if (!persisted) {
@@ -752,6 +756,7 @@ async function recoverOrSettleGenerating(
 			attempt,
 			recovered,
 			dependencies.now(),
+			subject.actorUserId,
 		);
 
 		if (!persisted) {
@@ -814,6 +819,7 @@ async function recoverStoredWithExistingSettlement(
 		attempt,
 		recovered,
 		dependencies.now(),
+		subject.actorUserId,
 	);
 
 	if (!persisted) {

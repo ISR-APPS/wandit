@@ -8,17 +8,20 @@ import {
 
 export type InsertProductEvent = Pick<
 	typeof productEvents.$inferInsert,
-	"idempotencyKey" | "kind" | "surface" | "userId"
+	"idempotencyKey" | "kind" | "properties" | "surface" | "userId"
 >;
 
 @Injectable()
 export class ProductEventsRepository {
 	constructor(@Inject(DATABASE) private readonly db: Database) {}
 
-	async insert(input: InsertProductEvent): Promise<void> {
-		await this.db
+	async insert(input: InsertProductEvent): Promise<boolean> {
+		const [inserted] = await this.db
 			.insert(productEvents)
 			.values(input)
-			.onConflictDoNothing({ target: productEvents.idempotencyKey });
+			.onConflictDoNothing({ target: productEvents.idempotencyKey })
+			.returning({ id: productEvents.id });
+
+		return inserted !== undefined;
 	}
 }

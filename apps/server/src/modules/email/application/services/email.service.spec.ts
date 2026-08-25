@@ -6,7 +6,17 @@ const mockEnv = vi.hoisted(() => ({
 	RESEND_API_KEY: undefined as string | undefined,
 }));
 
-const sendMock = vi.hoisted(() =>
+const transactionalSendMock = vi.hoisted(() =>
+	vi.fn(
+		async (
+			_payload: unknown,
+		): Promise<{ error: { name: string; message: string } | null }> => ({
+			error: null,
+		}),
+	),
+);
+
+const lifecycleSendMock = vi.hoisted(() =>
 	vi.fn(
 		async (
 			_payload: unknown,
@@ -19,7 +29,8 @@ const sendMock = vi.hoisted(() =>
 vi.mock("@wandit/env/server", () => ({ env: mockEnv }));
 vi.mock("resend", () => ({
 	Resend: class {
-		emails = { send: sendMock };
+		emails = { send: transactionalSendMock };
+		events = { send: lifecycleSendMock };
 	},
 }));
 
@@ -27,8 +38,10 @@ import { EmailService } from "./email.service";
 
 describe("EmailService", () => {
 	beforeEach(() => {
-		sendMock.mockClear();
-		sendMock.mockResolvedValue({ error: null });
+		transactionalSendMock.mockClear();
+		transactionalSendMock.mockResolvedValue({ error: null });
+		lifecycleSendMock.mockClear();
+		lifecycleSendMock.mockResolvedValue({ error: null });
 		mockEnv.RESEND_API_KEY = undefined;
 		mockEnv.NODE_ENV = "test";
 	});
@@ -38,7 +51,7 @@ describe("EmailService", () => {
 		await expect(
 			service.sendMagicLinkEmail("user@example.com", "https://x/verify?t=1"),
 		).resolves.toBeUndefined();
-		expect(sendMock).not.toHaveBeenCalled();
+		expect(transactionalSendMock).not.toHaveBeenCalled();
 	});
 
 	it("refuses loudly in production without a key", async () => {
@@ -55,8 +68,8 @@ describe("EmailService", () => {
 		mockEnv.RESEND_API_KEY = "re_test_key";
 		const service = new EmailService();
 		await service.sendOtpEmail("user@example.com", "123456");
-		expect(sendMock).toHaveBeenCalledTimes(1);
-		const payload = sendMock.mock.calls[0]?.[0] as unknown as {
+		expect(transactionalSendMock).toHaveBeenCalledTimes(1);
+		const payload = transactionalSendMock.mock.calls[0]?.[0] as unknown as {
 			from: string;
 			to: string;
 			subject: string;
@@ -72,7 +85,7 @@ describe("EmailService", () => {
 
 	it("surfaces provider failures as retryable delivery errors", async () => {
 		mockEnv.RESEND_API_KEY = "re_test_key";
-		sendMock.mockResolvedValue({
+		transactionalSendMock.mockResolvedValue({
 			error: { message: "domain not verified", name: "validation_error" },
 		});
 		const service = new EmailService();
@@ -90,7 +103,7 @@ describe("EmailService", () => {
 			organizationName: "Acme & Sons <script>",
 			to: "invitee@example.com",
 		});
-		const payload = sendMock.mock.calls[0]?.[0] as unknown as {
+		const payload = transactionalSendMock.mock.calls[0]?.[0] as unknown as {
 			html: string;
 			subject: string;
 		};
@@ -116,8 +129,8 @@ describe("EmailService", () => {
 			},
 		);
 
-		expect(sendMock).toHaveBeenCalledTimes(1);
-		const payload = sendMock.mock.calls[0]?.[0] as unknown as {
+		expect(transactionalSendMock).toHaveBeenCalledTimes(1);
+		const payload = transactionalSendMock.mock.calls[0]?.[0] as unknown as {
 			html: string;
 			subject: string;
 			text: string;
@@ -132,5 +145,63 @@ describe("EmailService", () => {
 		expect(payload.html).toContain("&lt;img src=x onerror=alert(1)&gt;");
 		expect(payload.text).toContain("Pro / 500 credits / yearly");
 		expect(payload.text).toContain("https://admin.example.com/offline-billing");
+	});
+
+	it("sends lifecycle events through Resend Automations", async () => {
+		mockEnv.RESEND_API_KEY = "re_test_key";
+		const service = new EmailService();
+
+		await service.sendLifecycleEvent({
+			email: "canonical@example.com",
+			event: "website_generated",
+			payload: {
+				done_landing_page: false,
+				first_name: "Amina",
+				plan: "free",
+			},
+		});
+
+		expect(lifecycleSendMock).toHaveBeenCalledExactlyOnceWith({
+			email: "canonical@example.com",
+			event: "website_generated",
+			payload: {
+				done_landing_page: false,
+				first_name: "Amina",
+				plan: "free",
+			},
+		});
+		expect(transactionalSendMock).not.toHaveBeenCalled();
+	});
+
+	it("refuses lifecycle delivery without a Resend client even in development", async () => {
+		mockEnv.NODE_ENV = "development";
+		const service = new EmailService();
+
+		await expect(
+			service.sendLifecycleEvent({
+				email: "canonical@example.com",
+				event: "first_prompt_sent",
+				payload: { plan: "free" },
+			}),
+		).rejects.toThrow("Lifecycle email delivery is unavailable");
+		expect(lifecycleSendMock).not.toHaveBeenCalled();
+	});
+
+	it("surfaces lifecycle event provider failures for outbox retry", async () => {
+		mockEnv.RESEND_API_KEY = "re_test_key";
+		const providerError = {
+			message: "automation unavailable",
+			name: "application_error",
+		};
+		lifecycleSendMock.mockResolvedValue({ error: providerError });
+		const service = new EmailService();
+
+		await expect(
+			service.sendLifecycleEvent({
+				email: "canonical@example.com",
+				event: "first_prompt_sent",
+				payload: { plan: "free" },
+			}),
+		).rejects.toBe(providerError);
 	});
 });

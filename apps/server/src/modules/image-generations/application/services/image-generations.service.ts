@@ -19,6 +19,7 @@ import {
 	getObjectBytes,
 	publicAssetKeyFromUrl,
 } from "../../../../infrastructure/storage/r2";
+import { LifecycleEventsService } from "../../../lifecycle-events/application/services/lifecycle-events.service";
 import { MeteringService } from "../../../metering/application/services/metering.service";
 import {
 	meteringSubjectFrom,
@@ -60,6 +61,8 @@ export class ImageGenerationsService {
 		@Inject(DATABASE) private readonly db: Database,
 		@Inject(AnalyticsService)
 		private readonly analyticsService: AnalyticsService,
+		@Inject(LifecycleEventsService)
+		private readonly lifecycleEventsService: LifecycleEventsService,
 	) {}
 
 	async attempt(
@@ -214,6 +217,7 @@ export class ImageGenerationsService {
 		const recovered = await recoverStoredImages(row);
 
 		if (recovered) {
+			const actorUserId = await this.recoveryActorUserId(row, scope);
 			// The deterministic upload proves provider work completed. Repair the
 			// existing hold before publishing success; lookup avoids inventing an
 			// unknown parent relationship for legacy/billing-off rows.
@@ -222,26 +226,45 @@ export class ImageGenerationsService {
 				meteringService: this.meteringService,
 			}).settleExisting(meteringSubjectFrom(scope), row.id, recovered.length);
 
-			const [completed] = await this.db
-				.update(imageGenerationAttempts)
-				.set({
-					completedAt: new Date(),
-					error: null,
-					images: recovered,
-					status: "succeeded",
-				})
-				.where(
-					and(
-						eq(imageGenerationAttempts.id, row.id),
-						eq(imageGenerationAttempts.status, "generating"),
-					),
-				)
-				.returning({ projectId: imageGenerationAttempts.projectId });
+			const completed = await this.db.transaction(async (tx) => {
+				const [updated] = await tx
+					.update(imageGenerationAttempts)
+					.set({
+						completedAt: new Date(),
+						error: null,
+						images: recovered,
+						status: "succeeded",
+					})
+					.where(
+						and(
+							eq(imageGenerationAttempts.id, row.id),
+							eq(imageGenerationAttempts.status, "generating"),
+						),
+					)
+					.returning({ projectId: imageGenerationAttempts.projectId });
 
-			if (completed) {
+				if (!updated) {
+					return null;
+				}
+
+				if (actorUserId) {
+					await this.lifecycleEventsService.enqueue(
+						{
+							event: "image_generated",
+							idempotencyKey: `image_generated:${actorUserId}`,
+							userId: actorUserId,
+						},
+						tx,
+					);
+				}
+
+				return updated;
+			});
+
+			if (completed && actorUserId) {
 				captureGenerationCompleted(
 					this.analyticsService,
-					scope.userId,
+					actorUserId,
 					"image",
 					completed.projectId,
 					row.id,
@@ -280,6 +303,44 @@ export class ImageGenerationsService {
 
 		return true;
 	}
+
+	private async recoveryActorUserId(
+		row: ImageGenerationAttemptRow,
+		scope: ProjectScope,
+	): Promise<string | null> {
+		const snapshotActor = actorUserIdFromAttemptSpec(row.spec);
+
+		if (snapshotActor) {
+			return snapshotActor;
+		}
+
+		// Pre-snapshot metered attempts retain the original queue actor on their
+		// attempt-keyed usage event. Org lookup is payer-scoped, so another member
+		// may safely perform recovery without replacing that actor.
+		const usageEvent = await this.meteringService.findByIdempotencyKey(
+			`image:${row.id}`,
+			meteringSubjectFrom(scope),
+		);
+
+		if (usageEvent) {
+			return usageEvent.userId;
+		}
+
+		// Personal attempts have only one authorized actor, so the polling scope is
+		// a safe legacy fallback. A pre-snapshot org attempt admitted with billing
+		// off has no recoverable actor; settle it without emitting a false milestone.
+		return scope.kind === "personal" ? scope.userId : null;
+	}
+}
+
+function actorUserIdFromAttemptSpec(
+	spec: Record<string, unknown> | null,
+): string | null {
+	const actorUserId = spec?.actorUserId;
+
+	return typeof actorUserId === "string" && actorUserId.length > 0
+		? actorUserId
+		: null;
 }
 
 function sanitizeFileName(title: string): string {
